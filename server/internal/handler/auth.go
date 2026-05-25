@@ -611,6 +611,184 @@ func (h *Handler) GoogleLogin(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+type CasdoorLoginRequest struct {
+	Code        string `json:"code"`
+	RedirectURI string `json:"redirect_uri"`
+}
+
+type casdoorTokenResponse struct {
+	AccessToken  string `json:"access_token"`
+	TokenType    string `json:"token_type"`
+	ExpiresIn    int    `json:"expires_in"`
+	RefreshToken string `json:"refresh_token"`
+}
+
+type casdoorUserInfo struct {
+	Name        string `json:"name"`
+	DisplayName string `json:"displayName"`
+	Email       string `json:"email"`
+	Avatar      string `json:"avatar"`
+}
+
+func (h *Handler) CasdoorLogin(w http.ResponseWriter, r *http.Request) {
+	var req CasdoorLoginRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	if req.Code == "" {
+		writeError(w, http.StatusBadRequest, "code is required")
+		return
+	}
+
+	endpoint := os.Getenv("CASDOOR_ENDPOINT")
+	clientID := os.Getenv("CASDOOR_CLIENT_ID")
+	clientSecret := os.Getenv("CASDOOR_CLIENT_SECRET")
+	if endpoint == "" || clientID == "" || clientSecret == "" {
+		writeError(w, http.StatusServiceUnavailable, "Casdoor login is not configured")
+		return
+	}
+
+	redirectURI := req.RedirectURI
+	if redirectURI == "" {
+		redirectURI = os.Getenv("CASDOOR_REDIRECT_URI")
+	}
+
+	// Exchange authorization code for tokens.
+	tokenURL := strings.TrimRight(endpoint, "/") + "/api/login/oauth/access_token"
+	tokenResp, err := http.PostForm(tokenURL, url.Values{
+		"code":          {req.Code},
+		"client_id":     {clientID},
+		"client_secret": {clientSecret},
+		"redirect_uri":  {redirectURI},
+		"grant_type":    {"authorization_code"},
+	})
+	if err != nil {
+		slog.Error("casdoor oauth token exchange failed", "error", err)
+		writeError(w, http.StatusBadGateway, "failed to exchange code with Casdoor")
+		return
+	}
+	defer tokenResp.Body.Close()
+
+	tokenBody, err := io.ReadAll(tokenResp.Body)
+	if err != nil {
+		writeError(w, http.StatusBadGateway, "failed to read Casdoor token response")
+		return
+	}
+
+	if tokenResp.StatusCode != http.StatusOK {
+		slog.Error("casdoor oauth token exchange returned error", "status", tokenResp.StatusCode, "body", string(tokenBody))
+		writeError(w, http.StatusBadRequest, "failed to exchange code with Casdoor")
+		return
+	}
+
+	var cToken casdoorTokenResponse
+	if err := json.Unmarshal(tokenBody, &cToken); err != nil {
+		writeError(w, http.StatusBadGateway, "failed to parse Casdoor token response")
+		return
+	}
+
+	// Fetch user info from Casdoor.
+	userInfoURL := strings.TrimRight(endpoint, "/") + "/api/get-account?accessToken=" + url.QueryEscape(cToken.AccessToken)
+	userInfoReq, err := http.NewRequestWithContext(r.Context(), http.MethodGet, userInfoURL, nil)
+	if err != nil {
+		slog.Error("failed to create casdoor userinfo request", "error", err)
+		writeError(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+
+	userInfoResp, err := http.DefaultClient.Do(userInfoReq)
+	if err != nil {
+		slog.Error("casdoor userinfo fetch failed", "error", err)
+		writeError(w, http.StatusBadGateway, "failed to fetch user info from Casdoor")
+		return
+	}
+	defer userInfoResp.Body.Close()
+
+	var cUser casdoorUserInfo
+	if err := json.NewDecoder(userInfoResp.Body).Decode(&cUser); err != nil {
+		writeError(w, http.StatusBadGateway, "failed to parse Casdoor user info")
+		return
+	}
+
+	if cUser.Email == "" {
+		writeError(w, http.StatusBadRequest, "Casdoor account has no email")
+		return
+	}
+
+	email := strings.ToLower(strings.TrimSpace(cUser.Email))
+
+	user, isNew, err := h.findOrCreateUser(r.Context(), email)
+	if err != nil {
+		var signupErr SignupError
+		if errors.As(err, &signupErr) {
+			writeError(w, http.StatusForbidden, signupErr.Error())
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "failed to create user")
+		return
+	}
+	if isNew {
+		evt := analytics.Signup(uuidToString(user.ID), user.Email, signupSourceFromRequest(r))
+		evt.Properties["auth_method"] = "casdoor"
+		h.Analytics.Capture(evt)
+	}
+
+	// Update name and avatar from Casdoor profile if the user was just created
+	// (default name is email prefix) or has no avatar yet.
+	needsUpdate := false
+	newName := user.Name
+	newAvatar := user.AvatarUrl
+
+	displayName := cUser.DisplayName
+	if displayName == "" {
+		displayName = cUser.Name
+	}
+	if displayName != "" && user.Name == strings.Split(email, "@")[0] {
+		newName = displayName
+		needsUpdate = true
+	}
+	if cUser.Avatar != "" && !user.AvatarUrl.Valid {
+		newAvatar = pgtype.Text{String: cUser.Avatar, Valid: true}
+		needsUpdate = true
+	}
+
+	if needsUpdate {
+		updated, err := h.Queries.UpdateUser(r.Context(), db.UpdateUserParams{
+			ID:        user.ID,
+			Name:      newName,
+			AvatarUrl: newAvatar,
+		})
+		if err == nil {
+			user = updated
+		}
+	}
+
+	tokenString, err := h.issueJWT(user)
+	if err != nil {
+		slog.Warn("casdoor login failed", append(logger.RequestAttrs(r), "error", err, "email", email)...)
+		writeError(w, http.StatusInternalServerError, "failed to generate token")
+		return
+	}
+
+	if err := auth.SetAuthCookies(w, tokenString); err != nil {
+		slog.Warn("failed to set auth cookies", "error", err)
+	}
+
+	if h.CFSigner != nil {
+		for _, cookie := range h.CFSigner.SignedCookies(time.Now().Add(72 * time.Hour)) {
+			http.SetCookie(w, cookie)
+		}
+	}
+
+	slog.Info("user logged in via casdoor", append(logger.RequestAttrs(r), "user_id", uuidToString(user.ID), "email", user.Email)...)
+	writeJSON(w, http.StatusOK, LoginResponse{
+		Token: tokenString,
+		User:  userToResponse(user),
+	})
+}
+
 // IssueCliToken returns a fresh JWT for the authenticated user.
 // This allows cookie-authenticated browser sessions to obtain a bearer token
 // that can be handed off to the CLI via the cli_callback redirect.

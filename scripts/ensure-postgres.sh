@@ -67,6 +67,12 @@ is_local() {
 }
 
 if is_local; then
+  # ---------- Local: check if native Postgres is already running ----------
+  if pg_isready -h "$db_host" -p "$db_port" > /dev/null 2>&1; then
+    echo "==> Local PostgreSQL detected on $db_host:$db_port, skipping Docker."
+    exit 0
+  fi
+
   # ---------- Local: use Docker ----------
   echo "==> Ensuring shared PostgreSQL container is running on localhost:5432..."
   docker compose up -d postgres

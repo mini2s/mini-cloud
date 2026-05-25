@@ -59,6 +59,10 @@ function LoginPageContent() {
   const qc = useQueryClient();
   const { t } = useT("auth");
   const googleClientId = useConfigStore((state) => state.googleClientId);
+  const casdoorEndpoint = useConfigStore((state) => state.casdoorEndpoint);
+  const casdoorClientId = useConfigStore((state) => state.casdoorClientId);
+  const casdoorOrgName = useConfigStore((state) => state.casdoorOrgName);
+  const casdoorAppName = useConfigStore((state) => state.casdoorAppName);
   const user = useAuthStore((s) => s.user);
   const isLoading = useAuthStore((s) => s.isLoading);
   const searchParams = useSearchParams();
@@ -135,6 +139,15 @@ function LoginPageContent() {
     .filter(Boolean)
     .join(",") || undefined;
 
+  // Build Casdoor OAuth state: same format as Google state.
+  const casdoorState = [
+    "provider:casdoor",
+    platform === "desktop" ? "platform:desktop" : "",
+    nextUrl ? `next:${nextUrl}` : "",
+  ]
+    .filter(Boolean)
+    .join(",") || undefined;
+
   // While the desktop handoff is in progress (or has produced a token/error),
   // render a dedicated screen instead of flashing the login form or redirecting
   // away to a workspace page.
@@ -194,6 +207,18 @@ function LoginPageContent() {
               clientId: googleClientId,
               redirectUri: `${window.location.origin}/auth/callback`,
               state: googleState,
+            }
+          : undefined
+      }
+      casdoor={
+        casdoorEndpoint && casdoorClientId
+          ? {
+              endpoint: casdoorEndpoint,
+              clientId: casdoorClientId,
+              orgName: casdoorOrgName,
+              appName: casdoorAppName,
+              redirectUri: `${window.location.origin}/auth/callback`,
+              state: casdoorState,
             }
           : undefined
       }

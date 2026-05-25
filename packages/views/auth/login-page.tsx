@@ -35,6 +35,16 @@ interface GoogleAuthConfig {
   state?: string;
 }
 
+interface CasdoorAuthConfig {
+  endpoint: string;
+  clientId: string;
+  orgName: string;
+  appName: string;
+  redirectUri: string;
+  /** Opaque state passed through Casdoor OAuth (e.g. "platform:desktop"). */
+  state?: string;
+}
+
 interface CliCallbackConfig {
   /** Validated localhost callback URL */
   url: string;
@@ -50,14 +60,18 @@ interface LoginPageProps {
   onSuccess: () => void;
   /** Google OAuth config. Omit to disable Google login. */
   google?: GoogleAuthConfig;
+  /** Casdoor OAuth config. Omit to disable Casdoor login. */
+  casdoor?: CasdoorAuthConfig;
   /** CLI callback config for authorizing CLI tools. */
   cliCallback?: CliCallbackConfig;
   /** Called after a token is obtained (e.g. to set cookies). */
   onTokenObtained?: () => void;
   /** Override Google login handler (e.g. desktop opens browser externally). When provided, renders the Google button even if `google` config is omitted. */
   onGoogleLogin?: () => void;
+  /** Override Casdoor login handler (e.g. desktop opens browser externally). When provided, renders the Casdoor button even if `casdoor` config is omitted. */
+  onCasdoorLogin?: () => void;
   /** Slot rendered at the bottom of the sign-in card, below the
-   *  Google button. The web shell uses it for a "Prefer the desktop
+   *  OAuth buttons. The web shell uses it for a "Prefer the desktop
    *  app?" prompt; desktop omits it (a download prompt inside the app
    *  would be absurd). */
   extra?: ReactNode;
@@ -101,9 +115,11 @@ export function LoginPage({
   logo,
   onSuccess,
   google,
+  casdoor,
   cliCallback,
   onTokenObtained,
   onGoogleLogin,
+  onCasdoorLogin,
   extra,
 }: LoginPageProps) {
   const { t } = useT("auth");
@@ -286,6 +302,23 @@ export function LoginPage({
     window.location.href = `https://accounts.google.com/o/oauth2/v2/auth?${params}`;
   };
 
+  const handleCasdoorLogin = () => {
+    if (onCasdoorLogin) {
+      onCasdoorLogin();
+      return;
+    }
+    if (!casdoor) return;
+    const endpoint = casdoor.endpoint.replace(/\/$/, "");
+    const params = new URLSearchParams({
+      client_id: casdoor.clientId,
+      redirect_uri: casdoor.redirectUri,
+      response_type: "code",
+      scope: "profile",
+      state: casdoor.state || "",
+    });
+    window.location.href = `${endpoint}/login/oauth/authorize?${params}`;
+  };
+
   // -------------------------------------------------------------------------
   // CLI confirm step
   // -------------------------------------------------------------------------
@@ -402,7 +435,52 @@ export function LoginPage({
   }
 
   // -------------------------------------------------------------------------
-  // Email step
+  // Casdoor-only step
+  // -------------------------------------------------------------------------
+
+  if (casdoor || onCasdoorLogin) {
+    return (
+      <div className="flex min-h-svh items-center justify-center">
+        <Card className="w-full max-w-sm">
+          <CardHeader className="text-center">
+            {logo && <div className="mx-auto mb-4">{logo}</div>}
+            <CardTitle className="text-2xl">
+              {t(($) => $.signin.title)}
+            </CardTitle>
+            <CardDescription>
+              {t(($) => $.signin.casdoor_description)}
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            {error && (
+              <p className="text-sm text-destructive">{error}</p>
+            )}
+          </CardContent>
+          <CardFooter className="flex flex-col gap-3">
+            <Button
+              type="button"
+              variant="outline"
+              className="w-full"
+              size="lg"
+              onClick={handleCasdoorLogin}
+              disabled={loading}
+            >
+              <svg className="mr-2 h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4" />
+                <polyline points="10 17 15 12 10 7" />
+                <line x1="15" y1="12" x2="3" y2="12" />
+              </svg>
+              {t(($) => $.signin.casdoor)}
+            </Button>
+            {extra && <div className="w-full pt-1 text-center">{extra}</div>}
+          </CardFooter>
+        </Card>
+      </div>
+    );
+  }
+
+  // -------------------------------------------------------------------------
+  // Email step (fallback when Casdoor is not configured)
   // -------------------------------------------------------------------------
 
   return (

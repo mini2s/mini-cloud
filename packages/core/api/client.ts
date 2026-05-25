@@ -361,6 +361,13 @@ export class ApiClient {
     });
   }
 
+  async casdoorLogin(code: string, redirectUri: string): Promise<LoginResponse> {
+    return this.fetch("/auth/casdoor", {
+      method: "POST",
+      body: JSON.stringify({ code, redirect_uri: redirectUri }),
+    });
+  }
+
   async logout(): Promise<void> {
     await this.fetch("/auth/logout", { method: "POST" });
   }
@@ -1141,6 +1148,10 @@ export class ApiClient {
     cdn_domain: string;
     allow_signup: boolean;
     google_client_id?: string;
+    casdoor_endpoint?: string;
+    casdoor_client_id?: string;
+    casdoor_org_name?: string;
+    casdoor_app_name?: string;
     posthog_key?: string;
     posthog_host?: string;
     analytics_environment?: string;

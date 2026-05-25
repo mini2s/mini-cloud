@@ -22,6 +22,7 @@ function CallbackContent() {
   const searchParams = useSearchParams();
   const qc = useQueryClient();
   const loginWithGoogle = useAuthStore((s) => s.loginWithGoogle);
+  const loginWithCasdoor = useAuthStore((s) => s.loginWithCasdoor);
   const [error, setError] = useState("");
   const [desktopToken, setDesktopToken] = useState<string | null>(null);
 
@@ -41,6 +42,7 @@ function CallbackContent() {
     const state = searchParams.get("state") || "";
     const stateParts = state.split(",");
     const isDesktop = stateParts.includes("platform:desktop");
+    const isCasdoor = stateParts.includes("provider:casdoor");
     const nextPart = stateParts.find((p) => p.startsWith("next:"));
     // Strip "next:" prefix, then drop anything that isn't a safe relative path
     // so an attacker-controlled `state=next:https://evil` cannot redirect here.
@@ -48,10 +50,14 @@ function CallbackContent() {
 
     const redirectUri = `${window.location.origin}/auth/callback`;
 
+    const doLogin = isCasdoor
+      ? (c: string, r: string) => api.casdoorLogin(c, r)
+      : (c: string, r: string) => api.googleLogin(c, r);
+    const doLoginStore = isCasdoor ? loginWithCasdoor : loginWithGoogle;
+
     if (isDesktop) {
       // Desktop flow: exchange code for token, then redirect via deep link
-      api
-        .googleLogin(code, redirectUri)
+      doLogin(code, redirectUri)
         .then(({ token }) => {
           setDesktopToken(token);
           window.location.href = `multica://auth/callback?token=${encodeURIComponent(token)}`;
@@ -61,7 +67,7 @@ function CallbackContent() {
         });
     } else {
       // Normal web flow
-      loginWithGoogle(code, redirectUri)
+      doLoginStore(code, redirectUri)
         .then(async (loggedInUser) => {
           const wsList = await api.listWorkspaces();
           qc.setQueryData(workspaceKeys.list(), wsList);
@@ -107,7 +113,7 @@ function CallbackContent() {
           setError(err instanceof Error ? err.message : "Login failed");
         });
     }
-  }, [searchParams, loginWithGoogle, router, qc]);
+  }, [searchParams, loginWithGoogle, loginWithCasdoor, router, qc]);
 
   if (desktopToken) {
     return (
