@@ -67,6 +67,8 @@ function agent(overrides: Partial<Agent>): Agent {
     created_at: "",
     updated_at: "",
     archived_at: null,
+    plugin_id: null,
+    is_builtin: false,
     archived_by: null,
     ...overrides,
   };

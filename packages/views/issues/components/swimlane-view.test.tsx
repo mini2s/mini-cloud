@@ -277,6 +277,8 @@ const mockIssues: Issue[] = [
     metadata: {},
     created_at: "2026-01-01T00:00:00Z",
     updated_at: "2026-01-01T00:00:00Z",
+    workflow_id: null,
+    workflow_run_id: null,
   },
   {
     id: "child-1",
@@ -299,6 +301,8 @@ const mockIssues: Issue[] = [
     metadata: {},
     created_at: "2026-01-01T00:00:00Z",
     updated_at: "2026-01-01T00:00:00Z",
+    workflow_id: null,
+    workflow_run_id: null,
   },
   {
     id: "orphan-1",
@@ -321,6 +325,8 @@ const mockIssues: Issue[] = [
     metadata: {},
     created_at: "2026-01-01T00:00:00Z",
     updated_at: "2026-01-01T00:00:00Z",
+    workflow_id: null,
+    workflow_run_id: null,
   },
 ];
 
@@ -461,6 +467,8 @@ describe("SwimLaneView", () => {
     metadata: {},
     created_at: "2026-01-01T00:00:00Z",
     updated_at: "2026-01-01T00:00:00Z",
+  workflow_id: null,
+  workflow_run_id: null,
   };
 
   it("renders children whose parent is not in the loaded set under an 'Other parents' fallback lane", () => {
@@ -733,6 +741,8 @@ describe("SwimLaneView", () => {
       metadata: {},
       created_at: "2026-01-01T00:00:00Z",
       updated_at: "2026-01-01T00:00:00Z",
+    workflow_id: null,
+    workflow_run_id: null,
     },
     {
       id: "parent-2",
@@ -755,6 +765,8 @@ describe("SwimLaneView", () => {
       metadata: {},
       created_at: "2026-01-01T00:00:00Z",
       updated_at: "2026-01-01T00:00:00Z",
+    workflow_id: null,
+    workflow_run_id: null,
     },
     {
       id: "child-of-1",
@@ -777,6 +789,8 @@ describe("SwimLaneView", () => {
       metadata: {},
       created_at: "2026-01-01T00:00:00Z",
       updated_at: "2026-01-01T00:00:00Z",
+    workflow_id: null,
+    workflow_run_id: null,
     },
     {
       id: "child-of-2",
@@ -799,6 +813,8 @@ describe("SwimLaneView", () => {
       metadata: {},
       created_at: "2026-01-01T00:00:00Z",
       updated_at: "2026-01-01T00:00:00Z",
+    workflow_id: null,
+    workflow_run_id: null,
     },
   ];
 
@@ -1251,6 +1267,8 @@ describe("SwimLaneView", () => {
       metadata: {},
       created_at: "2026-01-01T00:00:00Z",
       updated_at: "2026-01-01T00:00:00Z",
+  workflow_id: null,
+  workflow_run_id: null,
     };
     const parent: Issue = {
       ...grandparent,
@@ -1260,6 +1278,8 @@ describe("SwimLaneView", () => {
       title: "Parent",
       parent_issue_id: "gp-1",
       position: 11,
+  workflow_id: null,
+  workflow_run_id: null,
     };
     const grandchild: Issue = {
       ...grandparent,
@@ -1270,6 +1290,8 @@ describe("SwimLaneView", () => {
       status: "in_progress",
       parent_issue_id: "p-1",
       position: 12,
+  workflow_id: null,
+  workflow_run_id: null,
     };
 
     mockListChildrenByParents.mockResolvedValueOnce({ issues: [grandchild] });
@@ -1324,6 +1346,8 @@ describe("SwimLaneView", () => {
       metadata: {},
       created_at: "2026-01-01T00:00:00Z",
       updated_at: "2026-01-01T00:00:00Z",
+  workflow_id: null,
+  workflow_run_id: null,
     };
     const childProgressMap = new Map<string, { done: number; total: number }>([
       ["p-only", { done: 0, total: 3 }],
@@ -1404,6 +1428,8 @@ describe("SwimLaneView", () => {
       metadata: {},
       created_at: "2026-01-01T00:00:00Z",
       updated_at: "2026-01-01T00:00:00Z",
+  workflow_id: null,
+  workflow_run_id: null,
     };
     const parent: Issue = {
       ...grandparent,
@@ -1413,6 +1439,8 @@ describe("SwimLaneView", () => {
       title: "Parent 2",
       parent_issue_id: "gp-2",
       position: 11,
+  workflow_id: null,
+  workflow_run_id: null,
     };
     const matchingGrandchild: Issue = {
       ...grandparent,
@@ -1424,6 +1452,8 @@ describe("SwimLaneView", () => {
       priority: "high",
       parent_issue_id: "p-2",
       position: 12,
+  workflow_id: null,
+  workflow_run_id: null,
     };
     const nonMatchingGrandchild: Issue = {
       ...grandparent,
@@ -1435,6 +1465,8 @@ describe("SwimLaneView", () => {
       priority: "low",
       parent_issue_id: "p-2",
       position: 13,
+  workflow_id: null,
+  workflow_run_id: null,
     };
 
     mockListChildrenByParents.mockResolvedValueOnce({
@@ -1497,6 +1529,8 @@ describe("SwimLaneView", () => {
       metadata: {},
       created_at: "2026-01-01T00:00:00Z",
       updated_at: "2026-01-01T00:00:00Z",
+  workflow_id: null,
+  workflow_run_id: null,
     };
     const parent: Issue = {
       ...grandparent,

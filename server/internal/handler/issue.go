@@ -2188,8 +2188,8 @@ func (h *Handler) CreateIssue(w http.ResponseWriter, r *http.Request) {
 
 	// When created with a workflow assignee, start the workflow run and
 	// create sub-issues for each node.
-	if issue.AssigneeType.Valid && issue.AssigneeType.String == "workflow" && workflowID.Valid {
-		workflow, err := h.Queries.GetWorkflow(ctx, workflowID)
+	if issue.AssigneeType.Valid && issue.AssigneeType.String == "workflow" && assigneeID.Valid {
+		workflow, err := h.Queries.GetWorkflow(ctx, assigneeID)
 		if err != nil {
 			slog.Warn("failed to load workflow for new issue", "issue_id", uuidToString(issue.ID), "error", err)
 		} else {
@@ -2218,7 +2218,7 @@ func (h *Handler) CreateIssue(w http.ResponseWriter, r *http.Request) {
 					DueDate:       issue.DueDate,
 					ParentIssueID: issue.ParentIssueID,
 					ProjectID:     issue.ProjectID,
-					WorkflowID:    workflowID,
+					WorkflowID:    assigneeID,
 					WorkflowRunID: run.ID,
 				})
 				if err != nil {

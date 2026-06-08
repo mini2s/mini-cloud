@@ -34,7 +34,7 @@ type AttachLabelToIssueParams struct {
 }
 
 // Workspace-guarded INSERT: the WHERE EXISTS clauses ensure both the multica_issue
-// and the label belong to the given multica_workspace. A future caller that forgets
+// and the multica_label belong to the given multica_workspace. A future caller that forgets
 // handler-level prechecks still cannot attach labels across workspaces.
 func (q *Queries) AttachLabelToIssue(ctx context.Context, arg AttachLabelToIssueParams) error {
 	_, err := q.db.Exec(ctx, attachLabelToIssue, arg.IssueID, arg.LabelID, arg.WorkspaceID)

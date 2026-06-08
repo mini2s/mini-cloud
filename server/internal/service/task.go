@@ -779,7 +779,7 @@ func (s *TaskService) EnqueueChatTask(ctx context.Context, chatSession db.ChatSe
 
 	task, err := s.Queries.CreateChatTask(ctx, db.CreateChatTaskParams{
 		AgentID:       chatSession.AgentID,
-		RuntimeID:     runtimeID,
+		RuntimeID:     agent.RuntimeID,
 		Priority:      2, // medium priority for chat
 		ChatSessionID: chatSession.ID,
 	})

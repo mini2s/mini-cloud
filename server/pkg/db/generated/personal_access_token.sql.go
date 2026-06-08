@@ -49,7 +49,7 @@ func (q *Queries) CreatePersonalAccessToken(ctx context.Context, arg CreatePerso
 }
 
 const extendPersonalAccessTokenExpiry = `-- name: ExtendPersonalAccessTokenExpiry :one
-UPDATE personal_access_token
+UPDATE multica_personal_access_token
 SET expires_at = $1
 WHERE id = $2
   AND revoked = FALSE

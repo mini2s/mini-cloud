@@ -13,7 +13,7 @@ import (
 
 const archiveAllInbox = `-- name: ArchiveAllInbox :execrows
 UPDATE multica_inbox_item SET archived = true
-WHERE workspace_id = $1 AND recipient_type = 'member' AND recipient_id = $2 AND archived = false
+WHERE workspace_id = $1 AND recipient_type = 'multica_member' AND recipient_id = $2 AND archived = false
 `
 
 type ArchiveAllInboxParams struct {
@@ -31,7 +31,7 @@ func (q *Queries) ArchiveAllInbox(ctx context.Context, arg ArchiveAllInboxParams
 
 const archiveAllReadInbox = `-- name: ArchiveAllReadInbox :execrows
 UPDATE multica_inbox_item SET archived = true
-WHERE workspace_id = $1 AND recipient_type = 'member' AND recipient_id = $2 AND read = true AND archived = false
+WHERE workspace_id = $1 AND recipient_type = 'multica_member' AND recipient_id = $2 AND read = true AND archived = false
 `
 
 type ArchiveAllReadInboxParams struct {
@@ -49,7 +49,7 @@ func (q *Queries) ArchiveAllReadInbox(ctx context.Context, arg ArchiveAllReadInb
 
 const archiveCompletedInbox = `-- name: ArchiveCompletedInbox :execrows
 UPDATE multica_inbox_item i SET archived = true
-WHERE i.workspace_id = $1 AND i.recipient_type = 'member' AND i.recipient_id = $2 AND i.archived = false
+WHERE i.workspace_id = $1 AND i.recipient_type = 'multica_member' AND i.recipient_id = $2 AND i.archived = false
   AND i.issue_id IN (SELECT id FROM multica_issue WHERE status IN ('done', 'cancelled'))
 `
 
@@ -367,7 +367,7 @@ func (q *Queries) ListInboxItems(ctx context.Context, arg ListInboxItemsParams) 
 
 const markAllInboxRead = `-- name: MarkAllInboxRead :execrows
 UPDATE multica_inbox_item SET read = true
-WHERE workspace_id = $1 AND recipient_type = 'member' AND recipient_id = $2 AND archived = false AND read = false
+WHERE workspace_id = $1 AND recipient_type = 'multica_member' AND recipient_id = $2 AND archived = false AND read = false
 `
 
 type MarkAllInboxReadParams struct {

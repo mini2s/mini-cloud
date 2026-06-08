@@ -12,7 +12,7 @@ import (
 )
 
 const createTaskToken = `-- name: CreateTaskToken :one
-INSERT INTO task_token (token_hash, task_id, agent_id, workspace_id, user_id, expires_at)
+INSERT INTO multica_task_token (token_hash, task_id, agent_id, workspace_id, user_id, expires_at)
 VALUES ($1, $2, $3, $4, $5, $6)
 RETURNING id, token_hash, task_id, agent_id, workspace_id, user_id, expires_at, created_at
 `
@@ -26,7 +26,7 @@ type CreateTaskTokenParams struct {
 	ExpiresAt   pgtype.Timestamptz `json:"expires_at"`
 }
 
-func (q *Queries) CreateTaskToken(ctx context.Context, arg CreateTaskTokenParams) (TaskToken, error) {
+func (q *Queries) CreateTaskToken(ctx context.Context, arg CreateTaskTokenParams) (MulticaTaskToken, error) {
 	row := q.db.QueryRow(ctx, createTaskToken,
 		arg.TokenHash,
 		arg.TaskID,
@@ -35,7 +35,7 @@ func (q *Queries) CreateTaskToken(ctx context.Context, arg CreateTaskTokenParams
 		arg.UserID,
 		arg.ExpiresAt,
 	)
-	var i TaskToken
+	var i MulticaTaskToken
 	err := row.Scan(
 		&i.ID,
 		&i.TokenHash,
@@ -50,7 +50,7 @@ func (q *Queries) CreateTaskToken(ctx context.Context, arg CreateTaskTokenParams
 }
 
 const deleteExpiredTaskTokens = `-- name: DeleteExpiredTaskTokens :exec
-DELETE FROM task_token WHERE expires_at <= now()
+DELETE FROM multica_task_token WHERE expires_at <= now()
 `
 
 func (q *Queries) DeleteExpiredTaskTokens(ctx context.Context) error {
@@ -59,7 +59,7 @@ func (q *Queries) DeleteExpiredTaskTokens(ctx context.Context) error {
 }
 
 const deleteTaskTokensByTask = `-- name: DeleteTaskTokensByTask :exec
-DELETE FROM task_token WHERE task_id = $1
+DELETE FROM multica_task_token WHERE task_id = $1
 `
 
 func (q *Queries) DeleteTaskTokensByTask(ctx context.Context, taskID pgtype.UUID) error {
@@ -68,13 +68,13 @@ func (q *Queries) DeleteTaskTokensByTask(ctx context.Context, taskID pgtype.UUID
 }
 
 const getTaskTokenByHash = `-- name: GetTaskTokenByHash :one
-SELECT id, token_hash, task_id, agent_id, workspace_id, user_id, expires_at, created_at FROM task_token
+SELECT id, token_hash, task_id, agent_id, workspace_id, user_id, expires_at, created_at FROM multica_task_token
 WHERE token_hash = $1 AND expires_at > now()
 `
 
-func (q *Queries) GetTaskTokenByHash(ctx context.Context, tokenHash string) (TaskToken, error) {
+func (q *Queries) GetTaskTokenByHash(ctx context.Context, tokenHash string) (MulticaTaskToken, error) {
 	row := q.db.QueryRow(ctx, getTaskTokenByHash, tokenHash)
-	var i TaskToken
+	var i MulticaTaskToken
 	err := row.Scan(
 		&i.ID,
 		&i.TokenHash,

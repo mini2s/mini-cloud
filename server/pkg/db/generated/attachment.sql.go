@@ -449,7 +449,7 @@ func (q *Queries) ListAttachmentsByIssue(ctx context.Context, arg ListAttachment
 }
 
 const replaceCommentAttachments = `-- name: ReplaceCommentAttachments :exec
-UPDATE attachment
+UPDATE multica_attachment
 SET comment_id = CASE
   WHEN id = ANY($3::uuid[]) THEN $1
   ELSE NULL

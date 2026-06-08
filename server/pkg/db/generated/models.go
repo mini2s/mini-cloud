@@ -10,6 +10,14 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+type LarkInboundMessageDedup struct {
+	InstallationID pgtype.UUID        `json:"installation_id"`
+	MessageID      string             `json:"message_id"`
+	ReceivedAt     pgtype.Timestamptz `json:"received_at"`
+	ProcessedAt    pgtype.Timestamptz `json:"processed_at"`
+	ClaimToken     pgtype.UUID        `json:"claim_token"`
+}
+
 type MulticaActivityLog struct {
 	ID          pgtype.UUID        `json:"id"`
 	WorkspaceID pgtype.UUID        `json:"workspace_id"`
@@ -423,7 +431,7 @@ type MulticaIssueToLabel struct {
 	LabelID pgtype.UUID `json:"label_id"`
 }
 
-type LarkBindingToken struct {
+type MulticaLarkBindingToken struct {
 	TokenHash      string             `json:"token_hash"`
 	WorkspaceID    pgtype.UUID        `json:"workspace_id"`
 	InstallationID pgtype.UUID        `json:"installation_id"`
@@ -433,7 +441,7 @@ type LarkBindingToken struct {
 	CreatedAt      pgtype.Timestamptz `json:"created_at"`
 }
 
-type LarkChatSessionBinding struct {
+type MulticaLarkChatSessionBinding struct {
 	ID             pgtype.UUID        `json:"id"`
 	ChatSessionID  pgtype.UUID        `json:"chat_session_id"`
 	InstallationID pgtype.UUID        `json:"installation_id"`
@@ -442,7 +450,7 @@ type LarkChatSessionBinding struct {
 	CreatedAt      pgtype.Timestamptz `json:"created_at"`
 }
 
-type LarkInboundAudit struct {
+type MulticaLarkInboundAudit struct {
 	ID             pgtype.UUID        `json:"id"`
 	InstallationID pgtype.UUID        `json:"installation_id"`
 	LarkChatID     pgtype.Text        `json:"lark_chat_id"`
@@ -453,15 +461,7 @@ type LarkInboundAudit struct {
 	ReceivedAt     pgtype.Timestamptz `json:"received_at"`
 }
 
-type LarkInboundMessageDedup struct {
-	InstallationID pgtype.UUID        `json:"installation_id"`
-	MessageID      string             `json:"message_id"`
-	ReceivedAt     pgtype.Timestamptz `json:"received_at"`
-	ProcessedAt    pgtype.Timestamptz `json:"processed_at"`
-	ClaimToken     pgtype.UUID        `json:"claim_token"`
-}
-
-type LarkInstallation struct {
+type MulticaLarkInstallation struct {
 	ID                 pgtype.UUID        `json:"id"`
 	WorkspaceID        pgtype.UUID        `json:"workspace_id"`
 	AgentID            pgtype.UUID        `json:"agent_id"`
@@ -480,7 +480,7 @@ type LarkInstallation struct {
 	Region             string             `json:"region"`
 }
 
-type LarkOutboundCardMessage struct {
+type MulticaLarkOutboundCardMessage struct {
 	ID                pgtype.UUID        `json:"id"`
 	ChatSessionID     pgtype.UUID        `json:"chat_session_id"`
 	TaskID            pgtype.UUID        `json:"task_id"`
@@ -491,7 +491,7 @@ type LarkOutboundCardMessage struct {
 	CreatedAt         pgtype.Timestamptz `json:"created_at"`
 }
 
-type LarkUserBinding struct {
+type MulticaLarkUserBinding struct {
 	ID             pgtype.UUID        `json:"id"`
 	WorkspaceID    pgtype.UUID        `json:"workspace_id"`
 	MulticaUserID  pgtype.UUID        `json:"multica_user_id"`
@@ -622,7 +622,7 @@ type MulticaTaskMessage struct {
 	CreatedAt pgtype.Timestamptz `json:"created_at"`
 }
 
-type TaskToken struct {
+type MulticaTaskToken struct {
 	ID          pgtype.UUID        `json:"id"`
 	TokenHash   string             `json:"token_hash"`
 	TaskID      pgtype.UUID        `json:"task_id"`
@@ -849,58 +849,32 @@ type MulticaWorkspaceInvitation struct {
 	ExpiresAt     pgtype.Timestamptz `json:"expires_at"`
 }
 
-// Type aliases for upstream compatibility
-type ActivityLog = MulticaActivityLog
-type Agent = MulticaAgent
-type AgentAuditLog = MulticaAgentAuditLog
-type AgentRuntime = MulticaAgentRuntime
-type AgentSkill = MulticaAgentSkill
-type AgentTaskQueue = MulticaAgentTaskQueue
-type Attachment = MulticaAttachment
-type Autopilot = MulticaAutopilot
-type AutopilotRun = MulticaAutopilotRun
-type AutopilotTrigger = MulticaAutopilotTrigger
-type ChatMessage = MulticaChatMessage
-type ChatSession = MulticaChatSession
-type Comment = MulticaComment
-type CommentReaction = MulticaCommentReaction
-type ContactSalesInquiry = MulticaContactSalesInquiry
-type DaemonConnection = MulticaDaemonConnection
-type DaemonToken = MulticaDaemonToken
-type Feedback = MulticaFeedback
-type GithubInstallation = MulticaGithubInstallation
-type GithubPullRequest = MulticaGithubPullRequest
-type GithubPullRequestCheckSuite = MulticaGithubPullRequestCheckSuite
-type InboxItem = MulticaInboxItem
-type Issue = MulticaIssue
-type IssueDependency = MulticaIssueDependency
-type IssueLabel = MulticaIssueLabel
-type IssuePullRequest = MulticaIssuePullRequest
-type IssueReaction = MulticaIssueReaction
-type IssueSubscriber = MulticaIssueSubscriber
-type IssueToLabel = MulticaIssueToLabel
-type Member = MulticaMember
-type NotificationPreference = MulticaNotificationPreference
-type PersonalAccessToken = MulticaPersonalAccessToken
-type PinnedItem = MulticaPinnedItem
-type Project = MulticaProject
-type ProjectResource = MulticaProjectResource
-type Skill = MulticaSkill
-type SkillFile = MulticaSkillFile
-type Squad = MulticaSquad
-type SquadMember = MulticaSquadMember
-type TaskMessage = MulticaTaskMessage
-type TaskUsage = MulticaTaskUsage
-type TaskUsageHourly = MulticaTaskUsageHourly
-type TaskUsageHourlyDirty = MulticaTaskUsageHourlyDirty
-type TaskUsageHourlyRollupState = MulticaTaskUsageHourlyRollupState
-type User = MulticaUser
-type VerificationCode = MulticaVerificationCode
-type WebhookDelivery = MulticaWebhookDelivery
-type Workflow = MulticaWorkflow
-type WorkflowEdge = MulticaWorkflowEdge
-type WorkflowNode = MulticaWorkflowNode
-type WorkflowNodeRun = MulticaWorkflowNodeRun
-type WorkflowRun = MulticaWorkflowRun
-type Workspace = MulticaWorkspace
-type WorkspaceInvitation = MulticaWorkspaceInvitation
+type SchemaMigration struct {
+	Version   string             `json:"version"`
+	AppliedAt pgtype.Timestamptz `json:"applied_at"`
+}
+
+type SysCronExecution struct {
+	ID           pgtype.UUID        `json:"id"`
+	JobName      string             `json:"job_name"`
+	ScopeKind    string             `json:"scope_kind"`
+	ScopeID      string             `json:"scope_id"`
+	PlanTime     pgtype.Timestamptz `json:"plan_time"`
+	Status       string             `json:"status"`
+	Attempt      int32              `json:"attempt"`
+	MaxAttempts  int32              `json:"max_attempts"`
+	NextRetryAt  pgtype.Timestamptz `json:"next_retry_at"`
+	RunnerID     pgtype.Text        `json:"runner_id"`
+	LeaseToken   pgtype.UUID        `json:"lease_token"`
+	HeartbeatAt  pgtype.Timestamptz `json:"heartbeat_at"`
+	StaleAfter   pgtype.Timestamptz `json:"stale_after"`
+	StartedAt    pgtype.Timestamptz `json:"started_at"`
+	FinishedAt   pgtype.Timestamptz `json:"finished_at"`
+	DurationMs   pgtype.Int4        `json:"duration_ms"`
+	RowsAffected pgtype.Int8        `json:"rows_affected"`
+	Result       []byte             `json:"result"`
+	ErrorCode    pgtype.Text        `json:"error_code"`
+	ErrorMsg     pgtype.Text        `json:"error_msg"`
+	CreatedAt    pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt    pgtype.Timestamptz `json:"updated_at"`
+}

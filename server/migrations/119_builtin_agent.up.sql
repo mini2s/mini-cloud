@@ -1,5 +1,5 @@
 -- 119_builtin_agent.up.sql
--- Built-in agents: global (cross-workspace) agents manageable only by users
+-- Built-in agents: global (cross-multica_workspace) agents manageable only by users
 -- with the can_manage_workflows permission.
 
 ALTER TABLE multica_agent ADD COLUMN IF NOT EXISTS is_builtin BOOLEAN NOT NULL DEFAULT FALSE;

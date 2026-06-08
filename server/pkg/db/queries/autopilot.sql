@@ -64,10 +64,10 @@ WHERE id = $1;
 -- name: CreateAutopilotTrigger :one
 INSERT INTO multica_autopilot_trigger (
     autopilot_id, kind, enabled, cron_expression, timezone,
-    next_run_at, webhook_token, multica_label, provider, event_filters
+    next_run_at, webhook_token, label, provider, event_filters
 ) VALUES (
     $1, $2, $3, sqlc.narg('cron_expression'), sqlc.narg('timezone'),
-    sqlc.narg('next_run_at'), sqlc.narg('webhook_token'), sqlc.narg('multica_label'),
+    sqlc.narg('next_run_at'), sqlc.narg('webhook_token'), sqlc.narg('label'),
     COALESCE(sqlc.narg('provider')::text, 'generic'),
     sqlc.narg('event_filters')
 ) RETURNING *;
@@ -78,7 +78,7 @@ UPDATE multica_autopilot_trigger SET
     cron_expression = COALESCE(sqlc.narg('cron_expression'), cron_expression),
     timezone = COALESCE(sqlc.narg('timezone'), timezone),
     next_run_at = sqlc.narg('next_run_at'),
-    multica_label = COALESCE(sqlc.narg('multica_label'), multica_label),
+    label = COALESCE(sqlc.narg('label'), label),
     event_filters = COALESCE(sqlc.narg('event_filters'), event_filters),
     updated_at = now()
 WHERE id = $1

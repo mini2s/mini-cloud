@@ -207,11 +207,7 @@ export const appRoutes: RouteObject[] = [
           },
           {
             path: "workflows",
-            element: (
-              <ErrorBoundary>
-                <WorkflowsPage />
-              </ErrorBoundary>
-            ),
+            element: <WorkflowsPage />,
             handle: { title: "Workflows" },
           },
           {

@@ -1,4 +1,4 @@
--- Add bot_union_id to lark_installation so the WS inbound decoder can
+-- Add bot_union_id to multica_lark_installation so the WS inbound decoder can
 -- match group-chat @-mentions against the bot's stable cross-app identity
 -- (union_id) instead of the per-app open_id.
 --
@@ -17,5 +17,5 @@
 -- short-circuits to its previous open_id-only match when bot_union_id IS
 -- NULL, so pre-migration rows continue to work as they did before. New
 -- installs populate it during finishSuccess.
-ALTER TABLE lark_installation
+ALTER TABLE multica_lark_installation
     ADD COLUMN bot_union_id TEXT;

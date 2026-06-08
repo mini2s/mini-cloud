@@ -1,4 +1,4 @@
--- Issue start_date / due_date are calendar days: a user picks a day (the
+-- Issue start_date / due_date are calendar days: a multica_user picks a day (the
 -- pickers have no time-of-day input), so "Mar 1" must mean Mar 1 for everyone
 -- regardless of timezone. Storing them as TIMESTAMPTZ folded the writer's
 -- local midnight into a UTC instant, shifting the displayed day by the local
@@ -11,6 +11,6 @@
 -- (a bare `::date` cast would be session-timezone dependent). The original
 -- local-day intent of legacy rows is unrecoverable from a bare instant, so this
 -- is the best-effort conversion.
-ALTER TABLE issue
+ALTER TABLE multica_issue
     ALTER COLUMN start_date TYPE DATE USING (start_date AT TIME ZONE 'UTC')::date,
     ALTER COLUMN due_date TYPE DATE USING (due_date AT TIME ZONE 'UTC')::date;

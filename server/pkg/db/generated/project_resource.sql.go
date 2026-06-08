@@ -228,7 +228,7 @@ func (q *Queries) ListProjectResourcesForProjects(ctx context.Context, projectId
 }
 
 const updateProjectResource = `-- name: UpdateProjectResource :one
-UPDATE project_resource
+UPDATE multica_project_resource
 SET resource_ref = $2,
     label        = $3,
     position     = $4

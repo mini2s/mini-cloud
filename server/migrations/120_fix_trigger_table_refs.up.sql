@@ -1,12 +1,12 @@
 -- 120_fix_trigger_table_refs.up.sql
 -- Fix trigger function bodies that still reference pre-rename table names.
--- Migration 114 renamed tables (e.g. issue → multica_issue) but PostgreSQL
+-- Migration 114 renamed tables (e.g. multica_issue → multica_issue) but PostgreSQL
 -- does NOT rewrite function bodies — the hardcoded SQL references to old
--- table names (task_usage_hourly_dirty, task_usage, agent_task_queue,
--- agent, issue) are stale and cause "relation does not exist" errors.
+-- table names (task_usage_hourly_dirty, multica_task_usage, multica_agent_task_queue,
+-- multica_agent, multica_issue) are stale and cause "relation does not exist" errors.
 --
--- Impact: issue DELETE, issue project_id UPDATE, atq runtime/issue reassign,
---          task_usage DELETE, and the hourly rollup window ALL fail silently
+-- Impact: multica_issue DELETE, multica_issue project_id UPDATE, atq runtime/multica_issue reassign,
+--          multica_task_usage DELETE, and the hourly rollup window ALL fail silently
 --          in production.
 
 -- Trigger 1: atq changes (runtime_id / issue_id reassign + DELETE)
@@ -91,7 +91,7 @@ BEGIN
 END;
 $$;
 
--- Trigger 2: issue BEFORE DELETE — captures project_id before cascade nukes it
+-- Trigger 2: multica_issue BEFORE DELETE — captures project_id before cascade nukes it
 CREATE OR REPLACE FUNCTION enqueue_task_usage_hourly_dirty_for_issue_delete()
 RETURNS TRIGGER
 LANGUAGE plpgsql
@@ -119,7 +119,7 @@ BEGIN
 END;
 $$;
 
--- Trigger 3: issue project_id change
+-- Trigger 3: multica_issue project_id change
 CREATE OR REPLACE FUNCTION enqueue_task_usage_hourly_dirty_for_issue_project()
 RETURNS TRIGGER
 LANGUAGE plpgsql
@@ -168,7 +168,7 @@ BEGIN
 END;
 $$;
 
--- Trigger 4: task_usage BEFORE DELETE
+-- Trigger 4: multica_task_usage BEFORE DELETE
 CREATE OR REPLACE FUNCTION enqueue_task_usage_hourly_dirty_for_tu()
 RETURNS TRIGGER
 LANGUAGE plpgsql

@@ -17,6 +17,6 @@
 -- code reached without an env override), so 'feishu' is correct for all
 -- pre-migration rows. The CHECK mirrors the lark.Region enum in
 -- server/internal/integrations/lark/types.go — keep the two in lockstep.
-ALTER TABLE lark_installation
+ALTER TABLE multica_lark_installation
     ADD COLUMN region TEXT NOT NULL DEFAULT 'feishu'
         CHECK (region IN ('feishu', 'lark'));

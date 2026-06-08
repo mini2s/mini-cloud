@@ -17,7 +17,7 @@ interface LayoutResult {
 
 function getNodeDimensions(formatSchema: unknown): { width: number; height: number } {
   const shape = parseNodeShape(formatSchema);
-  const defaults = SHAPE_DEFAULTS[shape] ?? SHAPE_DEFAULTS.rectangle;
+  const defaults = (SHAPE_DEFAULTS[shape] ?? SHAPE_DEFAULTS.rectangle)!;
 
   let width = defaults.width;
   let height = defaults.height;

@@ -267,6 +267,102 @@ func (q *Queries) ListAllSquads(ctx context.Context, workspaceID pgtype.UUID) ([
 	return items, nil
 }
 
+const listSquadMemberPreviewRows = `-- name: ListSquadMemberPreviewRows :many
+SELECT
+    sm.squad_id,
+    sm.member_type,
+    sm.member_id,
+    sm.role
+FROM multica_squad_member sm
+JOIN multica_squad s ON s.id = sm.squad_id
+WHERE s.workspace_id = $1 AND s.archived_at IS NULL
+ORDER BY
+    sm.squad_id ASC,
+    (sm.member_type = 'multica_agent' AND sm.member_id = s.leader_id) DESC,
+    sm.created_at ASC
+`
+
+type ListSquadMemberPreviewRowsRow struct {
+	SquadID    pgtype.UUID `json:"squad_id"`
+	MemberType string      `json:"member_type"`
+	MemberID   pgtype.UUID `json:"member_id"`
+	Role       string      `json:"role"`
+}
+
+// Static multica_squad membership summary for list/hover previews. This deliberately
+// excludes derived runtime/task status; the multica_squad detail members-status
+// endpoint owns live state.
+func (q *Queries) ListSquadMemberPreviewRows(ctx context.Context, workspaceID pgtype.UUID) ([]ListSquadMemberPreviewRowsRow, error) {
+	rows, err := q.db.Query(ctx, listSquadMemberPreviewRows, workspaceID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListSquadMemberPreviewRowsRow{}
+	for rows.Next() {
+		var i ListSquadMemberPreviewRowsRow
+		if err := rows.Scan(
+			&i.SquadID,
+			&i.MemberType,
+			&i.MemberID,
+			&i.Role,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listSquadMemberPreviewRowsBySquad = `-- name: ListSquadMemberPreviewRowsBySquad :many
+SELECT
+    sm.squad_id,
+    sm.member_type,
+    sm.member_id,
+    sm.role
+FROM multica_squad_member sm
+JOIN multica_squad s ON s.id = sm.squad_id
+WHERE sm.squad_id = $1
+ORDER BY
+    (sm.member_type = 'multica_agent' AND sm.member_id = s.leader_id) DESC,
+    sm.created_at ASC
+`
+
+type ListSquadMemberPreviewRowsBySquadRow struct {
+	SquadID    pgtype.UUID `json:"squad_id"`
+	MemberType string      `json:"member_type"`
+	MemberID   pgtype.UUID `json:"member_id"`
+	Role       string      `json:"role"`
+}
+
+func (q *Queries) ListSquadMemberPreviewRowsBySquad(ctx context.Context, squadID pgtype.UUID) ([]ListSquadMemberPreviewRowsBySquadRow, error) {
+	rows, err := q.db.Query(ctx, listSquadMemberPreviewRowsBySquad, squadID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListSquadMemberPreviewRowsBySquadRow{}
+	for rows.Next() {
+		var i ListSquadMemberPreviewRowsBySquadRow
+		if err := rows.Scan(
+			&i.SquadID,
+			&i.MemberType,
+			&i.MemberID,
+			&i.Role,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listSquadMemberStatusRows = `-- name: ListSquadMemberStatusRows :many
 SELECT
     sm.id              AS squad_member_id,
@@ -284,13 +380,13 @@ SELECT
     i.status           AS issue_status
 FROM multica_squad_member sm
 LEFT JOIN multica_agent a
-       ON sm.member_type = 'agent' AND a.id = sm.member_id
+       ON sm.member_type = 'multica_agent' AND a.id = sm.member_id
 LEFT JOIN multica_agent_runtime ar
        ON ar.id = a.runtime_id
 LEFT JOIN multica_agent_task_queue atq
-       ON sm.member_type = 'agent'
+       ON sm.member_type = 'multica_agent'
       AND atq.agent_id = sm.member_id
-      AND atq.status IN ('dispatched', 'running')
+      AND atq.status IN ('dispatched', 'running', 'waiting_local_directory')
 LEFT JOIN multica_issue i
        ON i.id = atq.issue_id
 WHERE sm.squad_id = $1
@@ -487,8 +583,8 @@ func (q *Queries) RemoveSquadMember(ctx context.Context, arg RemoveSquadMemberPa
 }
 
 const transferSquadAssignees = `-- name: TransferSquadAssignees :exec
-UPDATE multica_issue SET assignee_type = 'agent', assignee_id = $2, updated_at = now()
-WHERE assignee_type = 'squad' AND assignee_id = $1
+UPDATE multica_issue SET assignee_type = 'multica_agent', assignee_id = $2, updated_at = now()
+WHERE assignee_type = 'multica_squad' AND assignee_id = $1
 `
 
 type TransferSquadAssigneesParams struct {
@@ -504,10 +600,10 @@ func (q *Queries) TransferSquadAssignees(ctx context.Context, arg TransferSquadA
 
 const transferSquadAutopilotsToLeader = `-- name: TransferSquadAutopilotsToLeader :exec
 UPDATE multica_autopilot
-SET assignee_type = 'agent',
+SET assignee_type = 'multica_agent',
     assignee_id = $2,
     updated_at = now()
-WHERE assignee_type = 'squad' AND assignee_id = $1
+WHERE assignee_type = 'multica_squad' AND assignee_id = $1
 `
 
 type TransferSquadAutopilotsToLeaderParams struct {

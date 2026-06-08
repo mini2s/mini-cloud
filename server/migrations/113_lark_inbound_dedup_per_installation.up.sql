@@ -1,7 +1,7 @@
 -- Re-scope lark_inbound_message_dedup to (installation_id, message_id).
 --
 -- The original schema keyed dedup on `message_id` alone. In a Lark group
--- chat where the same workspace has multiple Multica bots installed, each
+-- chat where the same multica_workspace has multiple Multica bots installed, each
 -- bot's WS receives the SAME `message_id` from Lark — and both supervisors
 -- legitimately need to claim, evaluate AddressedToBot from their own
 -- bot's perspective, and either ingest (if @-ed) or drop as
@@ -16,7 +16,7 @@
 DROP TABLE IF EXISTS lark_inbound_message_dedup;
 
 CREATE TABLE lark_inbound_message_dedup (
-    installation_id  UUID NOT NULL REFERENCES lark_installation(id) ON DELETE CASCADE,
+    installation_id  UUID NOT NULL REFERENCES multica_lark_installation(id) ON DELETE CASCADE,
     message_id       TEXT NOT NULL,
     received_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
     processed_at     TIMESTAMPTZ,

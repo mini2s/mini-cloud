@@ -34,8 +34,17 @@ export interface Workflow {
   created_by_type: string;
   created_by_id: string;
   node_count: number;
+  is_template: boolean;
+  source_template_id: string | null;
   created_at: string;
   updated_at: string;
+}
+
+export interface WorkflowAdmin {
+  id: string;
+  name: string;
+  email: string;
+  can_manage_workflows: boolean;
 }
 
 export interface WorkflowNode {

@@ -34,6 +34,8 @@ function makeAgent(overrides: Partial<Agent> & Pick<Agent, "id" | "name" | "owne
     updated_at: new Date(0).toISOString(),
     archived_at: null,
     archived_by: null,
+    plugin_id: null,
+    is_builtin: false,
     ...overrides,
     id: overrides.id,
     name: overrides.name,

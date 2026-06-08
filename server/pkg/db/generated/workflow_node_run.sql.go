@@ -28,7 +28,7 @@ func (q *Queries) CancelWorkflowNodeRuns(ctx context.Context, workflowRunID pgty
 const createWorkflowAgentTask = `-- name: CreateWorkflowAgentTask :one
 INSERT INTO multica_agent_task_queue (agent_id, runtime_id, issue_id, status, priority, workflow_node_run_id, context)
 VALUES ($1, $2, $4, 'queued', $3, $5, $6)
-RETURNING id, agent_id, issue_id, status, priority, dispatched_at, started_at, completed_at, result, error, created_at, context, runtime_id, session_id, work_dir, trigger_comment_id, chat_session_id, autopilot_run_id, attempt, max_attempts, parent_task_id, failure_reason, trigger_summary, force_fresh_session, is_leader_task, workflow_node_run_id
+RETURNING id, agent_id, issue_id, status, priority, dispatched_at, started_at, completed_at, result, error, created_at, context, runtime_id, session_id, work_dir, trigger_comment_id, chat_session_id, autopilot_run_id, attempt, max_attempts, parent_task_id, failure_reason, trigger_summary, force_fresh_session, is_leader_task, workflow_node_run_id, wait_reason
 `
 
 type CreateWorkflowAgentTaskParams struct {
@@ -77,6 +77,7 @@ func (q *Queries) CreateWorkflowAgentTask(ctx context.Context, arg CreateWorkflo
 		&i.ForceFreshSession,
 		&i.IsLeaderTask,
 		&i.WorkflowNodeRunID,
+		&i.WaitReason,
 	)
 	return i, err
 }

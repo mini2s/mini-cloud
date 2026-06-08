@@ -55,7 +55,7 @@ SELECT
 FROM multica_issue
 WHERE workspace_id = $1
   AND creator_id = $2
-  AND creator_type = 'member'
+  AND creator_type = 'multica_member'
   AND assignee_type IS NOT NULL
   AND assignee_id IS NOT NULL
 GROUP BY assignee_type, assignee_id
@@ -106,17 +106,17 @@ WHERE i.workspace_id = $1
   AND ($9::jsonb IS NULL OR i.metadata @> $9::jsonb)
   AND (
     $10::uuid IS NULL
-    OR (i.assignee_type = 'agent' AND i.assignee_id IN (
+    OR (i.assignee_type = 'multica_agent' AND i.assignee_id IN (
           SELECT a.id FROM multica_agent a
            WHERE a.workspace_id = $1
              AND a.owner_id     = $10::uuid
     ))
-    OR (i.assignee_type = 'squad' AND i.assignee_id IN (
+    OR (i.assignee_type = 'multica_squad' AND i.assignee_id IN (
           SELECT sm.squad_id
             FROM multica_squad_member sm
             JOIN multica_squad s ON s.id = sm.squad_id
            WHERE s.workspace_id = $1
-             AND sm.member_type = 'member'
+             AND sm.member_type = 'multica_member'
              AND sm.member_id   = $10::uuid
           UNION
           SELECT s.id
@@ -131,7 +131,7 @@ WHERE i.workspace_id = $1
             JOIN multica_squad s ON s.id = sm.squad_id
             JOIN multica_agent a ON a.id = sm.member_id
            WHERE s.workspace_id = $1
-             AND sm.member_type = 'agent'
+             AND sm.member_type = 'multica_agent'
              AND a.workspace_id = $1
              AND a.owner_id     = $10::uuid
     ))
@@ -183,23 +183,23 @@ INSERT INTO multica_issue (
 `
 
 type CreateIssueParams struct {
-	WorkspaceID   pgtype.UUID        `json:"workspace_id"`
-	Title         string             `json:"title"`
-	Description   pgtype.Text        `json:"description"`
-	Status        string             `json:"status"`
-	Priority      string             `json:"priority"`
-	AssigneeType  pgtype.Text        `json:"assignee_type"`
-	AssigneeID    pgtype.UUID        `json:"assignee_id"`
-	CreatorType   string             `json:"creator_type"`
-	CreatorID     pgtype.UUID        `json:"creator_id"`
-	ParentIssueID pgtype.UUID        `json:"parent_issue_id"`
-	Position      float64            `json:"position"`
-	StartDate     pgtype.Timestamptz `json:"start_date"`
-	DueDate       pgtype.Timestamptz `json:"due_date"`
-	Number        int32              `json:"number"`
-	ProjectID     pgtype.UUID        `json:"project_id"`
-	WorkflowID    pgtype.UUID        `json:"workflow_id"`
-	WorkflowRunID pgtype.UUID        `json:"workflow_run_id"`
+	WorkspaceID   pgtype.UUID `json:"workspace_id"`
+	Title         string      `json:"title"`
+	Description   pgtype.Text `json:"description"`
+	Status        string      `json:"status"`
+	Priority      string      `json:"priority"`
+	AssigneeType  pgtype.Text `json:"assignee_type"`
+	AssigneeID    pgtype.UUID `json:"assignee_id"`
+	CreatorType   string      `json:"creator_type"`
+	CreatorID     pgtype.UUID `json:"creator_id"`
+	ParentIssueID pgtype.UUID `json:"parent_issue_id"`
+	Position      float64     `json:"position"`
+	StartDate     pgtype.Date `json:"start_date"`
+	DueDate       pgtype.Date `json:"due_date"`
+	Number        int32       `json:"number"`
+	ProjectID     pgtype.UUID `json:"project_id"`
+	WorkflowID    pgtype.UUID `json:"workflow_id"`
+	WorkflowRunID pgtype.UUID `json:"workflow_run_id"`
 }
 
 func (q *Queries) CreateIssue(ctx context.Context, arg CreateIssueParams) (MulticaIssue, error) {
@@ -268,25 +268,25 @@ INSERT INTO multica_issue (
 `
 
 type CreateIssueWithOriginParams struct {
-	WorkspaceID   pgtype.UUID        `json:"workspace_id"`
-	Title         string             `json:"title"`
-	Description   pgtype.Text        `json:"description"`
-	Status        string             `json:"status"`
-	Priority      string             `json:"priority"`
-	AssigneeType  pgtype.Text        `json:"assignee_type"`
-	AssigneeID    pgtype.UUID        `json:"assignee_id"`
-	CreatorType   string             `json:"creator_type"`
-	CreatorID     pgtype.UUID        `json:"creator_id"`
-	ParentIssueID pgtype.UUID        `json:"parent_issue_id"`
-	Position      float64            `json:"position"`
-	StartDate     pgtype.Timestamptz `json:"start_date"`
-	DueDate       pgtype.Timestamptz `json:"due_date"`
-	Number        int32              `json:"number"`
-	ProjectID     pgtype.UUID        `json:"project_id"`
-	OriginType    pgtype.Text        `json:"origin_type"`
-	OriginID      pgtype.UUID        `json:"origin_id"`
-	WorkflowID    pgtype.UUID        `json:"workflow_id"`
-	WorkflowRunID pgtype.UUID        `json:"workflow_run_id"`
+	WorkspaceID   pgtype.UUID `json:"workspace_id"`
+	Title         string      `json:"title"`
+	Description   pgtype.Text `json:"description"`
+	Status        string      `json:"status"`
+	Priority      string      `json:"priority"`
+	AssigneeType  pgtype.Text `json:"assignee_type"`
+	AssigneeID    pgtype.UUID `json:"assignee_id"`
+	CreatorType   string      `json:"creator_type"`
+	CreatorID     pgtype.UUID `json:"creator_id"`
+	ParentIssueID pgtype.UUID `json:"parent_issue_id"`
+	Position      float64     `json:"position"`
+	StartDate     pgtype.Date `json:"start_date"`
+	DueDate       pgtype.Date `json:"due_date"`
+	Number        int32       `json:"number"`
+	ProjectID     pgtype.UUID `json:"project_id"`
+	OriginType    pgtype.Text `json:"origin_type"`
+	OriginID      pgtype.UUID `json:"origin_id"`
+	WorkflowID    pgtype.UUID `json:"workflow_id"`
+	WorkflowRunID pgtype.UUID `json:"workflow_run_id"`
 }
 
 func (q *Queries) CreateIssueWithOrigin(ctx context.Context, arg CreateIssueWithOriginParams) (MulticaIssue, error) {
@@ -702,6 +702,70 @@ func (q *Queries) ListChildIssues(ctx context.Context, parentIssueID pgtype.UUID
 	return items, nil
 }
 
+const listChildrenByParents = `-- name: ListChildrenByParents :many
+SELECT id, workspace_id, title, description, status, priority, assignee_type, assignee_id, creator_type, creator_id, parent_issue_id, acceptance_criteria, context_refs, position, due_date, created_at, updated_at, number, project_id, origin_type, origin_id, first_executed_at, start_date, metadata, workflow_id, workflow_run_id FROM multica_issue
+WHERE workspace_id = $1
+  AND parent_issue_id = ANY($2::uuid[])
+ORDER BY parent_issue_id, position ASC, created_at DESC
+`
+
+type ListChildrenByParentsParams struct {
+	WorkspaceID pgtype.UUID   `json:"workspace_id"`
+	ParentIds   []pgtype.UUID `json:"parent_ids"`
+}
+
+// Batched variant of ListChildIssues: returns all children for the given
+// parent set in one round trip. Used by Swimlane to avoid an N+1 fan-out
+// (one request per visible parent lane). Result is grouped client-side by
+// parent_issue_id; the multica_workspace filter is also enforced so callers can't
+// enumerate children of parents in workspaces they don't belong to.
+func (q *Queries) ListChildrenByParents(ctx context.Context, arg ListChildrenByParentsParams) ([]MulticaIssue, error) {
+	rows, err := q.db.Query(ctx, listChildrenByParents, arg.WorkspaceID, arg.ParentIds)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []MulticaIssue{}
+	for rows.Next() {
+		var i MulticaIssue
+		if err := rows.Scan(
+			&i.ID,
+			&i.WorkspaceID,
+			&i.Title,
+			&i.Description,
+			&i.Status,
+			&i.Priority,
+			&i.AssigneeType,
+			&i.AssigneeID,
+			&i.CreatorType,
+			&i.CreatorID,
+			&i.ParentIssueID,
+			&i.AcceptanceCriteria,
+			&i.ContextRefs,
+			&i.Position,
+			&i.DueDate,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.Number,
+			&i.ProjectID,
+			&i.OriginType,
+			&i.OriginID,
+			&i.FirstExecutedAt,
+			&i.StartDate,
+			&i.Metadata,
+			&i.WorkflowID,
+			&i.WorkflowRunID,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listIssues = `-- name: ListIssues :many
 SELECT i.id, i.workspace_id, i.title, i.description, i.status, i.priority,
        i.assignee_type, i.assignee_id, i.creator_type, i.creator_id,
@@ -719,19 +783,19 @@ WHERE i.workspace_id = $1
   AND (
     $12::uuid IS NULL
     -- (1) assignee is an multica_agent owned by the user
-    OR (i.assignee_type = 'agent' AND i.assignee_id IN (
+    OR (i.assignee_type = 'multica_agent' AND i.assignee_id IN (
           SELECT a.id FROM multica_agent a
            WHERE a.workspace_id = $1
              AND a.owner_id     = $12::uuid
     ))
     -- (2)(3)(4) assignee is a multica_squad related to the user — three relations
-    OR (i.assignee_type = 'squad' AND i.assignee_id IN (
+    OR (i.assignee_type = 'multica_squad' AND i.assignee_id IN (
           -- (2) the user is a human multica_member of the multica_squad
           SELECT sm.squad_id
             FROM multica_squad_member sm
             JOIN multica_squad s ON s.id = sm.squad_id
            WHERE s.workspace_id = $1
-             AND sm.member_type = 'member'
+             AND sm.member_type = 'multica_member'
              AND sm.member_id   = $12::uuid
           UNION
           -- (3) the multica_squad's canonical leader is an multica_agent owned by the user.
@@ -751,7 +815,7 @@ WHERE i.workspace_id = $1
             JOIN multica_squad s ON s.id = sm.squad_id
             JOIN multica_agent a ON a.id = sm.member_id
            WHERE s.workspace_id = $1
-             AND sm.member_type = 'agent'
+             AND sm.member_type = 'multica_agent'
              AND a.workspace_id = $1
              AND a.owner_id     = $12::uuid
     ))
@@ -788,8 +852,8 @@ type ListIssuesRow struct {
 	CreatorID     pgtype.UUID        `json:"creator_id"`
 	ParentIssueID pgtype.UUID        `json:"parent_issue_id"`
 	Position      float64            `json:"position"`
-	StartDate     pgtype.Timestamptz `json:"start_date"`
-	DueDate       pgtype.Timestamptz `json:"due_date"`
+	StartDate     pgtype.Date        `json:"start_date"`
+	DueDate       pgtype.Date        `json:"due_date"`
 	CreatedAt     pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt     pgtype.Timestamptz `json:"updated_at"`
 	Number        int32              `json:"number"`
@@ -800,7 +864,7 @@ type ListIssuesRow struct {
 // involves_user_id widens the assignee filter to surface issues where the user
 // is *indirectly* the assignee — via an owned multica_agent or a multica_squad they belong to /
 // lead / have an multica_agent inside. The semantics intentionally exclude direct
-// multica_member assignment (`assignee_type='member' AND assignee_id=involves_user_id`)
+// multica_member assignment (`assignee_type='multica_member' AND assignee_id=involves_user_id`)
 // because that is already the meaning of the `assignee_id` filter (tab 1
 // "Assigned to me"), and the two filters must produce disjoint result sets.
 func (q *Queries) ListIssues(ctx context.Context, arg ListIssuesParams) ([]ListIssuesRow, error) {
@@ -871,17 +935,17 @@ WHERE i.workspace_id = $1
   AND ($7::jsonb IS NULL OR i.metadata @> $7::jsonb)
   AND (
     $8::uuid IS NULL
-    OR (i.assignee_type = 'agent' AND i.assignee_id IN (
+    OR (i.assignee_type = 'multica_agent' AND i.assignee_id IN (
           SELECT a.id FROM multica_agent a
            WHERE a.workspace_id = $1
              AND a.owner_id     = $8::uuid
     ))
-    OR (i.assignee_type = 'squad' AND i.assignee_id IN (
+    OR (i.assignee_type = 'multica_squad' AND i.assignee_id IN (
           SELECT sm.squad_id
             FROM multica_squad_member sm
             JOIN multica_squad s ON s.id = sm.squad_id
            WHERE s.workspace_id = $1
-             AND sm.member_type = 'member'
+             AND sm.member_type = 'multica_member'
              AND sm.member_id   = $8::uuid
           UNION
           SELECT s.id
@@ -896,7 +960,7 @@ WHERE i.workspace_id = $1
             JOIN multica_squad s ON s.id = sm.squad_id
             JOIN multica_agent a ON a.id = sm.member_id
            WHERE s.workspace_id = $1
-             AND sm.member_type = 'agent'
+             AND sm.member_type = 'multica_agent'
              AND a.workspace_id = $1
              AND a.owner_id     = $8::uuid
     ))
@@ -928,8 +992,8 @@ type ListOpenIssuesRow struct {
 	CreatorID     pgtype.UUID        `json:"creator_id"`
 	ParentIssueID pgtype.UUID        `json:"parent_issue_id"`
 	Position      float64            `json:"position"`
-	StartDate     pgtype.Timestamptz `json:"start_date"`
-	DueDate       pgtype.Timestamptz `json:"due_date"`
+	StartDate     pgtype.Date        `json:"start_date"`
+	DueDate       pgtype.Date        `json:"due_date"`
 	CreatedAt     pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt     pgtype.Timestamptz `json:"updated_at"`
 	Number        int32              `json:"number"`
@@ -1109,20 +1173,20 @@ RETURNING id, workspace_id, title, description, status, priority, assignee_type,
 `
 
 type UpdateIssueParams struct {
-	ID            pgtype.UUID        `json:"id"`
-	Title         pgtype.Text        `json:"title"`
-	Description   pgtype.Text        `json:"description"`
-	Status        pgtype.Text        `json:"status"`
-	Priority      pgtype.Text        `json:"priority"`
-	AssigneeType  pgtype.Text        `json:"assignee_type"`
-	AssigneeID    pgtype.UUID        `json:"assignee_id"`
-	Position      pgtype.Float8      `json:"position"`
-	StartDate     pgtype.Timestamptz `json:"start_date"`
-	DueDate       pgtype.Timestamptz `json:"due_date"`
-	ParentIssueID pgtype.UUID        `json:"parent_issue_id"`
-	ProjectID     pgtype.UUID        `json:"project_id"`
-	WorkflowID    pgtype.UUID        `json:"workflow_id"`
-	WorkflowRunID pgtype.UUID        `json:"workflow_run_id"`
+	ID            pgtype.UUID   `json:"id"`
+	Title         pgtype.Text   `json:"title"`
+	Description   pgtype.Text   `json:"description"`
+	Status        pgtype.Text   `json:"status"`
+	Priority      pgtype.Text   `json:"priority"`
+	AssigneeType  pgtype.Text   `json:"assignee_type"`
+	AssigneeID    pgtype.UUID   `json:"assignee_id"`
+	Position      pgtype.Float8 `json:"position"`
+	StartDate     pgtype.Date   `json:"start_date"`
+	DueDate       pgtype.Date   `json:"due_date"`
+	ParentIssueID pgtype.UUID   `json:"parent_issue_id"`
+	ProjectID     pgtype.UUID   `json:"project_id"`
+	WorkflowID    pgtype.UUID   `json:"workflow_id"`
+	WorkflowRunID pgtype.UUID   `json:"workflow_run_id"`
 }
 
 func (q *Queries) UpdateIssue(ctx context.Context, arg UpdateIssueParams) (MulticaIssue, error) {

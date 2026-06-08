@@ -52,8 +52,9 @@ type AgentResponse struct {
 	// same path. agent-actor tokens are denied there. See MUL-2600.
 	HasCustomEnv       bool   `json:"has_custom_env"`
 	CustomEnvKeyCount  int    `json:"custom_env_key_count"`
-	McpConfigRedacted  bool   `json:"mcp_config_redacted"`
-	Visibility         string `json:"visibility"`
+	McpConfigRedacted       bool   `json:"mcp_config_redacted"`
+	CustomEnvRedactedReason string `json:"custom_env_redacted_reason,omitempty"`
+	Visibility              string `json:"visibility"`
 	Status             string `json:"status"`
 	MaxConcurrentTasks int32  `json:"max_concurrent_tasks"`
 	Model              string `json:"model"`
@@ -602,7 +603,7 @@ func (h *Handler) GetAgent(w http.ResponseWriter, r *http.Request) {
 			redactMcpConfig(&resp)
 			resp.CustomEnvRedactedReason = "policy"
 		} else if member, ok := ctxMember(r.Context()); ok {
-			if !canViewAgentEnv(agent, userID, member.Role) {
+			if !canViewAgentSecrets(agent, userID, member.Role) {
 				redactEnv(&resp)
 				redactMcpConfig(&resp)
 				resp.CustomEnvRedactedReason = "role"
@@ -1609,3 +1610,19 @@ func (h *Handler) DemoteAgentFromBuiltin(w http.ResponseWriter, r *http.Request)
 	writeJSON(w, http.StatusOK, resp)
 }
 
+
+// redactEnv clears the coarse custom-env metadata from an AgentResponse when
+// the caller is not authorised to know whether variables are configured.
+// Actual values are never present on this shape (MUL-2600).
+func redactEnv(resp *AgentResponse) {
+	resp.HasCustomEnv = false
+	resp.CustomEnvKeyCount = 0
+}
+
+// workspaceAlwaysRedactEnv returns true when the workspace settings demand
+// that secret-bearing fields (mcp_config, custom_env metadata) be hidden
+// from non-owners. This is the env-specific counterpart to
+// workspaceAlwaysRedactSecrets; both inspect the same setting bit.
+func workspaceAlwaysRedactEnv(settings []byte) bool {
+	return workspaceAlwaysRedactSecrets(settings)
+}
