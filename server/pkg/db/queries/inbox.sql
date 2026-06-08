@@ -47,17 +47,17 @@ WHERE workspace_id = $1 AND recipient_type = $2 AND recipient_id = $3 AND read =
 
 -- name: MarkAllInboxRead :execrows
 UPDATE multica_inbox_item SET read = true
-WHERE workspace_id = $1 AND recipient_type = 'member' AND recipient_id = $2 AND archived = false AND read = false;
+WHERE workspace_id = $1 AND recipient_type = 'multica_member' AND recipient_id = $2 AND archived = false AND read = false;
 
 -- name: ArchiveAllInbox :execrows
 UPDATE multica_inbox_item SET archived = true
-WHERE workspace_id = $1 AND recipient_type = 'member' AND recipient_id = $2 AND archived = false;
+WHERE workspace_id = $1 AND recipient_type = 'multica_member' AND recipient_id = $2 AND archived = false;
 
 -- name: ArchiveAllReadInbox :execrows
 UPDATE multica_inbox_item SET archived = true
-WHERE workspace_id = $1 AND recipient_type = 'member' AND recipient_id = $2 AND read = true AND archived = false;
+WHERE workspace_id = $1 AND recipient_type = 'multica_member' AND recipient_id = $2 AND read = true AND archived = false;
 
 -- name: ArchiveCompletedInbox :execrows
 UPDATE multica_inbox_item i SET archived = true
-WHERE i.workspace_id = $1 AND i.recipient_type = 'member' AND i.recipient_id = $2 AND i.archived = false
+WHERE i.workspace_id = $1 AND i.recipient_type = 'multica_member' AND i.recipient_id = $2 AND i.archived = false
   AND i.issue_id IN (SELECT id FROM multica_issue WHERE status IN ('done', 'cancelled'));

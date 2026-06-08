@@ -16,11 +16,13 @@ import (
 	"github.com/multica-ai/multica/server/internal/analytics"
 	"github.com/multica-ai/multica/server/internal/events"
 	"github.com/multica-ai/multica/server/internal/mention"
+	obsmetrics "github.com/multica-ai/multica/server/internal/metrics"
 	"github.com/multica-ai/multica/server/internal/realtime"
 	"github.com/multica-ai/multica/server/internal/util"
 	db "github.com/multica-ai/multica/server/pkg/db/generated"
 	"github.com/multica-ai/multica/server/pkg/protocol"
 	"github.com/multica-ai/multica/server/pkg/redact"
+	"github.com/multica-ai/multica/server/pkg/taskfailure"
 )
 
 type TaskService struct {
@@ -29,6 +31,7 @@ type TaskService struct {
 	Hub       *realtime.Hub
 	Bus       *events.Bus
 	Analytics analytics.Client
+	Metrics   *obsmetrics.BusinessMetrics
 	Wakeup    TaskWakeupNotifier
 	// EmptyClaim caches "this runtime has no queued task" so the daemon
 	// poll path can skip a Postgres scan on the steady-state empty case.
@@ -41,7 +44,7 @@ type TaskService struct {
 	// the completed state. The WorkflowService uses this to detect agent
 	// tasks belonging to workflow node runs and transition the node run
 	// state machine (worker→awaiting_critic, critic→review).
-	OnTaskCompleted func(ctx context.Context, task db.MulticaAgentTaskQueue)
+	OnTaskCompleted func(ctx context.Context, task db.AgentTaskQueue)
 
 	analyticsContextMu    sync.Mutex
 	analyticsContextCache map[string]analytics.TaskContext
@@ -138,58 +141,96 @@ func isTrivialDoneOutput(output string) bool {
 	return false
 }
 
-func (s *TaskService) captureTaskQueued(ctx context.Context, task db.MulticaAgentTaskQueue) {
-	s.captureTaskEvent(ctx, analytics.AgentTaskQueued(s.taskAnalyticsContext(ctx, task)))
+func (s *TaskService) captureTaskQueued(ctx context.Context, task db.AgentTaskQueue) {
+	if s.Metrics != nil {
+		source, runtimeMode, _ := s.taskMetricsContext(ctx, task)
+		s.Metrics.RecordTaskEnqueued(source, runtimeMode)
+	}
 }
 
-func (s *TaskService) captureTaskDispatched(ctx context.Context, task db.MulticaAgentTaskQueue) {
-	s.captureTaskEvent(ctx, analytics.AgentTaskDispatched(s.taskAnalyticsContext(ctx, task)))
+func (s *TaskService) captureTaskDispatched(ctx context.Context, task db.AgentTaskQueue) {
+	if s.Metrics != nil {
+		source, runtimeMode, _ := s.taskMetricsContext(ctx, task)
+		s.Metrics.RecordTaskDispatched(util.UUIDToString(task.ID), source, runtimeMode, taskQueueWaitSeconds(task))
+	}
+
 }
 
-func (s *TaskService) AnalyticsContextForTask(ctx context.Context, task db.MulticaAgentTaskQueue) analytics.TaskContext {
+func (s *TaskService) AnalyticsContextForTask(ctx context.Context, task db.AgentTaskQueue) analytics.TaskContext {
 	return s.taskAnalyticsContext(ctx, task)
 }
 
-func (s *TaskService) captureTaskStarted(ctx context.Context, task db.MulticaAgentTaskQueue) {
-	s.captureTaskEvent(ctx, analytics.AgentTaskStarted(s.taskAnalyticsContext(ctx, task)))
+func (s *TaskService) captureTaskStarted(ctx context.Context, task db.AgentTaskQueue) {
+	if s.Metrics != nil {
+		source, runtimeMode, provider := s.taskMetricsContext(ctx, task)
+		s.Metrics.RecordTaskStarted(source, runtimeMode, provider)
+	}
 }
 
-func (s *TaskService) captureTaskCompleted(ctx context.Context, task db.MulticaAgentTaskQueue) {
-	s.captureTaskEvent(ctx, analytics.AgentTaskCompleted(
-		s.taskAnalyticsContext(ctx, task),
-		taskDurationMS(task),
-	))
+func (s *TaskService) captureTaskCompleted(ctx context.Context, task db.AgentTaskQueue) {
+	if s.Metrics != nil {
+		source, runtimeMode, _ := s.taskMetricsContext(ctx, task)
+		s.Metrics.RecordTaskTerminal(util.UUIDToString(task.ID), source, runtimeMode, task.Status, taskRunSeconds(task), taskTotalSeconds(task), task.Attempt)
+	}
+
 }
 
-func (s *TaskService) captureTaskFailed(ctx context.Context, task db.MulticaAgentTaskQueue) {
+func (s *TaskService) captureTaskFailed(ctx context.Context, task db.AgentTaskQueue) {
 	failureReason := taskFailureReason(task)
-	s.captureTaskEvent(ctx, analytics.AgentTaskFailed(
-		s.taskAnalyticsContext(ctx, task),
-		taskDurationMS(task),
-		failureReason,
-		taskErrorType(failureReason),
-		s.willRetryTask(task),
-	))
+	if s.Metrics != nil {
+		source, runtimeMode, _ := s.taskMetricsContext(ctx, task)
+		s.Metrics.RecordTaskTerminal(util.UUIDToString(task.ID), source, runtimeMode, task.Status, taskRunSeconds(task), taskTotalSeconds(task), task.Attempt)
+		s.Metrics.RecordTaskFailed(source, runtimeMode, failureReason)
+	}
 }
 
-func (s *TaskService) captureTaskCancelled(ctx context.Context, task db.MulticaAgentTaskQueue) {
-	s.captureTaskEvent(ctx, analytics.AgentTaskCancelled(
-		s.taskAnalyticsContext(ctx, task),
-		taskDurationMS(task),
-	))
+func (s *TaskService) captureTaskCancelled(ctx context.Context, task db.AgentTaskQueue) {
+	if s.Metrics != nil {
+		source, runtimeMode, _ := s.taskMetricsContext(ctx, task)
+		s.Metrics.RecordTaskTerminal(util.UUIDToString(task.ID), source, runtimeMode, task.Status, taskRunSeconds(task), taskTotalSeconds(task), task.Attempt)
+	}
+	// Revoke any mat_ task tokens minted for this task. Cancellation is
+	// a terminal transition, so the running agent process no longer
+	// needs to call back; eagerly deleting the token closes the
+	// window where a compromised process could keep authenticating
+	// against the API until the 24h expiry. Failure is non-fatal — the
+	// expiry / FK cascade are the durable guards. MUL-2600.
+	if err := s.Queries.DeleteTaskTokensByTask(ctx, task.ID); err != nil {
+		slog.Warn("cancel task: failed to revoke task tokens",
+			"task_id", util.UUIDToString(task.ID), "error", err)
+	}
+
 }
 
-func (s *TaskService) captureTaskEvent(ctx context.Context, event analytics.Event) {
-	if s.Analytics == nil {
+func (s *TaskService) CaptureTaskUsage(ctx context.Context, task db.AgentTaskQueue, provider, model string, inputTokens, outputTokens, cacheReadTokens, cacheWriteTokens int64) {
+	if s.Metrics == nil {
 		return
 	}
-	if event.WorkspaceID == "" {
-		return
-	}
-	s.Analytics.Capture(event)
+	source, runtimeMode, _ := s.taskMetricsContext(ctx, task)
+	s.Metrics.RecordLLMUsage(source, runtimeMode, provider, model, inputTokens, outputTokens, cacheReadTokens, cacheWriteTokens)
 }
 
-func (s *TaskService) cachedTaskAnalyticsContext(task db.MulticaAgentTaskQueue) (analytics.TaskContext, bool) {
+func (s *TaskService) CaptureQueuedExpiredTasks(ctx context.Context, tasks []db.AgentTaskQueue) {
+	if s.Metrics == nil {
+		return
+	}
+	for _, task := range tasks {
+		source, runtimeMode, _ := s.taskMetricsContext(ctx, task)
+		s.Metrics.RecordTaskQueuedExpired(source, runtimeMode)
+	}
+}
+
+func (s *TaskService) CaptureLeaseExpiredTasks(ctx context.Context, tasks []db.AgentTaskQueue) {
+	if s.Metrics == nil {
+		return
+	}
+	for _, task := range tasks {
+		source, _, _ := s.taskMetricsContext(ctx, task)
+		s.Metrics.RecordTaskLeaseExpired(source)
+	}
+}
+
+func (s *TaskService) cachedTaskAnalyticsContext(task db.AgentTaskQueue) (analytics.TaskContext, bool) {
 	key := taskAnalyticsContextKey(task)
 	if key == "" {
 		return analytics.TaskContext{}, false
@@ -203,7 +244,7 @@ func (s *TaskService) cachedTaskAnalyticsContext(task db.MulticaAgentTaskQueue) 
 	return tc, ok
 }
 
-func (s *TaskService) storeTaskAnalyticsContext(task db.MulticaAgentTaskQueue, tc analytics.TaskContext) {
+func (s *TaskService) storeTaskAnalyticsContext(task db.AgentTaskQueue, tc analytics.TaskContext) {
 	if tc.WorkspaceID == "" {
 		return
 	}
@@ -227,7 +268,7 @@ func (s *TaskService) storeTaskAnalyticsContext(task db.MulticaAgentTaskQueue, t
 	s.analyticsContextCache[key] = tc
 }
 
-func taskAnalyticsContextKey(task db.MulticaAgentTaskQueue) string {
+func taskAnalyticsContextKey(task db.AgentTaskQueue) string {
 	taskID := util.UUIDToString(task.ID)
 	if taskID == "" {
 		return ""
@@ -241,7 +282,32 @@ func taskAnalyticsContextKey(task db.MulticaAgentTaskQueue) string {
 	}, "|")
 }
 
-func (s *TaskService) taskAnalyticsContext(ctx context.Context, task db.MulticaAgentTaskQueue) analytics.TaskContext {
+func (s *TaskService) taskMetricsContext(ctx context.Context, task db.AgentTaskQueue) (source, runtimeMode, provider string) {
+	tc := s.taskAnalyticsContext(ctx, task)
+	source = "other"
+	switch {
+	case task.ChatSessionID.Valid:
+		source = "chat"
+	case task.IssueID.Valid:
+		if tc.Source == analytics.SourceAutopilot {
+			source = "autopilot_issue"
+		} else {
+			source = "issue"
+		}
+	case task.AutopilotRunID.Valid:
+		source = "autopilot"
+	default:
+		if _, ok := s.parseQuickCreateContext(task); ok {
+			source = "quick_create"
+		} else if tc.Source != "" {
+			source = tc.Source
+		}
+	}
+	return source, tc.RuntimeMode, tc.Provider
+}
+
+func (s *TaskService) taskAnalyticsContext(ctx context.Context, task db.AgentTaskQueue) analytics.TaskContext {
+
 	if tc, ok := s.cachedTaskAnalyticsContext(task); ok {
 		return tc
 	}
@@ -326,27 +392,31 @@ func (s *TaskService) taskAnalyticsContext(ctx context.Context, task db.MulticaA
 	return tc
 }
 
-func taskDurationMS(task db.MulticaAgentTaskQueue) int64 {
-	if !task.CompletedAt.Valid {
-		return 0
-	}
-	start := task.CreatedAt
-	if task.StartedAt.Valid {
-		start = task.StartedAt
-	} else if task.DispatchedAt.Valid {
-		start = task.DispatchedAt
-	}
-	if !start.Valid {
-		return 0
-	}
-	ms := task.CompletedAt.Time.Sub(start.Time).Milliseconds()
-	if ms < 0 {
-		return 0
-	}
-	return ms
+func taskQueueWaitSeconds(task db.AgentTaskQueue) float64 {
+	return durationSeconds(task.CreatedAt, task.DispatchedAt)
 }
 
-func taskFailureReason(task db.MulticaAgentTaskQueue) string {
+func taskRunSeconds(task db.AgentTaskQueue) float64 {
+	return durationSeconds(task.StartedAt, task.CompletedAt)
+}
+
+func taskTotalSeconds(task db.AgentTaskQueue) float64 {
+	return durationSeconds(task.CreatedAt, task.CompletedAt)
+}
+
+func durationSeconds(start, end pgtype.Timestamptz) float64 {
+	if !start.Valid || !end.Valid {
+		return -1
+	}
+	seconds := end.Time.Sub(start.Time).Seconds()
+	if seconds < 0 {
+
+		return 0
+	}
+	return seconds
+}
+
+func taskFailureReason(task db.AgentTaskQueue) string {
 	if task.FailureReason.Valid && task.FailureReason.String != "" {
 		return task.FailureReason.String
 	}
@@ -368,7 +438,7 @@ func taskErrorType(reason string) string {
 	}
 }
 
-func (s *TaskService) willRetryTask(task db.MulticaAgentTaskQueue) bool {
+func (s *TaskService) willRetryTask(task db.AgentTaskQueue) bool {
 	reason := taskFailureReason(task)
 	if !retryableReasons[reason] {
 		return false
@@ -385,7 +455,7 @@ func (s *TaskService) willRetryTask(task db.MulticaAgentTaskQueue) bool {
 // EnqueueTaskForIssue creates a queued task for an agent-assigned issue.
 // Optional overrideRuntimeID, when provided, is used instead of the agent's
 // own runtime_id (used by the frontend runtime-select dialog for built-in agents).
-func (s *TaskService) EnqueueTaskForIssue(ctx context.Context, issue db.MulticaIssue, triggerCommentID ...pgtype.UUID) (db.MulticaAgentTaskQueue, error) {
+func (s *TaskService) EnqueueTaskForIssue(ctx context.Context, issue db.Issue, triggerCommentID ...pgtype.UUID) (db.AgentTaskQueue, error) {
 	var commentID pgtype.UUID
 	if len(triggerCommentID) > 0 {
 		commentID = triggerCommentID[0]
@@ -431,20 +501,20 @@ func (s *TaskService) resolveRuntimeForAgent(ctx context.Context, agent db.Multi
 // daemon claim handler skips the (agent_id, issue_id) resume lookup — the
 // user already judged the prior output bad, a fresh agent session is the
 // expected behavior.
-func (s *TaskService) enqueueIssueTask(ctx context.Context, issue db.MulticaIssue, triggerCommentID pgtype.UUID, forceFreshSession bool, overrideRuntimeID pgtype.UUID) (db.MulticaAgentTaskQueue, error) {
+func (s *TaskService) enqueueIssueTask(ctx context.Context, issue db.MulticaIssue, triggerCommentID pgtype.UUID, forceFreshSession bool, overrideRuntimeID pgtype.UUID) (db.AgentTaskQueue, error) {
 	if !issue.AssigneeID.Valid {
 		slog.Error("task enqueue failed", "issue_id", util.UUIDToString(issue.ID), "error", "issue has no assignee")
-		return db.MulticaAgentTaskQueue{}, fmt.Errorf("issue has no assignee")
+		return db.AgentTaskQueue{}, fmt.Errorf("issue has no assignee")
 	}
 
 	agent, err := s.Queries.GetAgent(ctx, issue.AssigneeID)
 	if err != nil {
 		slog.Error("task enqueue failed", "issue_id", util.UUIDToString(issue.ID), "error", err)
-		return db.MulticaAgentTaskQueue{}, fmt.Errorf("load agent: %w", err)
+		return db.AgentTaskQueue{}, fmt.Errorf("load agent: %w", err)
 	}
 	if agent.ArchivedAt.Valid {
 		slog.Debug("task enqueue skipped: agent is archived", "issue_id", util.UUIDToString(issue.ID), "agent_id", util.UUIDToString(agent.ID))
-		return db.MulticaAgentTaskQueue{}, fmt.Errorf("agent is archived")
+		return db.AgentTaskQueue{}, fmt.Errorf("agent is archived")
 	}
 	runtimeID, err := s.resolveRuntimeForAgent(ctx, agent, issue.WorkspaceID)
 	if err != nil {
@@ -453,7 +523,7 @@ func (s *TaskService) enqueueIssueTask(ctx context.Context, issue db.MulticaIssu
 			runtimeID = overrideRuntimeID
 		} else {
 			slog.Error("task enqueue failed", "issue_id", util.UUIDToString(issue.ID), "error", err)
-			return db.MulticaAgentTaskQueue{}, fmt.Errorf("resolve runtime: %w", err)
+			return db.AgentTaskQueue{}, fmt.Errorf("resolve runtime: %w", err)
 		}
 	}
 	// Caller-provided runtime takes priority over auto-resolution.
@@ -472,7 +542,7 @@ func (s *TaskService) enqueueIssueTask(ctx context.Context, issue db.MulticaIssu
 	})
 	if err != nil {
 		slog.Error("task enqueue failed", "issue_id", util.UUIDToString(issue.ID), "error", err)
-		return db.MulticaAgentTaskQueue{}, fmt.Errorf("create task: %w", err)
+		return db.AgentTaskQueue{}, fmt.Errorf("create task: %w", err)
 	}
 
 	slog.Info("task enqueued",
@@ -495,7 +565,7 @@ func (s *TaskService) enqueueIssueTask(ctx context.Context, issue db.MulticaIssu
 // EnqueueTaskForMention creates a queued task for a mentioned agent on an issue.
 // Unlike EnqueueTaskForIssue, this takes an explicit agent ID rather than
 // deriving it from the issue assignee.
-func (s *TaskService) EnqueueTaskForMention(ctx context.Context, issue db.MulticaIssue, agentID pgtype.UUID, triggerCommentID pgtype.UUID) (db.MulticaAgentTaskQueue, error) {
+func (s *TaskService) EnqueueTaskForMention(ctx context.Context, issue db.MulticaIssue, agentID pgtype.UUID, triggerCommentID pgtype.UUID) (db.AgentTaskQueue, error) {
 	return s.enqueueMentionTask(ctx, issue, agentID, triggerCommentID, false, false)
 }
 
@@ -505,24 +575,24 @@ func (s *TaskService) EnqueueTaskForMention(ctx context.Context, issue db.Multic
 // acting as the squad's leader (skip) from one posted while it was acting
 // as a worker (do not skip). This matters for agents that are simultaneously
 // the leader and a worker of the same squad — see migration 090.
-func (s *TaskService) EnqueueTaskForSquadLeader(ctx context.Context, issue db.MulticaIssue, leaderID pgtype.UUID, triggerCommentID pgtype.UUID) (db.MulticaAgentTaskQueue, error) {
+func (s *TaskService) EnqueueTaskForSquadLeader(ctx context.Context, issue db.MulticaIssue, leaderID pgtype.UUID, triggerCommentID pgtype.UUID) (db.AgentTaskQueue, error) {
 	return s.enqueueMentionTask(ctx, issue, leaderID, triggerCommentID, true, false)
 }
 
-func (s *TaskService) enqueueMentionTask(ctx context.Context, issue db.MulticaIssue, agentID pgtype.UUID, triggerCommentID pgtype.UUID, isLeader bool, forceFreshSession bool) (db.MulticaAgentTaskQueue, error) {
+func (s *TaskService) enqueueMentionTask(ctx context.Context, issue db.MulticaIssue, agentID pgtype.UUID, triggerCommentID pgtype.UUID, isLeader bool, forceFreshSession bool) (db.AgentTaskQueue, error) {
 	agent, err := s.Queries.GetAgent(ctx, agentID)
 	if err != nil {
 		slog.Error("mention task enqueue failed: agent not found", "issue_id", util.UUIDToString(issue.ID), "agent_id", util.UUIDToString(agentID), "error", err)
-		return db.MulticaAgentTaskQueue{}, fmt.Errorf("load agent: %w", err)
+		return db.AgentTaskQueue{}, fmt.Errorf("load agent: %w", err)
 	}
 	if agent.ArchivedAt.Valid {
 		slog.Debug("mention task enqueue skipped: agent is archived", "issue_id", util.UUIDToString(issue.ID), "agent_id", util.UUIDToString(agentID))
-		return db.MulticaAgentTaskQueue{}, fmt.Errorf("agent is archived")
+		return db.AgentTaskQueue{}, fmt.Errorf("agent is archived")
 	}
 	runtimeID, err := s.resolveRuntimeForAgent(ctx, agent, issue.WorkspaceID)
 	if err != nil {
 		slog.Error("mention task enqueue failed", "issue_id", util.UUIDToString(issue.ID), "agent_id", util.UUIDToString(agentID), "error", err)
-		return db.MulticaAgentTaskQueue{}, fmt.Errorf("resolve runtime: %w", err)
+		return db.AgentTaskQueue{}, fmt.Errorf("resolve runtime: %w", err)
 	}
 
 	task, err := s.Queries.CreateAgentTask(ctx, db.CreateAgentTaskParams{
@@ -537,7 +607,7 @@ func (s *TaskService) enqueueMentionTask(ctx context.Context, issue db.MulticaIs
 	})
 	if err != nil {
 		slog.Error("mention task enqueue failed", "issue_id", util.UUIDToString(issue.ID), "agent_id", util.UUIDToString(agentID), "error", err)
-		return db.MulticaAgentTaskQueue{}, fmt.Errorf("create task: %w", err)
+		return db.AgentTaskQueue{}, fmt.Errorf("create task: %w", err)
 	}
 
 	slog.Info("mention task enqueued", "task_id", util.UUIDToString(task.ID), "issue_id", util.UUIDToString(issue.ID), "agent_id", util.UUIDToString(agentID), "is_leader_task", isLeader)
@@ -570,6 +640,13 @@ type QuickCreateContext struct {
 	WorkspaceID string `json:"workspace_id"`
 	ProjectID   string `json:"project_id,omitempty"`
 	SquadID     string `json:"squad_id,omitempty"`
+	// ParentIssueID is the optional UUID of the parent issue the new issue
+	// should be filed under. Set when the user opens the modal from "Add
+	// sub issue" on an existing issue; the daemon claim handler resolves the
+	// parent's identifier and the prompt template instructs the agent to
+	// pass `--parent <uuid>` so the sub-issue relationship is preserved
+	// across the manual→agent mode flip.
+	ParentIssueID string `json:"parent_issue_id,omitempty"`
 }
 
 // QuickCreateContextType marks a task as a quick-create job.
@@ -590,17 +667,22 @@ const QuickCreateContextType = "quick_create"
 // The handler has already resolved it to the squad's leader agent for
 // agentID; the squadID hint is stamped into the task context so the daemon
 // claim handler can inject the squad-leader briefing on dispatch.
-func (s *TaskService) EnqueueQuickCreateTask(ctx context.Context, workspaceID, requesterID pgtype.UUID, agentID, squadID pgtype.UUID, prompt string, projectID pgtype.UUID) (db.MulticaAgentTaskQueue, error) {
+//
+// parentIssueID is optional (zero-valued pgtype.UUID when the user didn't
+// open the modal from "Add sub issue"). The handler is responsible for
+// validating it belongs to the same workspace before passing it in.
+func (s *TaskService) EnqueueQuickCreateTask(ctx context.Context, workspaceID, requesterID pgtype.UUID, agentID, squadID pgtype.UUID, prompt string, projectID, parentIssueID pgtype.UUID) (db.AgentTaskQueue, error) {
+
 	agent, err := s.Queries.GetAgent(ctx, agentID)
 	if err != nil {
-		return db.MulticaAgentTaskQueue{}, fmt.Errorf("load agent: %w", err)
+		return db.AgentTaskQueue{}, fmt.Errorf("load agent: %w", err)
 	}
 	if agent.ArchivedAt.Valid {
-		return db.MulticaAgentTaskQueue{}, fmt.Errorf("agent is archived")
+		return db.AgentTaskQueue{}, fmt.Errorf("agent is archived")
 	}
 	runtimeID, err := s.resolveRuntimeForAgent(ctx, agent, workspaceID)
 	if err != nil {
-		return db.MulticaAgentTaskQueue{}, fmt.Errorf("resolve runtime: %w", err)
+		return db.AgentTaskQueue{}, fmt.Errorf("resolve runtime: %w", err)
 	}
 
 	payload := QuickCreateContext{
@@ -615,9 +697,12 @@ func (s *TaskService) EnqueueQuickCreateTask(ctx context.Context, workspaceID, r
 	if squadID.Valid {
 		payload.SquadID = util.UUIDToString(squadID)
 	}
+	if parentIssueID.Valid {
+		payload.ParentIssueID = util.UUIDToString(parentIssueID)
+	}
 	contextJSON, err := json.Marshal(payload)
 	if err != nil {
-		return db.MulticaAgentTaskQueue{}, fmt.Errorf("marshal quick-create context: %w", err)
+		return db.AgentTaskQueue{}, fmt.Errorf("marshal quick-create context: %w", err)
 	}
 
 	task, err := s.Queries.CreateQuickCreateTask(ctx, db.CreateQuickCreateTaskParams{
@@ -627,7 +712,7 @@ func (s *TaskService) EnqueueQuickCreateTask(ctx context.Context, workspaceID, r
 		Context:   contextJSON,
 	})
 	if err != nil {
-		return db.MulticaAgentTaskQueue{}, fmt.Errorf("create quick-create task: %w", err)
+		return db.AgentTaskQueue{}, fmt.Errorf("create quick-create task: %w", err)
 	}
 
 	slog.Info("quick-create task enqueued",
@@ -637,6 +722,7 @@ func (s *TaskService) EnqueueQuickCreateTask(ctx context.Context, workspaceID, r
 		"requester_id", util.UUIDToString(requesterID),
 		"workspace_id", util.UUIDToString(workspaceID),
 		"project_id", payload.ProjectID,
+		"parent_issue_id", payload.ParentIssueID,
 	)
 	// Match every other Enqueue* path: kick the daemon WS so the task
 	// gets claimed promptly instead of waiting for the next 30 s poll
@@ -647,20 +733,48 @@ func (s *TaskService) EnqueueQuickCreateTask(ctx context.Context, workspaceID, r
 	return task, nil
 }
 
+// ErrChatTaskAgentArchived signals that EnqueueChatTask refused to
+// queue work because the destination agent has been archived. This
+// is a productizable state — surface it to the user as "this agent
+// has been archived" rather than retrying.
+var ErrChatTaskAgentArchived = errors.New("chat task: agent archived")
+
+// ErrChatTaskAgentNoRuntime signals that EnqueueChatTask refused to
+// queue work because the agent has never been associated with a
+// runtime (agent.runtime_id IS NULL). This is the "agent has no
+// daemon configured" case — productizable as "agent offline".
+//
+// IMPORTANT: this is NOT the same as "the daemon is currently
+// disconnected". When agent.runtime_id IS set, EnqueueChatTask
+// enqueues the task and the daemon claims it on next online; that
+// path returns a task row, not this error.
+var ErrChatTaskAgentNoRuntime = errors.New("chat task: agent has no runtime")
+
 // EnqueueChatTask creates a queued task for a chat session.
 // Unlike issue tasks, chat tasks have no issue_id.
-func (s *TaskService) EnqueueChatTask(ctx context.Context, chatSession db.MulticaChatSession) (db.MulticaAgentTaskQueue, error) {
+//
+// Errors split into two layers:
+//
+//   - Productizable rejections (agent archived, no runtime) return
+//     the sentinel errors above. Callers (e.g. the Lark dispatcher)
+//     can errors.Is them to decide a user-visible outcome.
+//
+//   - Infrastructure failures (DB load / insert errors) are wrapped
+//     as ordinary errors. The caller should treat them as retryable
+//     or page-worthy, NOT as user-facing state.
+func (s *TaskService) EnqueueChatTask(ctx context.Context, chatSession db.ChatSession) (db.AgentTaskQueue, error) {
+
 	agent, err := s.Queries.GetAgent(ctx, chatSession.AgentID)
 	if err != nil {
 		slog.Error("chat task enqueue failed", "chat_session_id", util.UUIDToString(chatSession.ID), "error", err)
-		return db.MulticaAgentTaskQueue{}, fmt.Errorf("load agent: %w", err)
+		return db.AgentTaskQueue{}, fmt.Errorf("load agent: %w", err)
 	}
 	if agent.ArchivedAt.Valid {
-		return db.MulticaAgentTaskQueue{}, fmt.Errorf("agent is archived")
+		return db.AgentTaskQueue{}, ErrChatTaskAgentArchived
 	}
-	runtimeID, err := s.resolveRuntimeForAgent(ctx, agent, chatSession.WorkspaceID)
-	if err != nil {
-		return db.MulticaAgentTaskQueue{}, fmt.Errorf("resolve runtime: %w", err)
+	if !agent.RuntimeID.Valid {
+		return db.AgentTaskQueue{}, ErrChatTaskAgentNoRuntime
+
 	}
 
 	task, err := s.Queries.CreateChatTask(ctx, db.CreateChatTaskParams{
@@ -671,7 +785,7 @@ func (s *TaskService) EnqueueChatTask(ctx context.Context, chatSession db.Multic
 	})
 	if err != nil {
 		slog.Error("chat task enqueue failed", "chat_session_id", util.UUIDToString(chatSession.ID), "error", err)
-		return db.MulticaAgentTaskQueue{}, fmt.Errorf("create chat task: %w", err)
+		return db.AgentTaskQueue{}, fmt.Errorf("create chat task: %w", err)
 	}
 
 	slog.Info("chat task enqueued", "task_id", util.UUIDToString(task.ID), "chat_session_id", util.UUIDToString(chatSession.ID), "agent_id", util.UUIDToString(chatSession.AgentID))
@@ -709,7 +823,7 @@ func (s *TaskService) CancelTasksForIssue(ctx context.Context, issueID pgtype.UU
 // tasks" action — same shape as CancelTasksForIssue but scoped on agent_id.
 //
 // Returns the cancelled rows so callers can report counts / log them.
-func (s *TaskService) CancelTasksForAgent(ctx context.Context, agentID pgtype.UUID) ([]db.MulticaAgentTaskQueue, error) {
+func (s *TaskService) CancelTasksForAgent(ctx context.Context, agentID pgtype.UUID) ([]db.AgentTaskQueue, error) {
 	cancelled, err := s.Queries.CancelAgentTasksByAgent(ctx, agentID)
 	if err != nil {
 		return nil, err
@@ -748,7 +862,7 @@ func (s *TaskService) CancelTasksByTriggerComment(ctx context.Context, commentID
 // task:cancelled for every row. Callers must invoke this AFTER committing the
 // cancellation so subscribers don't observe a "cancelled" event for a row
 // that the tx might still roll back.
-func (s *TaskService) BroadcastCancelledTasks(ctx context.Context, cancelled []db.MulticaAgentTaskQueue) {
+func (s *TaskService) BroadcastCancelledTasks(ctx context.Context, cancelled []db.AgentTaskQueue) {
 	for _, t := range cancelled {
 		s.captureTaskCancelled(ctx, t)
 		s.ReconcileAgentStatus(ctx, t.AgentID)
@@ -756,7 +870,7 @@ func (s *TaskService) BroadcastCancelledTasks(ctx context.Context, cancelled []d
 	}
 }
 
-func (s *TaskService) CaptureCancelledTasks(ctx context.Context, cancelled []db.MulticaAgentTaskQueue) {
+func (s *TaskService) CaptureCancelledTasks(ctx context.Context, cancelled []db.AgentTaskQueue) {
 	for _, t := range cancelled {
 		s.captureTaskCancelled(ctx, t)
 	}
@@ -764,7 +878,7 @@ func (s *TaskService) CaptureCancelledTasks(ctx context.Context, cancelled []db.
 
 // CancelTask cancels a single task by ID. It broadcasts a task:cancelled event
 // so frontends can update immediately.
-func (s *TaskService) CancelTask(ctx context.Context, taskID pgtype.UUID) (*db.MulticaAgentTaskQueue, error) {
+func (s *TaskService) CancelTask(ctx context.Context, taskID pgtype.UUID) (*db.AgentTaskQueue, error) {
 	task, err := s.Queries.CancelAgentTask(ctx, taskID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		existing, err := s.Queries.GetAgentTask(ctx, taskID)
@@ -791,7 +905,7 @@ func (s *TaskService) CancelTask(ctx context.Context, taskID pgtype.UUID) (*db.M
 
 // ClaimTask atomically claims the next queued task for an agent,
 // respecting max_concurrent_tasks.
-func (s *TaskService) ClaimTask(ctx context.Context, agentID pgtype.UUID) (*db.MulticaAgentTaskQueue, error) {
+func (s *TaskService) ClaimTask(ctx context.Context, agentID pgtype.UUID) (*db.AgentTaskQueue, error) {
 	start := time.Now()
 	var (
 		outcome                                                              = "unknown"
@@ -863,7 +977,7 @@ func (s *TaskService) ClaimTask(ctx context.Context, agentID pgtype.UUID) (*db.M
 // without touching Postgres. The cache is invalidated synchronously on
 // every enqueue (notifyTaskAvailable), so a queued task becomes
 // claimable on the next call rather than waiting for the TTL.
-func (s *TaskService) ClaimTaskForRuntime(ctx context.Context, runtimeID pgtype.UUID) (*db.MulticaAgentTaskQueue, error) {
+func (s *TaskService) ClaimTaskForRuntime(ctx context.Context, runtimeID pgtype.UUID) (*db.AgentTaskQueue, error) {
 	start := time.Now()
 	var (
 		outcome          = "no_task"
@@ -940,7 +1054,7 @@ func (s *TaskService) ClaimTaskForRuntime(ctx context.Context, runtimeID pgtype.
 
 	loopStart := time.Now()
 	triedAgents := map[string]struct{}{}
-	var claimed *db.MulticaAgentTaskQueue
+	var claimed *db.AgentTaskQueue
 	for _, candidate := range tasks {
 		agentKey := util.UUIDToString(candidate.AgentID)
 		if _, seen := triedAgents[agentKey]; seen {
@@ -993,7 +1107,7 @@ func (s *TaskService) maybeLogClaimSlow(agentID pgtype.UUID, outcome string, sta
 
 // StartTask transitions a dispatched task to running.
 // Issue status is NOT changed here — the agent manages it via the CLI.
-func (s *TaskService) StartTask(ctx context.Context, taskID pgtype.UUID) (*db.MulticaAgentTaskQueue, error) {
+func (s *TaskService) StartTask(ctx context.Context, taskID pgtype.UUID) (*db.AgentTaskQueue, error) {
 	task, err := s.Queries.StartAgentTask(ctx, taskID)
 	if err != nil {
 		return nil, fmt.Errorf("start task: %w", err)
@@ -1002,12 +1116,37 @@ func (s *TaskService) StartTask(ctx context.Context, taskID pgtype.UUID) (*db.Mu
 	slog.Info("task started", "task_id", util.UUIDToString(task.ID), "issue_id", util.UUIDToString(task.IssueID))
 	s.captureTaskStarted(ctx, task)
 	// Tell every connected workspace WS client that this task transitioned
-	// dispatched → running. Without this, the workspace-wide
-	// `agentTaskSnapshot` query only refreshes on the 30s staleTime, so any
-	// UI that distinguishes "queued" from "running" (e.g. the issue-card
-	// agent activity indicator) lags by up to half a minute on the
-	// transition users care about most.
+	// (dispatched | waiting_local_directory) → running. Without this, the
+	// workspace-wide `agentTaskSnapshot` query only refreshes on the 30s
+	// staleTime, so any UI that distinguishes "queued" from "running" (e.g.
+	// the issue-card agent activity indicator) lags by up to half a minute
+	// on the transition users care about most.
 	s.broadcastTaskEvent(ctx, protocol.EventTaskRunning, task)
+	return &task, nil
+}
+
+// MarkTaskWaitingLocalDirectory parks a dispatched task in the
+// waiting_local_directory state while the daemon waits for another in-flight
+// task to release the project_resource path lock. reason carries a short
+// human-readable hint (typically the contested path) that the UI surfaces
+// next to the status. Returns the updated row so the daemon can confirm the
+// transition and so the broadcast carries the up-to-date snapshot.
+func (s *TaskService) MarkTaskWaitingLocalDirectory(ctx context.Context, taskID pgtype.UUID, reason string) (*db.AgentTaskQueue, error) {
+	reason = strings.TrimSpace(reason)
+	task, err := s.Queries.MarkAgentTaskWaitingLocalDirectory(ctx, db.MarkAgentTaskWaitingLocalDirectoryParams{
+		ID:         taskID,
+		WaitReason: pgtype.Text{String: reason, Valid: reason != ""},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("mark task waiting_local_directory: %w", err)
+	}
+
+	slog.Info("task waiting_local_directory",
+		"task_id", util.UUIDToString(task.ID),
+		"issue_id", util.UUIDToString(task.IssueID),
+		"reason", reason,
+	)
+	s.broadcastTaskEvent(ctx, protocol.EventTaskWaitingLocalDirectory, task)
 	return &task, nil
 }
 
@@ -1019,8 +1158,8 @@ func (s *TaskService) StartTask(ctx context.Context, taskID pgtype.UUID) (*db.Mu
 // queued chat message could be claimed in the window between the task
 // flipping to 'completed' and chat_session.session_id being refreshed,
 // causing the new task to resume against a stale (or NULL) session.
-func (s *TaskService) CompleteTask(ctx context.Context, taskID pgtype.UUID, result []byte, sessionID, workDir string) (*db.MulticaAgentTaskQueue, error) {
-	var task db.MulticaAgentTaskQueue
+func (s *TaskService) CompleteTask(ctx context.Context, taskID pgtype.UUID, result []byte, sessionID, workDir string) (*db.AgentTaskQueue, error) {
+	var task db.AgentTaskQueue
 	if err := s.runInTx(ctx, func(qtx *db.Queries) error {
 		t, err := qtx.CompleteAgentTask(ctx, db.CompleteAgentTaskParams{
 			ID:        taskID,
@@ -1202,9 +1341,25 @@ func (s *TaskService) CompleteTask(ctx context.Context, taskID pgtype.UUID, resu
 // chat turn would silently start a brand-new session and lose memory.
 //
 // failureReason is a coarse classifier consumed by the auto-retry path.
-// Pass "" when unknown (treated as 'agent_error').
-func (s *TaskService) FailTask(ctx context.Context, taskID pgtype.UUID, errMsg, sessionID, workDir, failureReason string) (*db.MulticaAgentTaskQueue, error) {
-	var task db.MulticaAgentTaskQueue
+// Pass "" when unknown — the server runs the raw error text through
+// taskfailure.Classify so the persisted failure_reason still lands in
+// the canonical refined taxonomy rather than the legacy "agent_error"
+// coarse bucket. Daemon callers that already produced a refined reason
+// (via classifyPoisonedError, the timeout / runtime classifier, etc.)
+// will have their value preserved untouched.
+func (s *TaskService) FailTask(ctx context.Context, taskID pgtype.UUID, errMsg, sessionID, workDir, failureReason string) (*db.AgentTaskQueue, error) {
+	// MUL-2946: synthesise a refined reason from the error text whenever the
+	// caller didn't supply one. This is the last write-path guard against
+	// "agent_error" coarse rows ending up in agent_task_queue.failure_reason
+	// — every other path either provides a classified reason directly
+	// (sweepers writing 'queued_expired' / 'runtime_offline' / 'timeout'
+	// / 'runtime_recovery' via SQL) or runs the daemon's classifyPoisonedError
+	// + taskfailure.Classify chain.
+	if failureReason == "" {
+		failureReason = taskfailure.Classify(errMsg).String()
+	}
+	var task db.AgentTaskQueue
+
 	if err := s.runInTx(ctx, func(qtx *db.Queries) error {
 		t, err := qtx.FailAgentTask(ctx, db.FailAgentTaskParams{
 			ID:            taskID,
@@ -1357,7 +1512,7 @@ func resumeUnsafeFailureReason(reason string) bool {
 //
 // Autopilot tasks are NOT auto-retried here; the autopilot scheduler owns
 // its own re-run cadence and we don't want to double-fire it.
-func (s *TaskService) MaybeRetryFailedTask(ctx context.Context, parent db.MulticaAgentTaskQueue) (*db.MulticaAgentTaskQueue, error) {
+func (s *TaskService) MaybeRetryFailedTask(ctx context.Context, parent db.AgentTaskQueue) (*db.AgentTaskQueue, error) {
 	if parent.Status != "failed" {
 		return nil, nil
 	}
@@ -1437,7 +1592,7 @@ func (s *TaskService) MaybeRetryFailedTask(ctx context.Context, parent db.Multic
 // Tasks owned by other agents on the same issue (e.g. a parallel
 // @-mention agent) are left alone — rerun must not collateral-cancel
 // them.
-func (s *TaskService) RerunIssue(ctx context.Context, issueID pgtype.UUID, sourceTaskID pgtype.UUID, triggerCommentID pgtype.UUID) (*db.MulticaAgentTaskQueue, error) {
+func (s *TaskService) RerunIssue(ctx context.Context, issueID pgtype.UUID, sourceTaskID pgtype.UUID, triggerCommentID pgtype.UUID) (*db.AgentTaskQueue, error) {
 	issue, err := s.Queries.GetIssue(ctx, issueID)
 	if err != nil {
 		return nil, fmt.Errorf("load issue: %w", err)
@@ -1522,7 +1677,7 @@ func (s *TaskService) RerunIssue(ctx context.Context, issueID pgtype.UUID, sourc
 // stays in sync; otherwise (squad member, prior assignee that has since been
 // reassigned, mention agent) we use the mention path with the same
 // force_fresh_session=true contract.
-func (s *TaskService) enqueueRerunTask(ctx context.Context, issue db.MulticaIssue, agentID pgtype.UUID, triggerCommentID pgtype.UUID, isLeader bool) (db.MulticaAgentTaskQueue, error) {
+func (s *TaskService) enqueueRerunTask(ctx context.Context, issue db.MulticaIssue, agentID pgtype.UUID, triggerCommentID pgtype.UUID, isLeader bool) (db.AgentTaskQueue, error) {
 	if issue.AssigneeType.String == "agent" && issue.AssigneeID.Valid &&
 		util.UUIDToString(issue.AssigneeID) == util.UUIDToString(agentID) {
 		return s.enqueueIssueTask(ctx, issue, triggerCommentID, true, pgtype.UUID{})
@@ -1539,7 +1694,7 @@ func (s *TaskService) enqueueRerunTask(ctx context.Context, issue db.MulticaIssu
 // All callers that surface a task as failed — sweepers, FailTask,
 // recover-orphans — funnel through here so the same UI-consistency
 // guarantees apply on every code path.
-func (s *TaskService) HandleFailedTasks(ctx context.Context, tasks []db.MulticaAgentTaskQueue) int {
+func (s *TaskService) HandleFailedTasks(ctx context.Context, tasks []db.AgentTaskQueue) int {
 	if len(tasks) == 0 {
 		return 0
 	}
@@ -1698,7 +1853,12 @@ func (s *TaskService) LoadAgentSkills(ctx context.Context, agentID pgtype.UUID) 
 
 	result := make([]AgentSkillData, 0, len(skills))
 	for _, sk := range skills {
-		data := AgentSkillData{Name: sk.Name, Description: sk.Description, Content: sk.Content}
+		data := AgentSkillData{
+			ID:          util.UUIDToString(sk.ID),
+			Name:        sk.Name,
+			Description: sk.Description,
+			Content:     sk.Content,
+		}
 		files, _ := s.Queries.ListSkillFiles(ctx, sk.ID)
 		for _, f := range files {
 			data.Files = append(data.Files, AgentSkillFileData{Path: f.Path, Content: f.Content})
@@ -1710,6 +1870,7 @@ func (s *TaskService) LoadAgentSkills(ctx context.Context, agentID pgtype.UUID) 
 
 // AgentSkillData represents a skill for task execution responses.
 type AgentSkillData struct {
+	ID          string               `json:"id"`
 	Name        string               `json:"name"`
 	Description string               `json:"description,omitempty"`
 	Content     string               `json:"content"`
@@ -1728,7 +1889,7 @@ type AgentSkillFileData struct {
 // "Failed after 12s". Uses created_at — not started_at — because users
 // experience total wait time, including queue + dispatch, not just the
 // daemon's actual run time.
-func computeChatElapsedMs(task db.MulticaAgentTaskQueue) pgtype.Int8 {
+func computeChatElapsedMs(task db.AgentTaskQueue) pgtype.Int8 {
 	if !task.CompletedAt.Valid || !task.CreatedAt.Valid {
 		return pgtype.Int8{}
 	}
@@ -1759,7 +1920,7 @@ func priorityToInt(p string) int32 {
 // row into agent_task_queue directly. Invalidates the empty-claim
 // cache and kicks the daemon WS so the new task is claimed without
 // waiting for the next poll.
-func (s *TaskService) NotifyTaskEnqueued(ctx context.Context, task db.MulticaAgentTaskQueue) {
+func (s *TaskService) NotifyTaskEnqueued(ctx context.Context, task db.AgentTaskQueue) {
 	s.captureTaskQueued(ctx, task)
 	s.notifyTaskAvailable(task)
 }
@@ -1771,7 +1932,7 @@ func (s *TaskService) NotifyTaskEnqueued(ctx context.Context, task db.MulticaAge
 // next poll. Order matters — Bump must happen before the wakeup,
 // otherwise the wakeup-driven claim could read the still-current
 // empty verdict and return null.
-func (s *TaskService) notifyTaskAvailable(task db.MulticaAgentTaskQueue) {
+func (s *TaskService) notifyTaskAvailable(task db.AgentTaskQueue) {
 	if !task.RuntimeID.Valid {
 		return
 	}
@@ -1789,7 +1950,7 @@ func (s *TaskService) notifyTaskAvailable(task db.MulticaAgentTaskQueue) {
 	s.Wakeup.NotifyTaskAvailable(runtimeKey, util.UUIDToString(task.ID))
 }
 
-func (s *TaskService) broadcastTaskDispatch(ctx context.Context, task db.MulticaAgentTaskQueue) {
+func (s *TaskService) broadcastTaskDispatch(ctx context.Context, task db.AgentTaskQueue) {
 	var payload map[string]any
 	if task.Context != nil {
 		json.Unmarshal(task.Context, &payload)
@@ -1821,7 +1982,7 @@ func (s *TaskService) broadcastTaskDispatch(ctx context.Context, task db.Multica
 	})
 }
 
-func (s *TaskService) broadcastTaskEvent(ctx context.Context, eventType string, task db.MulticaAgentTaskQueue) {
+func (s *TaskService) broadcastTaskEvent(ctx context.Context, eventType string, task db.AgentTaskQueue) {
 	workspaceID := s.ResolveTaskWorkspaceID(ctx, task)
 	if workspaceID == "" {
 		return
@@ -1848,7 +2009,7 @@ func (s *TaskService) broadcastTaskEvent(ctx context.Context, eventType string, 
 // For issue tasks, it comes from the issue. For chat tasks, from the chat session.
 // For autopilot tasks, from the autopilot via its run.
 // Returns "" when none of the links resolve — callers treat that as "not found".
-func (s *TaskService) ResolveTaskWorkspaceID(ctx context.Context, task db.MulticaAgentTaskQueue) string {
+func (s *TaskService) ResolveTaskWorkspaceID(ctx context.Context, task db.AgentTaskQueue) string {
 	if task.IssueID.Valid {
 		if issue, err := s.Queries.GetIssue(ctx, task.IssueID); err == nil {
 			return util.UUIDToString(issue.WorkspaceID)
@@ -1887,7 +2048,7 @@ func (s *TaskService) ResolveTaskWorkspaceID(ctx context.Context, task db.Multic
 	return ""
 }
 
-func (s *TaskService) broadcastChatDone(ctx context.Context, task db.MulticaAgentTaskQueue, msg *db.MulticaChatMessage) {
+func (s *TaskService) broadcastChatDone(ctx context.Context, task db.AgentTaskQueue, msg *db.MulticaChatMessage) {
 	workspaceID := s.ResolveTaskWorkspaceID(ctx, task)
 	if workspaceID == "" {
 		return
@@ -1944,21 +2105,17 @@ func (s *TaskService) createAgentComment(ctx context.Context, issueID, agentID p
 	if err != nil {
 		return
 	}
-	// Resolve thread root: if parentID points to a reply (has its own parent),
-	// use that parent instead so the comment lands in the top-level thread.
-	// rootComment captures the root row so we can auto-unresolve it after the
-	// reply is committed (see AutoUnresolveThreadOnReply).
-	var rootComment *db.MulticaComment
+	// Resolve the thread root for thread-level side effects without overwriting
+	// parentID. The stored parent_id must remain the exact comment being replied
+	// to; recursive thread reads recover the root when needed.
+	var rootComment *db.Comment
+
 	if parentID.Valid {
-		if parent, err := s.Queries.GetComment(ctx, parentID); err == nil {
-			if parent.ParentID.Valid {
-				if root, err := s.Queries.GetComment(ctx, parent.ParentID); err == nil {
-					rootComment = &root
-					parentID = root.ID
-				}
-			} else {
-				rootComment = &parent
-			}
+		if root, err := s.Queries.GetThreadRoot(ctx, db.GetThreadRootParams{
+			CommentID:   parentID,
+			WorkspaceID: issue.WorkspaceID,
+		}); err == nil {
+			rootComment = &root
 		}
 	}
 	// Expand bare issue identifiers (e.g. MUL-117) into mention links.
@@ -2053,8 +2210,8 @@ func issueToMap(issue db.MulticaIssue, issuePrefix string) map[string]any {
 		"creator_id":      util.UUIDToString(issue.CreatorID),
 		"parent_issue_id": util.UUIDToPtr(issue.ParentIssueID),
 		"position":        issue.Position,
-		"start_date":      util.TimestampToPtr(issue.StartDate),
-		"due_date":        util.TimestampToPtr(issue.DueDate),
+		"start_date":      util.DateToPtr(issue.StartDate),
+		"due_date":        util.DateToPtr(issue.DueDate),
 		"created_at":      util.TimestampToString(issue.CreatedAt),
 		"updated_at":      util.TimestampToString(issue.UpdatedAt),
 	}
@@ -2065,7 +2222,7 @@ func issueToMap(issue db.MulticaIssue, issuePrefix string) map[string]any {
 // false so callers can short-circuit. Tasks linked to an issue / chat /
 // autopilot are never quick-create even if they happen to carry a
 // context blob, so those are filtered up front.
-func (s *TaskService) parseQuickCreateContext(task db.MulticaAgentTaskQueue) (QuickCreateContext, bool) {
+func (s *TaskService) parseQuickCreateContext(task db.AgentTaskQueue) (QuickCreateContext, bool) {
 	if task.IssueID.Valid || task.ChatSessionID.Valid || task.AutopilotRunID.Valid {
 		return QuickCreateContext{}, false
 	}
@@ -2089,7 +2246,7 @@ func (s *TaskService) parseQuickCreateContext(task db.MulticaAgentTaskQueue) (Qu
 // deterministic — robust against the same agent creating other issues in
 // parallel (e.g. assignment task running while max_concurrent_tasks > 1
 // permits another quick-create alongside it).
-func (s *TaskService) notifyQuickCreateCompleted(ctx context.Context, task db.MulticaAgentTaskQueue, qc QuickCreateContext) {
+func (s *TaskService) notifyQuickCreateCompleted(ctx context.Context, task db.AgentTaskQueue, qc QuickCreateContext) {
 	requesterID, err := util.ParseUUID(qc.RequesterID)
 	if err != nil {
 		slog.Warn("quick-create completion: invalid requester id", "task_id", util.UUIDToString(task.ID), "error", err)
@@ -2198,7 +2355,7 @@ func (s *TaskService) notifyQuickCreateCompleted(ctx context.Context, task db.Mu
 // original prompt + agent ID so the frontend can render an "Edit as
 // advanced form" entry that pre-fills the legacy create-issue modal
 // without asking the user to retype.
-func (s *TaskService) notifyQuickCreateFailed(ctx context.Context, task db.MulticaAgentTaskQueue, qc QuickCreateContext, errMsg string) {
+func (s *TaskService) notifyQuickCreateFailed(ctx context.Context, task db.AgentTaskQueue, qc QuickCreateContext, errMsg string) {
 	requesterID, err := util.ParseUUID(qc.RequesterID)
 	if err != nil {
 		return

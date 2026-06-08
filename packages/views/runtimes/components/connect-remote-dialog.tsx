@@ -7,6 +7,7 @@ import { useWorkspaceId } from "@multica/core/hooks";
 import { runtimeKeys } from "@multica/core/runtimes/queries";
 import { useWSEvent } from "@multica/core/realtime";
 import { paths, useWorkspaceSlug } from "@multica/core/paths";
+import { useConfigStore } from "@multica/core/config";
 import {
   Dialog,
   DialogContent,
@@ -16,19 +17,43 @@ import {
   DialogTitle,
 } from "@multica/ui/components/ui/dialog";
 import { Button } from "@multica/ui/components/ui/button";
+import { CODE_LIGATURE_CLASS } from "@multica/ui/lib/code-style";
+import { copyText } from "@multica/ui/lib/clipboard";
+import { cn } from "@multica/ui/lib/utils";
 import { useNavigation } from "../../navigation";
 import { useT } from "../../i18n";
-import { useConfigStore } from "@multica/core/config";
 
 type Step = "instructions" | "success";
 
 const INSTALL_CMD =
-  "curl -fsSL https://raw.githubusercontent.com/Askhz/multica/main/scripts/install.sh | bash";
+  "curl -fsSL https://raw.githubusercontent.com/multica-ai/multica/main/scripts/install.sh | bash";
+const CLOUD_SERVER_URL = "https://api.multica.ai";
+const CLOUD_APP_URL = "https://multica.ai";
 
-function makeTokenCmd(serverUrl: string) {
-  return `multica config set server_url ${serverUrl || "https://api.multica.ai"}
+function normalizeCommandURL(url: string | undefined) {
+  return url?.trim().replace(/\/+$/, "") ?? "";
+}
+
+function daemonCommands(serverUrl: string | undefined, appUrl: string | undefined) {
+  const normalizedServerUrl = normalizeCommandURL(serverUrl);
+  const normalizedAppUrl = normalizeCommandURL(appUrl);
+  if (normalizedServerUrl && normalizedAppUrl) {
+    return {
+      setupCmd: `multica setup self-host --server-url ${normalizedServerUrl} --app-url ${normalizedAppUrl}`,
+      tokenCmd: `multica config set server_url ${normalizedServerUrl}
+multica config set app_url ${normalizedAppUrl}
 multica login --token <YOUR_TOKEN>
-multica daemon start`;
+multica daemon start`,
+    };
+  }
+
+  return {
+    setupCmd: "multica setup",
+    tokenCmd: `multica config set server_url ${CLOUD_SERVER_URL}
+multica config set app_url ${CLOUD_APP_URL}
+multica login --token <YOUR_TOKEN>
+multica daemon start`,
+  };
 }
 
 export function ConnectRemoteDialog({ onClose }: { onClose: () => void }) {
@@ -100,8 +125,9 @@ function CopyButton({ text, ariaLabel }: { text: string; ariaLabel: string }) {
   }, [copied]);
 
   const handleCopy = () => {
-    navigator.clipboard.writeText(text);
-    setCopied(true);
+    void copyText(text).then((ok) => {
+      if (ok) setCopied(true);
+    });
   };
 
   return (
@@ -141,7 +167,12 @@ function CommandStep({
           className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground"
           aria-hidden
         />
-        <code className="min-w-0 flex-1 break-all whitespace-pre-wrap tabular-nums">
+        <code
+          className={cn(
+            "min-w-0 flex-1 break-all whitespace-pre-wrap tabular-nums",
+            CODE_LIGATURE_CLASS,
+          )}
+        >
           {cmd}
         </code>
         <CopyButton text={cmd} ariaLabel={copyAria} />
@@ -156,8 +187,9 @@ function CommandStep({
 
 function InstructionsStep({ onClose }: { onClose: () => void }) {
   const { t } = useT("runtimes");
-  const serverUrl = useConfigStore((s) => s.serverUrl);
-  const tokenCmd = makeTokenCmd(serverUrl);
+  const daemonServerUrl = useConfigStore((s) => s.daemonServerUrl);
+  const daemonAppUrl = useConfigStore((s) => s.daemonAppUrl);
+  const { setupCmd, tokenCmd } = daemonCommands(daemonServerUrl, daemonAppUrl);
   return (
     <>
       <DialogHeader className="px-6 pt-6 pb-2">
@@ -178,14 +210,21 @@ function InstructionsStep({ onClose }: { onClose: () => void }) {
             copyAria={t(($) => $.connect.copy_aria)}
           />
 
-          <CommandStep
-            n={2}
-            label={t(($) => $.connect.step2_label)}
-            cmd={tokenCmd}
-            copyAria={t(($) => $.connect.copy_aria)}
-          />
+          <div>
+            <CommandStep
+              n={2}
+              label={t(($) => $.connect.step2_label)}
+              cmd={setupCmd}
+              copyAria={t(($) => $.connect.copy_aria)}
+            />
+            <p className="mt-1.5 text-[11px] leading-[1.55] text-muted-foreground">
+              {t(($) => $.connect.step2_hint)}
+            </p>
+          </div>
 
           <LiveListening />
+
+          <TroubleshootingDetails tokenCmd={tokenCmd} />
         </div>
       </div>
 
@@ -195,6 +234,65 @@ function InstructionsStep({ onClose }: { onClose: () => void }) {
         </Button>
       </DialogFooter>
     </>
+  );
+}
+
+function TroubleshootingDetails({ tokenCmd }: { tokenCmd: string }) {
+  const { t } = useT("runtimes");
+  return (
+    <details className="group rounded-lg border border-dashed">
+      <summary className="flex cursor-pointer list-none items-center gap-1.5 px-3 py-2 text-xs font-medium text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+        <ChevronRight
+          className="h-3 w-3 transition-transform group-open:rotate-90"
+          aria-hidden
+        />
+        {t(($) => $.connect.troubleshooting)}
+      </summary>
+      <div className="space-y-2 border-t px-3 pt-2.5 pb-3 text-[11px] leading-[1.55] text-muted-foreground">
+        <p>{t(($) => $.connect.trouble_intro)}</p>
+        <CommandStep
+          n={2}
+          label={t(($) => $.connect.step2_label)}
+          cmd={tokenCmd}
+          copyAria={t(($) => $.connect.copy_aria)}
+        />
+        <p>
+          {t(($) => $.connect.trouble_token_hint_prefix)}
+          <span className="font-medium text-foreground">
+            {t(($) => $.connect.trouble_token_hint_destination)}
+          </span>
+          {t(($) => $.connect.trouble_token_hint_suffix)}
+        </p>
+        <ul className="space-y-1">
+          <li className="flex items-center gap-1.5">
+            <span>{t(($) => $.connect.trouble_check_status)}</span>
+            {/* CLI command — literal shell string, not i18n content. */}
+            {/* eslint-disable-next-line i18next/no-literal-string */}
+            <code
+              className={cn(
+                "rounded bg-muted px-1.5 py-0.5 font-mono text-[10px] text-foreground",
+                CODE_LIGATURE_CLASS,
+              )}
+            >
+              {"multica daemon status"}
+            </code>
+          </li>
+          <li className="flex items-center gap-1.5">
+            <span>{t(($) => $.connect.trouble_view_logs)}</span>
+            {/* CLI command — literal shell string, not i18n content. */}
+            {/* eslint-disable-next-line i18next/no-literal-string */}
+            <code
+              className={cn(
+                "rounded bg-muted px-1.5 py-0.5 font-mono text-[10px] text-foreground",
+                CODE_LIGATURE_CLASS,
+              )}
+            >
+              {"multica daemon logs -f"}
+            </code>
+          </li>
+        </ul>
+      </div>
+    </details>
   );
 }
 

@@ -29,7 +29,7 @@ RETURNING id;
 
 -- name: AttachLabelToIssue :exec
 -- Workspace-guarded INSERT: the WHERE EXISTS clauses ensure both the multica_issue
--- and the label belong to the given multica_workspace. A future caller that forgets
+-- and the multica_label belong to the given multica_workspace. A future caller that forgets
 -- handler-level prechecks still cannot attach labels across workspaces.
 INSERT INTO multica_issue_to_label (issue_id, label_id)
 SELECT sqlc.arg('issue_id')::uuid, sqlc.arg('label_id')::uuid

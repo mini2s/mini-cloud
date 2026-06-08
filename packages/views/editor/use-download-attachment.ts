@@ -3,10 +3,39 @@
 import { useCallback } from "react";
 import { toast } from "sonner";
 import { api } from "@multica/core/api";
+import { useWorkspaceSlug } from "@multica/core/paths";
+import { resolvePublicFileUrl } from "@multica/core/workspace/avatar-url";
 import { useT } from "../i18n";
 
 interface DesktopBridge {
   downloadURL?: (u: string) => Promise<void> | void;
+}
+
+function attachmentDownloadEndpoint(
+  attachmentId: string,
+  workspaceSlug: string,
+): string {
+  const params = new URLSearchParams({ workspace_slug: workspaceSlug });
+  const path = `/api/attachments/${encodeURIComponent(attachmentId)}/download`;
+  const endpoint = `${path}?${params.toString()}`;
+  return resolvePublicFileUrl(endpoint) ?? endpoint;
+}
+
+function triggerBrowserDownload(url: string): void {
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  // Keep the click in the current browsing context. For same-origin API
+  // downloads this hint lets Chromium/Safari use Content-Disposition's
+  // filename without opening a blank tab. If the endpoint later 302s to
+  // CloudFront/S3, the server signs that redirect with an attachment
+  // disposition; the browser follows it natively without buffering the file
+  // into JS memory.
+  anchor.download = "";
+  anchor.rel = "noopener";
+  anchor.style.display = "none";
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
 }
 
 // Detected at call time, not module load — the bridge is injected by the
@@ -19,20 +48,18 @@ function hasDesktopDownloadBridge(): boolean {
 }
 
 /**
- * Returns a callback that downloads an attachment by ID through a freshly
- * signed CloudFront URL. The server re-signs `download_url` on every
- * `GET /api/attachments/{id}` call, so this flow sidesteps stale signatures
- * cached in TanStack Query / inlined in markdown.
+ * Returns a callback that downloads an attachment by ID. The Web path uses
+ * the unified server endpoint directly instead of opening a blank tab or
+ * materializing the file as a Blob in renderer memory.
  *
  * Two execution shapes, picked at call time:
  *
- * - **Web**: open a same-origin `about:blank` tab *synchronously* inside
- *   the click handler — popup blockers (Safari especially) only consider
- *   the gesture frame, not the later async settle. The placeholder tab
- *   keeps the user activation receipt; after the fetch resolves we navigate
- *   it. We can NOT pass `"noopener"` to `window.open` because the HTML
- *   spec (`dom-open` step 17) makes that return `null`, which would leave
- *   us nothing to navigate. We disown the opener manually after the fetch.
+ * - **Web**: first refreshes attachment metadata for the existing error
+ *   feedback path, then clicks a temporary same-origin
+ *   `/api/attachments/{id}/download?workspace_slug=...` anchor. The backend
+ *   endpoint owns CloudFront / S3 presign / proxy selection and download
+ *   Content-Disposition, so large files stay in the browser's native download
+ *   pipeline.
  *
  * - **Desktop**: uses `desktopAPI.downloadURL()` which invokes Electron's
  *   native `webContents.downloadURL()`, showing a save dialog and saving
@@ -42,6 +69,7 @@ function hasDesktopDownloadBridge(): boolean {
  */
 export function useDownloadAttachment(): (attachmentId: string) => Promise<void> {
   const { t } = useT("editor");
+  const workspaceSlug = useWorkspaceSlug();
   return useCallback(
     async (attachmentId: string) => {
       const failed = () => toast.error(t(($) => $.attachment.download_failed));
@@ -49,43 +77,51 @@ export function useDownloadAttachment(): (attachmentId: string) => Promise<void>
       if (hasDesktopDownloadBridge()) {
         try {
           const fresh = await api.getAttachment(attachmentId);
-          if (!fresh.download_url) {
+          // Server may return a server-relative `download_url`
+          // (`/api/attachments/{id}/download`) when no CloudFront
+          // signer is configured — the unified download endpoint chooses
+          // CloudFront/presign/proxy at request time. Electron's main-side
+          // `downloadURLSafely` requires `new URL()` to parse to http/https,
+          // so resolve against the configured API base before we cross the
+          // bridge. Absolute URLs (legacy CloudFront / S3 presigned) pass
+          // through unchanged.
+          const downloadUrl = resolvePublicFileUrl(fresh.download_url);
+          if (!downloadUrl) {
             failed();
             return;
           }
           const bridge = (
             window as unknown as { desktopAPI?: DesktopBridge }
           ).desktopAPI;
-          await bridge!.downloadURL!(fresh.download_url);
+          await bridge!.downloadURL!(downloadUrl);
         } catch {
           failed();
         }
         return;
       }
 
-      // Web: use a transient <a> tag to trigger the download / open.
-      // This avoids the about:blank navigation issue where some browsers
-      // silently drop an async location.href assignment on a placeholder
-      // window, leaving the user staring at a blank tab.
       try {
-        const fresh = await api.getAttachment(attachmentId);
-        if (!fresh.download_url) {
+        // Keep the preflight metadata request so permission/API failures still
+        // produce the existing toast instead of a silent failed navigation. Do
+        // not use `download_url` here: in CloudFront mode it may already be a
+        // signed CDN URL, while the unified endpoint is the stable browser
+        // entry point that chooses cloudfront / presign / proxy server-side.
+        await api.getAttachment(attachmentId);
+        if (typeof document === "undefined") {
           failed();
           return;
         }
-        const a = document.createElement("a");
-        a.href = fresh.download_url;
-        a.download = fresh.filename || "";
-        a.target = "_blank";
-        a.rel = "noopener noreferrer";
-        a.style.display = "none";
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
+        if (!workspaceSlug) {
+          failed();
+          return;
+        }
+        triggerBrowserDownload(
+          attachmentDownloadEndpoint(attachmentId, workspaceSlug),
+        );
       } catch {
         failed();
       }
     },
-    [t],
+    [t, workspaceSlug],
   );
 }

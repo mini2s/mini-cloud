@@ -52,6 +52,9 @@ export interface Issue {
   origin_type?: string | null;
   origin_id?: string | null;
   position: number;
+  // Calendar days as date-only "YYYY-MM-DD" (no time, no timezone). Use the
+  // helpers in @multica/core/issues/date to format/compare — never `new Date()`
+  // + local formatting, which shifts the day by the viewer's offset.
   start_date: string | null;
   due_date: string | null;
   metadata: IssueMetadata;

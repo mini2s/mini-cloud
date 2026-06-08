@@ -2,7 +2,7 @@
 -- involves_user_id widens the assignee filter to surface issues where the user
 -- is *indirectly* the assignee — via an owned multica_agent or a multica_squad they belong to /
 -- lead / have an multica_agent inside. The semantics intentionally exclude direct
--- multica_member assignment (`assignee_type='member' AND assignee_id=involves_user_id`)
+-- multica_member assignment (`assignee_type='multica_member' AND assignee_id=involves_user_id`)
 -- because that is already the meaning of the `assignee_id` filter (tab 1
 -- "Assigned to me"), and the two filters must produce disjoint result sets.
 SELECT i.id, i.workspace_id, i.title, i.description, i.status, i.priority,
@@ -21,19 +21,19 @@ WHERE i.workspace_id = $1
   AND (
     sqlc.narg('involves_user_id')::uuid IS NULL
     -- (1) assignee is an multica_agent owned by the user
-    OR (i.assignee_type = 'agent' AND i.assignee_id IN (
+    OR (i.assignee_type = 'multica_agent' AND i.assignee_id IN (
           SELECT a.id FROM multica_agent a
            WHERE a.workspace_id = $1
              AND a.owner_id     = sqlc.narg('involves_user_id')::uuid
     ))
     -- (2)(3)(4) assignee is a multica_squad related to the user — three relations
-    OR (i.assignee_type = 'squad' AND i.assignee_id IN (
+    OR (i.assignee_type = 'multica_squad' AND i.assignee_id IN (
           -- (2) the user is a human multica_member of the multica_squad
           SELECT sm.squad_id
             FROM multica_squad_member sm
             JOIN multica_squad s ON s.id = sm.squad_id
            WHERE s.workspace_id = $1
-             AND sm.member_type = 'member'
+             AND sm.member_type = 'multica_member'
              AND sm.member_id   = sqlc.narg('involves_user_id')::uuid
           UNION
           -- (3) the multica_squad's canonical leader is an multica_agent owned by the user.
@@ -53,7 +53,7 @@ WHERE i.workspace_id = $1
             JOIN multica_squad s ON s.id = sm.squad_id
             JOIN multica_agent a ON a.id = sm.member_id
            WHERE s.workspace_id = $1
-             AND sm.member_type = 'agent'
+             AND sm.member_type = 'multica_agent'
              AND a.workspace_id = $1
              AND a.owner_id     = sqlc.narg('involves_user_id')::uuid
     ))
@@ -161,17 +161,17 @@ WHERE i.workspace_id = $1
   AND (sqlc.narg('metadata_filter')::jsonb IS NULL OR i.metadata @> sqlc.narg('metadata_filter')::jsonb)
   AND (
     sqlc.narg('involves_user_id')::uuid IS NULL
-    OR (i.assignee_type = 'agent' AND i.assignee_id IN (
+    OR (i.assignee_type = 'multica_agent' AND i.assignee_id IN (
           SELECT a.id FROM multica_agent a
            WHERE a.workspace_id = $1
              AND a.owner_id     = sqlc.narg('involves_user_id')::uuid
     ))
-    OR (i.assignee_type = 'squad' AND i.assignee_id IN (
+    OR (i.assignee_type = 'multica_squad' AND i.assignee_id IN (
           SELECT sm.squad_id
             FROM multica_squad_member sm
             JOIN multica_squad s ON s.id = sm.squad_id
            WHERE s.workspace_id = $1
-             AND sm.member_type = 'member'
+             AND sm.member_type = 'multica_member'
              AND sm.member_id   = sqlc.narg('involves_user_id')::uuid
           UNION
           SELECT s.id
@@ -186,7 +186,7 @@ WHERE i.workspace_id = $1
             JOIN multica_squad s ON s.id = sm.squad_id
             JOIN multica_agent a ON a.id = sm.member_id
            WHERE s.workspace_id = $1
-             AND sm.member_type = 'agent'
+             AND sm.member_type = 'multica_agent'
              AND a.workspace_id = $1
              AND a.owner_id     = sqlc.narg('involves_user_id')::uuid
     ))
@@ -207,17 +207,17 @@ WHERE i.workspace_id = $1
   AND (sqlc.narg('metadata_filter')::jsonb IS NULL OR i.metadata @> sqlc.narg('metadata_filter')::jsonb)
   AND (
     sqlc.narg('involves_user_id')::uuid IS NULL
-    OR (i.assignee_type = 'agent' AND i.assignee_id IN (
+    OR (i.assignee_type = 'multica_agent' AND i.assignee_id IN (
           SELECT a.id FROM multica_agent a
            WHERE a.workspace_id = $1
              AND a.owner_id     = sqlc.narg('involves_user_id')::uuid
     ))
-    OR (i.assignee_type = 'squad' AND i.assignee_id IN (
+    OR (i.assignee_type = 'multica_squad' AND i.assignee_id IN (
           SELECT sm.squad_id
             FROM multica_squad_member sm
             JOIN multica_squad s ON s.id = sm.squad_id
            WHERE s.workspace_id = $1
-             AND sm.member_type = 'member'
+             AND sm.member_type = 'multica_member'
              AND sm.member_id   = sqlc.narg('involves_user_id')::uuid
           UNION
           SELECT s.id
@@ -232,7 +232,7 @@ WHERE i.workspace_id = $1
             JOIN multica_squad s ON s.id = sm.squad_id
             JOIN multica_agent a ON a.id = sm.member_id
            WHERE s.workspace_id = $1
-             AND sm.member_type = 'agent'
+             AND sm.member_type = 'multica_agent'
              AND a.workspace_id = $1
              AND a.owner_id     = sqlc.narg('involves_user_id')::uuid
     ))
@@ -242,6 +242,17 @@ WHERE i.workspace_id = $1
 SELECT * FROM multica_issue
 WHERE parent_issue_id = $1
 ORDER BY position ASC, created_at DESC;
+
+-- name: ListChildrenByParents :many
+-- Batched variant of ListChildIssues: returns all children for the given
+-- parent set in one round trip. Used by Swimlane to avoid an N+1 fan-out
+-- (one request per visible parent lane). Result is grouped client-side by
+-- parent_issue_id; the multica_workspace filter is also enforced so callers can't
+-- enumerate children of parents in workspaces they don't belong to.
+SELECT * FROM multica_issue
+WHERE workspace_id = sqlc.arg('workspace_id')
+  AND parent_issue_id = ANY(sqlc.arg('parent_ids')::uuid[])
+ORDER BY parent_issue_id, position ASC, created_at DESC;
 
 -- name: GetIssueByOrigin :one
 -- Finds the multica_issue stamped with a specific (origin_type, origin_id) pair.
@@ -264,7 +275,7 @@ SELECT
 FROM multica_issue
 WHERE workspace_id = $1
   AND creator_id = $2
-  AND creator_type = 'member'
+  AND creator_type = 'multica_member'
   AND assignee_type IS NOT NULL
   AND assignee_id IS NOT NULL
 GROUP BY assignee_type, assignee_id;

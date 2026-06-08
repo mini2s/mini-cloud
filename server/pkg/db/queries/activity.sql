@@ -21,7 +21,7 @@ SELECT EXISTS (
   SELECT 1
   FROM multica_activity_log
   WHERE issue_id = @issue_id
-    AND actor_type = 'agent'
+    AND actor_type = 'multica_agent'
     AND actor_id = @agent_id
     AND action = 'squad_leader_evaluated'
     AND details->>'outcome' = 'no_action'
@@ -37,7 +37,7 @@ SELECT
 FROM multica_activity_log
 WHERE workspace_id = $1
   AND actor_id = $2
-  AND actor_type = 'member'
+  AND actor_type = 'multica_member'
   AND action = 'assignee_changed'
   AND details->>'to_type' IS NOT NULL
   AND details->>'to_id' IS NOT NULL

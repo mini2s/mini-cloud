@@ -64,11 +64,12 @@ WHERE id = $1;
 -- name: CreateAutopilotTrigger :one
 INSERT INTO multica_autopilot_trigger (
     autopilot_id, kind, enabled, cron_expression, timezone,
-    next_run_at, webhook_token, label, provider
+    next_run_at, webhook_token, multica_label, provider, event_filters
 ) VALUES (
     $1, $2, $3, sqlc.narg('cron_expression'), sqlc.narg('timezone'),
-    sqlc.narg('next_run_at'), sqlc.narg('webhook_token'), sqlc.narg('label'),
-    COALESCE(sqlc.narg('provider')::text, 'generic')
+    sqlc.narg('next_run_at'), sqlc.narg('webhook_token'), sqlc.narg('multica_label'),
+    COALESCE(sqlc.narg('provider')::text, 'generic'),
+    sqlc.narg('event_filters')
 ) RETURNING *;
 
 -- name: UpdateAutopilotTrigger :one
@@ -77,7 +78,8 @@ UPDATE multica_autopilot_trigger SET
     cron_expression = COALESCE(sqlc.narg('cron_expression'), cron_expression),
     timezone = COALESCE(sqlc.narg('timezone'), timezone),
     next_run_at = sqlc.narg('next_run_at'),
-    label = COALESCE(sqlc.narg('label'), label),
+    multica_label = COALESCE(sqlc.narg('multica_label'), multica_label),
+    event_filters = COALESCE(sqlc.narg('event_filters'), event_filters),
     updated_at = now()
 WHERE id = $1
 RETURNING *;
@@ -156,7 +158,7 @@ RETURNING *;
 
 -- name: CreateAutopilotRun :one
 -- squad_id is an attribution hook: set to the assignee multica_squad when the
--- parent multica_autopilot has assignee_type='squad', NULL otherwise. The executing
+-- parent multica_autopilot has assignee_type='multica_squad', NULL otherwise. The executing
 -- agent_id on multica_agent_task_queue still records who actually ran the work
 -- (the multica_squad leader); squad_id lets reports group by multica_squad without a join.
 INSERT INTO multica_autopilot_run (

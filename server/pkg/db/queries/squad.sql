@@ -12,6 +12,36 @@ SELECT * FROM multica_squad WHERE id = $1 AND workspace_id = $2;
 -- name: ListSquads :many
 SELECT * FROM multica_squad WHERE workspace_id = $1 AND archived_at IS NULL ORDER BY created_at ASC;
 
+-- name: ListSquadMemberPreviewRows :many
+-- Static multica_squad membership summary for list/hover previews. This deliberately
+-- excludes derived runtime/task status; the multica_squad detail members-status
+-- endpoint owns live state.
+SELECT
+    sm.squad_id,
+    sm.member_type,
+    sm.member_id,
+    sm.role
+FROM multica_squad_member sm
+JOIN multica_squad s ON s.id = sm.squad_id
+WHERE s.workspace_id = $1 AND s.archived_at IS NULL
+ORDER BY
+    sm.squad_id ASC,
+    (sm.member_type = 'multica_agent' AND sm.member_id = s.leader_id) DESC,
+    sm.created_at ASC;
+
+-- name: ListSquadMemberPreviewRowsBySquad :many
+SELECT
+    sm.squad_id,
+    sm.member_type,
+    sm.member_id,
+    sm.role
+FROM multica_squad_member sm
+JOIN multica_squad s ON s.id = sm.squad_id
+WHERE sm.squad_id = $1
+ORDER BY
+    (sm.member_type = 'multica_agent' AND sm.member_id = s.leader_id) DESC,
+    sm.created_at ASC;
+
 -- name: ListAllSquads :many
 SELECT * FROM multica_squad WHERE workspace_id = $1 ORDER BY created_at ASC;
 
@@ -70,8 +100,8 @@ ORDER BY s.created_at ASC;
 
 -- name: TransferSquadAssignees :exec
 -- Transfer all issues assigned to a multica_squad to the multica_squad's leader multica_agent.
-UPDATE multica_issue SET assignee_type = 'agent', assignee_id = $2, updated_at = now()
-WHERE assignee_type = 'squad' AND assignee_id = $1;
+UPDATE multica_issue SET assignee_type = 'multica_agent', assignee_id = $2, updated_at = now()
+WHERE assignee_type = 'multica_squad' AND assignee_id = $1;
 
 -- name: TransferSquadAutopilotsToLeader :exec
 -- Mirrors TransferSquadAssignees for multica_autopilot rows: when a multica_squad is archived,
@@ -81,10 +111,10 @@ WHERE assignee_type = 'squad' AND assignee_id = $1;
 -- the multica_autopilot keeps firing under the same leader-only execution semantics
 -- it had a moment before the archive (Path A from MUL-2429).
 UPDATE multica_autopilot
-SET assignee_type = 'agent',
+SET assignee_type = 'multica_agent',
     assignee_id = $2,
     updated_at = now()
-WHERE assignee_type = 'squad' AND assignee_id = $1;
+WHERE assignee_type = 'multica_squad' AND assignee_id = $1;
 
 -- name: ListSquadMemberStatusRows :many
 -- Per-row join used to build the multica_squad-members status view. One row per
@@ -108,13 +138,13 @@ SELECT
     i.status           AS issue_status
 FROM multica_squad_member sm
 LEFT JOIN multica_agent a
-       ON sm.member_type = 'agent' AND a.id = sm.member_id
+       ON sm.member_type = 'multica_agent' AND a.id = sm.member_id
 LEFT JOIN multica_agent_runtime ar
        ON ar.id = a.runtime_id
 LEFT JOIN multica_agent_task_queue atq
-       ON sm.member_type = 'agent'
+       ON sm.member_type = 'multica_agent'
       AND atq.agent_id = sm.member_id
-      AND atq.status IN ('dispatched', 'running')
+      AND atq.status IN ('dispatched', 'running', 'waiting_local_directory')
 LEFT JOIN multica_issue i
        ON i.id = atq.issue_id
 WHERE sm.squad_id = $1

@@ -18,10 +18,18 @@ WHERE id = $1 AND workspace_id = $2;
 
 -- name: CreateProjectResource :one
 INSERT INTO multica_project_resource (
-    project_id, workspace_id, resource_type, resource_ref, label, position, created_by
+    project_id, workspace_id, resource_type, resource_ref, multica_label, position, created_by
 ) VALUES (
     $1, $2, $3, $4, $5, $6, $7
 ) RETURNING *;
+
+-- name: UpdateProjectResource :one
+UPDATE multica_project_resource
+SET resource_ref = $2,
+    multica_label        = $3,
+    position     = $4
+WHERE id = $1
+RETURNING *;
 
 -- name: DeleteProjectResource :exec
 DELETE FROM multica_project_resource WHERE id = $1;
