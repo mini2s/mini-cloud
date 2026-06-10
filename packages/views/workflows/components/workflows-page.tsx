@@ -13,6 +13,16 @@ import { Skeleton } from "@multica/ui/components/ui/skeleton";
 import { Button } from "@multica/ui/components/ui/button";
 import { Badge } from "@multica/ui/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader } from "@multica/ui/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@multica/ui/components/ui/alert-dialog";
 import { ReactFlowProvider } from "@xyflow/react";
 import { DAGCanvas } from "./dag-canvas";
 import { cn } from "@multica/ui/lib/utils";
@@ -51,6 +61,7 @@ function WorkflowRow({ workflow }: { workflow: Workflow }) {
   const status = (workflow.status as WorkflowStatus) || "draft";
   const Icon = STATUS_ICON[status] ?? FileText;
   const deleteWorkflow = useDeleteWorkflow(wsId);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
 
   const { data: nodes = [] } = useQuery({
     ...workflowNodesOptions(wsId, workflow.id),
@@ -73,7 +84,6 @@ function WorkflowRow({ workflow }: { workflow: Workflow }) {
   const thumbW = Math.min(vw * (thumbH / vh), 180);
 
   const handleDelete = async () => {
-    if (!confirm(t(($) => $.page.delete_confirm))) return;
     try {
       await deleteWorkflow.mutateAsync(workflow.id);
       toast.success(t(($) => $.detail.toast_deleted));
@@ -155,14 +165,36 @@ function WorkflowRow({ workflow }: { workflow: Workflow }) {
         >
           <History className="h-3.5 w-3.5" />
         </AppLink>
-        <button
-          type="button"
-          className="shrink-0 w-20 flex justify-center p-1 rounded hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors"
-          title="Delete"
-          onClick={handleDelete}
-        >
-          <Trash2 className="h-3.5 w-3.5" />
-        </button>
+        <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+          <button
+            type="button"
+            className="shrink-0 w-20 flex justify-center p-1 rounded hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors"
+            title="Delete"
+            onClick={() => setDeleteDialogOpen(true)}
+          >
+            <Trash2 className="h-3.5 w-3.5" />
+          </button>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>{t(($) => $.detail.delete_dialog.title)}</AlertDialogTitle>
+              <AlertDialogDescription>
+                {t(($) => $.detail.delete_dialog.description, { title: workflow.title })}
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>{t(($) => $.detail.delete_dialog.cancel)}</AlertDialogCancel>
+              <AlertDialogAction
+                variant="destructive"
+                onClick={handleDelete}
+                disabled={deleteWorkflow.isPending}
+              >
+                {deleteWorkflow.isPending
+                  ? t(($) => $.detail.delete_dialog.deleting)
+                  : t(($) => $.detail.delete_dialog.confirm)}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       </div>
     </div>
   );
