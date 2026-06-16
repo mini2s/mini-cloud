@@ -47,8 +47,8 @@ func setupPlugins(ctx context.Context, provider, bin, workDir string, plugin *Ag
 //
 //  1. csc plugin marketplace add <marketplaceRepo>        (non-fatal)
 //  2. csc plugin marketplace update <marketplaceName>
-//  3. csc plugin install <pluginName>@<marketplaceName> -s local
-//  4. csc plugin update <pluginName>@<marketplaceName> -s local
+//  3. csc plugin install <pluginName>@<marketplaceName> -s project
+//  4. csc plugin update <pluginName>@<marketplaceName> -s project
 //
 // All commands run with cmd.Dir set to workDir (CSC uses cwd + scope, not --dir).
 // marketplace add failure is non-fatal: the marketplace may already be registered.
@@ -75,12 +75,12 @@ func setupCSCPlugins(ctx context.Context, cscBin string, workDir string, plugin 
 	if install.MarketplaceName != "" {
 		spec = install.PluginName + "@" + install.MarketplaceName
 	}
-	if err := runCSCCmd(ctx, cscBin, workDir, "plugin", "install", spec, "-s", "local"); err != nil {
+	if err := runCSCCmd(ctx, cscBin, workDir, "plugin", "install", spec, "-s", "project"); err != nil {
 		return fmt.Errorf("csc plugin install %s: %w", spec, err)
 	}
 
 	// Step 4: update installed plugin
-	if err := runCSCCmd(ctx, cscBin, workDir, "plugin", "update", spec, "-s", "local"); err != nil {
+	if err := runCSCCmd(ctx, cscBin, workDir, "plugin", "update", spec, "-s", "project"); err != nil {
 		return fmt.Errorf("csc plugin update %s: %w", spec, err)
 	}
 

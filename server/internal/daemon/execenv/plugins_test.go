@@ -95,7 +95,7 @@ func TestSetupPlugins_DispatchesToCSC(t *testing.T) {
 
 	invocations := readInvocations(t, dir)
 	if len(invocations) < 3 {
-		t.Fatalf("expected at least 3 invocations (add+update+install), got %d: %v", len(invocations), invocations)
+		t.Fatalf("expected at least 3 invocations (add+marketplace update+install), got %d: %v", len(invocations), invocations)
 	}
 }
 
@@ -155,18 +155,15 @@ func TestSetupCSCPlugins_Success(t *testing.T) {
 	}
 
 	invocations := readInvocations(t, dir)
-	// Expected: marketplace add + update + install = 3 invocations
-	if len(invocations) != 3 {
-		t.Fatalf("expected 3 invocations, got %d: %v", len(invocations), invocations)
+	// Expected: marketplace add + marketplace update + install + update = 4 invocations
+	if len(invocations) != 4 {
+		t.Fatalf("expected 4 invocations, got %d: %v", len(invocations), invocations)
 	}
 	if !strings.Contains(invocations[0], "plugin marketplace add") {
 		t.Errorf("first invocation should be marketplace add, got: %s", invocations[0])
 	}
-	if !strings.Contains(invocations[1], "plugin update") {
-		t.Errorf("second invocation should be plugin update, got: %s", invocations[1])
-	}
-	if !strings.Contains(invocations[1], "cospower") {
-		t.Errorf("update should mention plugin name cospower, got: %s", invocations[1])
+	if !strings.Contains(invocations[1], "plugin marketplace update") {
+		t.Errorf("second invocation should be plugin marketplace update, got: %s", invocations[1])
 	}
 	if !strings.Contains(invocations[2], "plugin install") {
 		t.Errorf("third invocation should be plugin install, got: %s", invocations[2])
@@ -176,6 +173,15 @@ func TestSetupCSCPlugins_Success(t *testing.T) {
 	}
 	if !strings.Contains(invocations[2], "-s project") {
 		t.Errorf("install should use -s project scope, got: %s", invocations[2])
+	}
+	if !strings.Contains(invocations[3], "plugin update") {
+		t.Errorf("fourth invocation should be plugin update, got: %s", invocations[3])
+	}
+	if !strings.Contains(invocations[3], "cospower") {
+		t.Errorf("update should mention plugin name cospower, got: %s", invocations[3])
+	}
+	if !strings.Contains(invocations[3], "-s project") {
+		t.Errorf("update should use -s project scope, got: %s", invocations[3])
 	}
 	// Verify no --dir flag
 	for _, inv := range invocations {
@@ -196,12 +202,10 @@ func TestSetupCSCPlugins_MarketplaceAddFails(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	// marketplace add is non-fatal; setup should continue.
 	err := setupCSCPlugins(context.Background(), fakeBin, workDir, testPlugin(), slog.Default())
-	if err == nil {
-		t.Fatal("expected error when marketplace add fails")
-	}
-	if !strings.Contains(err.Error(), "marketplace add") {
-		t.Errorf("error should mention marketplace add, got: %v", err)
+	if err != nil {
+		t.Fatalf("expected no error when marketplace add fails, got: %v", err)
 	}
 }
 
@@ -295,23 +299,3 @@ func TestSetupCSCPlugins_Timeout(t *testing.T) {
 	}
 }
 
-func TestSetupCSCPlugins_ErrorMessageContainsURL(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("shell script fake not supported on windows")
-	}
-	dir := t.TempDir()
-	fakeBin := writeFakeCSC(t, dir, map[string]int{"marketplace add": 1})
-	workDir := filepath.Join(dir, "work")
-	if err := os.MkdirAll(workDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-
-	plugin := testPlugin()
-	err := setupCSCPlugins(context.Background(), fakeBin, workDir, plugin, slog.Default())
-	if err == nil {
-		t.Fatal("expected error")
-	}
-	if !strings.Contains(err.Error(), plugin.Install.MarketplaceRepo) {
-		t.Errorf("error should contain marketplace repo %q, got: %v", plugin.Install.MarketplaceRepo, err)
-	}
-}
