@@ -490,6 +490,16 @@ func (h *Hub) BroadcastToWorkspace(workspaceID string, message []byte) {
 	h.BroadcastToScope(ScopeWorkspace, workspaceID, message)
 }
 
+// BroadcastTaskStream fans a task stream frame out to every connection in the
+// target workspace. It is a thin helper around BroadcastToScope so callers do
+// not need to pass the scope type constant.
+func (h *Hub) BroadcastTaskStream(workspaceID string, frame []byte) {
+	if h == nil || workspaceID == "" {
+		return
+	}
+	h.BroadcastToWorkspace(workspaceID, frame)
+}
+
 // SendToUser delivers a message to every connection belonging to userID,
 // skipping any connections whose workspaceID matches excludeWorkspace.
 func (h *Hub) SendToUser(userID string, message []byte, excludeWorkspace ...string) {

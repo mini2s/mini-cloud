@@ -56,8 +56,13 @@ func newTestHub(t *testing.T) (*Hub, *httptest.Server) {
 
 func connectWS(t *testing.T, server *httptest.Server) *websocket.Conn {
 	t.Helper()
+	return connectWSWithWorkspace(t, server, testWorkspaceID)
+}
+
+func connectWSWithWorkspace(t *testing.T, server *httptest.Server, workspaceID string) *websocket.Conn {
+	t.Helper()
 	token := makeTestToken(t)
-	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/ws?workspace_id=" + testWorkspaceID
+	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/ws?workspace_id=" + workspaceID
 	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
 	if err != nil {
 		t.Fatalf("failed to connect WebSocket: %v", err)
@@ -387,5 +392,28 @@ func TestCheckOrigin(t *testing.T) {
 				t.Fatalf("checkOrigin(host=%q, origin=%q) = %v, want %v", tc.host, tc.origin, got, tc.want)
 			}
 		})
+	}
+}
+
+func TestBroadcastTaskStream_DeliversToWorkspaceClients(t *testing.T) {
+	hub, server := newTestHub(t)
+	defer server.Close()
+
+	conn := connectWSWithWorkspace(t, server, "ws-1")
+	defer conn.Close()
+
+	// Give the hub goroutine time to register the client.
+	time.Sleep(50 * time.Millisecond)
+
+	frame := []byte(`{"type":"task:stream"}`)
+	hub.BroadcastTaskStream("ws-1", frame)
+
+	conn.SetReadDeadline(time.Now().Add(2 * time.Second))
+	_, received, err := conn.ReadMessage()
+	if err != nil {
+		t.Fatalf("client read error: %v", err)
+	}
+	if string(received) != string(frame) {
+		t.Fatalf("expected %s, got %s", frame, received)
 	}
 }
