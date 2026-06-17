@@ -332,6 +332,50 @@ func TestHeartbeatRejectsUnauthorizedRuntime(t *testing.T) {
 	}
 }
 
+func TestTaskStreamFrameDispatchesToHandler(t *testing.T) {
+	M.Reset()
+	defer M.Reset()
+
+	hub := NewHub()
+	client := attachDaemonTestClient(hub, "runtime-1")
+	client.hub = hub
+	client.identity.RuntimeIDs = []string{"runtime-1"}
+
+	var receivedIdentity ClientIdentity
+	var receivedFrame []byte
+	hub.SetTaskStreamHandler(func(ctx context.Context, identity ClientIdentity, frame []byte) error {
+		receivedIdentity = identity
+		receivedFrame = append([]byte(nil), frame...)
+		return nil
+	})
+
+	frame := []byte(`{"type":"task:stream","payload":{"task_id":"task-1","issue_id":"issue-1","workspace_id":"ws-1","seq":1,"type":"text","content":"hello","ts":123}}`)
+	client.handleFrame(frame)
+
+	if receivedFrame == nil {
+		t.Fatal("task stream handler was not invoked")
+	}
+	if string(receivedFrame) != string(frame) {
+		t.Fatalf("frame mismatch: got %s, want %s", receivedFrame, frame)
+	}
+	if len(receivedIdentity.RuntimeIDs) != 1 || receivedIdentity.RuntimeIDs[0] != "runtime-1" {
+		t.Fatalf("identity runtime IDs = %v, want [runtime-1]", receivedIdentity.RuntimeIDs)
+	}
+}
+
+func TestTaskStreamFrameIgnoredWhenNoHandler(t *testing.T) {
+	M.Reset()
+	defer M.Reset()
+
+	hub := NewHub()
+	client := attachDaemonTestClient(hub, "runtime-1")
+	client.hub = hub
+
+	frame := []byte(`{"type":"task:stream","payload":{"task_id":"task-1","seq":1,"type":"text","content":"hello","ts":123}}`)
+	// Should not panic.
+	client.handleFrame(frame)
+}
+
 func attachDaemonTestClient(hub *Hub, runtimeID string) *client {
 	c := &client{
 		send:     make(chan []byte, 2),

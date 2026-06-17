@@ -4,7 +4,6 @@ import { useEffect, useRef } from "react";
 import { useT } from "@multica/views/i18n";
 import { useTaskStream } from "@multica/core/issues";
 import { Card, CardContent, CardHeader, CardTitle } from "@multica/ui/components/ui/card";
-import { ScrollArea } from "@multica/ui/components/ui/scroll-area";
 import { cn } from "@multica/ui/lib/utils";
 import type { TaskStreamItem } from "@multica/core/issues";
 
@@ -19,7 +18,7 @@ export function CSCStreamPanel({ issueId, className }: CSCStreamPanelProps) {
   const bottomRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    if (bottomRef.current) {
+    if (bottomRef.current && typeof bottomRef.current.scrollIntoView === "function") {
       bottomRef.current.scrollIntoView({ behavior: "smooth" });
     }
   }, [items.length]);
@@ -32,7 +31,7 @@ export function CSCStreamPanel({ issueId, className }: CSCStreamPanelProps) {
         </CardTitle>
       </CardHeader>
       <CardContent className="flex-1 overflow-hidden p-0">
-        <ScrollArea className="h-96 px-4 pb-4">
+        <div className="h-96 overflow-y-auto px-4 pb-4">
           {items.length === 0 ? (
             <p className="text-muted-foreground text-sm">
               Waiting for CSC agent output…
@@ -45,7 +44,7 @@ export function CSCStreamPanel({ issueId, className }: CSCStreamPanelProps) {
               <div ref={bottomRef} />
             </div>
           )}
-        </ScrollArea>
+        </div>
       </CardContent>
     </Card>
   );
