@@ -2610,7 +2610,7 @@ func (d *Daemon) runTask(ctx context.Context, task Task, provider string, slot i
 		"timeout", execOpts.Timeout,
 	)
 
-	result, tools, err := d.executeAndDrain(ctx, backend, prompt, execOpts, taskLog, task.ID)
+	result, tools, err := d.executeAndDrain(ctx, backend, prompt, execOpts, task, taskLog)
 	if err != nil {
 		return TaskResult{}, err
 	}
@@ -2622,7 +2622,7 @@ func (d *Daemon) runTask(ctx context.Context, task Task, provider string, slot i
 		firstUsage := result.Usage
 		taskLog.Warn("session resume failed, retrying with fresh session", "error", result.Error)
 		execOpts.ResumeSessionID = ""
-		retryResult, retryTools, retryErr := d.executeAndDrain(ctx, backend, prompt, execOpts, taskLog, task.ID)
+		retryResult, retryTools, retryErr := d.executeAndDrain(ctx, backend, prompt, execOpts, task, taskLog)
 		if retryErr != nil {
 			taskLog.Error("fresh session also failed to start", "error", retryErr)
 		} else {
@@ -2803,7 +2803,7 @@ func (d *Daemon) runTask(ctx context.Context, task Task, provider string, slot i
 
 // executeAndDrain runs a backend, drains its message stream (forwarding to the
 // server), and waits for the final result.
-func (d *Daemon) executeAndDrain(ctx context.Context, backend agent.Backend, prompt string, opts agent.ExecOptions, taskLog *slog.Logger, taskID string) (agent.Result, int32, error) {
+func (d *Daemon) executeAndDrain(ctx context.Context, backend agent.Backend, prompt string, opts agent.ExecOptions, task Task, taskLog *slog.Logger) (agent.Result, int32, error) {
 	// Wrap the caller's ctx so the idle watchdog (below) can interrupt both
 	// the agent subprocess (via the ctx passed to backend.Execute) AND the
 	// drain loop with a single cancel. Without this layer the backend would
@@ -2847,7 +2847,7 @@ func (d *Daemon) executeAndDrain(ctx context.Context, backend agent.Backend, pro
 	var idleWatchdogFired atomic.Bool
 	idleWindow := d.cfg.AgentIdleWatchdog
 	if idleWindow > 0 {
-		go d.runIdleWatchdog(agentCtx, idleWindow, &lastActivityAt, &inFlightTools, &idleWatchdogFired, agentCancel, session.Messages, taskLog, taskID)
+		go d.runIdleWatchdog(agentCtx, idleWindow, &lastActivityAt, &inFlightTools, &idleWatchdogFired, agentCancel, session.Messages, taskLog, task.ID)
 	}
 
 	go func() {
@@ -2884,7 +2884,7 @@ func (d *Daemon) executeAndDrain(ctx context.Context, backend agent.Backend, pro
 
 			if len(toSend) > 0 {
 				sendCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-				if err := d.client.ReportTaskMessages(sendCtx, taskID, toSend); err != nil {
+				if err := d.client.ReportTaskMessages(sendCtx, task.ID, toSend); err != nil {
 					taskLog.Debug("failed to report task messages", "error", err)
 				} else {
 					taskLog.Debug("reported task messages", "count", len(toSend), "last_seq", toSend[len(toSend)-1].Seq)
@@ -2921,6 +2921,12 @@ func (d *Daemon) executeAndDrain(ctx context.Context, backend agent.Backend, pro
 				// slow downstream call (mu.Lock contention, batch resize)
 				// can't be misattributed to backend silence.
 				lastActivityAt.Store(time.Now().UnixNano())
+
+				// Forward the event in real-time to any watching clients.
+				if d.streamForwarder != nil {
+					d.streamForwarder.Send(drainCtx, task.ID, task.IssueID, task.WorkspaceID, msg)
+				}
+
 				switch msg.Type {
 				case agent.MessageStatus:
 					// Persist the session/work_dir as soon as the backend
@@ -2933,7 +2939,7 @@ func (d *Daemon) executeAndDrain(ctx context.Context, backend agent.Backend, pro
 						go func() {
 							pinCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 							defer cancel()
-							if err := d.client.PinTaskSession(pinCtx, taskID, sid, wd); err != nil {
+							if err := d.client.PinTaskSession(pinCtx, task.ID, sid, wd); err != nil {
 								taskLog.Debug("pin session failed", "error", err)
 							}
 						}()
