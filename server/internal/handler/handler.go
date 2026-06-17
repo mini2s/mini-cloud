@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"net/netip"
@@ -26,6 +27,7 @@ import (
 	"github.com/multica-ai/multica/server/internal/storage"
 	"github.com/multica-ai/multica/server/internal/util"
 	db "github.com/multica-ai/multica/server/pkg/db/generated"
+	"github.com/multica-ai/multica/server/pkg/protocol"
 )
 
 // randomID returns a random 16-byte hex string used as a request ID for
@@ -699,4 +701,48 @@ func (h *Handler) loadInboxItemForUser(w http.ResponseWriter, r *http.Request, i
 		return db.MulticaInboxItem{}, false
 	}
 	return item, true
+}
+
+// HandleTaskStream validates a task:stream frame from a daemon connection and
+// fans it out to the target workspace. The task must exist and its runtime must
+// be included in the authenticated connection scope.
+func (h *Handler) HandleTaskStream(ctx context.Context, identity daemonws.ClientIdentity, frame []byte) error {
+	var msg protocol.Message
+	if err := json.Unmarshal(frame, &msg); err != nil {
+		return fmt.Errorf("unmarshal frame: %w", err)
+	}
+	var payload protocol.TaskStreamPayload
+	if err := json.Unmarshal(msg.Payload, &payload); err != nil {
+		return fmt.Errorf("unmarshal payload: %w", err)
+	}
+	if payload.TaskID == "" || payload.WorkspaceID == "" {
+		return fmt.Errorf("missing task_id or workspace_id")
+	}
+
+	taskUUID, err := util.ParseUUID(payload.TaskID)
+	if err != nil {
+		return fmt.Errorf("invalid task_id: %w", err)
+	}
+	task, err := h.Queries.GetAgentTask(ctx, taskUUID)
+	if err != nil {
+		return fmt.Errorf("lookup task: %w", err)
+	}
+	runtimeID := uuidToString(task.RuntimeID)
+	if runtimeID == "" {
+		return fmt.Errorf("task has no runtime")
+	}
+
+	authorized := false
+	for _, rid := range identity.RuntimeIDs {
+		if rid == runtimeID {
+			authorized = true
+			break
+		}
+	}
+	if !authorized {
+		return fmt.Errorf("runtime %s not in connection scope", runtimeID)
+	}
+
+	h.Hub.BroadcastTaskStream(payload.WorkspaceID, frame)
+	return nil
 }
