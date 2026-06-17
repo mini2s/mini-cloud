@@ -50,6 +50,23 @@ type TaskMessagePayload struct {
 	Output  string         `json:"output,omitempty"`  // tool output (tool_result only)
 }
 
+// TaskStreamPayload represents a real-time stream event during task execution.
+type TaskStreamPayload struct {
+	TaskID      string         `json:"task_id"`
+	IssueID     string         `json:"issue_id,omitempty"`
+	WorkspaceID string         `json:"workspace_id,omitempty"`
+	Seq         int            `json:"seq"`
+	Type        string         `json:"type"`
+	Content     string         `json:"content,omitempty"`
+	Tool        string         `json:"tool,omitempty"`
+	CallID      string         `json:"call_id,omitempty"`
+	Input       map[string]any `json:"input,omitempty"`
+	Output      string         `json:"output,omitempty"`
+	Status      string         `json:"status,omitempty"`
+	Level       string         `json:"level,omitempty"`
+	Timestamp   int64          `json:"ts"`
+}
+
 // DaemonRegisterPayload is sent from daemon to server on connection.
 type DaemonRegisterPayload struct {
 	DaemonID string        `json:"daemon_id"`

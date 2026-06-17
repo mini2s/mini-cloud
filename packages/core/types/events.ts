@@ -27,6 +27,7 @@ export type WSEventType =
   | "task:completed"
   | "task:failed"
   | "task:message"
+  | "task:stream"
   | "task:cancelled"
   | "inbox:new"
   | "inbox:read"
@@ -224,6 +225,22 @@ export interface TaskMessagePayload {
   content?: string;
   input?: Record<string, unknown>;
   output?: string;
+}
+
+export interface TaskStreamPayload {
+  task_id: string;
+  issue_id?: string;
+  workspace_id?: string;
+  seq: number;
+  type: string;
+  content?: string;
+  tool?: string;
+  call_id?: string;
+  input?: Record<string, unknown>;
+  output?: string;
+  status?: string;
+  level?: string;
+  ts: number;
 }
 
 export interface TaskQueuedPayload {

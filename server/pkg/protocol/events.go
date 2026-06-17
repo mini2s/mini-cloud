@@ -37,6 +37,7 @@ const (
 	EventTaskCompleted = "task:completed" // running → completed
 	EventTaskFailed    = "task:failed"    // running → failed
 	EventTaskMessage   = "task:message"
+	EventTaskStream    = "task:stream"
 	EventTaskCancelled = "task:cancelled" // * → cancelled
 
 	// Inbox events
