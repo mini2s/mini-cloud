@@ -491,10 +491,10 @@ func (h *Hub) BroadcastToWorkspace(workspaceID string, message []byte) {
 }
 
 // BroadcastTaskStream fans a task stream frame out to every connection in the
-// target workspace. It is a thin helper around BroadcastToScope so callers do
-// not need to pass the scope type constant.
+// target workspace. It is a thin helper around BroadcastToWorkspace so callers
+// do not need to pass the scope type constant.
 func (h *Hub) BroadcastTaskStream(workspaceID string, frame []byte) {
-	if h == nil || workspaceID == "" {
+	if workspaceID == "" {
 		return
 	}
 	h.BroadcastToWorkspace(workspaceID, frame)

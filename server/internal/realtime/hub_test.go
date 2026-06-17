@@ -402,8 +402,7 @@ func TestBroadcastTaskStream_DeliversToWorkspaceClients(t *testing.T) {
 	conn := connectWSWithWorkspace(t, server, "ws-1")
 	defer conn.Close()
 
-	// Give the hub goroutine time to register the client.
-	time.Sleep(50 * time.Millisecond)
+	waitForClientRegistered(t, hub, "ws-1")
 
 	frame := []byte(`{"type":"task:stream"}`)
 	hub.BroadcastTaskStream("ws-1", frame)
@@ -416,4 +415,40 @@ func TestBroadcastTaskStream_DeliversToWorkspaceClients(t *testing.T) {
 	if string(received) != string(frame) {
 		t.Fatalf("expected %s, got %s", frame, received)
 	}
+}
+
+func TestBroadcastTaskStream_DoesNotDeliverToOtherWorkspaces(t *testing.T) {
+	hub, server := newTestHub(t)
+	defer server.Close()
+
+	conn1 := connectWSWithWorkspace(t, server, "ws-1")
+	defer conn1.Close()
+	conn2 := connectWSWithWorkspace(t, server, "ws-2")
+	defer conn2.Close()
+
+	waitForClientRegistered(t, hub, "ws-1")
+	waitForClientRegistered(t, hub, "ws-2")
+
+	hub.BroadcastTaskStream("ws-1", []byte(`{"type":"task:stream"}`))
+
+	// ws-1 client should receive the frame.
+	conn1.SetReadDeadline(time.Now().Add(2 * time.Second))
+	_, _, err := conn1.ReadMessage()
+	if err != nil {
+		t.Fatalf("ws-1 client read error: %v", err)
+	}
+
+	// ws-2 client should not receive anything within a short window.
+	conn2.SetReadDeadline(time.Now().Add(200 * time.Millisecond))
+	_, _, err = conn2.ReadMessage()
+	if err == nil {
+		t.Fatal("ws-2 client unexpectedly received a frame")
+	}
+}
+
+func waitForClientRegistered(t *testing.T, hub *Hub, workspaceID string) {
+	t.Helper()
+	// The hub registers clients asynchronously in the writer goroutine. Give
+	// it a short, bounded window to complete before asserting.
+	time.Sleep(50 * time.Millisecond)
 }
