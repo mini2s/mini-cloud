@@ -71,6 +71,10 @@ func (c *client) markSeen(eventID string) bool {
 // the ack and is logged at debug level.
 type HeartbeatHandler func(ctx context.Context, identity ClientIdentity, runtimeID string, supportsBatchImport bool) (*protocol.DaemonHeartbeatAckPayload, error)
 
+// TaskStreamHandler processes a task:stream frame. The handler receives the
+// raw frame so the stream consumer can parse the incremental payload itself.
+type TaskStreamHandler func(ctx context.Context, identity ClientIdentity, frame []byte) error
+
 // Hub keeps daemon WebSocket connections indexed by runtime ID. Messages are
 // best-effort wakeup hints; the daemon still uses HTTP claim for correctness.
 type Hub struct {
@@ -82,6 +86,9 @@ type Hub struct {
 
 	hbMu        sync.RWMutex
 	onHeartbeat HeartbeatHandler
+
+	tsMu         sync.RWMutex
+	onTaskStream TaskStreamHandler
 }
 
 func NewHub() *Hub {
@@ -117,6 +124,22 @@ func (h *Hub) heartbeatHandler() HeartbeatHandler {
 	h.hbMu.RLock()
 	defer h.hbMu.RUnlock()
 	return h.onHeartbeat
+}
+
+// SetTaskStreamHandler installs the callback used for task:stream frames.
+func (h *Hub) SetTaskStreamHandler(fn TaskStreamHandler) {
+	if h == nil {
+		return
+	}
+	h.tsMu.Lock()
+	h.onTaskStream = fn
+	h.tsMu.Unlock()
+}
+
+func (h *Hub) taskStreamHandler() TaskStreamHandler {
+	h.tsMu.RLock()
+	defer h.tsMu.RUnlock()
+	return h.onTaskStream
 }
 
 func (h *Hub) HandleWebSocket(w http.ResponseWriter, r *http.Request, identity ClientIdentity) {
@@ -348,6 +371,8 @@ func (c *client) handleFrame(raw []byte) {
 	switch msg.Type {
 	case protocol.EventDaemonHeartbeat:
 		c.handleHeartbeatFrame(msg.Payload)
+	case protocol.EventTaskStream:
+		c.handleTaskStreamFrame(raw)
 	default:
 		// Unknown app messages are intentionally ignored for forward
 		// compatibility with future daemon → server message types.
@@ -416,6 +441,21 @@ func (c *client) handleHeartbeatFrame(raw json.RawMessage) {
 		slog.Debug("daemon websocket heartbeat ack dropped: send buffer full",
 			"daemon_id", c.identity.DaemonID,
 			"runtime_id", payload.RuntimeID)
+	}
+}
+
+// handleTaskStreamFrame dispatches an inbound task:stream frame to the hub's
+// registered handler. Errors are logged at debug level.
+func (c *client) handleTaskStreamFrame(raw []byte) {
+	handler := c.hub.taskStreamHandler()
+	if handler == nil {
+		return
+	}
+	if err := handler(context.Background(), c.identity, raw); err != nil {
+		slog.Debug("daemon websocket task stream handler failed",
+			"error", err,
+			"daemon_id", c.identity.DaemonID,
+			"runtime_ids", c.identity.RuntimeIDs)
 	}
 }
 
