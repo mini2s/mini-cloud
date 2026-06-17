@@ -116,6 +116,29 @@ func (d *Daemon) runTaskWakeupConnection(ctx context.Context, runtimeIDs []strin
 	writerDone := make(chan struct{})
 	go d.runWSWriter(conn, writes, writerDone)
 
+	// Forward task:stream frames from the daemon-wide streamWrites channel into
+	// this connection's writes channel. The goroutine exits when the connection
+	// context is cancelled so the deferred cleanup can proceed.
+	streamDone := make(chan struct{})
+	go func() {
+		defer close(streamDone)
+		for {
+			select {
+			case frame, ok := <-d.streamWrites:
+				if !ok {
+					return
+				}
+				select {
+				case writes <- frame:
+				case <-ctx.Done():
+					return
+				}
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
+
 	heartbeatCtx, cancelHeartbeat := context.WithCancel(ctx)
 	hbDone := make(chan struct{})
 	go func() {
@@ -141,6 +164,7 @@ func (d *Daemon) runTaskWakeupConnection(ctx context.Context, runtimeIDs []strin
 	defer func() {
 		cancelHeartbeat()
 		<-hbDone
+		<-streamDone
 		close(writes)
 		<-writerDone
 	}()

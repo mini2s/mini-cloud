@@ -129,6 +129,9 @@ type Daemon struct {
 	pauseClaims    bool // when true, runRuntimePoller skips ClaimTask
 	claimsInFlight int  // pollers that have decided to claim but haven't yet handed the task off to handleTask
 
+	streamWrites    chan []byte
+	streamForwarder *StreamForwarder
+
 	activeEnvRootsMu sync.Mutex
 	activeEnvRoots   map[string]int // env root path -> reference count (handles reuse paths marked twice)
 
@@ -189,6 +192,18 @@ func (d *Daemon) agentVersion(provider string) string {
 	d.versionsMu.RLock()
 	defer d.versionsMu.RUnlock()
 	return d.agentVersions[provider]
+}
+
+// SendStreamFrame attempts to enqueue a task:stream frame for the active
+// daemon WebSocket connection. It returns false if no connection is active
+// or the buffer is full.
+func (d *Daemon) SendStreamFrame(frame []byte) bool {
+	select {
+	case d.streamWrites <- frame:
+		return true
+	default:
+		return false
+	}
 }
 
 func (d *Daemon) notifyRuntimeSetChanged() {
@@ -592,6 +607,8 @@ func (d *Daemon) Run(ctx context.Context) error {
 		logFields = append(logFields, "profile", d.cfg.Profile)
 	}
 	d.logger.Info("starting daemon", logFields...)
+	d.streamWrites = make(chan []byte, 64)
+	d.streamForwarder = NewStreamForwarder(d.SendStreamFrame, d.logger)
 	d.logger.Debug("daemon config resolved",
 		"daemon_id", d.cfg.DaemonID,
 		"device_name", d.cfg.DeviceName,
