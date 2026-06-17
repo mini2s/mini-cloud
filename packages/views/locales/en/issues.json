@@ -146,6 +146,7 @@
     "section_metadata": "Metadata",
     "section_details": "Details",
     "section_token_usage": "Token usage",
+    "section_csc_stream": "CSC live stream",
     "pull_requests_loading": "Loading…",
     "pull_requests_empty": "No linked pull requests yet. Reference this issue's identifier in a PR's branch name, title, or body to auto-link it.",
     "merge_requests_loading": "Loading…",
