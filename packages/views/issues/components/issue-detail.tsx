@@ -56,6 +56,7 @@ import { ResolvedThreadBar } from "./resolved-thread-bar";
 import { collectThreadReplies } from "./thread-utils";
 import { AgentLiveCard } from "./agent-live-card";
 import { ExecutionLogSection } from "./execution-log-section";
+import { CSCStreamPanel } from "./csc-stream-panel";
 import { PullRequestList } from "./pull-request-list";
 import { useGitHubSettings } from "@multica/core/github";
 import { useGitlabSettings } from "@multica/core/gitlab";
@@ -1435,6 +1436,9 @@ export function IssueDetail({ issueId, onDelete, onDone, defaultSidebarOpen = tr
           owns its own collapse state and WS subscriptions. Hides itself
           when there are no runs to show. */}
       <ExecutionLogSection issueId={id} />
+
+      {/* CSC live stream — real-time csc runtime output forwarded via daemon WS. */}
+      <CSCStreamPanel issueId={id} />
 
       {/* Token usage */}
       {usage && usage.task_count > 0 && (
