@@ -56,11 +56,21 @@ func CasdoorAuth(jwks *auth.JWKSProvider, resolver SubjectResolver) func(http.Ha
 				return
 			}
 
-			userInfo, err := auth.ParseCasdoorJWT(token, jwks)
-			if err != nil {
-				slog.Debug("casdoor auth: invalid JWT", "path", r.URL.Path, "error", err)
-				writeUnauthorized(w, "invalid token")
-				return
+			// Local-dev bypass: when MULTICA_DEV_CASDOOR_TOKEN is set and
+			// APP_ENV is not production, a request carrying that exact token
+			// authenticates as the dev subject without a JWKS round-trip. This
+			// lets a local client hit a local backend whose costrict-web
+			// Casdoor endpoint is unreachable. Returns nil otherwise, so real
+			// tokens fall through to JWKS validation below.
+			userInfo := auth.DevCasdoorBypass(token)
+			if userInfo == nil {
+				var err error
+				userInfo, err = auth.ParseCasdoorJWT(token, jwks)
+				if err != nil {
+					slog.Debug("casdoor auth: invalid JWT", "path", r.URL.Path, "error", err)
+					writeUnauthorized(w, "invalid token")
+					return
+				}
 			}
 
 			multicaUserID, err := resolver(r.Context(), userInfo.SubjectID, userInfo.Name, userInfo.Email)

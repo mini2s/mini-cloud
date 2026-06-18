@@ -133,3 +133,61 @@ func TestParseCasdoorJWT_WrongAlgorithm(t *testing.T) {
 		t.Errorf("error should mention algorithm mismatch, got: %v", err)
 	}
 }
+
+func TestDevCasdoorBypass_MatchingToken(t *testing.T) {
+	t.Setenv("APP_ENV", "development")
+	t.Setenv(devCasdoorTokenEnv, "local-debug-token")
+	t.Setenv(devCasdoorSubjectEnv, "")
+
+	info := DevCasdoorBypass("local-debug-token")
+	if info == nil {
+		t.Fatal("expected bypass to return user info for matching token")
+	}
+	if info.SubjectID != defaultDevCasdoorSubject {
+		t.Errorf("SubjectID = %q, want %q", info.SubjectID, defaultDevCasdoorSubject)
+	}
+	if info.Email == "" {
+		t.Error("expected a non-empty synthetic email")
+	}
+}
+
+func TestDevCasdoorBypass_CustomSubject(t *testing.T) {
+	t.Setenv("APP_ENV", "development")
+	t.Setenv(devCasdoorTokenEnv, "local-debug-token")
+	t.Setenv(devCasdoorSubjectEnv, "alice-local")
+
+	info := DevCasdoorBypass("local-debug-token")
+	if info == nil {
+		t.Fatal("expected bypass to return user info")
+	}
+	if info.SubjectID != "alice-local" {
+		t.Errorf("SubjectID = %q, want %q", info.SubjectID, "alice-local")
+	}
+}
+
+func TestDevCasdoorBypass_NonMatchingToken(t *testing.T) {
+	t.Setenv("APP_ENV", "development")
+	t.Setenv(devCasdoorTokenEnv, "local-debug-token")
+
+	if info := DevCasdoorBypass("some-other-token"); info != nil {
+		t.Fatalf("expected nil for non-matching token, got %+v", info)
+	}
+}
+
+func TestDevCasdoorBypass_DisabledWhenEnvUnset(t *testing.T) {
+	t.Setenv("APP_ENV", "development")
+	t.Setenv(devCasdoorTokenEnv, "")
+
+	if info := DevCasdoorBypass(""); info != nil {
+		t.Fatalf("expected nil when dev token env is unset, got %+v", info)
+	}
+}
+
+func TestDevCasdoorBypass_RefusedInProduction(t *testing.T) {
+	t.Setenv("APP_ENV", "production")
+	t.Setenv(devCasdoorTokenEnv, "local-debug-token")
+
+	if info := DevCasdoorBypass("local-debug-token"); info != nil {
+		t.Fatalf("expected nil in production even with matching token, got %+v", info)
+	}
+}

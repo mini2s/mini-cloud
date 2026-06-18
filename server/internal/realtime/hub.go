@@ -721,8 +721,13 @@ func HandleWebSocket(hub *Hub, mc MembershipChecker, pr PATResolver, resolveSlug
 		// JWT validation so WebSocket works in iframe/embedded scenarios.
 		casdoorToken := extractCasdoorTokenForWS(r)
 		if casdoorToken != "" && !strings.HasPrefix(casdoorToken, "mul_") {
-			userInfo, err := auth.ParseCasdoorJWT(casdoorToken, jwks)
-			if err == nil {
+			userInfo := auth.DevCasdoorBypass(casdoorToken)
+			if userInfo == nil {
+				if parsed, err := auth.ParseCasdoorJWT(casdoorToken, jwks); err == nil {
+					userInfo = parsed
+				}
+			}
+			if userInfo != nil {
 				uid, err := subjectResolver(r.Context(), userInfo.SubjectID, userInfo.Name, userInfo.Email)
 				if err == nil && uid != "" {
 					if !mc.IsMember(r.Context(), uid, workspaceID) {

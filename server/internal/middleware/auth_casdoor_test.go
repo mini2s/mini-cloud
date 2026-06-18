@@ -179,6 +179,45 @@ func TestCasdoorAuth_NoCookie_Returns401(t *testing.T) {
 	}
 }
 
+func TestCasdoorAuth_DevBypass(t *testing.T) {
+	t.Setenv("APP_ENV", "development")
+	t.Setenv("MULTICA_DEV_CASDOOR_TOKEN", "local-debug-token")
+	t.Setenv("MULTICA_DEV_CASDOOR_SUBJECT", "dev-subject")
+
+	const multicaUUID = "11111111-2222-3333-4444-555555555555"
+	// JWKS is never consulted on the bypass path; a throwaway provider is fine.
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatalf("generate key: %v", err)
+	}
+	jwks := setupTestJWKS(t, &key.PublicKey, "unused-kid")
+	resolver := stubResolver(t, "dev-subject", multicaUUID)
+
+	mw := CasdoorAuth(jwks, resolver)
+
+	var gotUserID, gotSubject string
+	handler := mw(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotUserID = r.Header.Get("X-User-ID")
+		gotSubject = r.Header.Get("X-Subject-ID")
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	req := httptest.NewRequest("GET", "/api/issues", nil)
+	req.Header.Set("Authorization", "Bearer local-debug-token")
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200 on dev bypass, got %d; body=%s", w.Code, w.Body.String())
+	}
+	if gotUserID != multicaUUID {
+		t.Errorf("X-User-ID = %q, want %q", gotUserID, multicaUUID)
+	}
+	if gotSubject != "dev-subject" {
+		t.Errorf("X-Subject-ID = %q, want %q", gotSubject, "dev-subject")
+	}
+}
+
 func TestCasdoorAuth_PATTokenPassesThrough(t *testing.T) {
 	// JWKS and resolver are irrelevant — a PAT-prefixed Bearer token must
 	// short-circuit before either is consulted.
