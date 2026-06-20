@@ -1,0 +1,7 @@
+# Inject REMOTE_API_URL at runtime so the Next.js middleware (/api, /auth, /ws, /uploads
+# rewrites) proxies to the backend service on the docker network. next.config.ts reads this
+# at request time (not build time), so the frontend container needs it as a runtime env.
+services:
+  frontend:
+    environment:
+      REMOTE_API_URL: "http://backend:8080"
