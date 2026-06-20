@@ -1,0 +1,11 @@
+# Dev image: reuse the cached official backend image's runtime (alpine + ca-certs + tzdata +
+# entrypoint.sh), but swap in workflow-enabled binaries built locally (Go 1.26.1) and the full
+# migration set (108-112 add workflow support). Avoids pulling golang:1.26-alpine / alpine:3.21
+# from Docker Hub (unreachable in this env).
+FROM ghcr.io/multica-ai/multica-backend:latest
+
+COPY bin-build/server /app/server
+COPY bin-build/migrate /app/migrate
+COPY bin-build/multica /app/multica
+COPY bin-build/backfill_task_usage_hourly /app/backfill_task_usage_hourly
+COPY server/migrations/ /app/migrations/
