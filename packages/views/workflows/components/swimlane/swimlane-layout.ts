@@ -42,7 +42,7 @@ export interface SwimlaneLane {
   sortOrder: number;
   y: number;
   height: number;
-  color: (typeof STAGE_PALETTE)[number];
+  color: { bg: string; border: string; text: string };
   isUnassigned: boolean;
 }
 
@@ -59,8 +59,8 @@ function getNodeDimensions(formatSchema: unknown): { width: number; height: numb
   const shape = parseNodeShape(formatSchema);
   const defaults = SHAPE_DEFAULTS[shape] ?? SHAPE_DEFAULTS.rectangle;
 
-  let width = defaults.width;
-  let height = defaults.height;
+  let width: number = defaults.width;
+  let height: number = defaults.height;
 
   if (formatSchema && typeof formatSchema === "object" && formatSchema !== null) {
     const obj = formatSchema as Record<string, unknown>;
@@ -148,7 +148,7 @@ export function computeSwimlaneLayout(
       (e) => stageNodeIds.has(e.source_node_id) && stageNodeIds.has(e.target_node_id),
     );
 
-    const color = getStageColor(stage.sort_order);
+    const color = getStageColor(stage.sort_order)!;
     lanes.push({
       stageId: stage.id,
       stageName: stage.name,

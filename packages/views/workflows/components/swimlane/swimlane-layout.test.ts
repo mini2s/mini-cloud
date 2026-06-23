@@ -14,7 +14,7 @@ function makeNode(overrides: Record<string, unknown> = {}) {
     format_schema: null,
     worker_type: "agent" as const,
     worker_id: null,
-    critic_type: null as const,
+    critic_type: "human" as const,
     critic_id: null,
     critic_api_url: null,
     sort_order: 0,
@@ -58,8 +58,8 @@ describe("computeSwimlaneLayout", () => {
     ];
     const result = computeSwimlaneLayout([], [], stages);
     expect(result.lanes).toHaveLength(2);
-    expect(result.lanes[0].stageName).toBe("Phase 1");
-    expect(result.lanes[1].stageName).toBe("Phase 2");
+    expect(result.lanes[0]!.stageName).toBe("Phase 1");
+    expect(result.lanes[1]!.stageName).toBe("Phase 2");
   });
 
   it("stacks lanes vertically by sort_order", () => {
@@ -68,8 +68,8 @@ describe("computeSwimlaneLayout", () => {
       makeStage({ id: "s2", sort_order: 1 }),
     ];
     const result = computeSwimlaneLayout([], [], stages);
-    expect(result.lanes[0].y).toBe(0);
-    expect(result.lanes[1].y).toBe(LANE_SPACING);
+    expect(result.lanes[0]!.y).toBe(0);
+    expect(result.lanes[1]!.y).toBe(LANE_SPACING);
   });
 
   it("places nodes within their stage lane", () => {
@@ -106,7 +106,7 @@ describe("computeSwimlaneLayout", () => {
     ];
     const result = computeSwimlaneLayout(nodes, [], stages);
     expect(result.lanes).toHaveLength(2); // stage lane + unassigned lane
-    expect(result.lanes[1].isUnassigned).toBe(true);
+    expect(result.lanes[1]!.isUnassigned).toBe(true);
     expect(result.nodePositions.has("n2")).toBe(true);
   });
 
@@ -118,11 +118,11 @@ describe("computeSwimlaneLayout", () => {
     ];
     const result = computeSwimlaneLayout([], [], stages);
     // First two should have different colors
-    expect(result.lanes[0].color.border).not.toBe(result.lanes[1].color.border);
+    expect(result.lanes[0]!.color.border).not.toBe(result.lanes[1]!.color.border);
     // sort_order 8 wraps around to palette index 0
     const stages8 = [makeStage({ id: "s8", sort_order: 8 })];
     const result8 = computeSwimlaneLayout([], [], stages8);
-    expect(result8.lanes[0].color.border).toBe(result.lanes[0].color.border);
+    expect(result8.lanes[0]!.color.border).toBe(result.lanes[0]!.color.border);
   });
 
   it("produces positive canvas dimensions", () => {

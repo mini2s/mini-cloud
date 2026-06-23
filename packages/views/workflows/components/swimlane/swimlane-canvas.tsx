@@ -26,18 +26,6 @@ import { LANE_HEADER_HEIGHT } from "./swimlane-layout";
 
 const nodeTypes = { workflow: WorkflowNode };
 
-// ── Helpers ────────────────────────────────────────────────────
-
-function getNodeDimensions(formatSchema: unknown) {
-  const shape = parseNodeShape(formatSchema);
-  switch (shape) {
-    case "diamond": return { w: DIAMOND_SIZE, h: DIAMOND_SIZE };
-    case "hexagon": return { w: HEXAGON_SIZE, h: HEXAGON_SIZE };
-    case "pill": return { w: NODE_WIDTH, h: NODE_HEIGHT };
-    default: return { w: NODE_WIDTH, h: NODE_HEIGHT };
-  }
-}
-
 // ── Component ──────────────────────────────────────────────────
 
 export interface SwimlaneCanvasProps {
