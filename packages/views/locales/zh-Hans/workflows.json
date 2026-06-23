@@ -254,7 +254,9 @@
     "section": "视图",
     "swimlane": "泳道图",
     "overview": "概览",
-    "editor": "编辑器"
+    "editor": "编辑器",
+    "empty_no_stages": "尚未定义阶段，切换到编辑器视图创建阶段。",
+    "empty_no_nodes": "工作流中暂无节点，切换到编辑器视图添加节点。"
   },
   "my_tasks": {
     "title": "我的任务",

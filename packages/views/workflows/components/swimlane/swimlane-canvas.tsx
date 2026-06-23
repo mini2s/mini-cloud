@@ -33,9 +33,11 @@ export interface SwimlaneCanvasProps {
   nodes: WorkflowNodeType[];
   edges: WorkflowEdgeType[];
   onNodeClick?: (nodeId: string) => void;
+  /** i18n label for unassigned lane header (falls back to lane.stageName) */
+  unassignedLabel?: string;
 }
 
-export function SwimlaneCanvas({ layout, nodes, edges, onNodeClick }: SwimlaneCanvasProps) {
+export function SwimlaneCanvas({ layout, nodes, edges, onNodeClick, unassignedLabel }: SwimlaneCanvasProps) {
   // Build ReactFlow nodes from layout positions
   const rfNodes: Node<WorkflowNodeData>[] = useMemo(() => {
     return nodes
@@ -161,7 +163,7 @@ export function SwimlaneCanvas({ layout, nodes, edges, onNodeClick }: SwimlaneCa
                 fontFamily="system-ui, sans-serif"
                 style={{ pointerEvents: "auto" }}
               >
-                {lane.stageName}
+                {lane.isUnassigned && unassignedLabel ? unassignedLabel : lane.stageName}
               </text>
             </g>
           ))}

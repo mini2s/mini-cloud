@@ -15,8 +15,10 @@ import { PageHeader } from "../../../layout/page-header";
 import { Skeleton } from "@multica/ui/components/ui/skeleton";
 import { Button } from "@multica/ui/components/ui/button";
 import { AlertCircle, ArrowLeft } from "lucide-react";
+import { Pen } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@multica/ui/components/ui/alert";
 import { useT } from "../../../i18n";
+import { useWorkflowViewStore } from "@multica/core/workflows/stores/view-store";
 import { SwimlaneCanvas } from "./swimlane-canvas";
 import { NodeDetailPanel } from "../overview/node-detail-panel";
 import { computeSwimlaneLayout } from "./swimlane-layout";
@@ -32,6 +34,7 @@ export function WorkflowSwimlanePage({ workflowId, viewToggle }: WorkflowSwimlan
   const wsId = useWorkspaceId();
   const wsPaths = useWorkspacePaths();
   const navigation = useNavigation();
+  const setViewMode = useWorkflowViewStore((s) => s.setViewMode);
 
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
 
@@ -119,6 +122,38 @@ export function WorkflowSwimlanePage({ workflowId, viewToggle }: WorkflowSwimlan
     );
   }
 
+  // ── Empty: no nodes ──
+
+  if (nodes.length === 0) {
+    const emptyMessage = stages.length === 0
+      ? t(($) => $.view.empty_no_stages)
+      : t(($) => $.view.empty_no_nodes);
+
+    return (
+      <div className="flex flex-col h-full">
+        <PageHeader className="justify-between px-5 shrink-0">
+          <div className="flex items-center gap-2 min-w-0">
+            <h1 className="text-sm font-medium truncate">{workflow.title}</h1>
+          </div>
+          {viewToggle && <div className="flex items-center gap-1">{viewToggle}</div>}
+        </PageHeader>
+        <div className="flex h-full items-center justify-center p-6" data-testid="swimlane-empty">
+          <div className="flex flex-col items-center gap-4 text-center max-w-md">
+            <p className="text-sm text-muted-foreground">{emptyMessage}</p>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setViewMode("editor")}
+            >
+              <Pen className="mr-2 h-4 w-4" />
+              {t(($) => $.view.editor)}
+            </Button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   // ── Normal ──
 
   return (
@@ -136,6 +171,7 @@ export function WorkflowSwimlanePage({ workflowId, viewToggle }: WorkflowSwimlan
           nodes={nodes}
           edges={edges}
           onNodeClick={setSelectedNodeId}
+          unassignedLabel={t(($) => $.overview.stage_canvas.unassigned)}
         />
       </div>
 

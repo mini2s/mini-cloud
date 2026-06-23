@@ -255,7 +255,9 @@
     "section": "View",
     "swimlane": "Swimlane",
     "overview": "Overview",
-    "editor": "Editor"
+    "editor": "Editor",
+    "empty_no_stages": "No stages defined yet. Switch to the editor view to create stages.",
+    "empty_no_nodes": "No nodes in this workflow. Switch to the editor view to add nodes."
   },
   "my_tasks": {
     "title": "My Tasks",

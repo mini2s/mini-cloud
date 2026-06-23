@@ -32,6 +32,7 @@ const mocks = vi.hoisted(() => ({
   isLoading: false,
   isError: false,
   navigationPush: vi.fn(),
+  setViewMode: vi.fn(),
 }));
 
 // ── Mock @tanstack/react-query ─────────────────────────────────
@@ -76,6 +77,13 @@ vi.mock("@multica/core/paths", () => ({
 
 vi.mock("../../../navigation", () => ({
   useNavigation: () => ({ push: mocks.navigationPush, replace: mocks.navigationPush }),
+}));
+
+vi.mock("@multica/core/workflows/stores/view-store", () => ({
+  useWorkflowViewStore: (selector: (s: { viewMode: string; setViewMode: (m: string) => void }) => unknown) => {
+    const store = { viewMode: "swimlane", setViewMode: mocks.setViewMode };
+    return selector(store);
+  },
 }));
 
 // ── Mock ReactFlow ─────────────────────────────────────────────
@@ -195,6 +203,14 @@ describe("WorkflowSwimlanePage", () => {
     mocks.nodesData = [];
     mocks.edgesData = [];
     renderWithI18n(<WorkflowSwimlanePage workflowId="wf-1" />);
-    expect(screen.getByTestId("rf-nodecount").textContent).toBe("0");
+    expect(screen.getByTestId("swimlane-empty")).toBeTruthy();
+  });
+
+  it("shows empty state when no stages and no nodes", () => {
+    mocks.stagesData = [];
+    mocks.nodesData = [];
+    mocks.edgesData = [];
+    renderWithI18n(<WorkflowSwimlanePage workflowId="wf-1" />);
+    expect(screen.getByTestId("swimlane-empty")).toBeTruthy();
   });
 });
