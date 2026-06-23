@@ -1,18 +1,22 @@
 import "./e2e/env";
 import { defineConfig } from "@playwright/test";
 
+const basePath = process.env.NEXT_PUBLIC_BASE_PATH ?? "";
+const defaultOrigin = process.env.FRONTEND_ORIGIN ?? "http://localhost:3000";
+const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? `${defaultOrigin}${basePath}`;
+
 export default defineConfig({
   testDir: "./e2e",
   timeout: 30000,
   retries: 0,
   use: {
-    baseURL: process.env.PLAYWRIGHT_BASE_URL ?? process.env.FRONTEND_ORIGIN ?? "http://localhost:3000",
+    baseURL,
     headless: true,
   },
   projects: [
     {
       name: "chromium",
-      use: { browserName: "chromium" },
+      use: { browserName: "chromium", channel: "chrome" },
     },
   ],
   // Don't auto-start servers — they must be running already
