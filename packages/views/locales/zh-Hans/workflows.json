@@ -252,6 +252,7 @@
   },
   "view": {
     "section": "视图",
+    "swimlane": "泳道图",
     "overview": "概览",
     "editor": "编辑器"
   },
