@@ -43,11 +43,11 @@ export function WorkflowSwimlanePage({ workflowId, viewToggle }: WorkflowSwimlan
     refetch: workflowRefetch,
   } = useQuery(workflowDetailOptions(wsId, workflowId));
 
-  const { data: stages = [], isLoading: stagesLoading } = useQuery(
+  const { data: stages = [], isLoading: stagesLoading, isError: stagesError } = useQuery(
     workflowStagesOptions(wsId, workflowId),
   );
 
-  const { data: nodes = [], isLoading: nodesLoading } = useQuery(
+  const { data: nodes = [], isLoading: nodesLoading, isError: nodesError } = useQuery(
     workflowNodesOptions(wsId, workflowId),
   );
 
@@ -85,7 +85,7 @@ export function WorkflowSwimlanePage({ workflowId, viewToggle }: WorkflowSwimlan
 
   // ── Error ──
 
-  if (workflowError || !workflow) {
+  if (workflowError || stagesError || nodesError || !workflow) {
     return (
       <div className="flex flex-col h-full">
         <PageHeader>
