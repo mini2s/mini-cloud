@@ -14,8 +14,8 @@ const MOCK_STAGES = [
 ];
 
 const MOCK_NODES = [
-  { id: "n1", workflow_id: "wf-1", stage_id: "s1", title: "Architecture", description: "", position_x: 0, position_y: 0, format_schema: null, worker_type: "agent" as const, worker_id: null, critic_type: null as const, critic_id: null, critic_api_url: null, sort_order: 0, created_at: "", updated_at: "", shape: "rectangle" as const },
-  { id: "n2", workflow_id: "wf-1", stage_id: "s2", title: "Implement", description: "", position_x: 0, position_y: 0, format_schema: null, worker_type: "agent" as const, worker_id: null, critic_type: null as const, critic_id: null, critic_api_url: null, sort_order: 0, created_at: "", updated_at: "", shape: "rectangle" as const },
+  { id: "n1", workflow_id: "wf-1", stage_id: "s1", title: "Architecture", description: "", position_x: 0, position_y: 0, format_schema: null, worker_type: "agent" as const, worker_id: null, critic_type: "human" as const, critic_id: null, critic_api_url: null, sort_order: 0, created_at: "", updated_at: "", shape: "rectangle" as const },
+  { id: "n2", workflow_id: "wf-1", stage_id: "s2", title: "Implement", description: "", position_x: 0, position_y: 0, format_schema: null, worker_type: "agent" as const, worker_id: null, critic_type: "human" as const, critic_id: null, critic_api_url: null, sort_order: 0, created_at: "", updated_at: "", shape: "rectangle" as const },
 ];
 
 const MOCK_EDGES = [
