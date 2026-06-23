@@ -109,6 +109,26 @@ kill_port "$FRONTEND_PORT"
 ok "旧进程已清理"
 echo ""
 
+# 1.5. 确保数据库就绪（自动检测 worktree vs main checkout）
+info "检查数据库连接..."
+if [ -f "$ROOT_DIR/.git" ]; then
+  # Worktree: .git is a file, not a directory
+  ENV_FILE="$ROOT_DIR/.env.worktree"
+  if [ ! -f "$ENV_FILE" ]; then
+    info "Worktree 检测到，生成 $ENV_FILE ..."
+    bash "$ROOT_DIR/scripts/init-worktree-env.sh" "$ENV_FILE"
+  fi
+else
+  ENV_FILE="$ROOT_DIR/.env"
+  if [ ! -f "$ENV_FILE" ]; then
+    info "创建 $ENV_FILE（从 .env.example）..."
+    cp "$ROOT_DIR/.env.example" "$ENV_FILE"
+  fi
+fi
+bash "$ROOT_DIR/scripts/ensure-postgres.sh" "$ENV_FILE"
+ok "数据库就绪"
+echo ""
+
 # 2. 启动 Go 后端（后台运行，输出重定向到日志）
 info "启动后端服务 (端口 $PORT)..."
 BACKEND_LOG="$ROOT_DIR/.multica-backend.log"
