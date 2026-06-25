@@ -6,7 +6,7 @@ import {
   isEmbeddedInCostrict,
   parseParentRouteCommand,
   postLocationToParent,
-} from "@multica/core/platform/costrict-bridge";
+} from "@multica/core/platform";
 
 /**
  * When multica runs embedded inside the costrict-web platform, keep the parent's

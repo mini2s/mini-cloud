@@ -12,7 +12,7 @@ vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: routerPush }),
 }));
 
-vi.mock("@multica/core/platform/costrict-bridge", () => ({
+vi.mock("@multica/core/platform", () => ({
   isEmbeddedInCostrict: () => embeddedState.value,
   postLocationToParent: (path: string) => {
     postedPaths.push(path);
