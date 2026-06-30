@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { render } from "@testing-library/react";
-import { ReactFlowProvider } from "@xyflow/react";
+import { ReactFlowProvider, Position } from "@xyflow/react";
 import { PanoramaEdge } from "./panorama-edge";
 import type { EdgeProps } from "@xyflow/react";
 
@@ -13,8 +13,8 @@ function renderEdge(props: Partial<EdgeProps> = {}) {
     sourceY: 44,
     targetX: 400,
     targetY: 44,
-    sourcePosition: { x: 224, y: 44 },
-    targetPosition: { x: 400, y: 44 },
+    sourcePosition: Position.Right,
+    targetPosition: Position.Left,
     selected: false,
     ...props,
   } as EdgeProps;
@@ -57,7 +57,7 @@ describe("PanoramaEdge", () => {
     });
     const path = container.querySelector("path");
     const d = path?.getAttribute("d") ?? "";
-    expect(d).toContain("L");
+    expect(d).toContain("M");
   });
 
   it("renders dashed for critic connections", () => {
@@ -67,6 +67,8 @@ describe("PanoramaEdge", () => {
       sourceY: 64,
       targetX: 172,
       targetY: 84,
+      sourcePosition: Position.Bottom,
+      targetPosition: Position.Top,
       style: { strokeDasharray: "4 3" },
     });
     const path = container.querySelector("path");
@@ -75,7 +77,8 @@ describe("PanoramaEdge", () => {
 
   it("applies selection glow when selected", () => {
     const container = renderEdge({ selected: true });
-    const paths = container.querySelectorAll("path");
-    expect(paths.length).toBeGreaterThanOrEqual(2);
+    const paths = container.querySelectorAll("path.react-flow__edge-path");
+    expect(paths.length).toBe(1);
+    expect(paths[0]?.getAttribute("class")).toContain("drop-shadow");
   });
 });
