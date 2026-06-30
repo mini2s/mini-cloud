@@ -4,14 +4,20 @@ import { PanoramaToolbar } from "./panorama-toolbar";
 
 vi.mock("../../../i18n", () => ({
   useT: () => ({
-    t: (getter: (d: Record<string, string>) => string) => {
-      const dict: Record<string, string> = {
-        "panorama.toolbar.undo": "Undo",
-        "panorama.toolbar.redo": "Redo",
-        "panorama.toolbar.auto_layout": "Auto layout",
-        "panorama.toolbar.annotations": "Toggle annotations",
-        "panorama.toolbar.save": "Save changes",
-        "panorama.toolbar.unsaved": "Unsaved changes",
+    t: (getter: (d: Record<string, unknown>) => string) => {
+      const dict: Record<string, unknown> = {
+        panorama: {
+          toolbar: {
+            undo: "Undo",
+            redo: "Redo",
+            auto_layout: "Auto layout",
+            annotations: "Toggle annotations",
+            save: "Save changes",
+            unsaved: "Unsaved changes",
+            zoom_in: "Zoom in",
+            zoom_out: "Zoom out",
+          },
+        },
       };
       return getter(dict);
     },

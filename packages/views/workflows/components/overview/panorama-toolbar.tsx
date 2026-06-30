@@ -35,23 +35,23 @@ export function PanoramaToolbar({
       <Tooltip>
         <TooltipTrigger
           render={
-            <Button variant="ghost" size="icon-sm" disabled={!canUndo} onClick={undo} aria-label="Undo">
+            <Button variant="ghost" size="icon-sm" disabled={!canUndo} onClick={undo} aria-label={t(($) => $.panorama.toolbar.undo)}>
               <Undo2 className="size-4" />
             </Button>
           }
         />
-        <TooltipContent>Undo</TooltipContent>
+        <TooltipContent>{t(($) => $.panorama.toolbar.undo)}</TooltipContent>
       </Tooltip>
 
       <Tooltip>
         <TooltipTrigger
           render={
-            <Button variant="ghost" size="icon-sm" disabled={!canRedo} onClick={redo} aria-label="Redo">
+            <Button variant="ghost" size="icon-sm" disabled={!canRedo} onClick={redo} aria-label={t(($) => $.panorama.toolbar.redo)}>
               <Redo2 className="size-4" />
             </Button>
           }
         />
-        <TooltipContent>Redo</TooltipContent>
+        <TooltipContent>{t(($) => $.panorama.toolbar.redo)}</TooltipContent>
       </Tooltip>
 
       <Separator orientation="vertical" className="h-5" />
@@ -59,12 +59,12 @@ export function PanoramaToolbar({
       <Tooltip>
         <TooltipTrigger
           render={
-            <Button variant="ghost" size="icon-sm" onClick={onAutoLayout} aria-label="Auto layout">
+            <Button variant="ghost" size="icon-sm" onClick={onAutoLayout} aria-label={t(($) => $.panorama.toolbar.auto_layout)}>
               <AppWindow className="size-4" />
             </Button>
           }
         />
-        <TooltipContent>Auto layout</TooltipContent>
+        <TooltipContent>{t(($) => $.panorama.toolbar.auto_layout)}</TooltipContent>
       </Tooltip>
 
       <Tooltip>
@@ -74,13 +74,13 @@ export function PanoramaToolbar({
               variant={showAnnotations ? "secondary" : "ghost"}
               size="icon-sm"
               onClick={toggleAnnotations}
-              aria-label="Toggle annotations"
+              aria-label={t(($) => $.panorama.toolbar.annotations)}
             >
               <MessageSquareText className="size-4" />
             </Button>
           }
         />
-        <TooltipContent>Toggle annotations</TooltipContent>
+        <TooltipContent>{t(($) => $.panorama.toolbar.annotations)}</TooltipContent>
       </Tooltip>
 
       <div className="flex-1" />
@@ -88,12 +88,12 @@ export function PanoramaToolbar({
       <Tooltip>
         <TooltipTrigger
           render={
-            <Button variant="ghost" size="icon-sm" onClick={zoomOut} aria-label="Zoom out">
+            <Button variant="ghost" size="icon-sm" onClick={zoomOut} aria-label={t(($) => $.panorama.toolbar.zoom_out)}>
               <ZoomOut className="size-4" />
             </Button>
           }
         />
-        <TooltipContent>Zoom out</TooltipContent>
+        <TooltipContent>{t(($) => $.panorama.toolbar.zoom_out)}</TooltipContent>
       </Tooltip>
 
       <span className="text-xs text-muted-foreground tabular-nums w-10 text-center select-none">
@@ -103,12 +103,12 @@ export function PanoramaToolbar({
       <Tooltip>
         <TooltipTrigger
           render={
-            <Button variant="ghost" size="icon-sm" onClick={zoomIn} aria-label="Zoom in">
+            <Button variant="ghost" size="icon-sm" onClick={zoomIn} aria-label={t(($) => $.panorama.toolbar.zoom_in)}>
               <ZoomIn className="size-4" />
             </Button>
           }
         />
-        <TooltipContent>Zoom in</TooltipContent>
+        <TooltipContent>{t(($) => $.panorama.toolbar.zoom_in)}</TooltipContent>
       </Tooltip>
 
       <Separator orientation="vertical" className="h-5" />
@@ -116,16 +116,16 @@ export function PanoramaToolbar({
       <Tooltip>
         <TooltipTrigger
           render={
-            <Button variant="default" size="sm" onClick={onSave} aria-label="Save changes" className="relative">
+            <Button variant="default" size="sm" onClick={onSave} aria-label={t(($) => $.panorama.toolbar.save)} className="relative">
               {hasUnsaved && (
                 <span className="absolute -top-0.5 -right-0.5 size-2 rounded-full bg-primary" />
               )}
               <Save className="size-3.5 mr-1.5" />
-              Save
+              {t(($) => $.panorama.toolbar.save)}
             </Button>
           }
         />
-        <TooltipContent>{hasUnsaved ? "Unsaved changes" : "Save changes"}</TooltipContent>
+        <TooltipContent>{hasUnsaved ? t(($) => $.panorama.toolbar.unsaved) : t(($) => $.panorama.toolbar.save)}</TooltipContent>
       </Tooltip>
     </div>
   );
