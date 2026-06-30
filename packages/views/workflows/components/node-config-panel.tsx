@@ -67,9 +67,13 @@ interface NodeConfigPanelProps {
   stages?: WorkflowStage[];
   disabled?: boolean;
   onClose: () => void;
+  // Callbacks for parent-controlled save/delete/stage-assign
+  onSaveNode?: () => void;
+  onDeleteNode?: (nodeId: string) => void;
+  onStageChange?: (nodeId: string, stageId: string | null) => void;
 }
 
-export function NodeConfigPanel({ node, workflowId, nodes = [], stages = [], disabled = false, onClose }: NodeConfigPanelProps) {
+export function NodeConfigPanel({ node, workflowId, nodes = [], stages = [], disabled = false, onClose, onDeleteNode, onStageChange }: NodeConfigPanelProps) {
   const { t } = useT("workflows");
   const wsId = useWorkspaceId();
   const deleteMutation = useDeleteNode(wsId, workflowId);
@@ -203,10 +207,14 @@ export function NodeConfigPanel({ node, workflowId, nodes = [], stages = [], dis
               }
               const newStageId = newVal || null;
               setStageId(newStageId);
-              assignStageMutation.mutate(
-                { nodeId: node.id, stage_id: newStageId },
-                { onError: () => setStageId(node.stage_id ?? null) },
-              );
+              if (onStageChange) {
+                onStageChange(node.id, newStageId);
+              } else {
+                assignStageMutation.mutate(
+                  { nodeId: node.id, stage_id: newStageId },
+                  { onError: () => setStageId(node.stage_id ?? null) },
+                );
+              }
             }}
           >
             <option value="">{t(($) => $.overview.stage_canvas.unassigned)}</option>
@@ -434,7 +442,13 @@ export function NodeConfigPanel({ node, workflowId, nodes = [], stages = [], dis
             size="sm"
             variant="destructive"
             className="w-full"
-            onClick={handleDelete}
+            onClick={() => {
+              if (onDeleteNode) {
+                onDeleteNode(node.id);
+              } else {
+                handleDelete();
+              }
+            }}
             disabled={deleteMutation.isPending}
           >
             <Trash2 className="h-3.5 w-3.5 mr-1.5" />
