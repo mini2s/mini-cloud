@@ -52,14 +52,14 @@ describe("CanvasStageLabels", () => {
   it("calls onEdit when edit button clicked", () => {
     render(<CanvasStageLabels {...baseProps} />);
     const editButtons = screen.getAllByLabelText("Edit stage");
-    fireEvent.click(editButtons[0]);
+    fireEvent.click(editButtons[0]!);
     expect(baseProps.onEdit).toHaveBeenCalledWith(baseProps.stages[0]);
   });
 
   it("calls onDelete when delete button clicked", () => {
     render(<CanvasStageLabels {...baseProps} />);
     const deleteButtons = screen.getAllByLabelText("Delete stage");
-    fireEvent.click(deleteButtons[0]);
+    fireEvent.click(deleteButtons[0]!);
     expect(baseProps.onDelete).toHaveBeenCalledWith(baseProps.stages[0]);
   });
 

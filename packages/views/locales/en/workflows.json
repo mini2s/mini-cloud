@@ -321,6 +321,8 @@
       "redo": "Redo",
       "auto_layout": "Auto layout",
       "annotations": "Toggle annotations",
+      "zoom_in": "Zoom in",
+      "zoom_out": "Zoom out",
       "save": "Save changes",
       "unsaved": "Unsaved changes"
     },

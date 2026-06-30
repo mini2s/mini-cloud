@@ -320,6 +320,8 @@
       "redo": "重做",
       "auto_layout": "自动布局",
       "annotations": "切换便签",
+      "zoom_in": "放大",
+      "zoom_out": "缩小",
       "save": "保存更改",
       "unsaved": "有未保存的更改"
     },

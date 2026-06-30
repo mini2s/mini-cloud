@@ -43,5 +43,4 @@ export type { PanoramaSvgOverlayProps, EdgePath } from "./panorama-svg-overlay";
 export { StageCreateDialog } from "./stage-create-dialog";
 
 // Keep these for backward compat until confirmed unused
-export { WorkflowOverviewPage } from "./workflow-overview-page";
-export { ArchitectureDetailPanel } from "./architecture-detail-panel";
+// WorkflowOverviewPage and ArchitectureDetailPanel removed - unused

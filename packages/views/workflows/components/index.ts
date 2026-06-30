@@ -1,5 +1,4 @@
 export { WorkflowsPage } from "./workflows-page";
-export { WorkflowDetailPage } from "./workflow-detail-page";
 export { WorkflowDetailShell } from "./workflow-detail-shell";
 export { WorkflowRunsPage } from "./workflow-runs-page";
 export { WorkflowRunPage } from "./workflow-run-page";
