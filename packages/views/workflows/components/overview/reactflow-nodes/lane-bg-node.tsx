@@ -3,6 +3,7 @@ import { STAGE_BG_COLORS, LANE_HEIGHT, PANORAMA_WIDTH } from "../constants";
 
 export interface LaneBgNodeData {
   stageIndex: number;
+  stageName?: string;
 }
 
 export function LaneBgNode({ id, data }: NodeProps<LaneBgNodeData>) {
