@@ -22,9 +22,10 @@
 | 连线创建 | 从节点 Handle 拖拽连线 |
 | 节点创建 | 从 NodePalette 拖拽到画布 |
 | 属性编辑 | 右侧滑出 NodeConfigPanel |
-| 保存策略 | 位置/连线即时提交，属性编辑手动批量保存 |
-| 连线约束 | 放开跨 stage 边限制（后端同步放宽校验） |
-| 实现策略 | 全部新建组件（`reactflow-nodes/`、`reactflow-edges/`），完成后移除旧文件 |
+| 保存策略 | 位置/连线/stage assignment 即时提交；文本属性手动批量保存 |
+| 撤销策略 | 当前 store 只支持本地编辑快照和少量 server action；即时提交操作必须补齐 server-backed undo，否则不承诺撤销 |
+| 连线约束 | 跨 stage 边已由后端支持，本设计只在前端开放创建 |
+| 实现策略 | 全部新建 ReactFlow 组件（`reactflow-nodes/`、`reactflow-edges/`），完成后只删除无剩余引用的旧文件 |
 
 ## 2. 数据模型调整
 
@@ -32,7 +33,7 @@
 
 ### 2.1 跨 stage 边约束放宽
 
-原约束「边只在阶段内部连接节点，跨 stage 边返回 400」→ **移除**。后端 `CreateWorkflowEdge` / `UpdateWorkflowEdge` 删除 stage 一致性校验。
+后端当前已经允许跨 stage 边：`CreateWorkflowEdge` 只校验节点存在、不能自连，现有测试 `TestCrossStageEdge_Allowed` 覆盖该行为。本文档不再把后端放宽校验列为待实现项；实现时只需要保留该测试并在前端允许跨 lane 连线。
 
 ### 2.2 坐标模型
 
@@ -64,7 +65,7 @@ LANE_PADDING_TOP = 12px
 
 ## 3. 路由简化
 
-`/workflows/[id]` 是唯一视图，移除 `/editor` 和 `/overview` 子路由。
+`/workflows/[id]` 是唯一主视图，移除编辑器/全景图的视图切换。Web 现有 `/workflows/[id]/overview` redirect 默认保留为兼容入口；除非确认没有外部链接依赖，否则不要删除该 redirect。Desktop 当前只有 `workflows/:id`，只需要更新该入口指向新合并视图。
 
 | 路由 | 说明 |
 |------|------|
@@ -100,38 +101,38 @@ packages/views/workflows/components/overview/
 
 | 文件 | 使用方式 |
 |------|---------|
-| `node-config-panel.tsx` | 直接复用，不修改 |
-| `node-palette.tsx` | 适配复用（增加 Critic 拖拽项） |
+| `node-config-panel.tsx` | 适配复用：拆出或新增 props 控制 stage assignment、delete、save 行为，避免绕过统一保存/撤销语义 |
+| `node-palette.tsx` | 适配复用（增加 Critic 拖拽项和 lane drop 语义） |
 | `stage-create-dialog.tsx` | 直接复用，不修改 |
 | `alignment-snap.ts` | 直接复用，不修改 |
 | `layout.ts` | 适配（dagre 改为 lane 内水平排列） |
-| `packages/core/workflows/store.ts` | 直接复用 |
+| `packages/core/workflows/store.ts` | 复用基础选择/编辑缓存；若即时提交操作需要撤销，必须扩展 server action 类型 |
 | `packages/core/workflows/queries.ts` | 直接复用 |
 
-### 4.3 完成后移除的文件
+### 4.3 完成后清理的文件
 
 ```
-# 编辑器
+# 编辑器（新合并视图替代后移除）
 packages/views/workflows/components/workflow-detail-page.tsx
 packages/views/workflows/components/workflow-detail-shell.tsx
 packages/views/workflows/components/dag-canvas.tsx
 packages/views/workflows/components/reactflow-nodes.tsx
 
-# 旧全景图（div+SVG 渲染层）
+# 旧 Workflow-only 全景图（确认无引用后移除）
 packages/views/workflows/components/overview/workflow-overview-page.tsx
 packages/views/workflows/components/overview/stage-canvas.tsx
 packages/views/workflows/components/overview/stage-card.tsx
 packages/views/workflows/components/overview/stage-node-dag.tsx
-packages/views/workflows/components/overview/stage-lane.tsx
 packages/views/workflows/components/overview/compact-node-card.tsx
 packages/views/workflows/components/overview/critic-badge.tsx
-packages/views/workflows/components/overview/panorama-svg-overlay.tsx
 packages/views/workflows/components/overview/node-detail-panel.tsx
 packages/views/workflows/components/overview/architecture-detail-panel.tsx
 
-# Store
+# Store（视图切换移除后确认无引用再删）
 packages/core/workflows/stores/view-store.ts
 ```
+
+`stage-lane.tsx` 和 `panorama-svg-overlay.tsx` 当前仍被 `packages/views/issues/components/execution/execution-panorama-page.tsx` 复用，不能在本次 Workflow 编辑器合并中直接删除。只有先迁移 issue execution panorama 到新组件或确认保留旧 runtime 展示组件后，才能清理这些文件。
 
 ## 5. 组件架构
 
@@ -203,7 +204,7 @@ WorkflowPanoramaPage                              ← 新入口
 │   │   ├── PanoramaEdge[]                        ← edgeTypes.panorama
 │   │   └── AlignmentGuides (吸附引导线 SVG)
 │   │
-│   └── NodeConfigPanel (右侧滑出, w-96)           ← 复用 node-config-panel.tsx
+│   └── NodeConfigPanel (右侧滑出, w-96)           ← 适配复用 node-config-panel.tsx
 │       ├── 标题 / 描述编辑
 │       ├── Stage 下拉选择器
 │       ├── Worker 指派 (AssigneePicker)
@@ -222,7 +223,7 @@ WorkflowPanoramaPage                              ← 新入口
 |------|------|--------|
 | 移动节点 | 直接拖拽 | 超过 3px 才生效（ReactFlow 默认） |
 | 创建连线 | 从 Handle 拖出 | Handle hover 才显示（`opacity-0` → `opacity-100`） |
-| 删除节点/边 | `Backspace` / `Delete` | 需先选中；有撤销兜底 |
+| 删除节点/边 | `Backspace` / `Delete` | 需先选中；仅在补齐 server-backed undo 后显示撤销入口 |
 | 多选/框选 | 空白区域拖拽 | ReactFlow `selectionOnDrag` |
 | 打开属性面板 | 单击节点 | — |
 | 取消选中 | 点击空白 / `Esc` | — |
@@ -331,14 +332,14 @@ const { data: stages } = useQuery(workflowStagesOptions(wsId, workflowId));
 const { data: nodes } = useQuery(workflowNodesOptions(wsId, workflowId));
 const { data: edges } = useQuery(workflowEdgesOptions(wsId, workflowId));
 const { data: agents } = useQuery(agentListOptions(wsId));
-const { data: plugins } = useQuery(builtinPluginListOptions(wsId));
+const { data: plugins } = useQuery(builtinPluginListOptions());
 ```
 
 Mutations 复用现有（`useCreateNode`, `useUpdateNode`, `useDeleteNode`, `useCreateEdge`, `useDeleteEdge`, `useCreateStage`, `useUpdateStage`, `useDeleteStage`, `useReorderStages`, `useAssignNodeToStage`）。
 
 ### 7.2 Zustand Store
 
-直接复用 `useWorkflowEditorStore`（`packages/core/workflows/store.ts`）：
+复用 `useWorkflowEditorStore`（`packages/core/workflows/store.ts`）的选择状态、编辑缓存、annotation 开关和颜色模式：
 
 ```typescript
 store.selectedNodeId        // 当前选中 → 驱动属性面板
@@ -352,17 +353,21 @@ store.canvasColorMode       // 画布颜色模式
 
 以下字段保留在 store 中但不被全景图使用：`mode`（不再有 view/edit/connect 模式）、`pendingEdgeSource`（连线从 Handle 拖拽，不需先点源再点目标）。
 
+当前 store 的 undo/redo 只可靠覆盖本地 `nodeEdits` / `deletedNodeIds` 快照，以及已有的 `create-node`、`create-edge`、`delete-edge` server action。新全景图如果让位置、stage assignment、节点删除、stage CRUD 即时提交，就必须同步扩展 `TrackedAction` 和反向 mutation；否则这些操作不展示可撤销承诺。
+
 ### 7.3 保存语义
 
 | 操作 | 提交时机 | 原因 |
 |------|---------|------|
-| 节点拖拽松手 | 即时 `updateNode(position_x)` | 位置已是精确意图 |
-| 跨 lane 拖拽松手 | 即时 `assignNodeToStage(stageId)` | 明确的结构变更 |
-| 连线创建 | 即时 `createEdge(source, target)` | 拖拽松手已是确认 |
-| 连线删除 | 即时 `deleteEdge(edgeId)` | 选中+Delete 已是确认 |
-| 节点删除 | 即时，有撤销兜底 | 明确操作 |
+| 节点拖拽松手 | 即时 `updateNode(position_x)` | 位置已是精确意图；若支持撤销，记录旧 `position_x` |
+| 跨 lane 拖拽松手 | 即时 `assignNodeToStage(stage_id)` | 明确的结构变更；若支持撤销，记录旧 `stage_id` |
+| 连线创建 | 即时 `createEdge(source, target)` | 拖拽松手已是确认；沿用已有 create-edge server action |
+| 连线删除 | 即时 `deleteEdge(edgeId)` | 选中+Delete 已是确认；沿用已有 delete-edge server action |
+| 节点删除 | 两种策略择一：批量保存删除，或即时删除并实现 restore server action | 当前 store 不能恢复已从服务端删除的节点 |
 | 属性编辑 | 点击「保存」批量提交 | 文本编辑渐进式 |
-| Stage CRUD | 即时，有确认弹窗 | 明确的结构变更 |
+| Stage CRUD | 即时，有确认弹窗；如展示撤销必须记录反向 mutation | 明确的结构变更 |
+
+默认实现建议：先只为已有 server action 显示 undo/redo；位置、stage assignment、节点删除、Stage CRUD 在未补齐反向 mutation 前不宣称可撤销。
 
 ### 7.4 节点数据转换（API → ReactFlow）
 
@@ -371,21 +376,30 @@ function apiNodesToReactFlowNodes(
   nodes: WorkflowNode[],
   stages: WorkflowStage[]
 ): Node[] {
-  return nodes.map(node => {
-    const stage = stages.find(s => s.id === node.stageId);
+  return nodes.flatMap(node => {
+    const stage = stages.find(s => s.id === node.stage_id);
     const laneY = stage
-      ? stage.sortOrder * LANE_STEP
+      ? stage.sort_order * LANE_STEP
       : UNASSIGNED_LANE_Y;
-
-    return {
+    const x = node.position_x ?? computeDefaultX(node, stage, nodes);
+    const workerNode = {
       id: node.id,
-      type: node.criticId ? "compactWorker" : "compactWorker",
-      position: {
-        x: node.positionX ?? computeDefaultX(node, stage, allNodes),
-        y: laneY + LANE_PADDING_TOP,
-      },
-      data: { node, stageId: node.stageId },
+      type: "compactWorker",
+      position: { x, y: laneY + LANE_PADDING_TOP },
+      data: { node, stage_id: node.stage_id },
     };
+
+    if (!node.critic_id && !node.critic_api_url) return [workerNode];
+
+    return [
+      workerNode,
+      {
+        id: `${node.id}:critic`,
+        type: "criticBadge",
+        position: { x, y: laneY + LANE_PADDING_TOP + WORKER_HEIGHT + WORKER_CRITIC_GAP },
+        data: { node, stage_id: node.stage_id, parent_node_id: node.id },
+      },
+    ];
   });
 }
 ```
@@ -412,8 +426,8 @@ function apiNodesToReactFlowNodes(
 
 ```typescript
 function handleNodeDrag(event, node) {
-  const stage = stages.find(s => s.id === node.data.stageId);
-  const laneTop = stage.sortOrder * LANE_STEP;
+  const stage = stages.find(s => s.id === node.data.stage_id);
+  const laneTop = stage ? stage.sort_order * LANE_STEP : UNASSIGNED_LANE_Y;
   const laneBottom = laneTop + LANE_HEIGHT;
 
   // y 约束到所属 stage lane 范围
@@ -421,8 +435,8 @@ function handleNodeDrag(event, node) {
 
   // 越界进入相邻 lane → 切换 stage
   const newStage = findStageAtY(node.position.y);
-  if (newStage && newStage.id !== node.data.stageId) {
-    node.data.stageId = newStage.id;
+  if (newStage && newStage.id !== node.data.stage_id) {
+    node.data.stage_id = newStage.id;
   }
 }
 ```
@@ -491,7 +505,8 @@ function handleNodeDrag(event, node) {
 
 ### Go 后端
 
-- 新增：验证跨 stage 边**可以**成功创建（替代原「返回 400」测试）
+- 保留并运行现有 `TestCrossStageEdge_Allowed`，验证跨 stage 边可以成功创建。
+- 不新增 `UpdateWorkflowEdge` 测试；当前后端没有该 handler。
 
 ### 前端
 
@@ -504,10 +519,12 @@ function handleNodeDrag(event, node) {
 - `panorama-edge.test.tsx`：同 lane 路径、跨 lane 路径、critic 路径、视觉参数
 - `panorama-toolbar.test.tsx`：按钮功能、快捷键
 - `canvas-stage-labels.test.tsx`：labels、行内操作、拖拽排序
+- `node-config-panel` 适配测试：stage 下拉、删除、保存行为不会绕过新全景图的保存/撤销策略
+- 路由入口测试：Web `/workflows/[id]` 和 Desktop `workflows/:id` 渲染新合并视图；Web `/overview` redirect 如保留则继续测试 redirect
 
-**移除的旧测试：** `overview-page.test.tsx`、`stage-lane.test.tsx`、`compact-node-card.test.tsx`、`critic-badge.test.tsx`、`panorama-svg-overlay.test.tsx`、`architecture-detail-panel.test.tsx`。
+**移除的旧测试：** 仅删除对应组件已经无引用、且不再服务 issue execution panorama 的测试。`stage-lane.test.tsx`、`panorama-svg-overlay.test.tsx` 在 issue execution panorama 迁移前必须保留或改名为 runtime panorama 测试。
 
-## 14. 实现次序（3 Phase）
+## 14. 实现次序（4 Phase）
 
 ### Phase 1 — 新建 ReactFlow 节点 & 边（无破坏性）
 
@@ -517,18 +534,23 @@ function handleNodeDrag(event, node) {
 4. `reactflow-nodes/critic-badge-node.tsx` + 测试
 5. `reactflow-edges/panorama-edge.tsx` + 测试
 
-### Phase 2 — 画布 & 外围
+### Phase 2 — 保存/撤销语义 & 外围
 
 6. `panorama-toolbar.tsx` + 测试
 7. `canvas-stage-labels.tsx` + 测试
-8. 重写 `workflow-panorama-page.tsx`（ReactFlow 整合 + 数据转换 + 交互约束 + 保存逻辑）
-9. 适配 `layout.ts`（dagre 改为 lane 内水平排列）
-10. 全景图页面集成测试
+8. 适配 `node-config-panel.tsx`，明确 stage assignment、delete、save 由新全景图统一控制
+9. 如需即时操作可撤销，扩展 `packages/core/workflows/store.ts` 的 `TrackedAction` 并实现反向 mutations；否则 UI 不显示这些操作的撤销承诺
+10. 适配 `layout.ts`（dagre 改为 lane 内水平排列）
 
 ### Phase 3 — 路由 & 清理
 
-11. Web 路由：`/workflows/[id]` 指向新全景图
-12. Desktop 路由同步更新
-13. 后端：放宽跨 stage 边校验
-14. 移除旧文件（15 个组件/页面/store）
-15. 更新 E2E 测试
+11. 重写 `workflow-panorama-page.tsx`（ReactFlow 整合 + 数据转换 + 交互约束 + 保存逻辑）
+12. Web 路由：`/workflows/[id]` 指向新全景图，默认保留 `/overview` redirect
+13. Desktop 路由 `workflows/:id` 同步更新
+14. 移除视图切换 store 和独立编辑器入口，清理导出
+
+### Phase 4 — 依赖迁移 & 验证
+
+15. 用 `rg` 确认旧文件引用；只删除无剩余引用文件
+16. `stage-lane.tsx` / `panorama-svg-overlay.tsx` 若仍被 issue execution panorama 使用，则保留并标注为 runtime panorama 组件
+17. 运行前端组件测试、现有 Go 跨 stage edge 测试，并更新 E2E 覆盖新入口
