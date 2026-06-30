@@ -42,15 +42,18 @@ export function NodePalette({ className, collapsed, onToggleCollapse }: NodePale
   if (collapsed) {
     return (
       <div className={cn("p-1", className)}>
-        <button
-          onClick={onToggleCollapse}
-          className="flex items-center justify-center w-9 h-9 rounded-md border border-border bg-muted/30 hover:bg-muted"
-          aria-label="Expand palette"
-        >
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-            <path d="M9 18l6-6-6-6" />
-          </svg>
-        </button>
+        {onToggleCollapse && (
+          <button
+            onClick={onToggleCollapse}
+            className="flex items-center justify-center w-9 h-9 rounded-md border border-border bg-muted/30 hover:bg-muted"
+            aria-label="Expand palette"
+            title="Expand palette"
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M9 18l6-6-6-6" />
+            </svg>
+          </button>
+        )}
       </div>
     );
   }
