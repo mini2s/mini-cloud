@@ -310,5 +310,24 @@
     "tab": "工作流任务",
     "worker_tasks": "待处理",
     "critic_tasks": "待评审"
+  },
+  "panorama": {
+    "empty_all": "创建第一个阶段以开始使用",
+    "unassigned": "未分组",
+    "not_configured": "未配置",
+    "toolbar": {
+      "undo": "撤销",
+      "redo": "重做",
+      "auto_layout": "自动布局",
+      "annotations": "切换便签",
+      "save": "保存更改",
+      "unsaved": "有未保存的更改"
+    },
+    "stage_label": {
+      "edit": "编辑阶段",
+      "delete": "删除阶段",
+      "move_up": "上移阶段",
+      "move_down": "下移阶段"
+    }
   }
 }

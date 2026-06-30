@@ -311,5 +311,24 @@
     "tab": "Workflow Tasks",
     "worker_tasks": "To Do",
     "critic_tasks": "To Review"
+  },
+  "panorama": {
+    "empty_all": "Create your first stage to get started",
+    "unassigned": "Unassigned",
+    "not_configured": "Not configured",
+    "toolbar": {
+      "undo": "Undo",
+      "redo": "Redo",
+      "auto_layout": "Auto layout",
+      "annotations": "Toggle annotations",
+      "save": "Save changes",
+      "unsaved": "Unsaved changes"
+    },
+    "stage_label": {
+      "edit": "Edit stage",
+      "delete": "Delete stage",
+      "move_up": "Move stage up",
+      "move_down": "Move stage down"
+    }
   }
 }
