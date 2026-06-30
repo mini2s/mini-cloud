@@ -7,6 +7,7 @@ import {
   Background,
   Controls,
   MiniMap,
+  useReactFlow,
   type Node,
   type Edge,
   type Connection,
@@ -25,6 +26,8 @@ import {
   useDeleteEdge,
   useDeleteNode,
   useAssignNodeToStage,
+  useDeleteStage,
+  useReorderStages,
 } from "@multica/core/workflows/queries";
 import { agentListOptions, builtinPluginListOptions } from "@multica/core/workspace/queries";
 import { useActorName } from "@multica/core/workspace/hooks";
@@ -56,7 +59,7 @@ import {
   computeLaneY,
 } from "./constants";
 
-import type { WorkflowNode, WorkflowStage, WorkflowEdge } from "@multica/core/types";
+import type { WorkflowNode, WorkflowStage, WorkflowEdge, ReorderStagesItem } from "@multica/core/types";
 import type { Agent } from "@multica/core/types";
 import type { BuiltinPlugin } from "@multica/core/api/schemas";
 
@@ -233,6 +236,11 @@ export function WorkflowPanoramaPage({ workflowId, viewToggle }: WorkflowPanoram
   const deleteEdgeMutation = useDeleteEdge(wsId, workflowId);
   const deleteNodeMutation = useDeleteNode(wsId, workflowId);
   const assignStageMutation = useAssignNodeToStage(wsId, workflowId);
+  const deleteStageMutation = useDeleteStage(wsId, workflowId);
+  const reorderStagesMutation = useReorderStages(wsId, workflowId);
+
+  // ── ReactFlow instance (for zoom controls) ──
+  const reactFlowInstance = useReactFlow();
 
   // ── Store ──
   const selectedNodeId = useWorkflowEditorStore((s) => s.selectedNodeId);
@@ -387,6 +395,32 @@ export function WorkflowPanoramaPage({ workflowId, viewToggle }: WorkflowPanoram
     [assignStageMutation],
   );
 
+  const handleStageDelete = useCallback(
+    (stage: WorkflowStage) => {
+      if (window.confirm(`Delete stage "${stage.name}"?`)) {
+        deleteStageMutation.mutate(stage.id);
+      }
+    },
+    [deleteStageMutation],
+  );
+
+  const handleStageReorder = useCallback(
+    (stageId: string, direction: "up" | "down") => {
+      const sorted = [...stages].sort((a, b) => a.sort_order - b.sort_order);
+      const idx = sorted.findIndex((s) => s.id === stageId);
+      if (idx === -1) return;
+      const swapIdx = direction === "up" ? idx - 1 : idx + 1;
+      if (swapIdx < 0 || swapIdx >= sorted.length) return;
+
+      const items: ReorderStagesItem[] = [
+        { id: sorted[idx]!.id, sort_order: sorted[swapIdx]!.sort_order },
+        { id: sorted[swapIdx]!.id, sort_order: sorted[idx]!.sort_order },
+      ];
+      reorderStagesMutation.mutate(items);
+    },
+    [stages, reorderStagesMutation],
+  );
+
   // ── Viewport tracking ──
   const handleViewportChange = useCallback((viewport: Viewport) => {
     setViewportY(viewport.y);
@@ -473,8 +507,8 @@ export function WorkflowPanoramaPage({ workflowId, viewToggle }: WorkflowPanoram
         onAutoLayout={handleAutoLayout}
         onSave={handleSave}
         hasUnsaved={hasUnsaved}
-        zoomIn={() => {}}  // handled by ReactFlow Controls
-        zoomOut={() => {}}
+        zoomIn={() => reactFlowInstance.zoomIn()}
+        zoomOut={() => reactFlowInstance.zoomOut()}
         zoomLevel={zoomLevel}
       />
 
@@ -490,9 +524,9 @@ export function WorkflowPanoramaPage({ workflowId, viewToggle }: WorkflowPanoram
         <CanvasStageLabels
           stages={stages}
           viewportY={viewportY}
-          onEdit={() => {}}
-          onDelete={() => {}}
-          onReorder={() => {}}
+          onEdit={() => setShowStageDialog(true)}
+          onDelete={handleStageDelete}
+          onReorder={handleStageReorder}
         />
 
         {/* ReactFlow canvas */}

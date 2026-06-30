@@ -88,6 +88,7 @@ vi.mock("@xyflow/react", () => ({
   MiniMap: () => <div data-testid="rf-minimap" />,
   Handle: () => <div data-testid="rf-handle" />,
   Position: { Left: "left", Right: "right", Top: "top", Bottom: "bottom" },
+  useReactFlow: () => ({ zoomIn: vi.fn(), zoomOut: vi.fn(), zoomTo: vi.fn(), setCenter: vi.fn() }),
 }));
 
 // Mock TanStack Query — reads from hoisted mocks
