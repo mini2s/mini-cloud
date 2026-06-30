@@ -4,7 +4,7 @@ import { ShieldAlert } from "lucide-react";
 import type { WorkflowNode } from "@multica/core/types";
 import { CRITIC_WIDTH, CRITIC_HEIGHT } from "../constants";
 
-export interface CriticBadgeNodeData {
+export interface CriticBadgeNodeData extends Record<string, unknown> {
   node: WorkflowNode;
   parentNodeId: string;
   criticName?: string;
@@ -13,7 +13,9 @@ export interface CriticBadgeNodeData {
 export const CriticBadgeNode = memo(function CriticBadgeNode({
   id,
   data,
-}: NodeProps<CriticBadgeNodeData>) {
+}: NodeProps) {
+  const nodeData = data as unknown as CriticBadgeNodeData;
+
   return (
     <div
       data-testid={`critic-badge-${id}`}
@@ -30,7 +32,7 @@ export const CriticBadgeNode = memo(function CriticBadgeNode({
             Critic
           </span>
           <span className="text-xs font-semibold truncate text-foreground leading-tight">
-            {data.criticName || "Critic"}
+            {nodeData.criticName || "Critic"}
           </span>
         </div>
       </div>

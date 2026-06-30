@@ -3,7 +3,7 @@ import { Handle, Position, type NodeProps } from "@xyflow/react";
 import type { WorkflowNode } from "@multica/core/types";
 import { WORKER_WIDTH, WORKER_HEIGHT, STAGE_LINE_COLORS } from "../constants";
 
-export interface CompactWorkerNodeData {
+export interface CompactWorkerNodeData extends Record<string, unknown> {
   node: WorkflowNode;
   stage_id: string | null;
   stageColorIndex: number;
@@ -15,11 +15,12 @@ export const CompactWorkerNode = memo(function CompactWorkerNode({
   id,
   data,
   ...rest
-}: NodeProps<CompactWorkerNodeData>) {
+}: NodeProps) {
+  const nodeData = data as unknown as CompactWorkerNodeData;
   const selected = (rest as Record<string, unknown>).selected === true;
-  const handleColorClass = STAGE_LINE_COLORS[data.stageColorIndex % STAGE_LINE_COLORS.length];
-  const displayName = data.pluginName || data.node.title || "Untitled";
-  const subtitle = data.workerName || "Not configured";
+  const handleColorClass = STAGE_LINE_COLORS[nodeData.stageColorIndex % STAGE_LINE_COLORS.length];
+  const displayName = nodeData.pluginName || nodeData.node.title || "Untitled";
+  const subtitle = nodeData.workerName || "Not configured";
 
   return (
     <div

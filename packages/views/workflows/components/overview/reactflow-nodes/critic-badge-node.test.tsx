@@ -26,7 +26,7 @@ function makeWorkerNode(): WorkflowNode {
   };
 }
 
-function renderWithProvider(node: Node<CriticBadgeNodeData>) {
+function renderWithProvider(node: Node) {
   return render(
     <ReactFlowProvider>
       <CriticBadgeNode
@@ -38,6 +38,10 @@ function renderWithProvider(node: Node<CriticBadgeNodeData>) {
         isConnectable={true}
         positionAbsoluteX={node.position.x}
         positionAbsoluteY={node.position.y}
+        draggable={false}
+        selectable={false}
+        dragging={false}
+        deletable={false}
       />
     </ReactFlowProvider>,
   );
@@ -51,12 +55,12 @@ describe("CriticBadgeNode", () => {
   };
 
   it("renders with dashed border and muted background", () => {
-    const rfn: Node<CriticBadgeNodeData> = {
+    const rfn = {
       id: "node-1:critic",
       type: "criticBadge",
       position: { x: 100, y: 96 },
       data: baseData,
-    };
+    } as Node;
     renderWithProvider(rfn);
     const el = screen.getByTestId("critic-badge-node-1:critic");
     expect(el).toBeInTheDocument();
@@ -65,46 +69,46 @@ describe("CriticBadgeNode", () => {
   });
 
   it("shows ShieldAlert icon and Critic label", () => {
-    const rfn: Node<CriticBadgeNodeData> = {
+    const rfn = {
       id: "node-1:critic",
       type: "criticBadge",
       position: { x: 100, y: 96 },
       data: baseData,
-    };
+    } as Node;
     renderWithProvider(rfn);
     expect(screen.getByText("Critic")).toBeInTheDocument();
   });
 
   it("shows critic name", () => {
-    const rfn: Node<CriticBadgeNodeData> = {
+    const rfn = {
       id: "node-1:critic",
       type: "criticBadge",
       position: { x: 100, y: 96 },
       data: baseData,
-    };
+    } as Node;
     renderWithProvider(rfn);
     expect(screen.getByText("Security Reviewer")).toBeInTheDocument();
   });
 
   it("has only a top Handle (target)", () => {
-    const rfn: Node<CriticBadgeNodeData> = {
+    const rfn = {
       id: "node-1:critic",
       type: "criticBadge",
       position: { x: 100, y: 96 },
       data: baseData,
-    };
+    } as Node;
     renderWithProvider(rfn);
     const handles = document.querySelectorAll(".react-flow__handle");
     expect(handles.length).toBe(1);
   });
 
   it("has correct dimensions", () => {
-    const rfn: Node<CriticBadgeNodeData> = {
+    const rfn = {
       id: "node-1:critic",
       type: "criticBadge",
       position: { x: 100, y: 96 },
       data: baseData,
-    };
+    } as Node;
     renderWithProvider(rfn);
     const el = screen.getByTestId("critic-badge-node-1:critic");
     expect(el).toHaveClass("h-12", "w-36");

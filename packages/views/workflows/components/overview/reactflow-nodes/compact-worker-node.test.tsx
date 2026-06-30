@@ -46,7 +46,7 @@ function makeWorkerNode(overrides: Partial<WorkflowNode> = {}): WorkflowNode {
   };
 }
 
-function renderWithProvider(node: Node<CompactWorkerNodeData>) {
+function renderWithProvider(node: Node) {
   return render(
     <ReactFlowProvider>
       <CompactWorkerNode
@@ -58,6 +58,10 @@ function renderWithProvider(node: Node<CompactWorkerNodeData>) {
         isConnectable={true}
         positionAbsoluteX={node.position.x}
         positionAbsoluteY={node.position.y}
+        draggable={false}
+        selectable={false}
+        dragging={false}
+        deletable={false}
       />
     </ReactFlowProvider>,
   );
@@ -73,12 +77,12 @@ describe("CompactWorkerNode", () => {
   };
 
   it("renders with correct dimensions", () => {
-    const rfn: Node<CompactWorkerNodeData> = {
+    const rfn = {
       id: "node-1",
       type: "compactWorker",
       position: { x: 100, y: 12 },
       data: baseData,
-    };
+    } as Node;
     renderWithProvider(rfn);
     const el = screen.getByTestId("compact-worker-node-1");
     expect(el).toBeInTheDocument();
@@ -86,40 +90,40 @@ describe("CompactWorkerNode", () => {
   });
 
   it("shows plugin name", () => {
-    const rfn: Node<CompactWorkerNodeData> = {
+    const rfn = {
       id: "node-1",
       type: "compactWorker",
       position: { x: 100, y: 12 },
       data: baseData,
-    };
+    } as Node;
     renderWithProvider(rfn);
     expect(screen.getByText("builtin/code-review")).toBeInTheDocument();
   });
 
   it("falls back to node title when no plugin name", () => {
-    const rfn: Node<CompactWorkerNodeData> = {
+    const rfn = {
       id: "node-1",
       type: "compactWorker",
       position: { x: 100, y: 12 },
       data: { ...baseData, pluginName: undefined },
-    };
+    } as Node;
     renderWithProvider(rfn);
     expect(screen.getByText("Code Review")).toBeInTheDocument();
   });
 
   it("shows worker name in subtitle", () => {
-    const rfn: Node<CompactWorkerNodeData> = {
+    const rfn = {
       id: "node-1",
       type: "compactWorker",
       position: { x: 100, y: 12 },
       data: baseData,
-    };
+    } as Node;
     renderWithProvider(rfn);
     expect(screen.getByText("GPT-4 Agent")).toBeInTheDocument();
   });
 
   it("shows 'Not configured' when no worker", () => {
-    const rfn: Node<CompactWorkerNodeData> = {
+    const rfn = {
       id: "node-1",
       type: "compactWorker",
       position: { x: 100, y: 12 },
@@ -128,29 +132,29 @@ describe("CompactWorkerNode", () => {
         workerName: undefined,
         node: makeWorkerNode({ worker_id: null, worker_type: "human" }),
       },
-    };
+    } as Node;
     renderWithProvider(rfn);
     expect(screen.getByText("Not configured")).toBeInTheDocument();
   });
 
   it("has testid with node id", () => {
-    const rfn: Node<CompactWorkerNodeData> = {
+    const rfn = {
       id: "abc-123",
       type: "compactWorker",
       position: { x: 100, y: 12 },
       data: baseData,
-    };
+    } as Node;
     renderWithProvider(rfn);
     expect(screen.getByTestId("compact-worker-abc-123")).toBeInTheDocument();
   });
 
   it("renders three Handles (Left, Right, Bottom)", () => {
-    const rfn: Node<CompactWorkerNodeData> = {
+    const rfn = {
       id: "node-1",
       type: "compactWorker",
       position: { x: 100, y: 12 },
       data: baseData,
-    };
+    } as Node;
     renderWithProvider(rfn);
     // Handles are rendered by ReactFlow's Handle component
     const handles = document.querySelectorAll(".react-flow__handle");
@@ -158,13 +162,13 @@ describe("CompactWorkerNode", () => {
   });
 
   it("applies selected styling when selected", () => {
-    const rfn: Node<CompactWorkerNodeData> = {
+    const rfn = {
       id: "node-1",
       type: "compactWorker",
       position: { x: 100, y: 12 },
       data: baseData,
       selected: true,
-    };
+    } as Node;
     renderWithProvider(rfn);
     const el = screen.getByTestId("compact-worker-node-1");
     expect(el.className).toContain("border-primary/55");

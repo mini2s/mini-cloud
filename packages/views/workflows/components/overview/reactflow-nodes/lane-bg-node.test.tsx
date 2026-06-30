@@ -4,7 +4,7 @@ import { ReactFlowProvider } from "@xyflow/react";
 import { LaneBgNode, type LaneBgNodeData } from "./lane-bg-node";
 import type { Node } from "@xyflow/react";
 
-function renderWithProvider(node: Node<LaneBgNodeData>) {
+function renderWithProvider(node: Node) {
   return render(
     <ReactFlowProvider>
       <LaneBgNode
@@ -16,17 +16,21 @@ function renderWithProvider(node: Node<LaneBgNodeData>) {
         isConnectable={false}
         positionAbsoluteX={node.position.x}
         positionAbsoluteY={node.position.y}
+        draggable={false}
+        selectable={false}
+        dragging={false}
+        deletable={false}
       />
     </ReactFlowProvider>,
   );
 }
 
-const baseNode: Node<LaneBgNodeData> = {
+const baseNode = {
   id: "0",
   type: "laneBg",
   position: { x: 0, y: 0 },
-  data: { stageIndex: 0 },
-};
+  data: { stageIndex: 0 } as LaneBgNodeData,
+} as Node;
 
 describe("LaneBgNode", () => {
   it("renders with correct width and height", () => {
@@ -44,7 +48,7 @@ describe("LaneBgNode", () => {
   });
 
   it("cycles colors for different stage indices", () => {
-    const node1: Node<LaneBgNodeData> = { ...baseNode, id: "1", data: { stageIndex: 1 } };
+    const node1 = { ...baseNode, id: "1", data: { stageIndex: 1 } } as Node;
     renderWithProvider(node1);
     const el = screen.getByTestId("lane-bg-1");
     expect(el.className).toContain("bg-stone-50/70");
@@ -57,7 +61,7 @@ describe("LaneBgNode", () => {
   });
 
   it("handles stage index out of range", () => {
-    const node: Node<LaneBgNodeData> = { ...baseNode, id: "99", data: { stageIndex: 99 } };
+    const node = { ...baseNode, id: "99", data: { stageIndex: 99 } } as Node;
     renderWithProvider(node);
     const el = screen.getByTestId("lane-bg-99");
     // 99 % 6 = 3 → rose

@@ -4,7 +4,7 @@ import { ReactFlowProvider } from "@xyflow/react";
 import { GradientBgNode, type GradientBgNodeData } from "./gradient-bg-node";
 import type { Node } from "@xyflow/react";
 
-function renderWithProvider(node: Node<GradientBgNodeData>) {
+function renderWithProvider(node: Node) {
   return render(
     <ReactFlowProvider>
       <GradientBgNode
@@ -16,17 +16,21 @@ function renderWithProvider(node: Node<GradientBgNodeData>) {
         isConnectable={false}
         positionAbsoluteX={node.position.x}
         positionAbsoluteY={node.position.y}
+        draggable={false}
+        selectable={false}
+        dragging={false}
+        deletable={false}
       />
     </ReactFlowProvider>,
   );
 }
 
-const baseNode: Node<GradientBgNodeData> = {
+const baseNode = {
   id: "gradient-0",
   type: "gradientBg",
   position: { x: 0, y: 128 },
-  data: { fromStageIndex: 0 },
-};
+  data: { fromStageIndex: 0 } as GradientBgNodeData,
+} as Node;
 
 describe("GradientBgNode", () => {
   it("renders with correct height (8px)", () => {
@@ -50,7 +54,7 @@ describe("GradientBgNode", () => {
   });
 
   it("cycles gradients correctly", () => {
-    const node: Node<GradientBgNodeData> = { ...baseNode, id: "gradient-99", data: { fromStageIndex: 99 } };
+    const node = { ...baseNode, id: "gradient-99", data: { fromStageIndex: 99 } } as Node;
     renderWithProvider(node);
     const el = screen.getByTestId("gradient-bg-gradient-99");
     // 99 % 6 = 3 → rose-to-violet
