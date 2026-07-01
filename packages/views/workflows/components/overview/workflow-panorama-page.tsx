@@ -4,6 +4,7 @@ import { useState, useMemo, useCallback, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   ReactFlow,
+  ReactFlowProvider,
   Background,
   Controls,
   MiniMap,
@@ -203,6 +204,152 @@ function PanoramaSkeleton() {
   );
 }
 
+// ── Inner canvas component (lives inside ReactFlowProvider to use useReactFlow) ──
+
+interface PanoramaContentProps {
+  rfNodes: Node[];
+  rfEdges: Edge[];
+  stages: WorkflowStage[];
+  apiNodes: WorkflowNode[];
+  workflowId: string;
+  wsId: string;
+  selectedNode: WorkflowNode | null;
+  viewportY: number;
+  zoomLevel: number;
+  configPanelOpen: boolean;
+  paletteCollapsed: boolean;
+  showStageDialog: boolean;
+  hasUnsaved: boolean;
+  onAutoLayout: () => void;
+  onSave: () => void;
+  onNodeClick: (event: React.MouseEvent, node: Node) => void;
+  onNodeDragStop: (event: MouseEvent | TouchEvent, node: Node) => void;
+  onConnect: (connection: Connection) => void;
+  onEdgeDelete: (edges: Edge[]) => void;
+  onNodeDelete: (nodeId: string) => void;
+  onStageChange: (nodeId: string, stageId: string | null) => void;
+  onStageDelete: (stage: WorkflowStage) => void;
+  onStageReorder: (stageId: string, direction: "up" | "down") => void;
+  onViewportChange: (viewport: Viewport) => void;
+  onTogglePalette: () => void;
+  onOpenStageDialog: () => void;
+  onCloseStageDialog: () => void;
+  onCloseConfigPanel: () => void;
+}
+
+function PanoramaContent({
+  rfNodes,
+  rfEdges,
+  stages,
+  apiNodes,
+  workflowId,
+  wsId,
+  selectedNode,
+  viewportY,
+  zoomLevel,
+  configPanelOpen,
+  paletteCollapsed,
+  showStageDialog,
+  hasUnsaved,
+  onAutoLayout,
+  onSave,
+  onNodeClick,
+  onNodeDragStop,
+  onConnect,
+  onEdgeDelete,
+  onNodeDelete,
+  onStageChange,
+  onStageDelete,
+  onStageReorder,
+  onViewportChange,
+  onTogglePalette,
+  onOpenStageDialog,
+  onCloseStageDialog,
+  onCloseConfigPanel,
+}: PanoramaContentProps) {
+  const reactFlowInstance = useReactFlow();
+
+  return (
+    <div className="flex flex-col h-full">
+      <PanoramaToolbar
+        onAutoLayout={onAutoLayout}
+        onSave={onSave}
+        hasUnsaved={hasUnsaved}
+        zoomIn={() => reactFlowInstance.zoomIn()}
+        zoomOut={() => reactFlowInstance.zoomOut()}
+        zoomLevel={zoomLevel}
+      />
+
+      <div className="flex flex-1 min-h-0 relative">
+        {/* Node palette sidebar */}
+        <NodePalette
+          className="absolute left-3 top-3 z-10"
+          collapsed={paletteCollapsed}
+          onToggleCollapse={onTogglePalette}
+        />
+
+        {/* Canvas stage labels */}
+        <CanvasStageLabels
+          stages={stages}
+          viewportY={viewportY}
+          onEdit={onOpenStageDialog}
+          onDelete={onStageDelete}
+          onReorder={onStageReorder}
+        />
+
+        {/* ReactFlow canvas */}
+        <div className="flex-1 ml-32" data-testid="panorama-canvas">
+          <ReactFlow
+            nodes={rfNodes}
+            edges={rfEdges}
+            nodeTypes={panoramaNodeTypes}
+            edgeTypes={panoramaEdgeTypes}
+            onNodeClick={onNodeClick}
+            onNodeDragStop={onNodeDragStop}
+            onConnect={onConnect}
+            onEdgesDelete={onEdgeDelete}
+            fitView
+            minZoom={0.2}
+            maxZoom={2}
+            defaultViewport={{ x: 0, y: 0, zoom: 0.8 }}
+            deleteKeyCode={["Backspace", "Delete"]}
+            multiSelectionKeyCode="Shift"
+            selectionOnDrag
+            onMove={(_, viewport) => onViewportChange(viewport)}
+          >
+            <Background />
+            <Controls />
+            <MiniMap />
+          </ReactFlow>
+        </div>
+
+        {/* Node config panel (right slide-out) */}
+        {configPanelOpen && selectedNode && (
+          <div className="w-96 border-l bg-card shrink-0">
+            <NodeConfigPanel
+              node={selectedNode}
+              workflowId={workflowId}
+              nodes={apiNodes}
+              stages={stages}
+              onClose={onCloseConfigPanel}
+              onDeleteNode={onNodeDelete}
+              onStageChange={onStageChange}
+            />
+          </div>
+        )}
+      </div>
+
+      {showStageDialog && (
+        <StageCreateDialog
+          workflowId={workflowId}
+          wsId={wsId}
+          onClose={onCloseStageDialog}
+        />
+      )}
+    </div>
+  );
+}
+
 // ── Main Page Component ──
 
 export function WorkflowPanoramaPage({ workflowId, viewToggle }: WorkflowPanoramaPageProps) {
@@ -238,9 +385,6 @@ export function WorkflowPanoramaPage({ workflowId, viewToggle }: WorkflowPanoram
   const assignStageMutation = useAssignNodeToStage(wsId, workflowId);
   const deleteStageMutation = useDeleteStage(wsId, workflowId);
   const reorderStagesMutation = useReorderStages(wsId, workflowId);
-
-  // ── ReactFlow instance (for zoom controls) ──
-  const reactFlowInstance = useReactFlow();
 
   // ── Store ──
   const selectedNodeId = useWorkflowEditorStore((s) => s.selectedNodeId);
@@ -502,82 +646,37 @@ export function WorkflowPanoramaPage({ workflowId, viewToggle }: WorkflowPanoram
 
   // ── Main panorama ──
   return (
-    <div className="flex flex-col h-full">
-      <PanoramaToolbar
+    <ReactFlowProvider>
+      <PanoramaContent
+        rfNodes={rfNodes}
+        rfEdges={rfEdges}
+        stages={stages}
+        apiNodes={apiNodes}
+        workflowId={workflowId}
+        wsId={wsId}
+        selectedNode={selectedNode}
+        viewportY={viewportY}
+        zoomLevel={zoomLevel}
+        configPanelOpen={configPanelOpen}
+        paletteCollapsed={paletteCollapsed}
+        showStageDialog={showStageDialog}
+        hasUnsaved={hasUnsaved}
         onAutoLayout={handleAutoLayout}
         onSave={handleSave}
-        hasUnsaved={hasUnsaved}
-        zoomIn={() => reactFlowInstance.zoomIn()}
-        zoomOut={() => reactFlowInstance.zoomOut()}
-        zoomLevel={zoomLevel}
+        onNodeClick={handleNodeClick}
+        onNodeDragStop={handleNodeDragStop}
+        onConnect={handleConnect}
+        onEdgeDelete={handleEdgeDelete}
+        onNodeDelete={handleNodeDelete}
+        onStageChange={handleStageChange}
+        onStageDelete={handleStageDelete}
+        onStageReorder={handleStageReorder}
+        onViewportChange={handleViewportChange}
+        onTogglePalette={() => setPaletteCollapsed(!paletteCollapsed)}
+        onOpenStageDialog={() => setShowStageDialog(true)}
+        onCloseStageDialog={() => setShowStageDialog(false)}
+        onCloseConfigPanel={() => setConfigPanelOpen(false)}
       />
-
-      <div className="flex flex-1 min-h-0 relative">
-        {/* Node palette sidebar */}
-        <NodePalette
-          className="absolute left-3 top-3 z-10"
-          collapsed={paletteCollapsed}
-          onToggleCollapse={() => setPaletteCollapsed(!paletteCollapsed)}
-        />
-
-        {/* Canvas stage labels */}
-        <CanvasStageLabels
-          stages={stages}
-          viewportY={viewportY}
-          onEdit={() => setShowStageDialog(true)}
-          onDelete={handleStageDelete}
-          onReorder={handleStageReorder}
-        />
-
-        {/* ReactFlow canvas */}
-        <div className="flex-1 ml-32" data-testid="panorama-canvas">
-          <ReactFlow
-            nodes={rfNodes}
-            edges={rfEdges}
-            nodeTypes={panoramaNodeTypes}
-            edgeTypes={panoramaEdgeTypes}
-            onNodeClick={handleNodeClick}
-            onNodeDragStop={handleNodeDragStop}
-            onConnect={handleConnect}
-            onEdgesDelete={handleEdgeDelete}
-            fitView
-            minZoom={0.2}
-            maxZoom={2}
-            defaultViewport={{ x: 0, y: 0, zoom: 0.8 }}
-            deleteKeyCode={["Backspace", "Delete"]}
-            multiSelectionKeyCode="Shift"
-            selectionOnDrag
-            onMove={(_, viewport) => handleViewportChange(viewport)}
-          >
-            <Background />
-            <Controls />
-            <MiniMap />
-          </ReactFlow>
-        </div>
-
-        {/* Node config panel (right slide-out) */}
-        {configPanelOpen && selectedNode && (
-          <div className="w-96 border-l bg-card shrink-0">
-            <NodeConfigPanel
-              node={selectedNode}
-              workflowId={workflowId}
-              nodes={apiNodes}
-              stages={stages}
-              onClose={() => setConfigPanelOpen(false)}
-              onDeleteNode={handleNodeDelete}
-              onStageChange={handleStageChange}
-            />
-          </div>
-        )}
-      </div>
-
-      {showStageDialog && (
-        <StageCreateDialog
-          workflowId={workflowId}
-          wsId={wsId}
-          onClose={() => setShowStageDialog(false)}
-        />
-      )}
-    </div>
+    </ReactFlowProvider>
   );
 }
