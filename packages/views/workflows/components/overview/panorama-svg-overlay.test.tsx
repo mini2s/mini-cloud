@@ -3,6 +3,7 @@ import { describe, it, expect } from "vitest";
 import { render } from "@testing-library/react";
 import { computeEdgePaths } from "./panorama-svg-overlay";
 import { PanoramaSvgOverlay } from "./panorama-svg-overlay";
+import { STAGE_LINE_COLORS, getStageColorIndex } from "./constants";
 import type { WorkflowEdge, WorkflowNode, WorkflowStage } from "@multica/core/types";
 
 const MOCK_STAGES: WorkflowStage[] = [
@@ -145,7 +146,7 @@ describe("computeEdgePaths", () => {
       ["n2", fakeRect(130, 0, 120, 72)],
     ]);
     const paths = computeEdgePaths(MOCK_EDGES.slice(0, 1), uuidNodes, uuidStages, positions, new Map());
-    expect(paths[0]!.colorIndex).toBe(4);
+    expect(paths[0]!.colorIndex).toBe(getStageColorIndex(4));
   });
 
   it("computes critic dashed line for worker-critic pairs", () => {
@@ -190,5 +191,33 @@ describe("computeEdgePaths", () => {
     expect(markerPath?.getAttribute("opacity")).toBe("1");
     expect(connector?.getAttribute("stroke-linecap")).toBe("round");
     expect(connector?.getAttribute("stroke-linejoin")).toBe("round");
+  });
+
+  it("uses the shared stage line palette for connector and arrow marker classes", () => {
+    const positions = new Map<string, DOMRect>([
+      ["n3", fakeRect(0, 0, 120, 72)],
+      ["n1", fakeRect(180, 0, 120, 72)],
+    ]);
+    const edge: WorkflowEdge = {
+      id: "e-stage-2", workflow_id: "wf-1",
+      source_node_id: "n3", target_node_id: "n1",
+      condition: null, created_at: "",
+    };
+
+    const { container } = render(
+      <PanoramaSvgOverlay
+        edges={[edge]}
+        nodes={MOCK_NODES}
+        stages={MOCK_STAGES}
+        nodePositions={positions}
+        criticPositions={new Map()}
+      />,
+    );
+
+    const expectedColor = STAGE_LINE_COLORS[getStageColorIndex(1)];
+    const connector = container.querySelector("svg > path");
+    const marker = container.querySelector("#panorama-arrowhead-1");
+    expect(connector?.getAttribute("class")).toContain(expectedColor);
+    expect(marker?.getAttribute("class")).toContain(expectedColor);
   });
 });

@@ -2,9 +2,6 @@
 export { WorkflowPanoramaPage } from "./workflow-panorama-page";
 export type { WorkflowPanoramaPageProps } from "./workflow-panorama-page";
 
-// New components
-export { PanoramaToolbar } from "./panorama-toolbar";
-export type { PanoramaToolbarProps } from "./panorama-toolbar";
 export { CanvasStageLabels } from "./canvas-stage-labels";
 export type { CanvasStageLabelsProps } from "./canvas-stage-labels";
 

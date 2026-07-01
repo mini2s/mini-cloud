@@ -3,6 +3,7 @@
 import { useMemo } from "react";
 import type { WorkflowEdge, WorkflowNode, WorkflowStage } from "@multica/core/types";
 import { cn } from "@multica/ui/lib/utils";
+import { STAGE_LINE_COLORS, getStageColorIndex } from "./constants";
 
 export interface EdgePath {
   edgeId: string;
@@ -24,7 +25,7 @@ export interface PanoramaSvgOverlayProps {
 function stageColorIndex(node: WorkflowNode, stageMap: Map<string, WorkflowStage>): number {
   if (!node.stage_id) return 0;
   const stage = stageMap.get(node.stage_id);
-  return Math.abs(stage?.sort_order ?? 0) % 6;
+  return getStageColorIndex(stage?.sort_order ?? 0);
 }
 
 /** Pure function: compute SVG path strings from edge + position data. */
@@ -138,15 +139,6 @@ export function computeEdgePaths(
 
   return results;
 }
-
-const STAGE_LINE_COLORS = [
-  "text-slate-300",
-  "text-stone-300",
-  "text-blue-300",
-  "text-rose-300",
-  "text-violet-300",
-  "text-amber-300",
-] as const;
 
 export function PanoramaSvgOverlay({
   edges,

@@ -19,14 +19,14 @@ export const CriticBadgeNode = memo(function CriticBadgeNode({
   return (
     <div
       data-testid={`critic-badge-${id}`}
-      className="h-12 w-36 rounded-md border border-dashed border-border/70 bg-muted/30 p-1.5"
+      className="h-12 w-36 rounded-md border border-dashed border-warning/40 bg-background/85 p-1.5 shadow-[0_1px_2px_rgba(15,23,42,0.04)]"
       style={{ width: CRITIC_WIDTH, height: CRITIC_HEIGHT }}
     >
       <Handle type="target" position={Position.Top} id="top"
-        className="!bg-muted-foreground/50" />
+        className="!border-warning/30 !bg-warning/70" />
 
       <div className="flex items-center gap-1.5 h-full min-w-0">
-        <ShieldAlert className="h-3 w-3 shrink-0 text-muted-foreground" />
+        <ShieldAlert className="h-3 w-3 shrink-0 text-warning/80" />
         <div className="flex flex-col min-w-0">
           <span className="text-[10px] font-medium uppercase text-muted-foreground leading-none">
             Critic

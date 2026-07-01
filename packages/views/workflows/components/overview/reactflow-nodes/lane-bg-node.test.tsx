@@ -37,21 +37,21 @@ describe("LaneBgNode", () => {
     renderWithProvider(baseNode);
     const el = screen.getByTestId("lane-bg-0");
     expect(el).toBeInTheDocument();
-    // 2400px wide, 128px tall
-    expect(el).toHaveStyle({ width: "2400px", height: "128px" });
+    // 2400px wide, 160px tall
+    expect(el).toHaveStyle({ width: "2400px", height: "160px" });
   });
 
   it("uses correct color for stage index", () => {
     renderWithProvider(baseNode);
     const el = screen.getByTestId("lane-bg-0");
-    expect(el.className).toContain("bg-slate-50/70");
+    expect(el.className).toContain("bg-slate-100/80");
   });
 
   it("cycles colors for different stage indices", () => {
     const node1 = { ...baseNode, id: "1", data: { stageIndex: 1 } } as Node;
     renderWithProvider(node1);
     const el = screen.getByTestId("lane-bg-1");
-    expect(el.className).toContain("bg-stone-50/70");
+    expect(el.className).toContain("bg-stone-100/80");
   });
 
   it("is not interactive", () => {
@@ -65,6 +65,6 @@ describe("LaneBgNode", () => {
     renderWithProvider(node);
     const el = screen.getByTestId("lane-bg-99");
     // 99 % 6 = 3 → rose
-    expect(el.className).toContain("bg-rose-50/45");
+    expect(el.className).toContain("bg-rose-100/60");
   });
 });

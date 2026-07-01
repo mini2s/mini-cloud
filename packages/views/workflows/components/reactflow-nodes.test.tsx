@@ -17,6 +17,7 @@ vi.mock("@xyflow/react", () => ({
       data-classname={className} data-strokewidth={strokeWidth} />
   ),
   getSmoothStepPath: () => ["M0,0 C50,0 50,100 100,100", 50, 50],
+  getBezierPath: () => ["M0,0 C50,0 50,100 100,100", 50, 50],
   getStraightPath: () => ["M0,0 L100,100"],
   MarkerType: { ArrowClosed: "arrowclosed" },
 }));
@@ -112,22 +113,22 @@ describe("WorkflowNode", () => {
 
   it("applies border-primary class when selected", () => {
     const { container } = render(<WorkflowNode {...makeNodeProps({ selected: true })} />);
-    const root = container.firstElementChild!;
-    expect(root.className).toContain("border-primary");
+    const rect = container.querySelector("rect")!;
+    expect(rect.getAttribute("stroke")).toBe("var(--primary)");
   });
 
   it("applies default border-border class when not selected and no statusColor", () => {
     const { container } = render(<WorkflowNode {...makeNodeProps({ selected: false })} />);
-    const root = container.firstElementChild!;
-    expect(root.className).toContain("border-border");
+    const rect = container.querySelector("rect")!;
+    expect(rect.getAttribute("stroke")).toBe("var(--border)");
   });
 
   it("applies background color from statusColor", () => {
     const { container } = render(
       <WorkflowNode {...makeNodeProps({ data: { title: "N", statusColor: "#ff0000" } })} />,
     );
-    const root = container.firstElementChild as HTMLElement;
-    expect(root.style.backgroundColor).toBe("rgb(255, 0, 0)");
+    const rect = container.querySelector("rect")!;
+    expect(rect.getAttribute("fill")).toBe("#ff0000");
   });
 
   it("has rounded-lg class", () => {
@@ -158,7 +159,7 @@ describe("WorkflowEdge", () => {
   it("has thicker stroke when selected", () => {
     const { container } = render(<WorkflowEdge {...makeEdgeProps({ selected: true })} />);
     const baseEdge = container.querySelector("[data-testid='base-edge']")!;
-    expect(baseEdge.getAttribute("data-strokewidth")).toBe("2");
+    expect(baseEdge.getAttribute("data-strokewidth")).toBe("2.5");
   });
 
   it("has thinner stroke when not selected", () => {

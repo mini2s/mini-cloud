@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useCallback, type ReactNode } from "react";
+import { useState, useMemo, useCallback, useRef, useEffect, createElement, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   ReactFlow,
@@ -24,11 +24,13 @@ import {
   workflowStagesOptions,
   workflowNodesOptions,
   workflowEdgesOptions,
+  useUpdateWorkflow,
   useCreateNode,
   useUpdateNode,
   useCreateEdge,
   useDeleteEdge,
   useDeleteNode,
+  useDeleteWorkflow,
   useAssignNodeToStage,
   useDeleteStage,
   useReorderStages,
@@ -43,27 +45,47 @@ import { PageHeader } from "../../../layout/page-header";
 import { Skeleton } from "@multica/ui/components/ui/skeleton";
 import { Button } from "@multica/ui/components/ui/button";
 import { Alert, AlertDescription, AlertTitle } from "@multica/ui/components/ui/alert";
-import { AlertCircle, ArrowLeft, PanelsTopLeft } from "lucide-react";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@multica/ui/components/ui/alert-dialog";
+import { AlertCircle, ArrowLeft, AppWindow, CheckCircle2, Monitor, Moon, PanelsTopLeft, PauseCircle, Plus, Redo2, Save, Sun, Trash2, Undo2 } from "lucide-react";
+import { Badge } from "@multica/ui/components/ui/badge";
+import { Separator } from "@multica/ui/components/ui/separator";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@multica/ui/components/ui/tooltip";
+import { Popover, PopoverContent, PopoverTrigger } from "@multica/ui/components/ui/popover";
+import { toast } from "sonner";
 
-import { PanoramaToolbar } from "./panorama-toolbar";
 import { CanvasStageLabels } from "./canvas-stage-labels";
 import { NodeConfigPanel } from "../node-config-panel";
-import { NodePalette } from "../node-palette";
 import { StageCreateDialog } from "./stage-create-dialog";
 import { panoramaNodeTypes } from "./reactflow-nodes";
 import { panoramaEdgeTypes } from "./reactflow-edges";
-import { computeLaneAutoLayout } from "../layout";
+import { computeLaneAutoLayout, computeStageTransferPositionX } from "../layout";
 
 import {
   LANE_STEP,
   LANE_HEIGHT,
+  WORKER_WIDTH,
   WORKER_HEIGHT,
   WORKER_CRITIC_GAP,
+  CRITIC_WIDTH,
+  CRITIC_HEIGHT,
+  PANORAMA_WIDTH,
+  GRADIENT_HEIGHT,
   UNASSIGNED_LANE_Y,
   computeLaneY,
+  getStageColor,
+  getStageColorIndex,
 } from "./constants";
 
-import type { WorkflowNode, WorkflowStage, WorkflowEdge, ReorderStagesItem, NodeShape } from "@multica/core/types";
+import type { WorkflowNode, WorkflowStage, WorkflowEdge, ReorderStagesItem, NodeShape, WorkflowStatus, Workflow } from "@multica/core/types";
 import type { Agent } from "@multica/core/types";
 import type { BuiltinPlugin } from "@multica/core/api/schemas";
 
@@ -76,6 +98,38 @@ const SHAPE_LABELS: Record<NodeShape, string> = {
   pill: "Pill",
   hexagon: "Hexagon",
 };
+
+const SHAPES = [
+  { type: "rectangle" as const, label: "Rectangle", icon: (
+    <svg width="20" height="15" viewBox="0 0 24 18">
+      <rect x="1" y="1" width="22" height="16" rx="3" fill="none" stroke="currentColor" strokeWidth="1.5" />
+    </svg>
+  )},
+  { type: "diamond" as const, label: "Diamond", icon: (
+    <svg width="20" height="20" viewBox="0 0 24 24">
+      <polygon points="12,1 23,12 12,23 1,12" fill="none" stroke="currentColor" strokeWidth="1.5" />
+    </svg>
+  )},
+  { type: "pill" as const, label: "Pill", icon: (
+    <svg width="20" height="15" viewBox="0 0 24 18">
+      <rect x="1" y="1" width="22" height="16" rx="8" fill="none" stroke="currentColor" strokeWidth="1.5" />
+    </svg>
+  )},
+  { type: "hexagon" as const, label: "Hexagon", icon: (
+    <svg width="20" height="20" viewBox="0 0 24 24">
+      <polygon points="6,1 18,1 23,12 18,23 6,23 1,12" fill="none" stroke="currentColor" strokeWidth="1.5" />
+    </svg>
+  )},
+  { type: "critic" as const, label: "Critic", icon: (
+    <svg width="20" height="15" viewBox="0 0 24 18">
+      <rect x="1" y="1" width="22" height="16" rx="3" fill="none" stroke="currentColor" strokeWidth="1.5" strokeDasharray="3 2" />
+    </svg>
+  )},
+];
+
+function isNodeShape(shape: string): shape is NodeShape {
+  return shape in SHAPE_LABELS;
+}
 
 export interface WorkflowPanoramaPageProps {
   workflowId: string;
@@ -99,13 +153,15 @@ function apiNodesToReactFlowNodes(
     const laneY = stage ? computeLaneY(stage.sort_order) : UNASSIGNED_LANE_Y(stages.length);
     const x = node.position_x ?? 100;
 
-    const stageColorIndex = Math.abs(sortOrder) % 6;
+    const stageColorIndex = getStageColorIndex(sortOrder);
 
     // Worker node
     const workerNode: Node = {
       id: node.id,
       type: "compactWorker",
       position: { x, y: laneY },
+      width: WORKER_WIDTH,
+      height: WORKER_HEIGHT,
       data: {
         node,
         stage_id: node.stage_id,
@@ -125,7 +181,9 @@ function apiNodesToReactFlowNodes(
     const criticNode: Node = {
       id: `${node.id}:critic`,
       type: "criticBadge",
-      position: { x, y: laneY + WORKER_HEIGHT + WORKER_CRITIC_GAP },
+      position: { x: x + (WORKER_WIDTH - CRITIC_WIDTH) / 2, y: laneY + WORKER_HEIGHT + WORKER_CRITIC_GAP },
+      width: CRITIC_WIDTH,
+      height: CRITIC_HEIGHT,
       data: {
         node,
         parentNodeId: node.id,
@@ -141,6 +199,7 @@ function apiNodesToReactFlowNodes(
 
 function apiEdgesToReactFlowEdges(edges: WorkflowEdge[], nodes: WorkflowNode[], stages: WorkflowStage[]): Edge[] {
   const stageMap = new Map(stages.map((stage) => [stage.id, stage]));
+  const nodeMap = new Map(nodes.map((node) => [node.id, node]));
   const positionMap = new Map(nodes.map((node) => {
     const stage = node.stage_id ? stageMap.get(node.stage_id) : undefined;
     return [node.id, {
@@ -156,7 +215,14 @@ function apiEdgesToReactFlowEdges(edges: WorkflowEdge[], nodes: WorkflowNode[], 
     type: "panorama",
     sourceHandle: "right",
     targetHandle: "left",
-    markerEnd: { type: MarkerType.ArrowClosed },
+    data: {
+      stageColorIndex: getEdgeStageColorIndex(edge.source_node_id, nodeMap, stageMap),
+    },
+    markerEnd: {
+      type: MarkerType.ArrowClosed,
+      color: getEdgeMarkerColor(edge.source_node_id, nodeMap, stageMap),
+      strokeWidth: 1.5,
+    },
     interactionWidth: 24,
     style: edge.target_node_id.endsWith(":critic") || edges.some((e) =>
       e.source_node_id === edge.target_node_id && e.target_node_id.endsWith(":critic")
@@ -183,7 +249,14 @@ function apiEdgesToReactFlowEdges(edges: WorkflowEdge[], nodes: WorkflowNode[], 
       sourceHandle: "bottom",
       targetHandle: "top",
       type: "panorama",
-      markerEnd: { type: MarkerType.ArrowClosed },
+      data: {
+        stageColorIndex: getEdgeStageColorIndex(node.id, nodeMap, stageMap),
+      },
+      markerEnd: {
+        type: MarkerType.ArrowClosed,
+        color: getEdgeMarkerColor(node.id, nodeMap, stageMap),
+        strokeWidth: 1.5,
+      },
       interactionWidth: 16,
       selectable: false,
       deletable: false,
@@ -191,6 +264,24 @@ function apiEdgesToReactFlowEdges(edges: WorkflowEdge[], nodes: WorkflowNode[], 
     }));
 
   return [...workflowEdges, ...criticEdges];
+}
+
+function getEdgeMarkerColor(
+  sourceNodeId: string,
+  nodeMap: Map<string, WorkflowNode>,
+  stageMap: Map<string, WorkflowStage>,
+): string {
+  return getStageColor(getEdgeStageColorIndex(sourceNodeId, nodeMap, stageMap)).markerColor;
+}
+
+function getEdgeStageColorIndex(
+  sourceNodeId: string,
+  nodeMap: Map<string, WorkflowNode>,
+  stageMap: Map<string, WorkflowStage>,
+): number {
+  const sourceNode = nodeMap.get(sourceNodeId);
+  const sourceStage = sourceNode?.stage_id ? stageMap.get(sourceNode.stage_id) : undefined;
+  return sourceStage?.sort_order ?? 0;
 }
 
 // ── Background nodes: lane backgrounds + gradient transitions ──
@@ -205,6 +296,8 @@ function buildBackgroundNodes(stages: WorkflowStage[]): Node[] {
       id: `lane-bg-${stage.id}`,
       type: "laneBg",
       position: { x: 0, y: stage.sort_order * LANE_STEP },
+      width: PANORAMA_WIDTH,
+      height: LANE_HEIGHT,
       data: { stageIndex: stage.sort_order },
       draggable: false,
       selectable: false,
@@ -218,6 +311,8 @@ function buildBackgroundNodes(stages: WorkflowStage[]): Node[] {
         id: `gradient-bg-${stage.id}`,
         type: "gradientBg",
         position: { x: 0, y: stage.sort_order * LANE_STEP + LANE_HEIGHT },
+        width: PANORAMA_WIDTH,
+        height: GRADIENT_HEIGHT,
         data: { fromStageIndex: stage.sort_order },
         draggable: false,
         selectable: false,
@@ -262,18 +357,18 @@ interface PanoramaContentProps {
   rfEdges: Edge[];
   stages: WorkflowStage[];
   apiNodes: WorkflowNode[];
+  workflow: Workflow;
   workflowId: string;
   wsId: string;
   selectedNode: WorkflowNode | null;
   viewportY: number;
-  zoomLevel: number;
+  viewportZoom: number;
   configPanelOpen: boolean;
-  paletteCollapsed: boolean;
   showStageDialog: boolean;
-  hasUnsaved: boolean;
+  editingStage: WorkflowStage | null;
   onAutoLayout: () => void;
-  onSave: () => void;
   onNodeClick: (event: React.MouseEvent, node: Node) => void;
+  onPaneClick: () => void;
   onNodeDragStop: (event: MouseEvent | TouchEvent, node: Node) => void;
   onConnect: (connection: Connection) => void;
   onShapeDrop: (shape: NodeShape, position: { x: number; y: number }) => void;
@@ -283,10 +378,14 @@ interface PanoramaContentProps {
   onStageDelete: (stage: WorkflowStage) => void;
   onStageReorder: (stageId: string, direction: "up" | "down") => void;
   onViewportChange: (viewport: Viewport) => void;
-  onTogglePalette: () => void;
-  onOpenStageDialog: () => void;
+  onOpenStageDialog: (stage?: WorkflowStage) => void;
   onCloseStageDialog: () => void;
   onCloseConfigPanel: () => void;
+  onBackToWorkflows: () => void;
+  onToggleWorkflowStatus: () => void;
+  onUpdateTitle: (title: string) => void;
+  onDeleteWorkflow: () => void;
+  onSave: () => void;
 }
 
 function PanoramaContent({
@@ -294,18 +393,18 @@ function PanoramaContent({
   rfEdges,
   stages,
   apiNodes,
+  workflow,
   workflowId,
   wsId,
   selectedNode,
   viewportY,
-  zoomLevel,
+  viewportZoom,
   configPanelOpen,
-  paletteCollapsed,
   showStageDialog,
-  hasUnsaved,
+  editingStage,
   onAutoLayout,
-  onSave,
   onNodeClick,
+  onPaneClick,
   onNodeDragStop,
   onConnect,
   onShapeDrop,
@@ -315,12 +414,72 @@ function PanoramaContent({
   onStageDelete,
   onStageReorder,
   onViewportChange,
-  onTogglePalette,
   onOpenStageDialog,
   onCloseStageDialog,
   onCloseConfigPanel,
+  onBackToWorkflows,
+  onToggleWorkflowStatus,
+  onUpdateTitle,
+  onDeleteWorkflow,
+  onSave,
 }: PanoramaContentProps) {
+  const { t } = useT("workflows");
   const reactFlowInstance = useReactFlow();
+  const canvasColorMode = useWorkflowEditorStore((s) => s.canvasColorMode);
+  const cycleCanvasColorMode = useWorkflowEditorStore((s) => s.cycleCanvasColorMode);
+  const canUndo = useWorkflowEditorStore((s) => s.undoStack.length > 0);
+  const canRedo = useWorkflowEditorStore((s) => s.redoStack.length > 0);
+  const undo = useWorkflowEditorStore((s) => s.undo);
+  const redo = useWorkflowEditorStore((s) => s.redo);
+  const hasUnsavedEdits = useWorkflowEditorStore((s) => Object.keys(s.nodeEdits).length > 0);
+  const statusLabel = t(($) => $.status[workflow.status as keyof typeof $.status] ?? workflow.status);
+
+  // Title editing
+  const [editingTitle, setEditingTitle] = useState(false);
+  const [draftTitle, setDraftTitle] = useState(workflow.title);
+  const titleInputRef = useRef<HTMLInputElement>(null);
+
+  // Delete workflow dialog
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const dialogRootRef = useRef<HTMLDivElement>(null);
+
+  // Shape palette popover
+  const [popoverOpen, setPopoverOpen] = useState(false);
+
+  const handleStartEditTitle = useCallback(() => {
+    setDraftTitle(workflow.title);
+    setEditingTitle(true);
+    requestAnimationFrame(() => titleInputRef.current?.select());
+  }, [workflow.title]);
+
+  const handleSaveTitle = useCallback(() => {
+    const trimmed = draftTitle.trim();
+    if (trimmed && trimmed !== workflow.title) {
+      onUpdateTitle(trimmed);
+    } else {
+      setDraftTitle(workflow.title);
+    }
+    setEditingTitle(false);
+  }, [draftTitle, workflow.title, onUpdateTitle]);
+
+  const handleTitleKeyDown = useCallback(
+    (e: React.KeyboardEvent) => {
+      if (e.key === "Enter") handleSaveTitle();
+      if (e.key === "Escape") {
+        setDraftTitle(workflow.title);
+        setEditingTitle(false);
+      }
+    },
+    [handleSaveTitle, workflow.title],
+  );
+
+  const themeIcon = canvasColorMode === "dark" ? Moon : canvasColorMode === "light" ? Sun : Monitor;
+  const themeLabel =
+    canvasColorMode === "dark"
+      ? t(($) => $.detail.canvas_theme_dark)
+      : canvasColorMode === "light"
+        ? t(($) => $.detail.canvas_theme_light)
+        : t(($) => $.detail.canvas_theme_system);
   const handleDragOver = useCallback((event: React.DragEvent) => {
     event.preventDefault();
     event.dataTransfer.dropEffect = "copy";
@@ -329,8 +488,8 @@ function PanoramaContent({
   const handleDrop = useCallback(
     (event: React.DragEvent) => {
       event.preventDefault();
-      const shape = event.dataTransfer.getData(DRAG_SHAPE_MIME) as NodeShape | "";
-      if (!shape || !(shape in SHAPE_LABELS)) return;
+      const shape = event.dataTransfer.getData(DRAG_SHAPE_MIME);
+      if (!isNodeShape(shape)) return;
       onShapeDrop(shape, reactFlowInstance.screenToFlowPosition({
         x: event.clientX,
         y: event.clientY,
@@ -339,43 +498,240 @@ function PanoramaContent({
     [onShapeDrop, reactFlowInstance],
   );
 
+  const handleDragStart = useCallback((e: React.DragEvent, shapeType: string) => {
+    e.dataTransfer.setData(DRAG_SHAPE_MIME, shapeType);
+    e.dataTransfer.effectAllowed = "copy";
+  }, []);
+
+  const handleClickToPlace = useCallback((shape: string) => {
+    if (!isNodeShape(shape)) return;
+    const center = reactFlowInstance.screenToFlowPosition({
+      x: window.innerWidth / 2,
+      y: window.innerHeight / 2,
+    });
+    onShapeDrop(shape, center);
+    setPopoverOpen(false);
+  }, [reactFlowInstance, onShapeDrop]);
+
+  // Keyboard shortcuts for undo/redo (document level because ReactFlow
+  // container focus is unreliable).
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      const tag = (e.target as HTMLElement)?.tagName;
+      const editable = tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || (e.target as HTMLElement)?.isContentEditable;
+
+      // Ctrl+Z / Cmd+Z → undo
+      if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key === "z") {
+        if (editable) return;
+        e.preventDefault();
+        useWorkflowEditorStore.getState().undo();
+        return;
+      }
+
+      // Ctrl+Shift+Z / Cmd+Shift+Z → redo
+      if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === "z") {
+        if (editable) return;
+        e.preventDefault();
+        useWorkflowEditorStore.getState().redo();
+        return;
+      }
+    };
+    document.addEventListener("keydown", handler);
+    return () => document.removeEventListener("keydown", handler);
+  }, []);
+
   return (
     <div className="flex flex-col h-full">
-      <PanoramaToolbar
-        onAutoLayout={onAutoLayout}
-        onSave={onSave}
-        hasUnsaved={hasUnsaved}
-        zoomIn={() => reactFlowInstance.zoomIn()}
-        zoomOut={() => reactFlowInstance.zoomOut()}
-        zoomLevel={zoomLevel}
-      />
+      <PageHeader className="justify-between gap-3 border-b bg-background/95 px-4">
+        <div className="flex min-w-0 items-center gap-3">
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            onClick={onBackToWorkflows}
+            aria-label={t(($) => $.detail.back_to_workflows)}
+          >
+            <ArrowLeft className="size-4" />
+          </Button>
+          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-border/70 bg-muted/50 text-muted-foreground">
+            <PanelsTopLeft className="size-4" strokeWidth={1.9} />
+          </span>
+          <div className="min-w-0">
+            {editingTitle ? (
+              <input
+                ref={titleInputRef}
+                className="w-full truncate bg-transparent text-sm font-semibold outline-none border-b border-primary"
+                value={draftTitle}
+                onChange={(e) => setDraftTitle(e.target.value)}
+                onBlur={handleSaveTitle}
+                onKeyDown={handleTitleKeyDown}
+              />
+            ) : (
+              <h1
+                className="truncate text-sm font-semibold cursor-pointer hover:text-primary transition-colors"
+                onClick={handleStartEditTitle}
+                title={t(($) => $.detail.click_to_rename)}
+              >
+                {workflow.title}
+              </h1>
+            )}
+            <div className="mt-0.5 flex items-center gap-2">
+              <Badge variant={workflow.status === "active" ? "default" : "secondary"} className="h-4 rounded px-1.5 text-[10px] capitalize">
+                {statusLabel}
+              </Badge>
+            </div>
+          </div>
+        </div>
+
+        <div className="flex shrink-0 items-center gap-1">
+          {/* Editing */}
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <Button variant="ghost" size="icon-sm" disabled={!canUndo} onClick={undo} aria-label={t(($) => $.panorama.toolbar.undo)}>
+                  <Undo2 className="size-4" />
+                </Button>
+              }
+            />
+            <TooltipContent>{t(($) => $.panorama.toolbar.undo)}</TooltipContent>
+          </Tooltip>
+
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <Button variant="ghost" size="icon-sm" disabled={!canRedo} onClick={redo} aria-label={t(($) => $.panorama.toolbar.redo)}>
+                  <Redo2 className="size-4" />
+                </Button>
+              }
+            />
+            <TooltipContent>{t(($) => $.panorama.toolbar.redo)}</TooltipContent>
+          </Tooltip>
+
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <Button variant="ghost" size="icon-sm" disabled={!hasUnsavedEdits} onClick={onSave} aria-label={t(($) => $.panorama.toolbar.save)}>
+                  <Save className="size-4" />
+                </Button>
+              }
+            />
+            <TooltipContent>{t(($) => $.panorama.toolbar.save)}</TooltipContent>
+          </Tooltip>
+
+          <Separator orientation="vertical" className="h-5 mx-1" />
+
+          {/* Canvas tools */}
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <Button variant="ghost" size="icon-sm" onClick={onAutoLayout} aria-label={t(($) => $.panorama.toolbar.auto_layout)}>
+                  <AppWindow className="size-4" />
+                </Button>
+              }
+            />
+            <TooltipContent>{t(($) => $.panorama.toolbar.auto_layout)}</TooltipContent>
+          </Tooltip>
+
+          <Separator orientation="vertical" className="h-5 mx-1" />
+
+          {/* Add node popover */}
+          <Popover open={popoverOpen} onOpenChange={setPopoverOpen} modal={false}>
+            <PopoverTrigger>
+              <Button variant="outline" size="sm" aria-label="Add node">
+                <Plus className="size-3.5 mr-1" />
+                Add node
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent className="w-auto p-2" align="start" side="bottom">
+              <div className="flex gap-1">
+                {SHAPES.map((shape) => (
+                  <button
+                    key={shape.type}
+                    draggable
+                    title={shape.label}
+                    aria-label={shape.label}
+                    className="flex items-center justify-center w-8 h-8 rounded-md hover:bg-muted text-muted-foreground hover:text-foreground cursor-grab active:cursor-grabbing transition-colors"
+                    onDragStart={(e) => {
+                      handleDragStart(e, shape.type);
+                    }}
+                    onDragEnd={() => setPopoverOpen(false)}
+                    onClick={() => handleClickToPlace(shape.type)}
+                  >
+                    {shape.icon}
+                  </button>
+                ))}
+              </div>
+            </PopoverContent>
+          </Popover>
+
+          <div className="flex-1" />
+
+          {/* Workflow management */}
+          <Button
+            variant={workflow.status === "active" ? "outline" : "default"}
+            size="sm"
+            onClick={onToggleWorkflowStatus}
+          >
+            {workflow.status === "active" ? (
+              <PauseCircle className="size-3.5" />
+            ) : (
+              <CheckCircle2 className="size-3.5" />
+            )}
+            {workflow.status === "active"
+              ? t(($) => $.detail.deactivate)
+              : t(($) => $.detail.activate)}
+          </Button>
+
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <Button variant="ghost" size="icon-sm" onClick={cycleCanvasColorMode} aria-label={themeLabel}>
+                  {createElement(themeIcon, { className: "size-4" })}
+                </Button>
+              }
+            />
+            <TooltipContent>{themeLabel}</TooltipContent>
+          </Tooltip>
+
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  onClick={() => setDeleteDialogOpen(true)}
+                  aria-label={t(($) => $.detail.delete)}
+                  className="text-muted-foreground hover:text-destructive"
+                >
+                  <Trash2 className="size-3.5" />
+                </Button>
+              }
+            />
+            <TooltipContent>{t(($) => $.detail.delete)}</TooltipContent>
+          </Tooltip>
+        </div>
+      </PageHeader>
 
       <div className="flex flex-1 min-h-0">
-        {/* Node palette sidebar */}
-        <NodePalette
-          className="m-3 shrink-0 self-start"
-          collapsed={paletteCollapsed}
-          onToggleCollapse={onTogglePalette}
-        />
-
         <div className="relative flex min-w-0 flex-1">
           {/* Canvas stage labels */}
           <CanvasStageLabels
             stages={stages}
             viewportY={viewportY}
+            viewportZoom={viewportZoom}
             onEdit={onOpenStageDialog}
             onDelete={onStageDelete}
             onReorder={onStageReorder}
           />
 
           {/* ReactFlow canvas */}
-          <div className="min-w-0 flex-1 pl-44" data-testid="panorama-canvas">
+          <div className="min-w-0 flex-1 pl-40" data-testid="panorama-canvas">
           <ReactFlow
             nodes={rfNodes}
             edges={rfEdges}
             nodeTypes={panoramaNodeTypes}
             edgeTypes={panoramaEdgeTypes}
             onNodeClick={onNodeClick}
+            onPaneClick={onPaneClick}
             onNodeDragStop={onNodeDragStop}
             onConnect={onConnect}
             onDragOver={handleDragOver}
@@ -384,23 +740,27 @@ function PanoramaContent({
             fitView={false}
             minZoom={0.2}
             maxZoom={2}
-            defaultViewport={{ x: 160, y: 24, zoom: 0.95 }}
+            defaultViewport={{ x: 0, y: 24, zoom: 0.95 }}
             deleteKeyCode={["Backspace", "Delete"]}
             connectionMode={ConnectionMode.Loose}
             multiSelectionKeyCode="Shift"
             selectionOnDrag
+            colorMode={canvasColorMode}
             onMove={(_, viewport) => onViewportChange(viewport)}
           >
             <Background />
             <Controls />
-            <MiniMap />
+            <MiniMap pannable zoomable nodeColor={(node) => {
+              if (node.type === "laneBg" || node.type === "gradientBg") return "transparent";
+              return node.type === "criticBadge" ? "#f59e0b" : "#64748b";
+            }} />
           </ReactFlow>
           </div>
         </div>
 
         {/* Node config panel (right slide-out) */}
         {configPanelOpen && selectedNode && (
-          <aside className="w-[420px] border-l bg-card shrink-0">
+          <aside className="w-96 border-l bg-card shrink-0">
             <NodeConfigPanel
               node={selectedNode}
               workflowId={workflowId}
@@ -418,9 +778,31 @@ function PanoramaContent({
         <StageCreateDialog
           workflowId={workflowId}
           wsId={wsId}
+          stage={editingStage}
           onClose={onCloseStageDialog}
         />
       )}
+
+      {/* Dialog portal container for iframe compatibility */}
+      <div ref={dialogRootRef} />
+
+      {/* Delete workflow confirm dialog */}
+      <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+        <AlertDialogContent container={dialogRootRef.current}>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t(($) => $.detail.delete_dialog.title)}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {t(($) => $.detail.delete_dialog.description, { title: workflow.title })}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t(($) => $.detail.delete_dialog.cancel)}</AlertDialogCancel>
+            <AlertDialogAction variant="destructive" onClick={onDeleteWorkflow}>
+              {t(($) => $.detail.delete_dialog.confirm)}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
@@ -454,6 +836,7 @@ export function WorkflowPanoramaPage({ workflowId, viewToggle }: WorkflowPanoram
 
   // ── Mutations ──
   const updateNodeMutation = useUpdateNode(wsId, workflowId);
+  const updateWorkflowMutation = useUpdateWorkflow(wsId);
   const createNodeMutation = useCreateNode(wsId, workflowId);
   const createEdgeMutation = useCreateEdge(wsId, workflowId);
   const deleteEdgeMutation = useDeleteEdge(wsId, workflowId);
@@ -461,23 +844,23 @@ export function WorkflowPanoramaPage({ workflowId, viewToggle }: WorkflowPanoram
   const assignStageMutation = useAssignNodeToStage(wsId, workflowId);
   const deleteStageMutation = useDeleteStage(wsId, workflowId);
   const reorderStagesMutation = useReorderStages(wsId, workflowId);
+  const deleteWorkflowMutation = useDeleteWorkflow(wsId);
 
   // ── Store ──
   const selectedNodeId = useWorkflowEditorStore((s) => s.selectedNodeId);
   const selectNode = useWorkflowEditorStore((s) => s.selectNode);
   const nodeEdits = useWorkflowEditorStore((s) => s.nodeEdits);
   const deletedNodeIds = useWorkflowEditorStore((s) => s.deletedNodeIds);
-  const cacheNodeDelete = useWorkflowEditorStore((s) => s.cacheNodeDelete);
   const clearNodeEdits = useWorkflowEditorStore((s) => s.clearNodeEdits);
-  const clearNodeDelete = useWorkflowEditorStore((s) => s.clearNodeDelete);
+  const cacheNodeDelete = useWorkflowEditorStore((s) => s.cacheNodeDelete);
   const pushServerAction = useWorkflowEditorStore((s) => s.pushServerAction);
 
   // ── Local state ──
   const [viewportY, setViewportY] = useState(0);
-  const [zoomLevel, setZoomLevel] = useState(100);
+  const [viewportZoom, setViewportZoom] = useState(1);
   const [configPanelOpen, setConfigPanelOpen] = useState(false);
-  const [paletteCollapsed, setPaletteCollapsed] = useState(false);
   const [showStageDialog, setShowStageDialog] = useState(false);
+  const [editingStage, setEditingStage] = useState<WorkflowStage | null>(null);
 
   // ── Derived lookups ──
   const agentLookup = useMemo(() => {
@@ -520,19 +903,25 @@ export function WorkflowPanoramaPage({ workflowId, viewToggle }: WorkflowPanoram
     [visibleNodes, selectedNodeId],
   );
 
-  // ── Unsaved check ──
-  const hasUnsaved = Object.keys(nodeEdits).length > 0 || deletedNodeIds.length > 0;
-
   // ── Handlers ──
   const handleNodeClick = useCallback(
     (_event: React.MouseEvent, node: Node) => {
-      if (node.type === "laneBg" || node.type === "gradientBg") return;
+      if (node.type === "laneBg" || node.type === "gradientBg") {
+        selectNode(null);
+        setConfigPanelOpen(false);
+        return;
+      }
       const workerId = (node.data.parentNodeId as string | undefined) ?? node.id;
       selectNode(workerId as string);
       setConfigPanelOpen(true);
     },
     [selectNode],
   );
+
+  const handlePaneClick = useCallback(() => {
+    selectNode(null);
+    setConfigPanelOpen(false);
+  }, [selectNode]);
 
   const handleNodeDragStop = useCallback(
     (_event: MouseEvent | TouchEvent, node: Node) => {
@@ -542,6 +931,9 @@ export function WorkflowPanoramaPage({ workflowId, viewToggle }: WorkflowPanoram
       const nodeId = (nodeData.node as { id: string } | undefined)?.id;
       const stageId = nodeData.stage_id as string | undefined;
       if (!nodeId) return;
+
+      // Track position change for undo
+      pushServerAction({ type: "move-node", nodeId });
 
       // Persist position_x
       updateNodeMutation.mutate({
@@ -558,7 +950,7 @@ export function WorkflowPanoramaPage({ workflowId, viewToggle }: WorkflowPanoram
         });
       }
     },
-    [stages, updateNodeMutation, assignStageMutation],
+    [stages, updateNodeMutation, assignStageMutation, pushServerAction],
   );
 
   const handleConnect = useCallback(
@@ -596,9 +988,13 @@ export function WorkflowPanoramaPage({ workflowId, viewToggle }: WorkflowPanoram
         critic_type: "human",
         critic_id: null,
         critic_api_url: null,
+      }, {
+        onSuccess: (created) => {
+          pushServerAction({ type: "create-node", nodeId: created.id });
+        },
       });
     },
-    [createNodeMutation, stages],
+    [createNodeMutation, stages, pushServerAction],
   );
 
   const handleEdgeDelete = useCallback(
@@ -618,32 +1014,22 @@ export function WorkflowPanoramaPage({ workflowId, viewToggle }: WorkflowPanoram
     }
   }, [apiNodes, apiEdges, updateNodeMutation]);
 
-  const handleSave = useCallback(async () => {
-    // Batch save all cached edits
-    for (const [nodeId, edits] of Object.entries(nodeEdits)) {
-      await updateNodeMutation.mutateAsync({ nodeId, ...edits } as Parameters<typeof updateNodeMutation.mutate>[0]);
-      clearNodeEdits(nodeId);
-    }
-    // Batch delete
-    for (const nodeId of deletedNodeIds) {
-      await deleteNodeMutation.mutateAsync(nodeId);
-      clearNodeDelete(nodeId);
-    }
-  }, [nodeEdits, deletedNodeIds, updateNodeMutation, deleteNodeMutation, clearNodeEdits, clearNodeDelete]);
-
   const handleNodeDelete = useCallback(
-    (nodeId: string) => {
+    async (nodeId: string) => {
       cacheNodeDelete(nodeId);
+      await deleteNodeMutation.mutateAsync(nodeId);
       setConfigPanelOpen(false);
     },
-    [cacheNodeDelete],
+    [deleteNodeMutation, cacheNodeDelete],
   );
 
   const handleStageChange = useCallback(
     (nodeId: string, stageId: string | null) => {
+      const positionX = computeStageTransferPositionX(visibleNodes, nodeId, stageId);
+      updateNodeMutation.mutate({ nodeId, position_x: positionX } as Parameters<typeof updateNodeMutation.mutate>[0]);
       assignStageMutation.mutate({ nodeId, stage_id: stageId });
     },
-    [assignStageMutation],
+    [assignStageMutation, updateNodeMutation, visibleNodes],
   );
 
   const handleStageDelete = useCallback(
@@ -673,10 +1059,69 @@ export function WorkflowPanoramaPage({ workflowId, viewToggle }: WorkflowPanoram
   );
 
   // ── Viewport tracking ──
+  const handleOpenStageDialog = useCallback((stage?: WorkflowStage) => {
+    setEditingStage(stage ?? null);
+    setShowStageDialog(true);
+  }, []);
+
+  const handleCloseStageDialog = useCallback(() => {
+    setEditingStage(null);
+    setShowStageDialog(false);
+  }, []);
+
+  const handleToggleWorkflowStatus = useCallback(() => {
+    if (!workflow) return;
+    const nextStatus: WorkflowStatus = workflow.status === "active" ? "paused" : "active";
+    updateWorkflowMutation.mutate(
+      { id: workflowId, status: nextStatus },
+      {
+        onSuccess: () => {
+          toast.success(nextStatus === "active"
+            ? t(($) => $.detail.toast_activated)
+            : t(($) => $.detail.toast_deactivated));
+        },
+        onError: () => toast.error(t(($) => $.detail.toast_activate_failed)),
+      },
+    );
+  }, [workflow, workflowId, updateWorkflowMutation, t]);
+
+  const handleSave = useCallback(async () => {
+    const entries = Object.entries(useWorkflowEditorStore.getState().nodeEdits);
+    if (entries.length === 0) return;
+    try {
+      await Promise.all(
+        entries.map(([nodeId, edits]) =>
+          updateNodeMutation.mutateAsync({ nodeId, ...edits } as Parameters<typeof updateNodeMutation.mutateAsync>[0]),
+        ),
+      );
+      entries.forEach(([nodeId]) => clearNodeEdits(nodeId));
+      toast.success(t(($) => $.detail.toast_saved));
+    } catch {
+      toast.error(t(($) => $.detail.toast_save_failed));
+    }
+  }, [updateNodeMutation, clearNodeEdits, t]);
+
   const handleViewportChange = useCallback((viewport: Viewport) => {
     setViewportY(viewport.y);
-    setZoomLevel(Math.round(viewport.zoom * 100));
+    setViewportZoom(viewport.zoom);
   }, []);
+
+  const handleUpdateTitle = useCallback(
+    (title: string) => {
+      updateWorkflowMutation.mutate({ id: workflowId, title });
+    },
+    [workflowId, updateWorkflowMutation],
+  );
+
+  const handleDeleteWorkflow = useCallback(async () => {
+    try {
+      await deleteWorkflowMutation.mutateAsync(workflowId);
+      toast.success(t(($) => $.detail.toast_deleted));
+      navigation.push(wsPaths.workflows());
+    } catch {
+      toast.error(t(($) => $.detail.toast_delete_failed));
+    }
+  }, [workflowId, deleteWorkflowMutation, navigation, wsPaths, t]);
 
   // ── Loading ──
   if (isLoading) {
@@ -744,7 +1189,8 @@ export function WorkflowPanoramaPage({ workflowId, viewToggle }: WorkflowPanoram
           <StageCreateDialog
             workflowId={workflowId}
             wsId={wsId}
-            onClose={() => setShowStageDialog(false)}
+            stage={editingStage}
+            onClose={handleCloseStageDialog}
           />
         )}
       </div>
@@ -759,18 +1205,18 @@ export function WorkflowPanoramaPage({ workflowId, viewToggle }: WorkflowPanoram
         rfEdges={rfEdges}
         stages={stages}
         apiNodes={apiNodes}
+        workflow={workflow}
         workflowId={workflowId}
         wsId={wsId}
         selectedNode={selectedNode}
         viewportY={viewportY}
-        zoomLevel={zoomLevel}
+        viewportZoom={viewportZoom}
         configPanelOpen={configPanelOpen}
-        paletteCollapsed={paletteCollapsed}
         showStageDialog={showStageDialog}
-        hasUnsaved={hasUnsaved}
+        editingStage={editingStage}
         onAutoLayout={handleAutoLayout}
-        onSave={handleSave}
         onNodeClick={handleNodeClick}
+        onPaneClick={handlePaneClick}
         onNodeDragStop={handleNodeDragStop}
         onConnect={handleConnect}
         onShapeDrop={handleShapeDrop}
@@ -780,10 +1226,14 @@ export function WorkflowPanoramaPage({ workflowId, viewToggle }: WorkflowPanoram
         onStageDelete={handleStageDelete}
         onStageReorder={handleStageReorder}
         onViewportChange={handleViewportChange}
-        onTogglePalette={() => setPaletteCollapsed(!paletteCollapsed)}
-        onOpenStageDialog={() => setShowStageDialog(true)}
-        onCloseStageDialog={() => setShowStageDialog(false)}
+        onOpenStageDialog={handleOpenStageDialog}
+        onCloseStageDialog={handleCloseStageDialog}
         onCloseConfigPanel={() => setConfigPanelOpen(false)}
+        onBackToWorkflows={() => navigation.push(wsPaths.workflows())}
+        onToggleWorkflowStatus={handleToggleWorkflowStatus}
+        onUpdateTitle={handleUpdateTitle}
+        onDeleteWorkflow={handleDeleteWorkflow}
+        onSave={handleSave}
       />
     </ReactFlowProvider>
   );

@@ -28,23 +28,23 @@ function renderWithProvider(node: Node) {
 const baseNode = {
   id: "gradient-0",
   type: "gradientBg",
-  position: { x: 0, y: 128 },
+  position: { x: 0, y: 160 },
   data: { fromStageIndex: 0 } as GradientBgNodeData,
 } as Node;
 
 describe("GradientBgNode", () => {
-  it("renders with correct height (8px)", () => {
+  it("renders with correct height (16px)", () => {
     renderWithProvider(baseNode);
     const el = screen.getByTestId("gradient-bg-gradient-0");
     expect(el).toBeInTheDocument();
-    expect(el).toHaveStyle({ width: "2400px", height: "8px" });
+    expect(el).toHaveStyle({ width: "2400px", height: "16px" });
   });
 
   it("uses correct gradient for stage transition", () => {
     renderWithProvider(baseNode);
     const el = screen.getByTestId("gradient-bg-gradient-0");
-    expect(el.className).toContain("from-slate-50/40");
-    expect(el.className).toContain("to-stone-50/40");
+    expect(el.className).toContain("from-slate-100/60");
+    expect(el.className).toContain("to-stone-100/60");
   });
 
   it("is not interactive", () => {
@@ -58,7 +58,7 @@ describe("GradientBgNode", () => {
     renderWithProvider(node);
     const el = screen.getByTestId("gradient-bg-gradient-99");
     // 99 % 6 = 3 → rose-to-violet
-    expect(el.className).toContain("from-rose-50/35");
-    expect(el.className).toContain("to-violet-50/35");
+    expect(el.className).toContain("from-rose-100/50");
+    expect(el.className).toContain("to-violet-100/50");
   });
 });

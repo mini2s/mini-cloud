@@ -8,6 +8,7 @@ import { cn } from "@multica/ui/lib/utils";
 import { CompactNodeCard } from "./compact-node-card";
 import { CriticBadge } from "./critic-badge";
 import { RuntimeNodeCard } from "../../../issues/components/execution/runtime-node-card";
+import { STAGE_BG_COLORS, getStageColorIndex } from "./constants";
 
 export interface StageLaneProps {
   stage: WorkflowStage;
@@ -23,15 +24,6 @@ export interface StageLaneProps {
   nodeRuns?: Map<string, WorkflowNodeRun>;
   onNodeClick?: (nodeId: string) => void;
 }
-
-const STAGE_BG_COLORS = [
-  "bg-slate-50/70",
-  "bg-stone-50/70",
-  "bg-blue-50/45",
-  "bg-rose-50/45",
-  "bg-violet-50/45",
-  "bg-amber-50/45",
-] as const;
 
 const STAGE_LABEL_COLORS = [
   "text-slate-400",
@@ -56,7 +48,7 @@ export function StageLane({
   nodeRuns,
   onNodeClick,
 }: StageLaneProps) {
-  const colorIndex = Math.abs(stage.sort_order) % STAGE_BG_COLORS.length;
+  const colorIndex = getStageColorIndex(stage.sort_order);
   const stageBg = STAGE_BG_COLORS[colorIndex] ?? STAGE_BG_COLORS[0];
   const labelColor = STAGE_LABEL_COLORS[colorIndex] ?? STAGE_LABEL_COLORS[0];
 

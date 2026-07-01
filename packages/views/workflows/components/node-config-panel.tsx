@@ -80,6 +80,7 @@ export function NodeConfigPanel({ node, workflowId, nodes = [], stages = [], dis
   const assignStageMutation = useAssignNodeToStage(wsId, workflowId);
   const createStageMutation = useCreateStage(wsId, workflowId);
   const nodeEdits = useWorkflowEditorStore((s) => s.nodeEdits);
+  const undoRedoVersion = useWorkflowEditorStore((s) => s._undoRedoVersion);
   const cacheNodeEdits = useWorkflowEditorStore((s) => s.cacheNodeEdits);
 
   const saved = nodeEdits[node.id];
@@ -142,7 +143,7 @@ export function NodeConfigPanel({ node, workflowId, nodes = [], stages = [], dis
     setCriticType(s?.critic_type ?? node.critic_type);
     setCriticId(s?.critic_id ?? node.critic_id ?? null);
     setCriticApiUrl(s?.critic_api_url ?? node.critic_api_url ?? "");
-  }, [node.id]);
+  }, [node.id, undoRedoVersion]);
 
   const handleDelete = async () => {
     try {

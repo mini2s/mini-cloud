@@ -512,6 +512,24 @@
       "view_full_issue": "查看完整 Issue",
       "unblock": "解除阻塞",
       "retry": "重试"
+    },
+    "status": {
+      "pending": "待处理",
+      "format_checking": "格式检查中",
+      "format_ok": "格式正常",
+      "format_failed": "格式检查失败",
+      "worker_assigned": "已分配",
+      "working": "处理中",
+      "awaiting_input": "等待输入",
+      "awaiting_critic": "等待审核",
+      "critic_reviewing": "审核中",
+      "critic_approved": "已通过",
+      "critic_rework": "需返工",
+      "completed": "已完成",
+      "failed": "失败",
+      "blocked": "已阻塞",
+      "skipped": "已跳过",
+      "cancelled": "已取消"
     }
   },
   "backlog_hint": {

@@ -48,7 +48,16 @@ describe("PanoramaEdge", () => {
     expect(path?.style.opacity).toBe("0.35");
   });
 
-  it("draws horizontal path for same-Y source/target (same lane)", () => {
+  it("uses explicit stage color data before falling back to source Y", () => {
+    const container = renderEdge({
+      sourceY: 44,
+      data: { stageColorIndex: 3 },
+    });
+    const path = container.querySelector("path");
+    expect(path?.getAttribute("class")).toContain("text-rose-300");
+  });
+
+  it("uses straight path for same-Y horizontal connections", () => {
     const container = renderEdge({
       sourceX: 224,
       sourceY: 44,
@@ -57,7 +66,8 @@ describe("PanoramaEdge", () => {
     });
     const path = container.querySelector("path");
     const d = path?.getAttribute("d") ?? "";
-    expect(d).toContain("M");
+    const segments = d.match(/[ML]/g) ?? [];
+    expect(segments.length).toBe(2);
   });
 
   it("renders dashed for critic connections", () => {
@@ -73,6 +83,53 @@ describe("PanoramaEdge", () => {
     });
     const path = container.querySelector("path");
     expect(path?.style.strokeDasharray).toBe("4 3");
+  });
+
+  it("uses straight path for vertical connections (Bottom→Top)", () => {
+    const container = renderEdge({
+      sourceX: 196,
+      sourceY: 64,
+      targetX: 172,
+      targetY: 84,
+      sourcePosition: Position.Bottom,
+      targetPosition: Position.Top,
+    });
+    const path = container.querySelector("path");
+    const d = path?.getAttribute("d") ?? "";
+    // Straight path: M x,y L x,y — exactly one line segment, no intermediate waypoints
+    const segments = d.match(/[ML]/g) ?? [];
+    expect(segments.length).toBe(2); // M + single L = direct line
+  });
+
+  it("uses straight path for vertical connections (Top→Bottom)", () => {
+    const container = renderEdge({
+      sourceX: 172,
+      sourceY: 84,
+      targetX: 196,
+      targetY: 64,
+      sourcePosition: Position.Top,
+      targetPosition: Position.Bottom,
+    });
+    const path = container.querySelector("path");
+    const d = path?.getAttribute("d") ?? "";
+    const segments = d.match(/[ML]/g) ?? [];
+    expect(segments.length).toBe(2);
+  });
+
+  it("uses smooth step path for horizontal connections (Right→Left)", () => {
+    const container = renderEdge({
+      sourceX: 224,
+      sourceY: 44,
+      targetX: 500,
+      targetY: 92,
+      sourcePosition: Position.Right,
+      targetPosition: Position.Left,
+    });
+    const path = container.querySelector("path");
+    const d = path?.getAttribute("d") ?? "";
+    // Smooth step path has intermediate waypoints (multiple L segments)
+    const segments = d.match(/[ML]/g) ?? [];
+    expect(segments.length).toBeGreaterThan(2);
   });
 
   it("applies selection glow when selected", () => {

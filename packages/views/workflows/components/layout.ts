@@ -3,6 +3,10 @@ import type { WorkflowNode, WorkflowEdge } from "@multica/core/types";
 import { parseNodeShape } from "@multica/core/types";
 import { WORKER_WIDTH } from "./overview/constants";
 
+const LANE_START_X = 120;
+const LANE_SLOT_GAP = 96;
+const LANE_SLOT_STEP = WORKER_WIDTH + LANE_SLOT_GAP;
+
 const SHAPE_DEFAULTS = {
   rectangle: { width: 150, height: 70 },
   pill: { width: 150, height: 70 },
@@ -85,14 +89,11 @@ export function computeLaneAutoLayout(
     byStage.get(key)!.push(node);
   }
 
-  let currentX = 0;
-
   for (const [, stageNodes] of byStage) {
     if (stageNodes.length === 0) continue;
 
     if (stageNodes.length === 1) {
-      result.set(stageNodes[0]!.id, currentX + 100);
-      currentX += WORKER_WIDTH + 80;
+      result.set(stageNodes[0]!.id, 120);
       continue;
     }
 
@@ -113,15 +114,44 @@ export function computeLaneAutoLayout(
 
     dagre.layout(g);
 
+    const positioned: Array<{ nodeId: string; x: number }> = [];
     for (const node of stageNodes) {
       const dagreNode = g.node(node.id);
       if (dagreNode) {
-        result.set(node.id, dagreNode.x - WORKER_WIDTH / 2);
+        positioned.push({ nodeId: node.id, x: dagreNode.x - WORKER_WIDTH / 2 });
       } else {
-        result.set(node.id, currentX + 100);
+        positioned.push({ nodeId: node.id, x: 120 });
       }
     }
+
+    positioned.sort((a, b) => a.x - b.x);
+    positioned.forEach((item, index) => {
+      result.set(item.nodeId, LANE_START_X + index * LANE_SLOT_STEP);
+    });
   }
 
   return result;
+}
+
+/**
+ * Pick a stable x position when a node is moved into another stage from the
+ * config panel. Without this, it keeps its old lane x and can render directly
+ * on top of an existing node in the target lane.
+ */
+export function computeStageTransferPositionX(
+  nodes: WorkflowNode[],
+  nodeId: string,
+  targetStageId: string | null,
+): number {
+  const occupied = new Set(
+    nodes
+      .filter((node) => node.id !== nodeId && (node.stage_id ?? null) === targetStageId)
+      .map((node) => Math.round(node.position_x ?? LANE_START_X)),
+  );
+
+  let x = LANE_START_X;
+  while (occupied.has(x)) {
+    x += LANE_SLOT_STEP;
+  }
+  return x;
 }

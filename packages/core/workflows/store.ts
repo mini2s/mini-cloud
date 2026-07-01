@@ -13,7 +13,7 @@ interface WorkflowSnapshot {
 }
 
 export interface TrackedAction {
-  type: "create-node" | "create-edge" | "delete-edge";
+  type: "create-node" | "create-edge" | "delete-edge" | "delete-node" | "move-node";
   nodeId?: string;
   edgeId?: string;
   sourceNodeId?: string;
@@ -40,6 +40,7 @@ interface WorkflowEditorState {
   redoStack: UndoEntry[];
   _reverseAction: TrackedAction | null;
   _undoLastTime: number;
+  _undoRedoVersion: number;
   showAnnotations: boolean;
   canvasColorMode: "system" | "light" | "dark";
 
@@ -80,6 +81,7 @@ const initialState = {
   redoStack: [] as UndoEntry[],
   _reverseAction: null as TrackedAction | null,
   _undoLastTime: 0,
+  _undoRedoVersion: 0,
   showAnnotations: true,
   canvasColorMode: "system" as "system" | "light" | "dark",
 };
@@ -192,6 +194,7 @@ export const useWorkflowEditorStore = create<WorkflowEditorState>((set) => ({
         deletedNodeIds: entry.snapshot.deletedNodeIds,
         _reverseAction: entry.action ?? null,
         _undoLastTime: Date.now(),
+        _undoRedoVersion: state._undoRedoVersion + 1,
       };
     }),
 
@@ -207,6 +210,7 @@ export const useWorkflowEditorStore = create<WorkflowEditorState>((set) => ({
         deletedNodeIds: entry.snapshot.deletedNodeIds,
         _reverseAction: entry.action ?? null,
         _undoLastTime: Date.now(),
+        _undoRedoVersion: state._undoRedoVersion + 1,
       };
     }),
 

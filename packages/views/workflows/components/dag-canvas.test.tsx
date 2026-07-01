@@ -10,7 +10,7 @@ const rfPropsRef = vi.hoisted(() => [] as Record<string, unknown>[]);
 vi.mock("@xyflow/react", () => ({
   ReactFlow: (props: Record<string, unknown>) => {
     rfPropsRef.push(props);
-    const { nodes, edges, onNodeClick, onNodeDragStop,
+    const { nodes, edges, onNodeClick, onNodeDragStart, onNodesChange, onNodeDragStop,
       onConnect, onEdgeClick, onPaneClick, nodesDraggable, nodesConnectable,
       children } = props;
     return (
@@ -21,6 +21,12 @@ vi.mock("@xyflow/react", () => ({
         <div data-testid="rf-edgecount">{(edges as unknown[]).length}</div>
         <button data-testid="rf-nodeclick" onClick={() =>
           (onNodeClick as (e: unknown, n: unknown) => void)?.(null, { id: "n1" })} />
+        <button data-testid="rf-nodepositionchange" onClick={() => {
+          (onNodeDragStart as (e: unknown, n: unknown) => void)?.(null, { id: "n1" });
+          (onNodesChange as (changes: unknown[]) => void)?.([
+            { type: "position", id: "n1", position: { x: 100, y: 200 }, dragging: true },
+          ]);
+        }} />
         <button data-testid="rf-nodedragstop" onClick={() =>
           (onNodeDragStop as (e: unknown, n: unknown) => void)?.(null, { id: "n1", position: { x: 100, y: 200 } })} />
         <button data-testid="rf-connect" onClick={() =>
@@ -39,6 +45,22 @@ vi.mock("@xyflow/react", () => ({
   ConnectionMode: { Loose: "loose", Strict: "strict" },
   Handle: () => null,
   BaseEdge: () => null,
+  MiniMap: () => <div data-testid="rf-minimap" />,
+  NodeResizer: () => null,
+  getBezierPath: () => ["M0,0 C50,0 50,100 100,100", 50, 50],
+  getStraightPath: () => ["M0,0 L100,100"],
+  applyNodeChanges: (changes: unknown[], nodes: unknown[]) => {
+    return nodes.map((node) => {
+      const current = node as { id: string; position: { x: number; y: number } };
+      const change = (changes as { type: string; id: string; position?: { x: number; y: number } }[])
+        .find((c) => c.type === "position" && c.id === current.id && c.position);
+      return change ? { ...current, position: change.position } : current;
+    });
+  },
+  applyEdgeChanges: (_changes: unknown[], edges: unknown[]) => edges,
+  useReactFlow: () => ({
+    screenToFlowPosition: ({ x, y }: { x: number; y: number }) => ({ x, y }),
+  }),
 }));
 
 vi.mock("@xyflow/react/dist/style.css", () => ({}));
@@ -49,7 +71,10 @@ const storeRef = vi.hoisted(() => {
     mode: "view" as string,
     selectedNodeId: null as string | null,
     selectedEdgeId: null as string | null,
+    selectedNodeIds: [] as string[],
+    canvasColorMode: "light" as const,
     deletedNodeIds: [] as string[],
+    cacheNodeEdits: vi.fn(),
     cacheNodeDelete: (id: string) => {
       if (!ref.deletedNodeIds.includes(id)) {
         ref.deletedNodeIds = [...ref.deletedNodeIds, id];
@@ -65,6 +90,11 @@ const storeRef = vi.hoisted(() => {
       ref.selectedEdgeId = id;
       ref.selectedNodeId = null;
     },
+    setSelectedNodeIds: (ids: string[]) => {
+      ref.selectedNodeIds = ids;
+    },
+    undo: vi.fn(),
+    redo: vi.fn(),
     cacheNodeDelete: ref.cacheNodeDelete,
   });
 });
@@ -127,6 +157,9 @@ describe("WorkflowCanvas", () => {
     storeRef.mode = "view";
     storeRef.selectedNodeId = null;
     storeRef.selectedEdgeId = null;
+    storeRef.selectedNodeIds = [];
+    storeRef.deletedNodeIds = [];
+    storeRef.cacheNodeEdits.mockClear();
     // Restore original store methods (may have been replaced by spies in previous tests)
     storeRef.selectNode = (id: string | null) => {
       storeRef.selectedNodeId = id;
@@ -135,6 +168,9 @@ describe("WorkflowCanvas", () => {
     storeRef.selectEdge = (id: string | null) => {
       storeRef.selectedEdgeId = id;
       storeRef.selectedNodeId = null;
+    };
+    storeRef.setSelectedNodeIds = (ids: string[]) => {
+      storeRef.selectedNodeIds = ids;
     };
     cleanup();
   });
@@ -208,6 +244,7 @@ describe("WorkflowCanvas", () => {
     const onNodeDragStop = vi.fn();
     const nodes = [makeNode({ id: "n1" })];
     renderWithI18n(<WorkflowCanvas nodes={nodes} edges={[]} onNodeDragStop={onNodeDragStop} />);
+    fireEvent.click(document.querySelector("[data-testid='rf-nodepositionchange']")!);
     fireEvent.click(document.querySelector("[data-testid='rf-nodedragstop']")!);
     expect(onNodeDragStop).toHaveBeenCalledWith("n1", 100, 200);
   });
@@ -222,16 +259,18 @@ describe("WorkflowCanvas", () => {
 
   it("selects edge on edge click and deselects node", () => {
     storeRef.selectedNodeId = "n1";
-    const selectNodeSpy = vi.fn();
     const selectEdgeSpy = vi.fn();
-    storeRef.selectNode = selectNodeSpy;
-    storeRef.selectEdge = selectEdgeSpy;
+    storeRef.selectEdge = (id: string | null) => {
+      selectEdgeSpy(id);
+      storeRef.selectedEdgeId = id;
+      storeRef.selectedNodeId = null;
+    };
 
     const nodes = [makeNode({ id: "n1" })];
     renderWithI18n(<WorkflowCanvas nodes={nodes} edges={[]} />);
     fireEvent.click(document.querySelector("[data-testid='rf-edgeclick']")!);
     expect(selectEdgeSpy).toHaveBeenCalledWith("e1");
-    expect(selectNodeSpy).toHaveBeenCalledWith(null);
+    expect(storeRef.selectedNodeId).toBeNull();
   });
 
   it("deselects both node and edge on pane click", () => {
