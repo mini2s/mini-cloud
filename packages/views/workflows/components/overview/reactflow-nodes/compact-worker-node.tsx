@@ -34,11 +34,11 @@ export const CompactWorkerNode = memo(function CompactWorkerNode({
       `}
       style={{ width: WORKER_WIDTH, height: WORKER_HEIGHT }}
     >
-      <Handle type="target" position={Position.Left}
+      <Handle type="target" position={Position.Left} id="left"
         className={`!bg-current ${handleColorClass} opacity-0 group-hover:opacity-100 transition-opacity`} />
-      <Handle type="source" position={Position.Right}
+      <Handle type="source" position={Position.Right} id="right"
         className={`!bg-current ${handleColorClass} opacity-0 group-hover:opacity-100 transition-opacity`} />
-      <Handle type="source" position={Position.Bottom} id="critic"
+      <Handle type="source" position={Position.Bottom} id="bottom"
         className={`!bg-current ${handleColorClass} opacity-0 group-hover:opacity-100 transition-opacity`} />
 
       <div className="flex flex-col h-full min-w-0">

@@ -9,6 +9,8 @@ import {
   Controls,
   MiniMap,
   useReactFlow,
+  MarkerType,
+  ConnectionMode,
   type Node,
   type Edge,
   type Connection,
@@ -22,6 +24,7 @@ import {
   workflowStagesOptions,
   workflowNodesOptions,
   workflowEdgesOptions,
+  useCreateNode,
   useUpdateNode,
   useCreateEdge,
   useDeleteEdge,
@@ -60,11 +63,19 @@ import {
   computeLaneY,
 } from "./constants";
 
-import type { WorkflowNode, WorkflowStage, WorkflowEdge, ReorderStagesItem } from "@multica/core/types";
+import type { WorkflowNode, WorkflowStage, WorkflowEdge, ReorderStagesItem, NodeShape } from "@multica/core/types";
 import type { Agent } from "@multica/core/types";
 import type { BuiltinPlugin } from "@multica/core/api/schemas";
 
 // ── Types ──
+
+const DRAG_SHAPE_MIME = "application/x-multica-shape";
+const SHAPE_LABELS: Record<NodeShape, string> = {
+  rectangle: "Rectangle",
+  diamond: "Diamond",
+  pill: "Pill",
+  hexagon: "Hexagon",
+};
 
 export interface WorkflowPanoramaPageProps {
   workflowId: string;
@@ -120,8 +131,6 @@ function apiNodesToReactFlowNodes(
         parentNodeId: node.id,
         criticName: node.critic_id ? getActorName(node.critic_type ?? "agent", node.critic_id) ?? undefined : undefined,
       },
-      parentId: node.id,
-      extent: "parent",
     };
 
     return [workerNode, criticNode];
@@ -130,16 +139,58 @@ function apiNodesToReactFlowNodes(
 
 // ── API edges → ReactFlow edges ──
 
-function apiEdgesToReactFlowEdges(edges: WorkflowEdge[]): Edge[] {
-  return edges.map((edge) => ({
+function apiEdgesToReactFlowEdges(edges: WorkflowEdge[], nodes: WorkflowNode[], stages: WorkflowStage[]): Edge[] {
+  const stageMap = new Map(stages.map((stage) => [stage.id, stage]));
+  const positionMap = new Map(nodes.map((node) => {
+    const stage = node.stage_id ? stageMap.get(node.stage_id) : undefined;
+    return [node.id, {
+      x: node.position_x ?? 100,
+      y: stage ? computeLaneY(stage.sort_order) : UNASSIGNED_LANE_Y(stages.length),
+    }];
+  }));
+
+  const workflowEdges = edges.map((edge) => ({
     id: edge.id,
     source: edge.source_node_id,
     target: edge.target_node_id,
     type: "panorama",
+    sourceHandle: "right",
+    targetHandle: "left",
+    markerEnd: { type: MarkerType.ArrowClosed },
+    interactionWidth: 24,
     style: edge.target_node_id.endsWith(":critic") || edges.some((e) =>
       e.source_node_id === edge.target_node_id && e.target_node_id.endsWith(":critic")
     ) ? { strokeDasharray: "4 3" } : undefined,
+    ...(() => {
+      const source = positionMap.get(edge.source_node_id);
+      const target = positionMap.get(edge.target_node_id);
+      if (!source || !target) return {};
+      const dx = target.x - source.x;
+      const dy = target.y - source.y;
+      if (Math.abs(dy) > Math.abs(dx)) {
+        return { sourceHandle: "bottom", targetHandle: "left" };
+      }
+      return { sourceHandle: "right", targetHandle: "left" };
+    })(),
   }));
+
+  const criticEdges: Edge[] = nodes
+    .filter((node) => node.critic_id || node.critic_api_url)
+    .map((node) => ({
+      id: `${node.id}:critic-edge`,
+      source: node.id,
+      target: `${node.id}:critic`,
+      sourceHandle: "bottom",
+      targetHandle: "top",
+      type: "panorama",
+      markerEnd: { type: MarkerType.ArrowClosed },
+      interactionWidth: 16,
+      selectable: false,
+      deletable: false,
+      style: { strokeDasharray: "4 3" },
+    }));
+
+  return [...workflowEdges, ...criticEdges];
 }
 
 // ── Background nodes: lane backgrounds + gradient transitions ──
@@ -225,6 +276,7 @@ interface PanoramaContentProps {
   onNodeClick: (event: React.MouseEvent, node: Node) => void;
   onNodeDragStop: (event: MouseEvent | TouchEvent, node: Node) => void;
   onConnect: (connection: Connection) => void;
+  onShapeDrop: (shape: NodeShape, position: { x: number; y: number }) => void;
   onEdgeDelete: (edges: Edge[]) => void;
   onNodeDelete: (nodeId: string) => void;
   onStageChange: (nodeId: string, stageId: string | null) => void;
@@ -256,6 +308,7 @@ function PanoramaContent({
   onNodeClick,
   onNodeDragStop,
   onConnect,
+  onShapeDrop,
   onEdgeDelete,
   onNodeDelete,
   onStageChange,
@@ -268,6 +321,23 @@ function PanoramaContent({
   onCloseConfigPanel,
 }: PanoramaContentProps) {
   const reactFlowInstance = useReactFlow();
+  const handleDragOver = useCallback((event: React.DragEvent) => {
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "copy";
+  }, []);
+
+  const handleDrop = useCallback(
+    (event: React.DragEvent) => {
+      event.preventDefault();
+      const shape = event.dataTransfer.getData(DRAG_SHAPE_MIME) as NodeShape | "";
+      if (!shape || !(shape in SHAPE_LABELS)) return;
+      onShapeDrop(shape, reactFlowInstance.screenToFlowPosition({
+        x: event.clientX,
+        y: event.clientY,
+      }));
+    },
+    [onShapeDrop, reactFlowInstance],
+  );
 
   return (
     <div className="flex flex-col h-full">
@@ -280,25 +350,26 @@ function PanoramaContent({
         zoomLevel={zoomLevel}
       />
 
-      <div className="flex flex-1 min-h-0 relative">
+      <div className="flex flex-1 min-h-0">
         {/* Node palette sidebar */}
         <NodePalette
-          className="absolute left-3 top-3 z-10"
+          className="m-3 shrink-0 self-start"
           collapsed={paletteCollapsed}
           onToggleCollapse={onTogglePalette}
         />
 
-        {/* Canvas stage labels */}
-        <CanvasStageLabels
-          stages={stages}
-          viewportY={viewportY}
-          onEdit={onOpenStageDialog}
-          onDelete={onStageDelete}
-          onReorder={onStageReorder}
-        />
+        <div className="relative flex min-w-0 flex-1">
+          {/* Canvas stage labels */}
+          <CanvasStageLabels
+            stages={stages}
+            viewportY={viewportY}
+            onEdit={onOpenStageDialog}
+            onDelete={onStageDelete}
+            onReorder={onStageReorder}
+          />
 
-        {/* ReactFlow canvas */}
-        <div className="flex-1 ml-32" data-testid="panorama-canvas">
+          {/* ReactFlow canvas */}
+          <div className="min-w-0 flex-1 pl-44" data-testid="panorama-canvas">
           <ReactFlow
             nodes={rfNodes}
             edges={rfEdges}
@@ -307,12 +378,15 @@ function PanoramaContent({
             onNodeClick={onNodeClick}
             onNodeDragStop={onNodeDragStop}
             onConnect={onConnect}
+            onDragOver={handleDragOver}
+            onDrop={handleDrop}
             onEdgesDelete={onEdgeDelete}
-            fitView
+            fitView={false}
             minZoom={0.2}
             maxZoom={2}
-            defaultViewport={{ x: 0, y: 0, zoom: 0.8 }}
+            defaultViewport={{ x: 160, y: 24, zoom: 0.95 }}
             deleteKeyCode={["Backspace", "Delete"]}
+            connectionMode={ConnectionMode.Loose}
             multiSelectionKeyCode="Shift"
             selectionOnDrag
             onMove={(_, viewport) => onViewportChange(viewport)}
@@ -321,11 +395,12 @@ function PanoramaContent({
             <Controls />
             <MiniMap />
           </ReactFlow>
+          </div>
         </div>
 
         {/* Node config panel (right slide-out) */}
         {configPanelOpen && selectedNode && (
-          <div className="w-96 border-l bg-card shrink-0">
+          <aside className="w-[420px] border-l bg-card shrink-0">
             <NodeConfigPanel
               node={selectedNode}
               workflowId={workflowId}
@@ -335,7 +410,7 @@ function PanoramaContent({
               onDeleteNode={onNodeDelete}
               onStageChange={onStageChange}
             />
-          </div>
+          </aside>
         )}
       </div>
 
@@ -379,6 +454,7 @@ export function WorkflowPanoramaPage({ workflowId, viewToggle }: WorkflowPanoram
 
   // ── Mutations ──
   const updateNodeMutation = useUpdateNode(wsId, workflowId);
+  const createNodeMutation = useCreateNode(wsId, workflowId);
   const createEdgeMutation = useCreateEdge(wsId, workflowId);
   const deleteEdgeMutation = useDeleteEdge(wsId, workflowId);
   const deleteNodeMutation = useDeleteNode(wsId, workflowId);
@@ -418,20 +494,30 @@ export function WorkflowPanoramaPage({ workflowId, viewToggle }: WorkflowPanoram
   }, [pluginsData]);
 
   // ── ReactFlow nodes/edges ──
+  const visibleNodes = useMemo(
+    () => apiNodes
+      .filter((node) => !deletedNodeIds.includes(node.id))
+      .map((node) => ({
+        ...node,
+        ...(nodeEdits[node.id] ?? {}),
+      })),
+    [apiNodes, deletedNodeIds, nodeEdits],
+  );
+
   const rfNodes = useMemo(
     () => [
       ...buildBackgroundNodes(stages),
-      ...apiNodesToReactFlowNodes(apiNodes, stages, agentLookup, pluginLookup, getActorName),
+      ...apiNodesToReactFlowNodes(visibleNodes, stages, agentLookup, pluginLookup, getActorName),
     ],
-    [stages, apiNodes, agentLookup, pluginLookup, getActorName],
+    [stages, visibleNodes, agentLookup, pluginLookup, getActorName],
   );
 
-  const rfEdges = useMemo(() => apiEdgesToReactFlowEdges(apiEdges), [apiEdges]);
+  const rfEdges = useMemo(() => apiEdgesToReactFlowEdges(apiEdges, visibleNodes, stages), [apiEdges, visibleNodes, stages]);
 
   // ── Selected node for config panel ──
   const selectedNode = useMemo(
-    () => apiNodes.find((n) => n.id === selectedNodeId) ?? null,
-    [apiNodes, selectedNodeId],
+    () => visibleNodes.find((n) => n.id === selectedNodeId) ?? null,
+    [visibleNodes, selectedNodeId],
   );
 
   // ── Unsaved check ──
@@ -492,6 +578,27 @@ export function WorkflowPanoramaPage({ workflowId, viewToggle }: WorkflowPanoram
       });
     },
     [createEdgeMutation, pushServerAction],
+  );
+
+  const handleShapeDrop = useCallback(
+    (shape: NodeShape, position: { x: number; y: number }) => {
+      const stage = findStageAtY(position.y, stages);
+
+      createNodeMutation.mutate({
+        title: SHAPE_LABELS[shape],
+        description: "",
+        position_x: Math.max(0, Math.round(position.x)),
+        position_y: 0,
+        stage_id: stage?.id ?? null,
+        format_schema: { shape },
+        worker_type: "agent",
+        worker_id: null,
+        critic_type: "human",
+        critic_id: null,
+        critic_api_url: null,
+      });
+    },
+    [createNodeMutation, stages],
   );
 
   const handleEdgeDelete = useCallback(
@@ -666,6 +773,7 @@ export function WorkflowPanoramaPage({ workflowId, viewToggle }: WorkflowPanoram
         onNodeClick={handleNodeClick}
         onNodeDragStop={handleNodeDragStop}
         onConnect={handleConnect}
+        onShapeDrop={handleShapeDrop}
         onEdgeDelete={handleEdgeDelete}
         onNodeDelete={handleNodeDelete}
         onStageChange={handleStageChange}

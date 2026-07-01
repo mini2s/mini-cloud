@@ -102,6 +102,18 @@ describe("CriticBadgeNode", () => {
     expect(handles.length).toBe(1);
   });
 
+  it("uses a stable top handle id", () => {
+    const rfn = {
+      id: "node-1:critic",
+      type: "criticBadge",
+      position: { x: 100, y: 96 },
+      data: baseData,
+    } as Node;
+    renderWithProvider(rfn);
+    const handle = document.querySelector(".react-flow__handle");
+    expect(handle?.getAttribute("data-handleid")).toBe("top");
+  });
+
   it("has correct dimensions", () => {
     const rfn = {
       id: "node-1:critic",

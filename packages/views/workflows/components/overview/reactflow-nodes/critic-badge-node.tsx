@@ -22,7 +22,7 @@ export const CriticBadgeNode = memo(function CriticBadgeNode({
       className="h-12 w-36 rounded-md border border-dashed border-border/70 bg-muted/30 p-1.5"
       style={{ width: CRITIC_WIDTH, height: CRITIC_HEIGHT }}
     >
-      <Handle type="target" position={Position.Top}
+      <Handle type="target" position={Position.Top} id="top"
         className="!bg-muted-foreground/50" />
 
       <div className="flex items-center gap-1.5 h-full min-w-0">

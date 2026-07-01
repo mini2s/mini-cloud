@@ -161,6 +161,18 @@ describe("CompactWorkerNode", () => {
     expect(handles.length).toBe(3);
   });
 
+  it("uses stable handle ids for routed edges", () => {
+    const rfn = {
+      id: "node-1",
+      type: "compactWorker",
+      position: { x: 100, y: 12 },
+      data: baseData,
+    } as Node;
+    renderWithProvider(rfn);
+    const handles = [...document.querySelectorAll(".react-flow__handle")];
+    expect(handles.map((handle) => handle.getAttribute("data-handleid")).sort()).toEqual(["bottom", "left", "right"]);
+  });
+
   it("applies selected styling when selected", () => {
     const rfn = {
       id: "node-1",

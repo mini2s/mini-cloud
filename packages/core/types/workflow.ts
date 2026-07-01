@@ -145,6 +145,7 @@ export interface CreateNodeRequest {
   critic_type: CriticType;
   critic_id?: string | null;
   critic_api_url?: string | null;
+  stage_id?: string | null;
 }
 
 export interface UpdateNodeRequest {
