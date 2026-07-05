@@ -3,3 +3,4 @@ export * from "./workflow-node-card";
 export * from "./preflight-bar";
 export * from "./canvas-inspector";
 export * from "./reactflow-surface";
+export * from "./stage-lane-surface";
