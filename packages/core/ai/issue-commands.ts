@@ -22,7 +22,7 @@ export function parseIssueCommand(input: string): IssueCommandAction {
   for (const pattern of assignPatterns) {
     const match = normalized.match(pattern);
     if (match) {
-      const target = match[1].trim();
+      const target = match[1]?.trim() ?? "";
       if (target.includes("小队") || target.includes("squad")) {
         return { type: "assign", target: target.replace(/小队|squad/, "").trim(), targetType: "squad" };
       }
@@ -34,9 +34,9 @@ export function parseIssueCommand(input: string): IssueCommandAction {
   const statusPattern = /(?:状态(?:改为|改成|设为)|标记为|标为|移到|move\s*to)\s*(.+)/;
   const statusMatch = normalized.match(statusPattern);
   if (statusMatch) {
-    const raw = statusMatch[1].trim();
+    const raw = statusMatch[1]?.trim() ?? "";
     const statusMap: Record<string, string> = {
-      done: "done", 完成: "done", completed: "done", done: "done",
+      done: "done", 完成: "done", completed: "done",
       in_review: "in_review", review: "in_review", 审核: "in_review",
       backlog: "backlog", 待办: "backlog",
       todo: "todo", 待处理: "todo",
@@ -51,7 +51,7 @@ export function parseIssueCommand(input: string): IssueCommandAction {
   const priorityPattern = /(?:优先级|priority|设为|set\s*(?:to)?)\s*(.+)/i;
   const priorityMatch = normalized.match(priorityPattern);
   if (priorityMatch) {
-    const raw = priorityMatch[1].trim();
+    const raw = priorityMatch[1]?.trim() ?? "";
     const priorityMap: Record<string, string> = {
       p0: "urgent", urgent: "urgent", 紧急: "urgent",
       p1: "high", high: "high", 高: "high",
@@ -68,11 +68,11 @@ export function parseIssueCommand(input: string): IssueCommandAction {
 
   const addMatch = normalized.match(addLabelPattern);
   if (addMatch) {
-    return { type: "label", operation: "add", label: addMatch[1].trim() };
+    return { type: "label", operation: "add", label: addMatch[1]?.trim() ?? "" };
   }
   const removeMatch = normalized.match(removeLabelPattern);
   if (removeMatch) {
-    return { type: "label", operation: "remove", label: removeMatch[1].trim() };
+    return { type: "label", operation: "remove", label: removeMatch[1]?.trim() ?? "" };
   }
 
   return { type: "unknown" };
