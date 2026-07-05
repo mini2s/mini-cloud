@@ -1,0 +1,35 @@
+"use client";
+
+import { useCallback } from "react";
+import { AiInputCore } from "./ai-input-core";
+import { useSubmitCommand } from "@multica/core/ai/commands";
+
+interface InboxAiPanelProps {
+  disabled?: boolean;
+}
+
+export function InboxAiPanel({ disabled }: InboxAiPanelProps) {
+  const mutation = useSubmitCommand();
+
+  const handleSubmit = useCallback(
+    async (input: string, _agentId: string) => {
+      await mutation.mutateAsync({
+        contextType: "inbox",
+        contextId: "", // inbox queries don't need a specific entity ID
+        userInput: input,
+        mode: "command",
+      });
+    },
+    [mutation],
+  );
+
+  return (
+    <AiInputCore
+      mode="command"
+      placeholder="Ask the AI about your inbox..."
+      showAgentSelector={false}
+      onSubmit={handleSubmit}
+      disabled={disabled || mutation.isPending}
+    />
+  );
+}
