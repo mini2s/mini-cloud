@@ -127,6 +127,7 @@ import type {
   CreateRuntimePermissionRequest,
   UpdateRuntimePermissionRequest,
 } from "../types";
+import type { CommandRequest, CommandResponse } from "../../ai/types";
 import type { OnboardingCompletionPath } from "../onboarding/types";
 import type {
   CloudRuntimeNode,
@@ -1537,6 +1538,13 @@ export class ApiClient {
 
   async cancelTaskById(taskId: string): Promise<void> {
     await this.fetch(`/api/tasks/${taskId}/cancel`, { method: "POST" });
+  }
+
+  async sendCommand(data: CommandRequest): Promise<CommandResponse> {
+    return this.fetch("/api/commands", {
+      method: "POST",
+      body: JSON.stringify(data),
+    });
   }
 
   async listAttachments(issueId: string): Promise<Attachment[]> {
