@@ -1,9 +1,11 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { DAGCanvas } from "../../workflows/components";
 import { ReactFlowProvider } from "@xyflow/react";
+import { buildCanvasModel } from "@multica/core/workflows/canvas";
+import { StageLaneSurface, WorkflowCanvasShell } from "../../workflows/canvas";
 import {
   workflowKeys,
   workflowDetailOptions,
@@ -155,6 +157,17 @@ export function WorkflowDagViewer({
     };
   }
 
+  const canvasModel = useMemo(
+    () =>
+      buildCanvasModel({
+        stages: [],
+        nodes,
+        edges,
+        nodeRuns,
+      }),
+    [nodes, edges, nodeRuns],
+  );
+
   const totalCount = nodes.length;
   const summary = getRunSummary(nodeRuns);
 
@@ -222,6 +235,8 @@ export function WorkflowDagViewer({
       })()
     : null;
 
+  const useSharedRuntimeCanvas = true;
+
   return (
     <div>
       <div className="flex items-center gap-2 mb-2">
@@ -261,18 +276,31 @@ export function WorkflowDagViewer({
         </div>
       )}
 
-      <div className={cn("h-[270px] overflow-hidden rounded-lg border bg-card", !runId && "opacity-60")}>
-        <ReactFlowProvider>
-          <DAGCanvas
-            nodes={nodes}
-            edges={edges}
-            nodeStatusColors={nodeStatusColors}
-            nodeStatuses={nodeStatuses}
-            onNodeClick={(id) => setSelectedNodeId(id === selectedNodeId ? null : id)}
-            showMiniMap={false}
-          />
-        </ReactFlowProvider>
-      </div>
+      {useSharedRuntimeCanvas ? (
+        <WorkflowCanvasShell mode="readonly-runtime" model={canvasModel}>
+          {({ model }) => (
+            <StageLaneSurface
+              model={model}
+              variant="runtime"
+              selectedNodeId={selectedNodeId}
+              onNodeSelect={setSelectedNodeId}
+            />
+          )}
+        </WorkflowCanvasShell>
+      ) : (
+        <div className={cn("h-[270px] overflow-hidden rounded-lg border bg-card", !runId && "opacity-60")}>
+          <ReactFlowProvider>
+            <DAGCanvas
+              nodes={nodes}
+              edges={edges}
+              nodeStatusColors={nodeStatusColors}
+              nodeStatuses={nodeStatuses}
+              onNodeClick={(id) => setSelectedNodeId(id === selectedNodeId ? null : id)}
+              showMiniMap={false}
+            />
+          </ReactFlowProvider>
+        </div>
+      )}
 
       {/* Agent execution log dialog */}
       <Dialog open={taskLogOpen} onOpenChange={setTaskLogOpen}>
