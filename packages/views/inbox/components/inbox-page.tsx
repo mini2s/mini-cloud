@@ -54,6 +54,7 @@ import { PageHeader } from "../../layout/page-header";
 import { InboxListItem, useTimeAgo } from "./inbox-list-item";
 import { useTypeLabels } from "./inbox-detail-label";
 import { getInboxDisplayTitle } from "./inbox-display";
+import { InboxAiPanel } from "../../ai";
 import { useT } from "../../i18n";
 
 export function InboxPage() {
@@ -456,6 +457,7 @@ export function InboxPage() {
   }
 
   return (
+    <>
     <ResizablePanelGroup orientation="horizontal" className="flex-1 min-h-0" defaultLayout={defaultLayout} onLayoutChanged={onLayoutChanged}>
       <ResizablePanel id="list" defaultSize={320} minSize={240} maxSize={480} groupResizeBehavior="preserve-pixel-size">
       <div className="flex flex-col border-r h-full">
@@ -481,5 +483,9 @@ export function InboxPage() {
       </div>
       </ResizablePanel>
     </ResizablePanelGroup>
+      <div className="shrink-0 border-t border-border px-4 py-3">
+        <InboxAiPanel />
+      </div>
+    </>
   );
 }

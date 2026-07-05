@@ -44,6 +44,7 @@ import { ReactFlowProvider } from "@xyflow/react";
 import { DAGCanvas } from "./dag-canvas";
 import { NodeConfigPanel } from "./node-config-panel";
 import { computeAutoLayout } from "./layout";
+import { WorkflowAiPanel } from "../../ai";
 import type { WorkflowStatus } from "@multica/core/types";
 
 interface WorkflowDetailPageProps {
@@ -527,6 +528,11 @@ export function WorkflowDetailPage({ workflowId: id, viewToggle }: WorkflowDetai
             />
           </div>
         )}
+      </div>
+
+      {/* AI panel */}
+      <div className="shrink-0 border-t border-border px-4 py-3">
+        <WorkflowAiPanel workflowId={id} disabled={mode === "edit"} />
       </div>
 
       {/* Portal container for dialogs — renders inside component tree for iframe compatibility */}

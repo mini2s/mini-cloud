@@ -49,6 +49,7 @@ import { type AgentRow, createAgentColumns } from "./agent-columns";
 import { BuiltinAgentCardSection } from "./builtin-agent-card-section";
 import { useT } from "../../i18n";
 import { matchesPinyin } from "../../editor/extensions/pinyin-match";
+import { AgentAiPanel } from "../../ai";
 
 // Filter axes:
 //
@@ -483,6 +484,10 @@ export function AgentsPage() {
           onCreate={handleCreate}
         />
       )}
+
+      <div className="shrink-0 border-t border-border px-5 py-3">
+        <AgentAiPanel />
+      </div>
     </div>
   );
 }

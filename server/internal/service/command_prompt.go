@@ -2,7 +2,9 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 
 	"github.com/jackc/pgx/v5/pgtype"
@@ -11,15 +13,24 @@ import (
 	"github.com/multica-ai/multica/server/internal/util"
 )
 
+// commandPromptQueries defines the subset of *db.Queries methods needed by BuildCommandPrompt.
+type commandPromptQueries interface {
+	GetIssue(ctx context.Context, id pgtype.UUID) (db.MulticaIssue, error)
+	ListAgents(ctx context.Context, workspaceID pgtype.UUID) ([]db.MulticaAgent, error)
+	ListSquads(ctx context.Context, workspaceID pgtype.UUID) ([]db.MulticaSquad, error)
+	ListMembersWithUser(ctx context.Context, workspaceID pgtype.UUID) ([]db.ListMembersWithUserRow, error)
+}
+
 // BuildCommandPrompt constructs the prompt sent to the agent for AI command tasks.
 // The prompt includes workspace context (agents, squads, members) and the user's NL input.
 func BuildCommandPrompt(
 	ctx context.Context,
-	queries *db.Queries,
+	queries commandPromptQueries,
 	workspaceID pgtype.UUID,
 	cmdCtx CommandContext,
 ) (string, error) {
 	var b strings.Builder
+	var errs []error
 
 	// System instruction based on context_type
 	switch cmdCtx.ContextType {
@@ -33,10 +44,16 @@ func BuildCommandPrompt(
 			id, err := util.ParseUUID(cmdCtx.ContextID)
 			if err == nil {
 				issue, err := queries.GetIssue(ctx, id)
-				if err == nil {
+				if err != nil {
+					slog.Warn("failed to fetch issue for command prompt", "issue_id", cmdCtx.ContextID, "error", err)
+					errs = append(errs, fmt.Errorf("get issue: %w", err))
+				} else {
 					fmt.Fprintf(&b, "Current issue: %s (status: %s, priority: %s)\n\n",
 						issue.Title, issue.Status, issue.Priority)
 				}
+			} else {
+				slog.Warn("invalid issue context ID", "context_id", cmdCtx.ContextID, "error", err)
+				errs = append(errs, fmt.Errorf("parse issue context ID: %w", err))
 			}
 		}
 
@@ -59,8 +76,11 @@ func BuildCommandPrompt(
 	// Add workspace context: available agents, squads, members
 	b.WriteString("---\nWorkspace resources:\n")
 
-	agents, _ := queries.ListAgents(ctx, workspaceID)
-	if len(agents) > 0 {
+	agents, err := queries.ListAgents(ctx, workspaceID)
+	if err != nil {
+		slog.Warn("failed to list agents for command prompt", "error", err)
+		errs = append(errs, fmt.Errorf("list agents: %w", err))
+	} else if len(agents) > 0 {
 		b.WriteString("Available agents:\n")
 		for _, a := range agents {
 			desc := ""
@@ -72,8 +92,11 @@ func BuildCommandPrompt(
 		b.WriteString("\n")
 	}
 
-	squads, _ := queries.ListSquads(ctx, workspaceID)
-	if len(squads) > 0 {
+	squads, err := queries.ListSquads(ctx, workspaceID)
+	if err != nil {
+		slog.Warn("failed to list squads for command prompt", "error", err)
+		errs = append(errs, fmt.Errorf("list squads: %w", err))
+	} else if len(squads) > 0 {
 		b.WriteString("Available squads:\n")
 		for _, s := range squads {
 			fmt.Fprintf(&b, "- %s\n", s.Name)
@@ -81,8 +104,11 @@ func BuildCommandPrompt(
 		b.WriteString("\n")
 	}
 
-	members, _ := queries.ListMembersWithUser(ctx, workspaceID)
-	if len(members) > 0 {
+	members, err := queries.ListMembersWithUser(ctx, workspaceID)
+	if err != nil {
+		slog.Warn("failed to list members for command prompt", "error", err)
+		errs = append(errs, fmt.Errorf("list members: %w", err))
+	} else if len(members) > 0 {
 		b.WriteString("Workspace members:\n")
 		for _, m := range members {
 			fmt.Fprintf(&b, "- %s (%s)\n", m.UserName, m.UserEmail)
@@ -93,5 +119,5 @@ func BuildCommandPrompt(
 	b.WriteString("---\n")
 	fmt.Fprintf(&b, "User command: %s\n", cmdCtx.UserInput)
 
-	return b.String(), nil
+	return b.String(), errors.Join(errs...)
 }
