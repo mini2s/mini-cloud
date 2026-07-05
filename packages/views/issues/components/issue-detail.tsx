@@ -50,6 +50,7 @@ import { PropRow } from "../../common/prop-row";
 import type { Attachment, Issue, IssueStatus, IssuePriority, TimelineEntry, UpdateIssueRequest } from "@multica/core/types";
 import { STATUS_CONFIG, PRIORITY_CONFIG } from "@multica/core/issues/config";
 import { useUpdateIssue } from "@multica/core/issues/mutations";
+import { parseIssueCommand } from "@multica/core/ai/issue-commands";
 import { toast } from "sonner";
 import { StatusIcon, PriorityIcon, StatusPicker, PriorityPicker, StartDatePicker, DueDatePicker, AssigneePicker, LabelPicker } from ".";
 import { IssueActionsDropdown, useIssueActions } from "../actions";
@@ -57,6 +58,7 @@ import { ExecutionPanoramaPage } from "./execution";
 import { ProjectPicker } from "../../projects/components/project-picker";
 import { CommentCard } from "./comment-card";
 import { CommentInput } from "./comment-input";
+import { IssueAiBar } from "../../ai";
 import { ResolvedThreadBar } from "./resolved-thread-bar";
 import { collectThreadReplies } from "./thread-utils";
 import { AgentLiveCard } from "./agent-live-card";
@@ -777,6 +779,7 @@ export function IssueDetail({ issueId, onDelete, onDone, defaultSidebarOpen = tr
   const canModerateComments =
     currentUserRole === "owner" || currentUserRole === "admin";
   const { data: allIssues = [] } = useQuery(issueListOptions(wsId));
+  const updateIssue = useUpdateIssue();
   const { getActorName } = useActorName();
   const { uploadWithToast } = useFileUpload(api);
   const { defaultLayout, onLayoutChanged } = useDefaultLayout({
@@ -957,6 +960,26 @@ export function IssueDetail({ issueId, onDelete, onDone, defaultSidebarOpen = tr
     submitComment, submitReply,
     editComment, deleteComment, toggleResolveComment, toggleReaction: handleToggleReaction,
   } = useIssueTimeline(id, user?.id);
+
+  // Wire IssueAiBar optimistic intents into the existing issue mutation.
+  // Intent types that map directly to UpdateIssueRequest fields (status,
+  // priority) are applied optimistically via updateIssue. Assign and label
+  // intents require name-to-ID resolution and are deferred to the backend.
+  const handleOptimisticIntent = useCallback(
+    (intent: ReturnType<typeof parseIssueCommand>) => {
+      switch (intent.type) {
+        case "status":
+          updateIssue.mutate({ id, status: intent.status as IssueStatus });
+          break;
+        case "priority":
+          updateIssue.mutate({ id, priority: intent.priority as IssuePriority });
+          break;
+        default:
+          break;
+      }
+    },
+    [id, updateIssue],
+  );
 
   // Resolve / unresolve must always clear the per-session expand entry so
   // re-resolving an already-expanded thread folds it back to the bar (the
@@ -2252,6 +2275,9 @@ export function IssueDetail({ issueId, onDelete, onDone, defaultSidebarOpen = tr
                   keeps the previous issue's in-memory content and the
                   next keystroke would flush it into the new issue's
                   draft key. */}
+              <IssueAiBar issueId={id} onOptimisticIntent={handleOptimisticIntent} />
+            </div>
+            <div className="mt-4">
               <CommentInput key={id} issueId={id} onSubmit={submitComment} />
             </div>
             </div>
