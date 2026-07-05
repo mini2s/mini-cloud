@@ -33,6 +33,12 @@ export function getRuntimeNodePresentation(runtime: RuntimeNodeOverlay | null): 
     case "completed":
     case "critic_approved":
       return { tone: "success", label: runtime.status, isRunning: false, isAwaitingInput: false, actions: [] };
+    case "format_failed":
+      return { tone: "danger", label: runtime.status, isRunning: false, isAwaitingInput: false, actions: ["retry"] };
+    case "worker_assigned":
+      return { tone: "active", label: runtime.status, isRunning: true, isAwaitingInput: false, actions: [] };
+    case "critic_rework":
+      return { tone: "attention", label: runtime.status, isRunning: false, isAwaitingInput: false, actions: [] };
     default:
       return { tone: "muted", label: runtime.status, isRunning: false, isAwaitingInput: false, actions: [] };
   }

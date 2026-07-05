@@ -36,6 +36,7 @@ const STATUS_CONFIG: Record<string, { color: string; label: string }> = {
   critic_reviewing:  { color: "rgba(59,130,246,0.25)", label: "Reviewing" },
   critic_approved:   { color: "rgba(34,197,94,0.25)", label: "Approved" },
   critic_rework:     { color: "rgba(245,158,11,0.25)", label: "Rework" },
+  self_recovering:  { color: "rgba(245,158,11,0.25)", label: "Self-Recovering" },
   completed:         { color: "rgba(34,197,94,0.25)", label: "Done" },
   failed:            { color: "rgba(239,68,68,0.25)", label: "Failed" },
   blocked:           { color: "rgba(245,158,11,0.25)", label: "Blocked" },
@@ -147,7 +148,7 @@ export function WorkflowDagViewer({
 
   const nodeStatusColors: Record<string, string> = {};
   const nodeStatuses: Record<string, { status: string; isRunning: boolean; isAwaitingInput: boolean }> = {};
-  const runningSet = new Set(["format_checking", "working", "critic_reviewing"]);
+  const runningSet = new Set(["format_checking", "working", "critic_reviewing", "self_recovering"]);
   for (const nr of nodeRuns) {
     nodeStatusColors[nr.workflow_node_id] = getStatusColor(nr.status);
     nodeStatuses[nr.workflow_node_id] = {
