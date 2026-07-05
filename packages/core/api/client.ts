@@ -128,6 +128,7 @@ import type {
   UpdateRuntimePermissionRequest,
 } from "../types";
 import type { CommandRequest, CommandResponse } from "../ai/types";
+import { CommandResponseSchema } from "../ai/types";
 import type { OnboardingCompletionPath } from "../onboarding/types";
 import type {
   CloudRuntimeNode,
@@ -1541,10 +1542,11 @@ export class ApiClient {
   }
 
   async sendCommand(data: CommandRequest): Promise<CommandResponse> {
-    return this.fetch("/api/commands", {
+    const raw = await this.fetch<unknown>("/api/commands", {
       method: "POST",
       body: JSON.stringify(data),
     });
+    return parseWithFallback(raw, CommandResponseSchema, { task_id: "", agent_id: "" }, { endpoint: "POST /api/commands" });
   }
 
   async listAttachments(issueId: string): Promise<Attachment[]> {

@@ -2,7 +2,7 @@
 
 import { useEffect, useRef } from "react";
 import { useWS } from "../realtime/provider";
-import type { TaskCompletedPayload, TaskFailedPayload } from "../types";
+import type { TaskCompletedPayload } from "../types";
 
 interface CommandTaskCallbacks {
   /** Called when the task completes successfully. */
@@ -29,17 +29,17 @@ export function useCommandTaskListener(
   useEffect(() => {
     if (!taskId) return;
 
-    const unsubCompleted = subscribe("task:completed", (payload) => {
-      const data = payload as TaskCompletedPayload;
-      if (data?.task_id === taskId) {
-        cbRef.current.onCompleted?.(data);
+    const unsubCompleted = subscribe("task:completed", (data: unknown) => {
+      const payload = data as Record<string, unknown> | null | undefined;
+      if (payload?.task_id === taskId) {
+        cbRef.current.onCompleted?.(payload as unknown as TaskCompletedPayload);
       }
     });
 
-    const unsubFailed = subscribe("task:failed", (payload) => {
-      const data = payload as TaskFailedPayload & { error?: string };
-      if (data?.task_id === taskId) {
-        cbRef.current.onFailed?.(data?.error ?? "Task failed");
+    const unsubFailed = subscribe("task:failed", (data: unknown) => {
+      const payload = data as Record<string, unknown> | null | undefined;
+      if (payload?.task_id === taskId) {
+        cbRef.current.onFailed?.((payload?.error as string) ?? "Task failed");
       }
     });
 

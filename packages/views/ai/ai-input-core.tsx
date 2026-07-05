@@ -45,7 +45,7 @@ export function AiInputCore({
     } finally {
       setSubmitting(false);
     }
-  }, [value, submitting, disabled, onSubmit, defaultAgentId]);
+  }, [value, submitting, disabled, onSubmit, defaultAgentId, t]);
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {

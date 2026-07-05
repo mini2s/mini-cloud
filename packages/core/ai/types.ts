@@ -1,3 +1,5 @@
+import { z } from "zod";
+
 export type AiContextType = "workflow" | "issue" | "inbox" | "agent";
 
 export type CommandMode = "chat" | "command";
@@ -14,3 +16,8 @@ export interface CommandResponse {
   task_id: string;
   agent_id: string;
 }
+
+export const CommandResponseSchema = z.object({
+  task_id: z.string(),
+  agent_id: z.string(),
+});

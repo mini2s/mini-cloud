@@ -29,7 +29,7 @@ export function AgentAiPanel({ disabled }: AgentAiPanelProps) {
     <AiInputCore
       mode="command"
       placeholder={t($ => $.agent_placeholder)}
-      showAgentSelector
+      showAgentSelector={false}
       onSubmit={handleSubmit}
       disabled={disabled || mutation.isPending}
     />
