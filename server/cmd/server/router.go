@@ -773,6 +773,9 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 				r.Get("/", h.GetNotificationPreferences)
 				r.Put("/", h.UpdateNotificationPreferences)
 			})
+
+			// AI Commands — unified NL entry point
+			r.Post("/api/commands", h.SendCommand)
 		})
 
 		// Agent skills proxy — forwards to costrict-web internal API.
