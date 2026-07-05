@@ -1,9 +1,11 @@
 "use client";
 
-import { useCallback } from "react";
+import { useCallback, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { AiInputCore } from "./ai-input-core";
 import { useSubmitCommand } from "@multica/core/ai/commands";
 import { parseIssueCommand } from "@multica/core/ai/issue-commands";
+import { useCommandTaskListener } from "@multica/core/ai/task-listener";
 
 interface IssueAiBarProps {
   issueId: string;
@@ -14,6 +16,16 @@ interface IssueAiBarProps {
 
 export function IssueAiBar({ issueId, onOptimisticIntent, disabled }: IssueAiBarProps) {
   const mutation = useSubmitCommand();
+  const queryClient = useQueryClient();
+  const [taskId, setTaskId] = useState<string | null>(null);
+
+  // Listen for task completion/failure events for the active command task
+  useCommandTaskListener(taskId, {
+    onFailed: () => {
+      // Rollback optimistic update by re-fetching issue data
+      queryClient.invalidateQueries({ queryKey: ["issue", issueId] });
+    },
+  });
 
   const handleSubmit = useCallback(
     async (input: string, _agentId: string) => {
@@ -26,12 +38,17 @@ export function IssueAiBar({ issueId, onOptimisticIntent, disabled }: IssueAiBar
       }
 
       // Fire API call — the agent handles the actual mutation
-      await mutation.mutateAsync({
+      const result = await mutation.mutateAsync({
         contextType: "issue",
         contextId: issueId,
         userInput: input,
         mode: "command",
       });
+
+      // Track task_id so we can react to task:completed / task:failed events
+      if (result?.task_id) {
+        setTaskId(result.task_id);
+      }
     },
     [issueId, mutation, onOptimisticIntent],
   );
