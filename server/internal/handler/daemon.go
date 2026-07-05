@@ -1549,6 +1549,16 @@ func (h *Handler) ClaimTaskByRuntime(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// AI command tasks — NL instructions from the command bar
+	var cmdCtx service.CommandContext
+	if json.Unmarshal(task.Context, &cmdCtx) == nil && cmdCtx.Type == service.CommandContextType {
+		resp.IsCommandTask = true
+		resp.CommandInput = cmdCtx.UserInput
+		resp.CommandContextType = cmdCtx.ContextType
+		resp.CommandContextID = cmdCtx.ContextID
+		resp.WorkspaceID = runtimeWorkspaceID
+	}
+
 	// Workflow task: resolve workspace from workflow_node_run -> run -> workflow
 	if task.WorkflowNodeRunID.Valid && resp.WorkspaceID == "" {
 		if nodeRun, err := h.Queries.GetWorkflowNodeRun(r.Context(), task.WorkflowNodeRunID); err == nil {

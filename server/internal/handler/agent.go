@@ -188,6 +188,10 @@ type AgentTaskResponse struct {
 	AutopilotSource         string                `json:"autopilot_source,omitempty"`          // manual, schedule, webhook, or api
 	AutopilotTriggerPayload json.RawMessage       `json:"autopilot_trigger_payload,omitempty"` // optional trigger payload for webhook/api runs
 	QuickCreatePrompt       string                `json:"quick_create_prompt,omitempty"`       // user's natural-language input for quick-create tasks
+	IsCommandTask           bool                  `json:"is_command_task,omitempty"`            // true when this is an AI command task
+	CommandInput            string                `json:"command_input,omitempty"`              // raw NL input for command tasks
+	CommandContextType      string                `json:"command_context_type,omitempty"`       // context type for command tasks (workflow, issue, inbox, agent)
+	CommandContextID        string                `json:"command_context_id,omitempty"`         // entity ID for the command context
 	SquadID                 string                `json:"squad_id,omitempty"`                  // for quick-create tasks where the picker was a squad; Agent is still the resolved leader
 	SquadName               string                `json:"squad_name,omitempty"`                // display name for the picker squad
 	// RequestingUserName + RequestingUserProfileDescription mirror the user
