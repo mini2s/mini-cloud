@@ -30,6 +30,7 @@ export type NodeRunStatus =
   | "pending" | "format_checking" | "format_ok" | "format_failed"
   | "worker_assigned" | "working" | "awaiting_input" | "awaiting_critic"
   | "critic_reviewing" | "critic_approved" | "critic_rework"
+  | "self_recovering"
   | "completed" | "failed" | "blocked" | "skipped" | "cancelled";
 export type WorkflowRunStatus = "running" | "completed" | "failed" | "cancelled";
 
