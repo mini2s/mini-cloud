@@ -127,7 +127,7 @@ import type {
   CreateRuntimePermissionRequest,
   UpdateRuntimePermissionRequest,
 } from "../types";
-import type { CommandRequest, CommandResponse } from "../../ai/types";
+import type { CommandRequest, CommandResponse } from "../ai/types";
 import type { OnboardingCompletionPath } from "../onboarding/types";
 import type {
   CloudRuntimeNode,
