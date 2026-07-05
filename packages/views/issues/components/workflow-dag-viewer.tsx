@@ -284,7 +284,7 @@ export function WorkflowDagViewer({
               model={model}
               variant="runtime"
               selectedNodeId={selectedNodeId}
-              onNodeSelect={setSelectedNodeId}
+              onNodeSelect={(id) => setSelectedNodeId((prev) => (prev === id ? null : id))}
             />
           )}
         </WorkflowCanvasShell>

@@ -100,6 +100,8 @@ export function runCanvasPreflight(model: CanvasModel): CanvasPreflightIssue[] {
   if (model.edges.length > 0) {
     const reachable = reachableNodeIds(model);
     for (const node of model.nodes) {
+      // Skip unreachable check for already-flagged isolated nodes to avoid double-counting
+      if (!connected.has(node.id)) continue;
       if (!reachable.has(node.id)) {
         issues.push({
           code: "unreachable_node",

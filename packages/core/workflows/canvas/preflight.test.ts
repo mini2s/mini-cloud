@@ -67,7 +67,8 @@ describe("runCanvasPreflight", () => {
     expect(issues.some((issue) => issue.code === "cycle_detected")).toBe(true);
   });
 
-  it("reports unreachable nodes when a graph has a distinct source", () => {
+  it("does not double-report isolated nodes as unreachable", () => {
+    // n3 is isolated (not in any edge) — it should get isolated_node but NOT unreachable_node
     const issues = runCanvasPreflight(model([
       node({ id: "n1" }),
       node({ id: "n2" }),
@@ -75,8 +76,10 @@ describe("runCanvasPreflight", () => {
     ], [edge("n1", "n2")]));
 
     expect(issues).toContainEqual(expect.objectContaining({
-      code: "unreachable_node",
+      code: "isolated_node",
       nodeId: "n3",
     }));
+    // n3 should NOT be flagged as unreachable since it's already isolated
+    expect(issues.find((i) => i.code === "unreachable_node" && i.nodeId === "n3")).toBeUndefined();
   });
 });

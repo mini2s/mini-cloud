@@ -240,7 +240,7 @@ export function ReactFlowSurface({
         sourceHandle: handlePairs.get(e.id)?.sourceHandle ?? "bottom",
         targetHandle: handlePairs.get(e.id)?.targetHandle ?? "top",
         data: { onEdgeDelete },
-        markerEnd: { type: MarkerType.ArrowClosed, color: "#64748b" },
+        markerEnd: { type: MarkerType.ArrowClosed, color: "var(--color-muted-foreground, #64748b)" },
         interactionWidth: 20,
       }));
 
@@ -535,7 +535,7 @@ export function ReactFlowSurface({
     >
       <Background />
       <Controls />
-      {showMiniMap && <MiniMap nodeColor={(node) => miniMapNodeColors[node.id] ?? "#e2e8f0"} />}
+      {showMiniMap && <MiniMap nodeColor={(node) => miniMapNodeColors[node.id] ?? "var(--color-muted, #e2e8f0)"} />}
       {alignmentGuides.length > 0 && (
         <svg
           style={{
@@ -556,7 +556,7 @@ export function ReactFlowSurface({
               y1={g.orientation === "vertical" ? g.start : g.position}
               x2={g.orientation === "vertical" ? g.position : g.end}
               y2={g.orientation === "vertical" ? g.end : g.position}
-              stroke="#3b82f6"
+              stroke="var(--color-info, #3b82f6)"
               strokeWidth={1}
               strokeDasharray="4 2"
             />

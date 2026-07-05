@@ -23,32 +23,41 @@ const ACTION_LABELS: Record<RuntimeNodeAction, string> = {
   complete: "Complete",
 };
 
+const TONE_STYLES: Record<string, { border: string; bg: string }> = {
+  success: { border: "var(--color-success)", bg: "color-mix(in srgb, var(--color-success) 10%, transparent)" },
+  danger: { border: "var(--color-destructive)", bg: "color-mix(in srgb, var(--color-destructive) 10%, transparent)" },
+  attention: { border: "var(--color-warning)", bg: "color-mix(in srgb, var(--color-warning) 10%, transparent)" },
+  blocked: { border: "hsl(262 83% 58%)", bg: "color-mix(in srgb, hsl(262 83% 58%) 10%, transparent)" },
+  active: { border: "var(--color-info)", bg: "color-mix(in srgb, var(--color-info) 10%, transparent)" },
+};
+
 export function WorkflowNodeCard({ node, variant, selected, onSelect, onRuntimeAction }: WorkflowNodeCardProps) {
   const runtime = getRuntimeNodePresentation(node.runtime);
-  const toneClass =
-    runtime.tone === "success"
-      ? "border-emerald-300 bg-emerald-50"
-      : runtime.tone === "danger"
-        ? "border-red-300 bg-red-50"
-        : runtime.tone === "attention"
-          ? "border-amber-300 bg-amber-50"
-          : runtime.tone === "blocked"
-            ? "border-violet-300 bg-violet-50"
-            : runtime.tone === "active"
-              ? "border-blue-300 bg-blue-50"
-              : "border-border bg-card";
+  const tones = TONE_STYLES[runtime.tone];
 
   return (
-    <button
-      type="button"
+    <div
+      role="button"
+      tabIndex={0}
       aria-pressed={selected}
       aria-label={node.title}
       onClick={() => onSelect?.(node.id)}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onSelect?.(node.id);
+        }
+      }}
       className={cn(
         "flex min-h-[76px] w-[168px] flex-col items-start justify-between rounded-lg border p-3 text-left text-sm transition-colors",
-        variant === "runtime" ? toneClass : "border-border bg-card",
+        variant === "runtime" && tones ? "" : "border-border bg-card",
         selected && "ring-2 ring-ring",
       )}
+      style={
+        variant === "runtime" && tones
+          ? { borderColor: tones.border, backgroundColor: tones.bg }
+          : undefined
+      }
     >
       <span className="max-w-full truncate font-medium">{node.title}</span>
       {variant === "definition" ? (
@@ -77,6 +86,6 @@ export function WorkflowNodeCard({ node, variant, selected, onSelect, onRuntimeA
           ))}
         </span>
       )}
-    </button>
+    </div>
   );
 }
