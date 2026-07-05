@@ -3,6 +3,7 @@
 import type { CanvasModel } from "@multica/core/workflows/canvas";
 import { WorkflowNodeCard } from "./workflow-node-card";
 import type { RuntimeNodeAction } from "@multica/core/workflows/canvas";
+import { useT } from "../../i18n";
 
 export interface StageLaneSurfaceProps {
   model: CanvasModel;
@@ -19,6 +20,7 @@ export function StageLaneSurface({
   onNodeSelect,
   onRuntimeAction,
 }: StageLaneSurfaceProps) {
+  const { t } = useT("workflows");
   return (
     <div data-testid="stage-lane-surface" className="relative flex min-h-0 flex-1 flex-col overflow-auto bg-muted/30 p-3">
       <div className="flex min-w-[960px] flex-col rounded-xl border bg-background">
@@ -29,7 +31,7 @@ export function StageLaneSurface({
             <section key={stage.id} data-testid={`stage-lane-${stage.id}`} className="border-b p-3 last:border-b-0">
               <div className="mb-2 text-xs font-medium uppercase text-muted-foreground">{stage.name}</div>
               {stageNodes.length === 0 ? (
-                <div className="rounded-md border border-dashed p-3 text-sm text-muted-foreground">No nodes in this stage</div>
+                <div className="rounded-md border border-dashed p-3 text-sm text-muted-foreground">{t(($) => $.node_dag.empty_title)}</div>
               ) : (
                 <div className="flex gap-3 overflow-x-auto pb-1">
                   {stageNodes.map((node) => (
