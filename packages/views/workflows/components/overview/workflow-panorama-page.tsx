@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useLayoutEffect, useRef, useCallback, type ReactNode } from "react";
+import { useState, useMemo, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useWorkspaceId } from "@multica/core/hooks";
 import {
@@ -10,7 +10,7 @@ import {
   workflowEdgesOptions,
 } from "@multica/core/workflows/queries";
 import { agentListOptions, builtinPluginListOptions } from "@multica/core/workspace/queries";
-import { useActorName } from "@multica/core/workspace/hooks";
+import { buildCanvasModel } from "@multica/core/workflows/canvas";
 import { useWorkflowViewStore } from "@multica/core/workflows/stores/view-store";
 import { useNavigation } from "../../../navigation";
 import { useWorkspacePaths } from "@multica/core/paths";
@@ -20,8 +20,7 @@ import { Button } from "@multica/ui/components/ui/button";
 import { AlertCircle, ArrowLeft, PanelsTopLeft } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@multica/ui/components/ui/alert";
 import { useT } from "../../../i18n";
-import { StageLane } from "./stage-lane";
-import { PanoramaSvgOverlay } from "./panorama-svg-overlay";
+import { StageLaneSurface, WorkflowCanvasShell } from "../../canvas";
 import {
   ArchitectureDetailPanel,
   type ArchitectureDetailPanelData,
@@ -38,16 +37,6 @@ type PanoramaSelection = {
   nodeId: string;
   focus: "worker" | "critic";
 };
-
-// Stage transition gradient lookup (6-color cycle -> all pairwise transitions)
-const STAGE_TRANSITION_GRADIENTS = [
-  "bg-gradient-to-b from-slate-50/40 to-stone-50/40",
-  "bg-gradient-to-b from-stone-50/40 to-blue-50/35",
-  "bg-gradient-to-b from-blue-50/35 to-rose-50/35",
-  "bg-gradient-to-b from-rose-50/35 to-violet-50/35",
-  "bg-gradient-to-b from-violet-50/35 to-amber-50/35",
-  "bg-gradient-to-b from-amber-50/35 to-slate-50/40",
-] as const;
 
 function PanoramaSkeleton() {
   return (
@@ -93,9 +82,18 @@ export function WorkflowPanoramaPage({ workflowId, viewToggle }: WorkflowPanoram
 
   const { data: pluginsData } = useQuery(builtinPluginListOptions());
 
-  const { getActorName } = useActorName();
-
   const isLoading = workflowLoading || stagesLoading || nodesLoading || edgesLoading;
+
+  // ── Canvas model ──
+  const canvasModel = useMemo(
+    () =>
+      buildCanvasModel({
+        stages,
+        nodes,
+        edges,
+      }),
+    [stages, nodes, edges],
+  );
 
   // ── Derived lookups ──
   const agentLookup = useMemo(() => {
@@ -110,75 +108,6 @@ export function WorkflowPanoramaPage({ workflowId, viewToggle }: WorkflowPanoram
     for (const p of items) map.set(p.id, p);
     return map;
   }, [pluginsData]);
-
-  // ── Node/critic position measurement for SVG overlay ──
-  const containerRef = useRef<HTMLDivElement | null>(null);
-  const nodeElementMap = useRef(new Map<string, HTMLButtonElement>());
-  const criticElementMap = useRef(new Map<string, HTMLButtonElement>());
-  const [nodePositions, setNodePositions] = useState(new Map<string, DOMRect>());
-  const [criticPositions, setCriticPositions] = useState(new Map<string, DOMRect>());
-
-  const measurePositions = useCallback(() => {
-    const containerRect = containerRef.current?.getBoundingClientRect();
-    if (!containerRect) return;
-
-    const nextNodePos = new Map<string, DOMRect>();
-    nodeElementMap.current.forEach((el, id) => {
-      const rect = el.getBoundingClientRect();
-      // Convert viewport-relative to container-relative coordinates
-      nextNodePos.set(id, new DOMRect(
-        rect.left - containerRect.left + (containerRef.current?.scrollLeft ?? 0),
-        rect.top - containerRect.top + (containerRef.current?.scrollTop ?? 0),
-        rect.width,
-        rect.height,
-      ));
-    });
-    setNodePositions(nextNodePos);
-
-    const nextCriticPos = new Map<string, DOMRect>();
-    criticElementMap.current.forEach((el, id) => {
-      const rect = el.getBoundingClientRect();
-      nextCriticPos.set(id, new DOMRect(
-        rect.left - containerRect.left + (containerRef.current?.scrollLeft ?? 0),
-        rect.top - containerRect.top + (containerRef.current?.scrollTop ?? 0),
-        rect.width,
-        rect.height,
-      ));
-    });
-    setCriticPositions(nextCriticPos);
-  }, []);
-
-  useLayoutEffect(() => {
-    measurePositions();
-    const observer = new ResizeObserver(() => measurePositions());
-    if (containerRef.current) observer.observe(containerRef.current);
-    return () => observer.disconnect();
-  }, [nodes, stages, measurePositions]);
-
-  // ── Create callback refs for nodes and critics ──
-  const nodeElementRefs = useMemo(() => {
-    const map = new Map<string, (el: HTMLButtonElement | null) => void>();
-    for (const node of nodes) {
-      map.set(node.id, (el) => {
-        if (el) nodeElementMap.current.set(node.id, el);
-        else nodeElementMap.current.delete(node.id);
-      });
-    }
-    return map;
-  }, [nodes]);
-
-  const criticElementRefs = useMemo(() => {
-    const map = new Map<string, (el: HTMLButtonElement | null) => void>();
-    for (const node of nodes) {
-      if (node.critic_id || node.critic_api_url) {
-        map.set(node.id, (el) => {
-          if (el) criticElementMap.current.set(node.id, el);
-          else criticElementMap.current.delete(node.id);
-        });
-      }
-    }
-    return map;
-  }, [nodes]);
 
   // ── Build detail panel data ──
   const selectedPanelData: ArchitectureDetailPanelData | null = useMemo(() => {
@@ -209,17 +138,6 @@ export function WorkflowPanoramaPage({ workflowId, viewToggle }: WorkflowPanoram
 
   const handleDetailClose = () => setSelectedCard(null);
   const handleOpenInEditor = () => setViewMode("editor");
-
-  // ── Group nodes by stage ──
-  const nodesByStage = useMemo(() => {
-    const map = new Map<string, typeof nodes>();
-    for (const node of nodes) {
-      const sid = node.stage_id ?? "__unassigned__";
-      if (!map.has(sid)) map.set(sid, []);
-      map.get(sid)!.push(node);
-    }
-    return map;
-  }, [nodes]);
 
   // ── Loading ──
   if (isLoading) {
@@ -261,8 +179,6 @@ export function WorkflowPanoramaPage({ workflowId, viewToggle }: WorkflowPanoram
   }
 
   // ── Panorama view ──
-  const sortedStages = [...stages].sort((a, b) => a.sort_order - b.sort_order);
-
   return (
     <div className="flex flex-col h-full">
       <PageHeader className="justify-between px-5 shrink-0">
@@ -280,57 +196,16 @@ export function WorkflowPanoramaPage({ workflowId, viewToggle }: WorkflowPanoram
         {viewToggle && <div className="flex items-center gap-1">{viewToggle}</div>}
       </PageHeader>
 
-      <div
-        data-testid="workflow-panorama-canvas"
-        className="relative flex-1 overflow-auto bg-slate-100/70 p-4"
-      >
-        <div
-          ref={containerRef}
-          data-testid="workflow-panorama-rail"
-          className="relative ml-0 w-full min-w-[1320px] rounded-xl bg-white shadow-[0_14px_40px_rgba(15,23,42,0.08)]"
-        >
-          <PanoramaSvgOverlay
-            edges={edges}
-            nodes={nodes}
-            stages={stages}
-            nodePositions={nodePositions}
-            criticPositions={criticPositions}
+      <WorkflowCanvasShell mode="readonly-definition" model={canvasModel}>
+        {({ model }) => (
+          <StageLaneSurface
+            model={model}
+            variant="definition"
+            selectedNodeId={selectedCard?.nodeId ?? null}
+            onNodeSelect={(nodeId) => handleCardClick(nodeId, "worker")}
           />
-
-          {sortedStages.length === 0 ? (
-            <div className="flex h-64 items-center justify-center text-sm text-muted-foreground">
-              {t(($) => $.overview.stage_canvas.empty_title)}
-            </div>
-          ) : (
-            sortedStages.map((stage, idx) => {
-              const currColorIdx = Math.abs(stage.sort_order) % 6;
-              const gradientClass = STAGE_TRANSITION_GRADIENTS[currColorIdx] ?? STAGE_TRANSITION_GRADIENTS[0];
-
-              return (
-                <div key={stage.id}>
-                  <StageLane
-                    stage={stage}
-                    nodeIds={nodesByStage.get(stage.id) ?? []}
-                    getActorName={getActorName}
-                    agentLookup={agentLookup}
-                    pluginLookup={pluginLookup}
-                    onCardClick={handleCardClick}
-                    selectedCard={selectedCard}
-                    nodeElementRefs={nodeElementRefs}
-                    criticElementRefs={criticElementRefs}
-                  />
-                  {idx < sortedStages.length - 1 && (
-                    <div
-                      data-testid="stage-transition-gradient"
-                      className={`relative z-0 h-2 ${gradientClass}`}
-                    />
-                  )}
-                </div>
-              );
-            })
-          )}
-        </div>
-      </div>
+        )}
+      </WorkflowCanvasShell>
 
       {selectedPanelData && (
         <ArchitectureDetailPanel

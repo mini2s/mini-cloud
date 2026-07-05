@@ -1,9 +1,11 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { DAGCanvas } from "../../workflows/components";
 import { ReactFlowProvider } from "@xyflow/react";
+import { buildCanvasModel } from "@multica/core/workflows/canvas";
+import { StageLaneSurface, WorkflowCanvasShell } from "../../workflows/canvas";
 import {
   workflowKeys,
   workflowDetailOptions,
@@ -34,6 +36,7 @@ const STATUS_CONFIG: Record<string, { color: string; label: string }> = {
   critic_reviewing:  { color: "rgba(59,130,246,0.25)", label: "Reviewing" },
   critic_approved:   { color: "rgba(34,197,94,0.25)", label: "Approved" },
   critic_rework:     { color: "rgba(245,158,11,0.25)", label: "Rework" },
+  self_recovering:  { color: "rgba(245,158,11,0.25)", label: "Self-Recovering" },
   completed:         { color: "rgba(34,197,94,0.25)", label: "Done" },
   failed:            { color: "rgba(239,68,68,0.25)", label: "Failed" },
   blocked:           { color: "rgba(245,158,11,0.25)", label: "Blocked" },
@@ -145,7 +148,7 @@ export function WorkflowDagViewer({
 
   const nodeStatusColors: Record<string, string> = {};
   const nodeStatuses: Record<string, { status: string; isRunning: boolean; isAwaitingInput: boolean }> = {};
-  const runningSet = new Set(["format_checking", "working", "critic_reviewing"]);
+  const runningSet = new Set(["format_checking", "working", "critic_reviewing", "self_recovering"]);
   for (const nr of nodeRuns) {
     nodeStatusColors[nr.workflow_node_id] = getStatusColor(nr.status);
     nodeStatuses[nr.workflow_node_id] = {
@@ -154,6 +157,17 @@ export function WorkflowDagViewer({
       isAwaitingInput: nr.status === "awaiting_input",
     };
   }
+
+  const canvasModel = useMemo(
+    () =>
+      buildCanvasModel({
+        stages: [],
+        nodes,
+        edges,
+        nodeRuns,
+      }),
+    [nodes, edges, nodeRuns],
+  );
 
   const totalCount = nodes.length;
   const summary = getRunSummary(nodeRuns);
@@ -222,6 +236,8 @@ export function WorkflowDagViewer({
       })()
     : null;
 
+  const useSharedRuntimeCanvas = true;
+
   return (
     <div>
       <div className="flex items-center gap-2 mb-2">
@@ -261,18 +277,31 @@ export function WorkflowDagViewer({
         </div>
       )}
 
-      <div className={cn("h-[270px] overflow-hidden rounded-lg border bg-card", !runId && "opacity-60")}>
-        <ReactFlowProvider>
-          <DAGCanvas
-            nodes={nodes}
-            edges={edges}
-            nodeStatusColors={nodeStatusColors}
-            nodeStatuses={nodeStatuses}
-            onNodeClick={(id) => setSelectedNodeId(id === selectedNodeId ? null : id)}
-            showMiniMap={false}
-          />
-        </ReactFlowProvider>
-      </div>
+      {useSharedRuntimeCanvas ? (
+        <WorkflowCanvasShell mode="readonly-runtime" model={canvasModel}>
+          {({ model }) => (
+            <StageLaneSurface
+              model={model}
+              variant="runtime"
+              selectedNodeId={selectedNodeId}
+              onNodeSelect={setSelectedNodeId}
+            />
+          )}
+        </WorkflowCanvasShell>
+      ) : (
+        <div className={cn("h-[270px] overflow-hidden rounded-lg border bg-card", !runId && "opacity-60")}>
+          <ReactFlowProvider>
+            <DAGCanvas
+              nodes={nodes}
+              edges={edges}
+              nodeStatusColors={nodeStatusColors}
+              nodeStatuses={nodeStatuses}
+              onNodeClick={(id) => setSelectedNodeId(id === selectedNodeId ? null : id)}
+              showMiniMap={false}
+            />
+          </ReactFlowProvider>
+        </div>
+      )}
 
       {/* Agent execution log dialog */}
       <Dialog open={taskLogOpen} onOpenChange={setTaskLogOpen}>

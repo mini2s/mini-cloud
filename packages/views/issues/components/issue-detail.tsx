@@ -14,6 +14,7 @@ import {
   ChevronLeft,
   ChevronRight,
   CircleCheck,
+  Loader2,
   Maximize2,
   Minimize2,
   MoreHorizontal,
@@ -21,6 +22,7 @@ import {
   Pin,
   PinOff,
   Plus,
+  RotateCcw,
   Tag,
   Users,
 } from "lucide-react";
@@ -62,13 +64,13 @@ import { ExecutionLogSection } from "./execution-log-section";
 import { PullRequestList } from "./pull-request-list";
 import { useGitHubSettings } from "@multica/core/github";
 import { useGitlabSettings } from "@multica/core/gitlab";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useAuthStore } from "@multica/core/auth";
 import { useModalStore } from "@multica/core/modals";
 import { useCurrentWorkspace, useWorkspacePaths } from "@multica/core/paths";
 import { useActorName } from "@multica/core/workspace/hooks";
 import { useWorkspaceId } from "@multica/core/hooks";
-import { issueListOptions, issueDetailOptions, childIssuesOptions, issueUsageOptions, issueAttachmentsOptions } from "@multica/core/issues/queries";
+import { issueListOptions, issueDetailOptions, childIssuesOptions, issueUsageOptions, issueAttachmentsOptions, issueKeys } from "@multica/core/issues/queries";
 import { projectDetailOptions } from "@multica/core/projects/queries";
 import { ProjectIcon } from "../../projects/components/project-icon";
 import { issueLabelsOptions } from "@multica/core/labels";
@@ -395,18 +397,63 @@ function TimelineSkeleton() {
   );
 }
 
+function ActivityRetryButton({
+  issueId,
+  taskId,
+  t,
+}: {
+  issueId: string;
+  taskId?: string;
+  t: ActivityT;
+}) {
+  const queryClient = useQueryClient();
+  const [retrying, setRetrying] = useState(false);
+
+  const handleRetry = async () => {
+    if (retrying) return;
+    setRetrying(true);
+    try {
+      await api.rerunIssue(issueId, taskId);
+      queryClient.invalidateQueries({ queryKey: issueKeys.timeline(issueId) });
+    } catch (e) {
+      toast.error(
+        e instanceof Error ? e.message : t(($) => $.execution_log.retry_failed),
+      );
+      setRetrying(false);
+    }
+  };
+
+  return (
+    <Button
+      type="button"
+      variant="ghost"
+      size="xs"
+      onClick={handleRetry}
+      disabled={retrying}
+      aria-label={t(($) => $.execution_log.retry_task_aria)}
+      aria-busy={retrying}
+      className="h-6 cursor-pointer px-1.5 text-destructive/80 opacity-80 transition-all hover:-translate-y-px hover:bg-destructive/10 hover:text-destructive hover:shadow-sm group-hover/activity:opacity-100 active:translate-y-0 active:scale-[0.97] motion-reduce:transform-none"
+    >
+      {retrying ? <Loader2 className="animate-spin" /> : <RotateCcw />}
+      {t(($) => $.execution_log.retry)}
+    </Button>
+  );
+}
+
 // Collapsible wrapper for an activity block. Older blocks default to a single
 // "N activities" summary line so the timeline isn't dominated by status /
 // priority / assignee churn; the trailing block stays expanded because it
 // usually answers "what just happened?". Expansion state is owned by the
 // parent so it survives Virtuoso's mount/unmount on scroll.
 function ActivityBlock({
+  issueId,
   entries,
   expanded,
   onToggle,
   getActorName,
   t,
 }: {
+  issueId: string;
   entries: TimelineEntry[];
   expanded: boolean;
   onToggle: () => void;
@@ -444,6 +491,9 @@ function ActivityBlock({
         const isPriorityChange = entry.action === "priority_changed";
         const isStartDateChange = entry.action === "start_date_changed";
         const isDueDateChange = entry.action === "due_date_changed";
+        const isTaskFailure = entry.action === "task_failed";
+        const rawTaskId = entry.details?.task_id;
+        const taskId = typeof rawTaskId === "string" ? rawTaskId : undefined;
 
         let leadIcon: React.ReactNode;
         if (isStatusChange && details.to) {
@@ -459,7 +509,13 @@ function ActivityBlock({
         }
 
         return (
-          <div key={entry.id} className="flex items-center text-xs text-muted-foreground">
+          <div
+            key={entry.id}
+            className={cn(
+              "group/activity flex items-center rounded-md text-xs text-muted-foreground transition-colors",
+              isTaskFailure ? "hover:bg-destructive/[0.04]" : "hover:bg-muted/40",
+            )}
+          >
             <div className="mr-2 flex w-4 shrink-0 justify-center">
               {leadIcon}
             </div>
@@ -473,18 +529,23 @@ function ActivityBlock({
                     {t(($) => $.activity.coalesced_badge, { count: entry.coalesced_count ?? 1 })}
                   </span>
                 )}
-              <Tooltip>
-                <TooltipTrigger
-                  render={
-                    <span className="ml-auto shrink-0 cursor-default">
-                      {timeAgo(entry.created_at)}
-                    </span>
-                  }
-                />
-                <TooltipContent side="top">
-                  {new Date(entry.created_at).toLocaleString()}
-                </TooltipContent>
-              </Tooltip>
+              <div className="ml-auto flex shrink-0 items-center gap-1.5 pl-2">
+                {isTaskFailure && (
+                  <ActivityRetryButton issueId={issueId} taskId={taskId} t={t} />
+                )}
+                <Tooltip>
+                  <TooltipTrigger
+                    render={
+                      <span className="shrink-0 cursor-default">
+                        {timeAgo(entry.created_at)}
+                      </span>
+                    }
+                  />
+                  <TooltipContent side="top">
+                    {new Date(entry.created_at).toLocaleString()}
+                  </TooltipContent>
+                </Tooltip>
+              </div>
             </div>
           </div>
         );
@@ -1696,6 +1757,7 @@ export function IssueDetail({ issueId, onDelete, onDone, defaultSidebarOpen = tr
         : item.id === lastActivityGroupId;
     return (
       <ActivityBlock
+        issueId={id}
         entries={item.entries}
         expanded={expanded}
         onToggle={() => toggleActivityBlock(item.id, expanded)}

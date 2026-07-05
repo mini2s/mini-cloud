@@ -8,3 +8,5 @@ export { NodeConfigPanel } from "./node-config-panel";
 export { NodePalette } from "./node-palette";
 export { NodeRunCard } from "./node-run-card";
 export { computeAutoLayout } from "./layout";
+
+export * from "../canvas";

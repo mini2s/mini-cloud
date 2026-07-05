@@ -31,6 +31,7 @@ const STATUS_COLOR: Record<NodeRunStatus, string> = {
   awaiting_input: "rgba(6,182,212,0.3)",
   awaiting_critic: "rgba(168,85,247,0.25)",
   critic_reviewing: "rgba(168,85,247,0.3)",
+  self_recovering: "rgba(59,130,246,0.3)",
   critic_approved: "rgba(34,197,94,0.25)",
   critic_rework: "rgba(249,115,22,0.25)",
   completed: "rgba(34,197,94,0.3)",

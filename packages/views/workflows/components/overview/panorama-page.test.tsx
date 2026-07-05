@@ -150,51 +150,36 @@ describe("WorkflowPanoramaPage", () => {
     expect(screen.getByTestId("stage-lane-stage-2")).toBeTruthy();
   });
 
-  it("renders compact node cards with resolved names", () => {
+  it("renders the shared stage-lane-surface", () => {
     renderWithI18n(<WorkflowPanoramaPage workflowId="wf-1" />);
-    expect(screen.getByTestId("compact-node-card-n1")).toBeTruthy();
-    expect(screen.getByTestId("compact-node-card-n2")).toBeTruthy();
-    expect(screen.getByTestId("compact-node-card-n3")).toBeTruthy();
+    expect(screen.getByTestId("stage-lane-surface")).toBeTruthy();
   });
 
-  it("renders stage transition gradient between stages", () => {
+  it("renders node cards for each workflow node", () => {
     renderWithI18n(<WorkflowPanoramaPage workflowId="wf-1" />);
-    expect(screen.queryAllByTestId("stage-transition-gradient").length).toBeGreaterThan(0);
+    expect(screen.getByRole("button", { name: "brainstorming" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "session-context" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "requirement-analysis" })).toBeTruthy();
   });
 
-  it("renders a left-aligned full-width panorama process rail on a distinct canvas background", () => {
+  it("renders the shared stage-lane-surface as the canvas container", () => {
     renderWithI18n(<WorkflowPanoramaPage workflowId="wf-1" />);
-    const canvas = screen.getByTestId("workflow-panorama-canvas");
-    const rail = screen.getByTestId("workflow-panorama-rail");
-    expect(canvas.className).toContain("bg-slate-100/70");
-    expect(rail.className).toContain("ml-0");
-    expect(rail.className).not.toContain("mx-auto");
-    expect(rail.className).not.toContain("border ");
-    expect(rail.className).not.toContain("border-slate");
-    expect(rail.className).toContain("w-full");
-    expect(rail.className).toContain("min-w-[1320px]");
-  });
-
-  it("keeps the SVG connector layer above stage backgrounds", () => {
-    const { container } = renderWithI18n(<WorkflowPanoramaPage workflowId="wf-1" />);
-    const svg = container.querySelector("svg.absolute");
-    expect(svg?.getAttribute("class")).toContain("z-10");
-    expect(screen.getByTestId("stage-lane-stage-1").className).toContain("z-0");
-    expect(screen.getByTestId("stage-lane-shell-stage-1").className).toContain("z-20");
+    expect(screen.getByTestId("stage-lane-surface")).toBeTruthy();
+    expect(screen.getByTestId("workflow-canvas-shell")).toBeTruthy();
   });
 
   it("opens detail panel on node card click", () => {
     renderWithI18n(<WorkflowPanoramaPage workflowId="wf-1" />);
-    fireEvent.click(screen.getByTestId("compact-node-card-n1"));
+    fireEvent.click(screen.getByRole("button", { name: "brainstorming" }));
     expect(screen.getByTestId("architecture-detail-panel")).toBeTruthy();
   });
 
-  it("opens critic detail panel on critic badge click", () => {
+  it("opens detail panel with agent info on node card click", () => {
     renderWithI18n(<WorkflowPanoramaPage workflowId="wf-1" />);
-    fireEvent.click(screen.getByTestId("critic-badge-n1"));
+    fireEvent.click(screen.getByRole("button", { name: "brainstorming" }));
     const panel = screen.getByTestId("architecture-detail-panel");
     expect(panel).toBeTruthy();
-    expect(within(panel).getAllByText("Critic").length).toBeGreaterThan(0);
+    expect(within(panel).getAllByText("Worker").length).toBeGreaterThan(0);
   });
 
   it("shows loading skeleton when loading", () => {
