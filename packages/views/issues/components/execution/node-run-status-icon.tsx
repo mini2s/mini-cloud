@@ -15,6 +15,7 @@ const STATUS_MAP: Record<NodeRunStatus, {
   format_failed:       { icon: AlertCircle,   className: "text-red-500" },
   worker_assigned:     { icon: UserCheck,     className: "text-amber-500" },
   working:             { icon: Loader2,       className: "text-blue-500", spin: true },
+  self_recovering:     { icon: Loader2,       className: "text-blue-500", spin: true },
   awaiting_input:      { icon: Clock,         className: "text-amber-500" },
   awaiting_critic:     { icon: Clock,         className: "text-amber-500" },
   critic_reviewing:    { icon: Loader2,       className: "text-blue-500", spin: true },
