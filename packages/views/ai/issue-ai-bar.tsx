@@ -6,6 +6,7 @@ import { AiInputCore } from "./ai-input-core";
 import { useSubmitCommand } from "@multica/core/ai/commands";
 import { parseIssueCommand } from "@multica/core/ai/issue-commands";
 import { useCommandTaskListener } from "@multica/core/ai/task-listener";
+import { useT } from "../i18n";
 
 interface IssueAiBarProps {
   issueId: string;
@@ -15,6 +16,7 @@ interface IssueAiBarProps {
 }
 
 export function IssueAiBar({ issueId, onOptimisticIntent, disabled }: IssueAiBarProps) {
+  const { t } = useT("ai");
   const mutation = useSubmitCommand();
   const queryClient = useQueryClient();
   const [taskId, setTaskId] = useState<string | null>(null);
@@ -57,14 +59,14 @@ export function IssueAiBar({ issueId, onOptimisticIntent, disabled }: IssueAiBar
     <div className="flex flex-col gap-1">
       <AiInputCore
         mode="command"
-        placeholder="Command the AI…"
+        placeholder={t($ => $.issue_placeholder)}
         showAgentSelector={false}
         onSubmit={handleSubmit}
         disabled={disabled || mutation.isPending}
       />
       {mutation.isError && (
         <p className="text-xs text-destructive px-1">
-          Command failed. Try again.
+          {t($ => $.error_command)}
         </p>
       )}
     </div>

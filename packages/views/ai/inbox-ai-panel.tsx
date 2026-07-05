@@ -3,12 +3,14 @@
 import { useCallback } from "react";
 import { AiInputCore } from "./ai-input-core";
 import { useSubmitCommand } from "@multica/core/ai/commands";
+import { useT } from "../i18n";
 
 interface InboxAiPanelProps {
   disabled?: boolean;
 }
 
 export function InboxAiPanel({ disabled }: InboxAiPanelProps) {
+  const { t } = useT("ai");
   const mutation = useSubmitCommand();
 
   const handleSubmit = useCallback(
@@ -26,7 +28,7 @@ export function InboxAiPanel({ disabled }: InboxAiPanelProps) {
   return (
     <AiInputCore
       mode="command"
-      placeholder="Ask the AI about your inbox..."
+      placeholder={t($ => $.inbox_placeholder)}
       showAgentSelector={false}
       onSubmit={handleSubmit}
       disabled={disabled || mutation.isPending}

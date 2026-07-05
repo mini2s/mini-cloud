@@ -3,6 +3,7 @@
 import { useState, useCallback } from "react";
 import { AiInputCore } from "./ai-input-core";
 import { useSubmitCommand } from "@multica/core/ai/commands";
+import { useT } from "../i18n";
 
 interface ChatMessage {
   role: "user" | "assistant";
@@ -15,6 +16,7 @@ interface WorkflowAiPanelProps {
 }
 
 export function WorkflowAiPanel({ workflowId, disabled }: WorkflowAiPanelProps) {
+  const { t } = useT("ai");
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const mutation = useSubmitCommand();
 
@@ -49,7 +51,7 @@ export function WorkflowAiPanel({ workflowId, disabled }: WorkflowAiPanelProps) 
               className={`text-sm ${msg.role === "user" ? "text-foreground" : "text-muted-foreground"}`}
             >
               <span className="font-medium text-xs text-muted-foreground">
-                {msg.role === "user" ? "You" : "Agent"}:
+                {msg.role === "user" ? t($ => $.you) : t($ => $.agent)}:
               </span>{" "}
               {msg.content}
             </div>
@@ -58,7 +60,7 @@ export function WorkflowAiPanel({ workflowId, disabled }: WorkflowAiPanelProps) 
       )}
       <AiInputCore
         mode="chat"
-        placeholder="Ask the AI agent to edit this workflow..."
+        placeholder={t($ => $.workflow_placeholder)}
         showAgentSelector
         onSubmit={handleSubmit}
         disabled={disabled || mutation.isPending}

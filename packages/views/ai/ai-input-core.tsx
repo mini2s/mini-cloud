@@ -4,6 +4,7 @@ import { useState, useCallback } from "react";
 import { cn } from "@multica/ui/lib/utils";
 import { SubmitButton } from "@multica/ui/components/common/submit-button";
 import { Textarea } from "@multica/ui/components/ui/textarea";
+import { useT } from "../i18n";
 
 export interface AiInputCoreProps {
   mode: "chat" | "command";
@@ -25,6 +26,7 @@ export function AiInputCore({
   disabled,
   leftAdornment,
 }: AiInputCoreProps) {
+  const { t } = useT("ai");
   const [value, setValue] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -39,7 +41,7 @@ export function AiInputCore({
       await onSubmit(trimmed, defaultAgentId ?? "");
       setValue("");
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Something went wrong");
+      setError(e instanceof Error ? e.message : t($ => $.error_unknown));
     } finally {
       setSubmitting(false);
     }
@@ -97,7 +99,7 @@ export function AiInputCore({
             defaultValue={defaultAgentId ?? ""}
             disabled={disabled || submitting}
           >
-            <option value="">Default agent</option>
+            <option value="">{t($ => $.agent_default)}</option>
             {/* Agent list populated by wrapper via leftAdornment or a query */}
           </select>
         )}

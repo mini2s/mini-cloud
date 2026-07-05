@@ -1,0 +1,11 @@
+{
+  "issue_placeholder": "输入指令… 例如：分配给 @张三",
+  "workflow_placeholder": "描述你想要的 workflow…",
+  "inbox_placeholder": "输入指令… 例如：归档所有已完成的",
+  "agent_placeholder": "描述你要创建的智能体…",
+  "you": "你",
+  "agent": "智能体",
+  "error_unknown": "未知错误，请重试",
+  "error_command": "指令执行失败，请重试",
+  "agent_default": "默认智能体"
+}

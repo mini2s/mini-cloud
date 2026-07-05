@@ -1,0 +1,11 @@
+{
+  "issue_placeholder": "Type a command… e.g., assign to @John",
+  "workflow_placeholder": "Describe the workflow you want…",
+  "inbox_placeholder": "Type a command… e.g., archive all completed",
+  "agent_placeholder": "Describe the agent you want to create…",
+  "you": "You",
+  "agent": "Agent",
+  "error_unknown": "Unknown error, please retry",
+  "error_command": "Command execution failed, please retry",
+  "agent_default": "Default agent"
+}

@@ -3,12 +3,14 @@
 import { useCallback } from "react";
 import { AiInputCore } from "./ai-input-core";
 import { useSubmitCommand } from "@multica/core/ai/commands";
+import { useT } from "../i18n";
 
 interface AgentAiPanelProps {
   disabled?: boolean;
 }
 
 export function AgentAiPanel({ disabled }: AgentAiPanelProps) {
+  const { t } = useT("ai");
   const mutation = useSubmitCommand();
 
   const handleSubmit = useCallback(
@@ -26,7 +28,7 @@ export function AgentAiPanel({ disabled }: AgentAiPanelProps) {
   return (
     <AiInputCore
       mode="command"
-      placeholder="Ask the AI to create or manage agents..."
+      placeholder={t($ => $.agent_placeholder)}
       showAgentSelector
       onSubmit={handleSubmit}
       disabled={disabled || mutation.isPending}
