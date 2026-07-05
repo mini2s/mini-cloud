@@ -41,9 +41,10 @@ import {
 import { useT } from "../../i18n";
 import { useAuthStore } from "@multica/core/auth";
 import { ReactFlowProvider } from "@xyflow/react";
-import { DAGCanvas } from "./dag-canvas";
+import { WorkflowCanvasShell, ReactFlowSurface } from "../canvas";
 import { NodeConfigPanel } from "./node-config-panel";
 import { computeAutoLayout } from "./layout";
+import { buildCanvasModel } from "@multica/core/workflows/canvas";
 import type { WorkflowStatus } from "@multica/core/types";
 
 interface WorkflowDetailPageProps {
@@ -142,6 +143,21 @@ export function WorkflowDetailPage({ workflowId: id, viewToggle }: WorkflowDetai
   const selectedNode = selectedNodeIds.length === 1
     ? (displayNodes.find((n) => n.id === selectedNodeIds[0]) ?? null)
     : null;
+
+  // Build a CanvasModel from the raw workflow data for the shared shell
+  const canvasModel = useMemo(
+    () =>
+      buildCanvasModel({
+        stages,
+        nodes: displayNodes,
+        edges,
+        draft: {
+          nodeEdits,
+          deletedNodeIds,
+        },
+      }),
+    [stages, displayNodes, edges, nodeEdits, deletedNodeIds],
+  );
 
   const queryClient = useQueryClient();
 
@@ -489,16 +505,20 @@ export function WorkflowDetailPage({ workflowId: id, viewToggle }: WorkflowDetai
               </Button>}
             </div>
           ) : (
-            <ReactFlowProvider>
-              <DAGCanvas
-                nodes={displayNodes}
-                edges={edges}
-                onNodeDragStop={handleNodeMoved}
-                onEdgeCreate={handleEdgeCreate}
-                onEdgeDelete={handleEdgeDelete}
-                onNodeCreate={handleAddNode}
-              />
-            </ReactFlowProvider>
+            <WorkflowCanvasShell mode={mode === "edit" ? "edit" : "readonly-definition"} model={canvasModel}>
+              {() => (
+                <ReactFlowProvider>
+                  <ReactFlowSurface
+                    nodes={displayNodes}
+                    edges={edges}
+                    onNodeDragStop={handleNodeMoved}
+                    onEdgeCreate={handleEdgeCreate}
+                    onEdgeDelete={handleEdgeDelete}
+                    onNodeCreate={handleAddNode}
+                  />
+                </ReactFlowProvider>
+              )}
+            </WorkflowCanvasShell>
           )}
           {/* Add node button (floating, top-left) */}
           {nodes.length > 0 && mode === "edit" && (
