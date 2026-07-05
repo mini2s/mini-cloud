@@ -113,9 +113,10 @@ func (h *Handler) SendCommand(w http.ResponseWriter, r *http.Request) {
 	}
 
 	task, err := h.TaskService.EnqueueCommandTask(r.Context(), service.CommandTaskParams{
-		AgentID:   agent.ID,
-		RuntimeID: runtimeID,
-		Priority:  3, // high priority — user is waiting
+		AgentID:     agent.ID,
+		RuntimeID:   runtimeID,
+		Priority:    3, // high priority — user is waiting
+		WorkspaceID: wsUUID,
 		CtxPayload: service.CommandContext{
 			Type:        service.CommandContextType,
 			ContextType: req.ContextType,
