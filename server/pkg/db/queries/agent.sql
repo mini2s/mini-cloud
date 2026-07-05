@@ -108,6 +108,13 @@ INSERT INTO multica_agent_task_queue (agent_id, runtime_id, issue_id, status, pr
 VALUES ($1, $2, NULL, 'queued', $3, $4)
 RETURNING *;
 
+-- name: CreateCommandTask :one
+-- Command tasks have no issue/chat/autopilot link; the context JSONB
+-- carries context_type, context_id, user_input, and mode.
+INSERT INTO multica_agent_task_queue (agent_id, runtime_id, status, priority, context)
+VALUES ($1, $2, 'queued', $3, $4)
+RETURNING *;
+
 -- name: LinkTaskToIssue :exec
 -- Attaches the multica_issue a quick-create task produced back to the task row, once
 -- the multica_agent has finished and the multica_issue exists. Guarded by `issue_id IS NULL`
