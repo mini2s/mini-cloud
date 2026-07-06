@@ -11,6 +11,15 @@ export interface PreflightCheck {
   nodeId?: string;
 }
 
+function isAnnotationNode(node: WorkflowNode): boolean {
+  return Boolean(
+    node.format_schema &&
+      typeof node.format_schema === "object" &&
+      !Array.isArray(node.format_schema) &&
+      (node.format_schema as Record<string, unknown>).type === "annotation",
+  );
+}
+
 /** Run validation checks against workflow nodes and edges. */
 export function runPreflightChecks(
   nodes: WorkflowNode[],
@@ -56,7 +65,7 @@ export function runPreflightChecks(
   // Worker check
   for (const node of nodes) {
     if (!node.worker_id) {
-      const isAnnotation = node.format_schema && typeof node.format_schema === "object" && !Array.isArray(node.format_schema) && (node.format_schema as Record<string, unknown>).type === "annotation";
+      const isAnnotation = isAnnotationNode(node);
       if (!isAnnotation) {
         checks.push({ type: "missing-worker", severity: "error", message: `"${node.title}" has no worker assigned`, nodeId: node.id });
       }
@@ -68,7 +77,7 @@ export function runPreflightChecks(
     const hasIncoming = (inDegree.get(node.id) ?? 0) > 0;
     const hasOutgoing = (outEdges.get(node.id)?.length ?? 0) > 0;
     if (!hasIncoming && !hasOutgoing) {
-      const isAnnotation = node.format_schema && typeof node.format_schema === "object" && !Array.isArray(node.format_schema) && (node.format_schema as Record<string, unknown>).type === "annotation";
+      const isAnnotation = isAnnotationNode(node);
       if (!isAnnotation) {
         checks.push({ type: "orphan-node", severity: "warning", message: `"${node.title}" is not connected to any other node`, nodeId: node.id });
       }
@@ -81,7 +90,7 @@ export function runPreflightChecks(
       if ((inDegree.get(node.id) ?? 0) === 0 && (outEdges.get(node.id)?.length ?? 0) > 0) {
         // Only warn if there are other nodes with incoming edges (i.e., this could be a root node)
         const someHaveIncoming = nodes.some((n) => n.id !== node.id && (inDegree.get(n.id) ?? 0) > 0);
-        const isAnnotation = node.format_schema && typeof node.format_schema === "object" && !Array.isArray(node.format_schema) && (node.format_schema as Record<string, unknown>).type === "annotation";
+        const isAnnotation = isAnnotationNode(node);
         if (someHaveIncoming && !isAnnotation) {
           checks.push({ type: "unreachable-node", severity: "warning", message: `"${node.title}" may be unreachable (no incoming edges)`, nodeId: node.id });
         }
