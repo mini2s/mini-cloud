@@ -48,6 +48,14 @@
     --radius-2xl: calc(var(--radius) * 1.8);
     --radius-3xl: calc(var(--radius) * 2.2);
     --radius-4xl: calc(var(--radius) * 2.6);
+    --color-workflow-accent: var(--workflow-accent);
+    --color-workflow-agent: var(--workflow-agent);
+    --color-workflow-info: var(--workflow-info);
+    --color-workflow-success: var(--workflow-success);
+    --color-workflow-warning: var(--workflow-warning);
+    --color-workflow-danger: var(--workflow-danger);
+    --color-workflow-canvas-bg: var(--workflow-canvas-bg);
+    --color-workflow-stage-bg: var(--workflow-stage-bg);
 }
 
 :root {
@@ -96,6 +104,15 @@
     --scrollbar-thumb: oklch(0 0 0 / 10%);
     --scrollbar-thumb-hover: oklch(0 0 0 / 18%);
     --scrollbar-track: transparent;
+    /* Workflow canvas tokens — semantic aliases for existing color palette */
+    --workflow-accent: var(--primary);
+    --workflow-agent: var(--brand);
+    --workflow-info: var(--info);
+    --workflow-success: var(--success);
+    --workflow-warning: var(--warning);
+    --workflow-danger: var(--destructive);
+    --workflow-canvas-bg: oklch(0.985 0.001 260);
+    --workflow-stage-bg: oklch(0.975 0.002 260 / 60%);
 }
 
 .dark {
@@ -142,4 +159,6 @@
     --scrollbar-thumb: oklch(1 0 0 / 8%);
     --scrollbar-thumb-hover: oklch(1 0 0 / 18%);
     --scrollbar-track: transparent;
+    --workflow-canvas-bg: oklch(0.16 0.003 260);
+    --workflow-stage-bg: oklch(0.20 0.003 260 / 60%);
 }
