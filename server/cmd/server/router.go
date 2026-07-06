@@ -525,6 +525,7 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 					r.Put("/", h.UpdateWorkflow)
 					r.Delete("/", h.DeleteWorkflow)
 					r.Put("/template", h.ToggleWorkflowTemplate)
+					r.Post("/preflight", h.PreflightWorkflow)
 					// Nodes
 					r.Get("/nodes", h.ListWorkflowNodes)
 					r.Post("/nodes", h.CreateWorkflowNode)

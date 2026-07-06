@@ -11,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	db "github.com/multica-ai/multica/server/pkg/db/generated"
 	"github.com/multica-ai/multica/server/pkg/protocol"
+	"github.com/multica-ai/multica/server/internal/service"
 	"github.com/multica-ai/multica/server/internal/util"
 )
 
@@ -140,6 +141,11 @@ type WorkflowEdgeResponse struct {
 
 type ToggleTemplateRequest struct {
 	IsTemplate bool `json:"is_template"`
+}
+
+type PreflightResponse struct {
+	Passed bool                   `json:"passed"`
+	Issues []service.PreflightIssue `json:"issues"`
 }
 
 // ── Development Stage types ──
@@ -1359,6 +1365,27 @@ func (h *Handler) loadWorkflowNode(w http.ResponseWriter, r *http.Request, wfID,
 	return node, true
 }
 
+
+// ── Preflight ───────────────────────────────────────────────────────────────
+
+func (h *Handler) PreflightWorkflow(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	wf, ok := h.loadWorkflowInWorkspace(w, r, id)
+	if !ok {
+		return
+	}
+
+	result, err := service.RunPreflight(r.Context(), h.Queries, wf.ID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, fmt.Sprintf("preflight failed: %v", err))
+		return
+	}
+
+	writeJSON(w, http.StatusOK, PreflightResponse{
+		Passed: result.Passed,
+		Issues: result.Issues,
+	})
+}
 
 // ── Template ───────────────────────────────────────────────────────────────────
 
