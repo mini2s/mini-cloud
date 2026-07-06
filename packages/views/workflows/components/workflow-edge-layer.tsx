@@ -11,6 +11,8 @@ export interface ComputedPath {
   d: string;
   semantic: EdgeSemantics;
   label: string | null;
+  midX: number;
+  midY: number;
 }
 
 interface Rect {
@@ -42,6 +44,7 @@ export function computePaths(
     const tx = targetRect.left - containerRect.left;
     const ty = targetRect.top + targetRect.height / 2 - containerRect.top;
     const midX = (sx + tx) / 2;
+    const midY = (sy + ty) / 2;
 
     // Smooth cubic bezier for data/control, dashed straight for error
     let d: string;
@@ -61,7 +64,7 @@ export function computePaths(
       else if (typeof cond.path === "string") label = cond.path;
     }
 
-    results.push({ edgeId: edge.id, d, semantic, label });
+    results.push({ edgeId: edge.id, d, semantic, label, midX, midY });
   }
 
   return results;
@@ -115,7 +118,7 @@ export function WorkflowEdgeLayer({
             <path
               d={path.d}
               fill="none"
-              stroke={`hsl(var(${config.strokeColorToken.replace("--", "")}))`}
+              stroke={`hsl(var(${config.strokeColorToken}))`}
               strokeWidth={surface === "reactflow" ? config.strokeWidth : 2}
               strokeDasharray={config.strokeDasharray === "none" ? undefined : config.strokeDasharray}
               strokeLinecap="round"
@@ -125,11 +128,11 @@ export function WorkflowEdgeLayer({
             />
             {path.label && (
               <text
-                x="0"
-                y="-6"
+                x={path.midX}
+                y={path.midY - 6}
                 textAnchor="middle"
                 fontSize="10"
-                fill={`hsl(var(${config.labelColorToken.replace("--", "")}))`}
+                fill={`hsl(var(${config.labelColorToken}))`}
                 className="font-medium"
               >
                 {path.label}
