@@ -703,6 +703,17 @@ type MulticaWorkflow struct {
 	SourceTemplateID pgtype.UUID        `json:"source_template_id"`
 }
 
+type MulticaWorkflowDevelopmentStage struct {
+	ID          pgtype.UUID        `json:"id"`
+	WorkspaceID pgtype.UUID        `json:"workspace_id"`
+	Name        string             `json:"name"`
+	Description string             `json:"description"`
+	Scope       string             `json:"scope"`
+	SortOrder   int32              `json:"sort_order"`
+	CreatedAt   pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt   pgtype.Timestamptz `json:"updated_at"`
+}
+
 type MulticaWorkflowEdge struct {
 	ID           pgtype.UUID        `json:"id"`
 	WorkflowID   pgtype.UUID        `json:"workflow_id"`
@@ -713,22 +724,36 @@ type MulticaWorkflowEdge struct {
 }
 
 type MulticaWorkflowNode struct {
+	ID                    pgtype.UUID        `json:"id"`
+	WorkflowID            pgtype.UUID        `json:"workflow_id"`
+	Title                 string             `json:"title"`
+	Description           string             `json:"description"`
+	PositionX             float64            `json:"position_x"`
+	PositionY             float64            `json:"position_y"`
+	FormatSchema          []byte             `json:"format_schema"`
+	WorkerType            string             `json:"worker_type"`
+	WorkerID              pgtype.UUID        `json:"worker_id"`
+	CriticType            string             `json:"critic_type"`
+	CriticID              pgtype.UUID        `json:"critic_id"`
+	CriticApiUrl          pgtype.Text        `json:"critic_api_url"`
+	SortOrder             int32              `json:"sort_order"`
+	CreatedAt             pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt             pgtype.Timestamptz `json:"updated_at"`
+	StageID               pgtype.UUID        `json:"stage_id"`
+	DevelopmentStageID    pgtype.UUID        `json:"development_stage_id"`
+	AgentCapabilityConfig []byte             `json:"agent_capability_config"`
+	Instructions          string             `json:"instructions"`
+}
+
+type MulticaWorkflowNodeDeliverable struct {
 	ID           pgtype.UUID        `json:"id"`
-	WorkflowID   pgtype.UUID        `json:"workflow_id"`
-	Title        string             `json:"title"`
-	Description  string             `json:"description"`
-	PositionX    float64            `json:"position_x"`
-	PositionY    float64            `json:"position_y"`
-	FormatSchema []byte             `json:"format_schema"`
-	WorkerType   string             `json:"worker_type"`
-	WorkerID     pgtype.UUID        `json:"worker_id"`
-	CriticType   string             `json:"critic_type"`
-	CriticID     pgtype.UUID        `json:"critic_id"`
-	CriticApiUrl pgtype.Text        `json:"critic_api_url"`
+	NodeID       pgtype.UUID        `json:"node_id"`
+	Type         string             `json:"type"`
+	Name         string             `json:"name"`
+	Requirements string             `json:"requirements"`
 	SortOrder    int32              `json:"sort_order"`
 	CreatedAt    pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt    pgtype.Timestamptz `json:"updated_at"`
-	StageID      pgtype.UUID        `json:"stage_id"`
 }
 
 type MulticaWorkflowNodeRun struct {
@@ -755,6 +780,7 @@ type MulticaWorkflowNodeRun struct {
 	RuntimeID         pgtype.UUID        `json:"runtime_id"`
 	DeviceID          pgtype.Text        `json:"device_id"`
 	SessionID         pgtype.Text        `json:"session_id"`
+	RecipeSnapshot    []byte             `json:"recipe_snapshot"`
 }
 
 type MulticaWorkflowRun struct {

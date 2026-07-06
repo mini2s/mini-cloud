@@ -60,11 +60,15 @@ INSERT INTO multica_workflow_node (
     workflow_id, title, description, position_x, position_y,
     format_schema, worker_type, worker_id,
     critic_type, critic_id, critic_api_url,
+    development_stage_id, agent_capability_config, instructions,
     sort_order
 ) VALUES (
     $1, $2, sqlc.narg('description'), $3, $4,
     sqlc.narg('format_schema'), $5, sqlc.narg('worker_id'),
     $6, sqlc.narg('critic_id'), sqlc.narg('critic_api_url'),
+    sqlc.narg('development_stage_id'),
+    sqlc.narg('agent_capability_config'),
+    sqlc.narg('instructions'),
     $7
 ) RETURNING *;
 
@@ -80,6 +84,9 @@ UPDATE multica_workflow_node SET
     critic_type = COALESCE(sqlc.narg('critic_type'), critic_type),
     critic_id = COALESCE(sqlc.narg('critic_id'), critic_id),
     critic_api_url = COALESCE(sqlc.narg('critic_api_url'), critic_api_url),
+    development_stage_id = COALESCE(sqlc.narg('development_stage_id'), development_stage_id),
+    agent_capability_config = COALESCE(sqlc.narg('agent_capability_config'), agent_capability_config),
+    instructions = COALESCE(sqlc.narg('instructions'), instructions),
     sort_order = COALESCE(sqlc.narg('sort_order')::int, sort_order),
     updated_at = now()
 WHERE id = $1
@@ -282,3 +289,73 @@ UPDATE multica_workflow_node SET
     updated_at = now()
 WHERE id = $1
 RETURNING *;
+
+-- =====================
+-- Development Stage CRUD
+-- =====================
+
+-- name: ListBuiltinDevelopmentStages :many
+SELECT * FROM multica_workflow_development_stage
+WHERE scope = 'builtin'
+ORDER BY sort_order ASC;
+
+-- name: ListWorkspaceDevelopmentStages :many
+SELECT * FROM multica_workflow_development_stage
+WHERE workspace_id = $1 OR scope = 'builtin'
+ORDER BY sort_order ASC;
+
+-- name: GetDevelopmentStage :one
+SELECT * FROM multica_workflow_development_stage
+WHERE id = $1;
+
+-- name: CreateDevelopmentStage :one
+INSERT INTO multica_workflow_development_stage (
+    workspace_id, name, description, scope, sort_order
+) VALUES (
+    $1, $2, sqlc.narg('description'), 'custom', $3
+) RETURNING *;
+
+-- name: UpdateDevelopmentStage :one
+UPDATE multica_workflow_development_stage SET
+    name = COALESCE(sqlc.narg('name'), name),
+    description = COALESCE(sqlc.narg('description'), description),
+    sort_order = COALESCE(sqlc.narg('sort_order')::int, sort_order),
+    updated_at = now()
+WHERE id = $1
+RETURNING *;
+
+-- name: DeleteDevelopmentStage :exec
+DELETE FROM multica_workflow_development_stage
+WHERE id = $1 AND scope = 'custom';
+
+-- =====================
+-- Node Deliverable CRUD
+-- =====================
+
+-- name: ListDeliverablesByNode :many
+SELECT * FROM multica_workflow_node_deliverable
+WHERE node_id = $1
+ORDER BY sort_order ASC, created_at ASC;
+
+-- name: CreateDeliverable :one
+INSERT INTO multica_workflow_node_deliverable (
+    node_id, type, name, requirements, sort_order
+) VALUES (
+    $1, $2, $3, sqlc.narg('requirements'), $4
+) RETURNING *;
+
+-- name: UpdateDeliverable :one
+UPDATE multica_workflow_node_deliverable SET
+    type = COALESCE(sqlc.narg('type'), type),
+    name = COALESCE(sqlc.narg('name'), name),
+    requirements = COALESCE(sqlc.narg('requirements'), requirements),
+    sort_order = COALESCE(sqlc.narg('sort_order')::int, sort_order),
+    updated_at = now()
+WHERE id = $1
+RETURNING *;
+
+-- name: DeleteDeliverable :exec
+DELETE FROM multica_workflow_node_deliverable WHERE id = $1;
+
+-- name: DeleteDeliverablesByNode :exec
+DELETE FROM multica_workflow_node_deliverable WHERE node_id = $1;

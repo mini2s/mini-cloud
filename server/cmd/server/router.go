@@ -525,6 +525,7 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 					r.Put("/", h.UpdateWorkflow)
 					r.Delete("/", h.DeleteWorkflow)
 					r.Put("/template", h.ToggleWorkflowTemplate)
+					r.Post("/preflight", h.PreflightWorkflow)
 					// Nodes
 					r.Get("/nodes", h.ListWorkflowNodes)
 					r.Post("/nodes", h.CreateWorkflowNode)
@@ -553,6 +554,14 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 					r.Get("/runs/{runId}/node-runs", h.ListWorkflowNodeRuns)
 					r.Post("/runs/{runId}/cancel", h.CancelWorkflowRun)
 				})
+			})
+
+			// Development stages (workspace-scoped + built-in)
+			r.Get("/api/development-stages", h.ListDevelopmentStages)
+			r.Post("/api/development-stages", h.CreateDevelopmentStage)
+			r.Route("/api/development-stages/{id}", func(r chi.Router) {
+				r.Put("/", h.UpdateDevelopmentStage)
+				r.Delete("/", h.DeleteDevelopmentStage)
 			})
 
 			// Node run actions (flat route for clean WS event references)

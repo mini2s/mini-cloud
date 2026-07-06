@@ -11,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	db "github.com/multica-ai/multica/server/pkg/db/generated"
 	"github.com/multica-ai/multica/server/pkg/protocol"
+	"github.com/multica-ai/multica/server/internal/service"
 	"github.com/multica-ai/multica/server/internal/util"
 )
 
@@ -30,30 +31,38 @@ type UpdateWorkflowRequest struct {
 }
 
 type CreateNodeRequest struct {
-	Title              string          `json:"title"`
-	Description        string          `json:"description"`
-	PositionX          float64         `json:"position_x"`
-	PositionY          float64         `json:"position_y"`
-	FormatSchema       json.RawMessage `json:"format_schema"`
-	WorkerType         string          `json:"worker_type"`
-	WorkerID           *string         `json:"worker_id"`
-	CriticType         string          `json:"critic_type"`
-	CriticID           *string         `json:"critic_id"`
-	CriticApiURL       *string         `json:"critic_api_url"`
+	Title                  string                    `json:"title"`
+	Description            string                    `json:"description"`
+	PositionX              float64                   `json:"position_x"`
+	PositionY              float64                   `json:"position_y"`
+	FormatSchema           json.RawMessage           `json:"format_schema"`
+	WorkerType             string                    `json:"worker_type"`
+	WorkerID               *string                   `json:"worker_id"`
+	CriticType             string                    `json:"critic_type"`
+	CriticID               *string                   `json:"critic_id"`
+	CriticApiURL           *string                   `json:"critic_api_url"`
+	DevelopmentStageID     *string                   `json:"development_stage_id"`
+	AgentCapabilityConfig  json.RawMessage           `json:"agent_capability_config"`
+	Instructions           string                    `json:"instructions"`
+	Deliverables           []CreateDeliverableRequest `json:"deliverables"`
 }
 
 type UpdateNodeRequest struct {
-	Title              *string         `json:"title"`
-	Description        *string         `json:"description"`
-	PositionX          *float64        `json:"position_x"`
-	PositionY          *float64        `json:"position_y"`
-	FormatSchema       json.RawMessage `json:"format_schema"`
-	WorkerType         *string         `json:"worker_type"`
-	WorkerID           *string         `json:"worker_id"`
-	CriticType         *string         `json:"critic_type"`
-	CriticID           *string         `json:"critic_id"`
-	CriticApiURL       *string         `json:"critic_api_url"`
-	SortOrder          *int32          `json:"sort_order"`
+	Title                  *string                   `json:"title"`
+	Description            *string                   `json:"description"`
+	PositionX              *float64                  `json:"position_x"`
+	PositionY              *float64                  `json:"position_y"`
+	FormatSchema           json.RawMessage           `json:"format_schema"`
+	WorkerType             *string                   `json:"worker_type"`
+	WorkerID               *string                   `json:"worker_id"`
+	CriticType             *string                   `json:"critic_type"`
+	CriticID               *string                   `json:"critic_id"`
+	CriticApiURL           *string                   `json:"critic_api_url"`
+	SortOrder              *int32                    `json:"sort_order"`
+	DevelopmentStageID     *string                   `json:"development_stage_id"`
+	AgentCapabilityConfig  json.RawMessage           `json:"agent_capability_config"`
+	Instructions           *string                   `json:"instructions"`
+	Deliverables           []CreateDeliverableRequest `json:"deliverables"` // nil = no change, [] = atomic replace
 }
 
 type CreateEdgeRequest struct {
@@ -81,22 +90,44 @@ type WorkflowResponse struct {
 }
 
 type WorkflowNodeResponse struct {
-	ID                 string          `json:"id"`
-	WorkflowID         string          `json:"workflow_id"`
-	Title              string          `json:"title"`
-	Description        string          `json:"description"`
-	PositionX          float64         `json:"position_x"`
-	PositionY          float64         `json:"position_y"`
-	FormatSchema       json.RawMessage `json:"format_schema"`
-	WorkerType         string          `json:"worker_type"`
-	WorkerID           *string         `json:"worker_id"`
-	CriticType         string          `json:"critic_type"`
-	CriticID           *string         `json:"critic_id"`
-	CriticApiURL       *string         `json:"critic_api_url"`
-	SortOrder          int32           `json:"sort_order"`
-	StageID            *string         `json:"stage_id"`
-	CreatedAt          string          `json:"created_at"`
-	UpdatedAt          string          `json:"updated_at"`
+	ID                    string                            `json:"id"`
+	WorkflowID            string                            `json:"workflow_id"`
+	Title                 string                            `json:"title"`
+	Description           string                            `json:"description"`
+	PositionX             float64                           `json:"position_x"`
+	PositionY             float64                           `json:"position_y"`
+	FormatSchema          json.RawMessage                   `json:"format_schema"`
+	WorkerType            string                            `json:"worker_type"`
+	WorkerID              *string                           `json:"worker_id"`
+	CriticType            string                            `json:"critic_type"`
+	CriticID              *string                           `json:"critic_id"`
+	CriticApiURL          *string                           `json:"critic_api_url"`
+	SortOrder             int32                             `json:"sort_order"`
+	StageID               *string                           `json:"stage_id"`
+	DevelopmentStageID    *string                           `json:"development_stage_id"`
+	AgentCapabilityConfig json.RawMessage                   `json:"agent_capability_config"`
+	Instructions          string                            `json:"instructions"`
+	Deliverables          []WorkflowNodeDeliverableResponse `json:"deliverables"`
+	CreatedAt             string                            `json:"created_at"`
+	UpdatedAt             string                            `json:"updated_at"`
+}
+
+type WorkflowNodeDeliverableResponse struct {
+	ID           string `json:"id"`
+	NodeID       string `json:"node_id"`
+	Type         string `json:"type"`
+	Name         string `json:"name"`
+	Requirements string `json:"requirements"`
+	SortOrder    int32  `json:"sort_order"`
+	CreatedAt    string `json:"created_at"`
+	UpdatedAt    string `json:"updated_at"`
+}
+
+type CreateDeliverableRequest struct {
+	Type         string `json:"type"`
+	Name         string `json:"name"`
+	Requirements string `json:"requirements"`
+	SortOrder    int32  `json:"sort_order"`
 }
 
 type WorkflowEdgeResponse struct {
@@ -110,6 +141,36 @@ type WorkflowEdgeResponse struct {
 
 type ToggleTemplateRequest struct {
 	IsTemplate bool `json:"is_template"`
+}
+
+type PreflightResponse struct {
+	Passed bool                   `json:"passed"`
+	Issues []service.PreflightIssue `json:"issues"`
+}
+
+// ── Development Stage types ──
+
+type CreateDevelopmentStageRequest struct {
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	SortOrder   int32  `json:"sort_order"`
+}
+
+type UpdateDevelopmentStageRequest struct {
+	Name        *string `json:"name"`
+	Description *string `json:"description"`
+	SortOrder   *int32  `json:"sort_order"`
+}
+
+type DevelopmentStageResponse struct {
+	ID          string  `json:"id"`
+	WorkspaceID *string `json:"workspace_id"` // null for builtin
+	Name        string  `json:"name"`
+	Description string  `json:"description"`
+	Scope       string  `json:"scope"`
+	SortOrder   int32   `json:"sort_order"`
+	CreatedAt   string  `json:"created_at"`
+	UpdatedAt   string  `json:"updated_at"`
 }
 
 // ── Stage request/response types ──
@@ -174,22 +235,39 @@ func workflowToResponse(wf db.MulticaWorkflow, nodeCount int64) WorkflowResponse
 
 func workflowNodeToResponse(node db.MulticaWorkflowNode) WorkflowNodeResponse {
 	return WorkflowNodeResponse{
-		ID:                 uuidToString(node.ID),
-		WorkflowID:         uuidToString(node.WorkflowID),
-		Title:              node.Title,
-		Description:        node.Description,
-		PositionX:          node.PositionX,
-		PositionY:          node.PositionY,
-		FormatSchema:       node.FormatSchema,
-		WorkerType:         node.WorkerType,
-		WorkerID:           uuidToPtr(node.WorkerID),
-		CriticType:         node.CriticType,
-		CriticID:           uuidToPtr(node.CriticID),
-		CriticApiURL:       textToPtr(node.CriticApiUrl),
-		SortOrder:          node.SortOrder,
-		StageID:            uuidToPtr(node.StageID),
-		CreatedAt:          timestampToString(node.CreatedAt),
-		UpdatedAt:          timestampToString(node.UpdatedAt),
+		ID:                    uuidToString(node.ID),
+		WorkflowID:            uuidToString(node.WorkflowID),
+		Title:                 node.Title,
+		Description:           node.Description,
+		PositionX:             node.PositionX,
+		PositionY:             node.PositionY,
+		FormatSchema:          node.FormatSchema,
+		WorkerType:            node.WorkerType,
+		WorkerID:              uuidToPtr(node.WorkerID),
+		CriticType:            node.CriticType,
+		CriticID:              uuidToPtr(node.CriticID),
+		CriticApiURL:          textToPtr(node.CriticApiUrl),
+		SortOrder:             node.SortOrder,
+		StageID:               uuidToPtr(node.StageID),
+		DevelopmentStageID:    uuidToPtr(node.DevelopmentStageID),
+		AgentCapabilityConfig: node.AgentCapabilityConfig,
+		Instructions:          node.Instructions,
+		Deliverables:          nil, // populated separately
+		CreatedAt:             timestampToString(node.CreatedAt),
+		UpdatedAt:             timestampToString(node.UpdatedAt),
+	}
+}
+
+func deliverableToResponse(d db.MulticaWorkflowNodeDeliverable) WorkflowNodeDeliverableResponse {
+	return WorkflowNodeDeliverableResponse{
+		ID:           uuidToString(d.ID),
+		NodeID:       uuidToString(d.NodeID),
+		Type:         d.Type,
+		Name:         d.Name,
+		Requirements: d.Requirements,
+		SortOrder:    d.SortOrder,
+		CreatedAt:    timestampToString(d.CreatedAt),
+		UpdatedAt:    timestampToString(d.UpdatedAt),
 	}
 }
 
@@ -214,6 +292,19 @@ func workflowStageToResponse(s db.MulticaWorkflowStage, nodeCount int64) Workflo
 		NodeCount:   nodeCount,
 		CreatedAt:   timestampToString(s.CreatedAt),
 		UpdatedAt:   timestampToString(s.UpdatedAt),
+	}
+}
+
+func developmentStageToResponse(ds db.MulticaWorkflowDevelopmentStage) DevelopmentStageResponse {
+	return DevelopmentStageResponse{
+		ID:          uuidToString(ds.ID),
+		WorkspaceID: uuidToPtr(ds.WorkspaceID),
+		Name:        ds.Name,
+		Description: ds.Description,
+		Scope:       ds.Scope,
+		SortOrder:   ds.SortOrder,
+		CreatedAt:   timestampToString(ds.CreatedAt),
+		UpdatedAt:   timestampToString(ds.UpdatedAt),
 	}
 }
 
@@ -386,6 +477,8 @@ func (h *Handler) GetWorkflow(w http.ResponseWriter, r *http.Request) {
 		stageResps = append(stageResps, workflowStageToResponse(s, count))
 	}
 
+	h.populateNodeDeliverables(r.Context(), nodeResps)
+
 	writeJSON(w, http.StatusOK, map[string]any{
 		"workflow": workflowToResponse(wf, int64(len(nodes))),
 		"nodes":    nodeResps,
@@ -509,6 +602,9 @@ func (h *Handler) ListWorkflowNodes(w http.ResponseWriter, r *http.Request) {
 	for _, n := range nodes {
 		resp = append(resp, workflowNodeToResponse(n))
 	}
+
+	h.populateNodeDeliverables(r.Context(), resp)
+
 	writeJSON(w, http.StatusOK, map[string]any{"nodes": resp})
 }
 
@@ -536,8 +632,10 @@ func (h *Handler) CreateWorkflowNode(w http.ResponseWriter, r *http.Request) {
 	}
 
 	workspaceID := h.resolveWorkspaceID(r)
+	_ = parseUUID(workspaceID) // reserved for future squad validation
 	userID, _ := requireUserID(w, r)
 
+	// Validate worker/critic references are workspace-scoped
 	var workerID pgtype.UUID
 	if req.WorkerID != nil {
 		wID, ok := parseUUIDOrBadRequest(w, *req.WorkerID, "worker_id")
@@ -555,26 +653,84 @@ func (h *Handler) CreateWorkflowNode(w http.ResponseWriter, r *http.Request) {
 		criticID = cID
 	}
 
+	// Validate development stage if provided
+	var devStageID pgtype.UUID
+	if req.DevelopmentStageID != nil && *req.DevelopmentStageID != "" {
+		dsID, ok := parseUUIDOrBadRequest(w, *req.DevelopmentStageID, "development_stage_id")
+		if !ok {
+			return
+		}
+		ds, err := h.Queries.GetDevelopmentStage(r.Context(), dsID)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "development stage not found")
+			return
+		}
+		// Must be builtin or belong to same workspace
+		if ds.Scope == "custom" && uuidToString(ds.WorkspaceID) != workspaceID {
+			writeError(w, http.StatusBadRequest, "development stage does not belong to this workspace")
+			return
+		}
+		devStageID = dsID
+	}
+
+	// Validate deliverable types
+	for _, d := range req.Deliverables {
+		if d.Type != "document" && d.Type != "pull_request" {
+			writeError(w, http.StatusBadRequest, fmt.Sprintf("invalid deliverable type: %s (must be 'document' or 'pull_request')", d.Type))
+			return
+		}
+		if d.Name == "" {
+			writeError(w, http.StatusBadRequest, "deliverable name is required")
+			return
+		}
+	}
+
 	node, err := h.Queries.CreateWorkflowNode(r.Context(), db.CreateWorkflowNodeParams{
-		WorkflowID:         wf.ID,
-		Title:              req.Title,
-		Description:        nonNullText(req.Description),
-		PositionX:          req.PositionX,
-		PositionY:          req.PositionY,
-		FormatSchema:       req.FormatSchema,
-		WorkerType:         req.WorkerType,
-		WorkerID:           workerID,
-		CriticType:         req.CriticType,
-		CriticID:           criticID,
-		CriticApiUrl:       nonNullText(stringOrEmpty(req.CriticApiURL)),
-		SortOrder:          0,
+		WorkflowID:            wf.ID,
+		Title:                 req.Title,
+		Description:           nonNullText(req.Description),
+		PositionX:             req.PositionX,
+		PositionY:             req.PositionY,
+		FormatSchema:          req.FormatSchema,
+		WorkerType:            req.WorkerType,
+		WorkerID:              workerID,
+		CriticType:            req.CriticType,
+		CriticID:              criticID,
+		CriticApiUrl:          nonNullText(stringOrEmpty(req.CriticApiURL)),
+		DevelopmentStageID:    devStageID,
+		AgentCapabilityConfig: req.AgentCapabilityConfig,
+		Instructions:          nonNullText(req.Instructions),
+		SortOrder:             0,
 	})
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to create node")
 		return
 	}
 
+	// Persist deliverables
+	for _, d := range req.Deliverables {
+		_, err := h.Queries.CreateDeliverable(r.Context(), db.CreateDeliverableParams{
+			NodeID:       node.ID,
+			Type:         d.Type,
+			Name:         d.Name,
+			Requirements: nonNullText(d.Requirements),
+			SortOrder:    d.SortOrder,
+		})
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to create deliverable")
+			return
+		}
+	}
+
 	resp := workflowNodeToResponse(node)
+	// Load deliverables into response
+	deliverables, _ := h.Queries.ListDeliverablesByNode(r.Context(), node.ID)
+	delivResps := make([]WorkflowNodeDeliverableResponse, 0, len(deliverables))
+	for _, d := range deliverables {
+		delivResps = append(delivResps, deliverableToResponse(d))
+	}
+	resp.Deliverables = delivResps
+
 	h.publish(protocol.EventWorkflowUpdated, workspaceID, "member", userID, map[string]any{"node": resp})
 	writeJSON(w, http.StatusCreated, resp)
 }
@@ -601,19 +757,39 @@ func (h *Handler) UpdateWorkflowNode(w http.ResponseWriter, r *http.Request) {
 	workspaceID := h.resolveWorkspaceID(r)
 	userID, _ := requireUserID(w, r)
 
+	// Validate development stage if provided
+	if req.DevelopmentStageID != nil && *req.DevelopmentStageID != "" {
+		dsID, ok := parseUUIDOrBadRequest(w, *req.DevelopmentStageID, "development_stage_id")
+		if !ok {
+			return
+		}
+		ds, err := h.Queries.GetDevelopmentStage(r.Context(), dsID)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "development stage not found")
+			return
+		}
+		if ds.Scope == "custom" && uuidToString(ds.WorkspaceID) != workspaceID {
+			writeError(w, http.StatusBadRequest, "development stage does not belong to this workspace")
+			return
+		}
+	}
+
 	params := db.UpdateWorkflowNodeParams{
-		ID:                 nID,
-		Title:              ptrToText(req.Title),
-		Description:        ptrToText(req.Description),
-		PositionX:          float64ToFloat8(req.PositionX),
-		PositionY:          float64ToFloat8(req.PositionY),
-		FormatSchema:       req.FormatSchema,
-		WorkerType:         ptrToText(req.WorkerType),
-		WorkerID:           ptrStrToUUID(req.WorkerID),
-		CriticType:         ptrToText(req.CriticType),
-		CriticID:           ptrStrToUUID(req.CriticID),
-		CriticApiUrl:       ptrToText(req.CriticApiURL),
-		SortOrder:          int32ToInt4(req.SortOrder),
+		ID:                    nID,
+		Title:                 ptrToText(req.Title),
+		Description:           ptrToText(req.Description),
+		PositionX:             float64ToFloat8(req.PositionX),
+		PositionY:             float64ToFloat8(req.PositionY),
+		FormatSchema:          req.FormatSchema,
+		WorkerType:            ptrToText(req.WorkerType),
+		WorkerID:              ptrStrToUUID(req.WorkerID),
+		CriticType:            ptrToText(req.CriticType),
+		CriticID:              ptrStrToUUID(req.CriticID),
+		CriticApiUrl:          ptrToText(req.CriticApiURL),
+		DevelopmentStageID:    ptrStrToUUID(req.DevelopmentStageID),
+		AgentCapabilityConfig: req.AgentCapabilityConfig,
+		Instructions:          ptrToText(req.Instructions),
+		SortOrder:             int32ToInt4(req.SortOrder),
 	}
 
 	updated, err := h.Queries.UpdateWorkflowNode(r.Context(), params)
@@ -622,7 +798,48 @@ func (h *Handler) UpdateWorkflowNode(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Atomic deliverable replacement: if Deliverables is non-nil, replace all
+	if req.Deliverables != nil {
+		// Validate types
+		for _, d := range req.Deliverables {
+			if d.Type != "document" && d.Type != "pull_request" {
+				writeError(w, http.StatusBadRequest, fmt.Sprintf("invalid deliverable type: %s", d.Type))
+				return
+			}
+			if d.Name == "" {
+				writeError(w, http.StatusBadRequest, "deliverable name is required")
+				return
+			}
+		}
+		// Delete existing and re-create
+		if err := h.Queries.DeleteDeliverablesByNode(r.Context(), nID); err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to replace deliverables")
+			return
+		}
+		for _, d := range req.Deliverables {
+			_, err := h.Queries.CreateDeliverable(r.Context(), db.CreateDeliverableParams{
+				NodeID:       nID,
+				Type:         d.Type,
+				Name:         d.Name,
+				Requirements: nonNullText(d.Requirements),
+				SortOrder:    d.SortOrder,
+			})
+			if err != nil {
+				writeError(w, http.StatusInternalServerError, "failed to create deliverable")
+				return
+			}
+		}
+	}
+
 	resp := workflowNodeToResponse(updated)
+	// Load deliverables into response
+	deliverables, _ := h.Queries.ListDeliverablesByNode(r.Context(), nID)
+	delivResps := make([]WorkflowNodeDeliverableResponse, 0, len(deliverables))
+	for _, d := range deliverables {
+		delivResps = append(delivResps, deliverableToResponse(d))
+	}
+	resp.Deliverables = delivResps
+
 	h.publish(protocol.EventWorkflowUpdated, workspaceID, "member", userID, map[string]any{"node": resp})
 	writeJSON(w, http.StatusOK, resp)
 }
@@ -928,6 +1145,127 @@ func (h *Handler) ReorderWorkflowStages(w http.ResponseWriter, r *http.Request) 
 	writeJSON(w, http.StatusOK, map[string]string{"status": "reordered"})
 }
 
+// ── Development Stage CRUD ──────────────────────────────────────────────────
+
+func (h *Handler) ListDevelopmentStages(w http.ResponseWriter, r *http.Request) {
+	workspaceID := h.resolveWorkspaceID(r)
+	wsUUID := parseUUID(workspaceID)
+
+	stages, err := h.Queries.ListWorkspaceDevelopmentStages(r.Context(), wsUUID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to list development stages")
+		return
+	}
+
+	resps := make([]DevelopmentStageResponse, 0, len(stages))
+	for _, s := range stages {
+		resps = append(resps, developmentStageToResponse(s))
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"development_stages": resps})
+}
+
+func (h *Handler) CreateDevelopmentStage(w http.ResponseWriter, r *http.Request) {
+	workspaceID := h.resolveWorkspaceID(r)
+	wsUUID := parseUUID(workspaceID)
+
+	var req CreateDevelopmentStageRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if req.Name == "" {
+		writeError(w, http.StatusBadRequest, "name is required")
+		return
+	}
+
+	ds, err := h.Queries.CreateDevelopmentStage(r.Context(), db.CreateDevelopmentStageParams{
+		WorkspaceID: wsUUID,
+		Name:        req.Name,
+		Description: nonNullText(req.Description),
+		SortOrder:   req.SortOrder,
+	})
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to create development stage")
+		return
+	}
+
+	writeJSON(w, http.StatusCreated, developmentStageToResponse(ds))
+}
+
+func (h *Handler) UpdateDevelopmentStage(w http.ResponseWriter, r *http.Request) {
+	workspaceID := h.resolveWorkspaceID(r)
+
+	id := chi.URLParam(r, "id")
+	dsID, ok := parseUUIDOrBadRequest(w, id, "development stage ID")
+	if !ok {
+		return
+	}
+
+	ds, err := h.Queries.GetDevelopmentStage(r.Context(), dsID)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "development stage not found")
+		return
+	}
+	if ds.Scope == "builtin" {
+		writeError(w, http.StatusBadRequest, "cannot update built-in development stage")
+		return
+	}
+	if uuidToString(ds.WorkspaceID) != workspaceID {
+		writeError(w, http.StatusForbidden, "development stage does not belong to this workspace")
+		return
+	}
+
+	var req UpdateDevelopmentStageRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	updated, err := h.Queries.UpdateDevelopmentStage(r.Context(), db.UpdateDevelopmentStageParams{
+		ID:          dsID,
+		Name:        ptrToText(req.Name),
+		Description: ptrToText(req.Description),
+		SortOrder:   int32ToInt4(req.SortOrder),
+	})
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to update development stage")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, developmentStageToResponse(updated))
+}
+
+func (h *Handler) DeleteDevelopmentStage(w http.ResponseWriter, r *http.Request) {
+	workspaceID := h.resolveWorkspaceID(r)
+
+	id := chi.URLParam(r, "id")
+	dsID, ok := parseUUIDOrBadRequest(w, id, "development stage ID")
+	if !ok {
+		return
+	}
+
+	ds, err := h.Queries.GetDevelopmentStage(r.Context(), dsID)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "development stage not found")
+		return
+	}
+	if ds.Scope == "builtin" {
+		writeError(w, http.StatusBadRequest, "cannot delete built-in development stage")
+		return
+	}
+	if uuidToString(ds.WorkspaceID) != workspaceID {
+		writeError(w, http.StatusForbidden, "development stage does not belong to this workspace")
+		return
+	}
+
+	if err := h.Queries.DeleteDevelopmentStage(r.Context(), dsID); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to delete development stage")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]string{"deleted": id})
+}
+
 func (h *Handler) AssignNodeToStage(w http.ResponseWriter, r *http.Request) {
 	wfID := chi.URLParam(r, "id")
 	nodeID := chi.URLParam(r, "nodeId")
@@ -1027,6 +1365,27 @@ func (h *Handler) loadWorkflowNode(w http.ResponseWriter, r *http.Request, wfID,
 	return node, true
 }
 
+
+// ── Preflight ───────────────────────────────────────────────────────────────
+
+func (h *Handler) PreflightWorkflow(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	wf, ok := h.loadWorkflowInWorkspace(w, r, id)
+	if !ok {
+		return
+	}
+
+	result, err := service.RunPreflight(r.Context(), h.Queries, wf.ID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, fmt.Sprintf("preflight failed: %v", err))
+		return
+	}
+
+	writeJSON(w, http.StatusOK, PreflightResponse{
+		Passed: result.Passed,
+		Issues: result.Issues,
+	})
+}
 
 // ── Template ───────────────────────────────────────────────────────────────────
 
@@ -1251,6 +1610,25 @@ func (h *Handler) InviteWorkflowAdmin(w http.ResponseWriter, r *http.Request) {
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
+
+// populateNodeDeliverables attaches deliverables to each node response.
+func (h *Handler) populateNodeDeliverables(ctx context.Context, nodeResps []WorkflowNodeResponse) {
+	for i := range nodeResps {
+		nID, err := util.ParseUUID(nodeResps[i].ID)
+		if err != nil {
+			continue
+		}
+		deliverables, err := h.Queries.ListDeliverablesByNode(ctx, nID)
+		if err != nil {
+			continue
+		}
+		delivResps := make([]WorkflowNodeDeliverableResponse, 0, len(deliverables))
+		for _, d := range deliverables {
+			delivResps = append(delivResps, deliverableToResponse(d))
+		}
+		nodeResps[i].Deliverables = delivResps
+	}
+}
 
 func nonNullText(s string) pgtype.Text {
 	return pgtype.Text{String: s, Valid: true}

@@ -24,9 +24,11 @@ WHERE id = $1;
 -- name: CreateWorkflowNodeRun :one
 INSERT INTO multica_workflow_node_run (
     workflow_run_id, workflow_node_id, node_title, status,
-    retry_count, worker_type, worker_id, critic_type, critic_id
+    retry_count, worker_type, worker_id, critic_type, critic_id,
+    recipe_snapshot
 ) VALUES (
-    $1, $2, $3, $4, $5, $6, sqlc.narg('worker_id'), $7, sqlc.narg('critic_id')
+    $1, $2, $3, $4, $5, $6, sqlc.narg('worker_id'), $7, sqlc.narg('critic_id'),
+    sqlc.narg('recipe_snapshot')
 ) RETURNING *;
 
 -- name: UpdateWorkflowNodeRunStatus :one

@@ -233,7 +233,14 @@ func (s *WorkflowService) StartRun(ctx context.Context, workflow db.MulticaWorkf
 				status = NodeRunStatusFormatChecking
 			}
 
-			_, err := qtx.CreateWorkflowNodeRun(ctx, db.CreateWorkflowNodeRunParams{
+			// Build recipe snapshot before creating node run
+			deliverables, _ := qtx.ListDeliverablesByNode(ctx, node.ID)
+			snapshot, err := buildRecipeSnapshot(node, deliverables)
+			if err != nil {
+				return fmt.Errorf("build recipe snapshot for %s: %w", node.Title, err)
+			}
+
+			_, err = qtx.CreateWorkflowNodeRun(ctx, db.CreateWorkflowNodeRunParams{
 				WorkflowRunID:  run.ID,
 				WorkflowNodeID: node.ID,
 				NodeTitle:      node.Title,
@@ -243,6 +250,7 @@ func (s *WorkflowService) StartRun(ctx context.Context, workflow db.MulticaWorkf
 				WorkerID:       node.WorkerID,
 				CriticType:     node.CriticType,
 				CriticID:       node.CriticID,
+				RecipeSnapshot: snapshot,
 			})
 			if err != nil {
 				return fmt.Errorf("create node run for %s: %w", node.Title, err)
@@ -319,6 +327,62 @@ func textToString(t pgtype.Text) string {
 
 func textToPgText(s string) pgtype.Text {
 	return pgtype.Text{String: s, Valid: true}
+}
+
+// buildRecipeSnapshot creates a frozen copy of the node's configuration
+// at run creation time, so the issue panorama always reflects the original.
+func buildRecipeSnapshot(node db.MulticaWorkflowNode, deliverables []db.MulticaWorkflowNodeDeliverable) ([]byte, error) {
+	type delivSnapshot struct {
+		Type         string `json:"type"`
+		Name         string `json:"name"`
+		Requirements string `json:"requirements"`
+		SortOrder    int32  `json:"sort_order"`
+	}
+
+	snapshot := map[string]any{
+		"title":                   node.Title,
+		"description":             node.Description,
+		"worker_type":             node.WorkerType,
+		"critic_type":             node.CriticType,
+		"format_schema":           json.RawMessage(node.FormatSchema),
+		"agent_capability_config": json.RawMessage(node.AgentCapabilityConfig),
+		"instructions":            node.Instructions,
+	}
+
+	// Stage and development stage IDs
+	if node.StageID.Valid {
+		snapshot["stage_id"] = util.UUIDToString(node.StageID)
+	}
+	if node.DevelopmentStageID.Valid {
+		snapshot["development_stage_id"] = util.UUIDToString(node.DevelopmentStageID)
+	}
+
+	// Worker/Critic references
+	if node.WorkerID.Valid {
+		snapshot["worker_id"] = util.UUIDToString(node.WorkerID)
+	}
+	if node.CriticID.Valid {
+		snapshot["critic_id"] = util.UUIDToString(node.CriticID)
+	}
+	if node.CriticApiUrl.Valid {
+		snapshot["critic_api_url"] = node.CriticApiUrl.String
+	}
+
+	// Deliverables
+	if len(deliverables) > 0 {
+		ds := make([]delivSnapshot, 0, len(deliverables))
+		for _, d := range deliverables {
+			ds = append(ds, delivSnapshot{
+				Type:         d.Type,
+				Name:         d.Name,
+				Requirements: d.Requirements,
+				SortOrder:    d.SortOrder,
+			})
+		}
+		snapshot["deliverables"] = ds
+	}
+
+	return json.Marshal(snapshot)
 }
 
 // CancelRun cancels all active node_runs and marks the run as cancelled.

@@ -6,11 +6,13 @@ import {
   DuplicateIssueErrorBodySchema,
   EMPTY_USER,
   ListIssuesResponseSchema,
+  PreflightResponseSchema,
   RuntimeHourlyActivityListSchema,
   RuntimeUsageByAgentListSchema,
   RuntimeUsageByHourListSchema,
   RuntimeUsageListSchema,
   UserSchema,
+  WorkflowNodeSchema,
 } from "./schemas";
 import { parseWithFallback } from "./schema";
 
@@ -229,5 +231,39 @@ describe("dashboard + runtime usage schema drift", () => {
       { date: "2026-05-19", region: "us-east" },
     ]);
     expect((parsed[0] as Record<string, unknown>).region).toBe("us-east");
+  });
+});
+
+describe("WorkflowNodeSchema fallback", () => {
+  it("handles missing new fields", () => {
+    const result = WorkflowNodeSchema.parse({
+      id: "1",
+      workflow_id: "wf-1",
+      title: "Test",
+    });
+    expect(result.development_stage_id).toBeNull();
+    expect(result.agent_capability_config).toBeNull();
+    expect(result.instructions).toBe("");
+    expect(result.deliverables).toEqual([]);
+  });
+
+  it("handles wrong types gracefully via loose", () => {
+    const result = WorkflowNodeSchema.parse({
+      id: "1",
+      workflow_id: "wf-1",
+      title: "Test",
+      deliverables: "not-an-array",
+      instructions: 123,
+    });
+    // loose() allows extra/wrong types; core fields still populate
+    expect(result.id).toBe("1");
+  });
+});
+
+describe("PreflightResponseSchema fallback", () => {
+  it("defaults to empty issues on missing fields", () => {
+    const result = PreflightResponseSchema.parse({});
+    expect(result.passed).toBe(false);
+    expect(result.issues).toEqual([]);
   });
 });

@@ -668,6 +668,19 @@ export const EMPTY_WORKFLOW: Workflow = {
   updated_at: "",
 };
 
+const WorkflowNodeDeliverableSchema = z.object({
+  id: z.string(),
+  node_id: z.string(),
+  type: z.string().default("document"),
+  name: z.string().default(""),
+  requirements: z.string().default(""),
+  sort_order: z.number().default(0),
+  created_at: z.string().default(""),
+  updated_at: z.string().default(""),
+}).loose();
+
+export type WorkflowNodeDeliverable = z.infer<typeof WorkflowNodeDeliverableSchema>;
+
 const WorkflowNodeSchema = z.object({
   id: z.string(),
   workflow_id: z.string(),
@@ -683,6 +696,10 @@ const WorkflowNodeSchema = z.object({
   critic_api_url: z.string().nullable().default(null),
   sort_order: z.number().default(0),
   stage_id: z.string().nullable().default(null),
+  development_stage_id: z.string().nullable().default(null),
+  agent_capability_config: z.unknown().nullable().default(null),
+  instructions: z.string().default("").catch(""),
+  deliverables: z.array(WorkflowNodeDeliverableSchema).default([]).catch([]),
   created_at: z.string().default(""),
   updated_at: z.string().default(""),
 }).loose();
@@ -690,6 +707,8 @@ const WorkflowNodeSchema = z.object({
 export const WorkflowNodeListSchema = z.array(WorkflowNodeSchema);
 
 export const EMPTY_WORKFLOW_NODE_LIST: WorkflowNode[] = [];
+
+export { WorkflowNodeSchema };
 
 const WorkflowEdgeSchema = z.object({
   id: z.string(),
@@ -733,6 +752,53 @@ export const WorkflowStagesResponseSchema = z.object({
 }).loose();
 
 export const EMPTY_WORKFLOW_STAGES_RESPONSE = { stages: [] };
+
+// ---------------------------------------------------------------------------
+// Development Stage — used by workflow nodes to track the development lifecycle
+// stage (e.g. "ideation", "design", "implementation", "review", "deploy").
+// ---------------------------------------------------------------------------
+
+const DevelopmentStageSchema = z.object({
+  id: z.string(),
+  workspace_id: z.string().nullable().default(null),
+  name: z.string(),
+  description: z.string().default(""),
+  scope: z.string().default("custom"),
+  sort_order: z.number().default(0),
+  created_at: z.string().default(""),
+  updated_at: z.string().default(""),
+}).loose();
+
+export const DevelopmentStageListSchema = z.array(DevelopmentStageSchema);
+
+export const EMPTY_DEVELOPMENT_STAGE_LIST: DevelopmentStage[] = [];
+
+export const DevelopmentStagesResponseSchema = z.object({
+  development_stages: z.array(DevelopmentStageSchema).default([]),
+}).loose();
+
+export type DevelopmentStage = z.infer<typeof DevelopmentStageSchema>;
+
+// ---------------------------------------------------------------------------
+// Preflight — validation check result for workflow configurations. Used to
+// surface issues (e.g. missing agent config, circular dependencies) before a
+// workflow run starts.
+// ---------------------------------------------------------------------------
+
+const PreflightIssueSchema = z.object({
+  severity: z.string(), // "error" | "warning"
+  message: z.string(),
+  node_id: z.string().nullable().optional(),
+}).loose();
+
+export const PreflightResponseSchema = z.object({
+  passed: z.boolean().default(false),
+  issues: z.array(PreflightIssueSchema).default([]),
+}).loose();
+
+export type PreflightIssue = z.infer<typeof PreflightIssueSchema>;
+
+export const EMPTY_PREFLIGHT_RESPONSE = { passed: false, issues: [] };
 
 export const WorkflowDetailResponseSchema = z.object({
   workflow: z.lazy(() => WorkflowSchema).default(EMPTY_WORKFLOW as any),
