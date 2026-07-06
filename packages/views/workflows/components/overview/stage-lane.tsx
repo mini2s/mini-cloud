@@ -4,6 +4,7 @@ import { useMemo } from "react";
 import type { WorkflowStage, WorkflowNode, Agent, WorkflowNodeRun } from "@multica/core/types";
 import { workerTypeToActorType } from "@multica/core/types";
 import type { BuiltinPlugin } from "@multica/core/api/schemas";
+import type { NodeRunActionType } from "../../../issues/components/execution/runtime-node-card";
 import { cn } from "@multica/ui/lib/utils";
 import { CompactNodeCard } from "./compact-node-card";
 import { CriticBadge } from "./critic-badge";
@@ -23,6 +24,8 @@ export interface StageLaneProps {
   mode?: "template" | "runtime";
   nodeRuns?: Map<string, WorkflowNodeRun>;
   onNodeClick?: (nodeId: string) => void;
+  onNodeAction?: (nodeRunId: string, action: NodeRunActionType) => void;
+  isNodeActionLoading?: Partial<Record<NodeRunActionType, boolean>>;
 }
 
 const STAGE_LABEL_COLORS = [
@@ -47,6 +50,8 @@ export function StageLane({
   mode = "template",
   nodeRuns,
   onNodeClick,
+  onNodeAction,
+  isNodeActionLoading,
 }: StageLaneProps) {
   const colorIndex = getStageColorIndex(stage.sort_order);
   const stageBg = STAGE_BG_COLORS[colorIndex] ?? STAGE_BG_COLORS[0];
@@ -113,6 +118,8 @@ export function StageLane({
                       criticName={criticName}
                       onClick={(id) => onNodeClick?.(id)}
                       elementRef={nodeElementRefs.get(node.id)}
+                      onAction={onNodeAction}
+                      isActionLoading={isNodeActionLoading}
                     />
                   );
                 }

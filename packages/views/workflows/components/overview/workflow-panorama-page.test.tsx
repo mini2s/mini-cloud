@@ -37,6 +37,7 @@ const mocks = vi.hoisted(() => ({
     edges: Edge[];
     onNodeClick?: (event: React.MouseEvent, node: Node) => void;
     onPaneClick?: () => void;
+    onNodeDragStop?: (event: MouseEvent | TouchEvent, node: Node) => void;
     onDragOver?: (event: React.DragEvent) => void;
     onDrop?: (event: React.DragEvent) => void;
     defaultViewport?: { x: number; y: number; zoom: number };
@@ -171,6 +172,7 @@ vi.mock("../../../i18n", () => {
     },
     panorama: {
       empty_all: "Create your first stage to get started",
+      add_first_step: "Add your first task",
       toolbar: {
         undo: "Undo",
         redo: "Redo",
@@ -179,6 +181,19 @@ vi.mock("../../../i18n", () => {
         save: "Save changes",
         unsaved: "Unsaved changes",
       },
+    },
+    preflight: {
+      bar_collapsed_all_clear: "Ready to publish",
+      bar_collapsed_blocking: "{{count}} blocking",
+      bar_collapsed_warnings: "{{count}} warning(s)",
+      bar_collapsed_issues: "{{count}} issue(s) before publishing",
+      bar_expand: "Review issues",
+      bar_dismiss: "Dismiss",
+      bar_publish: "Publish",
+      check_stage_missing: "No stage assigned",
+      first_stage_guide_title: "Create your first stage",
+      first_stage_guide_description: "Stages help you organize workflow steps into logical phases.",
+      first_stage_guide_cta: "Create stage",
     },
   };
 
@@ -203,6 +218,7 @@ vi.mock("@xyflow/react", () => ({
     edges: Edge[];
     onNodeClick?: (event: React.MouseEvent, node: Node) => void;
     onPaneClick?: () => void;
+    onNodeDragStop?: (event: MouseEvent | TouchEvent, node: Node) => void;
     onDragOver?: (event: React.DragEvent) => void;
     onDrop?: (event: React.DragEvent) => void;
     defaultViewport?: { x: number; y: number; zoom: number };
@@ -242,6 +258,14 @@ vi.mock("../node-config-panel", () => ({
       </button>
     </div>
   ),
+}));
+
+vi.mock("@multica/core/workflows/preflight-checks", () => ({
+  runAllPreflightChecks: () => ({ issues: [], blockingCount: 0, warningCount: 0, passed: true }),
+}));
+
+vi.mock("./preflight-bar", () => ({
+  PreflightBar: () => null,
 }));
 
 // Mock TanStack Query — reads from hoisted mocks
@@ -347,7 +371,8 @@ describe("WorkflowPanoramaPage (new)", () => {
   it("shows empty state when no stages", () => {
     mocks.stagesData = [];
     render(<WorkflowPanoramaPage workflowId="wf-1" />);
-    expect(screen.getByText("Create Stage")).toBeInTheDocument();
+    expect(screen.getByText("Create stage")).toBeInTheDocument();
+    expect(screen.getByText("Create your first stage")).toBeInTheDocument();
   });
 
   it("renders critic badges as independent nodes below workers", () => {
@@ -381,6 +406,17 @@ describe("WorkflowPanoramaPage (new)", () => {
     });
     expect(critic).not.toHaveProperty("parentId");
     expect(critic).not.toHaveProperty("extent");
+  });
+
+  it("renders worker nodes at their persisted x coordinate without label rail offsets", () => {
+    mocks.nodesData = [
+      { id: "node-1", workflow_id: "wf-1", title: "A", description: "", worker_type: "agent", worker_id: null, critic_type: "human", critic_id: null, critic_api_url: null, stage_id: "stage-1", format_schema: null, position_x: 120, position_y: 0, sort_order: 0, created_at: "", updated_at: "" },
+    ];
+
+    render(<WorkflowPanoramaPage workflowId="wf-1" />);
+
+    const worker = mocks.reactFlowProps?.nodes.find((n) => n.id === "node-1");
+    expect(worker).toMatchObject({ position: { x: 120, y: 12 } });
   });
 
   it("filters deleted nodes and projects local edits before rendering", () => {
@@ -499,6 +535,25 @@ describe("WorkflowPanoramaPage (new)", () => {
     );
   });
 
+  it("persists dragged node x coordinates without label rail offsets", () => {
+    mocks.nodesData = [
+      { id: "node-1", workflow_id: "wf-1", title: "A", description: "", worker_type: "agent", worker_id: null, critic_type: "human", critic_id: null, critic_api_url: null, stage_id: "stage-1", format_schema: null, position_x: 100, position_y: 0, sort_order: 0, created_at: "", updated_at: "" },
+    ];
+
+    render(<WorkflowPanoramaPage workflowId="wf-1" />);
+
+    const worker = mocks.reactFlowProps?.nodes.find((n) => n.id === "node-1");
+    mocks.reactFlowProps?.onNodeDragStop?.({} as MouseEvent, {
+      ...worker!,
+      position: { x: 280, y: 12 },
+    });
+
+    expect(mocks.updateNodeMutate).toHaveBeenCalledWith({
+      nodeId: "node-1",
+      position_x: 280,
+    });
+  });
+
   it("opens stage editing with the selected stage data and updates that stage", async () => {
     mocks.stagesData = [
       { id: "stage-1", workflow_id: "wf-1", name: "Intake", description: "Collect context", sort_order: 0, node_count: 0, created_at: "", updated_at: "" },
@@ -590,7 +645,7 @@ describe("WorkflowPanoramaPage (new)", () => {
     expect(mocks.deleteNodeMutateAsync).toHaveBeenCalledWith("node-1");
   });
 
-  it("closes the config panel when a lane background node is clicked", () => {
+  it("does not model stage lane backgrounds as clickable ReactFlow nodes", () => {
     mocks.nodesData = [
       { id: "node-1", workflow_id: "wf-1", title: "A", description: "", worker_type: "agent", worker_id: null, critic_type: "human", critic_id: null, critic_api_url: null, stage_id: "stage-1", format_schema: null, position_x: 100, position_y: 0, sort_order: 0, created_at: "", updated_at: "" },
     ];
@@ -607,30 +662,33 @@ describe("WorkflowPanoramaPage (new)", () => {
 
     // Click a lane background node — should close the panel
     const laneBg = mocks.reactFlowProps?.nodes.find((n) => n.id === "lane-bg-stage-1");
-    act(() => {
-      mocks.reactFlowProps?.onNodeClick?.({} as React.MouseEvent, laneBg!);
-    });
-    rerender(<WorkflowPanoramaPage workflowId="wf-1" />);
-    expect(screen.queryByTestId("node-config-panel")).not.toBeInTheDocument();
-    expect(mocks.selectNode).toHaveBeenLastCalledWith(null);
+    expect(laneBg).toBeUndefined();
+    expect(screen.getByTestId("node-config-panel")).toBeInTheDocument();
   });
 
-  it("hides background lane nodes from the minimap and sets node dimensions", () => {
+  it("keeps stage lane backgrounds out of ReactFlow nodes and the minimap", () => {
     mocks.nodesData = [
       { id: "node-1", workflow_id: "wf-1", title: "A", description: "", worker_type: "agent", worker_id: null, critic_type: "human", critic_id: null, critic_api_url: null, stage_id: "stage-1", format_schema: null, position_x: 100, position_y: 0, sort_order: 0, created_at: "", updated_at: "" },
     ];
 
     render(<WorkflowPanoramaPage workflowId="wf-1" />);
 
-    expect(mocks.miniMapProps?.nodeColor?.({ type: "laneBg" } as Node)).toBe("transparent");
     expect(mocks.miniMapProps?.nodeColor?.({ type: "compactWorker" } as Node)).toBe("#64748b");
 
     // Nodes must carry explicit width/height so MiniMap can render them
     // before the ResizeObserver fires (nodeHasDimensions check in @xyflow/system)
     const worker = mocks.reactFlowProps?.nodes.find((n) => n.id === "node-1");
     expect(worker).toMatchObject({ width: 224, height: 64 });
-    const laneBg = mocks.reactFlowProps?.nodes.find((n) => n.id === "lane-bg-stage-1");
-    expect(laneBg).toMatchObject({ width: 2400, height: 160 });
+    expect(mocks.reactFlowProps?.nodes.some((n) => n.type === "laneBg" || n.type === "gradientBg")).toBe(false);
+  });
+
+  it("lets the canvas background extend behind the fixed stage labels", () => {
+    render(<WorkflowPanoramaPage workflowId="wf-1" />);
+
+    const canvas = screen.getByTestId("panorama-canvas");
+    expect(canvas.className).not.toContain("pl-40");
+    expect(canvas.className).toContain("absolute");
+    expect(canvas.className).toContain("inset-0");
   });
 
   it("renders workflow title, back button, and status toggle in the header", () => {

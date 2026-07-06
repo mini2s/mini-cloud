@@ -316,6 +316,7 @@
     "empty_all": "Create your first stage to get started",
     "unassigned": "Unassigned",
     "not_configured": "Not configured",
+    "add_first_step": "Add your first task to this stage by clicking \"Add node\" in the toolbar or dragging a node type here.",
     "toolbar": {
       "undo": "Undo",
       "redo": "Redo",
@@ -332,5 +333,32 @@
       "move_up": "Move stage up",
       "move_down": "Move stage down"
     }
+  },
+  "preflight": {
+    "bar_collapsed_all_clear": "Ready to publish",
+    "bar_collapsed_issues": "{{count}} issue(s) before publishing",
+    "bar_collapsed_blocking": "{{count}} blocking",
+    "bar_collapsed_warnings": "{{count}} warning(s)",
+    "bar_expand": "Review issues",
+    "bar_dismiss": "Dismiss",
+    "bar_publish": "Publish",
+    "bar_publishing": "Publishing...",
+    "check_dag_cycle": "Cycle detected",
+    "check_orphan_node": "Orphan node",
+    "check_unreachable_node": "Unreachable node",
+    "check_worker_missing": "No worker assigned",
+    "check_invalid_critic": "Invalid critic reference",
+    "check_stage_missing": "No stage assigned",
+    "check_schema_required": "Missing required fields",
+    "detail_dag_cycle": "Nodes form a cycle: {{path}}",
+    "detail_orphan_node": "Node has no connections",
+    "detail_unreachable_node": "Node has no incoming connections from the primary stage",
+    "detail_worker_missing": "Assign a worker to this node",
+    "detail_invalid_critic": "Critic ID not found in available agents",
+    "detail_stage_missing": "Assign this node to a stage",
+    "detail_schema_required": "Required fields not in schema: {{fields}}",
+    "first_stage_guide_title": "Create your first stage",
+    "first_stage_guide_description": "Stages help you organize workflow steps into logical phases. Create a stage to get started.",
+    "first_stage_guide_cta": "Create stage"
   }
 }

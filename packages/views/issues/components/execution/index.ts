@@ -8,3 +8,5 @@ export { ExecutionDetailPanel } from "./execution-detail-panel";
 export type { ExecutionDetailPanelProps } from "./execution-detail-panel";
 export { ArtifactList } from "./artifact-list";
 export type { ArtifactListProps } from "./artifact-list";
+export { GlobalNotificationBar } from "./global-notification-bar";
+export type { GlobalNotificationBarProps, NotificationItem } from "./global-notification-bar";

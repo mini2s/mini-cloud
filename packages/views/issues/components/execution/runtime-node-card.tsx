@@ -1,10 +1,22 @@
 "use client";
 
+import { useState, useCallback, useEffect, useRef } from "react";
 import type { WorkflowNode, WorkflowNodeRun } from "@multica/core/types";
 import { cn } from "@multica/ui/lib/utils";
 import { NodeRunStatusIcon } from "./node-run-status-icon";
-import { Bot, User, Building2, Paperclip } from "lucide-react";
+import { Bot, User, Building2, Paperclip, Check } from "lucide-react";
 import { useT } from "@multica/views/i18n";
+import { Button } from "@multica/ui/components/ui/button";
+import { Loader2 } from "lucide-react";
+
+export type NodeRunActionType =
+  | "approve"
+  | "reject"
+  | "submit"
+  | "handback"
+  | "retry"
+  | "skip"
+  | "complete";
 
 export interface RuntimeNodeCardProps {
   node: WorkflowNode;
@@ -14,13 +26,125 @@ export interface RuntimeNodeCardProps {
   onClick: (nodeId: string) => void;
   isSelected?: boolean;
   elementRef?: (el: HTMLButtonElement | null) => void;
+  onAction?: (nodeRunId: string, action: NodeRunActionType) => void;
+  isActionLoading?: Partial<Record<NodeRunActionType, boolean>>;
 }
 
 /** Maps worker/critic type to its Lucide icon component. */
 function typeIcon(t: string) {
   if (t === "agent") return Bot;
   if (t === "squad") return Building2;
-  return User; // "human" or fallback
+  return User;
+}
+
+/** Actionable status → button layout mapping. */
+const ACTIONABLE_STATUSES = new Set([
+  "awaiting_critic",
+  "awaiting_input",
+  "blocked",
+  "failed",
+]);
+
+interface ActionButtonDef {
+  action: NodeRunActionType;
+  label: string;
+}
+
+interface ActionButtonsProps {
+  status: string;
+  nodeRunId: string;
+  onAction: (nodeRunId: string, action: NodeRunActionType) => void;
+  isActionLoading?: Partial<Record<NodeRunActionType, boolean>>;
+  buttons: ActionButtonDef[];
+}
+
+/**
+ * Single action button with loading → success → idle lifecycle.
+ * When loading, shows spinner. When mutation settles (loading→false),
+ * flashes a checkmark briefly before the card refreshes with new status.
+ */
+function ActionButton({
+  action,
+  label,
+  nodeRunId,
+  onAction,
+  loading,
+}: {
+  action: NodeRunActionType;
+  label: string;
+  nodeRunId: string;
+  onAction: (nodeRunId: string, action: NodeRunActionType) => void;
+  loading: boolean;
+}) {
+  const [justCompleted, setJustCompleted] = useState(false);
+  const prevLoading = useRef(loading);
+
+  useEffect(() => {
+    if (prevLoading.current && !loading) {
+      // Mutation just settled successfully — flash checkmark
+      setJustCompleted(true);
+      const timer = setTimeout(() => setJustCompleted(false), 1200);
+      return () => clearTimeout(timer);
+    }
+    prevLoading.current = loading;
+  }, [loading]);
+
+  const handleClick = useCallback(
+    (e: React.MouseEvent) => {
+      e.stopPropagation();
+      if (!loading && !justCompleted) onAction(nodeRunId, action);
+    },
+    [loading, justCompleted, onAction, nodeRunId, action],
+  );
+
+  const disabled = loading || justCompleted;
+
+  return (
+    <Button
+      variant="outline"
+      size="sm"
+      data-testid={`runtime-node-action-${action}`}
+      disabled={disabled}
+      className="h-6 px-1.5 text-[10px] gap-0.5 min-w-0 transition-all duration-150"
+      onClick={handleClick}
+    >
+      {loading ? (
+        <Loader2 className="h-3 w-3 animate-spin shrink-0" />
+      ) : justCompleted ? (
+        <Check className="h-3 w-3 text-emerald-500 shrink-0" />
+      ) : null}
+      <span className={loading ? "opacity-50" : ""}>{label}</span>
+    </Button>
+  );
+}
+
+function ActionButtons({
+  status,
+  nodeRunId,
+  onAction,
+  isActionLoading,
+  buttons,
+}: ActionButtonsProps) {
+  if (!ACTIONABLE_STATUSES.has(status)) return null;
+  if (buttons.length === 0) return null;
+
+  const loading = (action: NodeRunActionType) =>
+    isActionLoading?.[action] ?? false;
+
+  return (
+    <div className="flex items-center gap-1 border-t border-border/50 pt-1.5">
+      {buttons.map(({ action, label }) => (
+        <ActionButton
+          key={action}
+          action={action}
+          label={label}
+          nodeRunId={nodeRunId}
+          onAction={onAction}
+          loading={loading(action)}
+        />
+      ))}
+    </div>
+  );
 }
 
 export function RuntimeNodeCard({
@@ -31,12 +155,13 @@ export function RuntimeNodeCard({
   onClick,
   isSelected = false,
   elementRef,
+  onAction,
+  isActionLoading,
 }: RuntimeNodeCardProps) {
   const { t } = useT("issues");
   const hasWorkerOutput = nodeRun?.worker_output != null;
   const hasCriticOutput = nodeRun?.critic_output != null;
 
-  // Build artifact names from outputs — use output labels as artifact descriptors
   const artifactNames: string[] = [];
   if (hasWorkerOutput) {
     artifactNames.push(t(($) => $.execution.detail_panel.worker_output));
@@ -46,6 +171,32 @@ export function RuntimeNodeCard({
   }
 
   const WorkerIcon = typeIcon(node.worker_type);
+
+  const actionButtons: ActionButtonDef[] = nodeRun
+    ? (() => {
+        switch (nodeRun.status) {
+          case "awaiting_critic":
+            return [
+              { action: "approve" as const, label: t(($) => $.execution.card.actions.approve) },
+              { action: "reject" as const, label: t(($) => $.execution.card.actions.reject) },
+            ];
+          case "awaiting_input":
+            return [
+              { action: "submit" as const, label: t(($) => $.execution.card.actions.submit_input) },
+              { action: "handback" as const, label: t(($) => $.execution.card.actions.handback) },
+            ];
+          case "blocked":
+          case "failed":
+            return [
+              { action: "retry" as const, label: t(($) => $.execution.card.actions.retry) },
+              { action: "skip" as const, label: t(($) => $.execution.card.actions.skip) },
+              { action: "complete" as const, label: t(($) => $.execution.card.actions.complete) },
+            ];
+          default:
+            return [];
+        }
+      })()
+    : [];
 
   return (
     <button
@@ -71,19 +222,16 @@ export function RuntimeNodeCard({
         )}
       </div>
 
-      {/* Row 2: Worker (type icon + label + name + status) */}
+      {/* Row 2: Worker (type icon + label + name — no duplicate status icon) */}
       <div className="flex items-center gap-2 h-6 text-[11px] text-muted-foreground">
         <WorkerIcon className="h-3 w-3 shrink-0" />
         <span className="font-medium">{t(($) => $.execution.card.worker_label)}:</span>
         <span className={cn(!workerName && "italic")}>
           {workerName ?? "--"}
         </span>
-        {nodeRun && (
-          <NodeRunStatusIcon status={nodeRun.status} className="h-3.5 w-3.5 shrink-0 ml-auto" />
-        )}
       </div>
 
-      {/* Row 3: Critic (only when configured; type icon + label + name) */}
+      {/* Row 3: Critic (only when configured) */}
       {(node.critic_type || node.critic_id) && (
         <div className="flex items-center gap-2 h-6 text-[11px] text-muted-foreground">
           {node.critic_type === "agent" ? (
@@ -100,7 +248,7 @@ export function RuntimeNodeCard({
         </div>
       )}
 
-      {/* Row 4: Artifact names (only when artifacts exist) */}
+      {/* Row 4: Artifact names */}
       {artifactNames.length > 0 && (
         <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
           <Paperclip className="h-3 w-3 shrink-0" />
@@ -108,6 +256,17 @@ export function RuntimeNodeCard({
             {t(($) => $.execution.card.artifacts_label)}: {artifactNames.join(", ")}
           </span>
         </div>
+      )}
+
+      {/* Action buttons */}
+      {onAction && actionButtons.length > 0 && (
+        <ActionButtons
+          status={nodeRun!.status}
+          nodeRunId={nodeRun!.id}
+          onAction={onAction}
+          isActionLoading={isActionLoading}
+          buttons={actionButtons}
+        />
       )}
     </button>
   );

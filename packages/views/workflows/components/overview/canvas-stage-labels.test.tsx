@@ -2,7 +2,7 @@
 import { describe, it, expect, vi } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
 import { CanvasStageLabels } from "./canvas-stage-labels";
-import { STAGE_COLOR_BAR_CLASSES } from "./constants";
+import { GRADIENT_HEIGHT, LANE_HEIGHT, STAGE_BG_COLORS } from "./constants";
 import type { WorkflowStage } from "@multica/core/types";
 
 function makeStage(overrides: Partial<WorkflowStage> = {}): WorkflowStage {
@@ -41,17 +41,58 @@ describe("CanvasStageLabels", () => {
     expect(screen.getByText("Stage 2")).toBeInTheDocument();
   });
 
-  it("renders unified card containers", () => {
+  it("renders neutral stage label containers", () => {
     render(<CanvasStageLabels {...baseProps} />);
     const cards = screen.getAllByTestId("stage-label-card");
     expect(cards).toHaveLength(2);
   });
 
-  it("applies stage color bar class based on sort order", () => {
+  it("keeps full-width stage lane background bands from the same viewport transform as labels", () => {
+    render(<CanvasStageLabels {...baseProps} viewportY={24} viewportZoom={1.5} />);
+
+    const bands = screen.getAllByTestId("stage-lane-band");
+    expect(bands).toHaveLength(2);
+    expect(bands[0]!.className).toContain(STAGE_BG_COLORS[0]);
+    expect(bands[0]!.getAttribute("style")).toContain("top: 24px");
+    expect(bands[0]!.getAttribute("style")).toContain(`height: ${LANE_HEIGHT * 1.5}px`);
+    expect(bands[1]!.getAttribute("style")).toContain("top: 288px");
+    expect(bands[1]!.getAttribute("style")).toContain(`height: ${LANE_HEIGHT * 1.5}px`);
+  });
+
+  it("uses neutral transparent labels without stage color bars or lane backgrounds", () => {
     render(<CanvasStageLabels {...baseProps} />);
     const cards = screen.getAllByTestId("stage-label-card");
-    expect(cards[0]!.className).toContain(STAGE_COLOR_BAR_CLASSES[0]);
-    expect(cards[1]!.className).toContain(STAGE_COLOR_BAR_CLASSES[1]);
+    for (const card of cards) {
+      expect(card.className).not.toContain("border-l-[3px]");
+      expect(card.className).not.toMatch(/\bbg-(slate|stone|blue|rose|violet|amber)-100/);
+      expect(card.className).toContain("hover:bg-muted/50");
+    }
+  });
+
+  it("uses compact stage typography", () => {
+    render(<CanvasStageLabels {...baseProps} />);
+    expect(screen.getByText("Stage 1").className).toContain("text-[10px]");
+    expect(screen.getByText("Design").className).toContain("text-[13px]");
+  });
+
+  it("renders gradient separators between stage backgrounds", () => {
+    render(<CanvasStageLabels {...baseProps} viewportY={10} viewportZoom={2} />);
+    const gradients = screen.getAllByTestId("stage-gradient-bar");
+    expect(gradients).toHaveLength(baseProps.stages.length - 1);
+    expect(gradients[0]!.getAttribute("style")).toContain("top: 330px");
+    expect(gradients[0]!.getAttribute("style")).toContain(`height: ${GRADIENT_HEIGHT * 2}px`);
+  });
+
+  it("does not have card chrome classes (no rounded, shadow, backdrop, card border)", () => {
+    render(<CanvasStageLabels {...baseProps} />);
+    const cards = screen.getAllByTestId("stage-label-card");
+    for (const card of cards) {
+      expect(card.className).not.toContain("rounded-lg");
+      expect(card.className).not.toContain("shadow-sm");
+      expect(card.className).not.toContain("backdrop-blur");
+      expect(card.className).not.toContain("bg-background/95");
+      expect(card.className).not.toMatch(/\bborder\b.*\bborder-border/);
+    }
   });
 
   it("renders drag handles", () => {
@@ -115,6 +156,12 @@ describe("CanvasStageLabels", () => {
     expect(screen.getByText("Requirements and design phase")).toBeInTheDocument();
   });
 
+  it("does not render gradient bars when only one stage", () => {
+    const stages = [makeStage()];
+    render(<CanvasStageLabels {...baseProps} stages={stages} />);
+    expect(screen.queryByTestId("stage-gradient-bar")).toBeNull();
+  });
+
   it("positions labels accounting for viewportY and viewportZoom", () => {
     // At zoom=1, positions should match flow coordinates + viewportY
     const { rerender } = render(<CanvasStageLabels {...baseProps} viewportY={-176} viewportZoom={1} />);
@@ -126,7 +173,7 @@ describe("CanvasStageLabels", () => {
     rerender(<CanvasStageLabels {...baseProps} viewportY={0} viewportZoom={2} />);
     const cards = screen.getAllByTestId("stage-label-card");
     // Stage 0 at top=0, Stage 1 at top=LANE_STEP*2=352
-    expect(cards[0]!.closest("[style]")?.getAttribute("style")).toContain("top: 0px");
-    expect(cards[1]!.closest("[style]")?.getAttribute("style")).toContain("top: 352px");
+    expect(cards[0]!.closest("[data-testid='stage-label-rail']")?.getAttribute("style")).toContain("top: 0px");
+    expect(cards[1]!.closest("[data-testid='stage-label-rail']")?.getAttribute("style")).toContain("top: 352px");
   });
 });

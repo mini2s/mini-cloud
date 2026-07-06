@@ -78,6 +78,20 @@ vi.mock("@multica/core/workflows/queries", () => ({
   workflowNodeRunsOptions: (wsId: string, workflowId: string, runId: string) => ({
     queryKey: ["workflows", wsId, workflowId, runId, "node-runs"],
   }),
+  workflowKeys: {
+    nodeRuns: (wsId: string, wfId: string, runId: string) => [
+      "workflows",
+      wsId,
+      wfId,
+      runId,
+      "node-runs",
+    ],
+  },
+  useSubmitNodeRun: () => ({ mutate: vi.fn() }),
+  useReviewNodeRun: () => ({ mutate: vi.fn() }),
+  useSkipNodeRun: () => ({ mutate: vi.fn() }),
+  useTakeoverNodeRun: () => ({ mutate: vi.fn() }),
+  useHandbackNodeRun: () => ({ mutate: vi.fn() }),
 }));
 
 vi.mock("@multica/core/workspace/queries", () => ({
@@ -111,6 +125,10 @@ vi.mock("./execution-detail-panel", () => ({
 
 vi.mock("../../../workflows/components/overview/panorama-svg-overlay", () => ({
   PanoramaSvgOverlay: () => <svg data-testid="panorama-svg-overlay" />,
+}));
+
+vi.mock("./global-notification-bar", () => ({
+  GlobalNotificationBar: () => null,
 }));
 
 // ---------------------------------------------------------------------------

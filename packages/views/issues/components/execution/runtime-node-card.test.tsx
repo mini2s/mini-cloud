@@ -2,6 +2,7 @@ import { render, screen } from "@testing-library/react";
 import { describe, it, expect, vi } from "vitest";
 import userEvent from "@testing-library/user-event";
 import { RuntimeNodeCard } from "./runtime-node-card";
+import type { NodeRunActionType } from "./runtime-node-card";
 import type { WorkflowNode, WorkflowNodeRun } from "@multica/core/types";
 
 // Mock @multica/views/i18n for useT hook — handles function selector form
@@ -15,6 +16,15 @@ vi.mock("@multica/views/i18n", () => ({
               worker_label: "Worker",
               critic_label: "Critic",
               artifacts_label: "Artifacts",
+              actions: {
+                approve: "Approve",
+                reject: "Reject",
+                submit_input: "Submit",
+                handback: "Return",
+                retry: "Retry",
+                skip: "Skip",
+                complete: "Complete",
+              },
             },
             detail_panel: {
               worker_output: "Worker Output",
@@ -217,7 +227,7 @@ describe("RuntimeNodeCard", () => {
     expect(container.querySelector(".lucide-user")).toBeInTheDocument();
   });
 
-  it("renders status icon on worker row when nodeRun exists", () => {
+  it("renders status icon in title row when nodeRun exists", () => {
     const { container } = render(
       <RuntimeNodeCard
         node={baseNode}
@@ -227,9 +237,144 @@ describe("RuntimeNodeCard", () => {
         onClick={vi.fn()}
       />,
     );
-    // Worker row has a status icon — completed status maps to data-testid="status-icon"
+    // Title row has a status icon — completed status maps to data-testid="status-icon"
     const statusIcons = container.querySelectorAll('[data-testid="status-icon"]');
-    // At least the worker row status icon is present (title row also has one)
     expect(statusIcons.length).toBeGreaterThanOrEqual(1);
+  });
+
+  // ---- Inline action buttons ----
+
+  function makeNodeRun(status: string): WorkflowNodeRun {
+    return { ...completedRun, status } as WorkflowNodeRun;
+  }
+
+  const actionStatuses = [
+    { status: "awaiting_critic", expectedActions: ["approve", "reject"] },
+    { status: "awaiting_input", expectedActions: ["submit", "handback"] },
+    { status: "blocked", expectedActions: ["retry", "skip", "complete"] },
+    { status: "failed", expectedActions: ["retry", "skip", "complete"] },
+  ];
+
+  it.each(actionStatuses)(
+    "shows correct action buttons for $status",
+    ({ status, expectedActions }) => {
+      render(
+        <RuntimeNodeCard
+          node={baseNode}
+          nodeRun={makeNodeRun(status)}
+          workerName="Tester"
+          criticName={null}
+          onClick={vi.fn()}
+          onAction={vi.fn()}
+        />,
+      );
+      for (const action of expectedActions) {
+        expect(
+          screen.getByTestId(`runtime-node-action-${action}`),
+        ).toBeInTheDocument();
+      }
+      // No unexpected buttons
+      const allActions = screen.getAllByTestId(/^runtime-node-action-/);
+      expect(allActions).toHaveLength(expectedActions.length);
+    },
+  );
+
+  it("does not render action buttons when onAction is not provided", () => {
+    render(
+      <RuntimeNodeCard
+        node={baseNode}
+        nodeRun={makeNodeRun("awaiting_critic")}
+        workerName="Tester"
+        criticName={null}
+        onClick={vi.fn()}
+      />,
+    );
+    expect(
+      screen.queryByTestId("runtime-node-action-approve"),
+    ).not.toBeInTheDocument();
+  });
+
+  it("does not render action buttons for non-actionable statuses", () => {
+    const nonActionable = ["pending", "working", "completed", "format_checking"];
+    for (const status of nonActionable) {
+      const { container } = render(
+        <RuntimeNodeCard
+          node={baseNode}
+          nodeRun={makeNodeRun(status)}
+          workerName="Tester"
+          criticName={null}
+          onClick={vi.fn()}
+          onAction={vi.fn()}
+        />,
+      );
+      expect(
+        container.querySelector('[data-testid^="runtime-node-action-"]'),
+      ).toBeNull();
+    }
+  });
+
+  it("calls onAction with correct nodeRunId and action type", async () => {
+    const onAction = vi.fn();
+    render(
+      <RuntimeNodeCard
+        node={baseNode}
+        nodeRun={makeNodeRun("awaiting_critic")}
+        workerName="Tester"
+        criticName={null}
+        onClick={vi.fn()}
+        onAction={onAction}
+      />,
+    );
+    await userEvent.click(screen.getByTestId("runtime-node-action-approve"));
+    expect(onAction).toHaveBeenCalledWith("run-1", "approve" as NodeRunActionType);
+  });
+
+  it("stops click propagation on action button click", async () => {
+    const onCardClick = vi.fn();
+    const onAction = vi.fn();
+    render(
+      <RuntimeNodeCard
+        node={baseNode}
+        nodeRun={makeNodeRun("awaiting_critic")}
+        workerName="Tester"
+        criticName={null}
+        onClick={onCardClick}
+        onAction={onAction}
+      />,
+    );
+    await userEvent.click(screen.getByTestId("runtime-node-action-approve"));
+    expect(onAction).toHaveBeenCalled();
+    expect(onCardClick).not.toHaveBeenCalled();
+  });
+
+  it("disables action buttons when loading", () => {
+    render(
+      <RuntimeNodeCard
+        node={baseNode}
+        nodeRun={makeNodeRun("awaiting_critic")}
+        workerName="Tester"
+        criticName={null}
+        onClick={vi.fn()}
+        onAction={vi.fn()}
+        isActionLoading={{ approve: true }}
+      />,
+    );
+    const approveBtn = screen.getByTestId("runtime-node-action-approve");
+    expect(approveBtn).toBeDisabled();
+  });
+
+  it("shows approve/reject for awaiting_critic with correct labels", () => {
+    render(
+      <RuntimeNodeCard
+        node={baseNode}
+        nodeRun={makeNodeRun("awaiting_critic")}
+        workerName="Tester"
+        criticName={null}
+        onClick={vi.fn()}
+        onAction={vi.fn()}
+      />,
+    );
+    expect(screen.getByTestId("runtime-node-action-approve")).toHaveTextContent("Approve");
+    expect(screen.getByTestId("runtime-node-action-reject")).toHaveTextContent("Reject");
   });
 });

@@ -1,14 +1,20 @@
 "use client";
 
 import { useMemo, useState, useRef, useCallback, useLayoutEffect } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   workflowDetailOptions,
   workflowStagesOptions,
   workflowNodesOptions,
   workflowEdgesOptions,
   workflowNodeRunsOptions,
+  useSubmitNodeRun,
+  useReviewNodeRun,
+  useSkipNodeRun,
+  useTakeoverNodeRun,
+  useHandbackNodeRun,
 } from "@multica/core/workflows/queries";
+import { workflowKeys } from "@multica/core/workflows/queries";
 import { agentListOptions, builtinPluginListOptions } from "@multica/core/workspace/queries";
 import { workerTypeToActorType } from "@multica/core/types";
 import type {
@@ -21,6 +27,8 @@ import type { BuiltinPlugin } from "@multica/core/api/schemas";
 import { StageLane } from "../../../workflows/components/overview/stage-lane";
 import { PanoramaSvgOverlay } from "../../../workflows/components/overview/panorama-svg-overlay";
 import { ExecutionDetailPanel } from "./execution-detail-panel";
+import { GlobalNotificationBar } from "./global-notification-bar";
+import type { NodeRunActionType } from "./runtime-node-card";
 import { useT } from "@multica/views/i18n";
 import { Loader2 } from "lucide-react";
 
@@ -66,6 +74,14 @@ export function ExecutionPanoramaPage({
 
   // builtinPluginListOptions is global (no wsId parameter)
   const { data: plugins } = useQuery(builtinPluginListOptions());
+
+  // ---- Mutations for inline node actions ----
+  const queryClient = useQueryClient();
+  const submitMutation = useSubmitNodeRun(wsId);
+  const reviewMutation = useReviewNodeRun(wsId);
+  const skipMutation = useSkipNodeRun(wsId);
+  const takeoverMutation = useTakeoverNodeRun(wsId);
+  const handbackMutation = useHandbackNodeRun(wsId);
 
   // ---- Local state ----
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
@@ -177,6 +193,104 @@ export function ExecutionPanoramaPage({
   // ---- Derived ----
   const isLoading = wfLoading || stLoading || ndLoading;
 
+  // ---- Track per-action loading state ----
+  const [actionLoading, setActionLoading] = useState<
+    Partial<Record<NodeRunActionType, boolean>>
+  >({});
+
+  /** Invalidate node-runs cache to refresh panorama after mutation. */
+  const invalidateNodeRuns = useCallback(() => {
+    if (runId) {
+      queryClient.invalidateQueries({
+        queryKey: workflowKeys.nodeRuns(wsId, workflowId, runId),
+      });
+    }
+  }, [queryClient, wsId, workflowId, runId]);
+
+  const handleNodeAction = useCallback(
+    (nodeRunId: string, action: NodeRunActionType) => {
+      const start = (a: NodeRunActionType) =>
+        setActionLoading((prev) => ({ ...prev, [a]: true }));
+      const end = (a: NodeRunActionType) =>
+        setActionLoading((prev) => ({ ...prev, [a]: false }));
+
+      switch (action) {
+        case "approve": {
+          start("approve");
+          reviewMutation.mutate(
+            { nodeRunId, approved: true },
+            { onSettled: () => { end("approve"); invalidateNodeRuns(); } },
+          );
+          break;
+        }
+        case "reject": {
+          start("reject");
+          reviewMutation.mutate(
+            { nodeRunId, approved: false },
+            { onSettled: () => { end("reject"); invalidateNodeRuns(); } },
+          );
+          break;
+        }
+        case "submit": {
+          start("submit");
+          submitMutation.mutate(
+            { nodeRunId, output: {} },
+            { onSettled: () => { end("submit"); invalidateNodeRuns(); } },
+          );
+          break;
+        }
+        case "handback": {
+          start("handback");
+          handbackMutation.mutate(
+            { nodeRunId, workflowId, runId: runId ?? undefined },
+            { onSettled: () => { end("handback"); invalidateNodeRuns(); } },
+          );
+          break;
+        }
+        case "retry": {
+          start("retry");
+          handbackMutation.mutate(
+            { nodeRunId, workflowId, runId: runId ?? undefined },
+            { onSettled: () => { end("retry"); invalidateNodeRuns(); } },
+          );
+          break;
+        }
+        case "skip": {
+          start("skip");
+          skipMutation.mutate(nodeRunId, {
+            onSettled: () => { end("skip"); invalidateNodeRuns(); },
+          });
+          break;
+        }
+        case "complete": {
+          start("complete");
+          takeoverMutation.mutate(
+            { nodeRunId, workflowId, runId: runId ?? undefined },
+            { onSettled: () => { end("complete"); invalidateNodeRuns(); } },
+          );
+          break;
+        }
+      }
+    },
+    [
+      reviewMutation,
+      submitMutation,
+      handbackMutation,
+      skipMutation,
+      takeoverMutation,
+      invalidateNodeRuns,
+      workflowId,
+      runId,
+    ],
+  );
+
+  const scrollToNode = useCallback((nodeId: string) => {
+    const el = document.querySelector(
+      `[data-testid="runtime-node-card-${nodeId}"]`,
+    );
+    el?.scrollIntoView({ behavior: "smooth", block: "center" });
+  }, []);
+
   if (isLoading) {
     return (
       <div
@@ -209,6 +323,11 @@ export function ExecutionPanoramaPage({
       className="relative flex flex-col min-h-0"
       data-testid="execution-panorama"
     >
+      {/* Global notification bar */}
+      <GlobalNotificationBar
+        nodeRunMap={nodeRunMap}
+        onScrollToNode={scrollToNode}
+      />
       <div
         ref={containerRef}
         className="relative"
@@ -247,6 +366,8 @@ export function ExecutionPanoramaPage({
             mode="runtime"
             nodeRuns={nodeRunMap}
             onNodeClick={(id) => setSelectedNodeId(id)}
+            onNodeAction={handleNodeAction}
+            isNodeActionLoading={actionLoading}
           />
         ) : (
           [...allStages]
@@ -271,6 +392,8 @@ export function ExecutionPanoramaPage({
                   mode="runtime"
                   nodeRuns={nodeRunMap}
                   onNodeClick={(id) => setSelectedNodeId(id)}
+                  onNodeAction={handleNodeAction}
+                  isNodeActionLoading={actionLoading}
                 />
               </div>
             ))
@@ -299,6 +422,8 @@ export function ExecutionPanoramaPage({
             mode="runtime"
             nodeRuns={nodeRunMap}
             onNodeClick={(id) => setSelectedNodeId(id)}
+            onNodeAction={handleNodeAction}
+            isNodeActionLoading={actionLoading}
           />
         )}
       </div>

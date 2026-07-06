@@ -1,0 +1,173 @@
+"use client";
+
+import { useCallback } from "react";
+import { AlertCircle, AlertTriangle, CheckCircle2, ChevronRight } from "lucide-react";
+import { Button } from "@multica/ui/components/ui/button";
+import { cn } from "@multica/ui/lib/utils";
+import { useT } from "../../../i18n";
+import type { PreflightResult, PreflightIssue } from "@multica/core/workflows/preflight-checks";
+
+export interface PreflightBarProps {
+  result: PreflightResult;
+  onNavigateToNode: (nodeId: string) => void;
+  onPublish: () => void;
+  onDismiss: () => void;
+  isPublishing?: boolean;
+}
+
+function checkLabel(checkId: PreflightIssue["checkId"], t: ReturnType<typeof useT<"workflows">>["t"]): string {
+  switch (checkId) {
+    case "dag-cycle":              return t(($) => $.preflight.check_dag_cycle);
+    case "orphan-node":            return t(($) => $.preflight.check_orphan_node);
+    case "unreachable-node":       return t(($) => $.preflight.check_unreachable_node);
+    case "worker-missing":         return t(($) => $.preflight.check_worker_missing);
+    case "invalid-critic-ref":     return t(($) => $.preflight.check_invalid_critic);
+    case "stage-missing":          return t(($) => $.preflight.check_stage_missing);
+    case "schema-required-missing":return t(($) => $.preflight.check_schema_required);
+    default:                       return checkId;
+  }
+}
+
+export function PreflightBar({
+  result,
+  onNavigateToNode,
+  onPublish,
+  onDismiss,
+  isPublishing = false,
+}: PreflightBarProps) {
+  const { t } = useT("workflows");
+  const issues = result.issues;
+  const hasIssues = issues.length > 0;
+  const hasBlocking = result.blockingCount > 0;
+  const hasWarnings = result.warningCount > 0;
+
+  const handlePublish = useCallback(() => {
+    if (!hasBlocking && !isPublishing) onPublish();
+  }, [hasBlocking, isPublishing, onPublish]);
+
+  return (
+    <div
+      data-testid="preflight-bar"
+      className={cn(
+        "shrink-0 border-t bg-background",
+        hasIssues
+          ? "border-orange-200/70 dark:border-orange-900/30"
+          : "border-emerald-200/70 dark:border-emerald-900/30",
+      )}
+    >
+      <div className="flex items-center gap-3 px-5 h-10">
+
+        {/* ── Status indicator ── */}
+        <div className="flex items-center gap-2 shrink-0">
+          {hasIssues ? (
+            <span
+              className={cn(
+                "flex items-center gap-1.5 text-xs font-medium tracking-tight",
+                hasBlocking ? "text-red-600 dark:text-red-400" : "text-amber-600 dark:text-amber-400",
+              )}
+            >
+              <span className="relative flex h-2 w-2">
+                <span
+                  className={cn(
+                    "absolute inline-flex h-full w-full rounded-full opacity-75",
+                    hasBlocking ? "bg-red-500 animate-ping" : "bg-amber-500",
+                  )}
+                />
+                <span
+                  className={cn(
+                    "relative inline-flex h-2 w-2 rounded-full",
+                    hasBlocking ? "bg-red-500" : "bg-amber-500",
+                  )}
+                />
+              </span>
+              {hasBlocking && (
+                <span className="tabular-nums">{result.blockingCount}</span>
+              )}
+              {hasBlocking && hasWarnings && <span className="opacity-40">/</span>}
+              {hasWarnings && (
+                <span className="tabular-nums opacity-80">{result.warningCount}</span>
+              )}
+            </span>
+          ) : (
+            <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />
+          )}
+        </div>
+
+        {/* ── Issue chips (inline, wrap naturally) ── */}
+        <div className="flex flex-1 items-center gap-1.5 min-w-0 flex-wrap">
+          {issues.map((issue, idx) => {
+            const isBlocking = issue.blocking;
+            return (
+              <button
+                key={`${issue.checkId}-${issue.nodeId}-${idx}`}
+                type="button"
+                onClick={() => onNavigateToNode(issue.nodeId)}
+                className={cn(
+                  "group inline-flex items-center gap-1 rounded-md border px-2 py-0.5",
+                  "text-[11px] leading-5 transition-colors",
+                  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1",
+                  isBlocking
+                    ? "border-red-200 bg-red-50/70 text-red-700 hover:bg-red-100 hover:border-red-300 dark:border-red-900/40 dark:bg-red-950/40 dark:text-red-300 dark:hover:bg-red-950/60"
+                    : "border-amber-200 bg-amber-50/60 text-amber-700 hover:bg-amber-100 hover:border-amber-300 dark:border-amber-900/40 dark:bg-amber-950/30 dark:text-amber-300 dark:hover:bg-amber-950/50",
+                )}
+                data-testid="preflight-issue-item"
+              >
+                {isBlocking ? (
+                  <AlertCircle className="h-3 w-3 shrink-0 opacity-70" />
+                ) : (
+                  <AlertTriangle className="h-3 w-3 shrink-0 opacity-70" />
+                )}
+                <span className="font-medium tracking-tight">
+                  {checkLabel(issue.checkId, t)}
+                </span>
+                {issue.nodeTitle && (
+                  <>
+                    <span className="opacity-40 font-normal">&middot;</span>
+                    <span className="truncate max-w-[120px] opacity-80 font-normal">
+                      {issue.nodeTitle}
+                    </span>
+                  </>
+                )}
+                <ChevronRight className="h-3 w-3 shrink-0 opacity-0 group-hover:opacity-50 transition-opacity" />
+              </button>
+            );
+          })}
+
+          {!hasIssues && (
+            <span className="text-xs text-muted-foreground font-medium">
+              {t(($) => $.preflight.bar_collapsed_all_clear)}
+            </span>
+          )}
+        </div>
+
+        {/* ── Actions ── */}
+        <div className="flex items-center gap-1.5 shrink-0">
+          {hasIssues && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={onDismiss}
+              className="h-7 text-xs text-muted-foreground hover:text-foreground px-2.5"
+              data-testid="preflight-dismiss-btn"
+            >
+              {t(($) => $.preflight.bar_dismiss)}
+            </Button>
+          )}
+          <Button
+            variant={hasBlocking ? "outline" : "default"}
+            size="sm"
+            disabled={hasBlocking || isPublishing}
+            onClick={handlePublish}
+            className="h-7 text-xs px-3"
+            data-testid="preflight-publish-btn"
+          >
+            {isPublishing
+              ? t(($) => $.preflight.bar_publishing)
+              : t(($) => $.preflight.bar_publish)}
+          </Button>
+        </div>
+
+      </div>
+    </div>
+  );
+}

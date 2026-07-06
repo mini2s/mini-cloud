@@ -37,7 +37,6 @@ describe("LaneBgNode", () => {
     renderWithProvider(baseNode);
     const el = screen.getByTestId("lane-bg-0");
     expect(el).toBeInTheDocument();
-    // 2400px wide, 160px tall
     expect(el).toHaveStyle({ width: "2400px", height: "160px" });
   });
 

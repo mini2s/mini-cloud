@@ -501,7 +501,21 @@
     "card": {
       "worker_label": "Worker",
       "critic_label": "Critic",
-      "artifacts_label": "Artifacts"
+      "artifacts_label": "Artifacts",
+      "actions": {
+        "approve": "Approve",
+        "reject": "Reject",
+        "submit_input": "Submit",
+        "handback": "Return",
+        "retry": "Retry",
+        "skip": "Skip",
+        "complete": "Complete"
+      }
+    },
+    "notification": {
+      "awaiting_critic": "Awaiting review:",
+      "blocked_failed": "Need attention:",
+      "awaiting_input": "Awaiting input:"
     },
     "detail_panel": {
       "title": "Node Detail",

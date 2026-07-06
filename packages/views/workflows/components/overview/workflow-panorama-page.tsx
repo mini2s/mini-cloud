@@ -55,7 +55,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@multica/ui/components/ui/alert-dialog";
-import { AlertCircle, ArrowLeft, AppWindow, CheckCircle2, Monitor, Moon, PanelsTopLeft, PauseCircle, Plus, Redo2, Save, Sun, Trash2, Undo2 } from "lucide-react";
+import { AlertCircle, ArrowLeft, AppWindow, CheckCircle2, Layers, Monitor, Moon, PanelsTopLeft, PauseCircle, Plus, Redo2, Save, Sun, Trash2, Undo2 } from "lucide-react";
 import { Badge } from "@multica/ui/components/ui/badge";
 import { Separator } from "@multica/ui/components/ui/separator";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@multica/ui/components/ui/tooltip";
@@ -68,6 +68,8 @@ import { StageCreateDialog } from "./stage-create-dialog";
 import { panoramaNodeTypes } from "./reactflow-nodes";
 import { panoramaEdgeTypes } from "./reactflow-edges";
 import { computeLaneAutoLayout, computeStageTransferPositionX } from "../layout";
+import { PreflightBar } from "./preflight-bar";
+import { runAllPreflightChecks } from "@multica/core/workflows/preflight-checks";
 
 import {
   LANE_STEP,
@@ -77,8 +79,6 @@ import {
   WORKER_CRITIC_GAP,
   CRITIC_WIDTH,
   CRITIC_HEIGHT,
-  PANORAMA_WIDTH,
-  GRADIENT_HEIGHT,
   UNASSIGNED_LANE_Y,
   computeLaneY,
   getStageColor,
@@ -286,45 +286,6 @@ function getEdgeStageColorIndex(
 
 // ── Background nodes: lane backgrounds + gradient transitions ──
 
-function buildBackgroundNodes(stages: WorkflowStage[]): Node[] {
-  const sorted = [...stages].sort((a, b) => a.sort_order - b.sort_order);
-  const result: Node[] = [];
-
-  sorted.forEach((stage, idx) => {
-    // Lane background
-    result.push({
-      id: `lane-bg-${stage.id}`,
-      type: "laneBg",
-      position: { x: 0, y: stage.sort_order * LANE_STEP },
-      width: PANORAMA_WIDTH,
-      height: LANE_HEIGHT,
-      data: { stageIndex: stage.sort_order },
-      draggable: false,
-      selectable: false,
-      deletable: false,
-      zIndex: -2,
-    });
-
-    // Gradient transition (except after last stage)
-    if (idx < sorted.length - 1) {
-      result.push({
-        id: `gradient-bg-${stage.id}`,
-        type: "gradientBg",
-        position: { x: 0, y: stage.sort_order * LANE_STEP + LANE_HEIGHT },
-        width: PANORAMA_WIDTH,
-        height: GRADIENT_HEIGHT,
-        data: { fromStageIndex: stage.sort_order },
-        draggable: false,
-        selectable: false,
-        deletable: false,
-        zIndex: -2,
-      });
-    }
-  });
-
-  return result;
-}
-
 // ── Drag constraint: snap Y to lane ──
 
 function findStageAtY(y: number, stages: WorkflowStage[]): WorkflowStage | undefined {
@@ -357,6 +318,9 @@ interface PanoramaContentProps {
   rfEdges: Edge[];
   stages: WorkflowStage[];
   apiNodes: WorkflowNode[];
+  visibleNodes: WorkflowNode[];
+  apiEdges: WorkflowEdge[];
+  agentIds: Set<string>;
   workflow: Workflow;
   workflowId: string;
   wsId: string;
@@ -393,6 +357,9 @@ function PanoramaContent({
   rfEdges,
   stages,
   apiNodes,
+  visibleNodes,
+  apiEdges,
+  agentIds,
   workflow,
   workflowId,
   wsId,
@@ -480,6 +447,37 @@ function PanoramaContent({
       : canvasColorMode === "light"
         ? t(($) => $.detail.canvas_theme_light)
         : t(($) => $.detail.canvas_theme_system);
+
+  // ── Preflight checks ──
+  const selectNode = useWorkflowEditorStore((s) => s.selectNode);
+  const [preflightDismissed, setPreflightDismissed] = useState(false);
+  const preflightResult = useMemo(
+    () => runAllPreflightChecks({
+      nodes: visibleNodes,
+      edges: apiEdges,
+      stages,
+      agentIds,
+    }),
+    [visibleNodes, apiEdges, stages, agentIds],
+  );
+
+  const handleNavigateToNode = useCallback((nodeId: string) => {
+    const rfNode = reactFlowInstance.getNode(nodeId);
+    if (rfNode) {
+      reactFlowInstance.setCenter(
+        rfNode.position.x + (rfNode.width ?? WORKER_WIDTH) / 2,
+        rfNode.position.y + (rfNode.height ?? WORKER_HEIGHT) / 2,
+        { zoom: 1.2, duration: 400 },
+      );
+    }
+    selectNode(nodeId);
+  }, [reactFlowInstance, selectNode]);
+
+  // ── Onboarding guide state ──
+  const rlNodesCount = rfNodes.filter(n => n.type !== "laneBg" && n.type !== "gradientBg").length;
+  const showFirstStageGuide = stages.length === 0;
+  const showFirstStepGuide = stages.length > 0 && rlNodesCount === 0;
+
   const handleDragOver = useCallback((event: React.DragEvent) => {
     event.preventDefault();
     event.dataTransfer.dropEffect = "copy";
@@ -724,7 +722,7 @@ function PanoramaContent({
           />
 
           {/* ReactFlow canvas */}
-          <div className="min-w-0 flex-1 pl-40" data-testid="panorama-canvas">
+          <div className="absolute inset-0 z-10 min-w-0" data-testid="panorama-canvas">
           <ReactFlow
             nodes={rfNodes}
             edges={rfEdges}
@@ -751,10 +749,36 @@ function PanoramaContent({
             <Background />
             <Controls />
             <MiniMap pannable zoomable nodeColor={(node) => {
-              if (node.type === "laneBg" || node.type === "gradientBg") return "transparent";
               return node.type === "criticBadge" ? "#f59e0b" : "#64748b";
             }} />
           </ReactFlow>
+
+          {/* First step guide overlay */}
+          {showFirstStepGuide && (
+            <div className="absolute inset-0 flex items-center justify-center z-10">
+              <div className="animate-in fade-in zoom-in-95 duration-300 max-w-sm rounded-xl border border-dashed border-border bg-card p-8 text-center shadow-sm">
+                <div className="mx-auto mb-4 flex h-10 w-10 items-center justify-center rounded-full bg-muted">
+                  <Plus className="h-5 w-5 text-muted-foreground" strokeWidth={1.5} />
+                </div>
+                <p className="text-sm text-muted-foreground mb-5">
+                  {t(($) => $.panorama.add_first_step)}
+                </p>
+                <Button
+                  variant="default"
+                  size="sm"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    // Place a default rectangle node at the center of the first stage lane
+                    const firstLaneY = stages.length > 0 ? stages[0]!.sort_order * LANE_STEP + LANE_HEIGHT / 2 : 100;
+                    onShapeDrop("rectangle", { x: 200, y: firstLaneY });
+                  }}
+                >
+                  <Plus className="h-3.5 w-3.5 mr-1" />
+                  {t(($) => $.detail.add_node)}
+                </Button>
+              </div>
+            </div>
+          )}
           </div>
         </div>
 
@@ -773,6 +797,19 @@ function PanoramaContent({
           </aside>
         )}
       </div>
+
+      {/* Preflight bar */}
+      {!preflightDismissed && !preflightResult.passed && !showFirstStageGuide && (
+        <PreflightBar
+          result={preflightResult}
+          onNavigateToNode={handleNavigateToNode}
+          onPublish={async () => {
+            await onSave();
+            onToggleWorkflowStatus();
+          }}
+          onDismiss={() => setPreflightDismissed(true)}
+        />
+      )}
 
       {showStageDialog && (
         <StageCreateDialog
@@ -888,10 +925,7 @@ export function WorkflowPanoramaPage({ workflowId, viewToggle }: WorkflowPanoram
   );
 
   const rfNodes = useMemo(
-    () => [
-      ...buildBackgroundNodes(stages),
-      ...apiNodesToReactFlowNodes(visibleNodes, stages, agentLookup, pluginLookup, getActorName),
-    ],
+    () => apiNodesToReactFlowNodes(visibleNodes, stages, agentLookup, pluginLookup, getActorName),
     [stages, visibleNodes, agentLookup, pluginLookup, getActorName],
   );
 
@@ -906,11 +940,6 @@ export function WorkflowPanoramaPage({ workflowId, viewToggle }: WorkflowPanoram
   // ── Handlers ──
   const handleNodeClick = useCallback(
     (_event: React.MouseEvent, node: Node) => {
-      if (node.type === "laneBg" || node.type === "gradientBg") {
-        selectNode(null);
-        setConfigPanelOpen(false);
-        return;
-      }
       const workerId = (node.data.parentNodeId as string | undefined) ?? node.id;
       selectNode(workerId as string);
       setConfigPanelOpen(true);
@@ -938,7 +967,7 @@ export function WorkflowPanoramaPage({ workflowId, viewToggle }: WorkflowPanoram
       // Persist position_x
       updateNodeMutation.mutate({
         nodeId,
-        position_x: node.position.x,
+        position_x: Math.max(0, Math.round(node.position.x)),
       } as Parameters<typeof updateNodeMutation.mutate>[0]);
 
       // Check if y moved to a different lane
@@ -1160,8 +1189,8 @@ export function WorkflowPanoramaPage({ workflowId, viewToggle }: WorkflowPanoram
     );
   }
 
-  // ── Empty state ──
-  if (stages.length === 0) {
+  // ── Empty state (first stage guide) ── show only when truly empty
+  if (stages.length === 0 && apiNodes.length === 0) {
     return (
       <div className="flex flex-col h-full">
         <PageHeader className="justify-between px-5 shrink-0">
@@ -1176,13 +1205,43 @@ export function WorkflowPanoramaPage({ workflowId, viewToggle }: WorkflowPanoram
           {viewToggle && <div className="flex items-center gap-1">{viewToggle}</div>}
         </PageHeader>
         <div className="flex flex-1 items-center justify-center">
-          <div className="text-center space-y-3">
-            <p className="text-sm text-muted-foreground">
-              {t(($) => $.panorama.empty_all)}
+          <div className="animate-in fade-in zoom-in-95 duration-300 max-w-sm rounded-xl border border-dashed border-border bg-card p-8 text-center shadow-sm">
+            <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-muted">
+              <Layers className="h-6 w-6 text-muted-foreground" strokeWidth={1.5} />
+            </div>
+            <h2 className="text-base font-semibold mb-2">
+              {t(($) => $.preflight.first_stage_guide_title)}
+            </h2>
+            <p className="text-sm text-muted-foreground mb-6">
+              {t(($) => $.preflight.first_stage_guide_description)}
             </p>
-            <Button variant="default" size="sm" onClick={() => setShowStageDialog(true)}>
-              Create Stage
-            </Button>
+            <div className="flex flex-col items-center gap-2">
+              <Button
+                variant="default"
+                size="sm"
+                onClick={() => {
+                  createNodeMutation.mutate({
+                    title: SHAPE_LABELS["rectangle"],
+                    description: "",
+                    position_x: 200,
+                    position_y: 0,
+                    stage_id: null,
+                    format_schema: { shape: "rectangle" as NodeShape },
+                    worker_type: "agent",
+                    worker_id: null,
+                    critic_type: "human",
+                    critic_id: null,
+                    critic_api_url: null,
+                  });
+                }}
+              >
+                <Plus className="h-3.5 w-3.5 mr-1" />
+                {t(($) => $.detail.add_node)}
+              </Button>
+              <Button variant="ghost" size="sm" className="text-xs text-muted-foreground" onClick={() => setShowStageDialog(true)}>
+                {t(($) => $.preflight.first_stage_guide_cta)}
+              </Button>
+            </div>
           </div>
         </div>
         {showStageDialog && (
@@ -1205,6 +1264,9 @@ export function WorkflowPanoramaPage({ workflowId, viewToggle }: WorkflowPanoram
         rfEdges={rfEdges}
         stages={stages}
         apiNodes={apiNodes}
+        visibleNodes={visibleNodes}
+        apiEdges={apiEdges}
+        agentIds={new Set(agentLookup.keys())}
         workflow={workflow}
         workflowId={workflowId}
         wsId={wsId}

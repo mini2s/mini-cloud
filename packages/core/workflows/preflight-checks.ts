@@ -1,0 +1,342 @@
+import type { WorkflowNode, WorkflowEdge, WorkflowStage } from "../types";
+
+// ── Types ──
+
+export type PreflightCheckId =
+  | "dag-cycle"
+  | "orphan-node"
+  | "unreachable-node"
+  | "worker-missing"
+  | "invalid-critic-ref"
+  | "stage-missing"
+  | "schema-required-missing";
+
+export type PreflightSeverity = "error" | "warning";
+
+export interface PreflightIssue {
+  checkId: PreflightCheckId;
+  severity: PreflightSeverity;
+  blocking: boolean;
+  nodeId: string;
+  nodeTitle?: string;
+  stageName?: string;
+  message: string;
+  detail?: string;
+}
+
+export interface PreflightResult {
+  issues: PreflightIssue[];
+  blockingCount: number;
+  warningCount: number;
+  passed: boolean;
+}
+
+// ── Helpers ──
+
+function isAnnotation(node: WorkflowNode): boolean {
+  const schema = node.format_schema as Record<string, unknown> | null;
+  return schema?.type === "annotation";
+}
+
+/** Extracts `required` field names from a JSON Schema object. Returns empty array for non-schema input. */
+function extractRequiredFields(node: WorkflowNode): string[] {
+  try {
+    const schema = node.format_schema;
+    if (!schema || typeof schema !== "object") return [];
+    const s = schema as Record<string, unknown>;
+    if (!Array.isArray(s.required)) return [];
+    return s.required.filter((f): f is string => typeof f === "string");
+  } catch {
+    return [];
+  }
+}
+
+/** Extracts `properties` keys from a JSON Schema object. */
+function extractPropertyKeys(node: WorkflowNode): Set<string> {
+  try {
+    const schema = node.format_schema;
+    if (!schema || typeof schema !== "object") return new Set();
+    const s = schema as Record<string, unknown>;
+    const props = s.properties;
+    if (!props || typeof props !== "object") return new Set();
+    return new Set(Object.keys(props as Record<string, unknown>));
+  } catch {
+    return new Set();
+  }
+}
+
+// ── Check functions ──
+
+/** Detect directed cycles using iterative DFS with recursion-stack tracking. */
+export function checkDAGCycles(nodes: WorkflowNode[], edges: WorkflowEdge[]): PreflightIssue[] {
+  if (nodes.length === 0) return [];
+
+  const adj = new Map<string, string[]>();
+  for (const n of nodes) adj.set(n.id, []);
+  for (const e of edges) {
+    const list = adj.get(e.source_node_id);
+    if (list) list.push(e.target_node_id);
+  }
+
+  const issues: PreflightIssue[] = [];
+  const visited = new Set<string>();
+  const onStack = new Set<string>();
+  // Map of node -> its parent for reconstructing cycle paths
+  const parent = new Map<string, string>();
+
+  function* dfs(startId: string): Generator<PreflightIssue, void, void> {
+    // Iterative DFS with an explicit stack of [nodeId, iteratorIndex]
+    const stack: Array<{ nodeId: string; neighborIdx: number }> = [{ nodeId: startId, neighborIdx: 0 }];
+    visited.add(startId);
+    onStack.add(startId);
+
+    while (stack.length > 0) {
+      const top = stack[stack.length - 1]!;
+      const neighbors = adj.get(top.nodeId) ?? [];
+
+      if (top.neighborIdx >= neighbors.length) {
+        // Done with this node
+        onStack.delete(top.nodeId);
+        stack.pop();
+        continue;
+      }
+
+      const neighbor = neighbors[top.neighborIdx]!;
+      top.neighborIdx++;
+
+      if (onStack.has(neighbor)) {
+        // Back edge -> cycle detected. Reconstruct the path.
+        const cycleNodes: string[] = [];
+        // Walk from top.nodeId back to neighbor through the stack
+        // We know neighbor is on the stack somewhere; collect nodes from top back to neighbor
+        const stackIds = stack.map((s) => s.nodeId);
+        const neighborIdx = stackIds.lastIndexOf(neighbor);
+        if (neighborIdx !== -1) {
+          // The cycle is the path from neighbor back to the top including the edge top->neighbor
+          for (let i = neighborIdx; i < stackIds.length; i++) {
+            cycleNodes.push(stackIds[i]!);
+          }
+          cycleNodes.push(neighbor); // close the loop
+        }
+
+        const nodeMap = new Map(nodes.map((n) => [n.id, n]));
+        const path = cycleNodes.map((id) => `"${nodeMap.get(id)?.title ?? id}"`).join(" → ");
+
+        const anyNodeInCycle = nodes.find((n) => n.id === neighbor);
+        yield {
+          checkId: "dag-cycle",
+          severity: "error",
+          blocking: true,
+          nodeId: neighbor, // point to the node that creates the back edge
+          nodeTitle: anyNodeInCycle?.title,
+          message: `Nodes form a cycle: ${path}`,
+          detail: path,
+        };
+        continue;
+      }
+
+      if (!visited.has(neighbor)) {
+        visited.add(neighbor);
+        onStack.add(neighbor);
+        parent.set(neighbor, top.nodeId);
+        stack.push({ nodeId: neighbor, neighborIdx: 0 });
+      }
+    }
+  }
+
+  for (const node of nodes) {
+    if (!visited.has(node.id)) {
+      onStack.clear(); // fresh stack per component
+      for (const issue of dfs(node.id)) {
+        issues.push(issue);
+      }
+    }
+  }
+
+  return issues;
+}
+
+/** Detect orphan nodes: nodes not referenced by any edge. */
+export function checkOrphanNodes(nodes: WorkflowNode[], edges: WorkflowEdge[]): PreflightIssue[] {
+  if (nodes.length <= 1) return [];
+
+  const connected = new Set<string>();
+  for (const e of edges) {
+    connected.add(e.source_node_id);
+    connected.add(e.target_node_id);
+  }
+
+  return nodes
+    .filter((n) => !connected.has(n.id))
+    .map((n) => ({
+      checkId: "orphan-node" as const,
+      severity: "warning" as const,
+      blocking: false,
+      nodeId: n.id,
+      nodeTitle: n.title,
+      message: "Node has no connections",
+    }));
+}
+
+/** Detect unreachable nodes: nodes with no incoming edges that are not in the earliest stage. */
+export function checkUnreachableNodes(
+  nodes: WorkflowNode[],
+  edges: WorkflowEdge[],
+  stages: WorkflowStage[],
+): PreflightIssue[] {
+  if (nodes.length <= 1) return [];
+
+  // Build indegree map
+  const indegree = new Map<string, number>();
+  for (const n of nodes) indegree.set(n.id, 0);
+  for (const e of edges) {
+    indegree.set(e.target_node_id, (indegree.get(e.target_node_id) ?? 0) + 1);
+  }
+
+  // Determine the primary stage (lowest sort_order among stages that contain any nodes)
+  if (stages.length === 0) return [];
+
+  const sortedStages = [...stages].sort((a, b) => a.sort_order - b.sort_order);
+  const nodeStageMap = new Map(nodes.map((n) => [n.id, n.stage_id]));
+  const primaryStageOrder = sortedStages[0]!.sort_order;
+
+  return nodes
+    .filter((n) => {
+      if (indegree.get(n.id) !== 0) return false; // has incoming edges
+      // Check if this node belongs to a later stage (not the primary one or unassigned)
+      const stageId = nodeStageMap.get(n.id);
+      if (stageId == null) return false; // unassigned nodes are not flagged
+      const stage = sortedStages.find((s) => s.id === stageId);
+      return stage && stage.sort_order > primaryStageOrder;
+    })
+    .map((n) => {
+      const stageId = nodeStageMap.get(n.id);
+      const stage = stageId ? sortedStages.find((s) => s.id === stageId) : undefined;
+      return {
+        checkId: "unreachable-node" as const,
+        severity: "warning" as const,
+        blocking: false,
+        nodeId: n.id,
+        nodeTitle: n.title,
+        stageName: stage?.name,
+        message: "Node has no incoming connections from the primary stage",
+      };
+    });
+}
+
+/** Detect nodes without an assigned worker. */
+export function checkWorkerMissing(nodes: WorkflowNode[]): PreflightIssue[] {
+  return nodes
+    .filter((n) => !isAnnotation(n) && (!n.worker_type || !n.worker_id))
+    .map((n) => ({
+      checkId: "worker-missing" as const,
+      severity: "error" as const,
+      blocking: true,
+      nodeId: n.id,
+      nodeTitle: n.title,
+      message: "Assign a worker to this node",
+    }));
+}
+
+/** Detect nodes with invalid critic references (critic_id not in agent list). */
+export function checkInvalidCriticRef(nodes: WorkflowNode[], agentIds: Set<string>): PreflightIssue[] {
+  return nodes
+    .filter((n) => {
+      if (!n.critic_id) return false;
+      // API critics don't reference an agent
+      if (n.critic_type === "api" && n.critic_api_url) return false;
+      return !agentIds.has(n.critic_id);
+    })
+    .map((n) => ({
+      checkId: "invalid-critic-ref" as const,
+      severity: "error" as const,
+      blocking: true,
+      nodeId: n.id,
+      nodeTitle: n.title,
+      message: "Critic ID not found in available agents",
+    }));
+}
+
+/** Detect nodes without a stage assignment. */
+export function checkStageMissing(nodes: WorkflowNode[]): PreflightIssue[] {
+  return nodes
+    .filter((n) => !isAnnotation(n) && !n.stage_id)
+    .map((n) => ({
+      checkId: "stage-missing" as const,
+      severity: "warning" as const,
+      blocking: false,
+      nodeId: n.id,
+      nodeTitle: n.title,
+      message: "Assign this node to a stage",
+    }));
+}
+
+/** Detect schema required fields that don't exist in properties. */
+export function checkSchemaRequiredFields(nodes: WorkflowNode[]): PreflightIssue[] {
+  const issues: PreflightIssue[] = [];
+
+  for (const n of nodes) {
+    const required = extractRequiredFields(n);
+    if (required.length === 0) continue;
+
+    const propertyKeys = extractPropertyKeys(n);
+    const missing = required.filter((f) => !propertyKeys.has(f));
+    if (missing.length === 0) continue;
+
+    issues.push({
+      checkId: "schema-required-missing",
+      severity: "error",
+      blocking: true,
+      nodeId: n.id,
+      nodeTitle: n.title,
+      message: `Required fields not in schema: ${missing.join(", ")}`,
+      detail: missing.join(", "),
+    });
+  }
+
+  return issues;
+}
+
+// ── Master aggregator ──
+
+export interface PreflightCheckInput {
+  nodes: WorkflowNode[];
+  edges: WorkflowEdge[];
+  stages: WorkflowStage[];
+  agentIds: Set<string>;
+}
+
+export function runAllPreflightChecks(input: PreflightCheckInput): PreflightResult {
+  const { nodes, edges, stages, agentIds } = input;
+
+  if (nodes.length === 0) {
+    return { issues: [], blockingCount: 0, warningCount: 0, passed: true };
+  }
+
+  const allIssues: PreflightIssue[] = [
+    ...checkDAGCycles(nodes, edges),
+    ...checkOrphanNodes(nodes, edges),
+    ...checkUnreachableNodes(nodes, edges, stages),
+    ...checkWorkerMissing(nodes),
+    ...checkInvalidCriticRef(nodes, agentIds),
+    ...checkStageMissing(nodes),
+    ...checkSchemaRequiredFields(nodes),
+  ];
+
+  // Sort: blocking first, then by checkId, then by nodeTitle
+  allIssues.sort((a, b) => {
+    if (a.blocking !== b.blocking) return a.blocking ? -1 : 1;
+    if (a.checkId !== b.checkId) return a.checkId.localeCompare(b.checkId);
+    return (a.nodeTitle ?? "").localeCompare(b.nodeTitle ?? "");
+  });
+
+  const blockingCount = allIssues.filter((i) => i.blocking).length;
+  const warningCount = allIssues.filter((i) => !i.blocking).length;
+
+  return {
+    issues: allIssues,
+    blockingCount,
+    warningCount,
+    passed: allIssues.length === 0,
+  };
+}

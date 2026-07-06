@@ -490,7 +490,21 @@
     "card": {
       "worker_label": "Worker",
       "critic_label": "Critic",
-      "artifacts_label": "产物"
+      "artifacts_label": "产物",
+      "actions": {
+        "approve": "通过",
+        "reject": "打回",
+        "submit_input": "提交",
+        "handback": "交还",
+        "retry": "重试",
+        "skip": "跳过",
+        "complete": "完成"
+      }
+    },
+    "notification": {
+      "awaiting_critic": "等待审核：",
+      "blocked_failed": "需要处理：",
+      "awaiting_input": "等待输入："
     },
     "detail_panel": {
       "title": "节点详情",

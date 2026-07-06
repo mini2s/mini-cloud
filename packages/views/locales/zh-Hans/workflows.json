@@ -315,6 +315,7 @@
     "empty_all": "创建第一个阶段以开始使用",
     "unassigned": "未分组",
     "not_configured": "未配置",
+    "add_first_step": "点击工具栏「添加节点」或将节点类型拖入此阶段来添加第一个任务",
     "toolbar": {
       "undo": "撤销",
       "redo": "重做",
@@ -331,5 +332,32 @@
       "move_up": "上移阶段",
       "move_down": "下移阶段"
     }
+  },
+  "preflight": {
+    "bar_collapsed_all_clear": "可以发布了",
+    "bar_collapsed_issues": "发布前还有 {{count}} 个问题",
+    "bar_collapsed_blocking": "{{count}} 个阻断",
+    "bar_collapsed_warnings": "{{count}} 个警告",
+    "bar_expand": "审查问题",
+    "bar_dismiss": "忽略",
+    "bar_publish": "发布",
+    "bar_publishing": "发布中...",
+    "check_dag_cycle": "检测到循环",
+    "check_orphan_node": "孤立节点",
+    "check_unreachable_node": "不可达节点",
+    "check_worker_missing": "未分配执行者",
+    "check_invalid_critic": "无效的评审者引用",
+    "check_stage_missing": "未分配阶段",
+    "check_schema_required": "缺少必填字段",
+    "detail_dag_cycle": "节点形成循环：{{path}}",
+    "detail_orphan_node": "节点无任何连接",
+    "detail_unreachable_node": "节点无从主阶段的入边",
+    "detail_worker_missing": "请为此节点分配执行者",
+    "detail_invalid_critic": "评审者 ID 在可用 Agent 列表中未找到",
+    "detail_stage_missing": "请将此节点分配到某个阶段",
+    "detail_schema_required": "Schema 中缺少必填字段：{{fields}}",
+    "first_stage_guide_title": "创建第一个阶段",
+    "first_stage_guide_description": "阶段用于将工作流步骤组织为逻辑阶段。创建阶段以开始使用。",
+    "first_stage_guide_cta": "创建阶段"
   }
 }
