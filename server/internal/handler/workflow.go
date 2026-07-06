@@ -30,30 +30,38 @@ type UpdateWorkflowRequest struct {
 }
 
 type CreateNodeRequest struct {
-	Title              string          `json:"title"`
-	Description        string          `json:"description"`
-	PositionX          float64         `json:"position_x"`
-	PositionY          float64         `json:"position_y"`
-	FormatSchema       json.RawMessage `json:"format_schema"`
-	WorkerType         string          `json:"worker_type"`
-	WorkerID           *string         `json:"worker_id"`
-	CriticType         string          `json:"critic_type"`
-	CriticID           *string         `json:"critic_id"`
-	CriticApiURL       *string         `json:"critic_api_url"`
+	Title                  string                    `json:"title"`
+	Description            string                    `json:"description"`
+	PositionX              float64                   `json:"position_x"`
+	PositionY              float64                   `json:"position_y"`
+	FormatSchema           json.RawMessage           `json:"format_schema"`
+	WorkerType             string                    `json:"worker_type"`
+	WorkerID               *string                   `json:"worker_id"`
+	CriticType             string                    `json:"critic_type"`
+	CriticID               *string                   `json:"critic_id"`
+	CriticApiURL           *string                   `json:"critic_api_url"`
+	DevelopmentStageID     *string                   `json:"development_stage_id"`
+	AgentCapabilityConfig  json.RawMessage           `json:"agent_capability_config"`
+	Instructions           string                    `json:"instructions"`
+	Deliverables           []CreateDeliverableRequest `json:"deliverables"`
 }
 
 type UpdateNodeRequest struct {
-	Title              *string         `json:"title"`
-	Description        *string         `json:"description"`
-	PositionX          *float64        `json:"position_x"`
-	PositionY          *float64        `json:"position_y"`
-	FormatSchema       json.RawMessage `json:"format_schema"`
-	WorkerType         *string         `json:"worker_type"`
-	WorkerID           *string         `json:"worker_id"`
-	CriticType         *string         `json:"critic_type"`
-	CriticID           *string         `json:"critic_id"`
-	CriticApiURL       *string         `json:"critic_api_url"`
-	SortOrder          *int32          `json:"sort_order"`
+	Title                  *string                   `json:"title"`
+	Description            *string                   `json:"description"`
+	PositionX              *float64                  `json:"position_x"`
+	PositionY              *float64                  `json:"position_y"`
+	FormatSchema           json.RawMessage           `json:"format_schema"`
+	WorkerType             *string                   `json:"worker_type"`
+	WorkerID               *string                   `json:"worker_id"`
+	CriticType             *string                   `json:"critic_type"`
+	CriticID               *string                   `json:"critic_id"`
+	CriticApiURL           *string                   `json:"critic_api_url"`
+	SortOrder              *int32                    `json:"sort_order"`
+	DevelopmentStageID     *string                   `json:"development_stage_id"`
+	AgentCapabilityConfig  json.RawMessage           `json:"agent_capability_config"`
+	Instructions           *string                   `json:"instructions"`
+	Deliverables           []CreateDeliverableRequest `json:"deliverables"` // nil = no change, [] = atomic replace
 }
 
 type CreateEdgeRequest struct {
@@ -81,22 +89,44 @@ type WorkflowResponse struct {
 }
 
 type WorkflowNodeResponse struct {
-	ID                 string          `json:"id"`
-	WorkflowID         string          `json:"workflow_id"`
-	Title              string          `json:"title"`
-	Description        string          `json:"description"`
-	PositionX          float64         `json:"position_x"`
-	PositionY          float64         `json:"position_y"`
-	FormatSchema       json.RawMessage `json:"format_schema"`
-	WorkerType         string          `json:"worker_type"`
-	WorkerID           *string         `json:"worker_id"`
-	CriticType         string          `json:"critic_type"`
-	CriticID           *string         `json:"critic_id"`
-	CriticApiURL       *string         `json:"critic_api_url"`
-	SortOrder          int32           `json:"sort_order"`
-	StageID            *string         `json:"stage_id"`
-	CreatedAt          string          `json:"created_at"`
-	UpdatedAt          string          `json:"updated_at"`
+	ID                    string                            `json:"id"`
+	WorkflowID            string                            `json:"workflow_id"`
+	Title                 string                            `json:"title"`
+	Description           string                            `json:"description"`
+	PositionX             float64                           `json:"position_x"`
+	PositionY             float64                           `json:"position_y"`
+	FormatSchema          json.RawMessage                   `json:"format_schema"`
+	WorkerType            string                            `json:"worker_type"`
+	WorkerID              *string                           `json:"worker_id"`
+	CriticType            string                            `json:"critic_type"`
+	CriticID              *string                           `json:"critic_id"`
+	CriticApiURL          *string                           `json:"critic_api_url"`
+	SortOrder             int32                             `json:"sort_order"`
+	StageID               *string                           `json:"stage_id"`
+	DevelopmentStageID    *string                           `json:"development_stage_id"`
+	AgentCapabilityConfig json.RawMessage                   `json:"agent_capability_config"`
+	Instructions          string                            `json:"instructions"`
+	Deliverables          []WorkflowNodeDeliverableResponse `json:"deliverables"`
+	CreatedAt             string                            `json:"created_at"`
+	UpdatedAt             string                            `json:"updated_at"`
+}
+
+type WorkflowNodeDeliverableResponse struct {
+	ID           string `json:"id"`
+	NodeID       string `json:"node_id"`
+	Type         string `json:"type"`
+	Name         string `json:"name"`
+	Requirements string `json:"requirements"`
+	SortOrder    int32  `json:"sort_order"`
+	CreatedAt    string `json:"created_at"`
+	UpdatedAt    string `json:"updated_at"`
+}
+
+type CreateDeliverableRequest struct {
+	Type         string `json:"type"`
+	Name         string `json:"name"`
+	Requirements string `json:"requirements"`
+	SortOrder    int32  `json:"sort_order"`
 }
 
 type WorkflowEdgeResponse struct {
@@ -174,22 +204,39 @@ func workflowToResponse(wf db.MulticaWorkflow, nodeCount int64) WorkflowResponse
 
 func workflowNodeToResponse(node db.MulticaWorkflowNode) WorkflowNodeResponse {
 	return WorkflowNodeResponse{
-		ID:                 uuidToString(node.ID),
-		WorkflowID:         uuidToString(node.WorkflowID),
-		Title:              node.Title,
-		Description:        node.Description,
-		PositionX:          node.PositionX,
-		PositionY:          node.PositionY,
-		FormatSchema:       node.FormatSchema,
-		WorkerType:         node.WorkerType,
-		WorkerID:           uuidToPtr(node.WorkerID),
-		CriticType:         node.CriticType,
-		CriticID:           uuidToPtr(node.CriticID),
-		CriticApiURL:       textToPtr(node.CriticApiUrl),
-		SortOrder:          node.SortOrder,
-		StageID:            uuidToPtr(node.StageID),
-		CreatedAt:          timestampToString(node.CreatedAt),
-		UpdatedAt:          timestampToString(node.UpdatedAt),
+		ID:                    uuidToString(node.ID),
+		WorkflowID:            uuidToString(node.WorkflowID),
+		Title:                 node.Title,
+		Description:           node.Description,
+		PositionX:             node.PositionX,
+		PositionY:             node.PositionY,
+		FormatSchema:          node.FormatSchema,
+		WorkerType:            node.WorkerType,
+		WorkerID:              uuidToPtr(node.WorkerID),
+		CriticType:            node.CriticType,
+		CriticID:              uuidToPtr(node.CriticID),
+		CriticApiURL:          textToPtr(node.CriticApiUrl),
+		SortOrder:             node.SortOrder,
+		StageID:               uuidToPtr(node.StageID),
+		DevelopmentStageID:    uuidToPtr(node.DevelopmentStageID),
+		AgentCapabilityConfig: node.AgentCapabilityConfig,
+		Instructions:          node.Instructions,
+		Deliverables:          nil, // populated separately
+		CreatedAt:             timestampToString(node.CreatedAt),
+		UpdatedAt:             timestampToString(node.UpdatedAt),
+	}
+}
+
+func deliverableToResponse(d db.MulticaWorkflowNodeDeliverable) WorkflowNodeDeliverableResponse {
+	return WorkflowNodeDeliverableResponse{
+		ID:           uuidToString(d.ID),
+		NodeID:       uuidToString(d.NodeID),
+		Type:         d.Type,
+		Name:         d.Name,
+		Requirements: d.Requirements,
+		SortOrder:    d.SortOrder,
+		CreatedAt:    timestampToString(d.CreatedAt),
+		UpdatedAt:    timestampToString(d.UpdatedAt),
 	}
 }
 
