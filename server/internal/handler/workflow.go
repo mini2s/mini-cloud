@@ -708,19 +708,39 @@ func (h *Handler) UpdateWorkflowNode(w http.ResponseWriter, r *http.Request) {
 	workspaceID := h.resolveWorkspaceID(r)
 	userID, _ := requireUserID(w, r)
 
+	// Validate development stage if provided
+	if req.DevelopmentStageID != nil && *req.DevelopmentStageID != "" {
+		dsID, ok := parseUUIDOrBadRequest(w, *req.DevelopmentStageID, "development_stage_id")
+		if !ok {
+			return
+		}
+		ds, err := h.Queries.GetDevelopmentStage(r.Context(), dsID)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "development stage not found")
+			return
+		}
+		if ds.Scope == "custom" && uuidToString(ds.WorkspaceID) != workspaceID {
+			writeError(w, http.StatusBadRequest, "development stage does not belong to this workspace")
+			return
+		}
+	}
+
 	params := db.UpdateWorkflowNodeParams{
-		ID:                 nID,
-		Title:              ptrToText(req.Title),
-		Description:        ptrToText(req.Description),
-		PositionX:          float64ToFloat8(req.PositionX),
-		PositionY:          float64ToFloat8(req.PositionY),
-		FormatSchema:       req.FormatSchema,
-		WorkerType:         ptrToText(req.WorkerType),
-		WorkerID:           ptrStrToUUID(req.WorkerID),
-		CriticType:         ptrToText(req.CriticType),
-		CriticID:           ptrStrToUUID(req.CriticID),
-		CriticApiUrl:       ptrToText(req.CriticApiURL),
-		SortOrder:          int32ToInt4(req.SortOrder),
+		ID:                    nID,
+		Title:                 ptrToText(req.Title),
+		Description:           ptrToText(req.Description),
+		PositionX:             float64ToFloat8(req.PositionX),
+		PositionY:             float64ToFloat8(req.PositionY),
+		FormatSchema:          req.FormatSchema,
+		WorkerType:            ptrToText(req.WorkerType),
+		WorkerID:              ptrStrToUUID(req.WorkerID),
+		CriticType:            ptrToText(req.CriticType),
+		CriticID:              ptrStrToUUID(req.CriticID),
+		CriticApiUrl:          ptrToText(req.CriticApiURL),
+		DevelopmentStageID:    ptrStrToUUID(req.DevelopmentStageID),
+		AgentCapabilityConfig: req.AgentCapabilityConfig,
+		Instructions:          ptrToText(req.Instructions),
+		SortOrder:             int32ToInt4(req.SortOrder),
 	}
 
 	updated, err := h.Queries.UpdateWorkflowNode(r.Context(), params)
@@ -729,7 +749,48 @@ func (h *Handler) UpdateWorkflowNode(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Atomic deliverable replacement: if Deliverables is non-nil, replace all
+	if req.Deliverables != nil {
+		// Validate types
+		for _, d := range req.Deliverables {
+			if d.Type != "document" && d.Type != "pull_request" {
+				writeError(w, http.StatusBadRequest, fmt.Sprintf("invalid deliverable type: %s", d.Type))
+				return
+			}
+			if d.Name == "" {
+				writeError(w, http.StatusBadRequest, "deliverable name is required")
+				return
+			}
+		}
+		// Delete existing and re-create
+		if err := h.Queries.DeleteDeliverablesByNode(r.Context(), nID); err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to replace deliverables")
+			return
+		}
+		for _, d := range req.Deliverables {
+			_, err := h.Queries.CreateDeliverable(r.Context(), db.CreateDeliverableParams{
+				NodeID:       nID,
+				Type:         d.Type,
+				Name:         d.Name,
+				Requirements: nonNullText(d.Requirements),
+				SortOrder:    d.SortOrder,
+			})
+			if err != nil {
+				writeError(w, http.StatusInternalServerError, "failed to create deliverable")
+				return
+			}
+		}
+	}
+
 	resp := workflowNodeToResponse(updated)
+	// Load deliverables into response
+	deliverables, _ := h.Queries.ListDeliverablesByNode(r.Context(), nID)
+	delivResps := make([]WorkflowNodeDeliverableResponse, 0, len(deliverables))
+	for _, d := range deliverables {
+		delivResps = append(delivResps, deliverableToResponse(d))
+	}
+	resp.Deliverables = delivResps
+
 	h.publish(protocol.EventWorkflowUpdated, workspaceID, "member", userID, map[string]any{"node": resp})
 	writeJSON(w, http.StatusOK, resp)
 }
