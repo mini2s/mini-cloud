@@ -69,6 +69,7 @@
     "./autopilots": "./autopilots/index.ts",
     "./autopilots/queries": "./autopilots/queries.ts",
     "./autopilots/mutations": "./autopilots/mutations.ts",
+    "./workflows/edge-semantics": "./workflows/edge-semantics.ts",
     "./workflows/queries": "./workflows/queries.ts",
     "./workflows/store": "./workflows/store.ts",
     "./workflows/stores/view-store": "./workflows/stores/view-store.ts",
