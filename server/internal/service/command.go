@@ -12,12 +12,20 @@ import (
 
 // CommandContext is stored in agent_task_queue.context for AI command tasks.
 type CommandContext struct {
-	Type        string `json:"type"`         // always "ai_command"
-	ContextType string `json:"context_type"` // "workflow" | "issue" | "inbox" | "agent"
-	ContextID   string `json:"context_id"`   // entity ID (issue UUID, workflow UUID, etc.)
-	UserInput   string `json:"user_input"`   // the raw NL input
-	Mode        string `json:"mode"`         // "chat" | "command"
-	Prompt      string `json:"prompt,omitempty"` // built prompt sent to agent
+	Type        string           `json:"type"`         // always "ai_command"
+	ContextType string           `json:"context_type"` // "workflow" | "issue" | "inbox" | "agent"
+	ContextID   string           `json:"context_id"`   // entity ID (issue UUID, workflow UUID, etc.)
+	UserInput   string           `json:"user_input"`   // the raw NL input
+	Mode        string           `json:"mode"`         // "chat" | "command"
+	Messages    []CommandMessage `json:"messages,omitempty"` // chat history for multi-turn context
+	Prompt      string           `json:"prompt,omitempty"`    // built prompt sent to agent
+}
+
+// CommandMessage is a single message in a chat conversation, carried in both
+// the API request and the task context.
+type CommandMessage struct {
+	Role    string `json:"role"`    // "user" | "assistant"
+	Content string `json:"content"` // message body
 }
 
 type CommandTaskParams struct {

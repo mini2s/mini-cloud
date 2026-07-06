@@ -7,6 +7,8 @@ interface SubmitCommandParams {
   contextId: string;
   userInput: string;
   mode: CommandMode;
+  agentId?: string;
+  messages?: { role: "user" | "assistant"; content: string }[];
 }
 
 export function useSubmitCommand() {
@@ -19,6 +21,12 @@ export function useSubmitCommand() {
         user_input: params.userInput,
         mode: params.mode,
       };
+      if (params.agentId) {
+        req.agent_id = params.agentId;
+      }
+      if (params.messages && params.messages.length > 0) {
+        req.messages = params.messages;
+      }
       return getApi().sendCommand(req);
     },
   });

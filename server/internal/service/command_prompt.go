@@ -19,10 +19,12 @@ type commandPromptQueries interface {
 	ListAgents(ctx context.Context, workspaceID pgtype.UUID) ([]db.MulticaAgent, error)
 	ListSquads(ctx context.Context, workspaceID pgtype.UUID) ([]db.MulticaSquad, error)
 	ListMembersWithUser(ctx context.Context, workspaceID pgtype.UUID) ([]db.ListMembersWithUserRow, error)
+	ListWorkflows(ctx context.Context, arg db.ListWorkflowsParams) ([]db.MulticaWorkflow, error)
 }
 
 // BuildCommandPrompt constructs the prompt sent to the agent for AI command tasks.
-// The prompt includes workspace context (agents, squads, members) and the user's NL input.
+// The prompt includes workspace context (agents, squads, members, workflows),
+// chat history for multi-turn context, and the user's NL input.
 func BuildCommandPrompt(
 	ctx context.Context,
 	queries commandPromptQueries,
@@ -73,7 +75,7 @@ func BuildCommandPrompt(
 		b.WriteString("Extract: name, model provider, skills, and description from the user's input.\n\n")
 	}
 
-	// Add workspace context: available agents, squads, members
+	// Add workspace context: available agents, squads, members, workflow templates
 	b.WriteString("---\nWorkspace resources:\n")
 
 	agents, err := queries.ListAgents(ctx, workspaceID)
@@ -116,7 +118,43 @@ func BuildCommandPrompt(
 		b.WriteString("\n")
 	}
 
+	// Include workflow templates for reuse/matching
+	workflows, err := queries.ListWorkflows(ctx, db.ListWorkflowsParams{
+		WorkspaceID: workspaceID,
+		Limit:       50,
+		Offset:      0,
+		Status:      pgtype.Text{String: "active", Valid: true},
+	})
+	if err != nil {
+		slog.Warn("failed to list workflows for command prompt", "error", err)
+		errs = append(errs, fmt.Errorf("list workflows: %w", err))
+	} else if len(workflows) > 0 {
+		b.WriteString("Existing workflows (templates for reuse):\n")
+		for _, w := range workflows {
+			desc := ""
+			if w.Description != "" {
+				desc = " - " + w.Description
+			}
+			fmt.Fprintf(&b, "- %s%s\n", w.Title, desc)
+		}
+		b.WriteString("\n")
+	}
+
 	b.WriteString("---\n")
+
+	// Include chat history for multi-turn context (workflow chat mode)
+	if cmdCtx.Mode == "chat" && len(cmdCtx.Messages) > 0 {
+		b.WriteString("Conversation history:\n")
+		for _, m := range cmdCtx.Messages {
+			label := "User"
+			if m.Role == "assistant" {
+				label = "Assistant"
+			}
+			fmt.Fprintf(&b, "%s: %s\n", label, m.Content)
+		}
+		b.WriteString("\n")
+	}
+
 	fmt.Fprintf(&b, "User command: %s\n", cmdCtx.UserInput)
 
 	return b.String(), errors.Join(errs...)

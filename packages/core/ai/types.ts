@@ -9,6 +9,8 @@ export interface CommandRequest {
   context_id: string;
   user_input: string;
   mode: CommandMode;
+  agent_id?: string;
+  messages?: { role: "user" | "assistant"; content: string }[];
   // workspace_id is NOT sent — ApiClient injects it via X-Workspace-ID header
 }
 

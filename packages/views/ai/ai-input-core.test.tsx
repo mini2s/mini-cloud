@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { renderWithI18n } from "../test/i18n";
 import { AiInputCore } from "./ai-input-core";
 
 describe("AiInputCore", () => {
@@ -16,7 +17,7 @@ describe("AiInputCore", () => {
   // ---------------------------------------------------------------------------
 
   it("renders the textarea with the given placeholder", () => {
-    render(
+    renderWithI18n(
       <AiInputCore
         mode="command"
         placeholder="Type a command…"
@@ -30,7 +31,7 @@ describe("AiInputCore", () => {
   });
 
   it("disables the textarea when disabled is true", () => {
-    render(
+    renderWithI18n(
       <AiInputCore
         mode="command"
         placeholder=""
@@ -43,7 +44,7 @@ describe("AiInputCore", () => {
   });
 
   it("disables the submit button from the start when disabled is true (no text typed)", () => {
-    render(
+    renderWithI18n(
       <AiInputCore
         mode="command"
         placeholder=""
@@ -56,7 +57,7 @@ describe("AiInputCore", () => {
   });
 
   it("shows the agent selector dropdown when showAgentSelector is true", () => {
-    render(
+    renderWithI18n(
       <AiInputCore
         mode="chat"
         placeholder=""
@@ -70,7 +71,7 @@ describe("AiInputCore", () => {
   });
 
   it("renders Default agent as the default option text", () => {
-    render(
+    renderWithI18n(
       <AiInputCore
         mode="chat"
         placeholder=""
@@ -83,7 +84,7 @@ describe("AiInputCore", () => {
   });
 
   it("does not render the agent selector when showAgentSelector is false", () => {
-    render(
+    renderWithI18n(
       <AiInputCore
         mode="command"
         placeholder=""
@@ -95,7 +96,7 @@ describe("AiInputCore", () => {
   });
 
   it("disables the agent selector when disabled is true", () => {
-    render(
+    renderWithI18n(
       <AiInputCore
         mode="chat"
         placeholder=""
@@ -116,7 +117,7 @@ describe("AiInputCore", () => {
     const onSubmit = vi.fn().mockResolvedValue(undefined);
     const user = userEvent.setup();
 
-    render(
+    renderWithI18n(
       <AiInputCore
         mode="command"
         placeholder=""
@@ -136,7 +137,7 @@ describe("AiInputCore", () => {
     const onSubmit = vi.fn();
     const user = userEvent.setup();
 
-    render(
+    renderWithI18n(
       <AiInputCore
         mode="command"
         placeholder=""
@@ -153,7 +154,7 @@ describe("AiInputCore", () => {
     const onSubmit = vi.fn();
     const user = userEvent.setup();
 
-    render(
+    renderWithI18n(
       <AiInputCore
         mode="command"
         placeholder=""
@@ -171,7 +172,7 @@ describe("AiInputCore", () => {
     const onSubmit = vi.fn().mockResolvedValue(undefined);
     const user = userEvent.setup();
 
-    render(
+    renderWithI18n(
       <AiInputCore
         mode="command"
         placeholder="Enter text"
@@ -198,7 +199,7 @@ describe("AiInputCore", () => {
     const onSubmit = vi.fn().mockResolvedValue(undefined);
     const user = userEvent.setup();
 
-    render(
+    renderWithI18n(
       <AiInputCore
         mode="chat"
         placeholder=""
@@ -219,7 +220,7 @@ describe("AiInputCore", () => {
     const onSubmit = vi.fn().mockResolvedValue(undefined);
     const user = userEvent.setup();
 
-    render(
+    renderWithI18n(
       <AiInputCore
         mode="chat"
         placeholder=""
@@ -239,7 +240,7 @@ describe("AiInputCore", () => {
     const onSubmit = vi.fn();
     const user = userEvent.setup();
 
-    render(
+    renderWithI18n(
       <AiInputCore
         mode="chat"
         placeholder=""
@@ -262,7 +263,7 @@ describe("AiInputCore", () => {
     const onSubmit = vi.fn().mockRejectedValue(new Error("Network failure"));
     const user = userEvent.setup();
 
-    render(
+    renderWithI18n(
       <AiInputCore
         mode="command"
         placeholder=""
@@ -284,7 +285,7 @@ describe("AiInputCore", () => {
     const onSubmit = vi.fn().mockRejectedValue("string reason");
     const user = userEvent.setup();
 
-    render(
+    renderWithI18n(
       <AiInputCore
         mode="command"
         placeholder=""
@@ -296,14 +297,14 @@ describe("AiInputCore", () => {
     await user.type(screen.getByRole("textbox"), "boom");
     await user.keyboard("{Enter}");
 
-    expect(await screen.findByText("Something went wrong")).toBeInTheDocument();
+    expect(await screen.findByText("Unknown error, please retry")).toBeInTheDocument();
   });
 
   it("clears the error message when the user starts typing again", async () => {
     const onSubmit = vi.fn().mockRejectedValue(new Error("Fail"));
     const user = userEvent.setup();
 
-    render(
+    renderWithI18n(
       <AiInputCore
         mode="command"
         placeholder="input"
@@ -328,7 +329,7 @@ describe("AiInputCore", () => {
   // ---------------------------------------------------------------------------
 
   it("disables the submit button when the textarea is empty", () => {
-    render(
+    renderWithI18n(
       <AiInputCore
         mode="command"
         placeholder=""
@@ -341,7 +342,7 @@ describe("AiInputCore", () => {
 
   it("disables the submit button when the textarea has only whitespace", async () => {
     const user = userEvent.setup();
-    render(
+    renderWithI18n(
       <AiInputCore
         mode="command"
         placeholder=""
@@ -357,7 +358,7 @@ describe("AiInputCore", () => {
 
   it("enables the submit button after text is typed", async () => {
     const user = userEvent.setup();
-    render(
+    renderWithI18n(
       <AiInputCore
         mode="command"
         placeholder=""
@@ -386,7 +387,7 @@ describe("AiInputCore", () => {
     );
 
     const user = userEvent.setup();
-    render(
+    renderWithI18n(
       <AiInputCore
         mode="command"
         placeholder=""
@@ -415,7 +416,7 @@ describe("AiInputCore", () => {
     const onSubmit = vi.fn().mockResolvedValue(undefined);
     const user = userEvent.setup();
 
-    render(
+    renderWithI18n(
       <AiInputCore
         mode="command"
         placeholder=""

@@ -21,23 +21,26 @@ export function WorkflowAiPanel({ workflowId, disabled }: WorkflowAiPanelProps) 
   const mutation = useSubmitCommand();
 
   const handleSubmit = useCallback(
-    async (input: string, _agentId: string) => {
+    async (input: string, agentId: string) => {
       // Add user message locally
       const userMsg: ChatMessage = { role: "user", content: input };
-      setMessages((prev) => [...prev, userMsg]);
+      const history = [...messages, userMsg];
+      setMessages(history);
 
-      // Send to backend
+      // Send to backend with full chat history for multi-turn context
       await mutation.mutateAsync({
         contextType: "workflow",
         contextId: workflowId,
         userInput: input,
         mode: "chat",
+        agentId: agentId || undefined,
+        messages: history,
       });
 
       // The actual agent response comes via WS events (workflow:updated)
       // We don't add a fake assistant message — the canvas refresh is the response
     },
-    [workflowId, mutation],
+    [workflowId, messages, mutation],
   );
 
   return (

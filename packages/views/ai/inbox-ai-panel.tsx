@@ -14,12 +14,13 @@ export function InboxAiPanel({ disabled }: InboxAiPanelProps) {
   const mutation = useSubmitCommand();
 
   const handleSubmit = useCallback(
-    async (input: string, _agentId: string) => {
+    async (input: string, agentId: string) => {
       await mutation.mutateAsync({
         contextType: "inbox",
         contextId: "", // inbox queries don't need a specific entity ID
         userInput: input,
         mode: "command",
+        agentId: agentId || undefined,
       });
     },
     [mutation],

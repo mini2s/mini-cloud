@@ -14,12 +14,13 @@ export function AgentAiPanel({ disabled }: AgentAiPanelProps) {
   const mutation = useSubmitCommand();
 
   const handleSubmit = useCallback(
-    async (input: string, _agentId: string) => {
+    async (input: string, agentId: string) => {
       await mutation.mutateAsync({
         contextType: "agent",
         contextId: "", // agent creation doesn't need a pre-existing entity ID
         userInput: input,
         mode: "command",
+        agentId: agentId || undefined,
       });
     },
     [mutation],

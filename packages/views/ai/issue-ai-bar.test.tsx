@@ -1,6 +1,9 @@
 import { describe, it, expect, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import type { ReactNode } from "react";
+import { renderWithI18n } from "../test/i18n";
 import { IssueAiBar } from "./issue-ai-bar";
 
 vi.mock("@multica/core/ai/commands", () => ({
@@ -19,9 +22,20 @@ vi.mock("@multica/core/ai/issue-commands", () => ({
   },
 }));
 
+vi.mock("@multica/core/ai/task-listener", () => ({
+  useCommandTaskListener: vi.fn(),
+}));
+
+function renderWithProviders(ui: ReactNode) {
+  const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  return renderWithI18n(
+    <QueryClientProvider client={qc}>{ui}</QueryClientProvider>,
+  );
+}
+
 describe("IssueAiBar", () => {
   it("renders input bar", () => {
-    render(<IssueAiBar issueId="issue-1" />);
+    renderWithProviders(<IssueAiBar issueId="issue-1" />);
     expect(screen.getByRole("textbox")).toBeInTheDocument();
   });
 
@@ -29,7 +43,7 @@ describe("IssueAiBar", () => {
     const onOptimisticIntent = vi.fn();
     const user = userEvent.setup();
 
-    render(<IssueAiBar issueId="issue-1" onOptimisticIntent={onOptimisticIntent} />);
+    renderWithProviders(<IssueAiBar issueId="issue-1" onOptimisticIntent={onOptimisticIntent} />);
 
     await user.type(screen.getByRole("textbox"), "assign to Alice");
     await user.keyboard("{Enter}");

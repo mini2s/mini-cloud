@@ -11,11 +11,12 @@ import (
 
 // mockCommandQueries implements commandPromptQueries for testing.
 type mockCommandQueries struct {
-	agents  []db.MulticaAgent
-	squads  []db.MulticaSquad
-	members []db.ListMembersWithUserRow
-	issue   db.MulticaIssue
-	issueOK bool
+	agents    []db.MulticaAgent
+	squads    []db.MulticaSquad
+	members   []db.ListMembersWithUserRow
+	workflows []db.MulticaWorkflow
+	issue     db.MulticaIssue
+	issueOK   bool
 }
 
 func (m *mockCommandQueries) GetIssue(ctx context.Context, id pgtype.UUID) (db.MulticaIssue, error) {
@@ -35,6 +36,10 @@ func (m *mockCommandQueries) ListSquads(ctx context.Context, workspaceID pgtype.
 
 func (m *mockCommandQueries) ListMembersWithUser(ctx context.Context, workspaceID pgtype.UUID) ([]db.ListMembersWithUserRow, error) {
 	return m.members, nil
+}
+
+func (m *mockCommandQueries) ListWorkflows(ctx context.Context, arg db.ListWorkflowsParams) ([]db.MulticaWorkflow, error) {
+	return m.workflows, nil
 }
 
 // errSentinel is a test error returned by mock queries that simulate failures.

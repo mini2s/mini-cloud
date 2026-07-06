@@ -30,7 +30,7 @@ export function IssueAiBar({ issueId, onOptimisticIntent, disabled }: IssueAiBar
   });
 
   const handleSubmit = useCallback(
-    async (input: string, _agentId: string) => {
+    async (input: string, agentId: string) => {
       // Parse intent locally for optimistic update
       const intent = parseIssueCommand(input);
 
@@ -45,6 +45,7 @@ export function IssueAiBar({ issueId, onOptimisticIntent, disabled }: IssueAiBar
         contextId: issueId,
         userInput: input,
         mode: "command",
+        agentId: agentId || undefined,
       });
 
       // Track task_id so we can react to task:completed / task:failed events

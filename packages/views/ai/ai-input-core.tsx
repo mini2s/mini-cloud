@@ -6,13 +6,22 @@ import { SubmitButton } from "@multica/ui/components/common/submit-button";
 import { Textarea } from "@multica/ui/components/ui/textarea";
 import { useT } from "../i18n";
 
+export interface AgentOption {
+  id: string;
+  name: string;
+}
+
 export interface AiInputCoreProps {
   mode: "chat" | "command";
   placeholder: string;
   showAgentSelector: boolean;
   defaultAgentId?: string;
+  /** List of available agents for the selector dropdown. */
+  agents?: AgentOption[];
   onSubmit: (input: string, agentId: string) => Promise<void>;
   disabled?: boolean;
+  /** Called when the user selects a different agent from the dropdown. */
+  onAgentChange?: (agentId: string) => void;
   /** Rendered at the bottom-left — typically the agent picker. */
   leftAdornment?: React.ReactNode;
 }
@@ -22,14 +31,17 @@ export function AiInputCore({
   placeholder,
   showAgentSelector,
   defaultAgentId,
+  agents,
   onSubmit,
   disabled,
+  onAgentChange,
   leftAdornment,
 }: AiInputCoreProps) {
   const { t } = useT("ai");
   const [value, setValue] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [selectedAgentId, setSelectedAgentId] = useState(defaultAgentId ?? "");
 
   const handleSubmit = useCallback(async () => {
     const trimmed = value.trim();
@@ -38,14 +50,14 @@ export function AiInputCore({
     setSubmitting(true);
     setError(null);
     try {
-      await onSubmit(trimmed, defaultAgentId ?? "");
+      await onSubmit(trimmed, selectedAgentId);
       setValue("");
     } catch (e) {
       setError(e instanceof Error ? e.message : t($ => $.error_unknown));
     } finally {
       setSubmitting(false);
     }
-  }, [value, submitting, disabled, onSubmit, defaultAgentId, t]);
+  }, [value, submitting, disabled, onSubmit, selectedAgentId, t]);
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
@@ -96,11 +108,18 @@ export function AiInputCore({
         {showAgentSelector && (
           <select
             className="h-8 rounded border border-border bg-background px-2 text-xs text-muted-foreground"
-            defaultValue={defaultAgentId ?? ""}
+            value={selectedAgentId}
+            onChange={(e) => {
+              const next = e.target.value;
+              setSelectedAgentId(next);
+              onAgentChange?.(next);
+            }}
             disabled={disabled || submitting}
           >
             <option value="">{t($ => $.agent_default)}</option>
-            {/* Agent list populated by wrapper via leftAdornment or a query */}
+            {agents?.map((a) => (
+              <option key={a.id} value={a.id}>{a.name}</option>
+            ))}
           </select>
         )}
         <SubmitButton

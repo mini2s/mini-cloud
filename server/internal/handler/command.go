@@ -5,14 +5,23 @@ import (
 	"net/http"
 
 	"github.com/multica-ai/multica/server/internal/service"
+	db "github.com/multica-ai/multica/server/pkg/db/generated"
 )
 
 // CommandRequest is the POST /api/commands request body.
 type CommandRequest struct {
-	ContextType string `json:"context_type"` // "workflow" | "issue" | "inbox" | "agent"
-	ContextID   string `json:"context_id"`   // entity ID
-	UserInput   string `json:"user_input"`   // NL input
-	Mode        string `json:"mode"`         // "chat" | "command"
+	ContextType string          `json:"context_type"` // "workflow" | "issue" | "inbox" | "agent"
+	ContextID   string          `json:"context_id"`   // entity ID
+	UserInput   string          `json:"user_input"`   // NL input
+	Mode        string          `json:"mode"`         // "chat" | "command"
+	AgentID     string          `json:"agent_id,omitempty"` // optional, overrides auto-selection
+	Messages    []CommandMessage `json:"messages,omitempty"` // chat history for multi-turn context
+}
+
+// CommandMessage is a single message in a chat conversation.
+type CommandMessage struct {
+	Role    string `json:"role"`    // "user" | "assistant"
+	Content string `json:"content"` // message body
 }
 
 // CommandResponse is the POST /api/commands response body.
@@ -78,17 +87,35 @@ func (h *Handler) SendCommand(w http.ResponseWriter, r *http.Request) {
 		contextID = uuidToString(id)
 	}
 
-	// Resolve agent: use ListAgents and take the first non-archived agent.
-	agents, err := h.Queries.ListAgents(r.Context(), wsUUID)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to list agents")
-		return
+	// Resolve agent: use the one from the request if specified, otherwise
+	// pick the first non-archived agent in the workspace.
+	var agent db.MulticaAgent
+	if req.AgentID != "" {
+		agentUUID, ok := parseUUIDOrBadRequest(w, req.AgentID, "agent_id")
+		if !ok {
+			return
+		}
+		a, err := h.Queries.GetAgentInWorkspace(r.Context(), db.GetAgentInWorkspaceParams{
+			ID:          agentUUID,
+			WorkspaceID: wsUUID,
+		})
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "specified agent not found in workspace")
+			return
+		}
+		agent = a
+	} else {
+		agents, err := h.Queries.ListAgents(r.Context(), wsUUID)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to list agents")
+			return
+		}
+		if len(agents) == 0 {
+			writeError(w, http.StatusInternalServerError, "no agents available in workspace")
+			return
+		}
+		agent = agents[0]
 	}
-	if len(agents) == 0 {
-		writeError(w, http.StatusInternalServerError, "no agents available in workspace")
-		return
-	}
-	agent := agents[0]
 
 	// Resolve runtime for the agent
 	runtimeID := agent.RuntimeID
@@ -112,6 +139,12 @@ func (h *Handler) SendCommand(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Convert handler CommandMessage types to service layer types
+	svcMessages := make([]service.CommandMessage, len(req.Messages))
+	for i, m := range req.Messages {
+		svcMessages[i] = service.CommandMessage{Role: m.Role, Content: m.Content}
+	}
+
 	task, err := h.TaskService.EnqueueCommandTask(r.Context(), service.CommandTaskParams{
 		AgentID:     agent.ID,
 		RuntimeID:   runtimeID,
@@ -123,6 +156,7 @@ func (h *Handler) SendCommand(w http.ResponseWriter, r *http.Request) {
 			ContextID:   contextID,
 			UserInput:   req.UserInput,
 			Mode:        req.Mode,
+			Messages:    svcMessages,
 		},
 	})
 	if err != nil {
