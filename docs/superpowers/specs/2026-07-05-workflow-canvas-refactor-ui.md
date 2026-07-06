@@ -1,7 +1,6 @@
-# Workflow 画布重构 — UI/UX 设计提取
+# Workflow 画布重构
 
-**来源:** `docs/superpowers/specs/2026-07-05-workflow-canvas-refactor-design.md`
-**提取日期:** 2026-07-06
+**日期:** 2026-07-06
 **范围:** 仅 UI/UX 相关内容（视觉设计、交互模式、布局、组件行为）
 
 ---
