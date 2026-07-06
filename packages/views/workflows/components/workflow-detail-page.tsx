@@ -4,7 +4,7 @@ import type { ReactNode } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { Plus, Wand, Trash2, Power, ArrowLeft, Undo2, Redo2, Sun, Moon, Monitor } from "lucide-react";
+import { Plus, Wand, Trash2, Power, ArrowLeft, Undo2, Redo2, Sun, Moon, Monitor, LayoutPanelLeft } from "lucide-react";
 import { useWorkspaceId } from "@multica/core/hooks";
 import {
   workflowDetailOptions,
@@ -41,9 +41,12 @@ import {
 import { useT } from "../../i18n";
 import { useAuthStore } from "@multica/core/auth";
 import { ReactFlowProvider } from "@xyflow/react";
-import { DAGCanvas } from "./dag-canvas";
-import { NodeConfigPanel } from "./node-config-panel";
 import { computeAutoLayout } from "./layout";
+import { WorkflowCanvasShell } from "./workflow-canvas-shell";
+import { NodePanel } from "./node-panel";
+import { EditorInspector } from "./editor-inspector";
+import { ReactFlowSurface } from "./reactflow-surface";
+import { PreflightBar, runPreflightChecks } from "./preflight-bar";
 import type { WorkflowStatus } from "@multica/core/types";
 
 interface WorkflowDetailPageProps {
@@ -106,6 +109,24 @@ export function WorkflowDetailPage({ workflowId: id, viewToggle }: WorkflowDetai
   }, [reverseAction]);
   // eslint-disable-next-line react-hooks/exhaustive-deps
 
+  // Keyboard shortcuts
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      const tag = (e.target as HTMLElement)?.tagName;
+      const editable = tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || (e.target as HTMLElement)?.isContentEditable;
+      if (editable) return;
+      if (e.key === "n" || e.key === "N") {
+        e.preventDefault();
+        if (mode === "edit") setNodePanelOpen((v) => !v);
+      }
+      if (e.key === "Escape") {
+        setNodePanelOpen(false);
+      }
+    };
+    document.addEventListener("keydown", handler);
+    return () => document.removeEventListener("keydown", handler);
+  }, [mode]);
+
   const { data: workflow, isLoading } = useQuery(workflowDetailOptions(wsId, id!));
   const { data: nodes = [] } = useQuery(workflowNodesOptions(wsId, id!));
   const { data: edges = [] } = useQuery(workflowEdgesOptions(wsId, id!));
@@ -143,11 +164,17 @@ export function WorkflowDetailPage({ workflowId: id, viewToggle }: WorkflowDetai
     ? (displayNodes.find((n) => n.id === selectedNodeIds[0]) ?? null)
     : null;
 
+  const checks = useMemo(
+    () => mode === "edit" ? runPreflightChecks(displayNodes, edges) : [],
+    [mode, displayNodes, edges],
+  );
+
   const queryClient = useQueryClient();
 
   const [editingTitle, setEditingTitle] = useState(false);
   const [draftTitle, setDraftTitle] = useState("");
   const [saving, setSaving] = useState(false);
+  const [nodePanelOpen, setNodePanelOpen] = useState(false);
 
   // Container for portal dialogs — renders inside the component tree
   // instead of document.body, so dialogs work inside iframes.
@@ -304,172 +331,204 @@ export function WorkflowDetailPage({ workflowId: id, viewToggle }: WorkflowDetai
 
   return (
     <div className="flex h-full flex-col">
-      {/* Toolbar */}
-      <PageHeader className="justify-between px-5 shrink-0">
-        <div className="flex items-center gap-2 min-w-0">
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-7 w-7 shrink-0"
-            onClick={() => {
-              const hasEdits = Object.keys(nodeEdits).length > 0 || deletedNodeIds.length > 0;
-              if (hasEdits && mode === "edit") {
-                setUnsavedDialogOpen(true);
-                return;
-              }
-              useWorkflowEditorStore.getState().reset();
-              navigation.push(wsPaths.workflows());
-            }}
-            title={t(($) => $.detail.back_to_workflows)}
-          >
-            <ArrowLeft className="h-4 w-4" />
-          </Button>
-          {editingTitle ? (
-            <input
-              className="h-7 px-2 text-sm font-medium border rounded bg-background w-48"
-              value={draftTitle}
-              onChange={(e) => setDraftTitle(e.currentTarget.value)}
-              onBlur={async () => {
-                setEditingTitle(false);
-                if (draftTitle && draftTitle !== workflow?.title) {
-                  await updateWorkflowMutation.mutateAsync({ id: id!, title: draftTitle });
+      <WorkflowCanvasShell
+        topBar={
+          <PageHeader className="justify-between px-5 shrink-0">
+            <div className="flex items-center gap-2 min-w-0">
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-7 w-7 shrink-0"
+                onClick={() => {
+                  const hasEdits = Object.keys(nodeEdits).length > 0 || deletedNodeIds.length > 0;
+                  if (hasEdits && mode === "edit") {
+                    setUnsavedDialogOpen(true);
+                    return;
+                  }
+                  useWorkflowEditorStore.getState().reset();
+                  navigation.push(wsPaths.workflows());
+                }}
+                title={t(($) => $.detail.back_to_workflows)}
+              >
+                <ArrowLeft className="h-4 w-4" />
+              </Button>
+              {editingTitle ? (
+                <input
+                  className="h-7 px-2 text-sm font-medium border rounded bg-background w-48"
+                  value={draftTitle}
+                  onChange={(e) => setDraftTitle(e.currentTarget.value)}
+                  onBlur={async () => {
+                    setEditingTitle(false);
+                    if (draftTitle && draftTitle !== workflow?.title) {
+                      await updateWorkflowMutation.mutateAsync({ id: id!, title: draftTitle });
+                    }
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+                    if (e.key === "Escape") { setDraftTitle(workflow?.title ?? ""); setEditingTitle(false); }
+                  }}
+                  autoFocus
+                />
+              ) : (
+                <h1
+                  className="text-sm font-medium truncate cursor-pointer hover:text-primary transition-colors"
+                  onClick={() => { setDraftTitle(workflow?.title ?? ""); setEditingTitle(true); }}
+                  title={t(($) => $.detail.click_to_rename)}
+                >
+                  {workflow.title}
+                </h1>
+              )}
+              {workflow?.is_template && (
+                <Badge variant="outline" className="text-[10px] px-1.5 h-4 shrink-0">{t(($) => $.detail.template)}</Badge>
+              )}
+              <Badge variant="secondary" className="text-[10px] px-1.5 h-4 shrink-0">
+                {t(($) => ($.status as Record<string, string>)[workflow.status as WorkflowStatus] ?? workflow.status)}
+              </Badge>
+            </div>
+            <div className="flex items-center gap-1">
+              {isWorkflowAdmin && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => {
+                    const newIsTemplate = !workflow?.is_template;
+                    setPendingTemplateValue(newIsTemplate);
+                    setTemplateDialogOpen(true);
+                  }}
+                  disabled={toggleTemplate.isPending}
+                >
+                  {toggleTemplate.isPending
+                    ? "..."
+                    : workflow?.is_template
+                      ? t(($) => $.detail.unset_template)
+                      : t(($) => $.detail.set_as_template)}
+                </Button>
+              )}
+              <Button
+                variant={mode === "view" ? "outline" : "secondary"}
+                size="sm"
+                className="h-8 text-sm px-3"
+                onClick={async () => {
+                  if (mode === "edit") {
+                    setSaving(true);
+                    try {
+                      await handleSave();
+                      useWorkflowEditorStore.setState({ selectedNodeId: null, selectedNodeIds: [], selectedEdgeId: null });
+                    } finally {
+                      setSaving(false);
+                    }
+                  }
+                  setMode(mode === "view" ? "edit" : "view");
+                }}
+              >
+                {mode === "view" ? t(($) => $.detail.toolbar.edit) : t(($) => $.detail.toolbar.done)}
+              </Button>
+              <Button size="sm" variant="outline" onClick={() => setDeleteDialogOpen(true)} className="text-destructive hover:text-destructive">
+                <Trash2 className="h-3.5 w-3.5" />
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={cycleCanvasColorMode}
+                className="h-8 w-8 p-0"
+                title={
+                  canvasColorMode === "system"
+                    ? t(($) => $.detail.canvas_theme_system)
+                    : canvasColorMode === "light"
+                      ? t(($) => $.detail.canvas_theme_light)
+                      : t(($) => $.detail.canvas_theme_dark)
                 }
-              }}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") (e.target as HTMLInputElement).blur();
-                if (e.key === "Escape") { setDraftTitle(workflow?.title ?? ""); setEditingTitle(false); }
-              }}
-              autoFocus
+              >
+                {canvasColorMode === "system" ? (
+                  <Monitor className="h-3.5 w-3.5" />
+                ) : canvasColorMode === "light" ? (
+                  <Sun className="h-3.5 w-3.5" />
+                ) : (
+                  <Moon className="h-3.5 w-3.5" />
+                )}
+              </Button>
+
+              {mode === "edit" && (
+                <>
+                  <Button
+                    size="sm"
+                    variant={nodePanelOpen ? "secondary" : "outline"}
+                    onClick={() => setNodePanelOpen(!nodePanelOpen)}
+                    title="Toggle node panel (N)"
+                  >
+                    <LayoutPanelLeft className="h-3.5 w-3.5" />
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={handleAutoLayout}
+                    className="h-8 w-8 p-0"
+                    title={t(($) => $.detail.toolbar.auto_layout)}
+                  >
+                    <Wand className="h-3.5 w-3.5" />
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={undo}
+                    disabled={undoStack.length === 0}
+                    className="h-8 w-8 p-0"
+                    title={t(($) => $.detail.toolbar.undo)}
+                  >
+                    <Undo2 className="h-3.5 w-3.5" />
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={redo}
+                    disabled={redoStack.length === 0}
+                    className="h-8 w-8 p-0"
+                    title={t(($) => $.detail.toolbar.redo)}
+                  >
+                    <Redo2 className="h-3.5 w-3.5" />
+                  </Button>
+                </>
+              )}
+              {viewToggle}
+              <Button
+                size="sm"
+                variant={workflow?.status === "active" ? "secondary" : "default"}
+                onClick={handleActivateWorkflow}
+                disabled={updateWorkflowMutation.isPending || workflow?.is_template}
+              >
+                <Power className="h-3.5 w-3.5 mr-1" />
+                {workflow?.status === "active" ? t(($) => $.detail.deactivate) : t(($) => $.detail.activate)}
+              </Button>
+            </div>
+          </PageHeader>
+        }
+        leftPanel={
+          mode === "edit" ? (
+            <NodePanel isOpen={nodePanelOpen} onClose={() => setNodePanelOpen(false)} />
+          ) : undefined
+        }
+        inspector={
+          selectedNode ? (
+            <EditorInspector
+              node={selectedNode}
+              workflowId={id!}
+              nodes={displayNodes}
+              stages={stages}
+              disabled={mode !== "edit"}
+              onClose={() => useWorkflowEditorStore.getState().selectNode(null)}
             />
-          ) : (
-            <h1
-              className="text-sm font-medium truncate cursor-pointer hover:text-primary transition-colors"
-              onClick={() => { setDraftTitle(workflow?.title ?? ""); setEditingTitle(true); }}
-              title={t(($) => $.detail.click_to_rename)}
-            >
-              {workflow.title}
-            </h1>
-          )}
-          {workflow?.is_template && (
-            <Badge variant="outline" className="text-[10px] px-1.5 h-4 shrink-0">{t(($) => $.detail.template)}</Badge>
-          )}
-          <Badge variant="secondary" className="text-[10px] px-1.5 h-4 shrink-0">
-            {t(($) => ($.status as Record<string, string>)[workflow.status as WorkflowStatus] ?? workflow.status)}
-          </Badge>
-        </div>
-        <div className="flex items-center gap-1">
-          {isWorkflowAdmin && (
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => {
-                const newIsTemplate = !workflow?.is_template;
-                setPendingTemplateValue(newIsTemplate);
-                setTemplateDialogOpen(true);
-              }}
-              disabled={toggleTemplate.isPending}
-            >
-              {toggleTemplate.isPending
-                ? "..."
-                : workflow?.is_template
-                  ? t(($) => $.detail.unset_template)
-                  : t(($) => $.detail.set_as_template)}
-            </Button>
-          )}
-          <Button
-            variant={mode === "view" ? "outline" : "secondary"}
-            size="sm"
-            className="h-8 text-sm px-3"
-            onClick={async () => {
-              if (mode === "edit") {
-                setSaving(true);
-                try {
-                  await handleSave();
-                  useWorkflowEditorStore.setState({ selectedNodeId: null, selectedNodeIds: [], selectedEdgeId: null });
-                } finally {
-                  setSaving(false);
-                }
-              }
-              setMode(mode === "view" ? "edit" : "view");
-            }}
-          >
-            {mode === "view" ? t(($) => $.detail.toolbar.edit) : t(($) => $.detail.toolbar.done)}
-          </Button>
-          <Button size="sm" variant="outline" onClick={() => setDeleteDialogOpen(true)} className="text-destructive hover:text-destructive">
-            <Trash2 className="h-3.5 w-3.5" />
-          </Button>
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={cycleCanvasColorMode}
-            className="h-8 w-8 p-0"
-            title={
-              canvasColorMode === "system"
-                ? t(($) => $.detail.canvas_theme_system)
-                : canvasColorMode === "light"
-                  ? t(($) => $.detail.canvas_theme_light)
-                  : t(($) => $.detail.canvas_theme_dark)
-            }
-          >
-            {canvasColorMode === "system" ? (
-              <Monitor className="h-3.5 w-3.5" />
-            ) : canvasColorMode === "light" ? (
-              <Sun className="h-3.5 w-3.5" />
-            ) : (
-              <Moon className="h-3.5 w-3.5" />
-            )}
-          </Button>
-
-          {mode === "edit" && (
-            <>
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={handleAutoLayout}
-                className="h-8 w-8 p-0"
-                title={t(($) => $.detail.toolbar.auto_layout)}
-              >
-                <Wand className="h-3.5 w-3.5" />
-              </Button>
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={undo}
-                disabled={undoStack.length === 0}
-                className="h-8 w-8 p-0"
-                title={t(($) => $.detail.toolbar.undo)}
-              >
-                <Undo2 className="h-3.5 w-3.5" />
-              </Button>
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={redo}
-                disabled={redoStack.length === 0}
-                className="h-8 w-8 p-0"
-                title={t(($) => $.detail.toolbar.redo)}
-              >
-                <Redo2 className="h-3.5 w-3.5" />
-              </Button>
-            </>
-          )}
-          {viewToggle}
-          <Button
-            size="sm"
-            variant={workflow?.status === "active" ? "secondary" : "default"}
-            onClick={handleActivateWorkflow}
-            disabled={updateWorkflowMutation.isPending || workflow?.is_template}
-          >
-            <Power className="h-3.5 w-3.5 mr-1" />
-            {workflow?.status === "active" ? t(($) => $.detail.deactivate) : t(($) => $.detail.activate)}
-          </Button>
-        </div>
-      </PageHeader>
-
-      {/* Main content area */}
-      <div className="flex flex-1 min-h-0 relative">
-        {/* DAG canvas */}
-        <div className="flex-1 relative bg-muted/20">
+          ) : undefined
+        }
+        bottomBar={
+          checks.length > 0 && mode === "edit" ? (
+            <PreflightBar checks={checks} onCheckClick={(check) => {
+              if (check.nodeId) useWorkflowEditorStore.getState().selectNode(check.nodeId);
+            }} />
+          ) : undefined
+        }
+      >
+        {/* Canvas */}
+        <div className="flex-1 relative bg-workflow-canvas-bg">
           {saving && (
             <div className="absolute inset-0 z-50 flex items-center justify-center bg-background/60 backdrop-blur-sm">
               <div className="flex flex-col items-center gap-3">
@@ -483,29 +542,34 @@ export function WorkflowDetailPage({ workflowId: id, viewToggle }: WorkflowDetai
           {nodes.length === 0 ? (
             <div className="absolute inset-0 flex flex-col items-center justify-center gap-3">
               <p className="text-sm text-muted-foreground">{t(($) => $.detail.no_nodes)}</p>
-              {mode === "edit" && <Button size="sm" variant="outline" onClick={() => handleAddNode("rectangle", 200, 200)}>
-                <Plus className="h-3.5 w-3.5 mr-1" />
-                {t(($) => $.detail.add_node)}
-              </Button>}
+              <div className="flex gap-2">
+                <Button size="sm" variant="outline" onClick={() => handleAddNode("rectangle", 200, 200)}>
+                  <Plus className="h-3.5 w-3.5 mr-1" />
+                  {t(($) => $.detail.add_node)}
+                </Button>
+                <Button size="sm" variant="outline" onClick={() => setNodePanelOpen(true)}>
+                  Browse node types
+                </Button>
+              </div>
             </div>
           ) : (
             <ReactFlowProvider>
-              <DAGCanvas
+              <ReactFlowSurface
                 nodes={displayNodes}
                 edges={edges}
                 onNodeDragStop={handleNodeMoved}
                 onEdgeCreate={handleEdgeCreate}
                 onEdgeDelete={handleEdgeDelete}
                 onNodeCreate={handleAddNode}
+                showMiniMap={(displayNodes.length ?? 0) > 20}
               />
             </ReactFlowProvider>
           )}
-          {/* Add node button (floating, top-left) */}
           {nodes.length > 0 && mode === "edit" && (
             <Button
               size="icon"
               variant="outline"
-              className="absolute top-3 left-3 h-9 w-9"
+              className="absolute top-3 left-3 h-9 w-9 z-10"
               onClick={() => handleAddNode("rectangle", 200, 200)}
               title={t(($) => $.detail.add_node)}
             >
@@ -513,21 +577,7 @@ export function WorkflowDetailPage({ workflowId: id, viewToggle }: WorkflowDetai
             </Button>
           )}
         </div>
-
-        {/* Right sidebar: config panel */}
-        {selectedNode && (
-          <div className="w-96 shrink-0">
-            <NodeConfigPanel
-              node={selectedNode}
-              workflowId={id!}
-              nodes={displayNodes}
-              stages={stages}
-              disabled={mode !== "edit"}
-              onClose={() => useWorkflowEditorStore.getState().selectNode(null)}
-            />
-          </div>
-        )}
-      </div>
+      </WorkflowCanvasShell>
 
       {/* Portal container for dialogs — renders inside component tree for iframe compatibility */}
       <div ref={dialogRootRef} />
