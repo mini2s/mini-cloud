@@ -327,3 +327,35 @@ RETURNING *;
 -- name: DeleteDevelopmentStage :exec
 DELETE FROM multica_workflow_development_stage
 WHERE id = $1 AND scope = 'custom';
+
+-- =====================
+-- Node Deliverable CRUD
+-- =====================
+
+-- name: ListDeliverablesByNode :many
+SELECT * FROM multica_workflow_node_deliverable
+WHERE node_id = $1
+ORDER BY sort_order ASC, created_at ASC;
+
+-- name: CreateDeliverable :one
+INSERT INTO multica_workflow_node_deliverable (
+    node_id, type, name, requirements, sort_order
+) VALUES (
+    $1, $2, $3, sqlc.narg('requirements'), $4
+) RETURNING *;
+
+-- name: UpdateDeliverable :one
+UPDATE multica_workflow_node_deliverable SET
+    type = COALESCE(sqlc.narg('type'), type),
+    name = COALESCE(sqlc.narg('name'), name),
+    requirements = COALESCE(sqlc.narg('requirements'), requirements),
+    sort_order = COALESCE(sqlc.narg('sort_order')::int, sort_order),
+    updated_at = now()
+WHERE id = $1
+RETURNING *;
+
+-- name: DeleteDeliverable :exec
+DELETE FROM multica_workflow_node_deliverable WHERE id = $1;
+
+-- name: DeleteDeliverablesByNode :exec
+DELETE FROM multica_workflow_node_deliverable WHERE node_id = $1;

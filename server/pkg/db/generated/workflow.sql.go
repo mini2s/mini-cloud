@@ -151,6 +151,44 @@ func (q *Queries) CountWorkflowsBySourceTemplate(ctx context.Context, sourceTemp
 	return column_1, err
 }
 
+const createDeliverable = `-- name: CreateDeliverable :one
+INSERT INTO multica_workflow_node_deliverable (
+    node_id, type, name, requirements, sort_order
+) VALUES (
+    $1, $2, $3, $5, $4
+) RETURNING id, node_id, type, name, requirements, sort_order, created_at, updated_at
+`
+
+type CreateDeliverableParams struct {
+	NodeID       pgtype.UUID `json:"node_id"`
+	Type         string      `json:"type"`
+	Name         string      `json:"name"`
+	SortOrder    int32       `json:"sort_order"`
+	Requirements pgtype.Text `json:"requirements"`
+}
+
+func (q *Queries) CreateDeliverable(ctx context.Context, arg CreateDeliverableParams) (MulticaWorkflowNodeDeliverable, error) {
+	row := q.db.QueryRow(ctx, createDeliverable,
+		arg.NodeID,
+		arg.Type,
+		arg.Name,
+		arg.SortOrder,
+		arg.Requirements,
+	)
+	var i MulticaWorkflowNodeDeliverable
+	err := row.Scan(
+		&i.ID,
+		&i.NodeID,
+		&i.Type,
+		&i.Name,
+		&i.Requirements,
+		&i.SortOrder,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const createDevelopmentStage = `-- name: CreateDevelopmentStage :one
 INSERT INTO multica_workflow_development_stage (
     workspace_id, name, description, scope, sort_order
@@ -485,6 +523,24 @@ func (q *Queries) CreateWorkflowStage(ctx context.Context, arg CreateWorkflowSta
 	return i, err
 }
 
+const deleteDeliverable = `-- name: DeleteDeliverable :exec
+DELETE FROM multica_workflow_node_deliverable WHERE id = $1
+`
+
+func (q *Queries) DeleteDeliverable(ctx context.Context, id pgtype.UUID) error {
+	_, err := q.db.Exec(ctx, deleteDeliverable, id)
+	return err
+}
+
+const deleteDeliverablesByNode = `-- name: DeleteDeliverablesByNode :exec
+DELETE FROM multica_workflow_node_deliverable WHERE node_id = $1
+`
+
+func (q *Queries) DeleteDeliverablesByNode(ctx context.Context, nodeID pgtype.UUID) error {
+	_, err := q.db.Exec(ctx, deleteDeliverablesByNode, nodeID)
+	return err
+}
+
 const deleteDevelopmentStage = `-- name: DeleteDevelopmentStage :exec
 DELETE FROM multica_workflow_development_stage
 WHERE id = $1 AND scope = 'custom'
@@ -775,6 +831,45 @@ func (q *Queries) ListBuiltinDevelopmentStages(ctx context.Context) ([]MulticaWo
 			&i.Name,
 			&i.Description,
 			&i.Scope,
+			&i.SortOrder,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listDeliverablesByNode = `-- name: ListDeliverablesByNode :many
+
+SELECT id, node_id, type, name, requirements, sort_order, created_at, updated_at FROM multica_workflow_node_deliverable
+WHERE node_id = $1
+ORDER BY sort_order ASC, created_at ASC
+`
+
+// =====================
+// Node Deliverable CRUD
+// =====================
+func (q *Queries) ListDeliverablesByNode(ctx context.Context, nodeID pgtype.UUID) ([]MulticaWorkflowNodeDeliverable, error) {
+	rows, err := q.db.Query(ctx, listDeliverablesByNode, nodeID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []MulticaWorkflowNodeDeliverable{}
+	for rows.Next() {
+		var i MulticaWorkflowNodeDeliverable
+		if err := rows.Scan(
+			&i.ID,
+			&i.NodeID,
+			&i.Type,
+			&i.Name,
+			&i.Requirements,
 			&i.SortOrder,
 			&i.CreatedAt,
 			&i.UpdatedAt,
@@ -1409,6 +1504,47 @@ func (q *Queries) UnassignNodeFromStage(ctx context.Context, id pgtype.UUID) (Mu
 		&i.DevelopmentStageID,
 		&i.AgentCapabilityConfig,
 		&i.Instructions,
+	)
+	return i, err
+}
+
+const updateDeliverable = `-- name: UpdateDeliverable :one
+UPDATE multica_workflow_node_deliverable SET
+    type = COALESCE($2, type),
+    name = COALESCE($3, name),
+    requirements = COALESCE($4, requirements),
+    sort_order = COALESCE($5::int, sort_order),
+    updated_at = now()
+WHERE id = $1
+RETURNING id, node_id, type, name, requirements, sort_order, created_at, updated_at
+`
+
+type UpdateDeliverableParams struct {
+	ID           pgtype.UUID `json:"id"`
+	Type         pgtype.Text `json:"type"`
+	Name         pgtype.Text `json:"name"`
+	Requirements pgtype.Text `json:"requirements"`
+	SortOrder    pgtype.Int4 `json:"sort_order"`
+}
+
+func (q *Queries) UpdateDeliverable(ctx context.Context, arg UpdateDeliverableParams) (MulticaWorkflowNodeDeliverable, error) {
+	row := q.db.QueryRow(ctx, updateDeliverable,
+		arg.ID,
+		arg.Type,
+		arg.Name,
+		arg.Requirements,
+		arg.SortOrder,
+	)
+	var i MulticaWorkflowNodeDeliverable
+	err := row.Scan(
+		&i.ID,
+		&i.NodeID,
+		&i.Type,
+		&i.Name,
+		&i.Requirements,
+		&i.SortOrder,
+		&i.CreatedAt,
+		&i.UpdatedAt,
 	)
 	return i, err
 }
