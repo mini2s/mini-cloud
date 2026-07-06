@@ -236,7 +236,8 @@ describe("ExecutionPanoramaPage", () => {
     );
 
     expect(screen.getByTestId("execution-panorama")).toBeInTheDocument();
-    expect(screen.getByTestId("panorama-canvas")).toBeInTheDocument();
+    expect(screen.getByTestId("workflow-canvas-shell")).toHaveAttribute("data-mode", "readonly-runtime");
+    expect(screen.getByTestId("stage-lane-surface")).toBeInTheDocument();
   });
 
   it("renders stage lanes when stages exist", () => {
@@ -260,6 +261,32 @@ describe("ExecutionPanoramaPage", () => {
     );
 
     expect(screen.getByTestId("stage-lane-stage-1")).toBeInTheDocument();
+  });
+
+  it("renders issue panorama through the shared runtime canvas shell", () => {
+    mocks.isLoading = false;
+    mocks.workflowData = { id: "wf-1", title: "Test Workflow" };
+    mocks.stagesData = [STAGE];
+    mocks.nodesData = [NODE];
+    mocks.edgesData = [];
+    mocks.nodeRunsData = [];
+    mocks.agentsData = [AGENT];
+    mocks.pluginsData = {
+      items: [],
+      total: 0,
+      page: 1,
+      pageSize: 100,
+      hasMore: false,
+    };
+
+    render(
+      <Wrapper>
+        <ExecutionPanoramaPage workflowId="wf-1" runId={null} wsId="ws-1" />
+      </Wrapper>,
+    );
+
+    expect(screen.getByTestId("workflow-canvas-shell")).toHaveAttribute("data-mode", "readonly-runtime");
+    expect(screen.getByTestId("stage-lane-surface")).toBeInTheDocument();
   });
 
   it("does not render detail panel initially", () => {
@@ -289,7 +316,7 @@ describe("ExecutionPanoramaPage", () => {
     expect(screen.queryByTestId("execution-detail-panel")).not.toBeInTheDocument();
   });
 
-  it("renders SVG overlay when runId is provided", () => {
+  it("maps node run status into the shared runtime canvas card", () => {
     mocks.isLoading = false;
     mocks.workflowData = { id: "wf-1", title: "Test Workflow" };
     mocks.stagesData = [STAGE];
@@ -346,10 +373,11 @@ describe("ExecutionPanoramaPage", () => {
       </Wrapper>,
     );
 
-    expect(screen.getByTestId("panorama-svg-overlay")).toBeInTheDocument();
+    expect(screen.getByTestId("workflow-canvas-shell")).toHaveAttribute("data-mode", "readonly-runtime");
+    expect(screen.getByRole("button", { name: "brainstorming" })).toHaveTextContent("completed");
   });
 
-  it("does not render SVG overlay when runId is null", () => {
+  it("renders not-started runtime cards when runId is null", () => {
     mocks.isLoading = false;
     mocks.workflowData = { id: "wf-1", title: "Test Workflow" };
     mocks.stagesData = [STAGE];
@@ -369,6 +397,6 @@ describe("ExecutionPanoramaPage", () => {
       </Wrapper>,
     );
 
-    expect(screen.queryByTestId("panorama-svg-overlay")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "brainstorming" })).toHaveTextContent("not started");
   });
 });

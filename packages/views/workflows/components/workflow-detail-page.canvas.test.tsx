@@ -74,4 +74,9 @@ describe("WorkflowDetailPage canvas shell", () => {
     renderWithI18n(<WorkflowDetailPage workflowId="workflow-1" />);
     expect(screen.getByTestId("workflow-canvas-shell")).toBeTruthy();
   });
+
+  it("gives the ReactFlow canvas shell a concrete height", () => {
+    renderWithI18n(<WorkflowDetailPage workflowId="workflow-1" />);
+    expect(screen.getByTestId("workflow-canvas-shell")).toHaveClass("h-full");
+  });
 });

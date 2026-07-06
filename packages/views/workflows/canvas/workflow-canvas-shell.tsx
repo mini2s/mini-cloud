@@ -35,7 +35,7 @@ export function getCanvasCapabilities(mode: CanvasMode): CanvasCapabilities {
 
 export function WorkflowCanvasShell({ mode, model, children }: WorkflowCanvasShellProps) {
   return (
-    <div data-testid="workflow-canvas-shell" data-mode={mode} className="relative flex min-h-0 flex-1">
+    <div data-testid="workflow-canvas-shell" data-mode={mode} className="relative flex h-full min-h-0 flex-1">
       {children({ mode, model, capabilities: getCanvasCapabilities(mode) })}
     </div>
   );
