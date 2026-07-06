@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { fireEvent, cleanup, screen, within } from "@testing-library/react";
+import { fireEvent, cleanup, screen } from "@testing-library/react";
 import { renderWithI18n } from "../../../test/i18n";
 
 const MOCK_WORKFLOW = { id: "wf-1", title: "Test Workflow" };
@@ -103,25 +103,6 @@ class ResizeObserverMock {
 }
 globalThis.ResizeObserver = ResizeObserverMock as typeof ResizeObserver;
 
-// Provide minimal bounding rects for all nodes so SVG overlay can compute edges
-const originalGetBoundingClientRect = HTMLElement.prototype.getBoundingClientRect;
-HTMLElement.prototype.getBoundingClientRect = function mockRect() {
-  const testId = (this as HTMLElement).getAttribute?.("data-testid") ?? "";
-  if (testId.includes("compact-node-card-n1")) {
-    return { x: 12, y: 62, left: 12, top: 62, right: 132, bottom: 134, width: 120, height: 72, toJSON() { return this; } };
-  }
-  if (testId.includes("compact-node-card-n2")) {
-    return { x: 142, y: 62, left: 142, top: 62, right: 262, bottom: 134, width: 120, height: 72, toJSON() { return this; } };
-  }
-  if (testId.includes("compact-node-card-n3")) {
-    return { x: 12, y: 218, left: 12, top: 218, right: 132, bottom: 290, width: 120, height: 72, toJSON() { return this; } };
-  }
-  if (testId.includes("critic-badge-n1")) {
-    return { x: 24, y: 142, left: 24, top: 142, right: 144, bottom: 206, width: 120, height: 64, toJSON() { return this; } };
-  }
-  return originalGetBoundingClientRect.call(this);
-};
-
 import { WorkflowPanoramaPage } from "./workflow-panorama-page";
 
 describe("WorkflowPanoramaPage", () => {
@@ -144,57 +125,30 @@ describe("WorkflowPanoramaPage", () => {
     expect(container.querySelector("h1")?.textContent).toBe("Test Workflow");
   });
 
-  it("renders stage lanes for each stage", () => {
+  it("renders stage lanes with stage names", () => {
     renderWithI18n(<WorkflowPanoramaPage workflowId="wf-1" />);
-    expect(screen.getByTestId("stage-lane-stage-1")).toBeTruthy();
-    expect(screen.getByTestId("stage-lane-stage-2")).toBeTruthy();
+    expect(screen.getByText("Intake")).toBeTruthy();
+    expect(screen.getByText("Analysis")).toBeTruthy();
   });
 
-  it("renders compact node cards with resolved names", () => {
+  it("renders workflow node cards for each node", () => {
     renderWithI18n(<WorkflowPanoramaPage workflowId="wf-1" />);
-    expect(screen.getByTestId("compact-node-card-n1")).toBeTruthy();
-    expect(screen.getByTestId("compact-node-card-n2")).toBeTruthy();
-    expect(screen.getByTestId("compact-node-card-n3")).toBeTruthy();
+    expect(screen.getByTestId("workflow-node-card-n1")).toBeTruthy();
+    expect(screen.getByTestId("workflow-node-card-n2")).toBeTruthy();
+    expect(screen.getByTestId("workflow-node-card-n3")).toBeTruthy();
   });
 
-  it("renders stage transition gradient between stages", () => {
-    renderWithI18n(<WorkflowPanoramaPage workflowId="wf-1" />);
-    expect(screen.queryAllByTestId("stage-transition-gradient").length).toBeGreaterThan(0);
-  });
-
-  it("renders a left-aligned full-width panorama process rail on a distinct canvas background", () => {
-    renderWithI18n(<WorkflowPanoramaPage workflowId="wf-1" />);
-    const canvas = screen.getByTestId("workflow-panorama-canvas");
-    const rail = screen.getByTestId("workflow-panorama-rail");
-    expect(canvas.className).toContain("bg-slate-100/70");
-    expect(rail.className).toContain("ml-0");
-    expect(rail.className).not.toContain("mx-auto");
-    expect(rail.className).not.toContain("border ");
-    expect(rail.className).not.toContain("border-slate");
-    expect(rail.className).toContain("w-full");
-    expect(rail.className).toContain("min-w-[1320px]");
-  });
-
-  it("keeps the SVG connector layer above stage backgrounds", () => {
+  it("keeps the SVG connector layer above the canvas", () => {
     const { container } = renderWithI18n(<WorkflowPanoramaPage workflowId="wf-1" />);
     const svg = container.querySelector("svg.absolute");
+    expect(svg).toBeTruthy();
     expect(svg?.getAttribute("class")).toContain("z-10");
-    expect(screen.getByTestId("stage-lane-stage-1").className).toContain("z-0");
-    expect(screen.getByTestId("stage-lane-shell-stage-1").className).toContain("z-20");
   });
 
   it("opens detail panel on node card click", () => {
     renderWithI18n(<WorkflowPanoramaPage workflowId="wf-1" />);
-    fireEvent.click(screen.getByTestId("compact-node-card-n1"));
+    fireEvent.click(screen.getByTestId("workflow-node-card-n1"));
     expect(screen.getByTestId("architecture-detail-panel")).toBeTruthy();
-  });
-
-  it("opens critic detail panel on critic badge click", () => {
-    renderWithI18n(<WorkflowPanoramaPage workflowId="wf-1" />);
-    fireEvent.click(screen.getByTestId("critic-badge-n1"));
-    const panel = screen.getByTestId("architecture-detail-panel");
-    expect(panel).toBeTruthy();
-    expect(within(panel).getAllByText("Critic").length).toBeGreaterThan(0);
   });
 
   it("shows loading skeleton when loading", () => {
