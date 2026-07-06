@@ -142,6 +142,31 @@ type ToggleTemplateRequest struct {
 	IsTemplate bool `json:"is_template"`
 }
 
+// ── Development Stage types ──
+
+type CreateDevelopmentStageRequest struct {
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	SortOrder   int32  `json:"sort_order"`
+}
+
+type UpdateDevelopmentStageRequest struct {
+	Name        *string `json:"name"`
+	Description *string `json:"description"`
+	SortOrder   *int32  `json:"sort_order"`
+}
+
+type DevelopmentStageResponse struct {
+	ID          string  `json:"id"`
+	WorkspaceID *string `json:"workspace_id"` // null for builtin
+	Name        string  `json:"name"`
+	Description string  `json:"description"`
+	Scope       string  `json:"scope"`
+	SortOrder   int32   `json:"sort_order"`
+	CreatedAt   string  `json:"created_at"`
+	UpdatedAt   string  `json:"updated_at"`
+}
+
 // ── Stage request/response types ──
 
 type CreateStageRequest struct {
@@ -261,6 +286,19 @@ func workflowStageToResponse(s db.MulticaWorkflowStage, nodeCount int64) Workflo
 		NodeCount:   nodeCount,
 		CreatedAt:   timestampToString(s.CreatedAt),
 		UpdatedAt:   timestampToString(s.UpdatedAt),
+	}
+}
+
+func developmentStageToResponse(ds db.MulticaWorkflowDevelopmentStage) DevelopmentStageResponse {
+	return DevelopmentStageResponse{
+		ID:          uuidToString(ds.ID),
+		WorkspaceID: uuidToPtr(ds.WorkspaceID),
+		Name:        ds.Name,
+		Description: ds.Description,
+		Scope:       ds.Scope,
+		SortOrder:   ds.SortOrder,
+		CreatedAt:   timestampToString(ds.CreatedAt),
+		UpdatedAt:   timestampToString(ds.UpdatedAt),
 	}
 }
 
@@ -1099,6 +1137,127 @@ func (h *Handler) ReorderWorkflowStages(w http.ResponseWriter, r *http.Request) 
 	}
 
 	writeJSON(w, http.StatusOK, map[string]string{"status": "reordered"})
+}
+
+// ── Development Stage CRUD ──────────────────────────────────────────────────
+
+func (h *Handler) ListDevelopmentStages(w http.ResponseWriter, r *http.Request) {
+	workspaceID := h.resolveWorkspaceID(r)
+	wsUUID := parseUUID(workspaceID)
+
+	stages, err := h.Queries.ListWorkspaceDevelopmentStages(r.Context(), wsUUID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to list development stages")
+		return
+	}
+
+	resps := make([]DevelopmentStageResponse, 0, len(stages))
+	for _, s := range stages {
+		resps = append(resps, developmentStageToResponse(s))
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"development_stages": resps})
+}
+
+func (h *Handler) CreateDevelopmentStage(w http.ResponseWriter, r *http.Request) {
+	workspaceID := h.resolveWorkspaceID(r)
+	wsUUID := parseUUID(workspaceID)
+
+	var req CreateDevelopmentStageRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if req.Name == "" {
+		writeError(w, http.StatusBadRequest, "name is required")
+		return
+	}
+
+	ds, err := h.Queries.CreateDevelopmentStage(r.Context(), db.CreateDevelopmentStageParams{
+		WorkspaceID: wsUUID,
+		Name:        req.Name,
+		Description: nonNullText(req.Description),
+		SortOrder:   req.SortOrder,
+	})
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to create development stage")
+		return
+	}
+
+	writeJSON(w, http.StatusCreated, developmentStageToResponse(ds))
+}
+
+func (h *Handler) UpdateDevelopmentStage(w http.ResponseWriter, r *http.Request) {
+	workspaceID := h.resolveWorkspaceID(r)
+
+	id := chi.URLParam(r, "id")
+	dsID, ok := parseUUIDOrBadRequest(w, id, "development stage ID")
+	if !ok {
+		return
+	}
+
+	ds, err := h.Queries.GetDevelopmentStage(r.Context(), dsID)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "development stage not found")
+		return
+	}
+	if ds.Scope == "builtin" {
+		writeError(w, http.StatusBadRequest, "cannot update built-in development stage")
+		return
+	}
+	if uuidToString(ds.WorkspaceID) != workspaceID {
+		writeError(w, http.StatusForbidden, "development stage does not belong to this workspace")
+		return
+	}
+
+	var req UpdateDevelopmentStageRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	updated, err := h.Queries.UpdateDevelopmentStage(r.Context(), db.UpdateDevelopmentStageParams{
+		ID:          dsID,
+		Name:        ptrToText(req.Name),
+		Description: ptrToText(req.Description),
+		SortOrder:   int32ToInt4(req.SortOrder),
+	})
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to update development stage")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, developmentStageToResponse(updated))
+}
+
+func (h *Handler) DeleteDevelopmentStage(w http.ResponseWriter, r *http.Request) {
+	workspaceID := h.resolveWorkspaceID(r)
+
+	id := chi.URLParam(r, "id")
+	dsID, ok := parseUUIDOrBadRequest(w, id, "development stage ID")
+	if !ok {
+		return
+	}
+
+	ds, err := h.Queries.GetDevelopmentStage(r.Context(), dsID)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "development stage not found")
+		return
+	}
+	if ds.Scope == "builtin" {
+		writeError(w, http.StatusBadRequest, "cannot delete built-in development stage")
+		return
+	}
+	if uuidToString(ds.WorkspaceID) != workspaceID {
+		writeError(w, http.StatusForbidden, "development stage does not belong to this workspace")
+		return
+	}
+
+	if err := h.Queries.DeleteDevelopmentStage(r.Context(), dsID); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to delete development stage")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]string{"deleted": id})
 }
 
 func (h *Handler) AssignNodeToStage(w http.ResponseWriter, r *http.Request) {

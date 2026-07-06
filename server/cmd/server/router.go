@@ -555,6 +555,14 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 				})
 			})
 
+			// Development stages (workspace-scoped + built-in)
+			r.Get("/api/development-stages", h.ListDevelopmentStages)
+			r.Post("/api/development-stages", h.CreateDevelopmentStage)
+			r.Route("/api/development-stages/{id}", func(r chi.Router) {
+				r.Put("/", h.UpdateDevelopmentStage)
+				r.Delete("/", h.DeleteDevelopmentStage)
+			})
+
 			// Node run actions (flat route for clean WS event references)
 			r.Post("/api/node-runs/{nodeRunId}/submit", h.SubmitNodeRun)
 			r.Post("/api/node-runs/{nodeRunId}/review", h.ReviewNodeRun)
