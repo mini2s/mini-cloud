@@ -722,7 +722,7 @@ function PanoramaContent({
           />
 
           {/* ReactFlow canvas */}
-          <div className="absolute inset-0 z-10 min-w-0" data-testid="panorama-canvas">
+          <div className="absolute inset-y-0 left-40 right-0 z-10 min-w-0" data-testid="panorama-canvas">
           <ReactFlow
             nodes={rfNodes}
             edges={rfEdges}

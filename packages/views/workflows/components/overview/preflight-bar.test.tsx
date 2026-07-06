@@ -9,6 +9,7 @@ vi.mock("../../../i18n", () => {
     preflight: {
       bar_collapsed_all_clear: "Ready to publish",
       bar_dismiss: "Dismiss",
+      bar_expand: "Review issues",
       bar_publish: "Publish",
       bar_publishing: "Publishing...",
       check_dag_cycle: "Cycle",
@@ -51,6 +52,31 @@ describe("PreflightBar", () => {
     const chips = screen.getAllByTestId("preflight-issue-item");
     expect(chips.length).toBe(2);
     expect(screen.getByTestId("preflight-publish-btn")).toBeDisabled();
+  });
+
+  it("summarizes many issues behind a review popover instead of expanding the bar", () => {
+    render(<PreflightBar {...base} result={makeResult({
+      passed: false,
+      blockingCount: 20,
+      warningCount: 0,
+      issues: Array.from({ length: 20 }, (_, index) => ({
+        checkId: "worker-missing",
+        severity: "error",
+        blocking: true,
+        nodeId: `n${index}`,
+        nodeTitle: `Node ${index}`,
+        message: "",
+      })),
+    })} />);
+
+    expect(screen.getByTestId("preflight-bar").className).toContain("h-12");
+    expect(screen.getAllByTestId("preflight-issue-item")).toHaveLength(4);
+    expect(screen.getByTestId("preflight-review-btn")).toHaveTextContent("Review issues");
+
+    fireEvent.click(screen.getByTestId("preflight-review-btn"));
+
+    expect(screen.getByTestId("preflight-review-list").className).toContain("overflow-y-auto");
+    expect(screen.getAllByTestId("preflight-review-issue-item")).toHaveLength(20);
   });
 
   it("navigates to node when chip clicked", () => {

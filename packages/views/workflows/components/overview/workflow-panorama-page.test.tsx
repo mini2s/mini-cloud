@@ -682,13 +682,14 @@ describe("WorkflowPanoramaPage (new)", () => {
     expect(mocks.reactFlowProps?.nodes.some((n) => n.type === "laneBg" || n.type === "gradientBg")).toBe(false);
   });
 
-  it("lets the canvas background extend behind the fixed stage labels", () => {
+  it("reserves the fixed stage label rail outside the ReactFlow interaction layer", () => {
     render(<WorkflowPanoramaPage workflowId="wf-1" />);
 
     const canvas = screen.getByTestId("panorama-canvas");
-    expect(canvas.className).not.toContain("pl-40");
     expect(canvas.className).toContain("absolute");
-    expect(canvas.className).toContain("inset-0");
+    expect(canvas.className).toContain("left-40");
+    expect(canvas.className).toContain("right-0");
+    expect(canvas.className).toContain("inset-y-0");
   });
 
   it("renders workflow title, back button, and status toggle in the header", () => {
