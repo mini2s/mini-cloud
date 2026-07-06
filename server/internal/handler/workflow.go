@@ -433,6 +433,8 @@ func (h *Handler) GetWorkflow(w http.ResponseWriter, r *http.Request) {
 		stageResps = append(stageResps, workflowStageToResponse(s, count))
 	}
 
+	h.populateNodeDeliverables(r.Context(), nodeResps)
+
 	writeJSON(w, http.StatusOK, map[string]any{
 		"workflow": workflowToResponse(wf, int64(len(nodes))),
 		"nodes":    nodeResps,
@@ -556,6 +558,9 @@ func (h *Handler) ListWorkflowNodes(w http.ResponseWriter, r *http.Request) {
 	for _, n := range nodes {
 		resp = append(resp, workflowNodeToResponse(n))
 	}
+
+	h.populateNodeDeliverables(r.Context(), resp)
+
 	writeJSON(w, http.StatusOK, map[string]any{"nodes": resp})
 }
 
@@ -1419,6 +1424,25 @@ func (h *Handler) InviteWorkflowAdmin(w http.ResponseWriter, r *http.Request) {
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
+
+// populateNodeDeliverables attaches deliverables to each node response.
+func (h *Handler) populateNodeDeliverables(ctx context.Context, nodeResps []WorkflowNodeResponse) {
+	for i := range nodeResps {
+		nID, err := util.ParseUUID(nodeResps[i].ID)
+		if err != nil {
+			continue
+		}
+		deliverables, err := h.Queries.ListDeliverablesByNode(ctx, nID)
+		if err != nil {
+			continue
+		}
+		delivResps := make([]WorkflowNodeDeliverableResponse, 0, len(deliverables))
+		for _, d := range deliverables {
+			delivResps = append(delivResps, deliverableToResponse(d))
+		}
+		nodeResps[i].Deliverables = delivResps
+	}
+}
 
 func nonNullText(s string) pgtype.Text {
 	return pgtype.Text{String: s, Valid: true}
