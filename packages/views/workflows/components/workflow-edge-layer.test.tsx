@@ -20,8 +20,9 @@ describe("computePaths", () => {
     ]);
     const paths = computePaths(edges, nodes, positions, { width: 800, height: 200, left: 0, top: 0 });
     expect(paths.length).toBe(1);
-    expect(paths[0].edgeId).toBe("e1");
-    expect(paths[0].semantic).toBe("data");
+    const p0 = paths[0]!;
+    expect(p0.edgeId).toBe("e1");
+    expect(p0.semantic).toBe("data");
   });
 
   it("returns error semantic for error edge", () => {
@@ -33,7 +34,7 @@ describe("computePaths", () => {
       ["b", new DOMRect(400, 50, 160, 70)],
     ]);
     const paths = computePaths(errorEdges, nodes, positions, { width: 800, height: 200, left: 0, top: 0 });
-    expect(paths[0].semantic).toBe("error");
+    expect(paths[0]!.semantic).toBe("error");
   });
 
   it("returns empty array for missing positions", () => {
