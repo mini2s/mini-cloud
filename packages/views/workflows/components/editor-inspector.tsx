@@ -44,7 +44,6 @@ function toFormatSchemaString(fs: unknown): string {
 export interface EditorInspectorProps {
   node: WorkflowNode;
   workflowId: string;
-  nodes?: WorkflowNode[];
   stages?: WorkflowStage[];
   disabled?: boolean;
   onClose: () => void;

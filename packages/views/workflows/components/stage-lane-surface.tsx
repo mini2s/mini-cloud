@@ -24,7 +24,6 @@ export interface StageLaneSurfaceProps {
   density?: "compact" | "full";
   onNodeClick?: (nodeId: string) => void;
   selectedNodeId?: string | null;
-  readonly?: boolean;
   className?: string;
 }
 
@@ -37,7 +36,6 @@ export function StageLaneSurface({
   density = "compact",
   onNodeClick,
   selectedNodeId,
-  readonly: _readonly,
   className,
 }: StageLaneSurfaceProps) {
   const containerRef = useRef<HTMLDivElement>(null);

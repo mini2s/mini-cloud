@@ -512,7 +512,6 @@ export function WorkflowDetailPage({ workflowId: id, viewToggle }: WorkflowDetai
             <EditorInspector
               node={selectedNode}
               workflowId={id!}
-              nodes={displayNodes}
               stages={stages}
               disabled={mode !== "edit"}
               onClose={() => useWorkflowEditorStore.getState().selectNode(null)}

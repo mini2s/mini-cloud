@@ -334,7 +334,7 @@ export function ReactFlowSurface({
     >
       <Background color="var(--muted-foreground)" gap={24} size={1.5} />
       <Controls className="[&>button]:bg-card [&>button]:border-border" />
-      {showMiniMap && <MiniMap nodeColor={(node) => miniMapNodeColors[node.id] ?? "hsl(var(--border))"} />}
+      {showMiniMap && <MiniMap nodeColor={(node) => miniMapNodeColors[node.id] ?? "#e2e8f0"} />}
       {alignmentGuides.length > 0 && (
         <svg style={{ position: "absolute", top: 0, left: 0, width: "100%", height: "100%", overflow: "visible", pointerEvents: "none", zIndex: 10 }}>
           {alignmentGuides.map((g, i) => (

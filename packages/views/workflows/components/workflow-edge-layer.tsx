@@ -102,13 +102,13 @@ export function WorkflowEdgeLayer({
     >
       <defs>
         <marker id="edge-arrow-data" viewBox="0 0 10 10" refX={8} refY={5} markerWidth={6} markerHeight={6} orient="auto">
-          <path d="M 0 0 L 10 5 L 0 10 z" fill="hsl(var(--info))" />
+          <path d="M 0 0 L 10 5 L 0 10 z" fill="hsl(var(--workflow-info))" />
         </marker>
         <marker id="edge-arrow-control" viewBox="0 0 10 10" refX={8} refY={5} markerWidth={6} markerHeight={6} orient="auto">
-          <path d="M 0 0 L 10 5 L 0 10 z" fill="hsl(var(--success))" />
+          <path d="M 0 0 L 10 5 L 0 10 z" fill="hsl(var(--workflow-success))" />
         </marker>
         <marker id="edge-arrow-error" viewBox="0 0 10 10" refX={8} refY={5} markerWidth={6} markerHeight={6} orient="auto">
-          <path d="M 0 0 L 10 5 L 0 10 z" fill="hsl(var(--destructive))" />
+          <path d="M 0 0 L 10 5 L 0 10 z" fill="hsl(var(--workflow-danger))" />
         </marker>
       </defs>
       {paths.map((path) => {

@@ -188,7 +188,6 @@ export function WorkflowPanoramaPage({ workflowId, viewToggle }: WorkflowPanoram
             setSelectedCard({ nodeId, focus: "worker" });
           }}
           selectedNodeId={selectedCard?.nodeId ?? null}
-          readonly
         />
       </div>
 
