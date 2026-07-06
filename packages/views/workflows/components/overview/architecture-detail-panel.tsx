@@ -18,7 +18,7 @@ export interface ArchitectureDetailPanelData {
 export interface ArchitectureDetailPanelProps {
   data: ArchitectureDetailPanelData;
   onClose: () => void;
-  onOpenInEditor: () => void;
+  onOpenInEditor?: () => void;
 }
 
 export function ArchitectureDetailPanel({
@@ -119,6 +119,7 @@ export function ArchitectureDetailPanel({
         </div>
 
         {/* Bottom action */}
+        {onOpenInEditor && (
         <div className="sticky bottom-0 border-t bg-background p-3">
           <button
             type="button"
@@ -128,6 +129,7 @@ export function ArchitectureDetailPanel({
             {t(($) => $.overview.detail_panel.open_in_editor)}
           </button>
         </div>
+        )}
       </div>
     </>
   );

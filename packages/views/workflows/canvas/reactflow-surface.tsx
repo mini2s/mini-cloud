@@ -20,7 +20,7 @@ import {
 import "@xyflow/react/dist/style.css";
 
 import { useWorkflowEditorStore } from "@multica/core/workflows/store";
-import type { WorkflowNode as WorkflowNodeType, WorkflowEdge as WorkflowEdgeType } from "@multica/core/types";
+import type { WorkflowNode as WorkflowNodeType, WorkflowEdge as WorkflowEdgeType, WorkflowStage } from "@multica/core/types";
 import { parseNodeShape } from "@multica/core/types";
 import {
   WorkflowNode,
@@ -73,6 +73,10 @@ export interface ReactFlowSurfaceProps {
   nodeStatusColors?: Record<string, string>;
   nodeStatuses?: Record<string, { status: string; isRunning: boolean; isAwaitingInput?: boolean }>;
   showMiniMap?: boolean;
+  /** Stage definitions for rendering swimlane background bands. */
+  stages?: WorkflowStage[];
+  /** Maps nodeId → stageId (or null for unassigned). */
+  nodeStageMap?: Map<string, string | null>;
 }
 
 export function ReactFlowSurface({
@@ -86,6 +90,8 @@ export function ReactFlowSurface({
   nodeStatusColors,
   nodeStatuses,
   showMiniMap = true,
+  stages,
+  nodeStageMap,
 }: ReactFlowSurfaceProps) {
   const mode = useWorkflowEditorStore((s) => s.mode);
   const selectNode = useWorkflowEditorStore((s) => s.selectNode);
@@ -162,6 +168,7 @@ export function ReactFlowSurface({
               onNodeSelect: handleNodeSelect,
               onNodeResizeStart: handleNodeResizeStart,
               onNodeResizeEnd: handleNodeResize,
+              onNodeDelete: cacheNodeDelete,
             },
           };
         });
@@ -504,6 +511,56 @@ export function ReactFlowSurface({
     return map;
   }, [nodes]);
 
+  // Compute swimlane bands for stage background rendering
+  const swimlaneBands = useMemo(() => {
+    if (!stages || stages.length === 0 || !nodeStageMap) return [];
+    const PADDING_X = 40;
+    const PADDING_Y = 30;
+    const STAGE_COLORS = [
+      "rgba(59,130,246,0.04)",   // blue
+      "rgba(34,197,94,0.04)",    // green
+      "rgba(168,85,247,0.04)",   // purple
+      "rgba(251,146,60,0.04)",   // orange
+      "rgba(236,72,153,0.04)",   // pink
+      "rgba(20,184,166,0.04)",   // teal
+    ];
+
+    const bands: Array<{
+      stageId: string;
+      label: string;
+      x: number;
+      y: number;
+      width: number;
+      height: number;
+      color: string;
+      isVirtual: boolean;
+    }> = [];
+
+    let colorIndex = 0;
+    for (const stage of stages) {
+      const stageNodes = rfNodes.filter((n) => nodeStageMap.get(n.id) === stage.id);
+      if (stageNodes.length === 0) continue;
+
+      const minX = Math.min(...stageNodes.map((n) => n.position.x)) - PADDING_X;
+      const minY = Math.min(...stageNodes.map((n) => n.position.y)) - PADDING_Y;
+      const maxX = Math.max(...stageNodes.map((n) => n.position.x + (n.width ?? NODE_WIDTH)));
+      const maxY = Math.max(...stageNodes.map((n) => n.position.y + (n.height ?? NODE_HEIGHT)));
+
+      bands.push({
+        stageId: stage.id,
+        label: stage.name ?? "",
+        x: minX,
+        y: minY,
+        width: Math.max(maxX - minX + PADDING_X, 200),
+        height: Math.max(maxY - minY + PADDING_Y * 2, 80),
+        color: STAGE_COLORS[colorIndex % STAGE_COLORS.length] ?? "rgba(59,130,246,0.04)",
+        isVirtual: false,
+      });
+      colorIndex++;
+    }
+    return bands;
+  }, [stages, rfNodes, nodeStageMap]);
+
   return (
     <ReactFlow
       nodes={rfNodes}
@@ -536,6 +593,45 @@ export function ReactFlowSurface({
       <Background />
       <Controls />
       {showMiniMap && <MiniMap nodeColor={(node) => miniMapNodeColors[node.id] ?? "var(--color-muted, #e2e8f0)"} />}
+      {/* Stage lane background bands */}
+      {swimlaneBands.length > 0 && (
+        <svg
+          style={{
+            position: "absolute",
+            top: 0,
+            left: 0,
+            width: "100%",
+            height: "100%",
+            overflow: "visible",
+            pointerEvents: "none",
+            zIndex: -1,
+          }}
+        >
+          {swimlaneBands.map((band) => (
+            <g key={band.stageId}>
+              <rect
+                x={band.x}
+                y={band.y}
+                width={band.width}
+                height={band.height}
+                fill={band.color}
+                stroke="var(--color-border, #e2e8f0)"
+                strokeWidth={1}
+                rx={8}
+              />
+              <text
+                x={band.x + 12}
+                y={band.y + 18}
+                fontSize={11}
+                fontWeight={600}
+                fill="var(--color-muted-foreground, #64748b)"
+              >
+                {band.label}
+              </text>
+            </g>
+          ))}
+        </svg>
+      )}
       {alignmentGuides.length > 0 && (
         <svg
           style={{

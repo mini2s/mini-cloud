@@ -78,7 +78,11 @@
     "section_nodes": "节点",
     "section_run_history": "运行历史",
     "add_node": "添加节点",
+    "add_note": "添加注释",
     "no_nodes": "暂无节点。点击「添加节点」开始构建工作流。",
+    "empty_title": "添加第一个步骤",
+    "empty_subtitle": "将节点拖入画布，开始构建工作流。",
+    "empty_view_hint": "切换到编辑模式以添加节点。",
     "no_runs": "暂无运行记录。点击「开始运行」执行此工作流。",
     "delete_dialog": {
       "title": "删除工作流",

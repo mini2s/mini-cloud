@@ -4,9 +4,9 @@ import { describe, it, expect } from "vitest";
 import { useWorkflowViewStore } from "./view-store";
 
 describe("useWorkflowViewStore", () => {
-  it("defaults to panorama view mode", () => {
+  it("defaults to editor view mode", () => {
     const { viewMode } = useWorkflowViewStore.getState();
-    expect(viewMode).toBe("panorama");
+    expect(viewMode).toBe("editor");
   });
 
   it("setViewMode switches to editor", () => {

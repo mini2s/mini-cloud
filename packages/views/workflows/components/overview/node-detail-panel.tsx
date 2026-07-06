@@ -1,6 +1,5 @@
 import { useMemo } from "react";
 import type { WorkflowNode, WorkflowEdge } from "@multica/core/types";
-import { useWorkflowViewStore } from "@multica/core/workflows/stores/view-store";
 import { useT } from "../../../i18n";
 
 interface NodeDetailPanelProps {
@@ -17,7 +16,6 @@ export function NodeDetailPanel({
   onClose,
 }: NodeDetailPanelProps) {
   const { t } = useT("workflows");
-  const setViewMode = useWorkflowViewStore((s) => s.setViewMode);
 
   const node = useMemo(
     () => nodes.find((n) => n.id === nodeId) ?? null,
@@ -195,15 +193,7 @@ export function NodeDetailPanel({
         </section>
       </div>
 
-      {/* Footer */}
-      <div className="sticky bottom-0 bg-background border-t p-3">
-        <button
-          onClick={() => setViewMode("editor")}
-          className="w-full py-2 text-sm bg-primary text-primary-foreground rounded-md hover:opacity-90"
-        >
-          {t(($) => $.overview.detail_panel.open_in_editor)}
-        </button>
-      </div>
+      {/* Footer — kept for future extensibility */}
     </div>
   );
 }

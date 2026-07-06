@@ -1,6 +1,5 @@
 "use client";
 
-import type { ReactNode } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
@@ -49,10 +48,9 @@ import type { WorkflowStatus } from "@multica/core/types";
 
 interface WorkflowDetailPageProps {
   workflowId: string;
-  viewToggle?: ReactNode;
 }
 
-export function WorkflowDetailPage({ workflowId: id, viewToggle }: WorkflowDetailPageProps) {
+export function WorkflowDetailPage({ workflowId: id }: WorkflowDetailPageProps) {
   const { t } = useT("workflows");
   const wsId = useWorkspaceId();
   const wsPaths = useWorkspacePaths();
@@ -158,6 +156,15 @@ export function WorkflowDetailPage({ workflowId: id, viewToggle }: WorkflowDetai
       }),
     [stages, displayNodes, edges, nodeEdits, deletedNodeIds],
   );
+
+  // Build node-to-stage mapping for swimlane rendering in ReactFlowSurface
+  const nodeStageMap = useMemo(() => {
+    const map = new Map<string, string | null>();
+    for (const n of displayNodes) {
+      map.set(n.id, n.stage_id ?? null);
+    }
+    return map;
+  }, [displayNodes]);
 
   const queryClient = useQueryClient();
 
@@ -469,7 +476,6 @@ export function WorkflowDetailPage({ workflowId: id, viewToggle }: WorkflowDetai
               </Button>
             </>
           )}
-          {viewToggle}
           <Button
             size="sm"
             variant={workflow?.status === "active" ? "secondary" : "default"}
@@ -497,12 +503,29 @@ export function WorkflowDetailPage({ workflowId: id, viewToggle }: WorkflowDetai
             </div>
           )}
           {nodes.length === 0 ? (
-            <div className="absolute inset-0 flex flex-col items-center justify-center gap-3">
-              <p className="text-sm text-muted-foreground">{t(($) => $.detail.no_nodes)}</p>
-              {mode === "edit" && <Button size="sm" variant="outline" onClick={() => handleAddNode("rectangle", 200, 200)}>
-                <Plus className="h-3.5 w-3.5 mr-1" />
-                {t(($) => $.detail.add_node)}
-              </Button>}
+            <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 bg-muted/20">
+              <div className="flex h-14 w-14 items-center justify-center rounded-full bg-primary/10">
+                <Plus className="h-7 w-7 text-primary" />
+              </div>
+              <div className="text-center">
+                <h2 className="text-base font-semibold text-foreground">{t(($) => $.detail.empty_title)}</h2>
+                <p className="mt-1 text-sm text-muted-foreground">{t(($) => $.detail.empty_subtitle)}</p>
+              </div>
+              {mode === "edit" && (
+                <div className="flex gap-2">
+                  <Button size="sm" variant="outline" onClick={() => handleAddNode("rectangle", 200, 200)}>
+                    <Plus className="h-3.5 w-3.5 mr-1" />
+                    {t(($) => $.detail.add_node)}
+                  </Button>
+                  <Button size="sm" variant="outline" onClick={() => handleAddNode("annotation", 400, 200)}>
+                    <Plus className="h-3.5 w-3.5 mr-1" />
+                    {t(($) => $.detail.add_note)}
+                  </Button>
+                </div>
+              )}
+              {mode === "view" && (
+                <p className="text-xs text-muted-foreground">{t(($) => $.detail.empty_view_hint)}</p>
+              )}
             </div>
           ) : (
             <WorkflowCanvasShell mode={mode === "edit" ? "edit" : "readonly-definition"} model={canvasModel}>
@@ -511,6 +534,8 @@ export function WorkflowDetailPage({ workflowId: id, viewToggle }: WorkflowDetai
                   <ReactFlowSurface
                     nodes={displayNodes}
                     edges={edges}
+                    stages={stages}
+                    nodeStageMap={nodeStageMap}
                     onNodeDragStop={handleNodeMoved}
                     onEdgeCreate={handleEdgeCreate}
                     onEdgeDelete={handleEdgeDelete}

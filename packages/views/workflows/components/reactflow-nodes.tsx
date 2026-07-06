@@ -1,7 +1,7 @@
 "use client";
 
 import { memo, useCallback } from "react";
-import { Handle, Position, NodeResizer, type NodeProps, type EdgeProps, BaseEdge, getBezierPath, getStraightPath } from "@xyflow/react";
+import { Handle, Position, NodeResizer, type NodeProps, type EdgeProps, BaseEdge, getBezierPath, getStraightPath, EdgeLabelRenderer } from "@xyflow/react";
 import { cn } from "@multica/ui/lib/utils";
 import type { NodeShape } from "@multica/core/types";
 
@@ -18,6 +18,7 @@ export interface WorkflowNodeData extends Record<string, unknown> {
   onNodeSelect?: (nodeId: string) => void;
   onNodeResizeStart?: () => void;
   onNodeResizeEnd?: (nodeId: string, width: number, height: number) => void;
+  onNodeDelete?: (nodeId: string) => void;
 }
 
 export const NODE_WIDTH = 150;
@@ -94,7 +95,7 @@ const SHAPE_RENDERERS: Record<NodeShape, React.FC<ShapeRendererProps>> = {
 
 function WorkflowNodeRenderer({ id, data, selected, width: nodeWidth, height: nodeHeight }: NodeProps) {
   const nodeData = data as unknown as WorkflowNodeData;
-  const { title, statusColor, statusLabel, isRunning, isAwaitingInput, isEditing, shape, nodeColor, fontSize, onNodeSelect, onNodeResizeStart, onNodeResizeEnd } = nodeData;
+  const { title, statusColor, statusLabel, isRunning, isAwaitingInput, isEditing, shape, nodeColor, fontSize, onNodeSelect, onNodeResizeStart, onNodeResizeEnd, onNodeDelete } = nodeData;
   // Allow NodeResizer to override dimensions; fall back to shape defaults.
   const baseW = nodeWidth ?? (shape === "diamond" ? DIAMOND_SIZE : shape === "hexagon" ? HEXAGON_SIZE : NODE_WIDTH);
   const baseH = nodeHeight ?? (shape === "diamond" || shape === "hexagon"
@@ -110,16 +111,37 @@ function WorkflowNodeRenderer({ id, data, selected, width: nodeWidth, height: no
     onNodeSelect?.(id);
   }, [id, isEditing, onNodeSelect]);
 
+  const handleDelete = useCallback((e: React.MouseEvent) => {
+    e.stopPropagation();
+    onNodeDelete?.(id);
+  }, [id, onNodeDelete]);
+
   return (
     <div
       onClick={handleClick}
       className={cn(
-        "relative flex items-center justify-center text-card-foreground",
+        "group relative flex items-center justify-center text-card-foreground",
         shape !== "diamond" && shape !== "hexagon" && "rounded-lg",
         isEditing && "cursor-pointer",
       )}
       style={{ width: w, height: h }}
     >
+      {/* Hover toolbar — only in edit mode */}
+      {isEditing && (
+        <div className="absolute -top-9 left-1/2 z-50 hidden -translate-x-1/2 items-center gap-0.5 rounded-lg bg-gray-900 px-1.5 py-0.5 shadow-lg group-hover:flex">
+          <button
+            type="button"
+            onClick={handleDelete}
+            className="rounded p-1 text-gray-300 hover:bg-gray-700 hover:text-white transition-colors"
+            title="Delete node"
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+              <path d="M3 6h18" /><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" /><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" /><line x1="10" y1="11" x2="10" y2="17" /><line x1="14" y1="11" x2="14" y2="17" />
+            </svg>
+          </button>
+        </div>
+      )}
+
       <ShapeComp w={w} h={h} selected={selected} statusColor={statusColor} nodeColor={nodeColor} />
 
       {isEditing && selected && (
@@ -133,11 +155,11 @@ function WorkflowNodeRenderer({ id, data, selected, width: nodeWidth, height: no
         />
       )}
 
-      {/* Handles offset from viewport center */}
-      <Handle type="target" position={Position.Top} id="top" isConnectable={isEditing} className={cn("!border-0 !bg-muted-foreground/40", !isEditing && "!pointer-events-none !opacity-0")} style={{ left: w / 2 - 2 }} />
-      <Handle type="source" position={Position.Bottom} id="bottom" isConnectable={isEditing} className={cn("!border-0 !bg-muted-foreground/40", !isEditing && "!pointer-events-none !opacity-0")} style={{ left: w / 2 - 2 }} />
-      <Handle type="source" position={Position.Right} id="right" isConnectable={isEditing} className={cn("!border-0 !bg-muted-foreground/40", !isEditing && "!pointer-events-none !opacity-0")} />
-      <Handle type="target" position={Position.Left} id="left" isConnectable={isEditing} className={cn("!border-0 !bg-muted-foreground/40", !isEditing && "!pointer-events-none !opacity-0")} />
+      {/* Handles with hover pulse effect */}
+      <Handle type="target" position={Position.Top} id="top" isConnectable={isEditing} className={cn("!border-0 !bg-muted-foreground/40 transition-transform duration-150 hover:!scale-[1.8] hover:!bg-primary", !isEditing && "!pointer-events-none !opacity-0")} style={{ left: w / 2 - 2 }} />
+      <Handle type="source" position={Position.Bottom} id="bottom" isConnectable={isEditing} className={cn("!border-0 !bg-muted-foreground/40 transition-transform duration-150 hover:!scale-[1.8] hover:!bg-primary", !isEditing && "!pointer-events-none !opacity-0")} style={{ left: w / 2 - 2 }} />
+      <Handle type="source" position={Position.Right} id="right" isConnectable={isEditing} className={cn("!border-0 !bg-muted-foreground/40 transition-transform duration-150 hover:!scale-[1.8] hover:!bg-primary", !isEditing && "!pointer-events-none !opacity-0")} />
+      <Handle type="target" position={Position.Left} id="left" isConnectable={isEditing} className={cn("!border-0 !bg-muted-foreground/40 transition-transform duration-150 hover:!scale-[1.8] hover:!bg-primary", !isEditing && "!pointer-events-none !opacity-0")} />
 
       <div
         className={cn(
@@ -197,7 +219,9 @@ function WorkflowEdgeComponent({
   targetPosition,
   selected,
   markerEnd,
+  data,
 }: EdgeProps) {
+  const label = (data as { label?: string } | undefined)?.label;
   const useStraight = shouldUseStraightPath(
     sourceX, sourceY, targetX, targetY,
     sourcePosition, targetPosition,
@@ -214,6 +238,10 @@ function WorkflowEdgeComponent({
         targetPosition,
       });
 
+  // Compute label position at the midpoint of source → target
+  const labelX = (sourceX + targetX) / 2;
+  const labelY = (sourceY + targetY) / 2 - 8;
+
   return (
     <>
       <BaseEdge
@@ -226,6 +254,16 @@ function WorkflowEdgeComponent({
         strokeWidth={selected ? 2.5 : 1.5}
         markerEnd={markerEnd}
       />
+      {label && (
+        <EdgeLabelRenderer>
+          <div
+            className="absolute rounded-full bg-background border px-2 py-0.5 text-[10px] text-muted-foreground shadow-sm pointer-events-none"
+            style={{ transform: `translate(-50%, -50%) translate(${labelX}px,${labelY}px)` }}
+          >
+            {label}
+          </div>
+        </EdgeLabelRenderer>
+      )}
     </>
   );
 }

@@ -12,11 +12,18 @@ interface WorkflowViewState {
   setViewMode: (mode: WorkflowViewMode) => void;
 }
 
-/** Global singleton for the workflow detail page. */
+/**
+ * Workflow view mode store.
+ *
+ * @deprecated The workflow detail page now uses a single ReactFlow-based editor
+ * view (WorkflowDetailPage) with view/edit mode toggle via useWorkflowEditorStore.mode.
+ * This store is kept for backward compatibility with persisted localStorage state
+ * and for potential future use by runtime panorama consumers.
+ */
 export const useWorkflowViewStore = create<WorkflowViewState>()(
   persist(
     (set) => ({
-      viewMode: "panorama" as WorkflowViewMode,
+      viewMode: "editor" as WorkflowViewMode,
       setViewMode: (mode: WorkflowViewMode) => set({ viewMode: mode }),
     }),
     {

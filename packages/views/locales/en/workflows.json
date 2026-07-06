@@ -78,7 +78,11 @@
     "section_nodes": "Nodes",
     "section_run_history": "Run History",
     "add_node": "Add node",
+    "add_note": "Add note",
     "no_nodes": "No nodes yet. Click \"Add node\" to start building your workflow.",
+    "empty_title": "Add your first step",
+    "empty_subtitle": "Start building your workflow by adding nodes to the canvas.",
+    "empty_view_hint": "Switch to Edit mode to add nodes.",
     "no_runs": "No runs yet. Click \"Start Run\" to execute this workflow.",
     "delete_dialog": {
       "title": "Delete workflow",

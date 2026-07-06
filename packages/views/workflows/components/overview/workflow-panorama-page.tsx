@@ -11,7 +11,6 @@ import {
 } from "@multica/core/workflows/queries";
 import { agentListOptions, builtinPluginListOptions } from "@multica/core/workspace/queries";
 import { buildCanvasModel } from "@multica/core/workflows/canvas";
-import { useWorkflowViewStore } from "@multica/core/workflows/stores/view-store";
 import { useNavigation } from "../../../navigation";
 import { useWorkspacePaths } from "@multica/core/paths";
 import { PageHeader } from "../../../layout/page-header";
@@ -54,7 +53,6 @@ export function WorkflowPanoramaPage({ workflowId, viewToggle }: WorkflowPanoram
   const wsId = useWorkspaceId();
   const wsPaths = useWorkspacePaths();
   const navigation = useNavigation();
-  const setViewMode = useWorkflowViewStore((s) => s.setViewMode);
 
   const [selectedCard, setSelectedCard] = useState<PanoramaSelection | null>(null);
 
@@ -137,7 +135,6 @@ export function WorkflowPanoramaPage({ workflowId, viewToggle }: WorkflowPanoram
   };
 
   const handleDetailClose = () => setSelectedCard(null);
-  const handleOpenInEditor = () => setViewMode("editor");
 
   // ── Loading ──
   if (isLoading) {
@@ -211,7 +208,6 @@ export function WorkflowPanoramaPage({ workflowId, viewToggle }: WorkflowPanoram
         <ArchitectureDetailPanel
           data={selectedPanelData}
           onClose={handleDetailClose}
-          onOpenInEditor={handleOpenInEditor}
         />
       )}
     </div>
