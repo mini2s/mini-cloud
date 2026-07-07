@@ -67,12 +67,48 @@ function gatewayLabel(kind: "fork" | "join" | null): string {
   return "Gateway";
 }
 
+type IssueTranslator = ReturnType<typeof useT<"issues">>["t"];
+
+function runtimeDisplayStatusText(
+  t: IssueTranslator,
+  status: ReturnType<typeof toWorkflowRuntimeDisplayStatus>,
+  gatewayKind: "fork" | "join" | null,
+): string {
+  if (gatewayKind === "fork" && status === "completed") {
+    return t(($) => $.execution.display_status.dispatched);
+  }
+  if (gatewayKind === "join" && status === "completed") {
+    return t(($) => $.execution.display_status.joined);
+  }
+  if (gatewayKind === "join" && (status === "pending" || status === "todo")) {
+    return t(($) => $.execution.display_status.waiting_upstream);
+  }
+  switch (status) {
+    case "pending":
+      return t(($) => $.execution.display_status.pending);
+    case "todo":
+      return t(($) => $.execution.display_status.todo);
+    case "in_progress":
+      return t(($) => $.execution.display_status.in_progress);
+    case "reviewing":
+      return t(($) => $.execution.display_status.reviewing);
+    case "completed":
+      return t(($) => $.execution.display_status.completed);
+    case "blocked":
+      return t(($) => $.execution.display_status.blocked);
+    case "cancelled":
+      return t(($) => $.execution.display_status.cancelled);
+  }
+}
+
 /** Actionable status → button layout mapping. */
 const ACTIONABLE_STATUSES = new Set([
   "awaiting_critic",
   "awaiting_input",
   "blocked",
   "failed",
+  "format_failed",
+  "critic_rework",
 ]);
 
 interface ActionButtonDef {
@@ -198,6 +234,7 @@ export function RuntimeNodeCard({
   const hasWorkerOutput = !isGateway && nodeRun?.worker_output != null;
   const hasCriticOutput = !isGateway && nodeRun?.critic_output != null;
   const displayStatus = runtimeSummary?.display_status ?? (nodeRun ? toWorkflowRuntimeDisplayStatus(nodeRun.status) : "pending");
+  const displayStatusLabel = runtimeDisplayStatusText(t, displayStatus, isGateway ? nodeFormat.gateway_kind : null);
   const visibleDeliverableSignal = isGateway ? "none" : runtimeSummary?.deliverable_signal ?? deliverableSignal;
 
   const artifactNames: string[] = [];
@@ -228,6 +265,8 @@ export function RuntimeNodeCard({
             ];
           case "blocked":
           case "failed":
+          case "format_failed":
+          case "critic_rework":
             return [
               { action: "retry" as const, label: t(($) => $.execution.card.actions.retry) },
               { action: "skip" as const, label: t(($) => $.execution.card.actions.skip) },
@@ -291,11 +330,14 @@ export function RuntimeNodeCard({
           ) : null}
           <span className="text-sm font-medium truncate">{node.title}</span>
         </div>
-        <RuntimeDisplayStatusIcon
-          status={displayStatus}
-          gatewayKind={isGateway ? nodeFormat.gateway_kind : null}
-          className="h-4 w-4"
-        />
+        <span className="inline-flex shrink-0 items-center gap-1 rounded-md bg-muted/35 px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+          <RuntimeDisplayStatusIcon
+            status={displayStatus}
+            gatewayKind={isGateway ? nodeFormat.gateway_kind : null}
+            className="h-3.5 w-3.5"
+          />
+          <span>{displayStatusLabel}</span>
+        </span>
       </div>
 
       {/* Row 2: Worker (type icon + label + name — no duplicate status icon) */}

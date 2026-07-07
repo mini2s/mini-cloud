@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState, useCallback, useEffect, useRef } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   MarkerType,
   ReactFlowProvider,
@@ -18,7 +18,9 @@ import {
   workflowEdgesOptions,
   workflowNodeRunsOptions,
   workflowRunCanvasSummaryOptions,
+  workflowKeys,
 } from "@multica/core/workflows/queries";
+import { api } from "@multica/core/api";
 import { agentListOptions } from "@multica/core/workspace/queries";
 import { workerTypeToActorType } from "@multica/core/types";
 import type {
@@ -43,11 +45,13 @@ import { ExecutionDetailPanel } from "./execution-detail-panel";
 import { GlobalNotificationBar } from "./global-notification-bar";
 import { runtimeCanvasNodeTypes } from "./runtime-canvas-node";
 import { Loader2 } from "lucide-react";
+import { toast } from "sonner";
 
 export interface ExecutionPanoramaPageProps {
   workflowId: string;
   runId: string | null;
   wsId: string;
+  issueId?: string;
 }
 
 /**
@@ -226,7 +230,9 @@ export function ExecutionPanoramaPage({
   workflowId,
   runId,
   wsId,
+  issueId,
 }: ExecutionPanoramaPageProps) {
+  const queryClient = useQueryClient();
   // ---- Data queries ----
   const { isLoading: wfLoading } = useQuery(
     workflowDetailOptions(wsId, workflowId),
@@ -251,6 +257,7 @@ export function ExecutionPanoramaPage({
   // ---- Local state ----
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [viewport, setViewport] = useState<Viewport>({ x: 0, y: 24, zoom: 0.95 });
+  const [retryingNodeRunId, setRetryingNodeRunId] = useState<string | null>(null);
 
   // ---- Lookup maps ----
   const nodeRunMap = useMemo(() => {
@@ -284,6 +291,34 @@ export function ExecutionPanoramaPage({
     }
     return null;
   }, [agentLookup]);
+
+  const handleRetryNodeRun = useCallback(async (nodeRun: WorkflowNodeRun) => {
+    if (!issueId) return;
+    const taskId =
+      nodeRun.worker_agent_task_id ??
+      nodeRun.agent_task_id ??
+      nodeRun.critic_agent_task_id ??
+      undefined;
+
+    setRetryingNodeRunId(nodeRun.id);
+    try {
+      await api.rerunIssue(issueId, taskId);
+      if (runId) {
+        await Promise.all([
+          queryClient.invalidateQueries({
+            queryKey: workflowKeys.nodeRuns(wsId, workflowId, runId),
+          }),
+          queryClient.invalidateQueries({
+            queryKey: workflowKeys.runCanvasSummary(wsId, workflowId, runId),
+          }),
+        ]);
+      }
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to retry node run");
+    } finally {
+      setRetryingNodeRunId((current) => (current === nodeRun.id ? null : current));
+    }
+  }, [issueId, queryClient, runId, workflowId, wsId]);
 
   // ---- Derived ----
   const isLoading = wfLoading || stLoading || ndLoading;
@@ -324,6 +359,12 @@ export function ExecutionPanoramaPage({
   const selectedRuntimeSummary = selectedNodeId
     ? runtimeSummaryMap.get(selectedNodeId) ?? null
     : null;
+  const isRetryableSelectedRun =
+    selectedRun?.status === "failed" ||
+    selectedRun?.status === "format_failed" ||
+    selectedRun?.status === "blocked" ||
+    selectedRun?.status === "critic_rework";
+
   const rfNodes = runtimeNodesToReactFlowNodes(
     allNodes,
     sortStagesForDisplay(allStages),
@@ -375,6 +416,11 @@ export function ExecutionPanoramaPage({
           onClose={() => setSelectedNodeId(null)}
           wsId={wsId}
           runtimeSummary={selectedRuntimeSummary}
+          onRetry={
+            issueId && selectedRun && isRetryableSelectedRun && retryingNodeRunId !== selectedRun.id
+              ? () => void handleRetryNodeRun(selectedRun)
+              : undefined
+          }
         />
       )}
     </div>

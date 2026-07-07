@@ -1,8 +1,26 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, it, expect, vi } from "vitest";
+import { beforeEach, describe, it, expect, vi } from "vitest";
 import { ExecutionDetailPanel } from "./execution-detail-panel";
 import type { WorkflowNode, WorkflowNodeRun, WorkflowNodeRuntimeSummary } from "@multica/core/types";
+
+const mockSetActiveSession = vi.fn();
+const mockSetOpen = vi.fn();
+const mockIsEmbeddedInCostrict = vi.fn(() => false);
+const mockPostCostrictNavigateToSession = vi.fn();
+
+vi.mock("@multica/core/chat", () => ({
+  useChatStore: (selector: (state: { setActiveSession: typeof mockSetActiveSession; setOpen: typeof mockSetOpen }) => unknown) =>
+    selector({
+      setActiveSession: mockSetActiveSession,
+      setOpen: mockSetOpen,
+    }),
+}));
+
+vi.mock("@multica/core/platform", () => ({
+  isEmbeddedInCostrict: () => mockIsEmbeddedInCostrict(),
+  postCostrictNavigateToSession: (args: unknown) => mockPostCostrictNavigateToSession(args),
+}));
 
 // Mock @multica/views/i18n for useT hook — handles function selector form
 vi.mock("@multica/views/i18n", () => ({
@@ -14,8 +32,28 @@ vi.mock("@multica/views/i18n", () => ({
             desc_label: "Description",
           },
           execution: {
+            display_status: {
+              pending: "Pending",
+              todo: "Todo",
+              in_progress: "In progress",
+              reviewing: "Reviewing",
+              completed: "Completed",
+              blocked: "Blocked",
+              cancelled: "Cancelled",
+              dispatched: "Dispatched",
+              joined: "Joined",
+              waiting_upstream: "Waiting for upstream",
+            },
             detail_panel: {
               status_path: "Status Path",
+              section_primary: "Primary",
+              section_primary_desc: "Active handler and diagnostic context.",
+              section_agent_operations: "Agent operations",
+              section_agent_operations_desc: "Session and recovery actions for this node run.",
+              section_deliverables: "Deliverables",
+              section_deliverables_desc: "Submitted outputs and review artifacts.",
+              section_runtime: "Runtime",
+              section_runtime_desc: "Timing, retries, errors, and raw outputs.",
               worker: "Worker",
               critic: "Critic",
               not_configured: "Not configured",
@@ -33,6 +71,7 @@ vi.mock("@multica/views/i18n", () => ({
               unblock: "Unblock",
               retry: "Retry",
               review_comment: "Review Comment",
+              open_session: "Open session",
             },
           },
           });
@@ -106,6 +145,13 @@ const runtimeSummary: WorkflowNodeRuntimeSummary = {
 };
 
 describe("ExecutionDetailPanel", () => {
+  beforeEach(() => {
+    mockSetActiveSession.mockClear();
+    mockSetOpen.mockClear();
+    mockIsEmbeddedInCostrict.mockReturnValue(false);
+    mockPostCostrictNavigateToSession.mockClear();
+  });
+
   it("renders node title in header", () => {
     render(
       <ExecutionDetailPanel
@@ -118,6 +164,86 @@ describe("ExecutionDetailPanel", () => {
       />,
     );
     expect(screen.getByText("编码")).toBeInTheDocument();
+  });
+
+  it("uses the fixed shared detail shell in run mode", () => {
+    render(
+      <ExecutionDetailPanel
+        node={{ ...node, title: "Run node" }}
+        nodeRun={{ ...run, node_title: "Run node" }}
+        workerName="Backend assistant"
+        criticName="Reviewer"
+        onClose={vi.fn()}
+        wsId="ws-1"
+      />,
+    );
+
+    expect(screen.getByTestId("workflow-node-detail-panel-shell")).toHaveAttribute("data-mode", "run");
+    expect(screen.getAllByTestId("node-detail-section").map((section) => section.getAttribute("data-section"))).toEqual([
+      "primary",
+      "deliverables",
+      "runtime",
+    ]);
+  });
+
+  it("does not render generic connections or empty actions sections in run mode", () => {
+    render(
+      <ExecutionDetailPanel
+        node={{ ...node, title: "Run node" }}
+        nodeRun={{ ...run, node_title: "Run node" }}
+        workerName="Backend assistant"
+        criticName="Reviewer"
+        onClose={vi.fn()}
+        wsId="ws-1"
+      />,
+    );
+
+    expect(screen.queryByText("Connections")).not.toBeInTheDocument();
+    expect(screen.queryByText("Actions")).not.toBeInTheDocument();
+    expect(screen.queryByText("No runtime actions are available.")).not.toBeInTheDocument();
+  });
+
+  it("keeps status context without duplicating the current status row", () => {
+    render(
+      <ExecutionDetailPanel
+        node={{ ...node, title: "Run node" }}
+        nodeRun={{ ...run, node_title: "Run node", status: "format_failed" }}
+        workerName="Backend assistant"
+        criticName="Reviewer"
+        onClose={vi.fn()}
+        wsId="ws-1"
+      />,
+    );
+
+    expect(screen.getAllByTestId("runtime-display-status-icon").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Blocked").length).toBeGreaterThan(0);
+    expect(screen.getByText("Status Path")).toBeInTheDocument();
+    expect(screen.getByTestId("status-icon")).toBeInTheDocument();
+    expect(screen.queryByText("Current status")).not.toBeInTheDocument();
+  });
+
+  it("opens the agent session from run mode when a session id exists", async () => {
+    render(
+      <ExecutionDetailPanel
+        node={{ ...node, title: "Run node" }}
+        nodeRun={{ ...run, node_title: "Run node", session_id: "sess-1" }}
+        workerName="Backend assistant"
+        criticName="Reviewer"
+        onClose={vi.fn()}
+        wsId="ws-1"
+      />,
+    );
+
+    await userEvent.click(screen.getByRole("button", { name: "Open session" }));
+
+    expect(screen.getAllByTestId("node-detail-section").map((section) => section.getAttribute("data-section"))).toEqual([
+      "primary",
+      "agent-operations",
+      "deliverables",
+      "runtime",
+    ]);
+    expect(mockSetActiveSession).toHaveBeenCalledWith("sess-1");
+    expect(mockSetOpen).toHaveBeenCalledWith(true);
   });
 
   it("calls onClose when clicking mask", async () => {
@@ -223,7 +349,7 @@ describe("ExecutionDetailPanel", () => {
     expect(screen.getByText("5m 30s")).toBeInTheDocument();
   });
 
-  it("renders 'View full issue' link when issueId provided", () => {
+  it("does not treat an issue link as a run-mode agent operation", () => {
     render(
       <ExecutionDetailPanel
         node={node}
@@ -235,26 +361,9 @@ describe("ExecutionDetailPanel", () => {
         issueId="33cf28ab-f5ce-4ff7-b199-fb4a6c32064c"
       />,
     );
-    const link = screen.getByText("View full issue");
-    expect(link).toBeInTheDocument();
-    expect(link.closest("a")).toHaveAttribute(
-      "href",
-      "/tasks/demo111/issues/33cf28ab-f5ce-4ff7-b199-fb4a6c32064c",
-    );
-  });
 
-  it("does not render 'View full issue' when issueId not provided", () => {
-    render(
-      <ExecutionDetailPanel
-        node={node}
-        nodeRun={run}
-        workerName="后端助手"
-        criticName="审核员"
-        onClose={vi.fn()}
-        wsId="ws-1"
-      />,
-    );
     expect(screen.queryByText("View full issue")).not.toBeInTheDocument();
+    expect(screen.queryByText("Agent operations")).not.toBeInTheDocument();
   });
 
   it("renders unblock button when status is blocked and onUnblock provided", () => {
@@ -291,6 +400,30 @@ describe("ExecutionDetailPanel", () => {
     expect(screen.getByText("Retry")).toBeInTheDocument();
   });
 
+  it("renders retry button when status is format_failed and onRetry provided", () => {
+    const formatFailedRun = { ...run, status: "format_failed" as const };
+    render(
+      <ExecutionDetailPanel
+        node={node}
+        nodeRun={formatFailedRun}
+        workerName="后端助手"
+        criticName="审核员"
+        onClose={vi.fn()}
+        wsId="ws-1"
+        onRetry={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText("Retry")).toBeInTheDocument();
+    expect(screen.getByText("Agent operations")).toBeInTheDocument();
+    expect(screen.getAllByTestId("node-detail-section").map((section) => section.getAttribute("data-section"))).toEqual([
+      "primary",
+      "agent-operations",
+      "deliverables",
+      "runtime",
+    ]);
+  });
+
   it("shows gateway runtime semantics without worker critic artifacts or actions", () => {
     render(
       <ExecutionDetailPanel
@@ -311,7 +444,7 @@ describe("ExecutionDetailPanel", () => {
 
     expect(screen.getByText("Fork gateway")).toBeInTheDocument();
     expect(screen.getByText("Automatically completes and fans out to all downstream nodes.")).toBeInTheDocument();
-    expect(screen.getByLabelText("Dispatched")).toBeInTheDocument();
+    expect(screen.getAllByLabelText("Dispatched").length).toBeGreaterThan(0);
     expect(screen.queryByText("Worker")).not.toBeInTheDocument();
     expect(screen.queryByText("Critic")).not.toBeInTheDocument();
     expect(screen.queryByText("Artifacts")).not.toBeInTheDocument();

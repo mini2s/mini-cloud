@@ -34,7 +34,20 @@ const mocks = vi.hoisted(() => ({
   clearNodeEdits: vi.fn(),
   cacheNodeDelete: vi.fn(),
   pushServerAction: vi.fn(),
+  controlsProps: null as null | {
+    position?: string;
+    orientation?: string;
+    className?: string;
+  },
   miniMapProps: null as null | {
+    position?: string;
+    className?: string;
+    style?: React.CSSProperties;
+    bgColor?: string;
+    maskColor?: string;
+    maskStrokeColor?: string;
+    maskStrokeWidth?: number;
+    nodeBorderRadius?: number;
     nodeColor?: (node: Node) => string;
   },
   reactFlowProps: null as null | {
@@ -272,8 +285,25 @@ vi.mock("@xyflow/react", () => ({
   },
   ReactFlowProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
   Background: () => <div data-testid="rf-background" />,
-  Controls: () => <div data-testid="rf-controls" />,
-  MiniMap: (props: { nodeColor?: (node: Node) => string }) => {
+  Controls: (props: {
+    position?: string;
+    orientation?: string;
+    className?: string;
+  }) => {
+    mocks.controlsProps = props;
+    return <div data-testid="rf-controls" />;
+  },
+  MiniMap: (props: {
+    position?: string;
+    className?: string;
+    style?: React.CSSProperties;
+    bgColor?: string;
+    maskColor?: string;
+    maskStrokeColor?: string;
+    maskStrokeWidth?: number;
+    nodeBorderRadius?: number;
+    nodeColor?: (node: Node) => string;
+  }) => {
     mocks.miniMapProps = props;
     return <div data-testid="rf-minimap" />;
   },
@@ -358,6 +388,7 @@ describe("WorkflowPanoramaPage (new)", () => {
     mocks.selectNode.mockReset();
     mocks.clearNodeEdits.mockReset();
     mocks.reactFlowProps = null;
+    mocks.controlsProps = null;
     mocks.miniMapProps = null;
   });
 
@@ -856,6 +887,24 @@ describe("WorkflowPanoramaPage (new)", () => {
     expect(mocks.selectNode).toHaveBeenLastCalledWith(null);
   });
 
+  it("renders the node config panel in a wide inspector rail", () => {
+    mocks.nodesData = [
+      { id: "node-1", workflow_id: "wf-1", title: "A", description: "", worker_type: "agent", worker_id: null, critic_type: "human", critic_id: null, critic_api_url: null, stage_id: "stage-1", format_schema: null, position_x: 100, position_y: 0, sort_order: 0, created_at: "", updated_at: "" },
+    ];
+
+    const { rerender } = render(<WorkflowPanoramaPage workflowId="wf-1" />);
+
+    const worker = mocks.reactFlowProps?.nodes.find((n) => n.id === "node-1");
+    act(() => {
+      mocks.reactFlowProps?.onNodeClick?.({} as React.MouseEvent, worker!);
+    });
+    rerender(<WorkflowPanoramaPage workflowId="wf-1" />);
+
+    const rail = screen.getByTestId("node-config-panel").closest("aside");
+    expect(rail?.className).not.toContain("w-96");
+    expect(rail?.className).toContain("w-[560px]");
+  });
+
   it("moves a node to an open x slot when its stage changes from the config panel", () => {
     mocks.stagesData = [
       { id: "stage-1", workflow_id: "wf-1", name: "Stage 1", description: "", sort_order: 0, node_count: 0, created_at: "", updated_at: "" },
@@ -938,6 +987,28 @@ describe("WorkflowPanoramaPage (new)", () => {
     const worker = mocks.reactFlowProps?.nodes.find((n) => n.id === "node-1");
     expect(worker).toMatchObject({ width: 224, height: 80 });
     expect(mocks.reactFlowProps?.nodes.some((n) => n.type === "laneBg" || n.type === "gradientBg")).toBe(false);
+  });
+
+  it("docks workflow canvas navigation controls with the minimap separated", () => {
+    render(<WorkflowPanoramaPage workflowId="wf-1" />);
+
+    expect(mocks.controlsProps).toMatchObject({
+      position: "bottom-left",
+      orientation: "horizontal",
+    });
+    expect(mocks.controlsProps?.className).toContain("!m-5");
+    expect(mocks.controlsProps?.className).toContain("[&_.react-flow__controls-button]:h-8");
+
+    expect(mocks.miniMapProps).toMatchObject({
+      position: "bottom-right",
+      bgColor: "hsl(var(--card))",
+      maskColor: "hsl(var(--muted) / 0.14)",
+      maskStrokeColor: "hsl(var(--border))",
+      maskStrokeWidth: 1,
+      nodeBorderRadius: 4,
+      style: { width: 156, height: 104 },
+    });
+    expect(mocks.miniMapProps?.className).toContain("!m-5");
   });
 
   it("reserves the fixed stage label rail outside the ReactFlow interaction layer", () => {

@@ -12,6 +12,18 @@ vi.mock("@multica/views/i18n", () => ({
       if (typeof selector === "function") {
         return selector({
           execution: {
+            display_status: {
+              pending: "Pending",
+              todo: "Todo",
+              in_progress: "In progress",
+              reviewing: "Reviewing",
+              completed: "Completed",
+              blocked: "Blocked",
+              cancelled: "Cancelled",
+              dispatched: "Dispatched",
+              joined: "Joined",
+              waiting_upstream: "Waiting for upstream",
+            },
             card: {
               worker_label: "Worker",
               critic_label: "Critic",
@@ -257,6 +269,7 @@ describe("RuntimeNodeCard", () => {
     );
     const statusIcons = container.querySelectorAll('[data-testid="runtime-display-status-icon"]');
     expect(statusIcons.length).toBeGreaterThanOrEqual(1);
+    expect(screen.getByText("Completed")).toBeInTheDocument();
   });
 
   it("uses runtime summary display status and deliverable signal", () => {

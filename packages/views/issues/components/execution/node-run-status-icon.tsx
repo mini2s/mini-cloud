@@ -82,6 +82,13 @@ function gatewayDisplayLabel(status: WorkflowRuntimeDisplayStatus, gatewayKind?:
   return null;
 }
 
+export function getRuntimeDisplayStatusLabel(
+  status: WorkflowRuntimeDisplayStatus,
+  gatewayKind?: GatewayKind | null,
+): string {
+  return gatewayDisplayLabel(status, gatewayKind) ?? (DISPLAY_STATUS_MAP[status] ?? DISPLAY_STATUS_MAP.pending).label;
+}
+
 export interface RuntimeDisplayStatusIconProps {
   status: WorkflowRuntimeDisplayStatus;
   gatewayKind?: GatewayKind | null;
@@ -95,7 +102,7 @@ export function RuntimeDisplayStatusIcon({
 }: RuntimeDisplayStatusIconProps) {
   const config = DISPLAY_STATUS_MAP[status] ?? DISPLAY_STATUS_MAP.pending;
   const Icon = config.icon;
-  const label = gatewayDisplayLabel(status, gatewayKind) ?? config.label;
+  const label = getRuntimeDisplayStatusLabel(status, gatewayKind);
 
   return (
     <Icon

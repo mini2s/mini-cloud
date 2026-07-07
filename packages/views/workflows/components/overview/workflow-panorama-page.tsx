@@ -594,7 +594,7 @@ function PanoramaContent({
 
         {/* Node config panel (right slide-out) */}
         {configPanelOpen && selectedNode && (
-          <aside className="w-96 border-l bg-card shrink-0">
+          <aside className="w-[560px] max-w-[48vw] border-l bg-card shrink-0">
             <NodeConfigPanel
               node={selectedNode}
               workflowId={workflowId}

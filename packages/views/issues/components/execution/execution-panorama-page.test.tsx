@@ -25,6 +25,7 @@ const mocks = vi.hoisted(() => ({
   getViewport: vi.fn(() => ({ x: 0, y: 24, zoom: 0.95 })),
   nodesInitialized: true,
   viewportInitialized: true,
+  rerunIssue: vi.fn(),
 }));
 
 // ---------------------------------------------------------------------------
@@ -114,6 +115,19 @@ vi.mock("@multica/core/workspace/queries", () => ({
   }),
 }));
 
+vi.mock("@multica/core/api", () => ({
+  api: {
+    rerunIssue: mocks.rerunIssue,
+  },
+}));
+
+vi.mock("sonner", () => ({
+  toast: {
+    error: vi.fn(),
+    success: vi.fn(),
+  },
+}));
+
 // ---------------------------------------------------------------------------
 // Mock child components
 // ---------------------------------------------------------------------------
@@ -127,8 +141,22 @@ vi.mock("../../../workflows/components/overview/stage-lane", () => ({
 }));
 
 vi.mock("./execution-detail-panel", () => ({
-  ExecutionDetailPanel: ({ onClose }: { onClose: () => void }) => (
+  ExecutionDetailPanel: ({
+    nodeRun,
+    onClose,
+    onRetry,
+  }: {
+    nodeRun: { status: string } | null;
+    onClose: () => void;
+    onRetry?: () => void;
+  }) => (
     <div data-testid="execution-detail-panel">
+      <span data-testid="detail-panel-status">{nodeRun?.status ?? "no-run"}</span>
+      {onRetry ? (
+        <button type="button" onClick={onRetry}>
+          Retry from panel
+        </button>
+      ) : null}
       <button onClick={onClose}>Close</button>
     </div>
   ),
@@ -287,6 +315,8 @@ describe("ExecutionPanoramaPage", () => {
     mocks.getViewport.mockReturnValue({ x: 0, y: 24, zoom: 0.95 });
     mocks.nodesInitialized = true;
     mocks.viewportInitialized = true;
+    mocks.rerunIssue.mockReset();
+    mocks.rerunIssue.mockResolvedValue({ id: "task-2" });
     mocks.pluginsData = {
       items: [],
       total: 0,
@@ -536,6 +566,56 @@ describe("ExecutionPanoramaPage", () => {
     );
 
     expect(screen.queryByTestId("execution-detail-panel")).not.toBeInTheDocument();
+  });
+
+  it("passes a retry action to the detail panel for format_failed node runs", async () => {
+    mocks.isLoading = false;
+    mocks.workflowData = { id: "wf-1", title: "Test Workflow" };
+    mocks.stagesData = [STAGE];
+    mocks.nodesData = [NODE];
+    mocks.nodeRunsData = [
+      {
+        id: "nr-1",
+        workflow_run_id: "run-1",
+        workflow_node_id: "n1",
+        node_title: "brainstorming",
+        status: "format_failed",
+        retry_count: 0,
+        worker_type: "agent",
+        worker_id: "agent-1",
+        worker_output: null,
+        worker_agent_task_id: "task-1",
+        critic_type: "human",
+        critic_id: null,
+        critic_output: null,
+        critic_comment: "",
+        critic_agent_task_id: null,
+        agent_task_id: null,
+        session_id: null,
+        runtime_id: null,
+        device_id: null,
+        started_at: null,
+        completed_at: null,
+        created_at: "",
+        updated_at: "",
+      },
+    ];
+    mocks.agentsData = [AGENT];
+
+    render(
+      <Wrapper>
+        <ExecutionPanoramaPage workflowId="wf-1" runId="run-1" wsId="ws-1" issueId="issue-1" />
+      </Wrapper>,
+    );
+
+    fireEvent.click(screen.getByTestId("notification-item-test"));
+    expect(screen.getByTestId("detail-panel-status")).toHaveTextContent("format_failed");
+
+    fireEvent.click(screen.getByText("Retry from panel"));
+
+    await waitFor(() => {
+      expect(mocks.rerunIssue).toHaveBeenCalledWith("issue-1", "task-1");
+    });
   });
 
   it("renders workflow edges through the shared ReactFlow canvas when runId is provided", () => {

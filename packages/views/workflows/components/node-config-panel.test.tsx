@@ -169,6 +169,8 @@ describe("NodeConfigPanel", () => {
   it("renders Worker and Critic type segmented controls", () => {
     renderPanel();
 
+    expect(screen.getByTestId("workflow-node-detail-panel-shell")).toHaveAttribute("data-mode", "edit");
+    expect(screen.queryByRole("tab", { name: "Config" })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Worker type Human" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Worker type Agent" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Worker type Squad" })).toBeInTheDocument();
@@ -181,6 +183,25 @@ describe("NodeConfigPanel", () => {
     expect(screen.getByRole("button", { name: "Critic type API" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "agent: agent-1" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "agent: agent-2" })).toBeInTheDocument();
+  });
+
+  it("uses the fixed shared detail section order in edit mode", () => {
+    renderPanel();
+
+    expect(screen.getAllByTestId("node-detail-section").map((section) => section.getAttribute("data-section"))).toEqual([
+      "primary",
+      "deliverables",
+      "runtime",
+      "connections",
+      "actions",
+    ]);
+  });
+
+  it("does not render legacy nested subsection cards inside the shared primary section", () => {
+    renderPanel();
+
+    expect(screen.getByText("Primary")).toBeInTheDocument();
+    expect(screen.queryByText("Basics")).not.toBeInTheDocument();
   });
 
   it("switches Worker to Role and clears the previous worker assignment", () => {

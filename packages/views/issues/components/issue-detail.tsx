@@ -1972,6 +1972,7 @@ export function IssueDetail({ issueId, onDelete, onDone, defaultSidebarOpen = tr
                   workflowId={effectiveWorkflowId ?? ""}
                   runId={effectiveWorkflowRunId ?? null}
                   wsId={wsId}
+                  issueId={issue.id}
                 />
               </div>
             </div>

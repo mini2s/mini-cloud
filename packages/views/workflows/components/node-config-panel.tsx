@@ -21,7 +21,6 @@ import { Button } from "@multica/ui/components/ui/button";
 import { Input } from "@multica/ui/components/ui/input";
 import { Textarea } from "@multica/ui/components/ui/textarea";
 import { Label } from "@multica/ui/components/ui/label";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@multica/ui/components/ui/tabs";
 import { useT } from "../../i18n";
 import { useWorkspaceId } from "@multica/core/hooks";
 import {
@@ -36,6 +35,10 @@ import { parseNodeFormat, type WorkflowNode, type WorkflowNodeRun, type Workflow
 import type { IssueAssigneeType } from "@multica/core/types/issue";
 import { NodeDeliverablesEditor } from "./node-deliverables-editor";
 import { NodeDataPreview } from "./node-data-preview";
+import {
+  NodeDetailSection,
+  WorkflowNodeDetailPanelShell,
+} from "../../common/workflow-node-detail-panel-shell";
 
 function toAssigneeType(t: string): IssueAssigneeType | null {
   if (t === "human") return "member";
@@ -118,10 +121,10 @@ function InspectorSection({
   className?: string;
 }) {
   return (
-    <section className={`overflow-hidden rounded-lg border bg-background ${className}`}>
-      <div className="flex items-start justify-between gap-3 border-b bg-muted/20 px-3 py-3">
+    <div className={`space-y-3 ${className}`}>
+      <div className="flex items-start justify-between gap-3">
         <div className="flex min-w-0 items-start gap-2.5">
-          <span className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-md border bg-background text-muted-foreground">
+          <span className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-md border bg-muted/30 text-muted-foreground">
             {icon}
           </span>
           <div className="min-w-0">
@@ -131,8 +134,8 @@ function InspectorSection({
         </div>
         {status}
       </div>
-      {children ? <div className="space-y-3 p-3">{children}</div> : null}
-    </section>
+      {children ? <div className="space-y-3">{children}</div> : null}
+    </div>
   );
 }
 
@@ -374,18 +377,14 @@ export function NodeConfigPanel({
   const runTone = statusTone(recentNodeRun?.status);
 
   return (
-    <div className="flex h-full flex-col border-l bg-card">
-      <div className="shrink-0 border-b px-4 py-3">
-        <div className="mb-2 flex items-center justify-between gap-2">
-          <div className="min-w-0">
-            <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Node inspector</p>
-            <h3 className="truncate text-sm font-medium">{title || t(($) => $.node.title)}</h3>
-          </div>
-          <Button variant="ghost" size="icon" className="h-7 w-7" onClick={onClose} aria-label="Close node inspector">
-            <X className="size-4" />
-          </Button>
-        </div>
-        <div className="flex flex-wrap items-center gap-1.5">
+    <WorkflowNodeDetailPanelShell
+      mode="edit"
+      title={title || t(($) => $.node.title)}
+      eyebrow="Node inspector"
+      closeLabel="Close node inspector"
+      onClose={onClose}
+      badges={(
+        <>
           <StatusBadge>{currentStageName}</StatusBadge>
           {recentNodeRun ? (
             <StatusBadge tone={runTone}>
@@ -395,25 +394,16 @@ export function NodeConfigPanel({
           ) : (
             <StatusBadge>No run data</StatusBadge>
           )}
-        </div>
-      </div>
-
-      <Tabs defaultValue="config" className="flex min-h-0 flex-1 flex-col">
-        <div className="border-b bg-muted/20 px-4 py-2">
-          <TabsList className="grid h-8 w-full grid-cols-3">
-            <TabsTrigger value="config" className="text-xs">{t(($) => $.node.tabs.config)}</TabsTrigger>
-            <TabsTrigger value="data" className="text-xs">{t(($) => $.node.tabs.data)}</TabsTrigger>
-            <TabsTrigger value="runs" className="text-xs">{t(($) => $.node.tabs.runs)}</TabsTrigger>
-          </TabsList>
-        </div>
-
-        <TabsContent value="config" className="m-0 min-h-0 flex-1 overflow-y-auto px-4 py-4">
-          <div className="space-y-3">
-            <InspectorSection
-              icon={<GitBranch className="size-4" />}
-              title="Basics"
-              subtitle="Name, stage, and the responsibility of this step."
-            >
+        </>
+      )}
+    >
+      <NodeDetailSection
+        sectionId="primary"
+        icon={<GitBranch className="size-4" />}
+        title="Primary"
+        subtitle="Definition fields and ownership for this workflow node."
+      >
+        <div className="space-y-3">
               <div className="space-y-1.5">
                 <Label className="text-xs text-muted-foreground">{t(($) => $.node.title)}</Label>
                 <Input
@@ -540,7 +530,6 @@ export function NodeConfigPanel({
                   rows={3}
                 />
               </div>
-            </InspectorSection>
 
             {isAnnotation ? (
               <InspectorSection
@@ -810,17 +799,6 @@ export function NodeConfigPanel({
                   )}
                 </AssignmentCard>
 
-                <InspectorSection
-                  icon={<FileCheck2 className="size-4" />}
-                  title="Outputs"
-                  subtitle="Required documents or pull requests for this node."
-                >
-                  <NodeDeliverablesEditor
-                    workflowId={workflowId}
-                    nodeId={node.id}
-                    disabled={disabled}
-                  />
-                </InspectorSection>
               </>
             ) : null}
 
@@ -852,51 +830,77 @@ export function NodeConfigPanel({
                 <p className="text-[11px] text-muted-foreground">{t(($) => $.node.format_schema_hint)}</p>
               </div>
             </details>
-          </div>
-        </TabsContent>
+        </div>
+      </NodeDetailSection>
 
-        <TabsContent value="data" className="m-0 min-h-0 flex-1 overflow-y-auto px-4 py-4">
-          <InspectorSection
-            icon={<Activity className="size-4" />}
-            title="Data preview"
-            subtitle="Latest input, output and review data for this node."
-            status={recentNodeRun ? <StatusBadge tone={runTone}>{recentNodeRun.status}</StatusBadge> : <StatusBadge>No data</StatusBadge>}
-          >
+      <NodeDetailSection
+        sectionId="deliverables"
+        icon={<FileCheck2 className="size-4" />}
+        title="Deliverables"
+        subtitle="Required documents or pull requests for this node."
+      >
+        {!isAnnotation && !isGateway ? (
+          <NodeDeliverablesEditor
+            workflowId={workflowId}
+            nodeId={node.id}
+            disabled={disabled}
+          />
+        ) : (
+          <p className="text-sm text-muted-foreground">
+            {isGateway ? "Gateway nodes do not define deliverables." : "Annotation nodes do not define deliverables."}
+          </p>
+        )}
+      </NodeDetailSection>
+
+      <NodeDetailSection
+        sectionId="runtime"
+        icon={<Activity className="size-4" />}
+        title="Runtime"
+        subtitle="Latest run context for this node."
+        status={recentNodeRun ? <StatusBadge tone={runTone}>{recentNodeRun.status}</StatusBadge> : <StatusBadge>No run</StatusBadge>}
+      >
+        {recentNodeRun ? (
+          <div className="space-y-2">
+            <div className={`flex items-start gap-2 rounded-lg border p-3 ${statusClasses(runTone)}`}>
+              {runTone === "danger" ? <AlertTriangle className="mt-0.5 size-4" /> : <CheckCircle2 className="mt-0.5 size-4" />}
+              <div className="min-w-0">
+                    <p className="text-sm font-medium">Status: {recentNodeRun.status}</p>
+                <p className="mt-1 text-[11px] leading-snug opacity-80">
+                  Worker output, critic output and comments remain available in this runtime section.
+                </p>
+              </div>
+            </div>
             <NodeDataPreview nodeRun={recentNodeRun} />
-          </InspectorSection>
-        </TabsContent>
+          </div>
+        ) : (
+          <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
+            No run data for this node yet.
+          </div>
+        )}
+      </NodeDetailSection>
 
-        <TabsContent value="runs" className="m-0 min-h-0 flex-1 overflow-y-auto px-4 py-4">
-          <InspectorSection
-            icon={<Activity className="size-4" />}
-            title="Recent run"
-            subtitle="Status context stays close to configuration."
-            status={recentNodeRun ? <StatusBadge tone={runTone}>{recentNodeRun.status}</StatusBadge> : <StatusBadge>No run</StatusBadge>}
-          >
-            {recentNodeRun ? (
-              <div className="space-y-2">
-                <div className={`flex items-start gap-2 rounded-lg border p-3 ${statusClasses(runTone)}`}>
-                  {runTone === "danger" ? <AlertTriangle className="mt-0.5 size-4" /> : <CheckCircle2 className="mt-0.5 size-4" />}
-                  <div className="min-w-0">
-                    <p className="text-sm font-medium">Latest run: {recentNodeRun.status}</p>
-                    <p className="mt-1 text-[11px] leading-snug opacity-80">
-                      Worker output, critic output and comments remain available in the Data tab.
-                    </p>
-                  </div>
-                </div>
-                <NodeDataPreview nodeRun={recentNodeRun} />
-              </div>
-            ) : (
-              <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
-                No run data for this node yet.
-              </div>
-            )}
-          </InspectorSection>
-        </TabsContent>
-      </Tabs>
+      <NodeDetailSection
+        sectionId="connections"
+        icon={<GitBranch className="size-4" />}
+        title="Connections"
+        subtitle="Canvas topology stays visible in the editor while details focus on the selected node."
+      >
+        <div className="space-y-2 text-sm text-muted-foreground">
+          <p>Stage: {currentStageName}</p>
+          {isGateway ? <p>Gateway edge counts and topology are shown on the canvas.</p> : null}
+          {isAnnotation && targetNodeId ? (
+            <p>Bound to: {bindableNodes.find((bn) => bn.id === targetNodeId)?.title ?? "Unknown node"}</p>
+          ) : null}
+        </div>
+      </NodeDetailSection>
 
-      {!disabled && (
-        <div className="shrink-0 border-t px-4 py-3">
+      <NodeDetailSection
+        sectionId="actions"
+        icon={<Trash2 className="size-4" />}
+        title="Actions"
+        subtitle="Definition-level operations for this node."
+      >
+        {!disabled ? (
           <Button
             size="sm"
             variant="destructive"
@@ -913,8 +917,10 @@ export function NodeConfigPanel({
             <Trash2 className="mr-1.5 h-3.5 w-3.5" />
             {deleteMutation.isPending ? t(($) => $.node.saving) : t(($) => $.node.delete)}
           </Button>
-        </div>
-      )}
-    </div>
+        ) : (
+          <p className="text-sm text-muted-foreground">Node actions are disabled in this context.</p>
+        )}
+      </NodeDetailSection>
+    </WorkflowNodeDetailPanelShell>
   );
 }

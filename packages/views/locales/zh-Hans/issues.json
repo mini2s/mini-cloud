@@ -506,9 +506,29 @@
       "blocked_failed": "需要处理：",
       "awaiting_input": "等待输入："
     },
+    "display_status": {
+      "pending": "待规划",
+      "todo": "待办",
+      "in_progress": "进行中",
+      "reviewing": "审核中",
+      "completed": "已完成",
+      "blocked": "已阻塞",
+      "cancelled": "已取消",
+      "dispatched": "已分发",
+      "joined": "已汇聚",
+      "waiting_upstream": "等待上游"
+    },
     "detail_panel": {
       "title": "节点详情",
       "status_path": "状态路径",
+      "section_primary": "主要信息",
+      "section_primary_desc": "处理人和诊断上下文。",
+      "section_agent_operations": "智能体操作",
+      "section_agent_operations_desc": "此节点运行的会话和恢复操作。",
+      "section_deliverables": "交付物",
+      "section_deliverables_desc": "已提交输出和评审产物。",
+      "section_runtime": "运行信息",
+      "section_runtime_desc": "耗时、重试、错误和原始输出。",
       "worker": "Worker",
       "critic": "Critic",
       "worker_output": "Worker 输出",
@@ -524,6 +544,7 @@
       "retry_count": "重试次数",
       "error": "错误",
       "view_full_issue": "查看完整 Issue",
+      "open_session": "进入会话",
       "unblock": "解除阻塞",
       "retry": "重试"
     },
