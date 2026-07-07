@@ -26,7 +26,6 @@ export interface WorkflowCanvasCoreProps {
   nodeTypes: NodeTypes;
   edgeTypes: EdgeTypes;
   readOnly?: boolean;
-  colorMode?: "light" | "dark" | "system";
   viewportY: number;
   viewportZoom: number;
   defaultViewport?: Viewport;
@@ -51,7 +50,6 @@ export function WorkflowCanvasCore({
   nodeTypes,
   edgeTypes,
   readOnly = false,
-  colorMode = "light",
   viewportY,
   viewportZoom,
   defaultViewport = { x: 0, y: 24, zoom: 0.95 },
@@ -103,7 +101,6 @@ export function WorkflowCanvasCore({
           elementsSelectable
           multiSelectionKeyCode={readOnly ? null : "Shift"}
           selectionOnDrag={!readOnly}
-          colorMode={colorMode}
           onMove={(_, viewport) => onMove?.(viewport)}
         >
           <Background />

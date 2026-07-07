@@ -99,9 +99,6 @@
     },
     "section_danger": "危险区域",
     "delete_button": "删除工作流",
-    "canvas_theme_system": "跟随系统",
-    "canvas_theme_light": "浅色主题",
-    "canvas_theme_dark": "深色主题",
     "discard_changes": "放弃"
   },
   "node": {
@@ -359,7 +356,6 @@
       "test_run": "测试运行",
       "save_and_test": "保存并测试",
       "more": "更多",
-      "theme": "主题",
       "blocked_tooltip": "请先解决阻断问题。",
       "activate_disabled_unsaved": "请先保存更改再启用。"
     },

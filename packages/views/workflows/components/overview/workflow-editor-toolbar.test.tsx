@@ -15,7 +15,6 @@ const mocks = vi.hoisted(() => ({
   testRun: vi.fn(),
   toggleStatus: vi.fn(),
   openRuns: vi.fn(),
-  cycleTheme: vi.fn(),
   deleteWorkflow: vi.fn(),
 }));
 
@@ -34,9 +33,6 @@ vi.mock("../../../i18n", () => {
       back_to_workflows: "Back to workflows",
       click_to_rename: "Click to rename",
       delete: "Delete",
-      canvas_theme_system: "System theme",
-      canvas_theme_light: "Light theme",
-      canvas_theme_dark: "Dark theme",
     },
     panorama: {
       node_picker: {
@@ -67,7 +63,6 @@ vi.mock("../../../i18n", () => {
         test_run: "Test run",
         save_and_test: "Save & test",
         more: "More",
-        theme: "Theme",
         blocked_tooltip: "Resolve blocking issues first.",
         activate_disabled_unsaved: "Save changes before activating.",
       },
@@ -110,7 +105,6 @@ function renderToolbar(overrides: Partial<React.ComponentProps<typeof WorkflowEd
       canRedo={false}
       hasUnsavedEdits={false}
       hasBlockingPreflightIssues={false}
-      canvasColorMode="system"
       onBackToWorkflows={mocks.back}
       onUpdateTitle={mocks.rename}
       onUndo={mocks.undo}
@@ -121,7 +115,6 @@ function renderToolbar(overrides: Partial<React.ComponentProps<typeof WorkflowEd
       onTestRun={mocks.testRun}
       onToggleWorkflowStatus={mocks.toggleStatus}
       onOpenRunHistory={mocks.openRuns}
-      onCycleCanvasColorMode={mocks.cycleTheme}
       onDeleteWorkflow={mocks.deleteWorkflow}
       {...overrides}
     />,
@@ -182,16 +175,14 @@ describe("WorkflowEditorToolbar", () => {
     expect(screen.getByRole("button", { name: "Deactivate" })).not.toBeDisabled();
   });
 
-  it("keeps run history, theme, and delete in the More menu", () => {
+  it("keeps run history and delete in the More menu", () => {
     renderToolbar();
 
     const menu = screen.getByRole("menu");
     fireEvent.click(within(menu).getByRole("menuitem", { name: /Run history/ }));
-    fireEvent.click(within(menu).getByRole("menuitem", { name: /Theme/ }));
     fireEvent.click(within(menu).getByRole("menuitem", { name: /Delete/ }));
 
     expect(mocks.openRuns).toHaveBeenCalledTimes(1);
-    expect(mocks.cycleTheme).toHaveBeenCalledTimes(1);
     expect(mocks.deleteWorkflow).toHaveBeenCalledTimes(1);
   });
 });

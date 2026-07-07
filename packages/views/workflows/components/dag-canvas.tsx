@@ -93,7 +93,6 @@ export function WorkflowCanvas({
   const setSelectedNodeIds = useWorkflowEditorStore((s) => s.setSelectedNodeIds);
   const cacheNodeDelete = useWorkflowEditorStore((s) => s.cacheNodeDelete);
   const deletedNodeIds = useWorkflowEditorStore((s) => s.deletedNodeIds);
-  const canvasColorMode = useWorkflowEditorStore((s) => s.canvasColorMode);
   const { screenToFlowPosition } = useReactFlow();
 
   const cacheNodeEdit = useWorkflowEditorStore((s) => s.cacheNodeEdits);
@@ -531,7 +530,6 @@ export function WorkflowCanvas({
       nodesFocusable
       elementsSelectable
       fitView={shouldFitView}
-      colorMode={canvasColorMode}
     >
       <Background />
       <Controls />

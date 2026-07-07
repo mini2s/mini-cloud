@@ -24,6 +24,7 @@ const mocks = vi.hoisted(() => ({
   updateNodeMutateAsync: vi.fn(),
   assignStageMutate: vi.fn(),
   deleteNodeMutateAsync: vi.fn(),
+  deleteEdgeMutate: vi.fn(),
   updateStageMutateAsync: vi.fn(),
   updateWorkflowMutate: vi.fn(),
   startWorkflowRunMutateAsync: vi.fn(),
@@ -63,7 +64,7 @@ vi.mock("@multica/core/workflows/queries", () => ({
   useUpdateWorkflow: () => ({ mutate: mocks.updateWorkflowMutate, mutateAsync: vi.fn() }),
   useDeleteNode: () => ({ mutateAsync: mocks.deleteNodeMutateAsync }),
   useCreateEdge: () => ({ mutate: vi.fn(), mutateAsync: vi.fn() }),
-  useDeleteEdge: () => ({ mutate: vi.fn(), mutateAsync: vi.fn() }),
+  useDeleteEdge: () => ({ mutate: mocks.deleteEdgeMutate, mutateAsync: vi.fn() }),
   useAssignNodeToStage: () => ({ mutate: mocks.assignStageMutate, mutateAsync: vi.fn() }),
   useCreateStage: () => ({ mutateAsync: vi.fn() }),
   useUpdateStage: () => ({ mutateAsync: mocks.updateStageMutateAsync }),
@@ -96,7 +97,6 @@ vi.mock("@multica/core/workflows/store", () => {
       undoStack: [],
       redoStack: [],
       showAnnotations: true,
-      canvasColorMode: "system" as "system" | "light" | "dark",
       selectNode: (nodeId: string | null) => {
         mocks.selectedNodeId = nodeId;
         mocks.selectNode(nodeId);
@@ -106,7 +106,6 @@ vi.mock("@multica/core/workflows/store", () => {
       clearNodeEdits: mocks.clearNodeEdits,
       clearNodeDelete: vi.fn(),
       pushServerAction: mocks.pushServerAction,
-      cycleCanvasColorMode: vi.fn(),
       undo: vi.fn(),
       redo: vi.fn(),
       toggleAnnotations: vi.fn(),
@@ -166,9 +165,6 @@ vi.mock("../../../i18n", () => {
         confirm: "Delete",
         deleting: "Deleting...",
       },
-      canvas_theme_system: "System theme",
-      canvas_theme_light: "Light theme",
-      canvas_theme_dark: "Dark theme",
     },
     overview: {
       stage_dialog: {
@@ -213,7 +209,6 @@ vi.mock("../../../i18n", () => {
         test_run: "Test run",
         save_and_test: "Save & test",
         more: "More",
-        theme: "Theme",
         blocked_tooltip: "Resolve blocking issues first.",
         activate_disabled_unsaved: "Save changes before activating.",
       },
@@ -345,6 +340,7 @@ describe("WorkflowPanoramaPage (new)", () => {
     mocks.updateNodeMutateAsync.mockReset();
     mocks.assignStageMutate.mockReset();
     mocks.deleteNodeMutateAsync.mockReset();
+    mocks.deleteEdgeMutate.mockReset();
     mocks.updateStageMutateAsync.mockReset();
     mocks.updateWorkflowMutate.mockReset();
     mocks.startWorkflowRunMutateAsync.mockReset();
@@ -699,6 +695,27 @@ describe("WorkflowPanoramaPage (new)", () => {
     expect(dataEdge?.data).not.toHaveProperty("edgeLabel");
   });
 
+  it("injects delete callbacks into editable workflow edges only", () => {
+    mocks.nodesData = [
+      { id: "a", workflow_id: "wf-1", title: "A", description: "", worker_type: "agent", worker_id: "agent-1", critic_type: "agent", critic_id: "agent-2", critic_api_url: null, stage_id: "stage-1", format_schema: null, position_x: 100, position_y: 0, sort_order: 0, created_at: "", updated_at: "" },
+      { id: "b", workflow_id: "wf-1", title: "B", description: "", worker_type: "agent", worker_id: null, critic_type: "human", critic_id: null, critic_api_url: null, stage_id: "stage-1", format_schema: null, position_x: 460, position_y: 0, sort_order: 1, created_at: "", updated_at: "" },
+    ];
+    mocks.edgesData = [
+      { id: "edge-a-b", workflow_id: "wf-1", source_node_id: "a", target_node_id: "b", condition: null, created_at: "" },
+    ];
+
+    render(<WorkflowPanoramaPage workflowId="wf-1" />);
+
+    const workflowEdge = mocks.reactFlowProps?.edges.find((edge) => edge.id === "edge-a-b");
+    const criticEdge = mocks.reactFlowProps?.edges.find((edge) => edge.id === "a:critic-edge");
+    expect(workflowEdge?.data).toHaveProperty("onDeleteEdge");
+    expect(criticEdge?.data).not.toHaveProperty("onDeleteEdge");
+
+    (workflowEdge?.data?.onDeleteEdge as (edgeId: string) => void)("edge-a-b");
+    expect(mocks.deleteEdgeMutate).toHaveBeenCalledWith("edge-a-b");
+    expect(mocks.pushServerAction).toHaveBeenCalledWith({ type: "delete-edge", edgeId: "edge-a-b" });
+  });
+
   it("marks generated critic edges with critic semantics", () => {
     mocks.nodesData = [
       { id: "node-1", workflow_id: "wf-1", title: "Worker", description: "", worker_type: "agent", worker_id: "agent-1", critic_type: "agent", critic_id: "agent-2", critic_api_url: null, stage_id: "stage-1", format_schema: null, position_x: 320, position_y: 0, sort_order: 0, created_at: "", updated_at: "" },
@@ -964,11 +981,11 @@ describe("WorkflowPanoramaPage (new)", () => {
   it("renders the theme action in the More menu", () => {
     render(<WorkflowPanoramaPage workflowId="wf-1" />);
     fireEvent.click(screen.getByRole("button", { name: "More" }));
-    expect(screen.getByRole("menuitem", { name: /Theme/ })).toBeInTheDocument();
+    expect(screen.getByRole("menuitem", { name: /Delete/ })).toBeInTheDocument();
   });
 
   it("passes colorMode to ReactFlow", () => {
     render(<WorkflowPanoramaPage workflowId="wf-1" />);
-    expect(mocks.reactFlowProps?.colorMode).toBe("system");
+    expect(mocks.reactFlowProps?.colorMode).toBeUndefined();
   });
 });

@@ -7,8 +7,6 @@ import {
   ChevronDown,
   Clock3,
   History,
-  Monitor,
-  Moon,
   MoreHorizontal,
   PanelsTopLeft,
   PauseCircle,
@@ -16,7 +14,6 @@ import {
   Plus,
   Redo2,
   Save,
-  Sun,
   Trash2,
   Undo2,
   WandSparkles,
@@ -39,8 +36,6 @@ import { NodeTemplatePicker } from "./node-template-picker";
 import type { NodeTemplate } from "./node-template-catalog";
 import type { WorkflowStatus } from "@multica/core/types";
 
-type CanvasColorMode = "system" | "light" | "dark";
-
 interface ToolbarWorkflow {
   id: string;
   title: string;
@@ -54,7 +49,6 @@ export interface WorkflowEditorToolbarProps {
   canRedo: boolean;
   hasUnsavedEdits: boolean;
   hasBlockingPreflightIssues: boolean;
-  canvasColorMode: CanvasColorMode;
   onBackToWorkflows: () => void;
   onUpdateTitle: (title: string) => void;
   onUndo: () => void;
@@ -65,7 +59,6 @@ export interface WorkflowEditorToolbarProps {
   onTestRun: () => void | Promise<void>;
   onToggleWorkflowStatus: () => void;
   onOpenRunHistory: () => void;
-  onCycleCanvasColorMode: () => void;
   onDeleteWorkflow: () => void;
 }
 
@@ -84,12 +77,6 @@ function ToolbarTooltip({
   );
 }
 
-function themeLabelForMode(mode: CanvasColorMode, t: ReturnType<typeof useT<"workflows">>["t"]) {
-  if (mode === "dark") return t(($) => $.detail.canvas_theme_dark);
-  if (mode === "light") return t(($) => $.detail.canvas_theme_light);
-  return t(($) => $.detail.canvas_theme_system);
-}
-
 export function WorkflowEditorToolbar({
   workflow,
   statusLabel,
@@ -97,7 +84,6 @@ export function WorkflowEditorToolbar({
   canRedo,
   hasUnsavedEdits,
   hasBlockingPreflightIssues,
-  canvasColorMode,
   onBackToWorkflows,
   onUpdateTitle,
   onUndo,
@@ -108,7 +94,6 @@ export function WorkflowEditorToolbar({
   onTestRun,
   onToggleWorkflowStatus,
   onOpenRunHistory,
-  onCycleCanvasColorMode,
   onDeleteWorkflow,
 }: WorkflowEditorToolbarProps) {
   const { t } = useT("workflows");
@@ -117,8 +102,6 @@ export function WorkflowEditorToolbar({
   const [popoverOpen, setPopoverOpen] = useState(false);
   const titleInputRef = useRef<HTMLInputElement>(null);
 
-  const themeLabel = themeLabelForMode(canvasColorMode, t);
-  const ThemeIcon = canvasColorMode === "dark" ? Moon : canvasColorMode === "light" ? Sun : Monitor;
   const isActive = workflow.status === "active";
   const statusActionLabel = isActive ? t(($) => $.detail.deactivate) : t(($) => $.detail.activate);
   const testRunLabel = hasUnsavedEdits
@@ -313,11 +296,6 @@ export function WorkflowEditorToolbar({
               <History className="size-4" />
               {t(($) => $.panorama.toolbar.run_history)}
             </DropdownMenuItem>
-            <DropdownMenuItem onClick={onCycleCanvasColorMode}>
-              <ThemeIcon className="size-4" />
-              {t(($) => $.panorama.toolbar.theme)}
-              <ChevronDown className="ml-auto size-3 opacity-50" />
-            </DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem variant="destructive" onClick={onDeleteWorkflow}>
               <Trash2 className="size-4" />
@@ -325,8 +303,6 @@ export function WorkflowEditorToolbar({
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
-
-        <span className="sr-only">{themeLabel}</span>
       </div>
     </PageHeader>
   );

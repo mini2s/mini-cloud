@@ -72,7 +72,6 @@ const storeRef = vi.hoisted(() => {
     selectedNodeId: null as string | null,
     selectedEdgeId: null as string | null,
     selectedNodeIds: [] as string[],
-    canvasColorMode: "light" as const,
     deletedNodeIds: [] as string[],
     cacheNodeEdits: vi.fn(),
     cacheNodeDelete: (id: string) => {

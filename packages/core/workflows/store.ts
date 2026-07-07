@@ -42,7 +42,6 @@ interface WorkflowEditorState {
   _undoLastTime: number;
   _undoRedoVersion: number;
   showAnnotations: boolean;
-  canvasColorMode: "system" | "light" | "dark";
 
   selectNode: (id: string | null) => void;
   setSelectedNodeIds: (ids: string[]) => void;
@@ -58,7 +57,6 @@ interface WorkflowEditorState {
   redo: () => void;
   clearReverseAction: () => void;
   toggleAnnotations: () => void;
-  cycleCanvasColorMode: () => void;
   reset: () => void;
 }
 
@@ -83,7 +81,6 @@ const initialState = {
   _undoLastTime: 0,
   _undoRedoVersion: 0,
   showAnnotations: true,
-  canvasColorMode: "system" as "system" | "light" | "dark",
 };
 
 export const useWorkflowEditorStore = create<WorkflowEditorState>((set) => ({
@@ -217,16 +214,6 @@ export const useWorkflowEditorStore = create<WorkflowEditorState>((set) => ({
   clearReverseAction: () => set({ _reverseAction: null }),
 
   toggleAnnotations: () => set((state) => ({ showAnnotations: !state.showAnnotations })),
-
-  cycleCanvasColorMode: () =>
-    set((state) => ({
-      canvasColorMode:
-        state.canvasColorMode === "system"
-          ? "light"
-          : state.canvasColorMode === "light"
-            ? "dark"
-            : "system",
-    })),
 
   reset: () => set({ ...initialState, selectedNodeIds: [], selectedNodeId: null }),
 }));

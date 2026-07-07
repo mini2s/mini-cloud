@@ -172,7 +172,12 @@ function apiNodesToReactFlowNodes(
 
 // ── API edges → ReactFlow edges ──
 
-function apiEdgesToReactFlowEdges(edges: WorkflowEdge[], nodes: WorkflowNode[], stages: WorkflowStage[]): Edge[] {
+function apiEdgesToReactFlowEdges(
+  edges: WorkflowEdge[],
+  nodes: WorkflowNode[],
+  stages: WorkflowStage[],
+  onDeleteEdge?: (edgeId: string) => void,
+): Edge[] {
   const stageMap = new Map(stages.map((stage) => [stage.id, stage]));
   const stageVisualIndexMap = createStageVisualIndexMap(stages);
   const nodeMap = new Map(nodes.map((node) => [node.id, node]));
@@ -192,6 +197,7 @@ function apiEdgesToReactFlowEdges(edges: WorkflowEdge[], nodes: WorkflowNode[], 
       return {
         data: {
           stageColorIndex: getEdgeStageColorIndex(edge.source_node_id, nodeMap, stageMap, stageVisualIndexMap),
+          ...(onDeleteEdge ? { onDeleteEdge } : {}),
           ...edgeSemantics,
         },
         markerEnd: {
@@ -423,8 +429,6 @@ function PanoramaContent({
 }: PanoramaContentProps) {
   const { t } = useT("workflows");
   const reactFlowInstance = useReactFlow();
-  const canvasColorMode = useWorkflowEditorStore((s) => s.canvasColorMode);
-  const cycleCanvasColorMode = useWorkflowEditorStore((s) => s.cycleCanvasColorMode);
   const canUndo = useWorkflowEditorStore((s) => s.undoStack.length > 0);
   const canRedo = useWorkflowEditorStore((s) => s.redoStack.length > 0);
   const undo = useWorkflowEditorStore((s) => s.undo);
@@ -510,7 +514,6 @@ function PanoramaContent({
         canRedo={canRedo}
         hasUnsavedEdits={hasUnsavedEdits}
         hasBlockingPreflightIssues={preflightResult.blockingCount > 0}
-        canvasColorMode={canvasColorMode}
         onBackToWorkflows={onBackToWorkflows}
         onUpdateTitle={onUpdateTitle}
         onUndo={undo}
@@ -521,7 +524,6 @@ function PanoramaContent({
         onTestRun={onTestRun}
         onToggleWorkflowStatus={onToggleWorkflowStatus}
         onOpenRunHistory={onOpenRunHistory}
-        onCycleCanvasColorMode={cycleCanvasColorMode}
         onDeleteWorkflow={() => setDeleteDialogOpen(true)}
       />
 
@@ -538,7 +540,6 @@ function PanoramaContent({
             onConnect={onConnect}
             onEdgesDelete={onEdgeDelete}
             defaultViewport={{ x: 0, y: 24, zoom: 0.95 }}
-            colorMode={canvasColorMode}
           viewportY={viewportY}
           viewportZoom={viewportZoom}
           onMove={onViewportChange}
@@ -749,7 +750,18 @@ export function WorkflowPanoramaPage({ workflowId, viewToggle }: WorkflowPanoram
     [stages, visibleNodes, agentLookup, pluginLookup, getActorName, openNodePanel],
   );
 
-  const rfEdges = useMemo(() => apiEdgesToReactFlowEdges(apiEdges, visibleNodes, stages), [apiEdges, visibleNodes, stages]);
+  const handleInlineEdgeDelete = useCallback(
+    (edgeId: string) => {
+      deleteEdgeMutation.mutate(edgeId);
+      pushServerAction({ type: "delete-edge", edgeId });
+    },
+    [deleteEdgeMutation, pushServerAction],
+  );
+
+  const rfEdges = useMemo(
+    () => apiEdgesToReactFlowEdges(apiEdges, visibleNodes, stages, handleInlineEdgeDelete),
+    [apiEdges, visibleNodes, stages, handleInlineEdgeDelete],
+  );
 
   // ── Selected node for config panel ──
   const selectedNode = useMemo(
