@@ -12,9 +12,9 @@ import type { WorkflowStatus } from "@multica/core/types";
 export interface PreflightBarProps {
   result: PreflightResult;
   onNavigateToNode: (nodeId: string) => void;
-  onPublish: () => void;
+  onActivate: () => void;
   onDismiss: () => void;
-  isPublishing?: boolean;
+  isActivating?: boolean;
   hasUnsavedEdits?: boolean;
   workflowStatus?: WorkflowStatus;
 }
@@ -37,9 +37,9 @@ function checkLabel(checkId: PreflightIssue["checkId"], t: ReturnType<typeof use
 export function PreflightBar({
   result,
   onNavigateToNode,
-  onPublish,
+  onActivate,
   onDismiss,
-  isPublishing = false,
+  isActivating = false,
   hasUnsavedEdits = false,
   workflowStatus = "draft",
 }: PreflightBarProps) {
@@ -50,21 +50,24 @@ export function PreflightBar({
   const hasWarnings = result.warningCount > 0;
   const visibleIssues = issues.slice(0, INLINE_ISSUE_LIMIT);
   const hiddenIssueCount = Math.max(0, issues.length - visibleIssues.length);
-  const publishDisabled = hasBlocking || hasUnsavedEdits || isPublishing;
-  const publishLabel = hasUnsavedEdits
-    ? t(($) => $.preflight.bar_publish_disabled_unsaved)
-    : isPublishing
-      ? t(($) => $.preflight.bar_publishing)
-      : t(($) => $.preflight.bar_publish);
+  const isActive = workflowStatus === "active";
+  const activateDisabled = hasBlocking || hasUnsavedEdits || isActivating || isActive;
+  const activateLabel = isActive
+    ? t(($) => $.preflight.bar_active_button)
+    : hasUnsavedEdits
+      ? t(($) => $.preflight.bar_activate_disabled_unsaved)
+      : isActivating
+        ? t(($) => $.preflight.bar_activating)
+        : t(($) => $.preflight.bar_activate);
   const allClearLabel = workflowStatus === "active"
     ? t(($) => $.preflight.bar_active)
     : hasUnsavedEdits
       ? t(($) => $.preflight.bar_unsaved_all_clear)
       : t(($) => $.preflight.bar_saved_all_clear);
 
-  const handlePublish = useCallback(() => {
-    if (!publishDisabled) onPublish();
-  }, [onPublish, publishDisabled]);
+  const handleActivate = useCallback(() => {
+    if (!activateDisabled) onActivate();
+  }, [onActivate, activateDisabled]);
 
   const renderIssueButton = (issue: PreflightIssue, idx: number, testId: string) => {
     const isBlocking = issue.blocking;
@@ -114,7 +117,10 @@ export function PreflightBar({
           : "border-emerald-200/70 dark:border-emerald-900/30",
       )}
     >
-      <div className="flex h-full items-center gap-3 px-5">
+      <div
+        className="flex h-full items-center gap-3 py-0 pl-5 pr-16 sm:pr-20"
+        data-testid="preflight-bar-content"
+      >
 
         {/* ── Status indicator ── */}
         <div className="flex items-center gap-2 shrink-0">
@@ -219,12 +225,12 @@ export function PreflightBar({
           <Button
             variant={hasBlocking ? "outline" : "default"}
             size="sm"
-            disabled={publishDisabled}
-            onClick={handlePublish}
+            disabled={activateDisabled}
+            onClick={handleActivate}
             className="h-7 text-xs px-3"
-            data-testid="preflight-publish-btn"
+            data-testid="preflight-activate-btn"
           >
-            {publishLabel}
+            {activateLabel}
           </Button>
         </div>
 

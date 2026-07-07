@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useCallback, useRef, useEffect, createElement, type ReactNode } from "react";
+import { useState, useMemo, useCallback, useRef, useEffect, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   ReactFlow,
@@ -33,6 +33,7 @@ import {
   useDeleteEdge,
   useDeleteNode,
   useDeleteWorkflow,
+  useStartWorkflowRun,
   useAssignNodeToStage,
   useDeleteStage,
   useReorderStages,
@@ -57,10 +58,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@multica/ui/components/ui/alert-dialog";
-import { AlertCircle, ArrowLeft, AppWindow, CheckCircle2, Layers, Monitor, Moon, PanelsTopLeft, PauseCircle, Plus, Redo2, Save, Sun, Trash2, Undo2 } from "lucide-react";
-import { Badge } from "@multica/ui/components/ui/badge";
-import { Separator } from "@multica/ui/components/ui/separator";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@multica/ui/components/ui/tooltip";
+import { AlertCircle, ArrowLeft, Layers, PanelsTopLeft, Plus } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@multica/ui/components/ui/popover";
 import { toast } from "sonner";
 
@@ -73,6 +71,7 @@ import { computeLaneAutoLayout, computeStageTransferPositionX } from "../layout"
 import { PreflightBar } from "./preflight-bar";
 import { runAllPreflightChecks } from "@multica/core/workflows/preflight-checks";
 import { NodeTemplatePicker } from "./node-template-picker";
+import { WorkflowEditorToolbar } from "./workflow-editor-toolbar";
 import {
   buildCreateNodeRequestFromTemplate,
   type NodeTemplate,
@@ -326,7 +325,9 @@ interface PanoramaContentProps {
   onToggleWorkflowStatus: () => void;
   onUpdateTitle: (title: string) => void;
   onDeleteWorkflow: () => void;
-  onSave: () => void;
+  onSave: () => boolean | Promise<boolean>;
+  onTestRun: () => Promise<void>;
+  onOpenRunHistory: () => void;
 }
 
 function PanoramaContent({
@@ -367,6 +368,8 @@ function PanoramaContent({
   onUpdateTitle,
   onDeleteWorkflow,
   onSave,
+  onTestRun,
+  onOpenRunHistory,
 }: PanoramaContentProps) {
   const { t } = useT("workflows");
   const reactFlowInstance = useReactFlow();
@@ -379,52 +382,10 @@ function PanoramaContent({
   const hasUnsavedEdits = useWorkflowEditorStore((s) => Object.keys(s.nodeEdits).length > 0);
   const statusLabel = t(($) => $.status[workflow.status as keyof typeof $.status] ?? workflow.status);
 
-  // Title editing
-  const [editingTitle, setEditingTitle] = useState(false);
-  const [draftTitle, setDraftTitle] = useState(workflow.title);
-  const titleInputRef = useRef<HTMLInputElement>(null);
-
   // Delete workflow dialog
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const dialogRootRef = useRef<HTMLDivElement>(null);
-
-  // Shape palette popover
-  const [popoverOpen, setPopoverOpen] = useState(false);
-
-  const handleStartEditTitle = useCallback(() => {
-    setDraftTitle(workflow.title);
-    setEditingTitle(true);
-    requestAnimationFrame(() => titleInputRef.current?.select());
-  }, [workflow.title]);
-
-  const handleSaveTitle = useCallback(() => {
-    const trimmed = draftTitle.trim();
-    if (trimmed && trimmed !== workflow.title) {
-      onUpdateTitle(trimmed);
-    } else {
-      setDraftTitle(workflow.title);
-    }
-    setEditingTitle(false);
-  }, [draftTitle, workflow.title, onUpdateTitle]);
-
-  const handleTitleKeyDown = useCallback(
-    (e: React.KeyboardEvent) => {
-      if (e.key === "Enter") handleSaveTitle();
-      if (e.key === "Escape") {
-        setDraftTitle(workflow.title);
-        setEditingTitle(false);
-      }
-    },
-    [handleSaveTitle, workflow.title],
-  );
-
-  const themeIcon = canvasColorMode === "dark" ? Moon : canvasColorMode === "light" ? Sun : Monitor;
-  const themeLabel =
-    canvasColorMode === "dark"
-      ? t(($) => $.detail.canvas_theme_dark)
-      : canvasColorMode === "light"
-        ? t(($) => $.detail.canvas_theme_light)
-        : t(($) => $.detail.canvas_theme_system);
+  const [firstStepPickerOpen, setFirstStepPickerOpen] = useState(false);
 
   // ── Preflight checks ──
   const selectNode = useWorkflowEditorStore((s) => s.selectNode);
@@ -461,7 +422,6 @@ function PanoramaContent({
       y: window.innerHeight / 2,
     });
     onTemplateDrop(template, center);
-    setPopoverOpen(false);
   }, [onTemplateDrop, reactFlowInstance]);
 
   // Keyboard shortcuts for undo/redo (document level because ReactFlow
@@ -493,161 +453,27 @@ function PanoramaContent({
 
   return (
     <div className="flex flex-col h-full">
-      <PageHeader className="justify-between gap-3 border-b bg-background/95 px-4">
-        <div className="flex min-w-0 items-center gap-3">
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            onClick={onBackToWorkflows}
-            aria-label={t(($) => $.detail.back_to_workflows)}
-          >
-            <ArrowLeft className="size-4" />
-          </Button>
-          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-border/70 bg-muted/50 text-muted-foreground">
-            <PanelsTopLeft className="size-4" strokeWidth={1.9} />
-          </span>
-          <div className="min-w-0">
-            {editingTitle ? (
-              <input
-                ref={titleInputRef}
-                className="w-full truncate bg-transparent text-sm font-semibold outline-none border-b border-primary"
-                value={draftTitle}
-                onChange={(e) => setDraftTitle(e.target.value)}
-                onBlur={handleSaveTitle}
-                onKeyDown={handleTitleKeyDown}
-              />
-            ) : (
-              <h1
-                className="truncate text-sm font-semibold cursor-pointer hover:text-primary transition-colors"
-                onClick={handleStartEditTitle}
-                title={t(($) => $.detail.click_to_rename)}
-              >
-                {workflow.title}
-              </h1>
-            )}
-            <div className="mt-0.5 flex items-center gap-2">
-              <Badge variant={workflow.status === "active" ? "default" : "secondary"} className="h-4 rounded px-1.5 text-[10px] capitalize">
-                {statusLabel}
-              </Badge>
-            </div>
-          </div>
-        </div>
-
-        <div className="flex shrink-0 items-center gap-1">
-          {/* Editing */}
-          <Tooltip>
-            <TooltipTrigger
-              render={
-                <Button variant="ghost" size="icon-sm" disabled={!canUndo} onClick={undo} aria-label={t(($) => $.panorama.toolbar.undo)}>
-                  <Undo2 className="size-4" />
-                </Button>
-              }
-            />
-            <TooltipContent>{t(($) => $.panorama.toolbar.undo)}</TooltipContent>
-          </Tooltip>
-
-          <Tooltip>
-            <TooltipTrigger
-              render={
-                <Button variant="ghost" size="icon-sm" disabled={!canRedo} onClick={redo} aria-label={t(($) => $.panorama.toolbar.redo)}>
-                  <Redo2 className="size-4" />
-                </Button>
-              }
-            />
-            <TooltipContent>{t(($) => $.panorama.toolbar.redo)}</TooltipContent>
-          </Tooltip>
-
-          <Tooltip>
-            <TooltipTrigger
-              render={
-                <Button variant="ghost" size="icon-sm" disabled={!hasUnsavedEdits} onClick={onSave} aria-label={t(($) => $.panorama.toolbar.save)}>
-                  <Save className="size-4" />
-                </Button>
-              }
-            />
-            <TooltipContent>{t(($) => $.panorama.toolbar.save)}</TooltipContent>
-          </Tooltip>
-
-          <Separator orientation="vertical" className="h-5 mx-1" />
-
-          {/* Canvas tools */}
-          <Tooltip>
-            <TooltipTrigger
-              render={
-                <Button variant="ghost" size="icon-sm" onClick={onAutoLayout} aria-label={t(($) => $.panorama.toolbar.auto_layout)}>
-                  <AppWindow className="size-4" />
-                </Button>
-              }
-            />
-            <TooltipContent>{t(($) => $.panorama.toolbar.auto_layout)}</TooltipContent>
-          </Tooltip>
-
-          <Separator orientation="vertical" className="h-5 mx-1" />
-
-          {/* Add node popover */}
-          <Popover open={popoverOpen} onOpenChange={setPopoverOpen} modal={false}>
-            <PopoverTrigger render={
-              <Button variant="outline" size="sm" aria-label={t(($) => $.detail.add_node)}>
-                <Plus className="size-3.5 mr-1" />
-                {t(($) => $.detail.add_node)}
-              </Button>
-            } />
-            <PopoverContent
-              className="w-[min(360px,calc(100vw-2rem))] max-w-[calc(100vw-2rem)] overflow-hidden p-0"
-              align="start"
-              side="bottom"
-            >
-              <NodeTemplatePicker onSelect={handleSelectTemplate} />
-            </PopoverContent>
-          </Popover>
-
-          <div className="flex-1" />
-
-          {/* Workflow management */}
-          <Button
-            variant={workflow.status === "active" ? "outline" : "default"}
-            size="sm"
-            onClick={onToggleWorkflowStatus}
-          >
-            {workflow.status === "active" ? (
-              <PauseCircle className="size-3.5" />
-            ) : (
-              <CheckCircle2 className="size-3.5" />
-            )}
-            {workflow.status === "active"
-              ? t(($) => $.detail.deactivate)
-              : t(($) => $.detail.activate)}
-          </Button>
-
-          <Tooltip>
-            <TooltipTrigger
-              render={
-                <Button variant="ghost" size="icon-sm" onClick={cycleCanvasColorMode} aria-label={themeLabel}>
-                  {createElement(themeIcon, { className: "size-4" })}
-                </Button>
-              }
-            />
-            <TooltipContent>{themeLabel}</TooltipContent>
-          </Tooltip>
-
-          <Tooltip>
-            <TooltipTrigger
-              render={
-                <Button
-                  variant="ghost"
-                  size="icon-sm"
-                  onClick={() => setDeleteDialogOpen(true)}
-                  aria-label={t(($) => $.detail.delete)}
-                  className="text-muted-foreground hover:text-destructive"
-                >
-                  <Trash2 className="size-3.5" />
-                </Button>
-              }
-            />
-            <TooltipContent>{t(($) => $.detail.delete)}</TooltipContent>
-          </Tooltip>
-        </div>
-      </PageHeader>
+      <WorkflowEditorToolbar
+        workflow={workflow}
+        statusLabel={statusLabel}
+        canUndo={canUndo}
+        canRedo={canRedo}
+        hasUnsavedEdits={hasUnsavedEdits}
+        hasBlockingPreflightIssues={preflightResult.blockingCount > 0}
+        canvasColorMode={canvasColorMode}
+        onBackToWorkflows={onBackToWorkflows}
+        onUpdateTitle={onUpdateTitle}
+        onUndo={undo}
+        onRedo={redo}
+        onSave={onSave}
+        onAutoLayout={onAutoLayout}
+        onSelectTemplate={handleSelectTemplate}
+        onTestRun={onTestRun}
+        onToggleWorkflowStatus={onToggleWorkflowStatus}
+        onOpenRunHistory={onOpenRunHistory}
+        onCycleCanvasColorMode={cycleCanvasColorMode}
+        onDeleteWorkflow={() => setDeleteDialogOpen(true)}
+      />
 
       <div className="flex flex-1 min-h-0">
         <div className="relative flex min-w-0 flex-1">
@@ -701,17 +527,28 @@ function PanoramaContent({
                 <p className="text-sm text-muted-foreground mb-5">
                   {t(($) => $.panorama.add_first_step)}
                 </p>
-                <Button
-                  variant="default"
-                  size="sm"
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    setPopoverOpen(true);
-                  }}
-                >
-                  <Plus className="h-3.5 w-3.5 mr-1" />
-                  {t(($) => $.detail.add_node)}
-                </Button>
+                <Popover open={firstStepPickerOpen} onOpenChange={setFirstStepPickerOpen} modal={false}>
+                  <PopoverTrigger
+                    render={
+                      <Button variant="default" size="sm" aria-label={t(($) => $.detail.add_node)}>
+                        <Plus className="h-3.5 w-3.5 mr-1" />
+                        {t(($) => $.detail.add_node)}
+                      </Button>
+                    }
+                  />
+                  <PopoverContent
+                    className="w-[min(360px,calc(100vw-2rem))] max-w-[calc(100vw-2rem)] overflow-hidden p-0"
+                    align="center"
+                    side="bottom"
+                  >
+                    <NodeTemplatePicker
+                      onSelect={(template) => {
+                        handleSelectTemplate(template);
+                        setFirstStepPickerOpen(false);
+                      }}
+                    />
+                  </PopoverContent>
+                </Popover>
               </div>
             </div>
           )}
@@ -742,8 +579,9 @@ function PanoramaContent({
           hasUnsavedEdits={hasUnsavedEdits}
           workflowStatus={workflow.status}
           onNavigateToNode={handleNavigateToNode}
-          onPublish={async () => {
-            await onSave();
+          onActivate={async () => {
+            const saved = await onSave();
+            if (!saved) return;
             if (workflow.status !== "active") {
               onToggleWorkflowStatus();
             }
@@ -829,6 +667,7 @@ export function WorkflowPanoramaPage({ workflowId, viewToggle }: WorkflowPanoram
   const deleteStageMutation = useDeleteStage(wsId, workflowId);
   const reorderStagesMutation = useReorderStages(wsId, workflowId);
   const deleteWorkflowMutation = useDeleteWorkflow(wsId);
+  const startWorkflowRunMutation = useStartWorkflowRun(wsId);
 
   // ── Store ──
   const selectedNodeId = useWorkflowEditorStore((s) => s.selectedNodeId);
@@ -1070,7 +909,7 @@ export function WorkflowPanoramaPage({ workflowId, viewToggle }: WorkflowPanoram
 
   const handleSave = useCallback(async () => {
     const entries = Object.entries(useWorkflowEditorStore.getState().nodeEdits);
-    if (entries.length === 0) return;
+    if (entries.length === 0) return true;
     try {
       await Promise.all(
         entries.map(([nodeId, edits]) =>
@@ -1079,10 +918,24 @@ export function WorkflowPanoramaPage({ workflowId, viewToggle }: WorkflowPanoram
       );
       entries.forEach(([nodeId]) => clearNodeEdits(nodeId));
       toast.success(t(($) => $.detail.toast_saved));
+      return true;
     } catch {
       toast.error(t(($) => $.detail.toast_save_failed));
+      return false;
     }
   }, [updateNodeMutation, clearNodeEdits, t]);
+
+  const handleTestRun = useCallback(async () => {
+    const saved = await handleSave();
+    if (!saved) return;
+    try {
+      const run = await startWorkflowRunMutation.mutateAsync({ workflowId });
+      toast.success(t(($) => $.detail.toast_run_started));
+      navigation.push(wsPaths.workflowRunDetail(workflowId, run.id));
+    } catch {
+      toast.error(t(($) => $.detail.toast_run_failed));
+    }
+  }, [handleSave, startWorkflowRunMutation, workflowId, navigation, wsPaths, t]);
 
   const handleViewportChange = useCallback((viewport: Viewport) => {
     setViewportY(viewport.y);
@@ -1249,6 +1102,8 @@ export function WorkflowPanoramaPage({ workflowId, viewToggle }: WorkflowPanoram
         onUpdateTitle={handleUpdateTitle}
         onDeleteWorkflow={handleDeleteWorkflow}
         onSave={handleSave}
+        onTestRun={handleTestRun}
+        onOpenRunHistory={() => navigation.push(wsPaths.workflowRuns(workflowId))}
       />
     </ReactFlowProvider>
   );

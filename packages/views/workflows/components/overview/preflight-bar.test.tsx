@@ -7,15 +7,16 @@ import type { PreflightResult } from "@multica/core/workflows/preflight-checks";
 vi.mock("../../../i18n", () => {
   const translations = {
     preflight: {
-      bar_collapsed_all_clear: "Ready to publish",
-      bar_saved_all_clear: "Saved and ready to publish",
-      bar_unsaved_all_clear: "Save changes before publishing",
-      bar_active: "Published workflow is active",
+      bar_collapsed_all_clear: "Ready to activate",
+      bar_saved_all_clear: "Saved and ready to activate",
+      bar_unsaved_all_clear: "Save changes before activating",
+      bar_active: "Workflow is active",
       bar_dismiss: "Dismiss",
       bar_expand: "Review issues",
-      bar_publish: "Publish",
-      bar_publish_disabled_unsaved: "Save first",
-      bar_publishing: "Publishing...",
+      bar_activate: "Activate",
+      bar_active_button: "Active",
+      bar_activate_disabled_unsaved: "Save first",
+      bar_activating: "Activating...",
       check_dag_cycle: "Cycle",
       check_worker_missing: "No worker",
       check_stage_missing: "No stage",
@@ -37,15 +38,23 @@ function makeResult(o: Partial<PreflightResult>): PreflightResult {
 }
 
 describe("PreflightBar", () => {
-  const base = { onNavigateToNode: vi.fn(), onPublish: vi.fn(), onDismiss: vi.fn() };
+  const base = { onNavigateToNode: vi.fn(), onActivate: vi.fn(), onDismiss: vi.fn() };
 
-  it("shows all-clear with publish button", () => {
+  it("shows all-clear with activate button", () => {
     render(<PreflightBar {...base} result={makeResult({ passed: true, issues: [] })} />);
-    expect(screen.getByText("Saved and ready to publish")).toBeDefined();
-    expect(screen.getByTestId("preflight-publish-btn")).not.toBeDisabled();
+    expect(screen.getByText("Saved and ready to activate")).toBeDefined();
+    expect(screen.getByTestId("preflight-activate-btn")).not.toBeDisabled();
   });
 
-  it("无问题时展示可发布状态", () => {
+  it("reserves right-side space so the global chat button does not cover actions", () => {
+    render(<PreflightBar {...base} result={makeResult({ passed: true, issues: [] })} />);
+
+    const content = screen.getByTestId("preflight-bar-content");
+    expect(content.className).toContain("pr-16");
+    expect(content.className).toContain("sm:pr-20");
+  });
+
+  it("shows activatable state when there are no issues", () => {
     render(
       <PreflightBar
         {...base}
@@ -55,11 +64,11 @@ describe("PreflightBar", () => {
       />,
     );
 
-    expect(screen.getByText("Saved and ready to publish")).toBeInTheDocument();
-    expect(screen.getByTestId("preflight-publish-btn")).not.toBeDisabled();
+    expect(screen.getByText("Saved and ready to activate")).toBeInTheDocument();
+    expect(screen.getByTestId("preflight-activate-btn")).not.toBeDisabled();
   });
 
-  it("有未保存改动时禁用发布", () => {
+  it("disables activation when there are unsaved edits", () => {
     render(
       <PreflightBar
         {...base}
@@ -69,9 +78,9 @@ describe("PreflightBar", () => {
       />,
     );
 
-    expect(screen.getByText("Save changes before publishing")).toBeInTheDocument();
-    expect(screen.getByTestId("preflight-publish-btn")).toBeDisabled();
-    expect(screen.getByTestId("preflight-publish-btn")).toHaveTextContent("Save first");
+    expect(screen.getByText("Save changes before activating")).toBeInTheDocument();
+    expect(screen.getByTestId("preflight-activate-btn")).toBeDisabled();
+    expect(screen.getByTestId("preflight-activate-btn")).toHaveTextContent("Save first");
   });
 
   it("shows inline chips for issues", () => {
@@ -84,7 +93,7 @@ describe("PreflightBar", () => {
     })} />);
     const chips = screen.getAllByTestId("preflight-issue-item");
     expect(chips.length).toBe(2);
-    expect(screen.getByTestId("preflight-publish-btn")).toBeDisabled();
+    expect(screen.getByTestId("preflight-activate-btn")).toBeDisabled();
   });
 
   it("summarizes many issues behind a review popover instead of expanding the bar", () => {
@@ -122,11 +131,18 @@ describe("PreflightBar", () => {
     expect(nav).toHaveBeenCalledWith("n1");
   });
 
-  it("calls onPublish when no blocking issues", () => {
-    const pub = vi.fn();
-    render(<PreflightBar {...base} onPublish={pub} result={makeResult({ passed: true, issues: [] })} />);
-    fireEvent.click(screen.getByTestId("preflight-publish-btn"));
-    expect(pub).toHaveBeenCalledOnce();
+  it("calls onActivate when no blocking issues", () => {
+    const activate = vi.fn();
+    render(<PreflightBar {...base} onActivate={activate} result={makeResult({ passed: true, issues: [] })} />);
+    fireEvent.click(screen.getByTestId("preflight-activate-btn"));
+    expect(activate).toHaveBeenCalledOnce();
+  });
+
+  it("shows active state without offering activation again", () => {
+    render(<PreflightBar {...base} workflowStatus="active" result={makeResult({ passed: true, issues: [] })} />);
+    expect(screen.getByText("Workflow is active")).toBeInTheDocument();
+    expect(screen.getByTestId("preflight-activate-btn")).toBeDisabled();
+    expect(screen.getByTestId("preflight-activate-btn")).toHaveTextContent("Active");
   });
 
   it("calls onDismiss", () => {

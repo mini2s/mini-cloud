@@ -37,26 +37,6 @@ function getCategoryLabel(
   }
 }
 
-function getCategoryDescription(
-  category: NodeTemplateCategory,
-  t: ReturnType<typeof useT<"workflows">>["t"],
-): string {
-  switch (category.id) {
-    case "trigger":
-      return t(($) => $.panorama.node_picker.trigger_description);
-    case "action":
-      return t(($) => $.panorama.node_picker.action_description);
-    case "logic":
-      return t(($) => $.panorama.node_picker.logic_description);
-    case "ai":
-      return t(($) => $.panorama.node_picker.ai_description);
-    case "human":
-      return t(($) => $.panorama.node_picker.human_description);
-    case "annotation":
-      return t(($) => $.panorama.node_picker.annotation_description);
-  }
-}
-
 export function NodeTemplatePicker({ onSelect }: NodeTemplatePickerProps) {
   const { t } = useT("workflows");
   const [query, setQuery] = useState("");

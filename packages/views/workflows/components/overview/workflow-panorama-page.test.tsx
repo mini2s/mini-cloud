@@ -26,6 +26,7 @@ const mocks = vi.hoisted(() => ({
   deleteNodeMutateAsync: vi.fn(),
   updateStageMutateAsync: vi.fn(),
   updateWorkflowMutate: vi.fn(),
+  startWorkflowRunMutateAsync: vi.fn(),
   navigationPush: vi.fn(),
   selectNode: vi.fn(),
   clearNodeEdits: vi.fn(),
@@ -68,6 +69,7 @@ vi.mock("@multica/core/workflows/queries", () => ({
   useUpdateStage: () => ({ mutateAsync: mocks.updateStageMutateAsync }),
   useDeleteStage: () => ({ mutate: vi.fn(), mutateAsync: vi.fn() }),
   useDeleteWorkflow: () => ({ mutateAsync: vi.fn().mockResolvedValue(undefined) }),
+  useStartWorkflowRun: () => ({ mutateAsync: mocks.startWorkflowRunMutateAsync }),
   useReorderStages: () => ({ mutate: vi.fn(), mutateAsync: vi.fn() }),
 }));
 
@@ -125,7 +127,11 @@ vi.mock("../../../navigation", () => ({
 }));
 
 vi.mock("@multica/core/paths", () => ({
-  useWorkspacePaths: () => ({ workflows: () => "/workflows" }),
+  useWorkspacePaths: () => ({
+    workflows: () => "/workflows",
+    workflowRuns: (id: string) => `/workflows/${id}/runs`,
+    workflowRunDetail: (workflowId: string, runId: string) => `/workflows/${workflowId}/runs/${runId}`,
+  }),
 }));
 
 vi.mock("../../../i18n", () => {
@@ -200,17 +206,29 @@ vi.mock("../../../i18n", () => {
         auto_layout: "Auto layout",
         annotations: "Toggle annotations",
         save: "Save changes",
-        unsaved: "Unsaved changes",
+        saved: "Saved",
+        unsaved: "Unsaved",
+        editor: "Editor",
+        run_history: "Run history",
+        test_run: "Test run",
+        save_and_test: "Save & test",
+        more: "More",
+        theme: "Theme",
+        blocked_tooltip: "Resolve blocking issues first.",
+        activate_disabled_unsaved: "Save changes before activating.",
       },
     },
     preflight: {
-      bar_collapsed_all_clear: "Ready to publish",
+      bar_collapsed_all_clear: "Ready to activate",
       bar_collapsed_blocking: "{{count}} blocking",
       bar_collapsed_warnings: "{{count}} warning(s)",
-      bar_collapsed_issues: "{{count}} issue(s) before publishing",
+      bar_collapsed_issues: "{{count}} issue(s) before activation",
       bar_expand: "Review issues",
       bar_dismiss: "Dismiss",
-      bar_publish: "Publish",
+      bar_activate: "Activate",
+      bar_active_button: "Active",
+      bar_activate_disabled_unsaved: "Save first",
+      bar_activating: "Activating...",
       check_stage_missing: "No stage assigned",
       first_stage_guide_title: "Create your first stage",
       first_stage_guide_description: "Stages help you organize workflow steps into logical phases.",
@@ -329,6 +347,7 @@ describe("WorkflowPanoramaPage (new)", () => {
     mocks.deleteNodeMutateAsync.mockReset();
     mocks.updateStageMutateAsync.mockReset();
     mocks.updateWorkflowMutate.mockReset();
+    mocks.startWorkflowRunMutateAsync.mockReset();
     mocks.navigationPush.mockReset();
     mocks.selectNode.mockReset();
     mocks.clearNodeEdits.mockReset();
@@ -345,8 +364,10 @@ describe("WorkflowPanoramaPage (new)", () => {
     render(<WorkflowPanoramaPage workflowId="wf-1" />);
     expect(screen.getByRole("button", { name: "Undo" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Redo" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Save changes" })).toBeInTheDocument();
+    expect(screen.getByText("Saved")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Save changes" })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Auto layout" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Test run" })).toBeInTheDocument();
   });
 
   it("saves cached node edits and clears them when save button is clicked", async () => {
@@ -497,6 +518,33 @@ describe("WorkflowPanoramaPage (new)", () => {
 
     const worker = mocks.reactFlowProps?.nodes.find((n) => n.id === "node-1");
     expect(worker).toMatchObject({ position: { x: 120, y: 12 } });
+  });
+
+  it("saves cached node edits before starting a test run and opens the run detail", async () => {
+    mocks.nodesData = [
+      { id: "node-1", workflow_id: "wf-1", title: "Server title", description: "", worker_type: "agent", worker_id: null, critic_type: "human", critic_id: null, critic_api_url: null, stage_id: "stage-1", format_schema: null, position_x: 120, position_y: 0, sort_order: 0, created_at: "", updated_at: "" },
+    ];
+    mocks.nodeEdits = {
+      "node-1": { title: "Edited title" },
+    };
+    mocks.updateNodeMutateAsync.mockResolvedValueOnce({});
+    mocks.startWorkflowRunMutateAsync.mockResolvedValueOnce({ id: "run-1" });
+
+    render(<WorkflowPanoramaPage workflowId="wf-1" />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Save & test" }));
+
+    await vi.waitFor(() => {
+      expect(mocks.updateNodeMutateAsync).toHaveBeenCalledWith({
+        nodeId: "node-1",
+        title: "Edited title",
+      });
+      expect(mocks.startWorkflowRunMutateAsync).toHaveBeenCalledWith({ workflowId: "wf-1" });
+      expect(mocks.navigationPush).toHaveBeenCalledWith("/workflows/wf-1/runs/run-1");
+    });
+    expect(mocks.updateNodeMutateAsync.mock.invocationCallOrder[0]).toBeLessThan(
+      mocks.startWorkflowRunMutateAsync.mock.invocationCallOrder[0]!,
+    );
   });
 
   it("renders worker nodes in the first visible lane when stage sort orders are sparse", () => {
@@ -820,20 +868,23 @@ describe("WorkflowPanoramaPage (new)", () => {
 
   it("renders a delete button in the header", () => {
     render(<WorkflowPanoramaPage workflowId="wf-1" />);
-    expect(screen.getByRole("button", { name: "Delete" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "More" }));
+    expect(screen.getByRole("menuitem", { name: /Delete/ })).toBeInTheDocument();
   });
 
   it("opens the delete confirmation dialog", () => {
     render(<WorkflowPanoramaPage workflowId="wf-1" />);
 
-    fireEvent.click(screen.getByRole("button", { name: "Delete" }));
+    fireEvent.click(screen.getByRole("button", { name: "More" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: /Delete/ }));
     expect(screen.getByRole("alertdialog")).toBeInTheDocument();
     expect(screen.getByText("Delete Workflow")).toBeInTheDocument();
   });
 
-  it("renders the theme toggle button", () => {
+  it("renders the theme action in the More menu", () => {
     render(<WorkflowPanoramaPage workflowId="wf-1" />);
-    expect(screen.getByRole("button", { name: "System theme" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "More" }));
+    expect(screen.getByRole("menuitem", { name: /Theme/ })).toBeInTheDocument();
   });
 
   it("passes colorMode to ReactFlow", () => {
