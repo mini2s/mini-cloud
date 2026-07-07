@@ -42,14 +42,25 @@ export function computeEdgePaths(
   const arcLaneCounts = new Map<string, number>();
   const crossLaneCounts = new Map<string, number>();
 
-  // Derive adjacency from node order within each stage, since sort_order may
-  // be 0 (unset) for all nodes. The input `nodes` array is already ordered by
-  // stage then left-to-right as rendered in StageLane.
+  // Derive adjacency from the rendered left-to-right order. The API node array
+  // is not guaranteed to match the visual order in StageLane, so using the
+  // array order here produces long "arc" paths for neighbors.
   const stageNodeOrder = new Map<string, string[]>();
+  const stageNodeGroups = new Map<string, WorkflowNode[]>();
   for (const node of nodes) {
     const key = node.stage_id ?? "__none__";
-    if (!stageNodeOrder.has(key)) stageNodeOrder.set(key, []);
-    stageNodeOrder.get(key)!.push(node.id);
+    if (!stageNodeGroups.has(key)) stageNodeGroups.set(key, []);
+    stageNodeGroups.get(key)!.push(node);
+  }
+  for (const [key, stageNodes] of stageNodeGroups) {
+    const orderedIds = [...stageNodes]
+      .sort((a, b) => {
+        const aLeft = nodePositions.get(a.id)?.left ?? a.sort_order * 320;
+        const bLeft = nodePositions.get(b.id)?.left ?? b.sort_order * 320;
+        return aLeft - bLeft;
+      })
+      .map((node) => node.id);
+    stageNodeOrder.set(key, orderedIds);
   }
 
   for (const edge of edges) {

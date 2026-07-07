@@ -7,6 +7,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@multica/ui/components/
 import { cn } from "@multica/ui/lib/utils";
 import { useT } from "../../../i18n";
 import type { PreflightResult, PreflightIssue } from "@multica/core/workflows/preflight-checks";
+import type { WorkflowStatus } from "@multica/core/types";
 
 export interface PreflightBarProps {
   result: PreflightResult;
@@ -14,6 +15,8 @@ export interface PreflightBarProps {
   onPublish: () => void;
   onDismiss: () => void;
   isPublishing?: boolean;
+  hasUnsavedEdits?: boolean;
+  workflowStatus?: WorkflowStatus;
 }
 
 const INLINE_ISSUE_LIMIT = 4;
@@ -37,6 +40,8 @@ export function PreflightBar({
   onPublish,
   onDismiss,
   isPublishing = false,
+  hasUnsavedEdits = false,
+  workflowStatus = "draft",
 }: PreflightBarProps) {
   const { t } = useT("workflows");
   const issues = result.issues;
@@ -45,10 +50,21 @@ export function PreflightBar({
   const hasWarnings = result.warningCount > 0;
   const visibleIssues = issues.slice(0, INLINE_ISSUE_LIMIT);
   const hiddenIssueCount = Math.max(0, issues.length - visibleIssues.length);
+  const publishDisabled = hasBlocking || hasUnsavedEdits || isPublishing;
+  const publishLabel = hasUnsavedEdits
+    ? t(($) => $.preflight.bar_publish_disabled_unsaved)
+    : isPublishing
+      ? t(($) => $.preflight.bar_publishing)
+      : t(($) => $.preflight.bar_publish);
+  const allClearLabel = workflowStatus === "active"
+    ? t(($) => $.preflight.bar_active)
+    : hasUnsavedEdits
+      ? t(($) => $.preflight.bar_unsaved_all_clear)
+      : t(($) => $.preflight.bar_saved_all_clear);
 
   const handlePublish = useCallback(() => {
-    if (!hasBlocking && !isPublishing) onPublish();
-  }, [hasBlocking, isPublishing, onPublish]);
+    if (!publishDisabled) onPublish();
+  }, [onPublish, publishDisabled]);
 
   const renderIssueButton = (issue: PreflightIssue, idx: number, testId: string) => {
     const isBlocking = issue.blocking;
@@ -182,14 +198,14 @@ export function PreflightBar({
 
           {!hasIssues && (
             <span className="text-xs text-muted-foreground font-medium">
-              {t(($) => $.preflight.bar_collapsed_all_clear)}
+              {allClearLabel}
             </span>
           )}
         </div>
 
         {/* ── Actions ── */}
         <div className="flex items-center gap-1.5 shrink-0">
-          {hasIssues && (
+          {hasIssues && !result.passed && (
             <Button
               variant="ghost"
               size="sm"
@@ -203,14 +219,12 @@ export function PreflightBar({
           <Button
             variant={hasBlocking ? "outline" : "default"}
             size="sm"
-            disabled={hasBlocking || isPublishing}
+            disabled={publishDisabled}
             onClick={handlePublish}
             className="h-7 text-xs px-3"
             data-testid="preflight-publish-btn"
           >
-            {isPublishing
-              ? t(($) => $.preflight.bar_publishing)
-              : t(($) => $.preflight.bar_publish)}
+            {publishLabel}
           </Button>
         </div>
 

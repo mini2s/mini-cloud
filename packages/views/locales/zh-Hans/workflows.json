@@ -132,6 +132,18 @@
     "critic_id_label": "评审指派人",
     "critic_api_url_label": "API URL",
     "critic_api_url_hint": "接收执行者输出进行自动评审的 POST 端点",
+    "tabs": {
+      "config": "配置",
+      "data": "数据",
+      "runs": "运行"
+    },
+    "data_preview": {
+      "empty": "此节点暂无运行数据。",
+      "status": "最近状态",
+      "worker_output": "执行输出",
+      "critic_output": "评审输出",
+      "critic_comment": "评审意见"
+    },
     "save": "保存节点",
     "saving": "保存中...",
     "delete": "删除节点",
@@ -316,6 +328,22 @@
     "unassigned": "未分组",
     "not_configured": "未配置",
     "add_first_step": "点击工具栏「添加节点」或将节点类型拖入此阶段来添加第一个任务",
+    "node_picker": {
+      "search_placeholder": "搜索节点或动作...",
+      "empty": "没有匹配的节点",
+      "trigger": "触发器",
+      "trigger_description": "启动工作流",
+      "action": "动作",
+      "action_description": "执行一个步骤",
+      "logic": "逻辑",
+      "logic_description": "分支或路由任务",
+      "ai": "AI",
+      "ai_description": "由 Agent 执行的步骤",
+      "human": "人工",
+      "human_description": "评审或审批",
+      "annotation": "注释",
+      "annotation_description": "解释画布内容"
+    },
     "toolbar": {
       "undo": "撤销",
       "redo": "重做",
@@ -340,7 +368,11 @@
     "bar_collapsed_warnings": "{{count}} 个警告",
     "bar_expand": "审查问题",
     "bar_dismiss": "忽略",
+    "bar_saved_all_clear": "已保存，可以发布",
+    "bar_unsaved_all_clear": "发布前请先保存更改",
+    "bar_active": "工作流已发布并启用",
     "bar_publish": "发布",
+    "bar_publish_disabled_unsaved": "先保存",
     "bar_publishing": "发布中...",
     "check_dag_cycle": "检测到循环",
     "check_orphan_node": "孤立节点",

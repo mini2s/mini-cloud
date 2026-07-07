@@ -118,6 +118,23 @@ describe("computeEdgePaths", () => {
     expect(paths[0]!.d).toContain("44");
   });
 
+  it("uses rendered left-to-right order for adjacency even when the node array order is stale", () => {
+    const positions = new Map<string, DOMRect>([
+      ["n1", fakeRect(0, 0, 120, 72)],
+      ["n2", fakeRect(130, 0, 120, 72)],
+      ["n4", fakeRect(390, 0, 120, 72)],
+    ]);
+    const edge: WorkflowEdge = {
+      id: "e-horizontal-from-layout", workflow_id: "wf-1",
+      source_node_id: "n1", target_node_id: "n2",
+      condition: null, created_at: "",
+    };
+    const staleNodeOrder = [MOCK_NODES[0]!, MOCK_NODES[3]!, MOCK_NODES[1]!, MOCK_NODES[2]!];
+    const paths = computeEdgePaths([edge], staleNodeOrder, MOCK_STAGES, positions, new Map());
+    expect(paths[0]!.type).toBe("horizontal");
+    expect(paths[0]!.d).toMatch(/^M \d+ \d+ L \d+ \d+$/);
+  });
+
   it("uses source stage color index instead of source node sort order", () => {
     const positions = new Map<string, DOMRect>([
       ["n2", fakeRect(0, 0, 120, 72)],

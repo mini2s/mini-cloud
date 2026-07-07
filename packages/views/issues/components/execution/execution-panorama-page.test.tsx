@@ -367,11 +367,21 @@ describe("ExecutionPanoramaPage", () => {
     expect(screen.getByTestId("panorama-svg-overlay")).toBeInTheDocument();
   });
 
-  it("does not render SVG overlay when runId is null", () => {
+  it("renders SVG overlay when runId is null but workflow edges exist", () => {
     mocks.isLoading = false;
     mocks.workflowData = { id: "wf-1", title: "Test Workflow" };
     mocks.stagesData = [STAGE];
     mocks.nodesData = [NODE];
+    mocks.edgesData = [
+      {
+        id: "e1",
+        workflow_id: "wf-1",
+        source_node_id: "n1",
+        target_node_id: "n1",
+        condition: null,
+        created_at: "",
+      },
+    ];
     mocks.agentsData = [AGENT];
     mocks.pluginsData = {
       items: [],
@@ -387,6 +397,6 @@ describe("ExecutionPanoramaPage", () => {
       </Wrapper>,
     );
 
-    expect(screen.queryByTestId("panorama-svg-overlay")).not.toBeInTheDocument();
+    expect(screen.getByTestId("panorama-svg-overlay")).toBeInTheDocument();
   });
 });
