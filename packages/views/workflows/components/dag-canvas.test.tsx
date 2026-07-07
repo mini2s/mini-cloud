@@ -6,6 +6,8 @@ import { renderWithI18n } from "../../test/i18n";
 
 // ── ReactFlow mock ──────────────────────────────────────────────
 const rfPropsRef = vi.hoisted(() => [] as Record<string, unknown>[]);
+const controlsPropsRef = vi.hoisted(() => [] as Record<string, unknown>[]);
+const miniMapPropsRef = vi.hoisted(() => [] as Record<string, unknown>[]);
 
 vi.mock("@xyflow/react", () => ({
   ReactFlow: (props: Record<string, unknown>) => {
@@ -39,13 +41,19 @@ vi.mock("@xyflow/react", () => ({
     );
   },
   Background: () => <div data-testid="rf-background" />,
-  Controls: () => <div data-testid="rf-controls" />,
+  Controls: (props: Record<string, unknown>) => {
+    controlsPropsRef.push(props);
+    return <div data-testid="rf-controls" />;
+  },
   MarkerType: { ArrowClosed: "arrowclosed" },
   Position: { Top: "top", Bottom: "bottom", Left: "left", Right: "right" },
   ConnectionMode: { Loose: "loose", Strict: "strict" },
   Handle: () => null,
   BaseEdge: () => null,
-  MiniMap: () => <div data-testid="rf-minimap" />,
+  MiniMap: (props: Record<string, unknown>) => {
+    miniMapPropsRef.push(props);
+    return <div data-testid="rf-minimap" />;
+  },
   NodeResizer: () => null,
   getBezierPath: () => ["M0,0 C50,0 50,100 100,100", 50, 50],
   getStraightPath: () => ["M0,0 L100,100"],
@@ -153,6 +161,8 @@ function lastProps(): Record<string, unknown> {
 describe("WorkflowCanvas", () => {
   beforeEach(() => {
     rfPropsRef.length = 0;
+    controlsPropsRef.length = 0;
+    miniMapPropsRef.length = 0;
     storeRef.mode = "view";
     storeRef.selectedNodeId = null;
     storeRef.selectedEdgeId = null;
@@ -382,6 +392,31 @@ describe("WorkflowCanvas", () => {
     renderWithI18n(<WorkflowCanvas nodes={nodes} edges={[]} />);
     expect(document.querySelector("[data-testid='rf-background']")).toBeTruthy();
     expect(document.querySelector("[data-testid='rf-controls']")).toBeTruthy();
+  });
+
+  it("uses the shared workflow canvas dock positions for controls and minimap", () => {
+    const nodes = [makeNode({ id: "n1" })];
+    renderWithI18n(<WorkflowCanvas nodes={nodes} edges={[]} />);
+
+    expect(controlsPropsRef.at(-1)).toMatchObject({
+      position: "bottom-left",
+      orientation: "horizontal",
+    });
+    expect(String(controlsPropsRef.at(-1)?.className)).toContain("!m-5");
+    expect(String(controlsPropsRef.at(-1)?.className)).toContain("[&_.react-flow__controls-button]:h-8");
+
+    expect(miniMapPropsRef.at(-1)).toMatchObject({
+      position: "bottom-right",
+      pannable: true,
+      zoomable: true,
+      bgColor: "hsl(var(--card))",
+      maskColor: "hsl(var(--muted) / 0.14)",
+      maskStrokeColor: "hsl(var(--border))",
+      maskStrokeWidth: 1,
+      nodeBorderRadius: 4,
+      style: { width: 156, height: 104 },
+    });
+    expect(String(miniMapPropsRef.at(-1)?.className)).toContain("!m-5");
   });
 
   it("sets node type to 'workflow'", () => {

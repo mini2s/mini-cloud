@@ -19,17 +19,11 @@ import {
 import "@xyflow/react/dist/style.css";
 import type { WorkflowStage } from "@multica/core/types";
 import { CanvasStageLabels } from "../overview/canvas-stage-labels";
-
-const canvasControlsClassName =
-  "!m-5 overflow-hidden rounded-lg border border-border/80 bg-card/95 shadow-sm backdrop-blur supports-[backdrop-filter]:bg-card/85 " +
-  "[&_.react-flow__controls-button]:h-8 [&_.react-flow__controls-button]:w-8 [&_.react-flow__controls-button]:border-0 " +
-  "[&_.react-flow__controls-button]:border-r [&_.react-flow__controls-button]:border-border/70 " +
-  "[&_.react-flow__controls-button]:bg-transparent [&_.react-flow__controls-button]:text-muted-foreground " +
-  "[&_.react-flow__controls-button:hover]:bg-accent [&_.react-flow__controls-button:hover]:text-foreground " +
-  "[&_.react-flow__controls-button:last-child]:border-r-0";
-
-const canvasMiniMapClassName =
-  "!m-5 overflow-hidden rounded-lg border border-border/70 bg-card/90 shadow-sm backdrop-blur supports-[backdrop-filter]:bg-card/80";
+import {
+  workflowCanvasControlsClassName,
+  workflowCanvasMiniMapClassName,
+  workflowCanvasMiniMapStyle,
+} from "./workflow-canvas-controls";
 
 export interface WorkflowCanvasCoreProps {
   nodes: Node[];
@@ -128,14 +122,14 @@ export function WorkflowCanvasCore({
           <Controls
             position="bottom-left"
             orientation="horizontal"
-            className={canvasControlsClassName}
+            className={workflowCanvasControlsClassName}
           />
           <MiniMap
             position="bottom-right"
-            className={canvasMiniMapClassName}
+            className={workflowCanvasMiniMapClassName}
             pannable
             zoomable
-            style={{ width: 156, height: 104 }}
+            style={workflowCanvasMiniMapStyle}
             bgColor="hsl(var(--card))"
             maskColor="hsl(var(--muted) / 0.14)"
             maskStrokeColor="hsl(var(--border))"
