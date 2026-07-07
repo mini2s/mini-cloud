@@ -24,6 +24,8 @@ import {
   workflowStagesOptions,
   workflowNodesOptions,
   workflowEdgesOptions,
+  workflowRunsOptions,
+  workflowNodeRunsOptions,
   useUpdateWorkflow,
   useCreateNode,
   useUpdateNode,
@@ -70,6 +72,11 @@ import { panoramaEdgeTypes } from "./reactflow-edges";
 import { computeLaneAutoLayout, computeStageTransferPositionX } from "../layout";
 import { PreflightBar } from "./preflight-bar";
 import { runAllPreflightChecks } from "@multica/core/workflows/preflight-checks";
+import { NodeTemplatePicker } from "./node-template-picker";
+import {
+  buildCreateNodeRequestFromTemplate,
+  type NodeTemplate,
+} from "./node-template-catalog";
 
 import {
   LANE_STEP,
@@ -85,51 +92,11 @@ import {
   getStageColorIndex,
 } from "./constants";
 
-import type { WorkflowNode, WorkflowStage, WorkflowEdge, ReorderStagesItem, NodeShape, WorkflowStatus, Workflow } from "@multica/core/types";
+import type { WorkflowNode, WorkflowStage, WorkflowEdge, ReorderStagesItem, WorkflowStatus, Workflow, WorkflowNodeRun } from "@multica/core/types";
 import type { Agent } from "@multica/core/types";
 import type { BuiltinPlugin } from "@multica/core/api/schemas";
 
 // ── Types ──
-
-const DRAG_SHAPE_MIME = "application/x-multica-shape";
-const SHAPE_LABELS: Record<NodeShape, string> = {
-  rectangle: "Rectangle",
-  diamond: "Diamond",
-  pill: "Pill",
-  hexagon: "Hexagon",
-};
-
-const SHAPES = [
-  { type: "rectangle" as const, label: "Rectangle", icon: (
-    <svg width="20" height="15" viewBox="0 0 24 18">
-      <rect x="1" y="1" width="22" height="16" rx="3" fill="none" stroke="currentColor" strokeWidth="1.5" />
-    </svg>
-  )},
-  { type: "diamond" as const, label: "Diamond", icon: (
-    <svg width="20" height="20" viewBox="0 0 24 24">
-      <polygon points="12,1 23,12 12,23 1,12" fill="none" stroke="currentColor" strokeWidth="1.5" />
-    </svg>
-  )},
-  { type: "pill" as const, label: "Pill", icon: (
-    <svg width="20" height="15" viewBox="0 0 24 18">
-      <rect x="1" y="1" width="22" height="16" rx="8" fill="none" stroke="currentColor" strokeWidth="1.5" />
-    </svg>
-  )},
-  { type: "hexagon" as const, label: "Hexagon", icon: (
-    <svg width="20" height="20" viewBox="0 0 24 24">
-      <polygon points="6,1 18,1 23,12 18,23 6,23 1,12" fill="none" stroke="currentColor" strokeWidth="1.5" />
-    </svg>
-  )},
-  { type: "critic" as const, label: "Critic", icon: (
-    <svg width="20" height="15" viewBox="0 0 24 18">
-      <rect x="1" y="1" width="22" height="16" rx="3" fill="none" stroke="currentColor" strokeWidth="1.5" strokeDasharray="3 2" />
-    </svg>
-  )},
-];
-
-function isNodeShape(shape: string): shape is NodeShape {
-  return shape in SHAPE_LABELS;
-}
 
 export interface WorkflowPanoramaPageProps {
   workflowId: string;
@@ -144,6 +111,7 @@ function apiNodesToReactFlowNodes(
   agentLookup: Map<string, Agent | null>,
   pluginLookup: Map<string, BuiltinPlugin | null>,
   getActorName: (type: string, id: string) => string | null,
+  onOpenNode: (nodeId: string) => void,
 ): Node[] {
   const stageMap = new Map(stages.map((s) => [s.id, s]));
 
@@ -172,6 +140,7 @@ function apiNodesToReactFlowNodes(
               : undefined)
           : undefined,
         workerName: node.worker_id ? getActorName(node.worker_type ?? "agent", node.worker_id) ?? undefined : undefined,
+        onOpen: onOpenNode,
       },
     };
 
@@ -328,6 +297,7 @@ interface PanoramaContentProps {
   viewportY: number;
   viewportZoom: number;
   configPanelOpen: boolean;
+  recentNodeRun: WorkflowNodeRun | null;
   showStageDialog: boolean;
   editingStage: WorkflowStage | null;
   onAutoLayout: () => void;
@@ -335,7 +305,7 @@ interface PanoramaContentProps {
   onPaneClick: () => void;
   onNodeDragStop: (event: MouseEvent | TouchEvent, node: Node) => void;
   onConnect: (connection: Connection) => void;
-  onShapeDrop: (shape: NodeShape, position: { x: number; y: number }) => void;
+  onTemplateDrop: (template: NodeTemplate, position: { x: number; y: number }) => void;
   onEdgeDelete: (edges: Edge[]) => void;
   onNodeDelete: (nodeId: string) => void;
   onStageChange: (nodeId: string, stageId: string | null) => void;
@@ -367,6 +337,7 @@ function PanoramaContent({
   viewportY,
   viewportZoom,
   configPanelOpen,
+  recentNodeRun,
   showStageDialog,
   editingStage,
   onAutoLayout,
@@ -374,7 +345,7 @@ function PanoramaContent({
   onPaneClick,
   onNodeDragStop,
   onConnect,
-  onShapeDrop,
+  onTemplateDrop,
   onEdgeDelete,
   onNodeDelete,
   onStageChange,
@@ -477,39 +448,14 @@ function PanoramaContent({
   const rlNodesCount = rfNodes.filter(n => n.type !== "laneBg" && n.type !== "gradientBg").length;
   const showFirstStageGuide = stages.length === 0;
   const showFirstStepGuide = stages.length > 0 && rlNodesCount === 0;
-
-  const handleDragOver = useCallback((event: React.DragEvent) => {
-    event.preventDefault();
-    event.dataTransfer.dropEffect = "copy";
-  }, []);
-
-  const handleDrop = useCallback(
-    (event: React.DragEvent) => {
-      event.preventDefault();
-      const shape = event.dataTransfer.getData(DRAG_SHAPE_MIME);
-      if (!isNodeShape(shape)) return;
-      onShapeDrop(shape, reactFlowInstance.screenToFlowPosition({
-        x: event.clientX,
-        y: event.clientY,
-      }));
-    },
-    [onShapeDrop, reactFlowInstance],
-  );
-
-  const handleDragStart = useCallback((e: React.DragEvent, shapeType: string) => {
-    e.dataTransfer.setData(DRAG_SHAPE_MIME, shapeType);
-    e.dataTransfer.effectAllowed = "copy";
-  }, []);
-
-  const handleClickToPlace = useCallback((shape: string) => {
-    if (!isNodeShape(shape)) return;
+  const handleSelectTemplate = useCallback((template: NodeTemplate) => {
     const center = reactFlowInstance.screenToFlowPosition({
       x: window.innerWidth / 2,
       y: window.innerHeight / 2,
     });
-    onShapeDrop(shape, center);
+    onTemplateDrop(template, center);
     setPopoverOpen(false);
-  }, [reactFlowInstance, onShapeDrop]);
+  }, [onTemplateDrop, reactFlowInstance]);
 
   // Keyboard shortcuts for undo/redo (document level because ReactFlow
   // container focus is unreliable).
@@ -633,31 +579,18 @@ function PanoramaContent({
 
           {/* Add node popover */}
           <Popover open={popoverOpen} onOpenChange={setPopoverOpen} modal={false}>
-            <PopoverTrigger>
-              <Button variant="outline" size="sm" aria-label="Add node">
+            <PopoverTrigger render={
+              <Button variant="outline" size="sm" aria-label={t(($) => $.detail.add_node)}>
                 <Plus className="size-3.5 mr-1" />
-                Add node
+                {t(($) => $.detail.add_node)}
               </Button>
-            </PopoverTrigger>
-            <PopoverContent className="w-auto p-2" align="start" side="bottom">
-              <div className="flex gap-1">
-                {SHAPES.map((shape) => (
-                  <button
-                    key={shape.type}
-                    draggable
-                    title={shape.label}
-                    aria-label={shape.label}
-                    className="flex items-center justify-center w-8 h-8 rounded-md hover:bg-muted text-muted-foreground hover:text-foreground cursor-grab active:cursor-grabbing transition-colors"
-                    onDragStart={(e) => {
-                      handleDragStart(e, shape.type);
-                    }}
-                    onDragEnd={() => setPopoverOpen(false)}
-                    onClick={() => handleClickToPlace(shape.type)}
-                  >
-                    {shape.icon}
-                  </button>
-                ))}
-              </div>
+            } />
+            <PopoverContent
+              className="w-[min(360px,calc(100vw-2rem))] max-w-[calc(100vw-2rem)] overflow-hidden p-0"
+              align="start"
+              side="bottom"
+            >
+              <NodeTemplatePicker onSelect={handleSelectTemplate} />
             </PopoverContent>
           </Popover>
 
@@ -722,7 +655,7 @@ function PanoramaContent({
           />
 
           {/* ReactFlow canvas */}
-          <div className="absolute inset-0 z-10 min-w-0" data-testid="panorama-canvas">
+          <div className="absolute inset-y-0 left-40 right-0 z-10 min-w-0" data-testid="panorama-canvas">
           <ReactFlow
             nodes={rfNodes}
             edges={rfEdges}
@@ -732,8 +665,6 @@ function PanoramaContent({
             onPaneClick={onPaneClick}
             onNodeDragStop={onNodeDragStop}
             onConnect={onConnect}
-            onDragOver={handleDragOver}
-            onDrop={handleDrop}
             onEdgesDelete={onEdgeDelete}
             fitView={false}
             minZoom={0.2}
@@ -766,11 +697,9 @@ function PanoramaContent({
                 <Button
                   variant="default"
                   size="sm"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    // Place a default rectangle node at the center of the first stage lane
-                    const firstLaneY = stages.length > 0 ? stages[0]!.sort_order * LANE_STEP + LANE_HEIGHT / 2 : 100;
-                    onShapeDrop("rectangle", { x: 200, y: firstLaneY });
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    setPopoverOpen(true);
                   }}
                 >
                   <Plus className="h-3.5 w-3.5 mr-1" />
@@ -790,6 +719,7 @@ function PanoramaContent({
               workflowId={workflowId}
               nodes={apiNodes}
               stages={stages}
+              recentNodeRun={recentNodeRun}
               onClose={onCloseConfigPanel}
               onDeleteNode={onNodeDelete}
               onStageChange={onStageChange}
@@ -799,13 +729,17 @@ function PanoramaContent({
       </div>
 
       {/* Preflight bar */}
-      {!preflightDismissed && !preflightResult.passed && !showFirstStageGuide && (
+      {!showFirstStageGuide && visibleNodes.length > 0 && (!preflightDismissed || preflightResult.passed) && (
         <PreflightBar
           result={preflightResult}
+          hasUnsavedEdits={hasUnsavedEdits}
+          workflowStatus={workflow.status}
           onNavigateToNode={handleNavigateToNode}
           onPublish={async () => {
             await onSave();
-            onToggleWorkflowStatus();
+            if (workflow.status !== "active") {
+              onToggleWorkflowStatus();
+            }
           }}
           onDismiss={() => setPreflightDismissed(true)}
         />
@@ -865,6 +799,12 @@ export function WorkflowPanoramaPage({ workflowId, viewToggle }: WorkflowPanoram
   const { data: apiEdges = [], isLoading: edLoading } = useQuery(
     workflowEdgesOptions(wsId, workflowId),
   );
+  const { data: recentRuns = [] } = useQuery(workflowRunsOptions(wsId, workflowId));
+  const latestRunId = recentRuns[0]?.id ?? null;
+  const { data: recentNodeRuns = [] } = useQuery({
+    ...workflowNodeRunsOptions(wsId, workflowId, latestRunId ?? ""),
+    enabled: !!latestRunId,
+  });
   const { data: agents = [] } = useQuery(agentListOptions(wsId));
   const { data: pluginsData } = useQuery(builtinPluginListOptions());
   const { getActorName } = useActorName();
@@ -898,6 +838,11 @@ export function WorkflowPanoramaPage({ workflowId, viewToggle }: WorkflowPanoram
   const [configPanelOpen, setConfigPanelOpen] = useState(false);
   const [showStageDialog, setShowStageDialog] = useState(false);
   const [editingStage, setEditingStage] = useState<WorkflowStage | null>(null);
+  const [emptyStatePickerOpen, setEmptyStatePickerOpen] = useState(false);
+  const openNodePanel = useCallback((nodeId: string) => {
+    selectNode(nodeId);
+    setConfigPanelOpen(true);
+  }, [selectNode]);
 
   // ── Derived lookups ──
   const agentLookup = useMemo(() => {
@@ -925,8 +870,8 @@ export function WorkflowPanoramaPage({ workflowId, viewToggle }: WorkflowPanoram
   );
 
   const rfNodes = useMemo(
-    () => apiNodesToReactFlowNodes(visibleNodes, stages, agentLookup, pluginLookup, getActorName),
-    [stages, visibleNodes, agentLookup, pluginLookup, getActorName],
+    () => apiNodesToReactFlowNodes(visibleNodes, stages, agentLookup, pluginLookup, getActorName, openNodePanel),
+    [stages, visibleNodes, agentLookup, pluginLookup, getActorName, openNodePanel],
   );
 
   const rfEdges = useMemo(() => apiEdgesToReactFlowEdges(apiEdges, visibleNodes, stages), [apiEdges, visibleNodes, stages]);
@@ -936,15 +881,18 @@ export function WorkflowPanoramaPage({ workflowId, viewToggle }: WorkflowPanoram
     () => visibleNodes.find((n) => n.id === selectedNodeId) ?? null,
     [visibleNodes, selectedNodeId],
   );
+  const selectedRecentNodeRun = useMemo(
+    () => selectedNode ? recentNodeRuns.find((run) => run.workflow_node_id === selectedNode.id) ?? null : null,
+    [recentNodeRuns, selectedNode],
+  );
 
   // ── Handlers ──
   const handleNodeClick = useCallback(
     (_event: React.MouseEvent, node: Node) => {
       const workerId = (node.data.parentNodeId as string | undefined) ?? node.id;
-      selectNode(workerId as string);
-      setConfigPanelOpen(true);
+      openNodePanel(workerId as string);
     },
-    [selectNode],
+    [openNodePanel],
   );
 
   const handlePaneClick = useCallback(() => {
@@ -1001,29 +949,28 @@ export function WorkflowPanoramaPage({ workflowId, viewToggle }: WorkflowPanoram
     [createEdgeMutation, pushServerAction],
   );
 
-  const handleShapeDrop = useCallback(
-    (shape: NodeShape, position: { x: number; y: number }) => {
+  const createTemplateNode = useCallback(
+    (template: NodeTemplate, position: { x: number; y: number }) => {
       const stage = findStageAtY(position.y, stages);
 
-      createNodeMutation.mutate({
-        title: SHAPE_LABELS[shape],
-        description: "",
-        position_x: Math.max(0, Math.round(position.x)),
-        position_y: 0,
-        stage_id: stage?.id ?? null,
-        format_schema: { shape },
-        worker_type: "agent",
-        worker_id: null,
-        critic_type: "human",
-        critic_id: null,
-        critic_api_url: null,
-      }, {
+      createNodeMutation.mutate(buildCreateNodeRequestFromTemplate(template, {
+        x: position.x,
+        y: position.y,
+        stageId: stage?.id ?? null,
+      }), {
         onSuccess: (created) => {
           pushServerAction({ type: "create-node", nodeId: created.id });
         },
       });
     },
     [createNodeMutation, stages, pushServerAction],
+  );
+
+  const handleTemplateDrop = useCallback(
+    (template: NodeTemplate, position: { x: number; y: number }) => {
+      createTemplateNode(template, position);
+    },
+    [createTemplateNode],
   );
 
   const handleEdgeDelete = useCallback(
@@ -1216,28 +1163,26 @@ export function WorkflowPanoramaPage({ workflowId, viewToggle }: WorkflowPanoram
               {t(($) => $.preflight.first_stage_guide_description)}
             </p>
             <div className="flex flex-col items-center gap-2">
-              <Button
-                variant="default"
-                size="sm"
-                onClick={() => {
-                  createNodeMutation.mutate({
-                    title: SHAPE_LABELS["rectangle"],
-                    description: "",
-                    position_x: 200,
-                    position_y: 0,
-                    stage_id: null,
-                    format_schema: { shape: "rectangle" as NodeShape },
-                    worker_type: "agent",
-                    worker_id: null,
-                    critic_type: "human",
-                    critic_id: null,
-                    critic_api_url: null,
-                  });
-                }}
-              >
-                <Plus className="h-3.5 w-3.5 mr-1" />
-                {t(($) => $.detail.add_node)}
-              </Button>
+              <Popover open={emptyStatePickerOpen} onOpenChange={setEmptyStatePickerOpen} modal={false}>
+                <PopoverTrigger render={
+                  <Button variant="default" size="sm" aria-label={t(($) => $.detail.add_node)}>
+                    <Plus className="h-3.5 w-3.5 mr-1" />
+                    {t(($) => $.detail.add_node)}
+                  </Button>
+                } />
+                <PopoverContent
+                  className="w-[min(360px,calc(100vw-2rem))] max-w-[calc(100vw-2rem)] overflow-hidden p-0"
+                  align="center"
+                  side="bottom"
+                >
+                  <NodeTemplatePicker
+                    onSelect={(template) => {
+                      createTemplateNode(template, { x: 200, y: 0 });
+                      setEmptyStatePickerOpen(false);
+                    }}
+                  />
+                </PopoverContent>
+              </Popover>
               <Button variant="ghost" size="sm" className="text-xs text-muted-foreground" onClick={() => setShowStageDialog(true)}>
                 {t(($) => $.preflight.first_stage_guide_cta)}
               </Button>
@@ -1274,6 +1219,7 @@ export function WorkflowPanoramaPage({ workflowId, viewToggle }: WorkflowPanoram
         viewportY={viewportY}
         viewportZoom={viewportZoom}
         configPanelOpen={configPanelOpen}
+        recentNodeRun={selectedRecentNodeRun}
         showStageDialog={showStageDialog}
         editingStage={editingStage}
         onAutoLayout={handleAutoLayout}
@@ -1281,7 +1227,7 @@ export function WorkflowPanoramaPage({ workflowId, viewToggle }: WorkflowPanoram
         onPaneClick={handlePaneClick}
         onNodeDragStop={handleNodeDragStop}
         onConnect={handleConnect}
-        onShapeDrop={handleShapeDrop}
+        onTemplateDrop={handleTemplateDrop}
         onEdgeDelete={handleEdgeDelete}
         onNodeDelete={handleNodeDelete}
         onStageChange={handleStageChange}

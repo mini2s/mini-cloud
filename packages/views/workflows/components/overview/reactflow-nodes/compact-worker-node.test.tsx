@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { ReactFlowProvider } from "@xyflow/react";
 import { CompactWorkerNode, type CompactWorkerNodeData } from "./compact-worker-node";
 import type { Node } from "@xyflow/react";
@@ -184,5 +184,37 @@ describe("CompactWorkerNode", () => {
     renderWithProvider(rfn);
     const el = screen.getByTestId("compact-worker-node-1");
     expect(el.className).toContain("border-primary/55");
+  });
+
+  it("worker node 是可键盘聚焦的 button", () => {
+    const rfn = {
+      id: "node-1",
+      type: "compactWorker",
+      position: { x: 100, y: 12 },
+      data: { ...baseData, workerName: undefined },
+    } as Node;
+    renderWithProvider(rfn);
+
+    const node = screen.getByRole("button", { name: /builtin\/code-review\. Not configured/i });
+    expect(node).toHaveAttribute("tabIndex", "0");
+  });
+
+  it("Enter 和 Space 调用打开回调", () => {
+    const onOpen = vi.fn();
+    const rfn = {
+      id: "node-1",
+      type: "compactWorker",
+      position: { x: 100, y: 12 },
+      data: { ...baseData, onOpen },
+    } as Node;
+    renderWithProvider(rfn);
+
+    const node = screen.getByRole("button");
+    fireEvent.keyDown(node, { key: "Enter" });
+    fireEvent.keyDown(node, { key: " " });
+
+    expect(onOpen).toHaveBeenCalledTimes(2);
+    expect(onOpen).toHaveBeenNthCalledWith(1, "node-1");
+    expect(onOpen).toHaveBeenNthCalledWith(2, "node-1");
   });
 });

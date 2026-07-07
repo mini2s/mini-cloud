@@ -240,4 +240,32 @@ describe("StageLane", () => {
     );
     expect(screen.getByTestId("stage-lane-node-stack-n2").className).toContain("gap-5");
   });
+
+  it("preserves runtime node horizontal layout from position_x instead of redistributing cards evenly", () => {
+    const onCardClick = vi.fn();
+    render(
+      <StageLane
+        stage={MOCK_STAGE}
+        nodeIds={[
+          { ...MOCK_NODES[0]!, id: "n-left", position_x: 120, sort_order: 1 },
+          { ...MOCK_NODES[1]!, id: "n-right", position_x: 520, sort_order: 0 },
+        ]}
+        getActorName={getActorName}
+        agentLookup={agentLookup}
+        pluginLookup={pluginLookup}
+        onCardClick={onCardClick}
+        nodeElementRefs={emptyRefs}
+        criticElementRefs={emptyRefs}
+        mode="runtime"
+      />,
+    );
+
+    const nodeRow = screen.getByTestId("stage-lane-node-row-stage-1");
+    const leftSlot = screen.getByTestId("stage-lane-runtime-slot-n-left");
+    const rightSlot = screen.getByTestId("stage-lane-runtime-slot-n-right");
+
+    expect(nodeRow.className).not.toContain("justify-evenly");
+    expect(leftSlot.getAttribute("style")).toContain("margin-left: 120px");
+    expect(rightSlot.getAttribute("style")).toContain("margin-left: 160px");
+  });
 });

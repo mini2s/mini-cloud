@@ -1,4 +1,4 @@
-import { memo } from "react";
+import { memo, type KeyboardEvent } from "react";
 import { Handle, Position, type NodeProps } from "@xyflow/react";
 import type { WorkflowNode } from "@multica/core/types";
 import { WORKER_WIDTH, WORKER_HEIGHT, STAGE_LINE_COLORS } from "../constants";
@@ -9,6 +9,7 @@ export interface CompactWorkerNodeData extends Record<string, unknown> {
   stageColorIndex: number;
   pluginName?: string;
   workerName?: string;
+  onOpen?: (nodeId: string) => void;
 }
 
 export const CompactWorkerNode = memo(function CompactWorkerNode({
@@ -21,10 +22,21 @@ export const CompactWorkerNode = memo(function CompactWorkerNode({
   const handleColorClass = STAGE_LINE_COLORS[nodeData.stageColorIndex % STAGE_LINE_COLORS.length];
   const displayName = nodeData.pluginName || nodeData.node.title || "Untitled";
   const subtitle = nodeData.workerName || "Not configured";
+  const openNode = () => nodeData.onOpen?.(nodeData.node.id);
+  const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (event.key !== "Enter" && event.key !== " ") return;
+    event.preventDefault();
+    openNode();
+  };
 
   return (
     <div
       data-testid={`compact-worker-${id}`}
+      role="button"
+      tabIndex={0}
+      aria-label={`${displayName}. ${subtitle}`}
+      onDoubleClick={openNode}
+      onKeyDown={handleKeyDown}
       className={`
         group h-16 w-56 rounded-lg border border-slate-300/90 bg-white p-2.5
         shadow-[0_1px_2px_rgba(15,23,42,0.08)]

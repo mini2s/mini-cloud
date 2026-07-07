@@ -1,0 +1,82 @@
+import { describe, expect, it } from "vitest";
+import {
+  buildCreateNodeRequestFromTemplate,
+  filterNodeTemplates,
+  NODE_TEMPLATE_CATEGORIES,
+  NODE_TEMPLATES,
+} from "./node-template-catalog";
+
+describe("node-template-catalog", () => {
+  it("按 workflow 能力分类组织模板", () => {
+    expect(NODE_TEMPLATE_CATEGORIES.map((category) => category.id)).toEqual([
+      "trigger",
+      "action",
+      "logic",
+      "ai",
+      "human",
+      "annotation",
+    ]);
+    expect(NODE_TEMPLATES.some((template) => template.category === "trigger")).toBe(true);
+    expect(NODE_TEMPLATES.some((template) => template.category === "ai")).toBe(true);
+  });
+
+  it("支持按标题、描述、tag 搜索", () => {
+    expect(filterNodeTemplates("agent").map((template) => template.id)).toContain("ai-agent-task");
+    expect(filterNodeTemplates("manual").map((template) => template.id)).toContain("manual-trigger");
+    expect(filterNodeTemplates("review").map((template) => template.id)).toContain("human-review");
+  });
+
+  it("空搜索返回所有模板", () => {
+    expect(filterNodeTemplates("")).toHaveLength(NODE_TEMPLATES.length);
+    expect(filterNodeTemplates("   ")).toHaveLength(NODE_TEMPLATES.length);
+  });
+
+  it("根据模板生成 create-node payload", () => {
+    const template = NODE_TEMPLATES.find((item) => item.id === "ai-agent-task");
+    expect(template).toBeDefined();
+
+    const request = buildCreateNodeRequestFromTemplate(template!, {
+      x: 125.8,
+      y: 240.2,
+      stageId: "stage-1",
+    });
+
+    expect(request).toMatchObject({
+      title: "Agent task",
+      description: "Ask an agent to complete a workflow step.",
+      position_x: 126,
+      position_y: 0,
+      stage_id: "stage-1",
+      worker_type: "agent",
+      worker_id: null,
+      critic_type: "human",
+      critic_id: null,
+      critic_api_url: null,
+      format_schema: {
+        shape: "rectangle",
+        template_id: "ai-agent-task",
+        template_category: "ai",
+      },
+    });
+  });
+
+  it("注释模板生成 annotation format_schema", () => {
+    const template = NODE_TEMPLATES.find((item) => item.id === "sticky-note");
+    expect(template).toBeDefined();
+
+    const request = buildCreateNodeRequestFromTemplate(template!, {
+      x: -10,
+      y: 30,
+      stageId: null,
+    });
+
+    expect(request.title).toBe("Note");
+    expect(request.position_x).toBe(0);
+    expect(request.stage_id).toBeNull();
+    expect(request.format_schema).toMatchObject({
+      type: "annotation",
+      template_id: "sticky-note",
+      template_category: "annotation",
+    });
+  });
+});

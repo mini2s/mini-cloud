@@ -3,9 +3,11 @@
 import { useCallback } from "react";
 import { AlertCircle, AlertTriangle, CheckCircle2, ChevronRight } from "lucide-react";
 import { Button } from "@multica/ui/components/ui/button";
+import { Popover, PopoverContent, PopoverTrigger } from "@multica/ui/components/ui/popover";
 import { cn } from "@multica/ui/lib/utils";
 import { useT } from "../../../i18n";
 import type { PreflightResult, PreflightIssue } from "@multica/core/workflows/preflight-checks";
+import type { WorkflowStatus } from "@multica/core/types";
 
 export interface PreflightBarProps {
   result: PreflightResult;
@@ -13,7 +15,11 @@ export interface PreflightBarProps {
   onPublish: () => void;
   onDismiss: () => void;
   isPublishing?: boolean;
+  hasUnsavedEdits?: boolean;
+  workflowStatus?: WorkflowStatus;
 }
+
+const INLINE_ISSUE_LIMIT = 4;
 
 function checkLabel(checkId: PreflightIssue["checkId"], t: ReturnType<typeof useT<"workflows">>["t"]): string {
   switch (checkId) {
@@ -34,28 +40,81 @@ export function PreflightBar({
   onPublish,
   onDismiss,
   isPublishing = false,
+  hasUnsavedEdits = false,
+  workflowStatus = "draft",
 }: PreflightBarProps) {
   const { t } = useT("workflows");
   const issues = result.issues;
   const hasIssues = issues.length > 0;
   const hasBlocking = result.blockingCount > 0;
   const hasWarnings = result.warningCount > 0;
+  const visibleIssues = issues.slice(0, INLINE_ISSUE_LIMIT);
+  const hiddenIssueCount = Math.max(0, issues.length - visibleIssues.length);
+  const publishDisabled = hasBlocking || hasUnsavedEdits || isPublishing;
+  const publishLabel = hasUnsavedEdits
+    ? t(($) => $.preflight.bar_publish_disabled_unsaved)
+    : isPublishing
+      ? t(($) => $.preflight.bar_publishing)
+      : t(($) => $.preflight.bar_publish);
+  const allClearLabel = workflowStatus === "active"
+    ? t(($) => $.preflight.bar_active)
+    : hasUnsavedEdits
+      ? t(($) => $.preflight.bar_unsaved_all_clear)
+      : t(($) => $.preflight.bar_saved_all_clear);
 
   const handlePublish = useCallback(() => {
-    if (!hasBlocking && !isPublishing) onPublish();
-  }, [hasBlocking, isPublishing, onPublish]);
+    if (!publishDisabled) onPublish();
+  }, [onPublish, publishDisabled]);
+
+  const renderIssueButton = (issue: PreflightIssue, idx: number, testId: string) => {
+    const isBlocking = issue.blocking;
+    return (
+      <button
+        key={`${issue.checkId}-${issue.nodeId}-${idx}`}
+        type="button"
+        onClick={() => onNavigateToNode(issue.nodeId)}
+        className={cn(
+          "group inline-flex min-w-0 items-center gap-1 rounded-md border px-2 py-0.5",
+          "text-[11px] leading-5 transition-colors",
+          "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1",
+          isBlocking
+            ? "border-red-200 bg-red-50/70 text-red-700 hover:bg-red-100 hover:border-red-300 dark:border-red-900/40 dark:bg-red-950/40 dark:text-red-300 dark:hover:bg-red-950/60"
+            : "border-amber-200 bg-amber-50/60 text-amber-700 hover:bg-amber-100 hover:border-amber-300 dark:border-amber-900/40 dark:bg-amber-950/30 dark:text-amber-300 dark:hover:bg-amber-950/50",
+        )}
+        data-testid={testId}
+      >
+        {isBlocking ? (
+          <AlertCircle className="h-3 w-3 shrink-0 opacity-70" />
+        ) : (
+          <AlertTriangle className="h-3 w-3 shrink-0 opacity-70" />
+        )}
+        <span className="shrink-0 font-medium tracking-tight">
+          {checkLabel(issue.checkId, t)}
+        </span>
+        {issue.nodeTitle && (
+          <>
+            <span className="shrink-0 opacity-40 font-normal">&middot;</span>
+            <span className="truncate max-w-[120px] opacity-80 font-normal">
+              {issue.nodeTitle}
+            </span>
+          </>
+        )}
+        <ChevronRight className="h-3 w-3 shrink-0 opacity-0 group-hover:opacity-50 transition-opacity" />
+      </button>
+    );
+  };
 
   return (
     <div
       data-testid="preflight-bar"
       className={cn(
-        "shrink-0 border-t bg-background",
+        "h-12 shrink-0 border-t bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/85",
         hasIssues
           ? "border-orange-200/70 dark:border-orange-900/30"
           : "border-emerald-200/70 dark:border-emerald-900/30",
       )}
     >
-      <div className="flex items-center gap-3 px-5 h-10">
+      <div className="flex h-full items-center gap-3 px-5">
 
         {/* ── Status indicator ── */}
         <div className="flex items-center gap-2 shrink-0">
@@ -93,56 +152,60 @@ export function PreflightBar({
           )}
         </div>
 
-        {/* ── Issue chips (inline, wrap naturally) ── */}
-        <div className="flex flex-1 items-center gap-1.5 min-w-0 flex-wrap">
-          {issues.map((issue, idx) => {
-            const isBlocking = issue.blocking;
-            return (
-              <button
-                key={`${issue.checkId}-${issue.nodeId}-${idx}`}
-                type="button"
-                onClick={() => onNavigateToNode(issue.nodeId)}
-                className={cn(
-                  "group inline-flex items-center gap-1 rounded-md border px-2 py-0.5",
-                  "text-[11px] leading-5 transition-colors",
-                  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1",
-                  isBlocking
-                    ? "border-red-200 bg-red-50/70 text-red-700 hover:bg-red-100 hover:border-red-300 dark:border-red-900/40 dark:bg-red-950/40 dark:text-red-300 dark:hover:bg-red-950/60"
-                    : "border-amber-200 bg-amber-50/60 text-amber-700 hover:bg-amber-100 hover:border-amber-300 dark:border-amber-900/40 dark:bg-amber-950/30 dark:text-amber-300 dark:hover:bg-amber-950/50",
-                )}
-                data-testid="preflight-issue-item"
+        {/* ── Issue summary ── */}
+        <div className="flex flex-1 items-center gap-1.5 min-w-0 overflow-hidden">
+          {visibleIssues.map((issue, idx) => renderIssueButton(issue, idx, "preflight-issue-item"))}
+
+          {hiddenIssueCount > 0 && (
+            <Popover>
+              <PopoverTrigger
+                render={
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-7 shrink-0 border-border/70 px-2.5 text-xs text-muted-foreground hover:text-foreground"
+                  data-testid="preflight-review-btn"
+                >
+                  {t(($) => $.preflight.bar_expand)}
+                  <span className="ml-1 tabular-nums text-[11px] opacity-70">
+                    +{hiddenIssueCount}
+                  </span>
+                </Button>
+                }
+              />
+              <PopoverContent
+                align="start"
+                side="top"
+                sideOffset={8}
+                className="w-[min(640px,calc(100vw-2rem))] gap-0 p-0"
               >
-                {isBlocking ? (
-                  <AlertCircle className="h-3 w-3 shrink-0 opacity-70" />
-                ) : (
-                  <AlertTriangle className="h-3 w-3 shrink-0 opacity-70" />
-                )}
-                <span className="font-medium tracking-tight">
-                  {checkLabel(issue.checkId, t)}
-                </span>
-                {issue.nodeTitle && (
-                  <>
-                    <span className="opacity-40 font-normal">&middot;</span>
-                    <span className="truncate max-w-[120px] opacity-80 font-normal">
-                      {issue.nodeTitle}
-                    </span>
-                  </>
-                )}
-                <ChevronRight className="h-3 w-3 shrink-0 opacity-0 group-hover:opacity-50 transition-opacity" />
-              </button>
-            );
-          })}
+                <div className="flex items-center justify-between border-b px-3 py-2">
+                  <span className="text-xs font-medium text-foreground">
+                    {t(($) => $.preflight.bar_expand)}
+                  </span>
+                  <span className="text-[11px] tabular-nums text-muted-foreground">
+                    {result.blockingCount} / {result.warningCount}
+                  </span>
+                </div>
+                <div className="max-h-[min(420px,50vh)] overflow-y-auto p-2" data-testid="preflight-review-list">
+                  <div className="grid gap-1.5 sm:grid-cols-2">
+                    {issues.map((issue, idx) => renderIssueButton(issue, idx, "preflight-review-issue-item"))}
+                  </div>
+                </div>
+              </PopoverContent>
+            </Popover>
+          )}
 
           {!hasIssues && (
             <span className="text-xs text-muted-foreground font-medium">
-              {t(($) => $.preflight.bar_collapsed_all_clear)}
+              {allClearLabel}
             </span>
           )}
         </div>
 
         {/* ── Actions ── */}
         <div className="flex items-center gap-1.5 shrink-0">
-          {hasIssues && (
+          {hasIssues && !result.passed && (
             <Button
               variant="ghost"
               size="sm"
@@ -156,14 +219,12 @@ export function PreflightBar({
           <Button
             variant={hasBlocking ? "outline" : "default"}
             size="sm"
-            disabled={hasBlocking || isPublishing}
+            disabled={publishDisabled}
             onClick={handlePublish}
             className="h-7 text-xs px-3"
             data-testid="preflight-publish-btn"
           >
-            {isPublishing
-              ? t(($) => $.preflight.bar_publishing)
-              : t(($) => $.preflight.bar_publish)}
+            {publishLabel}
           </Button>
         </div>
 

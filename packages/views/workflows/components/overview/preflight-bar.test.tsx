@@ -8,8 +8,13 @@ vi.mock("../../../i18n", () => {
   const translations = {
     preflight: {
       bar_collapsed_all_clear: "Ready to publish",
+      bar_saved_all_clear: "Saved and ready to publish",
+      bar_unsaved_all_clear: "Save changes before publishing",
+      bar_active: "Published workflow is active",
       bar_dismiss: "Dismiss",
+      bar_expand: "Review issues",
       bar_publish: "Publish",
+      bar_publish_disabled_unsaved: "Save first",
       bar_publishing: "Publishing...",
       check_dag_cycle: "Cycle",
       check_worker_missing: "No worker",
@@ -36,8 +41,37 @@ describe("PreflightBar", () => {
 
   it("shows all-clear with publish button", () => {
     render(<PreflightBar {...base} result={makeResult({ passed: true, issues: [] })} />);
-    expect(screen.getByText("Ready to publish")).toBeDefined();
+    expect(screen.getByText("Saved and ready to publish")).toBeDefined();
     expect(screen.getByTestId("preflight-publish-btn")).not.toBeDisabled();
+  });
+
+  it("无问题时展示可发布状态", () => {
+    render(
+      <PreflightBar
+        {...base}
+        result={{ issues: [], blockingCount: 0, warningCount: 0, passed: true }}
+        hasUnsavedEdits={false}
+        workflowStatus="draft"
+      />,
+    );
+
+    expect(screen.getByText("Saved and ready to publish")).toBeInTheDocument();
+    expect(screen.getByTestId("preflight-publish-btn")).not.toBeDisabled();
+  });
+
+  it("有未保存改动时禁用发布", () => {
+    render(
+      <PreflightBar
+        {...base}
+        result={{ issues: [], blockingCount: 0, warningCount: 0, passed: true }}
+        hasUnsavedEdits
+        workflowStatus="draft"
+      />,
+    );
+
+    expect(screen.getByText("Save changes before publishing")).toBeInTheDocument();
+    expect(screen.getByTestId("preflight-publish-btn")).toBeDisabled();
+    expect(screen.getByTestId("preflight-publish-btn")).toHaveTextContent("Save first");
   });
 
   it("shows inline chips for issues", () => {
@@ -51,6 +85,31 @@ describe("PreflightBar", () => {
     const chips = screen.getAllByTestId("preflight-issue-item");
     expect(chips.length).toBe(2);
     expect(screen.getByTestId("preflight-publish-btn")).toBeDisabled();
+  });
+
+  it("summarizes many issues behind a review popover instead of expanding the bar", () => {
+    render(<PreflightBar {...base} result={makeResult({
+      passed: false,
+      blockingCount: 20,
+      warningCount: 0,
+      issues: Array.from({ length: 20 }, (_, index) => ({
+        checkId: "worker-missing",
+        severity: "error",
+        blocking: true,
+        nodeId: `n${index}`,
+        nodeTitle: `Node ${index}`,
+        message: "",
+      })),
+    })} />);
+
+    expect(screen.getByTestId("preflight-bar").className).toContain("h-12");
+    expect(screen.getAllByTestId("preflight-issue-item")).toHaveLength(4);
+    expect(screen.getByTestId("preflight-review-btn")).toHaveTextContent("Review issues");
+
+    fireEvent.click(screen.getByTestId("preflight-review-btn"));
+
+    expect(screen.getByTestId("preflight-review-list").className).toContain("overflow-y-auto");
+    expect(screen.getAllByTestId("preflight-review-issue-item")).toHaveLength(20);
   });
 
   it("navigates to node when chip clicked", () => {

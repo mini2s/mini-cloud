@@ -66,10 +66,7 @@ export function ExecutionPanoramaPage({
     ...workflowNodeRunsOptions(wsId, workflowId, runId ?? ""),
     enabled: !!runId,
   });
-  const { data: edges } = useQuery({
-    ...workflowEdgesOptions(wsId, workflowId),
-    enabled: !!runId,
-  });
+  const { data: edges } = useQuery(workflowEdgesOptions(wsId, workflowId));
   const { data: agents } = useQuery(agentListOptions(wsId));
 
   // builtinPluginListOptions is global (no wsId parameter)
@@ -333,8 +330,8 @@ export function ExecutionPanoramaPage({
         className="relative"
         data-testid="panorama-canvas"
       >
-        {/* SVG overlay for edges (only when run exists) */}
-        {runId && (
+        {/* SVG overlay for workflow structure */}
+        {(edges?.length ?? 0) > 0 && (
           <PanoramaSvgOverlay
             edges={edges ?? []}
             nodes={allNodes}

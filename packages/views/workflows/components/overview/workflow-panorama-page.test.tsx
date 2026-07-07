@@ -13,6 +13,8 @@ const mocks = vi.hoisted(() => ({
   ],
   nodesData: [] as unknown[],
   edgesData: [] as unknown[],
+  runsData: [] as Array<{ id: string }>,
+  nodeRunsData: [] as unknown[],
   workflowData: { id: "wf-1", title: "Test Workflow", status: "draft" },
   selectedNodeId: null as string | null,
   nodeEdits: {} as Record<string, unknown>,
@@ -53,6 +55,8 @@ vi.mock("@multica/core/workflows/queries", () => ({
   workflowStagesOptions: () => ({ queryKey: ["stages"] }),
   workflowNodesOptions: () => ({ queryKey: ["nodes"] }),
   workflowEdgesOptions: () => ({ queryKey: ["edges"] }),
+  workflowRunsOptions: () => ({ queryKey: ["runs"] }),
+  workflowNodeRunsOptions: (_wsId: string, _workflowId: string, runId: string) => ({ queryKey: ["node-runs", runId] }),
   useCreateNode: () => ({ mutate: mocks.createNodeMutate, mutateAsync: vi.fn() }),
   useUpdateNode: () => ({ mutate: mocks.updateNodeMutate, mutateAsync: mocks.updateNodeMutateAsync }),
   useUpdateWorkflow: () => ({ mutate: mocks.updateWorkflowMutate, mutateAsync: vi.fn() }),
@@ -139,6 +143,7 @@ vi.mock("../../../i18n", () => {
       save: "Save",
       saving: "Saving...",
       create_dialog: { create: "Create" },
+      add_node: "Add node",
       toast_activated: "Workflow activated",
       toast_deactivated: "Workflow deactivated",
       toast_activate_failed: "Failed to update workflow status",
@@ -173,6 +178,22 @@ vi.mock("../../../i18n", () => {
     panorama: {
       empty_all: "Create your first stage to get started",
       add_first_step: "Add your first task",
+      node_picker: {
+        search_placeholder: "Search nodes or actions...",
+        empty: "No matching nodes",
+        trigger: "Triggers",
+        trigger_description: "Start a workflow",
+        action: "Actions",
+        action_description: "Do work in a step",
+        logic: "Logic",
+        logic_description: "Branch or route work",
+        ai: "AI",
+        ai_description: "Agent-powered steps",
+        human: "Human",
+        human_description: "Review or approval",
+        annotation: "Notes",
+        annotation_description: "Explain the canvas",
+      },
       toolbar: {
         undo: "Undo",
         redo: "Redo",
@@ -246,6 +267,7 @@ vi.mock("@xyflow/react", () => ({
 vi.mock("../node-config-panel", () => ({
   NodeConfigPanel: (props: {
     node: { id: string };
+    recentNodeRun?: { workflow_node_id: string } | null;
     onStageChange?: (nodeId: string, stageId: string | null) => void;
     onDeleteNode?: (nodeId: string) => void;
   }) => (
@@ -272,6 +294,8 @@ vi.mock("./preflight-bar", () => ({
 vi.mock("@tanstack/react-query", () => ({
   useQuery: (opts: { queryKey: string[] }) => {
     const key = opts.queryKey.join(",");
+    if (key.includes("node-runs")) return { data: mocks.nodeRunsData, isLoading: false, isError: false };
+    if (key.includes("runs")) return { data: mocks.runsData, isLoading: false, isError: false };
     if (key.includes("stages")) return { data: mocks.stagesData, isLoading: false, isError: false };
     if (key.includes("nodes")) return { data: mocks.nodesData, isLoading: false, isError: false };
     if (key.includes("edges")) return { data: mocks.edgesData, isLoading: false, isError: false };
@@ -293,6 +317,8 @@ describe("WorkflowPanoramaPage (new)", () => {
     mocks.workflowData = { id: "wf-1", title: "Test Workflow", status: "draft" };
     mocks.nodesData = [];
     mocks.edgesData = [];
+    mocks.runsData = [];
+    mocks.nodeRunsData = [];
     mocks.selectedNodeId = null;
     mocks.nodeEdits = {};
     mocks.deletedNodeIds = [];
@@ -363,16 +389,70 @@ describe("WorkflowPanoramaPage (new)", () => {
     expect(buttons.length).toBeGreaterThan(0);
   });
 
+  it("从 Add node picker 创建模板节点", () => {
+    render(<WorkflowPanoramaPage workflowId="wf-1" />);
+
+    fireEvent.click(screen.getAllByRole("button", { name: "Add node" })[0]!);
+    fireEvent.click(screen.getByRole("button", { name: /Agent task/ }));
+
+    expect(mocks.createNodeMutate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        title: "Agent task",
+        worker_type: "agent",
+        format_schema: expect.objectContaining({
+          template_id: "ai-agent-task",
+          template_category: "ai",
+        }),
+      }),
+      expect.any(Object),
+    );
+  });
+
+  it("first-step guide 打开 picker，而不是直接创建默认矩形", () => {
+    mocks.stagesData = [
+      { id: "stage-1", workflow_id: "wf-1", name: "Build", description: "", sort_order: 0, node_count: 0, created_at: "", updated_at: "" },
+    ];
+    mocks.nodesData = [];
+
+    render(<WorkflowPanoramaPage workflowId="wf-1" />);
+    fireEvent.click(screen.getAllByRole("button", { name: "Add node" })[1]!);
+
+    expect(screen.getByTestId("node-template-picker")).toBeInTheDocument();
+    expect(mocks.createNodeMutate).not.toHaveBeenCalled();
+  });
+
   it("does not render an unassigned stage lane label", () => {
     render(<WorkflowPanoramaPage workflowId="wf-1" />);
     expect(screen.queryByText("Unassigned")).not.toBeInTheDocument();
   });
 
-  it("shows empty state when no stages", () => {
+  it("shows add node as the primary empty-workflow action", () => {
     mocks.stagesData = [];
     render(<WorkflowPanoramaPage workflowId="wf-1" />);
+    expect(screen.getByRole("button", { name: "Add node" })).toBeInTheDocument();
     expect(screen.getByText("Create stage")).toBeInTheDocument();
     expect(screen.getByText("Create your first stage")).toBeInTheDocument();
+  });
+
+  it("creates an unassigned node from the empty-workflow add node picker", () => {
+    mocks.stagesData = [];
+
+    render(<WorkflowPanoramaPage workflowId="wf-1" />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Add node" }));
+    fireEvent.click(screen.getByRole("button", { name: /Agent task/ }));
+
+    expect(mocks.createNodeMutate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        title: "Agent task",
+        stage_id: null,
+        format_schema: expect.objectContaining({
+          template_id: "ai-agent-task",
+          template_category: "ai",
+        }),
+      }),
+      expect.any(Object),
+    );
   });
 
   it("renders critic badges as independent nodes below workers", () => {
@@ -508,31 +588,6 @@ describe("WorkflowPanoramaPage (new)", () => {
       sourceHandle: "bottom",
       targetHandle: "left",
     });
-  });
-
-  it("creates a node when a shape is dropped on the canvas", () => {
-    render(<WorkflowPanoramaPage workflowId="wf-1" />);
-
-    const preventDefault = vi.fn();
-    const dropEvent = {
-      preventDefault,
-      clientX: 500,
-      clientY: 120,
-      dataTransfer: { getData: vi.fn(() => "diamond") },
-    } as unknown as React.DragEvent;
-
-    mocks.reactFlowProps?.onDrop?.(dropEvent);
-
-    expect(preventDefault).toHaveBeenCalled();
-    expect(mocks.createNodeMutate).toHaveBeenCalledWith(
-      expect.objectContaining({
-        title: "Diamond",
-        stage_id: "stage-1",
-        position_x: 300,
-        format_schema: { shape: "diamond" },
-      }),
-      expect.any(Object),
-    );
   });
 
   it("persists dragged node x coordinates without label rail offsets", () => {
@@ -682,13 +737,14 @@ describe("WorkflowPanoramaPage (new)", () => {
     expect(mocks.reactFlowProps?.nodes.some((n) => n.type === "laneBg" || n.type === "gradientBg")).toBe(false);
   });
 
-  it("lets the canvas background extend behind the fixed stage labels", () => {
+  it("reserves the fixed stage label rail outside the ReactFlow interaction layer", () => {
     render(<WorkflowPanoramaPage workflowId="wf-1" />);
 
     const canvas = screen.getByTestId("panorama-canvas");
-    expect(canvas.className).not.toContain("pl-40");
     expect(canvas.className).toContain("absolute");
-    expect(canvas.className).toContain("inset-0");
+    expect(canvas.className).toContain("left-40");
+    expect(canvas.className).toContain("right-0");
+    expect(canvas.className).toContain("inset-y-0");
   });
 
   it("renders workflow title, back button, and status toggle in the header", () => {

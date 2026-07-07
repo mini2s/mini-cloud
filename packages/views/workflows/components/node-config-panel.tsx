@@ -7,13 +7,15 @@ import { Button } from "@multica/ui/components/ui/button";
 import { Input } from "@multica/ui/components/ui/input";
 import { Textarea } from "@multica/ui/components/ui/textarea";
 import { Label } from "@multica/ui/components/ui/label";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@multica/ui/components/ui/tabs";
 import { useT } from "../../i18n";
 import { useWorkspaceId } from "@multica/core/hooks";
 import { useCreateStage, useDeleteNode, useAssignNodeToStage } from "@multica/core/workflows/queries";
 import { useWorkflowEditorStore } from "@multica/core/workflows/store";
 import { AssigneePicker } from "../../issues/components/pickers/assignee-picker";
-import type { WorkflowNode, WorkflowStage, WorkerType, CriticType } from "@multica/core/types";
+import type { WorkflowNode, WorkflowNodeRun, WorkflowStage, WorkerType, CriticType } from "@multica/core/types";
 import type { IssueAssigneeType } from "@multica/core/types/issue";
+import { NodeDataPreview } from "./node-data-preview";
 
 function toAssigneeType(t: string): IssueAssigneeType | null {
   if (t === "human") return "member";
@@ -66,6 +68,7 @@ interface NodeConfigPanelProps {
   nodes?: WorkflowNode[];
   stages?: WorkflowStage[];
   disabled?: boolean;
+  recentNodeRun?: WorkflowNodeRun | null;
   onClose: () => void;
   // Callbacks for parent-controlled save/delete/stage-assign
   onSaveNode?: () => void;
@@ -73,7 +76,17 @@ interface NodeConfigPanelProps {
   onStageChange?: (nodeId: string, stageId: string | null) => void;
 }
 
-export function NodeConfigPanel({ node, workflowId, nodes = [], stages = [], disabled = false, onClose, onDeleteNode, onStageChange }: NodeConfigPanelProps) {
+export function NodeConfigPanel({
+  node,
+  workflowId,
+  nodes = [],
+  stages = [],
+  disabled = false,
+  recentNodeRun = null,
+  onClose,
+  onDeleteNode,
+  onStageChange,
+}: NodeConfigPanelProps) {
   const { t } = useT("workflows");
   const wsId = useWorkspaceId();
   const deleteMutation = useDeleteNode(wsId, workflowId);
@@ -166,276 +179,286 @@ export function NodeConfigPanel({ node, workflowId, nodes = [], stages = [], dis
         </Button>
       </div>
 
-      <div className="flex-1 overflow-y-auto px-4 py-4 min-h-0">
-        <div className="space-y-4">
-        {/* Title */}
-        <div className="space-y-1.5">
-          <Label className="text-sm">{t(($) => $.node.title)}</Label>
-          <Input disabled={disabled}
-            value={title}
-            onChange={(e) => { setTitle(e.target.value); cacheNodeEdits(node.id, { title: e.target.value }); }}
-            placeholder={t(($) => $.node.title_placeholder)}
-            className="h-8 text-sm"
-          />
+      <Tabs defaultValue="config" className="flex min-h-0 flex-1 flex-col">
+        <div className="border-b px-4 py-2">
+          <TabsList className="h-8">
+            <TabsTrigger value="config" className="text-xs">{t(($) => $.node.tabs.config)}</TabsTrigger>
+            <TabsTrigger value="data" className="text-xs">{t(($) => $.node.tabs.data)}</TabsTrigger>
+            <TabsTrigger value="runs" className="text-xs">{t(($) => $.node.tabs.runs)}</TabsTrigger>
+          </TabsList>
         </div>
 
-        {/* Description */}
-        <div className="space-y-1.5">
-          <Label className="text-sm">{t(($) => $.node.description)}</Label>
-          <Textarea disabled={disabled}
-            value={description}
-            onChange={(e) => { setDescription(e.target.value); cacheNodeEdits(node.id, { description: e.target.value }); }}
-            placeholder={t(($) => $.node.description_placeholder)}
-            className="min-h-[60px] text-sm"
-            rows={2}
-          />
-        </div>
-
-        {/* Stage assignment — immediate mutation, not batched with other edits */}
-        <div className="space-y-1.5">
-          <Label className="text-sm">{t(($) => $.node.stage_label)}</Label>
-          <select
-            disabled={disabled || assignStageMutation.isPending}
-            className="flex h-8 w-full rounded-md border border-input bg-background px-2 text-sm"
-            value={stageId ?? ""}
-            onChange={(e) => {
-              const newVal = e.target.value;
-              if (newVal === "__create_new__") {
-                // Reset the select visually — the sentinel value shouldn't linger
-                (e.target as HTMLSelectElement).value = stageId ?? "";
-                setShowCreateForm(true);
-                return;
-              }
-              const newStageId = newVal || null;
-              setStageId(newStageId);
-              if (onStageChange) {
-                onStageChange(node.id, newStageId);
-              } else {
-                assignStageMutation.mutate(
-                  { nodeId: node.id, stage_id: newStageId },
-                  { onError: () => setStageId(node.stage_id ?? null) },
-                );
-              }
-            }}
-          >
-            <option value="">{t(($) => $.overview.stage_canvas.unassigned)}</option>
-            {stages.map((s) => (
-              <option key={s.id} value={s.id}>{s.name}</option>
-            ))}
-            <option value="__create_new__" disabled={disabled}>
-              {t(($) => $.node.stage_create_option)}
-            </option>
-          </select>
-
-          {showCreateForm && (
-            <div className="space-y-2 rounded-md border border-muted p-3">
-              <Input
-                disabled={disabled}
-                value={newStageName}
-                onChange={(e) => setNewStageName(e.target.value)}
-                placeholder={t(($) => $.node.stage_create_name_placeholder)}
-                className="h-8 text-sm"
-                autoFocus
-              />
-              <Input
-                disabled={disabled}
-                value={newStageDescription}
-                onChange={(e) => setNewStageDescription(e.target.value)}
-                placeholder={t(($) => $.node.stage_create_description_placeholder)}
-                className="h-8 text-sm"
-              />
-              <div className="flex gap-2">
-                <Button
-                  size="sm"
-                  variant="default"
-                  disabled={disabled || !newStageName.trim() || createStageMutation.isPending}
-                  onClick={async () => {
-                    if (!newStageName.trim()) return;
-                    try {
-                      const created = await createStageMutation.mutateAsync({
-                        name: newStageName.trim(),
-                        description: newStageDescription.trim() || undefined,
-                      });
-                      // Auto-select the newly created stage for this node
-                      setStageId(created.id);
-                      assignStageMutation.mutate(
-                        { nodeId: node.id, stage_id: created.id },
-                        { onError: () => setStageId(node.stage_id ?? null) },
-                      );
-                      setShowCreateForm(false);
-                      setNewStageName("");
-                      setNewStageDescription("");
-                    } catch {
-                      // Error captured by mutation state and displayed below
-                    }
-                  }}
-                >
-                  {createStageMutation.isPending ? t(($) => $.node.saving) : t(($) => $.detail.create_dialog.create)}
-                </Button>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  disabled={createStageMutation.isPending}
-                  onClick={() => {
-                    setShowCreateForm(false);
-                    setNewStageName("");
-                    setNewStageDescription("");
-                  }}
-                >
-                  {t(($) => $.overview.stage_dialog.cancel)}
-                </Button>
-              </div>
-              {createStageMutation.error && (
-                <p className="text-xs text-destructive">{createStageMutation.error.message}</p>
-              )}
-            </div>
-          )}
-        </div>
-
-        {/* Format Schema */}
-        <div className="space-y-1.5">
-          <Label className="text-sm">{t(($) => $.node.format_schema_label)}</Label>
-          <Textarea disabled={disabled}
-            value={formatSchema}
-            onChange={(e) => {
-              setFormatSchema(e.target.value);
-              cacheNodeEdits(node.id, { format_schema: parseFormatSchemaValue(e.target.value) });
-            }}
-            placeholder="{}"
-            className="min-h-[80px] text-sm font-mono"
-            rows={4}
-          />
-          <p className="text-[11px] text-muted-foreground">{t(($) => $.node.format_schema_hint)}</p>
-        </div>
-
-        {/* Bind to Node — only for annotations */}
-        {isAnnotation && (
-        <div className="space-y-1.5">
-          <Label className="text-sm">Bind to Node</Label>
-          {targetNodeId ? (
-            <div className="flex items-center gap-1.5">
-              <span className="text-sm flex-1 truncate">
-                {bindableNodes.find((bn) => bn.id === targetNodeId)?.title ?? "Unknown node"}
-              </span>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-6 w-6 shrink-0"
-                onClick={() => {
-                  let obj: Record<string, unknown> = {};
-                  try {
-                    const parsed = JSON.parse(formatSchema || "{}");
-                    if (typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)) {
-                      obj = parsed as Record<string, unknown>;
-                    }
-                  } catch { /* keep default */ }
-                  delete obj.annotation_target_node_id;
-                  cacheNodeEdits(node.id, { format_schema: obj });
-                  setFormatSchema(JSON.stringify(obj, null, 2));
-                }}
-                title="Unbind"
-              >
-                <X className="h-3 w-3" />
-              </Button>
-            </div>
-          ) : (
-            <select disabled={disabled}
-              className="flex h-8 w-full rounded-md border border-input bg-background px-2 text-sm"
-              value=""
-              onChange={(e) => {
-                const tid = e.target.value;
-                if (!tid) return;
-                let obj: Record<string, unknown> = {};
-                try {
-                  const parsed = JSON.parse(formatSchema || "{}");
-                  if (typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)) {
-                    obj = parsed as Record<string, unknown>;
-                  }
-                } catch { /* keep default */ }
-                obj.annotation_target_node_id = tid;
-                cacheNodeEdits(node.id, { format_schema: obj });
-                setFormatSchema(JSON.stringify(obj, null, 2));
-              }}
-            >
-              <option value="">Select a node...</option>
-              {bindableNodes.map((bn) => (
-                <option key={bn.id} value={bn.id}>{bn.title}</option>
-              ))}
-            </select>
-          )}
-        </div>
-        )}
-
-
-        {/* Worker config — hidden for annotations */}
-        {!isAnnotation && (
-        <div className="space-y-3 pt-2 border-t">
-          <h4 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">
-            {t(($) => $.node.section_worker)}
-          </h4>
-
-          <div className="space-y-1.5">
-            <div className={disabled ? "pointer-events-none" : undefined} onClickCapture={disabled ? (e) => { e.preventDefault(); e.stopPropagation(); } : undefined}>
-            <AssigneePicker
-                assigneeType={toAssigneeType(workerType)}
-                assigneeId={workerId}
-                onUpdate={disabled ? () => {} : (u) => {
-                  const wt = fromAssigneeType(u.assignee_type ?? null);
-                  const wid = u.assignee_id ?? null;
-                  setWorkerType(wt);
-                  setWorkerId(wid);
-                  cacheNodeEdits(node.id, { worker_type: wt, worker_id: wid });
-                }}
-                align="start"
-                skipBuiltinRuntimeSelection
-              />
-            </div>
-          </div>
-
-        </div>
-        )}
-
-        {/* Critic config — hidden for annotations */}
-        {!isAnnotation && (
-        <div className="space-y-3 pt-2 border-t">
-          <h4 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">
-            {t(($) => $.node.section_critic)}
-          </h4>
-
-          <div className="space-y-1.5">
-              <div className={disabled ? "pointer-events-none" : undefined} onClickCapture={disabled ? (e) => { e.preventDefault(); e.stopPropagation(); } : undefined}>
-              <AssigneePicker
-                assigneeType={toAssigneeType(criticType)}
-                assigneeId={criticId}
-                onUpdate={disabled ? () => {} : (u) => {
-                  const ct = fromAssigneeTypeCritic(u.assignee_type ?? null);
-                  const cid = u.assignee_id ?? null;
-                  setCriticType(ct);
-                  setCriticId(cid);
-                  cacheNodeEdits(node.id, { critic_type: ct, critic_id: cid });
-                }}
-                align="start"
-              />
-            </div>
-          </div>
-
-          {criticType === "api" && (
+        <TabsContent value="config" className="m-0 min-h-0 flex-1 overflow-y-auto px-4 py-4">
+          <div className="space-y-4">
             <div className="space-y-1.5">
-              <Label className="text-sm">{t(($) => $.node.critic_api_url_label)}</Label>
+              <Label className="text-sm">{t(($) => $.node.title)}</Label>
               <Input disabled={disabled}
-                value={criticApiUrl}
-                onChange={(e) => { setCriticApiUrl(e.target.value); cacheNodeEdits(node.id, { critic_api_url: e.target.value }); }}
-                placeholder="https://..."
+                value={title}
+                onChange={(e) => { setTitle(e.target.value); cacheNodeEdits(node.id, { title: e.target.value }); }}
+                placeholder={t(($) => $.node.title_placeholder)}
                 className="h-8 text-sm"
               />
-              <p className="text-[11px] text-muted-foreground">{t(($) => $.node.critic_api_url_hint)}</p>
             </div>
-          )}
 
-        </div>
-        )}
-        </div>
-      </div>
+            <div className="space-y-1.5">
+              <Label className="text-sm">{t(($) => $.node.description)}</Label>
+              <Textarea disabled={disabled}
+                value={description}
+                onChange={(e) => { setDescription(e.target.value); cacheNodeEdits(node.id, { description: e.target.value }); }}
+                placeholder={t(($) => $.node.description_placeholder)}
+                className="min-h-[60px] text-sm"
+                rows={2}
+              />
+            </div>
+
+            <div className="space-y-1.5">
+              <Label className="text-sm">{t(($) => $.node.stage_label)}</Label>
+              <select
+                disabled={disabled || assignStageMutation.isPending}
+                className="flex h-8 w-full rounded-md border border-input bg-background px-2 text-sm"
+                value={stageId ?? ""}
+                onChange={(e) => {
+                  const newVal = e.target.value;
+                  if (newVal === "__create_new__") {
+                    (e.target as HTMLSelectElement).value = stageId ?? "";
+                    setShowCreateForm(true);
+                    return;
+                  }
+                  const newStageId = newVal || null;
+                  setStageId(newStageId);
+                  if (onStageChange) {
+                    onStageChange(node.id, newStageId);
+                  } else {
+                    assignStageMutation.mutate(
+                      { nodeId: node.id, stage_id: newStageId },
+                      { onError: () => setStageId(node.stage_id ?? null) },
+                    );
+                  }
+                }}
+              >
+                <option value="">{t(($) => $.overview.stage_canvas.unassigned)}</option>
+                {stages.map((s) => (
+                  <option key={s.id} value={s.id}>{s.name}</option>
+                ))}
+                <option value="__create_new__" disabled={disabled}>
+                  {t(($) => $.node.stage_create_option)}
+                </option>
+              </select>
+
+              {showCreateForm ? (
+                <div className="space-y-2 rounded-md border border-muted p-3">
+                  <Input
+                    disabled={disabled}
+                    value={newStageName}
+                    onChange={(e) => setNewStageName(e.target.value)}
+                    placeholder={t(($) => $.node.stage_create_name_placeholder)}
+                    className="h-8 text-sm"
+                    autoFocus
+                  />
+                  <Input
+                    disabled={disabled}
+                    value={newStageDescription}
+                    onChange={(e) => setNewStageDescription(e.target.value)}
+                    placeholder={t(($) => $.node.stage_create_description_placeholder)}
+                    className="h-8 text-sm"
+                  />
+                  <div className="flex gap-2">
+                    <Button
+                      size="sm"
+                      variant="default"
+                      disabled={disabled || !newStageName.trim() || createStageMutation.isPending}
+                      onClick={async () => {
+                        if (!newStageName.trim()) return;
+                        try {
+                          const created = await createStageMutation.mutateAsync({
+                            name: newStageName.trim(),
+                            description: newStageDescription.trim() || undefined,
+                          });
+                          setStageId(created.id);
+                          assignStageMutation.mutate(
+                            { nodeId: node.id, stage_id: created.id },
+                            { onError: () => setStageId(node.stage_id ?? null) },
+                          );
+                          setShowCreateForm(false);
+                          setNewStageName("");
+                          setNewStageDescription("");
+                        } catch {
+                          // Error state is surfaced by the mutation itself.
+                        }
+                      }}
+                    >
+                      {createStageMutation.isPending ? t(($) => $.node.saving) : t(($) => $.detail.create_dialog.create)}
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={createStageMutation.isPending}
+                      onClick={() => {
+                        setShowCreateForm(false);
+                        setNewStageName("");
+                        setNewStageDescription("");
+                      }}
+                    >
+                      {t(($) => $.overview.stage_dialog.cancel)}
+                    </Button>
+                  </div>
+                  {createStageMutation.error ? (
+                    <p className="text-xs text-destructive">{createStageMutation.error.message}</p>
+                  ) : null}
+                </div>
+              ) : null}
+            </div>
+
+            <div className="space-y-1.5">
+              <Label className="text-sm">{t(($) => $.node.format_schema_label)}</Label>
+              <Textarea disabled={disabled}
+                value={formatSchema}
+                onChange={(e) => {
+                  setFormatSchema(e.target.value);
+                  cacheNodeEdits(node.id, { format_schema: parseFormatSchemaValue(e.target.value) });
+                }}
+                placeholder="{}"
+                className="min-h-[80px] text-sm font-mono"
+                rows={4}
+              />
+              <p className="text-[11px] text-muted-foreground">{t(($) => $.node.format_schema_hint)}</p>
+            </div>
+
+            {isAnnotation ? (
+              <div className="space-y-1.5">
+                <Label className="text-sm">Bind to Node</Label>
+                {targetNodeId ? (
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-sm flex-1 truncate">
+                      {bindableNodes.find((bn) => bn.id === targetNodeId)?.title ?? "Unknown node"}
+                    </span>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-6 w-6 shrink-0"
+                      onClick={() => {
+                        let obj: Record<string, unknown> = {};
+                        try {
+                          const parsed = JSON.parse(formatSchema || "{}");
+                          if (typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)) {
+                            obj = parsed as Record<string, unknown>;
+                          }
+                        } catch {
+                          // Keep the current object shape when the JSON is incomplete.
+                        }
+                        delete obj.annotation_target_node_id;
+                        cacheNodeEdits(node.id, { format_schema: obj });
+                        setFormatSchema(JSON.stringify(obj, null, 2));
+                      }}
+                      title="Unbind"
+                    >
+                      <X className="h-3 w-3" />
+                    </Button>
+                  </div>
+                ) : (
+                  <select disabled={disabled}
+                    className="flex h-8 w-full rounded-md border border-input bg-background px-2 text-sm"
+                    value=""
+                    onChange={(e) => {
+                      const tid = e.target.value;
+                      if (!tid) return;
+                      let obj: Record<string, unknown> = {};
+                      try {
+                        const parsed = JSON.parse(formatSchema || "{}");
+                        if (typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)) {
+                          obj = parsed as Record<string, unknown>;
+                        }
+                      } catch {
+                        // Keep the current object shape when the JSON is incomplete.
+                      }
+                      obj.annotation_target_node_id = tid;
+                      cacheNodeEdits(node.id, { format_schema: obj });
+                      setFormatSchema(JSON.stringify(obj, null, 2));
+                    }}
+                  >
+                    <option value="">Select a node...</option>
+                    {bindableNodes.map((bn) => (
+                      <option key={bn.id} value={bn.id}>{bn.title}</option>
+                    ))}
+                  </select>
+                )}
+              </div>
+            ) : null}
+
+            {!isAnnotation ? (
+              <div className="space-y-3 pt-2 border-t">
+                <h4 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">
+                  {t(($) => $.node.section_worker)}
+                </h4>
+
+                <div className="space-y-1.5">
+                  <div className={disabled ? "pointer-events-none" : undefined} onClickCapture={disabled ? (e) => { e.preventDefault(); e.stopPropagation(); } : undefined}>
+                    <AssigneePicker
+                      assigneeType={toAssigneeType(workerType)}
+                      assigneeId={workerId}
+                      onUpdate={disabled ? () => {} : (u) => {
+                        const wt = fromAssigneeType(u.assignee_type ?? null);
+                        const wid = u.assignee_id ?? null;
+                        setWorkerType(wt);
+                        setWorkerId(wid);
+                        cacheNodeEdits(node.id, { worker_type: wt, worker_id: wid });
+                      }}
+                      align="start"
+                      skipBuiltinRuntimeSelection
+                    />
+                  </div>
+                </div>
+              </div>
+            ) : null}
+
+            {!isAnnotation ? (
+              <div className="space-y-3 pt-2 border-t">
+                <h4 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">
+                  {t(($) => $.node.section_critic)}
+                </h4>
+
+                <div className="space-y-1.5">
+                  <div className={disabled ? "pointer-events-none" : undefined} onClickCapture={disabled ? (e) => { e.preventDefault(); e.stopPropagation(); } : undefined}>
+                    <AssigneePicker
+                      assigneeType={toAssigneeType(criticType)}
+                      assigneeId={criticId}
+                      onUpdate={disabled ? () => {} : (u) => {
+                        const ct = fromAssigneeTypeCritic(u.assignee_type ?? null);
+                        const cid = u.assignee_id ?? null;
+                        setCriticType(ct);
+                        setCriticId(cid);
+                        cacheNodeEdits(node.id, { critic_type: ct, critic_id: cid });
+                      }}
+                      align="start"
+                    />
+                  </div>
+                </div>
+
+                {criticType === "api" ? (
+                  <div className="space-y-1.5">
+                    <Label className="text-sm">{t(($) => $.node.critic_api_url_label)}</Label>
+                    <Input disabled={disabled}
+                      value={criticApiUrl}
+                      onChange={(e) => { setCriticApiUrl(e.target.value); cacheNodeEdits(node.id, { critic_api_url: e.target.value }); }}
+                      placeholder="https://..."
+                      className="h-8 text-sm"
+                    />
+                    <p className="text-[11px] text-muted-foreground">{t(($) => $.node.critic_api_url_hint)}</p>
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
+          </div>
+        </TabsContent>
+
+        <TabsContent value="data" className="m-0 min-h-0 flex-1 overflow-y-auto px-4 py-4">
+          <NodeDataPreview nodeRun={recentNodeRun} />
+        </TabsContent>
+
+        <TabsContent value="runs" className="m-0 min-h-0 flex-1 overflow-y-auto px-4 py-4">
+          <NodeDataPreview nodeRun={recentNodeRun} />
+        </TabsContent>
+      </Tabs>
 
       {!disabled && (
       <div className="px-4 py-3 border-t shrink-0">

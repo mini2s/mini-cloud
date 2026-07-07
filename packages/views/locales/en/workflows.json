@@ -133,6 +133,18 @@
     "critic_id_label": "Critic Assignee",
     "critic_api_url_label": "API URL",
     "critic_api_url_hint": "POST endpoint that receives worker output for automated review",
+    "tabs": {
+      "config": "Config",
+      "data": "Data",
+      "runs": "Runs"
+    },
+    "data_preview": {
+      "empty": "No run data for this node yet.",
+      "status": "Latest status",
+      "worker_output": "Worker output",
+      "critic_output": "Critic output",
+      "critic_comment": "Critic comment"
+    },
     "save": "Save Node",
     "saving": "Saving...",
     "delete": "Delete Node",
@@ -317,6 +329,22 @@
     "unassigned": "Unassigned",
     "not_configured": "Not configured",
     "add_first_step": "Add your first task to this stage by clicking \"Add node\" in the toolbar or dragging a node type here.",
+    "node_picker": {
+      "search_placeholder": "Search nodes or actions...",
+      "empty": "No matching nodes",
+      "trigger": "Triggers",
+      "trigger_description": "Start a workflow",
+      "action": "Actions",
+      "action_description": "Do work in a step",
+      "logic": "Logic",
+      "logic_description": "Branch or route work",
+      "ai": "AI",
+      "ai_description": "Agent-powered steps",
+      "human": "Human",
+      "human_description": "Review or approval",
+      "annotation": "Notes",
+      "annotation_description": "Explain the canvas"
+    },
     "toolbar": {
       "undo": "Undo",
       "redo": "Redo",
@@ -341,7 +369,11 @@
     "bar_collapsed_warnings": "{{count}} warning(s)",
     "bar_expand": "Review issues",
     "bar_dismiss": "Dismiss",
+    "bar_saved_all_clear": "Saved and ready to publish",
+    "bar_unsaved_all_clear": "Save changes before publishing",
+    "bar_active": "Published workflow is active",
     "bar_publish": "Publish",
+    "bar_publish_disabled_unsaved": "Save first",
     "bar_publishing": "Publishing...",
     "check_dag_cycle": "Cycle detected",
     "check_orphan_node": "Orphan node",
