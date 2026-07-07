@@ -195,15 +195,26 @@
   </section>
 
 <section class="scenario" id="scenario-11">
-    <div class="scenario-head"><div><h3>场景 11：保存、发布与协作</h3><p class="section-lead">保存、发布和协作锁让编辑态与生产态分离，降低多人协作和线上变更风险。</p></div><span class="tag">生产安全</span></div>
+    <div class="scenario-head"><div><h3>场景 11：保存、发布与协作</h3><p class="section-lead">参考 n8n 的编辑器工具栏，顶部应把“自动保存的草稿”和“已发布的生产版本”明确拆开：编辑可以持续保存，只有 Publish 才进入生产。</p></div><span class="tag">生产安全</span></div>
     <div class="scenario-body"><div class="figure">
       <svg viewBox="0 0 820 480" role="img" aria-label="保存发布与协作状态示意图">
-        <rect width="820" height="480" fill="#f4f7fb"/><rect x="56" y="64" width="708" height="86" rx="22" fill="#fff" stroke="#dfe8f3"/><text x="86" y="102" font-size="18" fill="#172337" font-weight="700">Workflow header 状态</text><rect x="420" y="86" width="78" height="30" rx="10" fill="#f1f5fa" stroke="#dce5f0"/><text x="439" y="106" font-size="12" fill="#607086">Saved</text><rect x="512" y="86" width="96" height="30" rx="10" fill="#ff6d5a"/><text x="537" y="106" font-size="12" fill="#fff">Publish</text><rect x="622" y="86" width="96" height="30" rx="10" fill="#f5f8ff" stroke="#dce8ff"/><text x="642" y="106" font-size="12" fill="#2d7ff9">Share</text>
-        <g transform="translate(80,205)"><rect width="190" height="122" rx="20" fill="#fff" stroke="#e4ecf6"/><text x="24" y="38" font-size="15" fill="#172337" font-weight="700">Draft</text><text x="24" y="70" font-size="12" fill="#607086">自动保存 1–5s</text><text x="24" y="94" font-size="12" fill="#607086">改动不直接进生产</text></g><path d="M278,266 C338,266 358,266 408,266" stroke="#68788c" stroke-width="3" fill="none"/><text x="320" y="250" font-size="12" fill="#607086">Publish</text>
-        <g transform="translate(420,205)"><rect width="190" height="122" rx="20" fill="#fff" stroke="#d7f0e1"/><text x="24" y="38" font-size="15" fill="#172337" font-weight="700">Production state</text><text x="24" y="70" font-size="12" fill="#607086">Webhook 用生产 URL</text><text x="24" y="94" font-size="12" fill="#607086">Schedule 按计划触发</text></g>
-        <g transform="translate(250,365)"><rect width="320" height="52" rx="16" fill="#fff8e8" stroke="#f9d98d"/><text x="24" y="33" font-size="13" fill="#7a570d" font-weight="700">协作：其他人编辑时，你看到 read-only mode，可等待锁释放或接管最新变更。</text></g>
-      </svg><p class="caption">图 11：草稿与生产分离让用户可以安全迭代，发布状态让流程上线动作更可控。</p></div>
-      <div class="explain"><h4>图片说明</h4><ul><li>Saved 表示草稿已保存，但不等于已上线。</li><li>Publish 是生产变更入口，生产执行绑定到已发布状态。</li><li>编辑锁保护多人协作时的协作一致性。</li></ul><h4>UX 价值</h4><ul><li>减少误操作影响线上流程的风险。</li><li>让用户理解“编辑态”和“生产态”不是同一个状态。</li></ul><div class="insight">可借鉴：企业级 Workflow 必须区分保存、发布、启用、回滚、权限；否则流程越接近生产越危险。</div></div>
+        <defs><marker id="publish-arrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto"><path d="M0,0 L0,6 L9,3 z" fill="#7f8c9d"/></marker></defs>
+        <rect width="820" height="480" fill="#f4f7fb"/>
+        <rect x="48" y="56" width="724" height="112" rx="20" fill="#fff" stroke="#dfe8f3"/>
+        <text x="82" y="90" font-size="13" fill="#8b98a8">Personal / Workflows</text><text x="82" y="119" font-size="18" fill="#172337" font-weight="700">Lead qualification</text>
+        <rect x="254" y="96" width="74" height="26" rx="13" fill="#f8fafc" stroke="#e2e8f0"/><text x="275" y="114" font-size="11" fill="#607086">+ Tag</text>
+        <rect x="360" y="91" width="172" height="36" rx="18" fill="#f8fafc" stroke="#e2e8f0"/><rect x="366" y="96" width="70" height="26" rx="13" fill="#fff" stroke="#dfe8f3"/><text x="386" y="114" font-size="11" fill="#172337" font-weight="700">Editor</text><text x="452" y="114" font-size="11" fill="#607086">Executions</text>
+        <rect x="556" y="91" width="88" height="36" rx="18" fill="#f8fafc"/><circle cx="574" cy="109" r="4" fill="#22c55e"/><text x="588" y="114" font-size="11" fill="#607086">Saved</text>
+        <circle cx="666" cy="109" r="16" fill="#fff" stroke="#e2e8f0"/><text x="660" y="114" font-size="14" fill="#64748b">↺</text>
+        <rect x="690" y="91" width="68" height="36" rx="18" fill="#ff6d5a"/><text x="709" y="114" font-size="12" fill="#fff" font-weight="700">Publish</text>
+        <circle cx="724" cy="145" r="13" fill="#f8fafc" stroke="#e2e8f0"/><text x="720" y="149" font-size="13" fill="#64748b">⋯</text>
+        <g transform="translate(76,220)"><rect width="188" height="118" rx="18" fill="#fff" stroke="#e4ecf6"/><text x="22" y="36" font-size="15" fill="#172337" font-weight="700">Draft workspace</text><text x="22" y="67" font-size="12" fill="#607086">自动保存，持续编辑</text><text x="22" y="91" font-size="12" fill="#607086">可测试，但不影响生产</text></g>
+        <path d="M270,279 C320,279 342,279 390,279" stroke="#7f8c9d" stroke-width="3" fill="none" marker-end="url(#publish-arrow)"/><text x="310" y="260" font-size="12" fill="#607086">Publish</text>
+        <g transform="translate(402,220)"><rect width="188" height="118" rx="18" fill="#fff" stroke="#d7f0e1"/><text x="22" y="36" font-size="15" fill="#172337" font-weight="700">Published version</text><text x="22" y="67" font-size="12" fill="#607086">Webhook / Schedule 运行</text><text x="22" y="91" font-size="12" fill="#607086">生产执行绑定此版本</text></g>
+        <g transform="translate(612,220)"><rect width="132" height="118" rx="18" fill="#fff" stroke="#e4ecf6"/><text x="20" y="36" font-size="15" fill="#172337" font-weight="700">Toolbar menu</text><text x="20" y="67" font-size="12" fill="#607086">历史版本</text><text x="20" y="91" font-size="12" fill="#607086">分享与权限</text></g>
+        <g transform="translate(212,382)"><rect width="398" height="52" rx="16" fill="#fff8e8" stroke="#f9d98d"/><text x="24" y="33" font-size="13" fill="#7a570d" font-weight="700">协作锁只保护编辑过程；生产安全由“保存 ≠ 发布”的状态模型保护。</text></g>
+      </svg><p class="caption">图 11：工具栏把名称、编辑视图、草稿保存、发布、历史和更多操作分区，避免把“已保存”误解为“已上线”。</p></div>
+      <div class="explain"><h4>图片说明</h4><ul><li>Saved 只表示当前草稿已自动保存，不代表线上版本已更新。</li><li>Publish 是唯一生产入口，应比历史、分享、更多菜单拥有更高视觉权重。</li><li>Editor / Executions 放在中部，让编辑和执行排查在同一工作台内切换。</li></ul><h4>UX 价值</h4><ul><li>减少误操作影响线上流程的风险。</li><li>让用户理解“编辑态”和“生产态”不是同一个状态。</li><li>把低频动作收进更多菜单，让顶部右侧只保留发布相关的关键决策。</li></ul><div class="insight">可借鉴：企业级 Workflow 工具栏应按“身份信息 → 工作区视图 → 保存状态 → 生产动作 → 审计/更多”组织，而不是堆叠 Save、Active、Share 等同权按钮。</div></div>
     </div>
   </section>
   <section id="real-screenshots"><h2 class="section-title">2. 真实界面参考图</h2><p class="section-lead">以下 6 张外部图片均可访问，保留用于补充真实界面观感。</p><div class="real-grid">
@@ -253,8 +264,9 @@
               <!-- 顶部控制栏 -->
               <rect x="70" y="42" width="720" height="36" rx="4" fill="#fff" stroke="#e2e8f0"/>
               <rect x="82" y="52" width="90" height="16" rx="3" fill="#f1f5f9" stroke="#e2e8f0"/><text x="127" y="64" text-anchor="middle" fill="#475569" font-size="9" font-family="sans-serif">My workflow</text>
-              <rect x="620" y="50" width="50" height="20" rx="10" fill="#e2e8f0"/><text x="645" y="64" text-anchor="middle" fill="#64748b" font-size="8" font-family="sans-serif">Save</text>
-              <rect x="678" y="50" width="55" height="20" rx="10" fill="#ff6d5a"/><text x="705" y="64" text-anchor="middle" fill="#fff" font-size="8" font-family="sans-serif">Execute</text>
+              <rect x="560" y="50" width="58" height="20" rx="10" fill="#f1f5f9"/><circle cx="574" cy="60" r="3" fill="#22c55e"/><text x="596" y="64" text-anchor="middle" fill="#64748b" font-size="8" font-family="sans-serif">Saved</text>
+              <rect x="626" y="50" width="58" height="20" rx="10" fill="#f8fafc" stroke="#e2e8f0"/><text x="655" y="64" text-anchor="middle" fill="#475569" font-size="8" font-family="sans-serif">Test</text>
+              <rect x="692" y="50" width="68" height="20" rx="10" fill="#ff6d5a"/><text x="726" y="64" text-anchor="middle" fill="#fff" font-size="8" font-family="sans-serif">Publish</text>
               <!-- 画布区域 -->
               <rect x="70" y="88" width="720" height="322" rx="4" fill="#fff" stroke="#e2e8f0" stroke-dasharray="4"/>
               <!-- 画布上的示意节点 -->
@@ -695,38 +707,39 @@
             <p class="image-caption">补充图 11-2：执行日志详情页，可视化展示各节点状态与错误信息</p>
       </figure>
       <figure class="gallery-figure">
-<svg viewBox="0 0 800 160" class="gallery-svg" xmlns="http://www.w3.org/2000/svg">
+<svg viewBox="0 0 800 190" class="gallery-svg" xmlns="http://www.w3.org/2000/svg">
               <rect x="0" y="0" width="800" height="32" rx="6" ry="6" fill="#2d3748"/>
               <rect x="0" y="16" width="800" height="16" fill="#2d3748"/>
               <circle cx="16" cy="16" r="5" fill="#ff5f57"/><circle cx="32" cy="16" r="5" fill="#febc2e"/><circle cx="48" cy="16" r="5" fill="#28c840"/>
-              <text x="400" y="21" text-anchor="middle" fill="#94a3b8" font-size="11" font-family="sans-serif">顶部控制栏</text>
-              <rect x="0" y="32" width="800" height="128" fill="#fafbfc"/>
+              <text x="400" y="21" text-anchor="middle" fill="#94a3b8" font-size="11" font-family="sans-serif">顶部发布工具栏</text>
+              <rect x="0" y="32" width="800" height="158" fill="#fafbfc"/>
               <!-- 顶部工具栏 -->
-              <rect x="20" y="50" width="760" height="44" rx="8" fill="#fff" stroke="#e2e8f0"/>
+              <rect x="20" y="50" width="760" height="54" rx="8" fill="#fff" stroke="#e2e8f0"/>
               <!-- 工作流名称 -->
-              <rect x="35" y="62" width="110" height="20" rx="4" fill="#f1f5f9"/><text x="90" y="76" text-anchor="middle" fill="#1e293b" font-size="10" font-family="sans-serif">My workflow</text>
+              <text x="38" y="72" fill="#94a3b8" font-size="8" font-family="sans-serif">Personal / Workflows</text>
+              <text x="38" y="91" fill="#1e293b" font-size="12" font-family="sans-serif" font-weight="bold">Lead qualification</text>
               <!-- 标签 -->
-              <rect x="160" y="62" width="70" height="20" rx="4" fill="#ede9fe"/><text x="195" y="76" text-anchor="middle" fill="#7c3aed" font-size="8" font-family="sans-serif">+ Add tag</text>
-              <!-- 分隔 -->
-              <line x1="248" y1="55" x2="248" y2="89" stroke="#e2e8f0"/>
-              <!-- Active 开关 -->
-              <rect x="262" y="60" width="80" height="24" rx="12" fill="#e2e8f0"/>
-              <circle cx="280" cy="72" r="9" fill="#fff"/>
-              <text x="320" y="76" fill="#94a3b8" font-size="9" font-family="sans-serif">Inactive</text>
+              <rect x="162" y="76" width="58" height="18" rx="9" fill="#f8fafc" stroke="#e2e8f0"/><text x="191" y="89" text-anchor="middle" fill="#64748b" font-size="8" font-family="sans-serif">+ tag</text>
+              <!-- 视图切换 -->
+              <rect x="310" y="64" width="184" height="28" rx="14" fill="#f8fafc" stroke="#e2e8f0"/>
+              <rect x="316" y="69" width="62" height="18" rx="9" fill="#fff" stroke="#dfe8f3"/><text x="347" y="82" text-anchor="middle" fill="#1e293b" font-size="8" font-family="sans-serif" font-weight="bold">Editor</text>
+              <text x="418" y="82" text-anchor="middle" fill="#64748b" font-size="8" font-family="sans-serif">Executions</text>
+              <text x="468" y="82" text-anchor="middle" fill="#64748b" font-size="8" font-family="sans-serif">Eval</text>
               <!-- 操作按钮 -->
-              <rect x="440" y="62" width="45" height="20" rx="4" fill="#f1f5f9"/><text x="462" y="76" text-anchor="middle" fill="#475569" font-size="9" font-family="sans-serif">Share</text>
-              <rect x="495" y="62" width="40" height="20" rx="4" fill="#dbeafe"/><text x="515" y="76" text-anchor="middle" fill="#2563eb" font-size="9" font-family="sans-serif">Save</text>
-              <rect x="545" y="62" width="48" height="20" rx="4" fill="#f1f5f9"/><text x="569" y="76" text-anchor="middle" fill="#475569" font-size="9" font-family="sans-serif">History</text>
-              <circle cx="635" cy="72" r="12" fill="#f1f5f9"/><text x="635" y="77" text-anchor="middle" fill="#475569" font-size="14" font-family="sans-serif">⋯</text>
+              <rect x="526" y="64" width="72" height="28" rx="14" fill="#f8fafc"/><circle cx="542" cy="78" r="3.5" fill="#22c55e"/><text x="568" y="82" text-anchor="middle" fill="#64748b" font-size="8" font-family="sans-serif">Saved</text>
+              <rect x="606" y="64" width="62" height="28" rx="14" fill="#fff" stroke="#e2e8f0"/><text x="637" y="82" text-anchor="middle" fill="#475569" font-size="8" font-family="sans-serif">Test</text>
+              <rect x="676" y="64" width="72" height="28" rx="14" fill="#ff6d5a"/><text x="712" y="82" text-anchor="middle" fill="#fff" font-size="8" font-family="sans-serif" font-weight="bold">Publish</text>
+              <circle cx="762" cy="78" r="12" fill="#f8fafc" stroke="#e2e8f0"/><text x="762" y="82" text-anchor="middle" fill="#475569" font-size="12" font-family="sans-serif">⋯</text>
               <!-- 标注 -->
-              <text x="90" y="46" text-anchor="middle" fill="#94a3b8" font-size="8" font-family="sans-serif">名称编辑</text>
-              <text x="302" y="46" text-anchor="middle" fill="#94a3b8" font-size="8" font-family="sans-serif">激活开关</text>
-              <text x="515" y="46" text-anchor="middle" fill="#94a3b8" font-size="8" font-family="sans-serif">Ctrl+S</text>
+              <text x="112" y="46" text-anchor="middle" fill="#94a3b8" font-size="8" font-family="sans-serif">身份与名称</text>
+              <text x="402" y="46" text-anchor="middle" fill="#94a3b8" font-size="8" font-family="sans-serif">编辑 / 执行视图</text>
+              <text x="638" y="46" text-anchor="middle" fill="#94a3b8" font-size="8" font-family="sans-serif">保存状态与生产动作</text>
               <!-- 底部分隔线 -->
-              <line x1="20" y1="105" x2="780" y2="105" stroke="#e2e8f0"/>
-              <text x="400" y="125" text-anchor="middle" fill="#64748b" font-size="10" font-family="sans-serif">名称 · 标签 · 激活开关 · 分享 · 保存 · 状态记录 · 更多菜单</text>
+              <line x1="20" y1="120" x2="780" y2="120" stroke="#e2e8f0"/>
+              <text x="400" y="140" text-anchor="middle" fill="#64748b" font-size="10" font-family="sans-serif">左侧低风险信息 · 中间上下文切换 · 右侧只放 Saved / Test / Publish / More</text>
+              <text x="400" y="162" text-anchor="middle" fill="#94a3b8" font-size="9" font-family="sans-serif">去掉 Active 开关和显式 Save 按钮，避免“保存”“启用”“发布”三个概念混在一起</text>
             </svg>
-            <p class="image-caption">补充图 12-1：顶部工具栏（工作流名称、标签、激活开关、保存、历史）</p>
+            <p class="image-caption">补充图 12-1：参考 n8n 的顶部工具栏分区：工作流身份、视图切换、保存状态、测试、发布和更多菜单。</p>
       </figure>
   </div></section>
   <section id="recommendations"><h2 class="section-title">4. 对自研 Workflow 画布的设计建议</h2><div class="summary-list"><div class="mini"><b>1. 新建流程先收敛入口</b><span>不要把新用户丢给空白画布，先引导选择触发器或场景模板。</span></div><div class="mini"><b>2. 节点库做成能力市场</b><span>按 Trigger、Action、Logic、AI、数据源、通知等分类，并支持搜索、推荐、最近使用。</span></div><div class="mini"><b>3. 连线必须有语义</b><span>区分数据流、条件流、错误流、AI 子能力连接，必要时显示标签和数据量。</span></div><div class="mini"><b>4. 节点详情就是调试工作台</b><span>配置、输入、输出、日志、错误要在同一上下文内完成。</span></div><div class="mini"><b>5. 数据映射低门槛高上限</b><span>提供拖拽字段、表达式、实时预览、示例数据和字段血缘。</span></div><div class="mini"><b>6. 调试能力前置</b><span>单步执行、局部执行、Pin/Mock、禁用节点、执行回放应成为基础能力。</span></div><div class="mini"><b>7. 大流程要能收纳</b><span>支持分组、折叠、注释、自动布局、阶段导航、缩略图。</span></div><div class="mini"><b>8. AI Agent 能力可视化</b><span>把模型、工具、记忆、知识库、人审、权限以子能力展示，而不是藏在配置表单里。</span></div><div class="mini"><b>9. 发布态要工程化</b><span>保存不等于上线，必须有草稿、发布、启用、回滚、审计、权限。</span></div></div></section>
