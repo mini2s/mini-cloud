@@ -731,6 +731,35 @@ type MulticaWorkflowNode struct {
 	StageID      pgtype.UUID        `json:"stage_id"`
 }
 
+type MulticaWorkflowNodeDeliverable struct {
+	ID             pgtype.UUID        `json:"id"`
+	WorkflowNodeID pgtype.UUID        `json:"workflow_node_id"`
+	Kind           string             `json:"kind"`
+	Title          string             `json:"title"`
+	Description    string             `json:"description"`
+	Required       bool               `json:"required"`
+	SortOrder      int32              `json:"sort_order"`
+	CreatedAt      pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt      pgtype.Timestamptz `json:"updated_at"`
+}
+
+type MulticaWorkflowNodeDeliverableSubmission struct {
+	ID                pgtype.UUID        `json:"id"`
+	WorkflowNodeRunID pgtype.UUID        `json:"workflow_node_run_id"`
+	DeliverableID     pgtype.UUID        `json:"deliverable_id"`
+	SubmittedByType   string             `json:"submitted_by_type"`
+	SubmittedByID     pgtype.UUID        `json:"submitted_by_id"`
+	Status            string             `json:"status"`
+	Content           string             `json:"content"`
+	AttachmentID      pgtype.UUID        `json:"attachment_id"`
+	PullRequestUrl    string             `json:"pull_request_url"`
+	ReviewComment     string             `json:"review_comment"`
+	SubmittedAt       pgtype.Timestamptz `json:"submitted_at"`
+	ReviewedAt        pgtype.Timestamptz `json:"reviewed_at"`
+	CreatedAt         pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt         pgtype.Timestamptz `json:"updated_at"`
+}
+
 type MulticaWorkflowNodeRun struct {
 	ID                pgtype.UUID        `json:"id"`
 	WorkflowRunID     pgtype.UUID        `json:"workflow_run_id"`
@@ -755,6 +784,24 @@ type MulticaWorkflowNodeRun struct {
 	RuntimeID         pgtype.UUID        `json:"runtime_id"`
 	DeviceID          pgtype.Text        `json:"device_id"`
 	SessionID         pgtype.Text        `json:"session_id"`
+}
+
+type MulticaWorkflowRole struct {
+	ID          pgtype.UUID        `json:"id"`
+	WorkspaceID pgtype.UUID        `json:"workspace_id"`
+	Name        string             `json:"name"`
+	Description string             `json:"description"`
+	CreatedAt   pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt   pgtype.Timestamptz `json:"updated_at"`
+}
+
+type MulticaWorkflowRoleBinding struct {
+	ID        pgtype.UUID        `json:"id"`
+	RoleID    pgtype.UUID        `json:"role_id"`
+	ActorType string             `json:"actor_type"`
+	ActorID   pgtype.UUID        `json:"actor_id"`
+	Priority  int32              `json:"priority"`
+	CreatedAt pgtype.Timestamptz `json:"created_at"`
 }
 
 type MulticaWorkflowRun struct {

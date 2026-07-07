@@ -18,6 +18,20 @@ export type NodeRunActionType =
   | "skip"
   | "complete";
 
+export type DeliverableSignal = "red" | "yellow" | "green" | "none";
+
+/** Derive a traffic-light signal from deliverable submission statuses. */
+export function deriveDeliverableSignal(
+  items: Array<{ required: boolean; status: string }> | null | undefined,
+): DeliverableSignal {
+  if (!items || items.length === 0) return "none";
+  const required = items.filter((item) => item.required);
+  if (required.length === 0) return "none";
+  if (required.some((item) => item.status === "rejected" || item.status === "missing")) return "red";
+  if (required.some((item) => item.status === "submitted")) return "yellow";
+  return "green";
+}
+
 export interface RuntimeNodeCardProps {
   node: WorkflowNode;
   nodeRun: WorkflowNodeRun | null;
@@ -28,6 +42,8 @@ export interface RuntimeNodeCardProps {
   elementRef?: (el: HTMLButtonElement | null) => void;
   onAction?: (nodeRunId: string, action: NodeRunActionType) => void;
   isActionLoading?: Partial<Record<NodeRunActionType, boolean>>;
+  /** Traffic-light indicator derived from deliverable submission statuses. */
+  deliverableSignal?: DeliverableSignal;
 }
 
 /** Maps worker/critic type to its Lucide icon component. */
@@ -158,6 +174,7 @@ export function RuntimeNodeCard({
   elementRef,
   onAction,
   isActionLoading,
+  deliverableSignal,
 }: RuntimeNodeCardProps) {
   const { t } = useT("issues");
   const hasWorkerOutput = nodeRun?.worker_output != null;
@@ -213,9 +230,22 @@ export function RuntimeNodeCard({
           "border-primary/55 shadow-[inset_0_0_0_1px_rgba(59,130,246,0.08),0_2px_12px_rgba(15,23,42,0.06)]",
       )}
     >
-      {/* Row 1: node title + status icon */}
+      {/* Row 1: node title + deliverable signal + status icon */}
       <div className="flex items-center justify-between gap-2">
-        <span className="text-sm font-medium truncate">{node.title}</span>
+        <div className="flex items-center gap-1.5 min-w-0">
+          {deliverableSignal && deliverableSignal !== "none" && (
+            <span
+              aria-label={`Deliverables ${deliverableSignal}`}
+              className={cn(
+                "h-2 w-2 rounded-full shrink-0",
+                deliverableSignal === "green" && "bg-emerald-500",
+                deliverableSignal === "yellow" && "bg-amber-500",
+                deliverableSignal === "red" && "bg-red-500",
+              )}
+            />
+          )}
+          <span className="text-sm font-medium truncate">{node.title}</span>
+        </div>
         {nodeRun ? (
           <NodeRunStatusIcon status={nodeRun.status} className="h-4 w-4" />
         ) : (

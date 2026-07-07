@@ -1298,3 +1298,284 @@ func ptrStrToUUID(s *string) pgtype.UUID {
 	return u
 }
 
+// ── Deliverable request/response types ────────────────────────────────────────
+
+type CreateDeliverableRequest struct {
+	Kind        string `json:"kind"`        // "document" | "pull_request"
+	Title       string `json:"title"`
+	Description string `json:"description"`
+	Required    bool   `json:"required"`
+	SortOrder   int32  `json:"sort_order"`
+}
+
+type UpdateDeliverableRequest struct {
+	Kind        *string `json:"kind"`
+	Title       *string `json:"title"`
+	Description *string `json:"description"`
+	Required    *bool   `json:"required"`
+	SortOrder   *int32  `json:"sort_order"`
+}
+
+type WorkflowNodeDeliverableResponse struct {
+	ID             string `json:"id"`
+	WorkflowNodeID string `json:"workflow_node_id"`
+	Kind           string `json:"kind"`
+	Title          string `json:"title"`
+	Description    string `json:"description"`
+	Required       bool   `json:"required"`
+	SortOrder      int32  `json:"sort_order"`
+	CreatedAt      string `json:"created_at"`
+	UpdatedAt      string `json:"updated_at"`
+}
+
+func workflowNodeDeliverableToResponse(d db.MulticaWorkflowNodeDeliverable) WorkflowNodeDeliverableResponse {
+	return WorkflowNodeDeliverableResponse{
+		ID:             uuidToString(d.ID),
+		WorkflowNodeID: uuidToString(d.WorkflowNodeID),
+		Kind:           d.Kind,
+		Title:          d.Title,
+		Description:    d.Description,
+		Required:       d.Required,
+		SortOrder:      d.SortOrder,
+		CreatedAt:      timestampToString(d.CreatedAt),
+		UpdatedAt:      timestampToString(d.UpdatedAt),
+	}
+}
+
+// ── Deliverable handlers ──────────────────────────────────────────────────────
+
+// ListWorkflowNodeDeliverables GET /api/workflows/{id}/nodes/{nodeId}/deliverables
+func (h *Handler) ListWorkflowNodeDeliverables(w http.ResponseWriter, r *http.Request) {
+	nodeID := chi.URLParam(r, "nodeId")
+	nodeUUID, ok := parseUUIDOrBadRequest(w, nodeID, "nodeId")
+	if !ok {
+		return
+	}
+
+	// Verify the workflow belongs to the current workspace
+	wfID := chi.URLParam(r, "id")
+	if _, ok := h.loadWorkflowInWorkspace(w, r, wfID); !ok {
+		return
+	}
+
+	deliverables, err := h.Queries.ListWorkflowNodeDeliverables(r.Context(), nodeUUID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to list deliverables")
+		return
+	}
+
+	resp := make([]WorkflowNodeDeliverableResponse, 0, len(deliverables))
+	for _, d := range deliverables {
+		resp = append(resp, workflowNodeDeliverableToResponse(d))
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{"deliverables": resp})
+}
+
+// CreateWorkflowNodeDeliverable POST /api/workflows/{id}/nodes/{nodeId}/deliverables
+func (h *Handler) CreateWorkflowNodeDeliverable(w http.ResponseWriter, r *http.Request) {
+	nodeID := chi.URLParam(r, "nodeId")
+	nodeUUID, ok := parseUUIDOrBadRequest(w, nodeID, "nodeId")
+	if !ok {
+		return
+	}
+
+	wfID := chi.URLParam(r, "id")
+	if _, ok := h.loadWorkflowInWorkspace(w, r, wfID); !ok {
+		return
+	}
+
+	var req CreateDeliverableRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if req.Title == "" {
+		writeError(w, http.StatusBadRequest, "title is required")
+		return
+	}
+	if req.Kind != "document" && req.Kind != "pull_request" {
+		writeError(w, http.StatusBadRequest, "kind must be 'document' or 'pull_request'")
+		return
+	}
+
+	deliverable, err := h.Queries.CreateWorkflowNodeDeliverable(r.Context(), db.CreateWorkflowNodeDeliverableParams{
+		WorkflowNodeID: nodeUUID,
+		Kind:           req.Kind,
+		Title:          req.Title,
+		Description:    req.Description,
+		Required:       req.Required,
+		SortOrder:      req.SortOrder,
+	})
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to create deliverable")
+		return
+	}
+
+	writeJSON(w, http.StatusCreated, workflowNodeDeliverableToResponse(deliverable))
+}
+
+// UpdateWorkflowNodeDeliverable PUT /api/workflows/{id}/nodes/{nodeId}/deliverables/{deliverableId}
+func (h *Handler) UpdateWorkflowNodeDeliverable(w http.ResponseWriter, r *http.Request) {
+	deliverableID := chi.URLParam(r, "deliverableId")
+	dUUID, ok := parseUUIDOrBadRequest(w, deliverableID, "deliverableId")
+	if !ok {
+		return
+	}
+
+	wfID := chi.URLParam(r, "id")
+	if _, ok := h.loadWorkflowInWorkspace(w, r, wfID); !ok {
+		return
+	}
+
+	var req UpdateDeliverableRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if req.Kind != nil && *req.Kind != "document" && *req.Kind != "pull_request" {
+		writeError(w, http.StatusBadRequest, "kind must be 'document' or 'pull_request'")
+		return
+	}
+
+	params := db.UpdateWorkflowNodeDeliverableParams{
+		ID: dUUID,
+	}
+	if req.Kind != nil {
+		params.Kind = pgtype.Text{String: *req.Kind, Valid: true}
+	}
+	if req.Title != nil {
+		params.Title = pgtype.Text{String: *req.Title, Valid: true}
+	}
+	if req.Description != nil {
+		params.Description = pgtype.Text{String: *req.Description, Valid: true}
+	}
+	if req.Required != nil {
+		params.Required = pgtype.Bool{Bool: *req.Required, Valid: true}
+	}
+	if req.SortOrder != nil {
+		params.SortOrder = pgtype.Int4{Int32: *req.SortOrder, Valid: true}
+	}
+	deliverable, err := h.Queries.UpdateWorkflowNodeDeliverable(r.Context(), params)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to update deliverable")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, workflowNodeDeliverableToResponse(deliverable))
+}
+
+// DeleteWorkflowNodeDeliverable DELETE /api/workflows/{id}/nodes/{nodeId}/deliverables/{deliverableId}
+func (h *Handler) DeleteWorkflowNodeDeliverable(w http.ResponseWriter, r *http.Request) {
+	deliverableID := chi.URLParam(r, "deliverableId")
+	dUUID, ok := parseUUIDOrBadRequest(w, deliverableID, "deliverableId")
+	if !ok {
+		return
+	}
+
+	wfID := chi.URLParam(r, "id")
+	if _, ok := h.loadWorkflowInWorkspace(w, r, wfID); !ok {
+		return
+	}
+
+	if err := h.Queries.DeleteWorkflowNodeDeliverable(r.Context(), dUUID); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to delete deliverable")
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// ── Role request/response types ──────────────────────────────────────────────
+
+type CreateRoleRequest struct {
+	Name        string `json:"name"`
+	Description string `json:"description"`
+}
+
+type UpdateRoleRequest struct {
+	Name        *string `json:"name"`
+	Description *string `json:"description"`
+}
+
+type WorkflowRoleResponse struct {
+	ID          string `json:"id"`
+	WorkspaceID string `json:"workspace_id"`
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	CreatedAt   string `json:"created_at"`
+	UpdatedAt   string `json:"updated_at"`
+}
+
+func workflowRoleToResponse(r db.MulticaWorkflowRole) WorkflowRoleResponse {
+	return WorkflowRoleResponse{
+		ID:          uuidToString(r.ID),
+		WorkspaceID: uuidToString(r.WorkspaceID),
+		Name:        r.Name,
+		Description: r.Description,
+		CreatedAt:   timestampToString(r.CreatedAt),
+		UpdatedAt:   timestampToString(r.UpdatedAt),
+	}
+}
+
+// ── Role handlers ────────────────────────────────────────────────────────────
+
+// ListWorkflowRoles GET /api/workflow-roles
+func (h *Handler) ListWorkflowRoles(w http.ResponseWriter, r *http.Request) {
+	wsID := h.resolveWorkspaceID(r)
+	if wsID == "" {
+		writeError(w, http.StatusBadRequest, "workspace_id is required")
+		return
+	}
+	wsUUID, ok := parseUUIDOrBadRequest(w, wsID, "workspace_id")
+	if !ok {
+		return
+	}
+
+	roles, err := h.Queries.ListWorkflowRoles(r.Context(), wsUUID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to list roles")
+		return
+	}
+
+	resp := make([]WorkflowRoleResponse, 0, len(roles))
+	for _, role := range roles {
+		resp = append(resp, workflowRoleToResponse(role))
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"roles": resp})
+}
+
+// CreateWorkflowRole POST /api/workflow-roles
+func (h *Handler) CreateWorkflowRole(w http.ResponseWriter, r *http.Request) {
+	wsID := h.resolveWorkspaceID(r)
+	if wsID == "" {
+		writeError(w, http.StatusBadRequest, "workspace_id is required")
+		return
+	}
+	wsUUID, ok := parseUUIDOrBadRequest(w, wsID, "workspace_id")
+	if !ok {
+		return
+	}
+
+	var req CreateRoleRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if req.Name == "" {
+		writeError(w, http.StatusBadRequest, "name is required")
+		return
+	}
+
+	role, err := h.Queries.CreateWorkflowRole(r.Context(), db.CreateWorkflowRoleParams{
+		WorkspaceID: wsUUID,
+		Name:        req.Name,
+		Description: req.Description,
+	})
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to create role")
+		return
+	}
+	writeJSON(w, http.StatusCreated, workflowRoleToResponse(role))
+}
+

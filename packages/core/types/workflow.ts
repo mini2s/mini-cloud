@@ -1,6 +1,7 @@
 export type WorkflowStatus = "draft" | "active" | "paused" | "archived";
-export type WorkerType = "human" | "agent" | "squad";
-export type CriticType = "human" | "agent" | "squad" | "api";
+export type WorkerType = "human" | "agent" | "squad" | "role";
+export type CriticType = "human" | "agent" | "squad" | "api" | "role";
+export type RoleActorType = "member" | "agent" | "squad";
 export type NodeShape = "rectangle" | "diamond" | "pill" | "hexagon";
 
 export const NODE_SHAPES: NodeShape[] = ["rectangle", "diamond", "pill", "hexagon"];
@@ -23,6 +24,7 @@ export function workerTypeToActorType(t: string): "member" | "agent" | "squad" {
   if (t === "human") return "member";
   if (t === "agent") return "agent";
   if (t === "squad") return "squad";
+  if (t === "role") return "agent"; // roles resolve to agents for actor-name lookup
   return "member";
 }
 
@@ -229,4 +231,64 @@ export interface WorkflowAdmin {
   name: string;
   email: string;
   can_manage_workflows: boolean;
+}
+
+// ── Deliverable types ──────────────────────────────────────────────────────
+
+export type WorkflowDeliverableKind = "document" | "pull_request";
+export type WorkflowDeliverableSubmissionStatus = "missing" | "submitted" | "approved" | "rejected";
+
+export interface WorkflowNodeDeliverable {
+  id: string;
+  workflow_node_id: string;
+  kind: WorkflowDeliverableKind;
+  title: string;
+  description: string;
+  required: boolean;
+  sort_order: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface WorkflowNodeDeliverableSubmission {
+  id: string;
+  workflow_node_run_id: string;
+  deliverable_id: string;
+  submitted_by_type: "member" | "agent" | "system";
+  submitted_by_id: string | null;
+  status: WorkflowDeliverableSubmissionStatus;
+  content: string;
+  attachment_id: string | null;
+  pull_request_url: string;
+  review_comment: string;
+  submitted_at: string;
+  reviewed_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+/** Composite view joining a deliverable definition with its submission for a node run. */
+export interface DeliverableWithSubmission {
+  deliverable: WorkflowNodeDeliverable;
+  submission: WorkflowNodeDeliverableSubmission | null;
+}
+
+// ── Role types ──────────────────────────────────────────────────────────────
+
+export interface WorkflowRole {
+  id: string;
+  workspace_id: string;
+  name: string;
+  description: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface WorkflowRoleBinding {
+  id: string;
+  role_id: string;
+  actor_type: RoleActorType;
+  actor_id: string;
+  priority: number;
+  created_at: string;
 }

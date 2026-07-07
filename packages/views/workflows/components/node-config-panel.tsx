@@ -1,8 +1,22 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useQuery } from "@tanstack/react-query";
+import {
+  Activity,
+  AlertTriangle,
+  Bot,
+  Braces,
+  CheckCircle2,
+  FileCheck2,
+  GitBranch,
+  ShieldCheck,
+  Trash2,
+  User,
+  Users,
+  X,
+} from "lucide-react";
 import { toast } from "sonner";
-import { Trash2, X } from "lucide-react";
 import { Button } from "@multica/ui/components/ui/button";
 import { Input } from "@multica/ui/components/ui/input";
 import { Textarea } from "@multica/ui/components/ui/textarea";
@@ -10,11 +24,17 @@ import { Label } from "@multica/ui/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@multica/ui/components/ui/tabs";
 import { useT } from "../../i18n";
 import { useWorkspaceId } from "@multica/core/hooks";
-import { useCreateStage, useDeleteNode, useAssignNodeToStage } from "@multica/core/workflows/queries";
+import {
+  useCreateStage,
+  useDeleteNode,
+  useAssignNodeToStage,
+  workflowRolesOptions,
+} from "@multica/core/workflows/queries";
 import { useWorkflowEditorStore } from "@multica/core/workflows/store";
 import { AssigneePicker } from "../../issues/components/pickers/assignee-picker";
 import type { WorkflowNode, WorkflowNodeRun, WorkflowStage, WorkerType, CriticType } from "@multica/core/types";
 import type { IssueAssigneeType } from "@multica/core/types/issue";
+import { NodeDeliverablesEditor } from "./node-deliverables-editor";
 import { NodeDataPreview } from "./node-data-preview";
 
 function toAssigneeType(t: string): IssueAssigneeType | null {
@@ -43,23 +63,189 @@ function toFormatSchemaString(fs: unknown): string {
   return JSON.stringify(fs, null, 2);
 }
 
-/**
- * Parse a format_schema textarea value back to a JSON value for API storage.
- * The textarea always holds a string, but format_schema must be stored as a
- * JSON object/array/null in the database (JSONB column), not as a JSON string.
- * A bare string causes validateJSONSchema in Go to fail with
- * "cannot unmarshal string into Go value of type map[string]interface{}".
- */
 function parseFormatSchemaValue(raw: string): unknown {
   const trimmed = raw.trim();
   if (!trimmed) return null;
   try {
     return JSON.parse(trimmed);
   } catch {
-    // JSON is incomplete while typing — keep the raw string so the edit
-    // is preserved; handleSave normalizes it again before sending to the API.
     return raw;
   }
+}
+
+function statusTone(status: string | null | undefined): "default" | "success" | "warning" | "danger" {
+  if (!status) return "default";
+  if (status === "completed" || status === "critic_approved" || status === "format_ok") return "success";
+  if (status === "failed" || status === "blocked" || status === "cancelled" || status === "critic_rework" || status === "format_failed") return "danger";
+  if (status === "working" || status === "critic_reviewing" || status === "awaiting_critic" || status === "awaiting_input") return "warning";
+  return "default";
+}
+
+function statusClasses(tone: "default" | "success" | "warning" | "danger"): string {
+  if (tone === "success") return "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900/60 dark:bg-emerald-950/30 dark:text-emerald-300";
+  if (tone === "warning") return "border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-300";
+  if (tone === "danger") return "border-destructive/25 bg-destructive/10 text-destructive";
+  return "border-border bg-muted/40 text-muted-foreground";
+}
+
+function StatusBadge({
+  children,
+  tone = "default",
+}: {
+  children: ReactNode;
+  tone?: "default" | "success" | "warning" | "danger";
+}) {
+  return (
+    <span className={`inline-flex h-6 shrink-0 items-center gap-1 rounded-full border px-2 text-[11px] font-medium ${statusClasses(tone)}`}>
+      {children}
+    </span>
+  );
+}
+
+function InspectorSection({
+  icon,
+  title,
+  subtitle,
+  status,
+  children,
+  className = "",
+}: {
+  icon: ReactNode;
+  title: string;
+  subtitle?: string;
+  status?: ReactNode;
+  children?: ReactNode;
+  className?: string;
+}) {
+  return (
+    <section className={`overflow-hidden rounded-lg border bg-background ${className}`}>
+      <div className="flex items-start justify-between gap-3 border-b bg-muted/20 px-3 py-3">
+        <div className="flex min-w-0 items-start gap-2.5">
+          <span className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-md border bg-background text-muted-foreground">
+            {icon}
+          </span>
+          <div className="min-w-0">
+            <h4 className="text-sm font-medium leading-none">{title}</h4>
+            {subtitle ? <p className="mt-1 text-[11px] leading-snug text-muted-foreground">{subtitle}</p> : null}
+          </div>
+        </div>
+        {status}
+      </div>
+      {children ? <div className="space-y-3 p-3">{children}</div> : null}
+    </section>
+  );
+}
+
+function TypeSegmentedControl<T extends string>({
+  label,
+  value,
+  options,
+  disabled,
+  onChange,
+}: {
+  label: "Worker" | "Critic";
+  value: T;
+  options: Array<{ value: T; label: string }>;
+  disabled?: boolean;
+  onChange: (value: T) => void;
+}) {
+  return (
+    <div className="grid gap-1 rounded-lg border bg-muted/40 p-1" style={{ gridTemplateColumns: `repeat(${options.length}, minmax(0, 1fr))` }}>
+      {options.map((option) => {
+        const active = option.value === value;
+        return (
+          <button
+            key={option.value}
+            type="button"
+            disabled={disabled}
+            aria-label={`${label} type ${option.label}`}
+            aria-pressed={active}
+            className={`h-8 rounded-md px-2 text-[11px] font-medium transition-colors ${
+              active
+                ? "border border-border bg-background text-foreground shadow-sm"
+                : "text-muted-foreground hover:bg-background/70 hover:text-foreground"
+            }`}
+            onClick={() => onChange(option.value)}
+          >
+            {option.label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+function ActorSummary({
+  type,
+  id,
+  emptyText,
+}: {
+  type: string;
+  id: string | null;
+  emptyText: string;
+}) {
+  const Icon = type === "agent" ? Bot : type === "squad" ? Users : type === "role" ? ShieldCheck : User;
+  return (
+    <div className="flex items-center gap-2 rounded-lg border border-border/70 bg-muted/20 px-2.5 py-2">
+      <span className="flex size-8 shrink-0 items-center justify-center rounded-md bg-background text-muted-foreground">
+        <Icon className="size-4" />
+      </span>
+      <div className="min-w-0">
+        <p className="truncate text-xs font-medium">{id ? `${type}: ${id}` : emptyText}</p>
+        <p className="truncate text-[11px] text-muted-foreground">
+          {type === "role" ? "Resolved when the workflow runs" : "Pick a concrete assignee for predictable execution"}
+        </p>
+      </div>
+    </div>
+  );
+}
+
+function pickerTriggerLabel(type: string, id: string | null, emptyPrefix: string): string {
+  if (id) return `${type}: ${id}`;
+  if (type === "human") return `${emptyPrefix} Human`;
+  if (type === "agent") return `${emptyPrefix} Agent`;
+  if (type === "squad") return `${emptyPrefix} Squad`;
+  return emptyPrefix;
+}
+
+function AssigneePickerTrigger({
+  type,
+  id,
+  emptyPrefix,
+}: {
+  type: string;
+  id: string | null;
+  emptyPrefix: string;
+}) {
+  const Icon = type === "agent" ? Bot : type === "squad" ? Users : User;
+  return (
+    <>
+      <Icon className="size-3.5 text-muted-foreground" />
+      <span className="min-w-0 flex-1 truncate text-left">
+        {pickerTriggerLabel(type, id, emptyPrefix)}
+      </span>
+    </>
+  );
+}
+
+function AssignmentCard({
+  title,
+  subtitle,
+  icon,
+  status,
+  children,
+}: {
+  title: string;
+  subtitle: string;
+  icon: ReactNode;
+  status: ReactNode;
+  children: ReactNode;
+}) {
+  return (
+    <InspectorSection icon={icon} title={title} subtitle={subtitle} status={status}>
+      {children}
+    </InspectorSection>
+  );
 }
 
 interface NodeConfigPanelProps {
@@ -70,7 +256,6 @@ interface NodeConfigPanelProps {
   disabled?: boolean;
   recentNodeRun?: WorkflowNodeRun | null;
   onClose: () => void;
-  // Callbacks for parent-controlled save/delete/stage-assign
   onSaveNode?: () => void;
   onDeleteNode?: (nodeId: string) => void;
   onStageChange?: (nodeId: string, stageId: string | null) => void;
@@ -95,6 +280,7 @@ export function NodeConfigPanel({
   const nodeEdits = useWorkflowEditorStore((s) => s.nodeEdits);
   const undoRedoVersion = useWorkflowEditorStore((s) => s._undoRedoVersion);
   const cacheNodeEdits = useWorkflowEditorStore((s) => s.cacheNodeEdits);
+  const { data: roles = [] } = useQuery(workflowRolesOptions(wsId));
 
   const saved = nodeEdits[node.id];
 
@@ -111,7 +297,7 @@ export function NodeConfigPanel({
   const [title, setTitle] = useState(saved?.title ?? node.title);
   const [description, setDescription] = useState(saved?.description ?? node.description);
   const [formatSchema, setFormatSchema] = useState<string>(
-    toFormatSchemaString(saved?.format_schema ?? node.format_schema)
+    toFormatSchemaString(saved?.format_schema ?? node.format_schema),
   );
   const [workerType, setWorkerType] = useState(saved?.worker_type ?? node.worker_type);
   const [workerId, setWorkerId] = useState<string | null>(saved?.worker_id ?? node.worker_id ?? null);
@@ -168,20 +354,39 @@ export function NodeConfigPanel({
     }
   };
 
+  const currentStageName = stages.find((s) => s.id === stageId)?.name ?? t(($) => $.overview.stage_canvas.unassigned);
+  const workerConfigured = workerType === "role" ? Boolean(workerId) : Boolean(workerId);
+  const criticConfigured = criticType === "api" ? Boolean(criticApiUrl.trim()) : Boolean(criticId);
+  const runTone = statusTone(recentNodeRun?.status);
+
   return (
-    <div className="flex flex-col h-full border-l bg-card">
-      <div className="flex items-center justify-between px-4 py-3 border-b shrink-0">
-        <h3 className="text-sm font-medium">{t(($) => $.node.title)}</h3>
-        <Button variant="ghost" size="icon" className="h-7 w-7" onClick={onClose}>
-          <svg width="15" height="15" viewBox="0 0 15 15" fill="none">
-            <path d="M11.7816 4.03157C12.0062 3.80702 12.0062 3.44295 11.7816 3.2184C11.5571 2.99385 11.193 2.99385 10.9685 3.2184L7.50005 6.68682L4.03164 3.2184C3.80708 2.99385 3.44301 2.99385 3.21846 3.2184C2.99391 3.44295 2.99391 3.80702 3.21846 4.03157L6.68688 7.49999L3.21846 10.9684C2.99391 11.193 2.99391 11.557 3.21846 11.7816C3.44301 12.0061 3.80708 12.0061 4.03164 11.7816L7.50005 8.31316L10.9685 11.7816C11.193 12.0061 11.5571 12.0061 11.7816 11.7816C12.0062 11.557 12.0062 11.193 11.7816 10.9684L8.31322 7.49999L11.7816 4.03157Z" fill="currentColor" />
-          </svg>
-        </Button>
+    <div className="flex h-full flex-col border-l bg-card">
+      <div className="shrink-0 border-b px-4 py-3">
+        <div className="mb-2 flex items-center justify-between gap-2">
+          <div className="min-w-0">
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Node inspector</p>
+            <h3 className="truncate text-sm font-medium">{title || t(($) => $.node.title)}</h3>
+          </div>
+          <Button variant="ghost" size="icon" className="h-7 w-7" onClick={onClose} aria-label="Close node inspector">
+            <X className="size-4" />
+          </Button>
+        </div>
+        <div className="flex flex-wrap items-center gap-1.5">
+          <StatusBadge>{currentStageName}</StatusBadge>
+          {recentNodeRun ? (
+            <StatusBadge tone={runTone}>
+              <Activity className="size-3" />
+              Latest run: {recentNodeRun.status}
+            </StatusBadge>
+          ) : (
+            <StatusBadge>No run data</StatusBadge>
+          )}
+        </div>
       </div>
 
       <Tabs defaultValue="config" className="flex min-h-0 flex-1 flex-col">
-        <div className="border-b px-4 py-2">
-          <TabsList className="h-8">
+        <div className="border-b bg-muted/20 px-4 py-2">
+          <TabsList className="grid h-8 w-full grid-cols-3">
             <TabsTrigger value="config" className="text-xs">{t(($) => $.node.tabs.config)}</TabsTrigger>
             <TabsTrigger value="data" className="text-xs">{t(($) => $.node.tabs.data)}</TabsTrigger>
             <TabsTrigger value="runs" className="text-xs">{t(($) => $.node.tabs.runs)}</TabsTrigger>
@@ -189,147 +394,150 @@ export function NodeConfigPanel({
         </div>
 
         <TabsContent value="config" className="m-0 min-h-0 flex-1 overflow-y-auto px-4 py-4">
-          <div className="space-y-4">
-            <div className="space-y-1.5">
-              <Label className="text-sm">{t(($) => $.node.title)}</Label>
-              <Input disabled={disabled}
-                value={title}
-                onChange={(e) => { setTitle(e.target.value); cacheNodeEdits(node.id, { title: e.target.value }); }}
-                placeholder={t(($) => $.node.title_placeholder)}
-                className="h-8 text-sm"
-              />
-            </div>
+          <div className="space-y-3">
+            <InspectorSection
+              icon={<GitBranch className="size-4" />}
+              title="Basics"
+              subtitle="Name, stage, and the responsibility of this step."
+            >
+              <div className="space-y-1.5">
+                <Label className="text-xs text-muted-foreground">{t(($) => $.node.title)}</Label>
+                <Input
+                  disabled={disabled}
+                  value={title}
+                  onChange={(e) => {
+                    setTitle(e.target.value);
+                    cacheNodeEdits(node.id, { title: e.target.value });
+                  }}
+                  placeholder={t(($) => $.node.title_placeholder)}
+                  className="h-8 text-sm"
+                />
+              </div>
 
-            <div className="space-y-1.5">
-              <Label className="text-sm">{t(($) => $.node.description)}</Label>
-              <Textarea disabled={disabled}
-                value={description}
-                onChange={(e) => { setDescription(e.target.value); cacheNodeEdits(node.id, { description: e.target.value }); }}
-                placeholder={t(($) => $.node.description_placeholder)}
-                className="min-h-[60px] text-sm"
-                rows={2}
-              />
-            </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs text-muted-foreground">{t(($) => $.node.stage_label)}</Label>
+                <select
+                  disabled={disabled || assignStageMutation.isPending}
+                  className="flex h-8 w-full rounded-md border border-input bg-background px-2 text-sm"
+                  value={stageId ?? ""}
+                  onChange={(e) => {
+                    const newVal = e.target.value;
+                    if (newVal === "__create_new__") {
+                      (e.target as HTMLSelectElement).value = stageId ?? "";
+                      setShowCreateForm(true);
+                      return;
+                    }
+                    const newStageId = newVal || null;
+                    setStageId(newStageId);
+                    if (onStageChange) {
+                      onStageChange(node.id, newStageId);
+                    } else {
+                      assignStageMutation.mutate(
+                        { nodeId: node.id, stage_id: newStageId },
+                        { onError: () => setStageId(node.stage_id ?? null) },
+                      );
+                    }
+                  }}
+                >
+                  <option value="">{t(($) => $.overview.stage_canvas.unassigned)}</option>
+                  {stages.map((s) => (
+                    <option key={s.id} value={s.id}>{s.name}</option>
+                  ))}
+                  <option value="__create_new__" disabled={disabled}>
+                    {t(($) => $.node.stage_create_option)}
+                  </option>
+                </select>
 
-            <div className="space-y-1.5">
-              <Label className="text-sm">{t(($) => $.node.stage_label)}</Label>
-              <select
-                disabled={disabled || assignStageMutation.isPending}
-                className="flex h-8 w-full rounded-md border border-input bg-background px-2 text-sm"
-                value={stageId ?? ""}
-                onChange={(e) => {
-                  const newVal = e.target.value;
-                  if (newVal === "__create_new__") {
-                    (e.target as HTMLSelectElement).value = stageId ?? "";
-                    setShowCreateForm(true);
-                    return;
-                  }
-                  const newStageId = newVal || null;
-                  setStageId(newStageId);
-                  if (onStageChange) {
-                    onStageChange(node.id, newStageId);
-                  } else {
-                    assignStageMutation.mutate(
-                      { nodeId: node.id, stage_id: newStageId },
-                      { onError: () => setStageId(node.stage_id ?? null) },
-                    );
-                  }
-                }}
-              >
-                <option value="">{t(($) => $.overview.stage_canvas.unassigned)}</option>
-                {stages.map((s) => (
-                  <option key={s.id} value={s.id}>{s.name}</option>
-                ))}
-                <option value="__create_new__" disabled={disabled}>
-                  {t(($) => $.node.stage_create_option)}
-                </option>
-              </select>
-
-              {showCreateForm ? (
-                <div className="space-y-2 rounded-md border border-muted p-3">
-                  <Input
-                    disabled={disabled}
-                    value={newStageName}
-                    onChange={(e) => setNewStageName(e.target.value)}
-                    placeholder={t(($) => $.node.stage_create_name_placeholder)}
-                    className="h-8 text-sm"
-                    autoFocus
-                  />
-                  <Input
-                    disabled={disabled}
-                    value={newStageDescription}
-                    onChange={(e) => setNewStageDescription(e.target.value)}
-                    placeholder={t(($) => $.node.stage_create_description_placeholder)}
-                    className="h-8 text-sm"
-                  />
-                  <div className="flex gap-2">
-                    <Button
-                      size="sm"
-                      variant="default"
-                      disabled={disabled || !newStageName.trim() || createStageMutation.isPending}
-                      onClick={async () => {
-                        if (!newStageName.trim()) return;
-                        try {
-                          const created = await createStageMutation.mutateAsync({
-                            name: newStageName.trim(),
-                            description: newStageDescription.trim() || undefined,
-                          });
-                          setStageId(created.id);
-                          assignStageMutation.mutate(
-                            { nodeId: node.id, stage_id: created.id },
-                            { onError: () => setStageId(node.stage_id ?? null) },
-                          );
+                {showCreateForm ? (
+                  <div className="space-y-2 rounded-md border border-muted p-3">
+                    <Input
+                      disabled={disabled}
+                      value={newStageName}
+                      onChange={(e) => setNewStageName(e.target.value)}
+                      placeholder={t(($) => $.node.stage_create_name_placeholder)}
+                      className="h-8 text-sm"
+                      autoFocus
+                    />
+                    <Input
+                      disabled={disabled}
+                      value={newStageDescription}
+                      onChange={(e) => setNewStageDescription(e.target.value)}
+                      placeholder={t(($) => $.node.stage_create_description_placeholder)}
+                      className="h-8 text-sm"
+                    />
+                    <div className="flex gap-2">
+                      <Button
+                        size="sm"
+                        variant="default"
+                        disabled={disabled || !newStageName.trim() || createStageMutation.isPending}
+                        onClick={async () => {
+                          if (!newStageName.trim()) return;
+                          try {
+                            const created = await createStageMutation.mutateAsync({
+                              name: newStageName.trim(),
+                              description: newStageDescription.trim() || undefined,
+                            });
+                            setStageId(created.id);
+                            assignStageMutation.mutate(
+                              { nodeId: node.id, stage_id: created.id },
+                              { onError: () => setStageId(node.stage_id ?? null) },
+                            );
+                            setShowCreateForm(false);
+                            setNewStageName("");
+                            setNewStageDescription("");
+                          } catch {
+                            // Mutation state displays the failure below.
+                          }
+                        }}
+                      >
+                        {createStageMutation.isPending ? t(($) => $.node.saving) : t(($) => $.detail.create_dialog.create)}
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={createStageMutation.isPending}
+                        onClick={() => {
                           setShowCreateForm(false);
                           setNewStageName("");
                           setNewStageDescription("");
-                        } catch {
-                          // Error state is surfaced by the mutation itself.
-                        }
-                      }}
-                    >
-                      {createStageMutation.isPending ? t(($) => $.node.saving) : t(($) => $.detail.create_dialog.create)}
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      disabled={createStageMutation.isPending}
-                      onClick={() => {
-                        setShowCreateForm(false);
-                        setNewStageName("");
-                        setNewStageDescription("");
-                      }}
-                    >
-                      {t(($) => $.overview.stage_dialog.cancel)}
-                    </Button>
+                        }}
+                      >
+                        {t(($) => $.overview.stage_dialog.cancel)}
+                      </Button>
+                    </div>
+                    {createStageMutation.error ? (
+                      <p className="text-xs text-destructive">{createStageMutation.error.message}</p>
+                    ) : null}
                   </div>
-                  {createStageMutation.error ? (
-                    <p className="text-xs text-destructive">{createStageMutation.error.message}</p>
-                  ) : null}
-                </div>
-              ) : null}
-            </div>
+                ) : null}
+              </div>
 
-            <div className="space-y-1.5">
-              <Label className="text-sm">{t(($) => $.node.format_schema_label)}</Label>
-              <Textarea disabled={disabled}
-                value={formatSchema}
-                onChange={(e) => {
-                  setFormatSchema(e.target.value);
-                  cacheNodeEdits(node.id, { format_schema: parseFormatSchemaValue(e.target.value) });
-                }}
-                placeholder="{}"
-                className="min-h-[80px] text-sm font-mono"
-                rows={4}
-              />
-              <p className="text-[11px] text-muted-foreground">{t(($) => $.node.format_schema_hint)}</p>
-            </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs text-muted-foreground">{t(($) => $.node.description)}</Label>
+                <Textarea
+                  disabled={disabled}
+                  value={description}
+                  onChange={(e) => {
+                    setDescription(e.target.value);
+                    cacheNodeEdits(node.id, { description: e.target.value });
+                  }}
+                  placeholder={t(($) => $.node.description_placeholder)}
+                  className="min-h-[72px] text-sm"
+                  rows={3}
+                />
+              </div>
+            </InspectorSection>
 
             {isAnnotation ? (
-              <div className="space-y-1.5">
-                <Label className="text-sm">Bind to Node</Label>
+              <InspectorSection
+                icon={<Braces className="size-4" />}
+                title="Annotation binding"
+                subtitle="Attach this note to a workflow node."
+              >
+                <Label className="text-xs text-muted-foreground">Bind to Node</Label>
                 {targetNodeId ? (
-                  <div className="flex items-center gap-1.5">
-                    <span className="text-sm flex-1 truncate">
+                  <div className="flex items-center gap-1.5 rounded-md border px-2 py-1.5">
+                    <span className="min-w-0 flex-1 truncate text-sm">
                       {bindableNodes.find((bn) => bn.id === targetNodeId)?.title ?? "Unknown node"}
                     </span>
                     <Button
@@ -356,7 +564,8 @@ export function NodeConfigPanel({
                     </Button>
                   </div>
                 ) : (
-                  <select disabled={disabled}
+                  <select
+                    disabled={disabled}
                     className="flex h-8 w-full rounded-md border border-input bg-background px-2 text-sm"
                     value=""
                     onChange={(e) => {
@@ -382,86 +591,287 @@ export function NodeConfigPanel({
                     ))}
                   </select>
                 )}
-              </div>
+              </InspectorSection>
             ) : null}
 
             {!isAnnotation ? (
-              <div className="space-y-3 pt-2 border-t">
-                <h4 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">
-                  {t(($) => $.node.section_worker)}
-                </h4>
+              <>
+                <AssignmentCard
+                  icon={<Bot className="size-4" />}
+                  title={t(($) => $.node.section_worker)}
+                  subtitle="Who performs this workflow step."
+                  status={workerConfigured ? <StatusBadge tone="success">Configured</StatusBadge> : <StatusBadge tone="warning">Needs assignee</StatusBadge>}
+                >
+                  <TypeSegmentedControl<WorkerType>
+                    label="Worker"
+                    value={workerType}
+                    disabled={disabled}
+                    options={[
+                      { value: "human", label: t(($) => $.node.worker_type_human) },
+                      { value: "agent", label: t(($) => $.node.worker_type_agent) },
+                      { value: "squad", label: t(($) => $.node.worker_type_squad) },
+                      { value: "role", label: "Role" },
+                    ]}
+                    onChange={(wt) => {
+                      setWorkerType(wt);
+                      setWorkerId(null);
+                      cacheNodeEdits(node.id, { worker_type: wt, worker_id: null });
+                    }}
+                  />
 
-                <div className="space-y-1.5">
-                  <div className={disabled ? "pointer-events-none" : undefined} onClickCapture={disabled ? (e) => { e.preventDefault(); e.stopPropagation(); } : undefined}>
-                    <AssigneePicker
-                      assigneeType={toAssigneeType(workerType)}
-                      assigneeId={workerId}
-                      onUpdate={disabled ? () => {} : (u) => {
-                        const wt = fromAssigneeType(u.assignee_type ?? null);
-                        const wid = u.assignee_id ?? null;
-                        setWorkerType(wt);
-                        setWorkerId(wid);
-                        cacheNodeEdits(node.id, { worker_type: wt, worker_id: wid });
-                      }}
-                      align="start"
-                      skipBuiltinRuntimeSelection
-                    />
-                  </div>
+                  {workerType === "role" ? (
+                    <div className="space-y-1.5">
+                      <Label className="text-xs text-muted-foreground" htmlFor="worker-role-select">Worker role</Label>
+                      <select
+                        id="worker-role-select"
+                        aria-label="Worker role"
+                        disabled={disabled}
+                        className="h-8 w-full rounded-md border border-input bg-background px-2 text-sm"
+                        value={workerId ?? ""}
+                        onChange={(e) => {
+                          const rid = e.target.value || null;
+                          setWorkerId(rid);
+                          cacheNodeEdits(node.id, { worker_id: rid });
+                        }}
+                      >
+                        <option value="">Select a role...</option>
+                        {roles.map((r) => (
+                          <option key={r.id} value={r.id}>{r.name}</option>
+                        ))}
+                      </select>
+                      <ActorSummary type="role" id={workerId} emptyText="No worker role selected" />
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      <div className={disabled ? "pointer-events-none opacity-60" : undefined}>
+                        <AssigneePicker
+                          assigneeType={toAssigneeType(workerType)}
+                          assigneeId={workerId}
+                          triggerRender={
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              className="h-8 w-full justify-start"
+                              disabled={disabled}
+                            />
+                          }
+                          trigger={
+                            <AssigneePickerTrigger
+                              type={workerType}
+                              id={workerId}
+                              emptyPrefix="Select existing"
+                            />
+                          }
+                          onUpdate={disabled ? () => {} : (u) => {
+                            const wt = fromAssigneeType(u.assignee_type ?? null);
+                            const wid = u.assignee_id ?? null;
+                            setWorkerType(wt);
+                            setWorkerId(wid);
+                            cacheNodeEdits(node.id, { worker_type: wt, worker_id: wid });
+                          }}
+                          align="start"
+                          skipBuiltinRuntimeSelection
+                        />
+                      </div>
+                      <ActorSummary type={workerType} id={workerId} emptyText="No worker selected" />
+                    </div>
+                  )}
+                </AssignmentCard>
+
+                <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2 px-1 text-[11px] font-medium text-muted-foreground">
+                  <span className="h-px bg-border" />
+                  <span>Worker output moves to Critic review</span>
+                  <span className="h-px bg-border" />
                 </div>
-              </div>
+
+                <AssignmentCard
+                  icon={<ShieldCheck className="size-4" />}
+                  title={t(($) => $.node.section_critic)}
+                  subtitle="Who reviews or validates the worker output."
+                  status={criticConfigured ? <StatusBadge tone="success">Configured</StatusBadge> : <StatusBadge>Optional</StatusBadge>}
+                >
+                  <TypeSegmentedControl<CriticType>
+                    label="Critic"
+                    value={criticType}
+                    disabled={disabled}
+                    options={[
+                      { value: "human", label: t(($) => $.node.critic_type_human) },
+                      { value: "agent", label: t(($) => $.node.critic_type_agent) },
+                      { value: "squad", label: t(($) => $.node.critic_type_squad) },
+                      { value: "role", label: "Role" },
+                      { value: "api", label: t(($) => $.node.critic_type_api) },
+                    ]}
+                    onChange={(ct) => {
+                      setCriticType(ct);
+                      setCriticId(null);
+                      cacheNodeEdits(node.id, { critic_type: ct, critic_id: null });
+                    }}
+                  />
+
+                  {criticType === "api" ? (
+                    <div className="space-y-1.5">
+                      <Label className="text-xs text-muted-foreground" htmlFor="critic-api-url">{t(($) => $.node.critic_api_url_label)}</Label>
+                      <Input
+                        id="critic-api-url"
+                        aria-label="Critic API URL"
+                        disabled={disabled}
+                        value={criticApiUrl}
+                        onChange={(e) => {
+                          setCriticApiUrl(e.target.value);
+                          cacheNodeEdits(node.id, { critic_api_url: e.target.value });
+                        }}
+                        placeholder="https://..."
+                        className="h-8 text-sm"
+                      />
+                      <p className="text-[11px] leading-snug text-muted-foreground">{t(($) => $.node.critic_api_url_hint)}</p>
+                    </div>
+                  ) : criticType === "role" ? (
+                    <div className="space-y-1.5">
+                      <Label className="text-xs text-muted-foreground" htmlFor="critic-role-select">Critic role</Label>
+                      <select
+                        id="critic-role-select"
+                        aria-label="Critic role"
+                        disabled={disabled}
+                        className="h-8 w-full rounded-md border border-input bg-background px-2 text-sm"
+                        value={criticId ?? ""}
+                        onChange={(e) => {
+                          const rid = e.target.value || null;
+                          setCriticId(rid);
+                          cacheNodeEdits(node.id, { critic_id: rid });
+                        }}
+                      >
+                        <option value="">Select a role...</option>
+                        {roles.map((r) => (
+                          <option key={r.id} value={r.id}>{r.name}</option>
+                        ))}
+                      </select>
+                      <ActorSummary type="role" id={criticId} emptyText="No critic role selected" />
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      <div className={disabled ? "pointer-events-none opacity-60" : undefined}>
+                        <AssigneePicker
+                          assigneeType={toAssigneeType(criticType)}
+                          assigneeId={criticId}
+                          triggerRender={
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              className="h-8 w-full justify-start"
+                              disabled={disabled}
+                            />
+                          }
+                          trigger={
+                            <AssigneePickerTrigger
+                              type={criticType}
+                              id={criticId}
+                              emptyPrefix="Select existing"
+                            />
+                          }
+                          onUpdate={disabled ? () => {} : (u) => {
+                            const ct = fromAssigneeTypeCritic(u.assignee_type ?? null);
+                            const cid = u.assignee_id ?? null;
+                            setCriticType(ct);
+                            setCriticId(cid);
+                            cacheNodeEdits(node.id, { critic_type: ct, critic_id: cid });
+                          }}
+                          align="start"
+                        />
+                      </div>
+                      <ActorSummary type={criticType} id={criticId} emptyText="No critic selected" />
+                    </div>
+                  )}
+                </AssignmentCard>
+
+                <InspectorSection
+                  icon={<FileCheck2 className="size-4" />}
+                  title="Outputs"
+                  subtitle="Required documents or pull requests for this node."
+                >
+                  <NodeDeliverablesEditor
+                    workflowId={workflowId}
+                    nodeId={node.id}
+                    disabled={disabled}
+                  />
+                </InspectorSection>
+              </>
             ) : null}
 
-            {!isAnnotation ? (
-              <div className="space-y-3 pt-2 border-t">
-                <h4 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">
-                  {t(($) => $.node.section_critic)}
-                </h4>
-
-                <div className="space-y-1.5">
-                  <div className={disabled ? "pointer-events-none" : undefined} onClickCapture={disabled ? (e) => { e.preventDefault(); e.stopPropagation(); } : undefined}>
-                    <AssigneePicker
-                      assigneeType={toAssigneeType(criticType)}
-                      assigneeId={criticId}
-                      onUpdate={disabled ? () => {} : (u) => {
-                        const ct = fromAssigneeTypeCritic(u.assignee_type ?? null);
-                        const cid = u.assignee_id ?? null;
-                        setCriticType(ct);
-                        setCriticId(cid);
-                        cacheNodeEdits(node.id, { critic_type: ct, critic_id: cid });
-                      }}
-                      align="start"
-                    />
-                  </div>
-                </div>
-
-                {criticType === "api" ? (
-                  <div className="space-y-1.5">
-                    <Label className="text-sm">{t(($) => $.node.critic_api_url_label)}</Label>
-                    <Input disabled={disabled}
-                      value={criticApiUrl}
-                      onChange={(e) => { setCriticApiUrl(e.target.value); cacheNodeEdits(node.id, { critic_api_url: e.target.value }); }}
-                      placeholder="https://..."
-                      className="h-8 text-sm"
-                    />
-                    <p className="text-[11px] text-muted-foreground">{t(($) => $.node.critic_api_url_hint)}</p>
-                  </div>
-                ) : null}
+            <details className="group overflow-hidden rounded-lg border border-dashed bg-background">
+              <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-3 py-3">
+                <span className="flex min-w-0 items-center gap-2.5">
+                  <span className="flex size-7 shrink-0 items-center justify-center rounded-md border bg-background text-muted-foreground">
+                    <Braces className="size-4" />
+                  </span>
+                  <span className="min-w-0">
+                    <span className="block text-sm font-medium">Advanced</span>
+                    <span className="block truncate text-[11px] text-muted-foreground">{t(($) => $.node.format_schema_label)}</span>
+                  </span>
+                </span>
+                <StatusBadge>Collapsed</StatusBadge>
+              </summary>
+              <div className="space-y-1.5 border-t p-3">
+                <Textarea
+                  disabled={disabled}
+                  value={formatSchema}
+                  onChange={(e) => {
+                    setFormatSchema(e.target.value);
+                    cacheNodeEdits(node.id, { format_schema: parseFormatSchemaValue(e.target.value) });
+                  }}
+                  placeholder="{}"
+                  className="min-h-[96px] text-sm font-mono"
+                  rows={5}
+                />
+                <p className="text-[11px] text-muted-foreground">{t(($) => $.node.format_schema_hint)}</p>
               </div>
-            ) : null}
+            </details>
           </div>
         </TabsContent>
 
         <TabsContent value="data" className="m-0 min-h-0 flex-1 overflow-y-auto px-4 py-4">
-          <NodeDataPreview nodeRun={recentNodeRun} />
+          <InspectorSection
+            icon={<Activity className="size-4" />}
+            title="Data preview"
+            subtitle="Latest input, output and review data for this node."
+            status={recentNodeRun ? <StatusBadge tone={runTone}>{recentNodeRun.status}</StatusBadge> : <StatusBadge>No data</StatusBadge>}
+          >
+            <NodeDataPreview nodeRun={recentNodeRun} />
+          </InspectorSection>
         </TabsContent>
 
         <TabsContent value="runs" className="m-0 min-h-0 flex-1 overflow-y-auto px-4 py-4">
-          <NodeDataPreview nodeRun={recentNodeRun} />
+          <InspectorSection
+            icon={<Activity className="size-4" />}
+            title="Recent run"
+            subtitle="Status context stays close to configuration."
+            status={recentNodeRun ? <StatusBadge tone={runTone}>{recentNodeRun.status}</StatusBadge> : <StatusBadge>No run</StatusBadge>}
+          >
+            {recentNodeRun ? (
+              <div className="space-y-2">
+                <div className={`flex items-start gap-2 rounded-lg border p-3 ${statusClasses(runTone)}`}>
+                  {runTone === "danger" ? <AlertTriangle className="mt-0.5 size-4" /> : <CheckCircle2 className="mt-0.5 size-4" />}
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium">Latest run: {recentNodeRun.status}</p>
+                    <p className="mt-1 text-[11px] leading-snug opacity-80">
+                      Worker output, critic output and comments remain available in the Data tab.
+                    </p>
+                  </div>
+                </div>
+                <NodeDataPreview nodeRun={recentNodeRun} />
+              </div>
+            ) : (
+              <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
+                No run data for this node yet.
+              </div>
+            )}
+          </InspectorSection>
         </TabsContent>
       </Tabs>
 
       {!disabled && (
-      <div className="px-4 py-3 border-t shrink-0">
+        <div className="shrink-0 border-t px-4 py-3">
           <Button
             size="sm"
             variant="destructive"
@@ -475,10 +885,10 @@ export function NodeConfigPanel({
             }}
             disabled={deleteMutation.isPending}
           >
-            <Trash2 className="h-3.5 w-3.5 mr-1.5" />
+            <Trash2 className="mr-1.5 h-3.5 w-3.5" />
             {deleteMutation.isPending ? t(($) => $.node.saving) : t(($) => $.node.delete)}
           </Button>
-      </div>
+        </div>
       )}
     </div>
   );

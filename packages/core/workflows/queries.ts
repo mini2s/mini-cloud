@@ -27,6 +27,11 @@ export const workflowKeys = {
   admins: () => ["workflow-admins"] as const,
   stages: (wsId: string, workflowId: string) => [...workflowKeys.detail(wsId, workflowId), "stages"] as const,
   sessionPermission: (sessionId: string) => ["workflows", "session-permission", sessionId] as const,
+  workflowNodeDeliverables: (wsId: string, workflowId: string, nodeId: string) =>
+    [...workflowKeys.nodes(wsId, workflowId), nodeId, "deliverables"] as const,
+  nodeRunDeliverables: (nodeRunId: string) =>
+    [...workflowKeys.nodeRunsAll(), nodeRunId, "deliverables"] as const,
+  roles: (wsId: string) => [...workflowKeys.all(wsId), "roles"] as const,
 };
 
 // ── Queries ──
@@ -435,6 +440,81 @@ export function useAssignNodeToStage(wsId: string, workflowId: string) {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: workflowKeys.detail(wsId, workflowId) });
       queryClient.invalidateQueries({ queryKey: workflowKeys.nodes(wsId, workflowId) });
+    },
+  });
+}
+
+// ── Deliverable queries ───────────────────────────────────────────────────
+
+export function workflowNodeDeliverablesOptions(wsId: string, workflowId: string, nodeId: string) {
+  return queryOptions({
+    queryKey: workflowKeys.workflowNodeDeliverables(wsId, workflowId, nodeId),
+    queryFn: () => api.listWorkflowNodeDeliverables(workflowId, nodeId),
+  });
+}
+
+export function nodeRunDeliverableSubmissionsOptions(_wsId: string, nodeRunId: string) {
+  return queryOptions({
+    queryKey: workflowKeys.nodeRunDeliverables(nodeRunId),
+    queryFn: () => api.listNodeRunDeliverableSubmissions(nodeRunId),
+  });
+}
+
+// ── Role queries ───────────────────────────────────────────────────────────
+
+export function workflowRolesOptions(wsId: string) {
+  return queryOptions({
+    queryKey: workflowKeys.roles(wsId),
+    queryFn: () => api.listWorkflowRoles(),
+  });
+}
+
+// ── Deliverable mutations ─────────────────────────────────────────────────
+
+export function useCreateWorkflowNodeDeliverable(wsId: string, workflowId: string, nodeId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (req: { kind: string; title: string; description?: string; required?: boolean; sort_order?: number }) =>
+      api.createWorkflowNodeDeliverable(workflowId, nodeId, req),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: workflowKeys.workflowNodeDeliverables(wsId, workflowId, nodeId) });
+    },
+  });
+}
+
+export function useUpdateWorkflowNodeDeliverable(wsId: string, workflowId: string, nodeId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ deliverableId, ...req }: { deliverableId: string; kind?: string; title?: string; description?: string; required?: boolean; sort_order?: number }) =>
+      api.updateWorkflowNodeDeliverable(workflowId, nodeId, deliverableId, req),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: workflowKeys.workflowNodeDeliverables(wsId, workflowId, nodeId) });
+    },
+  });
+}
+
+export function useDeleteWorkflowNodeDeliverable(wsId: string, workflowId: string, nodeId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (deliverableId: string) => api.deleteWorkflowNodeDeliverable(workflowId, nodeId, deliverableId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: workflowKeys.workflowNodeDeliverables(wsId, workflowId, nodeId) });
+    },
+  });
+}
+
+export function useSubmitNodeRunDeliverable() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ nodeRunId, deliverableId, ...body }: {
+      nodeRunId: string;
+      deliverableId: string;
+      content?: string;
+      attachment_id?: string | null;
+      pull_request_url?: string;
+    }) => api.submitNodeRunDeliverable(nodeRunId, deliverableId, body),
+    onSuccess: (_data, vars) => {
+      queryClient.invalidateQueries({ queryKey: workflowKeys.nodeRunDeliverables(vars.nodeRunId) });
     },
   });
 }

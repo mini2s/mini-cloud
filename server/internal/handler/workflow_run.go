@@ -663,3 +663,152 @@ func (h *Handler) ListWorkflowNodeRuns(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"node_runs": resp})
 }
+
+// ── Deliverable submission request/response types ─────────────────────────────
+
+type SubmitDeliverableRequest struct {
+	Content        string  `json:"content"`
+	AttachmentID   *string `json:"attachment_id"`
+	PullRequestURL string  `json:"pull_request_url"`
+}
+
+type ReviewDeliverableRequest struct {
+	Status  string `json:"status"` // "approved" | "rejected"
+	Comment string `json:"review_comment"`
+}
+
+type WorkflowNodeDeliverableSubmissionResponse struct {
+	ID                string  `json:"id"`
+	WorkflowNodeRunID string  `json:"workflow_node_run_id"`
+	DeliverableID     string  `json:"deliverable_id"`
+	SubmittedByType   string  `json:"submitted_by_type"`
+	SubmittedByID     *string `json:"submitted_by_id"`
+	Status            string  `json:"status"`
+	Content           string  `json:"content"`
+	AttachmentID      *string `json:"attachment_id"`
+	PullRequestURL    string  `json:"pull_request_url"`
+	ReviewComment     string  `json:"review_comment"`
+	SubmittedAt       string  `json:"submitted_at"`
+	ReviewedAt        *string `json:"reviewed_at"`
+	CreatedAt         string  `json:"created_at"`
+	UpdatedAt         string  `json:"updated_at"`
+}
+
+func workflowNodeDeliverableSubmissionToResponse(s db.MulticaWorkflowNodeDeliverableSubmission) WorkflowNodeDeliverableSubmissionResponse {
+	return WorkflowNodeDeliverableSubmissionResponse{
+		ID:                uuidToString(s.ID),
+		WorkflowNodeRunID: uuidToString(s.WorkflowNodeRunID),
+		DeliverableID:     uuidToString(s.DeliverableID),
+		SubmittedByType:   s.SubmittedByType,
+		SubmittedByID:     uuidToPtr(s.SubmittedByID),
+		Status:            s.Status,
+		Content:           s.Content,
+		AttachmentID:      uuidToPtr(s.AttachmentID),
+		PullRequestURL:    s.PullRequestUrl,
+		ReviewComment:     s.ReviewComment,
+		SubmittedAt:       timestampToString(s.SubmittedAt),
+		ReviewedAt:        timestampToPtr(s.ReviewedAt),
+		CreatedAt:         timestampToString(s.CreatedAt),
+		UpdatedAt:         timestampToString(s.UpdatedAt),
+	}
+}
+
+// ── Deliverable submission handlers ──────────────────────────────────────────
+
+// ListNodeRunDeliverableSubmissions GET /api/node-runs/{nodeRunId}/deliverables
+func (h *Handler) ListNodeRunDeliverableSubmissions(w http.ResponseWriter, r *http.Request) {
+	nodeRunID := chi.URLParam(r, "nodeRunId")
+	nrUUID, ok := parseUUIDOrBadRequest(w, nodeRunID, "nodeRunId")
+	if !ok {
+		return
+	}
+
+	submissions, err := h.Queries.ListNodeRunDeliverableSubmissions(r.Context(), nrUUID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to list deliverable submissions")
+		return
+	}
+
+	resp := make([]WorkflowNodeDeliverableSubmissionResponse, 0, len(submissions))
+	for _, s := range submissions {
+		resp = append(resp, workflowNodeDeliverableSubmissionToResponse(s))
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{"submissions": resp})
+}
+
+// SubmitNodeRunDeliverable POST /api/node-runs/{nodeRunId}/deliverables/{deliverableId}/submit
+func (h *Handler) SubmitNodeRunDeliverable(w http.ResponseWriter, r *http.Request) {
+	nodeRunID := chi.URLParam(r, "nodeRunId")
+	nrUUID, ok := parseUUIDOrBadRequest(w, nodeRunID, "nodeRunId")
+	if !ok {
+		return
+	}
+
+	deliverableID := chi.URLParam(r, "deliverableId")
+	dUUID, ok := parseUUIDOrBadRequest(w, deliverableID, "deliverableId")
+	if !ok {
+		return
+	}
+
+	var req SubmitDeliverableRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	// Derive submitted_by from the authenticated user
+	userID, ok := requireUserID(w, r)
+	if !ok {
+		return
+	}
+	submittedByType := "member"
+	submittedByID := parseUUID(userID)
+
+	submission, err := h.Queries.UpsertNodeRunDeliverableSubmission(r.Context(), db.UpsertNodeRunDeliverableSubmissionParams{
+		WorkflowNodeRunID: nrUUID,
+		DeliverableID:     dUUID,
+		SubmittedByType:   submittedByType,
+		SubmittedByID:     submittedByID,
+		Content:           req.Content,
+		AttachmentID:      ptrStrToUUID(req.AttachmentID),
+		PullRequestUrl:    req.PullRequestURL,
+	})
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to submit deliverable")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, workflowNodeDeliverableSubmissionToResponse(submission))
+}
+
+// ReviewNodeRunDeliverable POST /api/node-runs/{nodeRunId}/deliverables/{submissionId}/review
+func (h *Handler) ReviewNodeRunDeliverable(w http.ResponseWriter, r *http.Request) {
+	submissionID := chi.URLParam(r, "submissionId")
+	sUUID, ok := parseUUIDOrBadRequest(w, submissionID, "submissionId")
+	if !ok {
+		return
+	}
+
+	var req ReviewDeliverableRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if req.Status != "approved" && req.Status != "rejected" {
+		writeError(w, http.StatusBadRequest, "status must be 'approved' or 'rejected'")
+		return
+	}
+
+	submission, err := h.Queries.ReviewNodeRunDeliverableSubmission(r.Context(), db.ReviewNodeRunDeliverableSubmissionParams{
+		ID:             sUUID,
+		Status:         req.Status,
+		ReviewComment:  req.Comment,
+	})
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to review deliverable")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, workflowNodeDeliverableSubmissionToResponse(submission))
+}

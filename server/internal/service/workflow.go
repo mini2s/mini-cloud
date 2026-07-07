@@ -729,6 +729,13 @@ func (s *WorkflowService) ReviewNodeRun(ctx context.Context, nodeRunID pgtype.UU
 		}
 
 		if approved {
+			// Gate: all required deliverables must be satisfied before approval.
+			if satisfied, err := s.requiredDeliverablesSatisfied(ctx, nr); err != nil {
+				return fmt.Errorf("check deliverables: %w", err)
+			} else if !satisfied {
+				return fmt.Errorf("all required deliverables must be submitted and approved before this node can be approved")
+			}
+
 			// critic_approved → completed
 			updated, err := qtx.UpdateWorkflowNodeRunStatus(ctx, db.UpdateWorkflowNodeRunStatusParams{
 				ID:     nr.ID,
@@ -864,8 +871,76 @@ func (s *WorkflowService) dispatchWorker(ctx context.Context, nodeRun db.Multica
 		}
 		_, err = s.TransitionNodeRun(ctx, nodeRun, NodeRunStatusWorking)
 		return err
+	case "role":
+		return s.dispatchRoleWorker(ctx, nodeRun, node)
 	default:
 		return fmt.Errorf("unknown worker type: %s", node.WorkerType)
+	}
+}
+
+// dispatchRoleWorker resolves a workflow role to its highest-priority bound actor
+// and dispatches accordingly. If no bindings exist the node run transitions to blocked.
+func (s *WorkflowService) dispatchRoleWorker(ctx context.Context, nodeRun db.MulticaWorkflowNodeRun, node db.MulticaWorkflowNode) error {
+	if !node.WorkerID.Valid {
+		_, err := s.TransitionNodeRun(ctx, nodeRun, NodeRunStatusWorkerAssigned)
+		return err
+	}
+
+	bindings, err := s.Queries.ListWorkflowRoleBindings(ctx, node.WorkerID)
+	if err != nil || len(bindings) == 0 {
+		// No bindings — block the node run so the configuration can be fixed.
+		if _, err := s.TransitionNodeRun(ctx, nodeRun, NodeRunStatusBlocked); err != nil {
+			return err
+		}
+		_, err = s.Queries.SetWorkflowNodeRunCriticOutput(ctx, db.SetWorkflowNodeRunCriticOutputParams{
+			ID:            nodeRun.ID,
+			Status:        NodeRunStatusBlocked,
+			CriticComment: pgtype.Text{String: "role has no bound actors", Valid: true},
+		})
+		return err
+	}
+
+	best := bindings[0] // sorted by priority ASC
+	switch best.ActorType {
+	case "agent", "member":
+		// Assign to the resolved actor; the agent task creation will be handled
+		// by the regular dispatch path when the node's worker_id is a real agent.
+		_, err := s.TransitionNodeRun(ctx, nodeRun, NodeRunStatusWorkerAssigned)
+		return err
+	default:
+		_, err := s.TransitionNodeRun(ctx, nodeRun, NodeRunStatusBlocked)
+		return err
+	}
+}
+
+// dispatchRoleCritic resolves a critic role to its highest-priority bound actor.
+func (s *WorkflowService) dispatchRoleCritic(ctx context.Context, nodeRun db.MulticaWorkflowNodeRun, node db.MulticaWorkflowNode) error {
+	if !node.CriticID.Valid {
+		_, err := s.TransitionNodeRun(ctx, nodeRun, NodeRunStatusCriticReviewing)
+		return err
+	}
+
+	bindings, err := s.Queries.ListWorkflowRoleBindings(ctx, node.CriticID)
+	if err != nil || len(bindings) == 0 {
+		if _, err := s.TransitionNodeRun(ctx, nodeRun, NodeRunStatusBlocked); err != nil {
+			return err
+		}
+		_, err = s.Queries.SetWorkflowNodeRunCriticOutput(ctx, db.SetWorkflowNodeRunCriticOutputParams{
+			ID:            nodeRun.ID,
+			Status:        NodeRunStatusBlocked,
+			CriticComment: pgtype.Text{String: "critic role has no bound actors", Valid: true},
+		})
+		return err
+	}
+
+	best := bindings[0]
+	switch best.ActorType {
+	case "agent", "member":
+		_, err := s.TransitionNodeRun(ctx, nodeRun, NodeRunStatusCriticReviewing)
+		return err
+	default:
+		_, err := s.TransitionNodeRun(ctx, nodeRun, NodeRunStatusBlocked)
+		return err
 	}
 }
 
@@ -904,7 +979,9 @@ func (s *WorkflowService) dispatchCritic(ctx context.Context, nodeRun db.Multica
 		}
 		_, err = s.TransitionNodeRun(ctx, nodeRun, NodeRunStatusCriticReviewing)
 		return err
-	case "api":
+	case "role":
+			return s.dispatchRoleCritic(ctx, nodeRun, node)
+		case "api":
 		// For API critics, we transition to critic_reviewing and let the
 		// API call happen asynchronously (handled by the caller or a sweeper).
 		_, err := s.TransitionNodeRun(ctx, nodeRun, NodeRunStatusCriticReviewing)
@@ -1717,4 +1794,39 @@ func (s *WorkflowService) CanManageWorkflows(ctx context.Context, userID pgtype.
 		return false, fmt.Errorf("get user: %w", err)
 	}
 	return user.CanManageWorkflows, nil
+}
+
+// requiredDeliverablesSatisfied checks whether every required deliverable for
+// the given node run has an approved submission. Used as a gate before a critic
+// can approve the node run.
+func (s *WorkflowService) requiredDeliverablesSatisfied(ctx context.Context, nodeRun db.MulticaWorkflowNodeRun) (bool, error) {
+	deliverables, err := s.Queries.ListWorkflowNodeDeliverables(ctx, nodeRun.WorkflowNodeID)
+	if err != nil {
+		return false, fmt.Errorf("list deliverables: %w", err)
+	}
+	// No deliverables defined → trivially satisfied.
+	if len(deliverables) == 0 {
+		return true, nil
+	}
+
+	submissions, err := s.Queries.ListNodeRunDeliverableSubmissions(ctx, nodeRun.ID)
+	if err != nil {
+		return false, fmt.Errorf("list submissions: %w", err)
+	}
+
+	byDeliverable := make(map[string]db.MulticaWorkflowNodeDeliverableSubmission, len(submissions))
+	for _, sub := range submissions {
+		byDeliverable[util.UUIDToString(sub.DeliverableID)] = sub
+	}
+
+	for _, d := range deliverables {
+		if !d.Required {
+			continue
+		}
+		sub, ok := byDeliverable[util.UUIDToString(d.ID)]
+		if !ok || sub.Status == "missing" || sub.Status == "rejected" {
+			return false, nil
+		}
+	}
+	return true, nil
 }

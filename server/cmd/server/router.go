@@ -531,6 +531,11 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 					r.Route("/nodes/{nodeId}", func(r chi.Router) {
 						r.Put("/", h.UpdateWorkflowNode)
 						r.Delete("/", h.DeleteWorkflowNode)
+						// Deliverables
+						r.Get("/deliverables", h.ListWorkflowNodeDeliverables)
+						r.Post("/deliverables", h.CreateWorkflowNodeDeliverable)
+						r.Put("/deliverables/{deliverableId}", h.UpdateWorkflowNodeDeliverable)
+						r.Delete("/deliverables/{deliverableId}", h.DeleteWorkflowNodeDeliverable)
 					})
 					// Edges
 					r.Get("/edges", h.ListWorkflowEdges)
@@ -563,6 +568,10 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 			r.Post("/api/node-runs/{nodeRunId}/blocked", h.TakeoverNodeRun)
 			r.Post("/api/node-runs/{nodeRunId}/working", h.HandbackNodeRun)
 			r.Post("/api/node-runs/{nodeRunId}/finalize", h.FinalizeNodeRun)
+			// Deliverable submissions
+			r.Get("/api/node-runs/{nodeRunId}/deliverables", h.ListNodeRunDeliverableSubmissions)
+			r.Post("/api/node-runs/{nodeRunId}/deliverables/{deliverableId}/submit", h.SubmitNodeRunDeliverable)
+			r.Post("/api/node-runs/{nodeRunId}/deliverables/{submissionId}/review", h.ReviewNodeRunDeliverable)
 
 			// Cross-system permission seam for Design Two: cs-cloud asks Multica
 			// whether a Casdoor-authenticated user may access a CSC session bound
@@ -571,6 +580,10 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 
 			// My workflow tasks
 			r.Get("/api/my-tasks", h.ListMyWorkflowTasks)
+
+			// Workflow roles
+			r.Get("/api/workflow-roles", h.ListWorkflowRoles)
+			r.Post("/api/workflow-roles", h.CreateWorkflowRole)
 
 			// Squad leader evaluation (writes to activity_log)
 			r.Post("/api/issues/{id}/squad-evaluated", h.RecordSquadLeaderEvaluation)

@@ -40,6 +40,7 @@ apps/web/test-results/
 
 # context (agent workspace)
 .context
+.playwright-cli/
 
 # local settings
 .claude/
@@ -47,6 +48,7 @@ apps/web/test-results/
 
 # feature tracking
 _features/
+.superpowers/
 
 # runtime
 *.pid
