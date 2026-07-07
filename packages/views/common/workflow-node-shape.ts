@@ -11,17 +11,8 @@ export function workflowNodeShapeSurfaceClassName(shape: NodeShape): string {
   }
 }
 
-export function workflowNodeInfoAreaClassName(shape: NodeShape): string {
-  switch (shape) {
-    case "diamond":
-      return "px-10 py-3";
-    case "hexagon":
-      return "px-6 py-2.5";
-    case "pill":
-      return "px-5 py-2.5";
-    case "rectangle":
-      return "px-2.5 py-2";
-  }
+export function workflowNodeInfoAreaClassName(_shape: NodeShape): string {
+  return "px-3 py-2.5";
 }
 
 export function workflowNodeShapeGlyphClassName(shape: NodeShape): string {
