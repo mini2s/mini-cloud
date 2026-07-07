@@ -7,6 +7,7 @@ import {
   Controls,
   MiniMap,
   ReactFlow,
+  useReactFlow,
   type Connection,
   type Edge,
   type EdgeTypes,
@@ -33,6 +34,7 @@ export interface WorkflowCanvasCoreProps {
   fitViewOptions?: FitViewOptions;
   children?: ReactNode;
   onNodeClick?: (event: React.MouseEvent, node: Node) => void;
+  onEdgeClick?: (event: React.MouseEvent, edge: Edge, position: { x: number; y: number }) => void;
   onPaneClick?: () => void;
   onNodeDragStop?: (event: MouseEvent | TouchEvent, node: Node) => void;
   onConnect?: (connection: Connection) => void;
@@ -57,6 +59,7 @@ export function WorkflowCanvasCore({
   fitViewOptions,
   children,
   onNodeClick,
+  onEdgeClick,
   onPaneClick,
   onNodeDragStop,
   onConnect,
@@ -66,6 +69,12 @@ export function WorkflowCanvasCore({
   onStageDelete,
   onStageReorder,
 }: WorkflowCanvasCoreProps) {
+  const { screenToFlowPosition } = useReactFlow();
+
+  const handleEdgeClick = (event: React.MouseEvent, edge: Edge) => {
+    onEdgeClick?.(event, edge, screenToFlowPosition({ x: event.clientX, y: event.clientY }));
+  };
+
   return (
     <div className="relative flex min-h-0 min-w-0 flex-1 self-stretch" data-testid="workflow-canvas-core">
       <CanvasStageLabels
@@ -85,6 +94,7 @@ export function WorkflowCanvasCore({
           nodeTypes={nodeTypes}
           edgeTypes={edgeTypes}
           onNodeClick={onNodeClick}
+          onEdgeClick={handleEdgeClick}
           onPaneClick={onPaneClick}
           onNodeDragStop={readOnly ? undefined : onNodeDragStop}
           onConnect={readOnly ? undefined : onConnect}

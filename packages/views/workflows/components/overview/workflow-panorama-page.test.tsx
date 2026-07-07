@@ -17,6 +17,7 @@ const mocks = vi.hoisted(() => ({
   nodeRunsData: [] as unknown[],
   workflowData: { id: "wf-1", title: "Test Workflow", status: "draft" },
   selectedNodeId: null as string | null,
+  selectedEdgeId: null as string | null,
   nodeEdits: {} as Record<string, unknown>,
   deletedNodeIds: [] as string[],
   createNodeMutate: vi.fn(),
@@ -40,6 +41,7 @@ const mocks = vi.hoisted(() => ({
     nodes: Node[];
     edges: Edge[];
     onNodeClick?: (event: React.MouseEvent, node: Node) => void;
+    onEdgeClick?: (event: React.MouseEvent, edge: Edge) => void;
     onPaneClick?: () => void;
     onNodeDragStop?: (event: MouseEvent | TouchEvent, node: Node) => void;
     onDragOver?: (event: React.DragEvent) => void;
@@ -91,6 +93,7 @@ vi.mock("@multica/core/workflows/store", () => {
   const mockUseStore: any = vi.fn((selector: (s: unknown) => unknown) => {
     const state = {
       selectedNodeId: mocks.selectedNodeId,
+      selectedEdgeId: mocks.selectedEdgeId,
       selectedNodeIds: [],
       nodeEdits: mocks.nodeEdits,
       deletedNodeIds: mocks.deletedNodeIds,
@@ -99,7 +102,12 @@ vi.mock("@multica/core/workflows/store", () => {
       showAnnotations: true,
       selectNode: (nodeId: string | null) => {
         mocks.selectedNodeId = nodeId;
+        mocks.selectedEdgeId = null;
         mocks.selectNode(nodeId);
+      },
+      selectEdge: (edgeId: string | null) => {
+        mocks.selectedEdgeId = edgeId;
+        if (edgeId) mocks.selectedNodeId = null;
       },
       cacheNodeEdits: vi.fn(),
       cacheNodeDelete: mocks.cacheNodeDelete,
@@ -251,6 +259,7 @@ vi.mock("@xyflow/react", () => ({
     nodes: Node[];
     edges: Edge[];
     onNodeClick?: (event: React.MouseEvent, node: Node) => void;
+    onEdgeClick?: (event: React.MouseEvent, edge: Edge) => void;
     onPaneClick?: () => void;
     onNodeDragStop?: (event: MouseEvent | TouchEvent, node: Node) => void;
     onDragOver?: (event: React.DragEvent) => void;
@@ -333,6 +342,7 @@ describe("WorkflowPanoramaPage (new)", () => {
     mocks.runsData = [];
     mocks.nodeRunsData = [];
     mocks.selectedNodeId = null;
+    mocks.selectedEdgeId = null;
     mocks.nodeEdits = {};
     mocks.deletedNodeIds = [];
     mocks.createNodeMutate.mockReset();
@@ -714,6 +724,39 @@ describe("WorkflowPanoramaPage (new)", () => {
     (workflowEdge?.data?.onDeleteEdge as (edgeId: string) => void)("edge-a-b");
     expect(mocks.deleteEdgeMutate).toHaveBeenCalledWith("edge-a-b");
     expect(mocks.pushServerAction).toHaveBeenCalledWith({ type: "delete-edge", edgeId: "edge-a-b" });
+  });
+
+  it("marks a workflow edge selected after edge click so the inline delete button can render", () => {
+    mocks.nodesData = [
+      { id: "a", workflow_id: "wf-1", title: "A", description: "", worker_type: "agent", worker_id: null, critic_type: "human", critic_id: null, critic_api_url: null, stage_id: "stage-1", format_schema: null, position_x: 100, position_y: 0, sort_order: 0, created_at: "", updated_at: "" },
+      { id: "b", workflow_id: "wf-1", title: "B", description: "", worker_type: "agent", worker_id: null, critic_type: "human", critic_id: null, critic_api_url: null, stage_id: "stage-1", format_schema: null, position_x: 460, position_y: 0, sort_order: 1, created_at: "", updated_at: "" },
+    ];
+    mocks.edgesData = [
+      { id: "edge-a-b", workflow_id: "wf-1", source_node_id: "a", target_node_id: "b", condition: null, created_at: "" },
+    ];
+
+    const { rerender } = render(<WorkflowPanoramaPage workflowId="wf-1" />);
+
+    expect(mocks.reactFlowProps?.edges.find((edge) => edge.id === "edge-a-b")?.selected).toBe(false);
+
+    act(() => {
+      mocks.reactFlowProps?.onEdgeClick?.({ clientX: 340, clientY: 220 } as React.MouseEvent, mocks.reactFlowProps.edges[0]!);
+    });
+    rerender(<WorkflowPanoramaPage workflowId="wf-1" />);
+
+    const selectedEdge = mocks.reactFlowProps?.edges.find((edge) => edge.id === "edge-a-b");
+    expect(selectedEdge?.selected).toBe(true);
+    expect(selectedEdge?.data).toHaveProperty("onDeleteEdge");
+    expect(selectedEdge?.data).toMatchObject({
+      deleteButtonPosition: { x: 140, y: 120 },
+    });
+
+    act(() => {
+      mocks.reactFlowProps?.onPaneClick?.();
+    });
+    rerender(<WorkflowPanoramaPage workflowId="wf-1" />);
+
+    expect(mocks.reactFlowProps?.edges.find((edge) => edge.id === "edge-a-b")?.selected).toBe(false);
   });
 
   it("marks generated critic edges with critic semantics", () => {

@@ -177,6 +177,8 @@ function apiEdgesToReactFlowEdges(
   nodes: WorkflowNode[],
   stages: WorkflowStage[],
   onDeleteEdge?: (edgeId: string) => void,
+  selectedEdgeId?: string | null,
+  selectedEdgeAnchor?: { x: number; y: number } | null,
 ): Edge[] {
   const stageMap = new Map(stages.map((stage) => [stage.id, stage]));
   const stageVisualIndexMap = createStageVisualIndexMap(stages);
@@ -198,6 +200,7 @@ function apiEdgesToReactFlowEdges(
         data: {
           stageColorIndex: getEdgeStageColorIndex(edge.source_node_id, nodeMap, stageMap, stageVisualIndexMap),
           ...(onDeleteEdge ? { onDeleteEdge } : {}),
+          ...(edge.id === selectedEdgeId && selectedEdgeAnchor ? { deleteButtonPosition: selectedEdgeAnchor } : {}),
           ...edgeSemantics,
         },
         markerEnd: {
@@ -210,6 +213,7 @@ function apiEdgesToReactFlowEdges(
     id: edge.id,
     source: edge.source_node_id,
     target: edge.target_node_id,
+    selected: edge.id === selectedEdgeId,
     type: "panorama",
     sourceHandle: "right",
     targetHandle: "left",
@@ -364,6 +368,7 @@ interface PanoramaContentProps {
   editingStage: WorkflowStage | null;
   onAutoLayout: () => void;
   onNodeClick: (event: React.MouseEvent, node: Node) => void;
+  onEdgeClick: (event: React.MouseEvent, edge: Edge, position: { x: number; y: number }) => void;
   onPaneClick: () => void;
   onNodeDragStop: (event: MouseEvent | TouchEvent, node: Node) => void;
   onConnect: (connection: Connection) => void;
@@ -406,6 +411,7 @@ function PanoramaContent({
   editingStage,
   onAutoLayout,
   onNodeClick,
+  onEdgeClick,
   onPaneClick,
   onNodeDragStop,
   onConnect,
@@ -535,6 +541,7 @@ function PanoramaContent({
             nodeTypes={panoramaNodeTypes}
             edgeTypes={panoramaEdgeTypes}
             onNodeClick={onNodeClick}
+            onEdgeClick={onEdgeClick}
             onPaneClick={onPaneClick}
             onNodeDragStop={onNodeDragStop}
             onConnect={onConnect}
@@ -701,7 +708,9 @@ export function WorkflowPanoramaPage({ workflowId, viewToggle }: WorkflowPanoram
 
   // ── Store ──
   const selectedNodeId = useWorkflowEditorStore((s) => s.selectedNodeId);
+  const selectedEdgeId = useWorkflowEditorStore((s) => s.selectedEdgeId);
   const selectNode = useWorkflowEditorStore((s) => s.selectNode);
+  const selectEdge = useWorkflowEditorStore((s) => s.selectEdge);
   const nodeEdits = useWorkflowEditorStore((s) => s.nodeEdits);
   const deletedNodeIds = useWorkflowEditorStore((s) => s.deletedNodeIds);
   const clearNodeEdits = useWorkflowEditorStore((s) => s.clearNodeEdits);
@@ -715,6 +724,7 @@ export function WorkflowPanoramaPage({ workflowId, viewToggle }: WorkflowPanoram
   const [showStageDialog, setShowStageDialog] = useState(false);
   const [editingStage, setEditingStage] = useState<WorkflowStage | null>(null);
   const [emptyStatePickerOpen, setEmptyStatePickerOpen] = useState(false);
+  const [selectedEdgeAnchor, setSelectedEdgeAnchor] = useState<{ x: number; y: number } | null>(null);
   const openNodePanel = useCallback((nodeId: string) => {
     selectNode(nodeId);
     setConfigPanelOpen(true);
@@ -754,13 +764,14 @@ export function WorkflowPanoramaPage({ workflowId, viewToggle }: WorkflowPanoram
     (edgeId: string) => {
       deleteEdgeMutation.mutate(edgeId);
       pushServerAction({ type: "delete-edge", edgeId });
+      selectEdge(null);
     },
-    [deleteEdgeMutation, pushServerAction],
+    [deleteEdgeMutation, pushServerAction, selectEdge],
   );
 
   const rfEdges = useMemo(
-    () => apiEdgesToReactFlowEdges(apiEdges, visibleNodes, stages, handleInlineEdgeDelete),
-    [apiEdges, visibleNodes, stages, handleInlineEdgeDelete],
+    () => apiEdgesToReactFlowEdges(apiEdges, visibleNodes, stages, handleInlineEdgeDelete, selectedEdgeId, selectedEdgeAnchor),
+    [apiEdges, visibleNodes, stages, handleInlineEdgeDelete, selectedEdgeId, selectedEdgeAnchor],
   );
 
   // ── Selected node for config panel ──
@@ -776,16 +787,28 @@ export function WorkflowPanoramaPage({ workflowId, viewToggle }: WorkflowPanoram
   // ── Handlers ──
   const handleNodeClick = useCallback(
     (_event: React.MouseEvent, node: Node) => {
+      setSelectedEdgeAnchor(null);
       const workerId = (node.data.parentNodeId as string | undefined) ?? node.id;
       openNodePanel(workerId as string);
     },
     [openNodePanel],
   );
 
+  const handleEdgeClick = useCallback(
+    (_event: React.MouseEvent, edge: Edge, position: { x: number; y: number }) => {
+      selectEdge(edge.id);
+      setSelectedEdgeAnchor(position);
+      setConfigPanelOpen(false);
+    },
+    [selectEdge],
+  );
+
   const handlePaneClick = useCallback(() => {
     selectNode(null);
+    selectEdge(null);
+    setSelectedEdgeAnchor(null);
     setConfigPanelOpen(false);
-  }, [selectNode]);
+  }, [selectNode, selectEdge]);
 
   const handleNodeDragStop = useCallback(
     (_event: MouseEvent | TouchEvent, node: Node) => {
@@ -1125,6 +1148,7 @@ export function WorkflowPanoramaPage({ workflowId, viewToggle }: WorkflowPanoram
         editingStage={editingStage}
         onAutoLayout={handleAutoLayout}
         onNodeClick={handleNodeClick}
+        onEdgeClick={handleEdgeClick}
         onPaneClick={handlePaneClick}
         onNodeDragStop={handleNodeDragStop}
         onConnect={handleConnect}
