@@ -88,8 +88,10 @@ import {
   CRITIC_HEIGHT,
   UNASSIGNED_LANE_Y,
   computeLaneY,
+  createStageVisualIndexMap,
   getStageColor,
   getStageColorIndex,
+  sortStagesForDisplay,
 } from "./constants";
 
 import type { WorkflowNode, WorkflowStage, WorkflowEdge, ReorderStagesItem, WorkflowStatus, Workflow, WorkflowNodeRun } from "@multica/core/types";
@@ -114,14 +116,15 @@ function apiNodesToReactFlowNodes(
   onOpenNode: (nodeId: string) => void,
 ): Node[] {
   const stageMap = new Map(stages.map((s) => [s.id, s]));
+  const stageVisualIndexMap = createStageVisualIndexMap(stages);
 
   return nodes.flatMap((node) => {
     const stage = node.stage_id ? stageMap.get(node.stage_id) : undefined;
-    const sortOrder = stage?.sort_order ?? stages.length; // unassigned goes to end
-    const laneY = stage ? computeLaneY(stage.sort_order) : UNASSIGNED_LANE_Y(stages.length);
+    const visualIndex = stage ? stageVisualIndexMap.get(stage.id) ?? stages.length : stages.length;
+    const laneY = stage ? computeLaneY(visualIndex) : UNASSIGNED_LANE_Y(stages.length);
     const x = node.position_x ?? 100;
 
-    const stageColorIndex = getStageColorIndex(sortOrder);
+    const stageColorIndex = getStageColorIndex(visualIndex);
 
     // Worker node
     const workerNode: Node = {
@@ -168,12 +171,14 @@ function apiNodesToReactFlowNodes(
 
 function apiEdgesToReactFlowEdges(edges: WorkflowEdge[], nodes: WorkflowNode[], stages: WorkflowStage[]): Edge[] {
   const stageMap = new Map(stages.map((stage) => [stage.id, stage]));
+  const stageVisualIndexMap = createStageVisualIndexMap(stages);
   const nodeMap = new Map(nodes.map((node) => [node.id, node]));
   const positionMap = new Map(nodes.map((node) => {
     const stage = node.stage_id ? stageMap.get(node.stage_id) : undefined;
+    const visualIndex = stage ? stageVisualIndexMap.get(stage.id) ?? stages.length : stages.length;
     return [node.id, {
       x: node.position_x ?? 100,
-      y: stage ? computeLaneY(stage.sort_order) : UNASSIGNED_LANE_Y(stages.length),
+      y: stage ? computeLaneY(visualIndex) : UNASSIGNED_LANE_Y(stages.length),
     }];
   }));
 
@@ -185,11 +190,11 @@ function apiEdgesToReactFlowEdges(edges: WorkflowEdge[], nodes: WorkflowNode[], 
     sourceHandle: "right",
     targetHandle: "left",
     data: {
-      stageColorIndex: getEdgeStageColorIndex(edge.source_node_id, nodeMap, stageMap),
+      stageColorIndex: getEdgeStageColorIndex(edge.source_node_id, nodeMap, stageMap, stageVisualIndexMap),
     },
     markerEnd: {
       type: MarkerType.ArrowClosed,
-      color: getEdgeMarkerColor(edge.source_node_id, nodeMap, stageMap),
+      color: getEdgeMarkerColor(edge.source_node_id, nodeMap, stageMap, stageVisualIndexMap),
       strokeWidth: 1.5,
     },
     interactionWidth: 24,
@@ -219,11 +224,11 @@ function apiEdgesToReactFlowEdges(edges: WorkflowEdge[], nodes: WorkflowNode[], 
       targetHandle: "top",
       type: "panorama",
       data: {
-        stageColorIndex: getEdgeStageColorIndex(node.id, nodeMap, stageMap),
+        stageColorIndex: getEdgeStageColorIndex(node.id, nodeMap, stageMap, stageVisualIndexMap),
       },
       markerEnd: {
         type: MarkerType.ArrowClosed,
-        color: getEdgeMarkerColor(node.id, nodeMap, stageMap),
+        color: getEdgeMarkerColor(node.id, nodeMap, stageMap, stageVisualIndexMap),
         strokeWidth: 1.5,
       },
       interactionWidth: 16,
@@ -239,18 +244,20 @@ function getEdgeMarkerColor(
   sourceNodeId: string,
   nodeMap: Map<string, WorkflowNode>,
   stageMap: Map<string, WorkflowStage>,
+  stageVisualIndexMap: Map<string, number>,
 ): string {
-  return getStageColor(getEdgeStageColorIndex(sourceNodeId, nodeMap, stageMap)).markerColor;
+  return getStageColor(getEdgeStageColorIndex(sourceNodeId, nodeMap, stageMap, stageVisualIndexMap)).markerColor;
 }
 
 function getEdgeStageColorIndex(
   sourceNodeId: string,
   nodeMap: Map<string, WorkflowNode>,
   stageMap: Map<string, WorkflowStage>,
+  stageVisualIndexMap: Map<string, number>,
 ): number {
   const sourceNode = nodeMap.get(sourceNodeId);
   const sourceStage = sourceNode?.stage_id ? stageMap.get(sourceNode.stage_id) : undefined;
-  return sourceStage?.sort_order ?? 0;
+  return sourceStage ? stageVisualIndexMap.get(sourceStage.id) ?? 0 : 0;
 }
 
 // ── Background nodes: lane backgrounds + gradient transitions ──
@@ -258,9 +265,9 @@ function getEdgeStageColorIndex(
 // ── Drag constraint: snap Y to lane ──
 
 function findStageAtY(y: number, stages: WorkflowStage[]): WorkflowStage | undefined {
-  const sorted = [...stages].sort((a, b) => a.sort_order - b.sort_order);
-  for (const stage of sorted) {
-    const laneTop = stage.sort_order * LANE_STEP;
+  const sorted = sortStagesForDisplay(stages);
+  for (const [index, stage] of sorted.entries()) {
+    const laneTop = index * LANE_STEP;
     const laneBottom = laneTop + LANE_HEIGHT;
     if (y >= laneTop && y <= laneBottom) return stage;
   }
@@ -1019,7 +1026,7 @@ export function WorkflowPanoramaPage({ workflowId, viewToggle }: WorkflowPanoram
 
   const handleStageReorder = useCallback(
     (stageId: string, direction: "up" | "down") => {
-      const sorted = [...stages].sort((a, b) => a.sort_order - b.sort_order);
+      const sorted = sortStagesForDisplay(stages);
       const idx = sorted.findIndex((s) => s.id === stageId);
       if (idx === -1) return;
       const swapIdx = direction === "up" ? idx - 1 : idx + 1;

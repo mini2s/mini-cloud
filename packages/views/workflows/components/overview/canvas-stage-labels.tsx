@@ -8,8 +8,10 @@ import {
   LANE_HEIGHT,
   LANE_STEP,
   STAGE_TRANSITION_GRADIENTS,
+  createStageVisualIndexMap,
   getStageColor,
   getStageColorIndex,
+  sortStagesForDisplay,
 } from "./constants";
 
 export interface CanvasStageLabelsProps {
@@ -29,15 +31,17 @@ export function CanvasStageLabels({
   onDelete,
   onReorder,
 }: CanvasStageLabelsProps) {
-  const sorted = [...stages].sort((a, b) => a.sort_order - b.sort_order);
+  const sorted = sortStagesForDisplay(stages);
+  const visualIndexByStageId = createStageVisualIndexMap(stages);
 
   return (
     <>
       <div className="absolute inset-0 z-0 overflow-hidden pointer-events-none" data-testid="canvas-stage-lanes">
         {sorted.flatMap((stage, idx) => {
-          const top = stage.sort_order * LANE_STEP * viewportZoom + viewportY;
+          const visualIndex = visualIndexByStageId.get(stage.id) ?? idx;
+          const top = visualIndex * LANE_STEP * viewportZoom + viewportY;
           const height = LANE_HEIGHT * viewportZoom;
-          const { bgClass } = getStageColor(stage.sort_order);
+          const { bgClass } = getStageColor(visualIndex);
           const band = (
             <div
               key={`lane-${stage.id}`}
@@ -49,8 +53,8 @@ export function CanvasStageLabels({
 
           if (idx === sorted.length - 1) return [band];
 
-          const gradientTop = (stage.sort_order * LANE_STEP + LANE_HEIGHT) * viewportZoom + viewportY;
-          const gradientClass = STAGE_TRANSITION_GRADIENTS[getStageColorIndex(stage.sort_order)]!;
+          const gradientTop = (visualIndex * LANE_STEP + LANE_HEIGHT) * viewportZoom + viewportY;
+          const gradientClass = STAGE_TRANSITION_GRADIENTS[getStageColorIndex(visualIndex)]!;
           const gradient = (
             <div
               key={`gradient-${stage.id}`}
@@ -68,11 +72,12 @@ export function CanvasStageLabels({
         data-testid="canvas-stage-labels"
         className="absolute inset-y-0 left-0 z-20 w-40 overflow-hidden pointer-events-none"
       >
-        {sorted.map((stage) => {
-          const top = stage.sort_order * LANE_STEP * viewportZoom + viewportY;
+        {sorted.map((stage, idx) => {
+          const visualIndex = visualIndexByStageId.get(stage.id) ?? idx;
+          const top = visualIndex * LANE_STEP * viewportZoom + viewportY;
           const height = LANE_HEIGHT * viewportZoom;
-          const isFirst = stage.sort_order === 0;
-          const isLast = stage.sort_order === sorted.length - 1;
+          const isFirst = visualIndex === 0;
+          const isLast = visualIndex === sorted.length - 1;
 
           return (
             <div
@@ -88,7 +93,7 @@ export function CanvasStageLabels({
                 data-testid="stage-label-card"
               >
                 <span className="text-[10px] font-medium leading-none text-muted-foreground">
-                  Stage {stage.sort_order + 1}
+                  Stage {visualIndex + 1}
                 </span>
                 <span className="mt-1 truncate text-[13px] font-semibold leading-tight text-foreground">{stage.name}</span>
                 {stage.description && (

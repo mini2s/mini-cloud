@@ -78,3 +78,17 @@ export function UNASSIGNED_LANE_Y(stagesLength: number): number {
 export function computeLaneY(sortOrder: number): number {
   return sortOrder * LANE_STEP + LANE_PADDING_TOP;
 }
+
+export function sortStagesForDisplay<T extends { sort_order: number; created_at?: string; id: string }>(stages: T[]): T[] {
+  return [...stages].sort((a, b) => {
+    if (a.sort_order !== b.sort_order) return a.sort_order - b.sort_order;
+    if ((a.created_at ?? "") !== (b.created_at ?? "")) return (a.created_at ?? "").localeCompare(b.created_at ?? "");
+    return a.id.localeCompare(b.id);
+  });
+}
+
+export function createStageVisualIndexMap<T extends { sort_order: number; created_at?: string; id: string }>(
+  stages: T[],
+): Map<string, number> {
+  return new Map(sortStagesForDisplay(stages).map((stage, index) => [stage.id, index]));
+}

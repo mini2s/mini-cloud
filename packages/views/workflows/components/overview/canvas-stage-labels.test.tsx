@@ -176,4 +176,20 @@ describe("CanvasStageLabels", () => {
     expect(cards[0]!.closest("[data-testid='stage-label-rail']")?.getAttribute("style")).toContain("top: 0px");
     expect(cards[1]!.closest("[data-testid='stage-label-rail']")?.getAttribute("style")).toContain("top: 352px");
   });
+
+  it("packs sparse sort orders at the top of the visible canvas", () => {
+    const stages = [
+      makeStage({ id: "s-2", name: "Analysis", sort_order: 1 }),
+      makeStage({ id: "s-3", name: "Build", sort_order: 2 }),
+    ];
+
+    render(<CanvasStageLabels {...baseProps} stages={stages} />);
+
+    const rails = screen.getAllByTestId("stage-label-rail");
+    expect(rails[0]!.getAttribute("style")).toContain("top: 0px");
+    expect(rails[1]!.getAttribute("style")).toContain("top: 176px");
+    expect(screen.getByText("Stage 1")).toBeInTheDocument();
+    expect(screen.getByText("Stage 2")).toBeInTheDocument();
+    expect(screen.queryByText("Stage 3")).not.toBeInTheDocument();
+  });
 });

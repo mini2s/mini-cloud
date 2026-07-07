@@ -499,6 +499,21 @@ describe("WorkflowPanoramaPage (new)", () => {
     expect(worker).toMatchObject({ position: { x: 120, y: 12 } });
   });
 
+  it("renders worker nodes in the first visible lane when stage sort orders are sparse", () => {
+    mocks.stagesData = [
+      { id: "stage-2", workflow_id: "wf-1", name: "Stage 2", description: "", sort_order: 1, node_count: 0, created_at: "", updated_at: "" },
+      { id: "stage-3", workflow_id: "wf-1", name: "Stage 3", description: "", sort_order: 2, node_count: 0, created_at: "", updated_at: "" },
+    ];
+    mocks.nodesData = [
+      { id: "node-1", workflow_id: "wf-1", title: "A", description: "", worker_type: "agent", worker_id: null, critic_type: "human", critic_id: null, critic_api_url: null, stage_id: "stage-2", format_schema: null, position_x: 120, position_y: 0, sort_order: 0, created_at: "", updated_at: "" },
+    ];
+
+    render(<WorkflowPanoramaPage workflowId="wf-1" />);
+
+    const worker = mocks.reactFlowProps?.nodes.find((n) => n.id === "node-1");
+    expect(worker).toMatchObject({ position: { x: 120, y: 12 } });
+  });
+
   it("filters deleted nodes and projects local edits before rendering", () => {
     mocks.nodesData = [
       {

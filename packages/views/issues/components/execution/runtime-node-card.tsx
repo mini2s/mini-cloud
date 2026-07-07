@@ -87,6 +87,7 @@ function ActionButton({
       return () => clearTimeout(timer);
     }
     prevLoading.current = loading;
+    return undefined;
   }, [loading]);
 
   const handleClick = useCallback(
