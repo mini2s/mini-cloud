@@ -1,0 +1,367 @@
+# Workflow Editor Gateway Node Design
+
+## 背景
+
+Workflow 编辑模式和运行模式共享同一套画布基础设施：
+
+- Workflow 编辑器：单视图 DAG 画布 + Stage 泳道，用于搭建 Workflow 定义。
+- Issue 全景图：复用编辑器画布基础设施，叠加运行时状态，作为 Issue 详情页内的只读执行视图。
+
+本设计扩展三类能力：
+
+- 连线删除产品化：在画布上提供可发现的悬浮删除按钮。
+- 显式并发语义：新增 Fork / Join 网关节点，而不是只依赖隐式多出边 / 多入边。
+- 节点类型样式多样化：采用语义形状 + 统一信息区，category 优先，shape 可覆盖。
+
+## 目标
+
+- 让用户显式表达并行分发与汇聚等待。
+- 让编辑视图和 Issue 执行全景图使用同一套节点视觉语言。
+- 节点只展示核心信息，配置完整性由其他组件提示。
+- 不新增数据库表，尽量复用现有 `workflow_node.format_schema` 和 DAG 调度。
+- 第一批不实现条件分支、失败分支、any-of join、用户自定义样式面板。
+
+## 总体架构
+
+采用语义网关节点方案。
+
+Fork / Join 仍然是 `workflow_node`，通过 `format_schema` 标记：
+
+```json
+{
+  "type": "gateway",
+  "gateway_kind": "fork",
+  "shape": "diamond",
+  "template_id": "fork-gateway",
+  "template_category": "logic"
+}
+```
+
+运行时仍为每个 node 创建 `workflow_node_run`。普通节点继续走 Worker / Critic 流程；gateway 节点被激活后自动完成，不执行 format checker，不派发 worker，不进入 critic。
+
+下游激活复用现有 DAG 规则：目标节点的所有上游都进入终态后，目标节点才会启动。
+
+## 数据模型
+
+不新增迁移。
+
+普通节点示例：
+
+```json
+{
+  "shape": "rectangle",
+  "template_id": "ai-agent-task",
+  "template_category": "ai"
+}
+```
+
+Fork gateway：
+
+```json
+{
+  "type": "gateway",
+  "gateway_kind": "fork",
+  "shape": "diamond",
+  "template_id": "fork-gateway",
+  "template_category": "logic"
+}
+```
+
+Join gateway：
+
+```json
+{
+  "type": "gateway",
+  "gateway_kind": "join",
+  "shape": "diamond",
+  "template_id": "join-gateway",
+  "template_category": "logic"
+}
+```
+
+Annotation 保持现有结构：
+
+```json
+{
+  "type": "annotation",
+  "template_id": "sticky-note",
+  "template_category": "annotation"
+}
+```
+
+在 `packages/core/types/workflow.ts` 增加解析函数，而不是让 UI 直接信任 API JSON：
+
+- `WorkflowNodeFormatKind = "task" | "gateway" | "annotation"`
+- `GatewayKind = "fork" | "join"`
+- `parseNodeFormat(format_schema)` 返回稳定 fallback。
+
+Fallback 规则：
+
+- 非对象或未知类型：普通 task。
+- shape 不合法：`rectangle`。
+- `type = "gateway"` 但 `gateway_kind` 非法：返回 invalid gateway，供 Preflight 阻断。
+- 旧节点缺少 `template_category`：按 `action` 处理。
+
+## API 兼容
+
+API request 不新增字段，继续通过 `format_schema` 传入。
+
+桌面端可能连接更新后的后端或旧后端，因此前端消费 API 时必须继续 parse，不做裸 cast。未知 enum 值降级展示，不能白屏。
+
+建议顺手修复 `CreateWorkflowEdge`：handler 已解析 `req.Condition`，但创建时没有传给 sqlc。第一批功能不依赖 edge condition，但修复后可为后续语义边复用。
+
+## 节点视觉系统
+
+共享节点组件服务两种模式：
+
+- `edit`：Workflow 定义编辑。
+- `run`：Issue 全景执行视图。
+
+节点视觉拆成三层：
+
+1. 语义基础层，两个模式共享。
+2. 编辑态覆盖层，只承载编辑操作。
+3. 运行态覆盖层，只承载执行状态。
+
+### 语义基础层
+
+形状表达节点类型：
+
+- Trigger：pill。
+- Task / Agent：rectangle。
+- Fork / Join / Decision：diamond。
+- Human Review：hexagon。
+- Annotation：note。
+
+图标表达能力类别：trigger、agent、human、gateway、note。
+
+信息区保持统一结构：标题、类型标签、处理者或摘要。
+
+### 编辑模式节点信息
+
+编辑模式只展示定义层核心信息：
+
+- 标题：节点名称。
+- 类型：Trigger / Task / Agent / Review / Fork / Join / Note。
+- 处理者：默认显示执行者，格式为人 / 智能体 / 小队 / 研发角色。
+- 交付物摘要：显示是否定义了交付物，以及 Doc / PR 类型图标。
+
+不展示：
+
+- 缺 worker / 缺 critic / 缺 stage。
+- schema 或配置错误。
+- 复杂描述全文。
+
+Stage 归属由泳道表达，不进入节点内部。
+
+### 运行模式节点信息
+
+运行模式严格对齐用户旅程中 Issue 全景图的节点信息：
+
+- 标题。
+- 处理者：审核中显示评审者，其他状态显示执行者。
+- 运行状态：待规划 / 待办 / 进行中 / 审核中 / 已完成 / 已阻塞。
+- 交付物情况：红黄绿灯提交状态。
+- 执行信息：耗时。
+- 智能体操作入口：进入会话、重试。
+
+Gateway 在运行模式中不显示处理者、交付物、会话或重试：
+
+- Fork：显示已分发。
+- Join：显示已汇聚。
+- 未激活 Join：显示等待上游。
+
+### 视觉编码规则
+
+- 形状表达节点语义。
+- Stage 色条表达研发阶段。
+- 状态环或顶部细条表达运行状态。
+- 红黄绿灯只表达交付物情况。
+- 底部 actor 区只表达当前处理者。
+- 操作按钮只在运行模式 hover / selected 时出现。
+
+避免让颜色同时表达 stage、状态和交付物三种含义。
+
+## 编辑器交互
+
+### 节点模板
+
+在 `node-template-catalog.ts` 增加：
+
+- `fork-gateway`
+  - category: `logic`
+  - title: `Fork`
+  - description: `Run multiple downstream branches in parallel.`
+  - shape: `diamond`
+  - `format_schema.type = "gateway"`
+  - `format_schema.gateway_kind = "fork"`
+- `join-gateway`
+  - category: `logic`
+  - title: `Join`
+  - description: `Wait for multiple upstream branches before continuing.`
+  - shape: `diamond`
+  - `format_schema.type = "gateway"`
+  - `format_schema.gateway_kind = "join"`
+
+Gateway 创建时仍传默认 `worker_type` / `critic_type` 以满足当前后端非空约束，但 UI 和运行时忽略这些字段。
+
+### Gateway 配置面板
+
+选中 Fork / Join 时，右侧面板不展示 Worker / Critic 配置，改为轻量信息：
+
+- 类型：Fork / Join。
+- 说明。
+- 入边 / 出边计数。
+- 标题和描述可编辑。
+
+### 连线删除
+
+第一批只做悬浮删除按钮：
+
+- hover 或 selected 到普通 workflow edge 时，在边中点显示 icon button。
+- 点击直接删除，调用现有 `useDeleteEdge`。
+- 删除成功后 invalidate edges。
+- 删除失败 toast。
+- 保留 Delete / Backspace 键盘删除能力。
+- critic 内部虚线边不显示删除按钮。
+
+实现建议：
+
+- 在 `panorama-edge.tsx` 使用 `EdgeLabelRenderer` 或 edge label 渲染按钮。
+- 通过 edge `data.onDeleteEdge(edgeId)` 注入删除回调。
+
+## 后端运行时
+
+### Gateway 识别
+
+后端增加一个小解析函数：
+
+```go
+type workflowNodeFormat struct {
+	Type        string `json:"type"`
+	GatewayKind string `json:"gateway_kind"`
+}
+```
+
+只接受：
+
+- `type = "gateway"`
+- `gateway_kind = "fork" | "join"`
+
+未知 gateway 不自动执行，前端 Preflight 阻断。
+
+### StartRun 与 dispatch
+
+创建 node_run 的规则保持不变：
+
+- root 节点：`format_checking`
+- 非 root 节点：`pending`
+
+当 gateway node_run 进入 `format_checking`：
+
+- 直接更新为 `completed`。
+- 不执行 JSON Schema 校验。
+- 不创建 agent task。
+- 不进入 worker / critic。
+- 调用现有 `OnNodeRunCompleted` 激活下游。
+
+### Fork 语义
+
+Fork 不需要特殊算法。Fork 自动完成后，现有 `OnNodeRunCompleted` 会遍历所有 outgoing edges 并激活可运行下游。
+
+Preflight 约束：
+
+- Fork 至少 2 个下游。
+- Root fork 允许作为入口。
+
+### Join 语义
+
+Join 也复用现有上游等待逻辑。所有上游终态后，Join 被激活；激活后自动完成；完成后激活下游。
+
+Preflight 约束：
+
+- Join 至少 2 个上游。
+- Join 多下游第一批给 warning，不 blocking。
+
+### 失败和取消
+
+取消 run 时，gateway 与普通 node_run 一样取消。
+
+当前 `isTerminalNodeRunStatus` 会把 failed / format_failed 视为终态，因此 Join 可能在上游失败后继续。这是现有语义，第一批不改变。失败传播、错误分支和失败阻断 Join 后续单独设计。
+
+## Preflight
+
+新增检查：
+
+- `gateway-fork-outgoing`
+  - Fork 出边数 `< 2`：error，blocking。
+- `gateway-join-incoming`
+  - Join 入边数 `< 2`：error，blocking。
+- `gateway-kind-invalid`
+  - `type = "gateway"` 但 `gateway_kind` 非法：error，blocking。
+- `gateway-join-multiple-outgoing`
+  - Join 出边数 `> 1`：warning，不 blocking。
+
+不新增配置完整性提示。Gateway 的 worker / critic 字段被忽略，不提示用户。
+
+## 测试策略
+
+只跑相关模块测试，不做全量 `bun test`。
+
+### 前端测试
+
+- `node-template-catalog.test.ts`
+  - 覆盖 `fork-gateway` / `join-gateway`。
+  - 创建 payload 带 `type: gateway` 和 `gateway_kind`。
+- 节点组件测试
+  - Trigger / Task / Gateway / Review / Annotation 的基础样式与核心信息。
+  - 运行模式展示标题、处理者、状态、交付灯、耗时。
+  - Gateway 不显示处理者、交付物、会话、重试。
+- `panorama-edge.test.tsx`
+  - hover / selected 时显示删除按钮。
+  - 点击删除回调 edge id。
+  - critic 内部边不显示删除按钮。
+- `preflight-checks.test.ts`
+  - Fork 少于两个下游 blocking。
+  - Join 少于两个上游 blocking。
+  - invalid gateway kind blocking。
+  - 合法 Fork / Join 通过。
+
+### 后端测试
+
+在 workflow service 测试中覆盖：
+
+- root Fork 自动完成并激活多个下游。
+- Join 等待两个上游全部完成后自动完成。
+- Gateway 不创建 agent task。
+- Gateway 不进入 worker / critic。
+- cancel run 能取消 gateway node_run。
+
+如果修复 `CreateWorkflowEdge` condition：
+
+- handler 测试覆盖 condition 被保存并返回。
+
+### 手工验证
+
+- 编辑器创建 Fork / Join。
+- Fork 连两个下游，运行后两个分支同时进入可执行状态。
+- Join 连接两个上游，一个上游完成时不启动，两个完成后自动通过。
+- Issue 全景图复用同一节点视觉基础，叠加运行状态。
+- hover / selected 连线时出现删除按钮，点击删除后预检刷新。
+
+## 后续方向
+
+- 条件分支与 true / false 输出端口。
+- 失败分支与错误传播。
+- any-of join / all-of join 策略。
+- 用户自定义节点 icon / color / style。
+- 语义边：data、condition、error、rework。
+- 发布版本模型与历史执行回放。
+
+## 自检
+
+- 本设计聚焦第一批功能：悬浮删边、显式 Fork / Join、共享节点视觉系统。
+- 未新增数据库表，避免扩大实现范围。
+- 节点信息层级已按用户旅程收敛，不展示配置完整性。
+- 编辑模式和运行模式共享基础视觉系统，通过 mode 叠加差异层。
+- 已明确失败传播不在第一批，避免隐式改变现有运行语义。
