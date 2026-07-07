@@ -1,7 +1,7 @@
 "use client";
 
 import { AlertCircle, CheckCircle2, Circle, CircleOff, Clock, Loader2, MinusCircle, RotateCcw, UserCheck } from "lucide-react";
-import type { NodeRunStatus } from "@multica/core/types";
+import type { GatewayKind, NodeRunStatus, WorkflowRuntimeDisplayStatus } from "@multica/core/types";
 import { cn } from "@multica/ui/lib/utils";
 
 const STATUS_MAP: Record<NodeRunStatus, {
@@ -48,6 +48,59 @@ export function NodeRunStatusIcon({ status, className }: NodeRunStatusIconProps)
   return (
     <Icon
       data-testid={status === "pending" ? `status-icon-${status}` : "status-icon"}
+      className={cn(
+        "h-4 w-4 shrink-0",
+        config.className,
+        config.spin && "animate-spin",
+        className,
+      )}
+    />
+  );
+}
+
+const DISPLAY_STATUS_MAP: Record<WorkflowRuntimeDisplayStatus, {
+  icon: typeof Circle;
+  className: string;
+  label: string;
+  spin?: boolean;
+}> = {
+  pending: { icon: Circle, className: "text-muted-foreground/40", label: "Pending" },
+  todo: { icon: Clock, className: "text-amber-500", label: "Todo" },
+  in_progress: { icon: Loader2, className: "text-blue-500", label: "In progress", spin: true },
+  reviewing: { icon: UserCheck, className: "text-violet-500", label: "Reviewing" },
+  completed: { icon: CheckCircle2, className: "text-green-500", label: "Completed" },
+  blocked: { icon: AlertCircle, className: "text-red-500", label: "Blocked" },
+  cancelled: { icon: MinusCircle, className: "text-muted-foreground", label: "Cancelled" },
+};
+
+function gatewayDisplayLabel(status: WorkflowRuntimeDisplayStatus, gatewayKind?: GatewayKind | null): string | null {
+  if (!gatewayKind) return null;
+  if (status === "cancelled") return "Cancelled";
+  if (gatewayKind === "fork" && status === "completed") return "Dispatched";
+  if (gatewayKind === "join" && status === "completed") return "Joined";
+  if (gatewayKind === "join" && (status === "pending" || status === "todo")) return "Waiting for upstream";
+  return null;
+}
+
+export interface RuntimeDisplayStatusIconProps {
+  status: WorkflowRuntimeDisplayStatus;
+  gatewayKind?: GatewayKind | null;
+  className?: string;
+}
+
+export function RuntimeDisplayStatusIcon({
+  status,
+  gatewayKind,
+  className,
+}: RuntimeDisplayStatusIconProps) {
+  const config = DISPLAY_STATUS_MAP[status] ?? DISPLAY_STATUS_MAP.pending;
+  const Icon = config.icon;
+  const label = gatewayDisplayLabel(status, gatewayKind) ?? config.label;
+
+  return (
+    <Icon
+      aria-label={label}
+      data-testid="runtime-display-status-icon"
       className={cn(
         "h-4 w-4 shrink-0",
         config.className,

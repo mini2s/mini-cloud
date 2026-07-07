@@ -3,7 +3,7 @@ import { describe, it, expect, vi } from "vitest";
 import userEvent from "@testing-library/user-event";
 import { RuntimeNodeCard } from "./runtime-node-card";
 import type { NodeRunActionType } from "./runtime-node-card";
-import type { WorkflowNode, WorkflowNodeRun } from "@multica/core/types";
+import type { WorkflowNode, WorkflowNodeRun, WorkflowNodeRuntimeSummary } from "@multica/core/types";
 
 // Mock @multica/views/i18n for useT hook — handles function selector form
 vi.mock("@multica/views/i18n", () => ({
@@ -81,6 +81,24 @@ const completedRun: WorkflowNodeRun = {
   completed_at: null,
   created_at: "2026-01-01",
   updated_at: "2026-01-01",
+};
+
+const runtimeSummary: WorkflowNodeRuntimeSummary = {
+  workflow_node_id: "node-1",
+  node_run_id: "run-1",
+  display_status: "reviewing",
+  active_actor_type: "agent",
+  active_actor_id: "agent-2",
+  deliverable_signal: "red",
+  required_deliverables_total: 1,
+  required_deliverables_submitted: 0,
+  required_deliverables_approved: 0,
+  duration_seconds: 90,
+  session_id: null,
+  runtime_id: null,
+  device_id: null,
+  has_error: false,
+  error_message: "",
 };
 
 describe("RuntimeNodeCard", () => {
@@ -237,9 +255,94 @@ describe("RuntimeNodeCard", () => {
         onClick={vi.fn()}
       />,
     );
-    // Title row has a status icon — completed status maps to data-testid="status-icon"
-    const statusIcons = container.querySelectorAll('[data-testid="status-icon"]');
+    const statusIcons = container.querySelectorAll('[data-testid="runtime-display-status-icon"]');
     expect(statusIcons.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it("uses runtime summary display status and deliverable signal", () => {
+    render(
+      <RuntimeNodeCard
+        node={baseNode}
+        nodeRun={{ ...completedRun, status: "completed" }}
+        runtimeSummary={runtimeSummary}
+        workerName="Tester"
+        criticName="Reviewer"
+        onClick={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByLabelText("Reviewing")).toBeInTheDocument();
+    expect(screen.getByLabelText("Deliverables red")).toBeInTheDocument();
+  });
+
+  it("renders gateway nodes without actor artifact or action rows", () => {
+    render(
+      <RuntimeNodeCard
+        node={{
+          ...baseNode,
+          format_schema: { type: "gateway", gateway_kind: "fork", shape: "diamond" },
+        }}
+        nodeRun={{ ...completedRun, status: "awaiting_critic", worker_output: { summary: "done" } }}
+        runtimeSummary={{ ...runtimeSummary, display_status: "completed", deliverable_signal: "red" }}
+        workerName="Tester"
+        criticName="Reviewer"
+        onClick={vi.fn()}
+        onAction={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText("Fork gateway")).toBeInTheDocument();
+    expect(screen.getByLabelText("Dispatched")).toBeInTheDocument();
+    expect(screen.queryByText("Worker:")).not.toBeInTheDocument();
+    expect(screen.queryByText("Critic:")).not.toBeInTheDocument();
+    expect(screen.queryByText(/Artifacts:/)).not.toBeInTheDocument();
+    expect(screen.queryByTestId("runtime-node-action-approve")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Deliverables red")).not.toBeInTheDocument();
+  });
+
+  it("uses category-derived semantic shape classes", () => {
+    render(
+      <RuntimeNodeCard
+        node={{
+          ...baseNode,
+          id: "trigger-1",
+          format_schema: { template_category: "trigger" },
+        }}
+        nodeRun={completedRun}
+        workerName="Tester"
+        criticName={null}
+        onClick={vi.fn()}
+      />,
+    );
+
+    const card = screen.getByTestId("runtime-node-card-trigger-1");
+    expect(card).toHaveAttribute("data-node-shape", "pill");
+    const surface = card.querySelector('[data-node-shape-surface="true"]');
+    expect(surface?.className).toContain("rounded-full");
+  });
+
+  it("lets explicit shape override the category-derived runtime shape", () => {
+    render(
+      <RuntimeNodeCard
+        node={{
+          ...baseNode,
+          id: "override-1",
+          format_schema: { template_category: "human", shape: "diamond" },
+        }}
+        nodeRun={completedRun}
+        workerName="Tester"
+        criticName={null}
+        onClick={vi.fn()}
+      />,
+    );
+
+    const card = screen.getByTestId("runtime-node-card-override-1");
+    expect(card).toHaveAttribute("data-node-shape", "diamond");
+    const surface = card.querySelector('[data-node-shape-surface="true"]');
+    expect(surface?.className).toContain("rounded-lg");
+    expect(surface?.className).not.toContain("clip-path");
+    const glyph = card.querySelector('[data-node-shape-glyph="diamond"]');
+    expect(glyph).toBeInTheDocument();
   });
 
   // ---- Inline action buttons ----

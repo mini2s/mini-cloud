@@ -79,4 +79,41 @@ describe("node-template-catalog", () => {
       template_category: "annotation",
     });
   });
+
+  it("generates gateway node payloads with semantic format_schema", () => {
+    const fork = NODE_TEMPLATES.find((item) => item.id === "fork-gateway");
+    const join = NODE_TEMPLATES.find((item) => item.id === "join-gateway");
+
+    expect(fork).toMatchObject({
+      category: "logic",
+      title: "Fork",
+      shape: "diamond",
+      worker_type: "agent",
+      critic_type: "human",
+    });
+    expect(join).toMatchObject({
+      category: "logic",
+      title: "Join",
+      shape: "diamond",
+      worker_type: "agent",
+      critic_type: "human",
+    });
+
+    expect(buildCreateNodeRequestFromTemplate(fork!, { x: 10, y: 0, stageId: "stage-1" }).format_schema)
+      .toMatchObject({
+        type: "gateway",
+        gateway_kind: "fork",
+        shape: "diamond",
+        template_id: "fork-gateway",
+        template_category: "logic",
+      });
+    expect(buildCreateNodeRequestFromTemplate(join!, { x: 10, y: 0, stageId: "stage-1" }).format_schema)
+      .toMatchObject({
+        type: "gateway",
+        gateway_kind: "join",
+        shape: "diamond",
+        template_id: "join-gateway",
+        template_category: "logic",
+      });
+  });
 });

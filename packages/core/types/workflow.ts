@@ -3,8 +3,36 @@ export type WorkerType = "human" | "agent" | "squad" | "role";
 export type CriticType = "human" | "agent" | "squad" | "api" | "role";
 export type RoleActorType = "member" | "agent" | "squad";
 export type NodeShape = "rectangle" | "diamond" | "pill" | "hexagon";
+export type WorkflowNodeFormatKind = "task" | "gateway" | "annotation";
+export type GatewayKind = "fork" | "join";
+
+export interface WorkflowNodeFormat {
+  kind: WorkflowNodeFormatKind;
+  shape: NodeShape;
+  template_id: string | null;
+  template_category: string;
+  gateway_kind: GatewayKind | null;
+  gateway_kind_valid: boolean;
+}
 
 export const NODE_SHAPES: NodeShape[] = ["rectangle", "diamond", "pill", "hexagon"];
+
+const CATEGORY_DEFAULT_SHAPES: Record<string, NodeShape> = {
+  trigger: "pill",
+  logic: "diamond",
+  human: "hexagon",
+  action: "rectangle",
+  ai: "rectangle",
+};
+
+function parseTemplateCategory(formatSchema: unknown): string {
+  if (!formatSchema || typeof formatSchema !== "object" || Array.isArray(formatSchema)) {
+    return "action";
+  }
+
+  const value = (formatSchema as Record<string, unknown>).template_category;
+  return typeof value === "string" && value.trim() ? value : "action";
+}
 
 export function parseNodeShape(formatSchema: unknown): NodeShape {
   if (
@@ -16,7 +44,62 @@ export function parseNodeShape(formatSchema: unknown): NodeShape {
   ) {
     return (formatSchema as Record<string, unknown>).shape as NodeShape;
   }
-  return "rectangle";
+  return CATEGORY_DEFAULT_SHAPES[parseTemplateCategory(formatSchema)] ?? "rectangle";
+}
+
+function isGatewayKind(value: unknown): value is GatewayKind {
+  return value === "fork" || value === "join";
+}
+
+function readString(obj: Record<string, unknown>, key: string): string | null {
+  const value = obj[key];
+  return typeof value === "string" && value.trim() ? value : null;
+}
+
+export function parseNodeFormat(formatSchema: unknown): WorkflowNodeFormat {
+  const base: WorkflowNodeFormat = {
+    kind: "task",
+    shape: parseNodeShape(formatSchema),
+    template_id: null,
+    template_category: "action",
+    gateway_kind: null,
+    gateway_kind_valid: true,
+  };
+
+  if (!formatSchema || typeof formatSchema !== "object" || Array.isArray(formatSchema)) {
+    return base;
+  }
+
+  const schema = formatSchema as Record<string, unknown>;
+  const templateId = readString(schema, "template_id");
+  const templateCategory = readString(schema, "template_category") ?? "action";
+
+  if (schema.type === "annotation") {
+    return {
+      ...base,
+      kind: "annotation",
+      template_id: templateId,
+      template_category: templateCategory,
+    };
+  }
+
+  if (schema.type === "gateway") {
+    const gatewayKind = isGatewayKind(schema.gateway_kind) ? schema.gateway_kind : null;
+    return {
+      ...base,
+      kind: "gateway",
+      template_id: templateId,
+      template_category: templateCategory,
+      gateway_kind: gatewayKind,
+      gateway_kind_valid: gatewayKind !== null,
+    };
+  }
+
+  return {
+    ...base,
+    template_id: templateId,
+    template_category: templateCategory,
+  };
 }
 
 /** Map workflow node worker/critic type to actor type used by useActorName(). */
@@ -43,6 +126,36 @@ export type WorkflowRuntimeDisplayStatus =
   | "blocked"
   | "cancelled";
 export type WorkflowDeliverableSignal = "none" | "red" | "yellow" | "green";
+
+export function toWorkflowRuntimeDisplayStatus(status: string): WorkflowRuntimeDisplayStatus {
+  switch (status) {
+    case "pending":
+      return "pending";
+    case "worker_assigned":
+      return "todo";
+    case "format_checking":
+    case "format_ok":
+    case "awaiting_input":
+    case "working":
+      return "in_progress";
+    case "awaiting_critic":
+    case "critic_reviewing":
+      return "reviewing";
+    case "critic_approved":
+    case "completed":
+      return "completed";
+    case "failed":
+    case "format_failed":
+    case "blocked":
+    case "critic_rework":
+      return "blocked";
+    case "cancelled":
+    case "skipped":
+      return "cancelled";
+    default:
+      return "pending";
+  }
+}
 
 export interface Workflow {
   id: string;

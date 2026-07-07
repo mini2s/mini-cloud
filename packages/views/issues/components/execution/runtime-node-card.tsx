@@ -1,13 +1,20 @@
 "use client";
 
 import { useState, useCallback, useEffect, useRef } from "react";
-import type { WorkflowNode, WorkflowNodeRun } from "@multica/core/types";
+import {
+  parseNodeFormat,
+  toWorkflowRuntimeDisplayStatus,
+  type WorkflowNode,
+  type WorkflowNodeRun,
+  type WorkflowNodeRuntimeSummary,
+} from "@multica/core/types";
 import { cn } from "@multica/ui/lib/utils";
-import { NodeRunStatusIcon } from "./node-run-status-icon";
-import { Bot, User, Building2, Paperclip, Check } from "lucide-react";
+import { RuntimeDisplayStatusIcon } from "./node-run-status-icon";
+import { Bot, User, Building2, Paperclip, Check, GitFork, GitMerge } from "lucide-react";
 import { useT } from "@multica/views/i18n";
 import { Button } from "@multica/ui/components/ui/button";
 import { Loader2 } from "lucide-react";
+import { workflowNodeInfoAreaClassName, workflowNodeShapeGlyphClassName, workflowNodeShapeSurfaceClassName } from "../../../common/workflow-node-shape";
 
 export type NodeRunActionType =
   | "approve"
@@ -42,6 +49,7 @@ export interface RuntimeNodeCardProps {
   elementRef?: (el: HTMLButtonElement | null) => void;
   onAction?: (nodeRunId: string, action: NodeRunActionType) => void;
   isActionLoading?: Partial<Record<NodeRunActionType, boolean>>;
+  runtimeSummary?: WorkflowNodeRuntimeSummary | null;
   /** Traffic-light indicator derived from deliverable submission statuses. */
   deliverableSignal?: DeliverableSignal;
 }
@@ -51,6 +59,12 @@ function typeIcon(t: string) {
   if (t === "agent") return Bot;
   if (t === "squad") return Building2;
   return User;
+}
+
+function gatewayLabel(kind: "fork" | "join" | null): string {
+  if (kind === "join") return "Join gateway";
+  if (kind === "fork") return "Fork gateway";
+  return "Gateway";
 }
 
 /** Actionable status → button layout mapping. */
@@ -174,11 +188,17 @@ export function RuntimeNodeCard({
   elementRef,
   onAction,
   isActionLoading,
+  runtimeSummary,
   deliverableSignal,
 }: RuntimeNodeCardProps) {
   const { t } = useT("issues");
-  const hasWorkerOutput = nodeRun?.worker_output != null;
-  const hasCriticOutput = nodeRun?.critic_output != null;
+  const nodeFormat = parseNodeFormat(node.format_schema);
+  const isGateway = nodeFormat.kind === "gateway";
+  const nodeShape = nodeFormat.shape;
+  const hasWorkerOutput = !isGateway && nodeRun?.worker_output != null;
+  const hasCriticOutput = !isGateway && nodeRun?.critic_output != null;
+  const displayStatus = runtimeSummary?.display_status ?? (nodeRun ? toWorkflowRuntimeDisplayStatus(nodeRun.status) : "pending");
+  const visibleDeliverableSignal = isGateway ? "none" : runtimeSummary?.deliverable_signal ?? deliverableSignal;
 
   const artifactNames: string[] = [];
   if (hasWorkerOutput) {
@@ -189,9 +209,12 @@ export function RuntimeNodeCard({
   }
 
   const WorkerIcon = typeIcon(node.worker_type);
+  const GatewayIcon = nodeFormat.gateway_kind === "join" ? GitMerge : GitFork;
 
   const actionButtons: ActionButtonDef[] = nodeRun
-    ? (() => {
+    ? isGateway
+      ? []
+      : (() => {
         switch (nodeRun.status) {
           case "awaiting_critic":
             return [
@@ -220,50 +243,80 @@ export function RuntimeNodeCard({
     <button
       type="button"
       data-testid={`runtime-node-card-${node.id}`}
+      data-node-shape={nodeShape}
       ref={elementRef}
       aria-pressed={isSelected}
       onClick={() => onClick(node.id)}
       className={cn(
-        "flex min-w-[240px] min-h-[104px] flex-col gap-2 rounded-lg border border-border/80 bg-background p-3 text-left shadow-[0_1px_2px_rgba(15,23,42,0.06)]",
+        "group relative flex min-w-[240px] min-h-[104px] flex-col text-left",
         "transition-all hover:-translate-y-0.5 hover:border-primary/45 hover:shadow-md",
         isSelected &&
           "border-primary/55 shadow-[inset_0_0_0_1px_rgba(59,130,246,0.08),0_2px_12px_rgba(15,23,42,0.06)]",
       )}
     >
+      <span
+        aria-hidden="true"
+        data-node-shape-surface="true"
+        className={cn(
+          "pointer-events-none absolute inset-0 border border-border/80 bg-background shadow-[0_1px_2px_rgba(15,23,42,0.06)] transition-all",
+          workflowNodeShapeSurfaceClassName(nodeShape),
+          "group-hover:border-primary/45 group-hover:shadow-md",
+          isSelected && "border-primary/55 shadow-[inset_0_0_0_1px_rgba(59,130,246,0.08),0_2px_12px_rgba(15,23,42,0.06)]",
+        )}
+      />
+      <div className={cn("relative z-10 flex min-h-[104px] flex-col gap-2", workflowNodeInfoAreaClassName(nodeShape))}>
       {/* Row 1: node title + deliverable signal + status icon */}
       <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-1.5 min-w-0">
-          {deliverableSignal && deliverableSignal !== "none" && (
+          {visibleDeliverableSignal && visibleDeliverableSignal !== "none" && (
             <span
-              aria-label={`Deliverables ${deliverableSignal}`}
+              aria-label={`Deliverables ${visibleDeliverableSignal}`}
               className={cn(
                 "h-2 w-2 rounded-full shrink-0",
-                deliverableSignal === "green" && "bg-emerald-500",
-                deliverableSignal === "yellow" && "bg-amber-500",
-                deliverableSignal === "red" && "bg-red-500",
+                visibleDeliverableSignal === "green" && "bg-emerald-500",
+                visibleDeliverableSignal === "yellow" && "bg-amber-500",
+                visibleDeliverableSignal === "red" && "bg-red-500",
               )}
             />
           )}
+          {nodeShape !== "rectangle" ? (
+            <span
+              aria-hidden="true"
+              data-node-shape-glyph={nodeShape}
+              className={cn(
+                "size-2.5 shrink-0 border border-primary/45 bg-primary/10",
+                workflowNodeShapeGlyphClassName(nodeShape),
+              )}
+            />
+          ) : null}
           <span className="text-sm font-medium truncate">{node.title}</span>
         </div>
-        {nodeRun ? (
-          <NodeRunStatusIcon status={nodeRun.status} className="h-4 w-4" />
-        ) : (
-          <NodeRunStatusIcon status="pending" className="h-4 w-4" />
-        )}
+        <RuntimeDisplayStatusIcon
+          status={displayStatus}
+          gatewayKind={isGateway ? nodeFormat.gateway_kind : null}
+          className="h-4 w-4"
+        />
       </div>
 
       {/* Row 2: Worker (type icon + label + name — no duplicate status icon) */}
       <div className="flex items-center gap-2 h-6 text-[11px] text-muted-foreground">
-        <WorkerIcon className="h-3 w-3 shrink-0" />
-        <span className="font-medium">{t(($) => $.execution.card.worker_label)}:</span>
-        <span className={cn(!workerName && "italic")}>
-          {workerName ?? "--"}
+        {isGateway ? (
+          <GatewayIcon className="h-3 w-3 shrink-0" />
+        ) : (
+          <WorkerIcon className="h-3 w-3 shrink-0" />
+        )}
+        <span className="font-medium">
+          {isGateway ? gatewayLabel(nodeFormat.gateway_kind) : `${t(($) => $.execution.card.worker_label)}:`}
         </span>
+        {!isGateway ? (
+          <span className={cn(!workerName && "italic")}>
+            {workerName ?? "--"}
+          </span>
+        ) : null}
       </div>
 
       {/* Row 3: Critic (only when configured) */}
-      {(node.critic_type || node.critic_id) && (
+      {!isGateway && (node.critic_type || node.critic_id) && (
         <div className="flex items-center gap-2 h-6 text-[11px] text-muted-foreground">
           {node.critic_type === "agent" ? (
             <Bot className="h-3 w-3 shrink-0" />
@@ -299,6 +352,7 @@ export function RuntimeNodeCard({
           buttons={actionButtons}
         />
       )}
+      </div>
     </button>
   );
 }

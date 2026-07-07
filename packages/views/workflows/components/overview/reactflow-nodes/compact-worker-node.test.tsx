@@ -210,6 +210,78 @@ describe("CompactWorkerNode", () => {
     expect(screen.queryByText("Needs worker")).not.toBeInTheDocument();
   });
 
+  it("renders gateway nodes with gateway semantics instead of worker metadata", () => {
+    const rfn = {
+      id: "fork-1",
+      type: "compactWorker",
+      position: { x: 100, y: 12 },
+      data: {
+        ...baseData,
+        node: makeWorkerNode({
+          id: "fork-1",
+          title: "Fan out work",
+          worker_id: null,
+          format_schema: { type: "gateway", gateway_kind: "fork", shape: "diamond" },
+        }),
+        pluginName: undefined,
+        workerName: undefined,
+      },
+    } as Node;
+    renderWithProvider(rfn);
+
+    expect(screen.getByText("Fan out work")).toBeInTheDocument();
+    expect(screen.getByText("Fork gateway")).toBeInTheDocument();
+    expect(screen.queryByText("Agent")).not.toBeInTheDocument();
+    expect(screen.queryByText("Needs worker")).not.toBeInTheDocument();
+  });
+
+  it("uses category-derived semantic shape classes", () => {
+    const rfn = {
+      id: "trigger-1",
+      type: "compactWorker",
+      position: { x: 100, y: 12 },
+      data: {
+        ...baseData,
+        node: makeWorkerNode({
+          id: "trigger-1",
+          title: "Start",
+          format_schema: { template_category: "trigger" },
+        }),
+      },
+    } as Node;
+    renderWithProvider(rfn);
+
+    const node = screen.getByTestId("compact-worker-trigger-1");
+    expect(node).toHaveAttribute("data-node-shape", "pill");
+    const surface = node.querySelector('[data-node-shape-surface="true"]');
+    expect(surface?.className).toContain("rounded-full");
+  });
+
+  it("lets explicit shape override the category-derived shape", () => {
+    const rfn = {
+      id: "override-1",
+      type: "compactWorker",
+      position: { x: 100, y: 12 },
+      data: {
+        ...baseData,
+        node: makeWorkerNode({
+          id: "override-1",
+          title: "Manual Review",
+          format_schema: { template_category: "human", shape: "diamond" },
+        }),
+      },
+    } as Node;
+    renderWithProvider(rfn);
+
+    const node = screen.getByTestId("compact-worker-override-1");
+    expect(node).toHaveAttribute("data-node-shape", "diamond");
+    const surface = node.querySelector('[data-node-shape-surface="true"]');
+    expect(surface?.className).toContain("rounded-lg");
+    expect(surface?.className).not.toContain("clip-path");
+    const glyph = node.querySelector('[data-node-shape-glyph="diamond"]');
+    expect(glyph).toBeInTheDocument();
+  });
+
   it("has testid with node id", () => {
     const rfn = {
       id: "abc-123",

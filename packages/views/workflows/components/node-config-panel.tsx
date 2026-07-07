@@ -32,7 +32,7 @@ import {
 } from "@multica/core/workflows/queries";
 import { useWorkflowEditorStore } from "@multica/core/workflows/store";
 import { AssigneePicker } from "../../issues/components/pickers/assignee-picker";
-import type { WorkflowNode, WorkflowNodeRun, WorkflowStage, WorkerType, CriticType } from "@multica/core/types";
+import { parseNodeFormat, type WorkflowNode, type WorkflowNodeRun, type WorkflowStage, type WorkerType, type CriticType } from "@multica/core/types";
 import type { IssueAssigneeType } from "@multica/core/types/issue";
 import { NodeDeliverablesEditor } from "./node-deliverables-editor";
 import { NodeDataPreview } from "./node-data-preview";
@@ -208,6 +208,18 @@ function pickerTriggerLabel(type: string, id: string | null, emptyPrefix: string
   return emptyPrefix;
 }
 
+function gatewayLabel(kind: "fork" | "join" | null): string {
+  if (kind === "join") return "Join gateway";
+  if (kind === "fork") return "Fork gateway";
+  return "Gateway";
+}
+
+function gatewayDescription(kind: "fork" | "join" | null): string {
+  if (kind === "join") return "Waits for all upstream nodes to finish, then automatically completes and continues downstream.";
+  if (kind === "fork") return "Automatically completes and fans out to all downstream nodes.";
+  return "Gateway kind is invalid. Choose Fork or Join before publishing.";
+}
+
 function AssigneePickerTrigger({
   type,
   id,
@@ -284,6 +296,7 @@ export function NodeConfigPanel({
 
   const saved = nodeEdits[node.id];
 
+  const nodeFormat = useMemo(() => parseNodeFormat(saved?.format_schema ?? node.format_schema), [saved?.format_schema, node.format_schema]);
   const isAnnotation = (() => {
     const fs = saved?.format_schema ?? node.format_schema;
     return Boolean(
@@ -293,6 +306,7 @@ export function NodeConfigPanel({
       (fs as Record<string, unknown>).type === "annotation",
     );
   })();
+  const isGateway = nodeFormat.kind === "gateway";
 
   const [title, setTitle] = useState(saved?.title ?? node.title);
   const [description, setDescription] = useState(saved?.description ?? node.description);
@@ -594,7 +608,18 @@ export function NodeConfigPanel({
               </InspectorSection>
             ) : null}
 
-            {!isAnnotation ? (
+            {isGateway ? (
+              <InspectorSection
+                icon={<GitBranch className="size-4" />}
+                title={gatewayLabel(nodeFormat.gateway_kind)}
+                subtitle="Gateway nodes control DAG flow and do not run worker or critic tasks."
+                status={<StatusBadge tone={nodeFormat.gateway_kind_valid ? "success" : "danger"}>{nodeFormat.gateway_kind_valid ? "Valid" : "Invalid"}</StatusBadge>}
+              >
+                <p className="text-sm text-muted-foreground">{gatewayDescription(nodeFormat.gateway_kind)}</p>
+              </InspectorSection>
+            ) : null}
+
+            {!isAnnotation && !isGateway ? (
               <>
                 <AssignmentCard
                   icon={<Bot className="size-4" />}

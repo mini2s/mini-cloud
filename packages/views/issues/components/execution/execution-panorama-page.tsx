@@ -321,6 +321,9 @@ export function ExecutionPanoramaPage({
   const selectedRun = selectedNodeId
     ? nodeRunMap.get(selectedNodeId) ?? null
     : null;
+  const selectedRuntimeSummary = selectedNodeId
+    ? runtimeSummaryMap.get(selectedNodeId) ?? null
+    : null;
   const rfNodes = runtimeNodesToReactFlowNodes(
     allNodes,
     sortStagesForDisplay(allStages),
@@ -371,6 +374,7 @@ export function ExecutionPanoramaPage({
           }
           onClose={() => setSelectedNodeId(null)}
           wsId={wsId}
+          runtimeSummary={selectedRuntimeSummary}
         />
       )}
     </div>

@@ -34,7 +34,7 @@ export const RuntimeCanvasNode = memo(function RuntimeCanvasNode({
         workerName={nodeData.workerName}
         criticName={nodeData.criticName}
         onClick={nodeData.onOpen}
-        deliverableSignal={nodeData.runtimeSummary?.deliverable_signal}
+        runtimeSummary={nodeData.runtimeSummary}
       />
     </div>
   );

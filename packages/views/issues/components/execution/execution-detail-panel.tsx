@@ -1,10 +1,16 @@
 "use client";
 
 import { useEffect, useMemo } from "react";
-import type { WorkflowNode, WorkflowNodeRun } from "@multica/core/types";
-import { X, Bot, User, ExternalLink, RotateCcw, Unlock } from "lucide-react";
+import {
+  parseNodeFormat,
+  toWorkflowRuntimeDisplayStatus,
+  type WorkflowNode,
+  type WorkflowNodeRun,
+  type WorkflowNodeRuntimeSummary,
+} from "@multica/core/types";
+import { X, Bot, User, ExternalLink, RotateCcw, Unlock, GitFork, GitMerge } from "lucide-react";
 import { useT } from "@multica/views/i18n";
-import { NodeRunStatusIcon } from "./node-run-status-icon";
+import { NodeRunStatusIcon, RuntimeDisplayStatusIcon } from "./node-run-status-icon";
 import { ArtifactList } from "./artifact-list";
 import { cn } from "@multica/ui/lib/utils";
 
@@ -16,8 +22,21 @@ export interface ExecutionDetailPanelProps {
   onClose: () => void;
   wsId: string;
   issueId?: string;
+  runtimeSummary?: WorkflowNodeRuntimeSummary | null;
   onUnblock?: () => void;
   onRetry?: () => void;
+}
+
+function gatewayLabel(kind: "fork" | "join" | null): string {
+  if (kind === "join") return "Join gateway";
+  if (kind === "fork") return "Fork gateway";
+  return "Gateway";
+}
+
+function gatewayDescription(kind: "fork" | "join" | null): string {
+  if (kind === "join") return "Waits for all upstream nodes to finish, then automatically completes and continues downstream.";
+  if (kind === "fork") return "Automatically completes and fans out to all downstream nodes.";
+  return "Gateway kind is invalid. Choose Fork or Join before publishing.";
 }
 
 export function ExecutionDetailPanel({
@@ -28,10 +47,15 @@ export function ExecutionDetailPanel({
   onClose,
   wsId,
   issueId,
+  runtimeSummary,
   onUnblock,
   onRetry,
 }: ExecutionDetailPanelProps) {
   const { t } = useT("issues");
+  const nodeFormat = parseNodeFormat(node.format_schema);
+  const isGateway = nodeFormat.kind === "gateway";
+  const displayStatus = runtimeSummary?.display_status ?? (nodeRun ? toWorkflowRuntimeDisplayStatus(nodeRun.status) : "pending");
+  const GatewayIcon = nodeFormat.gateway_kind === "join" ? GitMerge : GitFork;
 
   useEffect(() => {
     const handleKey = (e: KeyboardEvent) => {
@@ -88,7 +112,10 @@ export function ExecutionDetailPanel({
         <div className="flex items-center justify-between px-5 py-4 border-b border-border/60 shrink-0">
           <div className="flex items-center gap-2 min-w-0">
             <h2 className="text-base font-semibold truncate">{node.title}</h2>
-            {status && <NodeRunStatusIcon status={status} />}
+            <RuntimeDisplayStatusIcon
+              status={displayStatus}
+              gatewayKind={isGateway ? nodeFormat.gateway_kind : null}
+            />
           </div>
           <button
             onClick={onClose}
@@ -113,8 +140,25 @@ export function ExecutionDetailPanel({
             </section>
           )}
 
+          {isGateway ? (
+            <section>
+              <h3 className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide mb-2">
+                Runtime
+              </h3>
+              <div className="flex items-start gap-2 rounded-md border border-border/70 bg-muted/30 p-3">
+                <GatewayIcon className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+                <div className="min-w-0 space-y-1">
+                  <p className="text-sm font-medium">{gatewayLabel(nodeFormat.gateway_kind)}</p>
+                  <p className="text-xs text-muted-foreground">
+                    {gatewayDescription(nodeFormat.gateway_kind)}
+                  </p>
+                </div>
+              </div>
+            </section>
+          ) : null}
+
           {/* Status path visualization */}
-          {status && (
+          {status && !isGateway && (
             <section>
               <h3 className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide mb-2">
                 {t(($) => $.execution.detail_panel.status_path)}
@@ -158,6 +202,7 @@ export function ExecutionDetailPanel({
           )}
 
           {/* Worker info */}
+          {!isGateway && (
           <section>
             <h3 className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide mb-2">
               {t(($) => $.execution.detail_panel.worker)}
@@ -186,8 +231,10 @@ export function ExecutionDetailPanel({
               </div>
             )}
           </section>
+          )}
 
           {/* Critic info */}
+          {!isGateway && (
           <section>
             <h3 className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide mb-2">
               {t(($) => $.execution.detail_panel.critic)}
@@ -226,12 +273,13 @@ export function ExecutionDetailPanel({
               </p>
             )}
           </section>
+          )}
 
           {/* Artifacts */}
-          {nodeRun && <ArtifactList nodeRun={nodeRun} />}
+          {nodeRun && !isGateway && <ArtifactList nodeRun={nodeRun} />}
 
           {/* Metadata */}
-          {nodeRun && (
+          {nodeRun && !isGateway && (
             <section>
               <h3 className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide mb-2">
                 {t(($) => $.execution.detail_panel.metadata)}
@@ -295,7 +343,7 @@ export function ExecutionDetailPanel({
               {t(($) => $.execution.detail_panel.view_full_issue)}
             </a>
           )}
-          {status === "blocked" && onUnblock && (
+          {!isGateway && status === "blocked" && onUnblock && (
             <button
               onClick={onUnblock}
               className="w-full inline-flex items-center justify-center gap-1.5 rounded-md bg-amber-50 text-amber-700 border border-amber-200 px-3 py-1.5 text-xs font-medium hover:bg-amber-100 transition-colors"
@@ -304,7 +352,7 @@ export function ExecutionDetailPanel({
               {t(($) => $.execution.detail_panel.unblock)}
             </button>
           )}
-          {status === "failed" && onRetry && (
+          {!isGateway && status === "failed" && onRetry && (
             <button
               onClick={onRetry}
               className="w-full inline-flex items-center justify-center gap-1.5 rounded-md bg-red-50 text-red-700 border border-red-200 px-3 py-1.5 text-xs font-medium hover:bg-red-100 transition-colors"

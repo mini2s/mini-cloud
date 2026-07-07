@@ -2,7 +2,7 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, it, expect, vi } from "vitest";
 import { ExecutionDetailPanel } from "./execution-detail-panel";
-import type { WorkflowNode, WorkflowNodeRun } from "@multica/core/types";
+import type { WorkflowNode, WorkflowNodeRun, WorkflowNodeRuntimeSummary } from "@multica/core/types";
 
 // Mock @multica/views/i18n for useT hook — handles function selector form
 vi.mock("@multica/views/i18n", () => ({
@@ -85,6 +85,24 @@ const run: WorkflowNodeRun = {
   completed_at: null,
   created_at: "2026-06-25T10:00:00Z",
   updated_at: "2026-06-25T10:05:00Z",
+};
+
+const runtimeSummary: WorkflowNodeRuntimeSummary = {
+  workflow_node_id: "n1",
+  node_run_id: "r1",
+  display_status: "completed",
+  active_actor_type: "agent",
+  active_actor_id: "a1",
+  deliverable_signal: "none",
+  required_deliverables_total: 0,
+  required_deliverables_submitted: 0,
+  required_deliverables_approved: 0,
+  duration_seconds: 15,
+  session_id: null,
+  runtime_id: null,
+  device_id: null,
+  has_error: false,
+  error_message: "",
 };
 
 describe("ExecutionDetailPanel", () => {
@@ -271,5 +289,32 @@ describe("ExecutionDetailPanel", () => {
       />,
     );
     expect(screen.getByText("Retry")).toBeInTheDocument();
+  });
+
+  it("shows gateway runtime semantics without worker critic artifacts or actions", () => {
+    render(
+      <ExecutionDetailPanel
+        node={{
+          ...node,
+          title: "Fan out",
+          format_schema: { type: "gateway", gateway_kind: "fork", shape: "diamond" },
+        }}
+        nodeRun={{ ...run, status: "completed", worker_output: { summary: "ignored" } }}
+        runtimeSummary={runtimeSummary}
+        workerName="Worker"
+        criticName="Reviewer"
+        onClose={vi.fn()}
+        wsId="ws-1"
+        onRetry={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText("Fork gateway")).toBeInTheDocument();
+    expect(screen.getByText("Automatically completes and fans out to all downstream nodes.")).toBeInTheDocument();
+    expect(screen.getByLabelText("Dispatched")).toBeInTheDocument();
+    expect(screen.queryByText("Worker")).not.toBeInTheDocument();
+    expect(screen.queryByText("Critic")).not.toBeInTheDocument();
+    expect(screen.queryByText("Artifacts")).not.toBeInTheDocument();
+    expect(screen.queryByText("Retry")).not.toBeInTheDocument();
   });
 });

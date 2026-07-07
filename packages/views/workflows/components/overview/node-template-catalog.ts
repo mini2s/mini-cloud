@@ -1,4 +1,4 @@
-import type { CreateNodeRequest, CriticType, NodeShape, WorkerType } from "@multica/core/types";
+import type { CreateNodeRequest, CriticType, GatewayKind, NodeShape, WorkerType } from "@multica/core/types";
 
 export type NodeTemplateCategoryId =
   | "trigger"
@@ -23,6 +23,7 @@ export interface NodeTemplate {
   shape: NodeShape;
   worker_type: WorkerType;
   critic_type: CriticType;
+  gateway_kind?: GatewayKind;
   annotation?: boolean;
 }
 
@@ -65,6 +66,28 @@ export const NODE_TEMPLATES: NodeTemplate[] = [
     shape: "diamond",
     worker_type: "human",
     critic_type: "human",
+  },
+  {
+    id: "fork-gateway",
+    category: "logic",
+    title: "Fork",
+    description: "Run multiple downstream branches in parallel.",
+    tags: ["parallel", "fork", "gateway", "split"],
+    shape: "diamond",
+    worker_type: "agent",
+    critic_type: "human",
+    gateway_kind: "fork",
+  },
+  {
+    id: "join-gateway",
+    category: "logic",
+    title: "Join",
+    description: "Wait for multiple upstream branches before continuing.",
+    tags: ["join", "gateway", "merge", "wait"],
+    shape: "diamond",
+    worker_type: "agent",
+    critic_type: "human",
+    gateway_kind: "join",
   },
   {
     id: "ai-agent-task",
@@ -124,11 +147,19 @@ export function buildCreateNodeRequestFromTemplate(
         template_id: template.id,
         template_category: template.category,
       }
-    : {
-        shape: template.shape,
-        template_id: template.id,
-        template_category: template.category,
-      };
+    : template.gateway_kind
+      ? {
+          type: "gateway",
+          gateway_kind: template.gateway_kind,
+          shape: template.shape,
+          template_id: template.id,
+          template_category: template.category,
+        }
+      : {
+          shape: template.shape,
+          template_id: template.id,
+          template_category: template.category,
+        };
 
   return {
     title: template.title,

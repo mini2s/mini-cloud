@@ -231,6 +231,11 @@ describe("checkWorkerMissing", () => {
     expect(issues).toHaveLength(0);
   });
 
+  it("skips gateway nodes", () => {
+    const nodes = [makeNode({ id: "fork", worker_type: "" as unknown as "agent", worker_id: null, format_schema: { type: "gateway", gateway_kind: "fork" } })];
+    expect(checkWorkerMissing(nodes)).toEqual([]);
+  });
+
   it("passes node with worker", () => {
     const nodes = [makeNode({ id: "a", worker_type: "agent", worker_id: "agent-1" })];
     expect(checkWorkerMissing(nodes)).toEqual([]);
@@ -263,6 +268,11 @@ describe("checkInvalidCriticRef", () => {
     const nodes = [makeNode({ id: "a", critic_type: "api", critic_id: "nonexistent", critic_api_url: "https://example.com" })];
     expect(checkInvalidCriticRef(nodes, agentIds)).toEqual([]);
   });
+
+  it("skips gateway nodes", () => {
+    const nodes = [makeNode({ id: "join", critic_id: "nonexistent", critic_type: "agent", format_schema: { type: "gateway", gateway_kind: "join" } })];
+    expect(checkInvalidCriticRef(nodes, agentIds)).toEqual([]);
+  });
 });
 
 // ── checkStageMissing ──
@@ -277,6 +287,11 @@ describe("checkStageMissing", () => {
 
   it("skips annotation nodes", () => {
     const nodes = [makeNode({ id: "a", stage_id: null, format_schema: { type: "annotation" } })];
+    expect(checkStageMissing(nodes)).toEqual([]);
+  });
+
+  it("skips gateway nodes", () => {
+    const nodes = [makeNode({ id: "fork", stage_id: null, format_schema: { type: "gateway", gateway_kind: "fork" } })];
     expect(checkStageMissing(nodes)).toEqual([]);
   });
 
@@ -379,5 +394,111 @@ describe("runAllPreflightChecks", () => {
     // worker-missing (blocking) should come before stage-missing (warning)
     expect(result.issues[0]!.blocking).toBe(true);
     expect(result.issues[1]!.blocking).toBe(false);
+  });
+
+  it("blocks a fork gateway with fewer than two outgoing edges", () => {
+    const nodes = [
+      makeNode({ id: "fork", title: "Fork", format_schema: { type: "gateway", gateway_kind: "fork" } }),
+      makeNode({ id: "a" }),
+    ];
+    const result = runAllPreflightChecks({
+      nodes,
+      edges: [makeEdge({ source_node_id: "fork", target_node_id: "a" })],
+      stages: [makeStage({ id: "stage-1", sort_order: 0 })],
+      agentIds: new Set(["agent-1"]),
+    });
+
+    expect(result.issues).toContainEqual(expect.objectContaining({
+      checkId: "gateway-fork-outgoing",
+      nodeId: "fork",
+      blocking: true,
+    }));
+  });
+
+  it("blocks a join gateway with fewer than two incoming edges", () => {
+    const nodes = [
+      makeNode({ id: "a" }),
+      makeNode({ id: "join", title: "Join", format_schema: { type: "gateway", gateway_kind: "join" } }),
+    ];
+    const result = runAllPreflightChecks({
+      nodes,
+      edges: [makeEdge({ source_node_id: "a", target_node_id: "join" })],
+      stages: [makeStage({ id: "stage-1", sort_order: 0 })],
+      agentIds: new Set(["agent-1"]),
+    });
+
+    expect(result.issues).toContainEqual(expect.objectContaining({
+      checkId: "gateway-join-incoming",
+      nodeId: "join",
+      blocking: true,
+    }));
+  });
+
+  it("blocks invalid gateway kinds", () => {
+    const nodes = [makeNode({ id: "bad", format_schema: { type: "gateway", gateway_kind: "split" } })];
+    const result = runAllPreflightChecks({
+      nodes,
+      edges: [],
+      stages: [makeStage({ id: "stage-1", sort_order: 0 })],
+      agentIds: new Set(["agent-1"]),
+    });
+
+    expect(result.issues).toContainEqual(expect.objectContaining({
+      checkId: "gateway-kind-invalid",
+      nodeId: "bad",
+      blocking: true,
+    }));
+  });
+
+  it("warns when a join gateway has multiple outgoing edges", () => {
+    const nodes = [
+      makeNode({ id: "a" }),
+      makeNode({ id: "b" }),
+      makeNode({ id: "join", format_schema: { type: "gateway", gateway_kind: "join" } }),
+      makeNode({ id: "out-1" }),
+      makeNode({ id: "out-2" }),
+    ];
+    const result = runAllPreflightChecks({
+      nodes,
+      edges: [
+        makeEdge({ source_node_id: "a", target_node_id: "join" }),
+        makeEdge({ source_node_id: "b", target_node_id: "join" }),
+        makeEdge({ source_node_id: "join", target_node_id: "out-1" }),
+        makeEdge({ source_node_id: "join", target_node_id: "out-2" }),
+      ],
+      stages: [makeStage({ id: "stage-1", sort_order: 0 })],
+      agentIds: new Set(["agent-1"]),
+    });
+
+    expect(result.issues).toContainEqual(expect.objectContaining({
+      checkId: "gateway-join-multiple-outgoing",
+      nodeId: "join",
+      blocking: false,
+      severity: "warning",
+    }));
+  });
+
+  it("passes valid fork and join gateway topology", () => {
+    const nodes = [
+      makeNode({ id: "fork", format_schema: { type: "gateway", gateway_kind: "fork" } }),
+      makeNode({ id: "a" }),
+      makeNode({ id: "b" }),
+      makeNode({ id: "join", format_schema: { type: "gateway", gateway_kind: "join" } }),
+      makeNode({ id: "out" }),
+    ];
+    const result = runAllPreflightChecks({
+      nodes,
+      edges: [
+        makeEdge({ source_node_id: "fork", target_node_id: "a" }),
+        makeEdge({ source_node_id: "fork", target_node_id: "b" }),
+        makeEdge({ source_node_id: "a", target_node_id: "join" }),
+        makeEdge({ source_node_id: "b", target_node_id: "join" }),
+        makeEdge({ source_node_id: "join", target_node_id: "out" }),
+      ],
+      stages: [makeStage({ id: "stage-1", sort_order: 0 })],
+      agentIds: new Set(["agent-1"]),
+    });
+
+    expect(result.issues.filter((issue) => issue.checkId.startsWith("gateway-"))).toEqual([]);
   });
 });

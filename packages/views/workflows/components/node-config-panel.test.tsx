@@ -236,4 +236,28 @@ describe("NodeConfigPanel", () => {
 
     expect(screen.getByText("Latest run: critic_rework")).toBeInTheDocument();
   });
+
+  it("shows gateway semantics without worker critic or deliverable editors", () => {
+    render(
+      <NodeConfigPanel
+        node={{
+          ...node,
+          id: "fork-1",
+          title: "Fork",
+          worker_id: null,
+          critic_id: null,
+          format_schema: { type: "gateway", gateway_kind: "fork", shape: "diamond" },
+        }}
+        workflowId="wf-1"
+        stages={stages}
+        onClose={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText("Fork gateway")).toBeInTheDocument();
+    expect(screen.getByText("Automatically completes and fans out to all downstream nodes.")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Worker type Agent" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Critic type Agent" })).not.toBeInTheDocument();
+    expect(screen.queryByTestId("deliverables-editor")).not.toBeInTheDocument();
+  });
 });

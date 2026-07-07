@@ -99,7 +99,9 @@ func TestCrossStageEdge_Allowed(t *testing.T) {
 	if w.Code != http.StatusCreated {
 		t.Fatalf("CreateWorkflowStage A: expected 201, got %d: %s", w.Code, w.Body.String())
 	}
-	var sr1 struct{ ID string `json:"id"` }
+	var sr1 struct {
+		ID string `json:"id"`
+	}
 	json.Unmarshal(w.Body.Bytes(), &sr1)
 
 	w = httptest.NewRecorder()
@@ -109,7 +111,9 @@ func TestCrossStageEdge_Allowed(t *testing.T) {
 	if w.Code != http.StatusCreated {
 		t.Fatalf("CreateWorkflowStage B: expected 201, got %d: %s", w.Code, w.Body.String())
 	}
-	var sr2 struct{ ID string `json:"id"` }
+	var sr2 struct {
+		ID string `json:"id"`
+	}
 	json.Unmarshal(w.Body.Bytes(), &sr2)
 
 	// Create nodes in different stages
@@ -124,7 +128,9 @@ func TestCrossStageEdge_Allowed(t *testing.T) {
 	if w.Code != http.StatusCreated {
 		t.Fatalf("CreateWorkflowNode A: expected 201, got %d: %s", w.Code, w.Body.String())
 	}
-	var nr1 struct{ ID string `json:"id"` }
+	var nr1 struct {
+		ID string `json:"id"`
+	}
 	json.Unmarshal(w.Body.Bytes(), &nr1)
 
 	w = httptest.NewRecorder()
@@ -138,7 +144,9 @@ func TestCrossStageEdge_Allowed(t *testing.T) {
 	if w.Code != http.StatusCreated {
 		t.Fatalf("CreateWorkflowNode B: expected 201, got %d: %s", w.Code, w.Body.String())
 	}
-	var nr2 struct{ ID string `json:"id"` }
+	var nr2 struct {
+		ID string `json:"id"`
+	}
 	json.Unmarshal(w.Body.Bytes(), &nr2)
 
 	// Assign nodes to different stages
@@ -169,6 +177,74 @@ func TestCrossStageEdge_Allowed(t *testing.T) {
 	}
 }
 
+func TestCreateWorkflowEdge_PreservesCondition(t *testing.T) {
+	if testHandler == nil {
+		t.Skip("database not available")
+	}
+	ctx := context.Background()
+
+	w := httptest.NewRecorder()
+	req := newRequest("POST", "/api/workflows", map[string]any{"title": "Edge Condition WF"})
+	testHandler.CreateWorkflow(w, req)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("CreateWorkflow: expected 201, got %d: %s", w.Code, w.Body.String())
+	}
+	var cr struct {
+		ID string `json:"id"`
+	}
+	json.Unmarshal(w.Body.Bytes(), &cr)
+	wfID := cr.ID
+	t.Cleanup(func() {
+		_, _ = testPool.Exec(ctx, `DELETE FROM multica_workflow WHERE id = $1`, wfID)
+	})
+
+	createNode := func(title string) string {
+		w := httptest.NewRecorder()
+		req := newRequest("POST", fmt.Sprintf("/api/workflows/%s/nodes", wfID), map[string]any{
+			"title":       title,
+			"worker_type": "agent",
+			"critic_type": "human",
+		})
+		req = withURLParams(req, "id", wfID)
+		testHandler.CreateWorkflowNode(w, req)
+		if w.Code != http.StatusCreated {
+			t.Fatalf("CreateWorkflowNode %s: expected 201, got %d: %s", title, w.Code, w.Body.String())
+		}
+		var nr struct {
+			ID string `json:"id"`
+		}
+		json.Unmarshal(w.Body.Bytes(), &nr)
+		return nr.ID
+	}
+	sourceID := createNode("Source")
+	targetID := createNode("Target")
+
+	w = httptest.NewRecorder()
+	req = newRequest("POST", fmt.Sprintf("/api/workflows/%s/edges", wfID), map[string]any{
+		"source_node_id": sourceID,
+		"target_node_id": targetID,
+		"condition": map[string]any{
+			"kind":  "condition",
+			"label": "approved",
+		},
+	})
+	req = withURLParams(req, "id", wfID)
+	testHandler.CreateWorkflowEdge(w, req)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("CreateWorkflowEdge: expected 201, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var edgeResp struct {
+		Condition map[string]string `json:"condition"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &edgeResp); err != nil {
+		t.Fatalf("decode edge response: %v", err)
+	}
+	if edgeResp.Condition["kind"] != "condition" || edgeResp.Condition["label"] != "approved" {
+		t.Fatalf("condition was not preserved in response: %#v", edgeResp.Condition)
+	}
+}
+
 // TestDeleteStage_SetsNodeStageNull verifies ON DELETE SET NULL behavior.
 func TestDeleteStage_SetsNodeStageNull(t *testing.T) {
 	if testHandler == nil {
@@ -196,7 +272,9 @@ func TestDeleteStage_SetsNodeStageNull(t *testing.T) {
 	if w.Code != http.StatusCreated {
 		t.Fatalf("CreateWorkflowStage: expected 201, got %d: %s", w.Code, w.Body.String())
 	}
-	var sr struct{ ID string `json:"id"` }
+	var sr struct {
+		ID string `json:"id"`
+	}
 	json.Unmarshal(w.Body.Bytes(), &sr)
 
 	w = httptest.NewRecorder()
@@ -210,7 +288,9 @@ func TestDeleteStage_SetsNodeStageNull(t *testing.T) {
 	if w.Code != http.StatusCreated {
 		t.Fatalf("CreateWorkflowNode: expected 201, got %d: %s", w.Code, w.Body.String())
 	}
-	var nr struct{ ID string `json:"id"` }
+	var nr struct {
+		ID string `json:"id"`
+	}
 	json.Unmarshal(w.Body.Bytes(), &nr)
 
 	// Assign node to stage
@@ -258,7 +338,9 @@ func TestDeleteStage_CompactsSortOrders(t *testing.T) {
 	w := httptest.NewRecorder()
 	req := newRequest("POST", "/api/workflows", map[string]any{"title": "Compact Sort WF"})
 	testHandler.CreateWorkflow(w, req)
-	var cr struct{ ID string `json:"id"` }
+	var cr struct {
+		ID string `json:"id"`
+	}
 	json.Unmarshal(w.Body.Bytes(), &cr)
 	wfID := cr.ID
 	t.Cleanup(func() {
@@ -274,7 +356,9 @@ func TestDeleteStage_CompactsSortOrders(t *testing.T) {
 		if w.Code != http.StatusCreated {
 			t.Fatalf("CreateWorkflowStage %s: expected 201, got %d: %s", name, w.Code, w.Body.String())
 		}
-		var sr struct{ ID string `json:"id"` }
+		var sr struct {
+			ID string `json:"id"`
+		}
 		json.Unmarshal(w.Body.Bytes(), &sr)
 		return sr.ID
 	}

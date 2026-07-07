@@ -1,4 +1,4 @@
-import type { WorkflowNode, WorkflowEdge, WorkflowStage } from "../types";
+import { parseNodeFormat, type WorkflowNode, type WorkflowEdge, type WorkflowStage } from "../types";
 
 // ── Types ──
 
@@ -9,7 +9,11 @@ export type PreflightCheckId =
   | "worker-missing"
   | "invalid-critic-ref"
   | "stage-missing"
-  | "schema-required-missing";
+  | "schema-required-missing"
+  | "gateway-fork-outgoing"
+  | "gateway-join-incoming"
+  | "gateway-kind-invalid"
+  | "gateway-join-multiple-outgoing";
 
 export type PreflightSeverity = "error" | "warning";
 
@@ -34,8 +38,11 @@ export interface PreflightResult {
 // ── Helpers ──
 
 function isAnnotation(node: WorkflowNode): boolean {
-  const schema = node.format_schema as Record<string, unknown> | null;
-  return schema?.type === "annotation";
+  return parseNodeFormat(node.format_schema).kind === "annotation";
+}
+
+function isGateway(node: WorkflowNode): boolean {
+  return parseNodeFormat(node.format_schema).kind === "gateway";
 }
 
 /** Extracts `required` field names from a JSON Schema object. Returns empty array for non-schema input. */
@@ -227,7 +234,7 @@ export function checkUnreachableNodes(
 /** Detect nodes without an assigned worker. */
 export function checkWorkerMissing(nodes: WorkflowNode[]): PreflightIssue[] {
   return nodes
-    .filter((n) => !isAnnotation(n) && (!n.worker_type || !n.worker_id))
+    .filter((n) => !isAnnotation(n) && !isGateway(n) && (!n.worker_type || !n.worker_id))
     .map((n) => ({
       checkId: "worker-missing" as const,
       severity: "error" as const,
@@ -242,6 +249,7 @@ export function checkWorkerMissing(nodes: WorkflowNode[]): PreflightIssue[] {
 export function checkInvalidCriticRef(nodes: WorkflowNode[], agentIds: Set<string>): PreflightIssue[] {
   return nodes
     .filter((n) => {
+      if (isGateway(n)) return false;
       if (!n.critic_id) return false;
       // API critics don't reference an agent
       if (n.critic_type === "api" && n.critic_api_url) return false;
@@ -260,7 +268,7 @@ export function checkInvalidCriticRef(nodes: WorkflowNode[], agentIds: Set<strin
 /** Detect nodes without a stage assignment. */
 export function checkStageMissing(nodes: WorkflowNode[]): PreflightIssue[] {
   return nodes
-    .filter((n) => !isAnnotation(n) && !n.stage_id)
+    .filter((n) => !isAnnotation(n) && !isGateway(n) && !n.stage_id)
     .map((n) => ({
       checkId: "stage-missing" as const,
       severity: "warning" as const,
@@ -269,6 +277,72 @@ export function checkStageMissing(nodes: WorkflowNode[]): PreflightIssue[] {
       nodeTitle: n.title,
       message: "Assign this node to a stage",
     }));
+}
+
+export function checkGatewayTopology(nodes: WorkflowNode[], edges: WorkflowEdge[]): PreflightIssue[] {
+  const incoming = new Map<string, number>();
+  const outgoing = new Map<string, number>();
+  for (const node of nodes) {
+    incoming.set(node.id, 0);
+    outgoing.set(node.id, 0);
+  }
+  for (const edge of edges) {
+    outgoing.set(edge.source_node_id, (outgoing.get(edge.source_node_id) ?? 0) + 1);
+    incoming.set(edge.target_node_id, (incoming.get(edge.target_node_id) ?? 0) + 1);
+  }
+
+  const issues: PreflightIssue[] = [];
+  for (const node of nodes) {
+    const format = parseNodeFormat(node.format_schema);
+    if (format.kind !== "gateway") continue;
+
+    if (!format.gateway_kind_valid) {
+      issues.push({
+        checkId: "gateway-kind-invalid",
+        severity: "error",
+        blocking: true,
+        nodeId: node.id,
+        nodeTitle: node.title,
+        message: "Gateway type must be Fork or Join",
+      });
+      continue;
+    }
+
+    if (format.gateway_kind === "fork" && (outgoing.get(node.id) ?? 0) < 2) {
+      issues.push({
+        checkId: "gateway-fork-outgoing",
+        severity: "error",
+        blocking: true,
+        nodeId: node.id,
+        nodeTitle: node.title,
+        message: "Fork gateway needs at least two downstream nodes",
+      });
+    }
+
+    if (format.gateway_kind === "join") {
+      if ((incoming.get(node.id) ?? 0) < 2) {
+        issues.push({
+          checkId: "gateway-join-incoming",
+          severity: "error",
+          blocking: true,
+          nodeId: node.id,
+          nodeTitle: node.title,
+          message: "Join gateway needs at least two upstream nodes",
+        });
+      }
+      if ((outgoing.get(node.id) ?? 0) > 1) {
+        issues.push({
+          checkId: "gateway-join-multiple-outgoing",
+          severity: "warning",
+          blocking: false,
+          nodeId: node.id,
+          nodeTitle: node.title,
+          message: "Join gateway usually continues to one downstream node",
+        });
+      }
+    }
+  }
+  return issues;
 }
 
 /** Detect schema required fields that don't exist in properties. */
@@ -321,6 +395,7 @@ export function runAllPreflightChecks(input: PreflightCheckInput): PreflightResu
     ...checkInvalidCriticRef(nodes, agentIds),
     ...checkStageMissing(nodes),
     ...checkSchemaRequiredFields(nodes),
+    ...checkGatewayTopology(nodes, edges),
   ];
 
   // Sort: blocking first, then by checkId, then by nodeTitle
