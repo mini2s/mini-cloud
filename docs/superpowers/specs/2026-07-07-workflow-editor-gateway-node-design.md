@@ -160,7 +160,7 @@ Stage 归属由泳道表达，不进入节点内部。
 
 - 标题。
 - 处理者：审核中显示评审者，其他状态显示执行者。
-- 运行状态：待规划 / 待办 / 进行中 / 审核中 / 已完成 / 已阻塞。
+- 运行状态：待规划 / 待办 / 进行中 / 审核中 / 已完成 / 已阻塞 / 已取消。
 - 交付物情况：红黄绿灯提交状态。
 - 执行信息：耗时。
 - 智能体操作入口：进入会话、重试。
@@ -174,13 +174,25 @@ Gateway 在运行模式中不显示处理者、交付物、会话或重试：
 ### 视觉编码规则
 
 - 形状表达节点语义。
-- Stage 色条表达研发阶段。
-- 状态环或顶部细条表达运行状态。
+- Stage 由泳道、泳道标题和必要的泳道背景表达，不进入节点卡片色带。
+- 运行状态由节点右上角动态 icon 表达，不使用节点顶部状态细条，也不使用卡片左侧色带。
 - 红黄绿灯只表达交付物情况。
 - 底部 actor 区只表达当前处理者。
 - 操作按钮只在运行模式 hover / selected 时出现。
 
 避免让颜色同时表达 stage、状态和交付物三种含义。
+
+运行状态必须使用实际运行摘要数据，而不是从底层 `node_run.status` 在 UI 内临时推断。优先消费 `WorkflowNodeRuntimeSummary.display_status`：
+
+- `pending`：待规划，使用空心圆或灰色等待 icon。
+- `todo`：待办，使用时钟或队列 icon。
+- `in_progress`：进行中，使用可旋转 loader icon。
+- `reviewing`：审核中，使用审查 / 用户确认 icon。
+- `completed`：已完成，使用完成 icon。
+- `blocked`：已阻塞，使用告警 icon。
+- `cancelled`：已取消，使用取消 icon。
+
+`WorkflowNodeRuntimeSummary.deliverable_signal` 只驱动交付物红黄绿灯。`has_error` / `error_message` 只用于错误说明和异常展开，不再额外改变节点外形。
 
 ## 详情面板
 
@@ -278,8 +290,48 @@ Gateway 不展示交付物、会话、重试或处理者。
 - Deliverables section：普通节点展示交付物定义或交付物运行状态。
 - Runtime section：运行模式展示耗时、输出、错误、会话入口。
 - Connections section：Gateway 或需要理解拓扑的节点展示入边 / 出边摘要。
+- Actions section：编辑模式放保存、删除等定义操作；运行模式放进入会话、重试、解除阻塞等运行操作。
 
 在窄面板中，优先显示 Header、当前处理者、状态、交付物红绿灯和主操作；长内容进入折叠区，避免面板成为日志堆叠区。
+
+详情面板采用同一骨架、按 `mode` 切内容。固定分区的顺序保持一致，避免用户从编辑模式切到 Issue 全景图时重新学习布局：
+
+1. Header。
+2. Primary。
+3. Deliverables。
+4. Runtime。
+5. Connections。
+6. Actions。
+
+视觉上不使用卡片左侧色带，也不使用顶部状态条。Header 右侧复用节点卡片同一套动态状态 icon，编辑模式显示最近运行摘要时也使用这个 icon。Primary / Deliverables / Runtime / Connections 左侧使用一条轻量 `handoff spine` 串联，表达“定义、产出、执行、拓扑”是同一个节点的上下文链路，而不是彼此独立的卡片堆叠。`handoff spine` 是分区之间的结构辅助，不承载状态颜色。
+
+编辑模式仍显示最近运行摘要，但默认折叠。以下情况自动高亮并展开 Runtime summary：
+
+- 最近运行状态为 `blocked`。
+- `WorkflowNodeRuntimeSummary.has_error = true`。
+- `deliverable_signal = "red"`。
+
+运行模式的 Runtime section 默认展开，因为它是 Issue 全景图的主要任务。编辑模式的 Runtime section 只提供最近一次运行的上下文，不提供运行操作。
+
+### 可复用实现边界
+
+第一批实现应优先复用现有组件，而不是重写整套 inspector：
+
+- `packages/views/issues/components/execution/runtime-node-card.tsx`：作为运行态节点卡片的现有基础，后续改造为消费 `WorkflowNodeRuntimeSummary.display_status` 和 `deliverable_signal`。
+- `packages/views/issues/components/execution/node-run-status-icon.tsx`：保留 icon 映射思路，但新增面向 `WorkflowRuntimeDisplayStatus` 的共享 status icon 映射；旧 `NodeRunStatus` icon 可作为底层状态 fallback。
+- `packages/views/issues/components/execution/execution-detail-panel.tsx`：作为运行模式详情面板基础，迁移到固定分区栈和 Header 状态 icon。
+- `packages/views/workflows/components/node-config-panel.tsx`：作为编辑模式详情面板基础，保留定义编辑能力，减少 tab 依赖，逐步迁移到固定分区栈。
+- `packages/views/workflows/components/node-data-preview.tsx`：继续承载输出、评审和最近运行数据预览。
+- `packages/views/workflows/components/node-deliverables-editor.tsx`：继续承载编辑模式交付物定义。
+
+建议新增小型共享组件，而不是把运行态和编辑态逻辑揉进同一个大文件：
+
+- `WorkflowNodeDetailPanelShell`：统一 Header、关闭行为、滚动容器、固定分区容器。
+- `NodeDetailSection`：统一分区标题、辅助说明、折叠态和 `handoff spine` 对齐。
+- `RuntimeDisplayStatusIcon`：只接收 `WorkflowRuntimeDisplayStatus`，输出动态 icon 和可访问 label。
+- `DeliverableSignalIndicator`：只接收 `WorkflowDeliverableSignal`，输出红黄绿灯。
+
+这些组件放在 `packages/views`，不引入 `next/*` 或 `react-router-dom`。状态映射函数若不依赖 UI，放在 `packages/core`；如果返回 Lucide icon 或 className，则留在 `packages/views`。
 
 ## 编辑器交互
 
@@ -459,4 +511,7 @@ Preflight 约束：
 - 未新增数据库表，避免扩大实现范围。
 - 节点信息层级已按用户旅程收敛，不展示配置完整性。
 - 编辑模式和运行模式共享基础视觉系统，通过 mode 叠加差异层。
+- 运行状态改为右上动态 icon，使用 `WorkflowNodeRuntimeSummary.display_status` 的实际状态数据。
+- 已排除节点顶部状态条和卡片左侧色带，Stage 继续由泳道层表达。
+- 详情面板采用同一骨架、固定分区栈，并明确复用现有运行态和编辑态实现。
 - 已明确失败传播不在第一批，避免隐式改变现有运行语义。
