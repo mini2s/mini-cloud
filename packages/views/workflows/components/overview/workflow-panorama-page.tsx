@@ -3,14 +3,9 @@
 import { useState, useMemo, useCallback, useRef, useEffect, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
-  ReactFlow,
   ReactFlowProvider,
-  Background,
-  Controls,
-  MiniMap,
   useReactFlow,
   MarkerType,
-  ConnectionMode,
   type Node,
   type Edge,
   type Connection,
@@ -62,7 +57,7 @@ import { AlertCircle, ArrowLeft, Layers, PanelsTopLeft, Plus } from "lucide-reac
 import { Popover, PopoverContent, PopoverTrigger } from "@multica/ui/components/ui/popover";
 import { toast } from "sonner";
 
-import { CanvasStageLabels } from "./canvas-stage-labels";
+import { WorkflowCanvasCore } from "../canvas/workflow-canvas-core";
 import { NodeConfigPanel } from "../node-config-panel";
 import { StageCreateDialog } from "./stage-create-dialog";
 import { panoramaNodeTypes } from "./reactflow-nodes";
@@ -531,22 +526,10 @@ function PanoramaContent({
       />
 
       <div className="flex flex-1 min-h-0">
-        <div className="relative flex min-w-0 flex-1">
-          {/* Canvas stage labels */}
-          <CanvasStageLabels
-            stages={stages}
-            viewportY={viewportY}
-            viewportZoom={viewportZoom}
-            onEdit={onOpenStageDialog}
-            onDelete={onStageDelete}
-            onReorder={onStageReorder}
-          />
-
-          {/* ReactFlow canvas */}
-          <div className="absolute inset-y-0 left-40 right-0 z-10 min-w-0" data-testid="panorama-canvas">
-          <ReactFlow
+        <WorkflowCanvasCore
             nodes={rfNodes}
             edges={rfEdges}
+          stages={stages}
             nodeTypes={panoramaNodeTypes}
             edgeTypes={panoramaEdgeTypes}
             onNodeClick={onNodeClick}
@@ -554,23 +537,15 @@ function PanoramaContent({
             onNodeDragStop={onNodeDragStop}
             onConnect={onConnect}
             onEdgesDelete={onEdgeDelete}
-            fitView={false}
-            minZoom={0.2}
-            maxZoom={2}
             defaultViewport={{ x: 0, y: 24, zoom: 0.95 }}
-            deleteKeyCode={["Backspace", "Delete"]}
-            connectionMode={ConnectionMode.Loose}
-            multiSelectionKeyCode="Shift"
-            selectionOnDrag
             colorMode={canvasColorMode}
-            onMove={(_, viewport) => onViewportChange(viewport)}
-          >
-            <Background />
-            <Controls />
-            <MiniMap pannable zoomable nodeColor={(node) => {
-              return node.type === "criticBadge" ? "#f59e0b" : "#64748b";
-            }} />
-          </ReactFlow>
+          viewportY={viewportY}
+          viewportZoom={viewportZoom}
+          onMove={onViewportChange}
+          onStageEdit={onOpenStageDialog}
+          onStageDelete={onStageDelete}
+          onStageReorder={onStageReorder}
+        >
 
           {/* First step guide overlay */}
           {showFirstStepGuide && (
@@ -607,8 +582,7 @@ function PanoramaContent({
               </div>
             </div>
           )}
-          </div>
-        </div>
+        </WorkflowCanvasCore>
 
         {/* Node config panel (right slide-out) */}
         {configPanelOpen && selectedNode && (

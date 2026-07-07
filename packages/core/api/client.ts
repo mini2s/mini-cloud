@@ -106,6 +106,7 @@ import type {
   WorkflowEdge,
   WorkflowRun,
   WorkflowNodeRun,
+  WorkflowRunCanvasSummaryResponse,
   WorkflowStage,
   CreateWorkflowRequest,
   UpdateWorkflowRequest,
@@ -194,6 +195,8 @@ import {
   EMPTY_WORKFLOW_RUN,
   MyWorkflowTasksResponseSchema,
   EMPTY_MY_WORKFLOW_TASKS_RESPONSE,
+  WorkflowRunCanvasSummaryResponseSchema,
+  EMPTY_WORKFLOW_RUN_CANVAS_SUMMARY_RESPONSE,
   WorkflowAdminsResponseSchema,
   EMPTY_WORKFLOW_ADMINS_RESPONSE,
   WorkflowNodeDeliverablesResponseSchema,
@@ -2065,6 +2068,19 @@ export class ApiClient {
       endpoint: "GET /api/workflows/:id/runs/:runId/node-runs",
     });
     return parsed.node_runs;
+  }
+
+  async getWorkflowRunCanvasSummary(
+    workflowId: string,
+    runId: string,
+  ): Promise<WorkflowRunCanvasSummaryResponse> {
+    const raw = await this.fetch<unknown>(`/api/workflows/${workflowId}/runs/${runId}/canvas-summary`);
+    return parseWithFallback(
+      raw,
+      WorkflowRunCanvasSummaryResponseSchema,
+      EMPTY_WORKFLOW_RUN_CANVAS_SUMMARY_RESPONSE,
+      { endpoint: "GET /api/workflows/:id/runs/:runId/canvas-summary" },
+    );
   }
 
   async submitNodeRun(nodeRunId: string, output: unknown): Promise<WorkflowNodeRun> {

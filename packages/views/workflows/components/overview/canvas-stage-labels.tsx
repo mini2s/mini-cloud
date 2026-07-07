@@ -18,15 +18,17 @@ export interface CanvasStageLabelsProps {
   stages: WorkflowStage[];
   viewportY: number;
   viewportZoom: number;
-  onEdit: (stage: WorkflowStage) => void;
-  onDelete: (stage: WorkflowStage) => void;
-  onReorder: (stageId: string, direction: "up" | "down") => void;
+  readOnly?: boolean;
+  onEdit?: (stage: WorkflowStage) => void;
+  onDelete?: (stage: WorkflowStage) => void;
+  onReorder?: (stageId: string, direction: "up" | "down") => void;
 }
 
 export function CanvasStageLabels({
   stages,
   viewportY,
   viewportZoom,
+  readOnly = false,
   onEdit,
   onDelete,
   onReorder,
@@ -88,8 +90,10 @@ export function CanvasStageLabels({
             >
               <div className="absolute left-3 top-0 h-px w-28 bg-border/40" aria-hidden="true" />
               <div
-                className="relative flex min-w-0 flex-1 cursor-pointer flex-col justify-center rounded-md px-3 py-2 transition-colors hover:bg-muted/50 focus-within:bg-muted/50"
-                onClick={() => onEdit(stage)}
+                className={`relative flex min-w-0 flex-1 flex-col justify-center rounded-md px-3 py-2 transition-colors ${readOnly ? "" : "cursor-pointer hover:bg-muted/50 focus-within:bg-muted/50"}`}
+                onClick={() => {
+                  if (!readOnly) onEdit?.(stage);
+                }}
                 data-testid="stage-label-card"
               >
                 <span className="text-[10px] font-medium leading-none text-muted-foreground">
@@ -102,46 +106,50 @@ export function CanvasStageLabels({
                   </span>
                 )}
 
-                <div
-                  className="absolute right-1 top-1 flex gap-0.5 opacity-0 transition-opacity duration-150 group-hover:opacity-100"
-                  data-testid="stage-label-actions"
-                  onClick={(e) => e.stopPropagation()}
-                >
-                  <Button variant="ghost" size="icon-sm" className="size-6" onClick={() => onEdit(stage)} aria-label="Edit stage">
-                    <Pencil className="size-3" />
-                  </Button>
-                  <Button variant="ghost" size="icon-sm" className="size-6" onClick={() => onDelete(stage)} aria-label="Delete stage">
-                    <Trash2 className="size-3" />
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="icon-sm"
-                    className="size-6"
-                    onClick={() => onReorder(stage.id, "up")}
-                    aria-label="Move stage up"
-                    disabled={isFirst}
+                {!readOnly && (
+                  <div
+                    className="absolute right-1 top-1 flex gap-0.5 opacity-0 transition-opacity duration-150 group-hover:opacity-100"
+                    data-testid="stage-label-actions"
+                    onClick={(e) => e.stopPropagation()}
                   >
-                    <ChevronUp className="size-3" />
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="icon-sm"
-                    className="size-6"
-                    onClick={() => onReorder(stage.id, "down")}
-                    aria-label="Move stage down"
-                    disabled={isLast}
-                  >
-                    <ChevronDown className="size-3" />
-                  </Button>
-                </div>
+                    <Button variant="ghost" size="icon-sm" className="size-6" onClick={() => onEdit?.(stage)} aria-label="Edit stage">
+                      <Pencil className="size-3" />
+                    </Button>
+                    <Button variant="ghost" size="icon-sm" className="size-6" onClick={() => onDelete?.(stage)} aria-label="Delete stage">
+                      <Trash2 className="size-3" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon-sm"
+                      className="size-6"
+                      onClick={() => onReorder?.(stage.id, "up")}
+                      aria-label="Move stage up"
+                      disabled={isFirst}
+                    >
+                      <ChevronUp className="size-3" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon-sm"
+                      className="size-6"
+                      onClick={() => onReorder?.(stage.id, "down")}
+                      aria-label="Move stage down"
+                      disabled={isLast}
+                    >
+                      <ChevronDown className="size-3" />
+                    </Button>
+                  </div>
+                )}
 
-                <div
-                  className="absolute left-1.5 bottom-1 opacity-0 transition-opacity duration-150 group-hover:opacity-100 cursor-grab active:cursor-grabbing"
-                  onClick={(e) => e.stopPropagation()}
-                  aria-label="Drag to reorder"
-                >
-                  <GripVertical className="size-3.5 text-muted-foreground/50" />
-                </div>
+                {!readOnly && (
+                  <div
+                    className="absolute left-1.5 bottom-1 opacity-0 transition-opacity duration-150 group-hover:opacity-100 cursor-grab active:cursor-grabbing"
+                    onClick={(e) => e.stopPropagation()}
+                    aria-label="Drag to reorder"
+                  >
+                    <GripVertical className="size-3.5 text-muted-foreground/50" />
+                  </div>
+                )}
               </div>
             </div>
           );

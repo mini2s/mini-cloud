@@ -16,6 +16,7 @@ import type {
   WorkflowEdge,
   WorkflowRun,
   WorkflowNodeRun,
+  WorkflowRunCanvasSummaryResponse,
   WorkflowStage,
   RuntimePermission,
   SessionPermissionResponse,
@@ -828,6 +829,36 @@ const WorkflowNodeRunSchema = z.object({
 export const WorkflowNodeRunListSchema = z.array(WorkflowNodeRunSchema);
 
 export const EMPTY_WORKFLOW_NODE_RUN_LIST: WorkflowNodeRun[] = [];
+
+const WorkflowNodeRuntimeSummarySchema = z.object({
+  workflow_node_id: z.string(),
+  node_run_id: z.string(),
+  display_status: z.string().default("pending"),
+  active_actor_type: z.string().default(""),
+  active_actor_id: z.string().nullable().default(null),
+  deliverable_signal: z.string().default("none"),
+  required_deliverables_total: z.number().default(0),
+  required_deliverables_submitted: z.number().default(0),
+  required_deliverables_approved: z.number().default(0),
+  duration_seconds: z.number().nullable().default(null),
+  session_id: z.string().nullable().default(null),
+  runtime_id: z.string().nullable().default(null),
+  device_id: z.string().nullable().default(null),
+  has_error: z.boolean().default(false),
+  error_message: z.string().default(""),
+}).loose();
+
+export const WorkflowRunCanvasSummaryResponseSchema = z.object({
+  run: WorkflowRunSchema.default(EMPTY_WORKFLOW_RUN as any),
+  node_runs: z.array(WorkflowNodeRunSchema).default([]),
+  node_runtime_summaries: z.array(WorkflowNodeRuntimeSummarySchema).default([]),
+}).loose();
+
+export const EMPTY_WORKFLOW_RUN_CANVAS_SUMMARY_RESPONSE: WorkflowRunCanvasSummaryResponse = {
+  run: EMPTY_WORKFLOW_RUN,
+  node_runs: [],
+  node_runtime_summaries: [],
+};
 
 export const MyWorkflowTasksResponseSchema = z.object({
   node_runs: z.array(WorkflowNodeRunSchema).default([]),

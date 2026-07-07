@@ -34,6 +34,15 @@ export type NodeRunStatus =
   | "critic_reviewing" | "critic_approved" | "critic_rework"
   | "completed" | "failed" | "blocked" | "skipped" | "cancelled";
 export type WorkflowRunStatus = "running" | "completed" | "failed" | "cancelled";
+export type WorkflowRuntimeDisplayStatus =
+  | "pending"
+  | "todo"
+  | "in_progress"
+  | "reviewing"
+  | "completed"
+  | "blocked"
+  | "cancelled";
+export type WorkflowDeliverableSignal = "none" | "red" | "yellow" | "green";
 
 export interface Workflow {
   id: string;
@@ -121,6 +130,30 @@ export interface WorkflowNodeRun {
   completed_at: string | null;
   created_at: string;
   updated_at: string;
+}
+
+export interface WorkflowNodeRuntimeSummary {
+  workflow_node_id: string;
+  node_run_id: string;
+  display_status: WorkflowRuntimeDisplayStatus;
+  active_actor_type: string;
+  active_actor_id: string | null;
+  deliverable_signal: WorkflowDeliverableSignal;
+  required_deliverables_total: number;
+  required_deliverables_submitted: number;
+  required_deliverables_approved: number;
+  duration_seconds: number | null;
+  session_id: string | null;
+  runtime_id: string | null;
+  device_id: string | null;
+  has_error: boolean;
+  error_message: string;
+}
+
+export interface WorkflowRunCanvasSummaryResponse {
+  run: WorkflowRun;
+  node_runs: WorkflowNodeRun[];
+  node_runtime_summaries: WorkflowNodeRuntimeSummary[];
 }
 
 export interface CreateWorkflowRequest {

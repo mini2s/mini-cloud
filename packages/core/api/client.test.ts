@@ -114,6 +114,41 @@ describe("ApiClient", () => {
     ]);
   });
 
+  it("uses the expected HTTP contract for workflow run canvas summary", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({
+        run: {
+          id: "run-1",
+          workflow_id: "wf-1",
+          workspace_id: "ws-1",
+          workflow_title: "Workflow",
+          status: "running",
+          triggered_by_type: "member",
+          triggered_by_id: null,
+          input: {},
+          output: null,
+          started_at: "",
+          completed_at: null,
+          created_at: "",
+        },
+        node_runs: [],
+        node_runtime_summaries: [],
+      }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const client = new ApiClient("https://api.example.test");
+    await client.getWorkflowRunCanvasSummary("wf-1", "run-1");
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock.mock.calls[0]?.[0]).toBe(
+      "https://api.example.test/api/workflows/wf-1/runs/run-1/canvas-summary",
+    );
+  });
+
   it("emits X-Client-* headers when identity is configured", async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       new Response(JSON.stringify([]), {

@@ -329,11 +329,10 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 		r.Post("/node-runs/{nodeRunId}/session", h.BindNodeRunSession)
 	})
 
-
-		// GitLab credential for CLI credential helper (gitlab-credential-multica).
-		// Requires daemon token or valid user token to access — workspace is derived from the token.
-		r.With(middleware.DaemonAuth(queries, patCache, daemonTokenCache, opts.JWKSProvider, opts.SubjectResolver)).
-			Get("/api/gitlab/credential", h.HandleGitlabCredential)
+	// GitLab credential for CLI credential helper (gitlab-credential-multica).
+	// Requires daemon token or valid user token to access — workspace is derived from the token.
+	r.With(middleware.DaemonAuth(queries, patCache, daemonTokenCache, opts.JWKSProvider, opts.SubjectResolver)).
+		Get("/api/gitlab/credential", h.HandleGitlabCredential)
 
 	// Protected API routes
 	r.Group(func(r chi.Router) {
@@ -541,20 +540,21 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 					r.Get("/edges", h.ListWorkflowEdges)
 					r.Post("/edges", h.CreateWorkflowEdge)
 					r.Delete("/edges/{edgeId}", h.DeleteWorkflowEdge)
-						// Stages
-						r.Post("/stages", h.CreateWorkflowStage)
-						r.Get("/stages", h.ListWorkflowStages)
-						r.Put("/stages/reorder", h.ReorderWorkflowStages)
-						r.Route("/stages/{stageId}", func(r chi.Router) {
-							r.Put("/", h.UpdateWorkflowStage)
-							r.Delete("/", h.DeleteWorkflowStage)
-						})
-						// Node stage assignment
-						r.Put("/nodes/{nodeId}/stage", h.AssignNodeToStage)
+					// Stages
+					r.Post("/stages", h.CreateWorkflowStage)
+					r.Get("/stages", h.ListWorkflowStages)
+					r.Put("/stages/reorder", h.ReorderWorkflowStages)
+					r.Route("/stages/{stageId}", func(r chi.Router) {
+						r.Put("/", h.UpdateWorkflowStage)
+						r.Delete("/", h.DeleteWorkflowStage)
+					})
+					// Node stage assignment
+					r.Put("/nodes/{nodeId}/stage", h.AssignNodeToStage)
 					// Runs
 					r.Get("/runs", h.ListWorkflowRuns)
 					r.Post("/runs", h.StartWorkflowRun)
 					r.Get("/runs/{runId}", h.GetWorkflowRun)
+					r.Get("/runs/{runId}/canvas-summary", h.GetWorkflowRunCanvasSummary)
 					r.Get("/runs/{runId}/node-runs", h.ListWorkflowNodeRuns)
 					r.Post("/runs/{runId}/cancel", h.CancelWorkflowRun)
 				})
