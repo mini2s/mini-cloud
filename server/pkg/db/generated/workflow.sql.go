@@ -77,6 +77,22 @@ func (q *Queries) CancelWorkflowRun(ctx context.Context, id pgtype.UUID) (Multic
 	return i, err
 }
 
+const compactWorkflowStageOrders = `-- name: CompactWorkflowStageOrders :exec
+UPDATE multica_workflow_stage
+SET sort_order = sort_order - 1, updated_at = now()
+WHERE workflow_id = $1 AND sort_order > $2
+`
+
+type CompactWorkflowStageOrdersParams struct {
+	WorkflowID pgtype.UUID `json:"workflow_id"`
+	SortOrder  int32       `json:"sort_order"`
+}
+
+func (q *Queries) CompactWorkflowStageOrders(ctx context.Context, arg CompactWorkflowStageOrdersParams) error {
+	_, err := q.db.Exec(ctx, compactWorkflowStageOrders, arg.WorkflowID, arg.SortOrder)
+	return err
+}
+
 const completeWorkflowRun = `-- name: CompleteWorkflowRun :one
 UPDATE multica_workflow_run SET
     status = 'completed',

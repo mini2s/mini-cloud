@@ -265,6 +265,11 @@ RETURNING *;
 -- name: DeleteWorkflowStage :exec
 DELETE FROM multica_workflow_stage WHERE id = $1;
 
+-- name: CompactWorkflowStageOrders :exec
+UPDATE multica_workflow_stage
+SET sort_order = sort_order - 1, updated_at = now()
+WHERE workflow_id = $1 AND sort_order > $2;
+
 -- name: CountWorkflowStageNodes :one
 SELECT count(*)::bigint FROM multica_workflow_node
 WHERE stage_id = $1;

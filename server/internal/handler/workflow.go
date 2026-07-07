@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"strings"
 
@@ -871,6 +872,15 @@ func (h *Handler) DeleteWorkflowStage(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "failed to delete stage")
 		return
 	}
+
+	// Compact sort_order values so remaining stages stay contiguous (no gaps).
+	if err := h.Queries.CompactWorkflowStageOrders(r.Context(), db.CompactWorkflowStageOrdersParams{
+		WorkflowID: wf.ID,
+		SortOrder:  stage.SortOrder,
+	}); err != nil {
+		log.Printf("failed to compact stage sort orders after delete: %v", err)
+	}
+
 	writeJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
 }
 

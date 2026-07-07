@@ -245,3 +245,81 @@ func TestDeleteStage_SetsNodeStageNull(t *testing.T) {
 		t.Fatalf("expected NULL stage_id after stage delete, got %q", *stageID)
 	}
 }
+
+// TestDeleteStage_CompactsSortOrders verifies that deleting a stage
+// re-normalizes sort_order values so remaining stages stay contiguous.
+func TestDeleteStage_CompactsSortOrders(t *testing.T) {
+	if testHandler == nil {
+		t.Skip("database not available")
+	}
+	ctx := context.Background()
+
+	// Create workflow
+	w := httptest.NewRecorder()
+	req := newRequest("POST", "/api/workflows", map[string]any{"title": "Compact Sort WF"})
+	testHandler.CreateWorkflow(w, req)
+	var cr struct{ ID string `json:"id"` }
+	json.Unmarshal(w.Body.Bytes(), &cr)
+	wfID := cr.ID
+	t.Cleanup(func() {
+		_, _ = testPool.Exec(ctx, `DELETE FROM multica_workflow WHERE id = $1`, wfID)
+	})
+
+	// Create 3 stages — sort_order will be 0, 1, 2
+	createStage := func(name string) string {
+		w := httptest.NewRecorder()
+		req := newRequest("POST", fmt.Sprintf("/api/workflows/%s/stages", wfID), map[string]any{"name": name})
+		req = withURLParams(req, "id", wfID)
+		testHandler.CreateWorkflowStage(w, req)
+		if w.Code != http.StatusCreated {
+			t.Fatalf("CreateWorkflowStage %s: expected 201, got %d: %s", name, w.Code, w.Body.String())
+		}
+		var sr struct{ ID string `json:"id"` }
+		json.Unmarshal(w.Body.Bytes(), &sr)
+		return sr.ID
+	}
+
+	stage0ID := createStage("Stage 0")
+	createStage("Stage 1")
+	createStage("Stage 2")
+
+	// Verify initial sort orders: 0, 1, 2
+	verifySortOrders := func(expected []int32, msg string) {
+		rows, err := testPool.Query(ctx,
+			`SELECT sort_order FROM multica_workflow_stage WHERE workflow_id = $1 ORDER BY sort_order ASC`, wfID)
+		if err != nil {
+			t.Fatalf("%s: query sort_orders: %v", msg, err)
+		}
+		defer rows.Close()
+		var orders []int32
+		for rows.Next() {
+			var so int32
+			if err := rows.Scan(&so); err != nil {
+				t.Fatalf("%s: scan sort_order: %v", msg, err)
+			}
+			orders = append(orders, so)
+		}
+		if len(orders) != len(expected) {
+			t.Fatalf("%s: expected %d stages, got %d", msg, len(expected), len(orders))
+		}
+		for i, exp := range expected {
+			if orders[i] != exp {
+				t.Fatalf("%s: sort_order[%d] expected %d, got %d", msg, i, exp, orders[i])
+			}
+		}
+	}
+
+	verifySortOrders([]int32{0, 1, 2}, "before delete")
+
+	// Delete stage 0
+	w = httptest.NewRecorder()
+	req = newRequest("DELETE", fmt.Sprintf("/api/workflows/%s/stages/%s", wfID, stage0ID), nil)
+	req = withURLParams(req, "id", wfID, "stageId", stage0ID)
+	testHandler.DeleteWorkflowStage(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("DeleteWorkflowStage: expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	// Verify remaining stages have contiguous sort_orders: 0, 1 (was 1, 2)
+	verifySortOrders([]int32{0, 1}, "after delete stage 0")
+}
