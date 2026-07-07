@@ -1,8 +1,16 @@
 "use client";
 
-import { useMemo, useState, useCallback } from "react";
+import { useMemo, useState, useCallback, useEffect, useRef } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { MarkerType, ReactFlowProvider, type Edge, type Node, type Viewport } from "@xyflow/react";
+import {
+  MarkerType,
+  ReactFlowProvider,
+  useNodesInitialized,
+  useReactFlow,
+  type Edge,
+  type Node,
+  type Viewport,
+} from "@xyflow/react";
 import {
   workflowDetailOptions,
   workflowStagesOptions,
@@ -111,6 +119,109 @@ function runtimeEdgesToReactFlowEdges(edges: WorkflowEdge[]): Edge[] {
   }));
 }
 
+interface ExecutionPanoramaCanvasProps {
+  rfNodes: Node[];
+  rfEdges: Edge[];
+  canvasStages: WorkflowStage[];
+  nodeRunMap: Map<string, WorkflowNodeRun>;
+  viewport: Viewport;
+  setViewport: (viewport: Viewport) => void;
+  setSelectedNodeId: (nodeId: string | null) => void;
+}
+
+function ExecutionPanoramaCanvas({
+  rfNodes,
+  rfEdges,
+  canvasStages,
+  nodeRunMap,
+  viewport,
+  setViewport,
+  setSelectedNodeId,
+}: ExecutionPanoramaCanvasProps) {
+  const { fitView, getViewport, setCenter, viewportInitialized } = useReactFlow();
+  const nodesInitialized = useNodesInitialized();
+  const fittedNodeSignatureRef = useRef<string | null>(null);
+
+  const nodeSignature = useMemo(
+    () =>
+      rfNodes
+        .map((node) => `${node.id}:${node.position.x}:${node.position.y}`)
+        .join("|"),
+    [rfNodes],
+  );
+
+  useEffect(() => {
+    if (
+      rfNodes.length === 0 ||
+      !viewportInitialized ||
+      !nodesInitialized ||
+      fittedNodeSignatureRef.current === nodeSignature
+    ) {
+      return;
+    }
+
+    const frame = requestAnimationFrame(() => {
+      fittedNodeSignatureRef.current = nodeSignature;
+      void fitView({
+        nodes: rfNodes.map((node) => ({ id: node.id })),
+        padding: 0.18,
+        maxZoom: 0.95,
+        duration: 0,
+      });
+    });
+
+    return () => cancelAnimationFrame(frame);
+  }, [fitView, nodeSignature, nodesInitialized, rfNodes, viewportInitialized]);
+
+  const scrollToNode = useCallback((nodeId: string) => {
+    const node = rfNodes.find((item) => item.id === nodeId);
+    if (!node) return;
+
+    const width = typeof node.width === "number" ? node.width : WORKER_WIDTH;
+    const height = typeof node.height === "number" ? node.height : WORKER_HEIGHT;
+    const currentViewport = getViewport();
+
+    setSelectedNodeId(nodeId);
+    setCenter(
+      node.position.x + width / 2,
+      node.position.y + height / 2,
+      {
+        duration: 450,
+        zoom: currentViewport.zoom,
+      },
+    );
+  }, [getViewport, rfNodes, setCenter, setSelectedNodeId]);
+
+  return (
+    <>
+      <GlobalNotificationBar
+        nodeRunMap={nodeRunMap}
+        onScrollToNode={scrollToNode}
+      />
+      <div className="relative flex min-h-[560px] flex-1" data-testid="execution-canvas-shell">
+        <WorkflowCanvasCore
+          nodes={rfNodes}
+          edges={rfEdges}
+          stages={canvasStages}
+          nodeTypes={runtimeCanvasNodeTypes}
+          edgeTypes={panoramaEdgeTypes}
+          readOnly
+          fitView
+          fitViewOptions={{
+            nodes: rfNodes.map((node) => ({ id: node.id })),
+            padding: 0.18,
+            maxZoom: 0.95,
+          }}
+          viewportY={viewport.y}
+          viewportZoom={viewport.zoom}
+          onMove={setViewport}
+          onNodeClick={(_event, node) => setSelectedNodeId(node.id)}
+        />
+      </div>
+    </>
+  );
+}
+
 export function ExecutionPanoramaPage({
   workflowId,
   runId,
@@ -177,13 +288,6 @@ export function ExecutionPanoramaPage({
   // ---- Derived ----
   const isLoading = wfLoading || stLoading || ndLoading;
 
-  const scrollToNode = useCallback((nodeId: string) => {
-    const el = document.querySelector(
-      `[data-testid="runtime-node-card-${nodeId}"]`,
-    );
-    el?.scrollIntoView({ behavior: "smooth", block: "center" });
-  }, []);
-
   if (isLoading) {
     return (
       <div
@@ -232,27 +336,17 @@ export function ExecutionPanoramaPage({
       className="relative flex h-full min-h-[640px] flex-1 flex-col"
       data-testid="execution-panorama"
     >
-      {/* Global notification bar */}
-      <GlobalNotificationBar
-        nodeRunMap={nodeRunMap}
-        onScrollToNode={scrollToNode}
-      />
-      <div className="relative flex min-h-[560px] flex-1" data-testid="execution-canvas-shell">
-        <ReactFlowProvider>
-          <WorkflowCanvasCore
-            nodes={rfNodes}
-            edges={rfEdges}
-            stages={canvasStages}
-            nodeTypes={runtimeCanvasNodeTypes}
-            edgeTypes={panoramaEdgeTypes}
-            readOnly
-            viewportY={viewport.y}
-            viewportZoom={viewport.zoom}
-            onMove={setViewport}
-            onNodeClick={(_event, node) => setSelectedNodeId(node.id)}
-          />
-        </ReactFlowProvider>
-      </div>
+      <ReactFlowProvider>
+        <ExecutionPanoramaCanvas
+          rfNodes={rfNodes}
+          rfEdges={rfEdges}
+          canvasStages={canvasStages}
+          nodeRunMap={nodeRunMap}
+          viewport={viewport}
+          setViewport={setViewport}
+          setSelectedNodeId={setSelectedNodeId}
+        />
+      </ReactFlowProvider>
 
       {/* Detail panel */}
       {selectedNodeId && selectedNode && (

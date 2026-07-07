@@ -10,6 +10,7 @@ import {
   type Connection,
   type Edge,
   type EdgeTypes,
+  type FitViewOptions,
   type Node,
   type NodeTypes,
   type Viewport,
@@ -29,6 +30,8 @@ export interface WorkflowCanvasCoreProps {
   viewportY: number;
   viewportZoom: number;
   defaultViewport?: Viewport;
+  fitView?: boolean;
+  fitViewOptions?: FitViewOptions;
   children?: ReactNode;
   onNodeClick?: (event: React.MouseEvent, node: Node) => void;
   onPaneClick?: () => void;
@@ -52,6 +55,8 @@ export function WorkflowCanvasCore({
   viewportY,
   viewportZoom,
   defaultViewport = { x: 0, y: 24, zoom: 0.95 },
+  fitView = false,
+  fitViewOptions,
   children,
   onNodeClick,
   onPaneClick,
@@ -64,7 +69,7 @@ export function WorkflowCanvasCore({
   onStageReorder,
 }: WorkflowCanvasCoreProps) {
   return (
-    <div className="relative flex h-full min-h-0 min-w-0 flex-1" data-testid="workflow-canvas-core">
+    <div className="relative flex min-h-0 min-w-0 flex-1 self-stretch" data-testid="workflow-canvas-core">
       <CanvasStageLabels
         stages={stages}
         viewportY={viewportY}
@@ -86,7 +91,8 @@ export function WorkflowCanvasCore({
           onNodeDragStop={readOnly ? undefined : onNodeDragStop}
           onConnect={readOnly ? undefined : onConnect}
           onEdgesDelete={readOnly ? undefined : onEdgesDelete}
-          fitView={false}
+          fitView={fitView}
+          fitViewOptions={fitViewOptions}
           minZoom={0.2}
           maxZoom={2}
           defaultViewport={defaultViewport}

@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactNode } from "react";
@@ -20,6 +20,11 @@ const mocks = vi.hoisted(() => ({
   pluginsData: undefined as unknown,
   isLoading: true,
   onNodeClick: vi.fn(),
+  fitView: vi.fn(),
+  setCenter: vi.fn(),
+  getViewport: vi.fn(() => ({ x: 0, y: 24, zoom: 0.95 })),
+  nodesInitialized: true,
+  viewportInitialized: true,
 }));
 
 // ---------------------------------------------------------------------------
@@ -134,19 +139,43 @@ vi.mock("../../../workflows/components/overview/panorama-svg-overlay", () => ({
 }));
 
 vi.mock("./global-notification-bar", () => ({
-  GlobalNotificationBar: () => null,
+  GlobalNotificationBar: ({
+    nodeRunMap,
+    onScrollToNode,
+  }: {
+    nodeRunMap: Map<string, unknown>;
+    onScrollToNode: (nodeId: string) => void;
+  }) => {
+    const firstNodeId = [...nodeRunMap.keys()][0];
+    if (!firstNodeId) return null;
+    return (
+      <button
+        type="button"
+        data-testid="notification-item-test"
+        onClick={() => onScrollToNode(firstNodeId)}
+      >
+        Jump
+      </button>
+    );
+  },
 }));
 
 vi.mock("@xyflow/react", () => ({
   ReactFlow: (props: {
     nodes?: unknown[];
     edges?: unknown[];
+    defaultViewport?: { x: number; y: number; zoom: number };
+    fitView?: boolean;
+    fitViewOptions?: { maxZoom?: number; padding?: number };
     children?: ReactNode;
   }) => (
     <div
       data-testid="reactflow-canvas"
       data-node-count={props.nodes?.length ?? 0}
       data-edge-count={props.edges?.length ?? 0}
+      data-default-zoom={props.defaultViewport?.zoom}
+      data-fit-view={props.fitView ? "true" : "false"}
+      data-fit-view-max-zoom={props.fitViewOptions?.maxZoom}
     >
       {props.children}
     </div>
@@ -156,9 +185,12 @@ vi.mock("@xyflow/react", () => ({
   Controls: () => <div data-testid="reactflow-controls" />,
   MiniMap: () => <div data-testid="reactflow-minimap" />,
   useReactFlow: () => ({
-    fitView: vi.fn(),
-    setViewport: vi.fn(),
+    fitView: mocks.fitView,
+    setCenter: mocks.setCenter,
+    getViewport: mocks.getViewport,
+    viewportInitialized: mocks.viewportInitialized,
   }),
+  useNodesInitialized: () => mocks.nodesInitialized,
   MarkerType: { ArrowClosed: "arrowclosed" },
   ConnectionMode: { Loose: "loose" },
   Position: { Left: "left", Right: "right", Bottom: "bottom", Top: "top" },
@@ -249,6 +281,12 @@ describe("ExecutionPanoramaPage", () => {
     mocks.nodeRunsData = [];
     mocks.canvasSummaryData = undefined;
     mocks.agentsData = [];
+    mocks.fitView.mockClear();
+    mocks.setCenter.mockClear();
+    mocks.getViewport.mockClear();
+    mocks.getViewport.mockReturnValue({ x: 0, y: 24, zoom: 0.95 });
+    mocks.nodesInitialized = true;
+    mocks.viewportInitialized = true;
     mocks.pluginsData = {
       items: [],
       total: 0,
@@ -342,6 +380,135 @@ describe("ExecutionPanoramaPage", () => {
     expect(screen.getByTestId("workflow-canvas-core")).toBeInTheDocument();
     expect(screen.getByTestId("reactflow-canvas")).toHaveAttribute("data-node-count", "1");
     expect(screen.queryByTestId("stage-lane-stage-1")).not.toBeInTheDocument();
+  });
+
+  it("lets the shared canvas stretch to the issue detail shell height", () => {
+    mocks.isLoading = false;
+    mocks.workflowData = { id: "wf-1", title: "Test Workflow" };
+    mocks.stagesData = [STAGE];
+    mocks.nodesData = [NODE];
+    mocks.agentsData = [AGENT];
+
+    render(
+      <Wrapper>
+        <ExecutionPanoramaPage workflowId="wf-1" runId={null} wsId="ws-1" />
+      </Wrapper>,
+    );
+
+    const canvasCore = screen.getByTestId("workflow-canvas-core");
+    expect(canvasCore).toHaveClass("self-stretch");
+    expect(canvasCore.className).not.toContain("h-full");
+  });
+
+  it("fits the runtime canvas to all workflow nodes on first render", async () => {
+    mocks.isLoading = false;
+    mocks.workflowData = { id: "wf-1", title: "Test Workflow" };
+    mocks.stagesData = [STAGE];
+    mocks.nodesData = [NODE];
+    mocks.agentsData = [AGENT];
+
+    render(
+      <Wrapper>
+        <ExecutionPanoramaPage workflowId="wf-1" runId={null} wsId="ws-1" />
+      </Wrapper>,
+    );
+
+    await waitFor(() => {
+      expect(mocks.fitView).toHaveBeenCalledWith(
+        expect.objectContaining({
+          nodes: [{ id: "n1" }],
+          padding: expect.any(Number),
+          maxZoom: 0.95,
+        }),
+      );
+    });
+
+    expect(screen.getByTestId("reactflow-canvas")).toHaveAttribute("data-fit-view", "true");
+    expect(screen.getByTestId("reactflow-canvas")).toHaveAttribute("data-fit-view-max-zoom", "0.95");
+  });
+
+  it("waits for ReactFlow to initialize before fitting workflow nodes", async () => {
+    mocks.isLoading = false;
+    mocks.workflowData = { id: "wf-1", title: "Test Workflow" };
+    mocks.stagesData = [STAGE];
+    mocks.nodesData = [NODE];
+    mocks.agentsData = [AGENT];
+    mocks.nodesInitialized = false;
+    mocks.viewportInitialized = false;
+
+    const { rerender } = render(
+      <Wrapper>
+        <ExecutionPanoramaPage workflowId="wf-1" runId={null} wsId="ws-1" />
+      </Wrapper>,
+    );
+
+    expect(mocks.fitView).not.toHaveBeenCalled();
+
+    mocks.nodesInitialized = true;
+    mocks.viewportInitialized = true;
+
+    rerender(
+      <Wrapper>
+        <ExecutionPanoramaPage workflowId="wf-1" runId={null} wsId="ws-1" />
+      </Wrapper>,
+    );
+
+    await waitFor(() => {
+      expect(mocks.fitView).toHaveBeenCalledWith(
+        expect.objectContaining({
+          nodes: [{ id: "n1" }],
+        }),
+      );
+    });
+  });
+
+  it("centers the matching ReactFlow node when a notification is clicked", () => {
+    mocks.isLoading = false;
+    mocks.workflowData = { id: "wf-1", title: "Test Workflow" };
+    mocks.stagesData = [STAGE];
+    mocks.nodesData = [NODE];
+    mocks.nodeRunsData = [
+      {
+        id: "nr-1",
+        workflow_run_id: "run-1",
+        workflow_node_id: "n1",
+        node_title: "brainstorming",
+        status: "awaiting_critic",
+        retry_count: 0,
+        worker_type: "agent",
+        worker_id: "agent-1",
+        worker_output: null,
+        worker_agent_task_id: null,
+        critic_type: "human",
+        critic_id: null,
+        critic_output: null,
+        critic_comment: "",
+        critic_agent_task_id: null,
+        agent_task_id: null,
+        session_id: null,
+        runtime_id: null,
+        device_id: null,
+        started_at: null,
+        completed_at: null,
+        created_at: "",
+        updated_at: "",
+      },
+    ];
+    mocks.agentsData = [AGENT];
+
+    render(
+      <Wrapper>
+        <ExecutionPanoramaPage workflowId="wf-1" runId="run-1" wsId="ws-1" />
+      </Wrapper>,
+    );
+
+    fireEvent.click(screen.getByTestId("notification-item-test"));
+
+    expect(mocks.setCenter).toHaveBeenCalledWith(
+      112,
+      72,
+      expect.objectContaining({ duration: 450, zoom: 0.95 }),
+    );
   });
 
   it("does not render detail panel initially", () => {
