@@ -89,16 +89,13 @@ export function NodeTemplatePicker({ onSelect }: NodeTemplatePickerProps) {
               if (items.length === 0) return null;
 
               return (
-                <section key={category.id} className="py-1">
-                  <div className="px-2 pb-1">
-                    <div className="text-xs font-medium text-foreground">
+                <section key={category.id} className="mb-2">
+                  <div className="px-2.5 pb-1 pt-1.5">
+                    <h3 className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
                       {getCategoryLabel(category, t)}
-                    </div>
-                    <div className="text-[11px] text-muted-foreground">
-                      {getCategoryDescription(category, t)}
-                    </div>
+                    </h3>
                   </div>
-                  <div className="space-y-1">
+                  <div className="space-y-0.5">
                     {items.map((template) => (
                       <button
                         key={template.id}
