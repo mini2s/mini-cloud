@@ -501,7 +501,7 @@ describe("WorkflowPanoramaPage (new)", () => {
     const critic = mocks.reactFlowProps?.nodes.find((n) => n.id === "node-1:critic");
     expect(critic).toMatchObject({
       type: "criticBadge",
-      position: { x: 360, y: 96 },
+      position: { x: 360, y: 112 },
       width: 144,
       height: 48,
     });
@@ -632,6 +632,86 @@ describe("WorkflowPanoramaPage (new)", () => {
       targetHandle: "left",
     });
     expect((mocks.reactFlowProps?.edges[0]?.markerEnd as { color?: string } | undefined)?.color).not.toContain("/");
+  });
+
+  it("injects static worker and critic semantics into worker nodes", () => {
+    mocks.stagesData = [
+      { id: "stage-1", workflow_id: "wf-1", name: "Intake", description: "Collect context", sort_order: 0, node_count: 1, created_at: "", updated_at: "" },
+    ];
+    mocks.nodesData = [
+      { id: "node-1", workflow_id: "wf-1", title: "Qualify lead", description: "", worker_type: "agent", worker_id: "agent-1", critic_type: "human", critic_id: "member-1", critic_api_url: null, stage_id: "stage-1", format_schema: null, position_x: 120, position_y: 0, sort_order: 0, created_at: "", updated_at: "" },
+    ];
+    mocks.runsData = [{ id: "run-1" }];
+    mocks.nodeRunsData = [
+      { id: "nr-1", workflow_run_id: "run-1", workflow_node_id: "node-1", status: "completed" },
+    ];
+
+    render(<WorkflowPanoramaPage workflowId="wf-1" />);
+
+    const worker = mocks.reactFlowProps?.nodes.find((n) => n.id === "node-1");
+    expect(worker?.data).toMatchObject({
+      workerConfigured: true,
+      criticConfigured: true,
+    });
+    expect(worker?.data).not.toHaveProperty("stageName");
+    expect(worker?.data).not.toHaveProperty("stageDescription");
+    expect(worker?.data).not.toHaveProperty("runStatus");
+  });
+
+  it("marks annotation nodes so they do not require worker configuration", () => {
+    mocks.nodesData = [
+      { id: "note-1", workflow_id: "wf-1", title: "Note", description: "", worker_type: "human", worker_id: null, critic_type: "human", critic_id: null, critic_api_url: null, stage_id: "stage-1", format_schema: { type: "annotation" }, position_x: 120, position_y: 0, sort_order: 0, created_at: "", updated_at: "" },
+    ];
+
+    render(<WorkflowPanoramaPage workflowId="wf-1" />);
+
+    const note = mocks.reactFlowProps?.nodes.find((n) => n.id === "note-1");
+    expect(note?.data).toMatchObject({
+      isAnnotation: true,
+      workerConfigured: true,
+      criticConfigured: false,
+    });
+  });
+
+  it("injects semantic edge tones from condition objects without text labels", () => {
+    mocks.nodesData = [
+      { id: "a", workflow_id: "wf-1", title: "A", description: "", worker_type: "agent", worker_id: "agent-1", critic_type: "human", critic_id: null, critic_api_url: null, stage_id: "stage-1", format_schema: null, position_x: 100, position_y: 0, sort_order: 0, created_at: "", updated_at: "" },
+      { id: "b", workflow_id: "wf-1", title: "B", description: "", worker_type: "agent", worker_id: null, critic_type: "human", critic_id: null, critic_api_url: null, stage_id: "stage-1", format_schema: null, position_x: 460, position_y: 0, sort_order: 1, created_at: "", updated_at: "" },
+    ];
+    mocks.edgesData = [
+      { id: "e-condition", workflow_id: "wf-1", source_node_id: "a", target_node_id: "b", condition: { kind: "condition", label: "approved" }, created_at: "" },
+      { id: "e-data", workflow_id: "wf-1", source_node_id: "b", target_node_id: "a", condition: "legacy", created_at: "" },
+    ];
+
+    render(<WorkflowPanoramaPage workflowId="wf-1" />);
+
+    const conditionEdge = mocks.reactFlowProps?.edges.find((e) => e.id === "e-condition");
+    const dataEdge = mocks.reactFlowProps?.edges.find((e) => e.id === "e-data");
+    expect(conditionEdge?.data).toMatchObject({
+      edgeKind: "condition",
+      edgeTone: "condition",
+    });
+    expect(dataEdge?.data).toMatchObject({
+      edgeKind: "data",
+      edgeTone: "data",
+    });
+    expect(conditionEdge?.data).not.toHaveProperty("edgeLabel");
+    expect(dataEdge?.data).not.toHaveProperty("edgeLabel");
+  });
+
+  it("marks generated critic edges with critic semantics", () => {
+    mocks.nodesData = [
+      { id: "node-1", workflow_id: "wf-1", title: "Worker", description: "", worker_type: "agent", worker_id: "agent-1", critic_type: "agent", critic_id: "agent-2", critic_api_url: null, stage_id: "stage-1", format_schema: null, position_x: 320, position_y: 0, sort_order: 0, created_at: "", updated_at: "" },
+    ];
+
+    render(<WorkflowPanoramaPage workflowId="wf-1" />);
+
+    const criticEdge = mocks.reactFlowProps?.edges.find((e) => e.id === "node-1:critic-edge");
+    expect(criticEdge?.data).toMatchObject({
+      edgeKind: "critic",
+      edgeTone: "critic",
+    });
+    expect(criticEdge?.data).not.toHaveProperty("edgeLabel");
   });
 
   it("routes steep worker edges through existing worker handles", () => {
@@ -796,7 +876,7 @@ describe("WorkflowPanoramaPage (new)", () => {
     // Nodes must carry explicit width/height so MiniMap can render them
     // before the ResizeObserver fires (nodeHasDimensions check in @xyflow/system)
     const worker = mocks.reactFlowProps?.nodes.find((n) => n.id === "node-1");
-    expect(worker).toMatchObject({ width: 224, height: 64 });
+    expect(worker).toMatchObject({ width: 224, height: 80 });
     expect(mocks.reactFlowProps?.nodes.some((n) => n.type === "laneBg" || n.type === "gradientBg")).toBe(false);
   });
 

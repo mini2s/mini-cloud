@@ -86,10 +86,11 @@ describe("CompactWorkerNode", () => {
     renderWithProvider(rfn);
     const el = screen.getByTestId("compact-worker-node-1");
     expect(el).toBeInTheDocument();
-    expect(el).toHaveClass("h-16", "w-56");
+    expect(el).toHaveClass("h-20", "w-56");
+    expect(el).toHaveStyle({ height: "80px" });
   });
 
-  it("shows plugin name", () => {
+  it("uses the node title as the primary card label", () => {
     const rfn = {
       id: "node-1",
       type: "compactWorker",
@@ -97,7 +98,8 @@ describe("CompactWorkerNode", () => {
       data: baseData,
     } as Node;
     renderWithProvider(rfn);
-    expect(screen.getByText("builtin/code-review")).toBeInTheDocument();
+    expect(screen.getByText("Code Review")).toBeInTheDocument();
+    expect(screen.queryByText("builtin/code-review")).not.toBeInTheDocument();
   });
 
   it("falls back to node title when no plugin name", () => {
@@ -122,7 +124,7 @@ describe("CompactWorkerNode", () => {
     expect(screen.getByText("GPT-4 Agent")).toBeInTheDocument();
   });
 
-  it("shows 'Not configured' when no worker", () => {
+  it("does not show missing worker warnings on the card", () => {
     const rfn = {
       id: "node-1",
       type: "compactWorker",
@@ -134,7 +136,78 @@ describe("CompactWorkerNode", () => {
       },
     } as Node;
     renderWithProvider(rfn);
-    expect(screen.getByText("Not configured")).toBeInTheDocument();
+    expect(screen.queryByText("Not configured")).not.toBeInTheDocument();
+    expect(screen.queryByText("Needs worker")).not.toBeInTheDocument();
+  });
+
+  it("shows configured worker metadata without critic, stage, or runtime state", () => {
+    const rfn = {
+      id: "node-1",
+      type: "compactWorker",
+      position: { x: 100, y: 12 },
+      data: {
+        ...baseData,
+        stageName: "Intake",
+        workerConfigured: true,
+        criticConfigured: true,
+        runStatus: "completed",
+      },
+    } as Node;
+    renderWithProvider(rfn);
+
+    expect(screen.queryByText("Intake")).not.toBeInTheDocument();
+    expect(screen.queryByText("Worker ready")).not.toBeInTheDocument();
+    expect(screen.getByText("GPT-4 Agent")).toBeInTheDocument();
+    expect(screen.queryByText("Critic")).not.toBeInTheDocument();
+    expect(screen.queryByText("Completed")).not.toBeInTheDocument();
+  });
+
+  it("keeps preflight-only missing worker state off the card", () => {
+    const rfn = {
+      id: "node-1",
+      type: "compactWorker",
+      position: { x: 100, y: 12 },
+      data: {
+        ...baseData,
+        workerName: undefined,
+        node: makeWorkerNode({ worker_id: null, worker_type: "agent" }),
+        workerConfigured: false,
+        criticConfigured: false,
+        stageName: "Build",
+      },
+    } as Node;
+    renderWithProvider(rfn);
+
+    expect(screen.queryByText("Build")).not.toBeInTheDocument();
+    expect(screen.queryByText("Needs worker")).not.toBeInTheDocument();
+    expect(screen.queryByText("Critic")).not.toBeInTheDocument();
+  });
+
+  it("renders annotation nodes without worker warnings", () => {
+    const rfn = {
+      id: "note-1",
+      type: "compactWorker",
+      position: { x: 100, y: 12 },
+      data: {
+        ...baseData,
+        node: makeWorkerNode({
+          id: "note-1",
+          title: "Handoff note",
+          worker_id: null,
+          format_schema: { type: "annotation" },
+        }),
+        pluginName: undefined,
+        workerName: undefined,
+        isAnnotation: true,
+        stageName: "Intake",
+      },
+    } as Node;
+    renderWithProvider(rfn);
+
+    expect(screen.getByText("Handoff note")).toBeInTheDocument();
+    expect(screen.getByText("Note")).toBeInTheDocument();
+    expect(screen.queryByText("Intake")).not.toBeInTheDocument();
+    expect(screen.queryByText("Needs worker")).not.toBeInTheDocument();
   });
 
   it("has testid with node id", () => {
@@ -195,7 +268,7 @@ describe("CompactWorkerNode", () => {
     } as Node;
     renderWithProvider(rfn);
 
-    const node = screen.getByRole("button", { name: /builtin\/code-review\. Not configured/i });
+    const node = screen.getByRole("button", { name: /Code Review\. builtin\/code-review/i });
     expect(node).toHaveAttribute("tabIndex", "0");
   });
 

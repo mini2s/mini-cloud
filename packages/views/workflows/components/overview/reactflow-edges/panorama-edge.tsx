@@ -5,7 +5,17 @@ import { LANE_STEP, LANE_PADDING_TOP, getStageColor } from "../constants";
 
 type PanoramaEdgeData = {
   stageColorIndex?: number;
+  edgeKind?: "data" | "condition" | "error" | "rework" | "critic";
+  edgeTone?: "data" | "condition" | "error" | "rework" | "critic";
 };
+
+function toneClass(tone: PanoramaEdgeData["edgeTone"]): string {
+  if (tone === "condition") return "text-blue-500";
+  if (tone === "error") return "text-red-500";
+  if (tone === "rework") return "text-amber-500";
+  if (tone === "critic") return "text-amber-500";
+  return "";
+}
 
 function PanoramaEdgeComponent({
   id,
@@ -42,7 +52,9 @@ function PanoramaEdgeComponent({
 
   const edgeData = data as PanoramaEdgeData | undefined;
   const laneIndex = edgeData?.stageColorIndex ?? Math.round((sourceY - LANE_PADDING_TOP) / LANE_STEP);
-  const colorClass = getStageColor(laneIndex).lineClass;
+  const colorClass = edgeData?.edgeTone && edgeData.edgeTone !== "data"
+    ? toneClass(edgeData.edgeTone)
+    : getStageColor(laneIndex).lineClass;
 
   return (
     <BaseEdge
@@ -54,8 +66,8 @@ function PanoramaEdgeComponent({
       )}
       style={{
         stroke: "currentColor",
-        strokeWidth: 1.5,
-        opacity: 0.35,
+        strokeWidth: selected ? 2.25 : 1.5,
+        opacity: selected ? 0.75 : 0.35,
         ...style,
       }}
       markerEnd={markerEnd}

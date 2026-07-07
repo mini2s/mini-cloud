@@ -119,6 +119,12 @@ function apiNodesToReactFlowNodes(
 
   return nodes.flatMap((node) => {
     const stage = node.stage_id ? stageMap.get(node.stage_id) : undefined;
+    const isAnnotation = Boolean(
+      node.format_schema &&
+      typeof node.format_schema === "object" &&
+      !Array.isArray(node.format_schema) &&
+      (node.format_schema as Record<string, unknown>).type === "annotation",
+    );
     const visualIndex = stage ? stageVisualIndexMap.get(stage.id) ?? stages.length : stages.length;
     const laneY = stage ? computeLaneY(visualIndex) : UNASSIGNED_LANE_Y(stages.length);
     const x = node.position_x ?? 100;
@@ -142,6 +148,9 @@ function apiNodesToReactFlowNodes(
               : undefined)
           : undefined,
         workerName: node.worker_id ? getActorName(node.worker_type ?? "agent", node.worker_id) ?? undefined : undefined,
+        workerConfigured: isAnnotation ? true : Boolean(node.worker_id),
+        criticConfigured: isAnnotation ? false : node.critic_type === "api" ? Boolean(node.critic_api_url?.trim()) : Boolean(node.critic_id),
+        isAnnotation,
         onOpen: onOpenNode,
       },
     };
@@ -182,20 +191,27 @@ function apiEdgesToReactFlowEdges(edges: WorkflowEdge[], nodes: WorkflowNode[], 
   }));
 
   const workflowEdges = edges.map((edge) => ({
+    ...(() => {
+      const edgeSemantics = deriveEdgeSemantics(edge.condition);
+      const markerColor = getEdgeMarkerColor(edge.source_node_id, nodeMap, stageMap, stageVisualIndexMap, edgeSemantics.edgeTone);
+      return {
+        data: {
+          stageColorIndex: getEdgeStageColorIndex(edge.source_node_id, nodeMap, stageMap, stageVisualIndexMap),
+          ...edgeSemantics,
+        },
+        markerEnd: {
+          type: MarkerType.ArrowClosed,
+          color: markerColor,
+          strokeWidth: 1.5,
+        },
+      };
+    })(),
     id: edge.id,
     source: edge.source_node_id,
     target: edge.target_node_id,
     type: "panorama",
     sourceHandle: "right",
     targetHandle: "left",
-    data: {
-      stageColorIndex: getEdgeStageColorIndex(edge.source_node_id, nodeMap, stageMap, stageVisualIndexMap),
-    },
-    markerEnd: {
-      type: MarkerType.ArrowClosed,
-      color: getEdgeMarkerColor(edge.source_node_id, nodeMap, stageMap, stageVisualIndexMap),
-      strokeWidth: 1.5,
-    },
     interactionWidth: 24,
     style: edge.target_node_id.endsWith(":critic") || edges.some((e) =>
       e.source_node_id === edge.target_node_id && e.target_node_id.endsWith(":critic")
@@ -224,10 +240,12 @@ function apiEdgesToReactFlowEdges(edges: WorkflowEdge[], nodes: WorkflowNode[], 
       type: "panorama",
       data: {
         stageColorIndex: getEdgeStageColorIndex(node.id, nodeMap, stageMap, stageVisualIndexMap),
+        edgeKind: "critic",
+        edgeTone: "critic",
       },
       markerEnd: {
         type: MarkerType.ArrowClosed,
-        color: getEdgeMarkerColor(node.id, nodeMap, stageMap, stageVisualIndexMap),
+        color: getEdgeMarkerColor(node.id, nodeMap, stageMap, stageVisualIndexMap, "critic"),
         strokeWidth: 1.5,
       },
       interactionWidth: 16,
@@ -244,7 +262,11 @@ function getEdgeMarkerColor(
   nodeMap: Map<string, WorkflowNode>,
   stageMap: Map<string, WorkflowStage>,
   stageVisualIndexMap: Map<string, number>,
+  edgeTone: CanvasEdgeTone = "data",
 ): string {
+  if (edgeTone === "condition") return "rgb(59 130 246)";
+  if (edgeTone === "error") return "rgb(239 68 68)";
+  if (edgeTone === "rework" || edgeTone === "critic") return "rgb(245 158 11)";
   return getStageColor(getEdgeStageColorIndex(sourceNodeId, nodeMap, stageMap, stageVisualIndexMap)).markerColor;
 }
 
@@ -257,6 +279,39 @@ function getEdgeStageColorIndex(
   const sourceNode = nodeMap.get(sourceNodeId);
   const sourceStage = sourceNode?.stage_id ? stageMap.get(sourceNode.stage_id) : undefined;
   return sourceStage ? stageVisualIndexMap.get(sourceStage.id) ?? 0 : 0;
+}
+
+type CanvasEdgeKind = "data" | "condition" | "error" | "rework" | "critic";
+type CanvasEdgeTone = "data" | "condition" | "error" | "rework" | "critic";
+
+function isCanvasEdgeKind(value: unknown): value is CanvasEdgeKind {
+  return value === "data" || value === "condition" || value === "error" || value === "rework" || value === "critic";
+}
+
+function edgeToneForKind(kind: CanvasEdgeKind, severity?: unknown): CanvasEdgeTone {
+  if (severity === "error" || severity === "danger") return "error";
+  if (severity === "warning") return "rework";
+  if (kind === "error" || kind === "rework" || kind === "critic" || kind === "condition") return kind;
+  return "data";
+}
+
+function deriveEdgeSemantics(condition: unknown): {
+  edgeKind: CanvasEdgeKind;
+  edgeTone: CanvasEdgeTone;
+} {
+  if (condition && typeof condition === "object" && !Array.isArray(condition)) {
+    const obj = condition as Record<string, unknown>;
+    const kind = isCanvasEdgeKind(obj.kind) ? obj.kind : "condition";
+    return {
+      edgeKind: kind,
+      edgeTone: edgeToneForKind(kind, obj.severity),
+    };
+  }
+
+  return {
+    edgeKind: "data",
+    edgeTone: "data",
+  };
 }
 
 // ── Background nodes: lane backgrounds + gradient transitions ──

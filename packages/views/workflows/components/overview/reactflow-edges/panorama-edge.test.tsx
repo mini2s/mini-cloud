@@ -57,6 +57,34 @@ describe("PanoramaEdge", () => {
     expect(path?.getAttribute("class")).toContain("text-rose-300");
   });
 
+  it("does not render text labels on data edges", () => {
+    const container = renderEdge({
+      data: { edgeKind: "data", edgeLabel: "data", stageColorIndex: 2 },
+    });
+    expect(container.querySelector("[data-testid='panorama-edge-label']")).not.toBeInTheDocument();
+    expect(container.querySelector("[data-testid='panorama-edge-label-shell']")).not.toBeInTheDocument();
+  });
+
+  it("uses semantic tone without rendering condition text labels", () => {
+    const container = renderEdge({
+      data: { edgeKind: "condition", edgeLabel: "approved", edgeTone: "condition" },
+    });
+    const path = container.querySelector("path");
+    expect(path?.getAttribute("class")).toContain("text-blue");
+    expect(container.querySelector("[data-testid='panorama-edge-label']")).not.toBeInTheDocument();
+  });
+
+  it("renders critic edges with dashed amber styling and no text label", () => {
+    const container = renderEdge({
+      data: { edgeKind: "critic", edgeLabel: "critic", edgeTone: "critic" },
+      style: { strokeDasharray: "4 3" },
+    });
+    const path = container.querySelector("path");
+    expect(path?.style.strokeDasharray).toBe("4 3");
+    expect(path?.getAttribute("class")).toContain("amber");
+    expect(container.querySelector("[data-testid='panorama-edge-label']")).not.toBeInTheDocument();
+  });
+
   it("uses straight path for same-Y horizontal connections", () => {
     const container = renderEdge({
       sourceX: 224,

@@ -5,7 +5,7 @@ export const LANE_PADDING_TOP = 12;
 export const PANORAMA_WIDTH = 2400;
 
 export const WORKER_WIDTH = 224;
-export const WORKER_HEIGHT = 64;
+export const WORKER_HEIGHT = 80;
 export const CRITIC_WIDTH = 144;
 export const CRITIC_HEIGHT = 48;
 export const WORKER_CRITIC_GAP = 20;
