@@ -71,7 +71,7 @@ describe("node-template-catalog", () => {
     });
 
     expect(request.title).toBe("Note");
-    expect(request.position_x).toBe(0);
+    expect(request.position_x).toBe(-10);
     expect(request.stage_id).toBeNull();
     expect(request.format_schema).toMatchObject({
       type: "annotation",

@@ -70,6 +70,64 @@ func TestCreateStage_InWorkflow(t *testing.T) {
 	}
 }
 
+func TestCreateWorkflowNode_AcceptsStageID(t *testing.T) {
+	if testHandler == nil {
+		t.Skip("database not available")
+	}
+	ctx := context.Background()
+
+	w := httptest.NewRecorder()
+	req := newRequest("POST", "/api/workflows", map[string]any{
+		"title": "Create Node Stage WF",
+	})
+	testHandler.CreateWorkflow(w, req)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("CreateWorkflow: expected 201, got %d: %s", w.Code, w.Body.String())
+	}
+	var cr struct {
+		ID string `json:"id"`
+	}
+	json.Unmarshal(w.Body.Bytes(), &cr)
+	wfID := cr.ID
+	t.Cleanup(func() {
+		_, _ = testPool.Exec(ctx, `DELETE FROM multica_workflow WHERE id = $1`, wfID)
+	})
+
+	w = httptest.NewRecorder()
+	req = newRequest("POST", fmt.Sprintf("/api/workflows/%s/stages", wfID), map[string]any{
+		"name": "Design",
+	})
+	req = withURLParams(req, "id", wfID)
+	testHandler.CreateWorkflowStage(w, req)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("CreateWorkflowStage: expected 201, got %d: %s", w.Code, w.Body.String())
+	}
+	var sr struct {
+		ID string `json:"id"`
+	}
+	json.Unmarshal(w.Body.Bytes(), &sr)
+
+	w = httptest.NewRecorder()
+	req = newRequest("POST", fmt.Sprintf("/api/workflows/%s/nodes", wfID), map[string]any{
+		"title":       "Node in stage",
+		"worker_type": "agent",
+		"critic_type": "human",
+		"stage_id":    sr.ID,
+	})
+	req = withURLParams(req, "id", wfID)
+	testHandler.CreateWorkflowNode(w, req)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("CreateWorkflowNode: expected 201, got %d: %s", w.Code, w.Body.String())
+	}
+	var nr struct {
+		StageID *string `json:"stage_id"`
+	}
+	json.Unmarshal(w.Body.Bytes(), &nr)
+	if nr.StageID == nil || *nr.StageID != sr.ID {
+		t.Fatalf("expected created node stage_id %q, got %#v", sr.ID, nr.StageID)
+	}
+}
+
 // TestCrossStageEdge_Allowed verifies that creating an edge between nodes
 // in different stages succeeds (cross-stage edges are supported for panorama view).
 func TestCrossStageEdge_Allowed(t *testing.T) {

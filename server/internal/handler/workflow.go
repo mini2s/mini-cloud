@@ -41,6 +41,7 @@ type CreateNodeRequest struct {
 	CriticType   string          `json:"critic_type"`
 	CriticID     *string         `json:"critic_id"`
 	CriticApiURL *string         `json:"critic_api_url"`
+	StageID      *string         `json:"stage_id"`
 }
 
 type UpdateNodeRequest struct {
@@ -555,6 +556,23 @@ func (h *Handler) CreateWorkflowNode(w http.ResponseWriter, r *http.Request) {
 		}
 		criticID = cID
 	}
+	var stageID pgtype.UUID
+	if req.StageID != nil {
+		sID, ok := parseUUIDOrBadRequest(w, *req.StageID, "stage_id")
+		if !ok {
+			return
+		}
+		stage, err := h.Queries.GetWorkflowStage(r.Context(), sID)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "stage not found")
+			return
+		}
+		if stage.WorkflowID != wf.ID {
+			writeError(w, http.StatusBadRequest, "stage does not belong to this workflow")
+			return
+		}
+		stageID = sID
+	}
 
 	node, err := h.Queries.CreateWorkflowNode(r.Context(), db.CreateWorkflowNodeParams{
 		WorkflowID:   wf.ID,
@@ -569,6 +587,7 @@ func (h *Handler) CreateWorkflowNode(w http.ResponseWriter, r *http.Request) {
 		CriticID:     criticID,
 		CriticApiUrl: nonNullText(stringOrEmpty(req.CriticApiURL)),
 		SortOrder:    0,
+		StageID:      stageID,
 	})
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to create node")

@@ -321,6 +321,7 @@
     "empty_all": "创建第一个阶段以开始使用",
     "unassigned": "未分组",
     "not_configured": "未配置",
+    "add_connected_node": "拖拽连接，点击添加节点",
     "add_first_step": "点击工具栏「添加节点」或将节点类型拖入此阶段来添加第一个任务",
     "node_picker": {
       "search_placeholder": "搜索节点或动作...",

@@ -17,6 +17,8 @@ export interface CompactWorkerNodeData extends Record<string, unknown> {
   criticConfigured?: boolean;
   isAnnotation?: boolean;
   onOpen?: (nodeId: string) => void;
+  onAddConnectedNode?: (nodeId: string) => void;
+  addConnectedNodeLabel?: string;
 }
 
 function workerTypeLabel(type: WorkflowNode["worker_type"]): string {
@@ -67,6 +69,7 @@ export const CompactWorkerNode = memo(function CompactWorkerNode({
     ? nodeData.workerName ?? nodeData.pluginName ?? workerTypeLabel(nodeData.node.worker_type)
     : null;
   const openNode = () => nodeData.onOpen?.(nodeData.node.id);
+  const addConnectedNode = () => nodeData.onAddConnectedNode?.(nodeData.node.id);
   const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     if (event.key !== "Enter" && event.key !== " ") return;
     event.preventDefault();
@@ -90,6 +93,8 @@ export const CompactWorkerNode = memo(function CompactWorkerNode({
       handleColorClassName={handleColorClass}
       handles={["left-target", "right-source", "bottom-source"]}
       lateralHandleTop={WORKER_HEIGHT / 2}
+      addConnectedNodeLabel={nodeData.addConnectedNodeLabel}
+      onAddConnectedNode={nodeData.onAddConnectedNode ? addConnectedNode : undefined}
     >
         <span className="min-w-0">
           <span className="flex min-w-0 items-center gap-1.5">

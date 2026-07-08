@@ -152,6 +152,8 @@ interface PanoramaContentProps {
   onNodeDragStop: (event: MouseEvent | TouchEvent, node: Node) => void;
   onConnect: (connection: Connection) => void;
   onTemplateDrop: (template: NodeTemplate, position: { x: number; y: number }) => void;
+  connectedNodePickerSourceId: string | null;
+  onConnectedTemplateSelect: (template: NodeTemplate) => void;
   onEdgeDelete: (edges: Edge[]) => void;
   onNodeDelete: (nodeId: string) => void;
   onStageChange: (nodeId: string, stageId: string | null) => void;
@@ -195,6 +197,8 @@ function PanoramaContent({
   onNodeDragStop,
   onConnect,
   onTemplateDrop,
+  connectedNodePickerSourceId,
+  onConnectedTemplateSelect,
   onEdgeDelete,
   onNodeDelete,
   onStageChange,
@@ -225,6 +229,7 @@ function PanoramaContent({
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const dialogRootRef = useRef<HTMLDivElement>(null);
   const [firstStepPickerOpen, setFirstStepPickerOpen] = useState(false);
+  const [stagePendingDelete, setStagePendingDelete] = useState<WorkflowStage | null>(null);
 
   // ── Preflight checks ──
   const selectNode = useWorkflowEditorStore((s) => s.selectNode);
@@ -255,6 +260,18 @@ function PanoramaContent({
   const rlNodesCount = rfNodes.filter(n => n.type !== "laneBg" && n.type !== "gradientBg").length;
   const showFirstStageGuide = stages.length === 0;
   const showFirstStepGuide = stages.length > 0 && rlNodesCount === 0;
+  const connectedNodePickerPosition = useMemo(() => {
+    if (!connectedNodePickerSourceId) return null;
+    const sourceNode = rfNodes.find((node) => node.id === connectedNodePickerSourceId);
+    if (!sourceNode) return null;
+    if (!("flowToScreenPosition" in reactFlowInstance)) {
+      return { x: window.innerWidth / 2 - 180, y: 96 };
+    }
+    return reactFlowInstance.flowToScreenPosition({
+      x: sourceNode.position.x + (sourceNode.width ?? WORKER_WIDTH) + 16,
+      y: sourceNode.position.y,
+    });
+  }, [connectedNodePickerSourceId, reactFlowInstance, rfNodes]);
   const handleSelectTemplate = useCallback((template: NodeTemplate) => {
     const center = reactFlowInstance.screenToFlowPosition({
       x: window.innerWidth / 2,
@@ -330,9 +347,21 @@ function PanoramaContent({
           viewportZoom={viewportZoom}
           onMove={onViewportChange}
           onStageEdit={onOpenStageDialog}
-          onStageDelete={onStageDelete}
+          onStageDelete={setStagePendingDelete}
           onStageReorder={onStageReorder}
         >
+
+          {connectedNodePickerSourceId && connectedNodePickerPosition && (
+            <div
+              className="fixed z-50 w-[min(360px,calc(100vw-2rem))] max-w-[calc(100vw-2rem)] overflow-hidden rounded-lg border border-border bg-popover shadow-lg"
+              style={{
+                left: Math.min(connectedNodePickerPosition.x, window.innerWidth - 380),
+                top: Math.min(connectedNodePickerPosition.y, window.innerHeight - 420),
+              }}
+            >
+              <NodeTemplatePicker onSelect={onConnectedTemplateSelect} />
+            </div>
+          )}
 
           {/* First step guide overlay */}
           {showFirstStepGuide && (
@@ -381,6 +410,7 @@ function PanoramaContent({
               stages={stages}
               recentNodeRun={recentNodeRun}
               onClose={onCloseConfigPanel}
+              onSaveNode={onSave}
               onDeleteNode={onNodeDelete}
               onStageChange={onStageChange}
             />
@@ -417,6 +447,34 @@ function PanoramaContent({
 
       {/* Dialog portal container for iframe compatibility */}
       <div ref={dialogRootRef} />
+
+      <AlertDialog open={Boolean(stagePendingDelete)} onOpenChange={(open) => {
+        if (!open) setStagePendingDelete(null);
+      }}>
+        <AlertDialogContent container={dialogRootRef.current}>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {stagePendingDelete ? `Delete stage "${stagePendingDelete.name}"?` : "Delete stage?"}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              Nodes assigned to this stage will become unassigned. This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              variant="destructive"
+              onClick={() => {
+                if (!stagePendingDelete) return;
+                onStageDelete(stagePendingDelete);
+                setStagePendingDelete(null);
+              }}
+            >
+              Delete stage
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* Delete workflow confirm dialog */}
       <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
@@ -504,6 +562,7 @@ export function WorkflowPanoramaPage({ workflowId, viewToggle }: WorkflowPanoram
   const [editingStage, setEditingStage] = useState<WorkflowStage | null>(null);
   const [emptyStatePickerOpen, setEmptyStatePickerOpen] = useState(false);
   const [selectedEdgeAnchor, setSelectedEdgeAnchor] = useState<{ x: number; y: number } | null>(null);
+  const [connectedNodePickerSourceId, setConnectedNodePickerSourceId] = useState<string | null>(null);
   const openNodePanel = useCallback((nodeId: string) => {
     selectNode(nodeId);
     setConfigPanelOpen(true);
@@ -534,6 +593,12 @@ export function WorkflowPanoramaPage({ workflowId, viewToggle }: WorkflowPanoram
     [apiNodes, deletedNodeIds, nodeEdits],
   );
 
+  const handleOpenConnectedNodePicker = useCallback((sourceNodeId: string) => {
+    setConnectedNodePickerSourceId(sourceNodeId);
+    setSelectedEdgeAnchor(null);
+    setConfigPanelOpen(false);
+  }, []);
+
   const rfNodes = useMemo(
     () => workflowNodesToReactFlowNodes({
       nodes: visibleNodes,
@@ -559,11 +624,13 @@ export function WorkflowPanoramaPage({ workflowId, viewToggle }: WorkflowPanoram
           criticConfigured: isAnnotation ? false : node.critic_type === "api" ? Boolean(node.critic_api_url?.trim()) : Boolean(node.critic_id),
           isAnnotation,
           onOpen: openNodePanel,
+          onAddConnectedNode: handleOpenConnectedNodePicker,
+          addConnectedNodeLabel: t(($) => $.panorama.add_connected_node),
         };
       },
       makeCriticName: (node) => node.critic_id ? getActorName(node.critic_type ?? "agent", node.critic_id) ?? undefined : undefined,
     }),
-    [stages, visibleNodes, agentLookup, pluginLookup, getActorName, openNodePanel],
+    [stages, visibleNodes, agentLookup, pluginLookup, getActorName, openNodePanel, handleOpenConnectedNodePicker, t],
   );
 
   const handleInlineEdgeDelete = useCallback(
@@ -621,6 +688,7 @@ export function WorkflowPanoramaPage({ workflowId, viewToggle }: WorkflowPanoram
     selectEdge(null);
     setSelectedEdgeAnchor(null);
     setConfigPanelOpen(false);
+    setConnectedNodePickerSourceId(null);
   }, [selectNode, selectEdge]);
 
   const handleNodeDragStop = useCallback(
@@ -638,7 +706,7 @@ export function WorkflowPanoramaPage({ workflowId, viewToggle }: WorkflowPanoram
       // Persist position_x
       updateNodeMutation.mutate({
         nodeId,
-        position_x: Math.max(0, Math.round(node.position.x)),
+        position_x: Math.round(node.position.x),
       } as Parameters<typeof updateNodeMutation.mutate>[0]);
 
       // Check if y moved to a different lane
@@ -673,20 +741,49 @@ export function WorkflowPanoramaPage({ workflowId, viewToggle }: WorkflowPanoram
   );
 
   const createTemplateNode = useCallback(
-    (template: NodeTemplate, position: { x: number; y: number }) => {
-      const stage = findStageAtY(position.y, stages);
+    (template: NodeTemplate, position: { x: number; y: number }, sourceNodeId?: string) => {
+      const sourceNode = sourceNodeId ? visibleNodes.find((node) => node.id === sourceNodeId) : undefined;
+      const stage = sourceNode ? undefined : findStageAtY(position.y, stages);
 
       createNodeMutation.mutate(buildCreateNodeRequestFromTemplate(template, {
-        x: position.x,
-        y: position.y,
-        stageId: stage?.id ?? null,
+        x: sourceNode ? (sourceNode.position_x ?? 0) + WORKER_WIDTH + 96 : position.x,
+        y: sourceNode ? sourceNode.position_y ?? 0 : position.y,
+        stageId: sourceNode ? sourceNode.stage_id ?? null : stage?.id ?? null,
       }), {
         onSuccess: (created) => {
           pushServerAction({ type: "create-node", nodeId: created.id });
+          if (!sourceNodeId) return;
+          createEdgeMutation.mutate({
+            source_node_id: sourceNodeId,
+            target_node_id: created.id,
+          } as Parameters<typeof createEdgeMutation.mutate>[0], {
+            onSuccess: (_edge, vars) => {
+              pushServerAction({
+                type: "create-edge",
+                sourceNodeId: vars.source_node_id,
+                targetNodeId: vars.target_node_id,
+              });
+            },
+          });
         },
       });
     },
-    [createNodeMutation, stages, pushServerAction],
+    [createEdgeMutation, createNodeMutation, stages, pushServerAction, visibleNodes],
+  );
+
+  const handleConnectedTemplateSelect = useCallback(
+    (template: NodeTemplate) => {
+      const sourceNode = connectedNodePickerSourceId
+        ? visibleNodes.find((node) => node.id === connectedNodePickerSourceId)
+        : undefined;
+      if (!sourceNode || !connectedNodePickerSourceId) return;
+      createTemplateNode(template, {
+        x: (sourceNode.position_x ?? 0) + WORKER_WIDTH + 96,
+        y: sourceNode.position_y ?? 0,
+      }, connectedNodePickerSourceId);
+      setConnectedNodePickerSourceId(null);
+    },
+    [connectedNodePickerSourceId, createTemplateNode, visibleNodes],
   );
 
   const handleTemplateDrop = useCallback(
@@ -733,9 +830,7 @@ export function WorkflowPanoramaPage({ workflowId, viewToggle }: WorkflowPanoram
 
   const handleStageDelete = useCallback(
     (stage: WorkflowStage) => {
-      if (window.confirm(`Delete stage "${stage.name}"?`)) {
-        deleteStageMutation.mutate(stage.id);
-      }
+      deleteStageMutation.mutate(stage.id);
     },
     [deleteStageMutation],
   );
@@ -966,6 +1061,8 @@ export function WorkflowPanoramaPage({ workflowId, viewToggle }: WorkflowPanoram
         onNodeDragStop={handleNodeDragStop}
         onConnect={handleConnect}
         onTemplateDrop={handleTemplateDrop}
+        connectedNodePickerSourceId={connectedNodePickerSourceId}
+        onConnectedTemplateSelect={handleConnectedTemplateSelect}
         onEdgeDelete={handleEdgeDelete}
         onNodeDelete={handleNodeDelete}
         onStageChange={handleStageChange}

@@ -60,12 +60,12 @@ INSERT INTO multica_workflow_node (
     workflow_id, title, description, position_x, position_y,
     format_schema, worker_type, worker_id,
     critic_type, critic_id, critic_api_url,
-    sort_order
+    sort_order, stage_id
 ) VALUES (
     $1, $2, sqlc.narg('description'), $3, $4,
     sqlc.narg('format_schema'), $5, sqlc.narg('worker_id'),
     $6, sqlc.narg('critic_id'), sqlc.narg('critic_api_url'),
-    $7
+    $7, sqlc.narg('stage_id')
 ) RETURNING *;
 
 -- name: UpdateWorkflowNode :one

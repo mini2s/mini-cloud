@@ -322,6 +322,7 @@
     "empty_all": "Create your first stage to get started",
     "unassigned": "Unassigned",
     "not_configured": "Not configured",
+    "add_connected_node": "Drag to connect, click to add node",
     "add_first_step": "Add your first task to this stage by clicking \"Add node\" in the toolbar or dragging a node type here.",
     "node_picker": {
       "search_placeholder": "Search nodes or actions...",

@@ -21,12 +21,14 @@ const mocks = vi.hoisted(() => ({
   nodeEdits: {} as Record<string, unknown>,
   deletedNodeIds: [] as string[],
   createNodeMutate: vi.fn(),
+  createEdgeMutate: vi.fn(),
   updateNodeMutate: vi.fn(),
   updateNodeMutateAsync: vi.fn(),
   assignStageMutate: vi.fn(),
   deleteNodeMutateAsync: vi.fn(),
   deleteEdgeMutate: vi.fn(),
   updateStageMutateAsync: vi.fn(),
+  deleteStageMutate: vi.fn(),
   updateWorkflowMutate: vi.fn(),
   startWorkflowRunMutateAsync: vi.fn(),
   navigationPush: vi.fn(),
@@ -57,6 +59,7 @@ const mocks = vi.hoisted(() => ({
     onEdgeClick?: (event: React.MouseEvent, edge: Edge) => void;
     onPaneClick?: () => void;
     onNodeDragStop?: (event: MouseEvent | TouchEvent, node: Node) => void;
+    onConnect?: (connection: { source?: string | null; target?: string | null }) => void;
     onDragOver?: (event: React.DragEvent) => void;
     onDrop?: (event: React.DragEvent) => void;
     defaultViewport?: { x: number; y: number; zoom: number };
@@ -78,12 +81,12 @@ vi.mock("@multica/core/workflows/queries", () => ({
   useUpdateNode: () => ({ mutate: mocks.updateNodeMutate, mutateAsync: mocks.updateNodeMutateAsync }),
   useUpdateWorkflow: () => ({ mutate: mocks.updateWorkflowMutate, mutateAsync: vi.fn() }),
   useDeleteNode: () => ({ mutateAsync: mocks.deleteNodeMutateAsync }),
-  useCreateEdge: () => ({ mutate: vi.fn(), mutateAsync: vi.fn() }),
+  useCreateEdge: () => ({ mutate: mocks.createEdgeMutate, mutateAsync: vi.fn() }),
   useDeleteEdge: () => ({ mutate: mocks.deleteEdgeMutate, mutateAsync: vi.fn() }),
   useAssignNodeToStage: () => ({ mutate: mocks.assignStageMutate, mutateAsync: vi.fn() }),
   useCreateStage: () => ({ mutateAsync: vi.fn() }),
   useUpdateStage: () => ({ mutateAsync: mocks.updateStageMutateAsync }),
-  useDeleteStage: () => ({ mutate: vi.fn(), mutateAsync: vi.fn() }),
+  useDeleteStage: () => ({ mutate: mocks.deleteStageMutate, mutateAsync: vi.fn() }),
   useDeleteWorkflow: () => ({ mutateAsync: vi.fn().mockResolvedValue(undefined) }),
   useStartWorkflowRun: () => ({ mutateAsync: mocks.startWorkflowRunMutateAsync }),
   useReorderStages: () => ({ mutate: vi.fn(), mutateAsync: vi.fn() }),
@@ -201,6 +204,7 @@ vi.mock("../../../i18n", () => {
     panorama: {
       empty_all: "Create your first stage to get started",
       add_first_step: "Add your first task",
+      add_connected_node: "Drag to connect, click to add node",
       node_picker: {
         search_placeholder: "Search nodes or actions...",
         empty: "No matching nodes",
@@ -246,8 +250,8 @@ vi.mock("../../../i18n", () => {
       bar_activate_disabled_unsaved: "Save first",
       bar_activating: "Activating...",
       check_stage_missing: "No stage assigned",
-      first_stage_guide_title: "Create your first stage",
-      first_stage_guide_description: "Stages help you organize workflow steps into logical phases.",
+      first_stage_guide_title: "Create your first node",
+      first_stage_guide_description: "Nodes are the steps that make this workflow run.",
       first_stage_guide_cta: "Create stage",
     },
   };
@@ -275,6 +279,7 @@ vi.mock("@xyflow/react", () => ({
     onEdgeClick?: (event: React.MouseEvent, edge: Edge) => void;
     onPaneClick?: () => void;
     onNodeDragStop?: (event: MouseEvent | TouchEvent, node: Node) => void;
+    onConnect?: (connection: { source?: string | null; target?: string | null }) => void;
     onDragOver?: (event: React.DragEvent) => void;
     onDrop?: (event: React.DragEvent) => void;
     defaultViewport?: { x: number; y: number; zoom: number };
@@ -313,6 +318,7 @@ vi.mock("@xyflow/react", () => ({
   Position: { Left: "left", Right: "right", Top: "top", Bottom: "bottom" },
   useReactFlow: () => ({
     screenToFlowPosition: ({ x, y }: { x: number; y: number }) => ({ x: x - 200, y: y - 100 }),
+    flowToScreenPosition: ({ x, y }: { x: number; y: number }) => ({ x: x + 200, y: y + 100 }),
   }),
 }));
 
@@ -376,12 +382,14 @@ describe("WorkflowPanoramaPage (new)", () => {
     mocks.nodeEdits = {};
     mocks.deletedNodeIds = [];
     mocks.createNodeMutate.mockReset();
+    mocks.createEdgeMutate.mockReset();
     mocks.updateNodeMutate.mockReset();
     mocks.updateNodeMutateAsync.mockReset();
     mocks.assignStageMutate.mockReset();
     mocks.deleteNodeMutateAsync.mockReset();
     mocks.deleteEdgeMutate.mockReset();
     mocks.updateStageMutateAsync.mockReset();
+    mocks.deleteStageMutate.mockReset();
     mocks.updateWorkflowMutate.mockReset();
     mocks.startWorkflowRunMutateAsync.mockReset();
     mocks.navigationPush.mockReset();
@@ -489,7 +497,8 @@ describe("WorkflowPanoramaPage (new)", () => {
     render(<WorkflowPanoramaPage workflowId="wf-1" />);
     expect(screen.getByRole("button", { name: "Add node" })).toBeInTheDocument();
     expect(screen.getByText("Create stage")).toBeInTheDocument();
-    expect(screen.getByText("Create your first stage")).toBeInTheDocument();
+    expect(screen.getByText("Create your first node")).toBeInTheDocument();
+    expect(screen.queryByText("Create your first stage")).not.toBeInTheDocument();
   });
 
   it("creates an unassigned node from the empty-workflow add node picker", () => {
@@ -558,6 +567,7 @@ describe("WorkflowPanoramaPage (new)", () => {
   });
 
   it("saves cached node edits before starting a test run and opens the run detail", async () => {
+    mocks.workflowData = { id: "wf-1", title: "Test Workflow", status: "active" };
     mocks.nodesData = [
       { id: "node-1", workflow_id: "wf-1", title: "Server title", description: "", worker_type: "agent", worker_id: null, critic_type: "human", critic_id: null, critic_api_url: null, stage_id: "stage-1", format_schema: null, position_x: 120, position_y: 0, sort_order: 0, created_at: "", updated_at: "" },
     ];
@@ -843,6 +853,98 @@ describe("WorkflowPanoramaPage (new)", () => {
     });
   });
 
+  it("persists dragged node x coordinates in the left-side blank canvas", () => {
+    mocks.nodesData = [
+      { id: "node-1", workflow_id: "wf-1", title: "A", description: "", worker_type: "agent", worker_id: null, critic_type: "human", critic_id: null, critic_api_url: null, stage_id: "stage-1", format_schema: null, position_x: 100, position_y: 0, sort_order: 0, created_at: "", updated_at: "" },
+    ];
+
+    render(<WorkflowPanoramaPage workflowId="wf-1" />);
+
+    const worker = mocks.reactFlowProps?.nodes.find((n) => n.id === "node-1");
+    mocks.reactFlowProps?.onNodeDragStop?.({} as MouseEvent, {
+      ...worker!,
+      position: { x: -180, y: 12 },
+    });
+
+    expect(mocks.updateNodeMutate).toHaveBeenCalledWith({
+      nodeId: "node-1",
+      position_x: -180,
+    });
+  });
+
+  it("opens the add-node picker from the node plus action without creating immediately", () => {
+    mocks.nodesData = [
+      { id: "node-1", workflow_id: "wf-1", title: "A", description: "", worker_type: "agent", worker_id: null, critic_type: "human", critic_id: null, critic_api_url: null, stage_id: "stage-1", format_schema: null, position_x: 100, position_y: 0, sort_order: 0, created_at: "", updated_at: "" },
+    ];
+
+    render(<WorkflowPanoramaPage workflowId="wf-1" />);
+
+    const worker = mocks.reactFlowProps?.nodes.find((n) => n.id === "node-1");
+    act(() => {
+      (worker?.data.onAddConnectedNode as undefined | ((nodeId: string) => void))?.("node-1");
+    });
+
+    expect(screen.getByTestId("node-template-picker")).toBeInTheDocument();
+    expect(mocks.createNodeMutate).not.toHaveBeenCalled();
+  });
+
+  it("creates the selected downstream node in the same stage and auto-connects it", () => {
+    mocks.stagesData = [
+      { id: "stage-1", workflow_id: "wf-1", name: "Stage 1", description: "", sort_order: 0, node_count: 0, created_at: "", updated_at: "" },
+      { id: "stage-2", workflow_id: "wf-1", name: "Stage 2", description: "", sort_order: 1, node_count: 0, created_at: "", updated_at: "" },
+    ];
+    mocks.nodesData = [
+      { id: "node-1", workflow_id: "wf-1", title: "A", description: "", worker_type: "agent", worker_id: null, critic_type: "human", critic_id: null, critic_api_url: null, stage_id: "stage-2", format_schema: null, position_x: 100, position_y: 0, sort_order: 0, created_at: "", updated_at: "" },
+    ];
+
+    render(<WorkflowPanoramaPage workflowId="wf-1" />);
+
+    const worker = mocks.reactFlowProps?.nodes.find((n) => n.id === "node-1");
+    act(() => {
+      (worker?.data.onAddConnectedNode as undefined | ((nodeId: string) => void))?.("node-1");
+    });
+    fireEvent.click(screen.getByRole("button", { name: /Human review/ }));
+
+    expect(mocks.createNodeMutate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        title: "Human review",
+        position_x: 420,
+        stage_id: "stage-2",
+      }),
+      expect.any(Object),
+    );
+
+    const [, options] = mocks.createNodeMutate.mock.calls[0]!;
+    options.onSuccess({ id: "created-node" });
+
+    expect(mocks.createEdgeMutate).toHaveBeenCalledWith(
+      {
+        source_node_id: "node-1",
+        target_node_id: "created-node",
+      },
+      expect.any(Object),
+    );
+  });
+
+  it("keeps drag-to-connect support between existing nodes", () => {
+    mocks.nodesData = [
+      { id: "source", workflow_id: "wf-1", title: "Source", description: "", worker_type: "agent", worker_id: null, critic_type: "human", critic_id: null, critic_api_url: null, stage_id: "stage-1", format_schema: null, position_x: 100, position_y: 0, sort_order: 0, created_at: "", updated_at: "" },
+      { id: "target", workflow_id: "wf-1", title: "Target", description: "", worker_type: "agent", worker_id: null, critic_type: "human", critic_id: null, critic_api_url: null, stage_id: "stage-1", format_schema: null, position_x: 420, position_y: 0, sort_order: 1, created_at: "", updated_at: "" },
+    ];
+
+    render(<WorkflowPanoramaPage workflowId="wf-1" />);
+
+    mocks.reactFlowProps?.onConnect?.({ source: "source", target: "target" });
+
+    expect(mocks.createEdgeMutate).toHaveBeenCalledWith(
+      {
+        source_node_id: "source",
+        target_node_id: "target",
+      },
+      expect.any(Object),
+    );
+  });
+
   it("opens stage editing with the selected stage data and updates that stage", async () => {
     mocks.stagesData = [
       { id: "stage-1", workflow_id: "wf-1", name: "Intake", description: "Collect context", sort_order: 0, node_count: 0, created_at: "", updated_at: "" },
@@ -885,6 +987,26 @@ describe("WorkflowPanoramaPage (new)", () => {
     rerender(<WorkflowPanoramaPage workflowId="wf-1" />);
     expect(screen.queryByTestId("node-config-panel")).not.toBeInTheDocument();
     expect(mocks.selectNode).toHaveBeenLastCalledWith(null);
+  });
+
+  it("confirms stage deletion with an app dialog instead of the browser confirm", () => {
+    const confirmSpy = vi.spyOn(window, "confirm");
+    mocks.stagesData = [
+      { id: "stage-1", workflow_id: "wf-1", name: "Intake", description: "", sort_order: 0, node_count: 0, created_at: "", updated_at: "" },
+    ];
+
+    render(<WorkflowPanoramaPage workflowId="wf-1" />);
+
+    fireEvent.click(screen.getByLabelText("Delete stage"));
+
+    expect(confirmSpy).not.toHaveBeenCalled();
+    expect(screen.getByRole("alertdialog")).toBeInTheDocument();
+    expect(screen.getByText('Delete stage "Intake"?')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Delete stage" }));
+    expect(mocks.deleteStageMutate).toHaveBeenCalledWith("stage-1");
+
+    confirmSpy.mockRestore();
   });
 
   it("lets the shared node detail panel shell own the inspector width", () => {
@@ -1003,12 +1125,13 @@ describe("WorkflowPanoramaPage (new)", () => {
       position: "bottom-right",
       bgColor: "hsl(var(--card))",
       maskColor: "hsl(var(--muted) / 0.14)",
-      maskStrokeColor: "hsl(var(--border))",
-      maskStrokeWidth: 1,
+      maskStrokeColor: "transparent",
+      maskStrokeWidth: 0,
       nodeBorderRadius: 4,
-      style: { width: 156, height: 104 },
+      style: { width: 156, height: 104, border: "none" },
     });
     expect(mocks.miniMapProps?.className).toContain("!m-5");
+    expect(mocks.miniMapProps?.className).not.toContain("border");
   });
 
   it("reserves the fixed stage label rail outside the ReactFlow interaction layer", () => {

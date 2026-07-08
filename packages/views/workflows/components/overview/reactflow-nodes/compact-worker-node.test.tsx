@@ -319,6 +319,31 @@ describe("CompactWorkerNode", () => {
     expect(handles.map((handle) => handle.getAttribute("data-handleid")).sort()).toEqual(["bottom", "left", "right"]);
   });
 
+  it("calls the connected-node add callback from the right plus handle", () => {
+    const onOpen = vi.fn();
+    const onAddConnectedNode = vi.fn();
+    const rfn = {
+      id: "node-1",
+      type: "compactWorker",
+      position: { x: 100, y: 12 },
+      data: {
+        ...baseData,
+        addConnectedNodeLabel: "Drag to connect, click to add node",
+        onOpen,
+        onAddConnectedNode,
+      },
+    } as Node;
+    renderWithProvider(rfn);
+
+    const addButton = screen.getByRole("button", { name: "Drag to connect, click to add node" });
+    expect(addButton).toHaveAttribute("title", "Drag to connect, click to add node");
+    expect(addButton.className).toContain("!z-20");
+    fireEvent.click(addButton);
+
+    expect(onAddConnectedNode).toHaveBeenCalledWith("node-1");
+    expect(onOpen).not.toHaveBeenCalled();
+  });
+
   it("anchors lateral handles to the fixed worker midpoint", () => {
     const rfn = {
       id: "node-1",

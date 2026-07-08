@@ -164,7 +164,7 @@ export function buildCreateNodeRequestFromTemplate(
   return {
     title: template.title,
     description: template.description,
-    position_x: Math.max(0, Math.round(input.x)),
+    position_x: Math.round(input.x),
     position_y: 0,
     stage_id: input.stageId,
     format_schema: formatSchema,

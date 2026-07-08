@@ -1,7 +1,8 @@
-import type { CSSProperties, KeyboardEvent, ReactNode } from "react";
+import type { CSSProperties, KeyboardEvent, MouseEvent, ReactNode } from "react";
 import { Handle, Position } from "@xyflow/react";
 import type { NodeShape } from "@multica/core/types";
 import { cn } from "@multica/ui/lib/utils";
+import { Plus } from "lucide-react";
 import { workflowNodeShapeSurfaceClassName } from "../../../common/workflow-node-shape";
 
 export type WorkflowCanvasNodeHandle = "left-target" | "right-source" | "bottom-source";
@@ -23,8 +24,10 @@ interface WorkflowCanvasNodeShellProps {
   handleColorClassName?: string;
   handles?: WorkflowCanvasNodeHandle[];
   lateralHandleTop?: number;
+  addConnectedNodeLabel?: string;
   elementRef?: (el: HTMLButtonElement | null) => void;
   onClick?: () => void;
+  onAddConnectedNode?: () => void;
   onDoubleClick?: () => void;
   onKeyDown?: (event: KeyboardEvent<HTMLDivElement>) => void;
   children: ReactNode;
@@ -47,8 +50,10 @@ export function WorkflowCanvasNodeShell({
   handleColorClassName = "text-slate-300",
   handles = [],
   lateralHandleTop,
+  addConnectedNodeLabel,
   elementRef,
   onClick,
+  onAddConnectedNode,
   onDoubleClick,
   onKeyDown,
   children,
@@ -64,6 +69,18 @@ export function WorkflowCanvasNodeShell({
     selected && "border-primary/55 shadow-[inset_0_0_0_1px_rgba(59,130,246,0.15)]",
     className,
   );
+  const handleAddConnectedNodeClick = (event: MouseEvent<HTMLDivElement>) => {
+    if (!onAddConnectedNode) return;
+    event.stopPropagation();
+    onAddConnectedNode();
+  };
+  const handleAddConnectedNodeKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (!onAddConnectedNode) return;
+    if (event.key !== "Enter" && event.key !== " ") return;
+    event.preventDefault();
+    event.stopPropagation();
+    onAddConnectedNode();
+  };
   const body = (
     <>
       <span
@@ -91,9 +108,21 @@ export function WorkflowCanvasNodeShell({
           type="source"
           position={Position.Right}
           id="right"
-          className={cn("!bg-current opacity-0 transition-opacity group-hover:opacity-100", handleColorClassName)}
+          aria-label={addConnectedNodeLabel}
+          title={addConnectedNodeLabel}
+          role={onAddConnectedNode ? "button" : undefined}
+          tabIndex={onAddConnectedNode ? 0 : undefined}
+          onClick={handleAddConnectedNodeClick}
+          onKeyDown={handleAddConnectedNodeKeyDown}
+          className={cn(
+            "!z-20 !h-6 !w-6 !rounded-full !border !border-border/80 !bg-background !text-muted-foreground shadow-sm",
+            "opacity-0 transition-all group-hover:opacity-100 hover:!border-primary/45 hover:!text-primary",
+            handleColorClassName,
+          )}
           style={lateralHandleTop != null ? { top: lateralHandleTop } : undefined}
-        />
+        >
+          <Plus className="pointer-events-none absolute left-1/2 top-1/2 size-3 -translate-x-1/2 -translate-y-1/2" strokeWidth={2} />
+        </Handle>
       ) : null}
       {handles.includes("bottom-source") ? (
         <Handle
