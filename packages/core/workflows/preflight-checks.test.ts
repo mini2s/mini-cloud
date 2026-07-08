@@ -263,6 +263,11 @@ describe("checkInvalidCriticRef", () => {
     expect(checkInvalidCriticRef(nodes, agentIds)).toEqual([]);
   });
 
+  it("passes node with human critic_id", () => {
+    const nodes = [makeNode({ id: "a", critic_id: "user-1", critic_type: "human" })];
+    expect(checkInvalidCriticRef(nodes, agentIds)).toEqual([]);
+  });
+
   it("skips API critics", () => {
     const nodes = [makeNode({ id: "a", critic_type: "api", critic_id: "nonexistent", critic_api_url: "https://example.com" })];
     expect(checkInvalidCriticRef(nodes, agentIds)).toEqual([]);

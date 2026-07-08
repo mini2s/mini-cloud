@@ -223,8 +223,7 @@ export function checkInvalidCriticRef(nodes: WorkflowNode[], agentIds: Set<strin
     .filter((n) => {
       if (isGateway(n)) return false;
       if (!n.critic_id) return false;
-      // API critics don't reference an agent
-      if (n.critic_type === "api" && n.critic_api_url) return false;
+      if (n.critic_type !== "agent") return false;
       return !agentIds.has(n.critic_id);
     })
     .map((n) => ({
