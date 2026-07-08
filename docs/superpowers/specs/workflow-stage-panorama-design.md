@@ -2,10 +2,6 @@
 
 **Status:** Implemented
 **Last updated:** 2026-06-25（合并自 3 份设计文档，以代码实现为准）
-**Source documents:**
-- `2026-06-19-workflow-stage-overview-design.md`（Stage 数据模型 + API）
-- `2026-06-23-workflow-panorama-design.md`（全景图默认视图）
-- `2026-06-24-workflow-panorama-flow-canvas-design.md`（流程图画布重构）
 
 ## 1. 概述
 
