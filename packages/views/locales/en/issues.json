@@ -515,7 +515,8 @@
     "notification": {
       "awaiting_critic": "Awaiting review:",
       "blocked_failed": "Need attention:",
-      "awaiting_input": "Awaiting input:"
+      "awaiting_input": "Awaiting input:",
+      "summary_label": "{{count}} signals in this run"
     },
     "display_status": {
       "pending": "Pending",

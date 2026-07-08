@@ -504,7 +504,8 @@
     "notification": {
       "awaiting_critic": "等待审核：",
       "blocked_failed": "需要处理：",
-      "awaiting_input": "等待输入："
+      "awaiting_input": "等待输入：",
+      "summary_label": "本次运行有 {{count}} 类信号"
     },
     "display_status": {
       "pending": "待规划",

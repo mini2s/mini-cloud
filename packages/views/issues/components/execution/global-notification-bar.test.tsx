@@ -95,6 +95,24 @@ describe("GlobalNotificationBar", () => {
     expect(screen.getByTestId("notification-item-awaiting_critic")).toBeInTheDocument();
   });
 
+  it("renders as a compact canvas status bar", () => {
+    const map = new Map<string, WorkflowNodeRun>();
+    map.set("n-1", makeNodeRun({ id: "nr-1", status: "awaiting_critic", workflow_node_id: "n-1" }));
+    map.set("n-2", makeNodeRun({ id: "nr-2", status: "blocked", workflow_node_id: "n-2" }));
+    map.set("n-3", makeNodeRun({ id: "nr-3", status: "awaiting_input", workflow_node_id: "n-3" }));
+
+    render(
+      <GlobalNotificationBar nodeRunMap={map} onScrollToNode={vi.fn()} />,
+    );
+
+    expect(screen.getByTestId("global-notification-bar")).toHaveClass(
+      "border-border",
+      "bg-background/95",
+    );
+    expect(screen.getByTestId("notification-summary")).toBeInTheDocument();
+    expect(screen.getByTestId("notification-rail")).toBeInTheDocument();
+  });
+
   it("renders blocked_failed notification chip", () => {
     const map = new Map<string, WorkflowNodeRun>();
     map.set("n-1", makeNodeRun({ id: "nr-1", status: "blocked", workflow_node_id: "n-1" }));

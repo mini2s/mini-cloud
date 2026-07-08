@@ -75,27 +75,28 @@ const NOTIFICATION_CONFIG: Record<
   NotificationItem["type"],
   {
     icon: typeof AlertCircle;
-    chipClass: string;
+    iconClass: string;
+    countClass: string;
     dotClass: string;
   }
 > = {
   awaiting_critic: {
     icon: MessageSquare,
-    chipClass:
-      "border-violet-200 bg-violet-50/60 text-violet-700 hover:bg-violet-100 hover:border-violet-300 dark:border-violet-900/40 dark:bg-violet-950/30 dark:text-violet-300 dark:hover:bg-violet-950/50",
-    dotClass: "bg-violet-500",
+    iconClass: "text-brand",
+    countClass: "border-brand/20 bg-brand/10 text-brand",
+    dotClass: "bg-brand",
   },
   blocked_failed: {
     icon: AlertCircle,
-    chipClass:
-      "border-red-200 bg-red-50/70 text-red-700 hover:bg-red-100 hover:border-red-300 dark:border-red-900/40 dark:bg-red-950/40 dark:text-red-300 dark:hover:bg-red-950/60",
-    dotClass: "bg-red-500 animate-ping",
+    iconClass: "text-destructive",
+    countClass: "border-destructive/25 bg-destructive/10 text-destructive",
+    dotClass: "bg-destructive animate-pulse",
   },
   awaiting_input: {
     icon: UserCheck,
-    chipClass:
-      "border-amber-200 bg-amber-50/60 text-amber-700 hover:bg-amber-100 hover:border-amber-300 dark:border-amber-900/40 dark:bg-amber-950/30 dark:text-amber-300 dark:hover:bg-amber-950/50",
-    dotClass: "bg-amber-500",
+    iconClass: "text-warning",
+    countClass: "border-warning/25 bg-warning/10 text-warning",
+    dotClass: "bg-warning",
   },
 };
 
@@ -112,61 +113,96 @@ export function GlobalNotificationBar({
 
   if (items.length === 0) return null;
 
+  const totalCount = items.reduce((sum, item) => sum + item.count, 0);
+  const primaryItem = items[0]!;
+  const primaryConfig = NOTIFICATION_CONFIG[primaryItem.type];
+  const PrimaryIcon = primaryConfig.icon;
+
+  const getLabel = (type: NotificationItem["type"]) => {
+    switch (type) {
+      case "awaiting_critic":
+        return t(($) => $.execution.notification.awaiting_critic);
+      case "blocked_failed":
+        return t(($) => $.execution.notification.blocked_failed);
+      case "awaiting_input":
+        return t(($) => $.execution.notification.awaiting_input);
+    }
+  };
+
   return (
     <div
       data-testid="global-notification-bar"
-      className="shrink-0 border-b bg-background"
+      className="shrink-0 border-b border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/85"
     >
-      <div className="flex items-center gap-3 px-5 h-10">
-        {/* Status indicator */}
-        <div className="flex items-center gap-2 shrink-0">
-          {items[0] && (
-            <span className="relative flex h-2 w-2">
-              <span
-                className={cn(
-                  "absolute inline-flex h-full w-full rounded-full opacity-75",
-                  NOTIFICATION_CONFIG[items[0].type].dotClass,
-                )}
-              />
-              <span
-                className={cn(
-                  "relative inline-flex h-2 w-2 rounded-full",
-                  NOTIFICATION_CONFIG[items[0].type].dotClass.replace("animate-ping", ""),
-                )}
-              />
-            </span>
-          )}
+      <div className="flex min-h-11 flex-col gap-2 px-4 py-2 sm:flex-row sm:items-center sm:gap-3 sm:px-5">
+        <div
+          data-testid="notification-summary"
+          className="flex min-w-0 shrink-0 items-center gap-2"
+        >
+          <span
+            className={cn(
+              "relative grid h-6 w-6 shrink-0 place-items-center rounded-md border",
+              primaryConfig.countClass,
+            )}
+          >
+            <span
+              aria-hidden="true"
+              className={cn(
+                "absolute -right-0.5 -top-0.5 h-2 w-2 rounded-full ring-2 ring-background",
+                primaryConfig.dotClass,
+              )}
+            />
+            <PrimaryIcon className="h-3.5 w-3.5" />
+          </span>
+          <div className="min-w-0">
+            <div className="flex items-baseline gap-1.5">
+              <span className="text-xs font-semibold text-foreground">
+                {getLabel(primaryItem.type)}
+              </span>
+              <span className="text-xs font-semibold tabular-nums text-foreground">
+                {totalCount}
+              </span>
+            </div>
+            <div className="hidden truncate text-[11px] leading-4 text-muted-foreground sm:block">
+              {t(($) => $.execution.notification.summary_label, { count: items.length })}
+            </div>
+          </div>
         </div>
 
-        {/* Notification chips */}
-        <div className="flex flex-1 items-center gap-1.5 min-w-0 flex-wrap">
+        <div
+          data-testid="notification-rail"
+          className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5 sm:justify-end"
+        >
           {items.map((item) => {
             const config = NOTIFICATION_CONFIG[item.type];
             const Icon = config.icon;
-
-            const label =
-              item.type === "awaiting_critic"
-                ? `${t(($) => $.execution.notification.awaiting_critic)} ${item.count}`
-                : item.type === "blocked_failed"
-                  ? `${t(($) => $.execution.notification.blocked_failed)} ${item.count}`
-                  : `${t(($) => $.execution.notification.awaiting_input)} ${item.count}`;
+            const label = getLabel(item.type);
 
             return (
               <button
                 key={item.type}
                 type="button"
                 data-testid={`notification-item-${item.type}`}
+                aria-label={`${label} ${item.count}`}
                 onClick={() => onScrollToNode(item.firstNodeId)}
                 className={cn(
-                  "group inline-flex items-center gap-1 rounded-md border px-2 py-0.5",
-                  "text-[11px] leading-5 transition-colors",
+                  "group inline-flex h-7 max-w-full items-center gap-1.5 rounded-md border px-2.5",
+                  "bg-muted/25 text-xs font-medium text-foreground transition-colors hover:bg-muted/60",
+                  "border-border/70",
                   "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1",
-                  config.chipClass,
                 )}
               >
-                <Icon className="h-3 w-3 shrink-0 opacity-70" />
-                <span className="font-medium tracking-tight">{label}</span>
-                <ChevronRight className="h-3 w-3 shrink-0 opacity-0 group-hover:opacity-50 transition-opacity" />
+                <Icon className={cn("h-3.5 w-3.5 shrink-0", config.iconClass)} />
+                <span className="min-w-0 truncate">{label}</span>
+                <span
+                  className={cn(
+                    "inline-flex h-4 min-w-4 shrink-0 items-center justify-center rounded-sm border px-1 text-[10px] leading-none tabular-nums",
+                    config.countClass,
+                  )}
+                >
+                  {item.count}
+                </span>
+                <ChevronRight className="h-3 w-3 shrink-0 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-80" />
               </button>
             );
           })}
