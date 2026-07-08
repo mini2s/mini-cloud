@@ -887,7 +887,7 @@ describe("WorkflowPanoramaPage (new)", () => {
     expect(mocks.selectNode).toHaveBeenLastCalledWith(null);
   });
 
-  it("renders the node config panel in a wide inspector rail", () => {
+  it("lets the shared node detail panel shell own the inspector width", () => {
     mocks.nodesData = [
       { id: "node-1", workflow_id: "wf-1", title: "A", description: "", worker_type: "agent", worker_id: null, critic_type: "human", critic_id: null, critic_api_url: null, stage_id: "stage-1", format_schema: null, position_x: 100, position_y: 0, sort_order: 0, created_at: "", updated_at: "" },
     ];
@@ -901,8 +901,8 @@ describe("WorkflowPanoramaPage (new)", () => {
     rerender(<WorkflowPanoramaPage workflowId="wf-1" />);
 
     const rail = screen.getByTestId("node-config-panel").closest("aside");
-    expect(rail?.className).not.toContain("w-96");
-    expect(rail?.className).toContain("w-[560px]");
+    expect(rail?.className).not.toContain("w-[560px]");
+    expect(rail?.className).not.toContain("max-w-[48vw]");
   });
 
   it("moves a node to an open x slot when its stage changes from the config panel", () => {

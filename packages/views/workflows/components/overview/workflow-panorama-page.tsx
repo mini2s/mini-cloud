@@ -5,7 +5,6 @@ import { useQuery } from "@tanstack/react-query";
 import {
   ReactFlowProvider,
   useReactFlow,
-  MarkerType,
   type Node,
   type Edge,
   type Connection,
@@ -58,6 +57,10 @@ import { Popover, PopoverContent, PopoverTrigger } from "@multica/ui/components/
 import { toast } from "sonner";
 
 import { WorkflowCanvasCore } from "../canvas/workflow-canvas-core";
+import {
+  workflowEdgesToReactFlowEdges,
+  workflowNodesToReactFlowNodes,
+} from "../canvas/workflow-canvas-model";
 import { NodeConfigPanel } from "../node-config-panel";
 import { StageCreateDialog } from "./stage-create-dialog";
 import { panoramaNodeTypes } from "./reactflow-nodes";
@@ -77,14 +80,6 @@ import {
   LANE_HEIGHT,
   WORKER_WIDTH,
   WORKER_HEIGHT,
-  WORKER_CRITIC_GAP,
-  CRITIC_WIDTH,
-  CRITIC_HEIGHT,
-  UNASSIGNED_LANE_Y,
-  computeLaneY,
-  createStageVisualIndexMap,
-  getStageColor,
-  getStageColorIndex,
   sortStagesForDisplay,
 } from "./constants";
 
@@ -101,223 +96,7 @@ export interface WorkflowPanoramaPageProps {
 
 // ── Data conversion: API nodes → ReactFlow nodes ──
 
-function apiNodesToReactFlowNodes(
-  nodes: WorkflowNode[],
-  stages: WorkflowStage[],
-  agentLookup: Map<string, Agent | null>,
-  pluginLookup: Map<string, BuiltinPlugin | null>,
-  getActorName: (type: string, id: string) => string | null,
-  onOpenNode: (nodeId: string) => void,
-): Node[] {
-  const stageMap = new Map(stages.map((s) => [s.id, s]));
-  const stageVisualIndexMap = createStageVisualIndexMap(stages);
-
-  return nodes.flatMap((node) => {
-    const stage = node.stage_id ? stageMap.get(node.stage_id) : undefined;
-    const isAnnotation = Boolean(
-      node.format_schema &&
-      typeof node.format_schema === "object" &&
-      !Array.isArray(node.format_schema) &&
-      (node.format_schema as Record<string, unknown>).type === "annotation",
-    );
-    const visualIndex = stage ? stageVisualIndexMap.get(stage.id) ?? stages.length : stages.length;
-    const laneY = stage ? computeLaneY(visualIndex) : UNASSIGNED_LANE_Y(stages.length);
-    const x = node.position_x ?? 100;
-
-    const stageColorIndex = getStageColorIndex(visualIndex);
-
-    // Worker node
-    const workerNode: Node = {
-      id: node.id,
-      type: "compactWorker",
-      position: { x, y: laneY },
-      width: WORKER_WIDTH,
-      height: WORKER_HEIGHT,
-      data: {
-        node,
-        stage_id: node.stage_id,
-        stageColorIndex,
-        pluginName: node.worker_id
-          ? (agentLookup.get(node.worker_id)?.plugin_id
-              ? pluginLookup.get(agentLookup.get(node.worker_id)!.plugin_id!)?.name
-              : undefined)
-          : undefined,
-        workerName: node.worker_id ? getActorName(node.worker_type ?? "agent", node.worker_id) ?? undefined : undefined,
-        workerConfigured: isAnnotation ? true : Boolean(node.worker_id),
-        criticConfigured: isAnnotation ? false : node.critic_type === "api" ? Boolean(node.critic_api_url?.trim()) : Boolean(node.critic_id),
-        isAnnotation,
-        onOpen: onOpenNode,
-      },
-    };
-
-    // Critic badge node (rendered below worker if critic is configured)
-    if (!node.critic_id && !node.critic_api_url) return [workerNode];
-
-    const criticNode: Node = {
-      id: `${node.id}:critic`,
-      type: "criticBadge",
-      position: { x: x + (WORKER_WIDTH - CRITIC_WIDTH) / 2, y: laneY + WORKER_HEIGHT + WORKER_CRITIC_GAP },
-      width: CRITIC_WIDTH,
-      height: CRITIC_HEIGHT,
-      data: {
-        node,
-        parentNodeId: node.id,
-        criticName: node.critic_id ? getActorName(node.critic_type ?? "agent", node.critic_id) ?? undefined : undefined,
-      },
-    };
-
-    return [workerNode, criticNode];
-  });
-}
-
 // ── API edges → ReactFlow edges ──
-
-function apiEdgesToReactFlowEdges(
-  edges: WorkflowEdge[],
-  nodes: WorkflowNode[],
-  stages: WorkflowStage[],
-  onDeleteEdge?: (edgeId: string) => void,
-  selectedEdgeId?: string | null,
-  selectedEdgeAnchor?: { x: number; y: number } | null,
-): Edge[] {
-  const stageMap = new Map(stages.map((stage) => [stage.id, stage]));
-  const stageVisualIndexMap = createStageVisualIndexMap(stages);
-  const nodeMap = new Map(nodes.map((node) => [node.id, node]));
-  const positionMap = new Map(nodes.map((node) => {
-    const stage = node.stage_id ? stageMap.get(node.stage_id) : undefined;
-    const visualIndex = stage ? stageVisualIndexMap.get(stage.id) ?? stages.length : stages.length;
-    return [node.id, {
-      x: node.position_x ?? 100,
-      y: stage ? computeLaneY(visualIndex) : UNASSIGNED_LANE_Y(stages.length),
-    }];
-  }));
-
-  const workflowEdges = edges.map((edge) => ({
-    ...(() => {
-      const edgeSemantics = deriveEdgeSemantics(edge.condition);
-      const markerColor = getEdgeMarkerColor(edge.source_node_id, nodeMap, stageMap, stageVisualIndexMap, edgeSemantics.edgeTone);
-      return {
-        data: {
-          stageColorIndex: getEdgeStageColorIndex(edge.source_node_id, nodeMap, stageMap, stageVisualIndexMap),
-          ...(onDeleteEdge ? { onDeleteEdge } : {}),
-          ...(edge.id === selectedEdgeId && selectedEdgeAnchor ? { deleteButtonPosition: selectedEdgeAnchor } : {}),
-          ...edgeSemantics,
-        },
-        markerEnd: {
-          type: MarkerType.ArrowClosed,
-          color: markerColor,
-          strokeWidth: 1.5,
-        },
-      };
-    })(),
-    id: edge.id,
-    source: edge.source_node_id,
-    target: edge.target_node_id,
-    selected: edge.id === selectedEdgeId,
-    type: "panorama",
-    sourceHandle: "right",
-    targetHandle: "left",
-    interactionWidth: 24,
-    style: edge.target_node_id.endsWith(":critic") || edges.some((e) =>
-      e.source_node_id === edge.target_node_id && e.target_node_id.endsWith(":critic")
-    ) ? { strokeDasharray: "4 3" } : undefined,
-    ...(() => {
-      const source = positionMap.get(edge.source_node_id);
-      const target = positionMap.get(edge.target_node_id);
-      if (!source || !target) return {};
-      const dx = target.x - source.x;
-      const dy = target.y - source.y;
-      if (Math.abs(dy) > Math.abs(dx)) {
-        return { sourceHandle: "bottom", targetHandle: "left" };
-      }
-      return { sourceHandle: "right", targetHandle: "left" };
-    })(),
-  }));
-
-  const criticEdges: Edge[] = nodes
-    .filter((node) => node.critic_id || node.critic_api_url)
-    .map((node) => ({
-      id: `${node.id}:critic-edge`,
-      source: node.id,
-      target: `${node.id}:critic`,
-      sourceHandle: "bottom",
-      targetHandle: "top",
-      type: "panorama",
-      data: {
-        stageColorIndex: getEdgeStageColorIndex(node.id, nodeMap, stageMap, stageVisualIndexMap),
-        edgeKind: "critic",
-        edgeTone: "critic",
-      },
-      markerEnd: {
-        type: MarkerType.ArrowClosed,
-        color: getEdgeMarkerColor(node.id, nodeMap, stageMap, stageVisualIndexMap, "critic"),
-        strokeWidth: 1.5,
-      },
-      interactionWidth: 16,
-      selectable: false,
-      deletable: false,
-      style: { strokeDasharray: "4 3" },
-    }));
-
-  return [...workflowEdges, ...criticEdges];
-}
-
-function getEdgeMarkerColor(
-  sourceNodeId: string,
-  nodeMap: Map<string, WorkflowNode>,
-  stageMap: Map<string, WorkflowStage>,
-  stageVisualIndexMap: Map<string, number>,
-  edgeTone: CanvasEdgeTone = "data",
-): string {
-  if (edgeTone === "condition") return "rgb(59 130 246)";
-  if (edgeTone === "error") return "rgb(239 68 68)";
-  if (edgeTone === "rework" || edgeTone === "critic") return "rgb(245 158 11)";
-  return getStageColor(getEdgeStageColorIndex(sourceNodeId, nodeMap, stageMap, stageVisualIndexMap)).markerColor;
-}
-
-function getEdgeStageColorIndex(
-  sourceNodeId: string,
-  nodeMap: Map<string, WorkflowNode>,
-  stageMap: Map<string, WorkflowStage>,
-  stageVisualIndexMap: Map<string, number>,
-): number {
-  const sourceNode = nodeMap.get(sourceNodeId);
-  const sourceStage = sourceNode?.stage_id ? stageMap.get(sourceNode.stage_id) : undefined;
-  return sourceStage ? stageVisualIndexMap.get(sourceStage.id) ?? 0 : 0;
-}
-
-type CanvasEdgeKind = "data" | "condition" | "error" | "rework" | "critic";
-type CanvasEdgeTone = "data" | "condition" | "error" | "rework" | "critic";
-
-function isCanvasEdgeKind(value: unknown): value is CanvasEdgeKind {
-  return value === "data" || value === "condition" || value === "error" || value === "rework" || value === "critic";
-}
-
-function edgeToneForKind(kind: CanvasEdgeKind, severity?: unknown): CanvasEdgeTone {
-  if (severity === "error" || severity === "danger") return "error";
-  if (severity === "warning") return "rework";
-  if (kind === "error" || kind === "rework" || kind === "critic" || kind === "condition") return kind;
-  return "data";
-}
-
-function deriveEdgeSemantics(condition: unknown): {
-  edgeKind: CanvasEdgeKind;
-  edgeTone: CanvasEdgeTone;
-} {
-  if (condition && typeof condition === "object" && !Array.isArray(condition)) {
-    const obj = condition as Record<string, unknown>;
-    const kind = isCanvasEdgeKind(obj.kind) ? obj.kind : "condition";
-    return {
-      edgeKind: kind,
-      edgeTone: edgeToneForKind(kind, obj.severity),
-    };
-  }
-
-  return {
-    edgeKind: "data",
-    edgeTone: "data",
-  };
-}
 
 // ── Background nodes: lane backgrounds + gradient transitions ──
 
@@ -594,7 +373,7 @@ function PanoramaContent({
 
         {/* Node config panel (right slide-out) */}
         {configPanelOpen && selectedNode && (
-          <aside className="w-[560px] max-w-[48vw] border-l bg-card shrink-0">
+          <aside className="shrink-0">
             <NodeConfigPanel
               node={selectedNode}
               workflowId={workflowId}
@@ -756,7 +535,34 @@ export function WorkflowPanoramaPage({ workflowId, viewToggle }: WorkflowPanoram
   );
 
   const rfNodes = useMemo(
-    () => apiNodesToReactFlowNodes(visibleNodes, stages, agentLookup, pluginLookup, getActorName, openNodePanel),
+    () => workflowNodesToReactFlowNodes({
+      nodes: visibleNodes,
+      stages,
+      nodeType: "compactWorker",
+      makeNodeData: (node, context) => {
+        const isAnnotation = Boolean(
+          node.format_schema &&
+          typeof node.format_schema === "object" &&
+          !Array.isArray(node.format_schema) &&
+          (node.format_schema as Record<string, unknown>).type === "annotation",
+        );
+        const workerAgent = node.worker_id ? agentLookup.get(node.worker_id) : null;
+        return {
+          node,
+          stage_id: context.stage_id,
+          stageColorIndex: context.stageColorIndex,
+          pluginName: workerAgent?.plugin_id
+            ? pluginLookup.get(workerAgent.plugin_id)?.name
+            : undefined,
+          workerName: node.worker_id ? getActorName(node.worker_type ?? "agent", node.worker_id) ?? undefined : undefined,
+          workerConfigured: isAnnotation ? true : Boolean(node.worker_id),
+          criticConfigured: isAnnotation ? false : node.critic_type === "api" ? Boolean(node.critic_api_url?.trim()) : Boolean(node.critic_id),
+          isAnnotation,
+          onOpen: openNodePanel,
+        };
+      },
+      makeCriticName: (node) => node.critic_id ? getActorName(node.critic_type ?? "agent", node.critic_id) ?? undefined : undefined,
+    }),
     [stages, visibleNodes, agentLookup, pluginLookup, getActorName, openNodePanel],
   );
 
@@ -770,7 +576,14 @@ export function WorkflowPanoramaPage({ workflowId, viewToggle }: WorkflowPanoram
   );
 
   const rfEdges = useMemo(
-    () => apiEdgesToReactFlowEdges(apiEdges, visibleNodes, stages, handleInlineEdgeDelete, selectedEdgeId, selectedEdgeAnchor),
+    () => workflowEdgesToReactFlowEdges({
+      edges: apiEdges,
+      nodes: visibleNodes,
+      stages,
+      onDeleteEdge: handleInlineEdgeDelete,
+      selectedEdgeId,
+      selectedEdgeAnchor,
+    }),
     [apiEdges, visibleNodes, stages, handleInlineEdgeDelete, selectedEdgeId, selectedEdgeAnchor],
   );
 

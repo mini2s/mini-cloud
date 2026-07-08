@@ -164,7 +164,39 @@ describe("PanoramaEdge", () => {
     });
     const path = container.querySelector("path");
     const d = path?.getAttribute("d") ?? "";
-    // Smooth step path has intermediate waypoints (multiple L segments)
+    // Smooth step path has intermediate waypoints (multiple L segments).
+    const segments = d.match(/[ML]/g) ?? [];
+    expect(segments.length).toBeGreaterThan(2);
+  });
+
+  it("uses straight path for same-stage horizontal connections", () => {
+    const container = renderEdge({
+      sourceX: 224,
+      sourceY: 44,
+      targetX: 500,
+      targetY: 92,
+      sourcePosition: Position.Right,
+      targetPosition: Position.Left,
+      data: { sameStage: true },
+    });
+    const path = container.querySelector("path");
+    const d = path?.getAttribute("d") ?? "";
+    const segments = d.match(/[ML]/g) ?? [];
+    expect(segments.length).toBe(2);
+  });
+
+  it("uses smooth step path for cross-stage horizontal connections", () => {
+    const container = renderEdge({
+      sourceX: 224,
+      sourceY: 44,
+      targetX: 500,
+      targetY: 220,
+      sourcePosition: Position.Right,
+      targetPosition: Position.Left,
+      data: { sameStage: false },
+    });
+    const path = container.querySelector("path");
+    const d = path?.getAttribute("d") ?? "";
     const segments = d.match(/[ML]/g) ?? [];
     expect(segments.length).toBeGreaterThan(2);
   });

@@ -3,7 +3,6 @@
 import { useMemo, useState, useCallback, useEffect, useRef } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
-  MarkerType,
   ReactFlowProvider,
   useNodesInitialized,
   useReactFlow,
@@ -30,16 +29,16 @@ import type {
   WorkflowStage,
   Agent,
 } from "@multica/core/types";
-import type { WorkflowEdge } from "@multica/core/types";
 import { WorkflowCanvasCore } from "../../../workflows/components/canvas/workflow-canvas-core";
+import {
+  workflowEdgesToReactFlowEdges,
+  workflowNodesToReactFlowNodes,
+} from "../../../workflows/components/canvas/workflow-canvas-model";
 import { panoramaEdgeTypes } from "../../../workflows/components/overview/reactflow-edges";
 import {
   WORKER_HEIGHT,
   WORKER_WIDTH,
-  computeLaneY,
-  createStageVisualIndexMap,
   sortStagesForDisplay,
-  UNASSIGNED_LANE_Y,
 } from "../../../workflows/components/overview/constants";
 import { ExecutionDetailPanel } from "./execution-detail-panel";
 import { GlobalNotificationBar } from "./global-notification-bar";
@@ -62,67 +61,6 @@ export interface ExecutionPanoramaPageProps {
  * into a scrollable full-page view of all workflow stages, nodes, and their
  * per-run status.
  */
-function runtimeNodesToReactFlowNodes(
-  nodes: WorkflowNode[],
-  stages: WorkflowStage[],
-  nodeRunMap: Map<string, WorkflowNodeRun>,
-  runtimeSummaryMap: Map<string, WorkflowNodeRuntimeSummary>,
-  getActorName: (type: string, id: string) => string | null,
-  onOpen: (nodeId: string) => void,
-): Node[] {
-  const stageMap = new Map(stages.map((stage) => [stage.id, stage]));
-  const stageVisualIndexMap = createStageVisualIndexMap(stages);
-
-  return nodes.map((node) => {
-    const stage = node.stage_id ? stageMap.get(node.stage_id) : undefined;
-    const visualIndex = stage ? stageVisualIndexMap.get(stage.id) ?? stages.length : stages.length;
-    return {
-      id: node.id,
-      type: "runtimeNode",
-      position: {
-        x: node.position_x ?? 100,
-        y: stage ? computeLaneY(visualIndex) : UNASSIGNED_LANE_Y(stages.length),
-      },
-      width: WORKER_WIDTH,
-      height: Math.max(WORKER_HEIGHT, 120),
-      data: {
-        node,
-        nodeRun: nodeRunMap.get(node.id) ?? null,
-        runtimeSummary: runtimeSummaryMap.get(node.id) ?? null,
-        workerName: node.worker_id
-          ? getActorName(workerTypeToActorType(node.worker_type), node.worker_id)
-          : null,
-        criticName: node.critic_id
-          ? getActorName(node.critic_type ?? "agent", node.critic_id)
-          : null,
-        onOpen,
-      },
-    };
-  });
-}
-
-function runtimeEdgesToReactFlowEdges(edges: WorkflowEdge[]): Edge[] {
-  return edges.map((edge) => ({
-    id: edge.id,
-    source: edge.source_node_id,
-    target: edge.target_node_id,
-    type: "panorama",
-    sourceHandle: "right",
-    targetHandle: "left",
-    interactionWidth: 16,
-    markerEnd: {
-      type: MarkerType.ArrowClosed,
-      color: "rgb(100 116 139)",
-      strokeWidth: 1.5,
-    },
-    data: {
-      stageColorIndex: 0,
-      edgeKind: "data",
-      edgeTone: "data",
-    },
-  }));
-}
-
 interface ExecutionPanoramaCanvasProps {
   rfNodes: Node[];
   rfEdges: Edge[];
@@ -365,15 +303,32 @@ export function ExecutionPanoramaPage({
     selectedRun?.status === "blocked" ||
     selectedRun?.status === "critic_rework";
 
-  const rfNodes = runtimeNodesToReactFlowNodes(
-    allNodes,
-    sortStagesForDisplay(allStages),
-    nodeRunMap,
-    runtimeSummaryMap,
-    getActorName,
-    setSelectedNodeId,
-  );
-  const rfEdges = runtimeEdgesToReactFlowEdges(edges ?? []);
+  const rfNodes = workflowNodesToReactFlowNodes({
+    nodes: allNodes,
+    stages: sortStagesForDisplay(allStages),
+    nodeType: "runtimeNode",
+    nodeHeight: Math.max(WORKER_HEIGHT, 120),
+    includeCriticBadges: false,
+    makeNodeData: (node) => ({
+      node,
+      nodeRun: nodeRunMap.get(node.id) ?? null,
+      runtimeSummary: runtimeSummaryMap.get(node.id) ?? null,
+      workerName: node.worker_id
+        ? getActorName(workerTypeToActorType(node.worker_type), node.worker_id)
+        : null,
+      criticName: node.critic_id
+        ? getActorName(node.critic_type ?? "agent", node.critic_id)
+        : null,
+      onOpen: setSelectedNodeId,
+    }),
+    makeCriticName: (node) => node.critic_id ? getActorName(node.critic_type ?? "agent", node.critic_id) ?? undefined : undefined,
+  });
+  const rfEdges = workflowEdgesToReactFlowEdges({
+    edges: edges ?? [],
+    nodes: allNodes,
+    stages: sortStagesForDisplay(allStages),
+    includeCriticEdges: false,
+  });
 
   return (
     <div

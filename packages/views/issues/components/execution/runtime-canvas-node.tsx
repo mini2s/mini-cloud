@@ -1,12 +1,14 @@
 "use client";
 
 import { memo } from "react";
-import { Handle, Position, type NodeProps } from "@xyflow/react";
+import type { NodeProps } from "@xyflow/react";
 import type {
   WorkflowNode,
   WorkflowNodeRun,
   WorkflowNodeRuntimeSummary,
 } from "@multica/core/types";
+import { CriticBadgeNode } from "../../../workflows/components/overview/reactflow-nodes";
+import { WORKER_HEIGHT } from "../../../workflows/components/overview/constants";
 import { RuntimeNodeCard } from "./runtime-node-card";
 
 export interface RuntimeCanvasNodeData extends Record<string, unknown> {
@@ -26,8 +28,6 @@ export const RuntimeCanvasNode = memo(function RuntimeCanvasNode({
 
   return (
     <div data-testid={`runtime-canvas-node-${id}`} className="relative">
-      <Handle type="target" position={Position.Left} id="left" className="opacity-0" />
-      <Handle type="source" position={Position.Right} id="right" className="opacity-0" />
       <RuntimeNodeCard
         node={nodeData.node}
         nodeRun={nodeData.nodeRun}
@@ -35,6 +35,8 @@ export const RuntimeCanvasNode = memo(function RuntimeCanvasNode({
         criticName={nodeData.criticName}
         onClick={nodeData.onOpen}
         runtimeSummary={nodeData.runtimeSummary}
+        handles={["left-target", "right-source", "bottom-source"]}
+        lateralHandleTop={WORKER_HEIGHT / 2}
       />
     </div>
   );
@@ -42,4 +44,5 @@ export const RuntimeCanvasNode = memo(function RuntimeCanvasNode({
 
 export const runtimeCanvasNodeTypes = {
   runtimeNode: RuntimeCanvasNode,
+  criticBadge: CriticBadgeNode,
 };

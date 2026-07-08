@@ -48,9 +48,9 @@ export function WorkflowNodeDetailPanelShell({
       data-mode={mode}
       className={cn(
         "flex h-full flex-col border-l bg-card",
+        widthClassName,
         variant === "overlay" &&
           "fixed right-0 top-0 bottom-0 z-50 h-auto bg-background/98 shadow-xl backdrop-blur",
-        variant === "overlay" && widthClassName,
         className,
       )}
     >

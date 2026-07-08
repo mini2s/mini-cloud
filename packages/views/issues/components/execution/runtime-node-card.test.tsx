@@ -1,7 +1,9 @@
 import { render, screen } from "@testing-library/react";
 import { describe, it, expect, vi } from "vitest";
 import userEvent from "@testing-library/user-event";
+import { ReactFlowProvider } from "@xyflow/react";
 import { RuntimeNodeCard } from "./runtime-node-card";
+import { WORKER_HEIGHT } from "../../../workflows/components/overview/constants";
 import type { NodeRunActionType } from "./runtime-node-card";
 import type { WorkflowNode, WorkflowNodeRun, WorkflowNodeRuntimeSummary } from "@multica/core/types";
 
@@ -286,6 +288,48 @@ describe("RuntimeNodeCard", () => {
 
     expect(screen.getByLabelText("Reviewing")).toBeInTheDocument();
     expect(screen.getByLabelText("Deliverables red")).toBeInTheDocument();
+  });
+
+  it("uses the shared workflow canvas node shell for non-functional styling", () => {
+    render(
+      <RuntimeNodeCard
+        node={baseNode}
+        nodeRun={completedRun}
+        runtimeSummary={runtimeSummary}
+        workerName="Tester"
+        criticName="Reviewer"
+        onClick={vi.fn()}
+      />,
+    );
+
+    const card = screen.getByTestId("runtime-node-card-node-1");
+    expect(card).toHaveAttribute("data-workflow-canvas-node-shell", "true");
+    expect(card.className).not.toContain("min-w-[240px]");
+    expect(card).toHaveStyle({ width: "224px" });
+    expect(screen.getByLabelText("Reviewing")).toBeInTheDocument();
+    expect(screen.getByLabelText("Deliverables red")).toBeInTheDocument();
+  });
+
+  it("renders fixed lane-anchored handles when used inside the canvas", () => {
+    render(
+      <ReactFlowProvider>
+        <RuntimeNodeCard
+          node={baseNode}
+          nodeRun={completedRun}
+          runtimeSummary={runtimeSummary}
+          workerName="Tester"
+          criticName="Reviewer"
+          onClick={vi.fn()}
+          handles={["left-target", "right-source", "bottom-source"]}
+          lateralHandleTop={WORKER_HEIGHT / 2}
+        />
+      </ReactFlowProvider>,
+    );
+
+    const handles = [...document.querySelectorAll(".react-flow__handle")];
+    expect(handles.map((handle) => handle.getAttribute("data-handleid")).sort()).toEqual(["bottom", "left", "right"]);
+    expect(document.querySelector('[data-handleid="left"]')).toHaveStyle({ top: `${WORKER_HEIGHT / 2}px` });
+    expect(document.querySelector('[data-handleid="right"]')).toHaveStyle({ top: `${WORKER_HEIGHT / 2}px` });
   });
 
   it("renders gateway nodes without actor artifact or action rows", () => {

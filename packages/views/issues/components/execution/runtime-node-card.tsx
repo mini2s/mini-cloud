@@ -14,7 +14,12 @@ import { Bot, User, Building2, Paperclip, Check, GitFork, GitMerge } from "lucid
 import { useT } from "@multica/views/i18n";
 import { Button } from "@multica/ui/components/ui/button";
 import { Loader2 } from "lucide-react";
-import { workflowNodeInfoAreaClassName, workflowNodeShapeGlyphClassName, workflowNodeShapeSurfaceClassName } from "../../../common/workflow-node-shape";
+import { workflowNodeInfoAreaClassName, workflowNodeShapeGlyphClassName } from "../../../common/workflow-node-shape";
+import {
+  WorkflowCanvasNodeShell,
+  type WorkflowCanvasNodeHandle,
+} from "../../../workflows/components/canvas/workflow-canvas-node-shell";
+import { WORKER_WIDTH } from "../../../workflows/components/overview/constants";
 
 export type NodeRunActionType =
   | "approve"
@@ -52,6 +57,8 @@ export interface RuntimeNodeCardProps {
   runtimeSummary?: WorkflowNodeRuntimeSummary | null;
   /** Traffic-light indicator derived from deliverable submission statuses. */
   deliverableSignal?: DeliverableSignal;
+  handles?: WorkflowCanvasNodeHandle[];
+  lateralHandleTop?: number;
 }
 
 /** Maps worker/critic type to its Lucide icon component. */
@@ -226,6 +233,8 @@ export function RuntimeNodeCard({
   isActionLoading,
   runtimeSummary,
   deliverableSignal,
+  handles,
+  lateralHandleTop,
 }: RuntimeNodeCardProps) {
   const { t } = useT("issues");
   const nodeFormat = parseNodeFormat(node.format_schema);
@@ -279,31 +288,26 @@ export function RuntimeNodeCard({
     : [];
 
   return (
-    <button
-      type="button"
-      data-testid={`runtime-node-card-${node.id}`}
-      data-node-shape={nodeShape}
-      ref={elementRef}
-      aria-pressed={isSelected}
+    <WorkflowCanvasNodeShell
+      as="button"
+      testId={`runtime-node-card-${node.id}`}
+      nodeShape={nodeShape}
+      selected={isSelected}
+      width={WORKER_WIDTH}
+      minHeight={120}
+      title={node.title}
       onClick={() => onClick(node.id)}
-      className={cn(
-        "group relative flex min-w-[240px] min-h-[104px] flex-col text-left",
-        "transition-all hover:-translate-y-0.5 hover:border-primary/45 hover:shadow-md",
-        isSelected &&
-          "border-primary/55 shadow-[inset_0_0_0_1px_rgba(59,130,246,0.08),0_2px_12px_rgba(15,23,42,0.06)]",
+      className="min-h-[120px]"
+      contentClassName={cn("min-h-[104px] gap-2", workflowNodeInfoAreaClassName(nodeShape))}
+      surfaceClassName={cn(
+        "border-border/80 bg-background shadow-[0_1px_2px_rgba(15,23,42,0.06)]",
+        "group-hover:shadow-md",
+        isSelected && "shadow-[inset_0_0_0_1px_rgba(59,130,246,0.08),0_2px_12px_rgba(15,23,42,0.06)]",
       )}
+      handles={handles}
+      lateralHandleTop={lateralHandleTop}
+      elementRef={elementRef}
     >
-      <span
-        aria-hidden="true"
-        data-node-shape-surface="true"
-        className={cn(
-          "pointer-events-none absolute inset-0 border border-border/80 bg-background shadow-[0_1px_2px_rgba(15,23,42,0.06)] transition-all",
-          workflowNodeShapeSurfaceClassName(nodeShape),
-          "group-hover:border-primary/45 group-hover:shadow-md",
-          isSelected && "border-primary/55 shadow-[inset_0_0_0_1px_rgba(59,130,246,0.08),0_2px_12px_rgba(15,23,42,0.06)]",
-        )}
-      />
-      <div className={cn("relative z-10 flex min-h-[104px] flex-col gap-2", workflowNodeInfoAreaClassName(nodeShape))}>
       {/* Row 1: node title + deliverable signal + status icon */}
       <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-1.5 min-w-0">
@@ -394,7 +398,6 @@ export function RuntimeNodeCard({
           buttons={actionButtons}
         />
       )}
-      </div>
-    </button>
+    </WorkflowCanvasNodeShell>
   );
 }

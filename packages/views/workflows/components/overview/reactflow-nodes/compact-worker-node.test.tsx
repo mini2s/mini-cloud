@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from "vitest";
 import { fireEvent, render, screen } from "@testing-library/react";
 import { ReactFlowProvider } from "@xyflow/react";
 import { CompactWorkerNode, type CompactWorkerNodeData } from "./compact-worker-node";
+import { WORKER_HEIGHT } from "../constants";
 import type { Node } from "@xyflow/react";
 import type { WorkflowNode } from "@multica/core/types";
 
@@ -316,6 +317,21 @@ describe("CompactWorkerNode", () => {
     renderWithProvider(rfn);
     const handles = [...document.querySelectorAll(".react-flow__handle")];
     expect(handles.map((handle) => handle.getAttribute("data-handleid")).sort()).toEqual(["bottom", "left", "right"]);
+  });
+
+  it("anchors lateral handles to the fixed worker midpoint", () => {
+    const rfn = {
+      id: "node-1",
+      type: "compactWorker",
+      position: { x: 100, y: 12 },
+      data: baseData,
+    } as Node;
+    renderWithProvider(rfn);
+    const leftHandle = document.querySelector('[data-handleid="left"]');
+    const rightHandle = document.querySelector('[data-handleid="right"]');
+
+    expect(leftHandle).toHaveStyle({ top: `${WORKER_HEIGHT / 2}px` });
+    expect(rightHandle).toHaveStyle({ top: `${WORKER_HEIGHT / 2}px` });
   });
 
   it("applies selected styling when selected", () => {

@@ -1,9 +1,10 @@
 import { memo, type KeyboardEvent } from "react";
-import { Handle, Position, type NodeProps } from "@xyflow/react";
+import type { NodeProps } from "@xyflow/react";
 import { parseNodeFormat, type WorkflowNode } from "@multica/core/types";
 import { cn } from "@multica/ui/lib/utils";
 import { Bot, FileText, GitFork, GitMerge, UserRound, UsersRound } from "lucide-react";
-import { workflowNodeInfoAreaClassName, workflowNodeShapeGlyphClassName, workflowNodeShapeSurfaceClassName } from "../../../../common/workflow-node-shape";
+import { workflowNodeInfoAreaClassName, workflowNodeShapeGlyphClassName } from "../../../../common/workflow-node-shape";
+import { WorkflowCanvasNodeShell } from "../../canvas/workflow-canvas-node-shell";
 import { WORKER_WIDTH, WORKER_HEIGHT, STAGE_LINE_COLORS } from "../constants";
 
 export interface CompactWorkerNodeData extends Record<string, unknown> {
@@ -73,41 +74,24 @@ export const CompactWorkerNode = memo(function CompactWorkerNode({
   };
 
   return (
-    <div
-      data-testid={`compact-worker-${id}`}
-      data-node-shape={nodeShape}
-      role="button"
+    <WorkflowCanvasNodeShell
+      testId={`compact-worker-${id}`}
+      nodeShape={nodeShape}
+      selected={selected}
+      width={WORKER_WIDTH}
+      height={WORKER_HEIGHT}
       tabIndex={0}
-      aria-label={`${displayName}. ${ariaSubtitle}`}
+      ariaLabel={`${displayName}. ${ariaSubtitle}`}
       title={description ? `${displayName}\n${description}` : displayName}
       onDoubleClick={openNode}
       onKeyDown={handleKeyDown}
-      className={cn(
-        "group relative h-20 w-56 transition-all duration-150 hover:-translate-y-0.5",
-        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
-        selected && "border-primary/55 shadow-[inset_0_0_0_1px_rgba(59,130,246,0.15)]",
-      )}
-      style={{ width: WORKER_WIDTH, height: WORKER_HEIGHT }}
+      className="h-20 w-56"
+      contentClassName={cn("h-full justify-between gap-1.5", workflowNodeInfoAreaClassName(nodeShape))}
+      handleColorClassName={handleColorClass}
+      handles={["left-target", "right-source", "bottom-source"]}
+      lateralHandleTop={WORKER_HEIGHT / 2}
     >
-      <div
-        aria-hidden="true"
-        data-node-shape-surface="true"
-        className={cn(
-          "pointer-events-none absolute inset-0 border border-slate-300/90 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.08)] transition-all duration-150",
-          workflowNodeShapeSurfaceClassName(nodeShape),
-          "group-hover:border-primary/45 group-hover:shadow-[0_4px_12px_rgba(15,23,42,0.12)]",
-          selected && "border-primary/55 shadow-[inset_0_0_0_1px_rgba(59,130,246,0.15)]",
-        )}
-      />
-      <Handle type="target" position={Position.Left} id="left"
-        className={`!bg-current ${handleColorClass} opacity-0 group-hover:opacity-100 transition-opacity`} />
-      <Handle type="source" position={Position.Right} id="right"
-        className={`!bg-current ${handleColorClass} opacity-0 group-hover:opacity-100 transition-opacity`} />
-      <Handle type="source" position={Position.Bottom} id="bottom"
-        className={`!bg-current ${handleColorClass} opacity-0 group-hover:opacity-100 transition-opacity`} />
-
-      <div className={cn("relative z-10 flex h-full min-w-0 flex-col justify-between gap-1.5", workflowNodeInfoAreaClassName(nodeShape))}>
-        <div className="min-w-0">
+        <span className="min-w-0">
           <span className="flex min-w-0 items-center gap-1.5">
             {nodeShape !== "rectangle" ? (
               <span
@@ -124,7 +108,7 @@ export const CompactWorkerNode = memo(function CompactWorkerNode({
           {description ? (
             <span className="mt-1 block truncate text-[10px] leading-3 text-muted-foreground">{description}</span>
           ) : null}
-        </div>
+        </span>
         <div className="flex min-w-0 items-center gap-1.5 text-[10px] leading-4 text-muted-foreground">
           {isAnnotation ? (
             <span className="inline-flex min-w-0 items-center gap-1 rounded-md border border-slate-200 bg-slate-50 px-1.5 text-slate-600">
@@ -143,7 +127,6 @@ export const CompactWorkerNode = memo(function CompactWorkerNode({
             </span>
           ) : null}
         </div>
-      </div>
-    </div>
+    </WorkflowCanvasNodeShell>
   );
 });

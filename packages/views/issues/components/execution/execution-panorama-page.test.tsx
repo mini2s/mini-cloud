@@ -26,6 +26,21 @@ const mocks = vi.hoisted(() => ({
   nodesInitialized: true,
   viewportInitialized: true,
   rerunIssue: vi.fn(),
+  reactFlowProps: null as null | {
+    nodes: Array<{
+      id: string;
+      type?: string;
+      width?: number;
+      height?: number;
+      data?: Record<string, unknown>;
+      markerEnd?: { color?: string };
+    }>;
+    edges: Array<{
+      id: string;
+      data?: Record<string, unknown>;
+      markerEnd?: { color?: string };
+    }>;
+  },
 }));
 
 // ---------------------------------------------------------------------------
@@ -190,24 +205,40 @@ vi.mock("./global-notification-bar", () => ({
 
 vi.mock("@xyflow/react", () => ({
   ReactFlow: (props: {
-    nodes?: unknown[];
-    edges?: unknown[];
+    nodes?: Array<{
+      id: string;
+      type?: string;
+      width?: number;
+      height?: number;
+      data?: Record<string, unknown>;
+    }>;
+    edges?: Array<{
+      id: string;
+      data?: Record<string, unknown>;
+      markerEnd?: { color?: string };
+    }>;
     defaultViewport?: { x: number; y: number; zoom: number };
     fitView?: boolean;
     fitViewOptions?: { maxZoom?: number; padding?: number };
     children?: ReactNode;
-  }) => (
-    <div
-      data-testid="reactflow-canvas"
-      data-node-count={props.nodes?.length ?? 0}
-      data-edge-count={props.edges?.length ?? 0}
-      data-default-zoom={props.defaultViewport?.zoom}
-      data-fit-view={props.fitView ? "true" : "false"}
-      data-fit-view-max-zoom={props.fitViewOptions?.maxZoom}
-    >
-      {props.children}
-    </div>
-  ),
+  }) => {
+    mocks.reactFlowProps = {
+      nodes: props.nodes ?? [],
+      edges: props.edges ?? [],
+    };
+    return (
+      <div
+        data-testid="reactflow-canvas"
+        data-node-count={props.nodes?.length ?? 0}
+        data-edge-count={props.edges?.length ?? 0}
+        data-default-zoom={props.defaultViewport?.zoom}
+        data-fit-view={props.fitView ? "true" : "false"}
+        data-fit-view-max-zoom={props.fitViewOptions?.maxZoom}
+      >
+        {props.children}
+      </div>
+    );
+  },
   ReactFlowProvider: ({ children }: { children: ReactNode }) => <>{children}</>,
   Background: () => <div data-testid="reactflow-background" />,
   Controls: () => <div data-testid="reactflow-controls" />,
@@ -317,6 +348,7 @@ describe("ExecutionPanoramaPage", () => {
     mocks.viewportInitialized = true;
     mocks.rerunIssue.mockReset();
     mocks.rerunIssue.mockResolvedValue({ id: "task-2" });
+    mocks.reactFlowProps = null;
     mocks.pluginsData = {
       items: [],
       total: 0,
@@ -410,6 +442,100 @@ describe("ExecutionPanoramaPage", () => {
     expect(screen.getByTestId("workflow-canvas-core")).toBeInTheDocument();
     expect(screen.getByTestId("reactflow-canvas")).toHaveAttribute("data-node-count", "1");
     expect(screen.queryByTestId("stage-lane-stage-1")).not.toBeInTheDocument();
+  });
+
+  it("builds runtime worker nodes through the shared canvas model while preserving runtime data", () => {
+    mocks.isLoading = false;
+    mocks.workflowData = { id: "wf-1", title: "Test Workflow" };
+    mocks.stagesData = [STAGE];
+    mocks.nodesData = [NODE];
+    mocks.nodeRunsData = [
+      {
+        id: "nr-1",
+        workflow_run_id: "run-1",
+        workflow_node_id: "n1",
+        node_title: "brainstorming",
+        status: "completed",
+        retry_count: 0,
+        worker_type: "agent",
+        worker_id: "agent-1",
+        worker_output: null,
+        worker_agent_task_id: null,
+        critic_type: "human",
+        critic_id: null,
+        critic_output: null,
+        critic_comment: "",
+        critic_agent_task_id: null,
+        agent_task_id: null,
+        session_id: null,
+        runtime_id: null,
+        device_id: null,
+        started_at: null,
+        completed_at: null,
+        created_at: "",
+        updated_at: "",
+      },
+    ];
+    mocks.canvasSummaryData = {
+      node_runs: mocks.nodeRunsData,
+      node_runtime_summaries: [
+        {
+          workflow_node_id: "n1",
+          node_run_id: "nr-1",
+          display_status: "completed",
+          active_actor_type: null,
+          active_actor_id: null,
+          deliverable_signal: "green",
+          required_deliverables_total: 1,
+          required_deliverables_submitted: 1,
+          required_deliverables_approved: 1,
+          duration_seconds: 12,
+          session_id: null,
+          runtime_id: null,
+          device_id: null,
+          has_error: false,
+          error_message: "",
+        },
+      ],
+    };
+    mocks.agentsData = [AGENT];
+
+    render(
+      <Wrapper>
+        <ExecutionPanoramaPage workflowId="wf-1" runId="run-1" wsId="ws-1" />
+      </Wrapper>,
+    );
+
+    const worker = mocks.reactFlowProps?.nodes.find((node) => node.id === "n1");
+    expect(worker).toMatchObject({
+      type: "runtimeNode",
+      width: 224,
+      data: expect.objectContaining({
+        nodeRun: expect.objectContaining({ status: "completed" }),
+        runtimeSummary: expect.objectContaining({ deliverable_signal: "green" }),
+      }),
+    });
+  });
+
+  it("does not render independent critic badge nodes in runtime mode", () => {
+    mocks.isLoading = false;
+    mocks.workflowData = { id: "wf-1", title: "Test Workflow" };
+    mocks.stagesData = [STAGE];
+    mocks.nodesData = [{ ...NODE, critic_id: "agent-2" }];
+    mocks.agentsData = [AGENT, { ...AGENT, id: "agent-2", name: "Review Agent" }];
+
+    render(
+      <Wrapper>
+        <ExecutionPanoramaPage workflowId="wf-1" runId={null} wsId="ws-1" />
+      </Wrapper>,
+    );
+
+    expect(mocks.reactFlowProps?.nodes.find((node) => node.id === "n1:critic")).toBeUndefined();
+    expect(mocks.reactFlowProps?.edges.find((edge) => edge.id === "n1:critic-edge")).toBeUndefined();
+    expect(mocks.reactFlowProps?.nodes.find((node) => node.id === "n1")).toMatchObject({
+      type: "runtimeNode",
+      width: 224,
+    });
   });
 
   it("lets the shared canvas stretch to the issue detail shell height", () => {
@@ -676,6 +802,44 @@ describe("ExecutionPanoramaPage", () => {
     );
 
     expect(screen.getByTestId("reactflow-canvas")).toHaveAttribute("data-edge-count", "1");
+  });
+
+  it("uses stage-aware shared edge styling in runtime mode", () => {
+    mocks.isLoading = false;
+    mocks.workflowData = { id: "wf-1", title: "Test Workflow" };
+    mocks.stagesData = [
+      STAGE,
+      { ...STAGE, id: "stage-2", name: "Build", sort_order: 1 },
+    ];
+    mocks.nodesData = [
+      NODE,
+      { ...NODE, id: "n2", title: "Build", stage_id: "stage-2", position_x: 400 },
+    ];
+    mocks.edgesData = [
+      {
+        id: "e1",
+        workflow_id: "wf-1",
+        source_node_id: "n2",
+        target_node_id: "n1",
+        condition: { kind: "condition" },
+        created_at: "",
+      },
+    ];
+    mocks.agentsData = [AGENT];
+
+    render(
+      <Wrapper>
+        <ExecutionPanoramaPage workflowId="wf-1" runId={null} wsId="ws-1" />
+      </Wrapper>,
+    );
+
+    const edge = mocks.reactFlowProps?.edges.find((item) => item.id === "e1");
+    expect(edge?.data).toMatchObject({
+      stageColorIndex: 1,
+      edgeKind: "condition",
+      edgeTone: "condition",
+    });
+    expect(edge?.markerEnd?.color).toBe("rgb(59 130 246)");
   });
 
   it("renders workflow edges through the shared ReactFlow canvas when runId is null", () => {

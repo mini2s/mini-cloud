@@ -6,6 +6,7 @@ import { LANE_STEP, LANE_PADDING_TOP, getStageColor } from "../constants";
 
 type PanoramaEdgeData = {
   stageColorIndex?: number;
+  sameStage?: boolean;
   edgeKind?: "data" | "condition" | "error" | "rework" | "critic";
   edgeTone?: "data" | "condition" | "error" | "rework" | "critic";
   onDeleteEdge?: (edgeId: string) => void;
@@ -33,16 +34,20 @@ function PanoramaEdgeComponent({
   markerEnd,
   data,
 }: EdgeProps) {
-  // Direct same-axis connections should not route through SmoothStep waypoints.
+  const edgeData = data as PanoramaEdgeData | undefined;
+  // Direct lateral connections stay straight even when card content makes
+  // handle centers slightly different across nodes in the same stage.
   const isVertical =
     (sourcePosition === Position.Top || sourcePosition === Position.Bottom) &&
     (targetPosition === Position.Top || targetPosition === Position.Bottom);
-  const isHorizontal =
+  const isLateral =
     (sourcePosition === Position.Left || sourcePosition === Position.Right) &&
-    (targetPosition === Position.Left || targetPosition === Position.Right) &&
-    Math.abs(sourceY - targetY) < 1;
+    (targetPosition === Position.Left || targetPosition === Position.Right);
+  const isSameStageLateral =
+    isLateral &&
+    (edgeData?.sameStage === true || (edgeData?.sameStage === undefined && Math.abs(sourceY - targetY) < 1));
 
-  const [edgePath] = isVertical || isHorizontal
+  const [edgePath] = isVertical || isSameStageLateral
     ? getStraightPath({ sourceX, sourceY, targetX, targetY })
     : getSmoothStepPath({
         sourceX,
@@ -53,7 +58,6 @@ function PanoramaEdgeComponent({
         targetPosition,
       });
 
-  const edgeData = data as PanoramaEdgeData | undefined;
   const laneIndex = edgeData?.stageColorIndex ?? Math.round((sourceY - LANE_PADDING_TOP) / LANE_STEP);
   const colorClass = edgeData?.edgeTone && edgeData.edgeTone !== "data"
     ? toneClass(edgeData.edgeTone)
