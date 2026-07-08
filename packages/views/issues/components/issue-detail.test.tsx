@@ -245,6 +245,7 @@ const mockApiObj = vi.hoisted(() => ({
   getActiveTasksForIssue: vi.fn().mockResolvedValue({ tasks: [] }),
   listTasksByIssue: vi.fn().mockResolvedValue([]),
   listTaskMessages: vi.fn().mockResolvedValue([]),
+  rerunIssue: vi.fn().mockResolvedValue(undefined),
   listChildIssues: vi.fn().mockResolvedValue({ issues: [] }),
   listIssues: vi.fn().mockResolvedValue({ issues: [], total: 0 }),
   uploadFile: vi.fn(),
@@ -407,8 +408,9 @@ vi.mock("@multica/core/realtime", () => ({
 }));
 
 // Mock sonner
+const mockToast = vi.hoisted(() => ({ error: vi.fn(), success: vi.fn(), info: vi.fn() }));
 vi.mock("sonner", () => ({
-  toast: { error: vi.fn(), success: vi.fn() },
+  toast: mockToast,
 }));
 
 // Mock react-resizable-panels (used by @multica/ui/components/ui/resizable)
@@ -870,6 +872,31 @@ describe("IssueDetail (shared)", () => {
     await waitFor(() => {
       expect(screen.getAllByText("Activity").length).toBeGreaterThanOrEqual(1);
     });
+  });
+
+  it("retries a failed task directly from the activity timeline", async () => {
+    mockApiObj.listTimeline.mockResolvedValue([
+      {
+        type: "activity",
+        id: "failed-activity",
+        actor_type: "agent",
+        actor_id: "agent-1",
+        action: "task_failed",
+        details: { task_id: "task-failed" },
+        created_at: "2026-01-18T00:00:00Z",
+      },
+    ] as TimelineEntry[]);
+
+    renderIssueDetail();
+
+    const retryButton = await screen.findByRole("button", { name: "Retry task" });
+    expect(retryButton).toHaveTextContent("Retry");
+    expect(retryButton).toHaveClass("cursor-pointer", "hover:-translate-y-px");
+    fireEvent.click(retryButton);
+
+    await waitFor(() =>
+      expect(mockApiObj.rerunIssue).toHaveBeenCalledWith("issue-1", "task-failed"),
+    );
   });
 
   it("renders comments from timeline", async () => {
