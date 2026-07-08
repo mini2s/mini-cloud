@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { UpdateNodeRequest } from "../types";
+import type { CreateNodeRequest, UpdateNodeRequest } from "../types";
 
 export type EditorMode = "view" | "edit" | "connect";
 
@@ -12,12 +12,23 @@ interface WorkflowSnapshot {
   deletedNodeIds: string[];
 }
 
-export interface TrackedAction {
-  type: "create-node" | "create-edge" | "delete-edge" | "delete-node" | "move-node";
-  nodeId?: string;
-  edgeId?: string;
-  sourceNodeId?: string;
-  targetNodeId?: string;
+export type TrackedAction =
+  | {
+      type: "create-node";
+      nodeId?: string;
+      nodeRequest?: CreateNodeRequest;
+    }
+  | {
+      type: "create-edge" | "delete-edge" | "delete-node" | "move-node";
+      nodeId?: string;
+      edgeId?: string;
+      sourceNodeId?: string;
+      targetNodeId?: string;
+    };
+
+export interface PendingHistoryAction {
+  direction: "undo" | "redo";
+  action: TrackedAction;
 }
 
 interface UndoEntry {
@@ -38,7 +49,7 @@ interface WorkflowEditorState {
   deletedNodeIds: string[];
   undoStack: UndoEntry[];
   redoStack: UndoEntry[];
-  _reverseAction: TrackedAction | null;
+  _reverseAction: PendingHistoryAction | null;
   _undoLastTime: number;
   _undoRedoVersion: number;
   showAnnotations: boolean;
@@ -53,6 +64,7 @@ interface WorkflowEditorState {
   cacheNodeDelete: (nodeId: string) => void;
   clearNodeDelete: (nodeId: string) => void;
   pushServerAction: (action: TrackedAction) => void;
+  updateLatestUndoAction: (action: TrackedAction) => void;
   undo: () => void;
   redo: () => void;
   clearReverseAction: () => void;
@@ -77,7 +89,7 @@ const initialState = {
   deletedNodeIds: [] as string[],
   undoStack: [] as UndoEntry[],
   redoStack: [] as UndoEntry[],
-  _reverseAction: null as TrackedAction | null,
+  _reverseAction: null as PendingHistoryAction | null,
   _undoLastTime: 0,
   _undoRedoVersion: 0,
   showAnnotations: true,
@@ -179,6 +191,16 @@ export const useWorkflowEditorStore = create<WorkflowEditorState>((set) => ({
       _undoLastTime: Date.now(),
     })),
 
+  updateLatestUndoAction: (action) =>
+    set((state) => {
+      if (state.undoStack.length === 0) return state;
+      const undoStack = state.undoStack.slice();
+      const latest = undoStack[undoStack.length - 1];
+      if (!latest) return state;
+      undoStack[undoStack.length - 1] = { ...latest, action };
+      return { undoStack };
+    }),
+
   undo: () =>
     set((state) => {
       if (state.undoStack.length === 0) return state;
@@ -189,7 +211,7 @@ export const useWorkflowEditorStore = create<WorkflowEditorState>((set) => ({
         redoStack: [...state.redoStack, { snapshot: makeSnapshot(state), action: entry.action }],
         nodeEdits: entry.snapshot.nodeEdits,
         deletedNodeIds: entry.snapshot.deletedNodeIds,
-        _reverseAction: entry.action ?? null,
+        _reverseAction: entry.action ? { direction: "undo", action: entry.action } : null,
         _undoLastTime: Date.now(),
         _undoRedoVersion: state._undoRedoVersion + 1,
       };
@@ -205,7 +227,7 @@ export const useWorkflowEditorStore = create<WorkflowEditorState>((set) => ({
         undoStack: [...state.undoStack, { snapshot: makeSnapshot(state), action: entry.action }],
         nodeEdits: entry.snapshot.nodeEdits,
         deletedNodeIds: entry.snapshot.deletedNodeIds,
-        _reverseAction: entry.action ?? null,
+        _reverseAction: entry.action ? { direction: "redo", action: entry.action } : null,
         _undoLastTime: Date.now(),
         _undoRedoVersion: state._undoRedoVersion + 1,
       };

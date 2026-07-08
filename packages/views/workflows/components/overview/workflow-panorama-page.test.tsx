@@ -36,6 +36,20 @@ const mocks = vi.hoisted(() => ({
   clearNodeEdits: vi.fn(),
   cacheNodeDelete: vi.fn(),
   pushServerAction: vi.fn(),
+  clearReverseAction: vi.fn(),
+  updateLatestUndoAction: vi.fn(),
+  reverseAction: null as null | {
+    direction: "undo" | "redo";
+    action: {
+      type: "create-node";
+      nodeId?: string;
+      nodeRequest?: {
+        title: string;
+        worker_type: "agent";
+        critic_type: "human";
+      };
+    };
+  },
   controlsProps: null as null | {
     position?: string;
     orientation?: string;
@@ -115,6 +129,7 @@ vi.mock("@multica/core/workflows/store", () => {
       deletedNodeIds: mocks.deletedNodeIds,
       undoStack: [],
       redoStack: [],
+      _reverseAction: mocks.reverseAction,
       showAnnotations: true,
       selectNode: (nodeId: string | null) => {
         mocks.selectedNodeId = nodeId;
@@ -130,6 +145,8 @@ vi.mock("@multica/core/workflows/store", () => {
       clearNodeEdits: mocks.clearNodeEdits,
       clearNodeDelete: vi.fn(),
       pushServerAction: mocks.pushServerAction,
+      clearReverseAction: mocks.clearReverseAction,
+      updateLatestUndoAction: mocks.updateLatestUndoAction,
       undo: vi.fn(),
       redo: vi.fn(),
       toggleAnnotations: vi.fn(),
@@ -141,6 +158,9 @@ vi.mock("@multica/core/workflows/store", () => {
     deletedNodeIds: mocks.deletedNodeIds,
     undoStack: [],
     redoStack: [],
+    _reverseAction: mocks.reverseAction,
+    clearReverseAction: mocks.clearReverseAction,
+    updateLatestUndoAction: mocks.updateLatestUndoAction,
   });
   return { useWorkflowEditorStore: mockUseStore };
 });
@@ -395,6 +415,9 @@ describe("WorkflowPanoramaPage (new)", () => {
     mocks.navigationPush.mockReset();
     mocks.selectNode.mockReset();
     mocks.clearNodeEdits.mockReset();
+    mocks.clearReverseAction.mockReset();
+    mocks.updateLatestUndoAction.mockReset();
+    mocks.reverseAction = null;
     mocks.reactFlowProps = null;
     mocks.controlsProps = null;
     mocks.miniMapProps = null;
@@ -765,6 +788,48 @@ describe("WorkflowPanoramaPage (new)", () => {
     (workflowEdge?.data?.onDeleteEdge as (edgeId: string) => void)("edge-a-b");
     expect(mocks.deleteEdgeMutate).toHaveBeenCalledWith("edge-a-b");
     expect(mocks.pushServerAction).toHaveBeenCalledWith({ type: "delete-edge", edgeId: "edge-a-b" });
+  });
+
+  it("undoes a created node by deleting the persisted node", async () => {
+    mocks.reverseAction = {
+      direction: "undo",
+      action: { type: "create-node", nodeId: "created-node" },
+    };
+    mocks.deleteNodeMutateAsync.mockResolvedValueOnce(undefined);
+
+    render(<WorkflowPanoramaPage workflowId="wf-1" />);
+
+    await vi.waitFor(() => {
+      expect(mocks.deleteNodeMutateAsync).toHaveBeenCalledWith("created-node");
+      expect(mocks.clearReverseAction).toHaveBeenCalled();
+    });
+  });
+
+  it("redoes a created node by recreating it from the stored request", async () => {
+    const nodeRequest = {
+      title: "Agent task",
+      worker_type: "agent" as const,
+      critic_type: "human" as const,
+    };
+    mocks.reverseAction = {
+      direction: "redo",
+      action: { type: "create-node", nodeRequest },
+    };
+
+    render(<WorkflowPanoramaPage workflowId="wf-1" />);
+
+    await vi.waitFor(() => {
+      expect(mocks.createNodeMutate).toHaveBeenCalledWith(nodeRequest, expect.any(Object));
+      expect(mocks.clearReverseAction).toHaveBeenCalled();
+    });
+
+    const [, options] = mocks.createNodeMutate.mock.calls[0]!;
+    options.onSuccess({ id: "recreated-node" });
+    expect(mocks.updateLatestUndoAction).toHaveBeenCalledWith({
+      type: "create-node",
+      nodeRequest,
+      nodeId: "recreated-node",
+    });
   });
 
   it("marks a workflow edge selected after edge click so the inline delete button can render", () => {

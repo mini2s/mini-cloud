@@ -553,6 +553,9 @@ export function WorkflowPanoramaPage({ workflowId, viewToggle }: WorkflowPanoram
   const clearNodeEdits = useWorkflowEditorStore((s) => s.clearNodeEdits);
   const cacheNodeDelete = useWorkflowEditorStore((s) => s.cacheNodeDelete);
   const pushServerAction = useWorkflowEditorStore((s) => s.pushServerAction);
+  const pendingHistoryAction = useWorkflowEditorStore((s) => s._reverseAction);
+  const clearReverseAction = useWorkflowEditorStore((s) => s.clearReverseAction);
+  const updateLatestUndoAction = useWorkflowEditorStore((s) => s.updateLatestUndoAction);
 
   // ── Local state ──
   const [viewportY, setViewportY] = useState(0);
@@ -740,18 +743,41 @@ export function WorkflowPanoramaPage({ workflowId, viewToggle }: WorkflowPanoram
     [createEdgeMutation, pushServerAction],
   );
 
+  useEffect(() => {
+    if (!pendingHistoryAction) return;
+
+    const { direction, action } = pendingHistoryAction;
+    clearReverseAction();
+
+    if (action.type !== "create-node") return;
+
+    if (direction === "undo" && action.nodeId) {
+      void deleteNodeMutation.mutateAsync(action.nodeId);
+      return;
+    }
+
+    if (direction === "redo" && action.nodeRequest) {
+      createNodeMutation.mutate(action.nodeRequest, {
+        onSuccess: (created) => {
+          updateLatestUndoAction({ ...action, nodeId: created.id });
+        },
+      });
+    }
+  }, [clearReverseAction, createNodeMutation, deleteNodeMutation, pendingHistoryAction, updateLatestUndoAction]);
+
   const createTemplateNode = useCallback(
     (template: NodeTemplate, position: { x: number; y: number }, sourceNodeId?: string) => {
       const sourceNode = sourceNodeId ? visibleNodes.find((node) => node.id === sourceNodeId) : undefined;
       const stage = sourceNode ? undefined : findStageAtY(position.y, stages);
-
-      createNodeMutation.mutate(buildCreateNodeRequestFromTemplate(template, {
+      const nodeRequest = buildCreateNodeRequestFromTemplate(template, {
         x: sourceNode ? (sourceNode.position_x ?? 0) + WORKER_WIDTH + 96 : position.x,
         y: sourceNode ? sourceNode.position_y ?? 0 : position.y,
         stageId: sourceNode ? sourceNode.stage_id ?? null : stage?.id ?? null,
-      }), {
+      });
+
+      createNodeMutation.mutate(nodeRequest, {
         onSuccess: (created) => {
-          pushServerAction({ type: "create-node", nodeId: created.id });
+          pushServerAction({ type: "create-node", nodeId: created.id, nodeRequest });
           if (!sourceNodeId) return;
           createEdgeMutation.mutate({
             source_node_id: sourceNodeId,
