@@ -60,22 +60,6 @@ function fromAssigneeTypeCritic(t: IssueAssigneeType | null): CriticType {
   return "human";
 }
 
-function toFormatSchemaString(fs: unknown): string {
-  if (!fs) return "";
-  if (typeof fs === "string") return fs;
-  return JSON.stringify(fs, null, 2);
-}
-
-function parseFormatSchemaValue(raw: string): unknown {
-  const trimmed = raw.trim();
-  if (!trimmed) return null;
-  try {
-    return JSON.parse(trimmed);
-  } catch {
-    return raw;
-  }
-}
-
 function statusTone(status: string | null | undefined): "default" | "success" | "warning" | "danger" {
   if (!status) return "default";
   if (status === "completed" || status === "critic_approved" || status === "format_ok") return "success";
@@ -313,9 +297,6 @@ export function NodeConfigPanel({
 
   const [title, setTitle] = useState(saved?.title ?? node.title);
   const [description, setDescription] = useState(saved?.description ?? node.description);
-  const [formatSchema, setFormatSchema] = useState<string>(
-    toFormatSchemaString(saved?.format_schema ?? node.format_schema),
-  );
   const [workerType, setWorkerType] = useState(saved?.worker_type ?? node.worker_type);
   const [workerId, setWorkerId] = useState<string | null>(saved?.worker_id ?? node.worker_id ?? null);
   const [criticType, setCriticType] = useState(saved?.critic_type ?? node.critic_type);
@@ -353,7 +334,6 @@ export function NodeConfigPanel({
     const s = nodeEdits[node.id];
     setTitle(s?.title ?? node.title);
     setDescription(s?.description ?? node.description);
-    setFormatSchema(toFormatSchemaString(s?.format_schema ?? node.format_schema));
     setWorkerType(s?.worker_type ?? node.worker_type);
     setWorkerId(s?.worker_id ?? node.worker_id ?? null);
     setCriticType(s?.critic_type ?? node.critic_type);
@@ -548,18 +528,12 @@ export function NodeConfigPanel({
                       size="icon"
                       className="h-6 w-6 shrink-0"
                       onClick={() => {
-                        let obj: Record<string, unknown> = {};
-                        try {
-                          const parsed = JSON.parse(formatSchema || "{}");
-                          if (typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)) {
-                            obj = parsed as Record<string, unknown>;
-                          }
-                        } catch {
-                          // Keep the current object shape when the JSON is incomplete.
-                        }
+                        const raw = saved?.format_schema ?? node.format_schema;
+                        const obj: Record<string, unknown> = (raw && typeof raw === "object" && !Array.isArray(raw))
+                          ? { ...(raw as Record<string, unknown>) }
+                          : {};
                         delete obj.annotation_target_node_id;
                         cacheNodeEdits(node.id, { format_schema: obj });
-                        setFormatSchema(JSON.stringify(obj, null, 2));
                       }}
                       title="Unbind"
                     >
@@ -574,18 +548,12 @@ export function NodeConfigPanel({
                     onChange={(e) => {
                       const tid = e.target.value;
                       if (!tid) return;
-                      let obj: Record<string, unknown> = {};
-                      try {
-                        const parsed = JSON.parse(formatSchema || "{}");
-                        if (typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)) {
-                          obj = parsed as Record<string, unknown>;
-                        }
-                      } catch {
-                        // Keep the current object shape when the JSON is incomplete.
-                      }
+                      const raw = saved?.format_schema ?? node.format_schema;
+                      const obj: Record<string, unknown> = (raw && typeof raw === "object" && !Array.isArray(raw))
+                        ? { ...(raw as Record<string, unknown>) }
+                        : {};
                       obj.annotation_target_node_id = tid;
                       cacheNodeEdits(node.id, { format_schema: obj });
-                      setFormatSchema(JSON.stringify(obj, null, 2));
                     }}
                   >
                     <option value="">Select a node...</option>
@@ -802,34 +770,6 @@ export function NodeConfigPanel({
               </>
             ) : null}
 
-            <details className="group overflow-hidden rounded-lg border border-dashed bg-background">
-              <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-3 py-3">
-                <span className="flex min-w-0 items-center gap-2.5">
-                  <span className="flex size-7 shrink-0 items-center justify-center rounded-md border bg-background text-muted-foreground">
-                    <Braces className="size-4" />
-                  </span>
-                  <span className="min-w-0">
-                    <span className="block text-sm font-medium">Advanced</span>
-                    <span className="block truncate text-[11px] text-muted-foreground">{t(($) => $.node.format_schema_label)}</span>
-                  </span>
-                </span>
-                <StatusBadge>Collapsed</StatusBadge>
-              </summary>
-              <div className="space-y-1.5 border-t p-3">
-                <Textarea
-                  disabled={disabled}
-                  value={formatSchema}
-                  onChange={(e) => {
-                    setFormatSchema(e.target.value);
-                    cacheNodeEdits(node.id, { format_schema: parseFormatSchemaValue(e.target.value) });
-                  }}
-                  placeholder="{}"
-                  className="min-h-[96px] text-sm font-mono"
-                  rows={5}
-                />
-                <p className="text-[11px] text-muted-foreground">{t(($) => $.node.format_schema_hint)}</p>
-              </div>
-            </details>
         </div>
       </NodeDetailSection>
 

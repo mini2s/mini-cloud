@@ -9,7 +9,6 @@ export type PreflightCheckId =
   | "worker-missing"
   | "invalid-critic-ref"
   | "stage-missing"
-  | "schema-required-missing"
   | "gateway-fork-outgoing"
   | "gateway-join-incoming"
   | "gateway-kind-invalid"
@@ -43,33 +42,6 @@ function isAnnotation(node: WorkflowNode): boolean {
 
 function isGateway(node: WorkflowNode): boolean {
   return parseNodeFormat(node.format_schema).kind === "gateway";
-}
-
-/** Extracts `required` field names from a JSON Schema object. Returns empty array for non-schema input. */
-function extractRequiredFields(node: WorkflowNode): string[] {
-  try {
-    const schema = node.format_schema;
-    if (!schema || typeof schema !== "object") return [];
-    const s = schema as Record<string, unknown>;
-    if (!Array.isArray(s.required)) return [];
-    return s.required.filter((f): f is string => typeof f === "string");
-  } catch {
-    return [];
-  }
-}
-
-/** Extracts `properties` keys from a JSON Schema object. */
-function extractPropertyKeys(node: WorkflowNode): Set<string> {
-  try {
-    const schema = node.format_schema;
-    if (!schema || typeof schema !== "object") return new Set();
-    const s = schema as Record<string, unknown>;
-    const props = s.properties;
-    if (!props || typeof props !== "object") return new Set();
-    return new Set(Object.keys(props as Record<string, unknown>));
-  } catch {
-    return new Set();
-  }
 }
 
 // ── Check functions ──
@@ -345,32 +317,6 @@ export function checkGatewayTopology(nodes: WorkflowNode[], edges: WorkflowEdge[
   return issues;
 }
 
-/** Detect schema required fields that don't exist in properties. */
-export function checkSchemaRequiredFields(nodes: WorkflowNode[]): PreflightIssue[] {
-  const issues: PreflightIssue[] = [];
-
-  for (const n of nodes) {
-    const required = extractRequiredFields(n);
-    if (required.length === 0) continue;
-
-    const propertyKeys = extractPropertyKeys(n);
-    const missing = required.filter((f) => !propertyKeys.has(f));
-    if (missing.length === 0) continue;
-
-    issues.push({
-      checkId: "schema-required-missing",
-      severity: "error",
-      blocking: true,
-      nodeId: n.id,
-      nodeTitle: n.title,
-      message: `Required fields not in schema: ${missing.join(", ")}`,
-      detail: missing.join(", "),
-    });
-  }
-
-  return issues;
-}
-
 // ── Master aggregator ──
 
 export interface PreflightCheckInput {
@@ -394,7 +340,6 @@ export function runAllPreflightChecks(input: PreflightCheckInput): PreflightResu
     ...checkWorkerMissing(nodes),
     ...checkInvalidCriticRef(nodes, agentIds),
     ...checkStageMissing(nodes),
-    ...checkSchemaRequiredFields(nodes),
     ...checkGatewayTopology(nodes, edges),
   ];
 

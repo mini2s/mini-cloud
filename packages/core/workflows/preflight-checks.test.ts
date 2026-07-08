@@ -6,7 +6,6 @@ import {
   checkWorkerMissing,
   checkInvalidCriticRef,
   checkStageMissing,
-  checkSchemaRequiredFields,
   runAllPreflightChecks,
 } from "./preflight-checks";
 import type { WorkflowNode, WorkflowEdge, WorkflowStage } from "../types";
@@ -298,50 +297,6 @@ describe("checkStageMissing", () => {
   it("passes node with stage", () => {
     const nodes = [makeNode({ id: "a", stage_id: "stage-1" })];
     expect(checkStageMissing(nodes)).toEqual([]);
-  });
-});
-
-// ── checkSchemaRequiredFields ──
-
-describe("checkSchemaRequiredFields", () => {
-  it("returns empty for node without format_schema", () => {
-    const nodes = [makeNode({ id: "a" })];
-    expect(checkSchemaRequiredFields(nodes)).toEqual([]);
-  });
-
-  it("flags missing required fields", () => {
-    const nodes = [
-      makeNode({
-        id: "a",
-        title: "Node A",
-        format_schema: {
-          required: ["name", "email"],
-          properties: { name: { type: "string" } },
-        },
-      }),
-    ];
-    const issues = checkSchemaRequiredFields(nodes);
-    expect(issues).toHaveLength(1);
-    expect(issues[0]!.checkId).toBe("schema-required-missing");
-    expect(issues[0]!.detail).toContain("email");
-  });
-
-  it("passes when all required fields present", () => {
-    const nodes = [
-      makeNode({
-        id: "a",
-        format_schema: {
-          required: ["name"],
-          properties: { name: { type: "string" } },
-        },
-      }),
-    ];
-    expect(checkSchemaRequiredFields(nodes)).toEqual([]);
-  });
-
-  it("handles invalid format_schema gracefully", () => {
-    const nodes = [makeNode({ id: "a", format_schema: "not an object" })];
-    expect(checkSchemaRequiredFields(nodes)).toEqual([]);
   });
 });
 

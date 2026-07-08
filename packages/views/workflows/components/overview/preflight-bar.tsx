@@ -29,7 +29,6 @@ function checkLabel(checkId: PreflightIssue["checkId"], t: ReturnType<typeof use
     case "worker-missing":         return t(($) => $.preflight.check_worker_missing);
     case "invalid-critic-ref":     return t(($) => $.preflight.check_invalid_critic);
     case "stage-missing":          return t(($) => $.preflight.check_stage_missing);
-    case "schema-required-missing":return t(($) => $.preflight.check_schema_required);
     default:                       return checkId;
   }
 }

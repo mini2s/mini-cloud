@@ -90,8 +90,6 @@ vi.mock("../../i18n", () => {
       stage_create_option: "Create new stage...",
       stage_create_name_placeholder: "Stage name",
       stage_create_description_placeholder: "Description (optional)",
-      format_schema_label: "JSON Schema",
-      format_schema_hint: "Leave empty to skip format validation.",
       section_worker: "Worker",
       worker_type_human: "Human",
       worker_type_agent: "Agent",
