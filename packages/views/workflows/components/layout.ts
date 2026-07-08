@@ -1,10 +1,10 @@
 import dagre from "@dagrejs/dagre";
 import type { WorkflowNode, WorkflowEdge } from "@multica/core/types";
 import { parseNodeShape } from "@multica/core/types";
-import { WORKER_WIDTH } from "./overview/constants";
+import { WORKER_HEIGHT, WORKER_WIDTH } from "./overview/constants";
 
 const LANE_START_X = 120;
-const LANE_SLOT_GAP = 96;
+const LANE_SLOT_GAP = 80;
 const LANE_SLOT_STEP = WORKER_WIDTH + LANE_SLOT_GAP;
 
 const SHAPE_DEFAULTS = {
@@ -103,7 +103,7 @@ export function computeLaneAutoLayout(
 
     const nodeIds = new Set(stageNodes.map((n) => n.id));
     for (const node of stageNodes) {
-      g.setNode(node.id, { width: WORKER_WIDTH, height: 64 });
+      g.setNode(node.id, { width: WORKER_WIDTH, height: WORKER_HEIGHT });
     }
 
     for (const edge of edges) {

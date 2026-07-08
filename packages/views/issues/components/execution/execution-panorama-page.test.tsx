@@ -509,7 +509,8 @@ describe("ExecutionPanoramaPage", () => {
     const worker = mocks.reactFlowProps?.nodes.find((node) => node.id === "n1");
     expect(worker).toMatchObject({
       type: "runtimeNode",
-      width: 224,
+      width: 240,
+      height: 120,
       data: expect.objectContaining({
         nodeRun: expect.objectContaining({ status: "completed" }),
         runtimeSummary: expect.objectContaining({ deliverable_signal: "green" }),
@@ -534,7 +535,8 @@ describe("ExecutionPanoramaPage", () => {
     expect(mocks.reactFlowProps?.edges.find((edge) => edge.id === "n1:critic-edge")).toBeUndefined();
     expect(mocks.reactFlowProps?.nodes.find((node) => node.id === "n1")).toMatchObject({
       type: "runtimeNode",
-      width: 224,
+      width: 240,
+      height: 120,
     });
   });
 
@@ -661,7 +663,7 @@ describe("ExecutionPanoramaPage", () => {
     fireEvent.click(screen.getByTestId("notification-item-test"));
 
     expect(mocks.setCenter).toHaveBeenCalledWith(
-      112,
+      120,
       72,
       expect.objectContaining({ duration: 450, zoom: 0.95 }),
     );

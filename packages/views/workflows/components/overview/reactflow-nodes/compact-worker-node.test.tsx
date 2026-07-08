@@ -87,8 +87,8 @@ describe("CompactWorkerNode", () => {
     renderWithProvider(rfn);
     const el = screen.getByTestId("compact-worker-node-1");
     expect(el).toBeInTheDocument();
-    expect(el).toHaveClass("h-20", "w-56");
-    expect(el).toHaveStyle({ height: "80px" });
+    expect(el).toHaveClass("h-[104px]", "w-[240px]");
+    expect(el).toHaveStyle({ height: "104px" });
   });
 
   it("uses the node title as the primary card label", () => {
@@ -134,9 +134,14 @@ describe("CompactWorkerNode", () => {
     } as Node;
     renderWithProvider(rfn);
 
-    expect(screen.getByTestId("compact-worker-node-badge-node-1")).toHaveTextContent("Agent");
-    expect(screen.getByTestId("compact-worker-node-meta-node-1")).toHaveTextContent("GPT-4 Agent");
-    expect(screen.getByTestId("compact-worker-node-meta-node-1")).toHaveTextContent("Configured");
+    const badge = screen.getByTestId("compact-worker-node-badge-node-1");
+    const meta = screen.getByTestId("compact-worker-node-meta-node-1");
+    expect(badge).toHaveTextContent("Agent");
+    expect(badge).toHaveClass("border-border/55", "bg-background/70", "text-muted-foreground");
+    expect(meta).toHaveTextContent("GPT-4 Agent");
+    expect(meta).toHaveTextContent("Configured");
+    expect(meta).toHaveClass("border-t", "border-border/45");
+    expect(meta.className).not.toContain("border-slate-200/55");
   });
 
   it("does not show missing worker warnings on the card", () => {

@@ -2,8 +2,7 @@ import { render, screen } from "@testing-library/react";
 import { describe, it, expect, vi } from "vitest";
 import userEvent from "@testing-library/user-event";
 import { ReactFlowProvider } from "@xyflow/react";
-import { RuntimeNodeCard } from "./runtime-node-card";
-import { WORKER_HEIGHT } from "../../../workflows/components/overview/constants";
+import { RuntimeNodeCard, RUNTIME_NODE_HEIGHT } from "./runtime-node-card";
 import type { NodeRunActionType } from "./runtime-node-card";
 import type { WorkflowNode, WorkflowNodeRun, WorkflowNodeRuntimeSummary } from "@multica/core/types";
 
@@ -218,8 +217,10 @@ describe("RuntimeNodeCard", () => {
     expect(screen.queryByText(/Artifacts:/)).not.toBeInTheDocument();
     expect(screen.getByTestId("runtime-node-deliverables")).toHaveTextContent("Deliverables missing");
     expect(screen.getByTestId("runtime-node-deliverables")).toHaveTextContent("0/1 · 0 passed");
-    expect(screen.getByTestId("runtime-node-deliverables")).toHaveClass("col-span-full", "ring-border/55");
-    expect(screen.getByTestId("runtime-node-deliverables").className).not.toContain("border-t");
+    expect(screen.getByTestId("runtime-node-deliverables")).toHaveClass("col-span-full", "h-4");
+    expect(screen.getByTestId("runtime-node-deliverables").className).not.toContain("ring");
+    expect(screen.getByTestId("runtime-node-deliverables").className).not.toContain("border");
+    expect(screen.getByTestId("runtime-node-deliverables").className).not.toContain("bg-");
   });
 
   it("renders Bot icon for agent worker_type", () => {
@@ -301,7 +302,7 @@ describe("RuntimeNodeCard", () => {
     expect(screen.getByTestId("runtime-node-deliverables")).toHaveTextContent("Deliverables missing");
   });
 
-  it("uses the shared workflow canvas node shell with a quiet runtime-card surface", () => {
+  it("uses the shared workflow canvas node shell with the editor-card surface", () => {
     render(
       <RuntimeNodeCard
         node={baseNode}
@@ -316,20 +317,21 @@ describe("RuntimeNodeCard", () => {
     const card = screen.getByTestId("runtime-node-card-node-1");
     expect(card).toHaveAttribute("data-workflow-canvas-node-shell", "true");
     expect(card.className).not.toContain("min-w-[240px]");
-    expect(card).toHaveStyle({ width: "224px" });
+    expect(card).toHaveStyle({ width: "240px", height: "120px" });
     const surface = card.querySelector('[data-node-shape-surface="true"]');
-    expect(surface?.className).toContain("border-border/70");
     expect(surface?.className).toContain("bg-gradient-to-br");
-    expect(surface?.className).toContain("from-background");
-    expect(surface?.className).toContain("to-muted/45");
-    expect(surface?.className).toContain("ring-border/60");
-    expect(surface?.className).toContain("shadow-[0_10px_26px_rgba(15,23,42,0.10)]");
-    expect(surface?.className).not.toContain("border-white/80");
-    expect(surface?.className).not.toContain("ring-slate-200/70");
+    expect(surface?.className).toContain("border-white/80");
+    expect(surface?.className).toContain("from-white");
+    expect(surface?.className).toContain("to-slate-100/85");
+    expect(surface?.className).toContain("ring-slate-200/70");
+    expect(surface?.className).toContain("shadow-[0_14px_32px_rgba(15,23,42,0.12)]");
+    expect(surface?.className).not.toContain("border-border/70");
     expect(surface?.className).not.toContain("bg-background");
     expect(surface?.className).not.toContain("shadow-[0_1px_2px_rgba(15,23,42,0.06)]");
+    expect(screen.getByTestId("runtime-node-content")).toHaveClass("border-t", "border-border/45");
+    expect(screen.getByTestId("runtime-node-content").className).not.toContain("border-y");
     expect(screen.getByLabelText("Reviewing")).toBeInTheDocument();
-    expect(screen.getByTestId("runtime-node-deliverables")).toHaveClass("bg-background/65");
+    expect(screen.getByTestId("runtime-node-deliverables")).toHaveClass("text-muted-foreground");
   });
 
   it("lays out worker and critic as paired actor slots", () => {
@@ -360,15 +362,15 @@ describe("RuntimeNodeCard", () => {
           criticName="Reviewer"
           onClick={vi.fn()}
           handles={["left-target", "right-source", "bottom-source"]}
-          lateralHandleTop={WORKER_HEIGHT / 2}
+          lateralHandleTop={RUNTIME_NODE_HEIGHT / 2}
         />
       </ReactFlowProvider>,
     );
 
     const handles = [...document.querySelectorAll(".react-flow__handle")];
     expect(handles.map((handle) => handle.getAttribute("data-handleid")).sort()).toEqual(["bottom", "left", "right"]);
-    expect(document.querySelector('[data-handleid="left"]')).toHaveStyle({ top: `${WORKER_HEIGHT / 2}px` });
-    expect(document.querySelector('[data-handleid="right"]')).toHaveStyle({ top: `${WORKER_HEIGHT / 2}px` });
+    expect(document.querySelector('[data-handleid="left"]')).toHaveStyle({ top: `${RUNTIME_NODE_HEIGHT / 2}px` });
+    expect(document.querySelector('[data-handleid="right"]')).toHaveStyle({ top: `${RUNTIME_NODE_HEIGHT / 2}px` });
   });
 
   it("renders gateway nodes without actor artifact or action rows", () => {

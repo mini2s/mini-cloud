@@ -187,7 +187,7 @@ describe("CanvasStageLabels", () => {
     // At zoom=2, later stages should be further apart
     rerender(<CanvasStageLabels {...baseProps} viewportY={0} viewportZoom={2} />);
     const cards = screen.getAllByTestId("stage-label-card");
-    // Stage 0 at top=0, Stage 1 at top=LANE_STEP*2=352
+    // Stage 0 at top=0, Stage 1 at top=LANE_STEP*2.
     expect(cards[0]!.closest("[data-testid='stage-label-rail']")?.getAttribute("style")).toContain("top: 0px");
     expect(cards[1]!.closest("[data-testid='stage-label-rail']")?.getAttribute("style")).toContain("top: 352px");
   });

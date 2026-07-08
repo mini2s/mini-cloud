@@ -21,6 +21,8 @@ import {
 } from "../../../workflows/components/canvas/workflow-canvas-node-shell";
 import { WORKER_WIDTH } from "../../../workflows/components/overview/constants";
 
+export const RUNTIME_NODE_HEIGHT = 120;
+
 export type NodeRunActionType =
   | "approve"
   | "reject"
@@ -233,7 +235,7 @@ function ActionButtons({
     isActionLoading?.[action] ?? false;
 
   return (
-    <div className="flex items-center gap-1 border-t border-border/50 pt-1.5">
+    <div className="flex items-center gap-1 border-t border-border/45 pt-1.5">
       {buttons.map(({ action, label }) => (
         <ActionButton
           key={action}
@@ -265,18 +267,16 @@ function DeliverableSlot({
 
   return (
     <div
-      className="col-span-full flex min-w-0 items-center gap-2 rounded-md bg-background/65 px-2 py-1.5 ring-1 ring-border/55"
+      className="col-span-full flex h-4 min-w-0 items-center gap-1.5 text-[10px] leading-none text-muted-foreground"
       data-testid="runtime-node-deliverables"
     >
-      <span className="flex size-5 shrink-0 items-center justify-center rounded-full bg-muted/45">
-        <Icon className={cn("h-3 w-3", className)} />
-      </span>
-      <div className="min-w-0 flex-1">
-        <div className="truncate text-[11px] font-medium text-foreground/85">
+      <Icon className={cn("h-3 w-3 shrink-0", className)} />
+      <div className="min-w-0 flex-1 truncate">
+        <span className="font-medium text-foreground/75">
           {deliverableSignalText(t, signal)}
-        </div>
+        </span>
       </div>
-      <span className="shrink-0 text-[10px] tabular-nums text-muted-foreground">
+      <span className="shrink-0 tabular-nums">
         {deliverableProgressText(t, submitted, total, approved)}
       </span>
     </div>
@@ -293,12 +293,12 @@ function ActorSlot({
   name: string | null;
 }) {
   return (
-    <div className="min-w-0 space-y-1">
-      <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+    <div className="min-w-0 space-y-0.5">
+      <div className="text-[9px] font-semibold uppercase tracking-wide text-muted-foreground">
         {label}
       </div>
-      <div className="flex min-w-0 items-center gap-1.5 text-[12px]">
-        <span className="flex size-5 shrink-0 items-center justify-center rounded-full bg-muted/55 text-muted-foreground ring-1 ring-border/60">
+      <div className="flex min-w-0 items-center gap-1.5 text-[11px]">
+        <span className="flex size-4 shrink-0 items-center justify-center rounded-full bg-muted/55 text-muted-foreground ring-1 ring-border/60">
           <Icon className="h-3 w-3" />
         </span>
         <span
@@ -382,12 +382,11 @@ export function RuntimeNodeCard({
       nodeShape={nodeShape}
       selected={isSelected}
       width={WORKER_WIDTH}
-      minHeight={120}
+      height={RUNTIME_NODE_HEIGHT}
       title={node.title}
       onClick={() => onClick(node.id)}
-      className="min-h-[120px]"
-      surfaceClassName="border-border/70 bg-gradient-to-br from-background via-background to-muted/45 shadow-[0_10px_26px_rgba(15,23,42,0.10)] ring-border/60 group-hover:border-border group-hover:ring-primary/15 group-hover:shadow-[0_14px_30px_rgba(37,99,235,0.12)]"
-      contentClassName={cn("min-h-[104px] justify-between gap-2.5", workflowNodeInfoAreaClassName(nodeShape))}
+      className="h-[120px]"
+      contentClassName={cn("h-full justify-between gap-2", workflowNodeInfoAreaClassName(nodeShape))}
       handles={handles}
       lateralHandleTop={lateralHandleTop}
       elementRef={elementRef}
@@ -418,7 +417,7 @@ export function RuntimeNodeCard({
       </div>
 
       {isGateway ? (
-        <div className="border-y border-border/45 py-2">
+        <div className="border-t border-border/45 py-2" data-testid="runtime-node-content">
           <div className="flex min-w-0 items-center gap-2 text-[12px]">
             <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-muted/55 text-muted-foreground ring-1 ring-border/60">
               <GatewayIcon className="h-3.5 w-3.5" />
@@ -435,8 +434,9 @@ export function RuntimeNodeCard({
         </div>
       ) : (
         <div
+          data-testid="runtime-node-content"
           className={cn(
-            "grid gap-3 border-y border-border/45 py-2",
+            "grid gap-1.5 border-t border-border/45 py-1.5",
             hasCritic ? "grid-cols-2" : "grid-cols-1",
           )}
         >

@@ -110,8 +110,8 @@ export const CompactWorkerNode = memo(function CompactWorkerNode({
       title={description ? `${displayName}\n${description}` : displayName}
       onDoubleClick={openNode}
       onKeyDown={handleKeyDown}
-      className="h-20 w-56"
-      contentClassName={cn("h-full justify-between gap-2", workflowNodeInfoAreaClassName(nodeShape))}
+      className="h-[104px] w-[240px]"
+      contentClassName={cn("h-full justify-between gap-2.5", workflowNodeInfoAreaClassName(nodeShape))}
       handleColorClassName={handleColorClass}
       handles={["left-target", "right-source", "bottom-source"]}
       lateralHandleTop={WORKER_HEIGHT / 2}
@@ -135,7 +135,7 @@ export const CompactWorkerNode = memo(function CompactWorkerNode({
             </span>
             <span
               data-testid={`compact-worker-node-badge-${id}`}
-              className="shrink-0 rounded-full border border-slate-200/80 bg-white/75 px-1.5 py-0.5 font-mono text-[9px] font-semibold uppercase leading-none text-slate-500 shadow-[inset_0_1px_0_rgba(255,255,255,0.8)]"
+              className="shrink-0 rounded-full border border-border/55 bg-background/70 px-1.5 py-0.5 font-mono text-[9px] font-semibold uppercase leading-none text-muted-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.75)]"
             >
               {badgeLabel}
             </span>
@@ -146,15 +146,15 @@ export const CompactWorkerNode = memo(function CompactWorkerNode({
         </span>
         <div
           data-testid={`compact-worker-node-meta-${id}`}
-          className="flex min-w-0 items-center gap-1.5 border-t border-slate-200/55 pt-1.5 text-[10px] leading-4 text-muted-foreground"
+          className="flex min-w-0 items-center gap-1.5 border-t border-border/45 pt-2 text-[10px] leading-4 text-muted-foreground"
         >
           <span className="inline-block size-1.5 shrink-0 rounded-full bg-[var(--success)] shadow-[0_0_0_3px_rgba(34,197,94,0.12)]" />
-          <span className="truncate font-medium text-slate-700">{metadataLabel}</span>
+          <span className="truncate font-medium text-foreground/80">{metadataLabel}</span>
           {workerConfigured ? (
-            <span className="shrink-0 text-slate-400">Configured</span>
+            <span className="shrink-0 text-muted-foreground/75">Configured</span>
           ) : null}
           {isAnnotation ? (
-            <FileText className="size-3 shrink-0 text-slate-400" strokeWidth={1.8} />
+            <FileText className="size-3 shrink-0 text-muted-foreground/75" strokeWidth={1.8} />
           ) : isGateway ? (
             <GatewayIcon kind={nodeFormat.gateway_kind} />
           ) : workerLabel ? (

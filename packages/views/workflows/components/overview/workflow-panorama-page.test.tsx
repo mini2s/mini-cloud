@@ -1274,7 +1274,7 @@ describe("WorkflowPanoramaPage (new)", () => {
     // Nodes must carry explicit width/height so MiniMap can render them
     // before the ResizeObserver fires (nodeHasDimensions check in @xyflow/system)
     const worker = mocks.reactFlowProps?.nodes.find((n) => n.id === "node-1");
-    expect(worker).toMatchObject({ width: 224, height: 80 });
+    expect(worker).toMatchObject({ width: 240, height: 104 });
     expect(mocks.reactFlowProps?.nodes.some((n) => n.type === "laneBg" || n.type === "gradientBg")).toBe(false);
   });
 

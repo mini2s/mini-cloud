@@ -43,6 +43,7 @@ import {
 import { ExecutionDetailPanel } from "./execution-detail-panel";
 import { GlobalNotificationBar } from "./global-notification-bar";
 import { runtimeCanvasNodeTypes } from "./runtime-canvas-node";
+import { RUNTIME_NODE_HEIGHT } from "./runtime-node-card";
 import { Loader2 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -124,7 +125,7 @@ function ExecutionPanoramaCanvas({
     if (!node) return;
 
     const width = typeof node.width === "number" ? node.width : WORKER_WIDTH;
-    const height = typeof node.height === "number" ? node.height : WORKER_HEIGHT;
+    const height = typeof node.height === "number" ? node.height : RUNTIME_NODE_HEIGHT;
     const currentViewport = getViewport();
 
     setSelectedNodeId(nodeId);
@@ -310,7 +311,7 @@ export function ExecutionPanoramaPage({
     nodes: allNodes,
     stages: sortStagesForDisplay(allStages),
     nodeType: "runtimeNode",
-    nodeHeight: Math.max(WORKER_HEIGHT, 120),
+    nodeHeight: RUNTIME_NODE_HEIGHT,
     includeCriticBadges: false,
     makeNodeData: (node) => ({
       node,

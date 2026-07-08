@@ -8,8 +8,7 @@ import type {
   WorkflowNodeRuntimeSummary,
 } from "@multica/core/types";
 import { CriticBadgeNode } from "../../../workflows/components/overview/reactflow-nodes";
-import { WORKER_HEIGHT } from "../../../workflows/components/overview/constants";
-import { RuntimeNodeCard } from "./runtime-node-card";
+import { RuntimeNodeCard, RUNTIME_NODE_HEIGHT } from "./runtime-node-card";
 
 export interface RuntimeCanvasNodeData extends Record<string, unknown> {
   node: WorkflowNode;
@@ -36,7 +35,7 @@ export const RuntimeCanvasNode = memo(function RuntimeCanvasNode({
         onClick={nodeData.onOpen}
         runtimeSummary={nodeData.runtimeSummary}
         handles={["left-target", "right-source", "bottom-source"]}
-        lateralHandleTop={WORKER_HEIGHT / 2}
+        lateralHandleTop={RUNTIME_NODE_HEIGHT / 2}
       />
     </div>
   );
