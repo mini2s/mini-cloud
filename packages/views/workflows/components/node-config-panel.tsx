@@ -169,11 +169,13 @@ function ActorSummary({
   id,
   label,
   emptyText,
+  hint,
 }: {
   type: string;
   id: string | null;
   label?: string | null;
   emptyText: string;
+  hint: string;
 }) {
   const Icon = type === "agent" ? Bot : type === "squad" ? Users : type === "role" ? ShieldCheck : User;
   return (
@@ -184,31 +186,34 @@ function ActorSummary({
       <div className="min-w-0">
         <p className="truncate text-xs font-medium">{id ? (label ?? `${type}: ${id}`) : emptyText}</p>
         <p className="truncate text-[11px] text-muted-foreground">
-          {type === "role" ? "Resolved when the workflow runs" : "Pick a concrete assignee for predictable execution"}
+          {hint}
         </p>
       </div>
     </div>
   );
 }
 
-function pickerTriggerLabel(type: string, id: string | null, emptyPrefix: string, label?: string | null): string {
+function pickerTriggerLabel(type: string, id: string | null, emptyPrefix: string, t: ReturnType<typeof useT<"workflows">>["t"], label?: string | null): string {
   if (id) return label ?? `${type}: ${id}`;
-  if (type === "human") return `${emptyPrefix} Human`;
-  if (type === "agent") return `${emptyPrefix} Agent`;
-  if (type === "squad") return `${emptyPrefix} Squad`;
-  return emptyPrefix;
+  const typeLabels: Record<string, () => string> = {
+    human: () => t(($) => $.node.worker_type_human),
+    agent: () => t(($) => $.node.worker_type_agent),
+    squad: () => t(($) => $.node.worker_type_squad),
+  };
+  const typeLabel = typeLabels[type]?.() ?? type;
+  return `${emptyPrefix} ${typeLabel}`;
 }
 
-function gatewayLabel(kind: "fork" | "join" | null): string {
-  if (kind === "join") return "Join gateway";
-  if (kind === "fork") return "Fork gateway";
-  return "Gateway";
+function gatewayLabel(kind: "fork" | "join" | null, t: ReturnType<typeof useT<"workflows">>["t"]): string {
+  if (kind === "join") return t(($) => $.detail_panel.gateway_label_join);
+  if (kind === "fork") return t(($) => $.detail_panel.gateway_label_fork);
+  return t(($) => $.detail_panel.gateway_label_default);
 }
 
-function gatewayDescription(kind: "fork" | "join" | null): string {
-  if (kind === "join") return "Waits for all upstream nodes to finish, then automatically completes and continues downstream.";
-  if (kind === "fork") return "Automatically completes and fans out to all downstream nodes.";
-  return "Gateway kind is invalid. Choose Fork or Join before publishing.";
+function gatewayDescription(kind: "fork" | "join" | null, t: ReturnType<typeof useT<"workflows">>["t"]): string {
+  if (kind === "join") return t(($) => $.detail_panel.gateway_desc_join);
+  if (kind === "fork") return t(($) => $.detail_panel.gateway_desc_fork);
+  return t(($) => $.detail_panel.gateway_desc_invalid);
 }
 
 function AssigneePickerTrigger({
@@ -216,18 +221,20 @@ function AssigneePickerTrigger({
   id,
   label,
   emptyPrefix,
+  t,
 }: {
   type: string;
   id: string | null;
   label?: string | null;
   emptyPrefix: string;
+  t: ReturnType<typeof useT<"workflows">>["t"];
 }) {
   const Icon = type === "agent" ? Bot : type === "squad" ? Users : User;
   return (
     <>
       <Icon className="size-3.5 text-muted-foreground" />
       <span className="min-w-0 flex-1 truncate text-left">
-        {pickerTriggerLabel(type, id, emptyPrefix, label)}
+        {pickerTriggerLabel(type, id, emptyPrefix, t, label)}
       </span>
     </>
   );
@@ -384,8 +391,8 @@ export function NodeConfigPanel({
     <WorkflowNodeDetailPanelShell
       mode="edit"
       title={title || t(($) => $.node.title)}
-      eyebrow="Node inspector"
-      closeLabel="Close node inspector"
+      eyebrow={t(($) => $.detail_panel.eyebrow)}
+      closeLabel={t(($) => $.detail_panel.close_label)}
       onClose={onClose}
       badges={(
         <>
@@ -393,10 +400,10 @@ export function NodeConfigPanel({
           {recentNodeRun ? (
             <StatusBadge tone={runTone}>
               <Activity className="size-3" />
-              Latest run: {recentNodeRun.status}
+              {t(($) => $.detail_panel.badge_latest_run, { status: recentNodeRun.status })}
             </StatusBadge>
           ) : (
-            <StatusBadge>No run data</StatusBadge>
+            <StatusBadge>{t(($) => $.detail_panel.badge_no_run_data)}</StatusBadge>
           )}
         </>
       )}
@@ -404,8 +411,8 @@ export function NodeConfigPanel({
       <NodeDetailSection
         sectionId="primary"
         icon={<GitBranch className="size-4" />}
-        title="Primary"
-        subtitle="Definition fields and ownership for this workflow node."
+        title={t(($) => $.detail_panel.section_primary)}
+        subtitle={t(($) => $.detail_panel.section_primary_desc)}
       >
         <div className="space-y-3">
               <div className="space-y-1.5">
@@ -538,14 +545,14 @@ export function NodeConfigPanel({
             {isAnnotation ? (
               <InspectorSection
                 icon={<Braces className="size-4" />}
-                title="Annotation binding"
-                subtitle="Attach this note to a workflow node."
+                title={t(($) => $.detail_panel.section_annotation_binding)}
+                subtitle={t(($) => $.detail_panel.section_annotation_binding_desc)}
               >
-                <Label className="text-xs text-muted-foreground">Bind to Node</Label>
+                <Label className="text-xs text-muted-foreground">{t(($) => $.detail_panel.label_bind_to_node)}</Label>
                 {targetNodeId ? (
                   <div className="flex items-center gap-1.5 rounded-md border px-2 py-1.5">
                     <span className="min-w-0 flex-1 truncate text-sm">
-                      {bindableNodes.find((bn) => bn.id === targetNodeId)?.title ?? "Unknown node"}
+                      {bindableNodes.find((bn) => bn.id === targetNodeId)?.title ?? t(($) => $.detail_panel.empty_unknown_node)}
                     </span>
                     <Button
                       variant="ghost"
@@ -580,7 +587,7 @@ export function NodeConfigPanel({
                       cacheNodeEdits(node.id, { format_schema: obj });
                     }}
                   >
-                    <option value="">Select a node...</option>
+                    <option value="">{t(($) => $.detail_panel.select_node)}</option>
                     {bindableNodes.map((bn) => (
                       <option key={bn.id} value={bn.id}>{bn.title}</option>
                     ))}
@@ -592,11 +599,11 @@ export function NodeConfigPanel({
             {isGateway ? (
               <InspectorSection
                 icon={<GitBranch className="size-4" />}
-                title={gatewayLabel(nodeFormat.gateway_kind)}
-                subtitle="Gateway nodes control DAG flow and do not run worker or critic tasks."
-                status={<StatusBadge tone={nodeFormat.gateway_kind_valid ? "success" : "danger"}>{nodeFormat.gateway_kind_valid ? "Valid" : "Invalid"}</StatusBadge>}
+                title={gatewayLabel(nodeFormat.gateway_kind, t)}
+                subtitle={t(($) => $.detail_panel.gateway_subtitle)}
+                status={<StatusBadge tone={nodeFormat.gateway_kind_valid ? "success" : "danger"}>{nodeFormat.gateway_kind_valid ? t(($) => $.detail_panel.badge_valid) : t(($) => $.detail_panel.badge_invalid)}</StatusBadge>}
               >
-                <p className="text-sm text-muted-foreground">{gatewayDescription(nodeFormat.gateway_kind)}</p>
+                <p className="text-sm text-muted-foreground">{gatewayDescription(nodeFormat.gateway_kind, t)}</p>
               </InspectorSection>
             ) : null}
 
@@ -605,8 +612,8 @@ export function NodeConfigPanel({
                 <AssignmentCard
                   icon={<Bot className="size-4" />}
                   title={t(($) => $.node.section_worker)}
-                  subtitle="Who performs this workflow step."
-                  status={workerConfigured ? <StatusBadge tone="success">Configured</StatusBadge> : <StatusBadge tone="warning">Needs assignee</StatusBadge>}
+                  subtitle={t(($) => $.detail_panel.worker_subtitle)}
+                  status={workerConfigured ? <StatusBadge tone="success">{t(($) => $.detail_panel.badge_configured)}</StatusBadge> : <StatusBadge tone="warning">{t(($) => $.detail_panel.badge_needs_assignee)}</StatusBadge>}
                 >
                   <TypeSegmentedControl<WorkerType>
                     label="Worker"
@@ -616,7 +623,7 @@ export function NodeConfigPanel({
                       { value: "human", label: t(($) => $.node.worker_type_human) },
                       { value: "agent", label: t(($) => $.node.worker_type_agent) },
                       { value: "squad", label: t(($) => $.node.worker_type_squad) },
-                      { value: "role", label: "Role" },
+                      { value: "role", label: t(($) => $.node.worker_type_role) },
                     ]}
                     onChange={(wt) => {
                       setWorkerType(wt);
@@ -627,7 +634,7 @@ export function NodeConfigPanel({
 
                   {workerType === "role" ? (
                     <div className="space-y-1.5">
-                      <Label className="text-xs text-muted-foreground" htmlFor="worker-role-select">Worker role</Label>
+                      <Label className="text-xs text-muted-foreground" htmlFor="worker-role-select">{t(($) => $.detail_panel.label_worker_role)}</Label>
                       <select
                         id="worker-role-select"
                         aria-label="Worker role"
@@ -640,12 +647,12 @@ export function NodeConfigPanel({
                           cacheNodeEdits(node.id, { worker_id: rid });
                         }}
                       >
-                        <option value="">Select a role...</option>
+                        <option value="">{t(($) => $.detail_panel.select_role)}</option>
                         {roles.map((r) => (
                           <option key={r.id} value={r.id}>{r.name}</option>
                         ))}
                       </select>
-                      <ActorSummary type="role" id={workerId} label={workerLabel} emptyText="No worker role selected" />
+                      <ActorSummary type="role" id={workerId} label={workerLabel} emptyText={t(($) => $.detail_panel.empty_worker_role)} hint={t(($) => $.detail_panel.actor_role_hint)} />
                     </div>
                   ) : (
                     <div className="space-y-2">
@@ -667,7 +674,8 @@ export function NodeConfigPanel({
                               type={workerType}
                               id={workerId}
                               label={workerLabel}
-                              emptyPrefix="Select existing"
+                              emptyPrefix={t(($) => $.detail_panel.picker_empty_prefix)}
+                              t={t}
                             />
                           }
                           onUpdate={disabled ? () => {} : (u) => {
@@ -681,22 +689,22 @@ export function NodeConfigPanel({
                           skipBuiltinRuntimeSelection
                         />
                       </div>
-                      <ActorSummary type={workerType} id={workerId} label={workerLabel} emptyText="No worker selected" />
+                      <ActorSummary type={workerType} id={workerId} label={workerLabel} emptyText={t(($) => $.detail_panel.empty_worker)} hint={t(($) => $.detail_panel.actor_assignee_hint)} />
                     </div>
                   )}
                 </AssignmentCard>
 
                 <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2 px-1 text-[11px] font-medium text-muted-foreground">
                   <span className="h-px bg-border" />
-                  <span>Worker output moves to Critic review</span>
+                  <span>{t(($) => $.detail_panel.worker_critic_divider)}</span>
                   <span className="h-px bg-border" />
                 </div>
 
                 <AssignmentCard
                   icon={<ShieldCheck className="size-4" />}
                   title={t(($) => $.node.section_critic)}
-                  subtitle="Who reviews or validates the worker output."
-                  status={criticConfigured ? <StatusBadge tone="success">Configured</StatusBadge> : <StatusBadge>Optional</StatusBadge>}
+                  subtitle={t(($) => $.detail_panel.critic_subtitle)}
+                  status={criticConfigured ? <StatusBadge tone="success">{t(($) => $.detail_panel.badge_configured)}</StatusBadge> : <StatusBadge>{t(($) => $.detail_panel.badge_optional)}</StatusBadge>}
                 >
                   <TypeSegmentedControl<CriticType>
                     label="Critic"
@@ -706,7 +714,7 @@ export function NodeConfigPanel({
                       { value: "human", label: t(($) => $.node.critic_type_human) },
                       { value: "agent", label: t(($) => $.node.critic_type_agent) },
                       { value: "squad", label: t(($) => $.node.critic_type_squad) },
-                      { value: "role", label: "Role" },
+                      { value: "role", label: t(($) => $.node.critic_type_role) },
                       { value: "api", label: t(($) => $.node.critic_type_api) },
                     ]}
                     onChange={(ct) => {
@@ -735,7 +743,7 @@ export function NodeConfigPanel({
                     </div>
                   ) : criticType === "role" ? (
                     <div className="space-y-1.5">
-                      <Label className="text-xs text-muted-foreground" htmlFor="critic-role-select">Critic role</Label>
+                      <Label className="text-xs text-muted-foreground" htmlFor="critic-role-select">{t(($) => $.detail_panel.label_critic_role)}</Label>
                       <select
                         id="critic-role-select"
                         aria-label="Critic role"
@@ -748,12 +756,12 @@ export function NodeConfigPanel({
                           cacheNodeEdits(node.id, { critic_id: rid });
                         }}
                       >
-                        <option value="">Select a role...</option>
+                        <option value="">{t(($) => $.detail_panel.select_role)}</option>
                         {roles.map((r) => (
                           <option key={r.id} value={r.id}>{r.name}</option>
                         ))}
                       </select>
-                      <ActorSummary type="role" id={criticId} label={criticLabel} emptyText="No critic role selected" />
+                      <ActorSummary type="role" id={criticId} label={criticLabel} emptyText={t(($) => $.detail_panel.empty_critic_role)} hint={t(($) => $.detail_panel.actor_role_hint)} />
                     </div>
                   ) : (
                     <div className="space-y-2">
@@ -775,7 +783,8 @@ export function NodeConfigPanel({
                               type={criticType}
                               id={criticId}
                               label={criticLabel}
-                              emptyPrefix="Select existing"
+                              emptyPrefix={t(($) => $.detail_panel.picker_empty_prefix)}
+                              t={t}
                             />
                           }
                           onUpdate={disabled ? () => {} : (u) => {
@@ -788,7 +797,7 @@ export function NodeConfigPanel({
                           align="start"
                         />
                       </div>
-                      <ActorSummary type={criticType} id={criticId} label={criticLabel} emptyText="No critic selected" />
+                      <ActorSummary type={criticType} id={criticId} label={criticLabel} emptyText={t(($) => $.detail_panel.empty_critic)} hint={t(($) => $.detail_panel.actor_assignee_hint)} />
                     </div>
                   )}
                 </AssignmentCard>
@@ -802,8 +811,8 @@ export function NodeConfigPanel({
       <NodeDetailSection
         sectionId="deliverables"
         icon={<FileCheck2 className="size-4" />}
-        title="Deliverables"
-        subtitle="Required documents or pull requests for this node."
+        title={t(($) => $.detail_panel.section_deliverables)}
+        subtitle={t(($) => $.detail_panel.section_deliverables_desc)}
       >
         {!isAnnotation && !isGateway ? (
           <NodeDeliverablesEditor
@@ -813,7 +822,7 @@ export function NodeConfigPanel({
           />
         ) : (
           <p className="text-sm text-muted-foreground">
-            {isGateway ? "Gateway nodes do not define deliverables." : "Annotation nodes do not define deliverables."}
+            {isGateway ? t(($) => $.detail_panel.deliverables_not_applicable_gateway) : t(($) => $.detail_panel.deliverables_not_applicable_annotation)}
           </p>
         )}
       </NodeDetailSection>
@@ -821,18 +830,18 @@ export function NodeConfigPanel({
       <NodeDetailSection
         sectionId="runtime"
         icon={<Activity className="size-4" />}
-        title="Runtime"
-        subtitle="Latest run context for this node."
-        status={recentNodeRun ? <StatusBadge tone={runTone}>{recentNodeRun.status}</StatusBadge> : <StatusBadge>No run</StatusBadge>}
+        title={t(($) => $.detail_panel.section_runtime)}
+        subtitle={t(($) => $.detail_panel.section_runtime_desc)}
+        status={recentNodeRun ? <StatusBadge tone={runTone}>{recentNodeRun.status}</StatusBadge> : <StatusBadge>{t(($) => $.detail_panel.badge_no_run)}</StatusBadge>}
       >
         {recentNodeRun ? (
           <div className="space-y-2">
             <div className={`flex items-start gap-2 rounded-lg border p-3 ${statusClasses(runTone)}`}>
               {runTone === "danger" ? <AlertTriangle className="mt-0.5 size-4" /> : <CheckCircle2 className="mt-0.5 size-4" />}
               <div className="min-w-0">
-                    <p className="text-sm font-medium">Status: {recentNodeRun.status}</p>
+                    <p className="text-sm font-medium">{t(($) => $.detail_panel.runtime_status_label, { status: recentNodeRun.status })}</p>
                 <p className="mt-1 text-[11px] leading-snug opacity-80">
-                  Worker output, critic output and comments remain available in this runtime section.
+                  {t(($) => $.detail_panel.runtime_hint)}
                 </p>
               </div>
             </div>
@@ -840,7 +849,7 @@ export function NodeConfigPanel({
           </div>
         ) : (
           <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
-            No run data for this node yet.
+            {t(($) => $.detail_panel.runtime_no_data)}
           </div>
         )}
       </NodeDetailSection>
@@ -848,14 +857,14 @@ export function NodeConfigPanel({
       <NodeDetailSection
         sectionId="connections"
         icon={<GitBranch className="size-4" />}
-        title="Connections"
-        subtitle="Canvas topology stays visible in the editor while details focus on the selected node."
+        title={t(($) => $.detail_panel.section_connections)}
+        subtitle={t(($) => $.detail_panel.section_connections_desc)}
       >
         <div className="space-y-2 text-sm text-muted-foreground">
-          <p>Stage: {currentStageName}</p>
-          {isGateway ? <p>Gateway edge counts and topology are shown on the canvas.</p> : null}
+          <p>{t(($) => $.detail_panel.connections_stage, { stage: currentStageName })}</p>
+          {isGateway ? <p>{t(($) => $.detail_panel.connections_gateway_hint)}</p> : null}
           {isAnnotation && targetNodeId ? (
-            <p>Bound to: {bindableNodes.find((bn) => bn.id === targetNodeId)?.title ?? "Unknown node"}</p>
+            <p>{t(($) => $.detail_panel.connections_bound_to, { node: bindableNodes.find((bn) => bn.id === targetNodeId)?.title ?? t(($) => $.detail_panel.empty_unknown_node) })}</p>
           ) : null}
         </div>
       </NodeDetailSection>
@@ -863,8 +872,8 @@ export function NodeConfigPanel({
       <NodeDetailSection
         sectionId="actions"
         icon={<Trash2 className="size-4" />}
-        title="Actions"
-        subtitle="Definition-level operations for this node."
+        title={t(($) => $.detail_panel.section_actions)}
+        subtitle={t(($) => $.detail_panel.section_actions_desc)}
       >
         {!disabled ? (
           <div className="space-y-2">
@@ -877,7 +886,7 @@ export function NodeConfigPanel({
                 disabled={!hasLocalEdits}
               >
                 <Save className="mr-1.5 h-3.5 w-3.5" />
-                Save changes
+                {t(($) => $.detail_panel.save_changes)}
               </Button>
             ) : null}
             <Button
@@ -898,7 +907,7 @@ export function NodeConfigPanel({
             </Button>
           </div>
         ) : (
-          <p className="text-sm text-muted-foreground">Node actions are disabled in this context.</p>
+          <p className="text-sm text-muted-foreground">{t(($) => $.detail_panel.actions_disabled)}</p>
         )}
       </NodeDetailSection>
     </WorkflowNodeDetailPanelShell>

@@ -1,12 +1,13 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Button } from "@multica/ui/components/ui/button";
 import { Input } from "@multica/ui/components/ui/input";
 import { Label } from "@multica/ui/components/ui/label";
 import { Switch } from "@multica/ui/components/ui/switch";
 import { Plus, Trash2, FileText, GitPullRequest } from "lucide-react";
+import { useT } from "../../i18n";
 import { useWorkspaceId } from "@multica/core/hooks";
 import {
   workflowNodeDeliverablesOptions,
@@ -16,21 +17,27 @@ import {
 } from "@multica/core/workflows/queries";
 import type { WorkflowNodeDeliverable, WorkflowDeliverableKind } from "@multica/core/types";
 
-const KIND_OPTIONS: { value: WorkflowDeliverableKind; icon: typeof FileText; label: string }[] = [
-  { value: "document", icon: FileText, label: "Document" },
-  { value: "pull_request", icon: GitPullRequest, label: "Pull Request" },
-];
+function getKindOptions(t: ReturnType<typeof useT<"workflows">>["t"]) {
+  return [
+    { value: "document" as WorkflowDeliverableKind, icon: FileText, label: t(($) => $.detail_panel.deliverable_kind_document) },
+    { value: "pull_request" as WorkflowDeliverableKind, icon: GitPullRequest, label: t(($) => $.detail_panel.deliverable_kind_pull_request) },
+  ];
+}
 
 function DeliverableRow({
   workflowId,
   nodeId,
   deliverable,
   disabled,
+  kindOptions,
+  t,
 }: {
   workflowId: string;
   nodeId: string;
   deliverable: WorkflowNodeDeliverable;
   disabled?: boolean;
+  kindOptions: { value: WorkflowDeliverableKind; icon: typeof FileText; label: string }[];
+  t: ReturnType<typeof useT<"workflows">>["t"];
 }) {
   const wsId = useWorkspaceId();
   const updateMutation = useUpdateWorkflowNodeDeliverable(wsId, workflowId, nodeId);
@@ -38,7 +45,7 @@ function DeliverableRow({
   const [draftTitle, setDraftTitle] = useState(deliverable.title);
   const composingRef = useRef(false);
 
-  const kindOption = KIND_OPTIONS.find((k) => k.value === deliverable.kind) ?? KIND_OPTIONS[0]!;
+  const kindOption = kindOptions.find((k) => k.value === deliverable.kind) ?? kindOptions[0]!;
   const KindIcon = kindOption.icon;
 
   useEffect(() => {
@@ -52,7 +59,7 @@ function DeliverableRow({
 
   const cycleKind = () => {
     if (disabled) return;
-    const next = KIND_OPTIONS.find((k) => k.value !== deliverable.kind) ?? KIND_OPTIONS[0]!;
+    const next = kindOptions.find((k) => k.value !== deliverable.kind) ?? kindOptions[0]!;
     updateMutation.mutate({ deliverableId: deliverable.id, kind: next.value });
   };
 
@@ -86,7 +93,7 @@ function DeliverableRow({
         }}
         onBlur={(e) => saveTitle(e.currentTarget.value)}
         className="h-7 min-w-0 flex-1 text-xs"
-        placeholder="Deliverable title"
+        placeholder={t(($) => $.detail_panel.deliverable_title_placeholder)}
       />
       <div className="flex items-center gap-1 shrink-0">
         <Switch
@@ -97,7 +104,7 @@ function DeliverableRow({
           }
           className="scale-75"
         />
-        <span className="text-[10px] text-muted-foreground">Required</span>
+        <span className="text-[10px] text-muted-foreground">{t(($) => $.detail_panel.deliverable_required)}</span>
       </div>
       <Button
         type="button"
@@ -123,6 +130,8 @@ export function NodeDeliverablesEditor({
   disabled?: boolean;
 }) {
   const wsId = useWorkspaceId();
+  const { t } = useT("workflows");
+  const kindOptions = useMemo(() => getKindOptions(t), [t]);
   const { data: deliverables = [] } = useQuery(
     workflowNodeDeliverablesOptions(wsId, workflowId, nodeId),
   );
@@ -130,10 +139,10 @@ export function NodeDeliverablesEditor({
 
   return (
     <div className="space-y-2">
-      <Label className="text-sm">Deliverables</Label>
+      <Label className="text-sm">{t(($) => $.detail_panel.deliverable_section_label)}</Label>
       {deliverables.length === 0 && (
         <p className="text-[11px] text-muted-foreground">
-          No deliverables defined. Add required documents or pull requests that must be submitted for this node.
+          {t(($) => $.detail_panel.deliverable_empty)}
         </p>
       )}
       {deliverables.map((d) => (
@@ -143,6 +152,8 @@ export function NodeDeliverablesEditor({
           nodeId={nodeId}
           deliverable={d}
           disabled={disabled}
+          kindOptions={kindOptions}
+          t={t}
         />
       ))}
       <Button
@@ -162,7 +173,7 @@ export function NodeDeliverablesEditor({
         className="h-7 w-full text-xs"
       >
         <Plus className="h-3 w-3 mr-1" />
-        Add deliverable
+        {t(($) => $.detail_panel.deliverable_add)}
       </Button>
     </div>
   );

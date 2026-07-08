@@ -38,6 +38,25 @@ vi.mock("@multica/core/workflows/queries", () => ({
   useDeleteWorkflowNodeDeliverable: () => ({ mutate: mocks.deleteDeliverableMutate, isPending: false }),
 }));
 
+vi.mock("../../i18n", () => {
+  const translations = {
+    detail_panel: {
+      deliverable_kind_document: "Document",
+      deliverable_kind_pull_request: "Pull Request",
+      deliverable_title_placeholder: "Deliverable title",
+      deliverable_required: "Required",
+      deliverable_section_label: "Deliverables",
+      deliverable_empty: "No deliverables defined. Add required documents or pull requests that must be submitted for this node.",
+      deliverable_add: "Add deliverable",
+    },
+  };
+  return {
+    useT: () => ({
+      t: (selector: (value: typeof translations) => string) => selector(translations),
+    }),
+  };
+});
+
 describe("NodeDeliverablesEditor", () => {
   beforeEach(() => {
     mocks.updateDeliverableMutate.mockReset();
