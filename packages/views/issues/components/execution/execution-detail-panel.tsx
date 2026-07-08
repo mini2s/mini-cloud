@@ -22,6 +22,7 @@ import {
 import {
   parseNodeFormat,
   toWorkflowRuntimeDisplayStatus,
+  type NodeRunStatus,
   type WorkflowNode,
   type WorkflowNodeRun,
   type WorkflowNodeRuntimeSummary,
@@ -76,6 +77,62 @@ function deliverableSignalTone(signal: WorkflowNodeRuntimeSummary["deliverable_s
   return "border-border bg-muted/30 text-muted-foreground";
 }
 
+type StatusPathStepTone = "muted" | "current" | "complete" | "blocked" | "rework" | "cancelled";
+type StatusPathStep = "format" | "worker" | "critic";
+type StatusPathTones = Record<StatusPathStep, StatusPathStepTone>;
+
+function statusPathStepClassName(tone: StatusPathStepTone): string {
+  switch (tone) {
+    case "current":
+      return "bg-blue-50 text-blue-700";
+    case "complete":
+      return "bg-green-50 text-green-700";
+    case "blocked":
+      return "bg-red-50 text-red-700";
+    case "rework":
+      return "bg-amber-50 text-amber-700";
+    case "cancelled":
+      return "bg-muted/50 text-muted-foreground";
+    case "muted":
+      return "bg-muted/50";
+  }
+}
+
+function getStatusPathTones(status: NodeRunStatus): StatusPathTones {
+  const muted: StatusPathTones = { format: "muted", worker: "muted", critic: "muted" };
+
+  switch (status) {
+    case "pending":
+      return muted;
+    case "format_checking":
+      return { ...muted, format: "current" };
+    case "format_ok":
+      return { ...muted, format: "complete" };
+    case "worker_assigned":
+    case "working":
+    case "awaiting_input":
+      return { ...muted, format: "complete", worker: "current" };
+    case "awaiting_critic":
+    case "critic_reviewing":
+      return { format: "complete", worker: "complete", critic: "current" };
+    case "critic_approved":
+    case "completed":
+      return { format: "complete", worker: "complete", critic: "complete" };
+    case "format_failed":
+      return { ...muted, format: "blocked" };
+    case "failed":
+    case "blocked":
+      return { ...muted, format: "complete", worker: "blocked" };
+    case "critic_rework":
+      return { format: "complete", worker: "complete", critic: "rework" };
+    case "skipped":
+    case "cancelled":
+      return { format: "cancelled", worker: "cancelled", critic: "cancelled" };
+    default:
+      return muted;
+  }
+}
+
 type IssueTranslator = ReturnType<typeof useT<"issues">>["t"];
 
 function runtimeDisplayStatusText(
@@ -120,6 +177,23 @@ function deliverableSignalText(
   return t(($) => $.execution.detail_panel.deliverable_status_none);
 }
 
+function formatDurationLabel(totalSeconds: number): string {
+  if (totalSeconds < 60) return `${totalSeconds}s`;
+
+  const days = Math.floor(totalSeconds / 86400);
+  const hours = Math.floor((totalSeconds % 86400) / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+
+  if (days > 0) {
+    return hours > 0 ? `${days}d ${hours}h` : `${days}d`;
+  }
+  if (hours > 0) {
+    return minutes > 0 ? `${hours}h ${minutes}m` : `${hours}h`;
+  }
+  return seconds > 0 ? `${minutes}m ${seconds}s` : `${minutes}m`;
+}
+
 function deliverableProgressText(
   t: IssueTranslator,
   submitted: number,
@@ -162,6 +236,7 @@ export function ExecutionDetailPanel({
   }, [onClose]);
 
   const status = nodeRun?.status;
+  const statusPathTones = status ? getStatusPathTones(status) : null;
   const duration =
     nodeRun?.started_at && nodeRun?.completed_at
       ? Math.round(
@@ -173,10 +248,7 @@ export function ExecutionDetailPanel({
 
   const durationLabel = useMemo(() => {
     if (duration == null) return null;
-    if (duration < 60) return `${duration}s`;
-    const minutes = Math.floor(duration / 60);
-    const seconds = duration % 60;
-    return seconds > 0 ? `${minutes}m ${seconds}s` : `${minutes}m`;
+    return formatDurationLabel(duration);
   }, [duration]);
 
   const errorMessage = useMemo(() => {
@@ -269,9 +341,7 @@ export function ExecutionDetailPanel({
               <span
                 className={cn(
                   "rounded px-2 py-0.5",
-                  status === "format_checking" || status === "format_ok"
-                    ? "bg-blue-50 text-blue-700"
-                    : "bg-muted/50",
+                  statusPathStepClassName(statusPathTones?.format ?? "muted"),
                 )}
               >
                 Format
@@ -280,7 +350,7 @@ export function ExecutionDetailPanel({
               <span
                 className={cn(
                   "rounded px-2 py-0.5",
-                  status === "working" ? "bg-blue-50 text-blue-700" : "bg-muted/50",
+                  statusPathStepClassName(statusPathTones?.worker ?? "muted"),
                 )}
               >
                 Worker
@@ -289,9 +359,7 @@ export function ExecutionDetailPanel({
               <span
                 className={cn(
                   "rounded px-2 py-0.5",
-                  status === "critic_reviewing" || status === "critic_approved"
-                    ? "bg-green-50 text-green-700"
-                    : "bg-muted/50",
+                  statusPathStepClassName(statusPathTones?.critic ?? "muted"),
                 )}
               >
                 Critic

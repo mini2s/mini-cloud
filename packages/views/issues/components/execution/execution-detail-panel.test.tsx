@@ -177,6 +177,16 @@ const runtimeSummary: WorkflowNodeRuntimeSummary = {
   error_message: "",
 };
 
+function getStatusPathStep(label: "Format" | "Worker" | "Critic"): HTMLElement {
+  const step = screen
+    .getAllByText(label)
+    .find((element) => element.className.includes("rounded"));
+  if (!step) {
+    throw new Error(`Missing status path step: ${label}`);
+  }
+  return step;
+}
+
 describe("ExecutionDetailPanel", () => {
   beforeEach(() => {
     mockSetActiveSession.mockClear();
@@ -381,6 +391,82 @@ describe("ExecutionDetailPanel", () => {
     );
     expect(screen.getByText("5m 30s")).toBeInTheDocument();
   });
+
+  it("renders long duration with hours instead of large minute counts", () => {
+    const completedRun = {
+      ...run,
+      status: "completed" as const,
+      started_at: "2026-06-25T10:00:00Z",
+      completed_at: "2026-06-26T04:00:00Z",
+    };
+    render(
+      <ExecutionDetailPanel
+        node={node}
+        nodeRun={completedRun}
+        workerName="Worker"
+        criticName="Reviewer"
+        onClose={vi.fn()}
+        wsId="ws-1"
+      />,
+    );
+
+    expect(screen.getByText("18h")).toBeInTheDocument();
+    expect(screen.queryByText("1080m")).not.toBeInTheDocument();
+  });
+
+  it("marks every status path step complete for completed node runs", () => {
+    render(
+      <ExecutionDetailPanel
+        node={node}
+        nodeRun={{ ...run, status: "completed" }}
+        workerName="Worker"
+        criticName="Reviewer"
+        onClose={vi.fn()}
+        wsId="ws-1"
+      />,
+    );
+
+    expect(getStatusPathStep("Format")).toHaveClass("bg-green-50", "text-green-700");
+    expect(getStatusPathStep("Worker")).toHaveClass("bg-green-50", "text-green-700");
+    expect(getStatusPathStep("Critic")).toHaveClass("bg-green-50", "text-green-700");
+  });
+
+  it("marks critic as active when the run is awaiting critic review", () => {
+    render(
+      <ExecutionDetailPanel
+        node={node}
+        nodeRun={{ ...run, status: "awaiting_critic" }}
+        workerName="Worker"
+        criticName="Reviewer"
+        onClose={vi.fn()}
+        wsId="ws-1"
+      />,
+    );
+
+    expect(getStatusPathStep("Format")).toHaveClass("bg-green-50", "text-green-700");
+    expect(getStatusPathStep("Worker")).toHaveClass("bg-green-50", "text-green-700");
+    expect(getStatusPathStep("Critic")).toHaveClass("bg-blue-50", "text-blue-700");
+  });
+
+  it.each(["failed", "blocked"] as const)(
+    "marks worker as blocked when the run status is %s",
+    (status) => {
+      render(
+        <ExecutionDetailPanel
+          node={node}
+          nodeRun={{ ...run, status }}
+          workerName="Worker"
+          criticName="Reviewer"
+          onClose={vi.fn()}
+          wsId="ws-1"
+        />,
+      );
+
+      expect(getStatusPathStep("Format")).toHaveClass("bg-green-50", "text-green-700");
+      expect(getStatusPathStep("Worker")).toHaveClass("bg-red-50", "text-red-700");
+      expect(getStatusPathStep("Critic")).toHaveClass("bg-muted/50");
+    },
+  );
 
   it("does not treat an issue link as a run-mode agent operation", () => {
     render(
