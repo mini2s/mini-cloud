@@ -107,9 +107,11 @@ export function WorkflowEditorToolbar({
   const testRunLabel = hasUnsavedEdits
     ? t(($) => $.panorama.toolbar.save_and_test)
     : t(($) => $.panorama.toolbar.test_run);
+  const testRunDisabled = !isActive;
   const statusDisabled = !isActive && (hasUnsavedEdits || hasBlockingPreflightIssues);
   const blockingTooltip = t(($) => $.panorama.toolbar.blocked_tooltip);
   const activateUnsavedTooltip = t(($) => $.panorama.toolbar.activate_disabled_unsaved);
+  const activateBeforeTestTooltip = t(($) => $.panorama.toolbar.activate_before_test);
 
   const handleStartEditTitle = useCallback(() => {
     setDraftTitle(workflow.title);
@@ -258,10 +260,11 @@ export function WorkflowEditorToolbar({
 
         <Separator orientation="vertical" className="mx-1 hidden h-5 sm:block" />
 
-        <ToolbarTooltip label={testRunLabel}>
+        <ToolbarTooltip label={testRunDisabled ? activateBeforeTestTooltip : testRunLabel}>
           <Button
             variant="secondary"
             size="sm"
+            disabled={testRunDisabled}
             onClick={() => void onTestRun()}
             aria-label={testRunLabel}
           >

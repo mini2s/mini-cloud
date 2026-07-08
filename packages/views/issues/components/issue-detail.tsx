@@ -1965,9 +1965,9 @@ export function IssueDetail({ issueId, onDelete, onDone, defaultSidebarOpen = tr
             <div className={
               isFullscreen
                 ? "flex-1 min-h-0 flex flex-col"
-                : "border-y bg-muted/20 py-6"
+                : "border-y bg-muted/20"
             }>
-              <div className={isFullscreen ? "flex min-h-0 flex-1 flex-col py-6" : "px-6"}>
+              <div className={isFullscreen ? "flex min-h-0 flex-1 flex-col" : "px-6"}>
                 <ExecutionPanoramaPage
                   workflowId={effectiveWorkflowId ?? ""}
                   runId={effectiveWorkflowRunId ?? null}

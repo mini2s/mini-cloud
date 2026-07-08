@@ -411,10 +411,10 @@ describe("WorkflowCanvas", () => {
       zoomable: true,
       bgColor: "hsl(var(--card))",
       maskColor: "hsl(var(--muted) / 0.14)",
-      maskStrokeColor: "hsl(var(--border))",
-      maskStrokeWidth: 1,
+      maskStrokeColor: "transparent",
+      maskStrokeWidth: 0,
       nodeBorderRadius: 4,
-      style: { width: 156, height: 104 },
+      style: { width: 156, height: 104, border: "none" },
     });
     expect(String(miniMapPropsRef.at(-1)?.className)).toContain("!m-5");
   });

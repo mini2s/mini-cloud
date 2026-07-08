@@ -132,8 +132,8 @@ export function WorkflowCanvasCore({
             style={workflowCanvasMiniMapStyle}
             bgColor="hsl(var(--card))"
             maskColor="hsl(var(--muted) / 0.14)"
-            maskStrokeColor="hsl(var(--border))"
-            maskStrokeWidth={1}
+            maskStrokeColor="transparent"
+            maskStrokeWidth={0}
             nodeBorderRadius={4}
             nodeColor={(node) => (node.type === "criticBadge" ? "#f59e0b" : "#64748b")}
           />

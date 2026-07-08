@@ -7,6 +7,6 @@ export const workflowCanvasControlsClassName =
   "[&_.react-flow__controls-button:last-child]:border-r-0";
 
 export const workflowCanvasMiniMapClassName =
-  "!m-5 overflow-hidden rounded-lg border border-border/70 bg-card/90 shadow-sm backdrop-blur supports-[backdrop-filter]:bg-card/80";
+  "!m-5 overflow-hidden rounded-lg bg-card/90 shadow-sm ring-1 ring-muted-foreground/20 backdrop-blur supports-[backdrop-filter]:bg-card/80";
 
-export const workflowCanvasMiniMapStyle = { width: 156, height: 104 } as const;
+export const workflowCanvasMiniMapStyle = { width: 156, height: 104, border: "none" } as const;

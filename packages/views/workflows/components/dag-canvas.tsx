@@ -551,8 +551,8 @@ export function WorkflowCanvas({
           style={workflowCanvasMiniMapStyle}
           bgColor="hsl(var(--card))"
           maskColor="hsl(var(--muted) / 0.14)"
-          maskStrokeColor="hsl(var(--border))"
-          maskStrokeWidth={1}
+          maskStrokeColor="transparent"
+          maskStrokeWidth={0}
           nodeBorderRadius={4}
           nodeColor={(node) => miniMapNodeColors[node.id] ?? "#e2e8f0"}
         />

@@ -11,6 +11,7 @@ import {
   FileCheck2,
   GitBranch,
   ShieldCheck,
+  Save,
   Trash2,
   User,
   Users,
@@ -23,6 +24,7 @@ import { Textarea } from "@multica/ui/components/ui/textarea";
 import { Label } from "@multica/ui/components/ui/label";
 import { useT } from "../../i18n";
 import { useWorkspaceId } from "@multica/core/hooks";
+import { useActorName } from "@multica/core/workspace/hooks";
 import {
   useCreateStage,
   useDeleteNode,
@@ -165,10 +167,12 @@ function TypeSegmentedControl<T extends string>({
 function ActorSummary({
   type,
   id,
+  label,
   emptyText,
 }: {
   type: string;
   id: string | null;
+  label?: string | null;
   emptyText: string;
 }) {
   const Icon = type === "agent" ? Bot : type === "squad" ? Users : type === "role" ? ShieldCheck : User;
@@ -178,7 +182,7 @@ function ActorSummary({
         <Icon className="size-4" />
       </span>
       <div className="min-w-0">
-        <p className="truncate text-xs font-medium">{id ? `${type}: ${id}` : emptyText}</p>
+        <p className="truncate text-xs font-medium">{id ? (label ?? `${type}: ${id}`) : emptyText}</p>
         <p className="truncate text-[11px] text-muted-foreground">
           {type === "role" ? "Resolved when the workflow runs" : "Pick a concrete assignee for predictable execution"}
         </p>
@@ -187,8 +191,8 @@ function ActorSummary({
   );
 }
 
-function pickerTriggerLabel(type: string, id: string | null, emptyPrefix: string): string {
-  if (id) return `${type}: ${id}`;
+function pickerTriggerLabel(type: string, id: string | null, emptyPrefix: string, label?: string | null): string {
+  if (id) return label ?? `${type}: ${id}`;
   if (type === "human") return `${emptyPrefix} Human`;
   if (type === "agent") return `${emptyPrefix} Agent`;
   if (type === "squad") return `${emptyPrefix} Squad`;
@@ -210,10 +214,12 @@ function gatewayDescription(kind: "fork" | "join" | null): string {
 function AssigneePickerTrigger({
   type,
   id,
+  label,
   emptyPrefix,
 }: {
   type: string;
   id: string | null;
+  label?: string | null;
   emptyPrefix: string;
 }) {
   const Icon = type === "agent" ? Bot : type === "squad" ? Users : User;
@@ -221,10 +227,15 @@ function AssigneePickerTrigger({
     <>
       <Icon className="size-3.5 text-muted-foreground" />
       <span className="min-w-0 flex-1 truncate text-left">
-        {pickerTriggerLabel(type, id, emptyPrefix)}
+        {pickerTriggerLabel(type, id, emptyPrefix, label)}
       </span>
     </>
   );
+}
+
+function actorLookupType(type: string): string {
+  if (type === "human") return "member";
+  return type;
 }
 
 function AssignmentCard({
@@ -268,6 +279,7 @@ export function NodeConfigPanel({
   disabled = false,
   recentNodeRun = null,
   onClose,
+  onSaveNode,
   onDeleteNode,
   onStageChange,
 }: NodeConfigPanelProps) {
@@ -280,6 +292,7 @@ export function NodeConfigPanel({
   const undoRedoVersion = useWorkflowEditorStore((s) => s._undoRedoVersion);
   const cacheNodeEdits = useWorkflowEditorStore((s) => s.cacheNodeEdits);
   const { data: roles = [] } = useQuery(workflowRolesOptions(wsId));
+  const { getActorName } = useActorName();
 
   const saved = nodeEdits[node.id];
 
@@ -355,6 +368,17 @@ export function NodeConfigPanel({
   const workerConfigured = workerType === "role" ? Boolean(workerId) : Boolean(workerId);
   const criticConfigured = criticType === "api" ? Boolean(criticApiUrl.trim()) : Boolean(criticId);
   const runTone = statusTone(recentNodeRun?.status);
+  const workerLabel = workerId
+    ? workerType === "role"
+      ? roles.find((r) => r.id === workerId)?.name ?? null
+      : getActorName(actorLookupType(workerType), workerId)
+    : null;
+  const criticLabel = criticId
+    ? criticType === "role"
+      ? roles.find((r) => r.id === criticId)?.name ?? null
+      : getActorName(actorLookupType(criticType), criticId)
+    : null;
+  const hasLocalEdits = Boolean(nodeEdits[node.id]);
 
   return (
     <WorkflowNodeDetailPanelShell
@@ -621,7 +645,7 @@ export function NodeConfigPanel({
                           <option key={r.id} value={r.id}>{r.name}</option>
                         ))}
                       </select>
-                      <ActorSummary type="role" id={workerId} emptyText="No worker role selected" />
+                      <ActorSummary type="role" id={workerId} label={workerLabel} emptyText="No worker role selected" />
                     </div>
                   ) : (
                     <div className="space-y-2">
@@ -642,6 +666,7 @@ export function NodeConfigPanel({
                             <AssigneePickerTrigger
                               type={workerType}
                               id={workerId}
+                              label={workerLabel}
                               emptyPrefix="Select existing"
                             />
                           }
@@ -656,7 +681,7 @@ export function NodeConfigPanel({
                           skipBuiltinRuntimeSelection
                         />
                       </div>
-                      <ActorSummary type={workerType} id={workerId} emptyText="No worker selected" />
+                      <ActorSummary type={workerType} id={workerId} label={workerLabel} emptyText="No worker selected" />
                     </div>
                   )}
                 </AssignmentCard>
@@ -728,7 +753,7 @@ export function NodeConfigPanel({
                           <option key={r.id} value={r.id}>{r.name}</option>
                         ))}
                       </select>
-                      <ActorSummary type="role" id={criticId} emptyText="No critic role selected" />
+                      <ActorSummary type="role" id={criticId} label={criticLabel} emptyText="No critic role selected" />
                     </div>
                   ) : (
                     <div className="space-y-2">
@@ -749,6 +774,7 @@ export function NodeConfigPanel({
                             <AssigneePickerTrigger
                               type={criticType}
                               id={criticId}
+                              label={criticLabel}
                               emptyPrefix="Select existing"
                             />
                           }
@@ -762,7 +788,7 @@ export function NodeConfigPanel({
                           align="start"
                         />
                       </div>
-                      <ActorSummary type={criticType} id={criticId} emptyText="No critic selected" />
+                      <ActorSummary type={criticType} id={criticId} label={criticLabel} emptyText="No critic selected" />
                     </div>
                   )}
                 </AssignmentCard>
@@ -841,22 +867,36 @@ export function NodeConfigPanel({
         subtitle="Definition-level operations for this node."
       >
         {!disabled ? (
-          <Button
-            size="sm"
-            variant="destructive"
-            className="w-full"
-            onClick={() => {
-              if (onDeleteNode) {
-                onDeleteNode(node.id);
-              } else {
-                handleDelete();
-              }
-            }}
-            disabled={deleteMutation.isPending}
-          >
-            <Trash2 className="mr-1.5 h-3.5 w-3.5" />
-            {deleteMutation.isPending ? t(($) => $.node.saving) : t(($) => $.node.delete)}
-          </Button>
+          <div className="space-y-2">
+            {onSaveNode ? (
+              <Button
+                size="sm"
+                variant="default"
+                className="w-full"
+                onClick={onSaveNode}
+                disabled={!hasLocalEdits}
+              >
+                <Save className="mr-1.5 h-3.5 w-3.5" />
+                Save changes
+              </Button>
+            ) : null}
+            <Button
+              size="sm"
+              variant="destructive"
+              className="w-full"
+              onClick={() => {
+                if (onDeleteNode) {
+                  onDeleteNode(node.id);
+                } else {
+                  handleDelete();
+                }
+              }}
+              disabled={deleteMutation.isPending}
+            >
+              <Trash2 className="mr-1.5 h-3.5 w-3.5" />
+              {deleteMutation.isPending ? t(($) => $.node.saving) : t(($) => $.node.delete)}
+            </Button>
+          </div>
         ) : (
           <p className="text-sm text-muted-foreground">Node actions are disabled in this context.</p>
         )}

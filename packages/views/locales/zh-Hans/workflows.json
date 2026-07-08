@@ -353,6 +353,7 @@
       "run_history": "运行历史",
       "test_run": "测试运行",
       "save_and_test": "保存并测试",
+      "activate_before_test": "请先激活工作流再测试。",
       "more": "更多",
       "blocked_tooltip": "请先解决阻断问题。",
       "activate_disabled_unsaved": "请先保存更改再启用。"
@@ -390,8 +391,8 @@
     "detail_worker_missing": "请为此节点分配执行者",
     "detail_invalid_critic": "评审者 ID 在可用 Agent 列表中未找到",
     "detail_stage_missing": "请将此节点分配到某个阶段",
-    "first_stage_guide_title": "创建第一个阶段",
-    "first_stage_guide_description": "阶段用于将工作流步骤组织为逻辑阶段。创建阶段以开始使用。",
+    "first_stage_guide_title": "创建第一个节点",
+    "first_stage_guide_description": "节点是工作流运行的步骤。添加节点以开始使用。",
     "first_stage_guide_cta": "创建阶段"
   }
 }

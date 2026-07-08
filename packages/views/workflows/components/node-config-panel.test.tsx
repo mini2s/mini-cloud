@@ -11,6 +11,8 @@ const mocks = vi.hoisted(() => ({
   deleteNodeMutateAsync: vi.fn(),
   assignStageMutate: vi.fn(),
   createStageMutateAsync: vi.fn(),
+  saveNode: vi.fn(),
+  nodeEdits: {} as Record<string, unknown>,
   roles: [
     { id: "role-1", name: "Implementer" },
     { id: "role-2", name: "Reviewer" },
@@ -35,10 +37,20 @@ vi.mock("@multica/core/workflows/queries", () => ({
 vi.mock("@multica/core/workflows/store", () => ({
   useWorkflowEditorStore: (selector: (state: unknown) => unknown) =>
     selector({
-      nodeEdits: {},
+      nodeEdits: mocks.nodeEdits,
       _undoRedoVersion: 0,
       cacheNodeEdits: mocks.cacheNodeEdits,
     }),
+}));
+
+vi.mock("@multica/core/workspace/hooks", () => ({
+  useActorName: () => ({
+    getActorName: (type: string, id: string) => {
+      if (type === "agent" && id === "agent-1") return "Builder Agent";
+      if (type === "agent" && id === "agent-2") return "Reviewer Agent";
+      return null;
+    },
+  }),
 }));
 
 vi.mock("../../issues/components/pickers/assignee-picker", () => ({
@@ -155,6 +167,7 @@ function renderPanel(recentNodeRun: WorkflowNodeRun | null = null) {
       stages={stages}
       recentNodeRun={recentNodeRun}
       onClose={vi.fn()}
+      onSaveNode={mocks.saveNode}
     />,
   );
 }
@@ -162,6 +175,8 @@ function renderPanel(recentNodeRun: WorkflowNodeRun | null = null) {
 describe("NodeConfigPanel", () => {
   beforeEach(() => {
     mocks.cacheNodeEdits.mockReset();
+    mocks.saveNode.mockReset();
+    mocks.nodeEdits = {};
   });
 
   it("renders Worker and Critic type segmented controls", () => {
@@ -179,8 +194,19 @@ describe("NodeConfigPanel", () => {
     expect(screen.getByRole("button", { name: "Critic type Squad" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Critic type Role" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Critic type API" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "agent: agent-1" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "agent: agent-2" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Builder Agent" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Reviewer Agent" })).toBeInTheDocument();
+  });
+
+  it("renders a node save action when local edits exist", () => {
+    mocks.nodeEdits = {
+      "node-1": { title: "Edited title" },
+    };
+
+    renderPanel();
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+
+    expect(mocks.saveNode).toHaveBeenCalledTimes(1);
   });
 
   it("uses the fixed shared detail section order in edit mode", () => {

@@ -607,7 +607,7 @@ func (h *Handler) UpdateWorkflowNode(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	nID, ok := parseUUIDOrBadRequest(w, nodeID, "node ID")
+	node, ok := h.loadWorkflowNode(w, r, wfID, nodeID)
 	if !ok {
 		return
 	}
@@ -622,7 +622,7 @@ func (h *Handler) UpdateWorkflowNode(w http.ResponseWriter, r *http.Request) {
 	userID, _ := requireUserID(w, r)
 
 	params := db.UpdateWorkflowNodeParams{
-		ID:           nID,
+		ID:           node.ID,
 		Title:        ptrToText(req.Title),
 		Description:  ptrToText(req.Description),
 		PositionX:    float64ToFloat8(req.PositionX),
@@ -638,6 +638,7 @@ func (h *Handler) UpdateWorkflowNode(w http.ResponseWriter, r *http.Request) {
 
 	updated, err := h.Queries.UpdateWorkflowNode(r.Context(), params)
 	if err != nil {
+		log.Printf("failed to update node %s: %v", uuidToString(node.ID), err)
 		writeError(w, http.StatusInternalServerError, "failed to update node")
 		return
 	}

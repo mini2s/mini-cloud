@@ -65,6 +65,7 @@ vi.mock("../../../i18n", () => {
         more: "More",
         blocked_tooltip: "Resolve blocking issues first.",
         activate_disabled_unsaved: "Save changes before activating.",
+        activate_before_test: "Activate workflow before testing.",
       },
     },
   };
@@ -131,12 +132,16 @@ describe("WorkflowEditorToolbar", () => {
 
     expect(screen.getByText("Saved")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Save changes" })).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Test run" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Test run" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Activate" })).toBeInTheDocument();
   });
 
-  it("shows Save changes and Save & test when there are local edits", () => {
-    renderToolbar({ hasUnsavedEdits: true });
+  it("shows Save changes and Save & test for active workflows with local edits", () => {
+    renderToolbar({
+      workflow: { id: "wf-1", title: "Test Workflow", status: "active" },
+      statusLabel: "Active",
+      hasUnsavedEdits: true,
+    });
 
     fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
     fireEvent.click(screen.getByRole("button", { name: "Save & test" }));
@@ -158,10 +163,26 @@ describe("WorkflowEditorToolbar", () => {
   });
 
   it("keeps test run available but blocks activation when blocking preflight issues exist", () => {
-    renderToolbar({ hasBlockingPreflightIssues: true });
+    renderToolbar({
+      workflow: { id: "wf-1", title: "Test Workflow", status: "active" },
+      statusLabel: "Active",
+      hasBlockingPreflightIssues: true,
+    });
 
     expect(screen.getByRole("button", { name: "Test run" })).not.toBeDisabled();
-    expect(screen.getByRole("button", { name: "Activate" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Deactivate" })).not.toBeDisabled();
+  });
+
+  it("disables test run for inactive workflows before it can hit the run API", () => {
+    renderToolbar({
+      workflow: { id: "wf-1", title: "Test Workflow", status: "paused" },
+      statusLabel: "Paused",
+    });
+
+    const testRun = screen.getByRole("button", { name: "Test run" });
+    expect(testRun).toBeDisabled();
+    fireEvent.click(testRun);
+    expect(mocks.testRun).not.toHaveBeenCalled();
   });
 
   it("keeps deactivate available even when the workflow has local edits and blocking issues", () => {

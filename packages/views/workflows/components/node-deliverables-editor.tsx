@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Button } from "@multica/ui/components/ui/button";
 import { Input } from "@multica/ui/components/ui/input";
@@ -34,9 +35,20 @@ function DeliverableRow({
   const wsId = useWorkspaceId();
   const updateMutation = useUpdateWorkflowNodeDeliverable(wsId, workflowId, nodeId);
   const deleteMutation = useDeleteWorkflowNodeDeliverable(wsId, workflowId, nodeId);
+  const [draftTitle, setDraftTitle] = useState(deliverable.title);
+  const composingRef = useRef(false);
 
   const kindOption = KIND_OPTIONS.find((k) => k.value === deliverable.kind) ?? KIND_OPTIONS[0]!;
   const KindIcon = kindOption.icon;
+
+  useEffect(() => {
+    setDraftTitle(deliverable.title);
+  }, [deliverable.id, deliverable.title]);
+
+  const saveTitle = (title: string) => {
+    if (title === deliverable.title) return;
+    updateMutation.mutate({ deliverableId: deliverable.id, title });
+  };
 
   const cycleKind = () => {
     if (disabled) return;
@@ -57,10 +69,22 @@ function DeliverableRow({
       </button>
       <Input
         disabled={disabled}
-        value={deliverable.title}
-        onChange={(e) =>
-          updateMutation.mutate({ deliverableId: deliverable.id, title: e.target.value })
-        }
+        value={draftTitle}
+        onCompositionStart={() => {
+          composingRef.current = true;
+        }}
+        onCompositionEnd={(e) => {
+          composingRef.current = false;
+          const nextTitle = e.currentTarget.value;
+          setDraftTitle(nextTitle);
+          saveTitle(nextTitle);
+        }}
+        onChange={(e) => {
+          const nextTitle = e.target.value;
+          setDraftTitle(nextTitle);
+          if (!composingRef.current) saveTitle(nextTitle);
+        }}
+        onBlur={(e) => saveTitle(e.currentTarget.value)}
         className="h-7 min-w-0 flex-1 text-xs"
         placeholder="Deliverable title"
       />
@@ -129,7 +153,7 @@ export function NodeDeliverablesEditor({
         onClick={() =>
           createMutation.mutate({
             kind: "document",
-            title: "New deliverable",
+            title: "",
             description: "",
             required: true,
             sort_order: deliverables.length,

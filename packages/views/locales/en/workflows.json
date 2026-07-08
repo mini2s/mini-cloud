@@ -354,6 +354,7 @@
       "run_history": "Run history",
       "test_run": "Test run",
       "save_and_test": "Save & test",
+      "activate_before_test": "Activate workflow before testing.",
       "more": "More",
       "blocked_tooltip": "Resolve blocking issues first.",
       "activate_disabled_unsaved": "Save changes before activating."
@@ -391,8 +392,8 @@
     "detail_worker_missing": "Assign a worker to this node",
     "detail_invalid_critic": "Critic ID not found in available agents",
     "detail_stage_missing": "Assign this node to a stage",
-    "first_stage_guide_title": "Create your first stage",
-    "first_stage_guide_description": "Stages help you organize workflow steps into logical phases. Create a stage to get started.",
+    "first_stage_guide_title": "Create your first node",
+    "first_stage_guide_description": "Nodes are the steps that make this workflow run. Add a node to get started.",
     "first_stage_guide_cta": "Create stage"
   }
 }
