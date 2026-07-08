@@ -30,6 +30,11 @@ vi.mock("@multica/views/i18n", () => ({
               worker_label: "Worker",
               critic_label: "Critic",
               artifacts_label: "Artifacts",
+              deliverable_green: "Deliverables approved",
+              deliverable_yellow: "Awaiting review",
+              deliverable_red: "Deliverables missing",
+              deliverable_none: "No required deliverables",
+              deliverable_progress: "{{submitted}}/{{total}} · {{approved}} passed",
               actions: {
                 approve: "Approve",
                 reject: "Reject",
@@ -178,7 +183,7 @@ describe("RuntimeNodeCard", () => {
     expect(onClick).toHaveBeenCalledWith("node-1");
   });
 
-  it("shows artifact row with names when outputs exist", () => {
+  it("does not expose raw output names as panorama-card artifacts", () => {
     const runWithOutputs: WorkflowNodeRun = {
       ...completedRun,
       worker_output: { summary: "已完成需求文档" },
@@ -193,22 +198,28 @@ describe("RuntimeNodeCard", () => {
         onClick={vi.fn()}
       />,
     );
-    expect(screen.getByText(/Artifacts:/)).toBeInTheDocument();
-    expect(screen.getByText(/Worker Output/)).toBeInTheDocument();
-    expect(screen.getByText(/Critic Output/)).toBeInTheDocument();
+    expect(screen.queryByText(/Artifacts:/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Worker Output/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Critic Output/)).not.toBeInTheDocument();
+    expect(screen.queryByTestId("runtime-node-deliverables")).not.toBeInTheDocument();
   });
 
-  it("does not show artifact row when no outputs exist", () => {
+  it("renders deliverable summary as a compact neutral chip", () => {
     render(
       <RuntimeNodeCard
         node={baseNode}
         nodeRun={completedRun}
+        runtimeSummary={runtimeSummary}
         workerName="小助手"
         criticName="审核员"
         onClick={vi.fn()}
       />,
     );
     expect(screen.queryByText(/Artifacts:/)).not.toBeInTheDocument();
+    expect(screen.getByTestId("runtime-node-deliverables")).toHaveTextContent("Deliverables missing");
+    expect(screen.getByTestId("runtime-node-deliverables")).toHaveTextContent("0/1 · 0 passed");
+    expect(screen.getByTestId("runtime-node-deliverables")).toHaveClass("col-span-full", "ring-border/55");
+    expect(screen.getByTestId("runtime-node-deliverables").className).not.toContain("border-t");
   });
 
   it("renders Bot icon for agent worker_type", () => {
@@ -274,7 +285,7 @@ describe("RuntimeNodeCard", () => {
     expect(screen.getByText("Completed")).toBeInTheDocument();
   });
 
-  it("uses runtime summary display status and deliverable signal", () => {
+  it("uses runtime summary display status with the compact deliverable chip", () => {
     render(
       <RuntimeNodeCard
         node={baseNode}
@@ -287,10 +298,10 @@ describe("RuntimeNodeCard", () => {
     );
 
     expect(screen.getByLabelText("Reviewing")).toBeInTheDocument();
-    expect(screen.getByLabelText("Deliverables red")).toBeInTheDocument();
+    expect(screen.getByTestId("runtime-node-deliverables")).toHaveTextContent("Deliverables missing");
   });
 
-  it("uses the shared workflow canvas node shell for non-functional styling", () => {
+  it("uses the shared workflow canvas node shell with a quiet runtime-card surface", () => {
     render(
       <RuntimeNodeCard
         node={baseNode}
@@ -307,15 +318,35 @@ describe("RuntimeNodeCard", () => {
     expect(card.className).not.toContain("min-w-[240px]");
     expect(card).toHaveStyle({ width: "224px" });
     const surface = card.querySelector('[data-node-shape-surface="true"]');
-    expect(surface?.className).toContain("border-white/80");
+    expect(surface?.className).toContain("border-border/70");
     expect(surface?.className).toContain("bg-gradient-to-br");
-    expect(surface?.className).toContain("ring-slate-200/70");
-    expect(surface?.className).toContain("shadow-[0_14px_32px_rgba(15,23,42,0.12)]");
-    expect(surface?.className).not.toContain("border-border/80");
+    expect(surface?.className).toContain("from-background");
+    expect(surface?.className).toContain("to-muted/45");
+    expect(surface?.className).toContain("ring-border/60");
+    expect(surface?.className).toContain("shadow-[0_10px_26px_rgba(15,23,42,0.10)]");
+    expect(surface?.className).not.toContain("border-white/80");
+    expect(surface?.className).not.toContain("ring-slate-200/70");
     expect(surface?.className).not.toContain("bg-background");
     expect(surface?.className).not.toContain("shadow-[0_1px_2px_rgba(15,23,42,0.06)]");
     expect(screen.getByLabelText("Reviewing")).toBeInTheDocument();
-    expect(screen.getByLabelText("Deliverables red")).toBeInTheDocument();
+    expect(screen.getByTestId("runtime-node-deliverables")).toHaveClass("bg-background/65");
+  });
+
+  it("lays out worker and critic as paired actor slots", () => {
+    render(
+      <RuntimeNodeCard
+        node={baseNode}
+        nodeRun={completedRun}
+        workerName="小助手"
+        criticName="审核员"
+        onClick={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText("Worker")).toBeInTheDocument();
+    expect(screen.getByText("小助手")).toBeInTheDocument();
+    expect(screen.getByText("Critic")).toBeInTheDocument();
+    expect(screen.getByText("审核员")).toBeInTheDocument();
   });
 
   it("renders fixed lane-anchored handles when used inside the canvas", () => {
@@ -362,7 +393,7 @@ describe("RuntimeNodeCard", () => {
     expect(screen.queryByText("Critic:")).not.toBeInTheDocument();
     expect(screen.queryByText(/Artifacts:/)).not.toBeInTheDocument();
     expect(screen.queryByTestId("runtime-node-action-approve")).not.toBeInTheDocument();
-    expect(screen.queryByLabelText("Deliverables red")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("runtime-node-deliverables")).not.toBeInTheDocument();
   });
 
   it("uses category-derived semantic shape classes", () => {

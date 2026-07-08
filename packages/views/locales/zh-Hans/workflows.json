@@ -103,6 +103,9 @@
   "detail_panel": {
     "eyebrow": "节点检查器",
     "close_label": "关闭节点检查器",
+    "close_confirm_title": "保存面板更改？",
+    "close_confirm_description": "节点检查器有未保存的更改。是否保存后关闭？",
+    "discard_changes": "放弃更改",
     "section_primary": "基本信息",
     "section_primary_desc": "此工作流节点的定义字段与归属信息。",
     "section_annotation_binding": "注释绑定",
@@ -154,6 +157,7 @@
     "deliverable_required": "必需",
     "deliverable_section_label": "交付物",
     "deliverable_empty": "未定义交付物。添加此节点必须提交的文档或拉取请求。",
+    "deliverable_default_title": "新交付物",
     "deliverable_add": "添加交付物",
     "runtime_status_label": "状态：{{status}}",
     "runtime_hint": "Worker 输出、Critic 输出和评论保持在此运行时部分中可用。",

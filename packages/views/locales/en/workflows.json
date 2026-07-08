@@ -103,6 +103,9 @@
   "detail_panel": {
     "eyebrow": "Node inspector",
     "close_label": "Close node inspector",
+    "close_confirm_title": "Save panel changes?",
+    "close_confirm_description": "This node inspector has unsaved changes. Save before closing?",
+    "discard_changes": "Discard changes",
     "section_primary": "Primary",
     "section_primary_desc": "Definition fields and ownership for this workflow node.",
     "section_annotation_binding": "Annotation binding",
@@ -154,6 +157,7 @@
     "deliverable_required": "Required",
     "deliverable_section_label": "Deliverables",
     "deliverable_empty": "No deliverables defined. Add required documents or pull requests that must be submitted for this node.",
+    "deliverable_default_title": "New deliverable",
     "deliverable_add": "Add deliverable",
     "runtime_status_label": "Status: {{status}}",
     "runtime_hint": "Worker output, critic output and comments remain available in this runtime section.",

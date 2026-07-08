@@ -38,6 +38,7 @@ const mocks = vi.hoisted(() => ({
   pushServerAction: vi.fn(),
   clearReverseAction: vi.fn(),
   updateLatestUndoAction: vi.fn(),
+  configPanelSave: vi.fn(),
   reverseAction: null as null | {
     direction: "undo" | "redo";
     action: {
@@ -210,6 +211,12 @@ vi.mock("../../../i18n", () => {
         deleting: "Deleting...",
       },
     },
+    detail_panel: {
+      close_confirm_title: "Save panel changes?",
+      close_confirm_description: "This node inspector has unsaved changes. Save before closing?",
+      discard_changes: "Discard changes",
+      save_changes: "Save changes",
+    },
     overview: {
       stage_dialog: {
         create_title: "Create Stage",
@@ -348,8 +355,19 @@ vi.mock("../node-config-panel", () => ({
     recentNodeRun?: { workflow_node_id: string } | null;
     onStageChange?: (nodeId: string, stageId: string | null) => void;
     onDeleteNode?: (nodeId: string) => void;
+    onDirtyChange?: (dirty: boolean) => void;
+    onRegisterSave?: (save: (() => Promise<boolean>) | null) => void;
   }) => (
     <div data-testid="node-config-panel">
+      <button
+        type="button"
+        onClick={() => {
+          props.onDirtyChange?.(true);
+          props.onRegisterSave?.(mocks.configPanelSave);
+        }}
+      >
+        Mark panel dirty
+      </button>
       <button type="button" onClick={() => props.onStageChange?.(props.node.id, "stage-2")}>
         Move to Stage 2
       </button>
@@ -417,6 +435,8 @@ describe("WorkflowPanoramaPage (new)", () => {
     mocks.clearNodeEdits.mockReset();
     mocks.clearReverseAction.mockReset();
     mocks.updateLatestUndoAction.mockReset();
+    mocks.configPanelSave.mockReset();
+    mocks.configPanelSave.mockResolvedValue(true);
     mocks.reverseAction = null;
     mocks.reactFlowProps = null;
     mocks.controlsProps = null;
@@ -1052,6 +1072,88 @@ describe("WorkflowPanoramaPage (new)", () => {
     rerender(<WorkflowPanoramaPage workflowId="wf-1" />);
     expect(screen.queryByTestId("node-config-panel")).not.toBeInTheDocument();
     expect(mocks.selectNode).toHaveBeenLastCalledWith(null);
+  });
+
+  it("prompts with an app dialog before closing a dirty node config panel", async () => {
+    const confirmSpy = vi.spyOn(window, "confirm");
+    mocks.nodesData = [
+      { id: "node-1", workflow_id: "wf-1", title: "A", description: "", worker_type: "agent", worker_id: null, critic_type: "human", critic_id: null, critic_api_url: null, stage_id: "stage-1", format_schema: null, position_x: 100, position_y: 0, sort_order: 0, created_at: "", updated_at: "" },
+    ];
+
+    const { rerender } = render(<WorkflowPanoramaPage workflowId="wf-1" />);
+
+    const worker = mocks.reactFlowProps?.nodes.find((n) => n.id === "node-1");
+    act(() => {
+      mocks.reactFlowProps?.onNodeClick?.({} as React.MouseEvent, worker!);
+    });
+    rerender(<WorkflowPanoramaPage workflowId="wf-1" />);
+    fireEvent.click(screen.getByRole("button", { name: "Mark panel dirty" }));
+
+    act(() => {
+      mocks.reactFlowProps?.onPaneClick?.();
+    });
+    rerender(<WorkflowPanoramaPage workflowId="wf-1" />);
+
+    expect(confirmSpy).not.toHaveBeenCalled();
+    expect(screen.getByRole("alertdialog")).toBeInTheDocument();
+    expect(screen.getByText("Save panel changes?")).toBeInTheDocument();
+    expect(screen.getByText("This node inspector has unsaved changes. Save before closing?")).toBeInTheDocument();
+    expect(screen.getByTestId("node-config-panel")).toBeInTheDocument();
+    expect(mocks.selectNode).not.toHaveBeenCalledWith(null);
+
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+
+    await vi.waitFor(() => {
+      expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
+    });
+    expect(mocks.configPanelSave).not.toHaveBeenCalled();
+    expect(screen.getByTestId("node-config-panel")).toBeInTheDocument();
+    expect(mocks.selectNode).not.toHaveBeenCalledWith(null);
+
+    act(() => {
+      mocks.reactFlowProps?.onPaneClick?.();
+    });
+    rerender(<WorkflowPanoramaPage workflowId="wf-1" />);
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+
+    await vi.waitFor(() => {
+      expect(mocks.configPanelSave).toHaveBeenCalledTimes(1);
+      expect(mocks.selectNode).toHaveBeenLastCalledWith(null);
+    });
+
+    confirmSpy.mockRestore();
+  });
+
+  it("can discard dirty node config panel changes without saving", async () => {
+    mocks.nodesData = [
+      { id: "node-1", workflow_id: "wf-1", title: "A", description: "", worker_type: "agent", worker_id: null, critic_type: "human", critic_id: null, critic_api_url: null, stage_id: "stage-1", format_schema: null, position_x: 100, position_y: 0, sort_order: 0, created_at: "", updated_at: "" },
+    ];
+    mocks.nodeEdits = {
+      "node-1": { title: "Edited title" },
+    };
+
+    const { rerender } = render(<WorkflowPanoramaPage workflowId="wf-1" />);
+
+    const worker = mocks.reactFlowProps?.nodes.find((n) => n.id === "node-1");
+    act(() => {
+      mocks.reactFlowProps?.onNodeClick?.({} as React.MouseEvent, worker!);
+    });
+    rerender(<WorkflowPanoramaPage workflowId="wf-1" />);
+    fireEvent.click(screen.getByRole("button", { name: "Mark panel dirty" }));
+
+    act(() => {
+      mocks.reactFlowProps?.onPaneClick?.();
+    });
+    rerender(<WorkflowPanoramaPage workflowId="wf-1" />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Discard changes" }));
+
+    await vi.waitFor(() => {
+      expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
+      expect(mocks.selectNode).toHaveBeenLastCalledWith(null);
+    });
+    expect(mocks.configPanelSave).not.toHaveBeenCalled();
+    expect(mocks.clearNodeEdits).toHaveBeenCalledWith("node-1");
   });
 
   it("confirms stage deletion with an app dialog instead of the browser confirm", () => {

@@ -11,8 +11,12 @@ const mocks = vi.hoisted(() => ({
   deleteNodeMutateAsync: vi.fn(),
   assignStageMutate: vi.fn(),
   createStageMutateAsync: vi.fn(),
+  createDeliverableMutateAsync: vi.fn(),
+  updateDeliverableMutateAsync: vi.fn(),
+  deleteDeliverableMutateAsync: vi.fn(),
   saveNode: vi.fn(),
   nodeEdits: {} as Record<string, unknown>,
+  deliverables: [] as unknown[],
   roles: [
     { id: "role-1", name: "Implementer" },
     { id: "role-2", name: "Reviewer" },
@@ -20,7 +24,10 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("@tanstack/react-query", () => ({
-  useQuery: () => ({ data: mocks.roles }),
+  useQuery: (options: { queryKey?: unknown[] }) =>
+    options.queryKey?.[0] === "deliverables"
+      ? { data: mocks.deliverables }
+      : { data: mocks.roles },
 }));
 
 vi.mock("@multica/core/hooks", () => ({
@@ -29,9 +36,13 @@ vi.mock("@multica/core/hooks", () => ({
 
 vi.mock("@multica/core/workflows/queries", () => ({
   workflowRolesOptions: () => ({ queryKey: ["workflow-roles"] }),
+  workflowNodeDeliverablesOptions: () => ({ queryKey: ["deliverables"] }),
   useAssignNodeToStage: () => ({ mutate: mocks.assignStageMutate, isPending: false }),
   useCreateStage: () => ({ mutateAsync: mocks.createStageMutateAsync, isPending: false, error: null }),
   useDeleteNode: () => ({ mutateAsync: mocks.deleteNodeMutateAsync, isPending: false }),
+  useCreateWorkflowNodeDeliverable: () => ({ mutateAsync: mocks.createDeliverableMutateAsync, isPending: false }),
+  useUpdateWorkflowNodeDeliverable: () => ({ mutateAsync: mocks.updateDeliverableMutateAsync, isPending: false }),
+  useDeleteWorkflowNodeDeliverable: () => ({ mutateAsync: mocks.deleteDeliverableMutateAsync, isPending: false }),
 }));
 
 vi.mock("@multica/core/workflows/store", () => ({
@@ -88,6 +99,8 @@ vi.mock("../../i18n", () => {
   const translations = {
     detail: {
       create_dialog: { create: "Create" },
+      toast_saved: "Workflow saved",
+      toast_save_failed: "Failed to save workflow",
     },
     overview: {
       stage_canvas: { unassigned: "Unassigned" },
@@ -149,6 +162,7 @@ vi.mock("../../i18n", () => {
       connections_bound_to: "Bound to: {{node}}",
       save_changes: "Save changes",
       actions_disabled: "Node actions are disabled in this context.",
+      deliverable_default_title: "New deliverable",
     },
     node: {
       title: "Node inspector",
@@ -236,6 +250,7 @@ describe("NodeConfigPanel", () => {
     mocks.cacheNodeEdits.mockReset();
     mocks.saveNode.mockReset();
     mocks.nodeEdits = {};
+    mocks.deliverables = [];
   });
 
   it("renders Worker and Critic type segmented controls", () => {

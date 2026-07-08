@@ -5,6 +5,7 @@ export interface ChatSession {
   creator_id: string;
   title: string;
   status: "active" | "archived";
+  session_id: string | null;
   /** True when the session has any unread assistant replies. List-only. */
   has_unread: boolean;
   created_at: string;

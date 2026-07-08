@@ -8,6 +8,28 @@ const mockSetActiveSession = vi.fn();
 const mockSetOpen = vi.fn();
 const mockIsEmbeddedInCostrict = vi.fn(() => false);
 const mockPostCostrictNavigateToSession = vi.fn();
+const mockChatSessions = [
+  {
+    id: "11111111-1111-1111-1111-111111111111",
+    workspace_id: "ws-1",
+    agent_id: "a1",
+    creator_id: "u1",
+    title: "Runtime session",
+    status: "active",
+    session_id: "sess-1",
+    has_unread: false,
+    created_at: "",
+    updated_at: "",
+  },
+];
+
+vi.mock("@tanstack/react-query", () => ({
+  useQuery: () => ({ data: mockChatSessions }),
+}));
+
+vi.mock("@multica/core/chat/queries", () => ({
+  chatSessionsOptions: () => ({ queryKey: ["chat", "sessions"] }),
+}));
 
 vi.mock("@multica/core/chat", () => ({
   useChatStore: (selector: (state: { setActiveSession: typeof mockSetActiveSession; setOpen: typeof mockSetOpen }) => unknown) =>
@@ -25,9 +47,9 @@ vi.mock("@multica/core/platform", () => ({
 // Mock @multica/views/i18n for useT hook — handles function selector form
 vi.mock("@multica/views/i18n", () => ({
   useT: () => ({
-    t: (selector: unknown) => {
+    t: (selector: unknown, values?: Record<string, string>) => {
       if (typeof selector === "function") {
-        return selector({
+        const template = selector({
           detail: {
             desc_label: "Description",
           },
@@ -60,6 +82,12 @@ vi.mock("@multica/views/i18n", () => ({
               worker_output: "Worker Output",
               critic_output: "Critic Output",
               attachments: "Artifacts",
+              deliverable_status_label: "Deliverable status",
+              deliverable_status_green: "Approved",
+              deliverable_status_yellow: "Submitted for review",
+              deliverable_status_red: "Missing or rejected",
+              deliverable_status_none: "No required deliverables",
+              deliverable_progress: "{{submitted}}/{{total}} submitted, {{approved}} approved",
               no_output: "No output yet",
               metadata: "Metadata",
               started_at: "Started At",
@@ -75,6 +103,11 @@ vi.mock("@multica/views/i18n", () => ({
             },
           },
           });
+        if (!values) return template;
+        return Object.entries(values).reduce(
+          (text, [key, value]) => text.replaceAll(`{{${key}}}`, value),
+          template,
+        );
       }
       return String(selector);
     },
@@ -222,7 +255,7 @@ describe("ExecutionDetailPanel", () => {
     expect(screen.queryByText("Current status")).not.toBeInTheDocument();
   });
 
-  it("opens the agent session from run mode when a session id exists", async () => {
+  it("opens the matching chat session from a runtime session id in run mode", async () => {
     render(
       <ExecutionDetailPanel
         node={{ ...node, title: "Run node" }}
@@ -242,7 +275,7 @@ describe("ExecutionDetailPanel", () => {
       "deliverables",
       "runtime",
     ]);
-    expect(mockSetActiveSession).toHaveBeenCalledWith("sess-1");
+    expect(mockSetActiveSession).toHaveBeenCalledWith("11111111-1111-1111-1111-111111111111");
     expect(mockSetOpen).toHaveBeenCalledWith(true);
   });
 
@@ -449,5 +482,29 @@ describe("ExecutionDetailPanel", () => {
     expect(screen.queryByText("Critic")).not.toBeInTheDocument();
     expect(screen.queryByText("Artifacts")).not.toBeInTheDocument();
     expect(screen.queryByText("Retry")).not.toBeInTheDocument();
+  });
+
+  it("shows deliverable signal and counts in the detail panel", () => {
+    render(
+      <ExecutionDetailPanel
+        node={node}
+        nodeRun={run}
+        runtimeSummary={{
+          ...runtimeSummary,
+          deliverable_signal: "yellow",
+          required_deliverables_total: 2,
+          required_deliverables_submitted: 1,
+          required_deliverables_approved: 0,
+        }}
+        workerName="后端助手"
+        criticName="审核员"
+        onClose={vi.fn()}
+        wsId="ws-1"
+      />,
+    );
+
+    expect(screen.getByText("Deliverable status")).toBeInTheDocument();
+    expect(screen.getByText("Submitted for review")).toBeInTheDocument();
+    expect(screen.getByText("1/2 submitted, 0 approved")).toBeInTheDocument();
   });
 });

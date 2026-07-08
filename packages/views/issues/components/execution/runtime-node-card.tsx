@@ -10,7 +10,7 @@ import {
 } from "@multica/core/types";
 import { cn } from "@multica/ui/lib/utils";
 import { RuntimeDisplayStatusIcon } from "./node-run-status-icon";
-import { Bot, User, Building2, Paperclip, Check, GitFork, GitMerge } from "lucide-react";
+import { Bot, User, Building2, Check, CircleAlert, CircleCheck, Clock3, FileCheck2, GitFork, GitMerge } from "lucide-react";
 import { useT } from "@multica/views/i18n";
 import { Button } from "@multica/ui/components/ui/button";
 import { Loader2 } from "lucide-react";
@@ -55,8 +55,6 @@ export interface RuntimeNodeCardProps {
   onAction?: (nodeRunId: string, action: NodeRunActionType) => void;
   isActionLoading?: Partial<Record<NodeRunActionType, boolean>>;
   runtimeSummary?: WorkflowNodeRuntimeSummary | null;
-  /** Traffic-light indicator derived from deliverable submission statuses. */
-  deliverableSignal?: DeliverableSignal;
   handles?: WorkflowCanvasNodeHandle[];
   lateralHandleTop?: number;
 }
@@ -106,6 +104,35 @@ function runtimeDisplayStatusText(
     case "cancelled":
       return t(($) => $.execution.display_status.cancelled);
   }
+}
+
+function deliverableSignalText(
+  t: IssueTranslator,
+  signal: WorkflowNodeRuntimeSummary["deliverable_signal"],
+): string {
+  if (signal === "green") return t(($) => $.execution.card.deliverable_green);
+  if (signal === "yellow") return t(($) => $.execution.card.deliverable_yellow);
+  if (signal === "red") return t(($) => $.execution.card.deliverable_red);
+  return t(($) => $.execution.card.deliverable_none);
+}
+
+function deliverableProgressText(
+  t: IssueTranslator,
+  submitted: number,
+  total: number,
+  approved: number,
+): string {
+  return t(($) => $.execution.card.deliverable_progress)
+    .replaceAll("{{submitted}}", String(submitted))
+    .replaceAll("{{total}}", String(total))
+    .replaceAll("{{approved}}", String(approved));
+}
+
+function deliverableSignalIcon(signal: WorkflowNodeRuntimeSummary["deliverable_signal"]) {
+  if (signal === "green") return { Icon: CircleCheck, className: "text-emerald-600" };
+  if (signal === "yellow") return { Icon: Clock3, className: "text-amber-600" };
+  if (signal === "red") return { Icon: CircleAlert, className: "text-destructive" };
+  return { Icon: FileCheck2, className: "text-muted-foreground" };
 }
 
 /** Actionable status → button layout mapping. */
@@ -221,6 +248,72 @@ function ActionButtons({
   );
 }
 
+function DeliverableSlot({
+  t,
+  signal,
+  submitted,
+  total,
+  approved,
+}: {
+  t: IssueTranslator;
+  signal: WorkflowNodeRuntimeSummary["deliverable_signal"];
+  submitted: number;
+  total: number;
+  approved: number;
+}) {
+  const { Icon, className } = deliverableSignalIcon(signal);
+
+  return (
+    <div
+      className="col-span-full flex min-w-0 items-center gap-2 rounded-md bg-background/65 px-2 py-1.5 ring-1 ring-border/55"
+      data-testid="runtime-node-deliverables"
+    >
+      <span className="flex size-5 shrink-0 items-center justify-center rounded-full bg-muted/45">
+        <Icon className={cn("h-3 w-3", className)} />
+      </span>
+      <div className="min-w-0 flex-1">
+        <div className="truncate text-[11px] font-medium text-foreground/85">
+          {deliverableSignalText(t, signal)}
+        </div>
+      </div>
+      <span className="shrink-0 text-[10px] tabular-nums text-muted-foreground">
+        {deliverableProgressText(t, submitted, total, approved)}
+      </span>
+    </div>
+  );
+}
+
+function ActorSlot({
+  icon: Icon,
+  label,
+  name,
+}: {
+  icon: ReturnType<typeof typeIcon>;
+  label: string;
+  name: string | null;
+}) {
+  return (
+    <div className="min-w-0 space-y-1">
+      <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+        {label}
+      </div>
+      <div className="flex min-w-0 items-center gap-1.5 text-[12px]">
+        <span className="flex size-5 shrink-0 items-center justify-center rounded-full bg-muted/55 text-muted-foreground ring-1 ring-border/60">
+          <Icon className="h-3 w-3" />
+        </span>
+        <span
+          className={cn(
+            "min-w-0 truncate font-medium text-foreground/85",
+            !name && "italic text-muted-foreground",
+          )}
+        >
+          {name ?? "--"}
+        </span>
+      </div>
+    </div>
+  );
+}
+
 export function RuntimeNodeCard({
   node,
   nodeRun,
@@ -232,7 +325,6 @@ export function RuntimeNodeCard({
   onAction,
   isActionLoading,
   runtimeSummary,
-  deliverableSignal,
   handles,
   lateralHandleTop,
 }: RuntimeNodeCardProps) {
@@ -240,21 +332,17 @@ export function RuntimeNodeCard({
   const nodeFormat = parseNodeFormat(node.format_schema);
   const isGateway = nodeFormat.kind === "gateway";
   const nodeShape = nodeFormat.shape;
-  const hasWorkerOutput = !isGateway && nodeRun?.worker_output != null;
-  const hasCriticOutput = !isGateway && nodeRun?.critic_output != null;
   const displayStatus = runtimeSummary?.display_status ?? (nodeRun ? toWorkflowRuntimeDisplayStatus(nodeRun.status) : "pending");
   const displayStatusLabel = runtimeDisplayStatusText(t, displayStatus, isGateway ? nodeFormat.gateway_kind : null);
-  const visibleDeliverableSignal = isGateway ? "none" : runtimeSummary?.deliverable_signal ?? deliverableSignal;
-
-  const artifactNames: string[] = [];
-  if (hasWorkerOutput) {
-    artifactNames.push(t(($) => $.execution.detail_panel.worker_output));
-  }
-  if (hasCriticOutput) {
-    artifactNames.push(t(($) => $.execution.detail_panel.critic_output));
-  }
+  const hasCritic = !isGateway && (node.critic_type || node.critic_id);
+  const deliverableSignal = runtimeSummary?.deliverable_signal ?? "none";
+  const deliverableTotal = runtimeSummary?.required_deliverables_total ?? 0;
+  const deliverableSubmitted = runtimeSummary?.required_deliverables_submitted ?? 0;
+  const deliverableApproved = runtimeSummary?.required_deliverables_approved ?? 0;
+  const showDeliverableSummary = !isGateway && deliverableTotal > 0;
 
   const WorkerIcon = typeIcon(node.worker_type);
+  const CriticIcon = node.critic_type === "agent" ? Bot : node.critic_type === "squad" ? Building2 : User;
   const GatewayIcon = nodeFormat.gateway_kind === "join" ? GitMerge : GitFork;
 
   const actionButtons: ActionButtonDef[] = nodeRun
@@ -298,25 +386,15 @@ export function RuntimeNodeCard({
       title={node.title}
       onClick={() => onClick(node.id)}
       className="min-h-[120px]"
-      contentClassName={cn("min-h-[104px] gap-2", workflowNodeInfoAreaClassName(nodeShape))}
+      surfaceClassName="border-border/70 bg-gradient-to-br from-background via-background to-muted/45 shadow-[0_10px_26px_rgba(15,23,42,0.10)] ring-border/60 group-hover:border-border group-hover:ring-primary/15 group-hover:shadow-[0_14px_30px_rgba(37,99,235,0.12)]"
+      contentClassName={cn("min-h-[104px] justify-between gap-2.5", workflowNodeInfoAreaClassName(nodeShape))}
       handles={handles}
       lateralHandleTop={lateralHandleTop}
       elementRef={elementRef}
     >
-      {/* Row 1: node title + deliverable signal + status icon */}
+      {/* Row 1: node title + status icon */}
       <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-1.5 min-w-0">
-          {visibleDeliverableSignal && visibleDeliverableSignal !== "none" && (
-            <span
-              aria-label={`Deliverables ${visibleDeliverableSignal}`}
-              className={cn(
-                "h-2 w-2 rounded-full shrink-0",
-                visibleDeliverableSignal === "green" && "bg-emerald-500",
-                visibleDeliverableSignal === "yellow" && "bg-amber-500",
-                visibleDeliverableSignal === "red" && "bg-red-500",
-              )}
-            />
-          )}
           {nodeShape !== "rectangle" ? (
             <span
               aria-hidden="true"
@@ -339,47 +417,50 @@ export function RuntimeNodeCard({
         </span>
       </div>
 
-      {/* Row 2: Worker (type icon + label + name — no duplicate status icon) */}
-      <div className="flex items-center gap-2 h-6 text-[11px] text-muted-foreground">
-        {isGateway ? (
-          <GatewayIcon className="h-3 w-3 shrink-0" />
-        ) : (
-          <WorkerIcon className="h-3 w-3 shrink-0" />
-        )}
-        <span className="font-medium">
-          {isGateway ? gatewayLabel(nodeFormat.gateway_kind) : `${t(($) => $.execution.card.worker_label)}:`}
-        </span>
-        {!isGateway ? (
-          <span className={cn(!workerName && "italic")}>
-            {workerName ?? "--"}
-          </span>
-        ) : null}
-      </div>
-
-      {/* Row 3: Critic (only when configured) */}
-      {!isGateway && (node.critic_type || node.critic_id) && (
-        <div className="flex items-center gap-2 h-6 text-[11px] text-muted-foreground">
-          {node.critic_type === "agent" ? (
-            <Bot className="h-3 w-3 shrink-0" />
-          ) : node.critic_type === "squad" ? (
-            <Building2 className="h-3 w-3 shrink-0" />
-          ) : (
-            <User className="h-3 w-3 shrink-0" />
-          )}
-          <span className="font-medium">{t(($) => $.execution.card.critic_label)}:</span>
-          <span className={cn(!criticName && "italic")}>
-            {criticName ?? "--"}
-          </span>
+      {isGateway ? (
+        <div className="border-y border-border/45 py-2">
+          <div className="flex min-w-0 items-center gap-2 text-[12px]">
+            <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-muted/55 text-muted-foreground ring-1 ring-border/60">
+              <GatewayIcon className="h-3.5 w-3.5" />
+            </span>
+            <div className="min-w-0">
+              <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                Gateway
+              </p>
+              <p className="truncate font-medium text-foreground/85">
+                {gatewayLabel(nodeFormat.gateway_kind)}
+              </p>
+            </div>
+          </div>
         </div>
-      )}
-
-      {/* Row 4: Artifact names */}
-      {artifactNames.length > 0 && (
-        <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
-          <Paperclip className="h-3 w-3 shrink-0" />
-          <span className="truncate">
-            {t(($) => $.execution.card.artifacts_label)}: {artifactNames.join(", ")}
-          </span>
+      ) : (
+        <div
+          className={cn(
+            "grid gap-3 border-y border-border/45 py-2",
+            hasCritic ? "grid-cols-2" : "grid-cols-1",
+          )}
+        >
+          <ActorSlot
+            icon={WorkerIcon}
+            label={t(($) => $.execution.card.worker_label)}
+            name={workerName}
+          />
+          {hasCritic ? (
+            <ActorSlot
+              icon={CriticIcon}
+              label={t(($) => $.execution.card.critic_label)}
+              name={criticName}
+            />
+          ) : null}
+          {showDeliverableSummary ? (
+            <DeliverableSlot
+              t={t}
+              signal={deliverableSignal}
+              submitted={deliverableSubmitted}
+              total={deliverableTotal}
+              approved={deliverableApproved}
+            />
+          ) : null}
         </div>
       )}
 

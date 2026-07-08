@@ -1,42 +1,22 @@
 // @vitest-environment jsdom
 
 import { fireEvent, render, screen } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
-import { NodeDeliverablesEditor } from "./node-deliverables-editor";
+import { describe, expect, it, vi } from "vitest";
+import { NodeDeliverablesEditor, type WorkflowNodeDeliverableDraft } from "./node-deliverables-editor";
 
-const mocks = vi.hoisted(() => ({
-  updateDeliverableMutate: vi.fn(),
-  createDeliverableMutate: vi.fn(),
-  deleteDeliverableMutate: vi.fn(),
-  deliverables: [
-    {
-      id: "deliverable-1",
-      workflow_node_id: "node-1",
-      kind: "document",
-      title: "New deliverable",
-      description: "",
-      required: true,
-      sort_order: 0,
-      created_at: "",
-      updated_at: "",
-    },
-  ],
-}));
-
-vi.mock("@tanstack/react-query", () => ({
-  useQuery: () => ({ data: mocks.deliverables }),
-}));
-
-vi.mock("@multica/core/hooks", () => ({
-  useWorkspaceId: () => "ws-1",
-}));
-
-vi.mock("@multica/core/workflows/queries", () => ({
-  workflowNodeDeliverablesOptions: () => ({ queryKey: ["deliverables"] }),
-  useCreateWorkflowNodeDeliverable: () => ({ mutate: mocks.createDeliverableMutate, isPending: false }),
-  useUpdateWorkflowNodeDeliverable: () => ({ mutate: mocks.updateDeliverableMutate }),
-  useDeleteWorkflowNodeDeliverable: () => ({ mutate: mocks.deleteDeliverableMutate, isPending: false }),
-}));
+const deliverables: WorkflowNodeDeliverableDraft[] = [
+  {
+    id: "deliverable-1",
+    workflow_node_id: "node-1",
+    kind: "document",
+    title: "New deliverable",
+    description: "",
+    required: true,
+    sort_order: 0,
+    created_at: "",
+    updated_at: "",
+  },
+];
 
 vi.mock("../../i18n", () => {
   const translations = {
@@ -47,6 +27,7 @@ vi.mock("../../i18n", () => {
       deliverable_required: "Required",
       deliverable_section_label: "Deliverables",
       deliverable_empty: "No deliverables defined. Add required documents or pull requests that must be submitted for this node.",
+      deliverable_default_title: "New deliverable",
       deliverable_add: "Add deliverable",
     },
   };
@@ -57,42 +38,67 @@ vi.mock("../../i18n", () => {
   };
 });
 
-describe("NodeDeliverablesEditor", () => {
-  beforeEach(() => {
-    mocks.updateDeliverableMutate.mockReset();
-    mocks.createDeliverableMutate.mockReset();
-    mocks.deleteDeliverableMutate.mockReset();
+function renderEditor(initial: WorkflowNodeDeliverableDraft[] = deliverables) {
+  let draft = initial;
+  let rerender: ReturnType<typeof render>["rerender"];
+  const onChange = vi.fn((next: WorkflowNodeDeliverableDraft[]) => {
+    draft = next;
+    rerender(
+      <NodeDeliverablesEditor
+        nodeId="node-1"
+        deliverables={draft}
+        onChange={onChange}
+      />,
+    );
   });
+  const rendered = render(
+    <NodeDeliverablesEditor
+      nodeId="node-1"
+      deliverables={draft}
+      onChange={onChange}
+    />,
+  );
+  rerender = rendered.rerender;
+  return { onChange };
+}
 
-  it("keeps Chinese IME text local during composition and saves it after composition ends", () => {
-    render(<NodeDeliverablesEditor workflowId="wf-1" nodeId="node-1" />);
+describe("NodeDeliverablesEditor", () => {
+  it("keeps Chinese IME text local during composition and emits draft update after composition ends", () => {
+    const { onChange } = renderEditor();
 
     const input = screen.getByDisplayValue("New deliverable");
     fireEvent.compositionStart(input);
     fireEvent.change(input, { target: { value: "设计文档" } });
 
     expect(input).toHaveValue("设计文档");
-    expect(mocks.updateDeliverableMutate).not.toHaveBeenCalled();
+    expect(onChange).not.toHaveBeenCalled();
 
     fireEvent.compositionEnd(input);
 
-    expect(mocks.updateDeliverableMutate).toHaveBeenCalledWith({
-      deliverableId: "deliverable-1",
-      title: "设计文档",
-    });
+    expect(onChange).toHaveBeenCalledWith([
+      expect.objectContaining({
+        id: "deliverable-1",
+        title: "设计文档",
+      }),
+    ]);
   });
 
-  it("creates a blank deliverable without placeholder title text", () => {
-    render(<NodeDeliverablesEditor workflowId="wf-1" nodeId="node-1" />);
+  it("adds a local draft deliverable with a default title accepted by the API", () => {
+    const { onChange } = renderEditor();
 
     fireEvent.click(screen.getByRole("button", { name: "Add deliverable" }));
 
-    expect(mocks.createDeliverableMutate).toHaveBeenCalledWith({
-      kind: "document",
-      title: "",
-      description: "",
-      required: true,
-      sort_order: 1,
-    });
+    expect(onChange).toHaveBeenCalledWith([
+      deliverables[0],
+      expect.objectContaining({
+        workflow_node_id: "node-1",
+        kind: "document",
+        title: "New deliverable",
+        description: "",
+        required: true,
+        sort_order: 1,
+        isDraft: true,
+      }),
+    ]);
   });
 });

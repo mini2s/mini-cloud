@@ -11,6 +11,7 @@ import {
   useHandbackNodeRun,
   useFinalizeNodeRun,
 } from "@multica/core/workflows/queries";
+import { chatSessionsOptions } from "@multica/core/chat/queries";
 import { myRuntimePermissionOptions } from "@multica/core/runtimes/queries";
 import { useNodeRunControlPermission } from "@multica/core/permissions";
 import { useChatStore } from "@multica/core/chat";
@@ -19,6 +20,7 @@ import {
   postCostrictNavigateToSession,
 } from "@multica/core/platform";
 import { useT } from "../../i18n";
+import { resolveChatSessionId } from "../../chat/lib/resolve-chat-session-id";
 
 interface NodeRunControlActionsProps {
   nodeRun: WorkflowNodeRun;
@@ -49,6 +51,7 @@ export function NodeRunControlActions({
   const finalizeMutation = useFinalizeNodeRun(wsId);
   const setChatSession = useChatStore((s) => s.setActiveSession);
   const setChatOpen = useChatStore((s) => s.setOpen);
+  const { data: chatSessions = [] } = useQuery(chatSessionsOptions(wsId));
 
   const handleOpenSession = () => {
     const sessionId = nodeRun.session_id;
@@ -60,7 +63,12 @@ export function NodeRunControlActions({
       postCostrictNavigateToSession({ sessionId });
       return;
     }
-    setChatSession(sessionId);
+    const chatSessionId = resolveChatSessionId(chatSessions, sessionId);
+    if (!chatSessionId) {
+      toast.error(t(($) => $.node_run.open_session_missing));
+      return;
+    }
+    setChatSession(chatSessionId);
     setChatOpen(true);
   };
 

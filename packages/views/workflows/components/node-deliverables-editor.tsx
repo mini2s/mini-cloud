@@ -1,21 +1,17 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
 import { Button } from "@multica/ui/components/ui/button";
 import { Input } from "@multica/ui/components/ui/input";
 import { Label } from "@multica/ui/components/ui/label";
 import { Switch } from "@multica/ui/components/ui/switch";
 import { Plus, Trash2, FileText, GitPullRequest } from "lucide-react";
 import { useT } from "../../i18n";
-import { useWorkspaceId } from "@multica/core/hooks";
-import {
-  workflowNodeDeliverablesOptions,
-  useCreateWorkflowNodeDeliverable,
-  useUpdateWorkflowNodeDeliverable,
-  useDeleteWorkflowNodeDeliverable,
-} from "@multica/core/workflows/queries";
 import type { WorkflowNodeDeliverable, WorkflowDeliverableKind } from "@multica/core/types";
+
+export type WorkflowNodeDeliverableDraft = WorkflowNodeDeliverable & {
+  isDraft?: boolean;
+};
 
 function getKindOptions(t: ReturnType<typeof useT<"workflows">>["t"]) {
   return [
@@ -25,23 +21,20 @@ function getKindOptions(t: ReturnType<typeof useT<"workflows">>["t"]) {
 }
 
 function DeliverableRow({
-  workflowId,
-  nodeId,
   deliverable,
   disabled,
   kindOptions,
   t,
+  onChange,
+  onDelete,
 }: {
-  workflowId: string;
-  nodeId: string;
-  deliverable: WorkflowNodeDeliverable;
+  deliverable: WorkflowNodeDeliverableDraft;
   disabled?: boolean;
   kindOptions: { value: WorkflowDeliverableKind; icon: typeof FileText; label: string }[];
   t: ReturnType<typeof useT<"workflows">>["t"];
+  onChange: (deliverable: WorkflowNodeDeliverableDraft) => void;
+  onDelete: (deliverableId: string) => void;
 }) {
-  const wsId = useWorkspaceId();
-  const updateMutation = useUpdateWorkflowNodeDeliverable(wsId, workflowId, nodeId);
-  const deleteMutation = useDeleteWorkflowNodeDeliverable(wsId, workflowId, nodeId);
   const [draftTitle, setDraftTitle] = useState(deliverable.title);
   const composingRef = useRef(false);
 
@@ -54,13 +47,13 @@ function DeliverableRow({
 
   const saveTitle = (title: string) => {
     if (title === deliverable.title) return;
-    updateMutation.mutate({ deliverableId: deliverable.id, title });
+    onChange({ ...deliverable, title });
   };
 
   const cycleKind = () => {
     if (disabled) return;
     const next = kindOptions.find((k) => k.value !== deliverable.kind) ?? kindOptions[0]!;
-    updateMutation.mutate({ deliverableId: deliverable.id, kind: next.value });
+    onChange({ ...deliverable, kind: next.value });
   };
 
   return (
@@ -100,7 +93,7 @@ function DeliverableRow({
           checked={deliverable.required}
           disabled={disabled}
           onCheckedChange={(checked) =>
-            updateMutation.mutate({ deliverableId: deliverable.id, required: checked })
+            onChange({ ...deliverable, required: checked })
           }
           className="scale-75"
         />
@@ -110,9 +103,9 @@ function DeliverableRow({
         type="button"
         variant="ghost"
         size="icon"
-        disabled={disabled || deleteMutation.isPending}
+        disabled={disabled}
         className="h-6 w-6 shrink-0"
-        onClick={() => deleteMutation.mutate(deliverable.id)}
+        onClick={() => onDelete(deliverable.id)}
       >
         <Trash2 className="h-3 w-3 text-muted-foreground" />
       </Button>
@@ -121,21 +114,45 @@ function DeliverableRow({
 }
 
 export function NodeDeliverablesEditor({
-  workflowId,
   nodeId,
   disabled,
+  deliverables,
+  onChange,
 }: {
-  workflowId: string;
   nodeId: string;
   disabled?: boolean;
+  deliverables: WorkflowNodeDeliverableDraft[];
+  onChange: (deliverables: WorkflowNodeDeliverableDraft[]) => void;
 }) {
-  const wsId = useWorkspaceId();
   const { t } = useT("workflows");
   const kindOptions = useMemo(() => getKindOptions(t), [t]);
-  const { data: deliverables = [] } = useQuery(
-    workflowNodeDeliverablesOptions(wsId, workflowId, nodeId),
-  );
-  const createMutation = useCreateWorkflowNodeDeliverable(wsId, workflowId, nodeId);
+
+  const updateDeliverable = (next: WorkflowNodeDeliverableDraft) => {
+    onChange(deliverables.map((d) => (d.id === next.id ? next : d)));
+  };
+
+  const deleteDeliverable = (deliverableId: string) => {
+    onChange(deliverables.filter((d) => d.id !== deliverableId));
+  };
+
+  const addDeliverable = () => {
+    const now = new Date().toISOString();
+    onChange([
+      ...deliverables,
+      {
+        id: `draft-${Date.now()}`,
+        workflow_node_id: nodeId,
+        kind: "document",
+        title: t(($) => $.detail_panel.deliverable_default_title),
+        description: "",
+        required: true,
+        sort_order: deliverables.length,
+        created_at: now,
+        updated_at: now,
+        isDraft: true,
+      },
+    ]);
+  };
 
   return (
     <div className="space-y-2">
@@ -148,28 +165,20 @@ export function NodeDeliverablesEditor({
       {deliverables.map((d) => (
         <DeliverableRow
           key={d.id}
-          workflowId={workflowId}
-          nodeId={nodeId}
           deliverable={d}
           disabled={disabled}
           kindOptions={kindOptions}
           t={t}
+          onChange={updateDeliverable}
+          onDelete={deleteDeliverable}
         />
       ))}
       <Button
         type="button"
         size="sm"
         variant="outline"
-        disabled={disabled || createMutation.isPending}
-        onClick={() =>
-          createMutation.mutate({
-            kind: "document",
-            title: "",
-            description: "",
-            required: true,
-            sort_order: deliverables.length,
-          })
-        }
+        disabled={disabled}
+        onClick={addDeliverable}
         className="h-7 w-full text-xs"
       >
         <Plus className="h-3 w-3 mr-1" />

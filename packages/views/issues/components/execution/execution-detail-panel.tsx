@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo } from "react";
+import { useQuery } from "@tanstack/react-query";
 import {
   Activity,
   Bot,
@@ -13,6 +14,7 @@ import {
   User,
 } from "lucide-react";
 import { useChatStore } from "@multica/core/chat";
+import { chatSessionsOptions } from "@multica/core/chat/queries";
 import {
   isEmbeddedInCostrict,
   postCostrictNavigateToSession,
@@ -32,6 +34,7 @@ import {
 } from "../../../common/workflow-node-detail-panel-shell";
 import { ArtifactList } from "./artifact-list";
 import { NodeRunStatusIcon, RuntimeDisplayStatusIcon } from "./node-run-status-icon";
+import { resolveChatSessionId } from "../../../chat/lib/resolve-chat-session-id";
 
 export interface ExecutionDetailPanelProps {
   node: WorkflowNode;
@@ -64,6 +67,13 @@ function formatJson(value: unknown): string {
 
 function isRetryableNodeRunStatus(status: string | undefined): boolean {
   return status === "failed" || status === "format_failed" || status === "blocked" || status === "critic_rework";
+}
+
+function deliverableSignalTone(signal: WorkflowNodeRuntimeSummary["deliverable_signal"]): string {
+  if (signal === "green") return "border-emerald-200 bg-emerald-50 text-emerald-700";
+  if (signal === "yellow") return "border-amber-200 bg-amber-50 text-amber-700";
+  if (signal === "red") return "border-red-200 bg-red-50 text-red-700";
+  return "border-border bg-muted/30 text-muted-foreground";
 }
 
 type IssueTranslator = ReturnType<typeof useT<"issues">>["t"];
@@ -100,12 +110,35 @@ function runtimeDisplayStatusText(
   }
 }
 
+function deliverableSignalText(
+  t: IssueTranslator,
+  signal: WorkflowNodeRuntimeSummary["deliverable_signal"],
+): string {
+  if (signal === "green") return t(($) => $.execution.detail_panel.deliverable_status_green);
+  if (signal === "yellow") return t(($) => $.execution.detail_panel.deliverable_status_yellow);
+  if (signal === "red") return t(($) => $.execution.detail_panel.deliverable_status_red);
+  return t(($) => $.execution.detail_panel.deliverable_status_none);
+}
+
+function deliverableProgressText(
+  t: IssueTranslator,
+  submitted: number,
+  total: number,
+  approved: number,
+): string {
+  return t(($) => $.execution.detail_panel.deliverable_progress)
+    .replaceAll("{{submitted}}", String(submitted))
+    .replaceAll("{{total}}", String(total))
+    .replaceAll("{{approved}}", String(approved));
+}
+
 export function ExecutionDetailPanel({
   node,
   nodeRun,
   workerName,
   criticName,
   onClose,
+  wsId,
   runtimeSummary,
   onUnblock,
   onRetry,
@@ -118,6 +151,7 @@ export function ExecutionDetailPanel({
   const GatewayIcon = nodeFormat.gateway_kind === "join" ? GitMerge : GitFork;
   const setChatSession = useChatStore((s) => s.setActiveSession);
   const setChatOpen = useChatStore((s) => s.setOpen);
+  const { data: chatSessions = [] } = useQuery(chatSessionsOptions(wsId));
 
   useEffect(() => {
     const handleKey = (e: KeyboardEvent) => {
@@ -161,6 +195,10 @@ export function ExecutionDetailPanel({
   const canUnblock = !isGateway && status === "blocked" && !!onUnblock;
   const canRetry = !isGateway && isRetryableNodeRunStatus(status) && !!onRetry;
   const hasAgentOperations = canOpenSession || canUnblock || canRetry;
+  const deliverableSignal = runtimeSummary?.deliverable_signal ?? "none";
+  const requiredDeliverablesTotal = runtimeSummary?.required_deliverables_total ?? 0;
+  const requiredDeliverablesSubmitted = runtimeSummary?.required_deliverables_submitted ?? 0;
+  const requiredDeliverablesApproved = runtimeSummary?.required_deliverables_approved ?? 0;
 
   const handleOpenSession = () => {
     if (!sessionId) return;
@@ -168,7 +206,9 @@ export function ExecutionDetailPanel({
       postCostrictNavigateToSession({ sessionId });
       return;
     }
-    setChatSession(sessionId);
+    const chatSessionId = resolveChatSessionId(chatSessions, sessionId);
+    if (!chatSessionId) return;
+    setChatSession(chatSessionId);
     setChatOpen(true);
   };
 
@@ -348,7 +388,20 @@ export function ExecutionDetailPanel({
         subtitle={t(($) => $.execution.detail_panel.section_deliverables_desc)}
       >
         {nodeRun && !isGateway ? (
-          <ArtifactList nodeRun={nodeRun} />
+          <div className="space-y-3">
+            <div className={`rounded-lg border p-3 ${deliverableSignalTone(deliverableSignal)}`}>
+              <p className="text-xs font-medium">
+                {t(($) => $.execution.detail_panel.deliverable_status_label)}
+              </p>
+              <p className="mt-1 text-sm font-semibold">
+                {deliverableSignalText(t, deliverableSignal)}
+              </p>
+              <p className="mt-1 text-xs opacity-80">
+                {deliverableProgressText(t, requiredDeliverablesSubmitted, requiredDeliverablesTotal, requiredDeliverablesApproved)}
+              </p>
+            </div>
+            <ArtifactList nodeRun={nodeRun} />
+          </div>
         ) : (
           <p className="text-sm text-muted-foreground">
             {isGateway ? "Gateway nodes do not produce deliverables." : "No run data for deliverables yet."}

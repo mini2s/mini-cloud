@@ -163,6 +163,8 @@ interface PanoramaContentProps {
   onOpenStageDialog: (stage?: WorkflowStage) => void;
   onCloseStageDialog: () => void;
   onCloseConfigPanel: () => void;
+  onConfigPanelDirtyChange: (dirty: boolean) => void;
+  onRegisterConfigPanelSave: (save: (() => Promise<boolean>) | null) => void;
   onBackToWorkflows: () => void;
   onToggleWorkflowStatus: () => void;
   onUpdateTitle: (title: string) => void;
@@ -208,6 +210,8 @@ function PanoramaContent({
   onOpenStageDialog,
   onCloseStageDialog,
   onCloseConfigPanel,
+  onConfigPanelDirtyChange,
+  onRegisterConfigPanelSave,
   onBackToWorkflows,
   onToggleWorkflowStatus,
   onUpdateTitle,
@@ -411,6 +415,8 @@ function PanoramaContent({
               recentNodeRun={recentNodeRun}
               onClose={onCloseConfigPanel}
               onSaveNode={onSave}
+              onDirtyChange={onConfigPanelDirtyChange}
+              onRegisterSave={onRegisterConfigPanelSave}
               onDeleteNode={onNodeDelete}
               onStageChange={onStageChange}
             />
@@ -566,6 +572,64 @@ export function WorkflowPanoramaPage({ workflowId, viewToggle }: WorkflowPanoram
   const [emptyStatePickerOpen, setEmptyStatePickerOpen] = useState(false);
   const [selectedEdgeAnchor, setSelectedEdgeAnchor] = useState<{ x: number; y: number } | null>(null);
   const [connectedNodePickerSourceId, setConnectedNodePickerSourceId] = useState<string | null>(null);
+  const [configPanelDirty, setConfigPanelDirty] = useState(false);
+  const [configPanelCloseDialogOpen, setConfigPanelCloseDialogOpen] = useState(false);
+  const [configPanelCloseSaving, setConfigPanelCloseSaving] = useState(false);
+  const configPanelSaveRef = useRef<(() => Promise<boolean>) | null>(null);
+  const pendingConfigPanelCloseActionRef = useRef<(() => void | Promise<void>) | null>(null);
+
+  const closeConfigPanelNow = useCallback(async (afterClose?: () => void | Promise<void>) => {
+    setConfigPanelOpen(false);
+    setConfigPanelDirty(false);
+    await afterClose?.();
+  }, []);
+
+  const requestCloseConfigPanel = useCallback((afterClose?: () => void | Promise<void>) => {
+    if (configPanelDirty && configPanelSaveRef.current) {
+      pendingConfigPanelCloseActionRef.current = afterClose ?? null;
+      setConfigPanelCloseDialogOpen(true);
+      return false;
+    }
+    void closeConfigPanelNow(afterClose);
+    return true;
+  }, [closeConfigPanelNow, configPanelDirty]);
+
+  const handleConfirmSaveAndCloseConfigPanel = useCallback(async () => {
+    const save = configPanelSaveRef.current;
+    if (!save) {
+      const pending = pendingConfigPanelCloseActionRef.current;
+      pendingConfigPanelCloseActionRef.current = null;
+      setConfigPanelCloseDialogOpen(false);
+      await closeConfigPanelNow(pending ?? undefined);
+      return;
+    }
+
+    setConfigPanelCloseSaving(true);
+    const saved = await save();
+    setConfigPanelCloseSaving(false);
+    if (!saved) return;
+
+    const pending = pendingConfigPanelCloseActionRef.current;
+    pendingConfigPanelCloseActionRef.current = null;
+    setConfigPanelCloseDialogOpen(false);
+    await closeConfigPanelNow(pending ?? undefined);
+  }, [closeConfigPanelNow]);
+
+  const handleCancelCloseConfigPanel = useCallback(() => {
+    pendingConfigPanelCloseActionRef.current = null;
+    setConfigPanelCloseDialogOpen(false);
+  }, []);
+
+  const handleDiscardAndCloseConfigPanel = useCallback(async () => {
+    const pending = pendingConfigPanelCloseActionRef.current;
+    pendingConfigPanelCloseActionRef.current = null;
+    setConfigPanelCloseDialogOpen(false);
+    if (selectedNodeId) {
+      clearNodeEdits(selectedNodeId);
+    }
+    await closeConfigPanelNow(pending ?? undefined);
+  }, [clearNodeEdits, closeConfigPanelNow, selectedNodeId]);
+
   const openNodePanel = useCallback((nodeId: string) => {
     selectNode(nodeId);
     setConfigPanelOpen(true);
@@ -670,29 +734,33 @@ export function WorkflowPanoramaPage({ workflowId, viewToggle }: WorkflowPanoram
   // ── Handlers ──
   const handleNodeClick = useCallback(
     (_event: React.MouseEvent, node: Node) => {
-      setSelectedEdgeAnchor(null);
       const workerId = (node.data.parentNodeId as string | undefined) ?? node.id;
-      openNodePanel(workerId as string);
+      requestCloseConfigPanel(() => {
+        setSelectedEdgeAnchor(null);
+        openNodePanel(workerId as string);
+      });
     },
-    [openNodePanel],
+    [openNodePanel, requestCloseConfigPanel],
   );
 
   const handleEdgeClick = useCallback(
     (_event: React.MouseEvent, edge: Edge, position: { x: number; y: number }) => {
-      selectEdge(edge.id);
-      setSelectedEdgeAnchor(position);
-      setConfigPanelOpen(false);
+      requestCloseConfigPanel(() => {
+        selectEdge(edge.id);
+        setSelectedEdgeAnchor(position);
+      });
     },
-    [selectEdge],
+    [requestCloseConfigPanel, selectEdge],
   );
 
   const handlePaneClick = useCallback(() => {
-    selectNode(null);
-    selectEdge(null);
-    setSelectedEdgeAnchor(null);
-    setConfigPanelOpen(false);
-    setConnectedNodePickerSourceId(null);
-  }, [selectNode, selectEdge]);
+    requestCloseConfigPanel(() => {
+      selectNode(null);
+      selectEdge(null);
+      setSelectedEdgeAnchor(null);
+      setConnectedNodePickerSourceId(null);
+    });
+  }, [requestCloseConfigPanel, selectNode, selectEdge]);
 
   const handleNodeDragStop = useCallback(
     (_event: MouseEvent | TouchEvent, node: Node) => {
@@ -1097,7 +1165,13 @@ export function WorkflowPanoramaPage({ workflowId, viewToggle }: WorkflowPanoram
         onViewportChange={handleViewportChange}
         onOpenStageDialog={handleOpenStageDialog}
         onCloseStageDialog={handleCloseStageDialog}
-        onCloseConfigPanel={() => setConfigPanelOpen(false)}
+        onCloseConfigPanel={() => {
+          void requestCloseConfigPanel();
+        }}
+        onConfigPanelDirtyChange={setConfigPanelDirty}
+        onRegisterConfigPanelSave={(save) => {
+          configPanelSaveRef.current = save;
+        }}
         onBackToWorkflows={() => navigation.push(wsPaths.workflows())}
         onToggleWorkflowStatus={handleToggleWorkflowStatus}
         onUpdateTitle={handleUpdateTitle}
@@ -1106,6 +1180,42 @@ export function WorkflowPanoramaPage({ workflowId, viewToggle }: WorkflowPanoram
         onTestRun={handleTestRun}
         onOpenRunHistory={() => navigation.push(wsPaths.workflowRuns(workflowId))}
       />
+      <AlertDialog open={configPanelCloseDialogOpen} onOpenChange={(open) => {
+        if (!open) handleCancelCloseConfigPanel();
+      }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t(($) => $.detail_panel.close_confirm_title)}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {t(($) => $.detail_panel.close_confirm_description)}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={configPanelCloseSaving}>
+              {t(($) => $.overview.stage_dialog.cancel)}
+            </AlertDialogCancel>
+            <AlertDialogAction
+              variant="destructive"
+              disabled={configPanelCloseSaving}
+              onClick={(event) => {
+                event.preventDefault();
+                void handleDiscardAndCloseConfigPanel();
+              }}
+            >
+              {t(($) => $.detail_panel.discard_changes)}
+            </AlertDialogAction>
+            <AlertDialogAction
+              disabled={configPanelCloseSaving}
+              onClick={(event) => {
+                event.preventDefault();
+                void handleConfirmSaveAndCloseConfigPanel();
+              }}
+            >
+              {t(($) => $.detail_panel.save_changes)}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </ReactFlowProvider>
   );
 }
