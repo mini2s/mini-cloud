@@ -101,6 +101,11 @@ export function WorkflowCanvasNodeShell({
     event.stopPropagation();
     onAddConnectedNode();
   };
+  const simpleHandleClassName = cn(
+    "!bg-current opacity-0 transition-opacity group-hover:opacity-100",
+    handleColorClassName,
+    !onAddConnectedNode && "!cursor-default",
+  );
   const body = (
     <>
       <span
@@ -119,7 +124,7 @@ export function WorkflowCanvasNodeShell({
           type="target"
           position={Position.Left}
           id="left"
-          className={cn("!bg-current opacity-0 transition-opacity group-hover:opacity-100", handleColorClassName)}
+          className={simpleHandleClassName}
           style={lateralHandleTop != null ? { top: lateralHandleTop } : undefined}
         />
       ) : null}
@@ -148,7 +153,7 @@ export function WorkflowCanvasNodeShell({
             type="source"
             position={Position.Right}
             id="right"
-            className={cn("!bg-current opacity-0 transition-opacity group-hover:opacity-100", handleColorClassName)}
+            className={simpleHandleClassName}
             style={lateralHandleTop != null ? { top: lateralHandleTop } : undefined}
           />
         )
@@ -158,7 +163,7 @@ export function WorkflowCanvasNodeShell({
           type="source"
           position={Position.Bottom}
           id="bottom"
-          className={cn("!bg-current opacity-0 transition-opacity group-hover:opacity-100", handleColorClassName)}
+          className={simpleHandleClassName}
         />
       ) : null}
       <div className={cn("relative z-10 flex min-w-0 flex-col", contentClassName)}>
