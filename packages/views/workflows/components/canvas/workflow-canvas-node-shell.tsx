@@ -7,6 +7,8 @@ import { workflowNodeShapeSurfaceClassName } from "../../../common/workflow-node
 
 export type WorkflowCanvasNodeHandle = "left-target" | "right-source" | "bottom-source";
 
+const HANDLE_EDGE_INSET = 3;
+
 interface WorkflowCanvasNodeShellProps {
   as?: "div" | "button";
   testId: string;
@@ -51,6 +53,13 @@ function AddConnectedNodeTooltip() {
       </span>
     </span>
   );
+}
+
+function lateralHandleStyle(side: "left" | "right", top?: number): CSSProperties {
+  return {
+    [side]: HANDLE_EDGE_INSET,
+    ...(top != null ? { top } : {}),
+  };
 }
 
 export function WorkflowCanvasNodeShell({
@@ -125,7 +134,7 @@ export function WorkflowCanvasNodeShell({
           position={Position.Left}
           id="left"
           className={simpleHandleClassName}
-          style={lateralHandleTop != null ? { top: lateralHandleTop } : undefined}
+          style={lateralHandleStyle("left", lateralHandleTop)}
         />
       ) : null}
       {handles.includes("right-source") ? (
@@ -140,12 +149,22 @@ export function WorkflowCanvasNodeShell({
             onClick={handleAddConnectedNodeClick}
             onKeyDown={handleAddConnectedNodeKeyDown}
             className={cn(
-              "group/add-port !z-20 !h-6 !w-6 !overflow-visible !rounded-full !border !border-primary/35 !bg-background !text-primary !shadow-[0_10px_24px_rgba(37,99,235,0.18)]",
-              "opacity-0 transition-all group-hover:opacity-100 hover:!border-primary/60 hover:!bg-primary hover:!text-primary-foreground",
+              "group/add-port !z-20 !overflow-visible !border-0 !bg-transparent !text-primary",
+              "opacity-0 transition-opacity group-hover:opacity-100",
             )}
-            style={lateralHandleTop != null ? { top: lateralHandleTop } : undefined}
+            style={lateralHandleStyle("right", lateralHandleTop)}
           >
-            <Plus className="pointer-events-none absolute left-1/2 top-1/2 size-3 -translate-x-1/2 -translate-y-1/2" strokeWidth={2} />
+            <span
+              aria-hidden="true"
+              data-testid="workflow-canvas-add-connected-node-visual"
+              className={cn(
+                "pointer-events-auto absolute left-1/2 top-1/2 flex size-6 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full",
+                "border border-primary/35 bg-background text-primary shadow-[0_10px_24px_rgba(37,99,235,0.18)]",
+                "transition-all hover:border-primary/60 hover:bg-primary hover:text-primary-foreground",
+              )}
+            >
+              <Plus className="pointer-events-none size-3" strokeWidth={2} />
+            </span>
             <AddConnectedNodeTooltip />
           </Handle>
         ) : (
@@ -154,7 +173,7 @@ export function WorkflowCanvasNodeShell({
             position={Position.Right}
             id="right"
             className={simpleHandleClassName}
-            style={lateralHandleTop != null ? { top: lateralHandleTop } : undefined}
+            style={lateralHandleStyle("right", lateralHandleTop)}
           />
         )
       ) : null}
@@ -164,6 +183,7 @@ export function WorkflowCanvasNodeShell({
           position={Position.Bottom}
           id="bottom"
           className={simpleHandleClassName}
+          style={{ bottom: HANDLE_EDGE_INSET }}
         />
       ) : null}
       <div className={cn("relative z-10 flex min-w-0 flex-col", contentClassName)}>

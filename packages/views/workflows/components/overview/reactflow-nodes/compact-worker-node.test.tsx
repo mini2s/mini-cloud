@@ -383,6 +383,7 @@ describe("CompactWorkerNode", () => {
     const node = screen.getByTestId("compact-worker-node-1");
     const surface = node.querySelector('[data-node-shape-surface="true"]');
     const addPort = screen.getByRole("button", { name: "Drag to connect, click to add node" });
+    const addPortVisual = screen.getByTestId("workflow-canvas-add-connected-node-visual");
 
     expect(surface?.className).toContain("bg-gradient-to-br");
     expect(surface?.className).toContain("border-white/80");
@@ -390,7 +391,7 @@ describe("CompactWorkerNode", () => {
     expect(surface?.className).not.toContain("border-border/70");
     expect(surface?.className).not.toContain("border-slate-300/55");
     expect(surface?.className).toContain("shadow-[0_14px_32px_rgba(15,23,42,0.12)]");
-    expect(addPort.className).toContain("!shadow-[0_10px_24px_rgba(37,99,235,0.18)]");
+    expect(addPortVisual.className).toContain("shadow-[0_10px_24px_rgba(37,99,235,0.18)]");
     expect(addPort.className).not.toContain("text-slate-300");
     expect(addPort).not.toHaveAttribute("title");
     const tooltip = screen.getByTestId("workflow-canvas-add-connected-node-tooltip");
@@ -398,6 +399,32 @@ describe("CompactWorkerNode", () => {
     expect(tooltip).toHaveTextContent("Click to add node");
     expect(tooltip.className).toContain("group-hover/add-port:opacity-100");
     expect(tooltip.className).toContain("bg-popover/95");
+  });
+
+  it("keeps the React Flow edge anchor on the card edge when rendering the add-port affordance", () => {
+    const rfn = {
+      id: "node-1",
+      type: "compactWorker",
+      position: { x: 100, y: 12 },
+      data: {
+        ...baseData,
+        addConnectedNodeLabel: "Drag to connect, click to add node",
+        onAddConnectedNode: vi.fn(),
+      },
+    } as Node;
+    renderWithProvider(rfn);
+
+    const leftHandle = document.querySelector('[data-handleid="left"]');
+    const rightHandle = document.querySelector('[data-handleid="right"]');
+    const bottomHandle = document.querySelector('[data-handleid="bottom"]');
+    const addPortVisual = screen.getByTestId("workflow-canvas-add-connected-node-visual");
+
+    expect(leftHandle).toHaveStyle({ left: "3px" });
+    expect(rightHandle).toHaveStyle({ right: "3px" });
+    expect(bottomHandle).toHaveStyle({ bottom: "3px" });
+    expect(rightHandle?.className).not.toContain("!h-6");
+    expect(rightHandle?.className).not.toContain("!w-6");
+    expect(addPortVisual.className).toContain("size-6");
   });
 
   it("anchors lateral handles to the fixed worker midpoint", () => {

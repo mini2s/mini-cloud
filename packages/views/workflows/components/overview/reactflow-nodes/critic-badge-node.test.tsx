@@ -200,6 +200,18 @@ describe("CriticBadgeNode", () => {
     expect(handle?.getAttribute("data-handleid")).toBe("top");
   });
 
+  it("keeps the critic edge anchor on the card top edge", () => {
+    const rfn = {
+      id: "node-1:critic",
+      type: "criticBadge",
+      position: { x: 100, y: 96 },
+      data: baseData,
+    } as Node;
+    renderWithProvider(rfn);
+    const handle = document.querySelector(".react-flow__handle");
+    expect(handle).toHaveStyle({ top: "3px" });
+  });
+
   it("has correct dimensions", () => {
     const rfn = {
       id: "node-1:critic",

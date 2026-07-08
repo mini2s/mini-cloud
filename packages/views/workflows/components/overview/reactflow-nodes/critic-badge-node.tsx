@@ -4,6 +4,8 @@ import { ShieldAlert } from "lucide-react";
 import type { WorkflowNode } from "@multica/core/types";
 import { CRITIC_WIDTH, CRITIC_HEIGHT } from "../constants";
 
+const HANDLE_EDGE_INSET = 3;
+
 export interface CriticBadgeNodeData extends Record<string, unknown> {
   node: WorkflowNode;
   parentNodeId: string;
@@ -34,7 +36,9 @@ export const CriticBadgeNode = memo(function CriticBadgeNode({
       style={{ width: CRITIC_WIDTH, height: CRITIC_HEIGHT }}
     >
       <Handle type="target" position={Position.Top} id="top"
-        className="!border-warning/30 !bg-warning/70" />
+        className="!border-warning/30 !bg-warning/70"
+        style={{ top: HANDLE_EDGE_INSET }}
+      />
 
       <div className="flex h-full min-w-0 flex-col justify-between gap-0.5">
         <div className="flex min-w-0 items-start gap-1.5">
