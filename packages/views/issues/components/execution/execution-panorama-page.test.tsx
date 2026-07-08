@@ -419,6 +419,32 @@ describe("ExecutionPanoramaPage", () => {
     expect(screen.getByTestId("execution-canvas-shell").className).not.toContain("min-h-[480px]");
   });
 
+  it("fills the parent height when embedded in fullscreen issue detail", () => {
+    mocks.isLoading = false;
+    mocks.workflowData = { id: "wf-1", title: "Test Workflow" };
+    mocks.stagesData = [STAGE];
+    mocks.nodesData = [NODE];
+    mocks.agentsData = [AGENT];
+
+    render(
+      <Wrapper>
+        <ExecutionPanoramaPage
+          workflowId="wf-1"
+          runId={null}
+          wsId="ws-1"
+          fillAvailableHeight
+        />
+      </Wrapper>,
+    );
+
+    expect(screen.getByTestId("execution-panorama")).toHaveClass("min-h-0");
+    expect(screen.getByTestId("execution-panorama").className).not.toContain("min-h-[640px]");
+    expect(screen.getByTestId("execution-canvas-shell")).toHaveClass("min-h-0", "flex-1");
+    expect(screen.getByTestId("execution-canvas-shell").className).not.toContain("min-h-[560px]");
+    expect(screen.getByTestId("panorama-canvas")).toHaveClass("left-0", "right-0");
+    expect(screen.getByTestId("panorama-canvas").className).not.toContain("left-40");
+  });
+
   it("renders the shared ReactFlow canvas core when stages exist", () => {
     mocks.isLoading = false;
     mocks.workflowData = { id: "wf-1", title: "Test Workflow" };

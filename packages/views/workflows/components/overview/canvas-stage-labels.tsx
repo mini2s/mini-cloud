@@ -1,6 +1,7 @@
 "use client";
 
 import { Button } from "@multica/ui/components/ui/button";
+import { cn } from "@multica/ui/lib/utils";
 import { ChevronDown, ChevronUp, GripVertical, Pencil, Trash2 } from "lucide-react";
 import type { WorkflowStage } from "@multica/core/types";
 import {
@@ -84,7 +85,10 @@ export function CanvasStageLabels({
           return (
             <div
               key={stage.id}
-              className="absolute pointer-events-auto flex w-40 items-center pr-2 group"
+              className={cn(
+                "absolute flex w-40 items-center pr-2 group",
+                readOnly ? "pointer-events-none" : "pointer-events-auto",
+              )}
               data-testid="stage-label-rail"
               style={{ top, height }}
             >

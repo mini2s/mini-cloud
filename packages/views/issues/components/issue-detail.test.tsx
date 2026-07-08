@@ -11,7 +11,13 @@ const TEST_RESOURCES = { en: { common: enCommon, issues: enIssues } };
 
 const mockViewport = vi.hoisted(() => ({ isMobile: false }));
 const mockExecutionPanoramaProps = vi.hoisted(() => ({
-  latest: null as null | { workflowId: string; runId: string | null; wsId: string },
+  latest: null as null | {
+    workflowId: string;
+    runId: string | null;
+    wsId: string;
+    issueId?: string;
+    fillAvailableHeight?: boolean;
+  },
 }));
 
 vi.mock("@multica/ui/hooks/use-mobile", () => ({
@@ -211,7 +217,13 @@ vi.mock("../../projects/components/project-picker", () => ({
 }));
 
 vi.mock("./execution", () => ({
-  ExecutionPanoramaPage: (props: { workflowId: string; runId: string | null; wsId: string }) => {
+  ExecutionPanoramaPage: (props: {
+    workflowId: string;
+    runId: string | null;
+    wsId: string;
+    issueId?: string;
+    fillAvailableHeight?: boolean;
+  }) => {
     mockExecutionPanoramaProps.latest = props;
     return <div data-testid="execution-panorama-props" />;
   },
@@ -651,6 +663,8 @@ describe("IssueDetail (shared)", () => {
       workflowId: "wf-assignee-1",
       runId: "run-1",
       wsId: "ws-1",
+      issueId: "issue-1",
+      fillAvailableHeight: true,
     });
   });
 
@@ -670,7 +684,9 @@ describe("IssueDetail (shared)", () => {
 
     expect(scrollContainer).toHaveClass("flex", "flex-col", "overflow-hidden");
     expect(scrollContainer.className).not.toContain("overflow-y-auto");
-    expect(panorama.parentElement).toHaveClass("flex", "flex-1", "min-h-0", "py-6");
+    expect(panorama.parentElement).toHaveClass("flex", "flex-1", "min-h-0");
+    expect(panorama.parentElement?.className).not.toContain("py-6");
+    expect(mockExecutionPanoramaProps.latest?.fillAvailableHeight).toBe(true);
   });
 
   it("shows an Unknown project placeholder when the project query fails", async () => {

@@ -18,6 +18,7 @@ import {
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import type { WorkflowStage } from "@multica/core/types";
+import { cn } from "@multica/ui/lib/utils";
 import { CanvasStageLabels } from "../overview/canvas-stage-labels";
 import {
   workflowCanvasControlsClassName,
@@ -37,6 +38,7 @@ export interface WorkflowCanvasCoreProps {
   defaultViewport?: Viewport;
   fitView?: boolean;
   fitViewOptions?: FitViewOptions;
+  reserveStageRail?: boolean;
   children?: ReactNode;
   onNodeClick?: (event: React.MouseEvent, node: Node) => void;
   onEdgeClick?: (event: React.MouseEvent, edge: Edge, position: { x: number; y: number }) => void;
@@ -62,6 +64,7 @@ export function WorkflowCanvasCore({
   defaultViewport = { x: 0, y: 24, zoom: 0.95 },
   fitView = false,
   fitViewOptions,
+  reserveStageRail = true,
   children,
   onNodeClick,
   onEdgeClick,
@@ -92,7 +95,13 @@ export function WorkflowCanvasCore({
         onReorder={onStageReorder}
       />
 
-      <div className="absolute inset-y-0 left-40 right-0 z-10 min-w-0" data-testid="panorama-canvas">
+      <div
+        className={cn(
+          "absolute inset-y-0 right-0 z-10 min-w-0",
+          reserveStageRail ? "left-40" : "left-0",
+        )}
+        data-testid="panorama-canvas"
+      >
         <ReactFlow
           nodes={nodes}
           edges={edges}

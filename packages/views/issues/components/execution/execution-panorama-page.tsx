@@ -36,7 +36,6 @@ import {
 } from "../../../workflows/components/canvas/workflow-canvas-model";
 import { panoramaEdgeTypes } from "../../../workflows/components/overview/reactflow-edges";
 import {
-  WORKER_HEIGHT,
   WORKER_WIDTH,
   sortStagesForDisplay,
 } from "../../../workflows/components/overview/constants";
@@ -46,12 +45,14 @@ import { runtimeCanvasNodeTypes } from "./runtime-canvas-node";
 import { RUNTIME_NODE_HEIGHT } from "./runtime-node-card";
 import { Loader2 } from "lucide-react";
 import { toast } from "sonner";
+import { cn } from "@multica/ui/lib/utils";
 
 export interface ExecutionPanoramaPageProps {
   workflowId: string;
   runId: string | null;
   wsId: string;
   issueId?: string;
+  fillAvailableHeight?: boolean;
 }
 
 const RUNTIME_CANVAS_FIT_VIEW = {
@@ -75,6 +76,7 @@ interface ExecutionPanoramaCanvasProps {
   viewport: Viewport;
   setViewport: (viewport: Viewport) => void;
   setSelectedNodeId: (nodeId: string | null) => void;
+  fillAvailableHeight?: boolean;
 }
 
 function ExecutionPanoramaCanvas({
@@ -85,6 +87,7 @@ function ExecutionPanoramaCanvas({
   viewport,
   setViewport,
   setSelectedNodeId,
+  fillAvailableHeight = false,
 }: ExecutionPanoramaCanvasProps) {
   const { fitView, getViewport, setCenter, viewportInitialized } = useReactFlow();
   const nodesInitialized = useNodesInitialized();
@@ -145,7 +148,13 @@ function ExecutionPanoramaCanvas({
         nodeRunMap={nodeRunMap}
         onScrollToNode={scrollToNode}
       />
-      <div className="relative flex min-h-[560px] flex-1" data-testid="execution-canvas-shell">
+      <div
+        className={cn(
+          "relative flex flex-1",
+          fillAvailableHeight ? "min-h-0" : "min-h-[560px]",
+        )}
+        data-testid="execution-canvas-shell"
+      >
         <WorkflowCanvasCore
           nodes={rfNodes}
           edges={rfEdges}
@@ -158,6 +167,7 @@ function ExecutionPanoramaCanvas({
             nodes: rfNodes.map((node) => ({ id: node.id })),
             ...RUNTIME_CANVAS_FIT_VIEW,
           }}
+          reserveStageRail={!fillAvailableHeight}
           viewportY={viewport.y}
           viewportZoom={viewport.zoom}
           onMove={setViewport}
@@ -173,6 +183,7 @@ export function ExecutionPanoramaPage({
   runId,
   wsId,
   issueId,
+  fillAvailableHeight = false,
 }: ExecutionPanoramaPageProps) {
   const queryClient = useQueryClient();
   // ---- Data queries ----
@@ -336,7 +347,10 @@ export function ExecutionPanoramaPage({
 
   return (
     <div
-      className="relative flex h-full min-h-[640px] flex-1 flex-col"
+      className={cn(
+        "relative flex h-full flex-1 flex-col",
+        fillAvailableHeight ? "min-h-0" : "min-h-[640px]",
+      )}
       data-testid="execution-panorama"
     >
       <ReactFlowProvider>
@@ -348,6 +362,7 @@ export function ExecutionPanoramaPage({
           viewport={viewport}
           setViewport={setViewport}
           setSelectedNodeId={setSelectedNodeId}
+          fillAvailableHeight={fillAvailableHeight}
         />
       </ReactFlowProvider>
 
