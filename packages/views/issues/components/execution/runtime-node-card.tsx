@@ -299,11 +299,6 @@ export function RuntimeNodeCard({
       onClick={() => onClick(node.id)}
       className="min-h-[120px]"
       contentClassName={cn("min-h-[104px] gap-2", workflowNodeInfoAreaClassName(nodeShape))}
-      surfaceClassName={cn(
-        "border-border/80 bg-background shadow-[0_1px_2px_rgba(15,23,42,0.06)]",
-        "group-hover:shadow-md",
-        isSelected && "shadow-[inset_0_0_0_1px_rgba(59,130,246,0.08),0_2px_12px_rgba(15,23,42,0.06)]",
-      )}
       handles={handles}
       lateralHandleTop={lateralHandleTop}
       elementRef={elementRef}

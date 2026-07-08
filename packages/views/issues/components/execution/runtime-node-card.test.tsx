@@ -306,6 +306,14 @@ describe("RuntimeNodeCard", () => {
     expect(card).toHaveAttribute("data-workflow-canvas-node-shell", "true");
     expect(card.className).not.toContain("min-w-[240px]");
     expect(card).toHaveStyle({ width: "224px" });
+    const surface = card.querySelector('[data-node-shape-surface="true"]');
+    expect(surface?.className).toContain("border-white/80");
+    expect(surface?.className).toContain("bg-gradient-to-br");
+    expect(surface?.className).toContain("ring-slate-200/70");
+    expect(surface?.className).toContain("shadow-[0_14px_32px_rgba(15,23,42,0.12)]");
+    expect(surface?.className).not.toContain("border-border/80");
+    expect(surface?.className).not.toContain("bg-background");
+    expect(surface?.className).not.toContain("shadow-[0_1px_2px_rgba(15,23,42,0.06)]");
     expect(screen.getByLabelText("Reviewing")).toBeInTheDocument();
     expect(screen.getByLabelText("Deliverables red")).toBeInTheDocument();
   });

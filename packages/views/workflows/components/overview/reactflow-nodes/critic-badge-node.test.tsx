@@ -76,7 +76,7 @@ describe("CriticBadgeNode", () => {
     expect(el.className).not.toContain("var(--warning)");
   });
 
-  it("shows ShieldAlert icon and a single subtle Critic label", () => {
+  it("uses the icon only for the critic role indicator", () => {
     const rfn = {
       id: "node-1:critic",
       type: "criticBadge",
@@ -84,7 +84,10 @@ describe("CriticBadgeNode", () => {
       data: baseData,
     } as Node;
     renderWithProvider(rfn);
-    expect(screen.getAllByText("Critic")).toHaveLength(1);
+    const el = screen.getByTestId("critic-badge-node-1:critic");
+    expect(el.querySelector("[data-testid='critic-badge-icon-node-1:critic']")).toBeInTheDocument();
+    expect(screen.queryByText("Reviewer")).not.toBeInTheDocument();
+    expect(screen.queryByText("Critic")).not.toBeInTheDocument();
   });
 
   it("shows critic name", () => {
@@ -98,7 +101,7 @@ describe("CriticBadgeNode", () => {
     expect(screen.getByText("Security Reviewer")).toBeInTheDocument();
   });
 
-  it("shows reviewer metadata using the same footer structure as worker nodes", () => {
+  it("shows critic-owned metadata using the same footer structure as worker nodes", () => {
     const rfn = {
       id: "node-1:critic",
       type: "criticBadge",
@@ -108,9 +111,69 @@ describe("CriticBadgeNode", () => {
     renderWithProvider(rfn);
 
     const meta = screen.getByTestId("critic-badge-meta-node-1:critic");
-    expect(meta).toHaveTextContent("Review step");
+    expect(meta).toHaveTextContent("Agent reviewer");
+    expect(meta).not.toHaveTextContent("Review step");
     expect(meta).not.toHaveTextContent("Critic");
     expect(meta.className).toContain("border-t");
+  });
+
+  it("keeps long reviewer names readable and available in full", () => {
+    const longName = "Security Compliance Reviewer for Enterprise Release Approval";
+    const rfn = {
+      id: "node-1:critic",
+      type: "criticBadge",
+      position: { x: 100, y: 96 },
+      data: {
+        ...baseData,
+        criticName: longName,
+      },
+    } as Node;
+    renderWithProvider(rfn);
+
+    const title = screen.getByText(longName);
+    expect(title).toHaveAttribute("title", longName);
+    expect(title.className).toContain("line-clamp-2");
+    expect(title.className).toContain("text-[11px]");
+    expect(title.className).toContain("font-medium");
+    expect(title.className).toContain("text-slate-600");
+    expect(title.className).not.toContain("truncate");
+    expect(title.className).not.toContain("font-semibold");
+    expect(title.className).not.toContain("text-foreground");
+  });
+
+  it("keeps long reviewer names and metadata inside the compact card", () => {
+    const longName = "Security Compliance Reviewer for Enterprise Release Approval";
+    const rfn = {
+      id: "node-1:critic",
+      type: "criticBadge",
+      position: { x: 100, y: 96 },
+      data: {
+        ...baseData,
+        criticName: longName,
+      },
+    } as Node;
+    renderWithProvider(rfn);
+
+    const el = screen.getByTestId("critic-badge-node-1:critic");
+    const meta = screen.getByTestId("critic-badge-meta-node-1:critic");
+    expect(el).toHaveClass("overflow-hidden", "p-1");
+    expect(meta).toHaveClass("pt-0.5", "text-[8px]", "leading-[10px]");
+  });
+
+  it("keeps reviewer metadata visually subordinate to the critic icon", () => {
+    const rfn = {
+      id: "node-1:critic",
+      type: "criticBadge",
+      position: { x: 100, y: 96 },
+      data: baseData,
+    } as Node;
+    renderWithProvider(rfn);
+
+    const icon = screen.getByTestId("critic-badge-icon-node-1:critic");
+    const metaLabel = screen.getByText("Agent reviewer");
+    expect(icon).toHaveClass("text-warning/75");
+    expect(metaLabel.className).toContain("text-slate-500");
+    expect(metaLabel.className).not.toContain("text-slate-700");
   });
 
   it("has only a top Handle (target)", () => {

@@ -124,24 +124,34 @@ export function WorkflowCanvasNodeShell({
         />
       ) : null}
       {handles.includes("right-source") ? (
-        <Handle
-          type="source"
-          position={Position.Right}
-          id="right"
-          aria-label={addConnectedNodeLabel}
-          role={onAddConnectedNode ? "button" : undefined}
-          tabIndex={onAddConnectedNode ? 0 : undefined}
-          onClick={handleAddConnectedNodeClick}
-          onKeyDown={handleAddConnectedNodeKeyDown}
-          className={cn(
-            "group/add-port !z-20 !h-6 !w-6 !overflow-visible !rounded-full !border !border-primary/35 !bg-background !text-primary !shadow-[0_10px_24px_rgba(37,99,235,0.18)]",
-            "opacity-0 transition-all group-hover:opacity-100 hover:!border-primary/60 hover:!bg-primary hover:!text-primary-foreground",
-          )}
-          style={lateralHandleTop != null ? { top: lateralHandleTop } : undefined}
-        >
-          <Plus className="pointer-events-none absolute left-1/2 top-1/2 size-3 -translate-x-1/2 -translate-y-1/2" strokeWidth={2} />
-          <AddConnectedNodeTooltip />
-        </Handle>
+        onAddConnectedNode ? (
+          <Handle
+            type="source"
+            position={Position.Right}
+            id="right"
+            aria-label={addConnectedNodeLabel}
+            role="button"
+            tabIndex={0}
+            onClick={handleAddConnectedNodeClick}
+            onKeyDown={handleAddConnectedNodeKeyDown}
+            className={cn(
+              "group/add-port !z-20 !h-6 !w-6 !overflow-visible !rounded-full !border !border-primary/35 !bg-background !text-primary !shadow-[0_10px_24px_rgba(37,99,235,0.18)]",
+              "opacity-0 transition-all group-hover:opacity-100 hover:!border-primary/60 hover:!bg-primary hover:!text-primary-foreground",
+            )}
+            style={lateralHandleTop != null ? { top: lateralHandleTop } : undefined}
+          >
+            <Plus className="pointer-events-none absolute left-1/2 top-1/2 size-3 -translate-x-1/2 -translate-y-1/2" strokeWidth={2} />
+            <AddConnectedNodeTooltip />
+          </Handle>
+        ) : (
+          <Handle
+            type="source"
+            position={Position.Right}
+            id="right"
+            className={cn("!bg-current opacity-0 transition-opacity group-hover:opacity-100", handleColorClassName)}
+            style={lateralHandleTop != null ? { top: lateralHandleTop } : undefined}
+          />
+        )
       ) : null}
       {handles.includes("bottom-source") ? (
         <Handle
