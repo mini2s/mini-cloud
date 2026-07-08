@@ -96,12 +96,15 @@ export function CanvasStageLabels({
                 }}
                 data-testid="stage-label-card"
               >
-                <span className="text-[10px] font-medium leading-none text-muted-foreground">
+                <span className="font-mono text-[9px] font-semibold uppercase leading-none tracking-[0.12em] text-slate-400">
                   Stage {visualIndex + 1}
                 </span>
-                <span className="mt-1 truncate text-[13px] font-semibold leading-tight text-foreground">{stage.name}</span>
+                <span className="mt-1 block max-w-28 truncate text-[12px] font-medium leading-snug text-slate-700">{stage.name}</span>
                 {stage.description && (
-                  <span className="mt-0.5 truncate text-[11px] leading-tight text-muted-foreground">
+                  <span
+                    className="mt-0.5 line-clamp-2 max-w-28 break-words text-[10px] leading-[1.25] text-slate-500/90"
+                    title={stage.description}
+                  >
                     {stage.description}
                   </span>
                 )}

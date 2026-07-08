@@ -46,6 +46,20 @@ function gatewayLabel(kind: "fork" | "join" | null): string {
   return "Gateway";
 }
 
+function nodeBadgeLabel({
+  isAnnotation,
+  isGateway,
+  workerType,
+}: {
+  isAnnotation: boolean;
+  isGateway: boolean;
+  workerType: WorkflowNode["worker_type"];
+}): string {
+  if (isAnnotation) return "Note";
+  if (isGateway) return "Logic";
+  return workerTypeLabel(workerType);
+}
+
 export const CompactWorkerNode = memo(function CompactWorkerNode({
   id,
   data,
@@ -68,6 +82,14 @@ export const CompactWorkerNode = memo(function CompactWorkerNode({
     : workerConfigured
     ? nodeData.workerName ?? nodeData.pluginName ?? workerTypeLabel(nodeData.node.worker_type)
     : null;
+  const badgeLabel = nodeBadgeLabel({
+    isAnnotation,
+    isGateway,
+    workerType: nodeData.node.worker_type,
+  });
+  const metadataLabel = isAnnotation
+    ? "Canvas note"
+    : workerLabel ?? workerTypeLabel(nodeData.node.worker_type);
   const openNode = () => nodeData.onOpen?.(nodeData.node.id);
   const addConnectedNode = () => nodeData.onAddConnectedNode?.(nodeData.node.id);
   const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
@@ -89,7 +111,7 @@ export const CompactWorkerNode = memo(function CompactWorkerNode({
       onDoubleClick={openNode}
       onKeyDown={handleKeyDown}
       className="h-20 w-56"
-      contentClassName={cn("h-full justify-between gap-1.5", workflowNodeInfoAreaClassName(nodeShape))}
+      contentClassName={cn("h-full justify-between gap-2", workflowNodeInfoAreaClassName(nodeShape))}
       handleColorClassName={handleColorClass}
       handles={["left-target", "right-source", "bottom-source"]}
       lateralHandleTop={WORKER_HEIGHT / 2}
@@ -97,39 +119,46 @@ export const CompactWorkerNode = memo(function CompactWorkerNode({
       onAddConnectedNode={nodeData.onAddConnectedNode ? addConnectedNode : undefined}
     >
         <span className="min-w-0">
-          <span className="flex min-w-0 items-center gap-1.5">
-            {nodeShape !== "rectangle" ? (
-              <span
-                aria-hidden="true"
-                data-node-shape-glyph={nodeShape}
-                className={cn(
-                  "size-2.5 shrink-0 border border-primary/45 bg-primary/10",
-                  workflowNodeShapeGlyphClassName(nodeShape),
-                )}
-              />
-            ) : null}
-            <span className="block truncate text-[13px] font-semibold leading-4 text-foreground">{displayName}</span>
+          <span className="flex min-w-0 items-start justify-between gap-2">
+            <span className="flex min-w-0 items-center gap-1.5">
+              {nodeShape !== "rectangle" ? (
+                <span
+                  aria-hidden="true"
+                  data-node-shape-glyph={nodeShape}
+                  className={cn(
+                    "size-2.5 shrink-0 border border-primary/45 bg-primary/10",
+                    workflowNodeShapeGlyphClassName(nodeShape),
+                  )}
+                />
+              ) : null}
+              <span className="block truncate text-[13px] font-semibold leading-4 text-foreground">{displayName}</span>
+            </span>
+            <span
+              data-testid={`compact-worker-node-badge-${id}`}
+              className="shrink-0 rounded-full border border-slate-200/80 bg-white/75 px-1.5 py-0.5 font-mono text-[9px] font-semibold uppercase leading-none text-slate-500 shadow-[inset_0_1px_0_rgba(255,255,255,0.8)]"
+            >
+              {badgeLabel}
+            </span>
           </span>
           {description ? (
             <span className="mt-1 block truncate text-[10px] leading-3 text-muted-foreground">{description}</span>
           ) : null}
         </span>
-        <div className="flex min-w-0 items-center gap-1.5 text-[10px] leading-4 text-muted-foreground">
+        <div
+          data-testid={`compact-worker-node-meta-${id}`}
+          className="flex min-w-0 items-center gap-1.5 border-t border-slate-200/55 pt-1.5 text-[10px] leading-4 text-muted-foreground"
+        >
+          <span className="inline-block size-1.5 shrink-0 rounded-full bg-[var(--success)] shadow-[0_0_0_3px_rgba(34,197,94,0.12)]" />
+          <span className="truncate font-medium text-slate-700">{metadataLabel}</span>
+          {workerConfigured ? (
+            <span className="shrink-0 text-slate-400">Configured</span>
+          ) : null}
           {isAnnotation ? (
-            <span className="inline-flex min-w-0 items-center gap-1 rounded-md border border-slate-200 bg-slate-50 px-1.5 text-slate-600">
-              <FileText className="size-3 shrink-0" strokeWidth={1.8} />
-              <span className="truncate">Note</span>
-            </span>
+            <FileText className="size-3 shrink-0 text-slate-400" strokeWidth={1.8} />
           ) : isGateway ? (
-            <span className="inline-flex min-w-0 items-center gap-1 rounded-md border border-slate-200 bg-slate-50 px-1.5 text-slate-600">
-              <GatewayIcon kind={nodeFormat.gateway_kind} />
-              <span className="truncate">{workerLabel}</span>
-            </span>
+            <GatewayIcon kind={nodeFormat.gateway_kind} />
           ) : workerLabel ? (
-            <span className="inline-flex min-w-0 items-center gap-1 rounded-md border border-slate-200 bg-slate-50 px-1.5 text-slate-600">
-              <WorkerIcon type={nodeData.node.worker_type} />
-              <span className="truncate">{workerLabel}</span>
-            </span>
+            <WorkerIcon type={nodeData.node.worker_type} />
           ) : null}
         </div>
     </WorkflowCanvasNodeShell>

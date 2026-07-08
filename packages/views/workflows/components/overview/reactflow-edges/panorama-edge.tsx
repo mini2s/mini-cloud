@@ -78,8 +78,8 @@ function PanoramaEdgeComponent({
         )}
         style={{
           stroke: "currentColor",
-          strokeWidth: selected ? 2.25 : 1.5,
-          opacity: selected ? 0.75 : 0.35,
+          strokeWidth: selected ? 2.5 : 1.5,
+          opacity: selected ? 0.82 : 0.28,
           ...style,
         }}
         markerEnd={markerEnd}

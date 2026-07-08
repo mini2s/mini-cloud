@@ -33,6 +33,26 @@ interface WorkflowCanvasNodeShellProps {
   children: ReactNode;
 }
 
+function AddConnectedNodeTooltip() {
+  return (
+    <span
+      aria-hidden="true"
+      data-testid="workflow-canvas-add-connected-node-tooltip"
+      className={cn(
+        "pointer-events-none absolute left-7 top-1/2 z-30 flex -translate-y-1/2 translate-x-1 items-center whitespace-nowrap rounded-md border border-border/80 bg-popover/95 px-2 py-1",
+        "text-[10px] leading-none text-popover-foreground opacity-0 shadow-[0_10px_24px_rgba(15,23,42,0.14)] ring-1 ring-white/70 backdrop-blur",
+        "transition-all duration-150 group-hover/add-port:translate-x-0 group-hover/add-port:opacity-100 group-focus-visible/add-port:translate-x-0 group-focus-visible/add-port:opacity-100",
+      )}
+    >
+      <span className="absolute -left-1 top-1/2 size-2 -translate-y-1/2 rotate-45 border-b border-l border-border/80 bg-popover" />
+      <span className="relative flex flex-col gap-0.5">
+        <span className="font-semibold">Drag to connect</span>
+        <span className="text-[9px] font-medium text-muted-foreground">Click to add node</span>
+      </span>
+    </span>
+  );
+}
+
 export function WorkflowCanvasNodeShell({
   as = "div",
   testId,
@@ -87,10 +107,10 @@ export function WorkflowCanvasNodeShell({
         aria-hidden="true"
         data-node-shape-surface="true"
         className={cn(
-          "pointer-events-none absolute inset-0 border border-slate-300/90 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.08)] transition-all duration-150",
+          "pointer-events-none absolute inset-0 border border-white/80 bg-gradient-to-br from-white via-slate-50/95 to-slate-100/85 shadow-[0_14px_32px_rgba(15,23,42,0.12)] ring-1 ring-slate-200/70 transition-all duration-150",
           workflowNodeShapeSurfaceClassName(nodeShape),
-          "group-hover:border-primary/45 group-hover:shadow-[0_4px_12px_rgba(15,23,42,0.12)]",
-          selected && "border-primary/55 shadow-[inset_0_0_0_1px_rgba(59,130,246,0.15)]",
+          "group-hover:border-white group-hover:ring-primary/20 group-hover:shadow-[0_18px_38px_rgba(37,99,235,0.14)]",
+          selected && "border-white shadow-[0_18px_38px_rgba(37,99,235,0.16)] ring-2 ring-primary/20",
           surfaceClassName,
         )}
       />
@@ -109,19 +129,18 @@ export function WorkflowCanvasNodeShell({
           position={Position.Right}
           id="right"
           aria-label={addConnectedNodeLabel}
-          title={addConnectedNodeLabel}
           role={onAddConnectedNode ? "button" : undefined}
           tabIndex={onAddConnectedNode ? 0 : undefined}
           onClick={handleAddConnectedNodeClick}
           onKeyDown={handleAddConnectedNodeKeyDown}
           className={cn(
-            "!z-20 !h-6 !w-6 !rounded-full !border !border-border/80 !bg-background !text-muted-foreground shadow-sm",
-            "opacity-0 transition-all group-hover:opacity-100 hover:!border-primary/45 hover:!text-primary",
-            handleColorClassName,
+            "group/add-port !z-20 !h-6 !w-6 !overflow-visible !rounded-full !border !border-primary/35 !bg-background !text-primary !shadow-[0_10px_24px_rgba(37,99,235,0.18)]",
+            "opacity-0 transition-all group-hover:opacity-100 hover:!border-primary/60 hover:!bg-primary hover:!text-primary-foreground",
           )}
           style={lateralHandleTop != null ? { top: lateralHandleTop } : undefined}
         >
           <Plus className="pointer-events-none absolute left-1/2 top-1/2 size-3 -translate-x-1/2 -translate-y-1/2" strokeWidth={2} />
+          <AddConnectedNodeTooltip />
         </Handle>
       ) : null}
       {handles.includes("bottom-source") ? (

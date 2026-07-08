@@ -54,7 +54,14 @@ describe("PanoramaEdge", () => {
   it("uses low opacity", () => {
     const container = renderEdge();
     const path = container.querySelector("path");
-    expect(path?.style.opacity).toBe("0.35");
+    expect(path?.style.opacity).toBe("0.28");
+  });
+
+  it("raises selected edges above the softened canvas lines", () => {
+    const container = renderEdge({ selected: true });
+    const path = container.querySelector("path");
+    expect(path?.style.opacity).toBe("0.82");
+    expect(path?.style.strokeWidth).toBe("2.5");
   });
 
   it("uses explicit stage color data before falling back to source Y", () => {

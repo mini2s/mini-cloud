@@ -125,6 +125,20 @@ describe("CompactWorkerNode", () => {
     expect(screen.getByText("GPT-4 Agent")).toBeInTheDocument();
   });
 
+  it("renders the Soft Slab node structure with a type badge and footer metadata", () => {
+    const rfn = {
+      id: "node-1",
+      type: "compactWorker",
+      position: { x: 100, y: 12 },
+      data: baseData,
+    } as Node;
+    renderWithProvider(rfn);
+
+    expect(screen.getByTestId("compact-worker-node-badge-node-1")).toHaveTextContent("Agent");
+    expect(screen.getByTestId("compact-worker-node-meta-node-1")).toHaveTextContent("GPT-4 Agent");
+    expect(screen.getByTestId("compact-worker-node-meta-node-1")).toHaveTextContent("Configured");
+  });
+
   it("does not show missing worker warnings on the card", () => {
     const rfn = {
       id: "node-1",
@@ -336,12 +350,49 @@ describe("CompactWorkerNode", () => {
     renderWithProvider(rfn);
 
     const addButton = screen.getByRole("button", { name: "Drag to connect, click to add node" });
-    expect(addButton).toHaveAttribute("title", "Drag to connect, click to add node");
+    expect(addButton).not.toHaveAttribute("title");
+    const tooltip = screen.getByTestId("workflow-canvas-add-connected-node-tooltip");
+    expect(tooltip).toHaveTextContent("Drag to connect");
+    expect(tooltip).toHaveTextContent("Click to add node");
+    expect(tooltip).toHaveAttribute("aria-hidden", "true");
     expect(addButton.className).toContain("!z-20");
     fireEvent.click(addButton);
 
     expect(onAddConnectedNode).toHaveBeenCalledWith("node-1");
     expect(onOpen).not.toHaveBeenCalled();
+  });
+
+  it("uses Soft Slab surface and floating add-port styling", () => {
+    const rfn = {
+      id: "node-1",
+      type: "compactWorker",
+      position: { x: 100, y: 12 },
+      data: {
+        ...baseData,
+        addConnectedNodeLabel: "Drag to connect, click to add node",
+        onAddConnectedNode: vi.fn(),
+      },
+    } as Node;
+    renderWithProvider(rfn);
+
+    const node = screen.getByTestId("compact-worker-node-1");
+    const surface = node.querySelector('[data-node-shape-surface="true"]');
+    const addPort = screen.getByRole("button", { name: "Drag to connect, click to add node" });
+
+    expect(surface?.className).toContain("bg-gradient-to-br");
+    expect(surface?.className).toContain("border-white/80");
+    expect(surface?.className).toContain("ring-slate-200/70");
+    expect(surface?.className).not.toContain("border-border/70");
+    expect(surface?.className).not.toContain("border-slate-300/55");
+    expect(surface?.className).toContain("shadow-[0_14px_32px_rgba(15,23,42,0.12)]");
+    expect(addPort.className).toContain("!shadow-[0_10px_24px_rgba(37,99,235,0.18)]");
+    expect(addPort.className).not.toContain("text-slate-300");
+    expect(addPort).not.toHaveAttribute("title");
+    const tooltip = screen.getByTestId("workflow-canvas-add-connected-node-tooltip");
+    expect(tooltip).toHaveTextContent("Drag to connect");
+    expect(tooltip).toHaveTextContent("Click to add node");
+    expect(tooltip.className).toContain("group-hover/add-port:opacity-100");
+    expect(tooltip.className).toContain("bg-popover/95");
   });
 
   it("anchors lateral handles to the fixed worker midpoint", () => {

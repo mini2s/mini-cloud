@@ -71,8 +71,11 @@ describe("CanvasStageLabels", () => {
 
   it("uses compact stage typography", () => {
     render(<CanvasStageLabels {...baseProps} />);
-    expect(screen.getByText("Stage 1").className).toContain("text-[10px]");
-    expect(screen.getByText("Design").className).toContain("text-[13px]");
+    expect(screen.getByText("Stage 1").className).toContain("font-mono");
+    expect(screen.getByText("Stage 1").className).toContain("text-slate-400");
+    expect(screen.getByText("Design").className).toContain("text-[12px]");
+    expect(screen.getByText("Design").className).toContain("font-medium");
+    expect(screen.getByText("Design").className).toContain("text-slate-700");
   });
 
   it("renders gradient separators between stage backgrounds", () => {
@@ -154,6 +157,18 @@ describe("CanvasStageLabels", () => {
     const stages = [makeStage({ description: "Requirements and design phase" })];
     render(<CanvasStageLabels {...baseProps} stages={stages} />);
     expect(screen.getByText("Requirements and design phase")).toBeInTheDocument();
+  });
+
+  it("clamps long stage descriptions without losing the full text", () => {
+    const longDescription = "Collect requirements, validate stakeholder constraints, identify automation risks, and prepare implementation handoff notes for the next stage";
+    const stages = [makeStage({ description: longDescription })];
+    render(<CanvasStageLabels {...baseProps} stages={stages} />);
+
+    const description = screen.getByText(longDescription);
+    expect(description).toHaveAttribute("title", longDescription);
+    expect(description.className).toContain("line-clamp-2");
+    expect(description.className).toContain("break-words");
+    expect(description.className).not.toContain("truncate");
   });
 
   it("does not render gradient bars when only one stage", () => {
