@@ -3,10 +3,10 @@
 import { useState } from "react";
 import { ChevronDown, Plus, X, Puzzle } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
-import { builtinPluginListOptions } from "@multica/core/workspace/queries";
+import { builtinPluginListOptions, pluginDetailOptions } from "@multica/core/workspace/queries";
 import { Button } from "@multica/ui/components/ui/button";
 import { useT } from "../../i18n";
-import { PluginPickerList } from "./plugin-picker-list";
+import { PluginPickerList, useDebouncedPluginSearch } from "./plugin-picker-list";
 
 interface PluginSelectProps {
   /** Currently selected plugin ID (controlled). Empty string = none. */
@@ -24,11 +24,18 @@ interface PluginSelectProps {
  */
 export function PluginSelect({ value, onChange }: PluginSelectProps) {
   const { t } = useT("agents");
-  const { data: plugins, isLoading } = useQuery(builtinPluginListOptions());
+  const { searchQuery, setSearchQuery, debouncedSearch } = useDebouncedPluginSearch();
+  const { data: plugins, isLoading } = useQuery(builtinPluginListOptions(debouncedSearch));
   const [expanded, setExpanded] = useState(!!value);
 
   const items = plugins?.items ?? [];
-  const selected = items.find((p) => p.id === value) ?? null;
+  const listSelected = items.find((p) => p.id === value) ?? null;
+  const shouldHydrateSelected = !!value && !listSelected;
+  const { data: hydratedSelected } = useQuery({
+    ...pluginDetailOptions(value),
+    enabled: shouldHydrateSelected,
+  });
+  const selected = listSelected ?? (hydratedSelected?.id ? hydratedSelected : null);
 
   const label = t(($) => $.create_dialog.plugin_section.label);
 
@@ -78,6 +85,8 @@ export function PluginSelect({ value, onChange }: PluginSelectProps) {
           selectedId={value || null}
           onSelect={(id) => onChange(id === value ? "" : id)}
           loading={isLoading}
+          searchQuery={searchQuery}
+          onSearchChange={setSearchQuery}
         />
       </div>
       {value && (

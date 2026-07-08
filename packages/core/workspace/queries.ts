@@ -1,8 +1,8 @@
 import { queryOptions } from "@tanstack/react-query";
 import { api } from "../api";
-import { EMPTY_BUILTIN_PLUGIN_LIST } from "../api/schemas";
+import { EMPTY_BUILTIN_PLUGIN, EMPTY_BUILTIN_PLUGIN_LIST } from "../api/schemas";
 import type { Agent, Squad, Workspace } from "../types";
-import type { BuiltinPluginListResponse } from "../api/schemas";
+import type { BuiltinPlugin, BuiltinPluginListResponse } from "../api/schemas";
 
 export const workspaceKeys = {
   all: (wsId: string) => ["workspaces", wsId] as const,
@@ -140,16 +140,29 @@ export function assigneeFrequencyOptions(wsId: string) {
 // Plugin catalog (global, not workspace-scoped — external API)
 export const pluginKeys = {
   all: ["plugins"] as const,
-  builtin: () => [...pluginKeys.all, "builtin"] as const,
+  builtin: (search = "") => [...pluginKeys.all, "builtin", search.trim()] as const,
+  detail: (id: string) => [...pluginKeys.all, "detail", id.trim()] as const,
 };
 
-export function builtinPluginListOptions() {
+export function builtinPluginListOptions(search = "") {
+  const normalizedSearch = search.trim();
   return queryOptions<BuiltinPluginListResponse>({
-    queryKey: pluginKeys.builtin(),
-    queryFn: () => api.listBuiltinPlugins(),
+    queryKey: pluginKeys.builtin(normalizedSearch),
+    queryFn: () => api.listBuiltinPlugins({ search: normalizedSearch }),
     // Builtin plugin catalog changes very infrequently — cache for 30 min.
     staleTime: 30 * 60 * 1000,
     // Start with empty list while loading.
     placeholderData: EMPTY_BUILTIN_PLUGIN_LIST,
+  });
+}
+
+export function pluginDetailOptions(id: string) {
+  const pluginId = id.trim();
+  return queryOptions<BuiltinPlugin>({
+    queryKey: pluginKeys.detail(pluginId),
+    queryFn: () => api.getPlugin(pluginId),
+    enabled: pluginId.length > 0,
+    staleTime: 30 * 60 * 1000,
+    placeholderData: EMPTY_BUILTIN_PLUGIN,
   });
 }

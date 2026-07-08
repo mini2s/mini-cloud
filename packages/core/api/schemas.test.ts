@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  BuiltinPluginSchema,
   DashboardAgentRunTimeListSchema,
   DashboardUsageByAgentListSchema,
   DashboardUsageDailyListSchema,
@@ -229,5 +230,38 @@ describe("dashboard + runtime usage schema drift", () => {
       { date: "2026-05-19", region: "us-east" },
     ]);
     expect((parsed[0] as Record<string, unknown>).region).toBe("us-east");
+  });
+});
+
+describe("BuiltinPluginSchema", () => {
+  it("accepts item-search plugin records with install metadata and extra fields", () => {
+    const parsed = BuiltinPluginSchema.parse({
+      id: "figma",
+      name: "Figma",
+      description: "Design handoff",
+      slug: "figma",
+      version: "1.0.0",
+      category: "design",
+      content: "Plugin instructions",
+      item_type: "plugin",
+      metadata: {
+        install: {
+          method: "csc",
+          plugin_name: "figma-plugin",
+          marketplace: "github",
+        },
+        bundle: {
+          skills_count: 1,
+          agents_count: 0,
+          commands_count: 0,
+          hooks_count: 0,
+          skills_namespaces: ["figma"],
+        },
+      },
+    });
+
+    expect(parsed.metadata?.install?.plugin_name).toBe("figma-plugin");
+    expect(parsed.content).toBe("Plugin instructions");
+    expect(parsed.item_type).toBe("plugin");
   });
 });

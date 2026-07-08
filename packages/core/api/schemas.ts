@@ -1042,8 +1042,18 @@ const PluginBundleSchema = z.object({
   skills_namespaces: z.array(z.string()).default([]),
 }).loose();
 
+const PluginInstallSchema = z.object({
+  method: z.string().optional(),
+  marketplace: z.string().optional(),
+  plugin_name: z.string().optional(),
+  marketplace_name: z.string().optional(),
+  marketplace_repo: z.string().optional(),
+  marketplace_verified: z.boolean().optional(),
+}).loose();
+
 const PluginMetadataSchema = z.object({
   bundle: PluginBundleSchema.optional(),
+  install: PluginInstallSchema.optional(),
 }).loose();
 
 export const BuiltinPluginSchema = z.object({
@@ -1053,6 +1063,8 @@ export const BuiltinPluginSchema = z.object({
   slug: z.string(),
   version: z.string(),
   category: z.string(),
+  content: z.string().optional(),
+  item_type: z.string().optional(),
   metadata: PluginMetadataSchema.optional(),
 }).loose();
 
@@ -1065,6 +1077,15 @@ export const BuiltinPluginListResponseSchema = z.object({
   pageSize: z.number().int().positive(),
   hasMore: z.boolean(),
 });
+
+export const EMPTY_BUILTIN_PLUGIN: BuiltinPlugin = {
+  id: "",
+  name: "",
+  description: "",
+  slug: "",
+  version: "",
+  category: "",
+};
 
 /** Empty list returned when the external API is unreachable or malformed. */
 export const EMPTY_BUILTIN_PLUGIN_LIST: BuiltinPluginListResponse = {

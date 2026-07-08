@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useEffect, useState } from "react";
 import { Puzzle, Search, Check, Loader2 } from "lucide-react";
 import type { BuiltinPlugin } from "@multica/core/api/schemas";
 import { Input } from "@multica/ui/components/ui/input";
@@ -10,6 +10,23 @@ interface PluginPickerListProps {
   selectedId: string | null;
   onSelect: (id: string) => void;
   loading?: boolean;
+  searchQuery?: string;
+  onSearchChange?: (query: string) => void;
+}
+
+export function useDebouncedPluginSearch(delay = 300) {
+  const [searchQuery, setSearchQuery] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearch(searchQuery.trim());
+    }, delay);
+
+    return () => clearTimeout(timer);
+  }, [delay, searchQuery]);
+
+  return { searchQuery, setSearchQuery, debouncedSearch };
 }
 
 /**
@@ -23,29 +40,21 @@ export function PluginPickerList({
   selectedId,
   onSelect,
   loading = false,
+  searchQuery,
+  onSearchChange,
 }: PluginPickerListProps) {
-  const [query, setQuery] = useState("");
+  const [localQuery, setLocalQuery] = useState("");
+  const query = searchQuery ?? localQuery;
 
-  const filtered = useMemo(() => {
-    if (!query.trim()) return plugins;
-    const q = query.toLowerCase();
-    return plugins.filter(
-      (p) =>
-        p.name.toLowerCase().includes(q) ||
-        p.description.toLowerCase().includes(q) ||
-        p.slug.toLowerCase().includes(q) ||
-        p.category.toLowerCase().includes(q),
-    );
-  }, [plugins, query]);
+  const handleSearchChange = (value: string) => {
+    if (onSearchChange) {
+      onSearchChange(value);
+    } else {
+      setLocalQuery(value);
+    }
+  };
 
-  if (loading) {
-    return (
-      <div className="flex items-center gap-2 px-3 py-6 text-sm text-muted-foreground">
-        <Loader2 className="h-4 w-4 animate-spin" />
-        Loading plugins...
-      </div>
-    );
-  }
+
 
   return (
     <div>
@@ -56,7 +65,7 @@ export function PluginPickerList({
           <Input
             type="text"
             value={query}
-            onChange={(e) => setQuery(e.target.value)}
+            onChange={(e) => handleSearchChange(e.target.value)}
             placeholder="Search plugins..."
             className="h-8 pl-7 text-xs"
           />
@@ -65,16 +74,19 @@ export function PluginPickerList({
 
       {/* List */}
       <div className="max-h-72 overflow-y-auto p-1">
-        {plugins.length === 0 ? (
-          <div className="px-3 py-6 text-center text-sm text-muted-foreground">
-            No plugins available
+        {loading ? (
+          <div className="flex items-center gap-2 px-3 py-6 text-sm text-muted-foreground">
+            <Loader2 className="h-4 w-4 animate-spin" />
+            Loading plugins...
           </div>
-        ) : filtered.length === 0 ? (
-          <div className="px-3 py-6 text-center text-xs text-muted-foreground">
-            No plugins match your search
+        ) : plugins.length === 0 ? (
+          <div className="px-3 py-6 text-center text-sm text-muted-foreground">
+            {query.trim()
+              ? "No plugins match your search"
+              : "No plugins available"}
           </div>
         ) : (
-          filtered.map((plugin) => {
+          plugins.map((plugin) => {
             const isSelected = plugin.id === selectedId;
             return (
               <button

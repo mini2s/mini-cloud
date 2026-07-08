@@ -462,4 +462,64 @@ describe("ApiClient", () => {
       expect(JSON.parse(fetchMock.mock.calls[1]![1]?.body as string)).toEqual({ content: "again" });
     });
   });
+
+  describe("plugin catalog", () => {
+    it("forwards search terms to the plugin catalog endpoint", async () => {
+      const fetchMock = vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({ items: [], total: 0, page: 1, pageSize: 100, hasMore: false }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      );
+      vi.stubGlobal("fetch", fetchMock);
+
+      const client = new ApiClient("https://api.example.test");
+      await client.listBuiltinPlugins({ search: "design" });
+      await client.listBuiltinPlugins({ search: " 设计 " });
+
+      expect(fetchMock.mock.calls[0]?.[0]).toBe(
+        "https://api.example.test/api/plugins/builtin?q=design",
+      );
+      expect(fetchMock.mock.calls[1]?.[0]).toBe(
+        "https://api.example.test/api/plugins/builtin?q=%E8%AE%BE%E8%AE%A1",
+      );
+    });
+
+    it("fetches plugin details by id and falls back when the response drifts", async () => {
+      const fetchMock = vi
+        .fn()
+        .mockResolvedValueOnce(
+          new Response(
+            JSON.stringify({
+              id: "figma",
+              name: "Figma",
+              description: "Design handoff",
+              slug: "figma",
+              version: "1.0.0",
+              category: "design",
+              metadata: { install: { plugin_name: "figma-plugin" } },
+            }),
+            { status: 200, headers: { "Content-Type": "application/json" } },
+          ),
+        )
+        .mockResolvedValueOnce(
+          new Response(JSON.stringify({ id: 123 }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          }),
+        );
+      vi.stubGlobal("fetch", fetchMock);
+
+      const client = new ApiClient("https://api.example.test");
+
+      await expect(client.getPlugin("figma")).resolves.toMatchObject({
+        id: "figma",
+        name: "Figma",
+      });
+      await expect(client.getPlugin("bad")).resolves.toMatchObject({ id: "" });
+      expect(fetchMock.mock.calls[0]?.[0]).toBe(
+        "https://api.example.test/api/plugins/figma",
+      );
+    });
+  });
 });

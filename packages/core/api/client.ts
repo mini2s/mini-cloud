@@ -222,7 +222,9 @@ import {
   SessionPermissionSchema,
   EMPTY_SESSION_PERMISSION,
   EMPTY_RUNTIME_PERMISSION_LIST_RESPONSE,
+  BuiltinPluginSchema,
   BuiltinPluginListResponseSchema,
+  EMPTY_BUILTIN_PLUGIN,
   EMPTY_BUILTIN_PLUGIN_LIST,
   ListMergeRequestsResponseSchema,
   EMPTY_MERGE_REQUESTS_RESPONSE,
@@ -230,7 +232,7 @@ import {
   EMPTY_GITLAB_SETTINGS_RESPONSE,
   AssociateDeptIdentityResponseSchema,
 } from "./schemas";
-import type { BuiltinPluginListResponse } from "./schemas";
+import type { BuiltinPlugin, BuiltinPluginListResponse } from "./schemas";
 
 /** Identifies the calling client to the server.
  *  Sent on every HTTP request as X-Client-Platform / X-Client-Version /
@@ -877,8 +879,21 @@ export class ApiClient {
    * runtime config (BUILTIN_PLUGIN_API_BASE_URL). Returns an empty list on any
    * failure so the UI gracefully degrades.
    */
-  async listBuiltinPlugins(): Promise<BuiltinPluginListResponse> {
-    return this.fetch("/api/plugins/builtin").then((raw) =>
+  async listBuiltinPlugins(params?: {
+    search?: string;
+    page?: number;
+    pageSize?: number;
+    signal?: AbortSignal;
+  }): Promise<BuiltinPluginListResponse> {
+    const search = new URLSearchParams();
+    const q = params?.search?.trim();
+    if (q) search.set("q", q);
+    if (params?.page !== undefined) search.set("page", String(params.page));
+    if (params?.pageSize !== undefined) search.set("pageSize", String(params.pageSize));
+    const query = search.toString();
+    const endpoint = `/api/plugins/builtin${query ? `?${query}` : ""}`;
+
+    return this.fetch(endpoint, { signal: params?.signal }).then((raw) =>
       parseWithFallback(
         raw,
         BuiltinPluginListResponseSchema,
@@ -890,6 +905,25 @@ export class ApiClient {
         error: err instanceof Error ? err.message : "unknown error",
       });
       return EMPTY_BUILTIN_PLUGIN_LIST;
+    });
+  }
+
+  async getPlugin(id: string): Promise<BuiltinPlugin> {
+    const pluginId = id.trim();
+    if (!pluginId) return EMPTY_BUILTIN_PLUGIN;
+
+    return this.fetch(`/api/plugins/${encodeURIComponent(pluginId)}`).then((raw) =>
+      parseWithFallback(
+        raw,
+        BuiltinPluginSchema,
+        EMPTY_BUILTIN_PLUGIN,
+        { endpoint: "GET /api/plugins/{id}" },
+      ),
+    ).catch((err) => {
+      this.logger.warn("Plugin detail API unavailable", {
+        error: err instanceof Error ? err.message : "unknown error",
+      });
+      return EMPTY_BUILTIN_PLUGIN;
     });
   }
 

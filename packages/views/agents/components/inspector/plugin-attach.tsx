@@ -4,14 +4,14 @@ import { useState } from "react";
 import { Puzzle, Plus, X } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import type { Agent } from "@multica/core/types";
-import { builtinPluginListOptions } from "@multica/core/workspace/queries";
+import { builtinPluginListOptions, pluginDetailOptions } from "@multica/core/workspace/queries";
 import {
   Popover,
   PopoverContent,
   PopoverTrigger,
 } from "@multica/ui/components/ui/popover";
 import { useT } from "../../../i18n";
-import { PluginPickerList } from "../plugin-picker-list";
+import { PluginPickerList, useDebouncedPluginSearch } from "../plugin-picker-list";
 
 interface PluginAttachProps {
   agent: Agent;
@@ -30,12 +30,19 @@ interface PluginAttachProps {
  */
 export function PluginAttach({ agent, canEdit, onChange }: PluginAttachProps) {
   const { t } = useT("agents");
-  const { data: plugins } = useQuery(builtinPluginListOptions());
+  const { searchQuery, setSearchQuery, debouncedSearch } = useDebouncedPluginSearch();
+  const { data: plugins } = useQuery(builtinPluginListOptions(debouncedSearch));
   const [open, setOpen] = useState(false);
 
   const items = plugins?.items ?? [];
-  const selected = items.find((p) => p.id === agent.plugin_id) ?? null;
-  const stale = !selected && !!agent.plugin_id;
+  const listSelected = items.find((p) => p.id === agent.plugin_id) ?? null;
+  const shouldHydrateSelected = !!agent.plugin_id && !listSelected;
+  const { data: hydratedSelected, isFetching: isHydratingSelected } = useQuery({
+    ...pluginDetailOptions(agent.plugin_id ?? ""),
+    enabled: shouldHydrateSelected,
+  });
+  const selected = listSelected ?? (hydratedSelected?.id ? hydratedSelected : null);
+  const stale = !selected && !!agent.plugin_id && !isHydratingSelected;
 
   // --- Read-only display ---
   if (!canEdit) {
@@ -126,6 +133,8 @@ export function PluginAttach({ agent, canEdit, onChange }: PluginAttachProps) {
           plugins={items}
           selectedId={agent.plugin_id}
           onSelect={handleSelect}
+          searchQuery={searchQuery}
+          onSearchChange={setSearchQuery}
         />
         {agent.plugin_id && (
           <div className="border-t border-border px-3 py-2">

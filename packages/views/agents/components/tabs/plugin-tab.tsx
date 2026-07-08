@@ -6,14 +6,14 @@ import { toast } from "sonner";
 import type { Agent } from "@multica/core/types";
 import { api } from "@multica/core/api";
 import { useWorkspaceId } from "@multica/core/hooks";
-import type { BuiltinPlugin } from "@multica/core/api/schemas";
 import {
   builtinPluginListOptions,
+  pluginDetailOptions,
   workspaceKeys,
 } from "@multica/core/workspace/queries";
 import { Button } from "@multica/ui/components/ui/button";
 import { useT } from "../../../i18n";
-import { PluginPickerList } from "../plugin-picker-list";
+import { PluginPickerList, useDebouncedPluginSearch } from "../plugin-picker-list";
 import {
   Popover,
   PopoverContent,
@@ -30,8 +30,14 @@ export function PluginTab({
   const wsId = useWorkspaceId();
   const { data: plugins } = useQuery(builtinPluginListOptions());
   const items = plugins?.items ?? [];
-  const selected = items.find((p) => p.id === agent.plugin_id) ?? null;
-  const stale = !selected && !!agent.plugin_id;
+  const listSelected = items.find((p) => p.id === agent.plugin_id) ?? null;
+  const shouldHydrateSelected = !!agent.plugin_id && !listSelected;
+  const { data: hydratedSelected, isFetching: isHydratingSelected } = useQuery({
+    ...pluginDetailOptions(agent.plugin_id ?? ""),
+    enabled: shouldHydrateSelected,
+  });
+  const selected = listSelected ?? (hydratedSelected?.id ? hydratedSelected : null);
+  const stale = !selected && !!agent.plugin_id && !isHydratingSelected;
 
   const handleChange = async (pluginId: string) => {
     try {
@@ -66,7 +72,6 @@ export function PluginTab({
           {t(($) => $.tab_body.plugin.intro)}
         </p>
         <PluginPickerPopover
-          items={items}
           selectedId={agent.plugin_id}
           onSelect={handleChange}
           triggerLabel={t(($) => $.tab_body.plugin.change_action)}
@@ -117,7 +122,6 @@ export function PluginTab({
           </p>
           {items.length > 0 && (
             <PluginPickerPopover
-              items={items}
               selectedId={agent.plugin_id}
               onSelect={handleChange}
               className="mt-3"
@@ -158,7 +162,6 @@ export function PluginTab({
             </div>
             <div className="flex shrink-0 items-center gap-1">
               <PluginPickerPopover
-                items={items}
                 selectedId={agent.plugin_id}
                 onSelect={handleChange}
                 triggerLabel={t(($) => $.tab_body.plugin.change_action)}
@@ -181,19 +184,21 @@ export function PluginTab({
 
 /** Compact plugin picker popover for the PluginTab. */
 function PluginPickerPopover({
-  items,
   selectedId,
   onSelect,
   className,
   triggerLabel,
 }: {
-  items: BuiltinPlugin[];
   selectedId: string | null;
   onSelect: (id: string) => void;
   className?: string;
   triggerLabel: string;
 }) {
   const { t } = useT("agents");
+
+  const { searchQuery, setSearchQuery, debouncedSearch } = useDebouncedPluginSearch();
+  const { data: plugins, isLoading } = useQuery(builtinPluginListOptions(debouncedSearch));
+  const items = plugins?.items ?? [];
 
   return (
     <Popover>
@@ -212,6 +217,9 @@ function PluginPickerPopover({
           onSelect={(id) => {
             onSelect(id);
           }}
+          loading={isLoading}
+          searchQuery={searchQuery}
+          onSearchChange={setSearchQuery}
         />
         {selectedId && (
           <div className="border-t border-border px-3 py-2">

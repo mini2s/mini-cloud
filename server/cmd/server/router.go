@@ -311,6 +311,7 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 	// Public API
 	r.Get("/api/config", h.GetConfig)
 	r.Get("/api/plugins/builtin", h.ListBuiltinPlugins)
+	r.Get("/api/plugins/{id}", h.GetPlugin)
 	r.With(contactSalesRL).Post("/api/contact-sales", h.CreateContactSales)
 
 	// Webhook ingress for autopilots. Outside the authenticated group on
