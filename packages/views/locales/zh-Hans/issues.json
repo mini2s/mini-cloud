@@ -502,6 +502,7 @@
       }
     },
     "notification": {
+      "summary_title": "需要关注：",
       "awaiting_critic": "等待审核：",
       "blocked_failed": "需要处理：",
       "awaiting_input": "等待输入：",

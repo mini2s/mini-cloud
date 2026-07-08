@@ -573,14 +573,14 @@ describe("ExecutionPanoramaPage", () => {
       expect(mocks.fitView).toHaveBeenCalledWith(
         expect.objectContaining({
           nodes: [{ id: "n1" }],
-          padding: expect.any(Number),
-          maxZoom: 0.95,
+          padding: 0.04,
+          maxZoom: 1.2,
         }),
       );
     });
 
     expect(screen.getByTestId("reactflow-canvas")).toHaveAttribute("data-fit-view", "true");
-    expect(screen.getByTestId("reactflow-canvas")).toHaveAttribute("data-fit-view-max-zoom", "0.95");
+    expect(screen.getByTestId("reactflow-canvas")).toHaveAttribute("data-fit-view-max-zoom", "1.2");
   });
 
   it("waits for ReactFlow to initialize before fitting workflow nodes", async () => {

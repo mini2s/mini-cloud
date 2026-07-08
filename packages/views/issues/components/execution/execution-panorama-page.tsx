@@ -53,6 +53,11 @@ export interface ExecutionPanoramaPageProps {
   issueId?: string;
 }
 
+const RUNTIME_CANVAS_FIT_VIEW = {
+  padding: 0.04,
+  maxZoom: 1.2,
+} as const;
+
 /**
  * Main issue-execution panorama view.
  *
@@ -106,8 +111,7 @@ function ExecutionPanoramaCanvas({
       fittedNodeSignatureRef.current = nodeSignature;
       void fitView({
         nodes: rfNodes.map((node) => ({ id: node.id })),
-        padding: 0.18,
-        maxZoom: 0.95,
+        ...RUNTIME_CANVAS_FIT_VIEW,
         duration: 0,
       });
     });
@@ -151,8 +155,7 @@ function ExecutionPanoramaCanvas({
           fitView
           fitViewOptions={{
             nodes: rfNodes.map((node) => ({ id: node.id })),
-            padding: 0.18,
-            maxZoom: 0.95,
+            ...RUNTIME_CANVAS_FIT_VIEW,
           }}
           viewportY={viewport.y}
           viewportZoom={viewport.zoom}

@@ -18,56 +18,44 @@ export interface GlobalNotificationBarProps {
   onScrollToNode: (nodeId: string) => void;
 }
 
+const NOTIFICATION_PRIORITY: NotificationItem["type"][] = [
+  "blocked_failed",
+  "awaiting_critic",
+  "awaiting_input",
+];
+
 /**
  * Derives notification items from the node-run map, ordered by priority:
- * 1. awaiting_critic (highest)
- * 2. blocked / failed
+ * 1. blocked / failed (highest)
+ * 2. awaiting_critic
  * 3. awaiting_input (lowest)
  */
 function deriveNotifications(
   nodeRunMap: Map<string, WorkflowNodeRun>,
 ): NotificationItem[] {
-  const items: NotificationItem[] = [];
   const entries = [...nodeRunMap.entries()];
+  const grouped: Record<NotificationItem["type"], Array<[string, WorkflowNodeRun]>> = {
+    blocked_failed: entries.filter(
+      ([, nr]) => nr.status === "blocked" || nr.status === "failed",
+    ),
+    awaiting_critic: entries.filter(
+      ([, nr]) => nr.status === "awaiting_critic",
+    ),
+    awaiting_input: entries.filter(
+      ([, nr]) => nr.status === "awaiting_input",
+    ),
+  };
 
-  const awaitingCritic = entries.filter(
-    ([, nr]) => nr.status === "awaiting_critic",
-  );
-  const blockedFailed = entries.filter(
-    ([, nr]) => nr.status === "blocked" || nr.status === "failed",
-  );
-  const awaitingInput = entries.filter(
-    ([, nr]) => nr.status === "awaiting_input",
-  );
-
-  if (awaitingCritic.length > 0) {
-    items.push({
-      type: "awaiting_critic",
-      count: awaitingCritic.length,
-      firstNodeRunId: awaitingCritic[0]![1].id,
-      firstNodeId: awaitingCritic[0]![0],
-    });
-  }
-
-  if (blockedFailed.length > 0) {
-    items.push({
-      type: "blocked_failed",
-      count: blockedFailed.length,
-      firstNodeRunId: blockedFailed[0]![1].id,
-      firstNodeId: blockedFailed[0]![0],
-    });
-  }
-
-  if (awaitingInput.length > 0) {
-    items.push({
-      type: "awaiting_input",
-      count: awaitingInput.length,
-      firstNodeRunId: awaitingInput[0]![1].id,
-      firstNodeId: awaitingInput[0]![0],
-    });
-  }
-
-  return items;
+  return NOTIFICATION_PRIORITY.flatMap((type) => {
+    const matches = grouped[type];
+    if (matches.length === 0) return [];
+    return [{
+      type,
+      count: matches.length,
+      firstNodeRunId: matches[0]![1].id,
+      firstNodeId: matches[0]![0],
+    }];
+  });
 }
 
 /** Priority-ordered icon + color config per notification type. */
@@ -157,7 +145,7 @@ export function GlobalNotificationBar({
           <div className="min-w-0">
             <div className="flex items-baseline gap-1.5">
               <span className="text-xs font-semibold text-foreground">
-                {getLabel(primaryItem.type)}
+                {t(($) => $.execution.notification.summary_title)}
               </span>
               <span className="text-xs font-semibold tabular-nums text-foreground">
                 {totalCount}

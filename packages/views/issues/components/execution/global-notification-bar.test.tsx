@@ -11,16 +11,22 @@ import type { WorkflowNodeRun } from "@multica/core/types";
 vi.mock("@multica/views/i18n", () => ({
   useT: () => ({
     t: (accessor: any, params?: Record<string, unknown>) => {
+      const translations = {
+        execution: {
+          notification: {
+            summary_title: "Action needed:",
+            awaiting_critic: "Awaiting review:",
+            blocked_failed: "Needs attention:",
+            awaiting_input: "Awaiting input:",
+            summary_label: `This run has ${params?.count ?? ""} signal types`,
+          },
+        },
+      };
       if (typeof accessor === "function") {
-        const result = accessor({ execution: { notification: {} } });
-        if (typeof result === "string" && result.includes("notification.awaiting_critic"))
-          return `notification.awaiting_critic ${params?.count ?? ""}`;
-        if (typeof result === "string" && result.includes("notification.blocked_failed"))
-          return `notification.blocked_failed ${params?.count ?? ""}`;
-        if (typeof result === "string" && result.includes("notification.awaiting_input"))
-          return `notification.awaiting_input ${params?.count ?? ""}`;
+        const result = accessor(translations);
+        if (typeof result === "string") return result;
       }
-      return String(typeof accessor === "function" ? accessor({ execution: { notification: {} } }) : accessor);
+      return String(typeof accessor === "function" ? accessor(translations) : accessor);
     },
   }),
 }));
@@ -150,9 +156,23 @@ describe("GlobalNotificationBar", () => {
     // Find the chips container (second child, after status indicator)
     const chipsContainer = bar.querySelector(".flex-1");
     const children = [...(chipsContainer?.children ?? [])];
-    expect(children[0]).toHaveAttribute("data-testid", "notification-item-awaiting_critic");
-    expect(children[1]).toHaveAttribute("data-testid", "notification-item-blocked_failed");
+    expect(children[0]).toHaveAttribute("data-testid", "notification-item-blocked_failed");
+    expect(children[1]).toHaveAttribute("data-testid", "notification-item-awaiting_critic");
     expect(children[2]).toHaveAttribute("data-testid", "notification-item-awaiting_input");
+  });
+
+  it("shows the total notification count with a generic summary label", () => {
+    const map = new Map<string, WorkflowNodeRun>();
+    map.set("review", makeNodeRun({ id: "nr-1", status: "awaiting_critic", workflow_node_id: "review" }));
+    map.set("blocked", makeNodeRun({ id: "nr-2", status: "blocked", workflow_node_id: "blocked" }));
+    map.set("failed", makeNodeRun({ id: "nr-3", status: "failed", workflow_node_id: "failed" }));
+
+    render(
+      <GlobalNotificationBar nodeRunMap={map} onScrollToNode={vi.fn()} />,
+    );
+
+    expect(screen.getByTestId("notification-summary")).toHaveTextContent("Action needed:3");
+    expect(screen.getByTestId("notification-item-awaiting_critic")).toHaveTextContent("Awaiting review:1");
   });
 
   it("calls onScrollToNode with firstNodeId on chip click", () => {

@@ -513,6 +513,7 @@
       }
     },
     "notification": {
+      "summary_title": "Action needed:",
       "awaiting_critic": "Awaiting review:",
       "blocked_failed": "Need attention:",
       "awaiting_input": "Awaiting input:",
