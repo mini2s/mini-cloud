@@ -17,6 +17,11 @@ const mocks = vi.hoisted(() => ({
   saveNode: vi.fn(),
   nodeEdits: {} as Record<string, unknown>,
   deliverables: [] as unknown[],
+  assigneePickerCalls: [] as Array<{
+    assigneeType: string | null;
+    assigneeId: string | null;
+    includeWorkflows?: boolean;
+  }>,
   roles: [
     { id: "role-1", name: "Implementer" },
     { id: "role-2", name: "Reviewer" },
@@ -68,21 +73,44 @@ vi.mock("../../issues/components/pickers/assignee-picker", () => ({
   AssigneePicker: ({
     assigneeType,
     assigneeId,
+    includeWorkflows,
     trigger,
     triggerRender,
+    onUpdate,
   }: {
     assigneeType: string | null;
     assigneeId: string | null;
+    includeWorkflows?: boolean;
     trigger?: ReactNode;
     triggerRender?: ReactElement;
+    onUpdate: (updates: { assignee_type: string | null; assignee_id: string | null }) => void;
   }) =>
-    triggerRender
-      ? cloneElement(triggerRender, {}, trigger)
-      : (
-        <button type="button">
-          Assignee picker {assigneeType ?? "none"} {assigneeId ?? "unassigned"}
-        </button>
-      ),
+    {
+      mocks.assigneePickerCalls.push({ assigneeType, assigneeId, includeWorkflows });
+      return (
+        <div>
+          {triggerRender
+            ? cloneElement(triggerRender, {}, trigger)
+            : (
+              <button type="button">
+                Assignee picker {assigneeType ?? "none"} {assigneeId ?? "unassigned"}
+              </button>
+            )}
+          <button
+            type="button"
+            onClick={() => onUpdate({ assignee_type: "member", assignee_id: "member-1" })}
+          >
+            Select member
+          </button>
+          <button
+            type="button"
+            onClick={() => onUpdate({ assignee_type: "squad", assignee_id: "squad-1" })}
+          >
+            Select squad
+          </button>
+        </div>
+      );
+    },
 }));
 
 vi.mock("./node-deliverables-editor", () => ({
@@ -184,6 +212,8 @@ vi.mock("../../i18n", () => {
       critic_type_squad: "Squad",
       critic_type_api: "API",
       critic_type_role: "Role",
+      worker_id_label: "Assignee",
+      critic_id_label: "Reviewer",
       critic_api_url_label: "API URL",
       critic_api_url_hint: "POST endpoint that receives worker output for automated review",
       tabs: { config: "Config", data: "Data", runs: "Runs" },
@@ -251,25 +281,41 @@ describe("NodeConfigPanel", () => {
     mocks.saveNode.mockReset();
     mocks.nodeEdits = {};
     mocks.deliverables = [];
+    mocks.assigneePickerCalls = [];
   });
 
-  it("renders Worker and Critic type segmented controls", () => {
+  it("renders unified direct participant pickers for Worker and Critic", () => {
     renderPanel();
 
     expect(screen.getByTestId("workflow-node-detail-panel-shell")).toHaveAttribute("data-mode", "edit");
     expect(screen.queryByRole("tab", { name: "Config" })).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Worker type Human" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Worker type Agent" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Worker type Squad" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Worker type Role" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Worker type Human" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Critic type Agent" })).not.toBeInTheDocument();
 
-    expect(screen.getByRole("button", { name: "Critic type Human" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Critic type Agent" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Critic type Squad" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Critic type Role" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Critic type API" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Builder Agent" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Reviewer Agent" })).toBeInTheDocument();
+    expect(screen.getAllByRole("button", { name: "Assignee" })).toHaveLength(1);
+    expect(screen.getAllByRole("button", { name: "Reviewer" })).toHaveLength(1);
+    expect(screen.getAllByRole("button", { name: "Role" })).toHaveLength(2);
+    expect(screen.getByRole("button", { name: "API" })).toBeInTheDocument();
+    expect(mocks.assigneePickerCalls).toEqual(
+      expect.arrayContaining([
+        { assigneeType: "agent", assigneeId: "agent-1", includeWorkflows: false },
+        { assigneeType: "agent", assigneeId: "agent-2", includeWorkflows: false },
+      ]),
+    );
+    expect(mocks.assigneePickerCalls.every((call) => call.includeWorkflows === false)).toBe(true);
+  });
+
+  it("updates Worker type from the unified participant picker selection", () => {
+    renderPanel();
+
+    fireEvent.click(screen.getAllByRole("button", { name: "Select member" })[0]!);
+
+    expect(mocks.cacheNodeEdits).toHaveBeenCalledWith("node-1", {
+      worker_type: "human",
+      worker_id: "member-1",
+    });
   });
 
   it("renders a node save action when local edits exist", () => {
@@ -305,7 +351,7 @@ describe("NodeConfigPanel", () => {
   it("switches Worker to Role and clears the previous worker assignment", () => {
     renderPanel();
 
-    fireEvent.click(screen.getByRole("button", { name: "Worker type Role" }));
+    fireEvent.click(screen.getAllByRole("button", { name: "Role" })[0]!);
 
     expect(mocks.cacheNodeEdits).toHaveBeenCalledWith("node-1", {
       worker_type: "role",
@@ -317,7 +363,7 @@ describe("NodeConfigPanel", () => {
   it("switches Critic to API and shows the API URL field", () => {
     renderPanel();
 
-    fireEvent.click(screen.getByRole("button", { name: "Critic type API" }));
+    fireEvent.click(screen.getByRole("button", { name: "API" }));
 
     expect(mocks.cacheNodeEdits).toHaveBeenCalledWith("node-1", {
       critic_type: "api",
@@ -375,8 +421,8 @@ describe("NodeConfigPanel", () => {
 
     expect(screen.getByText("Fork gateway")).toBeInTheDocument();
     expect(screen.getByText("Automatically completes and fans out to all downstream nodes.")).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Worker type Agent" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Critic type Agent" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Builder Agent" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Reviewer Agent" })).not.toBeInTheDocument();
     expect(screen.queryByTestId("deliverables-editor")).not.toBeInTheDocument();
   });
 });

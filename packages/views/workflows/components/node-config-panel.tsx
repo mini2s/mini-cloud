@@ -129,21 +129,27 @@ function InspectorSection({
   );
 }
 
-function TypeSegmentedControl<T extends string>({
-  label,
+function isDirectWorkerType(type: WorkerType): type is "human" | "agent" | "squad" {
+  return type === "human" || type === "agent" || type === "squad";
+}
+
+function isDirectCriticType(type: CriticType): type is "human" | "agent" | "squad" {
+  return type === "human" || type === "agent" || type === "squad";
+}
+
+function AssignmentModeControl<T extends string>({
   value,
   options,
   disabled,
   onChange,
 }: {
-  label: "Worker" | "Critic";
   value: T;
   options: Array<{ value: T; label: string }>;
   disabled?: boolean;
   onChange: (value: T) => void;
 }) {
   return (
-    <div className="grid gap-1 rounded-lg border bg-muted/40 p-1" style={{ gridTemplateColumns: `repeat(${options.length}, minmax(0, 1fr))` }}>
+    <div className="inline-flex rounded-lg border bg-muted/40 p-1">
       {options.map((option) => {
         const active = option.value === value;
         return (
@@ -151,9 +157,8 @@ function TypeSegmentedControl<T extends string>({
             key={option.value}
             type="button"
             disabled={disabled}
-            aria-label={`${label} type ${option.label}`}
             aria-pressed={active}
-            className={`h-8 rounded-md px-2 text-[11px] font-medium transition-colors ${
+            className={`h-7 rounded-md px-2.5 text-[11px] font-medium transition-colors ${
               active
                 ? "border border-border bg-background text-foreground shadow-sm"
                 : "text-muted-foreground hover:bg-background/70 hover:text-foreground"
@@ -225,12 +230,14 @@ function AssigneePickerTrigger({
   id,
   label,
   emptyPrefix,
+  emptyLabel,
   t,
 }: {
   type: string;
   id: string | null;
   label?: string | null;
   emptyPrefix: string;
+  emptyLabel?: string;
   t: ReturnType<typeof useT<"workflows">>["t"];
 }) {
   const Icon = type === "agent" ? Bot : type === "squad" ? Users : User;
@@ -238,7 +245,7 @@ function AssigneePickerTrigger({
     <>
       <Icon className="size-3.5 text-muted-foreground" />
       <span className="min-w-0 flex-1 truncate text-left">
-        {pickerTriggerLabel(type, id, emptyPrefix, t, label)}
+        {id ? pickerTriggerLabel(type, id, emptyPrefix, t, label) : emptyLabel ?? pickerTriggerLabel(type, id, emptyPrefix, t, label)}
       </span>
     </>
   );
@@ -426,6 +433,8 @@ export function NodeConfigPanel({
       ? roles.find((r) => r.id === criticId)?.name ?? null
       : getActorName(actorLookupType(criticType), criticId)
     : null;
+  const workerMode = isDirectWorkerType(workerType) ? "direct" : "role";
+  const criticMode = isDirectCriticType(criticType) ? "direct" : criticType === "api" ? "api" : "role";
   const hasLocalEdits = Boolean(nodeEdits[node.id]);
   const hasUnsavedChanges = hasLocalEdits || deliverablesDirty;
   const isSavingDeliverables =
@@ -741,24 +750,23 @@ export function NodeConfigPanel({
                   subtitle={t(($) => $.detail_panel.worker_subtitle)}
                   status={workerConfigured ? <StatusBadge tone="success">{t(($) => $.detail_panel.badge_configured)}</StatusBadge> : <StatusBadge tone="warning">{t(($) => $.detail_panel.badge_needs_assignee)}</StatusBadge>}
                 >
-                  <TypeSegmentedControl<WorkerType>
-                    label="Worker"
-                    value={workerType}
+                  <AssignmentModeControl<"direct" | "role">
+                    value={workerMode}
                     disabled={disabled}
                     options={[
-                      { value: "human", label: t(($) => $.node.worker_type_human) },
-                      { value: "agent", label: t(($) => $.node.worker_type_agent) },
-                      { value: "squad", label: t(($) => $.node.worker_type_squad) },
+                      { value: "direct", label: t(($) => $.node.worker_id_label) },
                       { value: "role", label: t(($) => $.node.worker_type_role) },
                     ]}
-                    onChange={(wt) => {
-                      setWorkerType(wt);
+                    onChange={(mode) => {
+                      if (mode === workerMode) return;
+                      const nextType: WorkerType = mode === "direct" ? "human" : "role";
+                      setWorkerType(nextType);
                       setWorkerId(null);
-                      cacheNodeEdits(node.id, { worker_type: wt, worker_id: null });
+                      cacheNodeEdits(node.id, { worker_type: nextType, worker_id: null });
                     }}
                   />
 
-                  {workerType === "role" ? (
+                  {workerMode === "role" ? (
                     <div className="space-y-1.5">
                       <Label className="text-xs text-muted-foreground" htmlFor="worker-role-select">{t(($) => $.detail_panel.label_worker_role)}</Label>
                       <select
@@ -801,6 +809,7 @@ export function NodeConfigPanel({
                               id={workerId}
                               label={workerLabel}
                               emptyPrefix={t(($) => $.detail_panel.picker_empty_prefix)}
+                              emptyLabel={t(($) => $.detail_panel.empty_worker)}
                               t={t}
                             />
                           }
@@ -813,6 +822,7 @@ export function NodeConfigPanel({
                           }}
                           align="start"
                           skipBuiltinRuntimeSelection
+                          includeWorkflows={false}
                         />
                       </div>
                       <ActorSummary type={workerType} id={workerId} label={workerLabel} emptyText={t(($) => $.detail_panel.empty_worker)} hint={t(($) => $.detail_panel.actor_assignee_hint)} />
@@ -832,25 +842,24 @@ export function NodeConfigPanel({
                   subtitle={t(($) => $.detail_panel.critic_subtitle)}
                   status={criticConfigured ? <StatusBadge tone="success">{t(($) => $.detail_panel.badge_configured)}</StatusBadge> : <StatusBadge>{t(($) => $.detail_panel.badge_optional)}</StatusBadge>}
                 >
-                  <TypeSegmentedControl<CriticType>
-                    label="Critic"
-                    value={criticType}
+                  <AssignmentModeControl<"direct" | "role" | "api">
+                    value={criticMode}
                     disabled={disabled}
                     options={[
-                      { value: "human", label: t(($) => $.node.critic_type_human) },
-                      { value: "agent", label: t(($) => $.node.critic_type_agent) },
-                      { value: "squad", label: t(($) => $.node.critic_type_squad) },
+                      { value: "direct", label: t(($) => $.node.critic_id_label) },
                       { value: "role", label: t(($) => $.node.critic_type_role) },
                       { value: "api", label: t(($) => $.node.critic_type_api) },
                     ]}
-                    onChange={(ct) => {
-                      setCriticType(ct);
+                    onChange={(mode) => {
+                      if (mode === criticMode) return;
+                      const nextType: CriticType = mode === "direct" ? "human" : mode;
+                      setCriticType(nextType);
                       setCriticId(null);
-                      cacheNodeEdits(node.id, { critic_type: ct, critic_id: null });
+                      cacheNodeEdits(node.id, { critic_type: nextType, critic_id: null });
                     }}
                   />
 
-                  {criticType === "api" ? (
+                  {criticMode === "api" ? (
                     <div className="space-y-1.5">
                       <Label className="text-xs text-muted-foreground" htmlFor="critic-api-url">{t(($) => $.node.critic_api_url_label)}</Label>
                       <Input
@@ -867,7 +876,7 @@ export function NodeConfigPanel({
                       />
                       <p className="text-[11px] leading-snug text-muted-foreground">{t(($) => $.node.critic_api_url_hint)}</p>
                     </div>
-                  ) : criticType === "role" ? (
+                  ) : criticMode === "role" ? (
                     <div className="space-y-1.5">
                       <Label className="text-xs text-muted-foreground" htmlFor="critic-role-select">{t(($) => $.detail_panel.label_critic_role)}</Label>
                       <select
@@ -910,6 +919,7 @@ export function NodeConfigPanel({
                               id={criticId}
                               label={criticLabel}
                               emptyPrefix={t(($) => $.detail_panel.picker_empty_prefix)}
+                              emptyLabel={t(($) => $.detail_panel.empty_critic)}
                               t={t}
                             />
                           }
@@ -921,6 +931,7 @@ export function NodeConfigPanel({
                             cacheNodeEdits(node.id, { critic_type: ct, critic_id: cid });
                           }}
                           align="start"
+                          includeWorkflows={false}
                         />
                       </div>
                       <ActorSummary type={criticType} id={criticId} label={criticLabel} emptyText={t(($) => $.detail_panel.empty_critic)} hint={t(($) => $.detail_panel.actor_assignee_hint)} />
