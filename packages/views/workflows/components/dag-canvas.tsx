@@ -36,6 +36,11 @@ import {
   type WorkflowNodeData,
 } from "./reactflow-nodes";
 import { computeAlignmentSnap, type AlignmentGuide } from "./alignment-snap";
+import {
+  workflowCanvasControlsClassName,
+  workflowCanvasMiniMapClassName,
+  workflowCanvasMiniMapStyle,
+} from "./canvas/workflow-canvas-controls";
 
 function parseNodeFormat(formatSchema: unknown): {
   shape: ReturnType<typeof parseNodeShape>;
@@ -93,7 +98,6 @@ export function WorkflowCanvas({
   const setSelectedNodeIds = useWorkflowEditorStore((s) => s.setSelectedNodeIds);
   const cacheNodeDelete = useWorkflowEditorStore((s) => s.cacheNodeDelete);
   const deletedNodeIds = useWorkflowEditorStore((s) => s.deletedNodeIds);
-  const canvasColorMode = useWorkflowEditorStore((s) => s.canvasColorMode);
   const { screenToFlowPosition } = useReactFlow();
 
   const cacheNodeEdit = useWorkflowEditorStore((s) => s.cacheNodeEdits);
@@ -531,11 +535,28 @@ export function WorkflowCanvas({
       nodesFocusable
       elementsSelectable
       fitView={shouldFitView}
-      colorMode={canvasColorMode}
     >
       <Background />
-      <Controls />
-      {showMiniMap && <MiniMap nodeColor={(node) => miniMapNodeColors[node.id] ?? "#e2e8f0"} />}
+      <Controls
+        position="bottom-left"
+        orientation="horizontal"
+        className={workflowCanvasControlsClassName}
+      />
+      {showMiniMap && (
+        <MiniMap
+          position="bottom-right"
+          className={workflowCanvasMiniMapClassName}
+          pannable
+          zoomable
+          style={workflowCanvasMiniMapStyle}
+          bgColor="hsl(var(--card))"
+          maskColor="hsl(var(--muted) / 0.14)"
+          maskStrokeColor="transparent"
+          maskStrokeWidth={0}
+          nodeBorderRadius={4}
+          nodeColor={(node) => miniMapNodeColors[node.id] ?? "#e2e8f0"}
+        />
+      )}
       {alignmentGuides.length > 0 && (
         <svg
           style={{

@@ -1,33 +1,53 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useCreateStage } from "@multica/core/workflows/queries";
+import { useCreateStage, useUpdateStage } from "@multica/core/workflows/queries";
 import { useT } from "../../../i18n";
+import type { WorkflowStage } from "@multica/core/types";
 
 interface StageCreateDialogProps {
   workflowId: string;
   wsId: string;
+  stage?: WorkflowStage | null;
   onClose: () => void;
 }
 
 export function StageCreateDialog({
   workflowId,
   wsId,
+  stage,
   onClose,
 }: StageCreateDialogProps) {
   const { t } = useT("workflows");
   const createStage = useCreateStage(wsId, workflowId);
-  const [name, setName] = useState("");
-  const [description, setDescription] = useState("");
+  const updateStage = useUpdateStage(wsId, workflowId);
+  const isEditing = Boolean(stage);
+  const isPending = createStage.isPending || updateStage.isPending;
+  const error = createStage.error ?? updateStage.error;
+  const [name, setName] = useState(stage?.name ?? "");
+  const [description, setDescription] = useState(stage?.description ?? "");
+
+  useEffect(() => {
+    setName(stage?.name ?? "");
+    setDescription(stage?.description ?? "");
+  }, [stage]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!name.trim()) return;
     try {
-      await createStage.mutateAsync({
-        name: name.trim(),
-        description: description.trim() || undefined,
-      });
+      if (stage) {
+        await updateStage.mutateAsync({
+          stageId: stage.id,
+          name: name.trim(),
+          description: description.trim(),
+        });
+      } else {
+        await createStage.mutateAsync({
+          name: name.trim(),
+          description: description.trim() || undefined,
+        });
+      }
       onClose();
     } catch {
       // Error captured by mutation state and displayed below
@@ -56,7 +76,9 @@ export function StageCreateDialog({
         aria-labelledby="stage-dialog-title"
       >
         <h2 id="stage-dialog-title" className="text-lg font-semibold">
-          {t(($) => $.overview.stage_dialog.create_title)}
+          {isEditing
+            ? t(($) => $.overview.stage_dialog.edit_title)
+            : t(($) => $.overview.stage_dialog.create_title)}
         </h2>
         <form onSubmit={handleSubmit} className="mt-4 space-y-4">
           <div>
@@ -95,16 +117,20 @@ export function StageCreateDialog({
             </button>
             <button
               type="submit"
-              disabled={!name.trim() || createStage.isPending}
+              disabled={!name.trim() || isPending}
               className="px-4 py-2 text-sm rounded-md bg-primary text-primary-foreground
                 disabled:opacity-50 hover:opacity-90"
             >
-              {createStage.isPending ? "Creating..." : "Create"}
+              {isPending
+                ? t(($) => $.detail.saving)
+                : isEditing
+                  ? t(($) => $.detail.save)
+                  : t(($) => $.detail.create_dialog.create)}
             </button>
           </div>
-          {createStage.error && (
+          {error && (
             <p className="text-xs text-destructive mt-1">
-              {createStage.error.message}
+              {error.message}
             </p>
           )}
         </form>

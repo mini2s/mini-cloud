@@ -1,0 +1,2 @@
+DROP TABLE IF EXISTS multica_workflow_node_deliverable_submission;
+DROP TABLE IF EXISTS multica_workflow_node_deliverable;

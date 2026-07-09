@@ -1,0 +1,749 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>n8n Workflow 画布 UI/UX 报告</title>
+  <style>
+    :root{--bg:#f6f8fb;--paper:#ffffff;--ink:#122033;--muted:#607086;--line:#dbe4ef;--brand:#ff6d5a;--brand2:#6e56cf;--blue:#2d7ff9;--green:#29a36a;--yellow:#f2b84b;--shadow:0 18px 50px rgba(16,32,58,.10);--radius:22px}
+    *{box-sizing:border-box}html{scroll-behavior:smooth}body{margin:0;background:linear-gradient(180deg,#f4f7fb 0%,#eef3f8 100%);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",Arial,sans-serif;color:var(--ink);line-height:1.7}a{color:#286fd6;text-decoration:none}a:hover{text-decoration:underline}.page{max-width:1160px;margin:0 auto;padding:38px 28px 80px}.hero{background:linear-gradient(135deg,#fff 0%,#f6f9ff 100%);border:1px solid #e6edf7;border-radius:28px;box-shadow:var(--shadow);padding:42px 46px;margin-bottom:24px}.hero h1{font-size:40px;line-height:1.18;margin:0 0 12px;letter-spacing:0}.hero p{font-size:18px;color:var(--muted);margin:0;max-width:880px}.badge-row{display:flex;gap:10px;flex-wrap:wrap;margin:22px 0 0}.badge{border:1px solid #e1e8f2;background:#fff;border-radius:999px;padding:7px 12px;color:#415066;font-size:13px}.grid-2{display:grid;grid-template-columns:1fr 1fr;gap:18px}.card{background:var(--paper);border:1px solid #e6edf6;border-radius:18px;box-shadow:0 10px 30px rgba(16,32,58,.06);padding:22px}.card h3{margin:0 0 10px;font-size:19px}.card p{margin:0;color:var(--muted)}.toc{background:#fff;border:1px solid #e6edf6;border-radius:20px;padding:22px 24px;margin:24px 0 32px;box-shadow:0 10px 28px rgba(16,32,58,.05)}.toc h2{margin:0 0 12px;font-size:22px}.toc ol{columns:2;margin:0;padding-left:22px}.toc li{break-inside:avoid;margin:5px 0;color:#43536a}section{margin:34px 0}.section-title{font-size:28px;margin:0 0 16px;letter-spacing:0}.section-lead{color:var(--muted);margin-top:-6px;max-width:900px}.scenario{background:#fff;border:1px solid #e4ecf6;border-radius:24px;box-shadow:var(--shadow);overflow:hidden;margin:24px 0 34px}.scenario-head{display:flex;justify-content:space-between;gap:18px;align-items:flex-start;padding:26px 28px 18px;border-bottom:1px solid #eef2f7}.scenario h3{font-size:24px;margin:0 0 6px}.scenario .tag{font-size:13px;color:#7654c7;background:#f4f0ff;border:1px solid #e4dafd;border-radius:999px;padding:6px 12px;white-space:nowrap}.scenario-body{display:grid;grid-template-columns:1.2fr .8fr;gap:0}.figure{padding:24px;background:linear-gradient(180deg,#fbfcff,#f6f9fd);border-right:1px solid #e9eff7}.figure svg{width:100%;height:auto;border-radius:16px;display:block;background:#fff;box-shadow:0 12px 28px rgba(16,32,58,.10);border:1px solid #e5edf8}.caption,.image-caption{font-size:13px;color:#5e6e83;margin:12px 2px 0}.explain{padding:24px 26px}.explain h4{margin:0 0 8px;color:#213047}.explain ul{margin:0 0 16px;padding-left:18px}.explain li{margin:4px 0;color:#4c5c72}.insight{background:#f4f8ff;border:1px solid #dceafd;border-radius:14px;padding:13px 15px;color:#2e4d78;font-size:14px}.risk{background:#fff4f1;border:1px solid #ffd5cd;border-radius:14px;padding:13px 15px;color:#733227;font-size:14px;margin-top:10px}table{width:100%;border-collapse:separate;border-spacing:0;background:#fff;border:1px solid #e4ecf6;border-radius:18px;overflow:hidden;box-shadow:0 8px 24px rgba(16,32,58,.05)}th,td{padding:13px 15px;text-align:left;border-bottom:1px solid #edf2f8;vertical-align:top}th{background:#f7faff;color:#324359;font-weight:700}tr:last-child td{border-bottom:0}td{color:#495a70}.summary-list{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}.mini{background:#fff;border:1px solid #e5edf6;border-radius:16px;padding:18px}.mini b{display:block;margin-bottom:6px;color:#15243a}.mini span{color:#607086;font-size:14px}.real-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:18px}.real-figure,.gallery-figure{margin:0;background:#fff;border:1px solid #e5edf6;border-radius:18px;padding:16px;box-shadow:0 8px 24px rgba(16,32,58,.05)}.real-figure img{max-width:100%;height:auto;display:block;border-radius:12px;border:1px solid #e5edf6}.gallery-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:18px}.gallery-svg{width:100%;height:auto;display:block;border-radius:12px;border:1px solid #e5edf6;background:#fff}.footer{color:#6a788b;text-align:center;margin-top:46px;font-size:13px}code,.kbd{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;background:#f1f4f8;border:1px solid #dce4ef;border-radius:6px;padding:2px 5px;color:#36475c}@media(max-width:920px){.scenario-body,.grid-2,.real-grid,.gallery-grid{grid-template-columns:1fr}.figure{border-right:0;border-bottom:1px solid #e9eff7}.toc ol{columns:1}.summary-list{grid-template-columns:1fr}.hero{padding:34px 26px}.hero h1{font-size:32px}}
+  </style>
+</head>
+<body>
+<div class="page">
+  <header class="hero">
+    <h1>n8n Workflow 画布 UI/UX 报告</h1>
+    <p>聚焦 n8n 画布作为“可执行流程编排工作台”的核心体验：节点添加、数据流、配置映射、调试回放、AI Agent、复杂流程收纳与发布协作。</p>
+    <div class="badge-row"><span class="badge">对象：n8n Workflow Canvas</span><span class="badge">范围：UI/UX + 产品设计</span><span class="badge">保留：全部有效图片</span></div>
+  </header>
+  <div class="grid-2"><div class="card"><h3>核心判断</h3><p>n8n 的画布不是普通流程图，而是把结构、参数、数据、执行状态和生产发布组合在一起的工作台。</p></div><div class="card"><h3>设计关键词</h3><p>低门槛起步、能力市场、数据流可视化、局部调试、数据新鲜度、复杂流程收纳、AI Agent 子能力可视化、草稿/生产分离。</p></div></div>
+  <nav class="toc"><h2>目录</h2><ol><li><a href="#overview">总体结构与设计原则</a></li><li><a href="#scenario-1">空白画布与第一步引导</a></li><li><a href="#scenario-2">节点库搜索与添加</a></li><li><a href="#scenario-3">节点连接与数据流</a></li><li><a href="#scenario-4">条件分支与失败路径</a></li><li><a href="#scenario-5">节点详情与数据面板</a></li><li><a href="#scenario-6">数据映射与表达式</a></li><li><a href="#scenario-7">执行调试与 Pin Data</a></li><li><a href="#scenario-8">Dirty Node 与执行回放</a></li><li><a href="#scenario-9">AI Agent 编排</a></li><li><a href="#scenario-10">Sticky Notes 与分组</a></li><li><a href="#scenario-11">保存、发布与协作</a></li><li><a href="#real-screenshots">真实界面参考图</a></li><li><a href="#gallery">补充示意图集</a></li><li><a href="#recommendations">自研 Workflow 建议</a></li></ol></nav>
+  <section id="overview"><h2 class="section-title">1. 总体结构与设计原则</h2><p class="section-lead">n8n 通过左侧导航、顶部控制栏、中央画布、节点面板、节点详情和执行视图构成完整闭环。核心原则是：画布负责看清流程，面板负责完成配置，执行数据负责验证结果。</p><table><thead><tr><th>界面层</th><th>主要功能</th><th>UX 价值</th></tr></thead><tbody><tr><td>顶部 Header</td><td>流程名、保存/发布状态、分享、执行</td><td>让用户确认当前流程处于草稿、已发布、未发布变更还是错误状态</td></tr><tr><td>中央 Canvas</td><td>节点摆放、连接、分支、分组、注释</td><td>把业务流程抽象为可视化数据流</td></tr><tr><td>节点面板</td><td>搜索 Trigger、Action、Core、AI、App 节点</td><td>像能力市场一样快速发现可用节点</td></tr><tr><td>节点详情</td><td>参数配置、认证、输入/输出、日志、错误</td><td>把配置与验证放在同一上下文中</td></tr><tr><td>Executions</td><td>查看执行记录、失败调试、复制执行数据</td><td>把线上问题带回编辑器复现和修复</td></tr></tbody></table></section>
+<section class="scenario" id="scenario-1">
+    <div class="scenario-head"><div><h3>场景 1：空白画布与“Add first step”引导</h3><p class="section-lead">用户新建 workflow 后，系统引导先添加 Trigger 节点。系统通过 Add first step 引导用户先添加 Trigger 节点。</p></div><span class="tag">新手启动</span></div>
+    <div class="scenario-body">
+      <div class="figure">
+        <svg viewBox="0 0 820 480" role="img" aria-label="空白画布和 Add first step 引导示意图">
+          <defs><pattern id="grid1" width="22" height="22" patternUnits="userSpaceOnUse"><circle cx="2" cy="2" r="1" fill="#d9e2ef"/></pattern></defs>
+          <rect width="820" height="480" fill="#fbfdff"/><rect x="0" y="0" width="820" height="52" fill="#fff" stroke="#e6edf7"/>
+          <text x="72" y="32" font-size="16" fill="#18263a" font-weight="700">Untitled workflow</text><rect x="660" y="13" width="72" height="26" rx="13" fill="#fff4f1" stroke="#ffcfc7"/><text x="681" y="31" font-size="12" fill="#d94d39">Inactive</text><rect x="742" y="12" width="52" height="28" rx="8" fill="#ff6d5a"/><text x="754" y="31" font-size="12" fill="#fff">Share</text>
+          <rect x="0" y="52" width="56" height="428" fill="#fff" stroke="#e6edf7"/><circle cx="28" cy="92" r="13" fill="#ff6d5a"/><text x="25" y="96" font-size="14" fill="#fff">＋</text><circle cx="28" cy="136" r="13" fill="#eef3f8"/><circle cx="28" cy="180" r="13" fill="#eef3f8"/>
+          <rect x="56" y="52" width="764" height="428" fill="url(#grid1)"/>
+          <g transform="translate(300,170)"><rect x="0" y="0" width="220" height="110" rx="18" fill="#fff" stroke="#dce6f2" stroke-width="2"/><circle cx="110" cy="38" r="20" fill="#fff1ef"/><text x="100" y="45" font-size="24" fill="#ff6d5a">＋</text><text x="57" y="75" font-size="18" fill="#172337" font-weight="700">Add first step</text><text x="34" y="96" font-size="12" fill="#7b8796">Start with a trigger node</text></g>
+          <g transform="translate(585,118)"><path d="M0,0 C-40,10 -70,38 -88,78" stroke="#9aa9ba" stroke-width="2" fill="none" stroke-dasharray="5 5"/><rect x="0" y="0" width="170" height="76" rx="14" fill="#ffffff" stroke="#dfe8f3"/><text x="18" y="25" font-size="13" fill="#18263a" font-weight="700">推荐起点</text><text x="18" y="48" font-size="12" fill="#637287">Manual / Webhook / Schedule</text></g>
+        </svg>
+        <p class="caption">图 1：空白画布不是直接让用户“自由画图”，而是通过 Add first step 把第一个动作收敛为“选择触发器”。</p>
+      </div>
+      <div class="explain">
+        <h4>图片说明</h4>
+        <ul><li>画布中央只有一个主 CTA，减少空白画布带来的决策压力。</li><li>顶部展示 workflow 名称与状态，强化“这是一个可上线的流程资产”。</li><li>左侧为资源导航，中心是编排空间，两者职责清晰。</li></ul>
+        <h4>UX 设计价值</h4>
+        <ul><li>把用户心智从“我要画什么”切到“流程从哪里开始”。</li><li>Trigger 优先可避免新手先添加 Action 导致流程无法执行。</li></ul>
+        <div class="insight">可借鉴：自研 Workflow 新建页应提供“从触发器开始”的强引导，并按 Webhook、定时、表单、聊天、人工触发等场景推荐入口。</div>
+      </div>
+    </div>
+  </section>
+
+<section class="scenario" id="scenario-2">
+    <div class="scenario-head"><div><h3>场景 2：节点库搜索与添加</h3><p class="section-lead">节点是 workflow 的关键构件，负责启动流程、获取/发送数据、处理/操作数据；节点面板通过搜索和分类降低选择成本。</p></div><span class="tag">能力发现</span></div>
+    <div class="scenario-body">
+      <div class="figure">
+        <svg viewBox="0 0 820 480" role="img" aria-label="节点库搜索与添加示意图">
+          <defs><pattern id="grid2" width="22" height="22" patternUnits="userSpaceOnUse"><circle cx="2" cy="2" r="1" fill="#d9e2ef"/></pattern></defs>
+          <rect width="820" height="480" fill="#fbfdff"/><rect y="0" width="820" height="52" fill="#fff" stroke="#e6edf7"/><text x="72" y="32" font-size="16" fill="#18263a" font-weight="700">Customer onboarding</text>
+          <rect x="0" y="52" width="540" height="428" fill="url(#grid2)"/><g transform="translate(120,205)"><rect width="170" height="70" rx="14" fill="#fff" stroke="#dbe5f1" stroke-width="2"/><circle cx="26" cy="35" r="15" fill="#eff5ff"/><text x="20" y="40" font-size="16" fill="#2d7ff9">↯</text><text x="52" y="31" font-size="13" fill="#172337" font-weight="700">Manual Trigger</text><text x="52" y="50" font-size="11" fill="#7b8796">When clicking run</text><circle cx="170" cy="35" r="5" fill="#9aa9ba"/></g>
+          <path d="M292,240 C330,240 355,240 385,240" stroke="#7f8c9d" stroke-width="3" fill="none"/><circle cx="399" cy="240" r="14" fill="#fff" stroke="#cfd8e5"/><text x="394" y="245" font-size="15" fill="#6b7788">＋</text>
+          <rect x="540" y="52" width="280" height="428" fill="#fff" stroke="#e6edf7"/><text x="566" y="86" font-size="20" fill="#18263a" font-weight="700">Add node</text><rect x="564" y="106" width="220" height="38" rx="10" fill="#f5f7fb" stroke="#e2e9f3"/><text x="582" y="130" font-size="13" fill="#8895a7">Search node or action...</text>
+          <g transform="translate(564,164)"><rect width="220" height="46" rx="12" fill="#fff4f1" stroke="#ffd5cd"/><text x="16" y="28" font-size="13" fill="#d94d39" font-weight="700">⚡ Trigger nodes</text></g>
+          <g transform="translate(564,220)"><rect width="220" height="46" rx="12" fill="#f5f8ff" stroke="#dce8ff"/><text x="16" y="28" font-size="13" fill="#2d7ff9" font-weight="700">▣ App actions</text></g>
+          <g transform="translate(564,276)"><rect width="220" height="46" rx="12" fill="#f3fbf6" stroke="#d7f0e1"/><text x="16" y="28" font-size="13" fill="#198754" font-weight="700">◆ Core logic</text></g>
+          <g transform="translate(564,332)"><rect width="220" height="46" rx="12" fill="#f5f0ff" stroke="#e3d8ff"/><text x="16" y="28" font-size="13" fill="#6e56cf" font-weight="700">✦ AI / LangChain</text></g>
+          <text x="565" y="416" font-size="12" fill="#7b8796">Shortcut: N opens node panel</text>
+        </svg>
+        <p class="caption">图 2：点击节点右侧 Add node 或快捷键打开节点面板，用户可以按类型浏览或搜索节点。</p>
+      </div>
+      <div class="explain"><h4>图片说明</h4><ul><li>右侧节点面板承担“能力市场”角色，而不是让用户记节点名称。</li><li>Trigger、Action、Core Logic、AI 分类让新手先按意图选择，再进入具体服务。</li><li>节点右侧的加号连接了“添加节点”和“自动连线”两个动作。</li></ul><h4>交互重点</h4><ul><li>空流程优先展示 Trigger；已有流程则可搜索所有节点。</li><li>节点分类、关键词搜索、推荐节点共同降低选择成本。</li></ul><div class="insight">可借鉴：节点库不要做成纯列表，应做“按场景推荐 + 搜索 + 分类 + 最近使用”的组合。</div></div>
+    </div>
+  </section>
+
+<section class="scenario" id="scenario-3">
+    <div class="scenario-head"><div><h3>场景 3：节点连接与基础数据流</h3><p class="section-lead">连接线把一个节点的 output 传给另一个节点的 input；用户可从节点输出点或 Add node 连接器拖向下一个节点输入区域。</p></div><span class="tag">数据流心智</span></div>
+    <div class="scenario-body"><div class="figure">
+      <svg viewBox="0 0 820 480" role="img" aria-label="节点连接与数据流示意图">
+        <defs><pattern id="grid3" width="22" height="22" patternUnits="userSpaceOnUse"><circle cx="2" cy="2" r="1" fill="#d9e2ef"/></pattern><marker id="arrow3" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto"><path d="M0,0 L0,6 L9,3 z" fill="#68788c"/></marker></defs>
+        <rect width="820" height="480" fill="url(#grid3)"/><rect y="0" width="820" height="52" fill="#fff" stroke="#e6edf7"/><text x="72" y="32" font-size="16" fill="#18263a" font-weight="700">Lead processing workflow</text>
+        <g transform="translate(80,185)"><rect width="160" height="74" rx="14" fill="#fff" stroke="#dbe5f1" stroke-width="2"/><circle cx="28" cy="37" r="15" fill="#fff1ef"/><text x="22" y="42" font-size="16" fill="#ff6d5a">↯</text><text x="54" y="33" font-size="13" fill="#172337" font-weight="700">Webhook</text><text x="54" y="52" font-size="11" fill="#7b8796">Receive lead</text><circle cx="160" cy="37" r="5" fill="#8b98a8"/></g>
+        <path d="M245,222 C285,222 300,222 340,222" stroke="#68788c" stroke-width="3" fill="none" marker-end="url(#arrow3)"/>
+        <g transform="translate(350,185)"><rect width="160" height="74" rx="14" fill="#fff" stroke="#dbe5f1" stroke-width="2"/><circle cx="28" cy="37" r="15" fill="#eef6ff"/><text x="22" y="42" font-size="16" fill="#2d7ff9">{}</text><text x="54" y="33" font-size="13" fill="#172337" font-weight="700">Edit Fields</text><text x="54" y="52" font-size="11" fill="#7b8796">Normalize data</text><circle cx="0" cy="37" r="5" fill="#8b98a8"/><circle cx="160" cy="37" r="5" fill="#8b98a8"/></g>
+        <path d="M515,222 C555,222 570,222 610,222" stroke="#68788c" stroke-width="3" fill="none" marker-end="url(#arrow3)"/>
+        <g transform="translate(620,185)"><rect width="160" height="74" rx="14" fill="#fff" stroke="#dbe5f1" stroke-width="2"/><circle cx="28" cy="37" r="15" fill="#eefaf3"/><text x="22" y="42" font-size="16" fill="#29a36a">▦</text><text x="54" y="33" font-size="13" fill="#172337" font-weight="700">Google Sheets</text><text x="54" y="52" font-size="11" fill="#7b8796">Append row</text><circle cx="0" cy="37" r="5" fill="#8b98a8"/></g>
+        <g transform="translate(165,292)"><rect width="470" height="72" rx="16" fill="#fff" stroke="#e3eaf4"/><text x="18" y="27" font-size="13" fill="#18263a" font-weight="700">数据流说明</text><text x="18" y="51" font-size="12" fill="#607086">Webhook output → Edit Fields input → Google Sheets input；连线即数据传递通道。</text></g>
+      </svg><p class="caption">图 3：n8n 的连线不是装饰线，而是明确的数据传输路径。</p></div>
+      <div class="explain"><h4>图片说明</h4><ul><li>节点从左到右排列，符合“事件进入 → 数据处理 → 外部动作”的阅读路径。</li><li>输入点/输出点让用户知道节点的可连接方向。</li><li>连线表达数据依赖，改变连线会影响后续节点输入。</li></ul><h4>UX 价值</h4><ul><li>用户可以通过结构直接判断数据从哪里来、到哪里去。</li><li>节点连接和节点添加绑定，降低拖拽线条的操作成本。</li></ul><div class="insight">可借鉴：画布中每条线都应可被解释为“数据、控制、异常、AI 子能力”中的一种，避免无语义连线。</div></div>
+    </div>
+  </section>
+
+<section class="scenario" id="scenario-4">
+    <div class="scenario-head"><div><h3>场景 4：条件分支与失败路径</h3><p class="section-lead">在实际自动化中，分支逻辑负责把不同数据导向不同动作，例如审核通过/拒绝、成功/失败通知、人工复核/自动处理。</p></div><span class="tag">业务规则</span></div>
+    <div class="scenario-body"><div class="figure">
+      <svg viewBox="0 0 820 480" role="img" aria-label="条件分支与成功失败路径示意图">
+        <defs><pattern id="grid4" width="22" height="22" patternUnits="userSpaceOnUse"><circle cx="2" cy="2" r="1" fill="#d9e2ef"/></pattern><marker id="arrow4" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto"><path d="M0,0 L0,6 L9,3 z" fill="#68788c"/></marker></defs>
+        <rect width="820" height="480" fill="url(#grid4)"/><rect y="0" width="820" height="52" fill="#fff" stroke="#e6edf7"/><text x="72" y="32" font-size="16" fill="#18263a" font-weight="700">Support ticket routing</text>
+        <g transform="translate(76,205)"><rect width="160" height="74" rx="14" fill="#fff" stroke="#dbe5f1" stroke-width="2"/><circle cx="28" cy="37" r="15" fill="#eef6ff"/><text x="21" y="43" font-size="14" fill="#2d7ff9">✉</text><text x="54" y="33" font-size="13" fill="#172337" font-weight="700">Email Trigger</text><text x="54" y="52" font-size="11" fill="#7b8796">New ticket</text></g>
+        <path d="M238,242 C278,242 295,242 332,242" stroke="#68788c" stroke-width="3" fill="none" marker-end="url(#arrow4)"/>
+        <g transform="translate(344,205)"><rect width="120" height="74" rx="14" fill="#fff" stroke="#dbe5f1" stroke-width="2"/><circle cx="30" cy="37" r="15" fill="#f3fbf6"/><text x="24" y="43" font-size="14" fill="#29a36a">IF</text><text x="58" y="35" font-size="13" fill="#172337" font-weight="700">Priority?</text><circle cx="120" cy="25" r="5" fill="#8b98a8"/><circle cx="120" cy="52" r="5" fill="#8b98a8"/></g>
+        <path d="M468,230 C520,170 560,150 610,150" stroke="#29a36a" stroke-width="3" fill="none" marker-end="url(#arrow4)"/><text x="500" y="183" font-size="12" fill="#20805a" font-weight="700">true</text>
+        <path d="M468,257 C520,314 560,334 610,334" stroke="#d94d39" stroke-width="3" fill="none" marker-end="url(#arrow4)"/><text x="500" y="309" font-size="12" fill="#d94d39" font-weight="700">false</text>
+        <g transform="translate(620,112)"><rect width="160" height="74" rx="14" fill="#fff" stroke="#d7f0e1" stroke-width="2"/><circle cx="28" cy="37" r="15" fill="#eefaf3"/><text x="21" y="42" font-size="14" fill="#29a36a">✓</text><text x="54" y="33" font-size="13" fill="#172337" font-weight="700">Slack: Success</text><text x="54" y="52" font-size="11" fill="#7b8796">Notify owner</text></g>
+        <g transform="translate(620,296)"><rect width="160" height="74" rx="14" fill="#fff" stroke="#ffd5cd" stroke-width="2"/><circle cx="28" cy="37" r="15" fill="#fff1ef"/><text x="22" y="42" font-size="14" fill="#d94d39">!</text><text x="54" y="33" font-size="13" fill="#172337" font-weight="700">Slack: Failure</text><text x="54" y="52" font-size="11" fill="#7b8796">Escalate</text></g>
+        <rect x="352" y="306" width="164" height="44" rx="12" fill="#fff" stroke="#e3eaf4"/><text x="368" y="333" font-size="12" fill="#607086">分支标签显性化 true / false</text>
+      </svg><p class="caption">图 4：条件节点把线性流程变成业务决策树，分支标签帮助用户理解路径含义。</p></div>
+      <div class="explain"><h4>图片说明</h4><ul><li>IF 节点有多个输出点，分别对应 true/false 路径。</li><li>成功路径与失败路径在空间上分开，降低误连风险。</li><li>Slack 通知节点通过图标与标题表达动作结果。</li></ul><h4>设计关注点</h4><ul><li>分支线应显示条件标签，避免用户只看到两条线但不知道何时走哪条。</li><li>复杂分支需要支持折叠、命名、备注，否则画布会快速膨胀。</li></ul><div class="insight">可借鉴：条件分支节点要把“业务语义”显示在画布上，例如高风险/低风险、通过/拒绝、成功/失败，而不只是 true/false。</div></div>
+    </div>
+  </section>
+
+<section class="scenario" id="scenario-5">
+    <div class="scenario-head"><div><h3>场景 5：节点详情、参数配置与输入/输出数据</h3><p class="section-lead">节点详情把参数配置、输入数据、输出结果和常用操作放在同一上下文中。</p></div><span class="tag">配置工作台</span></div>
+    <div class="scenario-body"><div class="figure">
+      <svg viewBox="0 0 820 480" role="img" aria-label="节点详情页参数配置与数据面板示意图">
+        <rect width="820" height="480" fill="#f4f7fb"/><rect x="34" y="30" width="752" height="420" rx="22" fill="#fff" stroke="#dfe8f3"/><rect x="34" y="30" width="752" height="56" rx="22" fill="#fff" stroke="#dfe8f3"/><text x="62" y="65" font-size="18" fill="#172337" font-weight="700">Edit Fields</text><rect x="665" y="46" width="88" height="28" rx="10" fill="#ff6d5a"/><text x="681" y="65" font-size="12" fill="#fff">Execute step</text>
+        <rect x="58" y="112" width="248" height="300" rx="16" fill="#fbfcff" stroke="#e4ecf6"/><text x="78" y="144" font-size="15" fill="#172337" font-weight="700">Parameters</text><text x="78" y="178" font-size="12" fill="#607086">Field name</text><rect x="78" y="188" width="204" height="36" rx="9" fill="#fff" stroke="#dce6f2"/><text x="94" y="211" font-size="12" fill="#18263a">customer_email</text><text x="78" y="250" font-size="12" fill="#607086">Value</text><rect x="78" y="260" width="204" height="36" rx="9" fill="#fff" stroke="#dce6f2"/><text x="94" y="283" font-size="12" fill="#2d7ff9">{{$json.email}}</text><rect x="78" y="322" width="120" height="34" rx="9" fill="#f5f8ff" stroke="#dce8ff"/><text x="96" y="344" font-size="12" fill="#2d7ff9">Add field</text>
+        <rect x="326" y="112" width="208" height="300" rx="16" fill="#fbfcff" stroke="#e4ecf6"/><text x="346" y="144" font-size="15" fill="#172337" font-weight="700">Input</text><rect x="346" y="162" width="70" height="24" rx="8" fill="#eef6ff"/><text x="365" y="179" font-size="11" fill="#2d7ff9">JSON</text><rect x="346" y="202" width="168" height="158" rx="10" fill="#ffffff" stroke="#e1e9f3"/><text x="360" y="230" font-size="12" fill="#607086">email: ana@example.com</text><text x="360" y="256" font-size="12" fill="#607086">name: Ana</text><text x="360" y="282" font-size="12" fill="#607086">source: form</text>
+        <rect x="554" y="112" width="208" height="300" rx="16" fill="#fbfcff" stroke="#e4ecf6"/><text x="574" y="144" font-size="15" fill="#172337" font-weight="700">Output</text><rect x="574" y="162" width="72" height="24" rx="8" fill="#eefaf3"/><text x="594" y="179" font-size="11" fill="#29a36a">Table</text><rect x="574" y="202" width="168" height="158" rx="10" fill="#ffffff" stroke="#e1e9f3"/><text x="590" y="230" font-size="12" fill="#607086">customer_email ✓</text><text x="590" y="256" font-size="12" fill="#607086">name ✓</text><text x="590" y="282" font-size="12" fill="#607086">status: normalized</text>
+      </svg><p class="caption">图 5：节点详情是“配置 + 输入数据 + 输出结果”的组合面板，而不是单纯表单。</p></div>
+      <div class="explain"><h4>图片说明</h4><ul><li>左侧参数区负责编辑当前节点行为。</li><li>Input 显示上游节点传入的数据，Output 显示当前节点执行后的结果。</li><li>Execute step 让用户在节点级别验证配置是否正确。</li></ul><h4>UX 价值</h4><ul><li>减少“配置参数时看不到数据结构”的断裂感。</li><li>让用户在节点内部完成配置、运行、查看结果、修正。</li></ul><div class="insight">可借鉴：节点详情页应优先服务“调试闭环”，不要只做配置表单；输入/输出、日志、错误解释应与参数配置同屏或相邻。</div></div>
+    </div>
+  </section>
+
+<section class="scenario" id="scenario-6">
+    <div class="scenario-head"><div><h3>场景 6：数据映射与表达式</h3><p class="section-lead">数据映射支持从输入面板拖拽字段生成表达式，也支持在参数中直接写动态表达式。</p></div><span class="tag">字段引用</span></div>
+    <div class="scenario-body"><div class="figure">
+      <svg viewBox="0 0 820 480" role="img" aria-label="数据映射与表达式拖拽示意图">
+        <rect width="820" height="480" fill="#f4f7fb"/><rect x="36" y="32" width="748" height="416" rx="22" fill="#fff" stroke="#dfe8f3"/><text x="64" y="68" font-size="18" fill="#172337" font-weight="700">HTTP Request → 参数数据映射</text>
+        <rect x="60" y="110" width="270" height="294" rx="16" fill="#fbfcff" stroke="#e4ecf6"/><text x="82" y="144" font-size="15" fill="#172337" font-weight="700">Input panel</text><rect x="82" y="164" width="94" height="28" rx="9" fill="#eef6ff"/><text x="105" y="183" font-size="12" fill="#2d7ff9">Schema</text><g transform="translate(82,216)"><rect width="212" height="36" rx="10" fill="#fff" stroke="#dce6f2"/><text x="14" y="23" font-size="12" fill="#44546a">customer.email</text></g><g transform="translate(82,264)"><rect width="212" height="36" rx="10" fill="#fff" stroke="#dce6f2"/><text x="14" y="23" font-size="12" fill="#44546a">customer.name</text></g><g transform="translate(82,312)"><rect width="212" height="36" rx="10" fill="#fff" stroke="#dce6f2"/><text x="14" y="23" font-size="12" fill="#44546a">order.amount</text></g>
+        <path d="M294,234 C380,214 416,198 492,184" stroke="#7b57d1" stroke-width="3" fill="none" stroke-dasharray="7 5"/><circle cx="294" cy="234" r="6" fill="#7b57d1"/><text x="354" y="206" font-size="12" fill="#7b57d1" font-weight="700">拖拽字段</text>
+        <rect x="460" y="110" width="292" height="294" rx="16" fill="#fbfcff" stroke="#e4ecf6"/><text x="482" y="144" font-size="15" fill="#172337" font-weight="700">Parameter field</text><text x="482" y="181" font-size="12" fill="#607086">Email</text><rect x="482" y="192" width="230" height="42" rx="10" fill="#fff" stroke="#dce6f2"/><text x="502" y="219" font-size="13" fill="#2d7ff9">{{$json.customer.email}}</text><text x="482" y="268" font-size="12" fill="#607086">Amount with logic</text><rect x="482" y="280" width="230" height="62" rx="10" fill="#fff" stroke="#dce6f2"/><text x="502" y="307" font-size="13" fill="#2d7ff9">{{$json.order.amount &gt; 1000</text><text x="502" y="329" font-size="13" fill="#2d7ff9"> ? 'VIP' : 'Normal'}}</text>
+      </svg><p class="caption">图 6：数据映射把“上游字段”直接拖入“当前参数”，表达式提供更高级的动态计算。</p></div>
+      <div class="explain"><h4>图片说明</h4><ul><li>Input panel 让用户看到当前可用字段，降低字段名记忆成本。</li><li>拖拽生成表达式，适合业务用户快速引用字段。</li><li>手写表达式支持条件、计算、格式化，适合高级用户。</li></ul><h4>设计价值</h4><ul><li>同时覆盖低代码用户和开发者用户。</li><li>让数据结构和参数配置之间有清晰桥梁。</li></ul><div class="insight">可借鉴：字段映射最好支持“拖拽生成 + 公式模式 + 实时预览”，否则用户会在 JSON、字段名和参数表单之间来回切换。</div></div>
+    </div>
+  </section>
+
+<section class="scenario" id="scenario-7">
+    <div class="scenario-head"><div><h3>场景 7：手动执行、局部执行与 Pin Data</h3><p class="section-lead">手动执行、局部执行和 Pin Data 让复杂流程可以被拆成可重复验证的小单元。</p></div><span class="tag">调试闭环</span></div>
+    <div class="scenario-body"><div class="figure">
+      <svg viewBox="0 0 820 480" role="img" aria-label="手动执行局部执行与 Pin Data 示意图">
+        <defs><pattern id="grid7" width="22" height="22" patternUnits="userSpaceOnUse"><circle cx="2" cy="2" r="1" fill="#d9e2ef"/></pattern><marker id="arrow7" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto"><path d="M0,0 L0,6 L9,3 z" fill="#68788c"/></marker></defs>
+        <rect width="820" height="480" fill="url(#grid7)"/><rect y="0" width="820" height="52" fill="#fff" stroke="#e6edf7"/><text x="72" y="32" font-size="16" fill="#18263a" font-weight="700">Debug lead workflow</text><rect x="640" y="12" width="132" height="30" rx="10" fill="#ff6d5a"/><text x="664" y="32" font-size="13" fill="#fff">Execute workflow</text>
+        <g transform="translate(78,165)"><rect width="160" height="74" rx="14" fill="#fff" stroke="#d7f0e1" stroke-width="2"/><circle cx="28" cy="37" r="15" fill="#eefaf3"/><text x="22" y="42" font-size="16" fill="#29a36a">✓</text><text x="54" y="33" font-size="13" fill="#172337" font-weight="700">Webhook</text><text x="54" y="52" font-size="11" fill="#7b8796">Pinned data</text><rect x="128" y="-12" width="44" height="24" rx="8" fill="#fff4f1" stroke="#ffd5cd"/><text x="138" y="5" font-size="11" fill="#d94d39">PIN</text></g>
+        <path d="M242,202 C278,202 304,202 340,202" stroke="#68788c" stroke-width="3" fill="none" marker-end="url(#arrow7)"/>
+        <g transform="translate(350,165)"><rect width="160" height="74" rx="14" fill="#fff" stroke="#d7f0e1" stroke-width="2"/><circle cx="28" cy="37" r="15" fill="#eefaf3"/><text x="22" y="42" font-size="16" fill="#29a36a">✓</text><text x="54" y="33" font-size="13" fill="#172337" font-weight="700">Edit Fields</text><text x="54" y="52" font-size="11" fill="#7b8796">Execute step</text><rect x="126" y="-20" width="58" height="24" rx="8" fill="#eef6ff" stroke="#dce8ff"/><text x="138" y="-3" font-size="11" fill="#2d7ff9">RUN</text></g>
+        <path d="M512,202 C550,202 570,202 608,202" stroke="#68788c" stroke-width="3" fill="none" marker-end="url(#arrow7)"/>
+        <g transform="translate(620,165)"><rect width="160" height="74" rx="14" fill="#fff" stroke="#ffd5cd" stroke-width="2"/><circle cx="28" cy="37" r="15" fill="#fff1ef"/><text x="23" y="42" font-size="16" fill="#d94d39">!</text><text x="54" y="33" font-size="13" fill="#172337" font-weight="700">Send Email</text><text x="54" y="52" font-size="11" fill="#7b8796">Disabled during test</text></g>
+        <rect x="130" y="302" width="560" height="96" rx="18" fill="#fff" stroke="#e4ecf6"/><text x="154" y="334" font-size="14" fill="#172337" font-weight="700">调试策略</text><text x="154" y="362" font-size="12" fill="#607086">1. 上游 Webhook 固定输出，避免每次重新造数据。</text><text x="154" y="384" font-size="12" fill="#607086">2. 只执行 Edit Fields 节点验证字段清洗，暂时禁用真实邮件发送。</text>
+      </svg><p class="caption">图 7：Pin Data 和局部执行把复杂流程拆成可重复验证的小单元。</p></div>
+      <div class="explain"><h4>图片说明</h4><ul><li>被 Pin 的节点不再真实请求外部服务，而是复用固定输出。</li><li>Execute step 让用户只验证当前节点和必要上游。</li><li>下游真实发送类节点可临时禁用，避免调试时产生副作用。</li></ul><h4>UX 价值</h4><ul><li>降低外部服务调用成本和误操作风险。</li><li>让用户能使用同一批输入反复调试某个节点。</li></ul><div class="insight">可借鉴：Workflow 产品必须内置“单步运行、局部运行、Mock/Pin 数据、禁用节点”四件套，否则复杂流程维护成本会很高。</div></div>
+    </div>
+  </section>
+
+<section class="scenario" id="scenario-8">
+    <div class="scenario-head"><div><h3>场景 8：Dirty Node 与历史执行回放</h3><p class="section-lead">Dirty Node 用黄色提示区分“旧数据可能不可靠”和“执行失败”；执行回放能把真实执行数据带回编辑器调试。</p></div><span class="tag">数据可信度</span></div>
+    <div class="scenario-body"><div class="figure">
+      <svg viewBox="0 0 820 480" role="img" aria-label="Dirty Node 与历史执行回放示意图">
+        <defs><pattern id="grid8" width="22" height="22" patternUnits="userSpaceOnUse"><circle cx="2" cy="2" r="1" fill="#d9e2ef"/></pattern><marker id="arrow8" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto"><path d="M0,0 L0,6 L9,3 z" fill="#68788c"/></marker></defs>
+        <rect width="820" height="480" fill="url(#grid8)"/><rect y="0" width="820" height="52" fill="#fff" stroke="#e6edf7"/><text x="72" y="32" font-size="16" fill="#18263a" font-weight="700">Production issue replay</text><rect x="642" y="13" width="92" height="28" rx="9" fill="#f5f8ff" stroke="#dce8ff"/><text x="664" y="32" font-size="12" fill="#2d7ff9">Executions</text>
+        <g transform="translate(70,150)"><rect width="150" height="70" rx="14" fill="#fff" stroke="#d7f0e1" stroke-width="2"/><circle cx="28" cy="35" r="15" fill="#eefaf3"/><text x="22" y="40" font-size="16" fill="#29a36a">✓</text><text x="54" y="31" font-size="13" fill="#172337" font-weight="700">Trigger</text><text x="54" y="50" font-size="11" fill="#7b8796">ok</text></g><path d="M222,185 C252,185 270,185 302,185" stroke="#68788c" stroke-width="3" fill="none" marker-end="url(#arrow8)"/>
+        <g transform="translate(310,150)"><rect width="150" height="70" rx="14" fill="#fff" stroke="#f2b84b" stroke-width="3"/><path d="M128,10 L140,32 L116,32 Z" fill="#f2b84b"/><text x="124" y="29" font-size="14" fill="#fff" font-weight="700">!</text><text x="54" y="31" font-size="13" fill="#172337" font-weight="700">Transform</text><text x="54" y="50" font-size="11" fill="#7b8796">stale data</text><circle cx="28" cy="35" r="15" fill="#fff8e8"/><text x="22" y="40" font-size="16" fill="#f2b84b">?</text></g><path d="M462,185 C492,185 510,185 542,185" stroke="#68788c" stroke-width="3" fill="none" marker-end="url(#arrow8)"/>
+        <g transform="translate(550,150)"><rect width="150" height="70" rx="14" fill="#fff" stroke="#ffd5cd" stroke-width="2"/><circle cx="28" cy="35" r="15" fill="#fff1ef"/><text x="23" y="40" font-size="16" fill="#d94d39">!</text><text x="54" y="31" font-size="13" fill="#172337" font-weight="700">CRM Update</text><text x="54" y="50" font-size="11" fill="#7b8796">failed</text></g>
+        <rect x="90" y="286" width="286" height="110" rx="18" fill="#fff" stroke="#e4ecf6"/><text x="116" y="318" font-size="14" fill="#172337" font-weight="700">Node output warning</text><text x="116" y="346" font-size="12" fill="#607086">Output may be stale because parameters changed.</text><rect x="116" y="362" width="118" height="26" rx="8" fill="#fffbef" stroke="#fde3b1"/><text x="133" y="380" font-size="12" fill="#9b6b02">Run again</text>
+        <rect x="434" y="286" width="286" height="110" rx="18" fill="#fff" stroke="#e4ecf6"/><text x="460" y="318" font-size="14" fill="#172337" font-weight="700">Execution replay</text><text x="460" y="346" font-size="12" fill="#607086">Failed execution → Debug in editor</text><text x="460" y="370" font-size="12" fill="#607086">Successful execution → Copy to editor</text>
+      </svg><p class="caption">图 8：Dirty Node 提醒用户“眼前数据不一定可信”，历史执行回放帮助定位生产失败。</p></div>
+      <div class="explain"><h4>图片说明</h4><ul><li>黄色边框/三角形把“数据新鲜度”变成显性状态。</li><li>失败节点与 dirty 节点的含义不同：一个是执行失败，一个是旧数据可能不可靠。</li><li>历史执行可以被加载回编辑器，便于基于真实数据修复问题。</li></ul><h4>UX 价值</h4><ul><li>减少用户误用旧输出判断流程正确性的风险。</li><li>让线上失败不再停留在日志列表，而是回到画布上下文中修复。</li></ul><div class="insight">可借鉴：对 B 端流程编排工具，数据状态要分层：未运行、成功、失败、旧数据、禁用、跳过、Mock、生产执行。</div></div>
+    </div>
+  </section>
+
+<section class="scenario" id="scenario-9">
+    <div class="scenario-head"><div><h3>场景 9：AI Agent 编排</h3><p class="section-lead">AI Agent 作为节点存在，同时把 Chat Model、Memory、Tools 等子能力显性连接到 Agent 周围。</p></div><span class="tag">AI Workflow</span></div>
+    <div class="scenario-body"><div class="figure">
+      <svg viewBox="0 0 820 480" role="img" aria-label="AI Agent workflow 编排示意图">
+        <defs><pattern id="grid9" width="22" height="22" patternUnits="userSpaceOnUse"><circle cx="2" cy="2" r="1" fill="#d9e2ef"/></pattern><marker id="arrow9" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto"><path d="M0,0 L0,6 L9,3 z" fill="#68788c"/></marker></defs>
+        <rect width="820" height="480" fill="url(#grid9)"/><rect y="0" width="820" height="52" fill="#fff" stroke="#e6edf7"/><text x="72" y="32" font-size="16" fill="#18263a" font-weight="700">AI customer support agent</text><rect x="90" y="374" width="86" height="34" rx="10" fill="#ff6d5a"/><text x="115" y="396" font-size="13" fill="#fff">Chat</text>
+        <g transform="translate(70,140)"><rect width="170" height="76" rx="14" fill="#fff" stroke="#dbe5f1" stroke-width="2"/><circle cx="30" cy="38" r="16" fill="#f5f0ff"/><text x="23" y="43" font-size="16" fill="#6e56cf">💬</text><text x="58" y="34" font-size="13" fill="#172337" font-weight="700">Chat Trigger</text><text x="58" y="53" font-size="11" fill="#7b8796">When chat message</text></g><path d="M242,178 C288,178 306,178 350,178" stroke="#68788c" stroke-width="3" fill="none" marker-end="url(#arrow9)"/>
+        <g transform="translate(360,130)"><rect width="180" height="96" rx="16" fill="#fff" stroke="#dbe5f1" stroke-width="2"/><circle cx="34" cy="48" r="18" fill="#fff1ef"/><text x="25" y="54" font-size="18" fill="#ff6d5a">🤖</text><text x="64" y="42" font-size="14" fill="#172337" font-weight="700">AI Agent</text><text x="64" y="62" font-size="11" fill="#7b8796">Tools Agent</text><circle cx="54" cy="96" r="5" fill="#7b57d1"/><circle cx="96" cy="96" r="5" fill="#7b57d1"/><circle cx="138" cy="96" r="5" fill="#7b57d1"/></g>
+        <path d="M414,228 C390,280 360,296 326,330" stroke="#7b57d1" stroke-width="2.5" fill="none" stroke-dasharray="6 5"/><path d="M456,228 C456,278 456,298 456,330" stroke="#7b57d1" stroke-width="2.5" fill="none" stroke-dasharray="6 5"/><path d="M498,228 C532,280 566,296 600,330" stroke="#7b57d1" stroke-width="2.5" fill="none" stroke-dasharray="6 5"/>
+        <g transform="translate(240,330)"><circle cx="42" cy="42" r="38" fill="#fff" stroke="#e0e7f2" stroke-width="2"/><text x="26" y="48" font-size="20" fill="#172337">LLM</text><text x="1" y="96" font-size="12" fill="#607086">OpenAI Chat Model</text></g>
+        <g transform="translate(414,330)"><circle cx="42" cy="42" r="38" fill="#fff" stroke="#e0e7f2" stroke-width="2"/><text x="25" y="49" font-size="22" fill="#29a36a">▣</text><text x="9" y="96" font-size="12" fill="#607086">Simple Memory</text></g>
+        <g transform="translate(588,330)"><circle cx="42" cy="42" r="38" fill="#fff" stroke="#e0e7f2" stroke-width="2"/><text x="26" y="49" font-size="22" fill="#2d7ff9">🔧</text><text x="7" y="96" font-size="12" fill="#607086">Tools / APIs</text></g>
+        <path d="M542,178 C594,178 620,178 666,178" stroke="#68788c" stroke-width="3" fill="none" marker-end="url(#arrow9)"/><g transform="translate(676,140)"><rect width="120" height="76" rx="14" fill="#fff" stroke="#dbe5f1" stroke-width="2"/><text x="24" y="35" font-size="13" fill="#172337" font-weight="700">Respond</text><text x="24" y="54" font-size="11" fill="#7b8796">Answer user</text></g>
+      </svg><p class="caption">图 9：AI Agent 节点将模型、记忆、工具作为下挂子能力，而不是全部塞进一个大表单。</p></div>
+      <div class="explain"><h4>图片说明</h4><ul><li>Chat Trigger 是聊天入口，AI Agent 是任务决策核心。</li><li>Chat Model、Memory、Tools 用虚线/子连接挂在 Agent 下方，表达“能力依赖”。</li><li>Agent 后续仍可连接传统节点，说明 AI 只是流程中的一个步骤。</li></ul><h4>UX 价值</h4><ul><li>把 Agent 的能力边界显性化：用什么模型、有没有记忆、能调用什么工具。</li><li>保留传统流程编排优势，让 AI 决策与业务动作并存。</li></ul><div class="insight">可借鉴：AI Workflow 画布应区分“主数据流”和“AI 子能力连接”，并提供 Agent 能力摘要，如模型、工具数、记忆类型、权限风险。</div></div>
+    </div>
+  </section>
+
+<section class="scenario" id="scenario-10">
+    <div class="scenario-head"><div><h3>场景 10：Sticky Notes 与 Canvas Groups 管理复杂流程</h3><p class="section-lead">Sticky Notes 负责解释业务规则，Canvas Groups 负责把相关节点组织成可折叠模块。</p></div><span class="tag">大流程维护</span></div>
+    <div class="scenario-body"><div class="figure">
+      <svg viewBox="0 0 820 480" role="img" aria-label="Sticky Notes 与 Canvas Groups 示意图">
+        <defs><pattern id="grid10" width="22" height="22" patternUnits="userSpaceOnUse"><circle cx="2" cy="2" r="1" fill="#d9e2ef"/></pattern><marker id="arrow10" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto"><path d="M0,0 L0,6 L9,3 z" fill="#68788c"/></marker></defs>
+        <rect width="820" height="480" fill="url(#grid10)"/><rect y="0" width="820" height="52" fill="#fff" stroke="#e6edf7"/><text x="72" y="32" font-size="16" fill="#18263a" font-weight="700">Order fulfillment automation</text>
+        <rect x="70" y="95" width="300" height="170" rx="18" fill="#eef6ff" stroke="#a9cdfc" stroke-width="2"/><text x="92" y="126" font-size="14" fill="#1c5da8" font-weight="700">Group: Data preparation</text><g transform="translate(100,160)"><rect width="96" height="50" rx="12" fill="#fff" stroke="#dbe5f1"/><text x="20" y="30" font-size="12" fill="#172337">Webhook</text></g><path d="M198,185 C220,185 226,185 248,185" stroke="#68788c" stroke-width="2.5" fill="none" marker-end="url(#arrow10)"/><g transform="translate(252,160)"><rect width="96" height="50" rx="12" fill="#fff" stroke="#dbe5f1"/><text x="19" y="30" font-size="12" fill="#172337">Clean</text></g>
+        <rect x="455" y="95" width="250" height="46" rx="16" fill="#f5f0ff" stroke="#d8ccff" stroke-width="2"/><text x="480" y="124" font-size="14" fill="#6e56cf" font-weight="700">Group: Payment check  ▸</text>
+        <rect x="455" y="180" width="260" height="150" rx="18" fill="#fff8e8" stroke="#f9d98d" stroke-width="2"/><text x="478" y="212" font-size="15" fill="#7a570d" font-weight="700">Sticky Note</text><text x="478" y="244" font-size="12" fill="#7a570d">这里说明支付状态字段：</text><text x="478" y="268" font-size="12" fill="#7a570d">paid = 自动发货</text><text x="478" y="292" font-size="12" fill="#7a570d">pending = 人工复核</text>
+        <rect x="160" y="310" width="270" height="70" rx="18" fill="#f3fbf6" stroke="#b8e7cc" stroke-width="2"/><text x="184" y="353" font-size="14" fill="#198754" font-weight="700">Group: Fulfillment  ▸ collapsed</text>
+      </svg><p class="caption">图 10：分组解决结构收纳，注释解决理解成本，两者共同支撑大流程协作。</p></div>
+      <div class="explain"><h4>图片说明</h4><ul><li>Canvas Group 把相关节点圈成模块，并用名称表达模块职责。</li><li>折叠后的 Group 只显示名称，适合快速浏览流程全貌。</li><li>Sticky Note 可以放在节点后方或旁边，用于说明业务规则、字段含义、操作提醒。</li></ul><h4>UX 价值</h4><ul><li>解决复杂 workflow 的“节点蜘蛛网”问题。</li><li>把隐性知识写在画布上，降低交接和模板复用成本。</li></ul><div class="insight">可借鉴：当画布超过 20 个节点时，系统应主动提示用户分组、命名阶段、添加注释，甚至支持 AI 自动生成流程说明。</div></div>
+    </div>
+  </section>
+
+<section class="scenario" id="scenario-11">
+    <div class="scenario-head"><div><h3>场景 11：保存、发布与协作</h3><p class="section-lead">参考 n8n 的编辑器工具栏，顶部应把“自动保存的草稿”和“已发布的生产版本”明确拆开：编辑可以持续保存，只有 Publish 才进入生产。</p></div><span class="tag">生产安全</span></div>
+    <div class="scenario-body"><div class="figure">
+      <svg viewBox="0 0 820 480" role="img" aria-label="保存发布与协作状态示意图">
+        <defs><marker id="publish-arrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto"><path d="M0,0 L0,6 L9,3 z" fill="#7f8c9d"/></marker></defs>
+        <rect width="820" height="480" fill="#f4f7fb"/>
+        <rect x="48" y="56" width="724" height="112" rx="20" fill="#fff" stroke="#dfe8f3"/>
+        <text x="82" y="90" font-size="13" fill="#8b98a8">Personal / Workflows</text><text x="82" y="119" font-size="18" fill="#172337" font-weight="700">Lead qualification</text>
+        <rect x="254" y="96" width="74" height="26" rx="13" fill="#f8fafc" stroke="#e2e8f0"/><text x="275" y="114" font-size="11" fill="#607086">+ Tag</text>
+        <rect x="360" y="91" width="172" height="36" rx="18" fill="#f8fafc" stroke="#e2e8f0"/><rect x="366" y="96" width="70" height="26" rx="13" fill="#fff" stroke="#dfe8f3"/><text x="386" y="114" font-size="11" fill="#172337" font-weight="700">Editor</text><text x="452" y="114" font-size="11" fill="#607086">Executions</text>
+        <rect x="556" y="91" width="88" height="36" rx="18" fill="#f8fafc"/><circle cx="574" cy="109" r="4" fill="#22c55e"/><text x="588" y="114" font-size="11" fill="#607086">Saved</text>
+        <circle cx="666" cy="109" r="16" fill="#fff" stroke="#e2e8f0"/><text x="660" y="114" font-size="14" fill="#64748b">↺</text>
+        <rect x="690" y="91" width="68" height="36" rx="18" fill="#ff6d5a"/><text x="709" y="114" font-size="12" fill="#fff" font-weight="700">Publish</text>
+        <circle cx="724" cy="145" r="13" fill="#f8fafc" stroke="#e2e8f0"/><text x="720" y="149" font-size="13" fill="#64748b">⋯</text>
+        <g transform="translate(76,220)"><rect width="188" height="118" rx="18" fill="#fff" stroke="#e4ecf6"/><text x="22" y="36" font-size="15" fill="#172337" font-weight="700">Draft workspace</text><text x="22" y="67" font-size="12" fill="#607086">自动保存，持续编辑</text><text x="22" y="91" font-size="12" fill="#607086">可测试，但不影响生产</text></g>
+        <path d="M270,279 C320,279 342,279 390,279" stroke="#7f8c9d" stroke-width="3" fill="none" marker-end="url(#publish-arrow)"/><text x="310" y="260" font-size="12" fill="#607086">Publish</text>
+        <g transform="translate(402,220)"><rect width="188" height="118" rx="18" fill="#fff" stroke="#d7f0e1"/><text x="22" y="36" font-size="15" fill="#172337" font-weight="700">Published version</text><text x="22" y="67" font-size="12" fill="#607086">Webhook / Schedule 运行</text><text x="22" y="91" font-size="12" fill="#607086">生产执行绑定此版本</text></g>
+        <g transform="translate(612,220)"><rect width="132" height="118" rx="18" fill="#fff" stroke="#e4ecf6"/><text x="20" y="36" font-size="15" fill="#172337" font-weight="700">Toolbar menu</text><text x="20" y="67" font-size="12" fill="#607086">历史版本</text><text x="20" y="91" font-size="12" fill="#607086">分享与权限</text></g>
+        <g transform="translate(212,382)"><rect width="398" height="52" rx="16" fill="#fff8e8" stroke="#f9d98d"/><text x="24" y="33" font-size="13" fill="#7a570d" font-weight="700">协作锁只保护编辑过程；生产安全由“保存 ≠ 发布”的状态模型保护。</text></g>
+      </svg><p class="caption">图 11：工具栏把名称、编辑视图、草稿保存、发布、历史和更多操作分区，避免把“已保存”误解为“已上线”。</p></div>
+      <div class="explain"><h4>图片说明</h4><ul><li>Saved 只表示当前草稿已自动保存，不代表线上版本已更新。</li><li>Publish 是唯一生产入口，应比历史、分享、更多菜单拥有更高视觉权重。</li><li>Editor / Executions 放在中部，让编辑和执行排查在同一工作台内切换。</li></ul><h4>UX 价值</h4><ul><li>减少误操作影响线上流程的风险。</li><li>让用户理解“编辑态”和“生产态”不是同一个状态。</li><li>把低频动作收进更多菜单，让顶部右侧只保留发布相关的关键决策。</li></ul><div class="insight">可借鉴：企业级 Workflow 工具栏应按“身份信息 → 工作区视图 → 保存状态 → 生产动作 → 审计/更多”组织，而不是堆叠 Save、Active、Share 等同权按钮。</div></div>
+    </div>
+  </section>
+  <section id="real-screenshots"><h2 class="section-title">2. 真实界面参考图</h2><p class="section-lead">以下 6 张外部图片均可访问，保留用于补充真实界面观感。</p><div class="real-grid">
+      <figure class="real-figure">
+        <img src="https://storage.ghost.io/c/08/a3/08a3cb77-16f2-4623-b90a-2936db90af0a/content/images/size/w1200/2026/01/n8n-screenshot-readme.png" alt="n8n 无限画布与AI Agent节点布局" />
+        <p class="image-caption">实图 1：n8n 的白底现代化工作流画布，展示了触发器、AI 核心节点以及下挂的组件节点逻辑</p>
+      </figure>
+      <figure class="real-figure">
+        <img src="https://europe1.discourse-cdn.com/n8n/original/3X/a/2/a2d1ca0e4a3d882c67e8503d00af88c55dea7b09.png" alt="n8n 连线上的数据量指示与节点状态" />
+        <p class="image-caption">实图 2：深色主题下的 n8n 画布，展示了连接线上清晰的 items 数据量和节点成功状态</p>
+      </figure>
+      <figure class="real-figure">
+        <img src="https://europe1.discourse-cdn.com/n8n/original/2X/1/1ae7701b65652e37bda7b40f577873d7eae67ac9.png" alt="n8n 变量选择器与表达式编辑面板" />
+        <p class="image-caption">实图 3：n8n 表达式编辑器的交互设计，左侧为可折叠的数据树，右侧为表达式输入区</p>
+      </figure>
+      <figure class="real-figure">
+        <img src="https://europe1.discourse-cdn.com/n8n/original/3X/6/1/61061bea6b6732f95fe63ff76f2ada87593b7eac.jpeg" alt="n8n 历史执行日志与快照面板" />
+        <p class="image-caption">实图 4：历史执行列表（左边栏）与主画布报错节点回溯（右侧）的联动交互</p>
+      </figure>
+      <figure class="real-figure">
+        <img src="https://europe1.discourse-cdn.com/n8n/original/3X/1/e/1ee338e7db72cd8b6ae20feaa4ebee00805ec346.png" alt="n8n 节点折叠与画布注释效果" />
+        <p class="image-caption">实图 5：n8n 极具特色的节点区块分组与折叠功能，完美平衡了“巨型工作流”的宏观与微观视角</p>
+      </figure>
+      <figure class="real-figure">
+        <img src="https://storage.ghost.io/c/0d/78/0d78b34c-0c5f-4975-900e-61d00ccb1c2d/content/images/2025/05/elevenlabs-blog-3.png" alt="n8n 右侧节点抽屉与动作库界面" />
+        <p class="image-caption">实图 6：右侧节点详情抽屉，展示了官方认证生态、细分 Actions 列表以及与左侧画布的无缝协作</p>
+      </figure>
+  </div></section>
+  <section id="gallery"><h2 class="section-title">3. 补充示意图集</h2><p class="section-lead">以下示意图补充覆盖整体布局、导航、节点状态、悬停工具、连线、分支、执行记录和顶部控制栏等细节。</p><div class="gallery-grid">
+      <figure class="gallery-figure">
+<svg viewBox="0 0 800 420" class="gallery-svg" xmlns="http://www.w3.org/2000/svg">
+              <defs>
+                <pattern id="extra1-grid1" width="20" height="20" patternUnits="userSpaceOnUse"><circle cx="10" cy="10" r="0.8" fill="#d1d5db"/></pattern>
+              </defs>
+              <rect x="0" y="0" width="800" height="32" rx="6" ry="6" fill="#2d3748"/>
+              <rect x="0" y="16" width="800" height="16" fill="#2d3748"/>
+              <circle cx="16" cy="16" r="5" fill="#ff5f57"/><circle cx="32" cy="16" r="5" fill="#febc2e"/><circle cx="48" cy="16" r="5" fill="#28c840"/>
+              <text x="400" y="21" text-anchor="middle" fill="#94a3b8" font-size="11" font-family="sans-serif">n8n Editor — 三区域布局架构</text>
+              <rect x="0" y="32" width="800" height="388" rx="0" ry="0" fill="#f8fafc"/>
+              <rect x="0" y="32" width="800" height="388" fill="url(#extra1-grid1)"/>
+              <!-- 左侧导航栏 -->
+              <rect x="10" y="42" width="50" height="368" rx="6" fill="#1e293b" opacity="0.9"/>
+              <rect x="16" y="52" width="38" height="22" rx="4" fill="#ff6d5a"/><text x="35" y="67" text-anchor="middle" fill="#fff" font-size="9" font-family="sans-serif" font-weight="bold">WF</text>
+              <rect x="16" y="82" width="38" height="22" rx="4" fill="#475569"/><text x="35" y="97" text-anchor="middle" fill="#94a3b8" font-size="8" font-family="sans-serif">TPL</text>
+              <rect x="16" y="112" width="38" height="22" rx="4" fill="#475569"/><text x="35" y="127" text-anchor="middle" fill="#94a3b8" font-size="8" font-family="sans-serif">CRD</text>
+              <rect x="16" y="142" width="38" height="22" rx="4" fill="#475569"/><text x="35" y="157" text-anchor="middle" fill="#94a3b8" font-size="8" font-family="sans-serif">EXE</text>
+              <!-- 顶部控制栏 -->
+              <rect x="70" y="42" width="720" height="36" rx="4" fill="#fff" stroke="#e2e8f0"/>
+              <rect x="82" y="52" width="90" height="16" rx="3" fill="#f1f5f9" stroke="#e2e8f0"/><text x="127" y="64" text-anchor="middle" fill="#475569" font-size="9" font-family="sans-serif">My workflow</text>
+              <rect x="560" y="50" width="58" height="20" rx="10" fill="#f1f5f9"/><circle cx="574" cy="60" r="3" fill="#22c55e"/><text x="596" y="64" text-anchor="middle" fill="#64748b" font-size="8" font-family="sans-serif">Saved</text>
+              <rect x="626" y="50" width="58" height="20" rx="10" fill="#f8fafc" stroke="#e2e8f0"/><text x="655" y="64" text-anchor="middle" fill="#475569" font-size="8" font-family="sans-serif">Test</text>
+              <rect x="692" y="50" width="68" height="20" rx="10" fill="#ff6d5a"/><text x="726" y="64" text-anchor="middle" fill="#fff" font-size="8" font-family="sans-serif">Publish</text>
+              <!-- 画布区域 -->
+              <rect x="70" y="88" width="720" height="322" rx="4" fill="#fff" stroke="#e2e8f0" stroke-dasharray="4"/>
+              <!-- 画布上的示意节点 -->
+              <rect x="140" y="180" width="110" height="50" rx="6" fill="#fff" stroke="#e2e8f0" stroke-width="1.5"/>
+              <circle cx="155" cy="205" r="12" fill="#e0e7ff"/><text x="155" y="209" text-anchor="middle" fill="#4f46e5" font-size="10" font-family="sans-serif">⚡</text>
+              <text x="175" y="201" fill="#1e293b" font-size="10" font-family="sans-serif" font-weight="bold">Webhook</text>
+              <text x="175" y="215" fill="#94a3b8" font-size="8" font-family="sans-serif">Trigger</text>
+              <circle cx="250" cy="205" r="5" fill="#94a3b8"/>
+              <!-- arrow -->
+              <line x1="255" y1="205" x2="310" y2="205" stroke="#94a3b8" stroke-width="1.5" marker-end="url(#extra1-extra1-arrow1)"/>
+              <rect x="320" y="180" width="110" height="50" rx="6" fill="#fff" stroke="#e2e8f0" stroke-width="1.5"/>
+              <circle cx="335" cy="205" r="12" fill="#fef3c7"/><text x="335" y="209" text-anchor="middle" fill="#d97706" font-size="10" font-family="sans-serif">📊</text>
+              <text x="355" y="201" fill="#1e293b" font-size="10" font-family="sans-serif" font-weight="bold">Airtable</text>
+              <text x="355" y="215" fill="#94a3b8" font-size="8" font-family="sans-serif">Create row</text>
+              <circle cx="430" cy="205" r="5" fill="#94a3b8"/>
+              <!-- 右侧面板 -->
+              <rect x="660" y="100" width="120" height="150" rx="4" fill="#fff" stroke="#e2e8f0"/>
+              <text x="720" y="120" text-anchor="middle" fill="#64748b" font-size="8" font-family="sans-serif">Parameters</text>
+              <rect x="672" y="130" width="96" height="12" rx="2" fill="#f1f5f9"/>
+              <rect x="672" y="148" width="96" height="12" rx="2" fill="#f1f5f9"/>
+              <rect x="672" y="166" width="65" height="12" rx="2" fill="#f1f5f9"/>
+              <!-- 标签 -->
+              <text x="75" y="108" fill="#94a3b8" font-size="9" font-family="sans-serif">← 左侧导航</text>
+              <text x="75" y="130" fill="#94a3b8" font-size="9" font-family="sans-serif">← 顶部控制栏</text>
+              <text x="580" y="200" fill="#94a3b8" font-size="9" font-family="sans-serif">中央画布区 →</text>
+              <defs><marker id="extra1-arrow1" markerWidth="6" markerHeight="6" refX="5" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 Z" fill="#94a3b8"/></marker></defs>
+            </svg>
+            <p class="image-caption">补充图 1-1：n8n 编辑器整体界面布局（左侧导航 + 顶部控制栏 + 中央画布）</p>
+      </figure>
+      <figure class="gallery-figure">
+<svg viewBox="0 0 800 380" class="gallery-svg" xmlns="http://www.w3.org/2000/svg">
+              <defs><pattern id="extra2-grid1b" width="24" height="24" patternUnits="userSpaceOnUse"><circle cx="12" cy="12" r="0.7" fill="#d1d5db"/></pattern></defs>
+              <rect x="0" y="0" width="800" height="32" rx="6" ry="6" fill="#2d3748"/>
+              <rect x="0" y="16" width="800" height="16" fill="#2d3748"/>
+              <circle cx="16" cy="16" r="5" fill="#ff5f57"/><circle cx="32" cy="16" r="5" fill="#febc2e"/><circle cx="48" cy="16" r="5" fill="#28c840"/>
+              <text x="400" y="21" text-anchor="middle" fill="#94a3b8" font-size="11" font-family="sans-serif">n8n Editor — 空白画布初始状态</text>
+              <rect x="0" y="32" width="800" height="348" fill="#fafbfc"/><rect x="0" y="32" width="800" height="348" fill="url(#extra2-grid1b)"/>
+              <!-- 中央引导框 -->
+              <rect x="280" y="140" width="240" height="90" rx="10" fill="#fff" stroke="#ff6d5a" stroke-width="2" stroke-dasharray="6,3"/>
+              <text x="400" y="175" text-anchor="middle" fill="#ff6d5a" font-size="14" font-family="sans-serif" font-weight="bold">+ Add first step…</text>
+              <text x="400" y="198" text-anchor="middle" fill="#94a3b8" font-size="10" font-family="sans-serif">从触发器开始构建工作流</text>
+              <!-- 左下角导航 -->
+              <rect x="16" y="295" width="100" height="32" rx="6" fill="#fff" stroke="#e2e8f0"/><text x="30" y="315" fill="#64748b" font-size="12" font-family="sans-serif">⊖</text><text x="47" y="315" fill="#64748b" font-size="12" font-family="sans-serif">⊕</text><text x="64" y="315" fill="#64748b" font-size="12" font-family="sans-serif">⊞</text><text x="86" y="315" fill="#64748b" font-size="11" font-family="sans-serif">✦</text>
+              <!-- 右上角 + 按钮 -->
+              <circle cx="760" cy="50" r="16" fill="#ff6d5a"/><text x="760" y="55" text-anchor="middle" fill="#fff" font-size="16" font-family="sans-serif">+</text>
+            </svg>
+            <p class="image-caption">补充图 1-2：空白画布初始状态，左下角为导航控制工具，中央为起始节点引导</p>
+      </figure>
+      <figure class="gallery-figure">
+<svg viewBox="0 0 800 280" class="gallery-svg" xmlns="http://www.w3.org/2000/svg">
+              <defs><pattern id="extra3-grid2a" width="20" height="20" patternUnits="userSpaceOnUse"><circle cx="10" cy="10" r="0.7" fill="#d1d5db"/></pattern></defs>
+              <rect x="0" y="0" width="800" height="32" rx="6" ry="6" fill="#2d3748"/>
+              <rect x="0" y="16" width="800" height="16" fill="#2d3748"/>
+              <circle cx="16" cy="16" r="5" fill="#ff5f57"/><circle cx="32" cy="16" r="5" fill="#febc2e"/><circle cx="48" cy="16" r="5" fill="#28c840"/>
+              <text x="400" y="21" text-anchor="middle" fill="#94a3b8" font-size="11" font-family="sans-serif">画布导航控制工具</text>
+              <rect x="0" y="32" width="800" height="248" fill="#fafbfc"/><rect x="0" y="32" width="800" height="248" fill="url(#extra3-grid2a)"/>
+              <!-- 左下角导航工具栏 -->
+              <rect x="20" y="200" width="180" height="50" rx="10" fill="#fff" stroke="#e2e8f0" stroke-width="1.5"/>
+              <rect x="32" y="212" width="32" height="26" rx="5" fill="#f1f5f9"/><text x="48" y="230" text-anchor="middle" fill="#475569" font-size="11" font-family="sans-serif">⊞</text>
+              <rect x="72" y="212" width="32" height="26" rx="5" fill="#f1f5f9"/><text x="88" y="229" text-anchor="middle" fill="#475569" font-size="14" font-family="sans-serif">−</text>
+              <rect x="112" y="212" width="32" height="26" rx="5" fill="#ff6d5a"/><text x="128" y="229" text-anchor="middle" fill="#fff" font-size="14" font-family="sans-serif">+</text>
+              <rect x="152" y="212" width="38" height="26" rx="5" fill="#f1f5f9"/><text x="171" y="229" text-anchor="middle" fill="#475569" font-size="11" font-family="sans-serif">✦</text>
+              <!-- 标签说明 -->
+              <text x="20" y="192" fill="#64748b" font-size="10" font-family="sans-serif">适配 缩小 放大 整理</text>
+              <!-- 缩放指示器 -->
+              <rect x="340" y="115" width="120" height="40" rx="8" fill="#fff" stroke="#e2e8f0"/><text x="400" y="140" text-anchor="middle" fill="#475569" font-size="12" font-family="sans-serif">🔍 75%</text>
+              <!-- 鼠标示意 -->
+              <text x="400" y="220" text-anchor="middle" fill="#94a3b8" font-size="10" font-family="sans-serif">Ctrl + 滚轮缩放 ｜ 空格 + 拖拽平移 ｜ 中键拖拽</text>
+            </svg>
+            <p class="image-caption">补充图 2-1：画布左下角导航工具栏（适配屏幕、放大、缩小、自动整理）</p>
+      </figure>
+      <figure class="gallery-figure">
+<svg viewBox="0 0 800 300" class="gallery-svg" xmlns="http://www.w3.org/2000/svg">
+              <defs><pattern id="extra4-grid2b" width="16" height="16" patternUnits="userSpaceOnUse"><circle cx="8" cy="8" r="0.5" fill="#d1d5db"/></pattern></defs>
+              <rect x="0" y="0" width="800" height="32" rx="6" ry="6" fill="#2d3748"/>
+              <rect x="0" y="16" width="800" height="16" fill="#2d3748"/>
+              <circle cx="16" cy="16" r="5" fill="#ff5f57"/><circle cx="32" cy="16" r="5" fill="#febc2e"/><circle cx="48" cy="16" r="5" fill="#28c840"/>
+              <text x="400" y="21" text-anchor="middle" fill="#94a3b8" font-size="11" font-family="sans-serif">小地图（Mini Map）导航</text>
+              <rect x="0" y="32" width="800" height="268" fill="#fafbfc"/><rect x="0" y="32" width="800" height="268" fill="url(#extra4-grid2b)"/>
+              <!-- 大量节点模拟大型工作流 -->
+              <rect x="80" y="55" width="55" height="28" rx="5" fill="#e0e7ff" opacity="0.5"/><rect x="160" y="80" width="55" height="28" rx="5" fill="#fef3c7" opacity="0.5"/>
+              <rect x="250" y="60" width="55" height="28" rx="5" fill="#d1fae5" opacity="0.5"/><rect x="340" y="95" width="55" height="28" rx="5" fill="#e0e7ff" opacity="0.5"/>
+              <rect x="420" y="55" width="55" height="28" rx="5" fill="#fce7f3" opacity="0.5"/><rect x="500" y="100" width="55" height="28" rx="5" fill="#fef3c7" opacity="0.5"/>
+              <rect x="130" y="140" width="55" height="28" rx="5" fill="#d1fae5" opacity="0.5"/><rect x="300" y="150" width="55" height="28" rx="5" fill="#e0e7ff" opacity="0.5"/>
+              <rect x="460" y="160" width="55" height="28" rx="5" fill="#fce7f3" opacity="0.5"/><rect x="560" y="130" width="55" height="28" rx="5" fill="#fef3c7" opacity="0.5"/>
+              <rect x="190" y="200" width="55" height="28" rx="5" fill="#e0e7ff" opacity="0.5"/><rect x="380" y="210" width="55" height="28" rx="5" fill="#d1fae5" opacity="0.5"/>
+              <!-- 小地图缩略图 -->
+              <rect x="560" y="218" width="150" height="70" rx="6" fill="#1e293b" opacity="0.85"/>
+              <rect x="572" y="226" width="10" height="4" fill="#94a3b8" opacity="0.6"/>
+              <rect x="595" y="232" width="8" height="3" fill="#94a3b8" opacity="0.6"/>
+              <rect x="625" y="224" width="9" height="3" fill="#94a3b8" opacity="0.6"/>
+              <rect x="650" y="236" width="10" height="4" fill="#94a3b8" opacity="0.6"/>
+              <rect x="585" y="248" width="8" height="3" fill="#94a3b8" opacity="0.6"/>
+              <rect x="635" y="252" width="9" height="3" fill="#94a3b8" opacity="0.6"/>
+              <!-- 视口框 -->
+              <rect x="580" y="230" width="45" height="28" rx="2" fill="none" stroke="#ff6d5a" stroke-width="1.5"/>
+              <text x="635" y="278" text-anchor="middle" fill="#94a3b8" font-size="9" font-family="sans-serif">小地图视口</text>
+            </svg>
+            <p class="image-caption">补充图 2-2：画布的小地图导航功能（左下角缩略图）</p>
+      </figure>
+      <figure class="gallery-figure">
+<svg viewBox="0 0 800 340" class="gallery-svg" xmlns="http://www.w3.org/2000/svg">
+              <rect x="0" y="0" width="800" height="32" rx="6" ry="6" fill="#2d3748"/>
+              <rect x="0" y="16" width="800" height="16" fill="#2d3748"/>
+              <circle cx="16" cy="16" r="5" fill="#ff5f57"/><circle cx="32" cy="16" r="5" fill="#febc2e"/><circle cx="48" cy="16" r="5" fill="#28c840"/>
+              <text x="400" y="21" text-anchor="middle" fill="#94a3b8" font-size="11" font-family="sans-serif">n8n 扁平化节点设计</text>
+              <rect x="0" y="32" width="800" height="308" fill="#fafbfc"/>
+              <!-- 旧式立体风格 -->
+              <text x="180" y="60" text-anchor="middle" fill="#94a3b8" font-size="11" font-family="sans-serif">旧式立体节点</text>
+              <rect x="100" y="75" width="160" height="75" rx="8" fill="#fff" stroke="#cbd5e1" stroke-width="1.5"/>
+              <rect x="100" y="70" width="160" height="8" rx="4" fill="#e2e8f0"/>
+              <circle cx="125" cy="112" r="18" fill="#ede9fe"/><text x="125" y="117" text-anchor="middle" font-size="14">📧</text>
+              <text x="150" y="108" fill="#1e293b" font-size="12" font-family="sans-serif" font-weight="bold">Gmail</text>
+              <text x="150" y="124" fill="#94a3b8" font-size="9" font-family="sans-serif">On message received</text>
+              <circle cx="260" cy="112" r="6" fill="#cbd5e1"/>
+              <!-- 箭头 -->
+              <text x="330" y="118" text-anchor="middle" fill="#94a3b8" font-size="18">→</text>
+              <!-- 扁平化风格 -->
+              <text x="520" y="60" text-anchor="middle" fill="#ff6d5a" font-size="11" font-family="sans-serif">扁平化节点</text>
+              <rect x="420" y="75" width="160" height="75" rx="6" fill="#fff" stroke="#e2e8f0" stroke-width="1"/>
+              <circle cx="445" cy="112" r="18" fill="#ede9fe"/><text x="445" y="117" text-anchor="middle" font-size="14">📧</text>
+              <text x="470" y="108" fill="#1e293b" font-size="12" font-family="sans-serif" font-weight="bold">Gmail</text>
+              <text x="470" y="124" fill="#94a3b8" font-size="9" font-family="sans-serif">On message received</text>
+              <circle cx="580" cy="112" r="6" fill="#94a3b8"/>
+              <!-- 状态示例 -->
+              <text x="400" y="185" text-anchor="middle" fill="#64748b" font-size="11" font-family="sans-serif">节点状态系统</text>
+              <rect x="100" y="200" width="120" height="50" rx="6" fill="#fff" stroke="#e2e8f0"/><text x="160" y="230" text-anchor="middle" fill="#64748b" font-size="10" font-family="sans-serif">空闲</text>
+              <rect x="250" y="200" width="120" height="50" rx="6" fill="#fff" stroke="#ef4444" stroke-width="2"/><rect x="248" y="198" width="124" height="54" rx="8" fill="none" stroke="#ef4444" stroke-width="1.5" opacity="0.4"/><text x="310" y="230" text-anchor="middle" fill="#ef4444" font-size="10" font-family="sans-serif">运行中</text>
+              <rect x="400" y="200" width="120" height="50" rx="6" fill="#fff" stroke="#22c55e" stroke-width="2"/><text x="460" y="222" fill="#22c55e" font-size="14" font-family="sans-serif">✓</text><text x="460" y="240" text-anchor="middle" fill="#22c55e" font-size="10" font-family="sans-serif">成功</text>
+              <rect x="550" y="200" width="120" height="50" rx="6" fill="#fff" stroke="#ef4444" stroke-width="2"/><text x="610" y="222" fill="#ef4444" font-size="14" font-family="sans-serif">⚠</text><text x="610" y="240" text-anchor="middle" fill="#ef4444" font-size="10" font-family="sans-serif">错误</text>
+              <text x="400" y="280" text-anchor="middle" fill="#94a3b8" font-size="9" font-family="sans-serif">发光外框替代内部加载圈，远距离也能识别状态</text>
+            </svg>
+            <p class="image-caption">补充图 3-1：n8n 扁平化节点设计，减少大型画布的视觉杂乱感</p>
+      </figure>
+      <figure class="gallery-figure">
+<svg viewBox="0 0 800 330" class="gallery-svg" xmlns="http://www.w3.org/2000/svg">
+              <rect x="0" y="0" width="800" height="32" rx="6" ry="6" fill="#2d3748"/>
+              <rect x="0" y="16" width="800" height="16" fill="#2d3748"/>
+              <circle cx="16" cy="16" r="5" fill="#ff5f57"/><circle cx="32" cy="16" r="5" fill="#febc2e"/><circle cx="48" cy="16" r="5" fill="#28c840"/>
+              <text x="400" y="21" text-anchor="middle" fill="#94a3b8" font-size="11" font-family="sans-serif">节点悬停交互</text>
+              <rect x="0" y="32" width="800" height="298" fill="#fafbfc"/>
+              <!-- 节点 -->
+              <rect x="300" y="120" width="200" height="65" rx="8" fill="#fff" stroke="#e2e8f0" stroke-width="1.5"/>
+              <circle cx="325" cy="152" r="18" fill="#e0e7ff"/><text x="325" y="157" text-anchor="middle" font-size="14">📊</text>
+              <text x="350" y="147" fill="#1e293b" font-size="13" font-family="sans-serif" font-weight="bold">Google Sheets</text>
+              <text x="350" y="163" fill="#94a3b8" font-size="10" font-family="sans-serif">Append row</text>
+              <!-- 悬停工具栏 -->
+              <rect x="285" y="78" width="230" height="36" rx="8" fill="#1e293b"/>
+              <rect x="298" y="88" width="28" height="18" rx="4" fill="#22c55e"/><text x="312" y="101" text-anchor="middle" fill="#fff" font-size="10">▶</text>
+              <rect x="334" y="88" width="44" height="18" rx="9" fill="#475569"/><text x="356" y="101" text-anchor="middle" fill="#fff" font-size="8">禁用</text>
+              <rect x="386" y="88" width="28" height="18" rx="4" fill="#ef4444"/><text x="400" y="101" text-anchor="middle" fill="#fff" font-size="10">✕</text>
+              <rect x="422" y="88" width="28" height="18" rx="4" fill="#475569"/><text x="436" y="101" text-anchor="middle" fill="#fff" font-size="10">⋯</text>
+              <!-- 连线点脉冲 -->
+              <circle cx="300" cy="152" r="10" fill="#818cf8" opacity="0.2"/><circle cx="300" cy="152" r="6" fill="#818cf8" opacity="0.5"/><circle cx="300" cy="152" r="4" fill="#6366f1"/>
+              <circle cx="500" cy="152" r="10" fill="#818cf8" opacity="0.2"/><circle cx="500" cy="152" r="6" fill="#818cf8" opacity="0.5"/><circle cx="500" cy="152" r="4" fill="#6366f1"/>
+              <!-- 标注 -->
+              <text x="400" y="82" text-anchor="middle" fill="#fff" font-size="9" font-family="sans-serif">悬停工具栏：播放 · 禁用 · 删除 · 更多</text>
+              <text x="285" y="215" fill="#94a3b8" font-size="9" font-family="sans-serif">← 输入点（脉冲放大）</text>
+              <text x="460" y="215" fill="#94a3b8" font-size="9" font-family="sans-serif">输出点 →</text>
+              <!-- 费茨定律说明 -->
+              <rect x="200" y="245" width="400" height="28" rx="6" fill="#ebf8ff"/>
+              <text x="400" y="263" text-anchor="middle" fill="#2b6cb0" font-size="10" font-family="sans-serif">费茨定律应用：hover 时连接点放大 + 脉冲动效，降低瞄准难度</text>
+            </svg>
+            <p class="image-caption">补充图 4-1：节点悬停时显示的操作工具栏（单步执行、禁用、删除、更多）</p>
+      </figure>
+      <figure class="gallery-figure">
+<svg viewBox="0 0 800 350" class="gallery-svg" xmlns="http://www.w3.org/2000/svg">
+              <rect x="0" y="0" width="800" height="32" rx="6" ry="6" fill="#2d3748"/>
+              <rect x="0" y="16" width="800" height="16" fill="#2d3748"/>
+              <circle cx="16" cy="16" r="5" fill="#ff5f57"/><circle cx="32" cy="16" r="5" fill="#febc2e"/><circle cx="48" cy="16" r="5" fill="#28c840"/>
+              <text x="400" y="21" text-anchor="middle" fill="#94a3b8" font-size="11" font-family="sans-serif">贝塞尔曲线连线系统</text>
+              <rect x="0" y="32" width="800" height="318" fill="#fafbfc"/>
+              <!-- 简单连线 -->
+              <rect x="60" y="100" width="110" height="50" rx="8" fill="#fff" stroke="#e2e8f0"/>
+              <circle cx="82" cy="125" r="14" fill="#e0e7ff"/><text x="82" y="130" text-anchor="middle" font-size="12">⚡</text>
+              <text x="100" y="122" fill="#1e293b" font-size="11" font-family="sans-serif" font-weight="bold">Webhook</text>
+              <text x="100" y="137" fill="#94a3b8" font-size="9" font-family="sans-serif">Trigger</text>
+              <!-- 曲线连线 -->
+              <path d="M170,125 C220,125 240,125 290,125" fill="none" stroke="#94a3b8" stroke-width="2"/>
+              <polygon points="285,121 295,125 285,129" fill="#94a3b8"/>
+              <text x="225" y="115" text-anchor="middle" fill="#64748b" font-size="8" font-family="sans-serif">32 items</text>
+              <rect x="295" y="100" width="110" height="50" rx="8" fill="#fff" stroke="#e2e8f0"/>
+              <circle cx="317" cy="125" r="14" fill="#fef3c7"/><text x="317" y="130" text-anchor="middle" font-size="12">📊</text>
+              <text x="335" y="122" fill="#1e293b" font-size="11" font-family="sans-serif" font-weight="bold">Airtable</text>
+              <text x="335" y="137" fill="#94a3b8" font-size="9" font-family="sans-serif">Create</text>
+              <!-- 多分支 -->
+              <path d="M405,125 C450,125 470,80 510,80" fill="none" stroke="#94a3b8" stroke-width="2"/>
+              <polygon points="505,76 515,80 505,84" fill="#94a3b8"/>
+              <path d="M405,125 C450,125 470,170 510,170" fill="none" stroke="#94a3b8" stroke-width="2"/>
+              <polygon points="505,166 515,170 505,174" fill="#94a3b8"/>
+              <rect x="515" y="60" width="100" height="40" rx="6" fill="#fff" stroke="#22c55e"/>
+              <text x="565" y="75" text-anchor="middle" fill="#22c55e" font-size="9" font-family="sans-serif">True 分支</text>
+              <text x="565" y="90" text-anchor="middle" fill="#94a3b8" font-size="8" font-family="sans-serif">15 items</text>
+              <rect x="515" y="150" width="100" height="40" rx="6" fill="#fff" stroke="#ef4444"/>
+              <text x="565" y="165" text-anchor="middle" fill="#ef4444" font-size="9" font-family="sans-serif">False 分支</text>
+              <text x="565" y="180" text-anchor="middle" fill="#94a3b8" font-size="8" font-family="sans-serif">17 items</text>
+              <!-- 回环连线 -->
+              <path d="M620,100 C680,100 700,60 660,40 C620,20 500,30 500,80 C500,130 660,200 660,230 C660,260 600,260 580,240" fill="none" stroke="#818cf8" stroke-width="2" stroke-dasharray="5,3"/>
+              <polygon points="582,244 572,236 578,236" fill="#818cf8"/>
+              <text x="700" y="100" fill="#818cf8" font-size="8" font-family="sans-serif">循环回环</text>
+              <text x="400" y="310" text-anchor="middle" fill="#94a3b8" font-size="9" font-family="sans-serif">平滑贝塞尔曲线 + 数据量标注 + 方向箭头</text>
+            </svg>
+            <p class="image-caption">补充图 5-1：节点间平滑曲线连接，展示多分支复杂工作流结构</p>
+      </figure>
+      <figure class="gallery-figure">
+<svg viewBox="0 0 800 340" class="gallery-svg" xmlns="http://www.w3.org/2000/svg">
+              <rect x="0" y="0" width="800" height="32" rx="6" ry="6" fill="#2d3748"/>
+              <rect x="0" y="16" width="800" height="16" fill="#2d3748"/>
+              <circle cx="16" cy="16" r="5" fill="#ff5f57"/><circle cx="32" cy="16" r="5" fill="#febc2e"/><circle cx="48" cy="16" r="5" fill="#28c840"/>
+              <text x="400" y="21" text-anchor="middle" fill="#94a3b8" font-size="11" font-family="sans-serif">右侧聚焦面板（Focus Panel）</text>
+              <rect x="0" y="32" width="800" height="308" fill="#fafbfc"/>
+              <!-- 左侧画布示意 -->
+              <rect x="15" y="42" width="420" height="288" rx="4" fill="#fff" stroke="#e2e8f0"/>
+              <rect x="120" y="140" width="140" height="55" rx="8" fill="#fff" stroke="#6366f1" stroke-width="2"/>
+              <circle cx="142" cy="167" r="14" fill="#e0e7ff"/><text x="142" y="172" text-anchor="middle" font-size="11">📧</text>
+              <text x="162" y="163" fill="#1e293b" font-size="11" font-family="sans-serif" font-weight="bold">Gmail</text>
+              <text x="162" y="179" fill="#94a3b8" font-size="9" font-family="sans-serif">On message…</text>
+              <!-- 右侧面板 -->
+              <rect x="480" y="42" width="305" height="288" rx="6" fill="#fff" stroke="#e2e8f0"/>
+              <text x="632" y="62" text-anchor="middle" fill="#1e293b" font-size="13" font-family="sans-serif" font-weight="bold">Gmail</text>
+              <!-- 标签页 -->
+              <rect x="492" y="75" width="68" height="24" rx="4" fill="#ff6d5a"/><text x="526" y="92" text-anchor="middle" fill="#fff" font-size="9" font-family="sans-serif">Parameters</text>
+              <rect x="565" y="75" width="48" height="24" rx="4" fill="#f1f5f9"/><text x="589" y="92" text-anchor="middle" fill="#64748b" font-size="9" font-family="sans-serif">Input</text>
+              <rect x="617" y="75" width="50" height="24" rx="4" fill="#f1f5f9"/><text x="642" y="92" text-anchor="middle" fill="#64748b" font-size="9" font-family="sans-serif">Output</text>
+              <rect x="671" y="75" width="55" height="24" rx="4" fill="#f1f5f9"/><text x="698" y="92" text-anchor="middle" fill="#64748b" font-size="9" font-family="sans-serif">Settings</text>
+              <!-- 表单字段 -->
+              <text x="498" y="120" fill="#ef4444" font-size="9">*</text><text x="507" y="120" fill="#475569" font-size="10" font-family="sans-serif">Resource</text>
+              <rect x="498" y="130" width="275" height="24" rx="4" fill="#f8fafc" stroke="#e2e8f0"/><text x="508" y="148" fill="#94a3b8" font-size="9" font-family="sans-serif">Message</text>
+              <text x="498" y="172" fill="#ef4444" font-size="9">*</text><text x="507" y="172" fill="#475569" font-size="10" font-family="sans-serif">Operation</text>
+              <rect x="498" y="182" width="275" height="24" rx="4" fill="#f8fafc" stroke="#e2e8f0"/><text x="508" y="200" fill="#64748b" font-size="9" font-family="sans-serif">On message received</text>
+              <text x="498" y="225" fill="#475569" font-size="10" font-family="sans-serif">Options</text>
+              <rect x="498" y="235" width="275" height="18" rx="4" fill="#f8fafc" stroke="#e2e8f0" stroke-dasharray="3,2"/>
+              <text x="508" y="249" fill="#94a3b8" font-size="9" font-family="sans-serif">+ Add option</text>
+              <!-- 表达式按钮 -->
+              <rect x="755" y="130" width="22" height="24" rx="3" fill="#ede9fe"/><text x="766" y="147" text-anchor="middle" fill="#7c3aed" font-size="9" font-family="sans-serif">{}</text>
+              <rect x="755" y="182" width="22" height="24" rx="3" fill="#ede9fe"/><text x="766" y="199" text-anchor="middle" fill="#7c3aed" font-size="9" font-family="sans-serif">{}</text>
+              <text x="225" y="310" text-anchor="middle" fill="#94a3b8" font-size="9" font-family="sans-serif">画布上下文可见</text>
+              <text x="632" y="310" text-anchor="middle" fill="#94a3b8" font-size="9" font-family="sans-serif">右侧参数面板（不遮挡画布）</text>
+            </svg>
+            <p class="image-caption">补充图 6-1：右侧节点配置聚焦面板，保持画布上下文可见</p>
+      </figure>
+      <figure class="gallery-figure">
+<svg viewBox="0 0 800 330" class="gallery-svg" xmlns="http://www.w3.org/2000/svg">
+              <rect x="0" y="0" width="800" height="32" rx="6" ry="6" fill="#2d3748"/>
+              <rect x="0" y="16" width="800" height="16" fill="#2d3748"/>
+              <circle cx="16" cy="16" r="5" fill="#ff5f57"/><circle cx="32" cy="16" r="5" fill="#febc2e"/><circle cx="48" cy="16" r="5" fill="#28c840"/>
+              <text x="400" y="21" text-anchor="middle" fill="#94a3b8" font-size="11" font-family="sans-serif">执行状态可视化</text>
+              <rect x="0" y="32" width="800" height="298" fill="#fafbfc"/>
+              <!-- 4个节点从左到右 -->
+              <rect x="60" y="110" width="130" height="55" rx="8" fill="#fff" stroke="#22c55e" stroke-width="2"/>
+              <rect x="55" y="105" width="140" height="65" rx="10" fill="none" stroke="#22c55e" stroke-width="1.5" opacity="0.4"/>
+              <text x="125" y="145" text-anchor="middle" fill="#22c55e" font-size="13" font-family="sans-serif">✓ 已完成</text>
+              <circle cx="190" cy="137" r="5" fill="#22c55e"/>
+              <path d="M195,137 C220,137 230,137 255,137" fill="none" stroke="#22c55e" stroke-width="2"/>
+              <rect x="260" y="110" width="130" height="55" rx="8" fill="#fff" stroke="#22c55e" stroke-width="2"/>
+              <rect x="255" y="105" width="140" height="65" rx="10" fill="none" stroke="#22c55e" stroke-width="1.5" opacity="0.4"/>
+              <text x="325" y="145" text-anchor="middle" fill="#22c55e" font-size="13" font-family="sans-serif">✓ 已完成</text>
+              <circle cx="390" cy="137" r="5" fill="#22c55e"/>
+              <path d="M395,137 C420,137 430,137 455,137" fill="none" stroke="#ef4444" stroke-width="2"/>
+              <rect x="460" y="110" width="130" height="55" rx="8" fill="#fff" stroke="#ef4444" stroke-width="2.5"/>
+              <rect x="455" y="105" width="140" height="65" rx="10" fill="none" stroke="#ef4444" stroke-width="1.5" opacity="0.5"/>
+              <text x="525" y="140" text-anchor="middle" fill="#ef4444" font-size="14" font-family="sans-serif">⚠ 执行中</text>
+              <text x="525" y="157" text-anchor="middle" fill="#94a3b8" font-size="9" font-family="sans-serif">处理中…</text>
+              <circle cx="590" cy="137" r="5" fill="#94a3b8"/>
+              <path d="M595,137 C620,137 630,137 655,137" fill="none" stroke="#94a3b8" stroke-width="2" stroke-dasharray="4,3"/>
+              <rect x="660" y="110" width="100" height="55" rx="8" fill="#fff" stroke="#e2e8f0"/>
+              <text x="710" y="143" text-anchor="middle" fill="#94a3b8" font-size="11" font-family="sans-serif">等待中</text>
+              <!-- 底部执行按钮 -->
+              <rect x="310" y="235" width="180" height="32" rx="16" fill="#ff6d5a"/>
+              <text x="400" y="255" text-anchor="middle" fill="#fff" font-size="12" font-family="sans-serif" font-weight="bold">▶ Execute workflow</text>
+              <text x="400" y="295" text-anchor="middle" fill="#94a3b8" font-size="9" font-family="sans-serif">节点依次点亮，实时显示执行进度</text>
+            </svg>
+            <p class="image-caption">补充图 7-1：执行中的工作流，节点依次点亮显示处理状态</p>
+      </figure>
+      <figure class="gallery-figure">
+<svg viewBox="0 0 800 340" class="gallery-svg" xmlns="http://www.w3.org/2000/svg">
+              <rect x="0" y="0" width="800" height="32" rx="6" ry="6" fill="#2d3748"/>
+              <rect x="0" y="16" width="800" height="16" fill="#2d3748"/>
+              <circle cx="16" cy="16" r="5" fill="#ff5f57"/><circle cx="32" cy="16" r="5" fill="#febc2e"/><circle cx="48" cy="16" r="5" fill="#28c840"/>
+              <text x="400" y="21" text-anchor="middle" fill="#94a3b8" font-size="11" font-family="sans-serif">IF 分支与 Switch 多路路由</text>
+              <rect x="0" y="32" width="800" height="308" fill="#fafbfc"/>
+              <!-- IF 节点 -->
+              <rect x="280" y="105" width="90" height="45" rx="8" fill="#fff" stroke="#818cf8" stroke-width="2"/>
+              <text x="325" y="133" text-anchor="middle" fill="#4f46e5" font-size="13" font-family="sans-serif" font-weight="bold">IF</text>
+              <!-- True 分支 -->
+              <path d="M370,118 C400,118 410,75 440,75" fill="none" stroke="#22c55e" stroke-width="2"/>
+              <polygon points="435,71 445,75 435,79" fill="#22c55e"/>
+              <text x="410" y="68" text-anchor="middle" fill="#22c55e" font-size="8" font-family="sans-serif">true</text>
+              <rect x="445" y="55" width="120" height="40" rx="6" fill="#fff" stroke="#22c55e"/>
+              <text x="505" y="80" text-anchor="middle" fill="#1e293b" font-size="10" font-family="sans-serif">发送通知</text>
+              <!-- False 分支 -->
+              <path d="M370,138 C400,138 410,175 440,175" fill="none" stroke="#ef4444" stroke-width="2"/>
+              <polygon points="435,171 445,175 435,179" fill="#ef4444"/>
+              <text x="410" y="193" text-anchor="middle" fill="#ef4444" font-size="8" font-family="sans-serif">false</text>
+              <rect x="445" y="158" width="120" height="40" rx="6" fill="#fff" stroke="#ef4444"/>
+              <text x="505" y="183" text-anchor="middle" fill="#1e293b" font-size="10" font-family="sans-serif">记录日志</text>
+              <!-- Merge -->
+              <path d="M565,75 C590,75 595,120 620,120" fill="none" stroke="#94a3b8" stroke-width="1.5"/>
+              <path d="M565,178 C590,178 595,135 620,135" fill="none" stroke="#94a3b8" stroke-width="1.5"/>
+              <rect x="625" y="100" width="80" height="45" rx="8" fill="#fff" stroke="#94a3b8"/>
+              <text x="665" y="128" text-anchor="middle" fill="#64748b" font-size="11" font-family="sans-serif" font-weight="bold">Merge</text>
+              <!-- Switch 节点示意 -->
+              <text x="400" y="250" text-anchor="middle" fill="#64748b" font-size="11" font-family="sans-serif">Switch 多元路由（3+ 输出端口）</text>
+              <rect x="140" y="270" width="100" height="40" rx="8" fill="#fff" stroke="#818cf8" stroke-width="2"/>
+              <text x="190" y="295" text-anchor="middle" fill="#4f46e5" font-size="12" font-family="sans-serif" font-weight="bold">Switch</text>
+              <path d="M240,278 C270,278 280,265 310,265" fill="none" stroke="#f59e0b" stroke-width="1.5"/><text x="278" y="258" fill="#f59e0b" font-size="7" font-family="sans-serif">A</text>
+              <path d="M240,290 C270,290 280,290 310,290" fill="none" stroke="#06b6d4" stroke-width="1.5"/><text x="278" y="300" fill="#06b6d4" font-size="7" font-family="sans-serif">B</text>
+              <path d="M240,302 C270,302 280,315 310,315" fill="none" stroke="#ec4899" stroke-width="1.5"/><text x="278" y="322" fill="#ec4899" font-size="7" font-family="sans-serif">C</text>
+              <rect x="315" y="253" width="100" height="24" rx="5" fill="#fff" stroke="#f59e0b"/>
+              <rect x="315" y="278" width="100" height="24" rx="5" fill="#fff" stroke="#06b6d4"/>
+              <rect x="315" y="303" width="100" height="24" rx="5" fill="#fff" stroke="#ec4899"/>
+            </svg>
+            <p class="image-caption">补充图 8-1：包含 IF 分支与 Merge 合并的复杂逻辑工作流</p>
+      </figure>
+      <figure class="gallery-figure">
+<svg viewBox="0 0 800 300" class="gallery-svg" xmlns="http://www.w3.org/2000/svg">
+              <rect x="0" y="0" width="800" height="32" rx="6" ry="6" fill="#2d3748"/>
+              <rect x="0" y="16" width="800" height="16" fill="#2d3748"/>
+              <circle cx="16" cy="16" r="5" fill="#ff5f57"/><circle cx="32" cy="16" r="5" fill="#febc2e"/><circle cx="48" cy="16" r="5" fill="#28c840"/>
+              <text x="400" y="21" text-anchor="middle" fill="#94a3b8" font-size="11" font-family="sans-serif">Sticky Notes 便签注释系统</text>
+              <rect x="0" y="32" width="800" height="268" fill="#fafbfc"/>
+              <!-- 工作流背景节点 -->
+              <rect x="40" y="55" width="120" height="40" rx="6" fill="#fff" stroke="#e2e8f0" opacity="0.7"/>
+              <rect x="40" y="105" width="120" height="40" rx="6" fill="#fff" stroke="#e2e8f0" opacity="0.7"/>
+              <rect x="200" y="80" width="120" height="40" rx="6" fill="#fff" stroke="#e2e8f0" opacity="0.7"/>
+              <!-- 箭头 -->
+              <path d="M160,75 C180,75 185,100 200,100" fill="none" stroke="#94a3b8" stroke-width="1" opacity="0.5"/>
+              <path d="M160,125 C180,125 185,100 200,100" fill="none" stroke="#94a3b8" stroke-width="1" opacity="0.5"/>
+              <!-- 便签卡片 -->
+              <rect x="370" y="60" width="240" height="140" rx="4" fill="#fef9c3" stroke="#eab308" stroke-width="1.5"/>
+              <rect x="370" y="60" width="240" height="8" fill="#eab308" opacity="0.3"/>
+              <text x="390" y="90" fill="#854d0e" font-size="13" font-family="sans-serif" font-weight="bold">📝 Important Note</text>
+              <text x="390" y="112" fill="#a16207" font-size="10" font-family="sans-serif">This workflow processes incoming</text>
+              <text x="390" y="128" fill="#a16207" font-size="10" font-family="sans-serif">webhooks and routes them based</text>
+              <text x="390" y="144" fill="#a16207" font-size="10" font-family="sans-serif">on the <tspan font-weight="bold">event_type</tspan> field.</text>
+              <line x1="390" y1="155" x2="590" y2="155" stroke="#fde68a" stroke-width="1"/>
+              <text x="390" y="172" fill="#a16207" font-size="9" font-family="sans-serif">- Check webhook format first</text>
+              <text x="390" y="188" fill="#a16207" font-size="9" font-family="sans-serif">- Updated: 2024-07-15</text>
+              <!-- 便签操作栏 -->
+              <rect x="550" y="48" width="55" height="20" rx="4" fill="#fff" stroke="#e2e8f0"/>
+              <circle cx="563" cy="58" r="5" fill="#eab308"/><circle cx="578" cy="58" r="5" fill="#22c55e"/><circle cx="593" cy="58" r="5" fill="#ef4444"/>
+              <text x="490" y="238" text-anchor="middle" fill="#94a3b8" font-size="9" font-family="sans-serif">Markdown 支持 · 7 种颜色 · 自由缩放 · Shift+S 快速添加</text>
+            </svg>
+            <p class="image-caption">补充图 9-1：黄色便签悬浮在节点上方，用于注释说明工作流逻辑</p>
+      </figure>
+      <figure class="gallery-figure">
+<svg viewBox="0 0 800 250" class="gallery-svg" xmlns="http://www.w3.org/2000/svg">
+              <rect x="0" y="0" width="800" height="32" rx="6" ry="6" fill="#2d3748"/>
+              <rect x="0" y="16" width="800" height="16" fill="#2d3748"/>
+              <circle cx="16" cy="16" r="5" fill="#ff5f57"/><circle cx="32" cy="16" r="5" fill="#febc2e"/><circle cx="48" cy="16" r="5" fill="#28c840"/>
+              <text x="400" y="21" text-anchor="middle" fill="#94a3b8" font-size="11" font-family="sans-serif">便签颜色选择器</text>
+              <rect x="0" y="32" width="800" height="218" fill="#fafbfc"/>
+              <!-- 便签 -->
+              <rect x="240" y="55" width="220" height="90" rx="4" fill="#fef9c3" stroke="#eab308" stroke-width="2"/>
+              <text x="260" y="78" fill="#854d0e" font-size="12" font-family="sans-serif" font-weight="bold">📝 Note title</text>
+              <text x="260" y="98" fill="#a16207" font-size="10" font-family="sans-serif">Description text here…</text>
+              <!-- 悬停菜单 -->
+              <rect x="410" y="43" width="90" height="24" rx="6" fill="#1e293b"/>
+              <circle cx="425" cy="55" r="7" fill="#eab308"/>
+              <circle cx="446" cy="55" r="7" fill="#22c55e"/>
+              <circle cx="467" cy="55" r="7" fill="#3b82f6"/>
+              <circle cx="488" cy="55" r="7" fill="#ef4444"/>
+              <!-- 颜色面板详情 -->
+              <text x="400" y="175" text-anchor="middle" fill="#64748b" font-size="11" font-family="sans-serif">7 种预设颜色</text>
+              <rect x="160" y="190" width="480" height="40" rx="8" fill="#fff" stroke="#e2e8f0"/>
+              <circle cx="210" cy="210" r="12" fill="#fef9c3" stroke="#eab308"/><text x="210" y="215" text-anchor="middle" font-size="8">黄</text>
+              <circle cx="260" cy="210" r="12" fill="#dcfce7" stroke="#22c55e"/><text x="260" y="215" text-anchor="middle" font-size="8">绿</text>
+              <circle cx="310" cy="210" r="12" fill="#dbeafe" stroke="#3b82f6"/><text x="310" y="215" text-anchor="middle" font-size="8">蓝</text>
+              <circle cx="360" cy="210" r="12" fill="#fce7f3" stroke="#ec4899"/><text x="360" y="215" text-anchor="middle" font-size="8">粉</text>
+              <circle cx="410" cy="210" r="12" fill="#fef2f2" stroke="#ef4444"/><text x="410" y="215" text-anchor="middle" font-size="8">红</text>
+              <circle cx="460" cy="210" r="12" fill="#ede9fe" stroke="#8b5cf6"/><text x="460" y="215" text-anchor="middle" font-size="8">紫</text>
+              <circle cx="510" cy="210" r="12" fill="#f5f5f4" stroke="#78716c"/><text x="510" y="215" text-anchor="middle" font-size="8">灰</text>
+              <circle cx="560" cy="210" r="12" fill="#fff" stroke="#94a3b8" stroke-dasharray="2,2"/><text x="560" y="215" text-anchor="middle" fill="#94a3b8" font-size="7">自定义</text>
+            </svg>
+            <p class="image-caption">补充图 9-2：便签悬停工具栏，支持更换颜色、删除等操作</p>
+      </figure>
+      <figure class="gallery-figure">
+<svg viewBox="0 0 800 320" class="gallery-svg" xmlns="http://www.w3.org/2000/svg">
+              <rect x="0" y="0" width="800" height="32" rx="6" ry="6" fill="#2d3748"/>
+              <rect x="0" y="16" width="800" height="16" fill="#2d3748"/>
+              <circle cx="16" cy="16" r="5" fill="#ff5f57"/><circle cx="32" cy="16" r="5" fill="#febc2e"/><circle cx="48" cy="16" r="5" fill="#28c840"/>
+              <text x="400" y="21" text-anchor="middle" fill="#94a3b8" font-size="11" font-family="sans-serif">执行历史列表视图</text>
+              <rect x="0" y="32" width="800" height="288" fill="#fafbfc"/>
+              <!-- 筛选栏 -->
+              <rect x="15" y="42" width="770" height="32" rx="6" fill="#fff" stroke="#e2e8f0"/>
+              <rect x="28" y="49" width="60" height="18" rx="9" fill="#22c55e" opacity="0.15"/><text x="58" y="62" text-anchor="middle" fill="#22c55e" font-size="8" font-family="sans-serif">✓ 成功</text>
+              <rect x="96" y="49" width="55" height="18" rx="9" fill="#ef4444" opacity="0.15"/><text x="123" y="62" text-anchor="middle" fill="#ef4444" font-size="8" font-family="sans-serif">✕ 错误</text>
+              <rect x="159" y="49" width="60" height="18" rx="9" fill="#f59e0b" opacity="0.15"/><text x="189" y="62" text-anchor="middle" fill="#f59e0b" font-size="8" font-family="sans-serif">⏳ 等待中</text>
+              <!-- 执行记录列表 -->
+              <rect x="15" y="82" width="770" height="35" rx="4" fill="#fff" stroke="#e2e8f0"/>
+              <circle cx="32" cy="99" r="6" fill="#22c55e"/><text x="32" y="103" text-anchor="middle" fill="#fff" font-size="8">✓</text>
+              <text x="55" y="97" fill="#1e293b" font-size="10" font-family="sans-serif">Execution #1284</text><text x="160" y="97" fill="#94a3b8" font-size="9" font-family="sans-serif">2024-07-04 14:32</text><text x="280" y="97" fill="#22c55e" font-size="10" font-family="sans-serif">Success</text><text x="340" y="97" fill="#94a3b8" font-size="10" font-family="sans-serif">2.4s</text>
+              <rect x="15" y="121" width="770" height="35" rx="4" fill="#fff" stroke="#e2e8f0"/>
+              <circle cx="32" cy="138" r="6" fill="#22c55e"/><text x="32" y="142" text-anchor="middle" fill="#fff" font-size="8">✓</text>
+              <text x="55" y="136" fill="#1e293b" font-size="10" font-family="sans-serif">Execution #1283</text><text x="160" y="136" fill="#94a3b8" font-size="9" font-family="sans-serif">2024-07-04 14:28</text><text x="280" y="136" fill="#22c55e" font-size="10" font-family="sans-serif">Success</text><text x="340" y="136" fill="#94a3b8" font-size="10" font-family="sans-serif">1.8s</text>
+              <rect x="15" y="160" width="770" height="35" rx="4" fill="#fef2f2" stroke="#fecaca"/>
+              <circle cx="32" cy="177" r="6" fill="#ef4444"/><text x="32" y="181" text-anchor="middle" fill="#fff" font-size="8">✕</text>
+              <text x="55" y="175" fill="#1e293b" font-size="10" font-family="sans-serif" font-weight="bold">Execution #1282</text><text x="160" y="175" fill="#94a3b8" font-size="9" font-family="sans-serif">2024-07-04 14:20</text><text x="280" y="175" fill="#ef4444" font-size="10" font-family="sans-serif">Error</text><text x="340" y="175" fill="#94a3b8" font-size="10" font-family="sans-serif">0.6s</text>
+              <rect x="15" y="199" width="770" height="35" rx="4" fill="#fff" stroke="#e2e8f0"/>
+              <circle cx="32" cy="216" r="6" fill="#22c55e"/><text x="32" y="220" text-anchor="middle" fill="#fff" font-size="8">✓</text>
+              <text x="55" y="214" fill="#1e293b" font-size="10" font-family="sans-serif">Execution #1281</text><text x="160" y="214" fill="#94a3b8" font-size="9" font-family="sans-serif">2024-07-04 13:55</text><text x="280" y="214" fill="#22c55e" font-size="10" font-family="sans-serif">Success</text><text x="340" y="214" fill="#94a3b8" font-size="10" font-family="sans-serif">3.1s</text>
+              <!-- 功能提示 -->
+              <text x="400" y="270" text-anchor="middle" fill="#64748b" font-size="10" font-family="sans-serif">状态筛选 · 时间戳 · 耗时统计 · 点击查看数据快照</text>
+              <text x="400" y="290" text-anchor="middle" fill="#94a3b8" font-size="9" font-family="sans-serif">画布上重现历史执行时的节点状态 —— 「时间旅行调试」</text>
+            </svg>
+            <p class="image-caption">补充图 11-1：执行历史列表视图，左侧为执行记录列表，状态一目了然</p>
+      </figure>
+      <figure class="gallery-figure">
+<svg viewBox="0 0 800 320" class="gallery-svg" xmlns="http://www.w3.org/2000/svg">
+              <rect x="0" y="0" width="800" height="32" rx="6" ry="6" fill="#2d3748"/>
+              <rect x="0" y="16" width="800" height="16" fill="#2d3748"/>
+              <circle cx="16" cy="16" r="5" fill="#ff5f57"/><circle cx="32" cy="16" r="5" fill="#febc2e"/><circle cx="48" cy="16" r="5" fill="#28c840"/>
+              <text x="400" y="21" text-anchor="middle" fill="#94a3b8" font-size="11" font-family="sans-serif">执行日志详情</text>
+              <rect x="0" y="32" width="800" height="288" fill="#fafbfc"/>
+              <!-- 左侧节点状态 -->
+              <rect x="15" y="42" width="380" height="268" rx="6" fill="#fff" stroke="#e2e8f0"/>
+              <text x="205" y="65" text-anchor="middle" fill="#1e293b" font-size="12" font-family="sans-serif" font-weight="bold">Workflow Nodes</text>
+              <line x1="30" y1="72" x2="380" y2="72" stroke="#e2e8f0"/>
+              <!-- 节点列表 -->
+              <rect x="30" y="82" width="350" height="32" rx="4" fill="#f0fdf4"/><circle cx="45" cy="98" r="5" fill="#22c55e"/><text x="60" y="102" fill="#1e293b" font-size="10" font-family="sans-serif">Webhook</text><text x="300" y="102" fill="#22c55e" font-size="9" font-family="sans-serif">✓ 0.3s</text>
+              <rect x="30" y="118" width="350" height="32" rx="4" fill="#f0fdf4"/><circle cx="45" cy="134" r="5" fill="#22c55e"/><text x="60" y="138" fill="#1e293b" font-size="10" font-family="sans-serif">Airtable</text><text x="300" y="138" fill="#22c55e" font-size="9" font-family="sans-serif">✓ 0.8s</text>
+              <rect x="30" y="154" width="350" height="32" rx="4" fill="#fef2f2"/><circle cx="45" cy="170" r="5" fill="#ef4444"/><text x="60" y="174" fill="#1e293b" font-size="10" font-family="sans-serif">Slack</text><text x="300" y="174" fill="#ef4444" font-size="9" font-family="sans-serif">✕ 0.2s</text>
+              <rect x="30" y="190" width="350" height="32" rx="4" fill="#fff"/><circle cx="45" cy="206" r="5" fill="#94a3b8"/><text x="60" y="210" fill="#94a3b8" font-size="10" font-family="sans-serif">Google Sheets</text><text x="300" y="210" fill="#94a3b8" font-size="9" font-family="sans-serif">Skipped</text>
+              <!-- 右侧错误详情 -->
+              <rect x="410" y="42" width="375" height="268" rx="6" fill="#fff" stroke="#e2e8f0"/>
+              <text x="597" y="65" text-anchor="middle" fill="#ef4444" font-size="12" font-family="sans-serif" font-weight="bold">Error Details</text>
+              <line x1="425" y1="72" x2="770" y2="72" stroke="#e2e8f0"/>
+              <rect x="425" y="82" width="345" height="40" rx="4" fill="#fef2f2"/>
+              <text x="435" y="98" fill="#ef4444" font-size="10" font-family="sans-serif" font-weight="bold">HTTP 401 Unauthorized</text>
+              <text x="435" y="114" fill="#991b1b" font-size="9" font-family="sans-serif">Slack API token expired or invalid</text>
+              <text x="425" y="145" fill="#64748b" font-size="10" font-family="sans-serif" font-weight="bold">Stack Trace</text>
+              <rect x="425" y="155" width="345" height="55" rx="4" fill="#f8fafc" stroke="#e2e8f0"/>
+              <text x="435" y="172" fill="#64748b" font-size="8" font-family="monospace">at Slack.node.ts:142:22</text>
+              <text x="435" y="186" fill="#64748b" font-size="8" font-family="monospace">at Request._header (node:http)</text>
+              <text x="435" y="200" fill="#64748b" font-size="8" font-family="monospace">at processTicksAndRejections</text>
+              <text x="425" y="235" fill="#2b6cb0" font-size="10" font-family="sans-serif">💡 建议：检查 Slack 凭据是否过期</text>
+            </svg>
+            <p class="image-caption">补充图 11-2：执行日志详情页，可视化展示各节点状态与错误信息</p>
+      </figure>
+      <figure class="gallery-figure">
+<svg viewBox="0 0 800 190" class="gallery-svg" xmlns="http://www.w3.org/2000/svg">
+              <rect x="0" y="0" width="800" height="32" rx="6" ry="6" fill="#2d3748"/>
+              <rect x="0" y="16" width="800" height="16" fill="#2d3748"/>
+              <circle cx="16" cy="16" r="5" fill="#ff5f57"/><circle cx="32" cy="16" r="5" fill="#febc2e"/><circle cx="48" cy="16" r="5" fill="#28c840"/>
+              <text x="400" y="21" text-anchor="middle" fill="#94a3b8" font-size="11" font-family="sans-serif">顶部发布工具栏</text>
+              <rect x="0" y="32" width="800" height="158" fill="#fafbfc"/>
+              <!-- 顶部工具栏 -->
+              <rect x="20" y="50" width="760" height="54" rx="8" fill="#fff" stroke="#e2e8f0"/>
+              <!-- 工作流名称 -->
+              <text x="38" y="72" fill="#94a3b8" font-size="8" font-family="sans-serif">Personal / Workflows</text>
+              <text x="38" y="91" fill="#1e293b" font-size="12" font-family="sans-serif" font-weight="bold">Lead qualification</text>
+              <!-- 标签 -->
+              <rect x="162" y="76" width="58" height="18" rx="9" fill="#f8fafc" stroke="#e2e8f0"/><text x="191" y="89" text-anchor="middle" fill="#64748b" font-size="8" font-family="sans-serif">+ tag</text>
+              <!-- 视图切换 -->
+              <rect x="310" y="64" width="184" height="28" rx="14" fill="#f8fafc" stroke="#e2e8f0"/>
+              <rect x="316" y="69" width="62" height="18" rx="9" fill="#fff" stroke="#dfe8f3"/><text x="347" y="82" text-anchor="middle" fill="#1e293b" font-size="8" font-family="sans-serif" font-weight="bold">Editor</text>
+              <text x="418" y="82" text-anchor="middle" fill="#64748b" font-size="8" font-family="sans-serif">Executions</text>
+              <text x="468" y="82" text-anchor="middle" fill="#64748b" font-size="8" font-family="sans-serif">Eval</text>
+              <!-- 操作按钮 -->
+              <rect x="526" y="64" width="72" height="28" rx="14" fill="#f8fafc"/><circle cx="542" cy="78" r="3.5" fill="#22c55e"/><text x="568" y="82" text-anchor="middle" fill="#64748b" font-size="8" font-family="sans-serif">Saved</text>
+              <rect x="606" y="64" width="62" height="28" rx="14" fill="#fff" stroke="#e2e8f0"/><text x="637" y="82" text-anchor="middle" fill="#475569" font-size="8" font-family="sans-serif">Test</text>
+              <rect x="676" y="64" width="72" height="28" rx="14" fill="#ff6d5a"/><text x="712" y="82" text-anchor="middle" fill="#fff" font-size="8" font-family="sans-serif" font-weight="bold">Publish</text>
+              <circle cx="762" cy="78" r="12" fill="#f8fafc" stroke="#e2e8f0"/><text x="762" y="82" text-anchor="middle" fill="#475569" font-size="12" font-family="sans-serif">⋯</text>
+              <!-- 标注 -->
+              <text x="112" y="46" text-anchor="middle" fill="#94a3b8" font-size="8" font-family="sans-serif">身份与名称</text>
+              <text x="402" y="46" text-anchor="middle" fill="#94a3b8" font-size="8" font-family="sans-serif">编辑 / 执行视图</text>
+              <text x="638" y="46" text-anchor="middle" fill="#94a3b8" font-size="8" font-family="sans-serif">保存状态与生产动作</text>
+              <!-- 底部分隔线 -->
+              <line x1="20" y1="120" x2="780" y2="120" stroke="#e2e8f0"/>
+              <text x="400" y="140" text-anchor="middle" fill="#64748b" font-size="10" font-family="sans-serif">左侧低风险信息 · 中间上下文切换 · 右侧只放 Saved / Test / Publish / More</text>
+              <text x="400" y="162" text-anchor="middle" fill="#94a3b8" font-size="9" font-family="sans-serif">去掉 Active 开关和显式 Save 按钮，避免“保存”“启用”“发布”三个概念混在一起</text>
+            </svg>
+            <p class="image-caption">补充图 12-1：参考 n8n 的顶部工具栏分区：工作流身份、视图切换、保存状态、测试、发布和更多菜单。</p>
+      </figure>
+  </div></section>
+  <section id="recommendations"><h2 class="section-title">4. 对自研 Workflow 画布的设计建议</h2><div class="summary-list"><div class="mini"><b>1. 新建流程先收敛入口</b><span>不要把新用户丢给空白画布，先引导选择触发器或场景模板。</span></div><div class="mini"><b>2. 节点库做成能力市场</b><span>按 Trigger、Action、Logic、AI、数据源、通知等分类，并支持搜索、推荐、最近使用。</span></div><div class="mini"><b>3. 连线必须有语义</b><span>区分数据流、条件流、错误流、AI 子能力连接，必要时显示标签和数据量。</span></div><div class="mini"><b>4. 节点详情就是调试工作台</b><span>配置、输入、输出、日志、错误要在同一上下文内完成。</span></div><div class="mini"><b>5. 数据映射低门槛高上限</b><span>提供拖拽字段、表达式、实时预览、示例数据和字段血缘。</span></div><div class="mini"><b>6. 调试能力前置</b><span>单步执行、局部执行、Pin/Mock、禁用节点、执行回放应成为基础能力。</span></div><div class="mini"><b>7. 大流程要能收纳</b><span>支持分组、折叠、注释、自动布局、阶段导航、缩略图。</span></div><div class="mini"><b>8. AI Agent 能力可视化</b><span>把模型、工具、记忆、知识库、人审、权限以子能力展示，而不是藏在配置表单里。</span></div><div class="mini"><b>9. 发布态要工程化</b><span>保存不等于上线，必须有草稿、发布、启用、回滚、审计、权限。</span></div></div></section>
+  <div class="footer">n8n Workflow Canvas UI/UX 报告</div>
+</div>
+</body>
+</html>

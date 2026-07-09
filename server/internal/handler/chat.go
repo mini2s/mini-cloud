@@ -139,6 +139,7 @@ func (h *Handler) ListChatSessions(w http.ResponseWriter, r *http.Request) {
 				CreatorID:   uuidToString(s.CreatorID),
 				Title:       s.Title,
 				Status:      s.Status,
+				SessionID:   textToPtr(s.SessionID),
 				HasUnread:   s.HasUnread,
 				CreatedAt:   timestampToString(s.CreatedAt),
 				UpdatedAt:   timestampToString(s.UpdatedAt),
@@ -165,6 +166,7 @@ func (h *Handler) ListChatSessions(w http.ResponseWriter, r *http.Request) {
 				CreatorID:   uuidToString(s.CreatorID),
 				Title:       s.Title,
 				Status:      s.Status,
+				SessionID:   textToPtr(s.SessionID),
 				HasUnread:   s.HasUnread,
 				CreatedAt:   timestampToString(s.CreatedAt),
 				UpdatedAt:   timestampToString(s.UpdatedAt),
@@ -750,6 +752,7 @@ type ChatSessionResponse struct {
 	CreatorID   string `json:"creator_id"`
 	Title       string `json:"title"`
 	Status      string `json:"status"`
+	SessionID   *string `json:"session_id"`
 	// Only populated by list endpoints — single-session fetches return false.
 	HasUnread bool   `json:"has_unread"`
 	CreatedAt string `json:"created_at"`
@@ -785,6 +788,7 @@ func chatSessionToResponse(s db.MulticaChatSession) ChatSessionResponse {
 		CreatorID:   uuidToString(s.CreatorID),
 		Title:       s.Title,
 		Status:      s.Status,
+		SessionID:   textToPtr(s.SessionID),
 		CreatedAt:   timestampToString(s.CreatedAt),
 		UpdatedAt:   timestampToString(s.UpdatedAt),
 	}

@@ -1,12 +1,41 @@
 "use client";
 
 import { useEffect, useMemo } from "react";
-import type { WorkflowNode, WorkflowNodeRun } from "@multica/core/types";
-import { X, Bot, User, ExternalLink, RotateCcw, Unlock } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
+import {
+  Activity,
+  Bot,
+  FileCheck2,
+  GitFork,
+  GitMerge,
+  MessageSquare,
+  RotateCcw,
+  Unlock,
+  User,
+} from "lucide-react";
+import { useChatStore } from "@multica/core/chat";
+import { chatSessionsOptions } from "@multica/core/chat/queries";
+import {
+  isEmbeddedInCostrict,
+  postCostrictNavigateToSession,
+} from "@multica/core/platform";
+import {
+  parseNodeFormat,
+  toWorkflowRuntimeDisplayStatus,
+  type NodeRunStatus,
+  type WorkflowNode,
+  type WorkflowNodeRun,
+  type WorkflowNodeRuntimeSummary,
+} from "@multica/core/types";
 import { useT } from "@multica/views/i18n";
-import { NodeRunStatusIcon } from "./node-run-status-icon";
-import { ArtifactList } from "./artifact-list";
 import { cn } from "@multica/ui/lib/utils";
+import {
+  NodeDetailSection,
+  WorkflowNodeDetailPanelShell,
+} from "../../../common/workflow-node-detail-panel-shell";
+import { ArtifactList } from "./artifact-list";
+import { NodeRunStatusIcon, RuntimeDisplayStatusIcon } from "./node-run-status-icon";
+import { resolveChatSessionId } from "../../../chat/lib/resolve-chat-session-id";
 
 export interface ExecutionDetailPanelProps {
   node: WorkflowNode;
@@ -16,8 +45,165 @@ export interface ExecutionDetailPanelProps {
   onClose: () => void;
   wsId: string;
   issueId?: string;
+  runtimeSummary?: WorkflowNodeRuntimeSummary | null;
   onUnblock?: () => void;
   onRetry?: () => void;
+}
+
+function gatewayLabel(kind: "fork" | "join" | null): string {
+  if (kind === "join") return "Join gateway";
+  if (kind === "fork") return "Fork gateway";
+  return "Gateway";
+}
+
+function gatewayDescription(kind: "fork" | "join" | null): string {
+  if (kind === "join") return "Waits for all upstream nodes to finish, then automatically completes and continues downstream.";
+  if (kind === "fork") return "Automatically completes and fans out to all downstream nodes.";
+  return "Gateway kind is invalid. Choose Fork or Join before publishing.";
+}
+
+function formatJson(value: unknown): string {
+  return typeof value === "string" ? value : JSON.stringify(value, null, 2);
+}
+
+function isRetryableNodeRunStatus(status: string | undefined): boolean {
+  return status === "failed" || status === "format_failed" || status === "blocked" || status === "critic_rework";
+}
+
+function deliverableSignalTone(signal: WorkflowNodeRuntimeSummary["deliverable_signal"]): string {
+  if (signal === "green") return "border-emerald-200 bg-emerald-50 text-emerald-700";
+  if (signal === "yellow") return "border-amber-200 bg-amber-50 text-amber-700";
+  if (signal === "red") return "border-red-200 bg-red-50 text-red-700";
+  return "border-border bg-muted/30 text-muted-foreground";
+}
+
+type StatusPathStepTone = "muted" | "current" | "complete" | "blocked" | "rework" | "cancelled";
+type StatusPathStep = "format" | "worker" | "critic";
+type StatusPathTones = Record<StatusPathStep, StatusPathStepTone>;
+
+function statusPathStepClassName(tone: StatusPathStepTone): string {
+  switch (tone) {
+    case "current":
+      return "bg-blue-50 text-blue-700";
+    case "complete":
+      return "bg-green-50 text-green-700";
+    case "blocked":
+      return "bg-red-50 text-red-700";
+    case "rework":
+      return "bg-amber-50 text-amber-700";
+    case "cancelled":
+      return "bg-muted/50 text-muted-foreground";
+    case "muted":
+      return "bg-muted/50";
+  }
+}
+
+function getStatusPathTones(status: NodeRunStatus): StatusPathTones {
+  const muted: StatusPathTones = { format: "muted", worker: "muted", critic: "muted" };
+
+  switch (status) {
+    case "pending":
+      return muted;
+    case "format_checking":
+      return { ...muted, format: "current" };
+    case "format_ok":
+      return { ...muted, format: "complete" };
+    case "worker_assigned":
+    case "working":
+    case "awaiting_input":
+      return { ...muted, format: "complete", worker: "current" };
+    case "awaiting_critic":
+    case "critic_reviewing":
+      return { format: "complete", worker: "complete", critic: "current" };
+    case "critic_approved":
+    case "completed":
+      return { format: "complete", worker: "complete", critic: "complete" };
+    case "format_failed":
+      return { ...muted, format: "blocked" };
+    case "failed":
+    case "blocked":
+      return { ...muted, format: "complete", worker: "blocked" };
+    case "critic_rework":
+      return { format: "complete", worker: "complete", critic: "rework" };
+    case "skipped":
+    case "cancelled":
+      return { format: "cancelled", worker: "cancelled", critic: "cancelled" };
+    default:
+      return muted;
+  }
+}
+
+type IssueTranslator = ReturnType<typeof useT<"issues">>["t"];
+
+function runtimeDisplayStatusText(
+  t: IssueTranslator,
+  status: ReturnType<typeof toWorkflowRuntimeDisplayStatus>,
+  gatewayKind: "fork" | "join" | null,
+): string {
+  if (gatewayKind === "fork" && status === "completed") {
+    return t(($) => $.execution.display_status.dispatched);
+  }
+  if (gatewayKind === "join" && status === "completed") {
+    return t(($) => $.execution.display_status.joined);
+  }
+  if (gatewayKind === "join" && (status === "pending" || status === "todo")) {
+    return t(($) => $.execution.display_status.waiting_upstream);
+  }
+  switch (status) {
+    case "pending":
+      return t(($) => $.execution.display_status.pending);
+    case "todo":
+      return t(($) => $.execution.display_status.todo);
+    case "in_progress":
+      return t(($) => $.execution.display_status.in_progress);
+    case "reviewing":
+      return t(($) => $.execution.display_status.reviewing);
+    case "completed":
+      return t(($) => $.execution.display_status.completed);
+    case "blocked":
+      return t(($) => $.execution.display_status.blocked);
+    case "cancelled":
+      return t(($) => $.execution.display_status.cancelled);
+  }
+}
+
+function deliverableSignalText(
+  t: IssueTranslator,
+  signal: WorkflowNodeRuntimeSummary["deliverable_signal"],
+): string {
+  if (signal === "green") return t(($) => $.execution.detail_panel.deliverable_status_green);
+  if (signal === "yellow") return t(($) => $.execution.detail_panel.deliverable_status_yellow);
+  if (signal === "red") return t(($) => $.execution.detail_panel.deliverable_status_red);
+  return t(($) => $.execution.detail_panel.deliverable_status_none);
+}
+
+function formatDurationLabel(totalSeconds: number): string {
+  if (totalSeconds < 60) return `${totalSeconds}s`;
+
+  const days = Math.floor(totalSeconds / 86400);
+  const hours = Math.floor((totalSeconds % 86400) / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+
+  if (days > 0) {
+    return hours > 0 ? `${days}d ${hours}h` : `${days}d`;
+  }
+  if (hours > 0) {
+    return minutes > 0 ? `${hours}h ${minutes}m` : `${hours}h`;
+  }
+  return seconds > 0 ? `${minutes}m ${seconds}s` : `${minutes}m`;
+}
+
+function deliverableProgressText(
+  t: IssueTranslator,
+  submitted: number,
+  total: number,
+  approved: number,
+): string {
+  return t(($) => $.execution.detail_panel.deliverable_progress)
+    .replaceAll("{{submitted}}", String(submitted))
+    .replaceAll("{{total}}", String(total))
+    .replaceAll("{{approved}}", String(approved));
 }
 
 export function ExecutionDetailPanel({
@@ -27,11 +213,19 @@ export function ExecutionDetailPanel({
   criticName,
   onClose,
   wsId,
-  issueId,
+  runtimeSummary,
   onUnblock,
   onRetry,
 }: ExecutionDetailPanelProps) {
   const { t } = useT("issues");
+  const nodeFormat = parseNodeFormat(node.format_schema);
+  const isGateway = nodeFormat.kind === "gateway";
+  const displayStatus = runtimeSummary?.display_status ?? (nodeRun ? toWorkflowRuntimeDisplayStatus(nodeRun.status) : "pending");
+  const displayStatusLabel = runtimeDisplayStatusText(t, displayStatus, isGateway ? nodeFormat.gateway_kind : null);
+  const GatewayIcon = nodeFormat.gateway_kind === "join" ? GitMerge : GitFork;
+  const setChatSession = useChatStore((s) => s.setActiveSession);
+  const setChatOpen = useChatStore((s) => s.setOpen);
+  const { data: chatSessions = [] } = useQuery(chatSessionsOptions(wsId));
 
   useEffect(() => {
     const handleKey = (e: KeyboardEvent) => {
@@ -42,6 +236,7 @@ export function ExecutionDetailPanel({
   }, [onClose]);
 
   const status = nodeRun?.status;
+  const statusPathTones = status ? getStatusPathTones(status) : null;
   const duration =
     nodeRun?.started_at && nodeRun?.completed_at
       ? Math.round(
@@ -51,19 +246,13 @@ export function ExecutionDetailPanel({
         )
       : null;
 
-  // Format duration as "Xm Ys" or "Xs"
   const durationLabel = useMemo(() => {
     if (duration == null) return null;
-    if (duration < 60) return `${duration}s`;
-    const minutes = Math.floor(duration / 60);
-    const seconds = duration % 60;
-    return seconds > 0 ? `${minutes}m ${seconds}s` : `${minutes}m`;
+    return formatDurationLabel(duration);
   }, [duration]);
 
-  // Extract error from failed/blocked node runs
   const errorMessage = useMemo(() => {
     if (!nodeRun || (status !== "failed" && status !== "blocked" && status !== "format_failed")) return null;
-    // Try to extract error string from worker_output or critic_output
     const wo = nodeRun.worker_output as Record<string, unknown> | null;
     const co = nodeRun.critic_output as Record<string, unknown> | null;
     if (wo && typeof wo.error === "string") return wo.error;
@@ -73,248 +262,301 @@ export function ExecutionDetailPanel({
     return null;
   }, [nodeRun, status]);
 
+  const sessionId = nodeRun?.session_id ?? runtimeSummary?.session_id ?? null;
+  const canOpenSession = !isGateway && !!sessionId;
+  const canUnblock = !isGateway && status === "blocked" && !!onUnblock;
+  const canRetry = !isGateway && isRetryableNodeRunStatus(status) && !!onRetry;
+  const hasAgentOperations = canOpenSession || canUnblock || canRetry;
+  const deliverableSignal = runtimeSummary?.deliverable_signal ?? "none";
+  const requiredDeliverablesTotal = runtimeSummary?.required_deliverables_total ?? 0;
+  const requiredDeliverablesSubmitted = runtimeSummary?.required_deliverables_submitted ?? 0;
+  const requiredDeliverablesApproved = runtimeSummary?.required_deliverables_approved ?? 0;
+
+  const handleOpenSession = () => {
+    if (!sessionId) return;
+    if (isEmbeddedInCostrict()) {
+      postCostrictNavigateToSession({ sessionId });
+      return;
+    }
+    const chatSessionId = resolveChatSessionId(chatSessions, sessionId);
+    if (!chatSessionId) return;
+    setChatSession(chatSessionId);
+    setChatOpen(true);
+  };
+
   return (
-    <>
-      {/* Mask */}
-      <div
-        data-testid="detail-panel-mask"
-        className="fixed inset-0 z-40 bg-slate-950/18 backdrop-blur-[1px]"
-        onClick={onClose}
-      />
-
-      {/* Panel */}
-      <aside className="fixed right-0 top-0 bottom-0 z-50 w-[520px] bg-background/98 backdrop-blur shadow-xl border-l border-border/60 flex flex-col">
-        {/* Header */}
-        <div className="flex items-center justify-between px-5 py-4 border-b border-border/60 shrink-0">
-          <div className="flex items-center gap-2 min-w-0">
-            <h2 className="text-base font-semibold truncate">{node.title}</h2>
-            {status && <NodeRunStatusIcon status={status} />}
+    <WorkflowNodeDetailPanelShell
+      mode="run"
+      variant="overlay"
+      title={node.title}
+      eyebrow="Node runtime"
+      closeLabel="Close"
+      onClose={onClose}
+      statusIcon={(
+        <span className="inline-flex shrink-0 items-center gap-1.5 rounded-md border bg-muted/30 px-2 py-1 text-[11px] font-medium text-muted-foreground">
+          <RuntimeDisplayStatusIcon
+            status={displayStatus}
+            gatewayKind={isGateway ? nodeFormat.gateway_kind : null}
+            className="h-3.5 w-3.5"
+          />
+          <span>{displayStatusLabel}</span>
+        </span>
+      )}
+    >
+      <NodeDetailSection
+        sectionId="primary"
+        icon={<Activity className="size-4" />}
+        title={t(($) => $.execution.detail_panel.section_primary)}
+        subtitle={t(($) => $.execution.detail_panel.section_primary_desc)}
+      >
+        {node.description ? (
+          <div>
+            <h3 className="mb-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+              {t(($) => $.detail.desc_label)}
+            </h3>
+            <p className="whitespace-pre-wrap text-sm leading-relaxed text-muted-foreground">
+              {node.description}
+            </p>
           </div>
-          <button
-            onClick={onClose}
-            className="p-1 rounded-md hover:bg-muted"
-            aria-label="Close"
-          >
-            <X className="h-4 w-4" />
-          </button>
-        </div>
+        ) : null}
 
-        {/* Content */}
-        <div className="flex-1 overflow-y-auto px-5 py-4 space-y-6">
-          {/* Node description */}
-          {node.description && (
-            <section>
-              <h3 className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide mb-2">
-                {t(($) => $.detail.desc_label)}
-              </h3>
-              <p className="text-sm text-muted-foreground leading-relaxed whitespace-pre-wrap">
-                {node.description}
+        {isGateway ? (
+          <div className="flex items-start gap-2 rounded-md border border-border/70 bg-muted/30 p-3">
+            <GatewayIcon className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+            <div className="min-w-0 space-y-1">
+              <p className="text-sm font-medium">{gatewayLabel(nodeFormat.gateway_kind)}</p>
+              <p className="text-xs text-muted-foreground">
+                {gatewayDescription(nodeFormat.gateway_kind)}
               </p>
-            </section>
-          )}
+            </div>
+          </div>
+        ) : null}
 
-          {/* Status path visualization */}
-          {status && (
-            <section>
-              <h3 className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide mb-2">
-                {t(($) => $.execution.detail_panel.status_path)}
-              </h3>
-              <div className="flex items-center gap-2 text-xs">
-                <span
-                  className={cn(
-                    "px-2 py-0.5 rounded",
-                    status === "format_checking" || status === "format_ok"
-                      ? "bg-blue-50 text-blue-700"
-                      : "bg-muted/50",
-                  )}
-                >
-                  Format
-                </span>
-                <span className="text-muted-foreground">→</span>
-                <span
-                  className={cn(
-                    "px-2 py-0.5 rounded",
-                    status === "working"
-                      ? "bg-blue-50 text-blue-700"
-                      : "bg-muted/50",
-                  )}
-                >
-                  Worker
-                </span>
-                <span className="text-muted-foreground">→</span>
-                <span
-                  className={cn(
-                    "px-2 py-0.5 rounded",
-                    status === "critic_reviewing" ||
-                      status === "critic_approved"
-                      ? "bg-green-50 text-green-700"
-                      : "bg-muted/50",
-                  )}
-                >
-                  Critic
-                </span>
-              </div>
-            </section>
-          )}
+        {status && !isGateway ? (
+          <div>
+            <h3 className="mb-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+              {t(($) => $.execution.detail_panel.status_path)}
+            </h3>
+            <div className="flex items-center gap-2 text-xs">
+              <span
+                className={cn(
+                  "rounded px-2 py-0.5",
+                  statusPathStepClassName(statusPathTones?.format ?? "muted"),
+                )}
+              >
+                Format
+              </span>
+              <span className="text-muted-foreground">-&gt;</span>
+              <span
+                className={cn(
+                  "rounded px-2 py-0.5",
+                  statusPathStepClassName(statusPathTones?.worker ?? "muted"),
+                )}
+              >
+                Worker
+              </span>
+              <span className="text-muted-foreground">-&gt;</span>
+              <span
+                className={cn(
+                  "rounded px-2 py-0.5",
+                  statusPathStepClassName(statusPathTones?.critic ?? "muted"),
+                )}
+              >
+                Critic
+              </span>
+            </div>
+          </div>
+        ) : null}
 
-          {/* Worker info */}
-          <section>
-            <h3 className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide mb-2">
+        {!isGateway ? (
+          <div>
+            <h3 className="mb-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
               {t(($) => $.execution.detail_panel.worker)}
             </h3>
             <div className="flex items-center gap-2 text-sm">
-              {node.worker_type === "agent" ? (
-                <Bot className="h-4 w-4" />
-              ) : (
-                <User className="h-4 w-4" />
-              )}
+              {node.worker_type === "agent" ? <Bot className="h-4 w-4" /> : <User className="h-4 w-4" />}
               <span className="font-medium">{workerName ?? "--"}</span>
-              {nodeRun && (
-                <NodeRunStatusIcon status={nodeRun.status} className="h-3.5 w-3.5" />
-              )}
+              {nodeRun ? <NodeRunStatusIcon status={nodeRun.status} className="h-3.5 w-3.5" /> : null}
             </div>
-            {nodeRun?.worker_output != null && (
-              <div className="mt-2">
-                <h4 className="text-[11px] font-medium text-muted-foreground mb-1">
-                  {t(($) => $.execution.detail_panel.worker_output)}
-                </h4>
-                <pre className="text-xs bg-muted/50 rounded p-2 max-h-24 overflow-auto whitespace-pre-wrap">
-                  {typeof nodeRun.worker_output === "string"
-                    ? nodeRun.worker_output
-                    : JSON.stringify(nodeRun.worker_output, null, 2)}
-                </pre>
-              </div>
-            )}
-          </section>
+          </div>
+        ) : null}
 
-          {/* Critic info */}
-          <section>
-            <h3 className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide mb-2">
+        {!isGateway ? (
+          <div>
+            <h3 className="mb-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
               {t(($) => $.execution.detail_panel.critic)}
             </h3>
             {node.critic_type || node.critic_id ? (
               <>
                 <div className="flex items-center gap-2 text-sm">
-                  {nodeRun?.critic_type === "agent" ? (
-                    <Bot className="h-4 w-4" />
-                  ) : (
-                    <User className="h-4 w-4" />
-                  )}
+                  {nodeRun?.critic_type === "agent" ? <Bot className="h-4 w-4" /> : <User className="h-4 w-4" />}
                   <span className="font-medium">{criticName ?? "--"}</span>
                 </div>
-                {nodeRun?.critic_comment && (
-                  <p className="text-xs text-muted-foreground mt-1 italic">
+                {nodeRun?.critic_comment ? (
+                  <p className="mt-1 text-xs italic text-muted-foreground">
                     &ldquo;{nodeRun.critic_comment}&rdquo;
                   </p>
-                )}
-                {nodeRun?.critic_output != null && (
-                  <div className="mt-2">
-                    <h4 className="text-[11px] font-medium text-muted-foreground mb-1">
-                      {t(($) => $.execution.detail_panel.critic_output)}
-                    </h4>
-                    <pre className="text-xs bg-muted/50 rounded p-2 max-h-24 overflow-auto whitespace-pre-wrap">
-                      {typeof nodeRun.critic_output === "string"
-                        ? nodeRun.critic_output
-                        : JSON.stringify(nodeRun.critic_output, null, 2)}
-                    </pre>
-                  </div>
-                )}
+                ) : null}
               </>
             ) : (
-              <p className="text-xs text-muted-foreground italic">
+              <p className="text-xs italic text-muted-foreground">
                 {t(($) => $.execution.detail_panel.not_configured)}
               </p>
             )}
-          </section>
+          </div>
+        ) : null}
+      </NodeDetailSection>
 
-          {/* Artifacts */}
-          {nodeRun && <ArtifactList nodeRun={nodeRun} />}
+      {hasAgentOperations ? (
+        <NodeDetailSection
+          sectionId="agent-operations"
+          icon={<Bot className="size-4" />}
+          title={t(($) => $.execution.detail_panel.section_agent_operations)}
+          subtitle={t(($) => $.execution.detail_panel.section_agent_operations_desc)}
+        >
+          <div className="flex flex-wrap items-center gap-2">
+            {canOpenSession ? (
+              <button
+                type="button"
+                onClick={handleOpenSession}
+                className="inline-flex h-8 items-center justify-center gap-1.5 rounded-md border bg-background px-3 text-xs font-medium transition-colors hover:bg-muted"
+              >
+                <MessageSquare className="h-3.5 w-3.5" />
+                {t(($) => $.execution.detail_panel.open_session)}
+              </button>
+            ) : null}
+            {canUnblock ? (
+              <button
+                type="button"
+                onClick={onUnblock}
+                className="inline-flex h-8 items-center justify-center gap-1.5 rounded-md border border-amber-200 bg-amber-50 px-3 text-xs font-medium text-amber-700 transition-colors hover:bg-amber-100"
+              >
+                <Unlock className="h-3.5 w-3.5" />
+                {t(($) => $.execution.detail_panel.unblock)}
+              </button>
+            ) : null}
+            {canRetry ? (
+              <button
+                type="button"
+                onClick={onRetry}
+                className="inline-flex h-8 items-center justify-center gap-1.5 rounded-md border border-red-200 bg-red-50 px-3 text-xs font-medium text-red-700 transition-colors hover:bg-red-100"
+              >
+                <RotateCcw className="h-3.5 w-3.5" />
+                {t(($) => $.execution.detail_panel.retry)}
+              </button>
+            ) : null}
+          </div>
+        </NodeDetailSection>
+      ) : null}
 
-          {/* Metadata */}
-          {nodeRun && (
-            <section>
-              <h3 className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide mb-2">
+      <NodeDetailSection
+        sectionId="deliverables"
+        icon={<FileCheck2 className="size-4" />}
+        title={t(($) => $.execution.detail_panel.section_deliverables)}
+        subtitle={t(($) => $.execution.detail_panel.section_deliverables_desc)}
+      >
+        {nodeRun && !isGateway ? (
+          <div className="space-y-3">
+            <div className={`rounded-lg border p-3 ${deliverableSignalTone(deliverableSignal)}`}>
+              <p className="text-xs font-medium">
+                {t(($) => $.execution.detail_panel.deliverable_status_label)}
+              </p>
+              <p className="mt-1 text-sm font-semibold">
+                {deliverableSignalText(t, deliverableSignal)}
+              </p>
+              <p className="mt-1 text-xs opacity-80">
+                {deliverableProgressText(t, requiredDeliverablesSubmitted, requiredDeliverablesTotal, requiredDeliverablesApproved)}
+              </p>
+            </div>
+            <ArtifactList nodeRun={nodeRun} />
+          </div>
+        ) : (
+          <p className="text-sm text-muted-foreground">
+            {isGateway ? "Gateway nodes do not produce deliverables." : "No run data for deliverables yet."}
+          </p>
+        )}
+      </NodeDetailSection>
+
+      <NodeDetailSection
+        sectionId="runtime"
+        icon={<Activity className="size-4" />}
+        title={t(($) => $.execution.detail_panel.section_runtime)}
+        subtitle={t(($) => $.execution.detail_panel.section_runtime_desc)}
+      >
+        {nodeRun && !isGateway ? (
+          <div className="space-y-3">
+            {nodeRun.worker_output != null || nodeRun.critic_output != null ? (
+              <div className="space-y-2">
+                {nodeRun.worker_output != null ? (
+                  <div>
+                    <h4 className="mb-1 text-[11px] font-medium text-muted-foreground">
+                      {t(($) => $.execution.detail_panel.worker_output)}
+                    </h4>
+                    <pre className="max-h-24 overflow-auto whitespace-pre-wrap rounded bg-muted/50 p-2 text-xs">
+                      {formatJson(nodeRun.worker_output)}
+                    </pre>
+                  </div>
+                ) : null}
+                {nodeRun.critic_output != null ? (
+                  <div>
+                    <h4 className="mb-1 text-[11px] font-medium text-muted-foreground">
+                      {t(($) => $.execution.detail_panel.critic_output)}
+                    </h4>
+                    <pre className="max-h-24 overflow-auto whitespace-pre-wrap rounded bg-muted/50 p-2 text-xs">
+                      {formatJson(nodeRun.critic_output)}
+                    </pre>
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
+
+            <div>
+              <h3 className="mb-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
                 {t(($) => $.execution.detail_panel.metadata)}
               </h3>
-              <dl className="text-xs space-y-1">
-                {nodeRun.started_at && (
-                  <div className="flex justify-between">
-                    <dt className="text-muted-foreground">
-                      {t(($) => $.execution.detail_panel.started_at)}
-                    </dt>
+              <dl className="space-y-1 text-xs">
+                {nodeRun.started_at ? (
+                  <div className="flex justify-between gap-3">
+                    <dt className="text-muted-foreground">{t(($) => $.execution.detail_panel.started_at)}</dt>
                     <dd>{new Date(nodeRun.started_at).toLocaleString()}</dd>
                   </div>
-                )}
-                {nodeRun.completed_at && (
-                  <div className="flex justify-between">
-                    <dt className="text-muted-foreground">
-                      {t(($) => $.execution.detail_panel.completed_at)}
-                    </dt>
+                ) : null}
+                {nodeRun.completed_at ? (
+                  <div className="flex justify-between gap-3">
+                    <dt className="text-muted-foreground">{t(($) => $.execution.detail_panel.completed_at)}</dt>
                     <dd>{new Date(nodeRun.completed_at).toLocaleString()}</dd>
                   </div>
-                )}
-                {durationLabel != null && (
-                  <div className="flex justify-between">
-                    <dt className="text-muted-foreground">
-                      {t(($) => $.execution.detail_panel.duration)}
-                    </dt>
+                ) : null}
+                {durationLabel != null ? (
+                  <div className="flex justify-between gap-3">
+                    <dt className="text-muted-foreground">{t(($) => $.execution.detail_panel.duration)}</dt>
                     <dd>{durationLabel}</dd>
                   </div>
-                )}
-                <div className="flex justify-between">
-                  <dt className="text-muted-foreground">
-                    {t(($) => $.execution.detail_panel.retry_count)}
-                  </dt>
+                ) : null}
+                <div className="flex justify-between gap-3">
+                  <dt className="text-muted-foreground">{t(($) => $.execution.detail_panel.retry_count)}</dt>
                   <dd>{nodeRun.retry_count}</dd>
                 </div>
-                {errorMessage && (
-                  <div className="flex flex-col gap-1 pt-2 border-t border-border/50 mt-2">
-                    <dt className="text-red-600 dark:text-red-400 font-medium">
+                {errorMessage ? (
+                  <div className="mt-2 flex flex-col gap-1 border-t border-border/50 pt-2">
+                    <dt className="font-medium text-red-600 dark:text-red-400">
                       {t(($) => $.execution.detail_panel.error)}
                     </dt>
-                    <dd className="text-red-600 dark:text-red-400 whitespace-pre-wrap break-words">
+                    <dd className="whitespace-pre-wrap break-words text-red-600 dark:text-red-400">
                       {errorMessage}
                     </dd>
                   </div>
-                )}
+                ) : null}
               </dl>
-            </section>
-          )}
-        </div>
+            </div>
+          </div>
+        ) : (
+          <p className="text-sm text-muted-foreground">
+            {isGateway ? "Gateway runtime is automatic and has no worker output." : "No runtime data yet."}
+          </p>
+        )}
+      </NodeDetailSection>
 
-        {/* Footer actions */}
-        <div className="shrink-0 px-5 py-3 border-t border-border/60 space-y-2">
-          {issueId && (
-            <a
-              href={`/tasks/${wsId}/issues/${issueId}`}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
-            >
-              <ExternalLink className="h-3 w-3" />
-              {t(($) => $.execution.detail_panel.view_full_issue)}
-            </a>
-          )}
-          {status === "blocked" && onUnblock && (
-            <button
-              onClick={onUnblock}
-              className="w-full inline-flex items-center justify-center gap-1.5 rounded-md bg-amber-50 text-amber-700 border border-amber-200 px-3 py-1.5 text-xs font-medium hover:bg-amber-100 transition-colors"
-            >
-              <Unlock className="h-3 w-3" />
-              {t(($) => $.execution.detail_panel.unblock)}
-            </button>
-          )}
-          {status === "failed" && onRetry && (
-            <button
-              onClick={onRetry}
-              className="w-full inline-flex items-center justify-center gap-1.5 rounded-md bg-red-50 text-red-700 border border-red-200 px-3 py-1.5 text-xs font-medium hover:bg-red-100 transition-colors"
-            >
-              <RotateCcw className="h-3 w-3" />
-              {t(($) => $.execution.detail_panel.retry)}
-            </button>
-          )}
-        </div>
-      </aside>
-    </>
+    </WorkflowNodeDetailPanelShell>
   );
 }

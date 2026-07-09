@@ -290,6 +290,22 @@ describe("ApiClient schema fallback", () => {
       expect(resp.reused_skill_ids).toEqual([]);
     });
   });
+
+  describe("getWorkflowRunCanvasSummary", () => {
+    it("falls back to an empty canvas summary when runtime summaries drift", async () => {
+      stubFetchJson({
+        run: { id: "run-1", workflow_id: "wf-1", workspace_id: "ws-1" },
+        node_runs: [],
+        node_runtime_summaries: "not-an-array",
+      });
+      const client = new ApiClient("https://api.example.test");
+      const summary = await client.getWorkflowRunCanvasSummary("wf-1", "run-1");
+
+      expect(summary.run.id).toBe("");
+      expect(summary.node_runs).toEqual([]);
+      expect(summary.node_runtime_summaries).toEqual([]);
+    });
+  });
 });
 
 // Direct tests for the helper, decoupled from any specific endpoint —

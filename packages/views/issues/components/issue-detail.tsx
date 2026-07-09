@@ -1129,7 +1129,8 @@ export function IssueDetail({ issueId, onDelete, onDone, defaultSidebarOpen = tr
   // Older sub-issues may not have workflow_id/workflow_run_id stamped, so fall
   // back to the parent issue's workflow fields when available.
   const isWorkflowOrigin = issue?.origin_type === "workflow" && !!issue?.origin_id;
-  const effectiveWorkflowId = issue?.workflow_id ?? parentIssue?.workflow_id;
+  const workflowAssigneeId = issue?.assignee_type === "workflow" ? issue.assignee_id : null;
+  const effectiveWorkflowId = issue?.workflow_id ?? workflowAssigneeId ?? parentIssue?.workflow_id;
   const effectiveWorkflowRunId = issue?.workflow_run_id ?? parentIssue?.workflow_run_id;
   const { data: nodeRuns = [] } = useQuery({
     ...workflowNodeRunsOptions(wsId, effectiveWorkflowId ?? "", effectiveWorkflowRunId ?? ""),
@@ -1919,7 +1920,11 @@ export function IssueDetail({ issueId, onDelete, onDone, defaultSidebarOpen = tr
 
         <div
           ref={setScrollContainerEl}
-          className="relative flex-1 overflow-y-auto"
+          data-testid="issue-detail-scroll-container"
+          className={cn(
+            "relative flex-1",
+            isFullscreen ? "flex min-h-0 flex-col overflow-hidden" : "overflow-y-auto",
+          )}
         >
           {/* TitleEditor, parent link, originNodeRun, Description, ReactionBar */}
           {!isFullscreen && (
@@ -2018,13 +2023,15 @@ export function IssueDetail({ issueId, onDelete, onDone, defaultSidebarOpen = tr
             <div className={
               isFullscreen
                 ? "flex-1 min-h-0 flex flex-col"
-                : "border-y bg-muted/20 py-6"
+                : "border-y bg-muted/20"
             }>
-              <div className={isFullscreen ? "flex-1 min-h-0 py-6" : "px-6"}>
+              <div className={isFullscreen ? "flex min-h-0 flex-1 flex-col" : "px-6"}>
                 <ExecutionPanoramaPage
                   workflowId={effectiveWorkflowId ?? ""}
                   runId={effectiveWorkflowRunId ?? null}
                   wsId={wsId}
+                  issueId={issue.id}
+                  fillAvailableHeight={isFullscreen}
                 />
               </div>
             </div>

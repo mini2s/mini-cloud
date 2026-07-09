@@ -70,6 +70,64 @@ func TestCreateStage_InWorkflow(t *testing.T) {
 	}
 }
 
+func TestCreateWorkflowNode_AcceptsStageID(t *testing.T) {
+	if testHandler == nil {
+		t.Skip("database not available")
+	}
+	ctx := context.Background()
+
+	w := httptest.NewRecorder()
+	req := newRequest("POST", "/api/workflows", map[string]any{
+		"title": "Create Node Stage WF",
+	})
+	testHandler.CreateWorkflow(w, req)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("CreateWorkflow: expected 201, got %d: %s", w.Code, w.Body.String())
+	}
+	var cr struct {
+		ID string `json:"id"`
+	}
+	json.Unmarshal(w.Body.Bytes(), &cr)
+	wfID := cr.ID
+	t.Cleanup(func() {
+		_, _ = testPool.Exec(ctx, `DELETE FROM multica_workflow WHERE id = $1`, wfID)
+	})
+
+	w = httptest.NewRecorder()
+	req = newRequest("POST", fmt.Sprintf("/api/workflows/%s/stages", wfID), map[string]any{
+		"name": "Design",
+	})
+	req = withURLParams(req, "id", wfID)
+	testHandler.CreateWorkflowStage(w, req)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("CreateWorkflowStage: expected 201, got %d: %s", w.Code, w.Body.String())
+	}
+	var sr struct {
+		ID string `json:"id"`
+	}
+	json.Unmarshal(w.Body.Bytes(), &sr)
+
+	w = httptest.NewRecorder()
+	req = newRequest("POST", fmt.Sprintf("/api/workflows/%s/nodes", wfID), map[string]any{
+		"title":       "Node in stage",
+		"worker_type": "agent",
+		"critic_type": "human",
+		"stage_id":    sr.ID,
+	})
+	req = withURLParams(req, "id", wfID)
+	testHandler.CreateWorkflowNode(w, req)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("CreateWorkflowNode: expected 201, got %d: %s", w.Code, w.Body.String())
+	}
+	var nr struct {
+		StageID *string `json:"stage_id"`
+	}
+	json.Unmarshal(w.Body.Bytes(), &nr)
+	if nr.StageID == nil || *nr.StageID != sr.ID {
+		t.Fatalf("expected created node stage_id %q, got %#v", sr.ID, nr.StageID)
+	}
+}
+
 // TestCrossStageEdge_Allowed verifies that creating an edge between nodes
 // in different stages succeeds (cross-stage edges are supported for panorama view).
 func TestCrossStageEdge_Allowed(t *testing.T) {
@@ -99,7 +157,9 @@ func TestCrossStageEdge_Allowed(t *testing.T) {
 	if w.Code != http.StatusCreated {
 		t.Fatalf("CreateWorkflowStage A: expected 201, got %d: %s", w.Code, w.Body.String())
 	}
-	var sr1 struct{ ID string `json:"id"` }
+	var sr1 struct {
+		ID string `json:"id"`
+	}
 	json.Unmarshal(w.Body.Bytes(), &sr1)
 
 	w = httptest.NewRecorder()
@@ -109,7 +169,9 @@ func TestCrossStageEdge_Allowed(t *testing.T) {
 	if w.Code != http.StatusCreated {
 		t.Fatalf("CreateWorkflowStage B: expected 201, got %d: %s", w.Code, w.Body.String())
 	}
-	var sr2 struct{ ID string `json:"id"` }
+	var sr2 struct {
+		ID string `json:"id"`
+	}
 	json.Unmarshal(w.Body.Bytes(), &sr2)
 
 	// Create nodes in different stages
@@ -124,7 +186,9 @@ func TestCrossStageEdge_Allowed(t *testing.T) {
 	if w.Code != http.StatusCreated {
 		t.Fatalf("CreateWorkflowNode A: expected 201, got %d: %s", w.Code, w.Body.String())
 	}
-	var nr1 struct{ ID string `json:"id"` }
+	var nr1 struct {
+		ID string `json:"id"`
+	}
 	json.Unmarshal(w.Body.Bytes(), &nr1)
 
 	w = httptest.NewRecorder()
@@ -138,7 +202,9 @@ func TestCrossStageEdge_Allowed(t *testing.T) {
 	if w.Code != http.StatusCreated {
 		t.Fatalf("CreateWorkflowNode B: expected 201, got %d: %s", w.Code, w.Body.String())
 	}
-	var nr2 struct{ ID string `json:"id"` }
+	var nr2 struct {
+		ID string `json:"id"`
+	}
 	json.Unmarshal(w.Body.Bytes(), &nr2)
 
 	// Assign nodes to different stages
@@ -169,6 +235,74 @@ func TestCrossStageEdge_Allowed(t *testing.T) {
 	}
 }
 
+func TestCreateWorkflowEdge_PreservesCondition(t *testing.T) {
+	if testHandler == nil {
+		t.Skip("database not available")
+	}
+	ctx := context.Background()
+
+	w := httptest.NewRecorder()
+	req := newRequest("POST", "/api/workflows", map[string]any{"title": "Edge Condition WF"})
+	testHandler.CreateWorkflow(w, req)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("CreateWorkflow: expected 201, got %d: %s", w.Code, w.Body.String())
+	}
+	var cr struct {
+		ID string `json:"id"`
+	}
+	json.Unmarshal(w.Body.Bytes(), &cr)
+	wfID := cr.ID
+	t.Cleanup(func() {
+		_, _ = testPool.Exec(ctx, `DELETE FROM multica_workflow WHERE id = $1`, wfID)
+	})
+
+	createNode := func(title string) string {
+		w := httptest.NewRecorder()
+		req := newRequest("POST", fmt.Sprintf("/api/workflows/%s/nodes", wfID), map[string]any{
+			"title":       title,
+			"worker_type": "agent",
+			"critic_type": "human",
+		})
+		req = withURLParams(req, "id", wfID)
+		testHandler.CreateWorkflowNode(w, req)
+		if w.Code != http.StatusCreated {
+			t.Fatalf("CreateWorkflowNode %s: expected 201, got %d: %s", title, w.Code, w.Body.String())
+		}
+		var nr struct {
+			ID string `json:"id"`
+		}
+		json.Unmarshal(w.Body.Bytes(), &nr)
+		return nr.ID
+	}
+	sourceID := createNode("Source")
+	targetID := createNode("Target")
+
+	w = httptest.NewRecorder()
+	req = newRequest("POST", fmt.Sprintf("/api/workflows/%s/edges", wfID), map[string]any{
+		"source_node_id": sourceID,
+		"target_node_id": targetID,
+		"condition": map[string]any{
+			"kind":  "condition",
+			"label": "approved",
+		},
+	})
+	req = withURLParams(req, "id", wfID)
+	testHandler.CreateWorkflowEdge(w, req)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("CreateWorkflowEdge: expected 201, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var edgeResp struct {
+		Condition map[string]string `json:"condition"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &edgeResp); err != nil {
+		t.Fatalf("decode edge response: %v", err)
+	}
+	if edgeResp.Condition["kind"] != "condition" || edgeResp.Condition["label"] != "approved" {
+		t.Fatalf("condition was not preserved in response: %#v", edgeResp.Condition)
+	}
+}
+
 // TestDeleteStage_SetsNodeStageNull verifies ON DELETE SET NULL behavior.
 func TestDeleteStage_SetsNodeStageNull(t *testing.T) {
 	if testHandler == nil {
@@ -196,7 +330,9 @@ func TestDeleteStage_SetsNodeStageNull(t *testing.T) {
 	if w.Code != http.StatusCreated {
 		t.Fatalf("CreateWorkflowStage: expected 201, got %d: %s", w.Code, w.Body.String())
 	}
-	var sr struct{ ID string `json:"id"` }
+	var sr struct {
+		ID string `json:"id"`
+	}
 	json.Unmarshal(w.Body.Bytes(), &sr)
 
 	w = httptest.NewRecorder()
@@ -210,7 +346,9 @@ func TestDeleteStage_SetsNodeStageNull(t *testing.T) {
 	if w.Code != http.StatusCreated {
 		t.Fatalf("CreateWorkflowNode: expected 201, got %d: %s", w.Code, w.Body.String())
 	}
-	var nr struct{ ID string `json:"id"` }
+	var nr struct {
+		ID string `json:"id"`
+	}
 	json.Unmarshal(w.Body.Bytes(), &nr)
 
 	// Assign node to stage
@@ -244,4 +382,86 @@ func TestDeleteStage_SetsNodeStageNull(t *testing.T) {
 	if stageID != nil {
 		t.Fatalf("expected NULL stage_id after stage delete, got %q", *stageID)
 	}
+}
+
+// TestDeleteStage_CompactsSortOrders verifies that deleting a stage
+// re-normalizes sort_order values so remaining stages stay contiguous.
+func TestDeleteStage_CompactsSortOrders(t *testing.T) {
+	if testHandler == nil {
+		t.Skip("database not available")
+	}
+	ctx := context.Background()
+
+	// Create workflow
+	w := httptest.NewRecorder()
+	req := newRequest("POST", "/api/workflows", map[string]any{"title": "Compact Sort WF"})
+	testHandler.CreateWorkflow(w, req)
+	var cr struct {
+		ID string `json:"id"`
+	}
+	json.Unmarshal(w.Body.Bytes(), &cr)
+	wfID := cr.ID
+	t.Cleanup(func() {
+		_, _ = testPool.Exec(ctx, `DELETE FROM multica_workflow WHERE id = $1`, wfID)
+	})
+
+	// Create 3 stages — sort_order will be 0, 1, 2
+	createStage := func(name string) string {
+		w := httptest.NewRecorder()
+		req := newRequest("POST", fmt.Sprintf("/api/workflows/%s/stages", wfID), map[string]any{"name": name})
+		req = withURLParams(req, "id", wfID)
+		testHandler.CreateWorkflowStage(w, req)
+		if w.Code != http.StatusCreated {
+			t.Fatalf("CreateWorkflowStage %s: expected 201, got %d: %s", name, w.Code, w.Body.String())
+		}
+		var sr struct {
+			ID string `json:"id"`
+		}
+		json.Unmarshal(w.Body.Bytes(), &sr)
+		return sr.ID
+	}
+
+	stage0ID := createStage("Stage 0")
+	createStage("Stage 1")
+	createStage("Stage 2")
+
+	// Verify initial sort orders: 0, 1, 2
+	verifySortOrders := func(expected []int32, msg string) {
+		rows, err := testPool.Query(ctx,
+			`SELECT sort_order FROM multica_workflow_stage WHERE workflow_id = $1 ORDER BY sort_order ASC`, wfID)
+		if err != nil {
+			t.Fatalf("%s: query sort_orders: %v", msg, err)
+		}
+		defer rows.Close()
+		var orders []int32
+		for rows.Next() {
+			var so int32
+			if err := rows.Scan(&so); err != nil {
+				t.Fatalf("%s: scan sort_order: %v", msg, err)
+			}
+			orders = append(orders, so)
+		}
+		if len(orders) != len(expected) {
+			t.Fatalf("%s: expected %d stages, got %d", msg, len(expected), len(orders))
+		}
+		for i, exp := range expected {
+			if orders[i] != exp {
+				t.Fatalf("%s: sort_order[%d] expected %d, got %d", msg, i, exp, orders[i])
+			}
+		}
+	}
+
+	verifySortOrders([]int32{0, 1, 2}, "before delete")
+
+	// Delete stage 0
+	w = httptest.NewRecorder()
+	req = newRequest("DELETE", fmt.Sprintf("/api/workflows/%s/stages/%s", wfID, stage0ID), nil)
+	req = withURLParams(req, "id", wfID, "stageId", stage0ID)
+	testHandler.DeleteWorkflowStage(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("DeleteWorkflowStage: expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	// Verify remaining stages have contiguous sort_orders: 0, 1 (was 1, 2)
+	verifySortOrders([]int32{0, 1}, "after delete stage 0")
 }

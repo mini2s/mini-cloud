@@ -3,6 +3,7 @@ import { describe, it, expect } from "vitest";
 import { render } from "@testing-library/react";
 import { computeEdgePaths } from "./panorama-svg-overlay";
 import { PanoramaSvgOverlay } from "./panorama-svg-overlay";
+import { STAGE_LINE_COLORS, getStageColorIndex } from "./constants";
 import type { WorkflowEdge, WorkflowNode, WorkflowStage } from "@multica/core/types";
 
 const MOCK_STAGES: WorkflowStage[] = [
@@ -117,6 +118,23 @@ describe("computeEdgePaths", () => {
     expect(paths[0]!.d).toContain("44");
   });
 
+  it("uses rendered left-to-right order for adjacency even when the node array order is stale", () => {
+    const positions = new Map<string, DOMRect>([
+      ["n1", fakeRect(0, 0, 120, 72)],
+      ["n2", fakeRect(130, 0, 120, 72)],
+      ["n4", fakeRect(390, 0, 120, 72)],
+    ]);
+    const edge: WorkflowEdge = {
+      id: "e-horizontal-from-layout", workflow_id: "wf-1",
+      source_node_id: "n1", target_node_id: "n2",
+      condition: null, created_at: "",
+    };
+    const staleNodeOrder = [MOCK_NODES[0]!, MOCK_NODES[3]!, MOCK_NODES[1]!, MOCK_NODES[2]!];
+    const paths = computeEdgePaths([edge], staleNodeOrder, MOCK_STAGES, positions, new Map());
+    expect(paths[0]!.type).toBe("horizontal");
+    expect(paths[0]!.d).toMatch(/^M \d+ \d+ L \d+ \d+$/);
+  });
+
   it("uses source stage color index instead of source node sort order", () => {
     const positions = new Map<string, DOMRect>([
       ["n2", fakeRect(0, 0, 120, 72)],
@@ -145,7 +163,7 @@ describe("computeEdgePaths", () => {
       ["n2", fakeRect(130, 0, 120, 72)],
     ]);
     const paths = computeEdgePaths(MOCK_EDGES.slice(0, 1), uuidNodes, uuidStages, positions, new Map());
-    expect(paths[0]!.colorIndex).toBe(4);
+    expect(paths[0]!.colorIndex).toBe(getStageColorIndex(4));
   });
 
   it("computes critic dashed line for worker-critic pairs", () => {
@@ -190,5 +208,33 @@ describe("computeEdgePaths", () => {
     expect(markerPath?.getAttribute("opacity")).toBe("1");
     expect(connector?.getAttribute("stroke-linecap")).toBe("round");
     expect(connector?.getAttribute("stroke-linejoin")).toBe("round");
+  });
+
+  it("uses the shared stage line palette for connector and arrow marker classes", () => {
+    const positions = new Map<string, DOMRect>([
+      ["n3", fakeRect(0, 0, 120, 72)],
+      ["n1", fakeRect(180, 0, 120, 72)],
+    ]);
+    const edge: WorkflowEdge = {
+      id: "e-stage-2", workflow_id: "wf-1",
+      source_node_id: "n3", target_node_id: "n1",
+      condition: null, created_at: "",
+    };
+
+    const { container } = render(
+      <PanoramaSvgOverlay
+        edges={[edge]}
+        nodes={MOCK_NODES}
+        stages={MOCK_STAGES}
+        nodePositions={positions}
+        criticPositions={new Map()}
+      />,
+    );
+
+    const expectedColor = STAGE_LINE_COLORS[getStageColorIndex(1)];
+    const connector = container.querySelector("svg > path");
+    const marker = container.querySelector("#panorama-arrowhead-1");
+    expect(connector?.getAttribute("class")).toContain(expectedColor);
+    expect(marker?.getAttribute("class")).toContain(expectedColor);
   });
 });

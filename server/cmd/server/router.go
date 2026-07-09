@@ -329,11 +329,10 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 		r.Post("/node-runs/{nodeRunId}/session", h.BindNodeRunSession)
 	})
 
-
-		// GitLab credential for CLI credential helper (gitlab-credential-multica).
-		// Requires daemon token or valid user token to access — workspace is derived from the token.
-		r.With(middleware.DaemonAuth(queries, patCache, daemonTokenCache, opts.JWKSProvider, opts.SubjectResolver)).
-			Get("/api/gitlab/credential", h.HandleGitlabCredential)
+	// GitLab credential for CLI credential helper (gitlab-credential-multica).
+	// Requires daemon token or valid user token to access — workspace is derived from the token.
+	r.With(middleware.DaemonAuth(queries, patCache, daemonTokenCache, opts.JWKSProvider, opts.SubjectResolver)).
+		Get("/api/gitlab/credential", h.HandleGitlabCredential)
 
 	// Protected API routes
 	r.Group(func(r chi.Router) {
@@ -531,25 +530,31 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 					r.Route("/nodes/{nodeId}", func(r chi.Router) {
 						r.Put("/", h.UpdateWorkflowNode)
 						r.Delete("/", h.DeleteWorkflowNode)
+						// Deliverables
+						r.Get("/deliverables", h.ListWorkflowNodeDeliverables)
+						r.Post("/deliverables", h.CreateWorkflowNodeDeliverable)
+						r.Put("/deliverables/{deliverableId}", h.UpdateWorkflowNodeDeliverable)
+						r.Delete("/deliverables/{deliverableId}", h.DeleteWorkflowNodeDeliverable)
 					})
 					// Edges
 					r.Get("/edges", h.ListWorkflowEdges)
 					r.Post("/edges", h.CreateWorkflowEdge)
 					r.Delete("/edges/{edgeId}", h.DeleteWorkflowEdge)
-						// Stages
-						r.Post("/stages", h.CreateWorkflowStage)
-						r.Get("/stages", h.ListWorkflowStages)
-						r.Put("/stages/reorder", h.ReorderWorkflowStages)
-						r.Route("/stages/{stageId}", func(r chi.Router) {
-							r.Put("/", h.UpdateWorkflowStage)
-							r.Delete("/", h.DeleteWorkflowStage)
-						})
-						// Node stage assignment
-						r.Put("/nodes/{nodeId}/stage", h.AssignNodeToStage)
+					// Stages
+					r.Post("/stages", h.CreateWorkflowStage)
+					r.Get("/stages", h.ListWorkflowStages)
+					r.Put("/stages/reorder", h.ReorderWorkflowStages)
+					r.Route("/stages/{stageId}", func(r chi.Router) {
+						r.Put("/", h.UpdateWorkflowStage)
+						r.Delete("/", h.DeleteWorkflowStage)
+					})
+					// Node stage assignment
+					r.Put("/nodes/{nodeId}/stage", h.AssignNodeToStage)
 					// Runs
 					r.Get("/runs", h.ListWorkflowRuns)
 					r.Post("/runs", h.StartWorkflowRun)
 					r.Get("/runs/{runId}", h.GetWorkflowRun)
+					r.Get("/runs/{runId}/canvas-summary", h.GetWorkflowRunCanvasSummary)
 					r.Get("/runs/{runId}/node-runs", h.ListWorkflowNodeRuns)
 					r.Post("/runs/{runId}/cancel", h.CancelWorkflowRun)
 				})
@@ -563,6 +568,10 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 			r.Post("/api/node-runs/{nodeRunId}/blocked", h.TakeoverNodeRun)
 			r.Post("/api/node-runs/{nodeRunId}/working", h.HandbackNodeRun)
 			r.Post("/api/node-runs/{nodeRunId}/finalize", h.FinalizeNodeRun)
+			// Deliverable submissions
+			r.Get("/api/node-runs/{nodeRunId}/deliverables", h.ListNodeRunDeliverableSubmissions)
+			r.Post("/api/node-runs/{nodeRunId}/deliverables/{deliverableId}/submit", h.SubmitNodeRunDeliverable)
+			r.Post("/api/node-runs/{nodeRunId}/deliverables/{submissionId}/review", h.ReviewNodeRunDeliverable)
 
 			// Cross-system permission seam for Design Two: cs-cloud asks Multica
 			// whether a Casdoor-authenticated user may access a CSC session bound
@@ -571,6 +580,10 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 
 			// My workflow tasks
 			r.Get("/api/my-tasks", h.ListMyWorkflowTasks)
+
+			// Workflow roles
+			r.Get("/api/workflow-roles", h.ListWorkflowRoles)
+			r.Post("/api/workflow-roles", h.CreateWorkflowRole)
 
 			// Squad leader evaluation (writes to activity_log)
 			r.Post("/api/issues/{id}/squad-evaluated", h.RecordSquadLeaderEvaluation)

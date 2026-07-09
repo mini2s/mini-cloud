@@ -501,11 +501,58 @@
     "card": {
       "worker_label": "Worker",
       "critic_label": "Critic",
-      "artifacts_label": "Artifacts"
+      "artifacts_label": "Artifacts",
+      "deliverable_green": "Deliverables approved",
+      "deliverable_yellow": "Awaiting review",
+      "deliverable_red": "Deliverables missing",
+      "deliverable_none": "No required deliverables",
+      "deliverable_progress": "{{submitted}}/{{total}} · {{approved}} passed",
+      "actions": {
+        "approve": "Approve",
+        "reject": "Reject",
+        "submit_input": "Submit",
+        "handback": "Return",
+        "retry": "Retry",
+        "skip": "Skip",
+        "complete": "Complete"
+      }
+    },
+    "notification": {
+      "summary_title": "Action needed:",
+      "awaiting_critic": "Awaiting review:",
+      "blocked_failed": "Need attention:",
+      "awaiting_input": "Awaiting input:",
+      "summary_label": "{{count}} signals in this run"
+    },
+    "display_status": {
+      "pending": "Pending",
+      "todo": "Todo",
+      "in_progress": "In progress",
+      "reviewing": "Reviewing",
+      "completed": "Completed",
+      "blocked": "Blocked",
+      "cancelled": "Cancelled",
+      "dispatched": "Dispatched",
+      "joined": "Joined",
+      "waiting_upstream": "Waiting for upstream"
     },
     "detail_panel": {
       "title": "Node Detail",
       "status_path": "Status Path",
+      "section_primary": "Primary",
+      "section_primary_desc": "Active handler and diagnostic context.",
+      "section_agent_operations": "Agent operations",
+      "section_agent_operations_desc": "Session and recovery actions for this node run.",
+      "section_deliverables": "Deliverables",
+      "section_deliverables_desc": "Submitted outputs and review artifacts.",
+      "deliverable_status_label": "Deliverable status",
+      "deliverable_status_green": "Approved",
+      "deliverable_status_yellow": "Submitted for review",
+      "deliverable_status_red": "Missing or rejected",
+      "deliverable_status_none": "No required deliverables",
+      "deliverable_progress": "{{submitted}}/{{total}} submitted, {{approved}} approved",
+      "section_runtime": "Runtime",
+      "section_runtime_desc": "Timing, retries, errors, and raw outputs.",
       "worker": "Worker",
       "critic": "Critic",
       "worker_output": "Worker Output",
@@ -521,6 +568,7 @@
       "retry_count": "Retries",
       "error": "Error",
       "view_full_issue": "View full issue",
+      "open_session": "Open session",
       "unblock": "Unblock",
       "retry": "Retry"
     },

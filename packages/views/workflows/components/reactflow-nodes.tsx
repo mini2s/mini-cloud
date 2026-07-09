@@ -95,15 +95,16 @@ const SHAPE_RENDERERS: Record<NodeShape, React.FC<ShapeRendererProps>> = {
 function WorkflowNodeRenderer({ id, data, selected, width: nodeWidth, height: nodeHeight }: NodeProps) {
   const nodeData = data as unknown as WorkflowNodeData;
   const { title, statusColor, statusLabel, isRunning, isAwaitingInput, isEditing, shape, nodeColor, fontSize, onNodeSelect, onNodeResizeStart, onNodeResizeEnd } = nodeData;
+  const resolvedShape = shape ?? "rectangle";
   // Allow NodeResizer to override dimensions; fall back to shape defaults.
-  const baseW = nodeWidth ?? (shape === "diamond" ? DIAMOND_SIZE : shape === "hexagon" ? HEXAGON_SIZE : NODE_WIDTH);
-  const baseH = nodeHeight ?? (shape === "diamond" || shape === "hexagon"
-    ? (statusLabel ? (shape === "diamond" ? DIAMOND_SIZE + 20 : HEXAGON_SIZE + 20) : (shape === "diamond" ? DIAMOND_SIZE : HEXAGON_SIZE))
+  const baseW = nodeWidth ?? (resolvedShape === "diamond" ? DIAMOND_SIZE : resolvedShape === "hexagon" ? HEXAGON_SIZE : NODE_WIDTH);
+  const baseH = nodeHeight ?? (resolvedShape === "diamond" || resolvedShape === "hexagon"
+    ? (statusLabel ? (resolvedShape === "diamond" ? DIAMOND_SIZE + 20 : HEXAGON_SIZE + 20) : (resolvedShape === "diamond" ? DIAMOND_SIZE : HEXAGON_SIZE))
     : (statusLabel ? NODE_HEIGHT + 20 : NODE_HEIGHT));
   const w = Math.max(60, baseW);
   const h = Math.max(40, baseH);
 
-  const ShapeComp = SHAPE_RENDERERS[shape as NodeShape];
+  const ShapeComp = SHAPE_RENDERERS[resolvedShape];
 
   const handleClick = useCallback(() => {
     if (!isEditing) return;
@@ -115,7 +116,7 @@ function WorkflowNodeRenderer({ id, data, selected, width: nodeWidth, height: no
       onClick={handleClick}
       className={cn(
         "relative flex items-center justify-center text-card-foreground",
-        shape !== "diamond" && shape !== "hexagon" && "rounded-lg",
+        resolvedShape !== "diamond" && resolvedShape !== "hexagon" && "rounded-lg",
         isEditing && "cursor-pointer",
       )}
       style={{ width: w, height: h }}
@@ -127,7 +128,7 @@ function WorkflowNodeRenderer({ id, data, selected, width: nodeWidth, height: no
           isVisible
           minWidth={60}
           minHeight={40}
-          keepAspectRatio={shape === "diamond" || shape === "hexagon"}
+          keepAspectRatio={resolvedShape === "diamond" || resolvedShape === "hexagon"}
           onResizeStart={() => onNodeResizeStart?.()}
           onResizeEnd={(_, params) => onNodeResizeEnd?.(id, params.width, params.height)}
         />
@@ -142,7 +143,7 @@ function WorkflowNodeRenderer({ id, data, selected, width: nodeWidth, height: no
       <div
         className={cn(
           "relative z-10 flex flex-col items-center justify-center px-2 text-center",
-          (shape === "diamond" || shape === "hexagon") && "px-4 max-w-[70%]",
+          (resolvedShape === "diamond" || resolvedShape === "hexagon") && "px-4 max-w-[70%]",
         )}
       >
         <div className="flex items-center gap-1.5 min-w-0">

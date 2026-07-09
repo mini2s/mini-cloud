@@ -1,8 +1,10 @@
 import { render, screen } from "@testing-library/react";
 import { describe, it, expect, vi } from "vitest";
 import userEvent from "@testing-library/user-event";
-import { RuntimeNodeCard } from "./runtime-node-card";
-import type { WorkflowNode, WorkflowNodeRun } from "@multica/core/types";
+import { ReactFlowProvider } from "@xyflow/react";
+import { RuntimeNodeCard, RUNTIME_NODE_HEIGHT } from "./runtime-node-card";
+import type { NodeRunActionType } from "./runtime-node-card";
+import type { WorkflowNode, WorkflowNodeRun, WorkflowNodeRuntimeSummary } from "@multica/core/types";
 
 // Mock @multica/views/i18n for useT hook — handles function selector form
 vi.mock("@multica/views/i18n", () => ({
@@ -11,10 +13,36 @@ vi.mock("@multica/views/i18n", () => ({
       if (typeof selector === "function") {
         return selector({
           execution: {
+            display_status: {
+              pending: "Pending",
+              todo: "Todo",
+              in_progress: "In progress",
+              reviewing: "Reviewing",
+              completed: "Completed",
+              blocked: "Blocked",
+              cancelled: "Cancelled",
+              dispatched: "Dispatched",
+              joined: "Joined",
+              waiting_upstream: "Waiting for upstream",
+            },
             card: {
               worker_label: "Worker",
               critic_label: "Critic",
               artifacts_label: "Artifacts",
+              deliverable_green: "Deliverables approved",
+              deliverable_yellow: "Awaiting review",
+              deliverable_red: "Deliverables missing",
+              deliverable_none: "No required deliverables",
+              deliverable_progress: "{{submitted}}/{{total}} · {{approved}} passed",
+              actions: {
+                approve: "Approve",
+                reject: "Reject",
+                submit_input: "Submit",
+                handback: "Return",
+                retry: "Retry",
+                skip: "Skip",
+                complete: "Complete",
+              },
             },
             detail_panel: {
               worker_output: "Worker Output",
@@ -71,6 +99,24 @@ const completedRun: WorkflowNodeRun = {
   completed_at: null,
   created_at: "2026-01-01",
   updated_at: "2026-01-01",
+};
+
+const runtimeSummary: WorkflowNodeRuntimeSummary = {
+  workflow_node_id: "node-1",
+  node_run_id: "run-1",
+  display_status: "reviewing",
+  active_actor_type: "agent",
+  active_actor_id: "agent-2",
+  deliverable_signal: "red",
+  required_deliverables_total: 1,
+  required_deliverables_submitted: 0,
+  required_deliverables_approved: 0,
+  duration_seconds: 90,
+  session_id: null,
+  runtime_id: null,
+  device_id: null,
+  has_error: false,
+  error_message: "",
 };
 
 describe("RuntimeNodeCard", () => {
@@ -136,7 +182,7 @@ describe("RuntimeNodeCard", () => {
     expect(onClick).toHaveBeenCalledWith("node-1");
   });
 
-  it("shows artifact row with names when outputs exist", () => {
+  it("does not expose raw output names as panorama-card artifacts", () => {
     const runWithOutputs: WorkflowNodeRun = {
       ...completedRun,
       worker_output: { summary: "已完成需求文档" },
@@ -151,22 +197,30 @@ describe("RuntimeNodeCard", () => {
         onClick={vi.fn()}
       />,
     );
-    expect(screen.getByText(/Artifacts:/)).toBeInTheDocument();
-    expect(screen.getByText(/Worker Output/)).toBeInTheDocument();
-    expect(screen.getByText(/Critic Output/)).toBeInTheDocument();
+    expect(screen.queryByText(/Artifacts:/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Worker Output/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Critic Output/)).not.toBeInTheDocument();
+    expect(screen.queryByTestId("runtime-node-deliverables")).not.toBeInTheDocument();
   });
 
-  it("does not show artifact row when no outputs exist", () => {
+  it("renders deliverable summary as a compact neutral chip", () => {
     render(
       <RuntimeNodeCard
         node={baseNode}
         nodeRun={completedRun}
+        runtimeSummary={runtimeSummary}
         workerName="小助手"
         criticName="审核员"
         onClick={vi.fn()}
       />,
     );
     expect(screen.queryByText(/Artifacts:/)).not.toBeInTheDocument();
+    expect(screen.getByTestId("runtime-node-deliverables")).toHaveTextContent("Deliverables missing");
+    expect(screen.getByTestId("runtime-node-deliverables")).toHaveTextContent("0/1 · 0 passed");
+    expect(screen.getByTestId("runtime-node-deliverables")).toHaveClass("col-span-full", "h-4");
+    expect(screen.getByTestId("runtime-node-deliverables").className).not.toContain("ring");
+    expect(screen.getByTestId("runtime-node-deliverables").className).not.toContain("border");
+    expect(screen.getByTestId("runtime-node-deliverables").className).not.toContain("bg-");
   });
 
   it("renders Bot icon for agent worker_type", () => {
@@ -217,7 +271,7 @@ describe("RuntimeNodeCard", () => {
     expect(container.querySelector(".lucide-user")).toBeInTheDocument();
   });
 
-  it("renders status icon on worker row when nodeRun exists", () => {
+  it("renders status icon in title row when nodeRun exists", () => {
     const { container } = render(
       <RuntimeNodeCard
         node={baseNode}
@@ -227,9 +281,301 @@ describe("RuntimeNodeCard", () => {
         onClick={vi.fn()}
       />,
     );
-    // Worker row has a status icon — completed status maps to data-testid="status-icon"
-    const statusIcons = container.querySelectorAll('[data-testid="status-icon"]');
-    // At least the worker row status icon is present (title row also has one)
+    const statusIcons = container.querySelectorAll('[data-testid="runtime-display-status-icon"]');
     expect(statusIcons.length).toBeGreaterThanOrEqual(1);
+    expect(screen.getByText("Completed")).toBeInTheDocument();
+  });
+
+  it("uses runtime summary display status with the compact deliverable chip", () => {
+    render(
+      <RuntimeNodeCard
+        node={baseNode}
+        nodeRun={{ ...completedRun, status: "completed" }}
+        runtimeSummary={runtimeSummary}
+        workerName="Tester"
+        criticName="Reviewer"
+        onClick={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByLabelText("Reviewing")).toBeInTheDocument();
+    expect(screen.getByTestId("runtime-node-deliverables")).toHaveTextContent("Deliverables missing");
+  });
+
+  it("uses the shared workflow canvas node shell with the editor-card surface", () => {
+    render(
+      <RuntimeNodeCard
+        node={baseNode}
+        nodeRun={completedRun}
+        runtimeSummary={runtimeSummary}
+        workerName="Tester"
+        criticName="Reviewer"
+        onClick={vi.fn()}
+      />,
+    );
+
+    const card = screen.getByTestId("runtime-node-card-node-1");
+    expect(card).toHaveAttribute("data-workflow-canvas-node-shell", "true");
+    expect(card.className).not.toContain("min-w-[240px]");
+    expect(card).toHaveStyle({ width: "240px", height: "120px" });
+    const surface = card.querySelector('[data-node-shape-surface="true"]');
+    expect(surface?.className).toContain("bg-gradient-to-br");
+    expect(surface?.className).toContain("border-white/80");
+    expect(surface?.className).toContain("from-white");
+    expect(surface?.className).toContain("to-slate-100/85");
+    expect(surface?.className).toContain("ring-slate-200/70");
+    expect(surface?.className).toContain("shadow-[0_14px_32px_rgba(15,23,42,0.12)]");
+    expect(surface?.className).not.toContain("border-border/70");
+    expect(surface?.className).not.toContain("bg-background");
+    expect(surface?.className).not.toContain("shadow-[0_1px_2px_rgba(15,23,42,0.06)]");
+    expect(screen.getByTestId("runtime-node-content")).toHaveClass("border-t", "border-border/45");
+    expect(screen.getByTestId("runtime-node-content").className).not.toContain("border-y");
+    expect(screen.getByLabelText("Reviewing")).toBeInTheDocument();
+    expect(screen.getByTestId("runtime-node-deliverables")).toHaveClass("text-muted-foreground");
+  });
+
+  it("lays out worker and critic as paired actor slots", () => {
+    render(
+      <RuntimeNodeCard
+        node={baseNode}
+        nodeRun={completedRun}
+        workerName="小助手"
+        criticName="审核员"
+        onClick={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText("Worker")).toBeInTheDocument();
+    expect(screen.getByText("小助手")).toBeInTheDocument();
+    expect(screen.getByText("Critic")).toBeInTheDocument();
+    expect(screen.getByText("审核员")).toBeInTheDocument();
+  });
+
+  it("renders fixed lane-anchored handles when used inside the canvas", () => {
+    render(
+      <ReactFlowProvider>
+        <RuntimeNodeCard
+          node={baseNode}
+          nodeRun={completedRun}
+          runtimeSummary={runtimeSummary}
+          workerName="Tester"
+          criticName="Reviewer"
+          onClick={vi.fn()}
+          handles={["left-target", "right-source", "bottom-source"]}
+          lateralHandleTop={RUNTIME_NODE_HEIGHT / 2}
+        />
+      </ReactFlowProvider>,
+    );
+
+    const handles = [...document.querySelectorAll(".react-flow__handle")];
+    expect(handles.map((handle) => handle.getAttribute("data-handleid")).sort()).toEqual(["bottom", "left", "right"]);
+    expect(document.querySelector('[data-handleid="left"]')).toHaveStyle({ top: `${RUNTIME_NODE_HEIGHT / 2}px` });
+    expect(document.querySelector('[data-handleid="right"]')).toHaveStyle({ top: `${RUNTIME_NODE_HEIGHT / 2}px` });
+  });
+
+  it("renders gateway nodes without actor artifact or action rows", () => {
+    render(
+      <RuntimeNodeCard
+        node={{
+          ...baseNode,
+          format_schema: { type: "gateway", gateway_kind: "fork", shape: "diamond" },
+        }}
+        nodeRun={{ ...completedRun, status: "awaiting_critic", worker_output: { summary: "done" } }}
+        runtimeSummary={{ ...runtimeSummary, display_status: "completed", deliverable_signal: "red" }}
+        workerName="Tester"
+        criticName="Reviewer"
+        onClick={vi.fn()}
+        onAction={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText("Fork gateway")).toBeInTheDocument();
+    expect(screen.getByLabelText("Dispatched")).toBeInTheDocument();
+    expect(screen.queryByText("Worker:")).not.toBeInTheDocument();
+    expect(screen.queryByText("Critic:")).not.toBeInTheDocument();
+    expect(screen.queryByText(/Artifacts:/)).not.toBeInTheDocument();
+    expect(screen.queryByTestId("runtime-node-action-approve")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("runtime-node-deliverables")).not.toBeInTheDocument();
+  });
+
+  it("uses category-derived semantic shape classes", () => {
+    render(
+      <RuntimeNodeCard
+        node={{
+          ...baseNode,
+          id: "trigger-1",
+          format_schema: { template_category: "trigger" },
+        }}
+        nodeRun={completedRun}
+        workerName="Tester"
+        criticName={null}
+        onClick={vi.fn()}
+      />,
+    );
+
+    const card = screen.getByTestId("runtime-node-card-trigger-1");
+    expect(card).toHaveAttribute("data-node-shape", "pill");
+    const surface = card.querySelector('[data-node-shape-surface="true"]');
+    expect(surface?.className).toContain("rounded-full");
+  });
+
+  it("lets explicit shape override the category-derived runtime shape", () => {
+    render(
+      <RuntimeNodeCard
+        node={{
+          ...baseNode,
+          id: "override-1",
+          format_schema: { template_category: "human", shape: "diamond" },
+        }}
+        nodeRun={completedRun}
+        workerName="Tester"
+        criticName={null}
+        onClick={vi.fn()}
+      />,
+    );
+
+    const card = screen.getByTestId("runtime-node-card-override-1");
+    expect(card).toHaveAttribute("data-node-shape", "diamond");
+    const surface = card.querySelector('[data-node-shape-surface="true"]');
+    expect(surface?.className).toContain("rounded-lg");
+    expect(surface?.className).not.toContain("clip-path");
+    const glyph = card.querySelector('[data-node-shape-glyph="diamond"]');
+    expect(glyph).toBeInTheDocument();
+  });
+
+  // ---- Inline action buttons ----
+
+  function makeNodeRun(status: string): WorkflowNodeRun {
+    return { ...completedRun, status } as WorkflowNodeRun;
+  }
+
+  const actionStatuses = [
+    { status: "awaiting_critic", expectedActions: ["approve", "reject"] },
+    { status: "awaiting_input", expectedActions: ["submit", "handback"] },
+    { status: "blocked", expectedActions: ["retry", "skip", "complete"] },
+    { status: "failed", expectedActions: ["retry", "skip", "complete"] },
+  ];
+
+  it.each(actionStatuses)(
+    "shows correct action buttons for $status",
+    ({ status, expectedActions }) => {
+      render(
+        <RuntimeNodeCard
+          node={baseNode}
+          nodeRun={makeNodeRun(status)}
+          workerName="Tester"
+          criticName={null}
+          onClick={vi.fn()}
+          onAction={vi.fn()}
+        />,
+      );
+      for (const action of expectedActions) {
+        expect(
+          screen.getByTestId(`runtime-node-action-${action}`),
+        ).toBeInTheDocument();
+      }
+      // No unexpected buttons
+      const allActions = screen.getAllByTestId(/^runtime-node-action-/);
+      expect(allActions).toHaveLength(expectedActions.length);
+    },
+  );
+
+  it("does not render action buttons when onAction is not provided", () => {
+    render(
+      <RuntimeNodeCard
+        node={baseNode}
+        nodeRun={makeNodeRun("awaiting_critic")}
+        workerName="Tester"
+        criticName={null}
+        onClick={vi.fn()}
+      />,
+    );
+    expect(
+      screen.queryByTestId("runtime-node-action-approve"),
+    ).not.toBeInTheDocument();
+  });
+
+  it("does not render action buttons for non-actionable statuses", () => {
+    const nonActionable = ["pending", "working", "completed", "format_checking"];
+    for (const status of nonActionable) {
+      const { container } = render(
+        <RuntimeNodeCard
+          node={baseNode}
+          nodeRun={makeNodeRun(status)}
+          workerName="Tester"
+          criticName={null}
+          onClick={vi.fn()}
+          onAction={vi.fn()}
+        />,
+      );
+      expect(
+        container.querySelector('[data-testid^="runtime-node-action-"]'),
+      ).toBeNull();
+    }
+  });
+
+  it("calls onAction with correct nodeRunId and action type", async () => {
+    const onAction = vi.fn();
+    render(
+      <RuntimeNodeCard
+        node={baseNode}
+        nodeRun={makeNodeRun("awaiting_critic")}
+        workerName="Tester"
+        criticName={null}
+        onClick={vi.fn()}
+        onAction={onAction}
+      />,
+    );
+    await userEvent.click(screen.getByTestId("runtime-node-action-approve"));
+    expect(onAction).toHaveBeenCalledWith("run-1", "approve" as NodeRunActionType);
+  });
+
+  it("stops click propagation on action button click", async () => {
+    const onCardClick = vi.fn();
+    const onAction = vi.fn();
+    render(
+      <RuntimeNodeCard
+        node={baseNode}
+        nodeRun={makeNodeRun("awaiting_critic")}
+        workerName="Tester"
+        criticName={null}
+        onClick={onCardClick}
+        onAction={onAction}
+      />,
+    );
+    await userEvent.click(screen.getByTestId("runtime-node-action-approve"));
+    expect(onAction).toHaveBeenCalled();
+    expect(onCardClick).not.toHaveBeenCalled();
+  });
+
+  it("disables action buttons when loading", () => {
+    render(
+      <RuntimeNodeCard
+        node={baseNode}
+        nodeRun={makeNodeRun("awaiting_critic")}
+        workerName="Tester"
+        criticName={null}
+        onClick={vi.fn()}
+        onAction={vi.fn()}
+        isActionLoading={{ approve: true }}
+      />,
+    );
+    const approveBtn = screen.getByTestId("runtime-node-action-approve");
+    expect(approveBtn).toBeDisabled();
+  });
+
+  it("shows approve/reject for awaiting_critic with correct labels", () => {
+    render(
+      <RuntimeNodeCard
+        node={baseNode}
+        nodeRun={makeNodeRun("awaiting_critic")}
+        workerName="Tester"
+        criticName={null}
+        onClick={vi.fn()}
+        onAction={vi.fn()}
+      />,
+    );
+    expect(screen.getByTestId("runtime-node-action-approve")).toHaveTextContent("Approve");
+    expect(screen.getByTestId("runtime-node-action-reject")).toHaveTextContent("Reject");
   });
 });
