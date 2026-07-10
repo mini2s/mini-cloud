@@ -1,10 +1,15 @@
 import { describe, expect, it } from "vitest";
 import {
+  AgentCloudSkillListSchema,
   BuiltinPluginSchema,
+  CatalogSkillListResponseSchema,
+  CatalogSkillSchema,
   DashboardAgentRunTimeListSchema,
   DashboardUsageByAgentListSchema,
   DashboardUsageDailyListSchema,
   DuplicateIssueErrorBodySchema,
+  EMPTY_AGENT_CLOUD_SKILLS,
+  EMPTY_CATALOG_SKILL_LIST,
   EMPTY_USER,
   ListIssuesResponseSchema,
   RuntimeHourlyActivityListSchema,
@@ -263,5 +268,107 @@ describe("BuiltinPluginSchema", () => {
     expect(parsed.metadata?.install?.plugin_name).toBe("figma-plugin");
     expect(parsed.content).toBe("Plugin instructions");
     expect(parsed.item_type).toBe("plugin");
+  });
+});
+
+describe("CatalogSkillSchema", () => {
+  it("accepts catalog skill records with camelCase or snake_case item type", () => {
+    const camel = CatalogSkillSchema.parse({
+      id: "search-skill",
+      name: "Search",
+      description: "Web search skill",
+      slug: "search",
+      version: "2.0.0",
+      category: "web",
+      itemType: "skill",
+      repoVisibility: "public",
+      metadata: {
+        install: {
+          method: "csc",
+          skill_id: "search-skill",
+          spec: "search-skill",
+          source_url: "https://example.test/search",
+          verified: true,
+        },
+      },
+    });
+
+    expect(camel.name).toBe("Search");
+    expect(camel.itemType).toBe("skill");
+    expect(camel.metadata?.install?.method).toBe("csc");
+    expect(camel.metadata?.install?.verified).toBe(true);
+
+    const snake = CatalogSkillSchema.parse({
+      id: "search-skill",
+      name: "Search",
+      item_type: "skill",
+    });
+    expect(snake.item_type).toBe("skill");
+  });
+
+  it("defaults optional display fields and preserves unknown fields", () => {
+    const parsed = CatalogSkillSchema.parse({
+      id: "bare",
+      name: "Bare",
+      // description/slug/version/category intentionally absent
+      future_field: "kept via loose()",
+    });
+
+    expect(parsed.description).toBe("");
+    expect(parsed.version).toBe("");
+    // Unknown field is preserved because the schema is `.loose()`.
+    expect((parsed as Record<string, unknown>).future_field).toBe("kept via loose()");
+  });
+});
+
+describe("CatalogSkillListResponseSchema", () => {
+  it("parses a populated list envelope", () => {
+    const parsed = CatalogSkillListResponseSchema.parse({
+      items: [{ id: "a", name: "A" }, { id: "b", name: "B" }],
+      total: 2,
+      page: 1,
+      pageSize: 50,
+      hasMore: false,
+    });
+    expect(parsed.items).toHaveLength(2);
+    expect(parsed.hasMore).toBe(false);
+  });
+
+  it("falls back to an empty list when the envelope is malformed", () => {
+    const parsed = parseWithFallback(
+      { not: "an envelope" },
+      CatalogSkillListResponseSchema,
+      EMPTY_CATALOG_SKILL_LIST,
+      { endpoint: "GET /api/catalog/skills" },
+    );
+    expect(parsed.items).toEqual([]);
+    expect(parsed.total).toBe(0);
+  });
+});
+
+describe("AgentCloudSkillListSchema", () => {
+  it("parses binding snapshots and preserves install object", () => {
+    const parsed = AgentCloudSkillListSchema.parse([
+      {
+        id: "search-skill",
+        name: "Search",
+        description: "Web search",
+        slug: "search",
+        position: 0,
+        install: { method: "csc", skill_id: "search-skill" },
+      },
+    ]);
+    expect(parsed[0]?.install?.method).toBe("csc");
+    expect(parsed[0]?.position).toBe(0);
+  });
+
+  it("falls back to an empty binding list on drift", () => {
+    const parsed = parseWithFallback(
+      null,
+      AgentCloudSkillListSchema,
+      EMPTY_AGENT_CLOUD_SKILLS,
+      { endpoint: "GET /api/agents/{id}/cloud-skills" },
+    );
+    expect(parsed).toEqual([]);
   });
 });

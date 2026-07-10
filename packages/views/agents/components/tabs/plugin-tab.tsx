@@ -1,19 +1,26 @@
 "use client";
 
-import { Puzzle, Info, X } from "lucide-react";
+import { useMemo, useState } from "react";
+import { Puzzle, Info, X, Cloud, Plus, Loader2, RefreshCw } from "lucide-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import type { Agent } from "@multica/core/types";
+import type { Agent, AgentCloudSkill, CatalogSkill } from "@multica/core/types";
 import { api } from "@multica/core/api";
 import { useWorkspaceId } from "@multica/core/hooks";
 import {
+  agentCloudSkillOptions,
   builtinPluginListOptions,
+  catalogSkillListOptions,
   pluginDetailOptions,
   workspaceKeys,
 } from "@multica/core/workspace/queries";
 import { Button } from "@multica/ui/components/ui/button";
 import { useT } from "../../../i18n";
 import { PluginPickerList, useDebouncedPluginSearch } from "../plugin-picker-list";
+import {
+  CloudSkillPickerList,
+  useDebouncedCatalogSkillSearch,
+} from "../cloud-skill-picker-list";
 import {
   Popover,
   PopoverContent,
@@ -38,6 +45,11 @@ export function PluginTab({
   });
   const selected = listSelected ?? (hydratedSelected?.id ? hydratedSelected : null);
   const stale = !selected && !!agent.plugin_id && !isHydratingSelected;
+
+  const cloudSkillsQuery = useQuery(agentCloudSkillOptions(wsId, agent.id));
+  const cloudSkills = cloudSkillsQuery.data ?? [];
+  const cloudSkillsError = cloudSkillsQuery.isError;
+  const [removingCloudSkillId, setRemovingCloudSkillId] = useState<string | null>(null);
 
   const handleChange = async (pluginId: string) => {
     try {
@@ -65,18 +77,47 @@ export function PluginTab({
     }
   };
 
+  const handleRemoveCloudSkill = async (skillId: string) => {
+    // Full replacement list built from the CURRENT bindings so unrelated
+    // cloud skills are never dropped on a single remove.
+    const nextIds = cloudSkills.map((s) => s.id).filter((id) => id !== skillId);
+    setRemovingCloudSkillId(skillId);
+    try {
+      await api.setAgentCloudSkills(agent.id, { skill_ids: nextIds });
+      qc.invalidateQueries({ queryKey: agentCloudSkillOptions(wsId, agent.id).queryKey });
+      toast.success(t(($) => $.tab_body.plugin.cloud_skills.updated_toast));
+    } catch (e) {
+      toast.error(
+        e instanceof Error
+          ? e.message
+          : t(($) => $.tab_body.plugin.cloud_skills.update_failed_toast),
+      );
+    } finally {
+      setRemovingCloudSkillId(null);
+    }
+  };
+
+  const refetchCloudSkills = () => {
+    qc.invalidateQueries({ queryKey: agentCloudSkillOptions(wsId, agent.id).queryKey });
+  };
+
   return (
     <div className="space-y-4">
-      <div className="flex items-start justify-between gap-3">
-        <p className="text-xs text-muted-foreground">
-          {t(($) => $.tab_body.plugin.intro)}
-        </p>
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex items-center gap-2">
+          <h3 className="text-sm font-semibold">
+            {t(($) => $.tab_body.plugin.section_title)}
+          </h3>
+        </div>
         <PluginPickerPopover
           selectedId={agent.plugin_id}
           onSelect={handleChange}
           triggerLabel={t(($) => $.tab_body.plugin.change_action)}
         />
       </div>
+      <p className="text-xs text-muted-foreground">
+        {t(($) => $.tab_body.plugin.intro)}
+      </p>
 
       {items.length > 0 && (
         <div className="flex items-start gap-2 rounded-md border border-info/20 bg-info/5 px-3 py-2.5">
@@ -178,6 +219,109 @@ export function PluginTab({
           </div>
         </div>
       )}
+
+      {/* Cloud skills — public catalog skills bound to this agent without
+          importing them into the workspace. Kept on the Plugin tab because
+          both are marketplace capability selection. */}
+      <div className="space-y-3">
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <h3 className="text-sm font-semibold">
+              {t(($) => $.tab_body.plugin.cloud_skills.section_title)}
+            </h3>
+          </div>
+          <CloudSkillAddPopover
+            agent={agent}
+            currentSkills={cloudSkills}
+            triggerLabel={t(($) => $.tab_body.plugin.cloud_skills.add_action)}
+            disabled={cloudSkillsError}
+          />
+        </div>
+        <p className="text-xs text-muted-foreground">
+          {t(($) => $.tab_body.plugin.cloud_skills.intro)}
+        </p>
+
+        {cloudSkillsQuery.isLoading ? (
+          <div className="flex items-center gap-2 rounded-lg border px-4 py-3 text-xs text-muted-foreground">
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            {t(($) => $.tab_body.plugin.cloud_skills.picker_loading)}
+          </div>
+        ) : cloudSkillsError ? (
+          <div className="flex items-center justify-between gap-3 rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-3">
+            <p className="text-xs text-destructive">
+              {t(($) => $.tab_body.plugin.cloud_skills.load_error)}
+            </p>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={refetchCloudSkills}
+            >
+              <RefreshCw className="h-3 w-3" />
+              {t(($) => $.tab_body.plugin.cloud_skills.retry_action)}
+            </Button>
+          </div>
+        ) : cloudSkills.length === 0 ? (
+          <div className="flex flex-col items-center justify-center rounded-lg border border-dashed py-10">
+            <Cloud className="h-7 w-7 text-muted-foreground/40" />
+            <p className="mt-3 text-sm text-muted-foreground">
+              {t(($) => $.tab_body.plugin.cloud_skills.empty_title)}
+            </p>
+            <p className="mt-1 max-w-xs text-center text-xs text-muted-foreground">
+              {t(($) => $.tab_body.plugin.cloud_skills.empty_hint)}
+            </p>
+            <CloudSkillAddPopover
+              agent={agent}
+              currentSkills={cloudSkills}
+              className="mt-3"
+              triggerLabel={t(($) => $.tab_body.plugin.cloud_skills.add_action)}
+            />
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {cloudSkills.map((skill) => (
+              <div
+                key={skill.id}
+                className="flex items-start gap-3 rounded-lg border px-4 py-4"
+              >
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-sky-500/10">
+                  <Cloud className="h-5 w-5 text-sky-500" />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <h3 className="truncate text-sm font-semibold">
+                    {skill.name}
+                  </h3>
+                  {skill.description && (
+                    <p className="mt-0.5 text-xs text-muted-foreground">
+                      {skill.description}
+                    </p>
+                  )}
+                  {skill.slug && (
+                    <span className="mt-1 inline-block font-mono text-[10px] text-muted-foreground/60">
+                      {skill.slug}
+                    </span>
+                  )}
+                </div>
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  onClick={() => handleRemoveCloudSkill(skill.id)}
+                  disabled={removingCloudSkillId === skill.id}
+                  aria-label={t(($) => $.tab_body.plugin.cloud_skills.remove_label, {
+                    name: skill.name,
+                  })}
+                  className="text-muted-foreground hover:text-destructive"
+                >
+                  {removingCloudSkillId === skill.id ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <X className="h-3.5 w-3.5" />
+                  )}
+                </Button>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
@@ -233,6 +377,92 @@ function PluginPickerPopover({
             </button>
           </div>
         )}
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+/**
+ * Compact cloud-skill add popover for the PluginTab. Mirrors
+ * PluginPickerPopover: a trigger button opens a server-search list of public
+ * catalog skills (already-bound ones excluded). Unlike the old add dialog,
+ * there is no draft/confirm step — clicking a row immediately binds the
+ * skill via a full-replacement PUT built from the current bindings, so
+ * unrelated bindings are never dropped.
+ */
+function CloudSkillAddPopover({
+  agent,
+  currentSkills,
+  className,
+  triggerLabel,
+  disabled,
+}: {
+  agent: Agent;
+  currentSkills: readonly AgentCloudSkill[];
+  className?: string;
+  triggerLabel: string;
+  disabled?: boolean;
+}) {
+  const { t } = useT("agents");
+  const wsId = useWorkspaceId();
+  const qc = useQueryClient();
+  const [open, setOpen] = useState(false);
+  const { searchQuery, setSearchQuery, debouncedSearch } =
+    useDebouncedCatalogSkillSearch();
+  const { data: catalog, isLoading } = useQuery(
+    catalogSkillListOptions(debouncedSearch),
+  );
+  const items = catalog?.items ?? [];
+
+  const boundIds = useMemo(
+    () => new Set(currentSkills.map((s) => s.id)),
+    [currentSkills],
+  );
+  const available = useMemo(
+    () => items.filter((s) => !boundIds.has(s.id)),
+    [items, boundIds],
+  );
+
+  const handleAdd = async (skill: CatalogSkill) => {
+    // Full replacement list = current bindings + the newly added id, so a
+    // single add never wipes unrelated cloud skills.
+    const nextIds = [...currentSkills.map((s) => s.id), skill.id];
+    try {
+      await api.setAgentCloudSkills(agent.id, { skill_ids: nextIds });
+      qc.invalidateQueries({
+        queryKey: agentCloudSkillOptions(wsId, agent.id).queryKey,
+      });
+      toast.success(t(($) => $.tab_body.plugin.cloud_skills.updated_toast));
+      // Immediate-add pickers close once the bind is persisted.
+      setOpen(false);
+    } catch (e) {
+      toast.error(
+        e instanceof Error
+          ? e.message
+          : t(($) => $.tab_body.plugin.cloud_skills.update_failed_toast),
+      );
+    }
+  };
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger
+        render={
+          <Button variant="outline" size="sm" className={className} disabled={disabled}>
+            <Plus className="h-3 w-3" />
+            {triggerLabel}
+          </Button>
+        }
+      />
+      <PopoverContent align="start" className="w-72 p-0">
+        <CloudSkillPickerList
+          skills={available}
+          selectedIds={new Set()}
+          onToggle={handleAdd}
+          loading={isLoading}
+          searchQuery={searchQuery}
+          onSearchChange={setSearchQuery}
+        />
       </PopoverContent>
     </Popover>
   );

@@ -350,6 +350,75 @@ export interface SetAgentSkillsRequest {
   skill_ids: string[];
 }
 
+// Cloud catalog skills -----------------------------------------------------
+// These mirror the public `/api/catalog/skills` proxy and the per-agent
+// `/api/agents/{id}/cloud-skills` binding snapshots (see
+// server/internal/handler/skill_catalog.go and agent_cloud_skill.go).
+// Cloud skills are NOT workspace-local DB skills — they are public catalog
+// items bound to an agent without being imported. Keep them out of
+// `Agent.skills`, which remains workspace-local `AgentSkillSummary[]`.
+
+/** Allowlisted install metadata stored on a cloud catalog skill. The
+ *  backend only persists these keys (see
+ *  `allowlistedCatalogSkillInstall`); everything else is stripped, so
+ *  callers can safely render without worrying about leaking arbitrary
+ *  upstream fields. */
+export interface CatalogSkillInstall {
+  method?: string;
+  spec?: string;
+  skill_id?: string;
+  source_url?: string;
+  verified?: boolean;
+}
+
+/** A public skill catalog item from `GET /api/catalog/skills` or
+ *  `GET /api/catalog/skills/{id}`. Fields beyond the core identity are
+ *  optional because the upstream catalog is lenient; UI should
+ *  optional-chain category/version/slug/install. */
+export interface CatalogSkill {
+  id: string;
+  name: string;
+  description: string;
+  slug: string;
+  version: string;
+  category: string;
+  /** Catalog item type discriminator ("skill"). Surfaced under either
+   *  camelCase `itemType` or snake_case `item_type` depending on the
+   *  upstream source. */
+  itemType?: string;
+  item_type?: string;
+  repoVisibility?: string;
+  metadata?: { install?: CatalogSkillInstall };
+}
+
+/** Paginated list envelope returned by `GET /api/catalog/skills`. Mirrors
+ *  the builtin plugin list shape so the same pagination conventions apply. */
+export interface CatalogSkillListResponse {
+  items: CatalogSkill[];
+  total: number;
+  page: number;
+  pageSize: number;
+  hasMore: boolean;
+}
+
+/** A cloud skill binding snapshot stored on an agent. Returned by
+ *  `GET /api/agents/{id}/cloud-skills`. `install` is the raw JSON object the
+ *  backend persisted at bind time (the same allowlisted subset as
+ *  `CatalogSkillInstall`); render fields individually rather than dumping
+ *  the raw object. */
+export interface AgentCloudSkill {
+  id: string;
+  name: string;
+  description: string;
+  slug?: string;
+  install?: Record<string, unknown>;
+  position: number;
+}
+
+export interface SetAgentCloudSkillsRequest {
+  skill_ids: string[];
+}
+
 export interface IssueUsageSummary {
   total_input_tokens: number;
   total_output_tokens: number;

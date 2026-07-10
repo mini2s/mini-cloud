@@ -89,11 +89,11 @@ type Config struct {
 	CasdoorRedirectURI    string
 	CasdoorOrgName        string
 	CasdoorAppName        string
-	// BuiltinPluginAPIBaseURL is the base URL of the built-in plugin catalog API.
-	// When non-empty and an agent has a plugin_id set, the server fetches the
-	// plugin's content from this API and appends it to the agent's instructions
-	// in the CLAUDE.md generated for each task. The content is injected under
-	// the ## Agent Identity section.
+	// BuiltinPluginAPIBaseURL is the base URL of the shared cloud capability
+	// catalog API used for public plugin and skill catalog reads.
+	// When non-empty and an agent has a plugin_id set, the server also fetches
+	// the plugin's content from this API and appends it to the agent's generated
+	// task instructions under the ## Agent Identity section.
 	BuiltinPluginAPIBaseURL string
 }
 

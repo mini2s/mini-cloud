@@ -1,8 +1,22 @@
 import { queryOptions } from "@tanstack/react-query";
 import { api } from "../api";
-import { EMPTY_BUILTIN_PLUGIN, EMPTY_BUILTIN_PLUGIN_LIST } from "../api/schemas";
-import type { Agent, Squad, Workspace } from "../types";
-import type { BuiltinPlugin, BuiltinPluginListResponse } from "../api/schemas";
+import type {
+  Agent,
+  AgentCloudSkill,
+  CatalogSkillListResponse,
+  Squad,
+  Workspace,
+} from "../types";
+import type {
+  BuiltinPlugin,
+  BuiltinPluginListResponse,
+} from "../api/schemas";
+import {
+  EMPTY_AGENT_CLOUD_SKILLS,
+  EMPTY_BUILTIN_PLUGIN,
+  EMPTY_BUILTIN_PLUGIN_LIST,
+  EMPTY_CATALOG_SKILL_LIST,
+} from "../api/schemas";
 
 export const workspaceKeys = {
   all: (wsId: string) => ["workspaces", wsId] as const,
@@ -164,5 +178,55 @@ export function pluginDetailOptions(id: string) {
     enabled: pluginId.length > 0,
     staleTime: 30 * 60 * 1000,
     placeholderData: EMPTY_BUILTIN_PLUGIN,
+  });
+}
+
+// Cloud skill catalog (global, public proxy) + per-agent cloud skill
+// bindings. Both mirror the plugin catalog conventions: catalog results are
+// cached 30 min and degrade to an empty list; agent bindings are
+// workspace+agent scoped so workspace switches drop the cache naturally.
+export const catalogSkillKeys = {
+  all: ["catalog", "skills"] as const,
+  list: (search = "") => [...catalogSkillKeys.all, "list", search.trim()] as const,
+  detail: (id: string) => [...catalogSkillKeys.all, "detail", id.trim()] as const,
+};
+
+export function catalogSkillListOptions(search = "") {
+  const normalizedSearch = search.trim();
+  return queryOptions<CatalogSkillListResponse>({
+    queryKey: catalogSkillKeys.list(normalizedSearch),
+    queryFn: () => api.listCatalogSkills({ search: normalizedSearch }),
+    staleTime: 30 * 60 * 1000,
+    placeholderData: EMPTY_CATALOG_SKILL_LIST,
+  });
+}
+
+export function catalogSkillDetailOptions(id: string) {
+  const skillId = id.trim();
+  return queryOptions({
+    queryKey: catalogSkillKeys.detail(skillId),
+    queryFn: () => api.getCatalogSkill(skillId),
+    enabled: skillId.length > 0,
+    staleTime: 30 * 60 * 1000,
+  });
+}
+
+/** Per-agent cloud skill bindings, scoped under workspace + agent. Keyed
+ *  this way (rather than agent-id-only) so a workspace switch naturally drops
+ *  the cache and permissions stay workspace-scoped. */
+export function agentCloudSkillOptions(wsId: string, agentId: string) {
+  const normalizedWs = wsId.trim();
+  const normalizedAgent = agentId.trim();
+  return queryOptions<AgentCloudSkill[]>({
+    queryKey: [
+      "workspaces",
+      normalizedWs,
+      "agents",
+      normalizedAgent,
+      "cloud-skills",
+    ],
+    queryFn: () => api.listAgentCloudSkills(normalizedAgent),
+    enabled: normalizedWs.length > 0 && normalizedAgent.length > 0,
+    placeholderData: EMPTY_AGENT_CLOUD_SKILLS,
   });
 }

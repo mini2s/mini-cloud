@@ -4,6 +4,9 @@ import type {
   AgentTemplate,
   AgentTemplateSummary,
   Attachment,
+  CatalogSkill,
+  CatalogSkillListResponse,
+  AgentCloudSkill,
   CreateAgentFromTemplateResponse,
   BatchAddDeptMembersResponse,
   AssociateDeptIdentityResponse,
@@ -1097,6 +1100,82 @@ export const EMPTY_BUILTIN_PLUGIN_LIST: BuiltinPluginListResponse = {
 };
 
 export type BuiltinPluginListResponse = z.infer<typeof BuiltinPluginListResponseSchema>;
+
+// ---------------------------------------------------------------------------
+// Cloud skill catalog (public `/api/catalog/skills`) + per-agent cloud skill
+// bindings (`/api/agents/{id}/cloud-skills`). Same leniency rules as the
+// builtin plugin block above: strings default to "", arrays default to [],
+// unknown fields pass through via `.loose()`.
+// ---------------------------------------------------------------------------
+
+/** Allowlisted install metadata for a catalog skill. The backend only ever
+ *  persists these keys, but the schema stays `.loose()` so a future field
+ *  doesn't silently break parsing. */
+export const CatalogSkillInstallSchema = z.object({
+  method: z.string().optional(),
+  spec: z.string().optional(),
+  skill_id: z.string().optional(),
+  source_url: z.string().optional(),
+  verified: z.boolean().optional(),
+}).loose();
+
+export const CatalogSkillSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  description: z.string().default(""),
+  slug: z.string().default(""),
+  version: z.string().default(""),
+  category: z.string().default(""),
+  itemType: z.string().optional(),
+  item_type: z.string().optional(),
+  repoVisibility: z.string().optional(),
+  metadata: z.object({
+    install: CatalogSkillInstallSchema.optional(),
+  }).loose().optional(),
+}).loose();
+
+export const CatalogSkillListResponseSchema = z.object({
+  items: z.array(CatalogSkillSchema).default([]),
+  total: z.number().int().nonnegative().default(0),
+  page: z.number().int().positive().default(1),
+  pageSize: z.number().int().positive().default(100),
+  hasMore: z.boolean().default(false),
+}).loose();
+
+export const AgentCloudSkillSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  description: z.string().default(""),
+  slug: z.string().optional(),
+  install: z.record(z.string(), z.unknown()).optional(),
+  position: z.number().int().default(0),
+}).loose();
+
+export const AgentCloudSkillListSchema = z.array(AgentCloudSkillSchema);
+
+/** Empty catalog skill detail returned when the proxy is unavailable or the
+ *  response drifts. */
+export const EMPTY_CATALOG_SKILL: CatalogSkill = {
+  id: "",
+  name: "",
+  description: "",
+  slug: "",
+  version: "",
+  category: "",
+};
+
+/** Empty list returned when the catalog proxy fails open to an empty list or
+ *  returns a malformed envelope. */
+export const EMPTY_CATALOG_SKILL_LIST: CatalogSkillListResponse = {
+  items: [],
+  total: 0,
+  page: 1,
+  pageSize: 100,
+  hasMore: false,
+};
+
+/** Empty binding list returned when the agent cloud-skills response drifts. */
+export const EMPTY_AGENT_CLOUD_SKILLS: AgentCloudSkill[] = [];
 
 // ---------------------------------------------------------------------------
 // GitLab merge request schemas — lenient by the same rules as the rest of

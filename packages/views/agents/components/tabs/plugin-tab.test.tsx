@@ -1,8 +1,9 @@
 // @vitest-environment jsdom
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import type { ReactNode } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import type { Agent } from "@multica/core/types";
 import { I18nProvider } from "@multica/core/i18n/react";
 import enCommon from "../../../locales/en/common.json";
@@ -13,6 +14,9 @@ const TEST_RESOURCES = { en: { common: enCommon, agents: enAgents } };
 const mockListBuiltinPlugins = vi.hoisted(() => vi.fn());
 const mockGetPlugin = vi.hoisted(() => vi.fn());
 const mockUpdateAgent = vi.hoisted(() => vi.fn());
+const mockListAgentCloudSkills = vi.hoisted(() => vi.fn());
+const mockSetAgentCloudSkills = vi.hoisted(() => vi.fn());
+const mockListCatalogSkills = vi.hoisted(() => vi.fn());
 
 vi.mock("@multica/core/hooks", () => ({
   useWorkspaceId: () => "ws-1",
@@ -23,6 +27,11 @@ vi.mock("@multica/core/api", () => ({
     listBuiltinPlugins: (...args: unknown[]) => mockListBuiltinPlugins(...args),
     getPlugin: (...args: unknown[]) => mockGetPlugin(...args),
     updateAgent: (...args: unknown[]) => mockUpdateAgent(...args),
+    listAgentCloudSkills: (...args: unknown[]) =>
+      mockListAgentCloudSkills(...args),
+    setAgentCloudSkills: (...args: unknown[]) =>
+      mockSetAgentCloudSkills(...args),
+    listCatalogSkills: (...args: unknown[]) => mockListCatalogSkills(...args),
   },
 }));
 
@@ -31,6 +40,15 @@ vi.mock("sonner", () => ({
     error: vi.fn(),
     success: vi.fn(),
   },
+}));
+
+// Render Popover/PopoverContent inline so the picker rows are queryable
+// without simulating a Base UI portal — the content is always in the DOM.
+vi.mock("@multica/ui/components/ui/popover", () => ({
+  Popover: ({ children }: { children: ReactNode }) => <>{children}</>,
+  PopoverTrigger: ({ render }: { render?: ReactNode }) =>
+    render !== undefined ? <>{render}</> : null,
+  PopoverContent: ({ children }: { children: ReactNode }) => <div>{children}</div>,
 }));
 
 import { PluginTab } from "./plugin-tab";
@@ -98,6 +116,15 @@ describe("PluginTab", () => {
       version: "1.0.0",
       category: "design",
     });
+    mockListAgentCloudSkills.mockResolvedValue([]);
+    mockSetAgentCloudSkills.mockResolvedValue([]);
+    mockListCatalogSkills.mockResolvedValue({
+      items: [],
+      total: 0,
+      page: 1,
+      pageSize: 100,
+      hasMore: false,
+    });
   });
 
   it("hydrates a selected plugin missing from the default list", async () => {
@@ -106,5 +133,79 @@ describe("PluginTab", () => {
     expect(await screen.findByText("Search Only")).toBeInTheDocument();
     expect(screen.queryByText(/Unavailable/i)).not.toBeInTheDocument();
     expect(mockGetPlugin).toHaveBeenCalledWith("search-only");
+  });
+
+  it("renders the empty cloud skills state when there are no bindings", async () => {
+    renderPluginTab();
+
+    expect(await screen.findByText("No skills selected")).toBeInTheDocument();
+    expect(mockListAgentCloudSkills).toHaveBeenCalledWith("agent-1");
+  });
+
+  it("renders current cloud skill bindings from listAgentCloudSkills", async () => {
+    mockListAgentCloudSkills.mockResolvedValue([
+      {
+        id: "search-skill",
+        name: "Web Search",
+        description: "Search the web",
+        category: "web",
+        slug: "search",
+        position: 0,
+      },
+    ]);
+
+    renderPluginTab();
+
+    expect(await screen.findByText("Web Search")).toBeInTheDocument();
+    expect(screen.queryByText("No skills selected")).not.toBeInTheDocument();
+  });
+
+  it("sends a full replacement ID list when removing a bound cloud skill", async () => {
+    mockListAgentCloudSkills.mockResolvedValue([
+      { id: "keep", name: "Keep", description: "", position: 0 },
+      { id: "remove", name: "Remove", description: "", position: 1 },
+    ]);
+
+    renderPluginTab();
+
+    const removeBtn = await screen.findByRole("button", {
+      name: "Remove Remove",
+    });
+    fireEvent.click(removeBtn);
+
+    await waitFor(() => {
+      expect(mockSetAgentCloudSkills).toHaveBeenCalledWith("agent-1", {
+        // The replacement list keeps "keep" and drops "remove" — never an
+        // empty replacement that would wipe unrelated bindings.
+        skill_ids: ["keep"],
+      });
+    });
+  });
+
+  it("adds a cloud skill from the picker popover via a full replacement list", async () => {
+    mockListAgentCloudSkills.mockResolvedValue([
+      { id: "existing", name: "Existing", description: "", position: 0 },
+    ]);
+    mockListCatalogSkills.mockResolvedValue({
+      items: [{ id: "new-skill", name: "New Skill", description: "d" }],
+      total: 1,
+      page: 1,
+      pageSize: 100,
+      hasMore: false,
+    });
+
+    renderPluginTab();
+
+    // The popover content is always rendered by the mock; the available skill
+    // appears once the catalog query resolves (already-bound ids excluded).
+    const row = await screen.findByRole("button", { name: /New Skill/i });
+    fireEvent.click(row);
+
+    await waitFor(() => {
+      expect(mockSetAgentCloudSkills).toHaveBeenCalledWith("agent-1", {
+        // Full replacement = existing bindings + the newly added id.
+        skill_ids: ["existing", "new-skill"],
+      });
+    });
   });
 });

@@ -522,4 +522,148 @@ describe("ApiClient", () => {
       );
     });
   });
+
+  describe("catalog skills", () => {
+    it("forwards trimmed search terms to the catalog skills endpoint and encodes non-ASCII", async () => {
+      const fetchMock = vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({ items: [], total: 0, page: 1, pageSize: 100, hasMore: false }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      );
+      vi.stubGlobal("fetch", fetchMock);
+
+      const client = new ApiClient("https://api.example.test");
+      await client.listCatalogSkills({ search: "search" });
+      await client.listCatalogSkills({ search: " 搜索 " });
+
+      expect(fetchMock.mock.calls[0]?.[0]).toBe(
+        "https://api.example.test/api/catalog/skills?q=search",
+      );
+      expect(fetchMock.mock.calls[1]?.[0]).toBe(
+        "https://api.example.test/api/catalog/skills?q=%E6%90%9C%E7%B4%A2",
+      );
+    });
+
+    it("falls back to an empty list when the catalog returns a malformed envelope", async () => {
+      const fetchMock = vi.fn().mockResolvedValue(
+        new Response(JSON.stringify({ totally: "broken" }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      );
+      vi.stubGlobal("fetch", fetchMock);
+
+      const client = new ApiClient("https://api.example.test");
+      const res = await client.listCatalogSkills();
+      expect(res.items).toEqual([]);
+      expect(res.total).toBe(0);
+    });
+
+    it("returns a parsed catalog skill detail and falls back on drift", async () => {
+      const fetchMock = vi
+        .fn()
+        .mockResolvedValueOnce(
+          new Response(
+            JSON.stringify({
+              id: "search-skill",
+              name: "Search",
+              description: "Web search",
+              slug: "search",
+              version: "2.0.0",
+              category: "web",
+              itemType: "skill",
+              metadata: { install: { method: "csc" } },
+            }),
+            { status: 200, headers: { "Content-Type": "application/json" } },
+          ),
+        )
+        .mockResolvedValueOnce(
+          new Response(JSON.stringify({ id: 123 }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          }),
+        );
+      vi.stubGlobal("fetch", fetchMock);
+
+      const client = new ApiClient("https://api.example.test");
+      await expect(client.getCatalogSkill("search-skill")).resolves.toMatchObject({
+        id: "search-skill",
+        name: "Search",
+      });
+      await expect(client.getCatalogSkill("bad")).resolves.toMatchObject({ id: "" });
+      expect(fetchMock.mock.calls[0]?.[0]).toBe(
+        "https://api.example.test/api/catalog/skills/search-skill",
+      );
+    });
+  });
+
+  describe("agent cloud skills", () => {
+    it("lists agent cloud skills", async () => {
+      const fetchMock = vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify([
+            {
+              id: "search-skill",
+              name: "Search",
+              description: "",
+              position: 0,
+              install: { method: "csc" },
+            },
+          ]),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      );
+      vi.stubGlobal("fetch", fetchMock);
+
+      const client = new ApiClient("https://api.example.test");
+      const res = await client.listAgentCloudSkills("agent-1");
+      expect(fetchMock.mock.calls[0]?.[0]).toBe(
+        "https://api.example.test/api/agents/agent-1/cloud-skills",
+      );
+      expect(res[0]?.id).toBe("search-skill");
+    });
+
+    it("sends a full replacement list to PUT /cloud-skills and returns parsed rows", async () => {
+      const fetchMock = vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify([
+            { id: "a", name: "A", description: "", position: 0, install: {} },
+            { id: "b", name: "B", description: "", position: 1, install: {} },
+          ]),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      );
+      vi.stubGlobal("fetch", fetchMock);
+
+      const client = new ApiClient("https://api.example.test");
+      const res = await client.setAgentCloudSkills("agent-1", {
+        skill_ids: ["a", "b"],
+      });
+      expect(fetchMock.mock.calls[0]?.[0]).toBe(
+        "https://api.example.test/api/agents/agent-1/cloud-skills",
+      );
+      expect(JSON.parse(fetchMock.mock.calls[0]![1]?.body as string)).toEqual({
+        skill_ids: ["a", "b"],
+      });
+      expect(res).toHaveLength(2);
+      expect(res[1]?.position).toBe(1);
+    });
+
+    it("surfaces HTTP errors from PUT /cloud-skills instead of catching them", async () => {
+      const fetchMock = vi.fn().mockResolvedValue(
+        new Response(JSON.stringify({ error: "forbidden" }), {
+          status: 403,
+          statusText: "Forbidden",
+          headers: { "Content-Type": "application/json" },
+        }),
+      );
+      vi.stubGlobal("fetch", fetchMock);
+
+      const client = new ApiClient("https://api.example.test");
+      await expect(
+        client.setAgentCloudSkills("agent-1", { skill_ids: ["a"] }),
+      ).rejects.toThrow();
+    });
+  });
 });

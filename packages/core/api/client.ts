@@ -43,6 +43,9 @@ import type {
   CreateSkillRequest,
   UpdateSkillRequest,
   SetAgentSkillsRequest,
+  SetAgentCloudSkillsRequest,
+  CatalogSkillListResponse,
+  CatalogSkill,
   PersonalAccessToken,
   CreatePersonalAccessTokenRequest,
   CreatePersonalAccessTokenResponse,
@@ -230,9 +233,16 @@ import {
   EMPTY_MERGE_REQUESTS_RESPONSE,
   GitlabSettingsResponseSchema,
   EMPTY_GITLAB_SETTINGS_RESPONSE,
+  CatalogSkillListResponseSchema,
+  CatalogSkillSchema,
+  EMPTY_CATALOG_SKILL_LIST,
+  EMPTY_CATALOG_SKILL,
+  AgentCloudSkillListSchema,
+  EMPTY_AGENT_CLOUD_SKILLS,
   AssociateDeptIdentityResponseSchema,
 } from "./schemas";
 import type { BuiltinPlugin, BuiltinPluginListResponse } from "./schemas";
+import type { AgentCloudSkill } from "../types";
 
 /** Identifies the calling client to the server.
  *  Sent on every HTTP request as X-Client-Platform / X-Client-Version /
@@ -927,6 +937,65 @@ export class ApiClient {
     });
   }
 
+  /**
+   * Search the public cloud skill catalog via the Multica backend, which
+   * proxies the shared capability catalog (`GET /api/catalog/skills`). The
+   * backend fails open to an empty list on catalog downtime, so callers
+   * should treat `items: []` as "no results" rather than an error.
+   */
+  async listCatalogSkills(params?: {
+    search?: string;
+    page?: number;
+    pageSize?: number;
+    signal?: AbortSignal;
+  }): Promise<CatalogSkillListResponse> {
+    const search = new URLSearchParams();
+    const q = params?.search?.trim();
+    if (q) search.set("q", q);
+    if (params?.page !== undefined) search.set("page", String(params.page));
+    if (params?.pageSize !== undefined) search.set("pageSize", String(params.pageSize));
+    const query = search.toString();
+    const endpoint = `/api/catalog/skills${query ? `?${query}` : ""}`;
+
+    return this.fetch(endpoint, { signal: params?.signal }).then((raw) =>
+      parseWithFallback(
+        raw,
+        CatalogSkillListResponseSchema,
+        EMPTY_CATALOG_SKILL_LIST,
+        { endpoint: "GET /api/catalog/skills" },
+      ),
+    ).catch((err) => {
+      this.logger.warn("Catalog skill list API unavailable", {
+        error: err instanceof Error ? err.message : "unknown error",
+      });
+      return EMPTY_CATALOG_SKILL_LIST;
+    });
+  }
+
+  /** Fetch a single public cloud skill by id (`GET /api/catalog/skills/{id}`).
+   *  Returns an empty record for blank/malformed ids or when the proxy is
+   *  unavailable. Unlike the list endpoint, the detail proxy reports a real
+   *  404 for unknown/private items; we swallow that as an empty record so
+   *  the UI can degrade to "skill unavailable" without throwing. */
+  async getCatalogSkill(id: string): Promise<CatalogSkill> {
+    const skillId = id.trim();
+    if (!skillId) return EMPTY_CATALOG_SKILL;
+
+    return this.fetch(`/api/catalog/skills/${encodeURIComponent(skillId)}`).then((raw) =>
+      parseWithFallback(
+        raw,
+        CatalogSkillSchema,
+        EMPTY_CATALOG_SKILL,
+        { endpoint: "GET /api/catalog/skills/{id}" },
+      ),
+    ).catch((err) => {
+      this.logger.warn("Catalog skill detail API unavailable", {
+        error: err instanceof Error ? err.message : "unknown error",
+      });
+      return EMPTY_CATALOG_SKILL;
+    });
+  }
+
   async listRuntimes(params?: { workspace_id?: string; owner?: "me" }): Promise<AgentRuntime[]> {
     const search = new URLSearchParams();
     if (params?.workspace_id) search.set("workspace_id", params.workspace_id);
@@ -1522,6 +1591,45 @@ export class ApiClient {
       method: "PUT",
       body: JSON.stringify(data),
     });
+  }
+
+  /** List the cloud skill bindings stored on an agent
+   *  (`GET /api/agents/{id}/cloud-skills`). Returns a snapshot of the bound
+   *  skills at persist time; on a malformed 200 the envelope degrades to an
+   *  empty list so the UI can keep rendering. HTTP errors (403/404/5xx) are
+   *  NOT caught here — the binding section needs to show a real load error. */
+  async listAgentCloudSkills(agentId: string): Promise<AgentCloudSkill[]> {
+    return this.fetch(`/api/agents/${agentId}/cloud-skills`).then((raw) =>
+      parseWithFallback(
+        raw,
+        AgentCloudSkillListSchema,
+        EMPTY_AGENT_CLOUD_SKILLS,
+        { endpoint: "GET /api/agents/{id}/cloud-skills" },
+      ),
+    );
+  }
+
+  /** Replace an agent's full cloud skill binding list
+   *  (`PUT /api/agents/{id}/cloud-skills`). The backend validates each ID
+   *  against the live catalog, persists snapshots, and returns the updated
+   *  list. On a malformed 200 the response degrades to an empty list, but
+   *  HTTP errors surface to the caller so save failures can be reported —
+   *  callers must build the replacement ID list from the CURRENT bindings
+   *  to avoid accidental data loss. */
+  async setAgentCloudSkills(
+    agentId: string,
+    data: SetAgentCloudSkillsRequest,
+  ): Promise<AgentCloudSkill[]> {
+    const raw = await this.fetch(`/api/agents/${agentId}/cloud-skills`, {
+      method: "PUT",
+      body: JSON.stringify(data),
+    });
+    return parseWithFallback(
+      raw,
+      AgentCloudSkillListSchema,
+      EMPTY_AGENT_CLOUD_SKILLS,
+      { endpoint: "PUT /api/agents/{id}/cloud-skills" },
+    );
   }
 
   // Personal Access Tokens

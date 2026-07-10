@@ -200,7 +200,7 @@
     "tasks": "task",
     "instructions": "指令",
     "skills": "skill",
-    "plugin": "plugin",
+    "plugin": "能力",
     "environment": "环境变量",
     "custom_args": "自定义参数",
     "discard_dialog_title": "放弃未保存的修改？",
@@ -319,12 +319,29 @@
       "add_failed_toast": "添加 skill 失败"
     },
     "plugin": {
+      "section_title": "Plugin",
       "intro": "从插件市场为智能体分配一个内置插件。插件会为该智能体扩展额外的能力。",
       "info_hint": "插件由社区维护。安装前请查看插件说明。",
       "change_action": "切换",
       "select_action": "选择插件",
       "empty_title": "未选择插件",
-      "empty_hint": "从市场中选择一个插件来扩展该智能体的能力。"
+      "empty_hint": "从市场中选择一个插件来扩展该智能体的能力。",
+      "cloud_skills": {
+        "section_title": "Skills",
+        "intro": "绑定到该智能体的 skill，不会导入到工作区中。",
+        "add_action": "添加 skill",
+        "search_placeholder": "搜索 skill",
+        "picker_loading": "搜索中…",
+        "picker_empty": "暂无可用的 skill",
+        "picker_no_match": "没有匹配的 skill",
+        "empty_title": "未选择 skill",
+        "empty_hint": "从知识中心添加 skill 以扩展该智能体。",
+        "load_error": "加载 skill 失败",
+        "retry_action": "重试",
+        "remove_label": "移除 {{name}}",
+        "update_failed_toast": "更新 skill 失败",
+        "updated_toast": "skill 已更新"
+      }
     },
     "activity": {
       "section_now": "当前",
