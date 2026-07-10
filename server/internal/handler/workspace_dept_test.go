@@ -35,13 +35,23 @@ func (f fakeWorkspaceDeptClient) SearchUsers(ctx context.Context, query string, 
 }
 
 func (f fakeWorkspaceDeptClient) SearchDepartments(ctx context.Context, query string, limit int) ([]deptsync.Department, error) {
-	return f.departments, nil
+	query = strings.ToLower(strings.TrimSpace(query))
+	out := make([]deptsync.Department, 0, len(f.departments))
+	for _, department := range f.departments {
+		if query == "" ||
+			strings.Contains(strings.ToLower(department.DeptName), query) ||
+			strings.Contains(strings.ToLower(department.DeptPath), query) {
+			out = append(out, department)
+		}
+	}
+	return out, nil
 }
 
 func TestSearchDeptDepartmentsReturnsRealDepartmentResults(t *testing.T) {
 	prev := testHandler.DeptSync
 	testHandler.DeptSync = fakeWorkspaceDeptClient{departments: []deptsync.Department{
-		{DeptID: "D100", DeptName: "Platform Dept", DeptPath: "/D000/D100"},
+		{DeptID: "D100", DeptName: "Platform Dept", DeptPath: "研发体系/Platform Dept"},
+		{DeptID: "D200", DeptName: "Customer Success", DeptPath: "研发体系/Costrict研发部/客户成功组"},
 	}}
 	t.Cleanup(func() { testHandler.DeptSync = prev })
 
@@ -53,6 +63,26 @@ func TestSearchDeptDepartmentsReturnsRealDepartmentResults(t *testing.T) {
 	}
 	if !strings.Contains(w.Body.String(), "Platform Dept") || !strings.Contains(w.Body.String(), "D100") {
 		t.Fatalf("expected canonical department result, got %s", w.Body.String())
+	}
+
+	w = httptest.NewRecorder()
+	req = newRequest(http.MethodGet, "/api/dept/departments/search?q=Costrict研发部", nil)
+	testHandler.SearchDeptDepartments(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("SearchDeptDepartments by path: expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), "Customer Success") || !strings.Contains(w.Body.String(), "D200") {
+		t.Fatalf("expected department path match, got %s", w.Body.String())
+	}
+
+	w = httptest.NewRecorder()
+	req = newRequest(http.MethodGet, "/api/dept/departments/search?q=D200", nil)
+	testHandler.SearchDeptDepartments(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("SearchDeptDepartments by id: expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	if strings.Contains(w.Body.String(), "Customer Success") {
+		t.Fatalf("did not expect department id-only match, got %s", w.Body.String())
 	}
 }
 
