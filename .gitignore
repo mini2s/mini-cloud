@@ -71,3 +71,6 @@ data/
 
 # Local personal Docker Compose (full stack, not for commit)
 docker-compose.local.yml
+
+# Local personal Docker Compose support files (initdb seeds, etc.)
+docker/local-stack/
