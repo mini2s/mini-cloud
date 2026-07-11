@@ -10,6 +10,15 @@ import enIssues from "../../locales/en/issues.json";
 const TEST_RESOURCES = { en: { common: enCommon, issues: enIssues } };
 
 const mockViewport = vi.hoisted(() => ({ isMobile: false }));
+const mockExecutionPanoramaProps = vi.hoisted(() => ({
+  latest: null as null | {
+    workflowId: string;
+    runId: string | null;
+    wsId: string;
+    issueId?: string;
+    fillAvailableHeight?: boolean;
+  },
+}));
 
 vi.mock("@multica/ui/hooks/use-mobile", () => ({
   useIsMobile: () => mockViewport.isMobile,
@@ -79,6 +88,21 @@ vi.mock("@multica/core/workspace/queries", () => ({
     queryFn: () => Promise.resolve([{ id: "ws-1", name: "Test WS", slug: "test" }]),
   }),
 }));
+
+vi.mock("@multica/core/workflows/queries", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@multica/core/workflows/queries")>();
+  return {
+    ...actual,
+    workflowStagesOptions: (_wsId: string, workflowId: string) => ({
+      queryKey: ["workflows", "ws-1", workflowId, "stages"],
+      queryFn: () => Promise.resolve([]),
+    }),
+    workflowNodeRunsOptions: (_wsId: string, workflowId: string, runId: string) => ({
+      queryKey: ["workflows", "ws-1", workflowId, runId, "node-runs"],
+      queryFn: () => Promise.resolve([]),
+    }),
+  };
+});
 
 // Mock @multica/core/paths — after the URL-driven workspace refactor,
 // useCurrentWorkspace / useWorkspacePaths derive from the workspace slug in
@@ -190,6 +214,19 @@ vi.mock("../../common/actor-avatar", () => ({
 
 vi.mock("../../projects/components/project-picker", () => ({
   ProjectPicker: () => <span data-testid="project-picker">Project</span>,
+}));
+
+vi.mock("./execution", () => ({
+  ExecutionPanoramaPage: (props: {
+    workflowId: string;
+    runId: string | null;
+    wsId: string;
+    issueId?: string;
+    fillAvailableHeight?: boolean;
+  }) => {
+    mockExecutionPanoramaProps.latest = props;
+    return <div data-testid="execution-panorama-props" />;
+  },
 }));
 
 // Mock api
@@ -505,6 +542,7 @@ describe("IssueDetail (shared)", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockViewport.isMobile = false;
+    mockExecutionPanoramaProps.latest = null;
     // Default: issue loads successfully
     mockApiObj.getIssue.mockResolvedValue(mockIssue);
     // /timeline returns the entries flat in chronological order (oldest first).
@@ -606,6 +644,51 @@ describe("IssueDetail (shared)", () => {
     // The whole project segment is a single AppLink pointing at the project
     // detail route under the active workspace slug.
     expect(projectLink.closest("a")).toHaveAttribute("href", "/test/projects/p-1");
+  });
+
+  it("uses workflow assignee id for the execution panorama when workflow_id is missing", async () => {
+    mockApiObj.getIssue.mockResolvedValue({
+      ...mockIssue,
+      assignee_type: "workflow",
+      assignee_id: "wf-assignee-1",
+      workflow_id: null,
+      workflow_run_id: "run-1",
+    });
+
+    renderIssueDetail();
+
+    await waitFor(() => {
+      expect(screen.getByTestId("execution-panorama-props")).toBeInTheDocument();
+    });
+
+    expect(mockExecutionPanoramaProps.latest).toEqual({
+      workflowId: "wf-assignee-1",
+      runId: "run-1",
+      wsId: "ws-1",
+      issueId: "issue-1",
+      fillAvailableHeight: true,
+    });
+  });
+
+  it("lets the fullscreen workflow panorama fill the issue detail body", async () => {
+    mockApiObj.getIssue.mockResolvedValue({
+      ...mockIssue,
+      assignee_type: "workflow",
+      assignee_id: "wf-1",
+      workflow_id: "wf-1",
+      workflow_run_id: "run-1",
+    });
+
+    renderIssueDetail();
+
+    const panorama = await screen.findByTestId("execution-panorama-props");
+    const scrollContainer = screen.getByTestId("issue-detail-scroll-container");
+
+    expect(scrollContainer).toHaveClass("flex", "flex-col", "overflow-hidden");
+    expect(scrollContainer.className).not.toContain("overflow-y-auto");
+    expect(panorama.parentElement).toHaveClass("flex", "flex-1", "min-h-0");
+    expect(panorama.parentElement?.className).not.toContain("py-6");
+    expect(mockExecutionPanoramaProps.latest?.fillAvailableHeight).toBe(true);
   });
 
   it("shows an Unknown project placeholder when the project query fails", async () => {

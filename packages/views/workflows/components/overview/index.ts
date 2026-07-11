@@ -1,19 +1,34 @@
-export { WorkflowOverviewPage } from "./workflow-overview-page";
-export type { WorkflowOverviewPageProps } from "./workflow-overview-page";
-
+// New unified panorama page
 export { WorkflowPanoramaPage } from "./workflow-panorama-page";
 export type { WorkflowPanoramaPageProps } from "./workflow-panorama-page";
 
-export { StageCanvas } from "./stage-canvas";
-export type { StageCanvasProps } from "./stage-canvas";
-export { StageCard } from "./stage-card";
-export type { StageCardProps } from "./stage-card";
-export { StageNodeDag } from "./stage-node-dag";
-export type { StageNodeDagProps } from "./stage-node-dag";
-export { NodeDetailPanel } from "./node-detail-panel";
-export { StageCreateDialog } from "./stage-create-dialog";
+export { CanvasStageLabels } from "./canvas-stage-labels";
+export type { CanvasStageLabelsProps } from "./canvas-stage-labels";
 
-// Panorama (flow canvas) components
+// New ReactFlow custom nodes/edges
+export { panoramaNodeTypes } from "./reactflow-nodes";
+export { panoramaEdgeTypes } from "./reactflow-edges";
+
+// New constants
+export {
+  LANE_HEIGHT,
+  GRADIENT_HEIGHT,
+  LANE_STEP,
+  LANE_PADDING_TOP,
+  PANORAMA_WIDTH,
+  WORKER_WIDTH,
+  WORKER_HEIGHT,
+  CRITIC_WIDTH,
+  CRITIC_HEIGHT,
+  WORKER_CRITIC_GAP,
+  STAGE_BG_COLORS,
+  STAGE_LINE_COLORS,
+  STAGE_TRANSITION_GRADIENTS,
+  UNASSIGNED_LANE_Y,
+  computeLaneY,
+} from "./constants";
+
+// Reused from old architecture
 export { StageLane } from "./stage-lane";
 export type { StageLaneProps } from "./stage-lane";
 export { CompactNodeCard } from "./compact-node-card";
@@ -22,5 +37,7 @@ export { CriticBadge } from "./critic-badge";
 export type { CriticBadgeProps } from "./critic-badge";
 export { PanoramaSvgOverlay } from "./panorama-svg-overlay";
 export type { PanoramaSvgOverlayProps, EdgePath } from "./panorama-svg-overlay";
-export { ArchitectureDetailPanel } from "./architecture-detail-panel";
-export type { ArchitectureDetailPanelData, ArchitectureDetailPanelProps } from "./architecture-detail-panel";
+export { StageCreateDialog } from "./stage-create-dialog";
+
+// Keep these for backward compat until confirmed unused
+// WorkflowOverviewPage and ArchitectureDetailPanel removed - unused

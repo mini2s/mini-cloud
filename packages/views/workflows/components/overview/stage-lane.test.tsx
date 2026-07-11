@@ -2,6 +2,7 @@
 import { describe, it, expect, vi } from "vitest";
 import { render, fireEvent, screen } from "@testing-library/react";
 import { StageLane } from "./stage-lane";
+import { STAGE_BG_COLORS } from "./constants";
 import type { WorkflowStage, WorkflowNode, Agent } from "@multica/core/types";
 import type { BuiltinPlugin } from "@multica/core/api/schemas";
 
@@ -182,6 +183,23 @@ describe("StageLane", () => {
     expect(section.className).not.toContain("shadow-");
   });
 
+  it("uses the shared stage background palette", () => {
+    const onCardClick = vi.fn();
+    render(
+      <StageLane
+        stage={{ ...MOCK_STAGE, sort_order: 2 }}
+        nodeIds={MOCK_NODES}
+        getActorName={getActorName}
+        agentLookup={agentLookup}
+        pluginLookup={pluginLookup}
+        onCardClick={onCardClick}
+        nodeElementRefs={emptyRefs}
+        criticElementRefs={emptyRefs}
+      />,
+    );
+    expect(screen.getByTestId("stage-lane-stage-1").className).toContain(STAGE_BG_COLORS[2]);
+  });
+
   it("uses a process rail layout with a stage label column and centered node row", () => {
     const onCardClick = vi.fn();
     render(
@@ -221,5 +239,33 @@ describe("StageLane", () => {
       />,
     );
     expect(screen.getByTestId("stage-lane-node-stack-n2").className).toContain("gap-5");
+  });
+
+  it("preserves runtime node horizontal layout from position_x instead of redistributing cards evenly", () => {
+    const onCardClick = vi.fn();
+    render(
+      <StageLane
+        stage={MOCK_STAGE}
+        nodeIds={[
+          { ...MOCK_NODES[0]!, id: "n-left", position_x: 120, sort_order: 1 },
+          { ...MOCK_NODES[1]!, id: "n-right", position_x: 520, sort_order: 0 },
+        ]}
+        getActorName={getActorName}
+        agentLookup={agentLookup}
+        pluginLookup={pluginLookup}
+        onCardClick={onCardClick}
+        nodeElementRefs={emptyRefs}
+        criticElementRefs={emptyRefs}
+        mode="runtime"
+      />,
+    );
+
+    const nodeRow = screen.getByTestId("stage-lane-node-row-stage-1");
+    const leftSlot = screen.getByTestId("stage-lane-runtime-slot-n-left");
+    const rightSlot = screen.getByTestId("stage-lane-runtime-slot-n-right");
+
+    expect(nodeRow.className).not.toContain("justify-evenly");
+    expect(leftSlot.getAttribute("style")).toContain("margin-left: 120px");
+    expect(rightSlot.getAttribute("style")).toContain("margin-left: 160px");
   });
 });

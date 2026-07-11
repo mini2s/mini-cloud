@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactNode } from "react";
@@ -15,10 +15,32 @@ const mocks = vi.hoisted(() => ({
   nodesData: undefined as unknown as unknown[],
   edgesData: undefined as unknown as unknown[],
   nodeRunsData: undefined as unknown as unknown[],
+  canvasSummaryData: undefined as unknown,
   agentsData: undefined as unknown as unknown[],
   pluginsData: undefined as unknown,
   isLoading: true,
   onNodeClick: vi.fn(),
+  fitView: vi.fn(),
+  setCenter: vi.fn(),
+  getViewport: vi.fn(() => ({ x: 0, y: 24, zoom: 0.95 })),
+  nodesInitialized: true,
+  viewportInitialized: true,
+  rerunIssue: vi.fn(),
+  reactFlowProps: null as null | {
+    nodes: Array<{
+      id: string;
+      type?: string;
+      width?: number;
+      height?: number;
+      data?: Record<string, unknown>;
+      markerEnd?: { color?: string };
+    }>;
+    edges: Array<{
+      id: string;
+      data?: Record<string, unknown>;
+      markerEnd?: { color?: string };
+    }>;
+  },
 }));
 
 // ---------------------------------------------------------------------------
@@ -40,6 +62,8 @@ vi.mock("@tanstack/react-query", async () => {
           return { data: mocks.nodesData, isLoading: mocks.isLoading };
         if (key.includes("edges"))
           return { data: mocks.edgesData, isLoading: mocks.isLoading };
+        if (key.includes("canvas-summary"))
+          return { data: mocks.canvasSummaryData, isLoading: false };
         if (key.includes("node-runs"))
           return { data: mocks.nodeRunsData, isLoading: false };
         if (key.includes("agents"))
@@ -78,6 +102,23 @@ vi.mock("@multica/core/workflows/queries", () => ({
   workflowNodeRunsOptions: (wsId: string, workflowId: string, runId: string) => ({
     queryKey: ["workflows", wsId, workflowId, runId, "node-runs"],
   }),
+  workflowRunCanvasSummaryOptions: (wsId: string, workflowId: string, runId: string) => ({
+    queryKey: ["workflows", wsId, workflowId, runId, "canvas-summary"],
+  }),
+  workflowKeys: {
+    nodeRuns: (wsId: string, wfId: string, runId: string) => [
+      "workflows",
+      wsId,
+      wfId,
+      runId,
+      "node-runs",
+    ],
+  },
+  useSubmitNodeRun: () => ({ mutate: vi.fn() }),
+  useReviewNodeRun: () => ({ mutate: vi.fn() }),
+  useSkipNodeRun: () => ({ mutate: vi.fn() }),
+  useTakeoverNodeRun: () => ({ mutate: vi.fn() }),
+  useHandbackNodeRun: () => ({ mutate: vi.fn() }),
 }));
 
 vi.mock("@multica/core/workspace/queries", () => ({
@@ -87,6 +128,19 @@ vi.mock("@multica/core/workspace/queries", () => ({
   builtinPluginListOptions: () => ({
     queryKey: ["plugins", "builtin"],
   }),
+}));
+
+vi.mock("@multica/core/api", () => ({
+  api: {
+    rerunIssue: mocks.rerunIssue,
+  },
+}));
+
+vi.mock("sonner", () => ({
+  toast: {
+    error: vi.fn(),
+    success: vi.fn(),
+  },
 }));
 
 // ---------------------------------------------------------------------------
@@ -102,8 +156,22 @@ vi.mock("../../../workflows/components/overview/stage-lane", () => ({
 }));
 
 vi.mock("./execution-detail-panel", () => ({
-  ExecutionDetailPanel: ({ onClose }: { onClose: () => void }) => (
+  ExecutionDetailPanel: ({
+    nodeRun,
+    onClose,
+    onRetry,
+  }: {
+    nodeRun: { status: string } | null;
+    onClose: () => void;
+    onRetry?: () => void;
+  }) => (
     <div data-testid="execution-detail-panel">
+      <span data-testid="detail-panel-status">{nodeRun?.status ?? "no-run"}</span>
+      {onRetry ? (
+        <button type="button" onClick={onRetry}>
+          Retry from panel
+        </button>
+      ) : null}
       <button onClick={onClose}>Close</button>
     </div>
   ),
@@ -112,6 +180,83 @@ vi.mock("./execution-detail-panel", () => ({
 vi.mock("../../../workflows/components/overview/panorama-svg-overlay", () => ({
   PanoramaSvgOverlay: () => <svg data-testid="panorama-svg-overlay" />,
 }));
+
+vi.mock("./global-notification-bar", () => ({
+  GlobalNotificationBar: ({
+    nodeRunMap,
+    onScrollToNode,
+  }: {
+    nodeRunMap: Map<string, unknown>;
+    onScrollToNode: (nodeId: string) => void;
+  }) => {
+    const firstNodeId = [...nodeRunMap.keys()][0];
+    if (!firstNodeId) return null;
+    return (
+      <button
+        type="button"
+        data-testid="notification-item-test"
+        onClick={() => onScrollToNode(firstNodeId)}
+      >
+        Jump
+      </button>
+    );
+  },
+}));
+
+vi.mock("@xyflow/react", () => ({
+  ReactFlow: (props: {
+    nodes?: Array<{
+      id: string;
+      type?: string;
+      width?: number;
+      height?: number;
+      data?: Record<string, unknown>;
+    }>;
+    edges?: Array<{
+      id: string;
+      data?: Record<string, unknown>;
+      markerEnd?: { color?: string };
+    }>;
+    defaultViewport?: { x: number; y: number; zoom: number };
+    fitView?: boolean;
+    fitViewOptions?: { maxZoom?: number; padding?: number };
+    children?: ReactNode;
+  }) => {
+    mocks.reactFlowProps = {
+      nodes: props.nodes ?? [],
+      edges: props.edges ?? [],
+    };
+    return (
+      <div
+        data-testid="reactflow-canvas"
+        data-node-count={props.nodes?.length ?? 0}
+        data-edge-count={props.edges?.length ?? 0}
+        data-default-zoom={props.defaultViewport?.zoom}
+        data-fit-view={props.fitView ? "true" : "false"}
+        data-fit-view-max-zoom={props.fitViewOptions?.maxZoom}
+      >
+        {props.children}
+      </div>
+    );
+  },
+  ReactFlowProvider: ({ children }: { children: ReactNode }) => <>{children}</>,
+  Background: () => <div data-testid="reactflow-background" />,
+  Controls: () => <div data-testid="reactflow-controls" />,
+  MiniMap: () => <div data-testid="reactflow-minimap" />,
+  useReactFlow: () => ({
+    fitView: mocks.fitView,
+    setCenter: mocks.setCenter,
+    getViewport: mocks.getViewport,
+    viewportInitialized: mocks.viewportInitialized,
+  }),
+  useNodesInitialized: () => mocks.nodesInitialized,
+  MarkerType: { ArrowClosed: "arrowclosed" },
+  ConnectionMode: { Loose: "loose" },
+  Position: { Left: "left", Right: "right", Bottom: "bottom", Top: "top" },
+  Handle: () => <div />,
+}));
+
+vi.mock("@xyflow/react/dist/style.css", () => ({}));
 
 // ---------------------------------------------------------------------------
 // Test wrapper
@@ -193,7 +338,17 @@ describe("ExecutionPanoramaPage", () => {
     mocks.nodesData = [];
     mocks.edgesData = [];
     mocks.nodeRunsData = [];
+    mocks.canvasSummaryData = undefined;
     mocks.agentsData = [];
+    mocks.fitView.mockClear();
+    mocks.setCenter.mockClear();
+    mocks.getViewport.mockClear();
+    mocks.getViewport.mockReturnValue({ x: 0, y: 24, zoom: 0.95 });
+    mocks.nodesInitialized = true;
+    mocks.viewportInitialized = true;
+    mocks.rerunIssue.mockReset();
+    mocks.rerunIssue.mockResolvedValue({ id: "task-2" });
+    mocks.reactFlowProps = null;
     mocks.pluginsData = {
       items: [],
       total: 0,
@@ -239,7 +394,7 @@ describe("ExecutionPanoramaPage", () => {
     expect(screen.getByTestId("panorama-canvas")).toBeInTheDocument();
   });
 
-  it("renders stage lanes when stages exist", () => {
+  it("gives the shared canvas an explicit height in the regular issue detail flow", () => {
     mocks.isLoading = false;
     mocks.workflowData = { id: "wf-1", title: "Test Workflow" };
     mocks.stagesData = [STAGE];
@@ -259,7 +414,285 @@ describe("ExecutionPanoramaPage", () => {
       </Wrapper>,
     );
 
-    expect(screen.getByTestId("stage-lane-stage-1")).toBeInTheDocument();
+    expect(screen.getByTestId("execution-panorama")).toHaveClass("min-h-[640px]");
+    expect(screen.getByTestId("execution-canvas-shell")).toHaveClass("min-h-[560px]", "flex-1");
+    expect(screen.getByTestId("execution-canvas-shell").className).not.toContain("min-h-[480px]");
+  });
+
+  it("fills the parent height when embedded in fullscreen issue detail", () => {
+    mocks.isLoading = false;
+    mocks.workflowData = { id: "wf-1", title: "Test Workflow" };
+    mocks.stagesData = [STAGE];
+    mocks.nodesData = [NODE];
+    mocks.agentsData = [AGENT];
+
+    render(
+      <Wrapper>
+        <ExecutionPanoramaPage
+          workflowId="wf-1"
+          runId={null}
+          wsId="ws-1"
+          fillAvailableHeight
+        />
+      </Wrapper>,
+    );
+
+    expect(screen.getByTestId("execution-panorama")).toHaveClass("min-h-0");
+    expect(screen.getByTestId("execution-panorama").className).not.toContain("min-h-[640px]");
+    expect(screen.getByTestId("execution-canvas-shell")).toHaveClass("min-h-0", "flex-1");
+    expect(screen.getByTestId("execution-canvas-shell").className).not.toContain("min-h-[560px]");
+    expect(screen.getByTestId("panorama-canvas")).toHaveClass("left-0", "right-0");
+    expect(screen.getByTestId("panorama-canvas").className).not.toContain("left-40");
+  });
+
+  it("renders the shared ReactFlow canvas core when stages exist", () => {
+    mocks.isLoading = false;
+    mocks.workflowData = { id: "wf-1", title: "Test Workflow" };
+    mocks.stagesData = [STAGE];
+    mocks.nodesData = [NODE];
+    mocks.agentsData = [AGENT];
+    mocks.pluginsData = {
+      items: [],
+      total: 0,
+      page: 1,
+      pageSize: 100,
+      hasMore: false,
+    };
+
+    render(
+      <Wrapper>
+        <ExecutionPanoramaPage workflowId="wf-1" runId={null} wsId="ws-1" />
+      </Wrapper>,
+    );
+
+    expect(screen.getByTestId("workflow-canvas-core")).toBeInTheDocument();
+    expect(screen.getByTestId("reactflow-canvas")).toHaveAttribute("data-node-count", "1");
+    expect(screen.queryByTestId("stage-lane-stage-1")).not.toBeInTheDocument();
+  });
+
+  it("builds runtime worker nodes through the shared canvas model while preserving runtime data", () => {
+    mocks.isLoading = false;
+    mocks.workflowData = { id: "wf-1", title: "Test Workflow" };
+    mocks.stagesData = [STAGE];
+    mocks.nodesData = [NODE];
+    mocks.nodeRunsData = [
+      {
+        id: "nr-1",
+        workflow_run_id: "run-1",
+        workflow_node_id: "n1",
+        node_title: "brainstorming",
+        status: "completed",
+        retry_count: 0,
+        worker_type: "agent",
+        worker_id: "agent-1",
+        worker_output: null,
+        worker_agent_task_id: null,
+        critic_type: "human",
+        critic_id: null,
+        critic_output: null,
+        critic_comment: "",
+        critic_agent_task_id: null,
+        agent_task_id: null,
+        session_id: null,
+        runtime_id: null,
+        device_id: null,
+        started_at: null,
+        completed_at: null,
+        created_at: "",
+        updated_at: "",
+      },
+    ];
+    mocks.canvasSummaryData = {
+      node_runs: mocks.nodeRunsData,
+      node_runtime_summaries: [
+        {
+          workflow_node_id: "n1",
+          node_run_id: "nr-1",
+          display_status: "completed",
+          active_actor_type: null,
+          active_actor_id: null,
+          deliverable_signal: "green",
+          required_deliverables_total: 1,
+          required_deliverables_submitted: 1,
+          required_deliverables_approved: 1,
+          duration_seconds: 12,
+          session_id: null,
+          runtime_id: null,
+          device_id: null,
+          has_error: false,
+          error_message: "",
+        },
+      ],
+    };
+    mocks.agentsData = [AGENT];
+
+    render(
+      <Wrapper>
+        <ExecutionPanoramaPage workflowId="wf-1" runId="run-1" wsId="ws-1" />
+      </Wrapper>,
+    );
+
+    const worker = mocks.reactFlowProps?.nodes.find((node) => node.id === "n1");
+    expect(worker).toMatchObject({
+      type: "runtimeNode",
+      width: 240,
+      height: 120,
+      data: expect.objectContaining({
+        nodeRun: expect.objectContaining({ status: "completed" }),
+        runtimeSummary: expect.objectContaining({ deliverable_signal: "green" }),
+      }),
+    });
+  });
+
+  it("does not render independent critic badge nodes in runtime mode", () => {
+    mocks.isLoading = false;
+    mocks.workflowData = { id: "wf-1", title: "Test Workflow" };
+    mocks.stagesData = [STAGE];
+    mocks.nodesData = [{ ...NODE, critic_id: "agent-2" }];
+    mocks.agentsData = [AGENT, { ...AGENT, id: "agent-2", name: "Review Agent" }];
+
+    render(
+      <Wrapper>
+        <ExecutionPanoramaPage workflowId="wf-1" runId={null} wsId="ws-1" />
+      </Wrapper>,
+    );
+
+    expect(mocks.reactFlowProps?.nodes.find((node) => node.id === "n1:critic")).toBeUndefined();
+    expect(mocks.reactFlowProps?.edges.find((edge) => edge.id === "n1:critic-edge")).toBeUndefined();
+    expect(mocks.reactFlowProps?.nodes.find((node) => node.id === "n1")).toMatchObject({
+      type: "runtimeNode",
+      width: 240,
+      height: 120,
+    });
+  });
+
+  it("lets the shared canvas stretch to the issue detail shell height", () => {
+    mocks.isLoading = false;
+    mocks.workflowData = { id: "wf-1", title: "Test Workflow" };
+    mocks.stagesData = [STAGE];
+    mocks.nodesData = [NODE];
+    mocks.agentsData = [AGENT];
+
+    render(
+      <Wrapper>
+        <ExecutionPanoramaPage workflowId="wf-1" runId={null} wsId="ws-1" />
+      </Wrapper>,
+    );
+
+    const canvasCore = screen.getByTestId("workflow-canvas-core");
+    expect(canvasCore).toHaveClass("self-stretch");
+    expect(canvasCore.className).not.toContain("h-full");
+  });
+
+  it("fits the runtime canvas to all workflow nodes on first render", async () => {
+    mocks.isLoading = false;
+    mocks.workflowData = { id: "wf-1", title: "Test Workflow" };
+    mocks.stagesData = [STAGE];
+    mocks.nodesData = [NODE];
+    mocks.agentsData = [AGENT];
+
+    render(
+      <Wrapper>
+        <ExecutionPanoramaPage workflowId="wf-1" runId={null} wsId="ws-1" />
+      </Wrapper>,
+    );
+
+    await waitFor(() => {
+      expect(mocks.fitView).toHaveBeenCalledWith(
+        expect.objectContaining({
+          nodes: [{ id: "n1" }],
+          padding: 0.04,
+          maxZoom: 1.2,
+        }),
+      );
+    });
+
+    expect(screen.getByTestId("reactflow-canvas")).toHaveAttribute("data-fit-view", "true");
+    expect(screen.getByTestId("reactflow-canvas")).toHaveAttribute("data-fit-view-max-zoom", "1.2");
+  });
+
+  it("waits for ReactFlow to initialize before fitting workflow nodes", async () => {
+    mocks.isLoading = false;
+    mocks.workflowData = { id: "wf-1", title: "Test Workflow" };
+    mocks.stagesData = [STAGE];
+    mocks.nodesData = [NODE];
+    mocks.agentsData = [AGENT];
+    mocks.nodesInitialized = false;
+    mocks.viewportInitialized = false;
+
+    const { rerender } = render(
+      <Wrapper>
+        <ExecutionPanoramaPage workflowId="wf-1" runId={null} wsId="ws-1" />
+      </Wrapper>,
+    );
+
+    expect(mocks.fitView).not.toHaveBeenCalled();
+
+    mocks.nodesInitialized = true;
+    mocks.viewportInitialized = true;
+
+    rerender(
+      <Wrapper>
+        <ExecutionPanoramaPage workflowId="wf-1" runId={null} wsId="ws-1" />
+      </Wrapper>,
+    );
+
+    await waitFor(() => {
+      expect(mocks.fitView).toHaveBeenCalledWith(
+        expect.objectContaining({
+          nodes: [{ id: "n1" }],
+        }),
+      );
+    });
+  });
+
+  it("centers the matching ReactFlow node when a notification is clicked", () => {
+    mocks.isLoading = false;
+    mocks.workflowData = { id: "wf-1", title: "Test Workflow" };
+    mocks.stagesData = [STAGE];
+    mocks.nodesData = [NODE];
+    mocks.nodeRunsData = [
+      {
+        id: "nr-1",
+        workflow_run_id: "run-1",
+        workflow_node_id: "n1",
+        node_title: "brainstorming",
+        status: "awaiting_critic",
+        retry_count: 0,
+        worker_type: "agent",
+        worker_id: "agent-1",
+        worker_output: null,
+        worker_agent_task_id: null,
+        critic_type: "human",
+        critic_id: null,
+        critic_output: null,
+        critic_comment: "",
+        critic_agent_task_id: null,
+        agent_task_id: null,
+        session_id: null,
+        runtime_id: null,
+        device_id: null,
+        started_at: null,
+        completed_at: null,
+        created_at: "",
+        updated_at: "",
+      },
+    ];
+    mocks.agentsData = [AGENT];
+
+    render(
+      <Wrapper>
+        <ExecutionPanoramaPage workflowId="wf-1" runId="run-1" wsId="ws-1" />
+      </Wrapper>,
+    );
+
+    fireEvent.click(screen.getByTestId("notification-item-test"));
+
+    expect(mocks.setCenter).toHaveBeenCalledWith(
+      120,
+      72,
+      expect.objectContaining({ duration: 450, zoom: 0.95 }),
+    );
   });
 
   it("does not render detail panel initially", () => {
@@ -289,7 +722,57 @@ describe("ExecutionPanoramaPage", () => {
     expect(screen.queryByTestId("execution-detail-panel")).not.toBeInTheDocument();
   });
 
-  it("renders SVG overlay when runId is provided", () => {
+  it("passes a retry action to the detail panel for format_failed node runs", async () => {
+    mocks.isLoading = false;
+    mocks.workflowData = { id: "wf-1", title: "Test Workflow" };
+    mocks.stagesData = [STAGE];
+    mocks.nodesData = [NODE];
+    mocks.nodeRunsData = [
+      {
+        id: "nr-1",
+        workflow_run_id: "run-1",
+        workflow_node_id: "n1",
+        node_title: "brainstorming",
+        status: "format_failed",
+        retry_count: 0,
+        worker_type: "agent",
+        worker_id: "agent-1",
+        worker_output: null,
+        worker_agent_task_id: "task-1",
+        critic_type: "human",
+        critic_id: null,
+        critic_output: null,
+        critic_comment: "",
+        critic_agent_task_id: null,
+        agent_task_id: null,
+        session_id: null,
+        runtime_id: null,
+        device_id: null,
+        started_at: null,
+        completed_at: null,
+        created_at: "",
+        updated_at: "",
+      },
+    ];
+    mocks.agentsData = [AGENT];
+
+    render(
+      <Wrapper>
+        <ExecutionPanoramaPage workflowId="wf-1" runId="run-1" wsId="ws-1" issueId="issue-1" />
+      </Wrapper>,
+    );
+
+    fireEvent.click(screen.getByTestId("notification-item-test"));
+    expect(screen.getByTestId("detail-panel-status")).toHaveTextContent("format_failed");
+
+    fireEvent.click(screen.getByText("Retry from panel"));
+
+    await waitFor(() => {
+      expect(mocks.rerunIssue).toHaveBeenCalledWith("issue-1", "task-1");
+    });
+  });
+
+  it("renders workflow edges through the shared ReactFlow canvas when runId is provided", () => {
     mocks.isLoading = false;
     mocks.workflowData = { id: "wf-1", title: "Test Workflow" };
     mocks.stagesData = [STAGE];
@@ -346,14 +829,62 @@ describe("ExecutionPanoramaPage", () => {
       </Wrapper>,
     );
 
-    expect(screen.getByTestId("panorama-svg-overlay")).toBeInTheDocument();
+    expect(screen.getByTestId("reactflow-canvas")).toHaveAttribute("data-edge-count", "1");
   });
 
-  it("does not render SVG overlay when runId is null", () => {
+  it("uses stage-aware shared edge styling in runtime mode", () => {
+    mocks.isLoading = false;
+    mocks.workflowData = { id: "wf-1", title: "Test Workflow" };
+    mocks.stagesData = [
+      STAGE,
+      { ...STAGE, id: "stage-2", name: "Build", sort_order: 1 },
+    ];
+    mocks.nodesData = [
+      NODE,
+      { ...NODE, id: "n2", title: "Build", stage_id: "stage-2", position_x: 400 },
+    ];
+    mocks.edgesData = [
+      {
+        id: "e1",
+        workflow_id: "wf-1",
+        source_node_id: "n2",
+        target_node_id: "n1",
+        condition: { kind: "condition" },
+        created_at: "",
+      },
+    ];
+    mocks.agentsData = [AGENT];
+
+    render(
+      <Wrapper>
+        <ExecutionPanoramaPage workflowId="wf-1" runId={null} wsId="ws-1" />
+      </Wrapper>,
+    );
+
+    const edge = mocks.reactFlowProps?.edges.find((item) => item.id === "e1");
+    expect(edge?.data).toMatchObject({
+      stageColorIndex: 1,
+      edgeKind: "condition",
+      edgeTone: "condition",
+    });
+    expect(edge?.markerEnd?.color).toBe("rgb(59 130 246)");
+  });
+
+  it("renders workflow edges through the shared ReactFlow canvas when runId is null", () => {
     mocks.isLoading = false;
     mocks.workflowData = { id: "wf-1", title: "Test Workflow" };
     mocks.stagesData = [STAGE];
     mocks.nodesData = [NODE];
+    mocks.edgesData = [
+      {
+        id: "e1",
+        workflow_id: "wf-1",
+        source_node_id: "n1",
+        target_node_id: "n1",
+        condition: null,
+        created_at: "",
+      },
+    ];
     mocks.agentsData = [AGENT];
     mocks.pluginsData = {
       items: [],
@@ -369,6 +900,6 @@ describe("ExecutionPanoramaPage", () => {
       </Wrapper>,
     );
 
-    expect(screen.queryByTestId("panorama-svg-overlay")).not.toBeInTheDocument();
+    expect(screen.getByTestId("reactflow-canvas")).toHaveAttribute("data-edge-count", "1");
   });
 });

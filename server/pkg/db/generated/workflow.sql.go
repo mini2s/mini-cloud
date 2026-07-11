@@ -77,6 +77,22 @@ func (q *Queries) CancelWorkflowRun(ctx context.Context, id pgtype.UUID) (Multic
 	return i, err
 }
 
+const compactWorkflowStageOrders = `-- name: CompactWorkflowStageOrders :exec
+UPDATE multica_workflow_stage
+SET sort_order = sort_order - 1, updated_at = now()
+WHERE workflow_id = $1 AND sort_order > $2
+`
+
+type CompactWorkflowStageOrdersParams struct {
+	WorkflowID pgtype.UUID `json:"workflow_id"`
+	SortOrder  int32       `json:"sort_order"`
+}
+
+func (q *Queries) CompactWorkflowStageOrders(ctx context.Context, arg CompactWorkflowStageOrdersParams) error {
+	_, err := q.db.Exec(ctx, compactWorkflowStageOrders, arg.WorkflowID, arg.SortOrder)
+	return err
+}
+
 const completeWorkflowRun = `-- name: CompleteWorkflowRun :one
 UPDATE multica_workflow_run SET
     status = 'completed',
@@ -283,12 +299,12 @@ INSERT INTO multica_workflow_node (
     workflow_id, title, description, position_x, position_y,
     format_schema, worker_type, worker_id,
     critic_type, critic_id, critic_api_url,
-    sort_order
+    sort_order, stage_id
 ) VALUES (
     $1, $2, $8, $3, $4,
     $9, $5, $10,
     $6, $11, $12,
-    $7
+    $7, $13
 ) RETURNING id, workflow_id, title, description, position_x, position_y, format_schema, worker_type, worker_id, critic_type, critic_id, critic_api_url, sort_order, created_at, updated_at, stage_id
 `
 
@@ -305,6 +321,7 @@ type CreateWorkflowNodeParams struct {
 	WorkerID     pgtype.UUID `json:"worker_id"`
 	CriticID     pgtype.UUID `json:"critic_id"`
 	CriticApiUrl pgtype.Text `json:"critic_api_url"`
+	StageID      pgtype.UUID `json:"stage_id"`
 }
 
 func (q *Queries) CreateWorkflowNode(ctx context.Context, arg CreateWorkflowNodeParams) (MulticaWorkflowNode, error) {
@@ -321,6 +338,7 @@ func (q *Queries) CreateWorkflowNode(ctx context.Context, arg CreateWorkflowNode
 		arg.WorkerID,
 		arg.CriticID,
 		arg.CriticApiUrl,
+		arg.StageID,
 	)
 	var i MulticaWorkflowNode
 	err := row.Scan(

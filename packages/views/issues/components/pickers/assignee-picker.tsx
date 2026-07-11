@@ -54,6 +54,7 @@ export function AssigneePicker({
   onOpenChange: controlledOnOpenChange,
   align,
   skipBuiltinRuntimeSelection = false,
+  includeWorkflows = true,
 }: {
   assigneeType: IssueAssigneeType | null;
   assigneeId: string | null;
@@ -68,6 +69,8 @@ export function AssigneePicker({
   /** When true, selecting a built-in agent will NOT show the runtime selection dialog.
    *  Use this in contexts like workflow editor where runtime is chosen at execution time. */
   skipBuiltinRuntimeSelection?: boolean;
+  /** Workflow node actor pickers only support members, agents, and squads. */
+  includeWorkflows?: boolean;
 }) {
   const { t } = useT("issues");
   const [internalOpen, setInternalOpen] = useState(false);
@@ -361,7 +364,7 @@ export function AssigneePicker({
       )}
 
       {/* Workflows */}
-      {filteredWorkflows.length > 0 && (
+      {includeWorkflows && filteredWorkflows.length > 0 && (
         <PickerSection label={t(($) => $.pickers.assignee.workflows_group)}>
           {filteredWorkflows.map((w) => (
             <PickerItem
@@ -486,7 +489,7 @@ export function AssigneePicker({
       {filteredMembers.length === 0 &&
         filteredAgents.length === 0 &&
         filteredSquads.length === 0 &&
-        filteredWorkflows.length === 0 &&
+        (!includeWorkflows || filteredWorkflows.length === 0) &&
         filter && <PickerEmpty />}
     </PropertyPicker>
     {pendingBuiltinAgent && (

@@ -111,6 +111,7 @@ import type {
   WorkflowEdge,
   WorkflowRun,
   WorkflowNodeRun,
+  WorkflowRunCanvasSummaryResponse,
   WorkflowStage,
   CreateWorkflowRequest,
   UpdateWorkflowRequest,
@@ -125,6 +126,9 @@ import type {
   ListWorkflowRunsResponse,
   MyWorkflowTaskResponse,
   WorkflowAdmin,
+  WorkflowNodeDeliverable,
+  WorkflowNodeDeliverableSubmission,
+  WorkflowRole,
   RuntimePermission,
   RuntimePermissionListResponse,
   MyRuntimePermissionResponse,
@@ -202,8 +206,14 @@ import {
   EMPTY_WORKFLOW_RUN,
   MyWorkflowTasksResponseSchema,
   EMPTY_MY_WORKFLOW_TASKS_RESPONSE,
+  WorkflowRunCanvasSummaryResponseSchema,
+  EMPTY_WORKFLOW_RUN_CANVAS_SUMMARY_RESPONSE,
   WorkflowAdminsResponseSchema,
   EMPTY_WORKFLOW_ADMINS_RESPONSE,
+  WorkflowNodeDeliverablesResponseSchema,
+  EMPTY_WORKFLOW_NODE_DELIVERABLES_RESPONSE,
+  WorkflowNodeDeliverableSubmissionsResponseSchema,
+  EMPTY_WORKFLOW_NODE_DELIVERABLE_SUBMISSIONS_RESPONSE,
   MyRuntimePermissionSchema,
   RuntimePermissionListSchema,
   SessionPermissionSchema,
@@ -2102,6 +2112,19 @@ export class ApiClient {
     return parsed.node_runs;
   }
 
+  async getWorkflowRunCanvasSummary(
+    workflowId: string,
+    runId: string,
+  ): Promise<WorkflowRunCanvasSummaryResponse> {
+    const raw = await this.fetch<unknown>(`/api/workflows/${workflowId}/runs/${runId}/canvas-summary`);
+    return parseWithFallback(
+      raw,
+      WorkflowRunCanvasSummaryResponseSchema,
+      EMPTY_WORKFLOW_RUN_CANVAS_SUMMARY_RESPONSE,
+      { endpoint: "GET /api/workflows/:id/runs/:runId/canvas-summary" },
+    );
+  }
+
   async submitNodeRun(nodeRunId: string, output: unknown): Promise<WorkflowNodeRun> {
     return this.fetch(`/api/node-runs/${nodeRunId}/submit`, {
       method: "POST",
@@ -2237,5 +2260,83 @@ export class ApiClient {
       method: "PUT",
       body: JSON.stringify(req),
     });
+  }
+
+  // ── Deliverable CRUD ─────────────────────────────────────────────────────
+
+  async listWorkflowNodeDeliverables(workflowId: string, nodeId: string): Promise<WorkflowNodeDeliverable[]> {
+    const raw = await this.fetch<unknown>(`/api/workflows/${workflowId}/nodes/${nodeId}/deliverables`);
+    const parsed = parseWithFallback(raw, WorkflowNodeDeliverablesResponseSchema, EMPTY_WORKFLOW_NODE_DELIVERABLES_RESPONSE, {
+      endpoint: "GET /api/workflows/:id/nodes/:nodeId/deliverables",
+    });
+    return parsed.deliverables;
+  }
+
+  async createWorkflowNodeDeliverable(workflowId: string, nodeId: string, req: {
+    kind: string;
+    title: string;
+    description?: string;
+    required?: boolean;
+    sort_order?: number;
+  }): Promise<WorkflowNodeDeliverable> {
+    return this.fetch(`/api/workflows/${workflowId}/nodes/${nodeId}/deliverables`, {
+      method: "POST",
+      body: JSON.stringify(req),
+    });
+  }
+
+  async updateWorkflowNodeDeliverable(workflowId: string, nodeId: string, deliverableId: string, req: {
+    kind?: string;
+    title?: string;
+    description?: string;
+    required?: boolean;
+    sort_order?: number;
+  }): Promise<WorkflowNodeDeliverable> {
+    return this.fetch(`/api/workflows/${workflowId}/nodes/${nodeId}/deliverables/${deliverableId}`, {
+      method: "PUT",
+      body: JSON.stringify(req),
+    });
+  }
+
+  async deleteWorkflowNodeDeliverable(workflowId: string, nodeId: string, deliverableId: string): Promise<void> {
+    await this.fetch(`/api/workflows/${workflowId}/nodes/${nodeId}/deliverables/${deliverableId}`, {
+      method: "DELETE",
+    });
+  }
+
+  async listNodeRunDeliverableSubmissions(nodeRunId: string): Promise<WorkflowNodeDeliverableSubmission[]> {
+    const raw = await this.fetch<unknown>(`/api/node-runs/${nodeRunId}/deliverables`);
+    const parsed = parseWithFallback(raw, WorkflowNodeDeliverableSubmissionsResponseSchema, EMPTY_WORKFLOW_NODE_DELIVERABLE_SUBMISSIONS_RESPONSE, {
+      endpoint: "GET /api/node-runs/:nodeRunId/deliverables",
+    });
+    return parsed.submissions;
+  }
+
+  async submitNodeRunDeliverable(nodeRunId: string, deliverableId: string, body: {
+    content?: string;
+    attachment_id?: string | null;
+    pull_request_url?: string;
+  }): Promise<WorkflowNodeDeliverableSubmission> {
+    return this.fetch(`/api/node-runs/${nodeRunId}/deliverables/${deliverableId}/submit`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    });
+  }
+
+  async reviewNodeRunDeliverable(nodeRunId: string, submissionId: string, body: {
+    status: string;
+    review_comment?: string;
+  }): Promise<WorkflowNodeDeliverableSubmission> {
+    return this.fetch(`/api/node-runs/${nodeRunId}/deliverables/${submissionId}/review`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    });
+  }
+
+  // ── Role CRUD ─────────────────────────────────────────────────────────────
+
+  async listWorkflowRoles(): Promise<WorkflowRole[]> {
+    const raw = await this.fetch<{ roles: WorkflowRole[] }>("/api/workflow-roles");
+    return raw.roles ?? [];
   }
 }

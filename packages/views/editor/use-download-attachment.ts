@@ -63,26 +63,22 @@ export function useDownloadAttachment(): (attachmentId: string) => Promise<void>
         return;
       }
 
-      // Web: use a transient <a> tag to trigger the download / open.
-      // This avoids the about:blank navigation issue where some browsers
-      // silently drop an async location.href assignment on a placeholder
-      // window, leaving the user staring at a blank tab.
+      const target = window.open("about:blank", "_blank");
       try {
         const fresh = await api.getAttachment(attachmentId);
         if (!fresh.download_url) {
+          target?.close();
           failed();
           return;
         }
-        const a = document.createElement("a");
-        a.href = fresh.download_url;
-        a.download = fresh.filename || "";
-        a.target = "_blank";
-        a.rel = "noopener noreferrer";
-        a.style.display = "none";
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
+        if (!target) {
+          window.location.assign(fresh.download_url);
+          return;
+        }
+        target.opener = null;
+        target.location.href = fresh.download_url;
       } catch {
+        target?.close();
         failed();
       }
     },

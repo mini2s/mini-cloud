@@ -897,9 +897,11 @@ export function IssueDetail({ issueId, onDelete, onDone, defaultSidebarOpen = tr
   });
 
   // Workflow issues can toggle between detail mode and fullscreen mode.
-  // Default to detail mode so description, sub-issues, and activity are shown.
+  // Default to fullscreen mode so the workflow panorama is immediately visible.
   const hasWorkflow = issue?.assignee_type === "workflow" && !!issue?.assignee_id;
-  const [isFullscreen, setIsFullscreen] = useState(false);
+  const [isFullscreen, setIsFullscreen] = useState(true);
+  // Only activate fullscreen when the issue actually has a workflow assigned.
+  const effectiveFullscreen = isFullscreen && hasWorkflow;
 
   // Record recent visit
   const recordVisit = useRecentIssuesStore((s) => s.recordVisit);
@@ -1130,7 +1132,8 @@ export function IssueDetail({ issueId, onDelete, onDone, defaultSidebarOpen = tr
   // Older sub-issues may not have workflow_id/workflow_run_id stamped, so fall
   // back to the parent issue's workflow fields when available.
   const isWorkflowOrigin = issue?.origin_type === "workflow" && !!issue?.origin_id;
-  const effectiveWorkflowId = issue?.workflow_id ?? parentIssue?.workflow_id;
+  const workflowAssigneeId = issue?.assignee_type === "workflow" ? issue.assignee_id : null;
+  const effectiveWorkflowId = issue?.workflow_id ?? workflowAssigneeId ?? parentIssue?.workflow_id;
   const effectiveWorkflowRunId = issue?.workflow_run_id ?? parentIssue?.workflow_run_id;
   const { data: nodeRuns = [] } = useQuery({
     ...workflowNodeRunsOptions(wsId, effectiveWorkflowId ?? "", effectiveWorkflowRunId ?? ""),
@@ -1920,10 +1923,14 @@ export function IssueDetail({ issueId, onDelete, onDone, defaultSidebarOpen = tr
 
         <div
           ref={setScrollContainerEl}
-          className="relative flex-1 overflow-y-auto"
+          data-testid="issue-detail-scroll-container"
+          className={cn(
+            "relative flex-1",
+            effectiveFullscreen ? "flex min-h-0 flex-col overflow-hidden" : "overflow-y-auto",
+          )}
         >
           {/* TitleEditor, parent link, originNodeRun, Description, ReactionBar */}
-          {!isFullscreen && (
+          {!effectiveFullscreen && (
           <div className="w-full max-w-5xl px-8 pt-8">
             <TitleEditor
               key={`title-${id}`}
@@ -2017,20 +2024,22 @@ export function IssueDetail({ issueId, onDelete, onDone, defaultSidebarOpen = tr
           {/* Full-width Workflow Panorama (replaces old WorkflowDagViewer position) */}
           {issue.assignee_type === "workflow" && issue.assignee_id && (
             <div className={
-              isFullscreen
+              effectiveFullscreen
                 ? "flex-1 min-h-0 flex flex-col"
-                : "border-y bg-muted/20 py-6"
+                : "border-y bg-muted/20"
             }>
-              <div className={isFullscreen ? "flex-1 min-h-0 py-6" : "px-6"}>
+              <div className={effectiveFullscreen ? "flex min-h-0 flex-1 flex-col" : "px-6"}>
                 <ExecutionPanoramaPage
                   workflowId={effectiveWorkflowId ?? ""}
                   runId={effectiveWorkflowRunId ?? null}
                   wsId={wsId}
+                  issueId={issue.id}
+                  fillAvailableHeight={effectiveFullscreen}
                 />
               </div>
             </div>
           )}
-          {!isFullscreen && (
+          {!effectiveFullscreen && (
           <div className="w-full max-w-5xl px-8 pb-8">
               {/* Sub-issues — Linear-style */}
           {childIssues.length === 0 && (
@@ -2272,7 +2281,7 @@ export function IssueDetail({ issueId, onDelete, onDone, defaultSidebarOpen = tr
   }
 
   // Fullscreen mode: no sidebar, header + panorama fill the viewport
-  if (isFullscreen) {
+  if (effectiveFullscreen) {
     return (
       <div className="flex flex-1 min-h-0">
         {detailContent}

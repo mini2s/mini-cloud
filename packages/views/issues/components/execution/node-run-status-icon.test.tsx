@@ -1,6 +1,6 @@
 import { render, screen } from "@testing-library/react";
 import { describe, it, expect } from "vitest";
-import { NodeRunStatusIcon } from "./node-run-status-icon";
+import { NodeRunStatusIcon, RuntimeDisplayStatusIcon } from "./node-run-status-icon";
 
 describe("NodeRunStatusIcon", () => {
   it("renders pending as empty circle", () => {
@@ -39,5 +39,15 @@ describe("NodeRunStatusIcon", () => {
     // @ts-expect-error testing invalid status
     render(<NodeRunStatusIcon status="unknown_future_status" />);
     expect(screen.getByTestId("status-icon-fallback")).toBeInTheDocument();
+  });
+
+  it("renders runtime display status with accessible label", () => {
+    render(<RuntimeDisplayStatusIcon status="reviewing" />);
+    expect(screen.getByLabelText("Reviewing")).toBeInTheDocument();
+  });
+
+  it("overrides gateway completed labels", () => {
+    render(<RuntimeDisplayStatusIcon status="completed" gatewayKind="fork" />);
+    expect(screen.getByLabelText("Dispatched")).toBeInTheDocument();
   });
 });

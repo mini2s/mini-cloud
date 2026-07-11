@@ -1,49 +1,191 @@
 "use client";
 
-import { useMemo, useState, useRef, useCallback, useLayoutEffect } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useMemo, useState, useCallback, useEffect, useRef } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  ReactFlowProvider,
+  useNodesInitialized,
+  useReactFlow,
+  type Edge,
+  type Node,
+  type Viewport,
+} from "@xyflow/react";
 import {
   workflowDetailOptions,
   workflowStagesOptions,
   workflowNodesOptions,
   workflowEdgesOptions,
   workflowNodeRunsOptions,
+  workflowRunCanvasSummaryOptions,
+  workflowKeys,
 } from "@multica/core/workflows/queries";
-import { agentListOptions, builtinPluginListOptions } from "@multica/core/workspace/queries";
+import { api } from "@multica/core/api";
+import { agentListOptions } from "@multica/core/workspace/queries";
 import { workerTypeToActorType } from "@multica/core/types";
 import type {
   WorkflowNode,
   WorkflowNodeRun,
+  WorkflowNodeRuntimeSummary,
   WorkflowStage,
   Agent,
 } from "@multica/core/types";
-import type { BuiltinPlugin } from "@multica/core/api/schemas";
-import { StageLane } from "../../../workflows/components/overview/stage-lane";
-import { PanoramaSvgOverlay } from "../../../workflows/components/overview/panorama-svg-overlay";
+import { WorkflowCanvasCore } from "../../../workflows/components/canvas/workflow-canvas-core";
+import {
+  workflowEdgesToReactFlowEdges,
+  workflowNodesToReactFlowNodes,
+} from "../../../workflows/components/canvas/workflow-canvas-model";
+import { panoramaEdgeTypes } from "../../../workflows/components/overview/reactflow-edges";
+import {
+  WORKER_WIDTH,
+  sortStagesForDisplay,
+} from "../../../workflows/components/overview/constants";
 import { ExecutionDetailPanel } from "./execution-detail-panel";
-import { useT } from "@multica/views/i18n";
+import { GlobalNotificationBar } from "./global-notification-bar";
+import { runtimeCanvasNodeTypes } from "./runtime-canvas-node";
+import { RUNTIME_NODE_HEIGHT } from "./runtime-node-card";
 import { Loader2 } from "lucide-react";
+import { toast } from "sonner";
+import { cn } from "@multica/ui/lib/utils";
 
 export interface ExecutionPanoramaPageProps {
   workflowId: string;
   runId: string | null;
   wsId: string;
+  issueId?: string;
+  fillAvailableHeight?: boolean;
 }
+
+const RUNTIME_CANVAS_FIT_VIEW = {
+  padding: 0.04,
+  maxZoom: 1.2,
+} as const;
 
 /**
  * Main issue-execution panorama view.
  *
- * Composes StageLane (runtime mode) + PanoramaSvgOverlay + ExecutionDetailPanel
+ * Composes the shared WorkflowCanvasCore in read-only runtime mode with
+ * ExecutionDetailPanel.
  * into a scrollable full-page view of all workflow stages, nodes, and their
  * per-run status.
  */
+interface ExecutionPanoramaCanvasProps {
+  rfNodes: Node[];
+  rfEdges: Edge[];
+  canvasStages: WorkflowStage[];
+  nodeRunMap: Map<string, WorkflowNodeRun>;
+  viewport: Viewport;
+  setViewport: (viewport: Viewport) => void;
+  setSelectedNodeId: (nodeId: string | null) => void;
+  fillAvailableHeight?: boolean;
+}
+
+function ExecutionPanoramaCanvas({
+  rfNodes,
+  rfEdges,
+  canvasStages,
+  nodeRunMap,
+  viewport,
+  setViewport,
+  setSelectedNodeId,
+  fillAvailableHeight = false,
+}: ExecutionPanoramaCanvasProps) {
+  const { fitView, getViewport, setCenter, viewportInitialized } = useReactFlow();
+  const nodesInitialized = useNodesInitialized();
+  const fittedNodeSignatureRef = useRef<string | null>(null);
+
+  const nodeSignature = useMemo(
+    () =>
+      rfNodes
+        .map((node) => `${node.id}:${node.position.x}:${node.position.y}`)
+        .join("|"),
+    [rfNodes],
+  );
+
+  useEffect(() => {
+    if (
+      rfNodes.length === 0 ||
+      !viewportInitialized ||
+      !nodesInitialized ||
+      fittedNodeSignatureRef.current === nodeSignature
+    ) {
+      return;
+    }
+
+    const frame = requestAnimationFrame(() => {
+      fittedNodeSignatureRef.current = nodeSignature;
+      void fitView({
+        nodes: rfNodes.map((node) => ({ id: node.id })),
+        ...RUNTIME_CANVAS_FIT_VIEW,
+        duration: 0,
+      });
+    });
+
+    return () => cancelAnimationFrame(frame);
+  }, [fitView, nodeSignature, nodesInitialized, rfNodes, viewportInitialized]);
+
+  const scrollToNode = useCallback((nodeId: string) => {
+    const node = rfNodes.find((item) => item.id === nodeId);
+    if (!node) return;
+
+    const width = typeof node.width === "number" ? node.width : WORKER_WIDTH;
+    const height = typeof node.height === "number" ? node.height : RUNTIME_NODE_HEIGHT;
+    const currentViewport = getViewport();
+
+    setSelectedNodeId(nodeId);
+    setCenter(
+      node.position.x + width / 2,
+      node.position.y + height / 2,
+      {
+        duration: 450,
+        zoom: currentViewport.zoom,
+      },
+    );
+  }, [getViewport, rfNodes, setCenter, setSelectedNodeId]);
+
+  return (
+    <>
+      <GlobalNotificationBar
+        nodeRunMap={nodeRunMap}
+        onScrollToNode={scrollToNode}
+      />
+      <div
+        className={cn(
+          "relative flex flex-1",
+          fillAvailableHeight ? "min-h-0" : "min-h-[560px]",
+        )}
+        data-testid="execution-canvas-shell"
+      >
+        <WorkflowCanvasCore
+          nodes={rfNodes}
+          edges={rfEdges}
+          stages={canvasStages}
+          nodeTypes={runtimeCanvasNodeTypes}
+          edgeTypes={panoramaEdgeTypes}
+          readOnly
+          fitView
+          fitViewOptions={{
+            nodes: rfNodes.map((node) => ({ id: node.id })),
+            ...RUNTIME_CANVAS_FIT_VIEW,
+          }}
+          reserveStageRail={!fillAvailableHeight}
+          viewportY={viewport.y}
+          viewportZoom={viewport.zoom}
+          onMove={setViewport}
+          onNodeClick={(_event, node) => setSelectedNodeId(node.id)}
+        />
+      </div>
+    </>
+  );
+}
+
 export function ExecutionPanoramaPage({
   workflowId,
   runId,
   wsId,
+  issueId,
+  fillAvailableHeight = false,
 }: ExecutionPanoramaPageProps) {
-  const { t } = useT("issues");
-
+  const queryClient = useQueryClient();
   // ---- Data queries ----
   const { isLoading: wfLoading } = useQuery(
     workflowDetailOptions(wsId, workflowId),
@@ -54,114 +196,39 @@ export function ExecutionPanoramaPage({
   const { data: nodes, isLoading: ndLoading } = useQuery(
     workflowNodesOptions(wsId, workflowId),
   );
-  const { data: nodeRuns } = useQuery({
+  const { data: nodeRuns = [] } = useQuery({
     ...workflowNodeRunsOptions(wsId, workflowId, runId ?? ""),
     enabled: !!runId,
   });
-  const { data: edges } = useQuery({
-    ...workflowEdgesOptions(wsId, workflowId),
+  const { data: canvasSummary } = useQuery({
+    ...workflowRunCanvasSummaryOptions(wsId, workflowId, runId ?? ""),
     enabled: !!runId,
   });
+  const { data: edges } = useQuery(workflowEdgesOptions(wsId, workflowId));
   const { data: agents } = useQuery(agentListOptions(wsId));
-
-  // builtinPluginListOptions is global (no wsId parameter)
-  const { data: plugins } = useQuery(builtinPluginListOptions());
 
   // ---- Local state ----
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
-
-  // ---- Node/critic position measurement for SVG overlay ----
-  const containerRef = useRef<HTMLDivElement | null>(null);
-  const nodeElementMap = useRef(new Map<string, HTMLButtonElement>());
-  const criticElementMap = useRef(new Map<string, HTMLButtonElement>());
-  const [nodePositions, setNodePositions] = useState(new Map<string, DOMRect>());
-  const [criticPositions, setCriticPositions] = useState(new Map<string, DOMRect>());
-  const measureRafRef = useRef<number | null>(null);
-
-  const measurePositions = useCallback(() => {
-    const containerRect = containerRef.current?.getBoundingClientRect();
-    if (!containerRect) return;
-
-    const nextNodePos = new Map<string, DOMRect>();
-    nodeElementMap.current.forEach((el, id) => {
-      const rect = el.getBoundingClientRect();
-      nextNodePos.set(id, new DOMRect(
-        rect.left - containerRect.left + (containerRef.current?.scrollLeft ?? 0),
-        rect.top - containerRect.top + (containerRef.current?.scrollTop ?? 0),
-        rect.width,
-        rect.height,
-      ));
-    });
-    setNodePositions(nextNodePos);
-
-    const nextCriticPos = new Map<string, DOMRect>();
-    criticElementMap.current.forEach((el, id) => {
-      const rect = el.getBoundingClientRect();
-      nextCriticPos.set(id, new DOMRect(
-        rect.left - containerRect.left + (containerRef.current?.scrollLeft ?? 0),
-        rect.top - containerRect.top + (containerRef.current?.scrollTop ?? 0),
-        rect.width,
-        rect.height,
-      ));
-    });
-    setCriticPositions(nextCriticPos);
-  }, []);
-
-  // Capture scroll events from descendant scroll containers (e.g. StageLane
-  // overflow-x-auto) so that SVG edge paths stay aligned with node cards even
-  // after the user scrolls a stage lane horizontally.
-  const handleDescendantScroll = useCallback(() => {
-    if (measureRafRef.current !== null) return;
-    measureRafRef.current = requestAnimationFrame(() => {
-      measurePositions();
-      measureRafRef.current = null;
-    });
-  }, [measurePositions]);
-
-  useLayoutEffect(() => {
-    measurePositions();
-    const observer = new ResizeObserver(() => measurePositions());
-    if (containerRef.current) observer.observe(containerRef.current);
-    return () => observer.disconnect();
-  }, [nodes, stages, measurePositions]);
-
-  // ---- Create callback refs for nodes and critics ----
-  const nodeElementRefs = useMemo(() => {
-    const map = new Map<string, (el: HTMLButtonElement | null) => void>();
-    const allNodes = nodes ?? [];
-    for (const node of allNodes) {
-      map.set(node.id, (el) => {
-        if (el) nodeElementMap.current.set(node.id, el);
-        else nodeElementMap.current.delete(node.id);
-      });
-    }
-    return map;
-  }, [nodes]);
-
-  const criticElementRefs = useMemo(() => {
-    const map = new Map<string, (el: HTMLButtonElement | null) => void>();
-    const allNodes = nodes ?? [];
-    for (const node of allNodes) {
-      if (node.critic_id || node.critic_api_url) {
-        map.set(node.id, (el) => {
-          if (el) criticElementMap.current.set(node.id, el);
-          else criticElementMap.current.delete(node.id);
-        });
-      }
-    }
-    return map;
-  }, [nodes]);
+  const [viewport, setViewport] = useState<Viewport>({ x: 0, y: 24, zoom: 0.95 });
+  const [retryingNodeRunId, setRetryingNodeRunId] = useState<string | null>(null);
 
   // ---- Lookup maps ----
   const nodeRunMap = useMemo(() => {
     const map = new Map<string, WorkflowNodeRun>();
-    if (nodeRuns) {
-      for (const nr of nodeRuns) {
-        map.set(nr.workflow_node_id, nr);
-      }
+    const runs = canvasSummary?.node_runs ?? nodeRuns;
+    for (const nr of runs) {
+      map.set(nr.workflow_node_id, nr);
     }
     return map;
-  }, [nodeRuns]);
+  }, [canvasSummary?.node_runs, nodeRuns]);
+
+  const runtimeSummaryMap = useMemo(() => {
+    const map = new Map<string, WorkflowNodeRuntimeSummary>();
+    for (const summary of canvasSummary?.node_runtime_summaries ?? []) {
+      map.set(summary.workflow_node_id, summary);
+    }
+    return map;
+  }, [canvasSummary?.node_runtime_summaries]);
 
   const agentLookup = useMemo(() => {
     const map = new Map<string, Agent | null>();
@@ -171,20 +238,40 @@ export function ExecutionPanoramaPage({
     return map;
   }, [agents]);
 
-  const pluginLookup = useMemo(() => {
-    const map = new Map<string, BuiltinPlugin | null>();
-    if (plugins) {
-      for (const p of plugins.items) map.set(p.id, p);
-    }
-    return map;
-  }, [plugins]);
-
-  const getActorName = (type: string, id: string): string | null => {
+  const getActorName = useCallback((type: string, id: string): string | null => {
     if (type === "agent" || type === "human" || type === "member") {
       return agentLookup.get(id)?.name ?? null;
     }
     return null;
-  };
+  }, [agentLookup]);
+
+  const handleRetryNodeRun = useCallback(async (nodeRun: WorkflowNodeRun) => {
+    if (!issueId) return;
+    const taskId =
+      nodeRun.worker_agent_task_id ??
+      nodeRun.agent_task_id ??
+      nodeRun.critic_agent_task_id ??
+      undefined;
+
+    setRetryingNodeRunId(nodeRun.id);
+    try {
+      await api.rerunIssue(issueId, taskId);
+      if (runId) {
+        await Promise.all([
+          queryClient.invalidateQueries({
+            queryKey: workflowKeys.nodeRuns(wsId, workflowId, runId),
+          }),
+          queryClient.invalidateQueries({
+            queryKey: workflowKeys.runCanvasSummary(wsId, workflowId, runId),
+          }),
+        ]);
+      }
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to retry node run");
+    } finally {
+      setRetryingNodeRunId((current) => (current === nodeRun.id ? null : current));
+    }
+  }, [issueId, queryClient, runId, workflowId, wsId]);
 
   // ---- Derived ----
   const isLoading = wfLoading || stLoading || ndLoading;
@@ -202,119 +289,82 @@ export function ExecutionPanoramaPage({
 
   const allStages: WorkflowStage[] = stages ?? [];
   const allNodes: WorkflowNode[] = nodes ?? [];
-
-  const nodesByStage = new Map<string | null, WorkflowNode[]>();
-  for (const node of allNodes) {
-    const key = node.stage_id ?? null;
-    if (!nodesByStage.has(key)) nodesByStage.set(key, []);
-    nodesByStage.get(key)!.push(node);
-  }
-
-  const unassignedNodes = nodesByStage.get(null) ?? [];
+  const unassignedCount = allNodes.filter((node) => !node.stage_id).length;
+  const canvasStages = unassignedCount > 0 || allStages.length === 0
+    ? [
+        ...allStages,
+        {
+          id: "unassigned",
+          workflow_id: workflowId,
+          name: "Unassigned",
+          description: "",
+          sort_order: allStages.length,
+          node_count: unassignedCount,
+          created_at: "",
+          updated_at: "",
+        },
+      ]
+    : allStages;
   const selectedNode = allNodes.find((n) => n.id === selectedNodeId) ?? null;
   const selectedRun = selectedNodeId
     ? nodeRunMap.get(selectedNodeId) ?? null
     : null;
+  const selectedRuntimeSummary = selectedNodeId
+    ? runtimeSummaryMap.get(selectedNodeId) ?? null
+    : null;
+  const isRetryableSelectedRun =
+    selectedRun?.status === "failed" ||
+    selectedRun?.status === "format_failed" ||
+    selectedRun?.status === "blocked" ||
+    selectedRun?.status === "critic_rework";
+
+  const rfNodes = workflowNodesToReactFlowNodes({
+    nodes: allNodes,
+    stages: sortStagesForDisplay(allStages),
+    nodeType: "runtimeNode",
+    nodeHeight: RUNTIME_NODE_HEIGHT,
+    includeCriticBadges: false,
+    makeNodeData: (node) => ({
+      node,
+      nodeRun: nodeRunMap.get(node.id) ?? null,
+      runtimeSummary: runtimeSummaryMap.get(node.id) ?? null,
+      workerName: node.worker_id
+        ? getActorName(workerTypeToActorType(node.worker_type), node.worker_id)
+        : null,
+      criticName: node.critic_id
+        ? getActorName(node.critic_type ?? "agent", node.critic_id)
+        : null,
+      onOpen: setSelectedNodeId,
+    }),
+    makeCriticName: (node) => node.critic_id ? getActorName(node.critic_type ?? "agent", node.critic_id) ?? undefined : undefined,
+  });
+  const rfEdges = workflowEdgesToReactFlowEdges({
+    edges: edges ?? [],
+    nodes: allNodes,
+    stages: sortStagesForDisplay(allStages),
+    includeCriticEdges: false,
+  });
 
   return (
     <div
-      className="relative flex flex-col min-h-0"
+      className={cn(
+        "relative flex h-full flex-1 flex-col",
+        fillAvailableHeight ? "min-h-0" : "min-h-[640px]",
+      )}
       data-testid="execution-panorama"
     >
-      <div
-        ref={containerRef}
-        className="relative"
-        data-testid="panorama-canvas"
-        onScrollCapture={handleDescendantScroll}
-      >
-        {/* SVG overlay for edges (only when run exists) */}
-        {runId && (
-          <PanoramaSvgOverlay
-            edges={edges ?? []}
-            nodes={allNodes}
-            stages={allStages}
-            nodePositions={nodePositions}
-            criticPositions={criticPositions}
-          />
-        )}
-
-        {allStages.length === 0 ? (
-          <StageLane
-            stage={{
-              id: "unassigned",
-              workflow_id: workflowId,
-              name: t(($) => $.execution.panorama.unassigned),
-              description: "",
-              sort_order: 0,
-              node_count: unassignedNodes.length,
-              created_at: "",
-              updated_at: "",
-            }}
-            nodeIds={unassignedNodes}
-            getActorName={getActorName}
-            agentLookup={agentLookup}
-            pluginLookup={pluginLookup}
-            onCardClick={() => {}}
-            nodeElementRefs={nodeElementRefs}
-            criticElementRefs={criticElementRefs}
-            mode="runtime"
-            nodeRuns={nodeRunMap}
-            onNodeClick={(id) => setSelectedNodeId(id)}
-          />
-        ) : (
-          [...allStages]
-            .sort((a, b) => a.sort_order - b.sort_order)
-            .map((stage, i) => (
-              <div key={stage.id}>
-                {i > 0 && (
-                  <div
-                    className="h-2 bg-gradient-to-b from-slate-50/40 to-stone-50/40"
-                    data-testid="stage-transition-gradient"
-                  />
-                )}
-                <StageLane
-                  stage={stage}
-                  nodeIds={nodesByStage.get(stage.id) ?? []}
-                  getActorName={getActorName}
-                  agentLookup={agentLookup}
-                  pluginLookup={pluginLookup}
-                  onCardClick={() => {}}
-                  nodeElementRefs={nodeElementRefs}
-                  criticElementRefs={criticElementRefs}
-                  mode="runtime"
-                  nodeRuns={nodeRunMap}
-                  onNodeClick={(id) => setSelectedNodeId(id)}
-                />
-              </div>
-            ))
-        )}
-
-        {/* Unassigned nodes (stage_id = NULL) when stages exist */}
-        {allStages.length > 0 && unassignedNodes.length > 0 && (
-          <StageLane
-            stage={{
-              id: "unassigned",
-              workflow_id: workflowId,
-              name: t(($) => $.execution.panorama.unassigned),
-              description: "",
-              sort_order: 999,
-              node_count: unassignedNodes.length,
-              created_at: "",
-              updated_at: "",
-            }}
-            nodeIds={unassignedNodes}
-            getActorName={getActorName}
-            agentLookup={agentLookup}
-            pluginLookup={pluginLookup}
-            onCardClick={() => {}}
-            nodeElementRefs={nodeElementRefs}
-            criticElementRefs={criticElementRefs}
-            mode="runtime"
-            nodeRuns={nodeRunMap}
-            onNodeClick={(id) => setSelectedNodeId(id)}
-          />
-        )}
-      </div>
+      <ReactFlowProvider>
+        <ExecutionPanoramaCanvas
+          rfNodes={rfNodes}
+          rfEdges={rfEdges}
+          canvasStages={canvasStages}
+          nodeRunMap={nodeRunMap}
+          viewport={viewport}
+          setViewport={setViewport}
+          setSelectedNodeId={setSelectedNodeId}
+          fillAvailableHeight={fillAvailableHeight}
+        />
+      </ReactFlowProvider>
 
       {/* Detail panel */}
       {selectedNodeId && selectedNode && (
@@ -339,6 +389,12 @@ export function ExecutionPanoramaPage({
           }
           onClose={() => setSelectedNodeId(null)}
           wsId={wsId}
+          runtimeSummary={selectedRuntimeSummary}
+          onRetry={
+            issueId && selectedRun && isRetryableSelectedRun && retryingNodeRunId !== selectedRun.id
+              ? () => void handleRetryNodeRun(selectedRun)
+              : undefined
+          }
         />
       )}
     </div>

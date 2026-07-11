@@ -4,10 +4,12 @@ import { useMemo } from "react";
 import type { WorkflowStage, WorkflowNode, Agent, WorkflowNodeRun } from "@multica/core/types";
 import { workerTypeToActorType } from "@multica/core/types";
 import type { BuiltinPlugin } from "@multica/core/api/schemas";
+import type { NodeRunActionType } from "../../../issues/components/execution/runtime-node-card";
 import { cn } from "@multica/ui/lib/utils";
 import { CompactNodeCard } from "./compact-node-card";
 import { CriticBadge } from "./critic-badge";
 import { RuntimeNodeCard } from "../../../issues/components/execution/runtime-node-card";
+import { STAGE_BG_COLORS, getStageColorIndex } from "./constants";
 
 export interface StageLaneProps {
   stage: WorkflowStage;
@@ -22,16 +24,9 @@ export interface StageLaneProps {
   mode?: "template" | "runtime";
   nodeRuns?: Map<string, WorkflowNodeRun>;
   onNodeClick?: (nodeId: string) => void;
+  onNodeAction?: (nodeRunId: string, action: NodeRunActionType) => void;
+  isNodeActionLoading?: Partial<Record<NodeRunActionType, boolean>>;
 }
-
-const STAGE_BG_COLORS = [
-  "bg-slate-50/70",
-  "bg-stone-50/70",
-  "bg-blue-50/45",
-  "bg-rose-50/45",
-  "bg-violet-50/45",
-  "bg-amber-50/45",
-] as const;
 
 const STAGE_LABEL_COLORS = [
   "text-slate-400",
@@ -41,6 +36,9 @@ const STAGE_LABEL_COLORS = [
   "text-violet-400",
   "text-amber-400",
 ] as const;
+
+const RUNTIME_CARD_WIDTH = 240;
+const STAGE_ROW_MIN_WIDTH = 960;
 
 export function StageLane({
   stage,
@@ -55,8 +53,10 @@ export function StageLane({
   mode = "template",
   nodeRuns,
   onNodeClick,
+  onNodeAction,
+  isNodeActionLoading,
 }: StageLaneProps) {
-  const colorIndex = Math.abs(stage.sort_order) % STAGE_BG_COLORS.length;
+  const colorIndex = getStageColorIndex(stage.sort_order);
   const stageBg = STAGE_BG_COLORS[colorIndex] ?? STAGE_BG_COLORS[0];
   const labelColor = STAGE_LABEL_COLORS[colorIndex] ?? STAGE_LABEL_COLORS[0];
 
@@ -67,6 +67,28 @@ export function StageLane({
     () => [...nodeIds].sort((a, b) => a.sort_order - b.sort_order),
     [nodeIds],
   );
+
+  const runtimeSlots = useMemo(() => {
+    const positionedNodes = [...nodeIds].sort((a, b) => {
+      const xDiff = (a.position_x ?? 0) - (b.position_x ?? 0);
+      if (xDiff !== 0) return xDiff;
+      return a.sort_order - b.sort_order;
+    });
+
+    let cursor = 0;
+    const slots = positionedNodes.map((node, index) => {
+      const requestedLeft = Math.max(0, Math.round(node.position_x ?? 0));
+      const actualLeft = index === 0 ? requestedLeft : Math.max(cursor, requestedLeft);
+      const marginLeft = actualLeft - cursor;
+      cursor = actualLeft + RUNTIME_CARD_WIDTH;
+      return { node, marginLeft };
+    });
+
+    return {
+      slots,
+      minWidth: Math.max(STAGE_ROW_MIN_WIDTH, cursor + 32),
+    };
+  }, [nodeIds]);
 
   return (
     <section
@@ -100,10 +122,16 @@ export function StageLane({
           ) : (
             <div
               data-testid={`stage-lane-node-row-${stage.id}`}
-              className="flex w-full min-w-[960px] flex-nowrap items-start justify-evenly gap-8 px-4"
+              className={cn(
+                "flex flex-nowrap items-start px-4",
+                mode === "runtime"
+                  ? "min-w-max gap-0"
+                  : "w-full min-w-[960px] justify-evenly gap-8",
+              )}
+              style={mode === "runtime" ? { minWidth: `${runtimeSlots.minWidth}px` } : undefined}
             >
-              {sortedNodes.map((node) => {
-                if (mode === "runtime") {
+              {mode === "runtime"
+                ? runtimeSlots.slots.map(({ node, marginLeft }) => {
                   const nodeRun = nodeRuns?.get(node.id) ?? null;
                   const workerName = node.worker_id
                     ? getActorName(workerTypeToActorType(node.worker_type), node.worker_id)
@@ -113,61 +141,69 @@ export function StageLane({
                     : null;
 
                   return (
-                    <RuntimeNodeCard
+                    <div
                       key={node.id}
-                      node={node}
-                      nodeRun={nodeRun}
-                      workerName={workerName}
-                      criticName={criticName}
-                      onClick={(id) => onNodeClick?.(id)}
-                      elementRef={nodeElementRefs.get(node.id)}
-                    />
-                  );
-                }
-
-                const workerName = node.worker_id
-                  ? getActorName(workerTypeToActorType(node.worker_type), node.worker_id)
-                  : null;
-                const agent = agentLookup.get(node.worker_id ?? "") ?? null;
-                const plugin = agent?.plugin_id
-                  ? pluginLookup.get(agent.plugin_id) ?? null
-                  : null;
-                const criticAgent = node.critic_id
-                  ? agentLookup.get(node.critic_id) ?? null
-                  : null;
-
-                return (
-                  <div
-                    key={node.id}
-                    data-testid={`stage-lane-node-stack-${node.id}`}
-                    className="flex flex-col items-center gap-5"
-                  >
-                    <CompactNodeCard
-                      node={node}
-                      workerName={workerName}
-                      plugin={plugin}
-                      onClick={onCardClick}
-                      isSelected={
-                        selectedCard?.nodeId === node.id &&
-                        selectedCard.focus === "worker"
-                      }
-                      elementRef={nodeElementRefs.get(node.id)}
-                    />
-                    {hasCriticAttachment(node) && (
-                      <CriticBadge
+                      data-testid={`stage-lane-runtime-slot-${node.id}`}
+                      className="shrink-0"
+                      style={{ marginLeft: `${marginLeft}px` }}
+                    >
+                      <RuntimeNodeCard
                         node={node}
-                        criticAgent={criticAgent}
-                        onClick={onCardClick}
-                        isSelected={
-                          selectedCard?.nodeId === node.id &&
-                          selectedCard.focus === "critic"
-                        }
-                        elementRef={criticElementRefs.get(node.id)}
+                        nodeRun={nodeRun}
+                        workerName={workerName}
+                        criticName={criticName}
+                        onClick={(id) => onNodeClick?.(id)}
+                        elementRef={nodeElementRefs.get(node.id)}
+                        onAction={onNodeAction}
+                        isActionLoading={isNodeActionLoading}
                       />
-                    )}
-                  </div>
-                );
-              })}
+                    </div>
+                  );
+                })
+                : sortedNodes.map((node) => {
+                    const workerName = node.worker_id
+                      ? getActorName(workerTypeToActorType(node.worker_type), node.worker_id)
+                      : null;
+                    const agent = agentLookup.get(node.worker_id ?? "") ?? null;
+                    const plugin = agent?.plugin_id
+                      ? pluginLookup.get(agent.plugin_id) ?? null
+                      : null;
+                    const criticAgent = node.critic_id
+                      ? agentLookup.get(node.critic_id) ?? null
+                      : null;
+
+                    return (
+                      <div
+                        key={node.id}
+                        data-testid={`stage-lane-node-stack-${node.id}`}
+                        className="flex flex-col items-center gap-5"
+                      >
+                        <CompactNodeCard
+                          node={node}
+                          workerName={workerName}
+                          plugin={plugin}
+                          onClick={onCardClick}
+                          isSelected={
+                            selectedCard?.nodeId === node.id &&
+                            selectedCard.focus === "worker"
+                          }
+                          elementRef={nodeElementRefs.get(node.id)}
+                        />
+                        {hasCriticAttachment(node) && (
+                          <CriticBadge
+                            node={node}
+                            criticAgent={criticAgent}
+                            onClick={onCardClick}
+                            isSelected={
+                              selectedCard?.nodeId === node.id &&
+                              selectedCard.focus === "critic"
+                            }
+                            elementRef={criticElementRefs.get(node.id)}
+                          />
+                        )}
+                      </div>
+                    );
+                  })}
             </div>
           )}
         </div>

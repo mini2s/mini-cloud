@@ -21,12 +21,18 @@ export const workflowKeys = {
   runs: (wsId: string, workflowId: string) => [...workflowKeys.detail(wsId, workflowId), "runs"] as const,
   run: (wsId: string, workflowId: string, runId: string) => [...workflowKeys.runs(wsId, workflowId), runId] as const,
   nodeRuns: (wsId: string, workflowId: string, runId: string) => [...workflowKeys.run(wsId, workflowId, runId), "node-runs"] as const,
+  runCanvasSummary: (wsId: string, workflowId: string, runId: string) => [...workflowKeys.run(wsId, workflowId, runId), "canvas-summary"] as const,
   nodeRunsAll: () => ["workflows", "node-runs"] as const,
   myTasks: (wsId: string) => [...workflowKeys.all(wsId), "my-tasks"] as const,
   templates: () => ["templates"] as const,
   admins: () => ["workflow-admins"] as const,
   stages: (wsId: string, workflowId: string) => [...workflowKeys.detail(wsId, workflowId), "stages"] as const,
   sessionPermission: (sessionId: string) => ["workflows", "session-permission", sessionId] as const,
+  workflowNodeDeliverables: (wsId: string, workflowId: string, nodeId: string) =>
+    [...workflowKeys.nodes(wsId, workflowId), nodeId, "deliverables"] as const,
+  nodeRunDeliverables: (nodeRunId: string) =>
+    [...workflowKeys.nodeRunsAll(), nodeRunId, "deliverables"] as const,
+  roles: (wsId: string) => [...workflowKeys.all(wsId), "roles"] as const,
 };
 
 // ── Queries ──
@@ -91,6 +97,22 @@ export function workflowNodeRunsOptions(wsId: string, workflowId: string, runId:
       if (!runs || runs.length === 0) return false;
       const terminal = new Set(["completed", "critic_approved", "failed", "blocked", "skipped", "cancelled"]);
       const allDone = runs.every((nr: { status: string }) => terminal.has(nr.status));
+      return allDone ? false : 5000;
+    },
+  });
+}
+
+export function workflowRunCanvasSummaryOptions(wsId: string, workflowId: string, runId: string) {
+  return queryOptions({
+    queryKey: workflowKeys.runCanvasSummary(wsId, workflowId, runId),
+    queryFn: () => api.getWorkflowRunCanvasSummary(workflowId, runId),
+    refetchInterval: (query) => {
+      const summaries = query.state.data?.node_runtime_summaries;
+      if (!summaries || summaries.length === 0) return false;
+      const terminal = new Set(["completed", "blocked", "cancelled"]);
+      const allDone = summaries.every((summary: { display_status: string }) =>
+        terminal.has(summary.display_status),
+      );
       return allDone ? false : 5000;
     },
   });
@@ -285,6 +307,9 @@ export function useTakeoverNodeRun(wsId: string) {
         queryClient.invalidateQueries({
           queryKey: workflowKeys.nodeRuns(wsId, vars.workflowId, vars.runId),
         });
+        queryClient.invalidateQueries({
+          queryKey: workflowKeys.runCanvasSummary(wsId, vars.workflowId, vars.runId),
+        });
       }
       if (vars.sessionId) {
         queryClient.invalidateQueries({
@@ -304,6 +329,9 @@ export function useHandbackNodeRun(wsId: string) {
       if (vars.workflowId && vars.runId) {
         queryClient.invalidateQueries({
           queryKey: workflowKeys.nodeRuns(wsId, vars.workflowId, vars.runId),
+        });
+        queryClient.invalidateQueries({
+          queryKey: workflowKeys.runCanvasSummary(wsId, vars.workflowId, vars.runId),
         });
       }
       if (vars.sessionId) {
@@ -325,6 +353,9 @@ export function useFinalizeNodeRun(wsId: string) {
       if (vars.workflowId && vars.runId) {
         queryClient.invalidateQueries({
           queryKey: workflowKeys.nodeRuns(wsId, vars.workflowId, vars.runId),
+        });
+        queryClient.invalidateQueries({
+          queryKey: workflowKeys.runCanvasSummary(wsId, vars.workflowId, vars.runId),
         });
       }
       if (vars.sessionId) {
@@ -435,6 +466,81 @@ export function useAssignNodeToStage(wsId: string, workflowId: string) {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: workflowKeys.detail(wsId, workflowId) });
       queryClient.invalidateQueries({ queryKey: workflowKeys.nodes(wsId, workflowId) });
+    },
+  });
+}
+
+// ── Deliverable queries ───────────────────────────────────────────────────
+
+export function workflowNodeDeliverablesOptions(wsId: string, workflowId: string, nodeId: string) {
+  return queryOptions({
+    queryKey: workflowKeys.workflowNodeDeliverables(wsId, workflowId, nodeId),
+    queryFn: () => api.listWorkflowNodeDeliverables(workflowId, nodeId),
+  });
+}
+
+export function nodeRunDeliverableSubmissionsOptions(_wsId: string, nodeRunId: string) {
+  return queryOptions({
+    queryKey: workflowKeys.nodeRunDeliverables(nodeRunId),
+    queryFn: () => api.listNodeRunDeliverableSubmissions(nodeRunId),
+  });
+}
+
+// ── Role queries ───────────────────────────────────────────────────────────
+
+export function workflowRolesOptions(wsId: string) {
+  return queryOptions({
+    queryKey: workflowKeys.roles(wsId),
+    queryFn: () => api.listWorkflowRoles(),
+  });
+}
+
+// ── Deliverable mutations ─────────────────────────────────────────────────
+
+export function useCreateWorkflowNodeDeliverable(wsId: string, workflowId: string, nodeId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (req: { kind: string; title: string; description?: string; required?: boolean; sort_order?: number }) =>
+      api.createWorkflowNodeDeliverable(workflowId, nodeId, req),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: workflowKeys.workflowNodeDeliverables(wsId, workflowId, nodeId) });
+    },
+  });
+}
+
+export function useUpdateWorkflowNodeDeliverable(wsId: string, workflowId: string, nodeId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ deliverableId, ...req }: { deliverableId: string; kind?: string; title?: string; description?: string; required?: boolean; sort_order?: number }) =>
+      api.updateWorkflowNodeDeliverable(workflowId, nodeId, deliverableId, req),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: workflowKeys.workflowNodeDeliverables(wsId, workflowId, nodeId) });
+    },
+  });
+}
+
+export function useDeleteWorkflowNodeDeliverable(wsId: string, workflowId: string, nodeId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (deliverableId: string) => api.deleteWorkflowNodeDeliverable(workflowId, nodeId, deliverableId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: workflowKeys.workflowNodeDeliverables(wsId, workflowId, nodeId) });
+    },
+  });
+}
+
+export function useSubmitNodeRunDeliverable() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ nodeRunId, deliverableId, ...body }: {
+      nodeRunId: string;
+      deliverableId: string;
+      content?: string;
+      attachment_id?: string | null;
+      pull_request_url?: string;
+    }) => api.submitNodeRunDeliverable(nodeRunId, deliverableId, body),
+    onSuccess: (_data, vars) => {
+      queryClient.invalidateQueries({ queryKey: workflowKeys.nodeRunDeliverables(vars.nodeRunId) });
     },
   });
 }

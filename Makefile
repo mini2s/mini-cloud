@@ -1,4 +1,4 @@
-.PHONY: help makehelp dev server daemon cli cs-workflow build test migrate-up migrate-down sqlc seed clean setup start stop check worktree-env setup-main start-main stop-main check-main setup-worktree start-worktree stop-worktree check-worktree db-up db-down db-reset selfhost selfhost-build selfhost-stop
+.PHONY: help makehelp dev server daemon cli cs-workflow build test migrate-up migrate-down sqlc seed clean clean-frontend-cache setup start stop check worktree-env setup-main start-main stop-main check-main setup-worktree start-worktree stop-worktree check-worktree db-up db-down db-reset selfhost selfhost-build selfhost-stop
 
 MAIN_ENV_FILE ?= .env
 WORKTREE_ENV_FILE ?= .env.worktree
@@ -195,6 +195,7 @@ stop: ## Stop backend and frontend processes for the current checkout
 			taskkill -f -pid $$pid >/dev/null 2>&1 || true; \
 		done; \
 	fi
+	@$(MAKE) --no-print-directory clean-frontend-cache
 	@case "$(DATABASE_URL)" in \
 		""|*@localhost:*|*@localhost/*|*@127.0.0.1:*|*@127.0.0.1/*|*@\[::1\]:*|*@\[::1\]/*) \
 			echo "✓ App processes stopped. Shared PostgreSQL is still running on localhost:$(POSTGRES_PORT)." ;; \
@@ -321,3 +322,8 @@ sqlc: ## Regenerate sqlc code
 
 clean: ## Remove generated server binaries and temp files
 	rm -rf server/bin server/tmp
+
+clean-frontend-cache: ## Remove frontend build caches without deleting dependencies
+	@echo "Clearing frontend build caches..."
+	rm -rf .turbo node_modules/.cache apps/web/.next/cache apps/web/.next/dev apps/web/node_modules/.cache apps/desktop/node_modules/.vite
+	@echo "Frontend build caches cleared."

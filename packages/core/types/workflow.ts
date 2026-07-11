@@ -1,9 +1,38 @@
 export type WorkflowStatus = "draft" | "active" | "paused" | "archived";
-export type WorkerType = "human" | "agent" | "squad";
-export type CriticType = "human" | "agent" | "squad" | "api";
+export type WorkerType = "human" | "agent" | "squad" | "role";
+export type CriticType = "human" | "agent" | "squad" | "api" | "role";
+export type RoleActorType = "member" | "agent" | "squad";
 export type NodeShape = "rectangle" | "diamond" | "pill" | "hexagon";
+export type WorkflowNodeFormatKind = "task" | "gateway" | "annotation";
+export type GatewayKind = "fork" | "join";
+
+export interface WorkflowNodeFormat {
+  kind: WorkflowNodeFormatKind;
+  shape: NodeShape;
+  template_id: string | null;
+  template_category: string;
+  gateway_kind: GatewayKind | null;
+  gateway_kind_valid: boolean;
+}
 
 export const NODE_SHAPES: NodeShape[] = ["rectangle", "diamond", "pill", "hexagon"];
+
+const CATEGORY_DEFAULT_SHAPES: Record<string, NodeShape> = {
+  trigger: "pill",
+  logic: "diamond",
+  human: "hexagon",
+  action: "rectangle",
+  ai: "rectangle",
+};
+
+function parseTemplateCategory(formatSchema: unknown): string {
+  if (!formatSchema || typeof formatSchema !== "object" || Array.isArray(formatSchema)) {
+    return "action";
+  }
+
+  const value = (formatSchema as Record<string, unknown>).template_category;
+  return typeof value === "string" && value.trim() ? value : "action";
+}
 
 export function parseNodeShape(formatSchema: unknown): NodeShape {
   if (
@@ -15,7 +44,62 @@ export function parseNodeShape(formatSchema: unknown): NodeShape {
   ) {
     return (formatSchema as Record<string, unknown>).shape as NodeShape;
   }
-  return "rectangle";
+  return CATEGORY_DEFAULT_SHAPES[parseTemplateCategory(formatSchema)] ?? "rectangle";
+}
+
+function isGatewayKind(value: unknown): value is GatewayKind {
+  return value === "fork" || value === "join";
+}
+
+function readString(obj: Record<string, unknown>, key: string): string | null {
+  const value = obj[key];
+  return typeof value === "string" && value.trim() ? value : null;
+}
+
+export function parseNodeFormat(formatSchema: unknown): WorkflowNodeFormat {
+  const base: WorkflowNodeFormat = {
+    kind: "task",
+    shape: parseNodeShape(formatSchema),
+    template_id: null,
+    template_category: "action",
+    gateway_kind: null,
+    gateway_kind_valid: true,
+  };
+
+  if (!formatSchema || typeof formatSchema !== "object" || Array.isArray(formatSchema)) {
+    return base;
+  }
+
+  const schema = formatSchema as Record<string, unknown>;
+  const templateId = readString(schema, "template_id");
+  const templateCategory = readString(schema, "template_category") ?? "action";
+
+  if (schema.type === "annotation") {
+    return {
+      ...base,
+      kind: "annotation",
+      template_id: templateId,
+      template_category: templateCategory,
+    };
+  }
+
+  if (schema.type === "gateway") {
+    const gatewayKind = isGatewayKind(schema.gateway_kind) ? schema.gateway_kind : null;
+    return {
+      ...base,
+      kind: "gateway",
+      template_id: templateId,
+      template_category: templateCategory,
+      gateway_kind: gatewayKind,
+      gateway_kind_valid: gatewayKind !== null,
+    };
+  }
+
+  return {
+    ...base,
+    template_id: templateId,
+    template_category: templateCategory,
+  };
 }
 
 /** Map workflow node worker/critic type to actor type used by useActorName(). */
@@ -23,6 +107,7 @@ export function workerTypeToActorType(t: string): "member" | "agent" | "squad" {
   if (t === "human") return "member";
   if (t === "agent") return "agent";
   if (t === "squad") return "squad";
+  if (t === "role") return "agent"; // roles resolve to agents for actor-name lookup
   return "member";
 }
 
@@ -32,6 +117,45 @@ export type NodeRunStatus =
   | "critic_reviewing" | "critic_approved" | "critic_rework"
   | "completed" | "failed" | "blocked" | "skipped" | "cancelled";
 export type WorkflowRunStatus = "running" | "completed" | "failed" | "cancelled";
+export type WorkflowRuntimeDisplayStatus =
+  | "pending"
+  | "todo"
+  | "in_progress"
+  | "reviewing"
+  | "completed"
+  | "blocked"
+  | "cancelled";
+export type WorkflowDeliverableSignal = "none" | "red" | "yellow" | "green";
+
+export function toWorkflowRuntimeDisplayStatus(status: string): WorkflowRuntimeDisplayStatus {
+  switch (status) {
+    case "pending":
+      return "pending";
+    case "worker_assigned":
+      return "todo";
+    case "format_checking":
+    case "format_ok":
+    case "awaiting_input":
+    case "working":
+      return "in_progress";
+    case "awaiting_critic":
+    case "critic_reviewing":
+      return "reviewing";
+    case "critic_approved":
+    case "completed":
+      return "completed";
+    case "failed":
+    case "format_failed":
+    case "blocked":
+    case "critic_rework":
+      return "blocked";
+    case "cancelled":
+    case "skipped":
+      return "cancelled";
+    default:
+      return "pending";
+  }
+}
 
 export interface Workflow {
   id: string;
@@ -121,6 +245,30 @@ export interface WorkflowNodeRun {
   updated_at: string;
 }
 
+export interface WorkflowNodeRuntimeSummary {
+  workflow_node_id: string;
+  node_run_id: string;
+  display_status: WorkflowRuntimeDisplayStatus;
+  active_actor_type: string;
+  active_actor_id: string | null;
+  deliverable_signal: WorkflowDeliverableSignal;
+  required_deliverables_total: number;
+  required_deliverables_submitted: number;
+  required_deliverables_approved: number;
+  duration_seconds: number | null;
+  session_id: string | null;
+  runtime_id: string | null;
+  device_id: string | null;
+  has_error: boolean;
+  error_message: string;
+}
+
+export interface WorkflowRunCanvasSummaryResponse {
+  run: WorkflowRun;
+  node_runs: WorkflowNodeRun[];
+  node_runtime_summaries: WorkflowNodeRuntimeSummary[];
+}
+
 export interface CreateWorkflowRequest {
   title: string;
   description?: string;
@@ -145,6 +293,7 @@ export interface CreateNodeRequest {
   critic_type: CriticType;
   critic_id?: string | null;
   critic_api_url?: string | null;
+  stage_id?: string | null;
 }
 
 export interface UpdateNodeRequest {
@@ -228,4 +377,64 @@ export interface WorkflowAdmin {
   name: string;
   email: string;
   can_manage_workflows: boolean;
+}
+
+// ── Deliverable types ──────────────────────────────────────────────────────
+
+export type WorkflowDeliverableKind = "document" | "pull_request";
+export type WorkflowDeliverableSubmissionStatus = "missing" | "submitted" | "approved" | "rejected";
+
+export interface WorkflowNodeDeliverable {
+  id: string;
+  workflow_node_id: string;
+  kind: WorkflowDeliverableKind;
+  title: string;
+  description: string;
+  required: boolean;
+  sort_order: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface WorkflowNodeDeliverableSubmission {
+  id: string;
+  workflow_node_run_id: string;
+  deliverable_id: string;
+  submitted_by_type: "member" | "agent" | "system";
+  submitted_by_id: string | null;
+  status: WorkflowDeliverableSubmissionStatus;
+  content: string;
+  attachment_id: string | null;
+  pull_request_url: string;
+  review_comment: string;
+  submitted_at: string;
+  reviewed_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+/** Composite view joining a deliverable definition with its submission for a node run. */
+export interface DeliverableWithSubmission {
+  deliverable: WorkflowNodeDeliverable;
+  submission: WorkflowNodeDeliverableSubmission | null;
+}
+
+// ── Role types ──────────────────────────────────────────────────────────────
+
+export interface WorkflowRole {
+  id: string;
+  workspace_id: string;
+  name: string;
+  description: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface WorkflowRoleBinding {
+  id: string;
+  role_id: string;
+  actor_type: RoleActorType;
+  actor_id: string;
+  priority: number;
+  created_at: string;
 }
