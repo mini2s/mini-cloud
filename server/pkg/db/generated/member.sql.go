@@ -11,6 +11,66 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const activatePendingDeptMembersByUniversalID = `-- name: ActivatePendingDeptMembersByUniversalID :many
+UPDATE multica_member m
+SET user_id = $2,
+    status = 'active'
+WHERE m.external_universal_id = $1
+  AND m.status = 'pending_activation'
+  AND m.user_id IS NULL
+  AND NOT EXISTS (
+      SELECT 1
+      FROM multica_member existing
+      WHERE existing.workspace_id = m.workspace_id
+        AND existing.user_id = $2
+  )
+RETURNING id, workspace_id, user_id, role, created_at, source, status, external_user_id, external_universal_id, employee_id, org_display_name, dept_id, dept_name, dept_path, position, is_main_department, dept_user_status, last_synced_at
+`
+
+type ActivatePendingDeptMembersByUniversalIDParams struct {
+	ExternalUniversalID pgtype.Text `json:"external_universal_id"`
+	UserID              pgtype.UUID `json:"user_id"`
+}
+
+func (q *Queries) ActivatePendingDeptMembersByUniversalID(ctx context.Context, arg ActivatePendingDeptMembersByUniversalIDParams) ([]MulticaMember, error) {
+	rows, err := q.db.Query(ctx, activatePendingDeptMembersByUniversalID, arg.ExternalUniversalID, arg.UserID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []MulticaMember{}
+	for rows.Next() {
+		var i MulticaMember
+		if err := rows.Scan(
+			&i.ID,
+			&i.WorkspaceID,
+			&i.UserID,
+			&i.Role,
+			&i.CreatedAt,
+			&i.Source,
+			&i.Status,
+			&i.ExternalUserID,
+			&i.ExternalUniversalID,
+			&i.EmployeeID,
+			&i.OrgDisplayName,
+			&i.DeptID,
+			&i.DeptName,
+			&i.DeptPath,
+			&i.Position,
+			&i.IsMainDepartment,
+			&i.DeptUserStatus,
+			&i.LastSyncedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const createMember = `-- name: CreateMember :one
 INSERT INTO multica_member (workspace_id, user_id, role)
 VALUES ($1, $2, $3)

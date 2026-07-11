@@ -218,6 +218,16 @@ export interface BatchAddDeptMembersResponse {
   skipped: number;
 }
 
+export interface AssociateDeptIdentityRequest {
+  casdoor_universal_id: string;
+}
+
+export interface AssociateDeptIdentityResponse {
+  associated: boolean;
+  associated_count: number;
+  reason?: string | null;
+}
+
 export interface UpdateMemberRequest {
   role: MemberRole;
 }

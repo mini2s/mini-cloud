@@ -247,6 +247,54 @@ func (c *Client) SearchUsers(ctx context.Context, query string, limit int) ([]Us
 	return envelope.Data, nil
 }
 
+func (c *Client) GetUserDepartmentsByUniversalID(ctx context.Context, universalID string) ([]User, error) {
+	if !c.Configured() {
+		return nil, ErrNotConfigured
+	}
+	universalID = strings.TrimSpace(universalID)
+	if universalID == "" {
+		return nil, fmt.Errorf("universal_id is required")
+	}
+
+	u, err := url.Parse(c.baseURL + "/user/" + url.PathEscape(universalID) + "/departments")
+	if err != nil {
+		return nil, err
+	}
+	q := u.Query()
+	q.Set("type", "universal")
+	u.RawQuery = q.Encode()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("X-Query-Key", c.queryKey)
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, fmt.Errorf("dept user departments request failed with status %d", resp.StatusCode)
+	}
+	var envelope struct {
+		Success bool   `json:"success"`
+		Code    string `json:"code"`
+		Data    []User `json:"data"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&envelope); err != nil {
+		return nil, err
+	}
+	if !envelope.Success {
+		if envelope.Code == "" {
+			envelope.Code = "dept_request_failed"
+		}
+		return nil, errors.New(envelope.Code)
+	}
+	return envelope.Data, nil
+}
+
 func (c *Client) GetDepartment(ctx context.Context, deptID string) (*Department, error) {
 	if !c.Configured() {
 		return nil, ErrNotConfigured

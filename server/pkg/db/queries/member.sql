@@ -72,3 +72,18 @@ DO UPDATE SET
     dept_user_status = EXCLUDED.dept_user_status,
     last_synced_at = EXCLUDED.last_synced_at
 RETURNING *;
+
+-- name: ActivatePendingDeptMembersByUniversalID :many
+UPDATE multica_member m
+SET user_id = $2,
+    status = 'active'
+WHERE m.external_universal_id = $1
+  AND m.status = 'pending_activation'
+  AND m.user_id IS NULL
+  AND NOT EXISTS (
+      SELECT 1
+      FROM multica_member existing
+      WHERE existing.workspace_id = m.workspace_id
+        AND existing.user_id = $2
+  )
+RETURNING *;

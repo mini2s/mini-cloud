@@ -107,6 +107,7 @@ type workspaceDeptClient interface {
 	SearchDepartments(ctx context.Context, query string, limit int) ([]deptsync.Department, error)
 	ListDepartmentUsers(ctx context.Context, deptID string, includeChildren bool) ([]deptsync.User, error)
 	SearchUsers(ctx context.Context, query string, limit int) ([]deptsync.User, error)
+	GetUserDepartmentsByUniversalID(ctx context.Context, universalID string) ([]deptsync.User, error)
 }
 
 type Handler struct {

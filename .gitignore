@@ -68,3 +68,6 @@ data/
 .als/
 .cospec/
 .multica-pids
+
+# Local personal Docker Compose (full stack, not for commit)
+docker-compose.local.yml

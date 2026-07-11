@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/multica-ai/multica/server/internal/deptsync"
 )
 
@@ -28,6 +29,17 @@ func (f fakeWorkspaceDeptClient) SearchUsers(ctx context.Context, query string, 
 		if query == "" ||
 			strings.Contains(strings.ToLower(user.Username), query) ||
 			strings.Contains(strings.ToLower(user.UserID), query) {
+			out = append(out, user)
+		}
+	}
+	return out, nil
+}
+
+func (f fakeWorkspaceDeptClient) GetUserDepartmentsByUniversalID(ctx context.Context, universalID string) ([]deptsync.User, error) {
+	universalID = strings.TrimSpace(universalID)
+	out := make([]deptsync.User, 0, len(f.users))
+	for _, user := range f.users {
+		if strings.TrimSpace(user.UniversalID) == universalID {
 			out = append(out, user)
 		}
 	}
@@ -249,5 +261,221 @@ func TestBatchAddDeptMembersAddsResolvedAndPendingUsers(t *testing.T) {
 	}
 	if pendingStatus != "pending_activation" || pendingMemberUserID != nil || pendingDept != "Platform" || pendingEmployee != "E011" {
 		t.Fatalf("pending member mismatch: status=%q user_id=%v dept=%q employee=%q", pendingStatus, pendingMemberUserID, pendingDept, pendingEmployee)
+	}
+}
+
+func TestAssociateDeptIdentityActivatesExistingPendingMembers(t *testing.T) {
+	if testHandler == nil {
+		t.Skip("database not available")
+	}
+
+	ctx := context.Background()
+	const email = "associate-dept-user@example.test"
+	const slug = "handler-associate-dept-identity"
+	const universalID = "uni-associate-current"
+	_, _ = testPool.Exec(ctx, `DELETE FROM multica_workspace WHERE slug = $1`, slug)
+	_, _ = testPool.Exec(ctx, `DELETE FROM multica_user WHERE email = $1`, email)
+	t.Cleanup(func() {
+		_, _ = testPool.Exec(context.Background(), `DELETE FROM multica_workspace WHERE slug = $1`, slug)
+		_, _ = testPool.Exec(context.Background(), `DELETE FROM multica_user WHERE email = $1`, email)
+	})
+
+	var userID string
+	if err := testPool.QueryRow(ctx, `
+		INSERT INTO multica_user (name, email)
+		VALUES ('Associate Dept User', $1)
+		RETURNING id
+	`, email).Scan(&userID); err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+
+	var workspaceID string
+	if err := testPool.QueryRow(ctx, `
+		INSERT INTO multica_workspace (name, slug, description, issue_prefix)
+		VALUES ('Associate Dept Workspace', $1, '', 'ADW')
+		RETURNING id
+	`, slug).Scan(&workspaceID); err != nil {
+		t.Fatalf("create workspace: %v", err)
+	}
+	var memberID string
+	if err := testPool.QueryRow(ctx, `
+		INSERT INTO multica_member (
+			workspace_id, role, source, status, external_user_id, external_universal_id,
+			employee_id, org_display_name, dept_id, dept_name, dept_path, position
+		)
+		VALUES ($1, 'member', 'dept', 'pending_activation', 'E020', $2,
+			'E020', 'Associate Dept User', 'D200', 'Platform', 'R&D/Platform', 'Engineer')
+		RETURNING id
+	`, workspaceID, universalID).Scan(&memberID); err != nil {
+		t.Fatalf("create pending member: %v", err)
+	}
+
+	prev := testHandler.DeptSync
+	testHandler.DeptSync = fakeWorkspaceDeptClient{users: []deptsync.User{
+		{UserID: "E020", Username: "Associate Dept User", UniversalID: universalID, DeptID: "D200", DeptName: "Platform", DeptPath: "R&D/Platform", Position: "Engineer", Status: 1, IsMain: 1},
+	}}
+	t.Cleanup(func() { testHandler.DeptSync = prev })
+
+	w := httptest.NewRecorder()
+	req := newRequest(http.MethodPost, "/api/me/dept-association", map[string]string{
+		"casdoor_universal_id": universalID,
+	})
+	req.Header.Set("X-User-ID", userID)
+	testHandler.AssociateDeptIdentity(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("AssociateDeptIdentity: expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), `"associated":true`) || !strings.Contains(w.Body.String(), `"associated_count":1`) {
+		t.Fatalf("expected associated response, got %s", w.Body.String())
+	}
+
+	var gotUserID, gotStatus, gotUniversalID string
+	if err := testPool.QueryRow(ctx, `
+		SELECT user_id, status, external_universal_id
+		FROM multica_member
+		WHERE id = $1
+	`, memberID).Scan(&gotUserID, &gotStatus, &gotUniversalID); err != nil {
+		t.Fatalf("load member: %v", err)
+	}
+	if gotUserID != userID || gotStatus != "active" || gotUniversalID != universalID {
+		t.Fatalf("member mismatch: user_id=%q status=%q universal=%q", gotUserID, gotStatus, gotUniversalID)
+	}
+
+	var storedUniversalID string
+	if err := testPool.QueryRow(ctx, `SELECT casdoor_universal_id FROM multica_user WHERE id = $1`, userID).Scan(&storedUniversalID); err != nil {
+		t.Fatalf("load user universal id: %v", err)
+	}
+	if storedUniversalID != universalID {
+		t.Fatalf("user universal id = %q, want %q", storedUniversalID, universalID)
+	}
+}
+
+func TestAssociateDeptIdentityDoesNotBindWhenCurrentUserHasDifferentUniversalID(t *testing.T) {
+	if testHandler == nil {
+		t.Skip("database not available")
+	}
+
+	ctx := context.Background()
+	const email = "associate-dept-conflict@example.test"
+	const slug = "handler-associate-dept-conflict"
+	const requestedUniversalID = "uni-associate-requested"
+	const existingUniversalID = "uni-associate-existing"
+	_, _ = testPool.Exec(ctx, `DELETE FROM multica_workspace WHERE slug = $1`, slug)
+	_, _ = testPool.Exec(ctx, `DELETE FROM multica_user WHERE email = $1`, email)
+	t.Cleanup(func() {
+		_, _ = testPool.Exec(context.Background(), `DELETE FROM multica_workspace WHERE slug = $1`, slug)
+		_, _ = testPool.Exec(context.Background(), `DELETE FROM multica_user WHERE email = $1`, email)
+	})
+
+	var userID string
+	if err := testPool.QueryRow(ctx, `
+		INSERT INTO multica_user (name, email, casdoor_universal_id)
+		VALUES ('Associate Dept Conflict', $1, $2)
+		RETURNING id
+	`, email, existingUniversalID).Scan(&userID); err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+
+	var workspaceID string
+	if err := testPool.QueryRow(ctx, `
+		INSERT INTO multica_workspace (name, slug, description, issue_prefix)
+		VALUES ('Associate Dept Conflict Workspace', $1, '', 'ADC')
+		RETURNING id
+	`, slug).Scan(&workspaceID); err != nil {
+		t.Fatalf("create workspace: %v", err)
+	}
+	var memberID string
+	if err := testPool.QueryRow(ctx, `
+		INSERT INTO multica_member (
+			workspace_id, role, source, status, external_user_id, external_universal_id,
+			employee_id, org_display_name, dept_id, dept_name, dept_path, position
+		)
+		VALUES ($1, 'member', 'dept', 'pending_activation', 'E021', $2,
+			'E021', 'Associate Dept Conflict', 'D200', 'Platform', 'R&D/Platform', 'Engineer')
+		RETURNING id
+	`, workspaceID, requestedUniversalID).Scan(&memberID); err != nil {
+		t.Fatalf("create pending member: %v", err)
+	}
+
+	prev := testHandler.DeptSync
+	testHandler.DeptSync = fakeWorkspaceDeptClient{users: []deptsync.User{
+		{UserID: "E021", Username: "Associate Dept Conflict", UniversalID: requestedUniversalID, DeptID: "D200", DeptName: "Platform", DeptPath: "R&D/Platform", Position: "Engineer", Status: 1, IsMain: 1},
+	}}
+	t.Cleanup(func() { testHandler.DeptSync = prev })
+
+	w := httptest.NewRecorder()
+	req := newRequest(http.MethodPost, "/api/me/dept-association", map[string]string{
+		"casdoor_universal_id": requestedUniversalID,
+	})
+	req.Header.Set("X-User-ID", userID)
+	testHandler.AssociateDeptIdentity(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("AssociateDeptIdentity: expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), `"associated":false`) || !strings.Contains(w.Body.String(), `"reason":"universal_id_conflict"`) {
+		t.Fatalf("expected conflict response, got %s", w.Body.String())
+	}
+
+	var gotUserID *string
+	var gotStatus string
+	if err := testPool.QueryRow(ctx, `
+		SELECT user_id, status
+		FROM multica_member
+		WHERE id = $1
+	`, memberID).Scan(&gotUserID, &gotStatus); err != nil {
+		t.Fatalf("load member: %v", err)
+	}
+	if gotUserID != nil || gotStatus != "pending_activation" {
+		t.Fatalf("member should remain pending and unbound, got user_id=%v status=%q", gotUserID, gotStatus)
+	}
+}
+
+func TestAssociateDeptIdentityDoesNotPersistUniversalIDWithoutPendingMember(t *testing.T) {
+	if testHandler == nil {
+		t.Skip("database not available")
+	}
+
+	ctx := context.Background()
+	const email = "associate-dept-no-pending@example.test"
+	const universalID = "uni-associate-no-pending"
+	_, _ = testPool.Exec(ctx, `DELETE FROM multica_user WHERE email = $1`, email)
+	t.Cleanup(func() {
+		_, _ = testPool.Exec(context.Background(), `DELETE FROM multica_user WHERE email = $1`, email)
+	})
+
+	var userID string
+	if err := testPool.QueryRow(ctx, `
+		INSERT INTO multica_user (name, email)
+		VALUES ('Associate Dept No Pending', $1)
+		RETURNING id
+	`, email).Scan(&userID); err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+
+	prev := testHandler.DeptSync
+	testHandler.DeptSync = fakeWorkspaceDeptClient{users: []deptsync.User{
+		{UserID: "E022", Username: "Associate Dept No Pending", UniversalID: universalID, DeptID: "D200", DeptName: "Platform", DeptPath: "R&D/Platform", Position: "Engineer", Status: 1, IsMain: 1},
+	}}
+	t.Cleanup(func() { testHandler.DeptSync = prev })
+
+	w := httptest.NewRecorder()
+	req := newRequest(http.MethodPost, "/api/me/dept-association", map[string]string{
+		"casdoor_universal_id": universalID,
+	})
+	req.Header.Set("X-User-ID", userID)
+	testHandler.AssociateDeptIdentity(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("AssociateDeptIdentity: expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), `"associated":false`) || !strings.Contains(w.Body.String(), `"reason":"no_pending_member"`) {
+		t.Fatalf("expected no pending member response, got %s", w.Body.String())
+	}
+
+	var storedUniversalID pgtype.Text
+	if err := testPool.QueryRow(ctx, `SELECT casdoor_universal_id FROM multica_user WHERE id = $1`, userID).Scan(&storedUniversalID); err != nil {
+		t.Fatalf("load user universal id: %v", err)
+	}
+	if storedUniversalID.Valid {
+		t.Fatalf("user universal id should remain empty, got %q", storedUniversalID.String)
 	}
 }
