@@ -28,17 +28,18 @@ Multica 当前 workflow 每个节点只能产出 0~1 个子 issue。当遇到"�
 │  └─ 子 DAG 浮层 (子任务依赖关系可视化)            │
 ├─────────────────────────────────────────────────┤
 │  API 层                                          │
-│  ├─ POST /api/workflow-runs/:id/split/generate   │
-│  ├─ POST /api/workflow-runs/:id/split/approve    │
-│  ├─ GET  /api/workflow-runs/:id/split/tasks      │
-│  └─ POST /api/workflow-runs/:id/split/cancel     │
+│  ├─ POST /api/node-runs/:id/split/generate       │
+│  ├─ POST /api/node-runs/:id/split/approve        │
+│  ├─ GET  /api/node-runs/:id/split/tasks          │
+│  └─ POST /api/node-runs/:id/split/cancel         │
 ├─────────────────────────────────────────────────┤
 │  SplitOrchestrator                               │
 │  (server/internal/service/workflow_split.go)     │
 │  ├─ HandleSplitNode (状态转换入口)                │
 │  ├─ GenerateSplitTasks (Agent 派发)              │
 │  ├─ ApproveSplit (审核通过 → 批量创建子 issue)    │
-│  ├─ WatchSubTasks (WS 事件订阅 → 进度聚合)        │
+│  ├─ ScheduleReadyTasks (DAG + 并发调度)           │
+│  ├─ HandleChildRunStatusChanged (进度聚合)        │
 │  └─ ResolveSplit (barrier/pipeline 决断)         │
 ├─────────────────────────────────────────────────┤
 │  Workflow Engine (现有)                           │
@@ -47,8 +48,8 @@ Multica 当前 workflow 每个节点只能产出 0~1 个子 issue。当遇到"�
 │  └─ WS 事件广播 (子 NodeRun 状态变更)             │
 ├─────────────────────────────────────────────────┤
 │  数据层                                          │
-│  ├─ workflow_node_run (新增 split 状态)           │
-│  ├─ workflow_split_tasks (新表)                   │
+│  ├─ multica_workflow_node_run (新增 split 状态)   │
+│  ├─ multica_workflow_split_task (新表)            │
 │  └─ issues + workflow_runs (子 issue 及运行实例)   │
 └─────────────────────────────────────────────────┘
 ```
@@ -73,27 +74,28 @@ Multica 当前 workflow 每个节点只能产出 0~1 个子 issue。当遇到"�
   → 人在画布详情面板审核 (增删改、调依赖、部分通过)
   → 人点击"确认创建"
   → SplitOrchestrator.ApproveSplit()
-     ├─ workflow_split_tasks 中标记已审批的行
+     ├─ multica_workflow_split_task 中标记已审批的行
      ├─ 丢弃未选中的行 (discarded)
-     ├─ 逐个创建子 issue (CreateIssue)
-     ├─ 逐个绑定子 WorkflowRun (StartRun with sub_template_id)
-     ├─ 将子 issue_id/run_id 回写到 workflow_split_tasks
+     ├─ 逐个创建子 issue (materialize all approved tasks)
+     ├─ 将子 issue_id 回写到 multica_workflow_split_task
+     ├─ ready 子任务按 DAG + max_concurrency 启动子 WorkflowRun
+     ├─ 将子 run_id 回写到 multica_workflow_split_task
   → 状态 = split_active
-  → SplitOrchestrator.WatchSubTasks() 订阅 WS 事件
+  → SplitOrchestrator.ScheduleReadyTasks() 按后端回调/DB 状态持续调度
   → [barrier] 等待所有子任务终态 → completed | failed
-  → [pipeline] 子任务创建完成 → completed
+  → [pipeline] 已批准子 issue 全部创建成功 → completed
   → 下游节点激活
 ```
 
 ## 数据模型
 
-### 新表: `workflow_split_tasks`
+### 新表: `multica_workflow_split_task`
 
 ```sql
-CREATE TABLE workflow_split_tasks (
+CREATE TABLE multica_workflow_split_task (
   id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  node_run_id   UUID NOT NULL REFERENCES workflow_node_run(id) ON DELETE CASCADE,
-  workspace_id  UUID NOT NULL,
+  node_run_id   UUID NOT NULL REFERENCES multica_workflow_node_run(id) ON DELETE CASCADE,
+  workspace_id  UUID NOT NULL REFERENCES multica_workspace(id) ON DELETE CASCADE,
 
   -- 拆分方案内容 (Agent 生成或人工编辑)
   title         TEXT NOT NULL,
@@ -104,25 +106,43 @@ CREATE TABLE workflow_split_tasks (
   sort_order    INT NOT NULL DEFAULT 0,
 
   -- 生命周期状态
-  status        TEXT NOT NULL DEFAULT 'draft',
+  status        TEXT NOT NULL DEFAULT 'draft' CHECK (status IN (
+    'draft',
+    'approved',
+    'discarded',
+    'created',
+    'running',
+    'done',
+    'failed',
+    'cancelled',
+    'skipped'
+  )),
 
   -- 创建后回写
-  issue_id      UUID,
-  run_id        UUID,       -- 子 WorkflowRun ID
+  issue_id      UUID REFERENCES multica_issue(id) ON DELETE SET NULL,
+  run_id        UUID REFERENCES multica_workflow_run(id) ON DELETE SET NULL, -- 子 WorkflowRun ID
 
   created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at    TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
-CREATE INDEX idx_split_tasks_node_run ON workflow_split_tasks(node_run_id);
-CREATE INDEX idx_split_tasks_issue ON workflow_split_tasks(issue_id);
+CREATE INDEX idx_workflow_split_task_node_run ON multica_workflow_split_task(node_run_id);
+CREATE INDEX idx_workflow_split_task_issue ON multica_workflow_split_task(issue_id);
+CREATE INDEX idx_workflow_split_task_run ON multica_workflow_split_task(run_id);
 ```
 
 **status 流转**:
 ```
 draft → approved → created → running → done | failed | cancelled
+created → skipped
 draft → discarded
 ```
+
+状态含义：
+- `approved`: 人审核通过，尚未创建子 issue。
+- `created`: 子 issue 已创建，`issue_id` 已回写；子 workflow run 尚未启动，或正在等待依赖 / 并发配额。
+- `running`: 子 workflow run 已启动，`run_id` 已回写。
+- `skipped`: 上游依赖失败、取消或跳过后，当前任务被自动跳过，第一期不自动恢复。
 
 **depends_on 校验规则**:
 - 审核阶段校验循环依赖（DFS 检测，复用现有 DAG 算法）
@@ -145,9 +165,9 @@ draft → discarded
 }
 ```
 
-### `workflow_node_run` 新增状态
+### `multica_workflow_node_run` 新增状态
 
-在现有 16 个 NodeRunStatus 基础上新增 3 个：
+在当前 NodeRunStatus 基础上新增 3 个，并通过迁移更新 `multica_workflow_node_run.status` CHECK 约束：
 
 | 状态 | 含义 |
 |------|------|
@@ -164,11 +184,13 @@ pending → splitting → awaiting_split_review → split_active → completed
 
 `split_active → completed` 的触发条件：
 - **barrier**: 所有非 discarded 子任务到达终态，且失败数 ≤ max_failures
-- **pipeline**: 所有 approved 子任务创建完成后立即完成（不等待执行结果）
+- **pipeline**: 所有 approved 子任务对应的子 issue 创建完成后立即完成（不等待子 workflow run 启动或执行结果）
 
 `split_active → failed`: barrier 模式下失败数 > max_failures
 
 **pipeline 模式下的子任务失败**: 父 split 节点已完成，子任务独立失败不影响父节点。失败信息通过父 issue 进度面板内的子任务列表展示（带错误详情），用户可手动重试单个子任务。
+
+**子任务依赖失败处理**: 第一阶段采用保守跳过策略。若任务的任一依赖进入 `failed`、`cancelled` 或 `skipped`，该任务进入 `skipped`，不自动启动。后续版本可增加人工恢复 / 单任务重试后重新激活后继任务。
 
 与现有状态机的集成：`pending`、`completed`、`failed`、`cancelled` 是共享终态/入口状态。workflow service 在 `OnNodeRunTransition` 中检测 kind=split 时委托给 SplitOrchestrator，非 split 节点行为完全不变。
 
@@ -220,14 +242,14 @@ func (s *SplitOrchestrator) HandleSplitNode(
 
 1. Agent task 完成回调 → `HandleAgentTaskCompletion`
 2. 解析产出 JSON，校验至少 1 个 task
-3. 批量 INSERT `workflow_split_tasks`（status=draft）
+3. 批量 INSERT `multica_workflow_split_task`（status=draft）
 4. 将 `depends_on_indices` 翻译为 `depends_on` UUID 数组
 5. DFS 检测循环依赖 — 如有则触发 Agent 重试（带错误提示）
 6. WS 推送：画布节点刷新为"待审核"徽章
 
 ### 流程三: awaiting_split_review → split_active（人审核通过）
 
-API: `POST /api/workflow-runs/:runID/split/approve`
+API: `POST /api/node-runs/:nodeRunID/split/approve`
 
 在一个数据库事务中执行：
 
@@ -236,25 +258,33 @@ API: `POST /api/workflow-runs/:runID/split/approve`
 3. 应用修改（增删 task、改字段、调依赖）
 4. 再次 DFS 校验循环依赖
 5. 按拓扑排序确定创建顺序
-6. 逐个创建子 issue + 绑定 WorkflowRun:
+6. 逐个创建子 issue:
    - `title = split_task.title`
-   - `description = split_task.description + 前置任务输出上下文注入`
+   - `description = split_task.description`
    - `assignee = split_task.suggested_assignee`
-   - `origin_type = "workflow_split", origin_id = nodeRunID`
+   - `origin_type = "workflow_split", origin_id = split_task.id`
    - 继承父 issue 的 project_id
-   - `StartRun` 使用 `split_config.sub_template_id`
-7. 回写 `issue_id`, `run_id`, `status = "created"`
-8. **pipeline 模式**: 事务提交后立即 → `completed`
-9. **barrier 模式**: 启动 `WatchSubTasks`
+7. 回写 `issue_id`, `status = "created"`
+8. 事务提交后调用 `ScheduleReadyTasks(nodeRunID)`
+9. **pipeline 模式**: 所有 approved 子 issue 创建成功后，父 split node_run → `completed`
+10. **barrier 模式**: 父 split node_run 保持 `split_active`，等待子任务终态聚合
+
+子 workflow 启动规则：
+- `ScheduleReadyTasks` 只启动 `status = "created"` 且所有依赖均为 `done` 的子任务。
+- 启动时使用 `split_config.sub_template_id`，并复用现有 workflow-for-issue 链路：`StartRunForIssue`、为子 workflow 的每个 node_run 创建 sub-issue、再 `DispatchRootNodeRuns`。
+- 启动前将已完成依赖任务的输出摘要追加到子 issue 描述，作为该子 workflow 的输入上下文；审核阶段不注入前置输出，因为依赖任务尚未执行。
+- 启动成功后回写 `run_id`, `status = "running"`。
+- 启动失败时 `status = "failed"`，barrier 模式计入失败数。
 
 ### 流程四: split_active → completed | failed（子任务监控）
 
-`WatchSubTasks(nodeRun)`:
-- 订阅子 WorkflowRun 的 WS 事件
-- 每次子 NodeRun 状态变更:
-  - 更新 `workflow_split_tasks.status`（`created` → `running` → `done|failed`）
-  - 检查可启动的后继任务: `CanStart(task) = all(dep.status in {done, skipped}) AND runningCount < maxConcurrency`
-  - 对满足条件的: 如果 `status=approved`（尚未创建）→ 创建 issue + StartRun
+`HandleChildRunStatusChanged(nodeRun)`:
+- 由 `WorkflowService.OnNodeStatusChanged` / `OnRunTerminal` 回调触发，并以数据库查询作为事实来源
+- 每次子 workflow run 状态变更:
+  - 更新 `multica_workflow_split_task.status`（`created` → `running` → `done|failed`）
+  - 对依赖失败的后继任务标记 `skipped`
+  - 检查可启动的后继任务: `CanStart(task) = all(dep.status = done) AND runningCount < maxConcurrency`
+  - 对满足条件的: 如果 `status=created` → 启动子 workflow run
   - 聚合统计并 WS 推送到父画布
   - 检查终态条件:
     - barrier: 所有非 discarded 终态 → `completed`; `failed > max_failures` → `failed`
@@ -262,11 +292,11 @@ API: `POST /api/workflow-runs/:runID/split/approve`
 
 ### 取消路径
 
-API: `POST /api/workflow-runs/:runID/split/cancel`
+API: `POST /api/node-runs/:nodeRunID/split/cancel`
 
 - 前端触发二级确认对话框
 - 确认后级联操作:
-  - `workflow_split_tasks`: 所有非终态行 → `cancelled`
+  - `multica_workflow_split_task`: 所有非终态行 → `cancelled`
   - 子 WorkflowRun: 逐个调用 `CancelRun`
   - 子 issue: 状态 → `cancelled`
 - 父 node_run → `cancelled`
@@ -274,12 +304,14 @@ API: `POST /api/workflow-runs/:runID/split/cancel`
 
 ## API 设计
 
+Split API 采用扁平 `node-runs` 路径，和现有 `/api/node-runs/{nodeRunId}/submit|review|skip` 保持一致。Handler 必须先通过 `nodeRunID` 加载 `multica_workflow_node_run`，再反查 `workflow_run → workflow → workspace` 做权限校验；禁止只用 `runID` 定位 split。
+
 | Method | Path | Purpose |
 |--------|------|---------|
-| POST | `/api/workflow-runs/{runID}/split/generate` | Agent 重新生成拆分方案（审核拒绝后重试） |
-| POST | `/api/workflow-runs/{runID}/split/approve` | 审核通过，批量创建子 issue |
-| GET | `/api/workflow-runs/{runID}/split/tasks` | 获取拆分任务列表（含状态） |
-| POST | `/api/workflow-runs/{runID}/split/cancel` | 取消拆分节点（级联停止子任务） |
+| POST | `/api/node-runs/{nodeRunID}/split/generate` | Agent 重新生成拆分方案（审核拒绝后重试） |
+| POST | `/api/node-runs/{nodeRunID}/split/approve` | 审核通过，批量创建子 issue |
+| GET | `/api/node-runs/{nodeRunID}/split/tasks` | 获取拆分任务列表（含状态） |
+| POST | `/api/node-runs/{nodeRunID}/split/cancel` | 取消拆分节点（级联停止子任务） |
 
 `POST /approve` 请求体:
 
@@ -461,7 +493,7 @@ export interface SplitTask {
 
 export type SplitTaskStatus =
   | "draft" | "approved" | "discarded"
-  | "created" | "running" | "done" | "failed" | "cancelled";
+  | "created" | "running" | "done" | "failed" | "cancelled" | "skipped";
 
 export interface SplitConfig {
   sub_template_id: string;
@@ -482,11 +514,12 @@ export type SplitTaskModification =
 
 export interface SplitProgress {
   total: number;
-  pending: number;
+  created: number;
   running: number;
   done: number;
   failed: number;
   cancelled: number;
+  skipped: number;
 }
 
 // toWorkflowRuntimeDisplayStatus 新增映射:
@@ -499,21 +532,32 @@ export interface SplitProgress {
 
 ### 幂等性
 
-- Split 节点激活时检查是否已有 `workflow_split_tasks` 行（status=draft/approved/created），如有则跳过 Agent 生成，直接返回已有方案
-- `ApproveSplit` 检查已创建的 issue/run 不重复创建（按 `issue_id` 去重）
-- WS 事件重放通过 `node_run_id + status` 去重
+- Split 节点激活时检查是否已有 `multica_workflow_split_task` 行（status=draft/approved/created/running），如有则跳过 Agent 生成，直接返回已有方案
+- `ApproveSplit` 检查已创建的 issue 不重复创建（按 `split_task.id` 和 `issue_id` 去重）
+- `ScheduleReadyTasks` 检查已启动的 run 不重复创建（按 `split_task.run_id` 去重）
+- 后端状态回调重放通过 DB 当前状态判断是否需要推进，不依赖 WS 去重
 
 ### 失败恢复
 
 - Agent 生成拆分方案失败 → node_run 标记 `failed`，支持手动重试（`POST /split/generate`）
 - 子 issue 创建失败 → 事务回滚，node_run 保持 `awaiting_split_review`，提示用户
 - 子 WorkflowRun 启动失败 → 标记对应 split_task 为 `failed`，barrier 模式下计入失败数
+- 子任务依赖失败 / 取消 / 跳过 → 依赖它的 `created` 后继任务标记为 `skipped`
 - 子任务 DAG 循环依赖 → 审核阶段拒绝，显示具体环路
 
 ### 并发安全
 
-- `ApproveSplit` 使用 `SELECT ... FOR UPDATE` 锁定 `workflow_node_run` 行
-- `WatchSubTasks` 中对同一 node_run 的并发事件做串行处理（Go channel + goroutine）
+- `ApproveSplit` 使用 `SELECT ... FOR UPDATE` 锁定 `multica_workflow_node_run` 行
+- `ScheduleReadyTasks` 使用同一把 `multica_workflow_node_run` 行锁串行处理同一 split node_run
+- 子 workflow run 状态回调只记录事实并触发调度；最终决策以 `multica_workflow_split_task` 和子 `multica_workflow_run` 当前 DB 状态为准
+
+### 数据约束同步
+
+- `multica_issue.origin_type` CHECK 约束必须新增 `workflow_split`
+- 默认 issue 列表若继续隐藏 workflow 派生 issue，应同时排除 `origin_type IN ('workflow', 'workflow_split')`
+- `origin_type = "workflow_split"` 的一级子 issue 使用 `origin_id = split_task.id`
+- 子 workflow 内部 node 对应的 sub-issue 继续使用现有 `origin_type = "workflow"`、`origin_id = workflow_node_run.id`
+- 新增 API response schema 必须在 `packages/core/api/schemas.ts` 使用 zod + `parseWithFallback`，不允许裸 `as` cast 消费响应
 
 ### 级联保护
 
@@ -528,15 +572,20 @@ export interface SplitProgress {
 - DAG 循环依赖检测
 - 拓扑排序正确性
 - barrier/pipeline 终态判断
+- pipeline 模式在子 issue 全部创建后释放父下游，但后台调度仍继续
 - max_failures 边界条件（恰好等于、超出）
+- 审核后全部子 issue materialize，只有 ready 子任务启动 workflow run
+- 依赖失败后继任务进入 `skipped`
 - 事务回滚（子 issue 创建失败）
 - 幂等性（重复事件）
 - 并发调度逻辑（max_concurrency 限制生效）
 - 取消级联
+- API 以 `nodeRunID` 定位多个 split 节点，不串数据
 
 ### TypeScript 测试
 
 - `packages/core/types/workflow.test.ts`: `parseNodeFormat` 对 `type: "split"` 的解析、fallback
+- `packages/core/api/schemas.test.ts`: split API response malformed fallback
 - `packages/core/workflows/preflight-checks.test.ts`: split 预检项
 - `packages/views/`: Split 节点卡片渲染、审核面板交互、进度徽章
 
@@ -545,6 +594,7 @@ export interface SplitProgress {
 - 完整流程: 创建父 issue → Split 节点激活 → Agent 生成拆分 → 人审核通过 → 子任务创建并执行 → barrier 完成
 - pipeline 模式: 子任务创建即释放下游
 - 审核修改: 增删子任务、调依赖、部分通过
+- DAG 调度: 子 issue 全部可见，但依赖未满足的子 workflow run 不启动
 - 取消级联: 父节点取消 → 子任务全部停止
 - 嵌套防护: 子模板含 split 节点时编辑器拒绝激活
 
