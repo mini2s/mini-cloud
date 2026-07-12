@@ -10,6 +10,7 @@ import type {
   UpdateStageRequest,
   ReorderStagesItem,
   AssignNodeToStageRequest,
+  ApproveSplitRequest,
 } from "../types";
 
 export const workflowKeys = {
@@ -32,6 +33,8 @@ export const workflowKeys = {
     [...workflowKeys.nodes(wsId, workflowId), nodeId, "deliverables"] as const,
   nodeRunDeliverables: (nodeRunId: string) =>
     [...workflowKeys.nodeRunsAll(), nodeRunId, "deliverables"] as const,
+  splitTasks: (nodeRunId: string) =>
+    [...workflowKeys.nodeRunsAll(), nodeRunId, "split-tasks"] as const,
   roles: (wsId: string) => [...workflowKeys.all(wsId), "roles"] as const,
 };
 
@@ -132,6 +135,14 @@ export function useSessionPermission(sessionId: string | null | undefined) {
     queryFn: () => api.getSessionPermission(sessionId!),
     enabled: !!sessionId,
     staleTime: 30 * 1000,
+  });
+}
+
+export function splitTasksOptions(nodeRunId: string | null | undefined) {
+  return queryOptions({
+    queryKey: workflowKeys.splitTasks(nodeRunId ?? ""),
+    queryFn: () => api.listSplitTasks(nodeRunId!),
+    enabled: !!nodeRunId,
   });
 }
 
@@ -287,6 +298,50 @@ export function useSkipNodeRun(wsId: string) {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: workflowKeys.myTasks(wsId) });
     },
+  });
+}
+
+function invalidateSplitNodeQueries(
+  queryClient: ReturnType<typeof useQueryClient>,
+  wsId: string,
+  vars: { nodeRunId: string; workflowId?: string; runId?: string },
+) {
+  queryClient.invalidateQueries({ queryKey: workflowKeys.splitTasks(vars.nodeRunId) });
+  queryClient.invalidateQueries({ queryKey: workflowKeys.myTasks(wsId) });
+  if (vars.workflowId && vars.runId) {
+    queryClient.invalidateQueries({ queryKey: workflowKeys.nodeRuns(wsId, vars.workflowId, vars.runId) });
+    queryClient.invalidateQueries({ queryKey: workflowKeys.runCanvasSummary(wsId, vars.workflowId, vars.runId) });
+  }
+}
+
+interface SplitMutationVars {
+  nodeRunId: string;
+  workflowId?: string;
+  runId?: string;
+}
+
+export function useGenerateSplitTasks(wsId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ nodeRunId }: SplitMutationVars) => api.generateSplitTasks(nodeRunId),
+    onSuccess: (_data, vars) => invalidateSplitNodeQueries(queryClient, wsId, vars),
+  });
+}
+
+export function useApproveSplitTasks(wsId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ nodeRunId, request }: SplitMutationVars & { request: ApproveSplitRequest }) =>
+      api.approveSplitTasks(nodeRunId, request),
+    onSuccess: (_data, vars) => invalidateSplitNodeQueries(queryClient, wsId, vars),
+  });
+}
+
+export function useCancelSplitNode(wsId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ nodeRunId }: SplitMutationVars) => api.cancelSplitNode(nodeRunId),
+    onSuccess: (_data, vars) => invalidateSplitNodeQueries(queryClient, wsId, vars),
   });
 }
 

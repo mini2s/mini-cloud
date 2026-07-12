@@ -108,6 +108,8 @@ import type {
   WorkflowNodeRun,
   WorkflowRunCanvasSummaryResponse,
   WorkflowStage,
+  ApproveSplitRequest,
+  SplitTasksResponse,
   CreateWorkflowRequest,
   UpdateWorkflowRequest,
   CreateNodeRequest,
@@ -188,6 +190,8 @@ import {
   EMPTY_WORKFLOW_NODES_RESPONSE,
   WorkflowEdgesResponseSchema,
   EMPTY_WORKFLOW_EDGES_RESPONSE,
+  SplitTasksResponseSchema,
+  EMPTY_SPLIT_TASKS_RESPONSE,
   WorkflowStagesResponseSchema,
   ListWorkflowRunsResponseSchema,
   EMPTY_LIST_WORKFLOW_RUNS_RESPONSE,
@@ -2099,6 +2103,38 @@ export class ApiClient {
 
   async skipNodeRun(nodeRunId: string): Promise<WorkflowNodeRun> {
     return this.fetch(`/api/node-runs/${nodeRunId}/skip`, {
+      method: "POST",
+    });
+  }
+
+  async generateSplitTasks(nodeRunId: string): Promise<SplitTasksResponse> {
+    const raw = await this.fetch<unknown>(`/api/node-runs/${nodeRunId}/split/generate`, {
+      method: "POST",
+    });
+    return parseWithFallback(raw, SplitTasksResponseSchema, EMPTY_SPLIT_TASKS_RESPONSE, {
+      endpoint: "POST /api/node-runs/:id/split/generate",
+    });
+  }
+
+  async approveSplitTasks(nodeRunId: string, req: ApproveSplitRequest): Promise<SplitTasksResponse> {
+    const raw = await this.fetch<unknown>(`/api/node-runs/${nodeRunId}/split/approve`, {
+      method: "POST",
+      body: JSON.stringify(req),
+    });
+    return parseWithFallback(raw, SplitTasksResponseSchema, EMPTY_SPLIT_TASKS_RESPONSE, {
+      endpoint: "POST /api/node-runs/:id/split/approve",
+    });
+  }
+
+  async listSplitTasks(nodeRunId: string): Promise<SplitTasksResponse> {
+    const raw = await this.fetch<unknown>(`/api/node-runs/${nodeRunId}/split/tasks`);
+    return parseWithFallback(raw, SplitTasksResponseSchema, EMPTY_SPLIT_TASKS_RESPONSE, {
+      endpoint: "GET /api/node-runs/:id/split/tasks",
+    });
+  }
+
+  async cancelSplitNode(nodeRunId: string): Promise<WorkflowNodeRun> {
+    return this.fetch(`/api/node-runs/${nodeRunId}/split/cancel`, {
       method: "POST",
     });
   }

@@ -63,19 +63,22 @@ const (
 
 // validTransitions defines the allowed status transitions for a node run.
 var validTransitions = map[string][]string{
-	NodeRunStatusPending:         {NodeRunStatusFormatChecking, NodeRunStatusSkipped, NodeRunStatusCancelled},
-	NodeRunStatusFormatChecking:  {NodeRunStatusFormatOk, NodeRunStatusCompleted, NodeRunStatusFormatFailed, NodeRunStatusCancelled},
-	NodeRunStatusFormatOk:        {NodeRunStatusWorkerAssigned, NodeRunStatusWorking, NodeRunStatusCancelled, NodeRunStatusSkipped},
-	NodeRunStatusFormatFailed:    {},
-	NodeRunStatusWorkerAssigned:  {NodeRunStatusWorking, NodeRunStatusCancelled, NodeRunStatusSkipped},
-	NodeRunStatusWorking:         {NodeRunStatusAwaitingInput, NodeRunStatusAwaitingCritic, NodeRunStatusFailed, NodeRunStatusCancelled, NodeRunStatusBlocked},
-	NodeRunStatusAwaitingInput:   {NodeRunStatusWorking, NodeRunStatusCancelled, NodeRunStatusSkipped},
-	NodeRunStatusAwaitingCritic:  {NodeRunStatusCriticReviewing, NodeRunStatusCancelled, NodeRunStatusSkipped},
-	NodeRunStatusCriticReviewing: {NodeRunStatusCriticApproved, NodeRunStatusCriticRework, NodeRunStatusCancelled},
-	NodeRunStatusCriticApproved:  {NodeRunStatusCompleted},
-	NodeRunStatusCriticRework:    {NodeRunStatusFormatOk, NodeRunStatusBlocked},
-	NodeRunStatusCompleted:       {},
-	NodeRunStatusFailed:          {},
+	NodeRunStatusPending:             {NodeRunStatusFormatChecking, NodeRunStatusSplitting, NodeRunStatusSkipped, NodeRunStatusCancelled},
+	NodeRunStatusFormatChecking:      {NodeRunStatusFormatOk, NodeRunStatusCompleted, NodeRunStatusFormatFailed, NodeRunStatusCancelled},
+	NodeRunStatusFormatOk:            {NodeRunStatusWorkerAssigned, NodeRunStatusWorking, NodeRunStatusCancelled, NodeRunStatusSkipped},
+	NodeRunStatusFormatFailed:        {},
+	NodeRunStatusWorkerAssigned:      {NodeRunStatusWorking, NodeRunStatusCancelled, NodeRunStatusSkipped},
+	NodeRunStatusWorking:             {NodeRunStatusAwaitingInput, NodeRunStatusAwaitingCritic, NodeRunStatusFailed, NodeRunStatusCancelled, NodeRunStatusBlocked},
+	NodeRunStatusAwaitingInput:       {NodeRunStatusWorking, NodeRunStatusCancelled, NodeRunStatusSkipped},
+	NodeRunStatusAwaitingCritic:      {NodeRunStatusCriticReviewing, NodeRunStatusCancelled, NodeRunStatusSkipped},
+	NodeRunStatusCriticReviewing:     {NodeRunStatusCriticApproved, NodeRunStatusCriticRework, NodeRunStatusCancelled},
+	NodeRunStatusCriticApproved:      {NodeRunStatusCompleted},
+	NodeRunStatusCriticRework:        {NodeRunStatusFormatOk, NodeRunStatusBlocked},
+	NodeRunStatusCompleted:           {},
+	NodeRunStatusFailed:              {},
+	NodeRunStatusSplitting:           {NodeRunStatusAwaitingSplitReview, NodeRunStatusFailed, NodeRunStatusCancelled},
+	NodeRunStatusAwaitingSplitReview: {NodeRunStatusSplitting, NodeRunStatusSplitActive, NodeRunStatusCancelled},
+	NodeRunStatusSplitActive:         {NodeRunStatusCompleted, NodeRunStatusFailed, NodeRunStatusCancelled},
 	// blocked is reached two ways: rework-exhausted ("stuck", completed_at set)
 	// and human takeover ("paused", completed_at NULL). Both reuse the status;
 	// the extra outgoing edges below serve the takeover lifecycle —

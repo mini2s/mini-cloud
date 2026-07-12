@@ -11,7 +11,8 @@ SELECT i.id, i.workspace_id, i.title, i.description, i.status, i.priority,
 FROM multica_issue i
 WHERE i.workspace_id = $1
   AND (sqlc.narg('exclude_workflow_origin')::bool IS NULL
-       OR i.origin_type IS DISTINCT FROM 'workflow')
+       OR i.origin_type IS NULL
+       OR i.origin_type NOT IN ('workflow', 'workflow_split'))
   AND (sqlc.narg('status')::text IS NULL OR i.status = sqlc.narg('status'))
   AND (sqlc.narg('priority')::text IS NULL OR i.priority = sqlc.narg('priority'))
   AND (sqlc.narg('assignee_id')::uuid IS NULL OR i.assignee_id = sqlc.narg('assignee_id'))
@@ -157,7 +158,8 @@ FROM multica_issue i
 WHERE i.workspace_id = $1
   AND i.status NOT IN ('done', 'cancelled')
   AND (sqlc.narg('exclude_workflow_origin')::bool IS NULL
-       OR i.origin_type IS DISTINCT FROM 'workflow')
+       OR i.origin_type IS NULL
+       OR i.origin_type NOT IN ('workflow', 'workflow_split'))
   AND (sqlc.narg('priority')::text IS NULL OR i.priority = sqlc.narg('priority'))
   AND (sqlc.narg('assignee_id')::uuid IS NULL OR i.assignee_id = sqlc.narg('assignee_id'))
   AND (sqlc.narg('assignee_ids')::uuid[] IS NULL OR i.assignee_id = ANY(sqlc.narg('assignee_ids')::uuid[]))
@@ -203,7 +205,8 @@ ORDER BY i.position ASC, i.created_at DESC;
 SELECT count(*) FROM multica_issue i
 WHERE i.workspace_id = $1
   AND (sqlc.narg('exclude_workflow_origin')::bool IS NULL
-       OR i.origin_type IS DISTINCT FROM 'workflow')
+       OR i.origin_type IS NULL
+       OR i.origin_type NOT IN ('workflow', 'workflow_split'))
   AND (sqlc.narg('status')::text IS NULL OR i.status = sqlc.narg('status'))
   AND (sqlc.narg('priority')::text IS NULL OR i.priority = sqlc.narg('priority'))
   AND (sqlc.narg('assignee_id')::uuid IS NULL OR i.assignee_id = sqlc.narg('assignee_id'))
@@ -258,9 +261,9 @@ ORDER BY position ASC, created_at DESC;
 -- construction (parent_issue_id always points within the same workspace), but
 -- the filter makes the invariant a SQL-layer guarantee.
 WITH RECURSIVE descendants AS (
-    SELECT id, workspace_id, parent_issue_id::uuid, 0::int AS depth
-    FROM multica_issue
-    WHERE parent_issue_id = $1 AND workspace_id = $2
+    SELECT i.id, i.workspace_id, i.parent_issue_id::uuid AS parent_issue_id, 0::int AS depth
+    FROM multica_issue i
+    WHERE i.parent_issue_id = $1 AND i.workspace_id = $2
     UNION ALL
     SELECT i.id, i.workspace_id, i.parent_issue_id, d.depth + 1
     FROM multica_issue i

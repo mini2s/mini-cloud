@@ -564,6 +564,10 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 			r.Post("/api/node-runs/{nodeRunId}/submit", h.SubmitNodeRun)
 			r.Post("/api/node-runs/{nodeRunId}/review", h.ReviewNodeRun)
 			r.Post("/api/node-runs/{nodeRunId}/skip", h.SkipNodeRun)
+			r.Post("/api/node-runs/{nodeRunId}/split/generate", h.GenerateSplitTasks)
+			r.Post("/api/node-runs/{nodeRunId}/split/approve", h.ApproveSplitTasks)
+			r.Get("/api/node-runs/{nodeRunId}/split/tasks", h.ListSplitTasks)
+			r.Post("/api/node-runs/{nodeRunId}/split/cancel", h.CancelSplitNode)
 			// Human takeover / handback around a live CSC session (Design Two).
 			r.Post("/api/node-runs/{nodeRunId}/blocked", h.TakeoverNodeRun)
 			r.Post("/api/node-runs/{nodeRunId}/working", h.HandbackNodeRun)

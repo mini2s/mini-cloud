@@ -5,11 +5,15 @@ import {
   DashboardUsageDailyListSchema,
   DuplicateIssueErrorBodySchema,
   EMPTY_USER,
+  EMPTY_SPLIT_PROGRESS,
+  EMPTY_SPLIT_TASKS_RESPONSE,
   ListIssuesResponseSchema,
   RuntimeHourlyActivityListSchema,
   RuntimeUsageByAgentListSchema,
   RuntimeUsageByHourListSchema,
   RuntimeUsageListSchema,
+  SplitProgressSchema,
+  SplitTasksResponseSchema,
   UserSchema,
 } from "./schemas";
 import { parseWithFallback } from "./schema";
@@ -77,6 +81,59 @@ describe("IssueSchema (via ListIssuesResponseSchema)", () => {
     const payload = { issues: [{ ...baseIssue, stage_id: "stage-1" }], total: 1 };
     const parsed = ListIssuesResponseSchema.parse(payload);
     expect(parsed.issues[0]?.stage_id).toBe("stage-1");
+  });
+});
+
+describe("split API response schemas", () => {
+  const validTask = {
+    id: "task-1",
+    node_run_id: "node-run-1",
+    title: "Implement API",
+    description: "Build split endpoints",
+    suggested_assignee_type: "agent",
+    suggested_assignee_id: "agent-1",
+    depends_on: ["task-0"],
+    sort_order: 2,
+    status: "running",
+    issue_id: "issue-1",
+    run_id: "run-1",
+    created_at: "2026-07-12T00:00:00Z",
+    updated_at: "2026-07-12T00:01:00Z",
+  };
+
+  it("accepts split task lists and keeps unknown fields", () => {
+    const parsed = SplitTasksResponseSchema.parse({
+      tasks: [{ ...validTask, server_hint: "future" }],
+      progress: { total: 1, created: 0, running: 1, done: 0, failed: 0, cancelled: 0, skipped: 0 },
+    });
+    expect(parsed.tasks[0]?.depends_on).toEqual(["task-0"]);
+    expect((parsed.tasks[0] as Record<string, unknown>).server_hint).toBe("future");
+  });
+
+  it("defaults missing nullable split task fields", () => {
+    const { suggested_assignee_type: _a, suggested_assignee_id: _b, issue_id: _c, run_id: _d, depends_on: _e, ...partial } = validTask;
+    const parsed = SplitTasksResponseSchema.parse({ tasks: [partial] });
+    expect(parsed.tasks[0]?.suggested_assignee_type).toBeNull();
+    expect(parsed.tasks[0]?.suggested_assignee_id).toBeNull();
+    expect(parsed.tasks[0]?.issue_id).toBeNull();
+    expect(parsed.tasks[0]?.run_id).toBeNull();
+    expect(parsed.tasks[0]?.depends_on).toEqual([]);
+    expect(parsed.progress).toEqual(EMPTY_SPLIT_PROGRESS);
+  });
+
+  it("falls back when split task response has the wrong shape", () => {
+    const parsed = parseWithFallback(
+      { tasks: [{ ...validTask, depends_on: "task-0" }] },
+      SplitTasksResponseSchema,
+      EMPTY_SPLIT_TASKS_RESPONSE,
+      { endpoint: "GET /api/node-runs/:id/split/tasks" },
+    );
+    expect(parsed).toBe(EMPTY_SPLIT_TASKS_RESPONSE);
+  });
+
+  it("defaults missing split progress counts to zero", () => {
+    const parsed = SplitProgressSchema.parse({ total: 3, running: 1 });
+    expect(parsed).toEqual({ total: 3, created: 0, running: 1, done: 0, failed: 0, cancelled: 0, skipped: 0 });
   });
 });
 

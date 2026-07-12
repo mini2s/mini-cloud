@@ -18,6 +18,8 @@ import type {
   WorkflowNodeRun,
   WorkflowRunCanvasSummaryResponse,
   WorkflowStage,
+  SplitProgress,
+  SplitTasksResponse,
   RuntimePermission,
   SessionPermissionResponse,
 } from "../types";
@@ -219,6 +221,52 @@ export const SubscribersListSchema = z.array(SubscriberSchema);
 export const ChildIssuesResponseSchema = z.object({
   issues: z.array(IssueSchema).default([]),
 }).loose();
+
+export const SplitProgressSchema = z.object({
+  total: z.number().default(0),
+  created: z.number().default(0),
+  running: z.number().default(0),
+  done: z.number().default(0),
+  failed: z.number().default(0),
+  cancelled: z.number().default(0),
+  skipped: z.number().default(0),
+}).loose();
+
+export const EMPTY_SPLIT_PROGRESS: SplitProgress = {
+  total: 0,
+  created: 0,
+  running: 0,
+  done: 0,
+  failed: 0,
+  cancelled: 0,
+  skipped: 0,
+};
+
+const SplitTaskSchema = z.object({
+  id: z.string(),
+  node_run_id: z.string(),
+  title: z.string().default(""),
+  description: z.string().default(""),
+  suggested_assignee_type: z.string().nullable().default(null),
+  suggested_assignee_id: z.string().nullable().default(null),
+  depends_on: z.array(z.string()).default([]),
+  sort_order: z.number().default(0),
+  status: z.string().default("draft"),
+  issue_id: z.string().nullable().default(null),
+  run_id: z.string().nullable().default(null),
+  created_at: z.string().default(""),
+  updated_at: z.string().default(""),
+}).loose();
+
+export const SplitTasksResponseSchema = z.object({
+  tasks: z.array(SplitTaskSchema).default([]),
+  progress: SplitProgressSchema.default(EMPTY_SPLIT_PROGRESS as any),
+}).loose();
+
+export const EMPTY_SPLIT_TASKS_RESPONSE: SplitTasksResponse = {
+  tasks: [],
+  progress: EMPTY_SPLIT_PROGRESS,
+};
 
 export const CloudRuntimeNodeSchema = z.object({
   id: z.string(),

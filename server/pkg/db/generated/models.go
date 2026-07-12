@@ -820,6 +820,23 @@ type MulticaWorkflowRun struct {
 	RuntimeID       pgtype.UUID        `json:"runtime_id"`
 }
 
+type MulticaWorkflowSplitTask struct {
+	ID                    pgtype.UUID        `json:"id"`
+	NodeRunID             pgtype.UUID        `json:"node_run_id"`
+	WorkspaceID           pgtype.UUID        `json:"workspace_id"`
+	Title                 string             `json:"title"`
+	Description           string             `json:"description"`
+	SuggestedAssigneeType pgtype.Text        `json:"suggested_assignee_type"`
+	SuggestedAssigneeID   pgtype.UUID        `json:"suggested_assignee_id"`
+	DependsOn             []byte             `json:"depends_on"`
+	SortOrder             int32              `json:"sort_order"`
+	Status                string             `json:"status"`
+	IssueID               pgtype.UUID        `json:"issue_id"`
+	RunID                 pgtype.UUID        `json:"run_id"`
+	CreatedAt             pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt             pgtype.Timestamptz `json:"updated_at"`
+}
+
 type MulticaWorkflowStage struct {
 	ID          pgtype.UUID        `json:"id"`
 	WorkflowID  pgtype.UUID        `json:"workflow_id"`

@@ -3,8 +3,16 @@ export type WorkerType = "human" | "agent" | "squad" | "role";
 export type CriticType = "human" | "agent" | "squad" | "api" | "role";
 export type RoleActorType = "member" | "agent" | "squad";
 export type NodeShape = "rectangle" | "diamond" | "pill" | "hexagon";
-export type WorkflowNodeFormatKind = "task" | "gateway" | "annotation";
+export type WorkflowNodeFormatKind = "task" | "gateway" | "annotation" | "split";
 export type GatewayKind = "fork" | "join";
+export type SplitMode = "barrier" | "pipeline";
+
+export interface SplitConfig {
+  sub_template_id: string | null;
+  mode: SplitMode;
+  max_concurrency: number;
+  max_failures: number;
+}
 
 export interface WorkflowNodeFormat {
   kind: WorkflowNodeFormatKind;
@@ -13,6 +21,8 @@ export interface WorkflowNodeFormat {
   template_category: string;
   gateway_kind: GatewayKind | null;
   gateway_kind_valid: boolean;
+  split_config: SplitConfig | null;
+  split_config_valid: boolean;
 }
 
 export const NODE_SHAPES: NodeShape[] = ["rectangle", "diamond", "pill", "hexagon"];
@@ -51,6 +61,10 @@ function isGatewayKind(value: unknown): value is GatewayKind {
   return value === "fork" || value === "join";
 }
 
+function isSplitMode(value: unknown): value is SplitMode {
+  return value === "barrier" || value === "pipeline";
+}
+
 function readString(obj: Record<string, unknown>, key: string): string | null {
   const value = obj[key];
   return typeof value === "string" && value.trim() ? value : null;
@@ -64,6 +78,8 @@ export function parseNodeFormat(formatSchema: unknown): WorkflowNodeFormat {
     template_category: "action",
     gateway_kind: null,
     gateway_kind_valid: true,
+    split_config: null,
+    split_config_valid: true,
   };
 
   if (!formatSchema || typeof formatSchema !== "object" || Array.isArray(formatSchema)) {
@@ -95,6 +111,43 @@ export function parseNodeFormat(formatSchema: unknown): WorkflowNodeFormat {
     };
   }
 
+  if (schema.type === "split") {
+    const rawConfig = schema.split_config;
+    const config = rawConfig && typeof rawConfig === "object" && !Array.isArray(rawConfig)
+      ? rawConfig as Record<string, unknown>
+      : {};
+    const subTemplateId = readString(config, "sub_template_id");
+    const rawMaxConcurrency = config.max_concurrency;
+    const rawMaxFailures = config.max_failures;
+    const maxConcurrencyValid =
+      typeof rawMaxConcurrency === "number" &&
+      Number.isInteger(rawMaxConcurrency) &&
+      rawMaxConcurrency >= 1 &&
+      rawMaxConcurrency <= 20;
+    const maxFailuresValid =
+      typeof rawMaxFailures === "number" &&
+      Number.isInteger(rawMaxFailures) &&
+      rawMaxFailures >= 0;
+    const splitConfig: SplitConfig = {
+      sub_template_id: subTemplateId,
+      mode: isSplitMode(config.mode) ? config.mode : "barrier",
+      max_concurrency: maxConcurrencyValid ? rawMaxConcurrency : 5,
+      max_failures: maxFailuresValid ? rawMaxFailures : 0,
+    };
+    return {
+      ...base,
+      kind: "split",
+      template_id: templateId,
+      template_category: templateCategory,
+      split_config: splitConfig,
+      split_config_valid:
+        subTemplateId !== null &&
+        (config.mode == null || isSplitMode(config.mode)) &&
+        (rawMaxConcurrency == null || maxConcurrencyValid) &&
+        (rawMaxFailures == null || maxFailuresValid),
+    };
+  }
+
   return {
     ...base,
     template_id: templateId,
@@ -115,7 +168,8 @@ export type NodeRunStatus =
   | "pending" | "format_checking" | "format_ok" | "format_failed"
   | "worker_assigned" | "working" | "awaiting_input" | "awaiting_critic"
   | "critic_reviewing" | "critic_approved" | "critic_rework"
-  | "completed" | "failed" | "blocked" | "skipped" | "cancelled";
+  | "completed" | "failed" | "blocked" | "skipped" | "cancelled"
+  | "splitting" | "awaiting_split_review" | "split_active";
 export type WorkflowRunStatus = "running" | "completed" | "failed" | "cancelled";
 export type WorkflowRuntimeDisplayStatus =
   | "pending"
@@ -137,9 +191,12 @@ export function toWorkflowRuntimeDisplayStatus(status: string): WorkflowRuntimeD
     case "format_ok":
     case "awaiting_input":
     case "working":
+    case "splitting":
+    case "split_active":
       return "in_progress";
     case "awaiting_critic":
     case "critic_reviewing":
+    case "awaiting_split_review":
       return "reviewing";
     case "critic_approved":
     case "completed":
@@ -244,6 +301,74 @@ export interface WorkflowNodeRun {
   created_at: string;
   updated_at: string;
 }
+
+export type SplitTaskStatus =
+  | "draft"
+  | "approved"
+  | "discarded"
+  | "created"
+  | "running"
+  | "done"
+  | "failed"
+  | "cancelled"
+  | "skipped";
+
+export type SplitTaskAssigneeType = "member" | "agent" | "squad";
+
+export interface SplitTask {
+  id: string;
+  node_run_id: string;
+  title: string;
+  description: string;
+  suggested_assignee_type: SplitTaskAssigneeType | null;
+  suggested_assignee_id: string | null;
+  depends_on: string[];
+  sort_order: number;
+  status: SplitTaskStatus;
+  issue_id: string | null;
+  run_id: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface SplitProgress {
+  total: number;
+  created: number;
+  running: number;
+  done: number;
+  failed: number;
+  cancelled: number;
+  skipped: number;
+}
+
+export interface SplitTasksResponse {
+  tasks: SplitTask[];
+  progress: SplitProgress;
+}
+
+export interface ApproveSplitRequest {
+  approved_task_ids: string[];
+  modifications: SplitTaskModification[];
+}
+
+export type SplitTaskModification =
+  | {
+      id: string;
+      title?: string;
+      description?: string;
+      depends_on?: string[];
+      suggested_assignee_type?: SplitTaskAssigneeType | null;
+      suggested_assignee_id?: string | null;
+    }
+  | {
+      action: "add";
+      title: string;
+      description: string;
+      depends_on?: string[];
+      suggested_assignee_type?: SplitTaskAssigneeType | null;
+      suggested_assignee_id?: string | null;
+    }
+  | { action: "delete"; id: string };
 
 export interface WorkflowNodeRuntimeSummary {
   workflow_node_id: string;

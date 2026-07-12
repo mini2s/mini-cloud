@@ -6,6 +6,7 @@ import {
   checkWorkerMissing,
   checkInvalidCriticRef,
   checkStageMissing,
+  checkSplitTemplateConfig,
   runAllPreflightChecks,
 } from "./preflight-checks";
 import type { WorkflowNode, WorkflowEdge, WorkflowStage } from "../types";
@@ -305,6 +306,54 @@ describe("checkStageMissing", () => {
   });
 });
 
+// ── checkSplitTemplateConfig ──
+
+describe("checkSplitTemplateConfig", () => {
+  it("blocks split nodes without a sub_template_id", () => {
+    const nodes = [
+      makeNode({ id: "split", title: "Split work", format_schema: { type: "split", split_config: { mode: "barrier" } } }),
+    ];
+    const issues = checkSplitTemplateConfig(nodes, []);
+    expect(issues).toHaveLength(1);
+    expect(issues[0]!.checkId).toBe("split-template-missing");
+    expect(issues[0]!.blocking).toBe(true);
+  });
+
+  it("blocks split nodes whose sub template is inactive", () => {
+    const nodes = [
+      makeNode({
+        id: "split",
+        title: "Split work",
+        format_schema: { type: "split", split_config: { sub_template_id: "template-1", mode: "barrier" } },
+      }),
+    ];
+    const issues = checkSplitTemplateConfig(nodes, [
+      { id: "template-1", status: "draft", nodes: [] },
+    ]);
+    expect(issues).toHaveLength(1);
+    expect(issues[0]!.checkId).toBe("split-template-inactive");
+  });
+
+  it("blocks split nodes whose sub template contains another split node", () => {
+    const nodes = [
+      makeNode({
+        id: "split",
+        title: "Split work",
+        format_schema: { type: "split", split_config: { sub_template_id: "template-1", mode: "barrier" } },
+      }),
+    ];
+    const issues = checkSplitTemplateConfig(nodes, [
+      {
+        id: "template-1",
+        status: "active",
+        nodes: [makeNode({ id: "nested", format_schema: { type: "split", split_config: { sub_template_id: "template-2" } } })],
+      },
+    ]);
+    expect(issues).toHaveLength(1);
+    expect(issues[0]!.checkId).toBe("split-template-nested");
+  });
+});
+
 // ── runAllPreflightChecks ──
 
 describe("runAllPreflightChecks", () => {
@@ -331,6 +380,7 @@ describe("runAllPreflightChecks", () => {
       edges,
       stages,
       agentIds: new Set(["agent-1"]),
+      splitTemplates: [],
     });
     expect(result.passed).toBe(false);
     // "a" has worker-missing + stage-missing = 2 issues
@@ -350,6 +400,7 @@ describe("runAllPreflightChecks", () => {
       edges: [],
       stages,
       agentIds: new Set(["agent-1"]),
+      splitTemplates: [],
     });
     // worker-missing (blocking) should come before stage-missing (warning)
     expect(result.issues[0]!.blocking).toBe(true);

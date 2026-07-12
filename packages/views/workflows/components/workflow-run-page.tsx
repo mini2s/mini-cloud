@@ -19,7 +19,7 @@ import { ReactFlowProvider } from "@xyflow/react";
 import { NodeRunCard } from "./node-run-card";
 import type { WorkflowRunStatus, NodeRunStatus } from "@multica/core/types";
 
-const RUNNING_STATES = new Set<NodeRunStatus>(["format_checking", "working", "critic_reviewing"]);
+const RUNNING_STATES = new Set<NodeRunStatus>(["format_checking", "working", "critic_reviewing", "splitting", "split_active"]);
 
 const STATUS_COLOR: Record<NodeRunStatus, string> = {
   pending: "rgba(107,114,128,0.2)",
@@ -33,6 +33,9 @@ const STATUS_COLOR: Record<NodeRunStatus, string> = {
   critic_reviewing: "rgba(168,85,247,0.3)",
   critic_approved: "rgba(34,197,94,0.25)",
   critic_rework: "rgba(249,115,22,0.25)",
+  splitting: "rgba(59,130,246,0.3)",
+  awaiting_split_review: "rgba(245,158,11,0.3)",
+  split_active: "rgba(59,130,246,0.3)",
   completed: "rgba(34,197,94,0.3)",
   failed: "rgba(239,68,68,0.3)",
   blocked: "rgba(239,68,68,0.3)",

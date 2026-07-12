@@ -12,7 +12,10 @@ export type PreflightCheckId =
   | "gateway-fork-outgoing"
   | "gateway-join-incoming"
   | "gateway-kind-invalid"
-  | "gateway-join-multiple-outgoing";
+  | "gateway-join-multiple-outgoing"
+  | "split-template-missing"
+  | "split-template-inactive"
+  | "split-template-nested";
 
 export type PreflightSeverity = "error" | "warning";
 
@@ -42,6 +45,10 @@ function isAnnotation(node: WorkflowNode): boolean {
 
 function isGateway(node: WorkflowNode): boolean {
   return parseNodeFormat(node.format_schema).kind === "gateway";
+}
+
+function isSplit(node: WorkflowNode): boolean {
+  return parseNodeFormat(node.format_schema).kind === "split";
 }
 
 // ── Check functions ──
@@ -206,7 +213,7 @@ export function checkUnreachableNodes(
 /** Detect nodes without an assigned worker. */
 export function checkWorkerMissing(nodes: WorkflowNode[]): PreflightIssue[] {
   return nodes
-    .filter((n) => !isAnnotation(n) && !isGateway(n) && (!n.worker_type || !n.worker_id))
+    .filter((n) => !isAnnotation(n) && !isGateway(n) && !isSplit(n) && (!n.worker_type || !n.worker_id))
     .map((n) => ({
       checkId: "worker-missing" as const,
       severity: "error" as const,
@@ -221,7 +228,7 @@ export function checkWorkerMissing(nodes: WorkflowNode[]): PreflightIssue[] {
 export function checkInvalidCriticRef(nodes: WorkflowNode[], agentIds: Set<string>): PreflightIssue[] {
   return nodes
     .filter((n) => {
-      if (isGateway(n)) return false;
+      if (isGateway(n) || isSplit(n)) return false;
       if (!n.critic_id) return false;
       if (n.critic_type !== "agent") return false;
       return !agentIds.has(n.critic_id);
@@ -239,7 +246,7 @@ export function checkInvalidCriticRef(nodes: WorkflowNode[], agentIds: Set<strin
 /** Detect nodes without a stage assignment. */
 export function checkStageMissing(nodes: WorkflowNode[]): PreflightIssue[] {
   return nodes
-    .filter((n) => !isAnnotation(n) && !isGateway(n) && !n.stage_id)
+    .filter((n) => !isAnnotation(n) && !isGateway(n) && !isSplit(n) && !n.stage_id)
     .map((n) => ({
       checkId: "stage-missing" as const,
       severity: "warning" as const,
@@ -248,6 +255,63 @@ export function checkStageMissing(nodes: WorkflowNode[]): PreflightIssue[] {
       nodeTitle: n.title,
       message: "Assign this node to a stage",
     }));
+}
+
+export interface SplitTemplatePreflightContext {
+  id: string;
+  status: string;
+  nodes: WorkflowNode[];
+}
+
+export function checkSplitTemplateConfig(
+  nodes: WorkflowNode[],
+  splitTemplates: SplitTemplatePreflightContext[] = [],
+): PreflightIssue[] {
+  const templatesByID = new Map(splitTemplates.map((template) => [template.id, template]));
+  const issues: PreflightIssue[] = [];
+
+  for (const node of nodes) {
+    const format = parseNodeFormat(node.format_schema);
+    if (format.kind !== "split") continue;
+
+    const subTemplateID = format.split_config?.sub_template_id;
+    if (!subTemplateID) {
+      issues.push({
+        checkId: "split-template-missing",
+        severity: "error",
+        blocking: true,
+        nodeId: node.id,
+        nodeTitle: node.title,
+        message: "Split node needs a child workflow template",
+      });
+      continue;
+    }
+
+    const template = templatesByID.get(subTemplateID);
+    if (template && template.status !== "active") {
+      issues.push({
+        checkId: "split-template-inactive",
+        severity: "error",
+        blocking: true,
+        nodeId: node.id,
+        nodeTitle: node.title,
+        message: "Split child template must be active",
+      });
+    }
+
+    if (template?.nodes.some((templateNode) => parseNodeFormat(templateNode.format_schema).kind === "split")) {
+      issues.push({
+        checkId: "split-template-nested",
+        severity: "error",
+        blocking: true,
+        nodeId: node.id,
+        nodeTitle: node.title,
+        message: "Split child template cannot contain another split node",
+      });
+    }
+  }
+
+  return issues;
 }
 
 export function checkGatewayTopology(nodes: WorkflowNode[], edges: WorkflowEdge[]): PreflightIssue[] {
@@ -323,6 +387,7 @@ export interface PreflightCheckInput {
   edges: WorkflowEdge[];
   stages: WorkflowStage[];
   agentIds: Set<string>;
+  splitTemplates?: SplitTemplatePreflightContext[];
 }
 
 export function runAllPreflightChecks(input: PreflightCheckInput): PreflightResult {
@@ -340,6 +405,7 @@ export function runAllPreflightChecks(input: PreflightCheckInput): PreflightResu
     ...checkInvalidCriticRef(nodes, agentIds),
     ...checkStageMissing(nodes),
     ...checkGatewayTopology(nodes, edges),
+    ...checkSplitTemplateConfig(nodes, input.splitTemplates ?? []),
   ];
 
   // Sort: blocking first, then by checkId, then by nodeTitle

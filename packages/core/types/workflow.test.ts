@@ -10,6 +10,8 @@ describe("workflow node format parsing", () => {
       template_category: "action",
       gateway_kind: null,
       gateway_kind_valid: true,
+      split_config: null,
+      split_config_valid: true,
     });
   });
 
@@ -27,6 +29,8 @@ describe("workflow node format parsing", () => {
       template_category: "logic",
       gateway_kind: "fork",
       gateway_kind_valid: true,
+      split_config: null,
+      split_config_valid: true,
     });
   });
 
@@ -38,6 +42,8 @@ describe("workflow node format parsing", () => {
       template_category: "action",
       gateway_kind: null,
       gateway_kind_valid: false,
+      split_config: null,
+      split_config_valid: true,
     });
   });
 
@@ -48,6 +54,46 @@ describe("workflow node format parsing", () => {
         shape: "rectangle",
         template_id: "sticky-note",
         template_category: "annotation",
+      });
+  });
+
+  it("parses split format with split_config defaults and validation", () => {
+    expect(parseNodeFormat({
+      type: "split",
+      template_id: "task-splitter",
+      template_category: "logic",
+      split_config: {
+        sub_template_id: "workflow-template-1",
+        mode: "pipeline",
+        max_concurrency: 12,
+        max_failures: 2,
+      },
+    })).toMatchObject({
+      kind: "split",
+      shape: "diamond",
+      template_id: "task-splitter",
+      template_category: "logic",
+      split_config: {
+        sub_template_id: "workflow-template-1",
+        mode: "pipeline",
+        max_concurrency: 12,
+        max_failures: 2,
+      },
+      split_config_valid: true,
+    });
+  });
+
+  it("falls back invalid split_config to conservative defaults", () => {
+    expect(parseNodeFormat({ type: "split", split_config: { mode: "fast", max_concurrency: 99, max_failures: -1 } }))
+      .toMatchObject({
+        kind: "split",
+        split_config: {
+          sub_template_id: null,
+          mode: "barrier",
+          max_concurrency: 5,
+          max_failures: 0,
+        },
+        split_config_valid: false,
       });
   });
 
@@ -76,6 +122,9 @@ describe("workflow node format parsing", () => {
     expect(toWorkflowRuntimeDisplayStatus("awaiting_input")).toBe("in_progress");
     expect(toWorkflowRuntimeDisplayStatus("working")).toBe("in_progress");
     expect(toWorkflowRuntimeDisplayStatus("awaiting_critic")).toBe("reviewing");
+    expect(toWorkflowRuntimeDisplayStatus("splitting")).toBe("in_progress");
+    expect(toWorkflowRuntimeDisplayStatus("awaiting_split_review")).toBe("reviewing");
+    expect(toWorkflowRuntimeDisplayStatus("split_active")).toBe("in_progress");
     expect(toWorkflowRuntimeDisplayStatus("critic_approved")).toBe("completed");
     expect(toWorkflowRuntimeDisplayStatus("failed")).toBe("blocked");
     expect(toWorkflowRuntimeDisplayStatus("cancelled")).toBe("cancelled");

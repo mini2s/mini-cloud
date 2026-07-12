@@ -16,7 +16,7 @@ import type { WorkflowNodeRun, NodeRunStatus } from "@multica/core/types";
 import { NodeRunControlActions } from "./node-run-control-actions";
 
 const STATUS_ACTIVE: Set<NodeRunStatus> = new Set([
-  "format_checking", "working", "critic_reviewing",
+  "format_checking", "working", "critic_reviewing", "splitting", "split_active",
 ]);
 
 const STATUS_COLOR: Record<string, string> = {
@@ -31,6 +31,9 @@ const STATUS_COLOR: Record<string, string> = {
   critic_reviewing: "bg-purple-500/20 text-purple-500",
   critic_approved: "bg-emerald-500/20 text-emerald-500",
   critic_rework: "bg-orange-500/20 text-orange-500",
+  splitting: "bg-blue-500/20 text-blue-500",
+  awaiting_split_review: "bg-amber-500/20 text-amber-500",
+  split_active: "bg-blue-500/20 text-blue-500",
   completed: "bg-emerald-500/20 text-emerald-500",
   failed: "bg-red-500/20 text-red-500",
   blocked: "bg-red-500/20 text-red-500",
@@ -81,7 +84,7 @@ export function NodeRunCard({ nodeRun, maxRetries = 3, workflowId, runId }: Node
   const isActive = STATUS_ACTIVE.has(status);
   const canSubmit = status === "worker_assigned" || status === "working";
   const canReview = status === "awaiting_critic";
-  const canSkip = !["completed", "failed", "cancelled", "skipped"].includes(status);
+  const canSkip = !["completed", "failed", "cancelled", "skipped", "awaiting_split_review", "split_active"].includes(status);
 
   return (
     <div className="border rounded-lg p-3 space-y-2">
