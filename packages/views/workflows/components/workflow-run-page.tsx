@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useWorkspaceId } from "@multica/core/hooks";
 import {
@@ -17,7 +18,8 @@ import { useT } from "../../i18n";
 import { DAGCanvas } from "./dag-canvas";
 import { ReactFlowProvider } from "@xyflow/react";
 import { NodeRunCard } from "./node-run-card";
-import type { WorkflowRunStatus, NodeRunStatus } from "@multica/core/types";
+import { parseNodeFormat, type WorkflowRunStatus, type NodeRunStatus } from "@multica/core/types";
+import { SplitReviewPanel } from "./split/split-review-panel";
 
 const RUNNING_STATES = new Set<NodeRunStatus>(["format_checking", "working", "critic_reviewing", "splitting", "split_active"]);
 
@@ -48,9 +50,72 @@ interface WorkflowRunPageProps {
   runId: string;
 }
 
+type WorkflowTranslator = ReturnType<typeof useT<"workflows">>["t"];
+
+function formatWorkflowRunStatus(t: WorkflowTranslator, status: WorkflowRunStatus): string {
+  switch (status) {
+    case "running":
+      return t(($) => $.run.status.running);
+    case "completed":
+      return t(($) => $.run.status.completed);
+    case "failed":
+      return t(($) => $.run.status.failed);
+    case "cancelled":
+      return t(($) => $.run.status.cancelled);
+    default:
+      return status;
+  }
+}
+
+function formatNodeRunStatus(t: WorkflowTranslator, status: NodeRunStatus): string {
+  switch (status) {
+    case "pending":
+      return t(($) => $.node_run.status.pending);
+    case "format_checking":
+      return t(($) => $.node_run.status.format_checking);
+    case "format_ok":
+      return t(($) => $.node_run.status.format_ok);
+    case "format_failed":
+      return t(($) => $.node_run.status.format_failed);
+    case "worker_assigned":
+      return t(($) => $.node_run.status.worker_assigned);
+    case "working":
+      return t(($) => $.node_run.status.working);
+    case "awaiting_input":
+      return t(($) => $.node_run.status.awaiting_input);
+    case "awaiting_critic":
+      return t(($) => $.node_run.status.awaiting_critic);
+    case "critic_reviewing":
+      return t(($) => $.node_run.status.critic_reviewing);
+    case "critic_approved":
+      return t(($) => $.node_run.status.critic_approved);
+    case "critic_rework":
+      return t(($) => $.node_run.status.critic_rework);
+    case "splitting":
+      return t(($) => $.node_run.status.splitting);
+    case "awaiting_split_review":
+      return t(($) => $.node_run.status.awaiting_split_review);
+    case "split_active":
+      return t(($) => $.node_run.status.split_active);
+    case "completed":
+      return t(($) => $.node_run.status.completed);
+    case "failed":
+      return t(($) => $.node_run.status.failed);
+    case "blocked":
+      return t(($) => $.node_run.status.blocked);
+    case "skipped":
+      return t(($) => $.node_run.status.skipped);
+    case "cancelled":
+      return t(($) => $.node_run.status.cancelled);
+    default:
+      return status;
+  }
+}
+
 export function WorkflowRunPage({ workflowId, runId }: WorkflowRunPageProps) {
   const { t } = useT("workflows");
   const wsId = useWorkspaceId();
+  const [selectedSplitNodeId, setSelectedSplitNodeId] = useState<string | null>(null);
 
   const { data: run, isLoading: runLoading } = useQuery(workflowRunOptions(wsId, workflowId, runId));
   const { data: nodes = [], isLoading: nodesLoading } = useQuery(workflowNodesOptions(wsId, workflowId));
@@ -62,6 +127,7 @@ export function WorkflowRunPage({ workflowId, runId }: WorkflowRunPageProps) {
   const isLoading = runLoading || nodesLoading || nodeRunsLoading;
 
   const nodeRunByNodeId = new Map(nodeRuns.map((nr) => [nr.workflow_node_id, nr]));
+  const nodeById = new Map(nodes.map((node) => [node.id, node]));
 
   const nodeStatusColors: Record<string, string> = {};
   const nodeStatuses: Record<string, { status: string; isRunning: boolean; isAwaitingInput: boolean }> = {};
@@ -71,12 +137,26 @@ export function WorkflowRunPage({ workflowId, runId }: WorkflowRunPageProps) {
       const s = nr.status as NodeRunStatus;
       nodeStatusColors[node.id] = STATUS_COLOR[s] ?? "fill-muted stroke-muted";
       nodeStatuses[node.id] = {
-        status: t(($) => ($.run.status as Record<string, string>)[s] ?? s),
+        status: formatNodeRunStatus(t, s),
         isRunning: RUNNING_STATES.has(s),
         isAwaitingInput: s === "awaiting_input",
       };
     }
   }
+
+  const splitNodeIds = new Set(
+    nodes
+      .filter((node) => parseNodeFormat(node.format_schema).kind === "split")
+      .map((node) => node.id),
+  );
+  const selectedSplitNode = selectedSplitNodeId ? nodeById.get(selectedSplitNodeId) ?? null : null;
+  const selectedSplitNodeRun = selectedSplitNodeId ? nodeRunByNodeId.get(selectedSplitNodeId) ?? null : null;
+
+  const handleNodeClick = (nodeId: string) => {
+    if (splitNodeIds.has(nodeId)) {
+      setSelectedSplitNodeId(nodeId);
+    }
+  };
 
   const handleCancel = () => {
     cancelMutation.mutate({ workflowId, runId });
@@ -107,7 +187,7 @@ export function WorkflowRunPage({ workflowId, runId }: WorkflowRunPageProps) {
         <div className="flex items-center gap-2 min-w-0">
           <h1 className="text-sm font-medium truncate">{run.workflow_title}</h1>
           <Badge variant="secondary" className="text-[10px] px-1.5 h-4">
-            {t(($) => ($.run.status as Record<string, string>)[run.status as WorkflowRunStatus] ?? run.status)}
+            {formatWorkflowRunStatus(t, run.status as WorkflowRunStatus)}
           </Badge>
         </div>
         <div className="flex items-center gap-2">
@@ -134,6 +214,7 @@ export function WorkflowRunPage({ workflowId, runId }: WorkflowRunPageProps) {
                 edges={edges}
                 nodeStatusColors={nodeStatusColors}
                 nodeStatuses={nodeStatuses}
+                onNodeClick={handleNodeClick}
               />
             </ReactFlowProvider>
           ) : (
@@ -153,10 +234,22 @@ export function WorkflowRunPage({ workflowId, runId }: WorkflowRunPageProps) {
               maxRetries={3}
               workflowId={workflowId}
               runId={runId}
+              isSplitNode={splitNodeIds.has(nr.workflow_node_id)}
+              onOpenSplit={() => setSelectedSplitNodeId(nr.workflow_node_id)}
             />
           ))}
         </div>
       </div>
+      {selectedSplitNode ? (
+        <SplitReviewPanel
+          node={selectedSplitNode}
+          nodeRun={selectedSplitNodeRun}
+          wsId={wsId}
+          workflowId={workflowId}
+          runId={runId}
+          onClose={() => setSelectedSplitNodeId(null)}
+        />
+      ) : null}
     </div>
   );
 }

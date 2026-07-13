@@ -129,7 +129,6 @@ export const CompactWorkerNode = memo(function CompactWorkerNode({
       lateralHandleTop={WORKER_HEIGHT / 2}
       addConnectedNodeLabel={nodeData.addConnectedNodeLabel}
       onAddConnectedNode={nodeData.onAddConnectedNode ? addConnectedNode : undefined}
-      surfaceClassName={isSplit ? "border-transparent bg-transparent shadow-none ring-0 group-hover:border-transparent group-hover:ring-0 group-hover:shadow-none" : undefined}
     >
       {isSplit ? (
         <SplitNodeCard

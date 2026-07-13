@@ -449,6 +449,67 @@ describe("RuntimeNodeCard", () => {
     expect(screen.queryByTestId("runtime-node-deliverables")).not.toBeInTheDocument();
   });
 
+  it("keeps the visible canvas surface and split card chrome for split nodes", () => {
+    render(
+      <RuntimeNodeCard
+        node={{
+          ...baseNode,
+          id: "split-chrome",
+          title: "Task split",
+          format_schema: {
+            type: "split",
+            template_id: "task-splitter",
+            template_category: "logic",
+            shape: "rectangle",
+            split_config: {
+              sub_template_id: "child-wf-1",
+              mode: "barrier",
+              max_concurrency: 5,
+              max_failures: 0,
+            },
+          },
+        }}
+        nodeRun={{ ...completedRun, workflow_node_id: "split-chrome", status: "split_active" }}
+        runtimeSummary={{
+          ...runtimeSummary,
+          workflow_node_id: "split-chrome",
+          node_run_id: "run-chrome",
+          display_status: "in_progress",
+          split_progress: {
+            total: 2,
+            created: 1,
+            running: 1,
+            done: 0,
+            failed: 0,
+            cancelled: 0,
+            skipped: 0,
+          },
+        }}
+        workerName="Tester"
+        criticName="Reviewer"
+        onClick={vi.fn()}
+      />,
+    );
+
+    const card = screen.getByTestId("runtime-node-card-split-chrome");
+    const surface = card.querySelector('[data-node-shape-surface="true"]');
+    expect(surface?.className).toContain("bg-gradient-to-br");
+    expect(surface?.className).toContain("border-white/80");
+    expect(surface?.className).not.toContain("bg-transparent");
+    expect(surface?.className).not.toContain("border-transparent");
+    expect(surface?.className).not.toContain("shadow-none");
+
+    const splitCard = Array.from(card.querySelectorAll("div")).find((element) =>
+      element.textContent?.includes("Task split") &&
+      element.className.includes("border-border"),
+    );
+    expect(splitCard?.className).toContain("border-border");
+    expect(splitCard?.className).toContain("bg-card");
+    expect(splitCard?.className).not.toContain("border-0");
+    expect(splitCard?.className).not.toContain("bg-transparent");
+    expect(splitCard?.className).not.toContain("shadow-none");
+  });
+
   it("renders split progress badge when runtime summary includes aggregated progress", () => {
     render(
       <RuntimeNodeCard

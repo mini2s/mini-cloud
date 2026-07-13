@@ -447,7 +447,7 @@ describe("NodeConfigPanel", () => {
     expect(screen.queryByTestId("deliverables-editor")).not.toBeInTheDocument();
   });
 
-  it("renders split settings and suppresses critic and deliverable configuration", () => {
+  it("renders split settings without worker critic or deliverable configuration", () => {
     render(
       <NodeConfigPanel
         node={{
@@ -478,9 +478,11 @@ describe("NodeConfigPanel", () => {
     expect(screen.getByLabelText("Child template")).toHaveValue("wf-template-2");
     expect(screen.getByLabelText("Max concurrency")).toHaveValue(3);
     expect(screen.getByLabelText("Max failures")).toHaveValue(1);
+    expect(screen.queryByText("Worker")).not.toBeInTheDocument();
     expect(screen.queryByText("Critic")).not.toBeInTheDocument();
+    expect(screen.queryByText("Deliverables")).not.toBeInTheDocument();
     expect(screen.queryByTestId("deliverables-editor")).not.toBeInTheDocument();
-    expect(screen.getByText("Split nodes do not define deliverables.")).toBeInTheDocument();
+    expect(screen.queryByText("Split nodes do not define deliverables.")).not.toBeInTheDocument();
   });
 
   it("updates split format_schema fields without dropping existing metadata", () => {

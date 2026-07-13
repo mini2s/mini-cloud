@@ -399,7 +399,6 @@ export function RuntimeNodeCard({
       handles={handles}
       lateralHandleTop={lateralHandleTop}
       elementRef={elementRef}
-      surfaceClassName={isSplit ? "border-transparent bg-transparent shadow-none ring-0 group-hover:border-transparent group-hover:ring-0 group-hover:shadow-none" : undefined}
     >
       {isSplit ? (
         <SplitNodeCard
@@ -409,7 +408,7 @@ export function RuntimeNodeCard({
           progress={splitProgress}
           taskCount={splitProgress?.total ?? 0}
           subTemplateName={displayStatusLabel}
-          className="h-full w-full min-h-0 border-0 bg-transparent p-0 shadow-none"
+          className="h-full w-full min-h-0"
         />
       ) : (
         <>

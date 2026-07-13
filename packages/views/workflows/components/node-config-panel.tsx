@@ -786,94 +786,94 @@ export function NodeConfigPanel({
                   />
                 ) : null}
 
-                <AssignmentCard
-                  icon={<Bot className="size-4" />}
-                  title={t(($) => $.node.section_worker)}
-                  subtitle={t(($) => $.detail_panel.worker_subtitle)}
-                  status={workerConfigured ? <StatusBadge tone="success">{t(($) => $.detail_panel.badge_configured)}</StatusBadge> : <StatusBadge tone="warning">{t(($) => $.detail_panel.badge_needs_assignee)}</StatusBadge>}
-                >
-                  <AssignmentModeControl<"direct" | "role">
-                    value={workerMode}
-                    disabled={disabled}
-                    options={[
-                      { value: "direct", label: t(($) => $.node.worker_id_label) },
-                      { value: "role", label: t(($) => $.node.worker_type_role) },
-                    ]}
-                    onChange={(mode) => {
-                      if (mode === workerMode) return;
-                      const nextType: WorkerType = mode === "direct" ? "human" : "role";
-                      setWorkerType(nextType);
-                      setWorkerId(null);
-                      cacheNodeEdits(node.id, { worker_type: nextType, worker_id: null });
-                    }}
-                  />
-
-                  {workerMode === "role" ? (
-                    <div className="space-y-1.5">
-                      <Label className="text-xs text-muted-foreground" htmlFor="worker-role-select">{t(($) => $.detail_panel.label_worker_role)}</Label>
-                      <select
-                        id="worker-role-select"
-                        aria-label="Worker role"
-                        disabled={disabled}
-                        className="h-8 w-full rounded-md border border-input bg-background px-2 text-sm"
-                        value={workerId ?? ""}
-                        onChange={(e) => {
-                          const rid = e.target.value || null;
-                          setWorkerId(rid);
-                          cacheNodeEdits(node.id, { worker_id: rid });
-                        }}
-                      >
-                        <option value="">{t(($) => $.detail_panel.select_role)}</option>
-                        {roles.map((r) => (
-                          <option key={r.id} value={r.id}>{r.name}</option>
-                        ))}
-                      </select>
-                      <ActorSummary type="role" id={workerId} label={workerLabel} emptyText={t(($) => $.detail_panel.empty_worker_role)} hint={t(($) => $.detail_panel.actor_role_hint)} />
-                    </div>
-                  ) : (
-                    <div className="space-y-2">
-                      <div className={disabled ? "pointer-events-none opacity-60" : undefined}>
-                        <AssigneePicker
-                          assigneeType={toAssigneeType(workerType)}
-                          assigneeId={workerId}
-                          triggerRender={
-                            <Button
-                              type="button"
-                              variant="outline"
-                              size="sm"
-                              className="h-8 w-full justify-start"
-                              disabled={disabled}
-                            />
-                          }
-                          trigger={
-                            <AssigneePickerTrigger
-                              type={workerType}
-                              id={workerId}
-                              label={workerLabel}
-                              emptyPrefix={t(($) => $.detail_panel.picker_empty_prefix)}
-                              emptyLabel={t(($) => $.detail_panel.empty_worker)}
-                              t={t}
-                            />
-                          }
-                          onUpdate={disabled ? () => {} : (u) => {
-                            const wt = fromAssigneeType(u.assignee_type ?? null);
-                            const wid = u.assignee_id ?? null;
-                            setWorkerType(wt);
-                            setWorkerId(wid);
-                            cacheNodeEdits(node.id, { worker_type: wt, worker_id: wid });
-                          }}
-                          align="start"
-                          skipBuiltinRuntimeSelection
-                          includeWorkflows={false}
-                        />
-                      </div>
-                      <ActorSummary type={workerType} id={workerId} label={workerLabel} emptyText={t(($) => $.detail_panel.empty_worker)} hint={t(($) => $.detail_panel.actor_assignee_hint)} />
-                    </div>
-                  )}
-                </AssignmentCard>
-
                 {!isSplit ? (
                   <>
+                    <AssignmentCard
+                      icon={<Bot className="size-4" />}
+                      title={t(($) => $.node.section_worker)}
+                      subtitle={t(($) => $.detail_panel.worker_subtitle)}
+                      status={workerConfigured ? <StatusBadge tone="success">{t(($) => $.detail_panel.badge_configured)}</StatusBadge> : <StatusBadge tone="warning">{t(($) => $.detail_panel.badge_needs_assignee)}</StatusBadge>}
+                    >
+                      <AssignmentModeControl<"direct" | "role">
+                        value={workerMode}
+                        disabled={disabled}
+                        options={[
+                          { value: "direct", label: t(($) => $.node.worker_id_label) },
+                          { value: "role", label: t(($) => $.node.worker_type_role) },
+                        ]}
+                        onChange={(mode) => {
+                          if (mode === workerMode) return;
+                          const nextType: WorkerType = mode === "direct" ? "human" : "role";
+                          setWorkerType(nextType);
+                          setWorkerId(null);
+                          cacheNodeEdits(node.id, { worker_type: nextType, worker_id: null });
+                        }}
+                      />
+
+                      {workerMode === "role" ? (
+                        <div className="space-y-1.5">
+                          <Label className="text-xs text-muted-foreground" htmlFor="worker-role-select">{t(($) => $.detail_panel.label_worker_role)}</Label>
+                          <select
+                            id="worker-role-select"
+                            aria-label="Worker role"
+                            disabled={disabled}
+                            className="h-8 w-full rounded-md border border-input bg-background px-2 text-sm"
+                            value={workerId ?? ""}
+                            onChange={(e) => {
+                              const rid = e.target.value || null;
+                              setWorkerId(rid);
+                              cacheNodeEdits(node.id, { worker_id: rid });
+                            }}
+                          >
+                            <option value="">{t(($) => $.detail_panel.select_role)}</option>
+                            {roles.map((r) => (
+                              <option key={r.id} value={r.id}>{r.name}</option>
+                            ))}
+                          </select>
+                          <ActorSummary type="role" id={workerId} label={workerLabel} emptyText={t(($) => $.detail_panel.empty_worker_role)} hint={t(($) => $.detail_panel.actor_role_hint)} />
+                        </div>
+                      ) : (
+                        <div className="space-y-2">
+                          <div className={disabled ? "pointer-events-none opacity-60" : undefined}>
+                            <AssigneePicker
+                              assigneeType={toAssigneeType(workerType)}
+                              assigneeId={workerId}
+                              triggerRender={
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  size="sm"
+                                  className="h-8 w-full justify-start"
+                                  disabled={disabled}
+                                />
+                              }
+                              trigger={
+                                <AssigneePickerTrigger
+                                  type={workerType}
+                                  id={workerId}
+                                  label={workerLabel}
+                                  emptyPrefix={t(($) => $.detail_panel.picker_empty_prefix)}
+                                  emptyLabel={t(($) => $.detail_panel.empty_worker)}
+                                  t={t}
+                                />
+                              }
+                              onUpdate={disabled ? () => {} : (u) => {
+                                const wt = fromAssigneeType(u.assignee_type ?? null);
+                                const wid = u.assignee_id ?? null;
+                                setWorkerType(wt);
+                                setWorkerId(wid);
+                                cacheNodeEdits(node.id, { worker_type: wt, worker_id: wid });
+                              }}
+                              align="start"
+                              skipBuiltinRuntimeSelection
+                              includeWorkflows={false}
+                            />
+                          </div>
+                          <ActorSummary type={workerType} id={workerId} label={workerLabel} emptyText={t(($) => $.detail_panel.empty_worker)} hint={t(($) => $.detail_panel.actor_assignee_hint)} />
+                        </div>
+                      )}
+                    </AssignmentCard>
+
                     <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2 px-1 text-[11px] font-medium text-muted-foreground">
                       <span className="h-px bg-border" />
                       <span>{t(($) => $.detail_panel.worker_critic_divider)}</span>
@@ -991,29 +991,29 @@ export function NodeConfigPanel({
         </div>
       </NodeDetailSection>
 
-      <NodeDetailSection
-        sectionId="deliverables"
-        icon={<FileCheck2 className="size-4" />}
-        title={t(($) => $.detail_panel.section_deliverables)}
-        subtitle={t(($) => $.detail_panel.section_deliverables_desc)}
-      >
-        {!isAnnotation && !isGateway && !isSplit ? (
-          <NodeDeliverablesEditor
-            nodeId={node.id}
-            disabled={disabled}
-            deliverables={deliverableDrafts}
-            onChange={handleDeliverablesChange}
-          />
-        ) : (
-          <p className="text-sm text-muted-foreground">
-            {isSplit
-              ? t(($) => $.detail_panel.split_deliverables_not_applicable)
-              : isGateway
+      {!isSplit ? (
+        <NodeDetailSection
+          sectionId="deliverables"
+          icon={<FileCheck2 className="size-4" />}
+          title={t(($) => $.detail_panel.section_deliverables)}
+          subtitle={t(($) => $.detail_panel.section_deliverables_desc)}
+        >
+          {!isAnnotation && !isGateway ? (
+            <NodeDeliverablesEditor
+              nodeId={node.id}
+              disabled={disabled}
+              deliverables={deliverableDrafts}
+              onChange={handleDeliverablesChange}
+            />
+          ) : (
+            <p className="text-sm text-muted-foreground">
+              {isGateway
                 ? t(($) => $.detail_panel.deliverables_not_applicable_gateway)
                 : t(($) => $.detail_panel.deliverables_not_applicable_annotation)}
-          </p>
-        )}
-      </NodeDetailSection>
+            </p>
+          )}
+        </NodeDetailSection>
+      ) : null}
 
       <NodeDetailSection
         sectionId="runtime"

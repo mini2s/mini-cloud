@@ -781,7 +781,7 @@ func (q *Queries) ListIssueDescendants(ctx context.Context, arg ListIssueDescend
 const listIssues = `-- name: ListIssues :many
 SELECT i.id, i.workspace_id, i.title, i.description, i.status, i.priority,
        i.assignee_type, i.assignee_id, i.creator_type, i.creator_id,
-       i.parent_issue_id, i.position, i.start_date, i.due_date, i.created_at, i.updated_at, i.number, i.project_id, i.workflow_id, i.workflow_run_id, i.stage_id, i.metadata
+       i.parent_issue_id, i.position, i.start_date, i.due_date, i.created_at, i.updated_at, i.number, i.project_id, i.workflow_id, i.workflow_run_id, i.stage_id, i.metadata, i.origin_type, i.origin_id
 FROM multica_issue i
 WHERE i.workspace_id = $1
   AND ($4::bool IS NULL
@@ -878,6 +878,8 @@ type ListIssuesRow struct {
 	WorkflowRunID pgtype.UUID        `json:"workflow_run_id"`
 	StageID       pgtype.UUID        `json:"stage_id"`
 	Metadata      []byte             `json:"metadata"`
+	OriginType    pgtype.Text        `json:"origin_type"`
+	OriginID      pgtype.UUID        `json:"origin_id"`
 }
 
 // involves_user_id widens the assignee filter to surface issues where the user
@@ -932,6 +934,8 @@ func (q *Queries) ListIssues(ctx context.Context, arg ListIssuesParams) ([]ListI
 			&i.WorkflowRunID,
 			&i.StageID,
 			&i.Metadata,
+			&i.OriginType,
+			&i.OriginID,
 		); err != nil {
 			return nil, err
 		}
@@ -946,7 +950,7 @@ func (q *Queries) ListIssues(ctx context.Context, arg ListIssuesParams) ([]ListI
 const listOpenIssues = `-- name: ListOpenIssues :many
 SELECT i.id, i.workspace_id, i.title, i.description, i.status, i.priority,
        i.assignee_type, i.assignee_id, i.creator_type, i.creator_id,
-       i.parent_issue_id, i.position, i.start_date, i.due_date, i.created_at, i.updated_at, i.number, i.project_id, i.workflow_id, i.workflow_run_id, i.stage_id, i.metadata
+       i.parent_issue_id, i.position, i.start_date, i.due_date, i.created_at, i.updated_at, i.number, i.project_id, i.workflow_id, i.workflow_run_id, i.stage_id, i.metadata, i.origin_type, i.origin_id
 FROM multica_issue i
 WHERE i.workspace_id = $1
   AND i.status NOT IN ('done', 'cancelled')
@@ -1029,6 +1033,8 @@ type ListOpenIssuesRow struct {
 	WorkflowRunID pgtype.UUID        `json:"workflow_run_id"`
 	StageID       pgtype.UUID        `json:"stage_id"`
 	Metadata      []byte             `json:"metadata"`
+	OriginType    pgtype.Text        `json:"origin_type"`
+	OriginID      pgtype.UUID        `json:"origin_id"`
 }
 
 // See ListIssues for the semantics of involves_user_id (mirrors the 4-branch
@@ -1075,6 +1081,8 @@ func (q *Queries) ListOpenIssues(ctx context.Context, arg ListOpenIssuesParams) 
 			&i.WorkflowRunID,
 			&i.StageID,
 			&i.Metadata,
+			&i.OriginType,
+			&i.OriginID,
 		); err != nil {
 			return nil, err
 		}

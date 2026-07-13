@@ -3,13 +3,13 @@ package handler
 import (
 	"context"
 	"encoding/json"
-	"slices"
 	"errors"
 	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -120,10 +120,14 @@ func issueListRowToResponse(i db.ListIssuesRow, issuePrefix string) IssueRespons
 		Position:      i.Position,
 		StartDate:     timestampToPtr(i.StartDate),
 		DueDate:       timestampToPtr(i.DueDate),
+		WorkflowID:    uuidToPtr(i.WorkflowID),
+		WorkflowRunID: uuidToPtr(i.WorkflowRunID),
 		StageID:       uuidToPtr(i.StageID),
 		CreatedAt:     timestampToString(i.CreatedAt),
 		UpdatedAt:     timestampToString(i.UpdatedAt),
 		Metadata:      parseIssueMetadata(i.Metadata),
+		OriginType:    textToPtr(i.OriginType),
+		OriginID:      uuidToPtr(i.OriginID),
 	}
 }
 
@@ -178,10 +182,14 @@ func openIssueRowToResponse(i db.ListOpenIssuesRow, issuePrefix string) IssueRes
 		Position:      i.Position,
 		StartDate:     timestampToPtr(i.StartDate),
 		DueDate:       timestampToPtr(i.DueDate),
+		WorkflowID:    uuidToPtr(i.WorkflowID),
+		WorkflowRunID: uuidToPtr(i.WorkflowRunID),
 		StageID:       uuidToPtr(i.StageID),
 		CreatedAt:     timestampToString(i.CreatedAt),
 		UpdatedAt:     timestampToString(i.UpdatedAt),
 		Metadata:      parseIssueMetadata(i.Metadata),
+		OriginType:    textToPtr(i.OriginType),
+		OriginID:      uuidToPtr(i.OriginID),
 	}
 }
 
@@ -793,14 +801,14 @@ func (h *Handler) ListIssues(w http.ResponseWriter, r *http.Request) {
 	// open_only=true returns all non-done/cancelled issues (no limit).
 	if r.URL.Query().Get("open_only") == "true" {
 		issues, err := h.Queries.ListOpenIssues(ctx, db.ListOpenIssuesParams{
-			WorkspaceID:    wsUUID,
-			Priority:       priorityFilter,
-			AssigneeID:     assigneeFilter,
-			AssigneeIds:    assigneeIdsFilter,
-			CreatorID:      creatorFilter,
-			ProjectID:      projectFilter,
-			InvolvesUserID: involvesUserFilter,
-			MetadataFilter: metadataFilter,
+			WorkspaceID:           wsUUID,
+			Priority:              priorityFilter,
+			AssigneeID:            assigneeFilter,
+			AssigneeIds:           assigneeIdsFilter,
+			CreatorID:             creatorFilter,
+			ProjectID:             projectFilter,
+			InvolvesUserID:        involvesUserFilter,
+			MetadataFilter:        metadataFilter,
 			ExcludeWorkflowOrigin: excludeWorkflowOrigin,
 		})
 		if err != nil {
@@ -858,18 +866,18 @@ func (h *Handler) ListIssues(w http.ResponseWriter, r *http.Request) {
 	}
 
 	issues, err := h.Queries.ListIssues(ctx, db.ListIssuesParams{
-		WorkspaceID:    wsUUID,
-		Limit:          int32(limit),
-		Offset:         int32(offset),
-		Status:         statusFilter,
-		Priority:       priorityFilter,
-		AssigneeID:     assigneeFilter,
-		AssigneeIds:    assigneeIdsFilter,
-		CreatorID:      creatorFilter,
-		ProjectID:      projectFilter,
-		InvolvesUserID: involvesUserFilter,
-		Scheduled:      scheduledFilter,
-		MetadataFilter: metadataFilter,
+		WorkspaceID:           wsUUID,
+		Limit:                 int32(limit),
+		Offset:                int32(offset),
+		Status:                statusFilter,
+		Priority:              priorityFilter,
+		AssigneeID:            assigneeFilter,
+		AssigneeIds:           assigneeIdsFilter,
+		CreatorID:             creatorFilter,
+		ProjectID:             projectFilter,
+		InvolvesUserID:        involvesUserFilter,
+		Scheduled:             scheduledFilter,
+		MetadataFilter:        metadataFilter,
 		ExcludeWorkflowOrigin: excludeWorkflowOrigin,
 	})
 	if err != nil {
@@ -879,16 +887,16 @@ func (h *Handler) ListIssues(w http.ResponseWriter, r *http.Request) {
 
 	// Get the true total count for pagination awareness.
 	total, err := h.Queries.CountIssues(ctx, db.CountIssuesParams{
-		WorkspaceID:    wsUUID,
-		Status:         statusFilter,
-		Priority:       priorityFilter,
-		AssigneeID:     assigneeFilter,
-		AssigneeIds:    assigneeIdsFilter,
-		CreatorID:      creatorFilter,
-		ProjectID:      projectFilter,
-		InvolvesUserID: involvesUserFilter,
-		Scheduled:      scheduledFilter,
-		MetadataFilter: metadataFilter,
+		WorkspaceID:           wsUUID,
+		Status:                statusFilter,
+		Priority:              priorityFilter,
+		AssigneeID:            assigneeFilter,
+		AssigneeIds:           assigneeIdsFilter,
+		CreatorID:             creatorFilter,
+		ProjectID:             projectFilter,
+		InvolvesUserID:        involvesUserFilter,
+		Scheduled:             scheduledFilter,
+		MetadataFilter:        metadataFilter,
 		ExcludeWorkflowOrigin: excludeWorkflowOrigin,
 	})
 	if err != nil {
@@ -1024,6 +1032,9 @@ func (h *Handler) ListGroupedIssues(w http.ResponseWriter, r *http.Request) {
 		args = append(args, v)
 		return "$" + strconv.Itoa(len(args))
 	}
+	if r.URL.Query().Get("include_workflow_origin") != "true" {
+		where = append(where, "(i.origin_type IS NULL OR i.origin_type NOT IN ('workflow', 'workflow_split'))")
+	}
 
 	statuses := splitCommaParam(r.URL.Query().Get("statuses"))
 	if len(statuses) == 0 {
@@ -1101,29 +1112,29 @@ func (h *Handler) ListGroupedIssues(w http.ResponseWriter, r *http.Request) {
 		ref := addArg(id)
 		where = append(where, fmt.Sprintf(`(
     (i.assignee_type = 'agent' AND i.assignee_id IN (
-       SELECT a.id FROM agent a
+       SELECT a.id FROM multica_agent a
         WHERE a.workspace_id = $1
           AND a.owner_id     = %[1]s::uuid
     ))
     OR (i.assignee_type = 'squad' AND i.assignee_id IN (
        SELECT sm.squad_id
-         FROM squad_member sm
-         JOIN squad s ON s.id = sm.squad_id
+         FROM multica_squad_member sm
+         JOIN multica_squad s ON s.id = sm.squad_id
         WHERE s.workspace_id = $1
           AND sm.member_type = 'member'
           AND sm.member_id   = %[1]s::uuid
        UNION
        SELECT s.id
-         FROM squad s
-         JOIN agent a ON a.id = s.leader_id
+         FROM multica_squad s
+         JOIN multica_agent a ON a.id = s.leader_id
         WHERE s.workspace_id = $1
           AND a.workspace_id = $1
           AND a.owner_id     = %[1]s::uuid
        UNION
        SELECT sm.squad_id
-         FROM squad_member sm
-         JOIN squad s ON s.id = sm.squad_id
-         JOIN agent a ON a.id = sm.member_id
+         FROM multica_squad_member sm
+         JOIN multica_squad s ON s.id = sm.squad_id
+         JOIN multica_agent a ON a.id = sm.member_id
         WHERE s.workspace_id = $1
           AND sm.member_type = 'agent'
           AND a.workspace_id = $1
@@ -1190,7 +1201,7 @@ func (h *Handler) ListGroupedIssues(w http.ResponseWriter, r *http.Request) {
 	}
 	if len(labelIDs) > 0 {
 		where = append(where, fmt.Sprintf(
-			"EXISTS (SELECT 1 FROM issue_to_label itl WHERE itl.issue_id = i.id AND itl.label_id = ANY(%s::uuid[]))",
+			"EXISTS (SELECT 1 FROM multica_issue_to_label itl WHERE itl.issue_id = i.id AND itl.label_id = ANY(%s::uuid[]))",
 			addArg(labelIDs),
 		))
 	}
@@ -1227,21 +1238,23 @@ WITH ranked AS (
 	SELECT
 		i.id, i.workspace_id, i.title, i.description, i.status, i.priority,
 		i.assignee_type, i.assignee_id, i.creator_type, i.creator_id,
-		i.parent_issue_id, i.position, i.due_date, i.created_at, i.updated_at,
-		i.number, i.project_id, i.metadata,
+		i.parent_issue_id, i.position, i.start_date, i.due_date, i.created_at, i.updated_at,
+		i.number, i.project_id, i.workflow_id, i.workflow_run_id, i.stage_id, i.metadata,
+		i.origin_type, i.origin_id,
 		COUNT(*) OVER (PARTITION BY i.assignee_type, i.assignee_id) AS group_total,
 		ROW_NUMBER() OVER (
 			PARTITION BY i.assignee_type, i.assignee_id
 			ORDER BY i.position ASC, i.created_at DESC
 		) AS rn
-	FROM issue i
+	FROM multica_issue i
 	WHERE %s
 )
 SELECT
 	id, workspace_id, title, description, status, priority,
 	assignee_type, assignee_id, creator_type, creator_id,
-	parent_issue_id, position, due_date, created_at, updated_at,
-	number, project_id, metadata, group_total
+	parent_issue_id, position, start_date, due_date, created_at, updated_at,
+	number, project_id, workflow_id, workflow_run_id, stage_id, metadata,
+	origin_type, origin_id, group_total
 FROM ranked
 WHERE rn > %s AND rn <= %s + %s
 ORDER BY
@@ -1279,12 +1292,18 @@ ORDER BY
 			&row.CreatorID,
 			&row.ParentIssueID,
 			&row.Position,
+			&row.StartDate,
 			&row.DueDate,
 			&row.CreatedAt,
 			&row.UpdatedAt,
 			&row.Number,
 			&row.ProjectID,
+			&row.WorkflowID,
+			&row.WorkflowRunID,
+			&row.StageID,
 			&row.Metadata,
+			&row.OriginType,
+			&row.OriginID,
 			&row.GroupTotal,
 		); err != nil {
 			slog.Warn("ListGroupedIssues scan failed", "error", err)
@@ -3178,24 +3197,24 @@ func (h *Handler) createWorkflowSubIssue(
 	}
 
 	return qtx.CreateIssueWithOrigin(ctx, db.CreateIssueWithOriginParams{
-		WorkspaceID:    wsUUID,
-		Title:          subTitle,
-		Description:    parentIssue.Description,
-		Status:         "todo",
-		Priority:       parentIssue.Priority,
-		AssigneeType:   assigneeType,
-		AssigneeID:     assigneeID,
-		CreatorType:    "member",
-		CreatorID:      parentIssue.CreatorID,
-		ParentIssueID:  parentIssue.ID,
-		Position:       0,
-		Number:         issueNumber,
-		ProjectID:      parentIssue.ProjectID,
-		OriginType:     pgtype.Text{String: "workflow", Valid: true},
-		OriginID:       nodeRun.ID,
-		WorkflowID:     node.WorkflowID,
-		WorkflowRunID:  nodeRun.WorkflowRunID,
-		StageID:        node.StageID,
+		WorkspaceID:   wsUUID,
+		Title:         subTitle,
+		Description:   parentIssue.Description,
+		Status:        "todo",
+		Priority:      parentIssue.Priority,
+		AssigneeType:  assigneeType,
+		AssigneeID:    assigneeID,
+		CreatorType:   "member",
+		CreatorID:     parentIssue.CreatorID,
+		ParentIssueID: parentIssue.ID,
+		Position:      0,
+		Number:        issueNumber,
+		ProjectID:     parentIssue.ProjectID,
+		OriginType:    pgtype.Text{String: "workflow", Valid: true},
+		OriginID:      nodeRun.ID,
+		WorkflowID:    node.WorkflowID,
+		WorkflowRunID: nodeRun.WorkflowRunID,
+		StageID:       node.StageID,
 	})
 }
 

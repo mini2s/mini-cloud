@@ -604,6 +604,64 @@ func TestCancelSplitNodePreservesTerminalChildWork(t *testing.T) {
 	}
 }
 
+func TestCancelSplitNodeCancelsRunningChildWorkflowRun(t *testing.T) {
+	f := createSplitApproveFixture(t, "barrier")
+
+	approveReq := newRequest("POST", "/api/node-runs/"+f.splitNodeRunID+"/split/approve", map[string]any{
+		"approved_task_ids": []string{f.taskAID, f.taskBID},
+		"modifications":     []any{},
+	})
+	approveReq = withURLParam(approveReq, "nodeRunId", f.splitNodeRunID)
+
+	approveResp := httptest.NewRecorder()
+	testHandler.ApproveSplitTasks(approveResp, approveReq)
+	if approveResp.Code != http.StatusOK {
+		t.Fatalf("ApproveSplitTasks: expected 200, got %d: %s", approveResp.Code, approveResp.Body.String())
+	}
+
+	ctx := context.Background()
+	taskA, err := testHandler.Queries.GetSplitTask(ctx, parseUUID(f.taskAID))
+	if err != nil {
+		t.Fatalf("load split task A: %v", err)
+	}
+	if !taskA.RunID.Valid || !taskA.IssueID.Valid {
+		t.Fatal("task A should have materialized issue and run before cancel")
+	}
+
+	cancelReq := newRequest("POST", "/api/node-runs/"+f.splitNodeRunID+"/split/cancel", nil)
+	cancelReq = withURLParam(cancelReq, "nodeRunId", f.splitNodeRunID)
+
+	cancelResp := httptest.NewRecorder()
+	testHandler.CancelSplitNode(cancelResp, cancelReq)
+	if cancelResp.Code != http.StatusOK {
+		t.Fatalf("CancelSplitNode: expected 200, got %d: %s", cancelResp.Code, cancelResp.Body.String())
+	}
+
+	taskA, err = testHandler.Queries.GetSplitTask(ctx, parseUUID(f.taskAID))
+	if err != nil {
+		t.Fatalf("reload split task A: %v", err)
+	}
+	if taskA.Status != service.SplitTaskStatusCancelled {
+		t.Fatalf("task A status = %s, want cancelled", taskA.Status)
+	}
+
+	childRun, err := testHandler.Queries.GetWorkflowRun(ctx, taskA.RunID)
+	if err != nil {
+		t.Fatalf("load child run: %v", err)
+	}
+	if childRun.Status != service.RunStatusCancelled {
+		t.Fatalf("child run status = %s, want cancelled", childRun.Status)
+	}
+
+	childIssue, err := testHandler.Queries.GetIssue(ctx, taskA.IssueID)
+	if err != nil {
+		t.Fatalf("load child issue: %v", err)
+	}
+	if childIssue.Status != "cancelled" {
+		t.Fatalf("child issue status = %s, want cancelled", childIssue.Status)
+	}
+}
+
 func TestCancelWorkflowRunCascadesActiveSplitTasks(t *testing.T) {
 	f := createSplitApproveFixture(t, "barrier")
 

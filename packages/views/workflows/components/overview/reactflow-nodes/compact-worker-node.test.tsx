@@ -288,6 +288,15 @@ describe("CompactWorkerNode", () => {
     expect(screen.getByText("barrier · concurrency 5")).toBeInTheDocument();
     expect(screen.queryByText("GPT-4 Agent")).not.toBeInTheDocument();
     expect(screen.queryByTestId("compact-worker-node-badge-split-1")).not.toBeInTheDocument();
+
+    const node = screen.getByTestId("compact-worker-split-1");
+    const surface = node.querySelector('[data-node-shape-surface="true"]');
+    expect(surface?.className).toContain("bg-gradient-to-br");
+    expect(surface?.className).toContain("border-white/80");
+    expect(surface?.className).toContain("shadow-[0_14px_32px_rgba(15,23,42,0.12)]");
+    expect(surface?.className).not.toContain("bg-transparent");
+    expect(surface?.className).not.toContain("border-transparent");
+    expect(surface?.className).not.toContain("shadow-none");
   });
 
   it("uses category-derived semantic shape classes", () => {

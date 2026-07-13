@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { ChevronDown, ChevronRight, Check, RotateCcw, SkipForward } from "lucide-react";
+import { ChevronDown, ChevronRight, Check, GitBranch, RotateCcw, SkipForward } from "lucide-react";
 import { Button } from "@multica/ui/components/ui/button";
 import { Badge } from "@multica/ui/components/ui/badge";
 import { Textarea } from "@multica/ui/components/ui/textarea";
@@ -69,9 +69,18 @@ interface NodeRunCardProps {
   maxRetries?: number;
   workflowId?: string;
   runId?: string;
+  isSplitNode?: boolean;
+  onOpenSplit?: () => void;
 }
 
-export function NodeRunCard({ nodeRun, maxRetries = 3, workflowId, runId }: NodeRunCardProps) {
+export function NodeRunCard({
+  nodeRun,
+  maxRetries = 3,
+  workflowId,
+  runId,
+  isSplitNode = false,
+  onOpenSplit,
+}: NodeRunCardProps) {
   const { t } = useT("workflows");
   const wsId = useWorkspaceId();
   const [reviewComment, setReviewComment] = useState("");
@@ -175,6 +184,18 @@ export function NodeRunCard({ nodeRun, maxRetries = 3, workflowId, runId }: Node
             {t(($) => $.node_run.skip)}
           </Button>
         )}
+        {isSplitNode && onOpenSplit ? (
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-7 text-xs"
+            aria-label="Open split details"
+            onClick={onOpenSplit}
+          >
+            <GitBranch className="h-3 w-3 mr-1" />
+            Split review
+          </Button>
+        ) : null}
         <NodeRunControlActions
           nodeRun={nodeRun}
           workflowId={workflowId}

@@ -9,6 +9,7 @@ import type {
   ListIssuesCache,
 } from "../types";
 import { ALL_STATUSES, BOARD_STATUSES } from "./config";
+import { isWorkflowOriginIssue } from "./origin";
 
 export const issueKeys = {
   all: (wsId: string) => ["issues", wsId] as const,
@@ -88,7 +89,7 @@ export function flattenIssueBuckets(data: ListIssuesCache) {
   const out = [];
   for (const status of PAGINATED_STATUSES) {
     const bucket = data.byStatus[status];
-    if (bucket) out.push(...bucket.issues);
+    if (bucket) out.push(...bucket.issues.filter((issue) => !isWorkflowOriginIssue(issue)));
   }
   return out;
 }

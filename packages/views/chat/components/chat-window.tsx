@@ -451,6 +451,10 @@ export function ChatWindow() {
     pointerEvents: isOpen ? "auto" : "none",
   };
 
+  if (!isOpen) {
+    return null;
+  }
+
   return (
     <motion.div
       ref={windowRef}
