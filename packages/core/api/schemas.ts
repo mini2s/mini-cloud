@@ -894,6 +894,7 @@ const WorkflowNodeRuntimeSummarySchema = z.object({
   device_id: z.string().nullable().default(null),
   has_error: z.boolean().default(false),
   error_message: z.string().default(""),
+  split_progress: SplitProgressSchema.nullable().default(null),
 }).loose();
 
 export const WorkflowRunCanvasSummaryResponseSchema = z.object({

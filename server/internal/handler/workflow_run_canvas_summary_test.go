@@ -54,6 +54,7 @@ func TestGetWorkflowRunCanvasSummaryAggregatesRuntimeState(t *testing.T) {
 	greenNodeID := createNode("All deliverables approved", 0)
 	yellowNodeID := createNode("Waiting for review", 1)
 	redNodeID := createNode("Blocked missing deliverable", 2)
+	splitNodeID := createNode("Split tasks active", 3)
 
 	var runID string
 	if err := testPool.QueryRow(ctx, `
@@ -89,6 +90,7 @@ func TestGetWorkflowRunCanvasSummaryAggregatesRuntimeState(t *testing.T) {
 	greenRunID := createNodeRun(greenNodeID, "All deliverables approved", "completed", `{}`)
 	yellowRunID := createNodeRun(yellowNodeID, "Waiting for review", "awaiting_critic", `{}`)
 	redRunID := createNodeRun(redNodeID, "Blocked missing deliverable", "blocked", `{"error":"tool failed"}`)
+	splitRunID := createNodeRun(splitNodeID, "Split tasks active", "split_active", `{}`)
 
 	createDeliverable := func(nodeID, title string) string {
 		t.Helper()
@@ -120,6 +122,22 @@ func TestGetWorkflowRunCanvasSummaryAggregatesRuntimeState(t *testing.T) {
 	}
 	_ = redRunID
 
+	if _, err := testPool.Exec(ctx, `
+		INSERT INTO multica_workflow_split_task (
+			node_run_id, workspace_id, title, description, depends_on, sort_order, status
+		)
+		VALUES
+			($1, $2, 'Created task', '', '[]'::jsonb, 0, 'created'),
+			($1, $2, 'Running task', '', '[]'::jsonb, 1, 'running'),
+			($1, $2, 'Done task', '', '[]'::jsonb, 2, 'done'),
+			($1, $2, 'Failed task', '', '[]'::jsonb, 3, 'failed'),
+			($1, $2, 'Cancelled task', '', '[]'::jsonb, 4, 'cancelled'),
+			($1, $2, 'Skipped task', '', '[]'::jsonb, 5, 'skipped'),
+			($1, $2, 'Discarded task', '', '[]'::jsonb, 6, 'discarded')
+	`, splitRunID, testWorkspaceID); err != nil {
+		t.Fatalf("create split tasks: %v", err)
+	}
+
 	w := httptest.NewRecorder()
 	req := newRequest("GET", fmt.Sprintf("/api/workflows/%s/runs/%s/canvas-summary", workflowID, runID), nil)
 	req = withURLParams(req, "id", workflowID, "runId", runID)
@@ -128,30 +146,41 @@ func TestGetWorkflowRunCanvasSummaryAggregatesRuntimeState(t *testing.T) {
 		t.Fatalf("GetWorkflowRunCanvasSummary: expected 200, got %d: %s", w.Code, w.Body.String())
 	}
 
+	type splitProgressPayload struct {
+		Total     int `json:"total"`
+		Created   int `json:"created"`
+		Running   int `json:"running"`
+		Done      int `json:"done"`
+		Failed    int `json:"failed"`
+		Cancelled int `json:"cancelled"`
+		Skipped   int `json:"skipped"`
+	}
+
 	var resp struct {
 		NodeRuntimeSummaries []struct {
-			WorkflowNodeID                string  `json:"workflow_node_id"`
-			NodeRunID                     string  `json:"node_run_id"`
-			DisplayStatus                 string  `json:"display_status"`
-			ActiveActorType               string  `json:"active_actor_type"`
-			ActiveActorID                 *string `json:"active_actor_id"`
-			DeliverableSignal             string  `json:"deliverable_signal"`
-			RequiredDeliverablesTotal     int     `json:"required_deliverables_total"`
-			RequiredDeliverablesSubmitted int     `json:"required_deliverables_submitted"`
-			RequiredDeliverablesApproved  int     `json:"required_deliverables_approved"`
-			DurationSeconds               *int64  `json:"duration_seconds"`
-			SessionID                     *string `json:"session_id"`
-			RuntimeID                     *string `json:"runtime_id"`
-			DeviceID                      *string `json:"device_id"`
-			HasError                      bool    `json:"has_error"`
-			ErrorMessage                  string  `json:"error_message"`
+			WorkflowNodeID                string                `json:"workflow_node_id"`
+			NodeRunID                     string                `json:"node_run_id"`
+			DisplayStatus                 string                `json:"display_status"`
+			ActiveActorType               string                `json:"active_actor_type"`
+			ActiveActorID                 *string               `json:"active_actor_id"`
+			DeliverableSignal             string                `json:"deliverable_signal"`
+			RequiredDeliverablesTotal     int                   `json:"required_deliverables_total"`
+			RequiredDeliverablesSubmitted int                   `json:"required_deliverables_submitted"`
+			RequiredDeliverablesApproved  int                   `json:"required_deliverables_approved"`
+			DurationSeconds               *int64                `json:"duration_seconds"`
+			SessionID                     *string               `json:"session_id"`
+			RuntimeID                     *string               `json:"runtime_id"`
+			DeviceID                      *string               `json:"device_id"`
+			HasError                      bool                  `json:"has_error"`
+			ErrorMessage                  string                `json:"error_message"`
+			SplitProgress                 *splitProgressPayload `json:"split_progress"`
 		} `json:"node_runtime_summaries"`
 	}
 	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("decode response: %v", err)
 	}
-	if len(resp.NodeRuntimeSummaries) != 3 {
-		t.Fatalf("expected 3 summaries, got %d", len(resp.NodeRuntimeSummaries))
+	if len(resp.NodeRuntimeSummaries) != 4 {
+		t.Fatalf("expected 4 summaries, got %d", len(resp.NodeRuntimeSummaries))
 	}
 
 	byNodeID := map[string]struct {
@@ -169,6 +198,7 @@ func TestGetWorkflowRunCanvasSummaryAggregatesRuntimeState(t *testing.T) {
 		DeviceID                      *string
 		HasError                      bool
 		ErrorMessage                  string
+		SplitProgress                 *splitProgressPayload
 	}{}
 	for _, summary := range resp.NodeRuntimeSummaries {
 		byNodeID[summary.WorkflowNodeID] = struct {
@@ -186,6 +216,7 @@ func TestGetWorkflowRunCanvasSummaryAggregatesRuntimeState(t *testing.T) {
 			DeviceID                      *string
 			HasError                      bool
 			ErrorMessage                  string
+			SplitProgress                 *splitProgressPayload
 		}{
 			NodeRunID:                     summary.NodeRunID,
 			DisplayStatus:                 summary.DisplayStatus,
@@ -201,6 +232,7 @@ func TestGetWorkflowRunCanvasSummaryAggregatesRuntimeState(t *testing.T) {
 			DeviceID:                      summary.DeviceID,
 			HasError:                      summary.HasError,
 			ErrorMessage:                  summary.ErrorMessage,
+			SplitProgress:                 summary.SplitProgress,
 		}
 	}
 
@@ -232,5 +264,22 @@ func TestGetWorkflowRunCanvasSummaryAggregatesRuntimeState(t *testing.T) {
 	}
 	if red.SessionID == nil || *red.SessionID != "session-a" || red.RuntimeID == nil || *red.RuntimeID != testRuntimeID || red.DeviceID == nil || *red.DeviceID != "device-a" {
 		t.Fatalf("expected runtime/session fields, got %+v", red)
+	}
+
+	split := byNodeID[splitNodeID]
+	if split.DisplayStatus != "in_progress" {
+		t.Fatalf("split node summary status mismatch: %+v", split)
+	}
+	if split.SplitProgress == nil {
+		t.Fatalf("expected split_progress for split node summary, got %+v", split)
+	}
+	if split.SplitProgress.Total != 6 ||
+		split.SplitProgress.Created != 1 ||
+		split.SplitProgress.Running != 1 ||
+		split.SplitProgress.Done != 1 ||
+		split.SplitProgress.Failed != 1 ||
+		split.SplitProgress.Cancelled != 1 ||
+		split.SplitProgress.Skipped != 1 {
+		t.Fatalf("split progress mismatch: %+v", split.SplitProgress)
 	}
 }

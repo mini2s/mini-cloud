@@ -117,6 +117,7 @@ const runtimeSummary: WorkflowNodeRuntimeSummary = {
   device_id: null,
   has_error: false,
   error_message: "",
+  split_progress: null,
 };
 
 describe("RuntimeNodeCard", () => {
@@ -396,6 +397,88 @@ describe("RuntimeNodeCard", () => {
     expect(screen.queryByText(/Artifacts:/)).not.toBeInTheDocument();
     expect(screen.queryByTestId("runtime-node-action-approve")).not.toBeInTheDocument();
     expect(screen.queryByTestId("runtime-node-deliverables")).not.toBeInTheDocument();
+  });
+
+  it("renders split nodes with split-specific runtime semantics instead of actor rows", () => {
+    render(
+      <RuntimeNodeCard
+        node={{
+          ...baseNode,
+          id: "split-1",
+          title: "Task split",
+          format_schema: {
+            type: "split",
+            template_id: "task-splitter",
+            template_category: "logic",
+            shape: "rectangle",
+            split_config: {
+              sub_template_id: "child-wf-1",
+              mode: "barrier",
+              max_concurrency: 5,
+              max_failures: 0,
+            },
+          },
+        }}
+        nodeRun={{ ...completedRun, workflow_node_id: "split-1", status: "awaiting_split_review" }}
+        runtimeSummary={{ ...runtimeSummary, workflow_node_id: "split-1", node_run_id: "run-1", display_status: "reviewing" }}
+        workerName="Tester"
+        criticName="Reviewer"
+        onClick={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText("Task split")).toBeInTheDocument();
+    expect(screen.getByText("Reviewing")).toBeInTheDocument();
+    expect(screen.getByText("barrier · concurrency 5")).toBeInTheDocument();
+    expect(screen.queryByText("Worker")).not.toBeInTheDocument();
+    expect(screen.queryByText("Critic")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("runtime-node-deliverables")).not.toBeInTheDocument();
+  });
+
+  it("renders split progress badge when runtime summary includes aggregated progress", () => {
+    render(
+      <RuntimeNodeCard
+        node={{
+          ...baseNode,
+          id: "split-2",
+          title: "Split progress",
+          format_schema: {
+            type: "split",
+            template_id: "task-splitter",
+            template_category: "logic",
+            shape: "rectangle",
+            split_config: {
+              sub_template_id: "child-wf-1",
+              mode: "barrier",
+              max_concurrency: 5,
+              max_failures: 0,
+            },
+          },
+        }}
+        nodeRun={{ ...completedRun, workflow_node_id: "split-2", status: "split_active" }}
+        runtimeSummary={{
+          ...runtimeSummary,
+          workflow_node_id: "split-2",
+          node_run_id: "run-2",
+          display_status: "in_progress",
+          split_progress: {
+            total: 4,
+            created: 1,
+            running: 1,
+            done: 1,
+            failed: 1,
+            cancelled: 0,
+            skipped: 0,
+          },
+        }}
+        workerName="Tester"
+        criticName="Reviewer"
+        onClick={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText("In progress")).toBeInTheDocument();
+    expect(screen.getByText("1 done · 1 failed · 1 running · 1 ready")).toBeInTheDocument();
   });
 
   it("uses category-derived semantic shape classes", () => {

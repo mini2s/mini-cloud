@@ -177,6 +177,21 @@ vi.mock("./execution-detail-panel", () => ({
   ),
 }));
 
+vi.mock("../../../workflows/components/split/split-review-panel", () => ({
+  SplitReviewPanel: ({
+    nodeRun,
+    onClose,
+  }: {
+    nodeRun: { status: string } | null;
+    onClose: () => void;
+  }) => (
+    <div data-testid="execution-split-review-panel">
+      <span data-testid="split-panel-status">{nodeRun?.status ?? "no-run"}</span>
+      <button onClick={onClose}>Close split panel</button>
+    </div>
+  ),
+}));
+
 vi.mock("../../../workflows/components/overview/panorama-svg-overlay", () => ({
   PanoramaSvgOverlay: () => <svg data-testid="panorama-svg-overlay" />,
 }));
@@ -719,6 +734,70 @@ describe("ExecutionPanoramaPage", () => {
       </Wrapper>,
     );
 
+    expect(screen.queryByTestId("execution-detail-panel")).not.toBeInTheDocument();
+  });
+
+  it("opens the split review panel instead of the generic execution panel for split nodes", () => {
+    mocks.isLoading = false;
+    mocks.workflowData = { id: "wf-1", title: "Test Workflow" };
+    mocks.stagesData = [STAGE];
+    mocks.nodesData = [
+      {
+        ...NODE,
+        format_schema: {
+          type: "split",
+          split_config: {
+            sub_template_id: "child-wf-1",
+            mode: "barrier",
+            max_concurrency: 3,
+            max_failures: 0,
+          },
+        },
+      },
+    ];
+    mocks.nodeRunsData = [
+      {
+        id: "nr-1",
+        workflow_run_id: "run-1",
+        workflow_node_id: "n1",
+        node_title: "brainstorming",
+        status: "awaiting_split_review",
+        retry_count: 0,
+        worker_type: "agent",
+        worker_id: "agent-1",
+        worker_output: null,
+        worker_agent_task_id: null,
+        critic_type: "human",
+        critic_id: null,
+        critic_output: null,
+        critic_comment: "",
+        critic_agent_task_id: null,
+        agent_task_id: null,
+        session_id: null,
+        runtime_id: null,
+        device_id: null,
+        started_at: null,
+        completed_at: null,
+        created_at: "",
+        updated_at: "",
+      },
+    ];
+    mocks.canvasSummaryData = {
+      node_runs: mocks.nodeRunsData,
+      node_runtime_summaries: [],
+    };
+    mocks.agentsData = [AGENT];
+
+    render(
+      <Wrapper>
+        <ExecutionPanoramaPage workflowId="wf-1" runId="run-1" wsId="ws-1" />
+      </Wrapper>,
+    );
+
+    fireEvent.click(screen.getByTestId("notification-item-test"));
+
+    expect(screen.getByTestId("execution-split-review-panel")).toBeInTheDocument();
+    expect(screen.getByTestId("split-panel-status")).toHaveTextContent("awaiting_split_review");
     expect(screen.queryByTestId("execution-detail-panel")).not.toBeInTheDocument();
   });
 

@@ -29,6 +29,7 @@ import type {
   WorkflowStage,
   Agent,
 } from "@multica/core/types";
+import { parseNodeFormat } from "@multica/core/types";
 import { WorkflowCanvasCore } from "../../../workflows/components/canvas/workflow-canvas-core";
 import {
   workflowEdgesToReactFlowEdges,
@@ -46,6 +47,7 @@ import { RUNTIME_NODE_HEIGHT } from "./runtime-node-card";
 import { Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@multica/ui/lib/utils";
+import { SplitReviewPanel } from "../../../workflows/components/split/split-review-panel";
 
 export interface ExecutionPanoramaPageProps {
   workflowId: string;
@@ -312,6 +314,8 @@ export function ExecutionPanoramaPage({
   const selectedRuntimeSummary = selectedNodeId
     ? runtimeSummaryMap.get(selectedNodeId) ?? null
     : null;
+  const selectedNodeFormat = selectedNode ? parseNodeFormat(selectedNode.format_schema) : null;
+  const isSplitSelectedNode = selectedNodeFormat?.kind === "split";
   const isRetryableSelectedRun =
     selectedRun?.status === "failed" ||
     selectedRun?.status === "format_failed" ||
@@ -368,34 +372,45 @@ export function ExecutionPanoramaPage({
 
       {/* Detail panel */}
       {selectedNodeId && selectedNode && (
-        <ExecutionDetailPanel
-          node={selectedNode}
-          nodeRun={selectedRun}
-          workerName={
-            selectedNode.worker_id
-              ? getActorName(
-                  workerTypeToActorType(selectedNode.worker_type),
-                  selectedNode.worker_id,
-                )
-              : null
-          }
-          criticName={
-            selectedNode.critic_id
-              ? getActorName(
-                  selectedNode.critic_type ?? "agent",
-                  selectedNode.critic_id,
-                )
-              : null
-          }
-          onClose={() => setSelectedNodeId(null)}
-          wsId={wsId}
-          runtimeSummary={selectedRuntimeSummary}
-          onRetry={
-            issueId && selectedRun && isRetryableSelectedRun && retryingNodeRunId !== selectedRun.id
-              ? () => void handleRetryNodeRun(selectedRun)
-              : undefined
-          }
-        />
+        isSplitSelectedNode ? (
+          <SplitReviewPanel
+            node={selectedNode}
+            nodeRun={selectedRun}
+            wsId={wsId}
+            workflowId={workflowId}
+            runId={runId ?? undefined}
+            onClose={() => setSelectedNodeId(null)}
+          />
+        ) : (
+          <ExecutionDetailPanel
+            node={selectedNode}
+            nodeRun={selectedRun}
+            workerName={
+              selectedNode.worker_id
+                ? getActorName(
+                    workerTypeToActorType(selectedNode.worker_type),
+                    selectedNode.worker_id,
+                  )
+                : null
+            }
+            criticName={
+              selectedNode.critic_id
+                ? getActorName(
+                    selectedNode.critic_type ?? "agent",
+                    selectedNode.critic_id,
+                  )
+                : null
+            }
+            onClose={() => setSelectedNodeId(null)}
+            wsId={wsId}
+            runtimeSummary={selectedRuntimeSummary}
+            onRetry={
+              issueId && selectedRun && isRetryableSelectedRun && retryingNodeRunId !== selectedRun.id
+                ? () => void handleRetryNodeRun(selectedRun)
+                : undefined
+            }
+          />
+        )
       )}
     </div>
   );

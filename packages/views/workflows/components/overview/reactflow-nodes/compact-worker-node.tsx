@@ -6,6 +6,7 @@ import { Bot, FileText, GitFork, GitMerge, UserRound, UsersRound } from "lucide-
 import { workflowNodeInfoAreaClassName, workflowNodeShapeGlyphClassName } from "../../../../common/workflow-node-shape";
 import { WorkflowCanvasNodeShell } from "../../canvas/workflow-canvas-node-shell";
 import { WORKER_WIDTH, WORKER_HEIGHT, STAGE_LINE_COLORS } from "../constants";
+import { SplitNodeCard } from "../../split/split-node-card";
 
 export interface CompactWorkerNodeData extends Record<string, unknown> {
   node: WorkflowNode;
@@ -74,11 +75,20 @@ export const CompactWorkerNode = memo(function CompactWorkerNode({
   const nodeShape = nodeFormat.shape;
   const isAnnotation = nodeData.isAnnotation === true || nodeFormat.kind === "annotation";
   const isGateway = nodeFormat.kind === "gateway";
+  const isSplit = nodeFormat.kind === "split";
   const gatewayText = gatewayLabel(nodeFormat.gateway_kind);
-  const ariaSubtitle = isAnnotation ? "Canvas note" : isGateway ? gatewayText : nodeData.workerName ?? nodeData.pluginName ?? workerTypeLabel(nodeData.node.worker_type);
-  const workerConfigured = isAnnotation || isGateway ? true : nodeData.workerConfigured ?? Boolean(nodeData.node.worker_id);
+  const ariaSubtitle = isAnnotation
+    ? "Canvas note"
+    : isGateway
+      ? gatewayText
+      : isSplit
+        ? "Task split node"
+        : nodeData.workerName ?? nodeData.pluginName ?? workerTypeLabel(nodeData.node.worker_type);
+  const workerConfigured = isAnnotation || isGateway || isSplit ? true : nodeData.workerConfigured ?? Boolean(nodeData.node.worker_id);
   const workerLabel = isGateway
     ? gatewayText
+    : isSplit
+    ? null
     : workerConfigured
     ? nodeData.workerName ?? nodeData.pluginName ?? workerTypeLabel(nodeData.node.worker_type)
     : null;
@@ -89,6 +99,8 @@ export const CompactWorkerNode = memo(function CompactWorkerNode({
   });
   const metadataLabel = isAnnotation
     ? "Canvas note"
+    : isSplit
+    ? "Task split"
     : workerLabel ?? workerTypeLabel(nodeData.node.worker_type);
   const openNode = () => nodeData.onOpen?.(nodeData.node.id);
   const addConnectedNode = () => nodeData.onAddConnectedNode?.(nodeData.node.id);
@@ -117,7 +129,17 @@ export const CompactWorkerNode = memo(function CompactWorkerNode({
       lateralHandleTop={WORKER_HEIGHT / 2}
       addConnectedNodeLabel={nodeData.addConnectedNodeLabel}
       onAddConnectedNode={nodeData.onAddConnectedNode ? addConnectedNode : undefined}
+      surfaceClassName={isSplit ? "border-transparent bg-transparent shadow-none ring-0 group-hover:border-transparent group-hover:ring-0 group-hover:shadow-none" : undefined}
     >
+      {isSplit ? (
+        <SplitNodeCard
+          title={displayName}
+          config={nodeFormat.split_config}
+          status="editing"
+          className="h-full w-full min-h-0 border-0 bg-transparent p-0 shadow-none"
+        />
+      ) : (
+        <>
         <span className="min-w-0">
           <span className="flex min-w-0 items-start justify-between gap-2">
             <span className="flex min-w-0 items-center gap-1.5">
@@ -161,6 +183,8 @@ export const CompactWorkerNode = memo(function CompactWorkerNode({
             <WorkerIcon type={nodeData.node.worker_type} />
           ) : null}
         </div>
+        </>
+      )}
     </WorkflowCanvasNodeShell>
   );
 });

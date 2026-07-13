@@ -175,6 +175,7 @@ const runtimeSummary: WorkflowNodeRuntimeSummary = {
   device_id: null,
   has_error: false,
   error_message: "",
+  split_progress: null,
 };
 
 function getStatusPathStep(label: "Format" | "Worker" | "Critic"): HTMLElement {

@@ -20,6 +20,7 @@ import {
   type WorkflowCanvasNodeHandle,
 } from "../../../workflows/components/canvas/workflow-canvas-node-shell";
 import { WORKER_WIDTH } from "../../../workflows/components/overview/constants";
+import { SplitNodeCard } from "../../../workflows/components/split/split-node-card";
 
 export const RUNTIME_NODE_HEIGHT = 120;
 
@@ -331,22 +332,28 @@ export function RuntimeNodeCard({
   const { t } = useT("issues");
   const nodeFormat = parseNodeFormat(node.format_schema);
   const isGateway = nodeFormat.kind === "gateway";
+  const isSplit = nodeFormat.kind === "split";
   const nodeShape = nodeFormat.shape;
   const displayStatus = runtimeSummary?.display_status ?? (nodeRun ? toWorkflowRuntimeDisplayStatus(nodeRun.status) : "pending");
   const displayStatusLabel = runtimeDisplayStatusText(t, displayStatus, isGateway ? nodeFormat.gateway_kind : null);
-  const hasCritic = !isGateway && (node.critic_type || node.critic_id);
+  const hasCritic = !isGateway && !isSplit && (node.critic_type || node.critic_id);
   const deliverableSignal = runtimeSummary?.deliverable_signal ?? "none";
   const deliverableTotal = runtimeSummary?.required_deliverables_total ?? 0;
   const deliverableSubmitted = runtimeSummary?.required_deliverables_submitted ?? 0;
   const deliverableApproved = runtimeSummary?.required_deliverables_approved ?? 0;
-  const showDeliverableSummary = !isGateway && deliverableTotal > 0;
+  const showDeliverableSummary = !isGateway && !isSplit && deliverableTotal > 0;
 
   const WorkerIcon = typeIcon(node.worker_type);
   const CriticIcon = node.critic_type === "agent" ? Bot : node.critic_type === "squad" ? Building2 : User;
   const GatewayIcon = nodeFormat.gateway_kind === "join" ? GitMerge : GitFork;
+  const splitStatus =
+    nodeRun?.status === "split_active"
+      ? "active"
+      : "idle";
+  const splitProgress = runtimeSummary?.split_progress ?? null;
 
   const actionButtons: ActionButtonDef[] = nodeRun
-    ? isGateway
+    ? isGateway || isSplit
       ? []
       : (() => {
         switch (nodeRun.status) {
@@ -386,11 +393,23 @@ export function RuntimeNodeCard({
       title={node.title}
       onClick={() => onClick(node.id)}
       className="h-[120px]"
-      contentClassName={cn("h-full justify-between gap-2", workflowNodeInfoAreaClassName(nodeShape))}
+      contentClassName={isSplit ? "h-full justify-center p-0" : cn("h-full justify-between gap-2", workflowNodeInfoAreaClassName(nodeShape))}
       handles={handles}
       lateralHandleTop={lateralHandleTop}
       elementRef={elementRef}
+      surfaceClassName={isSplit ? "border-transparent bg-transparent shadow-none ring-0 group-hover:border-transparent group-hover:ring-0 group-hover:shadow-none" : undefined}
     >
+      {isSplit ? (
+        <SplitNodeCard
+          title={node.title}
+          config={nodeFormat.split_config}
+          status={splitStatus}
+          progress={splitProgress}
+          subTemplateName={displayStatusLabel}
+          className="h-full w-full min-h-0 border-0 bg-transparent p-0 shadow-none"
+        />
+      ) : (
+        <>
       {/* Row 1: node title + status icon */}
       <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-1.5 min-w-0">
@@ -473,6 +492,8 @@ export function RuntimeNodeCard({
           isActionLoading={isActionLoading}
           buttons={actionButtons}
         />
+      )}
+        </>
       )}
     </WorkflowCanvasNodeShell>
   );

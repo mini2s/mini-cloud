@@ -75,21 +75,22 @@ type WorkflowNodeRunResponse struct {
 }
 
 type WorkflowNodeRuntimeSummaryResponse struct {
-	WorkflowNodeID                string  `json:"workflow_node_id"`
-	NodeRunID                     string  `json:"node_run_id"`
-	DisplayStatus                 string  `json:"display_status"`
-	ActiveActorType               string  `json:"active_actor_type"`
-	ActiveActorID                 *string `json:"active_actor_id"`
-	DeliverableSignal             string  `json:"deliverable_signal"`
-	RequiredDeliverablesTotal     int     `json:"required_deliverables_total"`
-	RequiredDeliverablesSubmitted int     `json:"required_deliverables_submitted"`
-	RequiredDeliverablesApproved  int     `json:"required_deliverables_approved"`
-	DurationSeconds               *int64  `json:"duration_seconds"`
-	SessionID                     *string `json:"session_id"`
-	RuntimeID                     *string `json:"runtime_id"`
-	DeviceID                      *string `json:"device_id"`
-	HasError                      bool    `json:"has_error"`
-	ErrorMessage                  string  `json:"error_message"`
+	WorkflowNodeID                string                 `json:"workflow_node_id"`
+	NodeRunID                     string                 `json:"node_run_id"`
+	DisplayStatus                 string                 `json:"display_status"`
+	ActiveActorType               string                 `json:"active_actor_type"`
+	ActiveActorID                 *string                `json:"active_actor_id"`
+	DeliverableSignal             string                 `json:"deliverable_signal"`
+	RequiredDeliverablesTotal     int                    `json:"required_deliverables_total"`
+	RequiredDeliverablesSubmitted int                    `json:"required_deliverables_submitted"`
+	RequiredDeliverablesApproved  int                    `json:"required_deliverables_approved"`
+	DurationSeconds               *int64                 `json:"duration_seconds"`
+	SessionID                     *string                `json:"session_id"`
+	RuntimeID                     *string                `json:"runtime_id"`
+	DeviceID                      *string                `json:"device_id"`
+	HasError                      bool                   `json:"has_error"`
+	ErrorMessage                  string                 `json:"error_message"`
+	SplitProgress                 *SplitProgressResponse `json:"split_progress,omitempty"`
 }
 
 // ── Converters ───────────────────────────────────────────────────────────────
@@ -280,6 +281,51 @@ func (h *Handler) workflowRunDeliverableSummaries(ctx context.Context, runID pgt
 	return result, nil
 }
 
+func (h *Handler) workflowRunSplitProgressSummaries(ctx context.Context, runID pgtype.UUID) (map[string]SplitProgressResponse, error) {
+	rows, err := h.DB.Query(ctx, `
+		SELECT
+			st.node_run_id::text AS node_run_id,
+			COUNT(*) FILTER (WHERE st.status <> 'discarded') AS total,
+			COUNT(*) FILTER (WHERE st.status = 'created') AS created,
+			COUNT(*) FILTER (WHERE st.status = 'running') AS running,
+			COUNT(*) FILTER (WHERE st.status = 'done') AS done,
+			COUNT(*) FILTER (WHERE st.status = 'failed') AS failed,
+			COUNT(*) FILTER (WHERE st.status = 'cancelled') AS cancelled,
+			COUNT(*) FILTER (WHERE st.status = 'skipped') AS skipped
+		FROM multica_workflow_split_task st
+		JOIN multica_workflow_node_run wnr ON wnr.id = st.node_run_id
+		WHERE wnr.workflow_run_id = $1
+		GROUP BY st.node_run_id
+	`, runID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	result := make(map[string]SplitProgressResponse)
+	for rows.Next() {
+		var nodeRunID string
+		var progress SplitProgressResponse
+		if err := rows.Scan(
+			&nodeRunID,
+			&progress.Total,
+			&progress.Created,
+			&progress.Running,
+			&progress.Done,
+			&progress.Failed,
+			&progress.Cancelled,
+			&progress.Skipped,
+		); err != nil {
+			return nil, err
+		}
+		result[nodeRunID] = progress
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
 func (h *Handler) ListWorkflowRuns(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	wf, ok := h.loadWorkflowInWorkspace(w, r, id)
@@ -426,6 +472,12 @@ func (h *Handler) GetWorkflowRunCanvasSummary(w http.ResponseWriter, r *http.Req
 		return
 	}
 
+	splitProgressSummaries, err := h.workflowRunSplitProgressSummaries(r.Context(), run.ID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to summarize split progress")
+		return
+	}
+
 	nodeRunResp := make([]WorkflowNodeRunResponse, 0, len(nodeRuns))
 	runtimeSummaries := make([]WorkflowNodeRuntimeSummaryResponse, 0, len(nodeRuns))
 	for _, nr := range nodeRuns {
@@ -433,6 +485,11 @@ func (h *Handler) GetWorkflowRunCanvasSummary(w http.ResponseWriter, r *http.Req
 		deliverables := deliverableSummaries[uuidToString(nr.ID)]
 		actorType, actorID := nodeRunActiveActor(nr)
 		hasError, errorMessage := extractNodeRunError(nr)
+		var splitProgress *SplitProgressResponse
+		if progress, ok := splitProgressSummaries[uuidToString(nr.ID)]; ok {
+			progressCopy := progress
+			splitProgress = &progressCopy
+		}
 
 		runtimeSummaries = append(runtimeSummaries, WorkflowNodeRuntimeSummaryResponse{
 			WorkflowNodeID:                uuidToString(nr.WorkflowNodeID),
@@ -450,6 +507,7 @@ func (h *Handler) GetWorkflowRunCanvasSummary(w http.ResponseWriter, r *http.Req
 			DeviceID:                      textToPtr(nr.DeviceID),
 			HasError:                      hasError,
 			ErrorMessage:                  errorMessage,
+			SplitProgress:                 splitProgress,
 		})
 	}
 

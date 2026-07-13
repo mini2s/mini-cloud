@@ -22,6 +22,10 @@ const mocks = vi.hoisted(() => ({
     assigneeId: string | null;
     includeWorkflows?: boolean;
   }>,
+  templates: [
+    { id: "wf-template-1", title: "Default child flow", status: "active", is_template: true },
+    { id: "wf-template-2", title: "Shipping child flow", status: "active", is_template: true },
+  ] as Array<{ id: string; title: string; status: string; is_template: boolean }>,
   roles: [
     { id: "role-1", name: "Implementer" },
     { id: "role-2", name: "Reviewer" },
@@ -32,6 +36,8 @@ vi.mock("@tanstack/react-query", () => ({
   useQuery: (options: { queryKey?: unknown[] }) =>
     options.queryKey?.[0] === "deliverables"
       ? { data: mocks.deliverables }
+      : options.queryKey?.[0] === "templates"
+        ? { data: { workflows: mocks.templates } }
       : { data: mocks.roles },
 }));
 
@@ -42,6 +48,7 @@ vi.mock("@multica/core/hooks", () => ({
 vi.mock("@multica/core/workflows/queries", () => ({
   workflowRolesOptions: () => ({ queryKey: ["workflow-roles"] }),
   workflowNodeDeliverablesOptions: () => ({ queryKey: ["deliverables"] }),
+  workflowTemplateListOptions: () => ({ queryKey: ["templates"] }),
   useAssignNodeToStage: () => ({ mutate: mocks.assignStageMutate, isPending: false }),
   useCreateStage: () => ({ mutateAsync: mocks.createStageMutateAsync, isPending: false, error: null }),
   useDeleteNode: () => ({ mutateAsync: mocks.deleteNodeMutateAsync, isPending: false }),
@@ -157,9 +164,23 @@ vi.mock("../../i18n", () => {
       badge_configured: "Configured",
       badge_needs_assignee: "Needs assignee",
       badge_optional: "Optional",
+      badge_needs_template: "Needs child template",
       label_bind_to_node: "Bind to Node",
       label_worker_role: "Worker role",
       label_critic_role: "Critic role",
+      split_title: "Split settings",
+      split_subtitle: "Configure the child workflow template and runtime limits for task splitting.",
+      split_child_template_label: "Child template",
+      split_child_template_placeholder: "Select a child template...",
+      split_mode_label: "Execution mode",
+      split_mode_barrier: "Barrier",
+      split_mode_pipeline: "Pipeline",
+      split_mode_hint: "Barrier waits for child tasks; Pipeline releases downstream after issue creation.",
+      split_concurrency_label: "Max concurrency",
+      split_concurrency_hint: "Run at most this many child workflows at once.",
+      split_max_failures_label: "Max failures",
+      split_max_failures_hint: "Barrier mode fails the parent split when child failures exceed this number.",
+      split_deliverables_not_applicable: "Split nodes do not define deliverables.",
       select_node: "Select a node...",
       select_role: "Select a role...",
       actor_role_hint: "Resolved when the workflow runs",
@@ -424,5 +445,121 @@ describe("NodeConfigPanel", () => {
     expect(screen.queryByRole("button", { name: "Builder Agent" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Reviewer Agent" })).not.toBeInTheDocument();
     expect(screen.queryByTestId("deliverables-editor")).not.toBeInTheDocument();
+  });
+
+  it("renders split settings and suppresses critic and deliverable configuration", () => {
+    render(
+      <NodeConfigPanel
+        node={{
+          ...node,
+          id: "split-1",
+          title: "Split rollout",
+          critic_id: null,
+          format_schema: {
+            type: "split",
+            template_id: "task-splitter",
+            template_category: "logic",
+            shape: "rectangle",
+            split_config: {
+              sub_template_id: "wf-template-2",
+              mode: "barrier",
+              max_concurrency: 3,
+              max_failures: 1,
+            },
+          },
+        }}
+        workflowId="wf-1"
+        stages={stages}
+        onClose={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText("Split settings")).toBeInTheDocument();
+    expect(screen.getByLabelText("Child template")).toHaveValue("wf-template-2");
+    expect(screen.getByLabelText("Max concurrency")).toHaveValue(3);
+    expect(screen.getByLabelText("Max failures")).toHaveValue(1);
+    expect(screen.queryByText("Critic")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("deliverables-editor")).not.toBeInTheDocument();
+    expect(screen.getByText("Split nodes do not define deliverables.")).toBeInTheDocument();
+  });
+
+  it("updates split format_schema fields without dropping existing metadata", () => {
+    render(
+      <NodeConfigPanel
+        node={{
+          ...node,
+          id: "split-1",
+          title: "Split rollout",
+          critic_id: null,
+          format_schema: {
+            type: "split",
+            template_id: "task-splitter",
+            template_category: "logic",
+            shape: "rectangle",
+            split_config: {
+              sub_template_id: "wf-template-1",
+              mode: "barrier",
+              max_concurrency: 5,
+              max_failures: 0,
+            },
+          },
+        }}
+        workflowId="wf-1"
+        stages={stages}
+        onClose={vi.fn()}
+      />,
+    );
+
+    fireEvent.change(screen.getByLabelText("Child template"), {
+      target: { value: "wf-template-2" },
+    });
+    expect(mocks.cacheNodeEdits).toHaveBeenLastCalledWith("split-1", {
+      format_schema: {
+        type: "split",
+        template_id: "task-splitter",
+        template_category: "logic",
+        shape: "rectangle",
+        split_config: {
+          sub_template_id: "wf-template-2",
+          mode: "barrier",
+          max_concurrency: 5,
+          max_failures: 0,
+        },
+      },
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Pipeline" }));
+    expect(mocks.cacheNodeEdits).toHaveBeenLastCalledWith("split-1", {
+      format_schema: {
+        type: "split",
+        template_id: "task-splitter",
+        template_category: "logic",
+        shape: "rectangle",
+        split_config: {
+          sub_template_id: "wf-template-1",
+          mode: "pipeline",
+          max_concurrency: 5,
+          max_failures: 0,
+        },
+      },
+    });
+
+    fireEvent.change(screen.getByLabelText("Max concurrency"), {
+      target: { value: "7" },
+    });
+    expect(mocks.cacheNodeEdits).toHaveBeenLastCalledWith("split-1", {
+      format_schema: {
+        type: "split",
+        template_id: "task-splitter",
+        template_category: "logic",
+        shape: "rectangle",
+        split_config: {
+          sub_template_id: "wf-template-1",
+          mode: "barrier",
+          max_concurrency: 7,
+          max_failures: 0,
+        },
+      },
+    });
   });
 });

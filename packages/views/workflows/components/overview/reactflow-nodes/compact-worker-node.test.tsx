@@ -255,6 +255,41 @@ describe("CompactWorkerNode", () => {
     expect(screen.queryByText("Needs worker")).not.toBeInTheDocument();
   });
 
+  it("renders split nodes with split-specific card semantics instead of worker metadata", () => {
+    const rfn = {
+      id: "split-1",
+      type: "compactWorker",
+      position: { x: 100, y: 12 },
+      data: {
+        ...baseData,
+        node: makeWorkerNode({
+          id: "split-1",
+          title: "Task split",
+          format_schema: {
+            type: "split",
+            template_id: "task-splitter",
+            template_category: "logic",
+            shape: "rectangle",
+            split_config: {
+              sub_template_id: "wf-template-2",
+              mode: "barrier",
+              max_concurrency: 5,
+              max_failures: 0,
+            },
+          },
+        }),
+        pluginName: undefined,
+        workerName: undefined,
+      },
+    } as Node;
+    renderWithProvider(rfn);
+
+    expect(screen.getByText("Task split")).toBeInTheDocument();
+    expect(screen.getByText("barrier · concurrency 5")).toBeInTheDocument();
+    expect(screen.queryByText("GPT-4 Agent")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("compact-worker-node-badge-split-1")).not.toBeInTheDocument();
+  });
+
   it("uses category-derived semantic shape classes", () => {
     const rfn = {
       id: "trigger-1",

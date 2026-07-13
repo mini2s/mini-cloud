@@ -3354,7 +3354,11 @@ func nodeRunStatusToIssueStatus(nodeRunStatus string) string {
 		return "todo"
 	case service.NodeRunStatusWorking:
 		return "in_progress"
+	case service.NodeRunStatusSplitting, service.NodeRunStatusSplitActive:
+		return "in_progress"
 	case service.NodeRunStatusAwaitingInput, service.NodeRunStatusAwaitingCritic, service.NodeRunStatusCriticReviewing:
+		return "in_review"
+	case service.NodeRunStatusAwaitingSplitReview:
 		return "in_review"
 	case service.NodeRunStatusCriticApproved, service.NodeRunStatusCompleted:
 		return "done"

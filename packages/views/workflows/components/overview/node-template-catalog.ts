@@ -25,6 +25,7 @@ export interface NodeTemplate {
   critic_type: CriticType;
   gateway_kind?: GatewayKind;
   annotation?: boolean;
+  split?: boolean;
 }
 
 export const NODE_TEMPLATE_CATEGORIES: NodeTemplateCategory[] = [
@@ -88,6 +89,17 @@ export const NODE_TEMPLATES: NodeTemplate[] = [
     worker_type: "agent",
     critic_type: "human",
     gateway_kind: "join",
+  },
+  {
+    id: "task-splitter",
+    category: "logic",
+    title: "Task split",
+    description: "Generate a reviewed child task plan and launch a child workflow per approved task.",
+    tags: ["split", "parallel", "child tasks", "planning"],
+    shape: "rectangle",
+    worker_type: "agent",
+    critic_type: "human",
+    split: true,
   },
   {
     id: "ai-agent-task",
@@ -155,6 +167,19 @@ export function buildCreateNodeRequestFromTemplate(
           template_id: template.id,
           template_category: template.category,
         }
+      : template.split
+        ? {
+            type: "split",
+            shape: template.shape,
+            template_id: template.id,
+            template_category: template.category,
+            split_config: {
+              sub_template_id: null,
+              mode: "barrier",
+              max_concurrency: 5,
+              max_failures: 0,
+            },
+          }
       : {
           shape: template.shape,
           template_id: template.id,

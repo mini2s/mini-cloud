@@ -111,6 +111,7 @@ type Handler struct {
 	TaskService           *service.TaskService
 	AutopilotService      *service.AutopilotService
 	WorkflowService       *service.WorkflowService
+	SplitOrchestrator     *service.SplitOrchestrator
 	EmailService          *service.EmailService
 	UpdateStore           UpdateStore
 	ModelListStore        ModelListStore
@@ -149,12 +150,16 @@ func New(queries *db.Queries, txStarter txStarter, hub *realtime.Hub, bus *event
 	taskSvc.Analytics = analyticsClient
 	autopilotSvc := service.NewAutopilotService(queries, txStarter, bus, taskSvc)
 	workflowSvc := service.NewWorkflowService(queries, txStarter, bus, taskSvc)
+	splitOrchestrator := service.NewSplitOrchestrator(queries, txStarter, workflowSvc, bus)
 
 	// Wire the workflow completion gateway: when an agent task linked to a
 	// workflow node run completes, the WorkflowService transitions the node
 	// run state machine.
 	taskSvc.OnTaskCompleted = func(ctx context.Context, task db.MulticaAgentTaskQueue) {
 		_ = workflowSvc.HandleWorkflowTaskCompletion(ctx, task)
+		if splitOrchestrator != nil {
+			_ = splitOrchestrator.HandleTaskCompletion(ctx, task)
+		}
 	}
 
 	h := &Handler{
@@ -167,6 +172,7 @@ func New(queries *db.Queries, txStarter txStarter, hub *realtime.Hub, bus *event
 		TaskService:           taskSvc,
 		AutopilotService:      autopilotSvc,
 		WorkflowService:       workflowSvc,
+		SplitOrchestrator:     splitOrchestrator,
 		EmailService:          emailService,
 		UpdateStore:           NewInMemoryUpdateStore(),
 		ModelListStore:        NewInMemoryModelListStore(),
@@ -191,6 +197,11 @@ func New(queries *db.Queries, txStarter txStarter, hub *realtime.Hub, bus *event
 	// when the workflow run finishes successfully.
 	workflowSvc.OnNodeStatusChanged = func(ctx context.Context, nodeRun db.MulticaWorkflowNodeRun) {
 		h.syncSubIssueForNodeRun(ctx, nodeRun)
+		if h.SplitOrchestrator != nil {
+			if err := h.SplitOrchestrator.HandleNodeRunStatusChanged(ctx, nodeRun); err != nil {
+				slog.Warn("split orchestrator node-run hook failed", "node_run_id", uuidToString(nodeRun.ID), "error", err)
+			}
+		}
 		// Publish WS event so frontend DAG refreshes immediately.
 		if run, err := h.Queries.GetWorkflowRun(ctx, nodeRun.WorkflowRunID); err == nil {
 			if wf, err := h.Queries.GetWorkflow(ctx, run.WorkflowID); err == nil {
@@ -204,6 +215,11 @@ func New(queries *db.Queries, txStarter txStarter, hub *realtime.Hub, bus *event
 	}
 	workflowSvc.OnRunTerminal = func(ctx context.Context, run db.MulticaWorkflowRun, status string) {
 		h.handleWorkflowRunTerminal(ctx, run, status)
+		if h.SplitOrchestrator != nil {
+			if err := h.SplitOrchestrator.HandleChildRunTerminal(ctx, run, status); err != nil {
+				slog.Warn("split orchestrator run-terminal hook failed", "run_id", uuidToString(run.ID), "error", err)
+			}
+		}
 	}
 
 	return h

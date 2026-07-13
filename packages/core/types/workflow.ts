@@ -386,6 +386,7 @@ export interface WorkflowNodeRuntimeSummary {
   device_id: string | null;
   has_error: boolean;
   error_message: string;
+  split_progress: SplitProgress | null;
 }
 
 export interface WorkflowRunCanvasSummaryResponse {

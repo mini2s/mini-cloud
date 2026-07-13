@@ -7,6 +7,7 @@ import {
   EMPTY_USER,
   EMPTY_SPLIT_PROGRESS,
   EMPTY_SPLIT_TASKS_RESPONSE,
+  EMPTY_WORKFLOW_RUN_CANVAS_SUMMARY_RESPONSE,
   ListIssuesResponseSchema,
   RuntimeHourlyActivityListSchema,
   RuntimeUsageByAgentListSchema,
@@ -15,6 +16,7 @@ import {
   SplitProgressSchema,
   SplitTasksResponseSchema,
   UserSchema,
+  WorkflowRunCanvasSummaryResponseSchema,
 } from "./schemas";
 import { parseWithFallback } from "./schema";
 
@@ -134,6 +136,50 @@ describe("split API response schemas", () => {
   it("defaults missing split progress counts to zero", () => {
     const parsed = SplitProgressSchema.parse({ total: 3, running: 1 });
     expect(parsed).toEqual({ total: 3, created: 0, running: 1, done: 0, failed: 0, cancelled: 0, skipped: 0 });
+  });
+
+  it("parses split progress inside workflow canvas summaries", () => {
+    const parsed = WorkflowRunCanvasSummaryResponseSchema.parse({
+      run: { id: "run-1", workflow_id: "wf-1", workspace_id: "ws-1" },
+      node_runs: [],
+      node_runtime_summaries: [
+        {
+          workflow_node_id: "node-1",
+          node_run_id: "node-run-1",
+          display_status: "in_progress",
+          split_progress: { total: 4, done: 1, running: 2 },
+        },
+      ],
+    });
+    expect(parsed.node_runtime_summaries[0]?.split_progress).toEqual({
+      total: 4,
+      created: 0,
+      running: 2,
+      done: 1,
+      failed: 0,
+      cancelled: 0,
+      skipped: 0,
+    });
+  });
+
+  it("falls back when canvas summary split progress has the wrong shape", () => {
+    const parsed = parseWithFallback(
+      {
+        run: { id: "run-1", workflow_id: "wf-1", workspace_id: "ws-1" },
+        node_runs: [],
+        node_runtime_summaries: [
+          {
+            workflow_node_id: "node-1",
+            node_run_id: "node-run-1",
+            split_progress: { total: "bad" },
+          },
+        ],
+      },
+      WorkflowRunCanvasSummaryResponseSchema,
+      EMPTY_WORKFLOW_RUN_CANVAS_SUMMARY_RESPONSE,
+      { endpoint: "GET /api/workflows/:id/runs/:runId/canvas-summary" },
+    );
+    expect(parsed).toBe(EMPTY_WORKFLOW_RUN_CANVAS_SUMMARY_RESPONSE);
   });
 });
 

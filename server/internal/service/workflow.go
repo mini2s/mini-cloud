@@ -65,7 +65,7 @@ const (
 var validTransitions = map[string][]string{
 	NodeRunStatusPending:             {NodeRunStatusFormatChecking, NodeRunStatusSplitting, NodeRunStatusSkipped, NodeRunStatusCancelled},
 	NodeRunStatusFormatChecking:      {NodeRunStatusFormatOk, NodeRunStatusCompleted, NodeRunStatusFormatFailed, NodeRunStatusCancelled},
-	NodeRunStatusFormatOk:            {NodeRunStatusWorkerAssigned, NodeRunStatusWorking, NodeRunStatusCancelled, NodeRunStatusSkipped},
+	NodeRunStatusFormatOk:            {NodeRunStatusWorkerAssigned, NodeRunStatusWorking, NodeRunStatusSplitting, NodeRunStatusCancelled, NodeRunStatusSkipped},
 	NodeRunStatusFormatFailed:        {},
 	NodeRunStatusWorkerAssigned:      {NodeRunStatusWorking, NodeRunStatusCancelled, NodeRunStatusSkipped},
 	NodeRunStatusWorking:             {NodeRunStatusAwaitingInput, NodeRunStatusAwaitingCritic, NodeRunStatusFailed, NodeRunStatusCancelled, NodeRunStatusBlocked},
@@ -434,6 +434,9 @@ func (s *WorkflowService) TransitionNodeRun(ctx context.Context, nodeRun db.Mult
 
 	if s.OnNodeStatusChanged != nil {
 		s.OnNodeStatusChanged(ctx, updated)
+	}
+	if isTerminalNodeRunStatus(newStatus) && newStatus != NodeRunStatusCompleted {
+		s.checkRunCompletion(ctx, updated.WorkflowRunID)
 	}
 
 	return &updated, nil
@@ -912,6 +915,10 @@ func (s *WorkflowService) dispatchWorker(ctx context.Context, nodeRun db.Multica
 	if err != nil {
 		return fmt.Errorf("get node: %w", err)
 	}
+	if workflowNodeType(node.FormatSchema) == "split" {
+		_, err := s.TransitionNodeRun(ctx, nodeRun, NodeRunStatusSplitting)
+		return err
+	}
 
 	switch node.WorkerType {
 	case "human":
@@ -1094,6 +1101,20 @@ func (s *WorkflowService) DispatchAgentTask(ctx context.Context, nodeRun db.Mult
 			if squad, err := s.Queries.GetSquad(ctx, node.WorkerID); err == nil {
 				agentID = squad.LeaderID
 			}
+		}
+	case "split":
+		switch node.WorkerType {
+		case "agent":
+			agentID = node.WorkerID
+		case "squad":
+			agentID = node.WorkerID
+			if node.WorkerID.Valid {
+				if squad, err := s.Queries.GetSquad(ctx, node.WorkerID); err == nil {
+					agentID = squad.LeaderID
+				}
+			}
+		default:
+			return nil, fmt.Errorf("split phase requires agent or squad worker")
 		}
 	case "critic":
 		agentID = node.CriticID

@@ -39,6 +39,30 @@ type SplitTasksResponse struct {
 	Progress SplitProgressResponse `json:"progress"`
 }
 
+func splitProgressResponse(tasks []db.MulticaWorkflowSplitTask) SplitProgressResponse {
+	var progress SplitProgressResponse
+	for _, task := range tasks {
+		if task.Status != service.SplitTaskStatusDiscarded {
+			progress.Total++
+		}
+		switch task.Status {
+		case service.SplitTaskStatusCreated:
+			progress.Created++
+		case service.SplitTaskStatusRunning:
+			progress.Running++
+		case service.SplitTaskStatusDone:
+			progress.Done++
+		case service.SplitTaskStatusFailed:
+			progress.Failed++
+		case service.SplitTaskStatusCancelled:
+			progress.Cancelled++
+		case service.SplitTaskStatusSkipped:
+			progress.Skipped++
+		}
+	}
+	return progress
+}
+
 func splitTaskToResponse(task db.MulticaWorkflowSplitTask) SplitTaskResponse {
 	var dependsOn []string
 	if len(task.DependsOn) > 0 {
@@ -63,27 +87,11 @@ func splitTaskToResponse(task db.MulticaWorkflowSplitTask) SplitTaskResponse {
 
 func splitTasksResponse(tasks []db.MulticaWorkflowSplitTask) SplitTasksResponse {
 	resp := SplitTasksResponse{
-		Tasks: make([]SplitTaskResponse, len(tasks)),
+		Tasks:    make([]SplitTaskResponse, len(tasks)),
+		Progress: splitProgressResponse(tasks),
 	}
 	for i, task := range tasks {
 		resp.Tasks[i] = splitTaskToResponse(task)
-		if task.Status != service.SplitTaskStatusDiscarded {
-			resp.Progress.Total++
-		}
-		switch task.Status {
-		case service.SplitTaskStatusCreated:
-			resp.Progress.Created++
-		case service.SplitTaskStatusRunning:
-			resp.Progress.Running++
-		case service.SplitTaskStatusDone:
-			resp.Progress.Done++
-		case service.SplitTaskStatusFailed:
-			resp.Progress.Failed++
-		case service.SplitTaskStatusCancelled:
-			resp.Progress.Cancelled++
-		case service.SplitTaskStatusSkipped:
-			resp.Progress.Skipped++
-		}
 	}
 	return resp
 }
@@ -106,13 +114,17 @@ func (h *Handler) GenerateSplitTasks(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	if h.SplitOrchestrator == nil {
+		writeError(w, http.StatusInternalServerError, "split orchestrator is not configured")
+		return
+	}
+	if err := h.SplitOrchestrator.GenerateSplitTasks(r.Context(), nodeRun); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
 	tasks, err := h.Queries.ListSplitTasksByNodeRun(r.Context(), nodeRun.ID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to list split tasks")
-		return
-	}
-	if len(tasks) == 0 {
-		writeError(w, http.StatusNotImplemented, "split task generation is not wired yet")
 		return
 	}
 	writeJSON(w, http.StatusOK, splitTasksResponse(tasks))
@@ -123,16 +135,25 @@ func (h *Handler) ApproveSplitTasks(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	var req service.SplitApproveRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid split approval payload")
+		return
+	}
+	if h.SplitOrchestrator == nil {
+		writeError(w, http.StatusInternalServerError, "split orchestrator is not configured")
+		return
+	}
+	if err := h.SplitOrchestrator.ApproveSplit(r.Context(), nodeRun, req); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
 	tasks, err := h.Queries.ListSplitTasksByNodeRun(r.Context(), nodeRun.ID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to list split tasks")
 		return
 	}
-	if len(tasks) == 0 {
-		writeError(w, http.StatusBadRequest, "split has no generated tasks")
-		return
-	}
-	writeError(w, http.StatusNotImplemented, "split approval materialization is not wired yet")
+	writeJSON(w, http.StatusOK, splitTasksResponse(tasks))
 }
 
 func (h *Handler) CancelSplitNode(w http.ResponseWriter, r *http.Request) {
@@ -144,62 +165,15 @@ func (h *Handler) CancelSplitNode(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	tasks, err := h.Queries.ListSplitTasksByNodeRun(r.Context(), nodeRun.ID)
+	if h.SplitOrchestrator == nil {
+		writeError(w, http.StatusInternalServerError, "split orchestrator is not configured")
+		return
+	}
+	updated, err := h.SplitOrchestrator.CancelSplitNode(r.Context(), nodeRun, parseUUID(workspaceID))
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to list split tasks")
-		return
-	}
-
-	for _, task := range tasks {
-		if task.RunID.Valid {
-			_ = h.WorkflowService.CancelRun(r.Context(), task.RunID)
-		}
-		if task.IssueID.Valid {
-			_, _ = h.Queries.UpdateIssueStatus(r.Context(), db.UpdateIssueStatusParams{
-				ID:          task.IssueID,
-				Status:      "cancelled",
-				WorkspaceID: parseUUID(workspaceID),
-			})
-		}
-	}
-	if err := h.Queries.CancelOpenSplitTasksByNodeRun(r.Context(), nodeRun.ID); err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to cancel split tasks")
-		return
-	}
-
-	var updated *db.MulticaWorkflowNodeRun
-	if nodeRun.Status == service.NodeRunStatusCancelled {
-		updated = &nodeRun
-	} else if serviceStatusCanCancel(nodeRun.Status) {
-		updated, err = h.WorkflowService.TransitionNodeRun(r.Context(), nodeRun, service.NodeRunStatusCancelled)
-		if err != nil {
-			writeError(w, http.StatusBadRequest, err.Error())
-			return
-		}
-	} else {
-		writeError(w, http.StatusBadRequest, "split node cannot be cancelled from current status")
+		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 
 	writeJSON(w, http.StatusOK, workflowNodeRunToResponse(*updated))
-}
-
-func serviceStatusCanCancel(status string) bool {
-	switch status {
-	case service.NodeRunStatusPending,
-		service.NodeRunStatusFormatChecking,
-		service.NodeRunStatusFormatOk,
-		service.NodeRunStatusWorkerAssigned,
-		service.NodeRunStatusWorking,
-		service.NodeRunStatusAwaitingInput,
-		service.NodeRunStatusAwaitingCritic,
-		service.NodeRunStatusCriticReviewing,
-		service.NodeRunStatusBlocked,
-		service.NodeRunStatusSplitting,
-		service.NodeRunStatusAwaitingSplitReview,
-		service.NodeRunStatusSplitActive:
-		return true
-	default:
-		return false
-	}
 }

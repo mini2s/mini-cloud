@@ -4,6 +4,8 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	db "github.com/multica-ai/multica/server/pkg/db/generated"
 )
 
 func TestSplitTaskGraphRejectsUnknownDependency(t *testing.T) {
@@ -106,5 +108,45 @@ func TestResolveSplitBarrierFailureThreshold(t *testing.T) {
 	}
 	if got := resolveSplitStatus(SplitModeBarrier, 0, tasks); got != NodeRunStatusFailed {
 		t.Fatalf("resolveSplitStatus threshold=0 = %s, want failed", got)
+	}
+}
+
+func TestBuildSplitDependencyContextIncludesDependencyOutputs(t *testing.T) {
+	context := buildSplitDependencyContext([]splitTaskDependencyContext{
+		{
+			TaskTitle: "API contract",
+			NodeRuns: []db.MulticaWorkflowNodeRun{
+				{
+					NodeTitle:    "Draft API",
+					WorkerOutput: []byte(`{"output":"Spec ready"}`),
+				},
+				{
+					NodeTitle:    "Review",
+					WorkerOutput: []byte(`{"output":"Approved by critic"}`),
+				},
+				{
+					NodeTitle:    "Ignored",
+					WorkerOutput: []byte(`{"foo":"bar"}`),
+				},
+			},
+		},
+		{
+			TaskTitle: "Backfill tests",
+			NodeRuns: []db.MulticaWorkflowNodeRun{
+				{
+					NodeTitle:    "Plan coverage",
+					WorkerOutput: []byte(`{"output":"Need integration coverage"}`),
+				},
+				{
+					NodeTitle:    "Broken payload",
+					WorkerOutput: []byte(`not-json`),
+				},
+			},
+		},
+	})
+
+	want := "\n\n---\n\n## API contract Output\n\n### Draft API\n\nSpec ready\n\n### Review\n\nApproved by critic\n\n---\n\n## Backfill tests Output\n\n### Plan coverage\n\nNeed integration coverage"
+	if context != want {
+		t.Fatalf("buildSplitDependencyContext = %q, want %q", context, want)
 	}
 }
