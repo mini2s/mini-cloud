@@ -1,9 +1,14 @@
 // @vitest-environment jsdom
 
-import { render, screen } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { render, screen, waitFor } from "@testing-library/react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const reactFlowPropsRef = vi.hoisted(() => [] as Record<string, unknown>[]);
+const mocks = vi.hoisted(() => ({
+  fitView: vi.fn(),
+  viewportInitialized: true,
+  nodesInitialized: true,
+}));
 
 vi.mock("@xyflow/react", () => ({
   ReactFlowProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
@@ -31,13 +36,16 @@ vi.mock("@xyflow/react", () => ({
   getSmoothStepPath: () => ["M0,0 L100,100"],
   getStraightPath: () => ["M0,0 L100,100"],
   useReactFlow: () => ({
+    fitView: mocks.fitView,
+    viewportInitialized: mocks.viewportInitialized,
     screenToFlowPosition: ({ x, y }: { x: number; y: number }) => ({ x, y }),
   }),
+  useNodesInitialized: () => mocks.nodesInitialized,
 }));
 
 vi.mock("@xyflow/react/dist/style.css", () => ({}));
 
-import { WorkflowTemplatePreviewCanvas } from "./workflow-template-preview-canvas";
+import { computeTemplatePreviewViewport, WorkflowTemplatePreviewCanvas } from "./workflow-template-preview-canvas";
 import type { WorkflowEdge, WorkflowNode, WorkflowStage } from "@multica/core/types";
 
 function makeNode(overrides: Partial<WorkflowNode> = {}): WorkflowNode {
@@ -89,6 +97,13 @@ function makeEdge(overrides: Partial<WorkflowEdge> = {}): WorkflowEdge {
 }
 
 describe("WorkflowTemplatePreviewCanvas", () => {
+  beforeEach(() => {
+    reactFlowPropsRef.length = 0;
+    mocks.fitView.mockClear();
+    mocks.viewportInitialized = true;
+    mocks.nodesInitialized = true;
+  });
+
   it("uses the workflow editor canvas model in read-only mode", () => {
     render(
       <WorkflowTemplatePreviewCanvas
@@ -100,13 +115,75 @@ describe("WorkflowTemplatePreviewCanvas", () => {
 
     expect(screen.getByTestId("workflow-template-preview-canvas")).toHaveClass("flex", "h-full", "w-full");
     expect(screen.getByTestId("workflow-canvas-core")).toBeInTheDocument();
+    expect(screen.getByTestId("panorama-canvas")).toHaveClass("left-0");
     expect(screen.getByTestId("reactflow")).toHaveAttribute("data-draggable", "false");
     expect(screen.getByTestId("reactflow")).toHaveAttribute("data-connectable", "false");
+    expect(screen.queryByTestId("rf-controls")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("rf-minimap")).not.toBeInTheDocument();
 
     const props = reactFlowPropsRef.at(-1)!;
     const rfNodes = props.nodes as Array<{ type: string }>;
     const rfEdges = props.edges as Array<{ type: string }>;
     expect(rfNodes.map((node) => node.type)).toEqual(["compactWorker", "compactWorker"]);
     expect(rfEdges.map((edge) => edge.type)).toEqual(["panorama"]);
+  });
+
+  it("computes a centered viewport for the preview bounds", () => {
+    const viewport = computeTemplatePreviewViewport(
+      [
+        { position: { x: 100, y: 50 }, width: 240, height: 104 },
+        { position: { x: 500, y: 450 }, width: 240, height: 104 },
+      ],
+      { width: 638, height: 398 },
+    );
+
+    const boundsCenterX = (100 + 740) / 2;
+    const boundsCenterY = (50 + 554) / 2;
+    const screenCenterX = boundsCenterX * viewport.zoom + viewport.x;
+    const screenCenterY = boundsCenterY * viewport.zoom + viewport.y;
+
+    expect(screenCenterX).toBeCloseTo(319);
+    expect(screenCenterY).toBeCloseTo(199);
+    expect(viewport.zoom).toBeLessThan(0.85);
+  });
+
+  it("passes a centered controlled viewport after measuring the preview size", async () => {
+    const rectSpy = vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue({
+      x: 0,
+      y: 0,
+      left: 0,
+      top: 0,
+      right: 638,
+      bottom: 398,
+      width: 638,
+      height: 398,
+      toJSON: () => ({}),
+    } as DOMRect);
+    vi.stubGlobal("ResizeObserver", class ResizeObserver {
+      observe() {}
+      disconnect() {}
+    });
+
+    render(
+      <WorkflowTemplatePreviewCanvas
+        nodes={[makeNode(), makeNode({ id: "node-2", title: "Build", position_x: 420 })]}
+        edges={[makeEdge()]}
+        stages={[makeStage()]}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(reactFlowPropsRef.at(-1)?.viewport).toEqual(
+        expect.objectContaining({
+          zoom: expect.any(Number),
+        }),
+      );
+    });
+
+    expect((reactFlowPropsRef.at(-1)?.viewport as { zoom: number }).zoom).toBeLessThanOrEqual(0.85);
+    expect(mocks.fitView).not.toHaveBeenCalled();
+
+    rectSpy.mockRestore();
+    vi.unstubAllGlobals();
   });
 });
