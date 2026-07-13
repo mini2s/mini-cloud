@@ -259,6 +259,12 @@
     "input": "Input",
     "output": "Output"
   },
+  "cancel_dialog": {
+    "title": "Cancel workflow run?",
+    "description": "This will stop unfinished node runs and cancel active child tasks.",
+    "keep": "Keep running",
+    "confirm": "Confirm cancel"
+  },
   "node_run": {
     "status": {
       "pending": "Pending",

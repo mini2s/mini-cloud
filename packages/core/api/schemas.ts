@@ -848,6 +848,13 @@ export const EMPTY_WORKFLOW_RUN: WorkflowRun = {
   created_at: "",
 };
 
+export const WorkflowRunDetailResponseSchema = z.union([
+  WorkflowRunSchema,
+  z.object({
+    run: WorkflowRunSchema.default(EMPTY_WORKFLOW_RUN as any),
+  }).loose().transform((value) => value.run),
+]);
+
 export const WorkflowNodeRunSchema = z.object({
   id: z.string(),
   workflow_run_id: z.string(),

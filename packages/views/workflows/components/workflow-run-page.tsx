@@ -14,6 +14,16 @@ import { PageHeader } from "../../layout/page-header";
 import { Skeleton } from "@multica/ui/components/ui/skeleton";
 import { Button } from "@multica/ui/components/ui/button";
 import { Badge } from "@multica/ui/components/ui/badge";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@multica/ui/components/ui/alert-dialog";
 import { useT } from "../../i18n";
 import { DAGCanvas } from "./dag-canvas";
 import { ReactFlowProvider } from "@xyflow/react";
@@ -116,6 +126,7 @@ export function WorkflowRunPage({ workflowId, runId }: WorkflowRunPageProps) {
   const { t } = useT("workflows");
   const wsId = useWorkspaceId();
   const [selectedSplitNodeId, setSelectedSplitNodeId] = useState<string | null>(null);
+  const [cancelDialogOpen, setCancelDialogOpen] = useState(false);
 
   const { data: run, isLoading: runLoading } = useQuery(workflowRunOptions(wsId, workflowId, runId));
   const { data: nodes = [], isLoading: nodesLoading } = useQuery(workflowNodesOptions(wsId, workflowId));
@@ -195,7 +206,7 @@ export function WorkflowRunPage({ workflowId, runId }: WorkflowRunPageProps) {
             <Button
               size="sm"
               variant="outline"
-              onClick={handleCancel}
+              onClick={() => setCancelDialogOpen(true)}
               disabled={cancelMutation.isPending}
             >
               {cancelMutation.isPending ? t(($) => $.run.cancelling) : t(($) => $.run.cancel)}
@@ -250,6 +261,33 @@ export function WorkflowRunPage({ workflowId, runId }: WorkflowRunPageProps) {
           onClose={() => setSelectedSplitNodeId(null)}
         />
       ) : null}
+      <AlertDialog
+        open={cancelDialogOpen}
+        onOpenChange={(open) => {
+          if (!cancelMutation.isPending) setCancelDialogOpen(open);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t(($) => $.cancel_dialog.title)}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {t(($) => $.cancel_dialog.description)}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={cancelMutation.isPending}>
+              {t(($) => $.cancel_dialog.keep)}
+            </AlertDialogCancel>
+            <AlertDialogAction
+              variant="destructive"
+              disabled={cancelMutation.isPending}
+              onClick={handleCancel}
+            >
+              {cancelMutation.isPending ? t(($) => $.run.cancelling) : t(($) => $.cancel_dialog.confirm)}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

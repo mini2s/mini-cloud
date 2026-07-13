@@ -104,6 +104,12 @@ vi.mock("../../i18n", () => {
   const translations = {
     detail: { not_found: "Not found", no_nodes: "No nodes" },
     run: { status: { running: "Running" }, cancel: "Cancel run", cancelling: "Cancelling" },
+    cancel_dialog: {
+      title: "Cancel workflow run?",
+      description: "This will stop unfinished node runs and cancel active child tasks.",
+      keep: "Keep running",
+      confirm: "Confirm cancel",
+    },
     node_run: {
       status: {
         split_active: "Split Active",
@@ -215,5 +221,18 @@ describe("WorkflowRunPage", () => {
     fireEvent.click(screen.getByRole("button", { name: "Open split details" }));
 
     expect(screen.getByTestId("workflow-run-split-panel")).toHaveTextContent("split_active");
+  });
+
+  it("confirms before cancelling a running workflow run", () => {
+    render(<WorkflowRunPage workflowId="wf-1" runId="run-1" />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Cancel run" }));
+
+    expect(mocks.cancelMutate).not.toHaveBeenCalled();
+    expect(screen.getByRole("alertdialog", { name: "Cancel workflow run?" })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Confirm cancel" }));
+
+    expect(mocks.cancelMutate).toHaveBeenCalledWith({ workflowId: "wf-1", runId: "run-1" });
   });
 });

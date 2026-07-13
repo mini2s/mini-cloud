@@ -258,6 +258,12 @@
     "input": "输入",
     "output": "输出"
   },
+  "cancel_dialog": {
+    "title": "取消工作流运行？",
+    "description": "这会停止未完成的节点运行，并取消活动中的子任务。",
+    "keep": "继续运行",
+    "confirm": "确认取消"
+  },
   "node_run": {
     "status": {
       "pending": "等待中",

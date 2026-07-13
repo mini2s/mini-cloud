@@ -144,7 +144,56 @@ vi.mock("./no-agent-banner", () => ({ NoAgentBanner: () => <div /> }));
 
 vi.mock("../../i18n", () => ({
   useT: () => ({
-    t: () => "translated",
+    t: (selector: (value: unknown) => string) =>
+      selector({
+        window: {
+          new_chat_tooltip: "New chat",
+          restore_tooltip: "Restore",
+          expand_tooltip: "Expand",
+          minimize_tooltip: "Minimize",
+          untitled: "New chat",
+          no_previous: "No previous chats",
+          active_group: "Active",
+          archived_group: "{{count}} archived chats",
+          running: "Running",
+          unread: "Unread",
+          another_running: "Another chat is running",
+          another_unread: "Another chat has unread replies",
+        },
+        empty_state: {
+          first_time_title: "Chat with your agents",
+          first_time_intro: "They know your workspace ",
+          first_time_pillars: "issues, projects, skills",
+          first_time_pillars_suffix: ".",
+          first_time_actions: "Ask for a summary.",
+          returning_title_default: "Welcome to Multica",
+          returning_title_named: "Hi, I'm {{name}}",
+          returning_subtitle: "Try asking",
+        },
+        starter_prompts: {
+          list_open: "List my open tasks by priority",
+          summarize_today: "Summarize what I did today",
+          plan_next: "Plan what to work on next",
+        },
+        session_history: {
+          row_rename_aria: "Rename chat session",
+          row_delete_aria: "Delete chat session",
+          time: {
+            just_now: "just now",
+            minutes: "{{count}}m ago",
+            hours: "{{count}}h ago",
+            days: "{{count}}d ago",
+          },
+          delete_dialog: {
+            title: "Delete chat session",
+            description_with_title: "\"{{title}}\" and its messages will be permanently removed.",
+            description_default: "This chat session and its messages will be permanently removed.",
+            cancel: "Cancel",
+            confirm: "Delete",
+            confirming: "Deleting...",
+          },
+        },
+      }),
   }),
 }));
 
@@ -160,5 +209,15 @@ describe("ChatWindow", () => {
     render(<ChatWindow />);
 
     expect(screen.queryByTestId("chat-window")).not.toBeInTheDocument();
+  });
+
+  it("names chat window icon buttons for assistive tech", () => {
+    mocks.isOpen = true;
+
+    render(<ChatWindow />);
+
+    expect(screen.getAllByRole("button", { name: "New chat" }).length).toBeGreaterThan(0);
+    expect(screen.getByRole("button", { name: "Expand" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Minimize" })).toBeInTheDocument();
   });
 });
