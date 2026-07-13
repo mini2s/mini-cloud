@@ -46,6 +46,24 @@ const ROLE_ICONS: Record<MemberRole, typeof Crown> = {
 
 type MemberStatus = NonNullable<MemberWithUser["status"]>;
 
+const HIDDEN_DEPARTMENT_PATH_ROOTS = new Set(["深信服科技股份有限公司"]);
+
+function formatDepartmentPath(path?: string | null) {
+  const segments = (path ?? "")
+    .split("/")
+    .map((segment) => segment.trim())
+    .filter(Boolean);
+  if (segments.length === 0) return "";
+  if (HIDDEN_DEPARTMENT_PATH_ROOTS.has(segments[0] ?? "")) {
+    segments.shift();
+  }
+  return segments.join("/");
+}
+
+function departmentDisplayLabel(path?: string | null, name?: string | null) {
+  return formatDepartmentPath(path) || name || "";
+}
+
 function formatUnknownStatus(status: string) {
   return status
     .split("_")
@@ -116,7 +134,7 @@ function MemberRow({
   const showMenu = canEditRole || canRemove;
   const employeeId = member.employee_id || member.external_user_id;
   const displayName = employeeId ? `${member.name}(${employeeId})` : member.name;
-  const organizationLabel = member.dept_path || member.dept_name;
+  const organizationLabel = departmentDisplayLabel(member.dept_path, member.dept_name);
   const detailLabel = [organizationLabel, member.position].filter(Boolean).join(" ");
   const fallbackDetail = detailLabel || member.email;
   const memberStatus = member.status ?? "active";
@@ -527,7 +545,7 @@ export function MembersTab() {
                           <span className="min-w-0 flex-1">
                             <span className="block truncate font-medium">{department.dept_name}</span>
                             <span className="block truncate text-xs text-muted-foreground">
-                              {department.dept_path || department.dept_id}
+                              {departmentDisplayLabel(department.dept_path, department.dept_name) || department.dept_id}
                             </span>
                           </span>
                           <span className="shrink-0 rounded-md border px-2 py-1 text-xs text-muted-foreground">
@@ -603,7 +621,7 @@ export function MembersTab() {
                   </div>
                   {selectedDepartment && (
                     <div className="mt-1 truncate text-xs text-muted-foreground">
-                      {selectedDepartment.dept_path || selectedDepartment.dept_id}
+                      {departmentDisplayLabel(selectedDepartment.dept_path, selectedDepartment.dept_name) || selectedDepartment.dept_id}
                     </div>
                   )}
                 </div>
@@ -615,7 +633,7 @@ export function MembersTab() {
                 <div data-testid="dept-member-results" className="max-h-72 overflow-y-auto">
                   {deptUsers.map((deptUser) => {
                     const key = deptUserKey(deptUser);
-                    const departmentLabel = deptUser.dept_path || deptUser.dept_name;
+                    const departmentLabel = departmentDisplayLabel(deptUser.dept_path, deptUser.dept_name);
                     const detailLabel = [departmentLabel, deptUser.position].filter(Boolean).join(" ");
                     return (
                       <label

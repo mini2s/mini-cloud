@@ -105,7 +105,7 @@ describe("MembersTab", () => {
         email: "runtime@example.test",
         position: "SRE",
         dept_name: "Platform Runtime",
-        dept_path: "Engineering/Platform Dept/Runtime",
+        dept_path: "/深信服科技股份有限公司/研发体系/Costrict研发部/开发组",
         created_at: "2026-01-01T00:00:00Z",
         avatar_url: null,
       },
@@ -118,7 +118,7 @@ describe("MembersTab", () => {
         user_id: "E001",
         username: "Active Dept User",
         universal_id: "uni-active",
-        dept_path: "/Root/Platform",
+        dept_path: "/深信服科技股份有限公司/研发体系/Costrict研发部/开发组",
         dept_name: "Platform",
         position: "Engineer",
         status: 1,
@@ -131,14 +131,14 @@ describe("MembersTab", () => {
     expect(screen.queryByText("Invite member")).not.toBeInTheDocument();
     expect(screen.queryByPlaceholderText("user@company.com")).not.toBeInTheDocument();
     expect(screen.getByText("Runtime Dept User(E004)")).toBeInTheDocument();
-    expect(screen.getByText("Engineering/Platform Dept/Runtime SRE")).toBeInTheDocument();
+    expect(screen.getByText("研发体系/Costrict研发部/开发组 SRE")).toBeInTheDocument();
 
     fireEvent.change(screen.getByPlaceholderText(/employee name/i), {
       target: { value: "E001" },
     });
 
     expect(await screen.findByText("Active Dept User(E001)")).toBeInTheDocument();
-    expect(screen.getByText("/Root/Platform Engineer")).toBeInTheDocument();
+    expect(screen.getByText("研发体系/Costrict研发部/开发组 Engineer")).toBeInTheDocument();
     expect(screen.getByTestId("dept-member-results")).toHaveClass("max-h-72", "overflow-y-auto");
     expect(mocks.searchDeptUsers).toHaveBeenCalledWith("E001");
     expect(mocks.searchDeptDepartments).toHaveBeenCalledWith("E001");
@@ -210,7 +210,7 @@ describe("MembersTab", () => {
       {
         dept_id: "D100",
         dept_name: "Platform Dept",
-        dept_path: "Engineering/Platform Dept",
+        dept_path: "/深信服科技股份有限公司/研发体系/Costrict研发部",
       },
     ]);
     mocks.listDeptDepartmentUsers.mockResolvedValue([
@@ -219,7 +219,7 @@ describe("MembersTab", () => {
         username: "Runtime Dept User",
         universal_id: "uni-runtime",
         dept_name: "Platform Runtime",
-        dept_path: "Engineering/Platform Dept/Runtime",
+        dept_path: "/深信服科技股份有限公司/研发体系/Costrict研发部/开发组",
         position: "SRE",
         status: 1,
       },
@@ -228,7 +228,7 @@ describe("MembersTab", () => {
         username: "Runtime Frontend User",
         universal_id: "uni-frontend",
         dept_name: "Platform Runtime",
-        dept_path: "Engineering/Platform Dept/Runtime",
+        dept_path: "/深信服科技股份有限公司/研发体系/Costrict研发部/开发组",
         position: "Frontend",
         status: 1,
       },
@@ -251,7 +251,7 @@ describe("MembersTab", () => {
     });
 
     expect(await screen.findByText("View members")).toBeInTheDocument();
-    expect(screen.getByText("Engineering/Platform Dept")).toBeInTheDocument();
+    expect(screen.getByText("研发体系/Costrict研发部")).toBeInTheDocument();
     expect(screen.getByTestId("dept-department-results")).toHaveClass("max-h-72", "overflow-y-auto");
     fireEvent.change(searchBox, {
       target: { value: "" },
@@ -266,7 +266,7 @@ describe("MembersTab", () => {
     expect(screen.queryByTestId("dept-department-results")).not.toBeInTheDocument();
     expect(await screen.findByText("Runtime Dept User(E004)")).toBeInTheDocument();
     expect(await screen.findByText("Runtime Frontend User(E005)")).toBeInTheDocument();
-    expect(screen.getAllByText("Engineering/Platform Dept/Runtime SRE")).toHaveLength(2);
+    expect(screen.getAllByText("研发体系/Costrict研发部/开发组 SRE")).toHaveLength(2);
     expect(screen.getByText("Members in Platform Dept")).toBeInTheDocument();
     expect(screen.getByRole("checkbox", { name: /Runtime Dept User/i })).toBeChecked();
     expect(screen.getByRole("checkbox", { name: /Runtime Dept User/i })).toHaveAttribute("aria-disabled", "true");
@@ -274,7 +274,7 @@ describe("MembersTab", () => {
     expect(screen.getByTestId("dept-selected-panel").compareDocumentPosition(screen.getByTestId("dept-member-results"))).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
     expect(screen.queryByRole("button", { name: /remove Runtime Dept User/i })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: /back to departments/i }));
-    expect(screen.getByText("Engineering/Platform Dept")).toBeInTheDocument();
+    expect(screen.getByText("研发体系/Costrict研发部")).toBeInTheDocument();
     fireEvent.click(await screen.findByRole("button", { name: /Platform Dept/i }));
     expect(await screen.findByText("Runtime Dept User(E004)")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("checkbox", { name: /select all/i }));
