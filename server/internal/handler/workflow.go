@@ -248,6 +248,26 @@ func (h *Handler) loadWorkflowInWorkspace(w http.ResponseWriter, r *http.Request
 	return db.MulticaWorkflow{}, false
 }
 
+// isNonExecutableNode returns true for annotation, gateway, and split nodes.
+// These orchestration primitives are handled by the engine, not by user-assigned
+// workers or critics, so they don't need assignee validation.
+func isNonExecutableNode(formatSchema []byte) bool {
+	if len(formatSchema) == 0 {
+		return false
+	}
+	var schema struct {
+		Type string `json:"type"`
+	}
+	if err := json.Unmarshal(formatSchema, &schema); err != nil {
+		return false
+	}
+	switch schema.Type {
+	case "annotation", "gateway", "split":
+		return true
+	}
+	return false
+}
+
 // ── Workflow CRUD ────────────────────────────────────────────────────────────
 
 func (h *Handler) ListWorkflows(w http.ResponseWriter, r *http.Request) {
@@ -413,7 +433,7 @@ func (h *Handler) UpdateWorkflow(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Validate all nodes have worker and critic assigned when activating.
-	if req.Status != nil && *req.Status == "active" {
+	if req.Status != nil && *req.Status == "active" && !wf.IsTemplate {
 		nodes, err := h.Queries.ListWorkflowNodes(r.Context(), wf.ID)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, "failed to list nodes")
@@ -421,6 +441,9 @@ func (h *Handler) UpdateWorkflow(w http.ResponseWriter, r *http.Request) {
 		}
 		var nodeNames []string
 		for _, n := range nodes {
+			if isNonExecutableNode(n.FormatSchema) {
+				continue
+			}
 			var missingRoles []string
 			if n.WorkerType == "" || (!n.WorkerID.Valid && n.WorkerType == "agent") {
 				missingRoles = append(missingRoles, "worker")
