@@ -848,7 +848,7 @@ export const EMPTY_WORKFLOW_RUN: WorkflowRun = {
   created_at: "",
 };
 
-const WorkflowNodeRunSchema = z.object({
+export const WorkflowNodeRunSchema = z.object({
   id: z.string(),
   workflow_run_id: z.string(),
   workflow_node_id: z.string(),
@@ -875,6 +875,32 @@ const WorkflowNodeRunSchema = z.object({
 }).loose();
 
 export const WorkflowNodeRunListSchema = z.array(WorkflowNodeRunSchema);
+
+export const EMPTY_WORKFLOW_NODE_RUN: WorkflowNodeRun = {
+  id: "",
+  workflow_run_id: "",
+  workflow_node_id: "",
+  node_title: "",
+  status: "pending",
+  retry_count: 0,
+  worker_type: "human",
+  worker_id: null,
+  worker_output: null,
+  worker_agent_task_id: null,
+  critic_type: "human",
+  critic_id: null,
+  critic_output: null,
+  critic_comment: "",
+  critic_agent_task_id: null,
+  agent_task_id: null,
+  session_id: null,
+  runtime_id: null,
+  device_id: null,
+  started_at: null,
+  completed_at: null,
+  created_at: "",
+  updated_at: "",
+};
 
 export const EMPTY_WORKFLOW_NODE_RUN_LIST: WorkflowNodeRun[] = [];
 

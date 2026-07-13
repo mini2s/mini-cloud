@@ -197,6 +197,8 @@ import {
   EMPTY_LIST_WORKFLOW_RUNS_RESPONSE,
   WorkflowRunSchema,
   EMPTY_WORKFLOW_RUN,
+  WorkflowNodeRunSchema,
+  EMPTY_WORKFLOW_NODE_RUN,
   MyWorkflowTasksResponseSchema,
   EMPTY_MY_WORKFLOW_TASKS_RESPONSE,
   WorkflowRunCanvasSummaryResponseSchema,
@@ -2134,8 +2136,11 @@ export class ApiClient {
   }
 
   async cancelSplitNode(nodeRunId: string): Promise<WorkflowNodeRun> {
-    return this.fetch(`/api/node-runs/${nodeRunId}/split/cancel`, {
+    const raw = await this.fetch<unknown>(`/api/node-runs/${nodeRunId}/split/cancel`, {
       method: "POST",
+    });
+    return parseWithFallback(raw, WorkflowNodeRunSchema, EMPTY_WORKFLOW_NODE_RUN, {
+      endpoint: "POST /api/node-runs/:id/split/cancel",
     });
   }
 

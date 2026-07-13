@@ -366,11 +366,14 @@ func textToPgText(s string) pgtype.Text {
 
 // CancelRun cancels all active node_runs and marks the run as cancelled.
 func (s *WorkflowService) CancelRun(ctx context.Context, runID pgtype.UUID) error {
-	return s.runInTx(ctx, func(qtx *db.Queries) error {
+	cancelledNodeRuns := make([]db.MulticaWorkflowNodeRun, 0)
+	var cancelledRun db.MulticaWorkflowRun
+	if err := s.runInTx(ctx, func(qtx *db.Queries) error {
 		run, err := qtx.GetWorkflowRun(ctx, runID)
 		if err != nil {
 			return fmt.Errorf("get workflow run: %w", err)
 		}
+		cancelledRun = run
 
 		nodeRuns, err := qtx.ListWorkflowNodeRunsByRun(ctx, runID)
 		if err != nil {
@@ -378,12 +381,14 @@ func (s *WorkflowService) CancelRun(ctx context.Context, runID pgtype.UUID) erro
 		}
 		for _, nr := range nodeRuns {
 			if !isTerminalNodeRunStatus(nr.Status) {
-				if _, err := qtx.UpdateWorkflowNodeRunStatus(ctx, db.UpdateWorkflowNodeRunStatusParams{
+				updated, err := qtx.UpdateWorkflowNodeRunStatus(ctx, db.UpdateWorkflowNodeRunStatusParams{
 					ID:     nr.ID,
 					Status: NodeRunStatusCancelled,
-				}); err != nil {
+				})
+				if err != nil {
 					return fmt.Errorf("cancel node run: %w", err)
 				}
+				cancelledNodeRuns = append(cancelledNodeRuns, updated)
 			}
 			// Cancel the sub-issue created for this node run.
 			subIssue, err := qtx.GetIssueByOrigin(ctx, db.GetIssueByOriginParams{
@@ -413,7 +418,20 @@ func (s *WorkflowService) CancelRun(ctx context.Context, runID pgtype.UUID) erro
 			Status: RunStatusCancelled,
 		})
 		return err
-	})
+	}); err != nil {
+		return err
+	}
+
+	for _, nodeRun := range cancelledNodeRuns {
+		if s.OnNodeStatusChanged != nil {
+			s.OnNodeStatusChanged(ctx, nodeRun)
+		}
+	}
+	if s.OnRunTerminal != nil {
+		cancelledRun.Status = RunStatusCancelled
+		s.OnRunTerminal(ctx, cancelledRun, RunStatusCancelled)
+	}
+	return nil
 }
 
 // ── State machine ────────────────────────────────────────────────────────────

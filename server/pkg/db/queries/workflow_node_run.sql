@@ -21,6 +21,11 @@ LIMIT 1;
 SELECT * FROM multica_workflow_node_run
 WHERE id = $1;
 
+-- name: GetWorkflowNodeRunForUpdate :one
+SELECT * FROM multica_workflow_node_run
+WHERE id = $1
+FOR UPDATE;
+
 -- name: CreateWorkflowNodeRun :one
 INSERT INTO multica_workflow_node_run (
     workflow_run_id, workflow_node_id, node_title, status,

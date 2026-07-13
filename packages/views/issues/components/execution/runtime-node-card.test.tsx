@@ -420,7 +420,21 @@ describe("RuntimeNodeCard", () => {
           },
         }}
         nodeRun={{ ...completedRun, workflow_node_id: "split-1", status: "awaiting_split_review" }}
-        runtimeSummary={{ ...runtimeSummary, workflow_node_id: "split-1", node_run_id: "run-1", display_status: "reviewing" }}
+        runtimeSummary={{
+          ...runtimeSummary,
+          workflow_node_id: "split-1",
+          node_run_id: "run-1",
+          display_status: "reviewing",
+          split_progress: {
+            total: 5,
+            created: 0,
+            running: 0,
+            done: 0,
+            failed: 0,
+            cancelled: 0,
+            skipped: 0,
+          },
+        }}
         workerName="Tester"
         criticName="Reviewer"
         onClick={vi.fn()}
@@ -429,7 +443,7 @@ describe("RuntimeNodeCard", () => {
 
     expect(screen.getByText("Task split")).toBeInTheDocument();
     expect(screen.getByText("Reviewing")).toBeInTheDocument();
-    expect(screen.getByText("barrier · concurrency 5")).toBeInTheDocument();
+    expect(screen.getByText("Review 5 tasks")).toBeInTheDocument();
     expect(screen.queryByText("Worker")).not.toBeInTheDocument();
     expect(screen.queryByText("Critic")).not.toBeInTheDocument();
     expect(screen.queryByTestId("runtime-node-deliverables")).not.toBeInTheDocument();

@@ -8,6 +8,7 @@ import {
   EMPTY_SPLIT_PROGRESS,
   EMPTY_SPLIT_TASKS_RESPONSE,
   EMPTY_WORKFLOW_RUN_CANVAS_SUMMARY_RESPONSE,
+  EMPTY_WORKFLOW_NODE_RUN,
   ListIssuesResponseSchema,
   RuntimeHourlyActivityListSchema,
   RuntimeUsageByAgentListSchema,
@@ -17,6 +18,7 @@ import {
   SplitTasksResponseSchema,
   UserSchema,
   WorkflowRunCanvasSummaryResponseSchema,
+  WorkflowNodeRunSchema,
 } from "./schemas";
 import { parseWithFallback } from "./schema";
 
@@ -180,6 +182,16 @@ describe("split API response schemas", () => {
       { endpoint: "GET /api/workflows/:id/runs/:runId/canvas-summary" },
     );
     expect(parsed).toBe(EMPTY_WORKFLOW_RUN_CANVAS_SUMMARY_RESPONSE);
+  });
+
+  it("falls back when a split cancel node-run response has the wrong shape", () => {
+    const parsed = parseWithFallback(
+      { id: "node-run-1", workflow_run_id: 42 },
+      WorkflowNodeRunSchema,
+      EMPTY_WORKFLOW_NODE_RUN,
+      { endpoint: "POST /api/node-runs/:id/split/cancel" },
+    );
+    expect(parsed).toBe(EMPTY_WORKFLOW_NODE_RUN);
   });
 });
 

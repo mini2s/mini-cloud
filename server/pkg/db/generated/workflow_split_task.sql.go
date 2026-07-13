@@ -24,6 +24,38 @@ func (q *Queries) CancelOpenSplitTasksByNodeRun(ctx context.Context, nodeRunID p
 	return err
 }
 
+const claimSplitTaskForRunStart = `-- name: ClaimSplitTaskForRunStart :one
+UPDATE multica_workflow_split_task
+SET status = 'running',
+    updated_at = now()
+WHERE id = $1
+  AND status = 'created'
+  AND run_id IS NULL
+RETURNING id, node_run_id, workspace_id, title, description, suggested_assignee_type, suggested_assignee_id, depends_on, sort_order, status, issue_id, run_id, created_at, updated_at
+`
+
+func (q *Queries) ClaimSplitTaskForRunStart(ctx context.Context, id pgtype.UUID) (MulticaWorkflowSplitTask, error) {
+	row := q.db.QueryRow(ctx, claimSplitTaskForRunStart, id)
+	var i MulticaWorkflowSplitTask
+	err := row.Scan(
+		&i.ID,
+		&i.NodeRunID,
+		&i.WorkspaceID,
+		&i.Title,
+		&i.Description,
+		&i.SuggestedAssigneeType,
+		&i.SuggestedAssigneeID,
+		&i.DependsOn,
+		&i.SortOrder,
+		&i.Status,
+		&i.IssueID,
+		&i.RunID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const countSplitTasksByNodeRun = `-- name: CountSplitTasksByNodeRun :one
 SELECT count(*)::bigint
 FROM multica_workflow_split_task

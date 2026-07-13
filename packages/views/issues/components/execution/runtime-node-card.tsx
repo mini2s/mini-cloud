@@ -349,7 +349,9 @@ export function RuntimeNodeCard({
   const splitStatus =
     nodeRun?.status === "split_active"
       ? "active"
-      : "idle";
+      : nodeRun?.status === "awaiting_split_review"
+        ? "awaiting_review"
+        : "idle";
   const splitProgress = runtimeSummary?.split_progress ?? null;
 
   const actionButtons: ActionButtonDef[] = nodeRun
@@ -405,6 +407,7 @@ export function RuntimeNodeCard({
           config={nodeFormat.split_config}
           status={splitStatus}
           progress={splitProgress}
+          taskCount={splitProgress?.total ?? 0}
           subTemplateName={displayStatusLabel}
           className="h-full w-full min-h-0 border-0 bg-transparent p-0 shadow-none"
         />

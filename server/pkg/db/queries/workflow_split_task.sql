@@ -81,6 +81,15 @@ SET run_id = $2,
 WHERE id = $1
   AND run_id IS NULL;
 
+-- name: ClaimSplitTaskForRunStart :one
+UPDATE multica_workflow_split_task
+SET status = 'running',
+    updated_at = now()
+WHERE id = $1
+  AND status = 'created'
+  AND run_id IS NULL
+RETURNING *;
+
 -- name: CancelOpenSplitTasksByNodeRun :exec
 UPDATE multica_workflow_split_task
 SET status = 'cancelled',
