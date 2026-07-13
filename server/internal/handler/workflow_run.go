@@ -172,9 +172,9 @@ func workflowDisplayStatus(status string) string {
 		return "pending"
 	case "worker_assigned":
 		return "todo"
-	case "format_checking", "format_ok", "working", "awaiting_input":
+	case "format_checking", "format_ok", "working", "awaiting_input", service.NodeRunStatusSplitting, service.NodeRunStatusSplitActive:
 		return "in_progress"
-	case "awaiting_critic", "critic_reviewing":
+	case "awaiting_critic", "critic_reviewing", service.NodeRunStatusAwaitingSplitReview:
 		return "reviewing"
 	case "critic_approved", "completed":
 		return "completed"
