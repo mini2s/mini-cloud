@@ -170,6 +170,7 @@ vi.mock("../../i18n", () => {
       label_critic_role: "Critic role",
       split_title: "Split settings",
       split_subtitle: "Configure the child workflow template and runtime limits for task splitting.",
+      split_worker_subtitle: "The Agent that generates the task splitting plan.",
       split_child_template_label: "Child template",
       split_child_template_placeholder: "Select a child template...",
       split_mode_label: "Execution mode",
@@ -447,7 +448,7 @@ describe("NodeConfigPanel", () => {
     expect(screen.queryByTestId("deliverables-editor")).not.toBeInTheDocument();
   });
 
-  it("renders split settings without worker critic or deliverable configuration", () => {
+  it("renders split settings with worker but without critic or deliverable", () => {
     render(
       <NodeConfigPanel
         node={{
@@ -478,7 +479,8 @@ describe("NodeConfigPanel", () => {
     expect(screen.getByLabelText("Child template")).toHaveValue("wf-template-2");
     expect(screen.getByLabelText("Max concurrency")).toHaveValue(3);
     expect(screen.getByLabelText("Max failures")).toHaveValue(1);
-    expect(screen.queryByText("Worker")).not.toBeInTheDocument();
+    expect(screen.getByText("Worker")).toBeInTheDocument();
+    expect(screen.getByText("The Agent that generates the task splitting plan.")).toBeInTheDocument();
     expect(screen.queryByText("Critic")).not.toBeInTheDocument();
     expect(screen.queryByText("Deliverables")).not.toBeInTheDocument();
     expect(screen.queryByTestId("deliverables-editor")).not.toBeInTheDocument();

@@ -213,14 +213,14 @@ export function checkUnreachableNodes(
 /** Detect nodes without an assigned worker. */
 export function checkWorkerMissing(nodes: WorkflowNode[]): PreflightIssue[] {
   return nodes
-    .filter((n) => !isAnnotation(n) && !isGateway(n) && !isSplit(n) && (!n.worker_type || !n.worker_id))
+    .filter((n) => !isAnnotation(n) && !isGateway(n) && (!n.worker_type || !n.worker_id))
     .map((n) => ({
       checkId: "worker-missing" as const,
       severity: "error" as const,
       blocking: true,
       nodeId: n.id,
       nodeTitle: n.title,
-      message: "Assign a worker to this node",
+      message: isSplit(n) ? "Assign an Agent to this split node" : "Assign a worker to this node",
     }));
 }
 
@@ -246,7 +246,7 @@ export function checkInvalidCriticRef(nodes: WorkflowNode[], agentIds: Set<strin
 /** Detect nodes without a stage assignment. */
 export function checkStageMissing(nodes: WorkflowNode[]): PreflightIssue[] {
   return nodes
-    .filter((n) => !isAnnotation(n) && !isGateway(n) && !isSplit(n) && !n.stage_id)
+    .filter((n) => !isAnnotation(n) && !isGateway(n) && !n.stage_id)
     .map((n) => ({
       checkId: "stage-missing" as const,
       severity: "warning" as const,

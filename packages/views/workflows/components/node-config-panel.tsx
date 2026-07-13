@@ -786,7 +786,52 @@ export function NodeConfigPanel({
                   />
                 ) : null}
 
-                {!isSplit ? (
+                {isSplit ? (
+                  <AssignmentCard
+                    icon={<Bot className="size-4" />}
+                    title={t(($) => $.node.section_worker)}
+                    subtitle={t(($) => $.detail_panel.split_worker_subtitle)}
+                    status={workerConfigured ? <StatusBadge tone="success">{t(($) => $.detail_panel.badge_configured)}</StatusBadge> : <StatusBadge tone="warning">{t(($) => $.detail_panel.badge_needs_assignee)}</StatusBadge>}
+                  >
+                    <div className={disabled ? "pointer-events-none opacity-60" : undefined}>
+                      <AssigneePicker
+                        assigneeType={toAssigneeType(workerType)}
+                        assigneeId={workerId}
+                        allowedTypes={["agent", "squad"]}
+                        triggerRender={
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            className="h-8 w-full justify-start"
+                            disabled={disabled}
+                          />
+                        }
+                        trigger={
+                          <AssigneePickerTrigger
+                            type={workerType}
+                            id={workerId}
+                            label={workerLabel}
+                            emptyPrefix={t(($) => $.detail_panel.picker_empty_prefix)}
+                            emptyLabel={t(($) => $.detail_panel.empty_worker)}
+                            t={t}
+                          />
+                        }
+                        onUpdate={disabled ? () => {} : (u) => {
+                          const wt = fromAssigneeType(u.assignee_type ?? null);
+                          const wid = u.assignee_id ?? null;
+                          setWorkerType(wt);
+                          setWorkerId(wid);
+                          cacheNodeEdits(node.id, { worker_type: wt, worker_id: wid });
+                        }}
+                        align="start"
+                        skipBuiltinRuntimeSelection
+                        includeWorkflows={false}
+                      />
+                    </div>
+                    <ActorSummary type={workerType} id={workerId} label={workerLabel} emptyText={t(($) => $.detail_panel.empty_worker)} hint={t(($) => $.detail_panel.actor_assignee_hint)} />
+                  </AssignmentCard>
+                ) : (
                   <>
                     <AssignmentCard
                       icon={<Bot className="size-4" />}
@@ -983,8 +1028,7 @@ export function NodeConfigPanel({
                       )}
                     </AssignmentCard>
                   </>
-                ) : null}
-
+                )}
               </>
             ) : null}
 

@@ -132,6 +132,7 @@
     "label_critic_role": "Critic role",
     "split_title": "Split settings",
     "split_subtitle": "Configure the child workflow template and runtime limits for task splitting.",
+    "split_worker_subtitle": "The Agent that generates the task splitting plan.",
     "split_child_template_label": "Child template",
     "split_child_template_placeholder": "Select a child template...",
     "split_mode_label": "Execution mode",

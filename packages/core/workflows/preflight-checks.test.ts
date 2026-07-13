@@ -240,6 +240,19 @@ describe("checkWorkerMissing", () => {
     const nodes = [makeNode({ id: "a", worker_type: "agent", worker_id: "agent-1" })];
     expect(checkWorkerMissing(nodes)).toEqual([]);
   });
+
+  it("flags split node without worker", () => {
+    const nodes = [makeNode({ id: "split", worker_type: "agent", worker_id: null, format_schema: { type: "split", split_config: { sub_template_id: "tpl-1" } } })];
+    const issues = checkWorkerMissing(nodes);
+    expect(issues).toHaveLength(1);
+    expect(issues[0]!.blocking).toBe(true);
+    expect(issues[0]!.message).toBe("Assign an Agent to this split node");
+  });
+
+  it("passes split node with agent worker", () => {
+    const nodes = [makeNode({ id: "split", worker_type: "agent", worker_id: "agent-1", format_schema: { type: "split", split_config: { sub_template_id: "tpl-1" } } })];
+    expect(checkWorkerMissing(nodes)).toEqual([]);
+  });
 });
 
 // ── checkInvalidCriticRef ──
@@ -297,6 +310,18 @@ describe("checkStageMissing", () => {
 
   it("skips gateway nodes", () => {
     const nodes = [makeNode({ id: "fork", stage_id: null, format_schema: { type: "gateway", gateway_kind: "fork" } })];
+    expect(checkStageMissing(nodes)).toEqual([]);
+  });
+
+  it("flags split node without stage_id", () => {
+    const nodes = [makeNode({ id: "split", stage_id: null, format_schema: { type: "split", split_config: { sub_template_id: "tpl-1" } } })];
+    const issues = checkStageMissing(nodes);
+    expect(issues).toHaveLength(1);
+    expect(issues[0]!.blocking).toBe(false);
+  });
+
+  it("passes split node with stage", () => {
+    const nodes = [makeNode({ id: "split", stage_id: "stage-1", format_schema: { type: "split", split_config: { sub_template_id: "tpl-1" } } })];
     expect(checkStageMissing(nodes)).toEqual([]);
   });
 

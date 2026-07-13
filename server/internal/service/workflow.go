@@ -1146,7 +1146,7 @@ func (s *WorkflowService) DispatchAgentTask(ctx context.Context, nodeRun db.Mult
 	}
 
 	if !agentID.Valid {
-		return nil, fmt.Errorf("no agent configured for %s phase", phase)
+		return nil, fmt.Errorf("no agent configured for %s phase on node %q (worker_type=%q, worker_id set=%v)", phase, node.Title, node.WorkerType, node.WorkerID.Valid)
 	}
 
 	agent, err := s.Queries.GetAgent(ctx, agentID)
