@@ -479,3 +479,68 @@ func TestAssociateDeptIdentityDoesNotPersistUniversalIDWithoutPendingMember(t *t
 		t.Fatalf("user universal id should remain empty, got %q", storedUniversalID.String)
 	}
 }
+
+// dept-sync's /users/search does not index universal_id, so a caller that only
+// knows the universal_id (no external_user_id) must be resolved via the direct
+// GetUserDepartmentsByUniversalID lookup, not SearchUsers. Regression test for
+// the "dept user not found" failure when batch-adding by universal_id only.
+func TestBatchAddDeptMembersResolvesByUniversalIDOnly(t *testing.T) {
+	if testHandler == nil {
+		t.Skip("database not available")
+	}
+
+	ctx := context.Background()
+	const slug = "handler-batch-add-universal-only"
+	_, _ = testPool.Exec(ctx, `DELETE FROM multica_workspace WHERE slug = $1`, slug)
+	t.Cleanup(func() {
+		_, _ = testPool.Exec(context.Background(), `DELETE FROM multica_workspace WHERE slug = $1`, slug)
+		_, _ = testPool.Exec(context.Background(), `DELETE FROM multica_member WHERE external_universal_id = 'uni-universal-only'`)
+	})
+
+	prev := testHandler.DeptSync
+	testHandler.DeptSync = fakeWorkspaceDeptClient{users: []deptsync.User{
+		{UserID: "E020", Username: "Universal Only User", UniversalID: "uni-universal-only", DeptID: "D200", DeptName: "Platform", DeptPath: "/D000/D200", Position: "Engineer", Status: 1, IsMain: 1},
+	}}
+	t.Cleanup(func() { testHandler.DeptSync = prev })
+
+	w := httptest.NewRecorder()
+	req := newRequest(http.MethodPost, "/api/workspaces", map[string]any{
+		"name": "Universal Only Members",
+		"slug": slug,
+	})
+	testHandler.CreateWorkspace(w, req)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("CreateWorkspace: expected 201, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var workspaceID string
+	if err := testPool.QueryRow(ctx, `SELECT id FROM multica_workspace WHERE slug = $1`, slug).Scan(&workspaceID); err != nil {
+		t.Fatalf("lookup workspace: %v", err)
+	}
+
+	// Resolve by universal_id ONLY (no external_user_id).
+	w = httptest.NewRecorder()
+	req = withURLParam(newRequest(http.MethodPost, "/api/workspaces/"+workspaceID+"/dept-members", map[string]any{
+		"users": []map[string]string{
+			{"external_universal_id": "uni-universal-only"},
+		},
+	}), "id", workspaceID)
+	testHandler.BatchAddDeptMembers(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("BatchAddDeptMembers: expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), `"added":1`) {
+		t.Fatalf("expected added:1, got %s", w.Body.String())
+	}
+
+	var deptPath, deptName, status string
+	if err := testPool.QueryRow(ctx, `
+		SELECT dept_path, dept_name, status FROM multica_member
+		WHERE workspace_id = $1 AND external_universal_id = 'uni-universal-only'
+	`, workspaceID).Scan(&deptPath, &deptName, &status); err != nil {
+		t.Fatalf("lookup member: %v", err)
+	}
+	if deptPath != "/D000/D200" || deptName != "Platform" || status != "pending_activation" {
+		t.Fatalf("member mismatch: dept_path=%q dept_name=%q status=%q", deptPath, deptName, status)
+	}
+}

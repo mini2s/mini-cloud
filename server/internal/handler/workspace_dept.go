@@ -196,22 +196,44 @@ func (h *Handler) BatchAddDeptMembers(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) resolveDeptUserRef(r *http.Request, ref batchAddDeptMemberRef) (deptsync.User, bool, error) {
-	query := strings.TrimSpace(ref.ExternalUserID)
-	if query == "" {
-		query = strings.TrimSpace(ref.ExternalUniversalID)
-	}
-	if query == "" {
+	universalID := strings.TrimSpace(ref.ExternalUniversalID)
+	if universalID != "" {
+		// dept-sync's /users/search does not index universal_id, so a caller
+		// that only knows the universal_id must be resolved via the direct
+		// lookup (same path as AssociateDeptIdentity), not SearchUsers.
+		departments, err := h.DeptSync.GetUserDepartmentsByUniversalID(r.Context(), universalID)
+		if err != nil {
+			return deptsync.User{}, false, err
+		}
+		var fallback deptsync.User
+		found := false
+		for _, d := range departments {
+			if strings.TrimSpace(d.UniversalID) != universalID || d.Status != 1 {
+				continue
+			}
+			if d.IsMain == 1 {
+				return d, true, nil
+			}
+			if !found {
+				fallback, found = d, true
+			}
+		}
+		if found {
+			return fallback, true, nil
+		}
 		return deptsync.User{}, false, nil
 	}
-	users, err := h.DeptSync.SearchUsers(r.Context(), query, 50)
+
+	userID := strings.TrimSpace(ref.ExternalUserID)
+	if userID == "" {
+		return deptsync.User{}, false, nil
+	}
+	users, err := h.DeptSync.SearchUsers(r.Context(), userID, 50)
 	if err != nil {
 		return deptsync.User{}, false, err
 	}
 	for _, user := range users {
-		if ref.ExternalUniversalID != "" && strings.TrimSpace(user.UniversalID) == strings.TrimSpace(ref.ExternalUniversalID) {
-			return user, true, nil
-		}
-		if ref.ExternalUserID != "" && strings.TrimSpace(user.UserID) == strings.TrimSpace(ref.ExternalUserID) {
+		if strings.TrimSpace(user.UserID) == userID {
 			return user, true, nil
 		}
 	}
