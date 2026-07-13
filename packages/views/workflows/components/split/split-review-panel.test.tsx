@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { SplitReviewPanel } from "./split-review-panel";
@@ -359,16 +359,22 @@ describe("SplitReviewPanel", () => {
 
     renderPanel();
 
-    await userEvent.clear(screen.getByLabelText("Task title task-1"));
-    await userEvent.type(screen.getByLabelText("Task title task-1"), "Implement split API contract");
-    await userEvent.clear(screen.getByLabelText("Task description task-1"));
-    await userEvent.type(screen.getByLabelText("Task description task-1"), "Update handlers, service flow, and request schemas.");
+    fireEvent.change(screen.getByLabelText("Task title task-1"), {
+      target: { value: "Implement split API contract" },
+    });
+    fireEvent.change(screen.getByLabelText("Task description task-1"), {
+      target: { value: "Update handlers, service flow, and request schemas." },
+    });
     await userEvent.click(screen.getByLabelText("Dependency task-2 for task-1"));
     await userEvent.click(screen.getByLabelText("Approve task task-2"));
     await userEvent.click(screen.getByRole("button", { name: "Delete task task-3" }));
     await userEvent.click(screen.getByRole("button", { name: "Add task" }));
-    await userEvent.type(screen.getByLabelText("Task title new-task-1"), "Document rollout follow-up");
-    await userEvent.type(screen.getByLabelText("Task description new-task-1"), "Track comms and migration notes.");
+    fireEvent.change(screen.getByLabelText("Task title new-task-1"), {
+      target: { value: "Document rollout follow-up" },
+    });
+    fireEvent.change(screen.getByLabelText("Task description new-task-1"), {
+      target: { value: "Track comms and migration notes." },
+    });
     await userEvent.click(screen.getByLabelText("Dependency task-1 for new-task-1"));
     await userEvent.click(screen.getByRole("button", { name: "Approve selected (2)" }));
 

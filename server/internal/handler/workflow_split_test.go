@@ -462,6 +462,38 @@ func TestApproveSplitTasksBarrierStartsOnlyReadyTasks(t *testing.T) {
 	}
 }
 
+func TestApproveSplitTasksDeleteModificationWinsOverApprovedIDs(t *testing.T) {
+	f := createSplitApproveFixture(t, "barrier")
+
+	w := httptest.NewRecorder()
+	req := newRequest("POST", "/api/node-runs/"+f.splitNodeRunID+"/split/approve", map[string]any{
+		"approved_task_ids": []string{f.taskAID, f.taskBID},
+		"modifications": []map[string]any{
+			{
+				"action": "delete",
+				"id":     f.taskBID,
+			},
+		},
+	})
+	req = withURLParam(req, "nodeRunId", f.splitNodeRunID)
+
+	testHandler.ApproveSplitTasks(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("ApproveSplitTasks: expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	taskB, err := testHandler.Queries.GetSplitTask(context.Background(), parseUUID(f.taskBID))
+	if err != nil {
+		t.Fatalf("load split task B: %v", err)
+	}
+	if taskB.Status != service.SplitTaskStatusDiscarded {
+		t.Fatalf("deleted task B status = %s, want discarded", taskB.Status)
+	}
+	if taskB.IssueID.Valid {
+		t.Fatal("deleted task B should not be materialized as a child issue")
+	}
+}
+
 func TestCancelSplitNodePreservesTerminalChildWork(t *testing.T) {
 	f := createSplitApproveFixture(t, "barrier")
 

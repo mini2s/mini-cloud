@@ -49,3 +49,34 @@ func TestNodeRunTakeoverHandbackTransitions(t *testing.T) {
 		}
 	}
 }
+
+func TestSplitNodeRunTransitions(t *testing.T) {
+	allowed := []struct{ from, to string }{
+		{NodeRunStatusFormatOk, NodeRunStatusSplitting},
+		{NodeRunStatusSplitting, NodeRunStatusAwaitingSplitReview},
+		{NodeRunStatusSplitting, NodeRunStatusFailed},
+		{NodeRunStatusAwaitingSplitReview, NodeRunStatusSplitting},
+		{NodeRunStatusAwaitingSplitReview, NodeRunStatusSplitActive},
+		{NodeRunStatusAwaitingSplitReview, NodeRunStatusCancelled},
+		{NodeRunStatusSplitActive, NodeRunStatusCompleted},
+		{NodeRunStatusSplitActive, NodeRunStatusFailed},
+		{NodeRunStatusSplitActive, NodeRunStatusCancelled},
+	}
+	for _, tc := range allowed {
+		if !isValidTransition(tc.from, tc.to) {
+			t.Errorf("expected split transition %s -> %s to be allowed", tc.from, tc.to)
+		}
+	}
+
+	forbidden := []struct{ from, to string }{
+		{NodeRunStatusPending, NodeRunStatusAwaitingSplitReview},
+		{NodeRunStatusSplitting, NodeRunStatusSplitActive},
+		{NodeRunStatusSplitActive, NodeRunStatusAwaitingSplitReview},
+		{NodeRunStatusCompleted, NodeRunStatusSplitActive},
+	}
+	for _, tc := range forbidden {
+		if isValidTransition(tc.from, tc.to) {
+			t.Errorf("expected split transition %s -> %s to be forbidden", tc.from, tc.to)
+		}
+	}
+}
