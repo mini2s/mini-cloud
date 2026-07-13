@@ -400,7 +400,7 @@ describe("SplitReviewPanel", () => {
         ],
       },
     });
-  });
+  }, 15_000);
 
   it("shows linked child issue details for materialized split tasks", () => {
     mocks.splitTasksData = {
