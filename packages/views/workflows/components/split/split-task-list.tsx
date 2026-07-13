@@ -1,6 +1,8 @@
 "use client";
 
+import { useQuery } from "@tanstack/react-query";
 import { Trash2 } from "lucide-react";
+import type { Issue } from "@multica/core/types";
 import { Badge } from "@multica/ui/components/ui/badge";
 import { Button } from "@multica/ui/components/ui/button";
 import { Checkbox } from "@multica/ui/components/ui/checkbox";
@@ -8,6 +10,9 @@ import { Input } from "@multica/ui/components/ui/input";
 import { Label } from "@multica/ui/components/ui/label";
 import { Textarea } from "@multica/ui/components/ui/textarea";
 import type { SplitTaskAssigneeType, SplitTaskStatus } from "@multica/core/types";
+import { useWorkspacePaths } from "@multica/core/paths";
+import { workflowRunCanvasSummaryOptions } from "@multica/core/workflows/queries";
+import { AppLink } from "../../../navigation";
 
 export interface SplitTaskDraft {
   id: string;
@@ -25,6 +30,7 @@ export interface SplitTaskDraft {
 interface SplitTaskListProps {
   tasks: SplitTaskDraft[];
   editable: boolean;
+  taskIssueBySourceId?: ReadonlyMap<string, Issue>;
   onTaskChange: (taskId: string, patch: Partial<SplitTaskDraft>) => void;
   onToggleDependency: (taskId: string, dependencyTaskId: string, checked: boolean) => void;
   onDeleteTask: (taskId: string) => void;
@@ -37,9 +43,53 @@ function getTaskStatusLabel(task: SplitTaskDraft): string {
   return task.status;
 }
 
+function SplitTaskChildIssueMeta({
+  taskStatus,
+  linkedIssue,
+}: {
+  taskStatus: SplitTaskStatus;
+  linkedIssue: Issue;
+}) {
+  const paths = useWorkspacePaths();
+  const shouldLoadError =
+    taskStatus === "failed" &&
+    !!linkedIssue.workflow_id &&
+    !!linkedIssue.workflow_run_id;
+  const { data: childSummary } = useQuery({
+    ...workflowRunCanvasSummaryOptions(
+      linkedIssue.workspace_id,
+      linkedIssue.workflow_id ?? "",
+      linkedIssue.workflow_run_id ?? "",
+    ),
+    enabled: shouldLoadError,
+  });
+  const errorMessage = childSummary?.node_runtime_summaries.find(
+    (summary) => summary.has_error === true && summary.error_message.trim().length > 0,
+  )?.error_message;
+
+  return (
+    <div className="mt-1 space-y-1 text-xs">
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-muted-foreground">Child issue</span>
+        <AppLink
+          href={paths.issueDetail(linkedIssue.id)}
+          className="font-medium text-primary hover:underline"
+        >
+          {linkedIssue.identifier}
+        </AppLink>
+        <Badge variant="outline">{linkedIssue.status}</Badge>
+      </div>
+      {errorMessage ? (
+        <p className="text-destructive">Error: {errorMessage}</p>
+      ) : null}
+    </div>
+  );
+}
+
 export function SplitTaskList({
   tasks,
   editable,
+  taskIssueBySourceId,
   onTaskChange,
   onToggleDependency,
   onDeleteTask,
@@ -56,12 +106,21 @@ export function SplitTaskList({
         const dependencyOptions = visibleTasks.filter(
           (candidate) => candidate.id !== task.id && candidate.sourceTaskId !== null,
         );
+        const linkedIssue = task.sourceTaskId
+          ? (taskIssueBySourceId?.get(task.sourceTaskId) ?? null)
+          : null;
 
         return (
           <div key={task.id} className="rounded-lg border border-border/70 bg-background p-3">
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0">
                 <p className="truncate text-sm font-medium">{index + 1}. {task.title || "Untitled task"}</p>
+                {linkedIssue ? (
+                  <SplitTaskChildIssueMeta
+                    taskStatus={task.status}
+                    linkedIssue={linkedIssue}
+                  />
+                ) : null}
                 <div className="mt-2 flex flex-wrap items-center gap-2">
                   {task.sourceTaskId ? (
                     <Label

@@ -180,13 +180,16 @@ vi.mock("./execution-detail-panel", () => ({
 vi.mock("../../../workflows/components/split/split-review-panel", () => ({
   SplitReviewPanel: ({
     nodeRun,
+    parentIssueId,
     onClose,
   }: {
     nodeRun: { status: string } | null;
+    parentIssueId?: string;
     onClose: () => void;
   }) => (
     <div data-testid="execution-split-review-panel">
       <span data-testid="split-panel-status">{nodeRun?.status ?? "no-run"}</span>
+      <span data-testid="split-panel-parent-issue-id">{parentIssueId ?? "no-parent-issue"}</span>
       <button onClick={onClose}>Close split panel</button>
     </div>
   ),
@@ -790,7 +793,7 @@ describe("ExecutionPanoramaPage", () => {
 
     render(
       <Wrapper>
-        <ExecutionPanoramaPage workflowId="wf-1" runId="run-1" wsId="ws-1" />
+        <ExecutionPanoramaPage workflowId="wf-1" runId="run-1" wsId="ws-1" issueId="issue-1" />
       </Wrapper>,
     );
 
@@ -798,6 +801,7 @@ describe("ExecutionPanoramaPage", () => {
 
     expect(screen.getByTestId("execution-split-review-panel")).toBeInTheDocument();
     expect(screen.getByTestId("split-panel-status")).toHaveTextContent("awaiting_split_review");
+    expect(screen.getByTestId("split-panel-parent-issue-id")).toHaveTextContent("issue-1");
     expect(screen.queryByTestId("execution-detail-panel")).not.toBeInTheDocument();
   });
 

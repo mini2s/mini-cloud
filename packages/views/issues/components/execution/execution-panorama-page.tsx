@@ -379,6 +379,7 @@ export function ExecutionPanoramaPage({
             wsId={wsId}
             workflowId={workflowId}
             runId={runId ?? undefined}
+            parentIssueId={issueId}
             onClose={() => setSelectedNodeId(null)}
           />
         ) : (

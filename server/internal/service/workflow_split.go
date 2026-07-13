@@ -466,6 +466,13 @@ func buildSplitDependencyContext(dependencies []splitTaskDependencyContext) stri
 	return "\n\n---\n\n" + strings.Join(sections, "\n\n---\n\n")
 }
 
+func buildSplitChildIssueDescription(baseDescription string, dependencyContext string) string {
+	if dependencyContext == "" {
+		return baseDescription
+	}
+	return baseDescription + dependencyContext
+}
+
 func (s *SplitOrchestrator) HandleNodeRunStatusChanged(ctx context.Context, nodeRun db.MulticaWorkflowNodeRun) error {
 	if nodeRun.Status != NodeRunStatusSplitting {
 		return nil
@@ -1046,6 +1053,7 @@ func (s *SplitOrchestrator) startChildTaskRun(ctx context.Context, splitNodeRun 
 	if err != nil {
 		return err
 	}
+	issue.Description = textToPgText(buildSplitChildIssueDescription(textToString(issue.Description), dependencyContext))
 
 	run, nodeRuns, err := s.WfService.StartRunForIssue(ctx, workflow, issue, "api", "", pgtype.UUID{})
 	if err != nil {
@@ -1062,15 +1070,10 @@ func (s *SplitOrchestrator) startChildTaskRun(ctx context.Context, splitNodeRun 
 	}
 	s.WfService.DispatchRootNodeRuns(ctx, run.ID)
 
-	description := textToString(issue.Description)
-	if dependencyContext != "" {
-		description += dependencyContext
-	}
-
 	if _, err := s.Queries.UpdateIssue(ctx, db.UpdateIssueParams{
 		ID:            issue.ID,
 		Title:         textToPgText(issue.Title),
-		Description:   textToPgText(description),
+		Description:   issue.Description,
 		Status:        pgtype.Text{String: issue.Status, Valid: true},
 		Priority:      pgtype.Text{String: issue.Priority, Valid: true},
 		AssigneeType:  issue.AssigneeType,

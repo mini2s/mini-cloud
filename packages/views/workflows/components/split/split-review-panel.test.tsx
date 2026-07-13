@@ -4,7 +4,13 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { SplitReviewPanel } from "./split-review-panel";
-import type { SplitTasksResponse, WorkflowNode, WorkflowNodeRun } from "@multica/core/types";
+import type {
+  Issue,
+  SplitTasksResponse,
+  WorkflowNode,
+  WorkflowNodeRun,
+  WorkflowRunCanvasSummaryResponse,
+} from "@multica/core/types";
 
 const mocks = vi.hoisted(() => ({
   splitTasksData: {
@@ -19,6 +25,8 @@ const mocks = vi.hoisted(() => ({
       skipped: 0,
     },
   } as SplitTasksResponse,
+  childIssuesData: [] as Issue[],
+  childCanvasSummaryData: null as WorkflowRunCanvasSummaryResponse | null,
   isLoading: false,
   generateMutateAsync: vi.fn(),
   approveMutateAsync: vi.fn(),
@@ -26,15 +34,54 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("@tanstack/react-query", () => ({
-  useQuery: () => ({
-    data: mocks.splitTasksData,
-    isLoading: mocks.isLoading,
+  useQuery: ({ queryKey }: { queryKey: readonly unknown[] }) => {
+    if (Array.isArray(queryKey) && queryKey.includes("canvas-summary")) {
+      return {
+        data: mocks.childCanvasSummaryData,
+        isLoading: false,
+      };
+    }
+
+    if (Array.isArray(queryKey) && queryKey.includes("children")) {
+      return {
+        data: mocks.childIssuesData,
+        isLoading: false,
+      };
+    }
+
+    return {
+      data: mocks.splitTasksData,
+      isLoading: mocks.isLoading,
+    };
+  },
+}));
+
+vi.mock("@multica/core/issues/queries", () => ({
+  childIssuesOptions: (_wsId: string, issueId: string) => ({
+    queryKey: ["issues", "ws-1", "children", issueId],
   }),
+}));
+
+vi.mock("@multica/core/paths", () => ({
+  useWorkspacePaths: () => ({
+    issueDetail: (id: string) => `/test/issues/${id}`,
+  }),
+}));
+
+vi.mock("../../../navigation", () => ({
+  AppLink: ({ children, href, ...props }: { children: React.ReactNode; href: string }) => (
+    <a href={href} {...props}>
+      {children}
+    </a>
+  ),
 }));
 
 vi.mock("@multica/core/workflows/queries", () => ({
   splitTasksOptions: (nodeRunId: string | null | undefined) => ({
     queryKey: ["workflows", "node-runs", nodeRunId ?? "", "split-tasks"],
+  }),
+  workflowRunCanvasSummaryOptions: (_wsId: string, workflowId: string, runId: string) => ({
+    queryKey: ["workflows", "ws-1", workflowId, runId, "canvas-summary"],
   }),
   useGenerateSplitTasks: () => ({
     mutateAsync: mocks.generateMutateAsync,
@@ -117,14 +164,21 @@ const splitNodeRun: WorkflowNodeRun = {
   updated_at: "",
 };
 
-function renderPanel() {
+function renderPanel({
+  nodeRun = splitNodeRun,
+  parentIssueId,
+}: {
+  nodeRun?: WorkflowNodeRun;
+  parentIssueId?: string;
+} = {}) {
   return render(
     <SplitReviewPanel
       node={splitNode}
-      nodeRun={splitNodeRun}
+      nodeRun={nodeRun}
       wsId="ws-1"
       workflowId="wf-1"
       runId="run-1"
+      parentIssueId={parentIssueId}
       onClose={vi.fn()}
     />,
   );
@@ -176,6 +230,8 @@ describe("SplitReviewPanel", () => {
         skipped: 0,
       },
     };
+    mocks.childIssuesData = [];
+    mocks.childCanvasSummaryData = null;
     mocks.generateMutateAsync.mockReset();
     mocks.approveMutateAsync.mockReset();
     mocks.cancelMutateAsync.mockReset();
@@ -344,5 +400,112 @@ describe("SplitReviewPanel", () => {
         ],
       },
     });
+  });
+
+  it("shows linked child issue details for materialized split tasks", () => {
+    mocks.splitTasksData = {
+      tasks: [
+        {
+          id: "task-1",
+          node_run_id: "node-run-1",
+          title: "Investigate API key configuration",
+          description: "Trace the failing downstream secret lookup.",
+          suggested_assignee_type: "agent",
+          suggested_assignee_id: "agent-1",
+          depends_on: [],
+          sort_order: 0,
+          status: "failed",
+          issue_id: "child-1",
+          run_id: "child-run-1",
+          created_at: "",
+          updated_at: "",
+        },
+      ],
+      progress: {
+        total: 1,
+        created: 0,
+        running: 0,
+        done: 0,
+        failed: 1,
+        cancelled: 0,
+        skipped: 0,
+      },
+    };
+    mocks.childIssuesData = [
+      {
+        id: "child-1",
+        workspace_id: "ws-1",
+        number: 42,
+        identifier: "MUL-42",
+        title: "Investigate API key configuration",
+        description: null,
+        status: "blocked",
+        priority: "medium",
+        assignee_type: "agent",
+        assignee_id: "agent-1",
+        creator_type: "member",
+        creator_id: "user-1",
+        parent_issue_id: "issue-1",
+        project_id: null,
+        workflow_id: "wf-child-1",
+        workflow_run_id: "run-child-1",
+        stage_id: null,
+        origin_type: "workflow_split",
+        origin_id: "task-1",
+        position: 0,
+        start_date: null,
+        due_date: null,
+        metadata: {},
+        created_at: "",
+        updated_at: "",
+      },
+    ];
+    mocks.childCanvasSummaryData = {
+      run: {
+        id: "run-child-1",
+        workflow_id: "wf-child-1",
+        workspace_id: "ws-1",
+        workflow_title: "Child workflow",
+        status: "failed",
+        triggered_by_type: "member",
+        triggered_by_id: "user-1",
+        input: null,
+        output: null,
+        started_at: "",
+        completed_at: "",
+        created_at: "",
+      },
+      node_runs: [],
+      node_runtime_summaries: [
+        {
+          workflow_node_id: "child-node-1",
+          node_run_id: "child-node-run-1",
+          display_status: "blocked",
+          active_actor_type: "agent",
+          active_actor_id: "agent-1",
+          deliverable_signal: "none",
+          required_deliverables_total: 0,
+          required_deliverables_submitted: 0,
+          required_deliverables_approved: 0,
+          duration_seconds: null,
+          session_id: null,
+          runtime_id: null,
+          device_id: null,
+          has_error: true,
+          error_message: "API key is missing",
+          split_progress: null,
+        },
+      ],
+    };
+
+    renderPanel({
+      nodeRun: { ...splitNodeRun, status: "split_active" },
+      parentIssueId: "issue-1",
+    });
+
+    expect(screen.getByRole("link", { name: "MUL-42" })).toHaveAttribute("href", "/test/issues/child-1");
+    expect(screen.getByText("Child issue")).toBeInTheDocument();
+    expect(screen.getByText("blocked")).toBeInTheDocument();
+    expect(screen.getByText("Error: API key is missing")).toBeInTheDocument();
   });
 });

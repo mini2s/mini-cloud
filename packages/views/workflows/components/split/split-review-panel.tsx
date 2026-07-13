@@ -23,6 +23,7 @@ import {
   useCancelSplitNode,
   useGenerateSplitTasks,
 } from "@multica/core/workflows/queries";
+import { childIssuesOptions } from "@multica/core/issues/queries";
 import {
   NodeDetailSection,
   WorkflowNodeDetailPanelShell,
@@ -37,6 +38,7 @@ interface SplitReviewPanelProps {
   wsId: string;
   workflowId?: string;
   runId?: string;
+  parentIssueId?: string;
   onClose: () => void;
 }
 
@@ -140,10 +142,15 @@ export function SplitReviewPanel({
   wsId,
   workflowId,
   runId,
+  parentIssueId,
   onClose,
 }: SplitReviewPanelProps) {
   const nodeRunId = nodeRun?.id ?? null;
   const { data, isLoading } = useQuery(splitTasksOptions(nodeRunId));
+  const { data: childIssues = [] } = useQuery({
+    ...childIssuesOptions(wsId, parentIssueId ?? ""),
+    enabled: !!parentIssueId,
+  });
   const generateMutation = useGenerateSplitTasks(wsId);
   const approveMutation = useApproveSplitTasks(wsId);
   const cancelMutation = useCancelSplitNode(wsId);
@@ -193,6 +200,15 @@ export function SplitReviewPanel({
       }, 0),
     [draftTasks],
   );
+  const childIssueBySplitTaskId = useMemo(() => {
+    const mapping = new Map<string, (typeof childIssues)[number]>();
+    for (const childIssue of childIssues) {
+      if (childIssue.origin_type === "workflow_split" && childIssue.origin_id) {
+        mapping.set(childIssue.origin_id, childIssue);
+      }
+    }
+    return mapping;
+  }, [childIssues]);
 
   const handleGenerate = async () => {
     if (!nodeRunId) return;
@@ -360,6 +376,7 @@ export function SplitReviewPanel({
             <SplitTaskList
               tasks={draftTasks}
               editable={canEditReview}
+              taskIssueBySourceId={childIssueBySplitTaskId}
               onTaskChange={handleTaskChange}
               onToggleDependency={handleToggleDependency}
               onDeleteTask={handleDeleteTask}

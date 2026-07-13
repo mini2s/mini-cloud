@@ -150,3 +150,17 @@ func TestBuildSplitDependencyContextIncludesDependencyOutputs(t *testing.T) {
 		t.Fatalf("buildSplitDependencyContext = %q, want %q", context, want)
 	}
 }
+
+func TestBuildSplitChildIssueDescriptionAppendsDependencyContext(t *testing.T) {
+	got := buildSplitChildIssueDescription("Existing child issue description", "\n\n---\n\n## API contract Output\n\nSpec ready")
+	want := "Existing child issue description\n\n---\n\n## API contract Output\n\nSpec ready"
+	if got != want {
+		t.Fatalf("buildSplitChildIssueDescription = %q, want %q", got, want)
+	}
+
+	got = buildSplitChildIssueDescription("", "\n\n---\n\n## API contract Output\n\nSpec ready")
+	want = "\n\n---\n\n## API contract Output\n\nSpec ready"
+	if got != want {
+		t.Fatalf("buildSplitChildIssueDescription empty = %q, want %q", got, want)
+	}
+}
