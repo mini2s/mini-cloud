@@ -218,6 +218,50 @@ func TestLinkDeptMembersOnLoginRefreshesSnapshot(t *testing.T) {
 	}
 }
 
+// On login, the user's display name is refreshed from dept-sync (the org
+// source of truth), repairing placeholder names — e.g. a Casdoor login name
+// (a UUID) that was stored as the multica user name at provisioning. This
+// runs even when the user has no dept member row (e.g. a manual workspace
+// owner), as long as dept-sync knows the universal_id.
+func TestLinkDeptMembersOnLogin_RefreshesUserNameFromDeptSync(t *testing.T) {
+	if testHandler == nil {
+		t.Skip("database not available")
+	}
+
+	ctx := context.Background()
+	const email = "login-dept-namerefresh@example.test"
+	const universalID = "uni-login-namerefresh"
+	_, _ = testPool.Exec(ctx, `DELETE FROM multica_user WHERE email = $1`, email)
+	t.Cleanup(func() {
+		_, _ = testPool.Exec(context.Background(), `DELETE FROM multica_user WHERE email = $1`, email)
+	})
+
+	var userID string
+	if err := testPool.QueryRow(ctx, `
+		INSERT INTO multica_user (name, email, casdoor_universal_id)
+		VALUES ('c9bb0e3f-253c-4f2e-82f0-f0e50c4f40f0', $1, $2)
+		RETURNING id
+	`, email, universalID).Scan(&userID); err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+
+	prev := testHandler.DeptSync
+	testHandler.DeptSync = fakeWorkspaceDeptClient{users: []deptsync.User{
+		{UserID: "53613", Username: "李金榜", UniversalID: universalID, DeptID: "6571", DeptName: "开发组", DeptPath: "/研发体系/Costrict研发部/开发组", Position: "高级后台开发工程师", Status: 1, IsMain: 1},
+	}}
+	t.Cleanup(func() { testHandler.DeptSync = prev })
+
+	testHandler.linkDeptMembersOnLogin(ctx, util.MustParseUUID(userID), universalID)
+
+	var gotName string
+	if err := testPool.QueryRow(ctx, `SELECT name FROM multica_user WHERE id = $1`, userID).Scan(&gotName); err != nil {
+		t.Fatalf("load user: %v", err)
+	}
+	if gotName != "李金榜" {
+		t.Fatalf("user name should be refreshed from dept-sync to %q, got %q", "李金榜", gotName)
+	}
+}
+
 // Sanity: calling linkDeptMembersOnLogin on a user with no pending membership
 // and no matching dept-sync entry must be a silent no-op (login never fails).
 func TestLinkDeptMembersOnLoginNoopWithoutMembership(t *testing.T) {

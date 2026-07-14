@@ -346,6 +346,24 @@ func (q *Queries) SetUserCasdoorUniversalID(ctx context.Context, arg SetUserCasd
 	return err
 }
 
+const setUserName = `-- name: SetUserName :exec
+UPDATE multica_user SET name = $2, updated_at = now()
+WHERE id = $1
+`
+
+type SetUserNameParams struct {
+	ID   pgtype.UUID `json:"id"`
+	Name string      `json:"name"`
+}
+
+// Overwrites the display name. Used on login to sync the name from the
+// org source of truth (dept-sync), repairing placeholder names such as a
+// Casdoor login name that was stored as the multica user name at provisioning.
+func (q *Queries) SetUserName(ctx context.Context, arg SetUserNameParams) error {
+	_, err := q.db.Exec(ctx, setUserName, arg.ID, arg.Name)
+	return err
+}
+
 const setUserSubjectID = `-- name: SetUserSubjectID :exec
 UPDATE multica_user SET subject_id = $2, updated_at = now()
 WHERE id = $1

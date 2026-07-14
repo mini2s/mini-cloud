@@ -83,6 +83,19 @@ func (h *Handler) linkDeptMembersOnLogin(ctx context.Context, userID pgtype.UUID
 		}); err != nil {
 			slog.Warn("casdoor: failed to refresh dept member snapshot on login", "error", err, "universal_id", universalID)
 		}
+
+		// Refresh the user's display name from dept-sync (the org source of
+		// truth) — repairs placeholder names such as a Casdoor login name that
+		// was stored as the multica user name at provisioning. Applies even
+		// when the user has no dept member row (e.g. a manual workspace owner).
+		if snapshot.OrgDisplayName != "" {
+			if err := h.Queries.SetUserName(ctx, db.SetUserNameParams{
+				ID:   userID,
+				Name: snapshot.OrgDisplayName,
+			}); err != nil {
+				slog.Warn("casdoor: failed to refresh user name from dept-sync on login", "error", err, "user_id", uuidToString(userID))
+			}
+		}
 	}
 
 	userIDStr := uuidToString(userID)
