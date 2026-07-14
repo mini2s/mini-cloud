@@ -399,3 +399,63 @@ func TestValidateSplitDraftDeletionTarget(t *testing.T) {
 		})
 	}
 }
+
+func TestSplitTasksToSummary(t *testing.T) {
+	taskID := pgtype.UUID{Bytes: [16]byte{1}, Valid: true}
+	assigneeID := pgtype.UUID{Bytes: [16]byte{2}, Valid: true}
+
+	tasks := []db.MulticaWorkflowSplitTask{
+		{
+			ID:                    taskID,
+			Title:                 "Build API",
+			Description:           "Create the API endpoint",
+			Status:                SplitTaskStatusDraft,
+			SuggestedAssigneeType: pgtype.Text{String: "agent", Valid: true},
+			SuggestedAssigneeID:   assigneeID,
+			DependsOn:             []byte(`["other-id"]`),
+			SortOrder:             1,
+			DraftKey:              pgtype.Text{String: "task-1", Valid: true},
+			DraftSource:           "chat",
+		},
+		{
+			ID:     pgtype.UUID{Bytes: [16]byte{3}, Valid: true},
+			Title:  "Discarded Task",
+			Status: SplitTaskStatusDiscarded,
+		},
+	}
+
+	summary := splitTasksToSummary(tasks)
+	if len(summary) != 1 {
+		t.Fatalf("splitTasksToSummary returned %d items, want 1", len(summary))
+	}
+
+	item := summary[0]
+	if id, ok := item["id"].(string); !ok || id != "01000000-0000-0000-0000-000000000000" {
+		t.Fatalf("id = %v, want 01000000-...", item["id"])
+	}
+	if title, ok := item["title"].(string); !ok || title != "Build API" {
+		t.Fatalf("title = %v, want Build API", item["title"])
+	}
+	if status, ok := item["status"].(string); !ok || status != SplitTaskStatusDraft {
+		t.Fatalf("status = %v, want draft", item["status"])
+	}
+	if assigneeType, ok := item["suggested_assignee_type"].(string); !ok || assigneeType != "agent" {
+		t.Fatalf("suggested_assignee_type = %v, want agent", item["suggested_assignee_type"])
+	}
+	if sid, ok := item["suggested_assignee_id"].(string); !ok || sid != "02000000-0000-0000-0000-000000000000" {
+		t.Fatalf("suggested_assignee_id = %v, want 02000000-...", item["suggested_assignee_id"])
+	}
+	dependsOn, ok := item["depends_on"].([]string)
+	if !ok || len(dependsOn) != 1 || dependsOn[0] != "other-id" {
+		t.Fatalf("depends_on = %v, want [other-id]", item["depends_on"])
+	}
+	if sortOrder, ok := item["sort_order"].(int32); !ok || sortOrder != 1 {
+		t.Fatalf("sort_order = %v, want 1", item["sort_order"])
+	}
+	if draftKey, ok := item["draft_key"].(string); !ok || draftKey != "task-1" {
+		t.Fatalf("draft_key = %v, want task-1", item["draft_key"])
+	}
+	if draftSource, ok := item["draft_source"].(string); !ok || draftSource != "chat" {
+		t.Fatalf("draft_source = %v, want chat", item["draft_source"])
+	}
+}

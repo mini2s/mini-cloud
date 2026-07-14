@@ -925,9 +925,6 @@ func (s *SplitOrchestrator) DeleteSplitDraftTask(ctx context.Context, nodeRun db
 	if _, err := s.validateSplitDraftTaskAccess(ctx, nodeRun, taskID, agentID); err != nil {
 		return err
 	}
-	if nodeRun.Status != NodeRunStatusSplitting {
-		return fmt.Errorf("split draft tasks can only be deleted while the node is splitting")
-	}
 	task, err := s.Queries.GetSplitTask(ctx, draftTaskID)
 	if err != nil {
 		return fmt.Errorf("split draft task not found")
@@ -2125,6 +2122,191 @@ func recoverSplitTasksFromMarkdown(text string) splitGeneratedTaskPayload {
 		})
 	}
 	return splitGeneratedTaskPayload{Tasks: tasks}
+}
+
+// SplitChatRequest is the payload for the /split/chat endpoint.
+type SplitChatRequest struct {
+	Message       string   `json:"message"`
+	AttachmentIDs []string `json:"attachment_ids"`
+}
+
+// SplitChatResult is returned by the /split/chat endpoint.
+type SplitChatResult struct {
+	ChatSessionID string                `json:"chat_session_id"`
+	TaskID        string                `json:"task_id"`
+	Tasks         []db.MulticaWorkflowSplitTask `json:"-"`
+}
+
+func (s *SplitOrchestrator) SplitChat(ctx context.Context, nodeRun db.MulticaWorkflowNodeRun, userID pgtype.UUID, req SplitChatRequest) (*SplitChatResult, error) {
+	if nodeRun.Status != NodeRunStatusAwaitingSplitReview {
+		return nil, fmt.Errorf("split chat is only available when the node is awaiting review")
+	}
+	if strings.TrimSpace(req.Message) == "" {
+		return nil, fmt.Errorf("chat message is required")
+	}
+
+	// Check for existing active split chat task.
+	if nodeRun.SplitReviewChatSessionID.Valid {
+		pendingTask, err := s.Queries.GetPendingChatTask(ctx, nodeRun.SplitReviewChatSessionID)
+		if err == nil && pendingTask.ID.Valid {
+			return nil, fmt.Errorf("another split chat task is already in progress")
+		}
+	}
+
+	node, err := s.Queries.GetWorkflowNode(ctx, nodeRun.WorkflowNodeID)
+	if err != nil {
+		return nil, fmt.Errorf("get split node: %w", err)
+	}
+	cfg, err := parseSplitConfig(node.FormatSchema)
+	if err != nil {
+		return nil, err
+	}
+
+	run, err := s.Queries.GetWorkflowRun(ctx, nodeRun.WorkflowRunID)
+	if err != nil {
+		return nil, fmt.Errorf("get workflow run: %w", err)
+	}
+
+	// Get or create chat session.
+	var chatSessionID pgtype.UUID
+	if nodeRun.SplitReviewChatSessionID.Valid {
+		chatSessionID = nodeRun.SplitReviewChatSessionID
+	} else {
+		// Get the split agent to bind the session to.
+		splitIssue, err := s.Queries.GetIssueByOrigin(ctx, db.GetIssueByOriginParams{
+			WorkspaceID: run.WorkspaceID,
+			OriginType:  pgtype.Text{String: "workflow", Valid: true},
+			OriginID:    nodeRun.ID,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("get split sub-issue: %w", err)
+		}
+		activeTasks, err := s.Queries.ListActiveTasksByIssue(ctx, splitIssue.ID)
+		if err != nil {
+			return nil, fmt.Errorf("list active split tasks: %w", err)
+		}
+		var agentID pgtype.UUID
+		for _, t := range activeTasks {
+			if t.WorkflowNodeRunID == nodeRun.ID && isAnySplitPhase(t.Context) {
+				agentID = t.AgentID
+				break
+			}
+		}
+		if !agentID.Valid {
+			// Fall back to the node's worker agent.
+			agentID = nodeRun.WorkerID
+		}
+
+		title := fmt.Sprintf("Split review: %s", nodeRun.NodeTitle)
+		session, err := s.Queries.CreateChatSession(ctx, db.CreateChatSessionParams{
+			WorkspaceID: run.WorkspaceID,
+			AgentID:     agentID,
+			CreatorID:   userID,
+			Title:       title,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("create split review chat session: %w", err)
+		}
+		chatSessionID = session.ID
+
+		// Bind session to node run.
+		if _, err := s.Queries.SetNodeRunSplitReviewChatSession(ctx, db.SetNodeRunSplitReviewChatSessionParams{
+			ID:                        nodeRun.ID,
+			SplitReviewChatSessionID: chatSessionID,
+		}); err != nil {
+			return nil, fmt.Errorf("bind split review chat session: %w", err)
+		}
+	}
+
+	// Write user message to chat.
+	if _, err := s.Queries.CreateChatMessage(ctx, db.CreateChatMessageParams{
+		ChatSessionID: chatSessionID,
+		Role:          "user",
+		Content:       req.Message,
+	}); err != nil {
+		return nil, fmt.Errorf("create split chat user message: %w", err)
+	}
+
+	// Build context with current drafts, parent issue, and user message.
+	existingTasks, err := s.Queries.ListSplitTasksByNodeRun(ctx, nodeRun.ID)
+	if err != nil {
+		return nil, fmt.Errorf("list current split tasks: %w", err)
+	}
+
+	// Load parent issue for context injection.
+	parentIssue, err := s.findParentIssue(ctx, nodeRun)
+	if err != nil {
+		return nil, fmt.Errorf("find parent issue: %w", err)
+	}
+
+	contextExtras := map[string]any{
+		"phase":                  splitPhaseChat,
+		"chat_session_id":        util.UUIDToString(chatSessionID),
+		"parent_issue_id":        util.UUIDToString(parentIssue.ID),
+		"parent_issue_title":     parentIssue.Title,
+		"parent_issue_description": textToString(parentIssue.Description),
+		"current_drafts":         splitTasksToSummary(existingTasks),
+		"split_config":           cfg,
+	}
+
+	// Dispatch agent task.
+	task, err := s.WfService.DispatchAgentTaskWithContextExtras(ctx, nodeRun, "split", contextExtras)
+	if err != nil {
+		return nil, fmt.Errorf("dispatch split chat task: %w", err)
+	}
+
+	// Link task to chat session.
+	if err := s.Queries.LinkTaskToChatSession(ctx, db.LinkTaskToChatSessionParams{
+		ID:            task.ID,
+		ChatSessionID: chatSessionID,
+	}); err != nil {
+		slog.Warn("split chat: failed to link task to chat session", "task_id", util.UUIDToString(task.ID), "error", err)
+	}
+
+	// Link task to node run.
+	if _, err := s.Queries.LinkNodeRunAgentTask(ctx, db.LinkNodeRunAgentTaskParams{
+		ID:          nodeRun.ID,
+		AgentTaskID: task.ID,
+	}); err != nil {
+		slog.Warn("split chat: failed to link task to node run", "error", err)
+	}
+
+	return &SplitChatResult{
+		ChatSessionID: util.UUIDToString(chatSessionID),
+		TaskID:        util.UUIDToString(task.ID),
+		Tasks:         existingTasks,
+	}, nil
+}
+
+func splitTasksToSummary(tasks []db.MulticaWorkflowSplitTask) []map[string]any {
+	summary := make([]map[string]any, 0, len(tasks))
+	for _, t := range tasks {
+		if t.Status == SplitTaskStatusDiscarded {
+			continue
+		}
+		var dependsOn []string
+		if len(t.DependsOn) > 0 {
+			json.Unmarshal(t.DependsOn, &dependsOn)
+		}
+		suggestedAssigneeID := ""
+		if t.SuggestedAssigneeID.Valid {
+			suggestedAssigneeID = util.UUIDToString(t.SuggestedAssigneeID)
+		}
+		item := map[string]any{
+			"id":                       util.UUIDToString(t.ID),
+			"title":                    t.Title,
+			"description":              t.Description,
+			"status":                   t.Status,
+			"suggested_assignee_type":  textToString(t.SuggestedAssigneeType),
+			"suggested_assignee_id":    suggestedAssigneeID,
+			"depends_on":               dependsOn,
+			"sort_order":               t.SortOrder,
+			"draft_key":                textToString(t.DraftKey),
+			"draft_source":             t.DraftSource,
+		}
+		summary = append(summary, item)
+	}
+	return summary
 }
 
 func (s *SplitOrchestrator) validateSubTemplate(ctx context.Context, subTemplateID string) error {
