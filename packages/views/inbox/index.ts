@@ -1,1 +1,1 @@
-export { InboxPage } from "./components";
+export { InboxPage, useInboxToast } from "./components";

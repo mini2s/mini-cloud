@@ -38,6 +38,8 @@
     "pinned_label": "Pinned",
     "workspace_group": "Workspace",
     "configure_group": "Configure",
+    "unread_count_one": "{{count}} unread notification",
+    "unread_count_other": "{{count}} unread notifications",
     "unread_overflow": "99+"
   }
 }

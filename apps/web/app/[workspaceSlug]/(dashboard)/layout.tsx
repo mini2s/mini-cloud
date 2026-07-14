@@ -4,6 +4,18 @@ import { DashboardLayout } from "@multica/views/layout";
 import { MulticaIcon } from "@multica/ui/components/common/multica-icon";
 import { SearchCommand, SearchTrigger } from "@multica/views/search";
 import { ChatFab, ChatWindow } from "@multica/views/chat";
+import { useWorkspaceId } from "@multica/core/hooks";
+import { useInboxTitle } from "@multica/core/inbox";
+import { useFaviconBadge } from "@multica/core/inbox";
+import { useInboxToast } from "@multica/views/inbox";
+
+function InboxNotificationLayer() {
+  const wsId = useWorkspaceId();
+  useInboxTitle(wsId);
+  useFaviconBadge(wsId);
+  useInboxToast();
+  return null;
+}
 
 export default function Layout({ children }: { children: React.ReactNode }) {
   return (
@@ -12,6 +24,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
       searchSlot={<SearchTrigger />}
       extra={
         <>
+          <InboxNotificationLayer />
           <SearchCommand />
           <ChatWindow />
           <ChatFab />

@@ -633,18 +633,35 @@ export function AppSidebar({ topSlot, searchSlot, headerClassName, headerStyle }
                 {personalNav.map((item) => {
                   const href = p[item.key]();
                   const isActive = isNavActive(pathname, href);
+                  const hasUnreadInbox = item.key === "inbox" && unreadCount > 0;
                   return (
                     <SidebarMenuItem key={item.key}>
                       <SidebarMenuButton
                         isActive={isActive}
                         render={<AppLink href={href} />}
-                        className="text-muted-foreground hover:not-data-active:bg-sidebar-accent/70 data-active:bg-sidebar-accent data-active:text-sidebar-accent-foreground"
+                        className={cn(
+                          "text-muted-foreground hover:not-data-active:bg-sidebar-accent/70 data-active:bg-sidebar-accent data-active:text-sidebar-accent-foreground",
+                          hasUnreadInbox && "font-medium text-sidebar-foreground",
+                        )}
                       >
-                        <item.icon />
+                        <span className="relative shrink-0">
+                          <item.icon />
+                          {hasUnreadInbox && (
+                            <span
+                              aria-hidden="true"
+                              className="absolute -right-1 -top-1 hidden size-2 rounded-full bg-destructive ring-2 ring-sidebar group-data-[collapsible=icon]:block"
+                            />
+                          )}
+                        </span>
                         <span>{t(($) => $.nav[item.labelKey])}</span>
-                        {item.key === "inbox" && unreadCount > 0 && (
-                          <span className="ml-auto text-xs">
-                            {unreadCount > 99 ? "99+" : unreadCount}
+                        {hasUnreadInbox && (
+                          <span
+                            className="ml-auto inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-destructive px-1.5 text-[10px] font-semibold leading-none text-white shadow-xs ring-1 ring-destructive/20 group-data-[collapsible=icon]:hidden"
+                            aria-label={t(($) => $.sidebar.unread_count, { count: unreadCount })}
+                          >
+                            {unreadCount > 99
+                              ? t(($) => $.sidebar.unread_overflow)
+                              : unreadCount}
                           </span>
                         )}
                       </SidebarMenuButton>
