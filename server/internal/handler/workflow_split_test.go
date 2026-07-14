@@ -1222,3 +1222,219 @@ func TestGenerateSplitTasksDispatchesAndPersistsDraftTasks(t *testing.T) {
 		t.Fatalf("split node run status = %s, want awaiting_split_review", nodeRun.Status)
 	}
 }
+
+func TestSplitChatCreatesSessionAndDispatchesTask(t *testing.T) {
+	if testHandler == nil {
+		t.Skip("database not available")
+	}
+	f := createSplitGenerateFixture(t, "pipeline")
+	ctx := context.Background()
+
+	taskID := startSplitGenerationTask(t, f)
+
+	addResp := httptest.NewRecorder()
+	addReq := newRequest("POST", "/api/node-runs/"+f.splitNodeRunID+"/split/draft-tasks", map[string]any{
+		"key":                     "task-1",
+		"title":                   "Split task A",
+		"description":             "Test task for chat flow",
+		"suggested_assignee_type": "agent",
+		"suggested_assignee_id":   f.agentID,
+		"depends_on_keys":         []string{},
+	})
+	addReq.Header.Set("X-Agent-ID", f.agentID)
+	addReq.Header.Set("X-Task-ID", taskID)
+	addReq = withURLParam(addReq, "nodeRunId", f.splitNodeRunID)
+	testHandler.AddSplitDraftTask(addResp, addReq)
+	if addResp.Code != http.StatusOK {
+		t.Fatalf("AddSplitDraftTask: expected 200, got %d: %s", addResp.Code, addResp.Body.String())
+	}
+
+	submitResp := httptest.NewRecorder()
+	submitReq := newRequest("POST", "/api/node-runs/"+f.splitNodeRunID+"/split/draft-submit", nil)
+	submitReq.Header.Set("X-Agent-ID", f.agentID)
+	submitReq.Header.Set("X-Task-ID", taskID)
+	submitReq = withURLParam(submitReq, "nodeRunId", f.splitNodeRunID)
+	testHandler.SubmitSplitDraftTasks(submitResp, submitReq)
+	if submitResp.Code != http.StatusOK {
+		t.Fatalf("SubmitSplitDraftTasks: expected 200, got %d: %s", submitResp.Code, submitResp.Body.String())
+	}
+
+	nodeRun, err := testHandler.Queries.GetWorkflowNodeRun(ctx, parseUUID(f.splitNodeRunID))
+	if err != nil {
+		t.Fatalf("get node run: %v", err)
+	}
+	if nodeRun.Status != service.NodeRunStatusAwaitingSplitReview {
+		t.Fatalf("node run status = %s, want %s", nodeRun.Status, service.NodeRunStatusAwaitingSplitReview)
+	}
+
+	chatReq := newRequest("POST", "/api/node-runs/"+f.splitNodeRunID+"/split/chat", map[string]any{
+		"message": "请把任务2拆成两个独立任务",
+	})
+	chatReq = withURLParam(chatReq, "nodeRunId", f.splitNodeRunID)
+	chatResp := httptest.NewRecorder()
+	testHandler.HandleSplitChat(chatResp, chatReq)
+
+	if chatResp.Code != http.StatusOK {
+		t.Fatalf("HandleSplitChat: expected 200, got %d: %s", chatResp.Code, chatResp.Body.String())
+	}
+
+	var body map[string]any
+	if err := json.Unmarshal(chatResp.Body.Bytes(), &body); err != nil {
+		t.Fatalf("parse chat response: %v", err)
+	}
+	if body["chat_session_id"] == nil || body["chat_session_id"] == "" {
+		t.Fatal("expected chat_session_id in response")
+	}
+	if body["task_id"] == nil || body["task_id"] == "" {
+		t.Fatal("expected task_id in response")
+	}
+
+	nodeRun, err = testHandler.Queries.GetWorkflowNodeRun(ctx, parseUUID(f.splitNodeRunID))
+	if err != nil {
+		t.Fatalf("get node run: %v", err)
+	}
+	if !nodeRun.SplitReviewChatSessionID.Valid {
+		t.Fatal("expected split_review_chat_session_id to be set on node run")
+	}
+	if uuidToString(nodeRun.SplitReviewChatSessionID) != body["chat_session_id"].(string) {
+		t.Fatalf("bound chat session ID mismatch: %s vs %s",
+			uuidToString(nodeRun.SplitReviewChatSessionID), body["chat_session_id"].(string))
+	}
+}
+
+func TestSplitChatReusesExistingSession(t *testing.T) {
+	if testHandler == nil {
+		t.Skip("database not available")
+	}
+
+	agentID := createHandlerTestAgent(t, "split-chat-reuse-agent", nil)
+	f := createSplitApproveFixture(t, "barrier")
+	ctx := context.Background()
+
+	if _, err := testPool.Exec(ctx, `
+		UPDATE multica_workflow_node SET worker_id = $1, worker_type = 'agent' WHERE id = $2
+	`, agentID, f.splitNodeID); err != nil {
+		t.Fatalf("update node worker: %v", err)
+	}
+	if _, err := testPool.Exec(ctx, `
+		UPDATE multica_workflow_node_run SET worker_id = $1, worker_type = 'agent' WHERE id = $2
+	`, agentID, f.splitNodeRunID); err != nil {
+		t.Fatalf("update node run worker: %v", err)
+	}
+
+	chatReq1 := newRequest("POST", "/api/node-runs/"+f.splitNodeRunID+"/split/chat", map[string]any{
+		"message": "调整任务1的标题",
+	})
+	chatReq1 = withURLParam(chatReq1, "nodeRunId", f.splitNodeRunID)
+	chatResp1 := httptest.NewRecorder()
+	testHandler.HandleSplitChat(chatResp1, chatReq1)
+	if chatResp1.Code != http.StatusOK {
+		t.Fatalf("first HandleSplitChat: expected 200, got %d: %s", chatResp1.Code, chatResp1.Body.String())
+	}
+
+	var body1 map[string]any
+	if err := json.Unmarshal(chatResp1.Body.Bytes(), &body1); err != nil {
+		t.Fatalf("parse first chat response: %v", err)
+	}
+	sessionID1 := body1["chat_session_id"].(string)
+
+	nodeRun, err := testHandler.Queries.GetWorkflowNodeRun(ctx, parseUUID(f.splitNodeRunID))
+	if err != nil {
+		t.Fatalf("get node run: %v", err)
+	}
+	if !nodeRun.SplitReviewChatSessionID.Valid {
+		t.Fatal("expected split_review_chat_session_id to be set")
+	}
+
+	claimed, err := testHandler.Queries.ClaimAgentTask(ctx, parseUUID(agentID))
+	if err != nil {
+		t.Fatalf("claim chat task: %v", err)
+	}
+	started, err := testHandler.Queries.StartAgentTask(ctx, claimed.ID)
+	if err != nil {
+		t.Fatalf("start chat task: %v", err)
+	}
+	resolvedResult, _ := json.Marshal(map[string]any{"output": "acknowledged"})
+	if _, err := testHandler.TaskService.CompleteTask(ctx, started.ID, resolvedResult, "", ""); err != nil {
+		t.Fatalf("complete chat task: %v", err)
+	}
+
+	chatReq2 := newRequest("POST", "/api/node-runs/"+f.splitNodeRunID+"/split/chat", map[string]any{
+		"message": "再调整一下任务2",
+	})
+	chatReq2 = withURLParam(chatReq2, "nodeRunId", f.splitNodeRunID)
+	chatResp2 := httptest.NewRecorder()
+	testHandler.HandleSplitChat(chatResp2, chatReq2)
+	if chatResp2.Code != http.StatusOK {
+		t.Fatalf("second HandleSplitChat: expected 200, got %d: %s", chatResp2.Code, chatResp2.Body.String())
+	}
+
+	var body2 map[string]any
+	if err := json.Unmarshal(chatResp2.Body.Bytes(), &body2); err != nil {
+		t.Fatalf("parse second chat response: %v", err)
+	}
+	sessionID2 := body2["chat_session_id"].(string)
+
+	if sessionID1 != sessionID2 {
+		t.Fatalf("expected same chat_session_id (%s), got %s", sessionID1, sessionID2)
+	}
+
+	messages, err := testHandler.Queries.ListChatMessages(ctx, parseUUID(sessionID1))
+	if err != nil {
+		t.Fatalf("list chat messages: %v", err)
+	}
+	userMsgCount := 0
+	for _, msg := range messages {
+		if msg.Role == "user" {
+			userMsgCount++
+		}
+	}
+	if userMsgCount != 2 {
+		t.Fatalf("expected 2 user messages, got %d", userMsgCount)
+	}
+}
+
+func TestSplitChatRejectsConcurrentTask(t *testing.T) {
+	if testHandler == nil {
+		t.Skip("database not available")
+	}
+
+	agentID := createHandlerTestAgent(t, "split-chat-concurrent-agent", nil)
+	f := createSplitApproveFixture(t, "barrier")
+	ctx := context.Background()
+
+	if _, err := testPool.Exec(ctx, `
+		UPDATE multica_workflow_node SET worker_id = $1, worker_type = 'agent' WHERE id = $2
+	`, agentID, f.splitNodeID); err != nil {
+		t.Fatalf("update node worker: %v", err)
+	}
+	if _, err := testPool.Exec(ctx, `
+		UPDATE multica_workflow_node_run SET worker_id = $1, worker_type = 'agent' WHERE id = $2
+	`, agentID, f.splitNodeRunID); err != nil {
+		t.Fatalf("update node run worker: %v", err)
+	}
+
+	chatReq1 := newRequest("POST", "/api/node-runs/"+f.splitNodeRunID+"/split/chat", map[string]any{
+		"message": "调整任务1",
+	})
+	chatReq1 = withURLParam(chatReq1, "nodeRunId", f.splitNodeRunID)
+	chatResp1 := httptest.NewRecorder()
+	testHandler.HandleSplitChat(chatResp1, chatReq1)
+	if chatResp1.Code != http.StatusOK {
+		t.Fatalf("first HandleSplitChat: expected 200, got %d: %s", chatResp1.Code, chatResp1.Body.String())
+	}
+
+	chatReq2 := newRequest("POST", "/api/node-runs/"+f.splitNodeRunID+"/split/chat", map[string]any{
+		"message": "这个应该被拒绝",
+	})
+	chatReq2 = withURLParam(chatReq2, "nodeRunId", f.splitNodeRunID)
+	chatResp2 := httptest.NewRecorder()
+	testHandler.HandleSplitChat(chatResp2, chatReq2)
+
+	if chatResp2.Code != http.StatusConflict {
+		t.Fatalf("expected 409 Conflict, got %d: %s", chatResp2.Code, chatResp2.Body.String())
+	}
+	if !strings.Contains(chatResp2.Body.String(), "already in progress") {
+		t.Fatalf("expected 'already in progress' error, got: %s", chatResp2.Body.String())
+	}
+}
