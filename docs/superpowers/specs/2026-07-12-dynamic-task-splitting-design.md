@@ -6,6 +6,8 @@ Multica 当前 workflow 每个节点只能产出 0~1 个子 issue。当遇到"�
 
 本设计为 workflow 新增"任务拆分节点"（Split Node），由 Agent 根据上下文智能生成子任务列表，经人审核后批量创建子 issue，各自绑定独立 workflow 并行执行；父 workflow 能聚合展示所有子任务的实时进展。
 
+**实际运行中发现**：Agent 拆分任务的 JSON 输出不可靠 — Agent 可能不返回结构化 `{"tasks":[...]}`，而是发评论、上传文档、修改子 issue 状态、返回自然语言摘要。这导致 split 节点标记为 `failed`，即使 Agent 已经产出了有用的任务分解内容。本设计采用 **success-first** 策略：不惩罚非标准输出，而是尽可能从各种输出中恢复可用的拆分草案，把风险控制在人工审核环节。
+
 ## 目标
 
 - 新增 `kind: "split"` 节点类型，Agent 驱动拆分 + 人审核 + 批量创建子 issue + 进度汇总
@@ -14,6 +16,19 @@ Multica 当前 workflow 每个节点只能产出 0~1 个子 issue。当遇到"�
 - 子任务嵌套限制为两层（父→子），子的 workflow 内不再包含拆分节点
 - 父节点取消时级联停止所有子任务，带防呆确认
 - 拆分节点在画布上以聚合徽章展示整体进度
+
+## 设计原则
+
+本设计采用 **success-first** 策略：最大化到达 `awaiting_split_review` 的概率，让用户总能在审核面板看到可编辑的拆分草案。
+
+核心原则：
+
+- **Worker = 拆分草案生成者，Critic = 拆分草案审核者**。沿用现有 Worker/Critic 模型，但语义专化为拆分场景。
+- **不依赖最终 assistant 文本作为唯一数据源**。Agent 可以通过专用 draft API/CLI 主动提交结构化草案，也可以从输出、评论、附件中恢复。
+- **人工审核是子 issue 创建前的安全闸门**。无论草案来自结构化提交还是自动恢复，都必须经过人工审核才能创建子 issue。
+- **拆分阶段严格控制副作用**。拆分 Agent 不能修改 issue 状态或创建子 issue，但其产生的评论和附件可作为恢复素材。
+- **Critic 必填**。拆分节点的 Critic 默认 human（工作流创建者），缺失则阻断激活。Agent/API Critic 仅作为高级选项，展示风险警告。
+- **默认 Worker 使用内置拆分专用 Agent**。按模板类型自动选择（coding→split-planner-code, design→split-planner-design, test→split-planner-test, fallback→split-planner-general）。用户可覆盖，但非专用 agent 触发预检警告。
 
 ## 总体架构
 
@@ -53,6 +68,18 @@ Multica 当前 workflow 每个节点只能产出 0~1 个子 issue。当遇到"�
 │  └─ issues + workflow_runs (子 issue 及运行实例)   │
 └─────────────────────────────────────────────────┘
 ```
+
+### Worker/Critic 语义
+
+Split 节点复用现有 Workflow 的 Worker/Critic 字段，语义专化为：
+
+```
+Worker = 拆分草案生成者
+Critic = 拆分草案审核者
+```
+
+- **Worker**：默认使用内置 split 专用 agent（`split-planner-general/code/design/test`），按模板类型自动选择。用户可覆盖，但非专用 agent 触发预检警告。
+- **Critic**：必填，默认 `critic_type = human`，默认审核人为工作流创建者。缺失或无效 Critic 阻断工作流激活。Agent/API Critic 仅作为高级选项，展示风险警告。
 
 ### 生命周期
 
@@ -221,30 +248,33 @@ func (s *SplitOrchestrator) HandleSplitNode(
 1. 读取 `node.format_schema.split_config`
 2. 校验 `sub_template_id` 存在且为 active
 3. **嵌套防护**: 校验子模板的所有 node 中不含 `kind=split`
-4. 构建 Agent prompt — 包含父 issue 标题、描述、已有节点输出摘要
-5. 派发 Agent task，期望产出 JSON:
+4. 构建 Agent prompt — 包含父 issue 标题、描述、已有节点输出摘要，以及 draft API/CLI 使用说明
+5. 派发 Agent task，task context 设为 `{"type":"workflow","phase":"split"}`
+6. Agent 可通过以下方式提交拆分草案：
+   - **主路径**：调用 draft API/CLI 逐条提交结构化任务（`POST /split/draft-tasks`，完成后 `POST /split/draft-submit`）
+   - **兜底路径**：在最终响应中返回 `{"tasks":[...]}` JSON
+7. Draft API 校验规则：
+   - `X-Task-ID` 必须匹配当前 split 节点的运行中 task
+   - title 和 description 必填
+   - assignee_type 必须是 `agent` 或 `member`，ID 必须属于当前 workspace
+   - 依赖 key 必须指向已提交的 draft task
+   - 依赖图必须无环
+   - `submit` 要求至少一个有效 task
 
-```json
-{
-  "tasks": [
-    {
-      "title": "迁移 user-service 到新 CI",
-      "description": "...",
-      "assignee_type": "agent",
-      "assignee_id": "uuid",
-      "depends_on_indices": []
-    }
-  ]
-}
-```
+### 流程二: splitting → awaiting_split_review（Agent 完成生成 / 恢复管道）
 
-### 流程二: splitting → awaiting_split_review（Agent 完成生成）
+Agent task 完成回调 → `HandleAgentTaskCompletion`：
 
-1. Agent task 完成回调 → `HandleAgentTaskCompletion`
-2. 解析产出 JSON，校验至少 1 个 task
-3. 批量 INSERT `multica_workflow_split_task`（status=draft）
-4. 将 `depends_on_indices` 翻译为 `depends_on` UUID 数组
-5. DFS 检测循环依赖 — 如有则触发 Agent 重试（带错误提示）
+1. 优先检查是否已有通过 draft API 提交的有效 draft rows → 有则直接转换状态
+2. **无 draft rows 时，运行恢复管道**（优先级递减）：
+   1. 解析最终 task result 中的 `{"tasks":[...]}` JSON
+   2. 解析 Markdown 任务分解格式（如 `## 任务 1：...`、编号列表、表格）
+   3. 检查 Agent 在拆分阶段创建的评论内容
+   4. 检查 Agent 上传的附件（如 `task-breakdown.md`）
+   5. 派遣修复 Agent（接收原始输出、评论、附件、父 issue 上下文），修复 Agent 通过 draft API 提交
+3. 恢复的任务标记为 draft，路由到 `awaiting_split_review`（**不直接创建子 issue**）
+4. **所有恢复手段均失败** → node_run 标记 `failed`
+5. 对恢复出的草案执行常规校验（≥1 个 task、DAG 循环检测）
 6. WS 推送：画布节点刷新为"待审核"徽章
 
 ### 流程三: awaiting_split_review → split_active（人审核通过）
@@ -312,6 +342,9 @@ Split API 采用扁平 `node-runs` 路径，和现有 `/api/node-runs/{nodeRunId
 | POST | `/api/node-runs/{nodeRunID}/split/approve` | 审核通过，批量创建子 issue |
 | GET | `/api/node-runs/{nodeRunID}/split/tasks` | 获取拆分任务列表（含状态） |
 | POST | `/api/node-runs/{nodeRunID}/split/cancel` | 取消拆分节点（级联停止子任务） |
+| POST | `/api/node-runs/{nodeRunID}/split/draft-tasks` | Agent 添加/更新拆分草案（upsert by key） |
+| POST | `/api/node-runs/{nodeRunID}/split/draft-submit` | Agent 提交拆分草案（幂等，无已创建子 issue 时可重复调用） |
+| DELETE | `/api/node-runs/{nodeRunID}/split/draft-tasks/{taskID}` | Agent 删除单条草案 |
 
 `POST /approve` 请求体:
 
@@ -340,6 +373,20 @@ Split API 采用扁平 `node-runs` 路径，和现有 `/api/node-runs/{nodeRunId
   ]
 }
 ```
+
+## 拆分阶段副作用策略
+
+仅靠 prompt 指令不足以防止 Agent 在拆分阶段执行破坏性操作。平台基于 `X-Task-ID` 识别拆分阶段请求并控制副作用：
+
+| 操作类型 | 策略 |
+|---------|------|
+| 只读查询（issue、comment、member、agent、workspace） | 允许 |
+| Draft API 调用（draft-tasks、draft-submit） | 允许 |
+| Issue 状态变更 | 禁止 |
+| Issue 创建/更新/分配 | 禁止 |
+| 评论和附件上传 | 允许（作为恢复素材，不作为权威输出） |
+
+误操作产生的评论和附件不视为任务完成，不被直接消费为子 issue。它们仅作为恢复管道的输入素材。
 
 ## 前端组件
 
@@ -421,10 +468,22 @@ packages/views/workflows/components/
 #### 3. 编辑器配置面板
 
 选中拆分节点时详情面板显示：
+
+- **Worker 选择器**（标签："拆分草案生成者"）— 默认按模板类型自动选择内置 split-planner agent
+- **Critic 选择器**（标签："拆分草案审核者"）— 必填，默认 human（工作流创建者）
 - 子模板选择器（下拉，列出 workspace 下所有 active workflow template）
 - mode 切换（barrier / pipeline，带 tooltip）
 - max_concurrency 数字输入（默认 5，范围 1-20）
 - max_failures 数字输入（仅 barrier 模式显示，默认 0）
+
+**详情面板生命周期覆盖**：
+
+| 节点状态 | 面板展示内容 |
+|---------|------------|
+| `splitting` | 活跃 task、生成进度、transcript 入口 |
+| `awaiting_split_review` | 草案任务列表、编辑控件、通过/拒绝操作 |
+| `split_active` | 拆分任务进度、子 issue 链接 |
+| `failed` | 失败原因 + 恢复操作：重新生成、从输出/评论/附件恢复、手动添加草案 |
 
 #### 4. 父 issue 详情页进度面板
 
@@ -459,6 +518,10 @@ packages/views/workflows/components/
 | `split-template-missing` | error | yes | split 节点未配置 sub_template_id |
 | `split-template-nested` | error | yes | 子模板中包含 kind=split 节点（超过 2 层） |
 | `split-template-inactive` | error | yes | 子模板状态不是 active |
+| `split-worker-missing` | error | yes | split 节点未配置 Worker |
+| `split-critic-missing` | error | yes | split 节点未配置 Critic |
+| `split-worker-not-specialized` | warning | no | Worker 不是内置 split-planner agent |
+| `split-critic-automated` | warning | no | Critic 为 agent/API 类型，可能自动通过审核 |
 
 ## TypeScript 类型扩展
 
@@ -581,6 +644,10 @@ export interface SplitProgress {
 - 并发调度逻辑（max_concurrency 限制生效）
 - 取消级联
 - API 以 `nodeRunID` 定位多个 split 节点，不串数据
+- 恢复管道各级 fallback（JSON → Markdown → 评论 → 附件 → 修复 Agent）
+- draft API 校验（X-Task-ID 匹配、依赖合法性、assignee 校验）
+- 拆分阶段副作用拦截（issue 状态变更、创建、分配被拒绝）
+- 有 draft rows 时跳过恢复管道直接进入 `awaiting_split_review`
 
 ### TypeScript 测试
 
@@ -597,6 +664,30 @@ export interface SplitProgress {
 - DAG 调度: 子 issue 全部可见，但依赖未满足的子 workflow run 不启动
 - 取消级联: 父节点取消 → 子任务全部停止
 - 嵌套防护: 子模板含 split 节点时编辑器拒绝激活
+
+## 上线计划
+
+1. 修复 `workflow_phase` 传播和 split 专用 daemon 上下文
+2. 添加内置 split-planner agent 和默认 Worker 自动选择
+3. 前端预检 + 后端运行校验强制要求 split 节点配置 Critic
+4. 添加 split draft API/CLI
+5. 更新 split 完成逻辑：优先消费 draft rows 再解析最终输出
+6. 添加本地恢复管道（输出 → Markdown → 评论 → 附件）
+7. 添加修复 Agent 兜底
+8. 完善详情面板：展示状态、进度、审核和恢复操作
+
+## 成功标准
+
+- 产出有用 Markdown 分解的拆分任务能到达 `awaiting_split_review`
+- 使用 draft CLI 的拆分任务不依赖最终输出解析即可到达 `awaiting_split_review`
+- 拆分 Agent 无法在审核通过前修改 issue 状态或创建子 issue
+- 用户可在详情面板中检查、编辑、通过、重新生成或手动恢复拆分草案
+
+## 待解决问题
+
+- 拆分阶段的评论是应完全阻止还是允许作为恢复素材？v1 建议：允许评论作为恢复素材，但阻止状态变更和 issue 创建。
+- v1 是否允许自动化 Critic？v1 建议：仅作为高级选项并展示明确警告。
+- 恢复的任务是否应带有"已恢复"标记？建议：是，便于审核者了解可信度。
 
 ## 边界
 
