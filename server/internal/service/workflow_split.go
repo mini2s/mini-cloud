@@ -1721,13 +1721,6 @@ func (s *SplitOrchestrator) findParentIssue(ctx context.Context, nodeRun db.Mult
 	return splitIssue, nil
 }
 
-func valueOrEmpty(v *string) string {
-	if v == nil {
-		return ""
-	}
-	return *v
-}
-
 func ptrStringToText(v *string) pgtype.Text {
 	if v == nil {
 		return pgtype.Text{}
