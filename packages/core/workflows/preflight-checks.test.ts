@@ -11,6 +11,7 @@ import {
   checkStageMissing,
   checkSplitTemplateConfig,
   runAllPreflightChecks,
+  DEFAULT_SPLIT_PLANNER_AGENT_IDS,
 } from "./preflight-checks";
 import type { WorkflowNode, WorkflowEdge, WorkflowStage } from "../types";
 
@@ -326,6 +327,18 @@ describe("checkSplitCriticRequired", () => {
 });
 
 describe("checkSplitWorkerSpecialized", () => {
+  it("uses concrete UUIDs for all built-in split planner agents", () => {
+    const uuidRE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+    expect(DEFAULT_SPLIT_PLANNER_AGENT_IDS).toHaveLength(4);
+    for (const id of DEFAULT_SPLIT_PLANNER_AGENT_IDS) {
+      expect(id).toMatch(uuidRE);
+    }
+  });
+
+  it("does not reuse the legacy task-splitting built-in agent as a split planner", () => {
+    expect(DEFAULT_SPLIT_PLANNER_AGENT_IDS).not.toContain("4348e20d-eadc-4095-ac7a-cd480e927375");
+  });
+
   it("warns when a split node uses a non-specialized worker", () => {
     const nodes = [makeNode({ id: "split", worker_id: "agent-1", format_schema: { type: "split", split_config: { sub_template_id: "tpl-1" } } })];
     const issues = checkSplitWorkerSpecialized(nodes, new Set(["split-planner-code"]));

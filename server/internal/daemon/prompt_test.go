@@ -325,6 +325,27 @@ func TestBuildPromptSplitPhaseRequiresStructuredTasksOutput(t *testing.T) {
 	}
 }
 
+func TestBuildPromptSplitRepairIncludesSourceTask(t *testing.T) {
+	out := BuildPrompt(Task{
+		IssueID:                         "issue-split-1",
+		WorkflowPhase:                   "split",
+		WorkflowSplitRepair:             true,
+		WorkflowSplitRepairSourceTaskID: "task-source-1",
+	}, "claude")
+
+	for _, want := range []string{
+		"repairing a failed split draft generation",
+		"task-source-1",
+		"recover usable draft tasks",
+		"cs-workflow workflow split draft add",
+		"cs-workflow workflow split draft submit",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("split repair BuildPrompt missing %q\n--- output ---\n%s", want, out)
+		}
+	}
+}
+
 // TestBuildPromptNonSquadLeaderNoRule verifies that non-squad-leader agents
 // do NOT get the squad leader no_action rule injected.
 func TestBuildPromptNonSquadLeaderNoRule(t *testing.T) {

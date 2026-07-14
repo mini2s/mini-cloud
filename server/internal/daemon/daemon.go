@@ -666,8 +666,8 @@ func (d *Daemon) deregisterRuntimes() {
 }
 
 // resolveAuth loads the auth token.  Priority:
-//   1. ~/.multica/config.json  (explicit PAT / legacy token)
-//   2. ~/.costrict/share/auth.json  (csc auth login)
+//  1. ~/.multica/config.json  (explicit PAT / legacy token)
+//  2. ~/.costrict/share/auth.json  (csc auth login)
 func (d *Daemon) resolveAuth() error {
 	// 1. Prefer explicit multica CLI config (test-environment PAT, legacy token).
 	cfg, err := cli.LoadCLIConfigForProfile(d.cfg.Profile)
@@ -2314,6 +2314,9 @@ func (d *Daemon) runTask(ctx context.Context, task Task, provider string, slot i
 		ProjectResources:                 convertProjectResourcesForEnv(task.ProjectResources),
 		ChatSessionID:                    task.ChatSessionID,
 		WorkflowPhase:                    task.WorkflowPhase,
+		WorkflowSplitRepair:              task.WorkflowSplitRepair,
+		WorkflowSplitRepairSourceTaskID:  task.WorkflowSplitRepairSourceTaskID,
+		WorkflowSplitRepairSourceOutput:  task.WorkflowSplitRepairSourceOutput,
 		AutopilotRunID:                   task.AutopilotRunID,
 		AutopilotID:                      task.AutopilotID,
 		AutopilotTitle:                   task.AutopilotTitle,

@@ -68,7 +68,17 @@ func BuildPrompt(task Task, provider string) string {
 
 func buildSplitPrompt(task Task) string {
 	var b strings.Builder
-	b.WriteString("You are running as a dynamic split-task generator for a Multica workflow.\n\n")
+	if task.WorkflowSplitRepair {
+		b.WriteString("You are repairing a failed split draft generation for a Multica workflow.\n\n")
+		fmt.Fprintf(&b, "Source task ID: %s\n\n", task.WorkflowSplitRepairSourceTaskID)
+		if strings.TrimSpace(task.WorkflowSplitRepairSourceOutput) != "" {
+			b.WriteString("The failed task produced this final output. Use it as one recovery source, but verify against the split planning issue, comments, and attachments before submitting drafts:\n\n")
+			fmt.Fprintf(&b, "```\n%s\n```\n\n", strings.TrimSpace(task.WorkflowSplitRepairSourceOutput))
+		}
+		b.WriteString("Your job is to recover usable draft tasks and submit them for human review.\n\n")
+	} else {
+		b.WriteString("You are running as a dynamic split-task generator for a Multica workflow.\n\n")
+	}
 	fmt.Fprintf(&b, "Read the split planning issue with `cs-workflow issue get %s --output json` and inspect comments only if they are needed for context.\n\n", task.IssueID)
 	b.WriteString("Your job is to propose child tasks for human review. The platform will create the actual child issues later after review.\n\n")
 	b.WriteString("Hard rules:\n")

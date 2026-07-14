@@ -43,11 +43,10 @@ export interface PreflightResult {
 // ── Helpers ──
 
 export const DEFAULT_SPLIT_PLANNER_AGENT_IDS = [
-  "4348e20d-eadc-4095-ac7a-cd480e927375",
-  "split-planner-general",
-  "split-planner-code",
-  "split-planner-design",
-  "split-planner-test",
+  "dd79d98e-3be1-4cb5-9cdd-aee809287741",
+  "3ef3f4fd-0de7-4a84-a03d-cb5d4df2f30c",
+  "32fc6f0c-2f00-44d7-a6a2-36f1d75a144a",
+  "6b3ea222-f3ee-44c5-b4c9-33a1674a1127",
 ] as const;
 
 const defaultSplitPlannerAgentIds = new Set<string>(DEFAULT_SPLIT_PLANNER_AGENT_IDS);

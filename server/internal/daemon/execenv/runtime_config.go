@@ -287,7 +287,18 @@ func buildMetaSkillContent(provider string, ctx TaskContextForEnv) string {
 	b.WriteString("### Workflow\n\n")
 
 	if ctx.WorkflowPhase == "split" {
-		b.WriteString("**This task is a dynamic split-task generator.** Produce draft child tasks for human review; the platform will create child issues later.\n\n")
+		if ctx.WorkflowSplitRepair {
+			b.WriteString("**This task is repairing a failed dynamic split-task generation.** Recover usable draft child tasks from the split planning issue, prior output, comments, and attachments; the platform will create child issues later.\n\n")
+			if ctx.WorkflowSplitRepairSourceTaskID != "" {
+				fmt.Fprintf(&b, "- Source task ID: `%s`.\n", ctx.WorkflowSplitRepairSourceTaskID)
+			}
+			if strings.TrimSpace(ctx.WorkflowSplitRepairSourceOutput) != "" {
+				b.WriteString("- Failed task output is included in `.agent_context/issue_context.md`.\n")
+			}
+			b.WriteString("\n")
+		} else {
+			b.WriteString("**This task is a dynamic split-task generator.** Produce draft child tasks for human review; the platform will create child issues later.\n\n")
+		}
 		fmt.Fprintf(&b, "- Read the planning issue with `cs-workflow issue get %s --output json`.\n", ctx.IssueID)
 		b.WriteString("- Use read-only CLI commands for context. Inspect comments only when the issue body is insufficient.\n")
 		b.WriteString("- Use the split draft CLI as the primary path: run `cs-workflow workflow split draft add <node-run-id>` once per draft task, then `cs-workflow workflow split draft submit <node-run-id>` when the draft set is complete.\n")

@@ -357,7 +357,18 @@ func renderSplitContext(ctx TaskContextForEnv) string {
 	var b strings.Builder
 	b.WriteString("# Split Task Generation\n\n")
 	fmt.Fprintf(&b, "**Issue ID:** %s\n\n", ctx.IssueID)
-	b.WriteString("**Trigger:** Workflow split phase\n\n")
+	if ctx.WorkflowSplitRepair {
+		b.WriteString("**Trigger:** Workflow split repair phase\n\n")
+		if ctx.WorkflowSplitRepairSourceTaskID != "" {
+			fmt.Fprintf(&b, "**Source task ID:** `%s`\n\n", ctx.WorkflowSplitRepairSourceTaskID)
+		}
+		if strings.TrimSpace(ctx.WorkflowSplitRepairSourceOutput) != "" {
+			b.WriteString("## Failed Task Output\n\n")
+			fmt.Fprintf(&b, "```\n%s\n```\n\n", strings.TrimSpace(ctx.WorkflowSplitRepairSourceOutput))
+		}
+	} else {
+		b.WriteString("**Trigger:** Workflow split phase\n\n")
+	}
 	b.WriteString("## Quick Start\n\n")
 	fmt.Fprintf(&b, "Run `cs-workflow issue get %s --output json` to read the split planning issue.\n\n", ctx.IssueID)
 	b.WriteString("Submit draft tasks with `cs-workflow workflow split draft add` and finish with `cs-workflow workflow split draft submit`. Do not create child issues or change issue status.\n\n")

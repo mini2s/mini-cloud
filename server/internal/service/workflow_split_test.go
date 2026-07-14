@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"reflect"
 	"strings"
@@ -255,6 +256,33 @@ func TestRecoverSplitGeneratedTaskPayloadFromAttachmentCandidatesReadsTextAttach
 	}
 	if payload.Tasks[0].Title != "Create importer" || payload.Tasks[1].Title != "Add tests" {
 		t.Fatalf("task titles = %q / %q", payload.Tasks[0].Title, payload.Tasks[1].Title)
+	}
+}
+
+func TestSplitRepairTaskContextHelpers(t *testing.T) {
+	sourceTaskID := pgtype.UUID{Bytes: [16]byte{8}, Valid: true}
+	extras := splitRepairContextExtras(db.MulticaAgentTaskQueue{
+		ID:     sourceTaskID,
+		Result: []byte(`{"output":"original failed output"}`),
+	}, fmt.Errorf("local recovery failed"))
+	if extras["repair"] != true {
+		t.Fatalf("repair context repair = %v, want true", extras["repair"])
+	}
+	if extras["repair_source_task_id"] != "08000000-0000-0000-0000-000000000000" {
+		t.Fatalf("repair source task = %v", extras["repair_source_task_id"])
+	}
+	if extras["repair_source_output"] != "original failed output" {
+		t.Fatalf("repair source output = %v", extras["repair_source_output"])
+	}
+	if extras["repair_reason"] != "local recovery failed" {
+		t.Fatalf("repair reason = %v", extras["repair_reason"])
+	}
+
+	if !isSplitRepairTask([]byte(`{"type":"workflow","phase":"split","repair":true}`)) {
+		t.Fatalf("isSplitRepairTask(repair context) = false, want true")
+	}
+	if isSplitRepairTask([]byte(`{"type":"workflow","phase":"split"}`)) {
+		t.Fatalf("isSplitRepairTask(non-repair context) = true, want false")
 	}
 }
 

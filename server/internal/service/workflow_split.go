@@ -1079,6 +1079,9 @@ func (s *SplitOrchestrator) handleTaskCompletion(ctx context.Context, task db.Mu
 
 	payload, err := s.recoverSplitGeneratedTaskPayloadFromTaskSources(ctx, task)
 	if err != nil {
+		if !isSplitRepairTask(task.Context) {
+			return s.dispatchSplitRepairTask(ctx, nodeRun, task, err)
+		}
 		return err
 	}
 	if err := s.replaceSplitDraftTasksFromPayload(ctx, nodeRun, existing, payload); err != nil {
@@ -1086,6 +1089,60 @@ func (s *SplitOrchestrator) handleTaskCompletion(ctx context.Context, task db.Mu
 	}
 	_, err = s.WfService.TransitionNodeRun(ctx, nodeRun, NodeRunStatusAwaitingSplitReview)
 	return err
+}
+
+func (s *SplitOrchestrator) dispatchSplitRepairTask(ctx context.Context, nodeRun db.MulticaWorkflowNodeRun, sourceTask db.MulticaAgentTaskQueue, recoveryErr error) error {
+	run, err := s.Queries.GetWorkflowRun(ctx, nodeRun.WorkflowRunID)
+	if err != nil {
+		return fmt.Errorf("get workflow run for split repair: %w", err)
+	}
+	splitIssue, err := s.Queries.GetIssueByOrigin(ctx, db.GetIssueByOriginParams{
+		WorkspaceID: run.WorkspaceID,
+		OriginType:  pgtype.Text{String: "workflow", Valid: true},
+		OriginID:    nodeRun.ID,
+	})
+	if err != nil {
+		return fmt.Errorf("get split sub-issue for repair: %w", err)
+	}
+	activeTasks, err := s.Queries.ListActiveTasksByIssue(ctx, splitIssue.ID)
+	if err != nil {
+		return fmt.Errorf("list active split repair tasks: %w", err)
+	}
+	for _, activeTask := range activeTasks {
+		if activeTask.WorkflowNodeRunID == nodeRun.ID && isSplitTaskPhase(activeTask.Context) && isSplitRepairTask(activeTask.Context) {
+			return nil
+		}
+	}
+
+	task, err := s.WfService.DispatchAgentTaskWithContextExtras(ctx, nodeRun, "split", splitRepairContextExtras(sourceTask, recoveryErr))
+	if err != nil {
+		return fmt.Errorf("dispatch split repair task: %w", err)
+	}
+	if _, err := s.Queries.LinkNodeRunAgentTask(ctx, db.LinkNodeRunAgentTaskParams{
+		ID:          nodeRun.ID,
+		AgentTaskID: task.ID,
+	}); err != nil {
+		return fmt.Errorf("link split repair task: %w", err)
+	}
+	return nil
+}
+
+func splitRepairContextExtras(sourceTask db.MulticaAgentTaskQueue, recoveryErr error) map[string]any {
+	reason := recoveryErr.Error()
+	if len(reason) > 1000 {
+		reason = reason[:1000] + "..."
+	}
+	sourceOutput := splitTaskResultOutput(sourceTask.Result)
+	if len(sourceOutput) > 4000 {
+		sourceOutput = sourceOutput[:4000] + "..."
+	}
+	return map[string]any{
+		"repair":                 true,
+		"repair_source_task_id":  util.UUIDToString(sourceTask.ID),
+		"repair_reason":          reason,
+		"repair_source_output":   sourceOutput,
+		"worker_can_await_input": false,
+	}
 }
 
 func (s *SplitOrchestrator) ApproveSplit(ctx context.Context, nodeRun db.MulticaWorkflowNodeRun, req SplitApproveRequest) error {
@@ -1762,6 +1819,21 @@ func isSplitTaskPhase(contextJSON []byte) bool {
 		return false
 	}
 	return payload.Phase == "split"
+}
+
+func isSplitRepairTask(contextJSON []byte) bool {
+	if len(contextJSON) == 0 {
+		return false
+	}
+	var payload struct {
+		Type   string `json:"type"`
+		Phase  string `json:"phase"`
+		Repair bool   `json:"repair"`
+	}
+	if err := json.Unmarshal(contextJSON, &payload); err != nil {
+		return false
+	}
+	return payload.Type == "workflow" && payload.Phase == "split" && payload.Repair
 }
 
 func parseSplitGeneratedTaskPayload(raw []byte) (splitGeneratedTaskPayload, error) {

@@ -617,6 +617,100 @@ func TestSplitCompletionRecoversMarkdownBreakdownComment(t *testing.T) {
 	}
 }
 
+func TestSplitCompletionDispatchesRepairTaskBeforeFailing(t *testing.T) {
+	f := createSplitGenerateFixture(t, "barrier")
+	taskID := startSplitGenerationTask(t, f)
+
+	result, err := json.Marshal(map[string]any{
+		"output": "I could not produce a structured or markdown task breakdown.",
+	})
+	if err != nil {
+		t.Fatalf("marshal result: %v", err)
+	}
+	if _, err := testHandler.TaskService.CompleteTask(context.Background(), parseUUID(taskID), result, "", ""); err != nil {
+		t.Fatalf("complete split generation task: %v", err)
+	}
+
+	nodeRun, err := testHandler.Queries.GetWorkflowNodeRun(context.Background(), parseUUID(f.splitNodeRunID))
+	if err != nil {
+		t.Fatalf("load node run: %v", err)
+	}
+	if nodeRun.Status != service.NodeRunStatusSplitting {
+		t.Fatalf("node run status = %s, want splitting while repair runs", nodeRun.Status)
+	}
+
+	var repairTaskID string
+	var repairContext []byte
+	if err := testPool.QueryRow(context.Background(), `
+		SELECT id, context
+		FROM multica_agent_task_queue
+		WHERE workflow_node_run_id = $1
+		  AND id <> $2
+		ORDER BY created_at DESC
+		LIMIT 1
+	`, f.splitNodeRunID, taskID).Scan(&repairTaskID, &repairContext); err != nil {
+		t.Fatalf("load repair task: %v", err)
+	}
+
+	var taskCtx map[string]any
+	if err := json.Unmarshal(repairContext, &taskCtx); err != nil {
+		t.Fatalf("parse repair task context: %v", err)
+	}
+	if taskCtx["phase"] != "split" {
+		t.Fatalf("repair task phase = %v, want split", taskCtx["phase"])
+	}
+	if taskCtx["repair"] != true {
+		t.Fatalf("repair task context repair = %v, want true", taskCtx["repair"])
+	}
+	if taskCtx["repair_source_task_id"] != taskID {
+		t.Fatalf("repair source task = %v, want %s", taskCtx["repair_source_task_id"], taskID)
+	}
+	if uuidToString(nodeRun.AgentTaskID) != repairTaskID {
+		t.Fatalf("node run agent_task_id = %s, want repair task %s", uuidToString(nodeRun.AgentTaskID), repairTaskID)
+	}
+}
+
+func TestSplitRepairCompletionFailureMarksNodeFailed(t *testing.T) {
+	f := createSplitGenerateFixture(t, "barrier")
+	taskID := startSplitGenerationTask(t, f)
+
+	result, err := json.Marshal(map[string]any{
+		"output": "No recoverable task breakdown.",
+	})
+	if err != nil {
+		t.Fatalf("marshal result: %v", err)
+	}
+	if _, err := testHandler.TaskService.CompleteTask(context.Background(), parseUUID(taskID), result, "", ""); err != nil {
+		t.Fatalf("complete split generation task: %v", err)
+	}
+
+	claimedRepair, err := testHandler.Queries.ClaimAgentTask(context.Background(), parseUUID(f.agentID))
+	if err != nil {
+		t.Fatalf("claim repair task: %v", err)
+	}
+	startedRepair, err := testHandler.Queries.StartAgentTask(context.Background(), claimedRepair.ID)
+	if err != nil {
+		t.Fatalf("start repair task: %v", err)
+	}
+	repairResult, err := json.Marshal(map[string]any{
+		"output": "Repair still did not produce tasks.",
+	})
+	if err != nil {
+		t.Fatalf("marshal repair result: %v", err)
+	}
+	if _, err := testHandler.TaskService.CompleteTask(context.Background(), startedRepair.ID, repairResult, "", ""); err != nil {
+		t.Fatalf("complete repair task: %v", err)
+	}
+
+	nodeRun, err := testHandler.Queries.GetWorkflowNodeRun(context.Background(), parseUUID(f.splitNodeRunID))
+	if err != nil {
+		t.Fatalf("load node run: %v", err)
+	}
+	if nodeRun.Status != service.NodeRunStatusFailed {
+		t.Fatalf("node run status = %s, want failed after repair failure", nodeRun.Status)
+	}
+}
+
 func TestSplitPhaseTaskCannotCreateIssue(t *testing.T) {
 	f := createSplitGenerateFixture(t, "barrier")
 	taskID := startSplitGenerationTask(t, f)

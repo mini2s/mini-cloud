@@ -1096,6 +1096,12 @@ func (s *WorkflowService) dispatchCritic(ctx context.Context, nodeRun db.Multica
 // DispatchAgentTask creates an agent_task_queue row for a workflow node run
 // and links it via the workflow_node_run_id column.
 func (s *WorkflowService) DispatchAgentTask(ctx context.Context, nodeRun db.MulticaWorkflowNodeRun, phase string) (*db.MulticaAgentTaskQueue, error) {
+	return s.DispatchAgentTaskWithContextExtras(ctx, nodeRun, phase, nil)
+}
+
+// DispatchAgentTaskWithContextExtras creates an agent task and merges caller
+// supplied metadata into the workflow task context.
+func (s *WorkflowService) DispatchAgentTaskWithContextExtras(ctx context.Context, nodeRun db.MulticaWorkflowNodeRun, phase string, contextExtras map[string]any) (*db.MulticaAgentTaskQueue, error) {
 	node, err := s.Queries.GetWorkflowNode(ctx, nodeRun.WorkflowNodeID)
 	if err != nil {
 		return nil, fmt.Errorf("get node: %w", err)
@@ -1202,6 +1208,9 @@ func (s *WorkflowService) DispatchAgentTask(ctx context.Context, nodeRun db.Mult
 		"node_run_id":            util.UUIDToString(nodeRun.ID),
 		"phase":                  phase,
 		"worker_can_await_input": phase == "worker",
+	}
+	for key, value := range contextExtras {
+		contextPayload[key] = value
 	}
 	contextJSON, err := json.Marshal(contextPayload)
 	if err != nil {
