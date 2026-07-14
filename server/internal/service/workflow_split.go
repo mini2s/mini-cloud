@@ -36,6 +36,10 @@ const (
 	SplitTaskStatusFailed    = "failed"
 	SplitTaskStatusCancelled = "cancelled"
 	SplitTaskStatusSkipped   = "skipped"
+
+	DraftSourceAgent     = "agent"
+	DraftSourceChat      = "chat"
+	DraftSourceRecovered = "recovered"
 )
 
 const maxSplitRecoveryAttachmentBytes = 2 << 20
@@ -651,7 +655,7 @@ func (s *SplitOrchestrator) RecoverSplitDraftTasks(ctx context.Context, nodeRun 
 	if err != nil {
 		return fmt.Errorf("list existing split tasks: %w", err)
 	}
-	if err := s.replaceSplitDraftTasksFromPayload(ctx, nodeRun, existing, payload); err != nil {
+	if err := s.replaceSplitDraftTasksFromPayload(ctx, nodeRun, existing, payload, pgtype.Text{String: DraftSourceRecovered, Valid: true}); err != nil {
 		return err
 	}
 	updated, err := s.Queries.ReactivateWorkflowNodeRunStatus(ctx, db.ReactivateWorkflowNodeRunStatusParams{
@@ -723,6 +727,7 @@ func (s *SplitOrchestrator) replaceSplitDraftTasksFromPayload(
 	nodeRun db.MulticaWorkflowNodeRun,
 	existing []db.MulticaWorkflowSplitTask,
 	payload splitGeneratedTaskPayload,
+	draftSource pgtype.Text,
 ) error {
 	if len(payload.Tasks) == 0 {
 		return fmt.Errorf("split task generation produced no tasks")
@@ -767,7 +772,8 @@ func (s *SplitOrchestrator) replaceSplitDraftTasksFromPayload(
 			Status:                SplitTaskStatusDraft,
 			SuggestedAssigneeType: suggestedType,
 			SuggestedAssigneeID:   suggestedID,
-		})
+			DraftSource:           draftSource,
+			})
 		if err != nil {
 			return fmt.Errorf("create generated split task: %w", err)
 		}
@@ -809,11 +815,18 @@ func (s *SplitOrchestrator) replaceSplitDraftTasksFromPayload(
 }
 
 func (s *SplitOrchestrator) AddSplitDraftTask(ctx context.Context, nodeRun db.MulticaWorkflowNodeRun, taskID, agentID pgtype.UUID, req SplitDraftTaskRequest) error {
-	if _, err := s.validateSplitDraftTaskAccess(ctx, nodeRun, taskID, agentID); err != nil {
+	task, err := s.validateSplitDraftTaskAccess(ctx, nodeRun, taskID, agentID)
+	if err != nil {
 		return err
 	}
 	if nodeRun.Status != NodeRunStatusSplitting {
 		return fmt.Errorf("split draft tasks can only be added while the node is splitting")
+	}
+
+	// Determine draft source from task phase.
+	draftSource := DraftSourceAgent
+	if isSplitChatPhase(task.Context) {
+		draftSource = DraftSourceChat
 	}
 
 	return s.WfService.runInTx(ctx, func(qtx *db.Queries) error {
@@ -892,6 +905,7 @@ func (s *SplitOrchestrator) AddSplitDraftTask(ctx context.Context, nodeRun db.Mu
 			SortOrder:             sortOrder,
 			SuggestedAssigneeType: suggestedType,
 			SuggestedAssigneeID:   suggestedID,
+			DraftSource:           pgtype.Text{String: draftSource, Valid: true},
 		}); err != nil {
 			return fmt.Errorf("upsert split draft task: %w", err)
 		}
@@ -1105,7 +1119,7 @@ func (s *SplitOrchestrator) handleTaskCompletion(ctx context.Context, task db.Mu
 		}
 		return err
 	}
-	if err := s.replaceSplitDraftTasksFromPayload(ctx, nodeRun, existing, payload); err != nil {
+	if err := s.replaceSplitDraftTasksFromPayload(ctx, nodeRun, existing, payload, pgtype.Text{String: DraftSourceAgent, Valid: true}); err != nil {
 		return err
 	}
 	_, err = s.WfService.TransitionNodeRun(ctx, nodeRun, NodeRunStatusAwaitingSplitReview)
