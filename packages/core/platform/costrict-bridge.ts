@@ -68,3 +68,52 @@ export function postCostrictNavigateToSession(args: {
   // validates event.origin on its side.
   window.parent.postMessage(message, "*");
 }
+
+/** Message multica posts to report its current route to the costrict-web parent. */
+export interface CostrictLocationMessage {
+  type: "multica:location";
+  /** multica pathname, e.g. "/ipd-1/issues/<uuid>". Always begins with "/". */
+  path: string;
+}
+
+/**
+ * Report multica's current pathname to the costrict-web parent so the parent
+ * can mirror it in its own URL (shareable, reload-stable). No-op when not
+ * embedded, when there is no parent frame, or when `path` is empty. Call on
+ * mount and on every multica route change while embedded.
+ */
+export function postLocationToParent(path: string): void {
+  if (typeof window === "undefined") return;
+  if (!path) return;
+  if (window.parent === window) return;
+  const message: CostrictLocationMessage = {
+    type: "multica:location",
+    path,
+  };
+  // Target origin "*" mirrors the existing parent contract; the parent
+  // validates event.origin on its side.
+  window.parent.postMessage(message, "*");
+}
+
+/** Message the costrict-web parent posts to drive embedded multica navigation. */
+export interface ParentRouteCommandMessage {
+  type: "multica:route";
+  path: string;
+}
+
+/**
+ * Parse an inbound `multica:route` command from the costrict-web parent.
+ * Returns the target pathname when the message comes from the parent frame and
+ * has the expected shape with a non-empty string `path`; otherwise `null`. The
+ * command only navigates within multica, so the bar is `source === parent`
+ * plus shape — tighten with an origin allow-list later if needed.
+ */
+export function parseParentRouteCommand(
+  event: MessageEvent,
+): { path: string } | null {
+  if (event.source !== window.parent) return null;
+  if (typeof event.data !== "object" || event.data === null) return null;
+  if (event.data.type !== "multica:route") return null;
+  if (typeof event.data.path !== "string" || event.data.path === "") return null;
+  return { path: event.data.path };
+}
