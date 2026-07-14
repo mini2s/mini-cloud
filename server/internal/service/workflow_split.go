@@ -1186,6 +1186,11 @@ func (s *SplitOrchestrator) ApproveSplit(ctx context.Context, nodeRun db.Multica
 		approvedUUIDs = append(approvedUUIDs, u)
 	}
 
+	// Reject legacy modifications — all edits must go through /split/chat.
+	if len(req.Modifications) > 0 {
+		return fmt.Errorf("split modifications must be submitted through /split/chat")
+	}
+
 	node, err := s.Queries.GetWorkflowNode(ctx, nodeRun.WorkflowNodeID)
 	if err != nil {
 		return fmt.Errorf("get split node: %w", err)
@@ -1209,120 +1214,13 @@ func (s *SplitOrchestrator) ApproveSplit(ctx context.Context, nodeRun db.Multica
 			return fmt.Errorf("split node cannot be approved from current status")
 		}
 
-		existing, err := qtx.ListSplitTasksByNodeRun(ctx, nodeRun.ID)
-		if err != nil {
-			return fmt.Errorf("list split tasks: %w", err)
-		}
-		existingByID := splitTaskMap(existing)
-		deletedIDs := make(map[string]struct{})
-
-		for _, mod := range req.Modifications {
-			switch mod.Action {
-			case "add":
-				dependsOn, err := json.Marshal(mod.DependsOn)
-				if err != nil {
-					return fmt.Errorf("marshal depends_on: %w", err)
-				}
-				suggestedType := ptrStringToText(mod.SuggestedAssigneeType)
-				suggestedID := pgtype.UUID{}
-				if mod.SuggestedAssigneeID != nil && *mod.SuggestedAssigneeID != "" {
-					u, err := util.ParseUUID(*mod.SuggestedAssigneeID)
-					if err != nil {
-						return fmt.Errorf("invalid suggested_assignee_id: %w", err)
-					}
-					suggestedID = u
-				}
-				task, err := qtx.CreateSplitTask(ctx, db.CreateSplitTaskParams{
-					NodeRunID:             nodeRun.ID,
-					WorkspaceID:           parentIssue.WorkspaceID,
-					Title:                 valueOrEmpty(mod.Title),
-					Description:           valueOrEmpty(mod.Description),
-					DependsOn:             dependsOn,
-					SortOrder:             int32(len(existingByID) + len(deletedIDs)),
-					Status:                SplitTaskStatusDraft,
-					SuggestedAssigneeType: suggestedType,
-					SuggestedAssigneeID:   suggestedID,
-				})
-				if err != nil {
-					return fmt.Errorf("create split task: %w", err)
-				}
-				id := util.UUIDToString(task.ID)
-				existingByID[id] = task
-				approvedIDs[id] = struct{}{}
-				approvedUUIDs = append(approvedUUIDs, task.ID)
-			case "delete":
-				if mod.ID == "" {
-					return fmt.Errorf("delete modification is missing id")
-				}
-				deletedIDs[mod.ID] = struct{}{}
-				delete(approvedIDs, mod.ID)
-			default:
-				if mod.ID == "" {
-					return fmt.Errorf("task modification is missing id")
-				}
-				task, ok := existingByID[mod.ID]
-				if !ok {
-					return fmt.Errorf("unknown split task %s", mod.ID)
-				}
-				dependsOn := task.DependsOn
-				if mod.DependsOn != nil {
-					payload, err := json.Marshal(mod.DependsOn)
-					if err != nil {
-						return fmt.Errorf("marshal depends_on: %w", err)
-					}
-					dependsOn = payload
-				}
-				suggestedType := task.SuggestedAssigneeType
-				suggestedID := task.SuggestedAssigneeID
-				if mod.SuggestedAssigneeType != nil {
-					suggestedType = ptrStringToText(mod.SuggestedAssigneeType)
-					if !suggestedType.Valid {
-						suggestedID = pgtype.UUID{}
-					}
-				}
-				if mod.SuggestedAssigneeID != nil {
-					if *mod.SuggestedAssigneeID == "" {
-						suggestedID = pgtype.UUID{}
-					} else {
-						u, err := util.ParseUUID(*mod.SuggestedAssigneeID)
-						if err != nil {
-							return fmt.Errorf("invalid suggested_assignee_id: %w", err)
-						}
-						suggestedID = u
-					}
-				}
-				updated, err := qtx.UpdateSplitTaskFields(ctx, db.UpdateSplitTaskFieldsParams{
-					ID:                    task.ID,
-					Title:                 ptrStringToText(mod.Title),
-					Description:           ptrStringToText(mod.Description),
-					SuggestedAssigneeType: suggestedType,
-					SuggestedAssigneeID:   suggestedID,
-					DependsOn:             dependsOn,
-					SortOrder:             pgtype.Int4{},
-				})
-				if err != nil {
-					return fmt.Errorf("update split task: %w", err)
-				}
-				existingByID[mod.ID] = updated
-			}
-		}
-
 		current, err := qtx.ListSplitTasksByNodeRun(ctx, nodeRun.ID)
 		if err != nil {
-			return fmt.Errorf("reload split tasks: %w", err)
+			return fmt.Errorf("list split tasks: %w", err)
 		}
 		allowed := make([]db.MulticaWorkflowSplitTask, 0, len(current))
 		for _, task := range current {
 			id := util.UUIDToString(task.ID)
-			if _, deleted := deletedIDs[id]; deleted {
-				if _, err := qtx.UpdateSplitTaskStatus(ctx, db.UpdateSplitTaskStatusParams{
-					ID:     task.ID,
-					Status: SplitTaskStatusDiscarded,
-				}); err != nil {
-					return fmt.Errorf("discard split task: %w", err)
-				}
-				continue
-			}
 			if _, approved := approvedIDs[id]; approved {
 				allowed = append(allowed, task)
 			}
