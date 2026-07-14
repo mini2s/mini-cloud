@@ -37,3 +37,14 @@ func TestTaskToResponseSessionID(t *testing.T) {
 		}
 	})
 }
+
+func TestTaskToResponseWorkflowPhaseFromContext(t *testing.T) {
+	task := db.MulticaAgentTaskQueue{
+		Context: []byte(`{"type":"workflow","phase":"split","node_run_id":"node-run-1"}`),
+	}
+
+	resp := taskToResponse(task)
+	if resp.WorkflowPhase != "split" {
+		t.Fatalf("expected WorkflowPhase %q, got %q", "split", resp.WorkflowPhase)
+	}
+}

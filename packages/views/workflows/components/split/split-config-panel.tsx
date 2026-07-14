@@ -1,6 +1,6 @@
 "use client";
 
-import { GitBranch } from "lucide-react";
+import { GitBranch, ShieldCheck } from "lucide-react";
 import type { SplitConfig, Workflow } from "@multica/core/types";
 import { Label } from "@multica/ui/components/ui/label";
 import { useT } from "../../../i18n";
@@ -62,6 +62,18 @@ export function SplitConfigPanel({
             </option>
           ))}
         </select>
+      </div>
+
+      <div className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 px-2.5 py-2 text-amber-800 dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-300">
+        <ShieldCheck className="mt-0.5 size-3.5 shrink-0" />
+        <div className="min-w-0">
+          <p className="text-[11px] font-medium leading-none">
+            {t(($) => $.detail_panel.split_review_required_title)}
+          </p>
+          <p className="mt-1 text-[11px] leading-snug opacity-85">
+            {t(($) => $.detail_panel.split_review_required_hint)}
+          </p>
+        </div>
       </div>
 
       <div className="space-y-2">

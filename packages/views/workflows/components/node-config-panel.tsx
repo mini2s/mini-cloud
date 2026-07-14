@@ -787,7 +787,8 @@ export function NodeConfigPanel({
                 ) : null}
 
                 {isSplit ? (
-                  <AssignmentCard
+                  <>
+                    <AssignmentCard
                     icon={<Bot className="size-4" />}
                     title={t(($) => $.node.section_worker)}
                     subtitle={t(($) => $.detail_panel.split_worker_subtitle)}
@@ -830,7 +831,111 @@ export function NodeConfigPanel({
                       />
                     </div>
                     <ActorSummary type={workerType} id={workerId} label={workerLabel} emptyText={t(($) => $.detail_panel.empty_worker)} hint={t(($) => $.detail_panel.actor_assignee_hint)} />
-                  </AssignmentCard>
+                    </AssignmentCard>
+
+                    <AssignmentCard
+                      icon={<ShieldCheck className="size-4" />}
+                      title={t(($) => $.node.section_critic)}
+                      subtitle={t(($) => $.detail_panel.split_critic_subtitle)}
+                      status={criticConfigured ? <StatusBadge tone="success">{t(($) => $.detail_panel.badge_configured)}</StatusBadge> : <StatusBadge tone="warning">{t(($) => $.detail_panel.badge_needs_assignee)}</StatusBadge>}
+                    >
+                      <AssignmentModeControl<"direct" | "role" | "api">
+                        value={criticMode}
+                        disabled={disabled}
+                        options={[
+                          { value: "direct", label: t(($) => $.node.critic_id_label) },
+                          { value: "role", label: t(($) => $.node.critic_type_role) },
+                          { value: "api", label: t(($) => $.node.critic_type_api) },
+                        ]}
+                        onChange={(mode) => {
+                          if (mode === criticMode) return;
+                          const nextType: CriticType = mode === "direct" ? "human" : mode;
+                          setCriticType(nextType);
+                          setCriticId(null);
+                          cacheNodeEdits(node.id, { critic_type: nextType, critic_id: null });
+                        }}
+                      />
+
+                      {criticMode === "api" ? (
+                        <div className="space-y-1.5">
+                          <Label className="text-xs text-muted-foreground" htmlFor="split-critic-api-url">{t(($) => $.node.critic_api_url_label)}</Label>
+                          <Input
+                            id="split-critic-api-url"
+                            aria-label="Critic API URL"
+                            disabled={disabled}
+                            value={criticApiUrl}
+                            onChange={(e) => {
+                              setCriticApiUrl(e.target.value);
+                              cacheNodeEdits(node.id, { critic_api_url: e.target.value });
+                            }}
+                            placeholder="https://..."
+                            className="h-8 text-sm"
+                          />
+                          <p className="text-[11px] leading-snug text-muted-foreground">{t(($) => $.node.critic_api_url_hint)}</p>
+                        </div>
+                      ) : criticMode === "role" ? (
+                        <div className="space-y-1.5">
+                          <Label className="text-xs text-muted-foreground" htmlFor="split-critic-role-select">{t(($) => $.detail_panel.label_critic_role)}</Label>
+                          <select
+                            id="split-critic-role-select"
+                            aria-label="Critic role"
+                            disabled={disabled}
+                            className="h-8 w-full rounded-md border border-input bg-background px-2 text-sm"
+                            value={criticId ?? ""}
+                            onChange={(e) => {
+                              const rid = e.target.value || null;
+                              setCriticId(rid);
+                              cacheNodeEdits(node.id, { critic_id: rid });
+                            }}
+                          >
+                            <option value="">{t(($) => $.detail_panel.select_role)}</option>
+                            {roles.map((r) => (
+                              <option key={r.id} value={r.id}>{r.name}</option>
+                            ))}
+                          </select>
+                          <ActorSummary type="role" id={criticId} label={criticLabel} emptyText={t(($) => $.detail_panel.empty_critic_role)} hint={t(($) => $.detail_panel.actor_role_hint)} />
+                        </div>
+                      ) : (
+                        <div className="space-y-2">
+                          <div className={disabled ? "pointer-events-none opacity-60" : undefined}>
+                            <AssigneePicker
+                              assigneeType={toAssigneeType(criticType)}
+                              assigneeId={criticId}
+                              triggerRender={
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  size="sm"
+                                  className="h-8 w-full justify-start"
+                                  disabled={disabled}
+                                />
+                              }
+                              trigger={
+                                <AssigneePickerTrigger
+                                  type={criticType}
+                                  id={criticId}
+                                  label={criticLabel}
+                                  emptyPrefix={t(($) => $.detail_panel.picker_empty_prefix)}
+                                  emptyLabel={t(($) => $.detail_panel.empty_critic)}
+                                  t={t}
+                                />
+                              }
+                              onUpdate={disabled ? () => {} : (u) => {
+                                const ct = fromAssigneeTypeCritic(u.assignee_type ?? null);
+                                const cid = u.assignee_id ?? null;
+                                setCriticType(ct);
+                                setCriticId(cid);
+                                cacheNodeEdits(node.id, { critic_type: ct, critic_id: cid });
+                              }}
+                              align="start"
+                              includeWorkflows={false}
+                            />
+                          </div>
+                          <ActorSummary type={criticType} id={criticId} label={criticLabel} emptyText={t(($) => $.detail_panel.empty_critic)} hint={t(($) => $.detail_panel.actor_assignee_hint)} />
+                        </div>
+                      )}
+                    </AssignmentCard>
+                  </>
                 ) : (
                   <>
                     <AssignmentCard

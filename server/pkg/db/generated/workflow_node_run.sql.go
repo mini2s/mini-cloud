@@ -325,14 +325,16 @@ func (q *Queries) GetWorkflowNodeRun(ctx context.Context, id pgtype.UUID) (Multi
 	return i, err
 }
 
-const getWorkflowNodeRunForUpdate = `-- name: GetWorkflowNodeRunForUpdate :one
+const getWorkflowNodeRunBySessionID = `-- name: GetWorkflowNodeRunBySessionID :one
 SELECT id, workflow_run_id, workflow_node_id, node_title, status, retry_count, worker_type, worker_id, worker_output, critic_type, critic_id, critic_output, critic_comment, agent_task_id, started_at, completed_at, created_at, updated_at, worker_agent_task_id, critic_agent_task_id, runtime_id, device_id, session_id FROM multica_workflow_node_run
-WHERE id = $1
-FOR UPDATE
+WHERE session_id = $1
+LIMIT 1
 `
 
-func (q *Queries) GetWorkflowNodeRunForUpdate(ctx context.Context, id pgtype.UUID) (MulticaWorkflowNodeRun, error) {
-	row := q.db.QueryRow(ctx, getWorkflowNodeRunForUpdate, id)
+// Resolves the node run bound to a given CSC session id. Used by Cloud Web /
+// cs-cloud to map an attached session back to its Multica node run.
+func (q *Queries) GetWorkflowNodeRunBySessionID(ctx context.Context, sessionID pgtype.Text) (MulticaWorkflowNodeRun, error) {
+	row := q.db.QueryRow(ctx, getWorkflowNodeRunBySessionID, sessionID)
 	var i MulticaWorkflowNodeRun
 	err := row.Scan(
 		&i.ID,
@@ -362,16 +364,14 @@ func (q *Queries) GetWorkflowNodeRunForUpdate(ctx context.Context, id pgtype.UUI
 	return i, err
 }
 
-const getWorkflowNodeRunBySessionID = `-- name: GetWorkflowNodeRunBySessionID :one
+const getWorkflowNodeRunForUpdate = `-- name: GetWorkflowNodeRunForUpdate :one
 SELECT id, workflow_run_id, workflow_node_id, node_title, status, retry_count, worker_type, worker_id, worker_output, critic_type, critic_id, critic_output, critic_comment, agent_task_id, started_at, completed_at, created_at, updated_at, worker_agent_task_id, critic_agent_task_id, runtime_id, device_id, session_id FROM multica_workflow_node_run
-WHERE session_id = $1
-LIMIT 1
+WHERE id = $1
+FOR UPDATE
 `
 
-// Resolves the node run bound to a given CSC session id. Used by Cloud Web /
-// cs-cloud to map an attached session back to its Multica node run.
-func (q *Queries) GetWorkflowNodeRunBySessionID(ctx context.Context, sessionID pgtype.Text) (MulticaWorkflowNodeRun, error) {
-	row := q.db.QueryRow(ctx, getWorkflowNodeRunBySessionID, sessionID)
+func (q *Queries) GetWorkflowNodeRunForUpdate(ctx context.Context, id pgtype.UUID) (MulticaWorkflowNodeRun, error) {
+	row := q.db.QueryRow(ctx, getWorkflowNodeRunForUpdate, id)
 	var i MulticaWorkflowNodeRun
 	err := row.Scan(
 		&i.ID,
@@ -982,6 +982,51 @@ type ListWorkflowNodeRunsByRunAndNodeParams struct {
 
 func (q *Queries) ListWorkflowNodeRunsByRunAndNode(ctx context.Context, arg ListWorkflowNodeRunsByRunAndNodeParams) (MulticaWorkflowNodeRun, error) {
 	row := q.db.QueryRow(ctx, listWorkflowNodeRunsByRunAndNode, arg.WorkflowRunID, arg.WorkflowNodeID)
+	var i MulticaWorkflowNodeRun
+	err := row.Scan(
+		&i.ID,
+		&i.WorkflowRunID,
+		&i.WorkflowNodeID,
+		&i.NodeTitle,
+		&i.Status,
+		&i.RetryCount,
+		&i.WorkerType,
+		&i.WorkerID,
+		&i.WorkerOutput,
+		&i.CriticType,
+		&i.CriticID,
+		&i.CriticOutput,
+		&i.CriticComment,
+		&i.AgentTaskID,
+		&i.StartedAt,
+		&i.CompletedAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.WorkerAgentTaskID,
+		&i.CriticAgentTaskID,
+		&i.RuntimeID,
+		&i.DeviceID,
+		&i.SessionID,
+	)
+	return i, err
+}
+
+const reactivateWorkflowNodeRunStatus = `-- name: ReactivateWorkflowNodeRunStatus :one
+UPDATE multica_workflow_node_run SET
+    status = $2,
+    completed_at = NULL,
+    updated_at = now()
+WHERE id = $1
+RETURNING id, workflow_run_id, workflow_node_id, node_title, status, retry_count, worker_type, worker_id, worker_output, critic_type, critic_id, critic_output, critic_comment, agent_task_id, started_at, completed_at, created_at, updated_at, worker_agent_task_id, critic_agent_task_id, runtime_id, device_id, session_id
+`
+
+type ReactivateWorkflowNodeRunStatusParams struct {
+	ID     pgtype.UUID `json:"id"`
+	Status string      `json:"status"`
+}
+
+func (q *Queries) ReactivateWorkflowNodeRunStatus(ctx context.Context, arg ReactivateWorkflowNodeRunStatusParams) (MulticaWorkflowNodeRun, error) {
+	row := q.db.QueryRow(ctx, reactivateWorkflowNodeRunStatus, arg.ID, arg.Status)
 	var i MulticaWorkflowNodeRun
 	err := row.Scan(
 		&i.ID,

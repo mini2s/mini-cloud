@@ -229,3 +229,40 @@ func TestSubIssueCreationSectionSkippedForNonIssueModes(t *testing.T) {
 		})
 	}
 }
+
+func TestSplitPhaseRuntimeBriefSkipsAssignmentWorkflow(t *testing.T) {
+	t.Parallel()
+	const issueID = "split-issue-1"
+	out := buildMetaSkillContent("claude", TaskContextForEnv{
+		IssueID:       issueID,
+		WorkflowPhase: "split",
+	})
+
+	for _, want := range []string{
+		"dynamic split-task generator",
+		"split draft CLI",
+		"cs-workflow workflow split draft add",
+		"cs-workflow workflow split draft submit",
+		"Markdown task breakdown",
+		"Do NOT create issues",
+		"Do NOT post comments",
+		"Do NOT change issue status",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("split runtime brief missing %q\n--- output ---\n%s", want, out)
+		}
+	}
+	for _, banned := range []string{
+		"Run `cs-workflow issue status " + issueID + " in_progress`",
+		"Post your final results as a comment",
+		"Run `cs-workflow issue status " + issueID + " in_review`",
+		"Final results MUST be delivered via `cs-workflow issue comment add`",
+		"## Sub-issue Creation",
+		"Return the final answer as JSON only",
+		`{"tasks":[`,
+	} {
+		if strings.Contains(out, banned) {
+			t.Errorf("split runtime brief must not contain assignment workflow %q\n--- output ---\n%s", banned, out)
+		}
+	}
+}

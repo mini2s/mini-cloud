@@ -556,6 +556,52 @@ describe("RuntimeNodeCard", () => {
     expect(screen.getByText("1 done · 1 failed · 1 running · 1 ready")).toBeInTheDocument();
   });
 
+  it("keeps split progress visible after the parent split node completes", () => {
+    render(
+      <RuntimeNodeCard
+        node={{
+          ...baseNode,
+          id: "split-completed",
+          title: "Split completed",
+          format_schema: {
+            type: "split",
+            template_id: "task-splitter",
+            template_category: "logic",
+            shape: "rectangle",
+            split_config: {
+              sub_template_id: "child-wf-1",
+              mode: "barrier",
+              max_concurrency: 5,
+              max_failures: 0,
+            },
+          },
+        }}
+        nodeRun={{ ...completedRun, workflow_node_id: "split-completed", status: "completed" }}
+        runtimeSummary={{
+          ...runtimeSummary,
+          workflow_node_id: "split-completed",
+          node_run_id: "run-completed",
+          display_status: "completed",
+          split_progress: {
+            total: 4,
+            created: 0,
+            running: 0,
+            done: 4,
+            failed: 0,
+            cancelled: 0,
+            skipped: 0,
+          },
+        }}
+        workerName="Tester"
+        criticName="Reviewer"
+        onClick={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText("Completed")).toBeInTheDocument();
+    expect(screen.getByText("4 done")).toBeInTheDocument();
+  });
+
   it("uses category-derived semantic shape classes", () => {
     render(
       <RuntimeNodeCard

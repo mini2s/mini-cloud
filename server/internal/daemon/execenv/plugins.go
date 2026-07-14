@@ -93,9 +93,18 @@ func runCSCCmd(ctx context.Context, cscBin, workDir string, args ...string) erro
 	defer cancel()
 	cmd := exec.CommandContext(cmdCtx, cscBin, args...)
 	cmd.Dir = workDir
+	var stdout strings.Builder
 	var stderr strings.Builder
+	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 	if err := cmd.Run(); err != nil {
+		output := strings.TrimSpace(strings.Join([]string{
+			strings.TrimSpace(stdout.String()),
+			strings.TrimSpace(stderr.String()),
+		}, "\n"))
+		if output != "" {
+			return fmt.Errorf("%w: %s", err, output)
+		}
 		return err
 	}
 	return nil

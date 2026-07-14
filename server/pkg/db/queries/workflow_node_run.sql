@@ -51,6 +51,14 @@ UPDATE multica_workflow_node_run SET
 WHERE id = $1
 RETURNING *;
 
+-- name: ReactivateWorkflowNodeRunStatus :one
+UPDATE multica_workflow_node_run SET
+    status = $2,
+    completed_at = NULL,
+    updated_at = now()
+WHERE id = $1
+RETURNING *;
+
 -- name: UpdateWorkflowNodeRunWorkerOutput :one
 UPDATE multica_workflow_node_run SET
     worker_output = $2,

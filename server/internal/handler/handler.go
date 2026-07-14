@@ -150,7 +150,7 @@ func New(queries *db.Queries, txStarter txStarter, hub *realtime.Hub, bus *event
 	taskSvc.Analytics = analyticsClient
 	autopilotSvc := service.NewAutopilotService(queries, txStarter, bus, taskSvc)
 	workflowSvc := service.NewWorkflowService(queries, txStarter, bus, taskSvc)
-	splitOrchestrator := service.NewSplitOrchestrator(queries, txStarter, workflowSvc, bus)
+	splitOrchestrator := service.NewSplitOrchestrator(queries, txStarter, workflowSvc, bus, store)
 
 	// Wire the workflow completion gateway: when an agent task linked to a
 	// workflow node run completes, the WorkflowService transitions the node
@@ -342,6 +342,29 @@ func isCheckViolation(err error) bool {
 
 func requestUserID(r *http.Request) string {
 	return r.Header.Get("X-User-ID")
+}
+
+func (h *Handler) isRunningSplitPhaseTaskRequest(r *http.Request) bool {
+	taskID := r.Header.Get("X-Task-ID")
+	if taskID == "" {
+		return false
+	}
+	taskUUID, err := util.ParseUUID(taskID)
+	if err != nil {
+		return false
+	}
+	task, err := h.Queries.GetAgentTask(r.Context(), taskUUID)
+	if err != nil || task.Status != "running" {
+		return false
+	}
+	var payload struct {
+		Type  string `json:"type"`
+		Phase string `json:"phase"`
+	}
+	if err := json.Unmarshal(task.Context, &payload); err != nil {
+		return false
+	}
+	return payload.Type == "workflow" && payload.Phase == "split"
 }
 
 // resolveActor determines whether the request is from an agent or a human member.

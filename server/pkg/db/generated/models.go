@@ -835,6 +835,7 @@ type MulticaWorkflowSplitTask struct {
 	RunID                 pgtype.UUID        `json:"run_id"`
 	CreatedAt             pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt             pgtype.Timestamptz `json:"updated_at"`
+	DraftKey              pgtype.Text        `json:"draft_key"`
 }
 
 type MulticaWorkflowStage struct {

@@ -29,6 +29,7 @@ const mocks = vi.hoisted(() => ({
   childCanvasSummaryData: null as WorkflowRunCanvasSummaryResponse | null,
   isLoading: false,
   generateMutateAsync: vi.fn(),
+  recoverMutateAsync: vi.fn(),
   approveMutateAsync: vi.fn(),
   cancelMutateAsync: vi.fn(),
 }));
@@ -85,6 +86,10 @@ vi.mock("@multica/core/workflows/queries", () => ({
   }),
   useGenerateSplitTasks: () => ({
     mutateAsync: mocks.generateMutateAsync,
+    isPending: false,
+  }),
+  useRecoverSplitTasks: () => ({
+    mutateAsync: mocks.recoverMutateAsync,
     isPending: false,
   }),
   useApproveSplitTasks: () => ({
@@ -233,6 +238,7 @@ describe("SplitReviewPanel", () => {
     mocks.childIssuesData = [];
     mocks.childCanvasSummaryData = null;
     mocks.generateMutateAsync.mockReset();
+    mocks.recoverMutateAsync.mockReset();
     mocks.approveMutateAsync.mockReset();
     mocks.cancelMutateAsync.mockReset();
   });
@@ -242,6 +248,11 @@ describe("SplitReviewPanel", () => {
 
     expect(screen.getByTestId("workflow-node-detail-panel-shell")).toHaveAttribute("data-mode", "run");
     expect(screen.getByText("Split execution")).toBeInTheDocument();
+    expect(screen.getByTestId("split-node-status")).toHaveTextContent("awaiting_split_review");
+    expect(screen.getByTestId("split-progress-total")).toHaveTextContent("2");
+    expect(screen.getByTestId("split-progress-running")).toHaveTextContent("0");
+    expect(screen.getByTestId("split-progress-done")).toHaveTextContent("0");
+    expect(screen.getByTestId("split-progress-failed")).toHaveTextContent("0");
     expect(screen.getByTestId("split-progress-badge")).toHaveTextContent("2:0:0");
     expect(screen.getByText("1. Implement API contract")).toBeInTheDocument();
     expect(screen.getByLabelText("Task title task-1")).toHaveValue("Implement API contract");
@@ -273,6 +284,26 @@ describe("SplitReviewPanel", () => {
     await userEvent.click(screen.getByRole("button", { name: "Regenerate tasks" }));
 
     expect(mocks.generateMutateAsync).toHaveBeenCalledWith({
+      nodeRunId: "node-run-1",
+      workflowId: "wf-1",
+      runId: "run-1",
+    });
+  });
+
+  it("recovers failed split drafts from existing output comments and attachments", async () => {
+    renderPanel({
+      nodeRun: {
+        ...splitNodeRun,
+        status: "failed",
+        worker_output: { error: "split generation returned no tasks" },
+      },
+    });
+
+    expect(screen.getByText("split generation returned no tasks")).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: "Recover existing output" }));
+
+    expect(mocks.recoverMutateAsync).toHaveBeenCalledWith({
       nodeRunId: "node-run-1",
       workflowId: "wf-1",
       runId: "run-1",
@@ -513,5 +544,50 @@ describe("SplitReviewPanel", () => {
     expect(screen.getByText("Child issue")).toBeInTheDocument();
     expect(screen.getByText("blocked")).toBeInTheDocument();
     expect(screen.getByText("Error: API key is missing")).toBeInTheDocument();
+  });
+
+  it("keeps a child issue entry available from split task issue_id when child issue details are absent", () => {
+    mocks.splitTasksData = {
+      tasks: [
+        {
+          id: "task-1",
+          node_run_id: "node-run-1",
+          title: "Investigate API key configuration",
+          description: "Trace the failing downstream secret lookup.",
+          suggested_assignee_type: "agent",
+          suggested_assignee_id: "agent-1",
+          depends_on: [],
+          sort_order: 0,
+          status: "running",
+          issue_id: "efce2a24-0478-4f0b-bdb6-53166462d0fa",
+          run_id: "child-run-1",
+          created_at: "",
+          updated_at: "",
+        },
+      ],
+      progress: {
+        total: 1,
+        created: 0,
+        running: 1,
+        done: 0,
+        failed: 0,
+        cancelled: 0,
+        skipped: 0,
+      },
+    };
+    mocks.childIssuesData = [];
+
+    renderPanel({
+      nodeRun: { ...splitNodeRun, status: "split_active" },
+      parentIssueId: "00166814-e167-4599-ba8b-c6be55b73ca0",
+    });
+
+    expect(screen.getByTestId("split-node-status")).toHaveTextContent("split_active");
+    expect(screen.getByTestId("split-progress-running")).toHaveTextContent("1");
+    expect(screen.getByRole("link", { name: "Open child issue" })).toHaveAttribute(
+      "href",
+      "/test/issues/efce2a24-0478-4f0b-bdb6-53166462d0fa",
+    );
+    expect(screen.getAllByText("running").length).toBeGreaterThan(0);
   });
 });

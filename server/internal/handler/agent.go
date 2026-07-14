@@ -178,6 +178,7 @@ type AgentTaskResponse struct {
 	TriggerAuthorName       string                `json:"trigger_author_name,omitempty"`       // display name of the triggering comment author
 	ChatSessionID           string                `json:"chat_session_id,omitempty"`           // non-empty for chat tasks
 	WorkflowNodeRunID       string                `json:"workflow_node_run_id,omitempty"`      // non-empty when this task executes a workflow node-run; daemon uses it to write back the session binding
+	WorkflowPhase           string                `json:"workflow_phase,omitempty"`            // workflow context phase: worker, split, or critic
 	ChatMessage             string                `json:"chat_message,omitempty"`              // user message for chat tasks
 	ChatMessageAttachments  []ChatAttachmentMeta  `json:"chat_message_attachments,omitempty"`  // attachments on the user message — agent calls `cs-workflow attachment download <id>` per entry
 	UpstreamStageContext    []UpstreamStageNode   `json:"upstream_stage_context,omitempty"`    // completed upstream-stage node runs the agent should read
@@ -285,7 +286,30 @@ func taskToResponse(t db.MulticaAgentTaskQueue) AgentTaskResponse {
 		// write back the {runtime, device, session} binding (Design Two): the
 		// daemon needs the node_run_id to call POST /api/daemon/node-runs/{id}/session.
 		WorkflowNodeRunID: uuidToString(t.WorkflowNodeRunID),
+		WorkflowPhase:     workflowPhaseFromTaskContext(t.Context),
 		Kind:              computeTaskKind(t),
+	}
+}
+
+func workflowPhaseFromTaskContext(raw []byte) string {
+	if len(raw) == 0 {
+		return ""
+	}
+	var payload struct {
+		Type  string `json:"type"`
+		Phase string `json:"phase"`
+	}
+	if err := json.Unmarshal(raw, &payload); err != nil {
+		return ""
+	}
+	if payload.Type != "workflow" {
+		return ""
+	}
+	switch payload.Phase {
+	case "worker", "split", "critic":
+		return payload.Phase
+	default:
+		return ""
 	}
 }
 

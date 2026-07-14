@@ -7,6 +7,9 @@ export type PreflightCheckId =
   | "orphan-node"
   | "unreachable-node"
   | "worker-missing"
+  | "split-worker-non-specialized"
+  | "split-critic-missing"
+  | "split-critic-automated"
   | "invalid-critic-ref"
   | "stage-missing"
   | "gateway-fork-outgoing"
@@ -38,6 +41,16 @@ export interface PreflightResult {
 }
 
 // ── Helpers ──
+
+export const DEFAULT_SPLIT_PLANNER_AGENT_IDS = [
+  "4348e20d-eadc-4095-ac7a-cd480e927375",
+  "split-planner-general",
+  "split-planner-code",
+  "split-planner-design",
+  "split-planner-test",
+] as const;
+
+const defaultSplitPlannerAgentIds = new Set<string>(DEFAULT_SPLIT_PLANNER_AGENT_IDS);
 
 function isAnnotation(node: WorkflowNode): boolean {
   return parseNodeFormat(node.format_schema).kind === "annotation";
@@ -228,7 +241,7 @@ export function checkWorkerMissing(nodes: WorkflowNode[]): PreflightIssue[] {
 export function checkInvalidCriticRef(nodes: WorkflowNode[], agentIds: Set<string>): PreflightIssue[] {
   return nodes
     .filter((n) => {
-      if (isGateway(n) || isSplit(n)) return false;
+      if (isGateway(n)) return false;
       if (!n.critic_id) return false;
       if (n.critic_type !== "agent") return false;
       return !agentIds.has(n.critic_id);
@@ -240,6 +253,65 @@ export function checkInvalidCriticRef(nodes: WorkflowNode[], agentIds: Set<strin
       nodeId: n.id,
       nodeTitle: n.title,
       message: "Critic ID not found in available agents",
+    }));
+}
+
+/** Detect split nodes without an explicit critic/reviewer. */
+export function checkSplitCriticRequired(nodes: WorkflowNode[]): PreflightIssue[] {
+  return nodes
+    .filter((n) => {
+      if (!isSplit(n)) return false;
+      if (n.critic_type === "api") return !n.critic_api_url;
+      return !n.critic_id;
+    })
+    .map((n) => ({
+      checkId: "split-critic-missing" as const,
+      severity: "error" as const,
+      blocking: true,
+      nodeId: n.id,
+      nodeTitle: n.title,
+      message: "Assign a Critic to review split drafts",
+    }));
+}
+
+/** Warn when split draft generation uses a non-specialized worker. */
+export function checkSplitWorkerSpecialized(
+  nodes: WorkflowNode[],
+  splitPlannerAgentIds: Set<string> = defaultSplitPlannerAgentIds,
+): PreflightIssue[] {
+  return nodes
+    .filter((n) => {
+      if (!isSplit(n)) return false;
+      if (!n.worker_type || !n.worker_id) return false;
+      if (n.worker_type !== "agent") return true;
+      return !splitPlannerAgentIds.has(n.worker_id);
+    })
+    .map((n) => ({
+      checkId: "split-worker-non-specialized" as const,
+      severity: "warning" as const,
+      blocking: false,
+      nodeId: n.id,
+      nodeTitle: n.title,
+      message: "Use a dedicated split planner agent for this split node",
+    }));
+}
+
+/** Warn when split draft review is configured for automatic approval. */
+export function checkSplitAutomatedCriticWarning(nodes: WorkflowNode[]): PreflightIssue[] {
+  return nodes
+    .filter((n) => {
+      if (!isSplit(n)) return false;
+      if (n.critic_type === "agent") return Boolean(n.critic_id);
+      if (n.critic_type === "api") return Boolean(n.critic_api_url);
+      return false;
+    })
+    .map((n) => ({
+      checkId: "split-critic-automated" as const,
+      severity: "warning" as const,
+      blocking: false,
+      nodeId: n.id,
+      nodeTitle: n.title,
+      message: "Automated split draft critics can approve risky task plans",
     }));
 }
 
@@ -387,6 +459,7 @@ export interface PreflightCheckInput {
   edges: WorkflowEdge[];
   stages: WorkflowStage[];
   agentIds: Set<string>;
+  splitPlannerAgentIds?: Set<string>;
   splitTemplates?: SplitTemplatePreflightContext[];
 }
 
@@ -402,6 +475,9 @@ export function runAllPreflightChecks(input: PreflightCheckInput): PreflightResu
     ...checkOrphanNodes(nodes, edges),
     ...checkUnreachableNodes(nodes, edges, stages),
     ...checkWorkerMissing(nodes),
+    ...checkSplitWorkerSpecialized(nodes, input.splitPlannerAgentIds),
+    ...checkSplitCriticRequired(nodes),
+    ...checkSplitAutomatedCriticWarning(nodes),
     ...checkInvalidCriticRef(nodes, agentIds),
     ...checkStageMissing(nodes),
     ...checkGatewayTopology(nodes, edges),

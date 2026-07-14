@@ -46,6 +46,7 @@ function makeTask(
   return {
     id,
     sourceTaskId,
+    issueId: null,
     title,
     description: "",
     dependsOn,

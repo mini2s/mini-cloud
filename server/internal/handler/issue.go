@@ -1771,6 +1771,10 @@ func (h *Handler) CreateIssue(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	if h.isRunningSplitPhaseTaskRequest(r) {
+		writeError(w, http.StatusForbidden, "split generation tasks cannot create issues")
+		return
+	}
 
 	status := req.Status
 	if status == "" {
@@ -2188,6 +2192,10 @@ func (h *Handler) UpdateIssue(w http.ResponseWriter, r *http.Request) {
 	var req UpdateIssueRequest
 	if err := json.Unmarshal(bodyBytes, &req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if h.isRunningSplitPhaseTaskRequest(r) {
+		writeError(w, http.StatusForbidden, "split generation tasks cannot update issues")
 		return
 	}
 

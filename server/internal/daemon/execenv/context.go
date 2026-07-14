@@ -322,6 +322,9 @@ func renderIssueContext(provider string, ctx TaskContextForEnv) string {
 	if ctx.QuickCreatePrompt != "" {
 		return renderQuickCreateContext(ctx)
 	}
+	if ctx.WorkflowPhase == "split" {
+		return renderSplitContext(ctx)
+	}
 
 	var b strings.Builder
 
@@ -347,6 +350,17 @@ func renderIssueContext(provider string, ctx TaskContextForEnv) string {
 		b.WriteString("\n")
 	}
 
+	return b.String()
+}
+
+func renderSplitContext(ctx TaskContextForEnv) string {
+	var b strings.Builder
+	b.WriteString("# Split Task Generation\n\n")
+	fmt.Fprintf(&b, "**Issue ID:** %s\n\n", ctx.IssueID)
+	b.WriteString("**Trigger:** Workflow split phase\n\n")
+	b.WriteString("## Quick Start\n\n")
+	fmt.Fprintf(&b, "Run `cs-workflow issue get %s --output json` to read the split planning issue.\n\n", ctx.IssueID)
+	b.WriteString("Submit draft tasks with `cs-workflow workflow split draft add` and finish with `cs-workflow workflow split draft submit`. Do not create child issues or change issue status.\n\n")
 	return b.String()
 }
 

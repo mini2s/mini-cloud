@@ -18,6 +18,9 @@ func BuildPrompt(task Task, provider string) string {
 	if task.ChatSessionID != "" {
 		return buildChatPrompt(task)
 	}
+	if task.WorkflowPhase == "split" {
+		return buildSplitPrompt(task)
+	}
 	if task.TriggerCommentID != "" {
 		return buildCommentPrompt(task, provider)
 	}
@@ -60,6 +63,26 @@ func BuildPrompt(task Task, provider string) string {
 
 	fmt.Fprintf(&b, "Start by running `cs-workflow issue get %s --output json` to understand your task, then complete it.\n", task.IssueID)
 	fmt.Fprintf(&b, "For comment history, follow the rule in your runtime workflow file (assignment-triggered tasks treat the read as mandatory). `cs-workflow issue comment list %s --output json` returns all comments for the issue (server caps at 2000). On long-running issues use `--recent 20 --output json` to read the 20 most recently active threads, then page older threads via the stderr `Next thread cursor: ...` line and the matching `--before` / `--before-id` until you have enough history. `--since <RFC3339>` is still available for incremental polling and may combine with `--recent`.\n", task.IssueID)
+	return b.String()
+}
+
+func buildSplitPrompt(task Task) string {
+	var b strings.Builder
+	b.WriteString("You are running as a dynamic split-task generator for a Multica workflow.\n\n")
+	fmt.Fprintf(&b, "Read the split planning issue with `cs-workflow issue get %s --output json` and inspect comments only if they are needed for context.\n\n", task.IssueID)
+	b.WriteString("Your job is to propose child tasks for human review. The platform will create the actual child issues later after review.\n\n")
+	b.WriteString("Hard rules:\n")
+	b.WriteString("- Do NOT create issues.\n")
+	b.WriteString("- Do NOT change issue status.\n")
+	b.WriteString("- Do NOT modify code, docs, or repository files.\n")
+	b.WriteString("- Submit draft tasks through the split draft CLI; the platform will route them to human review.\n\n")
+	b.WriteString("Primary success path:\n")
+	b.WriteString("1. Write each draft task description to a UTF-8 markdown file.\n")
+	b.WriteString("2. Add each draft with `cs-workflow workflow split draft add <node-run-id> --key <stable-key> --title \"...\" --assignee agent:<uuid> --description-file <file>`.\n")
+	b.WriteString("3. Use `--depends-on <stable-key>` for each dependency on a previously added draft task.\n")
+	b.WriteString("4. When all drafts are added, run `cs-workflow workflow split draft submit <node-run-id>`.\n\n")
+	b.WriteString("Use the current workflow node run ID from the task context files. Assignees must be `agent:<uuid>` or `member:<uuid>`. If no better assignee is specified in the planning context, use the split node's default agent.\n\n")
+	b.WriteString("Fallback only: if the draft CLI is unavailable, return a clear Markdown task breakdown. The server will attempt recovery, but CLI submission is more reliable.\n")
 	return b.String()
 }
 

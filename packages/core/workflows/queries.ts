@@ -328,6 +328,14 @@ export function useGenerateSplitTasks(wsId: string) {
   });
 }
 
+export function useRecoverSplitTasks(wsId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ nodeRunId }: SplitMutationVars) => api.recoverSplitTasks(nodeRunId),
+    onSuccess: (_data, vars) => invalidateSplitNodeQueries(queryClient, wsId, vars),
+  });
+}
+
 export function useApproveSplitTasks(wsId: string) {
   const queryClient = useQueryClient();
   return useMutation({

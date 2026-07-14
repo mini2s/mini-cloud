@@ -5,6 +5,9 @@ import {
   checkUnreachableNodes,
   checkWorkerMissing,
   checkInvalidCriticRef,
+  checkSplitCriticRequired,
+  checkSplitAutomatedCriticWarning,
+  checkSplitWorkerSpecialized,
   checkStageMissing,
   checkSplitTemplateConfig,
   runAllPreflightChecks,
@@ -291,9 +294,80 @@ describe("checkInvalidCriticRef", () => {
     const nodes = [makeNode({ id: "join", critic_id: "nonexistent", critic_type: "agent", format_schema: { type: "gateway", gateway_kind: "join" } })];
     expect(checkInvalidCriticRef(nodes, agentIds)).toEqual([]);
   });
+
+  it("flags split node with invalid agent critic", () => {
+    const nodes = [makeNode({ id: "split", critic_id: "nonexistent", critic_type: "agent", format_schema: { type: "split", split_config: { sub_template_id: "tpl-1" } } })];
+    const issues = checkInvalidCriticRef(nodes, agentIds);
+    expect(issues).toHaveLength(1);
+    expect(issues[0]!.blocking).toBe(true);
+  });
 });
 
 // ── checkStageMissing ──
+
+describe("checkSplitCriticRequired", () => {
+  it("blocks split node without critic", () => {
+    const nodes = [makeNode({ id: "split", critic_id: null, critic_api_url: null, format_schema: { type: "split", split_config: { sub_template_id: "tpl-1" } } })];
+    const issues = checkSplitCriticRequired(nodes);
+    expect(issues).toHaveLength(1);
+    expect(issues[0]!.checkId).toBe("split-critic-missing");
+    expect(issues[0]!.blocking).toBe(true);
+  });
+
+  it("passes split node with human critic", () => {
+    const nodes = [makeNode({ id: "split", critic_id: "user-1", critic_type: "human", format_schema: { type: "split", split_config: { sub_template_id: "tpl-1" } } })];
+    expect(checkSplitCriticRequired(nodes)).toEqual([]);
+  });
+
+  it("passes split node with API critic URL", () => {
+    const nodes = [makeNode({ id: "split", critic_id: null, critic_type: "api", critic_api_url: "https://example.com/review", format_schema: { type: "split", split_config: { sub_template_id: "tpl-1" } } })];
+    expect(checkSplitCriticRequired(nodes)).toEqual([]);
+  });
+});
+
+describe("checkSplitWorkerSpecialized", () => {
+  it("warns when a split node uses a non-specialized worker", () => {
+    const nodes = [makeNode({ id: "split", worker_id: "agent-1", format_schema: { type: "split", split_config: { sub_template_id: "tpl-1" } } })];
+    const issues = checkSplitWorkerSpecialized(nodes, new Set(["split-planner-code"]));
+    expect(issues).toHaveLength(1);
+    expect(issues[0]!.checkId).toBe("split-worker-non-specialized");
+    expect(issues[0]!.severity).toBe("warning");
+    expect(issues[0]!.blocking).toBe(false);
+  });
+
+  it("passes when a split node uses a specialized split planner worker", () => {
+    const nodes = [makeNode({ id: "split", worker_id: "split-planner-code", format_schema: { type: "split", split_config: { sub_template_id: "tpl-1" } } })];
+    expect(checkSplitWorkerSpecialized(nodes, new Set(["split-planner-code"]))).toEqual([]);
+  });
+
+  it("does not duplicate the missing-worker error", () => {
+    const nodes = [makeNode({ id: "split", worker_id: null, format_schema: { type: "split", split_config: { sub_template_id: "tpl-1" } } })];
+    expect(checkSplitWorkerSpecialized(nodes, new Set(["split-planner-code"]))).toEqual([]);
+  });
+});
+
+describe("checkSplitAutomatedCriticWarning", () => {
+  it("warns when a split node uses an agent critic", () => {
+    const nodes = [makeNode({ id: "split", critic_type: "agent", critic_id: "agent-2", format_schema: { type: "split", split_config: { sub_template_id: "tpl-1" } } })];
+    const issues = checkSplitAutomatedCriticWarning(nodes);
+    expect(issues).toHaveLength(1);
+    expect(issues[0]!.checkId).toBe("split-critic-automated");
+    expect(issues[0]!.severity).toBe("warning");
+    expect(issues[0]!.blocking).toBe(false);
+  });
+
+  it("warns when a split node uses an API critic", () => {
+    const nodes = [makeNode({ id: "split", critic_type: "api", critic_api_url: "https://example.com/review", format_schema: { type: "split", split_config: { sub_template_id: "tpl-1" } } })];
+    const issues = checkSplitAutomatedCriticWarning(nodes);
+    expect(issues).toHaveLength(1);
+    expect(issues[0]!.checkId).toBe("split-critic-automated");
+  });
+
+  it("passes when a split node uses a human critic", () => {
+    const nodes = [makeNode({ id: "split", critic_type: "human", critic_id: "member-1", format_schema: { type: "split", split_config: { sub_template_id: "tpl-1" } } })];
+    expect(checkSplitAutomatedCriticWarning(nodes)).toEqual([]);
+  });
+});
 
 describe("checkStageMissing", () => {
   it("flags node without stage_id", () => {

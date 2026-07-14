@@ -22,6 +22,7 @@ import {
   useApproveSplitTasks,
   useCancelSplitNode,
   useGenerateSplitTasks,
+  useRecoverSplitTasks,
 } from "@multica/core/workflows/queries";
 import { childIssuesOptions } from "@multica/core/issues/queries";
 import {
@@ -53,6 +54,7 @@ function buildSplitTaskDraft(task: SplitTask): SplitTaskDraft {
   return {
     id: task.id,
     sourceTaskId: task.id,
+    issueId: task.issue_id,
     title: task.title,
     description: task.description,
     dependsOn: task.depends_on,
@@ -62,6 +64,64 @@ function buildSplitTaskDraft(task: SplitTask): SplitTaskDraft {
     approved: task.status !== "discarded",
     deleted: false,
   };
+}
+
+function splitFailureMessage(nodeRun: WorkflowNodeRun | null): string | null {
+  if (!nodeRun || nodeRun.status !== "failed") return null;
+  const outputs = [nodeRun.worker_output, nodeRun.critic_output];
+  for (const output of outputs) {
+    if (!output || typeof output !== "object") continue;
+    const record = output as Record<string, unknown>;
+    if (typeof record.error === "string" && record.error.trim().length > 0) {
+      return record.error;
+    }
+    if (typeof record.message === "string" && record.message.trim().length > 0) {
+      return record.message;
+    }
+  }
+  return null;
+}
+
+function SplitProgressOverview({
+  status,
+  progress,
+}: {
+  status: string;
+  progress: {
+    total: number;
+    created: number;
+    running: number;
+    done: number;
+    failed: number;
+    cancelled: number;
+    skipped: number;
+  };
+}) {
+  const items = [
+    ["Status", status, "split-node-status"],
+    ["Total", progress.total, "split-progress-total"],
+    ["Running", progress.running, "split-progress-running"],
+    ["Done", progress.done, "split-progress-done"],
+    ["Failed", progress.failed, "split-progress-failed"],
+  ] as const;
+
+  return (
+    <dl className="grid grid-cols-2 gap-x-4 gap-y-2 border-t border-border/60 pt-3 sm:grid-cols-5">
+      {items.map(([label, value, testId]) => (
+        <div key={testId} className="min-w-0">
+          <dt className="text-[10px] font-semibold uppercase text-muted-foreground">
+            {label}
+          </dt>
+          <dd
+            data-testid={testId}
+            className="mt-0.5 truncate text-sm font-medium text-foreground tabular-nums"
+          >
+            {value}
+          </dd>
+        </div>
+      ))}
+    </dl>
+  );
 }
 
 function arraysEqual(left: string[], right: string[]): boolean {
@@ -152,6 +212,7 @@ export function SplitReviewPanel({
     enabled: !!parentIssueId,
   });
   const generateMutation = useGenerateSplitTasks(wsId);
+  const recoverMutation = useRecoverSplitTasks(wsId);
   const approveMutation = useApproveSplitTasks(wsId);
   const cancelMutation = useCancelSplitNode(wsId);
   const [draftTasks, setDraftTasks] = useState<SplitTaskDraft[]>([]);
@@ -190,6 +251,8 @@ export function SplitReviewPanel({
   const canApprove = nodeRun?.status === "awaiting_split_review" && tasks.length > 0;
   const canEditReview = nodeRun?.status === "awaiting_split_review";
   const canCancel = isNodeRunCancellable(nodeRun?.status);
+  const canRecover = nodeRun?.status === "failed";
+  const failureMessage = splitFailureMessage(nodeRun);
   const generateLabel = tasks.length > 0 ? "Regenerate tasks" : "Generate tasks";
   const selectedCount = useMemo(
     () =>
@@ -213,6 +276,11 @@ export function SplitReviewPanel({
   const handleGenerate = async () => {
     if (!nodeRunId) return;
     await generateMutation.mutateAsync({ nodeRunId, workflowId, runId });
+  };
+
+  const handleRecover = async () => {
+    if (!nodeRunId) return;
+    await recoverMutation.mutateAsync({ nodeRunId, workflowId, runId });
   };
 
   const handleApproveAll = async () => {
@@ -281,6 +349,7 @@ export function SplitReviewPanel({
         status: "draft",
         approved: true,
         deleted: false,
+        issueId: null,
       },
     ]);
   };
@@ -317,6 +386,10 @@ export function SplitReviewPanel({
               ? `${tasks.length} split tasks are currently tracked for this node.`
               : "No split tasks have been generated for this node yet."}
           </p>
+          <SplitProgressOverview
+            status={nodeRun?.status ?? "pending"}
+            progress={progress}
+          />
         </div>
       </NodeDetailSection>
 
@@ -348,6 +421,18 @@ export function SplitReviewPanel({
               {approveMutation.isPending ? "Approving..." : `Approve selected (${selectedCount})`}
             </Button>
           ) : null}
+          {canRecover ? (
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              onClick={() => void handleRecover()}
+              disabled={!nodeRunId || recoverMutation.isPending}
+            >
+              <ListTree className="mr-1.5 size-3.5" />
+              {recoverMutation.isPending ? "Recovering..." : "Recover existing output"}
+            </Button>
+          ) : null}
           {canCancel ? (
             <Button
               type="button"
@@ -361,6 +446,11 @@ export function SplitReviewPanel({
             </Button>
           ) : null}
         </div>
+        {failureMessage ? (
+          <p className="mt-3 rounded-md border border-destructive/25 bg-destructive/5 px-3 py-2 text-sm text-destructive">
+            {failureMessage}
+          </p>
+        ) : null}
       </NodeDetailSection>
 
       <NodeDetailSection

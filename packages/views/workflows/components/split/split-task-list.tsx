@@ -17,6 +17,7 @@ import { AppLink } from "../../../navigation";
 export interface SplitTaskDraft {
   id: string;
   sourceTaskId: string | null;
+  issueId: string | null;
   title: string;
   description: string;
   dependsOn: string[];
@@ -94,6 +95,7 @@ export function SplitTaskList({
   onToggleDependency,
   onDeleteTask,
 }: SplitTaskListProps) {
+  const paths = useWorkspacePaths();
   const visibleTasks = tasks.filter((task) => !task.deleted);
 
   if (visibleTasks.length === 0) {
@@ -120,6 +122,19 @@ export function SplitTaskList({
                     taskStatus={task.status}
                     linkedIssue={linkedIssue}
                   />
+                ) : task.issueId ? (
+                  <div className="mt-1 space-y-1 text-xs">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="text-muted-foreground">Child issue</span>
+                      <AppLink
+                        href={paths.issueDetail(task.issueId)}
+                        className="font-medium text-primary hover:underline"
+                      >
+                        Open child issue
+                      </AppLink>
+                      <Badge variant="outline">{task.status}</Badge>
+                    </div>
+                  </div>
                 ) : null}
                 <div className="mt-2 flex flex-wrap items-center gap-2">
                   {task.sourceTaskId ? (

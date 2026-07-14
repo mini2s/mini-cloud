@@ -397,6 +397,26 @@ func TestWriteContextFiles(t *testing.T) {
 	}
 }
 
+func TestRenderSplitContextUsesDraftCLI(t *testing.T) {
+	content := renderSplitContext(TaskContextForEnv{
+		IssueID: "issue-split-1",
+	})
+	for _, want := range []string{
+		"Split Task Generation",
+		"cs-workflow workflow split draft add",
+		"cs-workflow workflow split draft submit",
+		"Do not create child issues",
+		"change issue status",
+	} {
+		if !strings.Contains(content, want) {
+			t.Fatalf("split context missing %q\n--- content ---\n%s", want, content)
+		}
+	}
+	if strings.Contains(content, "Return only the JSON task plan") {
+		t.Fatalf("split context should not require JSON-only output\n--- content ---\n%s", content)
+	}
+}
+
 func TestWriteContextFilesOmitsSkillsWhenEmpty(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
@@ -3328,10 +3348,10 @@ func TestInjectRuntimeConfigIssueMetadataSectionScope(t *testing.T) {
 			want: withSection,
 		},
 		{
-			name:                "assignment_triggered",
-			ctx:                 TaskContextForEnv{IssueID: "issue-md-2"},
-			provider:            "claude",
-			filename:            "CLAUDE.md",
+			name:     "assignment_triggered",
+			ctx:      TaskContextForEnv{IssueID: "issue-md-2"},
+			provider: "claude",
+			filename: "CLAUDE.md",
 			workflowStepPresent: []string{
 				"cs-workflow issue metadata list issue-md-2 --output json",
 				"See the `## Issue Metadata` section above",

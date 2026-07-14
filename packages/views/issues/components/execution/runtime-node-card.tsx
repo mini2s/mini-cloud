@@ -351,7 +351,9 @@ export function RuntimeNodeCard({
       ? "active"
       : nodeRun?.status === "awaiting_split_review"
         ? "awaiting_review"
-        : "idle";
+        : nodeRun?.status === "completed"
+          ? "completed"
+          : "idle";
   const splitProgress = runtimeSummary?.split_progress ?? null;
 
   const actionButtons: ActionButtonDef[] = nodeRun

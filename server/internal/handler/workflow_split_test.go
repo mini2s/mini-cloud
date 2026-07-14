@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -352,6 +353,311 @@ func createSplitGenerateFixture(t *testing.T, mode string) splitGenerateFixture 
 	}
 
 	return f
+}
+
+func startSplitGenerationTask(t *testing.T, f splitGenerateFixture) string {
+	t.Helper()
+
+	generateResp := httptest.NewRecorder()
+	generateReq := newRequest("POST", "/api/node-runs/"+f.splitNodeRunID+"/split/generate", nil)
+	generateReq = withURLParam(generateReq, "nodeRunId", f.splitNodeRunID)
+
+	testHandler.GenerateSplitTasks(generateResp, generateReq)
+	if generateResp.Code != http.StatusOK {
+		t.Fatalf("GenerateSplitTasks: expected 200, got %d: %s", generateResp.Code, generateResp.Body.String())
+	}
+
+	ctx := context.Background()
+	claimed, err := testHandler.Queries.ClaimAgentTask(ctx, parseUUID(f.agentID))
+	if err != nil {
+		t.Fatalf("claim split generation task: %v", err)
+	}
+	started, err := testHandler.Queries.StartAgentTask(ctx, claimed.ID)
+	if err != nil {
+		t.Fatalf("start split generation task: %v", err)
+	}
+	return uuidToString(started.ID)
+}
+
+func TestAddSplitDraftTaskAcceptsMatchingSplitTask(t *testing.T) {
+	f := createSplitGenerateFixture(t, "barrier")
+	taskID := startSplitGenerationTask(t, f)
+
+	addResp := httptest.NewRecorder()
+	addReq := newRequest("POST", "/api/node-runs/"+f.splitNodeRunID+"/split/draft-tasks", map[string]any{
+		"key":                     "api-contract",
+		"title":                   "Draft API contract",
+		"description":             "Define request and response payloads.",
+		"suggested_assignee_type": "agent",
+		"suggested_assignee_id":   f.agentID,
+		"depends_on_keys":         []string{},
+	})
+	addReq.Header.Set("X-Agent-ID", f.agentID)
+	addReq.Header.Set("X-Task-ID", taskID)
+	addReq = withURLParam(addReq, "nodeRunId", f.splitNodeRunID)
+
+	testHandler.AddSplitDraftTask(addResp, addReq)
+	if addResp.Code != http.StatusOK {
+		t.Fatalf("AddSplitDraftTask: expected 200, got %d: %s", addResp.Code, addResp.Body.String())
+	}
+
+	tasks, err := testHandler.Queries.ListSplitTasksByNodeRun(context.Background(), parseUUID(f.splitNodeRunID))
+	if err != nil {
+		t.Fatalf("list split draft tasks: %v", err)
+	}
+	if len(tasks) != 1 {
+		t.Fatalf("draft task count = %d, want 1", len(tasks))
+	}
+	if tasks[0].Title != "Draft API contract" {
+		t.Fatalf("draft task title = %q", tasks[0].Title)
+	}
+	if tasks[0].Status != service.SplitTaskStatusDraft {
+		t.Fatalf("draft task status = %s, want draft", tasks[0].Status)
+	}
+}
+
+func TestAddSplitDraftTaskRejectsMismatchedTaskHeader(t *testing.T) {
+	f := createSplitGenerateFixture(t, "barrier")
+	taskID := startSplitGenerationTask(t, f)
+
+	other := createSplitGenerateFixture(t, "barrier")
+
+	addResp := httptest.NewRecorder()
+	addReq := newRequest("POST", "/api/node-runs/"+other.splitNodeRunID+"/split/draft-tasks", map[string]any{
+		"key":         "wrong-node",
+		"title":       "Wrong node",
+		"description": "This should be rejected.",
+	})
+	addReq.Header.Set("X-Agent-ID", f.agentID)
+	addReq.Header.Set("X-Task-ID", taskID)
+	addReq = withURLParam(addReq, "nodeRunId", other.splitNodeRunID)
+
+	testHandler.AddSplitDraftTask(addResp, addReq)
+	if addResp.Code != http.StatusForbidden {
+		t.Fatalf("AddSplitDraftTask: expected 403, got %d: %s", addResp.Code, addResp.Body.String())
+	}
+}
+
+func TestSubmitSplitDraftTasksTransitionsToReview(t *testing.T) {
+	f := createSplitGenerateFixture(t, "barrier")
+	taskID := startSplitGenerationTask(t, f)
+
+	for _, payload := range []map[string]any{
+		{
+			"key":                     "setup",
+			"title":                   "Setup project",
+			"description":             "Create the base project structure.",
+			"suggested_assignee_type": "agent",
+			"suggested_assignee_id":   f.agentID,
+			"depends_on_keys":         []string{},
+		},
+		{
+			"key":                     "implementation",
+			"title":                   "Implement workflow",
+			"description":             "Build the workflow after setup.",
+			"suggested_assignee_type": "agent",
+			"suggested_assignee_id":   f.agentID,
+			"depends_on_keys":         []string{"setup"},
+		},
+	} {
+		addResp := httptest.NewRecorder()
+		addReq := newRequest("POST", "/api/node-runs/"+f.splitNodeRunID+"/split/draft-tasks", payload)
+		addReq.Header.Set("X-Agent-ID", f.agentID)
+		addReq.Header.Set("X-Task-ID", taskID)
+		addReq = withURLParam(addReq, "nodeRunId", f.splitNodeRunID)
+		testHandler.AddSplitDraftTask(addResp, addReq)
+		if addResp.Code != http.StatusOK {
+			t.Fatalf("AddSplitDraftTask: expected 200, got %d: %s", addResp.Code, addResp.Body.String())
+		}
+	}
+
+	submitResp := httptest.NewRecorder()
+	submitReq := newRequest("POST", "/api/node-runs/"+f.splitNodeRunID+"/split/draft-submit", nil)
+	submitReq.Header.Set("X-Agent-ID", f.agentID)
+	submitReq.Header.Set("X-Task-ID", taskID)
+	submitReq = withURLParam(submitReq, "nodeRunId", f.splitNodeRunID)
+
+	testHandler.SubmitSplitDraftTasks(submitResp, submitReq)
+	if submitResp.Code != http.StatusOK {
+		t.Fatalf("SubmitSplitDraftTasks: expected 200, got %d: %s", submitResp.Code, submitResp.Body.String())
+	}
+
+	nodeRun, err := testHandler.Queries.GetWorkflowNodeRun(context.Background(), parseUUID(f.splitNodeRunID))
+	if err != nil {
+		t.Fatalf("load node run: %v", err)
+	}
+	if nodeRun.Status != service.NodeRunStatusAwaitingSplitReview {
+		t.Fatalf("node run status = %s, want awaiting_split_review", nodeRun.Status)
+	}
+}
+
+func TestSplitCompletionUsesExistingDraftRowsBeforeResultParsing(t *testing.T) {
+	f := createSplitGenerateFixture(t, "barrier")
+	taskID := startSplitGenerationTask(t, f)
+
+	addResp := httptest.NewRecorder()
+	addReq := newRequest("POST", "/api/node-runs/"+f.splitNodeRunID+"/split/draft-tasks", map[string]any{
+		"key":                     "already-submitted",
+		"title":                   "Already submitted draft",
+		"description":             "The draft API is the source of truth.",
+		"suggested_assignee_type": "agent",
+		"suggested_assignee_id":   f.agentID,
+	})
+	addReq.Header.Set("X-Agent-ID", f.agentID)
+	addReq.Header.Set("X-Task-ID", taskID)
+	addReq = withURLParam(addReq, "nodeRunId", f.splitNodeRunID)
+	testHandler.AddSplitDraftTask(addResp, addReq)
+	if addResp.Code != http.StatusOK {
+		t.Fatalf("AddSplitDraftTask: expected 200, got %d: %s", addResp.Code, addResp.Body.String())
+	}
+
+	result, err := json.Marshal(map[string]any{"output": "I added the draft rows through the split draft API."})
+	if err != nil {
+		t.Fatalf("marshal result: %v", err)
+	}
+	if _, err := testHandler.TaskService.CompleteTask(context.Background(), parseUUID(taskID), result, "", ""); err != nil {
+		t.Fatalf("complete split generation task: %v", err)
+	}
+
+	nodeRun, err := testHandler.Queries.GetWorkflowNodeRun(context.Background(), parseUUID(f.splitNodeRunID))
+	if err != nil {
+		t.Fatalf("load node run: %v", err)
+	}
+	if nodeRun.Status != service.NodeRunStatusAwaitingSplitReview {
+		t.Fatalf("node run status = %s, want awaiting_split_review", nodeRun.Status)
+	}
+}
+
+func TestSplitCompletionRecoversMarkdownBreakdownOutput(t *testing.T) {
+	f := createSplitGenerateFixture(t, "barrier")
+	taskID := startSplitGenerationTask(t, f)
+
+	result, err := json.Marshal(map[string]any{
+		"output": strings.Join([]string{
+			"## Task 1: Build HTML shell",
+			"Create the base HTML document and layout containers.",
+			"",
+			"## Task 2: Wire interactions",
+			"Implement the client-side interactions after Task 1.",
+		}, "\n"),
+	})
+	if err != nil {
+		t.Fatalf("marshal result: %v", err)
+	}
+	if _, err := testHandler.TaskService.CompleteTask(context.Background(), parseUUID(taskID), result, "", ""); err != nil {
+		t.Fatalf("complete split generation task: %v", err)
+	}
+
+	tasks, err := testHandler.Queries.ListSplitTasksByNodeRun(context.Background(), parseUUID(f.splitNodeRunID))
+	if err != nil {
+		t.Fatalf("list recovered split tasks: %v", err)
+	}
+	if len(tasks) != 2 {
+		t.Fatalf("recovered split task count = %d, want 2", len(tasks))
+	}
+	if tasks[0].Title != "Build HTML shell" || tasks[1].Title != "Wire interactions" {
+		t.Fatalf("recovered task titles = %q / %q", tasks[0].Title, tasks[1].Title)
+	}
+
+	nodeRun, err := testHandler.Queries.GetWorkflowNodeRun(context.Background(), parseUUID(f.splitNodeRunID))
+	if err != nil {
+		t.Fatalf("load node run: %v", err)
+	}
+	if nodeRun.Status != service.NodeRunStatusAwaitingSplitReview {
+		t.Fatalf("node run status = %s, want awaiting_split_review", nodeRun.Status)
+	}
+}
+
+func TestSplitCompletionRecoversMarkdownBreakdownComment(t *testing.T) {
+	f := createSplitGenerateFixture(t, "barrier")
+	taskID := startSplitGenerationTask(t, f)
+
+	if _, err := testPool.Exec(context.Background(), `
+		INSERT INTO multica_comment (
+			issue_id, workspace_id, author_type, author_id, content, type
+		)
+		VALUES ($1, $2, 'agent', $3, $4, 'comment')
+	`, f.splitSubIssueID, testWorkspaceID, f.agentID, strings.Join([]string{
+		"## Task 1: Build API contract",
+		"Define the draft endpoint request and response.",
+		"",
+		"## Task 2: Implement CLI command",
+		"Wire the workflow split draft command.",
+	}, "\n")); err != nil {
+		t.Fatalf("create split task comment: %v", err)
+	}
+
+	result, err := json.Marshal(map[string]any{
+		"output": "I posted the split plan in a comment.",
+	})
+	if err != nil {
+		t.Fatalf("marshal result: %v", err)
+	}
+	if _, err := testHandler.TaskService.CompleteTask(context.Background(), parseUUID(taskID), result, "", ""); err != nil {
+		t.Fatalf("complete split generation task: %v", err)
+	}
+
+	tasks, err := testHandler.Queries.ListSplitTasksByNodeRun(context.Background(), parseUUID(f.splitNodeRunID))
+	if err != nil {
+		t.Fatalf("list recovered split tasks: %v", err)
+	}
+	if len(tasks) != 2 {
+		t.Fatalf("recovered split task count = %d, want 2", len(tasks))
+	}
+	if tasks[0].Title != "Build API contract" || tasks[1].Title != "Implement CLI command" {
+		t.Fatalf("recovered task titles = %q / %q", tasks[0].Title, tasks[1].Title)
+	}
+
+	nodeRun, err := testHandler.Queries.GetWorkflowNodeRun(context.Background(), parseUUID(f.splitNodeRunID))
+	if err != nil {
+		t.Fatalf("load node run: %v", err)
+	}
+	if nodeRun.Status != service.NodeRunStatusAwaitingSplitReview {
+		t.Fatalf("node run status = %s, want awaiting_split_review", nodeRun.Status)
+	}
+}
+
+func TestSplitPhaseTaskCannotCreateIssue(t *testing.T) {
+	f := createSplitGenerateFixture(t, "barrier")
+	taskID := startSplitGenerationTask(t, f)
+
+	createResp := httptest.NewRecorder()
+	createReq := newRequest("POST", "/api/issues", map[string]any{
+		"title": "Premature child issue",
+	})
+	createReq.Header.Set("X-Agent-ID", f.agentID)
+	createReq.Header.Set("X-Task-ID", taskID)
+
+	testHandler.CreateIssue(createResp, createReq)
+	if createResp.Code != http.StatusForbidden {
+		t.Fatalf("CreateIssue: expected 403, got %d: %s", createResp.Code, createResp.Body.String())
+	}
+}
+
+func TestSplitPhaseTaskCannotChangeIssueStatus(t *testing.T) {
+	f := createSplitGenerateFixture(t, "barrier")
+	taskID := startSplitGenerationTask(t, f)
+
+	updateResp := httptest.NewRecorder()
+	updateReq := newRequest("PUT", "/api/issues/"+f.splitSubIssueID, map[string]any{
+		"status": "done",
+	})
+	updateReq.Header.Set("X-Agent-ID", f.agentID)
+	updateReq.Header.Set("X-Task-ID", taskID)
+	updateReq = withURLParam(updateReq, "id", f.splitSubIssueID)
+
+	testHandler.UpdateIssue(updateResp, updateReq)
+	if updateResp.Code != http.StatusForbidden {
+		t.Fatalf("UpdateIssue: expected 403, got %d: %s", updateResp.Code, updateResp.Body.String())
+	}
+
+	issue, err := testHandler.Queries.GetIssue(context.Background(), parseUUID(f.splitSubIssueID))
+	if err != nil {
+		t.Fatalf("load split sub-issue: %v", err)
+	}
+	if issue.Status != "in_progress" {
+		t.Fatalf("split sub-issue status = %s, want in_progress", issue.Status)
+	}
 }
 
 func TestApproveSplitTasksPipelineMaterializesTasksAndCompletesNode(t *testing.T) {

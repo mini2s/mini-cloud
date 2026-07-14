@@ -248,24 +248,32 @@ func (h *Handler) loadWorkflowInWorkspace(w http.ResponseWriter, r *http.Request
 	return db.MulticaWorkflow{}, false
 }
 
-// isNonExecutableNode returns true for annotation, gateway, and split nodes.
-// These orchestration primitives are handled by the engine, not by user-assigned
-// workers or critics, so they don't need assignee validation.
-func isNonExecutableNode(formatSchema []byte) bool {
+func workflowNodeFormatType(formatSchema []byte) string {
 	if len(formatSchema) == 0 {
-		return false
+		return ""
 	}
 	var schema struct {
 		Type string `json:"type"`
 	}
 	if err := json.Unmarshal(formatSchema, &schema); err != nil {
-		return false
+		return ""
 	}
-	switch schema.Type {
-	case "annotation", "gateway", "split":
+	return schema.Type
+}
+
+// isNonExecutableNode returns true for annotation and gateway nodes.
+// Split nodes still need Worker/Critic validation because their Worker
+// generates draft tasks and their Critic reviews those drafts.
+func isNonExecutableNode(formatSchema []byte) bool {
+	switch workflowNodeFormatType(formatSchema) {
+	case "annotation", "gateway":
 		return true
 	}
 	return false
+}
+
+func isSplitWorkflowNode(formatSchema []byte) bool {
+	return workflowNodeFormatType(formatSchema) == "split"
 }
 
 // ── Workflow CRUD ────────────────────────────────────────────────────────────
@@ -444,11 +452,15 @@ func (h *Handler) UpdateWorkflow(w http.ResponseWriter, r *http.Request) {
 			if isNonExecutableNode(n.FormatSchema) {
 				continue
 			}
+			isSplit := isSplitWorkflowNode(n.FormatSchema)
 			var missingRoles []string
-			if n.WorkerType == "" || (!n.WorkerID.Valid && n.WorkerType == "agent") {
+			if n.WorkerType == "" || (!n.WorkerID.Valid && (n.WorkerType == "agent" || isSplit)) {
 				missingRoles = append(missingRoles, "worker")
 			}
-			if n.CriticType == "" || (!n.CriticID.Valid && n.CriticType == "agent") {
+			if n.CriticType == "" ||
+				(!n.CriticID.Valid && n.CriticType == "agent") ||
+				(isSplit && n.CriticType == "api" && !n.CriticApiUrl.Valid) ||
+				(isSplit && n.CriticType != "api" && !n.CriticID.Valid) {
 				missingRoles = append(missingRoles, "critic")
 			}
 			if len(missingRoles) > 0 {

@@ -3,7 +3,9 @@ package handler
 import (
 	"encoding/json"
 	"net/http"
+	"strings"
 
+	"github.com/go-chi/chi/v5"
 	"github.com/multica-ai/multica/server/internal/service"
 	db "github.com/multica-ai/multica/server/pkg/db/generated"
 )
@@ -120,6 +122,135 @@ func (h *Handler) GenerateSplitTasks(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := h.SplitOrchestrator.GenerateSplitTasks(r.Context(), nodeRun); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	tasks, err := h.Queries.ListSplitTasksByNodeRun(r.Context(), nodeRun.ID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to list split tasks")
+		return
+	}
+	writeJSON(w, http.StatusOK, splitTasksResponse(tasks))
+}
+
+func (h *Handler) RecoverSplitDraftTasks(w http.ResponseWriter, r *http.Request) {
+	nodeRun, _, _, ok := h.loadNodeRunForWorkspace(w, r)
+	if !ok {
+		return
+	}
+	if h.SplitOrchestrator == nil {
+		writeError(w, http.StatusInternalServerError, "split orchestrator is not configured")
+		return
+	}
+	if err := h.SplitOrchestrator.RecoverSplitDraftTasks(r.Context(), nodeRun); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	tasks, err := h.Queries.ListSplitTasksByNodeRun(r.Context(), nodeRun.ID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to list split tasks")
+		return
+	}
+	writeJSON(w, http.StatusOK, splitTasksResponse(tasks))
+}
+
+func splitDraftErrorStatus(err error) int {
+	msg := err.Error()
+	if strings.Contains(msg, "header") ||
+		strings.Contains(msg, "does not match") ||
+		strings.Contains(msg, "must be running") {
+		return http.StatusForbidden
+	}
+	return http.StatusBadRequest
+}
+
+func (h *Handler) AddSplitDraftTask(w http.ResponseWriter, r *http.Request) {
+	nodeRun, _, _, ok := h.loadNodeRunForWorkspace(w, r)
+	if !ok {
+		return
+	}
+	taskIDHeader := r.Header.Get("X-Task-ID")
+	taskID, ok := parseUUIDOrBadRequest(w, taskIDHeader, "X-Task-ID")
+	if !ok {
+		return
+	}
+	agentID, ok := parseUUIDOrBadRequest(w, r.Header.Get("X-Agent-ID"), "X-Agent-ID")
+	if !ok {
+		return
+	}
+	var req service.SplitDraftTaskRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid split draft task payload")
+		return
+	}
+	if h.SplitOrchestrator == nil {
+		writeError(w, http.StatusInternalServerError, "split orchestrator is not configured")
+		return
+	}
+	if err := h.SplitOrchestrator.AddSplitDraftTask(r.Context(), nodeRun, taskID, agentID, req); err != nil {
+		writeError(w, splitDraftErrorStatus(err), err.Error())
+		return
+	}
+	tasks, err := h.Queries.ListSplitTasksByNodeRun(r.Context(), nodeRun.ID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to list split tasks")
+		return
+	}
+	writeJSON(w, http.StatusOK, splitTasksResponse(tasks))
+}
+
+func (h *Handler) SubmitSplitDraftTasks(w http.ResponseWriter, r *http.Request) {
+	nodeRun, _, _, ok := h.loadNodeRunForWorkspace(w, r)
+	if !ok {
+		return
+	}
+	taskIDHeader := r.Header.Get("X-Task-ID")
+	taskID, ok := parseUUIDOrBadRequest(w, taskIDHeader, "X-Task-ID")
+	if !ok {
+		return
+	}
+	agentID, ok := parseUUIDOrBadRequest(w, r.Header.Get("X-Agent-ID"), "X-Agent-ID")
+	if !ok {
+		return
+	}
+	if h.SplitOrchestrator == nil {
+		writeError(w, http.StatusInternalServerError, "split orchestrator is not configured")
+		return
+	}
+	if err := h.SplitOrchestrator.SubmitSplitDraftTasks(r.Context(), nodeRun, taskID, agentID); err != nil {
+		writeError(w, splitDraftErrorStatus(err), err.Error())
+		return
+	}
+	tasks, err := h.Queries.ListSplitTasksByNodeRun(r.Context(), nodeRun.ID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to list split tasks")
+		return
+	}
+	writeJSON(w, http.StatusOK, splitTasksResponse(tasks))
+}
+
+func (h *Handler) DeleteSplitDraftTask(w http.ResponseWriter, r *http.Request) {
+	nodeRun, _, _, ok := h.loadNodeRunForWorkspace(w, r)
+	if !ok {
+		return
+	}
+	draftTaskID, ok := parseUUIDOrBadRequest(w, chi.URLParam(r, "taskId"), "taskId")
+	if !ok {
+		return
+	}
+	taskID, ok := parseUUIDOrBadRequest(w, r.Header.Get("X-Task-ID"), "X-Task-ID")
+	if !ok {
+		return
+	}
+	agentID, ok := parseUUIDOrBadRequest(w, r.Header.Get("X-Agent-ID"), "X-Agent-ID")
+	if !ok {
+		return
+	}
+	if h.SplitOrchestrator == nil {
+		writeError(w, http.StatusInternalServerError, "split orchestrator is not configured")
+		return
+	}
+	if err := h.SplitOrchestrator.DeleteSplitDraftTask(r.Context(), nodeRun, draftTaskID, taskID, agentID); err != nil {
+		writeError(w, splitDraftErrorStatus(err), err.Error())
 		return
 	}
 	tasks, err := h.Queries.ListSplitTasksByNodeRun(r.Context(), nodeRun.ID)

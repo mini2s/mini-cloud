@@ -9,7 +9,7 @@ export interface SplitNodeCardProps {
   title: string;
   config?: SplitConfig | null;
   progress?: SplitProgress | null;
-  status?: "editing" | "awaiting_review" | "active" | "idle";
+  status?: "editing" | "awaiting_review" | "active" | "completed" | "idle";
   taskCount?: number;
   subTemplateName?: string | null;
   className?: string;
@@ -31,7 +31,7 @@ export function SplitNodeCard({
   const label =
     status === "awaiting_review"
       ? `Review ${taskCount} tasks`
-      : status === "active" && progress
+      : (status === "active" || status === "completed") && progress
         ? null
         : `${mode} · concurrency ${maxConcurrency}`;
 
@@ -55,7 +55,7 @@ export function SplitNodeCard({
         </span>
       )}
 
-      {status === "active" && progress ? (
+      {(status === "active" || status === "completed") && progress ? (
         <SplitProgressBadge progress={progress} />
       ) : (
         <span className={cn(

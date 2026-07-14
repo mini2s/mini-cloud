@@ -9,6 +9,30 @@ INSERT INTO multica_workflow_split_task (
     $5, $6, $7
 ) RETURNING *;
 
+-- name: UpsertSplitDraftTaskByKey :one
+INSERT INTO multica_workflow_split_task (
+    node_run_id, workspace_id, draft_key, title, description,
+    suggested_assignee_type, suggested_assignee_id,
+    depends_on, sort_order, status
+) VALUES (
+    $1, $2, $3, $4, $5,
+    sqlc.narg('suggested_assignee_type'), sqlc.narg('suggested_assignee_id'),
+    $6, $7, 'draft'
+)
+ON CONFLICT (node_run_id, draft_key)
+WHERE draft_key IS NOT NULL AND draft_key <> ''
+DO UPDATE SET
+    title = EXCLUDED.title,
+    description = EXCLUDED.description,
+    suggested_assignee_type = EXCLUDED.suggested_assignee_type,
+    suggested_assignee_id = EXCLUDED.suggested_assignee_id,
+    depends_on = EXCLUDED.depends_on,
+    sort_order = EXCLUDED.sort_order,
+    status = 'draft',
+    updated_at = now()
+WHERE multica_workflow_split_task.status IN ('draft', 'discarded')
+RETURNING *;
+
 -- name: GetSplitTask :one
 SELECT * FROM multica_workflow_split_task
 WHERE id = $1;

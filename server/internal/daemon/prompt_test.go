@@ -292,6 +292,39 @@ func TestBuildPromptDefaultMentionsRecent(t *testing.T) {
 	}
 }
 
+func TestBuildPromptSplitPhaseRequiresStructuredTasksOutput(t *testing.T) {
+	out := BuildPrompt(Task{
+		IssueID:       "issue-split-1",
+		WorkflowPhase: "split",
+	}, "claude")
+
+	for _, want := range []string{
+		"dynamic split-task generator",
+		"cs-workflow workflow split draft add",
+		"cs-workflow workflow split draft submit",
+		"--key",
+		"--title",
+		"--assignee agent:<uuid>",
+		"--description-file",
+		"Do NOT create issues",
+		"Do NOT change issue status",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("split BuildPrompt missing %q\n--- output ---\n%s", want, out)
+		}
+	}
+	for _, banned := range []string{
+		"then complete it",
+		"cs-workflow issue comment add",
+		"cs-workflow issue status",
+		"Your assigned issue ID is",
+	} {
+		if strings.Contains(out, banned) {
+			t.Errorf("split BuildPrompt must not contain ordinary assignment guidance %q\n--- output ---\n%s", banned, out)
+		}
+	}
+}
+
 // TestBuildPromptNonSquadLeaderNoRule verifies that non-squad-leader agents
 // do NOT get the squad leader no_action rule injected.
 func TestBuildPromptNonSquadLeaderNoRule(t *testing.T) {
