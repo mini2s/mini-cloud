@@ -8,6 +8,7 @@ import (
 	"os/signal"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -16,6 +17,7 @@ import (
 	"github.com/multica-ai/multica/server/internal/analytics"
 	"github.com/multica-ai/multica/server/internal/auth"
 	"github.com/multica-ai/multica/server/internal/daemonws"
+	"github.com/multica-ai/multica/server/internal/deptsync"
 	"github.com/multica-ai/multica/server/internal/events"
 	"github.com/multica-ai/multica/server/internal/handler"
 	"github.com/multica-ai/multica/server/internal/logger"
@@ -300,11 +302,51 @@ func main() {
 		slog.Warn("Casdoor SSO not configured — using legacy HMAC JWT auth")
 	}
 
+	// deptSyncClient is shared by the handler (member management) and the
+	// SubjectResolver (login-time dept linking), so both auth paths use one
+	// configured client.
+	deptSyncClient := deptsync.NewClient(deptsync.Config{
+		BaseURL:  strings.TrimRight(strings.TrimSpace(os.Getenv("DEPT_SYNC_BASE_URL")), "/"),
+		QueryKey: os.Getenv("DEPT_SYNC_QUERY_KEY"),
+		Timeout:  envDuration("DEPT_SYNC_TIMEOUT", 10*time.Second),
+	})
+	// The SubjectResolver fires on every authenticated request; bound the
+	// dept-link work (dept-sync call + DB writes) to once per window per user.
+	deptLinkThrottle := &linkThrottle{last: make(map[string]time.Time), ttl: envDuration("DEPT_LINK_INTERVAL", 5*time.Minute)}
+
 	// subjectResolver maps a Casdoor subject_id (the "sub" claim) to a
 	// Multica user UUID. On first encounter the user is auto-provisioned
 	// with the real name/email from the JWT claims. For existing users,
 	// the name and email are kept in sync with Casdoor.
-	subjectResolver := middleware.SubjectResolver(func(ctx context.Context, subjectID, universalID, name, email string) (string, error) {
+	subjectResolver := middleware.SubjectResolver(func(ctx context.Context, subjectID, universalID, name, email string) (userID string, err error) {
+		// After resolving the user, asynchronously bind + refresh their dept
+		// identity: activate any pending dept membership (→ the inviting
+		// workspace links to this account) and overwrite their name / org
+		// snapshot from dept-sync (→ repairs placeholder names like a Casdoor
+		// login UUID). This is the path costrict's embedded iframe actually
+		// uses (zgsmAdminToken cookie), so the linking must happen here, not
+		// only in the standalone Casdoor OAuth callback. Throttled per user so
+		// it doesn't run on every request; detached context so it survives the
+		// response being written.
+		defer func() {
+			if err != nil || userID == "" || strings.TrimSpace(universalID) == "" {
+				return
+			}
+			parsed, perr := util.ParseUUID(userID)
+			if perr != nil {
+				slog.Warn("dept link: could not parse resolved user id", "user_id", userID, "error", perr)
+				return
+			}
+			if !deptLinkThrottle.allow(universalID) {
+				return
+			}
+			uid, uni := parsed, universalID
+			go func() {
+				bgCtx, cancel := context.WithTimeout(context.Background(), envDuration("DEPT_LINK_TIMEOUT", 15*time.Second))
+				defer cancel()
+				handler.LinkDeptIdentity(bgCtx, queries, deptSyncClient, bus, uid, uni)
+			}()
+		}()
 		user, err := queries.GetUserBySubjectID(ctx, pgtype.Text{String: subjectID, Valid: true})
 		if err != nil {
 			// Auto-provision: use real name/email from JWT, fall back to placeholders.
@@ -474,6 +516,7 @@ func main() {
 		SubjectResolver:    subjectResolver,
 		CasdoorEnabled:     casdoorEnabled,
 		SkillProxy:         skillProxy,
+		DeptSync:           deptSyncClient,
 	})
 
 	srv := &http.Server{
@@ -554,4 +597,24 @@ func main() {
 		metricsShutdownCancel()
 	}
 	slog.Info("server stopped")
+}
+
+// linkThrottle is a per-key TTL gate. allow reports whether enough time has
+// passed since the last allowed call for the key, recording the attempt when
+// it does. Used by the SubjectResolver to bound how often per user the
+// (dept-sync + DB) dept-link work runs.
+type linkThrottle struct {
+	mu   sync.Mutex
+	last map[string]time.Time
+	ttl  time.Duration
+}
+
+func (t *linkThrottle) allow(key string) bool {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if l, ok := t.last[key]; ok && time.Since(l) < t.ttl {
+		return false
+	}
+	t.last[key] = time.Now()
+	return true
 }

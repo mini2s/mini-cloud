@@ -9,9 +9,17 @@ import (
 
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/multica-ai/multica/server/internal/deptsync"
+	"github.com/multica-ai/multica/server/internal/events"
 	db "github.com/multica-ai/multica/server/pkg/db/generated"
 	"github.com/multica-ai/multica/server/pkg/protocol"
 )
+
+// DeptIdentityResolver is the dept-sync surface used to link a logged-in user
+// to their dept membership and org snapshot.
+type DeptIdentityResolver interface {
+	Configured() bool
+	GetUserDepartmentsByUniversalID(ctx context.Context, universalID string) ([]deptsync.User, error)
+}
 
 // deptLoginSnapshot is the org fields rewritten onto a member row during a
 // login-time refresh, sourced from dept-sync.
@@ -26,26 +34,29 @@ type deptLoginSnapshot struct {
 	DeptUserStatus   int
 }
 
-// linkDeptMembersOnLogin binds any pending dept membership for a freshly
-// logged-in user (matched by universal_id) and refreshes the member's org
-// snapshot from dept-sync. It runs on every Casdoor login so workspace binding
-// does not depend on the embedded iframe identity handshake, which only fires
-// when multica runs inside opencode (and currently never fires at all, because
-// the iframe never posts the "multica:ready" message the parent waits for).
+// LinkDeptIdentity binds any pending dept membership for the user (matched by
+// universal_id) and refreshes the member org snapshot + the user's display name
+// from dept-sync.
+//
+// It is the single implementation shared by every auth path:
+//   - the standalone Casdoor OAuth callback (CasdoorCallback), and
+//   - the SubjectResolver, which is the embedded SSO path costrict actually
+//     uses (it resolves the user from the zgsmAdminToken cookie on each
+//     request — there is no callback there).
 //
 // Best-effort: errors are logged and never propagated — a dept-sync outage or
-// a stale snapshot must not fail a login. Membership binding itself needs no
-// dept-sync call; the snapshot refresh is skipped when dept-sync is unavailable
-// or the user has no active main department.
-func (h *Handler) linkDeptMembersOnLogin(ctx context.Context, userID pgtype.UUID, universalID string) {
+// a stale snapshot must not fail auth. Membership binding itself needs no
+// dept-sync call; the snapshot/name refresh is skipped when dept-sync is
+// unavailable or the user has no active main department.
+func LinkDeptIdentity(ctx context.Context, queries *db.Queries, deptSync DeptIdentityResolver, bus *events.Bus, userID pgtype.UUID, universalID string) {
 	universalID = strings.TrimSpace(universalID)
 	if universalID == "" || !userID.Valid {
 		return
 	}
 
 	var snapshot *deptLoginSnapshot
-	if h.DeptSync != nil && h.DeptSync.Configured() {
-		departments, err := h.DeptSync.GetUserDepartmentsByUniversalID(ctx, universalID)
+	if deptSync != nil && deptSync.Configured() {
+		departments, err := deptSync.GetUserDepartmentsByUniversalID(ctx, universalID)
 		switch {
 		case err == nil:
 			if picked, ok := pickMainActiveDepartment(departments, universalID); ok {
@@ -56,7 +67,7 @@ func (h *Handler) linkDeptMembersOnLogin(ctx context.Context, userID pgtype.UUID
 		}
 	}
 
-	activated, err := h.Queries.ActivatePendingDeptMembersByUniversalID(ctx, db.ActivatePendingDeptMembersByUniversalIDParams{
+	activated, err := queries.ActivatePendingDeptMembersByUniversalID(ctx, db.ActivatePendingDeptMembersByUniversalIDParams{
 		ExternalUniversalID: pgtype.Text{String: universalID, Valid: true},
 		UserID:              userID,
 	})
@@ -69,7 +80,7 @@ func (h *Handler) linkDeptMembersOnLogin(ctx context.Context, userID pgtype.UUID
 	// (newly activated and already-active alike) so a user's name / department
 	// / position stay current without an admin re-adding them.
 	if snapshot != nil {
-		if err := h.Queries.RefreshDeptMemberSnapshotByUniversalID(ctx, db.RefreshDeptMemberSnapshotByUniversalIDParams{
+		if err := queries.RefreshDeptMemberSnapshotByUniversalID(ctx, db.RefreshDeptMemberSnapshotByUniversalIDParams{
 			ExternalUniversalID: pgtype.Text{String: universalID, Valid: true},
 			OrgDisplayName:      pgtype.Text{String: snapshot.OrgDisplayName, Valid: snapshot.OrgDisplayName != ""},
 			EmployeeID:          pgtype.Text{String: snapshot.EmployeeID, Valid: snapshot.EmployeeID != ""},
@@ -89,7 +100,7 @@ func (h *Handler) linkDeptMembersOnLogin(ctx context.Context, userID pgtype.UUID
 		// was stored as the multica user name at provisioning. Applies even
 		// when the user has no dept member row (e.g. a manual workspace owner).
 		if snapshot.OrgDisplayName != "" {
-			if err := h.Queries.SetUserName(ctx, db.SetUserNameParams{
+			if err := queries.SetUserName(ctx, db.SetUserNameParams{
 				ID:   userID,
 				Name: snapshot.OrgDisplayName,
 			}); err != nil {
@@ -98,13 +109,29 @@ func (h *Handler) linkDeptMembersOnLogin(ctx context.Context, userID pgtype.UUID
 		}
 	}
 
+	if bus == nil {
+		return
+	}
 	userIDStr := uuidToString(userID)
 	for _, member := range activated {
-		h.publish(protocol.EventMemberUpdated, uuidToString(member.WorkspaceID), "member", userIDStr, map[string]any{
-			"member_id":    uuidToString(member.ID),
-			"workspace_id": uuidToString(member.WorkspaceID),
+		bus.Publish(events.Event{
+			Type:        protocol.EventMemberUpdated,
+			WorkspaceID: uuidToString(member.WorkspaceID),
+			ActorType:   "member",
+			ActorID:     userIDStr,
+			Payload: map[string]any{
+				"member_id":    uuidToString(member.ID),
+				"workspace_id": uuidToString(member.WorkspaceID),
+			},
 		})
 	}
+}
+
+// linkDeptMembersOnLogin routes the standalone Casdoor callback through the
+// shared LinkDeptIdentity logic. Kept as a method so existing callers/tests
+// stay unchanged.
+func (h *Handler) linkDeptMembersOnLogin(ctx context.Context, userID pgtype.UUID, universalID string) {
+	LinkDeptIdentity(ctx, h.Queries, h.DeptSync, h.Bus, userID, universalID)
 }
 
 // pickMainActiveDepartment selects the user's main active department from a

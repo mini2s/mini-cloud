@@ -142,6 +142,11 @@ type RouterOptions struct {
 	// SkillProxy, when non-nil, enables the /api/agent-skills endpoints that
 	// proxy skill fetches to the costrict-web internal API.
 	SkillProxy *service.SkillProxy
+	// DeptSync, when non-nil, is the shared dept-sync client used by both the
+	// handler (member management) and the SubjectResolver (login-time dept
+	// linking). main.go constructs it once and passes it in; tests leave it
+	// nil and the router falls back to constructing one from env.
+	DeptSync *deptsync.Client
 }
 
 func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus, analyticsClient analytics.Client, rdb *redis.Client, opts RouterOptions) chi.Router {
@@ -200,11 +205,15 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 	if opts.HeartbeatScheduler != nil {
 		h.HeartbeatScheduler = opts.HeartbeatScheduler
 	}
-	h.DeptSync = deptsync.NewClient(deptsync.Config{
-		BaseURL:  strings.TrimRight(strings.TrimSpace(os.Getenv("DEPT_SYNC_BASE_URL")), "/"),
-		QueryKey: os.Getenv("DEPT_SYNC_QUERY_KEY"),
-		Timeout:  envDuration("DEPT_SYNC_TIMEOUT", 10*time.Second),
-	})
+	if opts.DeptSync != nil {
+		h.DeptSync = opts.DeptSync
+	} else {
+		h.DeptSync = deptsync.NewClient(deptsync.Config{
+			BaseURL:  strings.TrimRight(strings.TrimSpace(os.Getenv("DEPT_SYNC_BASE_URL")), "/"),
+			QueryKey: os.Getenv("DEPT_SYNC_QUERY_KEY"),
+			Timeout:  envDuration("DEPT_SYNC_TIMEOUT", 10*time.Second),
+		})
+	}
 	// Auth caches: PAT cache is shared between the regular Auth middleware,
 	// the DaemonAuth fallback (mul_) path, and the revoke handler
 	// (invalidate). DaemonTokenCache backs the DaemonAuth mdt_ path. Both
