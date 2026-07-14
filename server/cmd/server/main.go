@@ -455,8 +455,13 @@ func main() {
 			}
 		}
 
-		// Existing user: sync name/email if they changed in Casdoor.
-		syncName := name != "" && user.Name != name
+		// Existing user: sync email if it changed in Casdoor. The display
+		// name is intentionally NOT synced from Casdoor here — for
+		// phone-registered accounts the Casdoor "name" is a placeholder UUID,
+		// and dept-sync is the org source of truth for names. LinkDeptIdentity
+		// (run on resolve, throttled) refreshes the name from dept-sync;
+		// syncing the Casdoor name here would overwrite that back to the UUID
+		// on every request.
 		syncEmail := email != "" && user.Email != email
 
 		// Guard against unique-key violations: if another user already owns
@@ -473,19 +478,19 @@ func main() {
 			}
 		}
 
-		if syncName || syncEmail {
+		if syncEmail {
 			if _, updErr := queries.UpdateUserNameAndEmail(ctx, db.UpdateUserNameAndEmailParams{
 				ID:    user.ID,
-				Name:  name,
+				Name:  user.Name, // keep current; dept-sync owns the name
 				Email: email,
 			}); updErr != nil {
-				slog.Warn("failed to sync user profile from Casdoor",
+				slog.Warn("failed to sync user email from Casdoor",
 					"user_id", util.UUIDToString(user.ID),
 					"subject_id", subjectID,
 					"error", updErr,
 				)
 			} else {
-				slog.Info("casdoor: synced user profile", "user_id", util.UUIDToString(user.ID), "subject_id", subjectID, "name", name, "email_synced", syncEmail)
+				slog.Info("casdoor: synced user email", "user_id", util.UUIDToString(user.ID), "subject_id", subjectID)
 			}
 		}
 		return util.UUIDToString(user.ID), nil
