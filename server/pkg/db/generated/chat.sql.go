@@ -298,6 +298,23 @@ func (q *Queries) GetPendingChatTask(ctx context.Context, chatSessionID pgtype.U
 	return i, err
 }
 
+const linkTaskToChatSession = `-- name: LinkTaskToChatSession :exec
+UPDATE multica_agent_task_queue SET
+    chat_session_id = $2,
+    updated_at = now()
+WHERE id = $1
+`
+
+type LinkTaskToChatSessionParams struct {
+	ID            pgtype.UUID `json:"id"`
+	ChatSessionID pgtype.UUID `json:"chat_session_id"`
+}
+
+func (q *Queries) LinkTaskToChatSession(ctx context.Context, arg LinkTaskToChatSessionParams) error {
+	_, err := q.db.Exec(ctx, linkTaskToChatSession, arg.ID, arg.ChatSessionID)
+	return err
+}
+
 const listAllChatSessionsByCreator = `-- name: ListAllChatSessionsByCreator :many
 SELECT cs.id, cs.workspace_id, cs.agent_id, cs.creator_id, cs.title, cs.session_id, cs.work_dir, cs.status, cs.created_at, cs.updated_at, cs.unread_since, cs.runtime_id,
        (cs.unread_since IS NOT NULL)::bool AS has_unread

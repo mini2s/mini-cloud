@@ -2,22 +2,22 @@
 INSERT INTO multica_workflow_split_task (
     node_run_id, workspace_id, title, description,
     suggested_assignee_type, suggested_assignee_id,
-    depends_on, sort_order, status
+    depends_on, sort_order, status, draft_source
 ) VALUES (
     $1, $2, $3, $4,
     sqlc.narg('suggested_assignee_type'), sqlc.narg('suggested_assignee_id'),
-    $5, $6, $7
+    $5, $6, $7, sqlc.narg('draft_source')
 ) RETURNING *;
 
 -- name: UpsertSplitDraftTaskByKey :one
 INSERT INTO multica_workflow_split_task (
     node_run_id, workspace_id, draft_key, title, description,
     suggested_assignee_type, suggested_assignee_id,
-    depends_on, sort_order, status
+    depends_on, sort_order, status, draft_source
 ) VALUES (
     $1, $2, $3, $4, $5,
     sqlc.narg('suggested_assignee_type'), sqlc.narg('suggested_assignee_id'),
-    $6, $7, 'draft'
+    $6, $7, 'draft', sqlc.narg('draft_source')
 )
 ON CONFLICT (node_run_id, draft_key)
 WHERE draft_key IS NOT NULL AND draft_key <> ''
@@ -29,6 +29,7 @@ DO UPDATE SET
     depends_on = EXCLUDED.depends_on,
     sort_order = EXCLUDED.sort_order,
     status = 'draft',
+    draft_source = EXCLUDED.draft_source,
     updated_at = now()
 WHERE multica_workflow_split_task.status IN ('draft', 'discarded')
 RETURNING *;

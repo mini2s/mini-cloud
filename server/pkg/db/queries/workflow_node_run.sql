@@ -266,3 +266,15 @@ WHERE wnr.workflow_run_id = $1
   )
 ORDER BY ws.sort_order ASC, wn.sort_order ASC, wnr.created_at ASC
 LIMIT $3;
+
+-- name: SetNodeRunSplitReviewChatSession :one
+UPDATE multica_workflow_node_run SET
+    split_review_chat_session_id = $2,
+    updated_at = now()
+WHERE id = $1
+RETURNING *;
+
+-- name: GetNodeRunBySplitReviewChatSession :one
+SELECT * FROM multica_workflow_node_run
+WHERE split_review_chat_session_id = $1
+LIMIT 1;
