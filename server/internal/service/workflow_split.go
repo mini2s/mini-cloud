@@ -1130,7 +1130,7 @@ func (s *SplitOrchestrator) dispatchSplitRepairTask(ctx context.Context, nodeRun
 		return fmt.Errorf("list active split repair tasks: %w", err)
 	}
 	for _, activeTask := range activeTasks {
-			if activeTask.WorkflowNodeRunID == nodeRun.ID && isAnySplitPhase(activeTask.Context) && isSplitRepairPhase(activeTask.Context) {
+		if activeTask.WorkflowNodeRunID == nodeRun.ID && isAnySplitPhase(activeTask.Context) && isSplitRepairPhase(activeTask.Context) {
 			return nil
 		}
 	}
