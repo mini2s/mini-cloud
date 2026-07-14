@@ -6,7 +6,6 @@ import type {
   Attachment,
   CreateAgentFromTemplateResponse,
   BatchAddDeptMembersResponse,
-  AssociateDeptIdentityResponse,
   DeptDepartment,
   DeptUser,
   GroupedIssuesResponse,
@@ -261,18 +260,6 @@ export const BatchAddDeptMembersResponseSchema = z.object({
 export const EMPTY_BATCH_ADD_DEPT_MEMBERS_RESPONSE: BatchAddDeptMembersResponse = {
   added: 0,
   skipped: 0,
-};
-
-export const AssociateDeptIdentityResponseSchema = z.object({
-  associated: z.boolean().default(false),
-  associated_count: z.number().default(0),
-  reason: z.string().nullable().optional(),
-}).loose();
-
-export const EMPTY_ASSOCIATE_DEPT_IDENTITY_RESPONSE: AssociateDeptIdentityResponse = {
-  associated: false,
-  associated_count: 0,
-  reason: "invalid_response",
 };
 
 export const CloudRuntimeNodeSchema = z.object({

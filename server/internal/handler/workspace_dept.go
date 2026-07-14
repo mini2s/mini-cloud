@@ -200,7 +200,7 @@ func (h *Handler) resolveDeptUserRef(r *http.Request, ref batchAddDeptMemberRef)
 	if universalID != "" {
 		// dept-sync's /users/search does not index universal_id, so a caller
 		// that only knows the universal_id must be resolved via the direct
-		// lookup (same path as AssociateDeptIdentity), not SearchUsers.
+		// GetUserDepartmentsByUniversalID lookup, not SearchUsers.
 		departments, err := h.DeptSync.GetUserDepartmentsByUniversalID(r.Context(), universalID)
 		if err != nil {
 			return deptsync.User{}, false, err
