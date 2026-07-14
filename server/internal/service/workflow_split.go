@@ -2134,7 +2134,8 @@ type SplitChatRequest struct {
 type SplitChatResult struct {
 	ChatSessionID string                `json:"chat_session_id"`
 	TaskID        string                `json:"task_id"`
-	Tasks         []db.MulticaWorkflowSplitTask `json:"-"`
+	Tasks         []db.MulticaWorkflowSplitTask `json:"tasks"`
+	Progress      json.RawMessage              `json:"progress"`
 }
 
 func (s *SplitOrchestrator) SplitChat(ctx context.Context, nodeRun db.MulticaWorkflowNodeRun, userID pgtype.UUID, req SplitChatRequest) (*SplitChatResult, error) {
@@ -2219,12 +2220,37 @@ func (s *SplitOrchestrator) SplitChat(ctx context.Context, nodeRun db.MulticaWor
 	}
 
 	// Write user message to chat.
-	if _, err := s.Queries.CreateChatMessage(ctx, db.CreateChatMessageParams{
+	msg, err := s.Queries.CreateChatMessage(ctx, db.CreateChatMessageParams{
 		ChatSessionID: chatSessionID,
 		Role:          "user",
 		Content:       req.Message,
-	}); err != nil {
+	})
+	if err != nil {
 		return nil, fmt.Errorf("create split chat user message: %w", err)
+	}
+
+	// If attachment IDs are provided, link them to the chat message.
+	if len(req.AttachmentIDs) > 0 {
+		attachmentUUIDs := make([]pgtype.UUID, 0, len(req.AttachmentIDs))
+		for _, id := range req.AttachmentIDs {
+			uid, err := util.ParseUUID(id)
+			if err != nil {
+				slog.Warn("split chat: invalid attachment ID skipped", "attachment_id", id, "error", err)
+				continue
+			}
+			attachmentUUIDs = append(attachmentUUIDs, uid)
+		}
+		if len(attachmentUUIDs) > 0 {
+			if err := s.Queries.LinkAttachmentsToChatMessage(ctx, db.LinkAttachmentsToChatMessageParams{
+				ChatMessageID: msg.ID,
+				ChatSessionID: chatSessionID,
+				Column3:       attachmentUUIDs,
+			}); err != nil {
+				// Don't fail the send — the message content is already saved and
+				// the attachments remain on the session (still downloadable).
+				slog.Warn("split chat: link attachments failed", "error", err)
+			}
+		}
 	}
 
 	// Build context with current drafts, parent issue, and user message.
@@ -2240,13 +2266,23 @@ func (s *SplitOrchestrator) SplitChat(ctx context.Context, nodeRun db.MulticaWor
 	}
 
 	contextExtras := map[string]any{
-		"phase":                  splitPhaseChat,
-		"chat_session_id":        util.UUIDToString(chatSessionID),
-		"parent_issue_id":        util.UUIDToString(parentIssue.ID),
-		"parent_issue_title":     parentIssue.Title,
+		"phase":                    splitPhaseChat,
+		"chat_session_id":          util.UUIDToString(chatSessionID),
+		"parent_issue_id":          util.UUIDToString(parentIssue.ID),
+		"parent_issue_title":       parentIssue.Title,
 		"parent_issue_description": textToString(parentIssue.Description),
-		"current_drafts":         splitTasksToSummary(existingTasks),
-		"split_config":           cfg,
+		"current_drafts":           splitTasksToSummary(existingTasks),
+		"split_config":             cfg,
+		"attachment_ids":           req.AttachmentIDs,
+	}
+
+	// Compute progress summary.
+	progress := splitProgressSummary(existingTasks)
+	progressRaw, err := json.Marshal(progress)
+	if err != nil {
+		// Non-fatal; log and return empty progress.
+		slog.Warn("split chat: failed to marshal progress", "error", err)
+		progressRaw = []byte("{}")
 	}
 
 	// Dispatch agent task.
@@ -2275,6 +2311,7 @@ func (s *SplitOrchestrator) SplitChat(ctx context.Context, nodeRun db.MulticaWor
 		ChatSessionID: util.UUIDToString(chatSessionID),
 		TaskID:        util.UUIDToString(task.ID),
 		Tasks:         existingTasks,
+		Progress:      progressRaw,
 	}, nil
 }
 
@@ -2286,7 +2323,9 @@ func splitTasksToSummary(tasks []db.MulticaWorkflowSplitTask) []map[string]any {
 		}
 		var dependsOn []string
 		if len(t.DependsOn) > 0 {
-			json.Unmarshal(t.DependsOn, &dependsOn)
+			if err := json.Unmarshal(t.DependsOn, &dependsOn); err != nil {
+				slog.Warn("splitTasksToSummary: failed to unmarshal DependsOn", "task_id", util.UUIDToString(t.ID), "error", err)
+			}
 		}
 		suggestedAssigneeID := ""
 		if t.SuggestedAssigneeID.Valid {
@@ -2305,6 +2344,44 @@ func splitTasksToSummary(tasks []db.MulticaWorkflowSplitTask) []map[string]any {
 			"draft_source":             t.DraftSource,
 		}
 		summary = append(summary, item)
+	}
+	return summary
+}
+
+func splitProgressSummary(tasks []db.MulticaWorkflowSplitTask) map[string]int {
+	summary := map[string]int{
+		"total":     0,
+		"draft":     0,
+		"approved":  0,
+		"created":   0,
+		"running":   0,
+		"done":      0,
+		"failed":    0,
+		"cancelled": 0,
+		"skipped":   0,
+	}
+	for _, t := range tasks {
+		if t.Status != SplitTaskStatusDiscarded {
+			summary["total"]++
+		}
+		switch t.Status {
+		case SplitTaskStatusDraft:
+			summary["draft"]++
+		case SplitTaskStatusApproved:
+			summary["approved"]++
+		case SplitTaskStatusCreated:
+			summary["created"]++
+		case SplitTaskStatusRunning:
+			summary["running"]++
+		case SplitTaskStatusDone:
+			summary["done"]++
+		case SplitTaskStatusFailed:
+			summary["failed"]++
+		case SplitTaskStatusCancelled:
+			summary["cancelled"]++
+		case SplitTaskStatusSkipped:
+			summary["skipped"]++
+		}
 	}
 	return summary
 }

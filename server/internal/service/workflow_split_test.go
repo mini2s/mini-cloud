@@ -459,3 +459,100 @@ func TestSplitTasksToSummary(t *testing.T) {
 		t.Fatalf("draft_source = %v, want chat", item["draft_source"])
 	}
 }
+
+func TestSplitChatRejectsWhenNotAwaitingReview(t *testing.T) {
+	ctx := context.Background()
+	orch := NewSplitOrchestrator(nil, nil, nil, nil)
+
+	nonAwaitingStatuses := []string{
+		"splitting",
+		"split_active",
+		"completed",
+		"failed",
+		"cancelled",
+	}
+
+	for _, status := range nonAwaitingStatuses {
+		t.Run(status, func(t *testing.T) {
+			nodeRun := db.MulticaWorkflowNodeRun{
+				Status: status,
+			}
+			_, err := orch.SplitChat(ctx, nodeRun, pgtype.UUID{}, SplitChatRequest{
+				Message: "adjust the plan",
+			})
+			if err == nil {
+				t.Fatal("SplitChat: expected error for non-awaiting review status, got nil")
+			}
+			if !strings.Contains(err.Error(), "awaiting review") {
+				t.Fatalf("SplitChat: error = %q, want containing 'awaiting review'", err.Error())
+			}
+		})
+	}
+}
+
+func TestSplitChatRejectsEmptyMessage(t *testing.T) {
+	ctx := context.Background()
+	orch := NewSplitOrchestrator(nil, nil, nil, nil)
+
+	nodeRun := db.MulticaWorkflowNodeRun{
+		Status: NodeRunStatusAwaitingSplitReview,
+	}
+	_, err := orch.SplitChat(ctx, nodeRun, pgtype.UUID{}, SplitChatRequest{
+		Message: "",
+	})
+	if err == nil {
+		t.Fatal("SplitChat: expected error for empty message, got nil")
+	}
+	if !strings.Contains(err.Error(), "chat message is required") {
+		t.Fatalf("SplitChat: error = %q, want containing 'chat message is required'", err.Error())
+	}
+}
+
+func TestSplitProgressSummaryCountsByStatus(t *testing.T) {
+	taskID := pgtype.UUID{Bytes: [16]byte{1}, Valid: true}
+	tasks := []db.MulticaWorkflowSplitTask{
+		{ID: taskID, Title: "Task A", Status: SplitTaskStatusDraft},
+		{ID: pgtype.UUID{Bytes: [16]byte{2}, Valid: true}, Title: "Task B", Status: SplitTaskStatusApproved},
+		{ID: pgtype.UUID{Bytes: [16]byte{3}, Valid: true}, Title: "Task C", Status: SplitTaskStatusCreated},
+		{ID: pgtype.UUID{Bytes: [16]byte{4}, Valid: true}, Title: "Task D", Status: SplitTaskStatusRunning},
+		{ID: pgtype.UUID{Bytes: [16]byte{5}, Valid: true}, Title: "Task E", Status: SplitTaskStatusDone},
+		{ID: pgtype.UUID{Bytes: [16]byte{6}, Valid: true}, Title: "Task F", Status: SplitTaskStatusFailed},
+		{ID: pgtype.UUID{Bytes: [16]byte{7}, Valid: true}, Title: "Task G", Status: SplitTaskStatusCancelled},
+		{ID: pgtype.UUID{Bytes: [16]byte{8}, Valid: true}, Title: "Task H", Status: SplitTaskStatusSkipped},
+		{ID: pgtype.UUID{Bytes: [16]byte{9}, Valid: true}, Title: "Task I", Status: SplitTaskStatusDiscarded},
+	}
+
+	summary := splitProgressSummary(tasks)
+	if summary["total"] != 8 {
+		t.Fatalf("total = %d, want 8 (discarded excluded)", summary["total"])
+	}
+	if summary["draft"] != 1 {
+		t.Fatalf("draft = %d, want 1", summary["draft"])
+	}
+	if summary["approved"] != 1 {
+		t.Fatalf("approved = %d, want 1", summary["approved"])
+	}
+	if summary["created"] != 1 {
+		t.Fatalf("created = %d, want 1", summary["created"])
+	}
+	if summary["running"] != 1 {
+		t.Fatalf("running = %d, want 1", summary["running"])
+	}
+	if summary["done"] != 1 {
+		t.Fatalf("done = %d, want 1", summary["done"])
+	}
+	if summary["failed"] != 1 {
+		t.Fatalf("failed = %d, want 1", summary["failed"])
+	}
+	if summary["cancelled"] != 1 {
+		t.Fatalf("cancelled = %d, want 1", summary["cancelled"])
+	}
+	if summary["skipped"] != 1 {
+		t.Fatalf("skipped = %d, want 1", summary["skipped"])
+	}
+}
+
+func TestSplitChatDispatchesAgentTaskAndReturnsChatSessionID(t *testing.T) {
+	t.Skip("requires database — full integration test for SplitChat dispatch flow")
+}
+
