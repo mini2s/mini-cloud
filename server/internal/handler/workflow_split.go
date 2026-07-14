@@ -308,3 +308,43 @@ func (h *Handler) CancelSplitNode(w http.ResponseWriter, r *http.Request) {
 
 	writeJSON(w, http.StatusOK, workflowNodeRunToResponse(*updated))
 }
+
+func (h *Handler) HandleSplitChat(w http.ResponseWriter, r *http.Request) {
+	userID, ok := requireUserID(w, r)
+	if !ok {
+		return
+	}
+	nodeRun, _, _, ok := h.loadNodeRunForWorkspace(w, r)
+	if !ok {
+		return
+	}
+	var req service.SplitChatRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid split chat payload")
+		return
+	}
+	if h.SplitOrchestrator == nil {
+		writeError(w, http.StatusInternalServerError, "split orchestrator is not configured")
+		return
+	}
+	result, err := h.SplitOrchestrator.SplitChat(r.Context(), nodeRun, parseUUID(userID), req)
+	if err != nil {
+		code := http.StatusBadRequest
+		msg := err.Error()
+		if strings.Contains(msg, "already in progress") {
+			code = http.StatusConflict
+		}
+		writeError(w, code, msg)
+		return
+	}
+	tasks, err := h.Queries.ListSplitTasksByNodeRun(r.Context(), nodeRun.ID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to list split tasks")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"chat_session_id": result.ChatSessionID,
+		"task_id":         result.TaskID,
+		"tasks":           splitTasksResponse(tasks),
+	})
+}
