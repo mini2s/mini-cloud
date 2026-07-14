@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiError } from "@multica/core/api";
 import { AppSidebar } from "./app-sidebar";
 
-const { detail, deletePin, pins } = vi.hoisted(() => ({
+const { detail, deletePin, pins, inboxItems } = vi.hoisted(() => ({
   detail: { current: { isPending: false, isError: false, data: null as unknown, error: null as unknown } },
   deletePin: vi.fn(),
   pins: {
@@ -19,6 +19,7 @@ const { detail, deletePin, pins } = vi.hoisted(() => ({
       },
     ],
   },
+  inboxItems: { current: [] as Array<{ id: string; read: boolean }> },
 }));
 
 vi.mock("@dnd-kit/core", () => ({
@@ -73,6 +74,14 @@ vi.mock("../navigation", () => ({
   AppLink: ({ children, href }: { children: React.ReactNode; href: string }) => <a href={href}>{children}</a>,
   useNavigation: () => ({ pathname: "/acme/issues", push: vi.fn() }),
 }));
+vi.mock("../i18n", () => ({
+  useT: () => ({
+    t: (_selector: unknown, options?: { count?: number }) =>
+      options?.count === undefined
+        ? ""
+        : `${options.count} unread notifications`,
+  }),
+}));
 vi.mock("../projects/components/project-icon", () => ({ ProjectIcon: () => <span /> }));
 vi.mock("../workspace/workspace-avatar", () => ({ WorkspaceAvatar: () => <span /> }));
 vi.mock("@multica/ui/components/common/actor-avatar", () => ({ ActorAvatar: () => <span /> }));
@@ -124,6 +133,7 @@ vi.mock("@tanstack/react-query", async (importOriginal) => ({
   useQuery: ({ queryKey }: { queryKey: readonly unknown[] }) => {
     if (queryKey[0] === "pins") return { data: pins.current };
     if (queryKey[0] === "issue") return detail.current;
+    if (queryKey[0] === "inbox") return { data: inboxItems.current };
     return { data: [] };
   },
   useQueryClient: () => ({ fetchQuery: vi.fn(), invalidateQueries: vi.fn() }),
@@ -132,6 +142,7 @@ vi.mock("@tanstack/react-query", async (importOriginal) => ({
 describe("PinRow", () => {
   beforeEach(() => {
     deletePin.mockReset();
+    inboxItems.current = [];
     detail.current = { isPending: false, isError: false, data: null, error: null };
   });
 
@@ -151,5 +162,31 @@ describe("PinRow", () => {
     detail.current = { isPending: false, isError: false, data: { identifier: "MUL-123", title: "Keep this pin", status: "todo" }, error: null };
     render(<AppSidebar />);
     expect(await screen.findByText("MUL-123 Keep this pin")).toBeInTheDocument();
+  });
+});
+
+describe("inbox indicator", () => {
+  beforeEach(() => {
+    inboxItems.current = [];
+  });
+
+  it("surfaces unread notifications with an accessible count", () => {
+    inboxItems.current = [
+      { id: "inbox-1", read: false },
+      { id: "inbox-2", read: false },
+      { id: "inbox-3", read: true },
+    ];
+
+    render(<AppSidebar />);
+
+    expect(screen.getByLabelText("2 unread notifications")).toHaveTextContent("2");
+    expect(screen.getByLabelText("2 unread notifications")).toHaveClass("bg-destructive");
+    expect(screen.getByLabelText("2 unread notifications")).toHaveClass("text-white");
+  });
+
+  it("does not render an unread badge when the inbox is clear", () => {
+    render(<AppSidebar />);
+
+    expect(screen.queryByLabelText(/unread notification/)).not.toBeInTheDocument();
   });
 });

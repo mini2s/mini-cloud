@@ -39,7 +39,7 @@ export class TestApiClient {
     const devCode = process.env.MULTICA_DEV_VERIFICATION_CODE;
 
     // When MULTICA_DEV_VERIFICATION_CODE is set, the backend uses a fixed
-    // verification code and does not write to the verification_code table.
+    // verification code and does not write to the multica_verification_code table.
     if (devCode) {
       // With a fixed dev code, we can skip send-code entirely and
       // verify directly — avoids rate limiting on /auth/send-code.
@@ -65,11 +65,11 @@ export class TestApiClient {
       return data;
     }
 
-    // Production path: use database-backed verification_code table
+    // Production path: use database-backed multica_verification_code table
     const client = new pg.Client(DATABASE_URL);
     await client.connect();
     try {
-      await client.query("DELETE FROM verification_code WHERE email = $1", [email]);
+      await client.query("DELETE FROM multica_verification_code WHERE email = $1", [email]);
 
       const sendRes = await fetch(`${API_BASE}/auth/send-code`, {
         method: "POST",
@@ -81,7 +81,7 @@ export class TestApiClient {
       }
 
       const result = await client.query(
-        "SELECT code FROM verification_code WHERE email = $1 AND used = FALSE AND expires_at > now() ORDER BY created_at DESC LIMIT 1",
+        "SELECT code FROM multica_verification_code WHERE email = $1 AND used = FALSE AND expires_at > now() ORDER BY created_at DESC LIMIT 1",
         [email],
       );
       if (result.rows.length === 0) {
@@ -107,7 +107,7 @@ export class TestApiClient {
         });
       }
 
-      await client.query("DELETE FROM verification_code WHERE email = $1", [email]);
+      await client.query("DELETE FROM multica_verification_code WHERE email = $1", [email]);
 
       return data;
     } finally {
@@ -399,6 +399,11 @@ export class TestApiClient {
 
   getToken() {
     return this.token;
+  }
+
+  /** Inject an existing JWT token — skip the login flow entirely. */
+  injectToken(token: string) {
+    this.token = token;
   }
 
   private async authedFetch(path: string, init?: RequestInit) {
