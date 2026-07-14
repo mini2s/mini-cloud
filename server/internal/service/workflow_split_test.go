@@ -278,11 +278,11 @@ func TestSplitRepairTaskContextHelpers(t *testing.T) {
 		t.Fatalf("repair reason = %v", extras["repair_reason"])
 	}
 
-	if !isSplitRepairTask([]byte(`{"type":"workflow","phase":"split","repair":true}`)) {
-		t.Fatalf("isSplitRepairTask(repair context) = false, want true")
+	if !isSplitRepairPhase([]byte(`{"type":"workflow","phase":"split_repair","repair":true}`)) {
+		t.Fatalf("isSplitRepairPhase(repair context) = false, want true")
 	}
-	if isSplitRepairTask([]byte(`{"type":"workflow","phase":"split"}`)) {
-		t.Fatalf("isSplitRepairTask(non-repair context) = true, want false")
+	if isSplitRepairPhase([]byte(`{"type":"workflow","phase":"split_repair"}`)) {
+		t.Fatalf("isSplitRepairPhase(non-repair context) = true, want false")
 	}
 }
 

@@ -40,6 +40,13 @@ const (
 
 const maxSplitRecoveryAttachmentBytes = 2 << 20
 
+// Split task context phases.
+const (
+	splitPhaseGenerate = "split_generate"
+	splitPhaseRepair   = "split_repair"
+	splitPhaseChat     = "split_chat"
+)
+
 type splitAttachmentStorage interface {
 	KeyFromURL(rawURL string) string
 	GetReader(ctx context.Context, key string) (io.ReadCloser, error)
@@ -592,12 +599,14 @@ func (s *SplitOrchestrator) GenerateSplitTasks(ctx context.Context, nodeRun db.M
 		return fmt.Errorf("list active split generation tasks: %w", err)
 	}
 	for _, task := range activeTasks {
-		if task.WorkflowNodeRunID == currentNodeRun.ID && isSplitTaskPhase(task.Context) {
+		if task.WorkflowNodeRunID == currentNodeRun.ID && isAnySplitPhase(task.Context) {
 			return nil
 		}
 	}
 
-	task, err := s.WfService.DispatchAgentTask(ctx, currentNodeRun, "split")
+	task, err := s.WfService.DispatchAgentTaskWithContextExtras(ctx, currentNodeRun, "split", map[string]any{
+		"phase": splitPhaseGenerate,
+	})
 	if err != nil {
 		return fmt.Errorf("dispatch split generation task: %w", err)
 	}
@@ -664,7 +673,7 @@ func (s *SplitOrchestrator) loadSplitRecoveryTask(ctx context.Context, nodeRun d
 		if err != nil {
 			return db.MulticaAgentTaskQueue{}, fmt.Errorf("get split generation task: %w", err)
 		}
-		if task.WorkflowNodeRunID == nodeRun.ID && isSplitTaskPhase(task.Context) {
+		if task.WorkflowNodeRunID == nodeRun.ID && isAnySplitPhase(task.Context) {
 			return task, nil
 		}
 	}
@@ -686,7 +695,7 @@ func (s *SplitOrchestrator) loadSplitRecoveryTask(ctx context.Context, nodeRun d
 		return db.MulticaAgentTaskQueue{}, fmt.Errorf("list split issue tasks for recovery: %w", err)
 	}
 	for _, task := range tasks {
-		if task.WorkflowNodeRunID == nodeRun.ID && isSplitTaskPhase(task.Context) {
+		if task.WorkflowNodeRunID == nodeRun.ID && isAnySplitPhase(task.Context) {
 			return task, nil
 		}
 	}
@@ -951,9 +960,21 @@ func (s *SplitOrchestrator) validateSplitDraftTaskAccess(ctx context.Context, no
 	if task.Status != "running" {
 		return db.MulticaAgentTaskQueue{}, fmt.Errorf("split draft task must be running")
 	}
-	if !task.WorkflowNodeRunID.Valid || task.WorkflowNodeRunID != nodeRun.ID || !isSplitTaskPhase(task.Context) {
+	if !task.WorkflowNodeRunID.Valid || task.WorkflowNodeRunID != nodeRun.ID || !isAnySplitPhase(task.Context) {
 		return db.MulticaAgentTaskQueue{}, fmt.Errorf("split draft task does not match this node run")
 	}
+
+	// Validate phase matches node run status.
+	if isSplitChatPhase(task.Context) {
+		if nodeRun.Status != NodeRunStatusAwaitingSplitReview {
+			return db.MulticaAgentTaskQueue{}, fmt.Errorf("split chat draft API is only allowed in awaiting_split_review state")
+		}
+	} else if isSplitGeneratePhase(task.Context) || isSplitRepairPhase(task.Context) {
+		if nodeRun.Status != NodeRunStatusSplitting {
+			return db.MulticaAgentTaskQueue{}, fmt.Errorf("split generate/repair draft API is only allowed in splitting state")
+		}
+	}
+
 	return task, nil
 }
 
@@ -1035,7 +1056,7 @@ func validateDraftSplitTaskRows(tasks []db.MulticaWorkflowSplitTask) error {
 }
 
 func (s *SplitOrchestrator) HandleTaskCompletion(ctx context.Context, task db.MulticaAgentTaskQueue) error {
-	if !task.WorkflowNodeRunID.Valid || !isSplitTaskPhase(task.Context) {
+	if !task.WorkflowNodeRunID.Valid || !isAnySplitPhase(task.Context) {
 		return nil
 	}
 	if err := s.handleTaskCompletion(ctx, task); err != nil {
@@ -1079,7 +1100,7 @@ func (s *SplitOrchestrator) handleTaskCompletion(ctx context.Context, task db.Mu
 
 	payload, err := s.recoverSplitGeneratedTaskPayloadFromTaskSources(ctx, task)
 	if err != nil {
-		if !isSplitRepairTask(task.Context) {
+		if !isSplitRepairPhase(task.Context) {
 			return s.dispatchSplitRepairTask(ctx, nodeRun, task, err)
 		}
 		return err
@@ -1109,7 +1130,7 @@ func (s *SplitOrchestrator) dispatchSplitRepairTask(ctx context.Context, nodeRun
 		return fmt.Errorf("list active split repair tasks: %w", err)
 	}
 	for _, activeTask := range activeTasks {
-		if activeTask.WorkflowNodeRunID == nodeRun.ID && isSplitTaskPhase(activeTask.Context) && isSplitRepairTask(activeTask.Context) {
+			if activeTask.WorkflowNodeRunID == nodeRun.ID && isAnySplitPhase(activeTask.Context) && isSplitRepairPhase(activeTask.Context) {
 			return nil
 		}
 	}
@@ -1137,6 +1158,7 @@ func splitRepairContextExtras(sourceTask db.MulticaAgentTaskQueue, recoveryErr e
 		sourceOutput = sourceOutput[:4000] + "..."
 	}
 	return map[string]any{
+		"phase":                  splitPhaseRepair,
 		"repair":                 true,
 		"repair_source_task_id":  util.UUIDToString(sourceTask.ID),
 		"repair_reason":          reason,
@@ -1808,7 +1830,7 @@ func ptrStringToText(v *string) pgtype.Text {
 	return pgtype.Text{String: *v, Valid: true}
 }
 
-func isSplitTaskPhase(contextJSON []byte) bool {
+func isSplitGeneratePhase(contextJSON []byte) bool {
 	if len(contextJSON) == 0 {
 		return false
 	}
@@ -1818,10 +1840,10 @@ func isSplitTaskPhase(contextJSON []byte) bool {
 	if err := json.Unmarshal(contextJSON, &payload); err != nil {
 		return false
 	}
-	return payload.Phase == "split"
+	return payload.Phase == splitPhaseGenerate
 }
 
-func isSplitRepairTask(contextJSON []byte) bool {
+func isSplitRepairPhase(contextJSON []byte) bool {
 	if len(contextJSON) == 0 {
 		return false
 	}
@@ -1833,7 +1855,24 @@ func isSplitRepairTask(contextJSON []byte) bool {
 	if err := json.Unmarshal(contextJSON, &payload); err != nil {
 		return false
 	}
-	return payload.Type == "workflow" && payload.Phase == "split" && payload.Repair
+	return payload.Type == "workflow" && payload.Phase == splitPhaseRepair && payload.Repair
+}
+
+func isSplitChatPhase(contextJSON []byte) bool {
+	if len(contextJSON) == 0 {
+		return false
+	}
+	var payload struct {
+		Phase string `json:"phase"`
+	}
+	if err := json.Unmarshal(contextJSON, &payload); err != nil {
+		return false
+	}
+	return payload.Phase == splitPhaseChat
+}
+
+func isAnySplitPhase(contextJSON []byte) bool {
+	return isSplitGeneratePhase(contextJSON) || isSplitRepairPhase(contextJSON) || isSplitChatPhase(contextJSON)
 }
 
 func parseSplitGeneratedTaskPayload(raw []byte) (splitGeneratedTaskPayload, error) {
