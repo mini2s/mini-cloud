@@ -1163,16 +1163,28 @@ func (s *WorkflowService) DispatchAgentTask(ctx context.Context, nodeRun db.Mult
 		if run.RuntimeID.Valid {
 			taskRuntimeID = run.RuntimeID
 		} else {
-			// Auto-select the first available runtime for built-in agents,
-			// matching the behavior of enqueueIssueTask.
+			// Auto-select a runtime for built-in agents. Prefer an online
+			// runtime so the task isn't pinned to a stale daemon (matching
+			// the behavior of enqueueIssueTask). Fall back to the first
+			// runtime if none are online.
 			runtimes, err := s.Queries.ListAgentRuntimes(ctx, workflow.WorkspaceID)
 			if err != nil {
 				return nil, fmt.Errorf("list runtimes for built-in agent: %w", err)
 			}
-			if len(runtimes) == 0 {
+			var selected pgtype.UUID
+			for _, r := range runtimes {
+				if r.Status == "online" {
+					selected = r.ID
+					break
+				}
+			}
+			if !selected.Valid && len(runtimes) > 0 {
+				selected = runtimes[0].ID
+			}
+			if !selected.Valid {
 				return nil, fmt.Errorf("no runtimes available in workspace for built-in agent")
 			}
-			taskRuntimeID = runtimes[0].ID
+			taskRuntimeID = selected
 		}
 	} else {
 		return nil, fmt.Errorf("agent has no runtime")
