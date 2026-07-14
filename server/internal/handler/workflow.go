@@ -574,6 +574,15 @@ func (h *Handler) CreateWorkflowNode(w http.ResponseWriter, r *http.Request) {
 		stageID = sID
 	}
 
+	if err := h.validateWorkflowHumanActor(r.Context(), req.WorkerType, workerID, workspaceID, "worker"); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if err := h.validateWorkflowHumanActor(r.Context(), req.CriticType, criticID, workspaceID, "critic"); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
 	node, err := h.Queries.CreateWorkflowNode(r.Context(), db.CreateWorkflowNodeParams{
 		WorkflowID:   wf.ID,
 		Title:        req.Title,
@@ -607,7 +616,7 @@ func (h *Handler) UpdateWorkflowNode(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	node, ok := h.loadWorkflowNode(w, r, wfID, nodeID)
+	currentNode, ok := h.loadWorkflowNode(w, r, wfID, nodeID)
 	if !ok {
 		return
 	}
@@ -621,24 +630,63 @@ func (h *Handler) UpdateWorkflowNode(w http.ResponseWriter, r *http.Request) {
 	workspaceID := h.resolveWorkspaceID(r)
 	userID, _ := requireUserID(w, r)
 
+	workerType := currentNode.WorkerType
+	if req.WorkerType != nil {
+		workerType = *req.WorkerType
+	}
+	workerID := currentNode.WorkerID
+	var workerIDParam pgtype.UUID
+	if req.WorkerID != nil {
+		parsed, ok := parseUUIDOrBadRequest(w, *req.WorkerID, "worker_id")
+		if !ok {
+			return
+		}
+		workerID = parsed
+		workerIDParam = parsed
+	}
+
+	criticType := currentNode.CriticType
+	if req.CriticType != nil {
+		criticType = *req.CriticType
+	}
+	criticID := currentNode.CriticID
+	var criticIDParam pgtype.UUID
+	if req.CriticID != nil {
+		parsed, ok := parseUUIDOrBadRequest(w, *req.CriticID, "critic_id")
+		if !ok {
+			return
+		}
+		criticID = parsed
+		criticIDParam = parsed
+	}
+
+	if err := h.validateWorkflowHumanActor(r.Context(), workerType, workerID, workspaceID, "worker"); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if err := h.validateWorkflowHumanActor(r.Context(), criticType, criticID, workspaceID, "critic"); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
 	params := db.UpdateWorkflowNodeParams{
-		ID:           node.ID,
+		ID:           currentNode.ID,
 		Title:        ptrToText(req.Title),
 		Description:  ptrToText(req.Description),
 		PositionX:    float64ToFloat8(req.PositionX),
 		PositionY:    float64ToFloat8(req.PositionY),
 		FormatSchema: req.FormatSchema,
 		WorkerType:   ptrToText(req.WorkerType),
-		WorkerID:     ptrStrToUUID(req.WorkerID),
+		WorkerID:     workerIDParam,
 		CriticType:   ptrToText(req.CriticType),
-		CriticID:     ptrStrToUUID(req.CriticID),
+		CriticID:     criticIDParam,
 		CriticApiUrl: ptrToText(req.CriticApiURL),
 		SortOrder:    int32ToInt4(req.SortOrder),
 	}
 
 	updated, err := h.Queries.UpdateWorkflowNode(r.Context(), params)
 	if err != nil {
-		log.Printf("failed to update node %s: %v", uuidToString(node.ID), err)
+		log.Printf("failed to update node %s: %v", uuidToString(currentNode.ID), err)
 		writeError(w, http.StatusInternalServerError, "failed to update node")
 		return
 	}
@@ -1095,6 +1143,16 @@ func (h *Handler) validateNodeAgentIsBuiltin(ctx context.Context, agentType stri
 		if !leader.IsBuiltin {
 			return fmt.Errorf("node %q %s squad %q leader %q is not a built-in agent — only built-in agents are allowed in templates", nodeTitle, role, squad.Name, leader.Name)
 		}
+	}
+	return nil
+}
+
+func (h *Handler) validateWorkflowHumanActor(ctx context.Context, actorType string, actorID pgtype.UUID, workspaceID string, role string) error {
+	if actorType != "human" || !actorID.Valid {
+		return nil
+	}
+	if _, err := h.getActiveWorkspaceMember(ctx, uuidToString(actorID), workspaceID); err != nil {
+		return fmt.Errorf("cannot assign inactive workspace member as workflow %s", role)
 	}
 	return nil
 }

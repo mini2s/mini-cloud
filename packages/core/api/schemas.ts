@@ -5,6 +5,10 @@ import type {
   AgentTemplateSummary,
   Attachment,
   CreateAgentFromTemplateResponse,
+  BatchAddDeptMembersResponse,
+  AssociateDeptIdentityResponse,
+  DeptDepartment,
+  DeptUser,
   GroupedIssuesResponse,
   ListIssuesResponse,
   ListWebhookDeliveriesResponse,
@@ -219,6 +223,57 @@ export const SubscribersListSchema = z.array(SubscriberSchema);
 export const ChildIssuesResponseSchema = z.object({
   issues: z.array(IssueSchema).default([]),
 }).loose();
+
+export const DeptDepartmentSchema = z.object({
+  dept_id: z.string(),
+  dept_name: z.string(),
+  dept_path: z.string().nullable().optional(),
+  parent_dept_id: z.string().nullable().optional(),
+  dept_level: z.number().optional(),
+  child_dept_count: z.number().optional(),
+}).loose();
+
+export const DeptDepartmentListSchema = z.array(DeptDepartmentSchema);
+
+export const EMPTY_DEPT_DEPARTMENT_LIST: DeptDepartment[] = [];
+
+export const DeptUserSchema = z.object({
+  user_id: z.string(),
+  username: z.string(),
+  universal_id: z.string().nullable().optional(),
+  dept_id: z.string().nullable().optional(),
+  dept_name: z.string().nullable().optional(),
+  dept_path: z.string().nullable().optional(),
+  is_main: z.number().optional(),
+  position: z.string().nullable().optional(),
+  status: z.number().optional(),
+}).loose();
+
+export const DeptUserListSchema = z.array(DeptUserSchema);
+
+export const EMPTY_DEPT_USER_LIST: DeptUser[] = [];
+
+export const BatchAddDeptMembersResponseSchema = z.object({
+  added: z.number().default(0),
+  skipped: z.number().default(0),
+}).loose();
+
+export const EMPTY_BATCH_ADD_DEPT_MEMBERS_RESPONSE: BatchAddDeptMembersResponse = {
+  added: 0,
+  skipped: 0,
+};
+
+export const AssociateDeptIdentityResponseSchema = z.object({
+  associated: z.boolean().default(false),
+  associated_count: z.number().default(0),
+  reason: z.string().nullable().optional(),
+}).loose();
+
+export const EMPTY_ASSOCIATE_DEPT_IDENTITY_RESPONSE: AssociateDeptIdentityResponse = {
+  associated: false,
+  associated_count: 0,
+  reason: "invalid_response",
+};
 
 export const CloudRuntimeNodeSchema = z.object({
   id: z.string(),

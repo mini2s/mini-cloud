@@ -38,6 +38,9 @@ server/multica
 test-results/
 apps/web/test-results/
 
+# playwright-cli skill workspace
+.playwright-cli/
+
 # context (agent workspace)
 .context
 .playwright-cli/
@@ -65,3 +68,9 @@ data/
 .als/
 .cospec/
 .multica-pids
+
+# Local personal Docker Compose (full stack, not for commit)
+docker-compose.local.yml
+
+# Local personal Docker Compose support files (initdb seeds, etc.)
+docker/local-stack/

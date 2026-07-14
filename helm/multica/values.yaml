@@ -60,6 +60,19 @@ backend:
     awsEndpointUrl: ""
     cloudfrontDomain: ""
     multicaDevVerificationCode: ""
+    # Casdoor SSO (optional; leave empty to disable SSO login).
+    casdoorEndpoint: ""
+    casdoorPublicEndpoint: ""
+    casdoorRedirectUri: ""
+    casdoorOrgName: ""
+    casdoorAppName: ""
+    casdoorClientId: ""
+    casdoorLoginUrl: ""
+    # dept-sync integration. BaseURL defaults to the in-cluster costrict-dept-sync
+    # service (namespace costrict, port 8080). Set deptSyncQueryKey to enable
+    # dept-backed member management; leave both empty to disable.
+    deptSyncBaseUrl: "http://costrict-dept-sync-svc.costrict:8080/costrict-dept-info/api/v1"
+    deptSyncTimeout: "10s"
 
   persistence:
     enabled: false
@@ -82,6 +95,8 @@ backend:
     awsSecretAccessKey: ""
     openaiApiKey: ""
     anthropicApiKey: ""
+    casdoorClientSecret: ""
+    deptSyncQueryKey: ""
 
   resources: {}
   nodeSelector: {}

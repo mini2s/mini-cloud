@@ -4,9 +4,13 @@ node_modules
 
 # Build outputs
 .next
+**/.next
+**/.turbo
 dist
 server/bin
 server/tmp
+tsconfig.tsbuildinfo
+**/tsconfig.tsbuildinfo
 
 # Git
 .git
