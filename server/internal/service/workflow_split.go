@@ -819,10 +819,6 @@ func (s *SplitOrchestrator) AddSplitDraftTask(ctx context.Context, nodeRun db.Mu
 	if err != nil {
 		return err
 	}
-	if nodeRun.Status != NodeRunStatusSplitting {
-		return fmt.Errorf("split draft tasks can only be added while the node is splitting")
-	}
-
 	// Determine draft source from task phase.
 	draftSource := DraftSourceAgent
 	if isSplitChatPhase(task.Context) {

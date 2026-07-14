@@ -139,6 +139,42 @@ func TestCanRegenerateSplitNodeStatusAllowsFailedRecovery(t *testing.T) {
 	}
 }
 
+func TestDraftSourceConstantsAreDistinct(t *testing.T) {
+	sources := []struct {
+		name  string
+		value string
+	}{
+		{"DraftSourceAgent", DraftSourceAgent},
+		{"DraftSourceChat", DraftSourceChat},
+		{"DraftSourceRecovered", DraftSourceRecovered},
+	}
+
+	if len(sources) != 3 {
+		t.Fatalf("expected 3 draft source constants, got %d", len(sources))
+	}
+
+	seen := make(map[string]string, len(sources))
+	for _, s := range sources {
+		if s.value == "" {
+			t.Fatalf("%s is empty", s.name)
+		}
+		if prev, ok := seen[s.value]; ok {
+			t.Fatalf("draft source %q (%s) collides with %s", s.value, s.name, prev)
+		}
+		seen[s.value] = s.name
+	}
+
+	if DraftSourceAgent != "agent" {
+		t.Fatalf("DraftSourceAgent = %q, want %q", DraftSourceAgent, "agent")
+	}
+	if DraftSourceChat != "chat" {
+		t.Fatalf("DraftSourceChat = %q, want %q", DraftSourceChat, "chat")
+	}
+	if DraftSourceRecovered != "recovered" {
+		t.Fatalf("DraftSourceRecovered = %q, want %q", DraftSourceRecovered, "recovered")
+	}
+}
+
 func TestBuildSplitDependencyContextIncludesDependencyOutputs(t *testing.T) {
 	context := buildSplitDependencyContext([]splitTaskDependencyContext{
 		{
