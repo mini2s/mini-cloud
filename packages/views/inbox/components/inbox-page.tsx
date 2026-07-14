@@ -227,45 +227,56 @@ export function InboxPage() {
       <div className="flex items-center gap-2">
         <h1 className="text-sm font-semibold">{t(($) => $.page.title)}</h1>
         {unreadCount > 0 && (
-          <span className="text-xs text-muted-foreground">
-            {unreadCount}
+          <span className="rounded-full bg-destructive/10 px-2 py-0.5 text-xs font-medium text-destructive">
+            {t(($) => $.page.unread_count, { count: unreadCount })}
           </span>
         )}
       </div>
-      <DropdownMenu>
-        <DropdownMenuTrigger
-          render={
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              className="text-muted-foreground"
-            />
-          }
-        >
-          <MoreHorizontal className="h-4 w-4" />
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" className="w-auto">
-          <DropdownMenuItem onClick={handleMarkAllRead}>
-            <CheckCheck className="h-4 w-4" />
+      <div className="flex items-center gap-1">
+        {unreadCount > 0 && (
+          <Button variant="ghost" size="sm" onClick={handleMarkAllRead} className="text-xs">
+            <CheckCheck className="mr-1 h-3.5 w-3.5" />
             {t(($) => $.menu.mark_all_read)}
-          </DropdownMenuItem>
-          <DropdownMenuSeparator />
-          <DropdownMenuItem onClick={handleArchiveAll}>
-            <Archive className="h-4 w-4" />
-            {t(($) => $.menu.archive_all)}
-          </DropdownMenuItem>
-          <DropdownMenuItem onClick={handleArchiveAllRead}>
-            <BookCheck className="h-4 w-4" />
-            {t(($) => $.menu.archive_all_read)}
-          </DropdownMenuItem>
-          <DropdownMenuItem onClick={handleArchiveCompleted}>
-            <ListChecks className="h-4 w-4" />
-            {t(($) => $.menu.archive_completed)}
-          </DropdownMenuItem>
-        </DropdownMenuContent>
-      </DropdownMenu>
+          </Button>
+        )}
+        <DropdownMenu>
+          <DropdownMenuTrigger
+            render={
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                className="text-muted-foreground"
+              />
+            }
+          >
+            <MoreHorizontal className="h-4 w-4" />
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-auto">
+            <DropdownMenuItem onClick={handleMarkAllRead}>
+              <CheckCheck className="h-4 w-4" />
+              {t(($) => $.menu.mark_all_read)}
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem onClick={handleArchiveAll}>
+              <Archive className="h-4 w-4" />
+              {t(($) => $.menu.archive_all)}
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={handleArchiveAllRead}>
+              <BookCheck className="h-4 w-4" />
+              {t(($) => $.menu.archive_all_read)}
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={handleArchiveCompleted}>
+              <ListChecks className="h-4 w-4" />
+              {t(($) => $.menu.archive_completed)}
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </div>
     </PageHeader>
   );
+
+  const unreadItems = useMemo(() => items.filter((i) => !i.read), [items]);
+  const readItems = useMemo(() => items.filter((i) => i.read), [items]);
 
   const listBody = items.length === 0 ? (
     <div className="flex flex-col items-center justify-center py-16 text-muted-foreground">
@@ -274,7 +285,24 @@ export function InboxPage() {
     </div>
   ) : (
     <div>
-      {items.map((item) => (
+      {unreadItems.map((item) => (
+        <InboxListItem
+          key={item.id}
+          item={item}
+          isSelected={(item.issue_id ?? item.id) === selectedKey}
+          onClick={() => handleSelect(item)}
+          onArchive={() => handleArchive(item.id)}
+        />
+      ))}
+      {unreadItems.length > 0 && readItems.length > 0 && (
+        <div className="flex items-center gap-3 px-4 py-1.5 border-t border-border">
+          <span className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+            {t(($) => $.list.divider_new)}
+          </span>
+          <div className="h-px flex-1 bg-border" />
+        </div>
+      )}
+      {readItems.map((item) => (
         <InboxListItem
           key={item.id}
           item={item}

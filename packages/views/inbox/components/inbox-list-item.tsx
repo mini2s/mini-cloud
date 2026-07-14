@@ -43,8 +43,10 @@ export function InboxListItem({
   return (
     <button
       onClick={onClick}
-      className={`group flex w-full items-center gap-3 px-4 py-2.5 text-left transition-colors ${
+      className={`group flex w-full items-center gap-3 py-2.5 pl-[calc(1rem-2px)] pr-4 text-left transition-colors ${
         isSelected ? "bg-accent" : "hover:bg-accent/50"
+      } ${
+        !item.read ? "border-l-2 border-destructive" : ""
       }`}
     >
       <ActorAvatar
@@ -56,9 +58,6 @@ export function InboxListItem({
       <div className="min-w-0 flex-1">
         <div className="flex items-center justify-between gap-2">
           <div className="flex min-w-0 items-center gap-1.5">
-            {!item.read && (
-              <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-brand" />
-            )}
             <span
               className={`truncate text-sm ${!item.read ? "font-medium" : "text-muted-foreground"}`}
             >
