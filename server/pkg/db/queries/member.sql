@@ -87,3 +87,19 @@ WHERE m.external_universal_id = $1
         AND existing.user_id = $2
   )
 RETURNING *;
+
+-- name: RefreshDeptMemberSnapshotByUniversalID :exec
+-- Rewrites the dept org snapshot (name / department / position) on every
+-- member row bound to this universal_id, using freshly fetched dept-sync data.
+-- Called on login so a user's org info stays current without re-adding them.
+UPDATE multica_member
+SET org_display_name = $2,
+    employee_id = $3,
+    dept_id = $4,
+    dept_name = $5,
+    dept_path = $6,
+    position = $7,
+    is_main_department = $8,
+    dept_user_status = $9,
+    last_synced_at = $10
+WHERE external_universal_id = $1;

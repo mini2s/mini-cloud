@@ -371,6 +371,52 @@ func (q *Queries) ListMembersWithUser(ctx context.Context, workspaceID pgtype.UU
 	return items, nil
 }
 
+const refreshDeptMemberSnapshotByUniversalID = `-- name: RefreshDeptMemberSnapshotByUniversalID :exec
+UPDATE multica_member
+SET org_display_name = $2,
+    employee_id = $3,
+    dept_id = $4,
+    dept_name = $5,
+    dept_path = $6,
+    position = $7,
+    is_main_department = $8,
+    dept_user_status = $9,
+    last_synced_at = $10
+WHERE external_universal_id = $1
+`
+
+type RefreshDeptMemberSnapshotByUniversalIDParams struct {
+	ExternalUniversalID pgtype.Text        `json:"external_universal_id"`
+	OrgDisplayName      pgtype.Text        `json:"org_display_name"`
+	EmployeeID          pgtype.Text        `json:"employee_id"`
+	DeptID              pgtype.Text        `json:"dept_id"`
+	DeptName            pgtype.Text        `json:"dept_name"`
+	DeptPath            pgtype.Text        `json:"dept_path"`
+	Position            pgtype.Text        `json:"position"`
+	IsMainDepartment    bool               `json:"is_main_department"`
+	DeptUserStatus      pgtype.Int4        `json:"dept_user_status"`
+	LastSyncedAt        pgtype.Timestamptz `json:"last_synced_at"`
+}
+
+// Rewrites the dept org snapshot (name / department / position) on every
+// member row bound to this universal_id, using freshly fetched dept-sync data.
+// Called on login so a user's org info stays current without re-adding them.
+func (q *Queries) RefreshDeptMemberSnapshotByUniversalID(ctx context.Context, arg RefreshDeptMemberSnapshotByUniversalIDParams) error {
+	_, err := q.db.Exec(ctx, refreshDeptMemberSnapshotByUniversalID,
+		arg.ExternalUniversalID,
+		arg.OrgDisplayName,
+		arg.EmployeeID,
+		arg.DeptID,
+		arg.DeptName,
+		arg.DeptPath,
+		arg.Position,
+		arg.IsMainDepartment,
+		arg.DeptUserStatus,
+		arg.LastSyncedAt,
+	)
+	return err
+}
+
 const updateMemberRole = `-- name: UpdateMemberRole :one
 UPDATE multica_member SET role = $2
 WHERE id = $1
