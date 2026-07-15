@@ -127,9 +127,6 @@ data:
   {{- if .Values.backend.config.deptLinkInterval }}
   DEPT_LINK_INTERVAL: {{ .Values.backend.config.deptLinkInterval | quote }}
   {{- end }}
-  {{- if .Values.backend.config.builtinPluginApiBaseUrl }}
-  BUILTIN_PLUGIN_API_BASE_URL: {{ .Values.backend.config.builtinPluginApiBaseUrl | quote }}
-  {{- end }}
   {{- if .Values.backend.config.cscPluginMarketplaceName }}
   CSC_PLUGIN_MARKETPLACE_NAME: {{ .Values.backend.config.cscPluginMarketplaceName | quote }}
   {{- end }}

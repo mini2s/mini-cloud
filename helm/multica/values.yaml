@@ -76,12 +76,11 @@ backend:
     deptSyncCacheTtl: "1m"
     deptLinkTimeout: "15s"
     deptLinkInterval: "5m"
-    # CSC plugin marketplace — optional. Leave empty to disable / fall back to
-    # daemon defaults. builtinPluginApiBaseUrl is the catalog entry point; the
-    # plugin install path is never triggered without it. cscPluginMarketplaceName
-    # / Repo override the marketplace the daemon registers against; when empty
+    # CSC plugin marketplace — optional. Override the marketplace the daemon
+    # registers against when installing a CSC agent's bound plugin; when empty
     # the daemon falls back to its built-in github default (costrict-plugins).
-    builtinPluginApiBaseUrl: ""
+    # The plugin install path also needs BUILTIN_PLUGIN_API_BASE_URL set (e.g.
+    # via backend.extraEnv); it is intentionally not exposed here.
     cscPluginMarketplaceName: ""
     cscPluginMarketplaceRepo: ""
 
