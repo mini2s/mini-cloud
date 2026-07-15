@@ -118,6 +118,25 @@ func (q *Queries) DeleteMember(ctx context.Context, id pgtype.UUID) error {
 	return err
 }
 
+const deleteOrphanPendingDeptMembers = `-- name: DeleteOrphanPendingDeptMembers :execrows
+DELETE FROM multica_member
+WHERE external_universal_id = $1
+  AND status = 'pending_activation'
+  AND user_id IS NULL
+`
+
+// Removes pending_activation dept member rows for a universal_id that did not
+// get activated because the user already held a membership in that workspace
+// (ActivatePending's no-duplicate guard). Without this they linger as orphan
+// duplicates next to the backfilled existing membership.
+func (q *Queries) DeleteOrphanPendingDeptMembers(ctx context.Context, externalUniversalID pgtype.Text) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteOrphanPendingDeptMembers, externalUniversalID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const getMember = `-- name: GetMember :one
 SELECT id, workspace_id, user_id, role, created_at, source, status, external_user_id, external_universal_id, employee_id, org_display_name, dept_id, dept_name, dept_path, position, is_main_department, dept_user_status, last_synced_at FROM multica_member
 WHERE id = $1
@@ -371,7 +390,7 @@ func (q *Queries) ListMembersWithUser(ctx context.Context, workspaceID pgtype.UU
 	return items, nil
 }
 
-const refreshDeptMemberSnapshotByUniversalID = `-- name: RefreshDeptMemberSnapshotByUniversalID :exec
+const refreshUserMembershipDeptOrg = `-- name: RefreshUserMembershipDeptOrg :exec
 UPDATE multica_member
 SET org_display_name = $2,
     employee_id = $3,
@@ -382,28 +401,32 @@ SET org_display_name = $2,
     is_main_department = $8,
     dept_user_status = $9,
     last_synced_at = $10
-WHERE external_universal_id = $1
+WHERE user_id = $1
 `
 
-type RefreshDeptMemberSnapshotByUniversalIDParams struct {
-	ExternalUniversalID pgtype.Text        `json:"external_universal_id"`
-	OrgDisplayName      pgtype.Text        `json:"org_display_name"`
-	EmployeeID          pgtype.Text        `json:"employee_id"`
-	DeptID              pgtype.Text        `json:"dept_id"`
-	DeptName            pgtype.Text        `json:"dept_name"`
-	DeptPath            pgtype.Text        `json:"dept_path"`
-	Position            pgtype.Text        `json:"position"`
-	IsMainDepartment    bool               `json:"is_main_department"`
-	DeptUserStatus      pgtype.Int4        `json:"dept_user_status"`
-	LastSyncedAt        pgtype.Timestamptz `json:"last_synced_at"`
+type RefreshUserMembershipDeptOrgParams struct {
+	UserID           pgtype.UUID        `json:"user_id"`
+	OrgDisplayName   pgtype.Text        `json:"org_display_name"`
+	EmployeeID       pgtype.Text        `json:"employee_id"`
+	DeptID           pgtype.Text        `json:"dept_id"`
+	DeptName         pgtype.Text        `json:"dept_name"`
+	DeptPath         pgtype.Text        `json:"dept_path"`
+	Position         pgtype.Text        `json:"position"`
+	IsMainDepartment bool               `json:"is_main_department"`
+	DeptUserStatus   pgtype.Int4        `json:"dept_user_status"`
+	LastSyncedAt     pgtype.Timestamptz `json:"last_synced_at"`
 }
 
 // Rewrites the dept org snapshot (name / department / position) on every
-// member row bound to this universal_id, using freshly fetched dept-sync data.
-// Called on login so a user's org info stays current without re-adding them.
-func (q *Queries) RefreshDeptMemberSnapshotByUniversalID(ctx context.Context, arg RefreshDeptMemberSnapshotByUniversalIDParams) error {
-	_, err := q.db.Exec(ctx, refreshDeptMemberSnapshotByUniversalID,
-		arg.ExternalUniversalID,
+// membership bound to this user — both dept-sourced rows and pre-existing
+// manual / email-invite rows. Keying on user_id (not external_universal_id)
+// means login also backfills org info onto a membership that existed before
+// Casdoor binding (where ActivatePending's no-duplicate guard blocked the
+// separate dept row from activating), so the member list shows the user's
+// org info consistently instead of falling back to email.
+func (q *Queries) RefreshUserMembershipDeptOrg(ctx context.Context, arg RefreshUserMembershipDeptOrgParams) error {
+	_, err := q.db.Exec(ctx, refreshUserMembershipDeptOrg,
+		arg.UserID,
 		arg.OrgDisplayName,
 		arg.EmployeeID,
 		arg.DeptID,

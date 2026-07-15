@@ -262,6 +262,102 @@ func TestLinkDeptMembersOnLogin_RefreshesUserNameFromDeptSync(t *testing.T) {
 	}
 }
 
+// When the user already has a membership in a workspace (e.g. an email-invite
+// "manual" row from before Casdoor binding), ActivatePending's no-duplicate
+// guard blocks the dept row from activating. Login must still backfill the
+// dept-sync org snapshot onto the existing membership (so the member list shows
+// the user's department/position instead of an email fallback) and remove the
+// orphaned pending dept row rather than leaving a duplicate.
+func TestLinkDeptMembersOnLoginBackfillsOrgOnExistingMembership(t *testing.T) {
+	if testHandler == nil {
+		t.Skip("database not available")
+	}
+
+	ctx := context.Background()
+	const email = "login-dept-backfill@example.test"
+	const slug = "handler-login-backfill"
+	const universalID = "uni-login-backfill"
+	_, _ = testPool.Exec(ctx, `DELETE FROM multica_workspace WHERE slug = $1`, slug)
+	_, _ = testPool.Exec(ctx, `DELETE FROM multica_user WHERE email = $1`, email)
+	t.Cleanup(func() {
+		_, _ = testPool.Exec(context.Background(), `DELETE FROM multica_workspace WHERE slug = $1`, slug)
+		_, _ = testPool.Exec(context.Background(), `DELETE FROM multica_user WHERE email = $1`, email)
+	})
+
+	var userID string
+	if err := testPool.QueryRow(ctx, `
+		INSERT INTO multica_user (name, email)
+		VALUES ('Backfill User', $1)
+		RETURNING id
+	`, email).Scan(&userID); err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+	var workspaceID string
+	if err := testPool.QueryRow(ctx, `
+		INSERT INTO multica_workspace (name, slug, description, issue_prefix)
+		VALUES ('Backfill Workspace', $1, '', 'LBF')
+		RETURNING id
+	`, slug).Scan(&workspaceID); err != nil {
+		t.Fatalf("create workspace: %v", err)
+	}
+
+	// Existing email-invite membership: manual, active, no org snapshot.
+	var manualMemberID string
+	if err := testPool.QueryRow(ctx, `
+		INSERT INTO multica_member (workspace_id, user_id, role, source, status)
+		VALUES ($1, $2, 'member', 'manual', 'active')
+		RETURNING id
+	`, workspaceID, userID).Scan(&manualMemberID); err != nil {
+		t.Fatalf("create manual member: %v", err)
+	}
+	// Pending dept row for the same universal_id in the same workspace (stale org).
+	if _, err := testPool.Exec(ctx, `
+		INSERT INTO multica_member (
+			workspace_id, role, source, status, external_user_id, external_universal_id,
+			employee_id, org_display_name, dept_id, dept_name, dept_path, position
+		)
+		VALUES ($1, 'member', 'dept', 'pending_activation', 'E040', $2,
+			'E040', 'Stale Name', 'D400', 'Old Dept', 'R&D/Old', 'Old Role')
+	`, workspaceID, universalID); err != nil {
+		t.Fatalf("create pending dept member: %v", err)
+	}
+
+	prev := testHandler.DeptSync
+	testHandler.DeptSync = fakeWorkspaceDeptClient{users: []deptsync.User{
+		{UserID: "E040", Username: "Fresh User", UniversalID: universalID, DeptID: "D410", DeptName: "New Dept", DeptPath: "R&D/New", Position: "New Role", Status: 1, IsMain: 1},
+	}}
+	t.Cleanup(func() { testHandler.DeptSync = prev })
+
+	testHandler.linkDeptMembersOnLogin(ctx, util.MustParseUUID(userID), universalID)
+
+	// The existing manual membership must now carry the fresh org snapshot.
+	var manualDeptName, manualPosition, manualEmployeeID string
+	if err := testPool.QueryRow(ctx, `
+		SELECT dept_name, position, employee_id FROM multica_member WHERE id = $1
+	`, manualMemberID).Scan(&manualDeptName, &manualPosition, &manualEmployeeID); err != nil {
+		t.Fatalf("load manual member: %v", err)
+	}
+	if manualDeptName != "New Dept" || manualPosition != "New Role" || manualEmployeeID != "E040" {
+		t.Fatalf("existing membership not backfilled: dept=%q position=%q employee=%q", manualDeptName, manualPosition, manualEmployeeID)
+	}
+
+	// The orphaned pending dept row must be gone — exactly one membership for
+	// this user in the workspace (the backfilled manual one), no pending leftover.
+	var userMembers, pendingOrphans int
+	if err := testPool.QueryRow(ctx, `SELECT count(*) FROM multica_member WHERE workspace_id = $1 AND user_id = $2`, workspaceID, userID).Scan(&userMembers); err != nil {
+		t.Fatalf("count user members: %v", err)
+	}
+	if err := testPool.QueryRow(ctx, `SELECT count(*) FROM multica_member WHERE workspace_id = $1 AND external_universal_id = $2 AND status = 'pending_activation'`, workspaceID, universalID).Scan(&pendingOrphans); err != nil {
+		t.Fatalf("count orphan pending: %v", err)
+	}
+	if userMembers != 1 {
+		t.Fatalf("expected exactly 1 membership for the user, got %d", userMembers)
+	}
+	if pendingOrphans != 0 {
+		t.Fatalf("expected the orphan pending dept row to be removed, got %d", pendingOrphans)
+	}
+}
+
 // Sanity: calling linkDeptMembersOnLogin on a user with no pending membership
 // and no matching dept-sync entry must be a silent no-op (login never fails).
 func TestLinkDeptMembersOnLoginNoopWithoutMembership(t *testing.T) {

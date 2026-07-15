@@ -88,10 +88,14 @@ WHERE m.external_universal_id = $1
   )
 RETURNING *;
 
--- name: RefreshDeptMemberSnapshotByUniversalID :exec
+-- name: RefreshUserMembershipDeptOrg :exec
 -- Rewrites the dept org snapshot (name / department / position) on every
--- member row bound to this universal_id, using freshly fetched dept-sync data.
--- Called on login so a user's org info stays current without re-adding them.
+-- membership bound to this user — both dept-sourced rows and pre-existing
+-- manual / email-invite rows. Keying on user_id (not external_universal_id)
+-- means login also backfills org info onto a membership that existed before
+-- Casdoor binding (where ActivatePending's no-duplicate guard blocked the
+-- separate dept row from activating), so the member list shows the user's
+-- org info consistently instead of falling back to email.
 UPDATE multica_member
 SET org_display_name = $2,
     employee_id = $3,
@@ -102,4 +106,14 @@ SET org_display_name = $2,
     is_main_department = $8,
     dept_user_status = $9,
     last_synced_at = $10
-WHERE external_universal_id = $1;
+WHERE user_id = $1;
+
+-- name: DeleteOrphanPendingDeptMembers :execrows
+-- Removes pending_activation dept member rows for a universal_id that did not
+-- get activated because the user already held a membership in that workspace
+-- (ActivatePending's no-duplicate guard). Without this they linger as orphan
+-- duplicates next to the backfilled existing membership.
+DELETE FROM multica_member
+WHERE external_universal_id = $1
+  AND status = 'pending_activation'
+  AND user_id IS NULL;
