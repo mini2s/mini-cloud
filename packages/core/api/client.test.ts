@@ -461,5 +461,29 @@ describe("ApiClient", () => {
       expect(JSON.parse(fetchMock.mock.calls[0]![1]?.body as string)).toEqual({ content: "hello" });
       expect(JSON.parse(fetchMock.mock.calls[1]![1]?.body as string)).toEqual({ content: "again" });
     });
+
+    it("submitSplitReviewChat posts natural language instructions and attachments", async () => {
+      const fetchMock = vi.fn().mockResolvedValue(
+        new Response(JSON.stringify({ tasks: [], progress: { total: 0 } }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      );
+      vi.stubGlobal("fetch", fetchMock);
+
+      const client = new ApiClient("https://api.example.test");
+      await client.submitSplitReviewChat("node-run-1", {
+        content: "把第 2 个 task 拆成前后端",
+        attachment_ids: ["att-1"],
+      });
+
+      const [url, init] = fetchMock.mock.calls[0]!;
+      expect(url).toBe("https://api.example.test/api/node-runs/node-run-1/split/chat");
+      expect(init?.method).toBe("POST");
+      expect(JSON.parse(init?.body as string)).toEqual({
+        content: "把第 2 个 task 拆成前后端",
+        attachment_ids: ["att-1"],
+      });
+    });
   });
 });

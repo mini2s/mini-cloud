@@ -140,9 +140,12 @@ export function NodeDetailSection({
       </div>
       <div className="overflow-hidden rounded-lg border bg-background">
         <div className="flex items-start justify-between gap-3 border-b bg-muted/20 px-3 py-3">
-          <div className="flex min-w-0 items-start gap-2.5">
+          <div className={cn("flex min-w-0 gap-2.5", subtitle ? "items-start" : "items-center")}>
             {icon ? (
-              <span className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-md border bg-background text-muted-foreground">
+              <span className={cn(
+                "flex size-7 shrink-0 items-center justify-center rounded-md border bg-background text-muted-foreground",
+                subtitle && "mt-0.5",
+              )}>
                 {icon}
               </span>
             ) : null}

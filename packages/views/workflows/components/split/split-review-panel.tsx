@@ -1,9 +1,9 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import type { ApproveSplitRequest, SplitTask } from "@multica/core/types";
-import { Activity, CheckCheck, GitBranch, ListTree, Plus, RefreshCcw, SquareX } from "lucide-react";
+import type { ApproveSplitRequest, SplitProgress, SplitTask, WorkflowNode, WorkflowNodeRun } from "@multica/core/types";
+import { Activity, CheckCheck, GitBranch, ListTree, RefreshCcw, SquareX } from "lucide-react";
 import { Button } from "@multica/ui/components/ui/button";
 import { Badge } from "@multica/ui/components/ui/badge";
 import {
@@ -16,13 +16,13 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@multica/ui/components/ui/alert-dialog";
-import type { WorkflowNode, WorkflowNodeRun } from "@multica/core/types";
 import {
   splitTasksOptions,
   useApproveSplitTasks,
   useCancelSplitNode,
   useGenerateSplitTasks,
   useRecoverSplitTasks,
+  useSubmitSplitReviewChat,
 } from "@multica/core/workflows/queries";
 import { childIssuesOptions } from "@multica/core/issues/queries";
 import {
@@ -30,8 +30,9 @@ import {
   WorkflowNodeDetailPanelShell,
 } from "../../../common/workflow-node-detail-panel-shell";
 import { SplitProgressBadge } from "./split-progress-badge";
-import { SplitTaskDag } from "./split-task-dag";
-import { SplitTaskList, type SplitTaskDraft } from "./split-task-list";
+import { SplitDraftLedger } from "./split-draft-ledger";
+import { SplitDependencyNote } from "./split-dependency-note";
+import { SplitChatReview } from "./split-chat-review";
 
 interface SplitReviewPanelProps {
   node: WorkflowNode;
@@ -45,25 +46,19 @@ interface SplitReviewPanelProps {
 
 const TERMINAL_NODE_STATUSES = new Set(["completed", "failed", "cancelled", "skipped"]);
 
+const EMPTY_PROGRESS: SplitProgress = {
+  total: 0,
+  created: 0,
+  running: 0,
+  done: 0,
+  failed: 0,
+  cancelled: 0,
+  skipped: 0,
+};
+
 function isNodeRunCancellable(status: string | null | undefined): boolean {
   if (!status) return false;
   return !TERMINAL_NODE_STATUSES.has(status);
-}
-
-function buildSplitTaskDraft(task: SplitTask): SplitTaskDraft {
-  return {
-    id: task.id,
-    sourceTaskId: task.id,
-    issueId: task.issue_id,
-    title: task.title,
-    description: task.description,
-    dependsOn: task.depends_on,
-    suggestedAssigneeType: task.suggested_assignee_type,
-    suggestedAssigneeId: task.suggested_assignee_id,
-    status: task.status,
-    approved: task.status !== "discarded",
-    deleted: false,
-  };
 }
 
 function splitFailureMessage(nodeRun: WorkflowNodeRun | null): string | null {
@@ -82,118 +77,120 @@ function splitFailureMessage(nodeRun: WorkflowNodeRun | null): string | null {
   return null;
 }
 
-function SplitProgressOverview({
-  status,
-  progress,
-}: {
-  status: string;
-  progress: {
-    total: number;
-    created: number;
-    running: number;
-    done: number;
-    failed: number;
-    cancelled: number;
-    skipped: number;
+function splitConfigFromNode(node: WorkflowNode) {
+  if (
+    node.format_schema &&
+    typeof node.format_schema === "object" &&
+    !Array.isArray(node.format_schema) &&
+    "split_config" in node.format_schema
+  ) {
+    return (node.format_schema as {
+      split_config?: {
+        mode?: string;
+        max_concurrency?: number;
+        max_failures?: number;
+        sub_template_id?: string;
+      };
+    }).split_config;
+  }
+  return undefined;
+}
+
+function creatableTasks(tasks: SplitTask[]): SplitTask[] {
+  return tasks.filter((task) => task.status !== "discarded");
+}
+
+function buildApproveRequest(tasks: SplitTask[]): ApproveSplitRequest {
+  return {
+    approved_task_ids: creatableTasks(tasks).map((task) => task.id),
   };
+}
+
+function verdictTitle(status: string | null | undefined, tasks: SplitTask[]): string {
+  if (status === "failed") return "Split failed";
+  if (status === "split_active") return "Running child issues";
+  if (status === "completed") return "Completed";
+  if (status === "splitting") return "Generating draft";
+  if (creatableTasks(tasks).length > 0) return "Ready to create";
+  return "Needs adjustment";
+}
+
+function splitRiskCount(tasks: SplitTask[]): number {
+  return creatableTasks(tasks).filter((task) => !task.suggested_assignee_id).length;
+}
+
+function SplitVerdictSummary({
+  nodeRun,
+  tasks,
+  progress,
+  splitConfig,
+  isChatPending,
+}: {
+  nodeRun: WorkflowNodeRun | null;
+  tasks: SplitTask[];
+  progress: SplitProgress;
+  splitConfig?: ReturnType<typeof splitConfigFromNode>;
+  isChatPending: boolean;
 }) {
-  const items = [
-    ["Status", status, "split-node-status"],
-    ["Total", progress.total, "split-progress-total"],
-    ["Running", progress.running, "split-progress-running"],
-    ["Done", progress.done, "split-progress-done"],
-    ["Failed", progress.failed, "split-progress-failed"],
-  ] as const;
+  const riskCount = splitRiskCount(tasks);
+  const dependencyCount = creatableTasks(tasks).filter((task) => task.depends_on.length > 0).length;
+  const assigneeCount = new Set(
+    creatableTasks(tasks)
+      .map((task) => task.suggested_assignee_id)
+      .filter(Boolean),
+  ).size;
+  const title = isChatPending ? "Generating draft" : verdictTitle(nodeRun?.status, tasks);
+  const isGenerating = isChatPending || nodeRun?.status === "splitting";
+  const explanation = isGenerating
+    ? "Agent 正在生成草案…"
+    : riskCount === 0 ? "No blocking risk" : `${riskCount} 个 issue 缺少负责人`;
 
   return (
-    <dl className="grid grid-cols-2 gap-x-4 gap-y-2 border-t border-border/60 pt-3 sm:grid-cols-5">
-      {items.map(([label, value, testId]) => (
-        <div key={testId} className="min-w-0">
-          <dt className="text-[10px] font-semibold uppercase text-muted-foreground">
-            {label}
-          </dt>
-          <dd
-            data-testid={testId}
-            className="mt-0.5 truncate text-sm font-medium text-foreground tabular-nums"
-          >
-            {value}
-          </dd>
+    <div className="rounded-lg border bg-muted/20 px-3 py-3">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-sm font-semibold text-foreground">{title}</p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            <span className="tabular-nums">{creatableTasks(tasks).length}</span> 个子 issue ·{" "}
+            <span className="tabular-nums">{assigneeCount}</span> 个负责人 ·{" "}
+            <span className="tabular-nums">{dependencyCount}</span> 条依赖链
+          </p>
         </div>
-      ))}
-    </dl>
+        <Badge variant={nodeRun?.status === "failed" || riskCount > 0 ? "destructive" : "secondary"}>
+          {nodeRun?.status ?? "pending"}
+        </Badge>
+      </div>
+      <p className={riskCount > 0 ? "mt-2 text-xs text-destructive" : "mt-2 text-xs text-muted-foreground"}>
+        {explanation}
+      </p>
+      <details className="mt-2 text-xs text-muted-foreground">
+        <summary className="cursor-pointer text-primary">查看运行设置</summary>
+        <div className="mt-2 flex flex-wrap gap-1.5">
+          <Badge variant="outline">Mode: {splitConfig?.mode ?? "barrier"}</Badge>
+          <Badge variant="outline">Concurrency: {splitConfig?.max_concurrency ?? 5}</Badge>
+          <Badge variant="outline">Max failures: {splitConfig?.max_failures ?? 0}</Badge>
+        </div>
+      </details>
+      <div className="mt-3 grid grid-cols-4 gap-2 text-xs">
+        {[
+          ["Total", progress.total],
+          ["Running", progress.running],
+          ["Done", progress.done],
+          ["Failed", progress.failed],
+        ].map(([label, value]) => (
+          <div key={label} className="min-w-0 rounded-md border bg-background px-2 py-1.5">
+            <p className="truncate text-[10px] uppercase text-muted-foreground">{label}</p>
+            <p
+              data-testid={`split-progress-${String(label).toLowerCase()}`}
+              className="text-sm font-medium tabular-nums"
+            >
+              {value}
+            </p>
+          </div>
+        ))}
+      </div>
+    </div>
   );
-}
-
-function arraysEqual(left: string[], right: string[]): boolean {
-  if (left.length !== right.length) return false;
-  return left.every((value, index) => value === right[index]);
-}
-
-function buildApproveRequest(tasks: SplitTaskDraft[], originalTasks: SplitTask[]): ApproveSplitRequest {
-  const originalTaskMap = new Map(originalTasks.map((task) => [task.id, task]));
-  const approvedTaskIds: string[] = [];
-  const modifications: ApproveSplitRequest["modifications"] = [];
-
-  for (const task of tasks) {
-    if (task.deleted) {
-      if (task.sourceTaskId) {
-        modifications.push({
-          action: "delete",
-          id: task.sourceTaskId,
-        });
-      }
-      continue;
-    }
-
-    if (task.sourceTaskId) {
-      if (task.approved) {
-        approvedTaskIds.push(task.sourceTaskId);
-      }
-
-      const originalTask = originalTaskMap.get(task.sourceTaskId);
-      if (!originalTask) {
-        continue;
-      }
-
-      const changedTitle = task.title !== originalTask.title;
-      const changedDescription = task.description !== originalTask.description;
-      const changedDependsOn = !arraysEqual(task.dependsOn, originalTask.depends_on);
-      const changedAssigneeType = task.suggestedAssigneeType !== originalTask.suggested_assignee_type;
-      const changedAssigneeId = task.suggestedAssigneeId !== originalTask.suggested_assignee_id;
-
-      if (
-        changedTitle ||
-        changedDescription ||
-        changedDependsOn ||
-        changedAssigneeType ||
-        changedAssigneeId
-      ) {
-        modifications.push({
-          id: task.sourceTaskId,
-          ...(changedTitle ? { title: task.title } : {}),
-          ...(changedDescription ? { description: task.description } : {}),
-          ...(changedDependsOn ? { depends_on: task.dependsOn } : {}),
-          ...(changedAssigneeType ? { suggested_assignee_type: task.suggestedAssigneeType } : {}),
-          ...(changedAssigneeId ? { suggested_assignee_id: task.suggestedAssigneeId } : {}),
-        });
-      }
-      continue;
-    }
-
-    modifications.push({
-      action: "add",
-      title: task.title,
-      description: task.description,
-      depends_on: task.dependsOn,
-      suggested_assignee_type: task.suggestedAssigneeType,
-      suggested_assignee_id: task.suggestedAssigneeId,
-    });
-  }
-
-  return {
-    approved_task_ids: approvedTaskIds,
-    modifications,
-  };
 }
 
 export function SplitReviewPanel({
@@ -206,7 +203,7 @@ export function SplitReviewPanel({
   onClose,
 }: SplitReviewPanelProps) {
   const nodeRunId = nodeRun?.id ?? null;
-  const { data, isLoading } = useQuery(splitTasksOptions(nodeRunId));
+  const { data, isLoading } = useQuery(splitTasksOptions(wsId, nodeRunId));
   const { data: childIssues = [] } = useQuery({
     ...childIssuesOptions(wsId, parentIssueId ?? ""),
     enabled: !!parentIssueId,
@@ -214,55 +211,22 @@ export function SplitReviewPanel({
   const generateMutation = useGenerateSplitTasks(wsId);
   const recoverMutation = useRecoverSplitTasks(wsId);
   const approveMutation = useApproveSplitTasks(wsId);
+  const chatMutation = useSubmitSplitReviewChat(wsId);
   const cancelMutation = useCancelSplitNode(wsId);
-  const [draftTasks, setDraftTasks] = useState<SplitTaskDraft[]>([]);
+  const [approveDialogOpen, setApproveDialogOpen] = useState(false);
   const [cancelDialogOpen, setCancelDialogOpen] = useState(false);
-  const nextNewTaskIndexRef = useRef(1);
 
   const tasks = data?.tasks ?? [];
-  const progress = data?.progress ?? {
-    total: 0,
-    created: 0,
-    running: 0,
-    done: 0,
-    failed: 0,
-    cancelled: 0,
-    skipped: 0,
-  };
-
-  const splitConfig =
-    node.format_schema &&
-    typeof node.format_schema === "object" &&
-    !Array.isArray(node.format_schema) &&
-    "split_config" in node.format_schema
-      ? (node.format_schema as { split_config?: {
-          mode?: string;
-          max_concurrency?: number;
-          max_failures?: number;
-          sub_template_id?: string;
-        } }).split_config
-      : undefined;
-
-  useEffect(() => {
-    setDraftTasks(tasks.map(buildSplitTaskDraft));
-    nextNewTaskIndexRef.current = 1;
-  }, [tasks]);
-
-  const canApprove = nodeRun?.status === "awaiting_split_review" && tasks.length > 0;
-  const canEditReview = nodeRun?.status === "awaiting_split_review";
+  const progress = data?.progress ?? EMPTY_PROGRESS;
+  const splitConfig = splitConfigFromNode(node);
+  const creatableCount = creatableTasks(tasks).length;
+  const canApprove = nodeRun?.status === "awaiting_split_review" && creatableCount > 0;
+  const canChat = nodeRun?.status === "awaiting_split_review";
   const canCancel = isNodeRunCancellable(nodeRun?.status);
   const canRecover = nodeRun?.status === "failed";
+  const canGenerate = !!nodeRunId && nodeRun?.status !== "splitting" && (tasks.length === 0 || nodeRun?.status === "failed");
   const failureMessage = splitFailureMessage(nodeRun);
-  const generateLabel = tasks.length > 0 ? "Regenerate tasks" : "Generate tasks";
-  const selectedCount = useMemo(
-    () =>
-      draftTasks.reduce((count, task) => {
-        if (task.deleted) return count;
-        if (!task.sourceTaskId) return count + 1;
-        return task.approved ? count + 1 : count;
-      }, 0),
-    [draftTasks],
-  );
+  const generateLabel = tasks.length > 0 ? "重新生成" : "生成草案";
   const childIssueBySplitTaskId = useMemo(() => {
     const mapping = new Map<string, (typeof childIssues)[number]>();
     for (const childIssue of childIssues) {
@@ -283,13 +247,25 @@ export function SplitReviewPanel({
     await recoverMutation.mutateAsync({ nodeRunId, workflowId, runId });
   };
 
-  const handleApproveAll = async () => {
+  const handleApprove = async () => {
     if (!nodeRunId) return;
     await approveMutation.mutateAsync({
       nodeRunId,
       workflowId,
       runId,
-      request: buildApproveRequest(draftTasks, tasks),
+      request: buildApproveRequest(tasks),
+    });
+    setApproveDialogOpen(false);
+  };
+
+  const handleChatSubmit = async (content: string, attachmentIds?: string[]) => {
+    if (!nodeRunId) return;
+    await chatMutation.mutateAsync({
+      nodeRunId,
+      workflowId,
+      runId,
+      content,
+      attachmentIds,
     });
   };
 
@@ -299,155 +275,39 @@ export function SplitReviewPanel({
     setCancelDialogOpen(false);
   };
 
-  const handleTaskChange = (taskId: string, patch: Partial<SplitTaskDraft>) => {
-    setDraftTasks((current) => current.map((task) => (task.id === taskId ? { ...task, ...patch } : task)));
-  };
-
-  const handleToggleDependency = (taskId: string, dependencyTaskId: string, checked: boolean) => {
-    setDraftTasks((current) =>
-      current.map((task) => {
-        if (task.id !== taskId) return task;
-        const nextDependsOn = checked
-          ? [...task.dependsOn, dependencyTaskId]
-          : task.dependsOn.filter((value) => value !== dependencyTaskId);
-        return {
-          ...task,
-          dependsOn: Array.from(new Set(nextDependsOn)),
-        };
-      }),
-    );
-  };
-
-  const handleDeleteTask = (taskId: string) => {
-    setDraftTasks((current) =>
-      current
-        .map((task) => {
-          if (task.id !== taskId) return task;
-          if (!task.sourceTaskId) return { ...task, deleted: true };
-          return { ...task, deleted: true, approved: false };
-        })
-        .map((task) => ({
-          ...task,
-          dependsOn: task.dependsOn.filter((dependencyId) => dependencyId !== taskId),
-        })),
-    );
-  };
-
-  const handleAddTask = () => {
-    const newTaskId = `new-task-${nextNewTaskIndexRef.current}`;
-    nextNewTaskIndexRef.current += 1;
-    setDraftTasks((current) => [
-      ...current,
-      {
-        id: newTaskId,
-        sourceTaskId: null,
-        title: "",
-        description: "",
-        dependsOn: [],
-        suggestedAssigneeType: null,
-        suggestedAssigneeId: null,
-        status: "draft",
-        approved: true,
-        deleted: false,
-        issueId: null,
-      },
-    ]);
-  };
-
   return (
     <WorkflowNodeDetailPanelShell
       mode="run"
       variant="overlay"
       title={node.title}
-      eyebrow="Split review"
+      eyebrow={nodeRun?.status === "split_active" ? "Split progress" : "Split review"}
       closeLabel="Close"
       onClose={onClose}
+      contentClassName="pb-0"
       badges={(
         <>
-          <Badge variant="secondary">{nodeRun?.status ?? "pending"}</Badge>
+          <Badge variant={nodeRun?.status === "failed" ? "destructive" : "secondary"}>
+            <span data-testid="split-node-status">{nodeRun?.status ?? "pending"}</span>
+          </Badge>
           <SplitProgressBadge progress={progress} />
+          <Badge variant="outline">Mode: {splitConfig?.mode ?? "barrier"}</Badge>
         </>
       )}
     >
       <NodeDetailSection
         sectionId="primary"
         icon={<GitBranch className="size-4" />}
-        title="Split execution"
-        subtitle="Review, generate, and launch child tasks for this split node."
+        title="Verdict"
       >
-        <div className="space-y-2 text-sm text-muted-foreground">
-          <div className="flex flex-wrap items-center gap-2">
-            <Badge variant="outline">Mode: {splitConfig?.mode ?? "barrier"}</Badge>
-            <Badge variant="outline">Concurrency: {splitConfig?.max_concurrency ?? 5}</Badge>
-            <Badge variant="outline">Max failures: {splitConfig?.max_failures ?? 0}</Badge>
-          </div>
-          <p>
-            {tasks.length > 0
-              ? `${tasks.length} split tasks are currently tracked for this node.`
-              : "No split tasks have been generated for this node yet."}
-          </p>
-          <SplitProgressOverview
-            status={nodeRun?.status ?? "pending"}
-            progress={progress}
-          />
-        </div>
-      </NodeDetailSection>
-
-      <NodeDetailSection
-        sectionId="actions"
-        icon={<Activity className="size-4" />}
-        title="Actions"
-        subtitle="Generate a fresh plan, approve the current draft, or cancel the split node."
-      >
-        <div className="flex flex-wrap gap-2">
-          <Button
-            type="button"
-            size="sm"
-            variant="outline"
-            onClick={() => void handleGenerate()}
-            disabled={!nodeRunId || generateMutation.isPending}
-          >
-            <RefreshCcw className="mr-1.5 size-3.5" />
-            {generateMutation.isPending ? "Generating..." : generateLabel}
-          </Button>
-          {canApprove ? (
-            <Button
-              type="button"
-              size="sm"
-              onClick={() => void handleApproveAll()}
-              disabled={approveMutation.isPending || selectedCount === 0}
-            >
-              <CheckCheck className="mr-1.5 size-3.5" />
-              {approveMutation.isPending ? "Approving..." : `Approve selected (${selectedCount})`}
-            </Button>
-          ) : null}
-          {canRecover ? (
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              onClick={() => void handleRecover()}
-              disabled={!nodeRunId || recoverMutation.isPending}
-            >
-              <ListTree className="mr-1.5 size-3.5" />
-              {recoverMutation.isPending ? "Recovering..." : "Recover existing output"}
-            </Button>
-          ) : null}
-          {canCancel ? (
-            <Button
-              type="button"
-              size="sm"
-              variant="destructive"
-              onClick={() => setCancelDialogOpen(true)}
-              disabled={cancelMutation.isPending}
-            >
-              <SquareX className="mr-1.5 size-3.5" />
-              {cancelMutation.isPending ? "Cancelling..." : "Cancel split"}
-            </Button>
-          ) : null}
-        </div>
+        <SplitVerdictSummary
+          nodeRun={nodeRun}
+          tasks={tasks}
+          progress={progress}
+          splitConfig={splitConfig}
+          isChatPending={chatMutation.isPending}
+        />
         {failureMessage ? (
-          <p className="mt-3 rounded-md border border-destructive/25 bg-destructive/5 px-3 py-2 text-sm text-destructive">
+          <p className="rounded-md border border-destructive/25 bg-destructive/5 px-3 py-2 text-sm text-destructive">
             {failureMessage}
           </p>
         ) : null}
@@ -456,43 +316,138 @@ export function SplitReviewPanel({
       <NodeDetailSection
         sectionId="runtime"
         icon={<ListTree className="size-4" />}
-        title="Split tasks"
-        subtitle="Current draft or active child task list for this split node."
+        title="Draft plan"
       >
         {isLoading ? (
-          <p className="text-sm text-muted-foreground">Loading split tasks...</p>
+          <p className="text-sm text-muted-foreground">加载子 issue 草案…</p>
         ) : (
-          <div className="space-y-3">
-            <SplitTaskList
-              tasks={draftTasks}
-              editable={canEditReview}
-              taskIssueBySourceId={childIssueBySplitTaskId}
-              onTaskChange={handleTaskChange}
-              onToggleDependency={handleToggleDependency}
-              onDeleteTask={handleDeleteTask}
-            />
-            {canEditReview ? (
-              <Button type="button" size="sm" variant="outline" onClick={handleAddTask}>
-                <Plus className="mr-1.5 size-3.5" />
-                Add task
-              </Button>
-            ) : null}
-          </div>
+          <SplitDraftLedger tasks={tasks} taskIssueBySourceId={childIssueBySplitTaskId} />
         )}
       </NodeDetailSection>
 
       <NodeDetailSection
         sectionId="connections"
         icon={<GitBranch className="size-4" />}
-        title="Task graph"
-        subtitle="Dependency structure for the current split draft."
+        title="Dependencies"
       >
         {isLoading ? (
-          <p className="text-sm text-muted-foreground">Loading task graph...</p>
+          <p className="text-sm text-muted-foreground">加载依赖关系…</p>
         ) : (
-          <SplitTaskDag tasks={draftTasks} />
+          <SplitDependencyNote tasks={tasks} />
         )}
       </NodeDetailSection>
+
+      {canChat ? (
+        <NodeDetailSection
+          sectionId="agent-operations"
+          icon={<Activity className="size-4" />}
+          title="Ask agent to adjust"
+        >
+          <SplitChatReview
+            disabled={chatMutation.isPending}
+            onSubmit={handleChatSubmit}
+          />
+        </NodeDetailSection>
+      ) : null}
+
+      {canGenerate || canRecover ? (
+        <NodeDetailSection
+          sectionId="actions"
+          icon={<Activity className="size-4" />}
+          title="Actions"
+        >
+          <div className="flex flex-wrap gap-2">
+            {canGenerate ? (
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                onClick={() => void handleGenerate()}
+                disabled={!nodeRunId || generateMutation.isPending || nodeRun?.status === "splitting"}
+              >
+                <RefreshCcw className="mr-1.5 size-3.5" />
+                {generateMutation.isPending ? "生成中…" : generateLabel}
+              </Button>
+            ) : null}
+            {canRecover ? (
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                onClick={() => void handleRecover()}
+                disabled={!nodeRunId || recoverMutation.isPending}
+              >
+                <ListTree className="mr-1.5 size-3.5" />
+                {recoverMutation.isPending ? "恢复中…" : "恢复已有输出"}
+              </Button>
+            ) : null}
+          </div>
+        </NodeDetailSection>
+      ) : null}
+
+      <div className="sticky bottom-0 -mx-4 mt-3 border-t bg-background/95 px-4 py-3 backdrop-blur">
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            {canCancel ? (
+              <Button
+                type="button"
+                size="sm"
+                variant="destructive"
+                onClick={() => setCancelDialogOpen(true)}
+                disabled={cancelMutation.isPending}
+              >
+                <SquareX className="mr-1.5 size-3.5" />
+                {cancelMutation.isPending ? "取消中…" : "取消拆分"}
+              </Button>
+            ) : null}
+          </div>
+          <div className="flex items-center gap-2">
+            {!canApprove && nodeRun?.status === "awaiting_split_review" ? (
+              <span className="text-xs text-muted-foreground">还没有可创建的子 issue</span>
+            ) : null}
+            {canApprove ? (
+              <Button
+                type="button"
+                size="sm"
+                onClick={() => setApproveDialogOpen(true)}
+                disabled={approveMutation.isPending}
+              >
+                <CheckCheck className="mr-1.5 size-3.5" />
+                {approveMutation.isPending ? "创建中…" : `确认创建 ${creatableCount}`}
+              </Button>
+            ) : null}
+          </div>
+        </div>
+      </div>
+
+      <AlertDialog
+        open={approveDialogOpen}
+        onOpenChange={(open) => {
+          if (!approveMutation.isPending) {
+            setApproveDialogOpen(open);
+          }
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>确认创建子 issue？</AlertDialogTitle>
+            <AlertDialogDescription>
+              这会创建 {creatableCount} 个子 issue，并启动对应 workflow。
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={approveMutation.isPending}>
+              取消
+            </AlertDialogCancel>
+            <AlertDialogAction
+              disabled={approveMutation.isPending}
+              onClick={() => void handleApprove()}
+            >
+              {approveMutation.isPending ? "创建中…" : "确认创建"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <AlertDialog
         open={cancelDialogOpen}
@@ -504,21 +459,21 @@ export function SplitReviewPanel({
       >
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Cancel split execution?</AlertDialogTitle>
+            <AlertDialogTitle>取消拆分？</AlertDialogTitle>
             <AlertDialogDescription>
-              This will stop unfinished child tasks and cancel their child issues.
+              这会停止未完成的子 task，并取消对应的子 issue。
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel disabled={cancelMutation.isPending}>
-              Keep running
+              继续运行
             </AlertDialogCancel>
             <AlertDialogAction
               variant="destructive"
               disabled={cancelMutation.isPending}
               onClick={() => void handleCancel()}
             >
-              {cancelMutation.isPending ? "Cancelling..." : "Confirm cancel"}
+              {cancelMutation.isPending ? "取消中…" : "确认取消"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

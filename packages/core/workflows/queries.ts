@@ -33,8 +33,8 @@ export const workflowKeys = {
     [...workflowKeys.nodes(wsId, workflowId), nodeId, "deliverables"] as const,
   nodeRunDeliverables: (nodeRunId: string) =>
     [...workflowKeys.nodeRunsAll(), nodeRunId, "deliverables"] as const,
-  splitTasks: (nodeRunId: string) =>
-    [...workflowKeys.nodeRunsAll(), nodeRunId, "split-tasks"] as const,
+  splitTasks: (wsId: string, nodeRunId: string) =>
+    [...workflowKeys.all(wsId), "node-runs", nodeRunId, "split-tasks"] as const,
   roles: (wsId: string) => [...workflowKeys.all(wsId), "roles"] as const,
 };
 
@@ -138,9 +138,9 @@ export function useSessionPermission(sessionId: string | null | undefined) {
   });
 }
 
-export function splitTasksOptions(nodeRunId: string | null | undefined) {
+export function splitTasksOptions(wsId: string, nodeRunId: string | null | undefined) {
   return queryOptions({
-    queryKey: workflowKeys.splitTasks(nodeRunId ?? ""),
+    queryKey: workflowKeys.splitTasks(wsId, nodeRunId ?? ""),
     queryFn: () => api.listSplitTasks(nodeRunId!),
     enabled: !!nodeRunId,
   });
@@ -306,7 +306,7 @@ function invalidateSplitNodeQueries(
   wsId: string,
   vars: { nodeRunId: string; workflowId?: string; runId?: string },
 ) {
-  queryClient.invalidateQueries({ queryKey: workflowKeys.splitTasks(vars.nodeRunId) });
+  queryClient.invalidateQueries({ queryKey: workflowKeys.splitTasks(wsId, vars.nodeRunId) });
   queryClient.invalidateQueries({ queryKey: workflowKeys.myTasks(wsId) });
   if (vars.workflowId && vars.runId) {
     queryClient.invalidateQueries({ queryKey: workflowKeys.nodeRuns(wsId, vars.workflowId, vars.runId) });
@@ -341,6 +341,22 @@ export function useApproveSplitTasks(wsId: string) {
   return useMutation({
     mutationFn: ({ nodeRunId, request }: SplitMutationVars & { request: ApproveSplitRequest }) =>
       api.approveSplitTasks(nodeRunId, request),
+    onSuccess: (_data, vars) => invalidateSplitNodeQueries(queryClient, wsId, vars),
+  });
+}
+
+export function useSubmitSplitReviewChat(wsId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      nodeRunId,
+      content,
+      attachmentIds,
+    }: SplitMutationVars & { content: string; attachmentIds?: string[] }) =>
+      api.submitSplitReviewChat(nodeRunId, {
+        content,
+        ...(attachmentIds && attachmentIds.length > 0 ? { attachment_ids: attachmentIds } : {}),
+      }),
     onSuccess: (_data, vars) => invalidateSplitNodeQueries(queryClient, wsId, vars),
   });
 }

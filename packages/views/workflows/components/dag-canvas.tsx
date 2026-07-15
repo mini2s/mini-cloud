@@ -74,9 +74,12 @@ export interface WorkflowCanvasProps {
   onEdgeCreate?: (sourceNodeId: string, targetNodeId: string) => void;
   onEdgeDelete?: (edgeId: string) => void;
   onNodeClick?: (nodeId: string) => void;
+  onNodeDoubleClick?: (nodeId: string) => void;
   onNodeCreate?: (type: string, x: number, y: number) => void;
   nodeStatusColors?: Record<string, string>;
   nodeStatuses?: Record<string, { status: string; isRunning: boolean; isAwaitingInput?: boolean }>;
+  splitNodeExpansion?: Record<string, { expanded: boolean; childCount: number }>;
+  onSplitNodeToggle?: (nodeId: string) => void;
   showMiniMap?: boolean;
 }
 
@@ -87,9 +90,12 @@ export function WorkflowCanvas({
   onEdgeCreate,
   onEdgeDelete,
   onNodeClick,
+  onNodeDoubleClick,
   onNodeCreate,
   nodeStatusColors,
   nodeStatuses,
+  splitNodeExpansion,
+  onSplitNodeToggle,
   showMiniMap = true,
 }: WorkflowCanvasProps) {
   const mode = useWorkflowEditorStore((s) => s.mode);
@@ -134,6 +140,10 @@ export function WorkflowCanvas({
     return false;
   }
 
+  function isSplitNode(fs: unknown): boolean {
+    return !!fs && typeof fs === "object" && !Array.isArray(fs) && (fs as Record<string, unknown>).type === "split";
+  }
+
   // Build ReactFlow nodes from props — positions frozen in a ref so they
   // only change when the caller explicitly updates nodes (not during drag).
   // Also filters out nodes that have been marked for deletion.
@@ -144,7 +154,9 @@ export function WorkflowCanvas({
         .filter((n) => !isAnnotationNode(n.format_schema))
         .map((n) => {
           const annotation = isAnnotationNode(n.format_schema);
+          const split = isSplitNode(n.format_schema);
           const { shape, nodeColor, fontSize, nodeWidth, nodeHeight } = parseNodeFormat(n.format_schema);
+          const splitExpansion = splitNodeExpansion?.[n.id];
 
           return {
             id: n.id,
@@ -166,11 +178,26 @@ export function WorkflowCanvas({
               onNodeSelect: handleNodeSelect,
               onNodeResizeStart: handleNodeResizeStart,
               onNodeResizeEnd: handleNodeResize,
+              isSplitNode: split,
+              isSplitExpanded: splitExpansion?.expanded ?? false,
+              splitChildCount: splitExpansion?.childCount ?? 0,
+              onSplitNodeToggle: split ? onSplitNodeToggle : undefined,
             },
           };
         });
     },
-    [nodes, nodeStatusColors, nodeStatuses, deletedNodeIds, mode, handleNodeSelect, handleNodeResizeStart, handleNodeResize],
+    [
+      nodes,
+      nodeStatusColors,
+      nodeStatuses,
+      deletedNodeIds,
+      mode,
+      handleNodeSelect,
+      handleNodeResizeStart,
+      handleNodeResize,
+      splitNodeExpansion,
+      onSplitNodeToggle,
+    ],
   );
 
   // Fit only on initial mount to prevent viewport jumps on mode switch.
@@ -299,6 +326,13 @@ export function WorkflowCanvas({
       onNodeClick?.(node.id);
     },
     [selectNode, selectEdge, onNodeClick],
+  );
+
+  const handleNodeDoubleClick = useCallback(
+    (_: React.MouseEvent, node: Node) => {
+      onNodeDoubleClick?.(node.id);
+    },
+    [onNodeDoubleClick],
   );
 
   // Sync ReactFlow's internal selection to the Zustand store so batch
@@ -515,6 +549,7 @@ export function WorkflowCanvas({
       nodeTypes={nodeTypes}
       edgeTypes={edgeTypes}
       onNodeClick={handleNodeClick}
+      onNodeDoubleClick={handleNodeDoubleClick}
       onNodeDragStart={handleNodeDragStart}
       onNodeDragStop={handleNodeDragStop}
       onNodesChange={handleNodesChange}

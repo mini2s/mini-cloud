@@ -348,7 +348,6 @@ export interface SplitTasksResponse {
 
 export interface ApproveSplitRequest {
   approved_task_ids: string[];
-  modifications: SplitTaskModification[];
 }
 
 export type SplitTaskModification =
