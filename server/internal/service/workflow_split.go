@@ -2017,7 +2017,7 @@ func recoverSplitTasksFromMarkdown(text string) splitGeneratedTaskPayload {
 
 // SplitChatRequest is the payload for the /split/chat endpoint.
 type SplitChatRequest struct {
-	Message       string   `json:"message"`
+	Message       string   `json:"content"`
 	AttachmentIDs []string `json:"attachment_ids"`
 }
 

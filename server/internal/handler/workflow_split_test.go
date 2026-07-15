@@ -1268,7 +1268,7 @@ func TestSplitChatCreatesSessionAndDispatchesTask(t *testing.T) {
 	}
 
 	chatReq := newRequest("POST", "/api/node-runs/"+f.splitNodeRunID+"/split/chat", map[string]any{
-		"message": "请把任务2拆成两个独立任务",
+		"content": "请把任务2拆成两个独立任务",
 	})
 	chatReq = withURLParam(chatReq, "nodeRunId", f.splitNodeRunID)
 	chatResp := httptest.NewRecorder()
@@ -1323,7 +1323,7 @@ func TestSplitChatReusesExistingSession(t *testing.T) {
 	}
 
 	chatReq1 := newRequest("POST", "/api/node-runs/"+f.splitNodeRunID+"/split/chat", map[string]any{
-		"message": "调整任务1的标题",
+		"content": "调整任务1的标题",
 	})
 	chatReq1 = withURLParam(chatReq1, "nodeRunId", f.splitNodeRunID)
 	chatResp1 := httptest.NewRecorder()
@@ -1360,7 +1360,7 @@ func TestSplitChatReusesExistingSession(t *testing.T) {
 	}
 
 	chatReq2 := newRequest("POST", "/api/node-runs/"+f.splitNodeRunID+"/split/chat", map[string]any{
-		"message": "再调整一下任务2",
+		"content": "再调整一下任务2",
 	})
 	chatReq2 = withURLParam(chatReq2, "nodeRunId", f.splitNodeRunID)
 	chatResp2 := httptest.NewRecorder()
@@ -1415,7 +1415,7 @@ func TestSplitChatRejectsConcurrentTask(t *testing.T) {
 	}
 
 	chatReq1 := newRequest("POST", "/api/node-runs/"+f.splitNodeRunID+"/split/chat", map[string]any{
-		"message": "调整任务1",
+		"content": "调整任务1",
 	})
 	chatReq1 = withURLParam(chatReq1, "nodeRunId", f.splitNodeRunID)
 	chatResp1 := httptest.NewRecorder()
@@ -1425,7 +1425,7 @@ func TestSplitChatRejectsConcurrentTask(t *testing.T) {
 	}
 
 	chatReq2 := newRequest("POST", "/api/node-runs/"+f.splitNodeRunID+"/split/chat", map[string]any{
-		"message": "这个应该被拒绝",
+		"content": "这个应该被拒绝",
 	})
 	chatReq2 = withURLParam(chatReq2, "nodeRunId", f.splitNodeRunID)
 	chatResp2 := httptest.NewRecorder()
