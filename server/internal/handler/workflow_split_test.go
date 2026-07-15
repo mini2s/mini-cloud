@@ -1312,6 +1312,87 @@ func TestSplitChatCreatesSessionAndDispatchesTask(t *testing.T) {
 	}
 }
 
+func TestSplitChatCompletionRecoversMarkdownDraftAdjustments(t *testing.T) {
+	if testHandler == nil {
+		t.Skip("database not available")
+	}
+	agentID := createHandlerTestAgent(t, "split-chat-recover-agent", nil)
+	f := createSplitApproveFixture(t, "barrier")
+	ctx := context.Background()
+
+	if _, err := testPool.Exec(ctx, `
+		UPDATE multica_workflow_node SET worker_id = $1, worker_type = 'agent' WHERE id = $2
+	`, agentID, f.splitNodeID); err != nil {
+		t.Fatalf("update node worker: %v", err)
+	}
+	if _, err := testPool.Exec(ctx, `
+		UPDATE multica_workflow_node_run SET worker_id = $1, worker_type = 'agent' WHERE id = $2
+	`, agentID, f.splitNodeRunID); err != nil {
+		t.Fatalf("update node run worker: %v", err)
+	}
+
+	chatReq := newRequest("POST", "/api/node-runs/"+f.splitNodeRunID+"/split/chat", map[string]any{
+		"content": "Use native web technologies for the implementation tasks.",
+	})
+	chatReq = withURLParam(chatReq, "nodeRunId", f.splitNodeRunID)
+	chatResp := httptest.NewRecorder()
+	testHandler.HandleSplitChat(chatResp, chatReq)
+	if chatResp.Code != http.StatusOK {
+		t.Fatalf("HandleSplitChat: expected 200, got %d: %s", chatResp.Code, chatResp.Body.String())
+	}
+
+	var body map[string]any
+	if err := json.Unmarshal(chatResp.Body.Bytes(), &body); err != nil {
+		t.Fatalf("parse chat response: %v", err)
+	}
+	taskID := body["task_id"].(string)
+	claimed, err := testHandler.Queries.ClaimAgentTask(ctx, parseUUID(agentID))
+	if err != nil {
+		t.Fatalf("claim chat task: %v", err)
+	}
+	if uuidToString(claimed.ID) != taskID {
+		t.Fatalf("claimed task = %s, want %s", uuidToString(claimed.ID), taskID)
+	}
+	started, err := testHandler.Queries.StartAgentTask(ctx, claimed.ID)
+	if err != nil {
+		t.Fatalf("start chat task: %v", err)
+	}
+
+	result, err := json.Marshal(map[string]any{
+		"output": strings.Join([]string{
+			"## Task 1: Build native web UI",
+			"Use HTML, CSS, and browser APIs without framework-specific dependencies.",
+			"",
+			"## Task 2: Verify native web behavior",
+			"Add focused checks for the browser interaction and rendering path.",
+		}, "\n"),
+	})
+	if err != nil {
+		t.Fatalf("marshal chat task result: %v", err)
+	}
+	if _, err := testHandler.TaskService.CompleteTask(ctx, started.ID, result, "", ""); err != nil {
+		t.Fatalf("complete chat task: %v", err)
+	}
+
+	tasks, err := testHandler.Queries.ListSplitTasksByNodeRun(ctx, parseUUID(f.splitNodeRunID))
+	if err != nil {
+		t.Fatalf("list split tasks: %v", err)
+	}
+	activeTitles := make([]string, 0, len(tasks))
+	for _, task := range tasks {
+		if task.Status != service.SplitTaskStatusDiscarded {
+			activeTitles = append(activeTitles, task.Title)
+			if task.DraftSource != service.DraftSourceChat {
+				t.Fatalf("draft source for %q = %q, want chat", task.Title, task.DraftSource)
+			}
+		}
+	}
+	wantTitles := []string{"Build native web UI", "Verify native web behavior"}
+	if strings.Join(activeTitles, "|") != strings.Join(wantTitles, "|") {
+		t.Fatalf("active split task titles = %v, want %v", activeTitles, wantTitles)
+	}
+}
+
 func TestSplitChatReusesExistingSession(t *testing.T) {
 	if testHandler == nil {
 		t.Skip("database not available")

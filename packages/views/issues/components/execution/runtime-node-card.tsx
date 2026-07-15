@@ -285,7 +285,9 @@ export function RuntimeNodeCard({
   const splitStatus =
     nodeRun?.status === "split_active"
       ? "active"
-      : nodeRun?.status === "awaiting_split_review"
+      : nodeRun?.status === "splitting"
+        ? "generating"
+        : nodeRun?.status === "awaiting_split_review"
         ? "awaiting_review"
         : nodeRun?.status === "completed"
           ? "completed"

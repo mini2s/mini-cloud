@@ -137,6 +137,7 @@ func buildSplitChatPrompt(task Task) string {
 	b.WriteString("- Do NOT post comments.\n")
 	b.WriteString("- Do NOT modify code, docs, or repository files.\n")
 	b.WriteString("- Do not treat this as a normal chat response; update the split draft set through the draft CLI.\n\n")
+	b.WriteString("Never answer that the task is already complete or that no further operation is needed unless the user's request explicitly asks for no change. A successful run must leave a durable draft update: use the draft CLI, or as a fallback output a clear Markdown task breakdown that the server can recover into draft tasks.\n\n")
 	b.WriteString("Primary success path:\n")
 	b.WriteString("1. Decide which existing drafts to keep, discard or replace based on the user request.\n")
 	b.WriteString("2. Use `cs-workflow workflow split draft delete <node-run-id> <draft-task-id>` to discard drafts that should be removed.\n")

@@ -1,7 +1,7 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { GitBranch } from "lucide-react";
+import { GitBranch, Loader2 } from "lucide-react";
 import type { SplitConfig, SplitProgress } from "@multica/core/types";
 import { cn } from "@multica/ui/lib/utils";
 import { SplitProgressBadge } from "./split-progress-badge";
@@ -10,7 +10,7 @@ export interface SplitNodeCardProps {
   title: string;
   config?: SplitConfig | null;
   progress?: SplitProgress | null;
-  status?: "editing" | "awaiting_review" | "active" | "completed" | "idle";
+  status?: "editing" | "generating" | "awaiting_review" | "active" | "completed" | "idle";
   taskCount?: number;
   childWorkflowName?: string | null;
   className?: string;
@@ -35,7 +35,9 @@ export function SplitNodeCard({
   const maxConcurrency = config?.max_concurrency ?? 5;
   const showProgress = (status === "active" || status === "completed") && (progress || progressAction);
   const label =
-    status === "awaiting_review"
+    status === "generating"
+      ? "Generating draft tasks"
+      : status === "awaiting_review"
       ? `Review ${taskCount} tasks`
       : showProgress
         ? null
@@ -51,7 +53,11 @@ export function SplitNodeCard({
       )}
     >
       <div className="flex min-w-0 items-center gap-2">
-        <GitBranch className="size-4 shrink-0 text-primary" aria-hidden />
+        {status === "generating" ? (
+          <Loader2 className="size-4 shrink-0 animate-spin text-amber-500" aria-hidden />
+        ) : (
+          <GitBranch className="size-4 shrink-0 text-primary" aria-hidden />
+        )}
         <span className="min-w-0 flex-1 truncate text-sm font-semibold">{title}</span>
         {headerAction ? <span className="shrink-0">{headerAction}</span> : null}
       </div>
@@ -67,6 +73,7 @@ export function SplitNodeCard({
       ) : (
         <span className={cn(
           "truncate text-xs text-muted-foreground",
+          status === "generating" && "font-medium text-amber-600",
           status === "awaiting_review" && "font-medium text-amber-600",
         )}>
           {label}

@@ -367,6 +367,8 @@ func TestBuildPromptSplitChatAdjustsExistingDrafts(t *testing.T) {
 		"cs-workflow workflow split draft add",
 		"cs-workflow workflow split draft submit",
 		"discard or replace",
+		"Never answer that the task is already complete",
+		"durable draft update",
 		"Do NOT create issues",
 		"Do NOT change issue status",
 		"Do NOT post comments",

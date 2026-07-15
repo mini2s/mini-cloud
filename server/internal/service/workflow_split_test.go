@@ -536,6 +536,20 @@ func TestSplitChatRejectsEmptyMessage(t *testing.T) {
 	}
 }
 
+func TestShouldProcessSplitTaskCompletionIncludesSplitChatReview(t *testing.T) {
+	if !shouldProcessSplitTaskCompletion(NodeRunStatusAwaitingSplitReview, []byte(`{"phase":"split_chat"}`)) {
+		t.Fatal("split chat completion in awaiting_split_review must be processed")
+	}
+
+	if !shouldProcessSplitTaskCompletion(NodeRunStatusSplitting, []byte(`{"phase":"split_generate"}`)) {
+		t.Fatal("split generation completion in splitting must be processed")
+	}
+
+	if shouldProcessSplitTaskCompletion(NodeRunStatusAwaitingSplitReview, []byte(`{"phase":"split_generate"}`)) {
+		t.Fatal("split generation completion must not be processed from awaiting_split_review")
+	}
+}
+
 func TestSplitProgressSummaryCountsByStatus(t *testing.T) {
 	taskID := pgtype.UUID{Bytes: [16]byte{1}, Valid: true}
 	tasks := []db.MulticaWorkflowSplitTask{

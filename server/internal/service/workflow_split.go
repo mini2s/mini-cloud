@@ -1083,7 +1083,7 @@ func (s *SplitOrchestrator) handleTaskCompletion(ctx context.Context, task db.Mu
 	if err != nil {
 		return fmt.Errorf("get split node run: %w", err)
 	}
-	if nodeRun.Status != NodeRunStatusSplitting {
+	if !shouldProcessSplitTaskCompletion(nodeRun.Status, task.Context) {
 		return nil
 	}
 
@@ -1091,7 +1091,7 @@ func (s *SplitOrchestrator) handleTaskCompletion(ctx context.Context, task db.Mu
 	if err != nil {
 		return fmt.Errorf("list existing split tasks: %w", err)
 	}
-	if len(existing) > 0 {
+	if len(existing) > 0 && !isSplitChatPhase(task.Context) {
 		if err := validateDraftSplitTaskRows(existing); err == nil {
 			return s.transitionSplitDraftsToReview(ctx, nodeRun)
 		}
@@ -1107,16 +1107,36 @@ func (s *SplitOrchestrator) handleTaskCompletion(ctx context.Context, task db.Mu
 
 	payload, err := s.recoverSplitGeneratedTaskPayloadFromTaskSources(ctx, task)
 	if err != nil {
+		if isSplitChatPhase(task.Context) {
+			return err
+		}
 		if !isSplitRepairPhase(task.Context) {
 			return s.dispatchSplitRepairTask(ctx, nodeRun, task, err)
 		}
 		return err
 	}
-	if err := s.replaceSplitDraftTasksFromPayload(ctx, nodeRun, existing, payload, pgtype.Text{String: DraftSourceAgent, Valid: true}); err != nil {
+	draftSource := DraftSourceAgent
+	if isSplitChatPhase(task.Context) {
+		draftSource = DraftSourceChat
+	}
+	if err := s.replaceSplitDraftTasksFromPayload(ctx, nodeRun, existing, payload, pgtype.Text{String: draftSource, Valid: true}); err != nil {
 		return err
+	}
+	if nodeRun.Status == NodeRunStatusAwaitingSplitReview {
+		return nil
 	}
 	_, err = s.WfService.TransitionNodeRun(ctx, nodeRun, NodeRunStatusAwaitingSplitReview)
 	return err
+}
+
+func shouldProcessSplitTaskCompletion(status string, contextJSON []byte) bool {
+	if isSplitChatPhase(contextJSON) {
+		return status == NodeRunStatusAwaitingSplitReview
+	}
+	if isSplitGeneratePhase(contextJSON) || isSplitRepairPhase(contextJSON) {
+		return status == NodeRunStatusSplitting
+	}
+	return false
 }
 
 func (s *SplitOrchestrator) dispatchSplitRepairTask(ctx context.Context, nodeRun db.MulticaWorkflowNodeRun, sourceTask db.MulticaAgentTaskQueue, recoveryErr error) error {

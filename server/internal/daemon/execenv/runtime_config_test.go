@@ -234,12 +234,15 @@ func TestSplitPhaseRuntimeBriefSkipsAssignmentWorkflow(t *testing.T) {
 	t.Parallel()
 	const issueID = "split-issue-1"
 	out := buildMetaSkillContent("claude", TaskContextForEnv{
-		IssueID:       issueID,
-		WorkflowPhase: "split",
+		IssueID:           issueID,
+		WorkflowNodeRunID: "node-run-1",
+		WorkflowPhase:     "split",
 	})
 
 	for _, want := range []string{
 		"dynamic split-task generator",
+		"node-run-1",
+		"Use this exact node-run-id",
 		"split draft CLI",
 		"cs-workflow workflow split draft add",
 		"cs-workflow workflow split draft submit",
@@ -288,6 +291,8 @@ func TestSplitChatRuntimeBriefSkipsChatAndAssignmentWorkflow(t *testing.T) {
 		"cs-workflow workflow split draft delete",
 		"cs-workflow workflow split draft add",
 		"cs-workflow workflow split draft submit",
+		"Never answer that the task is already complete",
+		"durable draft update",
 		"Do NOT create issues",
 		"Do NOT post comments",
 		"Do NOT change issue status",

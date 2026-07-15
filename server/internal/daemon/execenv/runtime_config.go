@@ -300,6 +300,9 @@ func buildMetaSkillContent(provider string, ctx TaskContextForEnv) string {
 			b.WriteString("**This task is a dynamic split-task generator.** Produce draft child tasks for human review; the platform will create child issues later.\n\n")
 		}
 		fmt.Fprintf(&b, "- Read the planning issue with `cs-workflow issue get %s --output json`.\n", ctx.IssueID)
+		if ctx.WorkflowNodeRunID != "" {
+			fmt.Fprintf(&b, "- Use this exact node-run-id for every split draft command: `%s`.\n", ctx.WorkflowNodeRunID)
+		}
 		b.WriteString("- Use read-only CLI commands for context. Inspect comments only when the issue body is insufficient.\n")
 		b.WriteString("- Use the split draft CLI as the primary path: run `cs-workflow workflow split draft add <node-run-id>` once per draft task, then `cs-workflow workflow split draft submit <node-run-id>` when the draft set is complete.\n")
 		b.WriteString("- Give each draft a stable `--key`, a clear `--title`, a complete `--description-file`, an `--assignee agent:<uuid>` or `--assignee member:<uuid>`, and `--depends-on <key>` only when the dependency is real.\n")
@@ -331,6 +334,7 @@ func buildMetaSkillContent(provider string, ctx TaskContextForEnv) string {
 		b.WriteString("- Do NOT change issue status.\n")
 		b.WriteString("- Do NOT modify code, docs, or repository files.\n")
 		b.WriteString("- Do NOT answer as a normal chat assistant; the durable result is the submitted draft set.\n\n")
+		b.WriteString("Never answer that the task is already complete or that no further operation is needed unless the user's request explicitly asks for no change. A successful run must leave a durable draft update through the split draft CLI, or as a fallback a recoverable Markdown task breakdown.\n\n")
 	} else if ctx.ChatSessionID != "" {
 		// Chat task: interactive assistant mode
 		b.WriteString("**You are in chat mode.** A user is messaging you directly in a chat window.\n\n")

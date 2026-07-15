@@ -400,6 +400,43 @@ describe("RuntimeNodeCard", () => {
     expect(screen.queryByText("Critic")).not.toBeInTheDocument();
   });
 
+  it("shows an explicit draft-generation state while split planner is running", () => {
+    render(
+      <RuntimeNodeCard
+        node={{
+          ...baseNode,
+          id: "split-generating",
+          title: "Task split",
+          format_schema: {
+            type: "split",
+            template_id: "task-splitter",
+            split_config: {
+              child_workflow_id: "child-wf-1",
+              mode: "barrier",
+              max_concurrency: 5,
+              max_failures: 0,
+            },
+          },
+        }}
+        nodeRun={{ ...completedRun, workflow_node_id: "split-generating", status: "splitting" }}
+        runtimeSummary={{
+          ...runtimeSummary,
+          workflow_node_id: "split-generating",
+          display_status: "in_progress",
+          split_progress: null,
+        }}
+        workerName="Tester"
+        criticName="Reviewer"
+        onClick={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText("Generating draft tasks")).toBeInTheDocument();
+    expect(screen.queryByText(/barrier/)).not.toBeInTheDocument();
+    expect(screen.queryByText("Worker")).not.toBeInTheDocument();
+    expect(screen.queryByText("Critic")).not.toBeInTheDocument();
+  });
+
   it("renders split child progress as the expansion control without opening the split panel", async () => {
     const onClick = vi.fn();
     const onSplitNodeToggle = vi.fn();
