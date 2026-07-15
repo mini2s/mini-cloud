@@ -198,15 +198,6 @@ vi.mock("sonner", () => ({
 // ---------------------------------------------------------------------------
 // Mock child components
 // ---------------------------------------------------------------------------
-vi.mock("../../../workflows/components/overview/stage-lane", () => ({
-  StageLane: ({
-    stage,
-  }: {
-    stage: { id: string; name: string };
-    nodeIds?: unknown[];
-  }) => <div data-testid={`stage-lane-${stage.id}`}>{stage.name}</div>,
-}));
-
 vi.mock("./execution-detail-panel", () => ({
   ExecutionDetailPanel: ({
     node,
@@ -257,9 +248,6 @@ vi.mock("../../../workflows/components/split/split-review-panel", () => ({
   ),
 }));
 
-vi.mock("../../../workflows/components/overview/panorama-svg-overlay", () => ({
-  PanoramaSvgOverlay: () => <svg data-testid="panorama-svg-overlay" />,
-}));
 
 vi.mock("./global-notification-bar", () => ({
   GlobalNotificationBar: ({

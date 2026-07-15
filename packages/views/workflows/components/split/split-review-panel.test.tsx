@@ -143,12 +143,6 @@ vi.mock("./split-progress-badge", () => ({
   ),
 }));
 
-vi.mock("./split-task-dag", () => ({
-  SplitTaskDag: ({ tasks }: { tasks: Array<{ id: string; dependsOn: string[] }> }) => (
-    <div data-testid="split-task-dag">{tasks.length}:{tasks.filter((task) => task.dependsOn.length > 0).length}</div>
-  ),
-}));
-
 vi.mock("./split-chat-review", () => ({
   SplitChatReview: ({
     disabled,
