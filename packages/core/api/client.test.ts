@@ -521,6 +521,50 @@ describe("ApiClient", () => {
         "https://api.example.test/api/plugins/figma",
       );
     });
+
+    it("requests 100 cloud plugins and falls back on a malformed catalog response", async () => {
+      const fetchMock = vi
+        .fn()
+        .mockResolvedValueOnce(
+          new Response(
+            JSON.stringify({
+              items: [
+                {
+                  id: "cloud-plugin",
+                  name: "Cloud Plugin",
+                  description: "Hosted catalog plugin",
+                  slug: "cloud-plugin",
+                  version: "1.0.0",
+                  category: "tools",
+                },
+              ],
+              total: 1,
+              page: 1,
+              pageSize: 100,
+              hasMore: false,
+            }),
+            { status: 200, headers: { "Content-Type": "application/json" } },
+          ),
+        )
+        .mockResolvedValueOnce(
+          new Response(JSON.stringify({ items: null }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          }),
+        );
+      vi.stubGlobal("fetch", fetchMock);
+
+      const client = new ApiClient("https://api.example.test");
+      await expect(
+        client.listCatalogPlugins({ search: " review ", page: 1, pageSize: 100 }),
+      ).resolves.toMatchObject({ total: 1 });
+      await expect(client.listCatalogPlugins()).resolves.toEqual(
+        expect.objectContaining({ items: [], total: 0 }),
+      );
+      expect(fetchMock.mock.calls[0]?.[0]).toBe(
+        "https://api.example.test/api/catalog/plugins?q=review&page=1&pageSize=100",
+      );
+    });
   });
 
   describe("catalog skills", () => {

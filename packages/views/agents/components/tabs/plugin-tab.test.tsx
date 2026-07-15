@@ -13,6 +13,7 @@ import { toast } from "sonner";
 const TEST_RESOURCES = { en: { common: enCommon, agents: enAgents } };
 
 const mockListBuiltinPlugins = vi.hoisted(() => vi.fn());
+const mockListCatalogPlugins = vi.hoisted(() => vi.fn());
 const mockGetPlugin = vi.hoisted(() => vi.fn());
 const mockUpdateAgent = vi.hoisted(() => vi.fn());
 const mockListAgentCloudSkills = vi.hoisted(() => vi.fn());
@@ -26,6 +27,7 @@ vi.mock("@multica/core/hooks", () => ({
 vi.mock("@multica/core/api", () => ({
   api: {
     listBuiltinPlugins: (...args: unknown[]) => mockListBuiltinPlugins(...args),
+    listCatalogPlugins: (...args: unknown[]) => mockListCatalogPlugins(...args),
     getPlugin: (...args: unknown[]) => mockGetPlugin(...args),
     updateAgent: (...args: unknown[]) => mockUpdateAgent(...args),
     listAgentCloudSkills: (...args: unknown[]) =>
@@ -109,6 +111,13 @@ describe("PluginTab", () => {
       pageSize: 100,
       hasMore: false,
     });
+    mockListCatalogPlugins.mockResolvedValue({
+      items: [],
+      total: 0,
+      page: 1,
+      pageSize: 100,
+      hasMore: false,
+    });
     mockGetPlugin.mockResolvedValue({
       id: "search-only",
       name: "Search Only",
@@ -134,6 +143,58 @@ describe("PluginTab", () => {
     expect(await screen.findByText("Search Only")).toBeInTheDocument();
     expect(screen.queryByText(/Unavailable/i)).not.toBeInTheDocument();
     expect(mockGetPlugin).toHaveBeenCalledWith("search-only");
+  });
+
+  it("shows built-in plugins first, then distinct cloud plugins", async () => {
+    const builtin = {
+      id: "builtin-1",
+      name: "Built-in One",
+      description: "Bundled plugin",
+      slug: "builtin-one",
+      version: "1.0.0",
+      category: "tools",
+    };
+    mockListBuiltinPlugins.mockResolvedValue({
+      items: [builtin],
+      total: 1,
+      page: 1,
+      pageSize: 100,
+      hasMore: false,
+    });
+    mockListCatalogPlugins.mockResolvedValue({
+      items: [
+        builtin,
+        {
+          id: "cloud-1",
+          name: "Cloud One",
+          description: "Cloud plugin",
+          slug: "cloud-one",
+          version: "1.0.0",
+          category: "tools",
+        },
+      ],
+      total: 2,
+      page: 1,
+      pageSize: 100,
+      hasMore: false,
+    });
+
+    renderPluginTab();
+
+    const builtinRows = await screen.findAllByRole("button", { name: /Built-in One/i });
+    const cloudRows = await screen.findAllByRole("button", { name: /Cloud One/i });
+    expect(builtinRows).toHaveLength(2);
+    expect(cloudRows).toHaveLength(2);
+    expect(screen.getAllByText("Built-in")).toHaveLength(2);
+    expect(screen.getAllByText("Cloud plugins")).toHaveLength(2);
+    expect(
+      builtinRows[0]!.compareDocumentPosition(cloudRows[0]!) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(mockListCatalogPlugins).toHaveBeenCalledWith({
+      search: "",
+      page: 1,
+      pageSize: 100,
+    });
   });
 
   it("renders the empty cloud skills state when there are no bindings", async () => {

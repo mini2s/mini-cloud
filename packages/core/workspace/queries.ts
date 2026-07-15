@@ -155,6 +155,8 @@ export function assigneeFrequencyOptions(wsId: string) {
 export const pluginKeys = {
   all: ["plugins"] as const,
   builtin: (search = "") => [...pluginKeys.all, "builtin", search.trim()] as const,
+  catalog: (search = "") =>
+    [...pluginKeys.all, "catalog", search.trim()] as const,
   detail: (id: string) => [...pluginKeys.all, "detail", id.trim()] as const,
 };
 
@@ -166,6 +168,21 @@ export function builtinPluginListOptions(search = "") {
     // Builtin plugin catalog changes very infrequently — cache for 30 min.
     staleTime: 30 * 60 * 1000,
     // Start with empty list while loading.
+    placeholderData: EMPTY_BUILTIN_PLUGIN_LIST,
+  });
+}
+
+export function catalogPluginListOptions(search = "") {
+  const normalizedSearch = search.trim();
+  return queryOptions<BuiltinPluginListResponse>({
+    queryKey: pluginKeys.catalog(normalizedSearch),
+    queryFn: () =>
+      api.listCatalogPlugins({
+        search: normalizedSearch,
+        page: 1,
+        pageSize: 100,
+      }),
+    staleTime: 30 * 60 * 1000,
     placeholderData: EMPTY_BUILTIN_PLUGIN_LIST,
   });
 }

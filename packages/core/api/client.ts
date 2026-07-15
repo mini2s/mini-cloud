@@ -899,7 +899,9 @@ export class ApiClient {
     const q = params?.search?.trim();
     if (q) search.set("q", q);
     if (params?.page !== undefined) search.set("page", String(params.page));
-    if (params?.pageSize !== undefined) search.set("pageSize", String(params.pageSize));
+    if (params?.pageSize !== undefined) {
+      search.set("pageSize", String(params.pageSize));
+    }
     const query = search.toString();
     const endpoint = `/api/plugins/builtin${query ? `?${query}` : ""}`;
 
@@ -916,6 +918,41 @@ export class ApiClient {
       });
       return EMPTY_BUILTIN_PLUGIN_LIST;
     });
+  }
+
+  /**
+   * Search the public cloud plugin catalog. The backend requests up to 100
+   * plugins ordered by favorite count and fails open to an empty list.
+   */
+  async listCatalogPlugins(params?: {
+    search?: string;
+    page?: number;
+    pageSize?: number;
+    signal?: AbortSignal;
+  }): Promise<BuiltinPluginListResponse> {
+    const search = new URLSearchParams();
+    const q = params?.search?.trim();
+    if (q) search.set("q", q);
+    if (params?.page !== undefined) search.set("page", String(params.page));
+    if (params?.pageSize !== undefined) search.set("pageSize", String(params.pageSize));
+    const query = search.toString();
+    const endpoint = `/api/catalog/plugins${query ? `?${query}` : ""}`;
+
+    return this.fetch(endpoint, { signal: params?.signal })
+      .then((raw) =>
+        parseWithFallback(
+          raw,
+          BuiltinPluginListResponseSchema,
+          EMPTY_BUILTIN_PLUGIN_LIST,
+          { endpoint: "GET /api/catalog/plugins" },
+        ),
+      )
+      .catch((err) => {
+        this.logger.warn("Catalog plugin API unavailable", {
+          error: err instanceof Error ? err.message : "unknown error",
+        });
+        return EMPTY_BUILTIN_PLUGIN_LIST;
+      });
   }
 
   async getPlugin(id: string): Promise<BuiltinPlugin> {

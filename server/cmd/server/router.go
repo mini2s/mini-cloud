@@ -312,6 +312,7 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 	r.Get("/api/config", h.GetConfig)
 	r.Get("/api/plugins/builtin", h.ListBuiltinPlugins)
 	r.Get("/api/plugins/{id}", h.GetPlugin)
+	r.Get("/api/catalog/plugins", h.ListCatalogPlugins)
 	r.Get("/api/catalog/skills", h.ListCatalogSkills)
 	r.Get("/api/catalog/skills/{id}", h.GetCatalogSkill)
 	r.With(contactSalesRL).Post("/api/contact-sales", h.CreateContactSales)

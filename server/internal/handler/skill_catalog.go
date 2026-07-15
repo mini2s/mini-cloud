@@ -14,8 +14,9 @@ import (
 )
 
 const catalogSkillType = "skill"
+const catalogPluginType = "plugin"
 
-func emptyCatalogSkillListResponse() map[string]any {
+func emptyCatalogItemListResponse() map[string]any {
 	return map[string]any{
 		"items":    []any{},
 		"total":    0,
@@ -25,19 +26,19 @@ func emptyCatalogSkillListResponse() map[string]any {
 	}
 }
 
-func catalogSkillSearch(values url.Values) string {
+func catalogItemSearch(values url.Values) string {
 	if search := strings.TrimSpace(values.Get("q")); search != "" {
 		return search
 	}
 	return strings.TrimSpace(values.Get("search"))
 }
 
-func catalogSkillListParams(values url.Values) url.Values {
-	search := catalogSkillSearch(values)
+func catalogItemListParams(values url.Values, itemType string) url.Values {
+	search := catalogItemSearch(values)
 	page, pageSize := builtinPluginPagination(values)
 
 	params := url.Values{}
-	params.Set("type", catalogSkillType)
+	params.Set("type", itemType)
 	params.Set("page", strconv.Itoa(page))
 	params.Set("pageSize", strconv.Itoa(pageSize))
 	if search != "" {
@@ -46,25 +47,47 @@ func catalogSkillListParams(values url.Values) url.Values {
 	return params
 }
 
+func catalogSkillListParams(values url.Values) url.Values {
+	return catalogItemListParams(values, catalogSkillType)
+}
+
+func catalogPluginListParams(values url.Values) url.Values {
+	params := catalogItemListParams(values, catalogPluginType)
+	params.Set("sortBy", "favoriteCount")
+	params.Set("sortOrder", "desc")
+	return params
+}
+
 // ListCatalogSkills proxies public skill catalog searches from the shared cloud
 // capability catalog. It fails open to an empty list so catalog downtime does
 // not block the rest of the API.
 func (h *Handler) ListCatalogSkills(w http.ResponseWriter, r *http.Request) {
+	h.listCatalogItems(w, r, "catalog skill", catalogSkillListParams(r.URL.Query()))
+}
+
+// ListCatalogPlugins proxies public plugin catalog searches from the shared
+// cloud capability catalog. Results are ordered by popularity and capped by
+// the shared pagination helper at 100 items per request.
+func (h *Handler) ListCatalogPlugins(w http.ResponseWriter, r *http.Request) {
+	h.listCatalogItems(w, r, "catalog plugin", catalogPluginListParams(r.URL.Query()))
+}
+
+func (h *Handler) listCatalogItems(w http.ResponseWriter, r *http.Request, logPrefix string, params url.Values) {
 	baseURL := h.cfg.BuiltinPluginAPIBaseURL
 	if baseURL == "" {
-		writeJSON(w, http.StatusOK, emptyCatalogSkillListResponse())
+		writeJSON(w, http.StatusOK, emptyCatalogItemListResponse())
 		return
 	}
 
-	proxyURL, err := buildPluginCatalogURL(baseURL, "/api/items", catalogSkillListParams(r.URL.Query()))
+	proxyURL, err := buildPluginCatalogURL(baseURL, "/api/items", params)
 	if err != nil {
-		slog.Warn("catalog skill: failed to build list proxy URL", "error", err)
+		slog.Warn(logPrefix+": failed to build list proxy URL", "error", err)
 		writeError(w, http.StatusInternalServerError, "failed to build proxy request")
 		return
 	}
 	req, err := http.NewRequestWithContext(r.Context(), http.MethodGet, proxyURL, nil)
 	if err != nil {
-		slog.Warn("catalog skill: failed to build list proxy request", "error", err)
+		slog.Warn(logPrefix+": failed to build list proxy request", "error", err)
 		writeError(w, http.StatusInternalServerError, "failed to build proxy request")
 		return
 	}
@@ -72,21 +95,21 @@ func (h *Handler) ListCatalogSkills(w http.ResponseWriter, r *http.Request) {
 	client := &http.Client{Timeout: 5 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
-		slog.Warn("catalog skill: list proxy API unreachable", "url", proxyURL, "error", err)
-		writeJSON(w, http.StatusOK, emptyCatalogSkillListResponse())
+		slog.Warn(logPrefix+": list proxy API unreachable", "url", proxyURL, "error", err)
+		writeJSON(w, http.StatusOK, emptyCatalogItemListResponse())
 		return
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		slog.Warn("catalog skill: list proxy API returned non-200", "status", resp.StatusCode)
-		writeJSON(w, http.StatusOK, emptyCatalogSkillListResponse())
+		slog.Warn(logPrefix+": list proxy API returned non-200", "status", resp.StatusCode)
+		writeJSON(w, http.StatusOK, emptyCatalogItemListResponse())
 		return
 	}
 
 	var body any
 	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
-		slog.Warn("catalog skill: failed to decode list proxy response", "error", err)
+		slog.Warn(logPrefix+": failed to decode list proxy response", "error", err)
 		writeError(w, http.StatusInternalServerError, "failed to decode proxy response")
 		return
 	}

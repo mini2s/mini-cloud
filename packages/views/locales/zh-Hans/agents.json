@@ -326,6 +326,14 @@
       "select_action": "选择插件",
       "empty_title": "未选择插件",
       "empty_hint": "从市场中选择一个插件来扩展该智能体的能力。",
+      "picker": {
+        "search_placeholder": "搜索插件",
+        "loading": "正在加载插件…",
+        "empty": "暂无可用插件",
+        "no_match": "没有匹配的插件",
+        "builtin_section": "内置",
+        "cloud_section": "云端插件"
+      },
       "cloud_skills": {
         "section_title": "Skills",
         "intro": "绑定到该智能体的 skill，不会导入到工作区中。",

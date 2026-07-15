@@ -224,6 +224,61 @@ func TestListCatalogSkills(t *testing.T) {
 	})
 }
 
+func TestListCatalogPlugins(t *testing.T) {
+	t.Run("forwards plugin type, popularity sort, search, and capped page size", func(t *testing.T) {
+		upstream := newPluginUpstream(http.StatusOK,
+			`{"items":[{"id":"p1","name":"Plugin One"}],"total":1,"page":1,"pageSize":100,"hasMore":false}`)
+		defer upstream.close()
+
+		h := newTestHandler(Config{BuiltinPluginAPIBaseURL: upstream.baseURL()})
+		req := httptest.NewRequest(http.MethodGet, "/api/catalog/plugins?q=review&pageSize=999", nil)
+		w := httptest.NewRecorder()
+
+		h.ListCatalogPlugins(w, req)
+
+		if w.Code != http.StatusOK {
+			t.Fatalf("status: want 200, got %d: %s", w.Code, w.Body.String())
+		}
+		if got := upstream.lastPath(); got != "/api/items" {
+			t.Fatalf("upstream path: want /api/items, got %q", got)
+		}
+		q := upstream.lastQuery()
+		for key, want := range map[string]string{
+			"type":      "plugin",
+			"page":      "1",
+			"pageSize":  "100",
+			"search":    "review",
+			"sortBy":    "favoriteCount",
+			"sortOrder": "desc",
+		} {
+			if got := q.Get(key); got != want {
+				t.Errorf("%s param: want %q, got %q", key, want, got)
+			}
+		}
+
+		var env pluginListEnvelope
+		if err := json.Unmarshal(w.Body.Bytes(), &env); err != nil {
+			t.Fatalf("decode response: %v", err)
+		}
+		if len(env.Items) != 1 || env.Items[0]["id"] != "p1" {
+			t.Fatalf("forwarded items: want [{id:p1}], got %#v", env.Items)
+		}
+	})
+
+	t.Run("unconfigured catalog returns an empty envelope", func(t *testing.T) {
+		h := newTestHandler(Config{})
+		req := httptest.NewRequest(http.MethodGet, "/api/catalog/plugins", nil)
+		w := httptest.NewRecorder()
+
+		h.ListCatalogPlugins(w, req)
+
+		if w.Code != http.StatusOK {
+			t.Fatalf("status: want 200, got %d: %s", w.Code, w.Body.String())
+		}
+		assertEmptyPluginEnvelope(t, w.Body.Bytes())
+	})
+}
+
 // TestGetCatalogSkill covers the public GET /api/catalog/skills/{id} proxy: it
 // forwards to /api/items/{id}, surfaces upstream 404 as 404 and other
 // failures as 502, rejects non-skill/private/missing-visibility items with 404

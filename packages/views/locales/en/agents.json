@@ -332,6 +332,14 @@
       "select_action": "Select plugin",
       "empty_title": "No plugin selected",
       "empty_hint": "Choose a plugin from the marketplace to extend this agent's capabilities.",
+      "picker": {
+        "search_placeholder": "Search plugins",
+        "loading": "Loading plugins…",
+        "empty": "No plugins available",
+        "no_match": "No plugins match your search",
+        "builtin_section": "Built-in",
+        "cloud_section": "Cloud plugins"
+      },
       "cloud_skills": {
         "section_title": "Skills",
         "intro": "Public catalog skills bound to this agent without importing them into the workspace.",

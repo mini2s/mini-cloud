@@ -10,6 +10,7 @@ import { useWorkspaceId } from "@multica/core/hooks";
 import {
   agentCloudSkillOptions,
   builtinPluginListOptions,
+  catalogPluginListOptions,
   catalogSkillListOptions,
   pluginDetailOptions,
   workspaceKeys,
@@ -337,8 +338,15 @@ function PluginPickerPopover({
   const { t } = useT("agents");
 
   const { searchQuery, setSearchQuery, debouncedSearch } = useDebouncedPluginSearch();
-  const { data: plugins, isLoading } = useQuery(builtinPluginListOptions(debouncedSearch));
+  const { data: plugins, isFetching: isLoading } = useQuery(builtinPluginListOptions());
+  const { data: catalogPlugins, isFetching: isCatalogLoading } = useQuery(
+    catalogPluginListOptions(debouncedSearch),
+  );
   const items = plugins?.items ?? [];
+  const builtinIds = new Set(items.map((plugin) => plugin.id));
+  const cloudItems = (catalogPlugins?.items ?? []).filter(
+    (plugin) => !builtinIds.has(plugin.id),
+  );
 
   return (
     <Popover>
@@ -353,11 +361,13 @@ function PluginPickerPopover({
       <PopoverContent align="start" className="w-72 p-0">
         <PluginPickerList
           plugins={items}
+          catalogPlugins={cloudItems}
           selectedId={selectedId}
           onSelect={(id) => {
             onSelect(id);
           }}
           loading={isLoading}
+          catalogLoading={isCatalogLoading}
           searchQuery={searchQuery}
           onSearchChange={setSearchQuery}
         />
