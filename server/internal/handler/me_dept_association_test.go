@@ -330,15 +330,23 @@ func TestLinkDeptMembersOnLoginBackfillsOrgOnExistingMembership(t *testing.T) {
 
 	testHandler.linkDeptMembersOnLogin(ctx, util.MustParseUUID(userID), universalID)
 
-	// The existing manual membership must now carry the fresh org snapshot.
+	// The existing manual membership must now carry the fresh org snapshot AND
+	// be linked to the dept identity (external_universal_id / external_user_id),
+	// so the member-picker recognises it as already-added instead of offering to
+	// re-add the user.
 	var manualDeptName, manualPosition, manualEmployeeID string
+	var manualUniversalID, manualExternalUserID *string
 	if err := testPool.QueryRow(ctx, `
-		SELECT dept_name, position, employee_id FROM multica_member WHERE id = $1
-	`, manualMemberID).Scan(&manualDeptName, &manualPosition, &manualEmployeeID); err != nil {
+		SELECT dept_name, position, employee_id, external_universal_id, external_user_id
+		FROM multica_member WHERE id = $1
+	`, manualMemberID).Scan(&manualDeptName, &manualPosition, &manualEmployeeID, &manualUniversalID, &manualExternalUserID); err != nil {
 		t.Fatalf("load manual member: %v", err)
 	}
 	if manualDeptName != "New Dept" || manualPosition != "New Role" || manualEmployeeID != "E040" {
 		t.Fatalf("existing membership not backfilled: dept=%q position=%q employee=%q", manualDeptName, manualPosition, manualEmployeeID)
+	}
+	if manualUniversalID == nil || *manualUniversalID != universalID || manualExternalUserID == nil || *manualExternalUserID != "E040" {
+		t.Fatalf("existing membership not linked to dept identity: universal_id=%v external_user_id=%v", manualUniversalID, manualExternalUserID)
 	}
 
 	// The orphaned pending dept row must be gone — exactly one membership for

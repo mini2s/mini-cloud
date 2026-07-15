@@ -392,41 +392,52 @@ func (q *Queries) ListMembersWithUser(ctx context.Context, workspaceID pgtype.UU
 
 const refreshUserMembershipDeptOrg = `-- name: RefreshUserMembershipDeptOrg :exec
 UPDATE multica_member
-SET org_display_name = $2,
-    employee_id = $3,
-    dept_id = $4,
-    dept_name = $5,
-    dept_path = $6,
-    position = $7,
-    is_main_department = $8,
-    dept_user_status = $9,
-    last_synced_at = $10
+SET external_universal_id = $2,
+    external_user_id = $3,
+    org_display_name = $4,
+    employee_id = $5,
+    dept_id = $6,
+    dept_name = $7,
+    dept_path = $8,
+    position = $9,
+    is_main_department = $10,
+    dept_user_status = $11,
+    last_synced_at = $12
 WHERE user_id = $1
 `
 
 type RefreshUserMembershipDeptOrgParams struct {
-	UserID           pgtype.UUID        `json:"user_id"`
-	OrgDisplayName   pgtype.Text        `json:"org_display_name"`
-	EmployeeID       pgtype.Text        `json:"employee_id"`
-	DeptID           pgtype.Text        `json:"dept_id"`
-	DeptName         pgtype.Text        `json:"dept_name"`
-	DeptPath         pgtype.Text        `json:"dept_path"`
-	Position         pgtype.Text        `json:"position"`
-	IsMainDepartment bool               `json:"is_main_department"`
-	DeptUserStatus   pgtype.Int4        `json:"dept_user_status"`
-	LastSyncedAt     pgtype.Timestamptz `json:"last_synced_at"`
+	UserID              pgtype.UUID        `json:"user_id"`
+	ExternalUniversalID pgtype.Text        `json:"external_universal_id"`
+	ExternalUserID      pgtype.Text        `json:"external_user_id"`
+	OrgDisplayName      pgtype.Text        `json:"org_display_name"`
+	EmployeeID          pgtype.Text        `json:"employee_id"`
+	DeptID              pgtype.Text        `json:"dept_id"`
+	DeptName            pgtype.Text        `json:"dept_name"`
+	DeptPath            pgtype.Text        `json:"dept_path"`
+	Position            pgtype.Text        `json:"position"`
+	IsMainDepartment    bool               `json:"is_main_department"`
+	DeptUserStatus      pgtype.Int4        `json:"dept_user_status"`
+	LastSyncedAt        pgtype.Timestamptz `json:"last_synced_at"`
 }
 
 // Rewrites the dept org snapshot (name / department / position) on every
 // membership bound to this user — both dept-sourced rows and pre-existing
-// manual / email-invite rows. Keying on user_id (not external_universal_id)
-// means login also backfills org info onto a membership that existed before
-// Casdoor binding (where ActivatePending's no-duplicate guard blocked the
-// separate dept row from activating), so the member list shows the user's
-// org info consistently instead of falling back to email.
+// manual / email-invite rows — AND links each row to the dept identity
+// (external_universal_id / external_user_id). Keying on user_id (not
+// external_universal_id) means login also backfills a membership that existed
+// before Casdoor binding (where ActivatePending's no-duplicate guard blocked
+// the separate dept row from activating). Linking the identity there too is
+// what lets the member-picker recognise the row as already-added (it matches
+// dept-sync results by universal_id) instead of offering to re-add the user.
+// Call DeleteOrphanPendingDeptMembers first so no pending dept row holds the
+// same universal_id in a workspace (would violate the
+// (workspace_id, external_universal_id) unique index).
 func (q *Queries) RefreshUserMembershipDeptOrg(ctx context.Context, arg RefreshUserMembershipDeptOrgParams) error {
 	_, err := q.db.Exec(ctx, refreshUserMembershipDeptOrg,
 		arg.UserID,
+		arg.ExternalUniversalID,
+		arg.ExternalUserID,
 		arg.OrgDisplayName,
 		arg.EmployeeID,
 		arg.DeptID,

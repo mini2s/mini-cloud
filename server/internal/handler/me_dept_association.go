@@ -82,25 +82,36 @@ func LinkDeptIdentity(ctx context.Context, queries *db.Queries, deptSync DeptIde
 	// no-duplicate guard blocked a separate dept row from activating (e.g. an
 	// email-registered account that predates Casdoor binding).
 	if snapshot != nil {
-		if err := queries.RefreshUserMembershipDeptOrg(ctx, db.RefreshUserMembershipDeptOrgParams{
-			UserID:           userID,
-			OrgDisplayName:   pgtype.Text{String: snapshot.OrgDisplayName, Valid: snapshot.OrgDisplayName != ""},
-			EmployeeID:       pgtype.Text{String: snapshot.EmployeeID, Valid: snapshot.EmployeeID != ""},
-			DeptID:           pgtype.Text{String: snapshot.DeptID, Valid: snapshot.DeptID != ""},
-			DeptName:         pgtype.Text{String: snapshot.DeptName, Valid: snapshot.DeptName != ""},
-			DeptPath:         pgtype.Text{String: snapshot.DeptPath, Valid: snapshot.DeptPath != ""},
-			Position:         pgtype.Text{String: snapshot.Position, Valid: snapshot.Position != ""},
-			IsMainDepartment: snapshot.IsMainDepartment,
-			DeptUserStatus:   pgtype.Int4{Int32: int32(snapshot.DeptUserStatus), Valid: true},
-			LastSyncedAt:     pgtype.Timestamptz{Time: time.Now().UTC(), Valid: true},
-		}); err != nil {
-			slog.Warn("casdoor: failed to refresh user membership org snapshot on login", "error", err, "user_id", uuidToString(userID))
-		}
 		// Drop pending_activation dept rows that ActivatePending could not bind
-		// (the user already held a membership in that workspace); otherwise they
-		// linger as orphan duplicates next to the backfilled existing membership.
+		// (the user already held a membership in that workspace) FIRST: they
+		// share the universal_id the refresh is about to link onto the user's
+		// existing memberships, and the (workspace_id, external_universal_id)
+		// unique index would reject the refresh in any workspace where such an
+		// orphan lingers.
 		if _, err := queries.DeleteOrphanPendingDeptMembers(ctx, pgtype.Text{String: universalID, Valid: true}); err != nil {
 			slog.Warn("casdoor: failed to delete orphan pending dept members on login", "error", err, "universal_id", universalID)
+		}
+		// Refresh the org snapshot on every membership bound to this user —
+		// dept-sourced rows and pre-existing manual / email-invite rows alike —
+		// AND link each to the dept identity (external_universal_id /
+		// external_user_id). Linking the identity onto a pre-binding membership
+		// is what lets the member-picker recognise it as already-added (matches
+		// dept-sync results by universal_id) instead of offering to re-add.
+		if err := queries.RefreshUserMembershipDeptOrg(ctx, db.RefreshUserMembershipDeptOrgParams{
+			UserID:              userID,
+			ExternalUniversalID: pgtype.Text{String: universalID, Valid: universalID != ""},
+			ExternalUserID:      pgtype.Text{String: snapshot.EmployeeID, Valid: snapshot.EmployeeID != ""},
+			OrgDisplayName:      pgtype.Text{String: snapshot.OrgDisplayName, Valid: snapshot.OrgDisplayName != ""},
+			EmployeeID:          pgtype.Text{String: snapshot.EmployeeID, Valid: snapshot.EmployeeID != ""},
+			DeptID:              pgtype.Text{String: snapshot.DeptID, Valid: snapshot.DeptID != ""},
+			DeptName:            pgtype.Text{String: snapshot.DeptName, Valid: snapshot.DeptName != ""},
+			DeptPath:            pgtype.Text{String: snapshot.DeptPath, Valid: snapshot.DeptPath != ""},
+			Position:            pgtype.Text{String: snapshot.Position, Valid: snapshot.Position != ""},
+			IsMainDepartment:    snapshot.IsMainDepartment,
+			DeptUserStatus:      pgtype.Int4{Int32: int32(snapshot.DeptUserStatus), Valid: true},
+			LastSyncedAt:        pgtype.Timestamptz{Time: time.Now().UTC(), Valid: true},
+		}); err != nil {
+			slog.Warn("casdoor: failed to refresh user membership org snapshot on login", "error", err, "user_id", uuidToString(userID))
 		}
 
 		// Refresh the user's display name from dept-sync (the org source of
