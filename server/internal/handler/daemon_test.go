@@ -192,6 +192,76 @@ func claimTaskByRuntimeForTest(t *testing.T, runtimeID string) (*struct {
 	return resp.Task, w.Body.String()
 }
 
+// TestClaimTask_PluginMarketplaceFromServerConfig verifies the CSC plugin
+// marketplace identity delivered to the daemon comes from server config, not
+// the catalog upstream. The agent binds a plugin_id whose catalog entry
+// advertises a different marketplace; the claim response must carry the
+// configured values instead.
+func TestClaimTask_PluginMarketplaceFromServerConfig(t *testing.T) {
+	if testHandler == nil || testPool == nil {
+		t.Skip("database not available")
+	}
+
+	// Upstream catalog returns a plugin whose marketplace differs from config.
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"id":"csc-marketplace-plugin","name":"CSC Plugin","content":"do the thing","metadata":{"install":{"method":"csc","plugin_name":"csc-marketplace-plugin","marketplace_name":"catalog-marketplace","marketplace_repo":"https://github.com/catalog/repo.git"}}}`))
+	}))
+	defer upstream.Close()
+
+	// Reconfigure the shared DB-backed handler for this test, restore after.
+	savedBase := testHandler.cfg.BuiltinPluginAPIBaseURL
+	savedName := testHandler.cfg.CSCPluginMarketplaceName
+	savedRepo := testHandler.cfg.CSCPluginMarketplaceRepo
+	testHandler.cfg.BuiltinPluginAPIBaseURL = upstream.URL
+	testHandler.cfg.CSCPluginMarketplaceName = "configured-marketplace"
+	testHandler.cfg.CSCPluginMarketplaceRepo = "https://github.com/configured/repo.git"
+	t.Cleanup(func() {
+		testHandler.cfg.BuiltinPluginAPIBaseURL = savedBase
+		testHandler.cfg.CSCPluginMarketplaceName = savedName
+		testHandler.cfg.CSCPluginMarketplaceRepo = savedRepo
+	})
+
+	ctx := context.Background()
+	runtimeID := createClaimReclaimRuntime(t, ctx, "Plugin marketplace config runtime")
+	agentID, issueID := createClaimReclaimAgentAndIssue(t, ctx, runtimeID, "Plugin marketplace config agent")
+	if _, err := testPool.Exec(ctx,
+		`UPDATE multica_agent SET plugin_id = $2 WHERE id = $1`,
+		agentID, "csc-marketplace-plugin",
+	); err != nil {
+		t.Fatalf("set plugin_id: %v", err)
+	}
+	createDispatchedClaimFixtureTask(t, ctx, agentID, runtimeID, issueID, "120 seconds", false)
+
+	w := httptest.NewRecorder()
+	req := newDaemonTokenRequest("POST", "/api/daemon/runtimes/"+runtimeID+"/tasks/claim", nil,
+		testWorkspaceID, "plugin-marketplace-config")
+	req = withURLParam(req, "runtimeId", runtimeID)
+	testHandler.ClaimTaskByRuntime(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("ClaimTaskByRuntime: expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var response struct {
+		Task struct {
+			Agent *TaskAgentData `json:"agent"`
+		} `json:"task"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode claim response: %v", err)
+	}
+	if response.Task.Agent == nil || response.Task.Agent.Plugin == nil {
+		t.Fatalf("expected agent.plugin in response: %s", w.Body.String())
+	}
+	if got := response.Task.Agent.Plugin.Install.MarketplaceName; got != "configured-marketplace" {
+		t.Errorf("marketplace_name = %q, want %q (server config must override catalog)",
+			got, "configured-marketplace")
+	}
+	if got := response.Task.Agent.Plugin.Install.MarketplaceRepo; got != "https://github.com/configured/repo.git" {
+		t.Errorf("marketplace_repo = %q, want configured repo (server config must override catalog)", got)
+	}
+}
+
 func TestClaimTaskByRuntime_ReclaimsStaleDispatchedTask(t *testing.T) {
 	if testHandler == nil || testPool == nil {
 		t.Skip("database not available")

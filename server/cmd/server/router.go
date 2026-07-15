@@ -188,6 +188,10 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 		CasdoorOrgName:          os.Getenv("CASDOOR_ORG_NAME"),
 		CasdoorAppName:          os.Getenv("CASDOOR_APP_NAME"),
 		BuiltinPluginAPIBaseURL: strings.TrimRight(strings.TrimSpace(os.Getenv("BUILTIN_PLUGIN_API_BASE_URL")), "/"),
+		// CSC plugin marketplace identity delivered to the daemon. No default:
+		// when unset, the daemon falls back to its own built-in github default.
+		CSCPluginMarketplaceName: strings.TrimSpace(os.Getenv("CSC_PLUGIN_MARKETPLACE_NAME")),
+		CSCPluginMarketplaceRepo: strings.TrimSpace(os.Getenv("CSC_PLUGIN_MARKETPLACE_REPO")),
 	}
 	h := handler.New(queries, pool, hub, bus, emailSvc, store, cfSigner, analyticsClient, signupConfig, daemonHub)
 	if opts.DaemonWakeup != nil {

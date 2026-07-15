@@ -1156,6 +1156,11 @@ func (h *Handler) ClaimTaskByRuntime(w http.ResponseWriter, r *http.Request) {
 		// task startup.
 		pd := fetchPluginData(r.Context(), h.cfg.BuiltinPluginAPIBaseURL, agent.PluginID.String)
 		if pd != nil {
+			// Marketplace identity is owned by server config, not the catalog.
+			// Override whatever the catalog returned; an empty config value is
+			// delivered as-is and the daemon falls back to its github default.
+			pd.Info.Install.MarketplaceName = h.cfg.CSCPluginMarketplaceName
+			pd.Info.Install.MarketplaceRepo = h.cfg.CSCPluginMarketplaceRepo
 			resp.Agent.Plugin = pd.Info
 			if pd.Content != "" {
 				if resp.Agent.Instructions != "" {

@@ -154,28 +154,37 @@ func TestSetupCSCPlugins_Success(t *testing.T) {
 		t.Fatalf("expected nil error, got: %v", err)
 	}
 
+	// Expected sequence: marketplace add + marketplace update + install + update.
 	invocations := readInvocations(t, dir)
-	// Expected: marketplace add + update + install = 3 invocations
-	if len(invocations) != 3 {
-		t.Fatalf("expected 3 invocations, got %d: %v", len(invocations), invocations)
+	if len(invocations) != 4 {
+		t.Fatalf("expected 4 invocations, got %d: %v", len(invocations), invocations)
 	}
 	if !strings.Contains(invocations[0], "plugin marketplace add") {
 		t.Errorf("first invocation should be marketplace add, got: %s", invocations[0])
 	}
-	if !strings.Contains(invocations[1], "plugin update") {
-		t.Errorf("second invocation should be plugin update, got: %s", invocations[1])
+	if !strings.Contains(invocations[0], "https://github.com/example/marketplace.git") {
+		t.Errorf("marketplace add should use delivered repo, got: %s", invocations[0])
 	}
-	if !strings.Contains(invocations[1], "cospower") {
-		t.Errorf("update should mention plugin name cospower, got: %s", invocations[1])
+	if !strings.Contains(invocations[1], "plugin marketplace update") {
+		t.Errorf("second invocation should be marketplace update, got: %s", invocations[1])
+	}
+	if !strings.Contains(invocations[1], "marketplace") {
+		t.Errorf("marketplace update should mention delivered name, got: %s", invocations[1])
 	}
 	if !strings.Contains(invocations[2], "plugin install") {
 		t.Errorf("third invocation should be plugin install, got: %s", invocations[2])
 	}
-	if !strings.Contains(invocations[2], "cospower") {
-		t.Errorf("install should mention plugin name cospower, got: %s", invocations[2])
+	if !strings.Contains(invocations[2], "cospower@marketplace") {
+		t.Errorf("install should use spec cospower@marketplace, got: %s", invocations[2])
 	}
-	if !strings.Contains(invocations[2], "-s project") {
-		t.Errorf("install should use -s project scope, got: %s", invocations[2])
+	if !strings.Contains(invocations[2], "-s local") {
+		t.Errorf("install should use -s local scope, got: %s", invocations[2])
+	}
+	if !strings.Contains(invocations[3], "plugin update cospower@marketplace") {
+		t.Errorf("fourth invocation should be plugin update cospower@marketplace, got: %s", invocations[3])
+	}
+	if !strings.Contains(invocations[3], "-s local") {
+		t.Errorf("update should use -s local scope, got: %s", invocations[3])
 	}
 	// Verify no --dir flag
 	for _, inv := range invocations {
@@ -185,11 +194,13 @@ func TestSetupCSCPlugins_Success(t *testing.T) {
 	}
 }
 
-func TestSetupCSCPlugins_MarketplaceAddFails(t *testing.T) {
+func TestSetupCSCPlugins_MarketplaceAddNonFatal(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("shell script fake not supported on windows")
 	}
 	dir := t.TempDir()
+	// marketplace add fails, but it is non-fatal — the marketplace may
+	// already be registered — so the remaining steps must still run.
 	fakeBin := writeFakeCSC(t, dir, map[string]int{"marketplace add": 1})
 	workDir := filepath.Join(dir, "work")
 	if err := os.MkdirAll(workDir, 0o755); err != nil {
@@ -197,11 +208,13 @@ func TestSetupCSCPlugins_MarketplaceAddFails(t *testing.T) {
 	}
 
 	err := setupCSCPlugins(context.Background(), fakeBin, workDir, testPlugin(), slog.Default())
-	if err == nil {
-		t.Fatal("expected error when marketplace add fails")
+	if err != nil {
+		t.Fatalf("marketplace add is non-fatal; expected nil error, got: %v", err)
 	}
-	if !strings.Contains(err.Error(), "marketplace add") {
-		t.Errorf("error should mention marketplace add, got: %v", err)
+	// All four commands still ran despite the add failure.
+	invocations := readInvocations(t, dir)
+	if len(invocations) != 4 {
+		t.Fatalf("expected 4 invocations despite add failure, got %d: %v", len(invocations), invocations)
 	}
 }
 
@@ -295,12 +308,14 @@ func TestSetupCSCPlugins_Timeout(t *testing.T) {
 	}
 }
 
-func TestSetupCSCPlugins_ErrorMessageContainsURL(t *testing.T) {
+func TestSetupCSCPlugins_ErrorMessageContainsMarketplace(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("shell script fake not supported on windows")
 	}
 	dir := t.TempDir()
-	fakeBin := writeFakeCSC(t, dir, map[string]int{"marketplace add": 1})
+	// marketplace update is fatal; its error must name the marketplace so
+	// operators can see which one failed.
+	fakeBin := writeFakeCSC(t, dir, map[string]int{"marketplace update": 1})
 	workDir := filepath.Join(dir, "work")
 	if err := os.MkdirAll(workDir, 0o755); err != nil {
 		t.Fatal(err)
@@ -309,9 +324,91 @@ func TestSetupCSCPlugins_ErrorMessageContainsURL(t *testing.T) {
 	plugin := testPlugin()
 	err := setupCSCPlugins(context.Background(), fakeBin, workDir, plugin, slog.Default())
 	if err == nil {
-		t.Fatal("expected error")
+		t.Fatal("expected error when marketplace update fails")
 	}
-	if !strings.Contains(err.Error(), plugin.Install.MarketplaceRepo) {
-		t.Errorf("error should contain marketplace repo %q, got: %v", plugin.Install.MarketplaceRepo, err)
+	if !strings.Contains(err.Error(), plugin.Install.MarketplaceName) {
+		t.Errorf("error should contain marketplace name %q, got: %v", plugin.Install.MarketplaceName, err)
+	}
+}
+
+// TestSetupCSCPlugins_UsesDeliveredMarketplace verifies the marketplace
+// identity delivered by the server (via the task-claim response) is what the
+// daemon registers against — not the built-in github default.
+func TestSetupCSCPlugins_UsesDeliveredMarketplace(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shell script fake not supported on windows")
+	}
+	dir := t.TempDir()
+	fakeBin := writeFakeCSC(t, dir, nil)
+	workDir := filepath.Join(dir, "work")
+	if err := os.MkdirAll(workDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	plugin := &AgentPlugin{
+		Name: "cospower",
+		Install: &PluginInstall{
+			Method:          "plugin_marketplace",
+			PluginName:      "cospower",
+			MarketplaceName: "custom-market",
+			MarketplaceRepo: "https://github.com/custom/repo.git",
+		},
+	}
+	if err := setupCSCPlugins(context.Background(), fakeBin, workDir, plugin, slog.Default()); err != nil {
+		t.Fatalf("expected nil error, got: %v", err)
+	}
+
+	log := strings.Join(readInvocations(t, dir), "\n")
+	if !strings.Contains(log, "marketplace add https://github.com/custom/repo.git") {
+		t.Errorf("expected marketplace add with delivered repo, got:\n%s", log)
+	}
+	if !strings.Contains(log, "marketplace update custom-market") {
+		t.Errorf("expected marketplace update with delivered name, got:\n%s", log)
+	}
+	if !strings.Contains(log, "cospower@custom-market") {
+		t.Errorf("expected install spec cospower@custom-market, got:\n%s", log)
+	}
+	// The built-in default must not leak into the delivered-value path.
+	if strings.Contains(log, defaultCSCMarketplaceName) {
+		t.Errorf("built-in default marketplace name %q leaked when a value was delivered", defaultCSCMarketplaceName)
+	}
+}
+
+// TestSetupCSCPlugins_FallsBackToDefaultWhenEmpty verifies that when the
+// server delivers no marketplace identity (empty fields — e.g. an older
+// server build), the daemon falls back to its built-in github default so the
+// install still targets the canonical marketplace.
+func TestSetupCSCPlugins_FallsBackToDefaultWhenEmpty(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shell script fake not supported on windows")
+	}
+	dir := t.TempDir()
+	fakeBin := writeFakeCSC(t, dir, nil)
+	workDir := filepath.Join(dir, "work")
+	if err := os.MkdirAll(workDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	plugin := &AgentPlugin{
+		Name: "cospower",
+		Install: &PluginInstall{
+			Method:     "plugin_marketplace",
+			PluginName: "cospower",
+			// MarketplaceName / MarketplaceRepo intentionally empty.
+		},
+	}
+	if err := setupCSCPlugins(context.Background(), fakeBin, workDir, plugin, slog.Default()); err != nil {
+		t.Fatalf("expected nil error, got: %v", err)
+	}
+
+	log := strings.Join(readInvocations(t, dir), "\n")
+	if !strings.Contains(log, "marketplace add "+defaultCSCMarketplaceRepo) {
+		t.Errorf("expected marketplace add with default repo, got:\n%s", log)
+	}
+	if !strings.Contains(log, "marketplace update "+defaultCSCMarketplaceName) {
+		t.Errorf("expected marketplace update with default name, got:\n%s", log)
+	}
+	if !strings.Contains(log, "cospower@"+defaultCSCMarketplaceName) {
+		t.Errorf("expected install spec cospower@%s, got:\n%s", defaultCSCMarketplaceName, log)
 	}
 }

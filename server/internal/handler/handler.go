@@ -95,6 +95,14 @@ type Config struct {
 	// the plugin's content from this API and appends it to the agent's generated
 	// task instructions under the ## Agent Identity section.
 	BuiltinPluginAPIBaseURL string
+	// CSCPluginMarketplaceName / CSCPluginMarketplaceRepo identify the plugin
+	// marketplace the daemon must register against when installing a CSC
+	// agent's bound plugin. Delivered to the daemon via the task-claim
+	// response (agent.plugin.install). No default here — empty means "not
+	// configured"; the daemon falls back to its own github default when the
+	// delivered value is empty.
+	CSCPluginMarketplaceName string
+	CSCPluginMarketplaceRepo string
 }
 
 type cloudRuntimeProxy interface {
