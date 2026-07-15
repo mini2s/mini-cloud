@@ -151,7 +151,7 @@ const splitNode: WorkflowNode = {
   format_schema: {
     type: "split",
     split_config: {
-      sub_template_id: "child-wf-1",
+      child_workflow_id: "child-wf-1",
       mode: "barrier",
       max_concurrency: 3,
       max_failures: 1,

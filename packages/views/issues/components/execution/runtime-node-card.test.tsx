@@ -364,7 +364,7 @@ describe("RuntimeNodeCard", () => {
             template_category: "logic",
             shape: "rectangle",
             split_config: {
-              sub_template_id: "child-wf-1",
+              child_workflow_id: "child-wf-1",
               mode: "barrier",
               max_concurrency: 5,
               max_failures: 0,
@@ -413,7 +413,7 @@ describe("RuntimeNodeCard", () => {
           format_schema: {
             type: "split",
             split_config: {
-              sub_template_id: "child-wf-1",
+              child_workflow_id: "child-wf-1",
               mode: "barrier",
               max_concurrency: 5,
               max_failures: 0,
@@ -462,7 +462,7 @@ describe("RuntimeNodeCard", () => {
           format_schema: {
             type: "split",
             split_config: {
-              sub_template_id: "child-wf-1",
+              child_workflow_id: "child-wf-1",
               mode: "barrier",
               max_concurrency: 5,
               max_failures: 0,
@@ -507,7 +507,7 @@ describe("RuntimeNodeCard", () => {
             template_category: "logic",
             shape: "rectangle",
             split_config: {
-              sub_template_id: "child-wf-1",
+              child_workflow_id: "child-wf-1",
               mode: "barrier",
               max_concurrency: 5,
               max_failures: 0,
@@ -568,7 +568,7 @@ describe("RuntimeNodeCard", () => {
             template_category: "logic",
             shape: "rectangle",
             split_config: {
-              sub_template_id: "child-wf-1",
+              child_workflow_id: "child-wf-1",
               mode: "barrier",
               max_concurrency: 5,
               max_failures: 0,
@@ -614,7 +614,7 @@ describe("RuntimeNodeCard", () => {
             template_category: "logic",
             shape: "rectangle",
             split_config: {
-              sub_template_id: "child-wf-1",
+              child_workflow_id: "child-wf-1",
               mode: "barrier",
               max_concurrency: 5,
               max_failures: 0,

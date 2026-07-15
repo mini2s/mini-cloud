@@ -16,11 +16,11 @@
 ### AI 负责什么
 - **拆分决策由 Agent 驱动**：Agent 根据父 issue 的上下文（标题、描述、已有节点输出）生成子任务列表，包括每个子任务的标题、描述、建议负责人和子任务间依赖关系。拆分不是代码确定性逻辑，而是 Agent 理解任务语义后的智能分解。
 - **审核权在人**：Agent 生成的子任务列表需要人审核通过后才能正式创建子 issue。审核人可以修改、增删子任务、调整依赖关系。
-- **子任务的 AI 执行**走现有 workflow 标准路径：每个子 issue 有自己的 WorkflowRun → NodeRun → agent task，Agent 按子模板完成具体工作。
+- **子任务的 AI 执行**走现有 workflow 标准路径：每个子 issue 有自己的 WorkflowRun → NodeRun → agent task，Agent 按子 workflow 完成具体工作。
 
 ### 人在 AI First 基础上的交互设计
 
-**触发意图**：人在 workflow 模板编辑器中将某个节点类型设为"任务拆分"，配置子 workflow template、并发上限、汇聚策略和失败策略。运行时该节点被上游激活后，Agent 生成拆分方案，人审核通过后正式创建子 issue 并启动。
+**触发意图**：人在 workflow 编辑器中将某个节点类型设为"任务拆分"，配置子任务执行 workflow、并发上限、汇聚策略和失败策略。运行时该节点被上游激活后，Agent 生成拆分方案，人审核通过后正式创建子 issue 并启动。
 
 **Review 角色**：
 - Agent 生成的拆分方案需要在画布和父 issue 详情页中审查确认后才生效。

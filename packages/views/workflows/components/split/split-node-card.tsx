@@ -12,7 +12,7 @@ export interface SplitNodeCardProps {
   progress?: SplitProgress | null;
   status?: "editing" | "awaiting_review" | "active" | "completed" | "idle";
   taskCount?: number;
-  subTemplateName?: string | null;
+  childWorkflowName?: string | null;
   className?: string;
   headerAction?: ReactNode;
   progressAction?: ReactNode;
@@ -25,7 +25,7 @@ export function SplitNodeCard({
   progress,
   status = "idle",
   taskCount = 0,
-  subTemplateName,
+  childWorkflowName,
   className,
   headerAction,
   progressAction,
@@ -56,9 +56,9 @@ export function SplitNodeCard({
         {headerAction ? <span className="shrink-0">{headerAction}</span> : null}
       </div>
 
-      {subTemplateName && (
+      {childWorkflowName && (
         <span className="truncate text-xs text-muted-foreground">
-          {subTemplateName}
+          {childWorkflowName}
         </span>
       )}
 

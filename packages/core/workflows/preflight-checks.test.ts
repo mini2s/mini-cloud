@@ -9,7 +9,7 @@ import {
   checkSplitAutomatedCriticWarning,
   checkSplitWorkerSpecialized,
   checkStageMissing,
-  checkSplitTemplateConfig,
+  checkSplitChildWorkflowConfig,
   runAllPreflightChecks,
   DEFAULT_SPLIT_PLANNER_AGENT_IDS,
 } from "./preflight-checks";
@@ -166,7 +166,7 @@ describe("checkUnreachableNodes", () => {
       makeStage({ id: "stage-1", sort_order: 0 }),
       makeStage({ id: "stage-2", sort_order: 1 }),
     ];
-    // Only a → b edge (b has indegree 1, OK)
+    // Only a -> b edge (b has indegree 1, OK)
     const issues = checkUnreachableNodes(
       nodes,
       [makeEdge({ source_node_id: "a", target_node_id: "b" })],
@@ -205,9 +205,9 @@ describe("checkUnreachableNodes", () => {
       makeEdge({ source_node_id: "a", target_node_id: "c" }),
     ];
     const issues = checkUnreachableNodes(nodes, edges, stages);
-    // "a" in stage-1 indegree 0, but primary stage → not flagged
-    // "b" in stage-2 indegree 0 → flagged
-    // "c" in stage-2 indegree 1 → not flagged
+    // "a" in stage-1 indegree 0, but primary stage -> not flagged
+    // "b" in stage-2 indegree 0 -> flagged
+    // "c" in stage-2 indegree 1 -> not flagged
     expect(issues).toHaveLength(1);
     expect(issues[0]!.nodeId).toBe("b");
   });
@@ -246,7 +246,7 @@ describe("checkWorkerMissing", () => {
   });
 
   it("flags split node without worker", () => {
-    const nodes = [makeNode({ id: "split", worker_type: "agent", worker_id: null, format_schema: { type: "split", split_config: { sub_template_id: "tpl-1" } } })];
+    const nodes = [makeNode({ id: "split", worker_type: "agent", worker_id: null, format_schema: { type: "split", split_config: { child_workflow_id: "tpl-1" } } })];
     const issues = checkWorkerMissing(nodes);
     expect(issues).toHaveLength(1);
     expect(issues[0]!.blocking).toBe(true);
@@ -254,7 +254,7 @@ describe("checkWorkerMissing", () => {
   });
 
   it("passes split node with agent worker", () => {
-    const nodes = [makeNode({ id: "split", worker_type: "agent", worker_id: "agent-1", format_schema: { type: "split", split_config: { sub_template_id: "tpl-1" } } })];
+    const nodes = [makeNode({ id: "split", worker_type: "agent", worker_id: "agent-1", format_schema: { type: "split", split_config: { child_workflow_id: "tpl-1" } } })];
     expect(checkWorkerMissing(nodes)).toEqual([]);
   });
 });
@@ -297,7 +297,7 @@ describe("checkInvalidCriticRef", () => {
   });
 
   it("flags split node with invalid agent critic", () => {
-    const nodes = [makeNode({ id: "split", critic_id: "nonexistent", critic_type: "agent", format_schema: { type: "split", split_config: { sub_template_id: "tpl-1" } } })];
+    const nodes = [makeNode({ id: "split", critic_id: "nonexistent", critic_type: "agent", format_schema: { type: "split", split_config: { child_workflow_id: "tpl-1" } } })];
     const issues = checkInvalidCriticRef(nodes, agentIds);
     expect(issues).toHaveLength(1);
     expect(issues[0]!.blocking).toBe(true);
@@ -308,7 +308,7 @@ describe("checkInvalidCriticRef", () => {
 
 describe("checkSplitCriticRequired", () => {
   it("blocks split node without critic", () => {
-    const nodes = [makeNode({ id: "split", critic_id: null, critic_api_url: null, format_schema: { type: "split", split_config: { sub_template_id: "tpl-1" } } })];
+    const nodes = [makeNode({ id: "split", critic_id: null, critic_api_url: null, format_schema: { type: "split", split_config: { child_workflow_id: "tpl-1" } } })];
     const issues = checkSplitCriticRequired(nodes);
     expect(issues).toHaveLength(1);
     expect(issues[0]!.checkId).toBe("split-critic-missing");
@@ -316,12 +316,12 @@ describe("checkSplitCriticRequired", () => {
   });
 
   it("passes split node with human critic", () => {
-    const nodes = [makeNode({ id: "split", critic_id: "user-1", critic_type: "human", format_schema: { type: "split", split_config: { sub_template_id: "tpl-1" } } })];
+    const nodes = [makeNode({ id: "split", critic_id: "user-1", critic_type: "human", format_schema: { type: "split", split_config: { child_workflow_id: "tpl-1" } } })];
     expect(checkSplitCriticRequired(nodes)).toEqual([]);
   });
 
   it("passes split node with API critic URL", () => {
-    const nodes = [makeNode({ id: "split", critic_id: null, critic_type: "api", critic_api_url: "https://example.com/review", format_schema: { type: "split", split_config: { sub_template_id: "tpl-1" } } })];
+    const nodes = [makeNode({ id: "split", critic_id: null, critic_type: "api", critic_api_url: "https://example.com/review", format_schema: { type: "split", split_config: { child_workflow_id: "tpl-1" } } })];
     expect(checkSplitCriticRequired(nodes)).toEqual([]);
   });
 });
@@ -340,7 +340,7 @@ describe("checkSplitWorkerSpecialized", () => {
   });
 
   it("warns when a split node uses a non-specialized worker", () => {
-    const nodes = [makeNode({ id: "split", worker_id: "agent-1", format_schema: { type: "split", split_config: { sub_template_id: "tpl-1" } } })];
+    const nodes = [makeNode({ id: "split", worker_id: "agent-1", format_schema: { type: "split", split_config: { child_workflow_id: "tpl-1" } } })];
     const issues = checkSplitWorkerSpecialized(nodes, new Set(["split-planner-code"]));
     expect(issues).toHaveLength(1);
     expect(issues[0]!.checkId).toBe("split-worker-non-specialized");
@@ -349,19 +349,19 @@ describe("checkSplitWorkerSpecialized", () => {
   });
 
   it("passes when a split node uses a specialized split planner worker", () => {
-    const nodes = [makeNode({ id: "split", worker_id: "split-planner-code", format_schema: { type: "split", split_config: { sub_template_id: "tpl-1" } } })];
+    const nodes = [makeNode({ id: "split", worker_id: "split-planner-code", format_schema: { type: "split", split_config: { child_workflow_id: "tpl-1" } } })];
     expect(checkSplitWorkerSpecialized(nodes, new Set(["split-planner-code"]))).toEqual([]);
   });
 
   it("does not duplicate the missing-worker error", () => {
-    const nodes = [makeNode({ id: "split", worker_id: null, format_schema: { type: "split", split_config: { sub_template_id: "tpl-1" } } })];
+    const nodes = [makeNode({ id: "split", worker_id: null, format_schema: { type: "split", split_config: { child_workflow_id: "tpl-1" } } })];
     expect(checkSplitWorkerSpecialized(nodes, new Set(["split-planner-code"]))).toEqual([]);
   });
 });
 
 describe("checkSplitAutomatedCriticWarning", () => {
   it("warns when a split node uses an agent critic", () => {
-    const nodes = [makeNode({ id: "split", critic_type: "agent", critic_id: "agent-2", format_schema: { type: "split", split_config: { sub_template_id: "tpl-1" } } })];
+    const nodes = [makeNode({ id: "split", critic_type: "agent", critic_id: "agent-2", format_schema: { type: "split", split_config: { child_workflow_id: "tpl-1" } } })];
     const issues = checkSplitAutomatedCriticWarning(nodes);
     expect(issues).toHaveLength(1);
     expect(issues[0]!.checkId).toBe("split-critic-automated");
@@ -370,14 +370,14 @@ describe("checkSplitAutomatedCriticWarning", () => {
   });
 
   it("warns when a split node uses an API critic", () => {
-    const nodes = [makeNode({ id: "split", critic_type: "api", critic_api_url: "https://example.com/review", format_schema: { type: "split", split_config: { sub_template_id: "tpl-1" } } })];
+    const nodes = [makeNode({ id: "split", critic_type: "api", critic_api_url: "https://example.com/review", format_schema: { type: "split", split_config: { child_workflow_id: "tpl-1" } } })];
     const issues = checkSplitAutomatedCriticWarning(nodes);
     expect(issues).toHaveLength(1);
     expect(issues[0]!.checkId).toBe("split-critic-automated");
   });
 
   it("passes when a split node uses a human critic", () => {
-    const nodes = [makeNode({ id: "split", critic_type: "human", critic_id: "member-1", format_schema: { type: "split", split_config: { sub_template_id: "tpl-1" } } })];
+    const nodes = [makeNode({ id: "split", critic_type: "human", critic_id: "member-1", format_schema: { type: "split", split_config: { child_workflow_id: "tpl-1" } } })];
     expect(checkSplitAutomatedCriticWarning(nodes)).toEqual([]);
   });
 });
@@ -401,14 +401,14 @@ describe("checkStageMissing", () => {
   });
 
   it("flags split node without stage_id", () => {
-    const nodes = [makeNode({ id: "split", stage_id: null, format_schema: { type: "split", split_config: { sub_template_id: "tpl-1" } } })];
+    const nodes = [makeNode({ id: "split", stage_id: null, format_schema: { type: "split", split_config: { child_workflow_id: "tpl-1" } } })];
     const issues = checkStageMissing(nodes);
     expect(issues).toHaveLength(1);
     expect(issues[0]!.blocking).toBe(false);
   });
 
   it("passes split node with stage", () => {
-    const nodes = [makeNode({ id: "split", stage_id: "stage-1", format_schema: { type: "split", split_config: { sub_template_id: "tpl-1" } } })];
+    const nodes = [makeNode({ id: "split", stage_id: "stage-1", format_schema: { type: "split", split_config: { child_workflow_id: "tpl-1" } } })];
     expect(checkStageMissing(nodes)).toEqual([]);
   });
 
@@ -418,51 +418,67 @@ describe("checkStageMissing", () => {
   });
 });
 
-// ── checkSplitTemplateConfig ──
+// ── checkSplitChildWorkflowConfig ──
 
-describe("checkSplitTemplateConfig", () => {
-  it("blocks split nodes without a sub_template_id", () => {
+describe("checkSplitChildWorkflowConfig", () => {
+  it("blocks split nodes without a child_workflow_id", () => {
     const nodes = [
       makeNode({ id: "split", title: "Split work", format_schema: { type: "split", split_config: { mode: "barrier" } } }),
     ];
-    const issues = checkSplitTemplateConfig(nodes, []);
+    const issues = checkSplitChildWorkflowConfig(nodes, []);
     expect(issues).toHaveLength(1);
-    expect(issues[0]!.checkId).toBe("split-template-missing");
+    expect(issues[0]!.checkId).toBe("split-child-workflow-missing");
     expect(issues[0]!.blocking).toBe(true);
   });
 
-  it("blocks split nodes whose sub template is inactive", () => {
+  it("blocks split nodes whose child workflow is inactive", () => {
     const nodes = [
       makeNode({
         id: "split",
         title: "Split work",
-        format_schema: { type: "split", split_config: { sub_template_id: "template-1", mode: "barrier" } },
+        format_schema: { type: "split", split_config: { child_workflow_id: "template-1", mode: "barrier" } },
       }),
     ];
-    const issues = checkSplitTemplateConfig(nodes, [
+    const issues = checkSplitChildWorkflowConfig(nodes, [
       { id: "template-1", status: "draft", nodes: [] },
     ]);
     expect(issues).toHaveLength(1);
-    expect(issues[0]!.checkId).toBe("split-template-inactive");
+    expect(issues[0]!.checkId).toBe("split-child-workflow-inactive");
   });
 
-  it("blocks split nodes whose sub template contains another split node", () => {
+  it("blocks split nodes whose child workflow is the parent workflow", () => {
     const nodes = [
       makeNode({
         id: "split",
         title: "Split work",
-        format_schema: { type: "split", split_config: { sub_template_id: "template-1", mode: "barrier" } },
+        workflow_id: "wf-1",
+        format_schema: { type: "split", split_config: { child_workflow_id: "wf-1", mode: "barrier" } },
       }),
     ];
-    const issues = checkSplitTemplateConfig(nodes, [
+    const issues = checkSplitChildWorkflowConfig(nodes, [
+      { id: "wf-1", status: "active", nodes: [] },
+    ]);
+    expect(issues).toHaveLength(1);
+    expect(issues[0]!.checkId).toBe("split-child-workflow-self");
+  });
+
+  it("blocks split nodes whose child workflow contains another split node", () => {
+    const nodes = [
+      makeNode({
+        id: "split",
+        title: "Split work",
+        format_schema: { type: "split", split_config: { child_workflow_id: "template-1", mode: "barrier" } },
+      }),
+    ];
+    const issues = checkSplitChildWorkflowConfig(nodes, [
       {
         id: "template-1",
         status: "active",
-        nodes: [makeNode({ id: "nested", format_schema: { type: "split", split_config: { sub_template_id: "template-2" } } })],
+        nodes: [makeNode({ id: "nested", format_schema: { type: "split", split_config: { child_workflow_id: "template-2" } } })],
       },
     ]);
     expect(issues).toHaveLength(1);
-    expect(issues[0]!.checkId).toBe("split-template-nested");
+    expect(issues[0]!.checkId).toBe("split-child-workflow-nested");
   });
 });
 
@@ -492,7 +508,7 @@ describe("runAllPreflightChecks", () => {
       edges,
       stages,
       agentIds: new Set(["agent-1"]),
-      splitTemplates: [],
+      splitChildWorkflows: [],
     });
     expect(result.passed).toBe(false);
     // "a" has worker-missing + stage-missing = 2 issues
@@ -512,7 +528,7 @@ describe("runAllPreflightChecks", () => {
       edges: [],
       stages,
       agentIds: new Set(["agent-1"]),
-      splitTemplates: [],
+      splitChildWorkflows: [],
     });
     // worker-missing (blocking) should come before stage-missing (warning)
     expect(result.issues[0]!.blocking).toBe(true);

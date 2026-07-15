@@ -64,7 +64,7 @@ const NODES = [
       template_id: "task-splitter",
       template_category: "logic",
       split_config: {
-        sub_template_id: null,
+        child_workflow_id: null,
         mode: "barrier",
         max_concurrency: 5,
         max_failures: 0,
@@ -284,7 +284,7 @@ async function importData() {
   console.log(`     b) 或通过已授权的 workflow admin 在 UI 上操作`);
   console.log(`\n💡 使用说明:`);
   console.log(`  1. 在画布上选中"任务拆分"节点`);
-  console.log(`  2. 在配置面板中设置 split_config.sub_template_id 为子任务使用的 workflow 模板 ID`);
+  console.log(`  2. 在配置面板中设置 split_config.child_workflow_id 为子任务使用的 active workflow ID`);
   console.log(`  3. 可根据需要调整 mode (barrier/pipeline)、max_concurrency、max_failures`);
 }
 

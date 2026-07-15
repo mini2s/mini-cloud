@@ -86,7 +86,7 @@ Critic = 拆分草案审核者
 ```
 模板编辑:
   画布上放置 Split 节点
-  → 配置 sub_template_id (子 workflow 模板)
+  → 配置 child_workflow_id (子任务执行 workflow)
   → 配置 mode (barrier | pipeline)
   → 配置 max_concurrency (默认 5)
   → 配置 max_failures (barrier 模式, 默认 0)
@@ -184,7 +184,7 @@ draft → discarded
   "template_id": "task-splitter",
   "template_category": "logic",
   "split_config": {
-    "sub_template_id": "<workflow_template_uuid>",
+    "child_workflow_id": "<workflow_uuid>",
     "mode": "barrier",
     "max_concurrency": 5,
     "max_failures": 0
@@ -246,8 +246,8 @@ func (s *SplitOrchestrator) HandleSplitNode(
 ### 流程一: pending → splitting（节点激活）
 
 1. 读取 `node.format_schema.split_config`
-2. 校验 `sub_template_id` 存在且为 active
-3. **嵌套防护**: 校验子模板的所有 node 中不含 `kind=split`
+2. 校验 `child_workflow_id` 存在、属于同 workspace、状态为 active，且不是当前 workflow
+3. **嵌套防护**: 校验子 workflow 的所有 node 中不含 `kind=split`
 4. 构建 Agent prompt — 包含父 issue 标题、描述、已有节点输出摘要，以及 draft API/CLI 使用说明
 5. 派发 Agent task，task context 设为 `{"type":"workflow","phase":"split"}`
 6. Agent 可通过以下方式提交拆分草案：
@@ -301,7 +301,7 @@ API: `POST /api/node-runs/:nodeRunID/split/approve`
 
 子 workflow 启动规则：
 - `ScheduleReadyTasks` 只启动 `status = "created"` 且所有依赖均为 `done` 的子任务。
-- 启动时使用 `split_config.sub_template_id`，并复用现有 workflow-for-issue 链路：`StartRunForIssue`、为子 workflow 的每个 node_run 创建 sub-issue、再 `DispatchRootNodeRuns`。
+- 启动时使用 `split_config.child_workflow_id` 指向的普通 active workflow，并复用现有 workflow-for-issue 链路：`StartRunForIssue`、为子 workflow 的每个 node_run 创建 sub-issue、再 `DispatchRootNodeRuns`。
 - 启动前将已完成依赖任务的输出摘要追加到子 issue 描述，作为该子 workflow 的输入上下文；审核阶段不注入前置输出，因为依赖任务尚未执行。
 - 启动成功后回写 `run_id`, `status = "running"`。
 - 启动失败时 `status = "failed"`，barrier 模式计入失败数。
@@ -411,7 +411,7 @@ packages/views/workflows/components/
 ```
 ┌──────────────────────┐
 │ ⚡ 任务拆分           │
-│ 子模板: 代码审查流程   │
+│ 子 workflow: 代码审查流程 │
 │ 模式: barrier · 并发5  │
 └──────────────────────┘
 ```
@@ -471,7 +471,7 @@ packages/views/workflows/components/
 
 - **Worker 选择器**（标签："拆分草案生成者"）— 默认按模板类型自动选择内置 split-planner agent
 - **Critic 选择器**（标签："拆分草案审核者"）— 必填，默认 human（工作流创建者）
-- 子模板选择器（下拉，列出 workspace 下所有 active workflow template）
+- 子任务执行 workflow 选择器（下拉，列出 workspace 下所有 active workflow，排除当前 workflow）
 - mode 切换（barrier / pipeline，带 tooltip）
 - max_concurrency 数字输入（默认 5，范围 1-20）
 - max_failures 数字输入（仅 barrier 模式显示，默认 0）
@@ -515,9 +515,10 @@ packages/views/workflows/components/
 
 | 检查项 | 严重级别 | 阻断 | 描述 |
 |--------|---------|------|------|
-| `split-template-missing` | error | yes | split 节点未配置 sub_template_id |
-| `split-template-nested` | error | yes | 子模板中包含 kind=split 节点（超过 2 层） |
-| `split-template-inactive` | error | yes | 子模板状态不是 active |
+| `split-child-workflow-missing` | error | yes | split 节点未配置 child_workflow_id |
+| `split-child-workflow-nested` | error | yes | 子 workflow 中包含 kind=split 节点（超过 2 层） |
+| `split-child-workflow-inactive` | error | yes | 子 workflow 状态不是 active |
+| `split-child-workflow-self` | error | yes | 子 workflow 指向当前 workflow 自身 |
 | `split-worker-missing` | error | yes | split 节点未配置 Worker |
 | `split-critic-missing` | error | yes | split 节点未配置 Critic |
 | `split-worker-not-specialized` | warning | no | Worker 不是内置 split-planner agent |
@@ -559,7 +560,7 @@ export type SplitTaskStatus =
   | "created" | "running" | "done" | "failed" | "cancelled" | "skipped";
 
 export interface SplitConfig {
-  sub_template_id: string;
+  child_workflow_id: string;
   mode: "barrier" | "pipeline";
   max_concurrency: number;
   max_failures: number;
@@ -663,7 +664,7 @@ export interface SplitProgress {
 - 审核修改: 增删子任务、调依赖、部分通过
 - DAG 调度: 子 issue 全部可见，但依赖未满足的子 workflow run 不启动
 - 取消级联: 父节点取消 → 子任务全部停止
-- 嵌套防护: 子模板含 split 节点时编辑器拒绝激活
+- 嵌套防护: 子 workflow 含 split 节点时编辑器拒绝激活
 
 ## 上线计划
 
@@ -694,7 +695,7 @@ export interface SplitProgress {
 **不在第一期范围**:
 - 三层及以上嵌套（已被 preflight 阻断）
 - 条件分支拆分（根据上游输出动态决定拆分数量）
-- 拆分节点作为子模板的一部分
+- 拆分节点作为子 workflow 的一部分
 - 子任务间的数据传递（除上下文注入外）
 - split_active 期间动态添加子任务（审核通过后列表不可变）
 - 子任务的子任务（孙子层）

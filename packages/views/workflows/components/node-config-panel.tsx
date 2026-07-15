@@ -29,7 +29,7 @@ import {
   useDeleteNode,
   useAssignNodeToStage,
   workflowRolesOptions,
-  workflowTemplateListOptions,
+  workflowActiveListOptions,
 } from "@multica/core/workflows/queries";
 import { useWorkflowEditorStore } from "@multica/core/workflows/store";
 import { AssigneePicker } from "../../issues/components/pickers/assignee-picker";
@@ -310,8 +310,7 @@ export function NodeConfigPanel({
   const undoRedoVersion = useWorkflowEditorStore((s) => s._undoRedoVersion);
   const cacheNodeEdits = useWorkflowEditorStore((s) => s.cacheNodeEdits);
   const { data: roles = [] } = useQuery(workflowRolesOptions(wsId));
-  const { data: templateData } = useQuery(workflowTemplateListOptions(wsId));
-  const workflowTemplates = templateData?.workflows ?? [];
+  const { data: activeWorkflows = [] } = useQuery(workflowActiveListOptions(wsId));
   const { getActorName } = useActorName();
 
   const saved = nodeEdits[node.id];
@@ -389,7 +388,7 @@ export function NodeConfigPanel({
   const workerConfigured = workerType === "role" ? Boolean(workerId) : Boolean(workerId);
   const criticConfigured = criticType === "api" ? Boolean(criticApiUrl.trim()) : Boolean(criticId);
   const splitConfig: SplitConfig = nodeFormat.split_config ?? {
-    sub_template_id: null,
+    child_workflow_id: null,
     mode: "barrier",
     max_concurrency: 5,
     max_failures: 0,
@@ -423,7 +422,7 @@ export function NodeConfigPanel({
       template_id: typeof base.template_id === "string" ? base.template_id : "task-splitter",
       template_category: typeof base.template_category === "string" ? base.template_category : "logic",
       split_config: {
-        sub_template_id: next.sub_template_id,
+        child_workflow_id: next.child_workflow_id,
         mode: next.mode,
         max_concurrency: next.max_concurrency,
         max_failures: next.max_failures,
@@ -687,7 +686,8 @@ export function NodeConfigPanel({
                 {isSplit ? (
                   <SplitConfigPanel
                     config={splitConfig}
-                    templates={workflowTemplates}
+                    childWorkflows={activeWorkflows}
+                    currentWorkflowId={workflowId}
                     disabled={disabled}
                     onChange={handleSplitConfigChange}
                   />

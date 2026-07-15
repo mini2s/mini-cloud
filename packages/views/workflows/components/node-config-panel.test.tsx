@@ -18,9 +18,10 @@ const mocks = vi.hoisted(() => ({
     assigneeId: string | null;
     includeWorkflows?: boolean;
   }>,
-  templates: [
-    { id: "wf-template-1", title: "Default child flow", status: "active", is_template: true },
-    { id: "wf-template-2", title: "Shipping child flow", status: "active", is_template: true },
+  workflows: [
+    { id: "wf-1", title: "Parent workflow", status: "active", is_template: false },
+    { id: "child-wf-1", title: "Default child flow", status: "active", is_template: false },
+    { id: "child-wf-2", title: "Shipping child flow", status: "active", is_template: false },
   ] as Array<{ id: string; title: string; status: string; is_template: boolean }>,
   roles: [
     { id: "role-1", name: "Implementer" },
@@ -30,8 +31,8 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("@tanstack/react-query", () => ({
   useQuery: (options: { queryKey?: unknown[] }) =>
-    options.queryKey?.[0] === "templates"
-        ? { data: { workflows: mocks.templates } }
+    options.queryKey?.[0] === "workflows"
+        ? { data: mocks.workflows.filter((workflow) => workflow.status === "active") }
       : { data: mocks.roles },
 }));
 
@@ -41,7 +42,7 @@ vi.mock("@multica/core/hooks", () => ({
 
 vi.mock("@multica/core/workflows/queries", () => ({
   workflowRolesOptions: () => ({ queryKey: ["workflow-roles"] }),
-  workflowTemplateListOptions: () => ({ queryKey: ["templates"] }),
+  workflowActiveListOptions: () => ({ queryKey: ["workflows"] }),
   useAssignNodeToStage: () => ({ mutate: mocks.assignStageMutate, isPending: false }),
   useCreateStage: () => ({ mutateAsync: mocks.createStageMutateAsync, isPending: false, error: null }),
   useDeleteNode: () => ({ mutateAsync: mocks.deleteNodeMutateAsync, isPending: false }),
@@ -148,18 +149,18 @@ vi.mock("../../i18n", () => {
       badge_configured: "Configured",
       badge_needs_assignee: "Needs assignee",
       badge_optional: "Optional",
-      badge_needs_template: "Needs child template",
+      badge_needs_child_workflow: "Needs child workflow",
       label_bind_to_node: "Bind to Node",
       label_worker_role: "Worker role",
       label_critic_role: "Critic role",
       split_title: "Split settings",
-      split_subtitle: "Configure the child workflow template and runtime limits for task splitting.",
+      split_subtitle: "Configure the child workflow and runtime limits for task splitting.",
       split_review_required_title: "Human review is required",
       split_review_required_hint: "Generated split tasks always stop for human review before child issues are created.",
       split_worker_subtitle: "The Agent that generates the task splitting plan.",
       split_critic_subtitle: "The reviewer that approves generated split drafts.",
-      split_child_template_label: "Child template",
-      split_child_template_placeholder: "Select a child template...",
+      split_child_workflow_label: "Child workflow",
+      split_child_workflow_placeholder: "Select a child workflow...",
       split_mode_label: "Execution mode",
       split_mode_barrier: "Barrier",
       split_mode_pipeline: "Pipeline",
@@ -442,7 +443,7 @@ describe("NodeConfigPanel", () => {
             template_category: "logic",
             shape: "rectangle",
             split_config: {
-              sub_template_id: "wf-template-2",
+              child_workflow_id: "child-wf-2",
               mode: "barrier",
               max_concurrency: 3,
               max_failures: 1,
@@ -458,7 +459,7 @@ describe("NodeConfigPanel", () => {
     expect(screen.getByText("Split settings")).toBeInTheDocument();
     expect(screen.getByText("Human review is required")).toBeInTheDocument();
     expect(screen.getByText("Generated split tasks always stop for human review before child issues are created.")).toBeInTheDocument();
-    expect(screen.getByLabelText("Child template")).toHaveValue("wf-template-2");
+    expect(screen.getByLabelText("Child workflow")).toHaveValue("child-wf-2");
     expect(screen.getByLabelText("Max concurrency")).toHaveValue(3);
     expect(screen.getByLabelText("Max failures")).toHaveValue(1);
     expect(screen.getByText("Worker")).toBeInTheDocument();
@@ -481,7 +482,7 @@ describe("NodeConfigPanel", () => {
             template_category: "logic",
             shape: "rectangle",
             split_config: {
-              sub_template_id: "wf-template-1",
+              child_workflow_id: "child-wf-1",
               mode: "barrier",
               max_concurrency: 5,
               max_failures: 0,
@@ -494,8 +495,8 @@ describe("NodeConfigPanel", () => {
       />,
     );
 
-    fireEvent.change(screen.getByLabelText("Child template"), {
-      target: { value: "wf-template-2" },
+    fireEvent.change(screen.getByLabelText("Child workflow"), {
+      target: { value: "child-wf-2" },
     });
     expect(mocks.cacheNodeEdits).toHaveBeenLastCalledWith("split-1", {
       format_schema: {
@@ -504,7 +505,7 @@ describe("NodeConfigPanel", () => {
         template_category: "logic",
         shape: "rectangle",
         split_config: {
-          sub_template_id: "wf-template-2",
+          child_workflow_id: "child-wf-2",
           mode: "barrier",
           max_concurrency: 5,
           max_failures: 0,
@@ -520,7 +521,7 @@ describe("NodeConfigPanel", () => {
         template_category: "logic",
         shape: "rectangle",
         split_config: {
-          sub_template_id: "wf-template-1",
+          child_workflow_id: "child-wf-1",
           mode: "pipeline",
           max_concurrency: 5,
           max_failures: 0,
@@ -538,7 +539,7 @@ describe("NodeConfigPanel", () => {
         template_category: "logic",
         shape: "rectangle",
         split_config: {
-          sub_template_id: "wf-template-1",
+          child_workflow_id: "child-wf-1",
           mode: "barrier",
           max_concurrency: 7,
           max_failures: 0,

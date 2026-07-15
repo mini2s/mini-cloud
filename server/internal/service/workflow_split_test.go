@@ -175,6 +175,34 @@ func TestDraftSourceConstantsAreDistinct(t *testing.T) {
 	}
 }
 
+func TestParseSplitConfigReadsChildWorkflowID(t *testing.T) {
+	cfg, err := parseSplitConfig([]byte(`{
+		"type": "split",
+		"split_config": {
+			"child_workflow_id": "11111111-1111-1111-1111-111111111111",
+			"mode": "pipeline",
+			"max_concurrency": 12,
+			"max_failures": 2
+		}
+	}`))
+	if err != nil {
+		t.Fatalf("parseSplitConfig: %v", err)
+	}
+	if cfg.ChildWorkflowID != "11111111-1111-1111-1111-111111111111" {
+		t.Fatalf("ChildWorkflowID = %q", cfg.ChildWorkflowID)
+	}
+	if cfg.Mode != SplitModePipeline || cfg.MaxConcurrency != 12 || cfg.MaxFailures != 2 {
+		t.Fatalf("cfg = %+v, want pipeline/12/2", cfg)
+	}
+}
+
+func TestParseSplitConfigRequiresChildWorkflowID(t *testing.T) {
+	_, err := parseSplitConfig([]byte(`{"type":"split","split_config":{"mode":"barrier"}}`))
+	if err == nil || !strings.Contains(err.Error(), "child_workflow_id") {
+		t.Fatalf("parseSplitConfig error = %v, want missing child_workflow_id", err)
+	}
+}
+
 func TestBuildSplitDependencyContextIncludesDependencyOutputs(t *testing.T) {
 	context := buildSplitDependencyContext([]splitTaskDependencyContext{
 		{
@@ -555,4 +583,3 @@ func TestSplitProgressSummaryCountsByStatus(t *testing.T) {
 func TestSplitChatDispatchesAgentTaskAndReturnsChatSessionID(t *testing.T) {
 	t.Skip("requires database — full integration test for SplitChat dispatch flow")
 }
-

@@ -16,9 +16,10 @@ export type PreflightCheckId =
   | "gateway-join-incoming"
   | "gateway-kind-invalid"
   | "gateway-join-multiple-outgoing"
-  | "split-template-missing"
-  | "split-template-inactive"
-  | "split-template-nested";
+  | "split-child-workflow-missing"
+  | "split-child-workflow-inactive"
+  | "split-child-workflow-nested"
+  | "split-child-workflow-self";
 
 export type PreflightSeverity = "error" | "warning";
 
@@ -328,56 +329,67 @@ export function checkStageMissing(nodes: WorkflowNode[]): PreflightIssue[] {
     }));
 }
 
-export interface SplitTemplatePreflightContext {
+export interface SplitChildWorkflowPreflightContext {
   id: string;
   status: string;
   nodes: WorkflowNode[];
 }
 
-export function checkSplitTemplateConfig(
+export function checkSplitChildWorkflowConfig(
   nodes: WorkflowNode[],
-  splitTemplates: SplitTemplatePreflightContext[] = [],
+  splitChildWorkflows: SplitChildWorkflowPreflightContext[] = [],
 ): PreflightIssue[] {
-  const templatesByID = new Map(splitTemplates.map((template) => [template.id, template]));
+  const workflowsByID = new Map(splitChildWorkflows.map((workflow) => [workflow.id, workflow]));
   const issues: PreflightIssue[] = [];
 
   for (const node of nodes) {
     const format = parseNodeFormat(node.format_schema);
     if (format.kind !== "split") continue;
 
-    const subTemplateID = format.split_config?.sub_template_id;
-    if (!subTemplateID) {
+    const childWorkflowID = format.split_config?.child_workflow_id;
+    if (!childWorkflowID) {
       issues.push({
-        checkId: "split-template-missing",
+        checkId: "split-child-workflow-missing",
         severity: "error",
         blocking: true,
         nodeId: node.id,
         nodeTitle: node.title,
-        message: "Split node needs a child workflow template",
+        message: "Split node needs a child workflow",
       });
       continue;
     }
 
-    const template = templatesByID.get(subTemplateID);
-    if (template && template.status !== "active") {
+    const childWorkflow = workflowsByID.get(childWorkflowID);
+    if (childWorkflowID === node.workflow_id) {
       issues.push({
-        checkId: "split-template-inactive",
+        checkId: "split-child-workflow-self",
         severity: "error",
         blocking: true,
         nodeId: node.id,
         nodeTitle: node.title,
-        message: "Split child template must be active",
+        message: "Split child workflow cannot be the current workflow",
       });
     }
 
-    if (template?.nodes.some((templateNode) => parseNodeFormat(templateNode.format_schema).kind === "split")) {
+    if (childWorkflow && childWorkflow.status !== "active") {
       issues.push({
-        checkId: "split-template-nested",
+        checkId: "split-child-workflow-inactive",
         severity: "error",
         blocking: true,
         nodeId: node.id,
         nodeTitle: node.title,
-        message: "Split child template cannot contain another split node",
+        message: "Split child workflow must be active",
+      });
+    }
+
+    if (childWorkflow?.nodes.some((workflowNode) => parseNodeFormat(workflowNode.format_schema).kind === "split")) {
+      issues.push({
+        checkId: "split-child-workflow-nested",
+        severity: "error",
+        blocking: true,
+        nodeId: node.id,
+        nodeTitle: node.title,
+        message: "Split child workflow cannot contain another split node",
       });
     }
   }
@@ -459,7 +471,7 @@ export interface PreflightCheckInput {
   stages: WorkflowStage[];
   agentIds: Set<string>;
   splitPlannerAgentIds?: Set<string>;
-  splitTemplates?: SplitTemplatePreflightContext[];
+  splitChildWorkflows?: SplitChildWorkflowPreflightContext[];
 }
 
 export function runAllPreflightChecks(input: PreflightCheckInput): PreflightResult {
@@ -480,7 +492,7 @@ export function runAllPreflightChecks(input: PreflightCheckInput): PreflightResu
     ...checkInvalidCriticRef(nodes, agentIds),
     ...checkStageMissing(nodes),
     ...checkGatewayTopology(nodes, edges),
-    ...checkSplitTemplateConfig(nodes, input.splitTemplates ?? []),
+    ...checkSplitChildWorkflowConfig(nodes, input.splitChildWorkflows ?? []),
   ];
 
   // Sort: blocking first, then by checkId, then by nodeTitle

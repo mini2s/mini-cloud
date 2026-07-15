@@ -271,7 +271,7 @@ describe("CompactWorkerNode", () => {
             template_category: "logic",
             shape: "rectangle",
             split_config: {
-              sub_template_id: "wf-template-2",
+              child_workflow_id: "wf-template-2",
               mode: "barrier",
               max_concurrency: 5,
               max_failures: 0,

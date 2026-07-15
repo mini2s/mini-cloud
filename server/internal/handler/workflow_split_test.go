@@ -82,8 +82,8 @@ func createSplitApproveFixture(t *testing.T, mode string) splitApproveFixture {
 	}
 
 	if err := testPool.QueryRow(ctx, `
-		INSERT INTO multica_workflow (workspace_id, title, description, status, created_by_type, created_by_id, is_template)
-		VALUES ($1, $2, '', 'active', 'member', $3, true)
+		INSERT INTO multica_workflow (workspace_id, title, description, status, created_by_type, created_by_id)
+		VALUES ($1, $2, '', 'active', 'member', $3)
 		RETURNING id
 	`, testWorkspaceID, "Split child workflow", testUserID).Scan(&f.childWorkflow); err != nil {
 		t.Fatalf("create child workflow: %v", err)
@@ -103,10 +103,10 @@ func createSplitApproveFixture(t *testing.T, mode string) splitApproveFixture {
 	splitFormat, err := json.Marshal(map[string]any{
 		"type": "split",
 		"split_config": map[string]any{
-			"sub_template_id": f.childWorkflow,
-			"mode":            mode,
-			"max_concurrency": 1,
-			"max_failures":    0,
+			"child_workflow_id": f.childWorkflow,
+			"mode":              mode,
+			"max_concurrency":   1,
+			"max_failures":      0,
 		},
 	})
 	if err != nil {
@@ -271,8 +271,8 @@ func createSplitGenerateFixture(t *testing.T, mode string) splitGenerateFixture 
 	}
 
 	if err := testPool.QueryRow(ctx, `
-		INSERT INTO multica_workflow (workspace_id, title, description, status, created_by_type, created_by_id, is_template)
-		VALUES ($1, $2, '', 'active', 'member', $3, true)
+		INSERT INTO multica_workflow (workspace_id, title, description, status, created_by_type, created_by_id)
+		VALUES ($1, $2, '', 'active', 'member', $3)
 		RETURNING id
 	`, testWorkspaceID, "Split generate child workflow", testUserID).Scan(&f.childWorkflow); err != nil {
 		t.Fatalf("create child workflow: %v", err)
@@ -292,10 +292,10 @@ func createSplitGenerateFixture(t *testing.T, mode string) splitGenerateFixture 
 	splitFormat, err := json.Marshal(map[string]any{
 		"type": "split",
 		"split_config": map[string]any{
-			"sub_template_id": f.childWorkflow,
-			"mode":            mode,
-			"max_concurrency": 2,
-			"max_failures":    0,
+			"child_workflow_id": f.childWorkflow,
+			"mode":              mode,
+			"max_concurrency":   2,
+			"max_failures":      0,
 		},
 	})
 	if err != nil {

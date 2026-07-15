@@ -7,7 +7,8 @@ import { useT } from "../../../i18n";
 
 interface SplitConfigPanelProps {
   config: SplitConfig;
-  templates: Workflow[];
+  childWorkflows: Workflow[];
+  currentWorkflowId?: string | null;
   disabled?: boolean;
   onChange: (next: SplitConfig) => void;
 }
@@ -19,12 +20,13 @@ function clampInt(value: number, min: number, max: number): number {
 
 export function SplitConfigPanel({
   config,
-  templates,
+  childWorkflows,
+  currentWorkflowId,
   disabled = false,
   onChange,
 }: SplitConfigPanelProps) {
   const { t } = useT("workflows");
-  const activeTemplates = templates.filter((template) => template.status === "active" && template.is_template);
+  const activeChildWorkflows = childWorkflows.filter((workflow) => workflow.status === "active" && workflow.id !== currentWorkflowId);
 
   return (
     <div className="space-y-3 rounded-lg border border-border/70 bg-muted/15 p-3" data-testid="split-config-panel">
@@ -41,24 +43,24 @@ export function SplitConfigPanel({
       </div>
 
       <div className="space-y-1.5">
-        <Label htmlFor="split-child-template" className="text-xs text-muted-foreground">
-          {t(($) => $.detail_panel.split_child_template_label)}
+        <Label htmlFor="split-child-workflow" className="text-xs text-muted-foreground">
+          {t(($) => $.detail_panel.split_child_workflow_label)}
         </Label>
         <select
-          id="split-child-template"
-          aria-label={t(($) => $.detail_panel.split_child_template_label)}
+          id="split-child-workflow"
+          aria-label={t(($) => $.detail_panel.split_child_workflow_label)}
           disabled={disabled}
           className="h-8 w-full rounded-md border border-input bg-background px-2 text-sm"
-          value={config.sub_template_id ?? ""}
+          value={config.child_workflow_id ?? ""}
           onChange={(event) => onChange({
             ...config,
-            sub_template_id: event.target.value || null,
+            child_workflow_id: event.target.value || null,
           })}
         >
-          <option value="">{t(($) => $.detail_panel.split_child_template_placeholder)}</option>
-          {activeTemplates.map((template) => (
-            <option key={template.id} value={template.id}>
-              {template.title}
+          <option value="">{t(($) => $.detail_panel.split_child_workflow_placeholder)}</option>
+          {activeChildWorkflows.map((workflow) => (
+            <option key={workflow.id} value={workflow.id}>
+              {workflow.title}
             </option>
           ))}
         </select>

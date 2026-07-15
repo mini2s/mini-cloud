@@ -175,7 +175,7 @@ export function buildCreateNodeRequestFromTemplate(
             template_id: template.id,
             template_category: template.category,
             split_config: {
-              sub_template_id: null,
+              child_workflow_id: null,
               mode: "barrier",
               max_concurrency: 5,
               max_failures: 0,

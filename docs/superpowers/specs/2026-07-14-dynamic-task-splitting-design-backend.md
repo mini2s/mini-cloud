@@ -140,7 +140,7 @@ draft → approved → created → running → done | failed | cancelled
 {
   "type": "split",
   "split_config": {
-    "sub_template_id": "<uuid>",
+    "child_workflow_id": "<uuid>",
     "mode": "barrier",
     "max_concurrency": 5,
     "max_failures": 0
@@ -308,7 +308,7 @@ Agent task 完成
 
 - 三层及以上嵌套
 - 条件分支拆分（根据上游输出动态决定拆分数量）
-- 拆分节点作为子模板的一部分
+- 拆分节点作为子 workflow 的一部分
 - 子任务间的数据传递（除上下文注入外）
 - split_active 期间动态添加子任务
 - 子任务的子任务（孙子层）

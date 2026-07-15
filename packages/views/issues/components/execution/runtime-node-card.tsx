@@ -363,7 +363,7 @@ export function RuntimeNodeCard({
           status={splitStatus}
           progress={splitProgress}
           taskCount={splitProgress?.total ?? 0}
-          subTemplateName={displayStatusLabel}
+          childWorkflowName={displayStatusLabel}
           progressAction={canToggleSplitChildren ? (
             <button
               type="button"
