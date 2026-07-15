@@ -251,6 +251,15 @@ func (h *Handler) CasdoorCallback(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
+	// Bind any pending dept membership now that we hold a trusted universal_id.
+	// Server-side activation makes workspace linking work on every login
+	// (standalone or embedded), rather than depending on the iframe identity
+	// handshake (which only fires inside opencode). Best-effort: never fails
+	// the login.
+	if strings.TrimSpace(userInfo.UniversalID) != "" {
+		h.linkDeptMembersOnLogin(r.Context(), user.ID, userInfo.UniversalID)
+	}
+
 	// Issue Multica JWT and set cookies.
 	tokenString, err := h.issueJWT(user)
 	if err != nil {

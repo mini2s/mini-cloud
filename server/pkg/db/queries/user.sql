@@ -85,6 +85,13 @@ WHERE id = $1;
 UPDATE multica_user SET casdoor_universal_id = $2, updated_at = now()
 WHERE id = $1;
 
+-- name: SetUserName :exec
+-- Overwrites the display name. Used on login to sync the name from the
+-- org source of truth (dept-sync), repairing placeholder names such as a
+-- Casdoor login name that was stored as the multica user name at provisioning.
+UPDATE multica_user SET name = $2, updated_at = now()
+WHERE id = $1;
+
 -- name: SetStarterContentState :one
 -- Atomically transition starter_content_state. The handler is
 -- responsible for checking the current value first (to decide between

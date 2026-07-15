@@ -118,3 +118,12 @@ data:
   {{- if .Values.backend.config.deptSyncTimeout }}
   DEPT_SYNC_TIMEOUT: {{ .Values.backend.config.deptSyncTimeout | quote }}
   {{- end }}
+  {{- if .Values.backend.config.deptSyncCacheTtl }}
+  DEPT_SYNC_CACHE_TTL: {{ .Values.backend.config.deptSyncCacheTtl | quote }}
+  {{- end }}
+  {{- if .Values.backend.config.deptLinkTimeout }}
+  DEPT_LINK_TIMEOUT: {{ .Values.backend.config.deptLinkTimeout | quote }}
+  {{- end }}
+  {{- if .Values.backend.config.deptLinkInterval }}
+  DEPT_LINK_INTERVAL: {{ .Values.backend.config.deptLinkInterval | quote }}
+  {{- end }}

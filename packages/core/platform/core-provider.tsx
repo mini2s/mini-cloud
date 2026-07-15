@@ -15,7 +15,6 @@ import { QueryProvider } from "../provider";
 import { createLogger } from "../logger";
 import { defaultStorage } from "./storage";
 import { AuthInitializer } from "./auth-initializer";
-import { CostrictIdentityBridge } from "./costrict-identity-bridge";
 import type { CoreProviderProps, ClientIdentity } from "./types";
 import type { StorageAdapter } from "../types/storage";
 
@@ -100,7 +99,6 @@ export function CoreProvider({
         casdoorMode={casdoorMode}
         identity={identity}
       >
-        <CostrictIdentityBridge />
         <WSProvider
           wsUrl={wsUrl}
           authStore={authStore}

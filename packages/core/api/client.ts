@@ -14,8 +14,6 @@ import type {
   DeptUser,
   BatchAddDeptMembersRequest,
   BatchAddDeptMembersResponse,
-  AssociateDeptIdentityRequest,
-  AssociateDeptIdentityResponse,
   ListIssuesParams,
   ListGroupedIssuesParams,
   Agent,
@@ -169,7 +167,6 @@ import {
   EMPTY_AGENT_TEMPLATE_SUMMARY_LIST,
   EMPTY_ATTACHMENT,
   EMPTY_BATCH_ADD_DEPT_MEMBERS_RESPONSE,
-  EMPTY_ASSOCIATE_DEPT_IDENTITY_RESPONSE,
   EMPTY_CLOUD_RUNTIME_NODE,
   EMPTY_CLOUD_RUNTIME_NODE_LIST,
   EMPTY_DEPT_DEPARTMENT_LIST,
@@ -239,7 +236,6 @@ import {
   EMPTY_CATALOG_SKILL,
   AgentCloudSkillListSchema,
   EMPTY_AGENT_CLOUD_SKILLS,
-  AssociateDeptIdentityResponseSchema,
 } from "./schemas";
 import type { BuiltinPlugin, BuiltinPluginListResponse } from "./schemas";
 import type { AgentCloudSkill } from "../types";
@@ -521,16 +517,6 @@ export class ApiClient {
     });
     return parseWithFallback(raw, UserSchema, EMPTY_USER, {
       endpoint: "PATCH /api/me",
-    });
-  }
-
-  async associateDeptIdentity(data: AssociateDeptIdentityRequest): Promise<AssociateDeptIdentityResponse> {
-    const raw = await this.fetch<unknown>("/api/me/dept-association", {
-      method: "POST",
-      body: JSON.stringify(data),
-    });
-    return parseWithFallback(raw, AssociateDeptIdentityResponseSchema, EMPTY_ASSOCIATE_DEPT_IDENTITY_RESPONSE, {
-      endpoint: "POST /api/me/dept-association",
     });
   }
 

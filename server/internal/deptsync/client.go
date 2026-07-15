@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -18,12 +19,22 @@ type Config struct {
 	BaseURL  string
 	QueryKey string
 	Timeout  time.Duration
+	CacheTTL time.Duration
 }
 
 type Client struct {
 	baseURL    string
 	queryKey   string
 	httpClient *http.Client
+	cacheTTL   time.Duration
+	cacheMu    sync.Mutex
+	cache      map[string]cacheEntry
+}
+
+type cacheEntry struct {
+	expiresAt   time.Time
+	users       []User
+	departments []Department
 }
 
 type User struct {
@@ -138,10 +149,16 @@ func NewClient(cfg Config) *Client {
 	if timeout <= 0 {
 		timeout = 10 * time.Second
 	}
+	cacheTTL := cfg.CacheTTL
+	if cacheTTL <= 0 {
+		cacheTTL = time.Minute
+	}
 	return &Client{
 		baseURL:    strings.TrimRight(strings.TrimSpace(cfg.BaseURL), "/"),
 		queryKey:   strings.TrimSpace(cfg.QueryKey),
 		httpClient: &http.Client{Timeout: timeout},
+		cacheTTL:   cacheTTL,
+		cache:      make(map[string]cacheEntry),
 	}
 }
 
@@ -156,6 +173,10 @@ func (c *Client) SearchDepartments(ctx context.Context, query string, limit int)
 	query = strings.TrimSpace(query)
 	if limit <= 0 || limit > 50 {
 		limit = 20
+	}
+	cacheKey := "departments/search:" + query + ":" + strconv.Itoa(limit)
+	if departments, ok := c.getCachedDepartments(cacheKey); ok {
+		return departments, nil
 	}
 
 	u, err := url.Parse(c.baseURL + "/departments/search")
@@ -195,6 +216,7 @@ func (c *Client) SearchDepartments(ctx context.Context, query string, limit int)
 		}
 		return nil, errors.New(envelope.Code)
 	}
+	c.setCachedDepartments(cacheKey, envelope.Data)
 	return envelope.Data, nil
 }
 
@@ -205,6 +227,10 @@ func (c *Client) SearchUsers(ctx context.Context, query string, limit int) ([]Us
 	query = strings.TrimSpace(query)
 	if limit <= 0 || limit > 50 {
 		limit = 20
+	}
+	cacheKey := "users/search:" + query + ":" + strconv.Itoa(limit)
+	if users, ok := c.getCachedUsers(cacheKey); ok {
+		return users, nil
 	}
 
 	u, err := url.Parse(c.baseURL + "/users/search")
@@ -244,6 +270,7 @@ func (c *Client) SearchUsers(ctx context.Context, query string, limit int) ([]Us
 		}
 		return nil, errors.New(envelope.Code)
 	}
+	c.setCachedUsers(cacheKey, envelope.Data)
 	return envelope.Data, nil
 }
 
@@ -254,6 +281,10 @@ func (c *Client) GetUserDepartmentsByUniversalID(ctx context.Context, universalI
 	universalID = strings.TrimSpace(universalID)
 	if universalID == "" {
 		return nil, fmt.Errorf("universal_id is required")
+	}
+	cacheKey := "user/departments:" + universalID
+	if users, ok := c.getCachedUsers(cacheKey); ok {
+		return users, nil
 	}
 
 	u, err := url.Parse(c.baseURL + "/user/" + url.PathEscape(universalID) + "/departments")
@@ -292,6 +323,7 @@ func (c *Client) GetUserDepartmentsByUniversalID(ctx context.Context, universalI
 		}
 		return nil, errors.New(envelope.Code)
 	}
+	c.setCachedUsers(cacheKey, envelope.Data)
 	return envelope.Data, nil
 }
 
@@ -316,6 +348,10 @@ func (c *Client) GetDepartment(ctx context.Context, deptID string) (*Department,
 func (c *Client) listDepartmentTree(ctx context.Context) ([]Department, error) {
 	if !c.Configured() {
 		return nil, ErrNotConfigured
+	}
+	const cacheKey = "department/tree"
+	if departments, ok := c.getCachedDepartments(cacheKey); ok {
+		return departments, nil
 	}
 	u, err := url.Parse(c.baseURL + "/department/tree")
 	if err != nil {
@@ -349,6 +385,7 @@ func (c *Client) listDepartmentTree(ctx context.Context) ([]Department, error) {
 		}
 		return nil, errors.New(envelope.Code)
 	}
+	c.setCachedDepartments(cacheKey, envelope.Data)
 	return envelope.Data, nil
 }
 
@@ -414,6 +451,10 @@ func (c *Client) listDepartmentUsersRaw(ctx context.Context, deptID string, incl
 	if deptID == "" {
 		return nil, fmt.Errorf("dept_id is required")
 	}
+	cacheKey := "department/users:" + deptID + ":" + strconv.FormatBool(includeChildren)
+	if users, ok := c.getCachedUsers(cacheKey); ok {
+		return users, nil
+	}
 	u, err := url.Parse(c.baseURL + "/department/" + url.PathEscape(deptID) + "/users")
 	if err != nil {
 		return nil, err
@@ -452,5 +493,79 @@ func (c *Client) listDepartmentUsersRaw(ctx context.Context, deptID string, incl
 		}
 		return nil, errors.New(envelope.Code)
 	}
+	c.setCachedUsers(cacheKey, envelope.Data)
 	return envelope.Data, nil
+}
+
+func (c *Client) getCachedUsers(key string) ([]User, bool) {
+	if c == nil || c.cacheTTL <= 0 {
+		return nil, false
+	}
+	c.cacheMu.Lock()
+	defer c.cacheMu.Unlock()
+	entry, ok := c.cache[key]
+	if !ok {
+		return nil, false
+	}
+	if time.Now().After(entry.expiresAt) {
+		delete(c.cache, key)
+		return nil, false
+	}
+	return cloneUsers(entry.users), true
+}
+
+func (c *Client) setCachedUsers(key string, users []User) {
+	if c == nil || c.cacheTTL <= 0 {
+		return
+	}
+	c.cacheMu.Lock()
+	defer c.cacheMu.Unlock()
+	c.cache[key] = cacheEntry{expiresAt: time.Now().Add(c.cacheTTL), users: cloneUsers(users)}
+}
+
+func (c *Client) getCachedDepartments(key string) ([]Department, bool) {
+	if c == nil || c.cacheTTL <= 0 {
+		return nil, false
+	}
+	c.cacheMu.Lock()
+	defer c.cacheMu.Unlock()
+	entry, ok := c.cache[key]
+	if !ok {
+		return nil, false
+	}
+	if time.Now().After(entry.expiresAt) {
+		delete(c.cache, key)
+		return nil, false
+	}
+	return cloneDepartments(entry.departments), true
+}
+
+func (c *Client) setCachedDepartments(key string, departments []Department) {
+	if c == nil || c.cacheTTL <= 0 {
+		return
+	}
+	c.cacheMu.Lock()
+	defer c.cacheMu.Unlock()
+	c.cache[key] = cacheEntry{expiresAt: time.Now().Add(c.cacheTTL), departments: cloneDepartments(departments)}
+}
+
+func cloneUsers(users []User) []User {
+	if users == nil {
+		return nil
+	}
+	out := make([]User, len(users))
+	copy(out, users)
+	return out
+}
+
+func cloneDepartments(departments []Department) []Department {
+	if departments == nil {
+		return nil
+	}
+	out := make([]Department, len(departments))
+	for i := range departments {
+		out[i] = departments[i]
+		out[i].Children = cloneDepartments(departments[i].Children)
+	}
+	return out
 }
