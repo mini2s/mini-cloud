@@ -1053,6 +1053,11 @@ func (s *WorkflowService) dispatchCritic(ctx context.Context, nodeRun db.Multica
 
 	switch node.CriticType {
 	case "human":
+		if !node.CriticID.Valid {
+			// No specific reviewer assigned — auto-approve to avoid
+			// indefinite "waiting for reviewer" state.
+			return s.ReviewNodeRun(ctx, nodeRun.ID, true, "Auto-approved (no reviewer assigned)", nil)
+		}
 		_, err := s.TransitionNodeRun(ctx, nodeRun, NodeRunStatusCriticReviewing)
 		return err
 	case "agent", "squad":
