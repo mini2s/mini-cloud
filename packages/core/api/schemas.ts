@@ -261,6 +261,8 @@ const SplitTaskSchema = z.object({
 export const SplitTasksResponseSchema = z.object({
   tasks: z.array(SplitTaskSchema).default([]),
   progress: SplitProgressSchema.default(EMPTY_SPLIT_PROGRESS as any),
+  chat_session_id: z.string().optional(),
+  task_id: z.string().optional(),
 }).loose();
 
 export const EMPTY_SPLIT_TASKS_RESPONSE: SplitTasksResponse = {

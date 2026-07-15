@@ -5,7 +5,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Send } from "lucide-react";
 import { Button } from "@multica/ui/components/ui/button";
 import { Badge } from "@multica/ui/components/ui/badge";
-import { chatMessagesOptions } from "@multica/core/chat/queries";
+import { chatMessagesOptions, pendingChatTaskOptions } from "@multica/core/chat/queries";
 import type { AgentTask, ChatMessage } from "@multica/core/types";
 import { CommentInput } from "../../../issues/components/comment-input";
 import { InlineTranscriptPanel } from "../../../issues/components/execution-log/inline-transcript-panel";
@@ -134,11 +134,24 @@ export function SplitChatReview({
   onSubmit,
 }: SplitChatReviewProps) {
   const { data: messages = [] } = useQuery(chatMessagesOptions(chatSessionId ?? ""));
-  const hasHistory = messages.length > 0;
+  const { data: pendingTask } = useQuery(pendingChatTaskOptions(chatSessionId ?? ""));
+  const isAgentRunning = !!(pendingTask?.task_id);
+  const hasHistory = messages.length > 0 || isAgentRunning;
 
   return (
     <div className="space-y-2">
-      <SplitChatHistory messages={messages} isPending={disabled} />
+      <SplitChatHistory messages={messages} isPending={isAgentRunning} />
+
+      {/* Agent thinking indicator — shown while a split chat task is in-flight */}
+      {isAgentRunning ? (
+        <div className="flex items-center gap-2 rounded-lg border bg-muted/30 px-3 py-2">
+          <span className="size-2 rounded-full bg-amber-500 animate-pulse" />
+          <span className="text-sm text-muted-foreground">Agent 正在思考…</span>
+          {pendingTask?.status === "queued" ? (
+            <Badge variant="outline" className="text-xs">排队中</Badge>
+          ) : null}
+        </div>
+      ) : null}
 
       {!hasHistory ? (
         <div className="flex flex-wrap gap-1.5">

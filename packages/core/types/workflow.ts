@@ -8,7 +8,7 @@ export type GatewayKind = "fork" | "join";
 export type SplitMode = "barrier" | "pipeline";
 
 export interface SplitConfig {
-  sub_template_id: string | null;
+  child_workflow_id: string | null;
   mode: SplitMode;
   max_concurrency: number;
   max_failures: number;
@@ -116,7 +116,7 @@ export function parseNodeFormat(formatSchema: unknown): WorkflowNodeFormat {
     const config = rawConfig && typeof rawConfig === "object" && !Array.isArray(rawConfig)
       ? rawConfig as Record<string, unknown>
       : {};
-    const subTemplateId = readString(config, "sub_template_id");
+    const childWorkflowId = readString(config, "child_workflow_id");
     const rawMaxConcurrency = config.max_concurrency;
     const rawMaxFailures = config.max_failures;
     const maxConcurrencyValid =
@@ -129,7 +129,7 @@ export function parseNodeFormat(formatSchema: unknown): WorkflowNodeFormat {
       Number.isInteger(rawMaxFailures) &&
       rawMaxFailures >= 0;
     const splitConfig: SplitConfig = {
-      sub_template_id: subTemplateId,
+      child_workflow_id: childWorkflowId,
       mode: isSplitMode(config.mode) ? config.mode : "barrier",
       max_concurrency: maxConcurrencyValid ? rawMaxConcurrency : 5,
       max_failures: maxFailuresValid ? rawMaxFailures : 0,
@@ -141,7 +141,7 @@ export function parseNodeFormat(formatSchema: unknown): WorkflowNodeFormat {
       template_category: templateCategory,
       split_config: splitConfig,
       split_config_valid:
-        subTemplateId !== null &&
+        childWorkflowId !== null &&
         (config.mode == null || isSplitMode(config.mode)) &&
         (rawMaxConcurrency == null || maxConcurrencyValid) &&
         (rawMaxFailures == null || maxFailuresValid),
@@ -345,6 +345,13 @@ export interface SplitProgress {
 export interface SplitTasksResponse {
   tasks: SplitTask[];
   progress: SplitProgress;
+}
+
+/** Returned by POST /api/node-runs/:id/split/chat — extends SplitTasksResponse
+ *  with the chat session and agent task IDs needed for real-time updates. */
+export interface SplitChatResponse extends SplitTasksResponse {
+  chat_session_id: string;
+  task_id: string;
 }
 
 export interface ApproveSplitRequest {

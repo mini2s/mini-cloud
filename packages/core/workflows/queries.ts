@@ -11,7 +11,10 @@ import type {
   ReorderStagesItem,
   AssignNodeToStageRequest,
   ApproveSplitRequest,
+  ChatMessage,
+  ChatPendingTask,
 } from "../types";
+import { chatKeys } from "../chat/queries";
 
 export const workflowKeys = {
   all: (wsId: string) => ["workflows", wsId] as const,
@@ -353,7 +356,33 @@ export function useSubmitSplitReviewChat(wsId: string) {
         content,
         ...(attachmentIds && attachmentIds.length > 0 ? { attachment_ids: attachmentIds } : {}),
       }),
-    onSuccess: (_data, vars) => invalidateSplitNodeQueries(queryClient, wsId, vars),
+    onSuccess: (data, vars) => {
+      const { chat_session_id, task_id } = data;
+      const sentAt = new Date().toISOString();
+
+      // Optimistic user message — mirrors chat-window.tsx handleSend pattern.
+      const optimisticMsg: ChatMessage = {
+        id: `optimistic-${Date.now()}`,
+        chat_session_id,
+        role: "user",
+        content: vars.content,
+        task_id: null,
+        created_at: sentAt,
+      };
+      queryClient.setQueryData<ChatMessage[]>(
+        chatKeys.messages(chat_session_id),
+        (old) => (old ? [...old, optimisticMsg] : [optimisticMsg]),
+      );
+
+      // Seed pending task so SplitChatReview shows a "thinking" indicator.
+      queryClient.setQueryData<ChatPendingTask>(
+        chatKeys.pendingTask(chat_session_id),
+        { task_id, status: "queued" },
+      );
+
+      // Standard split query invalidation — refetches tasks + progress.
+      invalidateSplitNodeQueries(queryClient, wsId, vars);
+    },
   });
 }
 

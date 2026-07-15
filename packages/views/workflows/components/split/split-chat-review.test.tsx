@@ -9,18 +9,31 @@ import { SplitChatReview } from "./split-chat-review";
 const mocks = vi.hoisted(() => ({
   messages: [] as ChatMessage[],
   isLoading: false,
+  pendingTask: {} as { task_id?: string; status?: string },
 }));
 
 vi.mock("@tanstack/react-query", () => ({
-  useQuery: ({ enabled }: { enabled?: boolean }) => ({
-    data: enabled === false ? [] : mocks.messages,
-    isLoading: mocks.isLoading,
-  }),
+  useQuery: ({ queryKey }: { queryKey: string[]; enabled?: boolean }) => {
+    const isPendingTask = queryKey[0] === "chat" && queryKey[1] === "pending-task";
+    if (isPendingTask) {
+      return { data: mocks.pendingTask, isLoading: false };
+    }
+    // messages query
+    const sessionId = queryKey[2] as string | undefined;
+    return {
+      data: !sessionId ? [] : mocks.messages,
+      isLoading: mocks.isLoading,
+    };
+  },
 }));
 
 vi.mock("@multica/core/chat/queries", () => ({
   chatMessagesOptions: (sessionId: string) => ({
     queryKey: ["chat", "messages", sessionId],
+    enabled: !!sessionId,
+  }),
+  pendingChatTaskOptions: (sessionId: string) => ({
+    queryKey: ["chat", "pending-task", sessionId],
     enabled: !!sessionId,
   }),
 }));

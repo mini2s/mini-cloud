@@ -89,7 +89,7 @@ function splitConfigFromNode(node: WorkflowNode) {
         mode?: string;
         max_concurrency?: number;
         max_failures?: number;
-        sub_template_id?: string;
+        child_workflow_id?: string;
       };
     }).split_config;
   }
@@ -216,6 +216,12 @@ export function SplitReviewPanel({
   const [approveDialogOpen, setApproveDialogOpen] = useState(false);
   const [cancelDialogOpen, setCancelDialogOpen] = useState(false);
 
+  // Track chat session id locally so SplitChatReview gets it immediately
+  // after the first message, without waiting for a nodeRun refetch.
+  const [chatSessionId, setChatSessionId] = useState<string | null>(
+    nodeRun?.split_review_chat_session_id ?? null,
+  );
+
   const tasks = data?.tasks ?? [];
   const progress = data?.progress ?? EMPTY_PROGRESS;
   const splitConfig = splitConfigFromNode(node);
@@ -260,13 +266,18 @@ export function SplitReviewPanel({
 
   const handleChatSubmit = async (content: string, attachmentIds?: string[]) => {
     if (!nodeRunId) return;
-    await chatMutation.mutateAsync({
+    const result = await chatMutation.mutateAsync({
       nodeRunId,
       workflowId,
       runId,
       content,
       attachmentIds,
     });
+    // Capture the session id so SplitChatReview can immediately subscribe
+    // to messages + pendingTask without waiting for a nodeRun refetch.
+    if (result?.chat_session_id) {
+      setChatSessionId(result.chat_session_id);
+    }
   };
 
   const handleCancel = async () => {
@@ -345,7 +356,7 @@ export function SplitReviewPanel({
         >
           <SplitChatReview
             issueId={parentIssueId}
-            chatSessionId={nodeRun?.split_review_chat_session_id ?? null}
+            chatSessionId={chatSessionId}
             disabled={chatMutation.isPending}
             onSubmit={handleChatSubmit}
           />

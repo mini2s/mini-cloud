@@ -110,6 +110,7 @@ import type {
   WorkflowStage,
   ApproveSplitRequest,
   SplitTasksResponse,
+  SplitChatResponse,
   CreateWorkflowRequest,
   UpdateWorkflowRequest,
   CreateNodeRequest,
@@ -2134,14 +2135,14 @@ export class ApiClient {
   async submitSplitReviewChat(
     nodeRunId: string,
     req: { content: string; attachment_ids?: string[] },
-  ): Promise<SplitTasksResponse> {
+  ): Promise<SplitChatResponse> {
     const raw = await this.fetch<unknown>(`/api/node-runs/${nodeRunId}/split/chat`, {
       method: "POST",
       body: JSON.stringify(req),
     });
     return parseWithFallback(raw, SplitTasksResponseSchema, EMPTY_SPLIT_TASKS_RESPONSE, {
       endpoint: "POST /api/node-runs/:id/split/chat",
-    });
+    }) as SplitChatResponse;
   }
 
   async listSplitTasks(nodeRunId: string): Promise<SplitTasksResponse> {
