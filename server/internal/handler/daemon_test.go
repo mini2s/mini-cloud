@@ -223,6 +223,72 @@ func TestClaimTaskByRuntime_ReclaimsStaleDispatchedTask(t *testing.T) {
 	}
 }
 
+func TestClaimTaskByRuntime_CloudSkills(t *testing.T) {
+	if testHandler == nil || testPool == nil {
+		t.Skip("database not available")
+	}
+
+	ctx := context.Background()
+	runtimeID := createClaimReclaimRuntime(t, ctx, "Cloud skill claim runtime")
+	agentID, issueID := createClaimReclaimAgentAndIssue(t, ctx, runtimeID, "Cloud skill claim agent")
+
+	skillID := insertHandlerTestSkill(t, "claim-cloud-skill-local", "local skill content")
+	if _, err := testPool.Exec(ctx,
+		`INSERT INTO multica_agent_skill (agent_id, skill_id) VALUES ($1, $2)`,
+		agentID, skillID,
+	); err != nil {
+		t.Fatalf("attach local skill: %v", err)
+	}
+
+	seedAgentCloudSkillRow(t, agentID,
+		"22222222-2222-4222-8222-222222222222", "second-skill", "Second Skill", "second",
+		`{"method":"csc_skill","spec":"second-skill","verified":true}`, 1)
+	seedAgentCloudSkillRow(t, agentID,
+		"11111111-1111-4111-8111-111111111111", "first-skill", "First Skill", "first",
+		`{"method":"csc","skill_id":"11111111-1111-4111-8111-111111111111"}`, 0)
+	createDispatchedClaimFixtureTask(t, ctx, agentID, runtimeID, issueID, "120 seconds", false)
+
+	w := httptest.NewRecorder()
+	req := newDaemonTokenRequest("POST", "/api/daemon/runtimes/"+runtimeID+"/tasks/claim", nil,
+		testWorkspaceID, "cloud-skill-claim")
+	req = withURLParam(req, "runtimeId", runtimeID)
+	testHandler.ClaimTaskByRuntime(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("ClaimTaskByRuntime: expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var response struct {
+		Task struct {
+			Agent *TaskAgentData `json:"agent"`
+		} `json:"task"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode claim response: %v", err)
+	}
+	if response.Task.Agent == nil {
+		t.Fatal("claim response agent is nil")
+	}
+	if len(response.Task.Agent.Skills) != 1 {
+		t.Fatalf("local skills count = %d, want 1", len(response.Task.Agent.Skills))
+	}
+	if len(response.Task.Agent.CloudSkills) != 2 {
+		t.Fatalf("cloud skills count = %d, want 2", len(response.Task.Agent.CloudSkills))
+	}
+	if got := response.Task.Agent.CloudSkills[0].ID; got != "11111111-1111-4111-8111-111111111111" {
+		t.Fatalf("first cloud skill id = %q", got)
+	}
+	if got := response.Task.Agent.CloudSkills[1].ID; got != "22222222-2222-4222-8222-222222222222" {
+		t.Fatalf("second cloud skill id = %q", got)
+	}
+	var install map[string]any
+	if err := json.Unmarshal(response.Task.Agent.CloudSkills[0].Install, &install); err != nil {
+		t.Fatalf("decode install object: %v", err)
+	}
+	if got := install["method"]; got != "csc" {
+		t.Fatalf("install.method = %#v, want csc", got)
+	}
+}
+
 func TestClaimTaskByRuntime_DoesNotReclaimFreshDispatchedTask(t *testing.T) {
 	if testHandler == nil || testPool == nil {
 		t.Skip("database not available")

@@ -59,6 +59,18 @@ type MulticaAgentAuditLog struct {
 	CreatedAt  pgtype.Timestamptz `json:"created_at"`
 }
 
+type MulticaAgentCloudSkill struct {
+	AgentID      pgtype.UUID        `json:"agent_id"`
+	CloudSkillID string             `json:"cloud_skill_id"`
+	Slug         string             `json:"slug"`
+	Name         string             `json:"name"`
+	Description  string             `json:"description"`
+	Install      []byte             `json:"install"`
+	Position     int32              `json:"position"`
+	CreatedAt    pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt    pgtype.Timestamptz `json:"updated_at"`
+}
+
 type MulticaAgentRuntime struct {
 	ID             pgtype.UUID        `json:"id"`
 	WorkspaceID    pgtype.UUID        `json:"workspace_id"`

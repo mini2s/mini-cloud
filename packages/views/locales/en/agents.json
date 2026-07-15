@@ -204,7 +204,7 @@
     "tasks": "Tasks",
     "instructions": "Instructions",
     "skills": "Skills",
-    "plugin": "Plugin",
+    "plugin": "Capability",
     "environment": "Environment",
     "custom_args": "Custom Args",
     "discard_dialog_title": "Discard unsaved changes?",
@@ -325,12 +325,37 @@
       "add_failed_toast": "Failed to add skill"
     },
     "plugin": {
+      "section_title": "Plugin",
       "intro": "Assign a built-in plugin from the plugin marketplace. The plugin extends this agent with additional capabilities.",
       "info_hint": "Plugins are maintained by the community. Check the plugin description before installing.",
       "change_action": "Change",
       "select_action": "Select plugin",
       "empty_title": "No plugin selected",
-      "empty_hint": "Choose a plugin from the marketplace to extend this agent's capabilities."
+      "empty_hint": "Choose a plugin from the marketplace to extend this agent's capabilities.",
+      "picker": {
+        "search_placeholder": "Search plugins",
+        "loading": "Loading plugins…",
+        "empty": "No plugins available",
+        "no_match": "No plugins match your search",
+        "builtin_section": "Built-in",
+        "cloud_section": "Cloud plugins"
+      },
+      "cloud_skills": {
+        "section_title": "Skills",
+        "intro": "Public catalog skills bound to this agent without importing them into the workspace.",
+        "add_action": "Add skill",
+        "search_placeholder": "Search skills",
+        "picker_loading": "Searching…",
+        "picker_empty": "No skills available",
+        "picker_no_match": "No skills match your search",
+        "empty_title": "No skills selected",
+        "empty_hint": "Add skills from the catalog to extend this agent.",
+        "load_error": "Failed to load skills",
+        "retry_action": "Retry",
+        "remove_label": "Remove {{name}}",
+        "update_failed_toast": "Failed to update skills",
+        "updated_toast": "Skills updated"
+      }
     },
     "activity": {
       "section_now": "Now",

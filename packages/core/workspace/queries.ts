@@ -1,8 +1,22 @@
 import { queryOptions } from "@tanstack/react-query";
 import { api } from "../api";
-import { EMPTY_BUILTIN_PLUGIN_LIST } from "../api/schemas";
-import type { Agent, Squad, Workspace } from "../types";
-import type { BuiltinPluginListResponse } from "../api/schemas";
+import type {
+  Agent,
+  AgentCloudSkill,
+  CatalogSkillListResponse,
+  Squad,
+  Workspace,
+} from "../types";
+import type {
+  BuiltinPlugin,
+  BuiltinPluginListResponse,
+} from "../api/schemas";
+import {
+  EMPTY_AGENT_CLOUD_SKILLS,
+  EMPTY_BUILTIN_PLUGIN,
+  EMPTY_BUILTIN_PLUGIN_LIST,
+  EMPTY_CATALOG_SKILL_LIST,
+} from "../api/schemas";
 
 export const workspaceKeys = {
   all: (wsId: string) => ["workspaces", wsId] as const,
@@ -140,16 +154,96 @@ export function assigneeFrequencyOptions(wsId: string) {
 // Plugin catalog (global, not workspace-scoped — external API)
 export const pluginKeys = {
   all: ["plugins"] as const,
-  builtin: () => [...pluginKeys.all, "builtin"] as const,
+  builtin: (search = "") => [...pluginKeys.all, "builtin", search.trim()] as const,
+  catalog: (search = "") =>
+    [...pluginKeys.all, "catalog", search.trim()] as const,
+  detail: (id: string) => [...pluginKeys.all, "detail", id.trim()] as const,
 };
 
-export function builtinPluginListOptions() {
+export function builtinPluginListOptions(search = "") {
+  const normalizedSearch = search.trim();
   return queryOptions<BuiltinPluginListResponse>({
-    queryKey: pluginKeys.builtin(),
-    queryFn: () => api.listBuiltinPlugins(),
+    queryKey: pluginKeys.builtin(normalizedSearch),
+    queryFn: () => api.listBuiltinPlugins({ search: normalizedSearch }),
     // Builtin plugin catalog changes very infrequently — cache for 30 min.
     staleTime: 30 * 60 * 1000,
     // Start with empty list while loading.
     placeholderData: EMPTY_BUILTIN_PLUGIN_LIST,
+  });
+}
+
+export function catalogPluginListOptions(search = "") {
+  const normalizedSearch = search.trim();
+  return queryOptions<BuiltinPluginListResponse>({
+    queryKey: pluginKeys.catalog(normalizedSearch),
+    queryFn: () =>
+      api.listCatalogPlugins({
+        search: normalizedSearch,
+        page: 1,
+        pageSize: 100,
+      }),
+    staleTime: 30 * 60 * 1000,
+    placeholderData: EMPTY_BUILTIN_PLUGIN_LIST,
+  });
+}
+
+export function pluginDetailOptions(id: string) {
+  const pluginId = id.trim();
+  return queryOptions<BuiltinPlugin>({
+    queryKey: pluginKeys.detail(pluginId),
+    queryFn: () => api.getPlugin(pluginId),
+    enabled: pluginId.length > 0,
+    staleTime: 30 * 60 * 1000,
+    placeholderData: EMPTY_BUILTIN_PLUGIN,
+  });
+}
+
+// Cloud skill catalog (global, public proxy) + per-agent cloud skill
+// bindings. Both mirror the plugin catalog conventions: catalog results are
+// cached 30 min and degrade to an empty list; agent bindings are
+// workspace+agent scoped so workspace switches drop the cache naturally.
+export const catalogSkillKeys = {
+  all: ["catalog", "skills"] as const,
+  list: (search = "") => [...catalogSkillKeys.all, "list", search.trim()] as const,
+  detail: (id: string) => [...catalogSkillKeys.all, "detail", id.trim()] as const,
+};
+
+export function catalogSkillListOptions(search = "") {
+  const normalizedSearch = search.trim();
+  return queryOptions<CatalogSkillListResponse>({
+    queryKey: catalogSkillKeys.list(normalizedSearch),
+    queryFn: () => api.listCatalogSkills({ search: normalizedSearch }),
+    staleTime: 30 * 60 * 1000,
+    placeholderData: EMPTY_CATALOG_SKILL_LIST,
+  });
+}
+
+export function catalogSkillDetailOptions(id: string) {
+  const skillId = id.trim();
+  return queryOptions({
+    queryKey: catalogSkillKeys.detail(skillId),
+    queryFn: () => api.getCatalogSkill(skillId),
+    enabled: skillId.length > 0,
+    staleTime: 30 * 60 * 1000,
+  });
+}
+
+/** Per-agent cloud skill bindings, scoped under workspace + agent. Keyed
+ *  this way (rather than agent-id-only) so a workspace switch naturally drops
+ *  the cache and permissions stay workspace-scoped. */
+export function agentCloudSkillOptions(wsId: string, agentId: string) {
+  const normalizedWs = wsId.trim();
+  const normalizedAgent = agentId.trim();
+  return queryOptions<AgentCloudSkill[]>({
+    queryKey: [
+      "workspaces",
+      normalizedWs,
+      "agents",
+      normalizedAgent,
+      "cloud-skills",
+    ],
+    queryFn: () => api.listAgentCloudSkills(normalizedAgent),
+    enabled: normalizedWs.length > 0 && normalizedAgent.length > 0,
+    placeholderData: EMPTY_AGENT_CLOUD_SKILLS,
   });
 }
