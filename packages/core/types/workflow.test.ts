@@ -67,6 +67,10 @@ describe("workflow node format parsing", () => {
         mode: "pipeline",
         max_concurrency: 12,
         max_failures: 2,
+        default_child_assignee: {
+          type: "agent",
+          id: "agent-1",
+        },
       },
     })).toMatchObject({
       kind: "split",
@@ -78,6 +82,10 @@ describe("workflow node format parsing", () => {
         mode: "pipeline",
         max_concurrency: 12,
         max_failures: 2,
+        default_child_assignee: {
+          type: "agent",
+          id: "agent-1",
+        },
       },
       split_config_valid: true,
     });
@@ -92,9 +100,33 @@ describe("workflow node format parsing", () => {
           mode: "barrier",
           max_concurrency: 5,
           max_failures: 0,
+          default_child_assignee: null,
         },
         split_config_valid: false,
       });
+  });
+
+  it("rejects malformed split default child assignee without dropping other config", () => {
+    expect(parseNodeFormat({
+      type: "split",
+      split_config: {
+        child_workflow_id: "workflow-1",
+        mode: "barrier",
+        max_concurrency: 3,
+        max_failures: 0,
+        default_child_assignee: { type: "squad", id: "squad-1" },
+      },
+    })).toMatchObject({
+      kind: "split",
+      split_config: {
+        child_workflow_id: "workflow-1",
+        mode: "barrier",
+        max_concurrency: 3,
+        max_failures: 0,
+        default_child_assignee: null,
+      },
+      split_config_valid: false,
+    });
   });
 
   it("keeps parseNodeShape fallback behavior for invalid shapes", () => {

@@ -234,18 +234,21 @@ func TestSplitPhaseRuntimeBriefSkipsAssignmentWorkflow(t *testing.T) {
 	t.Parallel()
 	const issueID = "split-issue-1"
 	out := buildMetaSkillContent("claude", TaskContextForEnv{
-		IssueID:           issueID,
-		WorkflowNodeRunID: "node-run-1",
-		WorkflowPhase:     "split",
+		IssueID:                           issueID,
+		WorkflowNodeRunID:                 "node-run-1",
+		WorkflowPhase:                     "split",
+		WorkflowSplitDefaultChildAssignee: []byte(`{"type":"agent","id":"agent-1","name":"Code Developer"}`),
 	})
 
 	for _, want := range []string{
 		"dynamic split-task generator",
 		"node-run-1",
 		"Use this exact node-run-id",
+		"Default child assignee: `agent:agent-1` (Code Developer)",
+		"Do NOT run `cs-workflow agent list` unless the default child assignee is absent",
 		"split draft CLI",
 		"cs-workflow workflow split draft add",
-		"cs-workflow workflow split draft submit",
+		"cs-workflow workflow split draft submit node-run-1 --output json",
 		"Markdown task breakdown",
 		"Do NOT create issues",
 		"Do NOT post comments",

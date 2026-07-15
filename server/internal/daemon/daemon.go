@@ -2321,6 +2321,7 @@ func (d *Daemon) runTask(ctx context.Context, task Task, provider string, slot i
 		WorkflowSplitParentIssueID:          task.WorkflowSplitParentIssueID,
 		WorkflowSplitParentIssueTitle:       task.WorkflowSplitParentIssueTitle,
 		WorkflowSplitParentIssueDescription: task.WorkflowSplitParentIssueDescription,
+		WorkflowSplitDefaultChildAssignee:   task.WorkflowSplitDefaultChildAssignee,
 		WorkflowSplitCurrentDrafts:          task.WorkflowSplitCurrentDrafts,
 		WorkflowSplitConfig:                 task.WorkflowSplitConfig,
 		AutopilotRunID:                      task.AutopilotRunID,

@@ -57,10 +57,17 @@ type splitAttachmentStorage interface {
 }
 
 type SplitConfig struct {
-	ChildWorkflowID string `json:"child_workflow_id"`
-	Mode            string `json:"mode"`
-	MaxConcurrency  int32  `json:"max_concurrency"`
-	MaxFailures     int32  `json:"max_failures"`
+	ChildWorkflowID      string                     `json:"child_workflow_id"`
+	Mode                 string                     `json:"mode"`
+	MaxConcurrency       int32                      `json:"max_concurrency"`
+	MaxFailures          int32                      `json:"max_failures"`
+	DefaultChildAssignee *SplitDefaultChildAssignee `json:"default_child_assignee,omitempty"`
+}
+
+type SplitDefaultChildAssignee struct {
+	Type string `json:"type"`
+	ID   string `json:"id"`
+	Name string `json:"name,omitempty"`
 }
 
 type SplitApproveRequest struct {
@@ -375,7 +382,38 @@ func parseSplitConfig(raw []byte) (SplitConfig, error) {
 	if cfg.ChildWorkflowID == "" {
 		return SplitConfig{}, fmt.Errorf("split node is missing child_workflow_id")
 	}
+	if cfg.DefaultChildAssignee != nil {
+		cfg.DefaultChildAssignee.Type = strings.TrimSpace(cfg.DefaultChildAssignee.Type)
+		cfg.DefaultChildAssignee.ID = strings.TrimSpace(cfg.DefaultChildAssignee.ID)
+		if cfg.DefaultChildAssignee.Type != "agent" && cfg.DefaultChildAssignee.Type != "member" {
+			return SplitConfig{}, fmt.Errorf("default_child_assignee.type must be agent or member")
+		}
+		if cfg.DefaultChildAssignee.ID == "" {
+			return SplitConfig{}, fmt.Errorf("default_child_assignee.id is required")
+		}
+	}
 	return cfg, nil
+}
+
+func (s *SplitOrchestrator) splitDefaultChildAssigneeContext(ctx context.Context, q *db.Queries, workspaceID pgtype.UUID, cfg SplitConfig) (map[string]any, error) {
+	if cfg.DefaultChildAssignee == nil {
+		return nil, nil
+	}
+	assigneeType, assigneeID, err := s.validateSplitDraftAssignee(ctx, q, workspaceID, &cfg.DefaultChildAssignee.Type, &cfg.DefaultChildAssignee.ID)
+	if err != nil {
+		return nil, fmt.Errorf("invalid default_child_assignee: %w", err)
+	}
+	out := map[string]any{
+		"type": assigneeType.String,
+		"id":   util.UUIDToString(assigneeID),
+	}
+	switch assigneeType.String {
+	case "agent":
+		if agent, err := q.GetAgent(ctx, assigneeID); err == nil {
+			out["name"] = agent.Name
+		}
+	}
+	return out, nil
 }
 
 func workflowNodeType(raw []byte) string {
@@ -589,6 +627,14 @@ func (s *SplitOrchestrator) GenerateSplitTasks(ctx context.Context, nodeRun db.M
 	if err := s.validateChildWorkflow(ctx, cfg.ChildWorkflowID, node.WorkflowID, run.WorkspaceID); err != nil {
 		return err
 	}
+	parentIssue, err := s.findParentIssue(ctx, currentNodeRun)
+	if err != nil {
+		return fmt.Errorf("find parent issue: %w", err)
+	}
+	defaultChildAssignee, err := s.splitDefaultChildAssigneeContext(ctx, s.Queries, run.WorkspaceID, cfg)
+	if err != nil {
+		return err
+	}
 	splitIssue, err := s.Queries.GetIssueByOrigin(ctx, db.GetIssueByOriginParams{
 		WorkspaceID: run.WorkspaceID,
 		OriginType:  pgtype.Text{String: "workflow", Valid: true},
@@ -608,9 +654,17 @@ func (s *SplitOrchestrator) GenerateSplitTasks(ctx context.Context, nodeRun db.M
 		}
 	}
 
-	task, err := s.WfService.DispatchAgentTaskWithContextExtras(ctx, currentNodeRun, "split", map[string]any{
-		"phase": splitPhaseGenerate,
-	})
+	contextExtras := map[string]any{
+		"phase":                    splitPhaseGenerate,
+		"parent_issue_id":          util.UUIDToString(parentIssue.ID),
+		"parent_issue_title":       parentIssue.Title,
+		"parent_issue_description": textToString(parentIssue.Description),
+		"split_config":             cfg,
+	}
+	if defaultChildAssignee != nil {
+		contextExtras["default_child_assignee"] = defaultChildAssignee
+	}
+	task, err := s.WfService.DispatchAgentTaskWithContextExtras(ctx, currentNodeRun, "split", contextExtras)
 	if err != nil {
 		return fmt.Errorf("dispatch split generation task: %w", err)
 	}
@@ -843,7 +897,15 @@ func (s *SplitOrchestrator) AddSplitDraftTask(ctx context.Context, nodeRun db.Mu
 			return fmt.Errorf("description is required")
 		}
 
-		suggestedType, suggestedID, err := s.validateSplitDraftAssignee(ctx, qtx, run.WorkspaceID, req.SuggestedAssigneeType, req.SuggestedAssigneeID)
+		node, err := qtx.GetWorkflowNode(ctx, nodeRun.WorkflowNodeID)
+		if err != nil {
+			return fmt.Errorf("get split node: %w", err)
+		}
+		cfg, err := parseSplitConfig(node.FormatSchema)
+		if err != nil {
+			return err
+		}
+		suggestedType, suggestedID, err := s.resolveSplitDraftAssignee(ctx, qtx, run.WorkspaceID, cfg, req.SuggestedAssigneeType, req.SuggestedAssigneeID)
 		if err != nil {
 			return err
 		}
@@ -1011,6 +1073,16 @@ func (s *SplitOrchestrator) validateSplitDraftAssignee(ctx context.Context, q *d
 		return pgtype.Text{}, pgtype.UUID{}, fmt.Errorf("suggested_assignee_type must be agent or member")
 	}
 	return pgtype.Text{String: strings.TrimSpace(*assigneeType), Valid: true}, parsedID, nil
+}
+
+func (s *SplitOrchestrator) resolveSplitDraftAssignee(ctx context.Context, q *db.Queries, workspaceID pgtype.UUID, cfg SplitConfig, assigneeType, assigneeID *string) (pgtype.Text, pgtype.UUID, error) {
+	if (assigneeType != nil && strings.TrimSpace(*assigneeType) != "") || (assigneeID != nil && strings.TrimSpace(*assigneeID) != "") {
+		return s.validateSplitDraftAssignee(ctx, q, workspaceID, assigneeType, assigneeID)
+	}
+	if cfg.DefaultChildAssignee == nil {
+		return pgtype.Text{}, pgtype.UUID{}, fmt.Errorf("default_child_assignee is required when suggested assignee is omitted")
+	}
+	return s.validateSplitDraftAssignee(ctx, q, workspaceID, &cfg.DefaultChildAssignee.Type, &cfg.DefaultChildAssignee.ID)
 }
 
 func (s *SplitOrchestrator) transitionSplitDraftsToReview(ctx context.Context, nodeRun db.MulticaWorkflowNodeRun) error {

@@ -6,12 +6,19 @@ export type NodeShape = "rectangle" | "diamond" | "pill" | "hexagon";
 export type WorkflowNodeFormatKind = "task" | "gateway" | "annotation" | "split";
 export type GatewayKind = "fork" | "join";
 export type SplitMode = "barrier" | "pipeline";
+export type SplitDefaultChildAssigneeType = "agent" | "member";
+
+export interface SplitDefaultChildAssignee {
+  type: SplitDefaultChildAssigneeType;
+  id: string;
+}
 
 export interface SplitConfig {
   child_workflow_id: string | null;
   mode: SplitMode;
   max_concurrency: number;
   max_failures: number;
+  default_child_assignee?: SplitDefaultChildAssignee | null;
 }
 
 export interface WorkflowNodeFormat {
@@ -63,6 +70,10 @@ function isGatewayKind(value: unknown): value is GatewayKind {
 
 function isSplitMode(value: unknown): value is SplitMode {
   return value === "barrier" || value === "pipeline";
+}
+
+function isSplitDefaultChildAssigneeType(value: unknown): value is SplitDefaultChildAssigneeType {
+  return value === "agent" || value === "member";
 }
 
 function readString(obj: Record<string, unknown>, key: string): string | null {
@@ -119,6 +130,7 @@ export function parseNodeFormat(formatSchema: unknown): WorkflowNodeFormat {
     const childWorkflowId = readString(config, "child_workflow_id");
     const rawMaxConcurrency = config.max_concurrency;
     const rawMaxFailures = config.max_failures;
+    const rawDefaultChildAssignee = config.default_child_assignee;
     const maxConcurrencyValid =
       typeof rawMaxConcurrency === "number" &&
       Number.isInteger(rawMaxConcurrency) &&
@@ -128,11 +140,30 @@ export function parseNodeFormat(formatSchema: unknown): WorkflowNodeFormat {
       typeof rawMaxFailures === "number" &&
       Number.isInteger(rawMaxFailures) &&
       rawMaxFailures >= 0;
+    const defaultChildAssignee =
+      rawDefaultChildAssignee &&
+      typeof rawDefaultChildAssignee === "object" &&
+      !Array.isArray(rawDefaultChildAssignee)
+        ? rawDefaultChildAssignee as Record<string, unknown>
+        : null;
+    const parsedDefaultChildAssignee =
+      defaultChildAssignee &&
+      isSplitDefaultChildAssigneeType(defaultChildAssignee.type) &&
+      typeof defaultChildAssignee.id === "string" &&
+      defaultChildAssignee.id.trim()
+        ? {
+            type: defaultChildAssignee.type,
+            id: defaultChildAssignee.id.trim(),
+          }
+        : null;
+    const defaultChildAssigneeValid =
+      rawDefaultChildAssignee == null || parsedDefaultChildAssignee !== null;
     const splitConfig: SplitConfig = {
       child_workflow_id: childWorkflowId,
       mode: isSplitMode(config.mode) ? config.mode : "barrier",
       max_concurrency: maxConcurrencyValid ? rawMaxConcurrency : 5,
       max_failures: maxFailuresValid ? rawMaxFailures : 0,
+      default_child_assignee: parsedDefaultChildAssignee,
     };
     return {
       ...base,
@@ -144,7 +175,8 @@ export function parseNodeFormat(formatSchema: unknown): WorkflowNodeFormat {
         childWorkflowId !== null &&
         (config.mode == null || isSplitMode(config.mode)) &&
         (rawMaxConcurrency == null || maxConcurrencyValid) &&
-        (rawMaxFailures == null || maxFailuresValid),
+        (rawMaxFailures == null || maxFailuresValid) &&
+        defaultChildAssigneeValid,
     };
   }
 

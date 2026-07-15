@@ -23,6 +23,7 @@ func newWorkflowSplitDraftSubmitTestCmd() *cobra.Command {
 	cmd.PersistentFlags().String("server-url", "", "")
 	cmd.PersistentFlags().String("workspace-id", "", "")
 	cmd.PersistentFlags().String("profile", "", "")
+	registerWorkflowSplitDraftSubmitFlags(cmd)
 	return cmd
 }
 
@@ -98,6 +99,45 @@ func TestRunWorkflowSplitDraftAddPostsPayload(t *testing.T) {
 	}
 }
 
+func TestRunWorkflowSplitDraftAddAllowsDefaultAssigneeOmission(t *testing.T) {
+	var gotBody map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&gotBody); err != nil {
+			t.Fatalf("decode request body: %v", err)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{"tasks": []any{}})
+	}))
+	defer srv.Close()
+
+	t.Setenv("MULTICA_SERVER_URL", srv.URL)
+	t.Setenv("MULTICA_WORKSPACE_ID", "ws-1")
+	t.Setenv("MULTICA_AGENT_ID", "agent-1")
+	t.Setenv("MULTICA_TASK_ID", "task-1")
+
+	cmd := newWorkflowSplitDraftAddTestCmd()
+	if err := cmd.Flags().Set("key", "html-shell"); err != nil {
+		t.Fatal(err)
+	}
+	if err := cmd.Flags().Set("title", "HTML shell"); err != nil {
+		t.Fatal(err)
+	}
+	if err := cmd.Flags().Set("description", "Create the shell"); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := runWorkflowSplitDraftAdd(cmd, []string{"node-run-1"}); err != nil {
+		t.Fatalf("runWorkflowSplitDraftAdd() error = %v", err)
+	}
+
+	if _, ok := gotBody["suggested_assignee_type"]; ok {
+		t.Fatalf("unexpected suggested_assignee_type when --assignee omitted: %+v", gotBody)
+	}
+	if _, ok := gotBody["suggested_assignee_id"]; ok {
+		t.Fatalf("unexpected suggested_assignee_id when --assignee omitted: %+v", gotBody)
+	}
+}
+
 func TestRunWorkflowSplitDraftSubmitPostsToSubmitEndpoint(t *testing.T) {
 	var gotPath, gotTask string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -123,6 +163,32 @@ func TestRunWorkflowSplitDraftSubmitPostsToSubmitEndpoint(t *testing.T) {
 	}
 	if gotTask != "task-1" {
 		t.Fatalf("X-Task-ID = %q", gotTask)
+	}
+}
+
+func TestRunWorkflowSplitDraftSubmitAcceptsOutputJSON(t *testing.T) {
+	var gotPath string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{"tasks": []any{}})
+	}))
+	defer srv.Close()
+
+	t.Setenv("MULTICA_SERVER_URL", srv.URL)
+	t.Setenv("MULTICA_WORKSPACE_ID", "ws-1")
+	t.Setenv("MULTICA_AGENT_ID", "agent-1")
+	t.Setenv("MULTICA_TASK_ID", "task-1")
+
+	cmd := newWorkflowSplitDraftSubmitTestCmd()
+	if err := cmd.Flags().Set("output", "json"); err != nil {
+		t.Fatalf("set output flag: %v", err)
+	}
+	if err := runWorkflowSplitDraftSubmit(cmd, []string{"node-run-1"}); err != nil {
+		t.Fatalf("runWorkflowSplitDraftSubmit() error = %v", err)
+	}
+	if gotPath != "/api/node-runs/node-run-1/split/draft-submit" {
+		t.Fatalf("path = %s", gotPath)
 	}
 }
 

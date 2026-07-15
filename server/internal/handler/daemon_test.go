@@ -2287,6 +2287,8 @@ func TestCompleteTask_AssignmentTriggered_DoesNotSuppressTrivialDoneOutput(t *te
 type claimRuntimeGuardTask struct {
 	PriorSessionID string `json:"prior_session_id"`
 	PriorWorkDir   string `json:"prior_work_dir"`
+	WorkflowPhase  string `json:"workflow_phase"`
+	ChatSessionID  string `json:"chat_session_id"`
 }
 
 func claimTaskForRuntimeGuard(t *testing.T, runtimeID, daemonID string) *claimRuntimeGuardTask {
@@ -2809,6 +2811,93 @@ func TestClaimTask_ChatForceFreshSessionSkipsPriorSession(t *testing.T) {
 	}
 	if task.PriorWorkDir != "" {
 		t.Fatalf("force fresh chat: expected empty PriorWorkDir, got %q", task.PriorWorkDir)
+	}
+}
+
+func TestClaimTask_SplitChatSkipsPriorSessionResume(t *testing.T) {
+	if testHandler == nil {
+		t.Skip("database not available")
+	}
+
+	ctx := context.Background()
+
+	agentID, runtimeID, daemonID := createRuntimeGuardAgent(t, ctx)
+
+	var issueID string
+	if err := testPool.QueryRow(ctx, `
+		INSERT INTO multica_issue (workspace_id, title, status, priority, creator_id, creator_type, number, position)
+		VALUES ($1, 'split chat resume fixture', 'in_progress', 'none', $2, 'member', 81207, 0)
+		RETURNING id
+	`, testWorkspaceID, testUserID).Scan(&issueID); err != nil {
+		t.Fatalf("setup: create split chat issue: %v", err)
+	}
+	t.Cleanup(func() { testPool.Exec(ctx, `DELETE FROM multica_issue WHERE id = $1`, issueID) })
+
+	var chatSessionID string
+	if err := testPool.QueryRow(ctx, `
+		INSERT INTO multica_chat_session (
+			workspace_id, agent_id, creator_id, title,
+			session_id, work_dir, runtime_id
+		)
+		VALUES ($1, $2, $3, 'split chat review', 'old-split-generate-session', '/tmp/old-split-generate-workdir', $4)
+		RETURNING id
+	`, testWorkspaceID, agentID, testUserID, runtimeID).Scan(&chatSessionID); err != nil {
+		t.Fatalf("setup: create split chat session: %v", err)
+	}
+	t.Cleanup(func() { testPool.Exec(ctx, `DELETE FROM multica_chat_session WHERE id = $1`, chatSessionID) })
+
+	if _, err := testPool.Exec(ctx, `
+		INSERT INTO multica_chat_message (chat_session_id, role, content)
+		VALUES ($1, 'user', 'please simplify this split')
+	`, chatSessionID); err != nil {
+		t.Fatalf("setup: create split chat message: %v", err)
+	}
+
+	var nodeRunID string
+	if err := testPool.QueryRow(ctx, `SELECT gen_random_uuid()::text`).Scan(&nodeRunID); err != nil {
+		t.Fatalf("setup: generate node run id: %v", err)
+	}
+
+	if _, err := testPool.Exec(ctx, `
+		INSERT INTO multica_agent_task_queue (
+			agent_id, runtime_id, issue_id,
+			status, priority, started_at, completed_at,
+			session_id, work_dir, context
+		)
+		VALUES ($1, $2, $3, 'completed', 0, now(), now(), 'old-split-generate-session', '/tmp/old-split-generate-workdir', $4)
+	`, agentID, runtimeID, issueID, fmt.Sprintf(`{
+		"type": "workflow",
+		"phase": "split",
+		"node_run_id": %q
+	}`, nodeRunID)); err != nil {
+		t.Fatalf("setup: create prior split generation task: %v", err)
+	}
+
+	if _, err := testPool.Exec(ctx, `
+		INSERT INTO multica_agent_task_queue (
+			agent_id, runtime_id, issue_id, chat_session_id,
+			status, priority, context
+		)
+		VALUES ($1, $2, $3, $4, 'queued', 0, $5)
+	`, agentID, runtimeID, issueID, chatSessionID, fmt.Sprintf(`{
+		"type": "workflow",
+		"phase": "split_chat",
+		"chat_session_id": %q,
+		"parent_issue_id": %q,
+		"current_drafts": [{"draft_key":"large-task","title":"Large task"}]
+	}`, chatSessionID, issueID)); err != nil {
+		t.Fatalf("setup: create split chat task: %v", err)
+	}
+
+	task := claimTaskForRuntimeGuard(t, runtimeID, daemonID)
+	if task.WorkflowPhase != "split_chat" {
+		t.Fatalf("split chat: expected WorkflowPhase='split_chat', got %q", task.WorkflowPhase)
+	}
+	if task.ChatSessionID != chatSessionID {
+		t.Fatalf("split chat: expected ChatSessionID=%q, got %q", chatSessionID, task.ChatSessionID)
+	}
+	if task.PriorSessionID != "" {
+		t.Fatalf("split chat: expected empty PriorSessionID, got %q", task.PriorSessionID)
 	}
 }
 

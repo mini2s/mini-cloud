@@ -303,9 +303,23 @@ func buildMetaSkillContent(provider string, ctx TaskContextForEnv) string {
 		if ctx.WorkflowNodeRunID != "" {
 			fmt.Fprintf(&b, "- Use this exact node-run-id for every split draft command: `%s`.\n", ctx.WorkflowNodeRunID)
 		}
+		if label := formatSplitDefaultChildAssignee(ctx.WorkflowSplitDefaultChildAssignee); label != "" {
+			ref := label
+			name := ""
+			if idx := strings.Index(label, " ("); idx >= 0 {
+				ref = label[:idx]
+				name = label[idx:]
+			}
+			fmt.Fprintf(&b, "- Default child assignee: `%s`%s.\n", ref, name)
+		}
 		b.WriteString("- Use read-only CLI commands for context. Inspect comments only when the issue body is insufficient.\n")
-		b.WriteString("- Use the split draft CLI as the primary path: run `cs-workflow workflow split draft add <node-run-id>` once per draft task, then `cs-workflow workflow split draft submit <node-run-id>` when the draft set is complete.\n")
-		b.WriteString("- Give each draft a stable `--key`, a clear `--title`, a complete `--description-file`, an `--assignee agent:<uuid>` or `--assignee member:<uuid>`, and `--depends-on <key>` only when the dependency is real.\n")
+		if ctx.WorkflowNodeRunID != "" {
+			fmt.Fprintf(&b, "- Use the split draft CLI as the primary path: run `cs-workflow workflow split draft add %s` once per draft task, then `cs-workflow workflow split draft submit %s --output json` when the draft set is complete.\n", ctx.WorkflowNodeRunID, ctx.WorkflowNodeRunID)
+		} else {
+			b.WriteString("- Use the split draft CLI as the primary path: run `cs-workflow workflow split draft add <node-run-id>` once per draft task, then `cs-workflow workflow split draft submit <node-run-id> --output json` when the draft set is complete.\n")
+		}
+		b.WriteString("- Give each draft a stable `--key`, a clear `--title`, a complete `--description-file`, and `--depends-on <key>` only when the dependency is real. Omit `--assignee` to use the default child assignee; pass `--assignee agent:<uuid>` or `--assignee member:<uuid>` only for deliberate overrides.\n")
+		b.WriteString("- Do NOT run `cs-workflow agent list` unless the default child assignee is absent and the task requires a different assignee.\n")
 		b.WriteString("- If the split draft CLI is unavailable, return a concise Markdown task breakdown so the server can attempt recovery.\n")
 		b.WriteString("- Do NOT create issues.\n")
 		b.WriteString("- Do NOT post comments.\n")

@@ -294,20 +294,31 @@ func TestBuildPromptDefaultMentionsRecent(t *testing.T) {
 
 func TestBuildPromptSplitPhaseRequiresStructuredTasksOutput(t *testing.T) {
 	out := BuildPrompt(Task{
-		IssueID:       "issue-split-1",
-		WorkflowPhase: "split",
+		IssueID:                             "issue-split-1",
+		WorkflowNodeRunID:                   "node-run-1",
+		WorkflowPhase:                       "split",
+		WorkflowSplitParentIssueID:          "parent-issue-1",
+		WorkflowSplitParentIssueTitle:       "Build a gomoku game",
+		WorkflowSplitParentIssueDescription: "Create a playable browser game.",
+		WorkflowSplitDefaultChildAssignee:   []byte(`{"type":"agent","id":"agent-1","name":"Code Developer"}`),
 	}, "claude")
 
 	for _, want := range []string{
 		"dynamic split-task generator",
+		"Workflow node run ID: node-run-1",
+		"Parent issue ID: parent-issue-1",
+		"Parent issue title: Build a gomoku game",
+		"Default child assignee: agent:agent-1 (Code Developer)",
 		"cs-workflow workflow split draft add",
-		"cs-workflow workflow split draft submit",
+		"cs-workflow workflow split draft submit node-run-1 --output json",
 		"--key",
 		"--title",
-		"--assignee agent:<uuid>",
 		"--description-file",
+		"Do NOT run `cs-workflow agent list` unless the default child assignee is absent",
 		"Do NOT create issues",
 		"Do NOT change issue status",
+		"Do NOT post comments",
+		"After `cs-workflow workflow split draft submit node-run-1 --output json` succeeds, stop",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("split BuildPrompt missing %q\n--- output ---\n%s", want, out)
@@ -318,6 +329,7 @@ func TestBuildPromptSplitPhaseRequiresStructuredTasksOutput(t *testing.T) {
 		"cs-workflow issue comment add",
 		"cs-workflow issue status",
 		"Your assigned issue ID is",
+		"use the split node's default agent",
 	} {
 		if strings.Contains(out, banned) {
 			t.Errorf("split BuildPrompt must not contain ordinary assignment guidance %q\n--- output ---\n%s", banned, out)

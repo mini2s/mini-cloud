@@ -56,6 +56,7 @@ func init() {
 	workflowSplitDraftCmd.AddCommand(workflowSplitDraftSubmitCmd)
 	workflowSplitDraftCmd.AddCommand(workflowSplitDraftDeleteCmd)
 	registerWorkflowSplitDraftAddFlags(workflowSplitDraftAddCmd)
+	registerWorkflowSplitDraftSubmitFlags(workflowSplitDraftSubmitCmd)
 }
 
 func registerWorkflowSplitDraftAddFlags(cmd *cobra.Command) {
@@ -69,10 +70,14 @@ func registerWorkflowSplitDraftAddFlags(cmd *cobra.Command) {
 	cmd.Flags().String("output", "json", "Output format: json or table")
 }
 
+func registerWorkflowSplitDraftSubmitFlags(cmd *cobra.Command) {
+	cmd.Flags().String("output", "json", "Output format: json or table")
+}
+
 func parseSplitDraftAssignee(raw string) (string, string, error) {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
-		return "", "", fmt.Errorf("--assignee is required, expected agent:<uuid> or member:<uuid>")
+		return "", "", nil
 	}
 	parts := strings.SplitN(raw, ":", 2)
 	if len(parts) != 2 {
@@ -123,12 +128,14 @@ func runWorkflowSplitDraftAdd(cmd *cobra.Command, args []string) error {
 	dependsOn, _ := cmd.Flags().GetStringSlice("depends-on")
 
 	body := map[string]any{
-		"key":                     strings.TrimSpace(key),
-		"title":                   strings.TrimSpace(title),
-		"description":             description,
-		"suggested_assignee_type": assigneeType,
-		"suggested_assignee_id":   assigneeID,
-		"depends_on_keys":         dependsOn,
+		"key":             strings.TrimSpace(key),
+		"title":           strings.TrimSpace(title),
+		"description":     description,
+		"depends_on_keys": dependsOn,
+	}
+	if assigneeType != "" && assigneeID != "" {
+		body["suggested_assignee_type"] = assigneeType
+		body["suggested_assignee_id"] = assigneeID
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
@@ -165,6 +172,11 @@ func runWorkflowSplitDraftSubmit(cmd *cobra.Command, args []string) error {
 	path := "/api/node-runs/" + url.PathEscape(args[0]) + "/split/draft-submit"
 	if err := client.PostJSON(ctx, path, map[string]any{}, &result); err != nil {
 		return fmt.Errorf("submit split draft tasks: %w", err)
+	}
+	output, _ := cmd.Flags().GetString("output")
+	if output == "table" {
+		fmt.Fprintf(os.Stdout, "Submitted split draft tasks for node run %s\n", args[0])
+		return nil
 	}
 	return cli.PrintJSON(os.Stdout, result)
 }

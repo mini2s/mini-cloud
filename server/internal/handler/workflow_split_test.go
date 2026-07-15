@@ -296,6 +296,10 @@ func createSplitGenerateFixture(t *testing.T, mode string) splitGenerateFixture 
 			"mode":              mode,
 			"max_concurrency":   2,
 			"max_failures":      0,
+			"default_child_assignee": map[string]any{
+				"type": "agent",
+				"id":   f.agentID,
+			},
 		},
 	})
 	if err != nil {
@@ -413,6 +417,84 @@ func TestAddSplitDraftTaskAcceptsMatchingSplitTask(t *testing.T) {
 	}
 	if tasks[0].Status != service.SplitTaskStatusDraft {
 		t.Fatalf("draft task status = %s, want draft", tasks[0].Status)
+	}
+}
+
+func TestAddSplitDraftTaskUsesDefaultChildAssigneeWhenOmitted(t *testing.T) {
+	f := createSplitGenerateFixture(t, "barrier")
+	taskID := startSplitGenerationTask(t, f)
+
+	addResp := httptest.NewRecorder()
+	addReq := newRequest("POST", "/api/node-runs/"+f.splitNodeRunID+"/split/draft-tasks", map[string]any{
+		"key":             "api-contract",
+		"title":           "Draft API contract",
+		"description":     "Define request and response payloads.",
+		"depends_on_keys": []string{},
+	})
+	addReq.Header.Set("X-Agent-ID", f.agentID)
+	addReq.Header.Set("X-Task-ID", taskID)
+	addReq = withURLParam(addReq, "nodeRunId", f.splitNodeRunID)
+
+	testHandler.AddSplitDraftTask(addResp, addReq)
+	if addResp.Code != http.StatusOK {
+		t.Fatalf("AddSplitDraftTask: expected 200, got %d: %s", addResp.Code, addResp.Body.String())
+	}
+
+	tasks, err := testHandler.Queries.ListSplitTasksByNodeRun(context.Background(), parseUUID(f.splitNodeRunID))
+	if err != nil {
+		t.Fatalf("list split draft tasks: %v", err)
+	}
+	if len(tasks) != 1 {
+		t.Fatalf("draft task count = %d, want 1", len(tasks))
+	}
+	if !tasks[0].SuggestedAssigneeType.Valid || tasks[0].SuggestedAssigneeType.String != "agent" {
+		t.Fatalf("suggested assignee type = %+v, want agent", tasks[0].SuggestedAssigneeType)
+	}
+	if uuidToString(tasks[0].SuggestedAssigneeID) != f.agentID {
+		t.Fatalf("suggested assignee id = %s, want %s", uuidToString(tasks[0].SuggestedAssigneeID), f.agentID)
+	}
+}
+
+func TestAddSplitDraftTaskRejectsOmittedAssigneeWithoutDefault(t *testing.T) {
+	f := createSplitGenerateFixture(t, "barrier")
+	splitFormat, err := json.Marshal(map[string]any{
+		"type": "split",
+		"split_config": map[string]any{
+			"child_workflow_id": f.childWorkflow,
+			"mode":              "barrier",
+			"max_concurrency":   2,
+			"max_failures":      0,
+		},
+	})
+	if err != nil {
+		t.Fatalf("marshal split format: %v", err)
+	}
+	if _, err := testPool.Exec(context.Background(), `
+		UPDATE multica_workflow_node
+		SET format_schema = $1::jsonb
+		WHERE id = $2
+	`, string(splitFormat), f.splitNodeID); err != nil {
+		t.Fatalf("remove default child assignee from split node: %v", err)
+	}
+	taskID := startSplitGenerationTask(t, f)
+
+	addResp := httptest.NewRecorder()
+	addReq := newRequest("POST", "/api/node-runs/"+f.splitNodeRunID+"/split/draft-tasks", map[string]any{
+		"key":             "api-contract",
+		"title":           "Draft API contract",
+		"description":     "Define request and response payloads.",
+		"depends_on_keys": []string{},
+	})
+	addReq.Header.Set("X-Agent-ID", f.agentID)
+	addReq.Header.Set("X-Task-ID", taskID)
+	addReq = withURLParam(addReq, "nodeRunId", f.splitNodeRunID)
+
+	testHandler.AddSplitDraftTask(addResp, addReq)
+	if addResp.Code != http.StatusBadRequest {
+		t.Fatalf("AddSplitDraftTask: expected 400, got %d: %s", addResp.Code, addResp.Body.String())
+	}
+	if !strings.Contains(addResp.Body.String(), "default_child_assignee is required when suggested assignee is omitted") {
+		t.Fatalf("AddSplitDraftTask: expected clear missing default error, got %s", addResp.Body.String())
 	}
 }
 

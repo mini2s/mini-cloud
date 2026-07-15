@@ -399,12 +399,24 @@ func TestWriteContextFiles(t *testing.T) {
 
 func TestRenderSplitContextUsesDraftCLI(t *testing.T) {
 	content := renderSplitContext(TaskContextForEnv{
-		IssueID: "issue-split-1",
+		IssueID:                             "issue-split-1",
+		WorkflowNodeRunID:                   "node-run-1",
+		WorkflowSplitParentIssueID:          "parent-issue-1",
+		WorkflowSplitParentIssueTitle:       "Build a game",
+		WorkflowSplitParentIssueDescription: "Use web technology.",
+		WorkflowSplitDefaultChildAssignee:   []byte(`{"type":"agent","id":"agent-1","name":"Code Developer"}`),
+		WorkflowSplitConfig:                 []byte(`{"child_workflow_id":"child-wf-1"}`),
 	})
 	for _, want := range []string{
 		"Split Task Generation",
+		"node-run-1",
+		"parent-issue-1",
+		"Build a game",
+		"Default child assignee",
+		"Code Developer",
+		"Split Config",
 		"cs-workflow workflow split draft add",
-		"cs-workflow workflow split draft submit",
+		"cs-workflow workflow split draft submit node-run-1 --output json",
 		"Do not create child issues",
 		"change issue status",
 	} {

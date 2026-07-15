@@ -9,6 +9,30 @@ import (
 	"strings"
 )
 
+type splitDefaultChildAssigneeContext struct {
+	Type string `json:"type"`
+	ID   string `json:"id"`
+	Name string `json:"name"`
+}
+
+func formatSplitDefaultChildAssignee(raw []byte) string {
+	if strings.TrimSpace(string(raw)) == "" {
+		return ""
+	}
+	var assignee splitDefaultChildAssigneeContext
+	if err := json.Unmarshal(raw, &assignee); err != nil {
+		return ""
+	}
+	if assignee.Type == "" || assignee.ID == "" {
+		return ""
+	}
+	label := assignee.Type + ":" + assignee.ID
+	if strings.TrimSpace(assignee.Name) != "" {
+		label += " (" + strings.TrimSpace(assignee.Name) + ")"
+	}
+	return label
+}
+
 // writeContextFiles renders and writes .agent_context/issue_context.md and
 // skills into the appropriate provider-native location.
 //
@@ -372,9 +396,31 @@ func renderSplitContext(ctx TaskContextForEnv) string {
 	} else {
 		b.WriteString("**Trigger:** Workflow split phase\n\n")
 	}
+	if ctx.WorkflowNodeRunID != "" {
+		fmt.Fprintf(&b, "**Workflow node run ID:** %s\n\n", ctx.WorkflowNodeRunID)
+	}
+	if ctx.WorkflowSplitParentIssueID != "" {
+		fmt.Fprintf(&b, "**Parent issue ID:** %s\n\n", ctx.WorkflowSplitParentIssueID)
+	}
+	if ctx.WorkflowSplitParentIssueTitle != "" {
+		fmt.Fprintf(&b, "**Parent issue title:** %s\n\n", ctx.WorkflowSplitParentIssueTitle)
+	}
+	if strings.TrimSpace(ctx.WorkflowSplitParentIssueDescription) != "" {
+		fmt.Fprintf(&b, "## Parent Issue Description\n\n%s\n\n", strings.TrimSpace(ctx.WorkflowSplitParentIssueDescription))
+	}
+	if label := formatSplitDefaultChildAssignee(ctx.WorkflowSplitDefaultChildAssignee); label != "" {
+		fmt.Fprintf(&b, "**Default child assignee:** %s\n\n", label)
+	}
+	if strings.TrimSpace(string(ctx.WorkflowSplitConfig)) != "" {
+		fmt.Fprintf(&b, "## Split Config\n\n```json\n%s\n```\n\n", strings.TrimSpace(string(ctx.WorkflowSplitConfig)))
+	}
 	b.WriteString("## Quick Start\n\n")
 	fmt.Fprintf(&b, "Run `cs-workflow issue get %s --output json` to read the split planning issue.\n\n", ctx.IssueID)
-	b.WriteString("Submit draft tasks with `cs-workflow workflow split draft add` and finish with `cs-workflow workflow split draft submit`. Do not create child issues or change issue status.\n\n")
+	if ctx.WorkflowNodeRunID != "" {
+		fmt.Fprintf(&b, "Submit draft tasks with `cs-workflow workflow split draft add %s` and finish with `cs-workflow workflow split draft submit %s --output json`. Do not create child issues, post comments, or change issue status.\n\n", ctx.WorkflowNodeRunID, ctx.WorkflowNodeRunID)
+	} else {
+		b.WriteString("Submit draft tasks with `cs-workflow workflow split draft add` and finish with `cs-workflow workflow split draft submit <node-run-id> --output json`. Do not create child issues, post comments, or change issue status.\n\n")
+	}
 	return b.String()
 }
 

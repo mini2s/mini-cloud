@@ -1319,7 +1319,10 @@ func (h *Handler) ClaimTaskByRuntime(w http.ResponseWriter, r *http.Request) {
 		// (for example "Done.") and answer a new human comment with that stale
 		// completion marker instead of the comment itself. Keep reusing the
 		// workdir for comment follow-ups so the agent still sees the same checkout.
-		if !task.ForceFreshSession {
+		// Split review adjustment tasks carry their own latest user message and
+		// current drafts; resuming the prior split generation session makes the
+		// agent treat the adjustment as an already-completed chat turn.
+		if !shouldSkipPriorTaskState(*task) {
 			if prior, err := h.Queries.GetLastTaskSession(r.Context(), db.GetLastTaskSessionParams{
 				AgentID: task.AgentID,
 				IssueID: task.IssueID,
@@ -1373,7 +1376,7 @@ func (h *Handler) ClaimTaskByRuntime(w http.ResponseWriter, r *http.Request) {
 					resp.Repos = repos
 				}
 			}
-			if !task.ForceFreshSession {
+			if !shouldSkipPriorTaskState(*task) {
 				// Resume chat sessions only when the stored pointer was produced
 				// by the same runtime as the claiming task. When the chat_session
 				// pointer is missing (legacy NULL runtime_id), stale (last task
