@@ -18,6 +18,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/multica-ai/multica/server/internal/daemon/execenv"
 	"github.com/multica-ai/multica/server/internal/daemon/repocache"
 	"github.com/multica-ai/multica/server/pkg/agent"
 )
@@ -202,6 +203,77 @@ func TestProviderNeedsInlineSystemPrompt(t *testing.T) {
 				t.Fatalf("providerNeedsInlineSystemPrompt(%q) = %v, want %v", tc.provider, got, tc.want)
 			}
 		})
+	}
+}
+
+func TestRunTask_CloudSkill(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shell script fake not supported on windows")
+	}
+
+	dir := t.TempDir()
+	logPath := filepath.Join(dir, "csc.log")
+	t.Setenv("RUN_TASK_CSC_LOG", logPath)
+	fakeCSC := filepath.Join(dir, "fake-csc")
+	script := `#!/bin/sh
+if [ "$1" = "skill" ] && [ "$2" = "install" ]; then
+  printf 'install:%s\n' "$3" >> "$RUN_TASK_CSC_LOG"
+  exit 0
+fi
+printf 'agent\n' >> "$RUN_TASK_CSC_LOG"
+cat >/dev/null
+printf '%s\n' '{"type":"result","subtype":"success","is_error":false,"result":"done","session_id":"session-1"}'
+`
+	if err := os.WriteFile(fakeCSC, []byte(script), 0o755); err != nil {
+		t.Fatalf("write fake csc: %v", err)
+	}
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	t.Cleanup(server.Close)
+	d := New(Config{
+		ServerBaseURL:  server.URL,
+		WorkspacesRoot: filepath.Join(dir, "workspaces"),
+		AgentTimeout:   2 * time.Second,
+		Agents: map[string]AgentEntry{
+			"csc": {Path: fakeCSC},
+		},
+	}, slog.New(slog.NewTextHandler(io.Discard, nil)))
+
+	result, err := d.runTask(context.Background(), Task{
+		ID:                "33333333-3333-4333-8333-333333333333",
+		AgentID:           "agent-1",
+		WorkspaceID:       "workspace-1",
+		QuickCreatePrompt: "create a test issue",
+		Agent: &AgentData{
+			ID:   "agent-1",
+			Name: "Cloud Skill Agent",
+			CloudSkills: []execenv.CloudSkillInstall{
+				{
+					ID:   "11111111-1111-4111-8111-111111111111",
+					Slug: "review-helper",
+					Install: &execenv.CloudSkillInstallSpec{
+						Method:  "csc",
+						SkillID: "11111111-1111-4111-8111-111111111111",
+					},
+				},
+			},
+		},
+	}, "csc", 0, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if err != nil {
+		t.Fatalf("runTask: %v", err)
+	}
+	if result.Status != "completed" {
+		t.Fatalf("runTask status = %q, want completed", result.Status)
+	}
+	data, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatalf("read csc log: %v", err)
+	}
+	want := "install:11111111-1111-4111-8111-111111111111\nagent\n"
+	if got := string(data); got != want {
+		t.Fatalf("csc invocation order = %q, want %q", got, want)
 	}
 }
 
