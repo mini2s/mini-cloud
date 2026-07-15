@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import type { ApproveSplitRequest, SplitProgress, SplitTask, WorkflowNode, WorkflowNodeRun } from "@multica/core/types";
 import { Activity, CheckCheck, GitBranch, ListTree, RefreshCcw, SquareX } from "lucide-react";
@@ -24,6 +24,7 @@ import {
   useRecoverSplitTasks,
   useSubmitSplitReviewChat,
 } from "@multica/core/workflows/queries";
+import { pendingChatTaskOptions } from "@multica/core/chat/queries";
 import { childIssuesOptions } from "@multica/core/issues/queries";
 import {
   NodeDetailSection,
@@ -59,6 +60,10 @@ const EMPTY_PROGRESS: SplitProgress = {
 function isNodeRunCancellable(status: string | null | undefined): boolean {
   if (!status) return false;
   return !TERMINAL_NODE_STATUSES.has(status);
+}
+
+function isSplitGenerateActionStatus(status: string | null | undefined): boolean {
+  return status === "awaiting_split_review" || status === "failed";
 }
 
 function splitFailureMessage(nodeRun: WorkflowNodeRun | null): string | null {
@@ -203,24 +208,43 @@ export function SplitReviewPanel({
   onClose,
 }: SplitReviewPanelProps) {
   const nodeRunId = nodeRun?.id ?? null;
-  const { data, isLoading } = useQuery(splitTasksOptions(wsId, nodeRunId));
-  const { data: childIssues = [] } = useQuery({
-    ...childIssuesOptions(wsId, parentIssueId ?? ""),
-    enabled: !!parentIssueId,
-  });
   const generateMutation = useGenerateSplitTasks(wsId);
   const recoverMutation = useRecoverSplitTasks(wsId);
   const approveMutation = useApproveSplitTasks(wsId);
   const chatMutation = useSubmitSplitReviewChat(wsId);
   const cancelMutation = useCancelSplitNode(wsId);
-  const [approveDialogOpen, setApproveDialogOpen] = useState(false);
-  const [cancelDialogOpen, setCancelDialogOpen] = useState(false);
-
-  // Track chat session id locally so SplitChatReview gets it immediately
-  // after the first message, without waiting for a nodeRun refetch.
   const [chatSessionId, setChatSessionId] = useState<string | null>(
     nodeRun?.split_review_chat_session_id ?? null,
   );
+  useEffect(() => {
+    if (nodeRun?.split_review_chat_session_id) {
+      setChatSessionId(nodeRun.split_review_chat_session_id);
+    }
+  }, [nodeRun?.split_review_chat_session_id]);
+  const { data: pendingChatTask } = useQuery(pendingChatTaskOptions(chatSessionId ?? ""));
+  const isSplitChatRunning = chatMutation.isPending || !!pendingChatTask?.task_id;
+  const splitTasksQuery = useQuery({
+    ...splitTasksOptions(wsId, nodeRunId),
+    refetchInterval: isSplitChatRunning ? 2000 : false,
+  });
+  const { data, isLoading, refetch: refetchSplitTasks } = splitTasksQuery;
+  const { data: childIssues = [] } = useQuery({
+    ...childIssuesOptions(wsId, parentIssueId ?? ""),
+    enabled: !!parentIssueId,
+  });
+  const [approveDialogOpen, setApproveDialogOpen] = useState(false);
+  const [cancelDialogOpen, setCancelDialogOpen] = useState(false);
+  const wasSplitChatRunningRef = useRef(false);
+
+  useEffect(() => {
+    if (isSplitChatRunning) {
+      wasSplitChatRunningRef.current = true;
+      return;
+    }
+    if (!wasSplitChatRunningRef.current) return;
+    wasSplitChatRunningRef.current = false;
+    void refetchSplitTasks();
+  }, [isSplitChatRunning, refetchSplitTasks]);
 
   const tasks = data?.tasks ?? [];
   const progress = data?.progress ?? EMPTY_PROGRESS;
@@ -230,7 +254,7 @@ export function SplitReviewPanel({
   const canChat = nodeRun?.status === "awaiting_split_review";
   const canCancel = isNodeRunCancellable(nodeRun?.status);
   const canRecover = nodeRun?.status === "failed";
-  const canGenerate = !!nodeRunId && nodeRun?.status !== "splitting" && (tasks.length === 0 || nodeRun?.status === "failed");
+  const canGenerate = !!nodeRunId && isSplitGenerateActionStatus(nodeRun?.status) && (tasks.length === 0 || nodeRun?.status === "failed");
   const failureMessage = splitFailureMessage(nodeRun);
   const generateLabel = tasks.length > 0 ? "重新生成" : "生成草案";
   const childIssueBySplitTaskId = useMemo(() => {

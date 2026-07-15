@@ -485,5 +485,43 @@ describe("ApiClient", () => {
         attachment_ids: ["att-1"],
       });
     });
+
+    it("submitSplitReviewChat preserves the split chat ids from the nested task response", async () => {
+      const fetchMock = vi.fn().mockResolvedValue(
+        new Response(JSON.stringify({
+          chat_session_id: "chat-1",
+          task_id: "agent-task-1",
+          tasks: {
+            tasks: [
+              {
+                id: "split-task-1",
+                node_run_id: "node-run-1",
+                title: "Security review",
+                description: "Audit the implementation",
+                depends_on: [],
+                sort_order: 0,
+                status: "draft",
+              },
+            ],
+            progress: { total: 1 },
+          },
+        }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      );
+      vi.stubGlobal("fetch", fetchMock);
+
+      const client = new ApiClient("https://api.example.test");
+      const result = await client.submitSplitReviewChat("node-run-1", {
+        content: "add security review",
+      });
+
+      expect(result.chat_session_id).toBe("chat-1");
+      expect(result.task_id).toBe("agent-task-1");
+      expect(result.tasks).toHaveLength(1);
+      expect(result.tasks[0]?.title).toBe("Security review");
+      expect(result.progress.total).toBe(1);
+    });
   });
 });

@@ -15,6 +15,9 @@ import (
 // lightweight inline template (or Windows file for any provider on
 // Windows).
 func BuildPrompt(task Task, provider string) string {
+	if task.WorkflowPhase == "split_chat" {
+		return buildSplitChatPrompt(task)
+	}
 	if task.ChatSessionID != "" {
 		return buildChatPrompt(task)
 	}
@@ -93,6 +96,55 @@ func buildSplitPrompt(task Task) string {
 	b.WriteString("4. When all drafts are added, run `cs-workflow workflow split draft submit <node-run-id>`.\n\n")
 	b.WriteString("Use the current workflow node run ID from the task context files. Assignees must be `agent:<uuid>` or `member:<uuid>`. If no better assignee is specified in the planning context, use the split node's default agent.\n\n")
 	b.WriteString("Fallback only: if the draft CLI is unavailable, return a clear Markdown task breakdown. The server will attempt recovery, but CLI submission is more reliable.\n")
+	return b.String()
+}
+
+func buildSplitChatPrompt(task Task) string {
+	var b strings.Builder
+	b.WriteString("You are running as a split review adjustment agent for a Multica workflow.\n\n")
+	b.WriteString("A user reviewed the current split draft tasks and requested an adjustment. Update the draft set for human review; the platform will create child issues later.\n\n")
+	fmt.Fprintf(&b, "Workflow node run ID: %s\n", task.WorkflowNodeRunID)
+	if task.WorkflowSplitParentIssueID != "" {
+		fmt.Fprintf(&b, "Parent issue ID: %s\n", task.WorkflowSplitParentIssueID)
+	}
+	if task.WorkflowSplitParentIssueTitle != "" {
+		fmt.Fprintf(&b, "Parent issue title: %s\n", task.WorkflowSplitParentIssueTitle)
+	}
+	if strings.TrimSpace(task.WorkflowSplitParentIssueDescription) != "" {
+		fmt.Fprintf(&b, "\nParent issue description:\n%s\n", strings.TrimSpace(task.WorkflowSplitParentIssueDescription))
+	}
+	fmt.Fprintf(&b, "\nUser requested:\n%s\n\n", strings.TrimSpace(task.ChatMessage))
+	if len(task.ChatMessageAttachments) > 0 {
+		b.WriteString("Attachments on this message:\n")
+		for _, a := range task.ChatMessageAttachments {
+			if a.ContentType != "" {
+				fmt.Fprintf(&b, "- id=%s filename=%q content_type=%s\n", a.ID, a.Filename, a.ContentType)
+			} else {
+				fmt.Fprintf(&b, "- id=%s filename=%q\n", a.ID, a.Filename)
+			}
+		}
+		b.WriteString("Use `cs-workflow attachment download <id>` to fetch each file locally before referring to it.\n\n")
+	}
+	if strings.TrimSpace(string(task.WorkflowSplitCurrentDrafts)) != "" {
+		fmt.Fprintf(&b, "Current draft tasks:\n```json\n%s\n```\n\n", strings.TrimSpace(string(task.WorkflowSplitCurrentDrafts)))
+	}
+	if strings.TrimSpace(string(task.WorkflowSplitConfig)) != "" {
+		fmt.Fprintf(&b, "Split config:\n```json\n%s\n```\n\n", strings.TrimSpace(string(task.WorkflowSplitConfig)))
+	}
+	b.WriteString("Hard rules:\n")
+	b.WriteString("- Do NOT create issues.\n")
+	b.WriteString("- Do NOT change issue status.\n")
+	b.WriteString("- Do NOT post comments.\n")
+	b.WriteString("- Do NOT modify code, docs, or repository files.\n")
+	b.WriteString("- Do not treat this as a normal chat response; update the split draft set through the draft CLI.\n\n")
+	b.WriteString("Primary success path:\n")
+	b.WriteString("1. Decide which existing drafts to keep, discard or replace based on the user request.\n")
+	b.WriteString("2. Use `cs-workflow workflow split draft delete <node-run-id> <draft-task-id>` to discard drafts that should be removed.\n")
+	b.WriteString("3. Write each new or replacement draft task description to a UTF-8 markdown file.\n")
+	b.WriteString("4. Add or replace drafts with `cs-workflow workflow split draft add <node-run-id> --key <stable-key> --title \"...\" --assignee agent:<uuid> --description-file <file>`.\n")
+	b.WriteString("5. Use `--depends-on <stable-key>` only when a dependency is real and refers to a kept or newly added draft.\n")
+	b.WriteString("6. When the adjusted draft set is complete, run `cs-workflow workflow split draft submit <node-run-id>`.\n\n")
+	b.WriteString("If the user asks to simplify, prefer fewer clearer drafts over preserving every existing draft. Your final assistant output can be brief; the durable result is the submitted draft set.\n")
 	return b.String()
 }
 

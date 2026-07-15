@@ -1226,6 +1226,16 @@ func (s *WorkflowService) DispatchAgentTaskWithContextExtras(ctx context.Context
 	if err == nil {
 		issueID = subIssue.ID
 	}
+	var chatSessionID pgtype.UUID
+	if rawChatSessionID, ok := contextExtras["chat_session_id"]; ok {
+		if value, ok := rawChatSessionID.(string); ok && strings.TrimSpace(value) != "" {
+			if parsed, err := util.ParseUUID(value); err == nil {
+				chatSessionID = parsed
+			} else {
+				slog.Warn("workflow dispatch: invalid chat_session_id context extra", "node_run_id", util.UUIDToString(nodeRun.ID), "chat_session_id", value, "error", err)
+			}
+		}
+	}
 
 	// Create workflow-bound agent task directly.
 	task, err := s.Queries.CreateWorkflowAgentTask(ctx, db.CreateWorkflowAgentTaskParams{
@@ -1234,6 +1244,7 @@ func (s *WorkflowService) DispatchAgentTaskWithContextExtras(ctx context.Context
 		Priority:          2, // medium
 		Context:           contextJSON,
 		WorkflowNodeRunID: nodeRun.ID,
+		ChatSessionID:     chatSessionID,
 		IssueID:           issueID,
 	})
 	if err != nil {
@@ -1928,4 +1939,3 @@ func (s *WorkflowService) CanManageWorkflows(ctx context.Context, userID pgtype.
 	}
 	return user.CanManageWorkflows, nil
 }
-

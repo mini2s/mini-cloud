@@ -83,8 +83,8 @@ func (q *Queries) CancelWorkflowNodeRuns(ctx context.Context, workflowRunID pgty
 }
 
 const createWorkflowAgentTask = `-- name: CreateWorkflowAgentTask :one
-INSERT INTO multica_agent_task_queue (agent_id, runtime_id, issue_id, status, priority, workflow_node_run_id, context)
-VALUES ($1, $2, $4, 'queued', $3, $5, $6)
+INSERT INTO multica_agent_task_queue (agent_id, runtime_id, issue_id, status, priority, workflow_node_run_id, chat_session_id, context)
+VALUES ($1, $2, $4, 'queued', $3, $5, $6, $7)
 RETURNING id, agent_id, issue_id, status, priority, dispatched_at, started_at, completed_at, result, error, created_at, context, runtime_id, session_id, work_dir, trigger_comment_id, chat_session_id, autopilot_run_id, attempt, max_attempts, parent_task_id, failure_reason, trigger_summary, force_fresh_session, is_leader_task, workflow_node_run_id
 `
 
@@ -94,6 +94,7 @@ type CreateWorkflowAgentTaskParams struct {
 	Priority          int32       `json:"priority"`
 	IssueID           pgtype.UUID `json:"issue_id"`
 	WorkflowNodeRunID pgtype.UUID `json:"workflow_node_run_id"`
+	ChatSessionID     pgtype.UUID `json:"chat_session_id"`
 	Context           []byte      `json:"context"`
 }
 
@@ -104,6 +105,7 @@ func (q *Queries) CreateWorkflowAgentTask(ctx context.Context, arg CreateWorkflo
 		arg.Priority,
 		arg.IssueID,
 		arg.WorkflowNodeRunID,
+		arg.ChatSessionID,
 		arg.Context,
 	)
 	var i MulticaAgentTaskQueue

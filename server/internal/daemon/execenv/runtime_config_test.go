@@ -266,3 +266,46 @@ func TestSplitPhaseRuntimeBriefSkipsAssignmentWorkflow(t *testing.T) {
 		}
 	}
 }
+
+func TestSplitChatRuntimeBriefSkipsChatAndAssignmentWorkflow(t *testing.T) {
+	t.Parallel()
+	const issueID = "split-chat-issue-1"
+	out := buildMetaSkillContent("claude", TaskContextForEnv{
+		IssueID:                       issueID,
+		ChatSessionID:                 "chat-1",
+		WorkflowNodeRunID:             "node-run-1",
+		WorkflowPhase:                 "split_chat",
+		WorkflowSplitParentIssueID:    "parent-1",
+		WorkflowSplitParentIssueTitle: "Build a game",
+		WorkflowSplitCurrentDrafts:    []byte(`[{"id":"draft-1","title":"Too large"}]`),
+	})
+
+	for _, want := range []string{
+		"split review adjustment",
+		"node-run-1",
+		"parent-1",
+		"Build a game",
+		"cs-workflow workflow split draft delete",
+		"cs-workflow workflow split draft add",
+		"cs-workflow workflow split draft submit",
+		"Do NOT create issues",
+		"Do NOT post comments",
+		"Do NOT change issue status",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("split chat runtime brief missing %q\n--- output ---\n%s", want, out)
+		}
+	}
+	for _, banned := range []string{
+		"You are in chat mode",
+		"Run `cs-workflow issue status " + issueID + " in_progress`",
+		"Post your final results as a comment",
+		"Run `cs-workflow issue status " + issueID + " in_review`",
+		"Final results MUST be delivered via `cs-workflow issue comment add`",
+		"## Sub-issue Creation",
+	} {
+		if strings.Contains(out, banned) {
+			t.Errorf("split chat runtime brief must not contain ordinary workflow text %q\n--- output ---\n%s", banned, out)
+		}
+	}
+}

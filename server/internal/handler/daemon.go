@@ -1355,8 +1355,16 @@ func (h *Handler) ClaimTaskByRuntime(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Chat task: populate workspace/session info from the chat_session table.
-	if task.ChatSessionID.Valid {
-		if cs, err := h.Queries.GetChatSession(r.Context(), task.ChatSessionID); err == nil {
+	chatSessionID := task.ChatSessionID
+	if !chatSessionID.Valid && resp.ChatSessionID != "" {
+		if parsed, err := util.ParseUUID(resp.ChatSessionID); err == nil {
+			chatSessionID = parsed
+		} else {
+			slog.Warn("task claim: invalid chat session id in task context", "task_id", uuidToString(task.ID), "chat_session_id", resp.ChatSessionID, "error", err)
+		}
+	}
+	if chatSessionID.Valid {
+		if cs, err := h.Queries.GetChatSession(r.Context(), chatSessionID); err == nil {
 			resp.WorkspaceID = uuidToString(cs.WorkspaceID)
 			resp.ChatSessionID = uuidToString(cs.ID)
 			if ws, err := h.Queries.GetWorkspace(r.Context(), cs.WorkspaceID); err == nil && ws.Repos != nil {

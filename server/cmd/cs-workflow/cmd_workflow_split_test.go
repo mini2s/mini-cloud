@@ -26,6 +26,14 @@ func newWorkflowSplitDraftSubmitTestCmd() *cobra.Command {
 	return cmd
 }
 
+func newWorkflowSplitDraftDeleteTestCmd() *cobra.Command {
+	cmd := &cobra.Command{Use: "delete <node-run-id> <draft-task-id>", Args: exactArgs(2), RunE: runWorkflowSplitDraftDelete}
+	cmd.PersistentFlags().String("server-url", "", "")
+	cmd.PersistentFlags().String("workspace-id", "", "")
+	cmd.PersistentFlags().String("profile", "", "")
+	return cmd
+}
+
 func TestRunWorkflowSplitDraftAddPostsPayload(t *testing.T) {
 	var gotPath, gotMethod, gotWorkspace, gotAgent, gotTask string
 	var gotBody map[string]any
@@ -111,6 +119,38 @@ func TestRunWorkflowSplitDraftSubmitPostsToSubmitEndpoint(t *testing.T) {
 	}
 
 	if gotPath != "/api/node-runs/node-run-1/split/draft-submit" {
+		t.Fatalf("path = %s", gotPath)
+	}
+	if gotTask != "task-1" {
+		t.Fatalf("X-Task-ID = %q", gotTask)
+	}
+}
+
+func TestRunWorkflowSplitDraftDeleteDeletesDraftTask(t *testing.T) {
+	var gotPath, gotMethod, gotTask string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotMethod = r.Method
+		gotPath = r.URL.Path
+		gotTask = r.Header.Get("X-Task-ID")
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{"status": "ok"})
+	}))
+	defer srv.Close()
+
+	t.Setenv("MULTICA_SERVER_URL", srv.URL)
+	t.Setenv("MULTICA_WORKSPACE_ID", "ws-1")
+	t.Setenv("MULTICA_AGENT_ID", "agent-1")
+	t.Setenv("MULTICA_TASK_ID", "task-1")
+
+	cmd := newWorkflowSplitDraftDeleteTestCmd()
+	if err := runWorkflowSplitDraftDelete(cmd, []string{"node-run-1", "draft-task-1"}); err != nil {
+		t.Fatalf("runWorkflowSplitDraftDelete() error = %v", err)
+	}
+
+	if gotMethod != http.MethodDelete {
+		t.Fatalf("method = %s, want DELETE", gotMethod)
+	}
+	if gotPath != "/api/node-runs/node-run-1/split/draft-tasks/draft-task-1" {
 		t.Fatalf("path = %s", gotPath)
 	}
 	if gotTask != "task-1" {

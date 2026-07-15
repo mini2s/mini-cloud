@@ -6,7 +6,7 @@ import { Send } from "lucide-react";
 import { Button } from "@multica/ui/components/ui/button";
 import { Badge } from "@multica/ui/components/ui/badge";
 import { chatMessagesOptions, pendingChatTaskOptions } from "@multica/core/chat/queries";
-import type { AgentTask, ChatMessage } from "@multica/core/types";
+import type { AgentTask, ChatMessage, ChatPendingTask } from "@multica/core/types";
 import { CommentInput } from "../../../issues/components/comment-input";
 import { InlineTranscriptPanel } from "../../../issues/components/execution-log/inline-transcript-panel";
 
@@ -88,6 +88,24 @@ function taskFromChatMessage(message: ChatMessage): AgentTask {
   };
 }
 
+function taskFromPendingTask(task: NonNullable<ChatPendingTask>, chatSessionId: string): AgentTask {
+  return {
+    id: task.task_id ?? "",
+    agent_id: "",
+    runtime_id: "",
+    issue_id: "",
+    status: task.status === "queued" ? "queued" : "running",
+    priority: 0,
+    dispatched_at: null,
+    started_at: null,
+    completed_at: null,
+    result: null,
+    error: null,
+    created_at: "",
+    chat_session_id: chatSessionId,
+  };
+}
+
 function SplitChatHistory({
   messages,
   isPending,
@@ -150,6 +168,16 @@ export function SplitChatReview({
           {pendingTask?.status === "queued" ? (
             <Badge variant="outline" className="text-xs">排队中</Badge>
           ) : null}
+        </div>
+      ) : null}
+
+      {isAgentRunning && pendingTask?.task_id ? (
+        <div className="rounded-lg border bg-muted/20 px-3 py-2">
+          <InlineTranscriptPanel
+            task={taskFromPendingTask(pendingTask, chatSessionId ?? "")}
+            isLive
+            defaultOpen
+          />
         </div>
       ) : null}
 

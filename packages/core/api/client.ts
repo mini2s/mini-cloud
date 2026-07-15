@@ -191,6 +191,8 @@ import {
   EMPTY_WORKFLOW_EDGES_RESPONSE,
   SplitTasksResponseSchema,
   EMPTY_SPLIT_TASKS_RESPONSE,
+  SplitChatResponseSchema,
+  EMPTY_SPLIT_CHAT_RESPONSE,
   WorkflowStagesResponseSchema,
   ListWorkflowRunsResponseSchema,
   EMPTY_LIST_WORKFLOW_RUNS_RESPONSE,
@@ -2140,9 +2142,9 @@ export class ApiClient {
       method: "POST",
       body: JSON.stringify(req),
     });
-    return parseWithFallback(raw, SplitTasksResponseSchema, EMPTY_SPLIT_TASKS_RESPONSE, {
+    return parseWithFallback(raw, SplitChatResponseSchema, EMPTY_SPLIT_CHAT_RESPONSE, {
       endpoint: "POST /api/node-runs/:id/split/chat",
-    }) as SplitChatResponse;
+    });
   }
 
   async listSplitTasks(nodeRunId: string): Promise<SplitTasksResponse> {

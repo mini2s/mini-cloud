@@ -346,6 +346,48 @@ func TestBuildPromptSplitRepairIncludesSourceTask(t *testing.T) {
 	}
 }
 
+func TestBuildPromptSplitChatAdjustsExistingDrafts(t *testing.T) {
+	out := BuildPrompt(Task{
+		IssueID:                       "split-planning-issue",
+		WorkflowPhase:                 "split_chat",
+		WorkflowNodeRunID:             "node-run-1",
+		ChatSessionID:                 "chat-1",
+		ChatMessage:                   "简化拆分",
+		WorkflowSplitParentIssueID:    "parent-issue-1",
+		WorkflowSplitParentIssueTitle: "Build a gomoku game",
+		WorkflowSplitCurrentDrafts:    []byte(`[{"id":"draft-1","title":"Too large","draft_key":"too-large"}]`),
+	}, "claude")
+
+	for _, want := range []string{
+		"split review adjustment",
+		"User requested",
+		"简化拆分",
+		"Current draft tasks",
+		"Too large",
+		"cs-workflow workflow split draft add",
+		"cs-workflow workflow split draft submit",
+		"discard or replace",
+		"Do NOT create issues",
+		"Do NOT change issue status",
+		"Do NOT post comments",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("split_chat BuildPrompt missing %q\n--- output ---\n%s", want, out)
+		}
+	}
+	for _, banned := range []string{
+		"chat assistant",
+		"Your assigned issue ID is",
+		"cs-workflow issue status",
+		"cs-workflow issue comment add",
+		"then complete it",
+	} {
+		if strings.Contains(out, banned) {
+			t.Errorf("split_chat BuildPrompt must not contain ordinary guidance %q\n--- output ---\n%s", banned, out)
+		}
+	}
+}
+
 // TestBuildPromptNonSquadLeaderNoRule verifies that non-squad-leader agents
 // do NOT get the squad leader no_action rule injected.
 func TestBuildPromptNonSquadLeaderNoRule(t *testing.T) {

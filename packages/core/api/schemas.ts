@@ -20,6 +20,7 @@ import type {
   WorkflowStage,
   SplitProgress,
   SplitTasksResponse,
+  SplitChatResponse,
   RuntimePermission,
   SessionPermissionResponse,
 } from "../types";
@@ -268,6 +269,28 @@ export const SplitTasksResponseSchema = z.object({
 export const EMPTY_SPLIT_TASKS_RESPONSE: SplitTasksResponse = {
   tasks: [],
   progress: EMPTY_SPLIT_PROGRESS,
+};
+
+export const SplitChatResponseSchema = z.union([
+  SplitTasksResponseSchema.extend({
+    chat_session_id: z.string().default(""),
+    task_id: z.string().default(""),
+  }).loose(),
+  z.object({
+    chat_session_id: z.string().default(""),
+    task_id: z.string().default(""),
+    tasks: SplitTasksResponseSchema.default(EMPTY_SPLIT_TASKS_RESPONSE as any),
+  }).loose().transform((value) => ({
+    ...value.tasks,
+    chat_session_id: value.chat_session_id,
+    task_id: value.task_id,
+  })),
+]);
+
+export const EMPTY_SPLIT_CHAT_RESPONSE: SplitChatResponse = {
+  ...EMPTY_SPLIT_TASKS_RESPONSE,
+  chat_session_id: "",
+  task_id: "",
 };
 
 export const CloudRuntimeNodeSchema = z.object({

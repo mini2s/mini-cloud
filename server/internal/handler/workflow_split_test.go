@@ -1288,6 +1288,16 @@ func TestSplitChatCreatesSessionAndDispatchesTask(t *testing.T) {
 	if body["task_id"] == nil || body["task_id"] == "" {
 		t.Fatal("expected task_id in response")
 	}
+	task, err := testHandler.Queries.GetAgentTask(ctx, parseUUID(body["task_id"].(string)))
+	if err != nil {
+		t.Fatalf("get split chat task: %v", err)
+	}
+	if !task.ChatSessionID.Valid {
+		t.Fatal("expected split chat task to persist chat_session_id")
+	}
+	if uuidToString(task.ChatSessionID) != body["chat_session_id"].(string) {
+		t.Fatalf("task chat_session_id = %s, want %s", uuidToString(task.ChatSessionID), body["chat_session_id"].(string))
+	}
 
 	nodeRun, err = testHandler.Queries.GetWorkflowNodeRun(ctx, parseUUID(f.splitNodeRunID))
 	if err != nil {

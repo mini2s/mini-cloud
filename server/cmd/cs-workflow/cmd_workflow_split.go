@@ -42,11 +42,19 @@ var workflowSplitDraftSubmitCmd = &cobra.Command{
 	RunE:  runWorkflowSplitDraftSubmit,
 }
 
+var workflowSplitDraftDeleteCmd = &cobra.Command{
+	Use:   "delete <node-run-id> <draft-task-id>",
+	Short: "Delete one split draft task",
+	Args:  exactArgs(2),
+	RunE:  runWorkflowSplitDraftDelete,
+}
+
 func init() {
 	workflowCmd.AddCommand(workflowSplitCmd)
 	workflowSplitCmd.AddCommand(workflowSplitDraftCmd)
 	workflowSplitDraftCmd.AddCommand(workflowSplitDraftAddCmd)
 	workflowSplitDraftCmd.AddCommand(workflowSplitDraftSubmitCmd)
+	workflowSplitDraftCmd.AddCommand(workflowSplitDraftDeleteCmd)
 	registerWorkflowSplitDraftAddFlags(workflowSplitDraftAddCmd)
 }
 
@@ -159,4 +167,26 @@ func runWorkflowSplitDraftSubmit(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("submit split draft tasks: %w", err)
 	}
 	return cli.PrintJSON(os.Stdout, result)
+}
+
+func runWorkflowSplitDraftDelete(cmd *cobra.Command, args []string) error {
+	client, err := newAPIClient(cmd)
+	if err != nil {
+		return err
+	}
+	if client.WorkspaceID == "" {
+		if _, err := requireWorkspaceID(cmd); err != nil {
+			return err
+		}
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	path := "/api/node-runs/" + url.PathEscape(args[0]) + "/split/draft-tasks/" + url.PathEscape(args[1])
+	if err := client.DeleteJSON(ctx, path); err != nil {
+		return fmt.Errorf("delete split draft task: %w", err)
+	}
+	fmt.Fprintf(os.Stdout, "Deleted split draft task %s from node run %s\n", args[1], args[0])
+	return nil
 }

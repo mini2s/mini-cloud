@@ -4,6 +4,7 @@ import {
   DashboardUsageByAgentListSchema,
   DashboardUsageDailyListSchema,
   DuplicateIssueErrorBodySchema,
+  EMPTY_SPLIT_CHAT_RESPONSE,
   EMPTY_USER,
   EMPTY_SPLIT_PROGRESS,
   EMPTY_SPLIT_TASKS_RESPONSE,
@@ -15,6 +16,7 @@ import {
   RuntimeUsageByHourListSchema,
   RuntimeUsageListSchema,
   SplitProgressSchema,
+  SplitChatResponseSchema,
   SplitTasksResponseSchema,
   UserSchema,
   WorkflowRunCanvasSummaryResponseSchema,
@@ -133,6 +135,44 @@ describe("split API response schemas", () => {
       { endpoint: "GET /api/node-runs/:id/split/tasks" },
     );
     expect(parsed).toBe(EMPTY_SPLIT_TASKS_RESPONSE);
+  });
+
+  it("flattens the nested split review chat response returned by the handler", () => {
+    const parsed = SplitChatResponseSchema.parse({
+      chat_session_id: "chat-1",
+      task_id: "agent-task-1",
+      tasks: {
+        tasks: [{ ...validTask, title: "Security review" }],
+        progress: { total: 1 },
+      },
+    });
+
+    expect(parsed.chat_session_id).toBe("chat-1");
+    expect(parsed.task_id).toBe("agent-task-1");
+    expect(parsed.tasks[0]?.title).toBe("Security review");
+    expect(parsed.progress).toEqual({
+      total: 1,
+      created: 0,
+      running: 0,
+      done: 0,
+      failed: 0,
+      cancelled: 0,
+      skipped: 0,
+    });
+  });
+
+  it("falls back when split review chat tasks have the wrong shape", () => {
+    const parsed = parseWithFallback(
+      {
+        chat_session_id: "chat-1",
+        task_id: "agent-task-1",
+        tasks: { tasks: [{ ...validTask, depends_on: "task-0" }] },
+      },
+      SplitChatResponseSchema,
+      EMPTY_SPLIT_CHAT_RESPONSE,
+      { endpoint: "POST /api/node-runs/:id/split/chat" },
+    );
+    expect(parsed).toBe(EMPTY_SPLIT_CHAT_RESPONSE);
   });
 
   it("defaults missing split progress counts to zero", () => {

@@ -237,8 +237,8 @@ ORDER BY wnr.created_at DESC
 LIMIT $2 OFFSET $3;
 
 -- name: CreateWorkflowAgentTask :one
-INSERT INTO multica_agent_task_queue (agent_id, runtime_id, issue_id, status, priority, workflow_node_run_id, context)
-VALUES ($1, $2, sqlc.narg('issue_id'), 'queued', $3, sqlc.narg('workflow_node_run_id'), sqlc.narg('context'))
+INSERT INTO multica_agent_task_queue (agent_id, runtime_id, issue_id, status, priority, workflow_node_run_id, chat_session_id, context)
+VALUES ($1, $2, sqlc.narg('issue_id'), 'queued', $3, sqlc.narg('workflow_node_run_id'), sqlc.narg('chat_session_id'), sqlc.narg('context'))
 RETURNING *;
 
 -- name: ListCompletedUpstreamNodeRuns :many

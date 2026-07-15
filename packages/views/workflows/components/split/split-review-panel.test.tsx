@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { SplitReviewPanel } from "./split-review-panel";
@@ -33,10 +33,21 @@ const mocks = vi.hoisted(() => ({
   approveMutateAsync: vi.fn(),
   submitChatMutateAsync: vi.fn(),
   cancelMutateAsync: vi.fn(),
+  pendingTaskData: {} as { task_id?: string; status?: string },
+  lastSplitTasksQuery: null as null | { refetchInterval?: number | false },
+  splitTasksRefetch: vi.fn(),
 }));
 
 vi.mock("@tanstack/react-query", () => ({
-  useQuery: ({ queryKey }: { queryKey: readonly unknown[] }) => {
+  useQuery: (options: { queryKey: readonly unknown[]; refetchInterval?: number | false }) => {
+    const { queryKey } = options;
+    if (Array.isArray(queryKey) && queryKey[0] === "chat" && queryKey[1] === "pending-task") {
+      return {
+        data: mocks.pendingTaskData,
+        isLoading: false,
+      };
+    }
+
     if (Array.isArray(queryKey) && queryKey.includes("canvas-summary")) {
       return {
         data: mocks.childCanvasSummaryData,
@@ -51,9 +62,19 @@ vi.mock("@tanstack/react-query", () => ({
       };
     }
 
+    if (Array.isArray(queryKey) && queryKey.includes("split-tasks")) {
+      mocks.lastSplitTasksQuery = options;
+      return {
+        data: mocks.splitTasksData,
+        isLoading: mocks.isLoading,
+        refetch: mocks.splitTasksRefetch,
+      };
+    }
+
     return {
       data: mocks.splitTasksData,
       isLoading: mocks.isLoading,
+      refetch: vi.fn(),
     };
   },
 }));
@@ -61,6 +82,13 @@ vi.mock("@tanstack/react-query", () => ({
 vi.mock("@multica/core/issues/queries", () => ({
   childIssuesOptions: (_wsId: string, issueId: string) => ({
     queryKey: ["issues", "ws-1", "children", issueId],
+  }),
+}));
+
+vi.mock("@multica/core/chat/queries", () => ({
+  pendingChatTaskOptions: (sessionId: string) => ({
+    queryKey: ["chat", "pending-task", sessionId],
+    enabled: !!sessionId,
   }),
 }));
 
@@ -267,6 +295,9 @@ describe("SplitReviewPanel", () => {
     mocks.approveMutateAsync.mockReset();
     mocks.submitChatMutateAsync.mockReset();
     mocks.cancelMutateAsync.mockReset();
+    mocks.pendingTaskData = {};
+    mocks.lastSplitTasksQuery = null;
+    mocks.splitTasksRefetch.mockReset();
   });
 
   it("renders a readonly review with verdict, draft plan, dependencies, and no manual edit controls", () => {
@@ -338,6 +369,31 @@ describe("SplitReviewPanel", () => {
     });
   });
 
+  it("does not offer draft generation before the split node can generate", () => {
+    mocks.splitTasksData = {
+      tasks: [],
+      progress: {
+        total: 0,
+        created: 0,
+        running: 0,
+        done: 0,
+        failed: 0,
+        cancelled: 0,
+        skipped: 0,
+      },
+    };
+
+    renderPanel({
+      nodeRun: {
+        ...splitNodeRun,
+        status: "pending",
+      },
+    });
+
+    expect(screen.queryByRole("button", { name: "鐢熸垚鑽夋" })).not.toBeInTheDocument();
+    expect(screen.queryByText("Actions")).not.toBeInTheDocument();
+  });
+
   it("describes in-flight draft generation instead of declaring no risk", () => {
     renderPanel({
       nodeRun: {
@@ -363,6 +419,51 @@ describe("SplitReviewPanel", () => {
       runId: "run-1",
       content: "把第 2 个 task 拆成前后端",
       attachmentIds: ["att-1"],
+    });
+  });
+
+  it("refreshes draft tasks while a split review chat task is running", () => {
+    mocks.pendingTaskData = {
+      task_id: "123e4567-e89b-12d3-a456-426614174000",
+      status: "running",
+    };
+
+    renderPanel({
+      nodeRun: {
+        ...splitNodeRun,
+        split_review_chat_session_id: "chat-1",
+      },
+    });
+
+    expect(mocks.lastSplitTasksQuery?.refetchInterval).toBe(2000);
+  });
+
+  it("refetches draft tasks once when split review chat finishes", async () => {
+    const nodeRunWithChat = {
+      ...splitNodeRun,
+      split_review_chat_session_id: "chat-1",
+    };
+    mocks.pendingTaskData = {
+      task_id: "123e4567-e89b-12d3-a456-426614174000",
+      status: "running",
+    };
+
+    const view = renderPanel({ nodeRun: nodeRunWithChat });
+    mocks.splitTasksRefetch.mockClear();
+    mocks.pendingTaskData = {};
+    view.rerender(
+      <SplitReviewPanel
+        node={splitNode}
+        nodeRun={nodeRunWithChat}
+        wsId="ws-1"
+        workflowId="wf-1"
+        runId="run-1"
+        onClose={vi.fn()}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(mocks.splitTasksRefetch).toHaveBeenCalledTimes(1);
     });
   });
 

@@ -57,13 +57,29 @@ vi.mock("../../../issues/components/comment-input", () => ({
 }));
 
 vi.mock("../../../issues/components/execution-log/inline-transcript-panel", () => ({
-  InlineTranscriptPanel: () => <div data-testid="inline-transcript-panel" />,
+  InlineTranscriptPanel: ({
+    task,
+    isLive,
+    defaultOpen,
+  }: {
+    task: { id: string };
+    isLive?: boolean;
+    defaultOpen?: boolean;
+  }) => (
+    <div
+      data-testid="inline-transcript-panel"
+      data-task-id={task.id}
+      data-live={String(isLive)}
+      data-default-open={String(defaultOpen)}
+    />
+  ),
 }));
 
 describe("SplitChatReview", () => {
   beforeEach(() => {
     mocks.messages = [];
     mocks.isLoading = false;
+    mocks.pendingTask = {};
   });
 
   it("renders split chat history from the review chat session", () => {
@@ -100,5 +116,18 @@ describe("SplitChatReview", () => {
     await userEvent.click(screen.getByRole("button", { name: "Submit comment input" }));
 
     expect(onSubmit).toHaveBeenCalledWith("删除第 3 个子 issue", ["att-1"]);
+  });
+  it("shows the live transcript while a split chat task is pending", () => {
+    mocks.pendingTask = {
+      task_id: "123e4567-e89b-12d3-a456-426614174000",
+      status: "running",
+    };
+
+    render(<SplitChatReview issueId="issue-1" chatSessionId="chat-1" onSubmit={vi.fn()} />);
+
+    const transcript = screen.getByTestId("inline-transcript-panel");
+    expect(transcript).toHaveAttribute("data-task-id", "123e4567-e89b-12d3-a456-426614174000");
+    expect(transcript).toHaveAttribute("data-live", "true");
+    expect(transcript).toHaveAttribute("data-default-open", "true");
   });
 });
