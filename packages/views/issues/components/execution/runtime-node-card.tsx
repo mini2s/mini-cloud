@@ -10,7 +10,7 @@ import {
 } from "@multica/core/types";
 import { cn } from "@multica/ui/lib/utils";
 import { RuntimeDisplayStatusIcon } from "./node-run-status-icon";
-import { Bot, User, Building2, Check, CircleAlert, CircleCheck, Clock3, FileCheck2, GitFork, GitMerge } from "lucide-react";
+import { Bot, User, Building2, Check, ChevronDown, ChevronRight, CircleAlert, CircleCheck, Clock3, FileCheck2, GitFork, GitMerge } from "lucide-react";
 import { useT } from "@multica/views/i18n";
 import { Button } from "@multica/ui/components/ui/button";
 import { Loader2 } from "lucide-react";
@@ -60,6 +60,9 @@ export interface RuntimeNodeCardProps {
   runtimeSummary?: WorkflowNodeRuntimeSummary | null;
   handles?: WorkflowCanvasNodeHandle[];
   lateralHandleTop?: number;
+  isSplitExpanded?: boolean;
+  splitChildCount?: number;
+  onSplitNodeToggle?: (nodeId: string) => void;
 }
 
 /** Maps worker/critic type to its Lucide icon component. */
@@ -328,6 +331,9 @@ export function RuntimeNodeCard({
   runtimeSummary,
   handles,
   lateralHandleTop,
+  isSplitExpanded = false,
+  splitChildCount = 0,
+  onSplitNodeToggle,
 }: RuntimeNodeCardProps) {
   const { t } = useT("issues");
   const nodeFormat = parseNodeFormat(node.format_schema);
@@ -355,6 +361,18 @@ export function RuntimeNodeCard({
           ? "completed"
           : "idle";
   const splitProgress = runtimeSummary?.split_progress ?? null;
+  const canToggleSplitChildren = isSplit && splitChildCount > 0 && !!onSplitNodeToggle;
+  const splitChildLabel = `${splitChildCount} ${splitChildCount === 1 ? "issue" : "issues"}`;
+  const handleShellKeyDown = useCallback((event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (event.key !== "Enter" && event.key !== " ") return;
+    event.preventDefault();
+    onClick(node.id);
+  }, [node.id, onClick]);
+  const handleSplitToggleClick = useCallback((event: React.MouseEvent<HTMLButtonElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+    onSplitNodeToggle?.(node.id);
+  }, [node.id, onSplitNodeToggle]);
 
   const actionButtons: ActionButtonDef[] = nodeRun
     ? isGateway || isSplit
@@ -388,7 +406,7 @@ export function RuntimeNodeCard({
 
   return (
     <WorkflowCanvasNodeShell
-      as="button"
+      as={canToggleSplitChildren ? "div" : "button"}
       testId={`runtime-node-card-${node.id}`}
       nodeShape={nodeShape}
       selected={isSelected}
@@ -396,6 +414,7 @@ export function RuntimeNodeCard({
       height={RUNTIME_NODE_HEIGHT}
       title={node.title}
       onClick={() => onClick(node.id)}
+      onKeyDown={canToggleSplitChildren ? handleShellKeyDown : undefined}
       className="h-[120px]"
       contentClassName={isSplit ? "h-full justify-center p-0" : cn("h-full justify-between gap-2", workflowNodeInfoAreaClassName(nodeShape))}
       handles={handles}
@@ -410,6 +429,33 @@ export function RuntimeNodeCard({
           progress={splitProgress}
           taskCount={splitProgress?.total ?? 0}
           subTemplateName={displayStatusLabel}
+          headerAction={canToggleSplitChildren ? (
+            <button
+              type="button"
+              className={cn(
+                "nodrag nopan inline-flex h-6 shrink-0 items-center gap-1 rounded-full border px-2",
+                "text-[10px] font-semibold leading-none shadow-sm ring-1 ring-white/70 transition-colors",
+                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                isSplitExpanded
+                  ? "border-primary/35 bg-primary text-primary-foreground hover:bg-primary/90"
+                  : "border-border/70 bg-background/90 text-muted-foreground hover:border-primary/35 hover:bg-primary/10 hover:text-primary",
+              )}
+              aria-label={
+                isSplitExpanded
+                  ? `Collapse ${splitChildCount} child issue nodes`
+                  : `Expand ${splitChildCount} child issue nodes`
+              }
+              aria-expanded={isSplitExpanded}
+              onClick={handleSplitToggleClick}
+            >
+              {isSplitExpanded ? (
+                <ChevronDown className="h-3 w-3" aria-hidden />
+              ) : (
+                <ChevronRight className="h-3 w-3" aria-hidden />
+              )}
+              <span className="tabular-nums">{splitChildLabel}</span>
+            </button>
+          ) : null}
           className="h-full w-full min-h-0"
         />
       ) : (

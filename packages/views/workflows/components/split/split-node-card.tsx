@@ -1,5 +1,6 @@
 "use client";
 
+import type { ReactNode } from "react";
 import { GitBranch } from "lucide-react";
 import type { SplitConfig, SplitProgress } from "@multica/core/types";
 import { cn } from "@multica/ui/lib/utils";
@@ -13,6 +14,7 @@ export interface SplitNodeCardProps {
   taskCount?: number;
   subTemplateName?: string | null;
   className?: string;
+  headerAction?: ReactNode;
   onClick?: () => void;
 }
 
@@ -24,6 +26,7 @@ export function SplitNodeCard({
   taskCount = 0,
   subTemplateName,
   className,
+  headerAction,
   onClick,
 }: SplitNodeCardProps) {
   const mode = config?.mode ?? "barrier";
@@ -46,7 +49,8 @@ export function SplitNodeCard({
     >
       <div className="flex min-w-0 items-center gap-2">
         <GitBranch className="size-4 shrink-0 text-primary" aria-hidden />
-        <span className="truncate text-sm font-semibold">{title}</span>
+        <span className="min-w-0 flex-1 truncate text-sm font-semibold">{title}</span>
+        {headerAction ? <span className="shrink-0">{headerAction}</span> : null}
       </div>
 
       {subTemplateName && (

@@ -44,6 +44,7 @@ export interface WorkflowCanvasCoreProps {
   showMiniMap?: boolean;
   children?: ReactNode;
   onNodeClick?: (event: React.MouseEvent, node: Node) => void;
+  onNodeDoubleClick?: (event: React.MouseEvent, node: Node) => void;
   onEdgeClick?: (event: React.MouseEvent, edge: Edge, position: { x: number; y: number }) => void;
   onPaneClick?: () => void;
   onNodeDragStop?: (event: MouseEvent | TouchEvent, node: Node) => void;
@@ -73,6 +74,7 @@ export function WorkflowCanvasCore({
   showMiniMap = true,
   children,
   onNodeClick,
+  onNodeDoubleClick,
   onEdgeClick,
   onPaneClick,
   onNodeDragStop,
@@ -114,6 +116,7 @@ export function WorkflowCanvasCore({
           nodeTypes={nodeTypes}
           edgeTypes={edgeTypes}
           onNodeClick={onNodeClick}
+          onNodeDoubleClick={onNodeDoubleClick}
           onEdgeClick={handleEdgeClick}
           onPaneClick={onPaneClick}
           onNodeDragStop={readOnly ? undefined : onNodeDragStop}

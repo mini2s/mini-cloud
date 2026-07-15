@@ -17,6 +17,9 @@ export interface RuntimeCanvasNodeData extends Record<string, unknown> {
   workerName: string | null;
   criticName: string | null;
   onOpen: (nodeId: string) => void;
+  isSplitExpanded?: boolean;
+  splitChildCount?: number;
+  onSplitNodeToggle?: (nodeId: string) => void;
 }
 
 export const RuntimeCanvasNode = memo(function RuntimeCanvasNode({
@@ -34,6 +37,9 @@ export const RuntimeCanvasNode = memo(function RuntimeCanvasNode({
         criticName={nodeData.criticName}
         onClick={nodeData.onOpen}
         runtimeSummary={nodeData.runtimeSummary}
+        isSplitExpanded={nodeData.isSplitExpanded}
+        splitChildCount={nodeData.splitChildCount}
+        onSplitNodeToggle={nodeData.onSplitNodeToggle}
         handles={["left-target", "right-source", "bottom-source"]}
         lateralHandleTop={RUNTIME_NODE_HEIGHT / 2}
       />

@@ -204,6 +204,7 @@ export function WorkflowCanvasNodeShell({
         aria-pressed={selected}
         title={title}
         onClick={onClick}
+        onDoubleClick={onDoubleClick}
         className={rootClassName}
         style={style}
       >
@@ -221,6 +222,7 @@ export function WorkflowCanvasNodeShell({
       tabIndex={tabIndex}
       aria-label={ariaLabel}
       title={title}
+      onClick={onClick}
       onDoubleClick={onDoubleClick}
       onKeyDown={onKeyDown}
       className={rootClassName}

@@ -449,6 +449,58 @@ describe("RuntimeNodeCard", () => {
     expect(screen.queryByTestId("runtime-node-deliverables")).not.toBeInTheDocument();
   });
 
+  it("renders an explicit split expansion button that does not open the split panel", async () => {
+    const onClick = vi.fn();
+    const onSplitNodeToggle = vi.fn();
+
+    render(
+      <RuntimeNodeCard
+        node={{
+          ...baseNode,
+          id: "split-expand",
+          title: "Task split",
+          format_schema: {
+            type: "split",
+            split_config: {
+              sub_template_id: "child-wf-1",
+              mode: "barrier",
+              max_concurrency: 5,
+              max_failures: 0,
+            },
+          },
+        }}
+        nodeRun={{ ...completedRun, workflow_node_id: "split-expand", status: "split_active" }}
+        runtimeSummary={{
+          ...runtimeSummary,
+          workflow_node_id: "split-expand",
+          split_progress: {
+            total: 3,
+            created: 1,
+            running: 1,
+            done: 1,
+            failed: 0,
+            cancelled: 0,
+            skipped: 0,
+          },
+        }}
+        workerName="Tester"
+        criticName="Reviewer"
+        onClick={onClick}
+        splitChildCount={3}
+        isSplitExpanded={false}
+        onSplitNodeToggle={onSplitNodeToggle}
+      />,
+    );
+
+    const toggleButton = screen.getByRole("button", { name: "Expand 3 child issue nodes" });
+    expect(toggleButton).toHaveTextContent("3 issues");
+
+    await userEvent.click(toggleButton);
+
+    expect(onSplitNodeToggle).toHaveBeenCalledWith("split-expand");
+    expect(onClick).not.toHaveBeenCalled();
+  });
+
   it("keeps the visible canvas surface and split card chrome for split nodes", () => {
     render(
       <RuntimeNodeCard
