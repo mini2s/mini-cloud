@@ -228,13 +228,12 @@ func allowlistedCatalogSkillInstall(body map[string]any, skillID string) ([]byte
 	return raw, nil
 }
 
-func agentCloudSkillRowsToResponse(w http.ResponseWriter, rows []db.MulticaAgentCloudSkill) ([]AgentCloudSkillData, bool) {
+func agentCloudSkillRowsToData(rows []db.MulticaAgentCloudSkill) ([]AgentCloudSkillData, error) {
 	resp := make([]AgentCloudSkillData, len(rows))
 	for i, row := range rows {
 		install, ok := rawJSONObject(row.Install)
 		if !ok {
-			writeError(w, http.StatusInternalServerError, "stored cloud skill install metadata is invalid")
-			return nil, false
+			return nil, fmt.Errorf("stored cloud skill %q install metadata is invalid", row.CloudSkillID)
 		}
 		resp[i] = AgentCloudSkillData{
 			ID:          row.CloudSkillID,
@@ -244,6 +243,15 @@ func agentCloudSkillRowsToResponse(w http.ResponseWriter, rows []db.MulticaAgent
 			Install:     install,
 			Position:    row.Position,
 		}
+	}
+	return resp, nil
+}
+
+func agentCloudSkillRowsToResponse(w http.ResponseWriter, rows []db.MulticaAgentCloudSkill) ([]AgentCloudSkillData, bool) {
+	resp, err := agentCloudSkillRowsToData(rows)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "stored cloud skill install metadata is invalid")
+		return nil, false
 	}
 	return resp, true
 }

@@ -8,6 +8,8 @@ import (
 	"strings"
 	"sync"
 	"testing"
+
+	db "github.com/multica-ai/multica/server/pkg/db/generated"
 )
 
 // These tests exercise the agent cloud-skill binding endpoints
@@ -115,6 +117,30 @@ func publicSkillBody(t *testing.T, id string) string {
 		"itemType":       "skill",
 		"repoVisibility": "public",
 	})
+}
+
+func TestAgentCloudSkillRowsToData_RejectsInvalidInstallJSON(t *testing.T) {
+	tests := []struct {
+		name    string
+		install []byte
+	}{
+		{name: "malformed", install: []byte(`{"method":`)},
+		{name: "array", install: []byte(`[{"method":"csc"}]`)},
+		{name: "null", install: []byte(`null`)},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := agentCloudSkillRowsToData([]db.MulticaAgentCloudSkill{{
+				CloudSkillID: "11111111-1111-4111-8111-111111111111",
+				Name:         "Review Helper",
+				Install:      tt.install,
+			}})
+			if err == nil {
+				t.Fatalf("agentCloudSkillRowsToData(%s) expected error", tt.name)
+			}
+		})
+	}
 }
 
 // --- raw-SQL DB helpers ------------------------------------------------------

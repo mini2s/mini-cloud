@@ -86,12 +86,8 @@ export function PluginTab({
       await api.setAgentCloudSkills(agent.id, { skill_ids: nextIds });
       qc.invalidateQueries({ queryKey: agentCloudSkillOptions(wsId, agent.id).queryKey });
       toast.success(t(($) => $.tab_body.plugin.cloud_skills.updated_toast));
-    } catch (e) {
-      toast.error(
-        e instanceof Error
-          ? e.message
-          : t(($) => $.tab_body.plugin.cloud_skills.update_failed_toast),
-      );
+    } catch {
+      toast.error(t(($) => $.tab_body.plugin.cloud_skills.update_failed_toast));
     } finally {
       setRemovingCloudSkillId(null);
     }
@@ -435,12 +431,8 @@ function CloudSkillAddPopover({
       toast.success(t(($) => $.tab_body.plugin.cloud_skills.updated_toast));
       // Immediate-add pickers close once the bind is persisted.
       setOpen(false);
-    } catch (e) {
-      toast.error(
-        e instanceof Error
-          ? e.message
-          : t(($) => $.tab_body.plugin.cloud_skills.update_failed_toast),
-      );
+    } catch {
+      toast.error(t(($) => $.tab_body.plugin.cloud_skills.update_failed_toast));
     }
   };
 

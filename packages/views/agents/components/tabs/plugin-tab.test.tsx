@@ -8,6 +8,7 @@ import type { Agent } from "@multica/core/types";
 import { I18nProvider } from "@multica/core/i18n/react";
 import enCommon from "../../../locales/en/common.json";
 import enAgents from "../../../locales/en/agents.json";
+import { toast } from "sonner";
 
 const TEST_RESOURCES = { en: { common: enCommon, agents: enAgents } };
 
@@ -206,6 +207,68 @@ describe("PluginTab", () => {
         // Full replacement = existing bindings + the newly added id.
         skill_ids: ["existing", "new-skill"],
       });
+    });
+  });
+
+  it("shows an error toast when adding a cloud skill fails", async () => {
+    mockListAgentCloudSkills.mockResolvedValue([
+      { id: "existing", name: "Existing", description: "d", position: 0 },
+    ]);
+    mockListCatalogSkills.mockResolvedValue({
+      items: [{ id: "new-skill", name: "New Skill", description: "d" }],
+      total: 1,
+      page: 1,
+      pageSize: 100,
+      hasMore: false,
+    });
+    mockSetAgentCloudSkills
+      .mockRejectedValueOnce(new Error("forced scenario 14"))
+      .mockResolvedValueOnce([]);
+
+    renderPluginTab();
+
+    const addRows = await screen.findAllByRole("button", { name: /New Skill/i });
+    const addRow = addRows[0];
+    if (!addRow) throw new Error("expected a cloud skill add row");
+    fireEvent.click(addRow);
+
+    await waitFor(() => {
+      expect(toast.error).toHaveBeenCalledWith("Failed to update skills");
+    });
+    expect(screen.getByText("Existing")).toBeInTheDocument();
+
+    fireEvent.click(addRow);
+    await waitFor(() => {
+      expect(mockSetAgentCloudSkills).toHaveBeenCalledTimes(2);
+      expect(toast.success).toHaveBeenCalledWith("Skills updated");
+    });
+  });
+
+  it("shows an error toast when removing a cloud skill fails", async () => {
+    mockListAgentCloudSkills.mockResolvedValue([
+      { id: "bound-skill", name: "Bound Skill", description: "d", position: 0 },
+    ]);
+    mockSetAgentCloudSkills
+      .mockRejectedValueOnce(new Error("forced scenario 14"))
+      .mockResolvedValueOnce([]);
+
+    renderPluginTab();
+
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Remove Bound Skill" }),
+    );
+
+    await waitFor(() => {
+      expect(toast.error).toHaveBeenCalledWith("Failed to update skills");
+    });
+    expect(screen.getByText("Bound Skill")).toBeInTheDocument();
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Remove Bound Skill" }),
+    );
+    await waitFor(() => {
+      expect(mockSetAgentCloudSkills).toHaveBeenCalledTimes(2);
+      expect(toast.success).toHaveBeenCalledWith("Skills updated");
     });
   });
 });
