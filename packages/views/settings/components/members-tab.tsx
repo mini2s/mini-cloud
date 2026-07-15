@@ -259,6 +259,18 @@ export function MembersTab() {
   const ownerCount = members.filter((m) => m.role === "owner").length;
 
   const deptUserKey = (deptUser: DeptUser) => deptUser.universal_id || deptUser.user_id;
+  const deptUserToBatchSnapshot = (deptUser: DeptUser) => ({
+    external_user_id: deptUser.user_id,
+    external_universal_id: deptUser.universal_id ?? undefined,
+    name: deptUser.username,
+    employee_id: deptUser.user_id,
+    department_id: deptUser.dept_id ?? undefined,
+    department_name: deptUser.dept_name ?? undefined,
+    department_path: deptUser.dept_path ?? undefined,
+    position: deptUser.position ?? undefined,
+    is_main_department: deptUser.is_main === 1,
+    dept_user_status: deptUser.status ?? undefined,
+  });
   const memberDeptUserKey = (member: MemberWithUser) =>
     member.external_universal_id || member.external_user_id || member.employee_id || "";
   const existingDeptUserByKey = members.reduce<Record<string, DeptUser>>((acc, member) => {
@@ -419,10 +431,7 @@ export function MembersTab() {
     setDeptAddResult(null);
     try {
       const result = await api.batchAddDeptMembers(workspace.id, {
-        users: deptUsersToAdd.map((deptUser) => ({
-          external_user_id: deptUser.user_id,
-          external_universal_id: deptUser.universal_id ?? undefined,
-        })),
+        users: deptUsersToAdd.map(deptUserToBatchSnapshot),
       });
       setSelectedDeptUsers({});
       setHiddenSelectedDeptUserKeys({});

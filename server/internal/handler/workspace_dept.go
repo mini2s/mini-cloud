@@ -21,6 +21,14 @@ type batchAddDeptMembersRequest struct {
 type batchAddDeptMemberRef struct {
 	ExternalUserID      string `json:"external_user_id"`
 	ExternalUniversalID string `json:"external_universal_id"`
+	Name                string `json:"name"`
+	EmployeeID          string `json:"employee_id"`
+	DepartmentID        string `json:"department_id"`
+	DepartmentName      string `json:"department_name"`
+	DepartmentPath      string `json:"department_path"`
+	Position            string `json:"position"`
+	IsMainDepartment    bool   `json:"is_main_department"`
+	DeptUserStatus      int    `json:"dept_user_status"`
 }
 
 type BatchAddDeptMembersResponse struct {
@@ -56,7 +64,7 @@ func (h *Handler) BatchAddDeptMembers(w http.ResponseWriter, r *http.Request) {
 	selected := make([]service.WorkspaceDeptMemberSnapshot, 0, len(req.Users))
 	seenInput := map[string]struct{}{}
 	for _, ref := range req.Users {
-		user, found, err := h.resolveDeptUserRef(r, ref)
+		member, found, err := h.deptMemberSnapshotFromRef(r, ref)
 		if err != nil {
 			writeError(w, http.StatusBadGateway, "failed to resolve dept user")
 			return
@@ -65,9 +73,9 @@ func (h *Handler) BatchAddDeptMembers(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, "dept user not found")
 			return
 		}
-		key := strings.TrimSpace(user.UniversalID)
+		key := member.ExternalUniversalID
 		if key == "" {
-			key = strings.TrimSpace(user.UserID)
+			key = member.ExternalUserID
 		}
 		if key == "" {
 			continue
@@ -76,25 +84,7 @@ func (h *Handler) BatchAddDeptMembers(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		seenInput[key] = struct{}{}
-		status := service.MemberStatusActive
-		if user.Status != 1 {
-			status = service.MemberStatusInactive
-		}
-		selected = append(selected, service.WorkspaceDeptMemberSnapshot{
-			Source:              service.MemberSourceDept,
-			Status:              status,
-			ExternalUserID:      strings.TrimSpace(user.UserID),
-			ExternalUniversalID: strings.TrimSpace(user.UniversalID),
-			Name:                strings.TrimSpace(user.Username),
-			EmployeeID:          strings.TrimSpace(user.UserID),
-			DepartmentID:        strings.TrimSpace(user.DeptID),
-			DepartmentName:      strings.TrimSpace(user.DeptName),
-			DepartmentPath:      strings.TrimSpace(user.DeptPath),
-			Position:            strings.TrimSpace(user.Position),
-			IsMainDepartment:    user.IsMain == 1,
-			DeptUserStatus:      user.Status,
-			LastSyncedAt:        time.Now().UTC(),
-		})
+		selected = append(selected, member)
 	}
 
 	tx, err := h.TxStarter.Begin(r.Context())
@@ -193,6 +183,80 @@ func (h *Handler) BatchAddDeptMembers(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 	writeJSON(w, http.StatusOK, BatchAddDeptMembersResponse{Added: added, Skipped: skipped})
+}
+
+func (h *Handler) deptMemberSnapshotFromRef(r *http.Request, ref batchAddDeptMemberRef) (service.WorkspaceDeptMemberSnapshot, bool, error) {
+	if member, ok := deptMemberSnapshotFromSubmittedRef(ref); ok {
+		return member, true, nil
+	}
+	user, found, err := h.resolveDeptUserRef(r, ref)
+	if err != nil || !found {
+		return service.WorkspaceDeptMemberSnapshot{}, found, err
+	}
+	return deptMemberSnapshotFromDeptUser(user), true, nil
+}
+
+func deptMemberSnapshotFromSubmittedRef(ref batchAddDeptMemberRef) (service.WorkspaceDeptMemberSnapshot, bool) {
+	externalUserID := strings.TrimSpace(ref.ExternalUserID)
+	externalUniversalID := strings.TrimSpace(ref.ExternalUniversalID)
+	name := strings.TrimSpace(ref.Name)
+	if externalUserID == "" && externalUniversalID == "" {
+		return service.WorkspaceDeptMemberSnapshot{}, false
+	}
+	if name == "" &&
+		strings.TrimSpace(ref.EmployeeID) == "" &&
+		strings.TrimSpace(ref.DepartmentID) == "" &&
+		strings.TrimSpace(ref.DepartmentName) == "" &&
+		strings.TrimSpace(ref.DepartmentPath) == "" &&
+		strings.TrimSpace(ref.Position) == "" &&
+		ref.DeptUserStatus == 0 {
+		return service.WorkspaceDeptMemberSnapshot{}, false
+	}
+	status := service.MemberStatusActive
+	if ref.DeptUserStatus != 1 {
+		status = service.MemberStatusInactive
+	}
+	employeeID := strings.TrimSpace(ref.EmployeeID)
+	if employeeID == "" {
+		employeeID = externalUserID
+	}
+	return service.WorkspaceDeptMemberSnapshot{
+		Source:              service.MemberSourceDept,
+		Status:              status,
+		ExternalUserID:      externalUserID,
+		ExternalUniversalID: externalUniversalID,
+		Name:                name,
+		EmployeeID:          employeeID,
+		DepartmentID:        strings.TrimSpace(ref.DepartmentID),
+		DepartmentName:      strings.TrimSpace(ref.DepartmentName),
+		DepartmentPath:      strings.TrimSpace(ref.DepartmentPath),
+		Position:            strings.TrimSpace(ref.Position),
+		IsMainDepartment:    ref.IsMainDepartment,
+		DeptUserStatus:      ref.DeptUserStatus,
+		LastSyncedAt:        time.Now().UTC(),
+	}, true
+}
+
+func deptMemberSnapshotFromDeptUser(user deptsync.User) service.WorkspaceDeptMemberSnapshot {
+	status := service.MemberStatusActive
+	if user.Status != 1 {
+		status = service.MemberStatusInactive
+	}
+	return service.WorkspaceDeptMemberSnapshot{
+		Source:              service.MemberSourceDept,
+		Status:              status,
+		ExternalUserID:      strings.TrimSpace(user.UserID),
+		ExternalUniversalID: strings.TrimSpace(user.UniversalID),
+		Name:                strings.TrimSpace(user.Username),
+		EmployeeID:          strings.TrimSpace(user.UserID),
+		DepartmentID:        strings.TrimSpace(user.DeptID),
+		DepartmentName:      strings.TrimSpace(user.DeptName),
+		DepartmentPath:      strings.TrimSpace(user.DeptPath),
+		Position:            strings.TrimSpace(user.Position),
+		IsMainDepartment:    user.IsMain == 1,
+		DeptUserStatus:      user.Status,
+		LastSyncedAt:        time.Now().UTC(),
+	}
 }
 
 func (h *Handler) resolveDeptUserRef(r *http.Request, ref batchAddDeptMemberRef) (deptsync.User, bool, error) {

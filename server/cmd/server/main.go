@@ -309,6 +309,7 @@ func main() {
 		BaseURL:  strings.TrimRight(strings.TrimSpace(os.Getenv("DEPT_SYNC_BASE_URL")), "/"),
 		QueryKey: os.Getenv("DEPT_SYNC_QUERY_KEY"),
 		Timeout:  envDuration("DEPT_SYNC_TIMEOUT", 10*time.Second),
+		CacheTTL: envDuration("DEPT_SYNC_CACHE_TTL", time.Minute),
 	})
 	// The SubjectResolver fires on every authenticated request; bound the
 	// dept-link work (dept-sync call + DB writes) to once per window per user.

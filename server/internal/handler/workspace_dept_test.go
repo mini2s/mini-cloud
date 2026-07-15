@@ -11,8 +11,10 @@ import (
 )
 
 type fakeWorkspaceDeptClient struct {
-	users       []deptsync.User
-	departments []deptsync.Department
+	users                                []deptsync.User
+	departments                          []deptsync.Department
+	searchUsersCalls                     *int
+	getUserDepartmentsByUniversalIDCalls *int
 }
 
 func (f fakeWorkspaceDeptClient) Configured() bool { return true }
@@ -22,6 +24,9 @@ func (f fakeWorkspaceDeptClient) ListDepartmentUsers(ctx context.Context, deptID
 }
 
 func (f fakeWorkspaceDeptClient) SearchUsers(ctx context.Context, query string, limit int) ([]deptsync.User, error) {
+	if f.searchUsersCalls != nil {
+		(*f.searchUsersCalls)++
+	}
 	query = strings.ToLower(strings.TrimSpace(query))
 	out := make([]deptsync.User, 0, len(f.users))
 	for _, user := range f.users {
@@ -35,6 +40,9 @@ func (f fakeWorkspaceDeptClient) SearchUsers(ctx context.Context, query string, 
 }
 
 func (f fakeWorkspaceDeptClient) GetUserDepartmentsByUniversalID(ctx context.Context, universalID string) ([]deptsync.User, error) {
+	if f.getUserDepartmentsByUniversalIDCalls != nil {
+		(*f.getUserDepartmentsByUniversalIDCalls)++
+	}
 	universalID = strings.TrimSpace(universalID)
 	out := make([]deptsync.User, 0, len(f.users))
 	for _, user := range f.users {
@@ -325,5 +333,82 @@ func TestBatchAddDeptMembersResolvesByUniversalIDOnly(t *testing.T) {
 	}
 	if deptPath != "/D000/D200" || deptName != "Platform" || status != "pending_activation" {
 		t.Fatalf("member mismatch: dept_path=%q dept_name=%q status=%q", deptPath, deptName, status)
+	}
+}
+
+func TestBatchAddDeptMembersUsesSubmittedSnapshotsWithoutRemoteResolve(t *testing.T) {
+	if testHandler == nil {
+		t.Skip("database not available")
+	}
+
+	ctx := context.Background()
+	const slug = "handler-batch-add-snapshot-only"
+	_, _ = testPool.Exec(ctx, `DELETE FROM multica_workspace WHERE slug = $1`, slug)
+	t.Cleanup(func() {
+		_, _ = testPool.Exec(context.Background(), `DELETE FROM multica_workspace WHERE slug = $1`, slug)
+		_, _ = testPool.Exec(context.Background(), `DELETE FROM multica_member WHERE external_universal_id = 'uni-snapshot-only'`)
+	})
+
+	searchUsersCalls := 0
+	getUserDepartmentsCalls := 0
+	prev := testHandler.DeptSync
+	testHandler.DeptSync = fakeWorkspaceDeptClient{
+		searchUsersCalls:                     &searchUsersCalls,
+		getUserDepartmentsByUniversalIDCalls: &getUserDepartmentsCalls,
+	}
+	t.Cleanup(func() { testHandler.DeptSync = prev })
+
+	w := httptest.NewRecorder()
+	req := newRequest(http.MethodPost, "/api/workspaces", map[string]any{
+		"name": "Snapshot Dept Members",
+		"slug": slug,
+	})
+	testHandler.CreateWorkspace(w, req)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("CreateWorkspace: expected 201, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var workspaceID string
+	if err := testPool.QueryRow(ctx, `SELECT id FROM multica_workspace WHERE slug = $1`, slug).Scan(&workspaceID); err != nil {
+		t.Fatalf("lookup workspace: %v", err)
+	}
+
+	w = httptest.NewRecorder()
+	req = withURLParam(newRequest(http.MethodPost, "/api/workspaces/"+workspaceID+"/dept-members", map[string]any{
+		"users": []map[string]any{
+			{
+				"external_user_id":      "E030",
+				"external_universal_id": "uni-snapshot-only",
+				"name":                  "Snapshot Only User",
+				"employee_id":           "EMP030",
+				"department_id":         "D300",
+				"department_name":       "Snapshot Platform",
+				"department_path":       "/D000/D300",
+				"position":              "Engineer",
+				"is_main_department":    true,
+				"dept_user_status":      1,
+			},
+		},
+	}), "id", workspaceID)
+	testHandler.BatchAddDeptMembers(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("BatchAddDeptMembers: expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), `"added":1`) {
+		t.Fatalf("expected added:1, got %s", w.Body.String())
+	}
+	if searchUsersCalls != 0 || getUserDepartmentsCalls != 0 {
+		t.Fatalf("expected no remote resolve calls, SearchUsers=%d GetUserDepartmentsByUniversalID=%d", searchUsersCalls, getUserDepartmentsCalls)
+	}
+
+	var name, employeeID, deptName, status string
+	if err := testPool.QueryRow(ctx, `
+		SELECT org_display_name, employee_id, dept_name, status FROM multica_member
+		WHERE workspace_id = $1 AND external_universal_id = 'uni-snapshot-only'
+	`, workspaceID).Scan(&name, &employeeID, &deptName, &status); err != nil {
+		t.Fatalf("lookup member: %v", err)
+	}
+	if name != "Snapshot Only User" || employeeID != "EMP030" || deptName != "Snapshot Platform" || status != "pending_activation" {
+		t.Fatalf("member mismatch: name=%q employee=%q dept=%q status=%q", name, employeeID, deptName, status)
 	}
 }

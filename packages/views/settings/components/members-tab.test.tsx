@@ -148,7 +148,20 @@ describe("MembersTab", () => {
 
     await waitFor(() =>
       expect(mocks.batchAddDeptMembers).toHaveBeenCalledWith("ws-1", {
-        users: [{ external_user_id: "E001", external_universal_id: "uni-active" }],
+        users: [
+          {
+            external_user_id: "E001",
+            external_universal_id: "uni-active",
+            name: "Active Dept User",
+            employee_id: "E001",
+            department_id: undefined,
+            department_name: "Platform",
+            department_path: "/深信服科技股份有限公司/研发体系/Costrict研发部/开发组",
+            position: "Engineer",
+            is_main_department: false,
+            dept_user_status: 1,
+          },
+        ],
       }),
     );
     expect(screen.getByText("Added 1 members. Skipped 0.")).toBeInTheDocument();
@@ -284,8 +297,30 @@ describe("MembersTab", () => {
     await waitFor(() =>
       expect(mocks.batchAddDeptMembers).toHaveBeenCalledWith("ws-1", {
         users: [
-          { external_user_id: "E001", external_universal_id: "uni-active" },
-          { external_user_id: "E005", external_universal_id: "uni-frontend" },
+          {
+            external_user_id: "E001",
+            external_universal_id: "uni-active",
+            name: "Active Dept User",
+            employee_id: "E001",
+            department_id: undefined,
+            department_name: "Platform",
+            department_path: undefined,
+            position: "Engineer",
+            is_main_department: false,
+            dept_user_status: 1,
+          },
+          {
+            external_user_id: "E005",
+            external_universal_id: "uni-frontend",
+            name: "Runtime Frontend User",
+            employee_id: "E005",
+            department_id: undefined,
+            department_name: "Platform Runtime",
+            department_path: "/深信服科技股份有限公司/研发体系/Costrict研发部/开发组",
+            position: "Frontend",
+            is_main_department: false,
+            dept_user_status: 1,
+          },
         ],
       }),
     );

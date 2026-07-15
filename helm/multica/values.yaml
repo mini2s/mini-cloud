@@ -73,6 +73,9 @@ backend:
     # dept-backed member management; leave both empty to disable.
     deptSyncBaseUrl: "http://costrict-dept-sync-svc.costrict:8080/costrict-dept-info/api/v1"
     deptSyncTimeout: "10s"
+    deptSyncCacheTtl: "1m"
+    deptLinkTimeout: "15s"
+    deptLinkInterval: "5m"
 
   persistence:
     enabled: false

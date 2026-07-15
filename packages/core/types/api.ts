@@ -206,11 +206,21 @@ export interface DeptUser {
   status?: number;
 }
 
+export interface BatchAddDeptMemberSnapshot {
+  external_user_id?: string;
+  external_universal_id?: string;
+  name?: string;
+  employee_id?: string;
+  department_id?: string;
+  department_name?: string;
+  department_path?: string;
+  position?: string;
+  is_main_department?: boolean;
+  dept_user_status?: number;
+}
+
 export interface BatchAddDeptMembersRequest {
-  users: Array<{
-    external_user_id: string;
-    external_universal_id?: string;
-  }>;
+  users: BatchAddDeptMemberSnapshot[];
 }
 
 export interface BatchAddDeptMembersResponse {
