@@ -400,7 +400,7 @@ describe("RuntimeNodeCard", () => {
     expect(screen.queryByText("Critic")).not.toBeInTheDocument();
   });
 
-  it("renders an explicit split expansion button that does not open the split panel", async () => {
+  it("renders split child progress as the expansion control without opening the split panel", async () => {
     const onClick = vi.fn();
     const onSplitNodeToggle = vi.fn();
 
@@ -444,7 +444,7 @@ describe("RuntimeNodeCard", () => {
     );
 
     const toggleButton = screen.getByRole("button", { name: "Expand 3 child issue nodes" });
-    expect(toggleButton).toHaveTextContent("3 issues");
+    expect(toggleButton).toHaveTextContent("3 issues · 1 done · 1 running · 1 ready");
 
     await userEvent.click(toggleButton);
 

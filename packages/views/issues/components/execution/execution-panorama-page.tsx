@@ -88,6 +88,13 @@ interface SplitChildClusterBounds {
   bottom: number;
 }
 
+interface SplitChildIssueDetail {
+  issueId: string;
+  node: WorkflowNode;
+  runtimeSummary: WorkflowNodeRuntimeSummary;
+  workerName: string | null;
+}
+
 function splitTaskDisplayStatus(status: SplitTask["status"]): WorkflowRuntimeDisplayStatus {
   switch (status) {
     case "running":
@@ -522,21 +529,6 @@ export function ExecutionPanoramaPage({
         },
       ]
     : allStages;
-  const selectedNode = allNodes.find((n) => n.id === selectedNodeId) ?? null;
-  const selectedRun = selectedNodeId
-    ? nodeRunMap.get(selectedNodeId) ?? null
-    : null;
-  const selectedRuntimeSummary = selectedNodeId
-    ? runtimeSummaryMap.get(selectedNodeId) ?? null
-    : null;
-  const selectedNodeFormat = selectedNode ? parseNodeFormat(selectedNode.format_schema) : null;
-  const isSplitSelectedNode = selectedNodeFormat?.kind === "split";
-  const isRetryableSelectedRun =
-    selectedRun?.status === "failed" ||
-    selectedRun?.status === "format_failed" ||
-    selectedRun?.status === "blocked" ||
-    selectedRun?.status === "critic_rework";
-
   const baseRfNodesRaw = workflowNodesToReactFlowNodes({
     nodes: allNodes,
     stages: sortStagesForDisplay(allStages),
@@ -569,7 +561,7 @@ export function ExecutionPanoramaPage({
     stages: sortStagesForDisplay(allStages),
     includeCriticEdges: false,
   });
-  const splitChildIssueByNodeId = new Map<string, string>();
+  const splitChildDetailByNodeId = new Map<string, SplitChildIssueDetail>();
   const splitChildNodes: Node[] = [];
   const splitChildEdges: Edge[] = [];
   const baseRfNodeById = new Map(baseRfNodesRaw.map((node) => [node.id, node]));
@@ -692,8 +684,48 @@ export function ExecutionPanoramaPage({
         const childNodeId = createSplitChildNodeId(splitNode.id, task.id);
         const issueId = task.issue_id!;
         const yOffset = (index - (group.length - 1) / 2) * (RUNTIME_NODE_HEIGHT + SPLIT_CHILD_Y_GAP);
+        const childWorkflowNode = {
+          id: childNodeId,
+          workflow_id: splitNode.workflow_id,
+          title: task.title,
+          description: task.description,
+          position_x: 0,
+          position_y: 0,
+          format_schema: null,
+          worker_type: splitTaskWorkerType(task),
+          worker_id: task.suggested_assignee_id,
+          critic_type: "human",
+          critic_id: null,
+          critic_api_url: null,
+          sort_order: task.sort_order,
+          stage_id: splitNode.stage_id,
+          created_at: task.created_at,
+          updated_at: task.updated_at,
+        } satisfies WorkflowNode;
+        const childRuntimeSummary = {
+          workflow_node_id: childNodeId,
+          node_run_id: task.run_id ?? task.id,
+          display_status: splitTaskDisplayStatus(task.status),
+          active_actor_type: task.suggested_assignee_type ?? "member",
+          active_actor_id: task.suggested_assignee_id,
+          duration_seconds: null,
+          session_id: null,
+          runtime_id: null,
+          device_id: null,
+          has_error: task.status === "failed",
+          error_message: "",
+          split_progress: null,
+        } satisfies WorkflowNodeRuntimeSummary;
+        const childWorkerName = task.suggested_assignee_id
+          ? getActorName(task.suggested_assignee_type ?? "member", task.suggested_assignee_id)
+          : null;
 
-        splitChildIssueByNodeId.set(childNodeId, issueId);
+        splitChildDetailByNodeId.set(childNodeId, {
+          issueId,
+          node: childWorkflowNode,
+          runtimeSummary: childRuntimeSummary,
+          workerName: childWorkerName,
+        });
         splitChildNodes.push({
           id: childNodeId,
           type: "runtimeNode",
@@ -704,44 +736,12 @@ export function ExecutionPanoramaPage({
           width: WORKER_WIDTH,
           height: RUNTIME_NODE_HEIGHT,
           data: {
-            node: {
-              id: childNodeId,
-              workflow_id: splitNode.workflow_id,
-              title: task.title,
-              description: task.description,
-              position_x: 0,
-              position_y: 0,
-              format_schema: null,
-              worker_type: splitTaskWorkerType(task),
-              worker_id: task.suggested_assignee_id,
-              critic_type: "human",
-              critic_id: null,
-              critic_api_url: null,
-              sort_order: task.sort_order,
-              stage_id: splitNode.stage_id,
-              created_at: task.created_at,
-              updated_at: task.updated_at,
-            } satisfies WorkflowNode,
+            node: childWorkflowNode,
             nodeRun: null,
-            runtimeSummary: {
-              workflow_node_id: childNodeId,
-              node_run_id: task.run_id ?? task.id,
-              display_status: splitTaskDisplayStatus(task.status),
-              active_actor_type: task.suggested_assignee_type ?? "member",
-              active_actor_id: task.suggested_assignee_id,
-              duration_seconds: null,
-              session_id: null,
-              runtime_id: null,
-              device_id: null,
-              has_error: task.status === "failed",
-              error_message: "",
-              split_progress: null,
-            } satisfies WorkflowNodeRuntimeSummary,
-            workerName: task.suggested_assignee_id
-              ? getActorName(task.suggested_assignee_type ?? "member", task.suggested_assignee_id)
-              : null,
+            runtimeSummary: childRuntimeSummary,
+            workerName: childWorkerName,
             criticName: null,
-            onOpen: () => navigation.push(paths.issueDetail(issueId)),
+            onOpen: setSelectedNodeId,
           },
         });
 
@@ -797,12 +797,35 @@ export function ExecutionPanoramaPage({
 
   const rfNodes = [...baseRfNodes, ...splitChildNodes];
   const rfEdges = [...baseRfEdges, ...splitChildEdges];
+  const selectedChildDetail = selectedNodeId
+    ? splitChildDetailByNodeId.get(selectedNodeId) ?? null
+    : null;
+  const selectedNode = allNodes.find((n) => n.id === selectedNodeId) ?? selectedChildDetail?.node ?? null;
+  const selectedRun = selectedNodeId
+    ? nodeRunMap.get(selectedNodeId) ?? null
+    : null;
+  const selectedRuntimeSummary = selectedNodeId
+    ? runtimeSummaryMap.get(selectedNodeId) ?? selectedChildDetail?.runtimeSummary ?? null
+    : null;
+  const selectedWorkerName =
+    selectedChildDetail?.workerName ??
+    (selectedNode?.worker_id
+      ? getActorName(workerTypeToActorType(selectedNode.worker_type), selectedNode.worker_id)
+      : null);
+  const selectedCriticName =
+    selectedChildDetail
+      ? null
+      : selectedNode?.critic_id
+        ? getActorName(selectedNode.critic_type ?? "agent", selectedNode.critic_id)
+        : null;
+  const selectedNodeFormat = selectedNode ? parseNodeFormat(selectedNode.format_schema) : null;
+  const isSplitSelectedNode = selectedNodeFormat?.kind === "split";
+  const isRetryableSelectedRun =
+    selectedRun?.status === "failed" ||
+    selectedRun?.status === "format_failed" ||
+    selectedRun?.status === "blocked" ||
+    selectedRun?.status === "critic_rework";
   const handleNodeClick = (nodeId: string) => {
-    const childIssueId = splitChildIssueByNodeId.get(nodeId);
-    if (childIssueId) {
-      navigation.push(paths.issueDetail(childIssueId));
-      return;
-    }
     setSelectedNodeId(nodeId);
   };
   const handleNodeDoubleClick = (nodeId: string) => {
@@ -852,25 +875,16 @@ export function ExecutionPanoramaPage({
           <ExecutionDetailPanel
             node={selectedNode}
             nodeRun={selectedRun}
-            workerName={
-              selectedNode.worker_id
-                ? getActorName(
-                    workerTypeToActorType(selectedNode.worker_type),
-                    selectedNode.worker_id,
-                  )
-                : null
-            }
-            criticName={
-              selectedNode.critic_id
-                ? getActorName(
-                    selectedNode.critic_type ?? "agent",
-                    selectedNode.critic_id,
-                  )
-                : null
-            }
+            workerName={selectedWorkerName}
+            criticName={selectedCriticName}
             onClose={() => setSelectedNodeId(null)}
             wsId={wsId}
             runtimeSummary={selectedRuntimeSummary}
+            onOpenIssue={
+              selectedChildDetail
+                ? () => navigation.push(paths.issueDetail(selectedChildDetail.issueId))
+                : undefined
+            }
             onRetry={
               issueId && selectedRun && isRetryableSelectedRun && retryingNodeRunId !== selectedRun.id
                 ? () => void handleRetryNodeRun(selectedRun)

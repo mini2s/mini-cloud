@@ -98,6 +98,17 @@ function runtimeDisplayStatusText(
   }
 }
 
+function splitProgressSummaryParts(progress: NonNullable<WorkflowNodeRuntimeSummary["split_progress"]>): string[] {
+  return [
+    progress.done > 0 ? `${progress.done} done` : null,
+    progress.failed > 0 ? `${progress.failed} failed` : null,
+    progress.running > 0 ? `${progress.running} running` : null,
+    progress.created > 0 ? `${progress.created} ready` : null,
+    progress.skipped > 0 ? `${progress.skipped} skipped` : null,
+    progress.cancelled > 0 ? `${progress.cancelled} cancelled` : null,
+  ].filter((part): part is string => Boolean(part));
+}
+
 /** Actionable status → button layout mapping. */
 const ACTIONABLE_STATUSES = new Set([
   "awaiting_critic",
@@ -282,6 +293,10 @@ export function RuntimeNodeCard({
   const splitProgress = runtimeSummary?.split_progress ?? null;
   const canToggleSplitChildren = isSplit && splitChildCount > 0 && !!onSplitNodeToggle;
   const splitChildLabel = `${splitChildCount} ${splitChildCount === 1 ? "issue" : "issues"}`;
+  const splitChildSummaryLabel = [
+    splitChildLabel,
+    ...(splitProgress ? splitProgressSummaryParts(splitProgress) : []),
+  ].join(" · ");
   const handleShellKeyDown = useCallback((event: React.KeyboardEvent<HTMLDivElement>) => {
     if (event.key !== "Enter" && event.key !== " ") return;
     event.preventDefault();
@@ -349,16 +364,16 @@ export function RuntimeNodeCard({
           progress={splitProgress}
           taskCount={splitProgress?.total ?? 0}
           subTemplateName={displayStatusLabel}
-          headerAction={canToggleSplitChildren ? (
+          progressAction={canToggleSplitChildren ? (
             <button
               type="button"
               className={cn(
-                "nodrag nopan inline-flex h-6 shrink-0 items-center gap-1 rounded-full border px-2",
-                "text-[10px] font-semibold leading-none shadow-sm ring-1 ring-white/70 transition-colors",
+                "nodrag nopan inline-flex h-7 w-full min-w-0 items-center justify-between gap-2 rounded-md border px-2",
+                "bg-background text-[11px] font-medium leading-none text-muted-foreground transition-colors",
                 "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                 isSplitExpanded
-                  ? "border-primary/35 bg-primary text-primary-foreground hover:bg-primary/90"
-                  : "border-border/70 bg-background/90 text-muted-foreground hover:border-primary/35 hover:bg-primary/10 hover:text-primary",
+                  ? "border-primary/35 bg-primary/10 text-primary hover:bg-primary/15"
+                  : "border-border hover:border-primary/35 hover:bg-primary/10 hover:text-primary",
               )}
               aria-label={
                 isSplitExpanded
@@ -368,12 +383,12 @@ export function RuntimeNodeCard({
               aria-expanded={isSplitExpanded}
               onClick={handleSplitToggleClick}
             >
+              <span className="min-w-0 truncate tabular-nums">{splitChildSummaryLabel}</span>
               {isSplitExpanded ? (
-                <ChevronDown className="h-3 w-3" aria-hidden />
+                <ChevronDown className="h-3 w-3 shrink-0" aria-hidden />
               ) : (
-                <ChevronRight className="h-3 w-3" aria-hidden />
+                <ChevronRight className="h-3 w-3 shrink-0" aria-hidden />
               )}
-              <span className="tabular-nums">{splitChildLabel}</span>
             </button>
           ) : null}
           className="h-full w-full min-h-0"

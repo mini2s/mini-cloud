@@ -298,11 +298,11 @@ Multica 当前 workflow 每个节点只能产出 0~1 个子 issue。当遇到"�
 split 节点默认显示紧凑卡片，使用 `SplitNodeCard`：
 
 ```text
-┌────────────────────────────┐
-│ ⎇ 任务拆分                  │
-│ Review 3 tasks              │
-│ 或 3 done · 1 failed        │
-└────────────────────────────┘
+┌──────────────────────────────────────┐
+│ ⎇ 任务拆分                            │
+│ Review 3 tasks                        │
+│ 或 5 issues · 1 running · 4 ready ›   │
+└──────────────────────────────────────┘
 ```
 
 约束：
@@ -310,32 +310,39 @@ split 节点默认显示紧凑卡片，使用 `SplitNodeCard`：
 - 卡片宽高沿用 `RuntimeNodeCard` 容器：`WORKER_WIDTH` 和 `RUNTIME_NODE_HEIGHT`。
 - icon 使用 lucide `GitBranch`，不要手绘 SVG。
 - 进度使用 `SplitProgressBadge`，长文本通过 `title` 暴露完整内容。
+- 当 split 有可展开的子 issue 时，子 issue 数量与 progress 摘要合并为同一个 summary control，例如 `5 issues · 1 running · 4 ready ›`；不要同时渲染右上角独立 `N issues` 按钮和下方 progress badge，避免重复信息。
 - hover、active、focus-visible 行为与现有节点卡一致。
 
 ### 展开态
 
-点击 split 节点后，子 issue 节点以二级节点形式出现在 split 节点右侧或下方，按依赖层级布局。
+点击展开按钮或双击 split 节点后，子 issue 节点以二级节点形式在父 split 节点右侧就近展开，形成一组局部子流程。交互参考 n8n / Dify 的"展开当前步骤上下文"体验：用户应感觉自己正在查看该 split 的局部分支，而不是被带到画布远端。
 
 - 子节点使用 `RuntimeNodeCard` 的视觉语言：固定尺寸、边框、状态 icon、负责人信息、操作按钮。
 - 依赖关系使用现有 ReactFlow edge 类型，避免新增并行连线样式。
 - 子节点状态通过 WS 和 React Query 更新，保持当前展开/收起状态。
 - 展开态不进入编辑模式；拖拽、连线编辑、删除节点在运行视图中禁用。
+- 子节点群应有轻量分组语义：通过局部边界、背景或稳定的视觉聚合方式，让用户知道这些节点属于同一个 split child cluster，而不是主 workflow 的原生节点。
 
 布局规则：
 
-- 默认从 split 节点右侧展开，横向按依赖深度分列。
-- 当可用宽度不足时，使用纵向堆叠或让画布自然平移/缩放，不压缩卡片宽度。
-- 子节点数量超过 8 个时，优先提供"聚焦展开"：只渲染当前视口附近节点，并允许缩放查看。
+- 默认从父 split 节点右侧贴近展开，横向按依赖深度分列：无依赖任务在第 1 列，依赖它们的任务进入后续列。
+- 同一依赖层级内按 `sort_order` 垂直堆叠，并围绕父 split 节点垂直居中。不要为了避让主 workflow 节点把 child cluster 直接放到全图最右侧。
+- 当 child cluster 与右侧主 workflow 节点发生水平重叠时，仅将同一行或相邻右侧节点在渲染层临时右移，让出 cluster 所需空间；不修改真实 workflow node position。
+- 子节点数量较少（1~8 个）时优先保持父子贴近和局部让位；超过 8 个时，保留紧凑局部分支，并提供后续"聚焦查看"入口作为增强，不作为第一期默认形态。
+- 展开后画布应轻微 pan/fit 到父 split 与 child cluster 的联合区域，保持当前缩放附近的阅读尺度，不强制重置整个 workflow 视图。
+- 收起后保留用户当前 viewport，不自动跳回展开前位置，避免打断用户继续查看下游节点。
 - 父 split 节点保持可见，避免用户失去上下文。
 
 交互：
 
-- 点击 split 节点：打开/关闭审核或进度面板。
-- 点击展开按钮或双击 split 节点：切换子节点展开态。
-- 点击子 issue 节点：跳转到子 issue 详情页。
+- 点击 split 节点：打开审核或进度面板。
+- 点击 child summary control 或双击 split 节点：切换子节点展开态，不打开审核面板。
+- 点击子 issue 节点：在当前全景图内打开右侧详情面板，保留画布 viewport、父 split 和 child cluster 上下文。
+- 子 issue 详情面板内提供 `Open issue` / `View full issue` 显式入口；只有点击该入口时才通过 `NavigationAdapter` 跳转到子 issue 详情页。
 - 失败子节点：显示重试入口。
 - 运行中子节点：显示取消入口。
 - 点击画布空白：收起面板，不强制收起子节点；展开状态由当前页面 session 保留。
+- 键盘用户可 Tab 到 split 节点与 child summary control；Enter/Space 在 split 节点上打开面板，在 summary control 上切换 child cluster。
 
 ## 组件变更
 
@@ -355,7 +362,7 @@ split 节点默认显示紧凑卡片，使用 `SplitNodeCard`：
 ### 保留/修改
 
 - `split-review-panel.tsx`：改为 Verdict + Draft plan + Dependencies + Ask agent + Transcript + Sticky footer。
-- `split-node-card.tsx`：保留，补齐展开 affordance、状态 title 和可访问名称。
+- `split-node-card.tsx`：保留，补齐 progress 区域的自定义 action slot、状态 title 和可访问名称；运行期 split 展开入口应与子 issue progress 摘要融合。
 - `split-progress-badge.tsx`：保留，确保 `parts` 为空时展示总数，失败时使用 destructive 语义。
 - `split-config-panel.tsx`：保留，用于配置 split 节点，不参与运行期审核。
 - `runtime-node-card.tsx`：保留，split 子节点展开态复用其运行态样式和操作模型。
@@ -422,13 +429,19 @@ split 节点默认显示紧凑卡片，使用 `SplitNodeCard`：
 - `split-draft-ledger.test.tsx`：长标题截断、空描述处理、依赖标签、子 issue 链接。
 - `split-dependency-note.test.tsx`：宽图横向滚动、无依赖空态、可访问摘要。
 - `runtime-node-card.test.tsx`：split 节点继续复用 `SplitNodeCard`，状态与 progress 正确传递。
+- `execution-panorama-page.test.tsx`：
+  - 展开 split child cluster 时，首列子节点贴近父 split，而不是放到全图最右侧。
+  - child cluster 与右侧主 workflow 节点冲突时，右侧节点在渲染层临时让位，父 split 和 child cluster 仍保持贴近。
+  - 子 issue 节点按依赖深度分列、同层按 `sort_order` 垂直堆叠。
+  - 展开后触发局部视口聚焦，聚焦范围包含父 split 与 child cluster。
+  - 点击子 issue 节点打开右侧详情面板，不直接离开全景图；面板内的显式跳转入口通过 `NavigationAdapter` 进入子 issue 详情。
 
 ### E2E
 
 - 完整流程：创建父 issue → Split 节点激活 → 智能体生成草案 → 自然语言调整 → 确认创建 → barrier 完成。
 - pipeline 模式：子 issue 创建即释放下游。
 - 审核自然语言调整：增删合并子 issue、调整依赖、恢复原始草案，刷新页面后 chat 历史仍存在。
-- 全景图展开：子节点可见、依赖连线存在、点击子节点进入子 issue。
+- 全景图展开：子节点就近可见、依赖连线存在、右侧主 workflow 节点局部让位、点击子节点打开详情面板，面板内可进入完整子 issue。
 - 取消级联：父节点取消 → 未完成子 issue 停止，面板状态更新。
 - 视觉回归：520px 面板、窄屏、长标题、8+ 子 issue、失败状态均无文本重叠。
 
@@ -437,7 +450,7 @@ split 节点默认显示紧凑卡片，使用 `SplitNodeCard`：
 - 审核面板没有手动编辑表单和审核期 DAG 画布。
 - 用户能通过自然语言完成草案增删改、依赖调整和恢复。
 - 确认创建前能清楚看到子 issue 数量、负责人、依赖和风险。
-- 全景图 split 节点与现有运行节点视觉一致，展开态子节点不破坏画布布局。
+- 全景图 split 节点与现有运行节点视觉一致，展开态子节点形成贴近父 split 的局部 child cluster，不被甩到全图远端，也不遮挡右侧主 workflow 节点。
 - 所有状态都有清晰反馈：加载、生成中、待审核、运行中、失败、完成、空草案。
 - 长文本、窄屏、键盘导航和屏幕阅读器场景可用。
 - 前端不维护第二份服务器状态，不发送本地 modifications。

@@ -209,16 +209,26 @@ vi.mock("../../../workflows/components/overview/stage-lane", () => ({
 
 vi.mock("./execution-detail-panel", () => ({
   ExecutionDetailPanel: ({
+    node,
     nodeRun,
     onClose,
+    onOpenIssue,
     onRetry,
   }: {
+    node: { title: string };
     nodeRun: { status: string } | null;
     onClose: () => void;
+    onOpenIssue?: () => void;
     onRetry?: () => void;
   }) => (
     <div data-testid="execution-detail-panel">
+      <span data-testid="detail-panel-title">{node.title}</span>
       <span data-testid="detail-panel-status">{nodeRun?.status ?? "no-run"}</span>
+      {onOpenIssue ? (
+        <button type="button" onClick={onOpenIssue}>
+          Open issue
+        </button>
+      ) : null}
       {onRetry ? (
         <button type="button" onClick={onRetry}>
           Retry from panel
@@ -1105,7 +1115,7 @@ describe("ExecutionPanoramaPage", () => {
     expect(mocks.fitView).not.toHaveBeenCalled();
   });
 
-  it("navigates to a child issue detail when a split child issue node is clicked", async () => {
+  it("opens a detail panel for a split child issue node before navigating to the issue", async () => {
     mocks.isLoading = false;
     mocks.workflowData = { id: "wf-1", title: "Test Workflow" };
     mocks.stagesData = [STAGE];
@@ -1140,9 +1150,14 @@ describe("ExecutionPanoramaPage", () => {
       mocks.reactFlowProps?.onNodeClick?.({}, childNode!);
     });
 
-    expect(mocks.navigationPush).toHaveBeenCalledWith("/demo111/issues/child-issue-1");
-    expect(screen.queryByTestId("execution-detail-panel")).not.toBeInTheDocument();
+    expect(mocks.navigationPush).not.toHaveBeenCalled();
+    expect(screen.getByTestId("execution-detail-panel")).toBeInTheDocument();
+    expect(screen.getByTestId("detail-panel-title")).toHaveTextContent("Implement API contract");
     expect(screen.queryByTestId("execution-split-review-panel")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Open issue" }));
+
+    expect(mocks.navigationPush).toHaveBeenCalledWith("/demo111/issues/child-issue-1");
   });
 
   it("resolves split child issue assignee names for members and squads", async () => {

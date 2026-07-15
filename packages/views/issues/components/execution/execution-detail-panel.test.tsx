@@ -215,6 +215,26 @@ describe("ExecutionDetailPanel", () => {
     ]);
   });
 
+  it("renders an explicit full issue action when provided", async () => {
+    const onOpenIssue = vi.fn();
+
+    render(
+      <ExecutionDetailPanel
+        node={{ ...node, title: "Child issue node" }}
+        nodeRun={null}
+        workerName="Backend assistant"
+        criticName={null}
+        onClose={vi.fn()}
+        onOpenIssue={onOpenIssue}
+        wsId="ws-1"
+      />,
+    );
+
+    await userEvent.click(screen.getByRole("button", { name: "View full issue" }));
+
+    expect(onOpenIssue).toHaveBeenCalledTimes(1);
+  });
+
   it("does not render generic connections or empty actions sections in run mode", () => {
     render(
       <ExecutionDetailPanel

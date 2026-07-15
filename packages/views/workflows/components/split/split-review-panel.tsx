@@ -344,6 +344,8 @@ export function SplitReviewPanel({
           title="Ask agent to adjust"
         >
           <SplitChatReview
+            issueId={parentIssueId}
+            chatSessionId={nodeRun?.split_review_chat_session_id ?? null}
             disabled={chatMutation.isPending}
             onSubmit={handleChatSubmit}
           />

@@ -193,6 +193,17 @@ describe("split API response schemas", () => {
     );
     expect(parsed).toBe(EMPTY_WORKFLOW_NODE_RUN);
   });
+
+  it("defaults missing split review chat session on node runs", () => {
+    const parsed = WorkflowNodeRunSchema.parse({
+      id: "node-run-1",
+      workflow_run_id: "run-1",
+      workflow_node_id: "node-1",
+      status: "awaiting_split_review",
+    });
+
+    expect(parsed.split_review_chat_session_id).toBeNull();
+  });
 });
 
 // The duplicate-issue branch in create-issue.tsx feeds ApiError.body

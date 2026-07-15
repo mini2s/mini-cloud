@@ -15,6 +15,7 @@ export interface SplitNodeCardProps {
   subTemplateName?: string | null;
   className?: string;
   headerAction?: ReactNode;
+  progressAction?: ReactNode;
   onClick?: () => void;
 }
 
@@ -27,14 +28,16 @@ export function SplitNodeCard({
   subTemplateName,
   className,
   headerAction,
+  progressAction,
   onClick,
 }: SplitNodeCardProps) {
   const mode = config?.mode ?? "barrier";
   const maxConcurrency = config?.max_concurrency ?? 5;
+  const showProgress = (status === "active" || status === "completed") && (progress || progressAction);
   const label =
     status === "awaiting_review"
       ? `Review ${taskCount} tasks`
-      : (status === "active" || status === "completed") && progress
+      : showProgress
         ? null
         : `${mode} · concurrency ${maxConcurrency}`;
 
@@ -59,8 +62,8 @@ export function SplitNodeCard({
         </span>
       )}
 
-      {(status === "active" || status === "completed") && progress ? (
-        <SplitProgressBadge progress={progress} />
+      {showProgress ? (
+        progressAction ?? <SplitProgressBadge progress={progress!} />
       ) : (
         <span className={cn(
           "truncate text-xs text-muted-foreground",

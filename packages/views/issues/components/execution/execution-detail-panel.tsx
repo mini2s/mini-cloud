@@ -7,6 +7,7 @@ import {
   Bot,
   GitFork,
   GitMerge,
+  ExternalLink,
   MessageSquare,
   RotateCcw,
   Unlock,
@@ -44,6 +45,7 @@ export interface ExecutionDetailPanelProps {
   wsId: string;
   issueId?: string;
   runtimeSummary?: WorkflowNodeRuntimeSummary | null;
+  onOpenIssue?: () => void;
   onUnblock?: () => void;
   onRetry?: () => void;
 }
@@ -183,6 +185,7 @@ export function ExecutionDetailPanel({
   onClose,
   wsId,
   runtimeSummary,
+  onOpenIssue,
   onUnblock,
   onRetry,
 }: ExecutionDetailPanelProps) {
@@ -274,6 +277,17 @@ export function ExecutionDetailPanel({
         title={t(($) => $.execution.detail_panel.section_primary)}
         subtitle={t(($) => $.execution.detail_panel.section_primary_desc)}
       >
+        {onOpenIssue ? (
+          <button
+            type="button"
+            onClick={onOpenIssue}
+            className="inline-flex h-8 items-center justify-center gap-1.5 rounded-md border bg-background px-3 text-xs font-medium transition-colors hover:bg-muted"
+          >
+            <ExternalLink className="h-3.5 w-3.5" />
+            {t(($) => $.execution.detail_panel.view_full_issue)}
+          </button>
+        ) : null}
+
         {node.description ? (
           <div>
             <h3 className="mb-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
