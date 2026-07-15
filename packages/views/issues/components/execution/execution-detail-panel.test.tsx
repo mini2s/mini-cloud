@@ -72,8 +72,6 @@ vi.mock("@multica/views/i18n", () => ({
               section_primary_desc: "Active handler and diagnostic context.",
               section_agent_operations: "Agent operations",
               section_agent_operations_desc: "Session and recovery actions for this node run.",
-              section_deliverables: "Deliverables",
-              section_deliverables_desc: "Submitted outputs and review artifacts.",
               section_runtime: "Runtime",
               section_runtime_desc: "Timing, retries, errors, and raw outputs.",
               worker: "Worker",
@@ -81,14 +79,6 @@ vi.mock("@multica/views/i18n", () => ({
               not_configured: "Not configured",
               worker_output: "Worker Output",
               critic_output: "Critic Output",
-              attachments: "Artifacts",
-              deliverable_status_label: "Deliverable status",
-              deliverable_status_green: "Approved",
-              deliverable_status_yellow: "Submitted for review",
-              deliverable_status_red: "Missing or rejected",
-              deliverable_status_none: "No required deliverables",
-              deliverable_progress: "{{submitted}}/{{total}} submitted, {{approved}} approved",
-              no_output: "No output yet",
               metadata: "Metadata",
               started_at: "Started At",
               completed_at: "Completed At",
@@ -165,10 +155,6 @@ const runtimeSummary: WorkflowNodeRuntimeSummary = {
   display_status: "completed",
   active_actor_type: "agent",
   active_actor_id: "a1",
-  deliverable_signal: "none",
-  required_deliverables_total: 0,
-  required_deliverables_submitted: 0,
-  required_deliverables_approved: 0,
   duration_seconds: 15,
   session_id: null,
   runtime_id: null,
@@ -225,7 +211,6 @@ describe("ExecutionDetailPanel", () => {
     expect(screen.getByTestId("workflow-node-detail-panel-shell")).toHaveAttribute("data-mode", "run");
     expect(screen.getAllByTestId("node-detail-section").map((section) => section.getAttribute("data-section"))).toEqual([
       "primary",
-      "deliverables",
       "runtime",
     ]);
   });
@@ -283,7 +268,6 @@ describe("ExecutionDetailPanel", () => {
     expect(screen.getAllByTestId("node-detail-section").map((section) => section.getAttribute("data-section"))).toEqual([
       "primary",
       "agent-operations",
-      "deliverables",
       "runtime",
     ]);
     expect(mockSetActiveSession).toHaveBeenCalledWith("11111111-1111-1111-1111-111111111111");
@@ -339,22 +323,6 @@ describe("ExecutionDetailPanel", () => {
       />,
     );
     expect(screen.getByText(/Not configured/i)).toBeInTheDocument();
-  });
-
-  it("renders artifact section with empty state when no outputs", () => {
-    const noOutputRun = { ...run, worker_output: null };
-    render(
-      <ExecutionDetailPanel
-        node={node}
-        nodeRun={noOutputRun}
-        workerName="后端助手"
-        criticName="审核员"
-        onClose={vi.fn()}
-        wsId="ws-1"
-      />,
-    );
-    expect(screen.getByText("Artifacts")).toBeInTheDocument();
-    expect(screen.getByText("No output yet")).toBeInTheDocument();
   });
 
   it("renders metadata with retry_count always visible", () => {
@@ -539,12 +507,11 @@ describe("ExecutionDetailPanel", () => {
     expect(screen.getAllByTestId("node-detail-section").map((section) => section.getAttribute("data-section"))).toEqual([
       "primary",
       "agent-operations",
-      "deliverables",
       "runtime",
     ]);
   });
 
-  it("shows gateway runtime semantics without worker critic artifacts or actions", () => {
+  it("shows gateway runtime semantics without worker critic or actions", () => {
     render(
       <ExecutionDetailPanel
         node={{
@@ -567,31 +534,8 @@ describe("ExecutionDetailPanel", () => {
     expect(screen.getAllByLabelText("Dispatched").length).toBeGreaterThan(0);
     expect(screen.queryByText("Worker")).not.toBeInTheDocument();
     expect(screen.queryByText("Critic")).not.toBeInTheDocument();
-    expect(screen.queryByText("Artifacts")).not.toBeInTheDocument();
     expect(screen.queryByText("Retry")).not.toBeInTheDocument();
   });
 
-  it("shows deliverable signal and counts in the detail panel", () => {
-    render(
-      <ExecutionDetailPanel
-        node={node}
-        nodeRun={run}
-        runtimeSummary={{
-          ...runtimeSummary,
-          deliverable_signal: "yellow",
-          required_deliverables_total: 2,
-          required_deliverables_submitted: 1,
-          required_deliverables_approved: 0,
-        }}
-        workerName="后端助手"
-        criticName="审核员"
-        onClose={vi.fn()}
-        wsId="ws-1"
-      />,
-    );
-
-    expect(screen.getByText("Deliverable status")).toBeInTheDocument();
-    expect(screen.getByText("Submitted for review")).toBeInTheDocument();
-    expect(screen.getByText("1/2 submitted, 0 approved")).toBeInTheDocument();
-  });
 });
+

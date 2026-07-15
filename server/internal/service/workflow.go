@@ -825,13 +825,6 @@ func (s *WorkflowService) ReviewNodeRun(ctx context.Context, nodeRunID pgtype.UU
 		}
 
 		if approved {
-			// Gate: all required deliverables must be satisfied before approval.
-			if satisfied, err := s.requiredDeliverablesSatisfied(ctx, nr); err != nil {
-				return fmt.Errorf("check deliverables: %w", err)
-			} else if !satisfied {
-				return fmt.Errorf("all required deliverables must be submitted and approved before this node can be approved")
-			}
-
 			// critic_approved → completed
 			updated, err := qtx.UpdateWorkflowNodeRunStatus(ctx, db.UpdateWorkflowNodeRunStatusParams{
 				ID:     nr.ID,
@@ -1936,37 +1929,3 @@ func (s *WorkflowService) CanManageWorkflows(ctx context.Context, userID pgtype.
 	return user.CanManageWorkflows, nil
 }
 
-// requiredDeliverablesSatisfied checks whether every required deliverable for
-// the given node run has an approved submission. Used as a gate before a critic
-// can approve the node run.
-func (s *WorkflowService) requiredDeliverablesSatisfied(ctx context.Context, nodeRun db.MulticaWorkflowNodeRun) (bool, error) {
-	deliverables, err := s.Queries.ListWorkflowNodeDeliverables(ctx, nodeRun.WorkflowNodeID)
-	if err != nil {
-		return false, fmt.Errorf("list deliverables: %w", err)
-	}
-	// No deliverables defined → trivially satisfied.
-	if len(deliverables) == 0 {
-		return true, nil
-	}
-
-	submissions, err := s.Queries.ListNodeRunDeliverableSubmissions(ctx, nodeRun.ID)
-	if err != nil {
-		return false, fmt.Errorf("list submissions: %w", err)
-	}
-
-	byDeliverable := make(map[string]db.MulticaWorkflowNodeDeliverableSubmission, len(submissions))
-	for _, sub := range submissions {
-		byDeliverable[util.UUIDToString(sub.DeliverableID)] = sub
-	}
-
-	for _, d := range deliverables {
-		if !d.Required {
-			continue
-		}
-		sub, ok := byDeliverable[util.UUIDToString(d.ID)]
-		if !ok || sub.Status == "missing" || sub.Status == "rejected" {
-			return false, nil
-		}
-	}
-	return true, nil
-}

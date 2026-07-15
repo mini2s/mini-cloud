@@ -11,12 +11,8 @@ const mocks = vi.hoisted(() => ({
   deleteNodeMutateAsync: vi.fn(),
   assignStageMutate: vi.fn(),
   createStageMutateAsync: vi.fn(),
-  createDeliverableMutateAsync: vi.fn(),
-  updateDeliverableMutateAsync: vi.fn(),
-  deleteDeliverableMutateAsync: vi.fn(),
   saveNode: vi.fn(),
   nodeEdits: {} as Record<string, unknown>,
-  deliverables: [] as unknown[],
   assigneePickerCalls: [] as Array<{
     assigneeType: string | null;
     assigneeId: string | null;
@@ -34,9 +30,7 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("@tanstack/react-query", () => ({
   useQuery: (options: { queryKey?: unknown[] }) =>
-    options.queryKey?.[0] === "deliverables"
-      ? { data: mocks.deliverables }
-      : options.queryKey?.[0] === "templates"
+    options.queryKey?.[0] === "templates"
         ? { data: { workflows: mocks.templates } }
       : { data: mocks.roles },
 }));
@@ -47,14 +41,10 @@ vi.mock("@multica/core/hooks", () => ({
 
 vi.mock("@multica/core/workflows/queries", () => ({
   workflowRolesOptions: () => ({ queryKey: ["workflow-roles"] }),
-  workflowNodeDeliverablesOptions: () => ({ queryKey: ["deliverables"] }),
   workflowTemplateListOptions: () => ({ queryKey: ["templates"] }),
   useAssignNodeToStage: () => ({ mutate: mocks.assignStageMutate, isPending: false }),
   useCreateStage: () => ({ mutateAsync: mocks.createStageMutateAsync, isPending: false, error: null }),
   useDeleteNode: () => ({ mutateAsync: mocks.deleteNodeMutateAsync, isPending: false }),
-  useCreateWorkflowNodeDeliverable: () => ({ mutateAsync: mocks.createDeliverableMutateAsync, isPending: false }),
-  useUpdateWorkflowNodeDeliverable: () => ({ mutateAsync: mocks.updateDeliverableMutateAsync, isPending: false }),
-  useDeleteWorkflowNodeDeliverable: () => ({ mutateAsync: mocks.deleteDeliverableMutateAsync, isPending: false }),
 }));
 
 vi.mock("@multica/core/workflows/store", () => ({
@@ -120,10 +110,6 @@ vi.mock("../../issues/components/pickers/assignee-picker", () => ({
     },
 }));
 
-vi.mock("./node-deliverables-editor", () => ({
-  NodeDeliverablesEditor: () => <div data-testid="deliverables-editor">Deliverables editor</div>,
-}));
-
 vi.mock("./node-data-preview", () => ({
   NodeDataPreview: ({ nodeRun }: { nodeRun?: WorkflowNodeRun | null }) => (
     <div data-testid="node-data-preview">{nodeRun?.status ?? "no-data"}</div>
@@ -148,8 +134,6 @@ vi.mock("../../i18n", () => {
       section_primary_desc: "Definition fields and ownership for this workflow node.",
       section_annotation_binding: "Annotation binding",
       section_annotation_binding_desc: "Attach this note to a workflow node.",
-      section_deliverables: "Deliverables",
-      section_deliverables_desc: "Required documents or pull requests for this node.",
       section_runtime: "Runtime",
       section_runtime_desc: "Latest run context for this node.",
       section_connections: "Connections",
@@ -184,7 +168,6 @@ vi.mock("../../i18n", () => {
       split_concurrency_hint: "Run at most this many child workflows at once.",
       split_max_failures_label: "Max failures",
       split_max_failures_hint: "Barrier mode fails the parent split when child failures exceed this number.",
-      split_deliverables_not_applicable: "Split nodes do not define deliverables.",
       select_node: "Select a node...",
       select_role: "Select a role...",
       actor_role_hint: "Resolved when the workflow runs",
@@ -205,8 +188,6 @@ vi.mock("../../i18n", () => {
       worker_subtitle: "Who performs this workflow step.",
       critic_subtitle: "Who reviews or validates the worker output.",
       worker_critic_divider: "Worker output moves to Critic review",
-      deliverables_not_applicable_gateway: "Gateway nodes do not define deliverables.",
-      deliverables_not_applicable_annotation: "Annotation nodes do not define deliverables.",
       runtime_status_label: "Status: {{status}}",
       runtime_hint: "Worker output, critic output and comments remain available in this runtime section.",
       runtime_no_data: "No run data for this node yet.",
@@ -215,7 +196,6 @@ vi.mock("../../i18n", () => {
       connections_bound_to: "Bound to: {{node}}",
       save_changes: "Save changes",
       actions_disabled: "Node actions are disabled in this context.",
-      deliverable_default_title: "New deliverable",
     },
     node: {
       title: "Node inspector",
@@ -305,7 +285,6 @@ describe("NodeConfigPanel", () => {
     mocks.cacheNodeEdits.mockReset();
     mocks.saveNode.mockReset();
     mocks.nodeEdits = {};
-    mocks.deliverables = [];
     mocks.assigneePickerCalls = [];
   });
 
@@ -359,7 +338,6 @@ describe("NodeConfigPanel", () => {
 
     expect(screen.getAllByTestId("node-detail-section").map((section) => section.getAttribute("data-section"))).toEqual([
       "primary",
-      "deliverables",
       "runtime",
       "connections",
       "actions",
@@ -427,7 +405,7 @@ describe("NodeConfigPanel", () => {
     expect(screen.getByText("Latest run: {{status}}")).toBeInTheDocument();
   });
 
-  it("shows gateway semantics without worker critic or deliverable editors", () => {
+  it("shows gateway semantics without worker or critic editors", () => {
     render(
       <NodeConfigPanel
         node={{
@@ -448,10 +426,9 @@ describe("NodeConfigPanel", () => {
     expect(screen.getByText("Automatically completes and fans out to all downstream nodes.")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Builder Agent" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Reviewer Agent" })).not.toBeInTheDocument();
-    expect(screen.queryByTestId("deliverables-editor")).not.toBeInTheDocument();
   });
 
-  it("renders split settings with worker and critic but without deliverable", () => {
+  it("renders split settings with worker and critic", () => {
     render(
       <NodeConfigPanel
         node={{
@@ -488,9 +465,6 @@ describe("NodeConfigPanel", () => {
     expect(screen.getByText("The Agent that generates the task splitting plan.")).toBeInTheDocument();
     expect(screen.getByText("Critic")).toBeInTheDocument();
     expect(screen.getByText("The reviewer that approves generated split drafts.")).toBeInTheDocument();
-    expect(screen.queryByText("Deliverables")).not.toBeInTheDocument();
-    expect(screen.queryByTestId("deliverables-editor")).not.toBeInTheDocument();
-    expect(screen.queryByText("Split nodes do not define deliverables.")).not.toBeInTheDocument();
   });
 
   it("updates split format_schema fields without dropping existing metadata", () => {

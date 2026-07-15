@@ -29,11 +29,6 @@ vi.mock("@multica/views/i18n", () => ({
               worker_label: "Worker",
               critic_label: "Critic",
               artifacts_label: "Artifacts",
-              deliverable_green: "Deliverables approved",
-              deliverable_yellow: "Awaiting review",
-              deliverable_red: "Deliverables missing",
-              deliverable_none: "No required deliverables",
-              deliverable_progress: "{{submitted}}/{{total}} · {{approved}} passed",
               actions: {
                 approve: "Approve",
                 reject: "Reject",
@@ -107,10 +102,6 @@ const runtimeSummary: WorkflowNodeRuntimeSummary = {
   display_status: "reviewing",
   active_actor_type: "agent",
   active_actor_id: "agent-2",
-  deliverable_signal: "red",
-  required_deliverables_total: 1,
-  required_deliverables_submitted: 0,
-  required_deliverables_approved: 0,
   duration_seconds: 90,
   session_id: null,
   runtime_id: null,
@@ -201,27 +192,6 @@ describe("RuntimeNodeCard", () => {
     expect(screen.queryByText(/Artifacts:/)).not.toBeInTheDocument();
     expect(screen.queryByText(/Worker Output/)).not.toBeInTheDocument();
     expect(screen.queryByText(/Critic Output/)).not.toBeInTheDocument();
-    expect(screen.queryByTestId("runtime-node-deliverables")).not.toBeInTheDocument();
-  });
-
-  it("renders deliverable summary as a compact neutral chip", () => {
-    render(
-      <RuntimeNodeCard
-        node={baseNode}
-        nodeRun={completedRun}
-        runtimeSummary={runtimeSummary}
-        workerName="小助手"
-        criticName="审核员"
-        onClick={vi.fn()}
-      />,
-    );
-    expect(screen.queryByText(/Artifacts:/)).not.toBeInTheDocument();
-    expect(screen.getByTestId("runtime-node-deliverables")).toHaveTextContent("Deliverables missing");
-    expect(screen.getByTestId("runtime-node-deliverables")).toHaveTextContent("0/1 · 0 passed");
-    expect(screen.getByTestId("runtime-node-deliverables")).toHaveClass("col-span-full", "h-4");
-    expect(screen.getByTestId("runtime-node-deliverables").className).not.toContain("ring");
-    expect(screen.getByTestId("runtime-node-deliverables").className).not.toContain("border");
-    expect(screen.getByTestId("runtime-node-deliverables").className).not.toContain("bg-");
   });
 
   it("renders Bot icon for agent worker_type", () => {
@@ -287,22 +257,6 @@ describe("RuntimeNodeCard", () => {
     expect(screen.getByText("Completed")).toBeInTheDocument();
   });
 
-  it("uses runtime summary display status with the compact deliverable chip", () => {
-    render(
-      <RuntimeNodeCard
-        node={baseNode}
-        nodeRun={{ ...completedRun, status: "completed" }}
-        runtimeSummary={runtimeSummary}
-        workerName="Tester"
-        criticName="Reviewer"
-        onClick={vi.fn()}
-      />,
-    );
-
-    expect(screen.getByLabelText("Reviewing")).toBeInTheDocument();
-    expect(screen.getByTestId("runtime-node-deliverables")).toHaveTextContent("Deliverables missing");
-  });
-
   it("uses the shared workflow canvas node shell with the editor-card surface", () => {
     render(
       <RuntimeNodeCard
@@ -332,7 +286,6 @@ describe("RuntimeNodeCard", () => {
     expect(screen.getByTestId("runtime-node-content")).toHaveClass("border-t", "border-border/45");
     expect(screen.getByTestId("runtime-node-content").className).not.toContain("border-y");
     expect(screen.getByLabelText("Reviewing")).toBeInTheDocument();
-    expect(screen.getByTestId("runtime-node-deliverables")).toHaveClass("text-muted-foreground");
   });
 
   it("lays out worker and critic as paired actor slots", () => {
@@ -382,7 +335,7 @@ describe("RuntimeNodeCard", () => {
           format_schema: { type: "gateway", gateway_kind: "fork", shape: "diamond" },
         }}
         nodeRun={{ ...completedRun, status: "awaiting_critic", worker_output: { summary: "done" } }}
-        runtimeSummary={{ ...runtimeSummary, display_status: "completed", deliverable_signal: "red" }}
+        runtimeSummary={{ ...runtimeSummary, display_status: "completed" }}
         workerName="Tester"
         criticName="Reviewer"
         onClick={vi.fn()}
@@ -396,7 +349,6 @@ describe("RuntimeNodeCard", () => {
     expect(screen.queryByText("Critic:")).not.toBeInTheDocument();
     expect(screen.queryByText(/Artifacts:/)).not.toBeInTheDocument();
     expect(screen.queryByTestId("runtime-node-action-approve")).not.toBeInTheDocument();
-    expect(screen.queryByTestId("runtime-node-deliverables")).not.toBeInTheDocument();
   });
 
   it("renders split nodes with split-specific runtime semantics instead of actor rows", () => {
@@ -446,7 +398,6 @@ describe("RuntimeNodeCard", () => {
     expect(screen.getByText("Review 5 tasks")).toBeInTheDocument();
     expect(screen.queryByText("Worker")).not.toBeInTheDocument();
     expect(screen.queryByText("Critic")).not.toBeInTheDocument();
-    expect(screen.queryByTestId("runtime-node-deliverables")).not.toBeInTheDocument();
   });
 
   it("renders an explicit split expansion button that does not open the split panel", async () => {
@@ -499,6 +450,48 @@ describe("RuntimeNodeCard", () => {
 
     expect(onSplitNodeToggle).toHaveBeenCalledWith("split-expand");
     expect(onClick).not.toHaveBeenCalled();
+  });
+
+  it("keeps split nodes with child expansion keyboard focusable", () => {
+    render(
+      <RuntimeNodeCard
+        node={{
+          ...baseNode,
+          id: "split-keyboard",
+          title: "Task split",
+          format_schema: {
+            type: "split",
+            split_config: {
+              sub_template_id: "child-wf-1",
+              mode: "barrier",
+              max_concurrency: 5,
+              max_failures: 0,
+            },
+          },
+        }}
+        nodeRun={{ ...completedRun, workflow_node_id: "split-keyboard", status: "split_active" }}
+        runtimeSummary={{
+          ...runtimeSummary,
+          workflow_node_id: "split-keyboard",
+          split_progress: {
+            total: 2,
+            created: 1,
+            running: 1,
+            done: 0,
+            failed: 0,
+            cancelled: 0,
+            skipped: 0,
+          },
+        }}
+        workerName="Tester"
+        criticName="Reviewer"
+        onClick={vi.fn()}
+        splitChildCount={2}
+        onSplitNodeToggle={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByTestId("runtime-node-card-split-keyboard")).toHaveAttribute("tabindex", "0");
   });
 
   it("keeps the visible canvas surface and split card chrome for split nodes", () => {

@@ -179,7 +179,6 @@ export type WorkflowRuntimeDisplayStatus =
   | "completed"
   | "blocked"
   | "cancelled";
-export type WorkflowDeliverableSignal = "none" | "red" | "yellow" | "green";
 
 export function toWorkflowRuntimeDisplayStatus(status: string): WorkflowRuntimeDisplayStatus {
   switch (status) {
@@ -296,6 +295,8 @@ export interface WorkflowNodeRun {
   runtime_id: string | null;
   /** Device identifier for the runtime/session bound to this node run, if any. */
   device_id: string | null;
+  /** Chat session used for natural-language split draft review, if any. */
+  split_review_chat_session_id?: string | null;
   started_at: string | null;
   completed_at: string | null;
   created_at: string;
@@ -375,11 +376,8 @@ export interface WorkflowNodeRuntimeSummary {
   display_status: WorkflowRuntimeDisplayStatus;
   active_actor_type: string;
   active_actor_id: string | null;
-  deliverable_signal: WorkflowDeliverableSignal;
-  required_deliverables_total: number;
-  required_deliverables_submitted: number;
-  required_deliverables_approved: number;
   duration_seconds: number | null;
+  /** Non-null when this node run is bound to a CSC session for human/agent collaboration. */
   session_id: string | null;
   runtime_id: string | null;
   device_id: string | null;
@@ -502,46 +500,6 @@ export interface WorkflowAdmin {
   name: string;
   email: string;
   can_manage_workflows: boolean;
-}
-
-// ── Deliverable types ──────────────────────────────────────────────────────
-
-export type WorkflowDeliverableKind = "document" | "pull_request";
-export type WorkflowDeliverableSubmissionStatus = "missing" | "submitted" | "approved" | "rejected";
-
-export interface WorkflowNodeDeliverable {
-  id: string;
-  workflow_node_id: string;
-  kind: WorkflowDeliverableKind;
-  title: string;
-  description: string;
-  required: boolean;
-  sort_order: number;
-  created_at: string;
-  updated_at: string;
-}
-
-export interface WorkflowNodeDeliverableSubmission {
-  id: string;
-  workflow_node_run_id: string;
-  deliverable_id: string;
-  submitted_by_type: "member" | "agent" | "system";
-  submitted_by_id: string | null;
-  status: WorkflowDeliverableSubmissionStatus;
-  content: string;
-  attachment_id: string | null;
-  pull_request_url: string;
-  review_comment: string;
-  submitted_at: string;
-  reviewed_at: string | null;
-  created_at: string;
-  updated_at: string;
-}
-
-/** Composite view joining a deliverable definition with its submission for a node run. */
-export interface DeliverableWithSubmission {
-  deliverable: WorkflowNodeDeliverable;
-  submission: WorkflowNodeDeliverableSubmission | null;
 }
 
 // ── Role types ──────────────────────────────────────────────────────────────

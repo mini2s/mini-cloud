@@ -7,7 +7,6 @@ import { cn } from "@multica/ui/lib/utils";
 export type WorkflowNodeDetailPanelMode = "edit" | "run";
 export type NodeDetailSectionId =
   | "primary"
-  | "deliverables"
   | "runtime"
   | "connections"
   | "actions"

@@ -8,7 +8,6 @@ import {
   Bot,
   Braces,
   CheckCircle2,
-  FileCheck2,
   GitBranch,
   ShieldCheck,
   Save,
@@ -31,16 +30,11 @@ import {
   useAssignNodeToStage,
   workflowRolesOptions,
   workflowTemplateListOptions,
-  workflowNodeDeliverablesOptions,
-  useCreateWorkflowNodeDeliverable,
-  useUpdateWorkflowNodeDeliverable,
-  useDeleteWorkflowNodeDeliverable,
 } from "@multica/core/workflows/queries";
 import { useWorkflowEditorStore } from "@multica/core/workflows/store";
 import { AssigneePicker } from "../../issues/components/pickers/assignee-picker";
-import { parseNodeFormat, type WorkflowNode, type WorkflowNodeRun, type WorkflowStage, type WorkerType, type CriticType, type WorkflowNodeDeliverable, type SplitConfig } from "@multica/core/types";
+import { parseNodeFormat, type WorkflowNode, type WorkflowNodeRun, type WorkflowStage, type WorkerType, type CriticType, type SplitConfig } from "@multica/core/types";
 import type { IssueAssigneeType } from "@multica/core/types/issue";
-import { NodeDeliverablesEditor, type WorkflowNodeDeliverableDraft } from "./node-deliverables-editor";
 import { NodeDataPreview } from "./node-data-preview";
 import {
   NodeDetailSection,
@@ -293,8 +287,6 @@ interface NodeConfigPanelProps {
   onStageChange?: (nodeId: string, stageId: string | null) => void;
 }
 
-const EMPTY_DELIVERABLES: WorkflowNodeDeliverable[] = [];
-
 export function NodeConfigPanel({
   node,
   workflowId,
@@ -314,19 +306,12 @@ export function NodeConfigPanel({
   const deleteMutation = useDeleteNode(wsId, workflowId);
   const assignStageMutation = useAssignNodeToStage(wsId, workflowId);
   const createStageMutation = useCreateStage(wsId, workflowId);
-  const createDeliverableMutation = useCreateWorkflowNodeDeliverable(wsId, workflowId, node.id);
-  const updateDeliverableMutation = useUpdateWorkflowNodeDeliverable(wsId, workflowId, node.id);
-  const deleteDeliverableMutation = useDeleteWorkflowNodeDeliverable(wsId, workflowId, node.id);
   const nodeEdits = useWorkflowEditorStore((s) => s.nodeEdits);
   const undoRedoVersion = useWorkflowEditorStore((s) => s._undoRedoVersion);
   const cacheNodeEdits = useWorkflowEditorStore((s) => s.cacheNodeEdits);
   const { data: roles = [] } = useQuery(workflowRolesOptions(wsId));
   const { data: templateData } = useQuery(workflowTemplateListOptions(wsId));
-  const { data: savedDeliverablesData } = useQuery(
-    workflowNodeDeliverablesOptions(wsId, workflowId, node.id),
-  );
   const workflowTemplates = templateData?.workflows ?? [];
-  const savedDeliverables = savedDeliverablesData ?? EMPTY_DELIVERABLES;
   const { getActorName } = useActorName();
 
   const saved = nodeEdits[node.id];
@@ -355,34 +340,10 @@ export function NodeConfigPanel({
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [newStageName, setNewStageName] = useState("");
   const [newStageDescription, setNewStageDescription] = useState("");
-  const [deliverableDrafts, setDeliverableDrafts] = useState<WorkflowNodeDeliverableDraft[]>([]);
-  const [deliverablesDirty, setDeliverablesDirty] = useState(false);
-
-  const savedDeliverableKey = useMemo(
-    () => savedDeliverables.map((d) => [
-      d.id,
-      d.kind,
-      d.title,
-      d.description,
-      d.required,
-      d.sort_order,
-    ].join(":")).join("|"),
-    [savedDeliverables],
-  );
 
   useEffect(() => {
     setStageId(node.stage_id ?? null);
   }, [node.stage_id]);
-
-  useEffect(() => {
-    if (deliverablesDirty) return;
-    setDeliverableDrafts(savedDeliverables.map((d) => ({ ...d, isDraft: false })));
-  }, [savedDeliverableKey, savedDeliverables, deliverablesDirty]);
-
-  useEffect(() => {
-    setDeliverablesDirty(false);
-    setDeliverableDrafts(savedDeliverables.map((d) => ({ ...d, isDraft: false })));
-  }, [node.id]);
 
   const bindableNodes = useMemo(
     () => nodes.filter((n) => {
@@ -447,16 +408,7 @@ export function NodeConfigPanel({
   const workerMode = isDirectWorkerType(workerType) ? "direct" : "role";
   const criticMode = isDirectCriticType(criticType) ? "direct" : criticType === "api" ? "api" : "role";
   const hasLocalEdits = Boolean(nodeEdits[node.id]);
-  const hasUnsavedChanges = hasLocalEdits || deliverablesDirty;
-  const isSavingDeliverables =
-    createDeliverableMutation.isPending ||
-    updateDeliverableMutation.isPending ||
-    deleteDeliverableMutation.isPending;
-
-  const handleDeliverablesChange = useCallback((next: WorkflowNodeDeliverableDraft[]) => {
-    setDeliverableDrafts(next.map((d, index) => ({ ...d, sort_order: index })));
-    setDeliverablesDirty(true);
-  }, []);
+  const hasUnsavedChanges = hasLocalEdits;
 
   const handleSplitConfigChange = useCallback((next: SplitConfig) => {
     const raw = saved?.format_schema ?? node.format_schema;
@@ -480,80 +432,35 @@ export function NodeConfigPanel({
     cacheNodeEdits(node.id, { format_schema: nextFormatSchema });
   }, [cacheNodeEdits, node.format_schema, node.id, saved?.format_schema]);
 
-  const saveDeliverables = useCallback(async () => {
-    const baseById = new Map(savedDeliverables.map((d) => [d.id, d]));
-    const draftById = new Map(deliverableDrafts.filter((d) => !d.isDraft).map((d) => [d.id, d]));
-
-    const deletes = savedDeliverables.filter((d) => !draftById.has(d.id));
-    const creates = deliverableDrafts.filter((d) => d.isDraft || !baseById.has(d.id));
-    const updates = deliverableDrafts.filter((d) => {
-      const base = baseById.get(d.id);
-      if (!base) return false;
-      return (
-        base.kind !== d.kind ||
-        base.title !== d.title ||
-        base.description !== d.description ||
-        base.required !== d.required ||
-        base.sort_order !== d.sort_order
-      );
-    });
-
-    await Promise.all([
-      ...deletes.map((d) => deleteDeliverableMutation.mutateAsync(d.id)),
-      ...creates.map((d) =>
-        createDeliverableMutation.mutateAsync({
-          kind: d.kind,
-          title: d.title.trim() || t(($) => $.detail_panel.deliverable_default_title),
-          description: d.description,
-          required: d.required,
-          sort_order: d.sort_order,
-        }),
-      ),
-      ...updates.map((d) =>
-        updateDeliverableMutation.mutateAsync({
-          deliverableId: d.id,
-          kind: d.kind,
-          title: d.title.trim() || t(($) => $.detail_panel.deliverable_default_title),
-          description: d.description,
-          required: d.required,
-          sort_order: d.sort_order,
-        }),
-      ),
-    ]);
-    setDeliverablesDirty(false);
-  }, [
-    createDeliverableMutation,
-    deleteDeliverableMutation,
-    deliverableDrafts,
-    savedDeliverables,
-    t,
-    updateDeliverableMutation,
-  ]);
-
   const handleSaveAll = useCallback(async () => {
-    const hadNodeEdits = Boolean(nodeEdits[node.id]);
     try {
-      const nodeSaved = onSaveNode ? await onSaveNode() : true;
-      if (nodeSaved === false) return false;
-      if (deliverablesDirty) {
-        await saveDeliverables();
-        if (!hadNodeEdits) toast.success(t(($) => $.detail.toast_saved));
+      if (onSaveNode) {
+        return await onSaveNode();
       }
+      return true;
     } catch {
       toast.error(t(($) => $.detail.toast_save_failed));
       return false;
     }
-    return true;
-  }, [deliverablesDirty, node.id, nodeEdits, onSaveNode, saveDeliverables, t]);
+  }, [onSaveNode, t]);
 
   useEffect(() => {
     onDirtyChange?.(hasUnsavedChanges);
   }, [hasUnsavedChanges, onDirtyChange]);
 
   useEffect(() => {
-    onRegisterSave?.(handleSaveAll);
+    if (onSaveNode) {
+      onRegisterSave?.(async () => {
+        try {
+          return await onSaveNode();
+        } catch {
+          toast.error(t(($) => $.detail.toast_save_failed));
+          return false;
+        }
+      });
+    }
     return () => onRegisterSave?.(null);
-  }, [handleSaveAll, onRegisterSave]);
+  }, [onSaveNode, onRegisterSave, t]);
 
   return (
     <WorkflowNodeDetailPanelShell
@@ -1140,30 +1047,6 @@ export function NodeConfigPanel({
         </div>
       </NodeDetailSection>
 
-      {!isSplit ? (
-        <NodeDetailSection
-          sectionId="deliverables"
-          icon={<FileCheck2 className="size-4" />}
-          title={t(($) => $.detail_panel.section_deliverables)}
-          subtitle={t(($) => $.detail_panel.section_deliverables_desc)}
-        >
-          {!isAnnotation && !isGateway ? (
-            <NodeDeliverablesEditor
-              nodeId={node.id}
-              disabled={disabled}
-              deliverables={deliverableDrafts}
-              onChange={handleDeliverablesChange}
-            />
-          ) : (
-            <p className="text-sm text-muted-foreground">
-              {isGateway
-                ? t(($) => $.detail_panel.deliverables_not_applicable_gateway)
-                : t(($) => $.detail_panel.deliverables_not_applicable_annotation)}
-            </p>
-          )}
-        </NodeDetailSection>
-      ) : null}
-
       <NodeDetailSection
         sectionId="runtime"
         icon={<Activity className="size-4" />}
@@ -1220,7 +1103,7 @@ export function NodeConfigPanel({
                 variant="default"
                 className="w-full"
                 onClick={handleSaveAll}
-                disabled={!hasUnsavedChanges || isSavingDeliverables}
+                disabled={!hasUnsavedChanges}
               >
                 <Save className="mr-1.5 h-3.5 w-3.5" />
                 {t(($) => $.detail_panel.save_changes)}

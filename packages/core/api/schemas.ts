@@ -875,6 +875,7 @@ export const WorkflowNodeRunSchema = z.object({
   session_id: z.string().nullable().default(null),
   runtime_id: z.string().nullable().default(null),
   device_id: z.string().nullable().default(null),
+  split_review_chat_session_id: z.string().nullable().default(null),
   started_at: z.string().nullable().default(null),
   completed_at: z.string().nullable().default(null),
   created_at: z.string().default(""),
@@ -903,6 +904,7 @@ export const EMPTY_WORKFLOW_NODE_RUN: WorkflowNodeRun = {
   session_id: null,
   runtime_id: null,
   device_id: null,
+  split_review_chat_session_id: null,
   started_at: null,
   completed_at: null,
   created_at: "",
@@ -963,51 +965,6 @@ export const WorkflowAdminsResponseSchema = z.object({
 }).loose();
 
 export const EMPTY_WORKFLOW_ADMINS_RESPONSE = { admins: [] };
-
-// ---------------------------------------------------------------------------
-// Workflow deliverable schemas
-// ---------------------------------------------------------------------------
-
-const WorkflowNodeDeliverableSchema = z.object({
-  id: z.string(),
-  workflow_node_id: z.string(),
-  kind: z.string().default("document"),
-  title: z.string().default(""),
-  description: z.string().default(""),
-  required: z.boolean().default(true),
-  sort_order: z.number().default(0),
-  created_at: z.string().default(""),
-  updated_at: z.string().default(""),
-}).loose();
-
-export const WorkflowNodeDeliverablesResponseSchema = z.object({
-  deliverables: z.array(WorkflowNodeDeliverableSchema).default([]),
-}).loose();
-
-export const EMPTY_WORKFLOW_NODE_DELIVERABLES_RESPONSE = { deliverables: [] };
-
-const WorkflowNodeDeliverableSubmissionSchema = z.object({
-  id: z.string(),
-  workflow_node_run_id: z.string(),
-  deliverable_id: z.string(),
-  submitted_by_type: z.string().default("member"),
-  submitted_by_id: z.string().nullable().default(null),
-  status: z.string().default("submitted"),
-  content: z.string().default(""),
-  attachment_id: z.string().nullable().default(null),
-  pull_request_url: z.string().default(""),
-  review_comment: z.string().default(""),
-  submitted_at: z.string().default(""),
-  reviewed_at: z.string().nullable().default(null),
-  created_at: z.string().default(""),
-  updated_at: z.string().default(""),
-}).loose();
-
-export const WorkflowNodeDeliverableSubmissionsResponseSchema = z.object({
-  submissions: z.array(WorkflowNodeDeliverableSubmissionSchema).default([]),
-}).loose();
-
-export const EMPTY_WORKFLOW_NODE_DELIVERABLE_SUBMISSIONS_RESPONSE = { submissions: [] };
 
 // ---------------------------------------------------------------------------
 // Runtime permission schemas

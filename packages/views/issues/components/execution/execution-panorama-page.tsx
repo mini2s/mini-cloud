@@ -23,7 +23,7 @@ import {
 } from "@multica/core/workflows/queries";
 import { useWorkspacePaths } from "@multica/core/paths";
 import { api } from "@multica/core/api";
-import { agentListOptions } from "@multica/core/workspace/queries";
+import { agentListOptions, memberListOptions, squadListOptions } from "@multica/core/workspace/queries";
 import { workerTypeToActorType } from "@multica/core/types";
 import type {
   WorkflowNode,
@@ -31,6 +31,8 @@ import type {
   WorkflowNodeRuntimeSummary,
   WorkflowStage,
   Agent,
+  MemberWithUser,
+  Squad,
   SplitTask,
   WorkflowRuntimeDisplayStatus,
   WorkerType,
@@ -72,6 +74,19 @@ const RUNTIME_CANVAS_FIT_VIEW = {
 const SPLIT_CHILD_X_GAP = 144;
 const SPLIT_CHILD_SAFE_X_GAP = 96;
 const SPLIT_CHILD_Y_GAP = 32;
+const SPLIT_CHILD_NODE_ID_PART = ":split-task:";
+
+interface SplitChildClusterLayout {
+  splitNode: WorkflowNode;
+  levelGroups: Map<number, SplitTask[]>;
+}
+
+interface SplitChildClusterBounds {
+  left: number;
+  right: number;
+  top: number;
+  bottom: number;
+}
 
 function splitTaskDisplayStatus(status: SplitTask["status"]): WorkflowRuntimeDisplayStatus {
   switch (status) {
@@ -144,6 +159,8 @@ interface ExecutionPanoramaCanvasProps {
   setSelectedNodeId: (nodeId: string | null) => void;
   onNodeClick: (nodeId: string) => void;
   onNodeDoubleClick: (nodeId: string) => void;
+  focusSplitNodeId?: string | null;
+  onSplitClusterFocused?: () => void;
   fillAvailableHeight?: boolean;
 }
 
@@ -157,16 +174,19 @@ function ExecutionPanoramaCanvas({
   setSelectedNodeId,
   onNodeClick,
   onNodeDoubleClick,
+  focusSplitNodeId,
+  onSplitClusterFocused,
   fillAvailableHeight = false,
 }: ExecutionPanoramaCanvasProps) {
   const { fitView, getViewport, setCenter, viewportInitialized } = useReactFlow();
   const nodesInitialized = useNodesInitialized();
-  const fittedNodeSignatureRef = useRef<string | null>(null);
+  const fittedBaseNodeIdsRef = useRef<string | null>(null);
 
-  const nodeSignature = useMemo(
+  const baseNodeIdsSignature = useMemo(
     () =>
       rfNodes
-        .map((node) => `${node.id}:${node.position.x}:${node.position.y}`)
+        .filter((node) => !node.id.includes(SPLIT_CHILD_NODE_ID_PART))
+        .map((node) => node.id)
         .join("|"),
     [rfNodes],
   );
@@ -176,22 +196,75 @@ function ExecutionPanoramaCanvas({
       rfNodes.length === 0 ||
       !viewportInitialized ||
       !nodesInitialized ||
-      fittedNodeSignatureRef.current === nodeSignature
+      fittedBaseNodeIdsRef.current === baseNodeIdsSignature
     ) {
       return;
     }
 
     const frame = requestAnimationFrame(() => {
-      fittedNodeSignatureRef.current = nodeSignature;
+      fittedBaseNodeIdsRef.current = baseNodeIdsSignature;
       void fitView({
-        nodes: rfNodes.map((node) => ({ id: node.id })),
+        nodes: rfNodes
+          .filter((node) => !node.id.includes(SPLIT_CHILD_NODE_ID_PART))
+          .map((node) => ({ id: node.id })),
         ...RUNTIME_CANVAS_FIT_VIEW,
         duration: 0,
       });
     });
 
     return () => cancelAnimationFrame(frame);
-  }, [fitView, nodeSignature, nodesInitialized, rfNodes, viewportInitialized]);
+  }, [baseNodeIdsSignature, fitView, nodesInitialized, rfNodes, viewportInitialized]);
+
+  useEffect(() => {
+    if (!focusSplitNodeId || !viewportInitialized || !nodesInitialized) return;
+
+    const clusterNodes = rfNodes.filter(
+      (node) => node.id === focusSplitNodeId || node.id.startsWith(`${focusSplitNodeId}${SPLIT_CHILD_NODE_ID_PART}`),
+    );
+    if (clusterNodes.length <= 1) return;
+
+    const bounds = clusterNodes.reduce<SplitChildClusterBounds | null>((current, node) => {
+      const width = typeof node.width === "number" ? node.width : WORKER_WIDTH;
+      const height = typeof node.height === "number" ? node.height : RUNTIME_NODE_HEIGHT;
+      const nodeBounds = {
+        left: node.position.x,
+        right: node.position.x + width,
+        top: node.position.y,
+        bottom: node.position.y + height,
+      };
+      if (!current) return nodeBounds;
+      return {
+        left: Math.min(current.left, nodeBounds.left),
+        right: Math.max(current.right, nodeBounds.right),
+        top: Math.min(current.top, nodeBounds.top),
+        bottom: Math.max(current.bottom, nodeBounds.bottom),
+      };
+    }, null);
+    if (!bounds) return;
+
+    const frame = requestAnimationFrame(() => {
+      const currentViewport = getViewport();
+      setCenter(
+        (bounds.left + bounds.right) / 2,
+        (bounds.top + bounds.bottom) / 2,
+        {
+          duration: 450,
+          zoom: currentViewport.zoom,
+        },
+      );
+      onSplitClusterFocused?.();
+    });
+
+    return () => cancelAnimationFrame(frame);
+  }, [
+    focusSplitNodeId,
+    getViewport,
+    nodesInitialized,
+    onSplitClusterFocused,
+    rfNodes,
+    setCenter,
+    viewportInitialized,
+  ]);
 
   const scrollToNode = useCallback((nodeId: string) => {
     const node = rfNodes.find((item) => item.id === nodeId);
@@ -279,12 +352,15 @@ export function ExecutionPanoramaPage({
   });
   const { data: edges } = useQuery(workflowEdgesOptions(wsId, workflowId));
   const { data: agents } = useQuery(agentListOptions(wsId));
+  const { data: members } = useQuery(memberListOptions(wsId));
+  const { data: squads } = useQuery(squadListOptions(wsId));
 
   // ---- Local state ----
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [viewport, setViewport] = useState<Viewport>({ x: 0, y: 24, zoom: 0.95 });
   const [retryingNodeRunId, setRetryingNodeRunId] = useState<string | null>(null);
   const [expandedSplitNodeIds, setExpandedSplitNodeIds] = useState<Set<string>>(() => new Set());
+  const [focusSplitNodeId, setFocusSplitNodeId] = useState<string | null>(null);
 
   const allStages: WorkflowStage[] = stages ?? [];
   const allNodes: WorkflowNode[] = nodes ?? [];
@@ -334,6 +410,7 @@ export function ExecutionPanoramaPage({
   }, [splitNodeEntries, splitTaskQueries]);
 
   const handleToggleSplitNode = useCallback((nodeId: string) => {
+    const isExpanded = expandedSplitNodeIds.has(nodeId);
     setExpandedSplitNodeIds((current) => {
       const next = new Set(current);
       if (next.has(nodeId)) {
@@ -343,6 +420,11 @@ export function ExecutionPanoramaPage({
       }
       return next;
     });
+    setFocusSplitNodeId(isExpanded ? null : nodeId);
+  }, [expandedSplitNodeIds]);
+
+  const handleSplitClusterFocused = useCallback(() => {
+    setFocusSplitNodeId(null);
   }, []);
 
   const agentLookup = useMemo(() => {
@@ -353,12 +435,34 @@ export function ExecutionPanoramaPage({
     return map;
   }, [agents]);
 
+  const memberLookup = useMemo(() => {
+    const map = new Map<string, MemberWithUser | null>();
+    if (members) {
+      for (const member of members) map.set(member.user_id, member);
+    }
+    return map;
+  }, [members]);
+
+  const squadLookup = useMemo(() => {
+    const map = new Map<string, Squad | null>();
+    if (squads) {
+      for (const squad of squads) map.set(squad.id, squad);
+    }
+    return map;
+  }, [squads]);
+
   const getActorName = useCallback((type: string, id: string): string | null => {
-    if (type === "agent" || type === "human" || type === "member") {
+    if (type === "agent") {
       return agentLookup.get(id)?.name ?? null;
     }
+    if (type === "human" || type === "member") {
+      return memberLookup.get(id)?.name ?? null;
+    }
+    if (type === "squad") {
+      return squadLookup.get(id)?.name ?? null;
+    }
     return null;
-  }, [agentLookup]);
+  }, [agentLookup, memberLookup, squadLookup]);
 
   const handleRetryNodeRun = useCallback(async (nodeRun: WorkflowNodeRun) => {
     if (!issueId) return;
@@ -433,7 +537,7 @@ export function ExecutionPanoramaPage({
     selectedRun?.status === "blocked" ||
     selectedRun?.status === "critic_rework";
 
-  const baseRfNodes = workflowNodesToReactFlowNodes({
+  const baseRfNodesRaw = workflowNodesToReactFlowNodes({
     nodes: allNodes,
     stages: sortStagesForDisplay(allStages),
     nodeType: "runtimeNode",
@@ -454,7 +558,10 @@ export function ExecutionPanoramaPage({
       splitChildCount: (splitTasksByNodeId.get(node.id) ?? []).filter((task) => task.issue_id).length,
       onSplitNodeToggle: handleToggleSplitNode,
     }),
-    makeCriticName: (node) => node.critic_id ? getActorName(node.critic_type ?? "agent", node.critic_id) ?? undefined : undefined,
+    makeCriticName: (node) =>
+      node.critic_id
+        ? getActorName(node.critic_type ?? "agent", node.critic_id) ?? undefined
+        : undefined,
   });
   const baseRfEdges = workflowEdgesToReactFlowEdges({
     edges: edges ?? [],
@@ -465,16 +572,14 @@ export function ExecutionPanoramaPage({
   const splitChildIssueByNodeId = new Map<string, string>();
   const splitChildNodes: Node[] = [];
   const splitChildEdges: Edge[] = [];
-  const baseGraphRight = baseRfNodes.reduce((maxRight, node) => {
-    const width = typeof node.width === "number" ? node.width : WORKER_WIDTH;
-    return Math.max(maxRight, node.position.x + width);
-  }, 0);
+  const baseRfNodeById = new Map(baseRfNodesRaw.map((node) => [node.id, node]));
+  const splitChildClusterLayouts: SplitChildClusterLayout[] = [];
 
   for (const splitNode of allNodes) {
     if (!expandedSplitNodeIds.has(splitNode.id)) continue;
     if (parseNodeFormat(splitNode.format_schema).kind !== "split") continue;
 
-    const parentRfNode = baseRfNodes.find((node) => node.id === splitNode.id);
+    const parentRfNode = baseRfNodeById.get(splitNode.id);
     if (!parentRfNode) continue;
 
     const tasks = (splitTasksByNodeId.get(splitNode.id) ?? [])
@@ -492,12 +597,96 @@ export function ExecutionPanoramaPage({
       levelGroups.set(level, group);
     }
 
-    const childClusterStartX = Math.max(
-      parentRfNode.position.x + WORKER_WIDTH + SPLIT_CHILD_X_GAP,
-      baseGraphRight + SPLIT_CHILD_SAFE_X_GAP,
+    splitChildClusterLayouts.push({ splitNode, levelGroups });
+  }
+
+  splitChildClusterLayouts.sort((a, b) => {
+    const aNode = baseRfNodeById.get(a.splitNode.id);
+    const bNode = baseRfNodeById.get(b.splitNode.id);
+    return (aNode?.position.x ?? 0) - (bNode?.position.x ?? 0);
+  });
+
+  const nodeShiftById = new Map<string, number>();
+  const clusterBoundsBySplitNodeId = new Map<string, SplitChildClusterBounds>();
+
+  for (const layout of splitChildClusterLayouts) {
+    const parentRfNode = baseRfNodeById.get(layout.splitNode.id);
+    if (!parentRfNode) continue;
+
+    const parentX = parentRfNode.position.x + (nodeShiftById.get(parentRfNode.id) ?? 0);
+    const parentY = parentRfNode.position.y;
+    const childClusterStartX = parentX + WORKER_WIDTH + SPLIT_CHILD_X_GAP;
+    const bounds = Array.from(layout.levelGroups.entries()).reduce<SplitChildClusterBounds | null>(
+      (current, [level, group]) => {
+        const sortedGroup = [...group].sort((a, b) => a.sort_order - b.sort_order);
+        return sortedGroup.reduce<SplitChildClusterBounds | null>((groupBounds, _task, index) => {
+          const x = childClusterStartX + level * (WORKER_WIDTH + SPLIT_CHILD_X_GAP);
+          const yOffset = (index - (sortedGroup.length - 1) / 2) * (RUNTIME_NODE_HEIGHT + SPLIT_CHILD_Y_GAP);
+          const y = parentY + yOffset;
+          const nodeBounds = {
+            left: x,
+            right: x + WORKER_WIDTH,
+            top: y,
+            bottom: y + RUNTIME_NODE_HEIGHT,
+          };
+          if (!groupBounds) return nodeBounds;
+          return {
+            left: Math.min(groupBounds.left, nodeBounds.left),
+            right: Math.max(groupBounds.right, nodeBounds.right),
+            top: Math.min(groupBounds.top, nodeBounds.top),
+            bottom: Math.max(groupBounds.bottom, nodeBounds.bottom),
+          };
+        }, current);
+      },
+      null,
+    );
+    if (!bounds) continue;
+
+    clusterBoundsBySplitNodeId.set(layout.splitNode.id, bounds);
+
+    for (const node of baseRfNodesRaw) {
+      if (node.id === layout.splitNode.id) continue;
+      const nodeHeight = typeof node.height === "number" ? node.height : RUNTIME_NODE_HEIGHT;
+      const currentShift = nodeShiftById.get(node.id) ?? 0;
+      const nodeLeft = node.position.x + currentShift;
+      const nodeTop = node.position.y;
+      const verticallyOverlaps = nodeTop < bounds.bottom && nodeTop + nodeHeight > bounds.top;
+      if (!verticallyOverlaps || nodeLeft <= parentX) continue;
+
+      const requiredLeft = bounds.right + SPLIT_CHILD_SAFE_X_GAP;
+      if (nodeLeft < requiredLeft) {
+        nodeShiftById.set(node.id, currentShift + requiredLeft - nodeLeft);
+      }
+    }
+  }
+
+  const baseRfNodes = baseRfNodesRaw.map((node) => {
+    const shift = nodeShiftById.get(node.id) ?? 0;
+    if (shift === 0) return node;
+    return {
+      ...node,
+      position: {
+        ...node.position,
+        x: node.position.x + shift,
+      },
+    };
+  });
+  const shiftedBaseRfNodeById = new Map(baseRfNodes.map((node) => [node.id, node]));
+
+  for (const layout of splitChildClusterLayouts) {
+    const splitNode = layout.splitNode;
+    const parentRfNode = shiftedBaseRfNodeById.get(splitNode.id);
+    const bounds = clusterBoundsBySplitNodeId.get(splitNode.id);
+    if (!parentRfNode || !bounds) continue;
+
+    const childClusterStartX = parentRfNode.position.x + WORKER_WIDTH + SPLIT_CHILD_X_GAP;
+    const taskMap = new Map(
+      Array.from(layout.levelGroups.values())
+        .flat()
+        .map((task) => [task.id, task]),
     );
 
-    for (const [level, group] of levelGroups) {
+    for (const [level, group] of layout.levelGroups) {
       group.sort((a, b) => a.sort_order - b.sort_order);
       group.forEach((task, index) => {
         const childNodeId = createSplitChildNodeId(splitNode.id, task.id);
@@ -540,10 +729,6 @@ export function ExecutionPanoramaPage({
               display_status: splitTaskDisplayStatus(task.status),
               active_actor_type: task.suggested_assignee_type ?? "member",
               active_actor_id: task.suggested_assignee_id,
-              deliverable_signal: "none",
-              required_deliverables_total: 0,
-              required_deliverables_submitted: 0,
-              required_deliverables_approved: 0,
               duration_seconds: null,
               session_id: null,
               runtime_id: null,
@@ -645,6 +830,8 @@ export function ExecutionPanoramaPage({
           setSelectedNodeId={setSelectedNodeId}
           onNodeClick={handleNodeClick}
           onNodeDoubleClick={handleNodeDoubleClick}
+          focusSplitNodeId={focusSplitNodeId}
+          onSplitClusterFocused={handleSplitClusterFocused}
           fillAvailableHeight={fillAvailableHeight}
         />
       </ReactFlowProvider>

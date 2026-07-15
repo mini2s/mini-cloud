@@ -10,7 +10,7 @@ import {
 } from "@multica/core/types";
 import { cn } from "@multica/ui/lib/utils";
 import { RuntimeDisplayStatusIcon } from "./node-run-status-icon";
-import { Bot, User, Building2, Check, ChevronDown, ChevronRight, CircleAlert, CircleCheck, Clock3, FileCheck2, GitFork, GitMerge } from "lucide-react";
+import { Bot, User, Building2, Check, ChevronDown, ChevronRight, GitFork, GitMerge } from "lucide-react";
 import { useT } from "@multica/views/i18n";
 import { Button } from "@multica/ui/components/ui/button";
 import { Loader2 } from "lucide-react";
@@ -32,20 +32,6 @@ export type NodeRunActionType =
   | "retry"
   | "skip"
   | "complete";
-
-export type DeliverableSignal = "red" | "yellow" | "green" | "none";
-
-/** Derive a traffic-light signal from deliverable submission statuses. */
-export function deriveDeliverableSignal(
-  items: Array<{ required: boolean; status: string }> | null | undefined,
-): DeliverableSignal {
-  if (!items || items.length === 0) return "none";
-  const required = items.filter((item) => item.required);
-  if (required.length === 0) return "none";
-  if (required.some((item) => item.status === "rejected" || item.status === "missing")) return "red";
-  if (required.some((item) => item.status === "submitted")) return "yellow";
-  return "green";
-}
 
 export interface RuntimeNodeCardProps {
   node: WorkflowNode;
@@ -110,35 +96,6 @@ function runtimeDisplayStatusText(
     case "cancelled":
       return t(($) => $.execution.display_status.cancelled);
   }
-}
-
-function deliverableSignalText(
-  t: IssueTranslator,
-  signal: WorkflowNodeRuntimeSummary["deliverable_signal"],
-): string {
-  if (signal === "green") return t(($) => $.execution.card.deliverable_green);
-  if (signal === "yellow") return t(($) => $.execution.card.deliverable_yellow);
-  if (signal === "red") return t(($) => $.execution.card.deliverable_red);
-  return t(($) => $.execution.card.deliverable_none);
-}
-
-function deliverableProgressText(
-  t: IssueTranslator,
-  submitted: number,
-  total: number,
-  approved: number,
-): string {
-  return t(($) => $.execution.card.deliverable_progress)
-    .replaceAll("{{submitted}}", String(submitted))
-    .replaceAll("{{total}}", String(total))
-    .replaceAll("{{approved}}", String(approved));
-}
-
-function deliverableSignalIcon(signal: WorkflowNodeRuntimeSummary["deliverable_signal"]) {
-  if (signal === "green") return { Icon: CircleCheck, className: "text-emerald-600" };
-  if (signal === "yellow") return { Icon: Clock3, className: "text-amber-600" };
-  if (signal === "red") return { Icon: CircleAlert, className: "text-destructive" };
-  return { Icon: FileCheck2, className: "text-muted-foreground" };
 }
 
 /** Actionable status → button layout mapping. */
@@ -254,39 +211,6 @@ function ActionButtons({
   );
 }
 
-function DeliverableSlot({
-  t,
-  signal,
-  submitted,
-  total,
-  approved,
-}: {
-  t: IssueTranslator;
-  signal: WorkflowNodeRuntimeSummary["deliverable_signal"];
-  submitted: number;
-  total: number;
-  approved: number;
-}) {
-  const { Icon, className } = deliverableSignalIcon(signal);
-
-  return (
-    <div
-      className="col-span-full flex h-4 min-w-0 items-center gap-1.5 text-[10px] leading-none text-muted-foreground"
-      data-testid="runtime-node-deliverables"
-    >
-      <Icon className={cn("h-3 w-3 shrink-0", className)} />
-      <div className="min-w-0 flex-1 truncate">
-        <span className="font-medium text-foreground/75">
-          {deliverableSignalText(t, signal)}
-        </span>
-      </div>
-      <span className="shrink-0 tabular-nums">
-        {deliverableProgressText(t, submitted, total, approved)}
-      </span>
-    </div>
-  );
-}
-
 function ActorSlot({
   icon: Icon,
   label,
@@ -343,11 +267,6 @@ export function RuntimeNodeCard({
   const displayStatus = runtimeSummary?.display_status ?? (nodeRun ? toWorkflowRuntimeDisplayStatus(nodeRun.status) : "pending");
   const displayStatusLabel = runtimeDisplayStatusText(t, displayStatus, isGateway ? nodeFormat.gateway_kind : null);
   const hasCritic = !isGateway && !isSplit && (node.critic_type || node.critic_id);
-  const deliverableSignal = runtimeSummary?.deliverable_signal ?? "none";
-  const deliverableTotal = runtimeSummary?.required_deliverables_total ?? 0;
-  const deliverableSubmitted = runtimeSummary?.required_deliverables_submitted ?? 0;
-  const deliverableApproved = runtimeSummary?.required_deliverables_approved ?? 0;
-  const showDeliverableSummary = !isGateway && !isSplit && deliverableTotal > 0;
 
   const WorkerIcon = typeIcon(node.worker_type);
   const CriticIcon = node.critic_type === "agent" ? Bot : node.critic_type === "squad" ? Building2 : User;
@@ -413,6 +332,7 @@ export function RuntimeNodeCard({
       width={WORKER_WIDTH}
       height={RUNTIME_NODE_HEIGHT}
       title={node.title}
+      tabIndex={canToggleSplitChildren ? 0 : undefined}
       onClick={() => onClick(node.id)}
       onKeyDown={canToggleSplitChildren ? handleShellKeyDown : undefined}
       className="h-[120px]"
@@ -519,15 +439,6 @@ export function RuntimeNodeCard({
               icon={CriticIcon}
               label={t(($) => $.execution.card.critic_label)}
               name={criticName}
-            />
-          ) : null}
-          {showDeliverableSummary ? (
-            <DeliverableSlot
-              t={t}
-              signal={deliverableSignal}
-              submitted={deliverableSubmitted}
-              total={deliverableTotal}
-              approved={deliverableApproved}
             />
           ) : null}
         </div>

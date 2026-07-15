@@ -5,7 +5,6 @@ import { useQuery } from "@tanstack/react-query";
 import {
   Activity,
   Bot,
-  FileCheck2,
   GitFork,
   GitMerge,
   MessageSquare,
@@ -33,7 +32,6 @@ import {
   NodeDetailSection,
   WorkflowNodeDetailPanelShell,
 } from "../../../common/workflow-node-detail-panel-shell";
-import { ArtifactList } from "./artifact-list";
 import { NodeRunStatusIcon, RuntimeDisplayStatusIcon } from "./node-run-status-icon";
 import { resolveChatSessionId } from "../../../chat/lib/resolve-chat-session-id";
 
@@ -68,13 +66,6 @@ function formatJson(value: unknown): string {
 
 function isRetryableNodeRunStatus(status: string | undefined): boolean {
   return status === "failed" || status === "format_failed" || status === "blocked" || status === "critic_rework";
-}
-
-function deliverableSignalTone(signal: WorkflowNodeRuntimeSummary["deliverable_signal"]): string {
-  if (signal === "green") return "border-emerald-200 bg-emerald-50 text-emerald-700";
-  if (signal === "yellow") return "border-amber-200 bg-amber-50 text-amber-700";
-  if (signal === "red") return "border-red-200 bg-red-50 text-red-700";
-  return "border-border bg-muted/30 text-muted-foreground";
 }
 
 type StatusPathStepTone = "muted" | "current" | "complete" | "blocked" | "rework" | "cancelled";
@@ -167,16 +158,6 @@ function runtimeDisplayStatusText(
   }
 }
 
-function deliverableSignalText(
-  t: IssueTranslator,
-  signal: WorkflowNodeRuntimeSummary["deliverable_signal"],
-): string {
-  if (signal === "green") return t(($) => $.execution.detail_panel.deliverable_status_green);
-  if (signal === "yellow") return t(($) => $.execution.detail_panel.deliverable_status_yellow);
-  if (signal === "red") return t(($) => $.execution.detail_panel.deliverable_status_red);
-  return t(($) => $.execution.detail_panel.deliverable_status_none);
-}
-
 function formatDurationLabel(totalSeconds: number): string {
   if (totalSeconds < 60) return `${totalSeconds}s`;
 
@@ -192,18 +173,6 @@ function formatDurationLabel(totalSeconds: number): string {
     return minutes > 0 ? `${hours}h ${minutes}m` : `${hours}h`;
   }
   return seconds > 0 ? `${minutes}m ${seconds}s` : `${minutes}m`;
-}
-
-function deliverableProgressText(
-  t: IssueTranslator,
-  submitted: number,
-  total: number,
-  approved: number,
-): string {
-  return t(($) => $.execution.detail_panel.deliverable_progress)
-    .replaceAll("{{submitted}}", String(submitted))
-    .replaceAll("{{total}}", String(total))
-    .replaceAll("{{approved}}", String(approved));
 }
 
 export function ExecutionDetailPanel({
@@ -267,10 +236,6 @@ export function ExecutionDetailPanel({
   const canUnblock = !isGateway && status === "blocked" && !!onUnblock;
   const canRetry = !isGateway && isRetryableNodeRunStatus(status) && !!onRetry;
   const hasAgentOperations = canOpenSession || canUnblock || canRetry;
-  const deliverableSignal = runtimeSummary?.deliverable_signal ?? "none";
-  const requiredDeliverablesTotal = runtimeSummary?.required_deliverables_total ?? 0;
-  const requiredDeliverablesSubmitted = runtimeSummary?.required_deliverables_submitted ?? 0;
-  const requiredDeliverablesApproved = runtimeSummary?.required_deliverables_approved ?? 0;
 
   const handleOpenSession = () => {
     if (!sessionId) return;
@@ -448,34 +413,6 @@ export function ExecutionDetailPanel({
           </div>
         </NodeDetailSection>
       ) : null}
-
-      <NodeDetailSection
-        sectionId="deliverables"
-        icon={<FileCheck2 className="size-4" />}
-        title={t(($) => $.execution.detail_panel.section_deliverables)}
-        subtitle={t(($) => $.execution.detail_panel.section_deliverables_desc)}
-      >
-        {nodeRun && !isGateway ? (
-          <div className="space-y-3">
-            <div className={`rounded-lg border p-3 ${deliverableSignalTone(deliverableSignal)}`}>
-              <p className="text-xs font-medium">
-                {t(($) => $.execution.detail_panel.deliverable_status_label)}
-              </p>
-              <p className="mt-1 text-sm font-semibold">
-                {deliverableSignalText(t, deliverableSignal)}
-              </p>
-              <p className="mt-1 text-xs opacity-80">
-                {deliverableProgressText(t, requiredDeliverablesSubmitted, requiredDeliverablesTotal, requiredDeliverablesApproved)}
-              </p>
-            </div>
-            <ArtifactList nodeRun={nodeRun} />
-          </div>
-        ) : (
-          <p className="text-sm text-muted-foreground">
-            {isGateway ? "Gateway nodes do not produce deliverables." : "No run data for deliverables yet."}
-          </p>
-        )}
-      </NodeDetailSection>
 
       <NodeDetailSection
         sectionId="runtime"
