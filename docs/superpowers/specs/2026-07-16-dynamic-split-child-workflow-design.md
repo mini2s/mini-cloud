@@ -32,8 +32,8 @@ Dynamic split 的既有设计把 `child_workflow_id` 放在 split 节点配置�
 
 | 术语 | 含义 |
 | --- | --- |
-| Planner worker | split 节点自己的 worker，负责生成和调整子 issue 草案 |
-| 默认 issue workflow | split 节点配置的默认 workflow，Agent 未指定时用于填充草案 |
+| Planner worker | split 节点自己的 worker，负责生成和调整子 issue 草案的非 workflow 内容 |
+| 默认 issue workflow | split 节点配置的默认 workflow，后端用于填充动态生成的草案 |
 | 草案 workflow | 每条 split task 上的最终 `workflow_id`，审核面板可修改 |
 | 子 issue workflow | 子 issue 创建后绑定并启动的 workflow，来自草案 workflow |
 | split group | 一个 split node run 下的全部草案、子 issue、WorkflowRun 和聚合状态 |
@@ -81,8 +81,8 @@ child issue:
 设计取舍：
 
 - workflow 不再是 split 节点的固定子配置，而是每条 split task 的字段。
-- Agent 生成草案时可以指定 `workflow_id`；未指定时后端在写入前填充 split 节点默认 workflow。
-- Agent 指定了无效 `workflow_id` 时，后端拒绝整批草案请求，不静默回退默认 workflow。
+- Planner agent 不制定 `workflow_id`；动态生成草案时，后端在写入前统一填充 split 节点默认 workflow。
+- Planner agent 的草案写入请求如果包含 `workflow_id`，后端直接忽略该字段，仍按 split 节点默认 workflow 填充。
 - 审核面板修改执行 workflow，本质上就是修改草案的 `workflow_id`。
 - 创建真实子 issue 时，草案 `workflow_id` 写入 issue 的 `assignee_id` 和 `workflow_id`。
 - SplitOrchestrator 仍然是 split 子任务的唯一调度器，负责按依赖和并发启动 WorkflowRun。
@@ -152,35 +152,34 @@ assignee_id = workflow_id
 
 ## Agent 草案生成
 
-Planner agent 生成草案时可以显式指定 workflow：
+Planner agent 只生成子 issue 草案内容，不生成、不建议、不选择 `workflow_id`。草案的执行 workflow 来自用户在 workflow 编辑器中配置的 `split_config.default_issue_workflow_id`，或后续审核面板的确定性修改。
 
 ```json
 {
   "key": "migrate-user-service",
   "title": "迁移 user-service",
   "description": "迁移 API 与 schema",
-  "workflow_id": "<workflow_uuid>",
   "depends_on": []
 }
 ```
 
-如果 Agent 未指定 `workflow_id`，后端用 `split_config.default_issue_workflow_id` 填充到 split task。填充后写入草案行，而不是在 approve 时临时回退。
+后端接收 Planner agent 的草案后，用 `split_config.default_issue_workflow_id` 填充到 split task。填充后写入草案行，而不是在 approve 时临时回退。
 
-如果 Agent 指定了 `workflow_id`，后端在写入前校验该 workflow 是否属于同 workspace、active、不是当前 workflow、且不包含 split 节点。校验失败时拒绝整批草案写入，返回 `422 invalid_split_task_workflow`，错误中包含对应草案 `draft_key` 或索引。
+如果 Planner agent 的草案请求包含 `workflow_id`，后端直接忽略该字段，不校验、不报错、不写入。最终落库的草案 `workflow_id` 始终来自 `split_config.default_issue_workflow_id`。这能避免模型输出影响执行 workflow，同时不因为多余字段导致整批草案生成失败。
 
-Planner agent 获取可选 workflow 的机制：
+Planner agent 不获取可选 workflow 列表：
 
-- 后端向 Planner agent 提供 `list_available_issue_workflows` tool。
-- tool 返回 workflow id、name、description、updated_at，不把完整 workflow 定义注入 prompt。
-- prompt 只说明默认 issue workflow 和 tool 使用规则，避免 Agent 猜 ID。
+- 后端不向 Planner agent 提供 `list_available_issue_workflows` tool。
+- prompt 不注入可选 workflow id、name、description 或完整 workflow 定义。
+- prompt 只说明系统会按默认 issue workflow 填充草案，workflow 调整必须由审核者在审核面板中完成。
 
 生成上下文必须明确区分：
 
 - Planner worker：谁在生成草案。
-- 默认 issue workflow：Agent 未指定 `workflow_id` 时使用哪个 workflow。
-- 可选 workflow 列表：当前 workspace 下可用的 active workflow，排除当前 workflow 和含 split 节点的 workflow。
+- 默认 issue workflow：后端为动态草案填充的 workflow。
+- 审核 workflow 选项：只提供给审核面板和确定性 API，不提供给 Planner agent。
 
-Prompt 应避免使用 "split node workflow" 这类表达，改用 "default issue workflow" 和 "task workflow_id"。
+Prompt 应避免使用 "split node workflow" 和 "task workflow_id" 这类表达，改用 "default issue workflow" 和 "execution workflow"。
 
 ## 审核面板
 
@@ -212,6 +211,8 @@ Prompt 应避免使用 "split node workflow" 这类表达，改用 "default issu
 - 行内下拉可以精确修改单条草案的执行 workflow。
 - 审核面板提供确定性的批量操作，例如"选中多条后改为..."和"全部失效 workflow 改为..."；该能力走批量 PATCH API，不走自然语言。
 - 下拉修改是确定性 API 更新，不需要经过 Agent。
+- 审核面板提供确定性的新增草案、丢弃草案、恢复草案入口；这些操作走草案 CRUD/PATCH API，不依赖自然语言。
+- `max_concurrency` 可在审核期和 `split_active` 期间修改；修改后只影响后续调度，不抢占或取消已经 running 的子任务。
 - 自然语言交互不得修改 `workflow_id`；涉及 workflow 调整的自然语言请求应提示用户使用每行下拉选择。
 - `/split/chat` 如保留，只能调整标题、描述、拆分粒度或依赖等非 workflow 字段，并且必须使用草案版本号做并发控制。
 - 任一保留草案缺少有效 workflow 时，确认创建按钮禁用，并在结论区显示具体阻塞项。
@@ -228,7 +229,7 @@ Prompt 应避免使用 "split node workflow" 这类表达，改用 "default issu
 帮助文案：
 
 ```text
-Agent 未指定 workflow 时，动态生成的子 issue 默认使用该 workflow。每个子 issue 可在审核面板中单独修改。
+动态生成的子 issue 默认使用该 workflow。每个子 issue 可在审核面板中单独修改。
 ```
 
 ## API 设计
@@ -250,7 +251,6 @@ POST /api/node-runs/{nodeRunID}/split/draft-tasks/batch
       "draft_key": "migrate-user-service",
       "title": "迁移 user-service",
       "description": "迁移 API 与 schema",
-      "workflow_id": "<workflow_uuid>",
       "depends_on": []
     }
   ]
@@ -263,10 +263,10 @@ POST /api/node-runs/{nodeRunID}/split/draft-tasks/batch
 - 每条 task 必须带稳定 `draft_key`；旧请求中的 `key` 仅可作为兼容输入别名进入服务层，落库字段统一为 `draft_key`。
 - 后端使用 `(node_run_id, draft_key)` 幂等 upsert；Planner agent 调用超时后重试不会产生重复草案。
 - 同一批请求内 `draft_key` 重复时返回 `422 duplicate_split_draft_key`。
-- 任一草案 workflow 无效、默认 workflow 失效、依赖非法或 title 为空时，整批失败，不产生部分草案。
-- 若请求缺少 `workflow_id`，后端在 INSERT 前用 split 节点默认 issue workflow 填充。
-- 若 Agent 显式传入无效 `workflow_id`，返回 `422 invalid_split_task_workflow`，不回退默认 workflow。
-- 创建成功后返回完整 split tasks response，包含每条草案的 `version`。
+- 默认 workflow 失效、依赖非法或 title 为空时，整批失败，不产生部分草案。
+- Planner agent 批量草案请求中的 `workflow_id` 会被忽略；后端在 INSERT 前用 split 节点默认 issue workflow 填充。
+- 若 Planner agent 显式传入 `workflow_id`，不校验该值，也不写入该值。
+- 创建成功后返回完整 split tasks response，包含每条草案填充后的 `workflow_id` 和 `version`。
 
 ### 审核期确定性修改 API
 
@@ -281,6 +281,10 @@ PATCH /api/node-runs/{nodeRunID}/split/draft-tasks/{taskID}
 ```json
 {
   "workflow_id": "<workflow_uuid>",
+  "title": "迁移 user-service",
+  "description": "迁移 API 与 schema",
+  "depends_on": ["uuid-0"],
+  "discarded": false,
   "expected_version": 3
 }
 ```
@@ -289,11 +293,41 @@ PATCH /api/node-runs/{nodeRunID}/split/draft-tasks/{taskID}
 
 - 只允许 `awaiting_split_review` 状态修改。
 - 只能修改同一个 node run 下的 draft task。
+- 允许修改字段为：`title`、`description`、`depends_on`、`discarded`、`workflow_id`。
 - 必须提供 `expected_version`；版本不一致返回 `409 draft_task_conflict`，前端刷新草案并提示用户重新确认。
-- 修改后立即校验 workflow 合法性。
+- 修改后立即校验 title、依赖 DAG 和 workflow 合法性。
 - workflow 不存在、inactive、跨 workspace、指向当前 workflow 或包含 split 节点时，返回 `422 invalid_split_task_workflow`。
+- `depends_on` 只能引用同一 node run 下未 discarded 的草案；成环或非法引用返回 `422 invalid_split_task_dependency`。
 - 前端在下拉旁显示内联错误，并重新请求 workflow 选项列表。
 - 修改成功后 `version += 1`，返回完整 split tasks response。
+
+### 审核期新增草案 API
+
+审核者手动新增子任务必须走确定性 API：
+
+```http
+POST /api/node-runs/{nodeRunID}/split/draft-tasks
+```
+
+请求：
+
+```json
+{
+  "title": "补充回归测试",
+  "description": "覆盖迁移后的关键路径",
+  "workflow_id": "<workflow_uuid>",
+  "depends_on": ["uuid-1"]
+}
+```
+
+规则：
+
+- 只允许 `awaiting_split_review` 状态新增。
+- 后端生成稳定 `draft_key`，格式可为 `manual-<uuid>`；不得与 Agent 生成的 `draft_key` 冲突。
+- `workflow_id` 可缺省；缺省时使用当前 split config 快照中的 `default_issue_workflow_id` 填充。
+- 新增前校验 title、依赖 DAG 和 workflow 合法性；失败时不写入。
+- 成功后返回完整 split tasks response，新增草案 `version = 1`。
+- 手动新增草案与 Agent 草案在 approve、discard、调度和聚合中语义一致。
 
 ### 批量 workflow 修改 API
 
@@ -340,6 +374,33 @@ PATCH /api/node-runs/{nodeRunID}/split/draft-tasks/batch
 - `/split/chat` 写回草案时必须携带每条草案的 `expected_version`。
 - 版本冲突返回 `409 draft_task_conflict`，前端刷新草案并提示用户重新发起自然语言调整。
 
+### Split group 调度参数 API
+
+审核期和运行期修改并发参数走确定性 API：
+
+```http
+PATCH /api/node-runs/{nodeRunID}/split/config
+```
+
+请求：
+
+```json
+{
+  "max_concurrency": 8,
+  "expected_config_version": 2
+}
+```
+
+规则：
+
+- 只允许修改 `max_concurrency`；第一期不允许运行期修改 `mode`。
+- `awaiting_split_review` 和 `split_active` 状态可修改；终态 node run 不可修改。
+- `max_concurrency` 必须大于 0，否则返回 `422 split_max_concurrency_invalid`。
+- 运行期调大后，SplitOrchestrator 在下一次调度 tick 尽量启动更多 ready task。
+- 运行期调小后，不取消已 running task；只有 running 数低于新上限后才继续启动 pending/created task。
+- 必须携带 `expected_config_version`；冲突返回 `409 split_config_conflict`。
+- 成功后 `config_version += 1`，返回 split group 聚合状态和最新配置。
+
 ### `/split/approve`
 
 请求保持简化：
@@ -368,6 +429,12 @@ approve materialize 必须在一个 DB transaction 中完成：
 - 初始化 split group 调度状态。
 
 任一步失败时事务回滚，不允许出现部分子 issue 已创建、部分未创建的状态。
+
+幂等要求：
+
+- `multica_workflow_split_task.issue_id` 与子 issue 的 `origin_type = "workflow_split"` / `origin_id = split_task.id` 必须形成唯一映射。
+- approve 事务内创建子 issue 时使用 `split_task.id` 作为幂等来源；并发 approve 只能有一个成功，另一个返回冲突或已 materialized 状态。
+- 如果 approve 请求在响应前超时，客户端重试不得创建重复子 issue；后端应返回当前 split tasks response 或明确的状态冲突。
 
 性能约束：
 
@@ -445,7 +512,7 @@ approve 后按拓扑顺序创建子 issue。所有子 issue 可以先 materializ
 
 - 当依赖满足且并发允许，加载 `split_task.workflow_id` 指向的 workflow。
 - 调用 `StartRunForIssue`。
-- 为子 workflow 的 node run 创建 workflow 内部 sub-issue。
+- 创建子 WorkflowRun 内部 NodeRun 和 agent task；普通 workflow 节点不 materialize 为 issue。
 - 回写 `issue.workflow_run_id` 和 `split_task.run_id`。
 - split task 状态进入 `running`。
 
@@ -455,9 +522,22 @@ approve 后按拓扑顺序创建子 issue。所有子 issue 可以先 materializ
 - 重新分配 workflow_split 子 issue 时不绕过 SplitOrchestrator 自动启动 workflow run。
 - 所有启动、取消、重试都由 SplitOrchestrator 处理。
 
+WorkflowRun 启动幂等要求：
+
+- SplitOrchestrator 调用 `StartRunForIssue` 时必须传入可重复的 dispatch key，例如 `split-task:<split_task_id>:attempt:<attempt>`。
+- `StartRunForIssue` 对同一 dispatch key 必须幂等返回同一个 WorkflowRun，避免启动成功但回写失败后重试创建重复 run。
+- 回写 `issue.workflow_run_id` 和 `split_task.run_id` 前必须重新检查 task 仍处于可启动状态。
+- SplitOrchestrator 重启恢复时，如果发现 dispatch key 对应 run 已存在但 task 未回写，应补写关联，而不是创建新 run。
+
 ## 进度聚合
 
 第一期只支持 workflow，因此 split task 的运行事实来源仍是 child WorkflowRun。
+
+聚合错误模型：
+
+- split task response 必须包含可选 `last_error`，字段包括 `code`、`message`、`child_issue_id`、`workflow_run_id`、`node_run_id`、`occurred_at`。
+- 子 WorkflowRun 或 NodeRun 失败时，聚合层应保留最近一次失败定位路径，便于父 issue 和画布展示“哪个子任务、哪个节点、什么错误”。
+- pipeline 已释放后发生的失败同样写入 split group 聚合状态和事件流，不回写父 split node 的终态。
 
 状态规则：
 
@@ -546,6 +626,8 @@ approve 后按拓扑顺序创建子 issue。所有子 issue 可以先 materializ
 
 实现要求：
 
+- 前端触发父 run/父 issue 取消前必须展示二次确认，确认文案包含将被影响的 running、created/pending、未 materialize 草案和已创建子 issue 数量。
+- 用户确认后才调用取消接口；未确认不得触发 `CancelSplitNode()`。
 - issue 状态变更为 `cancelled` 的链路必须检测活跃 split node run，并调用 `SplitOrchestrator.CancelSplitNode()`。
 - 不能只取消 agent task；workflow_split 子 WorkflowRun 必须通过 SplitOrchestrator 级联取消。
 - 批量取消 issue 时也要复用同一逻辑。
@@ -662,17 +744,21 @@ POST /api/node-runs/{nodeRunID}/split/tasks/{taskID}/retry
 
 - `parseSplitConfig` 接受 `default_issue_workflow_id`，拒绝旧 `child_workflow_id`，并确认不会引入 `default_child_workflow_id`。
 - migration 分 nullable/backfill/set not null 执行，已有 `multica_workflow_split_task` 数据不会导致迁移失败。
-- Batch Draft API 缺少 `workflow_id` 时填充默认 issue workflow，并在 INSERT 前完成校验。
+- Batch Draft API 忽略 Planner agent 传入的 `workflow_id`，由后端填充默认 issue workflow，并在 INSERT 前完成校验。
 - Batch Draft API 使用 `draft_key` 做幂等 upsert，重试不产生重复草案。
-- Batch Draft API 在任一草案 workflow 无效时整批失败且不产生部分写入。
-- Agent 显式传入无效 `workflow_id` 时返回 `422 invalid_split_task_workflow`，不回退默认 workflow。
+- Batch Draft API 在默认 issue workflow 无效时整批失败且不产生部分写入。
+- Planner agent 显式传入 `workflow_id` 时直接忽略该字段，不校验该值，也不写入该值。
+- 手动新增草案 API 缺少 `workflow_id` 时填充默认 issue workflow，返回 `version = 1`。
 - PATCH draft task 必须携带 `expected_version`，版本冲突返回 `409 draft_task_conflict`。
+- PATCH draft task 可修改 title、description、depends_on、discarded、workflow_id，并对依赖和 workflow 做实时校验。
 - PATCH draft task workflow 失效时返回 `422 invalid_split_task_workflow`。
 - 批量 workflow PATCH 在任一冲突或失效时整批回滚。
 - `/split/chat` 只能修改白名单字段，不能修改 `workflow_id`、`draft_key`、`status`，且写回非 workflow 字段时使用版本校验。
 - `/split/chat` 修改 `depends_on` 后执行 DAG 无环和 discarded 引用校验。
+- Split config PATCH 在审核期和运行期可修改 `max_concurrency`，并发调小不取消 running task。
 - approve 拒绝缺少或失效 `workflow_id` 的 task。
 - approve 并发调用时只有一个成功，另一个返回冲突或状态错误。
+- approve 超时后重试不会创建重复子 issue。
 - approve materialize 在单个事务中创建所有子 issue 并写入各自 `workflow_id`。
 - approve 超过单次 task 上限时返回 `422 split_task_limit_exceeded`。
 - 空 approve 缺少 `confirm_empty` 时返回 `422`；显式确认空草案时父 split node 完成。
@@ -680,6 +766,7 @@ POST /api/node-runs/{nodeRunID}/split/tasks/{taskID}/retry
 - workflow_split 子 issue 创建后不会通过普通 issue 创建链路自动启动 WorkflowRun。
 - workflow_split 子 issue 活跃期间拒绝改成非 workflow assignee。
 - SplitOrchestrator 按依赖和并发启动对应 WorkflowRun，并回写 `workflow_run_id` 和 `run_id`。
+- SplitOrchestrator 使用 dispatch key 幂等启动 WorkflowRun，启动成功但回写失败后恢复不会创建重复 run。
 - SplitOrchestrator 重启后能恢复 pipeline split group 的调度状态。
 - barrier 模式等待所有子任务终态后再释放下游。
 - barrier 失败超限时取消 running、skip pending、保留 done，并将父 split node 标记 failed。
@@ -687,15 +774,19 @@ POST /api/node-runs/{nodeRunID}/split/tasks/{taskID}/retry
 - pipeline initial dispatch 中首个 ready WorkflowRun 启动失败时父 split node failed，不释放下游。
 - pipeline 后续失败超限时不回滚父 split node，但更新 split group 聚合状态并停止后续调度。
 - 父 issue 取消会级联取消 split group、子 WorkflowRun 和 workflow_split 子 issue。
+- 父 issue/父 run 取消前端必须二次确认，并展示受影响子任务数量。
 - 依赖失败后继任务进入 `skipped`。
+- split task 失败 response 包含 child issue、workflow run、node run 和错误信息定位路径。
 - 子 workflow 在执行中被修改时，已有 WorkflowRun 使用启动时快照或当前系统既有 workflow run 语义，不能影响 split task 关联。
 
 前端：
 
 - split 节点配置面板展示 `默认 issue workflow`，不展示旧 `child workflow`。
 - 审核面板每条草案展示执行 workflow。
+- 审核面板支持确定性新增、丢弃和恢复草案。
 - 行内下拉修改 workflow 调用 draft patch API，并携带 `expected_version`。
 - 批量"改为 workflow"操作调用批量 PATCH API，并处理 409/422。
+- 审核期和运行期修改 `max_concurrency` 调用 split config PATCH，并处理 409/422。
 - PATCH 返回 `422` 时刷新 workflow 选项并显示行内错误。
 - PATCH 返回 `409` 时刷新草案并提示用户重新确认。
 - `/split/chat` 不提供 workflow 批量调整入口。
@@ -705,6 +796,8 @@ POST /api/node-runs/{nodeRunID}/split/tasks/{taskID}/retry
 - 子 issue 已创建但 WorkflowRun 尚未启动时，issue 列表和详情显示"等待调度"，不要误报为运行中。
 - pipeline 父 workflow 已完成但子任务仍运行时，父 issue 展示拆分任务仍在执行的聚合状态。
 - pipeline 后续失败时，父 issue 展示醒目的 split group warning/failed 状态。
+- 子任务失败时，父 issue 和画布能展示具体子任务、失败节点和错误消息。
+- 父 run/父 issue 取消前展示二次确认和受影响子任务数量。
 - 确认弹窗说明会按各自 workflow 启动。
 - 旧 `child_workflow_id` fixture 全部迁移或删除；不得新增 `default_child_workflow_id` fixture。
 - 新 preflight checkId 在 preflight bar 中显示友好标签，而不是裸 ID。
@@ -722,6 +815,8 @@ E2E：
 - pipeline initial dispatch 启动失败时父 split node 失败且下游不执行。
 - 默认 workflow 在草案创建后被删除，approve 返回可恢复错误。
 - Batch Draft API 超时重试不会产生重复草案。
+- approve 和 dispatch 重试不会产生重复子 issue 或重复 WorkflowRun。
+- 父 issue 取消必须经过二次确认，确认后级联取消非终态子任务。
 - 100 条草案被拒绝或分页处理；50 条以内 approve 不超时。
 
 ## 验收标准
