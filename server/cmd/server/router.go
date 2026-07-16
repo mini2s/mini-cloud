@@ -192,6 +192,7 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 		// when unset, the daemon falls back to its own built-in github default.
 		CSCPluginMarketplaceName: strings.TrimSpace(os.Getenv("CSC_PLUGIN_MARKETPLACE_NAME")),
 		CSCPluginMarketplaceRepo: strings.TrimSpace(os.Getenv("CSC_PLUGIN_MARKETPLACE_REPO")),
+		CloudGatewayProxyPrefix:  strings.TrimRight(strings.TrimSpace(os.Getenv("MULTICA_CLOUD_GATEWAY_PROXY_PREFIX")), "/"),
 	}
 	h := handler.New(queries, pool, hub, bus, emailSvc, store, cfSigner, analyticsClient, signupConfig, daemonHub)
 	if opts.DaemonWakeup != nil {
