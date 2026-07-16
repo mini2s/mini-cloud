@@ -250,20 +250,22 @@ UPDATE multica_project SET
     priority = COALESCE($6, priority),
     lead_type = $7,
     lead_id = $8,
+    local_directory = $9,
     updated_at = now()
 WHERE id = $1
 RETURNING id, workspace_id, title, description, icon, status, lead_type, lead_id, created_at, updated_at, priority, local_directory
 `
 
 type UpdateProjectParams struct {
-	ID          pgtype.UUID `json:"id"`
-	Title       pgtype.Text `json:"title"`
-	Description pgtype.Text `json:"description"`
-	Icon        pgtype.Text `json:"icon"`
-	Status      pgtype.Text `json:"status"`
-	Priority    pgtype.Text `json:"priority"`
-	LeadType    pgtype.Text `json:"lead_type"`
-	LeadID      pgtype.UUID `json:"lead_id"`
+	ID             pgtype.UUID `json:"id"`
+	Title          pgtype.Text `json:"title"`
+	Description    pgtype.Text `json:"description"`
+	Icon           pgtype.Text `json:"icon"`
+	Status         pgtype.Text `json:"status"`
+	Priority       pgtype.Text `json:"priority"`
+	LeadType       pgtype.Text `json:"lead_type"`
+	LeadID         pgtype.UUID `json:"lead_id"`
+	LocalDirectory pgtype.Text `json:"local_directory"`
 }
 
 func (q *Queries) UpdateProject(ctx context.Context, arg UpdateProjectParams) (MulticaProject, error) {
@@ -276,6 +278,7 @@ func (q *Queries) UpdateProject(ctx context.Context, arg UpdateProjectParams) (M
 		arg.Priority,
 		arg.LeadType,
 		arg.LeadID,
+		arg.LocalDirectory,
 	)
 	var i MulticaProject
 	err := row.Scan(
