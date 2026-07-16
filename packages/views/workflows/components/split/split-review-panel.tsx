@@ -266,17 +266,18 @@ export function SplitReviewPanel({
   }, [isSplitChatRunning, refetchSplitTasks]);
 
   const tasks = data?.tasks ?? [];
+  const activeTasks = useMemo(() => creatableTasks(tasks), [tasks]);
   const progress = data?.progress ?? EMPTY_PROGRESS;
   const splitConfig = splitConfigFromNode(node);
-  const creatableCount = creatableTasks(tasks).length;
-  const workflowBlockers = creatableTasks(tasks)
+  const creatableCount = activeTasks.length;
+  const workflowBlockers = activeTasks
     .map((task, index) => task.workflow_id ? null : t(($) => $.detail_panel.split_blocker_missing_workflow, { index: index + 1 }))
     .filter((message): message is string => Boolean(message));
   const canApprove = nodeRun?.status === "awaiting_split_review" && creatableCount > 0 && workflowBlockers.length === 0;
   const canChat = nodeRun?.status === "awaiting_split_review";
   const canCancel = isNodeRunCancellable(nodeRun?.status);
   const canRecover = nodeRun?.status === "failed";
-  const canGenerate = !!nodeRunId && isSplitGenerateActionStatus(nodeRun?.status) && (tasks.length === 0 || nodeRun?.status === "failed");
+  const canGenerate = !!nodeRunId && isSplitGenerateActionStatus(nodeRun?.status) && (activeTasks.length === 0 || nodeRun?.status === "failed");
   const failureMessage = splitFailureMessage(nodeRun);
   const generateLabel = tasks.length > 0
     ? t(($) => $.detail_panel.split_regenerate_draft)
@@ -382,7 +383,7 @@ export function SplitReviewPanel({
       >
         <SplitVerdictSummary
           nodeRun={nodeRun}
-          tasks={tasks}
+          tasks={activeTasks}
           progress={progress}
           splitConfig={splitConfig}
           isChatPending={chatMutation.isPending}
@@ -404,7 +405,7 @@ export function SplitReviewPanel({
           <p className="text-sm text-muted-foreground">{t(($) => $.detail_panel.split_loading_draft)}</p>
         ) : (
           <SplitDraftLedger
-            tasks={tasks}
+            tasks={activeTasks}
             workflows={workflowOptions}
             taskIssueBySourceId={childIssueBySplitTaskId}
             readOnly={nodeRun?.status !== "awaiting_split_review"}
@@ -421,7 +422,7 @@ export function SplitReviewPanel({
         {isLoading ? (
           <p className="text-sm text-muted-foreground">{t(($) => $.detail_panel.split_loading_dependencies)}</p>
         ) : (
-          <SplitDependencyNote tasks={tasks} />
+          <SplitDependencyNote tasks={activeTasks} />
         )}
       </NodeDetailSection>
 

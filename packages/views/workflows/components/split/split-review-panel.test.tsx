@@ -432,7 +432,8 @@ describe("SplitReviewPanel", () => {
     expect(screen.getByText("01")).toBeInTheDocument();
     expect(screen.getByText("Implement API contract")).toBeInTheDocument();
     expect(screen.getByText("Dependencies: none")).toBeInTheDocument();
-    expect(screen.getByText("Dependencies: 01")).toBeInTheDocument();
+    expect(screen.queryByText("Discarded task")).not.toBeInTheDocument();
+    expect(screen.queryByText("Dependencies: 01")).not.toBeInTheDocument();
     expect(screen.queryByRole("textbox", { name: /Task title/i })).not.toBeInTheDocument();
     expect(screen.queryByRole("textbox", { name: /Task description/i })).not.toBeInTheDocument();
     expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
@@ -440,6 +441,46 @@ describe("SplitReviewPanel", () => {
     expect(screen.queryByTestId("split-task-dag")).not.toBeInTheDocument();
     expect(approveButton.closest(".sticky")).not.toBeNull();
     expect(container).not.toHaveTextContent(mojibakePattern);
+  });
+
+  it("shows only active draft rows after a chat adjustment discards old drafts", () => {
+    mocks.splitTasksData = {
+      tasks: [
+        draftTask("task-1", "Build project shell", {
+          status: "discarded",
+          sort_order: 0,
+        }),
+        draftTask("task-2", "Render board", {
+          status: "discarded",
+          sort_order: 1,
+        }),
+        draftTask("task-3", "Implement game logic", {
+          sort_order: 2,
+          depends_on: ["task-merged"],
+        }),
+        draftTask("task-merged", "Build shell and board rendering", {
+          sort_order: 3,
+        }),
+      ],
+      progress: {
+        total: 2,
+        created: 0,
+        running: 0,
+        done: 0,
+        failed: 0,
+        cancelled: 0,
+        skipped: 0,
+      },
+    };
+
+    renderPanel();
+
+    expect(screen.queryByText("Build project shell")).not.toBeInTheDocument();
+    expect(screen.queryByText("Render board")).not.toBeInTheDocument();
+    expect(screen.getByText("Implement game logic")).toBeInTheDocument();
+    expect(screen.getByText("Build shell and board rendering")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Confirm create 2" })).toBeInTheDocument();
+    expect(screen.getByText("Dependencies: 02")).toBeInTheDocument();
   });
 
   it("approves current draft tasks without sending local modifications", async () => {

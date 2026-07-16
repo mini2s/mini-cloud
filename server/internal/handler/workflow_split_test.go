@@ -446,6 +446,71 @@ func TestAddSplitDraftTaskUsesDefaultIssueWorkflow(t *testing.T) {
 	}
 }
 
+func TestAddSplitDraftTaskUsesDiscardedSlotForReplacementDraft(t *testing.T) {
+	f := createSplitGenerateFixture(t, "barrier")
+	taskID := startSplitGenerationTask(t, f)
+
+	for _, payload := range []map[string]any{
+		{"key": "task-01", "title": "Task 01", "description": "First task."},
+		{"key": "task-02", "title": "Task 02", "description": "Second task."},
+		{"key": "task-03", "title": "Task 03", "description": "Third task."},
+	} {
+		addResp := httptest.NewRecorder()
+		addReq := newRequest("POST", "/api/node-runs/"+f.splitNodeRunID+"/split/draft-tasks", payload)
+		addReq.Header.Set("X-Agent-ID", f.agentID)
+		addReq.Header.Set("X-Task-ID", taskID)
+		addReq = withURLParam(addReq, "nodeRunId", f.splitNodeRunID)
+		testHandler.AddSplitDraftTask(addResp, addReq)
+		if addResp.Code != http.StatusOK {
+			t.Fatalf("AddSplitDraftTask: expected 200, got %d: %s", addResp.Code, addResp.Body.String())
+		}
+	}
+
+	tasks, err := testHandler.Queries.ListSplitTasksByNodeRun(context.Background(), parseUUID(f.splitNodeRunID))
+	if err != nil {
+		t.Fatalf("list split draft tasks: %v", err)
+	}
+	for _, task := range tasks[:2] {
+		deleteResp := httptest.NewRecorder()
+		deleteReq := newRequest("DELETE", "/api/node-runs/"+f.splitNodeRunID+"/split/draft-tasks/"+uuidToString(task.ID), nil)
+		deleteReq.Header.Set("X-Agent-ID", f.agentID)
+		deleteReq.Header.Set("X-Task-ID", taskID)
+		deleteReq = withURLParams(deleteReq, "nodeRunId", f.splitNodeRunID, "taskId", uuidToString(task.ID))
+		testHandler.DeleteSplitDraftTask(deleteResp, deleteReq)
+		if deleteResp.Code != http.StatusOK {
+			t.Fatalf("DeleteSplitDraftTask: expected 200, got %d: %s", deleteResp.Code, deleteResp.Body.String())
+		}
+	}
+
+	addResp := httptest.NewRecorder()
+	addReq := newRequest("POST", "/api/node-runs/"+f.splitNodeRunID+"/split/draft-tasks", map[string]any{
+		"key":         "merged-0102",
+		"title":       "Merged 01 and 02",
+		"description": "Replacement task for the first two drafts.",
+	})
+	addReq.Header.Set("X-Agent-ID", f.agentID)
+	addReq.Header.Set("X-Task-ID", taskID)
+	addReq = withURLParam(addReq, "nodeRunId", f.splitNodeRunID)
+	testHandler.AddSplitDraftTask(addResp, addReq)
+	if addResp.Code != http.StatusOK {
+		t.Fatalf("AddSplitDraftTask: expected 200, got %d: %s", addResp.Code, addResp.Body.String())
+	}
+
+	tasks, err = testHandler.Queries.ListSplitTasksByNodeRun(context.Background(), parseUUID(f.splitNodeRunID))
+	if err != nil {
+		t.Fatalf("list split draft tasks after replacement: %v", err)
+	}
+	for _, task := range tasks {
+		if task.Title == "Merged 01 and 02" {
+			if task.SortOrder != 0 {
+				t.Fatalf("merged draft sort_order = %d, want first discarded slot 0", task.SortOrder)
+			}
+			return
+		}
+	}
+	t.Fatal("merged draft was not created")
+}
+
 func TestAddSplitDraftTaskRejectsMissingDefaultIssueWorkflow(t *testing.T) {
 	f := createSplitGenerateFixture(t, "barrier")
 	splitFormat, err := json.Marshal(map[string]any{
@@ -1544,6 +1609,71 @@ func TestSplitChatCompletionRecoversMarkdownDraftAdjustments(t *testing.T) {
 	}
 }
 
+func TestSplitChatCompletionWithoutDraftUpdateReturnsError(t *testing.T) {
+	if testHandler == nil {
+		t.Skip("database not available")
+	}
+
+	agentID := createHandlerTestAgent(t, "split-chat-no-draft-update-agent", nil)
+	f := createSplitApproveFixture(t, "barrier")
+	ctx := context.Background()
+
+	if _, err := testPool.Exec(ctx, `
+		UPDATE multica_workflow_node SET worker_id = $1, worker_type = 'agent' WHERE id = $2
+	`, agentID, f.splitNodeID); err != nil {
+		t.Fatalf("update node worker: %v", err)
+	}
+	if _, err := testPool.Exec(ctx, `
+		UPDATE multica_workflow_node_run SET worker_id = $1, worker_type = 'agent' WHERE id = $2
+	`, agentID, f.splitNodeRunID); err != nil {
+		t.Fatalf("update node run worker: %v", err)
+	}
+
+	chatReq := newRequest("POST", "/api/node-runs/"+f.splitNodeRunID+"/split/chat", map[string]any{
+		"content": "合理合并拆分任务",
+	})
+	chatReq = withURLParam(chatReq, "nodeRunId", f.splitNodeRunID)
+	chatResp := httptest.NewRecorder()
+	testHandler.HandleSplitChat(chatResp, chatReq)
+	if chatResp.Code != http.StatusOK {
+		t.Fatalf("HandleSplitChat: expected 200, got %d: %s", chatResp.Code, chatResp.Body.String())
+	}
+
+	claimed, err := testHandler.Queries.ClaimAgentTask(ctx, parseUUID(agentID))
+	if err != nil {
+		t.Fatalf("claim chat task: %v", err)
+	}
+	started, err := testHandler.Queries.StartAgentTask(ctx, claimed.ID)
+	if err != nil {
+		t.Fatalf("start chat task: %v", err)
+	}
+
+	result, _ := json.Marshal(map[string]any{
+		"output": "请告诉我您希望如何调整当前的草稿任务集。",
+	})
+	if _, err := testHandler.TaskService.CompleteTask(ctx, started.ID, result, "", ""); err == nil {
+		t.Fatal("CompleteTask: expected split chat without draft update to fail")
+	}
+
+	task, err := testHandler.Queries.GetAgentTask(ctx, started.ID)
+	if err != nil {
+		t.Fatalf("reload task: %v", err)
+	}
+	if task.Status != "running" {
+		t.Fatalf("task status = %s, want running after rejected completion", task.Status)
+	}
+
+	tasks, err := testHandler.Queries.ListSplitTasksByNodeRun(ctx, parseUUID(f.splitNodeRunID))
+	if err != nil {
+		t.Fatalf("list split tasks: %v", err)
+	}
+	for _, task := range tasks {
+		if task.DraftSource == service.DraftSourceChat {
+			t.Fatalf("unexpected chat draft source on unchanged task %s", task.Title)
+		}
+	}
+}
+
 func TestSplitChatReusesExistingSession(t *testing.T) {
 	if testHandler == nil {
 		t.Skip("database not available")
@@ -1596,7 +1726,10 @@ func TestSplitChatReusesExistingSession(t *testing.T) {
 	if err != nil {
 		t.Fatalf("start chat task: %v", err)
 	}
-	resolvedResult, _ := json.Marshal(map[string]any{"output": "acknowledged"})
+	resolvedResult, _ := json.Marshal(map[string]any{"output": strings.Join([]string{
+		"## Task 1: Adjusted split draft",
+		"Keep the split review session reusable after a valid draft adjustment.",
+	}, "\n")})
 	if _, err := testHandler.TaskService.CompleteTask(ctx, started.ID, resolvedResult, "", ""); err != nil {
 		t.Fatalf("complete chat task: %v", err)
 	}

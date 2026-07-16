@@ -8,6 +8,7 @@ import (
 	"io"
 	"log/slog"
 	"path"
+	"reflect"
 	"regexp"
 	"sort"
 	"strings"
@@ -860,11 +861,11 @@ func (s *SplitOrchestrator) AddSplitDraftTask(ctx context.Context, nodeRun db.Mu
 		}
 		byKey := make(map[string]db.MulticaWorkflowSplitTask, len(existing))
 		sortOrder := int32(0)
+		nextSortOrder := int32(0)
+		replacementSortOrder := int32(0)
 		foundExisting := false
+		hasReplacementSlot := false
 		for _, task := range existing {
-			if task.Status != SplitTaskStatusDiscarded {
-				sortOrder++
-			}
 			if task.DraftKey.Valid {
 				byKey[task.DraftKey.String] = task
 				if task.DraftKey.String == key {
@@ -872,9 +873,23 @@ func (s *SplitOrchestrator) AddSplitDraftTask(ctx context.Context, nodeRun db.Mu
 					foundExisting = true
 				}
 			}
+			if task.Status == SplitTaskStatusDiscarded {
+				if !hasReplacementSlot || task.SortOrder < replacementSortOrder {
+					replacementSortOrder = task.SortOrder
+					hasReplacementSlot = true
+				}
+				continue
+			}
+			if task.SortOrder >= nextSortOrder {
+				nextSortOrder = task.SortOrder + 1
+			}
 		}
 		if !foundExisting {
-			sortOrder = int32(len(byKey))
+			if hasReplacementSlot {
+				sortOrder = replacementSortOrder
+			} else {
+				sortOrder = nextSortOrder
+			}
 		}
 
 		dependsOn := make([]string, 0, len(req.DependsOnKeys))
@@ -1184,6 +1199,9 @@ func (s *SplitOrchestrator) HandleTaskCompletion(ctx context.Context, task db.Mu
 			if _, transitionErr := s.WfService.TransitionNodeRun(ctx, nodeRun, NodeRunStatusFailed); transitionErr != nil {
 				return fmt.Errorf("%w; mark split node failed: %v", err, transitionErr)
 			}
+			if isSplitRepairPhase(task.Context) {
+				return nil
+			}
 		}
 		return err
 	}
@@ -1202,6 +1220,9 @@ func (s *SplitOrchestrator) handleTaskCompletion(ctx context.Context, task db.Mu
 	existing, err := s.Queries.ListSplitTasksByNodeRun(ctx, nodeRun.ID)
 	if err != nil {
 		return fmt.Errorf("list existing split tasks: %w", err)
+	}
+	if isSplitChatPhase(task.Context) && splitChatDraftsChanged(task.Context, existing) {
+		return nil
 	}
 	if len(existing) > 0 && !isSplitChatPhase(task.Context) {
 		if err := validateDraftSplitTaskRows(existing); err == nil {
@@ -2383,6 +2404,61 @@ func splitTasksToSummary(tasks []db.MulticaWorkflowSplitTask) []map[string]any {
 		summary = append(summary, item)
 	}
 	return summary
+}
+
+type splitDraftComparable struct {
+	ID          string   `json:"id"`
+	Title       string   `json:"title"`
+	Description string   `json:"description"`
+	Status      string   `json:"status"`
+	WorkflowID  string   `json:"workflow_id"`
+	DependsOn   []string `json:"depends_on"`
+	SortOrder   int32    `json:"sort_order"`
+	DraftKey    string   `json:"draft_key"`
+}
+
+func splitChatDraftsChanged(contextJSON []byte, tasks []db.MulticaWorkflowSplitTask) bool {
+	var payload struct {
+		CurrentDrafts []splitDraftComparable `json:"current_drafts"`
+	}
+	if len(contextJSON) == 0 || json.Unmarshal(contextJSON, &payload) != nil || len(payload.CurrentDrafts) == 0 {
+		return false
+	}
+
+	current := make([]splitDraftComparable, 0, len(tasks))
+	for _, t := range tasks {
+		if t.Status == SplitTaskStatusDiscarded {
+			continue
+		}
+		var dependsOn []string
+		if len(t.DependsOn) > 0 {
+			_ = json.Unmarshal(t.DependsOn, &dependsOn)
+		}
+		workflowID := ""
+		if t.WorkflowID.Valid {
+			workflowID = util.UUIDToString(t.WorkflowID)
+		}
+		current = append(current, splitDraftComparable{
+			ID:          util.UUIDToString(t.ID),
+			Title:       t.Title,
+			Description: t.Description,
+			Status:      t.Status,
+			WorkflowID:  workflowID,
+			DependsOn:   dependsOn,
+			SortOrder:   t.SortOrder,
+			DraftKey:    textToString(t.DraftKey),
+		})
+	}
+
+	if len(current) != len(payload.CurrentDrafts) {
+		return true
+	}
+	for i := range current {
+		if !reflect.DeepEqual(current[i], payload.CurrentDrafts[i]) {
+			return true
+		}
+	}
+	return false
 }
 
 func splitProgressSummary(tasks []db.MulticaWorkflowSplitTask) map[string]int {

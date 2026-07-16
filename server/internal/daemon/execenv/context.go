@@ -415,7 +415,12 @@ func renderSplitChatContext(ctx TaskContextForEnv) string {
 	if strings.TrimSpace(ctx.ChatSessionID) != "" {
 		fmt.Fprintf(&b, "Chat session ID: `%s`\n\n", ctx.ChatSessionID)
 	}
-	b.WriteString("Read the exact user request from the per-turn prompt. Use it to adjust the current draft task set; do not answer as a normal chat assistant.\n\n")
+	if strings.TrimSpace(ctx.ChatMessage) != "" {
+		fmt.Fprintf(&b, "%s\n\n", strings.TrimSpace(ctx.ChatMessage))
+	} else {
+		b.WriteString("Read the exact user request from the per-turn prompt.\n\n")
+	}
+	b.WriteString("Use the request to adjust the current draft task set; do not answer as a normal chat assistant.\n\n")
 	if strings.TrimSpace(string(ctx.WorkflowSplitCurrentDrafts)) != "" {
 		fmt.Fprintf(&b, "## Current Draft Tasks\n\n```json\n%s\n```\n\n", strings.TrimSpace(string(ctx.WorkflowSplitCurrentDrafts)))
 	}

@@ -56,6 +56,7 @@ type TaskContextForEnv struct {
 	ProjectTitle                        string                  // human-readable project title
 	ProjectResources                    []ProjectResourceForEnv // resources attached to the project
 	ChatSessionID                       string                  // non-empty for chat tasks
+	ChatMessage                         string                  // latest user message for chat-backed tasks
 	WorkflowNodeRunID                   string
 	WorkflowPhase                       string // workflow context phase: worker, split, or critic
 	WorkflowSplitRepair                 bool

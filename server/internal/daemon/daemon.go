@@ -2313,6 +2313,7 @@ func (d *Daemon) runTask(ctx context.Context, task Task, provider string, slot i
 		ProjectTitle:                        task.ProjectTitle,
 		ProjectResources:                    convertProjectResourcesForEnv(task.ProjectResources),
 		ChatSessionID:                       task.ChatSessionID,
+		ChatMessage:                         task.ChatMessage,
 		WorkflowNodeRunID:                   task.WorkflowNodeRunID,
 		WorkflowPhase:                       task.WorkflowPhase,
 		WorkflowSplitRepair:                 task.WorkflowSplitRepair,
