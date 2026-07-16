@@ -3,7 +3,11 @@
 import { useState } from "react";
 import { ChevronDown, Plus, X, Puzzle } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
-import { builtinPluginListOptions, pluginDetailOptions } from "@multica/core/workspace/queries";
+import {
+  builtinPluginListOptions,
+  catalogPluginListOptions,
+  pluginDetailOptions,
+} from "@multica/core/workspace/queries";
 import { Button } from "@multica/ui/components/ui/button";
 import { useT } from "../../i18n";
 import { PluginPickerList, useDebouncedPluginSearch } from "./plugin-picker-list";
@@ -25,10 +29,19 @@ interface PluginSelectProps {
 export function PluginSelect({ value, onChange }: PluginSelectProps) {
   const { t } = useT("agents");
   const { searchQuery, setSearchQuery, debouncedSearch } = useDebouncedPluginSearch();
-  const { data: plugins, isLoading } = useQuery(builtinPluginListOptions(debouncedSearch));
+  const { data: plugins, isFetching: isLoading } = useQuery(
+    builtinPluginListOptions(),
+  );
+  const { data: catalogPlugins, isFetching: isCatalogLoading } = useQuery(
+    catalogPluginListOptions(debouncedSearch),
+  );
   const [expanded, setExpanded] = useState(!!value);
 
   const items = plugins?.items ?? [];
+  const builtinIds = new Set(items.map((plugin) => plugin.id));
+  const cloudItems = (catalogPlugins?.items ?? []).filter(
+    (plugin) => !builtinIds.has(plugin.id),
+  );
   const listSelected = items.find((p) => p.id === value) ?? null;
   const shouldHydrateSelected = !!value && !listSelected;
   const { data: hydratedSelected } = useQuery({
@@ -82,9 +95,11 @@ export function PluginSelect({ value, onChange }: PluginSelectProps) {
       <div className="mt-1.5 rounded-lg border">
         <PluginPickerList
           plugins={items}
+          catalogPlugins={cloudItems}
           selectedId={value || null}
           onSelect={(id) => onChange(id === value ? "" : id)}
           loading={isLoading}
+          catalogLoading={isCatalogLoading}
           searchQuery={searchQuery}
           onSearchChange={setSearchQuery}
         />
