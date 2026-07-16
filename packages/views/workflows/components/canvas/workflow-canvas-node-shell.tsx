@@ -19,6 +19,8 @@ interface WorkflowCanvasNodeShellProps {
   minHeight?: number;
   title?: string;
   ariaLabel?: string;
+  dataRuntimeDisplayStatus?: string;
+  dataRuntimeFocus?: boolean;
   tabIndex?: number;
   className?: string;
   contentClassName?: string;
@@ -72,6 +74,8 @@ export function WorkflowCanvasNodeShell({
   minHeight,
   title,
   ariaLabel,
+  dataRuntimeDisplayStatus,
+  dataRuntimeFocus,
   tabIndex,
   className,
   contentClassName,
@@ -199,6 +203,8 @@ export function WorkflowCanvasNodeShell({
         data-testid={testId}
         data-workflow-canvas-node-shell="true"
         data-node-shape={nodeShape}
+        data-runtime-display-status={dataRuntimeDisplayStatus}
+        data-runtime-focus={dataRuntimeFocus ? "true" : undefined}
         ref={elementRef}
         aria-label={ariaLabel}
         aria-pressed={selected}
@@ -218,6 +224,8 @@ export function WorkflowCanvasNodeShell({
       data-testid={testId}
       data-workflow-canvas-node-shell="true"
       data-node-shape={nodeShape}
+      data-runtime-display-status={dataRuntimeDisplayStatus}
+      data-runtime-focus={dataRuntimeFocus ? "true" : undefined}
       role="button"
       tabIndex={tabIndex}
       aria-label={ariaLabel}

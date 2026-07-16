@@ -39,6 +39,7 @@ export interface RuntimeNodeCardProps {
   criticName: string | null;
   onClick: (nodeId: string) => void;
   isSelected?: boolean;
+  isRuntimeFocus?: boolean;
   elementRef?: (el: HTMLButtonElement | null) => void;
   onAction?: (nodeRunId: string, action: NodeRunActionType) => void;
   isActionLoading?: Partial<Record<NodeRunActionType, boolean>>;
@@ -116,6 +117,29 @@ function splitProgressSummaryParts(
 }
 
 /** Actionable status → button layout mapping. */
+function runtimeFocusSurfaceClassName(
+  isRuntimeFocus: boolean,
+  status: ReturnType<typeof toWorkflowRuntimeDisplayStatus>,
+): string {
+  if (!isRuntimeFocus) return "";
+  switch (status) {
+    case "blocked":
+      return "border-red-200/90 from-red-50/90 via-white to-red-100/70 ring-red-200/80 shadow-[0_18px_42px_rgba(239,68,68,0.18)] group-hover:ring-red-300/80";
+    case "reviewing":
+      return "border-violet-200/90 from-violet-50/90 via-white to-violet-100/70 ring-violet-200/75 shadow-[0_16px_36px_rgba(139,92,246,0.14)] group-hover:ring-violet-300/75";
+    case "completed":
+      return "border-emerald-200/80 from-emerald-50/80 via-white to-emerald-100/55 ring-emerald-200/70 shadow-[0_10px_24px_rgba(16,185,129,0.10)] group-hover:ring-emerald-300/65";
+    case "todo":
+      return "border-amber-200/70 from-amber-50/70 via-white to-amber-100/45 ring-amber-200/60 shadow-[0_12px_28px_rgba(245,158,11,0.10)] group-hover:ring-amber-300/70";
+    case "in_progress":
+      return "border-blue-200/90 from-blue-50/90 via-white to-blue-100/70 ring-blue-200/80 shadow-[0_18px_42px_rgba(59,130,246,0.16)] group-hover:ring-blue-300/80";
+    case "pending":
+    case "cancelled":
+    default:
+      return "border-slate-200/80 from-slate-50/85 via-white to-slate-100/65 ring-slate-200/75 shadow-[0_14px_32px_rgba(15,23,42,0.12)]";
+  }
+}
+
 function RuntimeStatusPill({
   status,
   gatewayKind,
@@ -321,6 +345,7 @@ export function RuntimeNodeCard({
   criticName,
   onClick,
   isSelected = false,
+  isRuntimeFocus = false,
   elementRef,
   onAction,
   isActionLoading,
@@ -401,10 +426,13 @@ export function RuntimeNodeCard({
       width={WORKER_WIDTH}
       height={RUNTIME_NODE_HEIGHT}
       title={node.title}
+      dataRuntimeDisplayStatus={displayStatus}
+      dataRuntimeFocus={isRuntimeFocus}
       tabIndex={canToggleSplitChildren ? 0 : undefined}
       onClick={() => onClick(node.id)}
       onKeyDown={canToggleSplitChildren ? handleShellKeyDown : undefined}
       className="h-[120px]"
+      surfaceClassName={runtimeFocusSurfaceClassName(isRuntimeFocus, displayStatus)}
       contentClassName={cn("h-full justify-between gap-2", workflowNodeInfoAreaClassName(nodeShape))}
       handles={handles}
       lateralHandleTop={lateralHandleTop}

@@ -81,8 +81,13 @@ export interface ExecutionPanoramaPageProps {
 }
 
 const RUNTIME_CANVAS_FIT_VIEW = {
-  padding: 0.04,
-  maxZoom: 1.2,
+  padding: 0.16,
+  maxZoom: 1,
+} as const;
+
+const RUNTIME_INITIAL_FOCUS_VIEW = {
+  duration: 450,
+  zoom: 1.45,
 } as const;
 
 const SPLIT_CHILD_X_GAP = 144;
@@ -212,6 +217,50 @@ function runtimeToneForEdge(
   return "waiting";
 }
 
+function runtimeFocusPriority(status: WorkflowNodeRun["status"]): number {
+  switch (status) {
+    case "blocked":
+    case "failed":
+    case "format_failed":
+    case "critic_rework":
+      return 50;
+    case "awaiting_critic":
+    case "awaiting_split_review":
+      return 40;
+    case "awaiting_input":
+      return 35;
+    case "working":
+    case "worker_assigned":
+    case "critic_reviewing":
+    case "format_checking":
+    case "splitting":
+    case "split_active":
+      return 30;
+    default:
+      return 0;
+  }
+}
+
+function pickRuntimeFocusNodeId(
+  nodes: WorkflowNode[],
+  nodeRunMap: Map<string, WorkflowNodeRun>,
+): string | null {
+  let selectedNodeId: string | null = null;
+  let selectedPriority = 0;
+
+  for (const node of nodes) {
+    const run = nodeRunMap.get(node.id);
+    if (!run) continue;
+    const priority = runtimeFocusPriority(run.status);
+    if (priority > selectedPriority) {
+      selectedNodeId = node.id;
+      selectedPriority = priority;
+    }
+  }
+
+  return selectedNodeId;
+}
+
 function runtimeEdgeMarkerColor(tone: "success" | "running" | "blocked" | "waiting"): string {
   if (tone === "success") return "rgb(16 185 129)";
   if (tone === "running") return "rgb(59 130 246)";
@@ -311,6 +360,7 @@ interface ExecutionPanoramaCanvasProps {
   setSelectedNodeId: (nodeId: string | null) => void;
   onNodeClick: (nodeId: string) => void;
   onNodeDoubleClick: (nodeId: string) => void;
+  initialFocusNodeId?: string | null;
   focusSplitNodeId?: string | null;
   onSplitClusterFocused?: () => void;
   fillAvailableHeight?: boolean;
@@ -326,6 +376,7 @@ function ExecutionPanoramaCanvas({
   setSelectedNodeId,
   onNodeClick,
   onNodeDoubleClick,
+  initialFocusNodeId,
   focusSplitNodeId,
   onSplitClusterFocused,
   fillAvailableHeight = false,
@@ -333,6 +384,7 @@ function ExecutionPanoramaCanvas({
   const { fitView, getViewport, setCenter, viewportInitialized } = useReactFlow();
   const nodesInitialized = useNodesInitialized();
   const fittedBaseNodeIdsRef = useRef<string | null>(null);
+  const initialFocusedBaseNodeIdsRef = useRef<string | null>(null);
 
   const baseNodeIdsSignature = useMemo(
     () =>
@@ -344,28 +396,56 @@ function ExecutionPanoramaCanvas({
   );
 
   useEffect(() => {
+    const shouldFitBaseNodes = fittedBaseNodeIdsRef.current !== baseNodeIdsSignature;
+    const shouldFocusRuntimeNode = Boolean(initialFocusNodeId) &&
+      initialFocusedBaseNodeIdsRef.current !== baseNodeIdsSignature;
+
     if (
       rfNodes.length === 0 ||
       !viewportInitialized ||
       !nodesInitialized ||
-      fittedBaseNodeIdsRef.current === baseNodeIdsSignature
+      (!shouldFitBaseNodes && !shouldFocusRuntimeNode)
     ) {
       return;
     }
 
+    let cancelled = false;
     const frame = requestAnimationFrame(() => {
-      fittedBaseNodeIdsRef.current = baseNodeIdsSignature;
-      void fitView({
-        nodes: rfNodes
-          .filter((node) => !isSplitExpansionNodeId(node.id))
-          .map((node) => ({ id: node.id })),
-        ...RUNTIME_CANVAS_FIT_VIEW,
-        duration: 0,
-      });
+      void (async () => {
+        if (shouldFitBaseNodes) {
+          fittedBaseNodeIdsRef.current = baseNodeIdsSignature;
+          await fitView({
+            nodes: rfNodes
+              .filter((node) => !isSplitExpansionNodeId(node.id))
+              .map((node) => ({ id: node.id })),
+            ...RUNTIME_CANVAS_FIT_VIEW,
+            duration: 0,
+          });
+        }
+
+        if (cancelled || !initialFocusNodeId || initialFocusedBaseNodeIdsRef.current === baseNodeIdsSignature) {
+          return;
+        }
+
+        const focusNode = rfNodes.find((node) => node.id === initialFocusNodeId);
+        if (!focusNode) return;
+
+        const width = typeof focusNode.width === "number" ? focusNode.width : WORKER_WIDTH;
+        const height = typeof focusNode.height === "number" ? focusNode.height : RUNTIME_NODE_HEIGHT;
+        initialFocusedBaseNodeIdsRef.current = baseNodeIdsSignature;
+        setCenter(
+          focusNode.position.x + width / 2,
+          focusNode.position.y + height / 2,
+          RUNTIME_INITIAL_FOCUS_VIEW,
+        );
+      })();
     });
 
-    return () => cancelAnimationFrame(frame);
-  }, [baseNodeIdsSignature, fitView, nodesInitialized, rfNodes, viewportInitialized]);
+    return () => {
+      cancelled = true;
+      cancelAnimationFrame(frame);
+    };
+  }, [baseNodeIdsSignature, fitView, initialFocusNodeId, nodesInitialized, rfNodes, setCenter, viewportInitialized]);
 
   useEffect(() => {
     if (!focusSplitNodeId || !viewportInitialized || !nodesInitialized) return;
@@ -687,6 +767,7 @@ export function ExecutionPanoramaPage({
         },
       ]
     : allStages;
+  const runtimeFocusNodeId = pickRuntimeFocusNodeId(allNodes, nodeRunMap);
   const baseRfNodesRaw = workflowNodesToReactFlowNodes({
     nodes: allNodes,
     stages: sortStagesForDisplay(allStages),
@@ -704,6 +785,7 @@ export function ExecutionPanoramaPage({
         ? getActorName(node.critic_type ?? "agent", node.critic_id)
         : null,
       onOpen: setSelectedNodeId,
+      isRuntimeFocus: node.id === runtimeFocusNodeId,
       isSplitExpanded: expandedSplitNodeIds.has(node.id),
       splitChildCount: (splitTasksByNodeId.get(node.id) ?? []).filter((task) => task.issue_id).length,
       onSplitNodeToggle: handleToggleSplitNode,
@@ -1015,6 +1097,7 @@ export function ExecutionPanoramaPage({
           setSelectedNodeId={setSelectedNodeId}
           onNodeClick={handleNodeClick}
           onNodeDoubleClick={handleNodeDoubleClick}
+          initialFocusNodeId={runtimeFocusNodeId}
           focusSplitNodeId={focusSplitNodeId}
           onSplitClusterFocused={handleSplitClusterFocused}
           fillAvailableHeight={fillAvailableHeight}

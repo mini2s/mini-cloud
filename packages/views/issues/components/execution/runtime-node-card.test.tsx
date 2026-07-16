@@ -326,6 +326,49 @@ describe("RuntimeNodeCard", () => {
     expect(screen.getByLabelText("Reviewing")).toBeInTheDocument();
   });
 
+  it("does not emphasize blocked runtime nodes unless they are selected as the runtime focus", () => {
+    render(
+      <RuntimeNodeCard
+        node={baseNode}
+        nodeRun={{ ...completedRun, status: "blocked" }}
+        runtimeSummary={{ ...runtimeSummary, display_status: "blocked" }}
+        workerName="Tester"
+        criticName="Reviewer"
+        onClick={vi.fn()}
+      />,
+    );
+
+    const card = screen.getByTestId("runtime-node-card-node-1");
+    const surface = card.querySelector('[data-node-shape-surface="true"]');
+    expect(card).toHaveAttribute("data-runtime-display-status", "blocked");
+    expect(card).not.toHaveAttribute("data-runtime-focus");
+    expect(surface?.className).toContain("ring-slate-200/70");
+    expect(surface?.className).not.toContain("ring-red");
+    expect(surface?.className).not.toContain("from-red");
+  });
+
+  it("emphasizes only the selected runtime focus node with its status color", () => {
+    render(
+      <RuntimeNodeCard
+        node={baseNode}
+        nodeRun={{ ...completedRun, status: "blocked" }}
+        runtimeSummary={{ ...runtimeSummary, display_status: "blocked" }}
+        workerName="Tester"
+        criticName="Reviewer"
+        onClick={vi.fn()}
+        isRuntimeFocus
+      />,
+    );
+
+    const card = screen.getByTestId("runtime-node-card-node-1");
+    const surface = card.querySelector('[data-node-shape-surface="true"]');
+    expect(card).toHaveAttribute("data-runtime-display-status", "blocked");
+    expect(card).toHaveAttribute("data-runtime-focus", "true");
+    expect(surface?.className).toContain("ring-red-200/80");
+    expect(surface?.className).toContain("from-red-50/90");
+    expect(surface?.className).not.toContain("ring-blue");
+  });
+
   it("lays out worker and critic as paired actor slots", () => {
     render(
       <RuntimeNodeCard

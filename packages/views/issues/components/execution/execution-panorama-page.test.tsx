@@ -754,6 +754,162 @@ describe("ExecutionPanoramaPage", () => {
     });
   });
 
+  it("marks only the highest-priority runtime node as the runtime focus", () => {
+    mocks.isLoading = false;
+    mocks.workflowData = { id: "wf-1", title: "Test Workflow" };
+    mocks.stagesData = [STAGE];
+    mocks.nodesData = [
+      { ...NODE, id: "running-node", title: "Running", position_x: 0 },
+      { ...NODE, id: "blocked-node", title: "Blocked", position_x: 320 },
+    ];
+    mocks.nodeRunsData = [
+      {
+        id: "nr-running",
+        workflow_run_id: "run-1",
+        workflow_node_id: "running-node",
+        node_title: "Running",
+        status: "working",
+        retry_count: 0,
+        worker_type: "agent",
+        worker_id: "agent-1",
+        worker_output: null,
+        worker_agent_task_id: null,
+        critic_type: "human",
+        critic_id: null,
+        critic_output: null,
+        critic_comment: "",
+        critic_agent_task_id: null,
+        agent_task_id: null,
+        session_id: null,
+        runtime_id: null,
+        device_id: null,
+        started_at: null,
+        completed_at: null,
+        created_at: "",
+        updated_at: "",
+      },
+      {
+        id: "nr-blocked",
+        workflow_run_id: "run-1",
+        workflow_node_id: "blocked-node",
+        node_title: "Blocked",
+        status: "blocked",
+        retry_count: 0,
+        worker_type: "agent",
+        worker_id: "agent-1",
+        worker_output: null,
+        worker_agent_task_id: null,
+        critic_type: "human",
+        critic_id: null,
+        critic_output: null,
+        critic_comment: "",
+        critic_agent_task_id: null,
+        agent_task_id: null,
+        session_id: null,
+        runtime_id: null,
+        device_id: null,
+        started_at: null,
+        completed_at: null,
+        created_at: "",
+        updated_at: "",
+      },
+    ];
+    mocks.agentsData = [AGENT];
+
+    render(
+      <Wrapper>
+        <ExecutionPanoramaPage workflowId="wf-1" runId="run-1" wsId="ws-1" />
+      </Wrapper>,
+    );
+
+    expect(mocks.reactFlowProps?.nodes.find((node) => node.id === "blocked-node")?.data).toMatchObject({
+      isRuntimeFocus: true,
+    });
+    expect(mocks.reactFlowProps?.nodes.find((node) => node.id === "running-node")?.data).toMatchObject({
+      isRuntimeFocus: false,
+    });
+  });
+
+  it("centers and prominently zooms the initial viewport on the highest-priority runtime node", async () => {
+    mocks.isLoading = false;
+    mocks.workflowData = { id: "wf-1", title: "Test Workflow" };
+    mocks.stagesData = [STAGE];
+    mocks.nodesData = [
+      { ...NODE, id: "running-node", title: "Running", position_x: 0 },
+      { ...NODE, id: "blocked-node", title: "Blocked", position_x: 320 },
+    ];
+    mocks.nodeRunsData = [
+      {
+        id: "nr-running",
+        workflow_run_id: "run-1",
+        workflow_node_id: "running-node",
+        node_title: "Running",
+        status: "working",
+        retry_count: 0,
+        worker_type: "agent",
+        worker_id: "agent-1",
+        worker_output: null,
+        worker_agent_task_id: null,
+        critic_type: "human",
+        critic_id: null,
+        critic_output: null,
+        critic_comment: "",
+        critic_agent_task_id: null,
+        agent_task_id: null,
+        session_id: null,
+        runtime_id: null,
+        device_id: null,
+        started_at: null,
+        completed_at: null,
+        created_at: "",
+        updated_at: "",
+      },
+      {
+        id: "nr-blocked",
+        workflow_run_id: "run-1",
+        workflow_node_id: "blocked-node",
+        node_title: "Blocked",
+        status: "blocked",
+        retry_count: 0,
+        worker_type: "agent",
+        worker_id: "agent-1",
+        worker_output: null,
+        worker_agent_task_id: null,
+        critic_type: "human",
+        critic_id: null,
+        critic_output: null,
+        critic_comment: "",
+        critic_agent_task_id: null,
+        agent_task_id: null,
+        session_id: null,
+        runtime_id: null,
+        device_id: null,
+        started_at: null,
+        completed_at: null,
+        created_at: "",
+        updated_at: "",
+      },
+    ];
+    mocks.agentsData = [AGENT];
+
+    render(
+      <Wrapper>
+        <ExecutionPanoramaPage workflowId="wf-1" runId="run-1" wsId="ws-1" />
+      </Wrapper>,
+    );
+
+    const blockedNode = mocks.reactFlowProps?.nodes.find((node) => node.id === "blocked-node");
+    expect(blockedNode).toBeTruthy();
+
+    await waitFor(() => {
+      expect(mocks.setCenter).toHaveBeenCalledWith(
+        blockedNode!.position.x + (blockedNode!.width ?? 240) / 2,
+        blockedNode!.position.y + (blockedNode!.height ?? 120) / 2,
+        expect.objectContaining({ duration: 450, zoom: 1.45 }),
+      );
+    });
+  });
+
   it("does not render independent critic badge nodes in runtime mode", () => {
     mocks.isLoading = false;
     mocks.workflowData = { id: "wf-1", title: "Test Workflow" };
@@ -811,14 +967,14 @@ describe("ExecutionPanoramaPage", () => {
       expect(mocks.fitView).toHaveBeenCalledWith(
         expect.objectContaining({
           nodes: [{ id: "n1" }],
-          padding: 0.04,
-          maxZoom: 1.2,
+          padding: 0.16,
+          maxZoom: 1,
         }),
       );
     });
 
     expect(screen.getByTestId("reactflow-canvas")).toHaveAttribute("data-fit-view", "true");
-    expect(screen.getByTestId("reactflow-canvas")).toHaveAttribute("data-fit-view-max-zoom", "1.2");
+    expect(screen.getByTestId("reactflow-canvas")).toHaveAttribute("data-fit-view-max-zoom", "1");
   });
 
   it("waits for ReactFlow to initialize before fitting workflow nodes", async () => {
@@ -1239,6 +1395,7 @@ describe("ExecutionPanoramaPage", () => {
       expect(mocks.fitView).toHaveBeenCalledTimes(1);
     });
     mocks.fitView.mockClear();
+    mocks.setCenter.mockClear();
 
     const splitNode = mocks.reactFlowProps?.nodes.find((node) => node.id === "split-1");
     act(() => {
