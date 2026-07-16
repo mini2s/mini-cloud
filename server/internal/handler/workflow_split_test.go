@@ -659,6 +659,113 @@ func TestSplitCompletionUsesExistingDraftRowsBeforeResultParsing(t *testing.T) {
 	}
 }
 
+func TestPatchSplitDraftTaskUpdatesTextFields(t *testing.T) {
+	f := createSplitApproveFixture(t, "barrier")
+
+	patchResp := httptest.NewRecorder()
+	patchReq := newRequest("PATCH", "/api/node-runs/"+f.splitNodeRunID+"/split/draft-tasks/"+f.taskAID, map[string]any{
+		"title":            "  Updated child issue  ",
+		"description":      "Updated implementation notes.",
+		"expected_version": int64(1),
+	})
+	patchReq = withURLParams(patchReq, "nodeRunId", f.splitNodeRunID, "taskId", f.taskAID)
+	testHandler.PatchSplitDraftTask(patchResp, patchReq)
+
+	if patchResp.Code != http.StatusOK {
+		t.Fatalf("PatchSplitDraftTask: expected 200, got %d: %s", patchResp.Code, patchResp.Body.String())
+	}
+	task, err := testHandler.Queries.GetSplitTask(context.Background(), parseUUID(f.taskAID))
+	if err != nil {
+		t.Fatalf("load patched split task: %v", err)
+	}
+	if task.Title != "Updated child issue" {
+		t.Fatalf("title = %q, want trimmed update", task.Title)
+	}
+	if task.Description != "Updated implementation notes." {
+		t.Fatalf("description = %q, want updated description", task.Description)
+	}
+	if task.Version != 2 {
+		t.Fatalf("version = %d, want 2", task.Version)
+	}
+}
+
+func TestPatchSplitDraftTaskRejectsBlankTitle(t *testing.T) {
+	f := createSplitApproveFixture(t, "barrier")
+
+	patchResp := httptest.NewRecorder()
+	patchReq := newRequest("PATCH", "/api/node-runs/"+f.splitNodeRunID+"/split/draft-tasks/"+f.taskAID, map[string]any{
+		"title":            "   ",
+		"expected_version": int64(1),
+	})
+	patchReq = withURLParams(patchReq, "nodeRunId", f.splitNodeRunID, "taskId", f.taskAID)
+	testHandler.PatchSplitDraftTask(patchResp, patchReq)
+
+	if patchResp.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", patchResp.Code, patchResp.Body.String())
+	}
+	if !strings.Contains(patchResp.Body.String(), "title is required") {
+		t.Fatalf("expected title validation error, got: %s", patchResp.Body.String())
+	}
+}
+
+func TestPatchSplitDraftTaskRejectsNonReviewNode(t *testing.T) {
+	f := createSplitApproveFixture(t, "barrier")
+	if _, err := testPool.Exec(context.Background(), `
+		UPDATE multica_workflow_node_run
+		SET status = 'split_active'
+		WHERE id = $1
+	`, f.splitNodeRunID); err != nil {
+		t.Fatalf("mark split node active: %v", err)
+	}
+
+	patchResp := httptest.NewRecorder()
+	patchReq := newRequest("PATCH", "/api/node-runs/"+f.splitNodeRunID+"/split/draft-tasks/"+f.taskAID, map[string]any{
+		"title":            "Should not update",
+		"expected_version": int64(1),
+	})
+	patchReq = withURLParams(patchReq, "nodeRunId", f.splitNodeRunID, "taskId", f.taskAID)
+	testHandler.PatchSplitDraftTask(patchResp, patchReq)
+
+	if patchResp.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", patchResp.Code, patchResp.Body.String())
+	}
+	if !strings.Contains(patchResp.Body.String(), "split draft task can only be edited while awaiting review") {
+		t.Fatalf("expected review-state validation error, got: %s", patchResp.Body.String())
+	}
+}
+
+func TestApproveSplitTasksConfirmEmptyDiscardsDrafts(t *testing.T) {
+	f := createSplitApproveFixture(t, "barrier")
+
+	req := newRequest("POST", "/api/node-runs/"+f.splitNodeRunID+"/split/approve", map[string]any{
+		"approved_task_ids": []string{},
+		"confirm_empty":     true,
+	})
+	req = withURLParam(req, "nodeRunId", f.splitNodeRunID)
+	w := httptest.NewRecorder()
+	testHandler.ApproveSplitTasks(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("ApproveSplitTasks: expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	tasks, err := testHandler.Queries.ListSplitTasksByNodeRun(context.Background(), parseUUID(f.splitNodeRunID))
+	if err != nil {
+		t.Fatalf("list split tasks: %v", err)
+	}
+	for _, task := range tasks {
+		if task.Status != service.SplitTaskStatusDiscarded {
+			t.Fatalf("task %s status = %s, want discarded", uuidToString(task.ID), task.Status)
+		}
+	}
+	nodeRun, err := testHandler.Queries.GetWorkflowNodeRun(context.Background(), parseUUID(f.splitNodeRunID))
+	if err != nil {
+		t.Fatalf("load split node run: %v", err)
+	}
+	if nodeRun.Status != service.NodeRunStatusCompleted {
+		t.Fatalf("split node run status = %s, want completed", nodeRun.Status)
+	}
+}
+
 func TestSplitCompletionRecoversMarkdownBreakdownOutput(t *testing.T) {
 	f := createSplitGenerateFixture(t, "barrier")
 	taskID := startSplitGenerationTask(t, f)
@@ -696,6 +803,84 @@ func TestSplitCompletionRecoversMarkdownBreakdownOutput(t *testing.T) {
 	}
 	if nodeRun.Status != service.NodeRunStatusAwaitingSplitReview {
 		t.Fatalf("node run status = %s, want awaiting_split_review", nodeRun.Status)
+	}
+}
+
+func TestResetSplitDraftTasksToOriginalRestoresAgentProposal(t *testing.T) {
+	f := createSplitGenerateFixture(t, "barrier")
+	taskID := startSplitGenerationTask(t, f)
+	ctx := context.Background()
+
+	payload, err := json.Marshal(map[string]any{
+		"tasks": []map[string]any{
+			{
+				"title":              "Original API contract",
+				"description":        "Original generated description",
+				"depends_on_indices": []int{},
+			},
+			{
+				"title":              "Original server handler",
+				"description":        "Original handler description",
+				"depends_on_indices": []int{0},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("marshal split generation payload: %v", err)
+	}
+	result, err := json.Marshal(map[string]any{
+		"output": string(payload),
+	})
+	if err != nil {
+		t.Fatalf("marshal task result: %v", err)
+	}
+	if _, err := testHandler.TaskService.CompleteTask(ctx, parseUUID(taskID), result, "", ""); err != nil {
+		t.Fatalf("complete split generation task: %v", err)
+	}
+
+	tasks, err := testHandler.Queries.ListSplitTasksByNodeRun(ctx, parseUUID(f.splitNodeRunID))
+	if err != nil {
+		t.Fatalf("list generated split tasks: %v", err)
+	}
+	if len(tasks) != 2 {
+		t.Fatalf("generated split task count = %d, want 2", len(tasks))
+	}
+
+	patchReq := newRequest("PATCH", "/api/node-runs/"+f.splitNodeRunID+"/split/draft-tasks/"+uuidToString(tasks[0].ID), map[string]any{
+		"title":            "Manual edited title",
+		"expected_version": tasks[0].Version,
+	})
+	patchReq = withURLParam(patchReq, "nodeRunId", f.splitNodeRunID)
+	patchReq = withURLParam(patchReq, "taskId", uuidToString(tasks[0].ID))
+	patchResp := httptest.NewRecorder()
+	testHandler.PatchSplitDraftTask(patchResp, patchReq)
+	if patchResp.Code != http.StatusOK {
+		t.Fatalf("PatchSplitDraftTask: expected 200, got %d: %s", patchResp.Code, patchResp.Body.String())
+	}
+
+	resetReq := newRequest("POST", "/api/node-runs/"+f.splitNodeRunID+"/split/reset-original", nil)
+	resetReq = withURLParam(resetReq, "nodeRunId", f.splitNodeRunID)
+	resetResp := httptest.NewRecorder()
+	testHandler.ResetSplitDraftTasksToOriginal(resetResp, resetReq)
+	if resetResp.Code != http.StatusOK {
+		t.Fatalf("ResetSplitDraftTasksToOriginal: expected 200, got %d: %s", resetResp.Code, resetResp.Body.String())
+	}
+
+	tasks, err = testHandler.Queries.ListSplitTasksByNodeRun(ctx, parseUUID(f.splitNodeRunID))
+	if err != nil {
+		t.Fatalf("list reset split tasks: %v", err)
+	}
+	activeTitles := make([]string, 0, len(tasks))
+	for _, task := range tasks {
+		if task.Status == service.SplitTaskStatusDraft {
+			activeTitles = append(activeTitles, task.Title)
+		}
+	}
+	if len(activeTitles) != 2 {
+		t.Fatalf("active reset split task count = %d, want 2", len(activeTitles))
+	}
+	if activeTitles[0] != "Original API contract" || activeTitles[1] != "Original server handler" {
+		t.Fatalf("active reset titles = %q, want original proposal", activeTitles)
 	}
 }
 
@@ -1011,6 +1196,63 @@ func TestApproveSplitTasksRejectsNonEmptyModifications(t *testing.T) {
 	}
 	if !strings.Contains(w.Body.String(), "split modifications must be submitted through /split/chat") {
 		t.Fatalf("expected modifications rejection message, got: %s", w.Body.String())
+	}
+}
+
+func TestApproveSplitTasksDoesNotRegressCreatedTaskOnReplay(t *testing.T) {
+	f := createSplitApproveFixture(t, "pipeline")
+	ctx := context.Background()
+
+	req := newRequest("POST", "/api/node-runs/"+f.splitNodeRunID+"/split/approve", map[string]any{
+		"approved_task_ids": []string{f.taskAID, f.taskBID},
+		"modifications":     []any{},
+	})
+	req = withURLParam(req, "nodeRunId", f.splitNodeRunID)
+	w := httptest.NewRecorder()
+	testHandler.ApproveSplitTasks(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("first ApproveSplitTasks: expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	taskA, err := testHandler.Queries.GetSplitTask(ctx, parseUUID(f.taskAID))
+	if err != nil {
+		t.Fatalf("load split task A: %v", err)
+	}
+	if !taskA.IssueID.Valid {
+		t.Fatal("expected task A to be materialized before replay")
+	}
+	if _, err := testPool.Exec(ctx, `
+		UPDATE multica_workflow_split_task
+		SET status = 'created', run_id = NULL
+		WHERE id = $1
+	`, f.taskAID); err != nil {
+		t.Fatalf("force task A to created: %v", err)
+	}
+	if _, err := testPool.Exec(ctx, `
+		UPDATE multica_workflow_node_run
+		SET status = 'awaiting_split_review'
+		WHERE id = $1
+	`, f.splitNodeRunID); err != nil {
+		t.Fatalf("restore node run review state: %v", err)
+	}
+
+	replayReq := newRequest("POST", "/api/node-runs/"+f.splitNodeRunID+"/split/approve", map[string]any{
+		"approved_task_ids": []string{f.taskAID},
+		"modifications":     []any{},
+	})
+	replayReq = withURLParam(replayReq, "nodeRunId", f.splitNodeRunID)
+	replayResp := httptest.NewRecorder()
+	testHandler.ApproveSplitTasks(replayResp, replayReq)
+	if replayResp.Code != http.StatusOK {
+		t.Fatalf("replayed ApproveSplitTasks: expected 200, got %d: %s", replayResp.Code, replayResp.Body.String())
+	}
+
+	taskA, err = testHandler.Queries.GetSplitTask(ctx, parseUUID(f.taskAID))
+	if err != nil {
+		t.Fatalf("reload split task A: %v", err)
+	}
+	if taskA.Status != service.SplitTaskStatusCreated && taskA.Status != service.SplitTaskStatusRunning {
+		t.Fatalf("task A status = %s, want created/running rather than approved", taskA.Status)
 	}
 }
 
@@ -1659,8 +1901,8 @@ func TestSplitChatCompletionWithoutDraftUpdateReturnsError(t *testing.T) {
 	if err != nil {
 		t.Fatalf("reload task: %v", err)
 	}
-	if task.Status != "running" {
-		t.Fatalf("task status = %s, want running after rejected completion", task.Status)
+	if task.Status != "failed" {
+		t.Fatalf("task status = %s, want failed after rejected completion", task.Status)
 	}
 
 	tasks, err := testHandler.Queries.ListSplitTasksByNodeRun(ctx, parseUUID(f.splitNodeRunID))
@@ -1671,6 +1913,16 @@ func TestSplitChatCompletionWithoutDraftUpdateReturnsError(t *testing.T) {
 		if task.DraftSource == service.DraftSourceChat {
 			t.Fatalf("unexpected chat draft source on unchanged task %s", task.Title)
 		}
+	}
+
+	nextChatReq := newRequest("POST", "/api/node-runs/"+f.splitNodeRunID+"/split/chat", map[string]any{
+		"content": "try again after failed adjustment",
+	})
+	nextChatReq = withURLParam(nextChatReq, "nodeRunId", f.splitNodeRunID)
+	nextChatResp := httptest.NewRecorder()
+	testHandler.HandleSplitChat(nextChatResp, nextChatReq)
+	if nextChatResp.Code != http.StatusOK {
+		t.Fatalf("second HandleSplitChat after failed completion: expected 200, got %d: %s", nextChatResp.Code, nextChatResp.Body.String())
 	}
 }
 

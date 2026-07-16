@@ -163,6 +163,10 @@ func (h *Handler) PatchSplitDraftTask(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	if nodeRun.Status != service.NodeRunStatusAwaitingSplitReview {
+		writeError(w, http.StatusBadRequest, "split draft task can only be edited while awaiting review")
+		return
+	}
 	taskID, ok := parseUUIDOrBadRequest(w, chi.URLParam(r, "taskId"), "taskId")
 	if !ok {
 		return
@@ -183,7 +187,12 @@ func (h *Handler) PatchSplitDraftTask(w http.ResponseWriter, r *http.Request) {
 		Version:   req.ExpectedVersion,
 	}
 	if req.Title != nil {
-		params.Title = pgtype.Text{String: strings.TrimSpace(*req.Title), Valid: true}
+		title := strings.TrimSpace(*req.Title)
+		if title == "" {
+			writeError(w, http.StatusBadRequest, "title is required")
+			return
+		}
+		params.Title = pgtype.Text{String: title, Valid: true}
 	}
 	if req.Description != nil {
 		params.Description = pgtype.Text{String: *req.Description, Valid: true}
@@ -230,6 +239,10 @@ func (h *Handler) PatchSplitDraftTask(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) BatchPatchSplitDraftTasks(w http.ResponseWriter, r *http.Request) {
 	nodeRun, run, _, ok := h.loadNodeRunForWorkspace(w, r)
 	if !ok {
+		return
+	}
+	if nodeRun.Status != service.NodeRunStatusAwaitingSplitReview {
+		writeError(w, http.StatusBadRequest, "split draft task can only be edited while awaiting review")
 		return
 	}
 	var req BatchPatchSplitDraftTasksRequest
@@ -333,6 +346,27 @@ func (h *Handler) RecoverSplitDraftTasks(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	if err := h.SplitOrchestrator.RecoverSplitDraftTasks(r.Context(), nodeRun); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	tasks, err := h.Queries.ListSplitTasksByNodeRun(r.Context(), nodeRun.ID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to list split tasks")
+		return
+	}
+	writeJSON(w, http.StatusOK, splitTasksResponse(tasks))
+}
+
+func (h *Handler) ResetSplitDraftTasksToOriginal(w http.ResponseWriter, r *http.Request) {
+	nodeRun, _, _, ok := h.loadNodeRunForWorkspace(w, r)
+	if !ok {
+		return
+	}
+	if h.SplitOrchestrator == nil {
+		writeError(w, http.StatusInternalServerError, "split orchestrator is not configured")
+		return
+	}
+	if err := h.SplitOrchestrator.ResetSplitDraftTasksToOriginal(r.Context(), nodeRun); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}

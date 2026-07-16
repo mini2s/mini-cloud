@@ -25,6 +25,13 @@ vi.mock("../../../i18n", () => ({
         split_draft_missing_execution_workflow: "Missing execution workflow",
         split_draft_expand_details: "View details",
         split_draft_collapse_details: "Hide details",
+        split_draft_edit: "Edit draft",
+        split_draft_save: "Save draft",
+        split_draft_cancel_edit: "Cancel edit",
+        split_draft_discard: "Discard draft",
+        split_draft_restore: "Restore draft",
+        split_draft_title_label: "Draft title",
+        split_draft_description_label: "Draft description",
       };
       const template = selector({ detail_panel: detailPanel });
       if (values) {
@@ -142,5 +149,59 @@ describe("SplitDraftLedger", () => {
     expect(onWorkflowChange).toHaveBeenCalledWith(expect.objectContaining({ id: "task-1" }), "workflow-1");
     expect(screen.getByRole("button", { name: "View details" })).toHaveAttribute("aria-expanded", "false");
     expect(screen.queryByTestId("split-draft-details-task-1")).not.toBeInTheDocument();
+  });
+
+  it("lets the user edit draft title and description before saving", async () => {
+    const user = userEvent.setup();
+    const onDraftSave = vi.fn();
+    render(
+      <SplitDraftLedger
+        tasks={[baseTask]}
+        workflows={workflows}
+        onDraftSave={onDraftSave}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Edit draft" }));
+    await user.clear(screen.getByLabelText("Draft title"));
+    await user.type(screen.getByLabelText("Draft title"), "Updated manual title");
+    await user.clear(screen.getByLabelText("Draft description"));
+    await user.type(screen.getByLabelText("Draft description"), "Updated manual description.");
+    await user.click(screen.getByRole("button", { name: "Save draft" }));
+
+    expect(onDraftSave).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "task-1" }),
+      {
+        title: "Updated manual title",
+        description: "Updated manual description.",
+      },
+    );
+  });
+
+  it("supports discarding and restoring draft rows with quick actions", async () => {
+    const user = userEvent.setup();
+    const onDiscardChange = vi.fn();
+    const { rerender } = render(
+      <SplitDraftLedger
+        tasks={[baseTask]}
+        workflows={workflows}
+        onDiscardChange={onDiscardChange}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Discard draft" }));
+    expect(onDiscardChange).toHaveBeenCalledWith(expect.objectContaining({ id: "task-1" }), true);
+
+    rerender(
+      <SplitDraftLedger
+        tasks={[{ ...baseTask, status: "discarded" }]}
+        workflows={workflows}
+        onDiscardChange={onDiscardChange}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Restore draft" }));
+    expect(onDiscardChange).toHaveBeenCalledWith(expect.objectContaining({ id: "task-1" }), false);
+    expect(screen.queryByRole("button", { name: "Edit draft" })).not.toBeInTheDocument();
   });
 });
