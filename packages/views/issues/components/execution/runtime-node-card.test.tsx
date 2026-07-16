@@ -10,6 +10,9 @@ import type { WorkflowNode, WorkflowNodeRun, WorkflowNodeRuntimeSummary } from "
 vi.mock("@multica/views/i18n", () => {
   const issues = {
     execution: {
+      panorama: {
+        not_started: "Not started",
+      },
       display_status: {
         pending: "Pending",
         todo: "Todo",
@@ -386,7 +389,7 @@ describe("RuntimeNodeCard", () => {
     expect(screen.queryByTestId("runtime-node-action-approve")).not.toBeInTheDocument();
   });
 
-  it("renders split nodes with split-specific runtime semantics instead of actor rows", () => {
+  it("renders split nodes with aggregated child issue status inside the runtime card structure", () => {
     render(
       <RuntimeNodeCard
         node={{
@@ -432,12 +435,15 @@ describe("RuntimeNodeCard", () => {
     expect(screen.getByText("Reviewing")).toBeInTheDocument();
     expect(screen.getByTestId("runtime-node-card-split-1")).toHaveTextContent("Reviewing");
     expect(screen.getByLabelText("Reviewing")).toBeInTheDocument();
-    expect(screen.getByText("Review 5 tasks")).toBeInTheDocument();
+    expect(screen.getByText("5 child issues")).toBeInTheDocument();
+    expect(screen.getByText("Not started")).toBeInTheDocument();
+    expect(screen.queryByText("Review 5 tasks")).not.toBeInTheDocument();
     expect(screen.queryByText("Worker")).not.toBeInTheDocument();
     expect(screen.queryByText("Critic")).not.toBeInTheDocument();
+    expect(screen.getByTestId("runtime-node-split-progress")).toHaveClass("border-t", "border-border/45");
   });
 
-  it("shows an explicit draft-generation state while split planner is running", () => {
+  it("shows split planner roles while the split planner is running", () => {
     render(
       <RuntimeNodeCard
         node={{
@@ -468,10 +474,15 @@ describe("RuntimeNodeCard", () => {
       />,
     );
 
-    expect(screen.getByText("Generating draft tasks")).toBeInTheDocument();
+    const card = screen.getByTestId("runtime-node-card-split-generating");
+    expect(card).toHaveTextContent("In progress");
+    expect(screen.queryByText("Generating draft tasks")).not.toBeInTheDocument();
     expect(screen.queryByText(/barrier/)).not.toBeInTheDocument();
-    expect(screen.queryByText("Worker")).not.toBeInTheDocument();
-    expect(screen.queryByText("Critic")).not.toBeInTheDocument();
+    expect(screen.getByText("Worker")).toBeInTheDocument();
+    expect(screen.getByText("Tester")).toBeInTheDocument();
+    expect(screen.getByText("Critic")).toBeInTheDocument();
+    expect(screen.getByText("Reviewer")).toBeInTheDocument();
+    expect(card.innerHTML).not.toContain("text-amber");
   });
 
   it("renders split child progress as the expansion control without opening the split panel", async () => {
@@ -615,7 +626,7 @@ describe("RuntimeNodeCard", () => {
     expect(toggleButton.className).toContain("bg-primary/10");
   });
 
-  it("keeps the visible canvas surface and split card chrome for split nodes", () => {
+  it("keeps the visible canvas surface without nesting editor split card chrome", () => {
     render(
       <RuntimeNodeCard
         node={{
@@ -665,15 +676,10 @@ describe("RuntimeNodeCard", () => {
     expect(surface?.className).not.toContain("border-transparent");
     expect(surface?.className).not.toContain("shadow-none");
 
-    const splitCard = Array.from(card.querySelectorAll("div")).find((element) =>
-      element.textContent?.includes("Task split") &&
-      element.className.includes("border-border"),
-    );
-    expect(splitCard?.className).toContain("border-border");
-    expect(splitCard?.className).toContain("bg-card");
-    expect(splitCard?.className).not.toContain("border-0");
-    expect(splitCard?.className).not.toContain("bg-transparent");
-    expect(splitCard?.className).not.toContain("shadow-none");
+    expect(card.querySelector('[data-testid="runtime-node-split-progress"]')).toBeInTheDocument();
+    expect(card.innerHTML).not.toContain("bg-card");
+    expect(card.innerHTML).not.toContain("shadow-sm");
+    expect(card.innerHTML).not.toContain("text-amber");
   });
 
   it("renders split progress badge when runtime summary includes aggregated progress", () => {

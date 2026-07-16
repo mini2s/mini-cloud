@@ -10,7 +10,7 @@ import {
 } from "@multica/core/types";
 import { cn } from "@multica/ui/lib/utils";
 import { RuntimeDisplayStatusIcon } from "./node-run-status-icon";
-import { Bot, User, Building2, Check, ChevronDown, ChevronRight, GitFork, GitMerge } from "lucide-react";
+import { Bot, User, Building2, Check, ChevronDown, ChevronRight, GitBranch, GitFork, GitMerge } from "lucide-react";
 import { useT } from "@multica/views/i18n";
 import { Button } from "@multica/ui/components/ui/button";
 import { Loader2 } from "lucide-react";
@@ -20,7 +20,6 @@ import {
   type WorkflowCanvasNodeHandle,
 } from "../../../workflows/components/canvas/workflow-canvas-node-shell";
 import { WORKER_WIDTH } from "../../../workflows/components/overview/constants";
-import { SplitNodeCard } from "../../../workflows/components/split/split-node-card";
 
 export const RUNTIME_NODE_HEIGHT = 120;
 
@@ -288,6 +287,33 @@ function ActorSlot({
   );
 }
 
+function SplitProgressSummary({
+  label,
+  summary,
+}: {
+  label: string;
+  summary: string;
+}) {
+  return (
+    <div
+      data-testid="runtime-node-split-progress"
+      className="flex min-w-0 items-center gap-2 border-t border-border/45 py-1.5"
+    >
+      <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-muted/55 text-muted-foreground ring-1 ring-border/60">
+        <GitBranch className="h-3.5 w-3.5" />
+      </span>
+      <div className="min-w-0">
+        <p className="truncate text-[12px] font-semibold leading-4 text-foreground/90">
+          {label}
+        </p>
+        <p className="truncate text-[10px] font-medium leading-3 text-muted-foreground">
+          {summary}
+        </p>
+      </div>
+    </div>
+  );
+}
+
 export function RuntimeNodeCard({
   node,
   nodeRun,
@@ -317,23 +343,14 @@ export function RuntimeNodeCard({
   const WorkerIcon = typeIcon(node.worker_type);
   const CriticIcon = node.critic_type === "agent" ? Bot : node.critic_type === "squad" ? Building2 : User;
   const GatewayIcon = nodeFormat.gateway_kind === "join" ? GitMerge : GitFork;
-  const splitStatus =
-    nodeRun?.status === "split_active"
-      ? "active"
-      : nodeRun?.status === "splitting"
-        ? "generating"
-        : nodeRun?.status === "awaiting_split_review"
-        ? "awaiting_review"
-        : nodeRun?.status === "completed"
-          ? "completed"
-          : "idle";
   const splitProgress = runtimeSummary?.split_progress ?? null;
+  const hasSplitProgress = isSplit && !!splitProgress && splitProgress.total > 0;
   const canToggleSplitChildren = isSplit && splitChildCount > 0 && !!onSplitNodeToggle;
-  const splitChildLabel = splitChildCountLabel(t, splitChildCount);
+  const splitChildLabel = splitChildCountLabel(t, splitChildCount || (splitProgress?.total ?? 0));
   const splitChildSummaryParts = splitProgress ? splitProgressSummaryParts(t, splitProgress) : [];
   const splitChildSummaryLabel = splitChildSummaryParts.length > 0
     ? splitChildSummaryParts.join(" · ")
-    : displayStatusLabel;
+    : t(($) => $.execution.panorama.not_started);
   const handleShellKeyDown = useCallback((event: React.KeyboardEvent<HTMLDivElement>) => {
     if (event.key !== "Enter" && event.key !== " ") return;
     event.preventDefault();
@@ -388,26 +405,25 @@ export function RuntimeNodeCard({
       onClick={() => onClick(node.id)}
       onKeyDown={canToggleSplitChildren ? handleShellKeyDown : undefined}
       className="h-[120px]"
-      contentClassName={isSplit ? "h-full justify-center p-0" : cn("h-full justify-between gap-2", workflowNodeInfoAreaClassName(nodeShape))}
+      contentClassName={cn("h-full justify-between gap-2", workflowNodeInfoAreaClassName(nodeShape))}
       handles={handles}
       lateralHandleTop={lateralHandleTop}
       elementRef={elementRef}
     >
       {isSplit ? (
-        <SplitNodeCard
-          title={node.title}
-          config={nodeFormat.split_config}
-          status={splitStatus}
-          progress={splitProgress}
-          taskCount={splitProgress?.total ?? 0}
-          headerAction={(
+        <>
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex min-w-0 items-center gap-1.5">
+              <GitBranch className="size-3.5 shrink-0 text-muted-foreground" />
+              <span className="truncate text-sm font-medium">{node.title}</span>
+            </div>
             <RuntimeStatusPill
               status={displayStatus}
               label={displayStatusLabel}
-              className="max-w-[92px]"
             />
-          )}
-          progressAction={canToggleSplitChildren ? (
+          </div>
+
+          {canToggleSplitChildren ? (
             <button
               type="button"
               data-testid="runtime-node-split-child-toggle"
@@ -451,9 +467,34 @@ export function RuntimeNodeCard({
                 )}
               </span>
             </button>
-          ) : null}
-          className="h-full w-full min-h-0"
-        />
+          ) : hasSplitProgress ? (
+            <SplitProgressSummary
+              label={splitChildLabel}
+              summary={splitChildSummaryLabel}
+            />
+          ) : (
+            <div
+              data-testid="runtime-node-content"
+              className={cn(
+                "grid gap-1.5 border-t border-border/45 py-1.5",
+                node.critic_type || node.critic_id ? "grid-cols-2" : "grid-cols-1",
+              )}
+            >
+              <ActorSlot
+                icon={WorkerIcon}
+                label={t(($) => $.execution.card.worker_label)}
+                name={workerName}
+              />
+              {node.critic_type || node.critic_id ? (
+                <ActorSlot
+                  icon={CriticIcon}
+                  label={t(($) => $.execution.card.critic_label)}
+                  name={criticName}
+                />
+              ) : null}
+            </div>
+          )}
+        </>
       ) : (
         <>
       {/* Row 1: node title + status icon */}

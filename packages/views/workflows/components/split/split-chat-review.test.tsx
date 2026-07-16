@@ -22,6 +22,10 @@ vi.mock("../../../i18n", () => ({
         split_chat_role_you: "You",
         split_chat_agent_thinking: "Agent is thinking...",
         split_chat_queued: "Queued",
+        split_chat_ready_title: "Ready for adjustment",
+        split_chat_live_badge: "Live",
+        split_chat_view_process: "View process",
+        split_chat_hide_process: "Hide process",
         split_chat_non_workflow_hint: "Workflow changes use the row selector, not chat.",
         split_chat_suggestion_add_security: "Add a security review child issue",
         split_chat_suggestion_merge: "Merge task 2 and task 3",
@@ -142,6 +146,40 @@ describe("SplitChatReview", () => {
     expect(screen.getByText("Agent transcript")).toBeInTheDocument();
   });
 
+  it("renders chat messages as a lightweight stream without filled gray blocks", () => {
+    mocks.messages = [
+      {
+        id: "msg-1",
+        chat_session_id: "chat-1",
+        role: "user",
+        content: "Add a security review child issue",
+        task_id: null,
+        created_at: "2026-07-15T00:00:00Z",
+      },
+      {
+        id: "msg-2",
+        chat_session_id: "chat-1",
+        role: "assistant",
+        content: "Draft updated with a new security review item.",
+        task_id: "task-1",
+        created_at: "2026-07-15T00:00:01Z",
+      },
+    ];
+
+    render(<SplitChatReview issueId="issue-1" chatSessionId="chat-1" onSubmit={vi.fn()} />);
+
+    const stream = screen.getByTestId("split-chat-history");
+    expect(stream.className).not.toContain("bg-background/70");
+
+    for (const messageId of ["msg-1", "msg-2"]) {
+      const message = screen.getByTestId(`split-chat-message-${messageId}`);
+      expect(message.className).not.toContain("bg-muted");
+      expect(message.className).not.toContain("bg-primary/10");
+      expect(message.className).not.toContain("shadow-sm");
+      expect(message.className).not.toContain("rounded-lg");
+    }
+  });
+
   it("submits natural language adjustments through CommentInput with attachments", async () => {
     const onSubmit = vi.fn().mockResolvedValue(undefined);
     render(<SplitChatReview issueId="issue-1" chatSessionId="chat-1" onSubmit={onSubmit} />);
@@ -160,7 +198,7 @@ describe("SplitChatReview", () => {
     );
   });
 
-  it("shows the live transcript while a split chat task is pending", () => {
+  it("keeps the live transcript collapsed behind a process control while a split chat task is pending", async () => {
     mocks.pendingTask = {
       task_id: "123e4567-e89b-12d3-a456-426614174000",
       status: "running",
@@ -168,10 +206,21 @@ describe("SplitChatReview", () => {
 
     render(<SplitChatReview issueId="issue-1" chatSessionId="chat-1" onSubmit={vi.fn()} />);
 
+    expect(screen.getByTestId("split-chat-workbench")).toBeInTheDocument();
+    expect(screen.getByText("Agent is thinking...")).toBeInTheDocument();
+    expect(screen.getByText("Live")).toBeInTheDocument();
+    expect(screen.queryByTestId("inline-transcript-panel")).not.toBeInTheDocument();
+
+    const processButton = screen.getByRole("button", { name: "View process" });
+    expect(processButton).toHaveAttribute("aria-expanded", "false");
+
+    await userEvent.click(processButton);
+
     const transcript = screen.getByTestId("inline-transcript-panel");
     expect(transcript).toHaveAttribute("data-task-id", "123e4567-e89b-12d3-a456-426614174000");
     expect(transcript).toHaveAttribute("data-live", "true");
-    expect(transcript).toHaveAttribute("data-default-open", "true");
+    expect(transcript).toHaveAttribute("data-default-open", "false");
+    expect(screen.getByRole("button", { name: "Hide process" })).toHaveAttribute("aria-expanded", "true");
   });
 
   it("disables the comment input while a split chat task is pending", () => {

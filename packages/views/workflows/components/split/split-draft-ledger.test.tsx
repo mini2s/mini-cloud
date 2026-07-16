@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 
 import { render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import type { SplitTask, Workflow } from "@multica/core/types";
 import { SplitDraftLedger } from "./split-draft-ledger";
@@ -22,6 +23,8 @@ vi.mock("../../../i18n", () => ({
         split_draft_dependencies_label: "Dependencies: {{deps}}",
         split_draft_dependencies_none: "Dependencies: none",
         split_draft_missing_execution_workflow: "Missing execution workflow",
+        split_draft_expand_details: "View details",
+        split_draft_collapse_details: "Hide details",
       };
       const template = selector({ detail_panel: detailPanel });
       if (values) {
@@ -98,5 +101,46 @@ describe("SplitDraftLedger", () => {
 
     expect(screen.getByTestId("split-draft-risk-task-1")).toHaveTextContent("Missing execution workflow");
     expect(row).toHaveClass("border-destructive/30");
+  });
+
+  it("keeps draft details collapsed until the user asks to view them", async () => {
+    const user = userEvent.setup();
+    render(<SplitDraftLedger tasks={[baseTask]} workflows={workflows} />);
+
+    const toggle = screen.getByRole("button", { name: "View details" });
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    const summary = screen.getByTestId("split-draft-summary-task-1");
+    expect(summary).toHaveClass("line-clamp-2");
+    expect(screen.queryByTestId("split-draft-details-task-1")).not.toBeInTheDocument();
+
+    await user.click(toggle);
+
+    expect(screen.getByRole("button", { name: "Hide details" })).toHaveAttribute("aria-expanded", "true");
+    expect(toggle).toHaveClass("text-primary");
+    expect(toggle.className).not.toContain("border");
+    expect(screen.getByTestId("split-draft-summary-task-1")).not.toHaveClass("line-clamp-2");
+    expect(screen.queryByTestId("split-draft-details-task-1")).not.toBeInTheDocument();
+    expect(screen.getByTestId("split-draft-summary-task-1")).toHaveTextContent("A detailed description that should keep the title column usable.");
+  });
+
+  it("does not expand the draft row when changing the execution workflow", async () => {
+    const user = userEvent.setup();
+    const onWorkflowChange = vi.fn();
+    render(
+      <SplitDraftLedger
+        tasks={[{ ...baseTask, workflow_id: null }]}
+        workflows={workflows}
+        onWorkflowChange={onWorkflowChange}
+      />,
+    );
+
+    await user.selectOptions(
+      screen.getByLabelText("Execution workflow for A very long child issue title that must stay readable in the review panel"),
+      "workflow-1",
+    );
+
+    expect(onWorkflowChange).toHaveBeenCalledWith(expect.objectContaining({ id: "task-1" }), "workflow-1");
+    expect(screen.getByRole("button", { name: "View details" })).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByTestId("split-draft-details-task-1")).not.toBeInTheDocument();
   });
 });

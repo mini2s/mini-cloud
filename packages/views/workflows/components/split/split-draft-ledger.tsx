@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import type { Issue, SplitTask, SplitTaskStatus, Workflow } from "@multica/core/types";
 import { useWorkspacePaths } from "@multica/core/paths";
@@ -8,6 +9,7 @@ import { Badge } from "@multica/ui/components/ui/badge";
 import { cn } from "@multica/ui/lib/utils";
 import { useT } from "@multica/views/i18n";
 import { AppLink } from "../../../navigation";
+import { ChevronDown, ChevronUp } from "lucide-react";
 
 interface SplitDraftLedgerProps {
   tasks: SplitTask[];
@@ -99,6 +101,19 @@ export function SplitDraftLedger({
   onWorkflowChange,
 }: SplitDraftLedgerProps) {
   const { t } = useT("workflows");
+  const [expandedTaskIds, setExpandedTaskIds] = useState<Set<string>>(() => new Set());
+
+  const toggleTaskDetails = (taskId: string) => {
+    setExpandedTaskIds((current) => {
+      const next = new Set(current);
+      if (next.has(taskId)) {
+        next.delete(taskId);
+      } else {
+        next.add(taskId);
+      }
+      return next;
+    });
+  };
 
   if (tasks.length === 0) {
     return (
@@ -114,6 +129,8 @@ export function SplitDraftLedger({
     <div className="space-y-2">
       {tasks.map((task, index) => {
         const linkedIssue = taskIssueBySourceId?.get(task.id) ?? null;
+        const isExpanded = expandedTaskIds.has(task.id);
+        const summaryId = `split-draft-summary-${task.id}`;
         const dependsOn = task.depends_on
           .map((dependencyId) => numberByTaskId.get(dependencyId) ?? dependencyId)
           .join(", ");
@@ -142,9 +159,34 @@ export function SplitDraftLedger({
                   </h4>
                 </div>
                 {task.description.trim().length > 0 ? (
-                  <p className="mt-1 line-clamp-2 text-xs leading-snug text-muted-foreground">
-                    {task.description}
-                  </p>
+                  <div className="mt-1">
+                    <p
+                      id={summaryId}
+                      data-testid={summaryId}
+                      className={cn(
+                        "text-xs leading-snug text-muted-foreground",
+                        isExpanded ? "whitespace-pre-wrap" : "line-clamp-2",
+                      )}
+                    >
+                      {task.description}
+                    </p>
+                    <button
+                      type="button"
+                      className="mt-1 inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                      aria-expanded={isExpanded}
+                      aria-controls={summaryId}
+                      onClick={() => toggleTaskDetails(task.id)}
+                    >
+                      {isExpanded ? (
+                        <ChevronUp className="size-3.5" />
+                      ) : (
+                        <ChevronDown className="size-3.5" />
+                      )}
+                      {isExpanded
+                        ? t(($) => $.detail_panel.split_draft_collapse_details)
+                        : t(($) => $.detail_panel.split_draft_expand_details)}
+                    </button>
+                  </div>
                 ) : null}
                 {linkedIssue ? (
                   <SplitTaskChildIssueMeta task={task} linkedIssue={linkedIssue} t={t} />

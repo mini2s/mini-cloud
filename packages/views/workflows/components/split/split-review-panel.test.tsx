@@ -68,6 +68,8 @@ const i18nMock = vi.hoisted(() => {
     split_draft_dependencies_label: "Dependencies: {{deps}}",
     split_draft_dependencies_none: "Dependencies: none",
     split_draft_missing_execution_workflow: "Missing execution workflow",
+    split_draft_expand_details: "View details",
+    split_draft_collapse_details: "Hide details",
     split_dep_will_appear_after_draft: "Dependencies will appear here after a draft is generated.",
     split_dep_can_start_in_parallel: "These child issues can start in parallel.",
     split_settings_mode_label: "Mode: {{mode}}",
