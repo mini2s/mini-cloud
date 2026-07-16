@@ -498,6 +498,53 @@ func (q *Queries) ListArchivedAgentIDsByRuntime(ctx context.Context, runtimeID p
 	return items, nil
 }
 
+const listOnlineAgentRuntimesByWorkspaceAndProvider = `-- name: ListOnlineAgentRuntimesByWorkspaceAndProvider :many
+SELECT id, workspace_id, daemon_id, name, runtime_mode, provider, status, device_info, metadata, last_seen_at, created_at, updated_at, owner_id, legacy_daemon_id, visibility FROM multica_agent_runtime
+WHERE workspace_id = $1 AND provider = $2 AND status = 'online'
+ORDER BY last_seen_at DESC
+`
+
+type ListOnlineAgentRuntimesByWorkspaceAndProviderParams struct {
+	WorkspaceID pgtype.UUID `json:"workspace_id"`
+	Provider    string      `json:"provider"`
+}
+
+func (q *Queries) ListOnlineAgentRuntimesByWorkspaceAndProvider(ctx context.Context, arg ListOnlineAgentRuntimesByWorkspaceAndProviderParams) ([]MulticaAgentRuntime, error) {
+	rows, err := q.db.Query(ctx, listOnlineAgentRuntimesByWorkspaceAndProvider, arg.WorkspaceID, arg.Provider)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []MulticaAgentRuntime{}
+	for rows.Next() {
+		var i MulticaAgentRuntime
+		if err := rows.Scan(
+			&i.ID,
+			&i.WorkspaceID,
+			&i.DaemonID,
+			&i.Name,
+			&i.RuntimeMode,
+			&i.Provider,
+			&i.Status,
+			&i.DeviceInfo,
+			&i.Metadata,
+			&i.LastSeenAt,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.OwnerID,
+			&i.LegacyDaemonID,
+			&i.Visibility,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const markAgentRuntimeOnline = `-- name: MarkAgentRuntimeOnline :one
 UPDATE multica_agent_runtime
 SET status = 'online', last_seen_at = now(), updated_at = now()

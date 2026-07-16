@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"net/netip"
@@ -103,6 +104,9 @@ type Config struct {
 	// delivered value is empty.
 	CSCPluginMarketplaceName string
 	CSCPluginMarketplaceRepo string
+	// CloudGatewayProxyPrefix is used to build the frontend-facing Gateway proxy URL
+	// for issue conversation event streams. Defaults to "/cloud-api/cloud/device/%s/proxy".
+	CloudGatewayProxyPrefix string
 }
 
 type cloudRuntimeProxy interface {
@@ -740,4 +744,12 @@ func (h *Handler) loadInboxItemForUser(w http.ResponseWriter, r *http.Request, i
 		return db.MulticaInboxItem{}, false
 	}
 	return item, true
+}
+
+func gatewayProxyPrefix(cfg Config, deviceID string) string {
+	p := cfg.CloudGatewayProxyPrefix
+	if p == "" {
+		p = "/cloud-api/cloud/device/%s/proxy"
+	}
+	return fmt.Sprintf(p, deviceID)
 }

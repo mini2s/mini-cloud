@@ -254,3 +254,8 @@ WHERE status = 'offline'
   AND last_seen_at < now() - make_interval(secs => @stale_seconds::double precision)
   AND id NOT IN (SELECT DISTINCT runtime_id FROM multica_agent)
 RETURNING id, workspace_id;
+
+-- name: ListOnlineAgentRuntimesByWorkspaceAndProvider :many
+SELECT * FROM multica_agent_runtime
+WHERE workspace_id = $1 AND provider = $2 AND status = 'online'
+ORDER BY last_seen_at DESC;

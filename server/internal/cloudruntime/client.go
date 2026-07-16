@@ -36,6 +36,7 @@ type Request struct {
 	UserID    string
 	UserPAT   string
 	RequestID string
+	Headers   http.Header
 }
 
 type Response struct {
@@ -105,6 +106,11 @@ func (c *Client) Do(ctx context.Context, req Request) (*Response, error) {
 	}
 	if req.RequestID != "" {
 		httpReq.Header.Set("X-Request-ID", req.RequestID)
+	}
+	for k, vs := range req.Headers {
+		for _, v := range vs {
+			httpReq.Header.Add(k, v)
+		}
 	}
 
 	resp, err := c.httpClient.Do(httpReq)
