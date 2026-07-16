@@ -914,10 +914,12 @@ export function WorkflowPanoramaPage({ workflowId, viewToggle }: WorkflowPanoram
   const handleNodeDelete = useCallback(
     async (nodeId: string) => {
       cacheNodeDelete(nodeId);
+      clearNodeEdits(nodeId);
       await deleteNodeMutation.mutateAsync(nodeId);
+      selectNode(null);
       setConfigPanelOpen(false);
     },
-    [deleteNodeMutation, cacheNodeDelete],
+    [deleteNodeMutation, cacheNodeDelete, clearNodeEdits, selectNode],
   );
 
   const handleStageChange = useCallback(
@@ -981,15 +983,20 @@ export function WorkflowPanoramaPage({ workflowId, viewToggle }: WorkflowPanoram
   }, [workflow, workflowId, updateWorkflowMutation, t]);
 
   const handleSave = useCallback(async () => {
-    const entries = Object.entries(useWorkflowEditorStore.getState().nodeEdits);
-    if (entries.length === 0) return true;
+    const editorState = useWorkflowEditorStore.getState();
+    const deletedNodeIdSet = new Set(editorState.deletedNodeIds);
+    const entries = Object.entries(editorState.nodeEdits);
+    const activeEntries = entries.filter(([nodeId]) => !deletedNodeIdSet.has(nodeId));
+    const deletedEntries = entries.filter(([nodeId]) => deletedNodeIdSet.has(nodeId));
+    deletedEntries.forEach(([nodeId]) => clearNodeEdits(nodeId));
+    if (activeEntries.length === 0) return true;
     try {
       await Promise.all(
-        entries.map(([nodeId, edits]) =>
+        activeEntries.map(([nodeId, edits]) =>
           updateNodeMutation.mutateAsync({ nodeId, ...edits } as Parameters<typeof updateNodeMutation.mutateAsync>[0]),
         ),
       );
-      entries.forEach(([nodeId]) => clearNodeEdits(nodeId));
+      activeEntries.forEach(([nodeId]) => clearNodeEdits(nodeId));
       toast.success(t(($) => $.detail.toast_saved));
       return true;
     } catch {

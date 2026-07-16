@@ -482,6 +482,60 @@ describe("WorkflowPanoramaPage (new)", () => {
     });
   });
 
+  it("clears cached node edits when deleting a node from the config panel", async () => {
+    mocks.nodesData = [
+      { id: "node-1", workflow_id: "wf-1", title: "Server title", description: "", worker_type: "agent", worker_id: null, critic_type: "human", critic_id: null, critic_api_url: null, stage_id: "stage-1", format_schema: null, position_x: 120, position_y: 0, sort_order: 0, created_at: "", updated_at: "" },
+    ];
+    mocks.nodeEdits = {
+      "node-1": { title: "Edited title" },
+    };
+    mocks.deleteNodeMutateAsync.mockResolvedValueOnce(undefined);
+    mocks.clearNodeEdits.mockImplementation((nodeId: string) => {
+      delete mocks.nodeEdits[nodeId];
+    });
+
+    const { rerender } = render(<WorkflowPanoramaPage workflowId="wf-1" />);
+
+    const worker = mocks.reactFlowProps?.nodes.find((n) => n.id === "node-1");
+    act(() => {
+      mocks.reactFlowProps?.onNodeClick?.({} as React.MouseEvent, worker!);
+    });
+    rerender(<WorkflowPanoramaPage workflowId="wf-1" />);
+
+    fireEvent.click(screen.getByText("Delete Node"));
+
+    await vi.waitFor(() => {
+      expect(mocks.deleteNodeMutateAsync).toHaveBeenCalledWith("node-1");
+      expect(mocks.clearNodeEdits).toHaveBeenCalledWith("node-1");
+    });
+    rerender(<WorkflowPanoramaPage workflowId="wf-1" />);
+
+    expect(screen.queryByRole("button", { name: "Save changes" })).not.toBeInTheDocument();
+    expect(mocks.updateNodeMutateAsync).not.toHaveBeenCalled();
+  });
+
+  it("skips cached edits for nodes already marked deleted when saving", async () => {
+    mocks.nodesData = [
+      { id: "node-1", workflow_id: "wf-1", title: "Server title", description: "", worker_type: "agent", worker_id: null, critic_type: "human", critic_id: null, critic_api_url: null, stage_id: "stage-1", format_schema: null, position_x: 120, position_y: 0, sort_order: 0, created_at: "", updated_at: "" },
+    ];
+    mocks.nodeEdits = {
+      "node-1": { title: "Edited title" },
+    };
+    mocks.deletedNodeIds = ["node-1"];
+    mocks.clearNodeEdits.mockImplementation((nodeId: string) => {
+      delete mocks.nodeEdits[nodeId];
+    });
+
+    render(<WorkflowPanoramaPage workflowId="wf-1" />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+
+    await vi.waitFor(() => {
+      expect(mocks.clearNodeEdits).toHaveBeenCalledWith("node-1");
+    });
+    expect(mocks.updateNodeMutateAsync).not.toHaveBeenCalled();
+  });
+
   it("renders the stage labels", () => {
     render(<WorkflowPanoramaPage workflowId="wf-1" />);
     expect(screen.getByTestId("canvas-stage-labels")).toBeInTheDocument();
