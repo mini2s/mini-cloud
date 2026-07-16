@@ -437,6 +437,8 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 					// can_manage hint so the UI can gate connect/disconnect.
 					r.Get("/github/installations", h.ListGitHubInstallations)
 					r.Get("/gitlab/settings", h.HandleGetGitlabSettings)
+					// Issue conversation session: returns conversation_id + workspace_directory + events_url.
+					r.Get("/issues/{issueID}/session", h.GetIssueConversationSession)
 				})
 				// Admin-level access
 				r.Group(func(r chi.Router) {
