@@ -179,8 +179,6 @@ vi.mock("@multica/core/workflows/queries", () => ({
   useSubmitNodeRun: () => ({ mutate: vi.fn() }),
   useReviewNodeRun: () => ({ mutate: vi.fn() }),
   useSkipNodeRun: () => ({ mutate: vi.fn() }),
-  useTakeoverNodeRun: () => ({ mutate: vi.fn() }),
-  useHandbackNodeRun: () => ({ mutate: vi.fn() }),
 }));
 
 vi.mock("@multica/core/workspace/queries", () => ({

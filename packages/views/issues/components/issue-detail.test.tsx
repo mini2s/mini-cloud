@@ -2,7 +2,7 @@ import { forwardRef, useRef, useState, useImperativeHandle, type ComponentProps 
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import type { Issue, TimelineEntry } from "@multica/core/types";
+import type { Issue, TimelineEntry, WorkflowNodeRun } from "@multica/core/types";
 import { I18nProvider } from "@multica/core/i18n/react";
 import enCommon from "../../locales/en/common.json";
 import enIssues from "../../locales/en/issues.json";
@@ -18,6 +18,9 @@ const mockExecutionPanoramaProps = vi.hoisted(() => ({
     issueId?: string;
     fillAvailableHeight?: boolean;
   },
+}));
+const mockWorkflowNodeRuns = vi.hoisted(() => ({
+  current: [] as WorkflowNodeRun[],
 }));
 
 vi.mock("@multica/ui/hooks/use-mobile", () => ({
@@ -99,7 +102,7 @@ vi.mock("@multica/core/workflows/queries", async (importOriginal) => {
     }),
     workflowNodeRunsOptions: (_wsId: string, workflowId: string, runId: string) => ({
       queryKey: ["workflows", "ws-1", workflowId, runId, "node-runs"],
-      queryFn: () => Promise.resolve([]),
+      queryFn: () => Promise.resolve(mockWorkflowNodeRuns.current),
     }),
   };
 });
@@ -257,6 +260,7 @@ const mockApiObj = vi.hoisted(() => ({
   removeCommentReaction: vi.fn(),
   listMembers: vi.fn().mockResolvedValue([{ user_id: "user-1", name: "Test User", email: "test@test.com", role: "admin" }]),
   listAgents: vi.fn().mockResolvedValue([]),
+  getSessionPermission: vi.fn(),
   getProject: vi.fn(),
   listProjects: vi.fn().mockResolvedValue({ projects: [] }),
 }));
@@ -452,6 +456,32 @@ const mockIssue: Issue = {
   updated_at: "2026-01-20T00:00:00Z",
 };
 
+const mockOriginNodeRun: WorkflowNodeRun = {
+  id: "node-run-1",
+  workflow_run_id: "run-1",
+  workflow_node_id: "node-1",
+  node_title: "Requirements analysis",
+  status: "awaiting_input",
+  retry_count: 0,
+  worker_type: "agent",
+  worker_id: "agent-1",
+  worker_output: null,
+  worker_agent_task_id: "task-1",
+  critic_type: "human",
+  critic_id: null,
+  critic_output: null,
+  critic_comment: "",
+  critic_agent_task_id: null,
+  agent_task_id: "task-1",
+  session_id: "session-1",
+  runtime_id: "runtime-1",
+  device_id: "device-1",
+  started_at: "2026-01-20T00:00:00Z",
+  completed_at: null,
+  created_at: "2026-01-20T00:00:00Z",
+  updated_at: "2026-01-20T00:00:00Z",
+};
+
 const mockTimeline: TimelineEntry[] = [
   {
     type: "comment",
@@ -543,6 +573,7 @@ describe("IssueDetail (shared)", () => {
     vi.clearAllMocks();
     mockViewport.isMobile = false;
     mockExecutionPanoramaProps.latest = null;
+    mockWorkflowNodeRuns.current = [];
     // Default: issue loads successfully
     mockApiObj.getIssue.mockResolvedValue(mockIssue);
     // /timeline returns the entries flat in chronological order (oldest first).
@@ -557,6 +588,15 @@ describe("IssueDetail (shared)", () => {
       { user_id: "user-1", name: "Test User", email: "test@test.com", role: "admin" },
     ]);
     mockApiObj.listAgents.mockResolvedValue([]);
+    mockApiObj.getSessionPermission.mockResolvedValue({
+      workspace_id: "ws-1",
+      node_run_id: "node-run-1",
+      device_id: "device-1",
+      session_id: "session-1",
+      role: "",
+      can_control: false,
+      can_observe: false,
+    });
     // Reset project mock — individual tests override per case. Default fixture
     // has project_id: null so getProject is not invoked.
     mockApiObj.getProject.mockReset();
@@ -872,6 +912,64 @@ describe("IssueDetail (shared)", () => {
     await waitFor(() => {
       expect(screen.getAllByText("Activity").length).toBeGreaterThanOrEqual(1);
     });
+  });
+
+  it("opens the live session tab from the issue takeover action", async () => {
+    mockApiObj.getIssue.mockResolvedValue({
+      ...mockIssue,
+      origin_type: "workflow",
+      origin_id: "node-run-1",
+      workflow_id: "workflow-1",
+      workflow_run_id: "run-1",
+    });
+    mockWorkflowNodeRuns.current = [mockOriginNodeRun];
+    mockApiObj.getSessionPermission.mockResolvedValue({
+      workspace_id: "ws-1",
+      node_run_id: "node-run-1",
+      device_id: "device-1",
+      session_id: "session-1",
+      role: "operator",
+      can_control: true,
+      can_observe: true,
+    });
+
+    renderIssueDetail();
+
+    const takeoverButton = await screen.findByRole("button", { name: "Take over session" });
+    const liveSessionTab = screen.getByRole("tab", { name: "Live session" });
+    const activityTab = screen.getByRole("tab", { name: "Activity" });
+
+    expect(activityTab).toHaveAttribute("aria-selected", "true");
+    expect(liveSessionTab).toBeEnabled();
+    expect(screen.queryByTestId("issue-realtime-session-placeholder")).not.toBeInTheDocument();
+
+    fireEvent.click(takeoverButton);
+
+    expect(liveSessionTab).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByTestId("issue-realtime-session-placeholder")).toBeInTheDocument();
+    expect(screen.queryByText("Started working on this")).not.toBeInTheDocument();
+  });
+
+  it("keeps the live session tab disabled and hides takeover without permission", async () => {
+    mockApiObj.getIssue.mockResolvedValue({
+      ...mockIssue,
+      origin_type: "workflow",
+      origin_id: "node-run-1",
+      workflow_id: "workflow-1",
+      workflow_run_id: "run-1",
+    });
+    mockWorkflowNodeRuns.current = [mockOriginNodeRun];
+
+    renderIssueDetail();
+
+    const liveSessionTab = await screen.findByRole("tab", { name: "Live session" });
+
+    await waitFor(() => expect(liveSessionTab).toBeDisabled());
+    expect(screen.getByRole("tab", { name: "Activity" })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+    expect(screen.queryByRole("button", { name: "Take over session" })).not.toBeInTheDocument();
   });
 
   it("retries a failed task directly from the activity timeline", async () => {

@@ -2483,25 +2483,6 @@ export class ApiClient {
     });
   }
 
-  async takeoverNodeRun(nodeRunId: string): Promise<WorkflowNodeRun> {
-    return this.fetch(`/api/node-runs/${nodeRunId}/blocked`, {
-      method: "POST",
-    });
-  }
-
-  async handbackNodeRun(nodeRunId: string): Promise<WorkflowNodeRun> {
-    return this.fetch(`/api/node-runs/${nodeRunId}/working`, {
-      method: "POST",
-    });
-  }
-
-  async finalizeNodeRun(nodeRunId: string, approved: boolean): Promise<WorkflowNodeRun> {
-    return this.fetch(`/api/node-runs/${nodeRunId}/finalize`, {
-      method: "POST",
-      body: JSON.stringify({ approved }),
-    });
-  }
-
   async listMyWorkflowTasks(wsId: string): Promise<MyWorkflowTaskResponse> {
     const raw = await this.fetch<unknown>(`/api/my-tasks?workspace_id=${wsId}`);
     return parseWithFallback(raw, MyWorkflowTasksResponseSchema, EMPTY_MY_WORKFLOW_TASKS_RESPONSE, {
