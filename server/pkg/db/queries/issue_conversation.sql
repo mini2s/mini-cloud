@@ -16,3 +16,6 @@ RETURNING issue_id, conversation_id, workspace_directory, device_id, created_at,
 
 -- name: DeleteIssueConversation :exec
 DELETE FROM multica_issue_conversation WHERE issue_id = $1;
+
+-- name: LockIssueConversation :exec
+SELECT pg_advisory_xact_lock(hashtextextended($1::text, 0));

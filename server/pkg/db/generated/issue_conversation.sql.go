@@ -77,3 +77,12 @@ func (q *Queries) GetIssueConversation(ctx context.Context, issueID pgtype.UUID)
 	)
 	return i, err
 }
+
+const lockIssueConversation = `-- name: LockIssueConversation :exec
+SELECT pg_advisory_xact_lock(hashtextextended($1::text, 0))
+`
+
+func (q *Queries) LockIssueConversation(ctx context.Context, dollar_1 string) error {
+	_, err := q.db.Exec(ctx, lockIssueConversation, dollar_1)
+	return err
+}

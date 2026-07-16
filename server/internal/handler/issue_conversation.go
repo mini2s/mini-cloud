@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 	"strings"
 
 	"github.com/go-chi/chi/v5"
@@ -75,7 +76,14 @@ func (h *Handler) GetIssueConversationSession(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	// Existing mapping?
+	// Serialize concurrent first-time creation for the same issue to avoid
+	// creating orphan conversations on the device.
+	if err := h.Queries.LockIssueConversation(r.Context(), issueID); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to lock issue conversation")
+		return
+	}
+
+	// Existing mapping? Re-check under the advisory lock.
 	conv, err := h.Queries.GetIssueConversation(r.Context(), issueUUID)
 	if err == nil && conv.ConversationID != "" {
 		h.writeIssueConversationSession(w, conv.ConversationID, conv.WorkspaceDirectory, conv.DeviceID)
@@ -201,8 +209,10 @@ func (h *Handler) createConversationOnDevice(w http.ResponseWriter, r *http.Requ
 }
 
 func (h *Handler) writeIssueConversationSession(w http.ResponseWriter, conversationID, workspaceDir, deviceID string) {
-	prefix := gatewayProxyPrefix(h.cfg)
-	eventsURL := fmt.Sprintf(prefix+"/api/v1/events?conversation_id=%s", deviceID, conversationID)
+	prefix := gatewayProxyPrefix(h.cfg, deviceID)
+	query := url.Values{}
+	query.Set("conversation_id", conversationID)
+	eventsURL := prefix + "/api/v1/events?" + query.Encode()
 
 	writeJSON(w, http.StatusOK, IssueConversationSessionResponse{
 		ConversationID:     conversationID,

@@ -6,5 +6,4 @@ CREATE TABLE multica_issue_conversation (
     created_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at          TIMESTAMPTZ NOT NULL DEFAULT now()
 );
-CREATE INDEX idx_issue_conversation_issue_id ON multica_issue_conversation(issue_id);
 ALTER TABLE multica_project ADD COLUMN local_directory TEXT;
