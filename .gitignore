@@ -41,6 +41,7 @@ apps/web/test-results/
 # context (agent workspace)
 .context
 .playwright-cli/
+.worktrees/
 
 # local settings
 .claude/
