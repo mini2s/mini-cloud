@@ -925,6 +925,9 @@ export function ExecutionPanoramaPage({
     selectedRun?.status === "format_failed" ||
     selectedRun?.status === "blocked" ||
     selectedRun?.status === "critic_rework";
+  const selectedRetryTaskId = selectedRun
+    ? selectedRun.worker_agent_task_id ?? selectedRun.agent_task_id ?? selectedRun.critic_agent_task_id
+    : null;
   const handleNodeClick = (nodeId: string) => {
     setSelectedNodeId(nodeId);
   };
@@ -989,7 +992,7 @@ export function ExecutionPanoramaPage({
             parentSplitTitle={selectedChildParentTitle}
             childWorkflowName={null}
             onRetry={
-              issueId && selectedRun && isRetryableSelectedRun && retryingNodeRunId !== selectedRun.id
+              issueId && selectedRun && selectedRetryTaskId && isRetryableSelectedRun && retryingNodeRunId !== selectedRun.id
                 ? () => void handleRetryNodeRun(selectedRun)
                 : undefined
             }

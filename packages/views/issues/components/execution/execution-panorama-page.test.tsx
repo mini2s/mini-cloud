@@ -1349,6 +1349,51 @@ describe("ExecutionPanoramaPage", () => {
     });
   });
 
+  it("does not expose retry for retryable node runs without an agent task id", async () => {
+    mocks.isLoading = false;
+    mocks.workflowData = { id: "wf-1", title: "Test Workflow" };
+    mocks.stagesData = [STAGE];
+    mocks.nodesData = [NODE];
+    mocks.nodeRunsData = [
+      {
+        id: "nr-1",
+        workflow_run_id: "run-1",
+        workflow_node_id: "n1",
+        node_title: "brainstorming",
+        status: "format_failed",
+        retry_count: 0,
+        worker_type: "agent",
+        worker_id: "agent-1",
+        worker_output: null,
+        worker_agent_task_id: null,
+        critic_type: "human",
+        critic_id: null,
+        critic_output: null,
+        critic_comment: "",
+        critic_agent_task_id: null,
+        agent_task_id: null,
+        session_id: null,
+        runtime_id: null,
+        device_id: null,
+        started_at: null,
+        completed_at: null,
+        created_at: "",
+        updated_at: "",
+      },
+    ];
+    mocks.agentsData = [AGENT];
+
+    render(
+      <Wrapper>
+        <ExecutionPanoramaPage workflowId="wf-1" runId="run-1" wsId="ws-1" issueId="issue-1" />
+      </Wrapper>,
+    );
+
+    fireEvent.click(screen.getByTestId("notification-item-test"));
+    expect(screen.getByTestId("detail-panel-status")).toHaveTextContent("format_failed");
+    expect(screen.queryByText("Retry from panel")).not.toBeInTheDocument();
+  });
+
   it("renders workflow edges through the shared ReactFlow canvas when runId is provided", () => {
     mocks.isLoading = false;
     mocks.workflowData = { id: "wf-1", title: "Test Workflow" };
