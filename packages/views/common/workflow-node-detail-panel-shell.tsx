@@ -90,7 +90,7 @@ export function WorkflowNodeDetailPanelShell({
         data-testid="node-detail-section-stack"
         className={cn("min-h-0 flex-1 overflow-y-auto px-4 py-4", contentClassName)}
       >
-        <div className="space-y-3">{children}</div>
+        <div className="space-y-5">{children}</div>
       </div>
     </aside>
   );
@@ -134,25 +134,21 @@ export function NodeDetailSection({
     <section
       data-testid="node-detail-section"
       data-section={sectionId}
-      className={cn("relative grid grid-cols-[14px_minmax(0,1fr)] gap-3", className)}
+      className={cn(
+        "relative space-y-2 border-t border-border/60 pt-4 first:border-t-0 first:pt-0",
+        className,
+      )}
     >
-      <div className="relative flex justify-center">
-        {sectionId !== "actions" && sectionId !== "agent-operations" ? (
-          <span
-            aria-hidden="true"
-            className="absolute top-8 bottom-[-18px] w-px bg-muted-foreground/20"
-          />
-        ) : null}
-        <span className="relative z-10 mt-3 size-2 rounded-full border border-muted-foreground/30 bg-background" />
-      </div>
-      <div className="overflow-hidden rounded-lg border bg-background">
-        <div className="flex items-start justify-between gap-3 border-b bg-muted/20 px-3 py-3">
+      <div className="space-y-2">
+        <div className="flex items-start justify-between gap-3">
           <div className={cn("flex min-w-0 gap-2.5", subtitle ? "items-start" : "items-center")}>
             {icon ? (
-              <span className={cn(
-                "flex size-7 shrink-0 items-center justify-center rounded-md border bg-background text-muted-foreground",
-                subtitle && "mt-0.5",
-              )}>
+              <span
+                className={cn(
+                  "flex size-6 shrink-0 items-center justify-center rounded bg-muted/45 text-muted-foreground",
+                  subtitle && "mt-0.5",
+                )}
+              >
                 {icon}
               </span>
             ) : null}
@@ -165,7 +161,7 @@ export function NodeDetailSection({
           </div>
           {status}
         </div>
-        {children ? <div className={cn("space-y-3 p-3", contentClassName)}>{children}</div> : null}
+        {children ? <div className={cn("space-y-3", contentClassName)}>{children}</div> : null}
       </div>
     </section>
   );

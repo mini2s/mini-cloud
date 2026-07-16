@@ -17,7 +17,7 @@ const i18nMock = vi.hoisted(() => {
   const detailPanel = {
     split_review_eyebrow: "Split review",
     split_progress_eyebrow: "Split progress",
-    split_verdict_title: "Verdict",
+    split_verdict_title: "Child issue readiness",
     split_ready_to_create: "Ready to create",
     split_needs_adjustment: "Needs adjustment",
     split_generating_draft: "Generating draft",
@@ -28,8 +28,8 @@ const i18nMock = vi.hoisted(() => {
     split_missing_assignees: "{{count}} child issue(s) need assignees",
     split_verdict_summary: "{{tasks}} child issues - {{assignees}} assignees - {{dependencies}} dependency chains",
     split_settings_summary: "View run settings",
-    split_draft_plan: "Draft plan",
-    split_dependencies: "Dependencies",
+    split_draft_plan: "Child issue draft",
+    split_dependencies: "Dependencies and release rules",
     split_ask_agent: "Ask agent to adjust",
     split_loading_draft: "Loading child issue draft...",
     split_loading_dependencies: "Loading dependencies...",
@@ -355,10 +355,10 @@ describe("SplitReviewPanel", () => {
 
     const approveButton = screen.getByRole("button", { name: "Confirm create 1" });
     expect(screen.getByTestId("workflow-node-detail-panel-shell")).toHaveAttribute("data-mode", "run");
-    expect(screen.getByText("Verdict")).toBeInTheDocument();
+    expect(screen.getByText("Child issue readiness")).toBeInTheDocument();
     expect(screen.getByText("Ready to create")).toBeInTheDocument();
-    expect(screen.getByText("Draft plan")).toBeInTheDocument();
-    expect(screen.getByText("Dependencies")).toBeInTheDocument();
+    expect(screen.getByText("Child issue draft")).toBeInTheDocument();
+    expect(screen.getByText("Dependencies and release rules")).toBeInTheDocument();
     expect(screen.getByText("Ask agent to adjust")).toBeInTheDocument();
     expect(screen.getByTestId("split-progress-badge")).toHaveTextContent("2:0:0");
     expect(screen.getByText("01")).toBeInTheDocument();

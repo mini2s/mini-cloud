@@ -236,6 +236,16 @@ export function ExecutionDetailPanel({
             </div>
           ) : null}
           <div className="flex flex-wrap gap-2">
+            {canOpenSession ? (
+              <button
+                type="button"
+                onClick={handleOpenSession}
+                className="inline-flex h-8 items-center justify-center gap-1.5 rounded-md border bg-background px-3 text-xs font-medium transition-colors hover:bg-muted"
+              >
+                <MessageSquare className="h-3.5 w-3.5" />
+                {t(($) => $.execution.detail_panel.open_session)}
+              </button>
+            ) : null}
             {onOpenIssue ? (
               <button
                 type="button"
@@ -269,40 +279,6 @@ export function ExecutionDetailPanel({
               </button>
             ) : null}
           </div>
-        </div>
-      </NodeDetailSection>
-
-      <NodeDetailSection
-        sectionId="deliverables"
-        icon={<ExternalLink className="size-4" />}
-        title={t(($) => $.execution.detail_panel.section_deliverables)}
-      >
-        <div className="flex flex-wrap gap-2">
-          {canOpenSession ? (
-            <button
-              type="button"
-              onClick={handleOpenSession}
-              className="inline-flex h-8 items-center justify-center gap-1.5 rounded-md border bg-background px-3 text-xs font-medium transition-colors hover:bg-muted"
-            >
-              <MessageSquare className="h-3.5 w-3.5" />
-              {t(($) => $.execution.detail_panel.open_session)}
-            </button>
-          ) : null}
-          {onOpenIssue ? (
-            <button
-              type="button"
-              onClick={onOpenIssue}
-              className="inline-flex h-8 items-center justify-center gap-1.5 rounded-md border bg-background px-3 text-xs font-medium transition-colors hover:bg-muted"
-            >
-              <ExternalLink className="h-3.5 w-3.5" />
-              {isChildIssue
-                ? t(($) => $.execution.detail_panel.open_child_issue)
-                : t(($) => $.execution.detail_panel.view_full_issue)}
-            </button>
-          ) : null}
-          {!canOpenSession && !onOpenIssue ? (
-            <p className="text-sm text-muted-foreground">{t(($) => $.execution.detail_panel.no_deliverables)}</p>
-          ) : null}
         </div>
       </NodeDetailSection>
 
@@ -366,6 +342,37 @@ export function ExecutionDetailPanel({
       </NodeDetailSection>
 
       <NodeDetailSection
+        sectionId="evidence-preview"
+        icon={<MessageSquare className="size-4" />}
+        title={t(($) => $.execution.detail_panel.section_evidence_preview)}
+      >
+        <button
+          type="button"
+          className="text-xs font-medium text-primary hover:underline"
+          onClick={() => setShowEvidence((value) => !value)}
+        >
+          {t(($) => $.execution.detail_panel.view_evidence)}
+        </button>
+        {showEvidence ? (
+          <div className="mt-2 space-y-2">
+            {nodeRun?.worker_output != null ? (
+              <pre className="max-h-24 overflow-auto whitespace-pre-wrap rounded bg-muted/50 p-2 text-xs">
+                {formatJson(nodeRun.worker_output)}
+              </pre>
+            ) : null}
+            {nodeRun?.critic_output != null ? (
+              <pre className="max-h-24 overflow-auto whitespace-pre-wrap rounded bg-muted/50 p-2 text-xs">
+                {formatJson(nodeRun.critic_output)}
+              </pre>
+            ) : null}
+            {nodeRun?.worker_output == null && nodeRun?.critic_output == null ? (
+              <p className="text-xs text-muted-foreground">{t(($) => $.execution.detail_panel.no_output)}</p>
+            ) : null}
+          </div>
+        ) : null}
+      </NodeDetailSection>
+
+      <NodeDetailSection
         sectionId="runtime-facts"
         icon={<Activity className="size-4" />}
         title={t(($) => $.execution.detail_panel.section_runtime_facts)}
@@ -398,37 +405,6 @@ export function ExecutionDetailPanel({
         ) : (
           <p className="text-sm text-muted-foreground">{t(($) => $.execution.detail_panel.no_runtime_data)}</p>
         )}
-      </NodeDetailSection>
-
-      <NodeDetailSection
-        sectionId="evidence-preview"
-        icon={<MessageSquare className="size-4" />}
-        title={t(($) => $.execution.detail_panel.section_evidence_preview)}
-      >
-        <button
-          type="button"
-          className="text-xs font-medium text-primary hover:underline"
-          onClick={() => setShowEvidence((value) => !value)}
-        >
-          {t(($) => $.execution.detail_panel.view_evidence)}
-        </button>
-        {showEvidence ? (
-          <div className="mt-2 space-y-2">
-            {nodeRun?.worker_output != null ? (
-              <pre className="max-h-24 overflow-auto whitespace-pre-wrap rounded bg-muted/50 p-2 text-xs">
-                {formatJson(nodeRun.worker_output)}
-              </pre>
-            ) : null}
-            {nodeRun?.critic_output != null ? (
-              <pre className="max-h-24 overflow-auto whitespace-pre-wrap rounded bg-muted/50 p-2 text-xs">
-                {formatJson(nodeRun.critic_output)}
-              </pre>
-            ) : null}
-            {nodeRun?.worker_output == null && nodeRun?.critic_output == null ? (
-              <p className="text-xs text-muted-foreground">{t(($) => $.execution.detail_panel.no_output)}</p>
-            ) : null}
-          </div>
-        ) : null}
       </NodeDetailSection>
 
     </WorkflowNodeDetailPanelShell>

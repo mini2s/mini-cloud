@@ -215,10 +215,9 @@ describe("ExecutionDetailPanel", () => {
     expect(screen.getByTestId("workflow-node-detail-panel-shell")).toHaveAttribute("data-mode", "run");
     expect(screen.getAllByTestId("node-detail-section").map((section) => section.getAttribute("data-section"))).toEqual([
       "status-next-step",
-      "deliverables",
       "worker-critic",
-      "runtime-facts",
       "evidence-preview",
+      "runtime-facts",
     ]);
   });
 
@@ -294,10 +293,9 @@ describe("ExecutionDetailPanel", () => {
 
     expect(screen.getAllByTestId("node-detail-section").map((section) => section.getAttribute("data-section"))).toEqual([
       "status-next-step",
-      "deliverables",
       "worker-critic",
-      "runtime-facts",
       "evidence-preview",
+      "runtime-facts",
     ]);
     expect(mockSetActiveSession).toHaveBeenCalledWith("11111111-1111-1111-1111-111111111111");
     expect(mockSetOpen).toHaveBeenCalledWith(true);
@@ -430,7 +428,7 @@ describe("ExecutionDetailPanel", () => {
     );
 
     const sections = screen.getAllByTestId("node-detail-section").map((section) => section.getAttribute("data-section"));
-    expect(sections).toEqual(["status-next-step", "deliverables", "worker-critic", "runtime-facts", "evidence-preview"]);
+    expect(sections).toEqual(["status-next-step", "worker-critic", "evidence-preview", "runtime-facts"]);
     expect(screen.queryByText(/"nested"/)).not.toBeInTheDocument();
     expect(screen.getByText("View evidence")).toBeInTheDocument();
   });
@@ -469,7 +467,7 @@ describe("ExecutionDetailPanel", () => {
     );
 
     const sections = screen.getAllByTestId("node-detail-section").map((section) => section.getAttribute("data-section"));
-    expect(sections).toEqual(["status-next-step", "deliverables", "child-progress", "worker-critic", "runtime-facts", "evidence-preview"]);
+    expect(sections).toEqual(["status-next-step", "child-progress", "worker-critic", "evidence-preview", "runtime-facts"]);
     expect(screen.getAllByText("Open child issue").length).toBeGreaterThan(0);
     expect(screen.getByText("Split work")).toBeInTheDocument();
     expect(screen.getAllByText("Child workflow").length).toBeGreaterThan(0);
@@ -545,10 +543,9 @@ describe("ExecutionDetailPanel", () => {
     expect(screen.queryByText("Agent operations")).not.toBeInTheDocument();
     expect(screen.getAllByTestId("node-detail-section").map((section) => section.getAttribute("data-section"))).toEqual([
       "status-next-step",
-      "deliverables",
       "worker-critic",
-      "runtime-facts",
       "evidence-preview",
+      "runtime-facts",
     ]);
   });
 

@@ -653,6 +653,23 @@ export function NodeConfigPanel({
         </div>
       </NodeDetailSection>
 
+      {isSplit ? (
+        <NodeDetailSection
+          sectionId="split-behavior"
+          icon={<GitBranch className="size-4" />}
+          title={t(($) => $.detail_panel.section_split_behavior)}
+          subtitle={t(($) => $.detail_panel.section_split_behavior_desc)}
+        >
+          <SplitConfigPanel
+            config={splitConfig}
+            childWorkflows={activeWorkflows}
+            currentWorkflowId={workflowId}
+            disabled={disabled}
+            onChange={handleSplitConfigChange}
+          />
+        </NodeDetailSection>
+      ) : null}
+
       <NodeDetailSection
         sectionId="worker-critic"
         icon={<Bot className="size-4" />}
@@ -1078,38 +1095,6 @@ export function NodeConfigPanel({
               </>
             ) : null}
 
-        </div>
-      </NodeDetailSection>
-
-      {isSplit ? (
-        <NodeDetailSection
-          sectionId="split-behavior"
-          icon={<GitBranch className="size-4" />}
-          title={t(($) => $.detail_panel.section_split_behavior)}
-          subtitle={t(($) => $.detail_panel.section_split_behavior_desc)}
-        >
-          <SplitConfigPanel
-            config={splitConfig}
-            childWorkflows={activeWorkflows}
-            currentWorkflowId={workflowId}
-            disabled={disabled}
-            onChange={handleSplitConfigChange}
-          />
-        </NodeDetailSection>
-      ) : null}
-
-      <NodeDetailSection
-        sectionId="connections"
-        icon={<GitBranch className="size-4" />}
-        title={t(($) => $.detail_panel.section_connections)}
-        subtitle={t(($) => $.detail_panel.section_connections_desc)}
-      >
-        <div className="space-y-2 text-sm text-muted-foreground">
-          <p>{t(($) => $.detail_panel.connections_stage, { stage: currentStageName })}</p>
-          {isGateway ? <p>{t(($) => $.detail_panel.connections_gateway_hint)}</p> : null}
-          {isAnnotation && targetNodeId ? (
-            <p>{t(($) => $.detail_panel.connections_bound_to, { node: bindableNodes.find((bn) => bn.id === targetNodeId)?.title ?? t(($) => $.detail_panel.empty_unknown_node) })}</p>
-          ) : null}
         </div>
       </NodeDetailSection>
 

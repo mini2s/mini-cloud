@@ -353,7 +353,6 @@ describe("NodeConfigPanel", () => {
       "readiness",
       "primary",
       "worker-critic",
-      "connections",
       "actions",
     ]);
   });
@@ -481,7 +480,7 @@ describe("NodeConfigPanel", () => {
     expect(screen.getByText("The reviewer that approves generated split drafts.")).toBeInTheDocument();
   });
 
-  it("orders the config panel around readiness, intent, roles, split behavior, connections, and actions", () => {
+  it("orders the split config panel around readiness, intent, split behavior, roles, and actions", () => {
     render(
       <NodeConfigPanel
         node={{
@@ -508,9 +507,8 @@ describe("NodeConfigPanel", () => {
     expect(screen.getAllByTestId("node-detail-section").map((section) => section.getAttribute("data-section"))).toEqual([
       "readiness",
       "primary",
-      "worker-critic",
       "split-behavior",
-      "connections",
+      "worker-critic",
       "actions",
     ]);
   });
