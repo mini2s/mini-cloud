@@ -4,9 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -15,6 +17,12 @@ import (
 )
 
 const csCloudRuntimeProvider = "cs-cloud"
+
+// createConversationTimeout bounds the synchronous Gateway HTTP call made
+// inside the issue-conversation transaction. The advisory lock is still held
+// during this window, so keeping the timeout short limits head-of-line
+// blocking for concurrent requests targeting the same issue.
+const createConversationTimeout = 15 * time.Second
 
 type IssueConversationSessionResponse struct {
 	ConversationID     string `json:"conversation_id"`
@@ -161,7 +169,12 @@ func (h *Handler) resolveCSCloudDeviceID(w http.ResponseWriter, ctx context.Cont
 		WorkspaceID: wsUUID,
 		Provider:    csCloudRuntimeProvider,
 	})
-	if err != nil || len(runtimes) == 0 {
+	if err != nil {
+		slog.ErrorContext(ctx, "failed to query cs-cloud runtimes", "error", err)
+		writeError(w, http.StatusInternalServerError, "failed to query cs-cloud runtimes")
+		return "", false
+	}
+	if len(runtimes) == 0 {
 		writeError(w, http.StatusServiceUnavailable, "cs-cloud device not online")
 		return "", false
 	}
@@ -205,7 +218,12 @@ func (h *Handler) createConversationOnDevice(w http.ResponseWriter, r *http.Requ
 		hdr.Set("Authorization", auth)
 	}
 
-	resp, err := h.CloudRuntime.Do(r.Context(), cloudruntime.Request{
+	// Bound the Gateway HTTP call to avoid holding the DB advisory lock and
+	// transaction for an unbounded amount of time.
+	ctx, cancel := context.WithTimeout(r.Context(), createConversationTimeout)
+	defer cancel()
+
+	resp, err := h.CloudRuntime.Do(ctx, cloudruntime.Request{
 		Method:    http.MethodPost,
 		Path:      fmt.Sprintf("/device/%s/proxy/api/v1/conversations", deviceID),
 		Body:      body,
@@ -218,7 +236,16 @@ func (h *Handler) createConversationOnDevice(w http.ResponseWriter, r *http.Requ
 		return "", false
 	}
 	if resp.StatusCode >= 300 {
-		writeError(w, http.StatusServiceUnavailable, "failed to create conversation on device")
+		bodySnippet := strings.TrimSpace(string(resp.Body))
+		if len(bodySnippet) > 200 {
+			bodySnippet = bodySnippet[:200] + "..."
+		}
+		slog.WarnContext(ctx, "device returned non-success status when creating conversation",
+			"device_id", deviceID,
+			"status_code", resp.StatusCode,
+			"body_snippet", bodySnippet,
+		)
+		writeError(w, http.StatusServiceUnavailable, fmt.Sprintf("device returned %d when creating conversation", resp.StatusCode))
 		return "", false
 	}
 
