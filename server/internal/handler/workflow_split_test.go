@@ -511,6 +511,75 @@ func TestAddSplitDraftTaskUsesDiscardedSlotForReplacementDraft(t *testing.T) {
 	t.Fatal("merged draft was not created")
 }
 
+func TestAddSplitDraftTaskWithDiscardedKeyCreatesNewDraft(t *testing.T) {
+	f := createSplitGenerateFixture(t, "barrier")
+	taskID := startSplitGenerationTask(t, f)
+
+	addResp := httptest.NewRecorder()
+	addReq := newRequest("POST", "/api/node-runs/"+f.splitNodeRunID+"/split/draft-tasks", map[string]any{
+		"key":         "api-contract",
+		"title":       "Original API contract",
+		"description": "Define request and response payloads.",
+	})
+	addReq.Header.Set("X-Agent-ID", f.agentID)
+	addReq.Header.Set("X-Task-ID", taskID)
+	addReq = withURLParam(addReq, "nodeRunId", f.splitNodeRunID)
+	testHandler.AddSplitDraftTask(addResp, addReq)
+	if addResp.Code != http.StatusOK {
+		t.Fatalf("AddSplitDraftTask: expected 200, got %d: %s", addResp.Code, addResp.Body.String())
+	}
+
+	tasks, err := testHandler.Queries.ListSplitTasksByNodeRun(context.Background(), parseUUID(f.splitNodeRunID))
+	if err != nil {
+		t.Fatalf("list split draft tasks: %v", err)
+	}
+	originalID := uuidToString(tasks[0].ID)
+
+	deleteResp := httptest.NewRecorder()
+	deleteReq := newRequest("DELETE", "/api/node-runs/"+f.splitNodeRunID+"/split/draft-tasks/"+originalID, nil)
+	deleteReq.Header.Set("X-Agent-ID", f.agentID)
+	deleteReq.Header.Set("X-Task-ID", taskID)
+	deleteReq = withURLParams(deleteReq, "nodeRunId", f.splitNodeRunID, "taskId", originalID)
+	testHandler.DeleteSplitDraftTask(deleteResp, deleteReq)
+	if deleteResp.Code != http.StatusOK {
+		t.Fatalf("DeleteSplitDraftTask: expected 200, got %d: %s", deleteResp.Code, deleteResp.Body.String())
+	}
+
+	readdResp := httptest.NewRecorder()
+	readdReq := newRequest("POST", "/api/node-runs/"+f.splitNodeRunID+"/split/draft-tasks", map[string]any{
+		"key":         "api-contract",
+		"title":       "Replacement API contract",
+		"description": "Recreate the API contract draft.",
+	})
+	readdReq.Header.Set("X-Agent-ID", f.agentID)
+	readdReq.Header.Set("X-Task-ID", taskID)
+	readdReq = withURLParam(readdReq, "nodeRunId", f.splitNodeRunID)
+	testHandler.AddSplitDraftTask(readdResp, readdReq)
+	if readdResp.Code != http.StatusOK {
+		t.Fatalf("AddSplitDraftTask with discarded key: expected 200, got %d: %s", readdResp.Code, readdResp.Body.String())
+	}
+
+	tasks, err = testHandler.Queries.ListSplitTasksByNodeRun(context.Background(), parseUUID(f.splitNodeRunID))
+	if err != nil {
+		t.Fatalf("list split draft tasks after re-add: %v", err)
+	}
+	var discardedOriginal, activeReplacement bool
+	for _, task := range tasks {
+		if uuidToString(task.ID) == originalID {
+			discardedOriginal = task.Status == service.SplitTaskStatusDiscarded
+		}
+		if task.Title == "Replacement API contract" && task.Status == service.SplitTaskStatusDraft && uuidToString(task.ID) != originalID {
+			activeReplacement = true
+		}
+	}
+	if !discardedOriginal {
+		t.Fatal("original discarded draft was revived instead of remaining discarded")
+	}
+	if !activeReplacement {
+		t.Fatal("replacement draft with reused key was not created as a new active draft")
+	}
+}
+
 func TestAddSplitDraftTaskRejectsMissingDefaultIssueWorkflow(t *testing.T) {
 	f := createSplitGenerateFixture(t, "barrier")
 	splitFormat, err := json.Marshal(map[string]any{
@@ -795,6 +864,10 @@ func TestSplitCompletionRecoversMarkdownBreakdownOutput(t *testing.T) {
 	}
 	if tasks[0].Title != "Build HTML shell" || tasks[1].Title != "Wire interactions" {
 		t.Fatalf("recovered task titles = %q / %q", tasks[0].Title, tasks[1].Title)
+	}
+	if !tasks[0].DraftKey.Valid || tasks[0].DraftKey.String != "build-html-shell" ||
+		!tasks[1].DraftKey.Valid || tasks[1].DraftKey.String != "wire-interactions" {
+		t.Fatalf("recovered draft keys = %q / %q", tasks[0].DraftKey.String, tasks[1].DraftKey.String)
 	}
 
 	nodeRun, err := testHandler.Queries.GetWorkflowNodeRun(context.Background(), parseUUID(f.splitNodeRunID))

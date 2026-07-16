@@ -78,11 +78,11 @@ func (q *Queries) CountSplitTasksByNodeRun(ctx context.Context, nodeRunID pgtype
 
 const createSplitTask = `-- name: CreateSplitTask :one
 INSERT INTO multica_workflow_split_task (
-    node_run_id, workspace_id, title, description,
+    node_run_id, workspace_id, draft_key, title, description,
     workflow_id, depends_on, sort_order, status, draft_source
 ) VALUES (
-    $1, $2, $3, $4,
-    $5, $6, $7, $8, $9
+    $1, $2, $9, $3, $4,
+    $5, $6, $7, $8, $10
 ) RETURNING id, node_run_id, workspace_id, title, description, suggested_assignee_type, suggested_assignee_id, depends_on, sort_order, status, issue_id, run_id, created_at, updated_at, draft_key, draft_source, workflow_id, version, dispatch_key, last_error
 `
 
@@ -95,6 +95,7 @@ type CreateSplitTaskParams struct {
 	DependsOn   []byte      `json:"depends_on"`
 	SortOrder   int32       `json:"sort_order"`
 	Status      string      `json:"status"`
+	DraftKey    pgtype.Text `json:"draft_key"`
 	DraftSource pgtype.Text `json:"draft_source"`
 }
 
@@ -108,6 +109,7 @@ func (q *Queries) CreateSplitTask(ctx context.Context, arg CreateSplitTaskParams
 		arg.DependsOn,
 		arg.SortOrder,
 		arg.Status,
+		arg.DraftKey,
 		arg.DraftSource,
 	)
 	var i MulticaWorkflowSplitTask
@@ -584,7 +586,7 @@ INSERT INTO multica_workflow_split_task (
     $6, $7, $8, 'draft', $9
 )
 ON CONFLICT (node_run_id, draft_key)
-WHERE draft_key IS NOT NULL AND draft_key <> ''
+WHERE draft_key IS NOT NULL AND draft_key <> '' AND status <> 'discarded'
 DO UPDATE SET
     title = EXCLUDED.title,
     description = EXCLUDED.description,
@@ -595,7 +597,7 @@ DO UPDATE SET
     draft_source = EXCLUDED.draft_source,
     version = multica_workflow_split_task.version + 1,
     updated_at = now()
-WHERE multica_workflow_split_task.status IN ('draft', 'discarded')
+WHERE multica_workflow_split_task.status = 'draft'
 RETURNING id, node_run_id, workspace_id, title, description, suggested_assignee_type, suggested_assignee_id, depends_on, sort_order, status, issue_id, run_id, created_at, updated_at, draft_key, draft_source, workflow_id, version, dispatch_key, last_error
 `
 

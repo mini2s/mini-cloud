@@ -12,6 +12,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"unicode"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -86,6 +87,7 @@ type SplitDraftTaskRequest struct {
 }
 
 type splitGeneratedTask struct {
+	Key            string `json:"draft_key,omitempty"`
 	Title          string `json:"title"`
 	Description    string `json:"description"`
 	DependsOnIndex []int  `json:"depends_on_indices"`
@@ -821,10 +823,12 @@ func (s *SplitOrchestrator) replaceSplitDraftTasksFromPayload(
 	}
 
 	inserted := make([]db.MulticaWorkflowSplitTask, 0, len(payload.Tasks))
+	draftKeys := splitGeneratedDraftKeys(payload.Tasks)
 	for i, generated := range payload.Tasks {
 		created, err := s.Queries.CreateSplitTask(ctx, db.CreateSplitTaskParams{
 			NodeRunID:   nodeRun.ID,
 			WorkspaceID: run.WorkspaceID,
+			DraftKey:    pgtype.Text{String: draftKeys[i], Valid: draftKeys[i] != ""},
 			Title:       generated.Title,
 			Description: generated.Description,
 			WorkflowID:  workflowID,
@@ -927,7 +931,7 @@ func (s *SplitOrchestrator) AddSplitDraftTask(ctx context.Context, nodeRun db.Mu
 		foundExisting := false
 		hasReplacementSlot := false
 		for _, task := range existing {
-			if task.DraftKey.Valid {
+			if task.Status != SplitTaskStatusDiscarded && task.DraftKey.Valid {
 				byKey[task.DraftKey.String] = task
 				if task.DraftKey.String == key {
 					sortOrder = task.SortOrder
@@ -2228,7 +2232,7 @@ func splitTaskResultOutput(raw []byte) string {
 func recoverSplitTasksFromMarkdown(text string) splitGeneratedTaskPayload {
 	matches := markdownSplitTaskHeadingRE.FindAllStringSubmatchIndex(text, -1)
 	if len(matches) == 0 {
-		return splitGeneratedTaskPayload{}
+		return recoverSplitTasksFromMarkdownTable(text)
 	}
 
 	tasks := make([]splitGeneratedTask, 0, len(matches))
@@ -2251,12 +2255,251 @@ func recoverSplitTasksFromMarkdown(text string) splitGeneratedTaskPayload {
 			description = title
 		}
 		tasks = append(tasks, splitGeneratedTask{
+			Key:            splitDraftKeyFromTitle(title),
 			Title:          title,
 			Description:    description,
 			DependsOnIndex: []int{},
 		})
 	}
 	return splitGeneratedTaskPayload{Tasks: tasks}
+}
+
+func recoverSplitTasksFromMarkdownTable(text string) splitGeneratedTaskPayload {
+	lines := strings.Split(text, "\n")
+	for i, line := range lines {
+		headerCells, ok := splitMarkdownTableRow(line)
+		if !ok {
+			continue
+		}
+		columns := detectSplitTaskTableColumns(headerCells)
+		if columns.index < 0 || columns.title < 0 {
+			continue
+		}
+
+		tasks, depNumbers := parseSplitTaskTableRows(lines[i+1:], columns)
+		if len(tasks) == 0 {
+			continue
+		}
+		rowNumberToIndex := make(map[int]int, len(tasks))
+		for idx, n := range depNumbers.rowNumbers {
+			rowNumberToIndex[n] = idx
+		}
+		for idx, deps := range depNumbers.dependsOn {
+			for _, depNumber := range deps {
+				if depIndex, ok := rowNumberToIndex[depNumber]; ok && depIndex != idx {
+					tasks[idx].DependsOnIndex = append(tasks[idx].DependsOnIndex, depIndex)
+				}
+			}
+		}
+		return splitGeneratedTaskPayload{Tasks: tasks}
+	}
+	return splitGeneratedTaskPayload{}
+}
+
+type splitTaskTableColumns struct {
+	index     int
+	key       int
+	title     int
+	dependsOn int
+}
+
+func detectSplitTaskTableColumns(cells []string) splitTaskTableColumns {
+	columns := splitTaskTableColumns{index: -1, key: -1, title: -1, dependsOn: -1}
+	for i, cell := range cells {
+		normalized := normalizeMarkdownTableHeader(cell)
+		switch {
+		case normalized == "#" || strings.Contains(normalized, "编号") || strings.Contains(normalized, "序号"):
+			columns.index = i
+		case normalized == "key" || strings.Contains(normalized, "draftkey"):
+			columns.key = i
+		case normalized == "task" || normalized == "title" || strings.Contains(normalized, "任务") || strings.Contains(normalized, "标题"):
+			columns.title = i
+		case strings.Contains(normalized, "依赖") || strings.Contains(normalized, "depend"):
+			columns.dependsOn = i
+		}
+	}
+	return columns
+}
+
+type splitTaskTableDeps struct {
+	rowNumbers []int
+	dependsOn  [][]int
+}
+
+func parseSplitTaskTableRows(lines []string, columns splitTaskTableColumns) ([]splitGeneratedTask, splitTaskTableDeps) {
+	tasks := make([]splitGeneratedTask, 0)
+	deps := splitTaskTableDeps{}
+	seenDataRow := false
+	for _, line := range lines {
+		cells, ok := splitMarkdownTableRow(line)
+		if !ok {
+			if seenDataRow {
+				break
+			}
+			continue
+		}
+		if isMarkdownTableSeparator(cells) {
+			continue
+		}
+		if columns.index >= len(cells) || columns.title >= len(cells) {
+			if seenDataRow {
+				break
+			}
+			continue
+		}
+		rowNumber, ok := parseFirstInt(cells[columns.index])
+		if !ok {
+			if seenDataRow {
+				break
+			}
+			continue
+		}
+		title, description := splitMarkdownTaskCell(cells[columns.title])
+		if title == "" {
+			continue
+		}
+		key := ""
+		if columns.key >= 0 && columns.key < len(cells) {
+			key = trimMarkdownCell(cells[columns.key])
+		}
+		tasks = append(tasks, splitGeneratedTask{
+			Key:            key,
+			Title:          title,
+			Description:    description,
+			DependsOnIndex: []int{},
+		})
+		deps.rowNumbers = append(deps.rowNumbers, rowNumber)
+		if columns.dependsOn >= 0 && columns.dependsOn < len(cells) {
+			deps.dependsOn = append(deps.dependsOn, parseAllInts(cells[columns.dependsOn]))
+		} else {
+			deps.dependsOn = append(deps.dependsOn, nil)
+		}
+		seenDataRow = true
+	}
+	return tasks, deps
+}
+
+func splitMarkdownTableRow(line string) ([]string, bool) {
+	trimmed := strings.TrimSpace(line)
+	if !strings.Contains(trimmed, "|") {
+		return nil, false
+	}
+	trimmed = strings.Trim(trimmed, "|")
+	rawCells := strings.Split(trimmed, "|")
+	cells := make([]string, 0, len(rawCells))
+	for _, cell := range rawCells {
+		cells = append(cells, trimMarkdownCell(cell))
+	}
+	return cells, len(cells) >= 2
+}
+
+func trimMarkdownCell(cell string) string {
+	cell = strings.TrimSpace(cell)
+	cell = strings.Trim(cell, "`")
+	return strings.TrimSpace(cell)
+}
+
+func normalizeMarkdownTableHeader(cell string) string {
+	cell = strings.ToLower(trimMarkdownCell(cell))
+	cell = strings.ReplaceAll(cell, " ", "")
+	cell = strings.ReplaceAll(cell, "_", "")
+	cell = strings.ReplaceAll(cell, "-", "")
+	return cell
+}
+
+func isMarkdownTableSeparator(cells []string) bool {
+	for _, cell := range cells {
+		trimmed := strings.TrimSpace(cell)
+		if trimmed == "" {
+			return false
+		}
+		for _, r := range trimmed {
+			if r != '-' && r != ':' {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+func splitMarkdownTaskCell(cell string) (string, string) {
+	cell = trimMarkdownCell(cell)
+	if cell == "" {
+		return "", ""
+	}
+	for _, sep := range []string{" — ", " – ", " - ", "—", "–"} {
+		if idx := strings.Index(cell, sep); idx > 0 {
+			title := strings.TrimSpace(cell[:idx])
+			if title != "" {
+				return title, cell
+			}
+		}
+	}
+	return cell, cell
+}
+
+func parseFirstInt(s string) (int, bool) {
+	values := parseAllInts(s)
+	if len(values) == 0 {
+		return 0, false
+	}
+	return values[0], true
+}
+
+func parseAllInts(s string) []int {
+	matches := regexp.MustCompile(`\d+`).FindAllString(s, -1)
+	values := make([]int, 0, len(matches))
+	for _, match := range matches {
+		var value int
+		if _, err := fmt.Sscanf(match, "%d", &value); err == nil {
+			values = append(values, value)
+		}
+	}
+	return values
+}
+
+func splitGeneratedDraftKeys(tasks []splitGeneratedTask) []string {
+	keys := make([]string, len(tasks))
+	used := make(map[string]int, len(tasks))
+	for i, task := range tasks {
+		key := splitDraftKeyFromTitle(task.Key)
+		if key == "" {
+			key = splitDraftKeyFromTitle(task.Title)
+		}
+		if key == "" {
+			key = fmt.Sprintf("task-%d", i+1)
+		}
+		baseKey := key
+		suffix := 2
+		for used[key] > 0 {
+			key = fmt.Sprintf("%s-%d", baseKey, suffix)
+			suffix++
+		}
+		used[key] = 1
+		keys[i] = key
+	}
+	return keys
+}
+
+func splitDraftKeyFromTitle(title string) string {
+	title = strings.TrimSpace(strings.ToLower(title))
+	if title == "" {
+		return ""
+	}
+	var b strings.Builder
+	lastDash := false
+	for _, r := range title {
+		if unicode.IsLetter(r) || unicode.IsDigit(r) {
+			b.WriteRune(r)
+			lastDash = false
+			continue
+		}
+		if !lastDash && b.Len() > 0 {
+			b.WriteByte('-')
+			lastDash = true
+		}
+	}
+	return strings.Trim(b.String(), "-")
 }
 
 // SplitChatRequest is the payload for the /split/chat endpoint.

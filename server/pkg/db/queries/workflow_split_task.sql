@@ -1,9 +1,9 @@
 -- name: CreateSplitTask :one
 INSERT INTO multica_workflow_split_task (
-    node_run_id, workspace_id, title, description,
+    node_run_id, workspace_id, draft_key, title, description,
     workflow_id, depends_on, sort_order, status, draft_source
 ) VALUES (
-    $1, $2, $3, $4,
+    $1, $2, sqlc.narg('draft_key'), $3, $4,
     $5, $6, $7, $8, sqlc.narg('draft_source')
 ) RETURNING *;
 
@@ -16,7 +16,7 @@ INSERT INTO multica_workflow_split_task (
     $6, $7, $8, 'draft', sqlc.narg('draft_source')
 )
 ON CONFLICT (node_run_id, draft_key)
-WHERE draft_key IS NOT NULL AND draft_key <> ''
+WHERE draft_key IS NOT NULL AND draft_key <> '' AND status <> 'discarded'
 DO UPDATE SET
     title = EXCLUDED.title,
     description = EXCLUDED.description,
@@ -27,7 +27,7 @@ DO UPDATE SET
     draft_source = EXCLUDED.draft_source,
     version = multica_workflow_split_task.version + 1,
     updated_at = now()
-WHERE multica_workflow_split_task.status IN ('draft', 'discarded')
+WHERE multica_workflow_split_task.status = 'draft'
 RETURNING *;
 
 -- name: GetSplitTask :one

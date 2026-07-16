@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"os"
 	"reflect"
 	"strings"
 	"testing"
@@ -291,6 +292,60 @@ func TestRecoverSplitGeneratedTaskPayloadFromTextCandidatesUsesCommentMarkdown(t
 	}
 	if payload.Tasks[0].Title != "Build API contract" || payload.Tasks[1].Title != "Implement CLI command" {
 		t.Fatalf("task titles = %q / %q", payload.Tasks[0].Title, payload.Tasks[1].Title)
+	}
+	if payload.Tasks[0].Key != "build-api-contract" || payload.Tasks[1].Key != "implement-cli-command" {
+		t.Fatalf("task keys = %q / %q", payload.Tasks[0].Key, payload.Tasks[1].Key)
+	}
+}
+
+func TestRecoverSplitGeneratedTaskPayloadFromTextCandidatesUsesMarkdownSummaryTable(t *testing.T) {
+	payload, err := recoverSplitGeneratedTaskPayloadFromTextCandidates([]string{
+		strings.Join([]string{
+			"## 任务拆分完成",
+			"",
+			"### 各任务概要",
+			"",
+			"| # | Key | 任务 | 依赖 |",
+			"|---|-----|------|------|",
+			"| 1 | `project-init` | 项目初始化与界面布局 — HTML 骨架、CSS 布局 | — |",
+			"| 2 | `board-render` | 棋盘与棋子 Canvas 渲染 — 绘制棋盘和棋子 | 1 |",
+			"| 3 | `game-core` | 游戏核心逻辑 — 状态管理 | 1, 2 |",
+		}, "\n"),
+	})
+	if err != nil {
+		t.Fatalf("recoverSplitGeneratedTaskPayloadFromTextCandidates: %v", err)
+	}
+	if len(payload.Tasks) != 3 {
+		t.Fatalf("task count = %d, want 3", len(payload.Tasks))
+	}
+	if payload.Tasks[0].Key != "project-init" || payload.Tasks[1].Key != "board-render" || payload.Tasks[2].Key != "game-core" {
+		t.Fatalf("task keys = %q / %q / %q", payload.Tasks[0].Key, payload.Tasks[1].Key, payload.Tasks[2].Key)
+	}
+	if payload.Tasks[0].Title != "项目初始化与界面布局" || payload.Tasks[1].Title != "棋盘与棋子 Canvas 渲染" {
+		t.Fatalf("task titles = %q / %q", payload.Tasks[0].Title, payload.Tasks[1].Title)
+	}
+	if got := payload.Tasks[2].DependsOnIndex; len(got) != 2 || got[0] != 0 || got[1] != 1 {
+		t.Fatalf("task 3 depends_on_indices = %v, want [0 1]", got)
+	}
+}
+
+func TestUpsertSplitDraftTaskByKeyDoesNotReviveDiscardedRows(t *testing.T) {
+	query, err := os.ReadFile("../../pkg/db/queries/workflow_split_task.sql")
+	if err != nil {
+		t.Fatalf("read workflow split task queries: %v", err)
+	}
+	sql := string(query)
+	start := strings.Index(sql, "-- name: UpsertSplitDraftTaskByKey")
+	end := strings.Index(sql, "-- name: GetSplitTask")
+	if start < 0 || end < 0 || end <= start {
+		t.Fatal("UpsertSplitDraftTaskByKey query block not found")
+	}
+	upsertSQL := sql[start:end]
+	if strings.Contains(upsertSQL, "status IN ('draft', 'discarded')") {
+		t.Fatal("UpsertSplitDraftTaskByKey must not update discarded rows back to draft")
+	}
+	if !strings.Contains(upsertSQL, "WHERE draft_key IS NOT NULL AND draft_key <> '' AND status <> 'discarded'") {
+		t.Fatal("draft key uniqueness must exclude discarded rows so reused keys create new draft rows")
 	}
 }
 
