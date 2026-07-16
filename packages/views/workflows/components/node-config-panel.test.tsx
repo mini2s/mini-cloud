@@ -131,8 +131,14 @@ vi.mock("../../i18n", () => {
     detail_panel: {
       eyebrow: "Node inspector",
       close_label: "Close node inspector",
-      section_primary: "Primary",
-      section_primary_desc: "Definition fields and ownership for this workflow node.",
+      section_readiness: "Readiness",
+      section_readiness_desc: "Confirm the node can run before publishing.",
+      section_primary: "Node intent",
+      section_primary_desc: "Definition fields for this workflow node.",
+      section_worker_critic: "Worker and critic",
+      section_worker_critic_desc: "Assign who performs and reviews this node.",
+      section_split_behavior: "Split behavior",
+      section_split_behavior_desc: "Control child issue release, concurrency, and failure handling.",
       section_annotation_binding: "Annotation binding",
       section_annotation_binding_desc: "Attach this note to a workflow node.",
       section_runtime: "Runtime",
@@ -150,6 +156,12 @@ vi.mock("../../i18n", () => {
       badge_needs_assignee: "Needs assignee",
       badge_optional: "Optional",
       badge_needs_child_workflow: "Needs child workflow",
+      readiness_worker_ready: "Worker ready",
+      readiness_worker_missing: "Worker missing",
+      readiness_critic_ready: "Critic ready",
+      readiness_critic_optional: "Critic optional",
+      readiness_split_ready: "Child workflow ready",
+      readiness_split_missing: "Child workflow missing",
       label_bind_to_node: "Bind to Node",
       label_worker_role: "Worker role",
       label_critic_role: "Critic role",
@@ -161,13 +173,13 @@ vi.mock("../../i18n", () => {
       split_critic_subtitle: "The reviewer that approves generated split drafts.",
       split_child_workflow_label: "Child workflow",
       split_child_workflow_placeholder: "Select a child workflow...",
-      split_mode_label: "Execution mode",
-      split_mode_barrier: "Barrier",
-      split_mode_pipeline: "Pipeline",
+      split_release_mode_label: "Release downstream work",
+      split_release_after_finish: "After child issues finish",
+      split_release_after_created: "After child issues are created",
       split_mode_hint: "Barrier waits for child tasks; Pipeline releases downstream after issue creation.",
-      split_concurrency_label: "Max concurrency",
+      split_concurrency_question: "How many child issues can run at once?",
       split_concurrency_hint: "Run at most this many child workflows at once.",
-      split_max_failures_label: "Max failures",
+      split_failure_tolerance_label: "Failure tolerance",
       split_max_failures_hint: "Barrier mode fails the parent split when child failures exceed this number.",
       select_node: "Select a node...",
       select_role: "Select a role...",
@@ -338,8 +350,9 @@ describe("NodeConfigPanel", () => {
     renderPanel();
 
     expect(screen.getAllByTestId("node-detail-section").map((section) => section.getAttribute("data-section"))).toEqual([
+      "readiness",
       "primary",
-      "runtime",
+      "worker-critic",
       "connections",
       "actions",
     ]);
@@ -348,7 +361,7 @@ describe("NodeConfigPanel", () => {
   it("does not render legacy nested subsection cards inside the shared primary section", () => {
     renderPanel();
 
-    expect(screen.getByText("Primary")).toBeInTheDocument();
+    expect(screen.getByText("Node intent")).toBeInTheDocument();
     expect(screen.queryByText("Basics")).not.toBeInTheDocument();
   });
 
@@ -460,12 +473,46 @@ describe("NodeConfigPanel", () => {
     expect(screen.getByText("Human review is required")).toBeInTheDocument();
     expect(screen.getByText("Generated split tasks always stop for human review before child issues are created.")).toBeInTheDocument();
     expect(screen.getByLabelText("Child workflow")).toHaveValue("child-wf-2");
-    expect(screen.getByLabelText("Max concurrency")).toHaveValue(3);
-    expect(screen.getByLabelText("Max failures")).toHaveValue(1);
-    expect(screen.getByText("Worker")).toBeInTheDocument();
+    expect(screen.getByLabelText("How many child issues can run at once?")).toHaveValue(3);
+    expect(screen.getByLabelText("Failure tolerance")).toHaveValue(1);
+    expect(screen.getAllByText("Worker").length).toBeGreaterThan(0);
     expect(screen.getByText("The Agent that generates the task splitting plan.")).toBeInTheDocument();
-    expect(screen.getByText("Critic")).toBeInTheDocument();
+    expect(screen.getAllByText("Critic").length).toBeGreaterThan(0);
     expect(screen.getByText("The reviewer that approves generated split drafts.")).toBeInTheDocument();
+  });
+
+  it("orders the config panel around readiness, intent, roles, split behavior, connections, and actions", () => {
+    render(
+      <NodeConfigPanel
+        node={{
+          ...node,
+          id: "split-1",
+          title: "Split work",
+          critic_id: null,
+          format_schema: {
+            type: "split",
+            split_config: {
+              child_workflow_id: "child-wf-1",
+              mode: "barrier",
+              max_concurrency: 5,
+              max_failures: 1,
+            },
+          },
+        }}
+        workflowId="wf-1"
+        stages={stages}
+        onClose={vi.fn()}
+      />,
+    );
+
+    expect(screen.getAllByTestId("node-detail-section").map((section) => section.getAttribute("data-section"))).toEqual([
+      "readiness",
+      "primary",
+      "worker-critic",
+      "split-behavior",
+      "connections",
+      "actions",
+    ]);
   });
 
   it("updates split format_schema fields without dropping existing metadata", () => {
@@ -513,7 +560,7 @@ describe("NodeConfigPanel", () => {
       },
     });
 
-    fireEvent.click(screen.getByRole("button", { name: "Pipeline" }));
+    fireEvent.click(screen.getByRole("button", { name: "After child issues are created" }));
     expect(mocks.cacheNodeEdits).toHaveBeenLastCalledWith("split-1", {
       format_schema: {
         type: "split",
@@ -529,7 +576,7 @@ describe("NodeConfigPanel", () => {
       },
     });
 
-    fireEvent.change(screen.getByLabelText("Max concurrency"), {
+    fireEvent.change(screen.getByLabelText("How many child issues can run at once?"), {
       target: { value: "7" },
     });
     expect(mocks.cacheNodeEdits).toHaveBeenLastCalledWith("split-1", {

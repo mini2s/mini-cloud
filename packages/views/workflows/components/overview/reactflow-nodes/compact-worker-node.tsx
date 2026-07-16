@@ -1,4 +1,4 @@
-import { memo, type KeyboardEvent } from "react";
+import { memo, type KeyboardEvent, type ReactNode } from "react";
 import type { NodeProps } from "@xyflow/react";
 import { parseNodeFormat, type WorkflowNode } from "@multica/core/types";
 import { cn } from "@multica/ui/lib/utils";
@@ -14,6 +14,7 @@ export interface CompactWorkerNodeData extends Record<string, unknown> {
   stageColorIndex: number;
   pluginName?: string;
   workerName?: string;
+  criticName?: string;
   workerConfigured?: boolean;
   criticConfigured?: boolean;
   isAnnotation?: boolean;
@@ -39,6 +40,41 @@ function WorkerIcon({ type }: { type: WorkflowNode["worker_type"] }) {
 function GatewayIcon({ kind }: { kind: "fork" | "join" | null }) {
   if (kind === "join") return <GitMerge className="size-3 shrink-0" strokeWidth={1.8} />;
   return <GitFork className="size-3 shrink-0" strokeWidth={1.8} />;
+}
+
+function RoleSlot({
+  testId,
+  label,
+  value,
+  configured,
+  icon,
+}: {
+  testId: string;
+  label: string;
+  value: string;
+  configured: boolean;
+  icon: ReactNode;
+}) {
+  return (
+    <div data-testid={testId} className="min-w-0 space-y-0.5">
+      <span className="block text-[8.5px] font-bold uppercase tracking-wide text-muted-foreground">
+        {label}
+      </span>
+      <span className="flex min-w-0 items-center gap-1.5 text-[10px] leading-4">
+        <span
+          aria-hidden="true"
+          className={cn(
+            "size-1.5 shrink-0 rounded-full",
+            configured ? "bg-emerald-500 shadow-[0_0_0_3px_rgba(16,185,129,0.12)]" : "bg-muted-foreground/45",
+          )}
+        />
+        <span className={cn("truncate font-medium", configured ? "text-foreground/85" : "text-muted-foreground")}>
+          {value}
+        </span>
+        {icon}
+      </span>
+    </div>
+  );
 }
 
 function gatewayLabel(kind: "fork" | "join" | null): string {
@@ -165,23 +201,43 @@ export const CompactWorkerNode = memo(function CompactWorkerNode({
             <span className="mt-1 block truncate text-[10px] leading-3 text-muted-foreground">{description}</span>
           ) : null}
         </span>
-        <div
-          data-testid={`compact-worker-node-meta-${id}`}
-          className="flex min-w-0 items-center gap-1.5 border-t border-border/45 pt-2 text-[10px] leading-4 text-muted-foreground"
-        >
-          <span className="inline-block size-1.5 shrink-0 rounded-full bg-[var(--success)] shadow-[0_0_0_3px_rgba(34,197,94,0.12)]" />
-          <span className="truncate font-medium text-foreground/80">{metadataLabel}</span>
-          {workerConfigured ? (
-            <span className="shrink-0 text-muted-foreground/75">Configured</span>
-          ) : null}
-          {isAnnotation ? (
-            <FileText className="size-3 shrink-0 text-muted-foreground/75" strokeWidth={1.8} />
-          ) : isGateway ? (
-            <GatewayIcon kind={nodeFormat.gateway_kind} />
-          ) : workerLabel ? (
-            <WorkerIcon type={nodeData.node.worker_type} />
-          ) : null}
-        </div>
+        {isAnnotation || isGateway ? (
+          <div
+            data-testid={`compact-worker-node-meta-${id}`}
+            className="flex min-w-0 items-center gap-1.5 border-t border-border/45 pt-2 text-[10px] leading-4 text-muted-foreground"
+          >
+            <span className="inline-block size-1.5 shrink-0 rounded-full bg-[var(--success)] shadow-[0_0_0_3px_rgba(34,197,94,0.12)]" />
+            <span className="truncate font-medium text-foreground/80">{metadataLabel}</span>
+            {workerConfigured ? (
+              <span className="shrink-0 text-muted-foreground/75">Configured</span>
+            ) : null}
+            {isAnnotation ? (
+              <FileText className="size-3 shrink-0 text-muted-foreground/75" strokeWidth={1.8} />
+            ) : (
+              <GatewayIcon kind={nodeFormat.gateway_kind} />
+            )}
+          </div>
+        ) : (
+          <div
+            data-testid={`compact-worker-node-meta-${id}`}
+            className="grid grid-cols-2 gap-2 border-t border-border/45 pt-2"
+          >
+            <RoleSlot
+              testId={`compact-worker-node-worker-role-${id}`}
+              label="Worker"
+              value={workerLabel ?? "Not configured"}
+              configured={workerConfigured}
+              icon={workerLabel ? <WorkerIcon type={nodeData.node.worker_type} /> : null}
+            />
+            <RoleSlot
+              testId={`compact-worker-node-critic-role-${id}`}
+              label="Critic"
+              value={nodeData.criticName ?? (nodeData.criticConfigured ? "Configured" : "Optional")}
+              configured={nodeData.criticConfigured === true}
+              icon={<UserRound className="size-3 shrink-0 text-muted-foreground/75" strokeWidth={1.8} />}
+            />
+          </div>
+        )}
         </>
       )}
     </WorkflowCanvasNodeShell>

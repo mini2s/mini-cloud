@@ -565,7 +565,7 @@ describe("WorkflowPanoramaPage (new)", () => {
     );
   });
 
-  it("renders critic badges as independent nodes below workers", () => {
+  it("renders configured critic inside the worker node instead of a separate critic badge node", () => {
     mocks.nodesData = [{
       id: "node-1",
       workflow_id: "wf-1",
@@ -587,15 +587,14 @@ describe("WorkflowPanoramaPage (new)", () => {
 
     render(<WorkflowPanoramaPage workflowId="wf-1" />);
 
-    const critic = mocks.reactFlowProps?.nodes.find((n) => n.id === "node-1:critic");
-    expect(critic).toMatchObject({
-      type: "criticBadge",
-      position: { x: 368, y: 136 },
-      width: 144,
-      height: 48,
+    const renderedNodes = mocks.reactFlowProps?.nodes ?? [];
+    const worker = renderedNodes.find((n) => n.id === "node-1");
+    expect(renderedNodes.map((node) => node.id)).toEqual(expect.arrayContaining(["node-1"]));
+    expect(renderedNodes.some((node) => node.id === "node-1:critic")).toBe(false);
+    expect(worker?.data).toMatchObject({
+      criticName: "Test Agent",
+      criticConfigured: true,
     });
-    expect(critic).not.toHaveProperty("parentId");
-    expect(critic).not.toHaveProperty("extent");
   });
 
   it("renders worker nodes at their persisted x coordinate without label rail offsets", () => {
@@ -700,10 +699,11 @@ describe("WorkflowPanoramaPage (new)", () => {
 
     const nodeIds = mocks.reactFlowProps?.nodes.map((n) => n.id) ?? [];
     expect(nodeIds).toContain("node-1");
-    expect(nodeIds).toContain("node-1:critic");
+    expect(nodeIds).not.toContain("node-1:critic");
     expect(nodeIds).not.toContain("node-2");
     const worker = mocks.reactFlowProps?.nodes.find((n) => n.id === "node-1");
     expect((worker?.data.node as { title: string }).title).toBe("Edited title");
+    expect(worker?.data).toMatchObject({ criticName: "API review", criticConfigured: true });
   });
 
   it("adds arrow markers and interaction width to panorama edges", () => {
@@ -742,6 +742,7 @@ describe("WorkflowPanoramaPage (new)", () => {
     expect(worker?.data).toMatchObject({
       workerConfigured: true,
       criticConfigured: true,
+      criticName: "Test Agent",
     });
     expect(worker?.data).not.toHaveProperty("stageName");
     expect(worker?.data).not.toHaveProperty("stageDescription");
@@ -789,7 +790,7 @@ describe("WorkflowPanoramaPage (new)", () => {
     expect(dataEdge?.data).not.toHaveProperty("edgeLabel");
   });
 
-  it("injects delete callbacks into editable workflow edges only", () => {
+  it("injects delete callbacks into editable workflow edges without default critic edges", () => {
     mocks.nodesData = [
       { id: "a", workflow_id: "wf-1", title: "A", description: "", worker_type: "agent", worker_id: "agent-1", critic_type: "agent", critic_id: "agent-2", critic_api_url: null, stage_id: "stage-1", format_schema: null, position_x: 100, position_y: 0, sort_order: 0, created_at: "", updated_at: "" },
       { id: "b", workflow_id: "wf-1", title: "B", description: "", worker_type: "agent", worker_id: null, critic_type: "human", critic_id: null, critic_api_url: null, stage_id: "stage-1", format_schema: null, position_x: 460, position_y: 0, sort_order: 1, created_at: "", updated_at: "" },
@@ -803,7 +804,7 @@ describe("WorkflowPanoramaPage (new)", () => {
     const workflowEdge = mocks.reactFlowProps?.edges.find((edge) => edge.id === "edge-a-b");
     const criticEdge = mocks.reactFlowProps?.edges.find((edge) => edge.id === "a:critic-edge");
     expect(workflowEdge?.data).toHaveProperty("onDeleteEdge");
-    expect(criticEdge?.data).not.toHaveProperty("onDeleteEdge");
+    expect(criticEdge).toBeUndefined();
 
     (workflowEdge?.data?.onDeleteEdge as (edgeId: string) => void)("edge-a-b");
     expect(mocks.deleteEdgeMutate).toHaveBeenCalledWith("edge-a-b");
@@ -885,7 +886,7 @@ describe("WorkflowPanoramaPage (new)", () => {
     expect(mocks.reactFlowProps?.edges.find((edge) => edge.id === "edge-a-b")?.selected).toBe(false);
   });
 
-  it("marks generated critic edges with critic semantics", () => {
+  it("does not generate critic edges by default in the editor panorama", () => {
     mocks.nodesData = [
       { id: "node-1", workflow_id: "wf-1", title: "Worker", description: "", worker_type: "agent", worker_id: "agent-1", critic_type: "agent", critic_id: "agent-2", critic_api_url: null, stage_id: "stage-1", format_schema: null, position_x: 320, position_y: 0, sort_order: 0, created_at: "", updated_at: "" },
     ];
@@ -893,11 +894,7 @@ describe("WorkflowPanoramaPage (new)", () => {
     render(<WorkflowPanoramaPage workflowId="wf-1" />);
 
     const criticEdge = mocks.reactFlowProps?.edges.find((e) => e.id === "node-1:critic-edge");
-    expect(criticEdge?.data).toMatchObject({
-      edgeKind: "critic",
-      edgeTone: "critic",
-    });
-    expect(criticEdge?.data).not.toHaveProperty("edgeLabel");
+    expect(criticEdge).toBeUndefined();
   });
 
   it("routes steep worker edges through existing worker handles", () => {

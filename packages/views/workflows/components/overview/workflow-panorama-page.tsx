@@ -687,14 +687,20 @@ export function WorkflowPanoramaPage({ workflowId, viewToggle }: WorkflowPanoram
             ? pluginLookup.get(workerAgent.plugin_id)?.name
             : undefined,
           workerName: node.worker_id ? getActorName(node.worker_type ?? "agent", node.worker_id) ?? undefined : undefined,
+          criticName: node.critic_id
+            ? getActorName(node.critic_type ?? "agent", node.critic_id) ?? undefined
+            : node.critic_api_url
+              ? "API review"
+              : undefined,
           workerConfigured: isAnnotation ? true : Boolean(node.worker_id),
-          criticConfigured: isAnnotation ? false : node.critic_type === "api" ? Boolean(node.critic_api_url?.trim()) : Boolean(node.critic_id),
+          criticConfigured: isAnnotation ? false : Boolean(node.critic_id) || Boolean(node.critic_api_url?.trim()),
           isAnnotation,
           onOpen: openNodePanel,
           onAddConnectedNode: handleOpenConnectedNodePicker,
           addConnectedNodeLabel: t(($) => $.panorama.add_connected_node),
         };
       },
+      includeCriticBadges: false,
       makeCriticName: (node) => node.critic_id ? getActorName(node.critic_type ?? "agent", node.critic_id) ?? undefined : undefined,
     }),
     [stages, visibleNodes, agentLookup, pluginLookup, getActorName, openNodePanel, handleOpenConnectedNodePicker, t],
@@ -714,6 +720,7 @@ export function WorkflowPanoramaPage({ workflowId, viewToggle }: WorkflowPanoram
       edges: apiEdges,
       nodes: visibleNodes,
       stages,
+      includeCriticEdges: false,
       onDeleteEdge: handleInlineEdgeDelete,
       selectedEdgeId,
       selectedEdgeAnchor,

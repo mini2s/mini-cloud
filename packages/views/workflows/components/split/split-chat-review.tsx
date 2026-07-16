@@ -18,9 +18,9 @@ interface SplitChatReviewProps {
 }
 
 const SUGGESTIONS = [
-  "添加一个安全审计子 issue",
-  "合并第 2 个和第 3 个",
-  "恢复到最初生成的草案",
+  "Add a security review child issue",
+  "Merge task 2 and task 3",
+  "Restore the original draft",
 ];
 
 function SplitInlineComposer({
@@ -49,8 +49,8 @@ function SplitInlineComposer({
     <div className="rounded-lg border bg-background p-2">
       <textarea
         className="min-h-20 w-full resize-none rounded-sm bg-transparent px-1 py-1 text-sm outline-none placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
-        aria-label="输入调整要求"
-        placeholder="输入调整要求…"
+        aria-label="Adjustment request"
+        placeholder="Describe the adjustment..."
         value={content}
         disabled={disabled || isSubmitting}
         onChange={(event) => setContent(event.target.value)}
@@ -63,7 +63,7 @@ function SplitInlineComposer({
           onClick={() => void submit()}
         >
           <Send className="mr-1.5 size-3.5" />
-          {isSubmitting ? "发送中…" : "发送"}
+          {isSubmitting ? "Sending..." : "Send"}
         </Button>
       </div>
     </div>
@@ -153,20 +153,20 @@ export function SplitChatReview({
 }: SplitChatReviewProps) {
   const { data: messages = [] } = useQuery(chatMessagesOptions(chatSessionId ?? ""));
   const { data: pendingTask } = useQuery(pendingChatTaskOptions(chatSessionId ?? ""));
-  const isAgentRunning = !!(pendingTask?.task_id);
+  const isAgentRunning = !!pendingTask?.task_id;
   const hasHistory = messages.length > 0 || isAgentRunning;
 
   return (
     <div className="space-y-2">
       <SplitChatHistory messages={messages} isPending={isAgentRunning} />
 
-      {/* Agent thinking indicator — shown while a split chat task is in-flight */}
+      {/* Agent thinking indicator shown while a split chat task is in-flight. */}
       {isAgentRunning ? (
         <div className="flex items-center gap-2 rounded-lg border bg-muted/30 px-3 py-2">
           <span className="size-2 rounded-full bg-amber-500 animate-pulse" />
-          <span className="text-sm text-muted-foreground">Agent 正在思考…</span>
+          <span className="text-sm text-muted-foreground">Agent is thinking...</span>
           {pendingTask?.status === "queued" ? (
-            <Badge variant="outline" className="text-xs">排队中</Badge>
+            <Badge variant="outline" className="text-xs">Queued</Badge>
           ) : null}
         </div>
       ) : null}

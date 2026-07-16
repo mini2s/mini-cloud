@@ -45,23 +45,30 @@ describe("PanoramaEdge", () => {
     expect(path).toBeInTheDocument();
   });
 
-  it("uses strokeWidth 1.5", () => {
-    const container = renderEdge();
+  it("renders default panorama edges with readable opacity and stroke width", () => {
+    const container = renderEdge({ id: "edge-1", selected: false, data: { edgeTone: "data" } });
     const path = container.querySelector("path");
-    expect(path?.style.strokeWidth).toBe("1.5");
+    expect(path?.style.strokeWidth).toBe("2.75");
+    expect(path?.style.opacity).toBe("0.72");
   });
 
-  it("uses low opacity", () => {
-    const container = renderEdge();
+  it("renders selected edges with stronger primary emphasis", () => {
+    const container = renderEdge({ id: "edge-1", selected: true, data: { edgeTone: "data" } });
     const path = container.querySelector("path");
-    expect(path?.style.opacity).toBe("0.28");
+    expect(path?.style.opacity).toBe("0.95");
+    expect(path?.style.strokeWidth).toBe("3.5");
   });
 
-  it("raises selected edges above the softened canvas lines", () => {
-    const container = renderEdge({ selected: true });
-    const path = container.querySelector("path");
-    expect(path?.style.opacity).toBe("0.82");
-    expect(path?.style.strokeWidth).toBe("2.5");
+  it("tones down completed and waiting runtime edges so they do not dominate the canvas", () => {
+    const successContainer = renderEdge({ id: "edge-success", data: { edgeTone: "success" } });
+    const waitingContainer = renderEdge({ id: "edge-waiting", data: { edgeTone: "waiting" } });
+
+    const successPath = successContainer.querySelector("path");
+    const waitingPath = waitingContainer.querySelector("path");
+    expect(successPath?.style.opacity).toBe("0.46");
+    expect(successPath?.style.strokeWidth).toBe("2.25");
+    expect(waitingPath?.style.opacity).toBe("0.34");
+    expect(waitingPath?.style.strokeWidth).toBe("2");
   });
 
   it("uses explicit stage color data before falling back to source Y", () => {
@@ -73,32 +80,39 @@ describe("PanoramaEdge", () => {
     expect(path?.getAttribute("class")).toContain("text-rose-300");
   });
 
-  it("does not render text labels on data edges", () => {
-    const container = renderEdge({
-      data: { edgeKind: "data", edgeLabel: "data", stageColorIndex: 2 },
+  it("renders business labels for runtime edge data", () => {
+    renderEdge({
+      id: "edge-1",
+      selected: false,
+      sourceX: 20,
+      sourceY: 30,
+      targetX: 120,
+      targetY: 30,
+      data: { edgeTone: "running", edgeLabel: "4 child issues" },
     });
-    expect(container.querySelector("[data-testid='panorama-edge-label']")).not.toBeInTheDocument();
-    expect(container.querySelector("[data-testid='panorama-edge-label-shell']")).not.toBeInTheDocument();
+    expect(screen.getByTestId("panorama-edge-label-edge-1")).toHaveTextContent("4 child issues");
   });
 
-  it("uses semantic tone without rendering condition text labels", () => {
+  it("uses semantic tone and renders condition labels when supplied", () => {
     const container = renderEdge({
+      id: "edge-condition",
       data: { edgeKind: "condition", edgeLabel: "approved", edgeTone: "condition" },
     });
     const path = container.querySelector("path");
     expect(path?.getAttribute("class")).toContain("text-blue");
-    expect(container.querySelector("[data-testid='panorama-edge-label']")).not.toBeInTheDocument();
+    expect(screen.getByTestId("panorama-edge-label-edge-condition")).toHaveTextContent("approved");
   });
 
-  it("renders critic edges with dashed amber styling and no text label", () => {
+  it("renders critic edges with dashed amber styling and labels when supplied", () => {
     const container = renderEdge({
+      id: "edge-critic",
       data: { edgeKind: "critic", edgeLabel: "critic", edgeTone: "critic" },
       style: { strokeDasharray: "4 3" },
     });
     const path = container.querySelector("path");
     expect(path?.style.strokeDasharray).toBe("4 3");
     expect(path?.getAttribute("class")).toContain("amber");
-    expect(container.querySelector("[data-testid='panorama-edge-label']")).not.toBeInTheDocument();
+    expect(screen.getByTestId("panorama-edge-label-edge-critic")).toHaveTextContent("critic");
   });
 
   it("uses straight path for same-Y horizontal connections", () => {

@@ -5,7 +5,8 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactNode } from "react";
-import { ExecutionPanoramaPage } from "./execution-panorama-page";
+import { ExecutionPanoramaPage, decorateRuntimeEdges } from "./execution-panorama-page";
+import type { Edge } from "@xyflow/react";
 
 // ---------------------------------------------------------------------------
 // Hoisted mock state — lets each test control query behaviour
@@ -205,16 +206,22 @@ vi.mock("./execution-detail-panel", () => ({
     onClose,
     onOpenIssue,
     onRetry,
+    isChildIssue,
+    parentSplitTitle,
   }: {
     node: { title: string };
     nodeRun: { status: string } | null;
     onClose: () => void;
     onOpenIssue?: () => void;
     onRetry?: () => void;
+    isChildIssue?: boolean;
+    parentSplitTitle?: string | null;
   }) => (
     <div data-testid="execution-detail-panel">
       <span data-testid="detail-panel-title">{node.title}</span>
       <span data-testid="detail-panel-status">{nodeRun?.status ?? "no-run"}</span>
+      <span data-testid="detail-panel-is-child">{String(isChildIssue === true)}</span>
+      <span data-testid="detail-panel-parent-split">{parentSplitTitle ?? "no-parent"}</span>
       {onOpenIssue ? (
         <button type="button" onClick={onOpenIssue}>
           Open issue
@@ -484,6 +491,36 @@ const AGENT = {
   archived_at: null,
   archived_by: null,
 };
+
+describe("decorateRuntimeEdges", () => {
+  it("adds runtime edge tones and business labels", () => {
+    const edges = [
+      { id: "edge-a-b", source: "a", target: "b", data: { edgeKind: "data" } },
+      { id: "edge-b-c", source: "b", target: "c", data: { edgeKind: "data" } },
+    ] as Edge[];
+    const nodeRunMap = new Map<string, any>([
+      ["a", { id: "run-a", status: "completed", worker_output: { artifact_count: 2 } }],
+      ["b", { id: "run-b", status: "working", worker_output: null }],
+      ["c", { id: "run-c", status: "failed", worker_output: null }],
+    ]);
+    const splitTasksByNodeId = new Map<string, any[]>([
+      ["b", [{ id: "task-1", issue_id: "issue-1" }, { id: "task-2", issue_id: "issue-2" }]],
+    ]);
+
+    expect(decorateRuntimeEdges({ edges, nodeRunMap, splitTasksByNodeId })).toEqual([
+      expect.objectContaining({
+        id: "edge-a-b",
+        data: expect.objectContaining({ edgeTone: "running", edgeLabel: "2 artifacts" }),
+        markerEnd: expect.objectContaining({ color: "rgb(59 130 246)" }),
+      }),
+      expect.objectContaining({
+        id: "edge-b-c",
+        data: expect.objectContaining({ edgeTone: "blocked", edgeLabel: "2 child issues" }),
+        markerEnd: expect.objectContaining({ color: "rgb(239 68 68)" }),
+      }),
+    ]);
+  });
+});
 
 // ---------------------------------------------------------------------------
 // Tests
@@ -1006,6 +1043,22 @@ describe("ExecutionPanoramaPage", () => {
         "split-1:split-task-edge:task-1:task-2",
       ]),
     );
+    expect(mocks.reactFlowProps?.edges.find((edge) => edge.id === "split-1:split-task-edge:task-1")?.data).toMatchObject({
+      edgeTone: "running",
+      edgeLabel: undefined,
+      sameStage: false,
+    });
+    expect(mocks.reactFlowProps?.edges.find((edge) => edge.id === "split-1:split-task-edge:task-1")?.markerEnd?.color).toBe(
+      "rgb(59 130 246)",
+    );
+    expect(mocks.reactFlowProps?.edges.find((edge) => edge.id === "split-1:split-task-edge:task-1:task-2")?.data).toMatchObject({
+      edgeTone: "waiting",
+      edgeLabel: undefined,
+      sameStage: false,
+    });
+    expect(mocks.reactFlowProps?.edges.find((edge) => edge.id === "split-1:split-task-edge:task-1:task-2")?.markerEnd?.color).toBe(
+      "rgb(100 116 139)",
+    );
     expect(
       mocks.reactFlowProps?.nodes.find((node) => node.id === "split-1")?.data,
     ).toMatchObject({
@@ -1141,6 +1194,8 @@ describe("ExecutionPanoramaPage", () => {
     expect(mocks.navigationPush).not.toHaveBeenCalled();
     expect(screen.getByTestId("execution-detail-panel")).toBeInTheDocument();
     expect(screen.getByTestId("detail-panel-title")).toHaveTextContent("Implement API contract");
+    expect(screen.getByTestId("detail-panel-is-child")).toHaveTextContent("true");
+    expect(screen.getByTestId("detail-panel-parent-split")).toHaveTextContent("Split implementation");
     expect(screen.queryByTestId("execution-split-review-panel")).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Open issue" }));
@@ -1383,9 +1438,9 @@ describe("ExecutionPanoramaPage", () => {
     expect(edge?.data).toMatchObject({
       stageColorIndex: 1,
       edgeKind: "condition",
-      edgeTone: "condition",
+      edgeTone: "waiting",
     });
-    expect(edge?.markerEnd?.color).toBe("rgb(59 130 246)");
+    expect(edge?.markerEnd?.color).toBe("rgb(100 116 139)");
   });
 
   it("renders workflow edges through the shared ReactFlow canvas when runId is null", () => {

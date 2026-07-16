@@ -68,6 +68,12 @@ vi.mock("@multica/views/i18n", () => ({
             },
             detail_panel: {
               status_path: "Status Path",
+              section_status_next_step: "Status and next step",
+              section_deliverables: "Deliverables and links",
+              section_worker_critic: "Worker and critic",
+              section_runtime_facts: "Runtime facts",
+              section_evidence_preview: "Evidence preview",
+              section_child_progress: "Child progress",
               section_primary: "Primary",
               section_primary_desc: "Active handler and diagnostic context.",
               section_agent_operations: "Agent operations",
@@ -86,6 +92,14 @@ vi.mock("@multica/views/i18n", () => ({
               retry_count: "Retry Count",
               error: "Error",
               view_full_issue: "View full issue",
+              open_child_issue: "Open child issue",
+              view_evidence: "View evidence",
+              parent_split: "Parent split",
+              child_workflow: "Child workflow",
+              reason: "Reason",
+              no_deliverables: "No deliverables yet",
+              no_runtime_data: "No runtime data yet.",
+              gateway_no_worker: "Gateway runtime is automatic and has no worker or critic.",
               unblock: "Unblock",
               retry: "Retry",
               review_comment: "Review Comment",
@@ -164,16 +178,6 @@ const runtimeSummary: WorkflowNodeRuntimeSummary = {
   split_progress: null,
 };
 
-function getStatusPathStep(label: "Format" | "Worker" | "Critic"): HTMLElement {
-  const step = screen
-    .getAllByText(label)
-    .find((element) => element.className.includes("rounded"));
-  if (!step) {
-    throw new Error(`Missing status path step: ${label}`);
-  }
-  return step;
-}
-
 describe("ExecutionDetailPanel", () => {
   beforeEach(() => {
     mockSetActiveSession.mockClear();
@@ -210,8 +214,11 @@ describe("ExecutionDetailPanel", () => {
 
     expect(screen.getByTestId("workflow-node-detail-panel-shell")).toHaveAttribute("data-mode", "run");
     expect(screen.getAllByTestId("node-detail-section").map((section) => section.getAttribute("data-section"))).toEqual([
-      "primary",
-      "runtime",
+      "status-next-step",
+      "deliverables",
+      "worker-critic",
+      "runtime-facts",
+      "evidence-preview",
     ]);
   });
 
@@ -230,7 +237,7 @@ describe("ExecutionDetailPanel", () => {
       />,
     );
 
-    await userEvent.click(screen.getByRole("button", { name: "View full issue" }));
+    await userEvent.click(screen.getAllByRole("button", { name: "View full issue" })[0]!);
 
     expect(onOpenIssue).toHaveBeenCalledTimes(1);
   });
@@ -252,7 +259,7 @@ describe("ExecutionDetailPanel", () => {
     expect(screen.queryByText("No runtime actions are available.")).not.toBeInTheDocument();
   });
 
-  it("keeps status context without duplicating the current status row", () => {
+  it("keeps status context in receipt mode without a status path", () => {
     render(
       <ExecutionDetailPanel
         node={{ ...node, title: "Run node" }}
@@ -266,8 +273,8 @@ describe("ExecutionDetailPanel", () => {
 
     expect(screen.getAllByTestId("runtime-display-status-icon").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Blocked").length).toBeGreaterThan(0);
-    expect(screen.getByText("Status Path")).toBeInTheDocument();
-    expect(screen.getByTestId("status-icon")).toBeInTheDocument();
+    expect(screen.getByText("Status and next step")).toBeInTheDocument();
+    expect(screen.queryByText("Status Path")).not.toBeInTheDocument();
     expect(screen.queryByText("Current status")).not.toBeInTheDocument();
   });
 
@@ -286,9 +293,11 @@ describe("ExecutionDetailPanel", () => {
     await userEvent.click(screen.getByRole("button", { name: "Open session" }));
 
     expect(screen.getAllByTestId("node-detail-section").map((section) => section.getAttribute("data-section"))).toEqual([
-      "primary",
-      "agent-operations",
-      "runtime",
+      "status-next-step",
+      "deliverables",
+      "worker-critic",
+      "runtime-facts",
+      "evidence-preview",
     ]);
     expect(mockSetActiveSession).toHaveBeenCalledWith("11111111-1111-1111-1111-111111111111");
     expect(mockSetOpen).toHaveBeenCalledWith(true);
@@ -356,7 +365,7 @@ describe("ExecutionDetailPanel", () => {
         wsId="ws-1"
       />,
     );
-    expect(screen.getByText("Metadata")).toBeInTheDocument();
+    expect(screen.getByText("Runtime facts")).toBeInTheDocument();
     expect(screen.getByText("Retry Count")).toBeInTheDocument();
     expect(screen.getByText("0")).toBeInTheDocument();
   });
@@ -403,11 +412,34 @@ describe("ExecutionDetailPanel", () => {
     expect(screen.queryByText("1080m")).not.toBeInTheDocument();
   });
 
-  it("marks every status path step complete for completed node runs", () => {
+  it("renders ordinary node details as a receipt without raw JSON by default", () => {
+    render(
+      <ExecutionDetailPanel
+        node={{ ...node, title: "Build API", worker_id: "agent-1", critic_id: "agent-2" }}
+        nodeRun={{
+          ...run,
+          status: "completed",
+          worker_output: { nested: { raw: true } },
+          critic_output: { approved: true },
+        }}
+        workerName="Builder"
+        criticName="Reviewer"
+        onClose={vi.fn()}
+        wsId="ws-1"
+      />,
+    );
+
+    const sections = screen.getAllByTestId("node-detail-section").map((section) => section.getAttribute("data-section"));
+    expect(sections).toEqual(["status-next-step", "deliverables", "worker-critic", "runtime-facts", "evidence-preview"]);
+    expect(screen.queryByText(/"nested"/)).not.toBeInTheDocument();
+    expect(screen.getByText("View evidence")).toBeInTheDocument();
+  });
+
+  it("reveals raw evidence only after requesting it", async () => {
     render(
       <ExecutionDetailPanel
         node={node}
-        nodeRun={{ ...run, status: "completed" }}
+        nodeRun={{ ...run, worker_output: { nested: { raw: true } } }}
         workerName="Worker"
         criticName="Reviewer"
         onClose={vi.fn()}
@@ -415,47 +447,34 @@ describe("ExecutionDetailPanel", () => {
       />,
     );
 
-    expect(getStatusPathStep("Format")).toHaveClass("bg-green-50", "text-green-700");
-    expect(getStatusPathStep("Worker")).toHaveClass("bg-green-50", "text-green-700");
-    expect(getStatusPathStep("Critic")).toHaveClass("bg-green-50", "text-green-700");
+    expect(screen.queryByText(/"nested"/)).not.toBeInTheDocument();
+    await userEvent.click(screen.getByText("View evidence"));
+    expect(screen.getByText(/"nested"/)).toBeInTheDocument();
   });
 
-  it("marks critic as active when the run is awaiting critic review", () => {
+  it("renders child issue mode with parent split context", () => {
     render(
       <ExecutionDetailPanel
-        node={node}
-        nodeRun={{ ...run, status: "awaiting_critic" }}
+        node={{ ...node, title: "Child issue" }}
+        nodeRun={{ ...run, status: "blocked", worker_output: { error: "Missing input" } }}
         workerName="Worker"
         criticName="Reviewer"
         onClose={vi.fn()}
+        onOpenIssue={vi.fn()}
+        isChildIssue
+        parentSplitTitle="Split work"
+        childWorkflowName="Child workflow"
         wsId="ws-1"
       />,
     );
 
-    expect(getStatusPathStep("Format")).toHaveClass("bg-green-50", "text-green-700");
-    expect(getStatusPathStep("Worker")).toHaveClass("bg-green-50", "text-green-700");
-    expect(getStatusPathStep("Critic")).toHaveClass("bg-blue-50", "text-blue-700");
+    const sections = screen.getAllByTestId("node-detail-section").map((section) => section.getAttribute("data-section"));
+    expect(sections).toEqual(["status-next-step", "deliverables", "child-progress", "worker-critic", "runtime-facts", "evidence-preview"]);
+    expect(screen.getAllByText("Open child issue").length).toBeGreaterThan(0);
+    expect(screen.getByText("Split work")).toBeInTheDocument();
+    expect(screen.getAllByText("Child workflow").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Missing input").length).toBeGreaterThan(0);
   });
-
-  it.each(["failed", "blocked"] as const)(
-    "marks worker as blocked when the run status is %s",
-    (status) => {
-      render(
-        <ExecutionDetailPanel
-          node={node}
-          nodeRun={{ ...run, status }}
-          workerName="Worker"
-          criticName="Reviewer"
-          onClose={vi.fn()}
-          wsId="ws-1"
-        />,
-      );
-
-      expect(getStatusPathStep("Format")).toHaveClass("bg-green-50", "text-green-700");
-      expect(getStatusPathStep("Worker")).toHaveClass("bg-red-50", "text-red-700");
-      expect(getStatusPathStep("Critic")).toHaveClass("bg-muted/50");
-    },
-  );
 
   it("does not treat an issue link as a run-mode agent operation", () => {
     render(
@@ -523,11 +542,13 @@ describe("ExecutionDetailPanel", () => {
     );
 
     expect(screen.getByText("Retry")).toBeInTheDocument();
-    expect(screen.getByText("Agent operations")).toBeInTheDocument();
+    expect(screen.queryByText("Agent operations")).not.toBeInTheDocument();
     expect(screen.getAllByTestId("node-detail-section").map((section) => section.getAttribute("data-section"))).toEqual([
-      "primary",
-      "agent-operations",
-      "runtime",
+      "status-next-step",
+      "deliverables",
+      "worker-critic",
+      "runtime-facts",
+      "evidence-preview",
     ]);
   });
 

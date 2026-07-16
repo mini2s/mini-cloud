@@ -6,11 +6,58 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { SplitReviewPanel } from "./split-review-panel";
 import type {
   Issue,
+  SplitTask,
   SplitTasksResponse,
   WorkflowNode,
   WorkflowNodeRun,
   WorkflowRunCanvasSummaryResponse,
 } from "@multica/core/types";
+
+const i18nMock = vi.hoisted(() => {
+  const detailPanel = {
+    split_review_eyebrow: "Split review",
+    split_progress_eyebrow: "Split progress",
+    split_verdict_title: "Verdict",
+    split_ready_to_create: "Ready to create",
+    split_needs_adjustment: "Needs adjustment",
+    split_generating_draft: "Generating draft",
+    split_failed: "Split failed",
+    split_running_children: "Running child issues",
+    split_completed: "Completed",
+    split_no_blocking_risk: "No blocking risk",
+    split_missing_assignees: "{{count}} child issue(s) need assignees",
+    split_verdict_summary: "{{tasks}} child issues - {{assignees}} assignees - {{dependencies}} dependency chains",
+    split_settings_summary: "View run settings",
+    split_draft_plan: "Draft plan",
+    split_dependencies: "Dependencies",
+    split_ask_agent: "Ask agent to adjust",
+    split_loading_draft: "Loading child issue draft...",
+    split_loading_dependencies: "Loading dependencies...",
+    split_generate_draft: "Generate draft",
+    split_regenerate_draft: "Regenerate draft",
+    split_generating: "Generating...",
+    split_recover_outputs: "Recover existing output",
+    split_recovering: "Recovering...",
+    split_cancel: "Cancel split",
+    split_cancelling: "Cancelling...",
+    split_confirm_create: "Confirm create {{count}}",
+    split_confirm_create_short: "Confirm create",
+    split_creating: "Creating...",
+    split_no_creatable_tasks: "No child issues are ready to create yet",
+    split_approve_dialog_title: "Create child issues?",
+    split_approve_dialog_description: "This will create {{count}} child issues and start their workflows.",
+    split_cancel_dialog_title: "Cancel split?",
+    split_cancel_dialog_description: "This will stop unfinished child tasks and cancel their child issues.",
+    split_keep_running: "Keep running",
+    split_confirm_cancel: "Confirm cancel",
+  };
+
+  return {
+    resources: { detail_panel: detailPanel },
+    interpolate: (template: string, values?: Record<string, string | number>) =>
+      template.replace(/{{\s*(\w+)\s*}}/g, (_match, key: string) => String(values?.[key] ?? "")),
+  };
+});
 
 const mocks = vi.hoisted(() => ({
   splitTasksData: {
@@ -36,6 +83,15 @@ const mocks = vi.hoisted(() => ({
   pendingTaskData: {} as { task_id?: string; status?: string },
   lastSplitTasksQuery: null as null | { refetchInterval?: number | false },
   splitTasksRefetch: vi.fn(),
+}));
+
+vi.mock("../../../i18n", () => ({
+  useT: () => ({
+    t: (
+      selector: (resources: typeof i18nMock.resources) => string,
+      values?: Record<string, string | number>,
+    ) => i18nMock.interpolate(selector(i18nMock.resources), values),
+  }),
 }));
 
 vi.mock("@tanstack/react-query", () => ({
@@ -155,13 +211,15 @@ vi.mock("./split-chat-review", () => ({
       <button
         type="button"
         disabled={disabled}
-        onClick={() => void onSubmit("把第 2 个 task 拆成前后端", ["att-1"])}
+        onClick={() => void onSubmit("Split task 2 into frontend and backend", ["att-1"])}
       >
         Submit split chat
       </button>
     </div>
   ),
 }));
+
+const mojibakePattern = /[\uFFFD]|鈥|鐢|鑽|杩|渚|缂|娣|宸|鍒|纭|鎭|鍙|閻|绗|涓|瀛/;
 
 const splitNode: WorkflowNode = {
   id: "node-1",
@@ -216,6 +274,25 @@ const splitNodeRun: WorkflowNodeRun = {
   updated_at: "",
 };
 
+function draftTask(id: string, title: string, overrides: Partial<SplitTask> = {}): SplitTask {
+  return {
+    id,
+    node_run_id: "node-run-1",
+    title,
+    description: "Update handlers and service flow.",
+    suggested_assignee_type: "agent" as const,
+    suggested_assignee_id: "agent-1",
+    depends_on: [],
+    sort_order: 0,
+    status: "draft" as const,
+    issue_id: null,
+    run_id: null,
+    created_at: "",
+    updated_at: "",
+    ...overrides,
+  };
+}
+
 function renderPanel({
   nodeRun = splitNodeRun,
   parentIssueId,
@@ -241,36 +318,15 @@ describe("SplitReviewPanel", () => {
     mocks.isLoading = false;
     mocks.splitTasksData = {
       tasks: [
-        {
-          id: "task-1",
-          node_run_id: "node-run-1",
-          title: "Implement API contract",
-          description: "Update handlers and service flow.",
-          suggested_assignee_type: "agent",
-          suggested_assignee_id: "agent-1",
-          depends_on: [],
-          sort_order: 0,
-          status: "draft",
-          issue_id: null,
-          run_id: null,
-          created_at: "",
-          updated_at: "",
-        },
-        {
-          id: "task-2",
-          node_run_id: "node-run-1",
-          title: "Discarded task",
+        draftTask("task-1", "Implement API contract"),
+        draftTask("task-2", "Discarded task", {
           description: "",
           suggested_assignee_type: null,
           suggested_assignee_id: null,
           depends_on: ["task-1"],
           sort_order: 1,
           status: "discarded",
-          issue_id: null,
-          run_id: null,
-          created_at: "",
-          updated_at: "",
-        },
+        }),
       ],
       progress: {
         total: 2,
@@ -294,10 +350,12 @@ describe("SplitReviewPanel", () => {
     mocks.splitTasksRefetch.mockReset();
   });
 
-  it("renders a readonly review with verdict, draft plan, dependencies, and no manual edit controls", () => {
-    renderPanel();
+  it("renders a readonly review with verdict, draft plan, dependencies, sticky actions, and no manual edit controls", () => {
+    const { container } = renderPanel();
 
+    const approveButton = screen.getByRole("button", { name: "Confirm create 1" });
     expect(screen.getByTestId("workflow-node-detail-panel-shell")).toHaveAttribute("data-mode", "run");
+    expect(screen.getByText("Verdict")).toBeInTheDocument();
     expect(screen.getByText("Ready to create")).toBeInTheDocument();
     expect(screen.getByText("Draft plan")).toBeInTheDocument();
     expect(screen.getByText("Dependencies")).toBeInTheDocument();
@@ -305,22 +363,23 @@ describe("SplitReviewPanel", () => {
     expect(screen.getByTestId("split-progress-badge")).toHaveTextContent("2:0:0");
     expect(screen.getByText("01")).toBeInTheDocument();
     expect(screen.getByText("Implement API contract")).toBeInTheDocument();
-    expect(screen.getByText("依赖：无")).toBeInTheDocument();
-    expect(screen.getByText("依赖：01")).toBeInTheDocument();
+    expect(screen.getByText("Dependencies: none")).toBeInTheDocument();
+    expect(screen.getByText("Dependencies: 01")).toBeInTheDocument();
     expect(screen.queryByRole("textbox", { name: /Task title/i })).not.toBeInTheDocument();
     expect(screen.queryByRole("textbox", { name: /Task description/i })).not.toBeInTheDocument();
     expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Delete task/i })).not.toBeInTheDocument();
     expect(screen.queryByTestId("split-task-dag")).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "确认创建 1" })).toBeInTheDocument();
+    expect(approveButton.closest(".sticky")).not.toBeNull();
+    expect(container).not.toHaveTextContent(mojibakePattern);
   });
 
   it("approves current draft tasks without sending local modifications", async () => {
     renderPanel();
 
-    await userEvent.click(screen.getByRole("button", { name: "确认创建 1" }));
-    expect(screen.getByText("确认创建子 issue？")).toBeInTheDocument();
-    await userEvent.click(screen.getByRole("button", { name: "确认创建" }));
+    await userEvent.click(screen.getByRole("button", { name: "Confirm create 1" }));
+    expect(screen.getByText("Create child issues?")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Confirm create" }));
 
     expect(mocks.approveMutateAsync).toHaveBeenCalledWith({
       nodeRunId: "node-run-1",
@@ -335,7 +394,7 @@ describe("SplitReviewPanel", () => {
   it("does not show draft generation actions during review when a draft already exists", () => {
     renderPanel();
 
-    expect(screen.queryByRole("button", { name: "重新生成" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Regenerate draft" })).not.toBeInTheDocument();
     expect(screen.queryByText("Actions")).not.toBeInTheDocument();
   });
 
@@ -354,7 +413,7 @@ describe("SplitReviewPanel", () => {
     };
     renderPanel();
 
-    await userEvent.click(screen.getByRole("button", { name: "生成草案" }));
+    await userEvent.click(screen.getByRole("button", { name: "Generate draft" }));
 
     expect(mocks.generateMutateAsync).toHaveBeenCalledWith({
       nodeRunId: "node-run-1",
@@ -384,7 +443,7 @@ describe("SplitReviewPanel", () => {
       },
     });
 
-    expect(screen.queryByRole("button", { name: "鐢熸垚鑽夋" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Generate draft" })).not.toBeInTheDocument();
     expect(screen.queryByText("Actions")).not.toBeInTheDocument();
   });
 
@@ -397,9 +456,9 @@ describe("SplitReviewPanel", () => {
     });
 
     expect(screen.getByText("Generating draft")).toBeInTheDocument();
-    expect(screen.getByText("Agent 正在生成草案…")).toBeInTheDocument();
+    expect(screen.getByText("Generating...")).toBeInTheDocument();
     expect(screen.queryByText("No blocking risk")).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "重新生成" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Regenerate draft" })).not.toBeInTheDocument();
   });
 
   it("submits natural language split adjustments through the chat mutation", async () => {
@@ -411,7 +470,7 @@ describe("SplitReviewPanel", () => {
       nodeRunId: "node-run-1",
       workflowId: "wf-1",
       runId: "run-1",
-      content: "把第 2 个 task 拆成前后端",
+      content: "Split task 2 into frontend and backend",
       attachmentIds: ["att-1"],
     });
   });
@@ -472,7 +531,7 @@ describe("SplitReviewPanel", () => {
 
     expect(screen.getByText("split generation returned no tasks")).toBeInTheDocument();
 
-    await userEvent.click(screen.getByRole("button", { name: "恢复已有输出" }));
+    await userEvent.click(screen.getByRole("button", { name: "Recover existing output" }));
 
     expect(mocks.recoverMutateAsync).toHaveBeenCalledWith({
       nodeRunId: "node-run-1",
@@ -484,13 +543,13 @@ describe("SplitReviewPanel", () => {
   it("requires confirmation before cancelling the split node", async () => {
     renderPanel();
 
-    await userEvent.click(screen.getByRole("button", { name: "取消拆分" }));
+    await userEvent.click(screen.getByRole("button", { name: "Cancel split" }));
 
     expect(mocks.cancelMutateAsync).not.toHaveBeenCalled();
-    expect(screen.getByText("取消拆分？")).toBeInTheDocument();
-    expect(screen.getByText("这会停止未完成的子 task，并取消对应的子 issue。")).toBeInTheDocument();
+    expect(screen.getByText("Cancel split?")).toBeInTheDocument();
+    expect(screen.getByText("This will stop unfinished child tasks and cancel their child issues.")).toBeInTheDocument();
 
-    await userEvent.click(screen.getByRole("button", { name: "确认取消" }));
+    await userEvent.click(screen.getByRole("button", { name: "Confirm cancel" }));
 
     expect(mocks.cancelMutateAsync).toHaveBeenCalledWith({
       nodeRunId: "node-run-1",
@@ -502,51 +561,19 @@ describe("SplitReviewPanel", () => {
   it("keeps approval payload readonly even when multiple draft tasks are present", async () => {
     mocks.splitTasksData = {
       tasks: [
-        {
-          id: "task-1",
-          node_run_id: "node-run-1",
-          title: "Implement API contract",
-          description: "Update handlers and service flow.",
-          suggested_assignee_type: "agent",
-          suggested_assignee_id: "agent-1",
-          depends_on: [],
-          sort_order: 0,
-          status: "draft",
-          issue_id: null,
-          run_id: null,
-          created_at: "",
-          updated_at: "",
-        },
-        {
-          id: "task-2",
-          node_run_id: "node-run-1",
-          title: "Backfill tests",
+        draftTask("task-1", "Implement API contract"),
+        draftTask("task-2", "Backfill tests", {
           description: "Cover the happy path.",
           suggested_assignee_type: null,
           suggested_assignee_id: null,
-          depends_on: [],
           sort_order: 1,
-          status: "draft",
-          issue_id: null,
-          run_id: null,
-          created_at: "",
-          updated_at: "",
-        },
-        {
-          id: "task-3",
-          node_run_id: "node-run-1",
-          title: "Legacy cleanup",
+        }),
+        draftTask("task-3", "Legacy cleanup", {
           description: "",
           suggested_assignee_type: null,
           suggested_assignee_id: null,
-          depends_on: [],
           sort_order: 2,
-          status: "draft",
-          issue_id: null,
-          run_id: null,
-          created_at: "",
-          updated_at: "",
-        },
+        }),
       ],
       progress: {
         total: 3,
@@ -561,8 +588,8 @@ describe("SplitReviewPanel", () => {
 
     renderPanel();
 
-    await userEvent.click(screen.getByRole("button", { name: "确认创建 3" }));
-    await userEvent.click(screen.getByRole("button", { name: "确认创建" }));
+    await userEvent.click(screen.getByRole("button", { name: "Confirm create 3" }));
+    await userEvent.click(screen.getByRole("button", { name: "Confirm create" }));
 
     expect(mocks.approveMutateAsync).toHaveBeenCalledWith({
       nodeRunId: "node-run-1",
@@ -577,21 +604,12 @@ describe("SplitReviewPanel", () => {
   it("shows linked child issue details for materialized split tasks", () => {
     mocks.splitTasksData = {
       tasks: [
-        {
-          id: "task-1",
-          node_run_id: "node-run-1",
-          title: "Investigate API key configuration",
+        draftTask("task-1", "Investigate API key configuration", {
           description: "Trace the failing downstream secret lookup.",
-          suggested_assignee_type: "agent",
-          suggested_assignee_id: "agent-1",
-          depends_on: [],
-          sort_order: 0,
           status: "failed",
           issue_id: "child-1",
           run_id: "child-run-1",
-          created_at: "",
-          updated_at: "",
-        },
+        }),
       ],
       progress: {
         total: 1,
@@ -680,21 +698,12 @@ describe("SplitReviewPanel", () => {
   it("keeps a child issue entry available from split task issue_id when child issue details are absent", () => {
     mocks.splitTasksData = {
       tasks: [
-        {
-          id: "task-1",
-          node_run_id: "node-run-1",
-          title: "Investigate API key configuration",
+        draftTask("task-1", "Investigate API key configuration", {
           description: "Trace the failing downstream secret lookup.",
-          suggested_assignee_type: "agent",
-          suggested_assignee_id: "agent-1",
-          depends_on: [],
-          sort_order: 0,
           status: "running",
           issue_id: "efce2a24-0478-4f0b-bdb6-53166462d0fa",
           run_id: "child-run-1",
-          created_at: "",
-          updated_at: "",
-        },
+        }),
       ],
       progress: {
         total: 1,

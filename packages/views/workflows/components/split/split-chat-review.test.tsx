@@ -2,7 +2,7 @@
 
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it, vi, beforeEach } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ChatMessage } from "@multica/core/types";
 import { SplitChatReview } from "./split-chat-review";
 
@@ -18,7 +18,7 @@ vi.mock("@tanstack/react-query", () => ({
     if (isPendingTask) {
       return { data: mocks.pendingTask, isLoading: false };
     }
-    // messages query
+
     const sessionId = queryKey[2] as string | undefined;
     return {
       data: !sessionId ? [] : mocks.messages,
@@ -49,7 +49,7 @@ vi.mock("../../../issues/components/comment-input", () => ({
     <button
       type="button"
       disabled={disabled}
-      onClick={() => void onSubmit("删除第 3 个子 issue", ["att-1"])}
+      onClick={() => void onSubmit("Delete child issue 3", ["att-1"])}
     >
       Submit comment input
     </button>
@@ -88,7 +88,7 @@ describe("SplitChatReview", () => {
         id: "msg-1",
         chat_session_id: "chat-1",
         role: "user",
-        content: "添加一个安全审计子 issue",
+        content: "Add a security review child issue",
         task_id: null,
         created_at: "2026-07-15T00:00:00Z",
       },
@@ -96,7 +96,7 @@ describe("SplitChatReview", () => {
         id: "msg-2",
         chat_session_id: "chat-1",
         role: "assistant",
-        content: "已更新草案，新增安全审计。",
+        content: "Draft updated with a new security review item.",
         task_id: "task-1",
         created_at: "2026-07-15T00:00:01Z",
       },
@@ -104,8 +104,8 @@ describe("SplitChatReview", () => {
 
     render(<SplitChatReview issueId="issue-1" chatSessionId="chat-1" onSubmit={vi.fn()} />);
 
-    expect(screen.getByText("添加一个安全审计子 issue")).toBeInTheDocument();
-    expect(screen.getByText("已更新草案，新增安全审计。")).toBeInTheDocument();
+    expect(screen.getByText("Add a security review child issue")).toBeInTheDocument();
+    expect(screen.getByText("Draft updated with a new security review item.")).toBeInTheDocument();
     expect(screen.getByText("Agent transcript")).toBeInTheDocument();
   });
 
@@ -115,8 +115,9 @@ describe("SplitChatReview", () => {
 
     await userEvent.click(screen.getByRole("button", { name: "Submit comment input" }));
 
-    expect(onSubmit).toHaveBeenCalledWith("删除第 3 个子 issue", ["att-1"]);
+    expect(onSubmit).toHaveBeenCalledWith("Delete child issue 3", ["att-1"]);
   });
+
   it("shows the live transcript while a split chat task is pending", () => {
     mocks.pendingTask = {
       task_id: "123e4567-e89b-12d3-a456-426614174000",

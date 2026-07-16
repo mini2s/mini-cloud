@@ -80,12 +80,12 @@ export function SplitConfigPanel({
 
       <div className="space-y-2">
         <Label className="text-xs text-muted-foreground">
-          {t(($) => $.detail_panel.split_mode_label)}
+          {t(($) => $.detail_panel.split_release_mode_label)}
         </Label>
         <div className="inline-flex rounded-lg border bg-muted/40 p-1">
           {([
-            { value: "barrier", label: t(($) => $.detail_panel.split_mode_barrier) },
-            { value: "pipeline", label: t(($) => $.detail_panel.split_mode_pipeline) },
+            { value: "barrier", label: t(($) => $.detail_panel.split_release_after_finish) },
+            { value: "pipeline", label: t(($) => $.detail_panel.split_release_after_created) },
           ] as const).map((option) => {
             const active = config.mode === option.value;
             return (
@@ -116,11 +116,11 @@ export function SplitConfigPanel({
 
       <div className="space-y-1.5">
         <Label htmlFor="split-max-concurrency" className="text-xs text-muted-foreground">
-          {t(($) => $.detail_panel.split_concurrency_label)}
+          {t(($) => $.detail_panel.split_concurrency_question)}
         </Label>
         <input
           id="split-max-concurrency"
-          aria-label={t(($) => $.detail_panel.split_concurrency_label)}
+          aria-label={t(($) => $.detail_panel.split_concurrency_question)}
           type="number"
           min={1}
           max={20}
@@ -140,11 +140,11 @@ export function SplitConfigPanel({
       {config.mode === "barrier" ? (
         <div className="space-y-1.5">
           <Label htmlFor="split-max-failures" className="text-xs text-muted-foreground">
-            {t(($) => $.detail_panel.split_max_failures_label)}
+            {t(($) => $.detail_panel.split_failure_tolerance_label)}
           </Label>
           <input
             id="split-max-failures"
-            aria-label={t(($) => $.detail_panel.split_max_failures_label)}
+            aria-label={t(($) => $.detail_panel.split_failure_tolerance_label)}
             type="number"
             min={0}
             disabled={disabled}

@@ -4,21 +4,49 @@ import { cn } from "@multica/ui/lib/utils";
 import { Trash2 } from "lucide-react";
 import { LANE_STEP, LANE_PADDING_TOP, getStageColor } from "../constants";
 
+type PanoramaEdgeTone =
+  | "data"
+  | "condition"
+  | "error"
+  | "rework"
+  | "critic"
+  | "success"
+  | "running"
+  | "blocked"
+  | "waiting";
+
 type PanoramaEdgeData = {
   stageColorIndex?: number;
   sameStage?: boolean;
   edgeKind?: "data" | "condition" | "error" | "rework" | "critic";
-  edgeTone?: "data" | "condition" | "error" | "rework" | "critic";
+  edgeTone?: PanoramaEdgeTone;
+  edgeLabel?: string;
   onDeleteEdge?: (edgeId: string) => void;
   deleteButtonPosition?: { x: number; y: number };
 };
 
 function toneClass(tone: PanoramaEdgeData["edgeTone"]): string {
-  if (tone === "condition") return "text-blue-500";
-  if (tone === "error") return "text-red-500";
-  if (tone === "rework") return "text-amber-500";
-  if (tone === "critic") return "text-amber-500";
+  if (tone === "condition" || tone === "running") return "text-blue-500";
+  if (tone === "error" || tone === "blocked") return "text-red-500";
+  if (tone === "rework" || tone === "critic") return "text-amber-500";
+  if (tone === "success") return "text-emerald-500";
+  if (tone === "waiting") return "text-slate-500";
   return "";
+}
+
+function edgeOpacity(tone: PanoramaEdgeData["edgeTone"], selected: boolean): number {
+  if (selected) return 0.95;
+  if (tone === "success") return 0.46;
+  if (tone === "waiting") return 0.34;
+  if (tone === "running" || tone === "blocked") return 0.78;
+  return 0.72;
+}
+
+function edgeStrokeWidth(tone: PanoramaEdgeData["edgeTone"], selected: boolean): number {
+  if (selected) return 3.5;
+  if (tone === "success") return 2.25;
+  if (tone === "waiting") return 2;
+  return 2.75;
 }
 
 function PanoramaEdgeComponent({
@@ -66,6 +94,7 @@ function PanoramaEdgeComponent({
   const canDelete = selected && edgeData?.edgeKind !== "critic" && typeof edgeData?.onDeleteEdge === "function";
   const labelX = edgeData?.deleteButtonPosition?.x ?? (sourceX + targetX) / 2;
   const labelY = edgeData?.deleteButtonPosition?.y ?? (sourceY + targetY) / 2;
+  const isSelected = selected === true;
 
   return (
     <>
@@ -74,16 +103,30 @@ function PanoramaEdgeComponent({
         path={edgePath}
         className={cn(
           colorClass,
-          selected && "[filter:drop-shadow(0_0_3px_hsl(var(--primary)/0.4))]",
+          isSelected && "[filter:drop-shadow(0_0_3px_hsl(var(--primary)/0.4))]",
         )}
         style={{
           stroke: "currentColor",
-          strokeWidth: selected ? 2.5 : 1.5,
-          opacity: selected ? 0.82 : 0.28,
+          strokeWidth: edgeStrokeWidth(edgeData?.edgeTone, isSelected),
+          opacity: edgeOpacity(edgeData?.edgeTone, isSelected),
+          strokeDasharray: edgeData?.edgeTone === "blocked" ? "7 5" : style?.strokeDasharray,
           ...style,
         }}
         markerEnd={markerEnd}
       />
+      {edgeData?.edgeLabel ? (
+        <EdgeLabelRenderer>
+          <div
+            data-testid={`panorama-edge-label-${id}`}
+            className="nodrag nopan pointer-events-none absolute inline-flex h-5 items-center rounded-full border border-border bg-background px-2 text-[10px] font-medium text-muted-foreground shadow-sm"
+            style={{
+              transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY - 16}px)`,
+            }}
+          >
+            {edgeData.edgeLabel}
+          </div>
+        </EdgeLabelRenderer>
+      ) : null}
       {canDelete ? (
         <EdgeLabelRenderer>
           <button

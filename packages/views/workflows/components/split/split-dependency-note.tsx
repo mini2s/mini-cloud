@@ -29,7 +29,7 @@ export function SplitDependencyNote({ tasks }: SplitDependencyNoteProps) {
   if (tasks.length === 0) {
     return (
       <p className="text-sm text-muted-foreground">
-        生成草案后会在这里显示依赖关系。
+        Dependencies will appear here after a draft is generated.
       </p>
     );
   }
@@ -37,7 +37,7 @@ export function SplitDependencyNote({ tasks }: SplitDependencyNoteProps) {
   if (rows.length === 0) {
     return (
       <p className="text-sm text-muted-foreground">
-        这些子 issue 可以并行开始。
+        These child issues can start in parallel.
       </p>
     );
   }

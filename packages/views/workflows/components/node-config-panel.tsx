@@ -4,7 +4,6 @@ import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react
 import { useQuery } from "@tanstack/react-query";
 import {
   Activity,
-  AlertTriangle,
   Bot,
   Braces,
   CheckCircle2,
@@ -35,7 +34,6 @@ import { useWorkflowEditorStore } from "@multica/core/workflows/store";
 import { AssigneePicker } from "../../issues/components/pickers/assignee-picker";
 import { parseNodeFormat, type WorkflowNode, type WorkflowNodeRun, type WorkflowStage, type WorkerType, type CriticType, type SplitConfig } from "@multica/core/types";
 import type { IssueAssigneeType } from "@multica/core/types/issue";
-import { NodeDataPreview } from "./node-data-preview";
 import {
   NodeDetailSection,
   WorkflowNodeDetailPanelShell,
@@ -483,6 +481,42 @@ export function NodeConfigPanel({
       )}
     >
       <NodeDetailSection
+        sectionId="readiness"
+        icon={<CheckCircle2 className="size-4" />}
+        title={t(($) => $.detail_panel.section_readiness)}
+        subtitle={t(($) => $.detail_panel.section_readiness_desc)}
+      >
+        <div className="grid gap-2 text-xs">
+          <div className="flex items-center justify-between gap-3 rounded-md border bg-muted/20 px-2.5 py-2">
+            <span className="text-muted-foreground">{t(($) => $.node.section_worker)}</span>
+            <StatusBadge tone={workerConfigured || isAnnotation || isGateway ? "success" : "warning"}>
+              {workerConfigured || isAnnotation || isGateway
+                ? t(($) => $.detail_panel.readiness_worker_ready)
+                : t(($) => $.detail_panel.readiness_worker_missing)}
+            </StatusBadge>
+          </div>
+          <div className="flex items-center justify-between gap-3 rounded-md border bg-muted/20 px-2.5 py-2">
+            <span className="text-muted-foreground">{t(($) => $.node.section_critic)}</span>
+            <StatusBadge tone={criticConfigured ? "success" : "default"}>
+              {criticConfigured
+                ? t(($) => $.detail_panel.readiness_critic_ready)
+                : t(($) => $.detail_panel.readiness_critic_optional)}
+            </StatusBadge>
+          </div>
+          {isSplit ? (
+            <div className="flex items-center justify-between gap-3 rounded-md border bg-muted/20 px-2.5 py-2">
+              <span className="text-muted-foreground">{t(($) => $.detail_panel.split_child_workflow_label)}</span>
+              <StatusBadge tone={splitConfig.child_workflow_id ? "success" : "warning"}>
+                {splitConfig.child_workflow_id
+                  ? t(($) => $.detail_panel.readiness_split_ready)
+                  : t(($) => $.detail_panel.readiness_split_missing)}
+              </StatusBadge>
+            </div>
+          ) : null}
+        </div>
+      </NodeDetailSection>
+
+      <NodeDetailSection
         sectionId="primary"
         icon={<GitBranch className="size-4" />}
         title={t(($) => $.detail_panel.section_primary)}
@@ -616,6 +650,16 @@ export function NodeConfigPanel({
                 />
               </div>
 
+        </div>
+      </NodeDetailSection>
+
+      <NodeDetailSection
+        sectionId="worker-critic"
+        icon={<Bot className="size-4" />}
+        title={t(($) => $.detail_panel.section_worker_critic)}
+        subtitle={t(($) => $.detail_panel.section_worker_critic_desc)}
+      >
+        <div className="space-y-3">
             {isAnnotation ? (
               <InspectorSection
                 icon={<Braces className="size-4" />}
@@ -683,16 +727,6 @@ export function NodeConfigPanel({
 
             {!isAnnotation && !isGateway ? (
               <>
-                {isSplit ? (
-                  <SplitConfigPanel
-                    config={splitConfig}
-                    childWorkflows={activeWorkflows}
-                    currentWorkflowId={workflowId}
-                    disabled={disabled}
-                    onChange={handleSplitConfigChange}
-                  />
-                ) : null}
-
                 {isSplit ? (
                   <>
                     <AssignmentCard
@@ -1047,32 +1081,22 @@ export function NodeConfigPanel({
         </div>
       </NodeDetailSection>
 
-      <NodeDetailSection
-        sectionId="runtime"
-        icon={<Activity className="size-4" />}
-        title={t(($) => $.detail_panel.section_runtime)}
-        subtitle={t(($) => $.detail_panel.section_runtime_desc)}
-        status={recentNodeRun ? <StatusBadge tone={runTone}>{recentNodeRun.status}</StatusBadge> : <StatusBadge>{t(($) => $.detail_panel.badge_no_run)}</StatusBadge>}
-      >
-        {recentNodeRun ? (
-          <div className="space-y-2">
-            <div className={`flex items-start gap-2 rounded-lg border p-3 ${statusClasses(runTone)}`}>
-              {runTone === "danger" ? <AlertTriangle className="mt-0.5 size-4" /> : <CheckCircle2 className="mt-0.5 size-4" />}
-              <div className="min-w-0">
-                    <p className="text-sm font-medium">{t(($) => $.detail_panel.runtime_status_label, { status: recentNodeRun.status })}</p>
-                <p className="mt-1 text-[11px] leading-snug opacity-80">
-                  {t(($) => $.detail_panel.runtime_hint)}
-                </p>
-              </div>
-            </div>
-            <NodeDataPreview nodeRun={recentNodeRun} />
-          </div>
-        ) : (
-          <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
-            {t(($) => $.detail_panel.runtime_no_data)}
-          </div>
-        )}
-      </NodeDetailSection>
+      {isSplit ? (
+        <NodeDetailSection
+          sectionId="split-behavior"
+          icon={<GitBranch className="size-4" />}
+          title={t(($) => $.detail_panel.section_split_behavior)}
+          subtitle={t(($) => $.detail_panel.section_split_behavior_desc)}
+        >
+          <SplitConfigPanel
+            config={splitConfig}
+            childWorkflows={activeWorkflows}
+            currentWorkflowId={workflowId}
+            disabled={disabled}
+            onChange={handleSplitConfigChange}
+          />
+        </NodeDetailSection>
+      ) : null}
 
       <NodeDetailSection
         sectionId="connections"

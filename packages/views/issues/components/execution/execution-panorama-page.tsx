@@ -126,6 +126,93 @@ function createSplitChildNodeId(parentNodeId: string, taskId: string): string {
   return `${parentNodeId}:split-task:${taskId}`;
 }
 
+function runtimeToneForEdge(
+  sourceRun: WorkflowNodeRun | undefined,
+  targetRun: WorkflowNodeRun | undefined,
+): "success" | "running" | "blocked" | "waiting" {
+  if (targetRun?.status === "blocked" || targetRun?.status === "failed" || targetRun?.status === "format_failed") {
+    return "blocked";
+  }
+  if (
+    targetRun?.status === "working" ||
+    targetRun?.status === "worker_assigned" ||
+    targetRun?.status === "critic_reviewing" ||
+    targetRun?.status === "awaiting_critic" ||
+    targetRun?.status === "awaiting_input" ||
+    targetRun?.status === "splitting" ||
+    targetRun?.status === "split_active"
+  ) {
+    return "running";
+  }
+  if (sourceRun?.status === "completed" || sourceRun?.status === "critic_approved") {
+    return "success";
+  }
+  return "waiting";
+}
+
+function runtimeEdgeMarkerColor(tone: "success" | "running" | "blocked" | "waiting"): string {
+  if (tone === "success") return "rgb(16 185 129)";
+  if (tone === "running") return "rgb(59 130 246)";
+  if (tone === "blocked") return "rgb(239 68 68)";
+  return "rgb(100 116 139)";
+}
+
+function edgeLabelForSource(
+  sourceNodeId: string,
+  sourceRun: WorkflowNodeRun | undefined,
+  splitTasksByNodeId: Map<string, SplitTask[]>,
+): string | undefined {
+  const childIssueCount = (splitTasksByNodeId.get(sourceNodeId) ?? []).filter((task) => task.issue_id).length;
+  if (childIssueCount > 0) return `${childIssueCount} child issues`;
+  const output = sourceRun?.worker_output;
+  if (output && typeof output === "object" && !Array.isArray(output)) {
+    const artifactCount = Number((output as Record<string, unknown>).artifact_count ?? 0);
+    if (artifactCount > 0) return `${artifactCount} artifacts`;
+  }
+  if (sourceRun?.status === "blocked" || sourceRun?.status === "failed") return "blocked";
+  return undefined;
+}
+
+export function decorateRuntimeEdges({
+  edges,
+  nodeRunMap,
+  splitTasksByNodeId,
+}: {
+  edges: Edge[];
+  nodeRunMap: Map<string, WorkflowNodeRun>;
+  splitTasksByNodeId: Map<string, SplitTask[]>;
+}): Edge[] {
+  return edges.map((edge) => {
+    const sourceRun = nodeRunMap.get(edge.source);
+    const targetRun = nodeRunMap.get(edge.target);
+    const edgeTone = runtimeToneForEdge(sourceRun, targetRun);
+    return {
+      ...edge,
+      markerEnd: {
+        ...(edge.markerEnd && typeof edge.markerEnd === "object" ? edge.markerEnd : {}),
+        type: MarkerType.ArrowClosed,
+        color: runtimeEdgeMarkerColor(edgeTone),
+      },
+      data: {
+        ...(edge.data ?? {}),
+        edgeTone,
+        edgeLabel: edgeLabelForSource(edge.source, sourceRun, splitTasksByNodeId),
+      },
+    };
+  });
+}
+
+function splitTaskEdgeTone(status: SplitTask["status"]): "running" | "blocked" | "waiting" {
+  const displayStatus = splitTaskDisplayStatus(status);
+  if (displayStatus === "blocked") return "blocked";
+  if (displayStatus === "pending" || displayStatus === "todo") return "waiting";
+  return "running";
+}
+
+function splitTaskEdgeMarkerColor(status: SplitTask["status"]): string {
+  return runtimeEdgeMarkerColor(splitTaskEdgeTone(status));
+}
+
 function splitTaskLevel(
   task: SplitTask,
   taskMap: Map<string, SplitTask>,
@@ -757,14 +844,15 @@ export function ExecutionPanoramaPage({
             interactionWidth: 24,
             markerEnd: {
               type: MarkerType.ArrowClosed,
-              color: "rgb(59 130 246)",
+              color: splitTaskEdgeMarkerColor(task.status),
               strokeWidth: 1.5,
             },
             data: {
               edgeKind: "data",
-              edgeTone: "condition",
+              edgeTone: splitTaskEdgeTone(task.status),
+              edgeLabel: splitTaskDisplayStatus(task.status) === "blocked" ? "blocked" : undefined,
               stageColorIndex: 0,
-              sameStage: true,
+              sameStage: false,
             },
           });
         } else {
@@ -779,14 +867,15 @@ export function ExecutionPanoramaPage({
               interactionWidth: 24,
               markerEnd: {
                 type: MarkerType.ArrowClosed,
-                color: "rgb(59 130 246)",
+                color: splitTaskEdgeMarkerColor(task.status),
                 strokeWidth: 1.5,
               },
               data: {
                 edgeKind: "condition",
-                edgeTone: "condition",
+                edgeTone: splitTaskEdgeTone(task.status),
+                edgeLabel: splitTaskDisplayStatus(task.status) === "blocked" ? "blocked" : undefined,
                 stageColorIndex: 0,
-                sameStage: true,
+                sameStage: false,
               },
             });
           }
@@ -796,7 +885,14 @@ export function ExecutionPanoramaPage({
   }
 
   const rfNodes = [...baseRfNodes, ...splitChildNodes];
-  const rfEdges = [...baseRfEdges, ...splitChildEdges];
+  const rfEdges = [
+    ...decorateRuntimeEdges({
+      edges: baseRfEdges,
+      nodeRunMap,
+      splitTasksByNodeId,
+    }),
+    ...splitChildEdges,
+  ];
   const selectedChildDetail = selectedNodeId
     ? splitChildDetailByNodeId.get(selectedNodeId) ?? null
     : null;
@@ -818,6 +914,12 @@ export function ExecutionPanoramaPage({
       : selectedNode?.critic_id
         ? getActorName(selectedNode.critic_type ?? "agent", selectedNode.critic_id)
         : null;
+  const selectedChildParentNodeId = selectedChildDetail && selectedNodeId?.includes(SPLIT_CHILD_NODE_ID_PART)
+    ? selectedNodeId.split(SPLIT_CHILD_NODE_ID_PART)[0] ?? null
+    : null;
+  const selectedChildParentTitle = selectedChildParentNodeId
+    ? allNodes.find((node) => node.id === selectedChildParentNodeId)?.title ?? null
+    : null;
   const selectedNodeFormat = selectedNode ? parseNodeFormat(selectedNode.format_schema) : null;
   const isSplitSelectedNode = selectedNodeFormat?.kind === "split";
   const isRetryableSelectedRun =
@@ -885,6 +987,9 @@ export function ExecutionPanoramaPage({
                 ? () => navigation.push(paths.issueDetail(selectedChildDetail.issueId))
                 : undefined
             }
+            isChildIssue={Boolean(selectedChildDetail)}
+            parentSplitTitle={selectedChildParentTitle}
+            childWorkflowName={null}
             onRetry={
               issueId && selectedRun && isRetryableSelectedRun && retryingNodeRunId !== selectedRun.id
                 ? () => void handleRetryNodeRun(selectedRun)

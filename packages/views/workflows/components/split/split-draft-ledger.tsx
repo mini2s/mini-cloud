@@ -88,7 +88,7 @@ export function SplitDraftLedger({ tasks, taskIssueBySourceId }: SplitDraftLedge
   if (tasks.length === 0) {
     return (
       <div className="rounded-md border border-dashed bg-muted/20 px-3 py-3 text-sm text-muted-foreground">
-        还没有生成子 issue 草案。
+        No child issue draft has been generated yet.
       </div>
     );
   }
@@ -144,8 +144,8 @@ export function SplitDraftLedger({ tasks, taskIssueBySourceId }: SplitDraftLedge
               </div>
             </div>
             <div className="mt-2 flex flex-wrap gap-1.5 text-xs text-muted-foreground">
-              <span>依赖：{dependsOn || "无"}</span>
-              {!task.suggested_assignee_id ? <span className="text-destructive">缺负责人</span> : null}
+              <span>Dependencies: {dependsOn || "none"}</span>
+              {!task.suggested_assignee_id ? <span className="text-destructive">Missing assignee</span> : null}
             </div>
           </article>
         );

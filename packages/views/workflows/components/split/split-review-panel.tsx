@@ -34,6 +34,7 @@ import { SplitProgressBadge } from "./split-progress-badge";
 import { SplitDraftLedger } from "./split-draft-ledger";
 import { SplitDependencyNote } from "./split-dependency-note";
 import { SplitChatReview } from "./split-chat-review";
+import { useT } from "../../../i18n";
 
 interface SplitReviewPanelProps {
   node: WorkflowNode;
@@ -111,13 +112,15 @@ function buildApproveRequest(tasks: SplitTask[]): ApproveSplitRequest {
   };
 }
 
-function verdictTitle(status: string | null | undefined, tasks: SplitTask[]): string {
-  if (status === "failed") return "Split failed";
-  if (status === "split_active") return "Running child issues";
-  if (status === "completed") return "Completed";
-  if (status === "splitting") return "Generating draft";
-  if (creatableTasks(tasks).length > 0) return "Ready to create";
-  return "Needs adjustment";
+type WorkflowTranslator = ReturnType<typeof useT<"workflows">>["t"];
+
+function verdictTitle(t: WorkflowTranslator, status: string | null | undefined, tasks: SplitTask[]): string {
+  if (status === "failed") return t(($) => $.detail_panel.split_failed);
+  if (status === "split_active") return t(($) => $.detail_panel.split_running_children);
+  if (status === "completed") return t(($) => $.detail_panel.split_completed);
+  if (status === "splitting") return t(($) => $.detail_panel.split_generating_draft);
+  if (creatableTasks(tasks).length > 0) return t(($) => $.detail_panel.split_ready_to_create);
+  return t(($) => $.detail_panel.split_needs_adjustment);
 }
 
 function splitRiskCount(tasks: SplitTask[]): number {
@@ -130,12 +133,14 @@ function SplitVerdictSummary({
   progress,
   splitConfig,
   isChatPending,
+  t,
 }: {
   nodeRun: WorkflowNodeRun | null;
   tasks: SplitTask[];
   progress: SplitProgress;
   splitConfig?: ReturnType<typeof splitConfigFromNode>;
   isChatPending: boolean;
+  t: WorkflowTranslator;
 }) {
   const riskCount = splitRiskCount(tasks);
   const dependencyCount = creatableTasks(tasks).filter((task) => task.depends_on.length > 0).length;
@@ -144,11 +149,13 @@ function SplitVerdictSummary({
       .map((task) => task.suggested_assignee_id)
       .filter(Boolean),
   ).size;
-  const title = isChatPending ? "Generating draft" : verdictTitle(nodeRun?.status, tasks);
+  const title = isChatPending ? t(($) => $.detail_panel.split_generating_draft) : verdictTitle(t, nodeRun?.status, tasks);
   const isGenerating = isChatPending || nodeRun?.status === "splitting";
   const explanation = isGenerating
-    ? "Agent 正在生成草案…"
-    : riskCount === 0 ? "No blocking risk" : `${riskCount} 个 issue 缺少负责人`;
+    ? t(($) => $.detail_panel.split_generating)
+    : riskCount === 0
+      ? t(($) => $.detail_panel.split_no_blocking_risk)
+      : t(($) => $.detail_panel.split_missing_assignees, { count: riskCount });
 
   return (
     <div className="rounded-lg border bg-muted/20 px-3 py-3">
@@ -156,9 +163,11 @@ function SplitVerdictSummary({
         <div className="min-w-0">
           <p className="text-sm font-semibold text-foreground">{title}</p>
           <p className="mt-1 text-xs text-muted-foreground">
-            <span className="tabular-nums">{creatableTasks(tasks).length}</span> 个子 issue ·{" "}
-            <span className="tabular-nums">{assigneeCount}</span> 个负责人 ·{" "}
-            <span className="tabular-nums">{dependencyCount}</span> 条依赖链
+            {t(($) => $.detail_panel.split_verdict_summary, {
+              tasks: creatableTasks(tasks).length,
+              assignees: assigneeCount,
+              dependencies: dependencyCount,
+            })}
           </p>
         </div>
         <Badge variant={nodeRun?.status === "failed" || riskCount > 0 ? "destructive" : "secondary"}>
@@ -169,7 +178,7 @@ function SplitVerdictSummary({
         {explanation}
       </p>
       <details className="mt-2 text-xs text-muted-foreground">
-        <summary className="cursor-pointer text-primary">查看运行设置</summary>
+        <summary className="cursor-pointer text-primary">{t(($) => $.detail_panel.split_settings_summary)}</summary>
         <div className="mt-2 flex flex-wrap gap-1.5">
           <Badge variant="outline">Mode: {splitConfig?.mode ?? "barrier"}</Badge>
           <Badge variant="outline">Concurrency: {splitConfig?.max_concurrency ?? 5}</Badge>
@@ -207,6 +216,7 @@ export function SplitReviewPanel({
   parentIssueId,
   onClose,
 }: SplitReviewPanelProps) {
+  const { t } = useT("workflows");
   const nodeRunId = nodeRun?.id ?? null;
   const generateMutation = useGenerateSplitTasks(wsId);
   const recoverMutation = useRecoverSplitTasks(wsId);
@@ -256,7 +266,9 @@ export function SplitReviewPanel({
   const canRecover = nodeRun?.status === "failed";
   const canGenerate = !!nodeRunId && isSplitGenerateActionStatus(nodeRun?.status) && (tasks.length === 0 || nodeRun?.status === "failed");
   const failureMessage = splitFailureMessage(nodeRun);
-  const generateLabel = tasks.length > 0 ? "重新生成" : "生成草案";
+  const generateLabel = tasks.length > 0
+    ? t(($) => $.detail_panel.split_regenerate_draft)
+    : t(($) => $.detail_panel.split_generate_draft);
   const childIssueBySplitTaskId = useMemo(() => {
     const mapping = new Map<string, (typeof childIssues)[number]>();
     for (const childIssue of childIssues) {
@@ -315,7 +327,7 @@ export function SplitReviewPanel({
       mode="run"
       variant="overlay"
       title={node.title}
-      eyebrow={nodeRun?.status === "split_active" ? "Split progress" : "Split review"}
+      eyebrow={nodeRun?.status === "split_active" ? t(($) => $.detail_panel.split_progress_eyebrow) : t(($) => $.detail_panel.split_review_eyebrow)}
       closeLabel="Close"
       onClose={onClose}
       contentClassName="pb-0"
@@ -332,7 +344,7 @@ export function SplitReviewPanel({
       <NodeDetailSection
         sectionId="primary"
         icon={<GitBranch className="size-4" />}
-        title="Verdict"
+        title={t(($) => $.detail_panel.split_verdict_title)}
       >
         <SplitVerdictSummary
           nodeRun={nodeRun}
@@ -340,6 +352,7 @@ export function SplitReviewPanel({
           progress={progress}
           splitConfig={splitConfig}
           isChatPending={chatMutation.isPending}
+          t={t}
         />
         {failureMessage ? (
           <p className="rounded-md border border-destructive/25 bg-destructive/5 px-3 py-2 text-sm text-destructive">
@@ -351,10 +364,10 @@ export function SplitReviewPanel({
       <NodeDetailSection
         sectionId="runtime"
         icon={<ListTree className="size-4" />}
-        title="Draft plan"
+        title={t(($) => $.detail_panel.split_draft_plan)}
       >
         {isLoading ? (
-          <p className="text-sm text-muted-foreground">加载子 issue 草案…</p>
+          <p className="text-sm text-muted-foreground">{t(($) => $.detail_panel.split_loading_draft)}</p>
         ) : (
           <SplitDraftLedger tasks={tasks} taskIssueBySourceId={childIssueBySplitTaskId} />
         )}
@@ -363,10 +376,10 @@ export function SplitReviewPanel({
       <NodeDetailSection
         sectionId="connections"
         icon={<GitBranch className="size-4" />}
-        title="Dependencies"
+        title={t(($) => $.detail_panel.split_dependencies)}
       >
         {isLoading ? (
-          <p className="text-sm text-muted-foreground">加载依赖关系…</p>
+          <p className="text-sm text-muted-foreground">{t(($) => $.detail_panel.split_loading_dependencies)}</p>
         ) : (
           <SplitDependencyNote tasks={tasks} />
         )}
@@ -376,7 +389,7 @@ export function SplitReviewPanel({
         <NodeDetailSection
           sectionId="agent-operations"
           icon={<Activity className="size-4" />}
-          title="Ask agent to adjust"
+          title={t(($) => $.detail_panel.split_ask_agent)}
         >
           <SplitChatReview
             issueId={parentIssueId}
@@ -403,7 +416,7 @@ export function SplitReviewPanel({
                 disabled={!nodeRunId || generateMutation.isPending || nodeRun?.status === "splitting"}
               >
                 <RefreshCcw className="mr-1.5 size-3.5" />
-                {generateMutation.isPending ? "生成中…" : generateLabel}
+                {generateMutation.isPending ? t(($) => $.detail_panel.split_generating) : generateLabel}
               </Button>
             ) : null}
             {canRecover ? (
@@ -415,7 +428,7 @@ export function SplitReviewPanel({
                 disabled={!nodeRunId || recoverMutation.isPending}
               >
                 <ListTree className="mr-1.5 size-3.5" />
-                {recoverMutation.isPending ? "恢复中…" : "恢复已有输出"}
+                {recoverMutation.isPending ? t(($) => $.detail_panel.split_recovering) : t(($) => $.detail_panel.split_recover_outputs)}
               </Button>
             ) : null}
           </div>
@@ -434,13 +447,13 @@ export function SplitReviewPanel({
                 disabled={cancelMutation.isPending}
               >
                 <SquareX className="mr-1.5 size-3.5" />
-                {cancelMutation.isPending ? "取消中…" : "取消拆分"}
+                {cancelMutation.isPending ? t(($) => $.detail_panel.split_cancelling) : t(($) => $.detail_panel.split_cancel)}
               </Button>
             ) : null}
           </div>
           <div className="flex items-center gap-2">
             {!canApprove && nodeRun?.status === "awaiting_split_review" ? (
-              <span className="text-xs text-muted-foreground">还没有可创建的子 issue</span>
+              <span className="text-xs text-muted-foreground">{t(($) => $.detail_panel.split_no_creatable_tasks)}</span>
             ) : null}
             {canApprove ? (
               <Button
@@ -450,7 +463,9 @@ export function SplitReviewPanel({
                 disabled={approveMutation.isPending}
               >
                 <CheckCheck className="mr-1.5 size-3.5" />
-                {approveMutation.isPending ? "创建中…" : `确认创建 ${creatableCount}`}
+                {approveMutation.isPending
+                  ? t(($) => $.detail_panel.split_creating)
+                  : t(($) => $.detail_panel.split_confirm_create, { count: creatableCount })}
               </Button>
             ) : null}
           </div>
@@ -467,20 +482,20 @@ export function SplitReviewPanel({
       >
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>确认创建子 issue？</AlertDialogTitle>
+            <AlertDialogTitle>{t(($) => $.detail_panel.split_approve_dialog_title)}</AlertDialogTitle>
             <AlertDialogDescription>
-              这会创建 {creatableCount} 个子 issue，并启动对应 workflow。
+              {t(($) => $.detail_panel.split_approve_dialog_description, { count: creatableCount })}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel disabled={approveMutation.isPending}>
-              取消
+              {t(($) => $.detail_panel.split_cancel)}
             </AlertDialogCancel>
             <AlertDialogAction
               disabled={approveMutation.isPending}
               onClick={() => void handleApprove()}
             >
-              {approveMutation.isPending ? "创建中…" : "确认创建"}
+              {approveMutation.isPending ? t(($) => $.detail_panel.split_creating) : t(($) => $.detail_panel.split_confirm_create_short)}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -496,21 +511,21 @@ export function SplitReviewPanel({
       >
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>取消拆分？</AlertDialogTitle>
+            <AlertDialogTitle>{t(($) => $.detail_panel.split_cancel_dialog_title)}</AlertDialogTitle>
             <AlertDialogDescription>
-              这会停止未完成的子 task，并取消对应的子 issue。
+              {t(($) => $.detail_panel.split_cancel_dialog_description)}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel disabled={cancelMutation.isPending}>
-              继续运行
+              {t(($) => $.detail_panel.split_keep_running)}
             </AlertDialogCancel>
             <AlertDialogAction
               variant="destructive"
               disabled={cancelMutation.isPending}
               onClick={() => void handleCancel()}
             >
-              {cancelMutation.isPending ? "取消中…" : "确认取消"}
+              {cancelMutation.isPending ? t(($) => $.detail_panel.split_cancelling) : t(($) => $.detail_panel.split_confirm_cancel)}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

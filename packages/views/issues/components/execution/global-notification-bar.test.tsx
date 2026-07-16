@@ -15,6 +15,15 @@ vi.mock("@multica/views/i18n", () => ({
         execution: {
           notification: {
             summary_title: "Action needed:",
+            progress_title: "Run progress:",
+            progress_done: `${params?.done ?? ""}/${params?.total ?? ""} done`,
+            current_node: `Current: ${params?.title ?? ""}`,
+            no_current_node: "No active node",
+            running_count: `${params?.count ?? ""} running`,
+            blocked_count: `${params?.count ?? ""} blocked`,
+            waiting_count: `${params?.count ?? ""} waiting`,
+            elapsed: `Elapsed ${params?.elapsed ?? ""}`,
+            no_action_needed: "No action needed",
             awaiting_critic: "Awaiting review:",
             blocked_failed: "Needs attention:",
             awaiting_input: "Awaiting input:",
@@ -67,15 +76,18 @@ function makeNodeRun(overrides: Partial<WorkflowNodeRun> = {}): WorkflowNodeRun 
 // Tests
 // ---------------------------------------------------------------------------
 describe("GlobalNotificationBar", () => {
-  it("renders nothing when no actionable runs exist", () => {
+  it("renders progress when no actionable runs exist", () => {
     const map = new Map<string, WorkflowNodeRun>();
     map.set("n-1", makeNodeRun({ id: "nr-1", status: "completed" }));
-    map.set("n-2", makeNodeRun({ id: "nr-2", status: "working" }));
+    map.set("n-2", makeNodeRun({ id: "nr-2", status: "working", node_title: "Build API" }));
 
-    const { container } = render(
+    render(
       <GlobalNotificationBar nodeRunMap={map} onScrollToNode={vi.fn()} />,
     );
-    expect(container.firstChild).toBeNull();
+    expect(screen.getByTestId("global-notification-bar")).toBeInTheDocument();
+    expect(screen.getByTestId("notification-summary")).toHaveTextContent("Run progress:1/2 done");
+    expect(screen.getByTestId("notification-summary")).toHaveTextContent("Current: Build API");
+    expect(screen.getByText("No action needed")).toBeInTheDocument();
   });
 
   it("renders nothing for empty map", () => {
@@ -171,8 +183,27 @@ describe("GlobalNotificationBar", () => {
       <GlobalNotificationBar nodeRunMap={map} onScrollToNode={vi.fn()} />,
     );
 
-    expect(screen.getByTestId("notification-summary")).toHaveTextContent("Action needed:3");
+    expect(screen.getByTestId("notification-summary")).toHaveTextContent("Run progress:0/3 done");
     expect(screen.getByTestId("notification-item-awaiting_critic")).toHaveTextContent("Awaiting review:1");
+  });
+
+  it("shows counts, current node, and elapsed fallback in the progress summary", () => {
+    const map = new Map<string, WorkflowNodeRun>();
+    map.set("done", makeNodeRun({ id: "nr-1", status: "completed", workflow_node_id: "done" }));
+    map.set("running", makeNodeRun({ id: "nr-2", status: "working", workflow_node_id: "running", node_title: "Implement worker", started_at: null }));
+    map.set("blocked", makeNodeRun({ id: "nr-3", status: "blocked", workflow_node_id: "blocked" }));
+    map.set("pending", makeNodeRun({ id: "nr-4", status: "pending", workflow_node_id: "pending" }));
+
+    render(
+      <GlobalNotificationBar nodeRunMap={map} onScrollToNode={vi.fn()} />,
+    );
+
+    expect(screen.getByTestId("notification-summary")).toHaveTextContent("Run progress:1/4 done");
+    expect(screen.getByTestId("notification-summary")).toHaveTextContent("Current: Implement worker");
+    expect(screen.getByTestId("run-progress-counts")).toHaveTextContent("1 running");
+    expect(screen.getByTestId("run-progress-counts")).toHaveTextContent("1 blocked");
+    expect(screen.getByTestId("run-progress-counts")).toHaveTextContent("1 waiting");
+    expect(screen.getByTestId("run-progress-counts")).toHaveTextContent("Elapsed --");
   });
 
   it("calls onScrollToNode with firstNodeId on chip click", () => {

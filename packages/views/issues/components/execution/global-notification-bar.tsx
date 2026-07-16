@@ -4,7 +4,7 @@ import { useMemo } from "react";
 import type { WorkflowNodeRun } from "@multica/core/types";
 import { cn } from "@multica/ui/lib/utils";
 import { useT } from "@multica/views/i18n";
-import { AlertCircle, ChevronRight, MessageSquare, UserCheck } from "lucide-react";
+import { AlertCircle, CheckCircle2, ChevronRight, Clock3, MessageSquare, UserCheck } from "lucide-react";
 
 export interface NotificationItem {
   type: "awaiting_critic" | "blocked_failed" | "awaiting_input";
@@ -58,6 +58,71 @@ function deriveNotifications(
   });
 }
 
+interface RunProgressSummary {
+  total: number;
+  done: number;
+  running: number;
+  blocked: number;
+  waiting: number;
+  currentNodeTitle: string | null;
+  elapsedLabel: string;
+}
+
+function isDoneStatus(status: string): boolean {
+  return status === "completed" || status === "critic_approved" || status === "format_ok";
+}
+
+function isBlockedStatus(status: string): boolean {
+  return status === "blocked" || status === "failed" || status === "format_failed";
+}
+
+function isRunningStatus(status: string): boolean {
+  return status === "working" ||
+    status === "worker_assigned" ||
+    status === "critic_reviewing" ||
+    status === "awaiting_critic" ||
+    status === "awaiting_input" ||
+    status === "splitting" ||
+    status === "split_active";
+}
+
+function formatElapsed(startedAt: string | null | undefined, now = Date.now()): string {
+  if (!startedAt) return "--";
+  const startMs = new Date(startedAt).getTime();
+  if (!Number.isFinite(startMs)) return "--";
+  const seconds = Math.max(0, Math.floor((now - startMs) / 1000));
+  if (seconds < 60) return `${seconds}s`;
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  return `${hours}h ${minutes % 60}m`;
+}
+
+function deriveRunProgress(nodeRunMap: Map<string, WorkflowNodeRun>): RunProgressSummary {
+  const runs = [...nodeRunMap.values()];
+  const done = runs.filter((run) => isDoneStatus(run.status)).length;
+  const blocked = runs.filter((run) => isBlockedStatus(run.status)).length;
+  const running = runs.filter((run) => isRunningStatus(run.status)).length;
+  const waiting = Math.max(0, runs.length - done - blocked - running);
+  const currentRun = runs.find((run) => isRunningStatus(run.status)) ??
+    runs.find((run) => isBlockedStatus(run.status)) ??
+    runs.find((run) => !isDoneStatus(run.status));
+  const earliestStart = runs
+    .map((run) => run.started_at)
+    .filter((value): value is string => Boolean(value))
+    .sort()[0];
+
+  return {
+    total: runs.length,
+    done,
+    running,
+    blocked,
+    waiting,
+    currentNodeTitle: currentRun?.node_title ?? null,
+    elapsedLabel: formatElapsed(earliestStart),
+  };
+}
+
 /** Priority-ordered icon + color config per notification type. */
 const NOTIFICATION_CONFIG: Record<
   NotificationItem["type"],
@@ -98,13 +163,16 @@ export function GlobalNotificationBar({
     () => deriveNotifications(nodeRunMap),
     [nodeRunMap],
   );
+  const progress = useMemo(
+    () => deriveRunProgress(nodeRunMap),
+    [nodeRunMap],
+  );
 
-  if (items.length === 0) return null;
+  if (progress.total === 0) return null;
 
-  const totalCount = items.reduce((sum, item) => sum + item.count, 0);
-  const primaryItem = items[0]!;
-  const primaryConfig = NOTIFICATION_CONFIG[primaryItem.type];
-  const PrimaryIcon = primaryConfig.icon;
+  const primaryItem = items[0];
+  const primaryConfig = primaryItem ? NOTIFICATION_CONFIG[primaryItem.type] : null;
+  const PrimaryIcon = primaryConfig?.icon;
 
   const getLabel = (type: NotificationItem["type"]) => {
     switch (type) {
@@ -130,38 +198,65 @@ export function GlobalNotificationBar({
           <span
             className={cn(
               "relative grid h-6 w-6 shrink-0 place-items-center rounded-md border",
-              primaryConfig.countClass,
+              primaryConfig?.countClass ?? "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900/60 dark:bg-emerald-950/30 dark:text-emerald-300",
             )}
           >
-            <span
-              aria-hidden="true"
-              className={cn(
-                "absolute -right-0.5 -top-0.5 h-2 w-2 rounded-full ring-2 ring-background",
-                primaryConfig.dotClass,
-              )}
-            />
-            <PrimaryIcon className="h-3.5 w-3.5" />
+            {primaryConfig ? (
+              <span
+                aria-hidden="true"
+                className={cn(
+                  "absolute -right-0.5 -top-0.5 h-2 w-2 rounded-full ring-2 ring-background",
+                  primaryConfig.dotClass,
+                )}
+              />
+            ) : null}
+            {PrimaryIcon ? <PrimaryIcon className="h-3.5 w-3.5" /> : <CheckCircle2 className="h-3.5 w-3.5" />}
           </span>
           <div className="min-w-0">
             <div className="flex items-baseline gap-1.5">
               <span className="text-xs font-semibold text-foreground">
-                {t(($) => $.execution.notification.summary_title)}
+                {t(($) => $.execution.notification.progress_title)}
               </span>
               <span className="text-xs font-semibold tabular-nums text-foreground">
-                {totalCount}
+                {t(($) => $.execution.notification.progress_done, { done: progress.done, total: progress.total })}
               </span>
             </div>
             <div className="hidden truncate text-[11px] leading-4 text-muted-foreground sm:block">
-              {t(($) => $.execution.notification.summary_label, { count: items.length })}
+              {progress.currentNodeTitle
+                ? t(($) => $.execution.notification.current_node, { title: progress.currentNodeTitle })
+                : t(($) => $.execution.notification.no_current_node)}
             </div>
           </div>
+        </div>
+
+        <div
+          data-testid="run-progress-counts"
+          className="flex min-w-0 flex-wrap items-center gap-1.5 text-[11px] text-muted-foreground"
+        >
+          <span className="rounded-md border bg-muted/20 px-2 py-1 tabular-nums">
+            {t(($) => $.execution.notification.running_count, { count: progress.running })}
+          </span>
+          <span className="rounded-md border bg-muted/20 px-2 py-1 tabular-nums">
+            {t(($) => $.execution.notification.blocked_count, { count: progress.blocked })}
+          </span>
+          <span className="rounded-md border bg-muted/20 px-2 py-1 tabular-nums">
+            {t(($) => $.execution.notification.waiting_count, { count: progress.waiting })}
+          </span>
+          <span className="inline-flex items-center gap-1 rounded-md border bg-muted/20 px-2 py-1 tabular-nums">
+            <Clock3 className="size-3" />
+            {t(($) => $.execution.notification.elapsed, { elapsed: progress.elapsedLabel })}
+          </span>
         </div>
 
         <div
           data-testid="notification-rail"
           className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5 sm:justify-end"
         >
-          {items.map((item) => {
+          {items.length === 0 ? (
+            <span className="inline-flex h-7 items-center rounded-md border border-border/70 bg-muted/25 px-2.5 text-xs font-medium text-muted-foreground">
+              {t(($) => $.execution.notification.no_action_needed)}
+            </span>
+          ) : items.map((item) => {
             const config = NOTIFICATION_CONFIG[item.type];
             const Icon = config.icon;
             const label = getLabel(item.type);
