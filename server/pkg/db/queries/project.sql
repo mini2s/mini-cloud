@@ -49,3 +49,12 @@ SELECT project_id,
 FROM multica_issue
 WHERE project_id = ANY(sqlc.arg('project_ids')::uuid[])
 GROUP BY project_id;
+
+-- name: GetProjectLocalDirectory :one
+SELECT local_directory FROM multica_project
+WHERE id = $1 AND workspace_id = $2;
+
+-- name: UpdateProjectLocalDirectory :exec
+UPDATE multica_project
+SET local_directory = $1, updated_at = now()
+WHERE id = $2 AND workspace_id = $3;
