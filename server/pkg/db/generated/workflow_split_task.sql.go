@@ -577,6 +577,49 @@ func (q *Queries) UpdateSplitTaskStatus(ctx context.Context, arg UpdateSplitTask
 	return i, err
 }
 
+const updateSplitTaskStatusWithError = `-- name: UpdateSplitTaskStatusWithError :one
+UPDATE multica_workflow_split_task
+SET status = $2,
+    last_error = $3::jsonb,
+    updated_at = now()
+WHERE id = $1
+RETURNING id, node_run_id, workspace_id, title, description, suggested_assignee_type, suggested_assignee_id, depends_on, sort_order, status, issue_id, run_id, created_at, updated_at, draft_key, draft_source, workflow_id, version, dispatch_key, last_error
+`
+
+type UpdateSplitTaskStatusWithErrorParams struct {
+	ID        pgtype.UUID `json:"id"`
+	Status    string      `json:"status"`
+	LastError []byte      `json:"last_error"`
+}
+
+func (q *Queries) UpdateSplitTaskStatusWithError(ctx context.Context, arg UpdateSplitTaskStatusWithErrorParams) (MulticaWorkflowSplitTask, error) {
+	row := q.db.QueryRow(ctx, updateSplitTaskStatusWithError, arg.ID, arg.Status, arg.LastError)
+	var i MulticaWorkflowSplitTask
+	err := row.Scan(
+		&i.ID,
+		&i.NodeRunID,
+		&i.WorkspaceID,
+		&i.Title,
+		&i.Description,
+		&i.SuggestedAssigneeType,
+		&i.SuggestedAssigneeID,
+		&i.DependsOn,
+		&i.SortOrder,
+		&i.Status,
+		&i.IssueID,
+		&i.RunID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.DraftKey,
+		&i.DraftSource,
+		&i.WorkflowID,
+		&i.Version,
+		&i.DispatchKey,
+		&i.LastError,
+	)
+	return i, err
+}
+
 const upsertSplitDraftTaskByKey = `-- name: UpsertSplitDraftTaskByKey :one
 INSERT INTO multica_workflow_split_task (
     node_run_id, workspace_id, draft_key, title, description,

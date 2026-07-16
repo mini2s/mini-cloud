@@ -1665,6 +1665,59 @@ func TestPatchSplitConfigUpdatesMaxConcurrencyWithExpectedVersion(t *testing.T) 
 	}
 }
 
+func TestPatchSplitConfigImmediatelySchedulesNewConcurrencySlots(t *testing.T) {
+	f := createSplitApproveFixture(t, "barrier")
+	ctx := context.Background()
+
+	if _, err := testPool.Exec(ctx, `
+		UPDATE multica_workflow_split_task
+		SET depends_on = '[]'::jsonb
+		WHERE id = $1
+	`, f.taskBID); err != nil {
+		t.Fatalf("remove task B dependency: %v", err)
+	}
+
+	approveReq := newRequest("POST", "/api/node-runs/"+f.splitNodeRunID+"/split/approve", map[string]any{
+		"approved_task_ids": []string{f.taskAID, f.taskBID},
+	})
+	approveReq = withURLParam(approveReq, "nodeRunId", f.splitNodeRunID)
+	approveResp := httptest.NewRecorder()
+	testHandler.ApproveSplitTasks(approveResp, approveReq)
+	if approveResp.Code != http.StatusOK {
+		t.Fatalf("ApproveSplitTasks: expected 200, got %d: %s", approveResp.Code, approveResp.Body.String())
+	}
+
+	taskB, err := testHandler.Queries.GetSplitTask(ctx, parseUUID(f.taskBID))
+	if err != nil {
+		t.Fatalf("load task B before patch: %v", err)
+	}
+	if taskB.Status != service.SplitTaskStatusCreated {
+		t.Fatalf("task B before patch = %s, want created", taskB.Status)
+	}
+
+	req := newRequest("PATCH", "/api/node-runs/"+f.splitNodeRunID+"/split/config", map[string]any{
+		"max_concurrency":         2,
+		"expected_config_version": 1,
+	})
+	req = withURLParam(req, "nodeRunId", f.splitNodeRunID)
+	resp := httptest.NewRecorder()
+	testHandler.PatchSplitConfig(resp, req)
+	if resp.Code != http.StatusOK {
+		t.Fatalf("PatchSplitConfig: expected 200, got %d: %s", resp.Code, resp.Body.String())
+	}
+
+	taskB, err = testHandler.Queries.GetSplitTask(ctx, parseUUID(f.taskBID))
+	if err != nil {
+		t.Fatalf("reload task B after patch: %v", err)
+	}
+	if taskB.Status != service.SplitTaskStatusRunning {
+		t.Fatalf("task B after patch = %s, want running", taskB.Status)
+	}
+	if !taskB.RunID.Valid {
+		t.Fatal("task B should have a run_id after immediate scheduling")
+	}
+}
+
 func TestRetrySplitTaskResetsFailedTaskAndReschedules(t *testing.T) {
 	f := createSplitApproveFixture(t, "barrier")
 
@@ -1709,6 +1762,126 @@ func TestRetrySplitTaskResetsFailedTaskAndReschedules(t *testing.T) {
 	}
 	if len(task.LastError) != 0 {
 		t.Fatalf("last_error should be cleared, got %s", string(task.LastError))
+	}
+}
+
+func TestRetrySplitTaskCancelsPreviousChildRun(t *testing.T) {
+	f := createSplitApproveFixture(t, "barrier")
+
+	approveReq := newRequest("POST", "/api/node-runs/"+f.splitNodeRunID+"/split/approve", map[string]any{
+		"approved_task_ids": []string{f.taskAID},
+	})
+	approveReq = withURLParam(approveReq, "nodeRunId", f.splitNodeRunID)
+	approveResp := httptest.NewRecorder()
+	testHandler.ApproveSplitTasks(approveResp, approveReq)
+	if approveResp.Code != http.StatusOK {
+		t.Fatalf("ApproveSplitTasks: expected 200, got %d: %s", approveResp.Code, approveResp.Body.String())
+	}
+
+	ctx := context.Background()
+	before, err := testHandler.Queries.GetSplitTask(ctx, parseUUID(f.taskAID))
+	if err != nil {
+		t.Fatalf("load task before retry: %v", err)
+	}
+	if !before.RunID.Valid {
+		t.Fatal("expected initial child run before retry")
+	}
+	oldRunID := before.RunID
+
+	if _, err := testPool.Exec(ctx, `
+		UPDATE multica_workflow_split_task
+		SET status = 'failed', last_error = '{"code":"failed","message":"boom"}'::jsonb
+		WHERE id = $1
+	`, f.taskAID); err != nil {
+		t.Fatalf("mark task failed: %v", err)
+	}
+
+	retryReq := newRequest("POST", "/api/node-runs/"+f.splitNodeRunID+"/split/tasks/"+f.taskAID+"/retry", nil)
+	retryReq = withURLParam(retryReq, "nodeRunId", f.splitNodeRunID)
+	retryReq = withURLParam(retryReq, "taskId", f.taskAID)
+	retryResp := httptest.NewRecorder()
+
+	testHandler.RetrySplitTask(retryResp, retryReq)
+	if retryResp.Code != http.StatusOK {
+		t.Fatalf("RetrySplitTask: expected 200, got %d: %s", retryResp.Code, retryResp.Body.String())
+	}
+
+	oldRun, err := testHandler.Queries.GetWorkflowRun(ctx, oldRunID)
+	if err != nil {
+		t.Fatalf("load previous child run: %v", err)
+	}
+	if oldRun.Status != service.RunStatusCancelled {
+		t.Fatalf("previous child run status = %s, want cancelled", oldRun.Status)
+	}
+
+	after, err := testHandler.Queries.GetSplitTask(ctx, parseUUID(f.taskAID))
+	if err != nil {
+		t.Fatalf("reload task after retry: %v", err)
+	}
+	if after.RunID == oldRunID {
+		t.Fatal("retry should start a new run instead of reusing the previous run")
+	}
+}
+
+func TestScheduleReadyTasksPersistsStartFailureAndSkipsDependents(t *testing.T) {
+	f := createSplitApproveFixture(t, "barrier")
+	ctx := context.Background()
+
+	var childIssueID string
+	if err := testPool.QueryRow(ctx, `
+		INSERT INTO multica_issue (
+			workspace_id, title, status, priority, creator_type, creator_id,
+			parent_issue_id, number, position, origin_type, origin_id, workflow_id
+		)
+		VALUES ($1, 'Unstartable split child', 'todo', 'medium', 'member', $2, $3, $4, 0, 'workflow_split', $5, $6)
+		RETURNING id
+	`, testWorkspaceID, testUserID, f.parentIssueID, nextSplitIssueNumber(t, ctx), f.taskAID, f.childWorkflow).Scan(&childIssueID); err != nil {
+		t.Fatalf("create child issue: %v", err)
+	}
+
+	if _, err := testPool.Exec(ctx, `
+		UPDATE multica_workflow_node_run
+		SET status = 'split_active'
+		WHERE id = $1
+	`, f.splitNodeRunID); err != nil {
+		t.Fatalf("activate split node: %v", err)
+	}
+	if _, err := testPool.Exec(ctx, `
+		UPDATE multica_workflow_split_task
+		SET status = 'created', issue_id = $2, workflow_id = NULL
+		WHERE id = $1
+	`, f.taskAID, childIssueID); err != nil {
+		t.Fatalf("make task A unstartable: %v", err)
+	}
+	if _, err := testPool.Exec(ctx, `
+		UPDATE multica_workflow_split_task
+		SET status = 'created'
+		WHERE id = $1
+	`, f.taskBID); err != nil {
+		t.Fatalf("make task B created: %v", err)
+	}
+
+	if err := testHandler.SplitOrchestrator.ScheduleReadyTasks(ctx, parseUUID(f.splitNodeRunID)); err != nil {
+		t.Fatalf("ScheduleReadyTasks: %v", err)
+	}
+
+	taskA, err := testHandler.Queries.GetSplitTask(ctx, parseUUID(f.taskAID))
+	if err != nil {
+		t.Fatalf("load task A: %v", err)
+	}
+	if taskA.Status != service.SplitTaskStatusFailed {
+		t.Fatalf("task A status = %s, want failed", taskA.Status)
+	}
+	if len(taskA.LastError) == 0 {
+		t.Fatal("task A last_error should describe the start failure")
+	}
+
+	taskB, err := testHandler.Queries.GetSplitTask(ctx, parseUUID(f.taskBID))
+	if err != nil {
+		t.Fatalf("load task B: %v", err)
+	}
+	if taskB.Status != service.SplitTaskStatusSkipped {
+		t.Fatalf("task B status = %s, want skipped after dependency start failure", taskB.Status)
 	}
 }
 

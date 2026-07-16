@@ -88,6 +88,14 @@ SET status = $2,
 WHERE id = $1
 RETURNING *;
 
+-- name: UpdateSplitTaskStatusWithError :one
+UPDATE multica_workflow_split_task
+SET status = $2,
+    last_error = sqlc.arg('last_error')::jsonb,
+    updated_at = now()
+WHERE id = $1
+RETURNING *;
+
 -- name: MarkSplitTasksApproved :exec
 UPDATE multica_workflow_split_task
 SET status = 'approved',

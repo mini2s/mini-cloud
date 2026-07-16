@@ -111,14 +111,38 @@ func TestResolveSettledSplitStatusSkipsDependentsAndFailsBarrier(t *testing.T) {
 	}
 }
 
-func TestResolveSplitPipelineCompletesAfterMaterialization(t *testing.T) {
+func TestResolveSplitPipelineWaitsForInitialDispatch(t *testing.T) {
 	tasks := []splitTaskPlan{
 		{ID: "a", Status: SplitTaskStatusCreated},
 		{ID: "b", Status: SplitTaskStatusRunning},
 	}
 	got := resolveSplitStatus(SplitModePipeline, 0, tasks)
+	if got != NodeRunStatusSplitActive {
+		t.Fatalf("resolveSplitStatus pipeline = %s, want %s", got, NodeRunStatusSplitActive)
+	}
+}
+
+func TestResolveSplitPipelineCompletesAfterInitialDispatch(t *testing.T) {
+	tasks := []splitTaskPlan{
+		{ID: "a", Status: SplitTaskStatusRunning},
+		{ID: "b", Status: SplitTaskStatusDone},
+	}
+	got := resolveSplitStatus(SplitModePipeline, 0, tasks)
 	if got != NodeRunStatusCompleted {
 		t.Fatalf("resolveSplitStatus pipeline = %s, want %s", got, NodeRunStatusCompleted)
+	}
+}
+
+func TestResolveSplitPipelineHonorsFailureThreshold(t *testing.T) {
+	tasks := []splitTaskPlan{
+		{ID: "a", Status: SplitTaskStatusFailed},
+		{ID: "b", Status: SplitTaskStatusSkipped},
+	}
+	if got := resolveSplitStatus(SplitModePipeline, 0, tasks); got != NodeRunStatusFailed {
+		t.Fatalf("resolveSplitStatus pipeline threshold=0 = %s, want failed", got)
+	}
+	if got := resolveSplitStatus(SplitModePipeline, 1, tasks); got != NodeRunStatusCompleted {
+		t.Fatalf("resolveSplitStatus pipeline threshold=1 = %s, want completed", got)
 	}
 }
 
