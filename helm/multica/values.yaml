@@ -76,6 +76,13 @@ backend:
     deptSyncCacheTtl: "1m"
     deptLinkTimeout: "15s"
     deptLinkInterval: "5m"
+    # CSC plugin marketplace — optional. Override the marketplace the daemon
+    # registers against when installing a CSC agent's bound plugin; when empty
+    # the daemon falls back to its built-in github default (costrict-plugins).
+    # The plugin install path also needs BUILTIN_PLUGIN_API_BASE_URL set (e.g.
+    # via backend.extraEnv); it is intentionally not exposed here.
+    cscPluginMarketplaceName: ""
+    cscPluginMarketplaceRepo: ""
 
   persistence:
     enabled: false
