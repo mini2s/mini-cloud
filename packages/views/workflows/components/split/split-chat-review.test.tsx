@@ -72,12 +72,15 @@ vi.mock("../../../issues/components/comment-input", () => ({
   CommentInput: ({
     onSubmit,
     disabled,
+    variant,
   }: {
     onSubmit: (content: string, attachmentIds?: string[]) => Promise<void>;
     disabled?: boolean;
+    variant?: string;
   }) => (
     <button
       type="button"
+      data-variant={variant}
       disabled={disabled}
       onClick={() => void onSubmit("Delete child issue 3", ["att-1"])}
     >
@@ -148,6 +151,15 @@ describe("SplitChatReview", () => {
     expect(onSubmit).toHaveBeenCalledWith("Delete child issue 3", ["att-1"]);
   });
 
+  it("uses the compact split composer without changing the default issue composer", () => {
+    render(<SplitChatReview issueId="issue-1" chatSessionId="chat-1" onSubmit={vi.fn()} />);
+
+    expect(screen.getByRole("button", { name: "Submit comment input" })).toHaveAttribute(
+      "data-variant",
+      "split-review",
+    );
+  });
+
   it("shows the live transcript while a split chat task is pending", () => {
     mocks.pendingTask = {
       task_id: "123e4567-e89b-12d3-a456-426614174000",
@@ -160,5 +172,22 @@ describe("SplitChatReview", () => {
     expect(transcript).toHaveAttribute("data-task-id", "123e4567-e89b-12d3-a456-426614174000");
     expect(transcript).toHaveAttribute("data-live", "true");
     expect(transcript).toHaveAttribute("data-default-open", "true");
+  });
+
+  it("disables the comment input while a split chat task is pending", () => {
+    mocks.pendingTask = {
+      task_id: "123e4567-e89b-12d3-a456-426614174000",
+      status: "running",
+    };
+
+    render(<SplitChatReview issueId="issue-1" chatSessionId="chat-1" disabled onSubmit={vi.fn()} />);
+
+    expect(screen.getByRole("button", { name: "Submit comment input" })).toBeDisabled();
+  });
+
+  it("reserves bottom-right space for the global chat launcher", () => {
+    const { container } = render(<SplitChatReview issueId="issue-1" chatSessionId="chat-1" onSubmit={vi.fn()} />);
+
+    expect(container.firstElementChild).toHaveClass("pb-20", "pr-14");
   });
 });

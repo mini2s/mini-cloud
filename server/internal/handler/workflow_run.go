@@ -49,44 +49,45 @@ type WorkflowRunResponse struct {
 }
 
 type WorkflowNodeRunResponse struct {
-	ID                string          `json:"id"`
-	WorkflowRunID     string          `json:"workflow_run_id"`
-	WorkflowNodeID    string          `json:"workflow_node_id"`
-	NodeTitle         string          `json:"node_title"`
-	Status            string          `json:"status"`
-	RetryCount        int32           `json:"retry_count"`
-	WorkerType        string          `json:"worker_type"`
-	WorkerID          *string         `json:"worker_id"`
-	WorkerOutput      json.RawMessage `json:"worker_output"`
-	WorkerAgentTaskID *string         `json:"worker_agent_task_id"`
-	CriticType        string          `json:"critic_type"`
-	CriticID          *string         `json:"critic_id"`
-	CriticOutput      json.RawMessage `json:"critic_output"`
-	CriticComment     string          `json:"critic_comment"`
-	CriticAgentTaskID *string         `json:"critic_agent_task_id"`
-	AgentTaskID       *string         `json:"agent_task_id"`
-	RuntimeID         *string         `json:"runtime_id"`
-	DeviceID          *string         `json:"device_id"`
-	SessionID         *string         `json:"session_id"`
-	StartedAt         *string         `json:"started_at"`
-	CompletedAt       *string         `json:"completed_at"`
-	CreatedAt         string          `json:"created_at"`
-	UpdatedAt         string          `json:"updated_at"`
+	ID                       string          `json:"id"`
+	WorkflowRunID            string          `json:"workflow_run_id"`
+	WorkflowNodeID           string          `json:"workflow_node_id"`
+	NodeTitle                string          `json:"node_title"`
+	Status                   string          `json:"status"`
+	RetryCount               int32           `json:"retry_count"`
+	WorkerType               string          `json:"worker_type"`
+	WorkerID                 *string         `json:"worker_id"`
+	WorkerOutput             json.RawMessage `json:"worker_output"`
+	WorkerAgentTaskID        *string         `json:"worker_agent_task_id"`
+	CriticType               string          `json:"critic_type"`
+	CriticID                 *string         `json:"critic_id"`
+	CriticOutput             json.RawMessage `json:"critic_output"`
+	CriticComment            string          `json:"critic_comment"`
+	CriticAgentTaskID        *string         `json:"critic_agent_task_id"`
+	AgentTaskID              *string         `json:"agent_task_id"`
+	RuntimeID                *string         `json:"runtime_id"`
+	DeviceID                 *string         `json:"device_id"`
+	SessionID                *string         `json:"session_id"`
+	SplitReviewChatSessionID *string         `json:"split_review_chat_session_id"`
+	StartedAt                *string         `json:"started_at"`
+	CompletedAt              *string         `json:"completed_at"`
+	CreatedAt                string          `json:"created_at"`
+	UpdatedAt                string          `json:"updated_at"`
 }
 
 type WorkflowNodeRuntimeSummaryResponse struct {
-	WorkflowNodeID                string                 `json:"workflow_node_id"`
-	NodeRunID                     string                 `json:"node_run_id"`
-	DisplayStatus                 string                 `json:"display_status"`
-	ActiveActorType               string                 `json:"active_actor_type"`
-	ActiveActorID                 *string                `json:"active_actor_id"`
-	DurationSeconds               *int64                 `json:"duration_seconds"`
-	SessionID                     *string                `json:"session_id"`
-	RuntimeID                     *string                `json:"runtime_id"`
-	DeviceID                      *string                `json:"device_id"`
-	HasError                      bool                   `json:"has_error"`
-	ErrorMessage                  string                 `json:"error_message"`
-	SplitProgress                 *SplitProgressResponse `json:"split_progress,omitempty"`
+	WorkflowNodeID  string                 `json:"workflow_node_id"`
+	NodeRunID       string                 `json:"node_run_id"`
+	DisplayStatus   string                 `json:"display_status"`
+	ActiveActorType string                 `json:"active_actor_type"`
+	ActiveActorID   *string                `json:"active_actor_id"`
+	DurationSeconds *int64                 `json:"duration_seconds"`
+	SessionID       *string                `json:"session_id"`
+	RuntimeID       *string                `json:"runtime_id"`
+	DeviceID        *string                `json:"device_id"`
+	HasError        bool                   `json:"has_error"`
+	ErrorMessage    string                 `json:"error_message"`
+	SplitProgress   *SplitProgressResponse `json:"split_progress,omitempty"`
 }
 
 // ── Converters ───────────────────────────────────────────────────────────────
@@ -110,34 +111,34 @@ func workflowRunToResponse(r db.MulticaWorkflowRun) WorkflowRunResponse {
 
 func workflowNodeRunToResponse(nr db.MulticaWorkflowNodeRun) WorkflowNodeRunResponse {
 	return WorkflowNodeRunResponse{
-		ID:                uuidToString(nr.ID),
-		WorkflowRunID:     uuidToString(nr.WorkflowRunID),
-		WorkflowNodeID:    uuidToString(nr.WorkflowNodeID),
-		NodeTitle:         nr.NodeTitle,
-		Status:            nr.Status,
-		RetryCount:        nr.RetryCount,
-		WorkerType:        nr.WorkerType,
-		WorkerID:          uuidToPtr(nr.WorkerID),
-		WorkerOutput:      json.RawMessage(nr.WorkerOutput),
-		WorkerAgentTaskID: uuidToPtr(nr.WorkerAgentTaskID),
-		CriticType:        nr.CriticType,
-		CriticID:          uuidToPtr(nr.CriticID),
-		CriticOutput:      json.RawMessage(nr.CriticOutput),
-		CriticComment:     nr.CriticComment.String,
-		CriticAgentTaskID: uuidToPtr(nr.CriticAgentTaskID),
-		AgentTaskID:       uuidToPtr(nr.AgentTaskID),
-		RuntimeID:         uuidToPtr(nr.RuntimeID),
-		DeviceID:          textToPtr(nr.DeviceID),
-		SessionID:         textToPtr(nr.SessionID),
-		StartedAt:         timestampToPtr(nr.StartedAt),
-		CompletedAt:       timestampToPtr(nr.CompletedAt),
-		CreatedAt:         timestampToString(nr.CreatedAt),
-		UpdatedAt:         timestampToString(nr.UpdatedAt),
+		ID:                       uuidToString(nr.ID),
+		WorkflowRunID:            uuidToString(nr.WorkflowRunID),
+		WorkflowNodeID:           uuidToString(nr.WorkflowNodeID),
+		NodeTitle:                nr.NodeTitle,
+		Status:                   nr.Status,
+		RetryCount:               nr.RetryCount,
+		WorkerType:               nr.WorkerType,
+		WorkerID:                 uuidToPtr(nr.WorkerID),
+		WorkerOutput:             json.RawMessage(nr.WorkerOutput),
+		WorkerAgentTaskID:        uuidToPtr(nr.WorkerAgentTaskID),
+		CriticType:               nr.CriticType,
+		CriticID:                 uuidToPtr(nr.CriticID),
+		CriticOutput:             json.RawMessage(nr.CriticOutput),
+		CriticComment:            nr.CriticComment.String,
+		CriticAgentTaskID:        uuidToPtr(nr.CriticAgentTaskID),
+		AgentTaskID:              uuidToPtr(nr.AgentTaskID),
+		RuntimeID:                uuidToPtr(nr.RuntimeID),
+		DeviceID:                 textToPtr(nr.DeviceID),
+		SessionID:                textToPtr(nr.SessionID),
+		SplitReviewChatSessionID: uuidToPtr(nr.SplitReviewChatSessionID),
+		StartedAt:                timestampToPtr(nr.StartedAt),
+		CompletedAt:              timestampToPtr(nr.CompletedAt),
+		CreatedAt:                timestampToString(nr.CreatedAt),
+		UpdatedAt:                timestampToString(nr.UpdatedAt),
 	}
 }
 
 // ── Run handlers ─────────────────────────────────────────────────────────────
-
 
 func workflowDisplayStatus(status string) string {
 	switch status {
@@ -199,7 +200,6 @@ func extractNodeRunError(nr db.MulticaWorkflowNodeRun) (bool, string) {
 	}
 	return true, ""
 }
-
 
 func (h *Handler) workflowRunSplitProgressSummaries(ctx context.Context, runID pgtype.UUID) (map[string]SplitProgressResponse, error) {
 	rows, err := h.DB.Query(ctx, `
@@ -405,18 +405,18 @@ func (h *Handler) GetWorkflowRunCanvasSummary(w http.ResponseWriter, r *http.Req
 		}
 
 		runtimeSummaries = append(runtimeSummaries, WorkflowNodeRuntimeSummaryResponse{
-			WorkflowNodeID:                uuidToString(nr.WorkflowNodeID),
-			NodeRunID:                     uuidToString(nr.ID),
-			DisplayStatus:                 workflowDisplayStatus(nr.Status),
-			ActiveActorType:               actorType,
-			ActiveActorID:                 actorID,
-			DurationSeconds:               nodeRunDurationSeconds(nr),
-			SessionID:                     textToPtr(nr.SessionID),
-			RuntimeID:                     uuidToPtr(nr.RuntimeID),
-			DeviceID:                      textToPtr(nr.DeviceID),
-			HasError:                      hasError,
-			ErrorMessage:                  errorMessage,
-			SplitProgress:                 splitProgress,
+			WorkflowNodeID:  uuidToString(nr.WorkflowNodeID),
+			NodeRunID:       uuidToString(nr.ID),
+			DisplayStatus:   workflowDisplayStatus(nr.Status),
+			ActiveActorType: actorType,
+			ActiveActorID:   actorID,
+			DurationSeconds: nodeRunDurationSeconds(nr),
+			SessionID:       textToPtr(nr.SessionID),
+			RuntimeID:       uuidToPtr(nr.RuntimeID),
+			DeviceID:        textToPtr(nr.DeviceID),
+			HasError:        hasError,
+			ErrorMessage:    errorMessage,
+			SplitProgress:   splitProgress,
 		})
 	}
 
@@ -857,4 +857,3 @@ func (h *Handler) ListWorkflowNodeRuns(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"node_runs": resp})
 }
-

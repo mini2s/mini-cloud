@@ -434,7 +434,7 @@ export function SplitReviewPanel({
           <SplitChatReview
             issueId={parentIssueId}
             chatSessionId={chatSessionId}
-            disabled={chatMutation.isPending}
+            disabled={isSplitChatRunning}
             onSubmit={handleChatSubmit}
           />
         </NodeDetailSection>

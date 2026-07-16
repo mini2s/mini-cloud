@@ -555,6 +555,7 @@ describe("SplitReviewPanel", () => {
     });
 
     expect(mocks.lastSplitTasksQuery?.refetchInterval).toBe(2000);
+    expect(screen.getByRole("button", { name: "Submit split chat" })).toBeDisabled();
   });
 
   it("refetches draft tasks once when split review chat finishes", async () => {
