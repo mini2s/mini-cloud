@@ -1251,6 +1251,66 @@ func TestApproveSplitTasksBarrierStartsOnlyReadyTasks(t *testing.T) {
 	}
 }
 
+func TestScheduleReadyTasksSkipsDependentsAfterStartFailure(t *testing.T) {
+	f := createSplitApproveFixture(t, "barrier")
+
+	w := httptest.NewRecorder()
+	req := newRequest("POST", "/api/node-runs/"+f.splitNodeRunID+"/split/approve", map[string]any{
+		"approved_task_ids": []string{f.taskAID, f.taskBID},
+		"modifications":     []any{},
+	})
+	req = withURLParam(req, "nodeRunId", f.splitNodeRunID)
+
+	testHandler.ApproveSplitTasks(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("ApproveSplitTasks: expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	ctx := context.Background()
+	if _, err := testPool.Exec(ctx, `
+		UPDATE multica_workflow_split_task
+		SET status = 'created', run_id = NULL
+		WHERE id = $1
+	`, f.taskAID); err != nil {
+		t.Fatalf("reset task A for failed scheduling: %v", err)
+	}
+	if _, err := testPool.Exec(ctx, `
+		UPDATE multica_workflow
+		SET status = 'paused'
+		WHERE id = $1
+	`, f.childWorkflow); err != nil {
+		t.Fatalf("pause child workflow: %v", err)
+	}
+
+	if err := testHandler.SplitOrchestrator.ScheduleReadyTasks(ctx, parseUUID(f.splitNodeRunID)); err != nil {
+		t.Fatalf("ScheduleReadyTasks: %v", err)
+	}
+
+	taskA, err := testHandler.Queries.GetSplitTask(ctx, parseUUID(f.taskAID))
+	if err != nil {
+		t.Fatalf("load split task A: %v", err)
+	}
+	if taskA.Status != service.SplitTaskStatusFailed {
+		t.Fatalf("task A status = %s, want failed", taskA.Status)
+	}
+
+	taskB, err := testHandler.Queries.GetSplitTask(ctx, parseUUID(f.taskBID))
+	if err != nil {
+		t.Fatalf("load split task B: %v", err)
+	}
+	if taskB.Status != service.SplitTaskStatusSkipped {
+		t.Fatalf("task B status = %s, want skipped", taskB.Status)
+	}
+
+	nodeRun, err := testHandler.Queries.GetWorkflowNodeRun(ctx, parseUUID(f.splitNodeRunID))
+	if err != nil {
+		t.Fatalf("load split node run: %v", err)
+	}
+	if nodeRun.Status != service.NodeRunStatusFailed {
+		t.Fatalf("split node run status = %s, want failed", nodeRun.Status)
+	}
+}
+
 func TestApproveSplitTasksRejectsNonEmptyModifications(t *testing.T) {
 	f := createSplitApproveFixture(t, "barrier")
 

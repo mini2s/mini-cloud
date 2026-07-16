@@ -342,6 +342,11 @@ func resolveSplitStatus(mode string, maxFailures int, tasks []splitTaskPlan) str
 	}
 }
 
+func resolveSettledSplitStatus(mode string, maxFailures int, tasks []splitTaskPlan) ([]splitTaskPlan, string) {
+	settled := markBlockedSplitTasksSkipped(tasks)
+	return settled, resolveSplitStatus(mode, maxFailures, settled)
+}
+
 func sortSplitTaskIDs(ids []string, byID map[string]splitTaskPlan) {
 	sort.SliceStable(ids, func(i, j int) bool {
 		left := byID[ids[i]]
@@ -419,6 +424,15 @@ func splitTaskMap(tasks []db.MulticaWorkflowSplitTask) map[string]db.MulticaWork
 func isTerminalSplitTaskStatus(status string) bool {
 	switch status {
 	case SplitTaskStatusDone, SplitTaskStatusFailed, SplitTaskStatusCancelled, SplitTaskStatusSkipped, SplitTaskStatusDiscarded:
+		return true
+	default:
+		return false
+	}
+}
+
+func isTerminalWorkflowRunStatus(status string) bool {
+	switch status {
+	case RunStatusCompleted, RunStatusFailed, RunStatusCancelled:
 		return true
 	default:
 		return false
@@ -1581,7 +1595,7 @@ func (s *SplitOrchestrator) CancelSplitNode(
 			if err != nil {
 				return nil, fmt.Errorf("get child run: %w", err)
 			}
-			if run.Status == RunStatusRunning {
+			if !isTerminalWorkflowRunStatus(run.Status) {
 				if err := s.WfService.CancelRun(ctx, task.RunID); err != nil {
 					return nil, fmt.Errorf("cancel child run: %w", err)
 				}
@@ -1686,6 +1700,7 @@ func (s *SplitOrchestrator) ScheduleReadyTasks(ctx context.Context, nodeRunID pg
 		return err
 	}
 
+	startFailed := false
 	for _, task := range claimed {
 		if err := s.startChildTaskRun(ctx, splitNodeRun, cfg, task); err != nil {
 			slog.Warn("split: failed to start child run", "split_task_id", util.UUIDToString(task.ID), "error", err)
@@ -1695,7 +1710,14 @@ func (s *SplitOrchestrator) ScheduleReadyTasks(ctx context.Context, nodeRunID pg
 			}); updateErr != nil {
 				return fmt.Errorf("start child run failed (%v) and marking failed also failed: %w", err, updateErr)
 			}
+			startFailed = true
 		}
+	}
+	if startFailed {
+		if err := s.markBlockedDependents(ctx, nodeRunID); err != nil {
+			return err
+		}
+		return s.reconcileParentNode(ctx, nodeRunID)
 	}
 	return nil
 }
@@ -1943,7 +1965,7 @@ func (s *SplitOrchestrator) reconcileParentNode(ctx context.Context, nodeRunID p
 	if err != nil {
 		return err
 	}
-	nextStatus := resolveSplitStatus(cfg.Mode, int(cfg.MaxFailures), plans)
+	_, nextStatus := resolveSettledSplitStatus(cfg.Mode, int(cfg.MaxFailures), plans)
 	if nextStatus == nodeRun.Status {
 		return nil
 	}

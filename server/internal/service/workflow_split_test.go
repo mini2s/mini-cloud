@@ -91,6 +91,26 @@ func TestMarkSkippedSplitTasksAfterFailedDependency(t *testing.T) {
 	}
 }
 
+func TestResolveSettledSplitStatusSkipsDependentsAndFailsBarrier(t *testing.T) {
+	tasks := []splitTaskPlan{
+		{ID: "a", Status: SplitTaskStatusFailed},
+		{ID: "b", Status: SplitTaskStatusCreated, DependsOn: []string{"a"}},
+	}
+
+	settled, status := resolveSettledSplitStatus(SplitModeBarrier, 0, tasks)
+
+	statuses := map[string]string{}
+	for _, task := range settled {
+		statuses[task.ID] = task.Status
+	}
+	if statuses["b"] != SplitTaskStatusSkipped {
+		t.Fatalf("dependent task status = %s, want skipped", statuses["b"])
+	}
+	if status != NodeRunStatusFailed {
+		t.Fatalf("resolved node status = %s, want failed", status)
+	}
+}
+
 func TestResolveSplitPipelineCompletesAfterMaterialization(t *testing.T) {
 	tasks := []splitTaskPlan{
 		{ID: "a", Status: SplitTaskStatusCreated},
@@ -137,6 +157,21 @@ func TestCanRegenerateSplitNodeStatusAllowsFailedRecovery(t *testing.T) {
 		if canRegenerateSplitNodeStatus(status) {
 			t.Fatalf("canRegenerateSplitNodeStatus(%q) = true, want false", status)
 		}
+	}
+}
+
+func TestTerminalWorkflowRunStatus(t *testing.T) {
+	terminal := []string{RunStatusCompleted, RunStatusFailed, RunStatusCancelled}
+	for _, status := range terminal {
+		if !isTerminalWorkflowRunStatus(status) {
+			t.Fatalf("isTerminalWorkflowRunStatus(%q) = false, want true", status)
+		}
+	}
+	if isTerminalWorkflowRunStatus(RunStatusRunning) {
+		t.Fatalf("isTerminalWorkflowRunStatus(%q) = true, want false", RunStatusRunning)
+	}
+	if isTerminalWorkflowRunStatus("pending") {
+		t.Fatal(`isTerminalWorkflowRunStatus("pending") = true, want false`)
 	}
 }
 
