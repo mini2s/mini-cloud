@@ -19,6 +19,7 @@ import {
   workflowNodeRunsOptions,
   workflowRunCanvasSummaryOptions,
   splitTasksOptions,
+  splitIssueWorkflowOptions,
   workflowKeys,
 } from "@multica/core/workflows/queries";
 import { useWorkspacePaths } from "@multica/core/paths";
@@ -34,6 +35,7 @@ import type {
   MemberWithUser,
   Squad,
   SplitTask,
+  Workflow,
   WorkflowRuntimeDisplayStatus,
   WorkerType,
 } from "@multica/core/types";
@@ -50,13 +52,25 @@ import {
 } from "../../../workflows/components/overview/constants";
 import { ExecutionDetailPanel } from "./execution-detail-panel";
 import { GlobalNotificationBar } from "./global-notification-bar";
-import { runtimeCanvasNodeTypes } from "./runtime-canvas-node";
+import {
+  RUNTIME_SPLIT_SUBFLOW_CARD_WIDTH,
+  RUNTIME_SPLIT_SUBFLOW_COLUMN_GAP,
+  RUNTIME_SPLIT_SUBFLOW_HEADER_HEIGHT,
+  RUNTIME_SPLIT_SUBFLOW_MIN_HEIGHT,
+  RUNTIME_SPLIT_SUBFLOW_MIN_WIDTH,
+  RUNTIME_SPLIT_SUBFLOW_ROW_GAP,
+  RUNTIME_SPLIT_SUBFLOW_CARD_HEIGHT,
+  RUNTIME_SPLIT_SUBFLOW_X_PADDING,
+  runtimeCanvasNodeTypes,
+  type RuntimeSplitSubflowChildIssue,
+} from "./runtime-canvas-node";
 import { RUNTIME_NODE_HEIGHT } from "./runtime-node-card";
 import { Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@multica/ui/lib/utils";
 import { SplitReviewPanel } from "../../../workflows/components/split/split-review-panel";
 import { useNavigation } from "../../../navigation";
+import { useT } from "@multica/views/i18n";
 
 export interface ExecutionPanoramaPageProps {
   workflowId: string;
@@ -73,8 +87,8 @@ const RUNTIME_CANVAS_FIT_VIEW = {
 
 const SPLIT_CHILD_X_GAP = 144;
 const SPLIT_CHILD_SAFE_X_GAP = 96;
-const SPLIT_CHILD_Y_GAP = 32;
 const SPLIT_CHILD_NODE_ID_PART = ":split-task:";
+const SPLIT_SUBFLOW_NODE_ID_PART = ":split-subflow";
 
 interface SplitChildClusterLayout {
   splitNode: WorkflowNode;
@@ -116,12 +130,62 @@ function splitTaskDisplayStatus(status: SplitTask["status"]): WorkflowRuntimeDis
   }
 }
 
+type IssueTranslator = ReturnType<typeof useT<"issues">>["t"];
+
+function runtimeDisplayStatusText(t: IssueTranslator, status: WorkflowRuntimeDisplayStatus): string {
+  switch (status) {
+    case "pending":
+      return t(($) => $.execution.display_status.pending);
+    case "todo":
+      return t(($) => $.execution.display_status.todo);
+    case "in_progress":
+      return t(($) => $.execution.display_status.in_progress);
+    case "reviewing":
+      return t(($) => $.execution.display_status.reviewing);
+    case "completed":
+      return t(($) => $.execution.display_status.completed);
+    case "blocked":
+      return t(($) => $.execution.display_status.blocked);
+    case "cancelled":
+      return t(($) => $.execution.display_status.cancelled);
+  }
+}
+
 function splitTaskWorkerType(task: SplitTask): WorkerType {
   return task.workflow_id ? "agent" : "human";
 }
 
 function createSplitChildNodeId(parentNodeId: string, taskId: string): string {
   return `${parentNodeId}:split-task:${taskId}`;
+}
+
+function createSplitSubflowNodeId(parentNodeId: string): string {
+  return `${parentNodeId}${SPLIT_SUBFLOW_NODE_ID_PART}`;
+}
+
+function isSplitExpansionNodeId(nodeId: string): boolean {
+  return nodeId.includes(SPLIT_CHILD_NODE_ID_PART) || nodeId.endsWith(SPLIT_SUBFLOW_NODE_ID_PART);
+}
+
+function splitSubflowHeight(levelGroups: Map<number, SplitTask[]>): number {
+  const maxRows = Math.max(1, ...Array.from(levelGroups.values()).map((group) => group.length));
+  return Math.max(
+    RUNTIME_SPLIT_SUBFLOW_MIN_HEIGHT,
+    RUNTIME_SPLIT_SUBFLOW_HEADER_HEIGHT +
+      maxRows * RUNTIME_SPLIT_SUBFLOW_CARD_HEIGHT +
+      (maxRows - 1) * RUNTIME_SPLIT_SUBFLOW_ROW_GAP +
+      RUNTIME_SPLIT_SUBFLOW_X_PADDING * 2,
+  );
+}
+
+function splitSubflowWidth(levelGroups: Map<number, SplitTask[]>): number {
+  const levelCount = Math.max(1, levelGroups.size);
+  return Math.max(
+    RUNTIME_SPLIT_SUBFLOW_MIN_WIDTH,
+    RUNTIME_SPLIT_SUBFLOW_X_PADDING * 2 +
+      levelCount * RUNTIME_SPLIT_SUBFLOW_CARD_WIDTH +
+      (levelCount - 1) * RUNTIME_SPLIT_SUBFLOW_COLUMN_GAP,
+  );
 }
 
 function runtimeToneForEdge(
@@ -200,15 +264,11 @@ export function decorateRuntimeEdges({
   });
 }
 
-function splitTaskEdgeTone(status: SplitTask["status"]): "running" | "blocked" | "waiting" {
-  const displayStatus = splitTaskDisplayStatus(status);
-  if (displayStatus === "blocked") return "blocked";
-  if (displayStatus === "pending" || displayStatus === "todo") return "waiting";
-  return "running";
-}
-
-function splitTaskEdgeMarkerColor(status: SplitTask["status"]): string {
-  return runtimeEdgeMarkerColor(splitTaskEdgeTone(status));
+function splitSubflowEdgeTone(tasks: SplitTask[]): "success" | "running" | "blocked" | "waiting" {
+  if (tasks.some((task) => splitTaskDisplayStatus(task.status) === "blocked")) return "blocked";
+  if (tasks.some((task) => splitTaskDisplayStatus(task.status) === "in_progress")) return "running";
+  if (tasks.length > 0 && tasks.every((task) => splitTaskDisplayStatus(task.status) === "completed")) return "success";
+  return "waiting";
 }
 
 function splitTaskLevel(
@@ -277,7 +337,7 @@ function ExecutionPanoramaCanvas({
   const baseNodeIdsSignature = useMemo(
     () =>
       rfNodes
-        .filter((node) => !node.id.includes(SPLIT_CHILD_NODE_ID_PART))
+        .filter((node) => !isSplitExpansionNodeId(node.id))
         .map((node) => node.id)
         .join("|"),
     [rfNodes],
@@ -297,7 +357,7 @@ function ExecutionPanoramaCanvas({
       fittedBaseNodeIdsRef.current = baseNodeIdsSignature;
       void fitView({
         nodes: rfNodes
-          .filter((node) => !node.id.includes(SPLIT_CHILD_NODE_ID_PART))
+          .filter((node) => !isSplitExpansionNodeId(node.id))
           .map((node) => ({ id: node.id })),
         ...RUNTIME_CANVAS_FIT_VIEW,
         duration: 0,
@@ -311,7 +371,10 @@ function ExecutionPanoramaCanvas({
     if (!focusSplitNodeId || !viewportInitialized || !nodesInitialized) return;
 
     const clusterNodes = rfNodes.filter(
-      (node) => node.id === focusSplitNodeId || node.id.startsWith(`${focusSplitNodeId}${SPLIT_CHILD_NODE_ID_PART}`),
+      (node) =>
+        node.id === focusSplitNodeId ||
+        node.id.startsWith(`${focusSplitNodeId}${SPLIT_CHILD_NODE_ID_PART}`) ||
+        node.id === createSplitSubflowNodeId(focusSplitNodeId),
     );
     if (clusterNodes.length <= 1) return;
 
@@ -424,6 +487,7 @@ export function ExecutionPanoramaPage({
   const queryClient = useQueryClient();
   const paths = useWorkspacePaths();
   const navigation = useNavigation();
+  const { t } = useT("issues");
   // ---- Data queries ----
   const { isLoading: wfLoading } = useQuery(
     workflowDetailOptions(wsId, workflowId),
@@ -446,6 +510,7 @@ export function ExecutionPanoramaPage({
   const { data: agents } = useQuery(agentListOptions(wsId));
   const { data: members } = useQuery(memberListOptions(wsId));
   const { data: squads } = useQuery(squadListOptions(wsId));
+  const { data: splitWorkflowOptions = [] } = useQuery(splitIssueWorkflowOptions(wsId, workflowId));
 
   // ---- Local state ----
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
@@ -542,6 +607,14 @@ export function ExecutionPanoramaPage({
     }
     return map;
   }, [squads]);
+
+  const splitWorkflowLookup = useMemo(() => {
+    const map = new Map<string, Workflow>();
+    for (const workflow of splitWorkflowOptions) {
+      map.set(workflow.id, workflow);
+    }
+    return map;
+  }, [splitWorkflowOptions]);
 
   const getActorName = useCallback((type: string, id: string): string | null => {
     if (type === "agent") {
@@ -647,8 +720,8 @@ export function ExecutionPanoramaPage({
     includeCriticEdges: false,
   });
   const splitChildDetailByNodeId = new Map<string, SplitChildIssueDetail>();
-  const splitChildNodes: Node[] = [];
-  const splitChildEdges: Edge[] = [];
+  const splitSubflowNodes: Node[] = [];
+  const splitSubflowEdges: Edge[] = [];
   const baseRfNodeById = new Map(baseRfNodesRaw.map((node) => [node.id, node]));
   const splitChildClusterLayouts: SplitChildClusterLayout[] = [];
 
@@ -693,31 +766,14 @@ export function ExecutionPanoramaPage({
     const parentX = parentRfNode.position.x + (nodeShiftById.get(parentRfNode.id) ?? 0);
     const parentY = parentRfNode.position.y;
     const childClusterStartX = parentX + WORKER_WIDTH + SPLIT_CHILD_X_GAP;
-    const bounds = Array.from(layout.levelGroups.entries()).reduce<SplitChildClusterBounds | null>(
-      (current, [level, group]) => {
-        const sortedGroup = [...group].sort((a, b) => a.sort_order - b.sort_order);
-        return sortedGroup.reduce<SplitChildClusterBounds | null>((groupBounds, _task, index) => {
-          const x = childClusterStartX + level * (WORKER_WIDTH + SPLIT_CHILD_X_GAP);
-          const yOffset = (index - (sortedGroup.length - 1) / 2) * (RUNTIME_NODE_HEIGHT + SPLIT_CHILD_Y_GAP);
-          const y = parentY + yOffset;
-          const nodeBounds = {
-            left: x,
-            right: x + WORKER_WIDTH,
-            top: y,
-            bottom: y + RUNTIME_NODE_HEIGHT,
-          };
-          if (!groupBounds) return nodeBounds;
-          return {
-            left: Math.min(groupBounds.left, nodeBounds.left),
-            right: Math.max(groupBounds.right, nodeBounds.right),
-            top: Math.min(groupBounds.top, nodeBounds.top),
-            bottom: Math.max(groupBounds.bottom, nodeBounds.bottom),
-          };
-        }, current);
-      },
-      null,
-    );
-    if (!bounds) continue;
+    const subflowHeight = splitSubflowHeight(layout.levelGroups);
+    const subflowWidth = splitSubflowWidth(layout.levelGroups);
+    const bounds = {
+      left: childClusterStartX,
+      right: childClusterStartX + subflowWidth,
+      top: parentY - (subflowHeight - RUNTIME_NODE_HEIGHT) / 2,
+      bottom: parentY - (subflowHeight - RUNTIME_NODE_HEIGHT) / 2 + subflowHeight,
+    };
 
     clusterBoundsBySplitNodeId.set(layout.splitNode.id, bounds);
 
@@ -762,13 +818,17 @@ export function ExecutionPanoramaPage({
         .flat()
         .map((task) => [task.id, task]),
     );
+    const sortedLevels = Array.from(layout.levelGroups.keys()).sort((a, b) => a - b);
+    const childIssues: RuntimeSplitSubflowChildIssue[] = [];
+    const dependencyEdges: Array<{ sourceNodeId: string; targetNodeId: string }> = [];
 
-    for (const [level, group] of layout.levelGroups) {
+    for (const level of sortedLevels) {
+      const group = layout.levelGroups.get(level) ?? [];
       group.sort((a, b) => a.sort_order - b.sort_order);
       group.forEach((task, index) => {
         const childNodeId = createSplitChildNodeId(splitNode.id, task.id);
         const issueId = task.issue_id!;
-        const yOffset = (index - (group.length - 1) / 2) * (RUNTIME_NODE_HEIGHT + SPLIT_CHILD_Y_GAP);
+        const displayStatus = splitTaskDisplayStatus(task.status);
         const childWorkflowNode = {
           id: childNodeId,
           workflow_id: splitNode.workflow_id,
@@ -790,7 +850,7 @@ export function ExecutionPanoramaPage({
         const childRuntimeSummary = {
           workflow_node_id: childNodeId,
           node_run_id: task.run_id ?? task.id,
-          display_status: splitTaskDisplayStatus(task.status),
+          display_status: displayStatus,
           active_actor_type: "workflow",
           active_actor_id: task.workflow_id,
           duration_seconds: null,
@@ -802,7 +862,7 @@ export function ExecutionPanoramaPage({
           split_progress: null,
         } satisfies WorkflowNodeRuntimeSummary;
         const childWorkerName = task.workflow_id
-          ? getActorName("agent", task.workflow_id)
+          ? splitWorkflowLookup.get(task.workflow_id)?.title ?? task.workflow_id
           : null;
 
         splitChildDetailByNodeId.set(childNodeId, {
@@ -811,85 +871,84 @@ export function ExecutionPanoramaPage({
           runtimeSummary: childRuntimeSummary,
           workerName: childWorkerName,
         });
-        splitChildNodes.push({
-          id: childNodeId,
-          type: "runtimeNode",
-          position: {
-            x: childClusterStartX + level * (WORKER_WIDTH + SPLIT_CHILD_X_GAP),
-            y: parentRfNode.position.y + yOffset,
-          },
-          width: WORKER_WIDTH,
-          height: RUNTIME_NODE_HEIGHT,
-          data: {
-            node: childWorkflowNode,
-            nodeRun: null,
-            runtimeSummary: childRuntimeSummary,
-            workerName: childWorkerName,
-            criticName: null,
-            onOpen: setSelectedNodeId,
-          },
-        });
 
         const validDependencies = task.depends_on.filter((depId) => taskMap.has(depId));
-        if (validDependencies.length === 0) {
-          splitChildEdges.push({
-            id: `${splitNode.id}:split-task-edge:${task.id}`,
-            source: splitNode.id,
-            target: childNodeId,
-            sourceHandle: "right",
-            targetHandle: "left",
-            type: "panorama",
-            interactionWidth: 24,
-            markerEnd: {
-              type: MarkerType.ArrowClosed,
-              color: splitTaskEdgeMarkerColor(task.status),
-              strokeWidth: 1.5,
-            },
-            data: {
-              edgeKind: "data",
-              edgeTone: splitTaskEdgeTone(task.status),
-              edgeLabel: splitTaskDisplayStatus(task.status) === "blocked" ? "blocked" : undefined,
-              stageColorIndex: 0,
-              sameStage: false,
-            },
+        childIssues.push({
+          nodeId: childNodeId,
+          issueId,
+          title: task.title,
+          description: task.description,
+          displayStatus,
+          displayStatusLabel: runtimeDisplayStatusText(t, displayStatus),
+          workerName: childWorkerName,
+          level,
+          rowIndex: index,
+          dependencyNodeIds: validDependencies.map((depId) => createSplitChildNodeId(splitNode.id, depId)),
+          workflowNode: childWorkflowNode,
+          runtimeSummary: childRuntimeSummary,
+        });
+        for (const depId of validDependencies) {
+          dependencyEdges.push({
+            sourceNodeId: createSplitChildNodeId(splitNode.id, depId),
+            targetNodeId: childNodeId,
           });
-        } else {
-          for (const depId of validDependencies) {
-            splitChildEdges.push({
-              id: `${splitNode.id}:split-task-edge:${depId}:${task.id}`,
-              source: createSplitChildNodeId(splitNode.id, depId),
-              target: childNodeId,
-              sourceHandle: "right",
-              targetHandle: "left",
-              type: "panorama",
-              interactionWidth: 24,
-              markerEnd: {
-                type: MarkerType.ArrowClosed,
-                color: splitTaskEdgeMarkerColor(task.status),
-                strokeWidth: 1.5,
-              },
-              data: {
-                edgeKind: "condition",
-                edgeTone: splitTaskEdgeTone(task.status),
-                edgeLabel: splitTaskDisplayStatus(task.status) === "blocked" ? "blocked" : undefined,
-                stageColorIndex: 0,
-                sameStage: false,
-              },
-            });
-          }
         }
       });
     }
+
+    const allTasks = sortedLevels.flatMap((level) => layout.levelGroups.get(level) ?? []);
+    const edgeTone = splitSubflowEdgeTone(allTasks);
+    const subflowNodeId = createSplitSubflowNodeId(splitNode.id);
+    const subflowHeight = splitSubflowHeight(layout.levelGroups);
+    const subflowWidth = splitSubflowWidth(layout.levelGroups);
+    splitSubflowNodes.push({
+      id: subflowNodeId,
+      type: "runtimeSplitSubflow",
+      position: {
+        x: childClusterStartX,
+        y: parentRfNode.position.y - (subflowHeight - RUNTIME_NODE_HEIGHT) / 2,
+      },
+      width: subflowWidth,
+      height: subflowHeight,
+      data: {
+        splitNodeId: splitNode.id,
+        parentTitle: splitNode.title,
+        childIssues,
+        dependencyEdges,
+        onOpenChild: setSelectedNodeId,
+      },
+    });
+    splitSubflowEdges.push({
+      id: `${splitNode.id}:split-subflow-edge`,
+      source: splitNode.id,
+      target: subflowNodeId,
+      sourceHandle: "right",
+      targetHandle: "left",
+      type: "panorama",
+      interactionWidth: 24,
+      markerEnd: {
+        type: MarkerType.ArrowClosed,
+        color: runtimeEdgeMarkerColor(edgeTone),
+        strokeWidth: 1.5,
+      },
+      data: {
+        edgeKind: "data",
+        edgeTone,
+        edgeLabel: edgeLabelForSource(splitNode.id, nodeRunMap.get(splitNode.id), splitTasksByNodeId),
+        stageColorIndex: 0,
+        sameStage: false,
+      },
+    });
   }
 
-  const rfNodes = [...baseRfNodes, ...splitChildNodes];
+  const rfNodes = [...baseRfNodes, ...splitSubflowNodes];
   const rfEdges = [
     ...decorateRuntimeEdges({
       edges: baseRfEdges,
       nodeRunMap,
       splitTasksByNodeId,
     }),
-    ...splitChildEdges,
+    ...splitSubflowEdges,
   ];
   const selectedChildDetail = selectedNodeId
     ? splitChildDetailByNodeId.get(selectedNodeId) ?? null
@@ -985,12 +1044,19 @@ export function ExecutionPanoramaPage({
             runtimeSummary={selectedRuntimeSummary}
             onOpenIssue={
               selectedChildDetail
-                ? () => navigation.push(paths.issueDetail(selectedChildDetail.issueId))
+                ? () => {
+                    const childIssuePath = paths.issueDetail(selectedChildDetail.issueId);
+                    if (navigation.openInNewTab) {
+                      navigation.openInNewTab(childIssuePath, selectedNode?.title ?? undefined, { activate: true });
+                      return;
+                    }
+                    window.open(navigation.getShareableUrl(childIssuePath), "_blank", "noopener,noreferrer");
+                  }
                 : undefined
             }
             isChildIssue={Boolean(selectedChildDetail)}
             parentSplitTitle={selectedChildParentTitle}
-            childWorkflowName={null}
+            childWorkflowName={selectedChildDetail?.workerName ?? null}
             onRetry={
               issueId && selectedRun && selectedRetryTaskId && isRetryableSelectedRun && retryingNodeRunId !== selectedRun.id
                 ? () => void handleRetryNodeRun(selectedRun)

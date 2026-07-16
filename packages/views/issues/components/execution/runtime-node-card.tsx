@@ -117,6 +117,34 @@ function splitProgressSummaryParts(
 }
 
 /** Actionable status → button layout mapping. */
+function RuntimeStatusPill({
+  status,
+  gatewayKind,
+  label,
+  className,
+}: {
+  status: ReturnType<typeof toWorkflowRuntimeDisplayStatus>;
+  gatewayKind?: "fork" | "join" | null;
+  label: string;
+  className?: string;
+}) {
+  return (
+    <span
+      className={cn(
+        "inline-flex shrink-0 items-center gap-1 rounded-md bg-muted/35 px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground",
+        className,
+      )}
+    >
+      <RuntimeDisplayStatusIcon
+        status={status}
+        gatewayKind={gatewayKind}
+        className="h-3.5 w-3.5"
+      />
+      <span className="truncate">{label}</span>
+    </span>
+  );
+}
+
 const ACTIONABLE_STATUSES = new Set([
   "awaiting_critic",
   "awaiting_input",
@@ -372,7 +400,13 @@ export function RuntimeNodeCard({
           status={splitStatus}
           progress={splitProgress}
           taskCount={splitProgress?.total ?? 0}
-          childWorkflowName={displayStatusLabel}
+          headerAction={(
+            <RuntimeStatusPill
+              status={displayStatus}
+              label={displayStatusLabel}
+              className="max-w-[92px]"
+            />
+          )}
           progressAction={canToggleSplitChildren ? (
             <button
               type="button"
@@ -437,14 +471,11 @@ export function RuntimeNodeCard({
           ) : null}
           <span className="text-sm font-medium truncate">{node.title}</span>
         </div>
-        <span className="inline-flex shrink-0 items-center gap-1 rounded-md bg-muted/35 px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
-          <RuntimeDisplayStatusIcon
-            status={displayStatus}
-            gatewayKind={isGateway ? nodeFormat.gateway_kind : null}
-            className="h-3.5 w-3.5"
-          />
-          <span>{displayStatusLabel}</span>
-        </span>
+        <RuntimeStatusPill
+          status={displayStatus}
+          gatewayKind={isGateway ? nodeFormat.gateway_kind : null}
+          label={displayStatusLabel}
+        />
       </div>
 
       {isGateway ? (

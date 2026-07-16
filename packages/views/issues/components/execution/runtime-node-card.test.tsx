@@ -430,6 +430,8 @@ describe("RuntimeNodeCard", () => {
 
     expect(screen.getByText("Task split")).toBeInTheDocument();
     expect(screen.getByText("Reviewing")).toBeInTheDocument();
+    expect(screen.getByTestId("runtime-node-card-split-1")).toHaveTextContent("Reviewing");
+    expect(screen.getByLabelText("Reviewing")).toBeInTheDocument();
     expect(screen.getByText("Review 5 tasks")).toBeInTheDocument();
     expect(screen.queryByText("Worker")).not.toBeInTheDocument();
     expect(screen.queryByText("Critic")).not.toBeInTheDocument();
