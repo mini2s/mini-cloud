@@ -61,6 +61,7 @@ import { CommentInput } from "./comment-input";
 import { ResolvedThreadBar } from "./resolved-thread-bar";
 import { collectThreadReplies } from "./thread-utils";
 import { AgentLiveCard } from "./agent-live-card";
+import { Session, type SessionMode } from "../../common/session";
 import { ExecutionLogSection } from "./execution-log-section";
 import { PullRequestList } from "./pull-request-list";
 import { useGitHubSettings } from "@multica/core/github";
@@ -832,6 +833,7 @@ export function IssueDetail({ issueId, onDelete, onDone, defaultSidebarOpen = tr
   const [scrollContainerEl, setScrollContainerEl] = useState<HTMLDivElement | null>(null);
   const [highlightedId, setHighlightedId] = useState<string | null>(null);
   const [contentTab, setContentTab] = useState<"activity" | "session">("activity");
+  const [sessionMode, setSessionMode] = useState<SessionMode>("observe");
 
   // Per-session: which resolved threads the user has temporarily expanded.
   // Not persisted (matches Linear) — reload collapses everything back to bars.
@@ -1157,11 +1159,21 @@ export function IssueDetail({ issueId, onDelete, onDone, defaultSidebarOpen = tr
   const canControlSession = originNodeRun?.session_id != null && sessionControlDecision.allowed;
   const canTakeOverSession = canControlSession && originNodeRun?.completed_at == null;
 
-  useEffect(() => {
-    setContentTab("activity");
-  }, [id, originNodeRun?.session_id]);
+  const handleTakeoverSession = useCallback(() => {
+    if (!canTakeOverSession) return;
+    setSessionMode("control");
+    setContentTab("session");
+  }, [canTakeOverSession]);
 
   useEffect(() => {
+    setSessionMode("observe");
+    setContentTab("activity");
+  }, [id, originNodeRun?.session_id, originNodeRun?.completed_at]);
+
+  useEffect(() => {
+    if (!canControlSession) {
+      setSessionMode("observe");
+    }
     if (!canControlSession && contentTab === "session") {
       setContentTab("activity");
     }
@@ -2006,11 +2018,11 @@ export function IssueDetail({ issueId, onDelete, onDone, defaultSidebarOpen = tr
                       {t(($) => $.detail.session_running)}
                     </span>
                   )}
-                  {canTakeOverSession && (
+                  {canTakeOverSession && sessionMode !== "control" && (
                     <Button
                       size="sm"
                       className="h-7 text-xs"
-                      onClick={() => setContentTab("session")}
+                      onClick={handleTakeoverSession}
                     >
                       <CornerDownRight className="mr-1 h-3.5 w-3.5" />
                       {t(($) => $.detail.take_over_session)}
@@ -2262,15 +2274,22 @@ export function IssueDetail({ issueId, onDelete, onDone, defaultSidebarOpen = tr
 
             {originNodeRun && <div className="border-t" />}
 
-            {originNodeRun && contentTab === "session" ? (
+            {originNodeRun?.session_id && canControlSession && (
               <div
                 id="issue-session-panel"
                 role="tabpanel"
                 aria-labelledby="issue-session-tab"
-                data-testid="issue-realtime-session-placeholder"
-                className="min-h-80"
-              />
-            ) : (
+                hidden={contentTab !== "session"}
+              >
+                <Session
+                  sessionId={originNodeRun.session_id}
+                  mode={sessionMode}
+                  active={contentTab === "session"}
+                  onTakeover={handleTakeoverSession}
+                />
+              </div>
+            )}
+            {contentTab === "activity" && (
               <div
                 id={originNodeRun ? "issue-activity-panel" : undefined}
                 role={originNodeRun ? "tabpanel" : undefined}

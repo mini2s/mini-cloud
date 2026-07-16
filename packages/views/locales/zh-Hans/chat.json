@@ -110,5 +110,41 @@
       "searching_web": "搜索网页",
       "fallback": "处理中"
     }
+  },
+  "session": {
+    "loading": "正在加载实时会话…",
+    "observe_description": "接管会话后可以发送消息或停止当前运行。",
+    "takeover": "接管会话",
+    "composer_placeholder": "给智能体发送消息…",
+    "composer_aria": "实时会话消息",
+    "send": "发送消息",
+    "stop": "停止生成",
+    "cancelling": "正在停止…",
+    "scroll_to_bottom": "滚动到最新消息",
+    "reasoning": "思考过程",
+    "reasoning_running": "思考中…",
+    "copy": "复制消息",
+    "tool_expand": "展开 {{tool}} 详情",
+    "tool_collapse": "收起 {{tool}} 详情",
+    "tool_running": "运行中",
+    "tool_complete": "已完成",
+    "tool_error": "失败",
+    "tool_input": "输入",
+    "tool_output": "输出",
+    "cancelled": "回复已停止",
+    "error": "回复未能完成。",
+    "fixture": {
+      "user_request": "检查当前实现，并总结还有哪些地方需要注意。",
+      "reasoning": "我会检查相关文件，并将当前行为与要求的交互进行对比。",
+      "summary": "实时会话 UI 已从 issue 详情中独立出来，并为接入真实 runtime adapter 做好了准备。\n\n- 消息线程使用 **assistant-ui** primitives。\n- 观察态和接管态共用同一个已挂载 runtime。\n- fixture 中的工具调用只做展示。",
+      "read_path": "packages/views/issues/components/issue-detail.tsx",
+      "read_result": "已找到实时会话 Tab 的接入和权限门槛。",
+      "unknown_result": "fixture 元数据已加载。",
+      "failed_result": "fixture 搜索索引暂时不可用。",
+      "stream_reasoning": "我会把这个请求整理成一份简短、可执行的更新。",
+      "stream_intro": "我已经看过你的消息。",
+      "stream_tool_output": "类型检查 fixture 已完成，没有运行真实命令。",
+      "stream_done": "这是 fixture 回复：独立的会话组件已经可以工作，后续可直接替换为真实 runtime。"
+    }
   }
 }
