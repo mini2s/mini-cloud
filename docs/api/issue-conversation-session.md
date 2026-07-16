@@ -126,6 +126,8 @@ eventSource.onmessage = (event) => {
 };
 ```
 
+> 注意：`withCredentials: true` 在跨域场景下才会生效；如果前端与 Gateway 同源（例如都走同一域名反向代理），浏览器不会额外发送预检请求，该参数无实际作用。
+
 ### 3. 发送消息 / 加载历史
 
 复用现有 Workspace 对话组件中的方法，只是基础路径从 Gateway 走：

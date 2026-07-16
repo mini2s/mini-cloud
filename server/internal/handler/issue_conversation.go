@@ -62,12 +62,11 @@ func (h *Handler) GetIssueConversationSession(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	// Verify workspace membership.
-	if _, err := h.Queries.GetMemberByUserAndWorkspace(r.Context(), db.GetMemberByUserAndWorkspaceParams{
-		UserID:      parseUUID(userID),
-		WorkspaceID: wsUUID,
-	}); err != nil {
-		writeError(w, http.StatusNotFound, "workspace not found")
+	// Verify workspace membership. In production this is already done by the
+	// RequireWorkspaceMemberFromURL middleware, which injects the member into
+	// context; workspaceMember uses the context value when present and falls back
+	// to a DB lookup for direct handler tests.
+	if _, ok := h.workspaceMember(w, r, workspaceID); !ok {
 		return
 	}
 
@@ -83,8 +82,12 @@ func (h *Handler) GetIssueConversationSession(w http.ResponseWriter, r *http.Req
 	// Fast path: existing mapping outside the transaction.
 	conv, err := h.Queries.GetIssueConversation(r.Context(), issueUUID)
 	if err == nil && conv.ConversationID != "" {
-		h.writeIssueConversationSession(w, conv.ConversationID, conv.WorkspaceDirectory, conv.DeviceID)
-		return
+		if h.isCSCloudDeviceOnline(r.Context(), h.Queries, wsUUID, conv.DeviceID) {
+			h.writeIssueConversationSession(w, conv.ConversationID, conv.WorkspaceDirectory, conv.DeviceID)
+			return
+		}
+		// Device recorded in the mapping is offline; fall through to recreate
+		// the conversation under the advisory lock.
 	}
 
 	// Resolve local directory from project.
@@ -103,7 +106,7 @@ func (h *Handler) GetIssueConversationSession(w http.ResponseWriter, r *http.Req
 	defer tx.Rollback(r.Context())
 	qtx := h.Queries.WithTx(tx)
 
-	if err := qtx.LockIssueConversation(r.Context(), issueID); err != nil {
+	if err := qtx.LockIssueConversation(r.Context(), uuidToString(issueUUID)); err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to lock issue conversation")
 		return
 	}
@@ -111,8 +114,11 @@ func (h *Handler) GetIssueConversationSession(w http.ResponseWriter, r *http.Req
 	// Re-check under the advisory lock.
 	conv, err = qtx.GetIssueConversation(r.Context(), issueUUID)
 	if err == nil && conv.ConversationID != "" {
-		h.writeIssueConversationSession(w, conv.ConversationID, conv.WorkspaceDirectory, conv.DeviceID)
-		return
+		if h.isCSCloudDeviceOnline(r.Context(), qtx, wsUUID, conv.DeviceID) {
+			h.writeIssueConversationSession(w, conv.ConversationID, conv.WorkspaceDirectory, conv.DeviceID)
+			return
+		}
+		// Device offline: recreate below.
 	}
 
 	// Find an online cs-cloud runtime for this workspace.
@@ -157,7 +163,12 @@ func (h *Handler) resolveIssueWorkspaceDirectory(w http.ResponseWriter, ctx cont
 		ID:          issue.ProjectID,
 		WorkspaceID: issue.WorkspaceID,
 	})
-	if err != nil || !localDir.Valid || strings.TrimSpace(localDir.String) == "" {
+	if err != nil {
+		slog.ErrorContext(ctx, "failed to query project local_directory", "error", err)
+		writeError(w, http.StatusInternalServerError, "failed to query project local_directory")
+		return "", false
+	}
+	if !localDir.Valid || strings.TrimSpace(localDir.String) == "" {
 		writeError(w, http.StatusBadRequest, "project local_directory not configured")
 		return "", false
 	}
@@ -181,7 +192,10 @@ func (h *Handler) resolveCSCloudDeviceID(w http.ResponseWriter, ctx context.Cont
 
 	for _, rt := range runtimes {
 		var meta map[string]any
-		_ = json.Unmarshal(rt.Metadata, &meta)
+		if err := json.Unmarshal(rt.Metadata, &meta); err != nil {
+			slog.DebugContext(ctx, "failed to unmarshal runtime metadata", "daemon_id", rt.DaemonID, "error", err)
+			continue
+		}
 		if id, _ := meta["device_id"].(string); id != "" {
 			return id, true
 		}
@@ -193,6 +207,32 @@ func (h *Handler) resolveCSCloudDeviceID(w http.ResponseWriter, ctx context.Cont
 
 	writeError(w, http.StatusServiceUnavailable, "cs-cloud device has no device_id")
 	return "", false
+}
+
+func (h *Handler) isCSCloudDeviceOnline(ctx context.Context, queries *db.Queries, wsUUID pgtype.UUID, deviceID string) bool {
+	runtimes, err := queries.ListOnlineAgentRuntimesByWorkspaceAndProvider(ctx, db.ListOnlineAgentRuntimesByWorkspaceAndProviderParams{
+		WorkspaceID: wsUUID,
+		Provider:    csCloudRuntimeProvider,
+	})
+	if err != nil {
+		slog.ErrorContext(ctx, "failed to query cs-cloud runtimes for device online check", "error", err)
+		return false
+	}
+
+	for _, rt := range runtimes {
+		var meta map[string]any
+		if err := json.Unmarshal(rt.Metadata, &meta); err != nil {
+			slog.DebugContext(ctx, "failed to unmarshal runtime metadata", "daemon_id", rt.DaemonID, "error", err)
+			continue
+		}
+		if id, _ := meta["device_id"].(string); id == deviceID {
+			return true
+		}
+		if rt.DaemonID.Valid && rt.DaemonID.String == deviceID {
+			return true
+		}
+	}
+	return false
 }
 
 func (h *Handler) createConversationOnDevice(w http.ResponseWriter, r *http.Request, deviceID, userID, workspaceDir string, issue db.MulticaIssue) (string, bool) {

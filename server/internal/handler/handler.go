@@ -6,10 +6,10 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"log/slog"
 	"net/http"
 	"net/netip"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -746,10 +746,16 @@ func (h *Handler) loadInboxItemForUser(w http.ResponseWriter, r *http.Request, i
 	return item, true
 }
 
+const defaultGatewayProxyPrefix = "/cloud-api/cloud/device/%s/proxy"
+
 func gatewayProxyPrefix(cfg Config, deviceID string) string {
 	p := cfg.CloudGatewayProxyPrefix
 	if p == "" {
-		p = "/cloud-api/cloud/device/%s/proxy"
+		p = defaultGatewayProxyPrefix
 	}
-	return fmt.Sprintf(p, deviceID)
+	if strings.Count(p, "%s") != 1 {
+		slog.Warn("invalid CloudGatewayProxyPrefix, must contain exactly one %s; using default", "configured", p)
+		p = defaultGatewayProxyPrefix
+	}
+	return strings.Replace(p, "%s", deviceID, 1)
 }
