@@ -2131,6 +2131,15 @@ export class ApiClient {
     });
   }
 
+  async resetSplitTasksToOriginal(nodeRunId: string): Promise<SplitTasksResponse> {
+    const raw = await this.fetch<unknown>(`/api/node-runs/${nodeRunId}/split/reset-original`, {
+      method: "POST",
+    });
+    return parseWithFallback(raw, SplitTasksResponseSchema, EMPTY_SPLIT_TASKS_RESPONSE, {
+      endpoint: "POST /api/node-runs/:id/split/reset-original",
+    });
+  }
+
   async approveSplitTasks(nodeRunId: string, req: ApproveSplitRequest): Promise<SplitTasksResponse> {
     const raw = await this.fetch<unknown>(`/api/node-runs/${nodeRunId}/split/approve`, {
       method: "POST",

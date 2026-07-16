@@ -271,6 +271,7 @@ SET status = 'approved',
     updated_at = now()
 WHERE node_run_id = $1
   AND id = ANY($2::uuid[])
+  AND status = 'draft'
 `
 
 type MarkSplitTasksApprovedParams struct {

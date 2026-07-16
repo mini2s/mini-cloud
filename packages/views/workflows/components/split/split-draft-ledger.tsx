@@ -6,10 +6,13 @@ import type { Issue, SplitTask, SplitTaskStatus, Workflow } from "@multica/core/
 import { useWorkspacePaths } from "@multica/core/paths";
 import { workflowRunCanvasSummaryOptions } from "@multica/core/workflows/queries";
 import { Badge } from "@multica/ui/components/ui/badge";
+import { Button } from "@multica/ui/components/ui/button";
+import { Input } from "@multica/ui/components/ui/input";
+import { Textarea } from "@multica/ui/components/ui/textarea";
 import { cn } from "@multica/ui/lib/utils";
 import { useT } from "@multica/views/i18n";
 import { AppLink } from "../../../navigation";
-import { ChevronDown, ChevronUp } from "lucide-react";
+import { ChevronDown, ChevronUp, Pencil, RotateCcw, Save, Trash2, X } from "lucide-react";
 
 interface SplitDraftLedgerProps {
   tasks: SplitTask[];
@@ -17,6 +20,7 @@ interface SplitDraftLedgerProps {
   taskIssueBySourceId?: ReadonlyMap<string, Issue>;
   readOnly?: boolean;
   onWorkflowChange?: (task: SplitTask, workflowId: string) => void;
+  onDraftSave?: (task: SplitTask, updates: { title: string; description: string }) => void | Promise<void>;
   onDiscardChange?: (task: SplitTask, discarded: boolean) => void;
 }
 
@@ -99,9 +103,15 @@ export function SplitDraftLedger({
   taskIssueBySourceId,
   readOnly = false,
   onWorkflowChange,
+  onDraftSave,
+  onDiscardChange,
 }: SplitDraftLedgerProps) {
   const { t } = useT("workflows");
   const [expandedTaskIds, setExpandedTaskIds] = useState<Set<string>>(() => new Set());
+  const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
+  const [draftTitle, setDraftTitle] = useState("");
+  const [draftDescription, setDraftDescription] = useState("");
+  const [editErrorTaskId, setEditErrorTaskId] = useState<string | null>(null);
 
   const toggleTaskDetails = (taskId: string) => {
     setExpandedTaskIds((current) => {
@@ -113,6 +123,37 @@ export function SplitDraftLedger({
       }
       return next;
     });
+  };
+
+  const startEdit = (task: SplitTask) => {
+    setEditingTaskId(task.id);
+    setDraftTitle(task.title);
+    setDraftDescription(task.description);
+    setEditErrorTaskId(null);
+  };
+
+  const cancelEdit = () => {
+    setEditingTaskId(null);
+    setDraftTitle("");
+    setDraftDescription("");
+    setEditErrorTaskId(null);
+  };
+
+  const saveEdit = async (task: SplitTask) => {
+    const title = draftTitle.trim();
+    if (!title) {
+      setEditErrorTaskId(task.id);
+      return;
+    }
+    try {
+      await onDraftSave?.(task, {
+        title,
+        description: draftDescription,
+      });
+      cancelEdit();
+    } catch {
+      setEditErrorTaskId(task.id);
+    }
   };
 
   if (tasks.length === 0) {
@@ -130,6 +171,9 @@ export function SplitDraftLedger({
       {tasks.map((task, index) => {
         const linkedIssue = taskIssueBySourceId?.get(task.id) ?? null;
         const isExpanded = expandedTaskIds.has(task.id);
+        const isEditing = editingTaskId === task.id;
+        const canEditDraft = !readOnly && task.status === "draft";
+        const canRestoreDraft = !readOnly && task.status === "discarded";
         const summaryId = `split-draft-summary-${task.id}`;
         const dependsOn = task.depends_on
           .map((dependencyId) => numberByTaskId.get(dependencyId) ?? dependencyId)
@@ -150,15 +194,43 @@ export function SplitDraftLedger({
               className="grid min-w-0 gap-2"
             >
               <div className="min-w-0">
-                <div className="flex min-w-0 items-center gap-2">
-                  <span className="shrink-0 text-xs font-medium tabular-nums text-muted-foreground">
-                    {taskNumber(index)}
-                  </span>
-                  <h4 className="min-w-0 truncate text-sm font-medium" title={task.title}>
-                    {task.title || t(($) => $.detail_panel.split_draft_untitled_task)}
-                  </h4>
-                </div>
-                {task.description.trim().length > 0 ? (
+                {isEditing ? (
+                  <div className="grid gap-2">
+                    <label className="sr-only" htmlFor={`split-draft-title-${task.id}`}>
+                      {t(($) => $.detail_panel.split_draft_title_label)}
+                    </label>
+                    <Input
+                      id={`split-draft-title-${task.id}`}
+                      value={draftTitle}
+                      onChange={(event) => setDraftTitle(event.target.value)}
+                      aria-label={t(($) => $.detail_panel.split_draft_title_label)}
+                      className="h-8 text-sm"
+                    />
+                    <label className="sr-only" htmlFor={`split-draft-description-${task.id}`}>
+                      {t(($) => $.detail_panel.split_draft_description_label)}
+                    </label>
+                    <Textarea
+                      id={`split-draft-description-${task.id}`}
+                      value={draftDescription}
+                      onChange={(event) => setDraftDescription(event.target.value)}
+                      aria-label={t(($) => $.detail_panel.split_draft_description_label)}
+                      className="min-h-20 text-sm"
+                    />
+                    {editErrorTaskId === task.id ? (
+                      <p className="text-xs text-destructive">{t(($) => $.detail_panel.split_draft_edit_failed)}</p>
+                    ) : null}
+                  </div>
+                ) : (
+                  <>
+                    <div className="flex min-w-0 items-center gap-2">
+                      <span className="shrink-0 text-xs font-medium tabular-nums text-muted-foreground">
+                        {taskNumber(index)}
+                      </span>
+                      <h4 className="min-w-0 truncate text-sm font-medium" title={task.title}>
+                        {task.title || t(($) => $.detail_panel.split_draft_untitled_task)}
+                      </h4>
+                    </div>
+                    {task.description.trim().length > 0 ? (
                   <div className="mt-1">
                     <p
                       id={summaryId}
@@ -187,7 +259,9 @@ export function SplitDraftLedger({
                         : t(($) => $.detail_panel.split_draft_expand_details)}
                     </button>
                   </div>
-                ) : null}
+                    ) : null}
+                  </>
+                )}
                 {linkedIssue ? (
                   <SplitTaskChildIssueMeta task={task} linkedIssue={linkedIssue} t={t} />
                 ) : (
@@ -200,7 +274,7 @@ export function SplitDraftLedger({
                   aria-label={t(($) => $.detail_panel.split_draft_execution_workflow_for, { title: task.title })}
                   className="h-8 min-w-[12rem] rounded-md border border-input bg-background px-2 text-xs"
                   value={task.workflow_id ?? ""}
-                  disabled={readOnly || task.status !== "draft"}
+                  disabled={readOnly || task.status !== "draft" || isEditing}
                   onChange={(event) => onWorkflowChange?.(task, event.target.value)}
                 >
                   <option value="">{t(($) => $.detail_panel.split_draft_select_workflow_placeholder)}</option>
@@ -214,6 +288,64 @@ export function SplitDraftLedger({
                   <Badge variant="outline" className="max-w-[12rem] truncate" title={workflowLabel(t, task, workflows)}>
                     {workflowLabel(t, task, workflows)}
                   </Badge>
+                ) : null}
+                {isEditing ? (
+                  <>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      aria-label={t(($) => $.detail_panel.split_draft_save)}
+                      onClick={() => void saveEdit(task)}
+                    >
+                      <Save className="size-3.5" />
+                      {t(($) => $.detail_panel.split_draft_save)}
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="ghost"
+                      aria-label={t(($) => $.detail_panel.split_draft_cancel_edit)}
+                      onClick={cancelEdit}
+                    >
+                      <X className="size-3.5" />
+                      {t(($) => $.detail_panel.split_draft_cancel_edit)}
+                    </Button>
+                  </>
+                ) : canEditDraft ? (
+                  <>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="ghost"
+                      aria-label={t(($) => $.detail_panel.split_draft_edit)}
+                      onClick={() => startEdit(task)}
+                    >
+                      <Pencil className="size-3.5" />
+                      {t(($) => $.detail_panel.split_draft_edit)}
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="ghost"
+                      aria-label={t(($) => $.detail_panel.split_draft_discard)}
+                      onClick={() => onDiscardChange?.(task, true)}
+                    >
+                      <Trash2 className="size-3.5" />
+                      {t(($) => $.detail_panel.split_draft_discard)}
+                    </Button>
+                  </>
+                ) : canRestoreDraft ? (
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    aria-label={t(($) => $.detail_panel.split_draft_restore)}
+                    onClick={() => onDiscardChange?.(task, false)}
+                  >
+                    <RotateCcw className="size-3.5" />
+                    {t(($) => $.detail_panel.split_draft_restore)}
+                  </Button>
                 ) : null}
               </div>
             </div>

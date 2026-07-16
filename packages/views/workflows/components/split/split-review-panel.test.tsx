@@ -38,6 +38,8 @@ const i18nMock = vi.hoisted(() => {
     split_generating: "Generating...",
     split_recover_outputs: "Recover existing output",
     split_recovering: "Recovering...",
+    split_reset_original: "Reset to agent proposal",
+    split_resetting_original: "Resetting...",
     split_cancel: "Cancel split",
     split_cancelling: "Cancelling...",
     split_confirm_create: "Confirm create {{count}}",
@@ -70,6 +72,14 @@ const i18nMock = vi.hoisted(() => {
     split_draft_missing_execution_workflow: "Missing execution workflow",
     split_draft_expand_details: "View details",
     split_draft_collapse_details: "Hide details",
+    split_draft_edit: "Edit draft",
+    split_draft_save: "Save draft",
+    split_draft_cancel_edit: "Cancel edit",
+    split_draft_discard: "Discard draft",
+    split_draft_restore: "Restore draft",
+    split_draft_title_label: "Draft title",
+    split_draft_description_label: "Draft description",
+    split_draft_edit_failed: "Failed to update draft.",
     split_dep_will_appear_after_draft: "Dependencies will appear here after a draft is generated.",
     split_dep_can_start_in_parallel: "These child issues can start in parallel.",
     split_settings_mode_label: "Mode: {{mode}}",
@@ -109,6 +119,7 @@ const mocks = vi.hoisted(() => ({
   isLoading: false,
   generateMutateAsync: vi.fn(),
   recoverMutateAsync: vi.fn(),
+  resetOriginalMutateAsync: vi.fn(),
   approveMutateAsync: vi.fn(),
   submitChatMutateAsync: vi.fn(),
   cancelMutateAsync: vi.fn(),
@@ -237,6 +248,10 @@ vi.mock("@multica/core/workflows/queries", () => ({
   }),
   useRecoverSplitTasks: () => ({
     mutateAsync: mocks.recoverMutateAsync,
+    isPending: false,
+  }),
+  useResetSplitTasksToOriginal: () => ({
+    mutateAsync: mocks.resetOriginalMutateAsync,
     isPending: false,
   }),
   useApproveSplitTasks: () => ({
@@ -408,6 +423,7 @@ describe("SplitReviewPanel", () => {
     mocks.childCanvasSummaryData = null;
     mocks.generateMutateAsync.mockReset();
     mocks.recoverMutateAsync.mockReset();
+    mocks.resetOriginalMutateAsync.mockReset();
     mocks.approveMutateAsync.mockReset();
     mocks.submitChatMutateAsync.mockReset();
     mocks.cancelMutateAsync.mockReset();
@@ -416,7 +432,7 @@ describe("SplitReviewPanel", () => {
     mocks.splitTasksRefetch.mockReset();
   });
 
-  it("renders a readonly review with verdict, draft plan, dependencies, sticky actions, and no manual edit controls", () => {
+  it("renders a review with verdict, draft plan, dependencies, sticky actions, and draft quick actions", () => {
     const { container } = renderPanel();
 
     const approveButton = screen.getByRole("button", { name: "Confirm create 1" });
@@ -432,10 +448,12 @@ describe("SplitReviewPanel", () => {
     expect(screen.getByText("01")).toBeInTheDocument();
     expect(screen.getByText("Implement API contract")).toBeInTheDocument();
     expect(screen.getByText("Dependencies: none")).toBeInTheDocument();
-    expect(screen.queryByText("Discarded task")).not.toBeInTheDocument();
-    expect(screen.queryByText("Dependencies: 01")).not.toBeInTheDocument();
-    expect(screen.queryByRole("textbox", { name: /Task title/i })).not.toBeInTheDocument();
-    expect(screen.queryByRole("textbox", { name: /Task description/i })).not.toBeInTheDocument();
+    expect(screen.getByText("Discarded task")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Edit draft" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Restore draft" })).toBeInTheDocument();
+    expect(screen.getByText("Dependencies: 01")).toBeInTheDocument();
+    expect(screen.queryByRole("textbox", { name: "Draft title" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("textbox", { name: "Draft description" })).not.toBeInTheDocument();
     expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Delete task/i })).not.toBeInTheDocument();
     expect(screen.queryByTestId("split-task-dag")).not.toBeInTheDocument();
@@ -443,7 +461,7 @@ describe("SplitReviewPanel", () => {
     expect(container).not.toHaveTextContent(mojibakePattern);
   });
 
-  it("shows only active draft rows after a chat adjustment discards old drafts", () => {
+  it("shows discarded draft rows after a chat adjustment while approving only active drafts", () => {
     mocks.splitTasksData = {
       tasks: [
         draftTask("task-1", "Build project shell", {
@@ -475,12 +493,12 @@ describe("SplitReviewPanel", () => {
 
     renderPanel();
 
-    expect(screen.queryByText("Build project shell")).not.toBeInTheDocument();
-    expect(screen.queryByText("Render board")).not.toBeInTheDocument();
+    expect(screen.getByText("Build project shell")).toBeInTheDocument();
+    expect(screen.getByText("Render board")).toBeInTheDocument();
     expect(screen.getByText("Implement game logic")).toBeInTheDocument();
     expect(screen.getByText("Build shell and board rendering")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Confirm create 2" })).toBeInTheDocument();
-    expect(screen.getByText("Dependencies: 02")).toBeInTheDocument();
+    expect(screen.getByText("Dependencies: 04")).toBeInTheDocument();
   });
 
   it("approves current draft tasks without sending local modifications", async () => {
@@ -500,11 +518,11 @@ describe("SplitReviewPanel", () => {
     });
   });
 
-  it("does not show draft generation actions during review when a draft already exists", () => {
+  it("shows reset but not draft generation actions during review when a draft already exists", () => {
     renderPanel();
 
     expect(screen.queryByRole("button", { name: "Regenerate draft" })).not.toBeInTheDocument();
-    expect(screen.queryByText("Actions")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Reset to agent proposal" })).toBeInTheDocument();
   });
 
   it("offers draft generation only before any split draft exists", async () => {
@@ -650,6 +668,31 @@ describe("SplitReviewPanel", () => {
     });
   });
 
+  it("resets edited review drafts to the original agent proposal", async () => {
+    mocks.splitTasksData = {
+      tasks: [draftTask("task-1", "Manual edited title")],
+      progress: {
+        total: 1,
+        created: 0,
+        running: 0,
+        done: 0,
+        failed: 0,
+        cancelled: 0,
+        skipped: 0,
+      },
+    };
+
+    renderPanel();
+
+    await userEvent.click(screen.getByRole("button", { name: "Reset to agent proposal" }));
+
+    expect(mocks.resetOriginalMutateAsync).toHaveBeenCalledWith({
+      nodeRunId: "node-run-1",
+      workflowId: "wf-1",
+      runId: "run-1",
+    });
+  });
+
   it("requires confirmation before cancelling the split node", async () => {
     renderPanel();
 
@@ -706,6 +749,83 @@ describe("SplitReviewPanel", () => {
       },
     });
   }, 15_000);
+
+  it("submits manual draft text edits through the split draft patch mutation", async () => {
+    mocks.splitTasksData = {
+      tasks: [
+        draftTask("task-1", "Implement API contract", {
+          description: "Cover the old handler.",
+          version: 7,
+        }),
+      ],
+      progress: {
+        total: 1,
+        created: 0,
+        running: 0,
+        done: 0,
+        failed: 0,
+        cancelled: 0,
+        skipped: 0,
+      },
+    };
+
+    renderPanel();
+
+    await userEvent.click(screen.getByRole("button", { name: "Edit draft" }));
+    await userEvent.clear(screen.getByLabelText("Draft title"));
+    await userEvent.type(screen.getByLabelText("Draft title"), "Manual title");
+    await userEvent.clear(screen.getByLabelText("Draft description"));
+    await userEvent.type(screen.getByLabelText("Draft description"), "Manual description");
+    await userEvent.click(screen.getByRole("button", { name: "Save draft" }));
+
+    expect(mocks.patchDraftMutateAsync).toHaveBeenCalledWith({
+      nodeRunId: "node-run-1",
+      workflowId: "wf-1",
+      runId: "run-1",
+      taskId: "task-1",
+      request: {
+        title: "Manual title",
+        description: "Manual description",
+        expected_version: 7,
+      },
+    });
+  });
+
+  it("keeps discarded drafts visible and excludes them from approval", async () => {
+    mocks.splitTasksData = {
+      tasks: [
+        draftTask("task-1", "Active draft"),
+        draftTask("task-2", "Discarded draft", {
+          status: "discarded",
+          sort_order: 1,
+        }),
+      ],
+      progress: {
+        total: 1,
+        created: 0,
+        running: 0,
+        done: 0,
+        failed: 0,
+        cancelled: 0,
+        skipped: 0,
+      },
+    };
+
+    renderPanel();
+
+    expect(screen.getByText("Discarded draft")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Confirm create 1" }));
+    await userEvent.click(screen.getByRole("button", { name: "Confirm create" }));
+
+    expect(mocks.approveMutateAsync).toHaveBeenCalledWith({
+      nodeRunId: "node-run-1",
+      workflowId: "wf-1",
+      runId: "run-1",
+      request: {
+        approved_task_ids: ["task-1"],
+      },
+    });
+  });
 
   it("shows linked child issue details for materialized split tasks", () => {
     mocks.splitTasksData = {

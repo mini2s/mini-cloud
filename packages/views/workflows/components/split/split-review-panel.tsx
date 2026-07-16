@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import type { ApproveSplitRequest, SplitProgress, SplitTask, WorkflowNode, WorkflowNodeRun } from "@multica/core/types";
 import { ApiError } from "@multica/core/api";
-import { Activity, CheckCheck, GitBranch, ListTree, RefreshCcw, SquareX } from "lucide-react";
+import { Activity, CheckCheck, GitBranch, ListTree, RefreshCcw, SquareX, Undo2 } from "lucide-react";
 import { Button } from "@multica/ui/components/ui/button";
 import { Badge } from "@multica/ui/components/ui/badge";
 import {
@@ -25,6 +25,7 @@ import {
   useCancelSplitNode,
   useGenerateSplitTasks,
   useRecoverSplitTasks,
+  useResetSplitTasksToOriginal,
   useSubmitSplitReviewChat,
 } from "@multica/core/workflows/queries";
 import { pendingChatTaskOptions } from "@multica/core/chat/queries";
@@ -224,6 +225,7 @@ export function SplitReviewPanel({
   const nodeRunId = nodeRun?.id ?? null;
   const generateMutation = useGenerateSplitTasks(wsId);
   const recoverMutation = useRecoverSplitTasks(wsId);
+  const resetOriginalMutation = useResetSplitTasksToOriginal(wsId);
   const approveMutation = useApproveSplitTasks(wsId);
   const patchDraftMutation = usePatchSplitDraftTask(wsId);
   const chatMutation = useSubmitSplitReviewChat(wsId);
@@ -277,6 +279,7 @@ export function SplitReviewPanel({
   const canChat = nodeRun?.status === "awaiting_split_review";
   const canCancel = isNodeRunCancellable(nodeRun?.status);
   const canRecover = nodeRun?.status === "failed";
+  const canResetOriginal = nodeRun?.status === "awaiting_split_review" && tasks.length > 0;
   const canGenerate = !!nodeRunId && isSplitGenerateActionStatus(nodeRun?.status) && (activeTasks.length === 0 || nodeRun?.status === "failed");
   const failureMessage = splitFailureMessage(nodeRun);
   const generateLabel = tasks.length > 0
@@ -302,6 +305,11 @@ export function SplitReviewPanel({
     await recoverMutation.mutateAsync({ nodeRunId, workflowId, runId });
   };
 
+  const handleResetOriginal = async () => {
+    if (!nodeRunId) return;
+    await resetOriginalMutation.mutateAsync({ nodeRunId, workflowId, runId });
+  };
+
   const handleApprove = async () => {
     if (!nodeRunId) return;
     await approveMutation.mutateAsync({
@@ -323,6 +331,51 @@ export function SplitReviewPanel({
         taskId: task.id,
         request: {
           workflow_id: nextWorkflowId,
+          expected_version: task.version,
+        },
+      });
+    } catch (error) {
+      if (error instanceof ApiError && (error.status === 409 || error.status === 422)) {
+        await refetchWorkflowOptions();
+        await refetchSplitTasks();
+      }
+      throw error;
+    }
+  };
+
+  const handleDraftSave = async (task: SplitTask, updates: { title: string; description: string }) => {
+    if (!nodeRunId) return;
+    try {
+      await patchDraftMutation.mutateAsync({
+        nodeRunId,
+        workflowId,
+        runId,
+        taskId: task.id,
+        request: {
+          title: updates.title,
+          description: updates.description,
+          expected_version: task.version,
+        },
+      });
+    } catch (error) {
+      if (error instanceof ApiError && (error.status === 409 || error.status === 422)) {
+        await refetchWorkflowOptions();
+        await refetchSplitTasks();
+      }
+      throw error;
+    }
+  };
+
+  const handleDiscardChange = async (task: SplitTask, discarded: boolean) => {
+    if (!nodeRunId) return;
+    try {
+      await patchDraftMutation.mutateAsync({
+        nodeRunId,
+        workflowId,
+        runId,
+        taskId: task.id,
+        request: {
+          discarded,
           expected_version: task.version,
         },
       });
@@ -405,11 +458,13 @@ export function SplitReviewPanel({
           <p className="text-sm text-muted-foreground">{t(($) => $.detail_panel.split_loading_draft)}</p>
         ) : (
           <SplitDraftLedger
-            tasks={activeTasks}
+            tasks={tasks}
             workflows={workflowOptions}
             taskIssueBySourceId={childIssueBySplitTaskId}
             readOnly={nodeRun?.status !== "awaiting_split_review"}
             onWorkflowChange={(task, nextWorkflowId) => void handleWorkflowChange(task, nextWorkflowId)}
+            onDraftSave={(task, updates) => handleDraftSave(task, updates)}
+            onDiscardChange={(task, discarded) => void handleDiscardChange(task, discarded)}
           />
         )}
       </NodeDetailSection>
@@ -441,7 +496,7 @@ export function SplitReviewPanel({
         </NodeDetailSection>
       ) : null}
 
-      {canGenerate || canRecover ? (
+      {canGenerate || canRecover || canResetOriginal ? (
         <NodeDetailSection
           sectionId="actions"
           icon={<Activity className="size-4" />}
@@ -470,6 +525,20 @@ export function SplitReviewPanel({
               >
                 <ListTree className="mr-1.5 size-3.5" />
                 {recoverMutation.isPending ? t(($) => $.detail_panel.split_recovering) : t(($) => $.detail_panel.split_recover_outputs)}
+              </Button>
+            ) : null}
+            {canResetOriginal ? (
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                onClick={() => void handleResetOriginal()}
+                disabled={!nodeRunId || resetOriginalMutation.isPending}
+              >
+                <Undo2 className="mr-1.5 size-3.5" />
+                {resetOriginalMutation.isPending
+                  ? t(($) => $.detail_panel.split_resetting_original)
+                  : t(($) => $.detail_panel.split_reset_original)}
               </Button>
             ) : null}
           </div>

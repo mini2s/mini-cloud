@@ -562,6 +562,7 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 			r.Post("/api/node-runs/{nodeRunId}/skip", h.SkipNodeRun)
 			r.Post("/api/node-runs/{nodeRunId}/split/generate", h.GenerateSplitTasks)
 			r.Post("/api/node-runs/{nodeRunId}/split/recover", h.RecoverSplitDraftTasks)
+			r.Post("/api/node-runs/{nodeRunId}/split/reset-original", h.ResetSplitDraftTasksToOriginal)
 			r.Post("/api/node-runs/{nodeRunId}/split/draft-tasks", h.AddSplitDraftTask)
 			r.Post("/api/node-runs/{nodeRunId}/split/draft-tasks/batch", h.BatchAddSplitDraftTasks)
 			r.Patch("/api/node-runs/{nodeRunId}/split/draft-tasks/batch", h.BatchPatchSplitDraftTasks)

@@ -664,6 +664,32 @@ func (s *SplitOrchestrator) RecoverSplitDraftTasks(ctx context.Context, nodeRun 
 	return nil
 }
 
+func (s *SplitOrchestrator) ResetSplitDraftTasksToOriginal(ctx context.Context, nodeRun db.MulticaWorkflowNodeRun) error {
+	if nodeRun.Status != NodeRunStatusAwaitingSplitReview {
+		return fmt.Errorf("split node can only reset drafts while awaiting review")
+	}
+	node, err := s.Queries.GetWorkflowNode(ctx, nodeRun.WorkflowNodeID)
+	if err != nil {
+		return fmt.Errorf("get split node: %w", err)
+	}
+	if workflowNodeType(node.FormatSchema) != "split" {
+		return fmt.Errorf("node run is not a split node")
+	}
+	task, err := s.loadOriginalSplitGenerationTask(ctx, nodeRun)
+	if err != nil {
+		return err
+	}
+	payload, err := s.recoverSplitGeneratedTaskPayloadFromTaskSources(ctx, task)
+	if err != nil {
+		return err
+	}
+	existing, err := s.Queries.ListSplitTasksByNodeRun(ctx, nodeRun.ID)
+	if err != nil {
+		return fmt.Errorf("list existing split tasks: %w", err)
+	}
+	return s.replaceSplitDraftTasksFromPayload(ctx, nodeRun, existing, payload, pgtype.Text{String: DraftSourceAgent, Valid: true})
+}
+
 func (s *SplitOrchestrator) loadSplitRecoveryTask(ctx context.Context, nodeRun db.MulticaWorkflowNodeRun) (db.MulticaAgentTaskQueue, error) {
 	if nodeRun.AgentTaskID.Valid {
 		task, err := s.Queries.GetAgentTask(ctx, nodeRun.AgentTaskID)
@@ -697,6 +723,41 @@ func (s *SplitOrchestrator) loadSplitRecoveryTask(ctx context.Context, nodeRun d
 		}
 	}
 	return db.MulticaAgentTaskQueue{}, fmt.Errorf("no split generation task found for recovery")
+}
+
+func (s *SplitOrchestrator) loadOriginalSplitGenerationTask(ctx context.Context, nodeRun db.MulticaWorkflowNodeRun) (db.MulticaAgentTaskQueue, error) {
+	if nodeRun.AgentTaskID.Valid {
+		task, err := s.Queries.GetAgentTask(ctx, nodeRun.AgentTaskID)
+		if err != nil {
+			return db.MulticaAgentTaskQueue{}, fmt.Errorf("get split generation task: %w", err)
+		}
+		if task.WorkflowNodeRunID == nodeRun.ID && isSplitGeneratePhase(task.Context) {
+			return task, nil
+		}
+	}
+
+	run, err := s.Queries.GetWorkflowRun(ctx, nodeRun.WorkflowRunID)
+	if err != nil {
+		return db.MulticaAgentTaskQueue{}, fmt.Errorf("get workflow run for split reset: %w", err)
+	}
+	splitIssue, err := s.Queries.GetIssueByOrigin(ctx, db.GetIssueByOriginParams{
+		WorkspaceID: run.WorkspaceID,
+		OriginType:  pgtype.Text{String: "workflow", Valid: true},
+		OriginID:    nodeRun.ID,
+	})
+	if err != nil {
+		return db.MulticaAgentTaskQueue{}, fmt.Errorf("get split sub-issue for reset: %w", err)
+	}
+	tasks, err := s.Queries.ListTasksByIssue(ctx, splitIssue.ID)
+	if err != nil {
+		return db.MulticaAgentTaskQueue{}, fmt.Errorf("list split issue tasks for reset: %w", err)
+	}
+	for _, task := range tasks {
+		if task.WorkflowNodeRunID == nodeRun.ID && isSplitGeneratePhase(task.Context) {
+			return task, nil
+		}
+	}
+	return db.MulticaAgentTaskQueue{}, fmt.Errorf("no original split generation task found")
 }
 
 func (s *SplitOrchestrator) recoverSplitGeneratedTaskPayloadFromTaskSources(ctx context.Context, task db.MulticaAgentTaskQueue) (splitGeneratedTaskPayload, error) {
@@ -1194,6 +1255,15 @@ func (s *SplitOrchestrator) HandleTaskCompletion(ctx context.Context, task db.Mu
 		return nil
 	}
 	if err := s.handleTaskCompletion(ctx, task); err != nil {
+		if isSplitChatPhase(task.Context) {
+			if s.WfService != nil && s.WfService.TaskSvc != nil {
+				_, failErr := s.WfService.TaskSvc.FailTask(ctx, task.ID, err.Error(), textToString(task.SessionID), textToString(task.WorkDir), "split_chat_adjustment_failed")
+				if failErr != nil {
+					return fmt.Errorf("%w; mark split chat task failed: %v", err, failErr)
+				}
+			}
+			return err
+		}
 		nodeRun, loadErr := s.Queries.GetWorkflowNodeRun(ctx, task.WorkflowNodeRunID)
 		if loadErr == nil && nodeRun.Status == NodeRunStatusSplitting {
 			if _, transitionErr := s.WfService.TransitionNodeRun(ctx, nodeRun, NodeRunStatusFailed); transitionErr != nil {
@@ -1220,9 +1290,6 @@ func (s *SplitOrchestrator) handleTaskCompletion(ctx context.Context, task db.Mu
 	existing, err := s.Queries.ListSplitTasksByNodeRun(ctx, nodeRun.ID)
 	if err != nil {
 		return fmt.Errorf("list existing split tasks: %w", err)
-	}
-	if isSplitChatPhase(task.Context) && splitChatDraftsChanged(task.Context, existing) {
-		return nil
 	}
 	if len(existing) > 0 && !isSplitChatPhase(task.Context) {
 		if err := validateDraftSplitTaskRows(existing); err == nil {
@@ -1251,6 +1318,9 @@ func (s *SplitOrchestrator) handleTaskCompletion(ctx context.Context, task db.Mu
 	draftSource := DraftSourceAgent
 	if isSplitChatPhase(task.Context) {
 		draftSource = DraftSourceChat
+	}
+	if isSplitChatPhase(task.Context) && splitChatDraftsChanged(task.Context, existing) {
+		return fmt.Errorf("split draft changed while the agent was adjusting it; the agent update was not applied")
 	}
 	if err := s.replaceSplitDraftTasksFromPayload(ctx, nodeRun, existing, payload, pgtype.Text{String: draftSource, Valid: true}); err != nil {
 		return err
@@ -1383,6 +1453,12 @@ func (s *SplitOrchestrator) ApproveSplit(ctx context.Context, nodeRun db.Multica
 		}
 		if len(allowed) == 0 {
 			if req.ConfirmEmpty {
+				if err := qtx.MarkSplitTasksDiscardedExcept(ctx, db.MarkSplitTasksDiscardedExceptParams{
+					NodeRunID: nodeRun.ID,
+					Column2:   []pgtype.UUID{},
+				}); err != nil {
+					return fmt.Errorf("discard empty split draft tasks: %w", err)
+				}
 				return nil
 			}
 			return fmt.Errorf("split approval requires at least one task")

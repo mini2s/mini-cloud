@@ -93,7 +93,8 @@ UPDATE multica_workflow_split_task
 SET status = 'approved',
     updated_at = now()
 WHERE node_run_id = $1
-  AND id = ANY($2::uuid[]);
+  AND id = ANY($2::uuid[])
+  AND status = 'draft';
 
 -- name: MarkSplitTasksDiscardedExcept :exec
 UPDATE multica_workflow_split_task
