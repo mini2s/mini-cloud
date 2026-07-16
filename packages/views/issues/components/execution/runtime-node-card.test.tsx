@@ -7,49 +7,84 @@ import type { NodeRunActionType } from "./runtime-node-card";
 import type { WorkflowNode, WorkflowNodeRun, WorkflowNodeRuntimeSummary } from "@multica/core/types";
 
 // Mock @multica/views/i18n for useT hook — handles function selector form
-vi.mock("@multica/views/i18n", () => ({
-  useT: () => ({
-    t: (selector: unknown) => {
-      if (typeof selector === "function") {
-        return selector({
-          execution: {
-            display_status: {
-              pending: "Pending",
-              todo: "Todo",
-              in_progress: "In progress",
-              reviewing: "Reviewing",
-              completed: "Completed",
-              blocked: "Blocked",
-              cancelled: "Cancelled",
-              dispatched: "Dispatched",
-              joined: "Joined",
-              waiting_upstream: "Waiting for upstream",
-            },
-            card: {
-              worker_label: "Worker",
-              critic_label: "Critic",
-              artifacts_label: "Artifacts",
-              actions: {
-                approve: "Approve",
-                reject: "Reject",
-                submit_input: "Submit",
-                handback: "Return",
-                retry: "Retry",
-                skip: "Skip",
-                complete: "Complete",
-              },
-            },
-            detail_panel: {
-              worker_output: "Worker Output",
-              critic_output: "Critic Output",
-            },
-          },
-        });
-      }
-      return String(selector);
+vi.mock("@multica/views/i18n", () => {
+  const issues = {
+    execution: {
+      display_status: {
+        pending: "Pending",
+        todo: "Todo",
+        in_progress: "In progress",
+        reviewing: "Reviewing",
+        completed: "Completed",
+        blocked: "Blocked",
+        cancelled: "Cancelled",
+        dispatched: "Dispatched",
+        joined: "Joined",
+        waiting_upstream: "Waiting for upstream",
+      },
+      card: {
+        worker_label: "Worker",
+        critic_label: "Critic",
+        artifacts_label: "Artifacts",
+        gateway_label_fork: "Fork gateway",
+        gateway_label_join: "Join gateway",
+        gateway_label: "Gateway",
+        split_child_count: "{{count}} child issues",
+        split_child_count_one: "{{count}} child issue",
+        split_child_count_other: "{{count}} child issues",
+        split_child_done: "{{count}} done",
+        split_child_failed: "{{count}} failed",
+        split_child_running: "{{count}} running",
+        split_child_ready: "{{count}} ready",
+        split_child_skipped: "{{count}} skipped",
+        split_child_cancelled: "{{count}} cancelled",
+        split_child_expand: "Expand child issues",
+        split_child_collapse: "Collapse child issues",
+        actions: {
+          approve: "Approve",
+          reject: "Reject",
+          submit_input: "Submit",
+          handback: "Return",
+          retry: "Retry",
+          skip: "Skip",
+          complete: "Complete",
+        },
+      },
+      detail_panel: {
+        worker_output: "Worker Output",
+        critic_output: "Critic Output",
+      },
     },
-  }),
-}));
+  };
+
+  const workflows = {
+    detail_panel: {
+      split_node_generating_draft_tasks: "Generating draft tasks",
+      split_node_review_tasks_one: "Review {{count}} task",
+      split_node_review_tasks_other: "Review {{count}} tasks",
+      split_node_review_tasks: "Review {{count}} tasks",
+      split_node_mode_concurrency: "{{mode}} · concurrency {{concurrency}}",
+      split_status_fallback: "pending",
+    },
+  };
+
+  const localeMaps = { issues, workflows } as Record<string, Record<string, unknown>>;
+
+  return {
+    useT: (namespace: string) => ({
+      t: (selector: unknown, options?: Record<string, unknown>) => {
+        if (typeof selector === "function") {
+          const value = selector(localeMaps[namespace] ?? {});
+          if (typeof value === "string" && options) {
+            return value.replace(/\{\{(\w+)\}\}/g, (_match, key) => String(options[key] ?? ""));
+          }
+          return value;
+        }
+        return String(selector);
+      },
+    }),
+  };
+});
 
 const baseNode: WorkflowNode = {
   id: "node-1",
@@ -480,8 +515,10 @@ describe("RuntimeNodeCard", () => {
       />,
     );
 
-    const toggleButton = screen.getByRole("button", { name: "Expand 3 child issue nodes" });
-    expect(toggleButton).toHaveTextContent("3 issues · 1 done · 1 running · 1 ready");
+    const toggleButton = screen.getByRole("button", { name: "Expand child issues" });
+    expect(toggleButton).toHaveAttribute("data-testid", "runtime-node-split-child-toggle");
+    expect(toggleButton).toHaveTextContent("3 child issues");
+    expect(toggleButton).toHaveTextContent("1 done · 1 running · 1 ready");
 
     await userEvent.click(toggleButton);
 
@@ -529,6 +566,51 @@ describe("RuntimeNodeCard", () => {
     );
 
     expect(screen.getByTestId("runtime-node-card-split-keyboard")).toHaveAttribute("tabindex", "0");
+  });
+
+  it("marks the split child tray as open when child nodes are expanded", () => {
+    render(
+      <RuntimeNodeCard
+        node={{
+          ...baseNode,
+          id: "split-open",
+          title: "Task split",
+          format_schema: {
+            type: "split",
+            split_config: {
+              default_issue_workflow_id: "child-wf-1",
+              mode: "barrier",
+              max_concurrency: 5,
+              max_failures: 0,
+            },
+          },
+        }}
+        nodeRun={{ ...completedRun, workflow_node_id: "split-open", status: "split_active" }}
+        runtimeSummary={{
+          ...runtimeSummary,
+          workflow_node_id: "split-open",
+          split_progress: {
+            total: 2,
+            created: 0,
+            running: 0,
+            done: 2,
+            failed: 0,
+            cancelled: 0,
+            skipped: 0,
+          },
+        }}
+        workerName="Tester"
+        criticName="Reviewer"
+        onClick={vi.fn()}
+        splitChildCount={2}
+        isSplitExpanded
+        onSplitNodeToggle={vi.fn()}
+      />,
+    );
+
+    const toggleButton = screen.getByRole("button", { name: "Collapse child issues" });
+    expect(toggleButton).toHaveAttribute("aria-expanded", "true");
+    expect(toggleButton.className).toContain("bg-primary/10");
   });
 
   it("keeps the visible canvas surface and split card chrome for split nodes", () => {

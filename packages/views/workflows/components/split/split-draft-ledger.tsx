@@ -6,6 +6,7 @@ import { useWorkspacePaths } from "@multica/core/paths";
 import { workflowRunCanvasSummaryOptions } from "@multica/core/workflows/queries";
 import { Badge } from "@multica/ui/components/ui/badge";
 import { cn } from "@multica/ui/lib/utils";
+import { useT } from "@multica/views/i18n";
 import { AppLink } from "../../../navigation";
 
 interface SplitDraftLedgerProps {
@@ -26,17 +27,19 @@ function taskStatusLabel(status: SplitTaskStatus): string {
   return status;
 }
 
-function workflowLabel(task: SplitTask, workflows: Workflow[]): string {
+function workflowLabel(t: ReturnType<typeof useT<"workflows">>["t"], task: SplitTask, workflows: Workflow[]): string {
   const workflow = workflows.find((item) => item.id === task.workflow_id);
-  return workflow?.title ?? task.workflow_id ?? "Missing workflow";
+  return workflow?.title ?? task.workflow_id ?? t(($) => $.detail_panel.split_draft_missing_execution_workflow);
 }
 
 function SplitTaskChildIssueMeta({
   task,
   linkedIssue,
+  t,
 }: {
   task: SplitTask;
   linkedIssue: Issue;
+  t: ReturnType<typeof useT<"workflows">>["t"];
 }) {
   const paths = useWorkspacePaths();
   const shouldLoadError =
@@ -57,7 +60,7 @@ function SplitTaskChildIssueMeta({
 
   return (
     <div className="mt-1 flex flex-wrap items-center gap-2 text-xs">
-      <span className="text-muted-foreground">Child issue</span>
+      <span className="text-muted-foreground">{t(($) => $.detail_panel.split_draft_child_issue_label)}</span>
       <AppLink
         href={paths.issueDetail(linkedIssue.id)}
         className="font-medium text-primary hover:underline"
@@ -65,23 +68,23 @@ function SplitTaskChildIssueMeta({
         {linkedIssue.identifier}
       </AppLink>
       <Badge variant="outline">{linkedIssue.status}</Badge>
-      {errorMessage ? <span className="text-destructive">Error: {errorMessage}</span> : null}
+      {errorMessage ? <span className="text-destructive">{t(($) => $.detail_panel.split_draft_error_prefix, { message: errorMessage })}</span> : null}
     </div>
   );
 }
 
-function SplitTaskIssueFallback({ task }: { task: SplitTask }) {
+function SplitTaskIssueFallback({ task, t }: { task: SplitTask; t: ReturnType<typeof useT<"workflows">>["t"] }) {
   const paths = useWorkspacePaths();
   if (!task.issue_id) return null;
 
   return (
     <div className="mt-1 flex flex-wrap items-center gap-2 text-xs">
-      <span className="text-muted-foreground">Child issue</span>
+      <span className="text-muted-foreground">{t(($) => $.detail_panel.split_draft_child_issue_label)}</span>
       <AppLink
         href={paths.issueDetail(task.issue_id)}
         className="font-medium text-primary hover:underline"
       >
-        Open child issue
+        {t(($) => $.detail_panel.split_draft_open_child_issue)}
       </AppLink>
       <Badge variant="outline">{task.status}</Badge>
     </div>
@@ -95,10 +98,12 @@ export function SplitDraftLedger({
   readOnly = false,
   onWorkflowChange,
 }: SplitDraftLedgerProps) {
+  const { t } = useT("workflows");
+
   if (tasks.length === 0) {
     return (
       <div className="rounded-md border border-dashed bg-muted/20 px-3 py-3 text-sm text-muted-foreground">
-        No child issue draft has been generated yet.
+        {t(($) => $.detail_panel.split_draft_empty)}
       </div>
     );
   }
@@ -133,7 +138,7 @@ export function SplitDraftLedger({
                     {taskNumber(index)}
                   </span>
                   <h4 className="min-w-0 truncate text-sm font-medium" title={task.title}>
-                    {task.title || "Untitled task"}
+                    {task.title || t(($) => $.detail_panel.split_draft_untitled_task)}
                   </h4>
                 </div>
                 {task.description.trim().length > 0 ? (
@@ -142,21 +147,21 @@ export function SplitDraftLedger({
                   </p>
                 ) : null}
                 {linkedIssue ? (
-                  <SplitTaskChildIssueMeta task={task} linkedIssue={linkedIssue} />
+                  <SplitTaskChildIssueMeta task={task} linkedIssue={linkedIssue} t={t} />
                 ) : (
-                  <SplitTaskIssueFallback task={task} />
+                  <SplitTaskIssueFallback task={task} t={t} />
                 )}
               </div>
               <div className="flex min-w-0 flex-wrap items-center gap-1.5">
                 <Badge variant="secondary">{taskStatusLabel(task.status)}</Badge>
                 <select
-                  aria-label={`Execution workflow for ${task.title}`}
+                  aria-label={t(($) => $.detail_panel.split_draft_execution_workflow_for, { title: task.title })}
                   className="h-8 min-w-[12rem] rounded-md border border-input bg-background px-2 text-xs"
                   value={task.workflow_id ?? ""}
                   disabled={readOnly || task.status !== "draft"}
                   onChange={(event) => onWorkflowChange?.(task, event.target.value)}
                 >
-                  <option value="">Select workflow...</option>
+                  <option value="">{t(($) => $.detail_panel.split_draft_select_workflow_placeholder)}</option>
                   {workflows.map((workflow) => (
                     <option key={workflow.id} value={workflow.id}>
                       {workflow.title}
@@ -164,20 +169,20 @@ export function SplitDraftLedger({
                   ))}
                 </select>
                 {readOnly || task.status !== "draft" ? (
-                  <Badge variant="outline" className="max-w-[12rem] truncate" title={workflowLabel(task, workflows)}>
-                    {workflowLabel(task, workflows)}
+                  <Badge variant="outline" className="max-w-[12rem] truncate" title={workflowLabel(t, task, workflows)}>
+                    {workflowLabel(t, task, workflows)}
                   </Badge>
                 ) : null}
               </div>
             </div>
             <div className="mt-2 flex flex-wrap gap-1.5 text-xs text-muted-foreground">
-              <span>Dependencies: {dependsOn || "none"}</span>
+              <span>{dependsOn ? t(($) => $.detail_panel.split_draft_dependencies_label, { deps: dependsOn }) : t(($) => $.detail_panel.split_draft_dependencies_none)}</span>
               {!task.workflow_id ? (
                 <span
                   data-testid={`split-draft-risk-${task.id}`}
                   className="rounded-full bg-destructive/10 px-2 py-0.5 font-medium text-destructive"
                 >
-                  Missing execution workflow
+                  {t(($) => $.detail_panel.split_draft_missing_execution_workflow)}
                 </span>
               ) : null}
             </div>

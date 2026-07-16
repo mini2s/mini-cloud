@@ -7,6 +7,7 @@ import { Button } from "@multica/ui/components/ui/button";
 import { Badge } from "@multica/ui/components/ui/badge";
 import { chatMessagesOptions, pendingChatTaskOptions } from "@multica/core/chat/queries";
 import type { AgentTask, ChatMessage, ChatPendingTask } from "@multica/core/types";
+import { useT } from "@multica/views/i18n";
 import { CommentInput } from "../../../issues/components/comment-input";
 import { InlineTranscriptPanel } from "../../../issues/components/execution-log/inline-transcript-panel";
 
@@ -17,11 +18,14 @@ interface SplitChatReviewProps {
   onSubmit: (content: string, attachmentIds?: string[]) => Promise<void>;
 }
 
-const SUGGESTIONS = [
-  "Add a security review child issue",
-  "Merge task 2 and task 3",
-  "Restore the original draft",
-];
+function useSuggestions() {
+  const { t } = useT("workflows");
+  return [
+    t(($) => $.detail_panel.split_chat_suggestion_add_security),
+    t(($) => $.detail_panel.split_chat_suggestion_merge),
+    t(($) => $.detail_panel.split_chat_suggestion_restore),
+  ];
+}
 
 function SplitInlineComposer({
   disabled,
@@ -30,6 +34,7 @@ function SplitInlineComposer({
   disabled: boolean;
   onSubmit: (content: string, attachmentIds?: string[]) => Promise<void>;
 }) {
+  const { t } = useT("workflows");
   const [content, setContent] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -49,8 +54,8 @@ function SplitInlineComposer({
     <div className="rounded-lg border bg-background p-2">
       <textarea
         className="min-h-20 w-full resize-none rounded-sm bg-transparent px-1 py-1 text-sm outline-none placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
-        aria-label="Adjustment request"
-        placeholder="Describe the adjustment..."
+        aria-label={t(($) => $.detail_panel.split_chat_adjustment_aria)}
+        placeholder={t(($) => $.detail_panel.split_chat_adjustment_placeholder)}
         value={content}
         disabled={disabled || isSubmitting}
         onChange={(event) => setContent(event.target.value)}
@@ -63,7 +68,7 @@ function SplitInlineComposer({
           onClick={() => void submit()}
         >
           <Send className="mr-1.5 size-3.5" />
-          {isSubmitting ? "Sending..." : "Send"}
+          {isSubmitting ? t(($) => $.detail_panel.split_chat_sending) : t(($) => $.detail_panel.split_chat_send)}
         </Button>
       </div>
     </div>
@@ -113,12 +118,14 @@ function SplitChatHistory({
   messages: ChatMessage[];
   isPending: boolean;
 }) {
+  const { t } = useT("workflows");
+
   if (messages.length === 0) return null;
 
   return (
     <div className="space-y-2 rounded-lg border bg-muted/20 px-3 py-2">
       <div className="flex items-center justify-between gap-2">
-        <h4 className="text-sm font-medium">Agent transcript</h4>
+        <h4 className="text-sm font-medium">{t(($) => $.detail_panel.split_chat_agent_transcript)}</h4>
         <Badge variant="outline">{messages.length}</Badge>
       </div>
       <div className="space-y-2">
@@ -126,7 +133,7 @@ function SplitChatHistory({
           <div key={message.id} className="rounded-md border bg-background px-2.5 py-2">
             <div className="mb-1 flex items-center gap-2">
               <Badge variant={message.role === "assistant" ? "secondary" : "outline"}>
-                {message.role === "assistant" ? "Agent" : "You"}
+                {message.role === "assistant" ? t(($) => $.detail_panel.split_chat_role_agent) : t(($) => $.detail_panel.split_chat_role_you)}
               </Badge>
               <span className="text-[11px] text-muted-foreground">{message.created_at}</span>
             </div>
@@ -151,6 +158,8 @@ export function SplitChatReview({
   disabled = false,
   onSubmit,
 }: SplitChatReviewProps) {
+  const { t } = useT("workflows");
+  const suggestions = useSuggestions();
   const { data: messages = [] } = useQuery(chatMessagesOptions(chatSessionId ?? ""));
   const { data: pendingTask } = useQuery(pendingChatTaskOptions(chatSessionId ?? ""));
   const isAgentRunning = !!pendingTask?.task_id;
@@ -164,9 +173,9 @@ export function SplitChatReview({
       {isAgentRunning ? (
         <div className="flex items-center gap-2 rounded-lg border bg-muted/30 px-3 py-2">
           <span className="size-2 rounded-full bg-amber-500 animate-pulse" />
-          <span className="text-sm text-muted-foreground">Agent is thinking...</span>
+          <span className="text-sm text-muted-foreground">{t(($) => $.detail_panel.split_chat_agent_thinking)}</span>
           {pendingTask?.status === "queued" ? (
-            <Badge variant="outline" className="text-xs">Queued</Badge>
+            <Badge variant="outline" className="text-xs">{t(($) => $.detail_panel.split_chat_queued)}</Badge>
           ) : null}
         </div>
       ) : null}
@@ -183,7 +192,7 @@ export function SplitChatReview({
 
       {!hasHistory ? (
         <div className="flex flex-wrap gap-1.5">
-          {SUGGESTIONS.map((suggestion) => (
+          {suggestions.map((suggestion) => (
             <Button
               key={suggestion}
               type="button"
@@ -201,14 +210,14 @@ export function SplitChatReview({
       {issueId ? (
         <div aria-disabled={disabled} className={disabled ? "pointer-events-none opacity-60" : undefined}>
           <p className="mb-2 text-[11px] text-muted-foreground">
-            Workflow changes use the row selector, not chat.
+            {t(($) => $.detail_panel.split_chat_non_workflow_hint)}
           </p>
           <CommentInput issueId={issueId} onSubmit={onSubmit} />
         </div>
       ) : (
         <>
           <p className="text-[11px] text-muted-foreground">
-            Workflow changes use the row selector, not chat.
+            {t(($) => $.detail_panel.split_chat_non_workflow_hint)}
           </p>
           <SplitInlineComposer disabled={disabled} onSubmit={onSubmit} />
         </>

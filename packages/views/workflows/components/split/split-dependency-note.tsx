@@ -1,5 +1,6 @@
 "use client";
 
+import { useT } from "@multica/views/i18n";
 import type { SplitTask } from "@multica/core/types";
 
 interface SplitDependencyNoteProps {
@@ -24,12 +25,13 @@ function buildDependencyRows(tasks: SplitTask[]): string[] {
 }
 
 export function SplitDependencyNote({ tasks }: SplitDependencyNoteProps) {
+  const { t } = useT("workflows");
   const rows = buildDependencyRows(tasks);
 
   if (tasks.length === 0) {
     return (
       <p className="text-sm text-muted-foreground">
-        Dependencies will appear here after a draft is generated.
+        {t(($) => $.detail_panel.split_dep_will_appear_after_draft)}
       </p>
     );
   }
@@ -37,7 +39,7 @@ export function SplitDependencyNote({ tasks }: SplitDependencyNoteProps) {
   if (rows.length === 0) {
     return (
       <p className="text-sm text-muted-foreground">
-        These child issues can start in parallel.
+        {t(($) => $.detail_panel.split_dep_can_start_in_parallel)}
       </p>
     );
   }

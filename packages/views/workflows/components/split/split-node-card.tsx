@@ -4,6 +4,7 @@ import type { ReactNode } from "react";
 import { GitBranch, Loader2 } from "lucide-react";
 import type { SplitConfig, SplitProgress } from "@multica/core/types";
 import { cn } from "@multica/ui/lib/utils";
+import { useT } from "@multica/views/i18n";
 import { SplitProgressBadge } from "./split-progress-badge";
 
 export interface SplitNodeCardProps {
@@ -31,17 +32,18 @@ export function SplitNodeCard({
   progressAction,
   onClick,
 }: SplitNodeCardProps) {
+  const { t } = useT("workflows");
   const mode = config?.mode ?? "barrier";
   const maxConcurrency = config?.max_concurrency ?? 5;
   const showProgress = (status === "active" || status === "completed") && (progress || progressAction);
   const label =
     status === "generating"
-      ? "Generating draft tasks"
+      ? t(($) => $.detail_panel.split_node_generating_draft_tasks)
       : status === "awaiting_review"
-      ? `Review ${taskCount} tasks`
-      : showProgress
-        ? null
-        : `${mode} · concurrency ${maxConcurrency}`;
+        ? t(($) => $.detail_panel.split_node_review_tasks, { count: taskCount })
+        : showProgress
+          ? null
+          : t(($) => $.detail_panel.split_node_mode_concurrency, { mode, concurrency: maxConcurrency });
 
   const content = (
     <div

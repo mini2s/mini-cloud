@@ -5,6 +5,33 @@ import { describe, expect, it, vi } from "vitest";
 import type { SplitTask, Workflow } from "@multica/core/types";
 import { SplitDraftLedger } from "./split-draft-ledger";
 
+vi.mock("../../../i18n", () => ({
+  useT: () => ({
+    t: (
+      selector: (resources: Record<string, unknown>) => string,
+      values?: Record<string, string | number>,
+    ) => {
+      const detailPanel = {
+        split_draft_child_issue_label: "Child issue",
+        split_draft_open_child_issue: "Open child issue",
+        split_draft_error_prefix: "Error: {{message}}",
+        split_draft_empty: "No child issue draft has been generated yet.",
+        split_draft_untitled_task: "Untitled task",
+        split_draft_execution_workflow_for: "Execution workflow for {{title}}",
+        split_draft_select_workflow_placeholder: "Select workflow...",
+        split_draft_dependencies_label: "Dependencies: {{deps}}",
+        split_draft_dependencies_none: "Dependencies: none",
+        split_draft_missing_execution_workflow: "Missing execution workflow",
+      };
+      const template = selector({ detail_panel: detailPanel });
+      if (values) {
+        return template.replace(/\{\{(\w+)\}\}/g, (_match, key) => String(values[key] ?? ""));
+      }
+      return template;
+    },
+  }),
+}));
+
 vi.mock("@multica/core/paths", () => ({
   useWorkspacePaths: () => ({
     issueDetail: (id: string) => `/test/issues/${id}`,

@@ -58,10 +58,10 @@ function typeIcon(t: string) {
   return User;
 }
 
-function gatewayLabel(kind: "fork" | "join" | null): string {
-  if (kind === "join") return "Join gateway";
-  if (kind === "fork") return "Fork gateway";
-  return "Gateway";
+function gatewayLabel(t: IssueTranslator, kind: "fork" | "join" | null): string {
+  if (kind === "join") return t(($) => $.execution.card.gateway_label_join);
+  if (kind === "fork") return t(($) => $.execution.card.gateway_label_fork);
+  return t(($) => $.execution.card.gateway_label);
 }
 
 type IssueTranslator = ReturnType<typeof useT<"issues">>["t"];
@@ -98,14 +98,21 @@ function runtimeDisplayStatusText(
   }
 }
 
-function splitProgressSummaryParts(progress: NonNullable<WorkflowNodeRuntimeSummary["split_progress"]>): string[] {
+function splitChildCountLabel(t: IssueTranslator, count: number): string {
+  return t(($) => $.execution.card.split_child_count, { count });
+}
+
+function splitProgressSummaryParts(
+  t: IssueTranslator,
+  progress: NonNullable<WorkflowNodeRuntimeSummary["split_progress"]>,
+): string[] {
   return [
-    progress.done > 0 ? `${progress.done} done` : null,
-    progress.failed > 0 ? `${progress.failed} failed` : null,
-    progress.running > 0 ? `${progress.running} running` : null,
-    progress.created > 0 ? `${progress.created} ready` : null,
-    progress.skipped > 0 ? `${progress.skipped} skipped` : null,
-    progress.cancelled > 0 ? `${progress.cancelled} cancelled` : null,
+    progress.done > 0 ? t(($) => $.execution.card.split_child_done, { count: progress.done }) : null,
+    progress.failed > 0 ? t(($) => $.execution.card.split_child_failed, { count: progress.failed }) : null,
+    progress.running > 0 ? t(($) => $.execution.card.split_child_running, { count: progress.running }) : null,
+    progress.created > 0 ? t(($) => $.execution.card.split_child_ready, { count: progress.created }) : null,
+    progress.skipped > 0 ? t(($) => $.execution.card.split_child_skipped, { count: progress.skipped }) : null,
+    progress.cancelled > 0 ? t(($) => $.execution.card.split_child_cancelled, { count: progress.cancelled }) : null,
   ].filter((part): part is string => Boolean(part));
 }
 
@@ -294,11 +301,11 @@ export function RuntimeNodeCard({
           : "idle";
   const splitProgress = runtimeSummary?.split_progress ?? null;
   const canToggleSplitChildren = isSplit && splitChildCount > 0 && !!onSplitNodeToggle;
-  const splitChildLabel = `${splitChildCount} ${splitChildCount === 1 ? "issue" : "issues"}`;
-  const splitChildSummaryLabel = [
-    splitChildLabel,
-    ...(splitProgress ? splitProgressSummaryParts(splitProgress) : []),
-  ].join(" · ");
+  const splitChildLabel = splitChildCountLabel(t, splitChildCount);
+  const splitChildSummaryParts = splitProgress ? splitProgressSummaryParts(t, splitProgress) : [];
+  const splitChildSummaryLabel = splitChildSummaryParts.length > 0
+    ? splitChildSummaryParts.join(" · ")
+    : displayStatusLabel;
   const handleShellKeyDown = useCallback((event: React.KeyboardEvent<HTMLDivElement>) => {
     if (event.key !== "Enter" && event.key !== " ") return;
     event.preventDefault();
@@ -369,28 +376,46 @@ export function RuntimeNodeCard({
           progressAction={canToggleSplitChildren ? (
             <button
               type="button"
+              data-testid="runtime-node-split-child-toggle"
               className={cn(
-                "nodrag nopan inline-flex h-7 w-full min-w-0 items-center justify-between gap-2 rounded-md border px-2",
-                "bg-background text-[11px] font-medium leading-none text-muted-foreground transition-colors",
+                "nodrag nopan flex min-h-10 w-full min-w-0 items-center justify-between gap-2 rounded-md border px-2.5 py-1.5 text-left",
+                "bg-background/85 transition-colors",
                 "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                 isSplitExpanded
-                  ? "border-primary/35 bg-primary/10 text-primary hover:bg-primary/15"
-                  : "border-border hover:border-primary/35 hover:bg-primary/10 hover:text-primary",
+                  ? "border-primary/35 bg-primary/10 shadow-[inset_0_0_0_1px_hsl(var(--primary)/0.16)] hover:bg-primary/15"
+                  : "border-border/80 hover:border-primary/35 hover:bg-primary/10",
               )}
               aria-label={
                 isSplitExpanded
-                  ? `Collapse ${splitChildCount} child issue nodes`
-                  : `Expand ${splitChildCount} child issue nodes`
+                  ? t(($) => $.execution.card.split_child_collapse)
+                  : t(($) => $.execution.card.split_child_expand)
               }
               aria-expanded={isSplitExpanded}
               onClick={handleSplitToggleClick}
             >
-              <span className="min-w-0 truncate tabular-nums">{splitChildSummaryLabel}</span>
-              {isSplitExpanded ? (
-                <ChevronDown className="h-3 w-3 shrink-0" aria-hidden />
-              ) : (
-                <ChevronRight className="h-3 w-3 shrink-0" aria-hidden />
-              )}
+              <span className="min-w-0">
+                <span className="block truncate text-[12px] font-semibold leading-4 text-foreground">
+                  {splitChildLabel}
+                </span>
+                <span className="block truncate text-[10px] font-medium leading-3 text-muted-foreground">
+                  {splitChildSummaryLabel}
+                </span>
+              </span>
+              <span
+                className={cn(
+                  "flex size-6 shrink-0 items-center justify-center rounded-md border transition-colors",
+                  isSplitExpanded
+                    ? "border-primary/25 bg-primary text-primary-foreground"
+                    : "border-border/80 bg-muted/55 text-muted-foreground",
+                )}
+                aria-hidden
+              >
+                {isSplitExpanded ? (
+                  <ChevronDown className="size-3.5" />
+                ) : (
+                  <ChevronRight className="size-3.5" />
+                )}
+              </span>
             </button>
           ) : null}
           className="h-full w-full min-h-0"
@@ -430,10 +455,10 @@ export function RuntimeNodeCard({
             </span>
             <div className="min-w-0">
               <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-                Gateway
+                {t(($) => $.execution.card.gateway_label)}
               </p>
               <p className="truncate font-medium text-foreground/85">
-                {gatewayLabel(nodeFormat.gateway_kind)}
+                {gatewayLabel(t, nodeFormat.gateway_kind)}
               </p>
             </div>
           </div>

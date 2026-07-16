@@ -6,6 +6,36 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ChatMessage } from "@multica/core/types";
 import { SplitChatReview } from "./split-chat-review";
 
+vi.mock("../../../i18n", () => ({
+  useT: () => ({
+    t: (
+      selector: (resources: Record<string, unknown>) => string,
+      values?: Record<string, string | number>,
+    ) => {
+      const detailPanel = {
+        split_chat_adjustment_aria: "Adjustment request",
+        split_chat_adjustment_placeholder: "Describe the adjustment...",
+        split_chat_send: "Send",
+        split_chat_sending: "Sending...",
+        split_chat_agent_transcript: "Agent transcript",
+        split_chat_role_agent: "Agent",
+        split_chat_role_you: "You",
+        split_chat_agent_thinking: "Agent is thinking...",
+        split_chat_queued: "Queued",
+        split_chat_non_workflow_hint: "Workflow changes use the row selector, not chat.",
+        split_chat_suggestion_add_security: "Add a security review child issue",
+        split_chat_suggestion_merge: "Merge task 2 and task 3",
+        split_chat_suggestion_restore: "Restore the original draft",
+      };
+      const template = selector({ detail_panel: detailPanel });
+      if (values) {
+        return template.replace(/\{\{(\w+)\}\}/g, (_match, key) => String(values[key] ?? ""));
+      }
+      return template;
+    },
+  }),
+}));
+
 const mocks = vi.hoisted(() => ({
   messages: [] as ChatMessage[],
   isLoading: false,

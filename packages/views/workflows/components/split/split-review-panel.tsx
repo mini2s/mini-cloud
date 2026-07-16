@@ -184,17 +184,17 @@ function SplitVerdictSummary({
       <details className="mt-2 text-xs text-muted-foreground">
         <summary className="cursor-pointer text-primary">{t(($) => $.detail_panel.split_settings_summary)}</summary>
         <div className="mt-2 flex flex-wrap gap-1.5">
-          <Badge variant="outline">Mode: {splitConfig?.mode ?? "barrier"}</Badge>
-          <Badge variant="outline">Concurrency: {splitConfig?.max_concurrency ?? 5}</Badge>
-          <Badge variant="outline">Max failures: {splitConfig?.max_failures ?? 0}</Badge>
+          <Badge variant="outline">{t(($) => $.detail_panel.split_settings_mode_label, { mode: splitConfig?.mode ?? "barrier" })}</Badge>
+          <Badge variant="outline">{t(($) => $.detail_panel.split_settings_concurrency_label, { concurrency: splitConfig?.max_concurrency ?? 5 })}</Badge>
+          <Badge variant="outline">{t(($) => $.detail_panel.split_settings_max_failures_label, { max: splitConfig?.max_failures ?? 0 })}</Badge>
         </div>
       </details>
       <div className="mt-3 grid grid-cols-4 gap-2 text-xs">
         {[
-          ["Total", progress.total],
-          ["Running", progress.running],
-          ["Done", progress.done],
-          ["Failed", progress.failed],
+          [t(($) => $.detail_panel.split_stat_total), progress.total],
+          [t(($) => $.detail_panel.split_stat_running), progress.running],
+          [t(($) => $.detail_panel.split_stat_done), progress.done],
+          [t(($) => $.detail_panel.split_stat_failed), progress.failed],
         ].map(([label, value]) => (
           <div key={label} className="min-w-0 rounded-md border bg-background px-2 py-1.5">
             <p className="truncate text-[10px] uppercase text-muted-foreground">{label}</p>
@@ -270,7 +270,7 @@ export function SplitReviewPanel({
   const splitConfig = splitConfigFromNode(node);
   const creatableCount = creatableTasks(tasks).length;
   const workflowBlockers = creatableTasks(tasks)
-    .map((task, index) => task.workflow_id ? null : `Child issue ${index + 1} is missing execution workflow.`)
+    .map((task, index) => task.workflow_id ? null : t(($) => $.detail_panel.split_blocker_missing_workflow, { index: index + 1 }))
     .filter((message): message is string => Boolean(message));
   const canApprove = nodeRun?.status === "awaiting_split_review" && creatableCount > 0 && workflowBlockers.length === 0;
   const canChat = nodeRun?.status === "awaiting_split_review";
@@ -362,7 +362,7 @@ export function SplitReviewPanel({
       variant="overlay"
       title={node.title}
       eyebrow={nodeRun?.status === "split_active" ? t(($) => $.detail_panel.split_progress_eyebrow) : t(($) => $.detail_panel.split_review_eyebrow)}
-      closeLabel="Close"
+      closeLabel={t(($) => $.detail_panel.close_label)}
       onClose={onClose}
       contentClassName="pb-0"
       badges={(
@@ -371,7 +371,7 @@ export function SplitReviewPanel({
             <span data-testid="split-node-status">{nodeRun?.status ?? "pending"}</span>
           </Badge>
           <SplitProgressBadge progress={progress} />
-          <Badge variant="outline">Mode: {splitConfig?.mode ?? "barrier"}</Badge>
+          <Badge variant="outline">{t(($) => $.detail_panel.split_settings_mode_label, { mode: splitConfig?.mode ?? "barrier" })}</Badge>
         </>
       )}
     >
@@ -444,7 +444,7 @@ export function SplitReviewPanel({
         <NodeDetailSection
           sectionId="actions"
           icon={<Activity className="size-4" />}
-          title="Actions"
+          title={t(($) => $.detail_panel.split_actions_section)}
         >
           <div className="flex flex-wrap gap-2">
             {canGenerate ? (
