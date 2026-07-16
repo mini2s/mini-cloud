@@ -30,6 +30,7 @@ UPDATE multica_project SET
     priority = COALESCE(sqlc.narg('priority'), priority),
     lead_type = sqlc.narg('lead_type'),
     lead_id = sqlc.narg('lead_id'),
+    local_directory = sqlc.narg('local_directory'),
     updated_at = now()
 WHERE id = $1
 RETURNING *;
