@@ -95,7 +95,7 @@ vi.mock("@multica/views/i18n", () => ({
               open_child_issue: "Open child issue",
               view_evidence: "View evidence",
               parent_split: "Parent split",
-              child_workflow: "Child workflow",
+              child_workflow: "Issue workflow",
               reason: "Reason",
               no_deliverables: "No deliverables yet",
               no_runtime_data: "No runtime data yet.",
@@ -213,6 +213,7 @@ describe("ExecutionDetailPanel", () => {
     );
 
     expect(screen.getByTestId("workflow-node-detail-panel-shell")).toHaveAttribute("data-mode", "run");
+    expect(screen.getByTestId("runtime-diagnostic-summary")).toHaveClass("rounded-lg", "border");
     expect(screen.getAllByTestId("node-detail-section").map((section) => section.getAttribute("data-section"))).toEqual([
       "status-next-step",
       "worker-critic",
@@ -291,6 +292,7 @@ describe("ExecutionDetailPanel", () => {
 
     await userEvent.click(screen.getByRole("button", { name: "Open session" }));
 
+    expect(screen.getByTestId("runtime-primary-actions")).toContainElement(screen.getByRole("button", { name: "Open session" }));
     expect(screen.getAllByTestId("node-detail-section").map((section) => section.getAttribute("data-section"))).toEqual([
       "status-next-step",
       "worker-critic",
@@ -461,7 +463,7 @@ describe("ExecutionDetailPanel", () => {
         onOpenIssue={vi.fn()}
         isChildIssue
         parentSplitTitle="Split work"
-        childWorkflowName="Child workflow"
+        childWorkflowName="Issue workflow"
         wsId="ws-1"
       />,
     );
@@ -470,7 +472,7 @@ describe("ExecutionDetailPanel", () => {
     expect(sections).toEqual(["status-next-step", "child-progress", "worker-critic", "evidence-preview", "runtime-facts"]);
     expect(screen.getAllByText("Open child issue").length).toBeGreaterThan(0);
     expect(screen.getByText("Split work")).toBeInTheDocument();
-    expect(screen.getAllByText("Child workflow").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Issue workflow").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Missing input").length).toBeGreaterThan(0);
   });
 

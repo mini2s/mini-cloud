@@ -57,49 +57,37 @@ type splitAttachmentStorage interface {
 }
 
 type SplitConfig struct {
-	ChildWorkflowID      string                     `json:"child_workflow_id"`
-	Mode                 string                     `json:"mode"`
-	MaxConcurrency       int32                      `json:"max_concurrency"`
-	MaxFailures          int32                      `json:"max_failures"`
-	DefaultChildAssignee *SplitDefaultChildAssignee `json:"default_child_assignee,omitempty"`
-}
-
-type SplitDefaultChildAssignee struct {
-	Type string `json:"type"`
-	ID   string `json:"id"`
-	Name string `json:"name,omitempty"`
+	DefaultIssueWorkflowID string `json:"default_issue_workflow_id"`
+	Mode                   string `json:"mode"`
+	MaxConcurrency         int32  `json:"max_concurrency"`
+	MaxFailures            int32  `json:"max_failures"`
 }
 
 type SplitApproveRequest struct {
 	ApprovedTaskIDs []string                `json:"approved_task_ids"`
 	Modifications   []SplitTaskModification `json:"modifications"`
+	ConfirmEmpty    bool                    `json:"confirm_empty"`
 }
 
 type SplitTaskModification struct {
-	Action                string   `json:"action"`
-	ID                    string   `json:"id"`
-	Title                 *string  `json:"title"`
-	Description           *string  `json:"description"`
-	DependsOn             []string `json:"depends_on"`
-	SuggestedAssigneeType *string  `json:"suggested_assignee_type"`
-	SuggestedAssigneeID   *string  `json:"suggested_assignee_id"`
+	Action      string   `json:"action"`
+	ID          string   `json:"id"`
+	Title       *string  `json:"title"`
+	Description *string  `json:"description"`
+	DependsOn   []string `json:"depends_on"`
 }
 
 type SplitDraftTaskRequest struct {
-	Key                   string   `json:"key"`
-	Title                 string   `json:"title"`
-	Description           string   `json:"description"`
-	SuggestedAssigneeType *string  `json:"suggested_assignee_type"`
-	SuggestedAssigneeID   *string  `json:"suggested_assignee_id"`
-	DependsOnKeys         []string `json:"depends_on_keys"`
+	Key           string   `json:"key"`
+	Title         string   `json:"title"`
+	Description   string   `json:"description"`
+	DependsOnKeys []string `json:"depends_on_keys"`
 }
 
 type splitGeneratedTask struct {
-	Title          string  `json:"title"`
-	Description    string  `json:"description"`
-	AssigneeType   *string `json:"assignee_type"`
-	AssigneeID     *string `json:"assignee_id"`
-	DependsOnIndex []int   `json:"depends_on_indices"`
+	Title          string `json:"title"`
+	Description    string `json:"description"`
+	DependsOnIndex []int  `json:"depends_on_indices"`
 }
 
 type splitGeneratedTaskPayload struct {
@@ -379,41 +367,10 @@ func parseSplitConfig(raw []byte) (SplitConfig, error) {
 	if cfg.MaxFailures < 0 {
 		cfg.MaxFailures = 0
 	}
-	if cfg.ChildWorkflowID == "" {
-		return SplitConfig{}, fmt.Errorf("split node is missing child_workflow_id")
-	}
-	if cfg.DefaultChildAssignee != nil {
-		cfg.DefaultChildAssignee.Type = strings.TrimSpace(cfg.DefaultChildAssignee.Type)
-		cfg.DefaultChildAssignee.ID = strings.TrimSpace(cfg.DefaultChildAssignee.ID)
-		if cfg.DefaultChildAssignee.Type != "agent" && cfg.DefaultChildAssignee.Type != "member" {
-			return SplitConfig{}, fmt.Errorf("default_child_assignee.type must be agent or member")
-		}
-		if cfg.DefaultChildAssignee.ID == "" {
-			return SplitConfig{}, fmt.Errorf("default_child_assignee.id is required")
-		}
+	if cfg.DefaultIssueWorkflowID == "" {
+		return SplitConfig{}, fmt.Errorf("split node is missing default_issue_workflow_id")
 	}
 	return cfg, nil
-}
-
-func (s *SplitOrchestrator) splitDefaultChildAssigneeContext(ctx context.Context, q *db.Queries, workspaceID pgtype.UUID, cfg SplitConfig) (map[string]any, error) {
-	if cfg.DefaultChildAssignee == nil {
-		return nil, nil
-	}
-	assigneeType, assigneeID, err := s.validateSplitDraftAssignee(ctx, q, workspaceID, &cfg.DefaultChildAssignee.Type, &cfg.DefaultChildAssignee.ID)
-	if err != nil {
-		return nil, fmt.Errorf("invalid default_child_assignee: %w", err)
-	}
-	out := map[string]any{
-		"type": assigneeType.String,
-		"id":   util.UUIDToString(assigneeID),
-	}
-	switch assigneeType.String {
-	case "agent":
-		if agent, err := q.GetAgent(ctx, assigneeID); err == nil {
-			out["name"] = agent.Name
-		}
-	}
-	return out, nil
 }
 
 func workflowNodeType(raw []byte) string {
@@ -454,18 +411,6 @@ func splitTaskMap(tasks []db.MulticaWorkflowSplitTask) map[string]db.MulticaWork
 		byID[util.UUIDToString(task.ID)] = task
 	}
 	return byID
-}
-
-func parseSuggestedAssignee(task db.MulticaWorkflowSplitTask) (pgtype.Text, pgtype.UUID) {
-	if !task.SuggestedAssigneeType.Valid {
-		return pgtype.Text{}, pgtype.UUID{}
-	}
-	switch task.SuggestedAssigneeType.String {
-	case "member", "agent", "squad":
-		return task.SuggestedAssigneeType, task.SuggestedAssigneeID
-	default:
-		return pgtype.Text{}, pgtype.UUID{}
-	}
 }
 
 func isTerminalSplitTaskStatus(status string) bool {
@@ -624,16 +569,12 @@ func (s *SplitOrchestrator) GenerateSplitTasks(ctx context.Context, nodeRun db.M
 	if err != nil {
 		return fmt.Errorf("get workflow run for split issue lookup: %w", err)
 	}
-	if err := s.validateChildWorkflow(ctx, cfg.ChildWorkflowID, node.WorkflowID, run.WorkspaceID); err != nil {
+	if err := s.validateIssueWorkflow(ctx, cfg.DefaultIssueWorkflowID, node.WorkflowID, run.WorkspaceID); err != nil {
 		return err
 	}
 	parentIssue, err := s.findParentIssue(ctx, currentNodeRun)
 	if err != nil {
 		return fmt.Errorf("find parent issue: %w", err)
-	}
-	defaultChildAssignee, err := s.splitDefaultChildAssigneeContext(ctx, s.Queries, run.WorkspaceID, cfg)
-	if err != nil {
-		return err
 	}
 	splitIssue, err := s.Queries.GetIssueByOrigin(ctx, db.GetIssueByOriginParams{
 		WorkspaceID: run.WorkspaceID,
@@ -660,9 +601,6 @@ func (s *SplitOrchestrator) GenerateSplitTasks(ctx context.Context, nodeRun db.M
 		"parent_issue_title":       parentIssue.Title,
 		"parent_issue_description": textToString(parentIssue.Description),
 		"split_config":             cfg,
-	}
-	if defaultChildAssignee != nil {
-		contextExtras["default_child_assignee"] = defaultChildAssignee
 	}
 	task, err := s.WfService.DispatchAgentTaskWithContextExtras(ctx, currentNodeRun, "split", contextExtras)
 	if err != nil {
@@ -804,29 +742,34 @@ func (s *SplitOrchestrator) replaceSplitDraftTasksFromPayload(
 	if err != nil {
 		return fmt.Errorf("get workflow run: %w", err)
 	}
+	node, err := s.Queries.GetWorkflowNode(ctx, nodeRun.WorkflowNodeID)
+	if err != nil {
+		return fmt.Errorf("get split node: %w", err)
+	}
+	cfg, err := parseSplitConfig(node.FormatSchema)
+	if err != nil {
+		return err
+	}
+	if err := s.validateIssueWorkflow(ctx, cfg.DefaultIssueWorkflowID, node.WorkflowID, run.WorkspaceID); err != nil {
+		return err
+	}
+	workflowID, err := util.ParseUUID(cfg.DefaultIssueWorkflowID)
+	if err != nil {
+		return fmt.Errorf("invalid default_issue_workflow_id: %w", err)
+	}
 
 	inserted := make([]db.MulticaWorkflowSplitTask, 0, len(payload.Tasks))
 	for i, generated := range payload.Tasks {
-		suggestedType := ptrStringToText(generated.AssigneeType)
-		suggestedID := pgtype.UUID{}
-		if generated.AssigneeID != nil && *generated.AssigneeID != "" {
-			parsedID, err := util.ParseUUID(*generated.AssigneeID)
-			if err != nil {
-				return fmt.Errorf("invalid generated assignee_id: %w", err)
-			}
-			suggestedID = parsedID
-		}
 		created, err := s.Queries.CreateSplitTask(ctx, db.CreateSplitTaskParams{
-			NodeRunID:             nodeRun.ID,
-			WorkspaceID:           run.WorkspaceID,
-			Title:                 generated.Title,
-			Description:           generated.Description,
-			DependsOn:             []byte("[]"),
-			SortOrder:             int32(i),
-			Status:                SplitTaskStatusDraft,
-			SuggestedAssigneeType: suggestedType,
-			SuggestedAssigneeID:   suggestedID,
-			DraftSource:           draftSource,
+			NodeRunID:   nodeRun.ID,
+			WorkspaceID: run.WorkspaceID,
+			Title:       generated.Title,
+			Description: generated.Description,
+			WorkflowID:  workflowID,
+			DependsOn:   []byte("[]"),
+			SortOrder:   int32(i),
+			Status:      SplitTaskStatusDraft,
+			DraftSource: draftSource,
 		})
 		if err != nil {
 			return fmt.Errorf("create generated split task: %w", err)
@@ -848,13 +791,11 @@ func (s *SplitOrchestrator) replaceSplitDraftTasksFromPayload(
 			return fmt.Errorf("marshal generated split depends_on: %w", err)
 		}
 		if _, err := s.Queries.UpdateSplitTaskFields(ctx, db.UpdateSplitTaskFieldsParams{
-			ID:                    taskRow.ID,
-			Title:                 pgtype.Text{},
-			Description:           pgtype.Text{},
-			SuggestedAssigneeType: taskRow.SuggestedAssigneeType,
-			SuggestedAssigneeID:   taskRow.SuggestedAssigneeID,
-			DependsOn:             dependsOnJSON,
-			SortOrder:             pgtype.Int4{},
+			ID:          taskRow.ID,
+			Title:       pgtype.Text{},
+			Description: pgtype.Text{},
+			DependsOn:   dependsOnJSON,
+			SortOrder:   pgtype.Int4{},
 		}); err != nil {
 			return fmt.Errorf("set generated split depends_on: %w", err)
 		}
@@ -905,9 +846,12 @@ func (s *SplitOrchestrator) AddSplitDraftTask(ctx context.Context, nodeRun db.Mu
 		if err != nil {
 			return err
 		}
-		suggestedType, suggestedID, err := s.resolveSplitDraftAssignee(ctx, qtx, run.WorkspaceID, cfg, req.SuggestedAssigneeType, req.SuggestedAssigneeID)
-		if err != nil {
+		if err := s.validateIssueWorkflow(ctx, cfg.DefaultIssueWorkflowID, node.WorkflowID, run.WorkspaceID); err != nil {
 			return err
+		}
+		workflowID, err := util.ParseUUID(cfg.DefaultIssueWorkflowID)
+		if err != nil {
+			return fmt.Errorf("invalid default_issue_workflow_id: %w", err)
 		}
 
 		existing, err := qtx.ListSplitTasksByNodeRun(ctx, nodeRun.ID)
@@ -954,16 +898,15 @@ func (s *SplitOrchestrator) AddSplitDraftTask(ctx context.Context, nodeRun db.Mu
 		}
 
 		if _, err := qtx.UpsertSplitDraftTaskByKey(ctx, db.UpsertSplitDraftTaskByKeyParams{
-			NodeRunID:             nodeRun.ID,
-			WorkspaceID:           run.WorkspaceID,
-			DraftKey:              pgtype.Text{String: key, Valid: true},
-			Title:                 title,
-			Description:           description,
-			DependsOn:             dependsOnJSON,
-			SortOrder:             sortOrder,
-			SuggestedAssigneeType: suggestedType,
-			SuggestedAssigneeID:   suggestedID,
-			DraftSource:           pgtype.Text{String: draftSource, Valid: true},
+			NodeRunID:   nodeRun.ID,
+			WorkspaceID: run.WorkspaceID,
+			DraftKey:    pgtype.Text{String: key, Valid: true},
+			Title:       title,
+			Description: description,
+			WorkflowID:  workflowID,
+			DependsOn:   dependsOnJSON,
+			SortOrder:   sortOrder,
+			DraftSource: pgtype.Text{String: draftSource, Valid: true},
 		}); err != nil {
 			return fmt.Errorf("upsert split draft task: %w", err)
 		}
@@ -1001,6 +944,141 @@ func (s *SplitOrchestrator) DeleteSplitDraftTask(ctx context.Context, nodeRun db
 		return fmt.Errorf("discard split draft task: %w", err)
 	}
 	return nil
+}
+
+func (s *SplitOrchestrator) PatchSplitConfig(ctx context.Context, nodeRun db.MulticaWorkflowNodeRun, maxConcurrency int32, expectedConfigVersion int64) error {
+	if maxConcurrency < 1 || maxConcurrency > 50 {
+		return fmt.Errorf("max_concurrency must be between 1 and 50")
+	}
+	if expectedConfigVersion < 1 {
+		return fmt.Errorf("expected_config_version is required")
+	}
+
+	return s.WfService.runInTx(ctx, func(qtx *db.Queries) error {
+		lockedNodeRun, err := qtx.GetWorkflowNodeRunForUpdate(ctx, nodeRun.ID)
+		if err != nil {
+			return fmt.Errorf("lock split node run: %w", err)
+		}
+		switch lockedNodeRun.Status {
+		case NodeRunStatusAwaitingSplitReview, NodeRunStatusSplitActive:
+		default:
+			return fmt.Errorf("split config cannot be patched from current status")
+		}
+
+		node, err := qtx.GetWorkflowNode(ctx, lockedNodeRun.WorkflowNodeID)
+		if err != nil {
+			return fmt.Errorf("get split node: %w", err)
+		}
+		cfg, err := parseSplitConfig(node.FormatSchema)
+		if err != nil {
+			return err
+		}
+		cfg.MaxConcurrency = maxConcurrency
+
+		var format map[string]any
+		if len(node.FormatSchema) > 0 {
+			if err := json.Unmarshal(node.FormatSchema, &format); err != nil {
+				return fmt.Errorf("parse split node format: %w", err)
+			}
+		}
+		if format == nil {
+			format = map[string]any{"type": "split"}
+		}
+		format["split_config"] = cfg
+		nextFormat, err := json.Marshal(format)
+		if err != nil {
+			return fmt.Errorf("marshal split node format: %w", err)
+		}
+		if _, err := qtx.UpdateWorkflowNode(ctx, db.UpdateWorkflowNodeParams{
+			ID:           node.ID,
+			FormatSchema: nextFormat,
+		}); err != nil {
+			return fmt.Errorf("update split node config: %w", err)
+		}
+		if _, err := qtx.UpdateSplitNodeRunConfigVersion(ctx, db.UpdateSplitNodeRunConfigVersionParams{
+			ID:                 lockedNodeRun.ID,
+			SplitConfigVersion: expectedConfigVersion,
+		}); err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return fmt.Errorf("split config version conflict")
+			}
+			return fmt.Errorf("update split config version: %w", err)
+		}
+		return nil
+	})
+}
+
+func (s *SplitOrchestrator) RetrySplitTask(ctx context.Context, nodeRun db.MulticaWorkflowNodeRun, taskID pgtype.UUID, workflowIDValue *string) error {
+	currentNodeRun, err := s.Queries.GetWorkflowNodeRun(ctx, nodeRun.ID)
+	if err != nil {
+		return fmt.Errorf("get split node run: %w", err)
+	}
+	if currentNodeRun.Status != NodeRunStatusSplitActive {
+		return fmt.Errorf("split task retry requires split_active state")
+	}
+	node, err := s.Queries.GetWorkflowNode(ctx, currentNodeRun.WorkflowNodeID)
+	if err != nil {
+		return fmt.Errorf("get split node: %w", err)
+	}
+	run, err := s.Queries.GetWorkflowRun(ctx, currentNodeRun.WorkflowRunID)
+	if err != nil {
+		return fmt.Errorf("get workflow run: %w", err)
+	}
+
+	var nextWorkflowID pgtype.UUID
+	if workflowIDValue != nil && strings.TrimSpace(*workflowIDValue) != "" {
+		if err := s.validateIssueWorkflow(ctx, strings.TrimSpace(*workflowIDValue), node.WorkflowID, run.WorkspaceID); err != nil {
+			return err
+		}
+		nextWorkflowID, err = util.ParseUUID(strings.TrimSpace(*workflowIDValue))
+		if err != nil {
+			return fmt.Errorf("invalid workflow_id: %w", err)
+		}
+	}
+
+	if err := s.WfService.runInTx(ctx, func(qtx *db.Queries) error {
+		reset, err := qtx.ResetSplitTaskForRetry(ctx, db.ResetSplitTaskForRetryParams{
+			ID:         taskID,
+			NodeRunID:  currentNodeRun.ID,
+			WorkflowID: nextWorkflowID,
+		})
+		if err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return fmt.Errorf("split task cannot be retried from current state")
+			}
+			return fmt.Errorf("reset split task for retry: %w", err)
+		}
+		if !reset.IssueID.Valid {
+			return nil
+		}
+		issue, err := qtx.GetIssue(ctx, reset.IssueID)
+		if err != nil {
+			return fmt.Errorf("get retry child issue: %w", err)
+		}
+		if _, err := qtx.UpdateIssue(ctx, db.UpdateIssueParams{
+			ID:            issue.ID,
+			Title:         textToPgText(issue.Title),
+			Description:   issue.Description,
+			Status:        pgtype.Text{String: "todo", Valid: true},
+			Priority:      pgtype.Text{String: issue.Priority, Valid: true},
+			AssigneeType:  pgtype.Text{String: "workflow", Valid: true},
+			AssigneeID:    reset.WorkflowID,
+			Position:      pgtype.Float8{Float64: issue.Position, Valid: true},
+			StartDate:     issue.StartDate,
+			DueDate:       issue.DueDate,
+			ParentIssueID: issue.ParentIssueID,
+			ProjectID:     issue.ProjectID,
+			WorkflowID:    reset.WorkflowID,
+			WorkflowRunID: pgtype.UUID{},
+			StageID:       issue.StageID,
+		}); err != nil {
+			return fmt.Errorf("update retry child issue: %w", err)
+		}
+		return nil
+	}); err != nil {
+		return err
+	}
+	return s.ScheduleReadyTasks(ctx, currentNodeRun.ID)
 }
 
 func validateSplitDraftDeletionTarget(nodeRunID pgtype.UUID, task db.MulticaWorkflowSplitTask) error {
@@ -1045,44 +1123,6 @@ func (s *SplitOrchestrator) validateSplitDraftTaskAccess(ctx context.Context, no
 	}
 
 	return task, nil
-}
-
-func (s *SplitOrchestrator) validateSplitDraftAssignee(ctx context.Context, q *db.Queries, workspaceID pgtype.UUID, assigneeType, assigneeID *string) (pgtype.Text, pgtype.UUID, error) {
-	if assigneeType == nil || strings.TrimSpace(*assigneeType) == "" {
-		return pgtype.Text{}, pgtype.UUID{}, fmt.Errorf("suggested_assignee_type is required")
-	}
-	if assigneeID == nil || strings.TrimSpace(*assigneeID) == "" {
-		return pgtype.Text{}, pgtype.UUID{}, fmt.Errorf("suggested_assignee_id is required")
-	}
-
-	parsedID, err := util.ParseUUID(strings.TrimSpace(*assigneeID))
-	if err != nil {
-		return pgtype.Text{}, pgtype.UUID{}, fmt.Errorf("invalid suggested_assignee_id: %w", err)
-	}
-	switch strings.TrimSpace(*assigneeType) {
-	case "agent":
-		if _, err := q.GetAgentInWorkspace(ctx, db.GetAgentInWorkspaceParams{ID: parsedID, WorkspaceID: workspaceID}); err != nil {
-			return pgtype.Text{}, pgtype.UUID{}, fmt.Errorf("suggested agent is not in this workspace")
-		}
-	case "member":
-		member, err := q.GetMember(ctx, parsedID)
-		if err != nil || member.WorkspaceID != workspaceID {
-			return pgtype.Text{}, pgtype.UUID{}, fmt.Errorf("suggested member is not in this workspace")
-		}
-	default:
-		return pgtype.Text{}, pgtype.UUID{}, fmt.Errorf("suggested_assignee_type must be agent or member")
-	}
-	return pgtype.Text{String: strings.TrimSpace(*assigneeType), Valid: true}, parsedID, nil
-}
-
-func (s *SplitOrchestrator) resolveSplitDraftAssignee(ctx context.Context, q *db.Queries, workspaceID pgtype.UUID, cfg SplitConfig, assigneeType, assigneeID *string) (pgtype.Text, pgtype.UUID, error) {
-	if (assigneeType != nil && strings.TrimSpace(*assigneeType) != "") || (assigneeID != nil && strings.TrimSpace(*assigneeID) != "") {
-		return s.validateSplitDraftAssignee(ctx, q, workspaceID, assigneeType, assigneeID)
-	}
-	if cfg.DefaultChildAssignee == nil {
-		return pgtype.Text{}, pgtype.UUID{}, fmt.Errorf("default_child_assignee is required when suggested assignee is omitted")
-	}
-	return s.validateSplitDraftAssignee(ctx, q, workspaceID, &cfg.DefaultChildAssignee.Type, &cfg.DefaultChildAssignee.ID)
 }
 
 func (s *SplitOrchestrator) transitionSplitDraftsToReview(ctx context.Context, nodeRun db.MulticaWorkflowNodeRun) error {
@@ -1296,7 +1336,7 @@ func (s *SplitOrchestrator) ApproveSplit(ctx context.Context, nodeRun db.Multica
 	if err != nil {
 		return err
 	}
-	if err := s.validateChildWorkflow(ctx, cfg.ChildWorkflowID, node.WorkflowID, parentIssue.WorkspaceID); err != nil {
+	if err := s.validateIssueWorkflow(ctx, cfg.DefaultIssueWorkflowID, node.WorkflowID, parentIssue.WorkspaceID); err != nil {
 		return err
 	}
 
@@ -1321,7 +1361,13 @@ func (s *SplitOrchestrator) ApproveSplit(ctx context.Context, nodeRun db.Multica
 			}
 		}
 		if len(allowed) == 0 {
+			if req.ConfirmEmpty {
+				return nil
+			}
 			return fmt.Errorf("split approval requires at least one task")
+		}
+		if len(allowed) > 50 {
+			return fmt.Errorf("split_task_limit_exceeded")
 		}
 		plans, err := splitTaskPlansFromRows(allowed)
 		if err != nil {
@@ -1329,6 +1375,14 @@ func (s *SplitOrchestrator) ApproveSplit(ctx context.Context, nodeRun db.Multica
 		}
 		if err := validateSplitTaskGraph(plans); err != nil {
 			return err
+		}
+		for _, task := range allowed {
+			if !task.WorkflowID.Valid {
+				return fmt.Errorf("split task %s is missing workflow_id", util.UUIDToString(task.ID))
+			}
+			if err := s.validateIssueWorkflow(ctx, util.UUIDToString(task.WorkflowID), node.WorkflowID, parentIssue.WorkspaceID); err != nil {
+				return err
+			}
 		}
 
 		if err := qtx.MarkSplitTasksApproved(ctx, db.MarkSplitTasksApprovedParams{
@@ -1358,15 +1412,14 @@ func (s *SplitOrchestrator) ApproveSplit(ctx context.Context, nodeRun db.Multica
 			if err != nil {
 				return fmt.Errorf("increment issue counter: %w", err)
 			}
-			assigneeType, assigneeID := parseSuggestedAssignee(task)
 			childIssue, err := qtx.CreateIssueWithOrigin(ctx, db.CreateIssueWithOriginParams{
 				WorkspaceID:   parentIssue.WorkspaceID,
 				Title:         task.Title,
 				Description:   textToPgText(task.Description),
 				Status:        "todo",
 				Priority:      parentIssue.Priority,
-				AssigneeType:  assigneeType,
-				AssigneeID:    assigneeID,
+				AssigneeType:  pgtype.Text{String: "workflow", Valid: true},
+				AssigneeID:    task.WorkflowID,
 				CreatorType:   "member",
 				CreatorID:     parentIssue.CreatorID,
 				ParentIssueID: parentIssue.ID,
@@ -1375,7 +1428,7 @@ func (s *SplitOrchestrator) ApproveSplit(ctx context.Context, nodeRun db.Multica
 				ProjectID:     parentIssue.ProjectID,
 				OriginType:    pgtype.Text{String: "workflow_split", Valid: true},
 				OriginID:      task.ID,
-				WorkflowID:    util.MustParseUUID(cfg.ChildWorkflowID),
+				WorkflowID:    task.WorkflowID,
 			})
 			if err != nil {
 				return fmt.Errorf("create child issue: %w", err)
@@ -1425,11 +1478,11 @@ func (s *SplitOrchestrator) CancelSplitNode(
 		if task.RunID.Valid {
 			run, err := s.Queries.GetWorkflowRun(ctx, task.RunID)
 			if err != nil {
-				return nil, fmt.Errorf("get child workflow run: %w", err)
+				return nil, fmt.Errorf("get child run: %w", err)
 			}
 			if run.Status == RunStatusRunning {
 				if err := s.WfService.CancelRun(ctx, task.RunID); err != nil {
-					return nil, fmt.Errorf("cancel child workflow run: %w", err)
+					return nil, fmt.Errorf("cancel child run: %w", err)
 				}
 			}
 		}
@@ -1494,7 +1547,7 @@ func (s *SplitOrchestrator) ScheduleReadyTasks(ctx context.Context, nodeRunID pg
 		if err != nil {
 			return err
 		}
-		if err := s.validateChildWorkflow(ctx, cfg.ChildWorkflowID, node.WorkflowID, run.WorkspaceID); err != nil {
+		if err := s.validateIssueWorkflow(ctx, cfg.DefaultIssueWorkflowID, node.WorkflowID, run.WorkspaceID); err != nil {
 			return err
 		}
 		tasks, err := s.Queries.ListSplitTasksByNodeRun(ctx, nodeRunID)
@@ -1534,7 +1587,7 @@ func (s *SplitOrchestrator) ScheduleReadyTasks(ctx context.Context, nodeRunID pg
 
 	for _, task := range claimed {
 		if err := s.startChildTaskRun(ctx, splitNodeRun, cfg, task); err != nil {
-			slog.Warn("split: failed to start child workflow run", "split_task_id", util.UUIDToString(task.ID), "error", err)
+			slog.Warn("split: failed to start child run", "split_task_id", util.UUIDToString(task.ID), "error", err)
 			if _, updateErr := s.Queries.UpdateSplitTaskStatus(ctx, db.UpdateSplitTaskStatusParams{
 				ID:     task.ID,
 				Status: SplitTaskStatusFailed,
@@ -1590,11 +1643,10 @@ func (s *SplitOrchestrator) HandleChildRunTerminal(ctx context.Context, run db.M
 }
 
 func (s *SplitOrchestrator) startChildTaskRun(ctx context.Context, splitNodeRun db.MulticaWorkflowNodeRun, cfg SplitConfig, task db.MulticaWorkflowSplitTask) error {
-	workflowID, err := util.ParseUUID(cfg.ChildWorkflowID)
-	if err != nil {
-		return err
+	if !task.WorkflowID.Valid {
+		return fmt.Errorf("split task is missing workflow_id")
 	}
-	workflow, err := s.Queries.GetWorkflow(ctx, workflowID)
+	workflow, err := s.Queries.GetWorkflow(ctx, task.WorkflowID)
 	if err != nil {
 		return err
 	}
@@ -1636,7 +1688,7 @@ func (s *SplitOrchestrator) startChildTaskRun(ctx context.Context, splitNodeRun 
 		DueDate:       issue.DueDate,
 		ParentIssueID: issue.ParentIssueID,
 		ProjectID:     issue.ProjectID,
-		WorkflowID:    workflowID,
+		WorkflowID:    task.WorkflowID,
 		WorkflowRunID: run.ID,
 		StageID:       issue.StageID,
 	}); err != nil {
@@ -1821,13 +1873,6 @@ func (s *SplitOrchestrator) findParentIssue(ctx context.Context, nodeRun db.Mult
 		return s.Queries.GetIssue(ctx, splitIssue.ParentIssueID)
 	}
 	return splitIssue, nil
-}
-
-func ptrStringToText(v *string) pgtype.Text {
-	if v == nil {
-		return pgtype.Text{}
-	}
-	return pgtype.Text{String: *v, Valid: true}
 }
 
 func isSplitGeneratePhase(contextJSON []byte) bool {
@@ -2320,21 +2365,20 @@ func splitTasksToSummary(tasks []db.MulticaWorkflowSplitTask) []map[string]any {
 				slog.Warn("splitTasksToSummary: failed to unmarshal DependsOn", "task_id", util.UUIDToString(t.ID), "error", err)
 			}
 		}
-		suggestedAssigneeID := ""
-		if t.SuggestedAssigneeID.Valid {
-			suggestedAssigneeID = util.UUIDToString(t.SuggestedAssigneeID)
+		workflowID := ""
+		if t.WorkflowID.Valid {
+			workflowID = util.UUIDToString(t.WorkflowID)
 		}
 		item := map[string]any{
-			"id":                      util.UUIDToString(t.ID),
-			"title":                   t.Title,
-			"description":             t.Description,
-			"status":                  t.Status,
-			"suggested_assignee_type": textToString(t.SuggestedAssigneeType),
-			"suggested_assignee_id":   suggestedAssigneeID,
-			"depends_on":              dependsOn,
-			"sort_order":              t.SortOrder,
-			"draft_key":               textToString(t.DraftKey),
-			"draft_source":            t.DraftSource,
+			"id":           util.UUIDToString(t.ID),
+			"title":        t.Title,
+			"description":  t.Description,
+			"status":       t.Status,
+			"workflow_id":  workflowID,
+			"depends_on":   dependsOn,
+			"sort_order":   t.SortOrder,
+			"draft_key":    textToString(t.DraftKey),
+			"draft_source": t.DraftSource,
 		}
 		summary = append(summary, item)
 	}
@@ -2379,31 +2423,31 @@ func splitProgressSummary(tasks []db.MulticaWorkflowSplitTask) map[string]int {
 	return summary
 }
 
-func (s *SplitOrchestrator) validateChildWorkflow(ctx context.Context, childWorkflowID string, parentWorkflowID, workspaceID pgtype.UUID) error {
-	workflowID, err := util.ParseUUID(childWorkflowID)
+func (s *SplitOrchestrator) validateIssueWorkflow(ctx context.Context, workflowIDValue string, parentWorkflowID, workspaceID pgtype.UUID) error {
+	workflowID, err := util.ParseUUID(workflowIDValue)
 	if err != nil {
-		return fmt.Errorf("invalid split child_workflow_id: %w", err)
+		return fmt.Errorf("invalid split default_issue_workflow_id: %w", err)
 	}
 	if workflowID == parentWorkflowID {
-		return fmt.Errorf("split child workflow cannot be the parent workflow")
+		return fmt.Errorf("split issue workflow cannot be the parent workflow")
 	}
 	workflow, err := s.Queries.GetWorkflow(ctx, workflowID)
 	if err != nil {
-		return fmt.Errorf("get split child workflow: %w", err)
+		return fmt.Errorf("get split issue workflow: %w", err)
 	}
 	if workflow.WorkspaceID != workspaceID {
-		return fmt.Errorf("split child workflow belongs to another workspace")
+		return fmt.Errorf("split issue workflow belongs to another workspace")
 	}
 	if workflow.Status != "active" {
-		return fmt.Errorf("split child workflow is not active")
+		return fmt.Errorf("split issue workflow is not active")
 	}
 	nodes, err := s.Queries.ListWorkflowNodes(ctx, workflowID)
 	if err != nil {
-		return fmt.Errorf("list split child workflow nodes: %w", err)
+		return fmt.Errorf("list split issue workflow nodes: %w", err)
 	}
 	for _, node := range nodes {
 		if workflowNodeType(node.FormatSchema) == "split" {
-			return fmt.Errorf("split child workflow cannot contain nested split nodes")
+			return fmt.Errorf("split issue workflow cannot contain nested split nodes")
 		}
 	}
 	return nil

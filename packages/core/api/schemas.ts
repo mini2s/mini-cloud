@@ -248,13 +248,21 @@ const SplitTaskSchema = z.object({
   node_run_id: z.string(),
   title: z.string().default(""),
   description: z.string().default(""),
-  suggested_assignee_type: z.string().nullable().default(null),
-  suggested_assignee_id: z.string().nullable().default(null),
+  workflow_id: z.string().nullable().default(null),
   depends_on: z.array(z.string()).default([]),
   sort_order: z.number().default(0),
   status: z.string().default("draft"),
   issue_id: z.string().nullable().default(null),
   run_id: z.string().nullable().default(null),
+  version: z.number().default(1),
+  last_error: z.object({
+    code: z.string().default(""),
+    message: z.string().default(""),
+    child_issue_id: z.string().nullable().default(null),
+    workflow_run_id: z.string().nullable().default(null),
+    node_run_id: z.string().nullable().default(null),
+    occurred_at: z.string().default(""),
+  }).nullable().default(null),
   created_at: z.string().default(""),
   updated_at: z.string().default(""),
 }).loose();
@@ -725,6 +733,9 @@ export const ListWorkflowsResponseSchema = z.object({
 }).loose();
 
 export const EMPTY_LIST_WORKFLOWS_RESPONSE = { workflows: [], total: 0 };
+
+export const SplitIssueWorkflowOptionsSchema = z.array(WorkflowSchema).default([]);
+export const EMPTY_SPLIT_ISSUE_WORKFLOW_OPTIONS: Workflow[] = [];
 
 export const EMPTY_WORKFLOW: Workflow = {
   id: "",

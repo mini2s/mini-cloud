@@ -62,7 +62,6 @@ type Task struct {
 	WorkflowSplitParentIssueID          string                `json:"workflow_split_parent_issue_id,omitempty"`
 	WorkflowSplitParentIssueTitle       string                `json:"workflow_split_parent_issue_title,omitempty"`
 	WorkflowSplitParentIssueDescription string                `json:"workflow_split_parent_issue_description,omitempty"`
-	WorkflowSplitDefaultChildAssignee   json.RawMessage       `json:"workflow_split_default_child_assignee,omitempty"`
 	WorkflowSplitCurrentDrafts          json.RawMessage       `json:"workflow_split_current_drafts,omitempty"`
 	WorkflowSplitConfig                 json.RawMessage       `json:"workflow_split_config,omitempty"`
 	ChatMessage                         string                `json:"chat_message,omitempty"`              // user message content for chat tasks

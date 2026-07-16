@@ -175,11 +175,11 @@ func TestDraftSourceConstantsAreDistinct(t *testing.T) {
 	}
 }
 
-func TestParseSplitConfigReadsChildWorkflowID(t *testing.T) {
+func TestParseSplitConfigAcceptsDefaultIssueWorkflowID(t *testing.T) {
 	cfg, err := parseSplitConfig([]byte(`{
 		"type": "split",
 		"split_config": {
-			"child_workflow_id": "11111111-1111-1111-1111-111111111111",
+			"default_issue_workflow_id": "11111111-1111-1111-1111-111111111111",
 			"mode": "pipeline",
 			"max_concurrency": 12,
 			"max_failures": 2
@@ -188,18 +188,33 @@ func TestParseSplitConfigReadsChildWorkflowID(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parseSplitConfig: %v", err)
 	}
-	if cfg.ChildWorkflowID != "11111111-1111-1111-1111-111111111111" {
-		t.Fatalf("ChildWorkflowID = %q", cfg.ChildWorkflowID)
+	if cfg.DefaultIssueWorkflowID != "11111111-1111-1111-1111-111111111111" {
+		t.Fatalf("DefaultIssueWorkflowID = %q", cfg.DefaultIssueWorkflowID)
 	}
 	if cfg.Mode != SplitModePipeline || cfg.MaxConcurrency != 12 || cfg.MaxFailures != 2 {
 		t.Fatalf("cfg = %+v, want pipeline/12/2", cfg)
 	}
 }
 
-func TestParseSplitConfigRequiresChildWorkflowID(t *testing.T) {
+func TestParseSplitConfigRequiresDefaultIssueWorkflowID(t *testing.T) {
 	_, err := parseSplitConfig([]byte(`{"type":"split","split_config":{"mode":"barrier"}}`))
-	if err == nil || !strings.Contains(err.Error(), "child_workflow_id") {
-		t.Fatalf("parseSplitConfig error = %v, want missing child_workflow_id", err)
+	if err == nil || !strings.Contains(err.Error(), "default_issue_workflow_id") {
+		t.Fatalf("parseSplitConfig error = %v, want missing default_issue_workflow_id", err)
+	}
+}
+
+func TestParseSplitConfigRejectsLegacyChildWorkflowID(t *testing.T) {
+	_, err := parseSplitConfig([]byte(`{
+		"type": "split",
+		"split_config": {
+			"child_workflow_id": "11111111-1111-1111-1111-111111111111",
+			"mode": "barrier",
+			"max_concurrency": 5,
+			"max_failures": 0
+		}
+	}`))
+	if err == nil || !strings.Contains(err.Error(), "default_issue_workflow_id") {
+		t.Fatalf("parseSplitConfig error = %v, want missing default_issue_workflow_id", err)
 	}
 }
 
@@ -430,20 +445,19 @@ func TestValidateSplitDraftDeletionTarget(t *testing.T) {
 
 func TestSplitTasksToSummary(t *testing.T) {
 	taskID := pgtype.UUID{Bytes: [16]byte{1}, Valid: true}
-	assigneeID := pgtype.UUID{Bytes: [16]byte{2}, Valid: true}
+	workflowID := pgtype.UUID{Bytes: [16]byte{2}, Valid: true}
 
 	tasks := []db.MulticaWorkflowSplitTask{
 		{
-			ID:                    taskID,
-			Title:                 "Build API",
-			Description:           "Create the API endpoint",
-			Status:                SplitTaskStatusDraft,
-			SuggestedAssigneeType: pgtype.Text{String: "agent", Valid: true},
-			SuggestedAssigneeID:   assigneeID,
-			DependsOn:             []byte(`["other-id"]`),
-			SortOrder:             1,
-			DraftKey:              pgtype.Text{String: "task-1", Valid: true},
-			DraftSource:           "chat",
+			ID:          taskID,
+			Title:       "Build API",
+			Description: "Create the API endpoint",
+			Status:      SplitTaskStatusDraft,
+			WorkflowID:  workflowID,
+			DependsOn:   []byte(`["other-id"]`),
+			SortOrder:   1,
+			DraftKey:    pgtype.Text{String: "task-1", Valid: true},
+			DraftSource: "chat",
 		},
 		{
 			ID:     pgtype.UUID{Bytes: [16]byte{3}, Valid: true},
@@ -467,11 +481,14 @@ func TestSplitTasksToSummary(t *testing.T) {
 	if status, ok := item["status"].(string); !ok || status != SplitTaskStatusDraft {
 		t.Fatalf("status = %v, want draft", item["status"])
 	}
-	if assigneeType, ok := item["suggested_assignee_type"].(string); !ok || assigneeType != "agent" {
-		t.Fatalf("suggested_assignee_type = %v, want agent", item["suggested_assignee_type"])
+	if workflowID, ok := item["workflow_id"].(string); !ok || workflowID != "02000000-0000-0000-0000-000000000000" {
+		t.Fatalf("workflow_id = %v, want 02000000-...", item["workflow_id"])
 	}
-	if sid, ok := item["suggested_assignee_id"].(string); !ok || sid != "02000000-0000-0000-0000-000000000000" {
-		t.Fatalf("suggested_assignee_id = %v, want 02000000-...", item["suggested_assignee_id"])
+	if _, ok := item["suggested_assignee_type"]; ok {
+		t.Fatalf("summary should not include suggested_assignee_type: %+v", item)
+	}
+	if _, ok := item["suggested_assignee_id"]; ok {
+		t.Fatalf("summary should not include suggested_assignee_id: %+v", item)
 	}
 	dependsOn, ok := item["depends_on"].([]string)
 	if !ok || len(dependsOn) != 1 || dependsOn[0] != "other-id" {

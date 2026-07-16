@@ -338,3 +338,10 @@ UPDATE multica_issue
 SET first_executed_at = now()
 WHERE id = $1 AND first_executed_at IS NULL
 RETURNING id, workspace_id, creator_type, creator_id, first_executed_at;
+
+-- name: GetOpenSplitTaskByIssueID :one
+SELECT *
+FROM multica_workflow_split_task
+WHERE issue_id = $1
+  AND status NOT IN ('done', 'failed', 'cancelled', 'skipped', 'discarded')
+LIMIT 1;

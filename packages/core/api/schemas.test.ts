@@ -96,13 +96,14 @@ describe("split API response schemas", () => {
     node_run_id: "node-run-1",
     title: "Implement API",
     description: "Build split endpoints",
-    suggested_assignee_type: "agent",
-    suggested_assignee_id: "agent-1",
+    workflow_id: "workflow-1",
     depends_on: ["task-0"],
     sort_order: 2,
     status: "running",
     issue_id: "issue-1",
     run_id: "run-1",
+    version: 3,
+    last_error: null,
     created_at: "2026-07-12T00:00:00Z",
     updated_at: "2026-07-12T00:01:00Z",
   };
@@ -117,14 +118,35 @@ describe("split API response schemas", () => {
   });
 
   it("defaults missing nullable split task fields", () => {
-    const { suggested_assignee_type: _a, suggested_assignee_id: _b, issue_id: _c, run_id: _d, depends_on: _e, ...partial } = validTask;
+    const { workflow_id: _a, issue_id: _b, run_id: _c, depends_on: _d, last_error: _e, version: _f, ...partial } = validTask;
     const parsed = SplitTasksResponseSchema.parse({ tasks: [partial] });
-    expect(parsed.tasks[0]?.suggested_assignee_type).toBeNull();
-    expect(parsed.tasks[0]?.suggested_assignee_id).toBeNull();
+    expect(parsed.tasks[0]?.workflow_id).toBeNull();
     expect(parsed.tasks[0]?.issue_id).toBeNull();
     expect(parsed.tasks[0]?.run_id).toBeNull();
     expect(parsed.tasks[0]?.depends_on).toEqual([]);
+    expect(parsed.tasks[0]?.version).toBe(1);
+    expect(parsed.tasks[0]?.last_error).toBeNull();
     expect(parsed.progress).toEqual(EMPTY_SPLIT_PROGRESS);
+  });
+
+  it("parses split task workflow version and last error", () => {
+    const parsed = SplitTasksResponseSchema.parse({
+      tasks: [{
+        ...validTask,
+        last_error: {
+          code: "dispatch_failed",
+          message: "workflow unavailable",
+          child_issue_id: "issue-1",
+          workflow_run_id: null,
+          node_run_id: "node-run-1",
+          occurred_at: "2026-07-12T00:02:00Z",
+        },
+      }],
+    });
+
+    expect(parsed.tasks[0]?.workflow_id).toBe("workflow-1");
+    expect(parsed.tasks[0]?.version).toBe(3);
+    expect(parsed.tasks[0]?.last_error?.code).toBe("dispatch_failed");
   });
 
   it("falls back when split task response has the wrong shape", () => {

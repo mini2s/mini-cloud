@@ -155,30 +155,30 @@ vi.mock("../../i18n", () => {
       badge_configured: "Configured",
       badge_needs_assignee: "Needs assignee",
       badge_optional: "Optional",
-      badge_needs_child_workflow: "Needs child workflow",
+      badge_needs_default_issue_workflow: "Needs default issue workflow",
       readiness_worker_ready: "Worker ready",
       readiness_worker_missing: "Worker missing",
       readiness_critic_ready: "Critic ready",
       readiness_critic_optional: "Critic optional",
-      readiness_split_ready: "Child workflow ready",
-      readiness_split_missing: "Child workflow missing",
+      readiness_split_ready: "Default issue workflow ready",
+      readiness_split_missing: "Default issue workflow missing",
       label_bind_to_node: "Bind to Node",
       label_worker_role: "Worker role",
       label_critic_role: "Critic role",
       split_title: "Split settings",
-      split_subtitle: "Configure the child workflow and runtime limits for task splitting.",
+      split_subtitle: "Configure the planner agent, default issue workflow, and runtime limits for task splitting.",
       split_review_required_title: "Human review is required",
       split_review_required_hint: "Generated split tasks always stop for human review before child issues are created.",
       split_worker_subtitle: "The Agent that generates the task splitting plan.",
       split_critic_subtitle: "The reviewer that approves generated split drafts.",
-      split_child_workflow_label: "Child workflow",
-      split_child_workflow_placeholder: "Select a child workflow...",
+      split_default_issue_workflow_label: "Default issue workflow",
+      split_default_issue_workflow_placeholder: "Select default issue workflow...",
       split_release_mode_label: "Release downstream work",
       split_release_after_finish: "After child issues finish",
       split_release_after_created: "After child issues are created",
       split_mode_hint: "Barrier waits for child tasks; Pipeline releases downstream after issue creation.",
       split_concurrency_question: "How many child issues can run at once?",
-      split_concurrency_hint: "Run at most this many child workflows at once.",
+      split_concurrency_hint: "Run at most this many child issues at once.",
       split_failure_tolerance_label: "Failure tolerance",
       split_max_failures_hint: "Barrier mode fails the parent split when child failures exceed this number.",
       select_node: "Select a node...",
@@ -349,6 +349,7 @@ describe("NodeConfigPanel", () => {
   it("uses the fixed shared detail section order in edit mode", () => {
     renderPanel();
 
+    expect(screen.getByTestId("node-readiness-summary")).toHaveClass("rounded-lg", "border");
     expect(screen.getAllByTestId("node-detail-section").map((section) => section.getAttribute("data-section"))).toEqual([
       "readiness",
       "primary",
@@ -455,7 +456,7 @@ describe("NodeConfigPanel", () => {
             template_category: "logic",
             shape: "rectangle",
             split_config: {
-              child_workflow_id: "child-wf-2",
+              default_issue_workflow_id: "child-wf-2",
               mode: "barrier",
               max_concurrency: 3,
               max_failures: 1,
@@ -471,7 +472,7 @@ describe("NodeConfigPanel", () => {
     expect(screen.getByText("Split settings")).toBeInTheDocument();
     expect(screen.getByText("Human review is required")).toBeInTheDocument();
     expect(screen.getByText("Generated split tasks always stop for human review before child issues are created.")).toBeInTheDocument();
-    expect(screen.getByLabelText("Child workflow")).toHaveValue("child-wf-2");
+    expect(screen.getByLabelText("Default issue workflow")).toHaveValue("child-wf-2");
     expect(screen.getByLabelText("How many child issues can run at once?")).toHaveValue(3);
     expect(screen.getByLabelText("Failure tolerance")).toHaveValue(1);
     expect(screen.getAllByText("Worker").length).toBeGreaterThan(0);
@@ -491,7 +492,7 @@ describe("NodeConfigPanel", () => {
           format_schema: {
             type: "split",
             split_config: {
-              child_workflow_id: "child-wf-1",
+              default_issue_workflow_id: "child-wf-1",
               mode: "barrier",
               max_concurrency: 5,
               max_failures: 1,
@@ -527,7 +528,7 @@ describe("NodeConfigPanel", () => {
             template_category: "logic",
             shape: "rectangle",
             split_config: {
-              child_workflow_id: "child-wf-1",
+              default_issue_workflow_id: "child-wf-1",
               mode: "barrier",
               max_concurrency: 5,
               max_failures: 0,
@@ -540,7 +541,7 @@ describe("NodeConfigPanel", () => {
       />,
     );
 
-    fireEvent.change(screen.getByLabelText("Child workflow"), {
+    fireEvent.change(screen.getByLabelText("Default issue workflow"), {
       target: { value: "child-wf-2" },
     });
     expect(mocks.cacheNodeEdits).toHaveBeenLastCalledWith("split-1", {
@@ -550,7 +551,7 @@ describe("NodeConfigPanel", () => {
         template_category: "logic",
         shape: "rectangle",
         split_config: {
-          child_workflow_id: "child-wf-2",
+          default_issue_workflow_id: "child-wf-2",
           mode: "barrier",
           max_concurrency: 5,
           max_failures: 0,
@@ -566,7 +567,7 @@ describe("NodeConfigPanel", () => {
         template_category: "logic",
         shape: "rectangle",
         split_config: {
-          child_workflow_id: "child-wf-1",
+          default_issue_workflow_id: "child-wf-1",
           mode: "pipeline",
           max_concurrency: 5,
           max_failures: 0,
@@ -584,7 +585,7 @@ describe("NodeConfigPanel", () => {
         template_category: "logic",
         shape: "rectangle",
         split_config: {
-          child_workflow_id: "child-wf-1",
+          default_issue_workflow_id: "child-wf-1",
           mode: "barrier",
           max_concurrency: 7,
           max_failures: 0,

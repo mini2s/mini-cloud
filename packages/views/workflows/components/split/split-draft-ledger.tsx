@@ -1,7 +1,7 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
-import type { Issue, SplitTask, SplitTaskStatus } from "@multica/core/types";
+import type { Issue, SplitTask, SplitTaskStatus, Workflow } from "@multica/core/types";
 import { useWorkspacePaths } from "@multica/core/paths";
 import { workflowRunCanvasSummaryOptions } from "@multica/core/workflows/queries";
 import { Badge } from "@multica/ui/components/ui/badge";
@@ -10,7 +10,11 @@ import { AppLink } from "../../../navigation";
 
 interface SplitDraftLedgerProps {
   tasks: SplitTask[];
+  workflows?: Workflow[];
   taskIssueBySourceId?: ReadonlyMap<string, Issue>;
+  readOnly?: boolean;
+  onWorkflowChange?: (task: SplitTask, workflowId: string) => void;
+  onDiscardChange?: (task: SplitTask, discarded: boolean) => void;
 }
 
 function taskNumber(index: number): string {
@@ -22,9 +26,9 @@ function taskStatusLabel(status: SplitTaskStatus): string {
   return status;
 }
 
-function assigneeLabel(task: SplitTask): string {
-  if (!task.suggested_assignee_type || !task.suggested_assignee_id) return "--";
-  return `${task.suggested_assignee_type}:${task.suggested_assignee_id}`;
+function workflowLabel(task: SplitTask, workflows: Workflow[]): string {
+  const workflow = workflows.find((item) => item.id === task.workflow_id);
+  return workflow?.title ?? task.workflow_id ?? "Missing workflow";
 }
 
 function SplitTaskChildIssueMeta({
@@ -84,7 +88,13 @@ function SplitTaskIssueFallback({ task }: { task: SplitTask }) {
   );
 }
 
-export function SplitDraftLedger({ tasks, taskIssueBySourceId }: SplitDraftLedgerProps) {
+export function SplitDraftLedger({
+  tasks,
+  workflows = [],
+  taskIssueBySourceId,
+  readOnly = false,
+  onWorkflowChange,
+}: SplitDraftLedgerProps) {
   if (tasks.length === 0) {
     return (
       <div className="rounded-md border border-dashed bg-muted/20 px-3 py-3 text-sm text-muted-foreground">
@@ -109,6 +119,7 @@ export function SplitDraftLedger({ tasks, taskIssueBySourceId }: SplitDraftLedge
             data-testid={`split-draft-row-${task.id}`}
             className={cn(
               "rounded-md border bg-background px-3 py-2.5",
+              !task.workflow_id && "border-destructive/30 bg-destructive/5",
               task.status === "discarded" && "opacity-70",
             )}
           >
@@ -138,14 +149,37 @@ export function SplitDraftLedger({ tasks, taskIssueBySourceId }: SplitDraftLedge
               </div>
               <div className="flex min-w-0 flex-wrap items-center gap-1.5">
                 <Badge variant="secondary">{taskStatusLabel(task.status)}</Badge>
-                <Badge variant="outline" className="max-w-[12rem] truncate" title={assigneeLabel(task)}>
-                  {assigneeLabel(task)}
-                </Badge>
+                <select
+                  aria-label={`Execution workflow for ${task.title}`}
+                  className="h-8 min-w-[12rem] rounded-md border border-input bg-background px-2 text-xs"
+                  value={task.workflow_id ?? ""}
+                  disabled={readOnly || task.status !== "draft"}
+                  onChange={(event) => onWorkflowChange?.(task, event.target.value)}
+                >
+                  <option value="">Select workflow...</option>
+                  {workflows.map((workflow) => (
+                    <option key={workflow.id} value={workflow.id}>
+                      {workflow.title}
+                    </option>
+                  ))}
+                </select>
+                {readOnly || task.status !== "draft" ? (
+                  <Badge variant="outline" className="max-w-[12rem] truncate" title={workflowLabel(task, workflows)}>
+                    {workflowLabel(task, workflows)}
+                  </Badge>
+                ) : null}
               </div>
             </div>
             <div className="mt-2 flex flex-wrap gap-1.5 text-xs text-muted-foreground">
               <span>Dependencies: {dependsOn || "none"}</span>
-              {!task.suggested_assignee_id ? <span className="text-destructive">Missing assignee</span> : null}
+              {!task.workflow_id ? (
+                <span
+                  data-testid={`split-draft-risk-${task.id}`}
+                  className="rounded-full bg-destructive/10 px-2 py-0.5 font-medium text-destructive"
+                >
+                  Missing execution workflow
+                </span>
+              ) : null}
             </div>
           </article>
         );

@@ -761,30 +761,32 @@ type MulticaWorkflowNodeDeliverableSubmission struct {
 }
 
 type MulticaWorkflowNodeRun struct {
-	ID                       pgtype.UUID        `json:"id"`
-	WorkflowRunID            pgtype.UUID        `json:"workflow_run_id"`
-	WorkflowNodeID           pgtype.UUID        `json:"workflow_node_id"`
-	NodeTitle                string             `json:"node_title"`
-	Status                   string             `json:"status"`
-	RetryCount               int32              `json:"retry_count"`
-	WorkerType               string             `json:"worker_type"`
-	WorkerID                 pgtype.UUID        `json:"worker_id"`
-	WorkerOutput             []byte             `json:"worker_output"`
-	CriticType               string             `json:"critic_type"`
-	CriticID                 pgtype.UUID        `json:"critic_id"`
-	CriticOutput             []byte             `json:"critic_output"`
-	CriticComment            pgtype.Text        `json:"critic_comment"`
-	AgentTaskID              pgtype.UUID        `json:"agent_task_id"`
-	StartedAt                pgtype.Timestamptz `json:"started_at"`
-	CompletedAt              pgtype.Timestamptz `json:"completed_at"`
-	CreatedAt                pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt                pgtype.Timestamptz `json:"updated_at"`
-	WorkerAgentTaskID        pgtype.UUID        `json:"worker_agent_task_id"`
-	CriticAgentTaskID        pgtype.UUID        `json:"critic_agent_task_id"`
-	RuntimeID                pgtype.UUID        `json:"runtime_id"`
-	DeviceID                 pgtype.Text        `json:"device_id"`
-	SessionID                pgtype.Text        `json:"session_id"`
-	SplitReviewChatSessionID pgtype.UUID        `json:"split_review_chat_session_id"`
+	ID                            pgtype.UUID        `json:"id"`
+	WorkflowRunID                 pgtype.UUID        `json:"workflow_run_id"`
+	WorkflowNodeID                pgtype.UUID        `json:"workflow_node_id"`
+	NodeTitle                     string             `json:"node_title"`
+	Status                        string             `json:"status"`
+	RetryCount                    int32              `json:"retry_count"`
+	WorkerType                    string             `json:"worker_type"`
+	WorkerID                      pgtype.UUID        `json:"worker_id"`
+	WorkerOutput                  []byte             `json:"worker_output"`
+	CriticType                    string             `json:"critic_type"`
+	CriticID                      pgtype.UUID        `json:"critic_id"`
+	CriticOutput                  []byte             `json:"critic_output"`
+	CriticComment                 pgtype.Text        `json:"critic_comment"`
+	AgentTaskID                   pgtype.UUID        `json:"agent_task_id"`
+	StartedAt                     pgtype.Timestamptz `json:"started_at"`
+	CompletedAt                   pgtype.Timestamptz `json:"completed_at"`
+	CreatedAt                     pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt                     pgtype.Timestamptz `json:"updated_at"`
+	WorkerAgentTaskID             pgtype.UUID        `json:"worker_agent_task_id"`
+	CriticAgentTaskID             pgtype.UUID        `json:"critic_agent_task_id"`
+	RuntimeID                     pgtype.UUID        `json:"runtime_id"`
+	DeviceID                      pgtype.Text        `json:"device_id"`
+	SessionID                     pgtype.Text        `json:"session_id"`
+	SplitReviewChatSessionID      pgtype.UUID        `json:"split_review_chat_session_id"`
+	SplitConfigVersion            int64              `json:"split_config_version"`
+	SplitInitialDispatchCompleted bool               `json:"split_initial_dispatch_completed"`
 }
 
 type MulticaWorkflowRole struct {
@@ -819,6 +821,7 @@ type MulticaWorkflowRun struct {
 	CompletedAt     pgtype.Timestamptz `json:"completed_at"`
 	CreatedAt       pgtype.Timestamptz `json:"created_at"`
 	RuntimeID       pgtype.UUID        `json:"runtime_id"`
+	DispatchKey     pgtype.Text        `json:"dispatch_key"`
 }
 
 type MulticaWorkflowSplitTask struct {
@@ -838,6 +841,10 @@ type MulticaWorkflowSplitTask struct {
 	UpdatedAt             pgtype.Timestamptz `json:"updated_at"`
 	DraftKey              pgtype.Text        `json:"draft_key"`
 	DraftSource           string             `json:"draft_source"`
+	WorkflowID            pgtype.UUID        `json:"workflow_id"`
+	Version               int64              `json:"version"`
+	DispatchKey           pgtype.Text        `json:"dispatch_key"`
+	LastError             []byte             `json:"last_error"`
 }
 
 type MulticaWorkflowStage struct {

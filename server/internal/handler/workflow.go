@@ -174,6 +174,24 @@ func workflowToResponse(wf db.MulticaWorkflow, nodeCount int64) WorkflowResponse
 	}
 }
 
+func splitIssueWorkflowOptionToResponse(wf db.ListSplitIssueWorkflowOptionsRow) WorkflowResponse {
+	return WorkflowResponse{
+		ID:               uuidToString(wf.ID),
+		WorkspaceID:      uuidToString(wf.WorkspaceID),
+		Title:            wf.Title,
+		Description:      wf.Description,
+		Status:           wf.Status,
+		MaxRetries:       wf.MaxRetries,
+		CreatedByType:    wf.CreatedByType,
+		CreatedByID:      uuidToString(wf.CreatedByID),
+		NodeCount:        wf.NodeCount,
+		IsTemplate:       wf.IsTemplate,
+		SourceTemplateID: uuidToString(wf.SourceTemplateID),
+		CreatedAt:        timestampToString(wf.CreatedAt),
+		UpdatedAt:        timestampToString(wf.UpdatedAt),
+	}
+}
+
 func workflowNodeToResponse(node db.MulticaWorkflowNode) WorkflowNodeResponse {
 	return WorkflowNodeResponse{
 		ID:           uuidToString(node.ID),
@@ -422,6 +440,31 @@ func (h *Handler) GetWorkflow(w http.ResponseWriter, r *http.Request) {
 		"edges":    edgeResps,
 		"stages":   stageResps,
 	})
+}
+
+func (h *Handler) ListSplitIssueWorkflowOptions(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	wf, ok := h.loadWorkflowInWorkspace(w, r, id)
+	if !ok {
+		return
+	}
+
+	rows, err := h.Queries.ListSplitIssueWorkflowOptions(r.Context(), db.ListSplitIssueWorkflowOptionsParams{
+		WorkspaceID: wf.WorkspaceID,
+		ID:          wf.ID,
+		LimitCount:  100,
+		OffsetCount: 0,
+	})
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to list split issue workflow options")
+		return
+	}
+
+	resp := make([]WorkflowResponse, 0, len(rows))
+	for _, row := range rows {
+		resp = append(resp, splitIssueWorkflowOptionToResponse(row))
+	}
+	writeJSON(w, http.StatusOK, resp)
 }
 
 func (h *Handler) UpdateWorkflow(w http.ResponseWriter, r *http.Request) {

@@ -404,17 +404,17 @@ func TestRenderSplitContextUsesDraftCLI(t *testing.T) {
 		WorkflowSplitParentIssueID:          "parent-issue-1",
 		WorkflowSplitParentIssueTitle:       "Build a game",
 		WorkflowSplitParentIssueDescription: "Use web technology.",
-		WorkflowSplitDefaultChildAssignee:   []byte(`{"type":"agent","id":"agent-1","name":"Code Developer"}`),
-		WorkflowSplitConfig:                 []byte(`{"child_workflow_id":"child-wf-1"}`),
+		WorkflowSplitConfig:                 []byte(`{"default_issue_workflow_id":"wf-default","mode":"barrier","max_concurrency":5,"max_failures":0}`),
 	})
 	for _, want := range []string{
 		"Split Task Generation",
 		"node-run-1",
 		"parent-issue-1",
 		"Build a game",
-		"Default child assignee",
-		"Code Developer",
 		"Split Config",
+		"default_issue_workflow_id",
+		"default issue workflow",
+		"Do not output workflow_id",
 		"cs-workflow workflow split draft add",
 		"cs-workflow workflow split draft submit node-run-1 --output json",
 		"Do not create child issues",
@@ -426,6 +426,16 @@ func TestRenderSplitContextUsesDraftCLI(t *testing.T) {
 	}
 	if strings.Contains(content, "Return only the JSON task plan") {
 		t.Fatalf("split context should not require JSON-only output\n--- content ---\n%s", content)
+	}
+	for _, banned := range []string{
+		"Default child assignee",
+		"child_workflow_id",
+		"--assignee",
+		"list_available_issue_workflows",
+	} {
+		if strings.Contains(content, banned) {
+			t.Fatalf("split context should not expose %q\n--- content ---\n%s", banned, content)
+		}
 	}
 }
 

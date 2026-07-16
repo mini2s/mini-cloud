@@ -12,14 +12,14 @@ vi.mock("../../../i18n", () => {
       split_subtitle: "Configure child issue release behavior.",
       split_review_required_title: "Human review is required",
       split_review_required_hint: "Generated split tasks always stop for human review before child issues are created.",
-      split_child_workflow_label: "Child workflow",
-      split_child_workflow_placeholder: "Select a child workflow...",
+      split_default_issue_workflow_label: "Default issue workflow",
+      split_default_issue_workflow_placeholder: "Select default issue workflow...",
       split_release_mode_label: "Release downstream work",
       split_release_after_finish: "After child issues finish",
       split_release_after_created: "After child issues are created",
       split_mode_hint: "Barrier waits for child tasks; Pipeline releases downstream after issue creation.",
       split_concurrency_question: "How many child issues can run at once?",
-      split_concurrency_hint: "Run at most this many child workflows at once.",
+      split_concurrency_hint: "Run at most this many child issues at once.",
       split_failure_tolerance_label: "Failure tolerance",
       split_max_failures_hint: "Barrier mode fails the parent split when child failures exceed this number.",
     },
@@ -32,14 +32,14 @@ vi.mock("../../../i18n", () => {
 });
 
 const config: SplitConfig = {
-  child_workflow_id: "child-wf-1",
+  default_issue_workflow_id: "child-wf-1",
   mode: "barrier",
   max_concurrency: 3,
   max_failures: 1,
 };
 
 const childWorkflows = [
-  { id: "child-wf-1", title: "Child workflow", status: "active" },
+  { id: "child-wf-1", title: "Implementation workflow", status: "active" },
   { id: "draft-wf", title: "Draft workflow", status: "draft" },
 ] as Workflow[];
 
@@ -84,7 +84,7 @@ describe("SplitConfigPanel", () => {
       />,
     );
 
-    expect(screen.getByLabelText("Child workflow")).toBeDisabled();
+    expect(screen.getByLabelText("Default issue workflow")).toBeDisabled();
     expect(screen.getByRole("button", { name: "After child issues are created" })).toBeDisabled();
     expect(screen.getByLabelText("How many child issues can run at once?")).toBeDisabled();
     expect(screen.getByLabelText("Failure tolerance")).toBeDisabled();

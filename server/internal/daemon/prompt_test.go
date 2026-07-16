@@ -300,7 +300,6 @@ func TestBuildPromptSplitPhaseRequiresStructuredTasksOutput(t *testing.T) {
 		WorkflowSplitParentIssueID:          "parent-issue-1",
 		WorkflowSplitParentIssueTitle:       "Build a gomoku game",
 		WorkflowSplitParentIssueDescription: "Create a playable browser game.",
-		WorkflowSplitDefaultChildAssignee:   []byte(`{"type":"agent","id":"agent-1","name":"Code Developer"}`),
 	}, "claude")
 
 	for _, want := range []string{
@@ -308,13 +307,14 @@ func TestBuildPromptSplitPhaseRequiresStructuredTasksOutput(t *testing.T) {
 		"Workflow node run ID: node-run-1",
 		"Parent issue ID: parent-issue-1",
 		"Parent issue title: Build a gomoku game",
-		"Default child assignee: agent:agent-1 (Code Developer)",
+		"default issue workflow",
+		"Do NOT output workflow_id",
+		"Reviewers change execution workflow later in Multica",
 		"cs-workflow workflow split draft add",
 		"cs-workflow workflow split draft submit node-run-1 --output json",
 		"--key",
 		"--title",
 		"--description-file",
-		"Do NOT run `cs-workflow agent list` unless the default child assignee is absent",
 		"Do NOT create issues",
 		"Do NOT change issue status",
 		"Do NOT post comments",
@@ -330,6 +330,9 @@ func TestBuildPromptSplitPhaseRequiresStructuredTasksOutput(t *testing.T) {
 		"cs-workflow issue status",
 		"Your assigned issue ID is",
 		"use the split node's default agent",
+		"Default child assignee",
+		"--assignee",
+		"agent list",
 	} {
 		if strings.Contains(out, banned) {
 			t.Errorf("split BuildPrompt must not contain ordinary assignment guidance %q\n--- output ---\n%s", banned, out)

@@ -140,7 +140,7 @@ describe("node-template-catalog", () => {
           template_id: "task-splitter",
           template_category: "logic",
           split_config: {
-            child_workflow_id: null,
+            default_issue_workflow_id: null,
             mode: "barrier",
             max_concurrency: 5,
             max_failures: 0,

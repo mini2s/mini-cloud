@@ -11,8 +11,13 @@ import type {
   ReorderStagesItem,
   AssignNodeToStageRequest,
   ApproveSplitRequest,
+  BatchPatchSplitDraftTasksRequest,
   ChatMessage,
   ChatPendingTask,
+  CreateSplitDraftTaskRequest,
+  PatchSplitConfigRequest,
+  PatchSplitDraftTaskRequest,
+  RetrySplitTaskRequest,
 } from "../types";
 import { chatKeys } from "../chat/queries";
 
@@ -34,6 +39,8 @@ export const workflowKeys = {
   sessionPermission: (sessionId: string) => ["workflows", "session-permission", sessionId] as const,
   splitTasks: (wsId: string, nodeRunId: string) =>
     [...workflowKeys.all(wsId), "node-runs", nodeRunId, "split-tasks"] as const,
+  splitIssueWorkflowOptions: (wsId: string, workflowId: string) =>
+    [...workflowKeys.detail(wsId, workflowId), "split-issue-workflow-options"] as const,
   roles: (wsId: string) => [...workflowKeys.all(wsId), "roles"] as const,
 };
 
@@ -142,6 +149,14 @@ export function splitTasksOptions(wsId: string, nodeRunId: string | null | undef
     queryKey: workflowKeys.splitTasks(wsId, nodeRunId ?? ""),
     queryFn: () => api.listSplitTasks(nodeRunId!),
     enabled: !!nodeRunId,
+  });
+}
+
+export function splitIssueWorkflowOptions(wsId: string, workflowId: string | null | undefined) {
+  return queryOptions({
+    queryKey: workflowKeys.splitIssueWorkflowOptions(wsId, workflowId ?? ""),
+    queryFn: () => api.listSplitIssueWorkflowOptions(workflowId!),
+    enabled: !!workflowId,
   });
 }
 
@@ -340,6 +355,59 @@ export function useApproveSplitTasks(wsId: string) {
   return useMutation({
     mutationFn: ({ nodeRunId, request }: SplitMutationVars & { request: ApproveSplitRequest }) =>
       api.approveSplitTasks(nodeRunId, request),
+    onSuccess: (_data, vars) => invalidateSplitNodeQueries(queryClient, wsId, vars),
+  });
+}
+
+export function useCreateSplitDraftTask(wsId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ nodeRunId, request }: SplitMutationVars & { request: CreateSplitDraftTaskRequest }) =>
+      api.createSplitDraftTask(nodeRunId, request),
+    onSuccess: (_data, vars) => invalidateSplitNodeQueries(queryClient, wsId, vars),
+  });
+}
+
+export function usePatchSplitDraftTask(wsId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      nodeRunId,
+      taskId,
+      request,
+    }: SplitMutationVars & { taskId: string; request: PatchSplitDraftTaskRequest }) =>
+      api.patchSplitDraftTask(nodeRunId, taskId, request),
+    onSuccess: (_data, vars) => invalidateSplitNodeQueries(queryClient, wsId, vars),
+  });
+}
+
+export function useBatchPatchSplitDraftTasks(wsId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ nodeRunId, request }: SplitMutationVars & { request: BatchPatchSplitDraftTasksRequest }) =>
+      api.batchPatchSplitDraftTasks(nodeRunId, request),
+    onSuccess: (_data, vars) => invalidateSplitNodeQueries(queryClient, wsId, vars),
+  });
+}
+
+export function usePatchSplitConfig(wsId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ nodeRunId, request }: SplitMutationVars & { request: PatchSplitConfigRequest }) =>
+      api.patchSplitConfig(nodeRunId, request),
+    onSuccess: (_data, vars) => invalidateSplitNodeQueries(queryClient, wsId, vars),
+  });
+}
+
+export function useRetrySplitTask(wsId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      nodeRunId,
+      taskId,
+      request,
+    }: SplitMutationVars & { taskId: string; request?: RetrySplitTaskRequest }) =>
+      api.retrySplitTask(nodeRunId, taskId, request),
     onSuccess: (_data, vars) => invalidateSplitNodeQueries(queryClient, wsId, vars),
   });
 }

@@ -223,9 +223,21 @@ export function ExecutionDetailPanel({
         icon={<Activity className="size-4" />}
         title={t(($) => $.execution.detail_panel.section_status_next_step)}
       >
-        <div className="space-y-2">
-          <p className="text-sm font-medium">{displayStatusLabel}</p>
-          {errorMessage ? <p className="text-sm text-destructive">{errorMessage}</p> : null}
+        <div
+          data-testid="runtime-diagnostic-summary"
+          className="space-y-3 rounded-lg border bg-muted/20 p-3"
+        >
+          <div className="flex items-start gap-2">
+            <RuntimeDisplayStatusIcon
+              status={displayStatus}
+              gatewayKind={isGateway ? nodeFormat.gateway_kind : null}
+              className="mt-0.5 h-4 w-4 shrink-0"
+            />
+            <div className="min-w-0">
+              <p className="text-sm font-medium">{displayStatusLabel}</p>
+              {errorMessage ? <p className="mt-1 text-sm text-destructive">{errorMessage}</p> : null}
+            </div>
+          </div>
           {isGateway ? (
             <div className="flex items-start gap-2 rounded-md border border-border/70 bg-muted/30 p-3">
               <GatewayIcon className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
@@ -235,7 +247,7 @@ export function ExecutionDetailPanel({
               </div>
             </div>
           ) : null}
-          <div className="flex flex-wrap gap-2">
+          <div data-testid="runtime-primary-actions" className="flex flex-wrap gap-2">
             {canOpenSession ? (
               <button
                 type="button"

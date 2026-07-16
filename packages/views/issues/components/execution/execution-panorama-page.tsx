@@ -117,9 +117,7 @@ function splitTaskDisplayStatus(status: SplitTask["status"]): WorkflowRuntimeDis
 }
 
 function splitTaskWorkerType(task: SplitTask): WorkerType {
-  if (task.suggested_assignee_type === "squad") return "squad";
-  if (task.suggested_assignee_type === "agent") return "agent";
-  return "human";
+  return task.workflow_id ? "agent" : "human";
 }
 
 function createSplitChildNodeId(parentNodeId: string, taskId: string): string {
@@ -780,7 +778,7 @@ export function ExecutionPanoramaPage({
           position_y: 0,
           format_schema: null,
           worker_type: splitTaskWorkerType(task),
-          worker_id: task.suggested_assignee_id,
+          worker_id: task.workflow_id,
           critic_type: "human",
           critic_id: null,
           critic_api_url: null,
@@ -793,8 +791,8 @@ export function ExecutionPanoramaPage({
           workflow_node_id: childNodeId,
           node_run_id: task.run_id ?? task.id,
           display_status: splitTaskDisplayStatus(task.status),
-          active_actor_type: task.suggested_assignee_type ?? "member",
-          active_actor_id: task.suggested_assignee_id,
+          active_actor_type: "workflow",
+          active_actor_id: task.workflow_id,
           duration_seconds: null,
           session_id: null,
           runtime_id: null,
@@ -803,8 +801,8 @@ export function ExecutionPanoramaPage({
           error_message: "",
           split_progress: null,
         } satisfies WorkflowNodeRuntimeSummary;
-        const childWorkerName = task.suggested_assignee_id
-          ? getActorName(task.suggested_assignee_type ?? "member", task.suggested_assignee_id)
+        const childWorkerName = task.workflow_id
+          ? getActorName("agent", task.workflow_id)
           : null;
 
         splitChildDetailByNodeId.set(childNodeId, {

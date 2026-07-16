@@ -9,30 +9,6 @@ import (
 	"strings"
 )
 
-type splitDefaultChildAssigneeContext struct {
-	Type string `json:"type"`
-	ID   string `json:"id"`
-	Name string `json:"name"`
-}
-
-func formatSplitDefaultChildAssignee(raw []byte) string {
-	if strings.TrimSpace(string(raw)) == "" {
-		return ""
-	}
-	var assignee splitDefaultChildAssigneeContext
-	if err := json.Unmarshal(raw, &assignee); err != nil {
-		return ""
-	}
-	if assignee.Type == "" || assignee.ID == "" {
-		return ""
-	}
-	label := assignee.Type + ":" + assignee.ID
-	if strings.TrimSpace(assignee.Name) != "" {
-		label += " (" + strings.TrimSpace(assignee.Name) + ")"
-	}
-	return label
-}
-
 // writeContextFiles renders and writes .agent_context/issue_context.md and
 // skills into the appropriate provider-native location.
 //
@@ -408,12 +384,10 @@ func renderSplitContext(ctx TaskContextForEnv) string {
 	if strings.TrimSpace(ctx.WorkflowSplitParentIssueDescription) != "" {
 		fmt.Fprintf(&b, "## Parent Issue Description\n\n%s\n\n", strings.TrimSpace(ctx.WorkflowSplitParentIssueDescription))
 	}
-	if label := formatSplitDefaultChildAssignee(ctx.WorkflowSplitDefaultChildAssignee); label != "" {
-		fmt.Fprintf(&b, "**Default child assignee:** %s\n\n", label)
-	}
 	if strings.TrimSpace(string(ctx.WorkflowSplitConfig)) != "" {
 		fmt.Fprintf(&b, "## Split Config\n\n```json\n%s\n```\n\n", strings.TrimSpace(string(ctx.WorkflowSplitConfig)))
 	}
+	b.WriteString("The backend applies the configured default issue workflow to every draft. Do not output workflow_id. Reviewers change execution workflow later in Multica.\n\n")
 	b.WriteString("## Quick Start\n\n")
 	fmt.Fprintf(&b, "Run `cs-workflow issue get %s --output json` to read the split planning issue.\n\n", ctx.IssueID)
 	if ctx.WorkflowNodeRunID != "" {

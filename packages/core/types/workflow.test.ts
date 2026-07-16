@@ -63,14 +63,10 @@ describe("workflow node format parsing", () => {
       template_id: "task-splitter",
       template_category: "logic",
       split_config: {
-        child_workflow_id: "workflow-1",
+        default_issue_workflow_id: "workflow-1",
         mode: "pipeline",
         max_concurrency: 12,
         max_failures: 2,
-        default_child_assignee: {
-          type: "agent",
-          id: "agent-1",
-        },
       },
     })).toMatchObject({
       kind: "split",
@@ -78,14 +74,10 @@ describe("workflow node format parsing", () => {
       template_id: "task-splitter",
       template_category: "logic",
       split_config: {
-        child_workflow_id: "workflow-1",
+        default_issue_workflow_id: "workflow-1",
         mode: "pipeline",
         max_concurrency: 12,
         max_failures: 2,
-        default_child_assignee: {
-          type: "agent",
-          id: "agent-1",
-        },
       },
       split_config_valid: true,
     });
@@ -96,37 +88,46 @@ describe("workflow node format parsing", () => {
       .toMatchObject({
         kind: "split",
         split_config: {
-          child_workflow_id: null,
+          default_issue_workflow_id: null,
           mode: "barrier",
           max_concurrency: 5,
           max_failures: 0,
-          default_child_assignee: null,
         },
         split_config_valid: false,
       });
   });
 
-  it("rejects malformed split default child assignee without dropping other config", () => {
-    expect(parseNodeFormat({
+  it("accepts default_issue_workflow_id and rejects legacy child_workflow_id", () => {
+    const parsed = parseNodeFormat({
       type: "split",
       split_config: {
-        child_workflow_id: "workflow-1",
+        default_issue_workflow_id: "wf-default",
         mode: "barrier",
-        max_concurrency: 3,
+        max_concurrency: 5,
         max_failures: 0,
-        default_child_assignee: { type: "squad", id: "squad-1" },
       },
-    })).toMatchObject({
-      kind: "split",
-      split_config: {
-        child_workflow_id: "workflow-1",
-        mode: "barrier",
-        max_concurrency: 3,
-        max_failures: 0,
-        default_child_assignee: null,
-      },
-      split_config_valid: false,
     });
+
+    expect(parsed.kind).toBe("split");
+    expect(parsed.split_config_valid).toBe(true);
+    expect(parsed.split_config?.default_issue_workflow_id).toBe("wf-default");
+    expect("child_workflow_id" in (parsed.split_config ?? {})).toBe(false);
+  });
+
+  it("marks legacy child_workflow_id config invalid without reading it", () => {
+    const parsed = parseNodeFormat({
+      type: "split",
+      split_config: {
+        child_workflow_id: "wf-legacy",
+        mode: "barrier",
+        max_concurrency: 5,
+        max_failures: 0,
+      },
+    });
+
+    expect(parsed.kind).toBe("split");
+    expect(parsed.split_config_valid).toBe(false);
+    expect(parsed.split_config?.default_issue_workflow_id).toBeNull();
   });
 
   it("keeps parseNodeShape fallback behavior for invalid shapes", () => {

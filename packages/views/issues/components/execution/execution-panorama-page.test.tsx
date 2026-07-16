@@ -386,7 +386,7 @@ const SPLIT_NODE = {
   format_schema: {
     type: "split",
     split_config: {
-      child_workflow_id: "child-wf-1",
+      default_issue_workflow_id: "child-wf-1",
       mode: "barrier",
       max_concurrency: 3,
       max_failures: 0,
@@ -427,13 +427,14 @@ const SPLIT_TASKS_RESPONSE = {
       node_run_id: "split-run-1",
       title: "Implement API contract",
       description: "Update handlers and service flow.",
-      suggested_assignee_type: "agent",
-      suggested_assignee_id: "agent-1",
+      workflow_id: "wf-impl",
       depends_on: [],
       sort_order: 0,
       status: "running",
       issue_id: "child-issue-1",
       run_id: "child-run-1",
+      version: 1,
+      last_error: null,
       created_at: "",
       updated_at: "",
     },
@@ -441,14 +442,15 @@ const SPLIT_TASKS_RESPONSE = {
       id: "task-2",
       node_run_id: "split-run-1",
       title: "Backfill tests",
-      description: "Cover the child workflow.",
-      suggested_assignee_type: null,
-      suggested_assignee_id: null,
+      description: "Cover the selected workflow.",
+      workflow_id: "wf-test",
       depends_on: ["task-1"],
       sort_order: 1,
       status: "created",
       issue_id: "child-issue-2",
       run_id: "child-run-2",
+      version: 1,
+      last_error: null,
       created_at: "",
       updated_at: "",
     },
@@ -926,7 +928,7 @@ describe("ExecutionPanoramaPage", () => {
         format_schema: {
           type: "split",
           split_config: {
-            child_workflow_id: "child-wf-1",
+            default_issue_workflow_id: "child-wf-1",
             mode: "barrier",
             max_concurrency: 3,
             max_failures: 0,
@@ -1203,7 +1205,7 @@ describe("ExecutionPanoramaPage", () => {
     expect(mocks.navigationPush).toHaveBeenCalledWith("/demo111/issues/child-issue-1");
   });
 
-  it("resolves split child issue assignee names for members and squads", async () => {
+  it("resolves split child issue workflow names", async () => {
     mocks.isLoading = false;
     mocks.workflowData = { id: "wf-1", title: "Test Workflow" };
     mocks.stagesData = [STAGE];
@@ -1213,7 +1215,11 @@ describe("ExecutionPanoramaPage", () => {
       node_runs: mocks.nodeRunsData,
       node_runtime_summaries: [],
     };
-    mocks.agentsData = [AGENT];
+    mocks.agentsData = [
+      AGENT,
+      { ...AGENT, id: "wf-impl", name: "Implementation workflow" },
+      { ...AGENT, id: "wf-test", name: "Test workflow" },
+    ];
     mocks.membersData = [{ user_id: "user-1", name: "Alice Reviewer" }];
     mocks.squadsData = [{ id: "squad-1", name: "Frontend Squad" }];
     mocks.splitTasksByNodeRunId = {
@@ -1222,13 +1228,11 @@ describe("ExecutionPanoramaPage", () => {
         tasks: [
           {
             ...SPLIT_TASKS_RESPONSE.tasks[0],
-            suggested_assignee_type: "member",
-            suggested_assignee_id: "user-1",
+            workflow_id: "wf-impl",
           },
           {
             ...SPLIT_TASKS_RESPONSE.tasks[1],
-            suggested_assignee_type: "squad",
-            suggested_assignee_id: "squad-1",
+            workflow_id: "wf-test",
           },
         ],
       },
@@ -1250,10 +1254,10 @@ describe("ExecutionPanoramaPage", () => {
     });
 
     expect(mocks.reactFlowProps?.nodes.find((node) => node.id === "split-1:split-task:task-1")?.data).toMatchObject({
-      workerName: "Alice Reviewer",
+      workerName: "Implementation workflow",
     });
     expect(mocks.reactFlowProps?.nodes.find((node) => node.id === "split-1:split-task:task-2")?.data).toMatchObject({
-      workerName: "Frontend Squad",
+      workerName: "Test workflow",
     });
   });
 

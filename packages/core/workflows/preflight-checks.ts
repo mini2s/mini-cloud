@@ -16,10 +16,10 @@ export type PreflightCheckId =
   | "gateway-join-incoming"
   | "gateway-kind-invalid"
   | "gateway-join-multiple-outgoing"
-  | "split-child-workflow-missing"
-  | "split-child-workflow-inactive"
-  | "split-child-workflow-nested"
-  | "split-child-workflow-self";
+  | "split-default-issue-workflow-missing"
+  | "split-default-issue-workflow-inactive"
+  | "split-default-issue-workflow-nested"
+  | "split-default-issue-workflow-self";
 
 export type PreflightSeverity = "error" | "warning";
 
@@ -329,7 +329,7 @@ export function checkStageMissing(nodes: WorkflowNode[]): PreflightIssue[] {
     }));
 }
 
-export interface SplitChildWorkflowPreflightContext {
+export interface SplitIssueWorkflowPreflightContext {
   id: string;
   status: string;
   nodes: WorkflowNode[];
@@ -337,7 +337,7 @@ export interface SplitChildWorkflowPreflightContext {
 
 export function checkSplitChildWorkflowConfig(
   nodes: WorkflowNode[],
-  splitChildWorkflows: SplitChildWorkflowPreflightContext[] = [],
+  splitChildWorkflows: SplitIssueWorkflowPreflightContext[] = [],
 ): PreflightIssue[] {
   const workflowsByID = new Map(splitChildWorkflows.map((workflow) => [workflow.id, workflow]));
   const issues: PreflightIssue[] = [];
@@ -346,50 +346,50 @@ export function checkSplitChildWorkflowConfig(
     const format = parseNodeFormat(node.format_schema);
     if (format.kind !== "split") continue;
 
-    const childWorkflowID = format.split_config?.child_workflow_id;
-    if (!childWorkflowID) {
+    const defaultIssueWorkflowID = format.split_config?.default_issue_workflow_id;
+    if (!defaultIssueWorkflowID) {
       issues.push({
-        checkId: "split-child-workflow-missing",
+        checkId: "split-default-issue-workflow-missing",
         severity: "error",
         blocking: true,
         nodeId: node.id,
         nodeTitle: node.title,
-        message: "Split node needs a child workflow",
+        message: "Split node needs a default issue workflow",
       });
       continue;
     }
 
-    const childWorkflow = workflowsByID.get(childWorkflowID);
-    if (childWorkflowID === node.workflow_id) {
+    const childWorkflow = workflowsByID.get(defaultIssueWorkflowID);
+    if (defaultIssueWorkflowID === node.workflow_id) {
       issues.push({
-        checkId: "split-child-workflow-self",
+        checkId: "split-default-issue-workflow-self",
         severity: "error",
         blocking: true,
         nodeId: node.id,
         nodeTitle: node.title,
-        message: "Split child workflow cannot be the current workflow",
+        message: "Split default issue workflow cannot be the current workflow",
       });
     }
 
     if (childWorkflow && childWorkflow.status !== "active") {
       issues.push({
-        checkId: "split-child-workflow-inactive",
+        checkId: "split-default-issue-workflow-inactive",
         severity: "error",
         blocking: true,
         nodeId: node.id,
         nodeTitle: node.title,
-        message: "Split child workflow must be active",
+        message: "Split default issue workflow must be active",
       });
     }
 
     if (childWorkflow?.nodes.some((workflowNode) => parseNodeFormat(workflowNode.format_schema).kind === "split")) {
       issues.push({
-        checkId: "split-child-workflow-nested",
+        checkId: "split-default-issue-workflow-nested",
         severity: "error",
         blocking: true,
         nodeId: node.id,
         nodeTitle: node.title,
-        message: "Split child workflow cannot contain another split node",
+        message: "Split default issue workflow cannot contain another split node",
       });
     }
   }
@@ -471,7 +471,7 @@ export interface PreflightCheckInput {
   stages: WorkflowStage[];
   agentIds: Set<string>;
   splitPlannerAgentIds?: Set<string>;
-  splitChildWorkflows?: SplitChildWorkflowPreflightContext[];
+  splitChildWorkflows?: SplitIssueWorkflowPreflightContext[];
 }
 
 export function runAllPreflightChecks(input: PreflightCheckInput): PreflightResult {

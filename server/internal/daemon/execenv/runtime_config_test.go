@@ -234,18 +234,21 @@ func TestSplitPhaseRuntimeBriefSkipsAssignmentWorkflow(t *testing.T) {
 	t.Parallel()
 	const issueID = "split-issue-1"
 	out := buildMetaSkillContent("claude", TaskContextForEnv{
-		IssueID:                           issueID,
-		WorkflowNodeRunID:                 "node-run-1",
-		WorkflowPhase:                     "split",
-		WorkflowSplitDefaultChildAssignee: []byte(`{"type":"agent","id":"agent-1","name":"Code Developer"}`),
+		IssueID:           issueID,
+		WorkflowNodeRunID: "node-run-1",
+		WorkflowPhase:     "split",
+		WorkflowSplitConfig: []byte(
+			`{"default_issue_workflow_id":"wf-default","mode":"barrier","max_concurrency":5,"max_failures":0}`,
+		),
 	})
 
 	for _, want := range []string{
 		"dynamic split-task generator",
 		"node-run-1",
 		"Use this exact node-run-id",
-		"Default child assignee: `agent:agent-1` (Code Developer)",
-		"Do NOT run `cs-workflow agent list` unless the default child assignee is absent",
+		"default issue workflow",
+		"Do NOT output `workflow_id`",
+		"Reviewers change execution workflow later in Multica",
 		"split draft CLI",
 		"cs-workflow workflow split draft add",
 		"cs-workflow workflow split draft submit node-run-1 --output json",
@@ -266,6 +269,8 @@ func TestSplitPhaseRuntimeBriefSkipsAssignmentWorkflow(t *testing.T) {
 		"## Sub-issue Creation",
 		"Return the final answer as JSON only",
 		`{"tasks":[`,
+		"Default child assignee",
+		"child_workflow_id",
 	} {
 		if strings.Contains(out, banned) {
 			t.Errorf("split runtime brief must not contain assignment workflow %q\n--- output ---\n%s", banned, out)

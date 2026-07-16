@@ -666,6 +666,42 @@ func (q *Queries) GetIssueInWorkspace(ctx context.Context, arg GetIssueInWorkspa
 	return i, err
 }
 
+const getOpenSplitTaskByIssueID = `-- name: GetOpenSplitTaskByIssueID :one
+SELECT id, node_run_id, workspace_id, title, description, suggested_assignee_type, suggested_assignee_id, depends_on, sort_order, status, issue_id, run_id, created_at, updated_at, draft_key, draft_source, workflow_id, version, dispatch_key, last_error
+FROM multica_workflow_split_task
+WHERE issue_id = $1
+  AND status NOT IN ('done', 'failed', 'cancelled', 'skipped', 'discarded')
+LIMIT 1
+`
+
+func (q *Queries) GetOpenSplitTaskByIssueID(ctx context.Context, issueID pgtype.UUID) (MulticaWorkflowSplitTask, error) {
+	row := q.db.QueryRow(ctx, getOpenSplitTaskByIssueID, issueID)
+	var i MulticaWorkflowSplitTask
+	err := row.Scan(
+		&i.ID,
+		&i.NodeRunID,
+		&i.WorkspaceID,
+		&i.Title,
+		&i.Description,
+		&i.SuggestedAssigneeType,
+		&i.SuggestedAssigneeID,
+		&i.DependsOn,
+		&i.SortOrder,
+		&i.Status,
+		&i.IssueID,
+		&i.RunID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.DraftKey,
+		&i.DraftSource,
+		&i.WorkflowID,
+		&i.Version,
+		&i.DispatchKey,
+		&i.LastError,
+	)
+	return i, err
+}
+
 const listChildIssues = `-- name: ListChildIssues :many
 SELECT id, workspace_id, title, description, status, priority, assignee_type, assignee_id, creator_type, creator_id, parent_issue_id, acceptance_criteria, context_refs, position, due_date, created_at, updated_at, number, project_id, origin_type, origin_id, first_executed_at, start_date, metadata, workflow_id, workflow_run_id, stage_id FROM multica_issue
 WHERE parent_issue_id = $1

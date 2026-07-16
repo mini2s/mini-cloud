@@ -42,6 +42,7 @@ const i18nMock = vi.hoisted(() => {
     split_cancelling: "Cancelling...",
     split_confirm_create: "Confirm create {{count}}",
     split_confirm_create_short: "Confirm create",
+    split_confirm_empty: "Confirm no split needed",
     split_creating: "Creating...",
     split_no_creatable_tasks: "No child issues are ready to create yet",
     split_approve_dialog_title: "Create child issues?",
@@ -80,9 +81,28 @@ const mocks = vi.hoisted(() => ({
   approveMutateAsync: vi.fn(),
   submitChatMutateAsync: vi.fn(),
   cancelMutateAsync: vi.fn(),
+  patchDraftMutateAsync: vi.fn(),
   pendingTaskData: {} as { task_id?: string; status?: string },
+  workflowOptionsData: [
+    {
+      id: "child-wf-1",
+      workspace_id: "ws-1",
+      title: "Implementation workflow",
+      description: "",
+      status: "active",
+      max_retries: 3,
+      created_by_type: "member",
+      created_by_id: "user-1",
+      node_count: 1,
+      is_template: false,
+      source_template_id: null,
+      created_at: "",
+      updated_at: "",
+    },
+  ],
   lastSplitTasksQuery: null as null | { refetchInterval?: number | false },
   splitTasksRefetch: vi.fn(),
+  workflowOptionsRefetch: vi.fn(),
 }));
 
 vi.mock("../../../i18n", () => ({
@@ -127,6 +147,14 @@ vi.mock("@tanstack/react-query", () => ({
       };
     }
 
+    if (Array.isArray(queryKey) && queryKey.includes("split-issue-workflow-options")) {
+      return {
+        data: mocks.workflowOptionsData,
+        isLoading: false,
+        refetch: mocks.workflowOptionsRefetch,
+      };
+    }
+
     return {
       data: mocks.splitTasksData,
       isLoading: mocks.isLoading,
@@ -166,6 +194,9 @@ vi.mock("@multica/core/workflows/queries", () => ({
   splitTasksOptions: (wsId: string, nodeRunId: string | null | undefined) => ({
     queryKey: ["workflows", wsId, "node-runs", nodeRunId ?? "", "split-tasks"],
   }),
+  splitIssueWorkflowOptions: (wsId: string, workflowId: string | null | undefined) => ({
+    queryKey: ["workflows", wsId, "detail", workflowId ?? "", "split-issue-workflow-options"],
+  }),
   workflowRunCanvasSummaryOptions: (_wsId: string, workflowId: string, runId: string) => ({
     queryKey: ["workflows", "ws-1", workflowId, runId, "canvas-summary"],
   }),
@@ -179,6 +210,10 @@ vi.mock("@multica/core/workflows/queries", () => ({
   }),
   useApproveSplitTasks: () => ({
     mutateAsync: mocks.approveMutateAsync,
+    isPending: false,
+  }),
+  usePatchSplitDraftTask: () => ({
+    mutateAsync: mocks.patchDraftMutateAsync,
     isPending: false,
   }),
   useSubmitSplitReviewChat: () => ({
@@ -219,7 +254,7 @@ vi.mock("./split-chat-review", () => ({
   ),
 }));
 
-const mojibakePattern = /[\uFFFD]|鈥|鐢|鑽|杩|渚|缂|娣|宸|鍒|纭|鎭|鍙|閻|绗|涓|瀛/;
+const mojibakePattern = /[\uFFFD\u95B3\u9239\u9435\u6D93\u7F02\u6FC0\u701B\u7EEB]/;
 
 const splitNode: WorkflowNode = {
   id: "node-1",
@@ -231,7 +266,7 @@ const splitNode: WorkflowNode = {
   format_schema: {
     type: "split",
     split_config: {
-      child_workflow_id: "child-wf-1",
+      default_issue_workflow_id: "child-wf-1",
       mode: "barrier",
       max_concurrency: 3,
       max_failures: 1,
@@ -280,13 +315,14 @@ function draftTask(id: string, title: string, overrides: Partial<SplitTask> = {}
     node_run_id: "node-run-1",
     title,
     description: "Update handlers and service flow.",
-    suggested_assignee_type: "agent" as const,
-    suggested_assignee_id: "agent-1",
+    workflow_id: "child-wf-1",
     depends_on: [],
     sort_order: 0,
     status: "draft" as const,
     issue_id: null,
     run_id: null,
+    version: 1,
+    last_error: null,
     created_at: "",
     updated_at: "",
     ...overrides,
@@ -321,8 +357,7 @@ describe("SplitReviewPanel", () => {
         draftTask("task-1", "Implement API contract"),
         draftTask("task-2", "Discarded task", {
           description: "",
-          suggested_assignee_type: null,
-          suggested_assignee_id: null,
+          workflow_id: null,
           depends_on: ["task-1"],
           sort_order: 1,
           status: "discarded",
@@ -355,6 +390,8 @@ describe("SplitReviewPanel", () => {
 
     const approveButton = screen.getByRole("button", { name: "Confirm create 1" });
     expect(screen.getByTestId("workflow-node-detail-panel-shell")).toHaveAttribute("data-mode", "run");
+    expect(screen.getByTestId("split-review-summary")).toHaveClass("rounded-lg", "border");
+    expect(screen.getByTestId("split-review-action-bar")).toContainElement(approveButton);
     expect(screen.getByText("Child issue readiness")).toBeInTheDocument();
     expect(screen.getByText("Ready to create")).toBeInTheDocument();
     expect(screen.getByText("Child issue draft")).toBeInTheDocument();
@@ -564,14 +601,10 @@ describe("SplitReviewPanel", () => {
         draftTask("task-1", "Implement API contract"),
         draftTask("task-2", "Backfill tests", {
           description: "Cover the happy path.",
-          suggested_assignee_type: null,
-          suggested_assignee_id: null,
           sort_order: 1,
         }),
         draftTask("task-3", "Legacy cleanup", {
           description: "",
-          suggested_assignee_type: null,
-          suggested_assignee_id: null,
           sort_order: 2,
         }),
       ],
@@ -655,7 +688,7 @@ describe("SplitReviewPanel", () => {
         id: "run-child-1",
         workflow_id: "wf-child-1",
         workspace_id: "ws-1",
-        workflow_title: "Child workflow",
+        workflow_title: "Implementation workflow",
         status: "failed",
         triggered_by_type: "member",
         triggered_by_id: "user-1",

@@ -6,19 +6,12 @@ export type NodeShape = "rectangle" | "diamond" | "pill" | "hexagon";
 export type WorkflowNodeFormatKind = "task" | "gateway" | "annotation" | "split";
 export type GatewayKind = "fork" | "join";
 export type SplitMode = "barrier" | "pipeline";
-export type SplitDefaultChildAssigneeType = "agent" | "member";
-
-export interface SplitDefaultChildAssignee {
-  type: SplitDefaultChildAssigneeType;
-  id: string;
-}
 
 export interface SplitConfig {
-  child_workflow_id: string | null;
+  default_issue_workflow_id: string | null;
   mode: SplitMode;
   max_concurrency: number;
   max_failures: number;
-  default_child_assignee?: SplitDefaultChildAssignee | null;
 }
 
 export interface WorkflowNodeFormat {
@@ -72,10 +65,6 @@ function isSplitMode(value: unknown): value is SplitMode {
   return value === "barrier" || value === "pipeline";
 }
 
-function isSplitDefaultChildAssigneeType(value: unknown): value is SplitDefaultChildAssigneeType {
-  return value === "agent" || value === "member";
-}
-
 function readString(obj: Record<string, unknown>, key: string): string | null {
   const value = obj[key];
   return typeof value === "string" && value.trim() ? value : null;
@@ -127,10 +116,9 @@ export function parseNodeFormat(formatSchema: unknown): WorkflowNodeFormat {
     const config = rawConfig && typeof rawConfig === "object" && !Array.isArray(rawConfig)
       ? rawConfig as Record<string, unknown>
       : {};
-    const childWorkflowId = readString(config, "child_workflow_id");
+    const defaultIssueWorkflowId = readString(config, "default_issue_workflow_id");
     const rawMaxConcurrency = config.max_concurrency;
     const rawMaxFailures = config.max_failures;
-    const rawDefaultChildAssignee = config.default_child_assignee;
     const maxConcurrencyValid =
       typeof rawMaxConcurrency === "number" &&
       Number.isInteger(rawMaxConcurrency) &&
@@ -140,30 +128,11 @@ export function parseNodeFormat(formatSchema: unknown): WorkflowNodeFormat {
       typeof rawMaxFailures === "number" &&
       Number.isInteger(rawMaxFailures) &&
       rawMaxFailures >= 0;
-    const defaultChildAssignee =
-      rawDefaultChildAssignee &&
-      typeof rawDefaultChildAssignee === "object" &&
-      !Array.isArray(rawDefaultChildAssignee)
-        ? rawDefaultChildAssignee as Record<string, unknown>
-        : null;
-    const parsedDefaultChildAssignee =
-      defaultChildAssignee &&
-      isSplitDefaultChildAssigneeType(defaultChildAssignee.type) &&
-      typeof defaultChildAssignee.id === "string" &&
-      defaultChildAssignee.id.trim()
-        ? {
-            type: defaultChildAssignee.type,
-            id: defaultChildAssignee.id.trim(),
-          }
-        : null;
-    const defaultChildAssigneeValid =
-      rawDefaultChildAssignee == null || parsedDefaultChildAssignee !== null;
     const splitConfig: SplitConfig = {
-      child_workflow_id: childWorkflowId,
+      default_issue_workflow_id: defaultIssueWorkflowId,
       mode: isSplitMode(config.mode) ? config.mode : "barrier",
       max_concurrency: maxConcurrencyValid ? rawMaxConcurrency : 5,
       max_failures: maxFailuresValid ? rawMaxFailures : 0,
-      default_child_assignee: parsedDefaultChildAssignee,
     };
     return {
       ...base,
@@ -172,11 +141,10 @@ export function parseNodeFormat(formatSchema: unknown): WorkflowNodeFormat {
       template_category: templateCategory,
       split_config: splitConfig,
       split_config_valid:
-        childWorkflowId !== null &&
+        defaultIssueWorkflowId !== null &&
         (config.mode == null || isSplitMode(config.mode)) &&
         (rawMaxConcurrency == null || maxConcurrencyValid) &&
-        (rawMaxFailures == null || maxFailuresValid) &&
-        defaultChildAssigneeValid,
+        (rawMaxFailures == null || maxFailuresValid),
     };
   }
 
@@ -346,22 +314,30 @@ export type SplitTaskStatus =
   | "cancelled"
   | "skipped";
 
-export type SplitTaskAssigneeType = "member" | "agent" | "squad";
-
 export interface SplitTask {
   id: string;
   node_run_id: string;
   title: string;
   description: string;
-  suggested_assignee_type: SplitTaskAssigneeType | null;
-  suggested_assignee_id: string | null;
+  workflow_id: string | null;
   depends_on: string[];
   sort_order: number;
   status: SplitTaskStatus;
   issue_id: string | null;
   run_id: string | null;
+  version: number;
+  last_error: SplitTaskLastError | null;
   created_at: string;
   updated_at: string;
+}
+
+export interface SplitTaskLastError {
+  code: string;
+  message: string;
+  child_issue_id: string | null;
+  workflow_run_id: string | null;
+  node_run_id: string | null;
+  occurred_at: string;
 }
 
 export interface SplitProgress {
@@ -388,26 +364,41 @@ export interface SplitChatResponse extends SplitTasksResponse {
 
 export interface ApproveSplitRequest {
   approved_task_ids: string[];
+  confirm_empty?: boolean;
 }
 
-export type SplitTaskModification =
-  | {
-      id: string;
-      title?: string;
-      description?: string;
-      depends_on?: string[];
-      suggested_assignee_type?: SplitTaskAssigneeType | null;
-      suggested_assignee_id?: string | null;
-    }
-  | {
-      action: "add";
-      title: string;
-      description: string;
-      depends_on?: string[];
-      suggested_assignee_type?: SplitTaskAssigneeType | null;
-      suggested_assignee_id?: string | null;
-    }
-  | { action: "delete"; id: string };
+export interface PatchSplitDraftTaskRequest {
+  title?: string;
+  description?: string;
+  depends_on?: string[];
+  discarded?: boolean;
+  workflow_id?: string;
+  expected_version: number;
+}
+
+export interface CreateSplitDraftTaskRequest {
+  title: string;
+  description?: string;
+  workflow_id?: string;
+  depends_on?: string[];
+}
+
+export interface BatchPatchSplitDraftTasksRequest {
+  updates: Array<{
+    task_id: string;
+    workflow_id: string;
+    expected_version: number;
+  }>;
+}
+
+export interface PatchSplitConfigRequest {
+  max_concurrency: number;
+  expected_config_version: number;
+}
+
+export interface RetrySplitTaskRequest {
+  workflow_id?: string;
+}
 
 export interface WorkflowNodeRuntimeSummary {
   workflow_node_id: string;

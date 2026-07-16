@@ -64,7 +64,6 @@ type TaskContextForEnv struct {
 	WorkflowSplitParentIssueID          string
 	WorkflowSplitParentIssueTitle       string
 	WorkflowSplitParentIssueDescription string
-	WorkflowSplitDefaultChildAssignee   json.RawMessage
 	WorkflowSplitCurrentDrafts          json.RawMessage
 	WorkflowSplitConfig                 json.RawMessage
 	AutopilotRunID                      string // non-empty for autopilot run_only tasks

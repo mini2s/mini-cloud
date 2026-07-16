@@ -85,8 +85,8 @@ func createSplitApproveFixture(t *testing.T, mode string) splitApproveFixture {
 		INSERT INTO multica_workflow (workspace_id, title, description, status, created_by_type, created_by_id)
 		VALUES ($1, $2, '', 'active', 'member', $3)
 		RETURNING id
-	`, testWorkspaceID, "Split child workflow", testUserID).Scan(&f.childWorkflow); err != nil {
-		t.Fatalf("create child workflow: %v", err)
+	`, testWorkspaceID, "Split issue workflow", testUserID).Scan(&f.childWorkflow); err != nil {
+		t.Fatalf("create issue workflow: %v", err)
 	}
 
 	var childNodeID string
@@ -97,16 +97,16 @@ func createSplitApproveFixture(t *testing.T, mode string) splitApproveFixture {
 		VALUES ($1, 'Child node', '', 'human', $2, 'human', 0)
 		RETURNING id
 	`, f.childWorkflow, testUserID).Scan(&childNodeID); err != nil {
-		t.Fatalf("create child workflow node: %v", err)
+		t.Fatalf("create issue workflow node: %v", err)
 	}
 
 	splitFormat, err := json.Marshal(map[string]any{
 		"type": "split",
 		"split_config": map[string]any{
-			"child_workflow_id": f.childWorkflow,
-			"mode":              mode,
-			"max_concurrency":   1,
-			"max_failures":      0,
+			"default_issue_workflow_id": f.childWorkflow,
+			"mode":                      mode,
+			"max_concurrency":           1,
+			"max_failures":              0,
 		},
 	})
 	if err != nil {
@@ -168,40 +168,40 @@ func createSplitApproveFixture(t *testing.T, mode string) splitApproveFixture {
 		// Task B depends on task A so only A is ready immediately.
 		if err := testPool.QueryRow(ctx, `
 			INSERT INTO multica_workflow_split_task (
-				node_run_id, workspace_id, title, description, depends_on, sort_order, status
+				node_run_id, workspace_id, title, description, workflow_id, depends_on, sort_order, status
 			)
-			VALUES ($1, $2, 'Split task A', 'First task', $3::jsonb, 0, 'draft')
+			VALUES ($1, $2, 'Split task A', 'First task', $3, $4::jsonb, 0, 'draft')
 			RETURNING id
-		`, f.splitNodeRunID, testWorkspaceID, string(depsA)).Scan(&f.taskAID); err != nil {
+		`, f.splitNodeRunID, testWorkspaceID, f.childWorkflow, string(depsA)).Scan(&f.taskAID); err != nil {
 			t.Fatalf("create split task A: %v", err)
 		}
 		depsB, _ = json.Marshal([]string{f.taskAID})
 		if err := testPool.QueryRow(ctx, `
 			INSERT INTO multica_workflow_split_task (
-				node_run_id, workspace_id, title, description, depends_on, sort_order, status
+				node_run_id, workspace_id, title, description, workflow_id, depends_on, sort_order, status
 			)
-			VALUES ($1, $2, 'Split task B', 'Second task', $3::jsonb, 1, 'draft')
+			VALUES ($1, $2, 'Split task B', 'Second task', $3, $4::jsonb, 1, 'draft')
 			RETURNING id
-		`, f.splitNodeRunID, testWorkspaceID, string(depsB)).Scan(&f.taskBID); err != nil {
+		`, f.splitNodeRunID, testWorkspaceID, f.childWorkflow, string(depsB)).Scan(&f.taskBID); err != nil {
 			t.Fatalf("create split task B: %v", err)
 		}
 	} else {
 		if err := testPool.QueryRow(ctx, `
 			INSERT INTO multica_workflow_split_task (
-				node_run_id, workspace_id, title, description, depends_on, sort_order, status
+				node_run_id, workspace_id, title, description, workflow_id, depends_on, sort_order, status
 			)
-			VALUES ($1, $2, 'Split task A', 'First task', $3::jsonb, 0, 'draft')
+			VALUES ($1, $2, 'Split task A', 'First task', $3, $4::jsonb, 0, 'draft')
 			RETURNING id
-		`, f.splitNodeRunID, testWorkspaceID, string(depsA)).Scan(&f.taskAID); err != nil {
+		`, f.splitNodeRunID, testWorkspaceID, f.childWorkflow, string(depsA)).Scan(&f.taskAID); err != nil {
 			t.Fatalf("create split task A: %v", err)
 		}
 		if err := testPool.QueryRow(ctx, `
 			INSERT INTO multica_workflow_split_task (
-				node_run_id, workspace_id, title, description, depends_on, sort_order, status
+				node_run_id, workspace_id, title, description, workflow_id, depends_on, sort_order, status
 			)
-			VALUES ($1, $2, 'Split task B', 'Second task', $3::jsonb, 1, 'draft')
+			VALUES ($1, $2, 'Split task B', 'Second task', $3, $4::jsonb, 1, 'draft')
 			RETURNING id
-		`, f.splitNodeRunID, testWorkspaceID, string(depsB)).Scan(&f.taskBID); err != nil {
+		`, f.splitNodeRunID, testWorkspaceID, f.childWorkflow, string(depsB)).Scan(&f.taskBID); err != nil {
 			t.Fatalf("create split task B: %v", err)
 		}
 	}
@@ -274,8 +274,8 @@ func createSplitGenerateFixture(t *testing.T, mode string) splitGenerateFixture 
 		INSERT INTO multica_workflow (workspace_id, title, description, status, created_by_type, created_by_id)
 		VALUES ($1, $2, '', 'active', 'member', $3)
 		RETURNING id
-	`, testWorkspaceID, "Split generate child workflow", testUserID).Scan(&f.childWorkflow); err != nil {
-		t.Fatalf("create child workflow: %v", err)
+	`, testWorkspaceID, "Split generate issue workflow", testUserID).Scan(&f.childWorkflow); err != nil {
+		t.Fatalf("create issue workflow: %v", err)
 	}
 
 	var childNodeID string
@@ -286,20 +286,16 @@ func createSplitGenerateFixture(t *testing.T, mode string) splitGenerateFixture 
 		VALUES ($1, 'Child node', '', 'human', $2, 'human', 0)
 		RETURNING id
 	`, f.childWorkflow, testUserID).Scan(&childNodeID); err != nil {
-		t.Fatalf("create child workflow node: %v", err)
+		t.Fatalf("create issue workflow node: %v", err)
 	}
 
 	splitFormat, err := json.Marshal(map[string]any{
 		"type": "split",
 		"split_config": map[string]any{
-			"child_workflow_id": f.childWorkflow,
-			"mode":              mode,
-			"max_concurrency":   2,
-			"max_failures":      0,
-			"default_child_assignee": map[string]any{
-				"type": "agent",
-				"id":   f.agentID,
-			},
+			"default_issue_workflow_id": f.childWorkflow,
+			"mode":                      mode,
+			"max_concurrency":           2,
+			"max_failures":              0,
 		},
 	})
 	if err != nil {
@@ -389,12 +385,10 @@ func TestAddSplitDraftTaskAcceptsMatchingSplitTask(t *testing.T) {
 
 	addResp := httptest.NewRecorder()
 	addReq := newRequest("POST", "/api/node-runs/"+f.splitNodeRunID+"/split/draft-tasks", map[string]any{
-		"key":                     "api-contract",
-		"title":                   "Draft API contract",
-		"description":             "Define request and response payloads.",
-		"suggested_assignee_type": "agent",
-		"suggested_assignee_id":   f.agentID,
-		"depends_on_keys":         []string{},
+		"key":             "api-contract",
+		"title":           "Draft API contract",
+		"description":     "Define request and response payloads.",
+		"depends_on_keys": []string{},
 	})
 	addReq.Header.Set("X-Agent-ID", f.agentID)
 	addReq.Header.Set("X-Task-ID", taskID)
@@ -420,7 +414,7 @@ func TestAddSplitDraftTaskAcceptsMatchingSplitTask(t *testing.T) {
 	}
 }
 
-func TestAddSplitDraftTaskUsesDefaultChildAssigneeWhenOmitted(t *testing.T) {
+func TestAddSplitDraftTaskUsesDefaultIssueWorkflow(t *testing.T) {
 	f := createSplitGenerateFixture(t, "barrier")
 	taskID := startSplitGenerationTask(t, f)
 
@@ -447,23 +441,19 @@ func TestAddSplitDraftTaskUsesDefaultChildAssigneeWhenOmitted(t *testing.T) {
 	if len(tasks) != 1 {
 		t.Fatalf("draft task count = %d, want 1", len(tasks))
 	}
-	if !tasks[0].SuggestedAssigneeType.Valid || tasks[0].SuggestedAssigneeType.String != "agent" {
-		t.Fatalf("suggested assignee type = %+v, want agent", tasks[0].SuggestedAssigneeType)
-	}
-	if uuidToString(tasks[0].SuggestedAssigneeID) != f.agentID {
-		t.Fatalf("suggested assignee id = %s, want %s", uuidToString(tasks[0].SuggestedAssigneeID), f.agentID)
+	if uuidToString(tasks[0].WorkflowID) != f.childWorkflow {
+		t.Fatalf("workflow_id = %s, want %s", uuidToString(tasks[0].WorkflowID), f.childWorkflow)
 	}
 }
 
-func TestAddSplitDraftTaskRejectsOmittedAssigneeWithoutDefault(t *testing.T) {
+func TestAddSplitDraftTaskRejectsMissingDefaultIssueWorkflow(t *testing.T) {
 	f := createSplitGenerateFixture(t, "barrier")
 	splitFormat, err := json.Marshal(map[string]any{
 		"type": "split",
 		"split_config": map[string]any{
-			"child_workflow_id": f.childWorkflow,
-			"mode":              "barrier",
-			"max_concurrency":   2,
-			"max_failures":      0,
+			"mode":            "barrier",
+			"max_concurrency": 2,
+			"max_failures":    0,
 		},
 	})
 	if err != nil {
@@ -493,8 +483,8 @@ func TestAddSplitDraftTaskRejectsOmittedAssigneeWithoutDefault(t *testing.T) {
 	if addResp.Code != http.StatusBadRequest {
 		t.Fatalf("AddSplitDraftTask: expected 400, got %d: %s", addResp.Code, addResp.Body.String())
 	}
-	if !strings.Contains(addResp.Body.String(), "default_child_assignee is required when suggested assignee is omitted") {
-		t.Fatalf("AddSplitDraftTask: expected clear missing default error, got %s", addResp.Body.String())
+	if !strings.Contains(addResp.Body.String(), "default_issue_workflow_id") {
+		t.Fatalf("AddSplitDraftTask: expected clear missing default workflow error, got %s", addResp.Body.String())
 	}
 }
 
@@ -526,20 +516,16 @@ func TestSubmitSplitDraftTasksTransitionsToReview(t *testing.T) {
 
 	for _, payload := range []map[string]any{
 		{
-			"key":                     "setup",
-			"title":                   "Setup project",
-			"description":             "Create the base project structure.",
-			"suggested_assignee_type": "agent",
-			"suggested_assignee_id":   f.agentID,
-			"depends_on_keys":         []string{},
+			"key":             "setup",
+			"title":           "Setup project",
+			"description":     "Create the base project structure.",
+			"depends_on_keys": []string{},
 		},
 		{
-			"key":                     "implementation",
-			"title":                   "Implement workflow",
-			"description":             "Build the workflow after setup.",
-			"suggested_assignee_type": "agent",
-			"suggested_assignee_id":   f.agentID,
-			"depends_on_keys":         []string{"setup"},
+			"key":             "implementation",
+			"title":           "Implement workflow",
+			"description":     "Build the workflow after setup.",
+			"depends_on_keys": []string{"setup"},
 		},
 	} {
 		addResp := httptest.NewRecorder()
@@ -579,11 +565,9 @@ func TestSplitCompletionUsesExistingDraftRowsBeforeResultParsing(t *testing.T) {
 
 	addResp := httptest.NewRecorder()
 	addReq := newRequest("POST", "/api/node-runs/"+f.splitNodeRunID+"/split/draft-tasks", map[string]any{
-		"key":                     "already-submitted",
-		"title":                   "Already submitted draft",
-		"description":             "The draft API is the source of truth.",
-		"suggested_assignee_type": "agent",
-		"suggested_assignee_id":   f.agentID,
+		"key":         "already-submitted",
+		"title":       "Already submitted draft",
+		"description": "The draft API is the source of truth.",
 	})
 	addReq.Header.Set("X-Agent-ID", f.agentID)
 	addReq.Header.Set("X-Task-ID", taskID)
@@ -1201,6 +1185,93 @@ func TestCancelWorkflowRunCascadesActiveSplitTasks(t *testing.T) {
 	}
 }
 
+func TestPatchSplitConfigUpdatesMaxConcurrencyWithExpectedVersion(t *testing.T) {
+	f := createSplitApproveFixture(t, "barrier")
+
+	req := newRequest("PATCH", "/api/node-runs/"+f.splitNodeRunID+"/split/config", map[string]any{
+		"max_concurrency":         4,
+		"expected_config_version": 1,
+	})
+	req = withURLParam(req, "nodeRunId", f.splitNodeRunID)
+	resp := httptest.NewRecorder()
+
+	testHandler.PatchSplitConfig(resp, req)
+	if resp.Code != http.StatusOK {
+		t.Fatalf("PatchSplitConfig: expected 200, got %d: %s", resp.Code, resp.Body.String())
+	}
+
+	ctx := context.Background()
+	nodeRun, err := testHandler.Queries.GetWorkflowNodeRun(ctx, parseUUID(f.splitNodeRunID))
+	if err != nil {
+		t.Fatalf("reload node run: %v", err)
+	}
+	if nodeRun.SplitConfigVersion != 2 {
+		t.Fatalf("split_config_version = %d, want 2", nodeRun.SplitConfigVersion)
+	}
+	node, err := testHandler.Queries.GetWorkflowNode(ctx, parseUUID(f.splitNodeID))
+	if err != nil {
+		t.Fatalf("reload split node: %v", err)
+	}
+	var format struct {
+		SplitConfig struct {
+			MaxConcurrency int `json:"max_concurrency"`
+		} `json:"split_config"`
+	}
+	if err := json.Unmarshal(node.FormatSchema, &format); err != nil {
+		t.Fatalf("parse node format: %v", err)
+	}
+	if format.SplitConfig.MaxConcurrency != 4 {
+		t.Fatalf("max_concurrency = %d, want 4", format.SplitConfig.MaxConcurrency)
+	}
+}
+
+func TestRetrySplitTaskResetsFailedTaskAndReschedules(t *testing.T) {
+	f := createSplitApproveFixture(t, "barrier")
+
+	approveReq := newRequest("POST", "/api/node-runs/"+f.splitNodeRunID+"/split/approve", map[string]any{
+		"approved_task_ids": []string{f.taskAID},
+	})
+	approveReq = withURLParam(approveReq, "nodeRunId", f.splitNodeRunID)
+	approveResp := httptest.NewRecorder()
+	testHandler.ApproveSplitTasks(approveResp, approveReq)
+	if approveResp.Code != http.StatusOK {
+		t.Fatalf("ApproveSplitTasks: expected 200, got %d: %s", approveResp.Code, approveResp.Body.String())
+	}
+
+	ctx := context.Background()
+	if _, err := testPool.Exec(ctx, `
+		UPDATE multica_workflow_split_task
+		SET status = 'failed', run_id = NULL, last_error = '{"code":"failed","message":"boom"}'::jsonb
+		WHERE id = $1
+	`, f.taskAID); err != nil {
+		t.Fatalf("mark task failed: %v", err)
+	}
+
+	retryReq := newRequest("POST", "/api/node-runs/"+f.splitNodeRunID+"/split/tasks/"+f.taskAID+"/retry", nil)
+	retryReq = withURLParam(retryReq, "nodeRunId", f.splitNodeRunID)
+	retryReq = withURLParam(retryReq, "taskId", f.taskAID)
+	retryResp := httptest.NewRecorder()
+
+	testHandler.RetrySplitTask(retryResp, retryReq)
+	if retryResp.Code != http.StatusOK {
+		t.Fatalf("RetrySplitTask: expected 200, got %d: %s", retryResp.Code, retryResp.Body.String())
+	}
+
+	task, err := testHandler.Queries.GetSplitTask(ctx, parseUUID(f.taskAID))
+	if err != nil {
+		t.Fatalf("reload task: %v", err)
+	}
+	if task.Status != service.SplitTaskStatusRunning {
+		t.Fatalf("task status = %s, want running", task.Status)
+	}
+	if !task.RunID.Valid {
+		t.Fatal("expected retry to start a new child run")
+	}
+	if len(task.LastError) != 0 {
+		t.Fatalf("last_error should be cleared, got %s", string(task.LastError))
+	}
+}
+
 func TestGenerateSplitTasksDispatchesAndPersistsDraftTasks(t *testing.T) {
 	f := createSplitGenerateFixture(t, "barrier")
 
@@ -1285,8 +1356,8 @@ func TestGenerateSplitTasksDispatchesAndPersistsDraftTasks(t *testing.T) {
 	if tasks[0].Status != service.SplitTaskStatusDraft || tasks[1].Status != service.SplitTaskStatusDraft {
 		t.Fatalf("generated split task statuses = %s/%s, want draft/draft", tasks[0].Status, tasks[1].Status)
 	}
-	if !tasks[0].SuggestedAssigneeID.Valid || uuidToString(tasks[0].SuggestedAssigneeID) != f.agentID {
-		t.Fatalf("task 0 suggested_assignee_id = %v, want %s", uuidToString(tasks[0].SuggestedAssigneeID), f.agentID)
+	if uuidToString(tasks[0].WorkflowID) != f.childWorkflow {
+		t.Fatalf("task 0 workflow_id = %v, want %s", uuidToString(tasks[0].WorkflowID), f.childWorkflow)
 	}
 	var dependsOn []string
 	if err := json.Unmarshal(tasks[1].DependsOn, &dependsOn); err != nil {
@@ -1316,12 +1387,10 @@ func TestSplitChatCreatesSessionAndDispatchesTask(t *testing.T) {
 
 	addResp := httptest.NewRecorder()
 	addReq := newRequest("POST", "/api/node-runs/"+f.splitNodeRunID+"/split/draft-tasks", map[string]any{
-		"key":                     "task-1",
-		"title":                   "Split task A",
-		"description":             "Test task for chat flow",
-		"suggested_assignee_type": "agent",
-		"suggested_assignee_id":   f.agentID,
-		"depends_on_keys":         []string{},
+		"key":             "task-1",
+		"title":           "Split task A",
+		"description":     "Test task for chat flow",
+		"depends_on_keys": []string{},
 	})
 	addReq.Header.Set("X-Agent-ID", f.agentID)
 	addReq.Header.Set("X-Task-ID", taskID)

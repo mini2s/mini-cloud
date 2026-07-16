@@ -2,7 +2,7 @@
 
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import type { SplitTask } from "@multica/core/types";
+import type { SplitTask, Workflow } from "@multica/core/types";
 import { SplitDraftLedger } from "./split-draft-ledger";
 
 vi.mock("@multica/core/paths", () => ({
@@ -24,26 +24,52 @@ const baseTask: SplitTask = {
   node_run_id: "node-run-1",
   title: "A very long child issue title that must stay readable in the review panel",
   description: "A detailed description that should keep the title column usable.",
-  suggested_assignee_type: "member",
-  suggested_assignee_id: "3b91177b-06bc-43ba-ab51-1e34b2a3131a",
+  workflow_id: "workflow-1",
   depends_on: [],
   sort_order: 0,
   status: "draft",
   issue_id: null,
   run_id: null,
+  version: 1,
+  last_error: null,
   created_at: "",
   updated_at: "",
 };
 
+const workflows: Workflow[] = [{
+  id: "workflow-1",
+  workspace_id: "ws-1",
+  title: "Implementation workflow",
+  description: "",
+  status: "active",
+  max_retries: 3,
+  created_by_type: "member",
+  created_by_id: "user-1",
+  node_count: 1,
+  is_template: false,
+  source_template_id: null,
+  created_at: "",
+  updated_at: "",
+}];
+
 describe("SplitDraftLedger", () => {
-  it("keeps long assignee ids from consuming the draft title column", () => {
-    render(<SplitDraftLedger tasks={[baseTask]} />);
+  it("keeps workflow controls from consuming the draft title column", () => {
+    render(<SplitDraftLedger tasks={[baseTask]} workflows={workflows} />);
 
     const meta = screen.getByTestId("split-draft-meta-task-1");
-    const assignee = screen.getByText("member:3b91177b-06bc-43ba-ab51-1e34b2a3131a");
+    const workflow = screen.getByLabelText("Execution workflow for A very long child issue title that must stay readable in the review panel");
 
     expect(screen.getByTestId("split-draft-row-task-1")).toBeInTheDocument();
     expect(meta).toHaveClass("grid", "min-w-0", "gap-2");
-    expect(assignee).toHaveClass("max-w-[12rem]", "truncate");
+    expect(workflow).toHaveClass("min-w-[12rem]");
+  });
+
+  it("marks task-level workflow blockers inside the affected draft row", () => {
+    render(<SplitDraftLedger tasks={[{ ...baseTask, workflow_id: null }]} workflows={workflows} />);
+
+    const row = screen.getByTestId("split-draft-row-task-1");
+
+    expect(screen.getByTestId("split-draft-risk-task-1")).toHaveTextContent("Missing execution workflow");
+    expect(row).toHaveClass("border-destructive/30");
   });
 });

@@ -35,7 +35,7 @@ func newWorkflowSplitDraftDeleteTestCmd() *cobra.Command {
 	return cmd
 }
 
-func TestRunWorkflowSplitDraftAddPostsPayload(t *testing.T) {
+func TestRunWorkflowSplitDraftAddPostsBatchPayload(t *testing.T) {
 	var gotPath, gotMethod, gotWorkspace, gotAgent, gotTask string
 	var gotBody map[string]any
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -67,9 +67,6 @@ func TestRunWorkflowSplitDraftAddPostsPayload(t *testing.T) {
 	if err := cmd.Flags().Set("description", "Create the shell"); err != nil {
 		t.Fatal(err)
 	}
-	if err := cmd.Flags().Set("assignee", "agent:00000000-0000-0000-0000-000000000001"); err != nil {
-		t.Fatal(err)
-	}
 	if err := cmd.Flags().Set("depends-on", "setup"); err != nil {
 		t.Fatal(err)
 	}
@@ -81,25 +78,36 @@ func TestRunWorkflowSplitDraftAddPostsPayload(t *testing.T) {
 	if gotMethod != http.MethodPost {
 		t.Fatalf("method = %s, want POST", gotMethod)
 	}
-	if gotPath != "/api/node-runs/node-run-1/split/draft-tasks" {
+	if gotPath != "/api/node-runs/node-run-1/split/draft-tasks/batch" {
 		t.Fatalf("path = %s", gotPath)
 	}
 	if gotWorkspace != "ws-1" || gotAgent != "agent-1" || gotTask != "task-1" {
 		t.Fatalf("headers workspace/agent/task = %q/%q/%q", gotWorkspace, gotAgent, gotTask)
 	}
-	if gotBody["key"] != "html-shell" || gotBody["title"] != "HTML shell" || gotBody["description"] != "Create the shell" {
-		t.Fatalf("unexpected body: %+v", gotBody)
+	tasks, ok := gotBody["tasks"].([]any)
+	if !ok || len(tasks) != 1 {
+		t.Fatalf("tasks = %#v", gotBody["tasks"])
 	}
-	if gotBody["suggested_assignee_type"] != "agent" || gotBody["suggested_assignee_id"] != "00000000-0000-0000-0000-000000000001" {
-		t.Fatalf("unexpected assignee body: %+v", gotBody)
+	task, ok := tasks[0].(map[string]any)
+	if !ok {
+		t.Fatalf("task = %#v", tasks[0])
 	}
-	deps, ok := gotBody["depends_on_keys"].([]any)
+	if task["draft_key"] != "html-shell" || task["title"] != "HTML shell" || task["description"] != "Create the shell" {
+		t.Fatalf("unexpected task body: %+v", task)
+	}
+	if _, ok := task["suggested_assignee_type"]; ok {
+		t.Fatalf("unexpected suggested_assignee_type: %+v", task)
+	}
+	if _, ok := task["suggested_assignee_id"]; ok {
+		t.Fatalf("unexpected suggested_assignee_id: %+v", task)
+	}
+	deps, ok := task["depends_on"].([]any)
 	if !ok || len(deps) != 1 || deps[0] != "setup" {
-		t.Fatalf("depends_on_keys = %#v", gotBody["depends_on_keys"])
+		t.Fatalf("depends_on = %#v", task["depends_on"])
 	}
 }
 
-func TestRunWorkflowSplitDraftAddAllowsDefaultAssigneeOmission(t *testing.T) {
+func TestRunWorkflowSplitDraftAddOmitsSuggestedAssigneeFields(t *testing.T) {
 	var gotBody map[string]any
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if err := json.NewDecoder(r.Body).Decode(&gotBody); err != nil {
@@ -130,11 +138,19 @@ func TestRunWorkflowSplitDraftAddAllowsDefaultAssigneeOmission(t *testing.T) {
 		t.Fatalf("runWorkflowSplitDraftAdd() error = %v", err)
 	}
 
-	if _, ok := gotBody["suggested_assignee_type"]; ok {
-		t.Fatalf("unexpected suggested_assignee_type when --assignee omitted: %+v", gotBody)
+	tasks, ok := gotBody["tasks"].([]any)
+	if !ok || len(tasks) != 1 {
+		t.Fatalf("tasks = %#v", gotBody["tasks"])
 	}
-	if _, ok := gotBody["suggested_assignee_id"]; ok {
-		t.Fatalf("unexpected suggested_assignee_id when --assignee omitted: %+v", gotBody)
+	task, ok := tasks[0].(map[string]any)
+	if !ok {
+		t.Fatalf("task = %#v", tasks[0])
+	}
+	if _, ok := task["suggested_assignee_type"]; ok {
+		t.Fatalf("unexpected suggested_assignee_type when omitted: %+v", task)
+	}
+	if _, ok := task["suggested_assignee_id"]; ok {
+		t.Fatalf("unexpected suggested_assignee_id when omitted: %+v", task)
 	}
 }
 

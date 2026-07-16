@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import type { ApproveSplitRequest, SplitProgress, SplitTask, WorkflowNode, WorkflowNodeRun } from "@multica/core/types";
+import { ApiError } from "@multica/core/api";
 import { Activity, CheckCheck, GitBranch, ListTree, RefreshCcw, SquareX } from "lucide-react";
 import { Button } from "@multica/ui/components/ui/button";
 import { Badge } from "@multica/ui/components/ui/badge";
@@ -18,7 +19,9 @@ import {
 } from "@multica/ui/components/ui/alert-dialog";
 import {
   splitTasksOptions,
+  splitIssueWorkflowOptions,
   useApproveSplitTasks,
+  usePatchSplitDraftTask,
   useCancelSplitNode,
   useGenerateSplitTasks,
   useRecoverSplitTasks,
@@ -95,7 +98,7 @@ function splitConfigFromNode(node: WorkflowNode) {
         mode?: string;
         max_concurrency?: number;
         max_failures?: number;
-        child_workflow_id?: string;
+        default_issue_workflow_id?: string;
       };
     }).split_config;
   }
@@ -106,9 +109,10 @@ function creatableTasks(tasks: SplitTask[]): SplitTask[] {
   return tasks.filter((task) => task.status !== "discarded");
 }
 
-function buildApproveRequest(tasks: SplitTask[]): ApproveSplitRequest {
+function buildApproveRequest(tasks: SplitTask[], confirmEmpty = false): ApproveSplitRequest {
   return {
     approved_task_ids: creatableTasks(tasks).map((task) => task.id),
+    ...(confirmEmpty ? { confirm_empty: true } : {}),
   };
 }
 
@@ -124,7 +128,7 @@ function verdictTitle(t: WorkflowTranslator, status: string | null | undefined, 
 }
 
 function splitRiskCount(tasks: SplitTask[]): number {
-  return creatableTasks(tasks).filter((task) => !task.suggested_assignee_id).length;
+  return creatableTasks(tasks).filter((task) => !task.workflow_id).length;
 }
 
 function SplitVerdictSummary({
@@ -146,7 +150,7 @@ function SplitVerdictSummary({
   const dependencyCount = creatableTasks(tasks).filter((task) => task.depends_on.length > 0).length;
   const assigneeCount = new Set(
     creatableTasks(tasks)
-      .map((task) => task.suggested_assignee_id)
+      .map((task) => task.workflow_id)
       .filter(Boolean),
   ).size;
   const title = isChatPending ? t(($) => $.detail_panel.split_generating_draft) : verdictTitle(t, nodeRun?.status, tasks);
@@ -158,7 +162,7 @@ function SplitVerdictSummary({
       : t(($) => $.detail_panel.split_missing_assignees, { count: riskCount });
 
   return (
-    <div className="rounded-lg border bg-muted/20 px-3 py-3">
+    <div data-testid="split-review-summary" className="rounded-lg border bg-muted/20 px-3 py-3">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <p className="text-sm font-semibold text-foreground">{title}</p>
@@ -221,6 +225,7 @@ export function SplitReviewPanel({
   const generateMutation = useGenerateSplitTasks(wsId);
   const recoverMutation = useRecoverSplitTasks(wsId);
   const approveMutation = useApproveSplitTasks(wsId);
+  const patchDraftMutation = usePatchSplitDraftTask(wsId);
   const chatMutation = useSubmitSplitReviewChat(wsId);
   const cancelMutation = useCancelSplitNode(wsId);
   const [chatSessionId, setChatSessionId] = useState<string | null>(
@@ -238,6 +243,10 @@ export function SplitReviewPanel({
     refetchInterval: isSplitChatRunning ? 2000 : false,
   });
   const { data, isLoading, refetch: refetchSplitTasks } = splitTasksQuery;
+  const {
+    data: workflowOptions = [],
+    refetch: refetchWorkflowOptions,
+  } = useQuery(splitIssueWorkflowOptions(wsId, workflowId ?? null));
   const { data: childIssues = [] } = useQuery({
     ...childIssuesOptions(wsId, parentIssueId ?? ""),
     enabled: !!parentIssueId,
@@ -260,7 +269,10 @@ export function SplitReviewPanel({
   const progress = data?.progress ?? EMPTY_PROGRESS;
   const splitConfig = splitConfigFromNode(node);
   const creatableCount = creatableTasks(tasks).length;
-  const canApprove = nodeRun?.status === "awaiting_split_review" && creatableCount > 0;
+  const workflowBlockers = creatableTasks(tasks)
+    .map((task, index) => task.workflow_id ? null : `Child issue ${index + 1} is missing execution workflow.`)
+    .filter((message): message is string => Boolean(message));
+  const canApprove = nodeRun?.status === "awaiting_split_review" && creatableCount > 0 && workflowBlockers.length === 0;
   const canChat = nodeRun?.status === "awaiting_split_review";
   const canCancel = isNodeRunCancellable(nodeRun?.status);
   const canRecover = nodeRun?.status === "failed";
@@ -295,9 +307,31 @@ export function SplitReviewPanel({
       nodeRunId,
       workflowId,
       runId,
-      request: buildApproveRequest(tasks),
+      request: buildApproveRequest(tasks, creatableCount === 0),
     });
     setApproveDialogOpen(false);
+  };
+
+  const handleWorkflowChange = async (task: SplitTask, nextWorkflowId: string) => {
+    if (!nodeRunId || !nextWorkflowId) return;
+    try {
+      await patchDraftMutation.mutateAsync({
+        nodeRunId,
+        workflowId,
+        runId,
+        taskId: task.id,
+        request: {
+          workflow_id: nextWorkflowId,
+          expected_version: task.version,
+        },
+      });
+    } catch (error) {
+      if (error instanceof ApiError && (error.status === 409 || error.status === 422)) {
+        await refetchWorkflowOptions();
+        await refetchSplitTasks();
+      }
+      throw error;
+    }
   };
 
   const handleChatSubmit = async (content: string, attachmentIds?: string[]) => {
@@ -369,7 +403,13 @@ export function SplitReviewPanel({
         {isLoading ? (
           <p className="text-sm text-muted-foreground">{t(($) => $.detail_panel.split_loading_draft)}</p>
         ) : (
-          <SplitDraftLedger tasks={tasks} taskIssueBySourceId={childIssueBySplitTaskId} />
+          <SplitDraftLedger
+            tasks={tasks}
+            workflows={workflowOptions}
+            taskIssueBySourceId={childIssueBySplitTaskId}
+            readOnly={nodeRun?.status !== "awaiting_split_review"}
+            onWorkflowChange={(task, nextWorkflowId) => void handleWorkflowChange(task, nextWorkflowId)}
+          />
         )}
       </NodeDetailSection>
 
@@ -435,7 +475,10 @@ export function SplitReviewPanel({
         </NodeDetailSection>
       ) : null}
 
-      <div className="sticky bottom-0 -mx-4 mt-3 border-t bg-background/95 px-4 py-3 backdrop-blur">
+      <div
+        data-testid="split-review-action-bar"
+        className="sticky bottom-0 -mx-4 mt-3 border-t bg-background/95 px-4 py-3 backdrop-blur"
+      >
         <div className="flex items-center justify-between gap-3">
           <div>
             {canCancel ? (
@@ -452,8 +495,21 @@ export function SplitReviewPanel({
             ) : null}
           </div>
           <div className="flex items-center gap-2">
-            {!canApprove && nodeRun?.status === "awaiting_split_review" ? (
+            {workflowBlockers.length > 0 ? (
+              <span className="text-xs text-destructive">{workflowBlockers[0]}</span>
+            ) : !canApprove && nodeRun?.status === "awaiting_split_review" && creatableCount > 0 ? (
               <span className="text-xs text-muted-foreground">{t(($) => $.detail_panel.split_no_creatable_tasks)}</span>
+            ) : null}
+            {nodeRun?.status === "awaiting_split_review" && creatableCount === 0 ? (
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                onClick={() => setApproveDialogOpen(true)}
+                disabled={approveMutation.isPending}
+              >
+                {t(($) => $.detail_panel.split_confirm_empty)}
+              </Button>
             ) : null}
             {canApprove ? (
               <Button

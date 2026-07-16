@@ -90,8 +90,7 @@ func TestTaskToResponseSplitGenerationContext(t *testing.T) {
 			"parent_issue_id": "parent-1",
 			"parent_issue_title": "Build a game",
 			"parent_issue_description": "Use web technology",
-			"default_child_assignee": {"type":"agent","id":"agent-1","name":"Code Developer"},
-			"split_config": {"child_workflow_id":"child-wf-1"}
+			"split_config": {"default_issue_workflow_id":"child-wf-1"}
 		}`),
 	}
 
@@ -102,9 +101,6 @@ func TestTaskToResponseSplitGenerationContext(t *testing.T) {
 	}
 	if resp.WorkflowSplitParentIssueID != "parent-1" {
 		t.Fatalf("expected parent issue ID from split context, got %q", resp.WorkflowSplitParentIssueID)
-	}
-	if string(resp.WorkflowSplitDefaultChildAssignee) == "" {
-		t.Fatal("expected default child assignee to be surfaced on response")
 	}
 	if string(resp.WorkflowSplitConfig) == "" {
 		t.Fatal("expected split config to be surfaced on response")

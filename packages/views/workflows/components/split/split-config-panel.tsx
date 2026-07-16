@@ -43,21 +43,21 @@ export function SplitConfigPanel({
       </div>
 
       <div className="space-y-1.5">
-        <Label htmlFor="split-child-workflow" className="text-xs text-muted-foreground">
-          {t(($) => $.detail_panel.split_child_workflow_label)}
+        <Label htmlFor="split-default-issue-workflow" className="text-xs text-muted-foreground">
+          {t(($) => $.detail_panel.split_default_issue_workflow_label)}
         </Label>
         <select
-          id="split-child-workflow"
-          aria-label={t(($) => $.detail_panel.split_child_workflow_label)}
+          id="split-default-issue-workflow"
+          aria-label={t(($) => $.detail_panel.split_default_issue_workflow_label)}
           disabled={disabled}
           className="h-8 w-full rounded-md border border-input bg-background px-2 text-sm"
-          value={config.child_workflow_id ?? ""}
+          value={config.default_issue_workflow_id ?? ""}
           onChange={(event) => onChange({
             ...config,
-            child_workflow_id: event.target.value || null,
+            default_issue_workflow_id: event.target.value || null,
           })}
         >
-          <option value="">{t(($) => $.detail_panel.split_child_workflow_placeholder)}</option>
+          <option value="">{t(($) => $.detail_panel.split_default_issue_workflow_placeholder)}</option>
           {activeChildWorkflows.map((workflow) => (
             <option key={workflow.id} value={workflow.id}>
               {workflow.title}

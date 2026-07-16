@@ -386,7 +386,7 @@ export function NodeConfigPanel({
   const workerConfigured = workerType === "role" ? Boolean(workerId) : Boolean(workerId);
   const criticConfigured = criticType === "api" ? Boolean(criticApiUrl.trim()) : Boolean(criticId);
   const splitConfig: SplitConfig = nodeFormat.split_config ?? {
-    child_workflow_id: null,
+    default_issue_workflow_id: null,
     mode: "barrier",
     max_concurrency: 5,
     max_failures: 0,
@@ -420,7 +420,7 @@ export function NodeConfigPanel({
       template_id: typeof base.template_id === "string" ? base.template_id : "task-splitter",
       template_category: typeof base.template_category === "string" ? base.template_category : "logic",
       split_config: {
-        child_workflow_id: next.child_workflow_id,
+        default_issue_workflow_id: next.default_issue_workflow_id,
         mode: next.mode,
         max_concurrency: next.max_concurrency,
         max_failures: next.max_failures,
@@ -486,8 +486,11 @@ export function NodeConfigPanel({
         title={t(($) => $.detail_panel.section_readiness)}
         subtitle={t(($) => $.detail_panel.section_readiness_desc)}
       >
-        <div className="grid gap-2 text-xs">
-          <div className="flex items-center justify-between gap-3 rounded-md border bg-muted/20 px-2.5 py-2">
+        <div
+          data-testid="node-readiness-summary"
+          className="grid gap-2 rounded-lg border bg-muted/20 p-2.5 text-xs"
+        >
+          <div className="flex items-center justify-between gap-3 px-2 py-1.5">
             <span className="text-muted-foreground">{t(($) => $.node.section_worker)}</span>
             <StatusBadge tone={workerConfigured || isAnnotation || isGateway ? "success" : "warning"}>
               {workerConfigured || isAnnotation || isGateway
@@ -495,7 +498,7 @@ export function NodeConfigPanel({
                 : t(($) => $.detail_panel.readiness_worker_missing)}
             </StatusBadge>
           </div>
-          <div className="flex items-center justify-between gap-3 rounded-md border bg-muted/20 px-2.5 py-2">
+          <div className="flex items-center justify-between gap-3 border-t border-border/60 px-2 py-1.5">
             <span className="text-muted-foreground">{t(($) => $.node.section_critic)}</span>
             <StatusBadge tone={criticConfigured ? "success" : "default"}>
               {criticConfigured
@@ -504,10 +507,10 @@ export function NodeConfigPanel({
             </StatusBadge>
           </div>
           {isSplit ? (
-            <div className="flex items-center justify-between gap-3 rounded-md border bg-muted/20 px-2.5 py-2">
-              <span className="text-muted-foreground">{t(($) => $.detail_panel.split_child_workflow_label)}</span>
-              <StatusBadge tone={splitConfig.child_workflow_id ? "success" : "warning"}>
-                {splitConfig.child_workflow_id
+            <div className="flex items-center justify-between gap-3 border-t border-border/60 px-2 py-1.5">
+              <span className="text-muted-foreground">{t(($) => $.detail_panel.split_default_issue_workflow_label)}</span>
+              <StatusBadge tone={splitConfig.default_issue_workflow_id ? "success" : "warning"}>
+                {splitConfig.default_issue_workflow_id
                   ? t(($) => $.detail_panel.readiness_split_ready)
                   : t(($) => $.detail_panel.readiness_split_missing)}
               </StatusBadge>

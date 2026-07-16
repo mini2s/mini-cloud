@@ -1,36 +1,11 @@
 package daemon
 
 import (
-	"encoding/json"
 	"fmt"
 	"strings"
 
 	"github.com/multica-ai/multica/server/internal/daemon/execenv"
 )
-
-type splitDefaultChildAssigneePrompt struct {
-	Type string `json:"type"`
-	ID   string `json:"id"`
-	Name string `json:"name"`
-}
-
-func formatSplitDefaultChildAssignee(raw []byte) string {
-	if strings.TrimSpace(string(raw)) == "" {
-		return ""
-	}
-	var assignee splitDefaultChildAssigneePrompt
-	if err := json.Unmarshal(raw, &assignee); err != nil {
-		return ""
-	}
-	if assignee.Type == "" || assignee.ID == "" {
-		return ""
-	}
-	label := assignee.Type + ":" + assignee.ID
-	if strings.TrimSpace(assignee.Name) != "" {
-		label += " (" + strings.TrimSpace(assignee.Name) + ")"
-	}
-	return label
-}
 
 // BuildPrompt constructs the task prompt for an agent CLI.
 // Keep this minimal — detailed instructions live in CLAUDE.md / AGENTS.md
@@ -119,27 +94,20 @@ func buildSplitPrompt(task Task) string {
 	if strings.TrimSpace(task.WorkflowSplitParentIssueDescription) != "" {
 		fmt.Fprintf(&b, "\nParent issue description:\n%s\n", strings.TrimSpace(task.WorkflowSplitParentIssueDescription))
 	}
-	if label := formatSplitDefaultChildAssignee(task.WorkflowSplitDefaultChildAssignee); label != "" {
-		fmt.Fprintf(&b, "\nDefault child assignee: %s\n", label)
-	}
 	b.WriteString("\n")
 	fmt.Fprintf(&b, "Read the split planning issue with `cs-workflow issue get %s --output json` and inspect comments only if they are needed for context.\n\n", task.IssueID)
 	b.WriteString("Your job is to propose child tasks for human review. The platform will create the actual child issues later after review.\n\n")
+	b.WriteString("The backend applies the configured default issue workflow to every draft. Do NOT output workflow_id. Reviewers change execution workflow later in Multica.\n\n")
 	b.WriteString("Hard rules:\n")
 	b.WriteString("- Do NOT create issues.\n")
 	b.WriteString("- Do NOT change issue status.\n")
 	b.WriteString("- Do NOT post comments.\n")
 	b.WriteString("- Do NOT modify code, docs, or repository files.\n")
-	b.WriteString("- Do NOT run `cs-workflow agent list` unless the default child assignee is absent and the task requires a different assignee.\n")
 	b.WriteString("- Do NOT use an issue ID as the node run ID.\n")
 	b.WriteString("- Submit draft tasks through the split draft CLI; the platform will route them to human review.\n\n")
 	b.WriteString("Primary success path:\n")
 	b.WriteString("1. Write each draft task description to a UTF-8 markdown file.\n")
-	if label := formatSplitDefaultChildAssignee(task.WorkflowSplitDefaultChildAssignee); label != "" {
-		b.WriteString("2. Add each draft with `cs-workflow workflow split draft add <node-run-id> --key <stable-key> --title \"...\" --description-file <file>`; omit `--assignee` to use the default child assignee, or pass `--assignee agent:<uuid>` / `--assignee member:<uuid>` only for deliberate overrides.\n")
-	} else {
-		b.WriteString("2. Add each draft with `cs-workflow workflow split draft add <node-run-id> --key <stable-key> --title \"...\" --assignee agent:<uuid> --description-file <file>`.\n")
-	}
+	b.WriteString("2. Add each draft with `cs-workflow workflow split draft add <node-run-id> --key <stable-key> --title \"...\" --description-file <file>`.\n")
 	b.WriteString("3. Use `--depends-on <stable-key>` for each dependency on a previously added draft task.\n")
 	if task.WorkflowNodeRunID != "" {
 		fmt.Fprintf(&b, "4. When all drafts are added, run `cs-workflow workflow split draft submit %s --output json`.\n\n", task.WorkflowNodeRunID)
@@ -148,7 +116,7 @@ func buildSplitPrompt(task Task) string {
 		b.WriteString("4. When all drafts are added, run `cs-workflow workflow split draft submit <node-run-id> --output json`.\n\n")
 		b.WriteString("After `cs-workflow workflow split draft submit <node-run-id> --output json` succeeds, stop.\n\n")
 	}
-	b.WriteString("Use the exact workflow node run ID from the task context files. Assignees must be `agent:<uuid>` or `member:<uuid>`.\n\n")
+	b.WriteString("Use the exact workflow node run ID from the task context files.\n\n")
 	b.WriteString("Fallback only: if the draft CLI is unavailable, return a clear Markdown task breakdown. The server will attempt recovery, but CLI submission is more reliable.\n")
 	return b.String()
 }
@@ -196,7 +164,7 @@ func buildSplitChatPrompt(task Task) string {
 	b.WriteString("1. Decide which existing drafts to keep, discard or replace based on the user request.\n")
 	b.WriteString("2. Use `cs-workflow workflow split draft delete <node-run-id> <draft-task-id>` to discard drafts that should be removed.\n")
 	b.WriteString("3. Write each new or replacement draft task description to a UTF-8 markdown file.\n")
-	b.WriteString("4. Add or replace drafts with `cs-workflow workflow split draft add <node-run-id> --key <stable-key> --title \"...\" --assignee agent:<uuid> --description-file <file>`.\n")
+	b.WriteString("4. Add or replace drafts with `cs-workflow workflow split draft add <node-run-id> --key <stable-key> --title \"...\" --description-file <file>`.\n")
 	b.WriteString("5. Use `--depends-on <stable-key>` only when a dependency is real and refers to a kept or newly added draft.\n")
 	b.WriteString("6. When the adjusted draft set is complete, run `cs-workflow workflow split draft submit <node-run-id>`.\n\n")
 	b.WriteString("If the user asks to simplify, prefer fewer clearer drafts over preserving every existing draft. Your final assistant output can be brief; the durable result is the submitted draft set.\n")

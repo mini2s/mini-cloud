@@ -95,7 +95,7 @@ export const NODE_TEMPLATES: NodeTemplate[] = [
     id: "task-splitter",
     category: "logic",
     title: "Task split",
-    description: "Generate a reviewed child task plan and launch a child workflow per approved task.",
+    description: "Generate a reviewed child task plan and launch each child issue with its selected workflow.",
     tags: ["split", "parallel", "child tasks", "planning"],
     shape: "rectangle",
     worker_type: "agent",
@@ -175,7 +175,7 @@ export function buildCreateNodeRequestFromTemplate(
             template_id: template.id,
             template_category: template.category,
             split_config: {
-              child_workflow_id: null,
+              default_issue_workflow_id: null,
               mode: "barrier",
               max_concurrency: 5,
               max_failures: 0,

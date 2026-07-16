@@ -185,7 +185,6 @@ type AgentTaskResponse struct {
 	WorkflowSplitParentIssueID          string                `json:"workflow_split_parent_issue_id,omitempty"`
 	WorkflowSplitParentIssueTitle       string                `json:"workflow_split_parent_issue_title,omitempty"`
 	WorkflowSplitParentIssueDescription string                `json:"workflow_split_parent_issue_description,omitempty"`
-	WorkflowSplitDefaultChildAssignee   json.RawMessage       `json:"workflow_split_default_child_assignee,omitempty"`
 	WorkflowSplitCurrentDrafts          json.RawMessage       `json:"workflow_split_current_drafts,omitempty"`
 	WorkflowSplitConfig                 json.RawMessage       `json:"workflow_split_config,omitempty"`
 	ChatMessage                         string                `json:"chat_message,omitempty"`              // user message for chat tasks
@@ -303,7 +302,6 @@ func taskToResponse(t db.MulticaAgentTaskQueue) AgentTaskResponse {
 		WorkflowSplitParentIssueID:          workflowCtx.ParentIssueID,
 		WorkflowSplitParentIssueTitle:       workflowCtx.ParentIssueTitle,
 		WorkflowSplitParentIssueDescription: workflowCtx.ParentIssueDescription,
-		WorkflowSplitDefaultChildAssignee:   workflowCtx.DefaultChildAssignee,
 		WorkflowSplitCurrentDrafts:          workflowCtx.CurrentDrafts,
 		WorkflowSplitConfig:                 workflowCtx.SplitConfig,
 		Kind:                                computeTaskKind(t),
@@ -323,7 +321,6 @@ type workflowTaskContext struct {
 	ParentIssueID          string
 	ParentIssueTitle       string
 	ParentIssueDescription string
-	DefaultChildAssignee   json.RawMessage
 	CurrentDrafts          json.RawMessage
 	SplitConfig            json.RawMessage
 }
@@ -353,7 +350,6 @@ func workflowContextFromTaskContext(raw []byte) workflowTaskContext {
 		ParentIssueID          string          `json:"parent_issue_id"`
 		ParentIssueTitle       string          `json:"parent_issue_title"`
 		ParentIssueDescription string          `json:"parent_issue_description"`
-		DefaultChildAssignee   json.RawMessage `json:"default_child_assignee"`
 		CurrentDrafts          json.RawMessage `json:"current_drafts"`
 		SplitConfig            json.RawMessage `json:"split_config"`
 	}
@@ -379,7 +375,6 @@ func workflowContextFromTaskContext(raw []byte) workflowTaskContext {
 			ParentIssueID:          payload.ParentIssueID,
 			ParentIssueTitle:       payload.ParentIssueTitle,
 			ParentIssueDescription: payload.ParentIssueDescription,
-			DefaultChildAssignee:   payload.DefaultChildAssignee,
 			CurrentDrafts:          payload.CurrentDrafts,
 			SplitConfig:            payload.SplitConfig,
 		}

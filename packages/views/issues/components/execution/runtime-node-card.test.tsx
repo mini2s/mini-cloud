@@ -364,7 +364,7 @@ describe("RuntimeNodeCard", () => {
             template_category: "logic",
             shape: "rectangle",
             split_config: {
-              child_workflow_id: "child-wf-1",
+              default_issue_workflow_id: "child-wf-1",
               mode: "barrier",
               max_concurrency: 5,
               max_failures: 0,
@@ -411,7 +411,7 @@ describe("RuntimeNodeCard", () => {
             type: "split",
             template_id: "task-splitter",
             split_config: {
-              child_workflow_id: "child-wf-1",
+              default_issue_workflow_id: "child-wf-1",
               mode: "barrier",
               max_concurrency: 5,
               max_failures: 0,
@@ -450,7 +450,7 @@ describe("RuntimeNodeCard", () => {
           format_schema: {
             type: "split",
             split_config: {
-              child_workflow_id: "child-wf-1",
+              default_issue_workflow_id: "child-wf-1",
               mode: "barrier",
               max_concurrency: 5,
               max_failures: 0,
@@ -499,7 +499,7 @@ describe("RuntimeNodeCard", () => {
           format_schema: {
             type: "split",
             split_config: {
-              child_workflow_id: "child-wf-1",
+              default_issue_workflow_id: "child-wf-1",
               mode: "barrier",
               max_concurrency: 5,
               max_failures: 0,
@@ -544,7 +544,7 @@ describe("RuntimeNodeCard", () => {
             template_category: "logic",
             shape: "rectangle",
             split_config: {
-              child_workflow_id: "child-wf-1",
+              default_issue_workflow_id: "child-wf-1",
               mode: "barrier",
               max_concurrency: 5,
               max_failures: 0,
@@ -605,7 +605,7 @@ describe("RuntimeNodeCard", () => {
             template_category: "logic",
             shape: "rectangle",
             split_config: {
-              child_workflow_id: "child-wf-1",
+              default_issue_workflow_id: "child-wf-1",
               mode: "barrier",
               max_concurrency: 5,
               max_failures: 0,
@@ -651,7 +651,7 @@ describe("RuntimeNodeCard", () => {
             template_category: "logic",
             shape: "rectangle",
             split_config: {
-              child_workflow_id: "child-wf-1",
+              default_issue_workflow_id: "child-wf-1",
               mode: "barrier",
               max_concurrency: 5,
               max_failures: 0,

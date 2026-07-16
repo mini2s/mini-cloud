@@ -200,10 +200,18 @@ export function SplitChatReview({
 
       {issueId ? (
         <div aria-disabled={disabled} className={disabled ? "pointer-events-none opacity-60" : undefined}>
+          <p className="mb-2 text-[11px] text-muted-foreground">
+            Workflow changes use the row selector, not chat.
+          </p>
           <CommentInput issueId={issueId} onSubmit={onSubmit} />
         </div>
       ) : (
-        <SplitInlineComposer disabled={disabled} onSubmit={onSubmit} />
+        <>
+          <p className="text-[11px] text-muted-foreground">
+            Workflow changes use the row selector, not chat.
+          </p>
+          <SplitInlineComposer disabled={disabled} onSubmit={onSubmit} />
+        </>
       )}
     </div>
   );
