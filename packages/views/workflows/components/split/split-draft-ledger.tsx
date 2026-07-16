@@ -172,6 +172,8 @@ export function SplitDraftLedger({
         const linkedIssue = taskIssueBySourceId?.get(task.id) ?? null;
         const isExpanded = expandedTaskIds.has(task.id);
         const isEditing = editingTaskId === task.id;
+        const isActiveTask = task.status !== "discarded";
+        const isMissingWorkflow = isActiveTask && !task.workflow_id;
         const canEditDraft = !readOnly && task.status === "draft";
         const canRestoreDraft = !readOnly && task.status === "discarded";
         const summaryId = `split-draft-summary-${task.id}`;
@@ -185,7 +187,7 @@ export function SplitDraftLedger({
             data-testid={`split-draft-row-${task.id}`}
             className={cn(
               "rounded-md border border-border/70 bg-muted/10 px-3 py-3 shadow-sm shadow-foreground/[0.02]",
-              !task.workflow_id && "border-destructive/40 bg-destructive/[0.04]",
+              isMissingWorkflow && "border-destructive/40 bg-destructive/[0.04]",
               task.status === "discarded" && "bg-muted/20 opacity-70",
             )}
           >
@@ -351,7 +353,7 @@ export function SplitDraftLedger({
             </div>
             <div className="mt-2 flex flex-wrap gap-1.5 text-xs text-muted-foreground">
               <span>{dependsOn ? t(($) => $.detail_panel.split_draft_dependencies_label, { deps: dependsOn }) : t(($) => $.detail_panel.split_draft_dependencies_none)}</span>
-              {!task.workflow_id ? (
+              {isMissingWorkflow ? (
                 <span
                   data-testid={`split-draft-risk-${task.id}`}
                   className="rounded-full bg-destructive/10 px-2 py-0.5 font-medium text-destructive"

@@ -501,6 +501,39 @@ describe("SplitReviewPanel", () => {
     expect(screen.getByText("Build shell and board rendering")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Confirm create 2" })).toBeInTheDocument();
     expect(screen.getByText("Dependencies: 04")).toBeInTheDocument();
+    expect(screen.getByText("04 -> 03")).toBeInTheDocument();
+  });
+
+  it("uses visible draft numbers for active blockers and ignores discarded draft risks", () => {
+    mocks.splitTasksData = {
+      tasks: [
+        draftTask("discarded-1", "Discarded missing workflow", {
+          workflow_id: null,
+          status: "discarded",
+          sort_order: 0,
+        }),
+        draftTask("active-2", "Active missing workflow", {
+          workflow_id: null,
+          sort_order: 1,
+        }),
+      ],
+      progress: {
+        total: 1,
+        created: 0,
+        running: 0,
+        done: 0,
+        failed: 0,
+        cancelled: 0,
+        skipped: 0,
+      },
+    };
+
+    renderPanel();
+
+    expect(screen.getByText("Child issue 02 is missing execution workflow.")).toBeInTheDocument();
+    expect(screen.queryByText("Child issue 1 is missing execution workflow.")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("split-draft-risk-discarded-1")).not.toBeInTheDocument();
+    expect(screen.getByTestId("split-draft-risk-active-2")).toBeInTheDocument();
   });
 
   it("approves current draft tasks without sending local modifications", async () => {

@@ -110,6 +110,10 @@ function creatableTasks(tasks: SplitTask[]): SplitTask[] {
   return tasks.filter((task) => task.status !== "discarded");
 }
 
+function taskNumber(index: number): string {
+  return String(index + 1).padStart(2, "0");
+}
+
 function buildApproveRequest(tasks: SplitTask[], confirmEmpty = false): ApproveSplitRequest {
   return {
     approved_task_ids: creatableTasks(tasks).map((task) => task.id),
@@ -272,11 +276,12 @@ export function SplitReviewPanel({
 
   const tasks = data?.tasks ?? [];
   const activeTasks = useMemo(() => creatableTasks(tasks), [tasks]);
+  const taskNumberById = useMemo(() => new Map(tasks.map((task, index) => [task.id, taskNumber(index)])), [tasks]);
   const progress = data?.progress ?? EMPTY_PROGRESS;
   const splitConfig = splitConfigFromNode(node);
   const creatableCount = activeTasks.length;
   const workflowBlockers = activeTasks
-    .map((task, index) => task.workflow_id ? null : t(($) => $.detail_panel.split_blocker_missing_workflow, { index: index + 1 }))
+    .map((task) => task.workflow_id ? null : t(($) => $.detail_panel.split_blocker_missing_workflow, { index: taskNumberById.get(task.id) ?? task.id }))
     .filter((message): message is string => Boolean(message));
   const canApprove = nodeRun?.status === "awaiting_split_review" && creatableCount > 0 && workflowBlockers.length === 0;
   const canChat = nodeRun?.status === "awaiting_split_review";
@@ -527,7 +532,7 @@ export function SplitReviewPanel({
         {isLoading ? (
           <p className="text-sm text-muted-foreground">{t(($) => $.detail_panel.split_loading_dependencies)}</p>
         ) : (
-          <SplitDependencyNote tasks={activeTasks} />
+          <SplitDependencyNote tasks={tasks} />
         )}
       </NodeDetailSection>
 

@@ -14,6 +14,7 @@ function taskNumber(index: number): string {
 function buildDependencyRows(tasks: SplitTask[]): string[] {
   const numberByTaskId = new Map(tasks.map((task, index) => [task.id, taskNumber(index)]));
   return tasks
+    .filter((task) => task.status !== "discarded")
     .filter((task) => task.depends_on.length > 0)
     .map((task) => {
       const current = numberByTaskId.get(task.id) ?? task.id;
@@ -27,8 +28,9 @@ function buildDependencyRows(tasks: SplitTask[]): string[] {
 export function SplitDependencyNote({ tasks }: SplitDependencyNoteProps) {
   const { t } = useT("workflows");
   const rows = buildDependencyRows(tasks);
+  const activeTaskCount = tasks.filter((task) => task.status !== "discarded").length;
 
-  if (tasks.length === 0) {
+  if (activeTaskCount === 0) {
     return (
       <p className="text-sm text-muted-foreground">
         {t(($) => $.detail_panel.split_dep_will_appear_after_draft)}
