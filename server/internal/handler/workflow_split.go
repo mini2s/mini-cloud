@@ -83,27 +83,19 @@ type RetrySplitTaskRequest struct {
 }
 
 func splitProgressResponse(tasks []db.MulticaWorkflowSplitTask) SplitProgressResponse {
-	var progress SplitProgressResponse
-	for _, task := range tasks {
-		if task.Status != service.SplitTaskStatusDiscarded {
-			progress.Total++
-		}
-		switch task.Status {
-		case service.SplitTaskStatusCreated:
-			progress.Created++
-		case service.SplitTaskStatusRunning:
-			progress.Running++
-		case service.SplitTaskStatusDone:
-			progress.Done++
-		case service.SplitTaskStatusFailed:
-			progress.Failed++
-		case service.SplitTaskStatusCancelled:
-			progress.Cancelled++
-		case service.SplitTaskStatusSkipped:
-			progress.Skipped++
-		}
+	return splitProgressFromService(service.SplitExecutionProgressSummary(tasks))
+}
+
+func splitProgressFromService(progress service.SplitProgressSummary) SplitProgressResponse {
+	return SplitProgressResponse{
+		Total:     progress.Total,
+		Created:   progress.Created,
+		Running:   progress.Running,
+		Done:      progress.Done,
+		Failed:    progress.Failed,
+		Cancelled: progress.Cancelled,
+		Skipped:   progress.Skipped,
 	}
-	return progress
 }
 
 func splitTaskToResponse(task db.MulticaWorkflowSplitTask) SplitTaskResponse {
