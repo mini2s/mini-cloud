@@ -87,6 +87,12 @@ services:
       # Empty default = headers ignored, RemoteAddr used. Set e.g.
       # "127.0.0.1/32" when running behind a same-host reverse proxy.
       MULTICA_TRUSTED_PROXIES: ${MULTICA_TRUSTED_PROXIES:-}
+      # Cloud capability catalog + CSC plugin marketplace — read by the Go
+      # backend at runtime and delivered to the daemon via task-claim response.
+      # Empty -> catalog reads disabled / daemon falls back to default marketplace.
+      BUILTIN_PLUGIN_API_BASE_URL: ${BUILTIN_PLUGIN_API_BASE_URL:-}
+      CSC_PLUGIN_MARKETPLACE_NAME: ${CSC_PLUGIN_MARKETPLACE_NAME:-}
+      CSC_PLUGIN_MARKETPLACE_REPO: ${CSC_PLUGIN_MARKETPLACE_REPO:-}
     restart: unless-stopped
 
   frontend:
