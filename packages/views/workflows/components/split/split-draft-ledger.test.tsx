@@ -97,8 +97,9 @@ describe("SplitDraftLedger", () => {
     const workflow = screen.getByLabelText("Execution workflow for A very long child issue title that must stay readable in the review panel");
 
     expect(screen.getByTestId("split-draft-row-task-1")).toBeInTheDocument();
-    expect(meta).toHaveClass("grid", "min-w-0", "gap-2");
-    expect(workflow).toHaveClass("min-w-[12rem]");
+    expect(meta).toHaveClass("grid", "min-w-0", "gap-2.5");
+    expect(meta).not.toHaveClass("sm:grid-cols-[minmax(0,1fr)_auto]");
+    expect(workflow).toHaveClass("min-w-[10rem]", "flex-1");
   });
 
   it("marks task-level workflow blockers inside the affected draft row", () => {
@@ -107,7 +108,7 @@ describe("SplitDraftLedger", () => {
     const row = screen.getByTestId("split-draft-row-task-1");
 
     expect(screen.getByTestId("split-draft-risk-task-1")).toHaveTextContent("Missing execution workflow");
-    expect(row).toHaveClass("border-destructive/30");
+    expect(row).toHaveClass("border-destructive/40", "bg-destructive/[0.04]");
   });
 
   it("keeps draft details collapsed until the user asks to view them", async () => {

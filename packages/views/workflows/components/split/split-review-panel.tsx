@@ -163,7 +163,10 @@ function SplitVerdictSummary({
       : t(($) => $.detail_panel.split_missing_assignees, { count: riskCount });
 
   return (
-    <div data-testid="split-review-summary" className="rounded-lg border bg-muted/20 px-3 py-3">
+    <div
+      data-testid="split-review-summary"
+      className="overflow-hidden rounded-md border border-border/70 bg-background px-3 py-3 shadow-sm shadow-foreground/[0.03]"
+    >
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <p className="text-sm font-semibold text-foreground">{title}</p>
@@ -190,14 +193,14 @@ function SplitVerdictSummary({
           <Badge variant="outline">{t(($) => $.detail_panel.split_settings_max_failures_label, { max: splitConfig?.max_failures ?? 0 })}</Badge>
         </div>
       </details>
-      <div className="mt-3 grid grid-cols-4 gap-2 text-xs">
+      <div className="mt-3 grid grid-cols-4 gap-px overflow-hidden rounded-md border bg-border/70 text-xs">
         {[
           [t(($) => $.detail_panel.split_stat_total), progress.total],
           [t(($) => $.detail_panel.split_stat_running), progress.running],
           [t(($) => $.detail_panel.split_stat_done), progress.done],
           [t(($) => $.detail_panel.split_stat_failed), progress.failed],
         ].map(([label, value]) => (
-          <div key={label} className="min-w-0 rounded-md border bg-background px-2 py-1.5">
+          <div key={label} className="min-w-0 bg-background px-2 py-1.5">
             <p className="truncate text-[10px] uppercase text-muted-foreground">{label}</p>
             <p
               data-testid={`split-progress-${String(label).toLowerCase()}`}
@@ -279,8 +282,9 @@ export function SplitReviewPanel({
   const canChat = nodeRun?.status === "awaiting_split_review";
   const canCancel = isNodeRunCancellable(nodeRun?.status);
   const canRecover = nodeRun?.status === "failed";
-  const canResetOriginal = nodeRun?.status === "awaiting_split_review" && tasks.length > 0;
+  const canResetOriginal = nodeRun?.status === "awaiting_split_review";
   const canGenerate = !!nodeRunId && isSplitGenerateActionStatus(nodeRun?.status) && (activeTasks.length === 0 || nodeRun?.status === "failed");
+  const hasDraftCommands = canGenerate || canRecover;
   const failureMessage = splitFailureMessage(nodeRun);
   const generateLabel = tasks.length > 0
     ? t(($) => $.detail_panel.split_regenerate_draft)
@@ -453,7 +457,53 @@ export function SplitReviewPanel({
         sectionId="runtime"
         icon={<ListTree className="size-4" />}
         title={t(($) => $.detail_panel.split_draft_plan)}
+        status={canResetOriginal ? (
+          <Button
+            type="button"
+            size="sm"
+            variant="ghost"
+            onClick={() => void handleResetOriginal()}
+            disabled={!nodeRunId || resetOriginalMutation.isPending}
+            className="shrink-0 px-2 text-xs text-muted-foreground hover:text-foreground"
+          >
+            <Undo2 className="mr-1.5 size-3.5" />
+            {resetOriginalMutation.isPending
+              ? t(($) => $.detail_panel.split_resetting_original)
+              : t(($) => $.detail_panel.split_reset_original)}
+          </Button>
+        ) : null}
       >
+        {hasDraftCommands ? (
+          <div
+            data-testid="split-draft-command-bar"
+            className="flex flex-wrap items-center gap-2 rounded-md border border-border/70 bg-muted/20 px-2.5 py-2"
+          >
+            {canGenerate ? (
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                onClick={() => void handleGenerate()}
+                disabled={!nodeRunId || generateMutation.isPending || nodeRun?.status === "splitting"}
+              >
+                <RefreshCcw className="mr-1.5 size-3.5" />
+                {generateMutation.isPending ? t(($) => $.detail_panel.split_generating) : generateLabel}
+              </Button>
+            ) : null}
+            {canRecover ? (
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                onClick={() => void handleRecover()}
+                disabled={!nodeRunId || recoverMutation.isPending}
+              >
+                <ListTree className="mr-1.5 size-3.5" />
+                {recoverMutation.isPending ? t(($) => $.detail_panel.split_recovering) : t(($) => $.detail_panel.split_recover_outputs)}
+              </Button>
+            ) : null}
+          </div>
+        ) : null}
         {isLoading ? (
           <p className="text-sm text-muted-foreground">{t(($) => $.detail_panel.split_loading_draft)}</p>
         ) : (
@@ -496,58 +546,9 @@ export function SplitReviewPanel({
         </NodeDetailSection>
       ) : null}
 
-      {canGenerate || canRecover || canResetOriginal ? (
-        <NodeDetailSection
-          sectionId="actions"
-          icon={<Activity className="size-4" />}
-          title={t(($) => $.detail_panel.split_actions_section)}
-        >
-          <div className="flex flex-wrap gap-2">
-            {canGenerate ? (
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                onClick={() => void handleGenerate()}
-                disabled={!nodeRunId || generateMutation.isPending || nodeRun?.status === "splitting"}
-              >
-                <RefreshCcw className="mr-1.5 size-3.5" />
-                {generateMutation.isPending ? t(($) => $.detail_panel.split_generating) : generateLabel}
-              </Button>
-            ) : null}
-            {canRecover ? (
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                onClick={() => void handleRecover()}
-                disabled={!nodeRunId || recoverMutation.isPending}
-              >
-                <ListTree className="mr-1.5 size-3.5" />
-                {recoverMutation.isPending ? t(($) => $.detail_panel.split_recovering) : t(($) => $.detail_panel.split_recover_outputs)}
-              </Button>
-            ) : null}
-            {canResetOriginal ? (
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                onClick={() => void handleResetOriginal()}
-                disabled={!nodeRunId || resetOriginalMutation.isPending}
-              >
-                <Undo2 className="mr-1.5 size-3.5" />
-                {resetOriginalMutation.isPending
-                  ? t(($) => $.detail_panel.split_resetting_original)
-                  : t(($) => $.detail_panel.split_reset_original)}
-              </Button>
-            ) : null}
-          </div>
-        </NodeDetailSection>
-      ) : null}
-
       <div
         data-testid="split-review-action-bar"
-        className="sticky bottom-0 -mx-4 mt-3 border-t bg-background/95 px-4 py-3 backdrop-blur"
+        className="sticky bottom-0 -mx-4 mt-3 border-t bg-background/95 px-4 py-3 shadow-[0_-12px_24px_-20px_hsl(var(--foreground))] backdrop-blur"
       >
         <div className="flex items-center justify-between gap-3">
           <div>

@@ -54,23 +54,23 @@ export function WorkflowNodeDetailPanelShell({
       data-testid="workflow-node-detail-panel-shell"
       data-mode={mode}
       className={cn(
-        "flex h-full flex-col border-l bg-card",
+        "flex h-full flex-col border-l bg-background",
         widthClassName,
         variant === "overlay" &&
-          "fixed right-0 top-0 bottom-0 z-50 h-auto bg-background/98 shadow-xl backdrop-blur",
+          "fixed right-0 top-0 bottom-0 z-50 h-auto shadow-2xl shadow-foreground/10 ring-1 ring-border/70 backdrop-blur",
         className,
       )}
     >
-      <div className="shrink-0 border-b border-border/60 px-4 py-3">
+      <div className="shrink-0 border-b border-border/60 bg-muted/15 px-4 py-3.5">
         <div className="mb-2 flex items-center justify-between gap-2">
           <div className="min-w-0">
             {eyebrow ? (
-              <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+              <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
                 {eyebrow}
               </p>
             ) : null}
             <div className="flex min-w-0 items-center gap-2">
-              <h2 className="truncate text-sm font-medium">{title}</h2>
+              <h2 className="truncate text-[15px] font-semibold leading-5">{title}</h2>
               {statusIcon}
             </div>
           </div>
@@ -88,9 +88,9 @@ export function WorkflowNodeDetailPanelShell({
 
       <div
         data-testid="node-detail-section-stack"
-        className={cn("min-h-0 flex-1 overflow-y-auto px-4 py-4", contentClassName)}
+        className={cn("min-h-0 flex-1 overflow-y-auto px-4 py-3.5", contentClassName)}
       >
-        <div className="space-y-5">{children}</div>
+        <div className="space-y-4">{children}</div>
       </div>
     </aside>
   );
@@ -135,7 +135,7 @@ export function NodeDetailSection({
       data-testid="node-detail-section"
       data-section={sectionId}
       className={cn(
-        "relative space-y-2 border-t border-border/60 pt-4 first:border-t-0 first:pt-0",
+        "relative space-y-2.5 border-t border-border/60 pt-4 first:border-t-0 first:pt-0",
         className,
       )}
     >
@@ -145,7 +145,7 @@ export function NodeDetailSection({
             {icon ? (
               <span
                 className={cn(
-                  "flex size-6 shrink-0 items-center justify-center rounded bg-muted/45 text-muted-foreground",
+                  "flex size-6 shrink-0 items-center justify-center rounded-md bg-muted/45 text-muted-foreground",
                   subtitle && "mt-0.5",
                 )}
               >

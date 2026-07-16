@@ -184,14 +184,14 @@ export function SplitDraftLedger({
             key={task.id}
             data-testid={`split-draft-row-${task.id}`}
             className={cn(
-              "rounded-md border bg-background px-3 py-2.5",
-              !task.workflow_id && "border-destructive/30 bg-destructive/5",
-              task.status === "discarded" && "opacity-70",
+              "rounded-md border border-border/70 bg-muted/10 px-3 py-3 shadow-sm shadow-foreground/[0.02]",
+              !task.workflow_id && "border-destructive/40 bg-destructive/[0.04]",
+              task.status === "discarded" && "bg-muted/20 opacity-70",
             )}
           >
             <div
               data-testid={`split-draft-meta-${task.id}`}
-              className="grid min-w-0 gap-2"
+              className="grid min-w-0 gap-2.5"
             >
               <div className="min-w-0">
                 {isEditing ? (
@@ -231,34 +231,34 @@ export function SplitDraftLedger({
                       </h4>
                     </div>
                     {task.description.trim().length > 0 ? (
-                  <div className="mt-1">
-                    <p
-                      id={summaryId}
-                      data-testid={summaryId}
-                      className={cn(
-                        "text-xs leading-snug text-muted-foreground",
-                        isExpanded ? "whitespace-pre-wrap" : "line-clamp-2",
-                      )}
-                    >
-                      {task.description}
-                    </p>
-                    <button
-                      type="button"
-                      className="mt-1 inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-                      aria-expanded={isExpanded}
-                      aria-controls={summaryId}
-                      onClick={() => toggleTaskDetails(task.id)}
-                    >
-                      {isExpanded ? (
-                        <ChevronUp className="size-3.5" />
-                      ) : (
-                        <ChevronDown className="size-3.5" />
-                      )}
-                      {isExpanded
-                        ? t(($) => $.detail_panel.split_draft_collapse_details)
-                        : t(($) => $.detail_panel.split_draft_expand_details)}
-                    </button>
-                  </div>
+                      <div className="mt-1">
+                        <p
+                          id={summaryId}
+                          data-testid={summaryId}
+                          className={cn(
+                            "text-xs leading-snug text-muted-foreground",
+                            isExpanded ? "whitespace-pre-wrap" : "line-clamp-2",
+                          )}
+                        >
+                          {task.description}
+                        </p>
+                        <button
+                          type="button"
+                          className="mt-1 inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                          aria-expanded={isExpanded}
+                          aria-controls={summaryId}
+                          onClick={() => toggleTaskDetails(task.id)}
+                        >
+                          {isExpanded ? (
+                            <ChevronUp className="size-3.5" />
+                          ) : (
+                            <ChevronDown className="size-3.5" />
+                          )}
+                          {isExpanded
+                            ? t(($) => $.detail_panel.split_draft_collapse_details)
+                            : t(($) => $.detail_panel.split_draft_expand_details)}
+                        </button>
+                      </div>
                     ) : null}
                   </>
                 )}
@@ -268,11 +268,11 @@ export function SplitDraftLedger({
                   <SplitTaskIssueFallback task={task} t={t} />
                 )}
               </div>
-              <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+              <div className="flex min-w-0 flex-wrap items-center gap-1.5 border-t border-border/60 pt-2">
                 <Badge variant="secondary">{taskStatusLabel(task.status)}</Badge>
                 <select
                   aria-label={t(($) => $.detail_panel.split_draft_execution_workflow_for, { title: task.title })}
-                  className="h-8 min-w-[12rem] rounded-md border border-input bg-background px-2 text-xs"
+                  className="h-8 min-w-[10rem] flex-1 rounded-md border border-input bg-background px-2 text-xs"
                   value={task.workflow_id ?? ""}
                   disabled={readOnly || task.status !== "draft" || isEditing}
                   onChange={(event) => onWorkflowChange?.(task, event.target.value)}

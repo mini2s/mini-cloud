@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { SplitReviewPanel } from "./split-review-panel";
@@ -437,7 +437,9 @@ describe("SplitReviewPanel", () => {
 
     const approveButton = screen.getByRole("button", { name: "Confirm create 1" });
     expect(screen.getByTestId("workflow-node-detail-panel-shell")).toHaveAttribute("data-mode", "run");
-    expect(screen.getByTestId("split-review-summary")).toHaveClass("rounded-lg", "border");
+    expect(screen.getByTestId("split-review-summary")).not.toHaveClass("border-l-4", "border-l-primary/70");
+    expect(screen.queryByTestId("split-draft-command-bar")).not.toBeInTheDocument();
+    expect(screen.queryByText("Actions")).not.toBeInTheDocument();
     expect(screen.getByTestId("split-review-action-bar")).toContainElement(approveButton);
     expect(screen.getByText("Child issue readiness")).toBeInTheDocument();
     expect(screen.getByText("Ready to create")).toBeInTheDocument();
@@ -522,7 +524,40 @@ describe("SplitReviewPanel", () => {
     renderPanel();
 
     expect(screen.queryByRole("button", { name: "Regenerate draft" })).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Reset to agent proposal" })).toBeInTheDocument();
+    const draftSection = screen
+      .getByText("Child issue draft")
+      .closest('[data-testid="node-detail-section"]');
+    expect(draftSection).not.toBeNull();
+    const resetButton = screen.getByRole("button", { name: "Reset to agent proposal" });
+    expect(draftSection).toContainElement(resetButton);
+    expect(screen.queryByTestId("split-draft-command-bar")).not.toBeInTheDocument();
+  });
+
+  it("places the overall reset action in the draft section header when generation is also available", () => {
+    mocks.splitTasksData = {
+      tasks: [],
+      progress: {
+        total: 0,
+        created: 0,
+        running: 0,
+        done: 0,
+        failed: 0,
+        cancelled: 0,
+        skipped: 0,
+      },
+    };
+
+    renderPanel();
+
+    const draftSection = screen
+      .getByText("Child issue draft")
+      .closest('[data-testid="node-detail-section"]');
+    expect(draftSection).not.toBeNull();
+    expect(within(draftSection as HTMLElement).getByRole("button", { name: "Reset to agent proposal" }))
+      .toBeInTheDocument();
+    expect(screen.getByTestId("split-draft-command-bar")).toContainElement(
+      screen.getByRole("button", { name: "Generate draft" }),
+    );
   });
 
   it("offers draft generation only before any split draft exists", async () => {
@@ -540,9 +575,36 @@ describe("SplitReviewPanel", () => {
     };
     renderPanel();
 
+    expect(screen.getByRole("button", { name: "Reset to agent proposal" })).toBeInTheDocument();
+
     await userEvent.click(screen.getByRole("button", { name: "Generate draft" }));
 
     expect(mocks.generateMutateAsync).toHaveBeenCalledWith({
+      nodeRunId: "node-run-1",
+      workflowId: "wf-1",
+      runId: "run-1",
+    });
+  });
+
+  it("keeps the overall reset action available when the draft list is empty", async () => {
+    mocks.splitTasksData = {
+      tasks: [],
+      progress: {
+        total: 0,
+        created: 0,
+        running: 0,
+        done: 0,
+        failed: 0,
+        cancelled: 0,
+        skipped: 0,
+      },
+    };
+
+    renderPanel();
+
+    await userEvent.click(screen.getByRole("button", { name: "Reset to agent proposal" }));
+
+    expect(mocks.resetOriginalMutateAsync).toHaveBeenCalledWith({
       nodeRunId: "node-run-1",
       workflowId: "wf-1",
       runId: "run-1",

@@ -234,7 +234,7 @@
     "split_generating": "生成中...",
     "split_recover_outputs": "恢复已有输出",
     "split_recovering": "恢复中...",
-    "split_reset_original": "回退到 Agent 原始提案",
+    "split_reset_original": "回退到原始提案",
     "split_resetting_original": "正在回退...",
     "split_cancel": "取消拆分",
     "split_cancelling": "取消中...",
