@@ -162,6 +162,16 @@
     "trigger_aria": "Attach a workspace skill",
     "trigger_label": "Attach"
   },
+  "runtime_select": {
+    "title": "Select runtime",
+    "description": "Choose a runtime to run {{name}}.",
+    "empty_title": "No runtime available",
+    "empty_description": "Connect a runtime device before running a built-in agent.",
+    "auto_title": "Auto-select (recommended)",
+    "auto_description": "For built-in agents, select per node: idle first, then the Issue creator's runtime. Regular agents keep their binding.",
+    "cancel": "Cancel",
+    "confirm": "Run"
+  },
   "pickers": {
     "concurrency_tooltip": "Concurrency · {{value}} max concurrent tasks",
     "concurrency_range": "Max concurrent tasks ({{min}}–{{max}})",

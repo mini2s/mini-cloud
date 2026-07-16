@@ -13,7 +13,7 @@ import { api } from "@multica/core/api";
 import { useWorkspaceId } from "@multica/core/hooks";
 import { memberListOptions, agentListOptions, squadListOptions, assigneeFrequencyOptions } from "@multica/core/workspace/queries";
 import { isActiveWorkspaceMember } from "@multica/core/workspace/members";
-import { workflowActiveListOptions, workflowTemplateListOptions, workflowNodesOptions } from "@multica/core/workflows/queries";
+import { workflowActiveListOptions, workflowTemplateListOptions } from "@multica/core/workflows/queries";
 import { runtimeListOptions } from "@multica/core/runtimes/queries";
 import { ActorAvatar } from "../../../common/actor-avatar";
 import {
@@ -316,8 +316,9 @@ export function AssigneePicker({
     }
   };
 
-  const handleRuntimeConfirm = (runtimeId: string) => {
+  const handleRuntimeConfirm = (runtimeId: string | null) => {
     if (!pendingBuiltinAgent) return;
+    if (!runtimeId) return;
     guardedUpdate({
       assignee_type: "agent",
       assignee_id: pendingBuiltinAgent.id,
@@ -327,9 +328,8 @@ export function AssigneePicker({
     setOpen(false);
   };
 
-  // Handle clicking a workflow: check if any node has a built-in agent,
-  // and if so, show the runtime selection dialog so all built-in agents
-  // in this workflow share the same runtime.
+  // Workflow assignment always exposes the run-level runtime preference.
+  // "Auto" leaves runtime_id unset so the backend applies the per-node policy.
   //
   // For cross-workspace templates: lazily clone into the current workspace
   // on first use. Subsequent uses reuse the existing clone (matched by
@@ -366,74 +366,14 @@ export function AssigneePicker({
       }
     }
 
-    setCheckingWorkflow(true);
-    try {
-      const nodes = await queryClient.fetchQuery(workflowNodesOptions(wsId, targetId));
-      const agentMap = new Map(agents.map((a) => [a.id, a]));
-
-      const hasBuiltinAgent = nodes.some((node) => {
-        if ((node.worker_type === "agent" || node.worker_type === "squad") && node.worker_id) {
-          const agentId = node.worker_type === "squad"
-            ? squads.find((s) => s.id === node.worker_id)?.leader_id
-            : node.worker_id;
-          if (agentId) {
-            const agent = agentMap.get(agentId);
-            if (agent?.is_builtin) return true;
-          }
-        }
-        if ((node.critic_type === "agent" || node.critic_type === "squad") && node.critic_id) {
-          const agentId = node.critic_type === "squad"
-            ? squads.find((s) => s.id === node.critic_id)?.leader_id
-            : node.critic_id;
-          if (agentId) {
-            const agent = agentMap.get(agentId);
-            if (agent?.is_builtin) return true;
-          }
-        }
-        return false;
-      });
-
-      if (hasBuiltinAgent) {
-        const onlineRuntimes = runtimes.filter((r) => r.status === "online");
-        if (onlineRuntimes.length === 1) {
-          guardedUpdate({
-            assignee_type: "workflow",
-            assignee_id: targetId,
-            runtime_id: onlineRuntimes[0]!.id,
-          });
-          setOpen(false);
-        } else if (onlineRuntimes.length > 1) {
-          setPendingWorkflowRuntime({
-            workflowId: targetId,
-            workflowTitle: targetTitle,
-          });
-        } else {
-          // No online runtimes — can't execute built-in agents.
-          toast.error(t(($) => $.pickers.assignee.no_runtime_available));
-          setCheckingWorkflow(false);
-          return;
-        }
-      } else {
-        // No built-in agents in workflow — assign normally
-        guardedUpdate({
-          assignee_type: "workflow",
-          assignee_id: targetId,
-        });
-        setOpen(false);
-      }
-    } catch {
-      // On error, still assign the workflow (nodes may not have loaded)
-      guardedUpdate({
-        assignee_type: "workflow",
-        assignee_id: targetId,
-      });
-      setOpen(false);
-    } finally {
-      setCheckingWorkflow(false);
-    }
+    setPendingWorkflowRuntime({
+      workflowId: targetId,
+      workflowTitle: targetTitle,
+    });
+    setCheckingWorkflow(false);
   };
 
-  const handleWorkflowRuntimeConfirm = (runtimeId: string) => {
+  const handleWorkflowRuntimeConfirm = (runtimeId: string | null) => {
     if (!pendingWorkflowRuntime) return;
     guardedUpdate({
       assignee_type: "workflow",
@@ -848,7 +788,7 @@ export function AssigneePicker({
     {pendingBuiltinAgent && (
       <RuntimeSelectDialog
         agentName={pendingBuiltinAgent.name}
-        runtimes={runtimes}
+        runtimes={runtimes.filter((runtime) => runtime.status === "online")}
         loading={false}
         onConfirm={handleRuntimeConfirm}
         onClose={() => {
@@ -859,8 +799,9 @@ export function AssigneePicker({
     {pendingWorkflowRuntime && (
       <RuntimeSelectDialog
         agentName={pendingWorkflowRuntime.workflowTitle}
-        runtimes={runtimes}
+        runtimes={runtimes.filter((runtime) => runtime.status === "online")}
         loading={false}
+        allowAuto
         onConfirm={handleWorkflowRuntimeConfirm}
         onClose={() => {
           setPendingWorkflowRuntime(null);

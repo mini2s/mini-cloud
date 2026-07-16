@@ -16,7 +16,8 @@ import (
 // ── Request types ────────────────────────────────────────────────────────────
 
 type StartRunRequest struct {
-	Input json.RawMessage `json:"input"`
+	Input     json.RawMessage `json:"input"`
+	RuntimeID *string         `json:"runtime_id"`
 }
 
 type SubmitNodeRunRequest struct {
@@ -42,6 +43,7 @@ type WorkflowRunResponse struct {
 	Status          string          `json:"status"`
 	TriggeredByType string          `json:"triggered_by_type"`
 	TriggeredByID   *string         `json:"triggered_by_id"`
+	RuntimeID       *string         `json:"runtime_id"`
 	Input           json.RawMessage `json:"input"`
 	Output          json.RawMessage `json:"output"`
 	StartedAt       string          `json:"started_at"`
@@ -67,6 +69,8 @@ type WorkflowNodeRunResponse struct {
 	CriticAgentTaskID        *string         `json:"critic_agent_task_id"`
 	AgentTaskID              *string         `json:"agent_task_id"`
 	RuntimeID                *string         `json:"runtime_id"`
+	RuntimeSelectionReason   *string         `json:"runtime_selection_reason"`
+	FailureReason            *string         `json:"failure_reason"`
 	DeviceID                 *string         `json:"device_id"`
 	SessionID                *string         `json:"session_id"`
 	SplitReviewChatSessionID *string         `json:"split_review_chat_session_id"`
@@ -103,6 +107,7 @@ func workflowRunToResponse(r db.MulticaWorkflowRun) WorkflowRunResponse {
 		Status:          r.Status,
 		TriggeredByType: r.TriggeredByType,
 		TriggeredByID:   uuidToPtr(r.TriggeredByID),
+		RuntimeID:       uuidToPtr(r.RuntimeID),
 		Input:           json.RawMessage(r.Input),
 		Output:          json.RawMessage(r.Output),
 		StartedAt:       timestampToString(r.StartedAt),
@@ -130,6 +135,8 @@ func workflowNodeRunToResponse(nr db.MulticaWorkflowNodeRun) WorkflowNodeRunResp
 		CriticAgentTaskID:        uuidToPtr(nr.CriticAgentTaskID),
 		AgentTaskID:              uuidToPtr(nr.AgentTaskID),
 		RuntimeID:                uuidToPtr(nr.RuntimeID),
+		RuntimeSelectionReason:   textToPtr(nr.RuntimeSelectionReason),
+		FailureReason:            textToPtr(nr.FailureReason),
 		DeviceID:                 textToPtr(nr.DeviceID),
 		SessionID:                textToPtr(nr.SessionID),
 		SplitReviewChatSessionID: uuidToPtr(nr.SplitReviewChatSessionID),
@@ -290,6 +297,10 @@ func (h *Handler) StartWorkflowRun(w http.ResponseWriter, r *http.Request) {
 	if len(req.Input) == 0 {
 		req.Input = json.RawMessage("{}")
 	}
+	runtimePreference, ok := h.validateWorkflowRuntimePreference(w, r, req.RuntimeID, wf.WorkspaceID)
+	if !ok {
+		return
+	}
 
 	// Validate DAG before starting.
 	if err := h.WorkflowService.ValidateDAG(r.Context(), wf.ID); err != nil {
@@ -297,7 +308,7 @@ func (h *Handler) StartWorkflowRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	run, err := h.WorkflowService.StartRun(r.Context(), wf, "member", userID, req.Input, pgtype.UUID{})
+	run, err := h.WorkflowService.StartRun(r.Context(), wf, "member", userID, req.Input, runtimePreference)
 	if err != nil {
 		if errors.Is(err, service.ErrWorkflowRoleResolutionLimit) {
 			writeError(w, http.StatusTooManyRequests, "too many active workflow role resolution jobs")

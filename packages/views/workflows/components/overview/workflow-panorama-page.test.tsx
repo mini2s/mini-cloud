@@ -15,6 +15,7 @@ const mocks = vi.hoisted(() => ({
   edgesData: [] as unknown[],
   runsData: [] as Array<{ id: string }>,
   nodeRunsData: [] as unknown[],
+  runtimesData: [] as unknown[],
   workflowData: { id: "wf-1", title: "Test Workflow", status: "draft" },
   selectedNodeId: null as string | null,
   selectedEdgeId: null as string | null,
@@ -97,6 +98,7 @@ vi.mock("@multica/core/workflows/queries", () => ({
   useCreateNode: () => ({ mutate: mocks.createNodeMutate, mutateAsync: vi.fn() }),
   useUpdateNode: () => ({ mutate: mocks.updateNodeMutate, mutateAsync: mocks.updateNodeMutateAsync }),
   useUpdateWorkflow: () => ({ mutate: mocks.updateWorkflowMutate, mutateAsync: vi.fn() }),
+  useMutateWorkflowRole: () => ({ mutateAsync: vi.fn() }),
   useDeleteNode: () => ({ mutateAsync: mocks.deleteNodeMutateAsync }),
   useCreateEdge: () => ({ mutate: mocks.createEdgeMutate, mutateAsync: vi.fn() }),
   useDeleteEdge: () => ({ mutate: mocks.deleteEdgeMutate, mutateAsync: vi.fn() }),
@@ -112,6 +114,10 @@ vi.mock("@multica/core/workflows/queries", () => ({
 vi.mock("@multica/core/workspace/queries", () => ({
   agentListOptions: () => ({ queryKey: ["agents"] }),
   builtinPluginListOptions: () => ({ queryKey: ["plugins"] }),
+}));
+
+vi.mock("@multica/core/runtimes/queries", () => ({
+  runtimeListOptions: () => ({ queryKey: ["runtimes"] }),
 }));
 
 vi.mock("@multica/core/workspace/hooks", () => ({
@@ -203,6 +209,8 @@ vi.mock("../../../i18n", () => {
       toast_delete_failed: "Failed to delete workflow",
       toast_saved: "Workflow saved",
       toast_save_failed: "Failed to save workflow",
+      toast_run_started: "Workflow run started",
+      toast_run_failed: "Failed to start workflow run",
       click_to_rename: "Click to rename",
       delete: "Delete",
       delete_dialog: {
@@ -212,6 +220,21 @@ vi.mock("../../../i18n", () => {
         confirm: "Delete",
         deleting: "Deleting...",
       },
+    },
+    node: {
+      role_developer: "Developer",
+      role_qa: "QA",
+      role_tech_lead: "Tech lead",
+    },
+    runtime_select: {
+      title: "Select runtime",
+      description: "Select a runtime for {{name}}.",
+      empty_title: "No runtime available",
+      empty_description: "Connect a runtime device first.",
+      auto_title: "Auto-select (recommended)",
+      auto_description: "Select a runtime for each node when it runs.",
+      cancel: "Cancel",
+      confirm: "Run",
     },
     detail_panel: {
       close_confirm_title: "Save panel changes?",
@@ -390,6 +413,10 @@ vi.mock("./preflight-bar", () => ({
 
 // Mock TanStack Query — reads from hoisted mocks
 vi.mock("@tanstack/react-query", () => ({
+  useQueryClient: () => ({
+    getQueryData: vi.fn(),
+    setQueryData: vi.fn(),
+  }),
   useQuery: (opts: { queryKey: string[] }) => {
     const key = opts.queryKey.join(",");
     if (key.includes("node-runs")) return { data: mocks.nodeRunsData, isLoading: false, isError: false };
@@ -402,6 +429,7 @@ vi.mock("@tanstack/react-query", () => ({
     if (key.includes("plugins")) return { data: { items: [] }, isLoading: false };
     if (key.includes("roles")) return { data: [], isLoading: false };
     if (key.includes("split-issue-workflow-options")) return { data: [], isLoading: false };
+    if (key.includes("runtimes")) return { data: mocks.runtimesData, isLoading: false };
     return { data: null, isLoading: true, isError: false };
   },
 }));
@@ -419,6 +447,7 @@ describe("WorkflowPanoramaPage (new)", () => {
     mocks.edgesData = [];
     mocks.runsData = [];
     mocks.nodeRunsData = [];
+    mocks.runtimesData = [];
     mocks.selectedNodeId = null;
     mocks.selectedEdgeId = null;
     mocks.nodeEdits = {};
@@ -666,7 +695,7 @@ describe("WorkflowPanoramaPage (new)", () => {
     expect(worker).toMatchObject({ position: { x: 120, y: 12 } });
   });
 
-  it("saves cached node edits before starting a test run and opens the run detail", async () => {
+  it("saves cached node edits, asks for a runtime, and starts a test run in auto mode", async () => {
     mocks.workflowData = { id: "wf-1", title: "Test Workflow", status: "active" };
     mocks.nodesData = [
       { id: "node-1", workflow_id: "wf-1", title: "Server title", description: "", worker_type: "agent", worker_id: null, critic_type: "human", critic_id: null, critic_api_url: null, stage_id: "stage-1", format_schema: null, position_x: 120, position_y: 0, sort_order: 0, created_at: "", updated_at: "" },
@@ -686,6 +715,12 @@ describe("WorkflowPanoramaPage (new)", () => {
         nodeId: "node-1",
         title: "Edited title",
       });
+      expect(screen.getByText("Auto-select (recommended)")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Run" }));
+
+    await vi.waitFor(() => {
       expect(mocks.startWorkflowRunMutateAsync).toHaveBeenCalledWith({ workflowId: "wf-1" });
       expect(mocks.navigationPush).toHaveBeenCalledWith("/workflows/wf-1/runs/run-1");
     });

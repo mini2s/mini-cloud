@@ -265,8 +265,8 @@ export function useDeleteEdge(wsId: string, workflowId: string) {
 export function useStartWorkflowRun(wsId: string) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ workflowId, input }: { workflowId: string; input?: unknown }) =>
-      api.startWorkflowRun(workflowId, input),
+    mutationFn: ({ workflowId, input, runtimeId }: { workflowId: string; input?: unknown; runtimeId?: string }) =>
+      api.startWorkflowRun(workflowId, input, runtimeId),
     onSuccess: (_data, vars) => {
       queryClient.invalidateQueries({ queryKey: workflowKeys.runs(wsId, vars.workflowId) });
     },
