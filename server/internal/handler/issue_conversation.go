@@ -20,6 +20,8 @@ type IssueConversationSessionResponse struct {
 	ConversationID     string `json:"conversation_id"`
 	WorkspaceDirectory string `json:"workspace_directory"`
 	EventsURL          string `json:"events_url"`
+	QuestionsURL       string `json:"questions_url"`
+	PermissionsURL     string `json:"permissions_url"`
 }
 
 type createConversationRequest struct {
@@ -70,28 +72,43 @@ func (h *Handler) GetIssueConversationSession(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	// Resolve local directory from project.
-	workspaceDir, ok := h.resolveIssueWorkspaceDirectory(w, r.Context(), issue)
-	if !ok {
-		return
-	}
-
-	// Serialize concurrent first-time creation for the same issue to avoid
-	// creating orphan conversations on the device.
-	if err := h.Queries.LockIssueConversation(r.Context(), issueID); err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to lock issue conversation")
-		return
-	}
-
-	// Existing mapping? Re-check under the advisory lock.
+	// Fast path: existing mapping outside the transaction.
 	conv, err := h.Queries.GetIssueConversation(r.Context(), issueUUID)
 	if err == nil && conv.ConversationID != "" {
 		h.writeIssueConversationSession(w, conv.ConversationID, conv.WorkspaceDirectory, conv.DeviceID)
 		return
 	}
 
+	// Resolve local directory from project.
+	workspaceDir, ok := h.resolveIssueWorkspaceDirectory(w, r.Context(), issue)
+	if !ok {
+		return
+	}
+
+	// Use a transaction so the advisory lock is held while we re-check the
+	// mapping, query the runtime, call the Gateway, and insert the new row.
+	tx, err := h.TxStarter.Begin(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to start transaction")
+		return
+	}
+	defer tx.Rollback(r.Context())
+	qtx := h.Queries.WithTx(tx)
+
+	if err := qtx.LockIssueConversation(r.Context(), issueID); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to lock issue conversation")
+		return
+	}
+
+	// Re-check under the advisory lock.
+	conv, err = qtx.GetIssueConversation(r.Context(), issueUUID)
+	if err == nil && conv.ConversationID != "" {
+		h.writeIssueConversationSession(w, conv.ConversationID, conv.WorkspaceDirectory, conv.DeviceID)
+		return
+	}
+
 	// Find an online cs-cloud runtime for this workspace.
-	deviceID, ok := h.resolveCSCloudDeviceID(w, r.Context(), wsUUID)
+	deviceID, ok := h.resolveCSCloudDeviceID(w, r.Context(), qtx, wsUUID)
 	if !ok {
 		return
 	}
@@ -103,7 +120,7 @@ func (h *Handler) GetIssueConversationSession(w http.ResponseWriter, r *http.Req
 	}
 
 	// Persist mapping.
-	created, err := h.Queries.CreateIssueConversation(r.Context(), db.CreateIssueConversationParams{
+	created, err := qtx.CreateIssueConversation(r.Context(), db.CreateIssueConversationParams{
 		IssueID:            issueUUID,
 		ConversationID:     convID,
 		WorkspaceDirectory: workspaceDir,
@@ -111,6 +128,11 @@ func (h *Handler) GetIssueConversationSession(w http.ResponseWriter, r *http.Req
 	})
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to save issue conversation")
+		return
+	}
+
+	if err := tx.Commit(r.Context()); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to commit issue conversation")
 		return
 	}
 
@@ -134,8 +156,8 @@ func (h *Handler) resolveIssueWorkspaceDirectory(w http.ResponseWriter, ctx cont
 	return strings.TrimSpace(localDir.String), true
 }
 
-func (h *Handler) resolveCSCloudDeviceID(w http.ResponseWriter, ctx context.Context, wsUUID pgtype.UUID) (string, bool) {
-	runtimes, err := h.Queries.ListOnlineAgentRuntimesByWorkspaceAndProvider(ctx, db.ListOnlineAgentRuntimesByWorkspaceAndProviderParams{
+func (h *Handler) resolveCSCloudDeviceID(w http.ResponseWriter, ctx context.Context, queries *db.Queries, wsUUID pgtype.UUID) (string, bool) {
+	runtimes, err := queries.ListOnlineAgentRuntimesByWorkspaceAndProvider(ctx, db.ListOnlineAgentRuntimesByWorkspaceAndProviderParams{
 		WorkspaceID: wsUUID,
 		Provider:    csCloudRuntimeProvider,
 	})
@@ -210,13 +232,19 @@ func (h *Handler) createConversationOnDevice(w http.ResponseWriter, r *http.Requ
 
 func (h *Handler) writeIssueConversationSession(w http.ResponseWriter, conversationID, workspaceDir, deviceID string) {
 	prefix := gatewayProxyPrefix(h.cfg, deviceID)
-	query := url.Values{}
-	query.Set("conversation_id", conversationID)
-	eventsURL := prefix + "/api/v1/events?" + query.Encode()
+
+	eventsQuery := url.Values{}
+	eventsQuery.Set("conversation_id", conversationID)
+	eventsURL := prefix + "/api/v1/events?" + eventsQuery.Encode()
+
+	questionsURL := prefix + "/api/v1/questions"
+	permissionsURL := prefix + "/api/v1/permissions"
 
 	writeJSON(w, http.StatusOK, IssueConversationSessionResponse{
 		ConversationID:     conversationID,
 		WorkspaceDirectory: workspaceDir,
 		EventsURL:          eventsURL,
+		QuestionsURL:       questionsURL,
+		PermissionsURL:     permissionsURL,
 	})
 }

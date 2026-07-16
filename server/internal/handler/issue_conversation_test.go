@@ -62,6 +62,12 @@ func TestGetIssueConversationSessionReturnsExisting(t *testing.T) {
 	if !strings.Contains(resp.EventsURL, "conversation_id=conv-existing") {
 		t.Fatalf("events_url = %q", resp.EventsURL)
 	}
+	if !strings.Contains(resp.QuestionsURL, "/api/v1/questions") {
+		t.Fatalf("questions_url = %q", resp.QuestionsURL)
+	}
+	if !strings.Contains(resp.PermissionsURL, "/api/v1/permissions") {
+		t.Fatalf("permissions_url = %q", resp.PermissionsURL)
+	}
 }
 
 func TestGetIssueConversationSessionCreatesNew(t *testing.T) {
@@ -125,6 +131,12 @@ func TestGetIssueConversationSessionCreatesNew(t *testing.T) {
 	}
 	if !strings.Contains(resp.EventsURL, "conversation_id=conv-new") {
 		t.Fatalf("events_url = %q", resp.EventsURL)
+	}
+	if !strings.Contains(resp.QuestionsURL, "/api/v1/questions") {
+		t.Fatalf("questions_url = %q", resp.QuestionsURL)
+	}
+	if !strings.Contains(resp.PermissionsURL, "/api/v1/permissions") {
+		t.Fatalf("permissions_url = %q", resp.PermissionsURL)
 	}
 	if !proxy.called {
 		t.Fatal("cloud runtime proxy was not called")

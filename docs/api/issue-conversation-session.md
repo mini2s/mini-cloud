@@ -2,7 +2,7 @@
 
 ## 接口概述
 
-用于 Issue 页面快速获取与某个 Issue 绑定的对话会话信息。通过该接口，前端可以直接拿到 `conversation_id`、`workspace_directory` 和 Gateway 事件流地址，从而复用现有 Workspace 的对话组件。
+用于 Issue 页面快速获取与某个 Issue 绑定的对话会话信息。通过该接口，前端可以直接拿到 `conversation_id`、`workspace_directory`、Gateway 事件流地址、问卷地址以及权限申请地址，从而复用现有 Workspace 的对话组件。
 
 multica 后端负责保存 `issue_id → conversation_id` 的映射；cs-cloud 与本地设备不保存该映射状态。
 
@@ -37,7 +37,9 @@ Authorization: Bearer <multica-jwt-or-pat>
 {
   "conversation_id": "conv_xxxxxxxx",
   "workspace_directory": "/Users/dev/project",
-  "events_url": "/cloud-api/cloud/device/{deviceID}/proxy/api/v1/events?conversation_id=conv_xxxxxxxx"
+  "events_url": "/cloud-api/cloud/device/{deviceID}/proxy/api/v1/events?conversation_id=conv_xxxxxxxx",
+  "questions_url": "/cloud-api/cloud/device/{deviceID}/proxy/api/v1/questions",
+  "permissions_url": "/cloud-api/cloud/device/{deviceID}/proxy/api/v1/permissions"
 }
 ```
 
@@ -46,6 +48,8 @@ Authorization: Bearer <multica-jwt-or-pat>
 | conversation_id     | string | 该 Issue 对应的会话 ID                          |
 | workspace_directory | string | 该 Issue 对应项目的本地绝对路径                 |
 | events_url          | string | 前端可直接连接的 Gateway 实时事件流地址（SSE）  |
+| questions_url       | string | 对话过程中需要填写问卷时的 Gateway 问卷地址     |
+| permissions_url     | string | 申请额外权限时的 Gateway 权限申请地址           |
 
 #### 错误响应
 
@@ -106,7 +110,7 @@ if (!res.ok) {
   return;
 }
 
-const { conversation_id, workspace_directory, events_url } = await res.json();
+const { conversation_id, workspace_directory, events_url, questions_url, permissions_url } = await res.json();
 ```
 
 ### 2. 连接实时事件流
