@@ -163,7 +163,12 @@ func (h *Handler) resolveIssueWorkspaceDirectory(w http.ResponseWriter, ctx cont
 		ID:          issue.ProjectID,
 		WorkspaceID: issue.WorkspaceID,
 	})
-	if err != nil || !localDir.Valid || strings.TrimSpace(localDir.String) == "" {
+	if err != nil {
+		slog.ErrorContext(ctx, "failed to query project local_directory", "error", err)
+		writeError(w, http.StatusInternalServerError, "failed to query project local_directory")
+		return "", false
+	}
+	if !localDir.Valid || strings.TrimSpace(localDir.String) == "" {
 		writeError(w, http.StatusBadRequest, "project local_directory not configured")
 		return "", false
 	}
