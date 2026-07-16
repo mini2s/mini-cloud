@@ -672,8 +672,8 @@ func TestSplitProgressSummaryCountsByStatus(t *testing.T) {
 	}
 
 	summary := splitProgressSummary(tasks)
-	if summary["total"] != 8 {
-		t.Fatalf("total = %d, want 8 (discarded excluded)", summary["total"])
+	if summary["total"] != 6 {
+		t.Fatalf("total = %d, want 6 (only executable statuses counted)", summary["total"])
 	}
 	if summary["draft"] != 1 {
 		t.Fatalf("draft = %d, want 1", summary["draft"])

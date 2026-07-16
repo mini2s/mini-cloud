@@ -106,7 +106,9 @@ func TestGetWorkflowRunCanvasSummaryAggregatesRuntimeState(t *testing.T) {
 			($1, $2, 'Failed task', '', '[]'::jsonb, 3, 'failed'),
 			($1, $2, 'Cancelled task', '', '[]'::jsonb, 4, 'cancelled'),
 			($1, $2, 'Skipped task', '', '[]'::jsonb, 5, 'skipped'),
-			($1, $2, 'Discarded task', '', '[]'::jsonb, 6, 'discarded')
+			($1, $2, 'Draft task', '', '[]'::jsonb, 6, 'draft'),
+			($1, $2, 'Approved task', '', '[]'::jsonb, 7, 'approved'),
+			($1, $2, 'Discarded task', '', '[]'::jsonb, 8, 'discarded')
 	`, splitRunID, testWorkspaceID); err != nil {
 		t.Fatalf("create split tasks: %v", err)
 	}

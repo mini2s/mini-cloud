@@ -205,43 +205,33 @@ func (h *Handler) workflowRunSplitProgressSummaries(ctx context.Context, runID p
 	rows, err := h.DB.Query(ctx, `
 		SELECT
 			st.node_run_id::text AS node_run_id,
-			COUNT(*) FILTER (WHERE st.status <> 'discarded') AS total,
-			COUNT(*) FILTER (WHERE st.status = 'created') AS created,
-			COUNT(*) FILTER (WHERE st.status = 'running') AS running,
-			COUNT(*) FILTER (WHERE st.status = 'done') AS done,
-			COUNT(*) FILTER (WHERE st.status = 'failed') AS failed,
-			COUNT(*) FILTER (WHERE st.status = 'cancelled') AS cancelled,
-			COUNT(*) FILTER (WHERE st.status = 'skipped') AS skipped
+			st.status
 		FROM multica_workflow_split_task st
 		JOIN multica_workflow_node_run wnr ON wnr.id = st.node_run_id
 		WHERE wnr.workflow_run_id = $1
-		GROUP BY st.node_run_id
 	`, runID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 
-	result := make(map[string]SplitProgressResponse)
+	byNodeRunID := make(map[string]service.SplitProgressSummary)
 	for rows.Next() {
 		var nodeRunID string
-		var progress SplitProgressResponse
-		if err := rows.Scan(
-			&nodeRunID,
-			&progress.Total,
-			&progress.Created,
-			&progress.Running,
-			&progress.Done,
-			&progress.Failed,
-			&progress.Cancelled,
-			&progress.Skipped,
-		); err != nil {
+		var status string
+		if err := rows.Scan(&nodeRunID, &status); err != nil {
 			return nil, err
 		}
-		result[nodeRunID] = progress
+		progress := byNodeRunID[nodeRunID]
+		progress.AddStatus(status)
+		byNodeRunID[nodeRunID] = progress
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
+	}
+	result := make(map[string]SplitProgressResponse, len(byNodeRunID))
+	for nodeRunID, progress := range byNodeRunID {
+		result[nodeRunID] = splitProgressFromService(progress)
 	}
 	return result, nil
 }

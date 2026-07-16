@@ -2802,39 +2802,66 @@ func splitChatDraftsChanged(contextJSON []byte, tasks []db.MulticaWorkflowSplitT
 	return false
 }
 
+type SplitProgressSummary struct {
+	Total     int
+	Created   int
+	Running   int
+	Done      int
+	Failed    int
+	Cancelled int
+	Skipped   int
+}
+
+func (s *SplitProgressSummary) AddStatus(status string) {
+	switch status {
+	case SplitTaskStatusCreated:
+		s.Total++
+		s.Created++
+	case SplitTaskStatusRunning:
+		s.Total++
+		s.Running++
+	case SplitTaskStatusDone:
+		s.Total++
+		s.Done++
+	case SplitTaskStatusFailed:
+		s.Total++
+		s.Failed++
+	case SplitTaskStatusCancelled:
+		s.Total++
+		s.Cancelled++
+	case SplitTaskStatusSkipped:
+		s.Total++
+		s.Skipped++
+	}
+}
+
+func SplitExecutionProgressSummary(tasks []db.MulticaWorkflowSplitTask) SplitProgressSummary {
+	var summary SplitProgressSummary
+	for _, t := range tasks {
+		summary.AddStatus(t.Status)
+	}
+	return summary
+}
+
 func splitProgressSummary(tasks []db.MulticaWorkflowSplitTask) map[string]int {
+	execution := SplitExecutionProgressSummary(tasks)
 	summary := map[string]int{
-		"total":     0,
+		"total":     execution.Total,
 		"draft":     0,
 		"approved":  0,
-		"created":   0,
-		"running":   0,
-		"done":      0,
-		"failed":    0,
-		"cancelled": 0,
-		"skipped":   0,
+		"created":   execution.Created,
+		"running":   execution.Running,
+		"done":      execution.Done,
+		"failed":    execution.Failed,
+		"cancelled": execution.Cancelled,
+		"skipped":   execution.Skipped,
 	}
 	for _, t := range tasks {
-		if t.Status != SplitTaskStatusDiscarded {
-			summary["total"]++
-		}
 		switch t.Status {
 		case SplitTaskStatusDraft:
 			summary["draft"]++
 		case SplitTaskStatusApproved:
 			summary["approved"]++
-		case SplitTaskStatusCreated:
-			summary["created"]++
-		case SplitTaskStatusRunning:
-			summary["running"]++
-		case SplitTaskStatusDone:
-			summary["done"]++
-		case SplitTaskStatusFailed:
-			summary["failed"]++
-		case SplitTaskStatusCancelled:
-			summary["cancelled"]++
-		case SplitTaskStatusSkipped:
-			summary["skipped"]++
 		}
 	}
 	return summary
