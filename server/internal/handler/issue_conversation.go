@@ -169,12 +169,19 @@ func (h *Handler) createConversationOnDevice(w http.ResponseWriter, r *http.Requ
 		InitialPrompt:      initialPrompt,
 	})
 
+	hdr := http.Header{}
+	hdr.Set("X-Workspace-Directory", workspaceDir)
+	if auth := r.Header.Get("Authorization"); auth != "" {
+		hdr.Set("Authorization", auth)
+	}
+
 	resp, err := h.CloudRuntime.Do(r.Context(), cloudruntime.Request{
 		Method:    http.MethodPost,
 		Path:      fmt.Sprintf("/device/%s/proxy/api/v1/conversations", deviceID),
 		Body:      body,
 		UserID:    userID,
 		RequestID: cloudRuntimeRequestID(r),
+		Headers:   hdr,
 	})
 	if err != nil {
 		writeCloudRuntimeError(w, r, err)
