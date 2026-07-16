@@ -2212,6 +2212,9 @@ func (h *Handler) UpdateIssue(w http.ResponseWriter, r *http.Request) {
 		DueDate:       prevIssue.DueDate,
 		ParentIssueID: prevIssue.ParentIssueID,
 		ProjectID:     prevIssue.ProjectID,
+		WorkflowID:    prevIssue.WorkflowID,
+		WorkflowRunID: prevIssue.WorkflowRunID,
+		StageID:       prevIssue.StageID,
 	}
 
 	// COALESCE fields — only set when explicitly provided
@@ -2336,6 +2339,10 @@ func (h *Handler) UpdateIssue(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	workflowChanged := newWorkflowID != prevIssue.WorkflowID
+	if workflowChanged {
+		params.WorkflowID = newWorkflowID
+		params.WorkflowRunID = pgtype.UUID{}
+	}
 
 	var stageID pgtype.UUID
 	var stageTouched bool
@@ -2837,6 +2844,9 @@ func (h *Handler) BatchUpdateIssues(w http.ResponseWriter, r *http.Request) {
 			DueDate:       prevIssue.DueDate,
 			ParentIssueID: prevIssue.ParentIssueID,
 			ProjectID:     prevIssue.ProjectID,
+			WorkflowID:    prevIssue.WorkflowID,
+			WorkflowRunID: prevIssue.WorkflowRunID,
+			StageID:       prevIssue.StageID,
 		}
 
 		if req.Updates.Title != nil {
@@ -2958,6 +2968,10 @@ func (h *Handler) BatchUpdateIssues(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		workflowChanged := newWorkflowID != prevIssue.WorkflowID
+		if workflowChanged {
+			params.WorkflowID = newWorkflowID
+			params.WorkflowRunID = pgtype.UUID{}
+		}
 
 		_, stageTouched := rawUpdates["stage_id"]
 		var stageID pgtype.UUID
