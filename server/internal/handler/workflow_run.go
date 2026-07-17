@@ -3,6 +3,8 @@ package handler
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
@@ -947,6 +949,32 @@ func workflowNodeDeliverableSubmissionToResponse(s db.MulticaWorkflowNodeDeliver
 	}
 }
 
+// errDeliverableNotFound is returned by deliverableKind when the deliverable
+// exists in neither this node run's node nor its siblings. Distinct from the
+// DB-error case so the caller can map it to 404 instead of masking 500s.
+var errDeliverableNotFound = errors.New("deliverable not found on this node run")
+
+// deliverableKind resolves the kind of the deliverable submitted against the
+// given node run. Used to gate document deliverables out of the inline-content
+// upload path — document bodies live in Gitea (submitted via the report-pr
+// flow) once the platform Gitea is configured.
+func (h *Handler) deliverableKind(ctx context.Context, nodeRunID, deliverableID pgtype.UUID) (string, error) {
+	nr, err := h.Queries.GetWorkflowNodeRun(ctx, nodeRunID)
+	if err != nil {
+		return "", fmt.Errorf("get node run: %w", err)
+	}
+	deliverables, err := h.Queries.ListWorkflowNodeDeliverables(ctx, nr.WorkflowNodeID)
+	if err != nil {
+		return "", fmt.Errorf("list deliverables: %w", err)
+	}
+	for _, d := range deliverables {
+		if d.ID == deliverableID {
+			return d.Kind, nil
+		}
+	}
+	return "", errDeliverableNotFound
+}
+
 // ── Deliverable submission handlers ──────────────────────────────────────────
 
 // ListNodeRunDeliverableSubmissions GET /api/node-runs/{nodeRunId}/deliverables
@@ -989,6 +1017,26 @@ func (h *Handler) SubmitNodeRunDeliverable(w http.ResponseWriter, r *http.Reques
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body")
 		return
+	}
+
+	// Document deliverables are submitted via Gitea PRs (the agent's report-pr
+	// flow), not inline content uploads — but only when the platform Gitea is
+	// configured. When dormant, document content uploads behave as before.
+	if isGiteaConfigured() && (req.Content != "" || req.AttachmentID != nil) {
+		kind, err := h.deliverableKind(r.Context(), nrUUID, dUUID)
+		if err != nil {
+			if errors.Is(err, errDeliverableNotFound) {
+				writeError(w, http.StatusNotFound, "deliverable not found")
+			} else {
+				writeError(w, http.StatusInternalServerError, "failed to load deliverable")
+			}
+			return
+		}
+		if kind == "document" {
+			writeError(w, http.StatusUnprocessableEntity,
+				"document deliverables are submitted via git PR; inline content upload is disabled")
+			return
+		}
 	}
 
 	// Derive submitted_by from the authenticated user
