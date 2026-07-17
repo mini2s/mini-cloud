@@ -127,6 +127,21 @@ func NewSplitOrchestrator(
 	}
 }
 
+func (s *SplitOrchestrator) runInTx(ctx context.Context, fn func(*db.Queries) error) error {
+	if s.TxStarter == nil {
+		return fn(s.Queries)
+	}
+	tx, err := s.TxStarter.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx)
+	if err := fn(s.Queries.WithTx(tx)); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
 type splitTaskPlan struct {
 	ID        string
 	DependsOn []string
@@ -671,7 +686,7 @@ func (s *SplitOrchestrator) RecoverSplitDraftTasks(ctx context.Context, nodeRun 
 	if err != nil {
 		return fmt.Errorf("list existing split tasks: %w", err)
 	}
-	if err := s.replaceSplitDraftTasksFromPayload(ctx, nodeRun, existing, payload, pgtype.Text{String: DraftSourceRecovered, Valid: true}); err != nil {
+	if err := s.replaceSplitDraftTasksFromPayload(ctx, s.Queries, nodeRun, existing, payload, pgtype.Text{String: DraftSourceRecovered, Valid: true}); err != nil {
 		return err
 	}
 	updated, err := s.Queries.ReactivateWorkflowNodeRunStatus(ctx, db.ReactivateWorkflowNodeRunStatusParams{
@@ -706,11 +721,20 @@ func (s *SplitOrchestrator) ResetSplitDraftTasksToOriginal(ctx context.Context, 
 	if err != nil {
 		return err
 	}
-	existing, err := s.Queries.ListSplitTasksByNodeRun(ctx, nodeRun.ID)
-	if err != nil {
-		return fmt.Errorf("list existing split tasks: %w", err)
-	}
-	return s.replaceSplitDraftTasksFromPayload(ctx, nodeRun, existing, payload, pgtype.Text{String: DraftSourceAgent, Valid: true})
+	return s.runInTx(ctx, func(qtx *db.Queries) error {
+		lockedNodeRun, err := qtx.GetWorkflowNodeRunForUpdate(ctx, nodeRun.ID)
+		if err != nil {
+			return fmt.Errorf("lock split node run: %w", err)
+		}
+		if lockedNodeRun.Status != NodeRunStatusAwaitingSplitReview {
+			return fmt.Errorf("split node can only reset drafts while awaiting review")
+		}
+		existing, err := qtx.ListSplitTasksByNodeRun(ctx, lockedNodeRun.ID)
+		if err != nil {
+			return fmt.Errorf("list existing split tasks: %w", err)
+		}
+		return s.replaceSplitDraftTasksFromPayload(ctx, qtx, lockedNodeRun, existing, payload, pgtype.Text{String: DraftSourceAgent, Valid: true})
+	})
 }
 
 func (s *SplitOrchestrator) loadSplitRecoveryTask(ctx context.Context, nodeRun db.MulticaWorkflowNodeRun) (db.MulticaAgentTaskQueue, error) {
@@ -801,6 +825,7 @@ func (s *SplitOrchestrator) recoverSplitGeneratedTaskPayloadFromTaskSources(ctx 
 
 func (s *SplitOrchestrator) replaceSplitDraftTasksFromPayload(
 	ctx context.Context,
+	q *db.Queries,
 	nodeRun db.MulticaWorkflowNodeRun,
 	existing []db.MulticaWorkflowSplitTask,
 	payload splitGeneratedTaskPayload,
@@ -812,7 +837,7 @@ func (s *SplitOrchestrator) replaceSplitDraftTasksFromPayload(
 	for _, task := range existing {
 		switch task.Status {
 		case SplitTaskStatusDraft, SplitTaskStatusDiscarded:
-			if _, err := s.Queries.UpdateSplitTaskStatus(ctx, db.UpdateSplitTaskStatusParams{
+			if _, err := q.UpdateSplitTaskStatus(ctx, db.UpdateSplitTaskStatusParams{
 				ID:     task.ID,
 				Status: SplitTaskStatusDiscarded,
 			}); err != nil {
@@ -823,11 +848,11 @@ func (s *SplitOrchestrator) replaceSplitDraftTasksFromPayload(
 		}
 	}
 
-	run, err := s.Queries.GetWorkflowRun(ctx, nodeRun.WorkflowRunID)
+	run, err := q.GetWorkflowRun(ctx, nodeRun.WorkflowRunID)
 	if err != nil {
 		return fmt.Errorf("get workflow run: %w", err)
 	}
-	node, err := s.Queries.GetWorkflowNode(ctx, nodeRun.WorkflowNodeID)
+	node, err := q.GetWorkflowNode(ctx, nodeRun.WorkflowNodeID)
 	if err != nil {
 		return fmt.Errorf("get split node: %w", err)
 	}
@@ -846,7 +871,7 @@ func (s *SplitOrchestrator) replaceSplitDraftTasksFromPayload(
 	inserted := make([]db.MulticaWorkflowSplitTask, 0, len(payload.Tasks))
 	draftKeys := splitGeneratedDraftKeys(payload.Tasks)
 	for i, generated := range payload.Tasks {
-		created, err := s.Queries.CreateSplitTask(ctx, db.CreateSplitTaskParams{
+		created, err := q.CreateSplitTask(ctx, db.CreateSplitTaskParams{
 			NodeRunID:   nodeRun.ID,
 			WorkspaceID: run.WorkspaceID,
 			DraftKey:    pgtype.Text{String: draftKeys[i], Valid: draftKeys[i] != ""},
@@ -877,7 +902,7 @@ func (s *SplitOrchestrator) replaceSplitDraftTasksFromPayload(
 		if err != nil {
 			return fmt.Errorf("marshal generated split depends_on: %w", err)
 		}
-		if _, err := s.Queries.UpdateSplitTaskFields(ctx, db.UpdateSplitTaskFieldsParams{
+		if _, err := q.UpdateSplitTaskFields(ctx, db.UpdateSplitTaskFieldsParams{
 			ID:          taskRow.ID,
 			Title:       pgtype.Text{},
 			Description: pgtype.Text{},
@@ -1387,7 +1412,7 @@ func (s *SplitOrchestrator) handleTaskCompletion(ctx context.Context, task db.Mu
 		}
 		return fmt.Errorf("split draft changed while the agent was adjusting it; the agent update was not applied")
 	}
-	if err := s.replaceSplitDraftTasksFromPayload(ctx, nodeRun, existing, payload, pgtype.Text{String: draftSource, Valid: true}); err != nil {
+	if err := s.replaceSplitDraftTasksFromPayload(ctx, s.Queries, nodeRun, existing, payload, pgtype.Text{String: draftSource, Valid: true}); err != nil {
 		return err
 	}
 	if nodeRun.Status == NodeRunStatusAwaitingSplitReview {

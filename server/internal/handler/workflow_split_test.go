@@ -957,6 +957,109 @@ func TestResetSplitDraftTasksToOriginalRestoresAgentProposal(t *testing.T) {
 	}
 }
 
+func TestResetSplitDraftTasksToOriginalRollsBackOnFailure(t *testing.T) {
+	f := createSplitGenerateFixture(t, "barrier")
+	taskID := startSplitGenerationTask(t, f)
+	ctx := context.Background()
+
+	payload, err := json.Marshal(map[string]any{
+		"tasks": []map[string]any{
+			{
+				"title":              "Original API contract",
+				"description":        "Original generated description",
+				"depends_on_indices": []int{},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("marshal split generation payload: %v", err)
+	}
+	result, err := json.Marshal(map[string]any{
+		"output": string(payload),
+	})
+	if err != nil {
+		t.Fatalf("marshal task result: %v", err)
+	}
+	if _, err := testHandler.TaskService.CompleteTask(ctx, parseUUID(taskID), result, "", ""); err != nil {
+		t.Fatalf("complete split generation task: %v", err)
+	}
+
+	before, err := testHandler.Queries.ListSplitTasksByNodeRun(ctx, parseUUID(f.splitNodeRunID))
+	if err != nil {
+		t.Fatalf("list generated split tasks: %v", err)
+	}
+	activeBefore := make([]string, 0, len(before))
+	activeBeforeIDs := make([]string, 0, len(before))
+	for _, task := range before {
+		if task.Status == service.SplitTaskStatusDraft {
+			activeBefore = append(activeBefore, task.Title)
+			activeBeforeIDs = append(activeBeforeIDs, uuidToString(task.ID))
+		}
+	}
+	if len(activeBefore) != 1 || activeBefore[0] != "Original API contract" {
+		t.Fatalf("active draft before reset = %q, want original draft", activeBefore)
+	}
+
+	corruptedPayload, err := json.Marshal(map[string]any{
+		"tasks": []map[string]any{
+			{
+				"title":              "Original API contract",
+				"description":        "Original generated description",
+				"depends_on_indices": []int{},
+			},
+			{
+				"title":              "Invalid dependency task",
+				"description":        "This payload should fail while replacing drafts.",
+				"depends_on_indices": []int{99},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("marshal corrupted split generation payload: %v", err)
+	}
+	corruptedResult, err := json.Marshal(map[string]any{
+		"output": string(corruptedPayload),
+	})
+	if err != nil {
+		t.Fatalf("marshal corrupted task result: %v", err)
+	}
+	if _, err := testPool.Exec(ctx, `
+		UPDATE multica_agent_task_queue SET result = $1::jsonb WHERE id = $2
+	`, string(corruptedResult), taskID); err != nil {
+		t.Fatalf("corrupt split generation result: %v", err)
+	}
+
+	resetReq := newRequest("POST", "/api/node-runs/"+f.splitNodeRunID+"/split/reset-original", nil)
+	resetReq = withURLParam(resetReq, "nodeRunId", f.splitNodeRunID)
+	resetResp := httptest.NewRecorder()
+	testHandler.ResetSplitDraftTasksToOriginal(resetResp, resetReq)
+	if resetResp.Code != http.StatusBadRequest {
+		t.Fatalf("ResetSplitDraftTasksToOriginal: expected 400, got %d: %s", resetResp.Code, resetResp.Body.String())
+	}
+	if !strings.Contains(resetResp.Body.String(), "dependency index 99") {
+		t.Fatalf("ResetSplitDraftTasksToOriginal: expected dependency index error, got %s", resetResp.Body.String())
+	}
+
+	after, err := testHandler.Queries.ListSplitTasksByNodeRun(ctx, parseUUID(f.splitNodeRunID))
+	if err != nil {
+		t.Fatalf("list reset split tasks: %v", err)
+	}
+	activeAfter := make([]string, 0, len(after))
+	activeAfterIDs := make([]string, 0, len(after))
+	for _, task := range after {
+		if task.Status == service.SplitTaskStatusDraft {
+			activeAfter = append(activeAfter, task.Title)
+			activeAfterIDs = append(activeAfterIDs, uuidToString(task.ID))
+		}
+	}
+	if len(activeAfter) != 1 || activeAfter[0] != "Original API contract" {
+		t.Fatalf("active draft after failed reset = %q, want unchanged draft", activeAfter)
+	}
+	if activeAfterIDs[0] != activeBeforeIDs[0] {
+		t.Fatalf("active draft id after failed reset = %s, want unchanged %s", activeAfterIDs[0], activeBeforeIDs[0])
+	}
+}
+
 func TestSplitCompletionRecoversMarkdownBreakdownComment(t *testing.T) {
 	f := createSplitGenerateFixture(t, "barrier")
 	taskID := startSplitGenerationTask(t, f)
