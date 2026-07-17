@@ -42,7 +42,7 @@ describe("costrict-bridge", () => {
       const parent = { postMessage } as unknown as Window;
       vi.stubGlobal("window", { parent } as unknown as Window);
 
-      postCostrictNavigateToSession({ sessionId: "s1", workDir: "/p/proj" });
+      const posted = postCostrictNavigateToSession({ sessionId: "s1", workDir: "/p/proj" });
 
       expect(postMessage).toHaveBeenCalledWith(
         {
@@ -53,6 +53,7 @@ describe("costrict-bridge", () => {
         },
         "*",
       );
+      expect(posted).toBe(true);
     });
 
     it("posts without workDir when it is absent", () => {
@@ -60,12 +61,13 @@ describe("costrict-bridge", () => {
       const parent = { postMessage } as unknown as Window;
       vi.stubGlobal("window", { parent } as unknown as Window);
 
-      postCostrictNavigateToSession({ sessionId: "s1" });
+      const posted = postCostrictNavigateToSession({ sessionId: "s1" });
 
       expect(postMessage).toHaveBeenCalledWith(
         { type: "multica:navigate", target: "session", sessionId: "s1" },
         "*",
       );
+      expect(posted).toBe(true);
     });
 
     it("no-ops when sessionId is missing", () => {
@@ -73,9 +75,10 @@ describe("costrict-bridge", () => {
       const parent = { postMessage } as unknown as Window;
       vi.stubGlobal("window", { parent } as unknown as Window);
 
-      postCostrictNavigateToSession({ sessionId: "", workDir: "/p" });
+      const posted = postCostrictNavigateToSession({ sessionId: "", workDir: "/p" });
 
       expect(postMessage).not.toHaveBeenCalled();
+      expect(posted).toBe(false);
     });
 
     it("no-ops when there is no parent frame (standalone)", () => {
@@ -85,9 +88,10 @@ describe("costrict-bridge", () => {
       w.postMessage = postMessage;
       vi.stubGlobal("window", w as unknown as Window);
 
-      postCostrictNavigateToSession({ sessionId: "s1", workDir: "/p" });
+      const posted = postCostrictNavigateToSession({ sessionId: "s1", workDir: "/p" });
 
       expect(postMessage).not.toHaveBeenCalled();
+      expect(posted).toBe(false);
     });
   });
 });

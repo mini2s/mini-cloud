@@ -60,8 +60,8 @@ export function NodeRunControlActions({
       return;
     }
     if (isEmbeddedInCostrict()) {
-      postCostrictNavigateToSession({ sessionId });
-      return;
+      const posted = postCostrictNavigateToSession({ sessionId });
+      if (posted) return;
     }
     const chatSessionId = resolveChatSessionId(chatSessions, sessionId);
     if (!chatSessionId) {

@@ -8,11 +8,13 @@ import {
   GitFork,
   GitMerge,
   ExternalLink,
+  Loader2,
   MessageSquare,
   RotateCcw,
   Unlock,
   User,
 } from "lucide-react";
+import { api } from "@multica/core/api";
 import { useChatStore } from "@multica/core/chat";
 import { chatSessionsOptions } from "@multica/core/chat/queries";
 import {
@@ -26,11 +28,17 @@ import {
   type WorkflowNodeRun,
   type WorkflowNodeRuntimeSummary,
 } from "@multica/core/types";
+import type { AgentTask } from "@multica/core/types/agent";
 import { useT } from "@multica/views/i18n";
 import {
   NodeDetailSection,
   WorkflowNodeDetailPanelShell,
 } from "../../../common/workflow-node-detail-panel-shell";
+import {
+  AgentTranscriptDialog,
+  buildTimeline,
+  type TimelineItem,
+} from "../../../common/task-transcript";
 import { RuntimeDisplayStatusIcon } from "./node-run-status-icon";
 import { resolveChatSessionId } from "../../../chat/lib/resolve-chat-session-id";
 
@@ -69,6 +77,34 @@ function formatJson(value: unknown): string {
 
 function isRetryableNodeRunStatus(status: string | undefined): boolean {
   return status === "failed" || status === "format_failed" || status === "blocked" || status === "critic_rework";
+}
+
+function taskStatusFromNodeRun(status: WorkflowNodeRun["status"]): AgentTask["status"] {
+  switch (status) {
+    case "completed":
+    case "critic_approved":
+      return "completed";
+    case "failed":
+    case "format_failed":
+    case "blocked":
+    case "critic_rework":
+      return "failed";
+    case "cancelled":
+    case "skipped":
+      return "cancelled";
+    case "pending":
+      return "queued";
+    case "worker_assigned":
+      return "dispatched";
+    default:
+      return "running";
+  }
+}
+
+function readWorkDir(output: unknown): string | undefined {
+  if (!output || typeof output !== "object" || Array.isArray(output)) return undefined;
+  const value = (output as Record<string, unknown>).work_dir;
+  return typeof value === "string" && value.trim() ? value : undefined;
 }
 
 type IssueTranslator = ReturnType<typeof useT<"issues">>["t"];
@@ -129,6 +165,7 @@ export function ExecutionDetailPanel({
   criticName,
   onClose,
   wsId,
+  issueId,
   runtimeSummary,
   onOpenIssue,
   onUnblock,
@@ -139,6 +176,9 @@ export function ExecutionDetailPanel({
 }: ExecutionDetailPanelProps) {
   const { t } = useT("issues");
   const [showEvidence, setShowEvidence] = useState(false);
+  const [transcriptOpen, setTranscriptOpen] = useState(false);
+  const [transcriptLoading, setTranscriptLoading] = useState(false);
+  const [transcriptItems, setTranscriptItems] = useState<TimelineItem[]>([]);
   const nodeFormat = parseNodeFormat(node.format_schema);
   const isGateway = nodeFormat.kind === "gateway";
   const displayStatus = runtimeSummary?.display_status ?? (nodeRun ? toWorkflowRuntimeDisplayStatus(nodeRun.status) : "pending");
@@ -183,20 +223,71 @@ export function ExecutionDetailPanel({
   }, [nodeRun, status]);
 
   const sessionId = nodeRun?.session_id ?? runtimeSummary?.session_id ?? null;
-  const canOpenSession = !isGateway && !!sessionId;
+  const transcriptTaskId =
+    nodeRun?.worker_agent_task_id ??
+    nodeRun?.agent_task_id ??
+    nodeRun?.critic_agent_task_id ??
+    null;
+  const transcriptAgentName =
+    transcriptTaskId && nodeRun?.critic_agent_task_id === transcriptTaskId
+      ? criticName
+      : workerName;
+  const transcriptAgentId =
+    transcriptTaskId && nodeRun?.critic_agent_task_id === transcriptTaskId
+      ? nodeRun?.critic_id
+      : nodeRun?.worker_id;
+  const transcriptTask = useMemo<AgentTask | null>(() => {
+    if (!nodeRun || !transcriptTaskId) return null;
+    return {
+      id: transcriptTaskId,
+      agent_id: transcriptAgentId ?? "",
+      runtime_id: nodeRun.runtime_id ?? "",
+      issue_id: issueId ?? "",
+      status: taskStatusFromNodeRun(nodeRun.status),
+      priority: 0,
+      dispatched_at: null,
+      started_at: nodeRun.started_at,
+      completed_at: nodeRun.completed_at,
+      result: nodeRun.worker_output ?? nodeRun.critic_output ?? null,
+      error: errorMessage,
+      created_at: nodeRun.created_at,
+      chat_session_id: sessionId ?? undefined,
+      work_dir: readWorkDir(nodeRun.worker_output),
+      session_id: sessionId ?? undefined,
+    };
+  }, [errorMessage, issueId, nodeRun, sessionId, transcriptAgentId, transcriptTaskId]);
+  const canOpenSession = !isGateway && (!!sessionId || !!transcriptTask);
   const canUnblock = !isGateway && status === "blocked" && !!onUnblock;
   const canRetry = !isGateway && isRetryableNodeRunStatus(status) && !!onRetry;
 
-  const handleOpenSession = () => {
-    if (!sessionId) return;
+  const handleOpenSession = async () => {
+    if (transcriptLoading) return;
     if (isEmbeddedInCostrict()) {
-      postCostrictNavigateToSession({ sessionId });
-      return;
+      if (sessionId) {
+        const posted = postCostrictNavigateToSession({ sessionId });
+        if (posted) return;
+      }
     }
-    const chatSessionId = resolveChatSessionId(chatSessions, sessionId);
-    if (!chatSessionId) return;
-    setChatSession(chatSessionId);
-    setChatOpen(true);
+    if (sessionId) {
+      const chatSessionId = resolveChatSessionId(chatSessions, sessionId);
+      if (chatSessionId) {
+        setChatSession(chatSessionId);
+        setChatOpen(true);
+        return;
+      }
+    }
+    if (!transcriptTask) return;
+    setTranscriptLoading(true);
+    try {
+      const msgs = await api.listTaskMessages(transcriptTask.id);
+      setTranscriptItems(buildTimeline(msgs));
+    } catch (err) {
+      console.error(err);
+      setTranscriptItems([]);
+    } finally {
+      setTranscriptLoading(false);
+      setTranscriptOpen(true);
+    }
   };
 
   return (
@@ -252,9 +343,14 @@ export function ExecutionDetailPanel({
               <button
                 type="button"
                 onClick={handleOpenSession}
+                disabled={transcriptLoading}
                 className="inline-flex h-8 items-center justify-center gap-1.5 rounded-md border bg-background px-3 text-xs font-medium transition-colors hover:bg-muted"
               >
-                <MessageSquare className="h-3.5 w-3.5" />
+                {transcriptLoading ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <MessageSquare className="h-3.5 w-3.5" />
+                )}
                 {t(($) => $.execution.detail_panel.open_session)}
               </button>
             ) : null}
@@ -418,6 +514,16 @@ export function ExecutionDetailPanel({
           <p className="text-sm text-muted-foreground">{t(($) => $.execution.detail_panel.no_runtime_data)}</p>
         )}
       </NodeDetailSection>
+
+      {transcriptTask && transcriptOpen ? (
+        <AgentTranscriptDialog
+          open={transcriptOpen}
+          onOpenChange={setTranscriptOpen}
+          task={transcriptTask}
+          items={transcriptItems}
+          agentName={transcriptAgentName ?? "Agent"}
+        />
+      ) : null}
 
     </WorkflowNodeDetailPanelShell>
   );
