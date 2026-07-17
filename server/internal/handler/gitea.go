@@ -27,7 +27,7 @@ func isGiteaConfigured() bool { return giteaBaseURL() != "" && giteaAdminToken()
 // JSONB. The bot username + PAT are provisioned lazily by M2 (server-run
 // scaffolding) and consumed by the credential endpoint below.
 type giteaSettings struct {
-	GiteaBotUsername *string `json:"gitea_bot_username"`
+	GiteaBotUsername *string `json:"gitea_bot_username"` // written by M2 provisioning; not used by the M1 credential endpoint
 	GiteaPat         *string `json:"gitea_pat"`
 }
 

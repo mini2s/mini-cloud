@@ -2,7 +2,12 @@ package gitea
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"sync"
 	"testing"
 )
 
@@ -172,5 +177,120 @@ func TestScaffoldRun_EmptySnapshotSkipsSeed(t *testing.T) {
 	}
 	if !f.repos["t-7f3c9a1e/wf-11111111"] || !f.brs["t-7f3c9a1e/wf-11111111/inst-f3a8b2c1"] {
 		t.Error("repo + inst branch should still be created with an empty snapshot")
+	}
+}
+
+// TestScaffoldRun_RealClientE2E runs the real *Client against a stateful
+// httptest Gitea stand-in to verify the orchestration's assumptions (404→not
+// found, 201→created, idempotent re-run) match the real client's HTTP behavior.
+func TestScaffoldRun_RealClientE2E(t *testing.T) {
+	var mu sync.Mutex
+	orgs := map[string]bool{}
+	repos := map[string]bool{}
+	brs := map[string]bool{}
+	var files, protections int
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		defer mu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		path := r.URL.Path
+
+		sendStatus := func(code int) { w.WriteHeader(code) }
+
+		switch r.Method {
+		case http.MethodGet:
+			switch {
+			case strings.HasPrefix(path, "/api/v1/repos/") && strings.Contains(path, "/branches/"):
+				// GET /api/v1/repos/{owner}/{repo}/branches/{branch}
+				parts := strings.Split(path, "/") // ["", api, v1, repos, owner, repo, branches, branch]
+				key := parts[4] + "/" + parts[5] + "/" + parts[7]
+				if brs[key] {
+					sendStatus(http.StatusOK)
+				} else {
+					sendStatus(http.StatusNotFound)
+				}
+			case strings.HasPrefix(path, "/api/v1/repos/"):
+				// GET /api/v1/repos/{owner}/{repo}
+				parts := strings.Split(path, "/")
+				if repos[parts[4]+"/"+parts[5]] {
+					sendStatus(http.StatusOK)
+				} else {
+					sendStatus(http.StatusNotFound)
+				}
+			case strings.HasPrefix(path, "/api/v1/orgs/"):
+				// GET /api/v1/orgs/{org}
+				org := strings.TrimPrefix(path, "/api/v1/orgs/")
+				if orgs[org] {
+					sendStatus(http.StatusOK)
+				} else {
+					sendStatus(http.StatusNotFound)
+				}
+			default:
+				sendStatus(http.StatusNotFound)
+			}
+		case http.MethodPost:
+			var body map[string]any
+			if r.Body != nil {
+				_ = json.NewDecoder(r.Body).Decode(&body)
+			}
+			switch {
+			case path == "/api/v1/orgs":
+				orgs[body["username"].(string)] = true
+				sendStatus(http.StatusCreated)
+			case strings.HasSuffix(path, "/branch_protections"):
+				protections++
+				sendStatus(http.StatusCreated)
+			case strings.Contains(path, "/contents/"):
+				files++
+				sendStatus(http.StatusCreated)
+			case strings.HasSuffix(path, "/branches"):
+				parts := strings.Split(path, "/")
+				key := parts[4] + "/" + parts[5] + "/" + body["new_branch_name"].(string)
+				brs[key] = true
+				sendStatus(http.StatusCreated)
+			case strings.Contains(path, "/orgs/") && strings.HasSuffix(path, "/repos"):
+				parts := strings.Split(path, "/") // ["", api, v1, orgs, {org}, repos]
+				repos[parts[4]+"/"+body["name"].(string)] = true
+				sendStatus(http.StatusCreated)
+			default:
+				sendStatus(http.StatusInternalServerError)
+			}
+		default:
+			sendStatus(http.StatusMethodNotAllowed)
+		}
+	}))
+	defer srv.Close()
+
+	c := NewClient(Config{BaseURL: srv.URL, Token: "admin-tok"})
+	params := ScaffoldParams{
+		WorkspaceID:        "7f3c9a1e-d4b2-4c8e-9a3f-1b2c3d4e5f6a",
+		WorkflowID:         "11111111-2222-3333-4444-555555555555",
+		RunID:              "f3a8b2c1-9d7e-4a2b-8e1f-1234567890ab",
+		WorkflowTitle:      "Bug Fix Flow",
+		DefinitionSnapshot: "name: flow\n",
+	}
+
+	res, err := ScaffoldRunDeliverable(context.Background(), c, params)
+	if err != nil {
+		t.Fatalf("first scaffold: %v", err)
+	}
+	if res.Owner != "t-7f3c9a1e" || res.Repo != "wf-11111111" || res.InstBranch != "inst-f3a8b2c1" {
+		t.Errorf("result = %+v, want owner=t-7f3c9a1e repo=wf-11111111 inst=inst-f3a8b2c1", res)
+	}
+	if files != 1 {
+		t.Errorf("expected 1 seed file, got %d", files)
+	}
+	if protections != 1 {
+		t.Errorf("expected 1 protection rule, got %d", protections)
+	}
+
+	// Second call must be idempotent: no new files/protections/branches.
+	filesBefore := files
+	if _, err := ScaffoldRunDeliverable(context.Background(), c, params); err != nil {
+		t.Fatalf("second scaffold: %v", err)
+	}
+	if files != filesBefore {
+		t.Errorf("idempotent re-scaffold created %d new files", files-filesBefore)
 	}
 }

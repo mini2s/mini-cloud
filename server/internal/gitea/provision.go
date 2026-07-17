@@ -18,8 +18,7 @@ var _ provisionAPI = (*Client)(nil)
 
 // BotParams identifies the workspace a bot is provisioned for.
 type BotParams struct {
-	WorkspaceID   string
-	WorkspaceName string // human-readable; reserved for future use (currently unused — the bot email is derived from the username)
+	WorkspaceID string
 }
 
 // BotUsername is the deterministic Gitea username for a workspace's bot:
@@ -45,11 +44,13 @@ func ProvisionWorkspaceBot(ctx context.Context, c provisionAPI, p BotParams) (us
 	if err != nil {
 		return "", "", fmt.Errorf("create gitea bot pat: %w", err)
 	}
-	// Ensure the org exists before adding the member; provisioning may run
-	// before the first scaffold. If the org is missing, the bot is still
-	// useful for clone/push once the org is created; scaffold re-adds
-	// membership if needed. We add membership opportunistically and treat a
-	// missing org as non-fatal.
+	// NOTE: org membership is added ONLY when the org already exists at
+	// provision time. If provisioning runs before the first scaffold (both are
+	// lazy and independent), the bot is created with a PAT but NOT added to the
+	// org — so the daemon's first clone/push of org-private repos would 403.
+	// M2's wiring MUST order scaffold-before-provision (or re-add membership
+	// after scaffold) so the org exists when provision runs. This package keeps
+	// no DB/settings dependency, so it cannot self-heal here.
 	if exists, gErr := c.GetOrg(ctx, org); gErr == nil && exists {
 		if err := c.AddOrgMember(ctx, org, username); err != nil {
 			return "", "", fmt.Errorf("add gitea bot to org: %w", err)

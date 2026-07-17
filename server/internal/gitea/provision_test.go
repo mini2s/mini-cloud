@@ -52,8 +52,7 @@ func (f *fakeProvision) GetOrg(_ context.Context, org string) (bool, error) {
 func TestProvisionWorkspaceBot(t *testing.T) {
 	f := newFakeProvision()
 	username, token, err := ProvisionWorkspaceBot(context.Background(), f, BotParams{
-		WorkspaceID:   "7f3c9a1e-d4b2-4c8e-9a3f-1b2c3d4e5f6a",
-		WorkspaceName: "Acme",
+		WorkspaceID: "7f3c9a1e-d4b2-4c8e-9a3f-1b2c3d4e5f6a",
 	})
 	if err != nil {
 		t.Fatalf("Provision: %v", err)
