@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
-	"net/url"
 	"strings"
 	"time"
 
@@ -27,9 +26,10 @@ const createConversationTimeout = 15 * time.Second
 type IssueConversationSessionResponse struct {
 	ConversationID     string `json:"conversation_id"`
 	WorkspaceDirectory string `json:"workspace_directory"`
-	EventsURL          string `json:"events_url"`
-	QuestionsURL       string `json:"questions_url"`
-	PermissionsURL     string `json:"permissions_url"`
+	// ProxyBaseURL is the device proxy prefix (…/proxy) through which all
+	// cs-cloud conversation APIs are reachable: events (SSE), prompt,
+	// abort, messages, todo, questions, permissions, etc.
+	ProxyBaseURL string `json:"proxy_base_url"`
 }
 
 type createConversationRequest struct {
@@ -298,20 +298,9 @@ func (h *Handler) createConversationOnDevice(w http.ResponseWriter, r *http.Requ
 }
 
 func (h *Handler) writeIssueConversationSession(w http.ResponseWriter, conversationID, workspaceDir, deviceID string) {
-	prefix := gatewayProxyPrefix(h.cfg, deviceID)
-
-	eventsQuery := url.Values{}
-	eventsQuery.Set("conversation_id", conversationID)
-	eventsURL := prefix + "/api/v1/events?" + eventsQuery.Encode()
-
-	questionsURL := prefix + "/api/v1/questions"
-	permissionsURL := prefix + "/api/v1/permissions"
-
 	writeJSON(w, http.StatusOK, IssueConversationSessionResponse{
 		ConversationID:     conversationID,
 		WorkspaceDirectory: workspaceDir,
-		EventsURL:          eventsURL,
-		QuestionsURL:       questionsURL,
-		PermissionsURL:     permissionsURL,
+		ProxyBaseURL:       gatewayProxyPrefix(h.cfg, deviceID),
 	})
 }

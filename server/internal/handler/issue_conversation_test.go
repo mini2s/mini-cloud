@@ -69,14 +69,8 @@ func TestGetIssueConversationSessionReturnsExisting(t *testing.T) {
 	if resp.ConversationID != "conv-existing" {
 		t.Fatalf("conversation_id = %q", resp.ConversationID)
 	}
-	if !strings.Contains(resp.EventsURL, "conversation_id=conv-existing") {
-		t.Fatalf("events_url = %q", resp.EventsURL)
-	}
-	if !strings.Contains(resp.QuestionsURL, "/api/v1/questions") {
-		t.Fatalf("questions_url = %q", resp.QuestionsURL)
-	}
-	if !strings.Contains(resp.PermissionsURL, "/api/v1/permissions") {
-		t.Fatalf("permissions_url = %q", resp.PermissionsURL)
+	if resp.ProxyBaseURL != "/cloud-api/cloud/device/dev-existing/proxy" {
+		t.Fatalf("proxy_base_url = %q", resp.ProxyBaseURL)
 	}
 }
 
@@ -139,14 +133,8 @@ func TestGetIssueConversationSessionCreatesNew(t *testing.T) {
 	if resp.ConversationID != "conv-new" {
 		t.Fatalf("conversation_id = %q", resp.ConversationID)
 	}
-	if !strings.Contains(resp.EventsURL, "conversation_id=conv-new") {
-		t.Fatalf("events_url = %q", resp.EventsURL)
-	}
-	if !strings.Contains(resp.QuestionsURL, "/api/v1/questions") {
-		t.Fatalf("questions_url = %q", resp.QuestionsURL)
-	}
-	if !strings.Contains(resp.PermissionsURL, "/api/v1/permissions") {
-		t.Fatalf("permissions_url = %q", resp.PermissionsURL)
+	if resp.ProxyBaseURL != "/cloud-api/cloud/device/dev-123/proxy" {
+		t.Fatalf("proxy_base_url = %q", resp.ProxyBaseURL)
 	}
 	if !proxy.called {
 		t.Fatal("cloud runtime proxy was not called")
@@ -458,8 +446,8 @@ func TestGetIssueConversationSessionRecreatesWhenDeviceOffline(t *testing.T) {
 	if resp.ConversationID != "conv-new-device" {
 		t.Fatalf("conversation_id = %q", resp.ConversationID)
 	}
-	if !strings.Contains(resp.EventsURL, "conversation_id=conv-new-device") {
-		t.Fatalf("events_url = %q", resp.EventsURL)
+	if resp.ProxyBaseURL == "" {
+		t.Fatal("proxy_base_url is empty")
 	}
 	if !proxy.called {
 		t.Fatal("cloud runtime proxy was not called")
