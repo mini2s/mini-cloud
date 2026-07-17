@@ -14,6 +14,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/multica-ai/multica/server/internal/events"
 	"github.com/multica-ai/multica/server/internal/gitea"
 	"github.com/multica-ai/multica/server/internal/util"
 	db "github.com/multica-ai/multica/server/pkg/db/generated"
@@ -25,6 +26,7 @@ type giteaFixture struct {
 	pool      *pgxpool.Pool
 	workspace pgtype.UUID
 	workflow  pgtype.UUID
+	node      pgtype.UUID
 	run1      pgtype.UUID
 	run2      pgtype.UUID // zero-valued when not seeded
 }
@@ -93,6 +95,7 @@ func seedGiteaFixture(t *testing.T, pool *pgxpool.Pool, withDocument bool, numRu
 	fix := &giteaFixture{pool: pool}
 	fix.workspace, _ = util.ParseUUID(wsID)
 	fix.workflow, _ = util.ParseUUID(wfID)
+	fix.node, _ = util.ParseUUID(nodeID)
 
 	for i := 0; i < numRuns; i++ {
 		var runID string
@@ -343,5 +346,204 @@ func TestScaffoldRunDeliverables_NoOpWithoutDocumentDeliverable(t *testing.T) {
 	settings := workspaceSettings(t, pool, fix.workspace)
 	if pat, ok := settings["gitea_pat"]; ok && pat != "" {
 		t.Fatalf("code-only workflow wrote gitea_pat=%v, want absent/empty", pat)
+	}
+}
+
+// fakeGiteaMergeServer stands up an httptest server that responds to PR merge
+// requests (POST .../pulls/{index}/merge) with the configured status — 200 for
+// a successful merge, 409 for a conflict. All other paths get a permissive 200
+// so a stray probe (e.g. an idempotency GET) doesn't 500 the client. The
+// returned mergeCalls counter lets tests assert the merge actually happened.
+func fakeGiteaMergeServer(t *testing.T, mergeStatus int) (srv *httptest.Server, mergeCalls *int) {
+	t.Helper()
+	var mu sync.Mutex
+	calls := 0
+	srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		defer mu.Unlock()
+		if r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/merge") {
+			calls++
+			w.WriteHeader(mergeStatus)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+	}))
+	t.Cleanup(srv.Close)
+	return srv, &calls
+}
+
+// seedNodeRunForReview inserts a workflow_node_run in critic_reviewing for the
+// given run+node, plus a document deliverable submission carrying prURL with the
+// given status. Returns the new node_run ID. Cleanup rides the fixture's
+// workflow cascade (ON DELETE CASCADE through run → node_run → submission).
+func seedNodeRunForReview(t *testing.T, pool *pgxpool.Pool, fix *giteaFixture, runID pgtype.UUID, prURL, submissionStatus string) pgtype.UUID {
+	t.Helper()
+	ctx := context.Background()
+
+	var nodeRunID string
+	if err := pool.QueryRow(ctx, `
+		INSERT INTO multica_workflow_node_run (workflow_run_id, workflow_node_id, node_title, status, worker_type, critic_type)
+		VALUES ($1, $2, 'Doc Node', 'critic_reviewing', 'agent', 'human')
+		RETURNING id
+	`, util.UUIDToString(runID), util.UUIDToString(fix.node)).Scan(&nodeRunID); err != nil {
+		t.Fatalf("seed node run: %v", err)
+	}
+
+	// The document deliverable row is created by seedGiteaFixture (withDocument).
+	var deliverableID string
+	if err := pool.QueryRow(ctx, `
+		SELECT id FROM multica_workflow_node_deliverable
+		WHERE workflow_node_id = $1 AND kind = 'document' LIMIT 1
+	`, util.UUIDToString(fix.node)).Scan(&deliverableID); err != nil {
+		t.Fatalf("seed submission: find document deliverable: %v", err)
+	}
+
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO multica_workflow_node_deliverable_submission (
+			workflow_node_run_id, deliverable_id, submitted_by_type, status, content, pull_request_url
+		)
+		VALUES ($1, $2, 'system', $3, 'draft body', $4)
+	`, nodeRunID, deliverableID, submissionStatus, prURL); err != nil {
+		t.Fatalf("seed submission: %v", err)
+	}
+
+	nrID, _ := util.ParseUUID(nodeRunID)
+	return nrID
+}
+
+// nodeRunStatus reads the status of a workflow_node_run straight from the DB.
+func nodeRunStatus(t *testing.T, pool *pgxpool.Pool, nodeRunID pgtype.UUID) string {
+	t.Helper()
+	var status string
+	if err := pool.QueryRow(context.Background(),
+		`SELECT status FROM multica_workflow_node_run WHERE id = $1`,
+		util.UUIDToString(nodeRunID)).Scan(&status); err != nil {
+		t.Fatalf("read node run status: %v", err)
+	}
+	return status
+}
+
+// submissionStatus reads the status of the (single) submission for a node run.
+func submissionStatus(t *testing.T, pool *pgxpool.Pool, nodeRunID pgtype.UUID) string {
+	t.Helper()
+	var status string
+	if err := pool.QueryRow(context.Background(),
+		`SELECT status FROM multica_workflow_node_deliverable_submission WHERE workflow_node_run_id = $1`,
+		util.UUIDToString(nodeRunID)).Scan(&status); err != nil {
+		t.Fatalf("read submission status: %v", err)
+	}
+	return status
+}
+
+// TestReviewNodeRun_MergesDocumentDeliverablePRs is the M2 capstone behavior:
+// when a critic approves a node run whose workflow has a document deliverable
+// (and Gitea is configured), the server merges each document submission's PR
+// with the admin token, then completes the node and marks the submission
+// approved. The merge runs AFTER the critic_approved tx commits (it can't be
+// rolled back), so a tx failure leaves no half-merged state.
+func TestReviewNodeRun_MergesDocumentDeliverablePRs(t *testing.T) {
+	pool := openTestPool(t)
+	defer pool.Close()
+
+	fix := seedGiteaFixture(t, pool, true /*document deliverable*/, 1 /*one run*/)
+	srv, mergeCalls := fakeGiteaMergeServer(t, http.StatusOK)
+
+	svc := &WorkflowService{
+		Queries:   db.New(pool),
+		TxStarter: pool,
+		Bus:       events.New(),
+		Gitea:     gitea.NewClient(gitea.Config{BaseURL: srv.URL, Token: "admin-tok"}),
+	}
+	ctx := context.Background()
+
+	prURL := srv.URL + "/t-abcd1234/wf-deadbeef/pulls/1"
+	nodeRunID := seedNodeRunForReview(t, pool, fix, fix.run1, prURL, "submitted")
+
+	if err := svc.ReviewNodeRun(ctx, nodeRunID, true /*approved*/, "lgtm", nil); err != nil {
+		t.Fatalf("ReviewNodeRun: %v", err)
+	}
+
+	if got := nodeRunStatus(t, pool, nodeRunID); got != NodeRunStatusCompleted {
+		t.Fatalf("node run status = %q, want %q", got, NodeRunStatusCompleted)
+	}
+	if got := submissionStatus(t, pool, nodeRunID); got != "approved" {
+		t.Fatalf("submission status = %q, want %q", got, "approved")
+	}
+	if *mergeCalls != 1 {
+		t.Fatalf("merge calls = %d, want exactly 1", *mergeCalls)
+	}
+}
+
+// TestReviewNodeRun_BlocksWhenMergeConflicts verifies the failure path: a 409
+// (gitea.ErrMergeConflict, terminal) blocks the node run instead of completing
+// it. Blocking is NOT an error from ReviewNodeRun — the caller observes the
+// blocked status. The submission stays in its pre-merge status (not approved),
+// because the merge never succeeded.
+func TestReviewNodeRun_BlocksWhenMergeConflicts(t *testing.T) {
+	pool := openTestPool(t)
+	defer pool.Close()
+
+	fix := seedGiteaFixture(t, pool, true, 1)
+	srv, mergeCalls := fakeGiteaMergeServer(t, http.StatusConflict)
+
+	svc := &WorkflowService{
+		Queries:   db.New(pool),
+		TxStarter: pool,
+		Bus:       events.New(),
+		Gitea:     gitea.NewClient(gitea.Config{BaseURL: srv.URL, Token: "admin-tok"}),
+	}
+	ctx := context.Background()
+
+	prURL := srv.URL + "/t-abcd1234/wf-deadbeef/pulls/1"
+	nodeRunID := seedNodeRunForReview(t, pool, fix, fix.run1, prURL, "submitted")
+
+	if err := svc.ReviewNodeRun(ctx, nodeRunID, true /*approved*/, "lgtm", nil); err != nil {
+		t.Fatalf("ReviewNodeRun: %v (block must surface as status, not error)", err)
+	}
+
+	if got := nodeRunStatus(t, pool, nodeRunID); got != NodeRunStatusBlocked {
+		t.Fatalf("node run status = %q, want %q", got, NodeRunStatusBlocked)
+	}
+	if got := submissionStatus(t, pool, nodeRunID); got != "submitted" {
+		t.Fatalf("submission status = %q, want %q (merge failed; do not mark approved)", got, "submitted")
+	}
+	if *mergeCalls != 1 {
+		t.Fatalf("merge calls = %d, want exactly 1 (conflict is terminal, no retry)", *mergeCalls)
+	}
+}
+
+// TestReviewNodeRun_CompletesWithoutMergeWhenGiteaNil verifies the dormancy
+// contract: when Gitea is not configured (nil client), approve behaves exactly
+// as before M2 — no merge attempt, the node completes, and the submission is
+// left in its submitted status (no PR URL to merge anyway). This keeps the
+// feature off for code-only / non-Gitea deployments and for tests that bypass
+// the router.
+func TestReviewNodeRun_CompletesWithoutMergeWhenGiteaNil(t *testing.T) {
+	pool := openTestPool(t)
+	defer pool.Close()
+
+	fix := seedGiteaFixture(t, pool, true, 1)
+
+	svc := &WorkflowService{
+		Queries:   db.New(pool),
+		TxStarter: pool,
+		Bus:       events.New(),
+		Gitea:     nil, // feature dormant
+	}
+	ctx := context.Background()
+
+	// No PR URL — realistic when Gitea is absent (the daemon never opened one).
+	nodeRunID := seedNodeRunForReview(t, pool, fix, fix.run1, "", "submitted")
+
+	if err := svc.ReviewNodeRun(ctx, nodeRunID, true /*approved*/, "lgtm", nil); err != nil {
+		t.Fatalf("ReviewNodeRun: %v", err)
+	}
+
+	if got := nodeRunStatus(t, pool, nodeRunID); got != NodeRunStatusCompleted {
+		t.Fatalf("node run status = %q, want %q (dormant: no merge, just complete)", got, NodeRunStatusCompleted)
+	}
+	if got := submissionStatus(t, pool, nodeRunID); got != "submitted" {
+		t.Fatalf("submission status = %q, want %q (dormant: must not touch submissions)", got, "submitted")
 	}
 }

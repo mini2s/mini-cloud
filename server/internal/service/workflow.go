@@ -817,7 +817,9 @@ func (s *WorkflowService) ReviewNodeRun(ctx context.Context, nodeRunID pgtype.UU
 				return fmt.Errorf("all required deliverables must be submitted and approved before this node can be approved")
 			}
 
-			// critic_approved → completed
+			// Persist critic_approved + critic output. Do NOT complete inside the
+			// tx — the document-PR merge is an external call that can't be rolled
+			// back, so completion happens after the tx commits (below).
 			updated, err := qtx.UpdateWorkflowNodeRunStatus(ctx, db.UpdateWorkflowNodeRunStatusParams{
 				ID:     nr.ID,
 				Status: NodeRunStatusCriticApproved,
@@ -825,15 +827,15 @@ func (s *WorkflowService) ReviewNodeRun(ctx context.Context, nodeRunID pgtype.UU
 			if err != nil {
 				return fmt.Errorf("approve node run: %w", err)
 			}
-			// Store critic output.
+			// Store critic output; stay critic_approved (completed after merge).
 			updated, err = qtx.SetWorkflowNodeRunCriticOutput(ctx, db.SetWorkflowNodeRunCriticOutputParams{
 				ID:            nr.ID,
 				CriticOutput:  criticOutput,
 				CriticComment: pgtype.Text{String: comment, Valid: comment != ""},
-				Status:        NodeRunStatusCompleted,
+				Status:        NodeRunStatusCriticApproved,
 			})
 			if err != nil {
-				return fmt.Errorf("complete node run: %w", err)
+				return fmt.Errorf("store critic output: %w", err)
 			}
 			nodeRun = updated
 		} else {
@@ -888,6 +890,32 @@ func (s *WorkflowService) ReviewNodeRun(ctx context.Context, nodeRunID pgtype.UU
 		return nil
 	}); err != nil {
 		return err
+	}
+
+	// Approve path: the tx persisted critic_approved. Merge document PRs
+	// (external, only when Gitea is configured) THEN complete — or block on
+	// merge failure. UpdateWorkflowNodeRunStatus is called DIRECTLY (not
+	// TransitionNodeRun) so OnNodeStatusChanged fires exactly once, from the
+	// completed/blocked blocks below. The reject/rework path (FormatOk) is
+	// untouched and skips this block entirely.
+	if approved && nodeRun.Status == NodeRunStatusCriticApproved {
+		finalStatus := NodeRunStatusCompleted
+		if s.Gitea != nil && s.Gitea.Configured() {
+			if err := s.mergeDocumentDeliverables(ctx, nodeRun); err != nil {
+				slog.Error("gitea merge document deliverables failed; blocking node run",
+					"node_run_id", util.UUIDToString(nodeRun.ID), "error", err)
+				finalStatus = NodeRunStatusBlocked
+			} else {
+				s.markDocumentSubmissionsApproved(ctx, nodeRun)
+			}
+		}
+		updated, err := s.Queries.UpdateWorkflowNodeRunStatus(ctx, db.UpdateWorkflowNodeRunStatusParams{
+			ID: nodeRun.ID, Status: finalStatus,
+		})
+		if err != nil {
+			return fmt.Errorf("set node run status after merge decision: %w", err)
+		}
+		nodeRun = updated
 	}
 
 	if nodeRun.Status == NodeRunStatusFormatOk {
