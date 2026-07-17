@@ -14,6 +14,7 @@ import {
 } from "@multica/core/workflows/queries";
 import type { WorkflowNodeRun, NodeRunStatus } from "@multica/core/types";
 import { NodeRunControlActions } from "./node-run-control-actions";
+import { NodeRunDeliverables } from "./node-run-deliverables";
 
 const STATUS_ACTIVE: Set<NodeRunStatus> = new Set([
   "format_checking", "working", "critic_reviewing",
@@ -114,6 +115,9 @@ export function NodeRunCard({ nodeRun, maxRetries = 3, workflowId, runId }: Node
         </p>
       )}
       <CollapsibleJSON data={nodeRun.critic_output} label="Critic Output" />
+
+      {/* Deliverable PRs (document deliverables from agents) */}
+      <NodeRunDeliverables wsId={wsId} nodeRunId={nodeRun.id} />
 
       {/* Actions */}
       <div className="flex items-center gap-1.5 pt-1 flex-wrap">

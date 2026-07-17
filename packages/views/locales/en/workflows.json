@@ -304,7 +304,11 @@
     "take_over_wrong_status": "Only working nodes can be taken over.",
     "hand_back_wrong_status": "Only blocked nodes can be handed back.",
     "finalize_wrong_status": "Only blocked nodes can be finalized.",
-    "review_comment_placeholder": "Add a comment with your review..."
+    "review_comment_placeholder": "Add a comment with your review...",
+    "deliverables": {
+      "heading": "Deliverable PRs",
+      "pull_request_label": "Pull request"
+    }
   },
   "overview": {
     "title": "Workflow Overview",
