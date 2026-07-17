@@ -112,6 +112,7 @@ export function SplitDraftLedger({
   const [draftTitle, setDraftTitle] = useState("");
   const [draftDescription, setDraftDescription] = useState("");
   const [editErrorTaskId, setEditErrorTaskId] = useState<string | null>(null);
+  const [showDiscardedTasks, setShowDiscardedTasks] = useState(false);
 
   const toggleTaskDetails = (taskId: string) => {
     setExpandedTaskIds((current) => {
@@ -156,6 +157,9 @@ export function SplitDraftLedger({
     }
   };
 
+  const activeTasks = tasks.filter((task) => task.status !== "discarded");
+  const discardedTasks = tasks.filter((task) => task.status === "discarded");
+
   if (tasks.length === 0) {
     return (
       <div className="rounded-md border border-dashed bg-muted/20 px-3 py-3 text-sm text-muted-foreground">
@@ -164,11 +168,14 @@ export function SplitDraftLedger({
     );
   }
 
-  const numberByTaskId = new Map(tasks.map((task, index) => [task.id, taskNumber(index)]));
+  const activeNumberByTaskId = new Map(activeTasks.map((task, index) => [task.id, taskNumber(index)]));
+  const discardedNumberByTaskId = new Map(discardedTasks.map((task, index) => [task.id, taskNumber(index)]));
 
-  return (
-    <div className="space-y-2">
-      {tasks.map((task, index) => {
+  const renderTaskRow = (
+    task: SplitTask,
+    index: number,
+    numberByTaskId: ReadonlyMap<string, string>,
+  ) => {
         const linkedIssue = taskIssueBySourceId?.get(task.id) ?? null;
         const isExpanded = expandedTaskIds.has(task.id);
         const isEditing = editingTaskId === task.id;
@@ -364,7 +371,47 @@ export function SplitDraftLedger({
             </div>
           </article>
         );
-      })}
+      };
+
+  return (
+    <div className="space-y-2">
+      {activeTasks.length > 0 ? (
+        activeTasks.map((task, index) => renderTaskRow(task, index, activeNumberByTaskId))
+      ) : (
+        <div className="rounded-md border border-dashed bg-muted/20 px-3 py-3 text-sm text-muted-foreground">
+          {t(($) => $.detail_panel.split_draft_empty)}
+        </div>
+      )}
+      {discardedTasks.length > 0 ? (
+        <div className="rounded-md border border-dashed bg-muted/10">
+          <button
+            type="button"
+            className="flex w-full items-center justify-between gap-3 px-3 py-2 text-left text-xs font-medium text-muted-foreground transition-colors hover:bg-muted/40 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+            aria-expanded={showDiscardedTasks}
+            aria-label={
+              showDiscardedTasks
+                ? t(($) => $.detail_panel.split_draft_hide_discarded)
+                : t(($) => $.detail_panel.split_draft_show_discarded)
+            }
+            onClick={() => setShowDiscardedTasks((value) => !value)}
+          >
+            <span>
+              {t(($) => $.detail_panel.split_draft_discarded_group, { count: discardedTasks.length })}
+            </span>
+            <span className="inline-flex items-center gap-1 text-primary">
+              {showDiscardedTasks
+                ? t(($) => $.detail_panel.split_draft_hide_discarded)
+                : t(($) => $.detail_panel.split_draft_show_discarded)}
+              {showDiscardedTasks ? <ChevronUp className="size-3.5" /> : <ChevronDown className="size-3.5" />}
+            </span>
+          </button>
+          {showDiscardedTasks ? (
+            <div className="space-y-2 border-t border-border/60 p-2">
+              {discardedTasks.map((task, index) => renderTaskRow(task, index, discardedNumberByTaskId))}
+            </div>
+          ) : null}
+        </div>
+      ) : null}
     </div>
   );
 }

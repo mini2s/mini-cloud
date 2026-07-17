@@ -77,6 +77,9 @@ const i18nMock = vi.hoisted(() => {
     split_draft_cancel_edit: "Cancel edit",
     split_draft_discard: "Discard draft",
     split_draft_restore: "Restore draft",
+    split_draft_discarded_group: "{{count}} discarded drafts",
+    split_draft_show_discarded: "Show discarded drafts",
+    split_draft_hide_discarded: "Hide discarded drafts",
     split_draft_title_label: "Draft title",
     split_draft_description_label: "Draft description",
     split_draft_edit_failed: "Failed to update draft.",
@@ -432,7 +435,8 @@ describe("SplitReviewPanel", () => {
     mocks.splitTasksRefetch.mockReset();
   });
 
-  it("renders a review with verdict, draft plan, dependencies, sticky actions, and draft quick actions", () => {
+  it("renders a review with verdict, draft plan, dependencies, sticky actions, and draft quick actions", async () => {
+    const user = userEvent.setup();
     const { container } = renderPanel();
 
     const approveButton = screen.getByRole("button", { name: "Confirm create 1" });
@@ -450,10 +454,14 @@ describe("SplitReviewPanel", () => {
     expect(screen.getByText("01")).toBeInTheDocument();
     expect(screen.getByText("Implement API contract")).toBeInTheDocument();
     expect(screen.getByText("Dependencies: none")).toBeInTheDocument();
-    expect(screen.getByText("Discarded task")).toBeInTheDocument();
+    expect(screen.getByText("1 discarded drafts")).toBeInTheDocument();
+    expect(screen.queryByText("Discarded task")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Edit draft" })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Show discarded drafts" }));
+
+    expect(screen.getByText("Discarded task")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Restore draft" })).toBeInTheDocument();
-    expect(screen.getByText("Dependencies: 01")).toBeInTheDocument();
     expect(screen.queryByRole("textbox", { name: "Draft title" })).not.toBeInTheDocument();
     expect(screen.queryByRole("textbox", { name: "Draft description" })).not.toBeInTheDocument();
     expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
@@ -463,7 +471,8 @@ describe("SplitReviewPanel", () => {
     expect(container).not.toHaveTextContent(mojibakePattern);
   });
 
-  it("shows discarded draft rows after a chat adjustment while approving only active drafts", () => {
+  it("groups discarded draft rows after a chat adjustment while approving only active drafts", async () => {
+    const user = userEvent.setup();
     mocks.splitTasksData = {
       tasks: [
         draftTask("task-1", "Build project shell", {
@@ -495,13 +504,19 @@ describe("SplitReviewPanel", () => {
 
     renderPanel();
 
-    expect(screen.getByText("Build project shell")).toBeInTheDocument();
-    expect(screen.getByText("Render board")).toBeInTheDocument();
+    expect(screen.getByText("2 discarded drafts")).toBeInTheDocument();
+    expect(screen.queryByText("Build project shell")).not.toBeInTheDocument();
+    expect(screen.queryByText("Render board")).not.toBeInTheDocument();
     expect(screen.getByText("Implement game logic")).toBeInTheDocument();
     expect(screen.getByText("Build shell and board rendering")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Confirm create 2" })).toBeInTheDocument();
-    expect(screen.getByText("Dependencies: 04")).toBeInTheDocument();
-    expect(screen.getByText("04 -> 03")).toBeInTheDocument();
+    expect(screen.getByText("Dependencies: 02")).toBeInTheDocument();
+    expect(screen.getByText("02 -> 01")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Show discarded drafts" }));
+
+    expect(screen.getByText("Build project shell")).toBeInTheDocument();
+    expect(screen.getByText("Render board")).toBeInTheDocument();
   });
 
   it("uses visible draft numbers for active blockers and ignores discarded draft risks", () => {
@@ -530,7 +545,7 @@ describe("SplitReviewPanel", () => {
 
     renderPanel();
 
-    expect(screen.getByText("Child issue 02 is missing execution workflow.")).toBeInTheDocument();
+    expect(screen.getByText("Child issue 01 is missing execution workflow.")).toBeInTheDocument();
     expect(screen.queryByText("Child issue 1 is missing execution workflow.")).not.toBeInTheDocument();
     expect(screen.queryByTestId("split-draft-risk-discarded-1")).not.toBeInTheDocument();
     expect(screen.getByTestId("split-draft-risk-active-2")).toBeInTheDocument();
@@ -886,7 +901,8 @@ describe("SplitReviewPanel", () => {
     });
   });
 
-  it("keeps discarded drafts visible and excludes them from approval", async () => {
+  it("keeps discarded drafts available in history and excludes them from approval", async () => {
+    const user = userEvent.setup();
     mocks.splitTasksData = {
       tasks: [
         draftTask("task-1", "Active draft"),
@@ -908,7 +924,8 @@ describe("SplitReviewPanel", () => {
 
     renderPanel();
 
-    expect(screen.getByText("Discarded draft")).toBeInTheDocument();
+    expect(screen.getByText("1 discarded drafts")).toBeInTheDocument();
+    expect(screen.queryByText("Discarded draft")).not.toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "Confirm create 1" }));
     await userEvent.click(screen.getByRole("button", { name: "Confirm create" }));
 
@@ -920,6 +937,9 @@ describe("SplitReviewPanel", () => {
         approved_task_ids: ["task-1"],
       },
     });
+
+    await user.click(screen.getByRole("button", { name: "Show discarded drafts" }));
+    expect(screen.getByText("Discarded draft")).toBeInTheDocument();
   });
 
   it("shows linked child issue details for materialized split tasks", () => {

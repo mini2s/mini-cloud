@@ -30,6 +30,9 @@ vi.mock("../../../i18n", () => ({
         split_draft_cancel_edit: "Cancel edit",
         split_draft_discard: "Discard draft",
         split_draft_restore: "Restore draft",
+        split_draft_discarded_group: "{{count}} discarded drafts",
+        split_draft_show_discarded: "Show discarded drafts",
+        split_draft_hide_discarded: "Hide discarded drafts",
         split_draft_title_label: "Draft title",
         split_draft_description_label: "Draft description",
       };
@@ -201,8 +204,34 @@ describe("SplitDraftLedger", () => {
       />,
     );
 
+    await user.click(screen.getByRole("button", { name: "Show discarded drafts" }));
     await user.click(screen.getByRole("button", { name: "Restore draft" }));
     expect(onDiscardChange).toHaveBeenCalledWith(expect.objectContaining({ id: "task-1" }), false);
     expect(screen.queryByRole("button", { name: "Edit draft" })).not.toBeInTheDocument();
+  });
+
+  it("collapses discarded drafts by default so the active draft is not buried by history", async () => {
+    const user = userEvent.setup();
+    const tasks = Array.from({ length: 32 }, (_value, index): SplitTask => ({
+      ...baseTask,
+      id: `task-${index + 1}`,
+      title: index === 31 ? "Current active draft" : `Discarded draft ${index + 1}`,
+      description: `Description ${index + 1}`,
+      status: index === 31 ? "draft" : "discarded",
+      sort_order: index,
+    }));
+
+    render(<SplitDraftLedger tasks={tasks} workflows={workflows} />);
+
+    expect(screen.getByTestId("split-draft-row-task-32")).toBeInTheDocument();
+    expect(screen.getByText("Current active draft")).toBeInTheDocument();
+    expect(screen.getByText("01")).toBeInTheDocument();
+    expect(screen.queryByText("Discarded draft 1")).not.toBeInTheDocument();
+    expect(screen.getByText("31 discarded drafts")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Show discarded drafts" }));
+
+    expect(screen.getByText("Discarded draft 1")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Hide discarded drafts" })).toBeInTheDocument();
   });
 });

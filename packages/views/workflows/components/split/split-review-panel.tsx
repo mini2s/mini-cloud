@@ -61,6 +61,7 @@ const EMPTY_PROGRESS: SplitProgress = {
   cancelled: 0,
   skipped: 0,
 };
+const EMPTY_SPLIT_TASKS: SplitTask[] = [];
 
 function isNodeRunCancellable(status: string | null | undefined): boolean {
   if (!status) return false;
@@ -274,9 +275,9 @@ export function SplitReviewPanel({
     void refetchSplitTasks();
   }, [isSplitChatRunning, refetchSplitTasks]);
 
-  const tasks = data?.tasks ?? [];
+  const tasks = data?.tasks ?? EMPTY_SPLIT_TASKS;
   const activeTasks = useMemo(() => creatableTasks(tasks), [tasks]);
-  const taskNumberById = useMemo(() => new Map(tasks.map((task, index) => [task.id, taskNumber(index)])), [tasks]);
+  const taskNumberById = useMemo(() => new Map(activeTasks.map((task, index) => [task.id, taskNumber(index)])), [activeTasks]);
   const progress = data?.progress ?? EMPTY_PROGRESS;
   const splitConfig = splitConfigFromNode(node);
   const creatableCount = activeTasks.length;

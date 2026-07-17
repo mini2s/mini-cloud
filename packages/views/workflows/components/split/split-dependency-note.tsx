@@ -12,9 +12,9 @@ function taskNumber(index: number): string {
 }
 
 function buildDependencyRows(tasks: SplitTask[]): string[] {
-  const numberByTaskId = new Map(tasks.map((task, index) => [task.id, taskNumber(index)]));
-  return tasks
-    .filter((task) => task.status !== "discarded")
+  const activeTasks = tasks.filter((task) => task.status !== "discarded");
+  const numberByTaskId = new Map(activeTasks.map((task, index) => [task.id, taskNumber(index)]));
+  return activeTasks
     .filter((task) => task.depends_on.length > 0)
     .map((task) => {
       const current = numberByTaskId.get(task.id) ?? task.id;
