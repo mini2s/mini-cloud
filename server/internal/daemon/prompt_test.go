@@ -358,3 +358,37 @@ func TestBuildPromptNoUpstreamStageContext(t *testing.T) {
 		t.Errorf("BuildPrompt should NOT contain upstream context section when empty, got:\n%s", out)
 	}
 }
+
+func TestBuildPromptGiteaDeliverables(t *testing.T) {
+	task := Task{
+		IssueID: "iss-1",
+		AgentID: "a-1",
+		GiteaDeliverables: &GiteaDeliverableContext{
+			Owner: "t-aaa", Repo: "wf-bbb", InstBranch: "inst-cc", NodeBranch: "node/dd",
+			Deliverables: []GiteaDeliverableRef{
+				{ID: "d1", Title: "Design Doc", Path: "nodes/dd/d1.md"},
+				{ID: "d2", Title: "API Spec", Path: "nodes/dd/d2.md"},
+			},
+		},
+	}
+	got := BuildPrompt(task, "claude")
+	if !strings.Contains(got, "Document Deliverables") {
+		t.Errorf("prompt missing Document Deliverables section:\n%s", got)
+	}
+	if !strings.Contains(got, "cs-workflow gitea submit --deliverable d1 --file") {
+		t.Errorf("prompt missing gitea submit command for d1:\n%s", got)
+	}
+	if !strings.Contains(got, "cs-workflow gitea submit --deliverable d2 --file") {
+		t.Errorf("prompt missing gitea submit command for d2:\n%s", got)
+	}
+	if !strings.Contains(got, "Design Doc") || !strings.Contains(got, "API Spec") {
+		t.Errorf("prompt missing deliverable titles:\n%s", got)
+	}
+}
+
+func TestBuildPromptNoGiteaDeliverablesWhenAbsent(t *testing.T) {
+	got := BuildPrompt(Task{IssueID: "iss-1", AgentID: "a-1"}, "claude")
+	if strings.Contains(got, "Document Deliverables") {
+		t.Errorf("prompt must not mention document deliverables when context absent:\n%s", got)
+	}
+}

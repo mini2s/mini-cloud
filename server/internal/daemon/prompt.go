@@ -58,6 +58,20 @@ func BuildPrompt(task Task, provider string) string {
 		b.WriteString("---\n\n")
 	}
 
+	// Document deliverables: instruct the agent to produce each doc and submit
+	// it via the Gitea CLI (which creates a node branch off the run's instance
+	// branch, pushes the file, opens a Gitea PR, and registers the PR back
+	// here). Only present when Gitea is configured for this run.
+	if task.GiteaDeliverables != nil {
+		b.WriteString("## Document Deliverables\n\n")
+		b.WriteString("This node has document deliverables stored in the platform git server. For EACH deliverable below: write the document to a local file, then submit it with the CLI — the command creates a node branch off the run's instance branch, pushes your file, opens a Gitea PR, and registers the PR back here. Do NOT use inline content upload for these; document deliverables go through git.\n\n")
+		for _, d := range task.GiteaDeliverables.Deliverables {
+			fmt.Fprintf(&b, "- **%s** (id=%s): run `cs-workflow gitea submit --deliverable %s --file <local-path-to-your-document>`\n", d.Title, d.ID, d.ID)
+		}
+		b.WriteString("A deliverable is not considered submitted until its PR is registered. Complete every listed deliverable before finishing.\n\n")
+		b.WriteString("---\n\n")
+	}
+
 	fmt.Fprintf(&b, "Start by running `cs-workflow issue get %s --output json` to understand your task, then complete it.\n", task.IssueID)
 	fmt.Fprintf(&b, "For comment history, follow the rule in your runtime workflow file (assignment-triggered tasks treat the read as mandatory). `cs-workflow issue comment list %s --output json` returns all comments for the issue (server caps at 2000). On long-running issues use `--recent 20 --output json` to read the 20 most recently active threads, then page older threads via the stderr `Next thread cursor: ...` line and the matching `--before` / `--before-id` until you have enough history. `--since <RFC3339>` is still available for incremental polling and may combine with `--recent`.\n", task.IssueID)
 	return b.String()
