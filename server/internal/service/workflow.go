@@ -635,6 +635,36 @@ func (s *WorkflowService) FinalizeNodeRun(ctx context.Context, nodeRun db.Multic
 	return updated, nil
 }
 
+// RetryNodeRun reactivates a stuck node run and dispatches its worker again.
+// This is scoped to the workflow node run, so it does not depend on the parent
+// issue being assigned to an agent or squad.
+func (s *WorkflowService) RetryNodeRun(ctx context.Context, nodeRun db.MulticaWorkflowNodeRun) (*db.MulticaWorkflowNodeRun, error) {
+	switch nodeRun.Status {
+	case NodeRunStatusFailed, NodeRunStatusBlocked, NodeRunStatusFormatFailed, NodeRunStatusCriticRework:
+	default:
+		return nil, fmt.Errorf("node run cannot be retried from status %s", nodeRun.Status)
+	}
+
+	updated, err := s.Queries.UpdateWorkflowNodeRunRework(ctx, db.UpdateWorkflowNodeRunReworkParams{
+		ID:     nodeRun.ID,
+		Status: NodeRunStatusFormatOk,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("retry node run: %w", err)
+	}
+	if s.OnNodeStatusChanged != nil {
+		s.OnNodeStatusChanged(ctx, updated)
+	}
+	if err := s.dispatchWorker(ctx, updated); err != nil {
+		return nil, fmt.Errorf("dispatch retry worker: %w", err)
+	}
+	latest, err := s.Queries.GetWorkflowNodeRun(ctx, nodeRun.ID)
+	if err != nil {
+		return nil, fmt.Errorf("get retried node run: %w", err)
+	}
+	return &latest, nil
+}
+
 // OnNodeRunCompleted checks downstream nodes after a node run reaches a terminal
 // state. If all upstreams of a downstream node are complete, it advances that
 // node to format_checking. If no active node runs remain, the workflow run is

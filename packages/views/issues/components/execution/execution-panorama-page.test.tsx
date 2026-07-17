@@ -35,7 +35,7 @@ const mocks = vi.hoisted(() => ({
   getViewport: vi.fn(() => ({ x: 0, y: 24, zoom: 0.95 })),
   nodesInitialized: true,
   viewportInitialized: true,
-  rerunIssue: vi.fn(),
+  retryNodeRun: vi.fn(),
   reactFlowProps: null as null | {
     nodes: Array<{
       id: string;
@@ -184,7 +184,7 @@ vi.mock("@multica/core/workspace/queries", () => ({
 
 vi.mock("@multica/core/api", () => ({
   api: {
-    rerunIssue: mocks.rerunIssue,
+    retryNodeRun: mocks.retryNodeRun,
   },
 }));
 
@@ -564,8 +564,8 @@ describe("ExecutionPanoramaPage", () => {
     mocks.getViewport.mockReturnValue({ x: 0, y: 24, zoom: 0.95 });
     mocks.nodesInitialized = true;
     mocks.viewportInitialized = true;
-    mocks.rerunIssue.mockReset();
-    mocks.rerunIssue.mockResolvedValue({ id: "task-2" });
+    mocks.retryNodeRun.mockReset();
+    mocks.retryNodeRun.mockResolvedValue({ id: "nr-2" });
     mocks.navigationPush.mockReset();
     mocks.openInNewTab.mockReset();
     mocks.reactFlowProps = null;
@@ -1807,11 +1807,11 @@ describe("ExecutionPanoramaPage", () => {
     fireEvent.click(screen.getByText("Retry from panel"));
 
     await waitFor(() => {
-      expect(mocks.rerunIssue).toHaveBeenCalledWith("issue-1", "task-1");
+      expect(mocks.retryNodeRun).toHaveBeenCalledWith("nr-1");
     });
   });
 
-  it("does not expose retry for retryable node runs without an agent task id", async () => {
+  it("passes a retry action to the detail panel for retryable node runs without an agent task id", async () => {
     mocks.isLoading = false;
     mocks.workflowData = { id: "wf-1", title: "Test Workflow" };
     mocks.stagesData = [STAGE];
@@ -1853,7 +1853,12 @@ describe("ExecutionPanoramaPage", () => {
 
     fireEvent.click(screen.getByTestId("notification-item-test"));
     expect(screen.getByTestId("detail-panel-status")).toHaveTextContent("format_failed");
-    expect(screen.queryByText("Retry from panel")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByText("Retry from panel"));
+
+    await waitFor(() => {
+      expect(mocks.retryNodeRun).toHaveBeenCalledWith("nr-1");
+    });
   });
 
   it("renders workflow edges through the shared ReactFlow canvas when runId is provided", () => {

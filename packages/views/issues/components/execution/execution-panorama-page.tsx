@@ -743,16 +743,9 @@ export function ExecutionPanoramaPage({
   }, [agentLookup, memberLookup, squadLookup]);
 
   const handleRetryNodeRun = useCallback(async (nodeRun: WorkflowNodeRun) => {
-    if (!issueId) return;
-    const taskId =
-      nodeRun.worker_agent_task_id ??
-      nodeRun.agent_task_id ??
-      nodeRun.critic_agent_task_id ??
-      undefined;
-
     setRetryingNodeRunId(nodeRun.id);
     try {
-      await api.rerunIssue(issueId, taskId);
+      await api.retryNodeRun(nodeRun.id);
       if (runId) {
         await Promise.all([
           queryClient.invalidateQueries({
@@ -768,7 +761,7 @@ export function ExecutionPanoramaPage({
     } finally {
       setRetryingNodeRunId((current) => (current === nodeRun.id ? null : current));
     }
-  }, [issueId, queryClient, runId, workflowId, wsId]);
+  }, [queryClient, runId, workflowId, wsId]);
 
   // ---- Derived ----
   const isLoading = wfLoading || stLoading || ndLoading;
@@ -1100,9 +1093,6 @@ export function ExecutionPanoramaPage({
     selectedRun?.status === "format_failed" ||
     selectedRun?.status === "blocked" ||
     selectedRun?.status === "critic_rework";
-  const selectedRetryTaskId = selectedRun
-    ? selectedRun.worker_agent_task_id ?? selectedRun.agent_task_id ?? selectedRun.critic_agent_task_id
-    : null;
   const handleNodeClick = (nodeId: string) => {
     setSelectedNodeId(nodeId);
   };
@@ -1177,7 +1167,7 @@ export function ExecutionPanoramaPage({
             parentSplitTitle={selectedChildParentTitle}
             childWorkflowName={selectedChildDetail?.workerName ?? null}
             onRetry={
-              issueId && selectedRun && selectedRetryTaskId && isRetryableSelectedRun && retryingNodeRunId !== selectedRun.id
+              selectedRun && isRetryableSelectedRun && retryingNodeRunId !== selectedRun.id
                 ? () => void handleRetryNodeRun(selectedRun)
                 : undefined
             }

@@ -109,6 +109,7 @@ UPDATE multica_workflow_node_run SET
     worker_output = NULL,
     critic_output = NULL,
     critic_comment = '',
+    completed_at = NULL,
     updated_at = now()
 WHERE id = $1
 RETURNING *;

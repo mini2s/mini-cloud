@@ -600,6 +600,30 @@ func (h *Handler) SkipNodeRun(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, resp)
 }
 
+func (h *Handler) RetryNodeRun(w http.ResponseWriter, r *http.Request) {
+	userID, ok := requireUserID(w, r)
+	if !ok {
+		return
+	}
+	nodeRun, run, workspaceID, ok := h.loadNodeRunForWorkspace(w, r)
+	if !ok {
+		return
+	}
+
+	updated, err := h.WorkflowService.RetryNodeRun(r.Context(), nodeRun)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	resp := workflowNodeRunToResponse(*updated)
+	h.publish(protocol.EventWorkflowNodeRunResumed, workspaceID, "member", userID, map[string]any{
+		"node_run": resp,
+		"run_id":   uuidToString(run.ID),
+	})
+	writeJSON(w, http.StatusOK, resp)
+}
+
 // loadNodeRunForWorkspace resolves a node-run URL param and verifies the caller
 // can access its workspace, returning the node run and its parent run. On any
 // failure it writes the response and returns ok=false.

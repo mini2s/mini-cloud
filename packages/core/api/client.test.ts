@@ -400,6 +400,23 @@ describe("ApiClient", () => {
   });
 
   describe("chat attachment wiring", () => {
+    it("retryNodeRun posts to the node-run retry endpoint", async () => {
+      const fetchMock = vi.fn().mockResolvedValue(
+        new Response(JSON.stringify({ id: "node-run-1", status: "working" }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      );
+      vi.stubGlobal("fetch", fetchMock);
+
+      const client = new ApiClient("https://api.example.test");
+      await client.retryNodeRun("node-run-1");
+
+      const [url, init] = fetchMock.mock.calls[0]!;
+      expect(url).toBe("https://api.example.test/api/node-runs/node-run-1/retry");
+      expect(init?.method).toBe("POST");
+    });
+
     it("uploadFile includes chat_session_id in the FormData body", async () => {
       const fetchMock = vi.fn().mockResolvedValue(
         new Response(JSON.stringify({ id: "att-1", url: "https://cdn/x" }), {

@@ -2113,6 +2113,12 @@ export class ApiClient {
     });
   }
 
+  async retryNodeRun(nodeRunId: string): Promise<WorkflowNodeRun> {
+    return this.fetch(`/api/node-runs/${nodeRunId}/retry`, {
+      method: "POST",
+    });
+  }
+
   async generateSplitTasks(nodeRunId: string): Promise<SplitTasksResponse> {
     const raw = await this.fetch<unknown>(`/api/node-runs/${nodeRunId}/split/generate`, {
       method: "POST",
