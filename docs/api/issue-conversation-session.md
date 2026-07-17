@@ -37,10 +37,7 @@ Authorization: Bearer <multica-jwt-or-pat>
 {
   "conversation_id": "conv_xxxxxxxx",
   "workspace_directory": "/Users/dev/project",
-  "proxy_base_url": "/cloud-api/cloud/device/{deviceID}/proxy",
-  "events_url": "/cloud-api/cloud/device/{deviceID}/proxy/api/v1/events?conversation_id=conv_xxxxxxxx",
-  "questions_url": "/cloud-api/cloud/device/{deviceID}/proxy/api/v1/questions",
-  "permissions_url": "/cloud-api/cloud/device/{deviceID}/proxy/api/v1/permissions"
+  "proxy_base_url": "/cloud-api/cloud/device/{deviceID}/proxy"
 }
 ```
 
@@ -48,10 +45,7 @@ Authorization: Bearer <multica-jwt-or-pat>
 |---------------------|--------|-------------------------------------------------|
 | conversation_id     | string | 该 Issue 对应的会话 ID                          |
 | workspace_directory | string | 该 Issue 对应项目的本地绝对路径                 |
-| proxy_base_url      | string | 设备代理前缀，所有 cs-cloud 对话 API 的 base URL（**推荐使用**） |
-| events_url          | string | （已废弃，请用 proxy_base_url）Gateway 实时事件流地址（SSE）  |
-| questions_url       | string | （已废弃，请用 proxy_base_url）Gateway 问卷地址     |
-| permissions_url     | string | （已废弃，请用 proxy_base_url）Gateway 权限申请地址           |
+| proxy_base_url      | string | 设备代理前缀，所有 cs-cloud 对话 API 的 base URL |
 
 > `proxy_base_url` 是相对路径，前端拼上同源 origin 即为完整 base URL。
 > 所有对话相关 API 都是 `{proxy_base_url}/api/v1/...` 形式，例如
