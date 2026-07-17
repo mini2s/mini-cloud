@@ -3,7 +3,8 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
-import type { SplitTask, Workflow } from "@multica/core/types";
+import type { Issue, SplitTask, Workflow } from "@multica/core/types";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { SplitDraftLedger } from "./split-draft-ledger";
 
 vi.mock("../../../i18n", () => ({
@@ -14,6 +15,9 @@ vi.mock("../../../i18n", () => ({
     ) => {
       const detailPanel = {
         split_draft_child_issue_label: "Child issue",
+        split_draft_issue_status_label: "Issue status",
+        split_draft_run_status_label: "Run result",
+        split_draft_workflow_label: "Workflow",
         split_draft_open_child_issue: "Open child issue",
         split_draft_error_prefix: "Error: {{message}}",
         split_draft_empty: "No child issue draft has been generated yet.",
@@ -92,6 +96,22 @@ const workflows: Workflow[] = [{
   updated_at: "",
 }];
 
+function renderWithQueryClient(ui: React.ReactElement) {
+  const client = new QueryClient({
+    defaultOptions: {
+      queries: {
+        retry: false,
+      },
+    },
+  });
+
+  return render(
+    <QueryClientProvider client={client}>
+      {ui}
+    </QueryClientProvider>,
+  );
+}
+
 describe("SplitDraftLedger", () => {
   it("keeps workflow controls from consuming the draft title column", () => {
     render(<SplitDraftLedger tasks={[baseTask]} workflows={workflows} />);
@@ -103,6 +123,19 @@ describe("SplitDraftLedger", () => {
     expect(meta).toHaveClass("grid", "min-w-0", "gap-2.5");
     expect(meta).not.toHaveClass("sm:grid-cols-[minmax(0,1fr)_auto]");
     expect(workflow).toHaveClass("min-w-[10rem]", "flex-1");
+    expect(screen.getByText("Workflow")).toBeInTheDocument();
+  });
+
+  it("separates review draft metadata from draft row actions", () => {
+    render(<SplitDraftLedger tasks={[baseTask]} workflows={workflows} />);
+
+    const metadata = screen.getByTestId("split-draft-metadata-task-1");
+    const actions = screen.getByTestId("split-draft-actions-task-1");
+
+    expect(metadata).toContainElement(screen.getByLabelText("Execution workflow for A very long child issue title that must stay readable in the review panel"));
+    expect(metadata).not.toContainElement(screen.getByRole("button", { name: "Edit draft" }));
+    expect(actions).toContainElement(screen.getByRole("button", { name: "Edit draft" }));
+    expect(actions).toContainElement(screen.getByRole("button", { name: "Discard draft" }));
   });
 
   it("renders submitted draft rows as read-only metadata without duplicate workflow controls", () => {
@@ -116,6 +149,55 @@ describe("SplitDraftLedger", () => {
 
     expect(screen.queryByRole("combobox")).not.toBeInTheDocument();
     expect(screen.getAllByText("Implementation workflow")).toHaveLength(1);
+  });
+
+  it("shows materialized child issue metadata once in read-only rows", () => {
+    const linkedIssue: Issue = {
+      id: "child-1",
+      workspace_id: "ws-1",
+      number: 478,
+      identifier: "DEM-478",
+      title: "Child task",
+      description: null,
+      status: "todo",
+      priority: "medium",
+      assignee_type: "agent",
+      assignee_id: "agent-1",
+      creator_type: "member",
+      creator_id: "user-1",
+      parent_issue_id: "parent-1",
+      project_id: null,
+      workflow_id: null,
+      workflow_run_id: null,
+      stage_id: null,
+      origin_type: "workflow_split",
+      origin_id: "task-1",
+      position: 0,
+      start_date: null,
+      due_date: null,
+      metadata: {},
+      created_at: "",
+      updated_at: "",
+    };
+
+    renderWithQueryClient(
+      <SplitDraftLedger
+        readOnly
+        tasks={[{ ...baseTask, status: "failed" }]}
+        workflows={workflows}
+        taskIssueBySourceId={new Map([["task-1", linkedIssue]])}
+      />,
+    );
+
+    const metadata = screen.getByTestId("split-draft-metadata-task-1");
+
+    expect(metadata).toContainElement(screen.getByRole("link", { name: "DEM-478" }));
+    expect(metadata).toHaveTextContent("Issue status: todo");
+    expect(metadata).toHaveTextContent("Run result: Failed");
+    expect(metadata).toHaveTextContent("Implementation workflow");
+    expect(screen.getByText("Run result: Failed")).toBeInTheDocument();
+    expect(screen.queryByText("todo")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("split-draft-actions-task-1")).not.toBeInTheDocument();
   });
 
   it("marks task-level workflow blockers inside the affected draft row", () => {

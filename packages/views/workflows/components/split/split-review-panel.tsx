@@ -172,20 +172,15 @@ function SplitVerdictSummary({
       data-testid="split-review-summary"
       className="overflow-hidden rounded-md border border-border/70 bg-background px-3 py-3 shadow-sm shadow-foreground/[0.03]"
     >
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <p className="text-sm font-semibold text-foreground">{title}</p>
-          <p className="mt-1 text-xs text-muted-foreground">
-            {t(($) => $.detail_panel.split_verdict_summary, {
-              tasks: creatableTasks(tasks).length,
-              assignees: assigneeCount,
-              dependencies: dependencyCount,
-            })}
-          </p>
-        </div>
-        <Badge variant={nodeRun?.status === "failed" || riskCount > 0 ? "destructive" : "secondary"}>
-          {nodeRun?.status ?? "pending"}
-        </Badge>
+      <div className="min-w-0">
+        <p className="text-sm font-semibold text-foreground">{title}</p>
+        <p className="mt-1 text-xs text-muted-foreground">
+          {t(($) => $.detail_panel.split_verdict_summary, {
+            tasks: creatableTasks(tasks).length,
+            assignees: assigneeCount,
+            dependencies: dependencyCount,
+          })}
+        </p>
       </div>
       <p className={riskCount > 0 ? "mt-2 text-xs text-destructive" : "mt-2 text-xs text-muted-foreground"}>
         {explanation}
@@ -431,9 +426,6 @@ export function SplitReviewPanel({
       contentClassName="pb-0"
       badges={(
         <>
-          <Badge variant={nodeRun?.status === "failed" ? "destructive" : "secondary"}>
-            <span data-testid="split-node-status">{nodeRun?.status ?? "pending"}</span>
-          </Badge>
           <SplitProgressBadge progress={progress} />
           <Badge variant="outline">{t(($) => $.detail_panel.split_settings_mode_label, { mode: splitConfig?.mode ?? "barrier" })}</Badge>
         </>

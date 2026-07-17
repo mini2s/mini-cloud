@@ -36,8 +36,8 @@ const i18nMock = vi.hoisted(() => {
     split_generate_draft: "Generate draft",
     split_regenerate_draft: "Regenerate draft",
     split_generating: "Generating...",
-    split_recover_outputs: "Recover existing output",
-    split_recovering: "Recovering...",
+    split_recover_outputs: "Generate draft from output",
+    split_recovering: "Generating draft...",
     split_reset_original: "Reset to agent proposal",
     split_resetting_original: "Resetting...",
     split_cancel: "Cancel split",
@@ -62,6 +62,9 @@ const i18nMock = vi.hoisted(() => {
     split_node_mode_concurrency: "{{mode}} · concurrency {{concurrency}}",
     split_status_fallback: "pending",
     split_draft_child_issue_label: "Child issue",
+    split_draft_issue_status_label: "Issue status",
+    split_draft_run_status_label: "Run result",
+    split_draft_workflow_label: "Workflow",
     split_draft_open_child_issue: "Open child issue",
     split_draft_error_prefix: "Error: {{message}}",
     split_draft_empty: "No child issue draft has been generated yet.",
@@ -772,13 +775,44 @@ describe("SplitReviewPanel", () => {
 
     expect(screen.getByText("split generation returned no tasks")).toBeInTheDocument();
 
-    await userEvent.click(screen.getByRole("button", { name: "Recover existing output" }));
+    await userEvent.click(screen.getByRole("button", { name: "Generate draft from output" }));
 
     expect(mocks.recoverMutateAsync).toHaveBeenCalledWith({
       nodeRunId: "node-run-1",
       workflowId: "wf-1",
       runId: "run-1",
     });
+  });
+
+  it("does not repeat the raw failed status in the panel header and readiness card", () => {
+    mocks.splitTasksData = {
+      tasks: [
+        draftTask("task-1", "Failed child issue", {
+          status: "failed",
+          issue_id: "child-1",
+        }),
+      ],
+      progress: {
+        total: 1,
+        created: 1,
+        running: 0,
+        done: 0,
+        failed: 1,
+        cancelled: 0,
+        skipped: 0,
+      },
+    };
+
+    renderPanel({
+      nodeRun: {
+        ...splitNodeRun,
+        status: "failed",
+      },
+    });
+
+    expect(screen.getByText("Split failed")).toBeInTheDocument();
+    expect(screen.queryByTestId("split-node-status")).not.toBeInTheDocument();
+    expect(screen.queryByText("failed")).not.toBeInTheDocument();
   });
 
   it("resets edited review drafts to the original agent proposal", async () => {
@@ -1035,7 +1069,7 @@ describe("SplitReviewPanel", () => {
 
     expect(screen.getByRole("link", { name: "MUL-42" })).toHaveAttribute("href", "/test/issues/child-1");
     expect(screen.getByText("Child issue")).toBeInTheDocument();
-    expect(screen.getByText("blocked")).toBeInTheDocument();
+    expect(screen.getByText("Issue status: blocked")).toBeInTheDocument();
     expect(screen.getByText("Error: API key is missing")).toBeInTheDocument();
   });
 
@@ -1066,12 +1100,12 @@ describe("SplitReviewPanel", () => {
       parentIssueId: "00166814-e167-4599-ba8b-c6be55b73ca0",
     });
 
-    expect(screen.getByTestId("split-node-status")).toHaveTextContent("split_active");
+    expect(screen.queryByTestId("split-node-status")).not.toBeInTheDocument();
     expect(screen.getByTestId("split-progress-running")).toHaveTextContent("1");
     expect(screen.getByRole("link", { name: "Open child issue" })).toHaveAttribute(
       "href",
       "/test/issues/efce2a24-0478-4f0b-bdb6-53166462d0fa",
     );
-    expect(screen.getAllByText("running").length).toBeGreaterThan(0);
+    expect(screen.getByText("Run result: Running")).toBeInTheDocument();
   });
 });

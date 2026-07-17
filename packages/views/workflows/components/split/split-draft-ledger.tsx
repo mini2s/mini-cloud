@@ -29,8 +29,11 @@ function taskNumber(index: number): string {
 }
 
 function taskStatusLabel(status: SplitTaskStatus): string {
-  if (status === "approved") return "ready";
-  return status;
+  if (status === "approved") return "Ready";
+  return status
+    .split("_")
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
 }
 
 function workflowLabel(t: ReturnType<typeof useT<"workflows">>["t"], task: SplitTask, workflows: Workflow[]): string {
@@ -38,14 +41,40 @@ function workflowLabel(t: ReturnType<typeof useT<"workflows">>["t"], task: Split
   return workflow?.title ?? task.workflow_id ?? t(($) => $.detail_panel.split_draft_missing_execution_workflow);
 }
 
+function MetaValue({
+  label,
+  value,
+  tone = "neutral",
+}: {
+  label: string;
+  value: string;
+  tone?: "neutral" | "danger";
+}) {
+  return (
+    <span
+      className={cn(
+        "inline-flex min-w-0 items-center gap-1 rounded-full border px-2 py-0.5 text-xs",
+        tone === "danger"
+          ? "border-destructive/25 bg-destructive/10 text-destructive"
+          : "border-border bg-muted/35 text-foreground",
+      )}
+      title={`${label}: ${value}`}
+    >
+      <span className="min-w-0 truncate font-medium">{label}: {value}</span>
+    </span>
+  );
+}
+
 function SplitTaskChildIssueMeta({
   task,
   linkedIssue,
   t,
+  className,
 }: {
   task: SplitTask;
   linkedIssue: Issue;
   t: ReturnType<typeof useT<"workflows">>["t"];
+  className?: string;
 }) {
   const paths = useWorkspacePaths();
   const shouldLoadError =
@@ -65,7 +94,7 @@ function SplitTaskChildIssueMeta({
   )?.error_message;
 
   return (
-    <div className="mt-1 flex flex-wrap items-center gap-2 text-xs">
+    <div className={cn("flex flex-wrap items-center gap-1.5 text-xs", className)}>
       <span className="text-muted-foreground">{t(($) => $.detail_panel.split_draft_child_issue_label)}</span>
       <AppLink
         href={paths.issueDetail(linkedIssue.id)}
@@ -73,18 +102,36 @@ function SplitTaskChildIssueMeta({
       >
         {linkedIssue.identifier}
       </AppLink>
-      <Badge variant="outline">{linkedIssue.status}</Badge>
+      <MetaValue
+        label={t(($) => $.detail_panel.split_draft_issue_status_label)}
+        value={linkedIssue.status}
+      />
+      {task.status === "failed" ? (
+        <MetaValue
+          label={t(($) => $.detail_panel.split_draft_run_status_label)}
+          value={taskStatusLabel(task.status)}
+          tone="danger"
+        />
+      ) : null}
       {errorMessage ? <span className="text-destructive">{t(($) => $.detail_panel.split_draft_error_prefix, { message: errorMessage })}</span> : null}
     </div>
   );
 }
 
-function SplitTaskIssueFallback({ task, t }: { task: SplitTask; t: ReturnType<typeof useT<"workflows">>["t"] }) {
+function SplitTaskIssueFallback({
+  task,
+  t,
+  className,
+}: {
+  task: SplitTask;
+  t: ReturnType<typeof useT<"workflows">>["t"];
+  className?: string;
+}) {
   const paths = useWorkspacePaths();
   if (!task.issue_id) return null;
 
   return (
-    <div className="mt-1 flex flex-wrap items-center gap-2 text-xs">
+    <div className={cn("flex flex-wrap items-center gap-1.5 text-xs", className)}>
       <span className="text-muted-foreground">{t(($) => $.detail_panel.split_draft_child_issue_label)}</span>
       <AppLink
         href={paths.issueDetail(task.issue_id)}
@@ -92,7 +139,11 @@ function SplitTaskIssueFallback({ task, t }: { task: SplitTask; t: ReturnType<ty
       >
         {t(($) => $.detail_panel.split_draft_open_child_issue)}
       </AppLink>
-      <Badge variant="outline">{task.status}</Badge>
+      <MetaValue
+        label={t(($) => $.detail_panel.split_draft_run_status_label)}
+        value={taskStatusLabel(task.status)}
+        tone={task.status === "failed" ? "danger" : "neutral"}
+      />
     </div>
   );
 }
@@ -184,6 +235,7 @@ export function SplitDraftLedger({
         const canEditDraft = !readOnly && task.status === "draft";
         const canRestoreDraft = !readOnly && task.status === "discarded";
         const showWorkflowSelect = canEditDraft && !isEditing;
+        const showActions = isEditing || canEditDraft || canRestoreDraft;
         const summaryId = `split-draft-summary-${task.id}`;
         const dependsOn = task.depends_on
           .map((dependencyId) => numberByTaskId.get(dependencyId) ?? dependencyId)
@@ -273,110 +325,127 @@ export function SplitDraftLedger({
                     ) : null}
                   </>
                 )}
-                {linkedIssue ? (
-                  <SplitTaskChildIssueMeta task={task} linkedIssue={linkedIssue} t={t} />
-                ) : (
-                  <SplitTaskIssueFallback task={task} t={t} />
-                )}
-              </div>
-              <div className="flex min-w-0 flex-wrap items-center gap-1.5 border-t border-border/60 pt-2">
-                <Badge variant="secondary" className="capitalize">{taskStatusLabel(task.status)}</Badge>
-                {showWorkflowSelect ? (
-                  <select
-                    aria-label={t(($) => $.detail_panel.split_draft_execution_workflow_for, { title: task.title })}
-                    className="h-8 min-w-[10rem] flex-1 rounded-md border border-input bg-background px-2 text-xs"
-                    value={task.workflow_id ?? ""}
-                    onChange={(event) => onWorkflowChange?.(task, event.target.value)}
-                  >
-                    <option value="">{t(($) => $.detail_panel.split_draft_select_workflow_placeholder)}</option>
-                    {workflows.map((workflow) => (
-                      <option key={workflow.id} value={workflow.id}>
-                        {workflow.title}
-                      </option>
-                    ))}
-                  </select>
-                ) : (
-                  <Badge
-                    variant="outline"
-                    className={cn(
-                      "max-w-full truncate bg-background px-2 py-0.5 font-medium",
-                      isMissingWorkflow && "border-destructive/30 text-destructive",
-                    )}
-                    title={workflowLabel(t, task, workflows)}
-                  >
-                    {workflowLabel(t, task, workflows)}
-                  </Badge>
-                )}
-                {isEditing ? (
-                  <>
-                    <Button
-                      type="button"
-                      size="sm"
+                <div
+                  data-testid={`split-draft-metadata-${task.id}`}
+                  className="mt-2 flex min-w-0 flex-wrap items-center gap-1.5"
+                >
+                  {linkedIssue ? (
+                    <SplitTaskChildIssueMeta task={task} linkedIssue={linkedIssue} t={t} />
+                  ) : (
+                    <SplitTaskIssueFallback task={task} t={t} />
+                  )}
+                  {!linkedIssue && !task.issue_id ? (
+                    <Badge variant="secondary">{taskStatusLabel(task.status)}</Badge>
+                  ) : null}
+                  {showWorkflowSelect ? (
+                    <label className="flex min-w-[12rem] flex-1 items-center gap-2 text-xs text-muted-foreground">
+                      <span className="shrink-0">{t(($) => $.detail_panel.split_draft_workflow_label)}</span>
+                      <select
+                        aria-label={t(($) => $.detail_panel.split_draft_execution_workflow_for, { title: task.title })}
+                        className="h-8 min-w-[10rem] flex-1 rounded-md border border-input bg-background px-2 text-xs text-foreground"
+                        value={task.workflow_id ?? ""}
+                        onChange={(event) => onWorkflowChange?.(task, event.target.value)}
+                      >
+                        <option value="">{t(($) => $.detail_panel.split_draft_select_workflow_placeholder)}</option>
+                        {workflows.map((workflow) => (
+                          <option key={workflow.id} value={workflow.id}>
+                            {workflow.title}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  ) : (
+                    <Badge
                       variant="outline"
-                      aria-label={t(($) => $.detail_panel.split_draft_save)}
-                      onClick={() => void saveEdit(task)}
+                      className={cn(
+                        "max-w-full truncate bg-background px-2 py-0.5 font-medium",
+                        isMissingWorkflow && "border-destructive/30 text-destructive",
+                      )}
+                      title={workflowLabel(t, task, workflows)}
                     >
-                      <Save className="size-3.5" />
-                      {t(($) => $.detail_panel.split_draft_save)}
-                    </Button>
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="ghost"
-                      aria-label={t(($) => $.detail_panel.split_draft_cancel_edit)}
-                      onClick={cancelEdit}
+                      {workflowLabel(t, task, workflows)}
+                    </Badge>
+                  )}
+                </div>
+              </div>
+              <div className="mt-2 grid gap-2 border-t border-border/60 pt-2 sm:grid-cols-[minmax(0,1fr)_auto]">
+                <div className="flex min-w-0 flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
+                  <span>{dependsOn ? t(($) => $.detail_panel.split_draft_dependencies_label, { deps: dependsOn }) : t(($) => $.detail_panel.split_draft_dependencies_none)}</span>
+                  {isMissingWorkflow ? (
+                    <span
+                      data-testid={`split-draft-risk-${task.id}`}
+                      className="rounded-full bg-destructive/10 px-2 py-0.5 font-medium text-destructive"
                     >
-                      <X className="size-3.5" />
-                      {t(($) => $.detail_panel.split_draft_cancel_edit)}
-                    </Button>
-                  </>
-                ) : canEditDraft ? (
-                  <>
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="ghost"
-                      aria-label={t(($) => $.detail_panel.split_draft_edit)}
-                      onClick={() => startEdit(task)}
-                    >
-                      <Pencil className="size-3.5" />
-                      {t(($) => $.detail_panel.split_draft_edit)}
-                    </Button>
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="ghost"
-                      aria-label={t(($) => $.detail_panel.split_draft_discard)}
-                      onClick={() => onDiscardChange?.(task, true)}
-                    >
-                      <Trash2 className="size-3.5" />
-                      {t(($) => $.detail_panel.split_draft_discard)}
-                    </Button>
-                  </>
-                ) : canRestoreDraft ? (
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="outline"
-                    aria-label={t(($) => $.detail_panel.split_draft_restore)}
-                    onClick={() => onDiscardChange?.(task, false)}
+                      {t(($) => $.detail_panel.split_draft_missing_execution_workflow)}
+                    </span>
+                  ) : null}
+                </div>
+                {showActions ? (
+                  <div
+                    data-testid={`split-draft-actions-${task.id}`}
+                    className="flex min-w-0 flex-wrap items-center gap-1.5 sm:justify-end"
                   >
-                    <RotateCcw className="size-3.5" />
-                    {t(($) => $.detail_panel.split_draft_restore)}
-                  </Button>
+                    {isEditing ? (
+                      <>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          aria-label={t(($) => $.detail_panel.split_draft_save)}
+                          onClick={() => void saveEdit(task)}
+                        >
+                          <Save className="size-3.5" />
+                          {t(($) => $.detail_panel.split_draft_save)}
+                        </Button>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="ghost"
+                          aria-label={t(($) => $.detail_panel.split_draft_cancel_edit)}
+                          onClick={cancelEdit}
+                        >
+                          <X className="size-3.5" />
+                          {t(($) => $.detail_panel.split_draft_cancel_edit)}
+                        </Button>
+                      </>
+                    ) : canEditDraft ? (
+                      <>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="ghost"
+                          aria-label={t(($) => $.detail_panel.split_draft_edit)}
+                          onClick={() => startEdit(task)}
+                        >
+                          <Pencil className="size-3.5" />
+                          {t(($) => $.detail_panel.split_draft_edit)}
+                        </Button>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="ghost"
+                          aria-label={t(($) => $.detail_panel.split_draft_discard)}
+                          onClick={() => onDiscardChange?.(task, true)}
+                        >
+                          <Trash2 className="size-3.5" />
+                          {t(($) => $.detail_panel.split_draft_discard)}
+                        </Button>
+                      </>
+                    ) : canRestoreDraft ? (
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        aria-label={t(($) => $.detail_panel.split_draft_restore)}
+                        onClick={() => onDiscardChange?.(task, false)}
+                      >
+                        <RotateCcw className="size-3.5" />
+                        {t(($) => $.detail_panel.split_draft_restore)}
+                      </Button>
+                    ) : null}
+                  </div>
                 ) : null}
               </div>
-            </div>
-            <div className="mt-2 flex flex-wrap gap-1.5 text-xs text-muted-foreground">
-              <span>{dependsOn ? t(($) => $.detail_panel.split_draft_dependencies_label, { deps: dependsOn }) : t(($) => $.detail_panel.split_draft_dependencies_none)}</span>
-              {isMissingWorkflow ? (
-                <span
-                  data-testid={`split-draft-risk-${task.id}`}
-                  className="rounded-full bg-destructive/10 px-2 py-0.5 font-medium text-destructive"
-                >
-                  {t(($) => $.detail_panel.split_draft_missing_execution_workflow)}
-                </span>
-              ) : null}
             </div>
           </article>
         );
