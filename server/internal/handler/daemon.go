@@ -18,6 +18,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/multica-ai/multica/server/internal/analytics"
 	"github.com/multica-ai/multica/server/internal/daemonws"
+	"github.com/multica-ai/multica/server/internal/gitea"
 	"github.com/multica-ai/multica/server/internal/middleware"
 	"github.com/multica-ai/multica/server/internal/service"
 	"github.com/multica-ai/multica/server/internal/util"
@@ -1614,6 +1615,14 @@ func (h *Handler) ClaimTaskByRuntime(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Workflow task: attach the platform-Gitea document-deliverable context so
+	// the daemon (M3) can forward it to the CLI (M5), which pushes the body
+	// and opens a PR. nil when dormant (Gitea unconfigured, no document
+	// deliverables, or transient DB error) — see buildGiteaDeliverableContext.
+	if gctx := h.buildGiteaDeliverableContext(r.Context(), *task); gctx != nil {
+		resp.GiteaDeliverables = gctx
+	}
+
 	slog.Info("task claimed by runtime", "task_id", uuidToString(task.ID), "runtime_id", runtimeID, "agent_id", uuidToString(task.AgentID), "prior_session", resp.PriorSessionID)
 	writeJSON(w, http.StatusOK, map[string]any{"task": resp})
 }
@@ -1762,6 +1771,55 @@ func (h *Handler) buildUpstreamStageContext(ctx context.Context, task db.Multica
 	}
 
 	return result
+}
+
+// buildGiteaDeliverableContext attaches the platform-Gitea context the daemon
+// + CLI need to push document deliverables, when (a) Gitea is configured, (b)
+// the task executes a workflow node-run, and (c) that node has ≥1 document
+// deliverable. Returns nil otherwise (dormant). Errors are swallowed (nil
+// return) — a transient DB blip here must not break the claim; the agent would
+// simply lack the Gitea context and the run surfaces a clone failure later.
+func (h *Handler) buildGiteaDeliverableContext(ctx context.Context, task db.MulticaAgentTaskQueue) *GiteaDeliverableContext {
+	if !isGiteaConfigured() || !task.WorkflowNodeRunID.Valid {
+		return nil
+	}
+	nr, err := h.Queries.GetWorkflowNodeRun(ctx, task.WorkflowNodeRunID)
+	if err != nil {
+		slog.Warn("buildGiteaDeliverableContext: failed to get node run", "task_id", uuidToString(task.ID), "error", err)
+		return nil
+	}
+	run, err := h.Queries.GetWorkflowRun(ctx, nr.WorkflowRunID)
+	if err != nil {
+		slog.Warn("buildGiteaDeliverableContext: failed to get run", "task_id", uuidToString(task.ID), "error", err)
+		return nil
+	}
+	deliverables, err := h.Queries.ListWorkflowNodeDeliverables(ctx, nr.WorkflowNodeID)
+	if err != nil {
+		slog.Warn("buildGiteaDeliverableContext: failed to list deliverables", "task_id", uuidToString(task.ID), "error", err)
+		return nil
+	}
+	nodeRunIDStr := util.UUIDToString(nr.ID)
+	var refs []GiteaDeliverableRef
+	for _, d := range deliverables {
+		if d.Kind != "document" {
+			continue
+		}
+		refs = append(refs, GiteaDeliverableRef{
+			ID:    util.UUIDToString(d.ID),
+			Title: d.Title,
+			Path:  gitea.DeliverablePath(nodeRunIDStr, util.UUIDToString(d.ID)),
+		})
+	}
+	if len(refs) == 0 {
+		return nil
+	}
+	return &GiteaDeliverableContext{
+		Owner:        gitea.OrgName(util.UUIDToString(run.WorkspaceID)),
+		Repo:         gitea.RepoName(util.UUIDToString(run.WorkflowID)),
+		InstBranch:   gitea.InstBranch(util.UUIDToString(run.ID)),
+		NodeBranch:   gitea.NodeBranch(nodeRunIDStr),
+		Deliverables: refs,
+	}
 }
 
 // ListPendingTasksByRuntime returns queued/dispatched tasks for a runtime.

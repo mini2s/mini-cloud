@@ -60,3 +60,13 @@ func TestTopologyNames(t *testing.T) {
 		t.Errorf("NodeBranch = %q", got)
 	}
 }
+
+func TestDeliverablePath(t *testing.T) {
+	nodeRun := "11111111-2222-3333-4444-555555555555"
+	deliv := "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+	got := DeliverablePath(nodeRun, deliv)
+	want := "nodes/11111111/aaaaaaaa.md"
+	if got != want {
+		t.Errorf("DeliverablePath = %q, want %q", got, want)
+	}
+}

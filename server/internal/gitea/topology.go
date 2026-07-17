@@ -44,3 +44,12 @@ func InstBranch(runID string) string { return "inst-" + shortHex(runID) }
 // NodeBranch is the per-node-run feature branch: node/<nodeRun.id[:8]>. Based
 // off the run's inst branch; deleted after the node PR merges.
 func NodeBranch(nodeRunID string) string { return "node/" + shortHex(nodeRunID) }
+
+// DeliverablePath is the in-repo path where a document deliverable body lives:
+// nodes/<nodeRunShort>/<deliverableShort>.md. Aligns with costrict-web's
+// `nodes/` convention (WORKFLOW_REPO_PATH_ALGORITHM.md §7); multica derives the
+// segments from UUIDs (not costrict's seq-slug). The server computes this and
+// sends it in the claim response; the CLI consumes it verbatim (no re-derivation).
+func DeliverablePath(nodeRunID, deliverableID string) string {
+	return "nodes/" + shortHex(nodeRunID) + "/" + shortHex(deliverableID) + ".md"
+}
