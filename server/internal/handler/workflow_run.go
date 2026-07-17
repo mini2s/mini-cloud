@@ -345,6 +345,13 @@ func (h *Handler) StartWorkflowRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Scaffold the run's Gitea deliverable repo + lazily provision the workspace
+	// bot (document workflows only; no-op when Gitea is dormant). Fire-and-forget
+	// on context.Background(): the goroutine outlives the HTTP request, so
+	// r.Context() would cancel mid-scaffold the moment we write the response.
+	// Persistent failure transitions the run to failed inside the service.
+	go h.WorkflowService.ScaffoldRunDeliverables(context.Background(), *run)
+
 	resp := workflowRunToResponse(*run)
 	h.publish(protocol.EventWorkflowRunStarted, workspaceID, "member", userID, map[string]any{
 		"run":      resp,
