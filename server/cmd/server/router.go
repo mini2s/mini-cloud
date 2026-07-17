@@ -384,6 +384,11 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 	r.With(middleware.DaemonAuth(queries, patCache, daemonTokenCache, opts.JWKSProvider, opts.SubjectResolver)).
 		Get("/api/gitlab/credential", h.HandleGitlabCredential)
 
+	// Gitea credential for the cs-workflow CLI document-deliverable flow
+	// (M3). Same daemon-auth shape as GitLab; base_url + PAT returned.
+	r.With(middleware.DaemonAuth(queries, patCache, daemonTokenCache, opts.JWKSProvider, opts.SubjectResolver)).
+		Get("/api/gitea/credential", h.HandleGiteaCredential)
+
 	// Protected API routes
 	r.Group(func(r chi.Router) {
 		if opts.JWKSProvider != nil {
