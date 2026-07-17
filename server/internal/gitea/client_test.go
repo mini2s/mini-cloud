@@ -192,3 +192,104 @@ func TestClient_5xx_ReturnsError(t *testing.T) {
 		t.Fatal("CreateOrg(500): expected error, got nil")
 	}
 }
+
+func TestClient_SeedMainFile_Body(t *testing.T) {
+	var got recordedReq
+	srv := newTestServer(t, http.StatusCreated, `{}`, &got)
+	defer srv.Close()
+	c := NewClient(Config{BaseURL: srv.URL, Token: "admin-tok"})
+	c.httpClient = srv.Client()
+
+	if err := c.CreateFile(context.Background(), "t-7f3c9a1e", "wf-11111111", "main", "definition.yaml", "name: flow\n", "seed"); err != nil {
+		t.Fatalf("CreateFile: %v", err)
+	}
+	if !strings.Contains(got.path, "/contents/definition.yaml") {
+		t.Errorf("path = %q", got.path)
+	}
+	if got.body["branch"] != "main" || got.body["message"] != "seed" {
+		t.Errorf("unexpected body: %+v", got.body)
+	}
+	// content must be base64 of the input
+	if got.body["content"] != "bmFtZTogZmxvdwo=" {
+		t.Errorf("content = %v", got.body["content"])
+	}
+}
+
+func TestClient_CreateUserToken(t *testing.T) {
+	var got recordedReq
+	srv := newTestServer(t, http.StatusCreated, `{"sha1":"pat-secret"}`, &got)
+	defer srv.Close()
+	c := NewClient(Config{BaseURL: srv.URL, Token: "admin-tok"})
+	c.httpClient = srv.Client()
+
+	tok, err := c.CreateUserToken(context.Background(), "mc-bot-7f3c9a1e", "workspace-pat")
+	if err != nil {
+		t.Fatalf("CreateUserToken: %v", err)
+	}
+	if tok != "pat-secret" {
+		t.Errorf("token = %q, want pat-secret", tok)
+	}
+	if got.body["name"] != "workspace-pat" {
+		t.Errorf("body = %+v", got.body)
+	}
+}
+
+func TestClient_AdminCreateUser_Idempotent(t *testing.T) {
+	// 201 = created; 422 = already exists. Both must return nil (idempotent).
+	for _, status := range []int{http.StatusCreated, http.StatusUnprocessableEntity} {
+		var got recordedReq
+		srv := newTestServer(t, status, `{}`, &got)
+		c := NewClient(Config{BaseURL: srv.URL, Token: "admin-tok"})
+		c.httpClient = srv.Client()
+
+		err := c.AdminCreateUser(context.Background(), "mc-bot-7f3c9a1e", "mc-bot-7f3c9a1e@multica.local")
+		srv.Close()
+		if err != nil {
+			t.Errorf("AdminCreateUser(%d): expected nil (idempotent), got %v", status, err)
+		}
+		if got.body["username"] != "mc-bot-7f3c9a1e" {
+			t.Errorf("AdminCreateUser(%d): body username = %v", status, got.body["username"])
+		}
+	}
+}
+
+func TestClient_AdminCreateUser_5xx(t *testing.T) {
+	var got recordedReq
+	srv := newTestServer(t, http.StatusInternalServerError, `{"message":"boom"}`, &got)
+	defer srv.Close()
+	c := NewClient(Config{BaseURL: srv.URL, Token: "admin-tok"})
+	c.httpClient = srv.Client()
+
+	if err := c.AdminCreateUser(context.Background(), "mc-bot-7f3c9a1e", "x@multica.local"); err == nil {
+		t.Fatal("AdminCreateUser(500): expected error, got nil")
+	}
+}
+
+func TestClient_ProtectBranch_Idempotent(t *testing.T) {
+	for _, status := range []int{http.StatusCreated, http.StatusUnprocessableEntity} {
+		var got recordedReq
+		srv := newTestServer(t, status, `{}`, &got)
+		c := NewClient(Config{BaseURL: srv.URL, Token: "admin-tok"})
+		c.httpClient = srv.Client()
+
+		if err := c.ProtectBranch(context.Background(), "t-7f3c9a1e", "wf-11111111", "main"); err != nil {
+			t.Errorf("ProtectBranch(%d): expected nil (idempotent), got %v", status, err)
+		}
+		srv.Close()
+	}
+}
+
+func TestClient_AddOrgMember(t *testing.T) {
+	var got recordedReq
+	srv := newTestServer(t, http.StatusNoContent, ``, &got)
+	defer srv.Close()
+	c := NewClient(Config{BaseURL: srv.URL, Token: "admin-tok"})
+	c.httpClient = srv.Client()
+
+	if err := c.AddOrgMember(context.Background(), "t-7f3c9a1e", "mc-bot-7f3c9a1e"); err != nil {
+		t.Fatalf("AddOrgMember: %v", err)
+	}
+	if got.method != http.MethodPut || !strings.Contains(got.path, "/orgs/t-7f3c9a1e/members/mc-bot-7f3c9a1e") {
+		t.Errorf("unexpected: %s %s", got.method, got.path)
+	}
+}

@@ -3,6 +3,9 @@ package gitea
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
+	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -83,6 +86,17 @@ func (c *Client) do(ctx context.Context, method, path string, body any) (*http.R
 func decodeError(resp *http.Response) error {
 	b, _ := io.ReadAll(resp.Body)
 	return fmt.Errorf("gitea api %s failed: status %d: %s", resp.Request.URL.Path, resp.StatusCode, strings.TrimSpace(string(b)))
+}
+
+// randomToken returns a random hex string of n bytes (2n hex chars). Used for
+// the throwaway bot-user password; never returned to callers. The rand.Read
+// error is intentionally ignored: crypto/rand almost never fails on a non-empty
+// buffer, and a zero result would only lower the throwaway password's entropy
+// (harmless under PAT-only auth).
+func randomToken(n int) string {
+	b := make([]byte, n)
+	rand.Read(b)
+	return hex.EncodeToString(b)
 }
 
 // ── Orgs ────────────────────────────────────────────────────────────────────
@@ -186,6 +200,116 @@ func (c *Client) CreateBranch(ctx context.Context, owner, repo, branch, fromRef 
 		"new_branch_name": branch,
 		"old_ref_name":    fromRef,
 	})
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+		return nil
+	}
+	return decodeError(resp)
+}
+
+// ── Contents ────────────────────────────────────────────────────────────────
+
+// CreateFile commits a file on the given branch. content is the raw string; it
+// is base64-encoded per Gitea contents API. Used to seed main with the workflow
+// definition snapshot (readable; DB remains source of truth, no drift check).
+func (c *Client) CreateFile(ctx context.Context, owner, repo, branch, path, content, message string) error {
+	resp, err := c.do(ctx, http.MethodPost, "/repos/"+owner+"/"+repo+"/contents/"+path, map[string]any{
+		"branch":  branch,
+		"message": message,
+		"content": base64.StdEncoding.EncodeToString([]byte(content)),
+	})
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+		return nil
+	}
+	return decodeError(resp)
+}
+
+// ── Branch protection ───────────────────────────────────────────────────────
+
+// ProtectBranch configures branch protection (push blocked; used for main and
+// the inst-* wildcard so daemon pushes go through node branches + PRs only).
+func (c *Client) ProtectBranch(ctx context.Context, owner, repo, rule string) error {
+	resp, err := c.do(ctx, http.MethodPost, "/repos/"+owner+"/"+repo+"/branch_protections", map[string]any{
+		"rule_name":   rule,
+		"protected":   true,
+		"enable_push": false,
+	})
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+		return nil
+	}
+	// 422 "protected branch already exists" → idempotent no-op.
+	if resp.StatusCode == http.StatusUnprocessableEntity {
+		return nil
+	}
+	return decodeError(resp)
+}
+
+// ── Users ───────────────────────────────────────────────────────────────────
+
+// AdminCreateUser creates a Gitea user with a random strong password (the
+// password is never used — auth is via the PAT minted by CreateUserToken).
+func (c *Client) AdminCreateUser(ctx context.Context, username, email string) error {
+	resp, err := c.do(ctx, http.MethodPost, "/admin/users", map[string]any{
+		"username":             username,
+		"email":                email,
+		"password":             randomToken(32),
+		"must_change_password": false,
+		"source_id":            0,
+		"login_name":           "",
+	})
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+		return nil
+	}
+	// 422 user-exists → idempotent no-op (provisioning may retry).
+	if resp.StatusCode == http.StatusUnprocessableEntity {
+		return nil
+	}
+	return decodeError(resp)
+}
+
+// CreateUserToken mints a PAT for the user. Requires admin token (admin can
+// create tokens for any user). Returns the raw token (sha1).
+func (c *Client) CreateUserToken(ctx context.Context, username, tokenName string) (string, error) {
+	resp, err := c.do(ctx, http.MethodPost, "/users/"+username+"/tokens", map[string]any{
+		"name":   tokenName,
+		"scopes": []string{"write:repository", "read:user", "read:organization"},
+	})
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+		var out struct {
+			Sha1 string `json:"sha1"`
+		}
+		if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+			return "", fmt.Errorf("gitea create token: invalid response: %w", err)
+		}
+		return out.Sha1, nil
+	}
+	return "", decodeError(resp)
+}
+
+// ── Org membership ──────────────────────────────────────────────────────────
+
+// AddOrgMember adds a user to an org (member = write by default at org level).
+func (c *Client) AddOrgMember(ctx context.Context, org, username string) error {
+	resp, err := c.do(ctx, http.MethodPut, "/orgs/"+org+"/members/"+username, nil)
 	if err != nil {
 		return err
 	}
