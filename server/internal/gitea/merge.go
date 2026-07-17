@@ -1,0 +1,74 @@
+package gitea
+
+import (
+	"context"
+	"errors"
+	"net/http"
+	"net/url"
+	"strconv"
+	"strings"
+)
+
+// ErrMergeConflict is returned by MergePR when Gitea responds 409 (the PR
+// cannot be merged — e.g. unresolved conflicts). Terminal: callers should NOT
+// retry; for the approve-time merge it means the node run must block.
+var ErrMergeConflict = errors.New("gitea: pull request merge conflict")
+
+// MergePR merges a pull request by its numeric index. Uses the admin token.
+// Gitea returns 409 if the PR cannot be merged (conflicts) — surfaced as an error
+// so the caller can block the node run rather than silently complete it.
+func (c *Client) MergePR(ctx context.Context, owner, repo string, index int) error {
+	resp, err := c.do(ctx, http.MethodPost, "/repos/"+owner+"/"+repo+"/pulls/"+strconv.Itoa(index)+"/merge", map[string]any{
+		"Do": "merge",
+	})
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+		return nil
+	}
+	if resp.StatusCode == http.StatusConflict {
+		return ErrMergeConflict
+	}
+	return decodeError(resp)
+}
+
+// ParsePullRequestIndex extracts the numeric PR index from a Gitea PR web URL
+// (e.g. https://gitea.example.com/t-7f3c9a1e/wf-11111111/pulls/42 → 42). Used by
+// the server-side merge to resolve a submission's pull_request_url to a mergeable
+// index. Returns an error if the URL is not a valid Gitea PR URL.
+func ParsePullRequestIndex(raw string) (int, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return 0, errInvalidPRURL
+	}
+	u, err := url.Parse(raw)
+	if err != nil || u.Host == "" {
+		return 0, errInvalidPRURL
+	}
+	parts := strings.Split(strings.Trim(u.Path, "/"), "/")
+	idx := -1
+	for i, p := range parts {
+		if p == "pulls" && i+1 < len(parts) {
+			idx = i + 1
+			break
+		}
+	}
+	if idx < 0 {
+		return 0, errInvalidPRURL
+	}
+	n, err := strconv.Atoi(parts[idx])
+	if err != nil || n <= 0 {
+		return 0, errInvalidPRURL
+	}
+	return n, nil
+}
+
+// errInvalidPRURL is returned by ParsePullRequestIndex for a malformed PR URL.
+// Typed so callers can distinguish a bad URL from a transient Gitea failure.
+var errInvalidPRURL = &parseError{msg: "gitea: not a valid gitea pull request URL"}
+
+type parseError struct{ msg string }
+
+func (e *parseError) Error() string { return e.msg }
