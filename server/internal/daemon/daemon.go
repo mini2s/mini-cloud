@@ -2262,6 +2262,51 @@ func providerNeedsInlineSystemPrompt(provider string) bool {
 	}
 }
 
+// buildAgentEnv materializes the environment variables passed to the spawned
+// agent CLI. Extracted from runTask so the Gitea deliverable context plumbing
+// (M3) is unit-testable without spawning an agent. Callers may still mutate
+// the returned map afterwards (e.g. PATH, CODEX_HOME, OPENCLAW_CONFIG_PATH).
+func (d *Daemon) buildAgentEnv(task Task, agentName, slot string) map[string]string {
+	env := map[string]string{
+		"MULTICA_TOKEN":        d.client.Token(),
+		"MULTICA_SERVER_URL":   d.cfg.ServerBaseURL,
+		"MULTICA_DAEMON_PORT":  fmt.Sprintf("%d", d.cfg.HealthPort),
+		"MULTICA_WORKSPACE_ID": task.WorkspaceID,
+		"MULTICA_AGENT_NAME":   agentName,
+		"MULTICA_AGENT_ID":     task.AgentID,
+		"MULTICA_TASK_ID":      task.ID,
+		"MULTICA_TASK_SLOT":    slot,
+	}
+	if task.AutopilotRunID != "" {
+		env["MULTICA_AUTOPILOT_RUN_ID"] = task.AutopilotRunID
+	}
+	if task.AutopilotID != "" {
+		env["MULTICA_AUTOPILOT_ID"] = task.AutopilotID
+	}
+	// Quick-create marker — when set, the multica CLI's `issue create`
+	// command stamps the new issue with origin_type=quick_create +
+	// origin_id=<task_id> so the completion handler can find it
+	// deterministically (see GetIssueByOrigin).
+	if task.QuickCreatePrompt != "" {
+		env["MULTICA_QUICK_CREATE_TASK_ID"] = task.ID
+	}
+	if task.WorkflowNodeRunID != "" {
+		env["MULTICA_NODE_RUN_ID"] = task.WorkflowNodeRunID
+	}
+	if g := task.GiteaDeliverables; g != nil {
+		env["MULTICA_GITEA_OWNER"] = g.Owner
+		env["MULTICA_GITEA_REPO"] = g.Repo
+		env["MULTICA_GITEA_INST_BRANCH"] = g.InstBranch
+		env["MULTICA_GITEA_NODE_BRANCH"] = g.NodeBranch
+		if raw, err := json.Marshal(g.Deliverables); err == nil {
+			env["MULTICA_GITEA_DELIVERABLES"] = string(raw)
+		} else {
+			d.logger.Warn("buildAgentEnv: marshal gitea deliverables failed", "task_id", task.ID, "error", err)
+		}
+	}
+	return env
+}
+
 func (d *Daemon) runTask(ctx context.Context, task Task, provider string, slot int, taskLog *slog.Logger) (TaskResult, error) {
 	// Refuse to spawn an agent without a workspace. An empty workspace_id
 	// here would make MULTICA_WORKSPACE_ID empty in the agent env, and the
@@ -2406,29 +2451,7 @@ func (d *Daemon) runTask(ctx context.Context, task Task, provider string, slot i
 	// MULTICA_TASK_SLOT is allocated from the daemon-wide concurrency pool, not
 	// per-agent. When one daemon hosts multiple agents, slots index shared
 	// daemon-level resources such as GPUs.
-	agentEnv := map[string]string{
-		"MULTICA_TOKEN":        d.client.Token(),
-		"MULTICA_SERVER_URL":   d.cfg.ServerBaseURL,
-		"MULTICA_DAEMON_PORT":  fmt.Sprintf("%d", d.cfg.HealthPort),
-		"MULTICA_WORKSPACE_ID": task.WorkspaceID,
-		"MULTICA_AGENT_NAME":   agentName,
-		"MULTICA_AGENT_ID":     task.AgentID,
-		"MULTICA_TASK_ID":      task.ID,
-		"MULTICA_TASK_SLOT":    strconv.Itoa(slot),
-	}
-	if task.AutopilotRunID != "" {
-		agentEnv["MULTICA_AUTOPILOT_RUN_ID"] = task.AutopilotRunID
-	}
-	if task.AutopilotID != "" {
-		agentEnv["MULTICA_AUTOPILOT_ID"] = task.AutopilotID
-	}
-	// Quick-create marker — when set, the multica CLI's `issue create`
-	// command stamps the new issue with origin_type=quick_create +
-	// origin_id=<task_id> so the completion handler can find it
-	// deterministically (see GetIssueByOrigin).
-	if task.QuickCreatePrompt != "" {
-		agentEnv["MULTICA_QUICK_CREATE_TASK_ID"] = task.ID
-	}
+	agentEnv := d.buildAgentEnv(task, agentName, strconv.Itoa(slot))
 	// Ensure the cs-workflow CLI is on PATH inside the agent's environment.
 	// Some runtimes (e.g. Codex) run in an isolated sandbox that may not
 	// inherit the daemon's PATH. Prepend the directory of the running
