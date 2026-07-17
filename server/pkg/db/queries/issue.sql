@@ -251,6 +251,7 @@ WHERE i.workspace_id = $1
 -- name: ListChildIssues :many
 SELECT * FROM multica_issue
 WHERE parent_issue_id = $1
+  AND (origin_type IS NULL OR origin_type <> 'workflow')
 ORDER BY position ASC, created_at DESC;
 
 -- name: ListIssueDescendants :many
@@ -306,6 +307,7 @@ SELECT parent_issue_id,
 FROM multica_issue
 WHERE workspace_id = $1
   AND parent_issue_id IS NOT NULL
+  AND (origin_type IS NULL OR origin_type <> 'workflow')
 GROUP BY parent_issue_id;
 
 -- SearchIssues: moved to handler (dynamic SQL for multi-word search support).

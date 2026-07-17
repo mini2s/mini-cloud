@@ -457,47 +457,35 @@ function ExecutionPanoramaCanvas({
         node.id === createSplitSubflowNodeId(focusSplitNodeId),
     );
     if (clusterNodes.length <= 1) return;
+    const focusNodes = rfNodes.filter(
+      (node) => node.id === createSplitSubflowNodeId(focusSplitNodeId),
+    );
+    const nodesToFit = focusNodes.length > 0 ? focusNodes : clusterNodes;
 
-    const bounds = clusterNodes.reduce<SplitChildClusterBounds | null>((current, node) => {
-      const width = typeof node.width === "number" ? node.width : WORKER_WIDTH;
-      const height = typeof node.height === "number" ? node.height : RUNTIME_NODE_HEIGHT;
-      const nodeBounds = {
-        left: node.position.x,
-        right: node.position.x + width,
-        top: node.position.y,
-        bottom: node.position.y + height,
-      };
-      if (!current) return nodeBounds;
-      return {
-        left: Math.min(current.left, nodeBounds.left),
-        right: Math.max(current.right, nodeBounds.right),
-        top: Math.min(current.top, nodeBounds.top),
-        bottom: Math.max(current.bottom, nodeBounds.bottom),
-      };
-    }, null);
-    if (!bounds) return;
-
+    let cancelled = false;
     const frame = requestAnimationFrame(() => {
-      const currentViewport = getViewport();
-      setCenter(
-        (bounds.left + bounds.right) / 2,
-        (bounds.top + bounds.bottom) / 2,
-        {
+      void Promise.resolve(
+        fitView({
+          nodes: nodesToFit.map((node) => ({ id: node.id })),
+          padding: 0.06,
+          maxZoom: 1.4,
           duration: 450,
-          zoom: currentViewport.zoom,
-        },
-      );
-      onSplitClusterFocused?.();
+        }),
+      ).then(() => {
+        if (!cancelled) onSplitClusterFocused?.();
+      });
     });
 
-    return () => cancelAnimationFrame(frame);
+    return () => {
+      cancelled = true;
+      cancelAnimationFrame(frame);
+    };
   }, [
+    fitView,
     focusSplitNodeId,
-    getViewport,
     nodesInitialized,
     onSplitClusterFocused,
     rfNodes,
-    setCenter,
     viewportInitialized,
   ]);
 

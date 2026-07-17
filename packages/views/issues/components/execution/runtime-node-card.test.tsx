@@ -364,7 +364,8 @@ describe("RuntimeNodeCard", () => {
     const surface = card.querySelector('[data-node-shape-surface="true"]');
     expect(card).toHaveAttribute("data-runtime-display-status", "blocked");
     expect(card).toHaveAttribute("data-runtime-focus", "true");
-    expect(surface?.className).toContain("ring-red-200/80");
+    expect(surface?.className).toContain("ring-red-300/80");
+    expect(surface?.className).toContain("ring-2");
     expect(surface?.className).toContain("from-red-50/90");
     expect(surface?.className).not.toContain("ring-blue");
   });
@@ -666,7 +667,9 @@ describe("RuntimeNodeCard", () => {
 
     const toggleButton = screen.getByRole("button", { name: "Collapse child issues" });
     expect(toggleButton).toHaveAttribute("aria-expanded", "true");
-    expect(toggleButton.className).toContain("bg-primary/10");
+    expect(toggleButton.className).toContain("border-primary/45");
+    expect(toggleButton.className).toContain("bg-background");
+    expect(toggleButton.className).not.toContain("bg-primary/10");
   });
 
   it("keeps the visible canvas surface without nesting editor split card chrome", () => {

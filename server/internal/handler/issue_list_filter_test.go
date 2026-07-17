@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"strings"
 	"testing"
 	"time"
 )
@@ -110,6 +112,100 @@ func TestListIssues_IncludeWorkflowOrigin(t *testing.T) {
 	if !foundChild {
 		t.Fatalf("include_workflow_origin=true list must include workflow-origin child %s, but it was missing", childID)
 	}
+}
+
+func TestChildIssueQueriesExcludeWorkflowOriginChildren(t *testing.T) {
+	query, err := os.ReadFile("../../pkg/db/queries/issue.sql")
+	if err != nil {
+		t.Fatalf("read issue queries: %v", err)
+	}
+	sql := string(query)
+
+	listBlock := queryBlock(t, sql, "-- name: ListChildIssues", "-- name: ListIssueDescendants")
+	if !strings.Contains(listBlock, "origin_type IS NULL OR origin_type <> 'workflow'") {
+		t.Fatalf("ListChildIssues must exclude workflow-origin child rows, got:\n%s", listBlock)
+	}
+
+	progressBlock := queryBlock(t, sql, "-- name: ChildIssueProgress", "-- SearchIssues:")
+	if !strings.Contains(progressBlock, "origin_type IS NULL OR origin_type <> 'workflow'") {
+		t.Fatalf("ChildIssueProgress must exclude workflow-origin child rows, got:\n%s", progressBlock)
+	}
+}
+
+func TestListChildIssuesExcludesWorkflowOriginChildren(t *testing.T) {
+	if testHandler == nil || testPool == nil {
+		t.Skip("database not available")
+	}
+
+	ctx := context.Background()
+	suffix := time.Now().UnixNano()
+
+	parentID := insertIssueOriginFilterFixture(t, ctx, fmt.Sprintf("child-list-parent-%d", suffix), "", "")
+	workflowChildID := insertIssueOriginFilterFixture(t, ctx, fmt.Sprintf("child-list-workflow-%d", suffix), "workflow", parentID)
+	splitChildID := insertIssueOriginFilterFixture(t, ctx, fmt.Sprintf("child-list-split-%d", suffix), "workflow_split", parentID)
+
+	req := newRequest("GET", "/api/issues/"+parentID+"/children", nil)
+	req = withURLParam(req, "id", parentID)
+	w := httptest.NewRecorder()
+	testHandler.ListChildIssues(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("ListChildIssues: expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp struct {
+		Issues []IssueResponse `json:"issues"`
+	}
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode children response: %v", err)
+	}
+
+	if _, ok := findIssueResponse(resp.Issues, splitChildID); !ok {
+		t.Fatalf("children response must include split child issue %s", splitChildID)
+	}
+	if _, ok := findIssueResponse(resp.Issues, workflowChildID); ok {
+		t.Fatalf("children response must exclude workflow-origin child issue %s", workflowChildID)
+	}
+}
+
+func TestChildIssueProgressExcludesWorkflowOriginChildren(t *testing.T) {
+	if testHandler == nil || testPool == nil {
+		t.Skip("database not available")
+	}
+
+	ctx := context.Background()
+	suffix := time.Now().UnixNano()
+
+	parentID := insertIssueOriginFilterFixture(t, ctx, fmt.Sprintf("child-progress-parent-%d", suffix), "", "")
+	insertIssueOriginFilterFixture(t, ctx, fmt.Sprintf("child-progress-workflow-%d", suffix), "workflow", parentID)
+	insertIssueOriginFilterFixture(t, ctx, fmt.Sprintf("child-progress-split-%d", suffix), "workflow_split", parentID)
+
+	path := fmt.Sprintf("/api/issues/child-progress?workspace_id=%s", testWorkspaceID)
+	w := httptest.NewRecorder()
+	testHandler.ChildIssueProgress(w, newRequest("GET", path, nil))
+	if w.Code != http.StatusOK {
+		t.Fatalf("ChildIssueProgress: expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp struct {
+		Progress []struct {
+			ParentIssueID string `json:"parent_issue_id"`
+			Total         int64  `json:"total"`
+			Done          int64  `json:"done"`
+		} `json:"progress"`
+	}
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode child progress response: %v", err)
+	}
+
+	for _, entry := range resp.Progress {
+		if entry.ParentIssueID == parentID {
+			if entry.Total != 1 {
+				t.Fatalf("child progress total = %d, want 1", entry.Total)
+			}
+			return
+		}
+	}
+	t.Fatalf("child progress response missing parent %s", parentID)
 }
 
 // TestListGroupedIssues_ExcludesWorkflowOriginByDefault verifies that the
@@ -328,6 +424,20 @@ func findGroupedIssueResponse(groups []IssueAssigneeGroupResponse, id string) (I
 		}
 	}
 	return IssueResponse{}, false
+}
+
+func queryBlock(t *testing.T, sql, startMarker, endMarker string) string {
+	t.Helper()
+
+	start := strings.Index(sql, startMarker)
+	if start < 0 {
+		t.Fatalf("query block start %q not found", startMarker)
+	}
+	end := strings.Index(sql[start:], endMarker)
+	if end < 0 {
+		t.Fatalf("query block end %q not found after %q", endMarker, startMarker)
+	}
+	return sql[start : start+end]
 }
 
 func insertWorkflowStampedIssueFixture(t *testing.T, ctx context.Context, title string) (issueID, workflowID, runID, stageID, originID string) {

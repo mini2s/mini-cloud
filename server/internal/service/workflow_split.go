@@ -319,7 +319,7 @@ func resolveSplitStatus(mode string, maxFailures int, tasks []splitTaskPlan) str
 	case SplitModePipeline:
 		failures := 0
 		for _, task := range tasks {
-			if task.Status == SplitTaskStatusDraft || task.Status == SplitTaskStatusApproved || task.Status == SplitTaskStatusCreated {
+			if task.Status == SplitTaskStatusDraft || task.Status == SplitTaskStatusApproved {
 				return NodeRunStatusSplitActive
 			}
 			if task.Status == SplitTaskStatusFailed {
@@ -1349,6 +1349,7 @@ func (s *SplitOrchestrator) handleTaskCompletion(ctx context.Context, task db.Mu
 	if err != nil {
 		return fmt.Errorf("list existing split tasks: %w", err)
 	}
+	chatAppliedDraftMutation := isSplitChatPhase(task.Context) && splitChatAppliedDraftMutation(task.Context, existing)
 	if len(existing) > 0 && !isSplitChatPhase(task.Context) {
 		if err := validateDraftSplitTaskRows(existing); err == nil {
 			return s.transitionSplitDraftsToReview(ctx, nodeRun)
@@ -1366,6 +1367,9 @@ func (s *SplitOrchestrator) handleTaskCompletion(ctx context.Context, task db.Mu
 	payload, err := s.recoverSplitGeneratedTaskPayloadFromTaskSources(ctx, task)
 	if err != nil {
 		if isSplitChatPhase(task.Context) {
+			if chatAppliedDraftMutation {
+				return nil
+			}
 			return err
 		}
 		if !isSplitRepairPhase(task.Context) {
@@ -1378,6 +1382,9 @@ func (s *SplitOrchestrator) handleTaskCompletion(ctx context.Context, task db.Mu
 		draftSource = DraftSourceChat
 	}
 	if isSplitChatPhase(task.Context) && splitChatDraftsChanged(task.Context, existing) {
+		if chatAppliedDraftMutation {
+			return nil
+		}
 		return fmt.Errorf("split draft changed while the agent was adjusting it; the agent update was not applied")
 	}
 	if err := s.replaceSplitDraftTasksFromPayload(ctx, nodeRun, existing, payload, pgtype.Text{String: draftSource, Valid: true}); err != nil {
@@ -1664,6 +1671,9 @@ func (s *SplitOrchestrator) CancelSplitNode(
 	}
 
 	if nodeRun.Status == NodeRunStatusCancelled {
+		if s.WfService != nil {
+			s.WfService.checkRunCompletion(ctx, nodeRun.WorkflowRunID)
+		}
 		return &nodeRun, nil
 	}
 	if !canCancelSplitNodeStatus(nodeRun.Status) {
@@ -2860,6 +2870,18 @@ func splitChatDraftsChanged(contextJSON []byte, tasks []db.MulticaWorkflowSplitT
 	}
 	for i := range current {
 		if !reflect.DeepEqual(current[i], payload.CurrentDrafts[i]) {
+			return true
+		}
+	}
+	return false
+}
+
+func splitChatAppliedDraftMutation(contextJSON []byte, tasks []db.MulticaWorkflowSplitTask) bool {
+	if !splitChatDraftsChanged(contextJSON, tasks) {
+		return false
+	}
+	for _, task := range tasks {
+		if task.Status != SplitTaskStatusDiscarded && task.DraftSource == DraftSourceChat {
 			return true
 		}
 	}

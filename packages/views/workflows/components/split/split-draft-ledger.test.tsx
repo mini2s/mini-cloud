@@ -105,6 +105,19 @@ describe("SplitDraftLedger", () => {
     expect(workflow).toHaveClass("min-w-[10rem]", "flex-1");
   });
 
+  it("renders submitted draft rows as read-only metadata without duplicate workflow controls", () => {
+    render(
+      <SplitDraftLedger
+        readOnly
+        tasks={[{ ...baseTask, status: "created" }]}
+        workflows={workflows}
+      />,
+    );
+
+    expect(screen.queryByRole("combobox")).not.toBeInTheDocument();
+    expect(screen.getAllByText("Implementation workflow")).toHaveLength(1);
+  });
+
   it("marks task-level workflow blockers inside the affected draft row", () => {
     render(<SplitDraftLedger tasks={[{ ...baseTask, workflow_id: null }]} workflows={workflows} />);
 

@@ -111,14 +111,14 @@ func TestResolveSettledSplitStatusSkipsDependentsAndFailsBarrier(t *testing.T) {
 	}
 }
 
-func TestResolveSplitPipelineWaitsForInitialDispatch(t *testing.T) {
+func TestResolveSplitPipelineCompletesAfterChildIssuesAreMaterialized(t *testing.T) {
 	tasks := []splitTaskPlan{
 		{ID: "a", Status: SplitTaskStatusCreated},
 		{ID: "b", Status: SplitTaskStatusRunning},
 	}
 	got := resolveSplitStatus(SplitModePipeline, 0, tasks)
-	if got != NodeRunStatusSplitActive {
-		t.Fatalf("resolveSplitStatus pipeline = %s, want %s", got, NodeRunStatusSplitActive)
+	if got != NodeRunStatusCompleted {
+		t.Fatalf("resolveSplitStatus pipeline = %s, want %s", got, NodeRunStatusCompleted)
 	}
 }
 
@@ -143,6 +143,24 @@ func TestResolveSplitPipelineHonorsFailureThreshold(t *testing.T) {
 	}
 	if got := resolveSplitStatus(SplitModePipeline, 1, tasks); got != NodeRunStatusCompleted {
 		t.Fatalf("resolveSplitStatus pipeline threshold=1 = %s, want completed", got)
+	}
+}
+
+func TestChildIssueQueriesExcludeWorkflowOriginChildren(t *testing.T) {
+	query, err := os.ReadFile("../../pkg/db/queries/issue.sql")
+	if err != nil {
+		t.Fatalf("read issue queries: %v", err)
+	}
+	sql := string(query)
+
+	listBlock := sqlQueryBlock(t, sql, "-- name: ListChildIssues", "-- name: ListIssueDescendants")
+	if !strings.Contains(listBlock, "origin_type IS NULL OR origin_type <> 'workflow'") {
+		t.Fatalf("ListChildIssues must exclude workflow-origin child rows, got:\n%s", listBlock)
+	}
+
+	progressBlock := sqlQueryBlock(t, sql, "-- name: ChildIssueProgress", "-- SearchIssues:")
+	if !strings.Contains(progressBlock, "origin_type IS NULL OR origin_type <> 'workflow'") {
+		t.Fatalf("ChildIssueProgress must exclude workflow-origin child rows, got:\n%s", progressBlock)
 	}
 }
 
@@ -197,6 +215,20 @@ func TestTerminalWorkflowRunStatus(t *testing.T) {
 	if isTerminalWorkflowRunStatus("pending") {
 		t.Fatal(`isTerminalWorkflowRunStatus("pending") = true, want false`)
 	}
+}
+
+func sqlQueryBlock(t *testing.T, sql, startMarker, endMarker string) string {
+	t.Helper()
+
+	start := strings.Index(sql, startMarker)
+	if start < 0 {
+		t.Fatalf("query block start %q not found", startMarker)
+	}
+	end := strings.Index(sql[start:], endMarker)
+	if end < 0 {
+		t.Fatalf("query block end %q not found after %q", endMarker, startMarker)
+	}
+	return sql[start : start+end]
 }
 
 func TestDraftSourceConstantsAreDistinct(t *testing.T) {
@@ -616,6 +648,68 @@ func TestSplitTasksToSummary(t *testing.T) {
 	}
 	if draftSource, ok := item["draft_source"].(string); !ok || draftSource != "chat" {
 		t.Fatalf("draft_source = %v, want chat", item["draft_source"])
+	}
+}
+
+func TestSplitChatAppliedDraftMutation(t *testing.T) {
+	context := []byte(`{
+		"phase": "split_chat",
+		"current_drafts": [
+			{
+				"id": "01000000-0000-0000-0000-000000000000",
+				"title": "Initial draft",
+				"description": "Before chat",
+				"status": "draft",
+				"workflow_id": "",
+				"depends_on": [],
+				"sort_order": 0,
+				"draft_key": "initial-draft"
+			}
+		]
+	}`)
+
+	unchanged := []db.MulticaWorkflowSplitTask{
+		{
+			ID:          pgtype.UUID{Bytes: [16]byte{1}, Valid: true},
+			Title:       "Initial draft",
+			Description: "Before chat",
+			Status:      SplitTaskStatusDraft,
+			SortOrder:   0,
+			DraftKey:    pgtype.Text{String: "initial-draft", Valid: true},
+			DraftSource: DraftSourceAgent,
+		},
+	}
+	if splitChatAppliedDraftMutation(context, unchanged) {
+		t.Fatal("unchanged drafts must not count as applied chat mutation")
+	}
+
+	addedByChat := append([]db.MulticaWorkflowSplitTask{}, unchanged...)
+	addedByChat = append(addedByChat, db.MulticaWorkflowSplitTask{
+		ID:          pgtype.UUID{Bytes: [16]byte{2}, Valid: true},
+		Title:       "Security review",
+		Description: "Added through draft API",
+		Status:      SplitTaskStatusDraft,
+		SortOrder:   1,
+		DraftKey:    pgtype.Text{String: "security-review", Valid: true},
+		DraftSource: DraftSourceChat,
+	})
+	if !splitChatAppliedDraftMutation(context, addedByChat) {
+		t.Fatal("chat-sourced draft change must count as applied mutation")
+	}
+
+	changedWithoutChatSource := []db.MulticaWorkflowSplitTask{
+		{
+			ID:          pgtype.UUID{Bytes: [16]byte{1}, Valid: true},
+			Title:       "Human edited draft",
+			Description: "Before chat",
+			Status:      SplitTaskStatusDraft,
+			SortOrder:   0,
+			DraftKey:    pgtype.Text{String: "initial-draft", Valid: true},
+			DraftSource: DraftSourceAgent,
+		},
+	}
+	if splitChatAppliedDraftMutation(context, changedWithoutChatSource) {
+		t.Fatal("changed drafts without chat source must not count as applied chat mutation")
 	}
 }
 

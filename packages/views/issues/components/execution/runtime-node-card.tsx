@@ -124,19 +124,19 @@ function runtimeFocusSurfaceClassName(
   if (!isRuntimeFocus) return "";
   switch (status) {
     case "blocked":
-      return "border-red-200/90 from-red-50/90 via-white to-red-100/70 ring-red-200/80 shadow-[0_18px_42px_rgba(239,68,68,0.18)] group-hover:ring-red-300/80";
+      return "border-red-200/90 from-red-50/90 via-white to-red-100/70 ring-2 ring-red-300/80 shadow-[0_20px_48px_rgba(239,68,68,0.24)] group-hover:ring-red-400/80";
     case "reviewing":
-      return "border-violet-200/90 from-violet-50/90 via-white to-violet-100/70 ring-violet-200/75 shadow-[0_16px_36px_rgba(139,92,246,0.14)] group-hover:ring-violet-300/75";
+      return "border-violet-200/90 from-violet-50/90 via-white to-violet-100/70 ring-2 ring-violet-300/75 shadow-[0_18px_42px_rgba(139,92,246,0.18)] group-hover:ring-violet-400/75";
     case "completed":
-      return "border-emerald-200/80 from-emerald-50/80 via-white to-emerald-100/55 ring-emerald-200/70 shadow-[0_10px_24px_rgba(16,185,129,0.10)] group-hover:ring-emerald-300/65";
+      return "border-emerald-200/80 from-emerald-50/80 via-white to-emerald-100/55 ring-2 ring-emerald-300/70 shadow-[0_14px_32px_rgba(16,185,129,0.14)] group-hover:ring-emerald-400/65";
     case "todo":
-      return "border-amber-200/70 from-amber-50/70 via-white to-amber-100/45 ring-amber-200/60 shadow-[0_12px_28px_rgba(245,158,11,0.10)] group-hover:ring-amber-300/70";
+      return "border-amber-200/70 from-amber-50/70 via-white to-amber-100/45 ring-2 ring-amber-300/60 shadow-[0_14px_34px_rgba(245,158,11,0.14)] group-hover:ring-amber-400/70";
     case "in_progress":
-      return "border-blue-200/90 from-blue-50/90 via-white to-blue-100/70 ring-blue-200/80 shadow-[0_18px_42px_rgba(59,130,246,0.16)] group-hover:ring-blue-300/80";
+      return "border-blue-200/90 from-blue-50/90 via-white to-blue-100/70 ring-2 ring-blue-300/80 shadow-[0_20px_48px_rgba(59,130,246,0.22)] group-hover:ring-blue-400/80";
     case "pending":
     case "cancelled":
     default:
-      return "border-slate-200/80 from-slate-50/85 via-white to-slate-100/65 ring-slate-200/75 shadow-[0_14px_32px_rgba(15,23,42,0.12)]";
+      return "border-slate-200/80 from-slate-50/85 via-white to-slate-100/65 ring-2 ring-slate-300/75 shadow-[0_16px_38px_rgba(15,23,42,0.16)]";
   }
 }
 
@@ -457,11 +457,11 @@ export function RuntimeNodeCard({
               data-testid="runtime-node-split-child-toggle"
               className={cn(
                 "nodrag nopan flex min-h-10 w-full min-w-0 items-center justify-between gap-2 rounded-md border px-2.5 py-1.5 text-left",
-                "bg-background/85 transition-colors",
+                "bg-background transition-colors",
                 "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                 isSplitExpanded
-                  ? "border-primary/35 bg-primary/10 shadow-[inset_0_0_0_1px_hsl(var(--primary)/0.16)] hover:bg-primary/15"
-                  : "border-border/80 hover:border-primary/35 hover:bg-primary/10",
+                  ? "border-primary/45 text-primary shadow-[inset_0_0_0_1px_hsl(var(--primary)/0.12)] hover:border-primary/60 hover:bg-muted/35"
+                  : "border-border/80 hover:border-primary/35 hover:bg-muted/45",
               )}
               aria-label={
                 isSplitExpanded
@@ -483,7 +483,7 @@ export function RuntimeNodeCard({
                 className={cn(
                   "flex size-6 shrink-0 items-center justify-center rounded-md border transition-colors",
                   isSplitExpanded
-                    ? "border-primary/25 bg-primary text-primary-foreground"
+                    ? "border-primary/35 bg-primary/10 text-primary"
                     : "border-border/80 bg-muted/55 text-muted-foreground",
                 )}
                 aria-hidden

@@ -1208,6 +1208,54 @@ func TestApproveSplitTasksPipelineMaterializesTasksAndCompletesNode(t *testing.T
 	}
 }
 
+func TestApproveSplitTasksPipelineCompletesNodeWithPendingChildDispatch(t *testing.T) {
+	f := createSplitApproveFixture(t, "pipeline")
+
+	w := httptest.NewRecorder()
+	req := newRequest("POST", "/api/node-runs/"+f.splitNodeRunID+"/split/approve", map[string]any{
+		"approved_task_ids": []string{f.taskAID, f.taskBID},
+		"modifications":     []any{},
+	})
+	req = withURLParam(req, "nodeRunId", f.splitNodeRunID)
+
+	testHandler.ApproveSplitTasks(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("ApproveSplitTasks: expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	ctx := context.Background()
+	taskA, err := testHandler.Queries.GetSplitTask(ctx, parseUUID(f.taskAID))
+	if err != nil {
+		t.Fatalf("load split task A: %v", err)
+	}
+	taskB, err := testHandler.Queries.GetSplitTask(ctx, parseUUID(f.taskBID))
+	if err != nil {
+		t.Fatalf("load split task B: %v", err)
+	}
+	if taskA.Status != service.SplitTaskStatusRunning {
+		t.Fatalf("task A status = %s, want running", taskA.Status)
+	}
+	if taskB.Status != service.SplitTaskStatusCreated {
+		t.Fatalf("task B status = %s, want created", taskB.Status)
+	}
+
+	nodeRun, err := testHandler.Queries.GetWorkflowNodeRun(ctx, parseUUID(f.splitNodeRunID))
+	if err != nil {
+		t.Fatalf("load split node run: %v", err)
+	}
+	if nodeRun.Status != service.NodeRunStatusCompleted {
+		t.Fatalf("split node run status = %s, want completed", nodeRun.Status)
+	}
+
+	parentRun, err := testHandler.Queries.GetWorkflowRun(ctx, parseUUID(f.parentRunID))
+	if err != nil {
+		t.Fatalf("load parent run: %v", err)
+	}
+	if parentRun.Status == service.RunStatusRunning {
+		t.Fatal("parent run status stayed running after pipeline split approval")
+	}
+}
+
 func TestApproveSplitTasksBarrierStartsOnlyReadyTasks(t *testing.T) {
 	f := createSplitApproveFixture(t, "barrier")
 
@@ -1554,6 +1602,36 @@ func TestCancelSplitNodeCancelsRunningChildWorkflowRun(t *testing.T) {
 	}
 	if childIssue.Status != "cancelled" {
 		t.Fatalf("child issue status = %s, want cancelled", childIssue.Status)
+	}
+}
+
+func TestCancelSplitNodeReconcilesAlreadyCancelledParentRun(t *testing.T) {
+	f := createSplitApproveFixture(t, "barrier")
+	ctx := context.Background()
+
+	if _, err := testPool.Exec(ctx, `
+		UPDATE multica_workflow_node_run
+		SET status = 'cancelled', completed_at = now()
+		WHERE id = $1
+	`, f.splitNodeRunID); err != nil {
+		t.Fatalf("pre-cancel split node run: %v", err)
+	}
+
+	cancelReq := newRequest("POST", "/api/node-runs/"+f.splitNodeRunID+"/split/cancel", nil)
+	cancelReq = withURLParam(cancelReq, "nodeRunId", f.splitNodeRunID)
+
+	cancelResp := httptest.NewRecorder()
+	testHandler.CancelSplitNode(cancelResp, cancelReq)
+	if cancelResp.Code != http.StatusOK {
+		t.Fatalf("CancelSplitNode: expected 200, got %d: %s", cancelResp.Code, cancelResp.Body.String())
+	}
+
+	parentRun, err := testHandler.Queries.GetWorkflowRun(ctx, parseUUID(f.parentRunID))
+	if err != nil {
+		t.Fatalf("load parent run: %v", err)
+	}
+	if parentRun.Status == service.RunStatusRunning {
+		t.Fatal("parent run status stayed running after cancelling an already-cancelled split node")
 	}
 }
 
@@ -2229,6 +2307,90 @@ func TestSplitChatCompletionWithoutDraftUpdateReturnsError(t *testing.T) {
 	testHandler.HandleSplitChat(nextChatResp, nextChatReq)
 	if nextChatResp.Code != http.StatusOK {
 		t.Fatalf("second HandleSplitChat after failed completion: expected 200, got %d: %s", nextChatResp.Code, nextChatResp.Body.String())
+	}
+}
+
+func TestSplitChatCompletionAcceptsDraftApiMutations(t *testing.T) {
+	if testHandler == nil {
+		t.Skip("database not available")
+	}
+
+	agentID := createHandlerTestAgent(t, "split-chat-draft-api-agent", nil)
+	f := createSplitApproveFixture(t, "barrier")
+	ctx := context.Background()
+
+	if _, err := testPool.Exec(ctx, `
+		UPDATE multica_workflow_node SET worker_id = $1, worker_type = 'agent' WHERE id = $2
+	`, agentID, f.splitNodeID); err != nil {
+		t.Fatalf("update node worker: %v", err)
+	}
+	if _, err := testPool.Exec(ctx, `
+		UPDATE multica_workflow_node_run SET worker_id = $1, worker_type = 'agent' WHERE id = $2
+	`, agentID, f.splitNodeRunID); err != nil {
+		t.Fatalf("update node run worker: %v", err)
+	}
+
+	chatReq := newRequest("POST", "/api/node-runs/"+f.splitNodeRunID+"/split/chat", map[string]any{
+		"content": "Add a security review draft.",
+	})
+	chatReq = withURLParam(chatReq, "nodeRunId", f.splitNodeRunID)
+	chatResp := httptest.NewRecorder()
+	testHandler.HandleSplitChat(chatResp, chatReq)
+	if chatResp.Code != http.StatusOK {
+		t.Fatalf("HandleSplitChat: expected 200, got %d: %s", chatResp.Code, chatResp.Body.String())
+	}
+
+	claimed, err := testHandler.Queries.ClaimAgentTask(ctx, parseUUID(agentID))
+	if err != nil {
+		t.Fatalf("claim chat task: %v", err)
+	}
+	started, err := testHandler.Queries.StartAgentTask(ctx, claimed.ID)
+	if err != nil {
+		t.Fatalf("start chat task: %v", err)
+	}
+
+	addResp := httptest.NewRecorder()
+	addReq := newRequest("POST", "/api/node-runs/"+f.splitNodeRunID+"/split/draft-tasks", map[string]any{
+		"key":             "security-review",
+		"title":           "Security review",
+		"description":     "Review the split plan for security concerns.",
+		"depends_on_keys": []string{},
+	})
+	addReq.Header.Set("X-Agent-ID", agentID)
+	addReq.Header.Set("X-Task-ID", uuidToString(started.ID))
+	addReq = withURLParam(addReq, "nodeRunId", f.splitNodeRunID)
+	testHandler.AddSplitDraftTask(addResp, addReq)
+	if addResp.Code != http.StatusOK {
+		t.Fatalf("AddSplitDraftTask: expected 200, got %d: %s", addResp.Code, addResp.Body.String())
+	}
+
+	result, _ := json.Marshal(map[string]any{
+		"output": "I added the security review draft through the split draft API.",
+	})
+	if _, err := testHandler.TaskService.CompleteTask(ctx, started.ID, result, "", ""); err != nil {
+		t.Fatalf("CompleteTask: expected draft API mutation to be accepted, got %v", err)
+	}
+
+	task, err := testHandler.Queries.GetAgentTask(ctx, started.ID)
+	if err != nil {
+		t.Fatalf("reload task: %v", err)
+	}
+	if task.Status != "completed" {
+		t.Fatalf("task status = %s, want completed", task.Status)
+	}
+
+	tasks, err := testHandler.Queries.ListSplitTasksByNodeRun(ctx, parseUUID(f.splitNodeRunID))
+	if err != nil {
+		t.Fatalf("list split tasks: %v", err)
+	}
+	found := false
+	for _, task := range tasks {
+		if task.Title == "Security review" && task.Status == service.SplitTaskStatusDraft && task.DraftSource == service.DraftSourceChat {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("expected Security review draft from chat API mutation to remain active")
 	}
 }
 

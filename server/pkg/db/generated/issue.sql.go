@@ -18,6 +18,7 @@ SELECT parent_issue_id,
 FROM multica_issue
 WHERE workspace_id = $1
   AND parent_issue_id IS NOT NULL
+  AND (origin_type IS NULL OR origin_type <> 'workflow')
 GROUP BY parent_issue_id
 `
 
@@ -705,6 +706,7 @@ func (q *Queries) GetOpenSplitTaskByIssueID(ctx context.Context, issueID pgtype.
 const listChildIssues = `-- name: ListChildIssues :many
 SELECT id, workspace_id, title, description, status, priority, assignee_type, assignee_id, creator_type, creator_id, parent_issue_id, acceptance_criteria, context_refs, position, due_date, created_at, updated_at, number, project_id, origin_type, origin_id, first_executed_at, start_date, metadata, workflow_id, workflow_run_id, stage_id FROM multica_issue
 WHERE parent_issue_id = $1
+  AND (origin_type IS NULL OR origin_type <> 'workflow')
 ORDER BY position ASC, created_at DESC
 `
 

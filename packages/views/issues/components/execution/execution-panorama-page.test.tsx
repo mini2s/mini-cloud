@@ -1370,7 +1370,7 @@ describe("ExecutionPanoramaPage", () => {
     );
   });
 
-  it("focuses the viewport on the expanded split cluster instead of refitting the full canvas", async () => {
+  it("aggressively fits the viewport to the expanded split child issue panel", async () => {
     mocks.isLoading = false;
     mocks.workflowData = { id: "wf-1", title: "Test Workflow" };
     mocks.stagesData = [STAGE];
@@ -1403,16 +1403,16 @@ describe("ExecutionPanoramaPage", () => {
     });
 
     await waitFor(() => {
-      expect(mocks.setCenter).toHaveBeenCalledWith(
-        expect.any(Number),
-        expect.any(Number),
-        expect.objectContaining({ duration: 450, zoom: 0.95 }),
+      expect(mocks.fitView).toHaveBeenCalledWith(
+        expect.objectContaining({
+          nodes: [{ id: "split-1:split-subflow" }],
+          padding: 0.06,
+          maxZoom: 1.4,
+          duration: 450,
+        }),
       );
     });
-    expect(mocks.setCenter.mock.calls.length).toBeGreaterThan(0);
-    const centerX = mocks.setCenter.mock.calls[0]?.[0];
-    expect(centerX).toBeGreaterThan(240);
-    expect(mocks.fitView).not.toHaveBeenCalled();
+    expect(mocks.setCenter).not.toHaveBeenCalled();
   });
 
   it("opens a detail panel for a split child issue node before navigating to the issue", async () => {

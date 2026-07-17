@@ -183,6 +183,7 @@ export function SplitDraftLedger({
         const isMissingWorkflow = isActiveTask && !task.workflow_id;
         const canEditDraft = !readOnly && task.status === "draft";
         const canRestoreDraft = !readOnly && task.status === "discarded";
+        const showWorkflowSelect = canEditDraft && !isEditing;
         const summaryId = `split-draft-summary-${task.id}`;
         const dependsOn = task.depends_on
           .map((dependencyId) => numberByTaskId.get(dependencyId) ?? dependencyId)
@@ -193,7 +194,8 @@ export function SplitDraftLedger({
             key={task.id}
             data-testid={`split-draft-row-${task.id}`}
             className={cn(
-              "rounded-md border border-border/70 bg-muted/10 px-3 py-3 shadow-sm shadow-foreground/[0.02]",
+              "rounded-md border border-border/70 bg-background px-3 py-3 shadow-sm shadow-foreground/[0.02] transition-colors",
+              isActiveTask && "hover:border-border",
               isMissingWorkflow && "border-destructive/40 bg-destructive/[0.04]",
               task.status === "discarded" && "bg-muted/20 opacity-70",
             )}
@@ -278,26 +280,33 @@ export function SplitDraftLedger({
                 )}
               </div>
               <div className="flex min-w-0 flex-wrap items-center gap-1.5 border-t border-border/60 pt-2">
-                <Badge variant="secondary">{taskStatusLabel(task.status)}</Badge>
-                <select
-                  aria-label={t(($) => $.detail_panel.split_draft_execution_workflow_for, { title: task.title })}
-                  className="h-8 min-w-[10rem] flex-1 rounded-md border border-input bg-background px-2 text-xs"
-                  value={task.workflow_id ?? ""}
-                  disabled={readOnly || task.status !== "draft" || isEditing}
-                  onChange={(event) => onWorkflowChange?.(task, event.target.value)}
-                >
-                  <option value="">{t(($) => $.detail_panel.split_draft_select_workflow_placeholder)}</option>
-                  {workflows.map((workflow) => (
-                    <option key={workflow.id} value={workflow.id}>
-                      {workflow.title}
-                    </option>
-                  ))}
-                </select>
-                {readOnly || task.status !== "draft" ? (
-                  <Badge variant="outline" className="max-w-[12rem] truncate" title={workflowLabel(t, task, workflows)}>
+                <Badge variant="secondary" className="capitalize">{taskStatusLabel(task.status)}</Badge>
+                {showWorkflowSelect ? (
+                  <select
+                    aria-label={t(($) => $.detail_panel.split_draft_execution_workflow_for, { title: task.title })}
+                    className="h-8 min-w-[10rem] flex-1 rounded-md border border-input bg-background px-2 text-xs"
+                    value={task.workflow_id ?? ""}
+                    onChange={(event) => onWorkflowChange?.(task, event.target.value)}
+                  >
+                    <option value="">{t(($) => $.detail_panel.split_draft_select_workflow_placeholder)}</option>
+                    {workflows.map((workflow) => (
+                      <option key={workflow.id} value={workflow.id}>
+                        {workflow.title}
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <Badge
+                    variant="outline"
+                    className={cn(
+                      "max-w-full truncate bg-background px-2 py-0.5 font-medium",
+                      isMissingWorkflow && "border-destructive/30 text-destructive",
+                    )}
+                    title={workflowLabel(t, task, workflows)}
+                  >
                     {workflowLabel(t, task, workflows)}
                   </Badge>
-                ) : null}
+                )}
                 {isEditing ? (
                   <>
                     <Button
