@@ -21,6 +21,7 @@ import (
 	"github.com/multica-ai/multica/server/internal/daemonws"
 	"github.com/multica-ai/multica/server/internal/deptsync"
 	"github.com/multica-ai/multica/server/internal/events"
+	"github.com/multica-ai/multica/server/internal/gitea"
 	"github.com/multica-ai/multica/server/internal/handler"
 	obsmetrics "github.com/multica-ai/multica/server/internal/metrics"
 	"github.com/multica-ai/multica/server/internal/middleware"
@@ -147,6 +148,9 @@ type RouterOptions struct {
 	// linking). main.go constructs it once and passes it in; tests leave it
 	// nil and the router falls back to constructing one from env.
 	DeptSync *deptsync.Client
+	// Gitea is the platform Gitea admin client for document-deliverable storage.
+	// nil → the router constructs one from env (dormant when env unset).
+	Gitea *gitea.Client
 }
 
 func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus, analyticsClient analytics.Client, rdb *redis.Client, opts RouterOptions) chi.Router {
@@ -219,6 +223,15 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 			CacheTTL: envDuration("DEPT_SYNC_CACHE_TTL", time.Minute),
 		})
 	}
+	giteaClient := opts.Gitea
+	if giteaClient == nil {
+		giteaClient = gitea.NewClient(gitea.Config{
+			BaseURL: strings.TrimRight(strings.TrimSpace(os.Getenv("GITEA_BASE_URL")), "/"),
+			Token:   os.Getenv("GITEA_ADMIN_TOKEN"),
+			Timeout: envDuration("GITEA_TIMEOUT", 10*time.Second),
+		})
+	}
+	h.WorkflowService.Gitea = giteaClient
 	// Auth caches: PAT cache is shared between the regular Auth middleware,
 	// the DaemonAuth fallback (mul_) path, and the revoke handler
 	// (invalidate). DaemonTokenCache backs the DaemonAuth mdt_ path. Both

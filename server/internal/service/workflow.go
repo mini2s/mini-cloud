@@ -11,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/multica-ai/multica/server/internal/events"
+	"github.com/multica-ai/multica/server/internal/gitea"
 	"github.com/multica-ai/multica/server/internal/util"
 	db "github.com/multica-ai/multica/server/pkg/db/generated"
 )
@@ -22,6 +23,14 @@ type WorkflowService struct {
 	TxStarter TxStarter
 	Bus       *events.Bus
 	TaskSvc   *TaskService
+
+	// Gitea is the platform Gitea admin client, used (in M2 Tasks 4-5) for
+	// run-start scaffolding and approve-time PR merging of document deliverables.
+	// Dormant (scaffold + merge are skipped) when GITEA_BASE_URL/GITEA_ADMIN_TOKEN
+	// are unset — the client is always non-nil post-construction; dormancy is
+	// gated by Client.Configured(), not by a nil pointer. nil only in tests that
+	// construct WorkflowService without going through the router.
+	Gitea *gitea.Client
 
 	// OnNodeStatusChanged fires after TransitionNodeRun succeeds.
 	OnNodeStatusChanged func(ctx context.Context, nodeRun db.MulticaWorkflowNodeRun)
@@ -72,7 +81,7 @@ var validTransitions = map[string][]string{
 	NodeRunStatusAwaitingInput:   {NodeRunStatusWorking, NodeRunStatusCancelled, NodeRunStatusSkipped},
 	NodeRunStatusAwaitingCritic:  {NodeRunStatusCriticReviewing, NodeRunStatusCancelled, NodeRunStatusSkipped},
 	NodeRunStatusCriticReviewing: {NodeRunStatusCriticApproved, NodeRunStatusCriticRework, NodeRunStatusCancelled},
-	NodeRunStatusCriticApproved:  {NodeRunStatusCompleted},
+	NodeRunStatusCriticApproved:  {NodeRunStatusCompleted, NodeRunStatusBlocked},
 	NodeRunStatusCriticRework:    {NodeRunStatusFormatOk, NodeRunStatusBlocked},
 	NodeRunStatusCompleted:       {},
 	NodeRunStatusFailed:          {},

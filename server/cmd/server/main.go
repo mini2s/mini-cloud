@@ -19,6 +19,7 @@ import (
 	"github.com/multica-ai/multica/server/internal/daemonws"
 	"github.com/multica-ai/multica/server/internal/deptsync"
 	"github.com/multica-ai/multica/server/internal/events"
+	"github.com/multica-ai/multica/server/internal/gitea"
 	"github.com/multica-ai/multica/server/internal/handler"
 	"github.com/multica-ai/multica/server/internal/logger"
 	obsmetrics "github.com/multica-ai/multica/server/internal/metrics"
@@ -311,6 +312,11 @@ func main() {
 		Timeout:  envDuration("DEPT_SYNC_TIMEOUT", 10*time.Second),
 		CacheTTL: envDuration("DEPT_SYNC_CACHE_TTL", time.Minute),
 	})
+	giteaClient := gitea.NewClient(gitea.Config{
+		BaseURL: strings.TrimRight(strings.TrimSpace(os.Getenv("GITEA_BASE_URL")), "/"),
+		Token:   os.Getenv("GITEA_ADMIN_TOKEN"),
+		Timeout: envDuration("GITEA_TIMEOUT", 10*time.Second),
+	})
 	// The SubjectResolver fires on every authenticated request; bound the
 	// dept-link work (dept-sync call + DB writes) to once per window per user.
 	deptLinkThrottle := &linkThrottle{last: make(map[string]time.Time), ttl: envDuration("DEPT_LINK_INTERVAL", 5*time.Minute)}
@@ -523,6 +529,7 @@ func main() {
 		CasdoorEnabled:     casdoorEnabled,
 		SkillProxy:         skillProxy,
 		DeptSync:           deptSyncClient,
+		Gitea:              giteaClient,
 	})
 
 	srv := &http.Server{
