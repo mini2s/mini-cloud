@@ -27,9 +27,16 @@ const createConversationTimeout = 15 * time.Second
 type IssueConversationSessionResponse struct {
 	ConversationID     string `json:"conversation_id"`
 	WorkspaceDirectory string `json:"workspace_directory"`
-	EventsURL          string `json:"events_url"`
-	QuestionsURL       string `json:"questions_url"`
-	PermissionsURL     string `json:"permissions_url"`
+	// ProxyBaseURL is the device proxy prefix (…/proxy) through which all
+	// cs-cloud conversation APIs are reachable. Frontends should prefer it
+	// over assembling URLs from the individual *_url fields below.
+	ProxyBaseURL string `json:"proxy_base_url"`
+	// Deprecated: derive from ProxyBaseURL instead.
+	EventsURL string `json:"events_url"`
+	// Deprecated: derive from ProxyBaseURL instead.
+	QuestionsURL string `json:"questions_url"`
+	// Deprecated: derive from ProxyBaseURL instead.
+	PermissionsURL string `json:"permissions_url"`
 }
 
 type createConversationRequest struct {
@@ -310,6 +317,7 @@ func (h *Handler) writeIssueConversationSession(w http.ResponseWriter, conversat
 	writeJSON(w, http.StatusOK, IssueConversationSessionResponse{
 		ConversationID:     conversationID,
 		WorkspaceDirectory: workspaceDir,
+		ProxyBaseURL:       prefix,
 		EventsURL:          eventsURL,
 		QuestionsURL:       questionsURL,
 		PermissionsURL:     permissionsURL,

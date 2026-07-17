@@ -72,6 +72,9 @@ func TestGetIssueConversationSessionReturnsExisting(t *testing.T) {
 	if !strings.Contains(resp.EventsURL, "conversation_id=conv-existing") {
 		t.Fatalf("events_url = %q", resp.EventsURL)
 	}
+	if resp.ProxyBaseURL != "/cloud-api/cloud/device/dev-existing/proxy" {
+		t.Fatalf("proxy_base_url = %q", resp.ProxyBaseURL)
+	}
 	if !strings.Contains(resp.QuestionsURL, "/api/v1/questions") {
 		t.Fatalf("questions_url = %q", resp.QuestionsURL)
 	}
@@ -141,6 +144,9 @@ func TestGetIssueConversationSessionCreatesNew(t *testing.T) {
 	}
 	if !strings.Contains(resp.EventsURL, "conversation_id=conv-new") {
 		t.Fatalf("events_url = %q", resp.EventsURL)
+	}
+	if resp.ProxyBaseURL != "/cloud-api/cloud/device/dev-123/proxy" {
+		t.Fatalf("proxy_base_url = %q", resp.ProxyBaseURL)
 	}
 	if !strings.Contains(resp.QuestionsURL, "/api/v1/questions") {
 		t.Fatalf("questions_url = %q", resp.QuestionsURL)

@@ -2,7 +2,7 @@
 
 ## 接口概述
 
-用于 Issue 页面快速获取与某个 Issue 绑定的对话会话信息。通过该接口，前端可以直接拿到 `conversation_id`、`workspace_directory`、Gateway 事件流地址、问卷地址以及权限申请地址，从而复用现有 Workspace 的对话组件。
+用于 Issue 页面快速获取与某个 Issue 绑定的对话会话信息。通过该接口，前端可以直接拿到 `conversation_id`、`workspace_directory` 和设备代理前缀 `proxy_base_url`，从而复用现有 Workspace 的对话组件。
 
 multica 后端负责保存 `issue_id → conversation_id` 的映射；cs-cloud 与本地设备不保存该映射状态。
 
@@ -37,6 +37,7 @@ Authorization: Bearer <multica-jwt-or-pat>
 {
   "conversation_id": "conv_xxxxxxxx",
   "workspace_directory": "/Users/dev/project",
+  "proxy_base_url": "/cloud-api/cloud/device/{deviceID}/proxy",
   "events_url": "/cloud-api/cloud/device/{deviceID}/proxy/api/v1/events?conversation_id=conv_xxxxxxxx",
   "questions_url": "/cloud-api/cloud/device/{deviceID}/proxy/api/v1/questions",
   "permissions_url": "/cloud-api/cloud/device/{deviceID}/proxy/api/v1/permissions"
@@ -47,9 +48,14 @@ Authorization: Bearer <multica-jwt-or-pat>
 |---------------------|--------|-------------------------------------------------|
 | conversation_id     | string | 该 Issue 对应的会话 ID                          |
 | workspace_directory | string | 该 Issue 对应项目的本地绝对路径                 |
-| events_url          | string | 前端可直接连接的 Gateway 实时事件流地址（SSE）  |
-| questions_url       | string | 对话过程中需要填写问卷时的 Gateway 问卷地址     |
-| permissions_url     | string | 申请额外权限时的 Gateway 权限申请地址           |
+| proxy_base_url      | string | 设备代理前缀，所有 cs-cloud 对话 API 的 base URL（**推荐使用**） |
+| events_url          | string | （已废弃，请用 proxy_base_url）Gateway 实时事件流地址（SSE）  |
+| questions_url       | string | （已废弃，请用 proxy_base_url）Gateway 问卷地址     |
+| permissions_url     | string | （已废弃，请用 proxy_base_url）Gateway 权限申请地址           |
+
+> `proxy_base_url` 是相对路径，前端拼上同源 origin 即为完整 base URL。
+> 所有对话相关 API 都是 `{proxy_base_url}/api/v1/...` 形式，例如
+> `{proxy_base_url}/api/v1/conversations/{conversation_id}/prompt/async`。
 
 #### 错误响应
 
@@ -110,47 +116,84 @@ if (!res.ok) {
   return;
 }
 
-const { conversation_id, workspace_directory, events_url, questions_url, permissions_url } = await res.json();
+const { conversation_id, workspace_directory, proxy_base_url } = await res.json();
 ```
 
-### 2. 连接实时事件流
+### 2. 构造对话 client（推荐）
+
+`proxy_base_url` 是设备代理前缀，拼上同源 origin 后即可作为对话 client 的
+`baseUrl`。前端如有现成的 device client 封装（如 costrict-web 的
+`createDeviceClient`），直接实例化即可获得全部对话方法，无需再拼接任何 URL：
 
 ```typescript
-const eventSource = new EventSource(events_url, {
-  withCredentials: true,
+const client = createDeviceClient({
+  baseUrl: new URL(proxy_base_url, location.origin).href,
+  directory: workspace_directory, // transport 自动编码为 X-Workspace-Directory 头
 });
 
-eventSource.onmessage = (event) => {
-  const data = JSON.parse(event.data);
-  // 渲染消息、状态变更等
-};
+// 发送消息（异步）
+await client.conversation.promptAsync(conversation_id, {
+  parts: [{ type: "text", text: "..." }],
+});
+
+// 停止生成
+await client.conversation.abort(conversation_id);
+
+// 加载历史
+await client.conversation.messages(conversation_id, { limit: 50 });
+
+// todo 列表 / 会话详情 / diff
+await client.conversation.todo(conversation_id);
+await client.conversation.get(conversation_id);
+await client.conversation.diff(conversation_id);
 ```
 
-> 注意：`withCredentials: true` 在跨域场景下才会生效；如果前端与 Gateway 同源（例如都走同一域名反向代理），浏览器不会额外发送预检请求，该参数无实际作用。
-
-### 3. 发送消息 / 加载历史
-
-复用现有 Workspace 对话组件中的方法，只是基础路径从 Gateway 走：
+### 3. 连接实时事件流
 
 ```typescript
-// 发送消息
-await fetch(`/cloud-api/cloud/device/{deviceID}/proxy/api/v1/conversations/${conversation_id}/prompt`, {
+// 通过 client 封装（内部即 GET {proxy_base_url}/api/v1/events）
+const { stream } = await client.event.stream();
+
+// 或手写 EventSource（鉴权只能依赖 Cookie，EventSource 无法自定义请求头）
+const eventSource = new EventSource(`${proxy_base_url}/api/v1/events`, {
+  withCredentials: true,
+});
+```
+
+> 注意：
+> 1. 事件流按 **workspace directory** 过滤，不按会话过滤——流里包含该目录下
+>    所有会话的事件，前端必须按事件 payload 里的 `sessionID` 与
+>    `conversation_id` 比对过滤。
+> 2. `withCredentials: true` 在跨域场景下才会生效；如果前端与 Gateway 同源
+>    （例如都走同一域名反向代理），浏览器不会额外发送预检请求，该参数无实际作用。
+
+### 4. 回答问题 / 处理权限申请
+
+对话过程中的问卷（question）和权限申请（permission）通过事件流推送，
+payload 中带有 `requestID`，按其类型调用对应回复接口：
+
+```typescript
+await client.question.reply(requestID, { answers: [...] });
+await client.question.reject(requestID);
+await client.permission.respond(requestID, { behavior: "allow" });
+```
+
+### 5. 手写 fetch（不使用 client 封装时）
+
+所有对话 API 都是 `{proxy_base_url}/api/v1/...` 形式，且**每个请求**都需要
+携带 `X-Workspace-Directory` 头：
+
+```typescript
+await fetch(`${proxy_base_url}/api/v1/conversations/${conversation_id}/prompt/async`, {
   method: "POST",
   headers: {
     "Content-Type": "application/json",
     Authorization: `Bearer ${token}`,
-    "X-Workspace-Directory": workspace_directory,
+    "X-Workspace-Directory": encodeURIComponent(workspace_directory),
   },
-  body: JSON.stringify({ prompt: "..." }),
-});
-
-// 加载历史
-await fetch(`/cloud-api/cloud/device/{deviceID}/proxy/api/v1/conversations/${conversation_id}/messages`, {
-  headers: { Authorization: `Bearer ${token}` },
+  body: JSON.stringify({ parts: [{ type: "text", text: "..." }] }),
 });
 ```
-
-> 注意：`events_url` 已经包含了 `deviceID` 和 `conversation_id`，前端无需额外拼接。
 
 ---
 
