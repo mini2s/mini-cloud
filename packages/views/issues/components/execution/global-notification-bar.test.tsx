@@ -20,6 +20,7 @@ vi.mock("@multica/views/i18n", () => ({
             current_node: `Current: ${params?.title ?? ""}`,
             no_current_node: "No active node",
             running_count: `${params?.count ?? ""} running`,
+            reviewing_count: `${params?.count ?? ""} reviewing`,
             blocked_count: `${params?.count ?? ""} blocked`,
             waiting_count: `${params?.count ?? ""} waiting`,
             elapsed: `Elapsed ${params?.elapsed ?? ""}`,
@@ -113,6 +114,7 @@ describe("GlobalNotificationBar", () => {
 
     expect(screen.getByTestId("global-notification-bar")).toBeInTheDocument();
     expect(screen.getByTestId("progress-chip-running")).toBeInTheDocument();
+    expect(screen.getByTestId("progress-chip-reviewing")).toBeInTheDocument();
     expect(screen.getByTestId("progress-chip-blocked")).toBeInTheDocument();
     expect(screen.getByTestId("progress-chip-waiting")).toBeInTheDocument();
     expect(screen.queryByTestId("notification-item-awaiting_critic")).not.toBeInTheDocument();
@@ -150,7 +152,7 @@ describe("GlobalNotificationBar", () => {
 
     expect(screen.getByTestId("notification-summary")).toHaveTextContent("Run progress:0/3 done");
     expect(screen.getByTestId("progress-chip-blocked")).toHaveTextContent("2 blocked");
-    expect(screen.getByTestId("progress-chip-running")).toHaveTextContent("1 running");
+    expect(screen.getByTestId("progress-chip-reviewing")).toHaveTextContent("1 reviewing");
   });
 
   it("shows counts, current node, and elapsed fallback in the progress summary", () => {
@@ -170,6 +172,33 @@ describe("GlobalNotificationBar", () => {
     expect(screen.getByTestId("run-progress-counts")).toHaveTextContent("1 blocked");
     expect(screen.getByTestId("run-progress-counts")).toHaveTextContent("1 waiting");
     expect(screen.getByTestId("run-progress-counts")).toHaveTextContent("Elapsed --");
+  });
+
+  it("counts node runs by the same display status shown on runtime cards", () => {
+    const map = new Map<string, WorkflowNodeRun>();
+    map.set("review", makeNodeRun({ id: "nr-1", status: "awaiting_critic", workflow_node_id: "review", node_title: "Review split" }));
+    map.set("todo", makeNodeRun({ id: "nr-2", status: "worker_assigned", workflow_node_id: "todo", node_title: "Plan tests" }));
+
+    render(
+      <GlobalNotificationBar nodeRunMap={map} onScrollToNode={vi.fn()} />,
+    );
+
+    expect(screen.getByTestId("run-progress-counts")).toHaveTextContent("1 reviewing");
+    expect(screen.getByTestId("run-progress-counts")).toHaveTextContent("1 waiting");
+    expect(screen.getByTestId("run-progress-counts")).toHaveTextContent("0 running");
+    expect(screen.getByTestId("notification-summary")).toHaveTextContent("Current: Review split");
+  });
+
+  it("treats reviewing display status as actionable", () => {
+    const map = new Map<string, WorkflowNodeRun>();
+    map.set("review", makeNodeRun({ id: "nr-1", status: "awaiting_critic", workflow_node_id: "review" }));
+
+    render(
+      <GlobalNotificationBar nodeRunMap={map} onScrollToNode={vi.fn()} />,
+    );
+
+    expect(screen.getByTestId("progress-chip-reviewing")).toHaveTextContent("1 reviewing");
+    expect(screen.queryByText("No action needed")).not.toBeInTheDocument();
   });
 
   it("lets progress count chips focus their first matching node", () => {
@@ -209,6 +238,7 @@ describe("GlobalNotificationBar", () => {
       "progress-chip-blocked",
       "progress-chip-running",
       "progress-chip-waiting",
+      "progress-chip-reviewing",
     ]);
   });
 
@@ -224,8 +254,11 @@ describe("GlobalNotificationBar", () => {
       <GlobalNotificationBar nodeRunMap={map} onScrollToNode={onScrollToNode} />,
     );
 
-    fireEvent.click(screen.getByTestId("progress-chip-running"));
+    fireEvent.click(screen.getByTestId("progress-chip-reviewing"));
     expect(onScrollToNode).toHaveBeenLastCalledWith("running-high");
+
+    fireEvent.click(screen.getByTestId("progress-chip-running"));
+    expect(onScrollToNode).toHaveBeenLastCalledWith("running-low");
 
     fireEvent.click(screen.getByTestId("progress-chip-blocked"));
     expect(onScrollToNode).toHaveBeenLastCalledWith("blocked-low");

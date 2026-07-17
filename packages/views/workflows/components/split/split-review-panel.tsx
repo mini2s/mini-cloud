@@ -622,7 +622,7 @@ export function SplitReviewPanel({
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel disabled={approveMutation.isPending}>
-              {t(($) => $.detail_panel.split_cancel)}
+              {t(($) => $.detail_panel.split_approve_dialog_cancel)}
             </AlertDialogCancel>
             <AlertDialogAction
               disabled={approveMutation.isPending}

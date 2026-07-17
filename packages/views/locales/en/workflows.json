@@ -248,6 +248,7 @@
     "split_no_creatable_tasks": "No child issues are ready to create yet",
     "split_approve_dialog_title": "Create child issues?",
     "split_approve_dialog_description": "This will create {{count}} child issues and start their workflows.",
+    "split_approve_dialog_cancel": "Cancel",
     "split_cancel_dialog_title": "Cancel split?",
     "split_cancel_dialog_description": "This will stop unfinished child tasks and cancel their child issues.",
     "split_keep_running": "Keep running",

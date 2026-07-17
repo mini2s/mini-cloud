@@ -532,6 +532,7 @@
       "current_node": "Current: {{title}}",
       "no_current_node": "No active node",
       "running_count": "{{count}} running",
+      "reviewing_count": "{{count}} reviewing",
       "blocked_count": "{{count}} blocked",
       "waiting_count": "{{count}} waiting",
       "elapsed": "Elapsed {{elapsed}}",

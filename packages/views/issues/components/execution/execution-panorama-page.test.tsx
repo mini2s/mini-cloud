@@ -661,8 +661,8 @@ describe("ExecutionPanoramaPage", () => {
     expect(screen.getByTestId("execution-panorama").className).not.toContain("min-h-[640px]");
     expect(screen.getByTestId("execution-canvas-shell")).toHaveClass("min-h-0", "flex-1");
     expect(screen.getByTestId("execution-canvas-shell").className).not.toContain("min-h-[560px]");
-    expect(screen.getByTestId("panorama-canvas")).toHaveClass("left-0", "right-0");
-    expect(screen.getByTestId("panorama-canvas").className).not.toContain("left-40");
+    expect(screen.getByTestId("panorama-canvas")).toHaveClass("left-40", "right-0");
+    expect(screen.getByTestId("panorama-canvas").className).not.toContain("left-0");
   });
 
   it("renders the shared ReactFlow canvas core when stages exist", () => {
@@ -978,7 +978,7 @@ describe("ExecutionPanoramaPage", () => {
       );
     });
 
-    expect(screen.getByTestId("reactflow-canvas")).toHaveAttribute("data-fit-view", "true");
+    expect(screen.getByTestId("reactflow-canvas")).toHaveAttribute("data-fit-view", "false");
     expect(screen.getByTestId("reactflow-canvas")).toHaveAttribute("data-fit-view-max-zoom", "1");
   });
 
@@ -1375,7 +1375,7 @@ describe("ExecutionPanoramaPage", () => {
     );
   });
 
-  it("aggressively fits the viewport to the expanded split child issue panel", async () => {
+  it("fits the viewport once to the expanded split child issue panel without locking later moves", async () => {
     mocks.isLoading = false;
     mocks.workflowData = { id: "wf-1", title: "Test Workflow" };
     mocks.stagesData = [STAGE];
@@ -1418,13 +1418,20 @@ describe("ExecutionPanoramaPage", () => {
         }),
       );
     });
-    await waitFor(() => {
-      expect(
-        mocks.fitView.mock.calls.filter((call) =>
-          JSON.stringify(call[0]).includes("split-1:split-subflow"),
-        ).length,
-      ).toBeGreaterThanOrEqual(2);
+    const splitFitCount = mocks.fitView.mock.calls.filter((call) =>
+      JSON.stringify(call[0]).includes("split-1:split-subflow"),
+    ).length;
+
+    act(() => {
+      mocks.reactFlowProps?.onMove?.(null, { x: -640, y: -180, zoom: 0.72 });
     });
+    await new Promise((resolve) => requestAnimationFrame(resolve));
+
+    expect(
+      mocks.fitView.mock.calls.filter((call) =>
+        JSON.stringify(call[0]).includes("split-1:split-subflow"),
+      ).length,
+    ).toBe(splitFitCount);
     expect(mocks.setCenter).not.toHaveBeenCalled();
   });
 

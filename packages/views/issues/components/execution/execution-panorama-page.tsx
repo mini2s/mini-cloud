@@ -360,6 +360,7 @@ interface ExecutionPanoramaCanvasProps {
   rfEdges: Edge[];
   canvasStages: WorkflowStage[];
   nodeRunMap: Map<string, WorkflowNodeRun>;
+  runtimeSummaryMap: Map<string, WorkflowNodeRuntimeSummary>;
   viewport: Viewport;
   setViewport: (viewport: Viewport) => void;
   setSelectedNodeId: (nodeId: string | null) => void;
@@ -377,6 +378,7 @@ function ExecutionPanoramaCanvas({
   rfEdges,
   canvasStages,
   nodeRunMap,
+  runtimeSummaryMap,
   viewport,
   setViewport,
   setSelectedNodeId,
@@ -401,6 +403,28 @@ function ExecutionPanoramaCanvas({
         .join("|"),
     [rfNodes],
   );
+
+  const splitFocusNodeIdsSignature = useMemo(() => {
+    if (!focusSplitNodeId) {
+      return "";
+    }
+
+    const clusterNodes = rfNodes.filter(
+      (node) =>
+        node.id === focusSplitNodeId ||
+        node.id.startsWith(`${focusSplitNodeId}${SPLIT_CHILD_NODE_ID_PART}`) ||
+        node.id === createSplitSubflowNodeId(focusSplitNodeId),
+    );
+    if (clusterNodes.length <= 1) {
+      return "";
+    }
+
+    const focusNodes = rfNodes.filter(
+      (node) => node.id === createSplitSubflowNodeId(focusSplitNodeId),
+    );
+    const nodeIds = (focusNodes.length > 0 ? focusNodes : clusterNodes).map((node) => node.id);
+    return nodeIds.join("|");
+  }, [focusSplitNodeId, rfNodes]);
 
   useEffect(() => {
     const shouldFitBaseNodes = fittedBaseNodeIdsRef.current !== baseNodeIdsSignature;
@@ -463,54 +487,33 @@ function ExecutionPanoramaCanvas({
   }, [restoreViewportRequest, setReactFlowViewport, viewportInitialized]);
 
   useEffect(() => {
-    if (!focusSplitNodeId || !viewportInitialized) return;
-
-    const clusterNodes = rfNodes.filter(
-      (node) =>
-        node.id === focusSplitNodeId ||
-        node.id.startsWith(`${focusSplitNodeId}${SPLIT_CHILD_NODE_ID_PART}`) ||
-        node.id === createSplitSubflowNodeId(focusSplitNodeId),
-    );
-    if (clusterNodes.length <= 1) return;
-    const focusNodes = rfNodes.filter(
-      (node) => node.id === createSplitSubflowNodeId(focusSplitNodeId),
-    );
-    const nodesToFit = focusNodes.length > 0 ? focusNodes : clusterNodes;
+    if (!focusSplitNodeId || !viewportInitialized || !splitFocusNodeIdsSignature) return;
+    const nodeIds = splitFocusNodeIdsSignature.split("|").filter(Boolean);
+    if (nodeIds.length === 0) return;
 
     let cancelled = false;
-    let settleFrame: number | null = null;
-    let settleTimer: ReturnType<typeof setTimeout> | null = null;
-    const fitSplitSubflow = () =>
-      Promise.resolve(
+    const frame = requestAnimationFrame(() => {
+      void Promise.resolve(
         fitView({
-          nodes: nodesToFit.map((node) => ({ id: node.id })),
+          nodes: nodeIds.map((id) => ({ id })),
           padding: 0.06,
           maxZoom: 1.4,
           duration: 450,
         }),
-      );
-    const frame = requestAnimationFrame(() => {
-      void fitSplitSubflow();
-      settleFrame = requestAnimationFrame(() => {
-        settleTimer = setTimeout(() => {
-          void fitSplitSubflow().then(() => {
-            if (!cancelled) onSplitClusterFocused?.();
-          });
-        }, 80);
+      ).then(() => {
+        if (!cancelled) onSplitClusterFocused?.();
       });
     });
 
     return () => {
       cancelled = true;
       cancelAnimationFrame(frame);
-      if (settleFrame != null) cancelAnimationFrame(settleFrame);
-      if (settleTimer != null) clearTimeout(settleTimer);
     };
   }, [
     fitView,
     focusSplitNodeId,
     onSplitClusterFocused,
-    rfNodes,
+    splitFocusNodeIdsSignature,
     viewportInitialized,
   ]);
 
@@ -537,6 +540,7 @@ function ExecutionPanoramaCanvas({
     <>
       <GlobalNotificationBar
         nodeRunMap={nodeRunMap}
+        runtimeSummaryMap={runtimeSummaryMap}
         onScrollToNode={scrollToNode}
       />
       <div
@@ -553,12 +557,12 @@ function ExecutionPanoramaCanvas({
           nodeTypes={runtimeCanvasNodeTypes}
           edgeTypes={panoramaEdgeTypes}
           readOnly
-          fitView
+          fitView={false}
           fitViewOptions={{
             nodes: rfNodes.map((node) => ({ id: node.id })),
             ...RUNTIME_CANVAS_FIT_VIEW,
           }}
-          reserveStageRail={!fillAvailableHeight}
+          reserveStageRail
           viewportY={viewport.y}
           viewportZoom={viewport.zoom}
           onMove={setViewport}
@@ -1122,6 +1126,7 @@ export function ExecutionPanoramaPage({
           rfEdges={rfEdges}
           canvasStages={canvasStages}
           nodeRunMap={nodeRunMap}
+          runtimeSummaryMap={runtimeSummaryMap}
           viewport={viewport}
           setViewport={setViewport}
           setSelectedNodeId={setSelectedNodeId}

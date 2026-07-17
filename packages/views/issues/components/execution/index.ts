@@ -7,4 +7,4 @@ export type { NodeRunStatusIconProps } from "./node-run-status-icon";
 export { ExecutionDetailPanel } from "./execution-detail-panel";
 export type { ExecutionDetailPanelProps } from "./execution-detail-panel";
 export { GlobalNotificationBar } from "./global-notification-bar";
-export type { GlobalNotificationBarProps, NotificationItem } from "./global-notification-bar";
+export type { GlobalNotificationBarProps } from "./global-notification-bar";

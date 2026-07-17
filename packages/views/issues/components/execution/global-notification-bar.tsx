@@ -1,22 +1,30 @@
 "use client";
 
 import { useMemo } from "react";
-import type { WorkflowNodeRun } from "@multica/core/types";
+import {
+  toWorkflowRuntimeDisplayStatus,
+  type WorkflowNodeRun,
+  type WorkflowNodeRuntimeSummary,
+  type WorkflowRuntimeDisplayStatus,
+} from "@multica/core/types";
 import { cn } from "@multica/ui/lib/utils";
 import { useT } from "@multica/views/i18n";
 import { AlertCircle, CheckCircle2, Clock3 } from "lucide-react";
 
 export interface GlobalNotificationBarProps {
   nodeRunMap: Map<string, WorkflowNodeRun>;
+  runtimeSummaryMap?: Map<string, WorkflowNodeRuntimeSummary>;
   onScrollToNode: (nodeId: string) => void;
 }
 
 interface RunProgressSummary {
   total: number;
   done: number;
+  reviewing: number;
   running: number;
   blocked: number;
   waiting: number;
+  firstReviewingNodeId: string | null;
   firstRunningNodeId: string | null;
   firstBlockedNodeId: string | null;
   firstWaitingNodeId: string | null;
@@ -24,33 +32,33 @@ interface RunProgressSummary {
   elapsedLabel: string;
 }
 
-function isDoneStatus(status: string): boolean {
-  return status === "completed" || status === "critic_approved" || status === "format_ok";
+function displayStatusForRun(
+  nodeId: string,
+  run: WorkflowNodeRun,
+  runtimeSummaryMap?: Map<string, WorkflowNodeRuntimeSummary>,
+): WorkflowRuntimeDisplayStatus {
+  return runtimeSummaryMap?.get(nodeId)?.display_status ?? toWorkflowRuntimeDisplayStatus(run.status);
 }
 
-function isBlockedStatus(status: string): boolean {
-  return status === "blocked" ||
-    status === "failed" ||
-    status === "format_failed" ||
-    status === "critic_rework";
+function isDoneStatus(status: WorkflowRuntimeDisplayStatus): boolean {
+  return status === "completed";
 }
 
-function isRunningStatus(status: string): boolean {
-  return status === "working" ||
-    status === "worker_assigned" ||
-    status === "critic_reviewing" ||
-    status === "format_checking" ||
-    status === "awaiting_critic" ||
-    status === "awaiting_input" ||
-    status === "awaiting_split_review" ||
-    status === "splitting" ||
-    status === "split_active";
+function isBlockedStatus(status: WorkflowRuntimeDisplayStatus): boolean {
+  return status === "blocked";
 }
 
-function runActionPriority(status: string): number {
+function isReviewingStatus(status: WorkflowRuntimeDisplayStatus): boolean {
+  return status === "reviewing";
+}
+
+function isRunningStatus(status: WorkflowRuntimeDisplayStatus): boolean {
+  return status === "in_progress";
+}
+
+function runActionPriority(status: WorkflowRuntimeDisplayStatus): number {
   if (isBlockedStatus(status)) return 50;
-  if (status === "awaiting_critic" || status === "awaiting_split_review") return 40;
-  if (status === "awaiting_input") return 35;
+  if (isReviewingStatus(status)) return 40;
   if (isRunningStatus(status)) return 30;
   if (!isDoneStatus(status)) return 10;
   return 0;
@@ -68,25 +76,36 @@ function formatElapsed(startedAt: string | null | undefined, now = Date.now()): 
   return `${hours}h ${minutes % 60}m`;
 }
 
-function deriveRunProgress(nodeRunMap: Map<string, WorkflowNodeRun>): RunProgressSummary {
-  const entries = [...nodeRunMap.entries()];
-  const runs = entries.map(([, run]) => run);
+function deriveRunProgress(
+  nodeRunMap: Map<string, WorkflowNodeRun>,
+  runtimeSummaryMap?: Map<string, WorkflowNodeRuntimeSummary>,
+): RunProgressSummary {
+  const entries = [...nodeRunMap.entries()].map(([nodeId, run], index) => ({
+    nodeId,
+    run,
+    index,
+    displayStatus: displayStatusForRun(nodeId, run, runtimeSummaryMap),
+  }));
+  const runs = entries.map(({ run }) => run);
   const prioritizedEntries = entries
-    .map(([nodeId, run], index) => ({
-      nodeId,
-      run,
-      index,
-      priority: runActionPriority(run.status),
+    .map((entry) => ({
+      ...entry,
+      priority: runActionPriority(entry.displayStatus),
     }))
     .sort((a, b) => b.priority - a.priority || a.index - b.index);
-  const done = runs.filter((run) => isDoneStatus(run.status)).length;
-  const blocked = runs.filter((run) => isBlockedStatus(run.status)).length;
-  const running = runs.filter((run) => isRunningStatus(run.status)).length;
-  const waiting = Math.max(0, runs.length - done - blocked - running);
-  const firstRunningNodeId = prioritizedEntries.find(({ run }) => isRunningStatus(run.status))?.nodeId ?? null;
-  const firstBlockedNodeId = prioritizedEntries.find(({ run }) => isBlockedStatus(run.status))?.nodeId ?? null;
-  const firstWaitingNodeId = prioritizedEntries.find(({ run }) =>
-    !isDoneStatus(run.status) && !isBlockedStatus(run.status) && !isRunningStatus(run.status)
+  const done = entries.filter((entry) => isDoneStatus(entry.displayStatus)).length;
+  const blocked = entries.filter((entry) => isBlockedStatus(entry.displayStatus)).length;
+  const reviewing = entries.filter((entry) => isReviewingStatus(entry.displayStatus)).length;
+  const running = entries.filter((entry) => isRunningStatus(entry.displayStatus)).length;
+  const waiting = Math.max(0, entries.length - done - blocked - reviewing - running);
+  const firstReviewingNodeId = prioritizedEntries.find((entry) => isReviewingStatus(entry.displayStatus))?.nodeId ?? null;
+  const firstRunningNodeId = prioritizedEntries.find((entry) => isRunningStatus(entry.displayStatus))?.nodeId ?? null;
+  const firstBlockedNodeId = prioritizedEntries.find((entry) => isBlockedStatus(entry.displayStatus))?.nodeId ?? null;
+  const firstWaitingNodeId = prioritizedEntries.find((entry) =>
+    !isDoneStatus(entry.displayStatus) &&
+    !isBlockedStatus(entry.displayStatus) &&
+    !isReviewingStatus(entry.displayStatus) &&
+    !isRunningStatus(entry.displayStatus)
   )?.nodeId ?? null;
   const currentRun = prioritizedEntries.find(({ priority }) => priority > 0)?.run;
   const earliestStart = runs
@@ -97,9 +116,11 @@ function deriveRunProgress(nodeRunMap: Map<string, WorkflowNodeRun>): RunProgres
   return {
     total: runs.length,
     done,
+    reviewing,
     running,
     blocked,
     waiting,
+    firstReviewingNodeId,
     firstRunningNodeId,
     firstBlockedNodeId,
     firstWaitingNodeId,
@@ -118,11 +139,12 @@ function ProgressChip({
   testId: string;
   label: string;
   nodeId: string | null;
-  tone: "running" | "blocked" | "waiting";
+  tone: "running" | "reviewing" | "blocked" | "waiting";
   onScrollToNode: (nodeId: string) => void;
 }) {
   const toneClassName = {
     running: "border-blue-200/70 bg-blue-50/70 text-blue-700 hover:border-blue-300 hover:bg-blue-100/70",
+    reviewing: "border-violet-200/80 bg-violet-50/70 text-violet-700 hover:border-violet-300 hover:bg-violet-100/70",
     blocked: "border-destructive/25 bg-destructive/10 text-destructive hover:border-destructive/40 hover:bg-destructive/15",
     waiting: "border-slate-200 bg-muted/25 text-muted-foreground hover:border-slate-300 hover:bg-muted/50",
   }[tone];
@@ -147,7 +169,7 @@ function ProgressChip({
   );
 }
 
-type ProgressChipTone = "running" | "blocked" | "waiting";
+type ProgressChipTone = "running" | "reviewing" | "blocked" | "waiting";
 
 interface ProgressChipItem {
   key: ProgressChipTone;
@@ -161,19 +183,20 @@ interface ProgressChipItem {
 
 export function GlobalNotificationBar({
   nodeRunMap,
+  runtimeSummaryMap,
   onScrollToNode,
 }: GlobalNotificationBarProps) {
   const { t } = useT("issues");
 
   const progress = useMemo(
-    () => deriveRunProgress(nodeRunMap),
-    [nodeRunMap],
+    () => deriveRunProgress(nodeRunMap, runtimeSummaryMap),
+    [nodeRunMap, runtimeSummaryMap],
   );
 
   if (progress.total === 0) return null;
 
-  const hasActionableNodes = progress.running > 0 || progress.blocked > 0 || progress.waiting > 0;
-  const progressChips: ProgressChipItem[] = [
+  const hasActionableNodes = progress.running > 0 || progress.reviewing > 0 || progress.blocked > 0 || progress.waiting > 0;
+  const progressChips = ([
     {
       key: "blocked",
       testId: "progress-chip-blocked",
@@ -193,6 +216,15 @@ export function GlobalNotificationBar({
       priority: 20,
     },
     {
+      key: "reviewing",
+      testId: "progress-chip-reviewing",
+      label: t(($) => $.execution.notification.reviewing_count, { count: progress.reviewing }),
+      nodeId: progress.firstReviewingNodeId,
+      tone: "reviewing",
+      count: progress.reviewing,
+      priority: 25,
+    },
+    {
       key: "waiting",
       testId: "progress-chip-waiting",
       label: t(($) => $.execution.notification.waiting_count, { count: progress.waiting }),
@@ -201,7 +233,7 @@ export function GlobalNotificationBar({
       count: progress.waiting,
       priority: 10,
     },
-  ].sort((a, b) => {
+  ] satisfies ProgressChipItem[]).sort((a, b) => {
     const activeDelta = Number(b.count > 0) - Number(a.count > 0);
     if (activeDelta !== 0) return activeDelta;
     return b.priority - a.priority;

@@ -44,6 +44,7 @@ const i18nMock = vi.hoisted(() => {
     split_cancelling: "Cancelling...",
     split_confirm_create: "Confirm create {{count}}",
     split_confirm_create_short: "Confirm create",
+    split_approve_dialog_cancel: "Cancel",
     split_confirm_empty: "Confirm no split needed",
     split_creating: "Creating...",
     split_no_creatable_tasks: "No child issues are ready to create yet",
@@ -556,6 +557,8 @@ describe("SplitReviewPanel", () => {
 
     await userEvent.click(screen.getByRole("button", { name: "Confirm create 1" }));
     expect(screen.getByText("Create child issues?")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Cancel" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Cancel split" })).not.toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "Confirm create" }));
 
     expect(mocks.approveMutateAsync).toHaveBeenCalledWith({
