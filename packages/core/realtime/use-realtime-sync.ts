@@ -33,6 +33,7 @@ import { onInboxNew, onInboxInvalidate, onInboxIssueStatusChanged, onInboxIssueD
 import { inboxKeys } from "../inbox/queries";
 import { notificationPreferenceOptions } from "../notification-preferences/queries";
 import { workspaceKeys, workspaceListOptions } from "../workspace/queries";
+import { workflowKeys } from "../workflows/queries";
 import type { Workspace } from "../types/workspace";
 import { chatKeys } from "../chat/queries";
 import { useChatStore } from "../chat";
@@ -159,6 +160,7 @@ function invalidateWorkspaceScopedQueries(qc: QueryClient): void {
     qc.invalidateQueries({ queryKey: projectKeys.all(wsId) });
     qc.invalidateQueries({ queryKey: runtimeKeys.all(wsId) });
     qc.invalidateQueries({ queryKey: autopilotKeys.all(wsId) });
+    qc.invalidateQueries({ queryKey: workflowKeys.all(wsId) });
     qc.invalidateQueries({ queryKey: agentTaskSnapshotKeys.all(wsId) });
     qc.invalidateQueries({ queryKey: agentActivityKeys.all(wsId) });
     qc.invalidateQueries({ queryKey: agentRunCountsKeys.all(wsId) });
@@ -242,6 +244,10 @@ export function useRealtimeSync(
         const wsId = getCurrentWsId();
         if (wsId) qc.invalidateQueries({ queryKey: projectKeys.all(wsId) });
       },
+      project_resource: () => {
+        const wsId = getCurrentWsId();
+        if (wsId) qc.invalidateQueries({ queryKey: projectKeys.all(wsId) });
+      },
       squad: () => {
         const wsId = getCurrentWsId();
         if (wsId) {
@@ -280,6 +286,10 @@ export function useRealtimeSync(
       autopilot: () => {
         const wsId = getCurrentWsId();
         if (wsId) qc.invalidateQueries({ queryKey: autopilotKeys.all(wsId) });
+      },
+      workflow: () => {
+        const wsId = getCurrentWsId();
+        if (wsId) qc.invalidateQueries({ queryKey: workflowKeys.all(wsId) });
       },
       github_installation: () => {
         const wsId = getCurrentWsId();
@@ -360,6 +370,7 @@ export function useRealtimeSync(
       "reaction:added", "reaction:removed",
       "issue_reaction:added", "issue_reaction:removed",
       "subscriber:added", "subscriber:removed",
+      "workflow:node_run_updated",
       "daemon:heartbeat",
       // Chat events are handled explicitly below; do not double-invalidate.
       "chat:message", "chat:done", "chat:session_read", "chat:session_deleted",
