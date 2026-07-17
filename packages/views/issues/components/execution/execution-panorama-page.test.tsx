@@ -6,7 +6,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactNode } from "react";
 import { ExecutionPanoramaPage, decorateRuntimeEdges } from "./execution-panorama-page";
-import type { Edge } from "@xyflow/react";
+import type { Edge, Viewport } from "@xyflow/react";
 
 // ---------------------------------------------------------------------------
 // Hoisted mock state — lets each test control query behaviour
@@ -31,6 +31,7 @@ const mocks = vi.hoisted(() => ({
   onNodeClick: vi.fn(),
   fitView: vi.fn(),
   setCenter: vi.fn(),
+  setReactFlowViewport: vi.fn(),
   getViewport: vi.fn(() => ({ x: 0, y: 24, zoom: 0.95 })),
   nodesInitialized: true,
   viewportInitialized: true,
@@ -52,6 +53,7 @@ const mocks = vi.hoisted(() => ({
     }>;
     onNodeClick?: (event: unknown, node: { id: string; data?: Record<string, unknown> }) => void;
     onNodeDoubleClick?: (event: unknown, node: { id: string; data?: Record<string, unknown> }) => void;
+    onMove?: (event: unknown, viewport: Viewport) => void;
   },
 }));
 
@@ -309,6 +311,7 @@ vi.mock("@xyflow/react", () => ({
     fitViewOptions?: { maxZoom?: number; padding?: number };
     onNodeClick?: (event: unknown, node: { id: string; data?: Record<string, unknown> }) => void;
     onNodeDoubleClick?: (event: unknown, node: { id: string; data?: Record<string, unknown> }) => void;
+    onMove?: (event: unknown, viewport: Viewport) => void;
     children?: ReactNode;
   }) => {
     mocks.reactFlowProps = {
@@ -316,6 +319,7 @@ vi.mock("@xyflow/react", () => ({
       edges: props.edges ?? [],
       onNodeClick: props.onNodeClick,
       onNodeDoubleClick: props.onNodeDoubleClick,
+      onMove: props.onMove,
     };
     return (
       <div
@@ -337,6 +341,7 @@ vi.mock("@xyflow/react", () => ({
   useReactFlow: () => ({
     fitView: mocks.fitView,
     setCenter: mocks.setCenter,
+    setViewport: mocks.setReactFlowViewport,
     getViewport: mocks.getViewport,
     viewportInitialized: mocks.viewportInitialized,
   }),
@@ -1396,6 +1401,7 @@ describe("ExecutionPanoramaPage", () => {
     });
     mocks.fitView.mockClear();
     mocks.setCenter.mockClear();
+    mocks.setReactFlowViewport.mockClear();
 
     const splitNode = mocks.reactFlowProps?.nodes.find((node) => node.id === "split-1");
     act(() => {
@@ -1412,7 +1418,105 @@ describe("ExecutionPanoramaPage", () => {
         }),
       );
     });
+    await waitFor(() => {
+      expect(
+        mocks.fitView.mock.calls.filter((call) =>
+          JSON.stringify(call[0]).includes("split-1:split-subflow"),
+        ).length,
+      ).toBeGreaterThanOrEqual(2);
+    });
     expect(mocks.setCenter).not.toHaveBeenCalled();
+  });
+
+  it("focuses the split subflow even when ReactFlow never reports initialized nodes", async () => {
+    mocks.isLoading = false;
+    mocks.workflowData = { id: "wf-1", title: "Test Workflow" };
+    mocks.stagesData = [STAGE];
+    mocks.nodesData = [SPLIT_NODE];
+    mocks.nodeRunsData = [SPLIT_NODE_RUN];
+    mocks.canvasSummaryData = {
+      node_runs: mocks.nodeRunsData,
+      node_runtime_summaries: [],
+    };
+    mocks.agentsData = [AGENT];
+    mocks.splitTasksByNodeRunId = {
+      "split-run-1": SPLIT_TASKS_RESPONSE,
+    };
+    mocks.nodesInitialized = false;
+
+    render(
+      <Wrapper>
+        <ExecutionPanoramaPage workflowId="wf-1" runId="run-1" wsId="ws-1" issueId="issue-1" />
+      </Wrapper>,
+    );
+
+    mocks.fitView.mockClear();
+
+    const splitNode = mocks.reactFlowProps?.nodes.find((node) => node.id === "split-1");
+    act(() => {
+      (splitNode?.data?.onSplitNodeToggle as (nodeId: string) => void)("split-1");
+    });
+
+    await waitFor(() => {
+      expect(mocks.fitView).toHaveBeenCalledWith(
+        expect.objectContaining({
+          nodes: [{ id: "split-1:split-subflow" }],
+          padding: 0.06,
+          maxZoom: 1.4,
+          duration: 450,
+        }),
+      );
+    });
+  });
+
+  it("restores the previous viewport when collapsing an expanded split subflow", async () => {
+    mocks.isLoading = false;
+    mocks.workflowData = { id: "wf-1", title: "Test Workflow" };
+    mocks.stagesData = [STAGE];
+    mocks.nodesData = [SPLIT_NODE];
+    mocks.nodeRunsData = [SPLIT_NODE_RUN];
+    mocks.canvasSummaryData = {
+      node_runs: mocks.nodeRunsData,
+      node_runtime_summaries: [],
+    };
+    mocks.agentsData = [AGENT];
+    mocks.splitTasksByNodeRunId = {
+      "split-run-1": SPLIT_TASKS_RESPONSE,
+    };
+    const beforeExpandViewport = { x: -360, y: 112, zoom: 1.18 };
+
+    render(
+      <Wrapper>
+        <ExecutionPanoramaPage workflowId="wf-1" runId="run-1" wsId="ws-1" issueId="issue-1" />
+      </Wrapper>,
+    );
+
+    act(() => {
+      mocks.reactFlowProps?.onMove?.(null, beforeExpandViewport);
+    });
+    mocks.fitView.mockClear();
+    mocks.setReactFlowViewport.mockClear();
+
+    let splitNode = mocks.reactFlowProps?.nodes.find((node) => node.id === "split-1");
+    act(() => {
+      (splitNode?.data?.onSplitNodeToggle as (nodeId: string) => void)("split-1");
+    });
+
+    await waitFor(() => {
+      expect(mocks.reactFlowProps?.nodes.find((node) => node.id === "split-1:split-subflow")).toBeTruthy();
+    });
+
+    splitNode = mocks.reactFlowProps?.nodes.find((node) => node.id === "split-1");
+    act(() => {
+      (splitNode?.data?.onSplitNodeToggle as (nodeId: string) => void)("split-1");
+    });
+
+    await waitFor(() => {
+      expect(mocks.setReactFlowViewport).toHaveBeenCalledWith(
+        beforeExpandViewport,
+        expect.objectContaining({ duration: 450 }),
+      );
+    });
   });
 
   it("opens a detail panel for a split child issue node before navigating to the issue", async () => {

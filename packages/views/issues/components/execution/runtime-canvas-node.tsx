@@ -2,6 +2,7 @@
 
 import { memo } from "react";
 import { Handle, Position, type NodeProps } from "@xyflow/react";
+import { ChevronLeft } from "lucide-react";
 import type {
   WorkflowNode,
   WorkflowNodeRun,
@@ -65,6 +66,7 @@ export interface RuntimeSplitSubflowData extends Record<string, unknown> {
   childIssues: RuntimeSplitSubflowChildIssue[];
   dependencyEdges: RuntimeSplitSubflowDependency[];
   onOpenChild: (nodeId: string) => void;
+  onCollapse?: (nodeId: string) => void;
 }
 
 export const RuntimeCanvasNode = memo(function RuntimeCanvasNode({
@@ -112,6 +114,7 @@ export const RuntimeSplitSubflowNode = memo(function RuntimeSplitSubflowNode({
   const edgeHeight = maxRows * RUNTIME_SPLIT_SUBFLOW_CARD_HEIGHT +
     Math.max(0, maxRows - 1) * RUNTIME_SPLIT_SUBFLOW_ROW_GAP;
   const safeMarkerId = `${id.replace(/[^a-zA-Z0-9_-]/g, "-")}-subflow-arrow`;
+  const collapseLabel = t(($) => $.execution.card.split_child_collapse);
   const edgePath = (edge: RuntimeSplitSubflowDependency) => {
     const source = childById.get(edge.sourceNodeId);
     const target = childById.get(edge.targetNodeId);
@@ -148,9 +151,26 @@ export const RuntimeSplitSubflowNode = memo(function RuntimeSplitSubflowNode({
             {t(($) => $.execution.card.split_child_count, { count: nodeData.childIssues.length })}
           </p>
         </div>
-        <span className="shrink-0 rounded-full border border-border/80 bg-background px-2 py-1 text-[10px] font-semibold text-muted-foreground shadow-sm">
-          {nodeData.childIssues.length}
-        </span>
+        <div className="flex shrink-0 items-center gap-1">
+          <span className="rounded-full border border-border/80 bg-background px-2 py-1 text-[10px] font-semibold text-muted-foreground shadow-sm">
+            {nodeData.childIssues.length}
+          </span>
+          {nodeData.onCollapse ? (
+            <button
+              type="button"
+              aria-label={collapseLabel}
+              title={collapseLabel}
+              data-testid="runtime-split-subflow-collapse"
+              className="nodrag nopan inline-flex h-7 w-7 items-center justify-center rounded-md border border-primary/40 bg-background text-primary shadow-[inset_0_0_0_1px_hsl(var(--primary)/0.10)] transition-colors hover:border-primary/60 hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              onClick={(event) => {
+                event.stopPropagation();
+                nodeData.onCollapse?.(nodeData.splitNodeId);
+              }}
+            >
+              <ChevronLeft className="h-3.5 w-3.5" />
+            </button>
+          ) : null}
+        </div>
       </div>
       <div
         className="relative"

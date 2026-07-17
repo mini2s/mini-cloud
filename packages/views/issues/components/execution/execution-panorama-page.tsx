@@ -114,6 +114,11 @@ interface SplitChildIssueDetail {
   workerName: string | null;
 }
 
+interface SplitViewportRestoreRequest {
+  requestId: number;
+  viewport: Viewport;
+}
+
 function splitTaskDisplayStatus(status: SplitTask["status"]): WorkflowRuntimeDisplayStatus {
   switch (status) {
     case "running":
@@ -363,6 +368,7 @@ interface ExecutionPanoramaCanvasProps {
   initialFocusNodeId?: string | null;
   focusSplitNodeId?: string | null;
   onSplitClusterFocused?: () => void;
+  restoreViewportRequest?: SplitViewportRestoreRequest | null;
   fillAvailableHeight?: boolean;
 }
 
@@ -379,9 +385,10 @@ function ExecutionPanoramaCanvas({
   initialFocusNodeId,
   focusSplitNodeId,
   onSplitClusterFocused,
+  restoreViewportRequest,
   fillAvailableHeight = false,
 }: ExecutionPanoramaCanvasProps) {
-  const { fitView, getViewport, setCenter, viewportInitialized } = useReactFlow();
+  const { fitView, getViewport, setCenter, setViewport: setReactFlowViewport, viewportInitialized } = useReactFlow();
   const nodesInitialized = useNodesInitialized();
   const fittedBaseNodeIdsRef = useRef<string | null>(null);
   const initialFocusedBaseNodeIdsRef = useRef<string | null>(null);
@@ -448,7 +455,15 @@ function ExecutionPanoramaCanvas({
   }, [baseNodeIdsSignature, fitView, initialFocusNodeId, nodesInitialized, rfNodes, setCenter, viewportInitialized]);
 
   useEffect(() => {
-    if (!focusSplitNodeId || !viewportInitialized || !nodesInitialized) return;
+    if (!restoreViewportRequest || !viewportInitialized) return;
+
+    void Promise.resolve(
+      setReactFlowViewport(restoreViewportRequest.viewport, { duration: 450 }),
+    );
+  }, [restoreViewportRequest, setReactFlowViewport, viewportInitialized]);
+
+  useEffect(() => {
+    if (!focusSplitNodeId || !viewportInitialized) return;
 
     const clusterNodes = rfNodes.filter(
       (node) =>
@@ -463,27 +478,37 @@ function ExecutionPanoramaCanvas({
     const nodesToFit = focusNodes.length > 0 ? focusNodes : clusterNodes;
 
     let cancelled = false;
-    const frame = requestAnimationFrame(() => {
-      void Promise.resolve(
+    let settleFrame: number | null = null;
+    let settleTimer: ReturnType<typeof setTimeout> | null = null;
+    const fitSplitSubflow = () =>
+      Promise.resolve(
         fitView({
           nodes: nodesToFit.map((node) => ({ id: node.id })),
           padding: 0.06,
           maxZoom: 1.4,
           duration: 450,
         }),
-      ).then(() => {
-        if (!cancelled) onSplitClusterFocused?.();
+      );
+    const frame = requestAnimationFrame(() => {
+      void fitSplitSubflow();
+      settleFrame = requestAnimationFrame(() => {
+        settleTimer = setTimeout(() => {
+          void fitSplitSubflow().then(() => {
+            if (!cancelled) onSplitClusterFocused?.();
+          });
+        }, 80);
       });
     });
 
     return () => {
       cancelled = true;
       cancelAnimationFrame(frame);
+      if (settleFrame != null) cancelAnimationFrame(settleFrame);
+      if (settleTimer != null) clearTimeout(settleTimer);
     };
   }, [
     fitView,
     focusSplitNodeId,
-    nodesInitialized,
     onSplitClusterFocused,
     rfNodes,
     viewportInitialized,
@@ -586,6 +611,9 @@ export function ExecutionPanoramaPage({
   const [retryingNodeRunId, setRetryingNodeRunId] = useState<string | null>(null);
   const [expandedSplitNodeIds, setExpandedSplitNodeIds] = useState<Set<string>>(() => new Set());
   const [focusSplitNodeId, setFocusSplitNodeId] = useState<string | null>(null);
+  const splitViewportByNodeIdRef = useRef<Map<string, Viewport>>(new Map());
+  const restoreViewportRequestIdRef = useRef(0);
+  const [restoreViewportRequest, setRestoreViewportRequest] = useState<SplitViewportRestoreRequest | null>(null);
 
   const allStages: WorkflowStage[] = stages ?? [];
   const allNodes: WorkflowNode[] = nodes ?? [];
@@ -636,6 +664,19 @@ export function ExecutionPanoramaPage({
 
   const handleToggleSplitNode = useCallback((nodeId: string) => {
     const isExpanded = expandedSplitNodeIds.has(nodeId);
+    if (isExpanded) {
+      const restoreViewport = splitViewportByNodeIdRef.current.get(nodeId);
+      splitViewportByNodeIdRef.current.delete(nodeId);
+      if (restoreViewport) {
+        setViewport(restoreViewport);
+        setRestoreViewportRequest({
+          requestId: ++restoreViewportRequestIdRef.current,
+          viewport: restoreViewport,
+        });
+      }
+    } else {
+      splitViewportByNodeIdRef.current.set(nodeId, viewport);
+    }
     setExpandedSplitNodeIds((current) => {
       const next = new Set(current);
       if (next.has(nodeId)) {
@@ -646,7 +687,7 @@ export function ExecutionPanoramaPage({
       return next;
     });
     setFocusSplitNodeId(isExpanded ? null : nodeId);
-  }, [expandedSplitNodeIds]);
+  }, [expandedSplitNodeIds, viewport]);
 
   const handleSplitClusterFocused = useCallback(() => {
     setFocusSplitNodeId(null);
@@ -986,6 +1027,7 @@ export function ExecutionPanoramaPage({
         childIssues,
         dependencyEdges,
         onOpenChild: setSelectedNodeId,
+        onCollapse: handleToggleSplitNode,
       },
     });
     splitSubflowEdges.push({
@@ -1088,6 +1130,7 @@ export function ExecutionPanoramaPage({
           initialFocusNodeId={runtimeFocusNodeId}
           focusSplitNodeId={focusSplitNodeId}
           onSplitClusterFocused={handleSplitClusterFocused}
+          restoreViewportRequest={restoreViewportRequest}
           fillAvailableHeight={fillAvailableHeight}
         />
       </ReactFlowProvider>

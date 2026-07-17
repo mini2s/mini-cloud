@@ -177,4 +177,47 @@ describe("RuntimeSplitSubflowNode", () => {
     expect(onOpenChild).toHaveBeenCalledWith("split-1:split-task:task-1");
     expect(onParentClick).not.toHaveBeenCalled();
   });
+
+  it("collapses the subflow from the panel header without overriding selection", () => {
+    const onCollapse = vi.fn();
+    const onParentClick = vi.fn();
+
+    render(
+      <div onClick={onParentClick}>
+        <RuntimeSplitSubflowNode
+          {...({
+            id: "split-1:split-subflow",
+            data: {
+              splitNodeId: "split-1",
+              parentTitle: "Task split",
+              childIssues: [
+                {
+                  nodeId: "split-1:split-task:task-1",
+                  issueId: "child-1",
+                  title: "Layout",
+                  description: "",
+                  displayStatus: "in_progress",
+                  displayStatusLabel: "In progress",
+                  workerName: "Implementation workflow",
+                  level: 0,
+                  rowIndex: 0,
+                  dependencyNodeIds: [],
+                  workflowNode: childWorkflowNode("split-1:split-task:task-1", "Layout"),
+                  runtimeSummary: runtimeSummary("split-1:split-task:task-1", "in_progress"),
+                },
+              ],
+              dependencyEdges: [],
+              onOpenChild: vi.fn(),
+              onCollapse,
+            },
+          } as any)}
+        />
+      </div>,
+    );
+
+    fireEvent.click(screen.getByTestId("runtime-split-subflow-collapse"));
+
+    expect(onCollapse).toHaveBeenCalledWith("split-1");
+    expect(onParentClick).not.toHaveBeenCalled();
+  });
 });
