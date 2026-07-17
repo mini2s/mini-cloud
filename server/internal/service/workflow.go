@@ -1287,16 +1287,24 @@ func (s *WorkflowService) DispatchAgentTaskWithContextExtras(ctx context.Context
 
 // ── Format checker ───────────────────────────────────────────────────────────
 
-// executeFormatChecker validates the node run's input against the node's JSON
-// Schema (if configured), then transitions accordingly.
+// executeFormatChecker advances format checking. Runtime input validation from
+// task JSON Schema is retired; format_schema is still used as node metadata by
+// split and gateway handling.
 func (s *WorkflowService) executeFormatChecker(ctx context.Context, qtx *db.Queries, nodeRun db.MulticaWorkflowNodeRun) error {
 	node, err := qtx.GetWorkflowNode(ctx, nodeRun.WorkflowNodeID)
 	if err != nil {
 		return err
 	}
 
-	if len(node.FormatSchema) == 0 {
-		// No format schema → format_ok directly.
+	if len(node.FormatSchema) == 0 || !shouldValidateNodeInputFormatSchema(node.FormatSchema) {
+		// Continue to worker dispatch while preserving node metadata handling downstream.
+		if isRetiredTaskJSONSchema(node.FormatSchema) {
+			slog.Warn("workflow: skipping retired task format_schema validation",
+				"node_run_id", util.UUIDToString(nodeRun.ID),
+				"workflow_node_id", util.UUIDToString(nodeRun.WorkflowNodeID),
+				"node_title", nodeRun.NodeTitle,
+			)
+		}
 		if _, err := s.TransitionNodeRun(ctx, nodeRun, NodeRunStatusFormatOk); err != nil {
 			return err
 		}
@@ -1336,6 +1344,28 @@ func (s *WorkflowService) executeFormatChecker(ctx context.Context, qtx *db.Quer
 		return err
 	}
 	return s.dispatchWorker(ctx, updated)
+}
+
+func shouldValidateNodeInputFormatSchema(_ json.RawMessage) bool {
+	return false
+}
+
+func isRetiredTaskJSONSchema(raw json.RawMessage) bool {
+	if len(raw) == 0 {
+		return false
+	}
+	var schema struct {
+		Type string `json:"type"`
+	}
+	if err := json.Unmarshal(raw, &schema); err != nil {
+		return false
+	}
+	switch schema.Type {
+	case "object", "array", "string", "number", "boolean", "null":
+		return true
+	default:
+		return false
+	}
 }
 
 // validateJSONSchema validates input JSON against a JSON Schema.
