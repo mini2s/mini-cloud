@@ -74,3 +74,4 @@ docker-compose.local.yml
 
 # Local personal Docker Compose support files (initdb seeds, etc.)
 docker/local-stack/
+e2e/.cache/
