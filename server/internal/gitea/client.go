@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -284,32 +285,88 @@ func (c *Client) AdminCreateUser(ctx context.Context, username, email string) er
 
 // CreateUserToken mints a PAT for the user. Requires admin token (admin can
 // create tokens for any user). Returns the raw token (sha1).
+//
+// Gitea's POST /users/{username}/tokens endpoint REJECTS token auth with 401
+// ("auth required") — it only accepts HTTP basic auth. The admin token works
+// as the basic-auth password (Gitea resolves the user from the token itself;
+// the basic-auth username is ignored), so we send Basic with an arbitrary
+// username and the admin token as the password. This is Gitea 1.22 behavior.
 func (c *Client) CreateUserToken(ctx context.Context, username, tokenName string) (string, error) {
-	resp, err := c.do(ctx, http.MethodPost, "/users/"+username+"/tokens", map[string]any{
+	body, err := json.Marshal(map[string]any{
 		"name":   tokenName,
 		"scopes": []string{"write:repository", "read:user", "read:organization"},
 	})
 	if err != nil {
 		return "", err
 	}
-	defer resp.Body.Close()
-	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
-		var out struct {
-			Sha1 string `json:"sha1"`
-		}
-		if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
-			return "", fmt.Errorf("gitea create token: invalid response: %w", err)
-		}
-		return out.Sha1, nil
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
+		c.baseURL+"/api/v1/users/"+username+"/tokens", bytes.NewReader(body))
+	if err != nil {
+		return "", err
 	}
-	return "", decodeError(resp)
+	// Basic-auth, NOT "token <admin>": the /users/{name}/tokens endpoint
+	// requires it. Username is arbitrary; password is the admin token.
+	req.SetBasicAuth("token", c.token)
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return "", decodeError(resp)
+	}
+	var out struct {
+		Sha1 string `json:"sha1"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		return "", fmt.Errorf("gitea create token: invalid response: %w", err)
+	}
+	return out.Sha1, nil
 }
 
 // ── Org membership ──────────────────────────────────────────────────────────
 
-// AddOrgMember adds a user to an org (member = write by default at org level).
+// OrgTeam is the minimal Gitea team shape AddOrgMember needs.
+type OrgTeam struct {
+	ID   int64  `json:"id"`
+	Name string `json:"name"`
+}
+
+// ListOrgTeams lists the teams in an org. Gitea grants org membership via
+// teams — there is no PUT /orgs/{org}/members/{username} endpoint (it 405s).
+func (c *Client) ListOrgTeams(ctx context.Context, org string) ([]OrgTeam, error) {
+	resp, err := c.do(ctx, http.MethodGet, "/orgs/"+org+"/teams", nil)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, decodeError(resp)
+	}
+	var teams []OrgTeam
+	if err := json.NewDecoder(resp.Body).Decode(&teams); err != nil {
+		return nil, fmt.Errorf("gitea list org teams: invalid response: %w", err)
+	}
+	return teams, nil
+}
+
+// AddOrgMember adds a user to the org by attaching them to the org's first
+// team. Gitea has NO direct add-org-member endpoint — PUT /orgs/{org}/members/{u}
+// returns 405; membership is granted through a team. Org creation seeds an
+// Owners team (admin permission) as the first team, so the bot gains write
+// access to the org's repos via that team.
 func (c *Client) AddOrgMember(ctx context.Context, org, username string) error {
-	resp, err := c.do(ctx, http.MethodPut, "/orgs/"+org+"/members/"+username, nil)
+	teams, err := c.ListOrgTeams(ctx, org)
+	if err != nil {
+		return fmt.Errorf("list org teams: %w", err)
+	}
+	if len(teams) == 0 {
+		return fmt.Errorf("org %s has no team to add %s to", org, username)
+	}
+	teamID := teams[0].ID
+	resp, err := c.do(ctx, http.MethodPut,
+		"/teams/"+strconv.FormatInt(teamID, 10)+"/members/"+username, nil)
 	if err != nil {
 		return err
 	}

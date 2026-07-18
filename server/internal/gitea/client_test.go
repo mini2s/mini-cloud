@@ -232,6 +232,11 @@ func TestClient_CreateUserToken(t *testing.T) {
 	if got.body["name"] != "workspace-pat" {
 		t.Errorf("body = %+v", got.body)
 	}
+	// Gitea's /users/{name}/tokens rejects token auth (401); it requires basic
+	// auth with the admin token as the password.
+	if !strings.HasPrefix(got.auth, "Basic ") {
+		t.Errorf("auth = %q, want Basic (token endpoint requires basic-auth)", got.auth)
+	}
 }
 
 func TestClient_AdminCreateUser_Idempotent(t *testing.T) {
@@ -280,8 +285,24 @@ func TestClient_ProtectBranch_Idempotent(t *testing.T) {
 }
 
 func TestClient_AddOrgMember(t *testing.T) {
-	var got recordedReq
-	srv := newTestServer(t, http.StatusNoContent, ``, &got)
+	// AddOrgMember is TWO calls against real Gitea: GET /orgs/{org}/teams, then
+	// PUT /teams/{id}/members/{u} — there is NO PUT /orgs/{org}/members/{u}
+	// (it 405s). The fake serves both endpoints and records each.
+	var gotTeam, gotMember recordedReq
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/teams") && !strings.Contains(r.URL.Path, "/members/"):
+			gotTeam.method, gotTeam.path, gotTeam.auth = r.Method, r.URL.Path, r.Header.Get("Authorization")
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte(`[{"id":7,"name":"Owners"}]`))
+		case strings.Contains(r.URL.Path, "/members/"):
+			gotMember.method, gotMember.path, gotMember.auth = r.Method, r.URL.Path, r.Header.Get("Authorization")
+			w.WriteHeader(http.StatusNoContent)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
 	defer srv.Close()
 	c := NewClient(Config{BaseURL: srv.URL, Token: "admin-tok"})
 	c.httpClient = srv.Client()
@@ -289,7 +310,32 @@ func TestClient_AddOrgMember(t *testing.T) {
 	if err := c.AddOrgMember(context.Background(), "t-7f3c9a1e", "mc-bot-7f3c9a1e"); err != nil {
 		t.Fatalf("AddOrgMember: %v", err)
 	}
-	if got.method != http.MethodPut || !strings.Contains(got.path, "/orgs/t-7f3c9a1e/members/mc-bot-7f3c9a1e") {
-		t.Errorf("unexpected: %s %s", got.method, got.path)
+	if gotTeam.method != http.MethodGet || !strings.HasSuffix(gotTeam.path, "/orgs/t-7f3c9a1e/teams") {
+		t.Errorf("list teams request: %s %s", gotTeam.method, gotTeam.path)
+	}
+	if gotTeam.auth != "token admin-tok" {
+		t.Errorf("teams auth = %q, want token admin-tok", gotTeam.auth)
+	}
+	if gotMember.method != http.MethodPut || !strings.HasSuffix(gotMember.path, "/teams/7/members/mc-bot-7f3c9a1e") {
+		t.Errorf("add member request: %s %s", gotMember.method, gotMember.path)
+	}
+}
+
+func TestClient_ListOrgTeams(t *testing.T) {
+	var got recordedReq
+	srv := newTestServer(t, http.StatusOK, `[{"id":3,"name":"Owners"},{"id":4,"name":"Devs"}]`, &got)
+	defer srv.Close()
+	c := NewClient(Config{BaseURL: srv.URL, Token: "admin-tok"})
+	c.httpClient = srv.Client()
+
+	teams, err := c.ListOrgTeams(context.Background(), "t-7f3c9a1e")
+	if err != nil {
+		t.Fatalf("ListOrgTeams: %v", err)
+	}
+	if len(teams) != 2 || teams[0].ID != 3 || teams[0].Name != "Owners" {
+		t.Errorf("teams = %+v", teams)
+	}
+	if got.method != http.MethodGet || !strings.HasSuffix(got.path, "/orgs/t-7f3c9a1e/teams") {
+		t.Errorf("request: %s %s", got.method, got.path)
 	}
 }
