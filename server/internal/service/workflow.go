@@ -899,6 +899,16 @@ func (s *WorkflowService) ReviewNodeRun(ctx context.Context, nodeRunID pgtype.UU
 		return err
 	}
 
+	// Archive the review comment to Gitea as a document (journey 7: review
+	// opinion is itself a deliverable, archived to the repo). Best-effort.
+	if comment != "" {
+		decision := "approved"
+		if !approved {
+			decision = "rejected"
+		}
+		s.ArchiveReviewComment(context.Background(), nodeRun, decision, comment)
+	}
+
 	// Approve path: the tx persisted critic_approved. Merge document PRs
 	// (external, only when Gitea is configured) THEN complete — or block on
 	// merge failure. UpdateWorkflowNodeRunStatus is called DIRECTLY (not

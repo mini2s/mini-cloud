@@ -1193,6 +1193,22 @@ func (h *Handler) ClaimTaskByRuntime(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Inject the critic's review feedback when this is a rework (the node-run
+	// was rejected + has a critic_comment). Journey 8: "驳回 → 评审意见注入
+	// 到对应运行时、对应会话、对应工作目录，让它基于意见去优化改进".
+	if task.WorkflowNodeRunID.Valid {
+		if nr, err := h.Queries.GetWorkflowNodeRun(r.Context(), task.WorkflowNodeRunID); err == nil && nr.CriticComment.Valid && nr.CriticComment.String != "" {
+			if resp.Agent != nil {
+				if resp.Agent.Instructions != "" {
+					resp.Agent.Instructions += "\n\n"
+				}
+				resp.Agent.Instructions += "## Review Feedback (your previous submission was rejected)\n\n" +
+					"The reviewer rejected your previous work. Address the feedback below, improve, and resubmit:\n\n" +
+					"> " + nr.CriticComment.String + "\n"
+			}
+		}
+	}
+
 	// Resolve the runtime owner's profile description so the daemon can
 	// inject "## Requesting User" into the brief. Empty fields short-circuit
 	// the heading entirely on the daemon side; cloud / system runtimes with

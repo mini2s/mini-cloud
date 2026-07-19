@@ -191,17 +191,44 @@ func (s *WorkflowService) syncWorkspaceMembers(ctx context.Context, workspaceID 
 	}
 
 	wsIDStr := util.UUIDToString(workspaceID)
+	wsUsernames := make(map[string]bool, len(members))
 	for _, m := range members {
 		if !m.UserID.Valid {
 			continue
 		}
-		if _, err := gitea.ProvisionMember(ctx, s.Gitea, gitea.MemberParams{
+		uname, err := gitea.ProvisionMember(ctx, s.Gitea, gitea.MemberParams{
 			WorkspaceID: wsIDStr,
 			UserID:      util.UUIDToString(m.UserID),
 			Email:       m.UserEmail.String,
-		}); err != nil {
+		})
+		if err != nil {
 			slog.Warn("gitea sync member: provision",
 				"workspace_id", wsIDStr, "user_id", util.UUIDToString(m.UserID), "error", err)
+		}
+		if uname != "" {
+			wsUsernames[uname] = true
+		}
+	}
+
+	// Full-sync: remove Gitea org members who are no longer workspace members
+	// (journey 2: 增删成员). Keep the bot + the Gitea admin.
+	org := gitea.OrgName(wsIDStr)
+	botName := gitea.BotUsername(wsIDStr)
+	giteaMembers, err := s.Gitea.ListOrgMembers(ctx, org)
+	if err != nil {
+		slog.Warn("gitea sync members: list org members", "error", err)
+	} else {
+		for _, gm := range giteaMembers {
+			if gm.Login == botName || gm.Login == "multica-admin" {
+				continue
+			}
+			if !wsUsernames[gm.Login] {
+				if err := s.Gitea.RemoveOrgMember(ctx, org, gm.Login); err != nil {
+					slog.Warn("gitea sync members: remove departed", "username", gm.Login, "error", err)
+				} else {
+					slog.Info("gitea sync members: removed departed member", "username", gm.Login)
+				}
+			}
 		}
 	}
 
@@ -231,6 +258,122 @@ func (s *WorkflowService) failRun(ctx context.Context, run db.MulticaWorkflowRun
 		slog.Error("gitea: mark run failed after scaffold/provision failure",
 			"run_id", util.UUIDToString(run.ID), "error", err)
 	}
+}
+
+// ProvisionWorkspaceGitea sets up the workspace's Gitea namespace on workspace
+// creation: creates the team-ns org, provisions the bot (user + PAT, stored in
+// workspace.settings), and syncs workspace members into the org. Best-effort +
+// async (called from a goroutine): errors are logged, never block workspace
+// creation. Dormant when Gitea is not configured.
+func (s *WorkflowService) ProvisionWorkspaceGitea(ctx context.Context, workspaceID pgtype.UUID) {
+	defer func() {
+		if r := recover(); r != nil {
+			slog.Error("panic in ProvisionWorkspaceGitea",
+				"workspace_id", util.UUIDToString(workspaceID), "panic", r)
+		}
+	}()
+
+	if s.Gitea == nil || !s.Gitea.Configured() {
+		return
+	}
+
+	wsIDStr := util.UUIDToString(workspaceID)
+	ws, err := s.Queries.GetWorkspace(ctx, workspaceID)
+	if err != nil {
+		slog.Warn("provision workspace gitea: get workspace",
+			"workspace_id", wsIDStr, "error", err)
+		return
+	}
+
+	// 1. Create the team-namespace org.
+	if err := gitea.ScaffoldOrg(ctx, s.Gitea, wsIDStr, ws.Name); err != nil {
+		slog.Warn("provision workspace gitea: scaffold org",
+			"workspace_id", wsIDStr, "error", err)
+		return
+	}
+
+	// 2. Provision the workspace bot (user + PAT + org membership).
+	if err := s.provisionWorkspaceBotIfAbsent(ctx, workspaceID); err != nil {
+		slog.Warn("provision workspace gitea: provision bot",
+			"workspace_id", wsIDStr, "error", err)
+		return
+	}
+
+	// 3. Sync workspace members into the org.
+	s.syncWorkspaceMembers(ctx, workspaceID)
+
+	slog.Info("provisioned workspace gitea",
+		"workspace_id", wsIDStr, "org", gitea.OrgName(wsIDStr))
+}
+
+// ProvisionWorkflowRepo creates the workflow's type repo (wf-<wf[:8]>) with
+// main + inst-* branch protection when the workflow is activated. Called from
+// the UpdateWorkflow handler (status→active), not lazily on the first run.
+// Best-effort + async.
+func (s *WorkflowService) ProvisionWorkflowRepo(ctx context.Context, workflowID pgtype.UUID) {
+	defer func() {
+		if r := recover(); r != nil {
+			slog.Error("panic in ProvisionWorkflowRepo", "workflow_id", util.UUIDToString(workflowID), "panic", r)
+		}
+	}()
+	if s.Gitea == nil || !s.Gitea.Configured() {
+		return
+	}
+	wf, err := s.Queries.GetWorkflow(ctx, workflowID)
+	if err != nil {
+		slog.Warn("provision workflow repo: get workflow", "error", err)
+		return
+	}
+	// Only create the repo if the workflow has document deliverables (code-only
+	// workflows don't need a Gitea repo).
+	has, err := s.hasDocumentDeliverable(ctx, workflowID)
+	if err != nil || !has {
+		return
+	}
+	if err := gitea.ScaffoldWorkflowRepo(ctx, s.Gitea,
+		util.UUIDToString(wf.WorkspaceID), util.UUIDToString(workflowID), wf.Title); err != nil {
+		slog.Warn("provision workflow repo: scaffold", "workflow_id", util.UUIDToString(workflowID), "error", err)
+		return
+	}
+	slog.Info("provisioned workflow repo",
+		"workflow_id", util.UUIDToString(workflowID),
+		"repo", gitea.RepoName(util.UUIDToString(workflowID)))
+}
+
+// ArchiveReviewComment pushes the critic's review comment to the Gitea repo as
+// a document (reviews/<nodeRunShort>/review.md on the inst branch), fulfilling
+// the requirement that the review opinion is itself a deliverable archived to
+// Gitea. Best-effort: errors are logged, never block the review.
+func (s *WorkflowService) ArchiveReviewComment(ctx context.Context, nodeRun db.MulticaWorkflowNodeRun, decision, comment string) {
+	if s.Gitea == nil || !s.Gitea.Configured() || comment == "" {
+		return
+	}
+	run, err := s.Queries.GetWorkflowRun(ctx, nodeRun.WorkflowRunID)
+	if err != nil {
+		slog.Warn("archive review comment: get run", "error", err)
+		return
+	}
+	owner := gitea.OrgName(util.UUIDToString(run.WorkspaceID))
+	repo := gitea.RepoName(util.UUIDToString(run.WorkflowID))
+	inst := gitea.InstBranch(util.UUIDToString(run.ID))
+	nrShort := shortHexSafe(util.UUIDToString(nodeRun.ID))
+	path := "reviews/" + nrShort + "/review.md"
+	content := fmt.Sprintf("# Review: %s\n\n**Decision:** %s\n\n**Comment:**\n\n%s\n", decision, decision, comment)
+	if err := s.Gitea.CreateFile(ctx, owner, repo, inst, path, content, "review: "+decision); err != nil {
+		slog.Warn("archive review comment: create file", "node_run_id", nrShort, "error", err)
+		return
+	}
+	slog.Info("archived review comment", "node_run_id", nrShort, "decision", decision, "path", path)
+}
+
+// shortHexSafe returns the first 8 hex chars of a UUID string, or the full
+// string if shorter (defensive — the gitea package's shortHex panics on
+// non-UUID, so we validate first).
+func shortHexSafe(id string) string {
+	if len(id) >= 8 {
+		return id[:8]
+	}
+	return id
 }
 
 // mergeDocumentDeliverables merges every document-type deliverable submission

@@ -454,6 +454,12 @@ func (h *Handler) UpdateWorkflow(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Async: provision the Gitea repo when the workflow is activated (not
+	// lazily on the first run). Best-effort. Uses context.Background() so the
+	// goroutine survives after the HTTP response is sent (r.Context() cancels).
+	if req.Status != nil && *req.Status == "active" && h.WorkflowService != nil {
+		go h.WorkflowService.ProvisionWorkflowRepo(context.Background(), updated.ID)
+	}
 	count, _ := h.Queries.CountWorkflowNodes(r.Context(), updated.ID)
 	resp := workflowToResponse(updated, count)
 	h.publish(protocol.EventWorkflowUpdated, workspaceID, "member", userID, map[string]any{"workflow": resp})

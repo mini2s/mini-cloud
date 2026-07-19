@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"encoding/json"
 	"log/slog"
 	"net/http"
@@ -234,6 +235,12 @@ func (h *Handler) CreateWorkspace(w http.ResponseWriter, r *http.Request) {
 	if err := tx.Commit(r.Context()); err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to create workspace")
 		return
+	}
+
+	// Async: provision the workspace's Gitea namespace (org + bot + members)
+	// on creation — not lazily on the first document-run. Best-effort.
+	if h.WorkflowService != nil {
+		go h.WorkflowService.ProvisionWorkspaceGitea(context.Background(), ws.ID)
 	}
 
 	wsID := uuidToString(ws.ID)
