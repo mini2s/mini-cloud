@@ -67,6 +67,13 @@ type BatchCreateSplitDraftTasksRequest struct {
 	} `json:"tasks"`
 }
 
+type CreateManualSplitDraftTaskRequest struct {
+	Title       string   `json:"title"`
+	Description string   `json:"description"`
+	WorkflowID  string   `json:"workflow_id"`
+	DependsOn   []string `json:"depends_on"`
+}
+
 type BatchPatchSplitDraftTasksRequest struct {
 	Updates []struct {
 		TaskID          string `json:"task_id"`
@@ -389,6 +396,10 @@ func (h *Handler) AddSplitDraftTask(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	if r.Header.Get("X-Task-ID") == "" && r.Header.Get("X-Agent-ID") == "" {
+		h.addManualSplitDraftTask(w, r, nodeRun)
+		return
+	}
 	taskIDHeader := r.Header.Get("X-Task-ID")
 	taskID, ok := parseUUIDOrBadRequest(w, taskIDHeader, "X-Task-ID")
 	if !ok {
@@ -408,6 +419,37 @@ func (h *Handler) AddSplitDraftTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := h.SplitOrchestrator.AddSplitDraftTask(r.Context(), nodeRun, taskID, agentID, req); err != nil {
+		writeError(w, splitDraftErrorStatus(err), err.Error())
+		return
+	}
+	tasks, err := h.Queries.ListSplitTasksByNodeRun(r.Context(), nodeRun.ID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to list split tasks")
+		return
+	}
+	writeJSON(w, http.StatusOK, splitTasksResponse(tasks))
+}
+
+func (h *Handler) addManualSplitDraftTask(w http.ResponseWriter, r *http.Request, nodeRun db.MulticaWorkflowNodeRun) {
+	if nodeRun.Status != service.NodeRunStatusAwaitingSplitReview {
+		writeError(w, http.StatusBadRequest, "split draft task can only be added while awaiting review")
+		return
+	}
+	var req CreateManualSplitDraftTaskRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid split draft task payload")
+		return
+	}
+	if h.SplitOrchestrator == nil {
+		writeError(w, http.StatusInternalServerError, "split orchestrator is not configured")
+		return
+	}
+	if err := h.SplitOrchestrator.AddManualSplitDraftTask(r.Context(), nodeRun, service.ManualSplitDraftTaskRequest{
+		Title:       req.Title,
+		Description: req.Description,
+		WorkflowID:  req.WorkflowID,
+		DependsOn:   req.DependsOn,
+	}); err != nil {
 		writeError(w, splitDraftErrorStatus(err), err.Error())
 		return
 	}
@@ -445,17 +487,18 @@ func (h *Handler) BatchAddSplitDraftTasks(w http.ResponseWriter, r *http.Request
 		writeError(w, http.StatusInternalServerError, "split orchestrator is not configured")
 		return
 	}
+	requests := make([]service.SplitDraftTaskRequest, 0, len(req.Tasks))
 	for _, task := range req.Tasks {
-		serviceReq := service.SplitDraftTaskRequest{
+		requests = append(requests, service.SplitDraftTaskRequest{
 			Key:           task.DraftKey,
 			Title:         task.Title,
 			Description:   task.Description,
 			DependsOnKeys: task.DependsOn,
-		}
-		if err := h.SplitOrchestrator.AddSplitDraftTask(r.Context(), nodeRun, taskID, agentID, serviceReq); err != nil {
-			writeError(w, splitDraftErrorStatus(err), err.Error())
-			return
-		}
+		})
+	}
+	if err := h.SplitOrchestrator.AddSplitDraftTasks(r.Context(), nodeRun, taskID, agentID, requests); err != nil {
+		writeError(w, splitDraftErrorStatus(err), err.Error())
+		return
 	}
 	tasks, err := h.Queries.ListSplitTasksByNodeRun(r.Context(), nodeRun.ID)
 	if err != nil {

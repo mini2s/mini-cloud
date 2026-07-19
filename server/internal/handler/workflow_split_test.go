@@ -272,7 +272,7 @@ func createSplitGenerateFixture(t *testing.T, mode string) splitGenerateFixture 
 			workspace_id, name, description, runtime_mode, runtime_config,
 			runtime_id, visibility, max_concurrent_tasks, owner_id
 		)
-		VALUES ($1, 'split generate agent', '', 'cloud', '{}'::jsonb, $2, 'private', 1, $3)
+		VALUES ($1, 'split generate agent ' || $2::text, '', 'cloud', '{}'::jsonb, $2::uuid, 'private', 1, $3)
 		RETURNING id
 	`, testWorkspaceID, f.runtimeID, testUserID).Scan(&f.agentID); err != nil {
 		t.Fatalf("create agent: %v", err)
@@ -464,6 +464,60 @@ func TestAddSplitDraftTaskUsesDefaultIssueWorkflow(t *testing.T) {
 	}
 }
 
+func TestBatchAddSplitDraftTasksRollsBackWholeBatch(t *testing.T) {
+	f := createSplitGenerateFixture(t, "barrier")
+	taskID := startSplitGenerationTask(t, f)
+	req := newRequest("POST", "/api/node-runs/"+f.splitNodeRunID+"/split/draft-tasks/batch", map[string]any{
+		"tasks": []map[string]any{
+			{"draft_key": "first", "title": "First", "description": "First task", "depends_on": []string{}},
+			{"draft_key": "second", "title": "Second", "description": "Second task", "depends_on": []string{"missing"}},
+		},
+	})
+	req.Header.Set("X-Agent-ID", f.agentID)
+	req.Header.Set("X-Task-ID", taskID)
+	req = withURLParam(req, "nodeRunId", f.splitNodeRunID)
+	w := httptest.NewRecorder()
+
+	testHandler.BatchAddSplitDraftTasks(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400: %s", w.Code, w.Body.String())
+	}
+	tasks, err := testHandler.Queries.ListSplitTasksByNodeRun(context.Background(), parseUUID(f.splitNodeRunID))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(tasks) != 0 {
+		t.Fatalf("tasks = %d, want atomic rollback", len(tasks))
+	}
+}
+
+func TestAddSplitDraftTaskAllowsHumanReviewer(t *testing.T) {
+	f := createSplitApproveFixture(t, "barrier")
+	req := newRequest("POST", "/api/node-runs/"+f.splitNodeRunID+"/split/draft-tasks", map[string]any{
+		"title":       "Manual security review",
+		"description": "Review permissions",
+		"workflow_id": f.childWorkflow,
+		"depends_on":  []string{f.taskAID},
+	})
+	req = withURLParam(req, "nodeRunId", f.splitNodeRunID)
+	w := httptest.NewRecorder()
+
+	testHandler.AddSplitDraftTask(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200: %s", w.Code, w.Body.String())
+	}
+	var body SplitTasksResponse
+	if err := json.NewDecoder(w.Body).Decode(&body); err != nil {
+		t.Fatal(err)
+	}
+	created := body.Tasks[len(body.Tasks)-1]
+	if created.DraftSource != service.DraftSourceChat || created.WorkflowID == nil {
+		t.Fatalf("manual draft = %+v", created)
+	}
+}
+
 func TestAddSplitDraftTaskUsesDiscardedSlotForReplacementDraft(t *testing.T) {
 	f := createSplitGenerateFixture(t, "barrier")
 	taskID := startSplitGenerationTask(t, f)
@@ -600,6 +654,7 @@ func TestAddSplitDraftTaskWithDiscardedKeyCreatesNewDraft(t *testing.T) {
 
 func TestAddSplitDraftTaskRejectsMissingDefaultIssueWorkflow(t *testing.T) {
 	f := createSplitGenerateFixture(t, "barrier")
+	taskID := startSplitGenerationTask(t, f)
 	splitFormat, err := json.Marshal(map[string]any{
 		"type": "split",
 		"split_config": map[string]any{
@@ -618,8 +673,6 @@ func TestAddSplitDraftTaskRejectsMissingDefaultIssueWorkflow(t *testing.T) {
 	`, string(splitFormat), f.splitNodeID); err != nil {
 		t.Fatalf("remove default child assignee from split node: %v", err)
 	}
-	taskID := startSplitGenerationTask(t, f)
-
 	addResp := httptest.NewRecorder()
 	addReq := newRequest("POST", "/api/node-runs/"+f.splitNodeRunID+"/split/draft-tasks", map[string]any{
 		"key":             "api-contract",
@@ -637,6 +690,46 @@ func TestAddSplitDraftTaskRejectsMissingDefaultIssueWorkflow(t *testing.T) {
 	}
 	if !strings.Contains(addResp.Body.String(), "default_issue_workflow_id") {
 		t.Fatalf("AddSplitDraftTask: expected clear missing default workflow error, got %s", addResp.Body.String())
+	}
+}
+
+func TestAddSplitDraftTaskDoesNotTreatPartialAgentHeadersAsHuman(t *testing.T) {
+	f := createSplitGenerateFixture(t, "barrier")
+	taskID := startSplitGenerationTask(t, f)
+
+	for _, tc := range []struct {
+		name    string
+		headers map[string]string
+	}{
+		{name: "agent only", headers: map[string]string{"X-Agent-ID": f.agentID}},
+		{name: "task only", headers: map[string]string{"X-Task-ID": taskID}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			req := newRequest("POST", "/api/node-runs/"+f.splitNodeRunID+"/split/draft-tasks", map[string]any{
+				"title":       "Must not be created",
+				"description": "Partial agent headers cannot use human access.",
+				"workflow_id": f.childWorkflow,
+			})
+			for name, value := range tc.headers {
+				req.Header.Set(name, value)
+			}
+			req = withURLParam(req, "nodeRunId", f.splitNodeRunID)
+			w := httptest.NewRecorder()
+
+			testHandler.AddSplitDraftTask(w, req)
+
+			if w.Code != http.StatusBadRequest && w.Code != http.StatusForbidden {
+				t.Fatalf("status = %d, want agent authentication failure: %s", w.Code, w.Body.String())
+			}
+		})
+	}
+
+	tasks, err := testHandler.Queries.ListSplitTasksByNodeRun(context.Background(), parseUUID(f.splitNodeRunID))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(tasks) != 0 {
+		t.Fatalf("tasks = %d, want no manual fallback", len(tasks))
 	}
 }
 

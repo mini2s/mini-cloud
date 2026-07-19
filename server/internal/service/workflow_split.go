@@ -86,6 +86,13 @@ type SplitDraftTaskRequest struct {
 	DependsOnKeys []string `json:"depends_on_keys"`
 }
 
+type ManualSplitDraftTaskRequest struct {
+	Title       string
+	Description string
+	WorkflowID  string
+	DependsOn   []string
+}
+
 type splitGeneratedTask struct {
 	Key            string `json:"draft_key,omitempty"`
 	Title          string `json:"title"`
@@ -922,126 +929,228 @@ func (s *SplitOrchestrator) replaceSplitDraftTasksFromPayload(
 }
 
 func (s *SplitOrchestrator) AddSplitDraftTask(ctx context.Context, nodeRun db.MulticaWorkflowNodeRun, taskID, agentID pgtype.UUID, req SplitDraftTaskRequest) error {
+	return s.AddSplitDraftTasks(ctx, nodeRun, taskID, agentID, []SplitDraftTaskRequest{req})
+}
+
+func (s *SplitOrchestrator) AddSplitDraftTasks(ctx context.Context, nodeRun db.MulticaWorkflowNodeRun, taskID, agentID pgtype.UUID, requests []SplitDraftTaskRequest) error {
 	task, err := s.validateSplitDraftTaskAccess(ctx, nodeRun, taskID, agentID)
 	if err != nil {
 		return err
 	}
-	// Determine draft source from task phase.
 	draftSource := DraftSourceAgent
 	if isSplitChatPhase(task.Context) {
 		draftSource = DraftSourceChat
 	}
 
 	return s.WfService.runInTx(ctx, func(qtx *db.Queries) error {
-		run, err := qtx.GetWorkflowRun(ctx, nodeRun.WorkflowRunID)
+		for _, req := range requests {
+			if err := s.upsertSplitDraftTask(ctx, qtx, nodeRun, req, draftSource); err != nil {
+				return err
+			}
+		}
+		current, err := qtx.ListSplitTasksByNodeRun(ctx, nodeRun.ID)
 		if err != nil {
-			return fmt.Errorf("get workflow run: %w", err)
+			return fmt.Errorf("reload split draft tasks: %w", err)
 		}
-		key := strings.TrimSpace(req.Key)
-		title := strings.TrimSpace(req.Title)
-		description := strings.TrimSpace(req.Description)
-		if key == "" {
-			return fmt.Errorf("key is required")
+		return validateDraftSplitTaskRows(current)
+	})
+}
+
+func (s *SplitOrchestrator) upsertSplitDraftTask(ctx context.Context, q *db.Queries, nodeRun db.MulticaWorkflowNodeRun, req SplitDraftTaskRequest, draftSource string) error {
+	run, err := q.GetWorkflowRun(ctx, nodeRun.WorkflowRunID)
+	if err != nil {
+		return fmt.Errorf("get workflow run: %w", err)
+	}
+	key := strings.TrimSpace(req.Key)
+	title := strings.TrimSpace(req.Title)
+	description := strings.TrimSpace(req.Description)
+	if key == "" {
+		return fmt.Errorf("key is required")
+	}
+	if title == "" {
+		return fmt.Errorf("title is required")
+	}
+	if description == "" {
+		return fmt.Errorf("description is required")
+	}
+
+	node, err := q.GetWorkflowNode(ctx, nodeRun.WorkflowNodeID)
+	if err != nil {
+		return fmt.Errorf("get split node: %w", err)
+	}
+	cfg, err := parseSplitConfig(node.FormatSchema)
+	if err != nil {
+		return err
+	}
+	if err := s.validateIssueWorkflow(ctx, cfg.DefaultIssueWorkflowID, node.WorkflowID, run.WorkspaceID); err != nil {
+		return err
+	}
+	workflowID, err := util.ParseUUID(cfg.DefaultIssueWorkflowID)
+	if err != nil {
+		return fmt.Errorf("invalid default_issue_workflow_id: %w", err)
+	}
+
+	existing, err := q.ListSplitTasksByNodeRun(ctx, nodeRun.ID)
+	if err != nil {
+		return fmt.Errorf("list split draft tasks: %w", err)
+	}
+	byKey := make(map[string]db.MulticaWorkflowSplitTask, len(existing))
+	sortOrder := int32(0)
+	nextSortOrder := int32(0)
+	replacementSortOrder := int32(0)
+	foundExisting := false
+	hasReplacementSlot := false
+	for _, task := range existing {
+		if task.Status != SplitTaskStatusDiscarded && task.DraftKey.Valid {
+			byKey[task.DraftKey.String] = task
+			if task.DraftKey.String == key {
+				sortOrder = task.SortOrder
+				foundExisting = true
+			}
 		}
-		if title == "" {
-			return fmt.Errorf("title is required")
+		if task.Status == SplitTaskStatusDiscarded {
+			if !hasReplacementSlot || task.SortOrder < replacementSortOrder {
+				replacementSortOrder = task.SortOrder
+				hasReplacementSlot = true
+			}
+			continue
 		}
-		if description == "" {
-			return fmt.Errorf("description is required")
+		if task.SortOrder >= nextSortOrder {
+			nextSortOrder = task.SortOrder + 1
+		}
+	}
+	if !foundExisting {
+		if hasReplacementSlot {
+			sortOrder = replacementSortOrder
+		} else {
+			sortOrder = nextSortOrder
+		}
+	}
+
+	dependsOn := make([]string, 0, len(req.DependsOnKeys))
+	for _, depKey := range req.DependsOnKeys {
+		depKey = strings.TrimSpace(depKey)
+		if depKey == "" {
+			continue
+		}
+		if depKey == key {
+			return fmt.Errorf("split draft task cannot depend on itself")
+		}
+		dep, ok := byKey[depKey]
+		if !ok || dep.Status == SplitTaskStatusDiscarded {
+			return fmt.Errorf("unknown dependency key %s", depKey)
+		}
+		dependsOn = append(dependsOn, util.UUIDToString(dep.ID))
+	}
+	dependsOnJSON, err := json.Marshal(dependsOn)
+	if err != nil {
+		return fmt.Errorf("marshal depends_on: %w", err)
+	}
+
+	if _, err := q.UpsertSplitDraftTaskByKey(ctx, db.UpsertSplitDraftTaskByKeyParams{
+		NodeRunID:   nodeRun.ID,
+		WorkspaceID: run.WorkspaceID,
+		DraftKey:    pgtype.Text{String: key, Valid: true},
+		Title:       title,
+		Description: description,
+		WorkflowID:  workflowID,
+		DependsOn:   dependsOnJSON,
+		SortOrder:   sortOrder,
+		DraftSource: pgtype.Text{String: draftSource, Valid: true},
+	}); err != nil {
+		return fmt.Errorf("upsert split draft task: %w", err)
+	}
+	return nil
+}
+
+func (s *SplitOrchestrator) AddManualSplitDraftTask(ctx context.Context, nodeRun db.MulticaWorkflowNodeRun, req ManualSplitDraftTaskRequest) error {
+	title := strings.TrimSpace(req.Title)
+	description := strings.TrimSpace(req.Description)
+	workflowIDValue := strings.TrimSpace(req.WorkflowID)
+	if title == "" {
+		return fmt.Errorf("title is required")
+	}
+	if description == "" {
+		return fmt.Errorf("description is required")
+	}
+	if workflowIDValue == "" {
+		return fmt.Errorf("workflow_id is required")
+	}
+
+	run, err := s.Queries.GetWorkflowRun(ctx, nodeRun.WorkflowRunID)
+	if err != nil {
+		return fmt.Errorf("get workflow run: %w", err)
+	}
+	node, err := s.Queries.GetWorkflowNode(ctx, nodeRun.WorkflowNodeID)
+	if err != nil {
+		return fmt.Errorf("get split node: %w", err)
+	}
+	if err := s.validateIssueWorkflow(ctx, workflowIDValue, node.WorkflowID, run.WorkspaceID); err != nil {
+		return err
+	}
+	workflowID, err := util.ParseUUID(workflowIDValue)
+	if err != nil {
+		return fmt.Errorf("invalid workflow_id: %w", err)
+	}
+
+	return s.WfService.runInTx(ctx, func(qtx *db.Queries) error {
+		lockedNodeRun, err := qtx.GetWorkflowNodeRunForUpdate(ctx, nodeRun.ID)
+		if err != nil {
+			return fmt.Errorf("get split node run: %w", err)
+		}
+		if lockedNodeRun.Status != NodeRunStatusAwaitingSplitReview {
+			return fmt.Errorf("split draft task can only be added while awaiting review")
 		}
 
-		node, err := qtx.GetWorkflowNode(ctx, nodeRun.WorkflowNodeID)
-		if err != nil {
-			return fmt.Errorf("get split node: %w", err)
-		}
-		cfg, err := parseSplitConfig(node.FormatSchema)
-		if err != nil {
-			return err
-		}
-		if err := s.validateIssueWorkflow(ctx, cfg.DefaultIssueWorkflowID, node.WorkflowID, run.WorkspaceID); err != nil {
-			return err
-		}
-		workflowID, err := util.ParseUUID(cfg.DefaultIssueWorkflowID)
-		if err != nil {
-			return fmt.Errorf("invalid default_issue_workflow_id: %w", err)
-		}
-
-		existing, err := qtx.ListSplitTasksByNodeRun(ctx, nodeRun.ID)
-		if err != nil {
-			return fmt.Errorf("list split draft tasks: %w", err)
-		}
-		byKey := make(map[string]db.MulticaWorkflowSplitTask, len(existing))
-		sortOrder := int32(0)
-		nextSortOrder := int32(0)
-		replacementSortOrder := int32(0)
-		foundExisting := false
-		hasReplacementSlot := false
-		for _, task := range existing {
-			if task.Status != SplitTaskStatusDiscarded && task.DraftKey.Valid {
-				byKey[task.DraftKey.String] = task
-				if task.DraftKey.String == key {
-					sortOrder = task.SortOrder
-					foundExisting = true
-				}
+		dependsOn := make([]string, 0, len(req.DependsOn))
+		for _, dependencyIDValue := range req.DependsOn {
+			dependencyID, err := util.ParseUUID(strings.TrimSpace(dependencyIDValue))
+			if err != nil {
+				return fmt.Errorf("invalid dependency id: %w", err)
 			}
-			if task.Status == SplitTaskStatusDiscarded {
-				if !hasReplacementSlot || task.SortOrder < replacementSortOrder {
-					replacementSortOrder = task.SortOrder
-					hasReplacementSlot = true
-				}
-				continue
+			dependency, err := qtx.GetSplitTask(ctx, dependencyID)
+			if err != nil {
+				return fmt.Errorf("split draft dependency not found")
 			}
-			if task.SortOrder >= nextSortOrder {
-				nextSortOrder = task.SortOrder + 1
+			if dependency.NodeRunID != lockedNodeRun.ID {
+				return fmt.Errorf("split draft dependency does not belong to this node run")
 			}
-		}
-		if !foundExisting {
-			if hasReplacementSlot {
-				sortOrder = replacementSortOrder
-			} else {
-				sortOrder = nextSortOrder
+			if dependency.Status == SplitTaskStatusDiscarded {
+				return fmt.Errorf("split draft dependency is discarded")
 			}
-		}
-
-		dependsOn := make([]string, 0, len(req.DependsOnKeys))
-		for _, depKey := range req.DependsOnKeys {
-			depKey = strings.TrimSpace(depKey)
-			if depKey == "" {
-				continue
-			}
-			if depKey == key {
-				return fmt.Errorf("split draft task cannot depend on itself")
-			}
-			dep, ok := byKey[depKey]
-			if !ok || dep.Status == SplitTaskStatusDiscarded {
-				return fmt.Errorf("unknown dependency key %s", depKey)
-			}
-			dependsOn = append(dependsOn, util.UUIDToString(dep.ID))
+			dependsOn = append(dependsOn, util.UUIDToString(dependency.ID))
 		}
 		dependsOnJSON, err := json.Marshal(dependsOn)
 		if err != nil {
 			return fmt.Errorf("marshal depends_on: %w", err)
 		}
 
-		if _, err := qtx.UpsertSplitDraftTaskByKey(ctx, db.UpsertSplitDraftTaskByKeyParams{
-			NodeRunID:   nodeRun.ID,
+		existing, err := qtx.ListSplitTasksByNodeRun(ctx, lockedNodeRun.ID)
+		if err != nil {
+			return fmt.Errorf("list split draft tasks: %w", err)
+		}
+		nextSortOrder := int32(0)
+		for _, task := range existing {
+			if task.Status != SplitTaskStatusDiscarded && task.SortOrder >= nextSortOrder {
+				nextSortOrder = task.SortOrder + 1
+			}
+		}
+
+		if _, err := qtx.CreateSplitTask(ctx, db.CreateSplitTaskParams{
+			NodeRunID:   lockedNodeRun.ID,
 			WorkspaceID: run.WorkspaceID,
-			DraftKey:    pgtype.Text{String: key, Valid: true},
 			Title:       title,
 			Description: description,
 			WorkflowID:  workflowID,
 			DependsOn:   dependsOnJSON,
-			SortOrder:   sortOrder,
-			DraftSource: pgtype.Text{String: draftSource, Valid: true},
+			SortOrder:   nextSortOrder,
+			Status:      SplitTaskStatusDraft,
+			DraftKey:    pgtype.Text{},
+			DraftSource: pgtype.Text{String: DraftSourceChat, Valid: true},
 		}); err != nil {
-			return fmt.Errorf("upsert split draft task: %w", err)
+			return fmt.Errorf("create split draft task: %w", err)
 		}
-
-		current, err := qtx.ListSplitTasksByNodeRun(ctx, nodeRun.ID)
-		if err != nil {
-			return fmt.Errorf("reload split draft tasks: %w", err)
-		}
-		return validateDraftSplitTaskRows(current)
+		return nil
 	})
 }
 
