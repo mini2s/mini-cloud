@@ -356,6 +356,13 @@ func (s *WorkflowService) StartRunForIssue(
 		return nil, nil, fmt.Errorf("list node runs: %w", err)
 	}
 
+	// Scaffold deliverable git storage for this run, mirroring the workflow-run
+	// path (handler/workflow_run.go). Fire-and-forget: ScaffoldRunDeliverables
+	// runs detached, panic-recovered, and no-ops when Gitea is unconfigured.
+	if run != nil {
+		go s.ScaffoldRunDeliverables(context.Background(), *run)
+	}
+
 	return run, nodeRuns, nil
 }
 
