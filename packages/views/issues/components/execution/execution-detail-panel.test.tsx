@@ -24,11 +24,44 @@ const mockChatSessions = [
 ];
 
 vi.mock("@tanstack/react-query", () => ({
-  useQuery: () => ({ data: mockChatSessions }),
+  useQuery: (opts: { queryKey?: unknown } = {}) => {
+    const key = JSON.stringify(opts.queryKey ?? []);
+    // NodeRunDeliverables queries submissions under a key ending in "deliverables".
+    if (key.includes("deliverables")) {
+      return { data: mockDeliverableSubmissions };
+    }
+    return { data: mockChatSessions };
+  },
 }));
+
+const mockDeliverableSubmissions = [
+  {
+    id: "sub-1",
+    deliverable_id: "del-1",
+    workflow_node_run_id: "r1",
+    status: "submitted",
+    pull_request_url: "http://gitea.test/t-ws1/wf-n1/pulls/7",
+    content: null,
+    attachment_id: null,
+    review_comment: null,
+    submitted_by_type: "agent",
+    submitted_by_id: "a1",
+    submitted_at: null,
+    reviewed_at: null,
+    created_at: "",
+    updated_at: "",
+  },
+];
 
 vi.mock("@multica/core/chat/queries", () => ({
   chatSessionsOptions: () => ({ queryKey: ["chat", "sessions"] }),
+}));
+
+vi.mock("@multica/core/workflows/queries", () => ({
+  nodeRunDeliverableSubmissionsOptions: (_wsId: string, nodeRunId: string) => ({
+    queryKey: ["workflows", "node-runs", nodeRunId, "deliverables"],
+    queryFn: () => [],
+  }),
 }));
 
 vi.mock("@multica/core/chat", () => ({
@@ -52,6 +85,12 @@ vi.mock("@multica/views/i18n", () => ({
         const template = selector({
           detail: {
             desc_label: "Description",
+          },
+          node_run: {
+            deliverables: {
+              heading: "Deliverable PRs",
+              pull_request_label: "Pull request",
+            },
           },
           execution: {
             display_status: {
@@ -592,5 +631,22 @@ describe("ExecutionDetailPanel", () => {
     expect(screen.getByText("Deliverable status")).toBeInTheDocument();
     expect(screen.getByText("Submitted for review")).toBeInTheDocument();
     expect(screen.getByText("1/2 submitted, 0 approved")).toBeInTheDocument();
+  });
+
+  it("renders the deliverable PR link so reviewers can jump to it", () => {
+    render(
+      <ExecutionDetailPanel
+        node={node}
+        nodeRun={run}
+        workerName="后端助手"
+        criticName="审核员"
+        onClose={vi.fn()}
+        wsId="ws-1"
+      />,
+    );
+
+    const link = screen.getByRole("link", { name: /Pull request/i });
+    expect(link).toHaveAttribute("href", "http://gitea.test/t-ws1/wf-n1/pulls/7");
+    expect(link).toHaveAttribute("target", "_blank");
   });
 });

@@ -35,6 +35,7 @@ import {
 } from "../../../common/workflow-node-detail-panel-shell";
 import { ArtifactList } from "./artifact-list";
 import { NodeRunStatusIcon, RuntimeDisplayStatusIcon } from "./node-run-status-icon";
+import { NodeRunDeliverables } from "../../../workflows/components/node-run-deliverables";
 import { resolveChatSessionId } from "../../../chat/lib/resolve-chat-session-id";
 
 export interface ExecutionDetailPanelProps {
@@ -468,6 +469,7 @@ export function ExecutionDetailPanel({
                 {deliverableProgressText(t, requiredDeliverablesSubmitted, requiredDeliverablesTotal, requiredDeliverablesApproved)}
               </p>
             </div>
+            <NodeRunDeliverables wsId={wsId} nodeRunId={nodeRun.id} />
             <ArtifactList nodeRun={nodeRun} />
           </div>
         ) : (
