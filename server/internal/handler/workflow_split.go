@@ -167,7 +167,7 @@ func (h *Handler) PatchSplitDraftTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if nodeRun.Status != service.NodeRunStatusAwaitingSplitReview {
-		writeError(w, http.StatusBadRequest, "split draft task can only be edited while awaiting review")
+		writeSplitAPIError(w, errors.New("split draft task can only be edited while awaiting review"))
 		return
 	}
 	taskID, ok := parseUUIDOrBadRequest(w, chi.URLParam(r, "taskId"), "taskId")
@@ -176,11 +176,11 @@ func (h *Handler) PatchSplitDraftTask(w http.ResponseWriter, r *http.Request) {
 	}
 	var req PatchSplitDraftTaskRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
+		writeSplitAPIError(w, errors.New("invalid request body"))
 		return
 	}
 	if req.ExpectedVersion < 1 {
-		writeError(w, http.StatusBadRequest, "expected_version is required")
+		writeSplitAPIError(w, errors.New("expected_version is required"))
 		return
 	}
 
@@ -192,7 +192,7 @@ func (h *Handler) PatchSplitDraftTask(w http.ResponseWriter, r *http.Request) {
 	if req.Title != nil {
 		title := strings.TrimSpace(*req.Title)
 		if title == "" {
-			writeError(w, http.StatusBadRequest, "title is required")
+			writeSplitAPIError(w, errors.New("title is required"))
 			return
 		}
 		params.Title = pgtype.Text{String: title, Valid: true}
@@ -206,7 +206,7 @@ func (h *Handler) PatchSplitDraftTask(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if err := h.validateSplitIssueWorkflow(r, workflowID, run.WorkflowID, run.WorkspaceID); err != nil {
-			writeError(w, http.StatusUnprocessableEntity, err.Error())
+			writeSplitAPIError(w, err)
 			return
 		}
 		params.WorkflowID = workflowID
@@ -214,7 +214,7 @@ func (h *Handler) PatchSplitDraftTask(w http.ResponseWriter, r *http.Request) {
 	if req.DependsOn != nil {
 		dependsOn, err := json.Marshal(req.DependsOn)
 		if err != nil {
-			writeError(w, http.StatusBadRequest, "invalid depends_on")
+			writeSplitAPIError(w, errors.New("invalid depends_on"))
 			return
 		}
 		params.DependsOn = dependsOn
@@ -225,7 +225,7 @@ func (h *Handler) PatchSplitDraftTask(w http.ResponseWriter, r *http.Request) {
 
 	if _, err := h.Queries.UpdateSplitTaskDraftFields(r.Context(), params); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			writeError(w, http.StatusConflict, "split draft task version conflict")
+			writeSplitAPIError(w, service.NewSplitAPIError(service.SplitErrorConflict, "draft_task_conflict", errors.New("split draft task version conflict")))
 			return
 		}
 		writeError(w, http.StatusInternalServerError, "failed to update split draft task")
@@ -245,12 +245,12 @@ func (h *Handler) BatchPatchSplitDraftTasks(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	if nodeRun.Status != service.NodeRunStatusAwaitingSplitReview {
-		writeError(w, http.StatusBadRequest, "split draft task can only be edited while awaiting review")
+		writeSplitAPIError(w, errors.New("split draft task can only be edited while awaiting review"))
 		return
 	}
 	var req BatchPatchSplitDraftTasksRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
+		writeSplitAPIError(w, errors.New("invalid request body"))
 		return
 	}
 	for _, update := range req.Updates {
@@ -263,11 +263,11 @@ func (h *Handler) BatchPatchSplitDraftTasks(w http.ResponseWriter, r *http.Reque
 			return
 		}
 		if update.ExpectedVersion < 1 {
-			writeError(w, http.StatusBadRequest, "expected_version is required")
+			writeSplitAPIError(w, errors.New("expected_version is required"))
 			return
 		}
 		if err := h.validateSplitIssueWorkflow(r, workflowID, run.WorkflowID, run.WorkspaceID); err != nil {
-			writeError(w, http.StatusUnprocessableEntity, err.Error())
+			writeSplitAPIError(w, err)
 			return
 		}
 		if _, err := h.Queries.UpdateSplitTaskDraftFields(r.Context(), db.UpdateSplitTaskDraftFieldsParams{
@@ -277,7 +277,7 @@ func (h *Handler) BatchPatchSplitDraftTasks(w http.ResponseWriter, r *http.Reque
 			WorkflowID: workflowID,
 		}); err != nil {
 			if errors.Is(err, pgx.ErrNoRows) {
-				writeError(w, http.StatusConflict, "split draft task version conflict")
+				writeSplitAPIError(w, service.NewSplitAPIError(service.SplitErrorConflict, "draft_task_conflict", errors.New("split draft task version conflict")))
 				return
 			}
 			writeError(w, http.StatusInternalServerError, "failed to update split draft task")
@@ -294,17 +294,17 @@ func (h *Handler) BatchPatchSplitDraftTasks(w http.ResponseWriter, r *http.Reque
 
 func (h *Handler) validateSplitIssueWorkflow(r *http.Request, workflowID, parentWorkflowID, workspaceID pgtype.UUID) error {
 	if workflowID == parentWorkflowID {
-		return errors.New("split issue workflow cannot be the parent workflow")
+		return service.NewSplitAPIError(service.SplitErrorUnprocessable, "invalid_split_task_workflow", errors.New("split issue workflow cannot be the parent workflow"))
 	}
 	workflow, err := h.Queries.GetWorkflowInWorkspace(r.Context(), db.GetWorkflowInWorkspaceParams{
 		ID:          workflowID,
 		WorkspaceID: workspaceID,
 	})
 	if err != nil {
-		return errors.New("split issue workflow not found")
+		return service.NewSplitAPIError(service.SplitErrorUnprocessable, "invalid_split_task_workflow", errors.New("split issue workflow not found"))
 	}
 	if workflow.Status != "active" {
-		return errors.New("split issue workflow is not active")
+		return service.NewSplitAPIError(service.SplitErrorUnprocessable, "invalid_split_task_workflow", errors.New("split issue workflow is not active"))
 	}
 	nodes, err := h.Queries.ListWorkflowNodes(r.Context(), workflowID)
 	if err != nil {
@@ -312,7 +312,7 @@ func (h *Handler) validateSplitIssueWorkflow(r *http.Request, workflowID, parent
 	}
 	for _, node := range nodes {
 		if isSplitWorkflowNode(node.FormatSchema) {
-			return errors.New("split issue workflow cannot contain nested split nodes")
+			return service.NewSplitAPIError(service.SplitErrorUnprocessable, "invalid_split_task_workflow", errors.New("split issue workflow cannot contain nested split nodes"))
 		}
 	}
 	return nil
@@ -389,6 +389,26 @@ func splitDraftErrorStatus(err error) int {
 		return http.StatusForbidden
 	}
 	return http.StatusBadRequest
+}
+
+func splitAPIErrorResponse(err error) (int, string) {
+	var splitErr *service.SplitAPIError
+	if !errors.As(err, &splitErr) {
+		return http.StatusBadRequest, "invalid_split_request"
+	}
+	switch splitErr.Status {
+	case service.SplitErrorConflict:
+		return http.StatusConflict, splitErr.Code
+	case service.SplitErrorUnprocessable:
+		return http.StatusUnprocessableEntity, splitErr.Code
+	default:
+		return http.StatusBadRequest, splitErr.Code
+	}
+}
+
+func writeSplitAPIError(w http.ResponseWriter, err error) {
+	status, code := splitAPIErrorResponse(err)
+	writeJSON(w, status, map[string]any{"code": code, "error": err.Error()})
 }
 
 func (h *Handler) AddSplitDraftTask(w http.ResponseWriter, r *http.Request) {
@@ -578,7 +598,7 @@ func (h *Handler) PatchSplitConfig(w http.ResponseWriter, r *http.Request) {
 	}
 	var req PatchSplitConfigRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid split config payload")
+		writeSplitAPIError(w, errors.New("invalid split config payload"))
 		return
 	}
 	if h.SplitOrchestrator == nil {
@@ -586,11 +606,7 @@ func (h *Handler) PatchSplitConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := h.SplitOrchestrator.PatchSplitConfig(r.Context(), nodeRun, req.MaxConcurrency, req.ExpectedConfigVersion); err != nil {
-		code := http.StatusBadRequest
-		if strings.Contains(err.Error(), "version conflict") {
-			code = http.StatusConflict
-		}
-		writeError(w, code, err.Error())
+		writeSplitAPIError(w, err)
 		return
 	}
 	tasks, err := h.Queries.ListSplitTasksByNodeRun(r.Context(), nodeRun.ID)
@@ -614,7 +630,7 @@ func (h *Handler) RetrySplitTask(w http.ResponseWriter, r *http.Request) {
 	if r.Body != nil {
 		err := json.NewDecoder(r.Body).Decode(&req)
 		if err != nil && !errors.Is(err, io.EOF) {
-			writeError(w, http.StatusBadRequest, "invalid split retry payload")
+			writeSplitAPIError(w, errors.New("invalid split retry payload"))
 			return
 		}
 	}
@@ -623,11 +639,7 @@ func (h *Handler) RetrySplitTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := h.SplitOrchestrator.RetrySplitTask(r.Context(), nodeRun, taskID, req.WorkflowID); err != nil {
-		code := http.StatusBadRequest
-		if strings.Contains(err.Error(), "split issue workflow") {
-			code = http.StatusUnprocessableEntity
-		}
-		writeError(w, code, err.Error())
+		writeSplitAPIError(w, err)
 		return
 	}
 	tasks, err := h.Queries.ListSplitTasksByNodeRun(r.Context(), nodeRun.ID)
@@ -645,7 +657,7 @@ func (h *Handler) ApproveSplitTasks(w http.ResponseWriter, r *http.Request) {
 	}
 	var req service.SplitApproveRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid split approval payload")
+		writeSplitAPIError(w, errors.New("invalid split approval payload"))
 		return
 	}
 	if h.SplitOrchestrator == nil {
@@ -653,7 +665,7 @@ func (h *Handler) ApproveSplitTasks(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := h.SplitOrchestrator.ApproveSplit(r.Context(), nodeRun, req); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		writeSplitAPIError(w, err)
 		return
 	}
 	tasks, err := h.Queries.ListSplitTasksByNodeRun(r.Context(), nodeRun.ID)

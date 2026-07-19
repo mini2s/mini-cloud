@@ -13,6 +13,12 @@ import (
 	db "github.com/multica-ai/multica/server/pkg/db/generated"
 )
 
+func TestValidateDraftSplitTaskRowsAllowsEmptyPlan(t *testing.T) {
+	if err := validateDraftSplitTaskRows(nil); err != nil {
+		t.Fatalf("validateDraftSplitTaskRows(nil) = %v, want nil", err)
+	}
+}
+
 func TestSplitTaskGraphRejectsUnknownDependency(t *testing.T) {
 	tasks := []splitTaskPlan{
 		{ID: "a", Status: SplitTaskStatusCreated},

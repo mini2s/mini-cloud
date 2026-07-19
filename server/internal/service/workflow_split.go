@@ -46,6 +46,26 @@ const (
 
 const maxSplitRecoveryAttachmentBytes = 2 << 20
 
+type SplitErrorStatus string
+
+const (
+	SplitErrorConflict      SplitErrorStatus = "conflict"
+	SplitErrorUnprocessable SplitErrorStatus = "unprocessable"
+)
+
+type SplitAPIError struct {
+	Status SplitErrorStatus
+	Code   string
+	Err    error
+}
+
+func (e *SplitAPIError) Error() string { return e.Err.Error() }
+func (e *SplitAPIError) Unwrap() error { return e.Err }
+
+func NewSplitAPIError(status SplitErrorStatus, code string, err error) error {
+	return &SplitAPIError{Status: status, Code: code, Err: err}
+}
+
 // Split task context phases.
 const (
 	splitPhaseGenerate = "split_generate"
@@ -1236,7 +1256,7 @@ func (s *SplitOrchestrator) PatchSplitConfig(ctx context.Context, nodeRun db.Mul
 			SplitConfigVersion: expectedConfigVersion,
 		}); err != nil {
 			if errors.Is(err, pgx.ErrNoRows) {
-				return fmt.Errorf("split config version conflict")
+				return NewSplitAPIError(SplitErrorConflict, "split_config_conflict", errors.New("split config version conflict"))
 			}
 			return fmt.Errorf("update split config version: %w", err)
 		}
@@ -1437,7 +1457,7 @@ func validateDraftSplitTaskRows(tasks []db.MulticaWorkflowSplitTask) error {
 		})
 	}
 	if len(plans) == 0 {
-		return fmt.Errorf("split draft submit requires at least one task")
+		return nil
 	}
 	return validateSplitTaskGraph(plans)
 }
@@ -1663,18 +1683,22 @@ func (s *SplitOrchestrator) ApproveSplit(ctx context.Context, nodeRun db.Multica
 			return fmt.Errorf("split approval requires at least one task")
 		}
 		if len(allowed) > 50 {
-			return fmt.Errorf("split_task_limit_exceeded")
+			return NewSplitAPIError(SplitErrorUnprocessable, "split_task_limit_exceeded", errors.New("split task limit exceeded"))
 		}
 		plans, err := splitTaskPlansFromRows(allowed)
 		if err != nil {
-			return err
+			return NewSplitAPIError(SplitErrorUnprocessable, "invalid_split_task_dependency", err)
 		}
 		if err := validateSplitTaskGraph(plans); err != nil {
-			return err
+			return NewSplitAPIError(SplitErrorUnprocessable, "invalid_split_task_dependency", err)
 		}
 		for _, task := range allowed {
 			if !task.WorkflowID.Valid {
-				return fmt.Errorf("split task %s is missing workflow_id", util.UUIDToString(task.ID))
+				return NewSplitAPIError(
+					SplitErrorUnprocessable,
+					"invalid_split_task_workflow",
+					fmt.Errorf("split task %s is missing workflow_id", util.UUIDToString(task.ID)),
+				)
 			}
 			if err := s.validateIssueWorkflow(ctx, qtx, util.UUIDToString(task.WorkflowID), node.WorkflowID, parentIssue.WorkspaceID); err != nil {
 				return err
@@ -3090,20 +3114,23 @@ func splitProgressSummary(tasks []db.MulticaWorkflowSplitTask) map[string]int {
 func (s *SplitOrchestrator) validateIssueWorkflow(ctx context.Context, q *db.Queries, workflowIDValue string, parentWorkflowID, workspaceID pgtype.UUID) error {
 	workflowID, err := util.ParseUUID(workflowIDValue)
 	if err != nil {
-		return fmt.Errorf("invalid split default_issue_workflow_id: %w", err)
+		return NewSplitAPIError(SplitErrorUnprocessable, "invalid_split_task_workflow", fmt.Errorf("invalid split default_issue_workflow_id: %w", err))
 	}
 	if workflowID == parentWorkflowID {
-		return fmt.Errorf("split issue workflow cannot be the parent workflow")
+		return NewSplitAPIError(SplitErrorUnprocessable, "invalid_split_task_workflow", errors.New("split issue workflow cannot be the parent workflow"))
 	}
 	workflow, err := q.GetWorkflow(ctx, workflowID)
 	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return NewSplitAPIError(SplitErrorUnprocessable, "invalid_split_task_workflow", errors.New("split issue workflow not found"))
+		}
 		return fmt.Errorf("get split issue workflow: %w", err)
 	}
 	if workflow.WorkspaceID != workspaceID {
-		return fmt.Errorf("split issue workflow belongs to another workspace")
+		return NewSplitAPIError(SplitErrorUnprocessable, "invalid_split_task_workflow", errors.New("split issue workflow belongs to another workspace"))
 	}
 	if workflow.Status != "active" {
-		return fmt.Errorf("split issue workflow is not active")
+		return NewSplitAPIError(SplitErrorUnprocessable, "invalid_split_task_workflow", errors.New("split issue workflow is not active"))
 	}
 	nodes, err := q.ListWorkflowNodes(ctx, workflowID)
 	if err != nil {
@@ -3111,7 +3138,7 @@ func (s *SplitOrchestrator) validateIssueWorkflow(ctx context.Context, q *db.Que
 	}
 	for _, node := range nodes {
 		if workflowNodeType(node.FormatSchema) == "split" {
-			return fmt.Errorf("split issue workflow cannot contain nested split nodes")
+			return NewSplitAPIError(SplitErrorUnprocessable, "invalid_split_task_workflow", errors.New("split issue workflow cannot contain nested split nodes"))
 		}
 	}
 	return nil

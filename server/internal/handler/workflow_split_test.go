@@ -3,6 +3,7 @@ package handler
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -13,6 +14,25 @@ import (
 	"github.com/multica-ai/multica/server/internal/service"
 	db "github.com/multica-ai/multica/server/pkg/db/generated"
 )
+
+func TestSplitAPIErrorStatus(t *testing.T) {
+	tests := []struct {
+		err    error
+		status int
+		code   string
+	}{
+		{service.NewSplitAPIError(service.SplitErrorConflict, "draft_task_conflict", errors.New("version changed")), http.StatusConflict, "draft_task_conflict"},
+		{service.NewSplitAPIError(service.SplitErrorUnprocessable, "invalid_split_task_workflow", errors.New("inactive")), http.StatusUnprocessableEntity, "invalid_split_task_workflow"},
+		{service.NewSplitAPIError(service.SplitErrorUnprocessable, "split_task_limit_exceeded", errors.New("too many")), http.StatusUnprocessableEntity, "split_task_limit_exceeded"},
+		{errors.New("invalid syntax"), http.StatusBadRequest, "invalid_split_request"},
+	}
+	for _, tt := range tests {
+		status, code := splitAPIErrorResponse(tt.err)
+		if status != tt.status || code != tt.code {
+			t.Fatalf("got %d/%q, want %d/%q", status, code, tt.status, tt.code)
+		}
+	}
+}
 
 func TestSplitTaskToResponseIncludesDraftMetadata(t *testing.T) {
 	task := db.MulticaWorkflowSplitTask{
@@ -801,6 +821,26 @@ func TestSubmitSplitDraftTasksTransitionsToReview(t *testing.T) {
 	}
 	if nodeRun.Status != service.NodeRunStatusAwaitingSplitReview {
 		t.Fatalf("node run status = %s, want awaiting_split_review", nodeRun.Status)
+	}
+}
+
+func TestSubmitSplitDraftTasksAllowsEmptyPlan(t *testing.T) {
+	f := createSplitGenerateFixture(t, "barrier")
+	taskID := startSplitGenerationTask(t, f)
+	req := newRequest("POST", "/api/node-runs/"+f.splitNodeRunID+"/split/draft-submit", nil)
+	req.Header.Set("X-Agent-ID", f.agentID)
+	req.Header.Set("X-Task-ID", taskID)
+	req = withURLParam(req, "nodeRunId", f.splitNodeRunID)
+	w := httptest.NewRecorder()
+
+	testHandler.SubmitSplitDraftTasks(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200: %s", w.Code, w.Body.String())
+	}
+	nodeRun, err := testHandler.Queries.GetWorkflowNodeRun(context.Background(), parseUUID(f.splitNodeRunID))
+	if err != nil || nodeRun.Status != service.NodeRunStatusAwaitingSplitReview {
+		t.Fatalf("node run = %+v, err = %v", nodeRun, err)
 	}
 }
 
