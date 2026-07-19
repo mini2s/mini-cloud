@@ -87,6 +87,10 @@ func ScaffoldRunDeliverable(ctx context.Context, c scaffoldAPI, p ScaffoldParams
 		// intentionally ignored (this package has no logger); M2's caller can
 		// surface protection failures if it ever needs to.
 		_ = c.ProtectBranch(ctx, owner, repo, "main")
+		// Protect all instance branches (inst-*) — direct pushes blocked; daemon
+		// writes go through node/<nr> branches + PR merges into inst (design §5.4).
+		// rule_name is a Gitea glob. Best-effort, same rationale as main above.
+		_ = c.ProtectBranch(ctx, owner, repo, "inst-*")
 	}
 
 	// 3. Inst branch (per run, idempotent GET-then-POST). Base = main.
