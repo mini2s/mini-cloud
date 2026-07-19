@@ -410,6 +410,8 @@ describe("NodeConfigPanel", () => {
       session_id: null,
       runtime_id: null,
       device_id: null,
+      split_review_chat_session_id: null,
+      split_config_version: 1,
       started_at: null,
       completed_at: null,
       created_at: "",

@@ -189,6 +189,8 @@ const run: WorkflowNodeRun = {
   session_id: null,
   runtime_id: null,
   device_id: null,
+  split_review_chat_session_id: null,
+  split_config_version: 1,
   started_at: "2026-06-25T10:00:00Z",
   completed_at: null,
   created_at: "2026-06-25T10:00:00Z",

@@ -75,6 +75,8 @@ const baseTask: SplitTask = {
   issue_id: null,
   run_id: null,
   version: 1,
+  draft_key: null,
+  draft_source: "agent",
   last_error: null,
   created_at: "",
   updated_at: "",
@@ -201,7 +203,7 @@ describe("SplitDraftLedger", () => {
   });
 
   it("marks task-level workflow blockers inside the affected draft row", () => {
-    render(<SplitDraftLedger tasks={[{ ...baseTask, workflow_id: null }]} workflows={workflows} />);
+    render(<SplitDraftLedger tasks={[{ ...baseTask, workflow_id: "" }]} workflows={workflows} />);
 
     const row = screen.getByTestId("split-draft-row-task-1");
 
@@ -234,7 +236,7 @@ describe("SplitDraftLedger", () => {
     const onWorkflowChange = vi.fn();
     render(
       <SplitDraftLedger
-        tasks={[{ ...baseTask, workflow_id: null }]}
+        tasks={[{ ...baseTask, workflow_id: "" }]}
         workflows={workflows}
         onWorkflowChange={onWorkflowChange}
       />,

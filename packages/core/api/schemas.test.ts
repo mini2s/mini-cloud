@@ -125,6 +125,22 @@ describe("split API response schemas", () => {
     expect(nodeRun.split_config_version).toBe(1);
   });
 
+  it("falls back when split config version is malformed", () => {
+    const parsed = parseWithFallback(
+      {
+        id: "nr-1",
+        workflow_run_id: "run-1",
+        workflow_node_id: "node-1",
+        split_config_version: null,
+      },
+      WorkflowNodeRunSchema,
+      EMPTY_WORKFLOW_NODE_RUN,
+      { endpoint: "GET /api/workflow-runs/:id/node-runs" },
+    );
+
+    expect(parsed).toBe(EMPTY_WORKFLOW_NODE_RUN);
+  });
+
   const validTask = {
     id: "task-1",
     node_run_id: "node-run-1",
@@ -141,6 +157,32 @@ describe("split API response schemas", () => {
     created_at: "2026-07-12T00:00:00Z",
     updated_at: "2026-07-12T00:01:00Z",
   };
+
+  it.each([
+    ["workflow_id", { ...validTask, workflow_id: null }],
+    ["draft_key", { ...validTask, draft_key: 42 }],
+  ])("falls back when split task %s is malformed", (_field, task) => {
+    const parsed = parseWithFallback(
+      { tasks: [task] },
+      SplitTasksResponseSchema,
+      EMPTY_SPLIT_TASKS_RESPONSE,
+      { endpoint: "GET /api/node-runs/:id/split/tasks" },
+    );
+
+    expect(parsed).toBe(EMPTY_SPLIT_TASKS_RESPONSE);
+  });
+
+  it("downgrades an unknown draft source at the API boundary", () => {
+    const parsed = parseWithFallback(
+      { tasks: [{ ...validTask, draft_source: "future-source" }] },
+      SplitTasksResponseSchema,
+      EMPTY_SPLIT_TASKS_RESPONSE,
+      { endpoint: "GET /api/node-runs/:id/split/tasks" },
+    );
+
+    expect(parsed).not.toBe(EMPTY_SPLIT_TASKS_RESPONSE);
+    expect(parsed.tasks[0]?.draft_source).toBe("agent");
+  });
 
   it("accepts split task lists and keeps unknown fields", () => {
     const parsed = SplitTasksResponseSchema.parse({

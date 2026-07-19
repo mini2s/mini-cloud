@@ -356,6 +356,8 @@ const splitNodeRun: WorkflowNodeRun = {
   session_id: null,
   runtime_id: null,
   device_id: null,
+  split_review_chat_session_id: null,
+  split_config_version: 1,
   started_at: null,
   completed_at: null,
   created_at: "",
@@ -375,6 +377,8 @@ function draftTask(id: string, title: string, overrides: Partial<SplitTask> = {}
     issue_id: null,
     run_id: null,
     version: 1,
+    draft_key: null,
+    draft_source: "agent",
     last_error: null,
     created_at: "",
     updated_at: "",
@@ -410,7 +414,7 @@ describe("SplitReviewPanel", () => {
         draftTask("task-1", "Implement API contract"),
         draftTask("task-2", "Discarded task", {
           description: "",
-          workflow_id: null,
+          workflow_id: "",
           depends_on: ["task-1"],
           sort_order: 1,
           status: "discarded",
@@ -527,12 +531,12 @@ describe("SplitReviewPanel", () => {
     mocks.splitTasksData = {
       tasks: [
         draftTask("discarded-1", "Discarded missing workflow", {
-          workflow_id: null,
+          workflow_id: "",
           status: "discarded",
           sort_order: 0,
         }),
         draftTask("active-2", "Active missing workflow", {
-          workflow_id: null,
+          workflow_id: "",
           sort_order: 1,
         }),
       ],

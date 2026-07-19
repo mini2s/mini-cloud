@@ -30,6 +30,8 @@ function splitTask(id: string, dependsOn: string[] = []): SplitTask {
     issue_id: null,
     run_id: null,
     version: 1,
+    draft_key: null,
+    draft_source: "agent",
     last_error: null,
     created_at: "",
     updated_at: "",
