@@ -8,6 +8,7 @@ import { RuntimePicker, isRuntimeUsableForUser } from "./runtime-picker";
 import { InstructionsEditor } from "./instructions-editor";
 import { SkillMultiSelect } from "./skill-multi-select";
 import { PluginSelect } from "./plugin-select";
+import { CloudSkillSelect } from "./cloud-skill-select";
 import { AvatarPicker } from "./avatar-picker";
 import { api } from "@multica/core/api";
 import { useWorkspaceId } from "@multica/core/hooks";
@@ -15,6 +16,7 @@ import { workspaceKeys } from "@multica/core/workspace/queries";
 import type {
   Agent,
   AgentVisibility,
+  CatalogSkill,
   RuntimeDevice,
   MemberWithUser,
   CreateAgentRequest,
@@ -95,6 +97,7 @@ export function CreateAgentDialog({
     () => new Set(template?.skills.map((s) => s.id) ?? []),
   );
   const [pluginId, setPluginId] = useState(template?.plugin_id ?? "");
+  const [selectedCloudSkills, setSelectedCloudSkills] = useState<CatalogSkill[]>([]);
   const [creating, setCreating] = useState(false);
 
   // Duplicate-mode pre-fill: clone lands on the source agent's runtime so
@@ -185,6 +188,24 @@ export function CreateAgentDialog({
         }
       }
       const createdAgent = await onCreate(data);
+      // Catalog skills use the same binding API as the Plugin tab. The
+      // agent must exist before its full cloud-skill list can be persisted.
+      if (createdAgent && selectedCloudSkills.length > 0) {
+        try {
+          await api.setAgentCloudSkills(createdAgent.id, {
+            skill_ids: selectedCloudSkills.map((skill) => skill.id),
+          });
+        } catch (skillErr) {
+          // Non-fatal: the agent exists and the user can retry from its
+          // Plugin tab without losing the rest of the form submission.
+          toast.warning(
+            t(($) => $.create_dialog.skill_attach_failed_toast, {
+              error:
+                skillErr instanceof Error ? skillErr.message : "unknown error",
+            }),
+          );
+        }
+      }
       // Follow-up: attach selected skills to the newly created agent.
       // onCreate returns the created Agent for this path; if the caller
       // doesn't return it we fall back to skipping (preserves
@@ -364,6 +385,11 @@ export function CreateAgentDialog({
             <PluginSelect
               value={pluginId}
               onChange={setPluginId}
+            />
+
+            <CloudSkillSelect
+              value={selectedCloudSkills}
+              onChange={setSelectedCloudSkills}
             />
 
             {SKILLS_ENABLED && (

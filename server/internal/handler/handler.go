@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/netip"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -103,6 +104,9 @@ type Config struct {
 	// delivered value is empty.
 	CSCPluginMarketplaceName string
 	CSCPluginMarketplaceRepo string
+	// CloudGatewayProxyPrefix is used to build the frontend-facing Gateway proxy URL
+	// for issue conversation event streams. Defaults to "/cloud-api/cloud/device/%s/proxy".
+	CloudGatewayProxyPrefix string
 }
 
 type cloudRuntimeProxy interface {
@@ -740,4 +744,18 @@ func (h *Handler) loadInboxItemForUser(w http.ResponseWriter, r *http.Request, i
 		return db.MulticaInboxItem{}, false
 	}
 	return item, true
+}
+
+const defaultGatewayProxyPrefix = "/cloud-api/cloud/device/%s/proxy"
+
+func gatewayProxyPrefix(cfg Config, deviceID string) string {
+	p := cfg.CloudGatewayProxyPrefix
+	if p == "" {
+		p = defaultGatewayProxyPrefix
+	}
+	if strings.Count(p, "%s") != 1 {
+		slog.Warn("invalid CloudGatewayProxyPrefix, must contain exactly one %s; using default", "configured", p)
+		p = defaultGatewayProxyPrefix
+	}
+	return strings.Replace(p, "%s", deviceID, 1)
 }
