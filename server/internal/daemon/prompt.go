@@ -72,6 +72,19 @@ func BuildPrompt(task Task, provider string) string {
 		b.WriteString("---\n\n")
 	}
 
+	// Code deliverables (pull_request kind): tell the agent how to push a branch
+	// to GitLab, open an MR, and submit the MR URL back as the deliverable.
+	// Document deliverables are covered above (GiteaDeliverables -> gitea submit);
+	// this covers the code path. Generic (not gated on a context field) so it
+	// shows for code nodes that have no Gitea context.
+	b.WriteString("## Code Deliverables (pull_request)\n\n")
+	b.WriteString("If this node has a code deliverable (kind=pull_request), you MUST report it — the node is not complete until the PR/MR URL is submitted:\n")
+	b.WriteString("1. List the node's deliverables: `curl -s -H \"Authorization: Bearer $MULTICA_TOKEN\" -H \"X-Workspace-ID: $MULTICA_WORKSPACE_ID\" $MULTICA_SERVER_URL/api/node-runs/$MULTICA_NODE_RUN_ID/deliverables` — note the `id` and `kind` of each.\n")
+	b.WriteString("2. For each `kind=pull_request` deliverable: push a branch to the linked Git repo and open a Merge Request with `cs-workflow mr create --source-branch <branch> --title \"<title>\" --push` (run inside a checkout whose `origin` points at the GitLab repo; the CLI reads the GitLab PAT from the workspace).\n")
+	b.WriteString("3. Submit the MR web URL back: `curl -X POST -H \"Authorization: Bearer $MULTICA_TOKEN\" -H \"X-Workspace-ID: $MULTICA_WORKSPACE_ID\" -H \"Content-Type: application/json\" -d '{\"pull_request_url\":\"<MR URL>\"}' $MULTICA_SERVER_URL/api/node-runs/$MULTICA_NODE_RUN_ID/deliverables/<deliverable_id>/submit`.\n")
+	b.WriteString("A deliverable is not submitted until its PR/MR URL is registered. Complete every required deliverable before finishing.\n\n")
+	b.WriteString("---\n\n")
+
 	fmt.Fprintf(&b, "Start by running `cs-workflow issue get %s --output json` to understand your task, then complete it.\n", task.IssueID)
 	fmt.Fprintf(&b, "For comment history, follow the rule in your runtime workflow file (assignment-triggered tasks treat the read as mandatory). `cs-workflow issue comment list %s --output json` returns all comments for the issue (server caps at 2000). On long-running issues use `--recent 20 --output json` to read the 20 most recently active threads, then page older threads via the stderr `Next thread cursor: ...` line and the matching `--before` / `--before-id` until you have enough history. `--since <RFC3339>` is still available for incremental polling and may combine with `--recent`.\n", task.IssueID)
 	return b.String()
