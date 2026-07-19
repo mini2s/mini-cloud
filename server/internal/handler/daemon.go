@@ -1818,7 +1818,7 @@ func (h *Handler) buildGiteaDeliverableContext(ctx context.Context, task db.Mult
 	return &GiteaDeliverableContext{
 		Owner:        owner,
 		Repo:         repo,
-		CloneURL:     strings.TrimRight(giteaBaseURL(), "/") + "/" + owner + "/" + repo + ".git",
+		CloneURL:     strings.TrimRight(giteaPublicBaseURL(), "/") + "/" + owner + "/" + repo + ".git",
 		InstBranch:   gitea.InstBranch(util.UUIDToString(run.ID)),
 		NodeBranch:   gitea.NodeBranch(nodeRunIDStr),
 		Deliverables: refs,

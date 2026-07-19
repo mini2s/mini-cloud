@@ -14,6 +14,19 @@ import (
 
 func giteaBaseURL() string { return strings.TrimSpace(os.Getenv("GITEA_BASE_URL")) }
 
+// giteaPublicBaseURL is the caller-reachable Gitea base for the clone_url /
+// credential returned to daemons + agents. The server itself talks to Gitea
+// over the container-internal GITEA_BASE_URL (e.g. http://gitea:3000); a
+// daemon running on the host can't resolve that container DNS, so when
+// GITEA_PUBLIC_BASE_URL is set (e.g. http://localhost:23000) the clone_url +
+// credential use it instead. Defaults to GITEA_BASE_URL when unset (single-host).
+func giteaPublicBaseURL() string {
+	if pub := strings.TrimSpace(os.Getenv("GITEA_PUBLIC_BASE_URL")); pub != "" {
+		return pub
+	}
+	return giteaBaseURL()
+}
+
 func giteaAdminToken() string { return strings.TrimSpace(os.Getenv("GITEA_ADMIN_TOKEN")) }
 
 // isGiteaConfigured reports whether the server can act as an admin against the
@@ -78,7 +91,7 @@ func (h *Handler) HandleGiteaCredential(w http.ResponseWriter, r *http.Request) 
 	}
 
 	writeJSON(w, http.StatusOK, map[string]string{
-		"base_url": giteaBaseURL(),
+		"base_url": giteaPublicBaseURL(),
 		"token":    token,
 	})
 }
