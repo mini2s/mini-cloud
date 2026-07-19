@@ -69,6 +69,7 @@ type WorkflowNodeRunResponse struct {
 	DeviceID                 *string         `json:"device_id"`
 	SessionID                *string         `json:"session_id"`
 	SplitReviewChatSessionID *string         `json:"split_review_chat_session_id"`
+	SplitConfigVersion       int64           `json:"split_config_version"`
 	StartedAt                *string         `json:"started_at"`
 	CompletedAt              *string         `json:"completed_at"`
 	CreatedAt                string          `json:"created_at"`
@@ -131,6 +132,7 @@ func workflowNodeRunToResponse(nr db.MulticaWorkflowNodeRun) WorkflowNodeRunResp
 		DeviceID:                 textToPtr(nr.DeviceID),
 		SessionID:                textToPtr(nr.SessionID),
 		SplitReviewChatSessionID: uuidToPtr(nr.SplitReviewChatSessionID),
+		SplitConfigVersion:       nr.SplitConfigVersion,
 		StartedAt:                timestampToPtr(nr.StartedAt),
 		CompletedAt:              timestampToPtr(nr.CompletedAt),
 		CreatedAt:                timestampToString(nr.CreatedAt),

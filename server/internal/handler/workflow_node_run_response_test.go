@@ -16,3 +16,12 @@ func TestWorkflowNodeRunToResponseIncludesSplitReviewChatSessionID(t *testing.T)
 		t.Fatalf("SplitReviewChatSessionID = %v, want %q", resp.SplitReviewChatSessionID, "82143ff9-46d9-4b99-9278-c26d78b33ac0")
 	}
 }
+
+func TestWorkflowNodeRunToResponseIncludesSplitConfigVersion(t *testing.T) {
+	nodeRun := db.MulticaWorkflowNodeRun{SplitConfigVersion: 7}
+
+	resp := workflowNodeRunToResponse(nodeRun)
+	if resp.SplitConfigVersion != 7 {
+		t.Fatalf("SplitConfigVersion = %d, want 7", resp.SplitConfigVersion)
+	}
+}

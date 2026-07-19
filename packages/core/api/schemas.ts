@@ -243,18 +243,20 @@ export const EMPTY_SPLIT_PROGRESS: SplitProgress = {
   skipped: 0,
 };
 
-const SplitTaskSchema = z.object({
+export const SplitTaskSchema = z.object({
   id: z.string(),
   node_run_id: z.string(),
   title: z.string().default(""),
   description: z.string().default(""),
-  workflow_id: z.string().nullable().default(null),
+  workflow_id: z.string().default(""),
   depends_on: z.array(z.string()).default([]),
   sort_order: z.number().default(0),
   status: z.string().default("draft"),
   issue_id: z.string().nullable().default(null),
   run_id: z.string().nullable().default(null),
   version: z.number().default(1),
+  draft_key: z.string().nullable().default(null),
+  draft_source: z.enum(["agent", "chat", "recovered"]).catch("agent"),
   last_error: z.object({
     code: z.string().default(""),
     message: z.string().default(""),
@@ -912,6 +914,7 @@ export const WorkflowNodeRunSchema = z.object({
   runtime_id: z.string().nullable().default(null),
   device_id: z.string().nullable().default(null),
   split_review_chat_session_id: z.string().nullable().default(null),
+  split_config_version: z.number().int().positive().default(1),
   started_at: z.string().nullable().default(null),
   completed_at: z.string().nullable().default(null),
   created_at: z.string().default(""),
@@ -941,6 +944,7 @@ export const EMPTY_WORKFLOW_NODE_RUN: WorkflowNodeRun = {
   runtime_id: null,
   device_id: null,
   split_review_chat_session_id: null,
+  split_config_version: 1,
   started_at: null,
   completed_at: null,
   created_at: "",

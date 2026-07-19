@@ -296,7 +296,8 @@ export interface WorkflowNodeRun {
   /** Device identifier for the runtime/session bound to this node run, if any. */
   device_id: string | null;
   /** Chat session used for natural-language split draft review, if any. */
-  split_review_chat_session_id?: string | null;
+  split_review_chat_session_id: string | null;
+  split_config_version: number;
   started_at: string | null;
   completed_at: string | null;
   created_at: string;
@@ -314,18 +315,22 @@ export type SplitTaskStatus =
   | "cancelled"
   | "skipped";
 
+export type SplitDraftSource = "agent" | "chat" | "recovered";
+
 export interface SplitTask {
   id: string;
   node_run_id: string;
   title: string;
   description: string;
-  workflow_id: string | null;
+  workflow_id: string;
   depends_on: string[];
   sort_order: number;
   status: SplitTaskStatus;
   issue_id: string | null;
   run_id: string | null;
   version: number;
+  draft_key: string | null;
+  draft_source: SplitDraftSource;
   last_error: SplitTaskLastError | null;
   created_at: string;
   updated_at: string;

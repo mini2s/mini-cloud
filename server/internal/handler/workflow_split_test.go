@@ -9,8 +9,26 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/multica-ai/multica/server/internal/service"
+	db "github.com/multica-ai/multica/server/pkg/db/generated"
 )
+
+func TestSplitTaskToResponseIncludesDraftMetadata(t *testing.T) {
+	task := db.MulticaWorkflowSplitTask{
+		WorkflowID:  parseUUID("11111111-1111-1111-1111-111111111111"),
+		DraftKey:    pgtype.Text{String: "api", Valid: true},
+		DraftSource: service.DraftSourceRecovered,
+	}
+
+	resp := splitTaskToResponse(task)
+	if resp.WorkflowID == nil || *resp.WorkflowID != "11111111-1111-1111-1111-111111111111" {
+		t.Fatalf("WorkflowID = %v", resp.WorkflowID)
+	}
+	if resp.DraftKey == nil || *resp.DraftKey != "api" || resp.DraftSource != "recovered" {
+		t.Fatalf("draft metadata = %v / %q", resp.DraftKey, resp.DraftSource)
+	}
+}
 
 type splitApproveFixture struct {
 	parentIssueID   string

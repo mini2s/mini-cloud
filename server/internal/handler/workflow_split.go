@@ -26,6 +26,8 @@ type SplitTaskResponse struct {
 	IssueID     *string          `json:"issue_id"`
 	RunID       *string          `json:"run_id"`
 	Version     int64            `json:"version"`
+	DraftKey    *string          `json:"draft_key"`
+	DraftSource string           `json:"draft_source"`
 	LastError   *json.RawMessage `json:"last_error"`
 	CreatedAt   string           `json:"created_at"`
 	UpdatedAt   string           `json:"updated_at"`
@@ -120,6 +122,8 @@ func splitTaskToResponse(task db.MulticaWorkflowSplitTask) SplitTaskResponse {
 		IssueID:     uuidToPtr(task.IssueID),
 		RunID:       uuidToPtr(task.RunID),
 		Version:     task.Version,
+		DraftKey:    textToPtr(task.DraftKey),
+		DraftSource: task.DraftSource,
 		LastError:   lastError,
 		CreatedAt:   timestampToString(task.CreatedAt),
 		UpdatedAt:   timestampToString(task.UpdatedAt),

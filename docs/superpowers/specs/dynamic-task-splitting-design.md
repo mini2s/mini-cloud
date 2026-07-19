@@ -89,19 +89,25 @@ CREATE TABLE multica_workflow_split_task (
   )),
   issue_id      UUID REFERENCES multica_issue(id) ON DELETE SET NULL,
   run_id        UUID REFERENCES multica_workflow_run(id) ON DELETE SET NULL,
+  dispatch_key  TEXT,
+  last_error    JSONB,
   created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at    TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
 CREATE UNIQUE INDEX idx_workflow_split_task_node_run_draft_key
   ON multica_workflow_split_task(node_run_id, draft_key)
-  WHERE draft_key IS NOT NULL AND draft_key <> '';
+  WHERE draft_key IS NOT NULL AND draft_key <> '' AND status <> 'discarded';
 ```
 
-- `draft_key` 是 Agent upsert 草案的稳定业务键，同 node_run 下唯一
+- `draft_key` 是 Agent upsert 草案的稳定业务键，同 node_run 下的非 discarded 草案中唯一
 - `draft_source` 标注草案来源：`agent`（Planner 生成）、`chat`（审核对话调整或手动新增）、`recovered`（恢复管道）
 - `workflow_id` 是每条草案的执行 workflow，后端在 INSERT 前填充默认值
 - `version` 用于审核期并发控制
+- `dispatch_key TEXT`：split task 每次派发尝试的幂等键；格式为 `split-task:<task-id>:attempt:<version>`。
+- `last_error JSONB`：保存结构化的子 workflow 启动失败信息。
+- `multica_workflow_run.dispatch_key TEXT`：确保同一 split task attempt 最多创建一个 child run。
+- `(node_run_id, draft_key)` 唯一索引仅覆盖 `status <> 'discarded'`，因此 discarded key 可被后续新草案复用。
 
 **状态流转**：
 
@@ -198,7 +204,7 @@ flowchart TD
     J --> K["状态: split_active"]
     K --> L{"mode?"}
     L -->|barrier| M["等待所有子任务终态"]
-    L -->|pipeline| N["Initial dispatch loop"]
+    L -->|pipeline| N["Initial dispatch loop<br/>NodeRun 写入终态"]
     M --> O{"失败数 ≤ max_failures?"}
     O -->|是| P["状态: completed"]
     O -->|否| X3["状态: failed<br/>取消 running · 跳过 pending"]
@@ -280,7 +286,7 @@ Approve 在一个 DB 事务中：
 
 SplitOrchestrator 调度：
 - 按拓扑顺序 + `max_concurrency` 启动子 WorkflowRun
-- 使用 dispatch key `split-task:<split_task_id>:attempt:<attempt>` 保证幂等
+- 使用 dispatch key `split-task:<task-id>:attempt:<version>` 保证幂等
 - 启动后回写 `issue.workflow_run_id` 和 `split_task.run_id`
 
 **并发安全**：
@@ -300,18 +306,18 @@ SplitOrchestrator 调度：
 
 ### pipeline 模式
 
-异步释放：子 issue 创建且 initial dispatch loop 成功后，父 split node 立即释放下游，子任务后台继续。
+异步释放：子 issue 创建且 initial dispatch loop 成功后，将父 split node 写入 `completed` 终态并立即释放下游，子任务后台继续。pipeline 释放只以 node run 终态为准；split task 聚合状态独立计算，不使用 `split_initial_dispatch_completed` 标记。
 
 **Initial dispatch loop**：按依赖和拓扑顺序寻找当前 ready task，在 `max_concurrency` 允许范围内尽可能启动；无 ready task 或并发满时结束。
 
-- Initial dispatch 成功后父节点 completed，子任务由 SplitOrchestrator 后台调度
+- Initial dispatch 成功后父节点 completed，子任务由 SplitOrchestrator 后台调度；父 node run 终态与 split task 聚合状态分离持久化
 - **若存在 ready task 但首个 WorkflowRun 启动失败**，父 split node → `failed`，不释放下游
 - **若 DAG 合法但没有任何无依赖 ready task**，说明依赖图校验有缺口，返回 `422 invalid_split_task_dependency`，不释放下游
 
 **SplitOrchestrator 重启恢复**：
 
-- 已有 task `running` 或 `done` → 视为 initial dispatch 已接管，恢复后台调度
-- 全部 task 仍为 `created` → 重新执行 initial dispatch loop
+- 父 node run 已为终态 → 只恢复 split task 后台调度和聚合，不重复释放 pipeline
+- 父 node run 仍为 `split_active` → 重新执行 initial dispatch loop，成功后以 node run 终态释放 pipeline
 
 **父节点释放后**：
 
@@ -394,6 +400,14 @@ PATCH  /api/node-runs/{nodeRunID}/split/config               (修改并发参数
 
 所有修改必须携带 `expected_version`，版本冲突返回 `409 draft_task_conflict`。workflow 校验失败返回 `422 invalid_split_task_workflow`。成功返回完整 split tasks response。
 
+```
+DELETE /api/node-runs/{nodeRunID}/split/draft-tasks/{taskID}
+POST   /api/node-runs/{nodeRunID}/split/draft-submit
+POST   /api/node-runs/{nodeRunID}/split/reset-original
+```
+
+`draft-submit`、`reset-original` 和 draft delete 是恢复与审核流程的正式操作端点。
+
 **Config PATCH 规则**：
 
 - `awaiting_split_review` 和 `split_active` 状态可修改 `max_concurrency`（第一期不可修改 `mode`）
@@ -448,10 +462,10 @@ POST /api/node-runs/{nodeRunID}/split/cancel
 ### 可选 Workflow 列表
 
 ```
-GET /api/workflows/split-issue-workflow-options?parent_workflow_id=<uuid>
+GET /api/workflows/{id}/split/issue-workflow-options
 ```
 
-返回同 workspace 下 active、非当前 workflow、不含 split 节点的 workflow。
+其中 `{id}` 即 parent workflow id；不提供并行兼容路由。返回同 workspace 下 active、非当前 workflow、不含 split 节点的 workflow。
 
 ### 重试 API
 
@@ -565,7 +579,7 @@ Split 生命周期关键事件用于监控、排障和聚合状态推导。每�
 
 **Split 子 issue 展开态**：子节点在父 split 右侧就近展开为 child cluster：
 - 按依赖深度分列，同层按 `sort_order` 垂直堆叠
-- 依赖关系使用 ReactFlow edge
+- Runtime child cluster 使用父 ReactFlow node 内的 SVG edge layer；child card 不是独立 ReactFlow node，语义与可访问标签由 cluster 组件提供
 - 展开后视口聚焦到父 split + child cluster 区域
 - 不进入编辑模式
 

@@ -91,6 +91,40 @@ describe("IssueSchema (via ListIssuesResponseSchema)", () => {
 });
 
 describe("split API response schemas", () => {
+  it("parses split config versions and draft provenance", () => {
+    const nodeRun = WorkflowNodeRunSchema.parse({
+      id: "nr-1",
+      workflow_run_id: "run-1",
+      workflow_node_id: "node-1",
+      split_config_version: 4,
+    });
+    const split = SplitTasksResponseSchema.parse({
+      tasks: [{
+        id: "task-1",
+        node_run_id: "nr-1",
+        workflow_id: "wf-1",
+        draft_key: "backend",
+        draft_source: "recovered",
+      }],
+    });
+
+    expect(nodeRun.split_config_version).toBe(4);
+    expect(split.tasks[0]).toMatchObject({
+      workflow_id: "wf-1",
+      draft_key: "backend",
+      draft_source: "recovered",
+    });
+  });
+
+  it("defaults additive split fields from an older server response", () => {
+    const nodeRun = WorkflowNodeRunSchema.parse({
+      id: "nr-1",
+      workflow_run_id: "run-1",
+      workflow_node_id: "node-1",
+    });
+    expect(nodeRun.split_config_version).toBe(1);
+  });
+
   const validTask = {
     id: "task-1",
     node_run_id: "node-run-1",
@@ -117,10 +151,12 @@ describe("split API response schemas", () => {
     expect((parsed.tasks[0] as Record<string, unknown>).server_hint).toBe("future");
   });
 
-  it("defaults missing nullable split task fields", () => {
+  it("defaults missing additive split task fields", () => {
     const { workflow_id: _a, issue_id: _b, run_id: _c, depends_on: _d, last_error: _e, version: _f, ...partial } = validTask;
     const parsed = SplitTasksResponseSchema.parse({ tasks: [partial] });
-    expect(parsed.tasks[0]?.workflow_id).toBeNull();
+    expect(parsed.tasks[0]?.workflow_id).toBe("");
+    expect(parsed.tasks[0]?.draft_key).toBeNull();
+    expect(parsed.tasks[0]?.draft_source).toBe("agent");
     expect(parsed.tasks[0]?.issue_id).toBeNull();
     expect(parsed.tasks[0]?.run_id).toBeNull();
     expect(parsed.tasks[0]?.depends_on).toEqual([]);
