@@ -132,3 +132,66 @@ func TestProvisionWorkspaceBot_AddOrgMemberFails(t *testing.T) {
 		t.Fatalf("err = %v", err)
 	}
 }
+
+func TestProvisionMember(t *testing.T) {
+	f := newFakeProvision()
+	username, err := ProvisionMember(context.Background(), f, MemberParams{
+		WorkspaceID: "7f3c9a1e-d4b2-4c8e-9a3f-1b2c3d4e5f6a",
+		UserID:      "11112222-3333-4444-5555-666677778888",
+		Email:       "alice@multica.ai",
+	})
+	if err != nil {
+		t.Fatalf("ProvisionMember: %v", err)
+	}
+	// username = email local-part, matching the Casdoor username (SSO alignment)
+	if username != "alice" {
+		t.Errorf("username = %q, want alice", username)
+	}
+	if !f.users["alice"] {
+		t.Error("member user not created")
+	}
+	// no PAT minted for members (view-only; pushing is the bot's job)
+	if _, ok := f.tokens["alice"]; ok {
+		t.Error("member should NOT get a PAT")
+	}
+	found := false
+	for _, m := range f.members {
+		if m == "t-7f3c9a1e/alice" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("member not added to org")
+	}
+}
+
+func TestProvisionMember_OrgMissingSkipsMembership(t *testing.T) {
+	f := newFakeProvision()
+	f.orgExists = false
+	if _, err := ProvisionMember(context.Background(), f, MemberParams{
+		WorkspaceID: "7f3c9a1e-d4b2-4c8e-9a3f-1b2c3d4e5f6a",
+		UserID:      "11112222-3333-4444-5555-666677778888",
+		Email:       "alice@multica.ai",
+	}); err != nil {
+		t.Fatalf("ProvisionMember: %v", err)
+	}
+	if !f.users["alice"] {
+		t.Error("member user should be created even when the org is missing")
+	}
+	if len(f.members) != 0 {
+		t.Errorf("membership must be skipped when the org is missing, got %v", f.members)
+	}
+}
+
+func TestProvisionMember_AdminCreateUserFails(t *testing.T) {
+	f := newFakeProvision()
+	f.userCreateErr = errors.New("user boom")
+	_, err := ProvisionMember(context.Background(), f, MemberParams{
+		WorkspaceID: "7f3c9a1e-d4b2-4c8e-9a3f-1b2c3d4e5f6a",
+		UserID:      "11112222-3333-4444-5555-666677778888",
+		Email:       "alice@multica.ai",
+	})
+	if err == nil || err.Error() != "create gitea member user: user boom" {
+		t.Fatalf("err = %v", err)
+	}
+}

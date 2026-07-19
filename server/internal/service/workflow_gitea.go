@@ -108,6 +108,12 @@ func (s *WorkflowService) ScaffoldRunDeliverables(ctx context.Context, run db.Mu
 		s.failRun(ctx, run)
 		return
 	}
+
+	// 3. Sync workspace members into the org (TEAM_NAMESPACE_API §1.1: org
+	//    members = team members) so they can read/PR-review the org's repos.
+	//    Best-effort + count-gated: never blocks the run, only re-provisions
+	//    when the member count changes since the last sync.
+	s.syncWorkspaceMembers(ctx, run.WorkspaceID)
 }
 
 // provisionWorkspaceBotIfAbsent creates the workspace Gitea bot + PAT and
@@ -150,6 +156,68 @@ func (s *WorkflowService) provisionWorkspaceBotIfAbsent(ctx context.Context, wor
 		return fmt.Errorf("persist bot settings: %w", err)
 	}
 	return nil
+}
+
+// syncWorkspaceMembers ensures every workspace member is a member of the
+// workspace's Gitea org (TEAM_NAMESPACE_API §1.1: org members = team members),
+// so members can read the org's repos / PRs (e.g. click a deliverable PR link +
+// review it). Idempotent + count-gated: it records the synced member count in
+// workspace.settings and only re-provisions when the count changes, so a steady
+// membership costs nothing per run. Best-effort: errors are logged per-member
+// and never block the run (view access is not a hard dependency like the bot's
+// push access). Adding members is the common path; removal (dissolve / leave)
+// is a separate follow-up.
+func (s *WorkflowService) syncWorkspaceMembers(ctx context.Context, workspaceID pgtype.UUID) {
+	members, err := s.Queries.ListMembersWithUser(ctx, workspaceID)
+	if err != nil {
+		slog.Warn("gitea sync members: list",
+			"workspace_id", util.UUIDToString(workspaceID), "error", err)
+		return
+	}
+
+	ws, err := s.Queries.GetWorkspace(ctx, workspaceID)
+	if err != nil {
+		slog.Warn("gitea sync members: get workspace",
+			"workspace_id", util.UUIDToString(workspaceID), "error", err)
+		return
+	}
+	settingsMap := map[string]any{}
+	if len(ws.Settings) > 0 {
+		_ = json.Unmarshal(ws.Settings, &settingsMap) // best-effort
+	}
+	// count gate: skip when membership hasn't changed since the last sync.
+	if n, _ := settingsMap["gitea_member_count_synced"].(float64); int(n) == len(members) && len(members) > 0 {
+		return
+	}
+
+	wsIDStr := util.UUIDToString(workspaceID)
+	for _, m := range members {
+		if !m.UserID.Valid {
+			continue
+		}
+		if _, err := gitea.ProvisionMember(ctx, s.Gitea, gitea.MemberParams{
+			WorkspaceID: wsIDStr,
+			UserID:      util.UUIDToString(m.UserID),
+			Email:       m.UserEmail.String,
+		}); err != nil {
+			slog.Warn("gitea sync member: provision",
+				"workspace_id", wsIDStr, "user_id", util.UUIDToString(m.UserID), "error", err)
+		}
+	}
+
+	// record the synced count so the next run skips unless membership changed.
+	settingsMap["gitea_member_count_synced"] = len(members)
+	raw, err := json.Marshal(settingsMap)
+	if err != nil {
+		slog.Warn("gitea sync members: marshal settings", "error", err)
+		return
+	}
+	if _, err := s.Queries.UpdateWorkspace(ctx, db.UpdateWorkspaceParams{
+		ID:       workspaceID,
+		Settings: raw,
+	}); err != nil {
+		slog.Warn("gitea sync members: persist count", "error", err)
+	}
 }
 
 // failRun transitions a running run to failed when a hard Gitea dependency

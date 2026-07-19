@@ -3,6 +3,7 @@ package gitea
 import (
 	"context"
 	"fmt"
+	"strings"
 )
 
 // provisionAPI is the subset of *Client that ProvisionWorkspaceBot needs.
@@ -61,4 +62,69 @@ func ProvisionWorkspaceBot(ctx context.Context, c provisionAPI, p BotParams) (us
 
 func botEmail(username string) string {
 	return fmt.Sprintf("%s@multica.local", username)
+}
+
+// MemberParams identifies a workspace member to provision into the Gitea org.
+type MemberParams struct {
+	WorkspaceID string
+	UserID      string // multica user id (audit/logging only)
+	Email       string // member's multica email; the local-part is the Casdoor username
+}
+
+// MemberUsername derives a member's Gitea username from their email local-part.
+// In this deployment Casdoor usernames ARE the email local-part (e.g.
+// 29219@dept.local → "29219", admin@multica.ai → "admin"), so the Gitea user
+// created here matches the user Gitea-Casdoor SSO creates on first login —
+// meaning an SSO-authenticated member lands on their synced org identity (not a
+// second, non-member user) and can read the org's PRs directly on Gitea.
+//
+// Sanitized to Gitea's username rules; falls back to "mc-member" when the
+// local-part is empty/unsalvageable. Collisions (two members with the same
+// local-part in different domains) are a known edge case — they would share a
+// Gitea identity; a future refinement can disambiguate via the Casdoor UUID.
+func MemberUsername(email string) string {
+	local := email
+	if at := strings.IndexByte(local, '@'); at >= 0 {
+		local = local[:at]
+	}
+	var b strings.Builder
+	for _, r := range strings.ToLower(local) {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '_' || r == '-' {
+			b.WriteRune(r)
+		}
+	}
+	s := strings.Trim(b.String(), "-_")
+	if s == "" {
+		return "mc-member"
+	}
+	return s
+}
+
+// ProvisionMember creates the member's Gitea user (idempotent) and adds them to
+// the workspace org so they can read the org's repos / PRs — implementing
+// TEAM_NAMESPACE_API §1.1 ("team ns org 成员 = team 成员"). No PAT is minted:
+// members view PRs via their Gitea login (SSO), and pushing is done by the
+// workspace bot, not individual members. Best-effort per member: a missing org
+// (sync before first scaffold) is skipped, not an error.
+func ProvisionMember(ctx context.Context, c provisionAPI, p MemberParams) (string, error) {
+	username := MemberUsername(p.Email)
+	org := OrgName(p.WorkspaceID)
+	email := p.Email
+	if email == "" {
+		email = botEmail(username)
+	}
+	if err := c.AdminCreateUser(ctx, username, email); err != nil {
+		return "", fmt.Errorf("create gitea member user: %w", err)
+	}
+	// Only add to org if the org exists (scaffold creates it; a sync racing
+	// ahead of the first scaffold is a no-op, retried on the next run).
+	if exists, gErr := c.GetOrg(ctx, org); gErr != nil {
+		return "", fmt.Errorf("check org %s: %w", org, gErr)
+	} else if !exists {
+		return username, nil
+	}
+	if err := c.AddOrgMember(ctx, org, username); err != nil {
+		return "", fmt.Errorf("add gitea member to org: %w", err)
+	}
+	return username, nil
 }
