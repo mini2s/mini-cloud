@@ -3,6 +3,7 @@ package handler
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/google/uuid"
@@ -68,6 +69,12 @@ func TestBuildGiteaDeliverableContext_Configured(t *testing.T) {
 	// canonical UUID prefix.
 	if want := "t-" + testWorkspaceID[:8]; got.Owner != want {
 		t.Errorf("Owner = %q, want %q", got.Owner, want)
+	}
+	// CloneURL is the single source of truth (spec §10.3.1): full
+	// <base>/<owner>/<repo>.git, server-concatenated so the CLI never self-builds.
+	wantSuffix := "/" + got.Owner + "/" + got.Repo + ".git"
+	if got.CloneURL == "" || !strings.HasSuffix(got.CloneURL, wantSuffix) {
+		t.Errorf("CloneURL = %q, want suffix %q", got.CloneURL, wantSuffix)
 	}
 	// round-trip through JSON (the daemon deserializes the claim response
 	// this way and the JSON tags are the wire contract).

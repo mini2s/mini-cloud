@@ -2296,6 +2296,13 @@ func (d *Daemon) buildAgentEnv(task Task, agentName, slot string) map[string]str
 	if g := task.GiteaDeliverables; g != nil {
 		env["MULTICA_GITEA_OWNER"] = g.Owner
 		env["MULTICA_GITEA_REPO"] = g.Repo
+		if g.CloneURL != "" {
+			// Single source of truth (spec §10.3.1): the server pre-concatenated
+			// the clone URL; the CLI must use it verbatim instead of self-building
+			// <base>/<owner>/<repo>. Kept alongside OWNER/REPO for back-compat
+			// with older daemons that don't deliver clone_url.
+			env["MULTICA_GITEA_CLONE_URL"] = g.CloneURL
+		}
 		env["MULTICA_GITEA_INST_BRANCH"] = g.InstBranch
 		env["MULTICA_GITEA_NODE_BRANCH"] = g.NodeBranch
 		if raw, err := json.Marshal(g.Deliverables); err == nil {

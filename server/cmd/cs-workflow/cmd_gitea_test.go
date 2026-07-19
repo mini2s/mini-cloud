@@ -140,3 +140,14 @@ func tempFile(t *testing.T, content string) string {
 	_ = f.Close()
 	return f.Name()
 }
+
+func TestInjectTokenIntoURL(t *testing.T) {
+	got := injectTokenIntoURL("http://gitea:3000/t-aaa/wf-bbb.git", "tok123")
+	if got != "http://oauth2:tok123@gitea:3000/t-aaa/wf-bbb.git" {
+		t.Errorf("injectTokenIntoURL = %q", got)
+	}
+	// unparseable → ""
+	if injectTokenIntoURL("://bad", "tok") != "" {
+		t.Error("expected empty for unparseable URL")
+	}
+}

@@ -106,6 +106,7 @@ type UpstreamStageNode struct {
 type GiteaDeliverableContext struct {
 	Owner        string                `json:"owner"`
 	Repo         string                `json:"repo"`
+	CloneURL     string                `json:"clone_url"`
 	InstBranch   string                `json:"inst_branch"`
 	NodeBranch   string                `json:"node_branch"`
 	Deliverables []GiteaDeliverableRef `json:"deliverables"`

@@ -78,6 +78,7 @@ type giteaContext struct {
 	nodeRunID    string
 	owner        string
 	repo         string
+	cloneURL     string // full <base>/<owner>/<repo>.git from the server (SoT, spec §10.3.1); preferred over self-built
 	instBranch   string
 	nodeBranch   string
 	deliverables []giteaDeliverableRef
@@ -94,6 +95,7 @@ func readGiteaContext() (*giteaContext, error) {
 		nodeRunID:  os.Getenv("MULTICA_NODE_RUN_ID"),
 		owner:      os.Getenv("MULTICA_GITEA_OWNER"),
 		repo:       os.Getenv("MULTICA_GITEA_REPO"),
+		cloneURL:   os.Getenv("MULTICA_GITEA_CLONE_URL"),
 		instBranch: os.Getenv("MULTICA_GITEA_INST_BRANCH"),
 		nodeBranch: os.Getenv("MULTICA_GITEA_NODE_BRANCH"),
 	}
@@ -150,7 +152,15 @@ func submitDeliverable(cfg submitConfig) error {
 	if giteaBase == "" {
 		giteaBase = cred.BaseURL
 	}
-	cloneAuth := injectToken(giteaBase, gctx.owner, gctx.repo, cred.Token)
+	// Prefer the server-provided full clone URL (spec §10.3.1 SoT); fall back to
+	// self-building from base+owner+repo for older daemons that don't deliver it.
+	cloneAuth := ""
+	if gctx.cloneURL != "" {
+		cloneAuth = injectTokenIntoURL(gctx.cloneURL, cred.Token)
+	}
+	if cloneAuth == "" {
+		cloneAuth = injectToken(giteaBase, gctx.owner, gctx.repo, cred.Token)
+	}
 
 	dir, err := os.MkdirTemp("", "multica-gitea-*")
 	if err != nil {
@@ -202,6 +212,18 @@ func injectToken(baseURL, owner, repo, token string) string {
 	}
 	u.User = url.UserPassword("oauth2", token)
 	u.Path = fmt.Sprintf("/%s/%s.git", owner, repo)
+	return u.String()
+}
+
+// injectTokenIntoURL injects the PAT into a full clone URL (already carrying
+// owner/repo) — used when the server delivers MULTICA_GITEA_CLONE_URL (spec
+// §10.3.1 single-source-of-truth). Falls back to "" on an unparseable URL.
+func injectTokenIntoURL(cloneURL, token string) string {
+	u, err := url.Parse(strings.TrimSpace(cloneURL))
+	if err != nil || u.Host == "" {
+		return ""
+	}
+	u.User = url.UserPassword("oauth2", token)
 	return u.String()
 }
 

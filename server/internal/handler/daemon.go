@@ -1813,9 +1813,12 @@ func (h *Handler) buildGiteaDeliverableContext(ctx context.Context, task db.Mult
 	if len(refs) == 0 {
 		return nil
 	}
+	owner := gitea.OrgName(util.UUIDToString(run.WorkspaceID))
+	repo := gitea.RepoName(util.UUIDToString(run.WorkflowID))
 	return &GiteaDeliverableContext{
-		Owner:        gitea.OrgName(util.UUIDToString(run.WorkspaceID)),
-		Repo:         gitea.RepoName(util.UUIDToString(run.WorkflowID)),
+		Owner:        owner,
+		Repo:         repo,
+		CloneURL:     strings.TrimRight(giteaBaseURL(), "/") + "/" + owner + "/" + repo + ".git",
 		InstBranch:   gitea.InstBranch(util.UUIDToString(run.ID)),
 		NodeBranch:   gitea.NodeBranch(nodeRunIDStr),
 		Deliverables: refs,
