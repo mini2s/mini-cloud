@@ -376,3 +376,47 @@ func (c *Client) AddOrgMember(ctx context.Context, org, username string) error {
 	}
 	return decodeError(resp)
 }
+
+// OrgMember is the minimal Gitea org-member shape for ListOrgMembers.
+type OrgMember struct {
+	Login string `json:"login"`
+}
+
+// ListOrgMembers lists the members of an org.
+func (c *Client) ListOrgMembers(ctx context.Context, org string) ([]OrgMember, error) {
+	resp, err := c.do(ctx, http.MethodGet, "/orgs/"+org+"/members", nil)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, decodeError(resp)
+	}
+	var members []OrgMember
+	if err := json.NewDecoder(resp.Body).Decode(&members); err != nil {
+		return nil, fmt.Errorf("gitea list org members: invalid response: %w", err)
+	}
+	return members, nil
+}
+
+// RemoveOrgMember removes a user from the org via the org's first team.
+func (c *Client) RemoveOrgMember(ctx context.Context, org, username string) error {
+	teams, err := c.ListOrgTeams(ctx, org)
+	if err != nil {
+		return fmt.Errorf("list org teams: %w", err)
+	}
+	if len(teams) == 0 {
+		return fmt.Errorf("org %s has no team to remove %s from", org, username)
+	}
+	teamID := teams[0].ID
+	resp, err := c.do(ctx, http.MethodDelete,
+		"/teams/"+strconv.FormatInt(teamID, 10)+"/members/"+username, nil)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+		return nil
+	}
+	return decodeError(resp)
+}
