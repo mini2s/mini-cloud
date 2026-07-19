@@ -615,7 +615,7 @@ func (s *SplitOrchestrator) GenerateSplitTasks(ctx context.Context, nodeRun db.M
 	if err != nil {
 		return fmt.Errorf("get workflow run for split issue lookup: %w", err)
 	}
-	if err := s.validateIssueWorkflow(ctx, cfg.DefaultIssueWorkflowID, node.WorkflowID, run.WorkspaceID); err != nil {
+	if err := s.validateIssueWorkflow(ctx, s.Queries, cfg.DefaultIssueWorkflowID, node.WorkflowID, run.WorkspaceID); err != nil {
 		return err
 	}
 	parentIssue, err := s.findParentIssue(ctx, currentNodeRun)
@@ -867,7 +867,7 @@ func (s *SplitOrchestrator) replaceSplitDraftTasksFromPayload(
 	if err != nil {
 		return err
 	}
-	if err := s.validateIssueWorkflow(ctx, cfg.DefaultIssueWorkflowID, node.WorkflowID, run.WorkspaceID); err != nil {
+	if err := s.validateIssueWorkflow(ctx, q, cfg.DefaultIssueWorkflowID, node.WorkflowID, run.WorkspaceID); err != nil {
 		return err
 	}
 	workflowID, err := util.ParseUUID(cfg.DefaultIssueWorkflowID)
@@ -982,7 +982,7 @@ func (s *SplitOrchestrator) upsertSplitDraftTask(ctx context.Context, q *db.Quer
 	if err != nil {
 		return err
 	}
-	if err := s.validateIssueWorkflow(ctx, cfg.DefaultIssueWorkflowID, node.WorkflowID, run.WorkspaceID); err != nil {
+	if err := s.validateIssueWorkflow(ctx, q, cfg.DefaultIssueWorkflowID, node.WorkflowID, run.WorkspaceID); err != nil {
 		return err
 	}
 	workflowID, err := util.ParseUUID(cfg.DefaultIssueWorkflowID)
@@ -1085,7 +1085,7 @@ func (s *SplitOrchestrator) AddManualSplitDraftTask(ctx context.Context, nodeRun
 	if err != nil {
 		return fmt.Errorf("get split node: %w", err)
 	}
-	if err := s.validateIssueWorkflow(ctx, workflowIDValue, node.WorkflowID, run.WorkspaceID); err != nil {
+	if err := s.validateIssueWorkflow(ctx, s.Queries, workflowIDValue, node.WorkflowID, run.WorkspaceID); err != nil {
 		return err
 	}
 	workflowID, err := util.ParseUUID(workflowIDValue)
@@ -1272,7 +1272,7 @@ func (s *SplitOrchestrator) RetrySplitTask(ctx context.Context, nodeRun db.Multi
 
 	var nextWorkflowID pgtype.UUID
 	if workflowIDValue != nil && strings.TrimSpace(*workflowIDValue) != "" {
-		if err := s.validateIssueWorkflow(ctx, strings.TrimSpace(*workflowIDValue), node.WorkflowID, run.WorkspaceID); err != nil {
+		if err := s.validateIssueWorkflow(ctx, s.Queries, strings.TrimSpace(*workflowIDValue), node.WorkflowID, run.WorkspaceID); err != nil {
 			return err
 		}
 		nextWorkflowID, err = util.ParseUUID(strings.TrimSpace(*workflowIDValue))
@@ -1626,7 +1626,7 @@ func (s *SplitOrchestrator) ApproveSplit(ctx context.Context, nodeRun db.Multica
 	if err != nil {
 		return err
 	}
-	if err := s.validateIssueWorkflow(ctx, cfg.DefaultIssueWorkflowID, node.WorkflowID, parentIssue.WorkspaceID); err != nil {
+	if err := s.validateIssueWorkflow(ctx, s.Queries, cfg.DefaultIssueWorkflowID, node.WorkflowID, parentIssue.WorkspaceID); err != nil {
 		return err
 	}
 
@@ -1676,7 +1676,7 @@ func (s *SplitOrchestrator) ApproveSplit(ctx context.Context, nodeRun db.Multica
 			if !task.WorkflowID.Valid {
 				return fmt.Errorf("split task %s is missing workflow_id", util.UUIDToString(task.ID))
 			}
-			if err := s.validateIssueWorkflow(ctx, util.UUIDToString(task.WorkflowID), node.WorkflowID, parentIssue.WorkspaceID); err != nil {
+			if err := s.validateIssueWorkflow(ctx, qtx, util.UUIDToString(task.WorkflowID), node.WorkflowID, parentIssue.WorkspaceID); err != nil {
 				return err
 			}
 		}
@@ -1846,7 +1846,7 @@ func (s *SplitOrchestrator) ScheduleReadyTasks(ctx context.Context, nodeRunID pg
 		if err != nil {
 			return err
 		}
-		if err := s.validateIssueWorkflow(ctx, cfg.DefaultIssueWorkflowID, node.WorkflowID, run.WorkspaceID); err != nil {
+		if err := s.validateIssueWorkflow(ctx, qtx, cfg.DefaultIssueWorkflowID, node.WorkflowID, run.WorkspaceID); err != nil {
 			return err
 		}
 		tasks, err := s.Queries.ListSplitTasksByNodeRun(ctx, nodeRunID)
@@ -3087,7 +3087,7 @@ func splitProgressSummary(tasks []db.MulticaWorkflowSplitTask) map[string]int {
 	return summary
 }
 
-func (s *SplitOrchestrator) validateIssueWorkflow(ctx context.Context, workflowIDValue string, parentWorkflowID, workspaceID pgtype.UUID) error {
+func (s *SplitOrchestrator) validateIssueWorkflow(ctx context.Context, q *db.Queries, workflowIDValue string, parentWorkflowID, workspaceID pgtype.UUID) error {
 	workflowID, err := util.ParseUUID(workflowIDValue)
 	if err != nil {
 		return fmt.Errorf("invalid split default_issue_workflow_id: %w", err)
@@ -3095,7 +3095,7 @@ func (s *SplitOrchestrator) validateIssueWorkflow(ctx context.Context, workflowI
 	if workflowID == parentWorkflowID {
 		return fmt.Errorf("split issue workflow cannot be the parent workflow")
 	}
-	workflow, err := s.Queries.GetWorkflow(ctx, workflowID)
+	workflow, err := q.GetWorkflow(ctx, workflowID)
 	if err != nil {
 		return fmt.Errorf("get split issue workflow: %w", err)
 	}
@@ -3105,7 +3105,7 @@ func (s *SplitOrchestrator) validateIssueWorkflow(ctx context.Context, workflowI
 	if workflow.Status != "active" {
 		return fmt.Errorf("split issue workflow is not active")
 	}
-	nodes, err := s.Queries.ListWorkflowNodes(ctx, workflowID)
+	nodes, err := q.ListWorkflowNodes(ctx, workflowID)
 	if err != nil {
 		return fmt.Errorf("list split issue workflow nodes: %w", err)
 	}
