@@ -1,9 +1,21 @@
 // @vitest-environment jsdom
 
 import { render, screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { SplitTask } from "@multica/core/types";
 import { SplitDependencyNote } from "./split-dependency-note";
+
+vi.mock("../../../i18n", () => ({
+  useT: () => ({
+    t: (selector: (value: { detail_panel: Record<string, string> }) => string) =>
+      selector({
+        detail_panel: {
+          split_dep_will_appear_after_draft: "Dependencies will appear here after a draft is generated.",
+          split_dep_can_start_in_parallel: "These child issues can start in parallel.",
+        },
+      }),
+  }),
+}));
 
 function splitTask(id: string, dependsOn: string[] = []): SplitTask {
   return {

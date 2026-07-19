@@ -9,9 +9,18 @@ import type { WorkflowNode } from "@multica/core/types";
 // Minimal mock for the i18n hook
 vi.mock("../../../../i18n", () => ({
   useT: () => ({
-    t: (getter: (d: { node: Record<string, string> }) => string) => {
-      const dict = { node: { worker_name: "Worker", agent_label: "Agent", not_configured: "Not configured" } };
-      return getter(dict);
+    t: (
+      getter: (d: {
+        node: Record<string, string>;
+        detail_panel: Record<string, string>;
+      }) => string,
+      values?: Record<string, string | number>,
+    ) => {
+      const dict = {
+        node: { worker_name: "Worker", agent_label: "Agent", not_configured: "Not configured" },
+        detail_panel: { split_node_mode_concurrency: "{{mode}} · concurrency {{concurrency}}" },
+      };
+      return getter(dict).replace(/{{\s*(\w+)\s*}}/g, (_match, key: string) => String(values?.[key] ?? ""));
     },
   }),
 }));
