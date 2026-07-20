@@ -251,22 +251,6 @@ INSERT INTO multica_agent_task_queue (agent_id, runtime_id, issue_id, status, pr
 VALUES ($1, $2, sqlc.narg('issue_id'), 'queued', $3, sqlc.narg('workflow_node_run_id'), sqlc.narg('chat_session_id'), sqlc.narg('context'))
 RETURNING *;
 
--- name: GetUnlinkedInitialWorkerTask :one
-SELECT atq.*
-FROM multica_agent_task_queue atq
-JOIN multica_workflow_node_run nr ON nr.id = atq.workflow_node_run_id
-WHERE nr.id = $1
-  AND nr.status = 'format_ok'
-  AND nr.retry_count = 0
-  AND nr.worker_agent_task_id IS NULL
-  AND atq.workflow_node_run_id = nr.id
-  AND atq.context->>'type' = 'workflow'
-  AND atq.context->>'phase' = 'worker'
-  AND atq.context->>'node_run_id' = nr.id::text
-  AND atq.status IN ('queued', 'dispatched', 'running')
-ORDER BY atq.created_at ASC, atq.id ASC
-LIMIT 1;
-
 -- name: ListCompletedUpstreamNodeRuns :many
 -- Returns completed node runs from earlier stages (lower stage sort_order) for
 -- the same workflow run. Used to build upstream context for workflow agent prompts.

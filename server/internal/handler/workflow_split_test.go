@@ -2510,6 +2510,17 @@ func TestScheduleReadyTasksRecoversWorkerQueueInsertBeforeLink(t *testing.T) {
 	if afterFailure.WorkflowRunID.Valid {
 		t.Fatalf("failed dispatch wrote durable workflow_run_id = %s", uuidToString(afterFailure.WorkflowRunID))
 	}
+	var queueRowsAfterFailure int
+	if err := testPool.QueryRow(ctx, `
+		SELECT count(*) FROM multica_agent_task_queue
+		WHERE workflow_node_run_id = $1
+		  AND context->>'phase' = 'worker'
+	`, uuidToString(nodeRuns[0].ID)).Scan(&queueRowsAfterFailure); err != nil {
+		t.Fatalf("count worker queue rows after failed transaction: %v", err)
+	}
+	if queueRowsAfterFailure != 0 {
+		t.Fatalf("worker queue rows after failed transaction = %d, want 0", queueRowsAfterFailure)
+	}
 	if _, err := testPool.Exec(ctx, `DROP TRIGGER test_fail_split_worker_link ON multica_workflow_node_run`); err != nil {
 		t.Fatalf("drop worker-link failure trigger: %v", err)
 	}

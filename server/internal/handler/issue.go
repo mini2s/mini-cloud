@@ -2089,10 +2089,7 @@ func (h *Handler) CreateIssue(w http.ResponseWriter, r *http.Request) {
 						slog.Warn("failed to create sub-issue for node run", "node_run_id", uuidToString(nr.ID), "error", err)
 					}
 				}
-				// Dispatch after sub-issues exist so tasks can link issue_id.
-				if err = h.WorkflowService.DispatchRootNodeRuns(ctx, run.ID); err != nil {
-					slog.Warn("failed to dispatch root workflow nodes", "run_id", uuidToString(run.ID), "error", err)
-				} else if _, err = h.Queries.UpdateIssue(ctx, db.UpdateIssueParams{
+				_, err = h.Queries.UpdateIssue(ctx, db.UpdateIssueParams{
 					ID:            issue.ID,
 					AssigneeType:  issue.AssigneeType,
 					AssigneeID:    issue.AssigneeID,
@@ -2102,11 +2099,16 @@ func (h *Handler) CreateIssue(w http.ResponseWriter, r *http.Request) {
 					ProjectID:     issue.ProjectID,
 					WorkflowID:    workflowID,
 					WorkflowRunID: run.ID,
-				}); err != nil {
+				})
+				if err != nil {
 					slog.Warn("failed to set workflow_run_id on parent issue", "issue_id", uuidToString(issue.ID), "error", err)
 				} else {
 					resp.WorkflowID = uuidToPtr(issue.AssigneeID)
 					resp.WorkflowRunID = uuidToPtr(run.ID)
+					// Dispatch after the durable run link and sub-issues both exist.
+					if err = h.WorkflowService.DispatchRootNodeRuns(ctx, run.ID); err != nil {
+						slog.Warn("failed to dispatch root workflow nodes", "run_id", uuidToString(run.ID), "error", err)
+					}
 				}
 			}
 		}
@@ -2479,9 +2481,7 @@ func (h *Handler) UpdateIssue(w http.ResponseWriter, r *http.Request) {
 							slog.Warn("failed to create sub-issue for node run", "node_run_id", uuidToString(nr.ID), "error", cerr)
 						}
 					}
-					if cerr := h.WorkflowService.DispatchRootNodeRuns(ctx, run.ID); cerr != nil {
-						slog.Warn("failed to dispatch root workflow nodes", "run_id", uuidToString(run.ID), "error", cerr)
-					} else if _, cerr := h.Queries.UpdateIssue(ctx, db.UpdateIssueParams{
+					_, cerr := h.Queries.UpdateIssue(ctx, db.UpdateIssueParams{
 						ID:            issue.ID,
 						AssigneeType:  issue.AssigneeType,
 						AssigneeID:    issue.AssigneeID,
@@ -2491,10 +2491,14 @@ func (h *Handler) UpdateIssue(w http.ResponseWriter, r *http.Request) {
 						ProjectID:     issue.ProjectID,
 						WorkflowID:    issue.AssigneeID,
 						WorkflowRunID: run.ID,
-					}); cerr != nil {
+					})
+					if cerr != nil {
 						slog.Warn("failed to set workflow_run_id on parent issue", "issue_id", uuidToString(issue.ID), "error", cerr)
 					} else {
 						resp.WorkflowRunID = uuidToPtr(run.ID)
+						if cerr := h.WorkflowService.DispatchRootNodeRuns(ctx, run.ID); cerr != nil {
+							slog.Warn("failed to dispatch root workflow nodes", "run_id", uuidToString(run.ID), "error", cerr)
+						}
 					}
 				}
 			}

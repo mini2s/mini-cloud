@@ -1040,15 +1040,12 @@ func (s *WorkflowService) dispatchWorker(ctx context.Context, nodeRun db.Multica
 			_, err := s.TransitionNodeRun(ctx, nodeRun, NodeRunStatusWorkerAssigned)
 			return err
 		}
-		task, err := s.Queries.GetUnlinkedInitialWorkerTask(ctx, nodeRun.ID)
-		if errors.Is(err, pgx.ErrNoRows) {
-			taskPtr, dispatchErr := s.DispatchAgentTask(ctx, nodeRun, "worker")
-			if dispatchErr != nil {
-				return fmt.Errorf("dispatch agent task: %w", dispatchErr)
-			}
-			task = *taskPtr
-		} else if err != nil {
-			return fmt.Errorf("get unlinked initial worker task: %w", err)
+		if nodeRun.RetryCount == 0 && !nodeRun.WorkerAgentTaskID.Valid {
+			return s.dispatchInitialWorker(ctx, nodeRun)
+		}
+		task, err := s.DispatchAgentTask(ctx, nodeRun, "worker")
+		if err != nil {
+			return fmt.Errorf("dispatch agent task: %w", err)
 		}
 		// Link the task to the node run and stamp the runtime so the frontend
 		// can resolve takeover permissions even before the daemon binds a session.
@@ -1066,6 +1063,47 @@ func (s *WorkflowService) dispatchWorker(ctx context.Context, nodeRun db.Multica
 	default:
 		return fmt.Errorf("unknown worker type: %s", node.WorkerType)
 	}
+}
+
+func (s *WorkflowService) dispatchInitialWorker(ctx context.Context, nodeRun db.MulticaWorkflowNodeRun) error {
+	var task db.MulticaAgentTaskQueue
+	var updated db.MulticaWorkflowNodeRun
+	if err := s.runInTx(ctx, func(qtx *db.Queries) error {
+		current, err := qtx.GetWorkflowNodeRunForUpdate(ctx, nodeRun.ID)
+		if err != nil {
+			return fmt.Errorf("lock initial worker node run: %w", err)
+		}
+		if current.Status != NodeRunStatusFormatOk || current.RetryCount != 0 || current.WorkerAgentTaskID.Valid {
+			return fmt.Errorf("initial worker dispatch state changed")
+		}
+		taskPtr, err := s.dispatchAgentTaskWithQueries(ctx, qtx, current, "worker", nil, false)
+		if err != nil {
+			return err
+		}
+		task = *taskPtr
+		if _, err := qtx.LinkNodeRunWorkerTask(ctx, db.LinkNodeRunWorkerTaskParams{
+			ID:                current.ID,
+			WorkerAgentTaskID: task.ID,
+			RuntimeID:         task.RuntimeID,
+		}); err != nil {
+			return fmt.Errorf("link initial worker task: %w", err)
+		}
+		updated, err = qtx.UpdateWorkflowNodeRunStatus(ctx, db.UpdateWorkflowNodeRunStatusParams{
+			ID:     current.ID,
+			Status: NodeRunStatusWorking,
+		})
+		if err != nil {
+			return fmt.Errorf("transition initial worker to working: %w", err)
+		}
+		return nil
+	}); err != nil {
+		return err
+	}
+	s.TaskSvc.NotifyTaskEnqueued(ctx, task)
+	if s.OnNodeStatusChanged != nil {
+		s.OnNodeStatusChanged(ctx, updated)
+	}
+	return nil
 }
 
 // dispatchRoleWorker resolves a workflow role to its highest-priority bound actor
@@ -1197,17 +1235,21 @@ func (s *WorkflowService) DispatchAgentTask(ctx context.Context, nodeRun db.Mult
 // DispatchAgentTaskWithContextExtras creates an agent task and merges caller
 // supplied metadata into the workflow task context.
 func (s *WorkflowService) DispatchAgentTaskWithContextExtras(ctx context.Context, nodeRun db.MulticaWorkflowNodeRun, phase string, contextExtras map[string]any) (*db.MulticaAgentTaskQueue, error) {
-	node, err := s.Queries.GetWorkflowNode(ctx, nodeRun.WorkflowNodeID)
+	return s.dispatchAgentTaskWithQueries(ctx, s.Queries, nodeRun, phase, contextExtras, true)
+}
+
+func (s *WorkflowService) dispatchAgentTaskWithQueries(ctx context.Context, q *db.Queries, nodeRun db.MulticaWorkflowNodeRun, phase string, contextExtras map[string]any, notify bool) (*db.MulticaAgentTaskQueue, error) {
+	node, err := q.GetWorkflowNode(ctx, nodeRun.WorkflowNodeID)
 	if err != nil {
 		return nil, fmt.Errorf("get node: %w", err)
 	}
 
-	run, err := s.Queries.GetWorkflowRun(ctx, nodeRun.WorkflowRunID)
+	run, err := q.GetWorkflowRun(ctx, nodeRun.WorkflowRunID)
 	if err != nil {
 		return nil, fmt.Errorf("get run: %w", err)
 	}
 
-	workflow, err := s.Queries.GetWorkflow(ctx, run.WorkflowID)
+	workflow, err := q.GetWorkflow(ctx, run.WorkflowID)
 	if err != nil {
 		return nil, fmt.Errorf("get workflow: %w", err)
 	}
@@ -1217,7 +1259,7 @@ func (s *WorkflowService) DispatchAgentTaskWithContextExtras(ctx context.Context
 	case "worker":
 		agentID = node.WorkerID
 		if node.WorkerType == "squad" && node.WorkerID.Valid {
-			if squad, err := s.Queries.GetSquad(ctx, node.WorkerID); err == nil {
+			if squad, err := q.GetSquad(ctx, node.WorkerID); err == nil {
 				agentID = squad.LeaderID
 			}
 		}
@@ -1228,7 +1270,7 @@ func (s *WorkflowService) DispatchAgentTaskWithContextExtras(ctx context.Context
 		case "squad":
 			agentID = node.WorkerID
 			if node.WorkerID.Valid {
-				if squad, err := s.Queries.GetSquad(ctx, node.WorkerID); err == nil {
+				if squad, err := q.GetSquad(ctx, node.WorkerID); err == nil {
 					agentID = squad.LeaderID
 				}
 			}
@@ -1238,7 +1280,7 @@ func (s *WorkflowService) DispatchAgentTaskWithContextExtras(ctx context.Context
 	case "critic":
 		agentID = node.CriticID
 		if node.CriticType == "squad" && node.CriticID.Valid {
-			if squad, err := s.Queries.GetSquad(ctx, node.CriticID); err == nil {
+			if squad, err := q.GetSquad(ctx, node.CriticID); err == nil {
 				agentID = squad.LeaderID
 			}
 		}
@@ -1250,7 +1292,7 @@ func (s *WorkflowService) DispatchAgentTaskWithContextExtras(ctx context.Context
 		return nil, fmt.Errorf("no agent configured for %s phase on node %q (worker_type=%q, worker_id set=%v)", phase, node.Title, node.WorkerType, node.WorkerID.Valid)
 	}
 
-	agent, err := s.Queries.GetAgent(ctx, agentID)
+	agent, err := q.GetAgent(ctx, agentID)
 	if err != nil {
 		return nil, fmt.Errorf("get agent: %w", err)
 	}
@@ -1268,7 +1310,7 @@ func (s *WorkflowService) DispatchAgentTaskWithContextExtras(ctx context.Context
 			// runtime so the task isn't pinned to a stale daemon (matching
 			// the behavior of enqueueIssueTask). Fall back to the first
 			// runtime if none are online.
-			runtimes, err := s.Queries.ListAgentRuntimes(ctx, workflow.WorkspaceID)
+			runtimes, err := q.ListAgentRuntimes(ctx, workflow.WorkspaceID)
 			if err != nil {
 				return nil, fmt.Errorf("list runtimes for built-in agent: %w", err)
 			}
@@ -1315,7 +1357,7 @@ func (s *WorkflowService) DispatchAgentTaskWithContextExtras(ctx context.Context
 	// Look up the sub-issue linked to this node run so the daemon processes it
 	// as a normal issue task (with issue_id) while still driving the workflow.
 	var issueID pgtype.UUID
-	subIssue, err := s.Queries.GetIssueByOrigin(ctx, db.GetIssueByOriginParams{
+	subIssue, err := q.GetIssueByOrigin(ctx, db.GetIssueByOriginParams{
 		WorkspaceID: workflow.WorkspaceID,
 		OriginType:  pgtype.Text{String: "workflow", Valid: true},
 		OriginID:    nodeRun.ID,
@@ -1335,7 +1377,7 @@ func (s *WorkflowService) DispatchAgentTaskWithContextExtras(ctx context.Context
 	}
 
 	// Create workflow-bound agent task directly.
-	task, err := s.Queries.CreateWorkflowAgentTask(ctx, db.CreateWorkflowAgentTaskParams{
+	task, err := q.CreateWorkflowAgentTask(ctx, db.CreateWorkflowAgentTaskParams{
 		AgentID:           agentID,
 		RuntimeID:         taskRuntimeID,
 		Priority:          2, // medium
@@ -1348,7 +1390,9 @@ func (s *WorkflowService) DispatchAgentTaskWithContextExtras(ctx context.Context
 		return nil, fmt.Errorf("create workflow agent task: %w", err)
 	}
 
-	s.TaskSvc.NotifyTaskEnqueued(ctx, task)
+	if notify {
+		s.TaskSvc.NotifyTaskEnqueued(ctx, task)
+	}
 	return &task, nil
 }
 
