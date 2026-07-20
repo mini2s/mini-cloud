@@ -1771,8 +1771,8 @@ func (h *Handler) CreateIssue(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if h.isRunningSplitPhaseTaskRequest(r) {
-		writeError(w, http.StatusForbidden, "split generation tasks cannot create issues")
+	if _, splitPhase := h.runningSplitPhaseTask(r); splitPhase {
+		writeError(w, http.StatusForbidden, "split phase tasks cannot mutate issues")
 		return
 	}
 
@@ -2196,8 +2196,8 @@ func (h *Handler) UpdateIssue(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
-	if h.isRunningSplitPhaseTaskRequest(r) {
-		writeError(w, http.StatusForbidden, "split generation tasks cannot update issues")
+	if _, splitPhase := h.runningSplitPhaseTask(r); splitPhase {
+		writeError(w, http.StatusForbidden, "split phase tasks cannot mutate issues")
 		return
 	}
 
@@ -2698,6 +2698,18 @@ func (h *Handler) DeleteIssue(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	activeSplit, err := h.Queries.HasActiveSplitNodeRunForIssue(r.Context(), db.HasActiveSplitNodeRunForIssueParams{
+		IssueID:     issue.ID,
+		WorkspaceID: issue.WorkspaceID,
+	})
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to check active split workflow")
+		return
+	}
+	if activeSplit {
+		writeError(w, http.StatusConflict, "issue has an active split workflow")
+		return
+	}
 
 	// Collect all descendants (recursive CTE, deepest-first) so we can
 	// cascade-delete them in the application layer, firing WS events and
@@ -2784,6 +2796,10 @@ func (h *Handler) BatchUpdateIssues(w http.ResponseWriter, r *http.Request) {
 
 	userID, ok := requireUserID(w, r)
 	if !ok {
+		return
+	}
+	if _, splitPhase := h.runningSplitPhaseTask(r); splitPhase {
+		writeError(w, http.StatusForbidden, "split phase tasks cannot mutate issues")
 		return
 	}
 
@@ -3093,6 +3109,10 @@ func (h *Handler) BatchDeleteIssues(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	if _, splitPhase := h.runningSplitPhaseTask(r); splitPhase {
+		writeError(w, http.StatusForbidden, "split phase tasks cannot mutate issues")
+		return
+	}
 
 	workspaceID := h.resolveWorkspaceID(r)
 	wsUUID, ok := parseUUIDOrBadRequest(w, workspaceID, "workspace_id")
@@ -3123,6 +3143,18 @@ func (h *Handler) BatchDeleteIssues(w http.ResponseWriter, r *http.Request) {
 		})
 		if err != nil {
 			continue
+		}
+		activeSplit, err := h.Queries.HasActiveSplitNodeRunForIssue(r.Context(), db.HasActiveSplitNodeRunForIssueParams{
+			IssueID:     issue.ID,
+			WorkspaceID: issue.WorkspaceID,
+		})
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to check active split workflow")
+			return
+		}
+		if activeSplit {
+			writeError(w, http.StatusConflict, "issue has an active split workflow")
+			return
 		}
 
 		if !seen[issueUUID.Bytes] {

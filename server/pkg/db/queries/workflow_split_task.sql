@@ -165,14 +165,22 @@ RETURNING *;
 
 -- name: CancelOpenSplitTasksByNodeRun :exec
 UPDATE multica_workflow_split_task
-SET status = 'cancelled',
+SET status = CASE
+      WHEN issue_id IS NULL THEN 'discarded'
+      WHEN run_id IS NULL THEN 'skipped'
+      ELSE 'cancelled'
+    END,
     updated_at = now()
 WHERE node_run_id = $1
   AND status NOT IN ('done', 'failed', 'cancelled', 'skipped', 'discarded');
 
 -- name: CancelOpenSplitTask :execrows
 UPDATE multica_workflow_split_task
-SET status = 'cancelled',
+SET status = CASE
+      WHEN issue_id IS NULL THEN 'discarded'
+      WHEN run_id IS NULL THEN 'skipped'
+      ELSE 'cancelled'
+    END,
     updated_at = now()
 WHERE id = $1
   AND status NOT IN ('done', 'failed', 'cancelled', 'skipped', 'discarded');

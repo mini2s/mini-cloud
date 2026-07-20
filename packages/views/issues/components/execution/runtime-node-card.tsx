@@ -13,6 +13,7 @@ import { RuntimeDisplayStatusIcon } from "./node-run-status-icon";
 import { Bot, User, Building2, Check, ChevronDown, ChevronRight, GitBranch, GitFork, GitMerge } from "lucide-react";
 import { useT } from "@multica/views/i18n";
 import { Button } from "@multica/ui/components/ui/button";
+import { Badge } from "@multica/ui/components/ui/badge";
 import { Loader2 } from "lucide-react";
 import { workflowNodeInfoAreaClassName, workflowNodeShapeGlyphClassName } from "../../../common/workflow-node-shape";
 import {
@@ -360,6 +361,7 @@ export function RuntimeNodeCard({
   const nodeFormat = parseNodeFormat(node.format_schema);
   const isGateway = nodeFormat.kind === "gateway";
   const isSplit = nodeFormat.kind === "split";
+	const splitMode = nodeFormat.split_config?.mode ?? "barrier";
   const nodeShape = nodeFormat.shape;
   const displayStatus = runtimeSummary?.display_status ?? (nodeRun ? toWorkflowRuntimeDisplayStatus(nodeRun.status) : "pending");
   const displayStatusLabel = runtimeDisplayStatusText(t, displayStatus, isGateway ? nodeFormat.gateway_kind : null);
@@ -445,10 +447,14 @@ export function RuntimeNodeCard({
               <GitBranch className="size-3.5 shrink-0 text-muted-foreground" />
               <span className="truncate text-sm font-medium">{node.title}</span>
             </div>
-            <RuntimeStatusPill
-              status={displayStatus}
-              label={displayStatusLabel}
-            />
+						<div className="flex h-5 shrink-0 items-center gap-1">
+							<Badge variant="outline" className="h-5 px-1.5 text-[10px]">
+								{splitMode === "pipeline"
+									? t(($) => $.execution.card.split_mode_pipeline)
+									: t(($) => $.execution.card.split_mode_barrier)}
+							</Badge>
+							<RuntimeStatusPill status={displayStatus} label={displayStatusLabel} />
+						</div>
           </div>
 
           {canToggleSplitChildren ? (

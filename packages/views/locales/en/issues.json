@@ -507,6 +507,8 @@
       "gateway_label": "Gateway",
       "split_child_count_one": "{{count}} child issue",
       "split_child_count_other": "{{count}} child issues",
+			"split_mode_barrier": "Barrier",
+			"split_mode_pipeline": "Pipeline",
       "split_child_done": "{{count}} done",
       "split_child_failed": "{{count}} failed",
       "split_child_running": "{{count}} running",

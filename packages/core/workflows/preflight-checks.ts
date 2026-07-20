@@ -7,7 +7,8 @@ export type PreflightCheckId =
   | "orphan-node"
   | "unreachable-node"
   | "worker-missing"
-  | "split-worker-non-specialized"
+  | "split-planner-missing"
+  | "split-planner-not-specialized"
   | "split-critic-missing"
   | "split-critic-automated"
   | "invalid-critic-ref"
@@ -17,9 +18,11 @@ export type PreflightCheckId =
   | "gateway-kind-invalid"
   | "gateway-join-multiple-outgoing"
   | "split-default-issue-workflow-missing"
+  | "split-default-issue-workflow-invalid"
   | "split-default-issue-workflow-inactive"
   | "split-default-issue-workflow-nested"
-  | "split-default-issue-workflow-self";
+  | "split-default-issue-workflow-self"
+  | "split-max-concurrency-invalid";
 
 export type PreflightSeverity = "error" | "warning";
 
@@ -227,8 +230,8 @@ export function checkUnreachableNodes(
 export function checkWorkerMissing(nodes: WorkflowNode[]): PreflightIssue[] {
   return nodes
     .filter((n) => !isAnnotation(n) && !isGateway(n) && (!n.worker_type || !n.worker_id))
-    .map((n) => ({
-      checkId: "worker-missing" as const,
+    .map((n): PreflightIssue => ({
+      checkId: isSplit(n) ? "split-planner-missing" : "worker-missing",
       severity: "error" as const,
       blocking: true,
       nodeId: n.id,
@@ -287,7 +290,7 @@ export function checkSplitWorkerSpecialized(
       return !splitPlannerAgentIds.has(n.worker_id);
     })
     .map((n) => ({
-      checkId: "split-worker-non-specialized" as const,
+      checkId: "split-planner-not-specialized" as const,
       severity: "warning" as const,
       blocking: false,
       nodeId: n.id,
@@ -371,6 +374,17 @@ export function checkSplitChildWorkflowConfig(
       });
     }
 
+    if (defaultIssueWorkflowID !== node.workflow_id && !childWorkflow) {
+      issues.push({
+        checkId: "split-default-issue-workflow-invalid",
+        severity: "error",
+        blocking: true,
+        nodeId: node.id,
+        nodeTitle: node.title,
+        message: "Split default issue workflow is unavailable",
+      });
+    }
+
     if (childWorkflow && childWorkflow.status !== "active") {
       issues.push({
         checkId: "split-default-issue-workflow-inactive",
@@ -395,6 +409,27 @@ export function checkSplitChildWorkflowConfig(
   }
 
   return issues;
+}
+
+export function checkSplitMaxConcurrency(nodes: WorkflowNode[]): PreflightIssue[] {
+  return nodes.flatMap((node) => {
+    const format = parseNodeFormat(node.format_schema);
+    if (format.kind !== "split") return [];
+    const schema = node.format_schema as Record<string, unknown>;
+    const rawConfig = schema.split_config;
+    const value = rawConfig && typeof rawConfig === "object" && !Array.isArray(rawConfig)
+      ? (rawConfig as Record<string, unknown>).max_concurrency
+      : undefined;
+    if (typeof value === "number" && Number.isInteger(value) && value >= 1 && value <= 50) return [];
+    return [{
+      checkId: "split-max-concurrency-invalid" as const,
+      severity: "error" as const,
+      blocking: true,
+      nodeId: node.id,
+      nodeTitle: node.title,
+      message: "Split concurrency must be an integer from 1 to 50",
+    }];
+  });
 }
 
 export function checkGatewayTopology(nodes: WorkflowNode[], edges: WorkflowEdge[]): PreflightIssue[] {
@@ -493,6 +528,7 @@ export function runAllPreflightChecks(input: PreflightCheckInput): PreflightResu
     ...checkStageMissing(nodes),
     ...checkGatewayTopology(nodes, edges),
     ...checkSplitChildWorkflowConfig(nodes, input.splitChildWorkflows ?? []),
+    ...checkSplitMaxConcurrency(nodes),
   ];
 
   // Sort: blocking first, then by checkId, then by nodeTitle

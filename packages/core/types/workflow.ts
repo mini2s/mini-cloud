@@ -123,7 +123,7 @@ export function parseNodeFormat(formatSchema: unknown): WorkflowNodeFormat {
       typeof rawMaxConcurrency === "number" &&
       Number.isInteger(rawMaxConcurrency) &&
       rawMaxConcurrency >= 1 &&
-      rawMaxConcurrency <= 20;
+      rawMaxConcurrency <= 50;
     const maxFailuresValid =
       typeof rawMaxFailures === "number" &&
       Number.isInteger(rawMaxFailures) &&

@@ -223,6 +223,26 @@ SELECT * FROM multica_workflow_node_run
 WHERE workflow_run_id = $1
   AND status NOT IN ('format_failed', 'completed', 'failed', 'blocked', 'skipped', 'cancelled');
 
+-- name: HasActiveSplitNodeRunForIssue :one
+SELECT EXISTS (
+  SELECT 1
+  FROM multica_workflow_run wr
+  JOIN multica_workflow_node_run wnr ON wnr.workflow_run_id = wr.id
+  JOIN multica_workflow_node wn ON wn.id = wnr.workflow_node_id
+  WHERE wr.workspace_id = sqlc.arg('workspace_id')
+    AND (
+      wr.input ->> 'issue_id' = sqlc.arg('issue_id')::uuid::text
+      OR EXISTS (
+        SELECT 1
+        FROM multica_issue origin_issue
+        WHERE origin_issue.id = sqlc.arg('issue_id')
+          AND origin_issue.workflow_run_id = wr.id
+      )
+    )
+    AND wn.format_schema ->> 'type' = 'split'
+    AND wnr.status IN ('splitting', 'awaiting_split_review', 'split_active')
+) AS active;
+
 -- name: ListMyWorkflowTasks :many
 -- Returns node runs assigned to the current user as human worker or critic.
 SELECT wnr.*,

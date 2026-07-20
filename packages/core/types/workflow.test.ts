@@ -97,6 +97,12 @@ describe("workflow node format parsing", () => {
       });
   });
 
+	it("accepts split max_concurrency through 50 and rejects 51", () => {
+		const base = { default_issue_workflow_id: "wf-default", mode: "barrier", max_failures: 0 };
+		expect(parseNodeFormat({ type: "split", split_config: { ...base, max_concurrency: 50 } }).split_config_valid).toBe(true);
+		expect(parseNodeFormat({ type: "split", split_config: { ...base, max_concurrency: 51 } }).split_config_valid).toBe(false);
+	});
+
   it("accepts default_issue_workflow_id and rejects legacy child_workflow_id", () => {
     const parsed = parseNodeFormat({
       type: "split",

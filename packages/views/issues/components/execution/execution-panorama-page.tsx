@@ -1139,6 +1139,7 @@ export function ExecutionPanoramaPage({
             wsId={wsId}
             workflowId={workflowId}
             runId={runId ?? undefined}
+						plannerName={selectedWorkerName ?? undefined}
             parentIssueId={issueId}
             onClose={() => setSelectedNodeId(null)}
           />

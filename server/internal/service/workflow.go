@@ -368,6 +368,7 @@ func (s *WorkflowService) StartRunForIssue(
 	runtimeID pgtype.UUID,
 ) (*db.MulticaWorkflowRun, []db.MulticaWorkflowNodeRun, error) {
 	input, err := json.Marshal(map[string]any{
+		"issue_id":    util.UUIDToString(issue.ID),
 		"title":       issue.Title,
 		"description": textToString(issue.Description),
 	})
@@ -398,6 +399,7 @@ func (s *WorkflowService) StartRunForIssueWithDispatchKey(
 	dispatchKey string,
 ) (*db.MulticaWorkflowRun, []db.MulticaWorkflowNodeRun, error) {
 	input, err := json.Marshal(map[string]any{
+		"issue_id":    util.UUIDToString(issue.ID),
 		"title":       issue.Title,
 		"description": textToString(issue.Description),
 	})

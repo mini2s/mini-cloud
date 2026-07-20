@@ -180,6 +180,9 @@ vi.mock("../../i18n", () => {
       split_concurrency_question: "How many child issues can run at once?",
       split_concurrency_hint: "Run at most this many child issues at once.",
       split_failure_tolerance_label: "Failure tolerance",
+			connection_upstream_count: "2 upstream",
+			connection_downstream_count: "1 downstream",
+			trial_run: "Trial run",
       split_max_failures_hint: "Barrier mode fails the parent split when child failures exceed this number.",
       select_node: "Select a node...",
       select_role: "Select a role...",
@@ -483,7 +486,8 @@ describe("NodeConfigPanel", () => {
     expect(screen.getByText("The reviewer that approves generated split drafts.")).toBeInTheDocument();
   });
 
-  it("orders the split config panel around readiness, intent, split behavior, roles, and actions", () => {
+	it("orders split sections and shows readiness, connections, and trial run", () => {
+		const onTrialRun = vi.fn();
     render(
       <NodeConfigPanel
         node={{
@@ -504,16 +508,32 @@ describe("NodeConfigPanel", () => {
         workflowId="wf-1"
         stages={stages}
         onClose={vi.fn()}
+				preflightIssues={[{
+					checkId: "split-planner-not-specialized",
+					severity: "warning",
+					blocking: false,
+					nodeId: "split-1",
+					message: "Use a dedicated split planner agent",
+				}]}
+				incomingCount={2}
+				outgoingCount={1}
+				onTrialRun={onTrialRun}
       />,
     );
 
     expect(screen.getAllByTestId("node-detail-section").map((section) => section.getAttribute("data-section"))).toEqual([
       "readiness",
       "primary",
-      "split-behavior",
       "worker-critic",
+			"split-behavior",
+			"connections",
       "actions",
     ]);
+		expect(screen.getByText("Use a dedicated split planner agent")).toBeInTheDocument();
+		expect(screen.getByText("2 upstream")).toBeInTheDocument();
+		expect(screen.getByText("1 downstream")).toBeInTheDocument();
+		fireEvent.click(screen.getByRole("button", { name: "Trial run" }));
+		expect(onTrialRun).toHaveBeenCalledOnce();
   });
 
   it("updates split format_schema fields without dropping existing metadata", () => {

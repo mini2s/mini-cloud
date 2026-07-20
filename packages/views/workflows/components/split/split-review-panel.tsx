@@ -48,6 +48,7 @@ interface SplitReviewPanelProps {
   runId?: string;
   parentIssueId?: string;
   onClose: () => void;
+	plannerName?: string;
 }
 
 const TERMINAL_NODE_STATUSES = new Set(["completed", "failed", "cancelled", "skipped"]);
@@ -62,6 +63,21 @@ const EMPTY_PROGRESS: SplitProgress = {
   skipped: 0,
 };
 const EMPTY_SPLIT_TASKS: SplitTask[] = [];
+
+function useElapsedSeconds(startedAt: string | null | undefined, active: boolean): number {
+	const [now, setNow] = useState(() => Date.now());
+	useEffect(() => {
+		if (!active || !startedAt) return;
+		const timer = window.setInterval(() => setNow(Date.now()), 1_000);
+		return () => window.clearInterval(timer);
+	}, [active, startedAt]);
+	if (!startedAt) return 0;
+	return Math.max(0, Math.floor((now - new Date(startedAt).getTime()) / 1_000));
+}
+
+function formatElapsed(seconds: number): string {
+	return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
+}
 
 function isNodeRunCancellable(status: string | null | undefined): boolean {
   if (!status) return false;
@@ -143,6 +159,8 @@ function SplitVerdictSummary({
   progress,
   splitConfig,
   isChatPending,
+	plannerName,
+	elapsedSeconds,
   t,
 }: {
   nodeRun: WorkflowNodeRun | null;
@@ -150,6 +168,8 @@ function SplitVerdictSummary({
   progress: SplitProgress;
   splitConfig?: ReturnType<typeof splitConfigFromNode>;
   isChatPending: boolean;
+	plannerName?: string;
+	elapsedSeconds: number;
   t: WorkflowTranslator;
 }) {
   const riskCount = splitRiskCount(tasks);
@@ -161,6 +181,7 @@ function SplitVerdictSummary({
   ).size;
   const title = isChatPending ? t(($) => $.detail_panel.split_generating_draft) : verdictTitle(t, nodeRun?.status, tasks);
   const isGenerating = isChatPending || nodeRun?.status === "splitting";
+	const isCompleted = nodeRun?.status === "completed";
   const explanation = isGenerating
     ? t(($) => $.detail_panel.split_generating)
     : riskCount === 0
@@ -174,14 +195,30 @@ function SplitVerdictSummary({
     >
       <div className="min-w-0">
         <p className="text-sm font-semibold text-foreground">{title}</p>
-        <p className="mt-1 text-xs text-muted-foreground">
+				{isCompleted ? (
+					<p className="mt-1 text-xs text-muted-foreground">
+						{t(($) => $.detail_panel.split_completed_summary, {
+							total: progress.total,
+							done: progress.done,
+							failed: progress.failed,
+							cancelled: progress.cancelled,
+						})}
+					</p>
+				) : <p className="mt-1 text-xs text-muted-foreground">
           {t(($) => $.detail_panel.split_verdict_summary, {
             tasks: creatableTasks(tasks).length,
             assignees: assigneeCount,
             dependencies: dependencyCount,
           })}
-        </p>
+				</p>}
       </div>
+			{isGenerating ? (
+				<div className="mt-2 space-y-1 text-xs text-muted-foreground">
+					<p>{t(($) => $.detail_panel.split_planner_label, { planner: plannerName ?? nodeRun?.worker_id ?? "-" })}</p>
+					<p>{t(($) => $.detail_panel.split_elapsed, { elapsed: formatElapsed(elapsedSeconds) })}</p>
+					{elapsedSeconds >= 60 ? <p>{t(($) => $.detail_panel.split_generation_slow)}</p> : null}
+				</div>
+			) : null}
       <p className={riskCount > 0 ? "mt-2 text-xs text-destructive" : "mt-2 text-xs text-muted-foreground"}>
         {explanation}
       </p>
@@ -223,6 +260,7 @@ export function SplitReviewPanel({
   runId,
   parentIssueId,
   onClose,
+	plannerName,
 }: SplitReviewPanelProps) {
   const { t } = useT("workflows");
   const nodeRunId = nodeRun?.id ?? null;
@@ -243,6 +281,7 @@ export function SplitReviewPanel({
   }, [nodeRun?.split_review_chat_session_id]);
   const { data: pendingChatTask } = useQuery(pendingChatTaskOptions(chatSessionId ?? ""));
   const isSplitChatRunning = chatMutation.isPending || !!pendingChatTask?.task_id;
+	const elapsedSeconds = useElapsedSeconds(nodeRun?.started_at, nodeRun?.status === "splitting" || isSplitChatRunning);
   const splitTasksQuery = useQuery({
     ...splitTasksOptions(wsId, nodeRunId),
     refetchInterval: isSplitChatRunning ? 2000 : false,
@@ -285,6 +324,7 @@ export function SplitReviewPanel({
   const canRecover = nodeRun?.status === "failed";
   const canResetOriginal = nodeRun?.status === "awaiting_split_review";
   const canGenerate = !!nodeRunId && isSplitGenerateActionStatus(nodeRun?.status) && (activeTasks.length === 0 || nodeRun?.status === "failed");
+	const affectedTaskCount = tasks.filter((task) => !["done", "failed", "cancelled", "skipped", "discarded"].includes(task.status)).length;
   const hasDraftCommands = canGenerate || canRecover;
   const failureMessage = splitFailureMessage(nodeRun);
   const generateLabel = tasks.length > 0
@@ -442,6 +482,8 @@ export function SplitReviewPanel({
           progress={progress}
           splitConfig={splitConfig}
           isChatPending={chatMutation.isPending}
+					plannerName={plannerName}
+					elapsedSeconds={elapsedSeconds}
           t={t}
         />
         {failureMessage ? (
@@ -638,7 +680,7 @@ export function SplitReviewPanel({
           <AlertDialogHeader>
             <AlertDialogTitle>{t(($) => $.detail_panel.split_cancel_dialog_title)}</AlertDialogTitle>
             <AlertDialogDescription>
-              {t(($) => $.detail_panel.split_cancel_dialog_description)}
+						{t(($) => $.detail_panel.split_cancel_affected_count, { count: affectedTaskCount })}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

@@ -52,6 +52,11 @@ const i18nMock = vi.hoisted(() => {
     split_approve_dialog_description: "This will create {{count}} child issues and start their workflows.",
     split_cancel_dialog_title: "Cancel split?",
     split_cancel_dialog_description: "This will stop unfinished child tasks and cancel their child issues.",
+		split_planner_label: "Planner: {{planner}}",
+		split_elapsed: "Elapsed: {{elapsed}}",
+		split_generation_slow: "Planner is still generating drafts",
+		split_cancel_affected_count: "{{count}} child tasks will be cancelled",
+		split_completed_summary: "{{total}} tasks: {{done}} done, {{failed}} failed, {{cancelled}} cancelled",
     split_keep_running: "Keep running",
     split_confirm_cancel: "Confirm cancel",
     // New keys added for split-node-card, split-draft-ledger, split-dependency-note, and review panel
@@ -87,6 +92,8 @@ const i18nMock = vi.hoisted(() => {
     split_draft_title_label: "Draft title",
     split_draft_description_label: "Draft description",
     split_draft_edit_failed: "Failed to update draft.",
+		split_draft_version: "v{{version}}",
+		split_draft_recovered: "Recovered",
     split_dep_will_appear_after_draft: "Dependencies will appear here after a draft is generated.",
     split_dep_can_start_in_parallel: "These child issues can start in parallel.",
     split_settings_mode_label: "Mode: {{mode}}",
@@ -389,9 +396,11 @@ function draftTask(id: string, title: string, overrides: Partial<SplitTask> = {}
 function renderPanel({
   nodeRun = splitNodeRun,
   parentIssueId,
+	plannerName,
 }: {
   nodeRun?: WorkflowNodeRun;
   parentIssueId?: string;
+	plannerName?: string;
 } = {}) {
   return render(
     <SplitReviewPanel
@@ -401,6 +410,7 @@ function renderPanel({
       workflowId="wf-1"
       runId="run-1"
       parentIssueId={parentIssueId}
+		plannerName={plannerName}
       onClose={vi.fn()}
     />,
   );
@@ -442,6 +452,22 @@ describe("SplitReviewPanel", () => {
     mocks.lastSplitTasksQuery = null;
     mocks.splitTasksRefetch.mockReset();
   });
+
+	it("shows planner, elapsed time, and the slow-generation message after 60 seconds", () => {
+		vi.useFakeTimers();
+		try {
+			vi.setSystemTime(new Date("2026-07-19T00:01:01Z"));
+			renderPanel({
+				nodeRun: { ...splitNodeRun, status: "splitting", started_at: "2026-07-19T00:00:00Z" },
+				plannerName: "Split Planner Code",
+			});
+			expect(screen.getByText("Planner: Split Planner Code")).toBeInTheDocument();
+			expect(screen.getByText("Elapsed: 1:01")).toBeInTheDocument();
+			expect(screen.getByText("Planner is still generating drafts")).toBeInTheDocument();
+		} finally {
+			vi.useRealTimers();
+		}
+	});
 
   it("renders a review with verdict, draft plan, dependencies, sticky actions, and draft quick actions", async () => {
     const user = userEvent.setup();
@@ -851,7 +877,7 @@ describe("SplitReviewPanel", () => {
 
     expect(mocks.cancelMutateAsync).not.toHaveBeenCalled();
     expect(screen.getByText("Cancel split?")).toBeInTheDocument();
-    expect(screen.getByText("This will stop unfinished child tasks and cancel their child issues.")).toBeInTheDocument();
+		expect(screen.getByText("1 child tasks will be cancelled")).toBeInTheDocument();
 
     await userEvent.click(screen.getByRole("button", { name: "Confirm cancel" }));
 
@@ -861,6 +887,34 @@ describe("SplitReviewPanel", () => {
       runId: "run-1",
     });
   });
+
+	it("shows the number of active child tasks affected by cancellation", async () => {
+		mocks.splitTasksData = {
+			tasks: [
+				draftTask("a", "A"),
+				draftTask("b", "B", { status: "created" }),
+				draftTask("c", "C", { status: "running" }),
+				draftTask("d", "D", { status: "done" }),
+				draftTask("e", "E", { status: "cancelled" }),
+			],
+			progress: { total: 5, created: 1, running: 1, done: 1, failed: 0, cancelled: 1, skipped: 0 },
+		};
+		renderPanel();
+		await userEvent.click(screen.getByRole("button", { name: "Cancel split" }));
+		expect(screen.getByText("3 child tasks will be cancelled")).toBeInTheDocument();
+	});
+
+	it("summarizes completed child outcomes", () => {
+		mocks.splitTasksData = {
+			tasks: [draftTask("a", "A", { status: "done" }), draftTask("b", "B", { status: "failed" }), draftTask("c", "C", { status: "cancelled" })],
+			progress: { total: 3, created: 0, running: 0, done: 1, failed: 1, cancelled: 1, skipped: 0 },
+		};
+		renderPanel({ nodeRun: { ...splitNodeRun, status: "completed" } });
+		expect(screen.getByText("3 tasks: 1 done, 1 failed, 1 cancelled")).toBeInTheDocument();
+		expect(screen.getByText("A")).toBeInTheDocument();
+		expect(screen.getByText("B")).toBeInTheDocument();
+		expect(screen.getByText("C")).toBeInTheDocument();
+	});
 
   it("keeps approval payload readonly even when multiple draft tasks are present", async () => {
     mocks.splitTasksData = {

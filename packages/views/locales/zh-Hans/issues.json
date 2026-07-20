@@ -496,6 +496,8 @@
       "gateway_label": "网关",
       "split_child_count_one": "{{count}} 个子 issue",
       "split_child_count_other": "{{count}} 个子 issue",
+			"split_mode_barrier": "Barrier",
+			"split_mode_pipeline": "Pipeline",
       "split_child_done": "{{count}} 已完成",
       "split_child_failed": "{{count}} 失败",
       "split_child_running": "{{count}} 运行中",

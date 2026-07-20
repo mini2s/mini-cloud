@@ -348,27 +348,33 @@ func requestUserID(r *http.Request) string {
 	return r.Header.Get("X-User-ID")
 }
 
-func (h *Handler) isRunningSplitPhaseTaskRequest(r *http.Request) bool {
-	taskID := r.Header.Get("X-Task-ID")
-	if taskID == "" {
-		return false
-	}
-	taskUUID, err := util.ParseUUID(taskID)
+func (h *Handler) runningSplitPhaseTask(r *http.Request) (db.MulticaAgentTaskQueue, bool) {
+	taskUUID, err := util.ParseUUID(r.Header.Get("X-Task-ID"))
 	if err != nil {
-		return false
+		return db.MulticaAgentTaskQueue{}, false
+	}
+	agentUUID, err := util.ParseUUID(r.Header.Get("X-Agent-ID"))
+	if err != nil {
+		return db.MulticaAgentTaskQueue{}, false
 	}
 	task, err := h.Queries.GetAgentTask(r.Context(), taskUUID)
-	if err != nil || task.Status != "running" {
-		return false
+	if err != nil || task.Status != "running" || task.AgentID != agentUUID {
+		return db.MulticaAgentTaskQueue{}, false
 	}
 	var payload struct {
-		Type  string `json:"type"`
-		Phase string `json:"phase"`
+		Type   string `json:"type"`
+		Phase  string `json:"phase"`
+		Repair bool   `json:"repair"`
 	}
-	if err := json.Unmarshal(task.Context, &payload); err != nil {
-		return false
+	if err := json.Unmarshal(task.Context, &payload); err != nil || payload.Type != "workflow" {
+		return db.MulticaAgentTaskQueue{}, false
 	}
-	return payload.Type == "workflow" && payload.Phase == "split"
+	switch payload.Phase {
+	case "split_generate", "split_repair", "split_chat", "split":
+		return task, true
+	default:
+		return db.MulticaAgentTaskQueue{}, false
+	}
 }
 
 // resolveActor determines whether the request is from an agent or a human member.

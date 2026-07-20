@@ -43,6 +43,8 @@ vi.mock("@multica/views/i18n", () => {
         split_child_cancelled: "{{count}} cancelled",
         split_child_expand: "Expand child issues",
         split_child_collapse: "Collapse child issues",
+			split_mode_barrier: "Barrier",
+			split_mode_pipeline: "Pipeline",
         actions: {
           approve: "Approve",
           reject: "Reject",
@@ -523,13 +525,36 @@ describe("RuntimeNodeCard", () => {
     const card = screen.getByTestId("runtime-node-card-split-generating");
     expect(card).toHaveTextContent("In progress");
     expect(screen.queryByText("Generating draft tasks")).not.toBeInTheDocument();
-    expect(screen.queryByText(/barrier/)).not.toBeInTheDocument();
+		expect(screen.getByText("Barrier")).toBeInTheDocument();
     expect(screen.getByText("Worker")).toBeInTheDocument();
     expect(screen.getByText("Tester")).toBeInTheDocument();
     expect(screen.getByText("Critic")).toBeInTheDocument();
     expect(screen.getByText("Reviewer")).toBeInTheDocument();
     expect(card.innerHTML).not.toContain("text-amber");
   });
+
+	it.each([
+		["barrier", "Barrier"],
+		["pipeline", "Pipeline"],
+	] as const)("shows %s mode on collapsed split cards", (mode, label) => {
+		render(
+			<RuntimeNodeCard
+				node={{
+					...baseNode,
+					id: `split-${mode}`,
+					format_schema: {
+						type: "split",
+						split_config: { default_issue_workflow_id: "child-wf-1", mode, max_concurrency: 5, max_failures: 0 },
+					},
+				}}
+				nodeRun={{ ...completedRun, workflow_node_id: `split-${mode}` }}
+				workerName="Tester"
+				criticName="Reviewer"
+				onClick={vi.fn()}
+			/>,
+		);
+		expect(screen.getByText(label)).toBeInTheDocument();
+	});
 
   it("renders split child progress as the expansion control without opening the split panel", async () => {
     const onClick = vi.fn();

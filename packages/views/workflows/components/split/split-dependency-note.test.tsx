@@ -44,6 +44,7 @@ describe("SplitDependencyNote", () => {
 
     expect(screen.getAllByText("01 -> 02")).toHaveLength(1);
     expect(screen.getByTestId("split-dependency-summary")).toBeInTheDocument();
+		expect(screen.getByTestId("split-dependency-summary")).toHaveClass("font-mono");
     expect(screen.queryByRole("code")).not.toBeInTheDocument();
   });
 });

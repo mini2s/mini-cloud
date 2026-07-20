@@ -39,6 +39,8 @@ vi.mock("../../../i18n", () => ({
         split_draft_hide_discarded: "Hide discarded drafts",
         split_draft_title_label: "Draft title",
         split_draft_description_label: "Draft description",
+			split_draft_recovered: "Recovered",
+			split_draft_version: "v{{version}}",
       };
       const template = selector({ detail_panel: detailPanel });
       if (values) {
@@ -115,6 +117,11 @@ function renderWithQueryClient(ui: React.ReactElement) {
 }
 
 describe("SplitDraftLedger", () => {
+	it("shows draft version and recovered provenance", () => {
+		render(<SplitDraftLedger tasks={[{ ...baseTask, version: 7, draft_source: "recovered" }]} workflows={workflows} />);
+		expect(screen.getByText("v7")).toBeInTheDocument();
+		expect(screen.getByText("Recovered")).toBeInTheDocument();
+	});
   it("keeps workflow controls from consuming the draft title column", () => {
     render(<SplitDraftLedger tasks={[baseTask]} workflows={workflows} />);
 

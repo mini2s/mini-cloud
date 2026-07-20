@@ -556,6 +556,39 @@ func (q *Queries) HandbackWorkflowNodeRun(ctx context.Context, id pgtype.UUID) (
 	return i, err
 }
 
+const hasActiveSplitNodeRunForIssue = `-- name: HasActiveSplitNodeRunForIssue :one
+SELECT EXISTS (
+  SELECT 1
+  FROM multica_workflow_run wr
+  JOIN multica_workflow_node_run wnr ON wnr.workflow_run_id = wr.id
+  JOIN multica_workflow_node wn ON wn.id = wnr.workflow_node_id
+  WHERE wr.workspace_id = $1
+    AND (
+      wr.input ->> 'issue_id' = $2::uuid::text
+      OR EXISTS (
+        SELECT 1
+        FROM multica_issue origin_issue
+        WHERE origin_issue.id = $2
+          AND origin_issue.workflow_run_id = wr.id
+      )
+    )
+    AND wn.format_schema ->> 'type' = 'split'
+    AND wnr.status IN ('splitting', 'awaiting_split_review', 'split_active')
+) AS active
+`
+
+type HasActiveSplitNodeRunForIssueParams struct {
+	WorkspaceID pgtype.UUID `json:"workspace_id"`
+	IssueID     pgtype.UUID `json:"issue_id"`
+}
+
+func (q *Queries) HasActiveSplitNodeRunForIssue(ctx context.Context, arg HasActiveSplitNodeRunForIssueParams) (bool, error) {
+	row := q.db.QueryRow(ctx, hasActiveSplitNodeRunForIssue, arg.WorkspaceID, arg.IssueID)
+	var active bool
+	err := row.Scan(&active)
+	return active, err
+}
+
 const linkNodeRunAgentTask = `-- name: LinkNodeRunAgentTask :one
 UPDATE multica_workflow_node_run SET
     agent_task_id = $2,

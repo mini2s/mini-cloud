@@ -337,6 +337,10 @@ export function SplitDraftLedger({
                   {!linkedIssue && !task.issue_id ? (
                     <Badge variant="secondary">{taskStatusLabel(task.status)}</Badge>
                   ) : null}
+									<span className="text-[11px] text-muted-foreground">{t(($) => $.detail_panel.split_draft_version, { version: task.version })}</span>
+									{task.draft_source === "recovered" ? (
+										<Badge variant="outline">{t(($) => $.detail_panel.split_draft_recovered)}</Badge>
+									) : null}
                   {showWorkflowSelect ? (
                     <label className="flex min-w-[12rem] flex-1 items-center gap-2 text-xs text-muted-foreground">
                       <span className="shrink-0">{t(($) => $.detail_panel.split_draft_workflow_label)}</span>

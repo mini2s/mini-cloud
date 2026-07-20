@@ -4,10 +4,13 @@ import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react
 import { useQuery } from "@tanstack/react-query";
 import {
   Activity,
+	AlertTriangle,
   Bot,
   Braces,
   CheckCircle2,
   GitBranch,
+	GitFork,
+	Play,
   ShieldCheck,
   Save,
   Trash2,
@@ -39,6 +42,7 @@ import {
   WorkflowNodeDetailPanelShell,
 } from "../../common/workflow-node-detail-panel-shell";
 import { SplitConfigPanel } from "./split/split-config-panel";
+import type { PreflightIssue } from "@multica/core/workflows/preflight-checks";
 
 function toAssigneeType(t: string): IssueAssigneeType | null {
   if (t === "human") return "member";
@@ -277,6 +281,10 @@ interface NodeConfigPanelProps {
   stages?: WorkflowStage[];
   disabled?: boolean;
   recentNodeRun?: WorkflowNodeRun | null;
+	preflightIssues?: PreflightIssue[];
+	incomingCount?: number;
+	outgoingCount?: number;
+	onTrialRun?: () => void;
   onClose: () => void;
   onSaveNode?: () => boolean | Promise<boolean>;
   onDirtyChange?: (dirty: boolean) => void;
@@ -292,6 +300,10 @@ export function NodeConfigPanel({
   stages = [],
   disabled = false,
   recentNodeRun = null,
+	preflightIssues = [],
+	incomingCount = 0,
+	outgoingCount = 0,
+	onTrialRun,
   onClose,
   onSaveNode,
   onDirtyChange,
@@ -516,6 +528,12 @@ export function NodeConfigPanel({
               </StatusBadge>
             </div>
           ) : null}
+			{preflightIssues.map((issue) => (
+				<div key={`${issue.checkId}-${issue.nodeId}`} className="flex items-start gap-2 border-t border-border/60 px-2 py-1.5">
+					<AlertTriangle className={issue.blocking ? "mt-0.5 size-3.5 shrink-0 text-destructive" : "mt-0.5 size-3.5 shrink-0 text-amber-600"} />
+					<span>{issue.message}</span>
+				</div>
+			))}
         </div>
       </NodeDetailSection>
 
@@ -655,23 +673,6 @@ export function NodeConfigPanel({
 
         </div>
       </NodeDetailSection>
-
-      {isSplit ? (
-        <NodeDetailSection
-          sectionId="split-behavior"
-          icon={<GitBranch className="size-4" />}
-          title={t(($) => $.detail_panel.section_split_behavior)}
-          subtitle={t(($) => $.detail_panel.section_split_behavior_desc)}
-        >
-          <SplitConfigPanel
-            config={splitConfig}
-            childWorkflows={activeWorkflows}
-            currentWorkflowId={workflowId}
-            disabled={disabled}
-            onChange={handleSplitConfigChange}
-          />
-        </NodeDetailSection>
-      ) : null}
 
       <NodeDetailSection
         sectionId="worker-critic"
@@ -1101,6 +1102,41 @@ export function NodeConfigPanel({
         </div>
       </NodeDetailSection>
 
+		{isSplit ? (
+			<>
+				<NodeDetailSection
+					sectionId="split-behavior"
+					icon={<GitBranch className="size-4" />}
+					title={t(($) => $.detail_panel.section_split_behavior)}
+					subtitle={t(($) => $.detail_panel.section_split_behavior_desc)}
+				>
+					<SplitConfigPanel
+						config={splitConfig}
+						childWorkflows={activeWorkflows}
+						currentWorkflowId={workflowId}
+						disabled={disabled}
+						onChange={handleSplitConfigChange}
+					/>
+				</NodeDetailSection>
+
+				<NodeDetailSection
+					sectionId="connections"
+					icon={<GitFork className="size-4" />}
+					title={t(($) => $.detail_panel.section_connections)}
+					subtitle={t(($) => $.detail_panel.section_connections_desc)}
+				>
+					<div className="grid grid-cols-2 gap-2 text-xs">
+						<div className="rounded-md border bg-muted/20 p-2">
+							{t(($) => $.detail_panel.connection_upstream_count, { count: incomingCount })}
+						</div>
+						<div className="rounded-md border bg-muted/20 p-2">
+							{t(($) => $.detail_panel.connection_downstream_count, { count: outgoingCount })}
+						</div>
+					</div>
+				</NodeDetailSection>
+			</>
+		) : null}
+
       <NodeDetailSection
         sectionId="actions"
         icon={<Trash2 className="size-4" />}
@@ -1109,6 +1145,12 @@ export function NodeConfigPanel({
       >
         {!disabled ? (
           <div className="space-y-2">
+			{isSplit ? (
+				<Button type="button" size="sm" variant="outline" className="w-full" onClick={onTrialRun} disabled={disabled || !onTrialRun}>
+					<Play className="mr-1.5 size-3.5" />
+					{t(($) => $.detail_panel.trial_run)}
+				</Button>
+			) : null}
             {onSaveNode ? (
               <Button
                 size="sm"

@@ -49,7 +49,7 @@ export function SplitDependencyNote({ tasks }: SplitDependencyNoteProps) {
   return (
     <div
       data-testid="split-dependency-summary"
-      className="space-y-1.5 rounded-md border bg-muted/20 px-3 py-2 text-xs text-foreground"
+      className="space-y-1.5 rounded-md border bg-muted/20 px-3 py-2 font-mono text-xs text-foreground"
     >
       {rows.map((row) => (
         <div key={row} className="flex items-center gap-2">

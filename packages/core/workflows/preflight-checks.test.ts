@@ -10,6 +10,7 @@ import {
   checkSplitWorkerSpecialized,
   checkStageMissing,
   checkSplitChildWorkflowConfig,
+  checkSplitMaxConcurrency,
   runAllPreflightChecks,
   DEFAULT_SPLIT_PLANNER_AGENT_IDS,
 } from "./preflight-checks";
@@ -250,6 +251,7 @@ describe("checkWorkerMissing", () => {
     const issues = checkWorkerMissing(nodes);
     expect(issues).toHaveLength(1);
     expect(issues[0]!.blocking).toBe(true);
+		expect(issues[0]!.checkId).toBe("split-planner-missing");
     expect(issues[0]!.message).toBe("Assign an Agent to this split node");
   });
 
@@ -343,7 +345,7 @@ describe("checkSplitWorkerSpecialized", () => {
     const nodes = [makeNode({ id: "split", worker_id: "agent-1", format_schema: { type: "split", split_config: { default_issue_workflow_id: "tpl-1" } } })];
     const issues = checkSplitWorkerSpecialized(nodes, new Set(["split-planner-code"]));
     expect(issues).toHaveLength(1);
-    expect(issues[0]!.checkId).toBe("split-worker-non-specialized");
+    expect(issues[0]!.checkId).toBe("split-planner-not-specialized");
     expect(issues[0]!.severity).toBe("warning");
     expect(issues[0]!.blocking).toBe(false);
   });
@@ -446,6 +448,17 @@ describe("checkSplitChildWorkflowConfig", () => {
     expect(issues[0]!.checkId).toBe("split-default-issue-workflow-inactive");
   });
 
+	it("blocks split nodes whose default issue workflow is unavailable", () => {
+		const nodes = [makeNode({
+			id: "split",
+			format_schema: { type: "split", split_config: { default_issue_workflow_id: "missing-wf", max_concurrency: 2 } },
+		})];
+		expect(checkSplitChildWorkflowConfig(nodes, [])).toContainEqual(expect.objectContaining({
+			checkId: "split-default-issue-workflow-invalid",
+			blocking: true,
+		}));
+	});
+
   it("blocks split nodes whose default issue workflow is the parent workflow", () => {
     const nodes = [
       makeNode({
@@ -480,6 +493,30 @@ describe("checkSplitChildWorkflowConfig", () => {
     expect(issues).toHaveLength(1);
     expect(issues[0]!.checkId).toBe("split-default-issue-workflow-nested");
   });
+});
+
+describe("checkSplitMaxConcurrency", () => {
+	it.each([0, -1, 1.5, 51])("rejects max_concurrency=%s", (value) => {
+		const node = makeNode({
+			id: "split",
+			format_schema: {
+				type: "split",
+				split_config: { default_issue_workflow_id: "wf-2", max_concurrency: value },
+			},
+		});
+		expect(checkSplitMaxConcurrency([node])[0]?.checkId).toBe("split-max-concurrency-invalid");
+	});
+
+	it.each([1, 50])("accepts max_concurrency=%s", (value) => {
+		const node = makeNode({
+			id: "split",
+			format_schema: {
+				type: "split",
+				split_config: { default_issue_workflow_id: "wf-2", max_concurrency: value },
+			},
+		});
+		expect(checkSplitMaxConcurrency([node])).toEqual([]);
+	});
 });
 
 // ── runAllPreflightChecks ──

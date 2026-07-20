@@ -8,10 +8,43 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/multica-ai/multica/server/internal/events"
 	db "github.com/multica-ai/multica/server/pkg/db/generated"
+	"github.com/multica-ai/multica/server/pkg/protocol"
 )
+
+func TestSplitLifecycleEventsPayload(t *testing.T) {
+	bus := events.New()
+	orchestrator := NewSplitOrchestrator(nil, nil, nil, bus)
+	runID := pgtype.UUID{Bytes: [16]byte{1}, Valid: true}
+	nodeRunID := pgtype.UUID{Bytes: [16]byte{2}, Valid: true}
+	workspaceID := pgtype.UUID{Bytes: [16]byte{3}, Valid: true}
+	plannerID := pgtype.UUID{Bytes: [16]byte{4}, Valid: true}
+	startedAt := time.Now().Add(-time.Second)
+
+	var got events.Event
+	bus.Subscribe(protocol.EventSplitGenerationDispatched, func(event events.Event) { got = event })
+	orchestrator.publishSplitEvent(
+		protocol.EventSplitGenerationDispatched,
+		db.MulticaWorkflowRun{ID: runID, WorkspaceID: workspaceID},
+		db.MulticaWorkflowNodeRun{ID: nodeRunID, WorkflowRunID: runID, WorkerID: plannerID, StartedAt: pgtype.Timestamptz{Time: startedAt, Valid: true}},
+		SplitLifecycleEventPayload{AgentTaskID: "task-1"},
+	)
+
+	payload, ok := got.Payload.(SplitLifecycleEventPayload)
+	if !ok {
+		t.Fatalf("payload type = %T", got.Payload)
+	}
+	if payload.WorkflowNodeRunID == "" || payload.WorkflowRunID == "" || payload.PlannerAgentID == "" {
+		t.Fatalf("missing fixed payload ids: %+v", payload)
+	}
+	if payload.AgentTaskID != "task-1" || payload.ElapsedMS < 900 {
+		t.Fatalf("payload = %+v", payload)
+	}
+}
 
 func TestSplitTaskDispatchKeyUsesTaskVersionAsAttempt(t *testing.T) {
 	task := db.MulticaWorkflowSplitTask{
@@ -39,6 +72,19 @@ func TestSplitTaskGraphRejectsUnknownDependency(t *testing.T) {
 	err := validateSplitTaskGraph(tasks)
 	if err == nil || !strings.Contains(err.Error(), "unknown dependency") {
 		t.Fatalf("validateSplitTaskGraph error = %v, want unknown dependency", err)
+	}
+}
+
+func TestResolveSplitStatusCountsCancelledAsBarrierFailure(t *testing.T) {
+	tasks := []splitTaskPlan{
+		{ID: "a", Status: SplitTaskStatusDone},
+		{ID: "b", Status: SplitTaskStatusCancelled},
+	}
+	if got := resolveSplitStatus(SplitModeBarrier, 0, tasks); got != NodeRunStatusFailed {
+		t.Fatalf("status = %s, want failed", got)
+	}
+	if got := resolveSplitStatus(SplitModeBarrier, 1, tasks); got != NodeRunStatusCompleted {
+		t.Fatalf("status = %s, want completed", got)
 	}
 }
 

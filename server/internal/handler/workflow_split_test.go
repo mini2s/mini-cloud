@@ -7,13 +7,16 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/multica-ai/multica/server/internal/events"
 	"github.com/multica-ai/multica/server/internal/service"
 	db "github.com/multica-ai/multica/server/pkg/db/generated"
+	"github.com/multica-ai/multica/server/pkg/protocol"
 )
 
 func TestSplitAPIErrorStatus(t *testing.T) {
@@ -133,6 +136,9 @@ func createSplitApproveFixture(t *testing.T, mode string) splitApproveFixture {
 	var f splitApproveFixture
 
 	t.Cleanup(func() {
+		if f.splitNodeRunID != "" {
+			_, _ = testPool.Exec(ctx, `UPDATE multica_workflow_node_run SET status = 'cancelled' WHERE id = $1`, f.splitNodeRunID)
+		}
 		if f.parentIssueID != "" {
 			req := newRequest("DELETE", "/api/issues/"+f.parentIssueID, nil)
 			req = withURLParam(req, "id", f.parentIssueID)
@@ -377,6 +383,9 @@ func createSplitGenerateFixture(t *testing.T, mode string) splitGenerateFixture 
 	var f splitGenerateFixture
 
 	t.Cleanup(func() {
+		if f.splitNodeRunID != "" {
+			_, _ = testPool.Exec(ctx, `UPDATE multica_workflow_node_run SET status = 'cancelled' WHERE id = $1`, f.splitNodeRunID)
+		}
 		if f.parentIssueID != "" {
 			req := newRequest("DELETE", "/api/issues/"+f.parentIssueID, nil)
 			req = withURLParam(req, "id", f.parentIssueID)
@@ -535,6 +544,254 @@ func startSplitGenerationTask(t *testing.T, f splitGenerateFixture) string {
 		t.Fatalf("start split generation task: %v", err)
 	}
 	return uuidToString(started.ID)
+}
+
+func createWorkflowTaskWithContext(t *testing.T, f splitGenerateFixture, status string, taskContext map[string]any) string {
+	t.Helper()
+
+	contextJSON, err := json.Marshal(taskContext)
+	if err != nil {
+		t.Fatalf("marshal task context: %v", err)
+	}
+	var taskID string
+	if err := testPool.QueryRow(context.Background(), `
+		INSERT INTO multica_agent_task_queue (
+			agent_id, runtime_id, issue_id, status, priority,
+			workflow_node_run_id, context, started_at, completed_at
+		)
+		VALUES (
+			$1, $2, $3, $4, 0,
+			$5, $6::jsonb,
+			CASE WHEN $4 IN ('running', 'completed') THEN now() ELSE NULL END,
+			CASE WHEN $4 = 'completed' THEN now() ELSE NULL END
+		)
+		RETURNING id
+	`, f.agentID, f.runtimeID, f.splitSubIssueID, status, f.splitNodeRunID, string(contextJSON)).Scan(&taskID); err != nil {
+		t.Fatalf("create workflow task: %v", err)
+	}
+	t.Cleanup(func() {
+		_, _ = testPool.Exec(context.Background(), `DELETE FROM multica_agent_task_queue WHERE id = $1`, taskID)
+	})
+	return taskID
+}
+
+func TestRunningSplitPhaseTaskRecognizesAllSplitPhases(t *testing.T) {
+	f := createSplitGenerateFixture(t, "barrier")
+
+	tests := []struct {
+		name       string
+		status     string
+		context    map[string]any
+		agentID    string
+		wantActive bool
+	}{
+		{name: "generate", status: "running", context: map[string]any{"type": "workflow", "phase": "split_generate"}, agentID: f.agentID, wantActive: true},
+		{name: "repair", status: "running", context: map[string]any{"type": "workflow", "phase": "split_repair"}, agentID: f.agentID, wantActive: true},
+		{name: "chat", status: "running", context: map[string]any{"type": "workflow", "phase": "split_chat"}, agentID: f.agentID, wantActive: true},
+		{name: "legacy generate", status: "running", context: map[string]any{"type": "workflow", "phase": "split", "repair": false}, agentID: f.agentID, wantActive: true},
+		{name: "legacy repair", status: "running", context: map[string]any{"type": "workflow", "phase": "split", "repair": true}, agentID: f.agentID, wantActive: true},
+		{name: "queued", status: "queued", context: map[string]any{"type": "workflow", "phase": "split_chat"}, agentID: f.agentID},
+		{name: "completed", status: "completed", context: map[string]any{"type": "workflow", "phase": "split_chat"}, agentID: f.agentID},
+		{name: "agent mismatch", status: "running", context: map[string]any{"type": "workflow", "phase": "split_chat"}, agentID: testUserID},
+		{name: "regular worker", status: "running", context: map[string]any{"type": "workflow", "phase": "worker"}, agentID: f.agentID},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			taskID := createWorkflowTaskWithContext(t, f, tt.status, tt.context)
+			req := newRequest("POST", "/api/issues", nil)
+			req.Header.Set("X-Agent-ID", tt.agentID)
+			req.Header.Set("X-Task-ID", taskID)
+
+			task, ok := testHandler.runningSplitPhaseTask(req)
+			if ok != tt.wantActive {
+				t.Fatalf("runningSplitPhaseTask() ok = %v, want %v", ok, tt.wantActive)
+			}
+			if ok && uuidToString(task.ID) != taskID {
+				t.Fatalf("task id = %s, want %s", uuidToString(task.ID), taskID)
+			}
+		})
+	}
+}
+
+func TestSplitLifecycleEvents(t *testing.T) {
+	f := createSplitGenerateFixture(t, "barrier")
+	eventTypes := []string{
+		protocol.EventSplitGenerationDispatched,
+		protocol.EventSplitContextRendered,
+		protocol.EventSplitDraftAdded,
+		protocol.EventSplitDraftSubmitFailed,
+		protocol.EventSplitDraftSubmitted,
+		protocol.EventSplitReviewReady,
+		protocol.EventSplitChildIssueCreated,
+		protocol.EventSplitApproved,
+	}
+	got := make([]string, 0, len(eventTypes))
+	for _, eventType := range eventTypes {
+		typeCopy := eventType
+		testHandler.Bus.Subscribe(typeCopy, func(event events.Event) {
+			got = append(got, event.Type)
+			payload, ok := event.Payload.(service.SplitLifecycleEventPayload)
+			if !ok || payload.WorkflowNodeRunID == "" || payload.WorkflowRunID == "" {
+				t.Errorf("event %s payload = %#v", event.Type, event.Payload)
+			}
+		})
+	}
+
+	taskID := startSplitGenerationTask(t, f)
+	addReq := newRequest("POST", "/api/node-runs/"+f.splitNodeRunID+"/split/draft-tasks", map[string]any{
+		"key": "lifecycle", "title": "Lifecycle child", "description": "Verify lifecycle events.",
+	})
+	addReq.Header.Set("X-Agent-ID", f.agentID)
+	addReq.Header.Set("X-Task-ID", taskID)
+	addReq = withURLParam(addReq, "nodeRunId", f.splitNodeRunID)
+	addResp := httptest.NewRecorder()
+	testHandler.AddSplitDraftTask(addResp, addReq)
+	if addResp.Code != http.StatusCreated {
+		t.Fatalf("AddSplitDraftTask: status = %d: %s", addResp.Code, addResp.Body.String())
+	}
+
+	submitReq := newRequest("POST", "/api/node-runs/"+f.splitNodeRunID+"/split/draft-submit", nil)
+	submitReq.Header.Set("X-Agent-ID", f.agentID)
+	submitReq.Header.Set("X-Task-ID", taskID)
+	submitReq = withURLParam(submitReq, "nodeRunId", f.splitNodeRunID)
+	submitResp := httptest.NewRecorder()
+	testHandler.SubmitSplitDraftTasks(submitResp, submitReq)
+	if submitResp.Code != http.StatusOK {
+		t.Fatalf("SubmitSplitDraftTasks: status = %d: %s", submitResp.Code, submitResp.Body.String())
+	}
+
+	tasks, err := testHandler.Queries.ListSplitTasksByNodeRun(context.Background(), parseUUID(f.splitNodeRunID))
+	if err != nil || len(tasks) != 1 {
+		t.Fatalf("split tasks = %d, err = %v", len(tasks), err)
+	}
+	approveReq := newRequest("POST", "/api/node-runs/"+f.splitNodeRunID+"/split/approve", map[string]any{
+		"approved_task_ids": []string{uuidToString(tasks[0].ID)},
+		"modifications":     []any{},
+	})
+	approveReq = withURLParam(approveReq, "nodeRunId", f.splitNodeRunID)
+	approveResp := httptest.NewRecorder()
+	testHandler.ApproveSplitTasks(approveResp, approveReq)
+	if approveResp.Code != http.StatusOK {
+		t.Fatalf("ApproveSplitTasks: status = %d: %s", approveResp.Code, approveResp.Body.String())
+	}
+
+	failedSubmitReq := newRequest("POST", "/api/node-runs/"+f.splitNodeRunID+"/split/draft-submit", nil)
+	failedSubmitReq.Header.Set("X-Agent-ID", f.agentID)
+	failedSubmitReq.Header.Set("X-Task-ID", taskID)
+	failedSubmitReq = withURLParam(failedSubmitReq, "nodeRunId", f.splitNodeRunID)
+	testHandler.SubmitSplitDraftTasks(httptest.NewRecorder(), failedSubmitReq)
+
+	want := []string{
+		protocol.EventSplitGenerationDispatched,
+		protocol.EventSplitContextRendered,
+		protocol.EventSplitDraftAdded,
+		protocol.EventSplitDraftSubmitted,
+		protocol.EventSplitReviewReady,
+		protocol.EventSplitChildIssueCreated,
+		protocol.EventSplitApproved,
+		protocol.EventSplitDraftSubmitFailed,
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("event order = %v, want %v", got, want)
+	}
+}
+
+func TestSplitPhaseTaskCannotMutateIssues(t *testing.T) {
+	f := createSplitGenerateFixture(t, "barrier")
+	taskID := createWorkflowTaskWithContext(t, f, "running", map[string]any{
+		"type": "workflow", "phase": "split_chat",
+	})
+
+	request := func(method, path string, body any) *http.Request {
+		req := newRequest(method, path, body)
+		req.Header.Set("X-Agent-ID", f.agentID)
+		req.Header.Set("X-Task-ID", taskID)
+		return req
+	}
+
+	tests := []struct {
+		name string
+		call func(http.ResponseWriter, *http.Request)
+		req  *http.Request
+	}{
+		{name: "create", call: testHandler.CreateIssue, req: request("POST", "/api/issues", map[string]any{"title": "Forbidden split child"})},
+		{name: "update", call: testHandler.UpdateIssue, req: withURLParam(request("PUT", "/api/issues/"+f.splitSubIssueID, map[string]any{"status": "done"}), "id", f.splitSubIssueID)},
+		{name: "batch update", call: testHandler.BatchUpdateIssues, req: request("POST", "/api/issues/batch-update", map[string]any{"issue_ids": []string{f.splitSubIssueID}, "updates": map[string]any{"status": "done"}})},
+		{name: "batch delete", call: testHandler.BatchDeleteIssues, req: request("POST", "/api/issues/batch-delete", map[string]any{"issue_ids": []string{f.splitSubIssueID}})},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			w := httptest.NewRecorder()
+			tt.call(w, tt.req)
+			if w.Code != http.StatusForbidden {
+				t.Fatalf("status = %d, want 403: %s", w.Code, w.Body.String())
+			}
+		})
+	}
+
+	issue, err := testHandler.Queries.GetIssue(context.Background(), parseUUID(f.splitSubIssueID))
+	if err != nil {
+		t.Fatalf("load split sub-issue: %v", err)
+	}
+	if issue.Status != "in_progress" {
+		t.Fatalf("split sub-issue status = %s, want in_progress", issue.Status)
+	}
+	var created int
+	if err := testPool.QueryRow(context.Background(), `SELECT count(*) FROM multica_issue WHERE workspace_id = $1 AND title = 'Forbidden split child'`, testWorkspaceID).Scan(&created); err != nil {
+		t.Fatalf("count forbidden issues: %v", err)
+	}
+	if created != 0 {
+		t.Fatalf("created forbidden issues = %d, want 0", created)
+	}
+}
+
+func TestDeleteIssueRejectsParentWithActiveSplit(t *testing.T) {
+	f := createSplitApproveFixture(t, "barrier")
+	req := newRequest("DELETE", "/api/issues/"+f.parentIssueID, nil)
+	req = withURLParam(req, "id", f.parentIssueID)
+	w := httptest.NewRecorder()
+
+	testHandler.DeleteIssue(w, req)
+
+	if w.Code != http.StatusConflict {
+		t.Fatalf("status = %d, want 409: %s", w.Code, w.Body.String())
+	}
+	if _, err := testHandler.Queries.GetIssue(context.Background(), parseUUID(f.parentIssueID)); err != nil {
+		t.Fatalf("parent issue was deleted: %v", err)
+	}
+	nodeRun, err := testHandler.Queries.GetWorkflowNodeRun(context.Background(), parseUUID(f.splitNodeRunID))
+	if err != nil {
+		t.Fatalf("load split node run: %v", err)
+	}
+	if nodeRun.Status != service.NodeRunStatusAwaitingSplitReview {
+		t.Fatalf("node run status = %s, want awaiting_split_review", nodeRun.Status)
+	}
+}
+
+func TestBatchDeleteIssuesRejectsParentWithActiveSplit(t *testing.T) {
+	f := createSplitApproveFixture(t, "barrier")
+	w := httptest.NewRecorder()
+	req := newRequest("POST", "/api/issues/batch-delete", map[string]any{
+		"issue_ids": []string{f.parentIssueID},
+	})
+
+	testHandler.BatchDeleteIssues(w, req)
+
+	if w.Code != http.StatusConflict {
+		t.Fatalf("status = %d, want 409: %s", w.Code, w.Body.String())
+	}
+	if _, err := testHandler.Queries.GetIssue(context.Background(), parseUUID(f.parentIssueID)); err != nil {
+		t.Fatalf("parent issue was deleted: %v", err)
+	}
+	nodeRun, err := testHandler.Queries.GetWorkflowNodeRun(context.Background(), parseUUID(f.splitNodeRunID))
+	if err != nil {
+		t.Fatalf("load split node run: %v", err)
+	}
+	if nodeRun.Status != service.NodeRunStatusAwaitingSplitReview {
+		t.Fatalf("node run status = %s, want awaiting_split_review", nodeRun.Status)
+	}
 }
 
 func TestAddSplitDraftTaskAcceptsMatchingSplitTask(t *testing.T) {
@@ -1892,8 +2149,8 @@ func TestCancelSplitNodePreservesTerminalChildWork(t *testing.T) {
 	if err != nil {
 		t.Fatalf("reload split task B: %v", err)
 	}
-	if taskB.Status != service.SplitTaskStatusCancelled {
-		t.Fatalf("task B status = %s, want cancelled", taskB.Status)
+	if taskB.Status != service.SplitTaskStatusSkipped {
+		t.Fatalf("task B status = %s, want skipped", taskB.Status)
 	}
 
 	childRun, err := testHandler.Queries.GetWorkflowRun(ctx, taskA.RunID)
@@ -1918,6 +2175,52 @@ func TestCancelSplitNodePreservesTerminalChildWork(t *testing.T) {
 	}
 	if nodeRun.Status != service.NodeRunStatusCancelled {
 		t.Fatalf("split node run status = %s, want cancelled", nodeRun.Status)
+	}
+}
+
+func TestCancelSplitNodeClassifiesTasks(t *testing.T) {
+	f := createSplitApproveFixture(t, "barrier")
+	ctx := context.Background()
+
+	if _, err := testPool.Exec(ctx, `
+		UPDATE multica_workflow_split_task
+		SET status = 'created', issue_id = $2
+		WHERE id = $1
+	`, f.taskBID, f.splitSubIssueID); err != nil {
+		t.Fatalf("materialize created task: %v", err)
+	}
+
+	var runningTaskID string
+	if err := testPool.QueryRow(ctx, `
+		INSERT INTO multica_workflow_split_task (
+			node_run_id, workspace_id, title, description, workflow_id,
+			depends_on, sort_order, status, issue_id, run_id
+		)
+		VALUES ($1, $2, 'Running task', 'Started child', $3, '[]'::jsonb, 2, 'running', $4, $5)
+		RETURNING id
+	`, f.splitNodeRunID, testWorkspaceID, f.childWorkflow, f.splitSubIssueID, f.parentRunID).Scan(&runningTaskID); err != nil {
+		t.Fatalf("create running split task: %v", err)
+	}
+
+	if err := testHandler.Queries.CancelOpenSplitTasksByNodeRun(ctx, parseUUID(f.splitNodeRunID)); err != nil {
+		t.Fatalf("classify cancelled tasks: %v", err)
+	}
+
+	for _, tt := range []struct {
+		id   string
+		want string
+	}{
+		{id: f.taskAID, want: service.SplitTaskStatusDiscarded},
+		{id: f.taskBID, want: service.SplitTaskStatusSkipped},
+		{id: runningTaskID, want: service.SplitTaskStatusCancelled},
+	} {
+		task, err := testHandler.Queries.GetSplitTask(ctx, parseUUID(tt.id))
+		if err != nil {
+			t.Fatalf("load split task %s: %v", tt.id, err)
+		}
+		if task.Status != tt.want {
+			t.Fatalf("task %s status = %s, want %s", tt.id, task.Status, tt.want)
+		}
 	}
 }
 

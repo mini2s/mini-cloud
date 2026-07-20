@@ -4,9 +4,11 @@
 >
 > 检视日期：2026-07-18 | 分支：`feature/dynamic-task-splitting-design`
 
-## 总体评估
+## 总体评估（整改前历史快照）
 
-**一致性评级：LOW（~55-60%）**
+**整改前一致性评级：LOW（~55-60%）**
+
+> 本节评级与下方问题描述记录 2026-07-18 检视时的实现状态，不代表 2026-07-20 整改后的分支状态。最终状态见文末“整改状态”。
 
 核心主流程（generate → review → approve → materialize → dispatch）已通路，数据表、API 端点、前端视图均已搭建。但存在 **10 个 Critical** 和 **22 个 Major** 偏差，当前**不具备生产就绪条件**。预计需 4-6 周修复所有 Critical 和 Major 问题。
 
@@ -208,3 +210,15 @@ spec 规定的基于 X-Task-ID 的平台级拦截完全缺失：
 ---
 
 *检视由 Claude Code Workflow 自动执行，7 个 Agent 并行分析，共 172 次工具调用，消费 ~631K tokens。*
+
+## 整改状态（2026-07-20）
+
+| 原编号 | 状态 | 证据 |
+|---|---|---|
+| 1-6 | fixed | contract cleanup、生命周期事件、副作用门禁及对应回归测试 |
+| 7, 19, 24 | already-fixed-before-plan | pipeline/approve 现有回归测试；本轮补充空 submit 契约确认 |
+| 8, 14-17, 20-23 | fixed | dispatch 幂等、事务、错误映射、取消分类和删除保护测试 |
+| 9-10, 32-33 | fixed | split preflight ID、child workflow、并发范围单元测试 |
+| 11, 13, 18, 29, 37-39 | documented-decision | 设计规范中的数据模型、API 与 runtime edge 决策 |
+| 12 | fixed | TypeScript contract 与 schema 防漂移测试 |
+| 25-28, 30-31, 34-36, 40-45 | fixed | shared views、运行状态、草案追溯、配置面板与 locale 测试 |

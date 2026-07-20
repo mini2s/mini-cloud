@@ -12,6 +12,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"time"
 	"unicode"
 
 	"github.com/jackc/pgx/v5"
@@ -19,6 +20,7 @@ import (
 	"github.com/multica-ai/multica/server/internal/events"
 	"github.com/multica-ai/multica/server/internal/util"
 	db "github.com/multica-ai/multica/server/pkg/db/generated"
+	"github.com/multica-ai/multica/server/pkg/protocol"
 )
 
 const (
@@ -135,6 +137,17 @@ type SplitOrchestrator struct {
 	AttachmentStorage splitAttachmentStorage
 }
 
+type SplitLifecycleEventPayload struct {
+	WorkflowNodeRunID string `json:"workflow_node_run_id"`
+	WorkflowRunID     string `json:"workflow_run_id"`
+	AgentTaskID       string `json:"agent_task_id,omitempty"`
+	PlannerAgentID    string `json:"planner_agent_id,omitempty"`
+	ElapsedMS         int64  `json:"elapsed_ms,omitempty"`
+	SplitTaskID       string `json:"split_task_id,omitempty"`
+	ChildIssueID      string `json:"child_issue_id,omitempty"`
+	Error             string `json:"error,omitempty"`
+}
+
 func NewSplitOrchestrator(
 	q *db.Queries,
 	tx TxStarter,
@@ -153,6 +166,31 @@ func NewSplitOrchestrator(
 		Bus:               bus,
 		AttachmentStorage: store,
 	}
+}
+
+func (s *SplitOrchestrator) publishSplitEvent(
+	eventType string,
+	run db.MulticaWorkflowRun,
+	nodeRun db.MulticaWorkflowNodeRun,
+	payload SplitLifecycleEventPayload,
+) {
+	if s.Bus == nil {
+		return
+	}
+	payload.WorkflowNodeRunID = util.UUIDToString(nodeRun.ID)
+	payload.WorkflowRunID = util.UUIDToString(nodeRun.WorkflowRunID)
+	if payload.PlannerAgentID == "" && nodeRun.WorkerID.Valid {
+		payload.PlannerAgentID = util.UUIDToString(nodeRun.WorkerID)
+	}
+	if nodeRun.StartedAt.Valid {
+		payload.ElapsedMS = max(0, time.Since(nodeRun.StartedAt.Time).Milliseconds())
+	}
+	s.Bus.Publish(events.Event{
+		Type:        eventType,
+		WorkspaceID: util.UUIDToString(run.WorkspaceID),
+		ActorType:   "system",
+		Payload:     payload,
+	})
 }
 
 func (s *SplitOrchestrator) runInTx(ctx context.Context, fn func(*db.Queries) error) error {
@@ -377,9 +415,9 @@ func resolveSplitStatus(mode string, maxFailures int, tasks []splitTaskPlan) str
 		failures := 0
 		for _, task := range tasks {
 			switch task.Status {
-			case SplitTaskStatusFailed:
+			case SplitTaskStatusFailed, SplitTaskStatusCancelled:
 				failures++
-			case SplitTaskStatusDone, SplitTaskStatusCancelled, SplitTaskStatusSkipped, SplitTaskStatusDiscarded:
+			case SplitTaskStatusDone, SplitTaskStatusSkipped, SplitTaskStatusDiscarded:
 				continue
 			default:
 				return NodeRunStatusSplitActive
@@ -687,6 +725,9 @@ func (s *SplitOrchestrator) GenerateSplitTasks(ctx context.Context, nodeRun db.M
 	}); err != nil {
 		return fmt.Errorf("link split generation task: %w", err)
 	}
+	payload := SplitLifecycleEventPayload{AgentTaskID: util.UUIDToString(task.ID)}
+	s.publishSplitEvent(protocol.EventSplitGenerationDispatched, run, currentNodeRun, payload)
+	s.publishSplitEvent(protocol.EventSplitContextRendered, run, currentNodeRun, payload)
 	return nil
 }
 
@@ -971,7 +1012,7 @@ func (s *SplitOrchestrator) AddSplitDraftTasks(ctx context.Context, nodeRun db.M
 		draftSource = DraftSourceChat
 	}
 
-	return s.WfService.runInTx(ctx, func(qtx *db.Queries) error {
+	if err := s.WfService.runInTx(ctx, func(qtx *db.Queries) error {
 		for _, req := range requests {
 			if err := s.upsertSplitDraftTask(ctx, qtx, nodeRun, req, draftSource); err != nil {
 				return err
@@ -982,7 +1023,37 @@ func (s *SplitOrchestrator) AddSplitDraftTasks(ctx context.Context, nodeRun db.M
 			return fmt.Errorf("reload split draft tasks: %w", err)
 		}
 		return validateDraftSplitTaskRows(current)
-	})
+	}); err != nil {
+		return err
+	}
+
+	run, err := s.Queries.GetWorkflowRun(ctx, nodeRun.WorkflowRunID)
+	if err != nil {
+		slog.Warn("split: draft commit succeeded but lifecycle event run lookup failed", "node_run_id", util.UUIDToString(nodeRun.ID), "error", err)
+		return nil
+	}
+	current, err := s.Queries.ListSplitTasksByNodeRun(ctx, nodeRun.ID)
+	if err != nil {
+		slog.Warn("split: draft commit succeeded but lifecycle event task lookup failed", "node_run_id", util.UUIDToString(nodeRun.ID), "error", err)
+		return nil
+	}
+	byKey := make(map[string]db.MulticaWorkflowSplitTask, len(current))
+	for _, draft := range current {
+		if draft.DraftKey.Valid && draft.Status != SplitTaskStatusDiscarded {
+			byKey[draft.DraftKey.String] = draft
+		}
+	}
+	for _, request := range requests {
+		draft, ok := byKey[strings.TrimSpace(request.Key)]
+		if !ok {
+			continue
+		}
+		s.publishSplitEvent(protocol.EventSplitDraftAdded, run, nodeRun, SplitLifecycleEventPayload{
+			AgentTaskID: util.UUIDToString(task.ID),
+			SplitTaskID: util.UUIDToString(draft.ID),
+		})
+	}
+	return nil
 }
 
 func (s *SplitOrchestrator) upsertSplitDraftTask(ctx context.Context, q *db.Queries, nodeRun db.MulticaWorkflowNodeRun, req SplitDraftTaskRequest, draftSource string) error {
@@ -1184,10 +1255,35 @@ func (s *SplitOrchestrator) AddManualSplitDraftTask(ctx context.Context, nodeRun
 }
 
 func (s *SplitOrchestrator) SubmitSplitDraftTasks(ctx context.Context, nodeRun db.MulticaWorkflowNodeRun, taskID, agentID pgtype.UUID) error {
-	if _, err := s.validateSplitDraftTaskAccess(ctx, nodeRun, taskID, agentID); err != nil {
+	task, err := s.validateSplitDraftTaskAccess(ctx, nodeRun, taskID, agentID)
+	if err != nil {
+		s.publishSplitSubmitFailed(ctx, nodeRun, taskID, err)
 		return err
 	}
-	return s.transitionSplitDraftsToReview(ctx, nodeRun)
+	if err := s.transitionSplitDraftsToReview(ctx, nodeRun); err != nil {
+		s.publishSplitSubmitFailed(ctx, nodeRun, taskID, err)
+		return err
+	}
+	run, err := s.Queries.GetWorkflowRun(ctx, nodeRun.WorkflowRunID)
+	if err != nil {
+		slog.Warn("split: submit succeeded but lifecycle event run lookup failed", "node_run_id", util.UUIDToString(nodeRun.ID), "error", err)
+		return nil
+	}
+	payload := SplitLifecycleEventPayload{AgentTaskID: util.UUIDToString(task.ID)}
+	s.publishSplitEvent(protocol.EventSplitDraftSubmitted, run, nodeRun, payload)
+	s.publishSplitEvent(protocol.EventSplitReviewReady, run, nodeRun, payload)
+	return nil
+}
+
+func (s *SplitOrchestrator) publishSplitSubmitFailed(ctx context.Context, nodeRun db.MulticaWorkflowNodeRun, taskID pgtype.UUID, submitErr error) {
+	run, err := s.Queries.GetWorkflowRun(ctx, nodeRun.WorkflowRunID)
+	if err != nil {
+		return
+	}
+	s.publishSplitEvent(protocol.EventSplitDraftSubmitFailed, run, nodeRun, SplitLifecycleEventPayload{
+		AgentTaskID: util.UUIDToString(taskID),
+		Error:       submitErr.Error(),
+	})
 }
 
 func (s *SplitOrchestrator) DeleteSplitDraftTask(ctx context.Context, nodeRun db.MulticaWorkflowNodeRun, draftTaskID, taskID, agentID pgtype.UUID) error {
@@ -1629,6 +1725,11 @@ func splitRepairContextExtras(sourceTask db.MulticaAgentTaskQueue, recoveryErr e
 }
 
 func (s *SplitOrchestrator) ApproveSplit(ctx context.Context, nodeRun db.MulticaWorkflowNodeRun, req SplitApproveRequest) error {
+	type materializedChild struct {
+		splitTaskID string
+		issueID     string
+	}
+	createdChildren := make([]materializedChild, 0, len(req.ApprovedTaskIDs))
 	approvedIDs := make(map[string]struct{}, len(req.ApprovedTaskIDs))
 	approvedUUIDs := make([]pgtype.UUID, 0, len(req.ApprovedTaskIDs))
 	for _, id := range req.ApprovedTaskIDs {
@@ -1660,6 +1761,10 @@ func (s *SplitOrchestrator) ApproveSplit(ctx context.Context, nodeRun db.Multica
 	}
 	if err := s.validateIssueWorkflow(ctx, s.Queries, cfg.DefaultIssueWorkflowID, node.WorkflowID, parentIssue.WorkspaceID); err != nil {
 		return err
+	}
+	run, err := s.Queries.GetWorkflowRun(ctx, nodeRun.WorkflowRunID)
+	if err != nil {
+		return fmt.Errorf("get workflow run before split approval: %w", err)
 	}
 
 	if err := s.WfService.runInTx(ctx, func(qtx *db.Queries) error {
@@ -1771,10 +1876,20 @@ func (s *SplitOrchestrator) ApproveSplit(ctx context.Context, nodeRun db.Multica
 			}); err != nil {
 				return fmt.Errorf("set split task issue_id: %w", err)
 			}
+			createdChildren = append(createdChildren, materializedChild{
+				splitTaskID: util.UUIDToString(task.ID),
+				issueID:     util.UUIDToString(childIssue.ID),
+			})
 		}
 		return nil
 	}); err != nil {
 		return err
+	}
+	for _, child := range createdChildren {
+		s.publishSplitEvent(protocol.EventSplitChildIssueCreated, run, nodeRun, SplitLifecycleEventPayload{
+			SplitTaskID:  child.splitTaskID,
+			ChildIssueID: child.issueID,
+		})
 	}
 
 	currentNodeRun, err := s.Queries.GetWorkflowNodeRun(ctx, nodeRun.ID)
@@ -1789,7 +1904,11 @@ func (s *SplitOrchestrator) ApproveSplit(ctx context.Context, nodeRun db.Multica
 	if err := s.ScheduleReadyTasks(ctx, nodeRun.ID); err != nil {
 		return err
 	}
-	return s.reconcileParentNode(ctx, nodeRun.ID)
+	if err := s.reconcileParentNode(ctx, nodeRun.ID); err != nil {
+		return err
+	}
+	s.publishSplitEvent(protocol.EventSplitApproved, run, nodeRun, SplitLifecycleEventPayload{})
+	return nil
 }
 
 func (s *SplitOrchestrator) CancelSplitNode(
