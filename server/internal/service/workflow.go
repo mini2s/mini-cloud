@@ -366,6 +366,55 @@ func (s *WorkflowService) StartRunForIssue(
 	return run, nodeRuns, nil
 }
 
+// EnsureDefaultWorkflow get-or-creates the workspace's system default workflow —
+// the hidden, single-node, one-document-deliverable archive sink for issues
+// assigned to agent/member/squad that have no bound workflow. Idempotent: the
+// uniq_workflow_default_per_workspace index guarantees at most one per workspace,
+// so concurrent callers (CreateIssue + UpdateIssue) race without harm — a Create
+// that loses the race re-reads the winner.
+func (s *WorkflowService) EnsureDefaultWorkflow(ctx context.Context, workspaceID pgtype.UUID) (db.MulticaWorkflow, error) {
+	if wf, err := s.Queries.GetDefaultWorkflow(ctx, workspaceID); err == nil {
+		return wf, nil
+	} else if !errors.Is(err, pgx.ErrNoRows) {
+		return db.MulticaWorkflow{}, fmt.Errorf("get default workflow: %w", err)
+	}
+	wf, err := s.Queries.CreateDefaultWorkflow(ctx, db.CreateDefaultWorkflowParams{
+		WorkspaceID: workspaceID,
+		Title:       "Default Archive Workflow",
+	})
+	if err != nil {
+		// Race: another caller created it between our Get and Create. Re-read.
+		if wf2, err2 := s.Queries.GetDefaultWorkflow(ctx, workspaceID); err2 == nil {
+			return wf2, nil
+		}
+		return db.MulticaWorkflow{}, fmt.Errorf("create default workflow: %w", err)
+	}
+	node, err := s.Queries.CreateWorkflowNode(ctx, db.CreateWorkflowNodeParams{
+		WorkflowID: wf.ID,
+		Title:      "Deliverable",
+		Description: pgtype.Text{String: "", Valid: true}, // NOT NULL DEFAULT ''
+		WorkerType:  "agent",
+		CriticType:  "human",
+		PositionX:   0,
+		PositionY:   0,
+		SortOrder:   0,
+	})
+	if err != nil {
+		return db.MulticaWorkflow{}, fmt.Errorf("create default node: %w", err)
+	}
+	if _, err := s.Queries.CreateWorkflowNodeDeliverable(ctx, db.CreateWorkflowNodeDeliverableParams{
+		WorkflowNodeID: node.ID,
+		Kind:           "document",
+		Title:          "Deliverable",
+		Description:    "",
+		Required:       true,
+		SortOrder:      0,
+	}); err != nil {
+		return db.MulticaWorkflow{}, fmt.Errorf("create default deliverable: %w", err)
+	}
+	return wf, nil
+}
+
 func textToString(t pgtype.Text) string {
 	if t.Valid {
 		return t.String
