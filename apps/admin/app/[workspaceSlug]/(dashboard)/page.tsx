@@ -1,5 +1,7 @@
-import { ComingSoon } from "@/components/layout/coming-soon";
+"use client";
+
+import { DashboardPage } from "@multica/views/dashboard";
 
 export default function HomePage() {
-  return <ComingSoon module="home" label="首页 / Home" />;
+  return <DashboardPage />;
 }
