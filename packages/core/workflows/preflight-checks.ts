@@ -8,7 +8,6 @@ export type PreflightCheckId =
   | "unreachable-node"
   | "worker-missing"
   | "split-planner-missing"
-  | "split-planner-not-specialized"
   | "split-critic-missing"
   | "split-critic-automated"
   | "invalid-critic-ref"
@@ -45,15 +44,6 @@ export interface PreflightResult {
 }
 
 // ── Helpers ──
-
-export const DEFAULT_SPLIT_PLANNER_AGENT_IDS = [
-  "dd79d98e-3be1-4cb5-9cdd-aee809287741",
-  "3ef3f4fd-0de7-4a84-a03d-cb5d4df2f30c",
-  "32fc6f0c-2f00-44d7-a6a2-36f1d75a144a",
-  "6b3ea222-f3ee-44c5-b4c9-33a1674a1127",
-] as const;
-
-const defaultSplitPlannerAgentIds = new Set<string>(DEFAULT_SPLIT_PLANNER_AGENT_IDS);
 
 function isAnnotation(node: WorkflowNode): boolean {
   return parseNodeFormat(node.format_schema).kind === "annotation";
@@ -277,28 +267,6 @@ export function checkSplitCriticRequired(nodes: WorkflowNode[]): PreflightIssue[
     }));
 }
 
-/** Warn when split draft generation uses a non-specialized worker. */
-export function checkSplitWorkerSpecialized(
-  nodes: WorkflowNode[],
-  splitPlannerAgentIds: Set<string> = defaultSplitPlannerAgentIds,
-): PreflightIssue[] {
-  return nodes
-    .filter((n) => {
-      if (!isSplit(n)) return false;
-      if (!n.worker_type || !n.worker_id) return false;
-      if (n.worker_type !== "agent") return true;
-      return !splitPlannerAgentIds.has(n.worker_id);
-    })
-    .map((n) => ({
-      checkId: "split-planner-not-specialized" as const,
-      severity: "warning" as const,
-      blocking: false,
-      nodeId: n.id,
-      nodeTitle: n.title,
-      message: "Use a dedicated split planner agent for this split node",
-    }));
-}
-
 /** Warn when split draft review is configured for automatic approval. */
 export function checkSplitAutomatedCriticWarning(nodes: WorkflowNode[]): PreflightIssue[] {
   return nodes
@@ -505,7 +473,6 @@ export interface PreflightCheckInput {
   edges: WorkflowEdge[];
   stages: WorkflowStage[];
   agentIds: Set<string>;
-  splitPlannerAgentIds?: Set<string>;
   splitChildWorkflows?: SplitIssueWorkflowPreflightContext[];
 }
 
@@ -521,7 +488,6 @@ export function runAllPreflightChecks(input: PreflightCheckInput): PreflightResu
     ...checkOrphanNodes(nodes, edges),
     ...checkUnreachableNodes(nodes, edges, stages),
     ...checkWorkerMissing(nodes),
-    ...checkSplitWorkerSpecialized(nodes, input.splitPlannerAgentIds),
     ...checkSplitCriticRequired(nodes),
     ...checkSplitAutomatedCriticWarning(nodes),
     ...checkInvalidCriticRef(nodes, agentIds),

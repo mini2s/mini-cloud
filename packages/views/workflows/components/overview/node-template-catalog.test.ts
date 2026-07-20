@@ -1,5 +1,4 @@
 import { describe, expect, it } from "vitest";
-import { DEFAULT_SPLIT_PLANNER_AGENT_IDS } from "@multica/core/workflows/preflight-checks";
 import {
   buildCreateNodeRequestFromTemplate,
   filterNodeTemplates,
@@ -133,7 +132,7 @@ describe("node-template-catalog", () => {
       .toMatchObject({
         title: "Task split",
         stage_id: "stage-2",
-        worker_id: DEFAULT_SPLIT_PLANNER_AGENT_IDS[0],
+        worker_id: null,
         format_schema: {
           type: "split",
           shape: "rectangle",

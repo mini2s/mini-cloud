@@ -243,10 +243,33 @@ vi.mock("../../i18n", () => {
       toast_deleted: "Node deleted",
       toast_delete_failed: "Failed to delete node",
     },
+    preflight: {
+      detail_split_planner_missing: "Assign an Agent to this split node",
+      detail_split_critic_missing: "Assign a Critic to review split drafts",
+      detail_split_critic_automated: "Automated split draft critics can approve risky task plans",
+      detail_split_default_issue_workflow_missing: "Split node needs a default issue workflow",
+      detail_split_default_issue_workflow_invalid: "Split default issue workflow is unavailable",
+      detail_split_default_issue_workflow_inactive: "Split default issue workflow must be active",
+      detail_split_default_issue_workflow_nested: "Split default issue workflow cannot contain another split node",
+      detail_split_default_issue_workflow_self: "Split default issue workflow cannot be the current workflow",
+      detail_split_max_concurrency_invalid: "Split concurrency must be an integer from 1 to 50",
+      detail_worker_missing: "Assign a worker to this node",
+      detail_stage_missing: "Assign this node to a stage",
+      detail_invalid_critic: "Critic ID not found in available agents",
+      detail_dag_cycle: "Nodes form a cycle: {{path}}",
+      detail_gateway_fork_outgoing: "Fork gateway needs at least two downstream nodes",
+      detail_gateway_join_incoming: "Join gateway needs at least two upstream nodes",
+      detail_gateway_kind_invalid: "Gateway type must be Fork or Join",
+      detail_gateway_join_multiple_outgoing: "Join gateway usually continues to one downstream node",
+    },
   };
   return {
     useT: () => ({
-      t: (selector: (value: typeof translations) => string) => selector(translations),
+      t: (selector: (value: typeof translations) => string, options?: Record<string, string>) => {
+        let value = selector(translations);
+        if (options) for (const [k, r] of Object.entries(options)) value = value.replace(`{{${k}}}`, String(r));
+        return value;
+      },
     }),
   };
 });
@@ -421,7 +444,7 @@ describe("NodeConfigPanel", () => {
       updated_at: "",
     });
 
-    expect(screen.getByText("Latest run: {{status}}")).toBeInTheDocument();
+    expect(screen.getByText("Latest run: critic_rework")).toBeInTheDocument();
   });
 
   it("shows gateway semantics without worker or critic editors", () => {
@@ -509,11 +532,11 @@ describe("NodeConfigPanel", () => {
         stages={stages}
         onClose={vi.fn()}
 				preflightIssues={[{
-					checkId: "split-planner-not-specialized",
+					checkId: "split-critic-automated",
 					severity: "warning",
 					blocking: false,
 					nodeId: "split-1",
-					message: "Use a dedicated split planner agent",
+					message: "Automated split draft critics can approve risky task plans",
 				}]}
 				incomingCount={2}
 				outgoingCount={1}
@@ -529,7 +552,7 @@ describe("NodeConfigPanel", () => {
 			"connections",
       "actions",
     ]);
-		expect(screen.getByText("Use a dedicated split planner agent")).toBeInTheDocument();
+		expect(screen.getByText("Automated split draft critics can approve risky task plans")).toBeInTheDocument();
 		expect(screen.getByText("2 upstream")).toBeInTheDocument();
 		expect(screen.getByText("1 downstream")).toBeInTheDocument();
 		fireEvent.click(screen.getByRole("button", { name: "Trial run" }));

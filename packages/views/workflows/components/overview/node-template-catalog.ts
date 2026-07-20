@@ -1,5 +1,4 @@
 import type { CreateNodeRequest, CriticType, GatewayKind, NodeShape, WorkerType } from "@multica/core/types";
-import { DEFAULT_SPLIT_PLANNER_AGENT_IDS } from "@multica/core/workflows/preflight-checks";
 
 export type NodeTemplateCategoryId =
   | "trigger"
@@ -195,7 +194,7 @@ export function buildCreateNodeRequestFromTemplate(
     stage_id: input.stageId,
     format_schema: formatSchema,
     worker_type: template.worker_type,
-    worker_id: template.split ? DEFAULT_SPLIT_PLANNER_AGENT_IDS[0] : null,
+    worker_id: template.split ? null : null,
     critic_type: template.critic_type,
     critic_id: null,
     critic_api_url: null,

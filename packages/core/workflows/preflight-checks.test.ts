@@ -7,12 +7,10 @@ import {
   checkInvalidCriticRef,
   checkSplitCriticRequired,
   checkSplitAutomatedCriticWarning,
-  checkSplitWorkerSpecialized,
   checkStageMissing,
   checkSplitChildWorkflowConfig,
   checkSplitMaxConcurrency,
   runAllPreflightChecks,
-  DEFAULT_SPLIT_PLANNER_AGENT_IDS,
 } from "./preflight-checks";
 import type { WorkflowNode, WorkflowEdge, WorkflowStage } from "../types";
 
@@ -325,39 +323,6 @@ describe("checkSplitCriticRequired", () => {
   it("passes split node with API critic URL", () => {
     const nodes = [makeNode({ id: "split", critic_id: null, critic_type: "api", critic_api_url: "https://example.com/review", format_schema: { type: "split", split_config: { default_issue_workflow_id: "tpl-1" } } })];
     expect(checkSplitCriticRequired(nodes)).toEqual([]);
-  });
-});
-
-describe("checkSplitWorkerSpecialized", () => {
-  it("uses concrete UUIDs for all built-in split planner agents", () => {
-    const uuidRE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
-    expect(DEFAULT_SPLIT_PLANNER_AGENT_IDS).toHaveLength(4);
-    for (const id of DEFAULT_SPLIT_PLANNER_AGENT_IDS) {
-      expect(id).toMatch(uuidRE);
-    }
-  });
-
-  it("does not reuse the legacy task-splitting built-in agent as a split planner", () => {
-    expect(DEFAULT_SPLIT_PLANNER_AGENT_IDS).not.toContain("4348e20d-eadc-4095-ac7a-cd480e927375");
-  });
-
-  it("warns when a split node uses a non-specialized worker", () => {
-    const nodes = [makeNode({ id: "split", worker_id: "agent-1", format_schema: { type: "split", split_config: { default_issue_workflow_id: "tpl-1" } } })];
-    const issues = checkSplitWorkerSpecialized(nodes, new Set(["split-planner-code"]));
-    expect(issues).toHaveLength(1);
-    expect(issues[0]!.checkId).toBe("split-planner-not-specialized");
-    expect(issues[0]!.severity).toBe("warning");
-    expect(issues[0]!.blocking).toBe(false);
-  });
-
-  it("passes when a split node uses a specialized split planner worker", () => {
-    const nodes = [makeNode({ id: "split", worker_id: "split-planner-code", format_schema: { type: "split", split_config: { default_issue_workflow_id: "tpl-1" } } })];
-    expect(checkSplitWorkerSpecialized(nodes, new Set(["split-planner-code"]))).toEqual([]);
-  });
-
-  it("does not duplicate the missing-worker error", () => {
-    const nodes = [makeNode({ id: "split", worker_id: null, format_schema: { type: "split", split_config: { default_issue_workflow_id: "tpl-1" } } })];
-    expect(checkSplitWorkerSpecialized(nodes, new Set(["split-planner-code"]))).toEqual([]);
   });
 });
 

@@ -43,6 +43,7 @@ import {
 } from "../../common/workflow-node-detail-panel-shell";
 import { SplitConfigPanel } from "./split/split-config-panel";
 import type { PreflightIssue } from "@multica/core/workflows/preflight-checks";
+import { checkDetailLabel } from "./overview/preflight-bar";
 
 function toAssigneeType(t: string): IssueAssigneeType | null {
   if (t === "human") return "member";
@@ -531,7 +532,7 @@ export function NodeConfigPanel({
 			{preflightIssues.map((issue) => (
 				<div key={`${issue.checkId}-${issue.nodeId}`} className="flex items-start gap-2 border-t border-border/60 px-2 py-1.5">
 					<AlertTriangle className={issue.blocking ? "mt-0.5 size-3.5 shrink-0 text-destructive" : "mt-0.5 size-3.5 shrink-0 text-amber-600"} />
-					<span>{issue.message}</span>
+					<span>{checkDetailLabel(issue, t)}</span>
 				</div>
 			))}
         </div>

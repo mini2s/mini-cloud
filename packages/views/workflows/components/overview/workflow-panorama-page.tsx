@@ -31,6 +31,7 @@ import {
   useAssignNodeToStage,
   useDeleteStage,
   useReorderStages,
+  splitIssueWorkflowOptions,
 } from "@multica/core/workflows/queries";
 import { agentListOptions, builtinPluginListOptions } from "@multica/core/workspace/queries";
 import { useActorName } from "@multica/core/workspace/hooks";
@@ -67,7 +68,7 @@ import { panoramaNodeTypes } from "./reactflow-nodes";
 import { panoramaEdgeTypes } from "./reactflow-edges";
 import { computeLaneAutoLayout, computeStageTransferPositionX } from "../layout";
 import { PreflightBar } from "./preflight-bar";
-import { runAllPreflightChecks } from "@multica/core/workflows/preflight-checks";
+import { runAllPreflightChecks, type SplitIssueWorkflowPreflightContext } from "@multica/core/workflows/preflight-checks";
 import { NodeTemplatePicker } from "./node-template-picker";
 import { WorkflowEditorToolbar } from "./workflow-editor-toolbar";
 import {
@@ -135,6 +136,7 @@ interface PanoramaContentProps {
   visibleNodes: WorkflowNode[];
   apiEdges: WorkflowEdge[];
   agentIds: Set<string>;
+  splitChildWorkflows: SplitIssueWorkflowPreflightContext[];
   workflow: Workflow;
   workflowId: string;
   wsId: string;
@@ -182,6 +184,7 @@ function PanoramaContent({
   visibleNodes,
   apiEdges,
   agentIds,
+  splitChildWorkflows,
   workflow,
   workflowId,
   wsId,
@@ -244,8 +247,9 @@ function PanoramaContent({
       edges: apiEdges,
       stages,
       agentIds,
+      splitChildWorkflows,
     }),
-    [visibleNodes, apiEdges, stages, agentIds],
+    [visibleNodes, apiEdges, stages, agentIds, splitChildWorkflows],
   );
 
   const handleNavigateToNode = useCallback((nodeId: string) => {
@@ -536,6 +540,7 @@ export function WorkflowPanoramaPage({ workflowId, viewToggle }: WorkflowPanoram
   });
   const { data: agents = [] } = useQuery(agentListOptions(wsId));
   const { data: pluginsData } = useQuery(builtinPluginListOptions());
+  const { data: childWorkflows = [] } = useQuery(splitIssueWorkflowOptions(wsId, workflowId));
   const { getActorName } = useActorName();
 
   const isLoading = wfLoading || stLoading || ndLoading || edLoading;
@@ -652,6 +657,11 @@ export function WorkflowPanoramaPage({ workflowId, viewToggle }: WorkflowPanoram
     for (const p of items) map.set(p.id, p);
     return map;
   }, [pluginsData]);
+
+  const splitChildWorkflowContexts = useMemo<SplitIssueWorkflowPreflightContext[]>(
+    () => (childWorkflows ?? []).map((wf) => ({ id: wf.id, status: wf.status, nodes: [] })),
+    [childWorkflows],
+  );
 
   // ── ReactFlow nodes/edges ──
   const visibleNodes = useMemo(
@@ -1156,6 +1166,7 @@ export function WorkflowPanoramaPage({ workflowId, viewToggle }: WorkflowPanoram
         visibleNodes={visibleNodes}
         apiEdges={apiEdges}
         agentIds={new Set(agentLookup.keys())}
+        splitChildWorkflows={splitChildWorkflowContexts}
         workflow={workflow}
         workflowId={workflowId}
         wsId={wsId}
