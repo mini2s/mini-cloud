@@ -135,11 +135,11 @@ export const NAV_GROUPS: NavGroup[] = [
     labelZh: "个人中心",
     labelEn: "Me",
     items: [
-      { href: "/me/profile", labelZh: "我的资料", labelEn: "Profile", icon: IdCard },
+      { href: "/me/profile?tab=profile", labelZh: "我的资料", labelEn: "Profile", icon: IdCard },
       { href: "/me/quota", labelZh: "我的配额", labelEn: "My Quota", icon: CreditCard },
       { href: "/me/notifications", labelZh: "我的通知", labelEn: "Notifications", icon: BellRing },
       { href: "/me/devices", labelZh: "我的设备", labelEn: "My Devices", icon: Laptop },
-      { href: "/me/preferences", labelZh: "偏好设置", labelEn: "Preferences", icon: SlidersHorizontal },
+      { href: "/me/preferences?tab=preferences", labelZh: "偏好设置", labelEn: "Preferences", icon: SlidersHorizontal },
     ],
   },
 ];
