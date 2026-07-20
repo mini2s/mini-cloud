@@ -128,12 +128,13 @@ SET run_id = $2,
 WHERE id = $1
   AND run_id IS NULL;
 
--- name: UpdateSplitTaskRunIDWithDispatchKey :exec
+-- name: UpdateSplitTaskRunIDWithDispatchKey :execrows
 UPDATE multica_workflow_split_task
 SET run_id = $2,
     status = 'running',
     updated_at = now()
 WHERE id = $1
+  AND status = 'created'
   AND dispatch_key = sqlc.arg('dispatch_key')::text
   AND run_id IS NULL;
 
@@ -159,7 +160,7 @@ SET dispatch_key = sqlc.arg('dispatch_key')::text,
 WHERE id = $1
   AND status = 'created'
   AND run_id IS NULL
-  AND dispatch_key IS NULL
+  AND (dispatch_key IS NULL OR dispatch_key = sqlc.arg('dispatch_key')::text)
 RETURNING *;
 
 -- name: CancelOpenSplitTasksByNodeRun :exec

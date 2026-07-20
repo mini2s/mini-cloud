@@ -31,7 +31,7 @@ SET dispatch_key = $2::text,
 WHERE id = $1
   AND status = 'created'
   AND run_id IS NULL
-  AND dispatch_key IS NULL
+  AND (dispatch_key IS NULL OR dispatch_key = $2::text)
 RETURNING id, node_run_id, workspace_id, title, description, depends_on, sort_order, status, issue_id, run_id, created_at, updated_at, draft_key, draft_source, workflow_id, version, dispatch_key, last_error
 `
 
@@ -504,12 +504,13 @@ func (q *Queries) UpdateSplitTaskRunID(ctx context.Context, arg UpdateSplitTaskR
 	return err
 }
 
-const updateSplitTaskRunIDWithDispatchKey = `-- name: UpdateSplitTaskRunIDWithDispatchKey :exec
+const updateSplitTaskRunIDWithDispatchKey = `-- name: UpdateSplitTaskRunIDWithDispatchKey :execrows
 UPDATE multica_workflow_split_task
 SET run_id = $2,
     status = 'running',
     updated_at = now()
 WHERE id = $1
+  AND status = 'created'
   AND dispatch_key = $3::text
   AND run_id IS NULL
 `
@@ -520,9 +521,12 @@ type UpdateSplitTaskRunIDWithDispatchKeyParams struct {
 	DispatchKey string      `json:"dispatch_key"`
 }
 
-func (q *Queries) UpdateSplitTaskRunIDWithDispatchKey(ctx context.Context, arg UpdateSplitTaskRunIDWithDispatchKeyParams) error {
-	_, err := q.db.Exec(ctx, updateSplitTaskRunIDWithDispatchKey, arg.ID, arg.RunID, arg.DispatchKey)
-	return err
+func (q *Queries) UpdateSplitTaskRunIDWithDispatchKey(ctx context.Context, arg UpdateSplitTaskRunIDWithDispatchKeyParams) (int64, error) {
+	result, err := q.db.Exec(ctx, updateSplitTaskRunIDWithDispatchKey, arg.ID, arg.RunID, arg.DispatchKey)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const updateSplitTaskStatus = `-- name: UpdateSplitTaskStatus :one

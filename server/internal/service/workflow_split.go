@@ -1911,6 +1911,19 @@ func (s *SplitOrchestrator) ScheduleReadyTasks(ctx context.Context, nodeRunID pg
 			}
 			claimed = append(claimed, claimedTask)
 		}
+		for _, task := range tasks {
+			if task.Status == SplitTaskStatusRunning && task.RunID.Valid && task.IssueID.Valid &&
+				task.DispatchKey.Valid && task.DispatchKey.String == splitTaskDispatchKey(task) {
+				issue, err := qtx.GetIssue(ctx, task.IssueID)
+				if err != nil {
+					return err
+				}
+				if issue.WorkflowRunID == task.RunID {
+					continue
+				}
+				claimed = append(claimed, task)
+			}
+		}
 		if err := s.markBlockedDependents(ctx, nodeRunID); err != nil {
 			return err
 		}
@@ -2009,6 +2022,15 @@ func (s *SplitOrchestrator) HandleChildRunTerminal(ctx context.Context, run db.M
 }
 
 func (s *SplitOrchestrator) startChildTaskRun(ctx context.Context, splitNodeRun db.MulticaWorkflowNodeRun, cfg SplitConfig, task db.MulticaWorkflowSplitTask) error {
+	return s.runInTx(ctx, func(qtx *db.Queries) error {
+		if err := qtx.LockIssueDuplicateKey(ctx, "split-task-dispatch:"+util.UUIDToString(task.ID)); err != nil {
+			return fmt.Errorf("lock split task dispatch: %w", err)
+		}
+		return s.startChildTaskRunLocked(ctx, splitNodeRun, cfg, task)
+	})
+}
+
+func (s *SplitOrchestrator) startChildTaskRunLocked(ctx context.Context, splitNodeRun db.MulticaWorkflowNodeRun, cfg SplitConfig, task db.MulticaWorkflowSplitTask) error {
 	if !task.WorkflowID.Valid {
 		return fmt.Errorf("split task is missing workflow_id")
 	}
@@ -2030,12 +2052,30 @@ func (s *SplitOrchestrator) startChildTaskRun(ctx context.Context, splitNodeRun 
 	if err != nil {
 		return err
 	}
-	for _, nr := range nodeRuns {
-		issueNumber, err := s.Queries.IncrementIssueCounter(ctx, issue.WorkspaceID)
+	rowsAffected, err := s.Queries.UpdateSplitTaskRunIDWithDispatchKey(ctx, db.UpdateSplitTaskRunIDWithDispatchKeyParams{
+		ID:          task.ID,
+		RunID:       run.ID,
+		DispatchKey: splitTaskDispatchKey(task),
+	})
+	if err != nil {
+		return err
+	}
+	if rowsAffected == 0 {
+		currentTask, err := s.Queries.GetSplitTask(ctx, task.ID)
 		if err != nil {
-			return err
+			return fmt.Errorf("reload split task after run finalize conflict: %w", err)
 		}
-		if _, err := s.createWorkflowSubIssue(ctx, issue, nr, issueNumber); err != nil {
+		if currentTask.Status == SplitTaskStatusRunning && currentTask.RunID == run.ID {
+			// Another scheduler finalized this run. Reconcile its idempotent side effects.
+		} else {
+			if err := s.WfService.CancelRun(ctx, run.ID); err != nil {
+				return fmt.Errorf("cancel abandoned child run: %w", err)
+			}
+			return nil
+		}
+	}
+	for _, nr := range nodeRuns {
+		if _, err := s.ensureWorkflowSubIssue(ctx, issue, nr); err != nil {
 			return err
 		}
 	}
@@ -2061,11 +2101,30 @@ func (s *SplitOrchestrator) startChildTaskRun(ctx context.Context, splitNodeRun 
 		return err
 	}
 
-	return s.Queries.UpdateSplitTaskRunIDWithDispatchKey(ctx, db.UpdateSplitTaskRunIDWithDispatchKeyParams{
-		ID:          task.ID,
-		RunID:       run.ID,
-		DispatchKey: splitTaskDispatchKey(task),
+	return nil
+}
+
+func (s *SplitOrchestrator) ensureWorkflowSubIssue(
+	ctx context.Context,
+	parentIssue db.MulticaIssue,
+	nodeRun db.MulticaWorkflowNodeRun,
+) (db.MulticaIssue, error) {
+	existing, err := s.Queries.GetIssueByOrigin(ctx, db.GetIssueByOriginParams{
+		WorkspaceID: parentIssue.WorkspaceID,
+		OriginType:  pgtype.Text{String: "workflow", Valid: true},
+		OriginID:    nodeRun.ID,
 	})
+	if err == nil {
+		return existing, nil
+	}
+	if !errors.Is(err, pgx.ErrNoRows) {
+		return db.MulticaIssue{}, fmt.Errorf("get workflow sub-issue: %w", err)
+	}
+	issueNumber, err := s.Queries.IncrementIssueCounter(ctx, parentIssue.WorkspaceID)
+	if err != nil {
+		return db.MulticaIssue{}, err
+	}
+	return s.createWorkflowSubIssue(ctx, parentIssue, nodeRun, issueNumber)
 }
 
 func (s *SplitOrchestrator) splitDependencyContextForTask(

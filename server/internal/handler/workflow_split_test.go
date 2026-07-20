@@ -284,6 +284,89 @@ func createSplitApproveFixture(t *testing.T, mode string) splitApproveFixture {
 	return f
 }
 
+func prepareSplitTaskForScheduling(t *testing.T, f splitApproveFixture) db.MulticaWorkflowSplitTask {
+	t.Helper()
+	ctx := context.Background()
+
+	var issueID string
+	if err := testPool.QueryRow(ctx, `
+		INSERT INTO multica_issue (
+			workspace_id, title, description, status, priority,
+			assignee_type, assignee_id, creator_type, creator_id,
+			parent_issue_id, number, position, origin_type, origin_id, workflow_id
+		)
+		VALUES (
+			$1, 'Split task A', 'First task', 'todo', 'medium',
+			'workflow', $2, 'member', $3,
+			$4, $5, 0, 'workflow_split', $6, $2
+		)
+		RETURNING id
+	`, testWorkspaceID, f.childWorkflow, testUserID, f.parentIssueID, nextSplitIssueNumber(t, ctx), f.taskAID).Scan(&issueID); err != nil {
+		t.Fatalf("create split child issue: %v", err)
+	}
+	if err := testHandler.Queries.UpdateSplitTaskIssueID(ctx, db.UpdateSplitTaskIssueIDParams{
+		ID:      parseUUID(f.taskAID),
+		IssueID: parseUUID(issueID),
+	}); err != nil {
+		t.Fatalf("materialize split task: %v", err)
+	}
+	if _, err := testPool.Exec(ctx, `
+		UPDATE multica_workflow_node_run
+		SET status = 'split_active'
+		WHERE id = $1
+	`, f.splitNodeRunID); err != nil {
+		t.Fatalf("activate split node run: %v", err)
+	}
+
+	task, err := testHandler.Queries.GetSplitTask(ctx, parseUUID(f.taskAID))
+	if err != nil {
+		t.Fatalf("load materialized split task: %v", err)
+	}
+	return task
+}
+
+func configureSplitChildAgent(t *testing.T, f splitApproveFixture) {
+	t.Helper()
+	ctx := context.Background()
+
+	var runtimeID, agentID string
+	if err := testPool.QueryRow(ctx, `
+		INSERT INTO multica_agent_runtime (
+			workspace_id, name, runtime_mode, provider, status,
+			device_info, metadata, last_seen_at, visibility
+		)
+		VALUES ($1, 'split child runtime', 'cloud', 'handler_test_runtime', 'online',
+			'split child fixture', '{}'::jsonb, now(), 'private')
+		RETURNING id
+	`, testWorkspaceID).Scan(&runtimeID); err != nil {
+		t.Fatalf("create split child runtime: %v", err)
+	}
+	if err := testPool.QueryRow(ctx, `
+		INSERT INTO multica_agent (
+			workspace_id, name, description, runtime_mode, runtime_config,
+			runtime_id, visibility, max_concurrent_tasks, owner_id
+		)
+		VALUES ($1, 'split child agent ' || $2::text, '', 'cloud', '{}'::jsonb,
+			$2::uuid, 'private', 1, $3)
+		RETURNING id
+	`, testWorkspaceID, runtimeID, testUserID).Scan(&agentID); err != nil {
+		t.Fatalf("create split child agent: %v", err)
+	}
+	if _, err := testPool.Exec(ctx, `
+		UPDATE multica_workflow_node
+		SET worker_type = 'agent', worker_id = $2
+		WHERE workflow_id = $1
+	`, f.childWorkflow, agentID); err != nil {
+		t.Fatalf("assign split child agent: %v", err)
+	}
+	t.Cleanup(func() {
+		_, _ = testPool.Exec(context.Background(), `DELETE FROM multica_agent_task_queue WHERE agent_id = $1`, agentID)
+		_, _ = testPool.Exec(context.Background(), `UPDATE multica_workflow_node SET worker_type = 'human', worker_id = $2 WHERE workflow_id = $1`, f.childWorkflow, testUserID)
+		_, _ = testPool.Exec(context.Background(), `DELETE FROM multica_agent WHERE id = $1`, agentID)
+		_, _ = testPool.Exec(context.Background(), `DELETE FROM multica_agent_runtime WHERE id = $1`, runtimeID)
+	})
+}
+
 func createSplitGenerateFixture(t *testing.T, mode string) splitGenerateFixture {
 	t.Helper()
 	if testHandler == nil {
@@ -2210,6 +2293,278 @@ func TestRetrySplitTaskCreatesNewDispatchAttempt(t *testing.T) {
 	wantSecondKey := fmt.Sprintf("split-task:%s:attempt:%d", f.taskAID, afterRetry.Version)
 	if !secondRun.DispatchKey.Valid || secondRun.DispatchKey.String != wantSecondKey {
 		t.Fatalf("retry dispatch_key = %q, want %q", secondRun.DispatchKey.String, wantSecondKey)
+	}
+}
+
+func TestScheduleReadyTasksRecoversClaimedDispatchAttempt(t *testing.T) {
+	f := createSplitApproveFixture(t, "barrier")
+	configureSplitChildAgent(t, f)
+	task := prepareSplitTaskForScheduling(t, f)
+	ctx := context.Background()
+	dispatchKey := fmt.Sprintf("split-task:%s:attempt:%d", f.taskAID, task.Version)
+
+	claimed, err := testHandler.Queries.ClaimSplitTaskForRunStart(ctx, db.ClaimSplitTaskForRunStartParams{
+		ID:          task.ID,
+		DispatchKey: dispatchKey,
+	})
+	if err != nil {
+		t.Fatalf("claim split task before interruption: %v", err)
+	}
+	workflow, err := testHandler.Queries.GetWorkflow(ctx, claimed.WorkflowID)
+	if err != nil {
+		t.Fatalf("load child workflow: %v", err)
+	}
+	issue, err := testHandler.Queries.GetIssue(ctx, claimed.IssueID)
+	if err != nil {
+		t.Fatalf("load child issue: %v", err)
+	}
+	interruptedRun, interruptedNodeRuns, err := testHandler.SplitOrchestrator.WfService.StartRunForIssueWithDispatchKey(
+		ctx, workflow, issue, "api", "", pgtype.UUID{}, dispatchKey,
+	)
+	if err != nil {
+		t.Fatalf("create child run before interruption: %v", err)
+	}
+	if len(interruptedNodeRuns) != 1 {
+		t.Fatalf("node runs before recovery = %d, want 1", len(interruptedNodeRuns))
+	}
+
+	for range 2 {
+		if err := testHandler.SplitOrchestrator.ScheduleReadyTasks(ctx, parseUUID(f.splitNodeRunID)); err != nil {
+			t.Fatalf("ScheduleReadyTasks recovery: %v", err)
+		}
+	}
+
+	recovered, err := testHandler.Queries.GetSplitTask(ctx, task.ID)
+	if err != nil {
+		t.Fatalf("load recovered split task: %v", err)
+	}
+	if recovered.Status != service.SplitTaskStatusRunning || recovered.RunID != interruptedRun.ID {
+		t.Fatalf("recovered task status/run = %s/%s, want running/%s", recovered.Status, uuidToString(recovered.RunID), uuidToString(interruptedRun.ID))
+	}
+
+	var runCount, nodeRunCount, subIssueCount, dispatchCount int
+	if err := testPool.QueryRow(ctx, `SELECT count(*) FROM multica_workflow_run WHERE dispatch_key = $1`, dispatchKey).Scan(&runCount); err != nil {
+		t.Fatalf("count keyed workflow runs: %v", err)
+	}
+	if err := testPool.QueryRow(ctx, `SELECT count(*) FROM multica_workflow_node_run WHERE workflow_run_id = $1`, uuidToString(interruptedRun.ID)).Scan(&nodeRunCount); err != nil {
+		t.Fatalf("count child node runs: %v", err)
+	}
+	if err := testPool.QueryRow(ctx, `
+		SELECT count(*) FROM multica_issue
+		WHERE workflow_run_id = $1 AND origin_type = 'workflow'
+	`, uuidToString(interruptedRun.ID)).Scan(&subIssueCount); err != nil {
+		t.Fatalf("count child workflow sub-issues: %v", err)
+	}
+	if err := testPool.QueryRow(ctx, `
+		SELECT count(*) FROM multica_agent_task_queue atq
+		JOIN multica_workflow_node_run nr ON nr.id = atq.workflow_node_run_id
+		WHERE nr.workflow_run_id = $1
+	`, uuidToString(interruptedRun.ID)).Scan(&dispatchCount); err != nil {
+		t.Fatalf("count child dispatches: %v", err)
+	}
+	if runCount != 1 || nodeRunCount != 1 || subIssueCount != 1 || dispatchCount != 1 {
+		t.Fatalf("recovery counts run/node/sub-issue/dispatch = %d/%d/%d/%d, want 1/1/1/1", runCount, nodeRunCount, subIssueCount, dispatchCount)
+	}
+	recoveredNodeRun, err := testHandler.Queries.GetWorkflowNodeRun(ctx, interruptedNodeRuns[0].ID)
+	if err != nil {
+		t.Fatalf("load recovered child node run: %v", err)
+	}
+	if recoveredNodeRun.Status != service.NodeRunStatusWorking {
+		t.Fatalf("recovered child node status = %s, want working", recoveredNodeRun.Status)
+	}
+}
+
+func TestScheduleReadyTasksRecoversFinalizedRunBeforeSideEffects(t *testing.T) {
+	f := createSplitApproveFixture(t, "barrier")
+	configureSplitChildAgent(t, f)
+	task := prepareSplitTaskForScheduling(t, f)
+	ctx := context.Background()
+	dispatchKey := fmt.Sprintf("split-task:%s:attempt:%d", f.taskAID, task.Version)
+
+	claimed, err := testHandler.Queries.ClaimSplitTaskForRunStart(ctx, db.ClaimSplitTaskForRunStartParams{
+		ID:          task.ID,
+		DispatchKey: dispatchKey,
+	})
+	if err != nil {
+		t.Fatalf("claim split task: %v", err)
+	}
+	workflow, err := testHandler.Queries.GetWorkflow(ctx, claimed.WorkflowID)
+	if err != nil {
+		t.Fatalf("load child workflow: %v", err)
+	}
+	issue, err := testHandler.Queries.GetIssue(ctx, claimed.IssueID)
+	if err != nil {
+		t.Fatalf("load child issue: %v", err)
+	}
+	run, _, err := testHandler.SplitOrchestrator.WfService.StartRunForIssueWithDispatchKey(
+		ctx, workflow, issue, "api", "", pgtype.UUID{}, dispatchKey,
+	)
+	if err != nil {
+		t.Fatalf("create child run: %v", err)
+	}
+	rowsAffected, err := testHandler.Queries.UpdateSplitTaskRunIDWithDispatchKey(ctx, db.UpdateSplitTaskRunIDWithDispatchKeyParams{
+		ID:          task.ID,
+		RunID:       run.ID,
+		DispatchKey: dispatchKey,
+	})
+	if err != nil || rowsAffected != 1 {
+		t.Fatalf("finalize child run before interruption: rows=%d err=%v", rowsAffected, err)
+	}
+
+	for range 2 {
+		if err := testHandler.SplitOrchestrator.ScheduleReadyTasks(ctx, parseUUID(f.splitNodeRunID)); err != nil {
+			t.Fatalf("ScheduleReadyTasks side-effect recovery: %v", err)
+		}
+	}
+
+	var subIssueCount, dispatchCount int
+	if err := testPool.QueryRow(ctx, `
+		SELECT count(*) FROM multica_issue
+		WHERE workflow_run_id = $1 AND origin_type = 'workflow'
+	`, uuidToString(run.ID)).Scan(&subIssueCount); err != nil {
+		t.Fatalf("count recovered sub-issues: %v", err)
+	}
+	if err := testPool.QueryRow(ctx, `
+		SELECT count(*) FROM multica_agent_task_queue atq
+		JOIN multica_workflow_node_run nr ON nr.id = atq.workflow_node_run_id
+		WHERE nr.workflow_run_id = $1
+	`, uuidToString(run.ID)).Scan(&dispatchCount); err != nil {
+		t.Fatalf("count recovered dispatches: %v", err)
+	}
+	if subIssueCount != 1 || dispatchCount != 1 {
+		t.Fatalf("recovered sub-issue/dispatch counts = %d/%d, want 1/1", subIssueCount, dispatchCount)
+	}
+}
+
+func TestScheduleReadyTasksCancelsRunWhenTaskCancelledBeforeFinalize(t *testing.T) {
+	f := createSplitApproveFixture(t, "barrier")
+	task := prepareSplitTaskForScheduling(t, f)
+	ctx := context.Background()
+	dispatchKey := fmt.Sprintf("split-task:%s:attempt:%d", f.taskAID, task.Version)
+	const advisoryLockKey int64 = 741852963
+
+	if _, err := testPool.Exec(ctx, `DROP TRIGGER IF EXISTS test_block_split_run_insert ON multica_workflow_run`); err != nil {
+		t.Fatalf("drop stale blocking trigger: %v", err)
+	}
+	if _, err := testPool.Exec(ctx, `DROP FUNCTION IF EXISTS test_block_split_run_insert()`); err != nil {
+		t.Fatalf("drop stale blocking function: %v", err)
+	}
+	if _, err := testPool.Exec(ctx, `
+		CREATE FUNCTION test_block_split_run_insert() RETURNS trigger
+		LANGUAGE plpgsql AS $$
+		BEGIN
+			PERFORM pg_advisory_xact_lock(741852963);
+			RETURN NEW;
+		END;
+		$$
+	`); err != nil {
+		t.Fatalf("create blocking function: %v", err)
+	}
+	if _, err := testPool.Exec(ctx, `
+		CREATE TRIGGER test_block_split_run_insert
+		BEFORE INSERT ON multica_workflow_run
+		FOR EACH ROW WHEN (NEW.dispatch_key IS NOT NULL)
+		EXECUTE FUNCTION test_block_split_run_insert()
+	`); err != nil {
+		t.Fatalf("create blocking trigger: %v", err)
+	}
+	t.Cleanup(func() {
+		_, _ = testPool.Exec(context.Background(), `DROP TRIGGER IF EXISTS test_block_split_run_insert ON multica_workflow_run`)
+		_, _ = testPool.Exec(context.Background(), `DROP FUNCTION IF EXISTS test_block_split_run_insert()`)
+	})
+
+	lockConn, err := testPool.Acquire(ctx)
+	if err != nil {
+		t.Fatalf("acquire advisory lock connection: %v", err)
+	}
+	defer lockConn.Release()
+	if _, err := lockConn.Exec(ctx, `SELECT pg_advisory_lock($1)`, advisoryLockKey); err != nil {
+		t.Fatalf("acquire advisory lock: %v", err)
+	}
+	lockHeld := true
+	defer func() {
+		if lockHeld {
+			_, _ = lockConn.Exec(context.Background(), `SELECT pg_advisory_unlock($1)`, advisoryLockKey)
+		}
+	}()
+
+	scheduleDone := make(chan error, 1)
+	go func() {
+		scheduleDone <- testHandler.SplitOrchestrator.ScheduleReadyTasks(ctx, parseUUID(f.splitNodeRunID))
+	}()
+
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		claimed, err := testHandler.Queries.GetSplitTask(ctx, task.ID)
+		if err != nil {
+			t.Fatalf("load split task while waiting for claim: %v", err)
+		}
+		if claimed.DispatchKey.Valid && claimed.DispatchKey.String == dispatchKey {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("timed out waiting for split task claim")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	if err := testHandler.Queries.CancelOpenSplitTasksByNodeRun(ctx, parseUUID(f.splitNodeRunID)); err != nil {
+		t.Fatalf("cancel claimed split task: %v", err)
+	}
+	if _, err := lockConn.Exec(ctx, `SELECT pg_advisory_unlock($1)`, advisoryLockKey); err != nil {
+		t.Fatalf("release advisory lock: %v", err)
+	}
+	lockHeld = false
+
+	select {
+	case err := <-scheduleDone:
+		if err != nil {
+			t.Fatalf("ScheduleReadyTasks after cancellation: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for scheduling to finish")
+	}
+
+	cancelledTask, err := testHandler.Queries.GetSplitTask(ctx, task.ID)
+	if err != nil {
+		t.Fatalf("load cancelled split task: %v", err)
+	}
+	if cancelledTask.Status != service.SplitTaskStatusCancelled || cancelledTask.RunID.Valid {
+		t.Fatalf("cancelled task status/run = %s/%s, want cancelled/empty", cancelledTask.Status, uuidToString(cancelledTask.RunID))
+	}
+	run, err := testHandler.Queries.GetWorkflowRunByDispatchKey(ctx, db.GetWorkflowRunByDispatchKeyParams{
+		WorkspaceID: task.WorkspaceID,
+		DispatchKey: pgtype.Text{String: dispatchKey, Valid: true},
+	})
+	if err != nil {
+		t.Fatalf("load abandoned child run: %v", err)
+	}
+	if run.Status != service.RunStatusCancelled {
+		t.Fatalf("abandoned child run status = %s, want cancelled", run.Status)
+	}
+
+	var subIssueCount, dispatchCount, activeNodeRunCount int
+	if err := testPool.QueryRow(ctx, `
+		SELECT count(*) FROM multica_issue
+		WHERE workflow_run_id = $1 AND origin_type = 'workflow'
+	`, uuidToString(run.ID)).Scan(&subIssueCount); err != nil {
+		t.Fatalf("count abandoned run sub-issues: %v", err)
+	}
+	if err := testPool.QueryRow(ctx, `
+		SELECT count(*) FROM multica_agent_task_queue atq
+		JOIN multica_workflow_node_run nr ON nr.id = atq.workflow_node_run_id
+		WHERE nr.workflow_run_id = $1
+	`, uuidToString(run.ID)).Scan(&dispatchCount); err != nil {
+		t.Fatalf("count abandoned run dispatches: %v", err)
+	}
+	if err := testPool.QueryRow(ctx, `
+		SELECT count(*) FROM multica_workflow_node_run
+		WHERE workflow_run_id = $1 AND status <> 'cancelled'
+	`, uuidToString(run.ID)).Scan(&activeNodeRunCount); err != nil {
+		t.Fatalf("count active abandoned node runs: %v", err)
+	}
+	if subIssueCount != 0 || dispatchCount != 0 || activeNodeRunCount != 0 {
+		t.Fatalf("cancelled start sub-issue/dispatch/active-node counts = %d/%d/%d, want 0/0/0", subIssueCount, dispatchCount, activeNodeRunCount)
 	}
 }
 
