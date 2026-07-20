@@ -2133,6 +2133,86 @@ func TestRetrySplitTaskResetsFailedTaskAndReschedules(t *testing.T) {
 	}
 }
 
+func TestRetrySplitTaskCreatesNewDispatchAttempt(t *testing.T) {
+	f := createSplitApproveFixture(t, "barrier")
+
+	approveReq := newRequest("POST", "/api/node-runs/"+f.splitNodeRunID+"/split/approve", map[string]any{
+		"approved_task_ids": []string{f.taskAID},
+	})
+	approveReq = withURLParam(approveReq, "nodeRunId", f.splitNodeRunID)
+	approveResp := httptest.NewRecorder()
+	testHandler.ApproveSplitTasks(approveResp, approveReq)
+	if approveResp.Code != http.StatusOK {
+		t.Fatalf("ApproveSplitTasks: expected 200, got %d: %s", approveResp.Code, approveResp.Body.String())
+	}
+
+	ctx := context.Background()
+	before, err := testHandler.Queries.GetSplitTask(ctx, parseUUID(f.taskAID))
+	if err != nil {
+		t.Fatalf("load task before repeated scheduling: %v", err)
+	}
+	if !before.RunID.Valid {
+		t.Fatal("expected initial child run")
+	}
+
+	for range 2 {
+		if err := testHandler.SplitOrchestrator.ScheduleReadyTasks(ctx, parseUUID(f.splitNodeRunID)); err != nil {
+			t.Fatalf("ScheduleReadyTasks: %v", err)
+		}
+	}
+	afterSchedule, err := testHandler.Queries.GetSplitTask(ctx, parseUUID(f.taskAID))
+	if err != nil {
+		t.Fatalf("load task after repeated scheduling: %v", err)
+	}
+	if afterSchedule.RunID != before.RunID {
+		t.Fatalf("repeated scheduling changed run_id from %s to %s", uuidToString(before.RunID), uuidToString(afterSchedule.RunID))
+	}
+
+	firstRun, err := testHandler.Queries.GetWorkflowRun(ctx, before.RunID)
+	if err != nil {
+		t.Fatalf("load initial child run: %v", err)
+	}
+	wantFirstKey := fmt.Sprintf("split-task:%s:attempt:%d", f.taskAID, before.Version)
+	if !firstRun.DispatchKey.Valid || firstRun.DispatchKey.String != wantFirstKey {
+		t.Fatalf("initial dispatch_key = %q, want %q", firstRun.DispatchKey.String, wantFirstKey)
+	}
+
+	if _, err := testPool.Exec(ctx, `
+		UPDATE multica_workflow_split_task
+		SET status = 'failed', last_error = '{"code":"failed","message":"boom"}'::jsonb
+		WHERE id = $1
+	`, f.taskAID); err != nil {
+		t.Fatalf("mark task failed: %v", err)
+	}
+
+	retryReq := newRequest("POST", "/api/node-runs/"+f.splitNodeRunID+"/split/tasks/"+f.taskAID+"/retry", nil)
+	retryReq = withURLParams(retryReq, "nodeRunId", f.splitNodeRunID, "taskId", f.taskAID)
+	retryResp := httptest.NewRecorder()
+	testHandler.RetrySplitTask(retryResp, retryReq)
+	if retryResp.Code != http.StatusOK {
+		t.Fatalf("RetrySplitTask: expected 200, got %d: %s", retryResp.Code, retryResp.Body.String())
+	}
+
+	afterRetry, err := testHandler.Queries.GetSplitTask(ctx, parseUUID(f.taskAID))
+	if err != nil {
+		t.Fatalf("load task after retry: %v", err)
+	}
+	if afterRetry.Version != before.Version+1 {
+		t.Fatalf("retry version = %d, want %d", afterRetry.Version, before.Version+1)
+	}
+	if !afterRetry.RunID.Valid || afterRetry.RunID == before.RunID {
+		t.Fatalf("retry run_id = %s, want a new run", uuidToString(afterRetry.RunID))
+	}
+	secondRun, err := testHandler.Queries.GetWorkflowRun(ctx, afterRetry.RunID)
+	if err != nil {
+		t.Fatalf("load retry child run: %v", err)
+	}
+	wantSecondKey := fmt.Sprintf("split-task:%s:attempt:%d", f.taskAID, afterRetry.Version)
+	if !secondRun.DispatchKey.Valid || secondRun.DispatchKey.String != wantSecondKey {
+		t.Fatalf("retry dispatch_key = %q, want %q", secondRun.DispatchKey.String, wantSecondKey)
+	}
+}
+
 func TestRetrySplitTaskCancelsPreviousChildRun(t *testing.T) {
 	f := createSplitApproveFixture(t, "barrier")
 

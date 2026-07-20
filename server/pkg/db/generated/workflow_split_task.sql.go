@@ -26,16 +26,22 @@ func (q *Queries) CancelOpenSplitTasksByNodeRun(ctx context.Context, nodeRunID p
 
 const claimSplitTaskForRunStart = `-- name: ClaimSplitTaskForRunStart :one
 UPDATE multica_workflow_split_task
-SET status = 'running',
+SET dispatch_key = $2::text,
     updated_at = now()
 WHERE id = $1
   AND status = 'created'
   AND run_id IS NULL
+  AND dispatch_key IS NULL
 RETURNING id, node_run_id, workspace_id, title, description, depends_on, sort_order, status, issue_id, run_id, created_at, updated_at, draft_key, draft_source, workflow_id, version, dispatch_key, last_error
 `
 
-func (q *Queries) ClaimSplitTaskForRunStart(ctx context.Context, id pgtype.UUID) (MulticaWorkflowSplitTask, error) {
-	row := q.db.QueryRow(ctx, claimSplitTaskForRunStart, id)
+type ClaimSplitTaskForRunStartParams struct {
+	ID          pgtype.UUID `json:"id"`
+	DispatchKey string      `json:"dispatch_key"`
+}
+
+func (q *Queries) ClaimSplitTaskForRunStart(ctx context.Context, arg ClaimSplitTaskForRunStartParams) (MulticaWorkflowSplitTask, error) {
+	row := q.db.QueryRow(ctx, claimSplitTaskForRunStart, arg.ID, arg.DispatchKey)
 	var i MulticaWorkflowSplitTask
 	err := row.Scan(
 		&i.ID,
@@ -501,18 +507,17 @@ func (q *Queries) UpdateSplitTaskRunID(ctx context.Context, arg UpdateSplitTaskR
 const updateSplitTaskRunIDWithDispatchKey = `-- name: UpdateSplitTaskRunIDWithDispatchKey :exec
 UPDATE multica_workflow_split_task
 SET run_id = $2,
-    dispatch_key = $3,
     status = 'running',
     updated_at = now()
 WHERE id = $1
-  AND status = 'created'
+  AND dispatch_key = $3::text
   AND run_id IS NULL
 `
 
 type UpdateSplitTaskRunIDWithDispatchKeyParams struct {
 	ID          pgtype.UUID `json:"id"`
 	RunID       pgtype.UUID `json:"run_id"`
-	DispatchKey pgtype.Text `json:"dispatch_key"`
+	DispatchKey string      `json:"dispatch_key"`
 }
 
 func (q *Queries) UpdateSplitTaskRunIDWithDispatchKey(ctx context.Context, arg UpdateSplitTaskRunIDWithDispatchKeyParams) error {

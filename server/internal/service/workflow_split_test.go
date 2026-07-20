@@ -13,6 +13,18 @@ import (
 	db "github.com/multica-ai/multica/server/pkg/db/generated"
 )
 
+func TestSplitTaskDispatchKeyUsesTaskVersionAsAttempt(t *testing.T) {
+	task := db.MulticaWorkflowSplitTask{
+		ID:      pgtype.UUID{Bytes: [16]byte{1}, Valid: true},
+		Version: 3,
+	}
+	got := splitTaskDispatchKey(task)
+	want := "split-task:01000000-0000-0000-0000-000000000000:attempt:3"
+	if got != want {
+		t.Fatalf("dispatch key = %q, want %q", got, want)
+	}
+}
+
 func TestValidateDraftSplitTaskRowsAllowsEmptyPlan(t *testing.T) {
 	if err := validateDraftSplitTaskRows(nil); err != nil {
 		t.Fatalf("validateDraftSplitTaskRows(nil) = %v, want nil", err)

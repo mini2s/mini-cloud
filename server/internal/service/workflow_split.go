@@ -471,6 +471,10 @@ func splitTaskMap(tasks []db.MulticaWorkflowSplitTask) map[string]db.MulticaWork
 	return byID
 }
 
+func splitTaskDispatchKey(task db.MulticaWorkflowSplitTask) string {
+	return fmt.Sprintf("split-task:%s:attempt:%d", util.UUIDToString(task.ID), task.Version)
+}
+
 func isTerminalSplitTaskStatus(status string) bool {
 	switch status {
 	case SplitTaskStatusDone, SplitTaskStatusFailed, SplitTaskStatusCancelled, SplitTaskStatusSkipped, SplitTaskStatusDiscarded:
@@ -1895,7 +1899,10 @@ func (s *SplitOrchestrator) ScheduleReadyTasks(ctx context.Context, nodeRunID pg
 			if task.RunID.Valid || !task.IssueID.Valid {
 				continue
 			}
-			claimedTask, err := qtx.ClaimSplitTaskForRunStart(ctx, task.ID)
+			claimedTask, err := qtx.ClaimSplitTaskForRunStart(ctx, db.ClaimSplitTaskForRunStartParams{
+				ID:          task.ID,
+				DispatchKey: splitTaskDispatchKey(task),
+			})
 			if err != nil {
 				if errors.Is(err, pgx.ErrNoRows) {
 					continue
@@ -2019,7 +2026,7 @@ func (s *SplitOrchestrator) startChildTaskRun(ctx context.Context, splitNodeRun 
 	}
 	issue.Description = textToPgText(buildSplitChildIssueDescription(textToString(issue.Description), dependencyContext))
 
-	run, nodeRuns, err := s.WfService.StartRunForIssue(ctx, workflow, issue, "api", "", pgtype.UUID{})
+	run, nodeRuns, err := s.WfService.StartRunForIssueWithDispatchKey(ctx, workflow, issue, "api", "", pgtype.UUID{}, splitTaskDispatchKey(task))
 	if err != nil {
 		return err
 	}
@@ -2054,9 +2061,10 @@ func (s *SplitOrchestrator) startChildTaskRun(ctx context.Context, splitNodeRun 
 		return err
 	}
 
-	return s.Queries.UpdateSplitTaskRunID(ctx, db.UpdateSplitTaskRunIDParams{
-		ID:    task.ID,
-		RunID: run.ID,
+	return s.Queries.UpdateSplitTaskRunIDWithDispatchKey(ctx, db.UpdateSplitTaskRunIDWithDispatchKeyParams{
+		ID:          task.ID,
+		RunID:       run.ID,
+		DispatchKey: splitTaskDispatchKey(task),
 	})
 }
 

@@ -219,6 +219,10 @@ func (s *WorkflowService) ValidateDAG(ctx context.Context, workflowID pgtype.UUI
 // StartRun creates a workflow_run and node_runs for every node, then
 // kicks off root nodes (nodes with no incoming edges).
 func (s *WorkflowService) StartRun(ctx context.Context, workflow db.MulticaWorkflow, triggeredByType, triggeredByID string, input json.RawMessage, runtimeID pgtype.UUID) (*db.MulticaWorkflowRun, error) {
+	return s.startRun(ctx, workflow, triggeredByType, triggeredByID, input, runtimeID, "")
+}
+
+func (s *WorkflowService) startRun(ctx context.Context, workflow db.MulticaWorkflow, triggeredByType, triggeredByID string, input json.RawMessage, runtimeID pgtype.UUID, dispatchKey string) (*db.MulticaWorkflowRun, error) {
 	if workflow.Status != "active" {
 		return nil, fmt.Errorf("workflow is not active (status=%s)", workflow.Status)
 	}
@@ -230,20 +234,45 @@ func (s *WorkflowService) StartRun(ctx context.Context, workflow db.MulticaWorkf
 
 	var run db.MulticaWorkflowRun
 	if err := s.runInTx(ctx, func(qtx *db.Queries) error {
-		r, err := qtx.CreateWorkflowRun(ctx, db.CreateWorkflowRunParams{
-			WorkflowID:      workflow.ID,
-			WorkspaceID:     workflow.WorkspaceID,
-			WorkflowTitle:   workflow.Title,
-			Status:          "running",
-			TriggeredByType: triggeredByType,
-			TriggeredByID:   triggeredByUUID,
-			Input:           input,
-			RuntimeID:       runtimeID,
-		})
+		var r db.MulticaWorkflowRun
+		var err error
+		if dispatchKey == "" {
+			r, err = qtx.CreateWorkflowRun(ctx, db.CreateWorkflowRunParams{
+				WorkflowID:      workflow.ID,
+				WorkspaceID:     workflow.WorkspaceID,
+				WorkflowTitle:   workflow.Title,
+				Status:          "running",
+				TriggeredByType: triggeredByType,
+				TriggeredByID:   triggeredByUUID,
+				Input:           input,
+				RuntimeID:       runtimeID,
+			})
+		} else {
+			r, err = qtx.CreateWorkflowRunWithDispatchKey(ctx, db.CreateWorkflowRunWithDispatchKeyParams{
+				WorkflowID:      workflow.ID,
+				WorkspaceID:     workflow.WorkspaceID,
+				WorkflowTitle:   workflow.Title,
+				Status:          "running",
+				TriggeredByType: triggeredByType,
+				TriggeredByID:   triggeredByUUID,
+				Input:           input,
+				RuntimeID:       runtimeID,
+				DispatchKey:     textToPgText(dispatchKey),
+			})
+		}
 		if err != nil {
 			return fmt.Errorf("create workflow run: %w", err)
 		}
 		run = r
+		if dispatchKey != "" {
+			existingNodeRuns, err := qtx.ListWorkflowNodeRunsByRun(ctx, run.ID)
+			if err != nil {
+				return fmt.Errorf("list node runs: %w", err)
+			}
+			if len(existingNodeRuns) > 0 {
+				return nil
+			}
+		}
 
 		nodes, err := qtx.ListWorkflowNodes(ctx, workflow.ID)
 		if err != nil {
@@ -350,6 +379,33 @@ func (s *WorkflowService) StartRunForIssue(
 		return nil, nil, fmt.Errorf("list node runs: %w", err)
 	}
 
+	return run, nodeRuns, nil
+}
+
+func (s *WorkflowService) StartRunForIssueWithDispatchKey(
+	ctx context.Context,
+	workflow db.MulticaWorkflow,
+	issue db.MulticaIssue,
+	triggeredByType string,
+	triggeredByID string,
+	runtimeID pgtype.UUID,
+	dispatchKey string,
+) (*db.MulticaWorkflowRun, []db.MulticaWorkflowNodeRun, error) {
+	input, err := json.Marshal(map[string]any{
+		"title":       issue.Title,
+		"description": textToString(issue.Description),
+	})
+	if err != nil {
+		return nil, nil, fmt.Errorf("marshal issue input: %w", err)
+	}
+	run, err := s.startRun(ctx, workflow, triggeredByType, triggeredByID, input, runtimeID, dispatchKey)
+	if err != nil {
+		return nil, nil, err
+	}
+	nodeRuns, err := s.Queries.ListWorkflowNodeRunsByRun(ctx, run.ID)
+	if err != nil {
+		return nil, nil, fmt.Errorf("list node runs: %w", err)
+	}
 	return run, nodeRuns, nil
 }
 
