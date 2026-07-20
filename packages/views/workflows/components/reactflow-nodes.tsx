@@ -1,9 +1,10 @@
 "use client";
 
-import { memo, useCallback } from "react";
+import { memo, useCallback, type MouseEvent } from "react";
 import { Handle, Position, NodeResizer, type NodeProps, type EdgeProps, BaseEdge, getBezierPath, getStraightPath } from "@xyflow/react";
 import { cn } from "@multica/ui/lib/utils";
 import type { NodeShape } from "@multica/core/types";
+import { ChevronDown, ChevronRight } from "lucide-react";
 
 export interface WorkflowNodeData extends Record<string, unknown> {
   title: string;
@@ -18,6 +19,10 @@ export interface WorkflowNodeData extends Record<string, unknown> {
   onNodeSelect?: (nodeId: string) => void;
   onNodeResizeStart?: () => void;
   onNodeResizeEnd?: (nodeId: string, width: number, height: number) => void;
+  isSplitNode?: boolean;
+  isSplitExpanded?: boolean;
+  splitChildCount?: number;
+  onSplitNodeToggle?: (nodeId: string) => void;
 }
 
 export const NODE_WIDTH = 150;
@@ -94,7 +99,24 @@ const SHAPE_RENDERERS: Record<NodeShape, React.FC<ShapeRendererProps>> = {
 
 function WorkflowNodeRenderer({ id, data, selected, width: nodeWidth, height: nodeHeight }: NodeProps) {
   const nodeData = data as unknown as WorkflowNodeData;
-  const { title, statusColor, statusLabel, isRunning, isAwaitingInput, isEditing, shape, nodeColor, fontSize, onNodeSelect, onNodeResizeStart, onNodeResizeEnd } = nodeData;
+  const {
+    title,
+    statusColor,
+    statusLabel,
+    isRunning,
+    isAwaitingInput,
+    isEditing,
+    shape,
+    nodeColor,
+    fontSize,
+    onNodeSelect,
+    onNodeResizeStart,
+    onNodeResizeEnd,
+    isSplitNode,
+    isSplitExpanded,
+    splitChildCount = 0,
+    onSplitNodeToggle,
+  } = nodeData;
   const resolvedShape = shape ?? "rectangle";
   // Allow NodeResizer to override dimensions; fall back to shape defaults.
   const baseW = nodeWidth ?? (resolvedShape === "diamond" ? DIAMOND_SIZE : resolvedShape === "hexagon" ? HEXAGON_SIZE : NODE_WIDTH);
@@ -110,6 +132,11 @@ function WorkflowNodeRenderer({ id, data, selected, width: nodeWidth, height: no
     if (!isEditing) return;
     onNodeSelect?.(id);
   }, [id, isEditing, onNodeSelect]);
+  const handleSplitToggle = useCallback((event: MouseEvent<HTMLButtonElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+    onSplitNodeToggle?.(id);
+  }, [id, onSplitNodeToggle]);
 
   return (
     <div
@@ -122,6 +149,24 @@ function WorkflowNodeRenderer({ id, data, selected, width: nodeWidth, height: no
       style={{ width: w, height: h }}
     >
       <ShapeComp w={w} h={h} selected={selected} statusColor={statusColor} nodeColor={nodeColor} />
+
+      {isSplitNode && onSplitNodeToggle ? (
+        <button
+          type="button"
+          aria-label={`${isSplitExpanded ? "收起" : "展开"} ${splitChildCount} 个子 issue 节点`}
+          title={`${isSplitExpanded ? "收起" : "展开"} ${splitChildCount} 个子 issue 节点`}
+          onClick={handleSplitToggle}
+          onMouseDown={(event) => event.stopPropagation()}
+          className="nodrag nopan absolute -right-2 -top-2 z-20 inline-flex h-6 items-center gap-0.5 rounded-full border border-border bg-background/95 px-1.5 text-[10px] font-medium text-muted-foreground shadow-sm transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+        >
+          {isSplitExpanded ? (
+            <ChevronDown className="size-3" aria-hidden />
+          ) : (
+            <ChevronRight className="size-3" aria-hidden />
+          )}
+          <span>子 {splitChildCount}</span>
+        </button>
+      ) : null}
 
       {isEditing && selected && (
         <NodeResizer

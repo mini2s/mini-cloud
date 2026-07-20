@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import { render, screen } from "@testing-library/react";
 import { ReactFlowProvider } from "@xyflow/react";
 import { LaneBgNode, type LaneBgNodeData } from "./lane-bg-node";
+import { LANE_HEIGHT, PANORAMA_WIDTH } from "../constants";
 import type { Node } from "@xyflow/react";
 
 function renderWithProvider(node: Node) {
@@ -37,7 +38,7 @@ describe("LaneBgNode", () => {
     renderWithProvider(baseNode);
     const el = screen.getByTestId("lane-bg-0");
     expect(el).toBeInTheDocument();
-    expect(el).toHaveStyle({ width: "2400px", height: "160px" });
+    expect(el).toHaveStyle({ width: `${PANORAMA_WIDTH}px`, height: `${LANE_HEIGHT}px` });
   });
 
   it("uses correct color for stage index", () => {

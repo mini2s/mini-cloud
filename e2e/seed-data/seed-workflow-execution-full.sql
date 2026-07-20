@@ -70,7 +70,7 @@ DECLARE
     v_node_arch_design UUID;       -- 6. agent worker, squad critic → pending
     v_node_api_design UUID;        -- 7. human worker, agent critic → completed
     v_node_db_design UUID;         -- 8. agent worker, human critic → pending
-    v_node_frontend UUID;          -- 9. agent worker, agent critic → completed (PR deliverable)
+    v_node_frontend UUID;          -- 9. agent worker, agent critic → completed
     v_node_backend UUID;           -- 10. agent worker, agent critic → failed
     v_node_agent_dev UUID;         -- 11. agent worker, agent critic → working (retry)
     v_node_integration UUID;       -- 12. squad worker, human critic → pending
@@ -106,25 +106,7 @@ DECLARE
     v_nr_pre_release UUID;
     v_nr_prod_deploy UUID;
 
-    -- ═══ Deliverable ID ═══
-    v_deliv_brainstorm_doc UUID;
-    v_deliv_req_doc_spec UUID;
-    v_deliv_req_analysis_doc UUID;
-    v_deliv_req_review_doc UUID;
-    v_deliv_sys_req_spec UUID;
-    v_deliv_arch_design_doc UUID;
-    v_deliv_api_design_doc UUID;
-    v_deliv_db_design_doc UUID;
-    v_deliv_frontend_pr UUID;
-    v_deliv_backend_pr UUID;
-    v_deliv_agent_dev_pr UUID;
-    v_deliv_integration_pr UUID;
-    v_deliv_unit_test_report UUID;
-    v_deliv_e2e_test_report UUID;
-    v_deliv_perf_test_report UUID;
-    v_deliv_pre_release_checklist UUID;
-    v_deliv_prod_deploy_log UUID;
-
+    -- ═══ Cleanup ==========================================================
     -- ═══ Agent Task ID ═══
     v_task_brainstorm UUID;
     v_task_req_doc UUID;
@@ -165,14 +147,6 @@ BEGIN
             SELECT cs.id FROM multica_chat_session cs
             WHERE cs.workspace_id = c_workspace_id
         )
-    );
-    DELETE FROM multica_workflow_node_deliverable_submission WHERE workflow_node_run_id IN (
-        SELECT id FROM multica_workflow_node_run WHERE workflow_run_id IN (
-            SELECT id FROM multica_workflow_run WHERE workflow_id = c_workflow_id
-        )
-    );
-    DELETE FROM multica_workflow_node_deliverable WHERE workflow_node_id IN (
-        SELECT id FROM multica_workflow_node WHERE workflow_id = c_workflow_id
     );
     DELETE FROM multica_workflow_node_run WHERE workflow_run_id IN (
         SELECT id FROM multica_workflow_run WHERE workflow_id = c_workflow_id
@@ -370,83 +344,6 @@ BEGIN
     -- 发布上线阶段内: pre_release → prod_deploy
     INSERT INTO multica_workflow_edge (workflow_id, source_node_id, target_node_id)
     VALUES (c_workflow_id, v_node_pre_release, v_node_prod_deploy);
-
-    -- ═════════════════════════════════════════════════════════════════════
-    -- 5. 创建交付物定义 (每个节点至少1个)
-    -- ═════════════════════════════════════════════════════════════════════
-    -- 需求接入
-    INSERT INTO multica_workflow_node_deliverable (workflow_node_id, kind, title, description, required, sort_order)
-    VALUES (v_node_brainstorm, 'document', '头脑风暴记录', '需求头脑风暴的完整记录文档', TRUE, 0)
-    RETURNING id INTO v_deliv_brainstorm_doc;
-
-    INSERT INTO multica_workflow_node_deliverable (workflow_node_id, kind, title, description, required, sort_order)
-    VALUES (v_node_req_doc, 'document', '需求文档初稿', '结构化需求文档', TRUE, 0)
-    RETURNING id INTO v_deliv_req_doc_spec;
-
-    -- 需求分析
-    INSERT INTO multica_workflow_node_deliverable (workflow_node_id, kind, title, description, required, sort_order)
-    VALUES (v_node_req_analysis, 'document', '需求分析报告', '详细的需求分析报告，包含功能点和验收标准', TRUE, 0)
-    RETURNING id INTO v_deliv_req_analysis_doc;
-
-    INSERT INTO multica_workflow_node_deliverable (workflow_node_id, kind, title, description, required, sort_order)
-    VALUES (v_node_sys_req, 'document', '系统需求规格说明书', '系统级需求规格', TRUE, 0)
-    RETURNING id INTO v_deliv_sys_req_spec;
-
-    INSERT INTO multica_workflow_node_deliverable (workflow_node_id, kind, title, description, required, sort_order)
-    VALUES (v_node_req_review, 'document', '需求评估报告', 'AI对需求的完整性和一致性评估', TRUE, 0)
-    RETURNING id INTO v_deliv_req_review_doc;
-
-    -- 技术设计
-    INSERT INTO multica_workflow_node_deliverable (workflow_node_id, kind, title, description, required, sort_order)
-    VALUES (v_node_arch_design, 'document', '架构设计文档', '系统架构设计说明书', TRUE, 0)
-    RETURNING id INTO v_deliv_arch_design_doc;
-
-    INSERT INTO multica_workflow_node_deliverable (workflow_node_id, kind, title, description, required, sort_order)
-    VALUES (v_node_api_design, 'document', 'API设计文档', 'RESTful API接口规范', TRUE, 0)
-    RETURNING id INTO v_deliv_api_design_doc;
-
-    INSERT INTO multica_workflow_node_deliverable (workflow_node_id, kind, title, description, required, sort_order)
-    VALUES (v_node_db_design, 'document', '数据库设计文档', 'ER图和表结构设计', TRUE, 0)
-    RETURNING id INTO v_deliv_db_design_doc;
-
-    -- 编码实现 (PR类型交付物)
-    INSERT INTO multica_workflow_node_deliverable (workflow_node_id, kind, title, description, required, sort_order)
-    VALUES (v_node_frontend, 'pull_request', '前端PR', '前端代码变更Pull Request', TRUE, 0)
-    RETURNING id INTO v_deliv_frontend_pr;
-
-    INSERT INTO multica_workflow_node_deliverable (workflow_node_id, kind, title, description, required, sort_order)
-    VALUES (v_node_backend, 'pull_request', '后端PR', '后端代码变更Pull Request', TRUE, 0)
-    RETURNING id INTO v_deliv_backend_pr;
-
-    INSERT INTO multica_workflow_node_deliverable (workflow_node_id, kind, title, description, required, sort_order)
-    VALUES (v_node_agent_dev, 'pull_request', '智能体PR', '智能体代码变更Pull Request', TRUE, 0)
-    RETURNING id INTO v_deliv_agent_dev_pr;
-
-    INSERT INTO multica_workflow_node_deliverable (workflow_node_id, kind, title, description, required, sort_order)
-    VALUES (v_node_integration, 'pull_request', '整合PR', '代码整合Pull Request', TRUE, 0)
-    RETURNING id INTO v_deliv_integration_pr;
-
-    -- 测试验证
-    INSERT INTO multica_workflow_node_deliverable (workflow_node_id, kind, title, description, required, sort_order)
-    VALUES (v_node_unit_test, 'document', '单元测试报告', '单元测试覆盖率和结果报告', TRUE, 0)
-    RETURNING id INTO v_deliv_unit_test_report;
-
-    INSERT INTO multica_workflow_node_deliverable (workflow_node_id, kind, title, description, required, sort_order)
-    VALUES (v_node_e2e_test, 'document', 'E2E测试报告', '端到端测试结果报告', TRUE, 0)
-    RETURNING id INTO v_deliv_e2e_test_report;
-
-    INSERT INTO multica_workflow_node_deliverable (workflow_node_id, kind, title, description, required, sort_order)
-    VALUES (v_node_perf_test, 'document', '性能测试报告', '性能基准和压力测试结果', TRUE, 0)
-    RETURNING id INTO v_deliv_perf_test_report;
-
-    -- 发布上线
-    INSERT INTO multica_workflow_node_deliverable (workflow_node_id, kind, title, description, required, sort_order)
-    VALUES (v_node_pre_release, 'document', '发布检查清单', '预发布检查项清单', TRUE, 0)
-    RETURNING id INTO v_deliv_pre_release_checklist;
-
-    INSERT INTO multica_workflow_node_deliverable (workflow_node_id, kind, title, description, required, sort_order)
-    VALUES (v_node_prod_deploy, 'document', '部署日志', '生产部署执行日志', TRUE, 0)
-    RETURNING id INTO v_deliv_prod_deploy_log;
 
     -- ═════════════════════════════════════════════════════════════════════
     -- 6. 创建父 Issue (用户视角的主 Issue)
@@ -849,64 +746,6 @@ BEGIN
 
     -- 更新 workspace issue_counter
     UPDATE multica_workspace SET issue_counter = v_issue_seq WHERE id = c_workspace_id;
-
-    -- ═════════════════════════════════════════════════════════════════════
-    -- 10. 交付物提交 (红绿灯信号)
-    --
-    -- green  = approved  (已审批通过)
-    -- yellow = submitted (已提交待审批)
-    -- red    = missing   (缺失)
-    -- ═════════════════════════════════════════════════════════════════════
-
-    -- Green: 头脑风暴文档已审批
-    INSERT INTO multica_workflow_node_deliverable_submission (
-        workflow_node_run_id, deliverable_id, submitted_by_type, submitted_by_id, status, content
-    ) VALUES (v_nr_brainstorm, v_deliv_brainstorm_doc, 'agent', c_ag_brain_stormer, 'approved', '## 需求头脑风暴记录\n\n### 核心功能模块\n1. 用户认证与权限管理\n2. 任务管理系统\n3. AI智能体协作\n4. 实时通知推送\n5. 数据分析报表\n\n### 技术约束\n- 支持Web + Desktop双平台\n- API响应时间<200ms\n- 支持1000并发用户');
-
-    -- Green: 前端PR已审批
-    INSERT INTO multica_workflow_node_deliverable_submission (
-        workflow_node_run_id, deliverable_id, submitted_by_type, submitted_by_id, status, content, pull_request_url, review_comment
-    ) VALUES (v_nr_frontend, v_deliv_frontend_pr, 'agent', c_ag_code_dev, 'approved', '完成前端UI组件开发', 'https://github.com/demo/repo/pull/42', '代码审查通过，LGTM!');
-
-    -- Green: 单元测试报告已审批
-    INSERT INTO multica_workflow_node_deliverable_submission (
-        workflow_node_run_id, deliverable_id, submitted_by_type, submitted_by_id, status, content, review_comment
-    ) VALUES (v_nr_unit_test, v_deliv_unit_test_report, 'agent', c_ag_test_runner, 'approved', '覆盖率92.5%，154/156通过', '2个失败用例为非关键路径，记录tech debt后通过');
-
-    -- Green: E2E测试全部通过
-    INSERT INTO multica_workflow_node_deliverable_submission (
-        workflow_node_run_id, deliverable_id, submitted_by_type, submitted_by_id, status, content, review_comment
-    ) VALUES (v_nr_e2e_test, v_deliv_e2e_test_report, 'agent', c_ag_test_runner, 'approved', '28/28全部通过', 'E2E覆盖核心用户旅程，全部通过');
-
-    -- Green: API设计文档已审批
-    INSERT INTO multica_workflow_node_deliverable_submission (
-        workflow_node_run_id, deliverable_id, submitted_by_type, submitted_by_id, status, content
-    ) VALUES (v_nr_api_design, v_deliv_api_design_doc, 'member', c_user_id, 'approved', 'OpenAPI 3.0格式，18个endpoint，包含完整的请求/响应定义');
-
-    -- Yellow: 需求文档待审批
-    INSERT INTO multica_workflow_node_deliverable_submission (
-        workflow_node_run_id, deliverable_id, submitted_by_type, submitted_by_id, status, content
-    ) VALUES (v_nr_req_doc, v_deliv_req_doc_spec, 'agent', c_ag_req_analyzer, 'submitted', '结构化需求文档v1.0，包含4个主要章节');
-
-    -- Yellow: 性能测试报告待审批
-    INSERT INTO multica_workflow_node_deliverable_submission (
-        workflow_node_run_id, deliverable_id, submitted_by_type, submitted_by_id, status, content
-    ) VALUES (v_nr_perf_test, v_deliv_perf_test_report, 'agent', c_ag_test_runner, 'submitted', '平均响应45ms，P99=120ms，吞吐850rps');
-
-    -- Yellow: 需求评估报告已提交
-    INSERT INTO multica_workflow_node_deliverable_submission (
-        workflow_node_run_id, deliverable_id, submitted_by_type, submitted_by_id, status, content
-    ) VALUES (v_nr_req_review, v_deliv_req_review_doc, 'agent', c_ag_aireq_evaluator, 'submitted', '完整性78%，一致性85%，发现4个问题');
-
-    -- Red: 系统需求规格交付物缺失(blocked)
-    INSERT INTO multica_workflow_node_deliverable_submission (
-        workflow_node_run_id, deliverable_id, submitted_by_type, submitted_by_id, status, content
-    ) VALUES (v_nr_sys_req, v_deliv_sys_req_spec, 'agent', c_ag_req_analyzer, 'missing', '');
-
-    -- Red: 后端PR缺失(failed)
-    INSERT INTO multica_workflow_node_deliverable_submission (
-        workflow_node_run_id, deliverable_id, submitted_by_type, submitted_by_id, status, content
-    ) VALUES (v_nr_backend, v_deliv_backend_pr, 'agent', c_ag_code_dev, 'missing', '');
 
     -- ═════════════════════════════════════════════════════════════════════
     -- 11. Agent 任务队列

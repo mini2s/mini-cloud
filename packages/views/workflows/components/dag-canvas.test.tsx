@@ -12,7 +12,7 @@ const miniMapPropsRef = vi.hoisted(() => [] as Record<string, unknown>[]);
 vi.mock("@xyflow/react", () => ({
   ReactFlow: (props: Record<string, unknown>) => {
     rfPropsRef.push(props);
-    const { nodes, edges, onNodeClick, onNodeDragStart, onNodesChange, onNodeDragStop,
+    const { nodes, edges, onNodeClick, onNodeDoubleClick, onNodeDragStart, onNodesChange, onNodeDragStop,
       onConnect, onEdgeClick, onPaneClick, nodesDraggable, nodesConnectable,
       children } = props;
     return (
@@ -23,6 +23,8 @@ vi.mock("@xyflow/react", () => ({
         <div data-testid="rf-edgecount">{(edges as unknown[]).length}</div>
         <button data-testid="rf-nodeclick" onClick={() =>
           (onNodeClick as (e: unknown, n: unknown) => void)?.(null, { id: "n1" })} />
+        <button data-testid="rf-nodedoubleclick" onClick={() =>
+          (onNodeDoubleClick as (e: unknown, n: unknown) => void)?.(null, { id: "n1" })} />
         <button data-testid="rf-nodepositionchange" onClick={() => {
           (onNodeDragStart as (e: unknown, n: unknown) => void)?.(null, { id: "n1" });
           (onNodesChange as (changes: unknown[]) => void)?.([
@@ -231,6 +233,31 @@ describe("WorkflowCanvas", () => {
     expect(rfNodes[0]!.data.isRunning).toBe(true);
   });
 
+  it("maps split expansion controls into split node data", () => {
+    const onSplitNodeToggle = vi.fn();
+    const nodes = [
+      makeNode({
+        id: "split-node",
+        format_schema: { type: "split" },
+      }),
+    ];
+
+    renderWithI18n(
+      <WorkflowCanvas
+        nodes={nodes}
+        edges={[]}
+        splitNodeExpansion={{ "split-node": { expanded: true, childCount: 3 } }}
+        onSplitNodeToggle={onSplitNodeToggle}
+      />,
+    );
+
+    const rfNodes = lastProps().nodes as { data: Record<string, unknown> }[];
+    expect(rfNodes[0]!.data.isSplitNode).toBe(true);
+    expect(rfNodes[0]!.data.isSplitExpanded).toBe(true);
+    expect(rfNodes[0]!.data.splitChildCount).toBe(3);
+    expect(rfNodes[0]!.data.onSplitNodeToggle).toBe(onSplitNodeToggle);
+  });
+
   // ── Interactions ───────────────────────────────────────────────
 
   it("calls selectNode and onNodeClick on node click", () => {
@@ -247,6 +274,16 @@ describe("WorkflowCanvas", () => {
     expect(selectNodeSpy).toHaveBeenCalledWith("n1");
     expect(selectEdgeSpy).toHaveBeenCalledWith(null);
     expect(onNodeClick).toHaveBeenCalledWith("n1");
+  });
+
+  it("forwards node double click events", () => {
+    const onNodeDoubleClick = vi.fn();
+    const nodes = [makeNode({ id: "n1" })];
+
+    renderWithI18n(<WorkflowCanvas nodes={nodes} edges={[]} onNodeDoubleClick={onNodeDoubleClick} />);
+    fireEvent.click(document.querySelector("[data-testid='rf-nodedoubleclick']")!);
+
+    expect(onNodeDoubleClick).toHaveBeenCalledWith("n1");
   });
 
   it("calls onNodeDragStop with rounded coordinates", () => {

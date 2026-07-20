@@ -24,6 +24,7 @@ import {
 } from "@multica/core/agents";
 import { useWorkspacePaths } from "@multica/core/paths";
 import { Button } from "@multica/ui/components/ui/button";
+import { getDeleteConflictMessage } from "../../common/delete-conflict-error";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -135,7 +136,11 @@ export function RuntimeDetail({ runtime }: { runtime: AgentRuntime }) {
         setDeleteOpen(false);
       },
       onError: (e) => {
-        toast.error(e instanceof Error ? e.message : t(($) => $.detail.toast_delete_failed));
+        toast.error(
+          getDeleteConflictMessage(e, {
+            runtime_has_active_agents: t(($) => $.detail.runtime_has_active_agents),
+          }) ?? (e instanceof Error ? e.message : t(($) => $.detail.toast_delete_failed)),
+        );
       },
     });
   };

@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import { describe, it, expect, vi } from "vitest";
-import { render } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 
 // ── ReactFlow mocks ─────────────────────────────────────────────
 vi.mock("@xyflow/react", () => ({
@@ -109,6 +109,45 @@ describe("WorkflowNode", () => {
       <WorkflowNode {...makeNodeProps({ data: { title: "N", statusLabel: "working" } })} />,
     );
     expect(container.textContent).toContain("working");
+  });
+
+  it("renders a split expansion button that toggles child issue nodes", () => {
+    const onSplitNodeToggle = vi.fn();
+    render(
+      <WorkflowNode
+        {...makeNodeProps({
+          data: {
+            title: "Split Node",
+            isSplitNode: true,
+            isSplitExpanded: false,
+            splitChildCount: 2,
+            onSplitNodeToggle,
+          },
+        })}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "展开 2 个子 issue 节点" }));
+
+    expect(onSplitNodeToggle).toHaveBeenCalledWith("n1");
+  });
+
+  it("updates the split expansion button label when expanded", () => {
+    render(
+      <WorkflowNode
+        {...makeNodeProps({
+          data: {
+            title: "Split Node",
+            isSplitNode: true,
+            isSplitExpanded: true,
+            splitChildCount: 2,
+            onSplitNodeToggle: vi.fn(),
+          },
+        })}
+      />,
+    );
+
+    expect(screen.getByRole("button", { name: "收起 2 个子 issue 节点" })).toBeInTheDocument();
   });
 
   it("applies border-primary class when selected", () => {

@@ -54,10 +54,10 @@ export interface CostrictNavigateSessionMessage {
 export function postCostrictNavigateToSession(args: {
   sessionId: string;
   workDir?: string;
-}): void {
-  if (typeof window === "undefined") return;
-  if (!args.sessionId) return;
-  if (window.parent === window) return;
+}): boolean {
+  if (typeof window === "undefined") return false;
+  if (!args.sessionId) return false;
+  if (window.parent === window) return false;
   const message: CostrictNavigateSessionMessage = {
     type: "multica:navigate",
     target: "session",
@@ -67,6 +67,7 @@ export function postCostrictNavigateToSession(args: {
   // Target origin "*" mirrors the existing parent contract; the parent
   // validates event.origin on its side.
   window.parent.postMessage(message, "*");
+  return true;
 }
 
 /** Message multica posts to report its current route to the costrict-web parent. */

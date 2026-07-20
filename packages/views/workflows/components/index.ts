@@ -6,3 +6,5 @@ export { DAGCanvas, WorkflowCanvas } from "./dag-canvas";
 export { NodeConfigPanel } from "./node-config-panel";
 export { NodeRunCard } from "./node-run-card";
 export { computeAutoLayout } from "./layout";
+export { SplitNodeCard } from "./split/split-node-card";
+export { SplitProgressBadge } from "./split/split-progress-badge";

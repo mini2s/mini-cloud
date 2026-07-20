@@ -4,12 +4,13 @@ import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react
 import { useQuery } from "@tanstack/react-query";
 import {
   Activity,
-  AlertTriangle,
+	AlertTriangle,
   Bot,
   Braces,
   CheckCircle2,
-  FileCheck2,
   GitBranch,
+	GitFork,
+	Play,
   ShieldCheck,
   Save,
   Trash2,
@@ -30,21 +31,19 @@ import {
   useDeleteNode,
   useAssignNodeToStage,
   workflowRolesOptions,
-  workflowNodeDeliverablesOptions,
-  useCreateWorkflowNodeDeliverable,
-  useUpdateWorkflowNodeDeliverable,
-  useDeleteWorkflowNodeDeliverable,
+  workflowActiveListOptions,
 } from "@multica/core/workflows/queries";
 import { useWorkflowEditorStore } from "@multica/core/workflows/store";
 import { AssigneePicker } from "../../issues/components/pickers/assignee-picker";
-import { parseNodeFormat, type WorkflowNode, type WorkflowNodeRun, type WorkflowStage, type WorkerType, type CriticType, type WorkflowNodeDeliverable } from "@multica/core/types";
+import { parseNodeFormat, type WorkflowNode, type WorkflowNodeRun, type WorkflowStage, type WorkerType, type CriticType, type SplitConfig } from "@multica/core/types";
 import type { IssueAssigneeType } from "@multica/core/types/issue";
-import { NodeDeliverablesEditor, type WorkflowNodeDeliverableDraft } from "./node-deliverables-editor";
-import { NodeDataPreview } from "./node-data-preview";
 import {
   NodeDetailSection,
   WorkflowNodeDetailPanelShell,
 } from "../../common/workflow-node-detail-panel-shell";
+import { SplitConfigPanel } from "./split/split-config-panel";
+import type { PreflightIssue } from "@multica/core/workflows/preflight-checks";
+import { checkDetailLabel } from "./overview/preflight-bar";
 
 function toAssigneeType(t: string): IssueAssigneeType | null {
   if (t === "human") return "member";
@@ -283,6 +282,10 @@ interface NodeConfigPanelProps {
   stages?: WorkflowStage[];
   disabled?: boolean;
   recentNodeRun?: WorkflowNodeRun | null;
+	preflightIssues?: PreflightIssue[];
+	incomingCount?: number;
+	outgoingCount?: number;
+	onTrialRun?: () => void;
   onClose: () => void;
   onSaveNode?: () => boolean | Promise<boolean>;
   onDirtyChange?: (dirty: boolean) => void;
@@ -291,8 +294,6 @@ interface NodeConfigPanelProps {
   onStageChange?: (nodeId: string, stageId: string | null) => void;
 }
 
-const EMPTY_DELIVERABLES: WorkflowNodeDeliverable[] = [];
-
 export function NodeConfigPanel({
   node,
   workflowId,
@@ -300,6 +301,10 @@ export function NodeConfigPanel({
   stages = [],
   disabled = false,
   recentNodeRun = null,
+	preflightIssues = [],
+	incomingCount = 0,
+	outgoingCount = 0,
+	onTrialRun,
   onClose,
   onSaveNode,
   onDirtyChange,
@@ -312,17 +317,11 @@ export function NodeConfigPanel({
   const deleteMutation = useDeleteNode(wsId, workflowId);
   const assignStageMutation = useAssignNodeToStage(wsId, workflowId);
   const createStageMutation = useCreateStage(wsId, workflowId);
-  const createDeliverableMutation = useCreateWorkflowNodeDeliverable(wsId, workflowId, node.id);
-  const updateDeliverableMutation = useUpdateWorkflowNodeDeliverable(wsId, workflowId, node.id);
-  const deleteDeliverableMutation = useDeleteWorkflowNodeDeliverable(wsId, workflowId, node.id);
   const nodeEdits = useWorkflowEditorStore((s) => s.nodeEdits);
   const undoRedoVersion = useWorkflowEditorStore((s) => s._undoRedoVersion);
   const cacheNodeEdits = useWorkflowEditorStore((s) => s.cacheNodeEdits);
   const { data: roles = [] } = useQuery(workflowRolesOptions(wsId));
-  const { data: savedDeliverablesData } = useQuery(
-    workflowNodeDeliverablesOptions(wsId, workflowId, node.id),
-  );
-  const savedDeliverables = savedDeliverablesData ?? EMPTY_DELIVERABLES;
+  const { data: activeWorkflows = [] } = useQuery(workflowActiveListOptions(wsId));
   const { getActorName } = useActorName();
 
   const saved = nodeEdits[node.id];
@@ -338,6 +337,7 @@ export function NodeConfigPanel({
     );
   })();
   const isGateway = nodeFormat.kind === "gateway";
+  const isSplit = nodeFormat.kind === "split";
 
   const [title, setTitle] = useState(saved?.title ?? node.title);
   const [description, setDescription] = useState(saved?.description ?? node.description);
@@ -350,34 +350,10 @@ export function NodeConfigPanel({
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [newStageName, setNewStageName] = useState("");
   const [newStageDescription, setNewStageDescription] = useState("");
-  const [deliverableDrafts, setDeliverableDrafts] = useState<WorkflowNodeDeliverableDraft[]>([]);
-  const [deliverablesDirty, setDeliverablesDirty] = useState(false);
-
-  const savedDeliverableKey = useMemo(
-    () => savedDeliverables.map((d) => [
-      d.id,
-      d.kind,
-      d.title,
-      d.description,
-      d.required,
-      d.sort_order,
-    ].join(":")).join("|"),
-    [savedDeliverables],
-  );
 
   useEffect(() => {
     setStageId(node.stage_id ?? null);
   }, [node.stage_id]);
-
-  useEffect(() => {
-    if (deliverablesDirty) return;
-    setDeliverableDrafts(savedDeliverables.map((d) => ({ ...d, isDraft: false })));
-  }, [savedDeliverableKey, savedDeliverables, deliverablesDirty]);
-
-  useEffect(() => {
-    setDeliverablesDirty(false);
-    setDeliverableDrafts(savedDeliverables.map((d) => ({ ...d, isDraft: false })));
-  }, [node.id]);
 
   const bindableNodes = useMemo(
     () => nodes.filter((n) => {
@@ -422,6 +398,12 @@ export function NodeConfigPanel({
   const currentStageName = stages.find((s) => s.id === stageId)?.name ?? t(($) => $.overview.stage_canvas.unassigned);
   const workerConfigured = workerType === "role" ? Boolean(workerId) : Boolean(workerId);
   const criticConfigured = criticType === "api" ? Boolean(criticApiUrl.trim()) : Boolean(criticId);
+  const splitConfig: SplitConfig = nodeFormat.split_config ?? {
+    default_issue_workflow_id: null,
+    mode: "barrier",
+    max_concurrency: 5,
+    max_failures: 0,
+  };
   const runTone = statusTone(recentNodeRun?.status);
   const workerLabel = workerId
     ? workerType === "role"
@@ -436,91 +418,59 @@ export function NodeConfigPanel({
   const workerMode = isDirectWorkerType(workerType) ? "direct" : "role";
   const criticMode = isDirectCriticType(criticType) ? "direct" : criticType === "api" ? "api" : "role";
   const hasLocalEdits = Boolean(nodeEdits[node.id]);
-  const hasUnsavedChanges = hasLocalEdits || deliverablesDirty;
-  const isSavingDeliverables =
-    createDeliverableMutation.isPending ||
-    updateDeliverableMutation.isPending ||
-    deleteDeliverableMutation.isPending;
+  const hasUnsavedChanges = hasLocalEdits;
 
-  const handleDeliverablesChange = useCallback((next: WorkflowNodeDeliverableDraft[]) => {
-    setDeliverableDrafts(next.map((d, index) => ({ ...d, sort_order: index })));
-    setDeliverablesDirty(true);
-  }, []);
-
-  const saveDeliverables = useCallback(async () => {
-    const baseById = new Map(savedDeliverables.map((d) => [d.id, d]));
-    const draftById = new Map(deliverableDrafts.filter((d) => !d.isDraft).map((d) => [d.id, d]));
-
-    const deletes = savedDeliverables.filter((d) => !draftById.has(d.id));
-    const creates = deliverableDrafts.filter((d) => d.isDraft || !baseById.has(d.id));
-    const updates = deliverableDrafts.filter((d) => {
-      const base = baseById.get(d.id);
-      if (!base) return false;
-      return (
-        base.kind !== d.kind ||
-        base.title !== d.title ||
-        base.description !== d.description ||
-        base.required !== d.required ||
-        base.sort_order !== d.sort_order
-      );
-    });
-
-    await Promise.all([
-      ...deletes.map((d) => deleteDeliverableMutation.mutateAsync(d.id)),
-      ...creates.map((d) =>
-        createDeliverableMutation.mutateAsync({
-          kind: d.kind,
-          title: d.title.trim() || t(($) => $.detail_panel.deliverable_default_title),
-          description: d.description,
-          required: d.required,
-          sort_order: d.sort_order,
-        }),
-      ),
-      ...updates.map((d) =>
-        updateDeliverableMutation.mutateAsync({
-          deliverableId: d.id,
-          kind: d.kind,
-          title: d.title.trim() || t(($) => $.detail_panel.deliverable_default_title),
-          description: d.description,
-          required: d.required,
-          sort_order: d.sort_order,
-        }),
-      ),
-    ]);
-    setDeliverablesDirty(false);
-  }, [
-    createDeliverableMutation,
-    deleteDeliverableMutation,
-    deliverableDrafts,
-    savedDeliverables,
-    t,
-    updateDeliverableMutation,
-  ]);
+  const handleSplitConfigChange = useCallback((next: SplitConfig) => {
+    const raw = saved?.format_schema ?? node.format_schema;
+    const base =
+      raw && typeof raw === "object" && !Array.isArray(raw)
+        ? { ...(raw as Record<string, unknown>) }
+        : {};
+    const nextFormatSchema = {
+      ...base,
+      type: "split",
+      shape: typeof base.shape === "string" ? base.shape : "rectangle",
+      template_id: typeof base.template_id === "string" ? base.template_id : "task-splitter",
+      template_category: typeof base.template_category === "string" ? base.template_category : "logic",
+      split_config: {
+        default_issue_workflow_id: next.default_issue_workflow_id,
+        mode: next.mode,
+        max_concurrency: next.max_concurrency,
+        max_failures: next.max_failures,
+      },
+    };
+    cacheNodeEdits(node.id, { format_schema: nextFormatSchema });
+  }, [cacheNodeEdits, node.format_schema, node.id, saved?.format_schema]);
 
   const handleSaveAll = useCallback(async () => {
-    const hadNodeEdits = Boolean(nodeEdits[node.id]);
     try {
-      const nodeSaved = onSaveNode ? await onSaveNode() : true;
-      if (nodeSaved === false) return false;
-      if (deliverablesDirty) {
-        await saveDeliverables();
-        if (!hadNodeEdits) toast.success(t(($) => $.detail.toast_saved));
+      if (onSaveNode) {
+        return await onSaveNode();
       }
+      return true;
     } catch {
       toast.error(t(($) => $.detail.toast_save_failed));
       return false;
     }
-    return true;
-  }, [deliverablesDirty, node.id, nodeEdits, onSaveNode, saveDeliverables, t]);
+  }, [onSaveNode, t]);
 
   useEffect(() => {
     onDirtyChange?.(hasUnsavedChanges);
   }, [hasUnsavedChanges, onDirtyChange]);
 
   useEffect(() => {
-    onRegisterSave?.(handleSaveAll);
+    if (onSaveNode) {
+      onRegisterSave?.(async () => {
+        try {
+          return await onSaveNode();
+        } catch {
+          toast.error(t(($) => $.detail.toast_save_failed));
+          return false;
+        }
+      });
+    }
     return () => onRegisterSave?.(null);
-  }, [handleSaveAll, onRegisterSave]);
+  }, [onSaveNode, onRegisterSave, t]);
 
   return (
     <WorkflowNodeDetailPanelShell
@@ -543,6 +493,51 @@ export function NodeConfigPanel({
         </>
       )}
     >
+      <NodeDetailSection
+        sectionId="readiness"
+        icon={<CheckCircle2 className="size-4" />}
+        title={t(($) => $.detail_panel.section_readiness)}
+        subtitle={t(($) => $.detail_panel.section_readiness_desc)}
+      >
+        <div
+          data-testid="node-readiness-summary"
+          className="grid gap-2 rounded-lg border bg-muted/20 p-2.5 text-xs"
+        >
+          <div className="flex items-center justify-between gap-3 px-2 py-1.5">
+            <span className="text-muted-foreground">{t(($) => $.node.section_worker)}</span>
+            <StatusBadge tone={workerConfigured || isAnnotation || isGateway ? "success" : "warning"}>
+              {workerConfigured || isAnnotation || isGateway
+                ? t(($) => $.detail_panel.readiness_worker_ready)
+                : t(($) => $.detail_panel.readiness_worker_missing)}
+            </StatusBadge>
+          </div>
+          <div className="flex items-center justify-between gap-3 border-t border-border/60 px-2 py-1.5">
+            <span className="text-muted-foreground">{t(($) => $.node.section_critic)}</span>
+            <StatusBadge tone={criticConfigured ? "success" : "default"}>
+              {criticConfigured
+                ? t(($) => $.detail_panel.readiness_critic_ready)
+                : t(($) => $.detail_panel.readiness_critic_optional)}
+            </StatusBadge>
+          </div>
+          {isSplit ? (
+            <div className="flex items-center justify-between gap-3 border-t border-border/60 px-2 py-1.5">
+              <span className="text-muted-foreground">{t(($) => $.detail_panel.split_default_issue_workflow_label)}</span>
+              <StatusBadge tone={splitConfig.default_issue_workflow_id ? "success" : "warning"}>
+                {splitConfig.default_issue_workflow_id
+                  ? t(($) => $.detail_panel.readiness_split_ready)
+                  : t(($) => $.detail_panel.readiness_split_missing)}
+              </StatusBadge>
+            </div>
+          ) : null}
+			{preflightIssues.map((issue) => (
+				<div key={`${issue.checkId}-${issue.nodeId}`} className="flex items-start gap-2 border-t border-border/60 px-2 py-1.5">
+					<AlertTriangle className={issue.blocking ? "mt-0.5 size-3.5 shrink-0 text-destructive" : "mt-0.5 size-3.5 shrink-0 text-amber-600"} />
+					<span>{checkDetailLabel(issue, t)}</span>
+				</div>
+			))}
+        </div>
+      </NodeDetailSection>
+
       <NodeDetailSection
         sectionId="primary"
         icon={<GitBranch className="size-4" />}
@@ -677,6 +672,16 @@ export function NodeConfigPanel({
                 />
               </div>
 
+        </div>
+      </NodeDetailSection>
+
+      <NodeDetailSection
+        sectionId="worker-critic"
+        icon={<Bot className="size-4" />}
+        title={t(($) => $.detail_panel.section_worker_critic)}
+        subtitle={t(($) => $.detail_panel.section_worker_critic_desc)}
+      >
+        <div className="space-y-3">
             {isAnnotation ? (
               <InspectorSection
                 icon={<Braces className="size-4" />}
@@ -744,268 +749,394 @@ export function NodeConfigPanel({
 
             {!isAnnotation && !isGateway ? (
               <>
-                <AssignmentCard
-                  icon={<Bot className="size-4" />}
-                  title={t(($) => $.node.section_worker)}
-                  subtitle={t(($) => $.detail_panel.worker_subtitle)}
-                  status={workerConfigured ? <StatusBadge tone="success">{t(($) => $.detail_panel.badge_configured)}</StatusBadge> : <StatusBadge tone="warning">{t(($) => $.detail_panel.badge_needs_assignee)}</StatusBadge>}
-                >
-                  <AssignmentModeControl<"direct" | "role">
-                    value={workerMode}
-                    disabled={disabled}
-                    options={[
-                      { value: "direct", label: t(($) => $.node.worker_id_label) },
-                      { value: "role", label: t(($) => $.node.worker_type_role) },
-                    ]}
-                    onChange={(mode) => {
-                      if (mode === workerMode) return;
-                      const nextType: WorkerType = mode === "direct" ? "human" : "role";
-                      setWorkerType(nextType);
-                      setWorkerId(null);
-                      cacheNodeEdits(node.id, { worker_type: nextType, worker_id: null });
-                    }}
-                  />
-
-                  {workerMode === "role" ? (
-                    <div className="space-y-1.5">
-                      <Label className="text-xs text-muted-foreground" htmlFor="worker-role-select">{t(($) => $.detail_panel.label_worker_role)}</Label>
-                      <select
-                        id="worker-role-select"
-                        aria-label="Worker role"
-                        disabled={disabled}
-                        className="h-8 w-full rounded-md border border-input bg-background px-2 text-sm"
-                        value={workerId ?? ""}
-                        onChange={(e) => {
-                          const rid = e.target.value || null;
-                          setWorkerId(rid);
-                          cacheNodeEdits(node.id, { worker_id: rid });
+                {isSplit ? (
+                  <>
+                    <AssignmentCard
+                    icon={<Bot className="size-4" />}
+                    title={t(($) => $.node.section_worker)}
+                    subtitle={t(($) => $.detail_panel.split_worker_subtitle)}
+                    status={workerConfigured ? <StatusBadge tone="success">{t(($) => $.detail_panel.badge_configured)}</StatusBadge> : <StatusBadge tone="warning">{t(($) => $.detail_panel.badge_needs_assignee)}</StatusBadge>}
+                  >
+                    <div className={disabled ? "pointer-events-none opacity-60" : undefined}>
+                      <AssigneePicker
+                        assigneeType={toAssigneeType(workerType)}
+                        assigneeId={workerId}
+                        allowedTypes={["agent", "squad"]}
+                        triggerRender={
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            className="h-8 w-full justify-start"
+                            disabled={disabled}
+                          />
+                        }
+                        trigger={
+                          <AssigneePickerTrigger
+                            type={workerType}
+                            id={workerId}
+                            label={workerLabel}
+                            emptyPrefix={t(($) => $.detail_panel.picker_empty_prefix)}
+                            emptyLabel={t(($) => $.detail_panel.empty_worker)}
+                            t={t}
+                          />
+                        }
+                        onUpdate={disabled ? () => {} : (u) => {
+                          const wt = fromAssigneeType(u.assignee_type ?? null);
+                          const wid = u.assignee_id ?? null;
+                          setWorkerType(wt);
+                          setWorkerId(wid);
+                          cacheNodeEdits(node.id, { worker_type: wt, worker_id: wid });
                         }}
-                      >
-                        <option value="">{t(($) => $.detail_panel.select_role)}</option>
-                        {roles.map((r) => (
-                          <option key={r.id} value={r.id}>{r.name}</option>
-                        ))}
-                      </select>
-                      <ActorSummary type="role" id={workerId} label={workerLabel} emptyText={t(($) => $.detail_panel.empty_worker_role)} hint={t(($) => $.detail_panel.actor_role_hint)} />
-                    </div>
-                  ) : (
-                    <div className="space-y-2">
-                      <div className={disabled ? "pointer-events-none opacity-60" : undefined}>
-                        <AssigneePicker
-                          assigneeType={toAssigneeType(workerType)}
-                          assigneeId={workerId}
-                          triggerRender={
-                            <Button
-                              type="button"
-                              variant="outline"
-                              size="sm"
-                              className="h-8 w-full justify-start"
-                              disabled={disabled}
-                            />
-                          }
-                          trigger={
-                            <AssigneePickerTrigger
-                              type={workerType}
-                              id={workerId}
-                              label={workerLabel}
-                              emptyPrefix={t(($) => $.detail_panel.picker_empty_prefix)}
-                              emptyLabel={t(($) => $.detail_panel.empty_worker)}
-                              t={t}
-                            />
-                          }
-                          onUpdate={disabled ? () => {} : (u) => {
-                            const wt = fromAssigneeType(u.assignee_type ?? null);
-                            const wid = u.assignee_id ?? null;
-                            setWorkerType(wt);
-                            setWorkerId(wid);
-                            cacheNodeEdits(node.id, { worker_type: wt, worker_id: wid });
-                          }}
-                          align="start"
-                          skipBuiltinRuntimeSelection
-                          includeWorkflows={false}
-                        />
-                      </div>
-                      <ActorSummary type={workerType} id={workerId} label={workerLabel} emptyText={t(($) => $.detail_panel.empty_worker)} hint={t(($) => $.detail_panel.actor_assignee_hint)} />
-                    </div>
-                  )}
-                </AssignmentCard>
-
-                <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2 px-1 text-[11px] font-medium text-muted-foreground">
-                  <span className="h-px bg-border" />
-                  <span>{t(($) => $.detail_panel.worker_critic_divider)}</span>
-                  <span className="h-px bg-border" />
-                </div>
-
-                <AssignmentCard
-                  icon={<ShieldCheck className="size-4" />}
-                  title={t(($) => $.node.section_critic)}
-                  subtitle={t(($) => $.detail_panel.critic_subtitle)}
-                  status={criticConfigured ? <StatusBadge tone="success">{t(($) => $.detail_panel.badge_configured)}</StatusBadge> : <StatusBadge>{t(($) => $.detail_panel.badge_optional)}</StatusBadge>}
-                >
-                  <AssignmentModeControl<"direct" | "role" | "api">
-                    value={criticMode}
-                    disabled={disabled}
-                    options={[
-                      { value: "direct", label: t(($) => $.node.critic_id_label) },
-                      { value: "role", label: t(($) => $.node.critic_type_role) },
-                      { value: "api", label: t(($) => $.node.critic_type_api) },
-                    ]}
-                    onChange={(mode) => {
-                      if (mode === criticMode) return;
-                      const nextType: CriticType = mode === "direct" ? "human" : mode;
-                      setCriticType(nextType);
-                      setCriticId(null);
-                      cacheNodeEdits(node.id, { critic_type: nextType, critic_id: null });
-                    }}
-                  />
-
-                  {criticMode === "api" ? (
-                    <div className="space-y-1.5">
-                      <Label className="text-xs text-muted-foreground" htmlFor="critic-api-url">{t(($) => $.node.critic_api_url_label)}</Label>
-                      <Input
-                        id="critic-api-url"
-                        aria-label="Critic API URL"
-                        disabled={disabled}
-                        value={criticApiUrl}
-                        onChange={(e) => {
-                          setCriticApiUrl(e.target.value);
-                          cacheNodeEdits(node.id, { critic_api_url: e.target.value });
-                        }}
-                        placeholder="https://..."
-                        className="h-8 text-sm"
+                        align="start"
+                        skipBuiltinRuntimeSelection
+                        includeWorkflows={false}
                       />
-                      <p className="text-[11px] leading-snug text-muted-foreground">{t(($) => $.node.critic_api_url_hint)}</p>
                     </div>
-                  ) : criticMode === "role" ? (
-                    <div className="space-y-1.5">
-                      <Label className="text-xs text-muted-foreground" htmlFor="critic-role-select">{t(($) => $.detail_panel.label_critic_role)}</Label>
-                      <select
-                        id="critic-role-select"
-                        aria-label="Critic role"
-                        disabled={disabled}
-                        className="h-8 w-full rounded-md border border-input bg-background px-2 text-sm"
-                        value={criticId ?? ""}
-                        onChange={(e) => {
-                          const rid = e.target.value || null;
-                          setCriticId(rid);
-                          cacheNodeEdits(node.id, { critic_id: rid });
-                        }}
-                      >
-                        <option value="">{t(($) => $.detail_panel.select_role)}</option>
-                        {roles.map((r) => (
-                          <option key={r.id} value={r.id}>{r.name}</option>
-                        ))}
-                      </select>
-                      <ActorSummary type="role" id={criticId} label={criticLabel} emptyText={t(($) => $.detail_panel.empty_critic_role)} hint={t(($) => $.detail_panel.actor_role_hint)} />
-                    </div>
-                  ) : (
-                    <div className="space-y-2">
-                      <div className={disabled ? "pointer-events-none opacity-60" : undefined}>
-                        <AssigneePicker
-                          assigneeType={toAssigneeType(criticType)}
-                          assigneeId={criticId}
-                          triggerRender={
-                            <Button
-                              type="button"
-                              variant="outline"
-                              size="sm"
-                              className="h-8 w-full justify-start"
-                              disabled={disabled}
-                            />
-                          }
-                          trigger={
-                            <AssigneePickerTrigger
-                              type={criticType}
-                              id={criticId}
-                              label={criticLabel}
-                              emptyPrefix={t(($) => $.detail_panel.picker_empty_prefix)}
-                              emptyLabel={t(($) => $.detail_panel.empty_critic)}
-                              t={t}
-                            />
-                          }
-                          onUpdate={disabled ? () => {} : (u) => {
-                            const ct = fromAssigneeTypeCritic(u.assignee_type ?? null);
-                            const cid = u.assignee_id ?? null;
-                            setCriticType(ct);
-                            setCriticId(cid);
-                            cacheNodeEdits(node.id, { critic_type: ct, critic_id: cid });
-                          }}
-                          align="start"
-                          includeWorkflows={false}
-                        />
-                      </div>
-                      <ActorSummary type={criticType} id={criticId} label={criticLabel} emptyText={t(($) => $.detail_panel.empty_critic)} hint={t(($) => $.detail_panel.actor_assignee_hint)} />
-                    </div>
-                  )}
-                </AssignmentCard>
+                    <ActorSummary type={workerType} id={workerId} label={workerLabel} emptyText={t(($) => $.detail_panel.empty_worker)} hint={t(($) => $.detail_panel.actor_assignee_hint)} />
+                    </AssignmentCard>
 
+                    <AssignmentCard
+                      icon={<ShieldCheck className="size-4" />}
+                      title={t(($) => $.node.section_critic)}
+                      subtitle={t(($) => $.detail_panel.split_critic_subtitle)}
+                      status={criticConfigured ? <StatusBadge tone="success">{t(($) => $.detail_panel.badge_configured)}</StatusBadge> : <StatusBadge tone="warning">{t(($) => $.detail_panel.badge_needs_assignee)}</StatusBadge>}
+                    >
+                      <AssignmentModeControl<"direct" | "role" | "api">
+                        value={criticMode}
+                        disabled={disabled}
+                        options={[
+                          { value: "direct", label: t(($) => $.node.critic_id_label) },
+                          { value: "role", label: t(($) => $.node.critic_type_role) },
+                          { value: "api", label: t(($) => $.node.critic_type_api) },
+                        ]}
+                        onChange={(mode) => {
+                          if (mode === criticMode) return;
+                          const nextType: CriticType = mode === "direct" ? "human" : mode;
+                          setCriticType(nextType);
+                          setCriticId(null);
+                          cacheNodeEdits(node.id, { critic_type: nextType, critic_id: null });
+                        }}
+                      />
+
+                      {criticMode === "api" ? (
+                        <div className="space-y-1.5">
+                          <Label className="text-xs text-muted-foreground" htmlFor="split-critic-api-url">{t(($) => $.node.critic_api_url_label)}</Label>
+                          <Input
+                            id="split-critic-api-url"
+                            aria-label="Critic API URL"
+                            disabled={disabled}
+                            value={criticApiUrl}
+                            onChange={(e) => {
+                              setCriticApiUrl(e.target.value);
+                              cacheNodeEdits(node.id, { critic_api_url: e.target.value });
+                            }}
+                            placeholder="https://..."
+                            className="h-8 text-sm"
+                          />
+                          <p className="text-[11px] leading-snug text-muted-foreground">{t(($) => $.node.critic_api_url_hint)}</p>
+                        </div>
+                      ) : criticMode === "role" ? (
+                        <div className="space-y-1.5">
+                          <Label className="text-xs text-muted-foreground" htmlFor="split-critic-role-select">{t(($) => $.detail_panel.label_critic_role)}</Label>
+                          <select
+                            id="split-critic-role-select"
+                            aria-label="Critic role"
+                            disabled={disabled}
+                            className="h-8 w-full rounded-md border border-input bg-background px-2 text-sm"
+                            value={criticId ?? ""}
+                            onChange={(e) => {
+                              const rid = e.target.value || null;
+                              setCriticId(rid);
+                              cacheNodeEdits(node.id, { critic_id: rid });
+                            }}
+                          >
+                            <option value="">{t(($) => $.detail_panel.select_role)}</option>
+                            {roles.map((r) => (
+                              <option key={r.id} value={r.id}>{r.name}</option>
+                            ))}
+                          </select>
+                          <ActorSummary type="role" id={criticId} label={criticLabel} emptyText={t(($) => $.detail_panel.empty_critic_role)} hint={t(($) => $.detail_panel.actor_role_hint)} />
+                        </div>
+                      ) : (
+                        <div className="space-y-2">
+                          <div className={disabled ? "pointer-events-none opacity-60" : undefined}>
+                            <AssigneePicker
+                              assigneeType={toAssigneeType(criticType)}
+                              assigneeId={criticId}
+                              triggerRender={
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  size="sm"
+                                  className="h-8 w-full justify-start"
+                                  disabled={disabled}
+                                />
+                              }
+                              trigger={
+                                <AssigneePickerTrigger
+                                  type={criticType}
+                                  id={criticId}
+                                  label={criticLabel}
+                                  emptyPrefix={t(($) => $.detail_panel.picker_empty_prefix)}
+                                  emptyLabel={t(($) => $.detail_panel.empty_critic)}
+                                  t={t}
+                                />
+                              }
+                              onUpdate={disabled ? () => {} : (u) => {
+                                const ct = fromAssigneeTypeCritic(u.assignee_type ?? null);
+                                const cid = u.assignee_id ?? null;
+                                setCriticType(ct);
+                                setCriticId(cid);
+                                cacheNodeEdits(node.id, { critic_type: ct, critic_id: cid });
+                              }}
+                              align="start"
+                              includeWorkflows={false}
+                            />
+                          </div>
+                          <ActorSummary type={criticType} id={criticId} label={criticLabel} emptyText={t(($) => $.detail_panel.empty_critic)} hint={t(($) => $.detail_panel.actor_assignee_hint)} />
+                        </div>
+                      )}
+                    </AssignmentCard>
+                  </>
+                ) : (
+                  <>
+                    <AssignmentCard
+                      icon={<Bot className="size-4" />}
+                      title={t(($) => $.node.section_worker)}
+                      subtitle={t(($) => $.detail_panel.worker_subtitle)}
+                      status={workerConfigured ? <StatusBadge tone="success">{t(($) => $.detail_panel.badge_configured)}</StatusBadge> : <StatusBadge tone="warning">{t(($) => $.detail_panel.badge_needs_assignee)}</StatusBadge>}
+                    >
+                      <AssignmentModeControl<"direct" | "role">
+                        value={workerMode}
+                        disabled={disabled}
+                        options={[
+                          { value: "direct", label: t(($) => $.node.worker_id_label) },
+                          { value: "role", label: t(($) => $.node.worker_type_role) },
+                        ]}
+                        onChange={(mode) => {
+                          if (mode === workerMode) return;
+                          const nextType: WorkerType = mode === "direct" ? "human" : "role";
+                          setWorkerType(nextType);
+                          setWorkerId(null);
+                          cacheNodeEdits(node.id, { worker_type: nextType, worker_id: null });
+                        }}
+                      />
+
+                      {workerMode === "role" ? (
+                        <div className="space-y-1.5">
+                          <Label className="text-xs text-muted-foreground" htmlFor="worker-role-select">{t(($) => $.detail_panel.label_worker_role)}</Label>
+                          <select
+                            id="worker-role-select"
+                            aria-label="Worker role"
+                            disabled={disabled}
+                            className="h-8 w-full rounded-md border border-input bg-background px-2 text-sm"
+                            value={workerId ?? ""}
+                            onChange={(e) => {
+                              const rid = e.target.value || null;
+                              setWorkerId(rid);
+                              cacheNodeEdits(node.id, { worker_id: rid });
+                            }}
+                          >
+                            <option value="">{t(($) => $.detail_panel.select_role)}</option>
+                            {roles.map((r) => (
+                              <option key={r.id} value={r.id}>{r.name}</option>
+                            ))}
+                          </select>
+                          <ActorSummary type="role" id={workerId} label={workerLabel} emptyText={t(($) => $.detail_panel.empty_worker_role)} hint={t(($) => $.detail_panel.actor_role_hint)} />
+                        </div>
+                      ) : (
+                        <div className="space-y-2">
+                          <div className={disabled ? "pointer-events-none opacity-60" : undefined}>
+                            <AssigneePicker
+                              assigneeType={toAssigneeType(workerType)}
+                              assigneeId={workerId}
+                              triggerRender={
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  size="sm"
+                                  className="h-8 w-full justify-start"
+                                  disabled={disabled}
+                                />
+                              }
+                              trigger={
+                                <AssigneePickerTrigger
+                                  type={workerType}
+                                  id={workerId}
+                                  label={workerLabel}
+                                  emptyPrefix={t(($) => $.detail_panel.picker_empty_prefix)}
+                                  emptyLabel={t(($) => $.detail_panel.empty_worker)}
+                                  t={t}
+                                />
+                              }
+                              onUpdate={disabled ? () => {} : (u) => {
+                                const wt = fromAssigneeType(u.assignee_type ?? null);
+                                const wid = u.assignee_id ?? null;
+                                setWorkerType(wt);
+                                setWorkerId(wid);
+                                cacheNodeEdits(node.id, { worker_type: wt, worker_id: wid });
+                              }}
+                              align="start"
+                              skipBuiltinRuntimeSelection
+                              includeWorkflows={false}
+                            />
+                          </div>
+                          <ActorSummary type={workerType} id={workerId} label={workerLabel} emptyText={t(($) => $.detail_panel.empty_worker)} hint={t(($) => $.detail_panel.actor_assignee_hint)} />
+                        </div>
+                      )}
+                    </AssignmentCard>
+
+                    <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2 px-1 text-[11px] font-medium text-muted-foreground">
+                      <span className="h-px bg-border" />
+                      <span>{t(($) => $.detail_panel.worker_critic_divider)}</span>
+                      <span className="h-px bg-border" />
+                    </div>
+
+                    <AssignmentCard
+                      icon={<ShieldCheck className="size-4" />}
+                      title={t(($) => $.node.section_critic)}
+                      subtitle={t(($) => $.detail_panel.critic_subtitle)}
+                      status={criticConfigured ? <StatusBadge tone="success">{t(($) => $.detail_panel.badge_configured)}</StatusBadge> : <StatusBadge>{t(($) => $.detail_panel.badge_optional)}</StatusBadge>}
+                    >
+                      <AssignmentModeControl<"direct" | "role" | "api">
+                        value={criticMode}
+                        disabled={disabled}
+                        options={[
+                          { value: "direct", label: t(($) => $.node.critic_id_label) },
+                          { value: "role", label: t(($) => $.node.critic_type_role) },
+                          { value: "api", label: t(($) => $.node.critic_type_api) },
+                        ]}
+                        onChange={(mode) => {
+                          if (mode === criticMode) return;
+                          const nextType: CriticType = mode === "direct" ? "human" : mode;
+                          setCriticType(nextType);
+                          setCriticId(null);
+                          cacheNodeEdits(node.id, { critic_type: nextType, critic_id: null });
+                        }}
+                      />
+
+                      {criticMode === "api" ? (
+                        <div className="space-y-1.5">
+                          <Label className="text-xs text-muted-foreground" htmlFor="critic-api-url">{t(($) => $.node.critic_api_url_label)}</Label>
+                          <Input
+                            id="critic-api-url"
+                            aria-label="Critic API URL"
+                            disabled={disabled}
+                            value={criticApiUrl}
+                            onChange={(e) => {
+                              setCriticApiUrl(e.target.value);
+                              cacheNodeEdits(node.id, { critic_api_url: e.target.value });
+                            }}
+                            placeholder="https://..."
+                            className="h-8 text-sm"
+                          />
+                          <p className="text-[11px] leading-snug text-muted-foreground">{t(($) => $.node.critic_api_url_hint)}</p>
+                        </div>
+                      ) : criticMode === "role" ? (
+                        <div className="space-y-1.5">
+                          <Label className="text-xs text-muted-foreground" htmlFor="critic-role-select">{t(($) => $.detail_panel.label_critic_role)}</Label>
+                          <select
+                            id="critic-role-select"
+                            aria-label="Critic role"
+                            disabled={disabled}
+                            className="h-8 w-full rounded-md border border-input bg-background px-2 text-sm"
+                            value={criticId ?? ""}
+                            onChange={(e) => {
+                              const rid = e.target.value || null;
+                              setCriticId(rid);
+                              cacheNodeEdits(node.id, { critic_id: rid });
+                            }}
+                          >
+                            <option value="">{t(($) => $.detail_panel.select_role)}</option>
+                            {roles.map((r) => (
+                              <option key={r.id} value={r.id}>{r.name}</option>
+                            ))}
+                          </select>
+                          <ActorSummary type="role" id={criticId} label={criticLabel} emptyText={t(($) => $.detail_panel.empty_critic_role)} hint={t(($) => $.detail_panel.actor_role_hint)} />
+                        </div>
+                      ) : (
+                        <div className="space-y-2">
+                          <div className={disabled ? "pointer-events-none opacity-60" : undefined}>
+                            <AssigneePicker
+                              assigneeType={toAssigneeType(criticType)}
+                              assigneeId={criticId}
+                              triggerRender={
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  size="sm"
+                                  className="h-8 w-full justify-start"
+                                  disabled={disabled}
+                                />
+                              }
+                              trigger={
+                                <AssigneePickerTrigger
+                                  type={criticType}
+                                  id={criticId}
+                                  label={criticLabel}
+                                  emptyPrefix={t(($) => $.detail_panel.picker_empty_prefix)}
+                                  emptyLabel={t(($) => $.detail_panel.empty_critic)}
+                                  t={t}
+                                />
+                              }
+                              onUpdate={disabled ? () => {} : (u) => {
+                                const ct = fromAssigneeTypeCritic(u.assignee_type ?? null);
+                                const cid = u.assignee_id ?? null;
+                                setCriticType(ct);
+                                setCriticId(cid);
+                                cacheNodeEdits(node.id, { critic_type: ct, critic_id: cid });
+                              }}
+                              align="start"
+                              includeWorkflows={false}
+                            />
+                          </div>
+                          <ActorSummary type={criticType} id={criticId} label={criticLabel} emptyText={t(($) => $.detail_panel.empty_critic)} hint={t(($) => $.detail_panel.actor_assignee_hint)} />
+                        </div>
+                      )}
+                    </AssignmentCard>
+                  </>
+                )}
               </>
             ) : null}
 
         </div>
       </NodeDetailSection>
 
-      <NodeDetailSection
-        sectionId="deliverables"
-        icon={<FileCheck2 className="size-4" />}
-        title={t(($) => $.detail_panel.section_deliverables)}
-        subtitle={t(($) => $.detail_panel.section_deliverables_desc)}
-      >
-        {!isAnnotation && !isGateway ? (
-          <NodeDeliverablesEditor
-            nodeId={node.id}
-            disabled={disabled}
-            deliverables={deliverableDrafts}
-            onChange={handleDeliverablesChange}
-          />
-        ) : (
-          <p className="text-sm text-muted-foreground">
-            {isGateway ? t(($) => $.detail_panel.deliverables_not_applicable_gateway) : t(($) => $.detail_panel.deliverables_not_applicable_annotation)}
-          </p>
-        )}
-      </NodeDetailSection>
+		{isSplit ? (
+			<>
+				<NodeDetailSection
+					sectionId="split-behavior"
+					icon={<GitBranch className="size-4" />}
+					title={t(($) => $.detail_panel.section_split_behavior)}
+					subtitle={t(($) => $.detail_panel.section_split_behavior_desc)}
+				>
+					<SplitConfigPanel
+						config={splitConfig}
+						childWorkflows={activeWorkflows}
+						currentWorkflowId={workflowId}
+						disabled={disabled}
+						onChange={handleSplitConfigChange}
+					/>
+				</NodeDetailSection>
 
-      <NodeDetailSection
-        sectionId="runtime"
-        icon={<Activity className="size-4" />}
-        title={t(($) => $.detail_panel.section_runtime)}
-        subtitle={t(($) => $.detail_panel.section_runtime_desc)}
-        status={recentNodeRun ? <StatusBadge tone={runTone}>{recentNodeRun.status}</StatusBadge> : <StatusBadge>{t(($) => $.detail_panel.badge_no_run)}</StatusBadge>}
-      >
-        {recentNodeRun ? (
-          <div className="space-y-2">
-            <div className={`flex items-start gap-2 rounded-lg border p-3 ${statusClasses(runTone)}`}>
-              {runTone === "danger" ? <AlertTriangle className="mt-0.5 size-4" /> : <CheckCircle2 className="mt-0.5 size-4" />}
-              <div className="min-w-0">
-                    <p className="text-sm font-medium">{t(($) => $.detail_panel.runtime_status_label, { status: recentNodeRun.status })}</p>
-                <p className="mt-1 text-[11px] leading-snug opacity-80">
-                  {t(($) => $.detail_panel.runtime_hint)}
-                </p>
-              </div>
-            </div>
-            <NodeDataPreview nodeRun={recentNodeRun} />
-          </div>
-        ) : (
-          <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
-            {t(($) => $.detail_panel.runtime_no_data)}
-          </div>
-        )}
-      </NodeDetailSection>
-
-      <NodeDetailSection
-        sectionId="connections"
-        icon={<GitBranch className="size-4" />}
-        title={t(($) => $.detail_panel.section_connections)}
-        subtitle={t(($) => $.detail_panel.section_connections_desc)}
-      >
-        <div className="space-y-2 text-sm text-muted-foreground">
-          <p>{t(($) => $.detail_panel.connections_stage, { stage: currentStageName })}</p>
-          {isGateway ? <p>{t(($) => $.detail_panel.connections_gateway_hint)}</p> : null}
-          {isAnnotation && targetNodeId ? (
-            <p>{t(($) => $.detail_panel.connections_bound_to, { node: bindableNodes.find((bn) => bn.id === targetNodeId)?.title ?? t(($) => $.detail_panel.empty_unknown_node) })}</p>
-          ) : null}
-        </div>
-      </NodeDetailSection>
+				<NodeDetailSection
+					sectionId="connections"
+					icon={<GitFork className="size-4" />}
+					title={t(($) => $.detail_panel.section_connections)}
+					subtitle={t(($) => $.detail_panel.section_connections_desc)}
+				>
+					<div className="grid grid-cols-2 gap-2 text-xs">
+						<div className="rounded-md border bg-muted/20 p-2">
+							{t(($) => $.detail_panel.connection_upstream_count, { count: incomingCount })}
+						</div>
+						<div className="rounded-md border bg-muted/20 p-2">
+							{t(($) => $.detail_panel.connection_downstream_count, { count: outgoingCount })}
+						</div>
+					</div>
+				</NodeDetailSection>
+			</>
+		) : null}
 
       <NodeDetailSection
         sectionId="actions"
@@ -1015,13 +1146,19 @@ export function NodeConfigPanel({
       >
         {!disabled ? (
           <div className="space-y-2">
+			{isSplit ? (
+				<Button type="button" size="sm" variant="outline" className="w-full" onClick={onTrialRun} disabled={disabled || !onTrialRun}>
+					<Play className="mr-1.5 size-3.5" />
+					{t(($) => $.detail_panel.trial_run)}
+				</Button>
+			) : null}
             {onSaveNode ? (
               <Button
                 size="sm"
                 variant="default"
                 className="w-full"
                 onClick={handleSaveAll}
-                disabled={!hasUnsavedChanges || isSavingDeliverables}
+                disabled={!hasUnsavedChanges}
               >
                 <Save className="mr-1.5 h-3.5 w-3.5" />
                 {t(($) => $.detail_panel.save_changes)}

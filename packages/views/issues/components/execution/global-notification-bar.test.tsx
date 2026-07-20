@@ -15,6 +15,16 @@ vi.mock("@multica/views/i18n", () => ({
         execution: {
           notification: {
             summary_title: "Action needed:",
+            progress_title: "Run progress:",
+            progress_done: `${params?.done ?? ""}/${params?.total ?? ""} done`,
+            current_node: `Current: ${params?.title ?? ""}`,
+            no_current_node: "No active node",
+            running_count: `${params?.count ?? ""} running`,
+            reviewing_count: `${params?.count ?? ""} reviewing`,
+            blocked_count: `${params?.count ?? ""} blocked`,
+            waiting_count: `${params?.count ?? ""} waiting`,
+            elapsed: `Elapsed ${params?.elapsed ?? ""}`,
+            no_action_needed: "No action needed",
             awaiting_critic: "Awaiting review:",
             blocked_failed: "Needs attention:",
             awaiting_input: "Awaiting input:",
@@ -67,15 +77,19 @@ function makeNodeRun(overrides: Partial<WorkflowNodeRun> = {}): WorkflowNodeRun 
 // Tests
 // ---------------------------------------------------------------------------
 describe("GlobalNotificationBar", () => {
-  it("renders nothing when no actionable runs exist", () => {
+  it("renders progress and prioritized chips when a run is active", () => {
     const map = new Map<string, WorkflowNodeRun>();
     map.set("n-1", makeNodeRun({ id: "nr-1", status: "completed" }));
-    map.set("n-2", makeNodeRun({ id: "nr-2", status: "working" }));
+    map.set("n-2", makeNodeRun({ id: "nr-2", status: "working", node_title: "Build API" }));
 
-    const { container } = render(
+    render(
       <GlobalNotificationBar nodeRunMap={map} onScrollToNode={vi.fn()} />,
     );
-    expect(container.firstChild).toBeNull();
+    expect(screen.getByTestId("global-notification-bar")).toBeInTheDocument();
+    expect(screen.getByTestId("notification-summary")).toHaveTextContent("Run progress:1/2 done");
+    expect(screen.getByTestId("notification-summary")).toHaveTextContent("Current: Build API");
+    expect(screen.getByTestId("progress-chip-running")).toBeInTheDocument();
+    expect(screen.queryByText("No action needed")).not.toBeInTheDocument();
   });
 
   it("renders nothing for empty map", () => {
@@ -88,17 +102,24 @@ describe("GlobalNotificationBar", () => {
     expect(container.firstChild).toBeNull();
   });
 
-  it("renders awaiting_critic notification chip", () => {
+  it("uses progress chips as the only node navigation controls", () => {
     const map = new Map<string, WorkflowNodeRun>();
     map.set("n-1", makeNodeRun({ id: "nr-1", status: "awaiting_critic", workflow_node_id: "n-1" }));
-    map.set("n-2", makeNodeRun({ id: "nr-2", status: "awaiting_critic", workflow_node_id: "n-2" }));
+    map.set("n-2", makeNodeRun({ id: "nr-2", status: "blocked", workflow_node_id: "n-2" }));
+    map.set("n-3", makeNodeRun({ id: "nr-3", status: "pending", workflow_node_id: "n-3" }));
 
     render(
       <GlobalNotificationBar nodeRunMap={map} onScrollToNode={vi.fn()} />,
     );
 
     expect(screen.getByTestId("global-notification-bar")).toBeInTheDocument();
-    expect(screen.getByTestId("notification-item-awaiting_critic")).toBeInTheDocument();
+    expect(screen.getByTestId("progress-chip-running")).toBeInTheDocument();
+    expect(screen.getByTestId("progress-chip-reviewing")).toBeInTheDocument();
+    expect(screen.getByTestId("progress-chip-blocked")).toBeInTheDocument();
+    expect(screen.getByTestId("progress-chip-waiting")).toBeInTheDocument();
+    expect(screen.queryByTestId("notification-item-awaiting_critic")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("notification-item-blocked_failed")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("notification-item-awaiting_input")).not.toBeInTheDocument();
   });
 
   it("renders as a compact canvas status bar", () => {
@@ -119,48 +140,6 @@ describe("GlobalNotificationBar", () => {
     expect(screen.getByTestId("notification-rail")).toBeInTheDocument();
   });
 
-  it("renders blocked_failed notification chip", () => {
-    const map = new Map<string, WorkflowNodeRun>();
-    map.set("n-1", makeNodeRun({ id: "nr-1", status: "blocked", workflow_node_id: "n-1" }));
-    map.set("n-2", makeNodeRun({ id: "nr-2", status: "failed", workflow_node_id: "n-2" }));
-
-    render(
-      <GlobalNotificationBar nodeRunMap={map} onScrollToNode={vi.fn()} />,
-    );
-
-    expect(screen.getByTestId("notification-item-blocked_failed")).toBeInTheDocument();
-  });
-
-  it("renders awaiting_input notification chip", () => {
-    const map = new Map<string, WorkflowNodeRun>();
-    map.set("n-1", makeNodeRun({ id: "nr-1", status: "awaiting_input", workflow_node_id: "n-1" }));
-
-    render(
-      <GlobalNotificationBar nodeRunMap={map} onScrollToNode={vi.fn()} />,
-    );
-
-    expect(screen.getByTestId("notification-item-awaiting_input")).toBeInTheDocument();
-  });
-
-  it("renders multiple notification chips in priority order", () => {
-    const map = new Map<string, WorkflowNodeRun>();
-    map.set("n-1", makeNodeRun({ id: "nr-1", status: "awaiting_input", workflow_node_id: "n-1" }));
-    map.set("n-2", makeNodeRun({ id: "nr-2", status: "blocked", workflow_node_id: "n-2" }));
-    map.set("n-3", makeNodeRun({ id: "nr-3", status: "awaiting_critic", workflow_node_id: "n-3" }));
-
-    render(
-      <GlobalNotificationBar nodeRunMap={map} onScrollToNode={vi.fn()} />,
-    );
-
-    const bar = screen.getByTestId("global-notification-bar");
-    // Find the chips container (second child, after status indicator)
-    const chipsContainer = bar.querySelector(".flex-1");
-    const children = [...(chipsContainer?.children ?? [])];
-    expect(children[0]).toHaveAttribute("data-testid", "notification-item-blocked_failed");
-    expect(children[1]).toHaveAttribute("data-testid", "notification-item-awaiting_critic");
-    expect(children[2]).toHaveAttribute("data-testid", "notification-item-awaiting_input");
-  });
-
   it("shows the total notification count with a generic summary label", () => {
     const map = new Map<string, WorkflowNodeRun>();
     map.set("review", makeNodeRun({ id: "nr-1", status: "awaiting_critic", workflow_node_id: "review" }));
@@ -171,34 +150,118 @@ describe("GlobalNotificationBar", () => {
       <GlobalNotificationBar nodeRunMap={map} onScrollToNode={vi.fn()} />,
     );
 
-    expect(screen.getByTestId("notification-summary")).toHaveTextContent("Action needed:3");
-    expect(screen.getByTestId("notification-item-awaiting_critic")).toHaveTextContent("Awaiting review:1");
+    expect(screen.getByTestId("notification-summary")).toHaveTextContent("Run progress:0/3 done");
+    expect(screen.getByTestId("progress-chip-blocked")).toHaveTextContent("2 blocked");
+    expect(screen.getByTestId("progress-chip-reviewing")).toHaveTextContent("1 reviewing");
   });
 
-  it("calls onScrollToNode with firstNodeId on chip click", () => {
+  it("shows counts, current node, and elapsed fallback in the progress summary", () => {
+    const map = new Map<string, WorkflowNodeRun>();
+    map.set("done", makeNodeRun({ id: "nr-1", status: "completed", workflow_node_id: "done" }));
+    map.set("running", makeNodeRun({ id: "nr-2", status: "working", workflow_node_id: "running", node_title: "Implement worker", started_at: null }));
+    map.set("blocked", makeNodeRun({ id: "nr-3", status: "blocked", workflow_node_id: "blocked", node_title: "Investigate blocker" }));
+    map.set("pending", makeNodeRun({ id: "nr-4", status: "pending", workflow_node_id: "pending" }));
+
+    render(
+      <GlobalNotificationBar nodeRunMap={map} onScrollToNode={vi.fn()} />,
+    );
+
+    expect(screen.getByTestId("notification-summary")).toHaveTextContent("Run progress:1/4 done");
+    expect(screen.getByTestId("notification-summary")).toHaveTextContent("Current: Investigate blocker");
+    expect(screen.getByTestId("run-progress-counts")).toHaveTextContent("1 running");
+    expect(screen.getByTestId("run-progress-counts")).toHaveTextContent("1 blocked");
+    expect(screen.getByTestId("run-progress-counts")).toHaveTextContent("1 waiting");
+    expect(screen.getByTestId("run-progress-counts")).toHaveTextContent("Elapsed --");
+  });
+
+  it("counts node runs by the same display status shown on runtime cards", () => {
+    const map = new Map<string, WorkflowNodeRun>();
+    map.set("review", makeNodeRun({ id: "nr-1", status: "awaiting_critic", workflow_node_id: "review", node_title: "Review split" }));
+    map.set("todo", makeNodeRun({ id: "nr-2", status: "worker_assigned", workflow_node_id: "todo", node_title: "Plan tests" }));
+
+    render(
+      <GlobalNotificationBar nodeRunMap={map} onScrollToNode={vi.fn()} />,
+    );
+
+    expect(screen.getByTestId("run-progress-counts")).toHaveTextContent("1 reviewing");
+    expect(screen.getByTestId("run-progress-counts")).toHaveTextContent("1 waiting");
+    expect(screen.getByTestId("run-progress-counts")).toHaveTextContent("0 running");
+    expect(screen.getByTestId("notification-summary")).toHaveTextContent("Current: Review split");
+  });
+
+  it("treats reviewing display status as actionable", () => {
+    const map = new Map<string, WorkflowNodeRun>();
+    map.set("review", makeNodeRun({ id: "nr-1", status: "awaiting_critic", workflow_node_id: "review" }));
+
+    render(
+      <GlobalNotificationBar nodeRunMap={map} onScrollToNode={vi.fn()} />,
+    );
+
+    expect(screen.getByTestId("progress-chip-reviewing")).toHaveTextContent("1 reviewing");
+    expect(screen.queryByText("No action needed")).not.toBeInTheDocument();
+  });
+
+  it("lets progress count chips focus their first matching node", () => {
     const onScrollToNode = vi.fn();
     const map = new Map<string, WorkflowNodeRun>();
-    map.set("n-abc", makeNodeRun({ id: "nr-1", status: "awaiting_critic", workflow_node_id: "n-abc" }));
+    map.set("done", makeNodeRun({ id: "nr-1", status: "completed", workflow_node_id: "done" }));
+    map.set("running", makeNodeRun({ id: "nr-2", status: "working", workflow_node_id: "running" }));
+    map.set("blocked", makeNodeRun({ id: "nr-3", status: "blocked", workflow_node_id: "blocked" }));
+    map.set("pending", makeNodeRun({ id: "nr-4", status: "pending", workflow_node_id: "pending" }));
 
     render(
       <GlobalNotificationBar nodeRunMap={map} onScrollToNode={onScrollToNode} />,
     );
 
-    fireEvent.click(screen.getByTestId("notification-item-awaiting_critic"));
-    expect(onScrollToNode).toHaveBeenCalledWith("n-abc");
+    fireEvent.click(screen.getByTestId("progress-chip-blocked"));
+    expect(onScrollToNode).toHaveBeenLastCalledWith("blocked");
+
+    fireEvent.click(screen.getByTestId("progress-chip-running"));
+    expect(onScrollToNode).toHaveBeenLastCalledWith("running");
+
+    fireEvent.click(screen.getByTestId("progress-chip-waiting"));
+    expect(onScrollToNode).toHaveBeenLastCalledWith("pending");
   });
 
-  it("uses first blocked node for blocked_failed chip scroll target", () => {
+  it("orders progress chips by action priority", () => {
+    const map = new Map<string, WorkflowNodeRun>();
+    map.set("pending", makeNodeRun({ id: "nr-1", status: "pending", workflow_node_id: "pending" }));
+    map.set("running", makeNodeRun({ id: "nr-2", status: "working", workflow_node_id: "running" }));
+    map.set("blocked", makeNodeRun({ id: "nr-3", status: "blocked", workflow_node_id: "blocked" }));
+
+    render(
+      <GlobalNotificationBar nodeRunMap={map} onScrollToNode={vi.fn()} />,
+    );
+
+    const chips = [...screen.getByTestId("run-progress-counts").querySelectorAll("button")];
+    expect(chips.map((chip) => chip.getAttribute("data-testid"))).toEqual([
+      "progress-chip-blocked",
+      "progress-chip-running",
+      "progress-chip-waiting",
+      "progress-chip-reviewing",
+    ]);
+  });
+
+  it("targets the highest-priority node and preserves order for ties", () => {
     const onScrollToNode = vi.fn();
     const map = new Map<string, WorkflowNodeRun>();
-    map.set("first-blocked", makeNodeRun({ id: "nr-1", status: "blocked", workflow_node_id: "first-blocked" }));
-    map.set("second-failed", makeNodeRun({ id: "nr-2", status: "failed", workflow_node_id: "second-failed" }));
+    map.set("running-low", makeNodeRun({ id: "nr-1", status: "working", workflow_node_id: "running-low" }));
+    map.set("running-high", makeNodeRun({ id: "nr-2", status: "awaiting_critic", workflow_node_id: "running-high" }));
+    map.set("blocked-low", makeNodeRun({ id: "nr-3", status: "failed", workflow_node_id: "blocked-low" }));
+    map.set("blocked-high", makeNodeRun({ id: "nr-4", status: "critic_rework", workflow_node_id: "blocked-high" }));
 
     render(
       <GlobalNotificationBar nodeRunMap={map} onScrollToNode={onScrollToNode} />,
     );
 
-    fireEvent.click(screen.getByTestId("notification-item-blocked_failed"));
-    expect(onScrollToNode).toHaveBeenCalledWith("first-blocked");
+    fireEvent.click(screen.getByTestId("progress-chip-reviewing"));
+    expect(onScrollToNode).toHaveBeenLastCalledWith("running-high");
+
+    fireEvent.click(screen.getByTestId("progress-chip-running"));
+    expect(onScrollToNode).toHaveBeenLastCalledWith("running-low");
+
+    fireEvent.click(screen.getByTestId("progress-chip-blocked"));
+    expect(onScrollToNode).toHaveBeenLastCalledWith("blocked-low");
   });
+
 });

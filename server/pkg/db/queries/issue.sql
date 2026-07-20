@@ -7,11 +7,12 @@
 -- "Assigned to me"), and the two filters must produce disjoint result sets.
 SELECT i.id, i.workspace_id, i.title, i.description, i.status, i.priority,
        i.assignee_type, i.assignee_id, i.creator_type, i.creator_id,
-       i.parent_issue_id, i.position, i.start_date, i.due_date, i.created_at, i.updated_at, i.number, i.project_id, i.workflow_id, i.workflow_run_id, i.stage_id, i.metadata
+       i.parent_issue_id, i.position, i.start_date, i.due_date, i.created_at, i.updated_at, i.number, i.project_id, i.workflow_id, i.workflow_run_id, i.stage_id, i.metadata, i.origin_type, i.origin_id
 FROM multica_issue i
 WHERE i.workspace_id = $1
   AND (sqlc.narg('exclude_workflow_origin')::bool IS NULL
-       OR i.origin_type IS DISTINCT FROM 'workflow')
+       OR i.origin_type IS NULL
+       OR i.origin_type NOT IN ('workflow', 'workflow_split'))
   AND (sqlc.narg('status')::text IS NULL OR i.status = sqlc.narg('status'))
   AND (sqlc.narg('priority')::text IS NULL OR i.priority = sqlc.narg('priority'))
   AND (sqlc.narg('assignee_id')::uuid IS NULL OR i.assignee_id = sqlc.narg('assignee_id'))
@@ -126,6 +127,15 @@ INSERT INTO multica_issue (
     sqlc.narg('workflow_id'), sqlc.narg('workflow_run_id'), sqlc.narg('stage_id')
 ) RETURNING *;
 
+-- name: FinalizeSplitChildIssueRun :execrows
+UPDATE multica_issue
+SET description = $2,
+    workflow_id = $3,
+    workflow_run_id = $4,
+    updated_at = now()
+WHERE id = $1
+  AND status NOT IN ('cancelled', 'done');
+
 -- name: LockIssueDuplicateKey :exec
 SELECT pg_advisory_xact_lock(hashtextextended($1::text, 0));
 
@@ -152,12 +162,13 @@ DELETE FROM multica_issue WHERE id = $1 AND workspace_id = $2;
 -- filter; multica_member-direct assignment is intentionally excluded).
 SELECT i.id, i.workspace_id, i.title, i.description, i.status, i.priority,
        i.assignee_type, i.assignee_id, i.creator_type, i.creator_id,
-       i.parent_issue_id, i.position, i.start_date, i.due_date, i.created_at, i.updated_at, i.number, i.project_id, i.workflow_id, i.workflow_run_id, i.stage_id, i.metadata
+       i.parent_issue_id, i.position, i.start_date, i.due_date, i.created_at, i.updated_at, i.number, i.project_id, i.workflow_id, i.workflow_run_id, i.stage_id, i.metadata, i.origin_type, i.origin_id
 FROM multica_issue i
 WHERE i.workspace_id = $1
   AND i.status NOT IN ('done', 'cancelled')
   AND (sqlc.narg('exclude_workflow_origin')::bool IS NULL
-       OR i.origin_type IS DISTINCT FROM 'workflow')
+       OR i.origin_type IS NULL
+       OR i.origin_type NOT IN ('workflow', 'workflow_split'))
   AND (sqlc.narg('priority')::text IS NULL OR i.priority = sqlc.narg('priority'))
   AND (sqlc.narg('assignee_id')::uuid IS NULL OR i.assignee_id = sqlc.narg('assignee_id'))
   AND (sqlc.narg('assignee_ids')::uuid[] IS NULL OR i.assignee_id = ANY(sqlc.narg('assignee_ids')::uuid[]))
@@ -203,7 +214,8 @@ ORDER BY i.position ASC, i.created_at DESC;
 SELECT count(*) FROM multica_issue i
 WHERE i.workspace_id = $1
   AND (sqlc.narg('exclude_workflow_origin')::bool IS NULL
-       OR i.origin_type IS DISTINCT FROM 'workflow')
+       OR i.origin_type IS NULL
+       OR i.origin_type NOT IN ('workflow', 'workflow_split'))
   AND (sqlc.narg('status')::text IS NULL OR i.status = sqlc.narg('status'))
   AND (sqlc.narg('priority')::text IS NULL OR i.priority = sqlc.narg('priority'))
   AND (sqlc.narg('assignee_id')::uuid IS NULL OR i.assignee_id = sqlc.narg('assignee_id'))
@@ -248,6 +260,7 @@ WHERE i.workspace_id = $1
 -- name: ListChildIssues :many
 SELECT * FROM multica_issue
 WHERE parent_issue_id = $1
+  AND (origin_type IS NULL OR origin_type <> 'workflow')
 ORDER BY position ASC, created_at DESC;
 
 -- name: ListIssueDescendants :many
@@ -303,6 +316,7 @@ SELECT parent_issue_id,
 FROM multica_issue
 WHERE workspace_id = $1
   AND parent_issue_id IS NOT NULL
+  AND (origin_type IS NULL OR origin_type <> 'workflow')
 GROUP BY parent_issue_id;
 
 -- SearchIssues: moved to handler (dynamic SQL for multi-word search support).
@@ -335,3 +349,10 @@ UPDATE multica_issue
 SET first_executed_at = now()
 WHERE id = $1 AND first_executed_at IS NULL
 RETURNING id, workspace_id, creator_type, creator_id, first_executed_at;
+
+-- name: GetOpenSplitTaskByIssueID :one
+SELECT *
+FROM multica_workflow_split_task
+WHERE issue_id = $1
+  AND status NOT IN ('done', 'failed', 'cancelled', 'skipped', 'discarded')
+LIMIT 1;

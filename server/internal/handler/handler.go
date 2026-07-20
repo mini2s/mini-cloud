@@ -132,6 +132,7 @@ type Handler struct {
 	TaskService           *service.TaskService
 	AutopilotService      *service.AutopilotService
 	WorkflowService       *service.WorkflowService
+	SplitOrchestrator     *service.SplitOrchestrator
 	EmailService          *service.EmailService
 	UpdateStore           UpdateStore
 	ModelListStore        ModelListStore
@@ -171,6 +172,14 @@ func New(queries *db.Queries, txStarter txStarter, hub *realtime.Hub, bus *event
 	taskSvc.Analytics = analyticsClient
 	autopilotSvc := service.NewAutopilotService(queries, txStarter, bus, taskSvc)
 	workflowSvc := service.NewWorkflowService(queries, txStarter, bus, taskSvc)
+	splitOrchestrator := service.NewSplitOrchestrator(queries, txStarter, workflowSvc, bus, store)
+
+	taskSvc.OnTaskCompleting = func(ctx context.Context, task db.MulticaAgentTaskQueue) error {
+		if splitOrchestrator != nil {
+			return splitOrchestrator.HandleTaskCompletion(ctx, task)
+		}
+		return nil
+	}
 
 	// Wire the workflow completion gateway: when an agent task linked to a
 	// workflow node run completes, the WorkflowService transitions the node
@@ -189,6 +198,7 @@ func New(queries *db.Queries, txStarter txStarter, hub *realtime.Hub, bus *event
 		TaskService:           taskSvc,
 		AutopilotService:      autopilotSvc,
 		WorkflowService:       workflowSvc,
+		SplitOrchestrator:     splitOrchestrator,
 		EmailService:          emailService,
 		UpdateStore:           NewInMemoryUpdateStore(),
 		ModelListStore:        NewInMemoryModelListStore(),
@@ -217,6 +227,11 @@ func New(queries *db.Queries, txStarter txStarter, hub *realtime.Hub, bus *event
 	// when the workflow run finishes successfully.
 	workflowSvc.OnNodeStatusChanged = func(ctx context.Context, nodeRun db.MulticaWorkflowNodeRun) {
 		h.syncSubIssueForNodeRun(ctx, nodeRun)
+		if h.SplitOrchestrator != nil {
+			if err := h.SplitOrchestrator.HandleNodeRunStatusChanged(ctx, nodeRun); err != nil {
+				slog.Warn("split orchestrator node-run hook failed", "node_run_id", uuidToString(nodeRun.ID), "error", err)
+			}
+		}
 		// Publish WS event so frontend DAG refreshes immediately.
 		if run, err := h.Queries.GetWorkflowRun(ctx, nodeRun.WorkflowRunID); err == nil {
 			if wf, err := h.Queries.GetWorkflow(ctx, run.WorkflowID); err == nil {
@@ -230,6 +245,11 @@ func New(queries *db.Queries, txStarter txStarter, hub *realtime.Hub, bus *event
 	}
 	workflowSvc.OnRunTerminal = func(ctx context.Context, run db.MulticaWorkflowRun, status string) {
 		h.handleWorkflowRunTerminal(ctx, run, status)
+		if h.SplitOrchestrator != nil {
+			if err := h.SplitOrchestrator.HandleChildRunTerminal(ctx, run, status); err != nil {
+				slog.Warn("split orchestrator run-terminal hook failed", "run_id", uuidToString(run.ID), "error", err)
+			}
+		}
 	}
 
 	return h
@@ -243,6 +263,10 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 
 func writeError(w http.ResponseWriter, status int, msg string) {
 	writeJSON(w, status, map[string]string{"error": msg})
+}
+
+func writeCodeError(w http.ResponseWriter, status int, code, msg string) {
+	writeJSON(w, status, map[string]string{"code": code, "error": msg})
 }
 
 // Thin wrappers around util functions.
@@ -352,6 +376,35 @@ func isCheckViolation(err error) bool {
 
 func requestUserID(r *http.Request) string {
 	return r.Header.Get("X-User-ID")
+}
+
+func (h *Handler) runningSplitPhaseTask(r *http.Request) (db.MulticaAgentTaskQueue, bool) {
+	taskUUID, err := util.ParseUUID(r.Header.Get("X-Task-ID"))
+	if err != nil {
+		return db.MulticaAgentTaskQueue{}, false
+	}
+	agentUUID, err := util.ParseUUID(r.Header.Get("X-Agent-ID"))
+	if err != nil {
+		return db.MulticaAgentTaskQueue{}, false
+	}
+	task, err := h.Queries.GetAgentTask(r.Context(), taskUUID)
+	if err != nil || task.Status != "running" || task.AgentID != agentUUID {
+		return db.MulticaAgentTaskQueue{}, false
+	}
+	var payload struct {
+		Type   string `json:"type"`
+		Phase  string `json:"phase"`
+		Repair bool   `json:"repair"`
+	}
+	if err := json.Unmarshal(task.Context, &payload); err != nil || payload.Type != "workflow" {
+		return db.MulticaAgentTaskQueue{}, false
+	}
+	switch payload.Phase {
+	case "split_generate", "split_repair", "split_chat", "split":
+		return task, true
+	default:
+		return db.MulticaAgentTaskQueue{}, false
+	}
 }
 
 // resolveActor determines whether the request is from an agent or a human member.

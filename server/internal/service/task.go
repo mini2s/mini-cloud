@@ -41,6 +41,11 @@ type TaskService struct {
 	// client.
 	EmptyClaim *EmptyClaimCache
 
+	// OnTaskCompleting is an optional callback invoked before a running task is
+	// marked completed. It can validate or consume the result and veto completion
+	// by returning an error.
+	OnTaskCompleting func(ctx context.Context, task db.MulticaAgentTaskQueue) error
+
 	// OnTaskCompleted is an optional callback invoked after a task reaches
 	// the completed state. The WorkflowService uses this to detect agent
 	// tasks belonging to workflow node runs and transition the node run
@@ -1131,6 +1136,25 @@ func (s *TaskService) StartTask(ctx context.Context, taskID pgtype.UUID) (*db.Mu
 // flipping to 'completed' and chat_session.session_id being refreshed,
 // causing the new task to resume against a stale (or NULL) session.
 func (s *TaskService) CompleteTask(ctx context.Context, taskID pgtype.UUID, result []byte, sessionID, workDir string) (*db.MulticaAgentTaskQueue, error) {
+	if s.OnTaskCompleting != nil {
+		current, err := s.Queries.GetAgentTask(ctx, taskID)
+		if err != nil {
+			return nil, fmt.Errorf("load task before completion: %w", err)
+		}
+		if current.Status == "running" && current.WorkflowNodeRunID.Valid {
+			current.Result = result
+			if sessionID != "" {
+				current.SessionID = pgtype.Text{String: sessionID, Valid: true}
+			}
+			if workDir != "" {
+				current.WorkDir = pgtype.Text{String: workDir, Valid: true}
+			}
+			if err := s.OnTaskCompleting(ctx, current); err != nil {
+				return nil, fmt.Errorf("complete task hook: %w", err)
+			}
+		}
+	}
+
 	var task db.MulticaAgentTaskQueue
 	if err := s.runInTx(ctx, func(qtx *db.Queries) error {
 		t, err := qtx.CompleteAgentTask(ctx, db.CompleteAgentTaskParams{

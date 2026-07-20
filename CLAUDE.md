@@ -388,3 +388,26 @@ All queries filter by `workspace_id`. Membership checks gate access. `X-Workspac
 ## Agent Assignees
 
 Assignees are polymorphic — can be a member or an agent. `assignee_type` + `assignee_id` on issues. Agents render with distinct styling (purple background, robot icon).
+
+## Troubleshooting
+
+当遇到 agent、daemon、运行时相关问题时，优先查看日志定位问题。各组件日志位置：
+
+| 组件 | 位置 | 查看方式 |
+|---|---|---|
+| **Daemon（默认 profile）** | `~/.multica/daemon.log` | `cs-workflow daemon logs -f --lines 100` |
+| **Daemon（命名 profile）** | `~/.multica/profiles/<name>/daemon.log` | `cs-workflow daemon logs -f --lines 100 --profile <name>` |
+| **Daemon（桌面应用）** | `~/.multica/profiles/desktop-<host>/daemon.log` | 桌面应用状态栏 → 日志面板 |
+| **后端（Docker）** | container stdout/stderr | `docker logs -f <container>` |
+| **后端（systemd）** | journal | `journalctl -u multica-server -f` |
+| **后端（开发环境）** | 终端 stderr | 直接查看运行 `make server` 的终端 |
+| **前端（浏览器）** | DevTools → Console | 按 `F12` |
+
+排查思路：
+1. 先查 daemon 日志：`cs-workflow daemon logs -f --lines 100`，确认 agent 是否正常启动、任务是否被 claim、执行是否有报错
+2. 再查后端日志：确认 API 请求是否到达、WebSocket 是否连接、任务状态流转是否正常
+3. 交叉对比两条日志的时间线，定位问题发生在客户端（daemon）还是服务端
+
+Daemon 前台调试（输出更详细）：`cs-workflow daemon stop && cs-workflow daemon start --foreground`
+
+详细的官方排障指南见 `apps/docs/content/docs/troubleshooting.mdx`（英文）和 `.zh.mdx`（中文）。

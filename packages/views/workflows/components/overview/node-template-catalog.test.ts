@@ -116,4 +116,35 @@ describe("node-template-catalog", () => {
         template_category: "logic",
       });
   });
+
+  it("generates split node payloads with conservative split defaults", () => {
+    const split = NODE_TEMPLATES.find((item) => item.id === "task-splitter");
+
+    expect(split).toMatchObject({
+      category: "logic",
+      title: "Task split",
+      shape: "rectangle",
+      worker_type: "agent",
+      critic_type: "human",
+    });
+
+    expect(buildCreateNodeRequestFromTemplate(split!, { x: 240, y: 80, stageId: "stage-2" }))
+      .toMatchObject({
+        title: "Task split",
+        stage_id: "stage-2",
+        worker_id: null,
+        format_schema: {
+          type: "split",
+          shape: "rectangle",
+          template_id: "task-splitter",
+          template_category: "logic",
+          split_config: {
+            default_issue_workflow_id: null,
+            mode: "barrier",
+            max_concurrency: 5,
+            max_failures: 0,
+          },
+        },
+      });
+  });
 });

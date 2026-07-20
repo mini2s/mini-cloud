@@ -273,7 +273,7 @@ func buildMetaSkillContent(provider string, ctx TaskContextForEnv) string {
 	// issue (comment-triggered or assignment-triggered). Chat / quick-create /
 	// run-only autopilot don't carry an issue id and would just generate a
 	// failed `metadata list` call on every entry.
-	hasIssueContext := ctx.ChatSessionID == "" && ctx.QuickCreatePrompt == "" && ctx.AutopilotRunID == ""
+	hasIssueContext := ctx.ChatSessionID == "" && ctx.QuickCreatePrompt == "" && ctx.AutopilotRunID == "" && ctx.WorkflowPhase != "split" && ctx.WorkflowPhase != "split_chat"
 	if hasIssueContext {
 		b.WriteString("## Issue Metadata\n\n")
 		b.WriteString("Each issue carries a small KV `metadata` bag — a high-signal scratchpad where agents pin the handful of facts that future runs on this same issue will look up over and over (the PR URL, the deploy URL, what we're blocked on). It is NOT a place to record every fact you discover — that's what comments and the description are for. Most runs write **zero** new keys; that's the expected case, not a failure.\n\n")
@@ -286,7 +286,61 @@ func buildMetaSkillContent(provider string, ctx TaskContextForEnv) string {
 
 	b.WriteString("### Workflow\n\n")
 
-	if ctx.ChatSessionID != "" {
+	if ctx.WorkflowPhase == "split" {
+		if ctx.WorkflowSplitRepair {
+			b.WriteString("**This task is repairing a failed dynamic split-task generation.** Recover usable draft child tasks from the split planning issue, prior output, comments, and attachments; the platform will create child issues later.\n\n")
+			if ctx.WorkflowSplitRepairSourceTaskID != "" {
+				fmt.Fprintf(&b, "- Source task ID: `%s`.\n", ctx.WorkflowSplitRepairSourceTaskID)
+			}
+			if strings.TrimSpace(ctx.WorkflowSplitRepairSourceOutput) != "" {
+				b.WriteString("- Failed task output is included in `.agent_context/issue_context.md`.\n")
+			}
+			b.WriteString("\n")
+		} else {
+			b.WriteString("**This task is a dynamic split-task generator.** Produce draft child tasks for human review; the platform will create child issues later.\n\n")
+		}
+		fmt.Fprintf(&b, "- Read the planning issue with `cs-workflow issue get %s --output json`.\n", ctx.IssueID)
+		if ctx.WorkflowNodeRunID != "" {
+			fmt.Fprintf(&b, "- Use this exact node-run-id for every split draft command: `%s`.\n", ctx.WorkflowNodeRunID)
+		}
+		b.WriteString("- The backend applies the configured default issue workflow to every draft. Do NOT output `workflow_id`. Reviewers change execution workflow later in Multica.\n")
+		b.WriteString("- Use read-only CLI commands for context. Inspect comments only when the issue body is insufficient.\n")
+		if ctx.WorkflowNodeRunID != "" {
+			fmt.Fprintf(&b, "- Use the split draft CLI as the primary path: run `cs-workflow workflow split draft add %s` once per draft task, then `cs-workflow workflow split draft submit %s --output json` when the draft set is complete.\n", ctx.WorkflowNodeRunID, ctx.WorkflowNodeRunID)
+		} else {
+			b.WriteString("- Use the split draft CLI as the primary path: run `cs-workflow workflow split draft add <node-run-id>` once per draft task, then `cs-workflow workflow split draft submit <node-run-id> --output json` when the draft set is complete.\n")
+		}
+		b.WriteString("- Give each draft a stable `--key`, a clear `--title`, a complete `--description-file`, and `--depends-on <key>` only when the dependency is real.\n")
+		b.WriteString("- If the split draft CLI is unavailable, return a concise Markdown task breakdown so the server can attempt recovery.\n")
+		b.WriteString("- Do NOT create issues.\n")
+		b.WriteString("- Do NOT post comments.\n")
+		b.WriteString("- Do NOT change issue status.\n")
+		b.WriteString("- Do NOT modify code, docs, or repository files.\n")
+		b.WriteString("- Do NOT use ordinary `cs-workflow issue create` or `cs-workflow issue update`; split tasks must go through the draft review flow.\n\n")
+	} else if ctx.WorkflowPhase == "split_chat" {
+		b.WriteString("**This task is a split review adjustment.** A user has reviewed the draft child tasks and asked for changes; update the draft set for human review.\n\n")
+		if ctx.WorkflowNodeRunID != "" {
+			fmt.Fprintf(&b, "- Workflow node run ID: `%s`\n", ctx.WorkflowNodeRunID)
+		}
+		if ctx.WorkflowSplitParentIssueID != "" {
+			fmt.Fprintf(&b, "- Parent issue ID: `%s`\n", ctx.WorkflowSplitParentIssueID)
+		}
+		if ctx.WorkflowSplitParentIssueTitle != "" {
+			fmt.Fprintf(&b, "- Parent issue title: %s\n", ctx.WorkflowSplitParentIssueTitle)
+		}
+		if strings.TrimSpace(string(ctx.WorkflowSplitCurrentDrafts)) != "" {
+			b.WriteString("- Current draft tasks are included in `.agent_context/issue_context.md`.\n")
+		}
+		b.WriteString("- Use `cs-workflow workflow split draft delete <node-run-id> <draft-task-id>` to discard drafts that should be removed.\n")
+		b.WriteString("- Use `cs-workflow workflow split draft add <node-run-id>` to add or replace draft tasks.\n")
+		b.WriteString("- Use `cs-workflow workflow split draft submit <node-run-id>` when the adjusted draft set is complete.\n")
+		b.WriteString("- Do NOT create issues.\n")
+		b.WriteString("- Do NOT post comments.\n")
+		b.WriteString("- Do NOT change issue status.\n")
+		b.WriteString("- Do NOT modify code, docs, or repository files.\n")
+		b.WriteString("- Do NOT answer as a normal chat assistant; the durable result is the submitted draft set.\n\n")
+		b.WriteString("Never answer that the task is already complete or that no further operation is needed unless the user's request explicitly asks for no change. A successful run must leave a durable draft update through the split draft CLI, or as a fallback a recoverable Markdown task breakdown.\n\n")
+	} else if ctx.ChatSessionID != "" {
 		// Chat task: interactive assistant mode
 		b.WriteString("**You are in chat mode.** A user is messaging you directly in a chat window.\n\n")
 		b.WriteString("- Respond conversationally and helpfully to the user's message\n")
@@ -383,7 +437,7 @@ func buildMetaSkillContent(provider string, ctx TaskContextForEnv) string {
 	// `done`, and the agent has nothing to do or avoid on that path.
 	// Section is skipped for chat, quick-create, and run-only autopilot
 	// runs (no parent/child semantics there).
-	if ctx.IssueID != "" && ctx.ChatSessionID == "" && ctx.QuickCreatePrompt == "" && ctx.AutopilotRunID == "" {
+	if ctx.IssueID != "" && ctx.ChatSessionID == "" && ctx.QuickCreatePrompt == "" && ctx.AutopilotRunID == "" && ctx.WorkflowPhase != "split" && ctx.WorkflowPhase != "split_chat" {
 		b.WriteString("## Sub-issue Creation\n\n")
 		b.WriteString("**Choosing `--status` when creating sub-issues.** `--status todo` = **start now** (the default — an agent assignee fires immediately). `--status backlog` = **wait** (assignee is set but no trigger fires; promote later with `cs-workflow issue status <child-id> todo`). Parallel children: all `--status todo`. Strict serial Step 1→2→3: only Step 1 is `todo`; Steps 2/3 are `--status backlog` from the start, promoted in turn.\n\n")
 	}
@@ -444,6 +498,10 @@ func buildMetaSkillContent(provider string, ctx TaskContextForEnv) string {
 
 	b.WriteString("## Output\n\n")
 	switch {
+	case ctx.WorkflowPhase == "split":
+		b.WriteString("Submit split draft tasks with `cs-workflow workflow split draft add` and then `cs-workflow workflow split draft submit`. The platform stores these drafts for human review before creating child issues. If the draft CLI is unavailable, return a concise Markdown task breakdown so the server can attempt recovery.\n")
+	case ctx.WorkflowPhase == "split_chat":
+		b.WriteString("Adjust split draft tasks with `cs-workflow workflow split draft delete`, `cs-workflow workflow split draft add`, and then `cs-workflow workflow split draft submit`. The platform stores these drafts for human review before creating child issues. Do not post issue comments or change issue status.\n")
 	case ctx.AutopilotRunID != "":
 		b.WriteString("This is a run-only autopilot task, so there may be no issue comment to post. Your final assistant output is captured automatically as the autopilot run result. Keep it concise and state the outcome.\n")
 	case ctx.QuickCreatePrompt != "":

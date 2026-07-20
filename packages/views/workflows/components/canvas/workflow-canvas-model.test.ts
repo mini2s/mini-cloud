@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { workflowEdgesToReactFlowEdges } from "./workflow-canvas-model";
+import { workflowEdgesToReactFlowEdges, workflowNodesToReactFlowNodes } from "./workflow-canvas-model";
 import type { WorkflowEdge, WorkflowNode, WorkflowStage } from "@multica/core/types";
 
 function makeStage(overrides: Partial<WorkflowStage> = {}): WorkflowStage {
@@ -51,6 +51,50 @@ function makeEdge(overrides: Partial<WorkflowEdge> = {}): WorkflowEdge {
 }
 
 describe("workflowEdgesToReactFlowEdges", () => {
+  it("does not create critic badge nodes by default", () => {
+    const rfNodes = workflowNodesToReactFlowNodes({
+      nodes: [makeNode({ id: "node-1", critic_id: "critic-1" })],
+      stages: [],
+      nodeType: "compactWorker",
+      makeNodeData: (node) => ({ node }),
+    });
+
+    expect(rfNodes.map((node) => node.id)).toEqual(["node-1"]);
+  });
+
+  it("creates critic badge nodes when explicitly enabled", () => {
+    const rfNodes = workflowNodesToReactFlowNodes({
+      nodes: [makeNode({ id: "node-1", critic_id: "critic-1" })],
+      stages: [],
+      nodeType: "compactWorker",
+      includeCriticBadges: true,
+      makeNodeData: (node) => ({ node }),
+    });
+
+    expect(rfNodes.map((node) => node.id)).toEqual(["node-1", "node-1:critic"]);
+  });
+
+  it("does not create critic edges by default", () => {
+    const rfEdges = workflowEdgesToReactFlowEdges({
+      edges: [],
+      nodes: [makeNode({ id: "node-1", critic_id: "critic-1" })],
+      stages: [],
+    });
+
+    expect(rfEdges).toEqual([]);
+  });
+
+  it("creates critic edges when explicitly enabled", () => {
+    const rfEdges = workflowEdgesToReactFlowEdges({
+      edges: [],
+      nodes: [makeNode({ id: "node-1", critic_id: "critic-1" })],
+      stages: [],
+      includeCriticEdges: true,
+    });
+
+    expect(rfEdges.map((edge) => edge.id)).toEqual(["node-1:critic-edge"]);
+  });
+
   it("marks whether workflow edges connect nodes in the same stage", () => {
     const edges = workflowEdgesToReactFlowEdges({
       stages: [
@@ -70,5 +114,39 @@ describe("workflowEdgesToReactFlowEdges", () => {
 
     expect(edges.find((edge) => edge.id === "same-stage")?.data).toMatchObject({ sameStage: true });
     expect(edges.find((edge) => edge.id === "cross-stage")?.data).toMatchObject({ sameStage: false });
+  });
+
+  it("keeps ordinary editor edges stage-colored even when condition metadata is an object", () => {
+    const edges = workflowEdgesToReactFlowEdges({
+      stages: [
+        makeStage({ id: "stage-1", sort_order: 0 }),
+        makeStage({ id: "stage-2", sort_order: 1 }),
+        makeStage({ id: "stage-3", sort_order: 2 }),
+      ],
+      nodes: [
+        makeNode({ id: "node-1", stage_id: "stage-1" }),
+        makeNode({ id: "node-2", stage_id: "stage-2" }),
+        makeNode({ id: "node-3", stage_id: "stage-3" }),
+      ],
+      edges: [
+        makeEdge({ id: "stage-1-edge", source_node_id: "node-1", target_node_id: "node-2", condition: {} }),
+        makeEdge({ id: "stage-3-edge", source_node_id: "node-3", target_node_id: "node-2", condition: {} }),
+      ],
+    });
+
+    expect(edges.find((edge) => edge.id === "stage-1-edge")?.data).toMatchObject({
+      edgeTone: "data",
+      stageColorIndex: 0,
+    });
+    expect(edges.find((edge) => edge.id === "stage-1-edge")?.markerEnd).toMatchObject({
+      color: "rgb(203 213 225)",
+    });
+    expect(edges.find((edge) => edge.id === "stage-3-edge")?.data).toMatchObject({
+      edgeTone: "data",
+      stageColorIndex: 2,
+    });
+    expect(edges.find((edge) => edge.id === "stage-3-edge")?.markerEnd).toMatchObject({
+      color: "rgb(147 197 253)",
+    });
   });
 });

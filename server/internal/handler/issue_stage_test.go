@@ -17,7 +17,9 @@ func createTestWorkflow(t *testing.T) string {
 	if w.Code != http.StatusCreated {
 		t.Fatalf("CreateWorkflow: expected 201, got %d: %s", w.Code, w.Body.String())
 	}
-	var resp struct{ ID string `json:"id"` }
+	var resp struct {
+		ID string `json:"id"`
+	}
 	json.Unmarshal(w.Body.Bytes(), &resp)
 	return resp.ID
 }
@@ -42,7 +44,9 @@ func createTestWorkflowStage(t *testing.T, workflowID string) string {
 	if w.Code != http.StatusCreated {
 		t.Fatalf("CreateWorkflowStage: expected 201, got %d: %s", w.Code, w.Body.String())
 	}
-	var resp struct{ ID string `json:"id"` }
+	var resp struct {
+		ID string `json:"id"`
+	}
 	json.Unmarshal(w.Body.Bytes(), &resp)
 	return resp.ID
 }
@@ -60,7 +64,9 @@ func createTestWorkflowNodeWithStage(t *testing.T, workflowID, stageID string) s
 	if w.Code != http.StatusCreated {
 		t.Fatalf("CreateWorkflowNode: expected 201, got %d: %s", w.Code, w.Body.String())
 	}
-	var nr struct{ ID string `json:"id"` }
+	var nr struct {
+		ID string `json:"id"`
+	}
 	json.Unmarshal(w.Body.Bytes(), &nr)
 
 	w = httptest.NewRecorder()
@@ -204,6 +210,126 @@ func TestUpdateIssue_WorkflowChangeClearsStage(t *testing.T) {
 	json.Unmarshal(w.Body.Bytes(), &resp)
 	if resp.StageID != nil {
 		t.Fatalf("expected stage_id cleared, got %v", *resp.StageID)
+	}
+}
+
+func TestUpdateIssueTitlePreservesWorkflowRunFields(t *testing.T) {
+	if testHandler == nil {
+		t.Skip("database not available")
+	}
+	ctx := context.Background()
+
+	wfID := createTestWorkflow(t)
+	stageID := createTestWorkflowStage(t, wfID)
+	activateTestWorkflow(t, wfID)
+	t.Cleanup(func() {
+		_, _ = testPool.Exec(ctx, `DELETE FROM multica_workflow WHERE id = $1`, wfID)
+	})
+
+	var runID string
+	if err := testPool.QueryRow(ctx, `
+		INSERT INTO multica_workflow_run (
+			workflow_id, workspace_id, workflow_title, status, triggered_by_type, triggered_by_id, input
+		)
+		VALUES ($1, $2, 'Preserve workflow fields run', 'running', 'member', $3, '{}'::jsonb)
+		RETURNING id
+	`, wfID, testWorkspaceID, testUserID).Scan(&runID); err != nil {
+		t.Fatalf("create workflow run: %v", err)
+	}
+
+	issueID := createTestIssue(t, "Workflow parent", "todo", "medium")
+	t.Cleanup(func() { deleteTestIssue(t, issueID) })
+	if _, err := testPool.Exec(ctx, `
+		UPDATE multica_issue
+		SET workflow_id = $1, workflow_run_id = $2, stage_id = $3
+		WHERE id = $4
+	`, wfID, runID, stageID, issueID); err != nil {
+		t.Fatalf("stamp issue workflow fields: %v", err)
+	}
+
+	w := httptest.NewRecorder()
+	req := newRequest("PUT", "/api/issues/"+issueID, map[string]any{
+		"title": "Renamed workflow parent",
+	})
+	req = withURLParam(req, "id", issueID)
+	testHandler.UpdateIssue(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("UpdateIssue: expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp IssueResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode issue response: %v", err)
+	}
+	if resp.WorkflowID == nil || *resp.WorkflowID != wfID {
+		t.Fatalf("workflow_id = %v, want %s", resp.WorkflowID, wfID)
+	}
+	if resp.WorkflowRunID == nil || *resp.WorkflowRunID != runID {
+		t.Fatalf("workflow_run_id = %v, want %s", resp.WorkflowRunID, runID)
+	}
+	if resp.StageID == nil || *resp.StageID != stageID {
+		t.Fatalf("stage_id = %v, want %s", resp.StageID, stageID)
+	}
+}
+
+func TestBatchUpdateIssueTitlePreservesWorkflowRunFields(t *testing.T) {
+	if testHandler == nil {
+		t.Skip("database not available")
+	}
+	ctx := context.Background()
+
+	wfID := createTestWorkflow(t)
+	stageID := createTestWorkflowStage(t, wfID)
+	activateTestWorkflow(t, wfID)
+	t.Cleanup(func() {
+		_, _ = testPool.Exec(ctx, `DELETE FROM multica_workflow WHERE id = $1`, wfID)
+	})
+
+	var runID string
+	if err := testPool.QueryRow(ctx, `
+		INSERT INTO multica_workflow_run (
+			workflow_id, workspace_id, workflow_title, status, triggered_by_type, triggered_by_id, input
+		)
+		VALUES ($1, $2, 'Preserve batch workflow fields run', 'running', 'member', $3, '{}'::jsonb)
+		RETURNING id
+	`, wfID, testWorkspaceID, testUserID).Scan(&runID); err != nil {
+		t.Fatalf("create workflow run: %v", err)
+	}
+
+	issueID := createTestIssue(t, "Batch workflow parent", "todo", "medium")
+	t.Cleanup(func() { deleteTestIssue(t, issueID) })
+	if _, err := testPool.Exec(ctx, `
+		UPDATE multica_issue
+		SET workflow_id = $1, workflow_run_id = $2, stage_id = $3
+		WHERE id = $4
+	`, wfID, runID, stageID, issueID); err != nil {
+		t.Fatalf("stamp issue workflow fields: %v", err)
+	}
+
+	w := httptest.NewRecorder()
+	req := newRequest("POST", "/api/issues/batch-update", map[string]any{
+		"issue_ids": []string{issueID},
+		"updates": map[string]any{
+			"title": "Renamed batch workflow parent",
+		},
+	})
+	testHandler.BatchUpdateIssues(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("BatchUpdateIssues: expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	updated, err := testHandler.Queries.GetIssue(ctx, parseUUID(issueID))
+	if err != nil {
+		t.Fatalf("GetIssue: %v", err)
+	}
+	if updated.WorkflowID != parseUUID(wfID) {
+		t.Fatalf("workflow_id = %v, want %s", updated.WorkflowID, wfID)
+	}
+	if updated.WorkflowRunID != parseUUID(runID) {
+		t.Fatalf("workflow_run_id = %v, want %s", updated.WorkflowRunID, runID)
+	}
+	if updated.StageID != parseUUID(stageID) {
+		t.Fatalf("stage_id = %v, want %s", updated.StageID, stageID)
 	}
 }
 

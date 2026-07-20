@@ -37,6 +37,80 @@ func TestInvalidWorkflowGatewayFormatIsDetected(t *testing.T) {
 	}
 }
 
+func TestShouldValidateNodeInputFormatSchemaRetiresOrdinaryJSONSchema(t *testing.T) {
+	cases := []struct {
+		name string
+		raw  json.RawMessage
+		want bool
+	}{
+		{
+			name: "empty schema has no input validation",
+			raw:  nil,
+			want: false,
+		},
+		{
+			name: "ordinary object JSON schema is legacy task schema",
+			raw:  json.RawMessage(`{"type":"object","required":["subtask_summary"]}`),
+			want: false,
+		},
+		{
+			name: "gateway metadata is not task input schema",
+			raw:  json.RawMessage(`{"type":"gateway","gateway_kind":"fork"}`),
+			want: false,
+		},
+		{
+			name: "split metadata is not task input schema",
+			raw:  json.RawMessage(`{"type":"split","split_config":{"mode":"barrier"}}`),
+			want: false,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := shouldValidateNodeInputFormatSchema(tc.raw); got != tc.want {
+				t.Fatalf("shouldValidateNodeInputFormatSchema(%s) = %v, want %v", string(tc.raw), got, tc.want)
+			}
+		})
+	}
+}
+
+func TestIsRetiredTaskJSONSchema(t *testing.T) {
+	cases := []struct {
+		name string
+		raw  json.RawMessage
+		want bool
+	}{
+		{
+			name: "ordinary object schema",
+			raw:  json.RawMessage(`{"type":"object","required":["subtask_summary"]}`),
+			want: true,
+		},
+		{
+			name: "split metadata",
+			raw:  json.RawMessage(`{"type":"split","split_config":{"mode":"barrier"}}`),
+			want: false,
+		},
+		{
+			name: "gateway metadata",
+			raw:  json.RawMessage(`{"type":"gateway","gateway_kind":"fork"}`),
+			want: false,
+		},
+		{
+			name: "invalid json",
+			raw:  json.RawMessage(`{`),
+			want: false,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := isRetiredTaskJSONSchema(tc.raw); got != tc.want {
+				t.Fatalf("isRetiredTaskJSONSchema(%s) = %v, want %v", string(tc.raw), got, tc.want)
+			}
+		})
+	}
+}
+
 func TestGatewayCanCompleteFromFormatChecking(t *testing.T) {
 	if !isValidTransition(NodeRunStatusFormatChecking, NodeRunStatusCompleted) {
 		t.Fatal("gateway nodes must be able to complete directly from format_checking")
@@ -129,7 +203,9 @@ func TestGatewayRunForkAndJoinSemantics(t *testing.T) {
 		t.Fatalf("StartRun: %v", err)
 	}
 
-	svc.DispatchRootNodeRuns(ctx, run.ID)
+	if err := svc.DispatchRootNodeRuns(ctx, run.ID); err != nil {
+		t.Fatalf("DispatchRootNodeRuns: %v", err)
+	}
 
 	getNodeRun := func(nodeID string) db.MulticaWorkflowNodeRun {
 		t.Helper()
@@ -248,7 +324,9 @@ func TestInvalidGatewayDoesNotDispatchWorker(t *testing.T) {
 		t.Fatalf("StartRun: %v", err)
 	}
 
-	svc.DispatchRootNodeRuns(ctx, run.ID)
+	if err := svc.DispatchRootNodeRuns(ctx, run.ID); err != nil {
+		t.Fatalf("DispatchRootNodeRuns: %v", err)
+	}
 
 	nodeUUID, err := util.ParseUUID(nodeID)
 	if err != nil {

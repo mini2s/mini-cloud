@@ -24,10 +24,23 @@ import type {
   WorkflowNodeRun,
   WorkflowRunCanvasSummaryResponse,
   WorkflowStage,
+  SplitProgress,
+  SplitTasksResponse,
+  SplitChatResponse,
   RuntimePermission,
   SessionPermissionResponse,
 } from "../types";
 import type { CloudRuntimeNode } from "../runtimes/cloud-runtime";
+
+export const DeleteConflictErrorBodySchema = z.object({
+  code: z.enum([
+    "active_split_blocking",
+    "runtime_has_active_agents",
+    "template_has_derived_workflows",
+  ]),
+}).loose();
+
+export type DeleteConflictErrorBody = z.infer<typeof DeleteConflictErrorBodySchema>;
 
 // ---------------------------------------------------------------------------
 // Schemas for the highest-risk API endpoints — those whose responses drive
@@ -225,6 +238,86 @@ export const SubscribersListSchema = z.array(SubscriberSchema);
 export const ChildIssuesResponseSchema = z.object({
   issues: z.array(IssueSchema).default([]),
 }).loose();
+
+export const SplitProgressSchema = z.object({
+  total: z.number().default(0),
+  created: z.number().default(0),
+  running: z.number().default(0),
+  done: z.number().default(0),
+  failed: z.number().default(0),
+  cancelled: z.number().default(0),
+  skipped: z.number().default(0),
+}).loose();
+
+export const EMPTY_SPLIT_PROGRESS: SplitProgress = {
+  total: 0,
+  created: 0,
+  running: 0,
+  done: 0,
+  failed: 0,
+  cancelled: 0,
+  skipped: 0,
+};
+
+export const SplitTaskSchema = z.object({
+  id: z.string(),
+  node_run_id: z.string(),
+  title: z.string().default(""),
+  description: z.string().default(""),
+  workflow_id: z.string().default(""),
+  depends_on: z.array(z.string()).default([]),
+  sort_order: z.number().default(0),
+  status: z.string().default("draft"),
+  issue_id: z.string().nullable().default(null),
+  run_id: z.string().nullable().default(null),
+  version: z.number().default(1),
+  draft_key: z.string().nullable().default(null),
+  draft_source: z.enum(["agent", "chat", "recovered"]).catch("agent"),
+  last_error: z.object({
+    code: z.string().default(""),
+    message: z.string().default(""),
+    child_issue_id: z.string().nullable().default(null),
+    workflow_run_id: z.string().nullable().default(null),
+    node_run_id: z.string().nullable().default(null),
+    occurred_at: z.string().default(""),
+  }).nullable().default(null),
+  created_at: z.string().default(""),
+  updated_at: z.string().default(""),
+}).loose();
+
+export const SplitTasksResponseSchema = z.object({
+  tasks: z.array(SplitTaskSchema).default([]),
+  progress: SplitProgressSchema.default(EMPTY_SPLIT_PROGRESS as any),
+  chat_session_id: z.string().optional(),
+  task_id: z.string().optional(),
+}).loose();
+
+export const EMPTY_SPLIT_TASKS_RESPONSE: SplitTasksResponse = {
+  tasks: [],
+  progress: EMPTY_SPLIT_PROGRESS,
+};
+
+export const SplitChatResponseSchema = z.union([
+  SplitTasksResponseSchema.extend({
+    chat_session_id: z.string().default(""),
+    task_id: z.string().default(""),
+  }).loose(),
+  z.object({
+    chat_session_id: z.string().default(""),
+    task_id: z.string().default(""),
+    tasks: SplitTasksResponseSchema.default(EMPTY_SPLIT_TASKS_RESPONSE as any),
+  }).loose().transform((value) => ({
+    ...value.tasks,
+    chat_session_id: value.chat_session_id,
+    task_id: value.task_id,
+  })),
+]);
+
+export const EMPTY_SPLIT_CHAT_RESPONSE: SplitChatResponse = {
+  ...EMPTY_SPLIT_TASKS_RESPONSE,
+  chat_session_id: "",
+  task_id: "",
+};
 
 export const DeptDepartmentSchema = z.object({
   dept_id: z.string(),
@@ -698,6 +791,9 @@ export const ListWorkflowsResponseSchema = z.object({
 
 export const EMPTY_LIST_WORKFLOWS_RESPONSE = { workflows: [], total: 0 };
 
+export const SplitIssueWorkflowOptionsSchema = z.array(WorkflowSchema).default([]);
+export const EMPTY_SPLIT_ISSUE_WORKFLOW_OPTIONS: Workflow[] = [];
+
 export const EMPTY_WORKFLOW: Workflow = {
   id: "",
   workspace_id: "",
@@ -845,7 +941,14 @@ export const EMPTY_WORKFLOW_RUN: WorkflowRun = {
   created_at: "",
 };
 
-const WorkflowNodeRunSchema = z.object({
+export const WorkflowRunDetailResponseSchema = z.union([
+  WorkflowRunSchema,
+  z.object({
+    run: WorkflowRunSchema.default(EMPTY_WORKFLOW_RUN as any),
+  }).loose().transform((value) => value.run),
+]);
+
+export const WorkflowNodeRunSchema = z.object({
   id: z.string(),
   workflow_run_id: z.string(),
   workflow_node_id: z.string(),
@@ -865,6 +968,8 @@ const WorkflowNodeRunSchema = z.object({
   session_id: z.string().nullable().default(null),
   runtime_id: z.string().nullable().default(null),
   device_id: z.string().nullable().default(null),
+  split_review_chat_session_id: z.string().nullable().default(null),
+  split_config_version: z.number().int().positive().default(1),
   started_at: z.string().nullable().default(null),
   completed_at: z.string().nullable().default(null),
   created_at: z.string().default(""),
@@ -872,6 +977,34 @@ const WorkflowNodeRunSchema = z.object({
 }).loose();
 
 export const WorkflowNodeRunListSchema = z.array(WorkflowNodeRunSchema);
+
+export const EMPTY_WORKFLOW_NODE_RUN: WorkflowNodeRun = {
+  id: "",
+  workflow_run_id: "",
+  workflow_node_id: "",
+  node_title: "",
+  status: "pending",
+  retry_count: 0,
+  worker_type: "human",
+  worker_id: null,
+  worker_output: null,
+  worker_agent_task_id: null,
+  critic_type: "human",
+  critic_id: null,
+  critic_output: null,
+  critic_comment: "",
+  critic_agent_task_id: null,
+  agent_task_id: null,
+  session_id: null,
+  runtime_id: null,
+  device_id: null,
+  split_review_chat_session_id: null,
+  split_config_version: 1,
+  started_at: null,
+  completed_at: null,
+  created_at: "",
+  updated_at: "",
+};
 
 export const EMPTY_WORKFLOW_NODE_RUN_LIST: WorkflowNodeRun[] = [];
 
@@ -891,6 +1024,7 @@ const WorkflowNodeRuntimeSummarySchema = z.object({
   device_id: z.string().nullable().default(null),
   has_error: z.boolean().default(false),
   error_message: z.string().default(""),
+  split_progress: SplitProgressSchema.nullable().default(null),
 }).loose();
 
 export const WorkflowRunCanvasSummaryResponseSchema = z.object({
@@ -926,51 +1060,6 @@ export const WorkflowAdminsResponseSchema = z.object({
 }).loose();
 
 export const EMPTY_WORKFLOW_ADMINS_RESPONSE = { admins: [] };
-
-// ---------------------------------------------------------------------------
-// Workflow deliverable schemas
-// ---------------------------------------------------------------------------
-
-const WorkflowNodeDeliverableSchema = z.object({
-  id: z.string(),
-  workflow_node_id: z.string(),
-  kind: z.string().default("document"),
-  title: z.string().default(""),
-  description: z.string().default(""),
-  required: z.boolean().default(true),
-  sort_order: z.number().default(0),
-  created_at: z.string().default(""),
-  updated_at: z.string().default(""),
-}).loose();
-
-export const WorkflowNodeDeliverablesResponseSchema = z.object({
-  deliverables: z.array(WorkflowNodeDeliverableSchema).default([]),
-}).loose();
-
-export const EMPTY_WORKFLOW_NODE_DELIVERABLES_RESPONSE = { deliverables: [] };
-
-const WorkflowNodeDeliverableSubmissionSchema = z.object({
-  id: z.string(),
-  workflow_node_run_id: z.string(),
-  deliverable_id: z.string(),
-  submitted_by_type: z.string().default("member"),
-  submitted_by_id: z.string().nullable().default(null),
-  status: z.string().default("submitted"),
-  content: z.string().default(""),
-  attachment_id: z.string().nullable().default(null),
-  pull_request_url: z.string().default(""),
-  review_comment: z.string().default(""),
-  submitted_at: z.string().default(""),
-  reviewed_at: z.string().nullable().default(null),
-  created_at: z.string().default(""),
-  updated_at: z.string().default(""),
-}).loose();
-
-export const WorkflowNodeDeliverableSubmissionsResponseSchema = z.object({
-  submissions: z.array(WorkflowNodeDeliverableSubmissionSchema).default([]),
-}).loose();
-
-export const EMPTY_WORKFLOW_NODE_DELIVERABLE_SUBMISSIONS_RESPONSE = { submissions: [] };
 
 // ---------------------------------------------------------------------------
 // Runtime permission schemas

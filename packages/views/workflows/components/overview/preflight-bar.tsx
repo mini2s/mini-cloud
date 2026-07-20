@@ -23,13 +23,51 @@ const INLINE_ISSUE_LIMIT = 4;
 
 function checkLabel(checkId: PreflightIssue["checkId"], t: ReturnType<typeof useT<"workflows">>["t"]): string {
   switch (checkId) {
-    case "dag-cycle":              return t(($) => $.preflight.check_dag_cycle);
-    case "orphan-node":            return t(($) => $.preflight.check_orphan_node);
-    case "unreachable-node":       return t(($) => $.preflight.check_unreachable_node);
-    case "worker-missing":         return t(($) => $.preflight.check_worker_missing);
-    case "invalid-critic-ref":     return t(($) => $.preflight.check_invalid_critic);
-    case "stage-missing":          return t(($) => $.preflight.check_stage_missing);
-    default:                       return checkId;
+    case "dag-cycle":                              return t(($) => $.preflight.check_dag_cycle);
+    case "orphan-node":                            return t(($) => $.preflight.check_orphan_node);
+    case "unreachable-node":                       return t(($) => $.preflight.check_unreachable_node);
+    case "worker-missing":                         return t(($) => $.preflight.check_worker_missing);
+    case "invalid-critic-ref":                     return t(($) => $.preflight.check_invalid_critic);
+    case "stage-missing":                          return t(($) => $.preflight.check_stage_missing);
+    case "split-planner-missing":                  return t(($) => $.preflight.check_split_planner_missing);
+    case "split-critic-missing":                   return t(($) => $.preflight.check_split_critic_missing);
+    case "split-critic-automated":                 return t(($) => $.preflight.check_split_critic_automated);
+    case "split-default-issue-workflow-missing":   return t(($) => $.preflight.check_split_default_issue_workflow_missing);
+    case "split-default-issue-workflow-invalid":   return t(($) => $.preflight.check_split_default_issue_workflow_invalid);
+    case "split-default-issue-workflow-inactive":  return t(($) => $.preflight.check_split_default_issue_workflow_inactive);
+    case "split-default-issue-workflow-nested":    return t(($) => $.preflight.check_split_default_issue_workflow_nested);
+    case "split-default-issue-workflow-self":      return t(($) => $.preflight.check_split_default_issue_workflow_self);
+    case "split-max-concurrency-invalid":          return t(($) => $.preflight.check_split_max_concurrency_invalid);
+    case "gateway-fork-outgoing":                  return t(($) => $.preflight.check_gateway_fork_outgoing);
+    case "gateway-join-incoming":                  return t(($) => $.preflight.check_gateway_join_incoming);
+    case "gateway-kind-invalid":                   return t(($) => $.preflight.check_gateway_kind_invalid);
+    case "gateway-join-multiple-outgoing":         return t(($) => $.preflight.check_gateway_join_multiple_outgoing);
+    default:                                       return checkId;
+  }
+}
+
+export function checkDetailLabel(issue: PreflightIssue, t: ReturnType<typeof useT<"workflows">>["t"]): string {
+  switch (issue.checkId) {
+    case "dag-cycle":                              return t(($) => $.preflight.detail_dag_cycle, { path: issue.detail ?? "" });
+    case "orphan-node":                            return t(($) => $.preflight.detail_orphan_node);
+    case "unreachable-node":                       return t(($) => $.preflight.detail_unreachable_node);
+    case "worker-missing":                         return t(($) => $.preflight.detail_worker_missing);
+    case "invalid-critic-ref":                     return t(($) => $.preflight.detail_invalid_critic);
+    case "stage-missing":                          return t(($) => $.preflight.detail_stage_missing);
+    case "split-planner-missing":                  return t(($) => $.preflight.detail_split_planner_missing);
+    case "split-critic-missing":                   return t(($) => $.preflight.detail_split_critic_missing);
+    case "split-critic-automated":                 return t(($) => $.preflight.detail_split_critic_automated);
+    case "split-default-issue-workflow-missing":   return t(($) => $.preflight.detail_split_default_issue_workflow_missing);
+    case "split-default-issue-workflow-invalid":   return t(($) => $.preflight.detail_split_default_issue_workflow_invalid);
+    case "split-default-issue-workflow-inactive":  return t(($) => $.preflight.detail_split_default_issue_workflow_inactive);
+    case "split-default-issue-workflow-nested":    return t(($) => $.preflight.detail_split_default_issue_workflow_nested);
+    case "split-default-issue-workflow-self":      return t(($) => $.preflight.detail_split_default_issue_workflow_self);
+    case "split-max-concurrency-invalid":          return t(($) => $.preflight.detail_split_max_concurrency_invalid);
+    case "gateway-fork-outgoing":                  return t(($) => $.preflight.detail_gateway_fork_outgoing);
+    case "gateway-join-incoming":                  return t(($) => $.preflight.detail_gateway_join_incoming);
+    case "gateway-kind-invalid":                   return t(($) => $.preflight.detail_gateway_kind_invalid);
+    case "gateway-join-multiple-outgoing":         return t(($) => $.preflight.detail_gateway_join_multiple_outgoing);
+    default:                                       return issue.message;
   }
 }
 

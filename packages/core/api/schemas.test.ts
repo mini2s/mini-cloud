@@ -10,13 +10,23 @@ import {
   DuplicateIssueErrorBodySchema,
   EMPTY_AGENT_CLOUD_SKILLS,
   EMPTY_CATALOG_SKILL_LIST,
+  EMPTY_SPLIT_CHAT_RESPONSE,
   EMPTY_USER,
+  EMPTY_SPLIT_PROGRESS,
+  EMPTY_SPLIT_TASKS_RESPONSE,
+  EMPTY_WORKFLOW_RUN_CANVAS_SUMMARY_RESPONSE,
+  EMPTY_WORKFLOW_NODE_RUN,
   ListIssuesResponseSchema,
   RuntimeHourlyActivityListSchema,
   RuntimeUsageByAgentListSchema,
   RuntimeUsageByHourListSchema,
   RuntimeUsageListSchema,
+  SplitProgressSchema,
+  SplitChatResponseSchema,
+  SplitTasksResponseSchema,
   UserSchema,
+  WorkflowRunCanvasSummaryResponseSchema,
+  WorkflowNodeRunSchema,
 } from "./schemas";
 import { parseWithFallback } from "./schema";
 
@@ -83,6 +93,262 @@ describe("IssueSchema (via ListIssuesResponseSchema)", () => {
     const payload = { issues: [{ ...baseIssue, stage_id: "stage-1" }], total: 1 };
     const parsed = ListIssuesResponseSchema.parse(payload);
     expect(parsed.issues[0]?.stage_id).toBe("stage-1");
+  });
+});
+
+describe("split API response schemas", () => {
+  it("parses split config versions and draft provenance", () => {
+    const nodeRun = WorkflowNodeRunSchema.parse({
+      id: "nr-1",
+      workflow_run_id: "run-1",
+      workflow_node_id: "node-1",
+      split_config_version: 4,
+    });
+    const split = SplitTasksResponseSchema.parse({
+      tasks: [{
+        id: "task-1",
+        node_run_id: "nr-1",
+        workflow_id: "wf-1",
+        draft_key: "backend",
+        draft_source: "recovered",
+      }],
+    });
+
+    expect(nodeRun.split_config_version).toBe(4);
+    expect(split.tasks[0]).toMatchObject({
+      workflow_id: "wf-1",
+      draft_key: "backend",
+      draft_source: "recovered",
+    });
+  });
+
+  it("defaults additive split fields from an older server response", () => {
+    const nodeRun = WorkflowNodeRunSchema.parse({
+      id: "nr-1",
+      workflow_run_id: "run-1",
+      workflow_node_id: "node-1",
+    });
+    expect(nodeRun.split_config_version).toBe(1);
+  });
+
+  it("falls back when split config version is malformed", () => {
+    const parsed = parseWithFallback(
+      {
+        id: "nr-1",
+        workflow_run_id: "run-1",
+        workflow_node_id: "node-1",
+        split_config_version: null,
+      },
+      WorkflowNodeRunSchema,
+      EMPTY_WORKFLOW_NODE_RUN,
+      { endpoint: "GET /api/workflow-runs/:id/node-runs" },
+    );
+
+    expect(parsed).toBe(EMPTY_WORKFLOW_NODE_RUN);
+  });
+
+  const validTask = {
+    id: "task-1",
+    node_run_id: "node-run-1",
+    title: "Implement API",
+    description: "Build split endpoints",
+    workflow_id: "workflow-1",
+    depends_on: ["task-0"],
+    sort_order: 2,
+    status: "running",
+    issue_id: "issue-1",
+    run_id: "run-1",
+    version: 3,
+    last_error: null,
+    created_at: "2026-07-12T00:00:00Z",
+    updated_at: "2026-07-12T00:01:00Z",
+  };
+
+  it.each([
+    ["workflow_id", { ...validTask, workflow_id: null }],
+    ["draft_key", { ...validTask, draft_key: 42 }],
+  ])("falls back when split task %s is malformed", (_field, task) => {
+    const parsed = parseWithFallback(
+      { tasks: [task] },
+      SplitTasksResponseSchema,
+      EMPTY_SPLIT_TASKS_RESPONSE,
+      { endpoint: "GET /api/node-runs/:id/split/tasks" },
+    );
+
+    expect(parsed).toBe(EMPTY_SPLIT_TASKS_RESPONSE);
+  });
+
+  it("downgrades an unknown draft source at the API boundary", () => {
+    const parsed = parseWithFallback(
+      { tasks: [{ ...validTask, draft_source: "future-source" }] },
+      SplitTasksResponseSchema,
+      EMPTY_SPLIT_TASKS_RESPONSE,
+      { endpoint: "GET /api/node-runs/:id/split/tasks" },
+    );
+
+    expect(parsed).not.toBe(EMPTY_SPLIT_TASKS_RESPONSE);
+    expect(parsed.tasks[0]?.draft_source).toBe("agent");
+  });
+
+  it("accepts split task lists and keeps unknown fields", () => {
+    const parsed = SplitTasksResponseSchema.parse({
+      tasks: [{ ...validTask, server_hint: "future" }],
+      progress: { total: 1, created: 0, running: 1, done: 0, failed: 0, cancelled: 0, skipped: 0 },
+    });
+    expect(parsed.tasks[0]?.depends_on).toEqual(["task-0"]);
+    expect((parsed.tasks[0] as Record<string, unknown>).server_hint).toBe("future");
+  });
+
+  it("defaults missing additive split task fields", () => {
+    const { workflow_id: _a, issue_id: _b, run_id: _c, depends_on: _d, last_error: _e, version: _f, ...partial } = validTask;
+    const parsed = SplitTasksResponseSchema.parse({ tasks: [partial] });
+    expect(parsed.tasks[0]?.workflow_id).toBe("");
+    expect(parsed.tasks[0]?.draft_key).toBeNull();
+    expect(parsed.tasks[0]?.draft_source).toBe("agent");
+    expect(parsed.tasks[0]?.issue_id).toBeNull();
+    expect(parsed.tasks[0]?.run_id).toBeNull();
+    expect(parsed.tasks[0]?.depends_on).toEqual([]);
+    expect(parsed.tasks[0]?.version).toBe(1);
+    expect(parsed.tasks[0]?.last_error).toBeNull();
+    expect(parsed.progress).toEqual(EMPTY_SPLIT_PROGRESS);
+  });
+
+  it("parses split task workflow version and last error", () => {
+    const parsed = SplitTasksResponseSchema.parse({
+      tasks: [{
+        ...validTask,
+        last_error: {
+          code: "dispatch_failed",
+          message: "workflow unavailable",
+          child_issue_id: "issue-1",
+          workflow_run_id: null,
+          node_run_id: "node-run-1",
+          occurred_at: "2026-07-12T00:02:00Z",
+        },
+      }],
+    });
+
+    expect(parsed.tasks[0]?.workflow_id).toBe("workflow-1");
+    expect(parsed.tasks[0]?.version).toBe(3);
+    expect(parsed.tasks[0]?.last_error?.code).toBe("dispatch_failed");
+  });
+
+  it("falls back when split task response has the wrong shape", () => {
+    const parsed = parseWithFallback(
+      { tasks: [{ ...validTask, depends_on: "task-0" }] },
+      SplitTasksResponseSchema,
+      EMPTY_SPLIT_TASKS_RESPONSE,
+      { endpoint: "GET /api/node-runs/:id/split/tasks" },
+    );
+    expect(parsed).toBe(EMPTY_SPLIT_TASKS_RESPONSE);
+  });
+
+  it("flattens the nested split review chat response returned by the handler", () => {
+    const parsed = SplitChatResponseSchema.parse({
+      chat_session_id: "chat-1",
+      task_id: "agent-task-1",
+      tasks: {
+        tasks: [{ ...validTask, title: "Security review" }],
+        progress: { total: 1 },
+      },
+    });
+
+    expect(parsed.chat_session_id).toBe("chat-1");
+    expect(parsed.task_id).toBe("agent-task-1");
+    expect(parsed.tasks[0]?.title).toBe("Security review");
+    expect(parsed.progress).toEqual({
+      total: 1,
+      created: 0,
+      running: 0,
+      done: 0,
+      failed: 0,
+      cancelled: 0,
+      skipped: 0,
+    });
+  });
+
+  it("falls back when split review chat tasks have the wrong shape", () => {
+    const parsed = parseWithFallback(
+      {
+        chat_session_id: "chat-1",
+        task_id: "agent-task-1",
+        tasks: { tasks: [{ ...validTask, depends_on: "task-0" }] },
+      },
+      SplitChatResponseSchema,
+      EMPTY_SPLIT_CHAT_RESPONSE,
+      { endpoint: "POST /api/node-runs/:id/split/chat" },
+    );
+    expect(parsed).toBe(EMPTY_SPLIT_CHAT_RESPONSE);
+  });
+
+  it("defaults missing split progress counts to zero", () => {
+    const parsed = SplitProgressSchema.parse({ total: 3, running: 1 });
+    expect(parsed).toEqual({ total: 3, created: 0, running: 1, done: 0, failed: 0, cancelled: 0, skipped: 0 });
+  });
+
+  it("parses split progress inside workflow canvas summaries", () => {
+    const parsed = WorkflowRunCanvasSummaryResponseSchema.parse({
+      run: { id: "run-1", workflow_id: "wf-1", workspace_id: "ws-1" },
+      node_runs: [],
+      node_runtime_summaries: [
+        {
+          workflow_node_id: "node-1",
+          node_run_id: "node-run-1",
+          display_status: "in_progress",
+          split_progress: { total: 4, done: 1, running: 2 },
+        },
+      ],
+    });
+    expect(parsed.node_runtime_summaries[0]?.split_progress).toEqual({
+      total: 4,
+      created: 0,
+      running: 2,
+      done: 1,
+      failed: 0,
+      cancelled: 0,
+      skipped: 0,
+    });
+  });
+
+  it("falls back when canvas summary split progress has the wrong shape", () => {
+    const parsed = parseWithFallback(
+      {
+        run: { id: "run-1", workflow_id: "wf-1", workspace_id: "ws-1" },
+        node_runs: [],
+        node_runtime_summaries: [
+          {
+            workflow_node_id: "node-1",
+            node_run_id: "node-run-1",
+            split_progress: { total: "bad" },
+          },
+        ],
+      },
+      WorkflowRunCanvasSummaryResponseSchema,
+      EMPTY_WORKFLOW_RUN_CANVAS_SUMMARY_RESPONSE,
+      { endpoint: "GET /api/workflows/:id/runs/:runId/canvas-summary" },
+    );
+    expect(parsed).toBe(EMPTY_WORKFLOW_RUN_CANVAS_SUMMARY_RESPONSE);
+  });
+
+  it("falls back when a split cancel node-run response has the wrong shape", () => {
+    const parsed = parseWithFallback(
+      { id: "node-run-1", workflow_run_id: 42 },
+      WorkflowNodeRunSchema,
+      EMPTY_WORKFLOW_NODE_RUN,
+      { endpoint: "POST /api/node-runs/:id/split/cancel" },
+    );
+    expect(parsed).toBe(EMPTY_WORKFLOW_NODE_RUN);
+  });
+
+  it("defaults missing split review chat session on node runs", () => {
+    const parsed = WorkflowNodeRunSchema.parse({
+      id: "node-run-1",
+      workflow_run_id: "run-1",
+      workflow_node_id: "node-1",
+      status: "awaiting_split_review",
+    });
+
+    expect(parsed.split_review_chat_session_id).toBeNull();
   });
 });
 

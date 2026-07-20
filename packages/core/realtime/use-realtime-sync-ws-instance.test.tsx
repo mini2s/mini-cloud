@@ -4,8 +4,10 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { renderHook } from "@testing-library/react";
 import type { ReactNode } from "react";
-import { describe, expect, it, vi, beforeEach } from "vitest";
+import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 import type { WSClient } from "../api/ws-client";
+import { projectKeys } from "../projects/queries";
+import { workflowKeys } from "../workflows/queries";
 import { useRealtimeSync, type RealtimeSyncStores } from "./use-realtime-sync";
 
 vi.mock("../platform/workspace-storage", () => ({
@@ -24,6 +26,19 @@ function createMockWs(): WSClient {
     onAny: vi.fn(() => () => {}),
     onReconnect: vi.fn(() => () => {}),
   } as unknown as WSClient;
+}
+
+function createCapturingWs() {
+  const anyHandlers: Array<(msg: { type: string; payload: unknown }) => void> = [];
+  const ws = {
+    on: vi.fn(() => () => {}),
+    onAny: vi.fn((handler: (msg: { type: string; payload: unknown }) => void) => {
+      anyHandlers.push(handler);
+      return () => {};
+    }),
+    onReconnect: vi.fn(() => () => {}),
+  } as unknown as WSClient;
+  return { ws, anyHandlers };
 }
 
 function createStores(): RealtimeSyncStores {
@@ -54,6 +69,10 @@ describe("useRealtimeSync — ws instance change", () => {
     qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     stores = createStores();
     invalidateSpy = vi.spyOn(qc, "invalidateQueries");
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   it("skips invalidation on first non-null ws instance", () => {
@@ -102,8 +121,11 @@ describe("useRealtimeSync — ws instance change", () => {
     rerender({ ws: ws2 });
 
     // Should have called invalidateQueries for all workspace-scoped keys
-    // (12 workspace-scoped + 1 workspaceKeys.list() = 13 calls)
-    expect(invalidateSpy).toHaveBeenCalledTimes(13);
+    // (13 workspace-scoped + 1 workspaceKeys.list() = 14 calls)
+    expect(invalidateSpy).toHaveBeenCalledTimes(14);
+    expect(invalidateSpy).toHaveBeenCalledWith({
+      queryKey: workflowKeys.all("ws-1"),
+    });
   });
 
   it("does not re-invalidate when rerendered with the same ws instance", () => {
@@ -118,5 +140,43 @@ describe("useRealtimeSync — ws instance change", () => {
     rerender({ ws: ws1 });
 
     expect(invalidateSpy).not.toHaveBeenCalled();
+  });
+
+  it("invalidates workflow cache when a workflow update event arrives", async () => {
+    vi.useFakeTimers();
+    const { ws, anyHandlers } = createCapturingWs();
+    renderHook(() => useRealtimeSync(ws, stores), {
+      wrapper: createWrapper(qc),
+    });
+
+    invalidateSpy.mockClear();
+    anyHandlers[0]?.({
+      type: "workflow:updated",
+      payload: { node: { id: "node-1", workflow_id: "wf-1" } },
+    });
+    await vi.advanceTimersByTimeAsync(100);
+
+    expect(invalidateSpy).toHaveBeenCalledWith({
+      queryKey: workflowKeys.all("ws-1"),
+    });
+  });
+
+  it("invalidates project cache when a project resource event arrives", async () => {
+    vi.useFakeTimers();
+    const { ws, anyHandlers } = createCapturingWs();
+    renderHook(() => useRealtimeSync(ws, stores), {
+      wrapper: createWrapper(qc),
+    });
+
+    invalidateSpy.mockClear();
+    anyHandlers[0]?.({
+      type: "project_resource:created",
+      payload: { project_id: "project-1", resource: { id: "resource-1" } },
+    });
+    await vi.advanceTimersByTimeAsync(100);
+
+    expect(invalidateSpy).toHaveBeenCalledWith({
+      queryKey: projectKeys.all("ws-1"),
+    });
   });
 });

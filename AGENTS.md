@@ -45,3 +45,23 @@ make check            # Full verification pipeline
 ```
 
 See CLAUDE.md for the complete command reference.
+
+### Troubleshooting
+
+When debugging agent, daemon, or runtime issues, check logs in this order:
+
+| Component | Location | How to view |
+|---|---|---|
+| **Daemon (default profile)** | `~/.multica/daemon.log` | `cs-workflow daemon logs -f --lines 100` |
+| **Daemon (named profile)** | `~/.multica/profiles/<name>/daemon.log` | `cs-workflow daemon logs -f --lines 100 --profile <name>` |
+| **Daemon (Desktop app)** | `~/.multica/profiles/desktop-<host>/daemon.log` | Desktop status bar → log panel |
+| **Server (Docker)** | container stdout/stderr | `docker logs -f <container>` |
+| **Server (systemd)** | journal | `journalctl -u multica-server -f` |
+| **Server (dev)** | terminal stderr | Read directly from `make server` terminal |
+| **Frontend (browser)** | DevTools → Console | Press `F12` |
+
+Diagnosis order: daemon log → server log → cross-reference timelines to isolate the failing layer.
+
+For foreground daemon (more verbose output): `cs-workflow daemon stop && cs-workflow daemon start --foreground`
+
+See `apps/docs/content/docs/troubleshooting.mdx` for the full troubleshooting guide.

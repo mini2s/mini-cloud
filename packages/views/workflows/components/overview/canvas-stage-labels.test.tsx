@@ -2,7 +2,7 @@
 import { describe, it, expect, vi } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
 import { CanvasStageLabels } from "./canvas-stage-labels";
-import { GRADIENT_HEIGHT, LANE_HEIGHT, STAGE_BG_COLORS } from "./constants";
+import { GRADIENT_HEIGHT, LANE_HEIGHT, LANE_STEP, STAGE_BG_COLORS } from "./constants";
 import type { WorkflowStage } from "@multica/core/types";
 
 function makeStage(overrides: Partial<WorkflowStage> = {}): WorkflowStage {
@@ -55,7 +55,7 @@ describe("CanvasStageLabels", () => {
     expect(bands[0]!.className).toContain(STAGE_BG_COLORS[0]);
     expect(bands[0]!.getAttribute("style")).toContain("top: 24px");
     expect(bands[0]!.getAttribute("style")).toContain(`height: ${LANE_HEIGHT * 1.5}px`);
-    expect(bands[1]!.getAttribute("style")).toContain("top: 288px");
+    expect(bands[1]!.getAttribute("style")).toContain(`top: ${LANE_STEP * 1.5 + 24}px`);
     expect(bands[1]!.getAttribute("style")).toContain(`height: ${LANE_HEIGHT * 1.5}px`);
   });
 
@@ -82,7 +82,7 @@ describe("CanvasStageLabels", () => {
     render(<CanvasStageLabels {...baseProps} viewportY={10} viewportZoom={2} />);
     const gradients = screen.getAllByTestId("stage-gradient-bar");
     expect(gradients).toHaveLength(baseProps.stages.length - 1);
-    expect(gradients[0]!.getAttribute("style")).toContain("top: 330px");
+    expect(gradients[0]!.getAttribute("style")).toContain(`top: ${LANE_HEIGHT * 2 + 10}px`);
     expect(gradients[0]!.getAttribute("style")).toContain(`height: ${GRADIENT_HEIGHT * 2}px`);
   });
 
@@ -187,9 +187,9 @@ describe("CanvasStageLabels", () => {
     // At zoom=2, later stages should be further apart
     rerender(<CanvasStageLabels {...baseProps} viewportY={0} viewportZoom={2} />);
     const cards = screen.getAllByTestId("stage-label-card");
-    // Stage 0 at top=0, Stage 1 at top=LANE_STEP*2.
+    // Stage 0 at top=0, Stage 1 at top=LANE_STEP scaled by zoom.
     expect(cards[0]!.closest("[data-testid='stage-label-rail']")?.getAttribute("style")).toContain("top: 0px");
-    expect(cards[1]!.closest("[data-testid='stage-label-rail']")?.getAttribute("style")).toContain("top: 352px");
+    expect(cards[1]!.closest("[data-testid='stage-label-rail']")?.getAttribute("style")).toContain(`top: ${LANE_STEP * 2}px`);
   });
 
   it("packs sparse sort orders at the top of the visible canvas", () => {
@@ -202,7 +202,7 @@ describe("CanvasStageLabels", () => {
 
     const rails = screen.getAllByTestId("stage-label-rail");
     expect(rails[0]!.getAttribute("style")).toContain("top: 0px");
-    expect(rails[1]!.getAttribute("style")).toContain("top: 176px");
+    expect(rails[1]!.getAttribute("style")).toContain(`top: ${LANE_STEP}px`);
     expect(screen.getByText("Stage 1")).toBeInTheDocument();
     expect(screen.getByText("Stage 2")).toBeInTheDocument();
     expect(screen.queryByText("Stage 3")).not.toBeInTheDocument();

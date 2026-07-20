@@ -6,8 +6,15 @@ import { cn } from "@multica/ui/lib/utils";
 
 export type WorkflowNodeDetailPanelMode = "edit" | "run";
 export type NodeDetailSectionId =
+  | "readiness"
   | "primary"
+  | "worker-critic"
+  | "split-behavior"
+  | "status-next-step"
   | "deliverables"
+  | "runtime-facts"
+  | "evidence-preview"
+  | "child-progress"
   | "runtime"
   | "connections"
   | "actions"
@@ -47,23 +54,23 @@ export function WorkflowNodeDetailPanelShell({
       data-testid="workflow-node-detail-panel-shell"
       data-mode={mode}
       className={cn(
-        "flex h-full flex-col border-l bg-card",
+        "flex h-full flex-col border-l bg-background",
         widthClassName,
         variant === "overlay" &&
-          "fixed right-0 top-0 bottom-0 z-50 h-auto bg-background/98 shadow-xl backdrop-blur",
+          "fixed right-0 top-0 bottom-0 z-50 h-auto shadow-2xl shadow-foreground/10 ring-1 ring-border/70 backdrop-blur",
         className,
       )}
     >
-      <div className="shrink-0 border-b border-border/60 px-4 py-3">
+      <div className="shrink-0 border-b border-border/60 bg-muted/15 px-4 py-3.5">
         <div className="mb-2 flex items-center justify-between gap-2">
           <div className="min-w-0">
             {eyebrow ? (
-              <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+              <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
                 {eyebrow}
               </p>
             ) : null}
             <div className="flex min-w-0 items-center gap-2">
-              <h2 className="truncate text-sm font-medium">{title}</h2>
+              <h2 className="truncate text-[15px] font-semibold leading-5">{title}</h2>
               {statusIcon}
             </div>
           </div>
@@ -81,9 +88,9 @@ export function WorkflowNodeDetailPanelShell({
 
       <div
         data-testid="node-detail-section-stack"
-        className={cn("min-h-0 flex-1 overflow-y-auto px-4 py-4", contentClassName)}
+        className={cn("min-h-0 flex-1 overflow-y-auto px-4 py-3.5", contentClassName)}
       >
-        <div className="space-y-3">{children}</div>
+        <div className="space-y-4">{children}</div>
       </div>
     </aside>
   );
@@ -127,22 +134,21 @@ export function NodeDetailSection({
     <section
       data-testid="node-detail-section"
       data-section={sectionId}
-      className={cn("relative grid grid-cols-[14px_minmax(0,1fr)] gap-3", className)}
+      className={cn(
+        "relative space-y-2.5 border-t border-border/60 pt-4 first:border-t-0 first:pt-0",
+        className,
+      )}
     >
-      <div className="relative flex justify-center">
-        {sectionId !== "actions" && sectionId !== "agent-operations" ? (
-          <span
-            aria-hidden="true"
-            className="absolute top-8 bottom-[-18px] w-px bg-muted-foreground/20"
-          />
-        ) : null}
-        <span className="relative z-10 mt-3 size-2 rounded-full border border-muted-foreground/30 bg-background" />
-      </div>
-      <div className="overflow-hidden rounded-lg border bg-background">
-        <div className="flex items-start justify-between gap-3 border-b bg-muted/20 px-3 py-3">
-          <div className="flex min-w-0 items-start gap-2.5">
+      <div className="space-y-2">
+        <div className="flex items-start justify-between gap-3">
+          <div className={cn("flex min-w-0 gap-2.5", subtitle ? "items-start" : "items-center")}>
             {icon ? (
-              <span className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-md border bg-background text-muted-foreground">
+              <span
+                className={cn(
+                  "flex size-6 shrink-0 items-center justify-center rounded-md bg-muted/45 text-muted-foreground",
+                  subtitle && "mt-0.5",
+                )}
+              >
                 {icon}
               </span>
             ) : null}
@@ -155,7 +161,7 @@ export function NodeDetailSection({
           </div>
           {status}
         </div>
-        {children ? <div className={cn("space-y-3 p-3", contentClassName)}>{children}</div> : null}
+        {children ? <div className={cn("space-y-3", contentClassName)}>{children}</div> : null}
       </div>
     </section>
   );

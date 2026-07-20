@@ -21,6 +21,20 @@ LIMIT 1;
 SELECT * FROM multica_workflow_node_run
 WHERE id = $1;
 
+-- name: GetWorkflowNodeRunForUpdate :one
+SELECT * FROM multica_workflow_node_run
+WHERE id = $1
+FOR UPDATE;
+
+-- name: UpdateSplitNodeRunConfigVersion :one
+UPDATE multica_workflow_node_run
+SET split_config_version = split_config_version + 1,
+    updated_at = now()
+WHERE id = $1
+  AND split_config_version = $2
+  AND status IN ('awaiting_split_review', 'split_active')
+RETURNING *;
+
 -- name: CreateWorkflowNodeRun :one
 INSERT INTO multica_workflow_node_run (
     workflow_run_id, workflow_node_id, node_title, status,
@@ -42,6 +56,14 @@ UPDATE multica_workflow_node_run SET
              THEN now()
         ELSE completed_at
     END,
+    updated_at = now()
+WHERE id = $1
+RETURNING *;
+
+-- name: ReactivateWorkflowNodeRunStatus :one
+UPDATE multica_workflow_node_run SET
+    status = $2,
+    completed_at = NULL,
     updated_at = now()
 WHERE id = $1
 RETURNING *;
@@ -87,6 +109,7 @@ UPDATE multica_workflow_node_run SET
     worker_output = NULL,
     critic_output = NULL,
     critic_comment = '',
+    completed_at = NULL,
     updated_at = now()
 WHERE id = $1
 RETURNING *;
@@ -200,6 +223,26 @@ SELECT * FROM multica_workflow_node_run
 WHERE workflow_run_id = $1
   AND status NOT IN ('format_failed', 'completed', 'failed', 'blocked', 'skipped', 'cancelled');
 
+-- name: HasActiveSplitNodeRunForIssue :one
+SELECT EXISTS (
+  SELECT 1
+  FROM multica_workflow_run wr
+  JOIN multica_workflow_node_run wnr ON wnr.workflow_run_id = wr.id
+  JOIN multica_workflow_node wn ON wn.id = wnr.workflow_node_id
+  WHERE wr.workspace_id = sqlc.arg('workspace_id')
+    AND (
+      wr.input ->> 'issue_id' = sqlc.arg('issue_id')::uuid::text
+      OR EXISTS (
+        SELECT 1
+        FROM multica_issue origin_issue
+        WHERE origin_issue.id = sqlc.arg('issue_id')
+          AND origin_issue.workflow_run_id = wr.id
+      )
+    )
+    AND wn.format_schema ->> 'type' = 'split'
+    AND wnr.status IN ('splitting', 'awaiting_split_review', 'split_active')
+) AS active;
+
 -- name: ListMyWorkflowTasks :many
 -- Returns node runs assigned to the current user as human worker or critic.
 SELECT wnr.*,
@@ -224,8 +267,8 @@ ORDER BY wnr.created_at DESC
 LIMIT $2 OFFSET $3;
 
 -- name: CreateWorkflowAgentTask :one
-INSERT INTO multica_agent_task_queue (agent_id, runtime_id, issue_id, status, priority, workflow_node_run_id, context)
-VALUES ($1, $2, sqlc.narg('issue_id'), 'queued', $3, sqlc.narg('workflow_node_run_id'), sqlc.narg('context'))
+INSERT INTO multica_agent_task_queue (agent_id, runtime_id, issue_id, status, priority, workflow_node_run_id, chat_session_id, context)
+VALUES ($1, $2, sqlc.narg('issue_id'), 'queued', $3, sqlc.narg('workflow_node_run_id'), sqlc.narg('chat_session_id'), sqlc.narg('context'))
 RETURNING *;
 
 -- name: ListCompletedUpstreamNodeRuns :many
@@ -253,3 +296,15 @@ WHERE wnr.workflow_run_id = $1
   )
 ORDER BY ws.sort_order ASC, wn.sort_order ASC, wnr.created_at ASC
 LIMIT $3;
+
+-- name: SetNodeRunSplitReviewChatSession :one
+UPDATE multica_workflow_node_run SET
+    split_review_chat_session_id = $2,
+    updated_at = now()
+WHERE id = $1
+RETURNING *;
+
+-- name: GetNodeRunBySplitReviewChatSession :one
+SELECT * FROM multica_workflow_node_run
+WHERE split_review_chat_session_id = $1
+LIMIT 1;

@@ -5,19 +5,42 @@ import {
   addIssueToBuckets,
   findIssueLocation,
   patchIssueInBuckets,
+  removeIssueFromBuckets,
 } from "./cache-helpers";
 import { cleanupDeletedIssueCaches } from "./delete-cache";
+import { isWorkflowOriginIssue } from "./origin";
 import type { Issue, IssueLabelsResponse, IssueMetadata, Label } from "../types";
 import type { ListIssuesCache } from "../types";
+
+function removeWorkflowOriginIssueFromDefaultLists(
+  qc: QueryClient,
+  wsId: string,
+  issueId: string,
+) {
+  qc.setQueryData<ListIssuesCache>(issueKeys.list(wsId), (old) =>
+    old ? removeIssueFromBuckets(old, issueId) : old,
+  );
+  for (const [key] of qc.getQueriesData<ListIssuesCache>({
+    queryKey: issueKeys.myAll(wsId),
+  })) {
+    qc.setQueryData<ListIssuesCache>(key, (old) =>
+      old ? removeIssueFromBuckets(old, issueId) : old,
+    );
+  }
+}
 
 export function onIssueCreated(
   qc: QueryClient,
   wsId: string,
   issue: Issue,
 ) {
-  qc.setQueryData<ListIssuesCache>(issueKeys.list(wsId), (old) =>
-    old ? addIssueToBuckets(old, issue) : old,
-  );
+  if (isWorkflowOriginIssue(issue)) {
+    removeWorkflowOriginIssueFromDefaultLists(qc, wsId, issue.id);
+  } else {
+    qc.setQueryData<ListIssuesCache>(issueKeys.list(wsId), (old) =>
+      old ? addIssueToBuckets(old, issue) : old,
+    );
+  }
   qc.invalidateQueries({ queryKey: issueKeys.myAll(wsId) });
   qc.invalidateQueries({ queryKey: issueKeys.assigneeGroupsAll(wsId) });
   qc.invalidateQueries({ queryKey: issueKeys.myAssigneeGroupsAll(wsId) });
