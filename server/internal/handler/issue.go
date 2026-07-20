@@ -2594,6 +2594,9 @@ func (h *Handler) validateAssigneePair(ctx context.Context, r *http.Request, wor
 		if err != nil {
 			return http.StatusBadRequest, "assignee_id does not refer to a workflow in this workspace"
 		}
+		if workflow.IsDefault {
+			return http.StatusBadRequest, "default workflow cannot be assigned to issues"
+		}
 		if workflow.Status != "active" {
 			return http.StatusBadRequest, "workflow is not active"
 		}
