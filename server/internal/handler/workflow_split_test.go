@@ -39,14 +39,35 @@ func TestSplitAPIErrorStatus(t *testing.T) {
 }
 
 func TestWriteSplitAPIErrorHidesUnknownErrors(t *testing.T) {
-	w := httptest.NewRecorder()
-	writeSplitAPIError(w, errors.New("sentinel database detail"))
-
-	if w.Code != http.StatusInternalServerError {
-		t.Fatalf("status = %d, want 500", w.Code)
+	tests := []struct {
+		name string
+		err  error
+	}{
+		{"plain error", errors.New("sentinel database detail")},
+		{"unknown status", service.NewSplitAPIError(service.SplitErrorStatus("future_status"), "sentinel_code", errors.New("sentinel future detail"))},
 	}
-	if strings.Contains(w.Body.String(), "sentinel database detail") {
-		t.Fatalf("response leaked internal error: %s", w.Body.String())
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			w := httptest.NewRecorder()
+			writeSplitAPIError(w, tt.err)
+
+			if w.Code != http.StatusInternalServerError {
+				t.Fatalf("status = %d, want 500", w.Code)
+			}
+			var response struct {
+				Code  string `json:"code"`
+				Error string `json:"error"`
+			}
+			if err := json.Unmarshal(w.Body.Bytes(), &response); err != nil {
+				t.Fatalf("decode response: %v", err)
+			}
+			if response.Code != "internal_split_error" || response.Error != "failed to process split request" {
+				t.Fatalf("response = %+v, want fixed internal error", response)
+			}
+			if strings.Contains(w.Body.String(), "sentinel") {
+				t.Fatalf("response leaked internal error: %s", w.Body.String())
+			}
+		})
 	}
 }
 
@@ -2089,8 +2110,7 @@ func TestRetrySplitTaskResetsFailedTaskAndReschedules(t *testing.T) {
 	}
 
 	retryReq := newRequest("POST", "/api/node-runs/"+f.splitNodeRunID+"/split/tasks/"+f.taskAID+"/retry", nil)
-	retryReq = withURLParam(retryReq, "nodeRunId", f.splitNodeRunID)
-	retryReq = withURLParam(retryReq, "taskId", f.taskAID)
+	retryReq = withURLParams(retryReq, "nodeRunId", f.splitNodeRunID, "taskId", f.taskAID)
 	retryResp := httptest.NewRecorder()
 
 	testHandler.RetrySplitTask(retryResp, retryReq)
@@ -2145,8 +2165,7 @@ func TestRetrySplitTaskCancelsPreviousChildRun(t *testing.T) {
 	}
 
 	retryReq := newRequest("POST", "/api/node-runs/"+f.splitNodeRunID+"/split/tasks/"+f.taskAID+"/retry", nil)
-	retryReq = withURLParam(retryReq, "nodeRunId", f.splitNodeRunID)
-	retryReq = withURLParam(retryReq, "taskId", f.taskAID)
+	retryReq = withURLParams(retryReq, "nodeRunId", f.splitNodeRunID, "taskId", f.taskAID)
 	retryResp := httptest.NewRecorder()
 
 	testHandler.RetrySplitTask(retryResp, retryReq)

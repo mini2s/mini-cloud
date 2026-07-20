@@ -415,7 +415,7 @@ func splitAPIErrorResponse(err error) (int, string) {
 func writeSplitAPIError(w http.ResponseWriter, err error) {
 	status, code := splitAPIErrorResponse(err)
 	if status == http.StatusInternalServerError {
-		writeError(w, status, "failed to process split request")
+		writeJSON(w, status, map[string]any{"code": code, "error": "failed to process split request"})
 		return
 	}
 	writeJSON(w, status, map[string]any{"code": code, "error": err.Error()})
