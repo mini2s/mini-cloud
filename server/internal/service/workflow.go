@@ -1013,14 +1013,14 @@ func (s *WorkflowService) dispatchWorker(ctx context.Context, nodeRun db.Multica
 		return fmt.Errorf("get node: %w", err)
 	}
 
-	switch node.WorkerType {
+	switch nodeRun.WorkerType {
 	case "human":
 		_, err := s.TransitionNodeRun(ctx, nodeRun, NodeRunStatusWorkerAssigned)
 		return err
 	case "agent", "squad":
-		agentID := node.WorkerID
-		if node.WorkerType == "squad" && node.WorkerID.Valid {
-			squad, err := s.Queries.GetSquad(ctx, node.WorkerID)
+		agentID := nodeRun.WorkerID
+		if nodeRun.WorkerType == "squad" && nodeRun.WorkerID.Valid {
+			squad, err := s.Queries.GetSquad(ctx, nodeRun.WorkerID)
 			if err == nil {
 				agentID = squad.LeaderID
 			}
@@ -1049,7 +1049,7 @@ func (s *WorkflowService) dispatchWorker(ctx context.Context, nodeRun db.Multica
 	case "role":
 		return s.dispatchRoleWorker(ctx, nodeRun, node)
 	default:
-		return fmt.Errorf("unknown worker type: %s", node.WorkerType)
+		return fmt.Errorf("unknown worker type: %s", nodeRun.WorkerType)
 	}
 }
 
@@ -1126,14 +1126,14 @@ func (s *WorkflowService) dispatchCritic(ctx context.Context, nodeRun db.Multica
 		return fmt.Errorf("get node: %w", err)
 	}
 
-	switch node.CriticType {
+	switch nodeRun.CriticType {
 	case "human":
 		_, err := s.TransitionNodeRun(ctx, nodeRun, NodeRunStatusCriticReviewing)
 		return err
 	case "agent", "squad":
-		agentID := node.CriticID
-		if node.CriticType == "squad" && node.CriticID.Valid {
-			squad, err := s.Queries.GetSquad(ctx, node.CriticID)
+		agentID := nodeRun.CriticID
+		if nodeRun.CriticType == "squad" && nodeRun.CriticID.Valid {
+			squad, err := s.Queries.GetSquad(ctx, nodeRun.CriticID)
 			if err == nil {
 				agentID = squad.LeaderID
 			}
@@ -1162,7 +1162,7 @@ func (s *WorkflowService) dispatchCritic(ctx context.Context, nodeRun db.Multica
 		_, err := s.TransitionNodeRun(ctx, nodeRun, NodeRunStatusCriticReviewing)
 		return err
 	default:
-		return fmt.Errorf("unknown critic type: %s", node.CriticType)
+		return fmt.Errorf("unknown critic type: %s", nodeRun.CriticType)
 	}
 }
 
@@ -1189,16 +1189,16 @@ func (s *WorkflowService) DispatchAgentTask(ctx context.Context, nodeRun db.Mult
 	var agentID pgtype.UUID
 	switch phase {
 	case "worker":
-		agentID = node.WorkerID
-		if node.WorkerType == "squad" && node.WorkerID.Valid {
-			if squad, err := s.Queries.GetSquad(ctx, node.WorkerID); err == nil {
+		agentID = nodeRun.WorkerID
+		if nodeRun.WorkerType == "squad" && nodeRun.WorkerID.Valid {
+			if squad, err := s.Queries.GetSquad(ctx, nodeRun.WorkerID); err == nil {
 				agentID = squad.LeaderID
 			}
 		}
 	case "critic":
-		agentID = node.CriticID
-		if node.CriticType == "squad" && node.CriticID.Valid {
-			if squad, err := s.Queries.GetSquad(ctx, node.CriticID); err == nil {
+		agentID = nodeRun.CriticID
+		if nodeRun.CriticType == "squad" && nodeRun.CriticID.Valid {
+			if squad, err := s.Queries.GetSquad(ctx, nodeRun.CriticID); err == nil {
 				agentID = squad.LeaderID
 			}
 		}
