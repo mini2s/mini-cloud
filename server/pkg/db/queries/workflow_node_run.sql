@@ -29,6 +29,20 @@ INSERT INTO multica_workflow_node_run (
     $1, $2, $3, $4, $5, $6, sqlc.narg('worker_id'), $7, sqlc.narg('critic_id')
 ) RETURNING *;
 
+-- name: UpdateWorkflowNodeRunAssignees :one
+-- Override worker/critic on a node run. Used by the default-workflow path: the
+-- single node-run's worker is set to the issue assignee and critic to the issue
+-- creator, rather than inherited from the default workflow's placeholder node.
+-- dispatch reads node-run assignees, so this is what drives agent/critic dispatch.
+UPDATE multica_workflow_node_run SET
+    worker_type = $2,
+    worker_id   = $3,
+    critic_type = $4,
+    critic_id   = $5,
+    updated_at  = now()
+WHERE id = $1
+RETURNING *;
+
 -- name: UpdateWorkflowNodeRunStatus :one
 UPDATE multica_workflow_node_run SET
     status = $2,

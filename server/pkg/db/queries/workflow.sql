@@ -5,6 +5,7 @@
 -- name: ListWorkflows :many
 SELECT * FROM multica_workflow
 WHERE workspace_id = $1
+  AND is_default = FALSE
   AND (sqlc.narg('status')::text IS NULL OR status = sqlc.narg('status'))
 ORDER BY created_at DESC
 LIMIT $2 OFFSET $3;
@@ -195,7 +196,7 @@ ORDER BY created_at DESC;
 
 -- name: ListWorkflowsExcludingTemplates :many
 SELECT * FROM multica_workflow
-WHERE workspace_id = $1 AND is_template = FALSE
+WHERE workspace_id = $1 AND is_template = FALSE AND is_default = FALSE
   AND (sqlc.narg('status')::text IS NULL OR status = sqlc.narg('status'))
 ORDER BY created_at DESC
 LIMIT $2 OFFSET $3;
@@ -217,6 +218,23 @@ INSERT INTO multica_workflow (
     created_by_type, created_by_id, is_template, source_template_id
 ) VALUES (
     $1, $2, sqlc.narg('description'), $3, $4, $5, $6, FALSE, $7
+) RETURNING *;
+
+-- =====================
+-- Default (system) workflow
+-- =====================
+
+-- name: GetDefaultWorkflow :one
+SELECT * FROM multica_workflow
+WHERE workspace_id = $1 AND is_default = TRUE;
+
+-- name: CreateDefaultWorkflow :one
+-- System-created default workflow (archive sink for agent/member/squad issues).
+-- created_by_type='system', created_by_id NULL (migration 136 relaxed both).
+INSERT INTO multica_workflow (
+    workspace_id, title, status, max_retries, created_by_type, is_default
+) VALUES (
+    $1, $2, 'active', 3, 'system', TRUE
 ) RETURNING *;
 
 -- =====================
