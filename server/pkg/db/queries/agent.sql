@@ -245,6 +245,17 @@ WHERE id = (
 )
 RETURNING *;
 
+-- name: MarkAgentTaskDispatched :one
+-- Server-side push dispatch for cs-cloud runtimes: flips a queued task to
+-- dispatched without the per-(issue,agent) serialization of ClaimAgentTask
+-- (push targets one specific task by id; the runtime never polls).
+-- Returns no row when the task left 'queued' (cancelled / claimed) so the
+-- caller aborts the push.
+UPDATE multica_agent_task_queue
+SET status = 'dispatched', dispatched_at = now()
+WHERE id = $1 AND status = 'queued'
+RETURNING *;
+
 -- name: ReclaimStaleDispatchedTaskForRuntime :one
 -- Re-delivers a task whose previous claim likely succeeded server-side but
 -- whose response never reached the daemon. The task is still in `dispatched`

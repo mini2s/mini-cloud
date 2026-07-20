@@ -208,6 +208,10 @@ func New(queries *db.Queries, txStarter txStarter, hub *realtime.Hub, bus *event
 		cfg: cfg,
 	}
 
+	// Server-side task push to cs-cloud devices uses the same outbound
+	// gateway client as issue-conversation proxy calls.
+	taskSvc.CSCloudPush = h.CloudRuntime
+
 	// Wire workflow issue-sync callbacks so sub-issue status stays in sync
 	// with node-run state transitions, and the parent issue auto-completes
 	// when the workflow run finishes successfully.
