@@ -3,6 +3,7 @@ package handler
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"strings"
@@ -167,7 +168,7 @@ func (h *Handler) PatchSplitDraftTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if nodeRun.Status != service.NodeRunStatusAwaitingSplitReview {
-		writeSplitAPIError(w, errors.New("split draft task can only be edited while awaiting review"))
+		writeSplitAPIError(w, service.NewSplitAPIError(service.SplitErrorBadRequest, "invalid_split_request", errors.New("split draft task can only be edited while awaiting review")))
 		return
 	}
 	taskID, ok := parseUUIDOrBadRequest(w, chi.URLParam(r, "taskId"), "taskId")
@@ -176,11 +177,11 @@ func (h *Handler) PatchSplitDraftTask(w http.ResponseWriter, r *http.Request) {
 	}
 	var req PatchSplitDraftTaskRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeSplitAPIError(w, errors.New("invalid request body"))
+		writeSplitAPIError(w, service.NewSplitAPIError(service.SplitErrorBadRequest, "invalid_split_request", errors.New("invalid request body")))
 		return
 	}
 	if req.ExpectedVersion < 1 {
-		writeSplitAPIError(w, errors.New("expected_version is required"))
+		writeSplitAPIError(w, service.NewSplitAPIError(service.SplitErrorBadRequest, "invalid_split_request", errors.New("expected_version is required")))
 		return
 	}
 
@@ -192,7 +193,7 @@ func (h *Handler) PatchSplitDraftTask(w http.ResponseWriter, r *http.Request) {
 	if req.Title != nil {
 		title := strings.TrimSpace(*req.Title)
 		if title == "" {
-			writeSplitAPIError(w, errors.New("title is required"))
+			writeSplitAPIError(w, service.NewSplitAPIError(service.SplitErrorBadRequest, "invalid_split_request", errors.New("title is required")))
 			return
 		}
 		params.Title = pgtype.Text{String: title, Valid: true}
@@ -214,7 +215,7 @@ func (h *Handler) PatchSplitDraftTask(w http.ResponseWriter, r *http.Request) {
 	if req.DependsOn != nil {
 		dependsOn, err := json.Marshal(req.DependsOn)
 		if err != nil {
-			writeSplitAPIError(w, errors.New("invalid depends_on"))
+			writeSplitAPIError(w, service.NewSplitAPIError(service.SplitErrorBadRequest, "invalid_split_request", errors.New("invalid depends_on")))
 			return
 		}
 		params.DependsOn = dependsOn
@@ -245,12 +246,12 @@ func (h *Handler) BatchPatchSplitDraftTasks(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	if nodeRun.Status != service.NodeRunStatusAwaitingSplitReview {
-		writeSplitAPIError(w, errors.New("split draft task can only be edited while awaiting review"))
+		writeSplitAPIError(w, service.NewSplitAPIError(service.SplitErrorBadRequest, "invalid_split_request", errors.New("split draft task can only be edited while awaiting review")))
 		return
 	}
 	var req BatchPatchSplitDraftTasksRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeSplitAPIError(w, errors.New("invalid request body"))
+		writeSplitAPIError(w, service.NewSplitAPIError(service.SplitErrorBadRequest, "invalid_split_request", errors.New("invalid request body")))
 		return
 	}
 	for _, update := range req.Updates {
@@ -263,7 +264,7 @@ func (h *Handler) BatchPatchSplitDraftTasks(w http.ResponseWriter, r *http.Reque
 			return
 		}
 		if update.ExpectedVersion < 1 {
-			writeSplitAPIError(w, errors.New("expected_version is required"))
+			writeSplitAPIError(w, service.NewSplitAPIError(service.SplitErrorBadRequest, "invalid_split_request", errors.New("expected_version is required")))
 			return
 		}
 		if err := h.validateSplitIssueWorkflow(r, workflowID, run.WorkflowID, run.WorkspaceID); err != nil {
@@ -301,7 +302,10 @@ func (h *Handler) validateSplitIssueWorkflow(r *http.Request, workflowID, parent
 		WorkspaceID: workspaceID,
 	})
 	if err != nil {
-		return service.NewSplitAPIError(service.SplitErrorUnprocessable, "invalid_split_task_workflow", errors.New("split issue workflow not found"))
+		if errors.Is(err, pgx.ErrNoRows) {
+			return service.NewSplitAPIError(service.SplitErrorUnprocessable, "invalid_split_task_workflow", errors.New("split issue workflow not found"))
+		}
+		return fmt.Errorf("get split issue workflow: %w", err)
 	}
 	if workflow.Status != "active" {
 		return service.NewSplitAPIError(service.SplitErrorUnprocessable, "invalid_split_task_workflow", errors.New("split issue workflow is not active"))
@@ -394,20 +398,26 @@ func splitDraftErrorStatus(err error) int {
 func splitAPIErrorResponse(err error) (int, string) {
 	var splitErr *service.SplitAPIError
 	if !errors.As(err, &splitErr) {
-		return http.StatusBadRequest, "invalid_split_request"
+		return http.StatusInternalServerError, "internal_split_error"
 	}
 	switch splitErr.Status {
+	case service.SplitErrorBadRequest:
+		return http.StatusBadRequest, splitErr.Code
 	case service.SplitErrorConflict:
 		return http.StatusConflict, splitErr.Code
 	case service.SplitErrorUnprocessable:
 		return http.StatusUnprocessableEntity, splitErr.Code
 	default:
-		return http.StatusBadRequest, splitErr.Code
+		return http.StatusInternalServerError, "internal_split_error"
 	}
 }
 
 func writeSplitAPIError(w http.ResponseWriter, err error) {
 	status, code := splitAPIErrorResponse(err)
+	if status == http.StatusInternalServerError {
+		writeError(w, status, "failed to process split request")
+		return
+	}
 	writeJSON(w, status, map[string]any{"code": code, "error": err.Error()})
 }
 
@@ -598,7 +608,7 @@ func (h *Handler) PatchSplitConfig(w http.ResponseWriter, r *http.Request) {
 	}
 	var req PatchSplitConfigRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeSplitAPIError(w, errors.New("invalid split config payload"))
+		writeSplitAPIError(w, service.NewSplitAPIError(service.SplitErrorBadRequest, "invalid_split_request", errors.New("invalid split config payload")))
 		return
 	}
 	if h.SplitOrchestrator == nil {
@@ -630,7 +640,7 @@ func (h *Handler) RetrySplitTask(w http.ResponseWriter, r *http.Request) {
 	if r.Body != nil {
 		err := json.NewDecoder(r.Body).Decode(&req)
 		if err != nil && !errors.Is(err, io.EOF) {
-			writeSplitAPIError(w, errors.New("invalid split retry payload"))
+			writeSplitAPIError(w, service.NewSplitAPIError(service.SplitErrorBadRequest, "invalid_split_request", errors.New("invalid split retry payload")))
 			return
 		}
 	}
@@ -657,7 +667,7 @@ func (h *Handler) ApproveSplitTasks(w http.ResponseWriter, r *http.Request) {
 	}
 	var req service.SplitApproveRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeSplitAPIError(w, errors.New("invalid split approval payload"))
+		writeSplitAPIError(w, service.NewSplitAPIError(service.SplitErrorBadRequest, "invalid_split_request", errors.New("invalid split approval payload")))
 		return
 	}
 	if h.SplitOrchestrator == nil {

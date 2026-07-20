@@ -49,6 +49,7 @@ const maxSplitRecoveryAttachmentBytes = 2 << 20
 type SplitErrorStatus string
 
 const (
+	SplitErrorBadRequest    SplitErrorStatus = "bad_request"
 	SplitErrorConflict      SplitErrorStatus = "conflict"
 	SplitErrorUnprocessable SplitErrorStatus = "unprocessable"
 )
@@ -1203,10 +1204,10 @@ func (s *SplitOrchestrator) DeleteSplitDraftTask(ctx context.Context, nodeRun db
 
 func (s *SplitOrchestrator) PatchSplitConfig(ctx context.Context, nodeRun db.MulticaWorkflowNodeRun, maxConcurrency int32, expectedConfigVersion int64) error {
 	if maxConcurrency < 1 || maxConcurrency > 50 {
-		return fmt.Errorf("max_concurrency must be between 1 and 50")
+		return NewSplitAPIError(SplitErrorBadRequest, "invalid_split_request", errors.New("max_concurrency must be between 1 and 50"))
 	}
 	if expectedConfigVersion < 1 {
-		return fmt.Errorf("expected_config_version is required")
+		return NewSplitAPIError(SplitErrorBadRequest, "invalid_split_request", errors.New("expected_config_version is required"))
 	}
 
 	var shouldSchedule bool
@@ -1218,7 +1219,7 @@ func (s *SplitOrchestrator) PatchSplitConfig(ctx context.Context, nodeRun db.Mul
 		switch lockedNodeRun.Status {
 		case NodeRunStatusAwaitingSplitReview, NodeRunStatusSplitActive:
 		default:
-			return fmt.Errorf("split config cannot be patched from current status")
+			return NewSplitAPIError(SplitErrorBadRequest, "invalid_split_request", errors.New("split config cannot be patched from current status"))
 		}
 
 		node, err := qtx.GetWorkflowNode(ctx, lockedNodeRun.WorkflowNodeID)
@@ -1279,7 +1280,7 @@ func (s *SplitOrchestrator) RetrySplitTask(ctx context.Context, nodeRun db.Multi
 		return fmt.Errorf("get split node run: %w", err)
 	}
 	if currentNodeRun.Status != NodeRunStatusSplitActive {
-		return fmt.Errorf("split task retry requires split_active state")
+		return NewSplitAPIError(SplitErrorBadRequest, "invalid_split_request", errors.New("split task retry requires split_active state"))
 	}
 	node, err := s.Queries.GetWorkflowNode(ctx, currentNodeRun.WorkflowNodeID)
 	if err != nil {
@@ -1303,10 +1304,13 @@ func (s *SplitOrchestrator) RetrySplitTask(ctx context.Context, nodeRun db.Multi
 
 	task, err := s.Queries.GetSplitTask(ctx, taskID)
 	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return NewSplitAPIError(SplitErrorBadRequest, "invalid_split_request", errors.New("split task not found"))
+		}
 		return fmt.Errorf("get split task for retry: %w", err)
 	}
 	if task.NodeRunID != currentNodeRun.ID {
-		return fmt.Errorf("split task does not belong to this node run")
+		return NewSplitAPIError(SplitErrorBadRequest, "invalid_split_request", errors.New("split task does not belong to this node run"))
 	}
 	var previousRunID pgtype.UUID
 	if task.RunID.Valid {
@@ -1327,7 +1331,7 @@ func (s *SplitOrchestrator) RetrySplitTask(ctx context.Context, nodeRun db.Multi
 		})
 		if err != nil {
 			if errors.Is(err, pgx.ErrNoRows) {
-				return fmt.Errorf("split task cannot be retried from current state")
+				return NewSplitAPIError(SplitErrorBadRequest, "invalid_split_request", errors.New("split task cannot be retried from current state"))
 			}
 			return fmt.Errorf("reset split task for retry: %w", err)
 		}
@@ -1622,7 +1626,7 @@ func (s *SplitOrchestrator) ApproveSplit(ctx context.Context, nodeRun db.Multica
 	for _, id := range req.ApprovedTaskIDs {
 		u, err := util.ParseUUID(id)
 		if err != nil {
-			return fmt.Errorf("invalid approved_task_id: %w", err)
+			return NewSplitAPIError(SplitErrorBadRequest, "invalid_split_request", fmt.Errorf("invalid approved_task_id: %w", err))
 		}
 		approvedIDs[id] = struct{}{}
 		approvedUUIDs = append(approvedUUIDs, u)
@@ -1630,7 +1634,7 @@ func (s *SplitOrchestrator) ApproveSplit(ctx context.Context, nodeRun db.Multica
 
 	// Reject legacy modifications — all edits must go through /split/chat.
 	if len(req.Modifications) > 0 {
-		return fmt.Errorf("split modifications must be submitted through /split/chat")
+		return NewSplitAPIError(SplitErrorBadRequest, "invalid_split_request", errors.New("split modifications must be submitted through /split/chat"))
 	}
 
 	node, err := s.Queries.GetWorkflowNode(ctx, nodeRun.WorkflowNodeID)
@@ -1656,7 +1660,7 @@ func (s *SplitOrchestrator) ApproveSplit(ctx context.Context, nodeRun db.Multica
 			return fmt.Errorf("lock split node run: %w", err)
 		}
 		if lockedNodeRun.Status != NodeRunStatusAwaitingSplitReview {
-			return fmt.Errorf("split node cannot be approved from current status")
+			return NewSplitAPIError(SplitErrorBadRequest, "invalid_split_request", errors.New("split node cannot be approved from current status"))
 		}
 
 		current, err := qtx.ListSplitTasksByNodeRun(ctx, nodeRun.ID)
@@ -1680,7 +1684,7 @@ func (s *SplitOrchestrator) ApproveSplit(ctx context.Context, nodeRun db.Multica
 				}
 				return nil
 			}
-			return fmt.Errorf("split approval requires at least one task")
+			return NewSplitAPIError(SplitErrorBadRequest, "invalid_split_request", errors.New("split approval requires at least one task"))
 		}
 		if len(allowed) > 50 {
 			return NewSplitAPIError(SplitErrorUnprocessable, "split_task_limit_exceeded", errors.New("split task limit exceeded"))

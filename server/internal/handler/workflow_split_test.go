@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -22,15 +23,30 @@ func TestSplitAPIErrorStatus(t *testing.T) {
 		code   string
 	}{
 		{service.NewSplitAPIError(service.SplitErrorConflict, "draft_task_conflict", errors.New("version changed")), http.StatusConflict, "draft_task_conflict"},
+		{fmt.Errorf("wrapped: %w", service.NewSplitAPIError(service.SplitErrorConflict, "split_config_conflict", errors.New("version changed"))), http.StatusConflict, "split_config_conflict"},
 		{service.NewSplitAPIError(service.SplitErrorUnprocessable, "invalid_split_task_workflow", errors.New("inactive")), http.StatusUnprocessableEntity, "invalid_split_task_workflow"},
 		{service.NewSplitAPIError(service.SplitErrorUnprocessable, "split_task_limit_exceeded", errors.New("too many")), http.StatusUnprocessableEntity, "split_task_limit_exceeded"},
-		{errors.New("invalid syntax"), http.StatusBadRequest, "invalid_split_request"},
+		{service.NewSplitAPIError(service.SplitErrorUnprocessable, "invalid_split_task_dependency", errors.New("cycle")), http.StatusUnprocessableEntity, "invalid_split_task_dependency"},
+		{service.NewSplitAPIError(service.SplitErrorBadRequest, "invalid_split_request", errors.New("invalid syntax")), http.StatusBadRequest, "invalid_split_request"},
+		{errors.New("database unavailable"), http.StatusInternalServerError, "internal_split_error"},
 	}
 	for _, tt := range tests {
 		status, code := splitAPIErrorResponse(tt.err)
 		if status != tt.status || code != tt.code {
 			t.Fatalf("got %d/%q, want %d/%q", status, code, tt.status, tt.code)
 		}
+	}
+}
+
+func TestWriteSplitAPIErrorHidesUnknownErrors(t *testing.T) {
+	w := httptest.NewRecorder()
+	writeSplitAPIError(w, errors.New("sentinel database detail"))
+
+	if w.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want 500", w.Code)
+	}
+	if strings.Contains(w.Body.String(), "sentinel database detail") {
+		t.Fatalf("response leaked internal error: %s", w.Body.String())
 	}
 }
 
