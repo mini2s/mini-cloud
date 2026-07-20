@@ -18,11 +18,11 @@ describe("RuntimesRoute", () => {
     vi.clearAllMocks();
   });
 
-  it("limits the web runtime view to CSC", () => {
+  it("limits the web runtime view to CSC and cs-cloud", () => {
     render(<RuntimesRoute />);
 
     expect(mockRuntimesPage.mock.calls[0]?.[0]).toEqual(
-      expect.objectContaining({ visibleProviders: ["csc"] }),
+      expect.objectContaining({ visibleProviders: ["csc", "cs-cloud"] }),
     );
   });
 });
