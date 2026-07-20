@@ -1,5 +1,7 @@
-import { ComingSoon } from "@/components/layout/coming-soon";
+"use client";
 
-export default function ReviewsPage() {
-  return <ComingSoon module="reviews" label="我的审查 / Reviews" />;
+import { ReviewsPage } from "@/components/reviews/reviews-page";
+
+export default function Page() {
+  return <ReviewsPage />;
 }
