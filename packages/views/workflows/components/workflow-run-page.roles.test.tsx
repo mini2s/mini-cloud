@@ -131,6 +131,15 @@ describe("WorkflowRunPage role assignment", () => {
     expect(mocks.toastError).toHaveBeenCalledWith("Assignment conflict");
   });
 
+  it("sends exactly one retry request for one retry action", async () => {
+    render(<WorkflowRunPage workflowId="workflow-1" runId="run-1" />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+
+    await waitFor(() => expect(mocks.retry).toHaveBeenCalledTimes(1));
+    expect(mocks.toastSuccess).toHaveBeenCalledWith("Retry started");
+  });
+
   it("shows resolving state and allows cancellation", () => {
     mocks.run = { ...mocks.run, status: "resolving_roles" };
     render(<WorkflowRunPage workflowId="workflow-1" runId="run-1" />);

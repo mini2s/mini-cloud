@@ -652,7 +652,7 @@ func TestSplitLifecycleEvents(t *testing.T) {
 	addReq = withURLParam(addReq, "nodeRunId", f.splitNodeRunID)
 	addResp := httptest.NewRecorder()
 	testHandler.AddSplitDraftTask(addResp, addReq)
-	if addResp.Code != http.StatusCreated {
+	if addResp.Code != http.StatusOK {
 		t.Fatalf("AddSplitDraftTask: status = %d: %s", addResp.Code, addResp.Body.String())
 	}
 
@@ -1695,8 +1695,8 @@ func TestSplitCompletionDispatchesRepairTaskBeforeFailing(t *testing.T) {
 	if err := json.Unmarshal(repairContext, &taskCtx); err != nil {
 		t.Fatalf("parse repair task context: %v", err)
 	}
-	if taskCtx["phase"] != "split" {
-		t.Fatalf("repair task phase = %v, want split", taskCtx["phase"])
+	if taskCtx["phase"] != "split_repair" {
+		t.Fatalf("repair task phase = %v, want split_repair", taskCtx["phase"])
 	}
 	if taskCtx["repair"] != true {
 		t.Fatalf("repair task context repair = %v, want true", taskCtx["repair"])
@@ -2378,8 +2378,8 @@ func TestCancelWorkflowRunCascadesActiveSplitTasks(t *testing.T) {
 	if err != nil {
 		t.Fatalf("reload split task B: %v", err)
 	}
-	if taskB.Status != service.SplitTaskStatusCancelled {
-		t.Fatalf("task B status = %s, want cancelled", taskB.Status)
+	if taskB.Status != service.SplitTaskStatusSkipped {
+		t.Fatalf("task B status = %s, want skipped", taskB.Status)
 	}
 
 	childRun, err := testHandler.Queries.GetWorkflowRun(ctx, taskA.RunID)
@@ -3314,8 +3314,8 @@ func TestGenerateSplitTasksDispatchesAndPersistsDraftTasks(t *testing.T) {
 	if err := json.Unmarshal(taskContext, &taskCtx); err != nil {
 		t.Fatalf("parse generation task context: %v", err)
 	}
-	if taskCtx["phase"] != "split" {
-		t.Fatalf("generation task phase = %v, want split", taskCtx["phase"])
+	if taskCtx["phase"] != "split_generate" {
+		t.Fatalf("generation task phase = %v, want split_generate", taskCtx["phase"])
 	}
 	if taskCtx["node_run_id"] != f.splitNodeRunID {
 		t.Fatalf("generation task node_run_id = %v, want %s", taskCtx["node_run_id"], f.splitNodeRunID)

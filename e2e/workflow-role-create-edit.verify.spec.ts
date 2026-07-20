@@ -13,6 +13,8 @@ test("verify workflow role create to edit", async ({ page }) => {
     "Edited through the workflow role settings UI and verified after reload.";
   const consoleErrors: string[] = [];
   const apiEvidence: Record<string, unknown> = {};
+  let workspaceId = "";
+  let cleanupRoleName = roleName;
 
   await mkdir(artifactDir, { recursive: true });
   page.on("console", (message) => {
@@ -38,8 +40,15 @@ test("verify workflow role create to edit", async ({ page }) => {
     );
     await page.getByRole("button", { name: /Create role|创建角色/ }).click();
     const createResponse = await createResponsePromise;
-    apiEvidence.create = { url: createResponse.url(), status: createResponse.status() };
     expect(createResponse.ok()).toBeTruthy();
+    const createResponseBody = await createResponse.json() as { id?: string };
+    apiEvidence.create = {
+      url: createResponse.url(),
+      status: createResponse.status(),
+      body: createResponseBody,
+    };
+    createdRoleId = createResponseBody.id ?? "";
+    expect(createdRoleId).not.toBe("");
 
     const createdRow = page.locator("article").filter({ hasText: roleName });
     await expect(createdRow).toContainText(roleDescription);
@@ -54,6 +63,7 @@ test("verify workflow role create to edit", async ({ page }) => {
       (item) => item.slug === slug,
     );
     expect(workspace).toBeTruthy();
+    workspaceId = workspace!.id;
 
     const createdRoles = await page.evaluate(async (workspaceId) => {
       const response = await fetch(`/api/workspaces/${workspaceId}/workflow-roles`, {
@@ -71,7 +81,7 @@ test("verify workflow role create to edit", async ({ page }) => {
       description: roleDescription,
       is_builtin: false,
     });
-    createdRoleId = createdRole.id;
+    expect(createdRole.id).toBe(createdRoleId);
     apiEvidence.createdReadback = createdRole;
 
     await createdRow.getByRole("button", { name: /Edit|编辑/ }).click();
@@ -80,12 +90,13 @@ test("verify workflow role create to edit", async ({ page }) => {
     const updateResponsePromise = page.waitForResponse(
       (response) =>
         response.url().includes(`/workflow-roles/${createdRoleId}`) &&
-        response.request().method() === "PUT",
+        response.request().method() === "PATCH",
     );
     await createdRow.getByRole("button", { name: /Update role|更新角色/ }).click();
     const updateResponse = await updateResponsePromise;
     apiEvidence.update = { url: updateResponse.url(), status: updateResponse.status() };
     expect(updateResponse.ok()).toBeTruthy();
+    cleanupRoleName = updatedName;
 
     const updatedRow = page.locator("article").filter({ hasText: updatedName });
     await expect(updatedRow).toContainText(updatedDescription);
@@ -93,10 +104,29 @@ test("verify workflow role create to edit", async ({ page }) => {
     await expect(page.locator("article").filter({ hasText: updatedName })).toContainText(
       updatedDescription,
     );
+
+    const updatedRoles = await page.evaluate(async (targetWorkspaceId) => {
+      const response = await fetch(`/api/workspaces/${targetWorkspaceId}/workflow-roles`, {
+        credentials: "include",
+      });
+      if (!response.ok) throw new Error(`updated role readback failed: ${response.status}`);
+      return response.json();
+    }, workspaceId);
+    const updatedRoleList = Array.isArray(updatedRoles) ? updatedRoles : updatedRoles.roles;
+    const updatedRole = updatedRoleList.find(
+      (role: { id: string }) => role.id === createdRoleId,
+    );
+    expect(updatedRole).toMatchObject({
+      id: createdRoleId,
+      name: updatedName,
+      description: updatedDescription,
+      is_builtin: false,
+    });
+    apiEvidence.updatedReadback = updatedRole;
     await page.screenshot({ path: `${artifactDir}/03-role-after-reload.png`, fullPage: true });
   } finally {
     if (createdRoleId) {
-      const cleanupRow = page.locator("article").filter({ hasText: updatedName });
+      const cleanupRow = page.locator("article").filter({ hasText: cleanupRoleName });
       if (await cleanupRow.count()) {
         await cleanupRow.getByRole("button", { name: /Delete|删除/ }).click();
         const deleteResponsePromise = page.waitForResponse(
@@ -111,6 +141,16 @@ test("verify workflow role create to edit", async ({ page }) => {
         const deleteResponse = await deleteResponsePromise;
         apiEvidence.cleanup = { url: deleteResponse.url(), status: deleteResponse.status() };
         expect(deleteResponse.ok()).toBeTruthy();
+      } else if (workspaceId) {
+        const cleanup = await page.evaluate(async ({ targetWorkspaceId, roleId }) => {
+          const response = await fetch(
+            `/api/workspaces/${targetWorkspaceId}/workflow-roles/${roleId}`,
+            { method: "DELETE", credentials: "include" },
+          );
+          return { url: response.url, status: response.status, ok: response.ok };
+        }, { targetWorkspaceId: workspaceId, roleId: createdRoleId });
+        apiEvidence.cleanup = cleanup;
+        expect(cleanup.ok).toBeTruthy();
       }
     }
     await writeFile(
