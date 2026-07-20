@@ -11,6 +11,22 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const cancelOpenSplitTask = `-- name: CancelOpenSplitTask :execrows
+UPDATE multica_workflow_split_task
+SET status = 'cancelled',
+    updated_at = now()
+WHERE id = $1
+  AND status NOT IN ('done', 'failed', 'cancelled', 'skipped', 'discarded')
+`
+
+func (q *Queries) CancelOpenSplitTask(ctx context.Context, id pgtype.UUID) (int64, error) {
+	result, err := q.db.Exec(ctx, cancelOpenSplitTask, id)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const cancelOpenSplitTasksByNodeRun = `-- name: CancelOpenSplitTasksByNodeRun :exec
 UPDATE multica_workflow_split_task
 SET status = 'cancelled',

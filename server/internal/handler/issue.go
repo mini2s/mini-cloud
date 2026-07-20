@@ -2090,8 +2090,9 @@ func (h *Handler) CreateIssue(w http.ResponseWriter, r *http.Request) {
 					}
 				}
 				// Dispatch after sub-issues exist so tasks can link issue_id.
-				h.WorkflowService.DispatchRootNodeRuns(ctx, run.ID)
-				_, err = h.Queries.UpdateIssue(ctx, db.UpdateIssueParams{
+				if err = h.WorkflowService.DispatchRootNodeRuns(ctx, run.ID); err != nil {
+					slog.Warn("failed to dispatch root workflow nodes", "run_id", uuidToString(run.ID), "error", err)
+				} else if _, err = h.Queries.UpdateIssue(ctx, db.UpdateIssueParams{
 					ID:            issue.ID,
 					AssigneeType:  issue.AssigneeType,
 					AssigneeID:    issue.AssigneeID,
@@ -2101,8 +2102,7 @@ func (h *Handler) CreateIssue(w http.ResponseWriter, r *http.Request) {
 					ProjectID:     issue.ProjectID,
 					WorkflowID:    workflowID,
 					WorkflowRunID: run.ID,
-				})
-				if err != nil {
+				}); err != nil {
 					slog.Warn("failed to set workflow_run_id on parent issue", "issue_id", uuidToString(issue.ID), "error", err)
 				} else {
 					resp.WorkflowID = uuidToPtr(issue.AssigneeID)
@@ -2479,8 +2479,9 @@ func (h *Handler) UpdateIssue(w http.ResponseWriter, r *http.Request) {
 							slog.Warn("failed to create sub-issue for node run", "node_run_id", uuidToString(nr.ID), "error", cerr)
 						}
 					}
-					h.WorkflowService.DispatchRootNodeRuns(ctx, run.ID)
-					_, cerr := h.Queries.UpdateIssue(ctx, db.UpdateIssueParams{
+					if cerr := h.WorkflowService.DispatchRootNodeRuns(ctx, run.ID); cerr != nil {
+						slog.Warn("failed to dispatch root workflow nodes", "run_id", uuidToString(run.ID), "error", cerr)
+					} else if _, cerr := h.Queries.UpdateIssue(ctx, db.UpdateIssueParams{
 						ID:            issue.ID,
 						AssigneeType:  issue.AssigneeType,
 						AssigneeID:    issue.AssigneeID,
@@ -2490,8 +2491,7 @@ func (h *Handler) UpdateIssue(w http.ResponseWriter, r *http.Request) {
 						ProjectID:     issue.ProjectID,
 						WorkflowID:    issue.AssigneeID,
 						WorkflowRunID: run.ID,
-					})
-					if cerr != nil {
+					}); cerr != nil {
 						slog.Warn("failed to set workflow_run_id on parent issue", "issue_id", uuidToString(issue.ID), "error", cerr)
 					} else {
 						resp.WorkflowRunID = uuidToPtr(run.ID)

@@ -475,6 +475,10 @@ func splitTaskDispatchKey(task db.MulticaWorkflowSplitTask) string {
 	return fmt.Sprintf("split-task:%s:attempt:%d", util.UUIDToString(task.ID), task.Version)
 }
 
+func splitTaskDispatchLockKey(taskID pgtype.UUID) string {
+	return "split-task-dispatch:" + util.UUIDToString(taskID)
+}
+
 func isTerminalSplitTaskStatus(status string) bool {
 	switch status {
 	case SplitTaskStatusDone, SplitTaskStatusFailed, SplitTaskStatusCancelled, SplitTaskStatusSkipped, SplitTaskStatusDiscarded:
@@ -1799,41 +1803,50 @@ func (s *SplitOrchestrator) CancelSplitNode(
 	}
 
 	for _, task := range tasks {
-		if isTerminalSplitTaskStatus(task.Status) {
-			continue
-		}
-
-		if task.RunID.Valid {
-			run, err := s.Queries.GetWorkflowRun(ctx, task.RunID)
-			if err != nil {
-				return nil, fmt.Errorf("get child run: %w", err)
+		if err := s.runInTx(ctx, func(qtx *db.Queries) error {
+			if err := qtx.LockIssueDuplicateKey(ctx, splitTaskDispatchLockKey(task.ID)); err != nil {
+				return fmt.Errorf("lock split task cancellation: %w", err)
 			}
-			if !isTerminalWorkflowRunStatus(run.Status) {
-				if err := s.WfService.CancelRun(ctx, task.RunID); err != nil {
-					return nil, fmt.Errorf("cancel child run: %w", err)
+			currentTask, err := qtx.GetSplitTask(ctx, task.ID)
+			if err != nil {
+				return fmt.Errorf("reload split task for cancellation: %w", err)
+			}
+			if isTerminalSplitTaskStatus(currentTask.Status) {
+				return nil
+			}
+			if currentTask.RunID.Valid {
+				run, err := qtx.GetWorkflowRun(ctx, currentTask.RunID)
+				if err != nil {
+					return fmt.Errorf("get child run: %w", err)
+				}
+				if !isTerminalWorkflowRunStatus(run.Status) {
+					if err := s.WfService.CancelRun(ctx, currentTask.RunID); err != nil {
+						return fmt.Errorf("cancel child run: %w", err)
+					}
 				}
 			}
-		}
-
-		if task.IssueID.Valid {
-			issue, err := s.Queries.GetIssue(ctx, task.IssueID)
-			if err != nil {
-				return nil, fmt.Errorf("get child issue: %w", err)
-			}
-			if issue.Status != "cancelled" && issue.Status != "done" {
-				if _, err := s.Queries.UpdateIssueStatus(ctx, db.UpdateIssueStatusParams{
-					ID:          task.IssueID,
-					Status:      "cancelled",
-					WorkspaceID: workspaceID,
-				}); err != nil {
-					return nil, fmt.Errorf("cancel child issue: %w", err)
+			if currentTask.IssueID.Valid {
+				issue, err := qtx.GetIssue(ctx, currentTask.IssueID)
+				if err != nil {
+					return fmt.Errorf("get child issue: %w", err)
+				}
+				if issue.Status != "cancelled" && issue.Status != "done" {
+					if _, err := qtx.UpdateIssueStatus(ctx, db.UpdateIssueStatusParams{
+						ID:          currentTask.IssueID,
+						Status:      "cancelled",
+						WorkspaceID: workspaceID,
+					}); err != nil {
+						return fmt.Errorf("cancel child issue: %w", err)
+					}
 				}
 			}
+			if _, err := qtx.CancelOpenSplitTask(ctx, currentTask.ID); err != nil {
+				return fmt.Errorf("cancel split task: %w", err)
+			}
+			return nil
+		}); err != nil {
+			return nil, err
 		}
-	}
-
-	if err := s.Queries.CancelOpenSplitTasksByNodeRun(ctx, nodeRun.ID); err != nil {
-		return nil, fmt.Errorf("cancel split tasks: %w", err)
 	}
 
 	if nodeRun.Status == NodeRunStatusCancelled {
@@ -1936,6 +1949,10 @@ func (s *SplitOrchestrator) ScheduleReadyTasks(ctx context.Context, nodeRunID pg
 	for _, task := range claimed {
 		if err := s.startChildTaskRun(ctx, splitNodeRun, cfg, task); err != nil {
 			slog.Warn("split: failed to start child run", "split_task_id", util.UUIDToString(task.ID), "error", err)
+			currentTask, loadErr := s.Queries.GetSplitTask(ctx, task.ID)
+			if loadErr == nil && currentTask.Status == SplitTaskStatusRunning && currentTask.RunID.Valid {
+				continue
+			}
 			if _, updateErr := s.Queries.UpdateSplitTaskStatusWithError(ctx, db.UpdateSplitTaskStatusWithErrorParams{
 				ID:        task.ID,
 				Status:    SplitTaskStatusFailed,
@@ -2023,7 +2040,7 @@ func (s *SplitOrchestrator) HandleChildRunTerminal(ctx context.Context, run db.M
 
 func (s *SplitOrchestrator) startChildTaskRun(ctx context.Context, splitNodeRun db.MulticaWorkflowNodeRun, cfg SplitConfig, task db.MulticaWorkflowSplitTask) error {
 	return s.runInTx(ctx, func(qtx *db.Queries) error {
-		if err := qtx.LockIssueDuplicateKey(ctx, "split-task-dispatch:"+util.UUIDToString(task.ID)); err != nil {
+		if err := qtx.LockIssueDuplicateKey(ctx, splitTaskDispatchLockKey(task.ID)); err != nil {
 			return fmt.Errorf("lock split task dispatch: %w", err)
 		}
 		return s.startChildTaskRunLocked(ctx, splitNodeRun, cfg, task)
@@ -2079,26 +2096,50 @@ func (s *SplitOrchestrator) startChildTaskRunLocked(ctx context.Context, splitNo
 			return err
 		}
 	}
-	s.WfService.DispatchRootNodeRuns(ctx, run.ID)
+	if err := s.WfService.DispatchRootNodeRuns(ctx, run.ID); err != nil {
+		return err
+	}
 
-	if _, err := s.Queries.UpdateIssue(ctx, db.UpdateIssueParams{
+	currentTask, err := s.Queries.GetSplitTask(ctx, task.ID)
+	if err != nil {
+		return fmt.Errorf("reload split task before marking dispatch complete: %w", err)
+	}
+	currentNodeRun, err := s.Queries.GetWorkflowNodeRun(ctx, splitNodeRun.ID)
+	if err != nil {
+		return fmt.Errorf("reload split node run before marking dispatch complete: %w", err)
+	}
+	currentRun, err := s.Queries.GetWorkflowRun(ctx, run.ID)
+	if err != nil {
+		return fmt.Errorf("reload child run before marking dispatch complete: %w", err)
+	}
+	currentIssue, err := s.Queries.GetIssue(ctx, issue.ID)
+	if err != nil {
+		return fmt.Errorf("reload child issue before marking dispatch complete: %w", err)
+	}
+	if currentTask.Status != SplitTaskStatusRunning || currentTask.RunID != run.ID ||
+		currentTask.DispatchKey.String != splitTaskDispatchKey(task) ||
+		currentNodeRun.Status == NodeRunStatusCancelled || isTerminalWorkflowRunStatus(currentRun.Status) ||
+		currentIssue.Status == "cancelled" || currentIssue.Status == "done" {
+		if !isTerminalWorkflowRunStatus(currentRun.Status) {
+			if err := s.WfService.CancelRun(ctx, run.ID); err != nil {
+				return fmt.Errorf("cancel child run after dispatch state changed: %w", err)
+			}
+		}
+		return nil
+	}
+	markerRows, err := s.Queries.FinalizeSplitChildIssueRun(ctx, db.FinalizeSplitChildIssueRunParams{
 		ID:            issue.ID,
-		Title:         textToPgText(issue.Title),
 		Description:   issue.Description,
-		Status:        pgtype.Text{String: issue.Status, Valid: true},
-		Priority:      pgtype.Text{String: issue.Priority, Valid: true},
-		AssigneeType:  issue.AssigneeType,
-		AssigneeID:    issue.AssigneeID,
-		Position:      pgtype.Float8{Float64: issue.Position, Valid: true},
-		StartDate:     issue.StartDate,
-		DueDate:       issue.DueDate,
-		ParentIssueID: issue.ParentIssueID,
-		ProjectID:     issue.ProjectID,
 		WorkflowID:    task.WorkflowID,
 		WorkflowRunID: run.ID,
-		StageID:       issue.StageID,
-	}); err != nil {
+	})
+	if err != nil {
 		return err
+	}
+	if markerRows == 0 {
+		if err := s.WfService.CancelRun(ctx, run.ID); err != nil {
+			return fmt.Errorf("cancel child run after issue marker conflict: %w", err)
+		}
 	}
 
 	return nil

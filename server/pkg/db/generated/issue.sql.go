@@ -425,6 +425,36 @@ func (q *Queries) DeleteIssueMetadataKey(ctx context.Context, arg DeleteIssueMet
 	return i, err
 }
 
+const finalizeSplitChildIssueRun = `-- name: FinalizeSplitChildIssueRun :execrows
+UPDATE multica_issue
+SET description = $2,
+    workflow_id = $3,
+    workflow_run_id = $4,
+    updated_at = now()
+WHERE id = $1
+  AND status NOT IN ('cancelled', 'done')
+`
+
+type FinalizeSplitChildIssueRunParams struct {
+	ID            pgtype.UUID `json:"id"`
+	Description   pgtype.Text `json:"description"`
+	WorkflowID    pgtype.UUID `json:"workflow_id"`
+	WorkflowRunID pgtype.UUID `json:"workflow_run_id"`
+}
+
+func (q *Queries) FinalizeSplitChildIssueRun(ctx context.Context, arg FinalizeSplitChildIssueRunParams) (int64, error) {
+	result, err := q.db.Exec(ctx, finalizeSplitChildIssueRun,
+		arg.ID,
+		arg.Description,
+		arg.WorkflowID,
+		arg.WorkflowRunID,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const findActiveDuplicateIssue = `-- name: FindActiveDuplicateIssue :one
 SELECT id, workspace_id, title, description, status, priority, assignee_type, assignee_id, creator_type, creator_id, parent_issue_id, acceptance_criteria, context_refs, position, due_date, created_at, updated_at, number, project_id, origin_type, origin_id, first_executed_at, start_date, metadata, workflow_id, workflow_run_id, stage_id FROM multica_issue
 WHERE workspace_id = $1

@@ -169,3 +169,10 @@ SET status = 'cancelled',
     updated_at = now()
 WHERE node_run_id = $1
   AND status NOT IN ('done', 'failed', 'cancelled', 'skipped', 'discarded');
+
+-- name: CancelOpenSplitTask :execrows
+UPDATE multica_workflow_split_task
+SET status = 'cancelled',
+    updated_at = now()
+WHERE id = $1
+  AND status NOT IN ('done', 'failed', 'cancelled', 'skipped', 'discarded');

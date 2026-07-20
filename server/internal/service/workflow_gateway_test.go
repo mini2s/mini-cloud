@@ -203,7 +203,9 @@ func TestGatewayRunForkAndJoinSemantics(t *testing.T) {
 		t.Fatalf("StartRun: %v", err)
 	}
 
-	svc.DispatchRootNodeRuns(ctx, run.ID)
+	if err := svc.DispatchRootNodeRuns(ctx, run.ID); err != nil {
+		t.Fatalf("DispatchRootNodeRuns: %v", err)
+	}
 
 	getNodeRun := func(nodeID string) db.MulticaWorkflowNodeRun {
 		t.Helper()
@@ -322,7 +324,9 @@ func TestInvalidGatewayDoesNotDispatchWorker(t *testing.T) {
 		t.Fatalf("StartRun: %v", err)
 	}
 
-	svc.DispatchRootNodeRuns(ctx, run.ID)
+	if err := svc.DispatchRootNodeRuns(ctx, run.ID); err != nil {
+		t.Fatalf("DispatchRootNodeRuns: %v", err)
+	}
 
 	nodeUUID, err := util.ParseUUID(nodeID)
 	if err != nil {

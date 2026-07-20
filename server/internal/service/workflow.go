@@ -324,31 +324,37 @@ func (s *WorkflowService) startRun(ctx context.Context, workflow db.MulticaWorkf
 // DispatchRootNodeRuns kicks off root node runs after the run is created.
 // format_checking -> format_ok -> dispatchWorker.
 // Must be called after sub-issues exist so DispatchAgentTask can link issue_id.
-func (s *WorkflowService) DispatchRootNodeRuns(ctx context.Context, runID pgtype.UUID) {
-	nodeRuns, _ := s.Queries.ListWorkflowNodeRunsByRun(ctx, runID)
+func (s *WorkflowService) DispatchRootNodeRuns(ctx context.Context, runID pgtype.UUID) error {
+	nodeRuns, err := s.Queries.ListWorkflowNodeRunsByRun(ctx, runID)
+	if err != nil {
+		return fmt.Errorf("list root node runs: %w", err)
+	}
 	for _, nr := range nodeRuns {
 		if nr.Status == NodeRunStatusFormatChecking {
 			handled, err := s.completeGatewayNodeRun(ctx, nr)
 			if err != nil {
-				slog.Warn("StartRun: complete gateway failed", "node_run_id", util.UUIDToString(nr.ID), "error", err)
-				continue
+				return fmt.Errorf("complete root gateway node %s: %w", util.UUIDToString(nr.ID), err)
 			}
 			if handled {
 				continue
 			}
 			if _, err := s.TransitionNodeRun(ctx, nr, NodeRunStatusFormatOk); err != nil {
-				slog.Warn("StartRun: transition to format_ok failed", "node_run_id", util.UUIDToString(nr.ID), "error", err)
+				return fmt.Errorf("transition root node %s to format_ok: %w", util.UUIDToString(nr.ID), err)
 			}
 		}
 	}
-	nodeRuns, _ = s.Queries.ListWorkflowNodeRunsByRun(ctx, runID)
+	nodeRuns, err = s.Queries.ListWorkflowNodeRunsByRun(ctx, runID)
+	if err != nil {
+		return fmt.Errorf("reload root node runs: %w", err)
+	}
 	for _, nr := range nodeRuns {
 		if nr.Status == NodeRunStatusFormatOk {
 			if err := s.dispatchWorker(ctx, nr); err != nil {
-				slog.Warn("StartRun: dispatch worker failed", "node_run_id", util.UUIDToString(nr.ID), "error", err)
+				return fmt.Errorf("dispatch root worker %s: %w", util.UUIDToString(nr.ID), err)
 			}
 		}
 	}
+	return nil
 }
 
 // StartRunForIssue creates a workflow run from an issue assignment and returns
@@ -1034,10 +1040,15 @@ func (s *WorkflowService) dispatchWorker(ctx context.Context, nodeRun db.Multica
 			_, err := s.TransitionNodeRun(ctx, nodeRun, NodeRunStatusWorkerAssigned)
 			return err
 		}
-		// Create the agent task.
-		task, err := s.DispatchAgentTask(ctx, nodeRun, "worker")
-		if err != nil {
-			return fmt.Errorf("dispatch agent task: %w", err)
+		task, err := s.Queries.GetUnlinkedInitialWorkerTask(ctx, nodeRun.ID)
+		if errors.Is(err, pgx.ErrNoRows) {
+			taskPtr, dispatchErr := s.DispatchAgentTask(ctx, nodeRun, "worker")
+			if dispatchErr != nil {
+				return fmt.Errorf("dispatch agent task: %w", dispatchErr)
+			}
+			task = *taskPtr
+		} else if err != nil {
+			return fmt.Errorf("get unlinked initial worker task: %w", err)
 		}
 		// Link the task to the node run and stamp the runtime so the frontend
 		// can resolve takeover permissions even before the daemon binds a session.

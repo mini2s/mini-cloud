@@ -127,6 +127,15 @@ INSERT INTO multica_issue (
     sqlc.narg('workflow_id'), sqlc.narg('workflow_run_id'), sqlc.narg('stage_id')
 ) RETURNING *;
 
+-- name: FinalizeSplitChildIssueRun :execrows
+UPDATE multica_issue
+SET description = $2,
+    workflow_id = $3,
+    workflow_run_id = $4,
+    updated_at = now()
+WHERE id = $1
+  AND status NOT IN ('cancelled', 'done');
+
 -- name: LockIssueDuplicateKey :exec
 SELECT pg_advisory_xact_lock(hashtextextended($1::text, 0));
 

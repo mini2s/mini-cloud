@@ -336,6 +336,57 @@ func (q *Queries) GetNodeRunUpstreamStatuses(ctx context.Context, id pgtype.UUID
 	return items, nil
 }
 
+const getUnlinkedInitialWorkerTask = `-- name: GetUnlinkedInitialWorkerTask :one
+SELECT atq.id, atq.agent_id, atq.issue_id, atq.status, atq.priority, atq.dispatched_at, atq.started_at, atq.completed_at, atq.result, atq.error, atq.created_at, atq.context, atq.runtime_id, atq.session_id, atq.work_dir, atq.trigger_comment_id, atq.chat_session_id, atq.autopilot_run_id, atq.attempt, atq.max_attempts, atq.parent_task_id, atq.failure_reason, atq.trigger_summary, atq.force_fresh_session, atq.is_leader_task, atq.workflow_node_run_id
+FROM multica_agent_task_queue atq
+JOIN multica_workflow_node_run nr ON nr.id = atq.workflow_node_run_id
+WHERE nr.id = $1
+  AND nr.status = 'format_ok'
+  AND nr.retry_count = 0
+  AND nr.worker_agent_task_id IS NULL
+  AND atq.workflow_node_run_id = nr.id
+  AND atq.context->>'type' = 'workflow'
+  AND atq.context->>'phase' = 'worker'
+  AND atq.context->>'node_run_id' = nr.id::text
+  AND atq.status IN ('queued', 'dispatched', 'running')
+ORDER BY atq.created_at ASC, atq.id ASC
+LIMIT 1
+`
+
+func (q *Queries) GetUnlinkedInitialWorkerTask(ctx context.Context, id pgtype.UUID) (MulticaAgentTaskQueue, error) {
+	row := q.db.QueryRow(ctx, getUnlinkedInitialWorkerTask, id)
+	var i MulticaAgentTaskQueue
+	err := row.Scan(
+		&i.ID,
+		&i.AgentID,
+		&i.IssueID,
+		&i.Status,
+		&i.Priority,
+		&i.DispatchedAt,
+		&i.StartedAt,
+		&i.CompletedAt,
+		&i.Result,
+		&i.Error,
+		&i.CreatedAt,
+		&i.Context,
+		&i.RuntimeID,
+		&i.SessionID,
+		&i.WorkDir,
+		&i.TriggerCommentID,
+		&i.ChatSessionID,
+		&i.AutopilotRunID,
+		&i.Attempt,
+		&i.MaxAttempts,
+		&i.ParentTaskID,
+		&i.FailureReason,
+		&i.TriggerSummary,
+		&i.ForceFreshSession,
+		&i.IsLeaderTask,
+		&i.WorkflowNodeRunID,
+	)
+	return i, err
+}
+
 const getWorkflowNodeRun = `-- name: GetWorkflowNodeRun :one
 SELECT id, workflow_run_id, workflow_node_id, node_title, status, retry_count, worker_type, worker_id, worker_output, critic_type, critic_id, critic_output, critic_comment, agent_task_id, started_at, completed_at, created_at, updated_at, worker_agent_task_id, critic_agent_task_id, runtime_id, device_id, session_id, split_review_chat_session_id, split_config_version FROM multica_workflow_node_run
 WHERE id = $1
