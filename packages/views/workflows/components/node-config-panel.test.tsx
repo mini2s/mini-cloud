@@ -15,8 +15,10 @@ const mocks = vi.hoisted(() => ({
   updateDeliverableMutateAsync: vi.fn(),
   deleteDeliverableMutateAsync: vi.fn(),
   saveNode: vi.fn(),
+  navigationPush: vi.fn(),
   nodeEdits: {} as Record<string, unknown>,
   deliverables: [] as unknown[],
+  roles: [] as Array<{ id: string; name: string; description: string }>,
   assigneePickerCalls: [] as Array<{
     assigneeType: string | null;
     assigneeId: string | null;
@@ -26,16 +28,28 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("@tanstack/react-query", () => ({
-  useQuery: () => ({ data: mocks.deliverables }),
+  useQuery: (opts: { queryKey: string[] }) => ({
+    data: opts.queryKey.includes("roles") ? mocks.roles : mocks.deliverables,
+  }),
 }));
 
 vi.mock("@multica/core/hooks", () => ({
   useWorkspaceId: () => "ws-1",
 }));
 
-vi.mock("@multica/core/workflows/queries", () => ({
+vi.mock("@multica/core/paths", () => ({
+  useWorkspacePaths: () => ({
+    settings: () => "/ws/settings",
+  }),
+}));
 
+vi.mock("../../navigation", () => ({
+  useNavigation: () => ({ push: mocks.navigationPush }),
+}));
+
+vi.mock("@multica/core/workflows/queries", () => ({
   workflowNodeDeliverablesOptions: () => ({ queryKey: ["deliverables"] }),
+  workflowRolesOptions: () => ({ queryKey: ["roles"] }),
   useAssignNodeToStage: () => ({ mutate: mocks.assignStageMutate, isPending: false }),
   useCreateStage: () => ({ mutateAsync: mocks.createStageMutateAsync, isPending: false, error: null }),
   useDeleteNode: () => ({ mutateAsync: mocks.deleteNodeMutateAsync, isPending: false }),
@@ -280,6 +294,7 @@ describe("NodeConfigPanel", () => {
     mocks.saveNode.mockReset();
     mocks.nodeEdits = {};
     mocks.deliverables = [];
+    mocks.roles = [{ id: "role-developer", name: "Developer", description: "Builds the change." }];
     mocks.assigneePickerCalls = [];
   });
 
@@ -293,9 +308,9 @@ describe("NodeConfigPanel", () => {
 
     expect(screen.getByRole("button", { name: "Builder Agent" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Reviewer Agent" })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Assignee" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Assignee" })).toBeInTheDocument();
     expect(screen.getAllByRole("button", { name: "Reviewer" })).toHaveLength(1);
-    expect(screen.queryByRole("button", { name: "Role" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Worker role" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "API" })).toBeInTheDocument();
     expect(mocks.assigneePickerCalls).toEqual(
       expect.arrayContaining([
@@ -314,7 +329,7 @@ describe("NodeConfigPanel", () => {
     expect(mocks.cacheNodeEdits).toHaveBeenCalledWith("node-1", {
       worker_type: "human",
       worker_id: "member-1",
-      worker_role: null,
+      worker_role_id: null,
     });
   });
 
@@ -351,12 +366,15 @@ describe("NodeConfigPanel", () => {
   it("selects a Worker role placeholder and clears the concrete assignment", () => {
     renderPanel();
 
-    fireEvent.click(screen.getAllByRole("button", { name: "Select developer role" })[0]!);
+    fireEvent.click(screen.getByRole("button", { name: "Worker role" }));
+    const roleSelect = screen.getByRole("option", { name: "Developer" }).parentElement;
+    expect(roleSelect).not.toBeNull();
+    fireEvent.change(roleSelect!, { target: { value: "role-developer" } });
 
     expect(mocks.cacheNodeEdits).toHaveBeenCalledWith("node-1", {
       worker_type: "human",
       worker_id: null,
-      worker_role: "developer",
+      worker_role_id: "role-developer",
     });
   });
 
@@ -368,7 +386,7 @@ describe("NodeConfigPanel", () => {
     expect(mocks.cacheNodeEdits).toHaveBeenCalledWith("node-1", {
       critic_type: "api",
       critic_id: null,
-      critic_role: null,
+      critic_role_id: null,
       critic_api_url: null,
     });
     expect(screen.getByLabelText("Critic API URL")).toBeInTheDocument();

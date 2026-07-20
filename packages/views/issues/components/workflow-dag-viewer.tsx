@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { DAGCanvas } from "../../workflows/components";
 import { ReactFlowProvider } from "@xyflow/react";
@@ -143,17 +143,25 @@ export function WorkflowDagViewer({
     }
   }
 
-  const nodeStatusColors: Record<string, string> = {};
-  const nodeStatuses: Record<string, { status: string; isRunning: boolean; isAwaitingInput: boolean }> = {};
-  const runningSet = new Set(["format_checking", "working", "critic_reviewing"]);
-  for (const nr of nodeRuns) {
-    nodeStatusColors[nr.workflow_node_id] = getStatusColor(nr.status);
-    nodeStatuses[nr.workflow_node_id] = {
-      status: getStatusLabel(nr.status),
-      isRunning: runningSet.has(nr.status),
-      isAwaitingInput: nr.status === "awaiting_input",
-    };
-  }
+  const runningSet = useMemo(() => new Set(["format_checking", "working", "critic_reviewing"]), []);
+  const nodeStatusColors = useMemo(() => {
+    const colors: Record<string, string> = {};
+    for (const nr of nodeRuns) {
+      colors[nr.workflow_node_id] = getStatusColor(nr.status);
+    }
+    return colors;
+  }, [nodeRuns]);
+  const nodeStatuses = useMemo(() => {
+    const statuses: Record<string, { status: string; isRunning: boolean; isAwaitingInput: boolean }> = {};
+    for (const nr of nodeRuns) {
+      statuses[nr.workflow_node_id] = {
+        status: getStatusLabel(nr.status),
+        isRunning: runningSet.has(nr.status),
+        isAwaitingInput: nr.status === "awaiting_input",
+      };
+    }
+    return statuses;
+  }, [nodeRuns, runningSet]);
 
   const totalCount = nodes.length;
   const summary = getRunSummary(nodeRuns);

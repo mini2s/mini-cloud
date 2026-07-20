@@ -17,18 +17,22 @@ import {
   workflowEdgesOptions,
   workflowNodeRunsOptions,
   workflowRunCanvasSummaryOptions,
+  workflowRolesOptions,
+  workflowRoleResolutionsOptions,
   workflowKeys,
 } from "@multica/core/workflows/queries";
 import { api } from "@multica/core/api";
-import { agentListOptions } from "@multica/core/workspace/queries";
+import { agentListOptions, memberListOptions } from "@multica/core/workspace/queries";
 import { workerTypeToActorType } from "@multica/core/types";
 import type {
   WorkflowNode,
   WorkflowNodeRun,
   WorkflowNodeRuntimeSummary,
+  WorkflowRole,
   WorkflowStage,
   Agent,
 } from "@multica/core/types";
+import { useT } from "../../../i18n";
 import { WorkflowCanvasCore } from "../../../workflows/components/canvas/workflow-canvas-core";
 import {
   workflowEdgesToReactFlowEdges,
@@ -206,6 +210,13 @@ export function ExecutionPanoramaPage({
   });
   const { data: edges } = useQuery(workflowEdgesOptions(wsId, workflowId));
   const { data: agents } = useQuery(agentListOptions(wsId));
+  const { data: workflowRoles = [] } = useQuery(workflowRolesOptions(wsId));
+  const { data: members = [] } = useQuery(memberListOptions(wsId));
+  const { data: roleResolutions = [] } = useQuery({
+    ...workflowRoleResolutionsOptions(wsId, workflowId, runId ?? ""),
+    enabled: !!runId,
+  });
+  const { t: tWf } = useT("workflows");
 
   // ---- Local state ----
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
@@ -238,12 +249,107 @@ export function ExecutionPanoramaPage({
     return map;
   }, [agents]);
 
+  const roleById = useMemo(
+    () => new Map(workflowRoles.map((role) => [role.id, role])),
+    [workflowRoles],
+  );
+
+  const memberNameById = useMemo(
+    () => new Map(members.map((member) => [member.user_id, member.name])),
+    [members],
+  );
+
+  // Resolved user per node-run + slot, so role-based worker/critic names can
+  // surface the actual member once role resolution completes. Falls back to
+  // the role name when no resolution exists yet (manual assignment pending or
+  // auto-resolution disabled).
+  const resolvedUserNameByNodeRunSlot = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const resolution of roleResolutions) {
+      if (resolution.status !== "resolved" || !resolution.resolved_user_id) continue;
+      const memberName = memberNameById.get(resolution.resolved_user_id);
+      if (!memberName) continue;
+      map.set(`${resolution.workflow_node_run_id}:${resolution.slot_type}`, memberName);
+    }
+    return map;
+  }, [roleResolutions, memberNameById]);
+
   const getActorName = useCallback((type: string, id: string): string | null => {
     if (type === "agent" || type === "human" || type === "member") {
       return agentLookup.get(id)?.name ?? null;
     }
     return null;
   }, [agentLookup]);
+
+  // Built-in role names are seeded in English (developer/qa/tech_lead); render
+  // localized labels so the canvas matches the rest of the UI. Custom roles
+  // fall through to their raw name.
+  const renderRoleName = useCallback(
+    (role: WorkflowRole | undefined, rawKey?: string | null): string | undefined => {
+      if (role) {
+        if (!role.is_builtin) return role.name;
+        if (role.name === "developer") return tWf(($) => $.builtin_roles.developer.name);
+        if (role.name === "qa") return tWf(($) => $.builtin_roles.qa.name);
+        if (role.name === "tech_lead") return tWf(($) => $.builtin_roles.tech_lead.name);
+        return role.name;
+      }
+      if (rawKey) {
+        if (rawKey === "developer") return tWf(($) => $.builtin_roles.developer.name);
+        if (rawKey === "qa") return tWf(($) => $.builtin_roles.qa.name);
+        if (rawKey === "tech_lead") return tWf(($) => $.builtin_roles.tech_lead.name);
+        return rawKey;
+      }
+      return undefined;
+    },
+    [tWf],
+  );
+
+  // Precedence for runtime display: explicit agent/member → resolved user from
+  // role resolution → role name (localized for built-ins). Returns null when
+  // nothing applies so callers can render their placeholder.
+  const resolveWorkerName = useCallback(
+    (node: WorkflowNode): string | null => {
+      if (node.worker_id) {
+        return getActorName(workerTypeToActorType(node.worker_type), node.worker_id);
+      }
+      if (node.worker_role_id || node.worker_role) {
+        const nodeRun = nodeRunMap.get(node.id);
+        if (nodeRun) {
+          const resolved = resolvedUserNameByNodeRunSlot.get(`${nodeRun.id}:worker`);
+          if (resolved) return resolved;
+        }
+        const rendered = renderRoleName(
+          node.worker_role_id ? roleById.get(node.worker_role_id) : undefined,
+          node.worker_role_id ?? node.worker_role,
+        );
+        return rendered ?? null;
+      }
+      return null;
+    },
+    [getActorName, nodeRunMap, renderRoleName, resolvedUserNameByNodeRunSlot, roleById],
+  );
+
+  const resolveCriticName = useCallback(
+    (node: WorkflowNode): string | null => {
+      if (node.critic_id) {
+        return getActorName(node.critic_type ?? "agent", node.critic_id);
+      }
+      if (node.critic_role_id || node.critic_role) {
+        const nodeRun = nodeRunMap.get(node.id);
+        if (nodeRun) {
+          const resolved = resolvedUserNameByNodeRunSlot.get(`${nodeRun.id}:critic`);
+          if (resolved) return resolved;
+        }
+        const rendered = renderRoleName(
+          node.critic_role_id ? roleById.get(node.critic_role_id) : undefined,
+          node.critic_role_id ?? node.critic_role,
+        );
+        return rendered ?? null;
+      }
+      return null;
+    },
+    [getActorName, nodeRunMap, renderRoleName, resolvedUserNameByNodeRunSlot, roleById],
+  );
 
   const handleRetryNodeRun = useCallback(async (nodeRun: WorkflowNodeRun) => {
     if (!issueId) return;
@@ -328,15 +434,11 @@ export function ExecutionPanoramaPage({
       node,
       nodeRun: nodeRunMap.get(node.id) ?? null,
       runtimeSummary: runtimeSummaryMap.get(node.id) ?? null,
-      workerName: node.worker_id
-        ? getActorName(workerTypeToActorType(node.worker_type), node.worker_id)
-        : null,
-      criticName: node.critic_id
-        ? getActorName(node.critic_type ?? "agent", node.critic_id)
-        : null,
+      workerName: resolveWorkerName(node),
+      criticName: resolveCriticName(node),
       onOpen: setSelectedNodeId,
     }),
-    makeCriticName: (node) => node.critic_id ? getActorName(node.critic_type ?? "agent", node.critic_id) ?? undefined : undefined,
+    makeCriticName: (node) => resolveCriticName(node) ?? undefined,
   });
   const rfEdges = workflowEdgesToReactFlowEdges({
     edges: edges ?? [],
@@ -371,22 +473,8 @@ export function ExecutionPanoramaPage({
         <ExecutionDetailPanel
           node={selectedNode}
           nodeRun={selectedRun}
-          workerName={
-            selectedNode.worker_id
-              ? getActorName(
-                  workerTypeToActorType(selectedNode.worker_type),
-                  selectedNode.worker_id,
-                )
-              : null
-          }
-          criticName={
-            selectedNode.critic_id
-              ? getActorName(
-                  selectedNode.critic_type ?? "agent",
-                  selectedNode.critic_id,
-                )
-              : null
-          }
+          workerName={resolveWorkerName(selectedNode)}
+          criticName={resolveCriticName(selectedNode)}
           onClose={() => setSelectedNodeId(null)}
           wsId={wsId}
           runtimeSummary={selectedRuntimeSummary}

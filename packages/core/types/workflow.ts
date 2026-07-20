@@ -119,7 +119,13 @@ export type NodeRunStatus =
   | "worker_assigned" | "working" | "awaiting_input" | "awaiting_critic"
   | "critic_reviewing" | "critic_approved" | "critic_rework"
   | "completed" | "failed" | "blocked" | "skipped" | "cancelled";
-export type WorkflowRunStatus = "running" | "completed" | "failed" | "cancelled";
+export type WorkflowRunStatus =
+  | "resolving_roles"
+  | "waiting_role_assignment"
+  | "running"
+  | "completed"
+  | "failed"
+  | "cancelled";
 export type WorkflowRuntimeDisplayStatus =
   | "pending"
   | "todo"
@@ -187,9 +193,13 @@ export interface WorkflowNode {
   format_schema: unknown;
   worker_type: WorkerType;
   worker_id: string | null;
+  worker_role_id?: string | null;
+  /** @deprecated compatibility for pre-role-id responses */
   worker_role?: WorkflowRoleKey | null;
   critic_type: CriticType;
   critic_id: string | null;
+  critic_role_id?: string | null;
+  /** @deprecated compatibility for pre-role-id responses */
   critic_role?: WorkflowRoleKey | null;
   critic_api_url: string | null;
   sort_order: number;
@@ -297,10 +307,10 @@ export interface CreateNodeRequest {
   format_schema?: unknown;
   worker_type: WorkerType;
   worker_id?: string | null;
-  worker_role?: WorkflowRoleKey | null;
+  worker_role_id?: string | null;
   critic_type: CriticType;
   critic_id?: string | null;
-  critic_role?: WorkflowRoleKey | null;
+  critic_role_id?: string | null;
   critic_api_url?: string | null;
   stage_id?: string | null;
 }
@@ -313,10 +323,10 @@ export interface UpdateNodeRequest {
   format_schema?: unknown;
   worker_type?: WorkerType;
   worker_id?: string | null;
-  worker_role?: WorkflowRoleKey | null;
+  worker_role_id?: string | null;
   critic_type?: CriticType;
   critic_id?: string | null;
-  critic_role?: WorkflowRoleKey | null;
+  critic_role_id?: string | null;
   critic_api_url?: string | null;
   sort_order?: number;
 }
@@ -437,15 +447,38 @@ export interface WorkflowRole {
   workspace_id: string;
   name: string;
   description: string;
+  is_builtin: boolean;
+  needs_description: boolean;
+  is_referenced: boolean;
+  created_by: string | null;
   created_at: string;
   updated_at: string;
 }
 
-export interface WorkflowRoleBinding {
+export type WorkflowRoleResolutionStatus = "pending" | "resolved" | "needs_human" | "invalidated";
+export interface WorkflowRoleResolution {
   id: string;
-  role_id: string;
-  actor_type: RoleActorType;
-  actor_id: string;
-  priority: number;
+  workflow_run_id: string;
+  workflow_node_run_id: string;
+  slot_type: "worker" | "critic";
+  role_id: string | null;
+  role_name: string;
+  role_description: string;
+  status: WorkflowRoleResolutionStatus | (string & {});
+  resolved_user_id: string | null;
+  source: "llm" | "manual" | null;
+  reason_code: string;
+  reason_detail: string;
+  version: number;
+  resolved_by: string | null;
+  resolved_at: string | null;
+  notification_status?: "pending" | "sending" | "sent" | "failed" | "skipped_no_email" | (string & {});
   created_at: string;
+  updated_at: string;
+}
+
+export interface WorkflowRoleAssignmentInput {
+  resolution_id: string;
+  user_id: string;
+  version: number;
 }

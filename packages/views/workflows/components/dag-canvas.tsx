@@ -67,6 +67,31 @@ function parseNodeFormat(formatSchema: unknown): {
 const nodeTypes = { workflow: WorkflowNode, annotation: AnnotationNode };
 const edgeTypes = { workflow: WorkflowEdgeComponent, annotation: AnnotationConnectorEdge };
 
+const WORKFLOW_NODE_DATA_KEYS = [
+  "title",
+  "statusColor",
+  "statusLabel",
+  "isRunning",
+  "isAwaitingInput",
+  "isEditing",
+  "shape",
+  "nodeColor",
+  "fontSize",
+] as const;
+
+// Shallow-compares the data payload of two ReactFlow nodes so setRfNodes can
+// bail out when nothing actually changed. Callbacks (onNodeSelect, etc.) are
+// stable refs from useCallback / Zustand, so we skip them.
+function isWorkflowNodeDataEqual(
+  a: WorkflowNodeData,
+  b: WorkflowNodeData,
+): boolean {
+  for (const key of WORKFLOW_NODE_DATA_KEYS) {
+    if (a[key] !== b[key]) return false;
+  }
+  return true;
+}
+
 export interface WorkflowCanvasProps {
   nodes: WorkflowNodeType[];
   edges: WorkflowEdgeType[];
@@ -193,24 +218,33 @@ export function WorkflowCanvas({
   // is actively dragging or resizing (otherwise ReactFlow resets the position/dimensions).
   // Use a patch approach: add/remove by id, update existing nodes in-place
   // so ReactFlow's internal selection is preserved across data-only changes.
+  // Bails out (returns prev) when nothing actually changed, so a parent
+  // re-render with unstable nodeStatusColors/nodeStatuses refs can't trap us
+  // in a setRfNodes → re-render → setRfNodes loop.
   useEffect(() => {
     if (draggingRef.current || resizingRef.current) return;
     setRfNodes((prev) => {
-      const prevMap = new Map(prev.map((n) => [n.id, n]));
-      const nextMap = new Map(propNodes.map((n) => [n.id, n]));
+      if (prev.length !== propNodes.length) {
+        return propNodes;
+      }
+      const prevById = new Map(prev.map((n) => [n.id, n]));
+      let changed = false;
       const result: Node<WorkflowNodeData>[] = [];
-
-      // Keep or create nodes present in propNodes
-      for (const [id, nextNode] of nextMap) {
-        const prevNode = prevMap.get(id);
-        if (prevNode) {
-          // Only update data, preserve ReactFlow-managed position state
+      for (const nextNode of propNodes) {
+        const prevNode = prevById.get(nextNode.id);
+        if (!prevNode) {
+          changed = true;
+          result.push(nextNode);
+          continue;
+        }
+        if (!isWorkflowNodeDataEqual(prevNode.data, nextNode.data)) {
+          changed = true;
           result.push({ ...prevNode, data: nextNode.data });
         } else {
-          result.push(nextNode);
+          result.push(prevNode);
         }
       }
-      return result;
+      return changed ? result : prev;
     });
   }, [propNodes]);
 
@@ -276,19 +310,44 @@ export function WorkflowCanvas({
   const [rfEdges, setRfEdges] = useState(propEdges);
 
   // Sync from props when the data layer changes.
+  // Bails out (returns prev) when nothing actually changed, so unstable
+  // propEdges references from a parent re-render can't trigger a render loop.
   useEffect(() => {
     setRfEdges((currentEdges) => {
-      // Preserve ReactFlow's internal state (selected, etc.) when merging new props.
-      // When propEdges recomputes due to a parent re-render (e.g. after a store
-      // update), we must carry over the selected flag so ReactFlow doesn't lose
-      // the user's current edge selection.
+      if (currentEdges.length !== propEdges.length) {
+        // Preserve ReactFlow's internal state (selected, etc.) when merging new props.
+        const stateByKey = new Map(
+          currentEdges.map((e) => [e.id, { selected: e.selected }] as const),
+        );
+        return propEdges.map((e) => {
+          const existing = stateByKey.get(e.id);
+          return existing ? { ...e, selected: existing.selected } : e;
+        });
+      }
+      let changed = false;
       const stateByKey = new Map(
-        currentEdges.map((e) => [e.id, { selected: e.selected }] as const),
+        currentEdges.map((e) => [e.id, e] as const),
       );
-      return propEdges.map((e) => {
+      const next = propEdges.map((e) => {
         const existing = stateByKey.get(e.id);
-        return existing ? { ...e, selected: existing.selected } : e;
+        if (!existing) {
+          changed = true;
+          return e;
+        }
+        const sameShape =
+          existing.source === e.source &&
+          existing.target === e.target &&
+          existing.sourceHandle === e.sourceHandle &&
+          existing.targetHandle === e.targetHandle &&
+          existing.type === e.type &&
+          existing.selected === e.selected;
+        if (!sameShape) {
+          changed = true;
+          return existing.selected ? { ...e, selected: existing.selected } : e;
+        }
+        return existing;
       });
+      return changed ? next : currentEdges;
     });
   }, [propEdges]);
 

@@ -10,6 +10,7 @@ import type {
   UpdateStageRequest,
   ReorderStagesItem,
   AssignNodeToStageRequest,
+  WorkflowRoleAssignmentInput,
 } from "../types";
 
 export const workflowKeys = {
@@ -33,6 +34,8 @@ export const workflowKeys = {
   nodeRunDeliverables: (nodeRunId: string) =>
     [...workflowKeys.nodeRunsAll(), nodeRunId, "deliverables"] as const,
   roles: (wsId: string) => [...workflowKeys.all(wsId), "roles"] as const,
+  roleResolutions: (wsId: string, workflowId: string, runId: string) =>
+    [...workflowKeys.run(wsId, workflowId, runId), "role-resolutions"] as const,
 };
 
 // ── Queries ──
@@ -167,18 +170,6 @@ export function useUpdateWorkflow(wsId: string) {
     onSuccess: (_data, vars) => {
       queryClient.invalidateQueries({ queryKey: workflowKeys.list(wsId) });
       queryClient.invalidateQueries({ queryKey: workflowKeys.detail(wsId, vars.id) });
-    },
-  });
-}
-
-export function useMutateWorkflowRole(wsId: string, workflowId: string) {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: (req: { action: "add" | "rename" | "delete"; name: string; new_name?: string }) =>
-      api.mutateWorkflowRole(workflowId, req),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: workflowKeys.detail(wsId, workflowId) });
-      queryClient.invalidateQueries({ queryKey: workflowKeys.nodes(wsId, workflowId) });
     },
   });
 }
@@ -503,7 +494,64 @@ export function nodeRunDeliverableSubmissionsOptions(_wsId: string, nodeRunId: s
 export function workflowRolesOptions(wsId: string) {
   return queryOptions({
     queryKey: workflowKeys.roles(wsId),
-    queryFn: () => api.listWorkflowRoles(),
+    queryFn: () => api.listWorkflowRoles(wsId),
+  });
+}
+
+export function workflowRoleResolutionsOptions(wsId: string, workflowId: string, runId: string) {
+  return queryOptions({
+    queryKey: workflowKeys.roleResolutions(wsId, workflowId, runId),
+    queryFn: () => api.listWorkflowRoleResolutions(workflowId, runId),
+    refetchInterval: (query) => query.state.data?.some((item) => item.status === "pending") ? 2000 : false,
+  });
+}
+
+export function useCreateWorkflowRole(wsId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (input: { name: string; description: string }) => api.createWorkflowRole(wsId, input),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: workflowKeys.roles(wsId) }),
+  });
+}
+
+export function useUpdateWorkflowRole(wsId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ roleId, ...input }: { roleId: string; name?: string; description?: string }) =>
+      api.updateWorkflowRole(wsId, roleId, input),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: workflowKeys.roles(wsId) }),
+  });
+}
+
+export function useDeleteWorkflowRole(wsId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (roleId: string) => api.deleteWorkflowRole(wsId, roleId),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: workflowKeys.roles(wsId) }),
+  });
+}
+
+export function useAssignWorkflowRoleResolutions(wsId: string, workflowId: string, runId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (assignments: WorkflowRoleAssignmentInput[]) =>
+      api.assignWorkflowRoleResolutions(workflowId, runId, assignments),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: workflowKeys.roleResolutions(wsId, workflowId, runId) });
+      queryClient.invalidateQueries({ queryKey: workflowKeys.run(wsId, workflowId, runId) });
+      queryClient.invalidateQueries({ queryKey: workflowKeys.nodeRuns(wsId, workflowId, runId) });
+    },
+  });
+}
+
+export function useRetryWorkflowRoleResolutions(wsId: string, workflowId: string, runId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () => api.retryWorkflowRoleResolutions(workflowId, runId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: workflowKeys.roleResolutions(wsId, workflowId, runId) });
+      queryClient.invalidateQueries({ queryKey: workflowKeys.run(wsId, workflowId, runId) });
+    },
   });
 }
 

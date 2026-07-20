@@ -92,6 +92,7 @@ vi.mock("@multica/core/workflows/queries", () => ({
   workflowEdgesOptions: () => ({ queryKey: ["edges"] }),
   workflowRunsOptions: () => ({ queryKey: ["runs"] }),
   workflowNodeRunsOptions: (_wsId: string, _workflowId: string, runId: string) => ({ queryKey: ["node-runs", runId] }),
+  workflowRolesOptions: () => ({ queryKey: ["roles"] }),
   useCreateNode: () => ({ mutate: mocks.createNodeMutate, mutateAsync: vi.fn() }),
   useUpdateNode: () => ({ mutate: mocks.updateNodeMutate, mutateAsync: mocks.updateNodeMutateAsync }),
   useUpdateWorkflow: () => ({ mutate: mocks.updateWorkflowMutate, mutateAsync: vi.fn() }),
@@ -398,6 +399,7 @@ vi.mock("@tanstack/react-query", () => ({
     if (key.includes("detail")) return { data: mocks.workflowData, isLoading: false, isError: false };
     if (key.includes("agents")) return { data: [], isLoading: false };
     if (key.includes("plugins")) return { data: { items: [] }, isLoading: false };
+    if (key.includes("roles")) return { data: [], isLoading: false };
     return { data: null, isLoading: true, isError: false };
   },
 }));
@@ -590,7 +592,7 @@ describe("WorkflowPanoramaPage (new)", () => {
     const critic = mocks.reactFlowProps?.nodes.find((n) => n.id === "node-1:critic");
     expect(critic).toMatchObject({
       type: "criticBadge",
-      position: { x: 360, y: 112 },
+      position: { x: 368, y: 136 },
       width: 144,
       height: 48,
     });
@@ -993,7 +995,7 @@ describe("WorkflowPanoramaPage (new)", () => {
     expect(mocks.createNodeMutate).toHaveBeenCalledWith(
       expect.objectContaining({
         title: "Human review",
-        position_x: 420,
+        position_x: 436,
         stage_id: "stage-2",
       }),
       expect.any(Object),

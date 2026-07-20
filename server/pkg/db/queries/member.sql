@@ -36,6 +36,22 @@ LEFT JOIN multica_user u ON u.id = m.user_id
 WHERE m.workspace_id = $1
 ORDER BY m.created_at ASC;
 
+-- name: ListActiveWorkflowRoleCandidateMembers :many
+-- Keep the automatic role-resolution candidate boundary local: organization
+-- data may enrich these rows, but it must never add users outside this set.
+SELECT
+    m.id AS member_id,
+    m.user_id,
+    m.external_universal_id,
+    m.external_user_id,
+    COALESCE(NULLIF(m.org_display_name, ''), u.name) AS display_name
+FROM multica_member m
+JOIN multica_user u ON u.id = m.user_id
+WHERE m.workspace_id = $1
+  AND m.status = 'active'
+  AND m.user_id IS NOT NULL
+ORDER BY m.created_at ASC;
+
 -- name: ListDeptMemberSnapshots :many
 SELECT id, user_id, source, status, external_user_id, external_universal_id,
        employee_id, org_display_name, dept_id, dept_name, dept_path,

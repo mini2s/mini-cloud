@@ -737,7 +737,6 @@ type MulticaWorkflow struct {
 	UpdatedAt        pgtype.Timestamptz `json:"updated_at"`
 	IsTemplate       bool               `json:"is_template"`
 	SourceTemplateID pgtype.UUID        `json:"source_template_id"`
-	CustomRoles      []byte             `json:"custom_roles"`
 }
 
 type MulticaWorkflowEdge struct {
@@ -766,8 +765,8 @@ type MulticaWorkflowNode struct {
 	CreatedAt    pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt    pgtype.Timestamptz `json:"updated_at"`
 	StageID      pgtype.UUID        `json:"stage_id"`
-	WorkerRole   pgtype.Text        `json:"worker_role"`
-	CriticRole   pgtype.Text        `json:"critic_role"`
+	WorkerRoleID pgtype.UUID        `json:"worker_role_id"`
+	CriticRoleID pgtype.UUID        `json:"critic_role_id"`
 }
 
 type MulticaWorkflowNodeDeliverable struct {
@@ -826,21 +825,115 @@ type MulticaWorkflowNodeRun struct {
 }
 
 type MulticaWorkflowRole struct {
-	ID          pgtype.UUID        `json:"id"`
-	WorkspaceID pgtype.UUID        `json:"workspace_id"`
-	Name        string             `json:"name"`
-	Description string             `json:"description"`
-	CreatedAt   pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt   pgtype.Timestamptz `json:"updated_at"`
+	ID               pgtype.UUID        `json:"id"`
+	WorkspaceID      pgtype.UUID        `json:"workspace_id"`
+	Name             string             `json:"name"`
+	Description      string             `json:"description"`
+	CreatedAt        pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt        pgtype.Timestamptz `json:"updated_at"`
+	NormalizedName   string             `json:"normalized_name"`
+	IsBuiltin        bool               `json:"is_builtin"`
+	NeedsDescription bool               `json:"needs_description"`
+	CreatedBy        pgtype.UUID        `json:"created_by"`
 }
 
-type MulticaWorkflowRoleBinding struct {
-	ID        pgtype.UUID        `json:"id"`
-	RoleID    pgtype.UUID        `json:"role_id"`
-	ActorType string             `json:"actor_type"`
-	ActorID   pgtype.UUID        `json:"actor_id"`
-	Priority  int32              `json:"priority"`
-	CreatedAt pgtype.Timestamptz `json:"created_at"`
+type MulticaWorkflowRoleNotification struct {
+	ID                pgtype.UUID        `json:"id"`
+	WorkspaceID       pgtype.UUID        `json:"workspace_id"`
+	WorkflowRunID     pgtype.UUID        `json:"workflow_run_id"`
+	WorkflowNodeRunID pgtype.UUID        `json:"workflow_node_run_id"`
+	SlotType          string             `json:"slot_type"`
+	RecipientUserID   pgtype.UUID        `json:"recipient_user_id"`
+	NotificationType  string             `json:"notification_type"`
+	Status            string             `json:"status"`
+	AttemptCount      int32              `json:"attempt_count"`
+	MaxAttempts       int32              `json:"max_attempts"`
+	ScheduledAt       pgtype.Timestamptz `json:"scheduled_at"`
+	LockedBy          pgtype.Text        `json:"locked_by"`
+	LeaseExpiresAt    pgtype.Timestamptz `json:"lease_expires_at"`
+	LastError         string             `json:"last_error"`
+	SentAt            pgtype.Timestamptz `json:"sent_at"`
+	CreatedAt         pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt         pgtype.Timestamptz `json:"updated_at"`
+}
+
+type MulticaWorkflowRoleResolution struct {
+	ID                      pgtype.UUID        `json:"id"`
+	WorkflowRunID           pgtype.UUID        `json:"workflow_run_id"`
+	WorkflowNodeRunID       pgtype.UUID        `json:"workflow_node_run_id"`
+	SlotType                string             `json:"slot_type"`
+	RoleID                  pgtype.UUID        `json:"role_id"`
+	RoleNameSnapshot        string             `json:"role_name_snapshot"`
+	RoleDescriptionSnapshot string             `json:"role_description_snapshot"`
+	Status                  string             `json:"status"`
+	ResolvedUserID          pgtype.UUID        `json:"resolved_user_id"`
+	Source                  pgtype.Text        `json:"source"`
+	ReasonCode              string             `json:"reason_code"`
+	ReasonDetail            string             `json:"reason_detail"`
+	Version                 int32              `json:"version"`
+	ResolvedBy              pgtype.UUID        `json:"resolved_by"`
+	ResolvedAt              pgtype.Timestamptz `json:"resolved_at"`
+	CreatedAt               pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt               pgtype.Timestamptz `json:"updated_at"`
+}
+
+type MulticaWorkflowRoleResolutionCall struct {
+	ID            pgtype.UUID        `json:"id"`
+	WorkflowRunID pgtype.UUID        `json:"workflow_run_id"`
+	JobID         pgtype.UUID        `json:"job_id"`
+	Stage         string             `json:"stage"`
+	Attempt       int32              `json:"attempt"`
+	Model         string             `json:"model"`
+	InputTokens   pgtype.Int4        `json:"input_tokens"`
+	OutputTokens  pgtype.Int4        `json:"output_tokens"`
+	TotalTokens   pgtype.Int4        `json:"total_tokens"`
+	DurationMs    int64              `json:"duration_ms"`
+	ResultCode    string             `json:"result_code"`
+	ErrorDetail   string             `json:"error_detail"`
+	CreatedAt     pgtype.Timestamptz `json:"created_at"`
+}
+
+type MulticaWorkflowRoleResolutionEvent struct {
+	ID                       pgtype.UUID        `json:"id"`
+	WorkflowRunID            pgtype.UUID        `json:"workflow_run_id"`
+	WorkflowRoleResolutionID pgtype.UUID        `json:"workflow_role_resolution_id"`
+	EventType                string             `json:"event_type"`
+	SlotType                 pgtype.Text        `json:"slot_type"`
+	RoleNameSnapshot         string             `json:"role_name_snapshot"`
+	ResolvedUserID           pgtype.UUID        `json:"resolved_user_id"`
+	Source                   pgtype.Text        `json:"source"`
+	ReasonCode               string             `json:"reason_code"`
+	ReasonDetail             string             `json:"reason_detail"`
+	Model                    string             `json:"model"`
+	PromptVersion            string             `json:"prompt_version"`
+	OrganizationVersion      string             `json:"organization_version"`
+	ActorUserID              pgtype.UUID        `json:"actor_user_id"`
+	CreatedAt                pgtype.Timestamptz `json:"created_at"`
+}
+
+type MulticaWorkflowRoleResolutionJob struct {
+	ID                 pgtype.UUID        `json:"id"`
+	WorkspaceID        pgtype.UUID        `json:"workspace_id"`
+	WorkflowRunID      pgtype.UUID        `json:"workflow_run_id"`
+	Status             string             `json:"status"`
+	AttemptCount       int32              `json:"attempt_count"`
+	MaxAttempts        int32              `json:"max_attempts"`
+	OrgAttemptCount    int32              `json:"org_attempt_count"`
+	LlmAttemptCount    int32              `json:"llm_attempt_count"`
+	FormatAttemptCount int32              `json:"format_attempt_count"`
+	Generation         int32              `json:"generation"`
+	ScheduledAt        pgtype.Timestamptz `json:"scheduled_at"`
+	LockedBy           pgtype.Text        `json:"locked_by"`
+	LeaseExpiresAt     pgtype.Timestamptz `json:"lease_expires_at"`
+	HeartbeatAt        pgtype.Timestamptz `json:"heartbeat_at"`
+	LastErrorCode      string             `json:"last_error_code"`
+	LastErrorDetail    string             `json:"last_error_detail"`
+	Model              string             `json:"model"`
+	PromptVersion      string             `json:"prompt_version"`
+	CreatedAt          pgtype.Timestamptz `json:"created_at"`
+	StartedAt          pgtype.Timestamptz `json:"started_at"`
+	FinishedAt         pgtype.Timestamptz `json:"finished_at"`
+	UpdatedAt          pgtype.Timestamptz `json:"updated_at"`
 }
 
 type MulticaWorkflowRun struct {

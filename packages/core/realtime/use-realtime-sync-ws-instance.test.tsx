@@ -119,4 +119,37 @@ describe("useRealtimeSync — ws instance change", () => {
 
     expect(invalidateSpy).not.toHaveBeenCalled();
   });
+
+  it("workflow role events only invalidate run-scoped queries", () => {
+    const handlers = new Map<string, (payload: unknown) => void>();
+    const ws = {
+      on: vi.fn((event: string, handler: (payload: unknown) => void) => {
+        handlers.set(event, handler);
+        return () => handlers.delete(event);
+      }),
+      onAny: vi.fn(() => () => {}),
+      onReconnect: vi.fn(() => () => {}),
+    } as unknown as WSClient;
+    const setQueryDataSpy = vi.spyOn(qc, "setQueryData");
+
+    renderHook(() => useRealtimeSync(ws, stores), {
+      wrapper: createWrapper(qc),
+    });
+    invalidateSpy.mockClear();
+    setQueryDataSpy.mockClear();
+
+    handlers.get("workflow_role_resolution_updated")?.({ run_id: "run-1" });
+    handlers.get("workflow_run_updated")?.({ run_id: "run-1" });
+
+    expect(invalidateSpy).toHaveBeenCalledTimes(2);
+    expect(setQueryDataSpy).not.toHaveBeenCalled();
+    for (const [options] of invalidateSpy.mock.calls) {
+      expect(options.predicate?.({
+        queryKey: ["workflows", "ws-1", "detail", "workflow-1", "runs", "run-1"],
+      } as never)).toBe(true);
+      expect(options.predicate?.({
+        queryKey: ["workflows", "ws-1", "detail", "workflow-1", "runs", "another-run"],
+      } as never)).toBe(false);
+    }
+  });
 });

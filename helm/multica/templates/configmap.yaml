@@ -133,3 +133,18 @@ data:
   {{- if .Values.backend.config.cscPluginMarketplaceRepo }}
   CSC_PLUGIN_MARKETPLACE_REPO: {{ .Values.backend.config.cscPluginMarketplaceRepo | quote }}
   {{- end }}
+  WORKFLOW_ROLE_RESOLUTION_ENABLED: {{ .Values.backend.config.workflowRoleResolutionEnabled | quote }}
+  {{- if .Values.backend.config.workflowRoleResolutionWorkspaceAllowlist }}
+  WORKFLOW_ROLE_RESOLUTION_WORKSPACE_ALLOWLIST: {{ join "," .Values.backend.config.workflowRoleResolutionWorkspaceAllowlist | quote }}
+  {{- end }}
+  WORKFLOW_ROLE_LLM_PROVIDER: {{ .Values.backend.config.workflowRoleLlmProvider | quote }}
+  WORKFLOW_ROLE_LLM_MODEL: {{ .Values.backend.config.workflowRoleLlmModel | quote }}
+  WORKFLOW_ROLE_LLM_BASE_URL: {{ .Values.backend.config.workflowRoleLlmBaseUrl | quote }}
+  WORKFLOW_ROLE_LLM_MAX_OUTPUT_TOKENS: {{ .Values.backend.config.workflowRoleLlmMaxOutputTokens | quote }}
+  WORKFLOW_ROLE_LLM_TEMPERATURE: {{ .Values.backend.config.workflowRoleLlmTemperature | quote }}
+  WORKFLOW_ROLE_LLM_TIMEOUT_SECONDS: {{ .Values.backend.config.workflowRoleLlmTimeoutSeconds | quote }}
+  WORKFLOW_ROLE_LLM_MAX_CANDIDATES: {{ .Values.backend.config.workflowRoleLlmMaxCandidates | quote }}
+  WORKFLOW_ROLE_LLM_MAX_SLOTS: {{ .Values.backend.config.workflowRoleLlmMaxSlots | quote }}
+  WORKFLOW_ROLE_LLM_MAX_INPUT_CHARS: {{ .Values.backend.config.workflowRoleLlmMaxInputChars | quote }}
+  WORKFLOW_ROLE_WORKER_CONCURRENCY: {{ .Values.backend.config.workflowRoleWorkerConcurrency | quote }}
+  WORKFLOW_ROLE_MAX_ACTIVE_JOBS_PER_WORKSPACE: {{ .Values.backend.config.workflowRoleMaxActiveJobsPerWorkspace | quote }}

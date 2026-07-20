@@ -16,7 +16,7 @@ UPDATE multica_workflow_node SET
     stage_id = $2,
     updated_at = now()
 WHERE id = $1
-RETURNING id, workflow_id, title, description, position_x, position_y, format_schema, worker_type, worker_id, critic_type, critic_id, critic_api_url, sort_order, created_at, updated_at, stage_id, worker_role, critic_role
+RETURNING id, workflow_id, title, description, position_x, position_y, format_schema, worker_type, worker_id, critic_type, critic_id, critic_api_url, sort_order, created_at, updated_at, stage_id, worker_role_id, critic_role_id
 `
 
 type AssignNodeToStageParams struct {
@@ -44,8 +44,8 @@ func (q *Queries) AssignNodeToStage(ctx context.Context, arg AssignNodeToStagePa
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.StageID,
-		&i.WorkerRole,
-		&i.CriticRole,
+		&i.WorkerRoleID,
+		&i.CriticRoleID,
 	)
 	return i, err
 }
@@ -209,7 +209,6 @@ func (q *Queries) CreateWorkflow(ctx context.Context, arg CreateWorkflowParams) 
 		&i.UpdatedAt,
 		&i.IsTemplate,
 		&i.SourceTemplateID,
-		&i.CustomRoles,
 	)
 	return i, err
 }
@@ -251,12 +250,10 @@ func (q *Queries) CreateWorkflowEdge(ctx context.Context, arg CreateWorkflowEdge
 const createWorkflowFromTemplate = `-- name: CreateWorkflowFromTemplate :one
 INSERT INTO multica_workflow (
     workspace_id, title, description, status, max_retries,
-    created_by_type, created_by_id, is_template, source_template_id,
-    custom_roles
+    created_by_type, created_by_id, is_template, source_template_id
 ) VALUES (
-    $1, $2, $8, $3, $4, $5, $6, FALSE, $7,
-    $9
-) RETURNING id, workspace_id, title, description, status, max_retries, created_by_type, created_by_id, created_at, updated_at, is_template, source_template_id, custom_roles
+    $1, $2, $8, $3, $4, $5, $6, FALSE, $7
+) RETURNING id, workspace_id, title, description, status, max_retries, created_by_type, created_by_id, created_at, updated_at, is_template, source_template_id
 `
 
 type CreateWorkflowFromTemplateParams struct {
@@ -268,7 +265,6 @@ type CreateWorkflowFromTemplateParams struct {
 	CreatedByID      pgtype.UUID `json:"created_by_id"`
 	SourceTemplateID pgtype.UUID `json:"source_template_id"`
 	Description      pgtype.Text `json:"description"`
-	CustomRoles      []byte      `json:"custom_roles"`
 }
 
 func (q *Queries) CreateWorkflowFromTemplate(ctx context.Context, arg CreateWorkflowFromTemplateParams) (MulticaWorkflow, error) {
@@ -281,7 +277,6 @@ func (q *Queries) CreateWorkflowFromTemplate(ctx context.Context, arg CreateWork
 		arg.CreatedByID,
 		arg.SourceTemplateID,
 		arg.Description,
-		arg.CustomRoles,
 	)
 	var i MulticaWorkflow
 	err := row.Scan(
@@ -297,7 +292,6 @@ func (q *Queries) CreateWorkflowFromTemplate(ctx context.Context, arg CreateWork
 		&i.UpdatedAt,
 		&i.IsTemplate,
 		&i.SourceTemplateID,
-		&i.CustomRoles,
 	)
 	return i, err
 }
@@ -305,15 +299,15 @@ func (q *Queries) CreateWorkflowFromTemplate(ctx context.Context, arg CreateWork
 const createWorkflowNode = `-- name: CreateWorkflowNode :one
 INSERT INTO multica_workflow_node (
     workflow_id, title, description, position_x, position_y,
-    format_schema, worker_type, worker_id, worker_role,
-    critic_type, critic_id, critic_api_url, critic_role,
+    format_schema, worker_type, worker_id, worker_role_id,
+    critic_type, critic_id, critic_api_url, critic_role_id,
     sort_order, stage_id
 ) VALUES (
     $1, $2, $8, $3, $4,
     $9, $5, $10, $11,
     $6, $12, $13, $14,
     $7, $15
-) RETURNING id, workflow_id, title, description, position_x, position_y, format_schema, worker_type, worker_id, critic_type, critic_id, critic_api_url, sort_order, created_at, updated_at, stage_id, worker_role, critic_role
+) RETURNING id, workflow_id, title, description, position_x, position_y, format_schema, worker_type, worker_id, critic_type, critic_id, critic_api_url, sort_order, created_at, updated_at, stage_id, worker_role_id, critic_role_id
 `
 
 type CreateWorkflowNodeParams struct {
@@ -327,11 +321,11 @@ type CreateWorkflowNodeParams struct {
 	Description  pgtype.Text `json:"description"`
 	FormatSchema []byte      `json:"format_schema"`
 	WorkerID     pgtype.UUID `json:"worker_id"`
-	WorkerRole   pgtype.Text `json:"worker_role"`
+	WorkerRoleID pgtype.UUID `json:"worker_role_id"`
 	CriticID     pgtype.UUID `json:"critic_id"`
 	CriticApiUrl pgtype.Text `json:"critic_api_url"`
+	CriticRoleID pgtype.UUID `json:"critic_role_id"`
 	StageID      pgtype.UUID `json:"stage_id"`
-	CriticRole   pgtype.Text `json:"critic_role"`
 }
 
 func (q *Queries) CreateWorkflowNode(ctx context.Context, arg CreateWorkflowNodeParams) (MulticaWorkflowNode, error) {
@@ -346,10 +340,10 @@ func (q *Queries) CreateWorkflowNode(ctx context.Context, arg CreateWorkflowNode
 		arg.Description,
 		arg.FormatSchema,
 		arg.WorkerID,
-		arg.WorkerRole,
+		arg.WorkerRoleID,
 		arg.CriticID,
 		arg.CriticApiUrl,
-		arg.CriticRole,
+		arg.CriticRoleID,
 		arg.StageID,
 	)
 	var i MulticaWorkflowNode
@@ -370,8 +364,8 @@ func (q *Queries) CreateWorkflowNode(ctx context.Context, arg CreateWorkflowNode
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.StageID,
-		&i.WorkerRole,
-		&i.CriticRole,
+		&i.WorkerRoleID,
+		&i.CriticRoleID,
 	)
 	return i, err
 }
@@ -549,7 +543,7 @@ func (q *Queries) FailWorkflowRun(ctx context.Context, id pgtype.UUID) (MulticaW
 }
 
 const getWorkflow = `-- name: GetWorkflow :one
-SELECT id, workspace_id, title, description, status, max_retries, created_by_type, created_by_id, created_at, updated_at, is_template, source_template_id, custom_roles FROM multica_workflow
+SELECT id, workspace_id, title, description, status, max_retries, created_by_type, created_by_id, created_at, updated_at, is_template, source_template_id FROM multica_workflow
 WHERE id = $1
 `
 
@@ -569,7 +563,6 @@ func (q *Queries) GetWorkflow(ctx context.Context, id pgtype.UUID) (MulticaWorkf
 		&i.UpdatedAt,
 		&i.IsTemplate,
 		&i.SourceTemplateID,
-		&i.CustomRoles,
 	)
 	return i, err
 }
@@ -594,7 +587,7 @@ func (q *Queries) GetWorkflowEdge(ctx context.Context, id pgtype.UUID) (MulticaW
 }
 
 const getWorkflowInWorkspace = `-- name: GetWorkflowInWorkspace :one
-SELECT id, workspace_id, title, description, status, max_retries, created_by_type, created_by_id, created_at, updated_at, is_template, source_template_id, custom_roles FROM multica_workflow
+SELECT id, workspace_id, title, description, status, max_retries, created_by_type, created_by_id, created_at, updated_at, is_template, source_template_id FROM multica_workflow
 WHERE id = $1 AND workspace_id = $2
 `
 
@@ -619,13 +612,12 @@ func (q *Queries) GetWorkflowInWorkspace(ctx context.Context, arg GetWorkflowInW
 		&i.UpdatedAt,
 		&i.IsTemplate,
 		&i.SourceTemplateID,
-		&i.CustomRoles,
 	)
 	return i, err
 }
 
 const getWorkflowNode = `-- name: GetWorkflowNode :one
-SELECT id, workflow_id, title, description, position_x, position_y, format_schema, worker_type, worker_id, critic_type, critic_id, critic_api_url, sort_order, created_at, updated_at, stage_id, worker_role, critic_role FROM multica_workflow_node
+SELECT id, workflow_id, title, description, position_x, position_y, format_schema, worker_type, worker_id, critic_type, critic_id, critic_api_url, sort_order, created_at, updated_at, stage_id, worker_role_id, critic_role_id FROM multica_workflow_node
 WHERE id = $1
 `
 
@@ -649,8 +641,8 @@ func (q *Queries) GetWorkflowNode(ctx context.Context, id pgtype.UUID) (MulticaW
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.StageID,
-		&i.WorkerRole,
-		&i.CriticRole,
+		&i.WorkerRoleID,
+		&i.CriticRoleID,
 	)
 	return i, err
 }
@@ -702,7 +694,7 @@ func (q *Queries) GetWorkflowStage(ctx context.Context, id pgtype.UUID) (Multica
 
 const listTemplates = `-- name: ListTemplates :many
 
-SELECT id, workspace_id, title, description, status, max_retries, created_by_type, created_by_id, created_at, updated_at, is_template, source_template_id, custom_roles FROM multica_workflow
+SELECT id, workspace_id, title, description, status, max_retries, created_by_type, created_by_id, created_at, updated_at, is_template, source_template_id FROM multica_workflow
 WHERE is_template = TRUE
 ORDER BY created_at DESC
 `
@@ -732,7 +724,6 @@ func (q *Queries) ListTemplates(ctx context.Context) ([]MulticaWorkflow, error) 
 			&i.UpdatedAt,
 			&i.IsTemplate,
 			&i.SourceTemplateID,
-			&i.CustomRoles,
 		); err != nil {
 			return nil, err
 		}
@@ -897,7 +888,7 @@ func (q *Queries) ListWorkflowEdgesByTarget(ctx context.Context, targetNodeID pg
 
 const listWorkflowNodes = `-- name: ListWorkflowNodes :many
 
-SELECT id, workflow_id, title, description, position_x, position_y, format_schema, worker_type, worker_id, critic_type, critic_id, critic_api_url, sort_order, created_at, updated_at, stage_id, worker_role, critic_role FROM multica_workflow_node
+SELECT id, workflow_id, title, description, position_x, position_y, format_schema, worker_type, worker_id, critic_type, critic_id, critic_api_url, sort_order, created_at, updated_at, stage_id, worker_role_id, critic_role_id FROM multica_workflow_node
 WHERE workflow_id = $1
 ORDER BY sort_order ASC, created_at ASC
 `
@@ -931,8 +922,8 @@ func (q *Queries) ListWorkflowNodes(ctx context.Context, workflowID pgtype.UUID)
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.StageID,
-			&i.WorkerRole,
-			&i.CriticRole,
+			&i.WorkerRoleID,
+			&i.CriticRoleID,
 		); err != nil {
 			return nil, err
 		}
@@ -1078,7 +1069,7 @@ func (q *Queries) ListWorkflowStagesByWorkflow(ctx context.Context, workflowID p
 
 const listWorkflows = `-- name: ListWorkflows :many
 
-SELECT id, workspace_id, title, description, status, max_retries, created_by_type, created_by_id, created_at, updated_at, is_template, source_template_id, custom_roles FROM multica_workflow
+SELECT id, workspace_id, title, description, status, max_retries, created_by_type, created_by_id, created_at, updated_at, is_template, source_template_id FROM multica_workflow
 WHERE workspace_id = $1
   AND ($4::text IS NULL OR status = $4)
 ORDER BY created_at DESC
@@ -1122,7 +1113,6 @@ func (q *Queries) ListWorkflows(ctx context.Context, arg ListWorkflowsParams) ([
 			&i.UpdatedAt,
 			&i.IsTemplate,
 			&i.SourceTemplateID,
-			&i.CustomRoles,
 		); err != nil {
 			return nil, err
 		}
@@ -1135,7 +1125,7 @@ func (q *Queries) ListWorkflows(ctx context.Context, arg ListWorkflowsParams) ([
 }
 
 const listWorkflowsExcludingTemplates = `-- name: ListWorkflowsExcludingTemplates :many
-SELECT id, workspace_id, title, description, status, max_retries, created_by_type, created_by_id, created_at, updated_at, is_template, source_template_id, custom_roles FROM multica_workflow
+SELECT id, workspace_id, title, description, status, max_retries, created_by_type, created_by_id, created_at, updated_at, is_template, source_template_id FROM multica_workflow
 WHERE workspace_id = $1 AND is_template = FALSE
   AND ($4::text IS NULL OR status = $4)
 ORDER BY created_at DESC
@@ -1176,7 +1166,6 @@ func (q *Queries) ListWorkflowsExcludingTemplates(ctx context.Context, arg ListW
 			&i.UpdatedAt,
 			&i.IsTemplate,
 			&i.SourceTemplateID,
-			&i.CustomRoles,
 		); err != nil {
 			return nil, err
 		}
@@ -1254,7 +1243,6 @@ func (q *Queries) SetWorkflowTemplate(ctx context.Context, arg SetWorkflowTempla
 		&i.UpdatedAt,
 		&i.IsTemplate,
 		&i.SourceTemplateID,
-		&i.CustomRoles,
 	)
 	return i, err
 }
@@ -1264,7 +1252,7 @@ UPDATE multica_workflow_node SET
     stage_id = NULL,
     updated_at = now()
 WHERE id = $1
-RETURNING id, workflow_id, title, description, position_x, position_y, format_schema, worker_type, worker_id, critic_type, critic_id, critic_api_url, sort_order, created_at, updated_at, stage_id, worker_role, critic_role
+RETURNING id, workflow_id, title, description, position_x, position_y, format_schema, worker_type, worker_id, critic_type, critic_id, critic_api_url, sort_order, created_at, updated_at, stage_id, worker_role_id, critic_role_id
 `
 
 func (q *Queries) UnassignNodeFromStage(ctx context.Context, id pgtype.UUID) (MulticaWorkflowNode, error) {
@@ -1287,8 +1275,8 @@ func (q *Queries) UnassignNodeFromStage(ctx context.Context, id pgtype.UUID) (Mu
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.StageID,
-		&i.WorkerRole,
-		&i.CriticRole,
+		&i.WorkerRoleID,
+		&i.CriticRoleID,
 	)
 	return i, err
 }
@@ -1299,10 +1287,9 @@ UPDATE multica_workflow SET
     description = COALESCE($3, description),
     status = COALESCE($4, status),
     max_retries = COALESCE($5::int, max_retries),
-    custom_roles = COALESCE($6, custom_roles),
     updated_at = now()
 WHERE id = $1
-RETURNING id, workspace_id, title, description, status, max_retries, created_by_type, created_by_id, created_at, updated_at, is_template, source_template_id, custom_roles
+RETURNING id, workspace_id, title, description, status, max_retries, created_by_type, created_by_id, created_at, updated_at, is_template, source_template_id
 `
 
 type UpdateWorkflowParams struct {
@@ -1311,7 +1298,6 @@ type UpdateWorkflowParams struct {
 	Description pgtype.Text `json:"description"`
 	Status      pgtype.Text `json:"status"`
 	MaxRetries  pgtype.Int4 `json:"max_retries"`
-	CustomRoles []byte      `json:"custom_roles"`
 }
 
 func (q *Queries) UpdateWorkflow(ctx context.Context, arg UpdateWorkflowParams) (MulticaWorkflow, error) {
@@ -1321,7 +1307,6 @@ func (q *Queries) UpdateWorkflow(ctx context.Context, arg UpdateWorkflowParams) 
 		arg.Description,
 		arg.Status,
 		arg.MaxRetries,
-		arg.CustomRoles,
 	)
 	var i MulticaWorkflow
 	err := row.Scan(
@@ -1337,7 +1322,6 @@ func (q *Queries) UpdateWorkflow(ctx context.Context, arg UpdateWorkflowParams) 
 		&i.UpdatedAt,
 		&i.IsTemplate,
 		&i.SourceTemplateID,
-		&i.CustomRoles,
 	)
 	return i, err
 }
@@ -1351,34 +1335,34 @@ UPDATE multica_workflow_node SET
     format_schema = COALESCE($6, format_schema),
     worker_type = COALESCE($7, worker_type),
     worker_id = CASE
-        WHEN $8::text IS NOT NULL THEN NULL
+        WHEN $8::uuid IS NOT NULL THEN NULL
         ELSE COALESCE($9, worker_id)
     END,
-    worker_role = CASE
-        WHEN $8::text IS NOT NULL THEN NULLIF($8::text, '')
+    worker_role_id = CASE
+        WHEN $8::uuid IS NOT NULL THEN $8::uuid
         WHEN $9::uuid IS NOT NULL OR $7::text IS NOT NULL THEN NULL
-        ELSE worker_role
+        ELSE worker_role_id
     END,
     critic_type = COALESCE($10, critic_type),
     critic_id = CASE
-        WHEN $11::text IS NOT NULL THEN NULL
+        WHEN $11::uuid IS NOT NULL THEN NULL
         ELSE COALESCE($12, critic_id)
     END,
     critic_api_url = CASE
-        WHEN $11::text IS NOT NULL THEN NULL
+        WHEN $11::uuid IS NOT NULL THEN NULL
         ELSE COALESCE($13, critic_api_url)
     END,
-    critic_role = CASE
-        WHEN $11::text IS NOT NULL THEN NULLIF($11::text, '')
+    critic_role_id = CASE
+        WHEN $11::uuid IS NOT NULL THEN $11::uuid
         WHEN $12::uuid IS NOT NULL
           OR $10::text IS NOT NULL
           OR $13::text IS NOT NULL THEN NULL
-        ELSE critic_role
+        ELSE critic_role_id
     END,
     sort_order = COALESCE($14::int, sort_order),
     updated_at = now()
 WHERE id = $1
-RETURNING id, workflow_id, title, description, position_x, position_y, format_schema, worker_type, worker_id, critic_type, critic_id, critic_api_url, sort_order, created_at, updated_at, stage_id, worker_role, critic_role
+RETURNING id, workflow_id, title, description, position_x, position_y, format_schema, worker_type, worker_id, critic_type, critic_id, critic_api_url, sort_order, created_at, updated_at, stage_id, worker_role_id, critic_role_id
 `
 
 type UpdateWorkflowNodeParams struct {
@@ -1389,10 +1373,10 @@ type UpdateWorkflowNodeParams struct {
 	PositionY    pgtype.Float8 `json:"position_y"`
 	FormatSchema []byte        `json:"format_schema"`
 	WorkerType   pgtype.Text   `json:"worker_type"`
-	WorkerRole   pgtype.Text   `json:"worker_role"`
+	WorkerRoleID pgtype.UUID   `json:"worker_role_id"`
 	WorkerID     pgtype.UUID   `json:"worker_id"`
 	CriticType   pgtype.Text   `json:"critic_type"`
-	CriticRole   pgtype.Text   `json:"critic_role"`
+	CriticRoleID pgtype.UUID   `json:"critic_role_id"`
 	CriticID     pgtype.UUID   `json:"critic_id"`
 	CriticApiUrl pgtype.Text   `json:"critic_api_url"`
 	SortOrder    pgtype.Int4   `json:"sort_order"`
@@ -1407,10 +1391,10 @@ func (q *Queries) UpdateWorkflowNode(ctx context.Context, arg UpdateWorkflowNode
 		arg.PositionY,
 		arg.FormatSchema,
 		arg.WorkerType,
-		arg.WorkerRole,
+		arg.WorkerRoleID,
 		arg.WorkerID,
 		arg.CriticType,
-		arg.CriticRole,
+		arg.CriticRoleID,
 		arg.CriticID,
 		arg.CriticApiUrl,
 		arg.SortOrder,
@@ -1433,8 +1417,8 @@ func (q *Queries) UpdateWorkflowNode(ctx context.Context, arg UpdateWorkflowNode
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.StageID,
-		&i.WorkerRole,
-		&i.CriticRole,
+		&i.WorkerRoleID,
+		&i.CriticRoleID,
 	)
 	return i, err
 }

@@ -207,7 +207,7 @@ export function checkUnreachableNodes(
 /** Detect nodes without an assigned worker. */
 export function checkWorkerMissing(nodes: WorkflowNode[]): PreflightIssue[] {
   return nodes
-    .filter((n) => !isAnnotation(n) && !isGateway(n) && (!n.worker_type || (!n.worker_id && !n.worker_role)))
+    .filter((n) => !isAnnotation(n) && !isGateway(n) && (!n.worker_type || (!n.worker_id && !n.worker_role_id && !n.worker_role)))
     .map((n) => ({
       checkId: "worker-missing" as const,
       severity: "error" as const,
@@ -218,29 +218,31 @@ export function checkWorkerMissing(nodes: WorkflowNode[]): PreflightIssue[] {
     }));
 }
 
-/** Role placeholders must be resolved to concrete assignees before execution. */
+/** Roles are resolved to active workspace members when the run starts. */
 export function checkRolePlaceholders(nodes: WorkflowNode[]): PreflightIssue[] {
   return nodes.flatMap((node) => {
     if (isAnnotation(node) || isGateway(node)) return [];
     const issues: PreflightIssue[] = [];
-    if (node.worker_role) {
+    const workerRole = node.worker_role_id ?? node.worker_role;
+    if (workerRole) {
       issues.push({
         checkId: "role-placeholder",
-        severity: "error",
-        blocking: true,
+        severity: "warning",
+        blocking: false,
         nodeId: node.id,
         nodeTitle: node.title,
-        message: 'Replace worker role "' + node.worker_role + '" with a concrete assignee',
+        message: 'Worker role "' + workerRole + '" will be resolved when the run starts',
       });
     }
-    if (node.critic_role) {
+    const criticRole = node.critic_role_id ?? node.critic_role;
+    if (criticRole) {
       issues.push({
         checkId: "role-placeholder",
-        severity: "error",
-        blocking: true,
+        severity: "warning",
+        blocking: false,
         nodeId: node.id,
         nodeTitle: node.title,
-        message: 'Replace critic role "' + node.critic_role + '" with a concrete assignee',
+        message: 'Critic role "' + criticRole + '" will be resolved when the run starts',
       });
     }
     return issues;

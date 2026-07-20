@@ -194,6 +194,36 @@ func (s *EmailService) SendVerificationCode(to, code string) error {
 	return err
 }
 
+// SendWorkflowRoleNotification sends a persisted workflow phase or manual-action email.
+func (s *EmailService) SendWorkflowRoleNotification(to, notificationType, workflowTitle, nodeTitle, roleName string) error {
+	safeWorkflow := html.EscapeString(workflowTitle)
+	safeNode := html.EscapeString(nodeTitle)
+	safeRole := html.EscapeString(roleName)
+	subject := "Workflow action required"
+	heading := "Workflow role assignment needs attention"
+	bodyText := fmt.Sprintf("The %s role for node %s in workflow %s needs a manual assignment.", safeRole, safeNode, safeWorkflow)
+	switch notificationType {
+	case "execution":
+		subject = "Workflow task ready: " + sanitizeSubjectField(nodeTitle)
+		heading = "A workflow task is ready for you"
+		bodyText = fmt.Sprintf("You are assigned as %s for node %s in workflow %s.", safeRole, safeNode, safeWorkflow)
+	case "review":
+		subject = "Workflow review ready: " + sanitizeSubjectField(nodeTitle)
+		heading = "A workflow review is ready for you"
+		bodyText = fmt.Sprintf("You are assigned as %s to review node %s in workflow %s.", safeRole, safeNode, safeWorkflow)
+	}
+	body := fmt.Sprintf("<div style=\"font-family:sans-serif;max-width:480px;margin:0 auto\"><h2>%s</h2><p>%s</p></div>", heading, bodyText)
+	if s.smtpHost != "" {
+		return s.sendSMTP(to, subject, body)
+	}
+	if s.client == nil {
+		fmt.Printf("[DEV] Workflow notification to %s: %s\n", to, subject)
+		return nil
+	}
+	_, err := s.client.Emails.Send(&resend.SendEmailRequest{From: s.fromEmail, To: []string{to}, Subject: subject, Html: body})
+	return err
+}
+
 // SendInvitationEmail notifies the invitee that they have been invited to a workspace.
 // invitationID is included in the URL so the email deep-links to /invite/{id}.
 func (s *EmailService) SendInvitationEmail(to, inviterName, workspaceName, invitationID string) error {

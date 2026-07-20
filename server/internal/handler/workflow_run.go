@@ -3,6 +3,7 @@ package handler
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
@@ -317,18 +318,6 @@ func (h *Handler) StartWorkflowRun(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "workflow is not active")
 		return
 	}
-	nodes, err := h.Queries.ListWorkflowNodes(r.Context(), wf.ID)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to validate workflow roles")
-		return
-	}
-	for _, node := range nodes {
-		if node.WorkerRole.Valid || node.CriticRole.Valid {
-			writeError(w, http.StatusBadRequest, "replace all workflow role placeholders before starting a run")
-			return
-		}
-	}
-
 	workspaceID := h.resolveWorkspaceID(r)
 	userID, ok := requireUserID(w, r)
 	if !ok {
@@ -352,7 +341,11 @@ func (h *Handler) StartWorkflowRun(w http.ResponseWriter, r *http.Request) {
 
 	run, err := h.WorkflowService.StartRun(r.Context(), wf, "member", userID, req.Input, pgtype.UUID{})
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to start run: "+err.Error())
+		if errors.Is(err, service.ErrWorkflowRoleResolutionLimit) {
+			writeError(w, http.StatusTooManyRequests, "too many active workflow role resolution jobs")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "failed to start run")
 		return
 	}
 
@@ -361,7 +354,11 @@ func (h *Handler) StartWorkflowRun(w http.ResponseWriter, r *http.Request) {
 		"run":      resp,
 		"workflow": map[string]string{"id": uuidToString(wf.ID), "title": wf.Title},
 	})
-	writeJSON(w, http.StatusCreated, resp)
+	status := http.StatusCreated
+	if run.Status == service.RunStatusResolvingRoles || run.Status == service.RunStatusWaitingRoleAssignment {
+		status = http.StatusAccepted
+	}
+	writeJSON(w, status, resp)
 }
 
 func (h *Handler) GetWorkflowRun(w http.ResponseWriter, r *http.Request) {

@@ -80,7 +80,9 @@ export type WSEventType =
   | "pull_request:unlinked"
   | "merge_request:updated"
   | "gitlab_settings:changed"
-  | "workflow:node_run_updated";
+  | "workflow:node_run_updated"
+  | "workflow_role_resolution_updated"
+  | "workflow_run_updated";
 
 export interface WSMessage<T = unknown> {
   type: WSEventType;

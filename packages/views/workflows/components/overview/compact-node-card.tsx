@@ -1,7 +1,11 @@
 "use client";
 
-import type { WorkflowNode } from "@multica/core/types";
+import { useMemo } from "react";
+import { useQuery } from "@tanstack/react-query";
+import type { WorkflowNode, WorkflowRole } from "@multica/core/types";
 import type { BuiltinPlugin } from "@multica/core/api/schemas";
+import { useWorkspaceId } from "@multica/core/hooks";
+import { workflowRolesOptions } from "@multica/core/workflows/queries";
 import { cn } from "@multica/ui/lib/utils";
 import { useT } from "../../../i18n";
 
@@ -23,14 +27,47 @@ export function CompactNodeCard({
   elementRef,
 }: CompactNodeCardProps) {
   const { t } = useT("workflows");
+  const wsId = useWorkspaceId();
+  const { data: workflowRoles = [] } = useQuery(workflowRolesOptions(wsId));
+  const roleById = useMemo(
+    () => new Map(workflowRoles.map((role) => [role.id, role])),
+    [workflowRoles],
+  );
+
+  const renderRoleName = (
+    role: WorkflowRole | undefined,
+    rawKey?: string | null,
+  ): string | undefined => {
+    if (role) {
+      if (!role.is_builtin) return role.name;
+      if (role.name === "developer") return t(($) => $.builtin_roles.developer.name);
+      if (role.name === "qa") return t(($) => $.builtin_roles.qa.name);
+      if (role.name === "tech_lead") return t(($) => $.builtin_roles.tech_lead.name);
+      return role.name;
+    }
+    if (rawKey) {
+      if (rawKey === "developer") return t(($) => $.builtin_roles.developer.name);
+      if (rawKey === "qa") return t(($) => $.builtin_roles.qa.name);
+      if (rawKey === "tech_lead") return t(($) => $.builtin_roles.tech_lead.name);
+      return rawKey;
+    }
+    return undefined;
+  };
+
   const displayName = plugin?.name ?? node.title;
+  const hasRole = Boolean(node.worker_role_id || node.worker_role);
 
   const subtitleLabel = (() => {
-    if (workerName) return workerName;
-    if (node.worker_role === "developer") return `${t(($) => $.node.role_placeholder_label)} · ${t(($) => $.node.role_developer)}`;
-    if (node.worker_role === "qa") return `${t(($) => $.node.role_placeholder_label)} · ${t(($) => $.node.role_qa)}`;
-    if (node.worker_role === "tech_lead") {
-      return `${t(($) => $.node.role_placeholder_label)} · ${t(($) => $.node.role_tech_lead)}`;
+    if (workerName) {
+      return hasRole ? `${t(($) => $.node.role_placeholder_label)} · ${workerName}` : workerName;
+    }
+    if (node.worker_role_id) {
+      const resolved = renderRoleName(roleById.get(node.worker_role_id));
+      return `${t(($) => $.node.role_placeholder_label)} · ${resolved ?? node.worker_role_id}`;
+    }
+    if (node.worker_role) {
+      const resolved = renderRoleName(undefined, node.worker_role);
+      return `${t(($) => $.node.role_placeholder_label)} · ${resolved ?? node.worker_role}`;
     }
     const wt = node.worker_type;
     const typeLabel =
@@ -64,7 +101,7 @@ export function CompactNodeCard({
         <span
           className={cn(
             "inline-block h-1.5 w-1.5 shrink-0 rounded-full",
-            workerName ? "bg-[var(--success)]" : node.worker_role ? "bg-amber-500" : "bg-muted-foreground/40",
+            hasRole ? "bg-amber-500" : workerName ? "bg-[var(--success)]" : "bg-muted-foreground/40",
           )}
         />
         <span className="truncate text-[11px] text-muted-foreground">

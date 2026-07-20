@@ -4,6 +4,36 @@ import { render, fireEvent, screen } from "@testing-library/react";
 import { CriticBadge } from "./critic-badge";
 import type { WorkflowNode, Agent } from "@multica/core/types";
 
+vi.mock("@multica/core/hooks", () => ({
+  useWorkspaceId: () => "ws-1",
+}));
+
+vi.mock("@tanstack/react-query", () => ({
+  useQuery: () => ({ data: [] as Array<{ id: string; name: string; is_builtin: boolean }> }),
+}));
+
+vi.mock("@multica/core/workflows/queries", () => ({
+  workflowRolesOptions: () => ({ queryKey: ["roles"] }),
+}));
+
+vi.mock("../../../i18n", () => ({
+  useT: () => ({
+    t: (key: unknown) => {
+      if (typeof key === "function") {
+        const resources: Record<string, unknown> = {
+          builtin_roles: {
+            developer: { name: "Developer" },
+            qa: { name: "QA" },
+            tech_lead: { name: "Tech Lead" },
+          },
+        };
+        return key(resources);
+      }
+      return String(key);
+    },
+  }),
+}));
+
 const MOCK_CRITIC_NODE: WorkflowNode = {
   id: "critic-1",
   workflow_id: "wf-1",

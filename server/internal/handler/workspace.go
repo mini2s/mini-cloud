@@ -220,6 +220,10 @@ func (h *Handler) CreateWorkspace(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "failed to add owner: "+err.Error())
 		return
 	}
+	if err := qtx.CreateBuiltinWorkflowRoles(r.Context(), ws.ID); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to initialize workflow roles: "+err.Error())
+		return
+	}
 
 	// Creating a workspace is now the entry point for new users (the onboarding
 	// flow has been removed). Mark the user as onboarded atomically inside the

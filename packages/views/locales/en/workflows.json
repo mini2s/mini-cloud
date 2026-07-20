@@ -146,6 +146,7 @@
     "empty_worker": "No worker selected",
     "empty_critic_role": "No critic role selected",
     "empty_critic": "No critic selected",
+    "manage_roles_shortcut": "Manage roles",
     "empty_unknown_node": "Unknown node",
     "picker_empty_prefix": "Select existing",
     "gateway_label_fork": "Fork gateway",
@@ -245,6 +246,8 @@
   },
   "run": {
     "status": {
+      "resolving_roles": "Resolving roles",
+      "waiting_role_assignment": "Waiting for role assignment",
       "running": "Running",
       "completed": "Completed",
       "failed": "Failed",
@@ -258,7 +261,49 @@
     "toast_cancelled": "Run cancelled",
     "toast_cancel_failed": "Failed to cancel run",
     "input": "Input",
-    "output": "Output"
+    "output": "Output",
+    "node_runs": "Node runs",
+    "roles": {
+      "title": "Role assignments",
+      "resolving": "Resolving workflow roles to active workspace members...",
+      "waiting": "Automatic role resolution needs your input. Assign every unresolved role to continue.",
+      "invalidated": "A previously assigned member is no longer active. Reassign the blocked role to continue.",
+      "worker": "Worker",
+      "critic": "Critic",
+      "unknown_node": "Unknown node",
+      "select_member": "Select an active member",
+      "assigned_to": "Assigned to {{name}}",
+      "assign_continue": "Confirm assignments and continue",
+      "assigning": "Saving assignments...",
+      "assignment_saved": "Role assignments saved",
+      "assignment_failed": "Failed to save role assignments",
+      "assignment_conflict": "Assignments changed elsewhere. The latest values have been loaded.",
+      "retry": "Retry auto-match",
+      "retry_started": "Automatic role resolution restarted",
+      "retry_failed": "Failed to restart automatic role resolution",
+      "reason": "Reason: {{code}}",
+      "notification_failed": "Member assigned, but the email was not sent.",
+      "status": {
+        "pending": "Pending",
+        "resolved": "Resolved",
+        "needs_human": "Needs assignment",
+        "invalidated": "Member inactive"
+      }
+    }
+  },
+  "builtin_roles": {
+    "developer": {
+      "name": "Developer",
+      "description": "Implements, tests, and maintains product and engineering work."
+    },
+    "qa": {
+      "name": "QA",
+      "description": "Validates quality, verifies requirements, and identifies regressions."
+    },
+    "tech_lead": {
+      "name": "Tech Lead",
+      "description": "Owns technical direction, design review, and engineering quality."
+    }
   },
   "node_run": {
     "status": {

@@ -74,6 +74,20 @@ func TestCreateWorkspace_MarksUserOnboarded(t *testing.T) {
 	if onboardedAt == nil {
 		t.Fatalf("CreateWorkspace did not mark user as onboarded; expected a timestamp, got NULL")
 	}
+	var builtinRoleCount int
+	if err := testPool.QueryRow(ctx, `
+SELECT count(*)
+FROM multica_workflow_role role
+JOIN multica_workspace workspace ON workspace.id = role.workspace_id
+WHERE workspace.slug = $1
+  AND role.is_builtin
+  AND role.description <> ''
+  AND role.normalized_name IN ('developer', 'qa', 'tech_lead')`, slug).Scan(&builtinRoleCount); err != nil {
+		t.Fatalf("lookup built-in workflow roles: %v", err)
+	}
+	if builtinRoleCount != 3 {
+		t.Fatalf("CreateWorkspace initialized %d built-in workflow roles, expected 3", builtinRoleCount)
+	}
 }
 
 // TestDeleteWorkspace_RequiresOwner exercises the in-handler authorization

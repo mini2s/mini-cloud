@@ -1,6 +1,10 @@
 "use client";
 
-import type { WorkflowNode, Agent } from "@multica/core/types";
+import { useMemo } from "react";
+import { useQuery } from "@tanstack/react-query";
+import type { WorkflowNode, WorkflowRole, Agent } from "@multica/core/types";
+import { useWorkspaceId } from "@multica/core/hooks";
+import { workflowRolesOptions } from "@multica/core/workflows/queries";
 import { cn } from "@multica/ui/lib/utils";
 import { ShieldAlert } from "lucide-react";
 import { useT } from "../../../i18n";
@@ -21,16 +25,39 @@ export function CriticBadge({
   elementRef,
 }: CriticBadgeProps) {
   const { t } = useT("workflows");
-  const roleName =
-    node.critic_role === "developer"
-      ? t(($) => $.node.role_developer)
-      : node.critic_role === "qa"
-        ? t(($) => $.node.role_qa)
-        : node.critic_role === "tech_lead"
-          ? t(($) => $.node.role_tech_lead)
-          : null;
+  const wsId = useWorkspaceId();
+  const { data: workflowRoles = [] } = useQuery(workflowRolesOptions(wsId));
+  const roleById = useMemo(
+    () => new Map(workflowRoles.map((role) => [role.id, role])),
+    [workflowRoles],
+  );
 
-  const displayName = roleName ?? criticAgent?.name ?? t(($) => $.overview.detail_panel.not_configured);
+  const renderRoleName = (
+    role: WorkflowRole | undefined,
+    rawKey?: string | null,
+  ): string | undefined => {
+    if (role) {
+      if (!role.is_builtin) return role.name;
+      if (role.name === "developer") return t(($) => $.builtin_roles.developer.name);
+      if (role.name === "qa") return t(($) => $.builtin_roles.qa.name);
+      if (role.name === "tech_lead") return t(($) => $.builtin_roles.tech_lead.name);
+      return role.name;
+    }
+    if (rawKey) {
+      if (rawKey === "developer") return t(($) => $.builtin_roles.developer.name);
+      if (rawKey === "qa") return t(($) => $.builtin_roles.qa.name);
+      if (rawKey === "tech_lead") return t(($) => $.builtin_roles.tech_lead.name);
+      return rawKey;
+    }
+    return undefined;
+  };
+
+  const resolvedRoleName = node.critic_role_id
+    ? renderRoleName(roleById.get(node.critic_role_id))
+    : node.critic_role
+      ? renderRoleName(undefined, node.critic_role)
+      : undefined;
+  const displayName = resolvedRoleName ?? criticAgent?.name ?? node.title;
 
   return (
     <button

@@ -38,8 +38,10 @@ type CreateNodeRequest struct {
 	FormatSchema json.RawMessage `json:"format_schema"`
 	WorkerType   string          `json:"worker_type"`
 	WorkerID     *string         `json:"worker_id"`
+	WorkerRoleID *string         `json:"worker_role_id"`
 	CriticType   string          `json:"critic_type"`
 	CriticID     *string         `json:"critic_id"`
+	CriticRoleID *string         `json:"critic_role_id"`
 	CriticApiURL *string         `json:"critic_api_url"`
 	StageID      *string         `json:"stage_id"`
 }
@@ -52,8 +54,10 @@ type UpdateNodeRequest struct {
 	FormatSchema json.RawMessage `json:"format_schema"`
 	WorkerType   *string         `json:"worker_type"`
 	WorkerID     *string         `json:"worker_id"`
+	WorkerRoleID *string         `json:"worker_role_id"`
 	CriticType   *string         `json:"critic_type"`
 	CriticID     *string         `json:"critic_id"`
+	CriticRoleID *string         `json:"critic_role_id"`
 	CriticApiURL *string         `json:"critic_api_url"`
 	SortOrder    *int32          `json:"sort_order"`
 }
@@ -92,8 +96,10 @@ type WorkflowNodeResponse struct {
 	FormatSchema json.RawMessage `json:"format_schema"`
 	WorkerType   string          `json:"worker_type"`
 	WorkerID     *string         `json:"worker_id"`
+	WorkerRoleID *string         `json:"worker_role_id"`
 	CriticType   string          `json:"critic_type"`
 	CriticID     *string         `json:"critic_id"`
+	CriticRoleID *string         `json:"critic_role_id"`
 	CriticApiURL *string         `json:"critic_api_url"`
 	SortOrder    int32           `json:"sort_order"`
 	StageID      *string         `json:"stage_id"`
@@ -185,8 +191,10 @@ func workflowNodeToResponse(node db.MulticaWorkflowNode) WorkflowNodeResponse {
 		FormatSchema: node.FormatSchema,
 		WorkerType:   node.WorkerType,
 		WorkerID:     uuidToPtr(node.WorkerID),
+		WorkerRoleID: uuidToPtr(node.WorkerRoleID),
 		CriticType:   node.CriticType,
 		CriticID:     uuidToPtr(node.CriticID),
+		CriticRoleID: uuidToPtr(node.CriticRoleID),
 		CriticApiURL: textToPtr(node.CriticApiUrl),
 		SortOrder:    node.SortOrder,
 		StageID:      uuidToPtr(node.StageID),
@@ -422,7 +430,7 @@ func (h *Handler) UpdateWorkflow(w http.ResponseWriter, r *http.Request) {
 		var nodeNames []string
 		for _, n := range nodes {
 			var missingRoles []string
-			if n.WorkerType == "" || (!n.WorkerID.Valid && n.WorkerType == "agent") {
+			if n.WorkerType == "" || (!n.WorkerID.Valid && !n.WorkerRoleID.Valid && n.WorkerType == "agent") {
 				missingRoles = append(missingRoles, "worker")
 			}
 			if n.CriticType == "" || (!n.CriticID.Valid && n.CriticType == "agent") {
@@ -447,7 +455,6 @@ func (h *Handler) UpdateWorkflow(w http.ResponseWriter, r *http.Request) {
 	if req.MaxRetries != nil {
 		params.MaxRetries = pgtype.Int4{Int32: *req.MaxRetries, Valid: true}
 	}
-
 	updated, err := h.Queries.UpdateWorkflow(r.Context(), params)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to update workflow")
@@ -536,6 +543,30 @@ func (h *Handler) CreateWorkflowNode(w http.ResponseWriter, r *http.Request) {
 	if req.CriticType == "" {
 		req.CriticType = "human"
 	}
+	workerRoleID, ok := h.parseWorkflowRoleID(w, r, req.WorkerRoleID, "worker_role_id", wf.WorkspaceID)
+	if !ok {
+		return
+	}
+	criticRoleID, ok := h.parseWorkflowRoleID(w, r, req.CriticRoleID, "critic_role_id", wf.WorkspaceID)
+	if !ok {
+		return
+	}
+	if req.WorkerRoleID != nil && *req.WorkerRoleID != "" && req.WorkerID != nil {
+		writeError(w, http.StatusBadRequest, "worker_role_id and worker_id are mutually exclusive")
+		return
+	}
+	if req.CriticRoleID != nil && *req.CriticRoleID != "" && (req.CriticID != nil || req.CriticApiURL != nil) {
+		writeError(w, http.StatusBadRequest, "critic_role_id and concrete critic assignment are mutually exclusive")
+		return
+	}
+	// Template rows keep the executable actor type domain. The role_id is the
+	// assignment source; the run snapshot becomes a concrete human after resolution.
+	if workerRoleID.Valid {
+		req.WorkerType = "human"
+	}
+	if criticRoleID.Valid {
+		req.CriticType = "human"
+	}
 
 	workspaceID := h.resolveWorkspaceID(r)
 	userID, _ := requireUserID(w, r)
@@ -592,9 +623,11 @@ func (h *Handler) CreateWorkflowNode(w http.ResponseWriter, r *http.Request) {
 		FormatSchema: req.FormatSchema,
 		WorkerType:   req.WorkerType,
 		WorkerID:     workerID,
+		WorkerRoleID: workerRoleID,
 		CriticType:   req.CriticType,
 		CriticID:     criticID,
-		CriticApiUrl: nonNullText(stringOrEmpty(req.CriticApiURL)),
+		CriticApiUrl: ptrToText(req.CriticApiURL),
+		CriticRoleID: criticRoleID,
 		SortOrder:    0,
 		StageID:      stageID,
 	})
@@ -612,7 +645,7 @@ func (h *Handler) UpdateWorkflowNode(w http.ResponseWriter, r *http.Request) {
 	wfID := chi.URLParam(r, "id")
 	nodeID := chi.URLParam(r, "nodeId")
 
-	_, ok := h.loadWorkflowInWorkspace(w, r, wfID)
+	wf, ok := h.loadWorkflowInWorkspace(w, r, wfID)
 	if !ok {
 		return
 	}
@@ -626,6 +659,30 @@ func (h *Handler) UpdateWorkflowNode(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
+	workerRoleID, ok := h.parseWorkflowRoleID(w, r, req.WorkerRoleID, "worker_role_id", wf.WorkspaceID)
+	if !ok {
+		return
+	}
+	criticRoleID, ok := h.parseWorkflowRoleID(w, r, req.CriticRoleID, "critic_role_id", wf.WorkspaceID)
+	if !ok {
+		return
+	}
+	if req.WorkerRoleID != nil && *req.WorkerRoleID != "" && req.WorkerID != nil {
+		writeError(w, http.StatusBadRequest, "worker_role_id and worker_id are mutually exclusive")
+		return
+	}
+	if req.CriticRoleID != nil && *req.CriticRoleID != "" && (req.CriticID != nil || req.CriticApiURL != nil) {
+		writeError(w, http.StatusBadRequest, "critic_role_id and concrete critic assignment are mutually exclusive")
+		return
+	}
+	if workerRoleID.Valid {
+		workerType := "human"
+		req.WorkerType = &workerType
+	}
+	if criticRoleID.Valid {
+		criticType := "human"
+		req.CriticType = &criticType
+	}
 
 	workspaceID := h.resolveWorkspaceID(r)
 	userID, _ := requireUserID(w, r)
@@ -634,37 +691,44 @@ func (h *Handler) UpdateWorkflowNode(w http.ResponseWriter, r *http.Request) {
 	if req.WorkerType != nil {
 		workerType = *req.WorkerType
 	}
-	workerID := currentNode.WorkerID
 	var workerIDParam pgtype.UUID
 	if req.WorkerID != nil {
 		parsed, ok := parseUUIDOrBadRequest(w, *req.WorkerID, "worker_id")
 		if !ok {
 			return
 		}
-		workerID = parsed
 		workerIDParam = parsed
+	}
+	// When switching to role-based assignment, worker_id will be cleared by the
+	// SQL upsert, so validating the stale prior worker_id rejects saves that
+	// are actually removing the assignment.
+	effectiveWorkerID := workerIDParam
+	if workerRoleID.Valid {
+		effectiveWorkerID = pgtype.UUID{}
 	}
 
 	criticType := currentNode.CriticType
 	if req.CriticType != nil {
 		criticType = *req.CriticType
 	}
-	criticID := currentNode.CriticID
 	var criticIDParam pgtype.UUID
 	if req.CriticID != nil {
 		parsed, ok := parseUUIDOrBadRequest(w, *req.CriticID, "critic_id")
 		if !ok {
 			return
 		}
-		criticID = parsed
 		criticIDParam = parsed
 	}
+	effectiveCriticID := criticIDParam
+	if criticRoleID.Valid {
+		effectiveCriticID = pgtype.UUID{}
+	}
 
-	if err := h.validateWorkflowHumanActor(r.Context(), workerType, workerID, workspaceID, "worker"); err != nil {
+	if err := h.validateWorkflowHumanActor(r.Context(), workerType, effectiveWorkerID, workspaceID, "worker"); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	if err := h.validateWorkflowHumanActor(r.Context(), criticType, criticID, workspaceID, "critic"); err != nil {
+	if err := h.validateWorkflowHumanActor(r.Context(), criticType, effectiveCriticID, workspaceID, "critic"); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
@@ -677,10 +741,10 @@ func (h *Handler) UpdateWorkflowNode(w http.ResponseWriter, r *http.Request) {
 		PositionY:    float64ToFloat8(req.PositionY),
 		FormatSchema: req.FormatSchema,
 		WorkerType:   ptrToText(req.WorkerType),
-		WorkerRole:   ptrToText(req.WorkerRole),
+		WorkerRoleID: workerRoleID,
 		WorkerID:     workerIDParam,
 		CriticType:   ptrToText(req.CriticType),
-		CriticRole:   ptrToText(req.CriticRole),
+		CriticRoleID: criticRoleID,
 		CriticID:     criticIDParam,
 		CriticApiUrl: ptrToText(req.CriticApiURL),
 		SortOrder:    int32ToInt4(req.SortOrder),
@@ -708,6 +772,18 @@ func (h *Handler) DeleteWorkflowNode(w http.ResponseWriter, r *http.Request) {
 	}
 	nID, ok := parseUUIDOrBadRequest(w, nodeID, "node ID")
 	if !ok {
+		return
+	}
+
+	// Verify the node belongs to the workflow.
+	node, err := h.Queries.GetWorkflowNode(r.Context(), nID)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "node not found")
+		return
+	}
+	wfUUID := parseUUID(wfID)
+	if uuidToString(node.WorkflowID) != uuidToString(wfUUID) {
+		writeError(w, http.StatusNotFound, "node not found in this workflow")
 		return
 	}
 
@@ -1346,6 +1422,30 @@ func (h *Handler) InviteWorkflowAdmin(w http.ResponseWriter, r *http.Request) {
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
+func (h *Handler) parseWorkflowRoleID(
+	w http.ResponseWriter,
+	r *http.Request,
+	value *string,
+	field string,
+	workspaceID pgtype.UUID,
+) (pgtype.UUID, bool) {
+	if value == nil {
+		return pgtype.UUID{}, true
+	}
+	roleID, ok := parseUUIDOrBadRequest(w, strings.TrimSpace(*value), field)
+	if !ok {
+		return pgtype.UUID{}, false
+	}
+	if _, err := h.Queries.GetWorkflowRoleInWorkspace(r.Context(), db.GetWorkflowRoleInWorkspaceParams{
+		ID:          roleID,
+		WorkspaceID: workspaceID,
+	}); err != nil {
+		writeError(w, http.StatusBadRequest, field+" is not a role in this workspace")
+		return pgtype.UUID{}, false
+	}
+	return roleID, true
+}
+
 func nonNullText(s string) pgtype.Text {
 	return pgtype.Text{String: s, Valid: true}
 }
@@ -1568,97 +1668,4 @@ func (h *Handler) DeleteWorkflowNodeDeliverable(w http.ResponseWriter, r *http.R
 	}
 
 	w.WriteHeader(http.StatusNoContent)
-}
-
-// ── Role request/response types ──────────────────────────────────────────────
-
-type CreateRoleRequest struct {
-	Name        string `json:"name"`
-	Description string `json:"description"`
-}
-
-type UpdateRoleRequest struct {
-	Name        *string `json:"name"`
-	Description *string `json:"description"`
-}
-
-type WorkflowRoleResponse struct {
-	ID          string `json:"id"`
-	WorkspaceID string `json:"workspace_id"`
-	Name        string `json:"name"`
-	Description string `json:"description"`
-	CreatedAt   string `json:"created_at"`
-	UpdatedAt   string `json:"updated_at"`
-}
-
-func workflowRoleToResponse(r db.MulticaWorkflowRole) WorkflowRoleResponse {
-	return WorkflowRoleResponse{
-		ID:          uuidToString(r.ID),
-		WorkspaceID: uuidToString(r.WorkspaceID),
-		Name:        r.Name,
-		Description: r.Description,
-		CreatedAt:   timestampToString(r.CreatedAt),
-		UpdatedAt:   timestampToString(r.UpdatedAt),
-	}
-}
-
-// ── Role handlers ────────────────────────────────────────────────────────────
-
-// ListWorkflowRoles GET /api/workflow-roles
-func (h *Handler) ListWorkflowRoles(w http.ResponseWriter, r *http.Request) {
-	wsID := h.resolveWorkspaceID(r)
-	if wsID == "" {
-		writeError(w, http.StatusBadRequest, "workspace_id is required")
-		return
-	}
-	wsUUID, ok := parseUUIDOrBadRequest(w, wsID, "workspace_id")
-	if !ok {
-		return
-	}
-
-	roles, err := h.Queries.ListWorkflowRoles(r.Context(), wsUUID)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to list roles")
-		return
-	}
-
-	resp := make([]WorkflowRoleResponse, 0, len(roles))
-	for _, role := range roles {
-		resp = append(resp, workflowRoleToResponse(role))
-	}
-	writeJSON(w, http.StatusOK, map[string]any{"roles": resp})
-}
-
-// CreateWorkflowRole POST /api/workflow-roles
-func (h *Handler) CreateWorkflowRole(w http.ResponseWriter, r *http.Request) {
-	wsID := h.resolveWorkspaceID(r)
-	if wsID == "" {
-		writeError(w, http.StatusBadRequest, "workspace_id is required")
-		return
-	}
-	wsUUID, ok := parseUUIDOrBadRequest(w, wsID, "workspace_id")
-	if !ok {
-		return
-	}
-
-	var req CreateRoleRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
-		return
-	}
-	if req.Name == "" {
-		writeError(w, http.StatusBadRequest, "name is required")
-		return
-	}
-
-	role, err := h.Queries.CreateWorkflowRole(r.Context(), db.CreateWorkflowRoleParams{
-		WorkspaceID: wsUUID,
-		Name:        req.Name,
-		Description: req.Description,
-	})
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to create role")
-		return
-	}
-	writeJSON(w, http.StatusCreated, workflowRoleToResponse(role))
 }

@@ -35,7 +35,6 @@ UPDATE multica_workflow SET
     description = COALESCE(sqlc.narg('description'), description),
     status = COALESCE(sqlc.narg('status'), status),
     max_retries = COALESCE(sqlc.narg('max_retries')::int, max_retries),
-    custom_roles = COALESCE(sqlc.narg('custom_roles'), custom_roles),
     updated_at = now()
 WHERE id = $1
 RETURNING *;
@@ -59,13 +58,13 @@ WHERE id = $1;
 -- name: CreateWorkflowNode :one
 INSERT INTO multica_workflow_node (
     workflow_id, title, description, position_x, position_y,
-    format_schema, worker_type, worker_id, worker_role,
-    critic_type, critic_id, critic_api_url, critic_role,
+    format_schema, worker_type, worker_id, worker_role_id,
+    critic_type, critic_id, critic_api_url, critic_role_id,
     sort_order, stage_id
 ) VALUES (
     $1, $2, sqlc.narg('description'), $3, $4,
-    sqlc.narg('format_schema'), $5, sqlc.narg('worker_id'), sqlc.narg('worker_role'),
-    $6, sqlc.narg('critic_id'), sqlc.narg('critic_api_url'), sqlc.narg('critic_role'),
+    sqlc.narg('format_schema'), $5, sqlc.narg('worker_id'), sqlc.narg('worker_role_id'),
+    $6, sqlc.narg('critic_id'), sqlc.narg('critic_api_url'), sqlc.narg('critic_role_id'),
     $7, sqlc.narg('stage_id')
 ) RETURNING *;
 
@@ -78,29 +77,29 @@ UPDATE multica_workflow_node SET
     format_schema = COALESCE(sqlc.narg('format_schema'), format_schema),
     worker_type = COALESCE(sqlc.narg('worker_type'), worker_type),
     worker_id = CASE
-        WHEN sqlc.narg('worker_role')::text IS NOT NULL THEN NULL
+        WHEN sqlc.narg('worker_role_id')::uuid IS NOT NULL THEN NULL
         ELSE COALESCE(sqlc.narg('worker_id'), worker_id)
     END,
-    worker_role = CASE
-        WHEN sqlc.narg('worker_role')::text IS NOT NULL THEN NULLIF(sqlc.narg('worker_role')::text, '')
+    worker_role_id = CASE
+        WHEN sqlc.narg('worker_role_id')::uuid IS NOT NULL THEN sqlc.narg('worker_role_id')::uuid
         WHEN sqlc.narg('worker_id')::uuid IS NOT NULL OR sqlc.narg('worker_type')::text IS NOT NULL THEN NULL
-        ELSE worker_role
+        ELSE worker_role_id
     END,
     critic_type = COALESCE(sqlc.narg('critic_type'), critic_type),
     critic_id = CASE
-        WHEN sqlc.narg('critic_role')::text IS NOT NULL THEN NULL
+        WHEN sqlc.narg('critic_role_id')::uuid IS NOT NULL THEN NULL
         ELSE COALESCE(sqlc.narg('critic_id'), critic_id)
     END,
     critic_api_url = CASE
-        WHEN sqlc.narg('critic_role')::text IS NOT NULL THEN NULL
+        WHEN sqlc.narg('critic_role_id')::uuid IS NOT NULL THEN NULL
         ELSE COALESCE(sqlc.narg('critic_api_url'), critic_api_url)
     END,
-    critic_role = CASE
-        WHEN sqlc.narg('critic_role')::text IS NOT NULL THEN NULLIF(sqlc.narg('critic_role')::text, '')
+    critic_role_id = CASE
+        WHEN sqlc.narg('critic_role_id')::uuid IS NOT NULL THEN sqlc.narg('critic_role_id')::uuid
         WHEN sqlc.narg('critic_id')::uuid IS NOT NULL
           OR sqlc.narg('critic_type')::text IS NOT NULL
           OR sqlc.narg('critic_api_url')::text IS NOT NULL THEN NULL
-        ELSE critic_role
+        ELSE critic_role_id
     END,
     sort_order = COALESCE(sqlc.narg('sort_order')::int, sort_order),
     updated_at = now()
@@ -236,11 +235,9 @@ WHERE source_template_id = $1;
 -- name: CreateWorkflowFromTemplate :one
 INSERT INTO multica_workflow (
     workspace_id, title, description, status, max_retries,
-    created_by_type, created_by_id, is_template, source_template_id,
-    custom_roles
+    created_by_type, created_by_id, is_template, source_template_id
 ) VALUES (
-    $1, $2, sqlc.narg('description'), $3, $4, $5, $6, FALSE, $7,
-    sqlc.narg('custom_roles')
+    $1, $2, sqlc.narg('description'), $3, $4, $5, $6, FALSE, $7
 ) RETURNING *;
 
 -- =====================

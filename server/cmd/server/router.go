@@ -146,7 +146,8 @@ type RouterOptions struct {
 	// handler (member management) and the SubjectResolver (login-time dept
 	// linking). main.go constructs it once and passes it in; tests leave it
 	// nil and the router falls back to constructing one from env.
-	DeptSync *deptsync.Client
+	DeptSync               *deptsync.Client
+	WorkflowRoleResolution workflowRoleResolutionRuntime
 }
 
 func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus, analyticsClient analytics.Client, rdb *redis.Client, opts RouterOptions) chi.Router {
@@ -195,6 +196,11 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 		CloudGatewayProxyPrefix:  strings.TrimRight(strings.TrimSpace(os.Getenv("MULTICA_CLOUD_GATEWAY_PROXY_PREFIX")), "/"),
 	}
 	h := handler.New(queries, pool, hub, bus, emailSvc, store, cfSigner, analyticsClient, signupConfig, daemonHub)
+	h.WorkflowService.AutoResolveRoles = opts.WorkflowRoleResolution.AutoResolutionConfigured()
+	h.WorkflowService.RoleResolutionModel = opts.WorkflowRoleResolution.Model
+	h.WorkflowService.RoleResolutionPromptVersion = workflowRoleResolutionPromptVersion
+	h.WorkflowService.RoleResolutionWorkspaceAllowlist = opts.WorkflowRoleResolution.Allowlist
+	h.WorkflowService.RoleResolutionMaxActiveJobs = opts.WorkflowRoleResolution.MaxActiveJobs
 	if opts.DaemonWakeup != nil {
 		h.TaskService.Wakeup = opts.DaemonWakeup
 	}
@@ -429,6 +435,7 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 					r.Use(middleware.RequireWorkspaceMemberFromURL(queries, "id"))
 					r.Get("/", h.GetWorkspace)
 					r.Get("/members", h.ListMembersWithUser)
+					r.Get("/workflow-roles", h.ListWorkflowRoles)
 					r.Post("/leave", h.LeaveWorkspace)
 					r.Get("/invitations", h.ListWorkspaceInvitations)
 					// Listing GitHub installations is member-visible so the
@@ -445,6 +452,11 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 					r.Use(middleware.RequireWorkspaceRoleFromURL(queries, "id", "owner", "admin"))
 					r.Put("/", h.UpdateWorkspace)
 					r.Patch("/", h.UpdateWorkspace)
+					r.Post("/workflow-roles", h.CreateWorkflowRole)
+					r.Route("/workflow-roles/{roleId}", func(r chi.Router) {
+						r.Patch("/", h.UpdateWorkflowRole)
+						r.Delete("/", h.DeleteWorkflowRole)
+					})
 					r.Post("/dept-members", h.BatchAddDeptMembers)
 					r.Post("/members", h.CreateInvitation)
 					r.Route("/members/{memberId}", func(r chi.Router) {
@@ -581,7 +593,6 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 					r.Get("/", h.GetWorkflow)
 					r.Put("/", h.UpdateWorkflow)
 					r.Delete("/", h.DeleteWorkflow)
-					r.Post("/roles/mutate", h.MutateWorkflowRole)
 					r.Put("/template", h.ToggleWorkflowTemplate)
 					// Nodes
 					r.Get("/nodes", h.ListWorkflowNodes)
@@ -615,6 +626,9 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 					r.Get("/runs/{runId}", h.GetWorkflowRun)
 					r.Get("/runs/{runId}/canvas-summary", h.GetWorkflowRunCanvasSummary)
 					r.Get("/runs/{runId}/node-runs", h.ListWorkflowNodeRuns)
+					r.Get("/runs/{runId}/role-resolutions", h.ListWorkflowRoleResolutions)
+					r.Put("/runs/{runId}/role-resolutions", h.AssignWorkflowRoleResolutions)
+					r.Post("/runs/{runId}/role-resolutions/retry", h.RetryWorkflowRoleResolutions)
 					r.Post("/runs/{runId}/cancel", h.CancelWorkflowRun)
 				})
 			})

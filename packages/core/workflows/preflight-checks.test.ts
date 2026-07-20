@@ -23,8 +23,10 @@ function makeNode(overrides: Partial<WorkflowNode> & { id: string }): WorkflowNo
     format_schema: null,
     worker_type: "agent",
     worker_id: "agent-1",
+    worker_role_id: null,
     critic_type: "human",
     critic_id: null,
+    critic_role_id: null,
     critic_api_url: null,
     sort_order: 0,
     stage_id: "stage-1",
@@ -245,7 +247,7 @@ describe("checkWorkerMissing", () => {
 // ── checkRolePlaceholders ──
 
 describe("checkRolePlaceholders", () => {
-  it("blocks worker and critic placeholders until concrete assignees are selected", () => {
+  it("reports worker and critic roles without blocking startup", () => {
     const nodes = [
       makeNode({
         id: "a",
@@ -258,10 +260,10 @@ describe("checkRolePlaceholders", () => {
     const issues = checkRolePlaceholders(nodes);
 
     expect(issues).toHaveLength(2);
-    expect(issues.every((issue) => issue.blocking)).toBe(true);
+    expect(issues.every((issue) => !issue.blocking && issue.severity === "warning")).toBe(true);
     expect(issues.map((issue) => issue.message)).toEqual([
-      'Replace worker role "developer" with a concrete assignee',
-      'Replace critic role "qa" with a concrete assignee',
+      'Worker role "developer" will be resolved when the run starts',
+      'Critic role "qa" will be resolved when the run starts',
     ]);
   });
 

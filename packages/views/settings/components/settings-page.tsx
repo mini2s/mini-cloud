@@ -14,6 +14,7 @@ import {
   // Plug,
   Workflow,
   GitBranch,
+  UserRoundCog,
 } from "lucide-react";
 import { GitHubMark } from "./github-mark";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@multica/ui/components/ui/tabs";
@@ -31,6 +32,7 @@ import { GitlabTab } from "./gitlab-tab";
 // import { LabsTab } from "./labs-tab";
 import { NotificationsTab } from "./notifications-tab";
 import { WorkflowAdminsTab } from "./workflow-admins-tab";
+import { WorkflowRolesTab } from "./workflow-roles-tab";
 import { useWorkflowAdmins } from "@multica/core/workflows/queries";
 import { useAuthStore } from "@multica/core/auth";
 import { useT } from "../../i18n";
@@ -46,6 +48,7 @@ const ACCOUNT_TAB_ICONS = {
 
 const WORKSPACE_TAB_KEYS = [
   "general",
+  "roles",
   "repositories",
   "github",
   "gitlab",
@@ -55,6 +58,7 @@ const WORKSPACE_TAB_KEYS = [
 ] as const;
 const WORKSPACE_TAB_VALUES = {
   general: "workspace",
+  roles: "roles",
   repositories: "repositories",
   github: "github",
   gitlab: "gitlab",
@@ -64,6 +68,7 @@ const WORKSPACE_TAB_VALUES = {
 } as const;
 const WORKSPACE_TAB_ICONS = {
   general: Settings,
+  roles: UserRoundCog,
   repositories: FolderGit2,
   github: GitHubMark,
   gitlab: GitBranch,
@@ -190,6 +195,7 @@ export function SettingsPage({ extraAccountTabs }: SettingsPageProps = {}) {
           <TabsContent value="tokens"><TokensTab /></TabsContent>
           {isWorkflowAdmin && <TabsContent value="workflow-admins"><WorkflowAdminsTab /></TabsContent>}
           <TabsContent value="workspace"><WorkspaceTab /></TabsContent>
+          <TabsContent value="roles"><WorkflowRolesTab /></TabsContent>
           <TabsContent value="repositories"><RepositoriesTab /></TabsContent>
           <TabsContent value="github"><GitHubTab /></TabsContent>
           <TabsContent value="gitlab"><GitlabTab /></TabsContent>

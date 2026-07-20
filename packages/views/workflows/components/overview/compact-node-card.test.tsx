@@ -5,6 +5,18 @@ import { CompactNodeCard } from "./compact-node-card";
 import type { WorkflowNode } from "@multica/core/types";
 import type { BuiltinPlugin } from "@multica/core/api/schemas";
 
+vi.mock("@multica/core/hooks", () => ({
+  useWorkspaceId: () => "ws-1",
+}));
+
+vi.mock("@tanstack/react-query", () => ({
+  useQuery: () => ({ data: [] as Array<{ id: string; name: string; is_builtin: boolean }> }),
+}));
+
+vi.mock("@multica/core/workflows/queries", () => ({
+  workflowRolesOptions: () => ({ queryKey: ["roles"] }),
+}));
+
 vi.mock("../../../i18n", () => ({
   useT: () => ({
     t: (key: unknown) => {
@@ -14,11 +26,17 @@ vi.mock("../../../i18n", () => ({
             worker_type_human: "Human",
             worker_type_agent: "Agent",
             worker_type_squad: "Squad",
+            role_placeholder_label: "Role",
           },
           overview: {
             detail_panel: {
               not_configured: "Not configured",
             },
+          },
+          builtin_roles: {
+            developer: { name: "Developer" },
+            qa: { name: "QA" },
+            tech_lead: { name: "Tech Lead" },
           },
         };
         return key(resources);

@@ -6,6 +6,18 @@ import { STAGE_BG_COLORS } from "./constants";
 import type { WorkflowStage, WorkflowNode, Agent } from "@multica/core/types";
 import type { BuiltinPlugin } from "@multica/core/api/schemas";
 
+vi.mock("@multica/core/hooks", () => ({
+  useWorkspaceId: () => "ws-1",
+}));
+
+vi.mock("@tanstack/react-query", () => ({
+  useQuery: () => ({ data: [] as Array<{ id: string; name: string; is_builtin: boolean }> }),
+}));
+
+vi.mock("@multica/core/workflows/queries", () => ({
+  workflowRolesOptions: () => ({ queryKey: ["roles"] }),
+}));
+
 const MOCK_STAGE: WorkflowStage = {
   id: "stage-1",
   workflow_id: "wf-1",
