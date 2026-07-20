@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { usePathname } from "next/navigation";
-import { ChevronRight } from "lucide-react";
+import { ChevronRight, LogOut } from "lucide-react";
 import { AppLink } from "@multica/views/navigation";
 import { useCurrentWorkspace } from "@multica/core/paths";
 import { useAuthStore } from "@multica/core/auth";
@@ -78,16 +78,15 @@ function GroupBlock({
     <Collapsible
       open={open}
       onOpenChange={setOpen}
-      className="group/collapsible"
     >
       <SidebarGroup>
         <SidebarGroupLabel
           render={
-            <CollapsibleTrigger className="flex w-full items-center justify-between" />
+            <CollapsibleTrigger className="group/trigger flex w-full items-center justify-between" />
           }
         >
           <span>{group.labelZh}</span>
-          <ChevronRight className="size-3 transition-transform group-data-[panel-open]/collapsible:rotate-90" />
+          <ChevronRight className="size-3 transition-transform group-data-[panel-open]/trigger:rotate-90" />
         </SidebarGroupLabel>
         <CollapsibleContent>
           <SidebarGroupContent>
@@ -167,9 +166,9 @@ export function AdminSidebar() {
                 initials={initialsFor(user?.name)}
                 avatarUrl={user?.avatar_url}
                 size={16}
-                className="!size-4"
               />
               <span>{user?.name ?? "…"}</span>
+              <LogOut className="ml-auto size-4" />
             </SidebarMenuButton>
           </SidebarMenuItem>
         </SidebarMenu>
