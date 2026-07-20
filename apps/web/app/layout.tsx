@@ -5,6 +5,7 @@ import { ThemeProvider } from "@/components/theme-provider";
 import { Toaster } from "@multica/ui/components/ui/sonner";
 import { cn } from "@multica/ui/lib/utils";
 import { WebProviders } from "@/components/web-providers";
+import { CostrictEmbedSync } from "@/components/costrict-embed-sync";
 import {
   DEFAULT_LOCALE,
   SUPPORTED_LOCALES,
@@ -143,6 +144,7 @@ export default async function RootLayout({
             {children}
           </WebProviders>
           <Toaster />
+          <CostrictEmbedSync />
         </ThemeProvider>
       </body>
     </html>

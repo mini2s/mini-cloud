@@ -239,6 +239,7 @@ type TaskAgentData struct {
 	Name          string                   `json:"name"`
 	Instructions  string                   `json:"instructions"`
 	Skills        []service.AgentSkillData `json:"skills,omitempty"`
+	CloudSkills   []AgentCloudSkillData    `json:"cloud_skills,omitempty"`
 	CustomEnv     map[string]string        `json:"custom_env,omitempty"`
 	CustomArgs    []string                 `json:"custom_args,omitempty"`
 	McpConfig     json.RawMessage          `json:"mcp_config,omitempty"`

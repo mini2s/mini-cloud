@@ -4,7 +4,13 @@ import type {
   AgentTemplate,
   AgentTemplateSummary,
   Attachment,
+  CatalogSkill,
+  CatalogSkillListResponse,
+  AgentCloudSkill,
   CreateAgentFromTemplateResponse,
+  BatchAddDeptMembersResponse,
+  DeptDepartment,
+  DeptUser,
   GroupedIssuesResponse,
   ListIssuesResponse,
   ListWebhookDeliveriesResponse,
@@ -301,6 +307,163 @@ export const EMPTY_SPLIT_CHAT_RESPONSE: SplitChatResponse = {
   ...EMPTY_SPLIT_TASKS_RESPONSE,
   chat_session_id: "",
   task_id: "",
+};
+
+export const DeptDepartmentSchema = z.object({
+  dept_id: z.string(),
+  dept_name: z.string(),
+  dept_path: z.string().nullable().optional(),
+  parent_dept_id: z.string().nullable().optional(),
+  dept_level: z.number().optional(),
+  child_dept_count: z.number().optional(),
+}).loose();
+
+export const DeptDepartmentListSchema = z.array(DeptDepartmentSchema);
+
+export const EMPTY_DEPT_DEPARTMENT_LIST: DeptDepartment[] = [];
+
+export const DeptUserSchema = z.object({
+  user_id: z.string(),
+  username: z.string(),
+  universal_id: z.string().nullable().optional(),
+  dept_id: z.string().nullable().optional(),
+  dept_name: z.string().nullable().optional(),
+  dept_path: z.string().nullable().optional(),
+  is_main: z.number().optional(),
+  position: z.string().nullable().optional(),
+  status: z.number().optional(),
+}).loose();
+
+export const DeptUserListSchema = z.array(DeptUserSchema);
+
+export const EMPTY_DEPT_USER_LIST: DeptUser[] = [];
+
+export const BatchAddDeptMembersResponseSchema = z.object({
+  added: z.number().default(0),
+  skipped: z.number().default(0),
+}).loose();
+
+export const EMPTY_BATCH_ADD_DEPT_MEMBERS_RESPONSE: BatchAddDeptMembersResponse = {
+  added: 0,
+  skipped: 0,
+};
+  total: z.number().default(0),
+  created: z.number().default(0),
+  running: z.number().default(0),
+  done: z.number().default(0),
+  failed: z.number().default(0),
+  cancelled: z.number().default(0),
+  skipped: z.number().default(0),
+}).loose();
+
+export const EMPTY_SPLIT_PROGRESS: SplitProgress = {
+  total: 0,
+  created: 0,
+  running: 0,
+  done: 0,
+  failed: 0,
+  cancelled: 0,
+  skipped: 0,
+};
+
+export const SplitTaskSchema = z.object({
+  id: z.string(),
+  node_run_id: z.string(),
+  title: z.string().default(""),
+  description: z.string().default(""),
+  workflow_id: z.string().default(""),
+  depends_on: z.array(z.string()).default([]),
+  sort_order: z.number().default(0),
+  status: z.string().default("draft"),
+  issue_id: z.string().nullable().default(null),
+  run_id: z.string().nullable().default(null),
+  version: z.number().default(1),
+  draft_key: z.string().nullable().default(null),
+  draft_source: z.enum(["agent", "chat", "recovered"]).catch("agent"),
+  last_error: z.object({
+    code: z.string().default(""),
+    message: z.string().default(""),
+    child_issue_id: z.string().nullable().default(null),
+    workflow_run_id: z.string().nullable().default(null),
+    node_run_id: z.string().nullable().default(null),
+    occurred_at: z.string().default(""),
+  }).nullable().default(null),
+  created_at: z.string().default(""),
+  updated_at: z.string().default(""),
+}).loose();
+
+export const SplitTasksResponseSchema = z.object({
+  tasks: z.array(SplitTaskSchema).default([]),
+  progress: SplitProgressSchema.default(EMPTY_SPLIT_PROGRESS as any),
+  chat_session_id: z.string().optional(),
+  task_id: z.string().optional(),
+}).loose();
+
+export const EMPTY_SPLIT_TASKS_RESPONSE: SplitTasksResponse = {
+  tasks: [],
+  progress: EMPTY_SPLIT_PROGRESS,
+};
+
+export const SplitChatResponseSchema = z.union([
+  SplitTasksResponseSchema.extend({
+    chat_session_id: z.string().default(""),
+    task_id: z.string().default(""),
+  }).loose(),
+  z.object({
+    chat_session_id: z.string().default(""),
+    task_id: z.string().default(""),
+    tasks: SplitTasksResponseSchema.default(EMPTY_SPLIT_TASKS_RESPONSE as any),
+  }).loose().transform((value) => ({
+    ...value.tasks,
+    chat_session_id: value.chat_session_id,
+    task_id: value.task_id,
+  })),
+]);
+
+export const EMPTY_SPLIT_CHAT_RESPONSE: SplitChatResponse = {
+  ...EMPTY_SPLIT_TASKS_RESPONSE,
+  chat_session_id: "",
+  task_id: "",
+};
+
+=======
+export const DeptDepartmentSchema = z.object({
+  dept_id: z.string(),
+  dept_name: z.string(),
+  dept_path: z.string().nullable().optional(),
+  parent_dept_id: z.string().nullable().optional(),
+  dept_level: z.number().optional(),
+  child_dept_count: z.number().optional(),
+}).loose();
+
+export const DeptDepartmentListSchema = z.array(DeptDepartmentSchema);
+
+export const EMPTY_DEPT_DEPARTMENT_LIST: DeptDepartment[] = [];
+
+export const DeptUserSchema = z.object({
+  user_id: z.string(),
+  username: z.string(),
+  universal_id: z.string().nullable().optional(),
+  dept_id: z.string().nullable().optional(),
+  dept_name: z.string().nullable().optional(),
+  dept_path: z.string().nullable().optional(),
+  is_main: z.number().optional(),
+  position: z.string().nullable().optional(),
+  status: z.number().optional(),
+}).loose();
+
+export const DeptUserListSchema = z.array(DeptUserSchema);
+
+export const EMPTY_DEPT_USER_LIST: DeptUser[] = [];
+
+export const BatchAddDeptMembersResponseSchema = z.object({
+  added: z.number().default(0),
+  skipped: z.number().default(0),
+}).loose();
+
+export const EMPTY_BATCH_ADD_DEPT_MEMBERS_RESPONSE: BatchAddDeptMembersResponse = {
+  added: 0,
+  skipped: 0,
 };
 
 export const CloudRuntimeNodeSchema = z.object({
@@ -1066,8 +1229,18 @@ const PluginBundleSchema = z.object({
   skills_namespaces: z.array(z.string()).default([]),
 }).loose();
 
+const PluginInstallSchema = z.object({
+  method: z.string().optional(),
+  marketplace: z.string().optional(),
+  plugin_name: z.string().optional(),
+  marketplace_name: z.string().optional(),
+  marketplace_repo: z.string().optional(),
+  marketplace_verified: z.boolean().optional(),
+}).loose();
+
 const PluginMetadataSchema = z.object({
   bundle: PluginBundleSchema.optional(),
+  install: PluginInstallSchema.optional(),
 }).loose();
 
 export const BuiltinPluginSchema = z.object({
@@ -1077,6 +1250,8 @@ export const BuiltinPluginSchema = z.object({
   slug: z.string(),
   version: z.string(),
   category: z.string(),
+  content: z.string().optional(),
+  item_type: z.string().optional(),
   metadata: PluginMetadataSchema.optional(),
 }).loose();
 
@@ -1090,6 +1265,15 @@ export const BuiltinPluginListResponseSchema = z.object({
   hasMore: z.boolean(),
 });
 
+export const EMPTY_BUILTIN_PLUGIN: BuiltinPlugin = {
+  id: "",
+  name: "",
+  description: "",
+  slug: "",
+  version: "",
+  category: "",
+};
+
 /** Empty list returned when the external API is unreachable or malformed. */
 export const EMPTY_BUILTIN_PLUGIN_LIST: BuiltinPluginListResponse = {
   items: [],
@@ -1100,6 +1284,82 @@ export const EMPTY_BUILTIN_PLUGIN_LIST: BuiltinPluginListResponse = {
 };
 
 export type BuiltinPluginListResponse = z.infer<typeof BuiltinPluginListResponseSchema>;
+
+// ---------------------------------------------------------------------------
+// Cloud skill catalog (public `/api/catalog/skills`) + per-agent cloud skill
+// bindings (`/api/agents/{id}/cloud-skills`). Same leniency rules as the
+// builtin plugin block above: strings default to "", arrays default to [],
+// unknown fields pass through via `.loose()`.
+// ---------------------------------------------------------------------------
+
+/** Allowlisted install metadata for a catalog skill. The backend only ever
+ *  persists these keys, but the schema stays `.loose()` so a future field
+ *  doesn't silently break parsing. */
+export const CatalogSkillInstallSchema = z.object({
+  method: z.string().optional(),
+  spec: z.string().optional(),
+  skill_id: z.string().optional(),
+  source_url: z.string().optional(),
+  verified: z.boolean().optional(),
+}).loose();
+
+export const CatalogSkillSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  description: z.string().default(""),
+  slug: z.string().default(""),
+  version: z.string().default(""),
+  category: z.string().default(""),
+  itemType: z.string().optional(),
+  item_type: z.string().optional(),
+  repoVisibility: z.string().optional(),
+  metadata: z.object({
+    install: CatalogSkillInstallSchema.optional(),
+  }).loose().optional(),
+}).loose();
+
+export const CatalogSkillListResponseSchema = z.object({
+  items: z.array(CatalogSkillSchema).default([]),
+  total: z.number().int().nonnegative().default(0),
+  page: z.number().int().positive().default(1),
+  pageSize: z.number().int().positive().default(100),
+  hasMore: z.boolean().default(false),
+}).loose();
+
+export const AgentCloudSkillSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  description: z.string().default(""),
+  slug: z.string().optional(),
+  install: z.record(z.string(), z.unknown()).optional(),
+  position: z.number().int().default(0),
+}).loose();
+
+export const AgentCloudSkillListSchema = z.array(AgentCloudSkillSchema);
+
+/** Empty catalog skill detail returned when the proxy is unavailable or the
+ *  response drifts. */
+export const EMPTY_CATALOG_SKILL: CatalogSkill = {
+  id: "",
+  name: "",
+  description: "",
+  slug: "",
+  version: "",
+  category: "",
+};
+
+/** Empty list returned when the catalog proxy fails open to an empty list or
+ *  returns a malformed envelope. */
+export const EMPTY_CATALOG_SKILL_LIST: CatalogSkillListResponse = {
+  items: [],
+  total: 0,
+  page: 1,
+  pageSize: 100,
+  hasMore: false,
+};
+
+/** Empty binding list returned when the agent cloud-skills response drifts. */
+export const EMPTY_AGENT_CLOUD_SKILLS: AgentCloudSkill[] = [];
 
 // ---------------------------------------------------------------------------
 // GitLab merge request schemas — lenient by the same rules as the rest of

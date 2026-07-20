@@ -11,7 +11,8 @@
     "runtimes": "运行时",
     "skills": "Skill",
     "workflows": "工作流",
-    "settings": "设置"
+    "settings": "设置",
+    "members": "成员"
   },
   "help": {
     "trigger": "帮助",
@@ -37,6 +38,7 @@
     "pinned_label": "固定",
     "workspace_group": "工作区",
     "configure_group": "配置",
+    "unread_count_other": "{{count}} 条未读通知",
     "unread_overflow": "99+"
   }
 }

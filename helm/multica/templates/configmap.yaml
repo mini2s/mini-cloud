@@ -91,3 +91,45 @@ data:
   {{- if .Values.backend.config.multicaDevVerificationCode }}
   MULTICA_DEV_VERIFICATION_CODE: {{ .Values.backend.config.multicaDevVerificationCode | quote }}
   {{- end }}
+  {{- if .Values.backend.config.casdoorEndpoint }}
+  CASDOOR_ENDPOINT: {{ .Values.backend.config.casdoorEndpoint | quote }}
+  {{- end }}
+  {{- if .Values.backend.config.casdoorPublicEndpoint }}
+  CASDOOR_PUBLIC_ENDPOINT: {{ .Values.backend.config.casdoorPublicEndpoint | quote }}
+  {{- end }}
+  {{- if .Values.backend.config.casdoorRedirectUri }}
+  CASDOOR_REDIRECT_URI: {{ .Values.backend.config.casdoorRedirectUri | quote }}
+  {{- end }}
+  {{- if .Values.backend.config.casdoorOrgName }}
+  CASDOOR_ORG_NAME: {{ .Values.backend.config.casdoorOrgName | quote }}
+  {{- end }}
+  {{- if .Values.backend.config.casdoorAppName }}
+  CASDOOR_APP_NAME: {{ .Values.backend.config.casdoorAppName | quote }}
+  {{- end }}
+  {{- if .Values.backend.config.casdoorClientId }}
+  CASDOOR_CLIENT_ID: {{ .Values.backend.config.casdoorClientId | quote }}
+  {{- end }}
+  {{- if .Values.backend.config.casdoorLoginUrl }}
+  NEXT_PUBLIC_CASDOOR_LOGIN_URL: {{ .Values.backend.config.casdoorLoginUrl | quote }}
+  {{- end }}
+  {{- if .Values.backend.config.deptSyncBaseUrl }}
+  DEPT_SYNC_BASE_URL: {{ .Values.backend.config.deptSyncBaseUrl | quote }}
+  {{- end }}
+  {{- if .Values.backend.config.deptSyncTimeout }}
+  DEPT_SYNC_TIMEOUT: {{ .Values.backend.config.deptSyncTimeout | quote }}
+  {{- end }}
+  {{- if .Values.backend.config.deptSyncCacheTtl }}
+  DEPT_SYNC_CACHE_TTL: {{ .Values.backend.config.deptSyncCacheTtl | quote }}
+  {{- end }}
+  {{- if .Values.backend.config.deptLinkTimeout }}
+  DEPT_LINK_TIMEOUT: {{ .Values.backend.config.deptLinkTimeout | quote }}
+  {{- end }}
+  {{- if .Values.backend.config.deptLinkInterval }}
+  DEPT_LINK_INTERVAL: {{ .Values.backend.config.deptLinkInterval | quote }}
+  {{- end }}
+  {{- if .Values.backend.config.cscPluginMarketplaceName }}
+  CSC_PLUGIN_MARKETPLACE_NAME: {{ .Values.backend.config.cscPluginMarketplaceName | quote }}
+  {{- end }}
+  {{- if .Values.backend.config.cscPluginMarketplaceRepo }}
+  CSC_PLUGIN_MARKETPLACE_REPO: {{ .Values.backend.config.cscPluginMarketplaceRepo | quote }}
+  {{- end }}

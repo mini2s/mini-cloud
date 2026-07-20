@@ -1,7 +1,8 @@
 {
   "page": {
     "title": "收件箱",
-    "back": "收件箱"
+    "back": "收件箱",
+    "unread_count_other": "{{count}} 条未读"
   },
   "menu": {
     "mark_all_read": "全部标为已读",
@@ -18,7 +19,8 @@
       "minutes": "{{count}} 分钟",
       "hours": "{{count}} 小时",
       "days": "{{count}} 天"
-    }
+    },
+    "divider_new": "新"
   },
   "detail": {
     "select_prompt": "选择一条通知查看详情",
@@ -26,6 +28,10 @@
     "original_input": "原始输入",
     "edit_advanced": "在完整表单中编辑",
     "archive": "归档"
+  },
+  "toast": {
+    "new_notification": "新通知",
+    "view": "查看"
   },
   "types": {
     "issue_assigned": "已分配",

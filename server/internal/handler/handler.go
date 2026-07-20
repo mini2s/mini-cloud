@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/netip"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -19,6 +20,7 @@ import (
 	"github.com/multica-ai/multica/server/internal/auth"
 	"github.com/multica-ai/multica/server/internal/cloudruntime"
 	"github.com/multica-ai/multica/server/internal/daemonws"
+	"github.com/multica-ai/multica/server/internal/deptsync"
 	"github.com/multica-ai/multica/server/internal/events"
 	"github.com/multica-ai/multica/server/internal/middleware"
 	"github.com/multica-ai/multica/server/internal/realtime"
@@ -88,17 +90,36 @@ type Config struct {
 	CasdoorRedirectURI    string
 	CasdoorOrgName        string
 	CasdoorAppName        string
-	// BuiltinPluginAPIBaseURL is the base URL of the built-in plugin catalog API.
-	// When non-empty and an agent has a plugin_id set, the server fetches the
-	// plugin's content from this API and appends it to the agent's instructions
-	// in the CLAUDE.md generated for each task. The content is injected under
-	// the ## Agent Identity section.
+	// BuiltinPluginAPIBaseURL is the base URL of the shared cloud capability
+	// catalog API used for public plugin and skill catalog reads.
+	// When non-empty and an agent has a plugin_id set, the server also fetches
+	// the plugin's content from this API and appends it to the agent's generated
+	// task instructions under the ## Agent Identity section.
 	BuiltinPluginAPIBaseURL string
+	// CSCPluginMarketplaceName / CSCPluginMarketplaceRepo identify the plugin
+	// marketplace the daemon must register against when installing a CSC
+	// agent's bound plugin. Delivered to the daemon via the task-claim
+	// response (agent.plugin.install). No default here — empty means "not
+	// configured"; the daemon falls back to its own github default when the
+	// delivered value is empty.
+	CSCPluginMarketplaceName string
+	CSCPluginMarketplaceRepo string
+	// CloudGatewayProxyPrefix is used to build the frontend-facing Gateway proxy URL
+	// for issue conversation event streams. Defaults to "/cloud-api/cloud/device/%s/proxy".
+	CloudGatewayProxyPrefix string
 }
 
 type cloudRuntimeProxy interface {
 	Enabled() bool
 	Do(ctx context.Context, req cloudruntime.Request) (*cloudruntime.Response, error)
+}
+
+type workspaceDeptClient interface {
+	Configured() bool
+	SearchDepartments(ctx context.Context, query string, limit int) ([]deptsync.Department, error)
+	ListDepartmentUsers(ctx context.Context, deptID string, includeChildren bool) ([]deptsync.User, error)
+	SearchUsers(ctx context.Context, query string, limit int) ([]deptsync.User, error)
+	GetUserDepartmentsByUniversalID(ctx context.Context, universalID string) ([]deptsync.User, error)
 }
 
 type Handler struct {
@@ -128,6 +149,7 @@ type Handler struct {
 	WebhookRateLimiter    WebhookRateLimiter
 	WebhookIPRateLimiter  WebhookRateLimiter
 	CloudRuntime          cloudRuntimeProxy
+	DeptSync              workspaceDeptClient
 	cfg                   Config
 }
 
@@ -195,6 +217,10 @@ func New(queries *db.Queries, txStarter txStarter, hub *realtime.Hub, bus *event
 		}),
 		cfg: cfg,
 	}
+
+	// Server-side task push to cs-cloud devices uses the same outbound
+	// gateway client as issue-conversation proxy calls.
+	taskSvc.CSCloudPush = h.CloudRuntime
 
 	// Wire workflow issue-sync callbacks so sub-issue status stays in sync
 	// with node-run state transitions, and the parent issue auto-completes
@@ -494,6 +520,10 @@ func countOwners(members []db.MulticaMember) int {
 	return owners
 }
 
+func isActiveMember(member db.MulticaMember) bool {
+	return member.Status == "active"
+}
+
 func (h *Handler) getWorkspaceMember(ctx context.Context, userID, workspaceID string) (db.MulticaMember, error) {
 	userUUID, err := util.ParseUUID(userID)
 	if err != nil {
@@ -507,6 +537,17 @@ func (h *Handler) getWorkspaceMember(ctx context.Context, userID, workspaceID st
 		UserID:      userUUID,
 		WorkspaceID: wsUUID,
 	})
+}
+
+func (h *Handler) getActiveWorkspaceMember(ctx context.Context, userID, workspaceID string) (db.MulticaMember, error) {
+	member, err := h.getWorkspaceMember(ctx, userID, workspaceID)
+	if err != nil {
+		return db.MulticaMember{}, err
+	}
+	if !isActiveMember(member) {
+		return db.MulticaMember{}, pgx.ErrNoRows
+	}
+	return member, nil
 }
 
 func (h *Handler) requireWorkspaceMember(w http.ResponseWriter, r *http.Request, workspaceID, notFoundMsg string) (db.MulticaMember, bool) {
@@ -565,6 +606,14 @@ func (h *Handler) isWorkspaceEntity(ctx context.Context, userType, userID, works
 	default:
 		return false
 	}
+}
+
+func (h *Handler) isActiveWorkspaceEntity(ctx context.Context, userType, userID, workspaceID string) bool {
+	if userType != "member" {
+		return h.isWorkspaceEntity(ctx, userType, userID, workspaceID)
+	}
+	_, err := h.getActiveWorkspaceMember(ctx, userID, workspaceID)
+	return err == nil
 }
 
 func (h *Handler) loadIssueForUser(w http.ResponseWriter, r *http.Request, issueID string) (db.MulticaIssue, bool) {
@@ -748,4 +797,18 @@ func (h *Handler) loadInboxItemForUser(w http.ResponseWriter, r *http.Request, i
 		return db.MulticaInboxItem{}, false
 	}
 	return item, true
+}
+
+const defaultGatewayProxyPrefix = "/cloud-api/cloud/device/%s/proxy"
+
+func gatewayProxyPrefix(cfg Config, deviceID string) string {
+	p := cfg.CloudGatewayProxyPrefix
+	if p == "" {
+		p = defaultGatewayProxyPrefix
+	}
+	if strings.Count(p, "%s") != 1 {
+		slog.Warn("invalid CloudGatewayProxyPrefix, must contain exactly one %s; using default", "configured", p)
+		p = defaultGatewayProxyPrefix
+	}
+	return strings.Replace(p, "%s", deviceID, 1)
 }

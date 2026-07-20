@@ -26,6 +26,7 @@ type ProjectResponse struct {
 	Priority    string  `json:"priority"`
 	LeadType    *string `json:"lead_type"`
 	LeadID      *string `json:"lead_id"`
+	LocalDirectory *string `json:"local_directory"`
 	CreatedAt   string  `json:"created_at"`
 	UpdatedAt   string  `json:"updated_at"`
 	IssueCount  int64   `json:"issue_count"`
@@ -39,17 +40,18 @@ type ProjectResponse struct {
 
 func projectToResponse(p db.MulticaProject) ProjectResponse {
 	return ProjectResponse{
-		ID:          uuidToString(p.ID),
-		WorkspaceID: uuidToString(p.WorkspaceID),
-		Title:       p.Title,
-		Description: textToPtr(p.Description),
-		Icon:        textToPtr(p.Icon),
-		Status:      p.Status,
-		Priority:    p.Priority,
-		LeadType:    textToPtr(p.LeadType),
-		LeadID:      uuidToPtr(p.LeadID),
-		CreatedAt:   timestampToString(p.CreatedAt),
-		UpdatedAt:   timestampToString(p.UpdatedAt),
+		ID:             uuidToString(p.ID),
+		WorkspaceID:    uuidToString(p.WorkspaceID),
+		Title:          p.Title,
+		Description:    textToPtr(p.Description),
+		Icon:           textToPtr(p.Icon),
+		Status:         p.Status,
+		Priority:       p.Priority,
+		LeadType:       textToPtr(p.LeadType),
+		LeadID:         uuidToPtr(p.LeadID),
+		LocalDirectory: textToPtr(p.LocalDirectory),
+		CreatedAt:      timestampToString(p.CreatedAt),
+		UpdatedAt:      timestampToString(p.UpdatedAt),
 	}
 }
 
@@ -67,6 +69,43 @@ func (h *Handler) loadProjectResourceCount(ctx context.Context, projectID pgtype
 		return 0
 	}
 	return rows[0].ResourceCount
+}
+
+func (h *Handler) validateProjectLeadPair(ctx context.Context, workspaceID pgtype.UUID, leadType pgtype.Text, leadID pgtype.UUID) (int, string) {
+	if !leadType.Valid && !leadID.Valid {
+		return 0, ""
+	}
+	if leadType.Valid != leadID.Valid {
+		return http.StatusBadRequest, "lead_type and lead_id must be provided together"
+	}
+	switch leadType.String {
+	case "member":
+		member, err := h.Queries.GetMemberByUserAndWorkspace(ctx, db.GetMemberByUserAndWorkspaceParams{
+			UserID:      leadID,
+			WorkspaceID: workspaceID,
+		})
+		if err != nil {
+			return http.StatusBadRequest, "lead_id does not refer to a member of this workspace"
+		}
+		if !isActiveMember(member) {
+			return http.StatusBadRequest, "cannot set an inactive workspace member as project lead"
+		}
+		return 0, ""
+	case "agent":
+		agent, err := h.Queries.GetAgentInWorkspace(ctx, db.GetAgentInWorkspaceParams{
+			ID:          leadID,
+			WorkspaceID: workspaceID,
+		})
+		if err != nil {
+			return http.StatusBadRequest, "lead_id does not refer to an agent of this workspace"
+		}
+		if agent.ArchivedAt.Valid {
+			return http.StatusBadRequest, "cannot set an archived agent as project lead"
+		}
+		return 0, ""
+	default:
+		return http.StatusBadRequest, "lead_type must be member or agent"
+	}
 }
 
 type CreateProjectRequest struct {
@@ -91,13 +130,14 @@ type CreateProjectResourceRequestPayload struct {
 }
 
 type UpdateProjectRequest struct {
-	Title       *string `json:"title"`
-	Description *string `json:"description"`
-	Icon        *string `json:"icon"`
-	Status      *string `json:"status"`
-	Priority    *string `json:"priority"`
-	LeadType    *string `json:"lead_type"`
-	LeadID      *string `json:"lead_id"`
+	Title          *string `json:"title"`
+	Description    *string `json:"description"`
+	Icon           *string `json:"icon"`
+	Status         *string `json:"status"`
+	Priority       *string `json:"priority"`
+	LeadType       *string `json:"lead_type"`
+	LeadID         *string `json:"lead_id"`
+	LocalDirectory *string `json:"local_directory"`
 }
 
 func (h *Handler) ListProjects(w http.ResponseWriter, r *http.Request) {
@@ -219,6 +259,10 @@ func (h *Handler) CreateProject(w http.ResponseWriter, r *http.Request) {
 	}
 	wsUUID, ok := parseUUIDOrBadRequest(w, workspaceID, "workspace_id")
 	if !ok {
+		return
+	}
+	if statusCode, msg := h.validateProjectLeadPair(r.Context(), wsUUID, leadType, leadID); statusCode != 0 {
+		writeError(w, statusCode, msg)
 		return
 	}
 
@@ -374,11 +418,12 @@ func (h *Handler) UpdateProject(w http.ResponseWriter, r *http.Request) {
 	json.Unmarshal(bodyBytes, &rawFields)
 
 	params := db.UpdateProjectParams{
-		ID:          prevProject.ID,
-		Description: prevProject.Description,
-		Icon:        prevProject.Icon,
-		LeadType:    prevProject.LeadType,
-		LeadID:      prevProject.LeadID,
+		ID:             prevProject.ID,
+		Description:    prevProject.Description,
+		Icon:           prevProject.Icon,
+		LeadType:       prevProject.LeadType,
+		LeadID:         prevProject.LeadID,
+		LocalDirectory: prevProject.LocalDirectory,
 	}
 	if req.Title != nil {
 		params.Title = pgtype.Text{String: *req.Title, Valid: true}
@@ -419,6 +464,24 @@ func (h *Handler) UpdateProject(w http.ResponseWriter, r *http.Request) {
 			params.LeadID = leadUUID
 		} else {
 			params.LeadID = pgtype.UUID{Valid: false}
+		}
+	}
+	if _, ok := rawFields["local_directory"]; ok {
+		if req.LocalDirectory != nil {
+			params.LocalDirectory = pgtype.Text{String: strings.TrimSpace(*req.LocalDirectory), Valid: true}
+		} else {
+			params.LocalDirectory = pgtype.Text{Valid: false}
+		}
+	}
+	if _, leadTypeTouched := rawFields["lead_type"]; leadTypeTouched {
+		if statusCode, msg := h.validateProjectLeadPair(r.Context(), wsUUID, params.LeadType, params.LeadID); statusCode != 0 {
+			writeError(w, statusCode, msg)
+			return
+		}
+	} else if _, leadIDTouched := rawFields["lead_id"]; leadIDTouched {
+		if statusCode, msg := h.validateProjectLeadPair(r.Context(), wsUUID, params.LeadType, params.LeadID); statusCode != 0 {
+			writeError(w, statusCode, msg)
+			return
 		}
 	}
 	project, err := h.Queries.UpdateProject(r.Context(), params)

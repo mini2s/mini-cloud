@@ -2288,12 +2288,14 @@ func (d *Daemon) runTask(ctx context.Context, task Task, provider string, slot i
 	agentName := "agent"
 	var agentID string
 	var skills []SkillData
+	var cloudSkills []execenv.CloudSkillInstall
 	var instructions string
 	var plugin *execenv.AgentPlugin
 	if task.Agent != nil {
 		agentID = task.Agent.ID
 		agentName = task.Agent.Name
 		skills = task.Agent.Skills
+		cloudSkills = task.Agent.CloudSkills
 		instructions = task.Agent.Instructions
 		plugin = task.Agent.Plugin
 	}
@@ -2308,6 +2310,7 @@ func (d *Daemon) runTask(ctx context.Context, task Task, provider string, slot i
 		AgentName:                           agentName,
 		AgentInstructions:                   instructions,
 		AgentSkills:                         convertSkillsForEnv(skills),
+		CloudSkills:                         cloudSkills,
 		Repos:                               convertReposForEnv(task.Repos),
 		ProjectID:                           task.ProjectID,
 		ProjectTitle:                        task.ProjectTitle,
@@ -2376,6 +2379,7 @@ func (d *Daemon) runTask(ctx context.Context, task Task, provider string, slot i
 	if env == nil {
 		var err error
 		env, err = execenv.Prepare(execenv.PrepareParams{
+			Context:        ctx,
 			WorkspacesRoot: d.cfg.WorkspacesRoot,
 			WorkspaceID:    task.WorkspaceID,
 			TaskID:         task.ID,

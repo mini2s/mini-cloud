@@ -8,6 +8,7 @@ import (
 	"os/signal"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -16,11 +17,12 @@ import (
 	"github.com/multica-ai/multica/server/internal/analytics"
 	"github.com/multica-ai/multica/server/internal/auth"
 	"github.com/multica-ai/multica/server/internal/daemonws"
+	"github.com/multica-ai/multica/server/internal/deptsync"
 	"github.com/multica-ai/multica/server/internal/events"
 	"github.com/multica-ai/multica/server/internal/handler"
 	"github.com/multica-ai/multica/server/internal/logger"
-	"github.com/multica-ai/multica/server/internal/middleware"
 	obsmetrics "github.com/multica-ai/multica/server/internal/metrics"
+	"github.com/multica-ai/multica/server/internal/middleware"
 	"github.com/multica-ai/multica/server/internal/realtime"
 	"github.com/multica-ai/multica/server/internal/service"
 	"github.com/multica-ai/multica/server/internal/util"
@@ -300,11 +302,52 @@ func main() {
 		slog.Warn("Casdoor SSO not configured — using legacy HMAC JWT auth")
 	}
 
+	// deptSyncClient is shared by the handler (member management) and the
+	// SubjectResolver (login-time dept linking), so both auth paths use one
+	// configured client.
+	deptSyncClient := deptsync.NewClient(deptsync.Config{
+		BaseURL:  strings.TrimRight(strings.TrimSpace(os.Getenv("DEPT_SYNC_BASE_URL")), "/"),
+		QueryKey: os.Getenv("DEPT_SYNC_QUERY_KEY"),
+		Timeout:  envDuration("DEPT_SYNC_TIMEOUT", 10*time.Second),
+		CacheTTL: envDuration("DEPT_SYNC_CACHE_TTL", time.Minute),
+	})
+	// The SubjectResolver fires on every authenticated request; bound the
+	// dept-link work (dept-sync call + DB writes) to once per window per user.
+	deptLinkThrottle := &linkThrottle{last: make(map[string]time.Time), ttl: envDuration("DEPT_LINK_INTERVAL", 5*time.Minute)}
+
 	// subjectResolver maps a Casdoor subject_id (the "sub" claim) to a
 	// Multica user UUID. On first encounter the user is auto-provisioned
 	// with the real name/email from the JWT claims. For existing users,
 	// the name and email are kept in sync with Casdoor.
-	subjectResolver := middleware.SubjectResolver(func(ctx context.Context, subjectID, name, email string) (string, error) {
+	subjectResolver := middleware.SubjectResolver(func(ctx context.Context, subjectID, universalID, name, email string) (userID string, err error) {
+		// After resolving the user, asynchronously bind + refresh their dept
+		// identity: activate any pending dept membership (→ the inviting
+		// workspace links to this account) and overwrite their name / org
+		// snapshot from dept-sync (→ repairs placeholder names like a Casdoor
+		// login UUID). This is the path costrict's embedded iframe actually
+		// uses (zgsmAdminToken cookie), so the linking must happen here, not
+		// only in the standalone Casdoor OAuth callback. Throttled per user so
+		// it doesn't run on every request; detached context so it survives the
+		// response being written.
+		defer func() {
+			if err != nil || userID == "" || strings.TrimSpace(universalID) == "" {
+				return
+			}
+			parsed, perr := util.ParseUUID(userID)
+			if perr != nil {
+				slog.Warn("dept link: could not parse resolved user id", "user_id", userID, "error", perr)
+				return
+			}
+			if !deptLinkThrottle.allow(universalID) {
+				return
+			}
+			uid, uni := parsed, universalID
+			go func() {
+				bgCtx, cancel := context.WithTimeout(context.Background(), envDuration("DEPT_LINK_TIMEOUT", 15*time.Second))
+				defer cancel()
+				handler.LinkDeptIdentity(bgCtx, queries, deptSyncClient, bus, uid, uni)
+			}()
+		}()
 		user, err := queries.GetUserBySubjectID(ctx, pgtype.Text{String: subjectID, Valid: true})
 		if err != nil {
 			// Auto-provision: use real name/email from JWT, fall back to placeholders.
@@ -352,6 +395,18 @@ func main() {
 								return "", setErr
 							}
 						}
+						if universalID != "" {
+							if setErr := queries.SetUserCasdoorUniversalID(ctx, db.SetUserCasdoorUniversalIDParams{
+								ID:                 existing.ID,
+								CasdoorUniversalID: pgtype.Text{String: universalID, Valid: true},
+							}); setErr != nil {
+								slog.Warn("casdoor: failed to bind universal_id to adopted user",
+									"user_id", util.UUIDToString(existing.ID),
+									"universal_id", universalID,
+									"error", setErr,
+								)
+							}
+						}
 						slog.Info("casdoor: adopted existing user by email",
 							"user_id", util.UUIDToString(existing.ID),
 							"subject_id", subjectID,
@@ -372,12 +427,42 @@ func main() {
 					"error", setErr,
 				)
 			}
+			if universalID != "" {
+				if setErr := queries.SetUserCasdoorUniversalID(ctx, db.SetUserCasdoorUniversalIDParams{
+					ID:                 user.ID,
+					CasdoorUniversalID: pgtype.Text{String: universalID, Valid: true},
+				}); setErr != nil {
+					slog.Warn("failed to bind casdoor universal_id to auto-provisioned user",
+						"user_id", util.UUIDToString(user.ID),
+						"universal_id", universalID,
+						"error", setErr,
+					)
+				}
+			}
 			slog.Info("casdoor: auto-provisioned user", "user_id", util.UUIDToString(user.ID), "subject_id", subjectID, "name", name)
 			return util.UUIDToString(user.ID), nil
 		}
+		if universalID != "" && (!user.CasdoorUniversalID.Valid || user.CasdoorUniversalID.String != universalID) {
+			if setErr := queries.SetUserCasdoorUniversalID(ctx, db.SetUserCasdoorUniversalIDParams{
+				ID:                 user.ID,
+				CasdoorUniversalID: pgtype.Text{String: universalID, Valid: true},
+			}); setErr != nil {
+				slog.Warn("failed to sync casdoor universal_id",
+					"user_id", util.UUIDToString(user.ID),
+					"subject_id", subjectID,
+					"universal_id", universalID,
+					"error", setErr,
+				)
+			}
+		}
 
-		// Existing user: sync name/email if they changed in Casdoor.
-		syncName := name != "" && user.Name != name
+		// Existing user: sync email if it changed in Casdoor. The display
+		// name is intentionally NOT synced from Casdoor here — for
+		// phone-registered accounts the Casdoor "name" is a placeholder UUID,
+		// and dept-sync is the org source of truth for names. LinkDeptIdentity
+		// (run on resolve, throttled) refreshes the name from dept-sync;
+		// syncing the Casdoor name here would overwrite that back to the UUID
+		// on every request.
 		syncEmail := email != "" && user.Email != email
 
 		// Guard against unique-key violations: if another user already owns
@@ -394,19 +479,19 @@ func main() {
 			}
 		}
 
-		if syncName || syncEmail {
+		if syncEmail {
 			if _, updErr := queries.UpdateUserNameAndEmail(ctx, db.UpdateUserNameAndEmailParams{
 				ID:    user.ID,
-				Name:  name,
+				Name:  user.Name, // keep current; dept-sync owns the name
 				Email: email,
 			}); updErr != nil {
-				slog.Warn("failed to sync user profile from Casdoor",
+				slog.Warn("failed to sync user email from Casdoor",
 					"user_id", util.UUIDToString(user.ID),
 					"subject_id", subjectID,
 					"error", updErr,
 				)
 			} else {
-				slog.Info("casdoor: synced user profile", "user_id", util.UUIDToString(user.ID), "subject_id", subjectID, "name", name, "email_synced", syncEmail)
+				slog.Info("casdoor: synced user email", "user_id", util.UUIDToString(user.ID), "subject_id", subjectID)
 			}
 		}
 		return util.UUIDToString(user.ID), nil
@@ -437,6 +522,7 @@ func main() {
 		SubjectResolver:    subjectResolver,
 		CasdoorEnabled:     casdoorEnabled,
 		SkillProxy:         skillProxy,
+		DeptSync:           deptSyncClient,
 	})
 
 	srv := &http.Server{
@@ -517,4 +603,24 @@ func main() {
 		metricsShutdownCancel()
 	}
 	slog.Info("server stopped")
+}
+
+// linkThrottle is a per-key TTL gate. allow reports whether enough time has
+// passed since the last allowed call for the key, recording the attempt when
+// it does. Used by the SubjectResolver to bound how often per user the
+// (dept-sync + DB) dept-link work runs.
+type linkThrottle struct {
+	mu   sync.Mutex
+	last map[string]time.Time
+	ttl  time.Duration
+}
+
+func (t *linkThrottle) allow(key string) bool {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if l, ok := t.last[key]; ok && time.Since(l) < t.ttl {
+		return false
+	}
+	t.last[key] = time.Now()
+	return true
 }

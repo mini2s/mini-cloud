@@ -1110,6 +1110,18 @@ func (h *Handler) ClaimTaskByRuntime(w http.ResponseWriter, r *http.Request) {
 	resp := taskToResponse(*task)
 	if agent, err := h.Queries.GetAgent(r.Context(), task.AgentID); err == nil {
 		skills := h.TaskService.LoadAgentSkills(r.Context(), task.AgentID)
+		cloudSkillRows, err := h.Queries.ListAgentCloudSkills(r.Context(), task.AgentID)
+		if err != nil {
+			outcome = "error_cloud_skills"
+			writeError(w, http.StatusInternalServerError, "failed to list agent cloud skills")
+			return
+		}
+		cloudSkills, err := agentCloudSkillRowsToData(cloudSkillRows)
+		if err != nil {
+			outcome = "error_cloud_skills"
+			writeError(w, http.StatusInternalServerError, "stored cloud skill install metadata is invalid")
+			return
+		}
 		var customEnv map[string]string
 		if agent.CustomEnv != nil {
 			if err := json.Unmarshal(agent.CustomEnv, &customEnv); err != nil {
@@ -1131,6 +1143,7 @@ func (h *Handler) ClaimTaskByRuntime(w http.ResponseWriter, r *http.Request) {
 			Name:          agent.Name,
 			Instructions:  agent.Instructions,
 			Skills:        skills,
+			CloudSkills:   cloudSkills,
 			CustomEnv:     customEnv,
 			CustomArgs:    customArgs,
 			McpConfig:     mcpConfig,
@@ -1143,6 +1156,11 @@ func (h *Handler) ClaimTaskByRuntime(w http.ResponseWriter, r *http.Request) {
 		// task startup.
 		pd := fetchPluginData(r.Context(), h.cfg.BuiltinPluginAPIBaseURL, agent.PluginID.String)
 		if pd != nil {
+			// Marketplace identity is owned by server config, not the catalog.
+			// Override whatever the catalog returned; an empty config value is
+			// delivered as-is and the daemon falls back to its github default.
+			pd.Info.Install.MarketplaceName = h.cfg.CSCPluginMarketplaceName
+			pd.Info.Install.MarketplaceRepo = h.cfg.CSCPluginMarketplaceRepo
 			resp.Agent.Plugin = pd.Info
 			if pd.Content != "" {
 				if resp.Agent.Instructions != "" {

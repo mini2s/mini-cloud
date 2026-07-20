@@ -45,8 +45,9 @@ type casdoorTokenResponse struct {
 // casdoorUserInfo is the JSON response from Casdoor's userinfo endpoint.
 type casdoorUserInfo struct {
 	Sub               string `json:"sub"`
+	UniversalID       string `json:"universal_id"`
 	Name              string `json:"name"`
-	PreferredUsername  string `json:"preferred_username"`
+	PreferredUsername string `json:"preferred_username"`
 	Email             string `json:"email"`
 	Phone             string `json:"phone"`
 	Picture           string `json:"picture"`
@@ -250,6 +251,15 @@ func (h *Handler) CasdoorCallback(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
+	// Bind any pending dept membership now that we hold a trusted universal_id.
+	// Server-side activation makes workspace linking work on every login
+	// (standalone or embedded), rather than depending on the iframe identity
+	// handshake (which only fires inside opencode). Best-effort: never fails
+	// the login.
+	if strings.TrimSpace(userInfo.UniversalID) != "" {
+		h.linkDeptMembersOnLogin(r.Context(), user.ID, userInfo.UniversalID)
+	}
+
 	// Issue Multica JWT and set cookies.
 	tokenString, err := h.issueJWT(user)
 	if err != nil {
@@ -374,6 +384,14 @@ func (h *Handler) findOrCreateCasdoorUser(r *http.Request, info *casdoorUserInfo
 	// Try to find existing user by subject_id.
 	existing, err := h.Queries.GetUserBySubjectID(ctx, subjectID)
 	if err == nil {
+		if info.UniversalID != "" && (!existing.CasdoorUniversalID.Valid || existing.CasdoorUniversalID.String != info.UniversalID) {
+			if setErr := h.Queries.SetUserCasdoorUniversalID(ctx, db.SetUserCasdoorUniversalIDParams{
+				ID:                 existing.ID,
+				CasdoorUniversalID: pgtype.Text{String: info.UniversalID, Valid: true},
+			}); setErr != nil {
+				slog.Warn("casdoor: failed to sync universal_id on existing user", "error", setErr, "user_id", uuidToString(existing.ID))
+			}
+		}
 		return existing, false, nil
 	}
 
@@ -424,6 +442,14 @@ func (h *Handler) findOrCreateCasdoorUser(r *http.Request, info *casdoorUserInfo
 						return user, false, fmt.Errorf("adopt user by email: %w", setErr)
 					}
 				}
+				if info.UniversalID != "" {
+					if setErr := h.Queries.SetUserCasdoorUniversalID(ctx, db.SetUserCasdoorUniversalIDParams{
+						ID:                 existing.ID,
+						CasdoorUniversalID: pgtype.Text{String: info.UniversalID, Valid: true},
+					}); setErr != nil {
+						slog.Warn("casdoor: failed to set universal_id on adopted user", "error", setErr, "user_id", uuidToString(existing.ID))
+					}
+				}
 				slog.Info("casdoor: adopted existing user by email", "user_id", uuidToString(existing.ID), "subject_id", info.Sub, "email", email)
 				return existing, false, nil
 			}
@@ -437,6 +463,14 @@ func (h *Handler) findOrCreateCasdoorUser(r *http.Request, info *casdoorUserInfo
 		SubjectID: subjectID,
 	}); err != nil {
 		slog.Warn("casdoor: failed to set subject_id on new user", "error", err, "user_id", uuidToString(user.ID))
+	}
+	if info.UniversalID != "" {
+		if err := h.Queries.SetUserCasdoorUniversalID(ctx, db.SetUserCasdoorUniversalIDParams{
+			ID:                 user.ID,
+			CasdoorUniversalID: pgtype.Text{String: info.UniversalID, Valid: true},
+		}); err != nil {
+			slog.Warn("casdoor: failed to set universal_id on new user", "error", err, "user_id", uuidToString(user.ID))
+		}
 	}
 
 	return user, true, nil

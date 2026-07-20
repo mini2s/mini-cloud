@@ -1,7 +1,9 @@
 {
   "page": {
     "title": "Inbox",
-    "back": "Inbox"
+    "back": "Inbox",
+    "unread_count_one": "{{count}} unread",
+    "unread_count_other": "{{count}} unread"
   },
   "menu": {
     "mark_all_read": "Mark all as read",
@@ -18,7 +20,8 @@
       "minutes": "{{count}}m",
       "hours": "{{count}}h",
       "days": "{{count}}d"
-    }
+    },
+    "divider_new": "New"
   },
   "detail": {
     "select_prompt": "Select a notification to view details",
@@ -26,6 +29,10 @@
     "original_input": "Original input",
     "edit_advanced": "Edit as advanced form",
     "archive": "Archive"
+  },
+  "toast": {
+    "new_notification": "New notification",
+    "view": "View"
   },
   "types": {
     "issue_assigned": "Assigned",

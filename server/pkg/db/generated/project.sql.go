@@ -29,7 +29,7 @@ INSERT INTO multica_project (
     lead_type, lead_id, priority
 ) VALUES (
     $1, $2, $3, $4, $5, $6, $7, $8
-) RETURNING id, workspace_id, title, description, icon, status, lead_type, lead_id, created_at, updated_at, priority
+) RETURNING id, workspace_id, title, description, icon, status, lead_type, lead_id, created_at, updated_at, priority, local_directory
 `
 
 type CreateProjectParams struct {
@@ -67,6 +67,7 @@ func (q *Queries) CreateProject(ctx context.Context, arg CreateProjectParams) (M
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.Priority,
+		&i.LocalDirectory,
 	)
 	return i, err
 }
@@ -87,7 +88,7 @@ func (q *Queries) DeleteProject(ctx context.Context, arg DeleteProjectParams) er
 }
 
 const getProject = `-- name: GetProject :one
-SELECT id, workspace_id, title, description, icon, status, lead_type, lead_id, created_at, updated_at, priority FROM multica_project
+SELECT id, workspace_id, title, description, icon, status, lead_type, lead_id, created_at, updated_at, priority, local_directory FROM multica_project
 WHERE id = $1
 `
 
@@ -106,12 +107,13 @@ func (q *Queries) GetProject(ctx context.Context, id pgtype.UUID) (MulticaProjec
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.Priority,
+		&i.LocalDirectory,
 	)
 	return i, err
 }
 
 const getProjectInWorkspace = `-- name: GetProjectInWorkspace :one
-SELECT id, workspace_id, title, description, icon, status, lead_type, lead_id, created_at, updated_at, priority FROM multica_project
+SELECT id, workspace_id, title, description, icon, status, lead_type, lead_id, created_at, updated_at, priority, local_directory FROM multica_project
 WHERE id = $1 AND workspace_id = $2
 `
 
@@ -135,6 +137,7 @@ func (q *Queries) GetProjectInWorkspace(ctx context.Context, arg GetProjectInWor
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.Priority,
+		&i.LocalDirectory,
 	)
 	return i, err
 }
@@ -174,8 +177,25 @@ func (q *Queries) GetProjectIssueStats(ctx context.Context, projectIds []pgtype.
 	return items, nil
 }
 
+const getProjectLocalDirectory = `-- name: GetProjectLocalDirectory :one
+SELECT local_directory FROM multica_project
+WHERE id = $1 AND workspace_id = $2
+`
+
+type GetProjectLocalDirectoryParams struct {
+	ID          pgtype.UUID `json:"id"`
+	WorkspaceID pgtype.UUID `json:"workspace_id"`
+}
+
+func (q *Queries) GetProjectLocalDirectory(ctx context.Context, arg GetProjectLocalDirectoryParams) (pgtype.Text, error) {
+	row := q.db.QueryRow(ctx, getProjectLocalDirectory, arg.ID, arg.WorkspaceID)
+	var local_directory pgtype.Text
+	err := row.Scan(&local_directory)
+	return local_directory, err
+}
+
 const listProjects = `-- name: ListProjects :many
-SELECT id, workspace_id, title, description, icon, status, lead_type, lead_id, created_at, updated_at, priority FROM multica_project
+SELECT id, workspace_id, title, description, icon, status, lead_type, lead_id, created_at, updated_at, priority, local_directory FROM multica_project
 WHERE workspace_id = $1
   AND ($2::text IS NULL OR status = $2)
   AND ($3::text IS NULL OR priority = $3)
@@ -209,6 +229,7 @@ func (q *Queries) ListProjects(ctx context.Context, arg ListProjectsParams) ([]M
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.Priority,
+			&i.LocalDirectory,
 		); err != nil {
 			return nil, err
 		}
@@ -229,20 +250,22 @@ UPDATE multica_project SET
     priority = COALESCE($6, priority),
     lead_type = $7,
     lead_id = $8,
+    local_directory = $9,
     updated_at = now()
 WHERE id = $1
-RETURNING id, workspace_id, title, description, icon, status, lead_type, lead_id, created_at, updated_at, priority
+RETURNING id, workspace_id, title, description, icon, status, lead_type, lead_id, created_at, updated_at, priority, local_directory
 `
 
 type UpdateProjectParams struct {
-	ID          pgtype.UUID `json:"id"`
-	Title       pgtype.Text `json:"title"`
-	Description pgtype.Text `json:"description"`
-	Icon        pgtype.Text `json:"icon"`
-	Status      pgtype.Text `json:"status"`
-	Priority    pgtype.Text `json:"priority"`
-	LeadType    pgtype.Text `json:"lead_type"`
-	LeadID      pgtype.UUID `json:"lead_id"`
+	ID             pgtype.UUID `json:"id"`
+	Title          pgtype.Text `json:"title"`
+	Description    pgtype.Text `json:"description"`
+	Icon           pgtype.Text `json:"icon"`
+	Status         pgtype.Text `json:"status"`
+	Priority       pgtype.Text `json:"priority"`
+	LeadType       pgtype.Text `json:"lead_type"`
+	LeadID         pgtype.UUID `json:"lead_id"`
+	LocalDirectory pgtype.Text `json:"local_directory"`
 }
 
 func (q *Queries) UpdateProject(ctx context.Context, arg UpdateProjectParams) (MulticaProject, error) {
@@ -255,6 +278,7 @@ func (q *Queries) UpdateProject(ctx context.Context, arg UpdateProjectParams) (M
 		arg.Priority,
 		arg.LeadType,
 		arg.LeadID,
+		arg.LocalDirectory,
 	)
 	var i MulticaProject
 	err := row.Scan(
@@ -269,6 +293,24 @@ func (q *Queries) UpdateProject(ctx context.Context, arg UpdateProjectParams) (M
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.Priority,
+		&i.LocalDirectory,
 	)
 	return i, err
+}
+
+const updateProjectLocalDirectory = `-- name: UpdateProjectLocalDirectory :exec
+UPDATE multica_project
+SET local_directory = $1, updated_at = now()
+WHERE id = $2 AND workspace_id = $3
+`
+
+type UpdateProjectLocalDirectoryParams struct {
+	LocalDirectory pgtype.Text `json:"local_directory"`
+	ID             pgtype.UUID `json:"id"`
+	WorkspaceID    pgtype.UUID `json:"workspace_id"`
+}
+
+func (q *Queries) UpdateProjectLocalDirectory(ctx context.Context, arg UpdateProjectLocalDirectoryParams) error {
+	_, err := q.db.Exec(ctx, updateProjectLocalDirectory, arg.LocalDirectory, arg.ID, arg.WorkspaceID)
+	return err
 }

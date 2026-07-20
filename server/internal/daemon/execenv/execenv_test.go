@@ -3623,8 +3623,8 @@ func TestPrepare_CSCPluginSetup(t *testing.T) {
 	if !strings.Contains(log, "plugin install") {
 		t.Errorf("expected plugin install invocation, got:\n%s", log)
 	}
-	if !strings.Contains(log, "-s project") {
-		t.Errorf("expected -s project scope in install, got:\n%s", log)
+	if !strings.Contains(log, "-s local") {
+		t.Errorf("expected -s local scope in install, got:\n%s", log)
 	}
 }
 

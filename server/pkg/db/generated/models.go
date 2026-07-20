@@ -59,6 +59,18 @@ type MulticaAgentAuditLog struct {
 	CreatedAt  pgtype.Timestamptz `json:"created_at"`
 }
 
+type MulticaAgentCloudSkill struct {
+	AgentID      pgtype.UUID        `json:"agent_id"`
+	CloudSkillID string             `json:"cloud_skill_id"`
+	Slug         string             `json:"slug"`
+	Name         string             `json:"name"`
+	Description  string             `json:"description"`
+	Install      []byte             `json:"install"`
+	Position     int32              `json:"position"`
+	CreatedAt    pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt    pgtype.Timestamptz `json:"updated_at"`
+}
+
 type MulticaAgentRuntime struct {
 	ID             pgtype.UUID        `json:"id"`
 	WorkspaceID    pgtype.UUID        `json:"workspace_id"`
@@ -398,6 +410,15 @@ type MulticaIssue struct {
 	StageID            pgtype.UUID        `json:"stage_id"`
 }
 
+type MulticaIssueConversation struct {
+	IssueID            pgtype.UUID        `json:"issue_id"`
+	ConversationID     string             `json:"conversation_id"`
+	WorkspaceDirectory string             `json:"workspace_directory"`
+	DeviceID           string             `json:"device_id"`
+	CreatedAt          pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt          pgtype.Timestamptz `json:"updated_at"`
+}
+
 type MulticaIssueDependency struct {
 	ID               pgtype.UUID `json:"id"`
 	IssueID          pgtype.UUID `json:"issue_id"`
@@ -454,11 +475,24 @@ type MulticaIssueToLabel struct {
 }
 
 type MulticaMember struct {
-	ID          pgtype.UUID        `json:"id"`
-	WorkspaceID pgtype.UUID        `json:"workspace_id"`
-	UserID      pgtype.UUID        `json:"user_id"`
-	Role        string             `json:"role"`
-	CreatedAt   pgtype.Timestamptz `json:"created_at"`
+	ID                  pgtype.UUID        `json:"id"`
+	WorkspaceID         pgtype.UUID        `json:"workspace_id"`
+	UserID              pgtype.UUID        `json:"user_id"`
+	Role                string             `json:"role"`
+	CreatedAt           pgtype.Timestamptz `json:"created_at"`
+	Source              string             `json:"source"`
+	Status              string             `json:"status"`
+	ExternalUserID      pgtype.Text        `json:"external_user_id"`
+	ExternalUniversalID pgtype.Text        `json:"external_universal_id"`
+	EmployeeID          pgtype.Text        `json:"employee_id"`
+	OrgDisplayName      pgtype.Text        `json:"org_display_name"`
+	DeptID              pgtype.Text        `json:"dept_id"`
+	DeptName            pgtype.Text        `json:"dept_name"`
+	DeptPath            pgtype.Text        `json:"dept_path"`
+	Position            pgtype.Text        `json:"position"`
+	IsMainDepartment    bool               `json:"is_main_department"`
+	DeptUserStatus      pgtype.Int4        `json:"dept_user_status"`
+	LastSyncedAt        pgtype.Timestamptz `json:"last_synced_at"`
 }
 
 type MulticaNotificationPreference struct {
@@ -492,17 +526,18 @@ type MulticaPinnedItem struct {
 }
 
 type MulticaProject struct {
-	ID          pgtype.UUID        `json:"id"`
-	WorkspaceID pgtype.UUID        `json:"workspace_id"`
-	Title       string             `json:"title"`
-	Description pgtype.Text        `json:"description"`
-	Icon        pgtype.Text        `json:"icon"`
-	Status      string             `json:"status"`
-	LeadType    pgtype.Text        `json:"lead_type"`
-	LeadID      pgtype.UUID        `json:"lead_id"`
-	CreatedAt   pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt   pgtype.Timestamptz `json:"updated_at"`
-	Priority    string             `json:"priority"`
+	ID             pgtype.UUID        `json:"id"`
+	WorkspaceID    pgtype.UUID        `json:"workspace_id"`
+	Title          string             `json:"title"`
+	Description    pgtype.Text        `json:"description"`
+	Icon           pgtype.Text        `json:"icon"`
+	Status         string             `json:"status"`
+	LeadType       pgtype.Text        `json:"lead_type"`
+	LeadID         pgtype.UUID        `json:"lead_id"`
+	CreatedAt      pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt      pgtype.Timestamptz `json:"updated_at"`
+	Priority       string             `json:"priority"`
+	LocalDirectory pgtype.Text        `json:"local_directory"`
 }
 
 type MulticaProjectResource struct {
@@ -650,6 +685,7 @@ type MulticaUser struct {
 	// User-preferred IANA timezone for report rendering (Viewing tz). NULL means "use the browser-detected tz at render time". Affects dashboards, charts, and any "today" label shown to this user. Does not affect data materialisation — all rollups remain in UTC.
 	Timezone           pgtype.Text `json:"timezone"`
 	SubjectID          pgtype.Text `json:"subject_id"`
+	CasdoorUniversalID pgtype.Text `json:"casdoor_universal_id"`
 	CanManageWorkflows bool        `json:"can_manage_workflows"`
 }
 

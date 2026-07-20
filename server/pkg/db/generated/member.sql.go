@@ -11,10 +11,70 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const activatePendingDeptMembersByUniversalID = `-- name: ActivatePendingDeptMembersByUniversalID :many
+UPDATE multica_member m
+SET user_id = $2,
+    status = 'active'
+WHERE m.external_universal_id = $1
+  AND m.status = 'pending_activation'
+  AND m.user_id IS NULL
+  AND NOT EXISTS (
+      SELECT 1
+      FROM multica_member existing
+      WHERE existing.workspace_id = m.workspace_id
+        AND existing.user_id = $2
+  )
+RETURNING id, workspace_id, user_id, role, created_at, source, status, external_user_id, external_universal_id, employee_id, org_display_name, dept_id, dept_name, dept_path, position, is_main_department, dept_user_status, last_synced_at
+`
+
+type ActivatePendingDeptMembersByUniversalIDParams struct {
+	ExternalUniversalID pgtype.Text `json:"external_universal_id"`
+	UserID              pgtype.UUID `json:"user_id"`
+}
+
+func (q *Queries) ActivatePendingDeptMembersByUniversalID(ctx context.Context, arg ActivatePendingDeptMembersByUniversalIDParams) ([]MulticaMember, error) {
+	rows, err := q.db.Query(ctx, activatePendingDeptMembersByUniversalID, arg.ExternalUniversalID, arg.UserID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []MulticaMember{}
+	for rows.Next() {
+		var i MulticaMember
+		if err := rows.Scan(
+			&i.ID,
+			&i.WorkspaceID,
+			&i.UserID,
+			&i.Role,
+			&i.CreatedAt,
+			&i.Source,
+			&i.Status,
+			&i.ExternalUserID,
+			&i.ExternalUniversalID,
+			&i.EmployeeID,
+			&i.OrgDisplayName,
+			&i.DeptID,
+			&i.DeptName,
+			&i.DeptPath,
+			&i.Position,
+			&i.IsMainDepartment,
+			&i.DeptUserStatus,
+			&i.LastSyncedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const createMember = `-- name: CreateMember :one
 INSERT INTO multica_member (workspace_id, user_id, role)
 VALUES ($1, $2, $3)
-RETURNING id, workspace_id, user_id, role, created_at
+RETURNING id, workspace_id, user_id, role, created_at, source, status, external_user_id, external_universal_id, employee_id, org_display_name, dept_id, dept_name, dept_path, position, is_main_department, dept_user_status, last_synced_at
 `
 
 type CreateMemberParams struct {
@@ -32,6 +92,19 @@ func (q *Queries) CreateMember(ctx context.Context, arg CreateMemberParams) (Mul
 		&i.UserID,
 		&i.Role,
 		&i.CreatedAt,
+		&i.Source,
+		&i.Status,
+		&i.ExternalUserID,
+		&i.ExternalUniversalID,
+		&i.EmployeeID,
+		&i.OrgDisplayName,
+		&i.DeptID,
+		&i.DeptName,
+		&i.DeptPath,
+		&i.Position,
+		&i.IsMainDepartment,
+		&i.DeptUserStatus,
+		&i.LastSyncedAt,
 	)
 	return i, err
 }
@@ -45,8 +118,27 @@ func (q *Queries) DeleteMember(ctx context.Context, id pgtype.UUID) error {
 	return err
 }
 
+const deleteOrphanPendingDeptMembers = `-- name: DeleteOrphanPendingDeptMembers :execrows
+DELETE FROM multica_member
+WHERE external_universal_id = $1
+  AND status = 'pending_activation'
+  AND user_id IS NULL
+`
+
+// Removes pending_activation dept member rows for a universal_id that did not
+// get activated because the user already held a membership in that workspace
+// (ActivatePending's no-duplicate guard). Without this they linger as orphan
+// duplicates next to the backfilled existing membership.
+func (q *Queries) DeleteOrphanPendingDeptMembers(ctx context.Context, externalUniversalID pgtype.Text) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteOrphanPendingDeptMembers, externalUniversalID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const getMember = `-- name: GetMember :one
-SELECT id, workspace_id, user_id, role, created_at FROM multica_member
+SELECT id, workspace_id, user_id, role, created_at, source, status, external_user_id, external_universal_id, employee_id, org_display_name, dept_id, dept_name, dept_path, position, is_main_department, dept_user_status, last_synced_at FROM multica_member
 WHERE id = $1
 `
 
@@ -59,12 +151,25 @@ func (q *Queries) GetMember(ctx context.Context, id pgtype.UUID) (MulticaMember,
 		&i.UserID,
 		&i.Role,
 		&i.CreatedAt,
+		&i.Source,
+		&i.Status,
+		&i.ExternalUserID,
+		&i.ExternalUniversalID,
+		&i.EmployeeID,
+		&i.OrgDisplayName,
+		&i.DeptID,
+		&i.DeptName,
+		&i.DeptPath,
+		&i.Position,
+		&i.IsMainDepartment,
+		&i.DeptUserStatus,
+		&i.LastSyncedAt,
 	)
 	return i, err
 }
 
 const getMemberByUserAndWorkspace = `-- name: GetMemberByUserAndWorkspace :one
-SELECT id, workspace_id, user_id, role, created_at FROM multica_member
+SELECT id, workspace_id, user_id, role, created_at, source, status, external_user_id, external_universal_id, employee_id, org_display_name, dept_id, dept_name, dept_path, position, is_main_department, dept_user_status, last_synced_at FROM multica_member
 WHERE user_id = $1 AND workspace_id = $2
 `
 
@@ -82,12 +187,87 @@ func (q *Queries) GetMemberByUserAndWorkspace(ctx context.Context, arg GetMember
 		&i.UserID,
 		&i.Role,
 		&i.CreatedAt,
+		&i.Source,
+		&i.Status,
+		&i.ExternalUserID,
+		&i.ExternalUniversalID,
+		&i.EmployeeID,
+		&i.OrgDisplayName,
+		&i.DeptID,
+		&i.DeptName,
+		&i.DeptPath,
+		&i.Position,
+		&i.IsMainDepartment,
+		&i.DeptUserStatus,
+		&i.LastSyncedAt,
 	)
 	return i, err
 }
 
+const listDeptMemberSnapshots = `-- name: ListDeptMemberSnapshots :many
+SELECT id, user_id, source, status, external_user_id, external_universal_id,
+       employee_id, org_display_name, dept_id, dept_name, dept_path,
+       position, is_main_department, dept_user_status, last_synced_at
+FROM multica_member
+WHERE workspace_id = $1
+`
+
+type ListDeptMemberSnapshotsRow struct {
+	ID                  pgtype.UUID        `json:"id"`
+	UserID              pgtype.UUID        `json:"user_id"`
+	Source              string             `json:"source"`
+	Status              string             `json:"status"`
+	ExternalUserID      pgtype.Text        `json:"external_user_id"`
+	ExternalUniversalID pgtype.Text        `json:"external_universal_id"`
+	EmployeeID          pgtype.Text        `json:"employee_id"`
+	OrgDisplayName      pgtype.Text        `json:"org_display_name"`
+	DeptID              pgtype.Text        `json:"dept_id"`
+	DeptName            pgtype.Text        `json:"dept_name"`
+	DeptPath            pgtype.Text        `json:"dept_path"`
+	Position            pgtype.Text        `json:"position"`
+	IsMainDepartment    bool               `json:"is_main_department"`
+	DeptUserStatus      pgtype.Int4        `json:"dept_user_status"`
+	LastSyncedAt        pgtype.Timestamptz `json:"last_synced_at"`
+}
+
+func (q *Queries) ListDeptMemberSnapshots(ctx context.Context, workspaceID pgtype.UUID) ([]ListDeptMemberSnapshotsRow, error) {
+	rows, err := q.db.Query(ctx, listDeptMemberSnapshots, workspaceID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListDeptMemberSnapshotsRow{}
+	for rows.Next() {
+		var i ListDeptMemberSnapshotsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.UserID,
+			&i.Source,
+			&i.Status,
+			&i.ExternalUserID,
+			&i.ExternalUniversalID,
+			&i.EmployeeID,
+			&i.OrgDisplayName,
+			&i.DeptID,
+			&i.DeptName,
+			&i.DeptPath,
+			&i.Position,
+			&i.IsMainDepartment,
+			&i.DeptUserStatus,
+			&i.LastSyncedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listMembers = `-- name: ListMembers :many
-SELECT id, workspace_id, user_id, role, created_at FROM multica_member
+SELECT id, workspace_id, user_id, role, created_at, source, status, external_user_id, external_universal_id, employee_id, org_display_name, dept_id, dept_name, dept_path, position, is_main_department, dept_user_status, last_synced_at FROM multica_member
 WHERE workspace_id = $1
 ORDER BY created_at ASC
 `
@@ -107,6 +287,19 @@ func (q *Queries) ListMembers(ctx context.Context, workspaceID pgtype.UUID) ([]M
 			&i.UserID,
 			&i.Role,
 			&i.CreatedAt,
+			&i.Source,
+			&i.Status,
+			&i.ExternalUserID,
+			&i.ExternalUniversalID,
+			&i.EmployeeID,
+			&i.OrgDisplayName,
+			&i.DeptID,
+			&i.DeptName,
+			&i.DeptPath,
+			&i.Position,
+			&i.IsMainDepartment,
+			&i.DeptUserStatus,
+			&i.LastSyncedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -120,22 +313,39 @@ func (q *Queries) ListMembers(ctx context.Context, workspaceID pgtype.UUID) ([]M
 
 const listMembersWithUser = `-- name: ListMembersWithUser :many
 SELECT m.id, m.workspace_id, m.user_id, m.role, m.created_at,
+       m.source, m.status, m.external_user_id, m.external_universal_id,
+       m.employee_id, m.org_display_name, m.dept_id, m.dept_name,
+       m.dept_path, m.position, m.is_main_department, m.dept_user_status,
+       m.last_synced_at,
        u.name as user_name, u.email as user_email, u.avatar_url as user_avatar_url
 FROM multica_member m
-JOIN multica_user u ON u.id = m.user_id
+LEFT JOIN multica_user u ON u.id = m.user_id
 WHERE m.workspace_id = $1
 ORDER BY m.created_at ASC
 `
 
 type ListMembersWithUserRow struct {
-	ID            pgtype.UUID        `json:"id"`
-	WorkspaceID   pgtype.UUID        `json:"workspace_id"`
-	UserID        pgtype.UUID        `json:"user_id"`
-	Role          string             `json:"role"`
-	CreatedAt     pgtype.Timestamptz `json:"created_at"`
-	UserName      string             `json:"user_name"`
-	UserEmail     string             `json:"user_email"`
-	UserAvatarUrl pgtype.Text        `json:"user_avatar_url"`
+	ID                  pgtype.UUID        `json:"id"`
+	WorkspaceID         pgtype.UUID        `json:"workspace_id"`
+	UserID              pgtype.UUID        `json:"user_id"`
+	Role                string             `json:"role"`
+	CreatedAt           pgtype.Timestamptz `json:"created_at"`
+	Source              string             `json:"source"`
+	Status              string             `json:"status"`
+	ExternalUserID      pgtype.Text        `json:"external_user_id"`
+	ExternalUniversalID pgtype.Text        `json:"external_universal_id"`
+	EmployeeID          pgtype.Text        `json:"employee_id"`
+	OrgDisplayName      pgtype.Text        `json:"org_display_name"`
+	DeptID              pgtype.Text        `json:"dept_id"`
+	DeptName            pgtype.Text        `json:"dept_name"`
+	DeptPath            pgtype.Text        `json:"dept_path"`
+	Position            pgtype.Text        `json:"position"`
+	IsMainDepartment    bool               `json:"is_main_department"`
+	DeptUserStatus      pgtype.Int4        `json:"dept_user_status"`
+	LastSyncedAt        pgtype.Timestamptz `json:"last_synced_at"`
+	UserName            pgtype.Text        `json:"user_name"`
+	UserEmail           pgtype.Text        `json:"user_email"`
+	UserAvatarUrl       pgtype.Text        `json:"user_avatar_url"`
 }
 
 func (q *Queries) ListMembersWithUser(ctx context.Context, workspaceID pgtype.UUID) ([]ListMembersWithUserRow, error) {
@@ -153,6 +363,19 @@ func (q *Queries) ListMembersWithUser(ctx context.Context, workspaceID pgtype.UU
 			&i.UserID,
 			&i.Role,
 			&i.CreatedAt,
+			&i.Source,
+			&i.Status,
+			&i.ExternalUserID,
+			&i.ExternalUniversalID,
+			&i.EmployeeID,
+			&i.OrgDisplayName,
+			&i.DeptID,
+			&i.DeptName,
+			&i.DeptPath,
+			&i.Position,
+			&i.IsMainDepartment,
+			&i.DeptUserStatus,
+			&i.LastSyncedAt,
 			&i.UserName,
 			&i.UserEmail,
 			&i.UserAvatarUrl,
@@ -167,10 +390,71 @@ func (q *Queries) ListMembersWithUser(ctx context.Context, workspaceID pgtype.UU
 	return items, nil
 }
 
+const refreshUserMembershipDeptOrg = `-- name: RefreshUserMembershipDeptOrg :exec
+UPDATE multica_member
+SET external_universal_id = $2,
+    external_user_id = $3,
+    org_display_name = $4,
+    employee_id = $5,
+    dept_id = $6,
+    dept_name = $7,
+    dept_path = $8,
+    position = $9,
+    is_main_department = $10,
+    dept_user_status = $11,
+    last_synced_at = $12
+WHERE user_id = $1
+`
+
+type RefreshUserMembershipDeptOrgParams struct {
+	UserID              pgtype.UUID        `json:"user_id"`
+	ExternalUniversalID pgtype.Text        `json:"external_universal_id"`
+	ExternalUserID      pgtype.Text        `json:"external_user_id"`
+	OrgDisplayName      pgtype.Text        `json:"org_display_name"`
+	EmployeeID          pgtype.Text        `json:"employee_id"`
+	DeptID              pgtype.Text        `json:"dept_id"`
+	DeptName            pgtype.Text        `json:"dept_name"`
+	DeptPath            pgtype.Text        `json:"dept_path"`
+	Position            pgtype.Text        `json:"position"`
+	IsMainDepartment    bool               `json:"is_main_department"`
+	DeptUserStatus      pgtype.Int4        `json:"dept_user_status"`
+	LastSyncedAt        pgtype.Timestamptz `json:"last_synced_at"`
+}
+
+// Rewrites the dept org snapshot (name / department / position) on every
+// membership bound to this user — both dept-sourced rows and pre-existing
+// manual / email-invite rows — AND links each row to the dept identity
+// (external_universal_id / external_user_id). Keying on user_id (not
+// external_universal_id) means login also backfills a membership that existed
+// before Casdoor binding (where ActivatePending's no-duplicate guard blocked
+// the separate dept row from activating). Linking the identity there too is
+// what lets the member-picker recognise the row as already-added (it matches
+// dept-sync results by universal_id) instead of offering to re-add the user.
+// Call DeleteOrphanPendingDeptMembers first so no pending dept row holds the
+// same universal_id in a workspace (would violate the
+// (workspace_id, external_universal_id) unique index).
+func (q *Queries) RefreshUserMembershipDeptOrg(ctx context.Context, arg RefreshUserMembershipDeptOrgParams) error {
+	_, err := q.db.Exec(ctx, refreshUserMembershipDeptOrg,
+		arg.UserID,
+		arg.ExternalUniversalID,
+		arg.ExternalUserID,
+		arg.OrgDisplayName,
+		arg.EmployeeID,
+		arg.DeptID,
+		arg.DeptName,
+		arg.DeptPath,
+		arg.Position,
+		arg.IsMainDepartment,
+		arg.DeptUserStatus,
+		arg.LastSyncedAt,
+	)
+	return err
+}
+
 const updateMemberRole = `-- name: UpdateMemberRole :one
 UPDATE multica_member SET role = $2
 WHERE id = $1
-RETURNING id, workspace_id, user_id, role, created_at
+RETURNING id, workspace_id, user_id, role, created_at, source, status, external_user_id, external_universal_id, employee_id, org_display_name, dept_id, dept_name, dept_path, position, is_main_department, dept_user_status, last_synced_at
 `
 
 type UpdateMemberRoleParams struct {
@@ -187,6 +471,108 @@ func (q *Queries) UpdateMemberRole(ctx context.Context, arg UpdateMemberRolePara
 		&i.UserID,
 		&i.Role,
 		&i.CreatedAt,
+		&i.Source,
+		&i.Status,
+		&i.ExternalUserID,
+		&i.ExternalUniversalID,
+		&i.EmployeeID,
+		&i.OrgDisplayName,
+		&i.DeptID,
+		&i.DeptName,
+		&i.DeptPath,
+		&i.Position,
+		&i.IsMainDepartment,
+		&i.DeptUserStatus,
+		&i.LastSyncedAt,
+	)
+	return i, err
+}
+
+const upsertDeptMember = `-- name: UpsertDeptMember :one
+INSERT INTO multica_member (
+    workspace_id, user_id, role, source, status,
+    external_user_id, external_universal_id, employee_id, org_display_name,
+    dept_id, dept_name, dept_path, position, is_main_department,
+    dept_user_status, last_synced_at
+)
+VALUES (
+    $1, $2, 'member', 'dept', $3,
+    $4, $5, $6, $7,
+    $8, $9, $10, $11, $12,
+    $13, $14
+)
+ON CONFLICT (workspace_id, external_universal_id)
+WHERE external_universal_id IS NOT NULL AND external_universal_id <> ''
+DO UPDATE SET
+    user_id = COALESCE(EXCLUDED.user_id, multica_member.user_id),
+    status = EXCLUDED.status,
+    external_user_id = EXCLUDED.external_user_id,
+    employee_id = EXCLUDED.employee_id,
+    org_display_name = EXCLUDED.org_display_name,
+    dept_id = EXCLUDED.dept_id,
+    dept_name = EXCLUDED.dept_name,
+    dept_path = EXCLUDED.dept_path,
+    position = EXCLUDED.position,
+    is_main_department = EXCLUDED.is_main_department,
+    dept_user_status = EXCLUDED.dept_user_status,
+    last_synced_at = EXCLUDED.last_synced_at
+RETURNING id, workspace_id, user_id, role, created_at, source, status, external_user_id, external_universal_id, employee_id, org_display_name, dept_id, dept_name, dept_path, position, is_main_department, dept_user_status, last_synced_at
+`
+
+type UpsertDeptMemberParams struct {
+	WorkspaceID         pgtype.UUID        `json:"workspace_id"`
+	UserID              pgtype.UUID        `json:"user_id"`
+	Status              string             `json:"status"`
+	ExternalUserID      pgtype.Text        `json:"external_user_id"`
+	ExternalUniversalID pgtype.Text        `json:"external_universal_id"`
+	EmployeeID          pgtype.Text        `json:"employee_id"`
+	OrgDisplayName      pgtype.Text        `json:"org_display_name"`
+	DeptID              pgtype.Text        `json:"dept_id"`
+	DeptName            pgtype.Text        `json:"dept_name"`
+	DeptPath            pgtype.Text        `json:"dept_path"`
+	Position            pgtype.Text        `json:"position"`
+	IsMainDepartment    bool               `json:"is_main_department"`
+	DeptUserStatus      pgtype.Int4        `json:"dept_user_status"`
+	LastSyncedAt        pgtype.Timestamptz `json:"last_synced_at"`
+}
+
+func (q *Queries) UpsertDeptMember(ctx context.Context, arg UpsertDeptMemberParams) (MulticaMember, error) {
+	row := q.db.QueryRow(ctx, upsertDeptMember,
+		arg.WorkspaceID,
+		arg.UserID,
+		arg.Status,
+		arg.ExternalUserID,
+		arg.ExternalUniversalID,
+		arg.EmployeeID,
+		arg.OrgDisplayName,
+		arg.DeptID,
+		arg.DeptName,
+		arg.DeptPath,
+		arg.Position,
+		arg.IsMainDepartment,
+		arg.DeptUserStatus,
+		arg.LastSyncedAt,
+	)
+	var i MulticaMember
+	err := row.Scan(
+		&i.ID,
+		&i.WorkspaceID,
+		&i.UserID,
+		&i.Role,
+		&i.CreatedAt,
+		&i.Source,
+		&i.Status,
+		&i.ExternalUserID,
+		&i.ExternalUniversalID,
+		&i.EmployeeID,
+		&i.OrgDisplayName,
+		&i.DeptID,
+		&i.DeptName,
+		&i.DeptPath,
+		&i.Position,
+		&i.IsMainDepartment,
+		&i.DeptUserStatus,
+		&i.LastSyncedAt,
 	)
 	return i, err
 }

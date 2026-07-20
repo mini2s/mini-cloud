@@ -27,6 +27,15 @@ type PluginInstall struct {
 	MarketplaceVerified bool   `json:"marketplace_verified"` // e.g. true
 }
 
+// Built-in github defaults for the CSC plugin marketplace. Used only when the
+// server does not deliver a marketplace identity (e.g. an older server build
+// that predates this field), so a newer daemon keeps installing plugins
+// against the canonical marketplace instead of failing on an empty name.
+const (
+	defaultCSCMarketplaceName = "costrict-plugins"
+	defaultCSCMarketplaceRepo = "https://github.com/costrict-plugins-repo/marketplace.git"
+)
+
 // setupPlugins is a provider-aware plugin installer dispatcher.
 // It routes to the correct implementation based on the provider string.
 // Returns nil immediately when bin is empty or plugin is nil.
@@ -58,23 +67,30 @@ func setupCSCPlugins(ctx context.Context, cscBin string, workDir string, plugin 
 	}
 	install := plugin.Install
 
+	// Marketplace identity comes from the server (delivered via the task-claim
+	// response). Fall back to the built-in github default when the server left
+	// it empty — e.g. an older server that doesn't deliver the field yet.
+	name := install.MarketplaceName
+	if name == "" {
+		name = defaultCSCMarketplaceName
+	}
+	repo := install.MarketplaceRepo
+	if repo == "" {
+		repo = defaultCSCMarketplaceRepo
+	}
+
 	// Step 1: marketplace add (non-fatal — may already be registered)
-	install.MarketplaceName = "costrict-plugins"
-	install.MarketplaceRepo = "https://github.com/costrict-plugins-repo/marketplace.git"
-	if err := runCSCCmd(ctx, cscBin, workDir, "plugin", "marketplace", "add", install.MarketplaceRepo); err != nil {
-		logger.Error("execenv: csc plugin marketplace add failed", "repo", install.MarketplaceRepo, "error", err)
+	if err := runCSCCmd(ctx, cscBin, workDir, "plugin", "marketplace", "add", repo); err != nil {
+		logger.Error("execenv: csc plugin marketplace add failed", "repo", repo, "error", err)
 	}
 
 	// Step 2: marketplace update
-	if err := runCSCCmd(ctx, cscBin, workDir, "plugin", "marketplace", "update", install.MarketplaceName); err != nil {
-		return fmt.Errorf("csc plugin marketplace update %s: %w", install.MarketplaceName, err)
+	if err := runCSCCmd(ctx, cscBin, workDir, "plugin", "marketplace", "update", name); err != nil {
+		return fmt.Errorf("csc plugin marketplace update %s: %w", name, err)
 	}
 
 	// Step 3: install with local scope
-	spec := install.PluginName
-	if install.MarketplaceName != "" {
-		spec = install.PluginName + "@" + install.MarketplaceName
-	}
+	spec := install.PluginName + "@" + name
 	if err := runCSCCmd(ctx, cscBin, workDir, "plugin", "install", spec, "-s", "local"); err != nil {
 		return fmt.Errorf("csc plugin install %s: %w", spec, err)
 	}

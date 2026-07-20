@@ -1,7 +1,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   isEmbeddedInCostrict,
+  parseParentRouteCommand,
   postCostrictNavigateToSession,
+  postLocationToParent,
 } from "./costrict-bridge";
 
 describe("costrict-bridge", () => {
@@ -92,6 +94,93 @@ describe("costrict-bridge", () => {
 
       expect(postMessage).not.toHaveBeenCalled();
       expect(posted).toBe(false);
+    });
+  });
+
+  describe("postLocationToParent", () => {
+    it("posts the location message to the parent when embedded", () => {
+      const postMessage = vi.fn();
+      const parent = { postMessage } as unknown as Window;
+      vi.stubGlobal("window", { parent } as unknown as Window);
+
+      postLocationToParent("/ipd-1/issues/abc");
+
+      expect(postMessage).toHaveBeenCalledWith(
+        { type: "multica:location", path: "/ipd-1/issues/abc" },
+        "*",
+      );
+    });
+
+    it("no-ops when path is empty", () => {
+      const postMessage = vi.fn();
+      const parent = { postMessage } as unknown as Window;
+      vi.stubGlobal("window", { parent } as unknown as Window);
+
+      postLocationToParent("");
+
+      expect(postMessage).not.toHaveBeenCalled();
+    });
+
+    it("no-ops when there is no parent frame (standalone)", () => {
+      const postMessage = vi.fn();
+      const w = {} as Record<string, unknown>;
+      w.parent = w;
+      w.postMessage = postMessage;
+      vi.stubGlobal("window", w as unknown as Window);
+
+      postLocationToParent("/inbox");
+
+      expect(postMessage).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("parseParentRouteCommand", () => {
+    const parent = { postMessage: vi.fn() } as unknown as Window;
+
+    it("returns the path for a valid command from the parent", () => {
+      vi.stubGlobal("window", { parent } as unknown as Window);
+      const event = {
+        source: parent,
+        data: { type: "multica:route", path: "/inbox" },
+      } as MessageEvent;
+
+      expect(parseParentRouteCommand(event)).toEqual({ path: "/inbox" });
+    });
+
+    it("returns null when source is not the parent", () => {
+      vi.stubGlobal("window", { parent } as unknown as Window);
+      const event = {
+        source: {} as Window,
+        data: { type: "multica:route", path: "/inbox" },
+      } as MessageEvent;
+
+      expect(parseParentRouteCommand(event)).toBeNull();
+    });
+
+    it("returns null for a different message type", () => {
+      vi.stubGlobal("window", { parent } as unknown as Window);
+      const event = {
+        source: parent,
+        data: { type: "multica:location", path: "/inbox" },
+      } as MessageEvent;
+
+      expect(parseParentRouteCommand(event)).toBeNull();
+    });
+
+    it("returns null when path is missing or empty", () => {
+      vi.stubGlobal("window", { parent } as unknown as Window);
+      expect(
+        parseParentRouteCommand({
+          source: parent,
+          data: { type: "multica:route" },
+        } as MessageEvent),
+      ).toBeNull();
+      expect(
+        parseParentRouteCommand({
+          source: parent,
+          data: { type: "multica:route", path: "" },
+        } as MessageEvent),
+      ).toBeNull();
     });
   });
 });

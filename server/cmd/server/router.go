@@ -19,6 +19,7 @@ import (
 	"github.com/multica-ai/multica/server/internal/analytics"
 	"github.com/multica-ai/multica/server/internal/auth"
 	"github.com/multica-ai/multica/server/internal/daemonws"
+	"github.com/multica-ai/multica/server/internal/deptsync"
 	"github.com/multica-ai/multica/server/internal/events"
 	"github.com/multica-ai/multica/server/internal/handler"
 	obsmetrics "github.com/multica-ai/multica/server/internal/metrics"
@@ -32,6 +33,7 @@ import (
 
 var defaultOrigins = []string{
 	"http://localhost:3000", // Next.js dev
+	"http://localhost:3001", // Next.js dev (alternate local port)
 	"http://localhost:5173", // electron-vite dev
 	"http://localhost:5174", // electron-vite dev (fallback port)
 }
@@ -56,7 +58,32 @@ func allowedOrigins() []string {
 	if len(origins) == 0 {
 		return defaultOrigins
 	}
-	return origins
+	return withLocalDevOrigins(origins)
+}
+
+func withLocalDevOrigins(origins []string) []string {
+	hasLocalOrigin := false
+	seen := make(map[string]bool, len(origins)+len(defaultOrigins))
+	out := make([]string, 0, len(origins)+len(defaultOrigins))
+	for _, origin := range origins {
+		if seen[origin] {
+			continue
+		}
+		seen[origin] = true
+		out = append(out, origin)
+		if strings.Contains(origin, "://localhost:") || strings.Contains(origin, "://127.0.0.1:") {
+			hasLocalOrigin = true
+		}
+	}
+	if !hasLocalOrigin {
+		return out
+	}
+	for _, origin := range defaultOrigins {
+		if !seen[origin] {
+			out = append(out, origin)
+		}
+	}
+	return out
 }
 
 // parseTrustedProxies parses a comma-separated list of CIDR prefixes from the
@@ -115,6 +142,11 @@ type RouterOptions struct {
 	// SkillProxy, when non-nil, enables the /api/agent-skills endpoints that
 	// proxy skill fetches to the costrict-web internal API.
 	SkillProxy *service.SkillProxy
+	// DeptSync, when non-nil, is the shared dept-sync client used by both the
+	// handler (member management) and the SubjectResolver (login-time dept
+	// linking). main.go constructs it once and passes it in; tests leave it
+	// nil and the router falls back to constructing one from env.
+	DeptSync *deptsync.Client
 }
 
 func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus, analyticsClient analytics.Client, rdb *redis.Client, opts RouterOptions) chi.Router {
@@ -156,6 +188,11 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 		CasdoorOrgName:          os.Getenv("CASDOOR_ORG_NAME"),
 		CasdoorAppName:          os.Getenv("CASDOOR_APP_NAME"),
 		BuiltinPluginAPIBaseURL: strings.TrimRight(strings.TrimSpace(os.Getenv("BUILTIN_PLUGIN_API_BASE_URL")), "/"),
+		// CSC plugin marketplace identity delivered to the daemon. No default:
+		// when unset, the daemon falls back to its own built-in github default.
+		CSCPluginMarketplaceName: strings.TrimSpace(os.Getenv("CSC_PLUGIN_MARKETPLACE_NAME")),
+		CSCPluginMarketplaceRepo: strings.TrimSpace(os.Getenv("CSC_PLUGIN_MARKETPLACE_REPO")),
+		CloudGatewayProxyPrefix:  strings.TrimRight(strings.TrimSpace(os.Getenv("MULTICA_CLOUD_GATEWAY_PROXY_PREFIX")), "/"),
 	}
 	h := handler.New(queries, pool, hub, bus, emailSvc, store, cfSigner, analyticsClient, signupConfig, daemonHub)
 	if opts.DaemonWakeup != nil {
@@ -172,6 +209,16 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 	}
 	if opts.HeartbeatScheduler != nil {
 		h.HeartbeatScheduler = opts.HeartbeatScheduler
+	}
+	if opts.DeptSync != nil {
+		h.DeptSync = opts.DeptSync
+	} else {
+		h.DeptSync = deptsync.NewClient(deptsync.Config{
+			BaseURL:  strings.TrimRight(strings.TrimSpace(os.Getenv("DEPT_SYNC_BASE_URL")), "/"),
+			QueryKey: os.Getenv("DEPT_SYNC_QUERY_KEY"),
+			Timeout:  envDuration("DEPT_SYNC_TIMEOUT", 10*time.Second),
+			CacheTTL: envDuration("DEPT_SYNC_CACHE_TTL", time.Minute),
+		})
 	}
 	// Auth caches: PAT cache is shared between the regular Auth middleware,
 	// the DaemonAuth fallback (mul_) path, and the revoke handler
@@ -279,6 +326,10 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 	// Public API
 	r.Get("/api/config", h.GetConfig)
 	r.Get("/api/plugins/builtin", h.ListBuiltinPlugins)
+	r.Get("/api/plugins/{id}", h.GetPlugin)
+	r.Get("/api/catalog/plugins", h.ListCatalogPlugins)
+	r.Get("/api/catalog/skills", h.ListCatalogSkills)
+	r.Get("/api/catalog/skills/{id}", h.GetCatalogSkill)
 	r.With(contactSalesRL).Post("/api/contact-sales", h.CreateContactSales)
 
 	// Webhook ingress for autopilots. Outside the authenticated group on
@@ -365,6 +416,10 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 		r.Put("/api/workflow-admins", h.UpdateWorkflowAdmins)
 		r.Post("/api/workflow-admins/invite", h.InviteWorkflowAdmin)
 
+		r.Get("/api/dept/departments/search", h.SearchDeptDepartments)
+		r.Get("/api/dept/departments/{id}/users", h.ListDeptDepartmentUsers)
+		r.Get("/api/dept/users/search", h.SearchDeptUsers)
+
 		r.Route("/api/workspaces", func(r chi.Router) {
 			r.Get("/", h.ListWorkspaces)
 			r.Post("/", h.CreateWorkspace)
@@ -382,12 +437,15 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 					// can_manage hint so the UI can gate connect/disconnect.
 					r.Get("/github/installations", h.ListGitHubInstallations)
 					r.Get("/gitlab/settings", h.HandleGetGitlabSettings)
+					// Issue conversation session: returns conversation_id + workspace_directory + events_url.
+					r.Get("/issues/{issueID}/session", h.GetIssueConversationSession)
 				})
 				// Admin-level access
 				r.Group(func(r chi.Router) {
 					r.Use(middleware.RequireWorkspaceRoleFromURL(queries, "id", "owner", "admin"))
 					r.Put("/", h.UpdateWorkspace)
 					r.Patch("/", h.UpdateWorkspace)
+					r.Post("/dept-members", h.BatchAddDeptMembers)
 					r.Post("/members", h.CreateInvitation)
 					r.Route("/members/{memberId}", func(r chi.Router) {
 						r.Patch("/", h.UpdateMember)
@@ -663,6 +721,8 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 					r.Get("/tasks", h.ListAgentTasks)
 					r.Get("/skills", h.ListAgentSkills)
 					r.Put("/skills", h.SetAgentSkills)
+					r.Get("/cloud-skills", h.ListAgentCloudSkills)
+					r.Put("/cloud-skills", h.SetAgentCloudSkills)
 				})
 			})
 

@@ -72,8 +72,24 @@ SELECT * FROM multica_user
 WHERE subject_id = $1
 LIMIT 1;
 
+-- name: GetUserByCasdoorUniversalID :one
+SELECT * FROM multica_user
+WHERE casdoor_universal_id = $1
+LIMIT 1;
+
 -- name: SetUserSubjectID :exec
 UPDATE multica_user SET subject_id = $2, updated_at = now()
+WHERE id = $1;
+
+-- name: SetUserCasdoorUniversalID :exec
+UPDATE multica_user SET casdoor_universal_id = $2, updated_at = now()
+WHERE id = $1;
+
+-- name: SetUserName :exec
+-- Overwrites the display name. Used on login to sync the name from the
+-- org source of truth (dept-sync), repairing placeholder names such as a
+-- Casdoor login name that was stored as the multica user name at provisioning.
+UPDATE multica_user SET name = $2, updated_at = now()
 WHERE id = $1;
 
 -- name: SetStarterContentState :one

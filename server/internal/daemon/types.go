@@ -110,16 +110,17 @@ type UpstreamStageNode struct {
 
 // AgentData holds agent details returned by the claim endpoint.
 type AgentData struct {
-	ID            string               `json:"id"`
-	Name          string               `json:"name"`
-	Instructions  string               `json:"instructions"`
-	Skills        []SkillData          `json:"skills"`
-	CustomEnv     map[string]string    `json:"custom_env,omitempty"`
-	CustomArgs    []string             `json:"custom_args,omitempty"`
-	McpConfig     json.RawMessage      `json:"mcp_config,omitempty"`
-	Model         string               `json:"model,omitempty"`
-	ThinkingLevel string               `json:"thinking_level,omitempty"`
-	Plugin        *execenv.AgentPlugin `json:"plugin,omitempty"`
+	ID            string                      `json:"id"`
+	Name          string                      `json:"name"`
+	Instructions  string                      `json:"instructions"`
+	Skills        []SkillData                 `json:"skills"`
+	CloudSkills   []execenv.CloudSkillInstall `json:"cloud_skills,omitempty"`
+	CustomEnv     map[string]string           `json:"custom_env,omitempty"`
+	CustomArgs    []string                    `json:"custom_args,omitempty"`
+	McpConfig     json.RawMessage             `json:"mcp_config,omitempty"`
+	Model         string                      `json:"model,omitempty"`
+	ThinkingLevel string                      `json:"thinking_level,omitempty"`
+	Plugin        *execenv.AgentPlugin        `json:"plugin,omitempty"`
 }
 
 // SkillData represents a structured skill for task execution.

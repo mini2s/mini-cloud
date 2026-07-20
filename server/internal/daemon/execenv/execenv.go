@@ -32,6 +32,7 @@ type ProjectResourceForEnv struct {
 
 // PrepareParams holds all inputs needed to set up an execution environment.
 type PrepareParams struct {
+	Context        context.Context   // live task context; nil defaults to context.Background
 	WorkspacesRoot string            // base path for all envs (e.g., ~/multica_workspaces)
 	WorkspaceID    string            // workspace UUID — tasks are grouped under this
 	TaskID         string            // task UUID — used for directory name
@@ -39,7 +40,7 @@ type PrepareParams struct {
 	Provider       string            // agent provider (determines runtime config and skill injection paths)
 	CodexVersion   string            // detected Codex CLI version (only used when Provider == "codex")
 	OpenclawBin    string            // resolved openclaw CLI path (only used when Provider == "openclaw"); empty = look up on PATH
-	CSCBin         string            // resolved csc CLI path (only used when Provider == "csc"); empty = skip plugin setup
+	CSCBin         string            // resolved csc CLI path (only used when Provider == "csc")
 	Task           TaskContextForEnv // context data for writing files
 }
 
@@ -51,6 +52,7 @@ type TaskContextForEnv struct {
 	AgentName                           string
 	AgentInstructions                   string // agent identity/persona instructions, injected into CLAUDE.md
 	AgentSkills                         []SkillContextForEnv
+	CloudSkills                         []CloudSkillInstall
 	Repos                               []RepoContextForEnv     // workspace repos available for checkout
 	ProjectID                           string                  // issue's project, when present
 	ProjectTitle                        string                  // human-readable project title
@@ -209,9 +211,16 @@ func Prepare(params PrepareParams, logger *slog.Logger) (*Environment, error) {
 	// the runtime with the tools it needs to execute the dispatched task.
 	// Fail closed: if plugins are specified but installation fails, the task
 	// cannot run meaningfully.
-	if params.Provider == "csc" && params.CSCBin != "" {
-		if err := setupPlugins(context.Background(), params.Provider, params.CSCBin, env.WorkDir, params.Task.Plugin, logger); err != nil {
+	if params.Provider == "csc" {
+		setupCtx := params.Context
+		if setupCtx == nil {
+			setupCtx = context.Background()
+		}
+		if err := setupPlugins(setupCtx, params.Provider, params.CSCBin, env.WorkDir, params.Task.Plugin, logger); err != nil {
 			return nil, fmt.Errorf("plugin setup: %w", err)
+		}
+		if err := setupCloudSkills(setupCtx, params.Provider, params.CSCBin, env.WorkDir, params.Task.CloudSkills, logger); err != nil {
+			return nil, fmt.Errorf("cloud skill setup: %w", err)
 		}
 	}
 
