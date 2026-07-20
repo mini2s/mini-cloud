@@ -61,7 +61,8 @@ import { CommentInput } from "./comment-input";
 import { ResolvedThreadBar } from "./resolved-thread-bar";
 import { collectThreadReplies } from "./thread-utils";
 import { AgentLiveCard } from "./agent-live-card";
-import { Session, type SessionMode } from "../../common/session";
+import { type SessionMode } from "../../common/session";
+import { IssueConversationPanel } from "./issue-conversation-panel";
 import { ExecutionLogSection } from "./execution-log-section";
 import { PullRequestList } from "./pull-request-list";
 import { useGitHubSettings } from "@multica/core/github";
@@ -833,6 +834,7 @@ export function IssueDetail({ issueId, onDelete, onDone, defaultSidebarOpen = tr
   const [scrollContainerEl, setScrollContainerEl] = useState<HTMLDivElement | null>(null);
   const [highlightedId, setHighlightedId] = useState<string | null>(null);
   const [contentTab, setContentTab] = useState<"activity" | "session">("activity");
+  const [sessionOpened, setSessionOpened] = useState(false);
   const [sessionMode, setSessionMode] = useState<SessionMode>("observe");
 
   // Per-session: which resolved threads the user has temporarily expanded.
@@ -1161,11 +1163,13 @@ export function IssueDetail({ issueId, onDelete, onDone, defaultSidebarOpen = tr
 
   const handleTakeoverSession = useCallback(() => {
     if (!canTakeOverSession) return;
+    setSessionOpened(true);
     setSessionMode("control");
     setContentTab("session");
   }, [canTakeOverSession]);
 
   useEffect(() => {
+    setSessionOpened(false);
     setSessionMode("observe");
     setContentTab("activity");
   }, [id, originNodeRun?.session_id, originNodeRun?.completed_at]);
@@ -1176,6 +1180,9 @@ export function IssueDetail({ issueId, onDelete, onDone, defaultSidebarOpen = tr
     }
     if (!canControlSession && contentTab === "session") {
       setContentTab("activity");
+    }
+    if (!canControlSession) {
+      setSessionOpened(false);
     }
   }, [canControlSession, contentTab]);
 
@@ -2197,7 +2204,10 @@ export function IssueDetail({ issueId, onDelete, onDone, defaultSidebarOpen = tr
                     aria-controls="issue-session-panel"
                     aria-selected={contentTab === "session"}
                     disabled={!canControlSession}
-                    onClick={() => setContentTab("session")}
+                    onClick={() => {
+                      setSessionOpened(true);
+                      setContentTab("session");
+                    }}
                     className={cn(
                       "relative border-b-2 border-transparent text-sm font-medium transition-colors",
                       contentTab === "session"
@@ -2281,12 +2291,15 @@ export function IssueDetail({ issueId, onDelete, onDone, defaultSidebarOpen = tr
                 aria-labelledby="issue-session-tab"
                 hidden={contentTab !== "session"}
               >
-                <Session
-                  sessionId={originNodeRun.session_id}
-                  mode={sessionMode}
-                  active={contentTab === "session"}
-                  onTakeover={handleTakeoverSession}
-                />
+                {sessionOpened && (
+                  <IssueConversationPanel
+                    workspaceId={wsId}
+                    issueId={id}
+                    mode={sessionMode}
+                    active={contentTab === "session"}
+                    onTakeover={handleTakeoverSession}
+                  />
+                )}
               </div>
             )}
             {contentTab === "activity" && (

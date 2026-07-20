@@ -6,6 +6,65 @@ afterEach(() => {
 });
 
 describe("ApiClient", () => {
+  it("uses the authenticated raw transport for absolute proxy requests", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response("event stream", { status: 200 }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const client = new ApiClient("https://api.example.test", {
+      identity: { platform: "web", version: "1.2.3" },
+    });
+    client.setToken("token-1");
+
+    await client.requestRaw(
+      "https://api.example.test/cloud-api/device-1/proxy/api/v1/events",
+      {
+        headers: {
+          Accept: "text/event-stream",
+          "X-Workspace-Directory": "%2Fworkspace",
+        },
+      },
+    );
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://api.example.test/cloud-api/device-1/proxy/api/v1/events",
+      expect.objectContaining({
+        credentials: "include",
+        headers: expect.objectContaining({
+          Authorization: "Bearer token-1",
+          Accept: "text/event-stream",
+          "X-Workspace-Directory": "%2Fworkspace",
+          "X-Client-Platform": "web",
+          "X-Client-Version": "1.2.3",
+        }),
+      }),
+    );
+  });
+
+  it("uses the workspace-scoped issue conversation session endpoint", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          conversation_id: "conversation-1",
+          workspace_directory: "/workspace",
+          proxy_base_url: "/proxy",
+        }),
+        {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        },
+      ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const client = new ApiClient("https://api.example.test");
+
+    await client.getIssueConversationSession("workspace/1", "issue/1");
+
+    expect(fetchMock.mock.calls[0]?.[0]).toBe(
+      "https://api.example.test/api/workspaces/workspace%2F1/issues/issue%2F1/session",
+    );
+  });
+
   it("preserves HTTP status on failed requests", async () => {
     vi.stubGlobal(
       "fetch",

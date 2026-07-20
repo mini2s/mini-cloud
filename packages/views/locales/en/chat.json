@@ -117,6 +117,8 @@
   },
   "session": {
     "loading": "Loading live session…",
+    "load_error": "The live session could not be loaded.",
+    "retry": "Retry",
     "observe_description": "Take over the session to send messages or stop the current run.",
     "takeover": "Take over session",
     "composer_placeholder": "Send a message to the agent…",
@@ -136,19 +138,6 @@
     "tool_input": "Input",
     "tool_output": "Output",
     "cancelled": "Response stopped",
-    "error": "The response could not be completed.",
-    "fixture": {
-      "user_request": "Check the current implementation and summarize what still needs attention.",
-      "reasoning": "I’ll inspect the relevant files and compare the current behavior with the requested interaction.",
-      "summary": "The session UI is now separated from the issue detail and ready for a real runtime adapter.\n\n- The message thread uses **assistant-ui** primitives.\n- Observe and control modes share the same mounted runtime.\n- Tool calls are display-only in this fixture.",
-      "read_path": "packages/views/issues/components/issue-detail.tsx",
-      "read_result": "Found the session tab integration and permission gate.",
-      "unknown_result": "Fixture metadata loaded.",
-      "failed_result": "Fixture search index is temporarily unavailable.",
-      "stream_reasoning": "I’ll turn that request into a short, actionable update.",
-      "stream_intro": "I reviewed your message. ",
-      "stream_tool_output": "Typecheck fixture completed without running a real command.",
-      "stream_done": "Here is the fixture response: the standalone session component is working and can be replaced with the real runtime later."
-    }
+    "error": "The response could not be completed."
   }
 }

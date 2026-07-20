@@ -10,7 +10,7 @@ import { Skeleton } from "@multica/ui/components/ui/skeleton";
 import { ArrowDown, ArrowUp, CornerDownRight, Loader2, Square } from "lucide-react";
 import { useT } from "../../i18n";
 import type { SessionMode } from "./session";
-import { useFixtureSessionState } from "./fixture-session-runtime";
+import { useSessionRuntimeState } from "./session-runtime-state";
 import { SessionMessage } from "./session-message";
 
 function SessionLoading() {
@@ -33,9 +33,32 @@ function SessionLoading() {
   );
 }
 
+function SessionError({
+  retry,
+}: {
+  retry: (() => void) | undefined;
+}) {
+  const { t } = useT("chat");
+  return (
+    <div
+      className="mx-auto flex w-full max-w-4xl flex-1 flex-col items-center justify-center gap-3 px-5 py-8 text-center"
+      role="alert"
+    >
+      <p className="text-sm text-muted-foreground">
+        {t(($) => $.session.load_error)}
+      </p>
+      {retry && (
+        <Button type="button" variant="outline" size="sm" onClick={retry}>
+          {t(($) => $.session.retry)}
+        </Button>
+      )}
+    </div>
+  );
+}
+
 function Composer() {
   const { t } = useT("chat");
-  const { isLoading, isCancelling } = useFixtureSessionState();
+  const { isLoading, isCancelling } = useSessionRuntimeState();
   return (
     <ComposerPrimitive.Root className="rounded-xl border bg-background p-2 shadow-sm focus-within:border-ring">
       <ComposerPrimitive.Input
@@ -101,13 +124,15 @@ export function SessionThread({
   onTakeover: () => void;
 }) {
   const { t } = useT("chat");
-  const { isLoading } = useFixtureSessionState();
+  const { isLoading, error, retry } = useSessionRuntimeState();
   return (
     <ThreadPrimitive.Root className="flex min-h-0 flex-1 flex-col bg-background">
       <ThreadPrimitive.Viewport className="relative flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain scroll-smooth">
         <div className="mx-auto flex w-full max-w-4xl flex-1 flex-col px-5 pt-4">
           {isLoading ? (
             <SessionLoading />
+          ) : error !== undefined ? (
+            <SessionError retry={retry} />
           ) : (
             <div className="flex flex-col gap-5 pb-6">
               <ThreadPrimitive.Messages components={{ Message: SessionMessage }} />
@@ -125,7 +150,7 @@ export function SessionThread({
                 <ArrowDown className="size-4" />
               </Button>
             </ThreadPrimitive.ScrollToBottom>
-            {mode === "observe" ? (
+            {error !== undefined ? null : mode === "observe" ? (
               <TakeoverBar onTakeover={onTakeover} />
             ) : (
               <Composer />

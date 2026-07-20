@@ -233,6 +233,30 @@ vi.mock("./execution", () => ({
   },
 }));
 
+vi.mock("./issue-conversation-panel", () => ({
+  IssueConversationPanel: ({
+    mode,
+    onTakeover,
+  }: {
+    mode: "observe" | "control";
+    active: boolean;
+    onTakeover: () => void;
+  }) => (
+    <div data-testid="session">
+      {mode === "observe" ? (
+        <>
+          <p>Take over the session to send messages or stop the current run.</p>
+          <button type="button" onClick={onTakeover}>
+            Take over session
+          </button>
+        </>
+      ) : (
+        <textarea aria-label="Live session message" />
+      )}
+    </div>
+  ),
+}));
+
 // Mock api
 const mockApiObj = vi.hoisted(() => ({
   getIssue: vi.fn(),

@@ -421,7 +421,10 @@ export class ApiClient {
 
     this.logger.debug(`→ ${method} ${path}`, { rid });
 
-    const res = await fetch(`${this.baseUrl}${path}`, {
+    const requestUrl = /^[a-z][a-z\d+.-]*:\/\//i.test(path)
+      ? path
+      : `${this.baseUrl}${path}`;
+    const res = await fetch(requestUrl, {
       ...init,
       headers,
       credentials: "include",
@@ -437,6 +440,17 @@ export class ApiClient {
 
     this.logger.debug(`← ${res.status} ${path}`, { rid, duration: `${Date.now() - start}ms` });
     return res;
+  }
+
+  /**
+   * Authenticated raw transport for protocol adapters that own their response
+   * decoder (SSE, file streams, and generated SDK facades).
+   */
+  async requestRaw(
+    path: string,
+    init?: RequestInit & { extraHeaders?: Record<string, string> },
+  ): Promise<Response> {
+    return this.fetchRaw(path, init);
   }
 
   private async fetch<T>(path: string, init?: RequestInit): Promise<T> {
@@ -614,6 +628,15 @@ export class ApiClient {
 
   async getIssue(id: string): Promise<Issue> {
     return this.fetch(`/api/issues/${id}`);
+  }
+
+  async getIssueConversationSession(
+    workspaceId: string,
+    issueId: string,
+  ): Promise<unknown> {
+    return this.fetch(
+      `/api/workspaces/${encodeURIComponent(workspaceId)}/issues/${encodeURIComponent(issueId)}/session`,
+    );
   }
 
   async createIssue(data: CreateIssueRequest): Promise<Issue> {
