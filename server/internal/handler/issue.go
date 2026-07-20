@@ -2711,7 +2711,7 @@ func (h *Handler) DeleteIssue(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if activeSplit {
-		writeError(w, http.StatusConflict, "issue has an active split workflow")
+		writeCodeError(w, http.StatusConflict, "active_split_blocking", "issue has an active split workflow")
 		return
 	}
 
@@ -3157,7 +3157,7 @@ func (h *Handler) BatchDeleteIssues(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if activeSplit {
-			writeError(w, http.StatusConflict, "issue has an active split workflow")
+			writeCodeError(w, http.StatusConflict, "active_split_blocking", "issue has an active split workflow")
 			return
 		}
 

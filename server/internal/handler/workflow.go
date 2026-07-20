@@ -556,7 +556,7 @@ func (h *Handler) DeleteWorkflow(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if count > 0 {
-			writeError(w, http.StatusConflict, fmt.Sprintf("template has %d derived workflows, cannot delete", count))
+			writeCodeError(w, http.StatusConflict, "template_has_derived_workflows", fmt.Sprintf("template has %d derived workflows, cannot delete", count))
 			return
 		}
 	}

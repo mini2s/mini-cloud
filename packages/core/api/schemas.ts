@@ -32,6 +32,16 @@ import type {
 } from "../types";
 import type { CloudRuntimeNode } from "../runtimes/cloud-runtime";
 
+export const DeleteConflictErrorBodySchema = z.object({
+  code: z.enum([
+    "active_split_blocking",
+    "runtime_has_active_agents",
+    "template_has_derived_workflows",
+  ]),
+}).loose();
+
+export type DeleteConflictErrorBody = z.infer<typeof DeleteConflictErrorBodySchema>;
+
 // ---------------------------------------------------------------------------
 // Schemas for the highest-risk API endpoints — those whose responses drive
 // the issue detail page (timeline, comments, subscribers) and the issues

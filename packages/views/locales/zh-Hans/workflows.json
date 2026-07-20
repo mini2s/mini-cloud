@@ -69,6 +69,7 @@
     "toast_save_failed": "保存工作流失败",
     "toast_deleted": "工作流已删除",
     "toast_delete_failed": "删除工作流失败",
+    "template_has_derived_workflows": "该模板仍有派生工作流，无法删除。",
     "toast_activated": "工作流已启用",
     "toast_deactivated": "工作流已停用",
     "toast_activate_failed": "更新工作流状态失败",

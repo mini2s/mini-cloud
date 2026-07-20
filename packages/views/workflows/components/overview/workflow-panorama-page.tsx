@@ -56,6 +56,7 @@ import {
 import { AlertCircle, ArrowLeft, Layers, PanelsTopLeft, Plus } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@multica/ui/components/ui/popover";
 import { toast } from "sonner";
+import { getDeleteConflictMessage } from "../../../common/delete-conflict-error";
 
 import { WorkflowCanvasCore } from "../canvas/workflow-canvas-core";
 import {
@@ -1048,8 +1049,12 @@ export function WorkflowPanoramaPage({ workflowId, viewToggle }: WorkflowPanoram
       await deleteWorkflowMutation.mutateAsync(workflowId);
       toast.success(t(($) => $.detail.toast_deleted));
       navigation.push(wsPaths.workflows());
-    } catch {
-      toast.error(t(($) => $.detail.toast_delete_failed));
+    } catch (error) {
+      toast.error(
+        getDeleteConflictMessage(error, {
+          template_has_derived_workflows: t(($) => $.detail.template_has_derived_workflows),
+        }) ?? t(($) => $.detail.toast_delete_failed),
+      );
     }
   }, [workflowId, deleteWorkflowMutation, navigation, wsPaths, t]);
 

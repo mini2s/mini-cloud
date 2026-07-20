@@ -27,6 +27,7 @@ import { WorkflowTemplatePreviewCanvas } from "./workflow-template-preview-canva
 import { cn } from "@multica/ui/lib/utils";
 import { useT } from "../../i18n";
 import type { Workflow, WorkflowStatus } from "@multica/core/types";
+import { getDeleteConflictMessage } from "../../common/delete-conflict-error";
 
 const STATUS_ICON: Record<WorkflowStatus, typeof Play> = {
   active: Play,
@@ -90,8 +91,12 @@ function WorkflowRow({ workflow }: { workflow: Workflow }) {
     try {
       await deleteWorkflow.mutateAsync(workflow.id);
       toast.success(t(($) => $.detail.toast_deleted));
-    } catch {
-      toast.error(t(($) => $.detail.toast_delete_failed));
+    } catch (error) {
+      toast.error(
+        getDeleteConflictMessage(error, {
+          template_has_derived_workflows: t(($) => $.detail.template_has_derived_workflows),
+        }) ?? t(($) => $.detail.toast_delete_failed),
+      );
     }
   };
 

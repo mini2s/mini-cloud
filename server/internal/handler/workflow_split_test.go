@@ -221,6 +221,11 @@ func createSplitApproveFixture(t *testing.T, mode string) splitApproveFixture {
 	`, f.parentWorkflow, testWorkspaceID, testUserID).Scan(&f.parentRunID); err != nil {
 		t.Fatalf("create parent run: %v", err)
 	}
+	if _, err := testPool.Exec(ctx, `
+		UPDATE multica_issue SET workflow_run_id = $2 WHERE id = $1
+	`, f.parentIssueID, f.parentRunID); err != nil {
+		t.Fatalf("link parent issue to workflow run: %v", err)
+	}
 
 	if err := testPool.QueryRow(ctx, `
 		INSERT INTO multica_workflow_node_run (
@@ -758,6 +763,13 @@ func TestDeleteIssueRejectsParentWithActiveSplit(t *testing.T) {
 	if w.Code != http.StatusConflict {
 		t.Fatalf("status = %d, want 409: %s", w.Code, w.Body.String())
 	}
+	var conflictResp map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &conflictResp); err != nil {
+		t.Fatalf("decode conflict response: %v", err)
+	}
+	if conflictResp["code"] != "active_split_blocking" {
+		t.Fatalf("code = %v, want active_split_blocking", conflictResp["code"])
+	}
 	if _, err := testHandler.Queries.GetIssue(context.Background(), parseUUID(f.parentIssueID)); err != nil {
 		t.Fatalf("parent issue was deleted: %v", err)
 	}
@@ -781,6 +793,13 @@ func TestBatchDeleteIssuesRejectsParentWithActiveSplit(t *testing.T) {
 
 	if w.Code != http.StatusConflict {
 		t.Fatalf("status = %d, want 409: %s", w.Code, w.Body.String())
+	}
+	var conflictResp map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &conflictResp); err != nil {
+		t.Fatalf("decode conflict response: %v", err)
+	}
+	if conflictResp["code"] != "active_split_blocking" {
+		t.Fatalf("code = %v, want active_split_blocking", conflictResp["code"])
 	}
 	if _, err := testHandler.Queries.GetIssue(context.Background(), parseUUID(f.parentIssueID)); err != nil {
 		t.Fatalf("parent issue was deleted: %v", err)

@@ -69,6 +69,7 @@
     "toast_save_failed": "Failed to save workflow",
     "toast_deleted": "Workflow deleted",
     "toast_delete_failed": "Failed to delete workflow",
+    "template_has_derived_workflows": "This template still has derived workflows and cannot be deleted.",
     "toast_activated": "Workflow activated",
     "toast_deactivated": "Workflow deactivated",
     "toast_activate_failed": "Failed to update workflow status",

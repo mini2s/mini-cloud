@@ -28,6 +28,7 @@ import {
   AlertDialogTitle,
 } from "@multica/ui/components/ui/alert-dialog";
 import { Button } from "@multica/ui/components/ui/button";
+import { getDeleteConflictMessage } from "../../common/delete-conflict-error";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -498,7 +499,9 @@ function RowMenu({
       },
       onError: (e) => {
         toast.error(
-          e instanceof Error ? e.message : t(($) => $.detail.toast_delete_failed),
+          getDeleteConflictMessage(e, {
+            runtime_has_active_agents: t(($) => $.detail.runtime_has_active_agents),
+          }) ?? (e instanceof Error ? e.message : t(($) => $.detail.toast_delete_failed)),
         );
       },
     });
