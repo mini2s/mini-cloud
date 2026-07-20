@@ -1,5 +1,7 @@
-import { ComingSoon } from "@/components/layout/coming-soon";
+"use client";
+
+import { BacklogPage } from "@/components/backlog/backlog-page";
 
 export default function Page() {
-  return <ComingSoon module="backlog" label="待办 / Backlog" />;
+  return <BacklogPage />;
 }
