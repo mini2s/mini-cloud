@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/multica-ai/multica/server/internal/util"
 	db "github.com/multica-ai/multica/server/pkg/db/generated"
 )
@@ -86,5 +87,153 @@ func TestEnsureDefaultWorkflow_Idempotent(t *testing.T) {
 		if w.ID == wf1.ID {
 			t.Fatalf("default workflow leaked into ListWorkflowsExcludingTemplates")
 		}
+	}
+}
+
+// TestDefaultRunAssigneeMapping covers the issue→node-run type mapping: member
+// assignee/creator map to "human" (UI upload / UI review); agent/squad pass
+// through. Table-driven, no DB.
+func TestDefaultRunAssigneeMapping(t *testing.T) {
+	cases := []struct {
+		name       string
+		assigneeT  string
+		creatorT   string
+		wantWorker string
+		wantCritic string
+	}{
+		{"agent producer, member creator", "agent", "member", "agent", "human"},
+		{"squad producer, member creator", "squad", "member", "squad", "human"},
+		{"member producer (UI upload), member creator", "member", "member", "human", "human"},
+		{"agent producer, agent creator", "agent", "agent", "agent", "agent"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			issue := db.MulticaIssue{
+				AssigneeType: pgtype.Text{String: tc.assigneeT, Valid: true},
+				CreatorType:  tc.creatorT,
+			}
+			if got := defaultRunWorkerType(issue); got != tc.wantWorker {
+				t.Errorf("worker type: got %q want %q", got, tc.wantWorker)
+			}
+			if got := defaultRunCriticType(issue); got != tc.wantCritic {
+				t.Errorf("critic type: got %q want %q", got, tc.wantCritic)
+			}
+		})
+	}
+}
+
+// TestStartDefaultRunForIssue_AgentAssignee is the M1 integration test: an
+// agent-assigned, member-created issue gets a default-workflow run whose single
+// node-run is overridden (worker=agent, critic=human/member), and an agent task
+// is dispatched and linked to that node-run (so the daemon gets Gitea context).
+func TestStartDefaultRunForIssue_AgentAssignee(t *testing.T) {
+	pool := openTestPool(t)
+	defer pool.Close()
+	ctx := context.Background()
+	// TaskSvc is required: DispatchAgentTask → NotifyTaskEnqueued dereferences it.
+	// EmptyClaim nil + Wakeup nil are both guarded (no-op), so a Queries-only
+	// TaskService suffices for the enqueue side-effect without redis/WS.
+	svc := &WorkflowService{
+		Queries:   db.New(pool),
+		TxStarter: pool,
+		TaskSvc:   &TaskService{Queries: db.New(pool), TxStarter: pool},
+	}
+
+	suffix := fmt.Sprintf("sd-%d-%d", os.Getpid(), time.Now().UnixNano())
+
+	var wsID string
+	if err := pool.QueryRow(ctx, `
+		INSERT INTO multica_workspace (name, slug, description, issue_prefix)
+		VALUES ($1, $2, 'default run test', 'SD') RETURNING id
+	`, "SD WS "+suffix, "sd-"+suffix).Scan(&wsID); err != nil {
+		t.Fatalf("seed workspace: %v", err)
+	}
+	ws, _ := util.ParseUUID(wsID)
+
+	var userID string
+	if err := pool.QueryRow(ctx, `
+		INSERT INTO multica_user (name, email) VALUES ($1, $2) RETURNING id
+	`, "SD User "+suffix, "sd-"+suffix+"@multica.ai").Scan(&userID); err != nil {
+		t.Fatalf("seed user: %v", err)
+	}
+	var memberID string
+	if err := pool.QueryRow(ctx, `
+		INSERT INTO multica_member (workspace_id, user_id, role) VALUES ($1, $2, 'owner') RETURNING id
+	`, wsID, userID).Scan(&memberID); err != nil {
+		t.Fatalf("seed member: %v", err)
+	}
+	memberUUID, _ := util.ParseUUID(memberID)
+
+	var rtID string
+	if err := pool.QueryRow(ctx, `
+		INSERT INTO multica_agent_runtime (workspace_id, name, runtime_mode, provider, status)
+		VALUES ($1, 'SD RT', 'local', 'legacy_local', 'online') RETURNING id
+	`, wsID).Scan(&rtID); err != nil {
+		t.Fatalf("seed runtime: %v", err)
+	}
+	var agentID string
+	if err := pool.QueryRow(ctx, `
+		INSERT INTO multica_agent (workspace_id, name, runtime_mode, runtime_id)
+		VALUES ($1, 'SD Agent', 'local', $2) RETURNING id
+	`, wsID, rtID).Scan(&agentID); err != nil {
+		t.Fatalf("seed agent: %v", err)
+	}
+	agentUUID, _ := util.ParseUUID(agentID)
+
+	t.Cleanup(func() {
+		pool.Exec(ctx, `DELETE FROM multica_agent_task_queue WHERE agent_id = $1`, agentID)
+		pool.Exec(ctx, `DELETE FROM multica_workflow WHERE workspace_id = $1`, wsID) // cascade: nodes/runs/node-runs
+		pool.Exec(ctx, `DELETE FROM multica_agent WHERE id = $1`, agentID)
+		pool.Exec(ctx, `DELETE FROM multica_agent_runtime WHERE id = $1`, rtID)
+		pool.Exec(ctx, `DELETE FROM multica_member WHERE workspace_id = $1`, wsID)
+		pool.Exec(ctx, `DELETE FROM multica_workspace WHERE id = $1`, wsID)
+		pool.Exec(ctx, `DELETE FROM multica_user WHERE id = $1`, userID)
+	})
+
+	issue := db.MulticaIssue{
+		WorkspaceID:  ws,
+		Title:        "adhoc issue",
+		AssigneeType: pgtype.Text{String: "agent", Valid: true},
+		AssigneeID:   agentUUID,
+		CreatorType:  "member",
+		CreatorID:    memberUUID,
+	}
+
+	run, nr, err := svc.StartDefaultRunForIssue(ctx, issue)
+	if err != nil {
+		t.Fatalf("StartDefaultRunForIssue: %v", err)
+	}
+
+	// Run is on the (auto-created) default workflow.
+	dwf, err := svc.Queries.GetWorkflow(ctx, run.WorkflowID)
+	if err != nil {
+		t.Fatalf("get workflow: %v", err)
+	}
+	if !dwf.IsDefault {
+		t.Fatalf("run workflow is_default=%v, want true", dwf.IsDefault)
+	}
+
+	// Node-run worker overridden to the agent, critic to human/member.
+	got, err := svc.Queries.GetWorkflowNodeRun(ctx, nr.ID)
+	if err != nil {
+		t.Fatalf("get node-run: %v", err)
+	}
+	if got.WorkerType != "agent" || got.WorkerID != agentUUID {
+		t.Fatalf("worker override: type=%q id=%v, want agent/%v", got.WorkerType, got.WorkerID, agentUUID)
+	}
+	if got.CriticType != "human" || got.CriticID != memberUUID {
+		t.Fatalf("critic override: type=%q id=%v, want human/%v", got.CriticType, got.CriticID, memberUUID)
+	}
+
+	// Agent task dispatched and linked to the node-run (so the daemon receives
+	// Gitea deliverable context via buildGiteaDeliverableContext).
+	var taskCount int
+	if err := pool.QueryRow(ctx, `
+		SELECT count(*) FROM multica_agent_task_queue WHERE workflow_node_run_id = $1
+	`, nr.ID).Scan(&taskCount); err != nil {
+		t.Fatalf("count tasks: %v", err)
+	}
+	if taskCount != 1 {
+		t.Fatalf("want 1 agent task linked to node-run, got %d", taskCount)
 	}
 }

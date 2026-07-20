@@ -415,6 +415,85 @@ func (s *WorkflowService) EnsureDefaultWorkflow(ctx context.Context, workspaceID
 	return wf, nil
 }
 
+// StartDefaultRunForIssue starts a run of the workspace's default workflow for
+// an agent/member/squad-assigned issue that has no bound workflow, so the issue
+// gets a Gitea deliverable home: one inst branch in the default repo, with the
+// full scaffold → submit → review → merge path reusable unchanged. The single
+// node-run's worker is set to the issue's assignee and critic to the issue's
+// creator, then the root node-run is dispatched (agent/squad → agent task;
+// member → human worker, awaits UI upload in M2). Gitea scaffolding fires
+// async (dormant no-op when unconfigured). Returns the run + the single node-run.
+//
+// The caller (CreateIssue/UpdateIssue) MUST gate on Gitea configured — this
+// method always builds the run + node-run regardless, so calling it with Gitea
+// unconfigured would create a run whose inst branch never gets scaffolded.
+func (s *WorkflowService) StartDefaultRunForIssue(ctx context.Context, issue db.MulticaIssue) (*db.MulticaWorkflowRun, db.MulticaWorkflowNodeRun, error) {
+	wf, err := s.EnsureDefaultWorkflow(ctx, issue.WorkspaceID)
+	if err != nil {
+		return nil, db.MulticaWorkflowNodeRun{}, err
+	}
+	input, err := json.Marshal(map[string]any{
+		"title":       issue.Title,
+		"description": textToString(issue.Description),
+	})
+	if err != nil {
+		return nil, db.MulticaWorkflowNodeRun{}, fmt.Errorf("marshal issue input: %w", err)
+	}
+	run, err := s.StartRun(ctx, wf, issue.CreatorType, util.UUIDToString(issue.CreatorID), input, pgtype.UUID{})
+	if err != nil {
+		return nil, db.MulticaWorkflowNodeRun{}, fmt.Errorf("start default run: %w", err)
+	}
+	nodeRuns, err := s.Queries.ListWorkflowNodeRunsByRun(ctx, run.ID)
+	if err != nil {
+		return nil, db.MulticaWorkflowNodeRun{}, fmt.Errorf("list node runs: %w", err)
+	}
+	if len(nodeRuns) == 0 {
+		return nil, db.MulticaWorkflowNodeRun{}, fmt.Errorf("default workflow %s has no node", util.UUIDToString(wf.ID))
+	}
+	nr := nodeRuns[0]
+	nr, err = s.Queries.UpdateWorkflowNodeRunAssignees(ctx, db.UpdateWorkflowNodeRunAssigneesParams{
+		ID:         nr.ID,
+		WorkerType: defaultRunWorkerType(issue),
+		WorkerID:   issue.AssigneeID,
+		CriticType: defaultRunCriticType(issue),
+		CriticID:   issue.CreatorID,
+	})
+	if err != nil {
+		return nil, db.MulticaWorkflowNodeRun{}, fmt.Errorf("override node-run assignees: %w", err)
+	}
+
+	// Dispatch the root node-run. dispatchWorker reads the node-run's (now
+	// overridden) worker type: agent/squad → agent task; human (member) →
+	// worker_assigned, awaits UI upload. Errors are logged inside, not returned.
+	s.DispatchRootNodeRuns(ctx, run.ID)
+
+	// Scaffold Gitea for the run (dormant no-op when unconfigured).
+	go s.ScaffoldRunDeliverables(context.Background(), *run)
+
+	return run, nr, nil
+}
+
+// defaultRunWorkerType maps an issue's assignee to a node-run worker type. The
+// node-run worker type drives dispatchWorker's switch (human/agent/squad/role),
+// so a member assignee — who produces via UI upload — maps to "human".
+// issue.AssigneeType is already constrained to member/agent/squad at the API.
+func defaultRunWorkerType(issue db.MulticaIssue) string {
+	if issue.AssigneeType.Valid && issue.AssigneeType.String == "member" {
+		return "human"
+	}
+	return issue.AssigneeType.String // "agent" | "squad"
+}
+
+// defaultRunCriticType maps an issue's creator to a node-run critic type. The
+// critic type drives dispatchCritic's switch (human/agent/squad/api/role), so a
+// member creator — who reviews via the multica UI — maps to "human".
+func defaultRunCriticType(issue db.MulticaIssue) string {
+	if issue.CreatorType == "member" {
+		return "human"
+	}
+	return issue.CreatorType // "agent"
+}
+
 func textToString(t pgtype.Text) string {
 	if t.Valid {
 		return t.String
