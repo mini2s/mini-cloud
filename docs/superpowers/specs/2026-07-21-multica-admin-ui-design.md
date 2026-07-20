@@ -510,7 +510,7 @@ FRONTEND_PORT=3100 pnpm dev --filter @multica/admin  # admin :3100
 - [ ] `pnpm dev --filter @multica/admin`(端口 3100)起得来,无报错
 - [ ] middleware.ts 代理工作,`make server` 起来后能登录(复用现有 auth 流程)
 - [ ] Sidebar 显示 7 大模块 nav-group,中文 label,正确图标(仿 shadcn-admin 视觉)
-- [ ] Header 显示 search / theme-switch / profile-dropdown(仿 shadcn-admin 视觉)
+- [ ] ~~Header 显示 search / theme-switch / profile-dropdown~~ → **推迟到 Phase 1**(Phase 0 的 sidebar footer 已含 user info;主题切换通过 next-themes 生效,只是没有可见 toggle;Header 与 Home 一起在 Phase 1 实现)
 - [ ] 32 个路由全部可访问:
   - 复用类(10 页):真实数据渲染,与 apps/web 同样的功能
   - 改造类(9 页)和新写类(13 页):显示 Coming Soon 占位
