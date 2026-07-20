@@ -27,6 +27,11 @@ export function CompactNodeCard({
 
   const subtitleLabel = (() => {
     if (workerName) return workerName;
+    if (node.worker_role === "developer") return `${t(($) => $.node.role_placeholder_label)} · ${t(($) => $.node.role_developer)}`;
+    if (node.worker_role === "qa") return `${t(($) => $.node.role_placeholder_label)} · ${t(($) => $.node.role_qa)}`;
+    if (node.worker_role === "tech_lead") {
+      return `${t(($) => $.node.role_placeholder_label)} · ${t(($) => $.node.role_tech_lead)}`;
+    }
     const wt = node.worker_type;
     const typeLabel =
       wt === "human" ? t(($) => $.node.worker_type_human)
@@ -59,7 +64,7 @@ export function CompactNodeCard({
         <span
           className={cn(
             "inline-block h-1.5 w-1.5 shrink-0 rounded-full",
-            workerName ? "bg-[var(--success)]" : "bg-muted-foreground/40",
+            workerName ? "bg-[var(--success)]" : node.worker_role ? "bg-amber-500" : "bg-muted-foreground/40",
           )}
         />
         <span className="truncate text-[11px] text-muted-foreground">

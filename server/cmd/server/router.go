@@ -581,6 +581,7 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 					r.Get("/", h.GetWorkflow)
 					r.Put("/", h.UpdateWorkflow)
 					r.Delete("/", h.DeleteWorkflow)
+					r.Post("/roles/mutate", h.MutateWorkflowRole)
 					r.Put("/template", h.ToggleWorkflowTemplate)
 					// Nodes
 					r.Get("/nodes", h.ListWorkflowNodes)
@@ -638,10 +639,6 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 
 			// My workflow tasks
 			r.Get("/api/my-tasks", h.ListMyWorkflowTasks)
-
-			// Workflow roles
-			r.Get("/api/workflow-roles", h.ListWorkflowRoles)
-			r.Post("/api/workflow-roles", h.CreateWorkflowRole)
 
 			// Squad leader evaluation (writes to activity_log)
 			r.Post("/api/issues/{id}/squad-evaluated", h.RecordSquadLeaderEvaluation)

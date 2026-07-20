@@ -29,7 +29,6 @@ import {
   useCreateStage,
   useDeleteNode,
   useAssignNodeToStage,
-  workflowRolesOptions,
   workflowNodeDeliverablesOptions,
   useCreateWorkflowNodeDeliverable,
   useUpdateWorkflowNodeDeliverable,
@@ -37,7 +36,7 @@ import {
 } from "@multica/core/workflows/queries";
 import { useWorkflowEditorStore } from "@multica/core/workflows/store";
 import { AssigneePicker } from "../../issues/components/pickers/assignee-picker";
-import { parseNodeFormat, type WorkflowNode, type WorkflowNodeRun, type WorkflowStage, type WorkerType, type CriticType, type WorkflowNodeDeliverable } from "@multica/core/types";
+import { parseNodeFormat, type WorkflowNode, type WorkflowNodeRun, type WorkflowStage, type WorkerType, type CriticType, type WorkflowNodeDeliverable, type WorkflowRoleKey } from "@multica/core/types";
 import type { IssueAssigneeType } from "@multica/core/types/issue";
 import { NodeDeliverablesEditor, type WorkflowNodeDeliverableDraft } from "./node-deliverables-editor";
 import { NodeDataPreview } from "./node-data-preview";
@@ -129,13 +128,6 @@ function InspectorSection({
   );
 }
 
-function isDirectWorkerType(type: WorkerType): type is "human" | "agent" | "squad" {
-  return type === "human" || type === "agent" || type === "squad";
-}
-
-function isDirectCriticType(type: CriticType): type is "human" | "agent" | "squad" {
-  return type === "human" || type === "agent" || type === "squad";
-}
 
 function AssignmentModeControl<T extends string>({
   value,
@@ -240,7 +232,7 @@ function AssigneePickerTrigger({
   emptyLabel?: string;
   t: ReturnType<typeof useT<"workflows">>["t"];
 }) {
-  const Icon = type === "agent" ? Bot : type === "squad" ? Users : User;
+  const Icon = type === "agent" ? Bot : type === "squad" ? Users : type === "role" ? ShieldCheck : User;
   return (
     <>
       <Icon className="size-3.5 text-muted-foreground" />
@@ -289,6 +281,10 @@ interface NodeConfigPanelProps {
   onRegisterSave?: (save: (() => Promise<boolean>) | null) => void;
   onDeleteNode?: (nodeId: string) => void;
   onStageChange?: (nodeId: string, stageId: string | null) => void;
+  customRoles?: string[];
+  onAddCustomRole?: (name: string) => WorkflowRoleKey | null | void;
+  onDeleteCustomRole?: (name: string) => void;
+  onRenameCustomRole?: (oldName: string, newName: string) => void;
 }
 
 const EMPTY_DELIVERABLES: WorkflowNodeDeliverable[] = [];
@@ -306,6 +302,10 @@ export function NodeConfigPanel({
   onRegisterSave,
   onDeleteNode,
   onStageChange,
+  customRoles = [],
+  onAddCustomRole,
+  onDeleteCustomRole,
+  onRenameCustomRole,
 }: NodeConfigPanelProps) {
   const { t } = useT("workflows");
   const wsId = useWorkspaceId();
@@ -318,7 +318,6 @@ export function NodeConfigPanel({
   const nodeEdits = useWorkflowEditorStore((s) => s.nodeEdits);
   const undoRedoVersion = useWorkflowEditorStore((s) => s._undoRedoVersion);
   const cacheNodeEdits = useWorkflowEditorStore((s) => s.cacheNodeEdits);
-  const { data: roles = [] } = useQuery(workflowRolesOptions(wsId));
   const { data: savedDeliverablesData } = useQuery(
     workflowNodeDeliverablesOptions(wsId, workflowId, node.id),
   );
@@ -343,8 +342,10 @@ export function NodeConfigPanel({
   const [description, setDescription] = useState(saved?.description ?? node.description);
   const [workerType, setWorkerType] = useState(saved?.worker_type ?? node.worker_type);
   const [workerId, setWorkerId] = useState<string | null>(saved?.worker_id ?? node.worker_id ?? null);
+  const [workerRole, setWorkerRole] = useState<WorkflowRoleKey | null>((saved?.worker_role ?? node.worker_role ?? null) as WorkflowRoleKey | null);
   const [criticType, setCriticType] = useState(saved?.critic_type ?? node.critic_type);
   const [criticId, setCriticId] = useState<string | null>(saved?.critic_id ?? node.critic_id ?? null);
+  const [criticRole, setCriticRole] = useState<WorkflowRoleKey | null>((saved?.critic_role ?? node.critic_role ?? null) as WorkflowRoleKey | null);
   const [criticApiUrl, setCriticApiUrl] = useState(saved?.critic_api_url ?? node.critic_api_url ?? "");
   const [stageId, setStageId] = useState<string | null>(node.stage_id ?? null);
   const [showCreateForm, setShowCreateForm] = useState(false);
@@ -364,6 +365,17 @@ export function NodeConfigPanel({
     ].join(":")).join("|"),
     [savedDeliverables],
   );
+
+  const roleLabels = useMemo<Record<string, string>>(() => ({
+    developer: t(($) => $.node.role_developer),
+    qa: t(($) => $.node.role_qa),
+    tech_lead: t(($) => $.node.role_tech_lead),
+  }), [t]);
+
+  useEffect(() => {
+    setWorkerRole((saved?.worker_role ?? node.worker_role ?? null) as WorkflowRoleKey | null);
+    setCriticRole((saved?.critic_role ?? node.critic_role ?? null) as WorkflowRoleKey | null);
+  }, [saved?.worker_role, saved?.critic_role, node.worker_role, node.critic_role]);
 
   useEffect(() => {
     setStageId(node.stage_id ?? null);
@@ -404,10 +416,40 @@ export function NodeConfigPanel({
     setDescription(s?.description ?? node.description);
     setWorkerType(s?.worker_type ?? node.worker_type);
     setWorkerId(s?.worker_id ?? node.worker_id ?? null);
+    setWorkerRole((s?.worker_role ?? node.worker_role ?? null) as WorkflowRoleKey | null);
     setCriticType(s?.critic_type ?? node.critic_type);
     setCriticId(s?.critic_id ?? node.critic_id ?? null);
+    setCriticRole((s?.critic_role ?? node.critic_role ?? null) as WorkflowRoleKey | null);
     setCriticApiUrl(s?.critic_api_url ?? node.critic_api_url ?? "");
   }, [node.id, undoRedoVersion]);
+
+  const handleDeleteCustomRole = (name: string) => {
+    onDeleteCustomRole?.(name);
+    const edits: Partial<WorkflowNode> = {};
+    if (workerRole === name) {
+      setWorkerRole(null);
+      edits.worker_role = null;
+    }
+    if (criticRole === name) {
+      setCriticRole(null);
+      edits.critic_role = null;
+    }
+    if (Object.keys(edits).length > 0) cacheNodeEdits(node.id, edits);
+  };
+
+  const handleRenameCustomRole = (oldName: string, newName: string) => {
+    onRenameCustomRole?.(oldName, newName);
+    const edits: Partial<WorkflowNode> = {};
+    if (workerRole === oldName) {
+      setWorkerRole(newName as WorkflowRoleKey);
+      edits.worker_role = newName as WorkflowRoleKey;
+    }
+    if (criticRole === oldName) {
+      setCriticRole(newName as WorkflowRoleKey);
+      edits.critic_role = newName as WorkflowRoleKey;
+    }
+    if (Object.keys(edits).length > 0) cacheNodeEdits(node.id, edits);
+  };
 
   const handleDelete = async () => {
     try {
@@ -420,21 +462,16 @@ export function NodeConfigPanel({
   };
 
   const currentStageName = stages.find((s) => s.id === stageId)?.name ?? t(($) => $.overview.stage_canvas.unassigned);
-  const workerConfigured = workerType === "role" ? Boolean(workerId) : Boolean(workerId);
-  const criticConfigured = criticType === "api" ? Boolean(criticApiUrl.trim()) : Boolean(criticId);
+  const workerConfigured = Boolean(workerId || workerRole);
+  const criticConfigured = criticType === "api" ? Boolean(criticApiUrl.trim()) : Boolean(criticId || criticRole);
   const runTone = statusTone(recentNodeRun?.status);
-  const workerLabel = workerId
-    ? workerType === "role"
-      ? roles.find((r) => r.id === workerId)?.name ?? null
-      : getActorName(actorLookupType(workerType), workerId)
-    : null;
-  const criticLabel = criticId
-    ? criticType === "role"
-      ? roles.find((r) => r.id === criticId)?.name ?? null
-      : getActorName(actorLookupType(criticType), criticId)
-    : null;
-  const workerMode = isDirectWorkerType(workerType) ? "direct" : "role";
-  const criticMode = isDirectCriticType(criticType) ? "direct" : criticType === "api" ? "api" : "role";
+  const workerLabel = workerRole
+    ? roleLabels[workerRole] ?? workerRole
+    : workerId ? getActorName(actorLookupType(workerType), workerId) : null;
+  const criticLabel = criticRole
+    ? roleLabels[criticRole] ?? criticRole
+    : criticId ? getActorName(actorLookupType(criticType), criticId) : null;
+  const criticMode = criticType === "api" ? "api" : "direct";
   const hasLocalEdits = Boolean(nodeEdits[node.id]);
   const hasUnsavedChanges = hasLocalEdits || deliverablesDirty;
   const isSavingDeliverables =
@@ -750,84 +787,71 @@ export function NodeConfigPanel({
                   subtitle={t(($) => $.detail_panel.worker_subtitle)}
                   status={workerConfigured ? <StatusBadge tone="success">{t(($) => $.detail_panel.badge_configured)}</StatusBadge> : <StatusBadge tone="warning">{t(($) => $.detail_panel.badge_needs_assignee)}</StatusBadge>}
                 >
-                  <AssignmentModeControl<"direct" | "role">
-                    value={workerMode}
-                    disabled={disabled}
-                    options={[
-                      { value: "direct", label: t(($) => $.node.worker_id_label) },
-                      { value: "role", label: t(($) => $.node.worker_type_role) },
-                    ]}
-                    onChange={(mode) => {
-                      if (mode === workerMode) return;
-                      const nextType: WorkerType = mode === "direct" ? "human" : "role";
-                      setWorkerType(nextType);
-                      setWorkerId(null);
-                      cacheNodeEdits(node.id, { worker_type: nextType, worker_id: null });
-                    }}
-                  />
-
-                  {workerMode === "role" ? (
-                    <div className="space-y-1.5">
-                      <Label className="text-xs text-muted-foreground" htmlFor="worker-role-select">{t(($) => $.detail_panel.label_worker_role)}</Label>
-                      <select
-                        id="worker-role-select"
-                        aria-label="Worker role"
-                        disabled={disabled}
-                        className="h-8 w-full rounded-md border border-input bg-background px-2 text-sm"
-                        value={workerId ?? ""}
-                        onChange={(e) => {
-                          const rid = e.target.value || null;
-                          setWorkerId(rid);
-                          cacheNodeEdits(node.id, { worker_id: rid });
-                        }}
-                      >
-                        <option value="">{t(($) => $.detail_panel.select_role)}</option>
-                        {roles.map((r) => (
-                          <option key={r.id} value={r.id}>{r.name}</option>
-                        ))}
-                      </select>
-                      <ActorSummary type="role" id={workerId} label={workerLabel} emptyText={t(($) => $.detail_panel.empty_worker_role)} hint={t(($) => $.detail_panel.actor_role_hint)} />
-                    </div>
-                  ) : (
-                    <div className="space-y-2">
-                      <div className={disabled ? "pointer-events-none opacity-60" : undefined}>
-                        <AssigneePicker
-                          assigneeType={toAssigneeType(workerType)}
-                          assigneeId={workerId}
-                          triggerRender={
-                            <Button
-                              type="button"
-                              variant="outline"
-                              size="sm"
-                              className="h-8 w-full justify-start"
-                              disabled={disabled}
-                            />
-                          }
-                          trigger={
-                            <AssigneePickerTrigger
-                              type={workerType}
-                              id={workerId}
-                              label={workerLabel}
-                              emptyPrefix={t(($) => $.detail_panel.picker_empty_prefix)}
-                              emptyLabel={t(($) => $.detail_panel.empty_worker)}
-                              t={t}
-                            />
-                          }
-                          onUpdate={disabled ? () => {} : (u) => {
-                            const wt = fromAssigneeType(u.assignee_type ?? null);
-                            const wid = u.assignee_id ?? null;
-                            setWorkerType(wt);
-                            setWorkerId(wid);
-                            cacheNodeEdits(node.id, { worker_type: wt, worker_id: wid });
-                          }}
-                          align="start"
-                          skipBuiltinRuntimeSelection
-                          includeWorkflows={false}
+                  <div className={disabled ? "pointer-events-none opacity-60" : undefined}>
+                    <AssigneePicker
+                      assigneeType={workerRole ? null : toAssigneeType(workerType)}
+                      assigneeId={workerRole ? null : workerId}
+                      role={workerRole}
+                      onRoleChange={(role) => {
+                        setWorkerRole(role);
+                        setWorkerType("human");
+                        setWorkerId(null);
+                        cacheNodeEdits(node.id, {
+                          worker_type: "human",
+                          worker_id: null,
+                          worker_role: role,
+                        });
+                      }}
+                      roleLabels={roleLabels}
+                      customRoles={customRoles}
+                      onAddCustomRole={onAddCustomRole}
+                      onDeleteCustomRole={handleDeleteCustomRole}
+                      onRenameCustomRole={handleRenameCustomRole}
+                      triggerRender={
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="h-8 w-full justify-start"
+                          disabled={disabled}
                         />
-                      </div>
-                      <ActorSummary type={workerType} id={workerId} label={workerLabel} emptyText={t(($) => $.detail_panel.empty_worker)} hint={t(($) => $.detail_panel.actor_assignee_hint)} />
-                    </div>
-                  )}
+                      }
+                      trigger={
+                        <AssigneePickerTrigger
+                          type={workerRole ? "role" : workerType}
+                          id={workerRole ?? workerId}
+                          label={workerLabel}
+                          emptyPrefix={t(($) => $.detail_panel.picker_empty_prefix)}
+                          emptyLabel={t(($) => $.detail_panel.empty_worker)}
+                          t={t}
+                        />
+                      }
+                      onUpdate={disabled ? () => {} : (u) => {
+                        const wt = fromAssigneeType(u.assignee_type ?? null);
+                        const wid = u.assignee_id ?? null;
+                        setWorkerRole(null);
+                        setWorkerType(wt);
+                        setWorkerId(wid);
+                        cacheNodeEdits(node.id, {
+                          worker_type: wt,
+                          worker_id: wid,
+                          worker_role: null,
+                        });
+                      }}
+                      align="start"
+                      skipBuiltinRuntimeSelection
+                      includeWorkflows={false}
+                    />
+                  </div>
+                  <ActorSummary
+                    type={workerRole ? "role" : workerType}
+                    id={workerRole ?? workerId}
+                    label={workerLabel}
+                    emptyText={t(($) => $.detail_panel.empty_worker)}
+                    hint={workerRole
+                      ? t(($) => $.detail_panel.actor_role_hint)
+                      : t(($) => $.detail_panel.actor_assignee_hint)}
+                  />
                 </AssignmentCard>
 
                 <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2 px-1 text-[11px] font-medium text-muted-foreground">
@@ -842,20 +866,26 @@ export function NodeConfigPanel({
                   subtitle={t(($) => $.detail_panel.critic_subtitle)}
                   status={criticConfigured ? <StatusBadge tone="success">{t(($) => $.detail_panel.badge_configured)}</StatusBadge> : <StatusBadge>{t(($) => $.detail_panel.badge_optional)}</StatusBadge>}
                 >
-                  <AssignmentModeControl<"direct" | "role" | "api">
+                  <AssignmentModeControl<"direct" | "api">
                     value={criticMode}
                     disabled={disabled}
                     options={[
                       { value: "direct", label: t(($) => $.node.critic_id_label) },
-                      { value: "role", label: t(($) => $.node.critic_type_role) },
                       { value: "api", label: t(($) => $.node.critic_type_api) },
                     ]}
                     onChange={(mode) => {
                       if (mode === criticMode) return;
-                      const nextType: CriticType = mode === "direct" ? "human" : mode;
+                      const nextType: CriticType = mode === "api" ? "api" : "human";
                       setCriticType(nextType);
                       setCriticId(null);
-                      cacheNodeEdits(node.id, { critic_type: nextType, critic_id: null });
+                      setCriticRole(null);
+                      setCriticApiUrl("");
+                      cacheNodeEdits(node.id, {
+                        critic_type: nextType,
+                        critic_id: null,
+                        critic_role: null,
+                        critic_api_url: null,
+                      });
                     }}
                   />
 
@@ -869,41 +899,41 @@ export function NodeConfigPanel({
                         value={criticApiUrl}
                         onChange={(e) => {
                           setCriticApiUrl(e.target.value);
-                          cacheNodeEdits(node.id, { critic_api_url: e.target.value });
+                          cacheNodeEdits(node.id, {
+                            critic_api_url: e.target.value,
+                            critic_id: null,
+                            critic_role: null,
+                          });
                         }}
-                        placeholder="https://..."
+                        placeholder="https://…"
                         className="h-8 text-sm"
                       />
                       <p className="text-[11px] leading-snug text-muted-foreground">{t(($) => $.node.critic_api_url_hint)}</p>
-                    </div>
-                  ) : criticMode === "role" ? (
-                    <div className="space-y-1.5">
-                      <Label className="text-xs text-muted-foreground" htmlFor="critic-role-select">{t(($) => $.detail_panel.label_critic_role)}</Label>
-                      <select
-                        id="critic-role-select"
-                        aria-label="Critic role"
-                        disabled={disabled}
-                        className="h-8 w-full rounded-md border border-input bg-background px-2 text-sm"
-                        value={criticId ?? ""}
-                        onChange={(e) => {
-                          const rid = e.target.value || null;
-                          setCriticId(rid);
-                          cacheNodeEdits(node.id, { critic_id: rid });
-                        }}
-                      >
-                        <option value="">{t(($) => $.detail_panel.select_role)}</option>
-                        {roles.map((r) => (
-                          <option key={r.id} value={r.id}>{r.name}</option>
-                        ))}
-                      </select>
-                      <ActorSummary type="role" id={criticId} label={criticLabel} emptyText={t(($) => $.detail_panel.empty_critic_role)} hint={t(($) => $.detail_panel.actor_role_hint)} />
                     </div>
                   ) : (
                     <div className="space-y-2">
                       <div className={disabled ? "pointer-events-none opacity-60" : undefined}>
                         <AssigneePicker
-                          assigneeType={toAssigneeType(criticType)}
-                          assigneeId={criticId}
+                          assigneeType={criticRole ? null : toAssigneeType(criticType)}
+                          assigneeId={criticRole ? null : criticId}
+                          role={criticRole}
+                          onRoleChange={(role) => {
+                            setCriticRole(role);
+                            setCriticType("human");
+                            setCriticId(null);
+                            setCriticApiUrl("");
+                            cacheNodeEdits(node.id, {
+                              critic_type: "human",
+                              critic_id: null,
+                              critic_role: role,
+                              critic_api_url: null,
+                            });
+                          }}
+                          roleLabels={roleLabels}
+                          customRoles={customRoles}
+                          onAddCustomRole={onAddCustomRole}
+                          onDeleteCustomRole={handleDeleteCustomRole}
+                          onRenameCustomRole={handleRenameCustomRole}
                           triggerRender={
                             <Button
                               type="button"
@@ -915,8 +945,8 @@ export function NodeConfigPanel({
                           }
                           trigger={
                             <AssigneePickerTrigger
-                              type={criticType}
-                              id={criticId}
+                              type={criticRole ? "role" : criticType}
+                              id={criticRole ?? criticId}
                               label={criticLabel}
                               emptyPrefix={t(($) => $.detail_panel.picker_empty_prefix)}
                               emptyLabel={t(($) => $.detail_panel.empty_critic)}
@@ -926,15 +956,30 @@ export function NodeConfigPanel({
                           onUpdate={disabled ? () => {} : (u) => {
                             const ct = fromAssigneeTypeCritic(u.assignee_type ?? null);
                             const cid = u.assignee_id ?? null;
+                            setCriticRole(null);
                             setCriticType(ct);
                             setCriticId(cid);
-                            cacheNodeEdits(node.id, { critic_type: ct, critic_id: cid });
+                            setCriticApiUrl("");
+                            cacheNodeEdits(node.id, {
+                              critic_type: ct,
+                              critic_id: cid,
+                              critic_role: null,
+                              critic_api_url: null,
+                            });
                           }}
                           align="start"
                           includeWorkflows={false}
                         />
                       </div>
-                      <ActorSummary type={criticType} id={criticId} label={criticLabel} emptyText={t(($) => $.detail_panel.empty_critic)} hint={t(($) => $.detail_panel.actor_assignee_hint)} />
+                      <ActorSummary
+                        type={criticRole ? "role" : criticType}
+                        id={criticRole ?? criticId}
+                        label={criticLabel}
+                        emptyText={t(($) => $.detail_panel.empty_critic)}
+                        hint={criticRole
+                          ? t(($) => $.detail_panel.actor_role_hint)
+                          : t(($) => $.detail_panel.actor_assignee_hint)}
+                      />
                     </div>
                   )}
                 </AssignmentCard>

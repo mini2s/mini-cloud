@@ -7,6 +7,7 @@ export type PreflightCheckId =
   | "orphan-node"
   | "unreachable-node"
   | "worker-missing"
+  | "role-placeholder"
   | "invalid-critic-ref"
   | "stage-missing"
   | "gateway-fork-outgoing"
@@ -206,7 +207,7 @@ export function checkUnreachableNodes(
 /** Detect nodes without an assigned worker. */
 export function checkWorkerMissing(nodes: WorkflowNode[]): PreflightIssue[] {
   return nodes
-    .filter((n) => !isAnnotation(n) && !isGateway(n) && (!n.worker_type || !n.worker_id))
+    .filter((n) => !isAnnotation(n) && !isGateway(n) && (!n.worker_type || (!n.worker_id && !n.worker_role)))
     .map((n) => ({
       checkId: "worker-missing" as const,
       severity: "error" as const,
@@ -217,6 +218,34 @@ export function checkWorkerMissing(nodes: WorkflowNode[]): PreflightIssue[] {
     }));
 }
 
+/** Role placeholders must be resolved to concrete assignees before execution. */
+export function checkRolePlaceholders(nodes: WorkflowNode[]): PreflightIssue[] {
+  return nodes.flatMap((node) => {
+    if (isAnnotation(node) || isGateway(node)) return [];
+    const issues: PreflightIssue[] = [];
+    if (node.worker_role) {
+      issues.push({
+        checkId: "role-placeholder",
+        severity: "error",
+        blocking: true,
+        nodeId: node.id,
+        nodeTitle: node.title,
+        message: 'Replace worker role "' + node.worker_role + '" with a concrete assignee',
+      });
+    }
+    if (node.critic_role) {
+      issues.push({
+        checkId: "role-placeholder",
+        severity: "error",
+        blocking: true,
+        nodeId: node.id,
+        nodeTitle: node.title,
+        message: 'Replace critic role "' + node.critic_role + '" with a concrete assignee',
+      });
+    }
+    return issues;
+  });
+}
 /** Detect nodes with invalid critic references (critic_id not in agent list). */
 export function checkInvalidCriticRef(nodes: WorkflowNode[], agentIds: Set<string>): PreflightIssue[] {
   return nodes
@@ -337,6 +366,7 @@ export function runAllPreflightChecks(input: PreflightCheckInput): PreflightResu
     ...checkOrphanNodes(nodes, edges),
     ...checkUnreachableNodes(nodes, edges, stages),
     ...checkWorkerMissing(nodes),
+    ...checkRolePlaceholders(nodes),
     ...checkInvalidCriticRef(nodes, agentIds),
     ...checkStageMissing(nodes),
     ...checkGatewayTopology(nodes, edges),

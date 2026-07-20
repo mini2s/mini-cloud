@@ -685,6 +685,7 @@ const WorkflowSchema = z.object({
   node_count: z.number().default(0),
   is_template: z.boolean().default(false),
   source_template_id: z.string().nullable().default(null),
+  custom_roles: z.array(z.string()).catch([]).default([]),
   created_at: z.string().default(""),
   updated_at: z.string().default(""),
 }).loose();
@@ -710,6 +711,7 @@ export const EMPTY_WORKFLOW: Workflow = {
   node_count: 0,
   is_template: false,
   source_template_id: null,
+  custom_roles: [],
   created_at: "",
   updated_at: "",
 };
@@ -725,7 +727,9 @@ const WorkflowNodeSchema = z.object({
   worker_type: z.string().default("human"),
   worker_id: z.string().nullable().default(null),
   critic_type: z.string().default("human"),
+  worker_role: z.string().nullable().default(null),
   critic_id: z.string().nullable().default(null),
+  critic_role: z.string().nullable().default(null),
   critic_api_url: z.string().nullable().default(null),
   sort_order: z.number().default(0),
   stage_id: z.string().nullable().default(null),

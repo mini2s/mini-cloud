@@ -219,6 +219,18 @@ func (s *WorkflowService) StartRun(ctx context.Context, workflow db.MulticaWorkf
 	if workflow.Status != "active" {
 		return nil, fmt.Errorf("workflow is not active (status=%s)", workflow.Status)
 	}
+	nodes, err := s.Queries.ListWorkflowNodes(ctx, workflow.ID)
+	if err != nil {
+		return nil, fmt.Errorf("list nodes: %w", err)
+	}
+	for _, node := range nodes {
+		if node.WorkerRole.Valid {
+			return nil, fmt.Errorf("node %q worker is still assigned to role %q; assign a concrete worker", node.Title, node.WorkerRole.String)
+		}
+		if node.CriticRole.Valid {
+			return nil, fmt.Errorf("node %q critic is still assigned to role %q; assign a concrete critic", node.Title, node.CriticRole.String)
+		}
+	}
 
 	triggeredByUUID, err := util.ParseUUID(triggeredByID)
 	if err != nil && triggeredByID != "" {
@@ -1734,6 +1746,7 @@ func (s *WorkflowService) CloneWorkflowFromTemplate(
 			CreatedByType:    creatorType,
 			CreatedByID:      creatorID,
 			SourceTemplateID: templateID,
+			CustomRoles:      tmpl.CustomRoles,
 		})
 		if err != nil {
 			return fmt.Errorf("create workflow from template: %w", err)
@@ -1776,8 +1789,10 @@ func (s *WorkflowService) CloneWorkflowFromTemplate(
 				FormatSchema: node.FormatSchema,
 				WorkerType:   node.WorkerType,
 				WorkerID:     node.WorkerID,
+				WorkerRole:   node.WorkerRole,
 				CriticType:   node.CriticType,
 				CriticID:     node.CriticID,
+				CriticRole:   node.CriticRole,
 				CriticApiUrl: node.CriticApiUrl,
 				SortOrder:    node.SortOrder,
 			})

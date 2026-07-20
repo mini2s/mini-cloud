@@ -22,17 +22,11 @@ const mocks = vi.hoisted(() => ({
     assigneeId: string | null;
     includeWorkflows?: boolean;
   }>,
-  roles: [
-    { id: "role-1", name: "Implementer" },
-    { id: "role-2", name: "Reviewer" },
-  ],
+
 }));
 
 vi.mock("@tanstack/react-query", () => ({
-  useQuery: (options: { queryKey?: unknown[] }) =>
-    options.queryKey?.[0] === "deliverables"
-      ? { data: mocks.deliverables }
-      : { data: mocks.roles },
+  useQuery: () => ({ data: mocks.deliverables }),
 }));
 
 vi.mock("@multica/core/hooks", () => ({
@@ -40,7 +34,7 @@ vi.mock("@multica/core/hooks", () => ({
 }));
 
 vi.mock("@multica/core/workflows/queries", () => ({
-  workflowRolesOptions: () => ({ queryKey: ["workflow-roles"] }),
+
   workflowNodeDeliverablesOptions: () => ({ queryKey: ["deliverables"] }),
   useAssignNodeToStage: () => ({ mutate: mocks.assignStageMutate, isPending: false }),
   useCreateStage: () => ({ mutateAsync: mocks.createStageMutateAsync, isPending: false, error: null }),
@@ -77,6 +71,7 @@ vi.mock("../../issues/components/pickers/assignee-picker", () => ({
     trigger,
     triggerRender,
     onUpdate,
+    onRoleChange,
   }: {
     assigneeType: string | null;
     assigneeId: string | null;
@@ -84,6 +79,7 @@ vi.mock("../../issues/components/pickers/assignee-picker", () => ({
     trigger?: ReactNode;
     triggerRender?: ReactElement;
     onUpdate: (updates: { assignee_type: string | null; assignee_id: string | null }) => void;
+    onRoleChange?: (role: string | null) => void;
   }) =>
     {
       mocks.assigneePickerCalls.push({ assigneeType, assigneeId, includeWorkflows });
@@ -107,6 +103,9 @@ vi.mock("../../issues/components/pickers/assignee-picker", () => ({
             onClick={() => onUpdate({ assignee_type: "squad", assignee_id: "squad-1" })}
           >
             Select squad
+          </button>
+          <button type="button" onClick={() => onRoleChange?.("developer")}>
+            Select developer role
           </button>
         </div>
       );
@@ -294,9 +293,9 @@ describe("NodeConfigPanel", () => {
 
     expect(screen.getByRole("button", { name: "Builder Agent" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Reviewer Agent" })).toBeInTheDocument();
-    expect(screen.getAllByRole("button", { name: "Assignee" })).toHaveLength(1);
+    expect(screen.queryByRole("button", { name: "Assignee" })).not.toBeInTheDocument();
     expect(screen.getAllByRole("button", { name: "Reviewer" })).toHaveLength(1);
-    expect(screen.getAllByRole("button", { name: "Role" })).toHaveLength(2);
+    expect(screen.queryByRole("button", { name: "Role" })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "API" })).toBeInTheDocument();
     expect(mocks.assigneePickerCalls).toEqual(
       expect.arrayContaining([
@@ -315,6 +314,7 @@ describe("NodeConfigPanel", () => {
     expect(mocks.cacheNodeEdits).toHaveBeenCalledWith("node-1", {
       worker_type: "human",
       worker_id: "member-1",
+      worker_role: null,
     });
   });
 
@@ -348,16 +348,16 @@ describe("NodeConfigPanel", () => {
     expect(screen.queryByText("Basics")).not.toBeInTheDocument();
   });
 
-  it("switches Worker to Role and clears the previous worker assignment", () => {
+  it("selects a Worker role placeholder and clears the concrete assignment", () => {
     renderPanel();
 
-    fireEvent.click(screen.getAllByRole("button", { name: "Role" })[0]!);
+    fireEvent.click(screen.getAllByRole("button", { name: "Select developer role" })[0]!);
 
     expect(mocks.cacheNodeEdits).toHaveBeenCalledWith("node-1", {
-      worker_type: "role",
+      worker_type: "human",
       worker_id: null,
+      worker_role: "developer",
     });
-    expect(screen.getByLabelText("Worker role")).toBeInTheDocument();
   });
 
   it("switches Critic to API and shows the API URL field", () => {
@@ -368,6 +368,8 @@ describe("NodeConfigPanel", () => {
     expect(mocks.cacheNodeEdits).toHaveBeenCalledWith("node-1", {
       critic_type: "api",
       critic_id: null,
+      critic_role: null,
+      critic_api_url: null,
     });
     expect(screen.getByLabelText("Critic API URL")).toBeInTheDocument();
   });

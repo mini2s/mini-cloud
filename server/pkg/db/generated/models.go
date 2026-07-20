@@ -737,6 +737,7 @@ type MulticaWorkflow struct {
 	UpdatedAt        pgtype.Timestamptz `json:"updated_at"`
 	IsTemplate       bool               `json:"is_template"`
 	SourceTemplateID pgtype.UUID        `json:"source_template_id"`
+	CustomRoles      []byte             `json:"custom_roles"`
 }
 
 type MulticaWorkflowEdge struct {
@@ -765,6 +766,8 @@ type MulticaWorkflowNode struct {
 	CreatedAt    pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt    pgtype.Timestamptz `json:"updated_at"`
 	StageID      pgtype.UUID        `json:"stage_id"`
+	WorkerRole   pgtype.Text        `json:"worker_role"`
+	CriticRole   pgtype.Text        `json:"critic_role"`
 }
 
 type MulticaWorkflowNodeDeliverable struct {

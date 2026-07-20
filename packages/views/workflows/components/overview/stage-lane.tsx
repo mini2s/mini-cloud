@@ -61,7 +61,7 @@ export function StageLane({
   const labelColor = STAGE_LABEL_COLORS[colorIndex] ?? STAGE_LABEL_COLORS[0];
 
   const hasCriticAttachment = (node: WorkflowNode) =>
-    Boolean(node.critic_id || node.critic_api_url);
+    Boolean(node.critic_id || node.critic_api_url || node.critic_role);
 
   const sortedNodes = useMemo(
     () => [...nodeIds].sort((a, b) => a.sort_order - b.sort_order),

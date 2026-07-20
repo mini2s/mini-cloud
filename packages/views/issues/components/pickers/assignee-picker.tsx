@@ -1,9 +1,10 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import { GitBranch, Lock, UserMinus, Zap } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { GitBranch, Lock, Pencil, Plus, Trash2, UserMinus, UserRoundCog, X, Zap, Check } from "lucide-react";
 import { toast } from "sonner";
-import type { Agent, IssueAssigneeType, UpdateIssueRequest } from "@multica/core/types";
+import type { Agent, IssueAssigneeType, UpdateIssueRequest, WorkflowRoleKey } from "@multica/core/types";
+import { BUILTIN_WORKFLOW_ROLES } from "@multica/core/types";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useAuthStore } from "@multica/core/auth";
 import { canAssignAgentToIssue } from "@multica/core/permissions";
@@ -55,6 +56,13 @@ export function AssigneePicker({
   align,
   skipBuiltinRuntimeSelection = false,
   includeWorkflows = true,
+  role,
+  onRoleChange,
+  roleLabels,
+  customRoles,
+  onAddCustomRole,
+  onDeleteCustomRole,
+  onRenameCustomRole,
 }: {
   assigneeType: IssueAssigneeType | null;
   assigneeId: string | null;
@@ -69,14 +77,113 @@ export function AssigneePicker({
   /** When true, selecting a built-in agent will NOT show the runtime selection dialog.
    *  Use this in contexts like workflow editor where runtime is chosen at execution time. */
   skipBuiltinRuntimeSelection?: boolean;
-  /** Workflow node actor pickers only support members, agents, and squads. */
+  /** Workflow node actor pickers only support members, agents, squads, and role placeholders. */
   includeWorkflows?: boolean;
+  /** When provided, role options appear as the first section in the dropdown. */
+  role?: WorkflowRoleKey | null;
+  onRoleChange?: (role: WorkflowRoleKey | null) => void;
+  roleLabels?: Record<string, string>;
+  /** Custom roles persisted at the workflow level. */
+  customRoles?: string[];
+  onAddCustomRole?: (name: string) => WorkflowRoleKey | null | void;
+  onDeleteCustomRole?: (name: string) => void;
+  onRenameCustomRole?: (oldName: string, newName: string) => void;
 }) {
   const { t } = useT("issues");
   const [internalOpen, setInternalOpen] = useState(false);
   const open = controlledOpen ?? internalOpen;
   const setOpen = controlledOnOpenChange ?? setInternalOpen;
   const [filter, setFilter] = useState("");
+  // Inline input state for adding a new custom role
+  const [addingRole, setAddingRole] = useState(false);
+  const [newRoleName, setNewRoleName] = useState("");
+  const [confirmingDeleteRole, setConfirmingDeleteRole] = useState<string | null>(null);
+  // Inline edit state for renaming a custom role
+  const [editingRoleName, setEditingRoleName] = useState<string | null>(null);
+  const [editRoleValue, setEditRoleValue] = useState("");
+  const normalizedCustomRoles = useMemo(
+    () => Array.from(new Set((customRoles ?? []).map((r) => r.trim()).filter(Boolean))),
+    [customRoles],
+  );
+  // Collect built-in role label values (i18n display names like "测试", "研发")
+  // so we can detect when a user tries to create a custom role with the same name.
+  const builtinLabelValues = useMemo(
+    () => new Set(Object.values(roleLabels ?? {}).map((v) => v.toLowerCase())),
+    [roleLabels],
+  );
+
+  // Reset transient state when the picker closes, regardless of how it closed
+  // (click-outside, Escape, trigger click, or internal setOpen(false) from selecting an item).
+  useEffect(() => {
+    if (!open) {
+      setFilter("");
+      setConfirmingDeleteRole(null);
+      setEditingRoleName(null);
+    }
+  }, [open]);
+
+  const handleConfirmRole = () => {
+    if (!onAddCustomRole) return;
+    const normalized = newRoleName.trim().replace(/\s+/g, " ");
+    if (!normalized) return;
+    const normalizedLower = normalized.toLowerCase();
+    // Check against built-in role keys (e.g. "qa")
+    if (BUILTIN_WORKFLOW_ROLES.some((r) => r.toLowerCase() === normalizedLower)) {
+      toast.error(t(($) => $.pickers.assignee.role_builtin_duplicate));
+      return;
+    }
+    // Check against built-in role i18n labels (e.g. "测试", "研发")
+    if (builtinLabelValues.has(normalizedLower)) {
+      toast.error(t(($) => $.pickers.assignee.role_builtin_duplicate));
+      return;
+    }
+    if (normalizedCustomRoles.some((r) => r.toLowerCase() === normalizedLower)) {
+      toast.error(t(($) => $.pickers.assignee.role_duplicate));
+      return;
+    }
+    const createdRole = onAddCustomRole(normalized) ?? normalized;
+    onRoleChange?.(createdRole as WorkflowRoleKey);
+    setNewRoleName("");
+    setAddingRole(false);
+  };
+
+  const handleCancelAddRole = () => {
+    setNewRoleName("");
+    setAddingRole(false);
+  };
+
+  const handleConfirmRename = (oldName: string) => {
+    if (!onRenameCustomRole) return;
+    const normalized = editRoleValue.trim().replace(/\s+/g, " ");
+    if (!normalized) return;
+    if (normalized === oldName) {
+      setEditingRoleName(null);
+      setEditRoleValue("");
+      return;
+    }
+    const normalizedLower = normalized.toLowerCase();
+    if (BUILTIN_WORKFLOW_ROLES.some((r) => r.toLowerCase() === normalizedLower)) {
+      toast.error(t(($) => $.pickers.assignee.role_builtin_duplicate));
+      return;
+    }
+    if (builtinLabelValues.has(normalizedLower)) {
+      toast.error(t(($) => $.pickers.assignee.role_builtin_duplicate));
+      return;
+    }
+    // Check against other custom roles (excluding the one being renamed)
+    if (normalizedCustomRoles.some((r) => r !== oldName && r.toLowerCase() === normalizedLower)) {
+      toast.error(t(($) => $.pickers.assignee.role_duplicate));
+      return;
+    }
+    onRenameCustomRole(oldName, normalized);
+    setEditingRoleName(null);
+    setEditRoleValue("");
+  };
+
+  const handleCancelRename = () => {
+    setEditingRoleName(null);
+    setEditRoleValue("");
+  };
   const user = useAuthStore((s) => s.user);
   const wsId = useWorkspaceId();
   const { data: members = [] } = useQuery(memberListOptions(wsId));
@@ -153,14 +260,24 @@ export function AssigneePicker({
   const filteredWorkflows = mergedActiveWorkflows
     .filter((w) => w.title.toLowerCase().includes(query) || matchesPinyin(w.title, query))
     .sort((a, b) => getFreq("workflow", b.id) - getFreq("workflow", a.id));
+  const roleMatchesQuery = (value: string) =>
+    !query || value.toLowerCase().includes(query) || matchesPinyin(value, query);
+  const filteredBuiltinRoles = BUILTIN_WORKFLOW_ROLES.filter((r) =>
+    roleMatchesQuery(r) || roleMatchesQuery(roleLabels?.[r] ?? r),
+  );
+  const filteredCustomRoles = normalizedCustomRoles.filter((r) => roleMatchesQuery(r));
+  const hasRoleResults = Boolean(onRoleChange && roleLabels) &&
+    (filteredBuiltinRoles.length > 0 || filteredCustomRoles.length > 0);
 
   const isSelected = (type: string, id: string) =>
     assigneeType === type && assigneeId === id;
 
   const triggerLabel =
-    assigneeType && assigneeId
-      ? getActorName(assigneeType, assigneeId)
-      : t(($) => $.pickers.assignee.trigger_unassigned);
+    role && roleLabels
+      ? (roleLabels[role] ?? role)
+      : assigneeType && assigneeId
+        ? getActorName(assigneeType, assigneeId)
+        : t(($) => $.pickers.assignee.trigger_unassigned);
 
   // Handle clicking a built-in agent: show runtime dialog if >1 runtimes,
   // auto-select if exactly 1, fall through without runtime if 0.
@@ -330,7 +447,6 @@ export function AssigneePicker({
       open={open}
       onOpenChange={(v: boolean) => {
         setOpen(v);
-        if (!v) setFilter("");
       }}
       width="w-64"
       align={align}
@@ -339,7 +455,12 @@ export function AssigneePicker({
       onSearchChange={setFilter}
       triggerRender={triggerRender}
       trigger={
-        customTrigger ? customTrigger : assigneeType && assigneeId ? (
+        customTrigger ? customTrigger : role ? (
+          <>
+            <UserRoundCog className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+            <span className="truncate">{triggerLabel}</span>
+          </>
+        ) : assigneeType && assigneeId ? (
           <>
             <ActorAvatar actorType={assigneeType} actorId={assigneeId} size={18} enableHoverCard showStatusDot />
             <span className="truncate">{triggerLabel}</span>
@@ -352,8 +473,9 @@ export function AssigneePicker({
       {/* Unassigned option — hidden when search is active */}
       {!query && (
         <PickerItem
-          selected={!assigneeType && !assigneeId}
+          selected={!role && !assigneeType && !assigneeId}
           onClick={() => {
+            onRoleChange?.(null);
             guardedUpdate({ assignee_type: null, assignee_id: null });
             setOpen(false);
           }}
@@ -463,6 +585,233 @@ export function AssigneePicker({
         </PickerSection>
       )}
 
+      {/* Role placeholders — shown below Members, hidden when search is active */}
+      {(hasRoleResults || (!query && onRoleChange && roleLabels)) && onRoleChange && roleLabels && (
+        <PickerSection
+          label={t(($) => $.pickers.assignee.role_label)}
+          action={
+            onAddCustomRole && !addingRole && !query ? (
+              <button
+                type="button"
+                className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] font-medium normal-case tracking-normal text-primary hover:bg-accent transition-colors"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setAddingRole(true);
+                  setNewRoleName("");
+                  setConfirmingDeleteRole(null);
+                }}
+                aria-label={t(($) => $.pickers.assignee.add_role_action)}
+              >
+                <Plus className="h-3 w-3" />
+                {t(($) => $.pickers.assignee.add_role_action)}
+              </button>
+            ) : undefined
+          }
+        >
+          {/* Inline input for adding a new custom role */}
+          {addingRole && onAddCustomRole && (
+            <div className="mx-2 mb-1 rounded-md border border-dashed border-border bg-muted/30 p-2">
+              <div className="mb-1 text-[11px] font-medium text-muted-foreground">
+                {t(($) => $.pickers.assignee.add_role_title)}
+              </div>
+              <div className="flex items-center gap-1">
+                <input
+                  type="text"
+                  name="workflow-role-name"
+                  autoComplete="off"
+                  aria-label={t(($) => $.pickers.assignee.add_role_title)}
+                  className="flex-1 h-7 rounded border border-input bg-background px-2 text-sm placeholder:text-muted-foreground outline-none focus:border-primary focus-visible:ring-2 focus-visible:ring-primary/40"
+                  placeholder={t(($) => $.pickers.assignee.add_role_placeholder)}
+                  value={newRoleName}
+                  onChange={(e) => setNewRoleName(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") handleConfirmRole();
+                    else if (e.key === "Escape") handleCancelAddRole();
+                  }}
+                  onBlur={() => {
+                    if (!newRoleName.trim()) handleCancelAddRole();
+                  }}
+                  autoFocus
+                />
+                <button
+                  type="button"
+                  disabled={!newRoleName.trim()}
+                  className="inline-flex items-center justify-center h-6 w-6 rounded hover:bg-accent transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+                  onClick={handleConfirmRole}
+                  aria-label={t(($) => $.pickers.assignee.confirm_role_edit)}
+                >
+                  <Check className="h-3.5 w-3.5 text-green-600" />
+                </button>
+                <button
+                  type="button"
+                  className="inline-flex items-center justify-center h-6 w-6 rounded hover:bg-accent transition-colors"
+                  onClick={handleCancelAddRole}
+                  aria-label={t(($) => $.pickers.assignee.cancel_role_edit)}
+                >
+                  <X className="h-3.5 w-3.5 text-muted-foreground" />
+                </button>
+              </div>
+              <p className="text-[10px] text-muted-foreground mt-1">
+                {t(($) => $.pickers.assignee.add_role_hint)}
+              </p>
+            </div>
+          )}
+          {/* Built-in roles */}
+          {filteredBuiltinRoles.map((r) => (
+            <PickerItem
+              key={r}
+              selected={role === r}
+              onClick={() => {
+                onRoleChange(role === r ? null : r);
+                setOpen(false);
+              }}
+            >
+              <UserRoundCog className="h-3.5 w-3.5 text-muted-foreground" />
+              <span className="truncate">{roleLabels[r]}</span>
+              <span className="ml-auto shrink-0 inline-flex items-center gap-0.5 rounded bg-amber-100 px-1 py-0.5 text-[10px] font-medium text-amber-700 dark:bg-amber-900/30 dark:text-amber-400">
+                <Zap className="h-2.5 w-2.5" />
+                {t(($) => $.pickers.assignee.builtin_label)}
+              </span>
+            </PickerItem>
+          ))}
+          {/* Custom roles — editable and deletable */}
+          {filteredCustomRoles.map((cr) => {
+            const selected = role === cr;
+            const isEditing = editingRoleName === cr;
+
+            if (isEditing) {
+              return (
+                <div
+                  key={cr}
+                  className="flex w-full items-center gap-2 rounded-md bg-accent/40 px-2 py-1.5 text-sm"
+                >
+                  <UserRoundCog className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                  <input
+                    type="text"
+                    name="workflow-role-rename"
+                    autoComplete="off"
+                    aria-label={t(($) => $.pickers.assignee.edit_role_action)}
+                    className="h-6 min-w-0 flex-1 rounded border border-input bg-background px-2 text-sm outline-none focus:border-primary focus-visible:ring-2 focus-visible:ring-primary/40"
+                    value={editRoleValue}
+                    onChange={(e) => setEditRoleValue(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") handleConfirmRename(cr);
+                      else if (e.key === "Escape") handleCancelRename();
+                    }}
+                    onBlur={() => {
+                      if (!editRoleValue.trim()) handleCancelRename();
+                    }}
+                    autoFocus
+                  />
+                  <button
+                    type="button"
+                    className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded hover:bg-accent disabled:opacity-30"
+                    disabled={!editRoleValue.trim()}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleConfirmRename(cr);
+                    }}
+                    aria-label={t(($) => $.pickers.assignee.confirm_role_edit)}
+                  >
+                    <Check className="h-3.5 w-3.5 text-green-600" />
+                  </button>
+                  <button
+                    type="button"
+                    className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded hover:bg-accent"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleCancelRename();
+                    }}
+                    aria-label={t(($) => $.pickers.assignee.cancel_role_edit)}
+                  >
+                    <X className="h-3.5 w-3.5 text-muted-foreground" />
+                  </button>
+                </div>
+              );
+            }
+
+            return (
+              <div
+                key={cr}
+                className="group/role flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors hover:bg-accent"
+              >
+                <button
+                  type="button"
+                  data-picker-item
+                  className="flex min-w-0 flex-1 items-center gap-2 text-left"
+                  onClick={() => {
+                    onRoleChange(selected ? null : cr);
+                    setOpen(false);
+                  }}
+                >
+                  <UserRoundCog className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                  <span className="truncate">{cr}</span>
+                </button>
+
+                {onDeleteCustomRole && !selected && confirmingDeleteRole === cr ? (
+                  <button
+                    type="button"
+                    className="inline-flex shrink-0 items-center gap-0.5 rounded bg-destructive/10 px-1 py-0.5 text-[10px] font-medium text-destructive hover:bg-destructive/15"
+                    onClick={() => {
+                      onDeleteCustomRole(cr);
+                      setConfirmingDeleteRole(null);
+                    }}
+                    aria-label={t(($) => $.pickers.assignee.delete_role_confirm)}
+                  >
+                    <Trash2 className="h-2.5 w-2.5" />
+                    {t(($) => $.pickers.assignee.delete_role_confirm)}
+                  </button>
+                ) : onRenameCustomRole || (onDeleteCustomRole && !selected) ? (
+                  <span className="inline-flex shrink-0 items-center gap-1 text-[10px] font-medium">
+                    <span className="inline-flex items-center gap-0.5 rounded bg-amber-100 px-1 py-0.5 text-amber-700 group-hover/role:hidden group-focus-within/role:hidden dark:bg-amber-900/30 dark:text-amber-400">
+                      <Pencil className="h-2.5 w-2.5" />
+                      {t(($) => $.pickers.assignee.custom_label)}
+                    </span>
+                    <span className="hidden items-center gap-1 group-hover/role:inline-flex group-focus-within/role:inline-flex">
+                      {onRenameCustomRole && (
+                        <button
+                          type="button"
+                          className="inline-flex items-center gap-0.5 rounded bg-amber-100 px-1 py-0.5 text-amber-700 transition-colors hover:text-primary dark:bg-amber-900/30 dark:text-amber-400"
+                          onClick={() => {
+                            setEditingRoleName(cr);
+                            setEditRoleValue(cr);
+                            setConfirmingDeleteRole(null);
+                          }}
+                          aria-label={`${t(($) => $.pickers.assignee.edit_role_action)} ${cr}`}
+                        >
+                          <Pencil className="h-2.5 w-2.5" />
+                          {t(($) => $.pickers.assignee.edit_role_action)}
+                        </button>
+                      )}
+                      {onDeleteCustomRole && !selected && (
+                        <button
+                          type="button"
+                          className="inline-flex items-center gap-0.5 rounded bg-amber-100 px-1 py-0.5 text-amber-700 transition-colors hover:text-destructive dark:bg-amber-900/30 dark:text-amber-400"
+                          onClick={() => setConfirmingDeleteRole(cr)}
+                          aria-label={`${t(($) => $.pickers.assignee.delete_role_action)} ${cr}`}
+                        >
+                          <Trash2 className="h-2.5 w-2.5" />
+                          {t(($) => $.pickers.assignee.delete_role_action)}
+                        </button>
+                      )}
+                    </span>
+                  </span>
+                ) : (
+                  <span className="inline-flex shrink-0 items-center gap-0.5 rounded bg-amber-100 px-1 py-0.5 text-[10px] font-medium text-amber-700 dark:bg-amber-900/30 dark:text-amber-400">
+                    <Pencil className="h-2.5 w-2.5" />
+                    {t(($) => $.pickers.assignee.custom_label)}
+                  </span>
+                )}
+
+                <Check
+                  className={`h-3.5 w-3.5 shrink-0 text-muted-foreground ${selected ? "" : "invisible"}`}
+                />
+              </div>
+            );
+          })}
+        </PickerSection>
+      )}
+
       {/* Squads — group ownership; assigning to a squad routes the issue to
           its leader agent on the backend. */}
       {filteredSquads.length > 0 && (
@@ -490,6 +839,7 @@ export function AssigneePicker({
         filteredAgents.length === 0 &&
         filteredSquads.length === 0 &&
         (!includeWorkflows || filteredWorkflows.length === 0) &&
+        !hasRoleResults &&
         filter && <PickerEmpty />}
     </PropertyPicker>
     {pendingBuiltinAgent && (

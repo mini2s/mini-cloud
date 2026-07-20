@@ -4,6 +4,7 @@ import {
   checkOrphanNodes,
   checkUnreachableNodes,
   checkWorkerMissing,
+  checkRolePlaceholders,
   checkInvalidCriticRef,
   checkStageMissing,
   runAllPreflightChecks,
@@ -241,6 +242,35 @@ describe("checkWorkerMissing", () => {
   });
 });
 
+// ── checkRolePlaceholders ──
+
+describe("checkRolePlaceholders", () => {
+  it("blocks worker and critic placeholders until concrete assignees are selected", () => {
+    const nodes = [
+      makeNode({
+        id: "a",
+        worker_id: null,
+        worker_role: "developer",
+        critic_role: "qa",
+      }),
+    ];
+
+    const issues = checkRolePlaceholders(nodes);
+
+    expect(issues).toHaveLength(2);
+    expect(issues.every((issue) => issue.blocking)).toBe(true);
+    expect(issues.map((issue) => issue.message)).toEqual([
+      'Replace worker role "developer" with a concrete assignee',
+      'Replace critic role "qa" with a concrete assignee',
+    ]);
+  });
+
+  it("does not treat a worker placeholder as a missing worker", () => {
+    const nodes = [makeNode({ id: "a", worker_id: null, worker_role: "developer" })];
+
+    expect(checkWorkerMissing(nodes)).toEqual([]);
+  });
+});
 // ── checkInvalidCriticRef ──
 
 describe("checkInvalidCriticRef", () => {

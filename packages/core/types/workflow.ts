@@ -2,6 +2,9 @@ export type WorkflowStatus = "draft" | "active" | "paused" | "archived";
 export type WorkerType = "human" | "agent" | "squad" | "role";
 export type CriticType = "human" | "agent" | "squad" | "api" | "role";
 export type RoleActorType = "member" | "agent" | "squad";
+export type WorkflowRoleKey = "developer" | "qa" | "tech_lead" | (string & {});
+
+export const BUILTIN_WORKFLOW_ROLES: WorkflowRoleKey[] = ["developer", "qa", "tech_lead"];
 export type NodeShape = "rectangle" | "diamond" | "pill" | "hexagon";
 export type WorkflowNodeFormatKind = "task" | "gateway" | "annotation";
 export type GatewayKind = "fork" | "join";
@@ -169,6 +172,7 @@ export interface Workflow {
   node_count: number;
   is_template: boolean;
   source_template_id: string | null;
+  custom_roles: string[];
   created_at: string;
   updated_at: string;
 }
@@ -183,8 +187,10 @@ export interface WorkflowNode {
   format_schema: unknown;
   worker_type: WorkerType;
   worker_id: string | null;
+  worker_role?: WorkflowRoleKey | null;
   critic_type: CriticType;
   critic_id: string | null;
+  critic_role?: WorkflowRoleKey | null;
   critic_api_url: string | null;
   sort_order: number;
   stage_id: string | null;
@@ -280,6 +286,7 @@ export interface UpdateWorkflowRequest {
   description?: string;
   status?: WorkflowStatus;
   max_retries?: number;
+  custom_roles?: string[];
 }
 
 export interface CreateNodeRequest {
@@ -290,8 +297,10 @@ export interface CreateNodeRequest {
   format_schema?: unknown;
   worker_type: WorkerType;
   worker_id?: string | null;
+  worker_role?: WorkflowRoleKey | null;
   critic_type: CriticType;
   critic_id?: string | null;
+  critic_role?: WorkflowRoleKey | null;
   critic_api_url?: string | null;
   stage_id?: string | null;
 }
@@ -304,8 +313,10 @@ export interface UpdateNodeRequest {
   format_schema?: unknown;
   worker_type?: WorkerType;
   worker_id?: string | null;
+  worker_role?: WorkflowRoleKey | null;
   critic_type?: CriticType;
   critic_id?: string | null;
+  critic_role?: WorkflowRoleKey | null;
   critic_api_url?: string | null;
   sort_order?: number;
 }

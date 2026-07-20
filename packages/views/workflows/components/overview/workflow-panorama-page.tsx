@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useMemo, useCallback, useRef, useEffect, type ReactNode } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ReactFlowProvider,
   useReactFlow,
@@ -21,6 +21,7 @@ import {
   workflowRunsOptions,
   workflowNodeRunsOptions,
   useUpdateWorkflow,
+  useMutateWorkflowRole,
   useCreateNode,
   useUpdateNode,
   useCreateEdge,
@@ -83,7 +84,7 @@ import {
   sortStagesForDisplay,
 } from "./constants";
 
-import type { WorkflowNode, WorkflowStage, WorkflowEdge, ReorderStagesItem, WorkflowStatus, Workflow, WorkflowNodeRun } from "@multica/core/types";
+import { BUILTIN_WORKFLOW_ROLES, type WorkflowNode, type WorkflowStage, type WorkflowEdge, type ReorderStagesItem, type WorkflowStatus, type Workflow, type WorkflowNodeRun, type WorkflowRoleKey } from "@multica/core/types";
 import type { Agent } from "@multica/core/types";
 import type { BuiltinPlugin } from "@multica/core/api/schemas";
 
@@ -165,6 +166,10 @@ interface PanoramaContentProps {
   onCloseConfigPanel: () => void;
   onConfigPanelDirtyChange: (dirty: boolean) => void;
   onRegisterConfigPanelSave: (save: (() => Promise<boolean>) | null) => void;
+  customRoles: string[];
+  onAddCustomRole: (name: string) => WorkflowRoleKey | null;
+  onDeleteCustomRole: (name: string) => void;
+  onRenameCustomRole: (oldName: string, newName: string) => void;
   onBackToWorkflows: () => void;
   onToggleWorkflowStatus: () => void;
   onUpdateTitle: (title: string) => void;
@@ -212,6 +217,10 @@ function PanoramaContent({
   onCloseConfigPanel,
   onConfigPanelDirtyChange,
   onRegisterConfigPanelSave,
+  customRoles,
+  onAddCustomRole,
+  onDeleteCustomRole,
+  onRenameCustomRole,
   onBackToWorkflows,
   onToggleWorkflowStatus,
   onUpdateTitle,
@@ -419,6 +428,10 @@ function PanoramaContent({
               onRegisterSave={onRegisterConfigPanelSave}
               onDeleteNode={onNodeDelete}
               onStageChange={onStageChange}
+              customRoles={customRoles}
+              onAddCustomRole={onAddCustomRole}
+              onDeleteCustomRole={onDeleteCustomRole}
+              onRenameCustomRole={onRenameCustomRole}
             />
           </aside>
         )}
@@ -510,6 +523,7 @@ export function WorkflowPanoramaPage({ workflowId, viewToggle }: WorkflowPanoram
   const wsId = useWorkspaceId();
   const wsPaths = useWorkspacePaths();
   const navigation = useNavigation();
+  const queryClient = useQueryClient();
 
   // ── Queries ──
   const { data: workflow, isLoading: wfLoading, isError: wfError, refetch } = useQuery(
@@ -533,12 +547,18 @@ export function WorkflowPanoramaPage({ workflowId, viewToggle }: WorkflowPanoram
   const { data: agents = [] } = useQuery(agentListOptions(wsId));
   const { data: pluginsData } = useQuery(builtinPluginListOptions());
   const { getActorName } = useActorName();
+  const roleLabels = useMemo<Record<string, string>>(() => ({
+    developer: t(($) => $.node.role_developer),
+    qa: t(($) => $.node.role_qa),
+    tech_lead: t(($) => $.node.role_tech_lead),
+  }), [t]);
 
   const isLoading = wfLoading || stLoading || ndLoading || edLoading;
 
   // ── Mutations ──
   const updateNodeMutation = useUpdateNode(wsId, workflowId);
   const updateWorkflowMutation = useUpdateWorkflow(wsId);
+  const mutateRoleMutation = useMutateWorkflowRole(wsId, workflowId);
   const createNodeMutation = useCreateNode(wsId, workflowId);
   const createEdgeMutation = useCreateEdge(wsId, workflowId);
   const deleteEdgeMutation = useDeleteEdge(wsId, workflowId);
@@ -577,6 +597,7 @@ export function WorkflowPanoramaPage({ workflowId, viewToggle }: WorkflowPanoram
   const [configPanelCloseSaving, setConfigPanelCloseSaving] = useState(false);
   const configPanelSaveRef = useRef<(() => Promise<boolean>) | null>(null);
   const pendingConfigPanelCloseActionRef = useRef<(() => void | Promise<void>) | null>(null);
+  const pendingRoleMutationRef = useRef<Promise<void> | null>(null);
 
   const closeConfigPanelNow = useCallback(async (afterClose?: () => void | Promise<void>) => {
     setConfigPanelOpen(false);
@@ -686,18 +707,24 @@ export function WorkflowPanoramaPage({ workflowId, viewToggle }: WorkflowPanoram
           pluginName: workerAgent?.plugin_id
             ? pluginLookup.get(workerAgent.plugin_id)?.name
             : undefined,
-          workerName: node.worker_id ? getActorName(node.worker_type ?? "agent", node.worker_id) ?? undefined : undefined,
-          workerConfigured: isAnnotation ? true : Boolean(node.worker_id),
-          criticConfigured: isAnnotation ? false : node.critic_type === "api" ? Boolean(node.critic_api_url?.trim()) : Boolean(node.critic_id),
+          workerName: node.worker_role
+            ? roleLabels[node.worker_role] ?? node.worker_role
+            : node.worker_id ? getActorName(node.worker_type ?? "agent", node.worker_id) ?? undefined : undefined,
+          workerConfigured: isAnnotation ? true : Boolean(node.worker_id || node.worker_role),
+          criticConfigured: isAnnotation
+            ? false
+            : node.critic_type === "api"
+              ? Boolean(node.critic_api_url?.trim())
+              : Boolean(node.critic_id || node.critic_role),
           isAnnotation,
           onOpen: openNodePanel,
           onAddConnectedNode: handleOpenConnectedNodePicker,
           addConnectedNodeLabel: t(($) => $.panorama.add_connected_node),
         };
       },
-      makeCriticName: (node) => node.critic_id ? getActorName(node.critic_type ?? "agent", node.critic_id) ?? undefined : undefined,
+      makeCriticName: (node) => node.critic_role ? roleLabels[node.critic_role] ?? node.critic_role : node.critic_id ? getActorName(node.critic_type ?? "agent", node.critic_id) ?? undefined : undefined,
     }),
-    [stages, visibleNodes, agentLookup, pluginLookup, getActorName, openNodePanel, handleOpenConnectedNodePicker, t],
+    [stages, visibleNodes, agentLookup, pluginLookup, getActorName, openNodePanel, handleOpenConnectedNodePicker, roleLabels, t],
   );
 
   const handleInlineEdgeDelete = useCallback(
@@ -731,6 +758,165 @@ export function WorkflowPanoramaPage({ workflowId, viewToggle }: WorkflowPanoram
     [recentNodeRuns, selectedNode],
   );
 
+  const normalizeRoleName = useCallback((name: string) => name.trim().replace(/\s+/g, " "), []);
+
+  const enqueueRoleMutation = useCallback((task: () => Promise<void>) => {
+    const previous = pendingRoleMutationRef.current ?? Promise.resolve();
+    const next = previous.catch(() => undefined).then(task);
+    pendingRoleMutationRef.current = next;
+    void next.finally(() => {
+      if (pendingRoleMutationRef.current === next) pendingRoleMutationRef.current = null;
+    });
+    return next;
+  }, []);
+
+  const clearPersistedRoleDrafts = useCallback((
+    affectedNodes: WorkflowNode[],
+    workerValue: WorkflowRoleKey | null,
+    criticValue: WorkflowRoleKey | null,
+  ) => {
+    useWorkflowEditorStore.setState((state) => {
+      const nextNodeEdits = { ...state.nodeEdits };
+      let changed = false;
+      for (const node of affectedNodes) {
+        const edits = nextNodeEdits[node.id];
+        if (!edits) continue;
+        const nextEdits = { ...edits };
+        if (node.worker_role && nextEdits.worker_role === workerValue) {
+          delete nextEdits.worker_role;
+          changed = true;
+        }
+        if (node.critic_role && nextEdits.critic_role === criticValue) {
+          delete nextEdits.critic_role;
+          changed = true;
+        }
+        nextNodeEdits[node.id] = nextEdits;
+      }
+      return changed ? { nodeEdits: nextNodeEdits } : {};
+    });
+  }, []);
+
+  const handleAddCustomRole = useCallback((name: string): WorkflowRoleKey | null => {
+    if (!workflow) return null;
+    const normalized = normalizeRoleName(name);
+    if (!normalized) return null;
+    const normalizedLower = normalized.toLowerCase();
+    const currentRoles = workflow.custom_roles ?? [];
+    if (BUILTIN_WORKFLOW_ROLES.some((role) => role.toLowerCase() === normalizedLower)) {
+      toast.error(t(($) => $.detail.toast_role_builtin_duplicate));
+      return null;
+    }
+    if (currentRoles.some((role) => role.toLowerCase() === normalizedLower)) {
+      toast.error(t(($) => $.detail.toast_role_duplicate));
+      return normalized as WorkflowRoleKey;
+    }
+    const detailKey = workflowOverviewOptions(wsId, workflowId).queryKey;
+    queryClient.setQueryData<Workflow>(detailKey, (old) =>
+      old ? { ...old, custom_roles: [...(old.custom_roles ?? []), normalized] } : old,
+    );
+    void enqueueRoleMutation(async () => {
+      try {
+        await mutateRoleMutation.mutateAsync({ action: "add", name: normalized });
+        toast.success(t(($) => $.detail.toast_role_added), { duration: 1000 });
+      } catch {
+        queryClient.setQueryData<Workflow>(detailKey, (old) =>
+          old ? { ...old, custom_roles: (old.custom_roles ?? []).filter((role) => role !== normalized) } : old,
+        );
+        useWorkflowEditorStore.setState((state) => ({
+          nodeEdits: Object.fromEntries(Object.entries(state.nodeEdits).map(([id, edits]) => [id, {
+            ...edits,
+            ...(edits.worker_role === normalized ? { worker_role: null } : {}),
+            ...(edits.critic_role === normalized ? { critic_role: null } : {}),
+          }])),
+        }));
+        toast.error(t(($) => $.detail.toast_role_add_failed));
+      }
+    });
+    return normalized as WorkflowRoleKey;
+  }, [enqueueRoleMutation, mutateRoleMutation, normalizeRoleName, queryClient, t, workflow, workflowId, wsId]);
+
+  const handleDeleteCustomRole = useCallback((name: string) => {
+    if (!workflow) return;
+    const normalized = normalizeRoleName(name);
+    const detailKey = workflowOverviewOptions(wsId, workflowId).queryKey;
+    const nodesKey = workflowNodesOptions(wsId, workflowId).queryKey;
+    const affectedNodes = apiNodes.filter((node) => node.worker_role === normalized || node.critic_role === normalized);
+    const previousDetail = queryClient.getQueryData<Workflow>(detailKey);
+    const previousNodes = queryClient.getQueryData<WorkflowNode[]>(nodesKey);
+    const previousNodeEdits = useWorkflowEditorStore.getState().nodeEdits;
+    queryClient.setQueryData<Workflow>(detailKey, (old) => old ? { ...old, custom_roles: (old.custom_roles ?? []).filter((role) => role !== normalized) } : old);
+    queryClient.setQueryData<WorkflowNode[]>(nodesKey, (old) => old?.map((node) => ({
+      ...node,
+      worker_role: node.worker_role === normalized ? null : node.worker_role,
+      critic_role: node.critic_role === normalized ? null : node.critic_role,
+    })));
+    useWorkflowEditorStore.setState((state) => ({
+      nodeEdits: Object.fromEntries(Object.entries(state.nodeEdits).map(([id, edits]) => [id, {
+        ...edits,
+        ...(edits.worker_role === normalized ? { worker_role: null } : {}),
+        ...(edits.critic_role === normalized ? { critic_role: null } : {}),
+      }])),
+    }));
+    void enqueueRoleMutation(async () => {
+      try {
+        await mutateRoleMutation.mutateAsync({ action: "delete", name: normalized });
+        clearPersistedRoleDrafts(affectedNodes, null, null);
+        toast.success(affectedNodes.length
+          ? t(($) => $.detail.toast_role_deleted_with_refs, { count: affectedNodes.length })
+          : t(($) => $.detail.toast_role_deleted), { duration: 1000 });
+      } catch {
+        queryClient.setQueryData(detailKey, previousDetail);
+        queryClient.setQueryData(nodesKey, previousNodes);
+        useWorkflowEditorStore.setState({ nodeEdits: previousNodeEdits });
+        toast.error(t(($) => $.detail.toast_role_delete_failed));
+      }
+    });
+  }, [apiNodes, clearPersistedRoleDrafts, enqueueRoleMutation, mutateRoleMutation, normalizeRoleName, queryClient, t, workflow, workflowId, wsId]);
+
+  const handleRenameCustomRole = useCallback((oldName: string, newName: string) => {
+    if (!workflow) return;
+    const oldRole = normalizeRoleName(oldName);
+    const newRole = normalizeRoleName(newName);
+    const currentRoles = workflow.custom_roles ?? [];
+    if (!newRole || oldRole === newRole) return;
+    const lower = newRole.toLowerCase();
+    if (BUILTIN_WORKFLOW_ROLES.some((role) => role.toLowerCase() === lower) ||
+        currentRoles.some((role) => role !== oldRole && role.toLowerCase() === lower)) {
+      toast.error(t(($) => $.detail.toast_role_duplicate));
+      return;
+    }
+    const detailKey = workflowOverviewOptions(wsId, workflowId).queryKey;
+    const nodesKey = workflowNodesOptions(wsId, workflowId).queryKey;
+    const affectedNodes = apiNodes.filter((node) => node.worker_role === oldRole || node.critic_role === oldRole);
+    const previousDetail = queryClient.getQueryData<Workflow>(detailKey);
+    const previousNodes = queryClient.getQueryData<WorkflowNode[]>(nodesKey);
+    const previousNodeEdits = useWorkflowEditorStore.getState().nodeEdits;
+    queryClient.setQueryData<Workflow>(detailKey, (old) => old ? { ...old, custom_roles: (old.custom_roles ?? []).map((role) => role === oldRole ? newRole : role) } : old);
+    queryClient.setQueryData<WorkflowNode[]>(nodesKey, (old) => old?.map((node) => ({
+      ...node,
+      worker_role: node.worker_role === oldRole ? newRole : node.worker_role,
+      critic_role: node.critic_role === oldRole ? newRole : node.critic_role,
+    })));
+    useWorkflowEditorStore.setState((state) => ({
+      nodeEdits: Object.fromEntries(Object.entries(state.nodeEdits).map(([id, edits]) => [id, {
+        ...edits,
+        ...(edits.worker_role === oldRole ? { worker_role: newRole as WorkflowRoleKey } : {}),
+        ...(edits.critic_role === oldRole ? { critic_role: newRole as WorkflowRoleKey } : {}),
+      }])),
+    }));
+    void enqueueRoleMutation(async () => {
+      try {
+        await mutateRoleMutation.mutateAsync({ action: "rename", name: oldRole, new_name: newRole });
+        clearPersistedRoleDrafts(affectedNodes, newRole as WorkflowRoleKey, newRole as WorkflowRoleKey);
+        toast.success(t(($) => $.detail.toast_role_renamed), { duration: 1000 });
+      } catch {
+        queryClient.setQueryData(detailKey, previousDetail);
+        queryClient.setQueryData(nodesKey, previousNodes);
+        useWorkflowEditorStore.setState({ nodeEdits: previousNodeEdits });
+        toast.error(t(($) => $.detail.toast_role_rename_failed));
+      }
+    });
+  }, [apiNodes, clearPersistedRoleDrafts, enqueueRoleMutation, mutateRoleMutation, normalizeRoleName, queryClient, t, workflow, workflowId, wsId]);
   // ── Handlers ──
   const handleNodeClick = useCallback(
     (_event: React.MouseEvent, node: Node) => {
@@ -974,9 +1160,12 @@ export function WorkflowPanoramaPage({ workflowId, viewToggle }: WorkflowPanoram
   }, [workflow, workflowId, updateWorkflowMutation, t]);
 
   const handleSave = useCallback(async () => {
-    const entries = Object.entries(useWorkflowEditorStore.getState().nodeEdits);
-    if (entries.length === 0) return true;
     try {
+      if (pendingRoleMutationRef.current) {
+        await pendingRoleMutationRef.current;
+      }
+      const entries = Object.entries(useWorkflowEditorStore.getState().nodeEdits);
+      if (entries.length === 0) return true;
       await Promise.all(
         entries.map(([nodeId, edits]) =>
           updateNodeMutation.mutateAsync({ nodeId, ...edits } as Parameters<typeof updateNodeMutation.mutateAsync>[0]),
@@ -1172,6 +1361,10 @@ export function WorkflowPanoramaPage({ workflowId, viewToggle }: WorkflowPanoram
         onRegisterConfigPanelSave={(save) => {
           configPanelSaveRef.current = save;
         }}
+        customRoles={workflow.custom_roles ?? []}
+        onAddCustomRole={handleAddCustomRole}
+        onDeleteCustomRole={handleDeleteCustomRole}
+        onRenameCustomRole={handleRenameCustomRole}
         onBackToWorkflows={() => navigation.push(wsPaths.workflows())}
         onToggleWorkflowStatus={handleToggleWorkflowStatus}
         onUpdateTitle={handleUpdateTitle}

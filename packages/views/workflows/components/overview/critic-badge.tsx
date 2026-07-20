@@ -3,6 +3,7 @@
 import type { WorkflowNode, Agent } from "@multica/core/types";
 import { cn } from "@multica/ui/lib/utils";
 import { ShieldAlert } from "lucide-react";
+import { useT } from "../../../i18n";
 
 export interface CriticBadgeProps {
   node: WorkflowNode;
@@ -19,7 +20,17 @@ export function CriticBadge({
   isSelected = false,
   elementRef,
 }: CriticBadgeProps) {
-  const displayName = criticAgent?.name ?? node.title;
+  const { t } = useT("workflows");
+  const roleName =
+    node.critic_role === "developer"
+      ? t(($) => $.node.role_developer)
+      : node.critic_role === "qa"
+        ? t(($) => $.node.role_qa)
+        : node.critic_role === "tech_lead"
+          ? t(($) => $.node.role_tech_lead)
+          : null;
+
+  const displayName = roleName ?? criticAgent?.name ?? t(($) => $.overview.detail_panel.not_configured);
 
   return (
     <button

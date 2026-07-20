@@ -2207,6 +2207,16 @@ export class ApiClient {
     });
   }
 
+  async mutateWorkflowRole(
+    id: string,
+    req: { action: "add" | "rename" | "delete"; name: string; new_name?: string },
+  ): Promise<Workflow> {
+    return this.fetch(`/api/workflows/${id}/roles/mutate`, {
+      method: "POST",
+      body: JSON.stringify(req),
+    });
+  }
+
   async deleteWorkflow(id: string): Promise<void> {
     await this.fetch(`/api/workflows/${id}`, { method: "DELETE" });
   }
@@ -2219,17 +2229,26 @@ export class ApiClient {
     return parsed.nodes;
   }
 
+  /** Backend uses "" (empty string) as the explicit "clear role" signal.
+   *  Convert null → "" in role fields so the TS types can use clean null. */
+  private normalizeRoleFields(req: Record<string, unknown>): Record<string, unknown> {
+    const out = { ...req };
+    if (out.worker_role === null) out.worker_role = "";
+    if (out.critic_role === null) out.critic_role = "";
+    return out;
+  }
+
   async createWorkflowNode(workflowId: string, req: CreateNodeRequest): Promise<WorkflowNode> {
     return this.fetch(`/api/workflows/${workflowId}/nodes`, {
       method: "POST",
-      body: JSON.stringify(req),
+      body: JSON.stringify(this.normalizeRoleFields(req as unknown as Record<string, unknown>)),
     });
   }
 
   async updateWorkflowNode(workflowId: string, nodeId: string, req: UpdateNodeRequest): Promise<WorkflowNode> {
     return this.fetch(`/api/workflows/${workflowId}/nodes/${nodeId}`, {
       method: "PUT",
-      body: JSON.stringify(req),
+      body: JSON.stringify(this.normalizeRoleFields(req as unknown as Record<string, unknown>)),
     });
   }
 

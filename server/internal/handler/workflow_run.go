@@ -317,6 +317,17 @@ func (h *Handler) StartWorkflowRun(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "workflow is not active")
 		return
 	}
+	nodes, err := h.Queries.ListWorkflowNodes(r.Context(), wf.ID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to validate workflow roles")
+		return
+	}
+	for _, node := range nodes {
+		if node.WorkerRole.Valid || node.CriticRole.Valid {
+			writeError(w, http.StatusBadRequest, "replace all workflow role placeholders before starting a run")
+			return
+		}
+	}
 
 	workspaceID := h.resolveWorkspaceID(r)
 	userID, ok := requireUserID(w, r)

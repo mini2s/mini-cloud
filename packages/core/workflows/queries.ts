@@ -171,6 +171,18 @@ export function useUpdateWorkflow(wsId: string) {
   });
 }
 
+export function useMutateWorkflowRole(wsId: string, workflowId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (req: { action: "add" | "rename" | "delete"; name: string; new_name?: string }) =>
+      api.mutateWorkflowRole(workflowId, req),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: workflowKeys.detail(wsId, workflowId) });
+      queryClient.invalidateQueries({ queryKey: workflowKeys.nodes(wsId, workflowId) });
+    },
+  });
+}
+
 export function useDeleteWorkflow(wsId: string) {
   const queryClient = useQueryClient();
   return useMutation({
