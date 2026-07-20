@@ -30,9 +30,9 @@ const (
 	// subscribes by `task:` prefix and invalidates the workspace task
 	// snapshot, so the granularity here is "what does the user want to see
 	// change" — not "every internal status flip".
-	EventTaskQueued    = "task:queued"    // ∅ → queued (enqueue / retry create)
-	EventTaskDispatch  = "task:dispatch"  // queued → dispatched (daemon claim)
-	EventTaskRunning   = "task:running"   // dispatched → running (daemon started)
+	EventTaskQueued    = "task:queued"   // ∅ → queued (enqueue / retry create)
+	EventTaskDispatch  = "task:dispatch" // queued → dispatched (daemon claim)
+	EventTaskRunning   = "task:running"  // dispatched → running (daemon started)
 	EventTaskProgress  = "task:progress"
 	EventTaskCompleted = "task:completed" // running → completed
 	EventTaskFailed    = "task:failed"    // running → failed
@@ -124,8 +124,8 @@ const (
 	EventPullRequestUnlinked       = "pull_request:unlinked"
 
 	// GitLab integration events
-	EventMergeRequestUpdated    = "merge_request:updated"
-	EventGitlabSettingsChanged  = "gitlab_settings:changed"
+	EventMergeRequestUpdated   = "merge_request:updated"
+	EventGitlabSettingsChanged = "gitlab_settings:changed"
 
 	// Workflow events
 	EventWorkflowCreated          = "workflow:created"
@@ -141,4 +141,14 @@ const (
 	EventWorkflowNodeRunBlocked   = "workflow:node_run_blocked"
 	EventWorkflowNodeRunReviewed  = "workflow:node_run_reviewed"
 	EventWorkflowNodeRunResumed   = "workflow:node_run_resumed"
+
+	// Split workflow lifecycle events
+	EventSplitGenerationDispatched = "split_generation_dispatched"
+	EventSplitContextRendered      = "split_context_rendered"
+	EventSplitDraftAdded           = "split_draft_added"
+	EventSplitDraftSubmitFailed    = "split_draft_submit_failed"
+	EventSplitDraftSubmitted       = "split_draft_submitted"
+	EventSplitReviewReady          = "split_review_ready"
+	EventSplitApproved             = "split_approved"
+	EventSplitChildIssueCreated    = "split_child_issue_created"
 )

@@ -1506,6 +1506,137 @@ func TestUpdateIssueAllowsExplicitUnassign(t *testing.T) {
 	}
 }
 
+func createDispatchFailingWorkflow(t *testing.T) string {
+	t.Helper()
+	ctx := context.Background()
+	var workflowID, agentID string
+	if err := testPool.QueryRow(ctx, `
+		INSERT INTO multica_agent (
+			workspace_id, name, description, runtime_mode, runtime_config,
+			visibility, max_concurrent_tasks, owner_id
+		)
+		VALUES ($1, $2, '', 'cloud', '{}'::jsonb, 'private', 1, $3)
+		RETURNING id
+	`, testWorkspaceID, fmt.Sprintf("dispatch failing agent %d", time.Now().UnixNano()), testUserID).Scan(&agentID); err != nil {
+		t.Fatalf("create dispatch failing agent: %v", err)
+	}
+	if err := testPool.QueryRow(ctx, `
+		INSERT INTO multica_workflow (
+			workspace_id, title, description, status, created_by_type, created_by_id
+		)
+		VALUES ($1, 'Dispatch failing workflow', '', 'active', 'member', $2)
+		RETURNING id
+	`, testWorkspaceID, testUserID).Scan(&workflowID); err != nil {
+		t.Fatalf("create dispatch failing workflow: %v", err)
+	}
+	if _, err := testPool.Exec(ctx, `
+		INSERT INTO multica_workflow_node (
+			workflow_id, title, description, worker_type, worker_id, critic_type, sort_order
+		)
+		VALUES ($1, 'Agent without runtime', '', 'agent', $2, 'human', 0)
+	`, workflowID, agentID); err != nil {
+		t.Fatalf("create dispatch failing workflow node: %v", err)
+	}
+	t.Cleanup(func() {
+		_, _ = testPool.Exec(context.Background(), `DELETE FROM multica_workflow WHERE id = $1`, workflowID)
+		_, _ = testPool.Exec(context.Background(), `DELETE FROM multica_agent WHERE id = $1`, agentID)
+	})
+	return workflowID
+}
+
+func TestCreateIssueKeepsWorkflowRunWhenRootDispatchFails(t *testing.T) {
+	workflowID := createDispatchFailingWorkflow(t)
+	w := httptest.NewRecorder()
+	req := newRequest("POST", "/api/issues?workspace_id="+testWorkspaceID, map[string]any{
+		"title":         "Create workflow dispatch failure",
+		"assignee_type": "workflow",
+		"assignee_id":   workflowID,
+	})
+	testHandler.CreateIssue(w, req)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("CreateIssue: expected 201, got %d: %s", w.Code, w.Body.String())
+	}
+	var created IssueResponse
+	if err := json.NewDecoder(w.Body).Decode(&created); err != nil {
+		t.Fatalf("decode CreateIssue response: %v", err)
+	}
+	t.Cleanup(func() {
+		cleanupReq := newRequest("DELETE", "/api/issues/"+created.ID, nil)
+		cleanupReq = withURLParam(cleanupReq, "id", created.ID)
+		testHandler.DeleteIssue(httptest.NewRecorder(), cleanupReq)
+	})
+	if created.WorkflowRunID == nil {
+		t.Fatal("CreateIssue response lost workflow_run_id after dispatch failure")
+	}
+	stored, err := testHandler.Queries.GetIssue(context.Background(), parseUUID(created.ID))
+	if err != nil {
+		t.Fatalf("load created issue: %v", err)
+	}
+	if !stored.WorkflowRunID.Valid || uuidToString(stored.WorkflowRunID) != *created.WorkflowRunID {
+		t.Fatalf("stored workflow_run_id = %s, response = %v", uuidToString(stored.WorkflowRunID), created.WorkflowRunID)
+	}
+	var runCount int
+	if err := testPool.QueryRow(context.Background(), `SELECT count(*) FROM multica_workflow_run WHERE workflow_id = $1`, workflowID).Scan(&runCount); err != nil {
+		t.Fatalf("count workflow runs: %v", err)
+	}
+	if runCount != 1 {
+		t.Fatalf("workflow run count = %d, want 1", runCount)
+	}
+}
+
+func TestUpdateIssueKeepsWorkflowRunWhenRootDispatchFails(t *testing.T) {
+	workflowID := createDispatchFailingWorkflow(t)
+	createResp := httptest.NewRecorder()
+	createReq := newRequest("POST", "/api/issues?workspace_id="+testWorkspaceID, map[string]any{
+		"title": "Update workflow dispatch failure",
+	})
+	testHandler.CreateIssue(createResp, createReq)
+	if createResp.Code != http.StatusCreated {
+		t.Fatalf("CreateIssue: expected 201, got %d: %s", createResp.Code, createResp.Body.String())
+	}
+	var created IssueResponse
+	if err := json.NewDecoder(createResp.Body).Decode(&created); err != nil {
+		t.Fatalf("decode CreateIssue response: %v", err)
+	}
+	t.Cleanup(func() {
+		cleanupReq := newRequest("DELETE", "/api/issues/"+created.ID, nil)
+		cleanupReq = withURLParam(cleanupReq, "id", created.ID)
+		testHandler.DeleteIssue(httptest.NewRecorder(), cleanupReq)
+	})
+
+	updateResp := httptest.NewRecorder()
+	updateReq := newRequest("PUT", "/api/issues/"+created.ID, map[string]any{
+		"assignee_type": "workflow",
+		"assignee_id":   workflowID,
+	})
+	updateReq = withURLParam(updateReq, "id", created.ID)
+	testHandler.UpdateIssue(updateResp, updateReq)
+	if updateResp.Code != http.StatusOK {
+		t.Fatalf("UpdateIssue: expected 200, got %d: %s", updateResp.Code, updateResp.Body.String())
+	}
+	var updated IssueResponse
+	if err := json.NewDecoder(updateResp.Body).Decode(&updated); err != nil {
+		t.Fatalf("decode UpdateIssue response: %v", err)
+	}
+	if updated.WorkflowRunID == nil {
+		t.Fatal("UpdateIssue response lost workflow_run_id after dispatch failure")
+	}
+	stored, err := testHandler.Queries.GetIssue(context.Background(), parseUUID(created.ID))
+	if err != nil {
+		t.Fatalf("load updated issue: %v", err)
+	}
+	if !stored.WorkflowRunID.Valid || uuidToString(stored.WorkflowRunID) != *updated.WorkflowRunID {
+		t.Fatalf("stored workflow_run_id = %s, response = %v", uuidToString(stored.WorkflowRunID), updated.WorkflowRunID)
+	}
+	var runCount int
+	if err := testPool.QueryRow(context.Background(), `SELECT count(*) FROM multica_workflow_run WHERE workflow_id = $1`, workflowID).Scan(&runCount); err != nil {
+		t.Fatalf("count workflow runs: %v", err)
+	}
+	if runCount != 1 {
+		t.Fatalf("workflow run count = %d, want 1", runCount)
+	}
+}
+
 func TestCommentCRUD(t *testing.T) {
 	// Create an issue first
 	w := httptest.NewRecorder()

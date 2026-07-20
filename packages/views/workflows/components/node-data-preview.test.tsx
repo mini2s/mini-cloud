@@ -50,6 +50,8 @@ const baseRun: WorkflowNodeRun = {
   session_id: null,
   runtime_id: null,
   device_id: null,
+  split_review_chat_session_id: null,
+  split_config_version: 1,
   started_at: "2026-07-07T10:00:00Z",
   completed_at: "2026-07-07T10:02:00Z",
   created_at: "2026-07-07T10:00:00Z",

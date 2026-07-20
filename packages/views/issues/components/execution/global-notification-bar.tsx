@@ -1,121 +1,243 @@
 "use client";
 
 import { useMemo } from "react";
-import type { WorkflowNodeRun } from "@multica/core/types";
+import {
+  toWorkflowRuntimeDisplayStatus,
+  type WorkflowNodeRun,
+  type WorkflowNodeRuntimeSummary,
+  type WorkflowRuntimeDisplayStatus,
+} from "@multica/core/types";
 import { cn } from "@multica/ui/lib/utils";
 import { useT } from "@multica/views/i18n";
-import { AlertCircle, ChevronRight, MessageSquare, UserCheck } from "lucide-react";
-
-export interface NotificationItem {
-  type: "awaiting_critic" | "blocked_failed" | "awaiting_input";
-  count: number;
-  firstNodeRunId: string;
-  firstNodeId: string;
-}
+import { AlertCircle, CheckCircle2, Clock3 } from "lucide-react";
 
 export interface GlobalNotificationBarProps {
   nodeRunMap: Map<string, WorkflowNodeRun>;
+  runtimeSummaryMap?: Map<string, WorkflowNodeRuntimeSummary>;
   onScrollToNode: (nodeId: string) => void;
 }
 
-const NOTIFICATION_PRIORITY: NotificationItem["type"][] = [
-  "blocked_failed",
-  "awaiting_critic",
-  "awaiting_input",
-];
-
-/**
- * Derives notification items from the node-run map, ordered by priority:
- * 1. blocked / failed (highest)
- * 2. awaiting_critic
- * 3. awaiting_input (lowest)
- */
-function deriveNotifications(
-  nodeRunMap: Map<string, WorkflowNodeRun>,
-): NotificationItem[] {
-  const entries = [...nodeRunMap.entries()];
-  const grouped: Record<NotificationItem["type"], Array<[string, WorkflowNodeRun]>> = {
-    blocked_failed: entries.filter(
-      ([, nr]) => nr.status === "blocked" || nr.status === "failed",
-    ),
-    awaiting_critic: entries.filter(
-      ([, nr]) => nr.status === "awaiting_critic",
-    ),
-    awaiting_input: entries.filter(
-      ([, nr]) => nr.status === "awaiting_input",
-    ),
-  };
-
-  return NOTIFICATION_PRIORITY.flatMap((type) => {
-    const matches = grouped[type];
-    if (matches.length === 0) return [];
-    return [{
-      type,
-      count: matches.length,
-      firstNodeRunId: matches[0]![1].id,
-      firstNodeId: matches[0]![0],
-    }];
-  });
+interface RunProgressSummary {
+  total: number;
+  done: number;
+  reviewing: number;
+  running: number;
+  blocked: number;
+  waiting: number;
+  firstReviewingNodeId: string | null;
+  firstRunningNodeId: string | null;
+  firstBlockedNodeId: string | null;
+  firstWaitingNodeId: string | null;
+  currentNodeTitle: string | null;
+  elapsedLabel: string;
 }
 
-/** Priority-ordered icon + color config per notification type. */
-const NOTIFICATION_CONFIG: Record<
-  NotificationItem["type"],
-  {
-    icon: typeof AlertCircle;
-    iconClass: string;
-    countClass: string;
-    dotClass: string;
-  }
-> = {
-  awaiting_critic: {
-    icon: MessageSquare,
-    iconClass: "text-brand",
-    countClass: "border-brand/20 bg-brand/10 text-brand",
-    dotClass: "bg-brand",
-  },
-  blocked_failed: {
-    icon: AlertCircle,
-    iconClass: "text-destructive",
-    countClass: "border-destructive/25 bg-destructive/10 text-destructive",
-    dotClass: "bg-destructive animate-pulse",
-  },
-  awaiting_input: {
-    icon: UserCheck,
-    iconClass: "text-warning",
-    countClass: "border-warning/25 bg-warning/10 text-warning",
-    dotClass: "bg-warning",
-  },
-};
+function displayStatusForRun(
+  nodeId: string,
+  run: WorkflowNodeRun,
+  runtimeSummaryMap?: Map<string, WorkflowNodeRuntimeSummary>,
+): WorkflowRuntimeDisplayStatus {
+  return runtimeSummaryMap?.get(nodeId)?.display_status ?? toWorkflowRuntimeDisplayStatus(run.status);
+}
+
+function isDoneStatus(status: WorkflowRuntimeDisplayStatus): boolean {
+  return status === "completed";
+}
+
+function isBlockedStatus(status: WorkflowRuntimeDisplayStatus): boolean {
+  return status === "blocked";
+}
+
+function isReviewingStatus(status: WorkflowRuntimeDisplayStatus): boolean {
+  return status === "reviewing";
+}
+
+function isRunningStatus(status: WorkflowRuntimeDisplayStatus): boolean {
+  return status === "in_progress";
+}
+
+function runActionPriority(status: WorkflowRuntimeDisplayStatus): number {
+  if (isBlockedStatus(status)) return 50;
+  if (isReviewingStatus(status)) return 40;
+  if (isRunningStatus(status)) return 30;
+  if (!isDoneStatus(status)) return 10;
+  return 0;
+}
+
+function formatElapsed(startedAt: string | null | undefined, now = Date.now()): string {
+  if (!startedAt) return "--";
+  const startMs = new Date(startedAt).getTime();
+  if (!Number.isFinite(startMs)) return "--";
+  const seconds = Math.max(0, Math.floor((now - startMs) / 1000));
+  if (seconds < 60) return `${seconds}s`;
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  return `${hours}h ${minutes % 60}m`;
+}
+
+function deriveRunProgress(
+  nodeRunMap: Map<string, WorkflowNodeRun>,
+  runtimeSummaryMap?: Map<string, WorkflowNodeRuntimeSummary>,
+): RunProgressSummary {
+  const entries = [...nodeRunMap.entries()].map(([nodeId, run], index) => ({
+    nodeId,
+    run,
+    index,
+    displayStatus: displayStatusForRun(nodeId, run, runtimeSummaryMap),
+  }));
+  const runs = entries.map(({ run }) => run);
+  const prioritizedEntries = entries
+    .map((entry) => ({
+      ...entry,
+      priority: runActionPriority(entry.displayStatus),
+    }))
+    .sort((a, b) => b.priority - a.priority || a.index - b.index);
+  const done = entries.filter((entry) => isDoneStatus(entry.displayStatus)).length;
+  const blocked = entries.filter((entry) => isBlockedStatus(entry.displayStatus)).length;
+  const reviewing = entries.filter((entry) => isReviewingStatus(entry.displayStatus)).length;
+  const running = entries.filter((entry) => isRunningStatus(entry.displayStatus)).length;
+  const waiting = Math.max(0, entries.length - done - blocked - reviewing - running);
+  const firstReviewingNodeId = prioritizedEntries.find((entry) => isReviewingStatus(entry.displayStatus))?.nodeId ?? null;
+  const firstRunningNodeId = prioritizedEntries.find((entry) => isRunningStatus(entry.displayStatus))?.nodeId ?? null;
+  const firstBlockedNodeId = prioritizedEntries.find((entry) => isBlockedStatus(entry.displayStatus))?.nodeId ?? null;
+  const firstWaitingNodeId = prioritizedEntries.find((entry) =>
+    !isDoneStatus(entry.displayStatus) &&
+    !isBlockedStatus(entry.displayStatus) &&
+    !isReviewingStatus(entry.displayStatus) &&
+    !isRunningStatus(entry.displayStatus)
+  )?.nodeId ?? null;
+  const currentRun = prioritizedEntries.find(({ priority }) => priority > 0)?.run;
+  const earliestStart = runs
+    .map((run) => run.started_at)
+    .filter((value): value is string => Boolean(value))
+    .sort()[0];
+
+  return {
+    total: runs.length,
+    done,
+    reviewing,
+    running,
+    blocked,
+    waiting,
+    firstReviewingNodeId,
+    firstRunningNodeId,
+    firstBlockedNodeId,
+    firstWaitingNodeId,
+    currentNodeTitle: currentRun?.node_title ?? null,
+    elapsedLabel: formatElapsed(earliestStart),
+  };
+}
+
+function ProgressChip({
+  testId,
+  label,
+  nodeId,
+  tone,
+  onScrollToNode,
+}: {
+  testId: string;
+  label: string;
+  nodeId: string | null;
+  tone: "running" | "reviewing" | "blocked" | "waiting";
+  onScrollToNode: (nodeId: string) => void;
+}) {
+  const toneClassName = {
+    running: "border-blue-200/70 bg-blue-50/70 text-blue-700 hover:border-blue-300 hover:bg-blue-100/70",
+    reviewing: "border-violet-200/80 bg-violet-50/70 text-violet-700 hover:border-violet-300 hover:bg-violet-100/70",
+    blocked: "border-destructive/25 bg-destructive/10 text-destructive hover:border-destructive/40 hover:bg-destructive/15",
+    waiting: "border-slate-200 bg-muted/25 text-muted-foreground hover:border-slate-300 hover:bg-muted/50",
+  }[tone];
+
+  return (
+    <button
+      type="button"
+      data-testid={testId}
+      disabled={!nodeId}
+      onClick={() => {
+        if (nodeId) onScrollToNode(nodeId);
+      }}
+      className={cn(
+        "rounded-md border px-2 py-1 tabular-nums transition-colors",
+        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1",
+        toneClassName,
+        !nodeId && "cursor-default opacity-60 hover:bg-muted/25",
+      )}
+    >
+      {label}
+    </button>
+  );
+}
+
+type ProgressChipTone = "running" | "reviewing" | "blocked" | "waiting";
+
+interface ProgressChipItem {
+  key: ProgressChipTone;
+  testId: string;
+  label: string;
+  nodeId: string | null;
+  tone: ProgressChipTone;
+  count: number;
+  priority: number;
+}
 
 export function GlobalNotificationBar({
   nodeRunMap,
+  runtimeSummaryMap,
   onScrollToNode,
 }: GlobalNotificationBarProps) {
   const { t } = useT("issues");
 
-  const items = useMemo(
-    () => deriveNotifications(nodeRunMap),
-    [nodeRunMap],
+  const progress = useMemo(
+    () => deriveRunProgress(nodeRunMap, runtimeSummaryMap),
+    [nodeRunMap, runtimeSummaryMap],
   );
 
-  if (items.length === 0) return null;
+  if (progress.total === 0) return null;
 
-  const totalCount = items.reduce((sum, item) => sum + item.count, 0);
-  const primaryItem = items[0]!;
-  const primaryConfig = NOTIFICATION_CONFIG[primaryItem.type];
-  const PrimaryIcon = primaryConfig.icon;
-
-  const getLabel = (type: NotificationItem["type"]) => {
-    switch (type) {
-      case "awaiting_critic":
-        return t(($) => $.execution.notification.awaiting_critic);
-      case "blocked_failed":
-        return t(($) => $.execution.notification.blocked_failed);
-      case "awaiting_input":
-        return t(($) => $.execution.notification.awaiting_input);
-    }
-  };
+  const hasActionableNodes = progress.running > 0 || progress.reviewing > 0 || progress.blocked > 0 || progress.waiting > 0;
+  const progressChips = ([
+    {
+      key: "blocked",
+      testId: "progress-chip-blocked",
+      label: t(($) => $.execution.notification.blocked_count, { count: progress.blocked }),
+      nodeId: progress.firstBlockedNodeId,
+      tone: "blocked",
+      count: progress.blocked,
+      priority: 30,
+    },
+    {
+      key: "running",
+      testId: "progress-chip-running",
+      label: t(($) => $.execution.notification.running_count, { count: progress.running }),
+      nodeId: progress.firstRunningNodeId,
+      tone: "running",
+      count: progress.running,
+      priority: 20,
+    },
+    {
+      key: "reviewing",
+      testId: "progress-chip-reviewing",
+      label: t(($) => $.execution.notification.reviewing_count, { count: progress.reviewing }),
+      nodeId: progress.firstReviewingNodeId,
+      tone: "reviewing",
+      count: progress.reviewing,
+      priority: 25,
+    },
+    {
+      key: "waiting",
+      testId: "progress-chip-waiting",
+      label: t(($) => $.execution.notification.waiting_count, { count: progress.waiting }),
+      nodeId: progress.firstWaitingNodeId,
+      tone: "waiting",
+      count: progress.waiting,
+      priority: 10,
+    },
+  ] satisfies ProgressChipItem[]).sort((a, b) => {
+    const activeDelta = Number(b.count > 0) - Number(a.count > 0);
+    if (activeDelta !== 0) return activeDelta;
+    return b.priority - a.priority;
+  });
 
   return (
     <div
@@ -130,70 +252,67 @@ export function GlobalNotificationBar({
           <span
             className={cn(
               "relative grid h-6 w-6 shrink-0 place-items-center rounded-md border",
-              primaryConfig.countClass,
+              progress.blocked > 0
+                ? "border-destructive/25 bg-destructive/10 text-destructive"
+                : hasActionableNodes
+                  ? "border-blue-200/70 bg-blue-50/70 text-blue-700"
+                  : "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900/60 dark:bg-emerald-950/30 dark:text-emerald-300",
             )}
           >
-            <span
-              aria-hidden="true"
-              className={cn(
-                "absolute -right-0.5 -top-0.5 h-2 w-2 rounded-full ring-2 ring-background",
-                primaryConfig.dotClass,
-              )}
-            />
-            <PrimaryIcon className="h-3.5 w-3.5" />
+            {progress.blocked > 0 ? (
+              <span
+                aria-hidden="true"
+                className="absolute -right-0.5 -top-0.5 h-2 w-2 rounded-full bg-destructive ring-2 ring-background"
+              />
+            ) : null}
+            {progress.blocked > 0 ? <AlertCircle className="h-3.5 w-3.5" /> : <CheckCircle2 className="h-3.5 w-3.5" />}
           </span>
           <div className="min-w-0">
             <div className="flex items-baseline gap-1.5">
               <span className="text-xs font-semibold text-foreground">
-                {t(($) => $.execution.notification.summary_title)}
+                {t(($) => $.execution.notification.progress_title)}
               </span>
               <span className="text-xs font-semibold tabular-nums text-foreground">
-                {totalCount}
+                {t(($) => $.execution.notification.progress_done, { done: progress.done, total: progress.total })}
               </span>
             </div>
             <div className="hidden truncate text-[11px] leading-4 text-muted-foreground sm:block">
-              {t(($) => $.execution.notification.summary_label, { count: items.length })}
+              {progress.currentNodeTitle
+                ? t(($) => $.execution.notification.current_node, { title: progress.currentNodeTitle })
+                : t(($) => $.execution.notification.no_current_node)}
             </div>
           </div>
+        </div>
+
+        <div
+          data-testid="run-progress-counts"
+          className="flex min-w-0 flex-wrap items-center gap-1.5 text-[11px] text-muted-foreground"
+        >
+          {progressChips.map((chip) => (
+            <ProgressChip
+              key={chip.key}
+              testId={chip.testId}
+              label={chip.label}
+              nodeId={chip.nodeId}
+              tone={chip.tone}
+              onScrollToNode={onScrollToNode}
+            />
+          ))}
+          <span className="inline-flex items-center gap-1 rounded-md border bg-muted/20 px-2 py-1 tabular-nums">
+            <Clock3 className="size-3" />
+            {t(($) => $.execution.notification.elapsed, { elapsed: progress.elapsedLabel })}
+          </span>
         </div>
 
         <div
           data-testid="notification-rail"
           className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5 sm:justify-end"
         >
-          {items.map((item) => {
-            const config = NOTIFICATION_CONFIG[item.type];
-            const Icon = config.icon;
-            const label = getLabel(item.type);
-
-            return (
-              <button
-                key={item.type}
-                type="button"
-                data-testid={`notification-item-${item.type}`}
-                aria-label={`${label} ${item.count}`}
-                onClick={() => onScrollToNode(item.firstNodeId)}
-                className={cn(
-                  "group inline-flex h-7 max-w-full items-center gap-1.5 rounded-md border px-2.5",
-                  "bg-muted/25 text-xs font-medium text-foreground transition-colors hover:bg-muted/60",
-                  "border-border/70",
-                  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1",
-                )}
-              >
-                <Icon className={cn("h-3.5 w-3.5 shrink-0", config.iconClass)} />
-                <span className="min-w-0 truncate">{label}</span>
-                <span
-                  className={cn(
-                    "inline-flex h-4 min-w-4 shrink-0 items-center justify-center rounded-sm border px-1 text-[10px] leading-none tabular-nums",
-                    config.countClass,
-                  )}
-                >
-                  {item.count}
-                </span>
-                <ChevronRight className="h-3 w-3 shrink-0 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-80" />
-              </button>
-            );
-          })}
+          {!hasActionableNodes ? (
+            <span className="inline-flex h-7 items-center rounded-md border border-border/70 bg-muted/25 px-2.5 text-xs font-medium text-muted-foreground">
+              {t(($) => $.execution.notification.no_action_needed)}
+            </span>
+          ) : null}
         </div>
       </div>
     </div>

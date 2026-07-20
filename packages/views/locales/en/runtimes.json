@@ -149,6 +149,7 @@
     },
     "toast_deleted": "Runtime deleted",
     "toast_delete_failed": "Failed to delete runtime",
+    "runtime_has_active_agents": "This runtime still has active agents. Archive or reassign them before deleting it.",
     "running_chip_one": "· {{count}} running",
     "running_chip_other": "· {{count}} running",
     "queued_chip_one": "· {{count}} queued",

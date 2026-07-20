@@ -3,7 +3,7 @@ import { RuntimesPage } from "@multica/views/runtimes";
 const cloudRuntimeEnabled =
   process.env.NEXT_PUBLIC_ENABLE_CLOUD_RUNTIME === "true";
 const isDevMode = process.env.NODE_ENV === "development";
-const WEB_RUNTIME_PROVIDERS = ["csc"] as const;
+const WEB_RUNTIME_PROVIDERS = ["csc", "cs-cloud"] as const;
 
 export default function RuntimesRoute() {
   return (

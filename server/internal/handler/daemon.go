@@ -1337,7 +1337,10 @@ func (h *Handler) ClaimTaskByRuntime(w http.ResponseWriter, r *http.Request) {
 		// (for example "Done.") and answer a new human comment with that stale
 		// completion marker instead of the comment itself. Keep reusing the
 		// workdir for comment follow-ups so the agent still sees the same checkout.
-		if !task.ForceFreshSession {
+		// Split review adjustment tasks carry their own latest user message and
+		// current drafts; resuming the prior split generation session makes the
+		// agent treat the adjustment as an already-completed chat turn.
+		if !shouldSkipPriorTaskState(*task) {
 			if prior, err := h.Queries.GetLastTaskSession(r.Context(), db.GetLastTaskSessionParams{
 				AgentID: task.AgentID,
 				IssueID: task.IssueID,
@@ -1373,8 +1376,16 @@ func (h *Handler) ClaimTaskByRuntime(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Chat task: populate workspace/session info from the chat_session table.
-	if task.ChatSessionID.Valid {
-		if cs, err := h.Queries.GetChatSession(r.Context(), task.ChatSessionID); err == nil {
+	chatSessionID := task.ChatSessionID
+	if !chatSessionID.Valid && resp.ChatSessionID != "" {
+		if parsed, err := util.ParseUUID(resp.ChatSessionID); err == nil {
+			chatSessionID = parsed
+		} else {
+			slog.Warn("task claim: invalid chat session id in task context", "task_id", uuidToString(task.ID), "chat_session_id", resp.ChatSessionID, "error", err)
+		}
+	}
+	if chatSessionID.Valid {
+		if cs, err := h.Queries.GetChatSession(r.Context(), chatSessionID); err == nil {
 			resp.WorkspaceID = uuidToString(cs.WorkspaceID)
 			resp.ChatSessionID = uuidToString(cs.ID)
 			if ws, err := h.Queries.GetWorkspace(r.Context(), cs.WorkspaceID); err == nil && ws.Repos != nil {
@@ -1383,7 +1394,7 @@ func (h *Handler) ClaimTaskByRuntime(w http.ResponseWriter, r *http.Request) {
 					resp.Repos = repos
 				}
 			}
-			if !task.ForceFreshSession {
+			if !shouldSkipPriorTaskState(*task) {
 				// Resume chat sessions only when the stored pointer was produced
 				// by the same runtime as the claiming task. When the chat_session
 				// pointer is missing (legacy NULL runtime_id), stale (last task

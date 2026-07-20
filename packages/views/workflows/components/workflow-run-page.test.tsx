@@ -1,135 +1,253 @@
 // @vitest-environment jsdom
 
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
-import { ApiError } from "@multica/core/api";
+import { fireEvent, render, screen } from "@testing-library/react";
+import { describe, expect, it, vi, beforeEach } from "vitest";
+import type { ReactNode } from "react";
 import { WorkflowRunPage } from "./workflow-run-page";
 
 const mocks = vi.hoisted(() => ({
-  run: {} as Record<string, unknown>,
-  nodes: [] as Array<Record<string, unknown>>,
-  edges: [] as Array<Record<string, unknown>>,
-  nodeRuns: [] as Array<Record<string, unknown>>,
-  resolutions: [] as Array<Record<string, unknown>>,
-  members: [] as Array<Record<string, unknown>>,
-  assign: vi.fn(),
-  retry: vi.fn(),
-  cancel: vi.fn(),
-  refetchResolutions: vi.fn(),
-  toastError: vi.fn(),
-  toastSuccess: vi.fn(),
+  run: null as unknown,
+  nodes: [] as unknown[],
+  edges: [] as unknown[],
+  nodeRuns: [] as unknown[],
+  resolutions: [] as unknown[],
+  members: [] as unknown[],
+  cancelMutate: vi.fn(),
 }));
 
 vi.mock("@tanstack/react-query", () => ({
-  useQuery: (opts: { queryKey: string[] }) => {
-    const key = opts.queryKey[0];
-    if (key === "run") return { data: mocks.run, isLoading: false };
-    if (key === "nodes") return { data: mocks.nodes, isLoading: false };
-    if (key === "edges") return { data: mocks.edges, isLoading: false };
-    if (key === "node-runs") return { data: mocks.nodeRuns, isLoading: false };
-    if (key === "resolutions") return { data: mocks.resolutions, refetch: mocks.refetchResolutions };
-    if (key === "members") return { data: mocks.members };
-    return { data: [] };
+  useQuery: (options: { queryKey?: unknown[] }) => {
+    const key = options.queryKey ?? [];
+    if (key.includes("run")) return { data: mocks.run, isLoading: false };
+    if (key.includes("nodes")) return { data: mocks.nodes, isLoading: false };
+    if (key.includes("edges")) return { data: mocks.edges, isLoading: false };
+    if (key.includes("node-runs")) return { data: mocks.nodeRuns, isLoading: false };
+    if (key.includes("role-resolutions")) return { data: mocks.resolutions, isLoading: false };
+    if (key.includes("members")) return { data: mocks.members, isLoading: false };
+    return { data: undefined, isLoading: false };
   },
 }));
-vi.mock("@multica/core/hooks", () => ({ useWorkspaceId: () => "ws-1" }));
+
+vi.mock("@multica/core/hooks", () => ({
+  useWorkspaceId: () => "ws-1",
+}));
+
 vi.mock("@multica/core/auth", () => ({
-  useAuthStore: (selector: (state: unknown) => unknown) => selector({ user: { id: "owner-1" } }),
+  useAuthStore: (selector: (state: unknown) => unknown) => selector({ user: { id: "user-1" } }),
 }));
-vi.mock("@multica/core/workspace/queries", () => ({ memberListOptions: () => ({ queryKey: ["members"] }) }));
+
+vi.mock("@multica/core/workspace/queries", () => ({
+  memberListOptions: () => ({ queryKey: ["workspaces", "members"] }),
+}));
+
 vi.mock("@multica/core/workflows/queries", () => ({
-  workflowRunOptions: () => ({ queryKey: ["run"] }),
-  workflowNodesOptions: () => ({ queryKey: ["nodes"] }),
-  workflowEdgesOptions: () => ({ queryKey: ["edges"] }),
-  workflowNodeRunsOptions: () => ({ queryKey: ["node-runs"] }),
-  workflowRoleResolutionsOptions: () => ({ queryKey: ["resolutions"] }),
-  useAssignWorkflowRoleResolutions: () => ({ mutateAsync: mocks.assign, isPending: false }),
-  useRetryWorkflowRoleResolutions: () => ({ mutateAsync: mocks.retry, isPending: false }),
-  useCancelWorkflowRun: () => ({ mutate: mocks.cancel, isPending: false }),
+  workflowRunOptions: (_wsId: string, workflowId: string, runId: string) => ({
+    queryKey: ["workflows", workflowId, runId, "run"],
+  }),
+  workflowNodesOptions: () => ({ queryKey: ["workflows", "nodes"] }),
+  workflowEdgesOptions: () => ({ queryKey: ["workflows", "edges"] }),
+  workflowNodeRunsOptions: () => ({ queryKey: ["workflows", "node-runs"] }),
+  workflowRoleResolutionsOptions: () => ({ queryKey: ["workflows", "role-resolutions"] }),
+  useAssignWorkflowRoleResolutions: () => ({ mutateAsync: vi.fn(), isPending: false }),
+  useRetryWorkflowRoleResolutions: () => ({ mutateAsync: vi.fn(), isPending: false }),
+  useCancelWorkflowRun: () => ({ mutate: mocks.cancelMutate, isPending: false }),
+  useSubmitNodeRun: () => ({ mutate: vi.fn(), isPending: false }),
+  useReviewNodeRun: () => ({ mutate: vi.fn(), isPending: false }),
+  useSkipNodeRun: () => ({ mutate: vi.fn(), isPending: false }),
+  useSessionPermission: () => ({ data: { can_control: false } }),
+  useTakeoverNodeRun: () => ({ mutate: vi.fn(), isPending: false }),
+  useHandbackNodeRun: () => ({ mutate: vi.fn(), isPending: false }),
+  useFinalizeNodeRun: () => ({ mutate: vi.fn(), isPending: false }),
 }));
-vi.mock("sonner", () => ({ toast: { error: mocks.toastError, success: mocks.toastSuccess } }));
-vi.mock("../../layout/page-header", () => ({ PageHeader: ({ children }: { children: React.ReactNode }) => <header>{children}</header> }));
-vi.mock("./dag-canvas", () => ({ DAGCanvas: () => <div>Canvas</div> }));
-vi.mock("./node-run-card", () => ({ NodeRunCard: () => <div>Node run</div> }));
-vi.mock("@xyflow/react", () => ({ ReactFlowProvider: ({ children }: { children: React.ReactNode }) => <>{children}</> }));
+
+vi.mock("@multica/core/chat/queries", () => ({
+  chatSessionsOptions: () => ({ queryKey: ["chat-sessions"] }),
+}));
+
+vi.mock("@multica/core/runtimes/queries", () => ({
+  myRuntimePermissionOptions: () => ({ queryKey: ["runtime-permission"] }),
+}));
+
+vi.mock("@multica/core/permissions", () => ({
+  useNodeRunControlPermission: () => ({ allowed: false }),
+}));
+
+vi.mock("@multica/core/chat", () => ({
+  useChatStore: (selector: (state: unknown) => unknown) =>
+    selector({ setActiveSession: vi.fn(), setOpen: vi.fn() }),
+}));
+
+vi.mock("@multica/core/platform", () => ({
+  isEmbeddedInCostrict: () => false,
+  postCostrictNavigateToSession: vi.fn(),
+}));
+
+vi.mock("../../layout/page-header", () => ({
+  PageHeader: ({ children, className }: { children: ReactNode; className?: string }) => (
+    <div className={className}>{children}</div>
+  ),
+}));
+
+vi.mock("./dag-canvas", () => ({
+  DAGCanvas: ({ onNodeClick, nodeStatuses }: {
+    onNodeClick?: (nodeId: string) => void;
+    nodeStatuses?: Record<string, { status: string }>;
+  }) => (
+    <div>
+      <span data-testid="canvas-status">{nodeStatuses?.["split-node"]?.status}</span>
+      <button type="button" onClick={() => onNodeClick?.("split-node")}>
+        Open canvas split
+      </button>
+    </div>
+  ),
+}));
+
+vi.mock("@xyflow/react", () => ({
+  ReactFlowProvider: ({ children }: { children: ReactNode }) => <>{children}</>,
+}));
+
+vi.mock("./split/split-review-panel", () => ({
+  SplitReviewPanel: ({ nodeRun, onClose }: { nodeRun: { status: string } | null; onClose: () => void }) => (
+    <div data-testid="workflow-run-split-panel">
+      <span>{nodeRun?.status ?? "no-run"}</span>
+      <button type="button" onClick={onClose}>Close split panel</button>
+    </div>
+  ),
+}));
 
 vi.mock("../../i18n", () => {
   const translations = {
     detail: { not_found: "Not found", no_nodes: "No nodes" },
-    node_run: { status: {} },
-    run: {
-      status: { resolving_roles: "Resolving roles", waiting_role_assignment: "Waiting", running: "Running" },
-      cancelling: "Cancelling", cancel: "Cancel", node_runs: "Node runs",
-      roles: {
-        resolving: "Resolving workflow roles", waiting: "Waiting for role assignment",
-        invalidated: "A member is no longer active", title: "Role assignments", retry: "Retry",
-        retry_started: "Retry started", retry_failed: "Retry failed", unknown_node: "Unknown node",
-        worker: "Worker", critic: "Critic", status: { pending: "Pending", resolved: "Resolved", needs_human: "Needs human", invalidated: "Invalidated" },
-        select_member: "Select member", assigned_to: "Assigned", reason: "Reason",
-        notification_failed: "Notification failed", assigning: "Assigning",
-        assign_continue: "Confirm assignment", assignment_saved: "Assignment saved",
-        assignment_conflict: "Assignment conflict", assignment_failed: "Assignment failed",
+    run: { status: { running: "Running" }, cancel: "Cancel run", cancelling: "Cancelling" },
+    cancel_dialog: {
+      title: "Cancel workflow run?",
+      description: "This will stop unfinished node runs and cancel active child tasks.",
+      keep: "Keep running",
+      confirm: "Confirm cancel",
+    },
+    node_run: {
+      status: {
+        split_active: "Split Active",
+        awaiting_split_review: "Awaiting Split Review",
       },
+      retry_count: "{{current}}/{{max}}",
+      worker_output: "Worker Output",
+      submit: "Submit",
+      submitting: "Submitting",
+      approve: "Approve",
+      request_rework: "Request rework",
+      skip: "Skip",
+      review_comment_placeholder: "Review comment",
+      split_details: "Open split details",
     },
   };
-  return { useT: () => ({ t: (selector: (value: typeof translations) => string) => selector(translations) }) };
+  return {
+    useT: () => ({
+      t: (selector: (value: typeof translations) => string) => selector(translations),
+    }),
+  };
 });
 
-const unresolvedResolution = {
-  id: "resolution-1", workflow_run_id: "run-1", workflow_node_run_id: "node-run-1",
-  slot_type: "worker", role_id: "role-1", role_name: "Developer", role_description: "Builds changes",
-  status: "needs_human", resolved_user_id: null, source: null, reason_code: "insufficient_data",
-  reason_detail: "No unique match", version: 3, resolved_by: null, resolved_at: null,
-  notification_status: null, created_at: "", updated_at: "",
+const splitNode = {
+  id: "split-node",
+  workflow_id: "wf-1",
+  title: "Split node",
+  description: "",
+  position_x: 0,
+  position_y: 0,
+  format_schema: { type: "split", split_config: { mode: "barrier", max_concurrency: 3, max_failures: 0 } },
+  worker_type: "agent",
+  worker_id: null,
+  critic_type: "human",
+  critic_id: null,
+  critic_api_url: null,
+  sort_order: 0,
+  stage_id: null,
+  created_at: "",
+  updated_at: "",
 };
 
-describe("WorkflowRunPage role assignment", () => {
+const splitNodeRun = {
+  id: "node-run-1",
+  workflow_run_id: "run-1",
+  workflow_node_id: "split-node",
+  node_title: "Split node",
+  status: "split_active",
+  retry_count: 0,
+  worker_type: "agent",
+  worker_id: null,
+  worker_output: null,
+  worker_agent_task_id: null,
+  critic_type: "human",
+  critic_id: null,
+  critic_output: null,
+  critic_comment: "",
+  critic_agent_task_id: null,
+  agent_task_id: null,
+  session_id: null,
+  runtime_id: null,
+  device_id: null,
+  started_at: null,
+  completed_at: null,
+  created_at: "",
+  updated_at: "",
+};
+
+describe("WorkflowRunPage", () => {
   beforeEach(() => {
-    mocks.run = { id: "run-1", workflow_title: "Release", status: "waiting_role_assignment", triggered_by_id: "starter-1" };
-    mocks.nodes = [];
+    mocks.run = {
+      id: "run-1",
+      workflow_id: "wf-1",
+      workspace_id: "ws-1",
+      workflow_title: "Workflow",
+      status: "running",
+      triggered_by_type: "member",
+      triggered_by_id: null,
+      input: null,
+      output: null,
+      started_at: "",
+      completed_at: null,
+      created_at: "",
+    };
+    mocks.nodes = [splitNode];
     mocks.edges = [];
-    mocks.nodeRuns = [{ id: "node-run-1", workflow_node_id: "node-1", node_title: "Implement", status: "blocked" }];
-    mocks.resolutions = [unresolvedResolution];
-    mocks.members = [
-      { user_id: "owner-1", name: "Owner", role: "owner", status: "active" },
-      { user_id: "worker-1", name: "Active worker", role: "member", status: "active" },
-      { user_id: "inactive-1", name: "Inactive worker", role: "member", status: "inactive" },
-    ];
-    mocks.assign.mockReset().mockResolvedValue(undefined);
-    mocks.retry.mockReset().mockResolvedValue(undefined);
-    mocks.cancel.mockReset();
-    mocks.refetchResolutions.mockReset().mockResolvedValue(undefined);
-    mocks.toastError.mockReset();
-    mocks.toastSuccess.mockReset();
+    mocks.nodeRuns = [splitNodeRun];
+    mocks.cancelMutate.mockReset();
   });
 
-  it("only offers active members and submits the optimistic version", async () => {
-    render(<WorkflowRunPage workflowId="workflow-1" runId="run-1" />);
-    expect(screen.getByText("Waiting for role assignment")).toBeInTheDocument();
-    expect(screen.queryByRole("option", { name: "Inactive worker" })).not.toBeInTheDocument();
-    const submit = screen.getByRole("button", { name: "Confirm assignment" });
-    expect(submit).toBeDisabled();
-    fireEvent.change(screen.getByRole("combobox"), { target: { value: "worker-1" } });
-    fireEvent.click(submit);
-    await waitFor(() => expect(mocks.assign).toHaveBeenCalledWith([
-      { resolution_id: "resolution-1", user_id: "worker-1", version: 3 },
-    ]));
+  it("localizes split node run status on the canvas", () => {
+    render(<WorkflowRunPage workflowId="wf-1" runId="run-1" />);
+
+    expect(screen.getByTestId("canvas-status")).toHaveTextContent("Split Active");
+    expect(screen.queryByText("split_active")).not.toBeInTheDocument();
   });
 
-  it("refetches and reports a 409 optimistic-lock conflict", async () => {
-    mocks.assign.mockRejectedValue(new ApiError("conflict", 409, "Conflict"));
-    render(<WorkflowRunPage workflowId="workflow-1" runId="run-1" />);
-    fireEvent.change(screen.getByRole("combobox"), { target: { value: "worker-1" } });
-    fireEvent.click(screen.getByRole("button", { name: "Confirm assignment" }));
-    await waitFor(() => expect(mocks.refetchResolutions).toHaveBeenCalled());
-    expect(mocks.toastError).toHaveBeenCalledWith("Assignment conflict");
+  it("opens split review panel from the canvas split node", () => {
+    render(<WorkflowRunPage workflowId="wf-1" runId="run-1" />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Open canvas split" }));
+
+    expect(screen.getByTestId("workflow-run-split-panel")).toHaveTextContent("split_active");
   });
 
-  it("shows resolving state and allows cancellation", () => {
-    mocks.run = { ...mocks.run, status: "resolving_roles" };
-    render(<WorkflowRunPage workflowId="workflow-1" runId="run-1" />);
-    expect(screen.getByText("Resolving workflow roles")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
-    expect(mocks.cancel).toHaveBeenCalledWith({ workflowId: "workflow-1", runId: "run-1" });
+  it("opens split review panel from the node run list split entry", () => {
+    render(<WorkflowRunPage workflowId="wf-1" runId="run-1" />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Open split details" }));
+
+    expect(screen.getByTestId("workflow-run-split-panel")).toHaveTextContent("split_active");
+  });
+
+  it("confirms before cancelling a running workflow run", () => {
+    render(<WorkflowRunPage workflowId="wf-1" runId="run-1" />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Cancel run" }));
+
+    expect(mocks.cancelMutate).not.toHaveBeenCalled();
+    expect(screen.getByRole("alertdialog", { name: "Cancel workflow run?" })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Confirm cancel" }));
+
+    expect(mocks.cancelMutate).toHaveBeenCalledWith({ workflowId: "wf-1", runId: "run-1" });
   });
 });

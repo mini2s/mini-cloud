@@ -1,10 +1,12 @@
 // @vitest-environment jsdom
 
+import { act } from "react";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactNode } from "react";
-import { ExecutionPanoramaPage } from "./execution-panorama-page";
+import { ExecutionPanoramaPage, decorateRuntimeEdges } from "./execution-panorama-page";
+import type { Edge, Viewport } from "@xyflow/react";
 
 // ---------------------------------------------------------------------------
 // Hoisted mock state — lets each test control query behaviour
@@ -17,24 +19,32 @@ const mocks = vi.hoisted(() => ({
   nodeRunsData: undefined as unknown as unknown[],
   canvasSummaryData: undefined as unknown,
   agentsData: undefined as unknown as unknown[],
+  membersData: undefined as unknown as unknown[],
+  squadsData: undefined as unknown as unknown[],
+  workflowOptionsData: undefined as unknown,
+  splitTasksByNodeRunId: {} as Record<string, unknown>,
   pluginsData: undefined as unknown,
   workflowRolesData: [] as unknown[],
-  membersData: [] as unknown[],
   roleResolutionsData: [] as unknown[],
+  hasOpenInNewTab: true,
   isLoading: true,
+  navigationPush: vi.fn(),
+  openInNewTab: vi.fn(),
   onNodeClick: vi.fn(),
   fitView: vi.fn(),
   setCenter: vi.fn(),
+  setReactFlowViewport: vi.fn(),
   getViewport: vi.fn(() => ({ x: 0, y: 24, zoom: 0.95 })),
   nodesInitialized: true,
   viewportInitialized: true,
-  rerunIssue: vi.fn(),
+  retryNodeRun: vi.fn(),
   reactFlowProps: null as null | {
     nodes: Array<{
       id: string;
       type?: string;
       width?: number;
       height?: number;
+      position: { x: number; y: number };
       data?: Record<string, unknown>;
       markerEnd?: { color?: string };
     }>;
@@ -43,6 +53,9 @@ const mocks = vi.hoisted(() => ({
       data?: Record<string, unknown>;
       markerEnd?: { color?: string };
     }>;
+    onNodeClick?: (event: unknown, node: { id: string; data?: Record<string, unknown> }) => void;
+    onNodeDoubleClick?: (event: unknown, node: { id: string; data?: Record<string, unknown> }) => void;
+    onMove?: (event: unknown, viewport: Viewport) => void;
   },
 }));
 
@@ -71,18 +84,33 @@ vi.mock("@tanstack/react-query", async () => {
           return { data: mocks.nodeRunsData, isLoading: false };
         if (key.includes("agents"))
           return { data: mocks.agentsData, isLoading: false };
+        if (key.includes("members"))
+          return { data: mocks.membersData, isLoading: false };
+        if (key.includes("squads"))
+          return { data: mocks.squadsData, isLoading: false };
         if (key.includes("plugins"))
           return { data: mocks.pluginsData, isLoading: false };
         if (key.includes("role-resolutions"))
           return { data: mocks.roleResolutionsData, isLoading: false };
         if (key.includes("roles"))
           return { data: mocks.workflowRolesData, isLoading: false };
-        if (key.includes("members"))
-          return { data: mocks.membersData, isLoading: false };
+        if (key.includes("split-issue-workflow-options"))
+          return { data: mocks.workflowOptionsData, isLoading: false };
         return { data: mocks.workflowData, isLoading: mocks.isLoading };
       }
       return { data: undefined, isLoading: true };
     },
+    useQueries: ({ queries }: { queries: Array<{ queryKey?: unknown[]; enabled?: boolean }> }) =>
+      queries.map((opts) => {
+        const key = opts.queryKey ?? [];
+        const enabled = opts.enabled !== false;
+        const nodeRunsIndex = Array.isArray(key) ? key.indexOf("node-runs") : -1;
+        const nodeRunId = nodeRunsIndex >= 0 ? String(key[nodeRunsIndex + 1] ?? "") : "";
+        return {
+          data: enabled ? mocks.splitTasksByNodeRunId[nodeRunId] : undefined,
+          isLoading: false,
+        };
+      }),
     useMutation: () => ({
       mutateAsync: vi.fn(),
       mutate: vi.fn(),
@@ -124,6 +152,14 @@ vi.mock("@multica/core/workflows/queries", () => ({
   ) => ({
     queryKey: ["workflows", wsId, workflowId, runId, "role-resolutions"],
   }),
+  splitTasksOptions: (wsId: string, nodeRunId: string | null | undefined) => ({
+    queryKey: ["workflows", wsId, "node-runs", nodeRunId ?? "", "split-tasks"],
+    enabled: !!nodeRunId,
+  }),
+  splitIssueWorkflowOptions: (wsId: string, workflowId: string | null | undefined) => ({
+    queryKey: ["workflows", wsId, workflowId ?? "", "split-issue-workflow-options"],
+    enabled: !!workflowId,
+  }),
   workflowKeys: {
     nodeRuns: (wsId: string, wfId: string, runId: string) => [
       "workflows",
@@ -154,6 +190,9 @@ vi.mock("@multica/core/workspace/queries", () => ({
   memberListOptions: (wsId: string) => ({
     queryKey: ["workspaces", wsId, "members"],
   }),
+  squadListOptions: (wsId: string) => ({
+    queryKey: ["workspaces", wsId, "squads"],
+  }),
   builtinPluginListOptions: () => ({
     queryKey: ["plugins", "builtin"],
   }),
@@ -161,8 +200,22 @@ vi.mock("@multica/core/workspace/queries", () => ({
 
 vi.mock("@multica/core/api", () => ({
   api: {
-    rerunIssue: mocks.rerunIssue,
+    retryNodeRun: mocks.retryNodeRun,
   },
+}));
+
+vi.mock("@multica/core/paths", () => ({
+  useWorkspacePaths: () => ({
+    issueDetail: (issueId: string) => `/demo111/issues/${issueId}`,
+  }),
+}));
+
+vi.mock("../../../navigation", () => ({
+  useNavigation: () => ({
+    push: mocks.navigationPush,
+    ...(mocks.hasOpenInNewTab ? { openInNewTab: mocks.openInNewTab } : {}),
+    getShareableUrl: (path: string) => `https://app.multica.test${path}`,
+  }),
 }));
 
 vi.mock("sonner", () => ({
@@ -181,6 +234,17 @@ vi.mock("../../../i18n", () => ({
           qa: { name: "QA", description: "Validates changes" },
           tech_lead: { name: "Tech Lead", description: "Tech direction" },
         },
+        execution: {
+          display_status: {
+            pending: "Pending",
+            todo: "To do",
+            in_progress: "In progress",
+            reviewing: "Reviewing",
+            completed: "Completed",
+            blocked: "Blocked",
+            cancelled: "Cancelled",
+          },
+        },
       }),
   }),
 }));
@@ -188,27 +252,34 @@ vi.mock("../../../i18n", () => ({
 // ---------------------------------------------------------------------------
 // Mock child components
 // ---------------------------------------------------------------------------
-vi.mock("../../../workflows/components/overview/stage-lane", () => ({
-  StageLane: ({
-    stage,
-  }: {
-    stage: { id: string; name: string };
-    nodeIds?: unknown[];
-  }) => <div data-testid={`stage-lane-${stage.id}`}>{stage.name}</div>,
-}));
-
 vi.mock("./execution-detail-panel", () => ({
   ExecutionDetailPanel: ({
+    node,
     nodeRun,
     onClose,
+    onOpenIssue,
     onRetry,
+    isChildIssue,
+    parentSplitTitle,
   }: {
+    node: { title: string };
     nodeRun: { status: string } | null;
     onClose: () => void;
+    onOpenIssue?: () => void;
     onRetry?: () => void;
+    isChildIssue?: boolean;
+    parentSplitTitle?: string | null;
   }) => (
     <div data-testid="execution-detail-panel">
+      <span data-testid="detail-panel-title">{node.title}</span>
       <span data-testid="detail-panel-status">{nodeRun?.status ?? "no-run"}</span>
+      <span data-testid="detail-panel-is-child">{String(isChildIssue === true)}</span>
+      <span data-testid="detail-panel-parent-split">{parentSplitTitle ?? "no-parent"}</span>
+      {onOpenIssue ? (
+        <button type="button" onClick={onOpenIssue}>
+          Open issue
+        </button>
+      ) : null}
       {onRetry ? (
         <button type="button" onClick={onRetry}>
           Retry from panel
@@ -219,9 +290,24 @@ vi.mock("./execution-detail-panel", () => ({
   ),
 }));
 
-vi.mock("../../../workflows/components/overview/panorama-svg-overlay", () => ({
-  PanoramaSvgOverlay: () => <svg data-testid="panorama-svg-overlay" />,
+vi.mock("../../../workflows/components/split/split-review-panel", () => ({
+  SplitReviewPanel: ({
+    nodeRun,
+    parentIssueId,
+    onClose,
+  }: {
+    nodeRun: { status: string } | null;
+    parentIssueId?: string;
+    onClose: () => void;
+  }) => (
+    <div data-testid="execution-split-review-panel">
+      <span data-testid="split-panel-status">{nodeRun?.status ?? "no-run"}</span>
+      <span data-testid="split-panel-parent-issue-id">{parentIssueId ?? "no-parent-issue"}</span>
+      <button onClick={onClose}>Close split panel</button>
+    </div>
+  ),
 }));
+
 
 vi.mock("./global-notification-bar", () => ({
   GlobalNotificationBar: ({
@@ -252,6 +338,7 @@ vi.mock("@xyflow/react", () => ({
       type?: string;
       width?: number;
       height?: number;
+      position: { x: number; y: number };
       data?: Record<string, unknown>;
     }>;
     edges?: Array<{
@@ -262,11 +349,17 @@ vi.mock("@xyflow/react", () => ({
     defaultViewport?: { x: number; y: number; zoom: number };
     fitView?: boolean;
     fitViewOptions?: { maxZoom?: number; padding?: number };
+    onNodeClick?: (event: unknown, node: { id: string; data?: Record<string, unknown> }) => void;
+    onNodeDoubleClick?: (event: unknown, node: { id: string; data?: Record<string, unknown> }) => void;
+    onMove?: (event: unknown, viewport: Viewport) => void;
     children?: ReactNode;
   }) => {
     mocks.reactFlowProps = {
       nodes: props.nodes ?? [],
       edges: props.edges ?? [],
+      onNodeClick: props.onNodeClick,
+      onNodeDoubleClick: props.onNodeDoubleClick,
+      onMove: props.onMove,
     };
     return (
       <div
@@ -288,6 +381,7 @@ vi.mock("@xyflow/react", () => ({
   useReactFlow: () => ({
     fitView: mocks.fitView,
     setCenter: mocks.setCenter,
+    setViewport: mocks.setReactFlowViewport,
     getViewport: mocks.getViewport,
     viewportInitialized: mocks.viewportInitialized,
   }),
@@ -341,6 +435,93 @@ const NODE = {
   updated_at: "",
 };
 
+const SPLIT_NODE = {
+  ...NODE,
+  id: "split-1",
+  title: "Split implementation",
+  format_schema: {
+    type: "split",
+    split_config: {
+      default_issue_workflow_id: "child-wf-1",
+      mode: "barrier",
+      max_concurrency: 3,
+      max_failures: 0,
+    },
+  },
+};
+
+const SPLIT_NODE_RUN = {
+  id: "split-run-1",
+  workflow_run_id: "run-1",
+  workflow_node_id: "split-1",
+  node_title: "Split implementation",
+  status: "split_active",
+  retry_count: 0,
+  worker_type: "agent",
+  worker_id: "agent-1",
+  worker_output: null,
+  worker_agent_task_id: null,
+  critic_type: "human",
+  critic_id: null,
+  critic_output: null,
+  critic_comment: "",
+  critic_agent_task_id: null,
+  agent_task_id: null,
+  session_id: null,
+  runtime_id: null,
+  device_id: null,
+  started_at: null,
+  completed_at: null,
+  created_at: "",
+  updated_at: "",
+};
+
+const SPLIT_TASKS_RESPONSE = {
+  tasks: [
+    {
+      id: "task-1",
+      node_run_id: "split-run-1",
+      title: "Implement API contract",
+      description: "Update handlers and service flow.",
+      workflow_id: "wf-impl",
+      depends_on: [],
+      sort_order: 0,
+      status: "running",
+      issue_id: "child-issue-1",
+      run_id: "child-run-1",
+      version: 1,
+      last_error: null,
+      created_at: "",
+      updated_at: "",
+    },
+    {
+      id: "task-2",
+      node_run_id: "split-run-1",
+      title: "Backfill tests",
+      description: "Cover the selected workflow.",
+      workflow_id: "wf-test",
+      depends_on: ["task-1"],
+      sort_order: 1,
+      status: "created",
+      issue_id: "child-issue-2",
+      run_id: "child-run-2",
+      version: 1,
+      last_error: null,
+      created_at: "",
+      updated_at: "",
+    },
+  ],
+  progress: {
+    total: 2,
+    created: 1,
+    running: 1,
+    done: 0,
+    failed: 0,
+    cancelled: 0,
+    skipped: 0,
+  },
+};
+
 const AGENT = {
   id: "agent-1",
   workspace_id: "ws-1",
@@ -369,6 +550,36 @@ const AGENT = {
   archived_by: null,
 };
 
+describe("decorateRuntimeEdges", () => {
+  it("adds runtime edge tones and business labels", () => {
+    const edges = [
+      { id: "edge-a-b", source: "a", target: "b", data: { edgeKind: "data" } },
+      { id: "edge-b-c", source: "b", target: "c", data: { edgeKind: "data" } },
+    ] as Edge[];
+    const nodeRunMap = new Map<string, any>([
+      ["a", { id: "run-a", status: "completed", worker_output: { artifact_count: 2 } }],
+      ["b", { id: "run-b", status: "working", worker_output: null }],
+      ["c", { id: "run-c", status: "failed", worker_output: null }],
+    ]);
+    const splitTasksByNodeId = new Map<string, any[]>([
+      ["b", [{ id: "task-1", issue_id: "issue-1" }, { id: "task-2", issue_id: "issue-2" }]],
+    ]);
+
+    expect(decorateRuntimeEdges({ edges, nodeRunMap, splitTasksByNodeId })).toEqual([
+      expect.objectContaining({
+        id: "edge-a-b",
+        data: expect.objectContaining({ edgeTone: "running", edgeLabel: "2 artifacts" }),
+        markerEnd: expect.objectContaining({ color: "rgb(59 130 246)" }),
+      }),
+      expect.objectContaining({
+        id: "edge-b-c",
+        data: expect.objectContaining({ edgeTone: "blocked", edgeLabel: "2 child issues" }),
+        markerEnd: expect.objectContaining({ color: "rgb(239 68 68)" }),
+      }),
+    ]);
+  });
+});
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -382,14 +593,21 @@ describe("ExecutionPanoramaPage", () => {
     mocks.nodeRunsData = [];
     mocks.canvasSummaryData = undefined;
     mocks.agentsData = [];
+    mocks.membersData = [];
+    mocks.squadsData = [];
+    mocks.workflowOptionsData = [];
+    mocks.hasOpenInNewTab = true;
+    mocks.splitTasksByNodeRunId = {};
     mocks.fitView.mockClear();
     mocks.setCenter.mockClear();
     mocks.getViewport.mockClear();
     mocks.getViewport.mockReturnValue({ x: 0, y: 24, zoom: 0.95 });
     mocks.nodesInitialized = true;
     mocks.viewportInitialized = true;
-    mocks.rerunIssue.mockReset();
-    mocks.rerunIssue.mockResolvedValue({ id: "task-2" });
+    mocks.retryNodeRun.mockReset();
+    mocks.retryNodeRun.mockResolvedValue({ id: "nr-2" });
+    mocks.navigationPush.mockReset();
+    mocks.openInNewTab.mockReset();
     mocks.reactFlowProps = null;
     mocks.pluginsData = {
       items: [],
@@ -483,8 +701,8 @@ describe("ExecutionPanoramaPage", () => {
     expect(screen.getByTestId("execution-panorama").className).not.toContain("min-h-[640px]");
     expect(screen.getByTestId("execution-canvas-shell")).toHaveClass("min-h-0", "flex-1");
     expect(screen.getByTestId("execution-canvas-shell").className).not.toContain("min-h-[560px]");
-    expect(screen.getByTestId("panorama-canvas")).toHaveClass("left-0", "right-0");
-    expect(screen.getByTestId("panorama-canvas").className).not.toContain("left-40");
+    expect(screen.getByTestId("panorama-canvas")).toHaveClass("left-40", "right-0");
+    expect(screen.getByTestId("panorama-canvas").className).not.toContain("left-0");
   });
 
   it("renders the shared ReactFlow canvas core when stages exist", () => {
@@ -553,10 +771,6 @@ describe("ExecutionPanoramaPage", () => {
           display_status: "completed",
           active_actor_type: null,
           active_actor_id: null,
-          deliverable_signal: "green",
-          required_deliverables_total: 1,
-          required_deliverables_submitted: 1,
-          required_deliverables_approved: 1,
           duration_seconds: 12,
           session_id: null,
           runtime_id: null,
@@ -581,8 +795,163 @@ describe("ExecutionPanoramaPage", () => {
       height: 120,
       data: expect.objectContaining({
         nodeRun: expect.objectContaining({ status: "completed" }),
-        runtimeSummary: expect.objectContaining({ deliverable_signal: "green" }),
       }),
+    });
+  });
+
+  it("marks only the highest-priority runtime node as the runtime focus", () => {
+    mocks.isLoading = false;
+    mocks.workflowData = { id: "wf-1", title: "Test Workflow" };
+    mocks.stagesData = [STAGE];
+    mocks.nodesData = [
+      { ...NODE, id: "running-node", title: "Running", position_x: 0 },
+      { ...NODE, id: "blocked-node", title: "Blocked", position_x: 320 },
+    ];
+    mocks.nodeRunsData = [
+      {
+        id: "nr-running",
+        workflow_run_id: "run-1",
+        workflow_node_id: "running-node",
+        node_title: "Running",
+        status: "working",
+        retry_count: 0,
+        worker_type: "agent",
+        worker_id: "agent-1",
+        worker_output: null,
+        worker_agent_task_id: null,
+        critic_type: "human",
+        critic_id: null,
+        critic_output: null,
+        critic_comment: "",
+        critic_agent_task_id: null,
+        agent_task_id: null,
+        session_id: null,
+        runtime_id: null,
+        device_id: null,
+        started_at: null,
+        completed_at: null,
+        created_at: "",
+        updated_at: "",
+      },
+      {
+        id: "nr-blocked",
+        workflow_run_id: "run-1",
+        workflow_node_id: "blocked-node",
+        node_title: "Blocked",
+        status: "blocked",
+        retry_count: 0,
+        worker_type: "agent",
+        worker_id: "agent-1",
+        worker_output: null,
+        worker_agent_task_id: null,
+        critic_type: "human",
+        critic_id: null,
+        critic_output: null,
+        critic_comment: "",
+        critic_agent_task_id: null,
+        agent_task_id: null,
+        session_id: null,
+        runtime_id: null,
+        device_id: null,
+        started_at: null,
+        completed_at: null,
+        created_at: "",
+        updated_at: "",
+      },
+    ];
+    mocks.agentsData = [AGENT];
+
+    render(
+      <Wrapper>
+        <ExecutionPanoramaPage workflowId="wf-1" runId="run-1" wsId="ws-1" />
+      </Wrapper>,
+    );
+
+    expect(mocks.reactFlowProps?.nodes.find((node) => node.id === "blocked-node")?.data).toMatchObject({
+      isRuntimeFocus: true,
+    });
+    expect(mocks.reactFlowProps?.nodes.find((node) => node.id === "running-node")?.data).toMatchObject({
+      isRuntimeFocus: false,
+    });
+  });
+
+  it("centers and prominently zooms the initial viewport on the highest-priority runtime node", async () => {
+    mocks.isLoading = false;
+    mocks.workflowData = { id: "wf-1", title: "Test Workflow" };
+    mocks.stagesData = [STAGE];
+    mocks.nodesData = [
+      { ...NODE, id: "running-node", title: "Running", position_x: 0 },
+      { ...NODE, id: "blocked-node", title: "Blocked", position_x: 320 },
+    ];
+    mocks.nodeRunsData = [
+      {
+        id: "nr-running",
+        workflow_run_id: "run-1",
+        workflow_node_id: "running-node",
+        node_title: "Running",
+        status: "working",
+        retry_count: 0,
+        worker_type: "agent",
+        worker_id: "agent-1",
+        worker_output: null,
+        worker_agent_task_id: null,
+        critic_type: "human",
+        critic_id: null,
+        critic_output: null,
+        critic_comment: "",
+        critic_agent_task_id: null,
+        agent_task_id: null,
+        session_id: null,
+        runtime_id: null,
+        device_id: null,
+        started_at: null,
+        completed_at: null,
+        created_at: "",
+        updated_at: "",
+      },
+      {
+        id: "nr-blocked",
+        workflow_run_id: "run-1",
+        workflow_node_id: "blocked-node",
+        node_title: "Blocked",
+        status: "blocked",
+        retry_count: 0,
+        worker_type: "agent",
+        worker_id: "agent-1",
+        worker_output: null,
+        worker_agent_task_id: null,
+        critic_type: "human",
+        critic_id: null,
+        critic_output: null,
+        critic_comment: "",
+        critic_agent_task_id: null,
+        agent_task_id: null,
+        session_id: null,
+        runtime_id: null,
+        device_id: null,
+        started_at: null,
+        completed_at: null,
+        created_at: "",
+        updated_at: "",
+      },
+    ];
+    mocks.agentsData = [AGENT];
+
+    render(
+      <Wrapper>
+        <ExecutionPanoramaPage workflowId="wf-1" runId="run-1" wsId="ws-1" />
+      </Wrapper>,
+    );
+
+    const blockedNode = mocks.reactFlowProps?.nodes.find((node) => node.id === "blocked-node");
+    expect(blockedNode).toBeTruthy();
+
+    await waitFor(() => {
+      expect(mocks.setCenter).toHaveBeenCalledWith(
+        blockedNode!.position.x + (blockedNode!.width ?? 240) / 2,
+        blockedNode!.position.y + (blockedNode!.height ?? 120) / 2,
+        expect.objectContaining({ duration: 450, zoom: 1.45 }),
+      );
     });
   });
 
@@ -643,14 +1012,14 @@ describe("ExecutionPanoramaPage", () => {
       expect(mocks.fitView).toHaveBeenCalledWith(
         expect.objectContaining({
           nodes: [{ id: "n1" }],
-          padding: 0.04,
-          maxZoom: 1.2,
+          padding: 0.16,
+          maxZoom: 1,
         }),
       );
     });
 
-    expect(screen.getByTestId("reactflow-canvas")).toHaveAttribute("data-fit-view", "true");
-    expect(screen.getByTestId("reactflow-canvas")).toHaveAttribute("data-fit-view-max-zoom", "1.2");
+    expect(screen.getByTestId("reactflow-canvas")).toHaveAttribute("data-fit-view", "false");
+    expect(screen.getByTestId("reactflow-canvas")).toHaveAttribute("data-fit-view-max-zoom", "1");
   });
 
   it("waits for ReactFlow to initialize before fitting workflow nodes", async () => {
@@ -764,6 +1133,674 @@ describe("ExecutionPanoramaPage", () => {
     expect(screen.queryByTestId("execution-detail-panel")).not.toBeInTheDocument();
   });
 
+  it("opens the split review panel instead of the generic execution panel for split nodes", () => {
+    mocks.isLoading = false;
+    mocks.workflowData = { id: "wf-1", title: "Test Workflow" };
+    mocks.stagesData = [STAGE];
+    mocks.nodesData = [
+      {
+        ...NODE,
+        format_schema: {
+          type: "split",
+          split_config: {
+            default_issue_workflow_id: "child-wf-1",
+            mode: "barrier",
+            max_concurrency: 3,
+            max_failures: 0,
+          },
+        },
+      },
+    ];
+    mocks.nodeRunsData = [
+      {
+        id: "nr-1",
+        workflow_run_id: "run-1",
+        workflow_node_id: "n1",
+        node_title: "brainstorming",
+        status: "awaiting_split_review",
+        retry_count: 0,
+        worker_type: "agent",
+        worker_id: "agent-1",
+        worker_output: null,
+        worker_agent_task_id: null,
+        critic_type: "human",
+        critic_id: null,
+        critic_output: null,
+        critic_comment: "",
+        critic_agent_task_id: null,
+        agent_task_id: null,
+        session_id: null,
+        runtime_id: null,
+        device_id: null,
+        started_at: null,
+        completed_at: null,
+        created_at: "",
+        updated_at: "",
+      },
+    ];
+    mocks.canvasSummaryData = {
+      node_runs: mocks.nodeRunsData,
+      node_runtime_summaries: [],
+    };
+    mocks.agentsData = [AGENT];
+
+    render(
+      <Wrapper>
+        <ExecutionPanoramaPage workflowId="wf-1" runId="run-1" wsId="ws-1" issueId="issue-1" />
+      </Wrapper>,
+    );
+
+    fireEvent.click(screen.getByTestId("notification-item-test"));
+
+    expect(screen.getByTestId("execution-split-review-panel")).toBeInTheDocument();
+    expect(screen.getByTestId("split-panel-status")).toHaveTextContent("awaiting_split_review");
+    expect(screen.getByTestId("split-panel-parent-issue-id")).toHaveTextContent("issue-1");
+    expect(screen.queryByTestId("execution-detail-panel")).not.toBeInTheDocument();
+  });
+
+  it("expands split child issues into a subflow container from the runtime split expansion button", async () => {
+    mocks.isLoading = false;
+    mocks.workflowData = { id: "wf-1", title: "Test Workflow" };
+    mocks.stagesData = [STAGE];
+    mocks.nodesData = [SPLIT_NODE];
+    mocks.nodeRunsData = [SPLIT_NODE_RUN];
+    mocks.canvasSummaryData = {
+      node_runs: mocks.nodeRunsData,
+      node_runtime_summaries: [
+        {
+          workflow_node_id: "split-1",
+          node_run_id: "split-run-1",
+          display_status: "in_progress",
+          active_actor_type: null,
+          active_actor_id: null,
+          duration_seconds: null,
+          session_id: null,
+          runtime_id: null,
+          device_id: null,
+          has_error: false,
+          error_message: "",
+          split_progress: SPLIT_TASKS_RESPONSE.progress,
+        },
+      ],
+    };
+    mocks.agentsData = [AGENT];
+    mocks.splitTasksByNodeRunId = {
+      "split-run-1": SPLIT_TASKS_RESPONSE,
+    };
+
+    render(
+      <Wrapper>
+        <ExecutionPanoramaPage workflowId="wf-1" runId="run-1" wsId="ws-1" issueId="issue-1" />
+      </Wrapper>,
+    );
+
+    const splitNode = mocks.reactFlowProps?.nodes.find((node) => node.id === "split-1");
+    expect(splitNode?.data).toMatchObject({
+      splitChildCount: 2,
+      isSplitExpanded: false,
+    });
+
+    act(() => {
+      (splitNode?.data?.onSplitNodeToggle as (nodeId: string) => void)("split-1");
+    });
+
+    await waitFor(() => {
+      expect(mocks.reactFlowProps?.nodes.map((node) => node.id)).toEqual(
+        expect.arrayContaining([
+          "split-1",
+          "split-1:split-subflow",
+        ]),
+      );
+    });
+
+    expect(mocks.reactFlowProps?.nodes.find((node) => node.id === "split-1:split-task:task-1")).toBeUndefined();
+    expect(mocks.reactFlowProps?.nodes.find((node) => node.id === "split-1:split-task:task-2")).toBeUndefined();
+    expect(mocks.reactFlowProps?.nodes.find((node) => node.id === "split-1:split-subflow")).toMatchObject({
+      type: "runtimeSplitSubflow",
+      data: {
+        splitNodeId: "split-1",
+        parentTitle: "Split implementation",
+        childIssues: [
+          expect.objectContaining({
+            nodeId: "split-1:split-task:task-1",
+            issueId: "child-issue-1",
+            title: "Implement API contract",
+            displayStatus: "in_progress",
+            workerName: "wf-impl",
+            level: 0,
+          }),
+          expect.objectContaining({
+            nodeId: "split-1:split-task:task-2",
+            issueId: "child-issue-2",
+            title: "Backfill tests",
+            displayStatus: "todo",
+            workerName: "wf-test",
+            level: 1,
+          }),
+        ],
+        dependencyEdges: [
+          expect.objectContaining({
+            sourceNodeId: "split-1:split-task:task-1",
+            targetNodeId: "split-1:split-task:task-2",
+          }),
+        ],
+      },
+    });
+    expect(mocks.reactFlowProps?.edges.map((edge) => edge.id)).toEqual(
+      expect.arrayContaining([
+        "split-1:split-subflow-edge",
+      ]),
+    );
+    expect(mocks.reactFlowProps?.edges.find((edge) => edge.id === "split-1:split-subflow-edge")?.data).toMatchObject({
+      edgeTone: "running",
+      edgeLabel: "2 child issues",
+      sameStage: false,
+    });
+    expect(mocks.reactFlowProps?.edges.find((edge) => edge.id === "split-1:split-subflow-edge")?.markerEnd?.color).toBe(
+      "rgb(59 130 246)",
+    );
+    expect(
+      mocks.reactFlowProps?.nodes.find((node) => node.id === "split-1")?.data,
+    ).toMatchObject({
+      isSplitExpanded: true,
+    });
+  });
+
+  it("keeps the expanded split subflow near the parent split and shifts overlapping workflow nodes", async () => {
+    mocks.isLoading = false;
+    mocks.workflowData = { id: "wf-1", title: "Test Workflow" };
+    mocks.stagesData = [STAGE];
+    mocks.nodesData = [
+      SPLIT_NODE,
+      {
+        ...NODE,
+        id: "downstream-1",
+        title: "Downstream workflow node",
+        position_x: 320,
+      },
+    ];
+    mocks.nodeRunsData = [SPLIT_NODE_RUN];
+    mocks.canvasSummaryData = {
+      node_runs: mocks.nodeRunsData,
+      node_runtime_summaries: [],
+    };
+    mocks.agentsData = [AGENT];
+    mocks.splitTasksByNodeRunId = {
+      "split-run-1": SPLIT_TASKS_RESPONSE,
+    };
+
+    render(
+      <Wrapper>
+        <ExecutionPanoramaPage workflowId="wf-1" runId="run-1" wsId="ws-1" issueId="issue-1" />
+      </Wrapper>,
+    );
+
+    const splitNode = mocks.reactFlowProps?.nodes.find((node) => node.id === "split-1");
+    act(() => {
+      (splitNode?.data?.onSplitNodeToggle as (nodeId: string) => void)("split-1");
+    });
+
+    await waitFor(() => {
+      expect(mocks.reactFlowProps?.nodes.find((node) => node.id === "split-1:split-subflow")).toBeTruthy();
+    });
+
+    const downstreamNode = mocks.reactFlowProps?.nodes.find((node) => node.id === "downstream-1");
+    const parentNode = mocks.reactFlowProps?.nodes.find((node) => node.id === "split-1");
+    const subflowNode = mocks.reactFlowProps?.nodes.find((node) => node.id === "split-1:split-subflow");
+
+    expect(subflowNode!.position.x).toBe(parentNode!.position.x + 384);
+    expect(downstreamNode!.position.x).toBeGreaterThanOrEqual(
+      subflowNode!.position.x + (subflowNode!.width ?? 560) + 96,
+    );
+  });
+
+  it("widens the split subflow to contain multi-level child issue chains", async () => {
+    mocks.isLoading = false;
+    mocks.workflowData = { id: "wf-1", title: "Test Workflow" };
+    mocks.stagesData = [STAGE];
+    mocks.nodesData = [SPLIT_NODE];
+    mocks.nodeRunsData = [SPLIT_NODE_RUN];
+    mocks.canvasSummaryData = {
+      node_runs: mocks.nodeRunsData,
+      node_runtime_summaries: [],
+    };
+    mocks.agentsData = [AGENT];
+    mocks.splitTasksByNodeRunId = {
+      "split-run-1": {
+        ...SPLIT_TASKS_RESPONSE,
+        tasks: [
+          { ...SPLIT_TASKS_RESPONSE.tasks[0], id: "task-1", depends_on: [], sort_order: 0 },
+          { ...SPLIT_TASKS_RESPONSE.tasks[1], id: "task-2", depends_on: ["task-1"], sort_order: 1 },
+          {
+            ...SPLIT_TASKS_RESPONSE.tasks[1],
+            id: "task-3",
+            title: "Render controls",
+            issue_id: "child-issue-3",
+            depends_on: ["task-2"],
+            sort_order: 2,
+          },
+          {
+            ...SPLIT_TASKS_RESPONSE.tasks[1],
+            id: "task-4",
+            title: "AI opponent",
+            issue_id: "child-issue-4",
+            depends_on: ["task-3"],
+            sort_order: 3,
+          },
+        ],
+      },
+    };
+
+    render(
+      <Wrapper>
+        <ExecutionPanoramaPage workflowId="wf-1" runId="run-1" wsId="ws-1" issueId="issue-1" />
+      </Wrapper>,
+    );
+
+    const splitNode = mocks.reactFlowProps?.nodes.find((node) => node.id === "split-1");
+    act(() => {
+      (splitNode?.data?.onSplitNodeToggle as (nodeId: string) => void)("split-1");
+    });
+
+    await waitFor(() => {
+      expect(mocks.reactFlowProps?.nodes.find((node) => node.id === "split-1:split-subflow")).toBeTruthy();
+    });
+
+    const subflowNode = mocks.reactFlowProps?.nodes.find((node) => node.id === "split-1:split-subflow");
+    expect(subflowNode?.width).toBeGreaterThan(700);
+    expect(subflowNode?.data?.childIssues).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ nodeId: "split-1:split-task:task-4", level: 3 }),
+      ]),
+    );
+  });
+
+  it("fits the viewport once to the expanded split child issue panel without locking later moves", async () => {
+    mocks.isLoading = false;
+    mocks.workflowData = { id: "wf-1", title: "Test Workflow" };
+    mocks.stagesData = [STAGE];
+    mocks.nodesData = [SPLIT_NODE];
+    mocks.nodeRunsData = [SPLIT_NODE_RUN];
+    mocks.canvasSummaryData = {
+      node_runs: mocks.nodeRunsData,
+      node_runtime_summaries: [],
+    };
+    mocks.agentsData = [AGENT];
+    mocks.splitTasksByNodeRunId = {
+      "split-run-1": SPLIT_TASKS_RESPONSE,
+    };
+
+    render(
+      <Wrapper>
+        <ExecutionPanoramaPage workflowId="wf-1" runId="run-1" wsId="ws-1" issueId="issue-1" />
+      </Wrapper>,
+    );
+
+    await waitFor(() => {
+      expect(mocks.fitView).toHaveBeenCalledTimes(1);
+    });
+    mocks.fitView.mockClear();
+    mocks.setCenter.mockClear();
+    mocks.setReactFlowViewport.mockClear();
+
+    const splitNode = mocks.reactFlowProps?.nodes.find((node) => node.id === "split-1");
+    act(() => {
+      (splitNode?.data?.onSplitNodeToggle as (nodeId: string) => void)("split-1");
+    });
+
+    await waitFor(() => {
+      expect(mocks.fitView).toHaveBeenCalledWith(
+        expect.objectContaining({
+          nodes: [{ id: "split-1:split-subflow" }],
+          padding: 0.06,
+          maxZoom: 1.4,
+          duration: 450,
+        }),
+      );
+    });
+    const splitFitCount = mocks.fitView.mock.calls.filter((call) =>
+      JSON.stringify(call[0]).includes("split-1:split-subflow"),
+    ).length;
+
+    act(() => {
+      mocks.reactFlowProps?.onMove?.(null, { x: -640, y: -180, zoom: 0.72 });
+    });
+    await new Promise((resolve) => requestAnimationFrame(resolve));
+
+    expect(
+      mocks.fitView.mock.calls.filter((call) =>
+        JSON.stringify(call[0]).includes("split-1:split-subflow"),
+      ).length,
+    ).toBe(splitFitCount);
+    expect(mocks.setCenter).not.toHaveBeenCalled();
+  });
+
+  it("focuses the split subflow even when ReactFlow never reports initialized nodes", async () => {
+    mocks.isLoading = false;
+    mocks.workflowData = { id: "wf-1", title: "Test Workflow" };
+    mocks.stagesData = [STAGE];
+    mocks.nodesData = [SPLIT_NODE];
+    mocks.nodeRunsData = [SPLIT_NODE_RUN];
+    mocks.canvasSummaryData = {
+      node_runs: mocks.nodeRunsData,
+      node_runtime_summaries: [],
+    };
+    mocks.agentsData = [AGENT];
+    mocks.splitTasksByNodeRunId = {
+      "split-run-1": SPLIT_TASKS_RESPONSE,
+    };
+    mocks.nodesInitialized = false;
+
+    render(
+      <Wrapper>
+        <ExecutionPanoramaPage workflowId="wf-1" runId="run-1" wsId="ws-1" issueId="issue-1" />
+      </Wrapper>,
+    );
+
+    mocks.fitView.mockClear();
+
+    const splitNode = mocks.reactFlowProps?.nodes.find((node) => node.id === "split-1");
+    act(() => {
+      (splitNode?.data?.onSplitNodeToggle as (nodeId: string) => void)("split-1");
+    });
+
+    await waitFor(() => {
+      expect(mocks.fitView).toHaveBeenCalledWith(
+        expect.objectContaining({
+          nodes: [{ id: "split-1:split-subflow" }],
+          padding: 0.06,
+          maxZoom: 1.4,
+          duration: 450,
+        }),
+      );
+    });
+  });
+
+  it("restores the previous viewport when collapsing an expanded split subflow", async () => {
+    mocks.isLoading = false;
+    mocks.workflowData = { id: "wf-1", title: "Test Workflow" };
+    mocks.stagesData = [STAGE];
+    mocks.nodesData = [SPLIT_NODE];
+    mocks.nodeRunsData = [SPLIT_NODE_RUN];
+    mocks.canvasSummaryData = {
+      node_runs: mocks.nodeRunsData,
+      node_runtime_summaries: [],
+    };
+    mocks.agentsData = [AGENT];
+    mocks.splitTasksByNodeRunId = {
+      "split-run-1": SPLIT_TASKS_RESPONSE,
+    };
+    const beforeExpandViewport = { x: -360, y: 112, zoom: 1.18 };
+
+    render(
+      <Wrapper>
+        <ExecutionPanoramaPage workflowId="wf-1" runId="run-1" wsId="ws-1" issueId="issue-1" />
+      </Wrapper>,
+    );
+
+    act(() => {
+      mocks.reactFlowProps?.onMove?.(null, beforeExpandViewport);
+    });
+    mocks.fitView.mockClear();
+    mocks.setReactFlowViewport.mockClear();
+
+    let splitNode = mocks.reactFlowProps?.nodes.find((node) => node.id === "split-1");
+    act(() => {
+      (splitNode?.data?.onSplitNodeToggle as (nodeId: string) => void)("split-1");
+    });
+
+    await waitFor(() => {
+      expect(mocks.reactFlowProps?.nodes.find((node) => node.id === "split-1:split-subflow")).toBeTruthy();
+    });
+
+    splitNode = mocks.reactFlowProps?.nodes.find((node) => node.id === "split-1");
+    act(() => {
+      (splitNode?.data?.onSplitNodeToggle as (nodeId: string) => void)("split-1");
+    });
+
+    await waitFor(() => {
+      expect(mocks.setReactFlowViewport).toHaveBeenCalledWith(
+        beforeExpandViewport,
+        expect.objectContaining({ duration: 450 }),
+      );
+    });
+  });
+
+  it("opens a detail panel for a split child issue node before navigating to the issue", async () => {
+    mocks.isLoading = false;
+    mocks.workflowData = { id: "wf-1", title: "Test Workflow" };
+    mocks.stagesData = [STAGE];
+    mocks.nodesData = [SPLIT_NODE];
+    mocks.nodeRunsData = [SPLIT_NODE_RUN];
+    mocks.canvasSummaryData = {
+      node_runs: mocks.nodeRunsData,
+      node_runtime_summaries: [],
+    };
+    mocks.agentsData = [AGENT];
+    mocks.splitTasksByNodeRunId = {
+      "split-run-1": SPLIT_TASKS_RESPONSE,
+    };
+
+    render(
+      <Wrapper>
+        <ExecutionPanoramaPage workflowId="wf-1" runId="run-1" wsId="ws-1" issueId="issue-1" />
+      </Wrapper>,
+    );
+
+    const splitNode = mocks.reactFlowProps?.nodes.find((node) => node.id === "split-1");
+    act(() => {
+      (splitNode?.data?.onSplitNodeToggle as (nodeId: string) => void)("split-1");
+    });
+
+    await waitFor(() => {
+      expect(mocks.reactFlowProps?.nodes.find((node) => node.id === "split-1:split-subflow")).toBeTruthy();
+    });
+
+    const subflowNode = mocks.reactFlowProps?.nodes.find((node) => node.id === "split-1:split-subflow");
+    act(() => {
+      (subflowNode?.data?.onOpenChild as (nodeId: string) => void)("split-1:split-task:task-1");
+    });
+
+    expect(mocks.navigationPush).not.toHaveBeenCalled();
+    expect(screen.getByTestId("execution-detail-panel")).toBeInTheDocument();
+    expect(screen.getByTestId("detail-panel-title")).toHaveTextContent("Implement API contract");
+    expect(screen.getByTestId("detail-panel-is-child")).toHaveTextContent("true");
+    expect(screen.getByTestId("detail-panel-parent-split")).toHaveTextContent("Split implementation");
+    expect(screen.queryByTestId("execution-split-review-panel")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Open issue" }));
+
+    expect(mocks.openInNewTab).toHaveBeenCalledWith(
+      "/demo111/issues/child-issue-1",
+      "Implement API contract",
+      { activate: true },
+    );
+    expect(mocks.navigationPush).not.toHaveBeenCalled();
+  });
+
+  it("opens a child issue in a browser tab when the navigation adapter has no app-tab API", async () => {
+    const windowOpen = vi.spyOn(window, "open").mockImplementation(() => null);
+    mocks.hasOpenInNewTab = false;
+    mocks.isLoading = false;
+    mocks.workflowData = { id: "wf-1", title: "Test Workflow" };
+    mocks.stagesData = [STAGE];
+    mocks.nodesData = [SPLIT_NODE];
+    mocks.nodeRunsData = [SPLIT_NODE_RUN];
+    mocks.canvasSummaryData = {
+      node_runs: mocks.nodeRunsData,
+      node_runtime_summaries: [],
+    };
+    mocks.agentsData = [AGENT];
+    mocks.splitTasksByNodeRunId = {
+      "split-run-1": SPLIT_TASKS_RESPONSE,
+    };
+
+    render(
+      <Wrapper>
+        <ExecutionPanoramaPage workflowId="wf-1" runId="run-1" wsId="ws-1" issueId="issue-1" />
+      </Wrapper>,
+    );
+
+    const splitNode = mocks.reactFlowProps?.nodes.find((node) => node.id === "split-1");
+    act(() => {
+      (splitNode?.data?.onSplitNodeToggle as (nodeId: string) => void)("split-1");
+    });
+
+    await waitFor(() => {
+      expect(mocks.reactFlowProps?.nodes.find((node) => node.id === "split-1:split-subflow")).toBeTruthy();
+    });
+
+    const subflowNode = mocks.reactFlowProps?.nodes.find((node) => node.id === "split-1:split-subflow");
+    act(() => {
+      (subflowNode?.data?.onOpenChild as (nodeId: string) => void)("split-1:split-task:task-1");
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId("execution-detail-panel")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Open issue" }));
+
+    expect(windowOpen).toHaveBeenCalledWith(
+      "https://app.multica.test/demo111/issues/child-issue-1",
+      "_blank",
+      "noopener,noreferrer",
+    );
+    expect(mocks.navigationPush).not.toHaveBeenCalled();
+    expect(mocks.openInNewTab).not.toHaveBeenCalled();
+
+    windowOpen.mockRestore();
+  });
+
+  it("resolves split child issue workflow names", async () => {
+    mocks.isLoading = false;
+    mocks.workflowData = { id: "wf-1", title: "Test Workflow" };
+    mocks.stagesData = [STAGE];
+    mocks.nodesData = [SPLIT_NODE];
+    mocks.nodeRunsData = [SPLIT_NODE_RUN];
+    mocks.canvasSummaryData = {
+      node_runs: mocks.nodeRunsData,
+      node_runtime_summaries: [],
+    };
+    mocks.agentsData = [AGENT];
+    mocks.membersData = [{ user_id: "user-1", name: "Alice Reviewer" }];
+    mocks.squadsData = [{ id: "squad-1", name: "Frontend Squad" }];
+    mocks.workflowOptionsData = [
+      {
+        id: "wf-impl",
+        workspace_id: "ws-1",
+        title: "Implementation workflow",
+        description: "",
+        status: "active",
+        max_retries: 1,
+        created_by_type: "human",
+        created_by_id: "user-1",
+        node_count: 1,
+        is_template: false,
+        source_template_id: null,
+        created_at: "",
+        updated_at: "",
+      },
+      {
+        id: "wf-test",
+        workspace_id: "ws-1",
+        title: "Test workflow",
+        description: "",
+        status: "active",
+        max_retries: 1,
+        created_by_type: "human",
+        created_by_id: "user-1",
+        node_count: 1,
+        is_template: false,
+        source_template_id: null,
+        created_at: "",
+        updated_at: "",
+      },
+    ];
+    mocks.splitTasksByNodeRunId = {
+      "split-run-1": {
+        ...SPLIT_TASKS_RESPONSE,
+        tasks: [
+          {
+            ...SPLIT_TASKS_RESPONSE.tasks[0],
+            workflow_id: "wf-impl",
+          },
+          {
+            ...SPLIT_TASKS_RESPONSE.tasks[1],
+            workflow_id: "wf-test",
+          },
+        ],
+      },
+    };
+
+    render(
+      <Wrapper>
+        <ExecutionPanoramaPage workflowId="wf-1" runId="run-1" wsId="ws-1" issueId="issue-1" />
+      </Wrapper>,
+    );
+
+    const splitNode = mocks.reactFlowProps?.nodes.find((node) => node.id === "split-1");
+    act(() => {
+      (splitNode?.data?.onSplitNodeToggle as (nodeId: string) => void)("split-1");
+    });
+
+    await waitFor(() => {
+      expect(mocks.reactFlowProps?.nodes.find((node) => node.id === "split-1:split-subflow")).toBeTruthy();
+    });
+
+    const subflowNode = mocks.reactFlowProps?.nodes.find((node) => node.id === "split-1:split-subflow");
+    expect(subflowNode?.data?.childIssues).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          nodeId: "split-1:split-task:task-1",
+          workerName: "Implementation workflow",
+        }),
+        expect.objectContaining({
+          nodeId: "split-1:split-task:task-2",
+          workerName: "Test workflow",
+        }),
+      ]),
+    );
+  });
+
+  it("toggles split child issue nodes when a runtime split node is double clicked", async () => {
+    mocks.isLoading = false;
+    mocks.workflowData = { id: "wf-1", title: "Test Workflow" };
+    mocks.stagesData = [STAGE];
+    mocks.nodesData = [SPLIT_NODE];
+    mocks.nodeRunsData = [SPLIT_NODE_RUN];
+    mocks.canvasSummaryData = {
+      node_runs: mocks.nodeRunsData,
+      node_runtime_summaries: [],
+    };
+    mocks.agentsData = [AGENT];
+    mocks.splitTasksByNodeRunId = {
+      "split-run-1": SPLIT_TASKS_RESPONSE,
+    };
+
+    render(
+      <Wrapper>
+        <ExecutionPanoramaPage workflowId="wf-1" runId="run-1" wsId="ws-1" issueId="issue-1" />
+      </Wrapper>,
+    );
+
+    act(() => {
+      mocks.reactFlowProps?.onNodeDoubleClick?.({}, { id: "split-1" });
+    });
+
+    await waitFor(() => {
+      expect(mocks.reactFlowProps?.nodes.find((node) => node.id === "split-1:split-subflow")).toBeTruthy();
+    });
+
+    act(() => {
+      mocks.reactFlowProps?.onNodeDoubleClick?.({}, { id: "split-1" });
+    });
+
+    await waitFor(() => {
+      expect(mocks.reactFlowProps?.nodes.find((node) => node.id === "split-1:split-subflow")).toBeUndefined();
+    });
+  });
+
   it("passes a retry action to the detail panel for format_failed node runs", async () => {
     mocks.isLoading = false;
     mocks.workflowData = { id: "wf-1", title: "Test Workflow" };
@@ -810,7 +1847,57 @@ describe("ExecutionPanoramaPage", () => {
     fireEvent.click(screen.getByText("Retry from panel"));
 
     await waitFor(() => {
-      expect(mocks.rerunIssue).toHaveBeenCalledWith("issue-1", "task-1");
+      expect(mocks.retryNodeRun).toHaveBeenCalledWith("nr-1");
+    });
+  });
+
+  it("passes a retry action to the detail panel for retryable node runs without an agent task id", async () => {
+    mocks.isLoading = false;
+    mocks.workflowData = { id: "wf-1", title: "Test Workflow" };
+    mocks.stagesData = [STAGE];
+    mocks.nodesData = [NODE];
+    mocks.nodeRunsData = [
+      {
+        id: "nr-1",
+        workflow_run_id: "run-1",
+        workflow_node_id: "n1",
+        node_title: "brainstorming",
+        status: "format_failed",
+        retry_count: 0,
+        worker_type: "agent",
+        worker_id: "agent-1",
+        worker_output: null,
+        worker_agent_task_id: null,
+        critic_type: "human",
+        critic_id: null,
+        critic_output: null,
+        critic_comment: "",
+        critic_agent_task_id: null,
+        agent_task_id: null,
+        session_id: null,
+        runtime_id: null,
+        device_id: null,
+        started_at: null,
+        completed_at: null,
+        created_at: "",
+        updated_at: "",
+      },
+    ];
+    mocks.agentsData = [AGENT];
+
+    render(
+      <Wrapper>
+        <ExecutionPanoramaPage workflowId="wf-1" runId="run-1" wsId="ws-1" issueId="issue-1" />
+      </Wrapper>,
+    );
+
+    fireEvent.click(screen.getByTestId("notification-item-test"));
+    expect(screen.getByTestId("detail-panel-status")).toHaveTextContent("format_failed");
+
+    fireEvent.click(screen.getByText("Retry from panel"));
+
+    await waitFor(() => {
+      expect(mocks.retryNodeRun).toHaveBeenCalledWith("nr-1");
     });
   });
 
@@ -907,9 +1994,9 @@ describe("ExecutionPanoramaPage", () => {
     expect(edge?.data).toMatchObject({
       stageColorIndex: 1,
       edgeKind: "condition",
-      edgeTone: "condition",
+      edgeTone: "waiting",
     });
-    expect(edge?.markerEnd?.color).toBe("rgb(59 130 246)");
+    expect(edge?.markerEnd?.color).toBe("rgb(100 116 139)");
   });
 
   it("renders workflow edges through the shared ReactFlow canvas when runId is null", () => {

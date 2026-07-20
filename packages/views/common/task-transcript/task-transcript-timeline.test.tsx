@@ -28,5 +28,8 @@ describe("TaskTranscriptTimeline", () => {
   it("renders live empty state when isLive and no items", () => {
     render(<TaskTranscriptTimeline items={[]} isLive />);
     expect(screen.getByText("Waiting for events...")).toBeInTheDocument();
+    expect(screen.getByTestId("task-transcript-live-empty").className).not.toContain("border-dashed");
+    expect(screen.getAllByTestId("task-transcript-live-dot")).toHaveLength(3);
+    expect(document.querySelector(".lucide-loader-circle")).not.toBeInTheDocument();
   });
 });

@@ -120,10 +120,14 @@ func issueListRowToResponse(i db.ListIssuesRow, issuePrefix string) IssueRespons
 		Position:      i.Position,
 		StartDate:     timestampToPtr(i.StartDate),
 		DueDate:       timestampToPtr(i.DueDate),
+		WorkflowID:    uuidToPtr(i.WorkflowID),
+		WorkflowRunID: uuidToPtr(i.WorkflowRunID),
 		StageID:       uuidToPtr(i.StageID),
 		CreatedAt:     timestampToString(i.CreatedAt),
 		UpdatedAt:     timestampToString(i.UpdatedAt),
 		Metadata:      parseIssueMetadata(i.Metadata),
+		OriginType:    textToPtr(i.OriginType),
+		OriginID:      uuidToPtr(i.OriginID),
 	}
 }
 
@@ -178,10 +182,14 @@ func openIssueRowToResponse(i db.ListOpenIssuesRow, issuePrefix string) IssueRes
 		Position:      i.Position,
 		StartDate:     timestampToPtr(i.StartDate),
 		DueDate:       timestampToPtr(i.DueDate),
+		WorkflowID:    uuidToPtr(i.WorkflowID),
+		WorkflowRunID: uuidToPtr(i.WorkflowRunID),
 		StageID:       uuidToPtr(i.StageID),
 		CreatedAt:     timestampToString(i.CreatedAt),
 		UpdatedAt:     timestampToString(i.UpdatedAt),
 		Metadata:      parseIssueMetadata(i.Metadata),
+		OriginType:    textToPtr(i.OriginType),
+		OriginID:      uuidToPtr(i.OriginID),
 	}
 }
 
@@ -1024,6 +1032,9 @@ func (h *Handler) ListGroupedIssues(w http.ResponseWriter, r *http.Request) {
 		args = append(args, v)
 		return "$" + strconv.Itoa(len(args))
 	}
+	if r.URL.Query().Get("include_workflow_origin") != "true" {
+		where = append(where, "(i.origin_type IS NULL OR i.origin_type NOT IN ('workflow', 'workflow_split'))")
+	}
 
 	statuses := splitCommaParam(r.URL.Query().Get("statuses"))
 	if len(statuses) == 0 {
@@ -1101,29 +1112,29 @@ func (h *Handler) ListGroupedIssues(w http.ResponseWriter, r *http.Request) {
 		ref := addArg(id)
 		where = append(where, fmt.Sprintf(`(
     (i.assignee_type = 'agent' AND i.assignee_id IN (
-       SELECT a.id FROM agent a
+       SELECT a.id FROM multica_agent a
         WHERE a.workspace_id = $1
           AND a.owner_id     = %[1]s::uuid
     ))
     OR (i.assignee_type = 'squad' AND i.assignee_id IN (
        SELECT sm.squad_id
-         FROM squad_member sm
-         JOIN squad s ON s.id = sm.squad_id
+         FROM multica_squad_member sm
+         JOIN multica_squad s ON s.id = sm.squad_id
         WHERE s.workspace_id = $1
           AND sm.member_type = 'member'
           AND sm.member_id   = %[1]s::uuid
        UNION
        SELECT s.id
-         FROM squad s
-         JOIN agent a ON a.id = s.leader_id
+         FROM multica_squad s
+         JOIN multica_agent a ON a.id = s.leader_id
         WHERE s.workspace_id = $1
           AND a.workspace_id = $1
           AND a.owner_id     = %[1]s::uuid
        UNION
        SELECT sm.squad_id
-         FROM squad_member sm
-         JOIN squad s ON s.id = sm.squad_id
-         JOIN agent a ON a.id = sm.member_id
+         FROM multica_squad_member sm
+         JOIN multica_squad s ON s.id = sm.squad_id
+         JOIN multica_agent a ON a.id = sm.member_id
         WHERE s.workspace_id = $1
           AND sm.member_type = 'agent'
           AND a.workspace_id = $1
@@ -1190,7 +1201,7 @@ func (h *Handler) ListGroupedIssues(w http.ResponseWriter, r *http.Request) {
 	}
 	if len(labelIDs) > 0 {
 		where = append(where, fmt.Sprintf(
-			"EXISTS (SELECT 1 FROM issue_to_label itl WHERE itl.issue_id = i.id AND itl.label_id = ANY(%s::uuid[]))",
+			"EXISTS (SELECT 1 FROM multica_issue_to_label itl WHERE itl.issue_id = i.id AND itl.label_id = ANY(%s::uuid[]))",
 			addArg(labelIDs),
 		))
 	}
@@ -1227,21 +1238,23 @@ WITH ranked AS (
 	SELECT
 		i.id, i.workspace_id, i.title, i.description, i.status, i.priority,
 		i.assignee_type, i.assignee_id, i.creator_type, i.creator_id,
-		i.parent_issue_id, i.position, i.due_date, i.created_at, i.updated_at,
-		i.number, i.project_id, i.metadata,
+		i.parent_issue_id, i.position, i.start_date, i.due_date, i.created_at, i.updated_at,
+		i.number, i.project_id, i.workflow_id, i.workflow_run_id, i.stage_id, i.metadata,
+		i.origin_type, i.origin_id,
 		COUNT(*) OVER (PARTITION BY i.assignee_type, i.assignee_id) AS group_total,
 		ROW_NUMBER() OVER (
 			PARTITION BY i.assignee_type, i.assignee_id
 			ORDER BY i.position ASC, i.created_at DESC
 		) AS rn
-	FROM issue i
+	FROM multica_issue i
 	WHERE %s
 )
 SELECT
 	id, workspace_id, title, description, status, priority,
 	assignee_type, assignee_id, creator_type, creator_id,
-	parent_issue_id, position, due_date, created_at, updated_at,
-	number, project_id, metadata, group_total
+	parent_issue_id, position, start_date, due_date, created_at, updated_at,
+	number, project_id, workflow_id, workflow_run_id, stage_id, metadata,
+	origin_type, origin_id, group_total
 FROM ranked
 WHERE rn > %s AND rn <= %s + %s
 ORDER BY
@@ -1279,12 +1292,18 @@ ORDER BY
 			&row.CreatorID,
 			&row.ParentIssueID,
 			&row.Position,
+			&row.StartDate,
 			&row.DueDate,
 			&row.CreatedAt,
 			&row.UpdatedAt,
 			&row.Number,
 			&row.ProjectID,
+			&row.WorkflowID,
+			&row.WorkflowRunID,
+			&row.StageID,
 			&row.Metadata,
+			&row.OriginType,
+			&row.OriginID,
 			&row.GroupTotal,
 		); err != nil {
 			slog.Warn("ListGroupedIssues scan failed", "error", err)
@@ -1752,6 +1771,10 @@ func (h *Handler) CreateIssue(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	if _, splitPhase := h.runningSplitPhaseTask(r); splitPhase {
+		writeError(w, http.StatusForbidden, "split phase tasks cannot mutate issues")
+		return
+	}
 
 	status := req.Status
 	if status == "" {
@@ -2066,8 +2089,6 @@ func (h *Handler) CreateIssue(w http.ResponseWriter, r *http.Request) {
 						slog.Warn("failed to create sub-issue for node run", "node_run_id", uuidToString(nr.ID), "error", err)
 					}
 				}
-				// Dispatch after sub-issues exist so tasks can link issue_id.
-				h.WorkflowService.DispatchRootNodeRuns(ctx, run.ID)
 				_, err = h.Queries.UpdateIssue(ctx, db.UpdateIssueParams{
 					ID:            issue.ID,
 					AssigneeType:  issue.AssigneeType,
@@ -2084,6 +2105,10 @@ func (h *Handler) CreateIssue(w http.ResponseWriter, r *http.Request) {
 				} else {
 					resp.WorkflowID = uuidToPtr(issue.AssigneeID)
 					resp.WorkflowRunID = uuidToPtr(run.ID)
+					// Dispatch after the durable run link and sub-issues both exist.
+					if err = h.WorkflowService.DispatchRootNodeRuns(ctx, run.ID); err != nil {
+						slog.Warn("failed to dispatch root workflow nodes", "run_id", uuidToString(run.ID), "error", err)
+					}
 				}
 			}
 		}
@@ -2171,6 +2196,10 @@ func (h *Handler) UpdateIssue(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
+	if _, splitPhase := h.runningSplitPhaseTask(r); splitPhase {
+		writeError(w, http.StatusForbidden, "split phase tasks cannot mutate issues")
+		return
+	}
 
 	// Track which fields were explicitly present in JSON (even if null)
 	var rawFields map[string]json.RawMessage
@@ -2185,6 +2214,9 @@ func (h *Handler) UpdateIssue(w http.ResponseWriter, r *http.Request) {
 		DueDate:       prevIssue.DueDate,
 		ParentIssueID: prevIssue.ParentIssueID,
 		ProjectID:     prevIssue.ProjectID,
+		WorkflowID:    prevIssue.WorkflowID,
+		WorkflowRunID: prevIssue.WorkflowRunID,
+		StageID:       prevIssue.StageID,
 	}
 
 	// COALESCE fields — only set when explicitly provided
@@ -2309,6 +2341,10 @@ func (h *Handler) UpdateIssue(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	workflowChanged := newWorkflowID != prevIssue.WorkflowID
+	if workflowChanged {
+		params.WorkflowID = newWorkflowID
+		params.WorkflowRunID = pgtype.UUID{}
+	}
 
 	var stageID pgtype.UUID
 	var stageTouched bool
@@ -2445,7 +2481,6 @@ func (h *Handler) UpdateIssue(w http.ResponseWriter, r *http.Request) {
 							slog.Warn("failed to create sub-issue for node run", "node_run_id", uuidToString(nr.ID), "error", cerr)
 						}
 					}
-					h.WorkflowService.DispatchRootNodeRuns(ctx, run.ID)
 					_, cerr := h.Queries.UpdateIssue(ctx, db.UpdateIssueParams{
 						ID:            issue.ID,
 						AssigneeType:  issue.AssigneeType,
@@ -2461,6 +2496,9 @@ func (h *Handler) UpdateIssue(w http.ResponseWriter, r *http.Request) {
 						slog.Warn("failed to set workflow_run_id on parent issue", "issue_id", uuidToString(issue.ID), "error", cerr)
 					} else {
 						resp.WorkflowRunID = uuidToPtr(run.ID)
+						if cerr := h.WorkflowService.DispatchRootNodeRuns(ctx, run.ID); cerr != nil {
+							slog.Warn("failed to dispatch root workflow nodes", "run_id", uuidToString(run.ID), "error", cerr)
+						}
 					}
 				}
 			}
@@ -2664,6 +2702,18 @@ func (h *Handler) DeleteIssue(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	activeSplit, err := h.Queries.HasActiveSplitNodeRunForIssue(r.Context(), db.HasActiveSplitNodeRunForIssueParams{
+		IssueID:     issue.ID,
+		WorkspaceID: issue.WorkspaceID,
+	})
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to check active split workflow")
+		return
+	}
+	if activeSplit {
+		writeCodeError(w, http.StatusConflict, "active_split_blocking", "issue has an active split workflow")
+		return
+	}
 
 	// Collect all descendants (recursive CTE, deepest-first) so we can
 	// cascade-delete them in the application layer, firing WS events and
@@ -2752,6 +2802,10 @@ func (h *Handler) BatchUpdateIssues(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	if _, splitPhase := h.runningSplitPhaseTask(r); splitPhase {
+		writeError(w, http.StatusForbidden, "split phase tasks cannot mutate issues")
+		return
+	}
 
 	// Detect which fields in "updates" were explicitly set (including null).
 	var rawTop map[string]json.RawMessage
@@ -2814,6 +2868,9 @@ func (h *Handler) BatchUpdateIssues(w http.ResponseWriter, r *http.Request) {
 			DueDate:       prevIssue.DueDate,
 			ParentIssueID: prevIssue.ParentIssueID,
 			ProjectID:     prevIssue.ProjectID,
+			WorkflowID:    prevIssue.WorkflowID,
+			WorkflowRunID: prevIssue.WorkflowRunID,
+			StageID:       prevIssue.StageID,
 		}
 
 		if req.Updates.Title != nil {
@@ -2935,6 +2992,10 @@ func (h *Handler) BatchUpdateIssues(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		workflowChanged := newWorkflowID != prevIssue.WorkflowID
+		if workflowChanged {
+			params.WorkflowID = newWorkflowID
+			params.WorkflowRunID = pgtype.UUID{}
+		}
 
 		_, stageTouched := rawUpdates["stage_id"]
 		var stageID pgtype.UUID
@@ -3052,6 +3113,10 @@ func (h *Handler) BatchDeleteIssues(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	if _, splitPhase := h.runningSplitPhaseTask(r); splitPhase {
+		writeError(w, http.StatusForbidden, "split phase tasks cannot mutate issues")
+		return
+	}
 
 	workspaceID := h.resolveWorkspaceID(r)
 	wsUUID, ok := parseUUIDOrBadRequest(w, workspaceID, "workspace_id")
@@ -3082,6 +3147,18 @@ func (h *Handler) BatchDeleteIssues(w http.ResponseWriter, r *http.Request) {
 		})
 		if err != nil {
 			continue
+		}
+		activeSplit, err := h.Queries.HasActiveSplitNodeRunForIssue(r.Context(), db.HasActiveSplitNodeRunForIssueParams{
+			IssueID:     issue.ID,
+			WorkspaceID: issue.WorkspaceID,
+		})
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to check active split workflow")
+			return
+		}
+		if activeSplit {
+			writeCodeError(w, http.StatusConflict, "active_split_blocking", "issue has an active split workflow")
+			return
 		}
 
 		if !seen[issueUUID.Bytes] {
@@ -3358,7 +3435,11 @@ func nodeRunStatusToIssueStatus(nodeRunStatus string) string {
 		return "todo"
 	case service.NodeRunStatusWorking:
 		return "in_progress"
+	case service.NodeRunStatusSplitting, service.NodeRunStatusSplitActive:
+		return "in_progress"
 	case service.NodeRunStatusAwaitingInput, service.NodeRunStatusAwaitingCritic, service.NodeRunStatusCriticReviewing:
+		return "in_review"
+	case service.NodeRunStatusAwaitingSplitReview:
 		return "in_review"
 	case service.NodeRunStatusCriticApproved, service.NodeRunStatusCompleted:
 		return "done"

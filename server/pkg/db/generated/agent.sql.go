@@ -2205,6 +2205,52 @@ func (q *Queries) ListWorkspaceAgentTaskSnapshot(ctx context.Context, workspaceI
 	return items, nil
 }
 
+const markAgentTaskDispatched = `-- name: MarkAgentTaskDispatched :one
+UPDATE multica_agent_task_queue
+SET status = 'dispatched', dispatched_at = now()
+WHERE id = $1 AND status = 'queued'
+RETURNING id, agent_id, issue_id, status, priority, dispatched_at, started_at, completed_at, result, error, created_at, context, runtime_id, session_id, work_dir, trigger_comment_id, chat_session_id, autopilot_run_id, attempt, max_attempts, parent_task_id, failure_reason, trigger_summary, force_fresh_session, is_leader_task, workflow_node_run_id
+`
+
+// Server-side push dispatch for cs-cloud runtimes: flips a queued task to
+// dispatched without the per-(issue,agent) serialization of ClaimAgentTask
+// (push targets one specific task by id; the runtime never polls).
+// Returns no row when the task left 'queued' (cancelled / claimed) so the
+// caller aborts the push.
+func (q *Queries) MarkAgentTaskDispatched(ctx context.Context, id pgtype.UUID) (MulticaAgentTaskQueue, error) {
+	row := q.db.QueryRow(ctx, markAgentTaskDispatched, id)
+	var i MulticaAgentTaskQueue
+	err := row.Scan(
+		&i.ID,
+		&i.AgentID,
+		&i.IssueID,
+		&i.Status,
+		&i.Priority,
+		&i.DispatchedAt,
+		&i.StartedAt,
+		&i.CompletedAt,
+		&i.Result,
+		&i.Error,
+		&i.CreatedAt,
+		&i.Context,
+		&i.RuntimeID,
+		&i.SessionID,
+		&i.WorkDir,
+		&i.TriggerCommentID,
+		&i.ChatSessionID,
+		&i.AutopilotRunID,
+		&i.Attempt,
+		&i.MaxAttempts,
+		&i.ParentTaskID,
+		&i.FailureReason,
+		&i.TriggerSummary,
+		&i.ForceFreshSession,
+		&i.IsLeaderTask,
+		&i.WorkflowNodeRunID,
+	)
+	return i, err
+}
+
 const reclaimStaleDispatchedTaskForRuntime = `-- name: ReclaimStaleDispatchedTaskForRuntime :one
 UPDATE multica_agent_task_queue
 SET dispatched_at = now()

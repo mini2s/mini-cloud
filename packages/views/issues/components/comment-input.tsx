@@ -17,9 +17,18 @@ import { useT } from "../../i18n";
 interface CommentInputProps {
   issueId: string;
   onSubmit: (content: string, attachmentIds?: string[]) => Promise<void>;
+  disabled?: boolean;
+  variant?: "default" | "split-review";
+  placeholder?: string;
 }
 
-function CommentInput({ issueId, onSubmit }: CommentInputProps) {
+function CommentInput({
+  issueId,
+  onSubmit,
+  disabled = false,
+  variant = "default",
+  placeholder,
+}: CommentInputProps) {
   const { t } = useT("issues");
   const editorRef = useRef<ContentEditorRef>(null);
   // Read the persisted draft once on mount. ContentEditor only honors
@@ -40,6 +49,8 @@ function CommentInput({ issueId, onSubmit }: CommentInputProps) {
   const { isDragOver, dropZoneProps } = useFileDropZone({
     onDrop: (files) => files.forEach((f) => editorRef.current?.uploadFile(f)),
   });
+  const uploadEnabled = !disabled;
+  const isSplitReview = variant === "split-review";
 
   // Draft persistence. Hydrate from store on mount via `defaultValue` above
   // (ContentEditorRef has no setContent, so this is the only injection point).
@@ -71,7 +82,7 @@ function CommentInput({ issueId, onSubmit }: CommentInputProps) {
 
   const handleSubmit = async () => {
     const content = editorRef.current?.getMarkdown()?.replace(/(\n\s*)+$/, "").trim();
-    if (!content || submitting) return;
+    if (!content || submitting || disabled) return;
     // Only send attachment IDs for uploads still present in the content.
     const activeIds = pendingAttachments
       .filter((a) => content.includes(a.url))
@@ -90,17 +101,20 @@ function CommentInput({ issueId, onSubmit }: CommentInputProps) {
 
   return (
     <div
-      {...dropZoneProps}
+      {...(uploadEnabled ? dropZoneProps : {})}
       className={cn(
-        "relative flex flex-col rounded-lg bg-card pb-8 ring-1 ring-border",
-        isExpanded ? "h-[70vh]" : "max-h-56",
+        "relative flex flex-col rounded-lg pb-8 ring-1",
+        isSplitReview ? "bg-background/95 ring-border/80 shadow-sm" : "bg-card ring-border",
+        isExpanded ? "h-[70vh]" : isSplitReview ? "min-h-28 max-h-48" : "max-h-56",
+        disabled && "pointer-events-none opacity-60",
       )}
+      aria-disabled={disabled || undefined}
     >
       <div className="flex-1 min-h-0 overflow-y-auto px-3 py-2">
         <ContentEditor
           ref={editorRef}
           defaultValue={initialDraft}
-          placeholder={t(($) => $.comment.leave_comment_placeholder)}
+          placeholder={placeholder ?? t(($) => $.comment.leave_comment_placeholder)}
           onUpdate={(md) => {
             setIsEmpty(!md.trim());
             // Debounced upstream (debounceMs=100). Persist on every tick so a
@@ -109,23 +123,32 @@ function CommentInput({ issueId, onSubmit }: CommentInputProps) {
             else clearDraft(draftKey);
           }}
           onSubmit={handleSubmit}
-          onUploadFile={handleUpload}
+          onUploadFile={uploadEnabled ? handleUpload : undefined}
           debounceMs={100}
           currentIssueId={issueId}
           attachments={pendingAttachments}
         />
       </div>
-      <div className="absolute bottom-1 right-1.5 flex items-center gap-1">
+      <div
+        className={cn(
+          "absolute flex items-center gap-1",
+          isSplitReview
+            ? "bottom-2 right-2 rounded-md bg-background/90 p-0.5 shadow-sm ring-1 ring-border/60"
+            : "bottom-1 right-1.5",
+        )}
+      >
         <Tooltip>
           <TooltipTrigger
             render={
               <button
                 type="button"
+                disabled={disabled}
                 onClick={() => {
+                  if (disabled) return;
                   setIsExpanded((v) => !v);
                   editorRef.current?.focus();
                 }}
-                className="rounded-sm p-1.5 text-muted-foreground opacity-70 hover:opacity-100 hover:bg-accent/60 transition-all cursor-pointer"
+                className="rounded-sm p-1.5 text-muted-foreground opacity-70 hover:opacity-100 hover:bg-accent/60 transition-all cursor-pointer disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {isExpanded ? <Minimize2 className="size-4" /> : <Maximize2 className="size-4" />}
               </button>
@@ -135,11 +158,12 @@ function CommentInput({ issueId, onSubmit }: CommentInputProps) {
         </Tooltip>
         <FileUploadButton
           size="sm"
+          disabled={disabled}
           onSelect={(file) => editorRef.current?.uploadFile(file)}
         />
         <SubmitButton
           onClick={handleSubmit}
-          disabled={isEmpty}
+          disabled={isEmpty || disabled}
           loading={submitting}
           tooltip={`${t(($) => $.comment.send_tooltip)} · ${formatShortcut(modKey, enterKey)}`}
         />

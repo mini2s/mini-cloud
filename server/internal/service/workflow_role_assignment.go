@@ -146,7 +146,9 @@ func (s *WorkflowService) AssignWorkflowRoles(ctx context.Context, runID, actorU
 		return nil, err
 	}
 	if promoted > 0 {
-		s.DispatchRootNodeRuns(ctx, runID)
+		if err := s.DispatchRootNodeRuns(ctx, runID); err != nil {
+			slog.Error("dispatch workflow roots after manual role assignment", "run_id", runID, "error", err)
+		}
 	}
 	for _, item := range resumed {
 		var dispatchErr error

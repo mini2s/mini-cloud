@@ -9,6 +9,7 @@ import {
   PROJECT_GANTT_PAGE_LIMIT,
   ISSUE_PAGE_SIZE,
   GRAPH_STATUSES,
+  flattenIssueBuckets,
   issueGraphOptions,
   issueKeys,
   projectGanttIssuesOptions,
@@ -50,6 +51,33 @@ function makeIssue(idx: number): Issue {
 function installFakeApi(listIssues: (params?: ListIssuesParams) => Promise<ListIssuesResponse>) {
   setApiInstance({ listIssues } as unknown as ApiClient);
 }
+
+describe("flattenIssueBuckets", () => {
+  it("filters workflow-origin issues out of default list consumers", () => {
+    const regularIssue = makeIssue(1);
+    const workflowIssue = {
+      ...makeIssue(2),
+      origin_type: "workflow",
+      parent_issue_id: regularIssue.id,
+    };
+    const splitIssue = {
+      ...makeIssue(3),
+      origin_type: "workflow_split",
+      parent_issue_id: regularIssue.id,
+    };
+
+    expect(
+      flattenIssueBuckets({
+        byStatus: {
+          todo: {
+            issues: [regularIssue, workflowIssue, splitIssue],
+            total: 3,
+          },
+        },
+      }).map((issue) => issue.id),
+    ).toEqual([regularIssue.id]);
+  });
+});
 
 describe("projectGanttIssuesOptions", () => {
   let qc: QueryClient;

@@ -176,6 +176,26 @@ INSERT INTO multica_workflow_run (
     $1, $2, $3, $4, $5, sqlc.narg('triggered_by_id'), sqlc.narg('input'), sqlc.narg('runtime_id')
 ) RETURNING *;
 
+-- name: GetWorkflowRunByDispatchKey :one
+SELECT *
+FROM multica_workflow_run
+WHERE workspace_id = $1
+  AND dispatch_key = $2
+LIMIT 1;
+
+-- name: CreateWorkflowRunWithDispatchKey :one
+INSERT INTO multica_workflow_run (
+    workflow_id, workspace_id, workflow_title, status,
+    triggered_by_type, triggered_by_id, input, runtime_id, dispatch_key
+) VALUES (
+    $1, $2, $3, $4,
+    $5, sqlc.narg('triggered_by_id'), sqlc.narg('input'), sqlc.narg('runtime_id'), $6
+)
+ON CONFLICT (dispatch_key)
+WHERE dispatch_key IS NOT NULL AND dispatch_key <> ''
+DO UPDATE SET dispatch_key = EXCLUDED.dispatch_key
+RETURNING *;
+
 -- name: UpdateWorkflowRunStatus :one
 UPDATE multica_workflow_run SET
     status = $2,
@@ -220,6 +240,27 @@ WHERE workspace_id = $1 AND is_template = FALSE
   AND (sqlc.narg('status')::text IS NULL OR status = sqlc.narg('status'))
 ORDER BY created_at DESC
 LIMIT $2 OFFSET $3;
+
+-- name: ListSplitIssueWorkflowOptions :many
+SELECT wf.*,
+       (
+         SELECT count(*)::bigint
+         FROM multica_workflow_node wn_count
+         WHERE wn_count.workflow_id = wf.id
+       ) AS node_count
+FROM multica_workflow wf
+WHERE wf.workspace_id = $1
+  AND wf.status = 'active'
+  AND wf.id <> $2
+  AND NOT EXISTS (
+    SELECT 1
+    FROM multica_workflow_node wn
+    WHERE wn.workflow_id = wf.id
+      AND wn.format_schema ->> 'type' = 'split'
+  )
+ORDER BY lower(wf.title), wf.created_at DESC
+LIMIT sqlc.arg('limit_count')::int
+OFFSET sqlc.arg('offset_count')::int;
 
 -- name: SetWorkflowTemplate :one
 UPDATE multica_workflow SET

@@ -18,6 +18,7 @@ SELECT parent_issue_id,
 FROM multica_issue
 WHERE workspace_id = $1
   AND parent_issue_id IS NOT NULL
+  AND (origin_type IS NULL OR origin_type <> 'workflow')
 GROUP BY parent_issue_id
 `
 
@@ -97,7 +98,8 @@ const countIssues = `-- name: CountIssues :one
 SELECT count(*) FROM multica_issue i
 WHERE i.workspace_id = $1
   AND ($2::bool IS NULL
-       OR i.origin_type IS DISTINCT FROM 'workflow')
+       OR i.origin_type IS NULL
+       OR i.origin_type NOT IN ('workflow', 'workflow_split'))
   AND ($3::text IS NULL OR i.status = $3)
   AND ($4::text IS NULL OR i.priority = $4)
   AND ($5::uuid IS NULL OR i.assignee_id = $5)
@@ -423,6 +425,36 @@ func (q *Queries) DeleteIssueMetadataKey(ctx context.Context, arg DeleteIssueMet
 	return i, err
 }
 
+const finalizeSplitChildIssueRun = `-- name: FinalizeSplitChildIssueRun :execrows
+UPDATE multica_issue
+SET description = $2,
+    workflow_id = $3,
+    workflow_run_id = $4,
+    updated_at = now()
+WHERE id = $1
+  AND status NOT IN ('cancelled', 'done')
+`
+
+type FinalizeSplitChildIssueRunParams struct {
+	ID            pgtype.UUID `json:"id"`
+	Description   pgtype.Text `json:"description"`
+	WorkflowID    pgtype.UUID `json:"workflow_id"`
+	WorkflowRunID pgtype.UUID `json:"workflow_run_id"`
+}
+
+func (q *Queries) FinalizeSplitChildIssueRun(ctx context.Context, arg FinalizeSplitChildIssueRunParams) (int64, error) {
+	result, err := q.db.Exec(ctx, finalizeSplitChildIssueRun,
+		arg.ID,
+		arg.Description,
+		arg.WorkflowID,
+		arg.WorkflowRunID,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const findActiveDuplicateIssue = `-- name: FindActiveDuplicateIssue :one
 SELECT id, workspace_id, title, description, status, priority, assignee_type, assignee_id, creator_type, creator_id, parent_issue_id, acceptance_criteria, context_refs, position, due_date, created_at, updated_at, number, project_id, origin_type, origin_id, first_executed_at, start_date, metadata, workflow_id, workflow_run_id, stage_id FROM multica_issue
 WHERE workspace_id = $1
@@ -665,9 +697,44 @@ func (q *Queries) GetIssueInWorkspace(ctx context.Context, arg GetIssueInWorkspa
 	return i, err
 }
 
+const getOpenSplitTaskByIssueID = `-- name: GetOpenSplitTaskByIssueID :one
+SELECT id, node_run_id, workspace_id, title, description, depends_on, sort_order, status, issue_id, run_id, created_at, updated_at, draft_key, draft_source, workflow_id, version, dispatch_key, last_error
+FROM multica_workflow_split_task
+WHERE issue_id = $1
+  AND status NOT IN ('done', 'failed', 'cancelled', 'skipped', 'discarded')
+LIMIT 1
+`
+
+func (q *Queries) GetOpenSplitTaskByIssueID(ctx context.Context, issueID pgtype.UUID) (MulticaWorkflowSplitTask, error) {
+	row := q.db.QueryRow(ctx, getOpenSplitTaskByIssueID, issueID)
+	var i MulticaWorkflowSplitTask
+	err := row.Scan(
+		&i.ID,
+		&i.NodeRunID,
+		&i.WorkspaceID,
+		&i.Title,
+		&i.Description,
+		&i.DependsOn,
+		&i.SortOrder,
+		&i.Status,
+		&i.IssueID,
+		&i.RunID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.DraftKey,
+		&i.DraftSource,
+		&i.WorkflowID,
+		&i.Version,
+		&i.DispatchKey,
+		&i.LastError,
+	)
+	return i, err
+}
+
 const listChildIssues = `-- name: ListChildIssues :many
 SELECT id, workspace_id, title, description, status, priority, assignee_type, assignee_id, creator_type, creator_id, parent_issue_id, acceptance_criteria, context_refs, position, due_date, created_at, updated_at, number, project_id, origin_type, origin_id, first_executed_at, start_date, metadata, workflow_id, workflow_run_id, stage_id FROM multica_issue
 WHERE parent_issue_id = $1
+  AND (origin_type IS NULL OR origin_type <> 'workflow')
 ORDER BY position ASC, created_at DESC
 `
 
@@ -720,8 +787,8 @@ func (q *Queries) ListChildIssues(ctx context.Context, parentIssueID pgtype.UUID
 }
 
 const listIssueDescendants = `-- name: ListIssueDescendants :many
-WITH RECURSIVE descendants(id, workspace_id, parent_issue_id, depth) AS (
-    SELECT i.id, i.workspace_id, i.parent_issue_id::uuid, 0::int AS depth
+WITH RECURSIVE descendants AS (
+    SELECT i.id, i.workspace_id, i.parent_issue_id::uuid AS parent_issue_id, 0::int AS depth
     FROM multica_issue i
     WHERE i.parent_issue_id = $1 AND i.workspace_id = $2
     UNION ALL
@@ -730,7 +797,7 @@ WITH RECURSIVE descendants(id, workspace_id, parent_issue_id, depth) AS (
     JOIN descendants d ON i.parent_issue_id = d.id
     WHERE i.workspace_id = $2
 )
-SELECT descendants.id, descendants.workspace_id, descendants.parent_issue_id, descendants.depth FROM descendants
+SELECT id, workspace_id, parent_issue_id, depth FROM descendants
 ORDER BY depth DESC
 `
 
@@ -780,11 +847,12 @@ func (q *Queries) ListIssueDescendants(ctx context.Context, arg ListIssueDescend
 const listIssues = `-- name: ListIssues :many
 SELECT i.id, i.workspace_id, i.title, i.description, i.status, i.priority,
        i.assignee_type, i.assignee_id, i.creator_type, i.creator_id,
-       i.parent_issue_id, i.position, i.start_date, i.due_date, i.created_at, i.updated_at, i.number, i.project_id, i.workflow_id, i.workflow_run_id, i.stage_id, i.metadata
+       i.parent_issue_id, i.position, i.start_date, i.due_date, i.created_at, i.updated_at, i.number, i.project_id, i.workflow_id, i.workflow_run_id, i.stage_id, i.metadata, i.origin_type, i.origin_id
 FROM multica_issue i
 WHERE i.workspace_id = $1
   AND ($4::bool IS NULL
-       OR i.origin_type IS DISTINCT FROM 'workflow')
+       OR i.origin_type IS NULL
+       OR i.origin_type NOT IN ('workflow', 'workflow_split'))
   AND ($5::text IS NULL OR i.status = $5)
   AND ($6::text IS NULL OR i.priority = $6)
   AND ($7::uuid IS NULL OR i.assignee_id = $7)
@@ -876,6 +944,8 @@ type ListIssuesRow struct {
 	WorkflowRunID pgtype.UUID        `json:"workflow_run_id"`
 	StageID       pgtype.UUID        `json:"stage_id"`
 	Metadata      []byte             `json:"metadata"`
+	OriginType    pgtype.Text        `json:"origin_type"`
+	OriginID      pgtype.UUID        `json:"origin_id"`
 }
 
 // involves_user_id widens the assignee filter to surface issues where the user
@@ -930,6 +1000,8 @@ func (q *Queries) ListIssues(ctx context.Context, arg ListIssuesParams) ([]ListI
 			&i.WorkflowRunID,
 			&i.StageID,
 			&i.Metadata,
+			&i.OriginType,
+			&i.OriginID,
 		); err != nil {
 			return nil, err
 		}
@@ -944,12 +1016,13 @@ func (q *Queries) ListIssues(ctx context.Context, arg ListIssuesParams) ([]ListI
 const listOpenIssues = `-- name: ListOpenIssues :many
 SELECT i.id, i.workspace_id, i.title, i.description, i.status, i.priority,
        i.assignee_type, i.assignee_id, i.creator_type, i.creator_id,
-       i.parent_issue_id, i.position, i.start_date, i.due_date, i.created_at, i.updated_at, i.number, i.project_id, i.workflow_id, i.workflow_run_id, i.stage_id, i.metadata
+       i.parent_issue_id, i.position, i.start_date, i.due_date, i.created_at, i.updated_at, i.number, i.project_id, i.workflow_id, i.workflow_run_id, i.stage_id, i.metadata, i.origin_type, i.origin_id
 FROM multica_issue i
 WHERE i.workspace_id = $1
   AND i.status NOT IN ('done', 'cancelled')
   AND ($2::bool IS NULL
-       OR i.origin_type IS DISTINCT FROM 'workflow')
+       OR i.origin_type IS NULL
+       OR i.origin_type NOT IN ('workflow', 'workflow_split'))
   AND ($3::text IS NULL OR i.priority = $3)
   AND ($4::uuid IS NULL OR i.assignee_id = $4)
   AND ($5::uuid[] IS NULL OR i.assignee_id = ANY($5::uuid[]))
@@ -1026,6 +1099,8 @@ type ListOpenIssuesRow struct {
 	WorkflowRunID pgtype.UUID        `json:"workflow_run_id"`
 	StageID       pgtype.UUID        `json:"stage_id"`
 	Metadata      []byte             `json:"metadata"`
+	OriginType    pgtype.Text        `json:"origin_type"`
+	OriginID      pgtype.UUID        `json:"origin_id"`
 }
 
 // See ListIssues for the semantics of involves_user_id (mirrors the 4-branch
@@ -1072,6 +1147,8 @@ func (q *Queries) ListOpenIssues(ctx context.Context, arg ListOpenIssuesParams) 
 			&i.WorkflowRunID,
 			&i.StageID,
 			&i.Metadata,
+			&i.OriginType,
+			&i.OriginID,
 		); err != nil {
 			return nil, err
 		}

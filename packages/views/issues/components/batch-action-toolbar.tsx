@@ -20,6 +20,7 @@ import { useBatchUpdateIssues, useBatchDeleteIssues } from "@multica/core/issues
 import { StatusPicker, PriorityPicker, AssigneePicker } from "./pickers";
 import { useT } from "../../i18n";
 import { cn } from "@multica/ui/lib/utils";
+import { getDeleteConflictMessage } from "../../common/delete-conflict-error";
 
 export function BatchActionToolbar({
   placement = "fixed-bottom",
@@ -69,9 +70,12 @@ export function BatchActionToolbar({
       toast.success(t(($) => $.batch.delete_success, { count }));
     } catch (err) {
       toast.error(
-        err instanceof Error && err.message
-          ? err.message
-          : t(($) => $.batch.delete_failed),
+        getDeleteConflictMessage(err, {
+          active_split_blocking: t(($) => $.batch.active_split_blocking),
+        }) ??
+          (err instanceof Error && err.message
+            ? err.message
+            : t(($) => $.batch.delete_failed)),
       );
     } finally {
       setDeleteOpen(false);

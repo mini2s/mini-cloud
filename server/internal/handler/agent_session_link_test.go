@@ -37,3 +37,82 @@ func TestTaskToResponseSessionID(t *testing.T) {
 		}
 	})
 }
+
+func TestTaskToResponseWorkflowPhaseFromContext(t *testing.T) {
+	task := db.MulticaAgentTaskQueue{
+		Context: []byte(`{"type":"workflow","phase":"split","node_run_id":"node-run-1"}`),
+	}
+
+	resp := taskToResponse(task)
+	if resp.WorkflowPhase != "split" {
+		t.Fatalf("expected WorkflowPhase %q, got %q", "split", resp.WorkflowPhase)
+	}
+}
+
+func TestTaskToResponseSplitChatContext(t *testing.T) {
+	task := db.MulticaAgentTaskQueue{
+		Context: []byte(`{
+			"type": "workflow",
+			"phase": "split_chat",
+			"chat_session_id": "chat-1",
+			"parent_issue_id": "parent-1",
+			"parent_issue_title": "Build a game",
+			"parent_issue_description": "Use web technology",
+			"current_drafts": [{"id":"draft-1","title":"Large task","draft_key":"large-task"}]
+		}`),
+	}
+
+	resp := taskToResponse(task)
+
+	if resp.WorkflowPhase != "split_chat" {
+		t.Fatalf("expected WorkflowPhase %q, got %q", "split_chat", resp.WorkflowPhase)
+	}
+	if resp.ChatSessionID != "chat-1" {
+		t.Fatalf("expected ChatSessionID from split_chat context, got %q", resp.ChatSessionID)
+	}
+	if resp.WorkflowSplitParentIssueID != "parent-1" {
+		t.Fatalf("expected parent issue ID from split_chat context, got %q", resp.WorkflowSplitParentIssueID)
+	}
+	if resp.WorkflowSplitParentIssueTitle != "Build a game" {
+		t.Fatalf("expected parent issue title from split_chat context, got %q", resp.WorkflowSplitParentIssueTitle)
+	}
+	if string(resp.WorkflowSplitCurrentDrafts) == "" {
+		t.Fatal("expected current drafts to be surfaced on response")
+	}
+}
+
+func TestTaskToResponseSplitGenerationContext(t *testing.T) {
+	task := db.MulticaAgentTaskQueue{
+		Context: []byte(`{
+			"type": "workflow",
+			"phase": "split",
+			"node_run_id": "node-run-1",
+			"parent_issue_id": "parent-1",
+			"parent_issue_title": "Build a game",
+			"parent_issue_description": "Use web technology",
+			"split_config": {"default_issue_workflow_id":"child-wf-1"}
+		}`),
+	}
+
+	resp := taskToResponse(task)
+
+	if resp.WorkflowPhase != "split" {
+		t.Fatalf("expected WorkflowPhase %q, got %q", "split", resp.WorkflowPhase)
+	}
+	if resp.WorkflowSplitParentIssueID != "parent-1" {
+		t.Fatalf("expected parent issue ID from split context, got %q", resp.WorkflowSplitParentIssueID)
+	}
+	if string(resp.WorkflowSplitConfig) == "" {
+		t.Fatal("expected split config to be surfaced on response")
+	}
+}
+
+func TestShouldSkipPriorTaskStateForSplitChat(t *testing.T) {
+	task := db.MulticaAgentTaskQueue{
+		Context: []byte(`{"type":"workflow","phase":"split_chat","chat_session_id":"chat-1"}`),
+	}
+
+	if !shouldSkipPriorTaskState(task) {
+		t.Fatal("expected split_chat task to skip prior task state")
+	}
+}

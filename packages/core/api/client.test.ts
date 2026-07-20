@@ -400,6 +400,23 @@ describe("ApiClient", () => {
   });
 
   describe("chat attachment wiring", () => {
+    it("retryNodeRun posts to the node-run retry endpoint", async () => {
+      const fetchMock = vi.fn().mockResolvedValue(
+        new Response(JSON.stringify({ id: "node-run-1", status: "working" }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      );
+      vi.stubGlobal("fetch", fetchMock);
+
+      const client = new ApiClient("https://api.example.test");
+      await client.retryNodeRun("node-run-1");
+
+      const [url, init] = fetchMock.mock.calls[0]!;
+      expect(url).toBe("https://api.example.test/api/node-runs/node-run-1/retry");
+      expect(init?.method).toBe("POST");
+    });
+
     it("uploadFile includes chat_session_id in the FormData body", async () => {
       const fetchMock = vi.fn().mockResolvedValue(
         new Response(JSON.stringify({ id: "att-1", url: "https://cdn/x" }), {
@@ -460,6 +477,68 @@ describe("ApiClient", () => {
 
       expect(JSON.parse(fetchMock.mock.calls[0]![1]?.body as string)).toEqual({ content: "hello" });
       expect(JSON.parse(fetchMock.mock.calls[1]![1]?.body as string)).toEqual({ content: "again" });
+    });
+
+    it("submitSplitReviewChat posts natural language instructions and attachments", async () => {
+      const fetchMock = vi.fn().mockResolvedValue(
+        new Response(JSON.stringify({ tasks: [], progress: { total: 0 } }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      );
+      vi.stubGlobal("fetch", fetchMock);
+
+      const client = new ApiClient("https://api.example.test");
+      await client.submitSplitReviewChat("node-run-1", {
+        content: "把第 2 个 task 拆成前后端",
+        attachment_ids: ["att-1"],
+      });
+
+      const [url, init] = fetchMock.mock.calls[0]!;
+      expect(url).toBe("https://api.example.test/api/node-runs/node-run-1/split/chat");
+      expect(init?.method).toBe("POST");
+      expect(JSON.parse(init?.body as string)).toEqual({
+        content: "把第 2 个 task 拆成前后端",
+        attachment_ids: ["att-1"],
+      });
+    });
+
+    it("submitSplitReviewChat preserves the split chat ids from the nested task response", async () => {
+      const fetchMock = vi.fn().mockResolvedValue(
+        new Response(JSON.stringify({
+          chat_session_id: "chat-1",
+          task_id: "agent-task-1",
+          tasks: {
+            tasks: [
+              {
+                id: "split-task-1",
+                node_run_id: "node-run-1",
+                title: "Security review",
+                description: "Audit the implementation",
+                depends_on: [],
+                sort_order: 0,
+                status: "draft",
+              },
+            ],
+            progress: { total: 1 },
+          },
+        }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      );
+      vi.stubGlobal("fetch", fetchMock);
+
+      const client = new ApiClient("https://api.example.test");
+      const result = await client.submitSplitReviewChat("node-run-1", {
+        content: "add security review",
+      });
+
+      expect(result.chat_session_id).toBe("chat-1");
+      expect(result.task_id).toBe("agent-task-1");
+      expect(result.tasks).toHaveLength(1);
+      expect(result.tasks[0]?.title).toBe("Security review");
+      expect(result.progress.total).toBe(1);
     });
   });
 

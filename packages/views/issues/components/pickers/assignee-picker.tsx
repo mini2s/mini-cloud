@@ -63,6 +63,7 @@ export function AssigneePicker({
   onAddCustomRole,
   onDeleteCustomRole,
   onRenameCustomRole,
+  allowedTypes,
 }: {
   assigneeType: IssueAssigneeType | null;
   assigneeId: string | null;
@@ -88,6 +89,8 @@ export function AssigneePicker({
   onAddCustomRole?: (name: string) => WorkflowRoleKey | null | void;
   onDeleteCustomRole?: (name: string) => void;
   onRenameCustomRole?: (oldName: string, newName: string) => void;
+  /** When set, only show the specified assignee type sections. Undefined = show all. */
+  allowedTypes?: IssueAssigneeType[];
 }) {
   const { t } = useT("issues");
   const [internalOpen, setInternalOpen] = useState(false);
@@ -486,7 +489,7 @@ export function AssigneePicker({
       )}
 
       {/* Workflows */}
-      {includeWorkflows && filteredWorkflows.length > 0 && (
+      {(!allowedTypes || allowedTypes.includes("workflow")) && includeWorkflows && filteredWorkflows.length > 0 && (
         <PickerSection label={t(($) => $.pickers.assignee.workflows_group)}>
           {filteredWorkflows.map((w) => (
             <PickerItem
@@ -511,7 +514,7 @@ export function AssigneePicker({
       )}
 
       {/* Agents */}
-      {filteredAgents.length > 0 && (
+      {(!allowedTypes || allowedTypes.includes("agent")) && filteredAgents.length > 0 && (
         <PickerSection label={t(($) => $.pickers.assignee.agents_group)}>
           {filteredAgents.map((a) => {
             const decision = canAssignAgentToIssue(a, {
@@ -564,7 +567,7 @@ export function AssigneePicker({
       )}
 
       {/* Members */}
-      {filteredMembers.length > 0 && (
+      {(!allowedTypes || allowedTypes.includes("member")) && filteredMembers.length > 0 && (
         <PickerSection label={t(($) => $.pickers.assignee.members_group)}>
           {filteredMembers.map((m) => (
             <PickerItem
@@ -814,7 +817,7 @@ export function AssigneePicker({
 
       {/* Squads — group ownership; assigning to a squad routes the issue to
           its leader agent on the backend. */}
-      {filteredSquads.length > 0 && (
+      {(!allowedTypes || allowedTypes.includes("squad")) && filteredSquads.length > 0 && (
         <PickerSection label={t(($) => $.pickers.assignee.squads_group)}>
           {filteredSquads.map((s) => (
             <PickerItem

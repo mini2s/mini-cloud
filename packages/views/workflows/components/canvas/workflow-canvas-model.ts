@@ -41,7 +41,7 @@ export interface WorkflowCanvasEdgeModelOptions {
 }
 
 type CanvasEdgeKind = "data" | "condition" | "error" | "rework" | "critic";
-type CanvasEdgeTone = "data" | "condition" | "error" | "rework" | "critic";
+type CanvasEdgeTone = "data" | "condition" | "error" | "rework" | "critic" | "success" | "running" | "blocked" | "waiting";
 
 export function workflowNodesToReactFlowNodes({
   nodes,
@@ -49,7 +49,7 @@ export function workflowNodesToReactFlowNodes({
   nodeType,
   nodeWidth = WORKER_WIDTH,
   nodeHeight = WORKER_HEIGHT,
-  includeCriticBadges = true,
+  includeCriticBadges = false,
   makeNodeData,
   makeCriticName,
 }: WorkflowCanvasNodeModelOptions): Node[] {
@@ -104,7 +104,7 @@ export function workflowEdgesToReactFlowEdges({
   edges,
   nodes,
   stages,
-  includeCriticEdges = true,
+  includeCriticEdges = false,
   onDeleteEdge,
   selectedEdgeId,
   selectedEdgeAnchor,
@@ -208,6 +208,10 @@ function getEdgeMarkerColor(
   if (edgeTone === "condition") return "rgb(59 130 246)";
   if (edgeTone === "error") return "rgb(239 68 68)";
   if (edgeTone === "rework" || edgeTone === "critic") return "rgb(245 158 11)";
+  if (edgeTone === "success") return "rgb(16 185 129)";
+  if (edgeTone === "running") return "rgb(59 130 246)";
+  if (edgeTone === "blocked") return "rgb(239 68 68)";
+  if (edgeTone === "waiting") return "rgb(100 116 139)";
   return getStageColor(getEdgeStageColorIndex(sourceNodeId, nodeMap, stageMap, stageVisualIndexMap)).markerColor;
 }
 
@@ -249,6 +253,13 @@ function deriveEdgeSemantics(condition: unknown): {
 } {
   if (condition && typeof condition === "object" && !Array.isArray(condition)) {
     const obj = condition as Record<string, unknown>;
+    const hasExplicitSemantics = "kind" in obj || "severity" in obj;
+    if (!hasExplicitSemantics) {
+      return {
+        edgeKind: "data",
+        edgeTone: "data",
+      };
+    }
     const kind = isCanvasEdgeKind(obj.kind) ? obj.kind : "condition";
     return {
       edgeKind: kind,

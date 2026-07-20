@@ -15,6 +15,7 @@ import {
 import { useDeleteIssue } from "@multica/core/issues/mutations";
 import { useNavigation } from "../navigation";
 import { useT } from "../i18n";
+import { getDeleteConflictMessage } from "../common/delete-conflict-error";
 
 export function DeleteIssueConfirmModal({
   onClose,
@@ -40,9 +41,12 @@ export function DeleteIssueConfirmModal({
       if (navigateTo) navigation.push(navigateTo);
     } catch (err) {
       toast.error(
-        err instanceof Error && err.message
-          ? err.message
-          : t(($) => $.delete_issue.toast_delete_failed),
+        getDeleteConflictMessage(err, {
+          active_split_blocking: t(($) => $.delete_issue.active_split_blocking),
+        }) ??
+          (err instanceof Error && err.message
+            ? err.message
+            : t(($) => $.delete_issue.toast_delete_failed)),
       );
       setDeleting(false);
     }

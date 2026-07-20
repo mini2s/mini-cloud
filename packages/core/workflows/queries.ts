@@ -11,7 +11,16 @@ import type {
   ReorderStagesItem,
   AssignNodeToStageRequest,
   WorkflowRoleAssignmentInput,
+  ApproveSplitRequest,
+  BatchPatchSplitDraftTasksRequest,
+  ChatMessage,
+  ChatPendingTask,
+  CreateSplitDraftTaskRequest,
+  PatchSplitConfigRequest,
+  PatchSplitDraftTaskRequest,
+  RetrySplitTaskRequest,
 } from "../types";
+import { chatKeys } from "../chat/queries";
 
 export const workflowKeys = {
   all: (wsId: string) => ["workflows", wsId] as const,
@@ -29,10 +38,10 @@ export const workflowKeys = {
   admins: () => ["workflow-admins"] as const,
   stages: (wsId: string, workflowId: string) => [...workflowKeys.detail(wsId, workflowId), "stages"] as const,
   sessionPermission: (sessionId: string) => ["workflows", "session-permission", sessionId] as const,
-  workflowNodeDeliverables: (wsId: string, workflowId: string, nodeId: string) =>
-    [...workflowKeys.nodes(wsId, workflowId), nodeId, "deliverables"] as const,
-  nodeRunDeliverables: (nodeRunId: string) =>
-    [...workflowKeys.nodeRunsAll(), nodeRunId, "deliverables"] as const,
+  splitTasks: (wsId: string, nodeRunId: string) =>
+    [...workflowKeys.all(wsId), "node-runs", nodeRunId, "split-tasks"] as const,
+  splitIssueWorkflowOptions: (wsId: string, workflowId: string) =>
+    [...workflowKeys.detail(wsId, workflowId), "split-issue-workflow-options"] as const,
   roles: (wsId: string) => [...workflowKeys.all(wsId), "roles"] as const,
   roleResolutions: (wsId: string, workflowId: string, runId: string) =>
     [...workflowKeys.run(wsId, workflowId, runId), "role-resolutions"] as const,
@@ -135,6 +144,22 @@ export function useSessionPermission(sessionId: string | null | undefined) {
     queryFn: () => api.getSessionPermission(sessionId!),
     enabled: !!sessionId,
     staleTime: 30 * 1000,
+  });
+}
+
+export function splitTasksOptions(wsId: string, nodeRunId: string | null | undefined) {
+  return queryOptions({
+    queryKey: workflowKeys.splitTasks(wsId, nodeRunId ?? ""),
+    queryFn: () => api.listSplitTasks(nodeRunId!),
+    enabled: !!nodeRunId,
+  });
+}
+
+export function splitIssueWorkflowOptions(wsId: string, workflowId: string | null | undefined) {
+  return queryOptions({
+    queryKey: workflowKeys.splitIssueWorkflowOptions(wsId, workflowId ?? ""),
+    queryFn: () => api.listSplitIssueWorkflowOptions(workflowId!),
+    enabled: !!workflowId,
   });
 }
 
@@ -290,6 +315,161 @@ export function useSkipNodeRun(wsId: string) {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: workflowKeys.myTasks(wsId) });
     },
+  });
+}
+
+function invalidateSplitNodeQueries(
+  queryClient: ReturnType<typeof useQueryClient>,
+  wsId: string,
+  vars: { nodeRunId: string; workflowId?: string; runId?: string },
+) {
+  queryClient.invalidateQueries({ queryKey: workflowKeys.splitTasks(wsId, vars.nodeRunId) });
+  queryClient.invalidateQueries({ queryKey: workflowKeys.myTasks(wsId) });
+  if (vars.workflowId && vars.runId) {
+    queryClient.invalidateQueries({ queryKey: workflowKeys.nodeRuns(wsId, vars.workflowId, vars.runId) });
+    queryClient.invalidateQueries({ queryKey: workflowKeys.runCanvasSummary(wsId, vars.workflowId, vars.runId) });
+  }
+}
+
+interface SplitMutationVars {
+  nodeRunId: string;
+  workflowId?: string;
+  runId?: string;
+}
+
+export function useGenerateSplitTasks(wsId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ nodeRunId }: SplitMutationVars) => api.generateSplitTasks(nodeRunId),
+    onSuccess: (_data, vars) => invalidateSplitNodeQueries(queryClient, wsId, vars),
+  });
+}
+
+export function useRecoverSplitTasks(wsId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ nodeRunId }: SplitMutationVars) => api.recoverSplitTasks(nodeRunId),
+    onSuccess: (_data, vars) => invalidateSplitNodeQueries(queryClient, wsId, vars),
+  });
+}
+
+export function useResetSplitTasksToOriginal(wsId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ nodeRunId }: SplitMutationVars) => api.resetSplitTasksToOriginal(nodeRunId),
+    onSuccess: (_data, vars) => invalidateSplitNodeQueries(queryClient, wsId, vars),
+  });
+}
+
+export function useApproveSplitTasks(wsId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ nodeRunId, request }: SplitMutationVars & { request: ApproveSplitRequest }) =>
+      api.approveSplitTasks(nodeRunId, request),
+    onSuccess: (_data, vars) => invalidateSplitNodeQueries(queryClient, wsId, vars),
+  });
+}
+
+export function useCreateSplitDraftTask(wsId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ nodeRunId, request }: SplitMutationVars & { request: CreateSplitDraftTaskRequest }) =>
+      api.createSplitDraftTask(nodeRunId, request),
+    onSuccess: (_data, vars) => invalidateSplitNodeQueries(queryClient, wsId, vars),
+  });
+}
+
+export function usePatchSplitDraftTask(wsId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      nodeRunId,
+      taskId,
+      request,
+    }: SplitMutationVars & { taskId: string; request: PatchSplitDraftTaskRequest }) =>
+      api.patchSplitDraftTask(nodeRunId, taskId, request),
+    onSuccess: (_data, vars) => invalidateSplitNodeQueries(queryClient, wsId, vars),
+  });
+}
+
+export function useBatchPatchSplitDraftTasks(wsId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ nodeRunId, request }: SplitMutationVars & { request: BatchPatchSplitDraftTasksRequest }) =>
+      api.batchPatchSplitDraftTasks(nodeRunId, request),
+    onSuccess: (_data, vars) => invalidateSplitNodeQueries(queryClient, wsId, vars),
+  });
+}
+
+export function usePatchSplitConfig(wsId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ nodeRunId, request }: SplitMutationVars & { request: PatchSplitConfigRequest }) =>
+      api.patchSplitConfig(nodeRunId, request),
+    onSuccess: (_data, vars) => invalidateSplitNodeQueries(queryClient, wsId, vars),
+  });
+}
+
+export function useRetrySplitTask(wsId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      nodeRunId,
+      taskId,
+      request,
+    }: SplitMutationVars & { taskId: string; request?: RetrySplitTaskRequest }) =>
+      api.retrySplitTask(nodeRunId, taskId, request),
+    onSuccess: (_data, vars) => invalidateSplitNodeQueries(queryClient, wsId, vars),
+  });
+}
+
+export function useSubmitSplitReviewChat(wsId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      nodeRunId,
+      content,
+      attachmentIds,
+    }: SplitMutationVars & { content: string; attachmentIds?: string[] }) =>
+      api.submitSplitReviewChat(nodeRunId, {
+        content,
+        ...(attachmentIds && attachmentIds.length > 0 ? { attachment_ids: attachmentIds } : {}),
+      }),
+    onSuccess: (data, vars) => {
+      const { chat_session_id, task_id } = data;
+      const sentAt = new Date().toISOString();
+
+      // Optimistic user message — mirrors chat-window.tsx handleSend pattern.
+      const optimisticMsg: ChatMessage = {
+        id: `optimistic-${Date.now()}`,
+        chat_session_id,
+        role: "user",
+        content: vars.content,
+        task_id: null,
+        created_at: sentAt,
+      };
+      queryClient.setQueryData<ChatMessage[]>(
+        chatKeys.messages(chat_session_id),
+        (old) => (old ? [...old, optimisticMsg] : [optimisticMsg]),
+      );
+
+      // Seed pending task so SplitChatReview shows a "thinking" indicator.
+      queryClient.setQueryData<ChatPendingTask>(
+        chatKeys.pendingTask(chat_session_id),
+        { task_id, status: "queued" },
+      );
+
+      // Standard split query invalidation — refetches tasks + progress.
+      invalidateSplitNodeQueries(queryClient, wsId, vars);
+    },
+  });
+}
+
+export function useCancelSplitNode(wsId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ nodeRunId }: SplitMutationVars) => api.cancelSplitNode(nodeRunId),
+    onSuccess: (_data, vars) => invalidateSplitNodeQueries(queryClient, wsId, vars),
   });
 }
 
@@ -473,22 +653,6 @@ export function useAssignNodeToStage(wsId: string, workflowId: string) {
   });
 }
 
-// ── Deliverable queries ───────────────────────────────────────────────────
-
-export function workflowNodeDeliverablesOptions(wsId: string, workflowId: string, nodeId: string) {
-  return queryOptions({
-    queryKey: workflowKeys.workflowNodeDeliverables(wsId, workflowId, nodeId),
-    queryFn: () => api.listWorkflowNodeDeliverables(workflowId, nodeId),
-  });
-}
-
-export function nodeRunDeliverableSubmissionsOptions(_wsId: string, nodeRunId: string) {
-  return queryOptions({
-    queryKey: workflowKeys.nodeRunDeliverables(nodeRunId),
-    queryFn: () => api.listNodeRunDeliverableSubmissions(nodeRunId),
-  });
-}
-
 // ── Role queries ───────────────────────────────────────────────────────────
 
 export function workflowRolesOptions(wsId: string) {
@@ -551,56 +715,6 @@ export function useRetryWorkflowRoleResolutions(wsId: string, workflowId: string
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: workflowKeys.roleResolutions(wsId, workflowId, runId) });
       queryClient.invalidateQueries({ queryKey: workflowKeys.run(wsId, workflowId, runId) });
-    },
-  });
-}
-
-// ── Deliverable mutations ─────────────────────────────────────────────────
-
-export function useCreateWorkflowNodeDeliverable(wsId: string, workflowId: string, nodeId: string) {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: (req: { kind: string; title: string; description?: string; required?: boolean; sort_order?: number }) =>
-      api.createWorkflowNodeDeliverable(workflowId, nodeId, req),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: workflowKeys.workflowNodeDeliverables(wsId, workflowId, nodeId) });
-    },
-  });
-}
-
-export function useUpdateWorkflowNodeDeliverable(wsId: string, workflowId: string, nodeId: string) {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: ({ deliverableId, ...req }: { deliverableId: string; kind?: string; title?: string; description?: string; required?: boolean; sort_order?: number }) =>
-      api.updateWorkflowNodeDeliverable(workflowId, nodeId, deliverableId, req),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: workflowKeys.workflowNodeDeliverables(wsId, workflowId, nodeId) });
-    },
-  });
-}
-
-export function useDeleteWorkflowNodeDeliverable(wsId: string, workflowId: string, nodeId: string) {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: (deliverableId: string) => api.deleteWorkflowNodeDeliverable(workflowId, nodeId, deliverableId),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: workflowKeys.workflowNodeDeliverables(wsId, workflowId, nodeId) });
-    },
-  });
-}
-
-export function useSubmitNodeRunDeliverable() {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: ({ nodeRunId, deliverableId, ...body }: {
-      nodeRunId: string;
-      deliverableId: string;
-      content?: string;
-      attachment_id?: string | null;
-      pull_request_url?: string;
-    }) => api.submitNodeRunDeliverable(nodeRunId, deliverableId, body),
-    onSuccess: (_data, vars) => {
-      queryClient.invalidateQueries({ queryKey: workflowKeys.nodeRunDeliverables(vars.nodeRunId) });
     },
   });
 }

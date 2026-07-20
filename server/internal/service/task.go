@@ -14,6 +14,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/multica-ai/multica/server/internal/analytics"
+	"github.com/multica-ai/multica/server/internal/cloudruntime"
 	"github.com/multica-ai/multica/server/internal/events"
 	"github.com/multica-ai/multica/server/internal/mention"
 	"github.com/multica-ai/multica/server/internal/realtime"
@@ -30,12 +31,20 @@ type TaskService struct {
 	Bus       *events.Bus
 	Analytics analytics.Client
 	Wakeup    TaskWakeupNotifier
+	// CSCloudPush is the outbound client for server-side task push to cs-cloud
+	// devices. Wired after handler construction to avoid constructor churn.
+	CSCloudPush DevicePushClient
 	// EmptyClaim caches "this runtime has no queued task" so the daemon
 	// poll path can skip a Postgres scan on the steady-state empty case.
 	// Optional — a nil cache disables the fast path and every claim
 	// goes through the DB. Wired in router.go from the shared Redis
 	// client.
 	EmptyClaim *EmptyClaimCache
+
+	// OnTaskCompleting is an optional callback invoked before a running task is
+	// marked completed. It can validate or consume the result and veto completion
+	// by returning an error.
+	OnTaskCompleting func(ctx context.Context, task db.MulticaAgentTaskQueue) error
 
 	// OnTaskCompleted is an optional callback invoked after a task reaches
 	// the completed state. The WorkflowService uses this to detect agent
@@ -46,6 +55,12 @@ type TaskService struct {
 	analyticsContextMu    sync.Mutex
 	analyticsContextCache map[string]analytics.TaskContext
 	analyticsContextOrder []string
+}
+
+// DevicePushClient is the subset of cloudruntime.Client the task pusher needs.
+type DevicePushClient interface {
+	Enabled() bool
+	Do(ctx context.Context, req cloudruntime.Request) (*cloudruntime.Response, error)
 }
 
 type TaskWakeupNotifier interface {
@@ -355,7 +370,7 @@ func taskFailureReason(task db.MulticaAgentTaskQueue) string {
 
 func taskErrorType(reason string) string {
 	switch reason {
-	case "runtime_offline", "runtime_recovery":
+	case "runtime_offline", "runtime_recovery", "dispatch_failed":
 		return "runtime"
 	case "timeout", "codex_semantic_inactivity":
 		return "timeout"
@@ -794,6 +809,7 @@ func (s *TaskService) CancelTasksForIssue(ctx context.Context, issueID pgtype.UU
 		s.captureTaskCancelled(ctx, t)
 		s.ReconcileAgentStatus(ctx, t.AgentID)
 		s.broadcastTaskEvent(ctx, protocol.EventTaskCancelled, t)
+		s.maybeAbortOnDevice(t)
 	}
 	return nil
 }
@@ -812,6 +828,7 @@ func (s *TaskService) CancelTasksForAgent(ctx context.Context, agentID pgtype.UU
 	for _, t := range cancelled {
 		s.captureTaskCancelled(ctx, t)
 		s.broadcastTaskEvent(ctx, protocol.EventTaskCancelled, t)
+		s.maybeAbortOnDevice(t)
 	}
 	// Reconcile once after the loop — agent transitions from
 	// working→available based on remaining task counts, no need to call
@@ -835,6 +852,7 @@ func (s *TaskService) CancelTasksByTriggerComment(ctx context.Context, commentID
 		s.captureTaskCancelled(ctx, t)
 		s.ReconcileAgentStatus(ctx, t.AgentID)
 		s.broadcastTaskEvent(ctx, protocol.EventTaskCancelled, t)
+		s.maybeAbortOnDevice(t)
 	}
 	return nil
 }
@@ -880,6 +898,9 @@ func (s *TaskService) CancelTask(ctx context.Context, taskID pgtype.UUID) (*db.M
 
 	// Broadcast cancellation as a task:failed event so frontends clear the live card
 	s.broadcastTaskEvent(ctx, protocol.EventTaskCancelled, task)
+
+	// If the cs-cloud device already accepted the run, ask it to abort.
+	s.maybeAbortOnDevice(task)
 
 	return &task, nil
 }
@@ -1115,6 +1136,25 @@ func (s *TaskService) StartTask(ctx context.Context, taskID pgtype.UUID) (*db.Mu
 // flipping to 'completed' and chat_session.session_id being refreshed,
 // causing the new task to resume against a stale (or NULL) session.
 func (s *TaskService) CompleteTask(ctx context.Context, taskID pgtype.UUID, result []byte, sessionID, workDir string) (*db.MulticaAgentTaskQueue, error) {
+	if s.OnTaskCompleting != nil {
+		current, err := s.Queries.GetAgentTask(ctx, taskID)
+		if err != nil {
+			return nil, fmt.Errorf("load task before completion: %w", err)
+		}
+		if current.Status == "running" && current.WorkflowNodeRunID.Valid {
+			current.Result = result
+			if sessionID != "" {
+				current.SessionID = pgtype.Text{String: sessionID, Valid: true}
+			}
+			if workDir != "" {
+				current.WorkDir = pgtype.Text{String: workDir, Valid: true}
+			}
+			if err := s.OnTaskCompleting(ctx, current); err != nil {
+				return nil, fmt.Errorf("complete task hook: %w", err)
+			}
+		}
+	}
+
 	var task db.MulticaAgentTaskQueue
 	if err := s.runInTx(ctx, func(qtx *db.Queries) error {
 		t, err := qtx.CompleteAgentTask(ctx, db.CompleteAgentTaskParams{
@@ -1429,6 +1469,7 @@ var retryableReasons = map[string]bool{
 	"runtime_recovery":          true,
 	"timeout":                   true,
 	"codex_semantic_inactivity": true,
+	"dispatch_failed":           true,
 }
 
 func resumeUnsafeFailureReason(reason string) bool {
@@ -1900,10 +1941,13 @@ func (s *TaskService) notifyTaskAvailable(task db.MulticaAgentTaskQueue) {
 	// every Redis call with a short timeout so a wedged Redis cannot
 	// block enqueue.
 	s.EmptyClaim.Bump(context.Background(), runtimeKey)
-	if s.Wakeup == nil {
-		return
+	if s.Wakeup != nil {
+		s.Wakeup.NotifyTaskAvailable(runtimeKey, util.UUIDToString(task.ID))
 	}
-	s.Wakeup.NotifyTaskAvailable(runtimeKey, util.UUIDToString(task.ID))
+	// For cs-cloud runtimes, additionally push the task to the device
+	// via the gateway proxy. This runs in a detached goroutine so the
+	// synchronous enqueueing request is not blocked by network IO.
+	s.maybePushToCSCloud(task)
 }
 
 func (s *TaskService) broadcastTaskDispatch(ctx context.Context, task db.MulticaAgentTaskQueue) {

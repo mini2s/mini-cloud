@@ -69,6 +69,57 @@ func TestRuntimeHandlersRejectMalformedRuntimeID(t *testing.T) {
 	}
 }
 
+func TestDeleteAgentRuntimeReturnsDependencyConflictCode(t *testing.T) {
+	if testHandler == nil || testPool == nil {
+		t.Skip("database not available")
+	}
+	ctx := context.Background()
+
+	var runtimeID string
+	if err := testPool.QueryRow(ctx, `
+		INSERT INTO multica_agent_runtime (
+			workspace_id, name, runtime_mode, provider, status,
+			device_info, metadata, visibility, owner_id
+		)
+		VALUES ($1, 'delete conflict runtime', 'cloud', 'test', 'online', '', '{}'::jsonb, 'private', $2)
+		RETURNING id
+	`, testWorkspaceID, testUserID).Scan(&runtimeID); err != nil {
+		t.Fatalf("create runtime: %v", err)
+	}
+
+	var agentID string
+	if err := testPool.QueryRow(ctx, `
+		INSERT INTO multica_agent (
+			workspace_id, name, description, runtime_mode, runtime_config,
+			runtime_id, visibility, max_concurrent_tasks, owner_id
+		)
+		VALUES ($1, 'delete conflict agent', '', 'cloud', '{}'::jsonb, $2, 'private', 1, $3)
+		RETURNING id
+	`, testWorkspaceID, runtimeID, testUserID).Scan(&agentID); err != nil {
+		t.Fatalf("create agent: %v", err)
+	}
+	t.Cleanup(func() {
+		_, _ = testPool.Exec(ctx, `DELETE FROM multica_agent WHERE id = $1`, agentID)
+		_, _ = testPool.Exec(ctx, `DELETE FROM multica_agent_runtime WHERE id = $1`, runtimeID)
+	})
+
+	w := httptest.NewRecorder()
+	req := newRequest("DELETE", "/api/runtimes/"+runtimeID, nil)
+	req = withURLParam(req, "runtimeId", runtimeID)
+	testHandler.DeleteAgentRuntime(w, req)
+
+	if w.Code != http.StatusConflict {
+		t.Fatalf("status = %d, want 409: %s", w.Code, w.Body.String())
+	}
+	var resp map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if resp["code"] != "runtime_has_active_agents" {
+		t.Fatalf("code = %v, want runtime_has_active_agents", resp["code"])
+	}
+}
+
 // TestGetRuntimeUsage_BucketsByUsageTime ensures a task that was enqueued on
 // one calendar day but whose tokens were reported the next day (e.g. execution
 // crossed midnight, or the task sat in the queue) is attributed to the day

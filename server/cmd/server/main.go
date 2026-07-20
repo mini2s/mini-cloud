@@ -548,7 +548,11 @@ func main() {
 			PollInterval: roleResolutionRuntime.PollInterval, LeaseDuration: roleResolutionRuntime.LeaseDuration,
 			MaxCandidates: roleResolutionRuntime.MaxCandidates, MaxSlots: roleResolutionRuntime.MaxSlots,
 			MaxInputChars: roleResolutionRuntime.MaxInputChars,
-			OnRunPromoted: roleWorkflowSvc.DispatchRootNodeRuns,
+			OnRunPromoted: func(ctx context.Context, runID pgtype.UUID) {
+				if err := roleWorkflowSvc.DispatchRootNodeRuns(ctx, runID); err != nil {
+					slog.Error("dispatch workflow roots after role resolution", "run_id", util.UUIDToString(runID), "error", err)
+				}
+			},
 			OnStateChanged: func(_ context.Context, workspaceID, runID pgtype.UUID) {
 				payload := map[string]any{"run_id": util.UUIDToString(runID)}
 				for _, eventType := range []string{"workflow_role_resolution_updated", "workflow_run_updated"} {

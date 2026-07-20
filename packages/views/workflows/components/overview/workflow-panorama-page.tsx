@@ -32,6 +32,7 @@ import {
   useAssignNodeToStage,
   useDeleteStage,
   useReorderStages,
+  splitIssueWorkflowOptions,
 } from "@multica/core/workflows/queries";
 import { agentListOptions, builtinPluginListOptions } from "@multica/core/workspace/queries";
 import { useActorName } from "@multica/core/workspace/hooks";
@@ -56,6 +57,7 @@ import {
 import { AlertCircle, ArrowLeft, Layers, PanelsTopLeft, Plus } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@multica/ui/components/ui/popover";
 import { toast } from "sonner";
+import { getDeleteConflictMessage } from "../../../common/delete-conflict-error";
 
 import { WorkflowCanvasCore } from "../canvas/workflow-canvas-core";
 import {
@@ -68,7 +70,7 @@ import { panoramaNodeTypes } from "./reactflow-nodes";
 import { panoramaEdgeTypes } from "./reactflow-edges";
 import { computeLaneAutoLayout, computeStageTransferPositionX } from "../layout";
 import { PreflightBar } from "./preflight-bar";
-import { runAllPreflightChecks } from "@multica/core/workflows/preflight-checks";
+import { runAllPreflightChecks, type SplitIssueWorkflowPreflightContext } from "@multica/core/workflows/preflight-checks";
 import { NodeTemplatePicker } from "./node-template-picker";
 import { WorkflowEditorToolbar } from "./workflow-editor-toolbar";
 import {
@@ -136,6 +138,7 @@ interface PanoramaContentProps {
   visibleNodes: WorkflowNode[];
   apiEdges: WorkflowEdge[];
   agentIds: Set<string>;
+  splitChildWorkflows: SplitIssueWorkflowPreflightContext[];
   workflow: Workflow;
   workflowId: string;
   wsId: string;
@@ -183,6 +186,7 @@ function PanoramaContent({
   visibleNodes,
   apiEdges,
   agentIds,
+  splitChildWorkflows,
   workflow,
   workflowId,
   wsId,
@@ -245,8 +249,9 @@ function PanoramaContent({
       edges: apiEdges,
       stages,
       agentIds,
+      splitChildWorkflows,
     }),
-    [visibleNodes, apiEdges, stages, agentIds],
+    [visibleNodes, apiEdges, stages, agentIds, splitChildWorkflows],
   );
 
   const handleNavigateToNode = useCallback((nodeId: string) => {
@@ -414,6 +419,10 @@ function PanoramaContent({
               nodes={apiNodes}
               stages={stages}
               recentNodeRun={recentNodeRun}
+						preflightIssues={preflightResult.issues.filter((issue) => issue.nodeId === selectedNode.id)}
+						incomingCount={apiEdges.filter((edge) => edge.target_node_id === selectedNode.id).length}
+						outgoingCount={apiEdges.filter((edge) => edge.source_node_id === selectedNode.id).length}
+						onTrialRun={() => void onTestRun()}
               onClose={onCloseConfigPanel}
               onSaveNode={onSave}
               onDirtyChange={onConfigPanelDirtyChange}
@@ -534,6 +543,7 @@ export function WorkflowPanoramaPage({ workflowId, viewToggle }: WorkflowPanoram
   const { data: agents = [] } = useQuery(agentListOptions(wsId));
   const { data: pluginsData } = useQuery(builtinPluginListOptions());
   const { data: workflowRoles = [] } = useQuery(workflowRolesOptions(wsId));
+  const { data: childWorkflows = [] } = useQuery(splitIssueWorkflowOptions(wsId, workflowId));
   const { getActorName } = useActorName();
   const roleById = useMemo(
     () => new Map(workflowRoles.map((role) => [role.id, role])),
@@ -655,6 +665,11 @@ export function WorkflowPanoramaPage({ workflowId, viewToggle }: WorkflowPanoram
     return map;
   }, [pluginsData]);
 
+  const splitChildWorkflowContexts = useMemo<SplitIssueWorkflowPreflightContext[]>(
+    () => (childWorkflows ?? []).map((wf) => ({ id: wf.id, status: wf.status, nodes: [] })),
+    [childWorkflows],
+  );
+
   // ── ReactFlow nodes/edges ──
   const visibleNodes = useMemo(
     () => apiNodes
@@ -720,18 +735,26 @@ export function WorkflowPanoramaPage({ workflowId, viewToggle }: WorkflowPanoram
             : node.worker_role
               ? renderRoleName(undefined, node.worker_role)
               : node.worker_id ? getActorName(node.worker_type ?? "agent", node.worker_id) ?? undefined : undefined,
+          criticName: node.critic_role_id
+            ? renderRoleName(roleById.get(node.critic_role_id)) ?? node.critic_role_id
+            : node.critic_role
+              ? renderRoleName(undefined, node.critic_role)
+              : node.critic_id
+                ? getActorName(node.critic_type ?? "agent", node.critic_id) ?? undefined
+                : node.critic_api_url
+                  ? "API review"
+                  : undefined,
           workerConfigured: isAnnotation ? true : Boolean(node.worker_id || node.worker_role_id || node.worker_role),
           criticConfigured: isAnnotation
             ? false
-            : node.critic_type === "api"
-              ? Boolean(node.critic_api_url?.trim())
-              : Boolean(node.critic_id || node.critic_role_id || node.critic_role),
+            : Boolean(node.critic_id || node.critic_role_id || node.critic_role || node.critic_api_url?.trim()),
           isAnnotation,
           onOpen: openNodePanel,
           onAddConnectedNode: handleOpenConnectedNodePicker,
           addConnectedNodeLabel: t(($) => $.panorama.add_connected_node),
         };
       },
+      includeCriticBadges: false,
       makeCriticName: (node) => node.critic_role_id ? renderRoleName(roleById.get(node.critic_role_id)) ?? node.critic_role_id : node.critic_role ? renderRoleName(undefined, node.critic_role) : node.critic_id ? getActorName(node.critic_type ?? "agent", node.critic_id) ?? undefined : undefined,
     }),
     [stages, visibleNodes, agentLookup, pluginLookup, getActorName, openNodePanel, handleOpenConnectedNodePicker, roleById, renderRoleName, t],
@@ -751,6 +774,7 @@ export function WorkflowPanoramaPage({ workflowId, viewToggle }: WorkflowPanoram
       edges: apiEdges,
       nodes: visibleNodes,
       stages,
+      includeCriticEdges: false,
       onDeleteEdge: handleInlineEdgeDelete,
       selectedEdgeId,
       selectedEdgeAnchor,
@@ -944,10 +968,12 @@ export function WorkflowPanoramaPage({ workflowId, viewToggle }: WorkflowPanoram
   const handleNodeDelete = useCallback(
     async (nodeId: string) => {
       cacheNodeDelete(nodeId);
+      clearNodeEdits(nodeId);
       await deleteNodeMutation.mutateAsync(nodeId);
+      selectNode(null);
       setConfigPanelOpen(false);
     },
-    [deleteNodeMutation, cacheNodeDelete],
+    [deleteNodeMutation, cacheNodeDelete, clearNodeEdits, selectNode],
   );
 
   const handleStageChange = useCallback(
@@ -1011,15 +1037,20 @@ export function WorkflowPanoramaPage({ workflowId, viewToggle }: WorkflowPanoram
   }, [workflow, workflowId, updateWorkflowMutation, t]);
 
   const handleSave = useCallback(async () => {
+    const editorState = useWorkflowEditorStore.getState();
+    const deletedNodeIdSet = new Set(editorState.deletedNodeIds);
+    const entries = Object.entries(editorState.nodeEdits);
+    const activeEntries = entries.filter(([nodeId]) => !deletedNodeIdSet.has(nodeId));
+    const deletedEntries = entries.filter(([nodeId]) => deletedNodeIdSet.has(nodeId));
+    deletedEntries.forEach(([nodeId]) => clearNodeEdits(nodeId));
+    if (activeEntries.length === 0) return true;
     try {
-      const entries = Object.entries(useWorkflowEditorStore.getState().nodeEdits);
-      if (entries.length === 0) return true;
       await Promise.all(
-        entries.map(([nodeId, edits]) =>
+        activeEntries.map(([nodeId, edits]) =>
           updateNodeMutation.mutateAsync({ nodeId, ...edits } as Parameters<typeof updateNodeMutation.mutateAsync>[0]),
         ),
       );
-      entries.forEach(([nodeId]) => clearNodeEdits(nodeId));
+      activeEntries.forEach(([nodeId]) => clearNodeEdits(nodeId));
       toast.success(t(($) => $.detail.toast_saved));
       return true;
     } catch {
@@ -1057,8 +1088,12 @@ export function WorkflowPanoramaPage({ workflowId, viewToggle }: WorkflowPanoram
       await deleteWorkflowMutation.mutateAsync(workflowId);
       toast.success(t(($) => $.detail.toast_deleted));
       navigation.push(wsPaths.workflows());
-    } catch {
-      toast.error(t(($) => $.detail.toast_delete_failed));
+    } catch (error) {
+      toast.error(
+        getDeleteConflictMessage(error, {
+          template_has_derived_workflows: t(($) => $.detail.template_has_derived_workflows),
+        }) ?? t(($) => $.detail.toast_delete_failed),
+      );
     }
   }, [workflowId, deleteWorkflowMutation, navigation, wsPaths, t]);
 
@@ -1175,6 +1210,7 @@ export function WorkflowPanoramaPage({ workflowId, viewToggle }: WorkflowPanoram
         visibleNodes={visibleNodes}
         apiEdges={apiEdges}
         agentIds={new Set(agentLookup.keys())}
+        splitChildWorkflows={splitChildWorkflowContexts}
         workflow={workflow}
         workflowId={workflowId}
         wsId={wsId}

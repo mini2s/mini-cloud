@@ -164,7 +164,7 @@ describe("PullRequestList sidebar rows", () => {
     renderList();
     await waitForRender();
     expect(screen.getByText("+437")).toBeInTheDocument();
-    expect(screen.getByText("−6")).toBeInTheDocument();
+    expect(screen.getByText("-6")).toBeInTheDocument();
     expect(screen.getByText("6 files")).toBeInTheDocument();
   });
 

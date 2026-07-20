@@ -143,6 +143,7 @@
     },
     "toast_deleted": "已删除运行时",
     "toast_delete_failed": "删除运行时失败",
+    "runtime_has_active_agents": "该运行时仍绑定活跃智能体，请先归档智能体或将其分配到其他运行时。",
     "running_chip_other": "· {{count}} 个进行中",
     "queued_chip_other": "· {{count}} 个排队中"
   },

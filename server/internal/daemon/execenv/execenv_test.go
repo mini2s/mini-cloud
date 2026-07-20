@@ -397,6 +397,85 @@ func TestWriteContextFiles(t *testing.T) {
 	}
 }
 
+func TestRenderSplitContextUsesDraftCLI(t *testing.T) {
+	content := renderSplitContext(TaskContextForEnv{
+		IssueID:                             "issue-split-1",
+		WorkflowNodeRunID:                   "node-run-1",
+		WorkflowSplitParentIssueID:          "parent-issue-1",
+		WorkflowSplitParentIssueTitle:       "Build a game",
+		WorkflowSplitParentIssueDescription: "Use web technology.",
+		WorkflowSplitConfig:                 []byte(`{"default_issue_workflow_id":"wf-default","mode":"barrier","max_concurrency":5,"max_failures":0}`),
+	})
+	for _, want := range []string{
+		"Split Task Generation",
+		"node-run-1",
+		"parent-issue-1",
+		"Build a game",
+		"Split Config",
+		"default_issue_workflow_id",
+		"default issue workflow",
+		"Do not output workflow_id",
+		"cs-workflow workflow split draft add",
+		"cs-workflow workflow split draft submit node-run-1 --output json",
+		"Do not create child issues",
+		"change issue status",
+	} {
+		if !strings.Contains(content, want) {
+			t.Fatalf("split context missing %q\n--- content ---\n%s", want, content)
+		}
+	}
+	if strings.Contains(content, "Return only the JSON task plan") {
+		t.Fatalf("split context should not require JSON-only output\n--- content ---\n%s", content)
+	}
+	for _, banned := range []string{
+		"Default child assignee",
+		"child_workflow_id",
+		"--assignee",
+		"list_available_issue_workflows",
+	} {
+		if strings.Contains(content, banned) {
+			t.Fatalf("split context should not expose %q\n--- content ---\n%s", banned, content)
+		}
+	}
+}
+
+func TestRenderSplitChatContextUsesAdjustmentBrief(t *testing.T) {
+	content := renderIssueContext("claude", TaskContextForEnv{
+		WorkflowPhase:                 "split_chat",
+		WorkflowNodeRunID:             "node-run-1",
+		ChatSessionID:                 "chat-1",
+		ChatMessage:                   "合理合并拆分任务",
+		WorkflowSplitParentIssueID:    "parent-1",
+		WorkflowSplitParentIssueTitle: "Build a game",
+		WorkflowSplitCurrentDrafts:    []byte(`[{"id":"draft-1","title":"Too large"}]`),
+	})
+	for _, want := range []string{
+		"Split Review Adjustment",
+		"node-run-1",
+		"parent-1",
+		"Build a game",
+		"合理合并拆分任务",
+		"Current Draft Tasks",
+		"Too large",
+		"cs-workflow workflow split draft delete",
+		"cs-workflow workflow split draft add",
+		"cs-workflow workflow split draft submit",
+	} {
+		if !strings.Contains(content, want) {
+			t.Fatalf("split chat context missing %q\n--- content ---\n%s", want, content)
+		}
+	}
+	for _, banned := range []string{
+		"Task Assignment",
+		"New Assignment",
+		"Run `cs-workflow issue get",
+	} {
+		if strings.Contains(content, banned) {
+			t.Fatalf("split chat context must not contain ordinary assignment text %q\n--- content ---\n%s", banned, content)
+		}
+	}
+}
+
 func TestWriteContextFilesOmitsSkillsWhenEmpty(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
@@ -3328,10 +3407,10 @@ func TestInjectRuntimeConfigIssueMetadataSectionScope(t *testing.T) {
 			want: withSection,
 		},
 		{
-			name:                "assignment_triggered",
-			ctx:                 TaskContextForEnv{IssueID: "issue-md-2"},
-			provider:            "claude",
-			filename:            "CLAUDE.md",
+			name:     "assignment_triggered",
+			ctx:      TaskContextForEnv{IssueID: "issue-md-2"},
+			provider: "claude",
+			filename: "CLAUDE.md",
 			workflowStepPresent: []string{
 				"cs-workflow issue metadata list issue-md-2 --output json",
 				"See the `## Issue Metadata` section above",
