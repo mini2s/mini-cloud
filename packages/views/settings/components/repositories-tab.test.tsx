@@ -91,6 +91,14 @@ describe("RepositoriesTab — view/edit toggle", () => {
     expect(screen.getByRole("button", { name: /^Save$/ })).toBeDisabled();
   });
 
+  it("does not expose code platform switching", () => {
+    render(<RepositoriesTab />, { wrapper: I18nWrapper });
+
+    expect(screen.queryByText("Code Platform")).toBeNull();
+    expect(screen.queryByRole("radio", { name: "GitHub" })).toBeNull();
+    expect(screen.queryByRole("radio", { name: "GitLab" })).toBeNull();
+  });
+
   it("clicking Edit reveals an input pre-filled with the URL", async () => {
     const user = userEvent.setup();
     render(<RepositoriesTab />, { wrapper: I18nWrapper });

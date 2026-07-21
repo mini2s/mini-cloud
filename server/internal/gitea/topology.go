@@ -6,8 +6,10 @@
 package gitea
 
 import (
+	"crypto/sha1"
 	"encoding/hex"
 	"fmt"
+	"strings"
 
 	"github.com/google/uuid"
 )
@@ -27,14 +29,50 @@ func shortHex(id string) string {
 // OrgName is the Gitea org (team namespace) for a workspace: t-<workspace.id[:8]>.
 func OrgName(workspaceID string) string { return "t-" + shortHex(workspaceID) }
 
-// RepoName is the Gitea repo name for a workflow definition: wf-<workflow.id[:8]>.
-// multica deliberately uses workflow.id (a UUID) instead of costrict's
-// human-readable def_slug to avoid Chinese-title escape problems (wf-____).
-func RepoName(workflowID string) string { return "wf-" + shortHex(workflowID) }
+// RepoName is the Gitea repo name for a workflow definition: wf-<def_slug>.
+// Non-UUID input follows costrict-web's WORKFLOW_REPO_PATH_ALGORITHM v2 escape
+// rules. UUID input keeps the old short-id behavior for existing Multica call
+// sites and already-provisioned repos.
+func RepoName(workflowDefSlug string) string {
+	if _, err := uuid.Parse(workflowDefSlug); err == nil {
+		return "wf-" + shortHex(workflowDefSlug)
+	}
+	escaped := escapeDefSlug(workflowDefSlug)
+	repo := "wf-" + escaped
+	if len(repo) <= 64 {
+		return repo
+	}
+	sum := sha1.Sum([]byte(escaped))
+	return "wf-" + escaped[:51] + "~~" + hex.EncodeToString(sum[:])[:8]
+}
 
 // RepoPath is the full owner/name path: t-<ws[:8]>/wf-<wf[:8]>.
 func RepoPath(workspaceID, workflowID string) string {
 	return OrgName(workspaceID) + "/" + RepoName(workflowID)
+}
+
+func escapeDefSlug(s string) string {
+	var b strings.Builder
+	for _, r := range strings.ToLower(s) {
+		switch {
+		case r >= 'a' && r <= 'z':
+			b.WriteRune(r)
+		case r >= '0' && r <= '9':
+			b.WriteRune(r)
+		case r == '.' || r == '_' || r == '-':
+			b.WriteRune(r)
+		default:
+			b.WriteByte('_')
+		}
+	}
+	out := b.String()
+	if strings.HasPrefix(out, ".") {
+		out = "_" + out
+	}
+	if out == "" {
+		out = "unnamed"
+	}
+	return out
 }
 
 // InstBranch is the per-run instance branch: inst-<run.id[:8]>. Base = repo

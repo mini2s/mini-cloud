@@ -23,12 +23,12 @@ type BotParams struct {
 }
 
 // BotUsername is the deterministic Gitea username for a workspace's bot:
-// mc-bot-<workspace.id[:8]>. Exposed so callers can reference the bot without
+// bot-t-<workspace.id[:8]>. Exposed so callers can reference the bot without
 // provisioning (e.g. credential endpoint lookups).
-func BotUsername(workspaceID string) string { return "mc-bot-" + shortHex(workspaceID) }
+func BotUsername(workspaceID string) string { return "bot-t-" + shortHex(workspaceID) }
 
 // ProvisionWorkspaceBot creates the per-workspace Gitea bot user, mints a PAT
-// (scopes: write repo, read user/org), and adds the bot to the workspace org.
+// (scopes: write repo, read user), and adds the bot to the workspace org.
 // Idempotent: AdminCreateUser tolerates already-exists (the client maps 422 to
 // nil). Returns (username, token). The caller (M2) persists these into
 // workspace.settings.
@@ -41,7 +41,7 @@ func ProvisionWorkspaceBot(ctx context.Context, c provisionAPI, p BotParams) (us
 	if err := c.AdminCreateUser(ctx, username, botEmail(username)); err != nil {
 		return "", "", fmt.Errorf("create gitea bot user: %w", err)
 	}
-	token, err = c.CreateUserToken(ctx, username, "workspace-pat")
+	token, err = c.CreateUserToken(ctx, username, "costrict-team-bot-default")
 	if err != nil {
 		return "", "", fmt.Errorf("create gitea bot pat: %w", err)
 	}
@@ -61,7 +61,8 @@ func ProvisionWorkspaceBot(ctx context.Context, c provisionAPI, p BotParams) (us
 }
 
 func botEmail(username string) string {
-	return fmt.Sprintf("%s@multica.local", username)
+	short := strings.TrimPrefix(username, "bot-t-")
+	return fmt.Sprintf("bot+%s@costrict.internal", short)
 }
 
 // MemberParams identifies a workspace member to provision into the Gitea org.

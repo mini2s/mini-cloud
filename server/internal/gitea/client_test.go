@@ -135,7 +135,7 @@ func TestClient_CreateOrg_Body(t *testing.T) {
 	if got.method != http.MethodPost || got.path != "/api/v1/orgs" {
 		t.Errorf("unexpected request: %s %s", got.method, got.path)
 	}
-	if got.body["username"] != "t-7f3c9a1e" || got.body["visibility"] != "private" || got.body["description"] != "Acme" {
+	if got.body["username"] != "t-7f3c9a1e" || got.body["visibility"] != "private" || got.body["description"] != "Acme" || got.body["members_can_create_repos"] != false {
 		t.Errorf("unexpected body: %+v", got.body)
 	}
 }
@@ -222,15 +222,19 @@ func TestClient_CreateUserToken(t *testing.T) {
 	c := NewClient(Config{BaseURL: srv.URL, Token: "admin-tok"})
 	c.httpClient = srv.Client()
 
-	tok, err := c.CreateUserToken(context.Background(), "mc-bot-7f3c9a1e", "workspace-pat")
+	tok, err := c.CreateUserToken(context.Background(), "bot-t-7f3c9a1e", "costrict-team-bot-default")
 	if err != nil {
 		t.Fatalf("CreateUserToken: %v", err)
 	}
 	if tok != "pat-secret" {
 		t.Errorf("token = %q, want pat-secret", tok)
 	}
-	if got.body["name"] != "workspace-pat" {
+	if got.body["name"] != "costrict-team-bot-default" {
 		t.Errorf("body = %+v", got.body)
+	}
+	scopes, ok := got.body["scopes"].([]any)
+	if !ok || len(scopes) != 2 || scopes[0] != "write:repository" || scopes[1] != "read:user" {
+		t.Errorf("scopes = %#v, want write:repository + read:user", got.body["scopes"])
 	}
 	// Gitea's /users/{name}/tokens rejects token auth (401); it requires basic
 	// auth with the admin token as the password.
@@ -247,12 +251,12 @@ func TestClient_AdminCreateUser_Idempotent(t *testing.T) {
 		c := NewClient(Config{BaseURL: srv.URL, Token: "admin-tok"})
 		c.httpClient = srv.Client()
 
-		err := c.AdminCreateUser(context.Background(), "mc-bot-7f3c9a1e", "mc-bot-7f3c9a1e@multica.local")
+		err := c.AdminCreateUser(context.Background(), "bot-t-7f3c9a1e", "bot+7f3c9a1e@costrict.internal")
 		srv.Close()
 		if err != nil {
 			t.Errorf("AdminCreateUser(%d): expected nil (idempotent), got %v", status, err)
 		}
-		if got.body["username"] != "mc-bot-7f3c9a1e" {
+		if got.body["username"] != "bot-t-7f3c9a1e" {
 			t.Errorf("AdminCreateUser(%d): body username = %v", status, got.body["username"])
 		}
 	}
@@ -265,7 +269,7 @@ func TestClient_AdminCreateUser_5xx(t *testing.T) {
 	c := NewClient(Config{BaseURL: srv.URL, Token: "admin-tok"})
 	c.httpClient = srv.Client()
 
-	if err := c.AdminCreateUser(context.Background(), "mc-bot-7f3c9a1e", "x@multica.local"); err == nil {
+	if err := c.AdminCreateUser(context.Background(), "bot-t-7f3c9a1e", "x@costrict.internal"); err == nil {
 		t.Fatal("AdminCreateUser(500): expected error, got nil")
 	}
 }
@@ -307,7 +311,7 @@ func TestClient_AddOrgMember(t *testing.T) {
 	c := NewClient(Config{BaseURL: srv.URL, Token: "admin-tok"})
 	c.httpClient = srv.Client()
 
-	if err := c.AddOrgMember(context.Background(), "t-7f3c9a1e", "mc-bot-7f3c9a1e"); err != nil {
+	if err := c.AddOrgMember(context.Background(), "t-7f3c9a1e", "bot-t-7f3c9a1e"); err != nil {
 		t.Fatalf("AddOrgMember: %v", err)
 	}
 	if gotTeam.method != http.MethodGet || !strings.HasSuffix(gotTeam.path, "/orgs/t-7f3c9a1e/teams") {
@@ -316,7 +320,7 @@ func TestClient_AddOrgMember(t *testing.T) {
 	if gotTeam.auth != "token admin-tok" {
 		t.Errorf("teams auth = %q, want token admin-tok", gotTeam.auth)
 	}
-	if gotMember.method != http.MethodPut || !strings.HasSuffix(gotMember.path, "/teams/7/members/mc-bot-7f3c9a1e") {
+	if gotMember.method != http.MethodPut || !strings.HasSuffix(gotMember.path, "/teams/7/members/bot-t-7f3c9a1e") {
 		t.Errorf("add member request: %s %s", gotMember.method, gotMember.path)
 	}
 }

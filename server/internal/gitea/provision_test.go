@@ -57,18 +57,18 @@ func TestProvisionWorkspaceBot(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Provision: %v", err)
 	}
-	if username != "mc-bot-7f3c9a1e" {
+	if username != "bot-t-7f3c9a1e" {
 		t.Errorf("username = %q", username)
 	}
-	if token != "pat-mc-bot-7f3c9a1e" {
+	if token != "pat-bot-t-7f3c9a1e" {
 		t.Errorf("token = %q", token)
 	}
-	if !f.users["mc-bot-7f3c9a1e"] {
+	if !f.users["bot-t-7f3c9a1e"] {
 		t.Error("bot user not created")
 	}
 	found := false
 	for _, m := range f.members {
-		if m == "t-7f3c9a1e/mc-bot-7f3c9a1e" {
+		if m == "t-7f3c9a1e/bot-t-7f3c9a1e" {
 			found = true
 		}
 	}
@@ -86,7 +86,7 @@ func TestProvisionWorkspaceBot_OrgMissingSkipsMembership(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Provision: %v", err)
 	}
-	if !f.users["mc-bot-7f3c9a1e"] {
+	if !f.users["bot-t-7f3c9a1e"] {
 		t.Error("bot user should be created even when the org is missing")
 	}
 	if len(f.members) != 0 {

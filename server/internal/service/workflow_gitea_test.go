@@ -281,8 +281,8 @@ func TestScaffoldRunDeliverables_ProvisionsBotAndScaffoldsRepo(t *testing.T) {
 	if bot == "" {
 		t.Fatalf("workspace.settings missing non-empty gitea_bot_username after scaffold: %+v", settings)
 	}
-	if !strings.HasPrefix(bot, "mc-bot-") {
-		t.Fatalf("bot username %q does not look like a multica bot (want prefix mc-bot-)", bot)
+	if !strings.HasPrefix(bot, "bot-t-") {
+		t.Fatalf("bot username %q does not look like a team bot (want prefix bot-t-)", bot)
 	}
 
 	// Second run, same workspace: scaffold of the new inst-branch happens, but

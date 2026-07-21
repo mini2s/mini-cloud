@@ -123,9 +123,10 @@ func (c *Client) GetOrg(ctx context.Context, org string) (bool, error) {
 // title — Chinese/special chars allowed; the org name itself is ID-derived).
 func (c *Client) CreateOrg(ctx context.Context, org, description string) error {
 	resp, err := c.do(ctx, http.MethodPost, "/orgs", map[string]any{
-		"username":    org,
-		"visibility":  "private",
-		"description": description,
+		"username":                 org,
+		"visibility":               "private",
+		"description":              description,
+		"members_can_create_repos": false,
 	})
 	if err != nil {
 		return err
@@ -300,7 +301,7 @@ func (c *Client) AdminCreateUser(ctx context.Context, username, email string) er
 func (c *Client) CreateUserToken(ctx context.Context, username, tokenName string) (string, error) {
 	body, err := json.Marshal(map[string]any{
 		"name":   tokenName,
-		"scopes": []string{"write:repository", "read:user", "read:organization"},
+		"scopes": []string{"write:repository", "read:user"},
 	})
 	if err != nil {
 		return "", err

@@ -50,6 +50,15 @@ func TestTopologyNames(t *testing.T) {
 	if got := RepoName(wf); got != "wf-11111111" {
 		t.Errorf("RepoName = %q", got)
 	}
+	if got := RepoName("bug-fix-flow"); got != "wf-bug-fix-flow" {
+		t.Errorf("RepoName(slug) = %q", got)
+	}
+	if got := RepoName("Bug Fix/Flow"); got != "wf-bug_fix_flow" {
+		t.Errorf("RepoName(escaped slug) = %q", got)
+	}
+	if got := RepoName(".hidden-def"); got != "wf-_.hidden-def" {
+		t.Errorf("RepoName(dot slug) = %q", got)
+	}
 	if got := RepoPath(ws, wf); got != "t-7f3c9a1e/wf-11111111" {
 		t.Errorf("RepoPath = %q", got)
 	}
