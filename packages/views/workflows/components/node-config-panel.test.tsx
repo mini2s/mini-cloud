@@ -412,9 +412,9 @@ describe("NodeConfigPanel", () => {
   it("uses the fixed shared detail section order in edit mode", () => {
     renderPanel();
 
-    expect(screen.getByTestId("node-readiness-summary")).toHaveClass("rounded-lg", "border");
+    expect(screen.queryByTestId("node-readiness-summary")).not.toBeInTheDocument();
+    expect(screen.queryByText("Activation check")).not.toBeInTheDocument();
     expect(screen.getAllByTestId("node-detail-section").map((section) => section.getAttribute("data-section"))).toEqual([
-      "readiness",
       "primary",
       "worker-critic",
       "actions",
@@ -555,7 +555,7 @@ describe("NodeConfigPanel", () => {
     expect(splitPlannerPicker?.agentFilter?.({ name: "Custom Planner", is_builtin: false })).toBe(true);
   });
 
-	it("orders split sections and shows readiness, connections, and trial run", () => {
+	it("orders split sections and shows connections and trial run", () => {
 		const onTrialRun = vi.fn();
     render(
       <NodeConfigPanel
@@ -577,13 +577,6 @@ describe("NodeConfigPanel", () => {
         workflowId="wf-1"
         stages={stages}
         onClose={vi.fn()}
-				preflightIssues={[{
-					checkId: "split-critic-automated",
-					severity: "warning",
-					blocking: false,
-					nodeId: "split-1",
-					message: "Automated split draft critics can approve risky task plans",
-				}]}
 				incomingCount={2}
 				outgoingCount={1}
 				onTrialRun={onTrialRun}
@@ -591,14 +584,13 @@ describe("NodeConfigPanel", () => {
     );
 
     expect(screen.getAllByTestId("node-detail-section").map((section) => section.getAttribute("data-section"))).toEqual([
-      "readiness",
       "primary",
       "worker-critic",
 			"split-behavior",
 			"connections",
       "actions",
     ]);
-		expect(screen.getByText("Automated split draft critics can approve risky task plans")).toBeInTheDocument();
+		expect(screen.queryByText("Automated split draft critics can approve risky task plans")).not.toBeInTheDocument();
 		expect(screen.getByText("2 upstream")).toBeInTheDocument();
 		expect(screen.getByText("1 downstream")).toBeInTheDocument();
 		fireEvent.click(screen.getByRole("button", { name: "Test this split" }));

@@ -4,10 +4,8 @@ import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react
 import { useQuery } from "@tanstack/react-query";
 import {
   Activity,
-	AlertTriangle,
   Bot,
   Braces,
-  CheckCircle2,
   GitBranch,
 	GitFork,
 	Play,
@@ -42,8 +40,6 @@ import {
   WorkflowNodeDetailPanelShell,
 } from "../../common/workflow-node-detail-panel-shell";
 import { SplitConfigPanel } from "./split/split-config-panel";
-import type { PreflightIssue } from "@multica/core/workflows/preflight-checks";
-import { checkDetailLabel } from "./overview/preflight-bar";
 
 function toAssigneeType(t: string): IssueAssigneeType | null {
   if (t === "human") return "member";
@@ -254,7 +250,6 @@ interface NodeConfigPanelProps {
   stages?: WorkflowStage[];
   disabled?: boolean;
   recentNodeRun?: WorkflowNodeRun | null;
-	preflightIssues?: PreflightIssue[];
 	incomingCount?: number;
 	outgoingCount?: number;
 	onTrialRun?: () => void;
@@ -273,7 +268,6 @@ export function NodeConfigPanel({
   stages = [],
   disabled = false,
   recentNodeRun = null,
-	preflightIssues = [],
 	incomingCount = 0,
 	outgoingCount = 0,
 	onTrialRun,
@@ -469,51 +463,6 @@ export function NodeConfigPanel({
         </>
       )}
     >
-      <NodeDetailSection
-        sectionId="readiness"
-        icon={<CheckCircle2 className="size-4" />}
-        title={t(($) => $.detail_panel.section_readiness)}
-        subtitle={t(($) => $.detail_panel.section_readiness_desc)}
-      >
-        <div
-          data-testid="node-readiness-summary"
-          className="grid gap-2 rounded-lg border bg-muted/20 p-2.5 text-xs"
-        >
-          <div className="flex items-center justify-between gap-3 px-2 py-1.5">
-            <span className="text-muted-foreground">{t(($) => $.node.section_worker)}</span>
-            <StatusBadge tone={workerConfigured || isAnnotation || isGateway ? "success" : "warning"}>
-              {workerConfigured || isAnnotation || isGateway
-                ? t(($) => $.detail_panel.readiness_worker_ready)
-                : t(($) => $.detail_panel.readiness_worker_missing)}
-            </StatusBadge>
-          </div>
-          <div className="flex items-center justify-between gap-3 border-t border-border/60 px-2 py-1.5">
-            <span className="text-muted-foreground">{t(($) => $.node.section_critic)}</span>
-            <StatusBadge tone={criticConfigured ? "success" : "default"}>
-              {criticConfigured
-                ? t(($) => $.detail_panel.readiness_critic_ready)
-                : t(($) => $.detail_panel.readiness_critic_optional)}
-            </StatusBadge>
-          </div>
-          {isSplit ? (
-            <div className="flex items-center justify-between gap-3 border-t border-border/60 px-2 py-1.5">
-              <span className="text-muted-foreground">{t(($) => $.detail_panel.split_default_issue_workflow_label)}</span>
-              <StatusBadge tone={splitConfig.default_issue_workflow_id ? "success" : "warning"}>
-                {splitConfig.default_issue_workflow_id
-                  ? t(($) => $.detail_panel.readiness_split_ready)
-                  : t(($) => $.detail_panel.readiness_split_missing)}
-              </StatusBadge>
-            </div>
-          ) : null}
-			{preflightIssues.map((issue) => (
-				<div key={`${issue.checkId}-${issue.nodeId}`} className="flex items-start gap-2 border-t border-border/60 px-2 py-1.5">
-					<AlertTriangle className={issue.blocking ? "mt-0.5 size-3.5 shrink-0 text-destructive" : "mt-0.5 size-3.5 shrink-0 text-amber-600"} />
-					<span>{checkDetailLabel(issue, t)}</span>
-				</div>
-			))}
-        </div>
-      </NodeDetailSection>
-
       <NodeDetailSection
         sectionId="primary"
         icon={<GitBranch className="size-4" />}

@@ -419,7 +419,6 @@ function PanoramaContent({
               nodes={apiNodes}
               stages={stages}
               recentNodeRun={recentNodeRun}
-						preflightIssues={preflightResult.issues.filter((issue) => issue.nodeId === selectedNode.id)}
 						incomingCount={apiEdges.filter((edge) => edge.target_node_id === selectedNode.id).length}
 						outgoingCount={apiEdges.filter((edge) => edge.source_node_id === selectedNode.id).length}
 						onTrialRun={() => void onTestRun()}
