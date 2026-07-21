@@ -2065,10 +2065,13 @@ func (h *Handler) CreateIssue(w http.ResponseWriter, r *http.Request) {
 				h.TaskService.EnqueueTaskForIssue(r.Context(), issue)
 			}
 		}
-		// Squad assigned at creation: trigger the squad leader (skipping
-		// backlog, same parking-lot semantics as agent assignment).
+		// Squad assigned at creation: trigger the squad leader. Gitea configured
+		// → route through the default workflow (the leader is dispatched via the
+		// run's node-run, with Gitea deliverable context). Dormant → bare leader task.
 		if h.shouldEnqueueSquadLeaderOnAssign(r.Context(), issue) {
-			h.enqueueSquadLeaderTask(r.Context(), issue, pgtype.UUID{}, creatorType, actualCreatorID)
+			if _, ok := h.startDefaultWorkflowRunForIssue(r.Context(), issue); !ok {
+				h.enqueueSquadLeaderTask(r.Context(), issue, pgtype.UUID{}, creatorType, actualCreatorID)
+			}
 		}
 		// Member assigned: route to the default workflow so the issue has a
 		// deliverable repo (worker=human, awaits UI upload). Dormant → no-op
@@ -2471,10 +2474,12 @@ func (h *Handler) UpdateIssue(w http.ResponseWriter, r *http.Request) {
 			h.startDefaultWorkflowRunForIssue(r.Context(), issue)
 		}
 
-		// Squad assign: trigger the squad leader, respecting the backlog
-		// parking-lot rule used by agent assignment.
+		// Squad assign: trigger the squad leader. Gitea configured → default
+		// workflow (leader dispatched via the run's node-run); dormant → bare task.
 		if h.shouldEnqueueSquadLeaderOnAssign(r.Context(), issue) {
-			h.enqueueSquadLeaderTask(r.Context(), issue, pgtype.UUID{}, actorType, actorID)
+			if _, ok := h.startDefaultWorkflowRunForIssue(r.Context(), issue); !ok {
+				h.enqueueSquadLeaderTask(r.Context(), issue, pgtype.UUID{}, actorType, actorID)
+			}
 		}
 		// Workflow assign: start a workflow run and create sub-issues.
 		if issue.AssigneeType.Valid && issue.AssigneeType.String == "workflow" && !issue.WorkflowRunID.Valid {
