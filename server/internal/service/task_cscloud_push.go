@@ -266,7 +266,7 @@ func (s *TaskService) giteaDeliverableEnv(ctx context.Context, task db.MulticaAg
 		publicBase = base
 	}
 	owner := gitea.OrgName(util.UUIDToString(run.WorkspaceID))
-	repo := gitea.RepoName(run.WorkflowTitle)
+	repo := gitea.RepoName(util.UUIDToString(run.WorkflowID))
 	refsJSON, _ := json.Marshal(refs)
 	return map[string]string{
 		"MULTICA_NODE_RUN_ID":        nodeRunIDStr,

@@ -331,13 +331,13 @@ func (s *WorkflowService) ProvisionWorkflowRepo(ctx context.Context, workflowID 
 		return
 	}
 	if err := gitea.ScaffoldWorkflowRepo(ctx, s.Gitea,
-		util.UUIDToString(wf.WorkspaceID), util.UUIDToString(workflowID), wf.Title); err != nil {
+		util.UUIDToString(wf.WorkspaceID), wf.Title, wf.Title); err != nil {
 		slog.Warn("provision workflow repo: scaffold", "workflow_id", util.UUIDToString(workflowID), "error", err)
 		return
 	}
 	slog.Info("provisioned workflow repo",
 		"workflow_id", util.UUIDToString(workflowID),
-		"repo", gitea.RepoName(util.UUIDToString(workflowID)))
+		"repo", gitea.RepoName(util.UUIDToString(wf.ID)))
 }
 
 // ArchiveReviewComment pushes the critic's review comment to the Gitea repo as
