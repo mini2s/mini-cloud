@@ -1308,6 +1308,10 @@ func (s *WorkflowService) ReviewNodeRun(ctx context.Context, nodeRunID pgtype.UU
 
 // dispatchWorker advances a node run from format_ok to the worker phase.
 func (s *WorkflowService) dispatchWorker(ctx context.Context, nodeRun db.MulticaWorkflowNodeRun) error {
+	if err := s.ensureNodeRunBranch(ctx, nodeRun); err != nil {
+		return fmt.Errorf("ensure node branch: %w", err)
+	}
+
 	node, err := s.Queries.GetWorkflowNode(ctx, nodeRun.WorkflowNodeID)
 	if err != nil {
 		return fmt.Errorf("get node: %w", err)

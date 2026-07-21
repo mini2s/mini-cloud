@@ -73,9 +73,9 @@ func ScaffoldWorkspaceArchiveRepo(ctx context.Context, c scaffoldAPI, workspaceI
 }
 
 // ScaffoldWorkflowRepo creates the workflow's type repo (wf-<wf[:8]>) under the
-// workspace org, with main + inst-* branch protection. No inst branch (that's
-// per-run). Called on workflow activation so the repo exists before the first
-// run. Org + repo are idempotent.
+// workspace org, with main branch protection. No inst branch (that's per-run).
+// Called on workflow activation so the repo exists before the first run. Org +
+// repo are idempotent.
 func ScaffoldWorkflowRepo(ctx context.Context, c scaffoldAPI, workspaceID, workflowID, workflowTitle string) error {
 	owner := OrgName(workspaceID)
 	repo := RepoName(workflowID)
@@ -103,7 +103,6 @@ func ScaffoldWorkflowRepo(ctx context.Context, c scaffoldAPI, workspaceID, workf
 		return fmt.Errorf("create repo: %w", err)
 	}
 	_ = c.ProtectBranch(ctx, owner, repo, "main")
-	_ = c.ProtectBranch(ctx, owner, repo, "inst-*")
 	return nil
 }
 
@@ -172,10 +171,6 @@ func ScaffoldRunDeliverable(ctx context.Context, c scaffoldAPI, p ScaffoldParams
 		// intentionally ignored (this package has no logger); M2's caller can
 		// surface protection failures if it ever needs to.
 		_ = c.ProtectBranch(ctx, owner, repo, "main")
-		// Protect all instance branches (inst-*) — direct pushes blocked; daemon
-		// writes go through node/<nr> branches + PR merges into inst (design §5.4).
-		// rule_name is a Gitea glob. Best-effort, same rationale as main above.
-		_ = c.ProtectBranch(ctx, owner, repo, "inst-*")
 	}
 
 	// 3. Inst branch (per run, idempotent GET-then-POST). Base = main.

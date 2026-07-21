@@ -116,6 +116,55 @@ func (s *WorkflowService) ScaffoldRunDeliverables(ctx context.Context, run db.Mu
 	s.syncWorkspaceMembers(ctx, run.WorkspaceID)
 }
 
+// ensureNodeRunBranch creates the node-run branch when a node enters execution.
+func (s *WorkflowService) ensureNodeRunBranch(ctx context.Context, nodeRun db.MulticaWorkflowNodeRun) error {
+	if s.Gitea == nil || !s.Gitea.Configured() {
+		return nil
+	}
+
+	deliverables, err := s.Queries.ListWorkflowNodeDeliverables(ctx, nodeRun.WorkflowNodeID)
+	if err != nil {
+		return fmt.Errorf("list deliverables: %w", err)
+	}
+	hasDocument := false
+	for _, d := range deliverables {
+		if d.Kind == "document" {
+			hasDocument = true
+			break
+		}
+	}
+	if !hasDocument {
+		return nil
+	}
+
+	run, err := s.Queries.GetWorkflowRun(ctx, nodeRun.WorkflowRunID)
+	if err != nil {
+		return fmt.Errorf("get run: %w", err)
+	}
+	workflow, err := s.Queries.GetWorkflow(ctx, run.WorkflowID)
+	if err != nil {
+		return fmt.Errorf("get workflow: %w", err)
+	}
+
+	if _, err := gitea.ScaffoldRunDeliverable(ctx, s.Gitea, gitea.ScaffoldParams{
+		WorkspaceID:   util.UUIDToString(run.WorkspaceID),
+		WorkflowID:    util.UUIDToString(workflow.ID),
+		RunID:         util.UUIDToString(run.ID),
+		WorkflowTitle: workflow.Title,
+	}); err != nil {
+		return fmt.Errorf("scaffold run deliverable: %w", err)
+	}
+
+	owner := gitea.OrgName(util.UUIDToString(run.WorkspaceID))
+	repo := gitea.RepoName(util.UUIDToString(run.WorkflowID))
+	inst := gitea.InstBranch(util.UUIDToString(run.ID))
+	nodeBranch := gitea.NodeBranch(util.UUIDToString(nodeRun.ID))
+	if err := s.Gitea.CreateBranch(ctx, owner, repo, nodeBranch, inst); err != nil {
+		return fmt.Errorf("create node branch: %w", err)
+	}
+	return nil
+}
+
 // provisionWorkspaceBotIfAbsent creates the workspace Gitea bot + PAT and
 // persists them into workspace.settings — only if no gitea_pat is stored yet
 // (lazy + once-per-workspace). Re-provisioning is intentionally NOT done here:

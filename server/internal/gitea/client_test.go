@@ -122,6 +122,19 @@ func TestClient_CreateBranch_Body(t *testing.T) {
 	}
 }
 
+func TestClient_CreateBranch_TreatsConcurrentAlreadyExistsAsIdempotent(t *testing.T) {
+	var got recordedReq
+	body := `{"message":"PushRejected Error: remote: error: cannot lock ref 'refs/heads/inst-f3a8b2c1': reference already exists"}`
+	srv := newTestServer(t, http.StatusInternalServerError, body, &got)
+	defer srv.Close()
+	c := NewClient(Config{BaseURL: srv.URL, Token: "admin-tok"})
+	c.httpClient = srv.Client()
+
+	if err := c.CreateBranch(context.Background(), "t-7f3c9a1e", "wf-11111111", "inst-f3a8b2c1", "main"); err != nil {
+		t.Fatalf("CreateBranch concurrent already-exists response: %v", err)
+	}
+}
+
 func TestClient_CreateOrg_Body(t *testing.T) {
 	var got recordedReq
 	srv := newTestServer(t, http.StatusCreated, `{}`, &got)

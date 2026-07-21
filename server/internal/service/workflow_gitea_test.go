@@ -131,7 +131,7 @@ func seedGiteaFixture(t *testing.T, pool *pgxpool.Pool, withDocument bool, numRu
 // in-memory state of which orgs/repos/branches exist so the real *Client's
 // 404→201→200 idempotency expectations hold. Returns the server plus pointers
 // to mutable counters (tokens minted, orgs created) the test can assert on.
-func fakeGiteaServer(t *testing.T) (srv *httptest.Server, tokensMinted, orgsCreated *int, repoExists func(string) bool) {
+func fakeGiteaServer(t *testing.T) (srv *httptest.Server, tokensMinted, orgsCreated *int, repoExists func(string) bool, branchExists func(string) bool) {
 	t.Helper()
 	var mu sync.Mutex
 	orgs := map[string]bool{}
@@ -224,10 +224,14 @@ func fakeGiteaServer(t *testing.T) (srv *httptest.Server, tokensMinted, orgsCrea
 	}))
 	t.Cleanup(srv.Close)
 	return srv, &tok, &orgCreated, func(key string) bool {
-		mu.Lock()
-		defer mu.Unlock()
-		return repos[key]
-	}
+			mu.Lock()
+			defer mu.Unlock()
+			return repos[key]
+		}, func(key string) bool {
+			mu.Lock()
+			defer mu.Unlock()
+			return brs[key]
+		}
 }
 
 // workspaceSettings reads back the settings JSONB for the given workspace.
@@ -263,7 +267,7 @@ func TestScaffoldRunDeliverables_ProvisionsBotAndScaffoldsRepo(t *testing.T) {
 	defer pool.Close()
 
 	fix := seedGiteaFixture(t, pool, true /*document deliverable*/, 2 /*two runs*/)
-	srv, tokensMinted, orgsCreated, _ := fakeGiteaServer(t)
+	srv, tokensMinted, orgsCreated, _, _ := fakeGiteaServer(t)
 
 	svc := &WorkflowService{
 		Queries: db.New(pool),
@@ -337,7 +341,7 @@ func TestScaffoldRunDeliverables_NoOpWithoutDocumentDeliverable(t *testing.T) {
 
 	// Workflow has a node but NO deliverable row.
 	fix := seedGiteaFixture(t, pool, false /*no document*/, 1 /*single run*/)
-	srv, tokensMinted, orgsCreated, _ := fakeGiteaServer(t)
+	srv, tokensMinted, orgsCreated, _, _ := fakeGiteaServer(t)
 
 	svc := &WorkflowService{
 		Queries: db.New(pool),
@@ -365,7 +369,7 @@ func TestProvisionWorkflowRepo_UsesWorkflowIDForRepoName(t *testing.T) {
 	defer pool.Close()
 
 	fix := seedGiteaFixture(t, pool, true /*document deliverable*/, 1 /*single run*/)
-	srv, _, _, repoExists := fakeGiteaServer(t)
+	srv, _, _, repoExists, _ := fakeGiteaServer(t)
 
 	svc := &WorkflowService{
 		Queries: db.New(pool),
@@ -383,6 +387,51 @@ func TestProvisionWorkflowRepo_UsesWorkflowIDForRepoName(t *testing.T) {
 	if repoExists(owner + "/" + titleRepo) {
 		t.Fatalf("workflow repo was created from title as %s/%s; want workflow ID repo %s/%s",
 			owner, titleRepo, owner, expectedRepo)
+	}
+}
+
+func TestEnsureNodeRunBranch_CreatesNodeBranchFromInst(t *testing.T) {
+	pool := openTestPool(t)
+	defer pool.Close()
+
+	fix := seedGiteaFixture(t, pool, true /*document deliverable*/, 1 /*single run*/)
+	srv, _, _, _, branchExists := fakeGiteaServer(t)
+	queries := db.New(pool)
+
+	var nodeRunID string
+	if err := pool.QueryRow(context.Background(), `
+		INSERT INTO multica_workflow_node_run (
+			workflow_run_id, workflow_node_id, node_title, status, worker_type, critic_type
+		)
+		VALUES ($1, $2, 'Doc Node', 'format_ok', 'agent', 'human')
+		RETURNING id
+	`, fix.run1, fix.node).Scan(&nodeRunID); err != nil {
+		t.Fatalf("seed node run: %v", err)
+	}
+	nodeRunUUID, _ := util.ParseUUID(nodeRunID)
+	nodeRun, err := queries.GetWorkflowNodeRun(context.Background(), nodeRunUUID)
+	if err != nil {
+		t.Fatalf("get node run: %v", err)
+	}
+
+	svc := &WorkflowService{
+		Queries: queries,
+		Gitea:   gitea.NewClient(gitea.Config{BaseURL: srv.URL, Token: "admin-tok"}),
+	}
+
+	if err := svc.ensureNodeRunBranch(context.Background(), nodeRun); err != nil {
+		t.Fatalf("ensure node branch: %v", err)
+	}
+
+	owner := gitea.OrgName(util.UUIDToString(fix.workspace))
+	repo := gitea.RepoName(util.UUIDToString(fix.workflow))
+	instBranch := gitea.InstBranch(util.UUIDToString(fix.run1))
+	nodeBranch := gitea.NodeBranch(nodeRunID)
+	if !branchExists(owner + "/" + repo + "/" + instBranch) {
+		t.Fatalf("inst branch %s/%s/%s was not created", owner, repo, instBranch)
+	}
+	if !branchExists(owner + "/" + repo + "/" + nodeBranch) {
+		t.Fatalf("node branch %s/%s/%s was not created", owner, repo, nodeBranch)
 	}
 }
 

@@ -201,7 +201,8 @@ func (c *Client) GetBranch(ctx context.Context, owner, repo, branch string) (boo
 // get-or-create without a prior GetBranch (which can't address slash-bearing
 // branch names like node/<hex> via the GET /branches/{name} path).
 func (c *Client) CreateBranch(ctx context.Context, owner, repo, branch, fromRef string) error {
-	resp, err := c.do(ctx, http.MethodPost, "/repos/"+owner+"/"+repo+"/branches", map[string]any{
+	path := "/repos/" + owner + "/" + repo + "/branches"
+	resp, err := c.do(ctx, http.MethodPost, path, map[string]any{
 		"new_branch_name": branch,
 		"old_ref_name":    fromRef,
 	})
@@ -215,7 +216,15 @@ func (c *Client) CreateBranch(ctx context.Context, owner, repo, branch, fromRef 
 	if resp.StatusCode == http.StatusConflict || resp.StatusCode == http.StatusUnprocessableEntity {
 		return nil // already exists — idempotent
 	}
-	return decodeError(resp)
+	body, readErr := io.ReadAll(resp.Body)
+	if readErr != nil {
+		return readErr
+	}
+	if resp.StatusCode == http.StatusInternalServerError &&
+		strings.Contains(strings.ToLower(string(body)), "reference already exists") {
+		return nil
+	}
+	return fmt.Errorf("gitea api %s failed: status %d: %s", resp.Request.URL.Path, resp.StatusCode, string(body))
 }
 
 // ── Contents ────────────────────────────────────────────────────────────────

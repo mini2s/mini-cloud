@@ -100,8 +100,8 @@ func TestScaffoldRun_CreatesEverything(t *testing.T) {
 	if len(f.files) != 1 || f.files[0] != "t-7f3c9a1e/wf-11111111/main/definition.yaml" {
 		t.Errorf("expected one seeded definition.yaml on main, got %v", f.files)
 	}
-	if len(f.prot) != 2 || f.prot[0] != "t-7f3c9a1e/wf-11111111/main" || f.prot[1] != "t-7f3c9a1e/wf-11111111/inst-*" {
-		t.Errorf("expected main + inst-* branch protection, got %v", f.prot)
+	if len(f.prot) != 1 || f.prot[0] != "t-7f3c9a1e/wf-11111111/main" {
+		t.Errorf("expected only main branch protection, got %v", f.prot)
 	}
 }
 
@@ -313,8 +313,8 @@ func TestScaffoldRun_RealClientE2E(t *testing.T) {
 	if files != 1 {
 		t.Errorf("expected 1 seed file, got %d", files)
 	}
-	if protections != 2 {
-		t.Errorf("expected 2 protection rules (main + inst-*), got %d", protections)
+	if protections != 1 {
+		t.Errorf("expected 1 protection rule (main), got %d", protections)
 	}
 
 	// Second call must be idempotent: no new files/protections/branches.
