@@ -83,6 +83,21 @@ backend:
     # via backend.extraEnv); it is intentionally not exposed here.
     cscPluginMarketplaceName: ""
     cscPluginMarketplaceRepo: ""
+    # Workflow role-to-member resolution. Keep disabled until the organization
+    # integration and workflowRoleLlmApiKey secret are configured.
+    workflowRoleResolutionEnabled: "false"
+    workflowRoleResolutionWorkspaceAllowlist: []
+    workflowRoleLlmProvider: "openai"
+    workflowRoleLlmModel: "glm-4-plus"
+    workflowRoleLlmBaseUrl: "https://open.bigmodel.cn/api/paas/v4"
+    workflowRoleLlmMaxOutputTokens: "4096"
+    workflowRoleLlmTemperature: "0"
+    workflowRoleLlmTimeoutSeconds: "30"
+    workflowRoleLlmMaxCandidates: "200"
+    workflowRoleLlmMaxSlots: "50"
+    workflowRoleLlmMaxInputChars: "100000"
+    workflowRoleWorkerConcurrency: "2"
+    workflowRoleMaxActiveJobsPerWorkspace: "5"
 
   persistence:
     enabled: false
@@ -107,6 +122,7 @@ backend:
     anthropicApiKey: ""
     casdoorClientSecret: ""
     deptSyncQueryKey: ""
+    workflowRoleLlmApiKey: ""
 
   resources: {}
   nodeSelector: {}

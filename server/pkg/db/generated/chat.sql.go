@@ -300,8 +300,7 @@ func (q *Queries) GetPendingChatTask(ctx context.Context, chatSessionID pgtype.U
 
 const linkTaskToChatSession = `-- name: LinkTaskToChatSession :exec
 UPDATE multica_agent_task_queue SET
-    chat_session_id = $2,
-    updated_at = now()
+    chat_session_id = $2
 WHERE id = $1
 `
 

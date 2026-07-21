@@ -513,16 +513,19 @@ func main() {
 		slog.Info("skill proxy enabled", "base_url", costrictAPI)
 	}
 
+	roleResolutionRuntime := workflowRoleResolutionRuntimeFromEnv(deptSyncClient)
+
 	r := NewRouterWithOptions(pool, hub, bus, analyticsClient, storeRedis, RouterOptions{
-		HTTPMetrics:        httpMetrics,
-		DaemonHub:          daemonHub,
-		DaemonWakeup:       daemonWakeup,
-		HeartbeatScheduler: heartbeatScheduler,
-		JWKSProvider:       jwksProvider,
-		SubjectResolver:    subjectResolver,
-		CasdoorEnabled:     casdoorEnabled,
-		SkillProxy:         skillProxy,
-		DeptSync:           deptSyncClient,
+		HTTPMetrics:            httpMetrics,
+		DaemonHub:              daemonHub,
+		DaemonWakeup:           daemonWakeup,
+		HeartbeatScheduler:     heartbeatScheduler,
+		JWKSProvider:           jwksProvider,
+		SubjectResolver:        subjectResolver,
+		CasdoorEnabled:         casdoorEnabled,
+		SkillProxy:             skillProxy,
+		DeptSync:               deptSyncClient,
+		WorkflowRoleResolution: roleResolutionRuntime,
 	})
 
 	srv := &http.Server{
@@ -535,6 +538,38 @@ func main() {
 	autopilotCtx, autopilotCancel := context.WithCancel(context.Background())
 	taskSvc := service.NewTaskService(queries, pool, hub, bus, daemonWakeup)
 	taskSvc.Analytics = analyticsClient
+	roleWorkflowSvc := service.NewWorkflowService(queries, pool, bus, taskSvc)
+	hostname, _ := os.Hostname()
+	for i := 0; i < roleResolutionRuntime.WorkerConcurrency; i++ {
+		worker := &service.WorkflowRoleResolutionWorker{
+			Queries: queries, TxStarter: pool,
+			Resolver: roleResolutionRuntime.Resolver, Organization: roleResolutionRuntime.Organization,
+			WorkerID:     hostname + "-workflow-role-" + strconv.Itoa(i+1),
+			PollInterval: roleResolutionRuntime.PollInterval, LeaseDuration: roleResolutionRuntime.LeaseDuration,
+			MaxCandidates: roleResolutionRuntime.MaxCandidates, MaxSlots: roleResolutionRuntime.MaxSlots,
+			MaxInputChars: roleResolutionRuntime.MaxInputChars,
+			OnRunPromoted: func(ctx context.Context, runID pgtype.UUID) {
+				if err := roleWorkflowSvc.DispatchRootNodeRuns(ctx, runID); err != nil {
+					slog.Error("dispatch workflow roots after role resolution", "run_id", util.UUIDToString(runID), "error", err)
+				}
+			},
+			OnStateChanged: func(_ context.Context, workspaceID, runID pgtype.UUID) {
+				payload := map[string]any{"run_id": util.UUIDToString(runID)}
+				for _, eventType := range []string{"workflow_role_resolution_updated", "workflow_run_updated"} {
+					bus.Publish(events.Event{
+						Type: eventType, WorkspaceID: util.UUIDToString(workspaceID),
+						ActorType: "system", Payload: payload,
+					})
+				}
+			},
+		}
+		go worker.Run(sweepCtx)
+	}
+	notificationWorker := &service.WorkflowRoleNotificationWorker{
+		Queries: queries, Email: service.NewEmailService(),
+		WorkerID: hostname + "-workflow-role-email",
+	}
+	go notificationWorker.Run(sweepCtx)
 	autopilotSvc := service.NewAutopilotService(queries, pool, bus, taskSvc)
 	registerAutopilotListeners(bus, autopilotSvc)
 

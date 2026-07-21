@@ -4,6 +4,7 @@ import {
   checkOrphanNodes,
   checkUnreachableNodes,
   checkWorkerMissing,
+  checkRolePlaceholders,
   checkInvalidCriticRef,
   checkSplitCriticRequired,
   checkSplitAutomatedCriticWarning,
@@ -26,8 +27,10 @@ function makeNode(overrides: Partial<WorkflowNode> & { id: string }): WorkflowNo
     format_schema: null,
     worker_type: "agent",
     worker_id: "agent-1",
+    worker_role_id: null,
     critic_type: "human",
     critic_id: null,
+    critic_role_id: null,
     critic_api_url: null,
     sort_order: 0,
     stage_id: "stage-1",
@@ -259,6 +262,35 @@ describe("checkWorkerMissing", () => {
   });
 });
 
+// ── checkRolePlaceholders ──
+
+describe("checkRolePlaceholders", () => {
+  it("reports worker and critic roles without blocking startup", () => {
+    const nodes = [
+      makeNode({
+        id: "a",
+        worker_id: null,
+        worker_role: "developer",
+        critic_role: "qa",
+      }),
+    ];
+
+    const issues = checkRolePlaceholders(nodes);
+
+    expect(issues).toHaveLength(2);
+    expect(issues.every((issue) => !issue.blocking && issue.severity === "warning")).toBe(true);
+    expect(issues.map((issue) => issue.message)).toEqual([
+      'Worker role "developer" will be resolved when the run starts',
+      'Critic role "qa" will be resolved when the run starts',
+    ]);
+  });
+
+  it("does not treat a worker placeholder as a missing worker", () => {
+    const nodes = [makeNode({ id: "a", worker_id: null, worker_role: "developer" })];
+
+    expect(checkWorkerMissing(nodes)).toEqual([]);
+  });
+});
 // ── checkInvalidCriticRef ──
 
 describe("checkInvalidCriticRef", () => {

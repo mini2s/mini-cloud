@@ -128,14 +128,6 @@ function InspectorSection({
   );
 }
 
-function isDirectWorkerType(type: WorkerType): type is "human" | "agent" | "squad" {
-  return type === "human" || type === "agent" || type === "squad";
-}
-
-function isDirectCriticType(type: CriticType): type is "human" | "agent" | "squad" {
-  return type === "human" || type === "agent" || type === "squad";
-}
-
 function AssignmentModeControl<T extends string>({
   value,
   options,
@@ -343,8 +335,10 @@ export function NodeConfigPanel({
   const [description, setDescription] = useState(saved?.description ?? node.description);
   const [workerType, setWorkerType] = useState(saved?.worker_type ?? node.worker_type);
   const [workerId, setWorkerId] = useState<string | null>(saved?.worker_id ?? node.worker_id ?? null);
+  const [workerRoleId, setWorkerRoleId] = useState<string | null>(saved?.worker_role_id ?? node.worker_role_id ?? null);
   const [criticType, setCriticType] = useState(saved?.critic_type ?? node.critic_type);
   const [criticId, setCriticId] = useState<string | null>(saved?.critic_id ?? node.critic_id ?? null);
+  const [criticRoleId, setCriticRoleId] = useState<string | null>(saved?.critic_role_id ?? node.critic_role_id ?? null);
   const [criticApiUrl, setCriticApiUrl] = useState(saved?.critic_api_url ?? node.critic_api_url ?? "");
   const [stageId, setStageId] = useState<string | null>(node.stage_id ?? null);
   const [showCreateForm, setShowCreateForm] = useState(false);
@@ -380,8 +374,10 @@ export function NodeConfigPanel({
     setDescription(s?.description ?? node.description);
     setWorkerType(s?.worker_type ?? node.worker_type);
     setWorkerId(s?.worker_id ?? node.worker_id ?? null);
+    setWorkerRoleId(s?.worker_role_id ?? node.worker_role_id ?? null);
     setCriticType(s?.critic_type ?? node.critic_type);
     setCriticId(s?.critic_id ?? node.critic_id ?? null);
+    setCriticRoleId(s?.critic_role_id ?? node.critic_role_id ?? null);
     setCriticApiUrl(s?.critic_api_url ?? node.critic_api_url ?? "");
   }, [node.id, undoRedoVersion]);
 
@@ -396,8 +392,8 @@ export function NodeConfigPanel({
   };
 
   const currentStageName = stages.find((s) => s.id === stageId)?.name ?? t(($) => $.overview.stage_canvas.unassigned);
-  const workerConfigured = workerType === "role" ? Boolean(workerId) : Boolean(workerId);
-  const criticConfigured = criticType === "api" ? Boolean(criticApiUrl.trim()) : Boolean(criticId);
+  const workerConfigured = Boolean(workerId || workerRoleId);
+  const criticConfigured = criticType === "api" ? Boolean(criticApiUrl.trim()) : Boolean(criticId || criticRoleId);
   const splitConfig: SplitConfig = nodeFormat.split_config ?? {
     default_issue_workflow_id: null,
     mode: "barrier",
@@ -405,18 +401,18 @@ export function NodeConfigPanel({
     max_failures: 0,
   };
   const runTone = statusTone(recentNodeRun?.status);
-  const workerLabel = workerId
-    ? workerType === "role"
-      ? roles.find((r) => r.id === workerId)?.name ?? null
-      : getActorName(actorLookupType(workerType), workerId)
-    : null;
-  const criticLabel = criticId
-    ? criticType === "role"
-      ? roles.find((r) => r.id === criticId)?.name ?? null
-      : getActorName(actorLookupType(criticType), criticId)
-    : null;
-  const workerMode = isDirectWorkerType(workerType) ? "direct" : "role";
-  const criticMode = isDirectCriticType(criticType) ? "direct" : criticType === "api" ? "api" : "role";
+  const workerLabel = workerRoleId
+    ? roles.find((role) => role.id === workerRoleId)?.name ?? null
+    : workerId
+      ? getActorName(actorLookupType(workerType), workerId)
+      : null;
+  const criticLabel = criticRoleId
+    ? roles.find((role) => role.id === criticRoleId)?.name ?? null
+    : criticId
+      ? getActorName(actorLookupType(criticType), criticId)
+      : null;
+  const workerMode = workerRoleId ? "role" : "direct";
+  const criticMode = criticType === "api" ? "api" : criticRoleId ? "role" : "direct";
   const hasLocalEdits = Boolean(nodeEdits[node.id]);
   const hasUnsavedChanges = hasLocalEdits;
 
@@ -784,9 +780,10 @@ export function NodeConfigPanel({
                         onUpdate={disabled ? () => {} : (u) => {
                           const wt = fromAssigneeType(u.assignee_type ?? null);
                           const wid = u.assignee_id ?? null;
+                          setWorkerRoleId(null);
                           setWorkerType(wt);
                           setWorkerId(wid);
-                          cacheNodeEdits(node.id, { worker_type: wt, worker_id: wid });
+                          cacheNodeEdits(node.id, { worker_type: wt, worker_id: wid, worker_role_id: null });
                         }}
                         align="start"
                         skipBuiltinRuntimeSelection
@@ -812,10 +809,18 @@ export function NodeConfigPanel({
                         ]}
                         onChange={(mode) => {
                           if (mode === criticMode) return;
-                          const nextType: CriticType = mode === "direct" ? "human" : mode;
+                          const nextType: CriticType = mode === "api" ? "api" : "human";
+                          const nextRoleId = mode === "role" ? roles[0]?.id ?? null : null;
                           setCriticType(nextType);
                           setCriticId(null);
-                          cacheNodeEdits(node.id, { critic_type: nextType, critic_id: null });
+                          setCriticRoleId(nextRoleId);
+                          setCriticApiUrl("");
+                          cacheNodeEdits(node.id, {
+                            critic_type: nextType,
+                            critic_id: null,
+                            critic_role_id: nextRoleId,
+                            critic_api_url: null,
+                          });
                         }}
                       />
 
@@ -829,7 +834,9 @@ export function NodeConfigPanel({
                             value={criticApiUrl}
                             onChange={(e) => {
                               setCriticApiUrl(e.target.value);
-                              cacheNodeEdits(node.id, { critic_api_url: e.target.value });
+                              setCriticId(null);
+                              setCriticRoleId(null);
+                              cacheNodeEdits(node.id, { critic_api_url: e.target.value, critic_id: null, critic_role_id: null });
                             }}
                             placeholder="https://..."
                             className="h-8 text-sm"
@@ -844,11 +851,14 @@ export function NodeConfigPanel({
                             aria-label="Critic role"
                             disabled={disabled}
                             className="h-8 w-full rounded-md border border-input bg-background px-2 text-sm"
-                            value={criticId ?? ""}
+                            value={criticRoleId ?? ""}
                             onChange={(e) => {
                               const rid = e.target.value || null;
-                              setCriticId(rid);
-                              cacheNodeEdits(node.id, { critic_id: rid });
+                              setCriticType("human");
+                              setCriticId(null);
+                              setCriticRoleId(rid);
+                              setCriticApiUrl("");
+                              cacheNodeEdits(node.id, { critic_type: "human", critic_id: null, critic_role_id: rid, critic_api_url: null });
                             }}
                           >
                             <option value="">{t(($) => $.detail_panel.select_role)}</option>
@@ -856,7 +866,7 @@ export function NodeConfigPanel({
                               <option key={r.id} value={r.id}>{r.name}</option>
                             ))}
                           </select>
-                          <ActorSummary type="role" id={criticId} label={criticLabel} emptyText={t(($) => $.detail_panel.empty_critic_role)} hint={t(($) => $.detail_panel.actor_role_hint)} />
+                          <ActorSummary type="role" id={criticRoleId} label={criticLabel} emptyText={t(($) => $.detail_panel.empty_critic_role)} hint={t(($) => $.detail_panel.actor_role_hint)} />
                         </div>
                       ) : (
                         <div className="space-y-2">
@@ -886,9 +896,11 @@ export function NodeConfigPanel({
                               onUpdate={disabled ? () => {} : (u) => {
                                 const ct = fromAssigneeTypeCritic(u.assignee_type ?? null);
                                 const cid = u.assignee_id ?? null;
+                                setCriticRoleId(null);
                                 setCriticType(ct);
                                 setCriticId(cid);
-                                cacheNodeEdits(node.id, { critic_type: ct, critic_id: cid });
+                                setCriticApiUrl("");
+                                cacheNodeEdits(node.id, { critic_type: ct, critic_id: cid, critic_role_id: null, critic_api_url: null });
                               }}
                               align="start"
                               includeWorkflows={false}
@@ -916,10 +928,11 @@ export function NodeConfigPanel({
                         ]}
                         onChange={(mode) => {
                           if (mode === workerMode) return;
-                          const nextType: WorkerType = mode === "direct" ? "human" : "role";
-                          setWorkerType(nextType);
+                          const nextRoleId = mode === "role" ? roles[0]?.id ?? null : null;
+                          setWorkerType("human");
                           setWorkerId(null);
-                          cacheNodeEdits(node.id, { worker_type: nextType, worker_id: null });
+                          setWorkerRoleId(nextRoleId);
+                          cacheNodeEdits(node.id, { worker_type: "human", worker_id: null, worker_role_id: nextRoleId });
                         }}
                       />
 
@@ -931,11 +944,13 @@ export function NodeConfigPanel({
                             aria-label="Worker role"
                             disabled={disabled}
                             className="h-8 w-full rounded-md border border-input bg-background px-2 text-sm"
-                            value={workerId ?? ""}
+                            value={workerRoleId ?? ""}
                             onChange={(e) => {
                               const rid = e.target.value || null;
-                              setWorkerId(rid);
-                              cacheNodeEdits(node.id, { worker_id: rid });
+                              setWorkerType("human");
+                              setWorkerId(null);
+                              setWorkerRoleId(rid);
+                              cacheNodeEdits(node.id, { worker_type: "human", worker_id: null, worker_role_id: rid });
                             }}
                           >
                             <option value="">{t(($) => $.detail_panel.select_role)}</option>
@@ -943,7 +958,7 @@ export function NodeConfigPanel({
                               <option key={r.id} value={r.id}>{r.name}</option>
                             ))}
                           </select>
-                          <ActorSummary type="role" id={workerId} label={workerLabel} emptyText={t(($) => $.detail_panel.empty_worker_role)} hint={t(($) => $.detail_panel.actor_role_hint)} />
+                          <ActorSummary type="role" id={workerRoleId} label={workerLabel} emptyText={t(($) => $.detail_panel.empty_worker_role)} hint={t(($) => $.detail_panel.actor_role_hint)} />
                         </div>
                       ) : (
                         <div className="space-y-2">
@@ -973,9 +988,10 @@ export function NodeConfigPanel({
                               onUpdate={disabled ? () => {} : (u) => {
                                 const wt = fromAssigneeType(u.assignee_type ?? null);
                                 const wid = u.assignee_id ?? null;
+                                setWorkerRoleId(null);
                                 setWorkerType(wt);
                                 setWorkerId(wid);
-                                cacheNodeEdits(node.id, { worker_type: wt, worker_id: wid });
+                                cacheNodeEdits(node.id, { worker_type: wt, worker_id: wid, worker_role_id: null });
                               }}
                               align="start"
                               skipBuiltinRuntimeSelection
@@ -1009,10 +1025,18 @@ export function NodeConfigPanel({
                         ]}
                         onChange={(mode) => {
                           if (mode === criticMode) return;
-                          const nextType: CriticType = mode === "direct" ? "human" : mode;
+                          const nextType: CriticType = mode === "api" ? "api" : "human";
+                          const nextRoleId = mode === "role" ? roles[0]?.id ?? null : null;
                           setCriticType(nextType);
                           setCriticId(null);
-                          cacheNodeEdits(node.id, { critic_type: nextType, critic_id: null });
+                          setCriticRoleId(nextRoleId);
+                          setCriticApiUrl("");
+                          cacheNodeEdits(node.id, {
+                            critic_type: nextType,
+                            critic_id: null,
+                            critic_role_id: nextRoleId,
+                            critic_api_url: null,
+                          });
                         }}
                       />
 
@@ -1026,7 +1050,9 @@ export function NodeConfigPanel({
                             value={criticApiUrl}
                             onChange={(e) => {
                               setCriticApiUrl(e.target.value);
-                              cacheNodeEdits(node.id, { critic_api_url: e.target.value });
+                              setCriticId(null);
+                              setCriticRoleId(null);
+                              cacheNodeEdits(node.id, { critic_api_url: e.target.value, critic_id: null, critic_role_id: null });
                             }}
                             placeholder="https://..."
                             className="h-8 text-sm"
@@ -1041,11 +1067,14 @@ export function NodeConfigPanel({
                             aria-label="Critic role"
                             disabled={disabled}
                             className="h-8 w-full rounded-md border border-input bg-background px-2 text-sm"
-                            value={criticId ?? ""}
+                            value={criticRoleId ?? ""}
                             onChange={(e) => {
                               const rid = e.target.value || null;
-                              setCriticId(rid);
-                              cacheNodeEdits(node.id, { critic_id: rid });
+                              setCriticType("human");
+                              setCriticId(null);
+                              setCriticRoleId(rid);
+                              setCriticApiUrl("");
+                              cacheNodeEdits(node.id, { critic_type: "human", critic_id: null, critic_role_id: rid, critic_api_url: null });
                             }}
                           >
                             <option value="">{t(($) => $.detail_panel.select_role)}</option>
@@ -1053,7 +1082,7 @@ export function NodeConfigPanel({
                               <option key={r.id} value={r.id}>{r.name}</option>
                             ))}
                           </select>
-                          <ActorSummary type="role" id={criticId} label={criticLabel} emptyText={t(($) => $.detail_panel.empty_critic_role)} hint={t(($) => $.detail_panel.actor_role_hint)} />
+                          <ActorSummary type="role" id={criticRoleId} label={criticLabel} emptyText={t(($) => $.detail_panel.empty_critic_role)} hint={t(($) => $.detail_panel.actor_role_hint)} />
                         </div>
                       ) : (
                         <div className="space-y-2">
@@ -1083,9 +1112,11 @@ export function NodeConfigPanel({
                               onUpdate={disabled ? () => {} : (u) => {
                                 const ct = fromAssigneeTypeCritic(u.assignee_type ?? null);
                                 const cid = u.assignee_id ?? null;
+                                setCriticRoleId(null);
                                 setCriticType(ct);
                                 setCriticId(cid);
-                                cacheNodeEdits(node.id, { critic_type: ct, critic_id: cid });
+                                setCriticApiUrl("");
+                                cacheNodeEdits(node.id, { critic_type: ct, critic_id: cid, critic_role_id: null, critic_api_url: null });
                               }}
                               align="start"
                               includeWorkflows={false}

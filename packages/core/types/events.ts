@@ -100,7 +100,9 @@ export type WSEventType =
   | "workflow:node_run_blocked"
   | "workflow:node_run_reviewed"
   | "workflow:node_run_resumed"
-  | "workflow:node_run_updated";
+  | "workflow:node_run_updated"
+  | "workflow_role_resolution_updated"
+  | "workflow_run_updated";
 
 export interface WSMessage<T = unknown> {
   type: WSEventType;

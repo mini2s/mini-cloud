@@ -39,6 +39,8 @@ type csCloudTaskRunPayload struct {
 	WorkspaceID string            `json:"workspace_id"`
 	IssueID     string            `json:"issue_id,omitempty"`
 	ProjectID   string            `json:"project_id,omitempty"`
+	NodeRunID   string            `json:"node_run_id,omitempty"`
+	AgentID     string            `json:"agent_id,omitempty"`
 	Agent       string            `json:"agent"`
 	Prompt      string            `json:"prompt"`
 	Env         map[string]string `json:"env,omitempty"`
@@ -160,6 +162,8 @@ func (s *TaskService) buildCSCloudPayload(ctx context.Context, task db.MulticaAg
 		WorkspaceID: util.UUIDToString(runtime.WorkspaceID),
 		IssueID:     util.UUIDToString(task.IssueID),
 		ProjectID:   "",
+		NodeRunID:   util.UUIDToString(task.WorkflowNodeRunID),
+		AgentID:     util.UUIDToString(task.AgentID),
 		Agent:       "csc",
 		Prompt:      prompt,
 		Env:         env,

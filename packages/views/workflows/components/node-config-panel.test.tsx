@@ -358,6 +358,7 @@ describe("NodeConfigPanel", () => {
     expect(mocks.cacheNodeEdits).toHaveBeenCalledWith("node-1", {
       worker_type: "human",
       worker_id: "member-1",
+      worker_role_id: null,
     });
   });
 
@@ -397,8 +398,9 @@ describe("NodeConfigPanel", () => {
     fireEvent.click(screen.getAllByRole("button", { name: "Role" })[0]!);
 
     expect(mocks.cacheNodeEdits).toHaveBeenCalledWith("node-1", {
-      worker_type: "role",
+      worker_type: "human",
       worker_id: null,
+      worker_role_id: "role-1",
     });
     expect(screen.getByLabelText("Worker role")).toBeInTheDocument();
   });
@@ -411,6 +413,8 @@ describe("NodeConfigPanel", () => {
     expect(mocks.cacheNodeEdits).toHaveBeenCalledWith("node-1", {
       critic_type: "api",
       critic_id: null,
+      critic_role_id: null,
+      critic_api_url: null,
     });
     expect(screen.getByLabelText("Critic API URL")).toBeInTheDocument();
   });

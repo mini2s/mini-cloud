@@ -7,6 +7,7 @@ export type PreflightCheckId =
   | "orphan-node"
   | "unreachable-node"
   | "worker-missing"
+  | "role-placeholder"
   | "split-planner-missing"
   | "split-critic-missing"
   | "split-critic-automated"
@@ -219,7 +220,7 @@ export function checkUnreachableNodes(
 /** Detect nodes without an assigned worker. */
 export function checkWorkerMissing(nodes: WorkflowNode[]): PreflightIssue[] {
   return nodes
-    .filter((n) => !isAnnotation(n) && !isGateway(n) && (!n.worker_type || !n.worker_id))
+    .filter((n) => !isAnnotation(n) && !isGateway(n) && (!n.worker_type || (!n.worker_id && !n.worker_role_id && !n.worker_role)))
     .map((n): PreflightIssue => ({
       checkId: isSplit(n) ? "split-planner-missing" : "worker-missing",
       severity: "error" as const,
@@ -230,6 +231,36 @@ export function checkWorkerMissing(nodes: WorkflowNode[]): PreflightIssue[] {
     }));
 }
 
+/** Roles are resolved to active workspace members when the run starts. */
+export function checkRolePlaceholders(nodes: WorkflowNode[]): PreflightIssue[] {
+  return nodes.flatMap((node) => {
+    if (isAnnotation(node) || isGateway(node)) return [];
+    const issues: PreflightIssue[] = [];
+    const workerRole = node.worker_role_id ?? node.worker_role;
+    if (workerRole) {
+      issues.push({
+        checkId: "role-placeholder",
+        severity: "warning",
+        blocking: false,
+        nodeId: node.id,
+        nodeTitle: node.title,
+        message: 'Worker role "' + workerRole + '" will be resolved when the run starts',
+      });
+    }
+    const criticRole = node.critic_role_id ?? node.critic_role;
+    if (criticRole) {
+      issues.push({
+        checkId: "role-placeholder",
+        severity: "warning",
+        blocking: false,
+        nodeId: node.id,
+        nodeTitle: node.title,
+        message: 'Critic role "' + criticRole + '" will be resolved when the run starts',
+      });
+    }
+    return issues;
+  });
+}
 /** Detect nodes with invalid critic references (critic_id not in agent list). */
 export function checkInvalidCriticRef(nodes: WorkflowNode[], agentIds: Set<string>): PreflightIssue[] {
   return nodes
@@ -488,6 +519,7 @@ export function runAllPreflightChecks(input: PreflightCheckInput): PreflightResu
     ...checkOrphanNodes(nodes, edges),
     ...checkUnreachableNodes(nodes, edges, stages),
     ...checkWorkerMissing(nodes),
+    ...checkRolePlaceholders(nodes),
     ...checkSplitCriticRequired(nodes),
     ...checkSplitAutomatedCriticWarning(nodes),
     ...checkInvalidCriticRef(nodes, agentIds),

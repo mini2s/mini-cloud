@@ -78,7 +78,7 @@ export function workflowNodesToReactFlowNodes({
       data: makeNodeData(node, context),
     };
 
-    if (!includeCriticBadges || (!node.critic_id && !node.critic_api_url)) return [workerNode];
+    if (!includeCriticBadges || (!node.critic_id && !node.critic_api_url && !node.critic_role_id && !node.critic_role)) return [workerNode];
 
     const criticNode: Node = {
       id: `${node.id}:critic`,
@@ -171,7 +171,7 @@ export function workflowEdgesToReactFlowEdges({
   }));
 
   const criticEdges: Edge[] = includeCriticEdges ? nodes
-    .filter((node) => node.critic_id || node.critic_api_url)
+    .filter((node) => node.critic_id || node.critic_api_url || node.critic_role_id || node.critic_role)
     .map((node) => ({
       id: `${node.id}:critic-edge`,
       source: node.id,
