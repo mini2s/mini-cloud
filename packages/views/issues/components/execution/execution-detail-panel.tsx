@@ -1,10 +1,11 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Activity,
   Bot,
+  Check,
   GitFork,
   GitMerge,
   ExternalLink,
@@ -29,6 +30,10 @@ import {
   type WorkflowNodeRuntimeSummary,
 } from "@multica/core/types";
 import type { AgentTask } from "@multica/core/types/agent";
+import {
+  nodeRunDeliverableSubmissionsOptions,
+  workflowKeys,
+} from "@multica/core/workflows/queries";
 import { useT } from "@multica/views/i18n";
 import {
   NodeDetailSection,
@@ -58,6 +63,8 @@ export interface ExecutionDetailPanelProps {
   isChildIssue?: boolean;
   parentSplitTitle?: string | null;
   childWorkflowName?: string | null;
+  workflowId?: string;
+  runId?: string | null;
 }
 
 function gatewayLabel(kind: "fork" | "join" | null): string {
@@ -174,12 +181,16 @@ export function ExecutionDetailPanel({
   isChildIssue = false,
   parentSplitTitle,
   childWorkflowName,
+  workflowId,
+  runId,
 }: ExecutionDetailPanelProps) {
   const { t } = useT("issues");
   const [showEvidence, setShowEvidence] = useState(false);
   const [transcriptOpen, setTranscriptOpen] = useState(false);
+  const [reviewComment, setReviewComment] = useState("");
   const [transcriptLoading, setTranscriptLoading] = useState(false);
   const [transcriptItems, setTranscriptItems] = useState<TimelineItem[]>([]);
+  const queryClient = useQueryClient();
   const nodeFormat = parseNodeFormat(node.format_schema);
   const isGateway = nodeFormat.kind === "gateway";
   const displayStatus = runtimeSummary?.display_status ?? (nodeRun ? toWorkflowRuntimeDisplayStatus(nodeRun.status) : "pending");
@@ -188,6 +199,10 @@ export function ExecutionDetailPanel({
   const setChatSession = useChatStore((s) => s.setActiveSession);
   const setChatOpen = useChatStore((s) => s.setOpen);
   const { data: chatSessions = [] } = useQuery(chatSessionsOptions(wsId));
+  const { data: deliverableSubmissions = [] } = useQuery({
+    ...nodeRunDeliverableSubmissionsOptions(wsId, nodeRun?.id ?? ""),
+    enabled: !!nodeRun?.id,
+  });
 
   useEffect(() => {
     const handleKey = (e: KeyboardEvent) => {
@@ -260,6 +275,44 @@ export function ExecutionDetailPanel({
   const canOpenSession = !isGateway && (!!sessionId || !!transcriptTask);
   const canUnblock = !isGateway && status === "blocked" && !!onUnblock;
   const canRetry = !isGateway && isRetryableNodeRunStatus(status) && !!onRetry;
+  const canReview =
+    !isGateway &&
+    (nodeRun?.status === "awaiting_critic" || nodeRun?.status === "critic_reviewing") &&
+    (nodeRun.critic_type === "human" || node.critic_type === "human");
+
+  const reviewMutation = useMutation({
+    mutationFn: async (approved: boolean) => {
+      if (!nodeRun) return;
+      const reviewStatus = approved ? "approved" : "rejected";
+      await Promise.all(
+        deliverableSubmissions
+          .filter((submission) => submission.status !== reviewStatus)
+          .map((submission) =>
+            api.reviewNodeRunDeliverable(nodeRun.id, submission.id, {
+              status: reviewStatus,
+              review_comment: reviewComment,
+            }),
+          ),
+      );
+      await api.reviewNodeRun(nodeRun.id, approved, reviewComment);
+    },
+    onSuccess: async () => {
+      if (!nodeRun) return;
+      await queryClient.invalidateQueries({
+        queryKey: workflowKeys.nodeRunDeliverables(nodeRun.id),
+      });
+      if (workflowId && runId) {
+        await Promise.all([
+          queryClient.invalidateQueries({
+            queryKey: workflowKeys.nodeRuns(wsId, workflowId, runId),
+          }),
+          queryClient.invalidateQueries({
+            queryKey: workflowKeys.runCanvasSummary(wsId, workflowId, runId),
+          }),
+        ]);
+      }
+    },
+  });
 
   const handleOpenSession = async () => {
     if (transcriptLoading) return;
@@ -449,6 +502,44 @@ export function ExecutionDetailPanel({
             </div>
             {nodeRun?.critic_comment ? (
               <p className="text-xs italic text-muted-foreground">&ldquo;{nodeRun.critic_comment}&rdquo;</p>
+            ) : null}
+            {canReview ? (
+              <div className="space-y-2 rounded-md border bg-background p-2">
+                <textarea
+                  value={reviewComment}
+                  onChange={(event) => setReviewComment(event.target.value)}
+                  placeholder={t(($) => $.execution.detail_panel.review_comment)}
+                  rows={3}
+                  className="bg-background min-h-20 w-full resize-none rounded-md border px-2 py-1.5 text-sm"
+                />
+                {reviewMutation.isError ? (
+                  <p className="text-xs text-destructive">
+                    {reviewMutation.error instanceof Error
+                      ? reviewMutation.error.message
+                      : "Failed to review node run"}
+                  </p>
+                ) : null}
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    disabled={reviewMutation.isPending}
+                    onClick={() => reviewMutation.mutate(true)}
+                    className="bg-primary text-primary-foreground inline-flex h-8 items-center justify-center gap-1.5 rounded-md px-3 text-xs font-medium transition-colors disabled:opacity-50"
+                  >
+                    {reviewMutation.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
+                    {t(($) => $.execution.card.actions.approve)}
+                  </button>
+                  <button
+                    type="button"
+                    disabled={reviewMutation.isPending}
+                    onClick={() => reviewMutation.mutate(false)}
+                    className="inline-flex h-8 items-center justify-center gap-1.5 rounded-md border bg-background px-3 text-xs font-medium transition-colors hover:bg-muted disabled:opacity-50"
+                  >
+                    <RotateCcw className="h-3.5 w-3.5" />
+                    {t(($) => $.execution.card.actions.reject)}
+                  </button>
+                </div>
+              </div>
             ) : null}
           </div>
         ) : (

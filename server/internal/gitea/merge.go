@@ -53,6 +53,15 @@ func (c *Client) OpenPR(ctx context.Context, owner, repo, head, base, title stri
 	defer resp.Body.Close()
 	body, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		if resp.StatusCode == http.StatusConflict {
+			existingURL, err := c.findOpenPR(ctx, owner, repo, head, base)
+			if err == nil && existingURL != "" {
+				return existingURL, nil
+			}
+			if err != nil {
+				return "", fmt.Errorf("find existing PR after conflict: %w", err)
+			}
+		}
 		return "", fmt.Errorf("gitea create PR: status %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
 	}
 	var pr struct {
@@ -66,6 +75,35 @@ func (c *Client) OpenPR(ctx context.Context, owner, repo, head, base, title stri
 		return "", fmt.Errorf("gitea create PR: empty html_url in response")
 	}
 	return pr.HTMLURL, nil
+}
+
+func (c *Client) findOpenPR(ctx context.Context, owner, repo, head, base string) (string, error) {
+	resp, err := c.do(ctx, http.MethodGet, "/repos/"+owner+"/"+repo+"/pulls?state=open", nil)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return "", decodeError(resp)
+	}
+	var prs []struct {
+		HTMLURL string `json:"html_url"`
+		Head    struct {
+			Ref string `json:"ref"`
+		} `json:"head"`
+		Base struct {
+			Ref string `json:"ref"`
+		} `json:"base"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&prs); err != nil {
+		return "", fmt.Errorf("parse PR list response: %w", err)
+	}
+	for _, pr := range prs {
+		if pr.Head.Ref == head && pr.Base.Ref == base && pr.HTMLURL != "" {
+			return pr.HTMLURL, nil
+		}
+	}
+	return "", nil
 }
 
 // ParsePullRequestIndex extracts the numeric PR index from a Gitea PR web URL

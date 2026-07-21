@@ -37,6 +37,19 @@ func BuildPrompt(task Task, provider string) string {
 	b.WriteString("You are running as a local coding agent for a Multica workspace.\n\n")
 	fmt.Fprintf(&b, "Your assigned issue ID is: %s\n\n", task.IssueID)
 
+	if task.WorkflowPhase == "critic" {
+		b.WriteString("## Workflow Critic Review\n\n")
+		b.WriteString("You are reviewing the worker's submitted deliverables for this workflow node. Inspect the issue context and deliverable PRs, then finish with a JSON object only:\n\n")
+		b.WriteString("```json\n{\"approved\":true,\"comment\":\"short review opinion\"}\n```\n\n")
+		b.WriteString("Use `approved:false` when the work needs rework, and put the actionable rejection reason in `comment`.\n\n")
+		b.WriteString("---\n\n")
+	} else if task.WorkflowPhase == "worker" {
+		b.WriteString("## Workflow Worker Task\n\n")
+		b.WriteString("You are the worker for this workflow node. Complete the assigned work and submit every required deliverable before finishing.\n")
+		b.WriteString("Do NOT perform critic review. Do NOT approve or reject the work. If the issue text mentions a critic/reviewer, treat that as context for the later review phase, not your current task.\n\n")
+		b.WriteString("---\n\n")
+	}
+
 	// Inject upstream-stage context so the agent reads prior-stage sub-issues
 	// and downloads their attachments before proceeding.
 	if len(task.UpstreamStageContext) > 0 {
@@ -68,7 +81,7 @@ func BuildPrompt(task Task, provider string) string {
 	// it via the Gitea CLI (which creates a node branch off the run's instance
 	// branch, pushes the file, opens a Gitea PR, and registers the PR back
 	// here). Only present when Gitea is configured for this run.
-	if task.GiteaDeliverables != nil {
+	if task.WorkflowPhase != "critic" && task.GiteaDeliverables != nil {
 		b.WriteString("## Document Deliverables\n\n")
 		b.WriteString("This node has document deliverables stored in the platform git server. For EACH deliverable below: write the document to a local file, then submit it with the CLI — the command creates a node branch off the run's instance branch, pushes your file, opens a Gitea PR, and registers the PR back here. Do NOT use inline content upload for these; document deliverables go through git.\n\n")
 		for _, d := range task.GiteaDeliverables.Deliverables {
@@ -83,13 +96,15 @@ func BuildPrompt(task Task, provider string) string {
 	// Document deliverables are covered above (GiteaDeliverables -> gitea submit);
 	// this covers the code path. Generic (not gated on a context field) so it
 	// shows for code nodes that have no Gitea context.
-	b.WriteString("## Code Deliverables (pull_request)\n\n")
-	b.WriteString("If this node has a code deliverable (kind=pull_request), you MUST report it — the node is not complete until the PR/MR URL is submitted:\n")
-	b.WriteString("1. List the node's deliverables: `curl -s -H \"Authorization: Bearer $MULTICA_TOKEN\" -H \"X-Workspace-ID: $MULTICA_WORKSPACE_ID\" $MULTICA_SERVER_URL/api/node-runs/$MULTICA_NODE_RUN_ID/deliverables` — note the `id` and `kind` of each.\n")
-	b.WriteString("2. For each `kind=pull_request` deliverable: push a branch to the linked Git repo and open a Merge Request with `cs-workflow mr create --source-branch <branch> --title \"<title>\" --push` (run inside a checkout whose `origin` points at the GitLab repo; the CLI reads the GitLab PAT from the workspace).\n")
-	b.WriteString("3. Submit the MR web URL back: `curl -X POST -H \"Authorization: Bearer $MULTICA_TOKEN\" -H \"X-Workspace-ID: $MULTICA_WORKSPACE_ID\" -H \"Content-Type: application/json\" -d '{\"pull_request_url\":\"<MR URL>\"}' $MULTICA_SERVER_URL/api/node-runs/$MULTICA_NODE_RUN_ID/deliverables/<deliverable_id>/submit`.\n")
-	b.WriteString("A deliverable is not submitted until its PR/MR URL is registered. Complete every required deliverable before finishing.\n\n")
-	b.WriteString("---\n\n")
+	if task.WorkflowPhase != "critic" {
+		b.WriteString("## Code Deliverables (pull_request)\n\n")
+		b.WriteString("If this node has a code deliverable (kind=pull_request), you MUST report it — the node is not complete until the PR/MR URL is submitted:\n")
+		b.WriteString("1. List the node's deliverables: `curl -s -H \"Authorization: Bearer $MULTICA_TOKEN\" -H \"X-Workspace-ID: $MULTICA_WORKSPACE_ID\" $MULTICA_SERVER_URL/api/node-runs/$MULTICA_NODE_RUN_ID/deliverables` — note the `id` and `kind` of each.\n")
+		b.WriteString("2. For each `kind=pull_request` deliverable: push a branch to the linked Git repo and open a Merge Request with `cs-workflow mr create --source-branch <branch> --title \"<title>\" --push` (run inside a checkout whose `origin` points at the GitLab repo; the CLI reads the GitLab PAT from the workspace).\n")
+		b.WriteString("3. Submit the MR web URL back: `curl -X POST -H \"Authorization: Bearer $MULTICA_TOKEN\" -H \"X-Workspace-ID: $MULTICA_WORKSPACE_ID\" -H \"Content-Type: application/json\" -d '{\"pull_request_url\":\"<MR URL>\"}' $MULTICA_SERVER_URL/api/node-runs/$MULTICA_NODE_RUN_ID/deliverables/<deliverable_id>/submit`.\n")
+		b.WriteString("A deliverable is not submitted until its PR/MR URL is registered. Complete every required deliverable before finishing.\n\n")
+		b.WriteString("---\n\n")
+	}
 
 	fmt.Fprintf(&b, "Start by running `cs-workflow issue get %s --output json` to understand your task, then complete it.\n", task.IssueID)
 	fmt.Fprintf(&b, "For comment history, follow the rule in your runtime workflow file (assignment-triggered tasks treat the read as mandatory). `cs-workflow issue comment list %s --output json` returns all comments for the issue (server caps at 2000). On long-running issues use `--recent 20 --output json` to read the 20 most recently active threads, then page older threads via the stderr `Next thread cursor: ...` line and the matching `--before` / `--before-id` until you have enough history. `--since <RFC3339>` is still available for incremental polling and may combine with `--recent`.\n", task.IssueID)

@@ -244,6 +244,196 @@ func TestStartDefaultRunForIssue_AgentAssignee(t *testing.T) {
 	}
 }
 
+func TestDispatchAgentTask_IgnoresBuiltinAgentRuntimeFromOtherWorkspace(t *testing.T) {
+	pool := openTestPool(t)
+	defer pool.Close()
+	ctx := context.Background()
+	svc := &WorkflowService{
+		Queries:   db.New(pool),
+		TxStarter: pool,
+		TaskSvc:   &TaskService{Queries: db.New(pool), TxStarter: pool},
+	}
+
+	suffix := fmt.Sprintf("wr-%d-%d", os.Getpid(), time.Now().UnixNano())
+	var currentWsID, otherWsID string
+	if err := pool.QueryRow(ctx, `
+		INSERT INTO multica_workspace (name, slug, description, issue_prefix)
+		VALUES ($1, $2, 'workflow runtime test', 'WR') RETURNING id
+	`, "WR Current "+suffix, "wr-current-"+suffix).Scan(&currentWsID); err != nil {
+		t.Fatalf("seed current workspace: %v", err)
+	}
+	if err := pool.QueryRow(ctx, `
+		INSERT INTO multica_workspace (name, slug, description, issue_prefix)
+		VALUES ($1, $2, 'workflow runtime test', 'WX') RETURNING id
+	`, "WR Other "+suffix, "wr-other-"+suffix).Scan(&otherWsID); err != nil {
+		t.Fatalf("seed other workspace: %v", err)
+	}
+
+	var currentRuntimeID, staleRuntimeID string
+	if err := pool.QueryRow(ctx, `
+		INSERT INTO multica_agent_runtime (workspace_id, name, runtime_mode, provider, status)
+		VALUES ($1, 'Current RT', 'local', 'csc', 'online') RETURNING id
+	`, currentWsID).Scan(&currentRuntimeID); err != nil {
+		t.Fatalf("seed current runtime: %v", err)
+	}
+	if err := pool.QueryRow(ctx, `
+		INSERT INTO multica_agent_runtime (workspace_id, name, runtime_mode, provider, status)
+		VALUES ($1, 'Stale RT', 'local', 'csc', 'online') RETURNING id
+	`, otherWsID).Scan(&staleRuntimeID); err != nil {
+		t.Fatalf("seed stale runtime: %v", err)
+	}
+
+	var agentID string
+	if err := pool.QueryRow(ctx, `
+		INSERT INTO multica_agent (name, runtime_mode, runtime_id, is_builtin)
+		VALUES ('Builtin Worker', 'local', $1, TRUE) RETURNING id
+	`, staleRuntimeID).Scan(&agentID); err != nil {
+		t.Fatalf("seed builtin agent: %v", err)
+	}
+
+	var userID string
+	if err := pool.QueryRow(ctx, `
+		INSERT INTO multica_user (name, email) VALUES ($1, $2) RETURNING id
+	`, "WR User "+suffix, "wr-"+suffix+"@multica.ai").Scan(&userID); err != nil {
+		t.Fatalf("seed user: %v", err)
+	}
+	var memberID string
+	if err := pool.QueryRow(ctx, `
+		INSERT INTO multica_member (workspace_id, user_id, role) VALUES ($1, $2, 'owner') RETURNING id
+	`, currentWsID, userID).Scan(&memberID); err != nil {
+		t.Fatalf("seed member: %v", err)
+	}
+
+	var workflowID, nodeID, runID, nodeRunID, issueID string
+	if err := pool.QueryRow(ctx, `
+		INSERT INTO multica_workflow (workspace_id, title, status, max_retries, created_by_type, created_by_id)
+		VALUES ($1, 'Runtime Dispatch Workflow', 'active', 1, 'member', $2) RETURNING id
+	`, currentWsID, userID).Scan(&workflowID); err != nil {
+		t.Fatalf("seed workflow: %v", err)
+	}
+	if err := pool.QueryRow(ctx, `
+		INSERT INTO multica_workflow_node (workflow_id, title, worker_type, worker_id, critic_type, sort_order)
+		VALUES ($1, 'Worker Node', 'agent', $2, 'human', 0) RETURNING id
+	`, workflowID, agentID).Scan(&nodeID); err != nil {
+		t.Fatalf("seed node: %v", err)
+	}
+	if err := pool.QueryRow(ctx, `
+		INSERT INTO multica_workflow_run (workflow_id, workspace_id, workflow_title, status, triggered_by_type, triggered_by_id, runtime_id)
+		VALUES ($1, $2, 'Runtime Dispatch Workflow', 'running', 'member', $3, $4) RETURNING id
+	`, workflowID, currentWsID, memberID, currentRuntimeID).Scan(&runID); err != nil {
+		t.Fatalf("seed run: %v", err)
+	}
+	if err := pool.QueryRow(ctx, `
+		INSERT INTO multica_workflow_node_run (workflow_run_id, workflow_node_id, node_title, status, worker_type, worker_id, critic_type)
+		VALUES ($1, $2, 'Worker Node', 'format_ok', 'agent', $3, 'human') RETURNING id
+	`, runID, nodeID, agentID).Scan(&nodeRunID); err != nil {
+		t.Fatalf("seed node run: %v", err)
+	}
+	if err := pool.QueryRow(ctx, `
+		INSERT INTO multica_issue (workspace_id, title, status, creator_id, creator_type, assignee_type, assignee_id, origin_type, origin_id, number)
+		VALUES ($1, 'Worker Node', 'todo', $2, 'member', 'agent', $3, 'workflow', $4, 1) RETURNING id
+	`, currentWsID, memberID, agentID, nodeRunID).Scan(&issueID); err != nil {
+		t.Fatalf("seed issue: %v", err)
+	}
+
+	t.Cleanup(func() {
+		pool.Exec(ctx, `DELETE FROM multica_agent_task_queue WHERE agent_id = $1`, agentID)
+		pool.Exec(ctx, `DELETE FROM multica_issue WHERE id = $1`, issueID)
+		pool.Exec(ctx, `DELETE FROM multica_workflow WHERE id = $1`, workflowID)
+		pool.Exec(ctx, `DELETE FROM multica_agent WHERE id = $1`, agentID)
+		pool.Exec(ctx, `DELETE FROM multica_agent_runtime WHERE id IN ($1, $2)`, currentRuntimeID, staleRuntimeID)
+		pool.Exec(ctx, `DELETE FROM multica_member WHERE workspace_id = $1`, currentWsID)
+		pool.Exec(ctx, `DELETE FROM multica_workspace WHERE id IN ($1, $2)`, currentWsID, otherWsID)
+		pool.Exec(ctx, `DELETE FROM multica_user WHERE id = $1`, userID)
+	})
+
+	nrUUID, _ := util.ParseUUID(nodeRunID)
+	nodeRun, err := svc.Queries.GetWorkflowNodeRun(ctx, nrUUID)
+	if err != nil {
+		t.Fatalf("get node run: %v", err)
+	}
+	agentUUID, _ := util.ParseUUID(agentID)
+	staleRuntimeUUID, _ := util.ParseUUID(staleRuntimeID)
+	agent, err := svc.Queries.GetAgent(ctx, agentUUID)
+	if err != nil {
+		t.Fatalf("get agent: %v", err)
+	}
+	if agent.RuntimeID != staleRuntimeUUID {
+		t.Fatalf("fixture agent runtime = %v, want stale runtime %v", agent.RuntimeID, staleRuntimeUUID)
+	}
+	task, err := svc.DispatchAgentTask(ctx, nodeRun, "worker")
+	if err != nil {
+		t.Fatalf("DispatchAgentTask: %v", err)
+	}
+	currentRuntimeUUID, _ := util.ParseUUID(currentRuntimeID)
+	if task.RuntimeID != currentRuntimeUUID {
+		t.Fatalf("task runtime = %v, want current workflow runtime %v", task.RuntimeID, currentRuntimeUUID)
+	}
+}
+
+func TestResolveRuntimeForAgent_IgnoresBuiltinAgentRuntimeFromOtherWorkspace(t *testing.T) {
+	pool := openTestPool(t)
+	defer pool.Close()
+	ctx := context.Background()
+	taskSvc := &TaskService{Queries: db.New(pool), TxStarter: pool}
+
+	suffix := fmt.Sprintf("tr-%d-%d", os.Getpid(), time.Now().UnixNano())
+	var currentWsID, otherWsID string
+	if err := pool.QueryRow(ctx, `
+		INSERT INTO multica_workspace (name, slug, description, issue_prefix)
+		VALUES ($1, $2, 'task runtime test', 'TR') RETURNING id
+	`, "TR Current "+suffix, "tr-current-"+suffix).Scan(&currentWsID); err != nil {
+		t.Fatalf("seed current workspace: %v", err)
+	}
+	if err := pool.QueryRow(ctx, `
+		INSERT INTO multica_workspace (name, slug, description, issue_prefix)
+		VALUES ($1, $2, 'task runtime test', 'TX') RETURNING id
+	`, "TR Other "+suffix, "tr-other-"+suffix).Scan(&otherWsID); err != nil {
+		t.Fatalf("seed other workspace: %v", err)
+	}
+	var currentRuntimeID, staleRuntimeID string
+	if err := pool.QueryRow(ctx, `
+		INSERT INTO multica_agent_runtime (workspace_id, name, runtime_mode, provider, status)
+		VALUES ($1, 'Current RT', 'local', 'csc', 'online') RETURNING id
+	`, currentWsID).Scan(&currentRuntimeID); err != nil {
+		t.Fatalf("seed current runtime: %v", err)
+	}
+	if err := pool.QueryRow(ctx, `
+		INSERT INTO multica_agent_runtime (workspace_id, name, runtime_mode, provider, status)
+		VALUES ($1, 'Stale RT', 'local', 'csc', 'online') RETURNING id
+	`, otherWsID).Scan(&staleRuntimeID); err != nil {
+		t.Fatalf("seed stale runtime: %v", err)
+	}
+	var agentID string
+	if err := pool.QueryRow(ctx, `
+		INSERT INTO multica_agent (name, runtime_mode, runtime_id, is_builtin)
+		VALUES ('Builtin Direct Worker', 'local', $1, TRUE) RETURNING id
+	`, staleRuntimeID).Scan(&agentID); err != nil {
+		t.Fatalf("seed builtin agent: %v", err)
+	}
+
+	t.Cleanup(func() {
+		pool.Exec(ctx, `DELETE FROM multica_agent WHERE id = $1`, agentID)
+		pool.Exec(ctx, `DELETE FROM multica_agent_runtime WHERE id IN ($1, $2)`, currentRuntimeID, staleRuntimeID)
+		pool.Exec(ctx, `DELETE FROM multica_workspace WHERE id IN ($1, $2)`, currentWsID, otherWsID)
+	})
+
+	agentUUID, _ := util.ParseUUID(agentID)
+	agent, err := taskSvc.Queries.GetAgent(ctx, agentUUID)
+	if err != nil {
+		t.Fatalf("get agent: %v", err)
+	}
+	wsUUID, _ := util.ParseUUID(currentWsID)
+	got, err := taskSvc.resolveRuntimeForAgent(ctx, agent, wsUUID)
+	if err != nil {
+		t.Fatalf("resolveRuntimeForAgent: %v", err)
+	}
+	currentRuntimeUUID, _ := util.ParseUUID(currentRuntimeID)
+	if got != currentRuntimeUUID {
+		t.Fatalf("resolved runtime = %v, want current workspace runtime %v", got, currentRuntimeUUID)
+	}
+}
+
 // TestStartDefaultRunForIssue_SquadAssignee verifies the squad path: the
 // node-run worker is set to the squad, and dispatch resolves + tasks the SQUAD
 // LEADER (not the squad id) via dispatchWorker's squad case reading node-run.
@@ -341,16 +531,19 @@ func TestStartDefaultRunForIssue_SquadAssignee(t *testing.T) {
 }
 
 // uploadFakeGiteaServer stands up a minimal Gitea stand-in handling the branch /
-// contents / pulls calls UploadMemberDeliverable makes. Returns the server and a
-// pointer to a counter of PRs opened.
-func uploadFakeGiteaServer(t *testing.T) (*httptest.Server, *int) {
+// contents / pulls calls UploadMemberDeliverable makes. Returns the server, a
+// pointer to a counter of PRs opened, and the request paths observed.
+func uploadFakeGiteaServer(t *testing.T) (*httptest.Server, *int, *[]string) {
 	t.Helper()
 	var mu sync.Mutex
 	branches := map[string]bool{}
+	files := map[string]bool{}
 	prs := 0
+	paths := []string{}
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		mu.Lock()
 		defer mu.Unlock()
+		paths = append(paths, r.Method+" "+r.URL.Path)
 		w.Header().Set("Content-Type", "application/json")
 		p := r.URL.Path
 		switch {
@@ -362,7 +555,23 @@ func uploadFakeGiteaServer(t *testing.T) (*httptest.Server, *int) {
 			}
 			w.WriteHeader(http.StatusCreated)
 		case r.Method == http.MethodPost && strings.Contains(p, "/contents/"):
+			if files[p] {
+				w.WriteHeader(http.StatusUnprocessableEntity)
+				_ = json.NewEncoder(w).Encode(map[string]string{"message": "repository file already exists"})
+				return
+			}
+			files[p] = true
 			w.WriteHeader(http.StatusCreated)
+		case r.Method == http.MethodGet && strings.Contains(p, "/contents/"):
+			if !files[p] {
+				w.WriteHeader(http.StatusNotFound)
+				return
+			}
+			w.WriteHeader(http.StatusOK)
+			_ = json.NewEncoder(w).Encode(map[string]string{"sha": "sha-" + fmt.Sprint(len(p))})
+		case r.Method == http.MethodPut && strings.Contains(p, "/contents/"):
+			files[p] = true
+			w.WriteHeader(http.StatusOK)
 		case r.Method == http.MethodPost && strings.HasSuffix(p, "/pulls"):
 			prs++
 			w.WriteHeader(http.StatusCreated)
@@ -374,7 +583,7 @@ func uploadFakeGiteaServer(t *testing.T) (*httptest.Server, *int) {
 			w.WriteHeader(http.StatusNotFound)
 		}
 	}))
-	return srv, &prs
+	return srv, &prs, &paths
 }
 
 // TestUploadMemberDeliverable verifies the member-upload server-side path: writes
@@ -428,7 +637,7 @@ func TestUploadMemberDeliverable(t *testing.T) {
 		pool.Exec(ctx, `DELETE FROM multica_user WHERE id = $1`, userID)
 	})
 
-	srv, prCount := uploadFakeGiteaServer(t)
+	srv, prCount, paths := uploadFakeGiteaServer(t)
 	defer srv.Close()
 	svc := &WorkflowService{
 		Queries:   db.New(pool),
@@ -451,6 +660,12 @@ func TestUploadMemberDeliverable(t *testing.T) {
 	if *prCount != 1 {
 		t.Fatalf("want 1 PR opened, got %d", *prCount)
 	}
+	archiveRepoPath := "/api/v1/repos/" + gitea.OrgName(wsID) + "/" + gitea.DefaultArchiveRepoName() + "/"
+	for _, p := range *paths {
+		if !strings.Contains(p, archiveRepoPath) {
+			t.Fatalf("Gitea request %q did not use default archive repo path %q; all paths: %v", p, archiveRepoPath, *paths)
+		}
+	}
 	subs, err := svc.Queries.ListNodeRunDeliverableSubmissions(ctx, nrUUID)
 	if err != nil {
 		t.Fatalf("list submissions: %v", err)
@@ -465,5 +680,103 @@ func TestUploadMemberDeliverable(t *testing.T) {
 	}
 	if got.Status != "critic_reviewing" && got.Status != "awaiting_critic" {
 		t.Fatalf("node-run status=%q, want critic_reviewing/awaiting_critic", got.Status)
+	}
+}
+
+func TestUploadMemberDeliverable_UpdatesExistingFileAfterRejection(t *testing.T) {
+	pool := openTestPool(t)
+	defer pool.Close()
+	ctx := context.Background()
+	suffix := fmt.Sprintf("up-retry-%d-%d", os.Getpid(), time.Now().UnixNano())
+
+	var wsID, userID, memberID string
+	if err := pool.QueryRow(ctx, `INSERT INTO multica_workspace (name, slug, description, issue_prefix) VALUES ($1,$2,'t','UR') RETURNING id`, "UR WS "+suffix, "ur-"+suffix).Scan(&wsID); err != nil {
+		t.Fatalf("seed workspace: %v", err)
+	}
+	if err := pool.QueryRow(ctx, `INSERT INTO multica_user (name, email) VALUES ($1,$2) RETURNING id`, "UR User "+suffix, "ur-"+suffix+"@multica.ai").Scan(&userID); err != nil {
+		t.Fatalf("seed user: %v", err)
+	}
+	if err := pool.QueryRow(ctx, `INSERT INTO multica_member (workspace_id, user_id, role) VALUES ($1,$2,'owner') RETURNING id`, wsID, userID).Scan(&memberID); err != nil {
+		t.Fatalf("seed member: %v", err)
+	}
+	memberUUID, _ := util.ParseUUID(memberID)
+
+	var wfID, nodeID, deliverableID string
+	if err := pool.QueryRow(ctx, `INSERT INTO multica_workflow (workspace_id, title, status, created_by_type, is_default) VALUES ($1,'Default','active','system',TRUE) RETURNING id`, wsID).Scan(&wfID); err != nil {
+		t.Fatalf("seed default wf: %v", err)
+	}
+	if err := pool.QueryRow(ctx, `INSERT INTO multica_workflow_node (workflow_id, title, worker_type, worker_id, critic_type, critic_id, sort_order) VALUES ($1,'N','human',$2,'human',$3,0) RETURNING id`, wfID, memberID, memberID).Scan(&nodeID); err != nil {
+		t.Fatalf("seed node: %v", err)
+	}
+	if err := pool.QueryRow(ctx, `INSERT INTO multica_workflow_node_deliverable (workflow_node_id, kind, title, description, required, sort_order) VALUES ($1,'document','D','',TRUE,0) RETURNING id`, nodeID).Scan(&deliverableID); err != nil {
+		t.Fatalf("seed deliverable: %v", err)
+	}
+
+	var runID, nrID string
+	if err := pool.QueryRow(ctx, `INSERT INTO multica_workflow_run (workflow_id, workspace_id, workflow_title, status, triggered_by_type, triggered_by_id) VALUES ($1,$2,'Default','running','member',$3) RETURNING id`, wfID, wsID, memberID).Scan(&runID); err != nil {
+		t.Fatalf("seed run: %v", err)
+	}
+	if err := pool.QueryRow(ctx, `INSERT INTO multica_workflow_node_run (workflow_run_id, workflow_node_id, node_title, status, retry_count, worker_type, worker_id, critic_type, critic_id) VALUES ($1,$2,'N','worker_assigned',0,'human',$3,'human',$4) RETURNING id`, runID, nodeID, memberID, memberID).Scan(&nrID); err != nil {
+		t.Fatalf("seed node-run: %v", err)
+	}
+	runUUID, _ := util.ParseUUID(runID)
+	nrUUID, _ := util.ParseUUID(nrID)
+	wsUUID, _ := util.ParseUUID(wsID)
+
+	t.Cleanup(func() {
+		pool.Exec(ctx, `DELETE FROM multica_workflow WHERE workspace_id = $1`, wsID)
+		pool.Exec(ctx, `DELETE FROM multica_member WHERE workspace_id = $1`, wsID)
+		pool.Exec(ctx, `DELETE FROM multica_workspace WHERE id = $1`, wsID)
+		pool.Exec(ctx, `DELETE FROM multica_user WHERE id = $1`, userID)
+	})
+
+	srv, prCount, _ := uploadFakeGiteaServer(t)
+	defer srv.Close()
+	svc := &WorkflowService{
+		Queries:   db.New(pool),
+		TxStarter: pool,
+		Gitea:     gitea.NewClient(gitea.Config{BaseURL: srv.URL, Token: "admin-tok"}),
+	}
+
+	issue := db.MulticaIssue{
+		WorkspaceID:   wsUUID,
+		AssigneeType:  pgtype.Text{String: "member", Valid: true},
+		AssigneeID:    memberUUID,
+		CreatorType:   "member",
+		CreatorID:     memberUUID,
+		WorkflowRunID: runUUID,
+	}
+	if err := svc.UploadMemberDeliverable(ctx, issue, "# v1\n\nIncomplete."); err != nil {
+		t.Fatalf("first UploadMemberDeliverable: %v", err)
+	}
+
+	if _, err := pool.Exec(ctx, `
+		UPDATE multica_workflow_node_run
+		SET status = $1, retry_count = 1, critic_comment = 'needs more evidence'
+		WHERE id = $2
+	`, NodeRunStatusWorkerAssigned, nrID); err != nil {
+		t.Fatalf("mark node-run rejected for retry: %v", err)
+	}
+	if got := nodeRunStatus(t, pool, nrUUID); got != NodeRunStatusWorkerAssigned {
+		t.Fatalf("after rejection node-run status=%q, want %q", got, NodeRunStatusWorkerAssigned)
+	}
+
+	if err := svc.UploadMemberDeliverable(ctx, issue, "# v2\n\nFinal evidence."); err != nil {
+		t.Fatalf("second UploadMemberDeliverable after rejection: %v", err)
+	}
+
+	if *prCount != 2 {
+		t.Fatalf("want 2 PRs opened across two submissions, got %d", *prCount)
+	}
+	var status, prURL string
+	if err := pool.QueryRow(ctx, `
+		SELECT status, pull_request_url
+		FROM multica_workflow_node_deliverable_submission
+		WHERE workflow_node_run_id = $1 AND deliverable_id = $2
+	`, nrID, deliverableID).Scan(&status, &prURL); err != nil {
+		t.Fatalf("read submission: %v", err)
+	}
+	if status != "submitted" || prURL == "" {
+		t.Fatalf("submission after retry = status %q url %q, want submitted with PR", status, prURL)
 	}
 }

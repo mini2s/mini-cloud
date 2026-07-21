@@ -304,10 +304,15 @@ export function useSubmitNodeRun(wsId: string) {
 export function useReviewNodeRun(wsId: string) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ nodeRunId, approved, comment }: { nodeRunId: string; approved: boolean; comment?: string }) =>
+    mutationFn: ({ nodeRunId, approved, comment }: { nodeRunId: string; approved: boolean; comment?: string; workflowId?: string; runId?: string }) =>
       api.reviewNodeRun(nodeRunId, approved, comment),
-    onSuccess: () => {
+    onSuccess: (_data, vars) => {
       queryClient.invalidateQueries({ queryKey: workflowKeys.myTasks(wsId) });
+      if (vars.workflowId && vars.runId) {
+        queryClient.invalidateQueries({ queryKey: workflowKeys.run(wsId, vars.workflowId, vars.runId) });
+        queryClient.invalidateQueries({ queryKey: workflowKeys.nodeRuns(wsId, vars.workflowId, vars.runId) });
+        queryClient.invalidateQueries({ queryKey: workflowKeys.runCanvasSummary(wsId, vars.workflowId, vars.runId) });
+      }
     },
   });
 }

@@ -19,6 +19,7 @@ import (
 	"github.com/multica-ai/multica/server/internal/auth"
 	"github.com/multica-ai/multica/server/internal/daemonws"
 	"github.com/multica-ai/multica/server/internal/middleware"
+	"github.com/multica-ai/multica/server/internal/service"
 	db "github.com/multica-ai/multica/server/pkg/db/generated"
 	"github.com/multica-ai/multica/server/pkg/protocol"
 )
@@ -2094,6 +2095,118 @@ func TestClaimTaskByRuntime_TaskWorkspaceMismatch_CancelsAndRejects(t *testing.T
 	}
 	if status != "cancelled" {
 		t.Fatalf("ClaimTaskByRuntime (mismatch): expected task status=cancelled, got %q", status)
+	}
+}
+
+func TestClaimTaskByRuntime_WorkflowTaskWorkspaceMismatch_FailsNodeRun(t *testing.T) {
+	if testHandler == nil {
+		t.Skip("database not available")
+	}
+
+	ctx := context.Background()
+
+	var localAgentID, localRuntimeID string
+	if err := testPool.QueryRow(ctx,
+		`SELECT id, runtime_id FROM multica_agent WHERE workspace_id = $1 LIMIT 1`,
+		testWorkspaceID,
+	).Scan(&localAgentID, &localRuntimeID); err != nil {
+		t.Fatalf("setup: get local agent: %v", err)
+	}
+
+	var foreignWorkspaceID string
+	if err := testPool.QueryRow(ctx, `
+		INSERT INTO multica_workspace (name, slug, description, issue_prefix)
+		VALUES ($1, $2, $3, $4)
+		RETURNING id
+	`, "Workflow Mismatch Foreign", "workflow-mismatch-claim", "", "WMC").Scan(&foreignWorkspaceID); err != nil {
+		t.Fatalf("setup: create foreign workspace: %v", err)
+	}
+	t.Cleanup(func() {
+		testPool.Exec(context.Background(), `DELETE FROM multica_workspace WHERE id = $1`, foreignWorkspaceID)
+	})
+
+	var workflowID string
+	if err := testPool.QueryRow(ctx, `
+		INSERT INTO multica_workflow (workspace_id, title, description, status, created_by_type, created_by_id)
+		VALUES ($1, 'Mismatch Workflow', '', 'active', 'member', $2)
+		RETURNING id
+	`, foreignWorkspaceID, testUserID).Scan(&workflowID); err != nil {
+		t.Fatalf("setup: create workflow: %v", err)
+	}
+
+	var nodeID string
+	if err := testPool.QueryRow(ctx, `
+		INSERT INTO multica_workflow_node (workflow_id, title, description, worker_type, worker_id, critic_type)
+		VALUES ($1, 'Mismatch Node', '', 'agent', $2, 'human')
+		RETURNING id
+	`, workflowID, localAgentID).Scan(&nodeID); err != nil {
+		t.Fatalf("setup: create workflow node: %v", err)
+	}
+
+	var runID string
+	if err := testPool.QueryRow(ctx, `
+		INSERT INTO multica_workflow_run (workflow_id, workspace_id, workflow_title, status, triggered_by_type, triggered_by_id)
+		VALUES ($1, $2, 'Mismatch Workflow', 'running', 'member', $3)
+		RETURNING id
+	`, workflowID, foreignWorkspaceID, testUserID).Scan(&runID); err != nil {
+		t.Fatalf("setup: create workflow run: %v", err)
+	}
+
+	var nodeRunID string
+	if err := testPool.QueryRow(ctx, `
+		INSERT INTO multica_workflow_node_run (
+			workflow_run_id, workflow_node_id, node_title, status,
+			worker_type, worker_id, critic_type, started_at
+		)
+		VALUES ($1, $2, 'Mismatch Node', 'working', 'agent', $3, 'human', now())
+		RETURNING id
+	`, runID, nodeID, localAgentID).Scan(&nodeRunID); err != nil {
+		t.Fatalf("setup: create workflow node run: %v", err)
+	}
+
+	var taskID string
+	if err := testPool.QueryRow(ctx, `
+		INSERT INTO multica_agent_task_queue (agent_id, runtime_id, workflow_node_run_id, status, priority, context)
+		VALUES ($1, $2, $3, 'queued', 2, '{"phase":"worker"}'::jsonb)
+		RETURNING id
+	`, localAgentID, localRuntimeID, nodeRunID).Scan(&taskID); err != nil {
+		t.Fatalf("setup: create workflow task: %v", err)
+	}
+	if _, err := testPool.Exec(ctx,
+		`UPDATE multica_workflow_node_run SET worker_agent_task_id = $1 WHERE id = $2`,
+		taskID, nodeRunID,
+	); err != nil {
+		t.Fatalf("setup: bind worker task: %v", err)
+	}
+
+	w := httptest.NewRecorder()
+	req := newDaemonTokenRequest("POST", "/api/daemon/runtimes/"+localRuntimeID+"/claim", nil,
+		testWorkspaceID, "legit-daemon")
+	rctx := chi.NewRouteContext()
+	rctx.URLParams.Add("runtimeId", localRuntimeID)
+	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
+
+	testHandler.ClaimTaskByRuntime(w, req)
+	if w.Code != http.StatusInternalServerError {
+		t.Fatalf("ClaimTaskByRuntime (workflow mismatch): expected 500, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var taskStatus, nodeRunStatus string
+	if err := testPool.QueryRow(ctx,
+		`SELECT status FROM multica_agent_task_queue WHERE id = $1`, taskID,
+	).Scan(&taskStatus); err != nil {
+		t.Fatalf("read task status: %v", err)
+	}
+	if err := testPool.QueryRow(ctx,
+		`SELECT status FROM multica_workflow_node_run WHERE id = $1`, nodeRunID,
+	).Scan(&nodeRunStatus); err != nil {
+		t.Fatalf("read node-run status: %v", err)
+	}
+	if taskStatus != "cancelled" {
+		t.Fatalf("ClaimTaskByRuntime (workflow mismatch): expected task status=cancelled, got %q", taskStatus)
+	}
+	if nodeRunStatus != service.NodeRunStatusFailed {
+		t.Fatalf("ClaimTaskByRuntime (workflow mismatch): expected node-run status=failed, got %q", nodeRunStatus)
 	}
 }
 

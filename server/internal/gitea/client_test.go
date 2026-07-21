@@ -228,6 +228,57 @@ func TestClient_SeedMainFile_Body(t *testing.T) {
 	}
 }
 
+func TestClient_UpsertFileUpdatesWhenCreateFindsExisting(t *testing.T) {
+	var requests []recordedReq
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		rec := recordedReq{
+			method:      r.Method,
+			path:        r.URL.Path,
+			auth:        r.Header.Get("Authorization"),
+			contentType: r.Header.Get("Content-Type"),
+		}
+		if r.Body != nil {
+			_ = json.NewDecoder(r.Body).Decode(&rec.body)
+		}
+		requests = append(requests, rec)
+		w.Header().Set("Content-Type", "application/json")
+
+		switch r.Method {
+		case http.MethodPost:
+			w.WriteHeader(http.StatusUnprocessableEntity)
+			w.Write([]byte(`{"message":"repository file already exists"}`))
+		case http.MethodGet:
+			if r.URL.Query().Get("ref") != "node/abcd1234" {
+				t.Errorf("GET ref = %q, want node/abcd1234", r.URL.Query().Get("ref"))
+			}
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte(`{"sha":"existing-sha"}`))
+		case http.MethodPut:
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte(`{}`))
+		default:
+			w.WriteHeader(http.StatusMethodNotAllowed)
+		}
+	}))
+	defer srv.Close()
+	c := NewClient(Config{BaseURL: srv.URL, Token: "admin-tok"})
+	c.httpClient = srv.Client()
+
+	if err := c.UpsertFile(context.Background(), "t-7f3c9a1e", "deliverable-archive", "node/abcd1234", "nodes/abcd1234/doc.md", "# v2\n", "deliverable upload"); err != nil {
+		t.Fatalf("UpsertFile: %v", err)
+	}
+
+	if len(requests) != 3 {
+		t.Fatalf("requests = %d, want POST + GET + PUT: %+v", len(requests), requests)
+	}
+	if requests[0].method != http.MethodPost || requests[1].method != http.MethodGet || requests[2].method != http.MethodPut {
+		t.Fatalf("request methods = %s, %s, %s; want POST, GET, PUT", requests[0].method, requests[1].method, requests[2].method)
+	}
+	if requests[2].body["branch"] != "node/abcd1234" || requests[2].body["sha"] != "existing-sha" || requests[2].body["content"] != "IyB2Mgo=" {
+		t.Fatalf("PUT body = %+v, want branch + sha + base64 content", requests[2].body)
+	}
+}
+
 func TestClient_CreateUserToken(t *testing.T) {
 	var got recordedReq
 	srv := newTestServer(t, http.StatusCreated, `{"sha1":"pat-secret"}`, &got)

@@ -420,12 +420,21 @@ func (s *TaskService) EnqueueTaskForIssue(ctx context.Context, issue db.MulticaI
 }
 
 // resolveRuntimeForAgent returns a runtime_id for the agent. For normal agents
-// the agent's own runtime_id is used. For built-in agents (is_builtin=true,
-// runtime_id=NULL) the function picks the first available runtime in the
-// workspace.
+// the agent's own runtime_id is used only when it belongs to the target
+// workspace. For built-in agents the function picks an available runtime in the
+// workspace when the bound runtime is empty or stale.
 func (s *TaskService) resolveRuntimeForAgent(ctx context.Context, agent db.MulticaAgent, workspaceID pgtype.UUID) (pgtype.UUID, error) {
 	if agent.RuntimeID.Valid {
-		return agent.RuntimeID, nil
+		rt, err := s.Queries.GetAgentRuntime(ctx, agent.RuntimeID)
+		if err == nil && rt.WorkspaceID == workspaceID {
+			return agent.RuntimeID, nil
+		}
+		if !agent.IsBuiltin {
+			if err != nil {
+				return pgtype.UUID{}, fmt.Errorf("get agent runtime: %w", err)
+			}
+			return pgtype.UUID{}, fmt.Errorf("agent runtime belongs to a different workspace")
+		}
 	}
 	if !agent.IsBuiltin {
 		return pgtype.UUID{}, fmt.Errorf("agent has no runtime")

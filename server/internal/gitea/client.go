@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -18,6 +19,12 @@ import (
 
 // ErrNotConfigured is returned when the admin client has no base URL or token.
 var ErrNotConfigured = errors.New("gitea is not configured")
+
+// ErrAlreadyExists is returned when a create operation races with an existing
+// Gitea resource. Callers that are doing get-or-create orchestration can treat
+// it as an idempotent success while still knowing the resource was not newly
+// created.
+var ErrAlreadyExists = errors.New("gitea resource already exists")
 
 // Config configures the admin-token Gitea client used for scaffolding,
 // provisioning, and (in M2) merging. The token is a server-level admin PAT
@@ -135,6 +142,9 @@ func (c *Client) CreateOrg(ctx context.Context, org, description string) error {
 	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
 		return nil
 	}
+	if resp.StatusCode == http.StatusConflict || resp.StatusCode == http.StatusUnprocessableEntity {
+		return ErrAlreadyExists
+	}
 	return decodeError(resp)
 }
 
@@ -173,6 +183,9 @@ func (c *Client) CreateRepo(ctx context.Context, owner, name, description string
 	defer resp.Body.Close()
 	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
 		return nil
+	}
+	if resp.StatusCode == http.StatusConflict || resp.StatusCode == http.StatusUnprocessableEntity {
+		return ErrAlreadyExists
 	}
 	return decodeError(resp)
 }
@@ -249,6 +262,66 @@ func (c *Client) CreateFile(ctx context.Context, owner, repo, branch, path, cont
 }
 
 // ── Branch protection ───────────────────────────────────────────────────────
+
+// UpsertFile commits content on the given branch. It creates the file when
+// absent, and updates the existing file when Gitea reports the path already
+// exists. The update path needs the current blob SHA from the contents API.
+func (c *Client) UpsertFile(ctx context.Context, owner, repo, branch, path, content, message string) error {
+	body := map[string]any{
+		"branch":  branch,
+		"message": message,
+		"content": base64.StdEncoding.EncodeToString([]byte(content)),
+	}
+	apiPath := "/repos/" + owner + "/" + repo + "/contents/" + path
+	resp, err := c.do(ctx, http.MethodPost, apiPath, body)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+		return nil
+	}
+	if resp.StatusCode != http.StatusConflict && resp.StatusCode != http.StatusUnprocessableEntity {
+		return decodeError(resp)
+	}
+	_, _ = io.Copy(io.Discard, resp.Body)
+
+	sha, err := c.getFileSHA(ctx, owner, repo, branch, path)
+	if err != nil {
+		return fmt.Errorf("get existing file sha: %w", err)
+	}
+	body["sha"] = sha
+	updateResp, err := c.do(ctx, http.MethodPut, apiPath, body)
+	if err != nil {
+		return err
+	}
+	defer updateResp.Body.Close()
+	if updateResp.StatusCode >= 200 && updateResp.StatusCode < 300 {
+		return nil
+	}
+	return decodeError(updateResp)
+}
+
+func (c *Client) getFileSHA(ctx context.Context, owner, repo, branch, path string) (string, error) {
+	resp, err := c.do(ctx, http.MethodGet, "/repos/"+owner+"/"+repo+"/contents/"+path+"?ref="+url.QueryEscape(branch), nil)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return "", decodeError(resp)
+	}
+	var out struct {
+		SHA string `json:"sha"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		return "", fmt.Errorf("gitea get file: invalid response: %w", err)
+	}
+	if out.SHA == "" {
+		return "", errors.New("gitea get file: missing sha")
+	}
+	return out.SHA, nil
+}
 
 // ProtectBranch configures branch protection (push blocked; used for main and
 // the inst-* wildcard so daemon pushes go through node branches + PRs only).

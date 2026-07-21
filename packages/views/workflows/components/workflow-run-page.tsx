@@ -172,6 +172,11 @@ export function WorkflowRunPage({ workflowId, runId }: WorkflowRunPageProps) {
     [members],
   );
   const currentMember = members.find((member) => member.user_id === user?.id);
+  const issueId = useMemo(() => {
+    if (!run?.input || typeof run.input !== "object" || Array.isArray(run.input)) return undefined;
+    const value = (run.input as Record<string, unknown>).issue_id;
+    return typeof value === "string" && value ? value : undefined;
+  }, [run?.input]);
   const canManageRoles = Boolean(
     user && run && (
       run.triggered_by_id === user.id ||
@@ -401,6 +406,7 @@ export function WorkflowRunPage({ workflowId, runId }: WorkflowRunPageProps) {
               <NodeRunCard
                 key={nodeRun.id}
                 nodeRun={nodeRun}
+                issueId={issueId}
                 maxRetries={3}
                 workflowId={workflowId}
                 runId={runId}

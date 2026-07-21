@@ -58,9 +58,15 @@ type IssueGiteaDeliverableRef struct {
 // daemon token's bound workspace (queries are workspace-scoped).
 func (h *Handler) HandleGetIssueGiteaDeliverables(w http.ResponseWriter, r *http.Request) {
 	workspaceIDStr := middleware.DaemonWorkspaceIDFromContext(r.Context())
+	if workspaceIDStr == "" {
+		workspaceIDStr = r.Header.Get("X-Workspace-ID")
+	}
+	if !h.requireDaemonWorkspaceAccess(w, r, workspaceIDStr) {
+		return
+	}
 	workspaceID, err := util.ParseUUID(workspaceIDStr)
 	if err != nil {
-		writeError(w, http.StatusUnauthorized, "daemon workspace not resolved")
+		writeError(w, http.StatusBadRequest, "daemon workspace not resolved")
 		return
 	}
 	root, err := h.resolveIssueInWorkspace(r.Context(), workspaceID, chi.URLParam(r, "issue"))

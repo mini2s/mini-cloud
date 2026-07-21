@@ -318,6 +318,51 @@ func TestScaffoldRunDeliverables_ProvisionsBotAndScaffoldsRepo(t *testing.T) {
 	}
 }
 
+func TestScaffoldRunDeliverables_DefaultWorkflowUsesArchiveRepo(t *testing.T) {
+	pool := openTestPool(t)
+	defer pool.Close()
+
+	fix := seedGiteaFixture(t, pool, true /*document deliverable*/, 1 /*one run*/)
+	if _, err := pool.Exec(context.Background(), `UPDATE multica_workflow SET is_default = TRUE WHERE id = $1`, fix.workflow); err != nil {
+		t.Fatalf("mark workflow default: %v", err)
+	}
+	srv, _, _, repoExists, branchExists := fakeGiteaServer(t)
+
+	svc := &WorkflowService{
+		Queries: db.New(pool),
+		Gitea:   gitea.NewClient(gitea.Config{BaseURL: srv.URL, Token: "admin-tok"}),
+	}
+	ctx := context.Background()
+
+	svc.ScaffoldRunDeliverables(ctx, db.MulticaWorkflowRun{
+		ID: fix.run1, WorkflowID: fix.workflow, WorkspaceID: fix.workspace,
+	})
+
+	owner := gitea.OrgName(util.UUIDToString(fix.workspace))
+	archiveRepo := owner + "/" + gitea.DefaultArchiveRepoName()
+	workflowRepo := owner + "/" + gitea.RepoName(util.UUIDToString(fix.workflow))
+	if !repoExists(archiveRepo) {
+		t.Fatalf("default workflow did not scaffold archive repo %q", archiveRepo)
+	}
+	if repoExists(workflowRepo) {
+		t.Fatalf("default workflow scaffolded workflow repo %q, want archive repo only", workflowRepo)
+	}
+	if !branchExists(archiveRepo + "/" + gitea.InstBranch(util.UUIDToString(fix.run1))) {
+		t.Fatalf("default workflow did not create inst branch in archive repo")
+	}
+}
+
+func TestDeliverableRepoNameForWorkflow(t *testing.T) {
+	workflowID, _ := util.ParseUUID("11111111-2222-3333-4444-555555555555")
+
+	if got := DeliverableRepoNameForWorkflow(db.MulticaWorkflow{ID: workflowID, IsDefault: true}); got != "deliverable-archive" {
+		t.Fatalf("default workflow repo = %q, want deliverable-archive", got)
+	}
+	if got := DeliverableRepoNameForWorkflow(db.MulticaWorkflow{ID: workflowID}); got != "wf-11111111" {
+		t.Fatalf("regular workflow repo = %q, want wf-11111111", got)
+	}
+}
+
 // TestScaffoldRunDeliverables_NoOpWhenGiteaNil verifies the dormancy contract:
 // when the service has no Gitea client (tests that bypass the router, or a
 // future "Gitea disabled" deployment), run-start must not touch the network or
@@ -520,6 +565,222 @@ func submissionStatus(t *testing.T, pool *pgxpool.Pool, nodeRunID pgtype.UUID) s
 		t.Fatalf("read submission status: %v", err)
 	}
 	return status
+}
+
+func TestSubmitWorkerOutput_BlocksMissingRequiredPullRequestDeliverable(t *testing.T) {
+	pool := openTestPool(t)
+	defer pool.Close()
+	ctx := context.Background()
+
+	fix := seedGiteaFixture(t, pool, false /*no document deliverable*/, 1 /*one run*/)
+
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO multica_workflow_node_deliverable (workflow_node_id, kind, title, description, required, sort_order)
+		VALUES ($1, 'pull_request', 'Code MR', 'open an MR', TRUE, 0)
+	`, util.UUIDToString(fix.node)); err != nil {
+		t.Fatalf("seed pull_request deliverable: %v", err)
+	}
+
+	var criticID string
+	if err := pool.QueryRow(ctx, `
+		SELECT user_id FROM multica_member WHERE workspace_id = $1 LIMIT 1
+	`, util.UUIDToString(fix.workspace)).Scan(&criticID); err != nil {
+		t.Fatalf("seed critic: %v", err)
+	}
+
+	var nodeRunID string
+	if err := pool.QueryRow(ctx, `
+		INSERT INTO multica_workflow_node_run (workflow_run_id, workflow_node_id, node_title, status, worker_type, critic_type, critic_id)
+		VALUES ($1, $2, 'Code Node', 'working', 'agent', 'human', $3)
+		RETURNING id
+	`, util.UUIDToString(fix.run1), util.UUIDToString(fix.node), criticID).Scan(&nodeRunID); err != nil {
+		t.Fatalf("seed node run: %v", err)
+	}
+	nrID, _ := util.ParseUUID(nodeRunID)
+
+	svc := &WorkflowService{Queries: db.New(pool), TxStarter: pool}
+	err := svc.SubmitWorkerOutput(ctx, nrID, json.RawMessage(`{"output":"opened an MR but forgot to submit it"}`))
+	if err == nil {
+		t.Fatal("SubmitWorkerOutput succeeded without a required pull_request deliverable submission")
+	}
+	if !strings.Contains(err.Error(), "all required deliverables must be submitted") {
+		t.Fatalf("SubmitWorkerOutput error = %q", err)
+	}
+	if got := nodeRunStatus(t, pool, nrID); got != NodeRunStatusWorking {
+		t.Fatalf("node run status = %q, want %q", got, NodeRunStatusWorking)
+	}
+}
+
+func TestHandleWorkflowTaskCompletion_BlocksMissingRequiredPullRequestDeliverable(t *testing.T) {
+	pool := openTestPool(t)
+	defer pool.Close()
+	ctx := context.Background()
+
+	fix := seedGiteaFixture(t, pool, false /*no document deliverable*/, 1 /*one run*/)
+
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO multica_workflow_node_deliverable (workflow_node_id, kind, title, description, required, sort_order)
+		VALUES ($1, 'pull_request', 'Code MR', 'open an MR', TRUE, 0)
+	`, util.UUIDToString(fix.node)); err != nil {
+		t.Fatalf("seed pull_request deliverable: %v", err)
+	}
+
+	var criticID string
+	if err := pool.QueryRow(ctx, `
+		SELECT user_id FROM multica_member WHERE workspace_id = $1 LIMIT 1
+	`, util.UUIDToString(fix.workspace)).Scan(&criticID); err != nil {
+		t.Fatalf("seed critic: %v", err)
+	}
+
+	var nodeRunID string
+	if err := pool.QueryRow(ctx, `
+		INSERT INTO multica_workflow_node_run (workflow_run_id, workflow_node_id, node_title, status, worker_type, critic_type, critic_id)
+		VALUES ($1, $2, 'Code Node', 'working', 'agent', 'human', $3)
+		RETURNING id
+	`, util.UUIDToString(fix.run1), util.UUIDToString(fix.node), criticID).Scan(&nodeRunID); err != nil {
+		t.Fatalf("seed node run: %v", err)
+	}
+	nrID, _ := util.ParseUUID(nodeRunID)
+
+	svc := &WorkflowService{Queries: db.New(pool), TxStarter: pool}
+	err := svc.HandleWorkflowTaskCompletion(ctx, db.MulticaAgentTaskQueue{
+		WorkflowNodeRunID: nrID,
+		Context:           []byte(`{"phase":"worker"}`),
+		Result:            []byte(`{"output":"opened an MR but forgot to submit it"}`),
+	})
+	if err == nil {
+		t.Fatal("HandleWorkflowTaskCompletion succeeded without a required pull_request deliverable submission")
+	}
+	if !strings.Contains(err.Error(), "all required deliverables must be submitted") {
+		t.Fatalf("HandleWorkflowTaskCompletion error = %q", err)
+	}
+	if got := nodeRunStatus(t, pool, nrID); got != NodeRunStatusWorking {
+		t.Fatalf("node run status = %q, want %q", got, NodeRunStatusWorking)
+	}
+}
+
+func TestHandleWorkflowTaskCompletion_AutoSubmitsSinglePullRequestURL(t *testing.T) {
+	pool := openTestPool(t)
+	defer pool.Close()
+	ctx := context.Background()
+
+	fix := seedGiteaFixture(t, pool, false /*no document deliverable*/, 1 /*one run*/)
+
+	var deliverableID string
+	if err := pool.QueryRow(ctx, `
+		INSERT INTO multica_workflow_node_deliverable (workflow_node_id, kind, title, description, required, sort_order)
+		VALUES ($1, 'pull_request', 'Code MR', 'open an MR', TRUE, 0)
+		RETURNING id
+	`, util.UUIDToString(fix.node)).Scan(&deliverableID); err != nil {
+		t.Fatalf("seed pull_request deliverable: %v", err)
+	}
+
+	var criticID string
+	if err := pool.QueryRow(ctx, `
+		SELECT user_id FROM multica_member WHERE workspace_id = $1 LIMIT 1
+	`, util.UUIDToString(fix.workspace)).Scan(&criticID); err != nil {
+		t.Fatalf("seed critic: %v", err)
+	}
+
+	var nodeRunID string
+	if err := pool.QueryRow(ctx, `
+		INSERT INTO multica_workflow_node_run (workflow_run_id, workflow_node_id, node_title, status, worker_type, critic_type, critic_id)
+		VALUES ($1, $2, 'Code Node', 'working', 'agent', 'human', $3)
+		RETURNING id
+	`, util.UUIDToString(fix.run1), util.UUIDToString(fix.node), criticID).Scan(&nodeRunID); err != nil {
+		t.Fatalf("seed node run: %v", err)
+	}
+	nrID, _ := util.ParseUUID(nodeRunID)
+
+	mrURL := "http://gitlab.local/root/repo/-/merge_requests/7"
+	svc := &WorkflowService{Queries: db.New(pool), TxStarter: pool}
+	err := svc.HandleWorkflowTaskCompletion(ctx, db.MulticaAgentTaskQueue{
+		WorkflowNodeRunID: nrID,
+		Context:           []byte(`{"phase":"worker"}`),
+		Result:            []byte(`{"output":"Opened MR: http://gitlab.local/root/repo/-/merge_requests/7"}`),
+	})
+	if err != nil {
+		t.Fatalf("HandleWorkflowTaskCompletion: %v", err)
+	}
+	if got := nodeRunStatus(t, pool, nrID); got != NodeRunStatusCriticReviewing {
+		t.Fatalf("node run status = %q, want %q", got, NodeRunStatusCriticReviewing)
+	}
+
+	var status, prURL string
+	if err := pool.QueryRow(ctx, `
+		SELECT status, pull_request_url
+		FROM multica_workflow_node_deliverable_submission
+		WHERE workflow_node_run_id = $1 AND deliverable_id = $2
+	`, nodeRunID, deliverableID).Scan(&status, &prURL); err != nil {
+		t.Fatalf("read submission: %v", err)
+	}
+	if status != "submitted" || prURL != mrURL {
+		t.Fatalf("submission = status %q url %q, want submitted %q", status, prURL, mrURL)
+	}
+}
+
+func TestHandleWorkflowTaskCompletion_CriticOutputFallsBackToReviewComment(t *testing.T) {
+	pool := openTestPool(t)
+	defer pool.Close()
+
+	fix := seedGiteaFixture(t, pool, false /*no document deliverable*/, 1 /*single run*/)
+	ctx := context.Background()
+
+	var nodeRunID string
+	if err := pool.QueryRow(ctx, `
+		INSERT INTO multica_workflow_node_run (
+			workflow_run_id, workflow_node_id, node_title, status, worker_type, critic_type
+		)
+		VALUES ($1, $2, 'Doc Node', $3, 'agent', 'agent')
+		RETURNING id
+	`, util.UUIDToString(fix.run1), util.UUIDToString(fix.node), NodeRunStatusCriticReviewing).Scan(&nodeRunID); err != nil {
+		t.Fatalf("seed node run: %v", err)
+	}
+
+	contextJSON, _ := json.Marshal(map[string]any{"phase": "critic"})
+	result := json.RawMessage(`{"output":"Looks good from the automated critic."}`)
+	svc := &WorkflowService{
+		Queries:   db.New(pool),
+		TxStarter: pool,
+		Bus:       events.New(),
+		Gitea:     nil,
+	}
+	nrID, _ := util.ParseUUID(nodeRunID)
+	err := svc.HandleWorkflowTaskCompletion(ctx, db.MulticaAgentTaskQueue{
+		WorkflowNodeRunID: nrID,
+		Context:           contextJSON,
+		Result:            result,
+	})
+	if err != nil {
+		t.Fatalf("HandleWorkflowTaskCompletion: %v", err)
+	}
+
+	var status, comment string
+	if err := pool.QueryRow(ctx, `
+		SELECT status, critic_comment
+		FROM multica_workflow_node_run
+		WHERE id = $1
+	`, nodeRunID).Scan(&status, &comment); err != nil {
+		t.Fatalf("read node run: %v", err)
+	}
+	if status != NodeRunStatusCompleted {
+		t.Fatalf("node run status = %q, want %q", status, NodeRunStatusCompleted)
+	}
+	if comment != "Looks good from the automated critic." {
+		t.Fatalf("critic_comment = %q", comment)
+	}
+}
+
+func TestNormalizeAgentCriticCommentPrefixesUnstructuredOutput(t *testing.T) {
+	if got := normalizeAgentCriticComment(true, "The document exists and the PR is ready."); got != "Approved: The document exists and the PR is ready." {
+		t.Fatalf("approved comment = %q", got)
+	}
+	if got := normalizeAgentCriticComment(false, "Missing required evidence."); got != "Rejected: Missing required evidence." {
+		t.Fatalf("rejected comment = %q", got)
+	}
+	if got := normalizeAgentCriticComment(true, "Approved: looks good"); got != "Approved: looks good" {
+		t.Fatalf("already-prefixed comment = %q", got)
+	}
 }
 
 // TestReviewNodeRun_MergesDocumentDeliverablePRs is the M2 capstone behavior:

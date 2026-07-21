@@ -2,8 +2,10 @@ package gitea
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 )
@@ -112,6 +114,43 @@ func TestClient_OpenPR(t *testing.T) {
 	}
 	if got.body["head"] != "node/aaa" || got.body["base"] != "inst-bbb" {
 		t.Errorf("body = %v, want head=node/aaa base=inst-bbb", got.body)
+	}
+}
+
+func TestClient_OpenPR_ReusesExistingPRForSameHeadAndBase(t *testing.T) {
+	var methods []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		methods = append(methods, r.Method+" "+r.URL.Path)
+		w.Header().Set("Content-Type", "application/json")
+		switch r.Method {
+		case http.MethodPost:
+			w.WriteHeader(http.StatusConflict)
+			w.Write([]byte(`{"message":"pull request already exists for these targets"}`))
+		case http.MethodGet:
+			_ = json.NewEncoder(w).Encode([]map[string]any{
+				{
+					"html_url": "http://gitea.local/t-x/wf-y/pulls/7",
+					"head":     map[string]any{"ref": "node/aaa"},
+					"base":     map[string]any{"ref": "inst-bbb"},
+				},
+			})
+		default:
+			w.WriteHeader(http.StatusMethodNotAllowed)
+		}
+	}))
+	defer srv.Close()
+	c := NewClient(Config{BaseURL: srv.URL, Token: "admin-tok"})
+	c.httpClient = srv.Client()
+
+	url, err := c.OpenPR(context.Background(), "t-x", "wf-y", "node/aaa", "inst-bbb", "doc deliverable")
+	if err != nil {
+		t.Fatalf("OpenPR duplicate: %v", err)
+	}
+	if url != "http://gitea.local/t-x/wf-y/pulls/7" {
+		t.Fatalf("html_url = %q, want existing PR URL", url)
+	}
+	if len(methods) != 2 || methods[0] != "POST /api/v1/repos/t-x/wf-y/pulls" || methods[1] != "GET /api/v1/repos/t-x/wf-y/pulls" {
+		t.Fatalf("methods = %+v, want POST then GET pulls", methods)
 	}
 }
 

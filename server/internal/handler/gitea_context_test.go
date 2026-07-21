@@ -93,6 +93,39 @@ func TestBuildGiteaDeliverableContext_Configured(t *testing.T) {
 	}
 }
 
+func TestBuildGiteaDeliverableContext_DefaultWorkflowUsesArchiveRepo(t *testing.T) {
+	if testHandler == nil {
+		t.Skip("database not available")
+	}
+	t.Setenv("GITEA_BASE_URL", "https://gitea.test")
+	t.Setenv("GITEA_ADMIN_TOKEN", "admin-tok")
+
+	ctx := context.Background()
+	nodeRunID, _ := seedDeliverableAndNodeRunIn(t, testWorkspaceID, testUserID)
+	if _, err := testPool.Exec(ctx, `
+		UPDATE multica_workflow
+		SET is_default = TRUE
+		WHERE id = (
+			SELECT wr.workflow_id
+			FROM multica_workflow_run wr
+			JOIN multica_workflow_node_run nr ON nr.workflow_run_id = wr.id
+			WHERE nr.id = $1
+		)`, nodeRunID); err != nil {
+		t.Fatalf("mark workflow default: %v", err)
+	}
+
+	got := testHandler.buildGiteaDeliverableContext(ctx, dbTaskWithNodeRun(t, nodeRunID))
+	if got == nil {
+		t.Fatal("expected non-nil context")
+	}
+	if got.Repo != "deliverable-archive" {
+		t.Fatalf("Repo = %q, want deliverable-archive", got.Repo)
+	}
+	if !strings.Contains(got.CloneURL, "/deliverable-archive.git") {
+		t.Fatalf("CloneURL = %q, want archive repo clone URL", got.CloneURL)
+	}
+}
+
 // TestBuildGiteaDeliverableContext_Dormant asserts nil when Gitea is
 // unconfigured, and also when Gitea IS configured but the task has no
 // workflow node-run — proving dormancy isn't only the !isGiteaConfigured() arm.

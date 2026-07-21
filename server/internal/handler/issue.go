@@ -16,6 +16,7 @@ import (
 	"unicode"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/multica-ai/multica/server/internal/analytics"
 	"github.com/multica-ai/multica/server/internal/issueguard"
@@ -3304,6 +3305,7 @@ func (h *Handler) createWorkflowSubIssue(
 	}
 
 	subTitle := fmt.Sprintf("%s — %s", parentIssue.Title, node.Title)
+	description := service.BuildWorkflowWorkerSubIssueDescription(parentIssue, node)
 
 	var assigneeType pgtype.Text
 	var assigneeID pgtype.UUID
@@ -3322,7 +3324,7 @@ func (h *Handler) createWorkflowSubIssue(
 	return qtx.CreateIssueWithOrigin(ctx, db.CreateIssueWithOriginParams{
 		WorkspaceID:   wsUUID,
 		Title:         subTitle,
-		Description:   parentIssue.Description,
+		Description:   pgtype.Text{String: description, Valid: description != ""},
 		Status:        "todo",
 		Priority:      parentIssue.Priority,
 		AssigneeType:  assigneeType,
@@ -3457,6 +3459,10 @@ func (h *Handler) injectDownstreamContext(ctx context.Context, run db.MulticaWor
 // handleWorkflowRunTerminal auto-completes or leaves the parent issue when a
 // workflow run reaches a terminal state.
 func (h *Handler) handleWorkflowRunTerminal(ctx context.Context, run db.MulticaWorkflowRun, status string) {
+	if status != service.RunStatusCompleted {
+		return
+	}
+
 	// Find the parent issue by scanning for a sub-issue whose parent has this
 	// workflow run. We look up the sub-issue via origin, then follow parent_issue_id.
 	nodeRuns, err := h.Queries.ListWorkflowNodeRunsByRun(ctx, run.ID)
@@ -3471,10 +3477,28 @@ func (h *Handler) handleWorkflowRunTerminal(ctx context.Context, run db.MulticaW
 		OriginID:    nodeRuns[0].ID,
 	})
 	if err != nil || !subIssue.ParentIssueID.Valid {
+		directIssue, directErr := h.Queries.GetDirectIssueByWorkflowRun(ctx, db.GetDirectIssueByWorkflowRunParams{
+			WorkspaceID:   run.WorkspaceID,
+			WorkflowRunID: run.ID,
+		})
+		if directErr != nil {
+			if !errors.Is(directErr, pgx.ErrNoRows) {
+				slog.Warn("handleWorkflowRunTerminal: failed to find direct issue", "workflow_run_id", uuidToString(run.ID), "error", directErr)
+			}
+			return
+		}
+
+		_, directErr = h.Queries.UpdateIssueStatus(ctx, db.UpdateIssueStatusParams{
+			ID:          directIssue.ID,
+			Status:      "done",
+			WorkspaceID: directIssue.WorkspaceID,
+		})
+		if directErr != nil {
+			slog.Warn("handleWorkflowRunTerminal: failed to complete direct issue", "issue_id", uuidToString(directIssue.ID), "error", directErr)
+		}
 		return
 	}
-
-	if status == service.RunStatusCompleted {
+	if err == nil && subIssue.ParentIssueID.Valid {
 		_, err = h.Queries.UpdateIssueStatus(ctx, db.UpdateIssueStatusParams{
 			ID:          subIssue.ParentIssueID,
 			Status:      "done",
@@ -3483,6 +3507,7 @@ func (h *Handler) handleWorkflowRunTerminal(ctx context.Context, run db.MulticaW
 		if err != nil {
 			slog.Warn("handleWorkflowRunTerminal: failed to complete parent issue", "parent_issue_id", uuidToString(subIssue.ParentIssueID), "error", err)
 		}
+		return
 	}
 	// For failed/cancelled, leave the parent issue in its current status —
 	// the user should decide what to do.

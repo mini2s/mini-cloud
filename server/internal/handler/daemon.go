@@ -1626,9 +1626,16 @@ func (h *Handler) ClaimTaskByRuntime(w http.ResponseWriter, r *http.Request) {
 			"has_autopilot_run", task.AutopilotRunID.Valid,
 			"has_quick_create", hasQuickCreate,
 		)
-		if _, cerr := h.TaskService.CancelTask(r.Context(), task.ID); cerr != nil {
+		if cancelled, cerr := h.TaskService.CancelTask(r.Context(), task.ID); cerr != nil {
 			slog.Error("task claim: cancel after workspace check failed",
 				"task_id", uuidToString(task.ID), "error", cerr)
+		} else if cancelled != nil && cancelled.WorkflowNodeRunID.Valid && h.WorkflowService != nil {
+			if ferr := h.WorkflowService.HandleWorkflowTaskFailure(r.Context(), *cancelled); ferr != nil {
+				slog.Error("task claim: fail workflow node after workspace check failed",
+					"task_id", uuidToString(task.ID),
+					"node_run_id", uuidToString(cancelled.WorkflowNodeRunID),
+					"error", ferr)
+			}
 		}
 		writeError(w, http.StatusInternalServerError, "task workspace isolation check failed")
 		return
@@ -1830,6 +1837,10 @@ func (h *Handler) giteaContextForNodeRun(ctx context.Context, nodeRunID pgtype.U
 	if err != nil {
 		return nil
 	}
+	workflow, err := h.Queries.GetWorkflow(ctx, run.WorkflowID)
+	if err != nil {
+		return nil
+	}
 	deliverables, err := h.Queries.ListWorkflowNodeDeliverables(ctx, nr.WorkflowNodeID)
 	if err != nil {
 		return nil
@@ -1850,7 +1861,7 @@ func (h *Handler) giteaContextForNodeRun(ctx context.Context, nodeRunID pgtype.U
 		return nil
 	}
 	owner := gitea.OrgName(util.UUIDToString(run.WorkspaceID))
-	repo := gitea.RepoName(util.UUIDToString(run.WorkflowID))
+	repo := service.DeliverableRepoNameForWorkflow(workflow)
 	return &GiteaDeliverableContext{
 		Owner:        owner,
 		Repo:         repo,

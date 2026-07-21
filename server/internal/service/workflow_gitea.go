@@ -36,6 +36,24 @@ func (s *WorkflowService) hasDocumentDeliverable(ctx context.Context, workflowID
 	return false, nil
 }
 
+func DeliverableRepoNameForWorkflow(workflow db.MulticaWorkflow) string {
+	if workflow.IsDefault {
+		return gitea.DefaultArchiveRepoName()
+	}
+	return gitea.RepoName(util.UUIDToString(workflow.ID))
+}
+
+func deliverableScaffoldParams(run db.MulticaWorkflowRun, workflow db.MulticaWorkflow) gitea.ScaffoldParams {
+	return gitea.ScaffoldParams{
+		WorkspaceID:   util.UUIDToString(run.WorkspaceID),
+		WorkflowID:    util.UUIDToString(workflow.ID),
+		RepoName:      DeliverableRepoNameForWorkflow(workflow),
+		RunID:         util.UUIDToString(run.ID),
+		WorkflowTitle: workflow.Title,
+		// DefinitionSnapshot left empty for M2 (DB is source of truth).
+	}
+}
+
 // ScaffoldRunDeliverables scaffolds the run's deliverable org/repo/inst branch
 // and (once per workspace) provisions the Gitea bot. Idempotent + retry-safe.
 // Called after StartRun commits, ONLY when the workflow has a document
@@ -88,13 +106,7 @@ func (s *WorkflowService) ScaffoldRunDeliverables(ctx context.Context, run db.Mu
 	}
 
 	// 1. Scaffold org/repo/inst (creates the org).
-	if _, err := gitea.ScaffoldRunDeliverable(ctx, s.Gitea, gitea.ScaffoldParams{
-		WorkspaceID:   util.UUIDToString(run.WorkspaceID),
-		WorkflowID:    util.UUIDToString(workflow.ID),
-		RunID:         runIDStr,
-		WorkflowTitle: workflow.Title,
-		// DefinitionSnapshot left empty for M2 (DB is source of truth).
-	}); err != nil {
+	if _, err := gitea.ScaffoldRunDeliverable(ctx, s.Gitea, deliverableScaffoldParams(run, workflow)); err != nil {
 		slog.Error("gitea scaffold failed", "run_id", runIDStr, "error", err)
 		s.failRun(ctx, run)
 		return
@@ -146,17 +158,12 @@ func (s *WorkflowService) ensureNodeRunBranch(ctx context.Context, nodeRun db.Mu
 		return fmt.Errorf("get workflow: %w", err)
 	}
 
-	if _, err := gitea.ScaffoldRunDeliverable(ctx, s.Gitea, gitea.ScaffoldParams{
-		WorkspaceID:   util.UUIDToString(run.WorkspaceID),
-		WorkflowID:    util.UUIDToString(workflow.ID),
-		RunID:         util.UUIDToString(run.ID),
-		WorkflowTitle: workflow.Title,
-	}); err != nil {
+	if _, err := gitea.ScaffoldRunDeliverable(ctx, s.Gitea, deliverableScaffoldParams(run, workflow)); err != nil {
 		return fmt.Errorf("scaffold run deliverable: %w", err)
 	}
 
 	owner := gitea.OrgName(util.UUIDToString(run.WorkspaceID))
-	repo := gitea.RepoName(util.UUIDToString(run.WorkflowID))
+	repo := DeliverableRepoNameForWorkflow(workflow)
 	inst := gitea.InstBranch(util.UUIDToString(run.ID))
 	nodeBranch := gitea.NodeBranch(util.UUIDToString(nodeRun.ID))
 	if err := s.Gitea.CreateBranch(ctx, owner, repo, nodeBranch, inst); err != nil {
@@ -409,13 +416,18 @@ func (s *WorkflowService) ArchiveReviewComment(ctx context.Context, nodeRun db.M
 		slog.Warn("archive review comment: get run", "error", err)
 		return
 	}
+	workflow, err := s.Queries.GetWorkflow(ctx, run.WorkflowID)
+	if err != nil {
+		slog.Warn("archive review comment: get workflow", "error", err)
+		return
+	}
 	owner := gitea.OrgName(util.UUIDToString(run.WorkspaceID))
-	repo := gitea.RepoName(util.UUIDToString(run.WorkflowID))
+	repo := DeliverableRepoNameForWorkflow(workflow)
 	inst := gitea.InstBranch(util.UUIDToString(run.ID))
 	nrShort := shortHexSafe(util.UUIDToString(nodeRun.ID))
 	path := "reviews/" + nrShort + "/review.md"
 	content := fmt.Sprintf("# Review: %s\n\n**Decision:** %s\n\n**Comment:**\n\n%s\n", decision, decision, comment)
-	if err := s.Gitea.CreateFile(ctx, owner, repo, inst, path, content, "review: "+decision); err != nil {
+	if err := s.Gitea.UpsertFile(ctx, owner, repo, inst, path, content, "review: "+decision); err != nil {
 		slog.Warn("archive review comment: create file", "node_run_id", nrShort, "error", err)
 		return
 	}
@@ -442,8 +454,12 @@ func (s *WorkflowService) mergeDocumentDeliverables(ctx context.Context, nodeRun
 	if err != nil {
 		return fmt.Errorf("get run: %w", err)
 	}
+	workflow, err := s.Queries.GetWorkflow(ctx, run.WorkflowID)
+	if err != nil {
+		return fmt.Errorf("get workflow: %w", err)
+	}
 	owner := gitea.OrgName(util.UUIDToString(run.WorkspaceID))
-	repo := gitea.RepoName(util.UUIDToString(run.WorkflowID))
+	repo := DeliverableRepoNameForWorkflow(workflow)
 
 	deliverables, err := s.Queries.ListWorkflowNodeDeliverables(ctx, nodeRun.WorkflowNodeID)
 	if err != nil {
@@ -559,6 +575,10 @@ func (s *WorkflowService) UploadMemberDeliverable(ctx context.Context, issue db.
 	if err != nil {
 		return fmt.Errorf("get run: %w", err)
 	}
+	workflow, err := s.Queries.GetWorkflow(ctx, run.WorkflowID)
+	if err != nil {
+		return fmt.Errorf("get workflow: %w", err)
+	}
 	nodeRuns, err := s.Queries.ListWorkflowNodeRunsByRun(ctx, run.ID)
 	if err != nil {
 		return fmt.Errorf("list node runs: %w", err)
@@ -584,7 +604,7 @@ func (s *WorkflowService) UploadMemberDeliverable(ctx context.Context, issue db.
 	}
 
 	owner := gitea.OrgName(util.UUIDToString(run.WorkspaceID))
-	repo := gitea.RepoName(util.UUIDToString(run.WorkflowID))
+	repo := DeliverableRepoNameForWorkflow(workflow)
 	inst := gitea.InstBranch(util.UUIDToString(run.ID))
 	nodeBranch := gitea.NodeBranch(util.UUIDToString(nodeRun.ID))
 	path := gitea.DeliverablePath(util.UUIDToString(nodeRun.ID), util.UUIDToString(deliverableID))
@@ -594,7 +614,7 @@ func (s *WorkflowService) UploadMemberDeliverable(ctx context.Context, issue db.
 	if err := s.Gitea.CreateBranch(ctx, owner, repo, nodeBranch, inst); err != nil {
 		return fmt.Errorf("create node branch: %w", err)
 	}
-	if err := s.Gitea.CreateFile(ctx, owner, repo, nodeBranch, path, content, "deliverable upload"); err != nil {
+	if err := s.Gitea.UpsertFile(ctx, owner, repo, nodeBranch, path, content, "deliverable upload"); err != nil {
 		return fmt.Errorf("write deliverable file: %w", err)
 	}
 	prURL, err := s.Gitea.OpenPR(ctx, owner, repo, nodeBranch, inst,

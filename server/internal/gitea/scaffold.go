@@ -2,6 +2,7 @@ package gitea
 
 import (
 	"context"
+	"errors"
 	"fmt"
 )
 
@@ -23,8 +24,8 @@ type scaffoldAPI interface {
 var _ scaffoldAPI = (*Client)(nil)
 
 // ScaffoldOrg creates the team-namespace Gitea org for a workspace if it
-// doesn't exist yet. Idempotent (GetOrg → CreateOrg). Called on workspace
-// creation so the org is ready before any workflow runs — not lazily on the
+// doesn't exist yet. Idempotent (GetOrg then CreateOrg). Called on workspace
+// creation so the org is ready before any workflow runs, not lazily on the
 // first document-run scaffold.
 func ScaffoldOrg(ctx context.Context, c scaffoldAPI, workspaceID, displayName string) error {
 	owner := OrgName(workspaceID)
@@ -36,7 +37,9 @@ func ScaffoldOrg(ctx context.Context, c scaffoldAPI, workspaceID, displayName st
 		return nil
 	}
 	if err := c.CreateOrg(ctx, owner, displayName); err != nil {
-		return fmt.Errorf("create gitea org %s: %w", owner, err)
+		if !errors.Is(err, ErrAlreadyExists) {
+			return fmt.Errorf("create gitea org %s: %w", owner, err)
+		}
 	}
 	return nil
 }
@@ -54,7 +57,9 @@ func ScaffoldWorkspaceArchiveRepo(ctx context.Context, c scaffoldAPI, workspaceI
 	}
 	if !orgExists {
 		if err := c.CreateOrg(ctx, owner, displayName); err != nil {
-			return fmt.Errorf("create org: %w", err)
+			if !errors.Is(err, ErrAlreadyExists) {
+				return fmt.Errorf("create org: %w", err)
+			}
 		}
 	}
 
@@ -62,32 +67,36 @@ func ScaffoldWorkspaceArchiveRepo(ctx context.Context, c scaffoldAPI, workspaceI
 	if err != nil {
 		return fmt.Errorf("get repo: %w", err)
 	}
-	if repoExists {
-		return nil
-	}
-	if err := c.CreateRepo(ctx, owner, repo, displayName+" deliverable archive"); err != nil {
-		return fmt.Errorf("create repo: %w", err)
+	if !repoExists {
+		if err := c.CreateRepo(ctx, owner, repo, displayName+" deliverable archive"); err != nil {
+			if !errors.Is(err, ErrAlreadyExists) {
+				return fmt.Errorf("create repo: %w", err)
+			}
+		}
 	}
 	_ = c.ProtectBranch(ctx, owner, repo, "main")
+	_ = c.ProtectBranch(ctx, owner, repo, "inst-*")
 	return nil
 }
 
 // ScaffoldWorkflowRepo creates the workflow's type repo (wf-<wf[:8]>) under the
-// workspace org, with main branch protection. No inst branch (that's per-run).
-// Called on workflow activation so the repo exists before the first run. Org +
-// repo are idempotent.
+// workspace org and ensures main + inst-* branch protections. No concrete inst
+// branch is created here (that's per-run). Called on workflow activation so the
+// repo exists before the first run. Org + repo are idempotent.
 func ScaffoldWorkflowRepo(ctx context.Context, c scaffoldAPI, workspaceID, workflowID, workflowTitle string) error {
 	owner := OrgName(workspaceID)
 	repo := RepoName(workflowID)
 
-	// Org (idempotent — may already exist from workspace creation).
+	// Org (idempotent, may already exist from workspace creation).
 	orgExists, err := c.GetOrg(ctx, owner)
 	if err != nil {
 		return fmt.Errorf("get org: %w", err)
 	}
 	if !orgExists {
 		if err := c.CreateOrg(ctx, owner, workflowTitle); err != nil {
-			return fmt.Errorf("create org: %w", err)
+			if !errors.Is(err, ErrAlreadyExists) {
+				return fmt.Errorf("create org: %w", err)
+			}
 		}
 	}
 
@@ -96,13 +105,15 @@ func ScaffoldWorkflowRepo(ctx context.Context, c scaffoldAPI, workspaceID, workf
 	if err != nil {
 		return fmt.Errorf("get repo: %w", err)
 	}
-	if repoExists {
-		return nil
-	}
-	if err := c.CreateRepo(ctx, owner, repo, workflowTitle); err != nil {
-		return fmt.Errorf("create repo: %w", err)
+	if !repoExists {
+		if err := c.CreateRepo(ctx, owner, repo, workflowTitle); err != nil {
+			if !errors.Is(err, ErrAlreadyExists) {
+				return fmt.Errorf("create repo: %w", err)
+			}
+		}
 	}
 	_ = c.ProtectBranch(ctx, owner, repo, "main")
+	_ = c.ProtectBranch(ctx, owner, repo, "inst-*")
 	return nil
 }
 
@@ -110,6 +121,7 @@ func ScaffoldWorkflowRepo(ctx context.Context, c scaffoldAPI, workspaceID, workf
 type ScaffoldParams struct {
 	WorkspaceID        string
 	WorkflowID         string
+	RepoName           string // optional override; default is RepoName(WorkflowID)
 	RunID              string
 	WorkflowTitle      string // human-readable; written to org/repo description
 	DefinitionSnapshot string // workflow definition text; seeded onto main (readable, not drift-checked)
@@ -119,24 +131,26 @@ type ScaffoldParams struct {
 // URLs from the configured base URL + these).
 type ScaffoldResult struct {
 	Owner      string // t-<ws[:8]>
-	Repo       string // wf-<wf[:8]>
+	Repo       string // wf-<wf[:8]> or an explicit archive repo override
 	InstBranch string // inst-<run[:8]>
 }
 
 // ScaffoldRunDeliverable get-or-creates, idempotently: the workspace org, the
-// workflow repo (with main auto-initialized), branch protection on main, and
-// the run's inst branch (based off main). Safe to retry on transient failure.
+// workflow repo (with main auto-initialized), branch protection on main + inst-*,
+// and the run's inst branch (based off main). Safe to retry on transient failure.
 //
 // Partial-failure caveat: the org and inst branch are re-verified on every
-// call, but the repo's seed-file and branch protection are applied ONLY at
-// first repo creation. If CreateRepo succeeds and a later step (seed or
-// protection) fails, a retry sees the repo as existing and will NOT re-seed
-// main or re-apply protection. This is acceptable: the DB is the source of
-// truth (the seeded definition.yaml is human-readable only, no drift check)
-// and M2 PR-gating — not branch protection — is the load-bearing write gate.
+// call, and branch protections are re-ensured on every call. The repo's seed
+// file is applied only at first repo creation. If CreateRepo succeeds and
+// seeding fails, a retry sees the repo as existing and will not re-seed main.
+// This is acceptable: the DB is the source of truth (the seeded definition.yaml
+// is human-readable only, no drift check).
 func ScaffoldRunDeliverable(ctx context.Context, c scaffoldAPI, p ScaffoldParams) (*ScaffoldResult, error) {
 	owner := OrgName(p.WorkspaceID)
 	repo := RepoName(p.WorkflowID)
+	if p.RepoName != "" {
+		repo = p.RepoName
+	}
 	inst := InstBranch(p.RunID)
 
 	// 1. Org (lazy, idempotent).
@@ -146,7 +160,9 @@ func ScaffoldRunDeliverable(ctx context.Context, c scaffoldAPI, p ScaffoldParams
 	}
 	if !exists {
 		if err := c.CreateOrg(ctx, owner, p.WorkflowTitle); err != nil {
-			return nil, fmt.Errorf("create gitea org: %w", err)
+			if !errors.Is(err, ErrAlreadyExists) {
+				return nil, fmt.Errorf("create gitea org: %w", err)
+			}
 		}
 	}
 
@@ -155,22 +171,27 @@ func ScaffoldRunDeliverable(ctx context.Context, c scaffoldAPI, p ScaffoldParams
 	if err != nil {
 		return nil, fmt.Errorf("get gitea repo: %w", err)
 	}
+	repoCreated := false
+	repoReady := repoExists
 	if !repoExists {
 		if err := c.CreateRepo(ctx, owner, repo, p.WorkflowTitle); err != nil {
-			return nil, fmt.Errorf("create gitea repo: %w", err)
-		}
-		if p.DefinitionSnapshot != "" {
-			if err := c.CreateFile(ctx, owner, repo, "main", "definition.yaml", p.DefinitionSnapshot, "seed workflow definition"); err != nil {
-				return nil, fmt.Errorf("seed gitea main: %w", err)
+			if !errors.Is(err, ErrAlreadyExists) {
+				return nil, fmt.Errorf("create gitea repo: %w", err)
 			}
+			repoReady = true
+		} else {
+			repoCreated = true
+			repoReady = true
 		}
-		// Best-effort: branch protection is defense-in-depth, NOT load-bearing.
-		// M2 gates all daemon writes through node branches + PRs regardless, so
-		// a protection failure here only means main could (in principle) be
-		// pushed to directly — which M2's flow already prevents. The error is
-		// intentionally ignored (this package has no logger); M2's caller can
-		// surface protection failures if it ever needs to.
+	}
+	if repoCreated && p.DefinitionSnapshot != "" {
+		if err := c.CreateFile(ctx, owner, repo, "main", "definition.yaml", p.DefinitionSnapshot, "seed workflow definition"); err != nil {
+			return nil, fmt.Errorf("seed gitea main: %w", err)
+		}
+	}
+	if repoReady {
 		_ = c.ProtectBranch(ctx, owner, repo, "main")
+		_ = c.ProtectBranch(ctx, owner, repo, "inst-*")
 	}
 
 	// 3. Inst branch (per run, idempotent GET-then-POST). Base = main.

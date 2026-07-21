@@ -9,6 +9,9 @@ const mockSetOpen = vi.fn();
 const mockIsEmbeddedInCostrict = vi.fn(() => false);
 const mockPostCostrictNavigateToSession = vi.fn();
 const mockListTaskMessages = vi.fn();
+const mockReviewNodeRun = vi.fn();
+const mockReviewNodeRunDeliverable = vi.fn();
+const mockInvalidateQueries = vi.fn();
 let mockChatSessions = [
   {
     id: "11111111-1111-1111-1111-111111111111",
@@ -33,6 +36,17 @@ vi.mock("@tanstack/react-query", () => ({
     }
     return { data: mockChatSessions };
   },
+  useQueryClient: () => ({
+    invalidateQueries: mockInvalidateQueries,
+  }),
+  useMutation: (opts: { mutationFn: (vars: unknown) => Promise<unknown>; onSuccess?: () => Promise<void> | void }) => ({
+    mutate: (vars: unknown) => {
+      void opts.mutationFn(vars).then(() => opts.onSuccess?.());
+    },
+    isPending: false,
+    isError: false,
+    error: null,
+  }),
 }));
 
 const mockDeliverableSubmissions = [
@@ -59,6 +73,11 @@ vi.mock("@multica/core/chat/queries", () => ({
 }));
 
 vi.mock("@multica/core/workflows/queries", () => ({
+  workflowKeys: {
+    nodeRunDeliverables: (nodeRunId: string) => ["workflows", "node-runs", nodeRunId, "deliverables"],
+    nodeRuns: (wsId: string, workflowId: string, runId: string) => ["workflows", wsId, workflowId, runId, "node-runs"],
+    runCanvasSummary: (wsId: string, workflowId: string, runId: string) => ["workflows", wsId, workflowId, runId, "canvas-summary"],
+  },
   nodeRunDeliverableSubmissionsOptions: (_wsId: string, nodeRunId: string) => ({
     queryKey: ["workflows", "node-runs", nodeRunId, "deliverables"],
     queryFn: () => [],
@@ -81,6 +100,10 @@ vi.mock("@multica/core/platform", () => ({
 vi.mock("@multica/core/api", () => ({
   api: {
     listTaskMessages: (taskId: string) => mockListTaskMessages(taskId),
+    reviewNodeRun: (nodeRunId: string, approved: boolean, comment?: string) =>
+      mockReviewNodeRun(nodeRunId, approved, comment),
+    reviewNodeRunDeliverable: (nodeRunId: string, submissionId: string, body: unknown) =>
+      mockReviewNodeRunDeliverable(nodeRunId, submissionId, body),
   },
 }));
 
@@ -125,6 +148,12 @@ vi.mock("@multica/views/i18n", () => ({
             },
           },
           execution: {
+            card: {
+              actions: {
+                approve: "Approve",
+                reject: "Reject",
+              },
+            },
             display_status: {
               pending: "Pending",
               todo: "Todo",
@@ -270,6 +299,9 @@ describe("ExecutionDetailPanel", () => {
         created_at: "2026-06-25T10:01:00Z",
       },
     ]);
+    mockReviewNodeRun.mockResolvedValue({});
+    mockReviewNodeRunDeliverable.mockResolvedValue({});
+    mockInvalidateQueries.mockResolvedValue(undefined);
     mockChatSessions = [
       {
         id: "11111111-1111-1111-1111-111111111111",
@@ -741,6 +773,54 @@ describe("ExecutionDetailPanel", () => {
     const link = screen.getByRole("link", { name: /Pull request/i });
     expect(link).toHaveAttribute("href", "http://gitea.test/t-ws1/wf-n1/pulls/7");
     expect(link).toHaveAttribute("target", "_blank");
+  });
+
+  it("reviews deliverables before approving a human critic node run", async () => {
+    const user = userEvent.setup();
+    render(
+      <ExecutionDetailPanel
+        node={{ ...node, critic_type: "human", critic_id: null }}
+        nodeRun={{ ...run, status: "awaiting_critic", critic_type: "human", critic_id: null }}
+        workerName="Worker"
+        criticName={null}
+        onClose={vi.fn()}
+        wsId="ws-1"
+        workflowId="wf-1"
+        runId="wr1"
+      />,
+    );
+
+    await user.type(screen.getByPlaceholderText("Review Comment"), "人工评审通过");
+    await user.click(screen.getByRole("button", { name: "Approve" }));
+
+    await waitFor(() => {
+      expect(mockReviewNodeRunDeliverable).toHaveBeenCalledWith("r1", "sub-1", {
+        status: "approved",
+        review_comment: "人工评审通过",
+      });
+    });
+    expect(mockReviewNodeRun).toHaveBeenCalledWith("r1", true, "人工评审通过");
+    expect(mockInvalidateQueries).toHaveBeenCalledWith({
+      queryKey: ["workflows", "node-runs", "r1", "deliverables"],
+    });
+  });
+
+  it("shows human review actions while the node is critic_reviewing", () => {
+    render(
+      <ExecutionDetailPanel
+        node={{ ...node, critic_type: "human", critic_id: null }}
+        nodeRun={{ ...run, status: "critic_reviewing", critic_type: "human", critic_id: null }}
+        workerName="Worker"
+        criticName={null}
+        onClose={vi.fn()}
+        wsId="ws-1"
+        workflowId="wf-1"
+        runId="wr1"
+      />,
+    );
+
+    expect(screen.getByRole("button", { name: "Approve" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Reject" })).toBeInTheDocument();
   });
 });
 

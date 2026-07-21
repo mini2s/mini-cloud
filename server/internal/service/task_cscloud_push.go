@@ -168,13 +168,18 @@ func (s *TaskService) buildCSCloudPayload(ctx context.Context, task db.MulticaAg
 	if task.IssueID.Valid {
 		env["MULTICA_ISSUE_ID"] = util.UUIDToString(task.IssueID)
 	}
-	// Enrich the prompt with deliverable instructions when the task has them,
-	// so the agent knows to use `cs-cloud workflow deliverable submit` (not inline upload)
-	// and that it can read other issues' deliverables via `gitea fetch`.
-	if raw, ok := giteaEnv["MULTICA_GITEA_DELIVERABLES"]; ok {
-		var refs []giteaDeliverableRefJSON
-		if json.Unmarshal([]byte(raw), &refs) == nil && len(refs) > 0 {
-			prompt = appendDeliverablePrompt(prompt, refs)
+	phase := workflowPhaseFromTask(task)
+	if phase == "critic" {
+		prompt = appendCriticReviewPrompt(prompt)
+	} else {
+		if phase == "worker" {
+			prompt = appendWorkerTaskPrompt(prompt)
+		}
+		if raw, ok := giteaEnv["MULTICA_GITEA_DELIVERABLES"]; ok {
+			var refs []giteaDeliverableRefJSON
+			if json.Unmarshal([]byte(raw), &refs) == nil && len(refs) > 0 {
+				prompt = appendDeliverablePrompt(prompt, refs)
+			}
 		}
 	}
 
@@ -190,6 +195,19 @@ func (s *TaskService) buildCSCloudPayload(ctx context.Context, task db.MulticaAg
 		Env:         env,
 		Kind:        kind,
 	}, nil
+}
+
+func appendWorkerTaskPrompt(prompt string) string {
+	var b strings.Builder
+	b.WriteString(prompt)
+	if prompt != "" && !strings.HasSuffix(prompt, "\n") {
+		b.WriteByte('\n')
+	}
+	b.WriteString("\n---\n## Workflow Worker Task\n\n")
+	b.WriteString("You are the worker for this workflow node. Complete the assigned work and submit every required deliverable before finishing.\n")
+	b.WriteString("Do NOT perform critic review. Do NOT approve or reject the work. If the issue text mentions a critic/reviewer, treat that as context for the later review phase, not your current task.\n")
+	b.WriteString("\n---\n\n")
+	return b.String()
 }
 
 // appendDeliverablePrompt adds a "Document Deliverables" section to the prompt,
@@ -213,6 +231,33 @@ func appendDeliverablePrompt(prompt string, refs []giteaDeliverableRefJSON) stri
 	b.WriteString("- `cs-cloud workflow deliverable fetch <issue-key>` — read a specific issue (e.g. `cs-cloud workflow deliverable fetch MUL-123`).\n")
 	b.WriteString("\n---\n\n")
 	return b.String()
+}
+
+func appendCriticReviewPrompt(prompt string) string {
+	var b strings.Builder
+	b.WriteString(prompt)
+	if prompt != "" && !strings.HasSuffix(prompt, "\n") {
+		b.WriteByte('\n')
+	}
+	b.WriteString("\n---\n## Workflow Critic Review\n\n")
+	b.WriteString("You are reviewing the worker's submitted deliverables for this workflow node. Inspect the issue context and deliverable PRs, then finish with a JSON object only:\n\n")
+	b.WriteString("```json\n{\"approved\":true,\"comment\":\"short review opinion\"}\n```\n\n")
+	b.WriteString("Use `approved:false` when the work needs rework, and put the actionable rejection reason in `comment`.\n\n")
+	b.WriteString("---\n\n")
+	return b.String()
+}
+
+func workflowPhaseFromTask(task db.MulticaAgentTaskQueue) string {
+	if len(task.Context) == 0 {
+		return ""
+	}
+	var payload struct {
+		Phase string `json:"phase"`
+	}
+	if err := json.Unmarshal(task.Context, &payload); err != nil {
+		return ""
+	}
+	return strings.TrimSpace(payload.Phase)
 }
 
 // giteaDeliverableRefJSON is the per-deliverable shape cs-cloud's
@@ -242,6 +287,10 @@ func (s *TaskService) giteaDeliverableEnv(ctx context.Context, task db.MulticaAg
 	if err != nil {
 		return nil
 	}
+	workflow, err := s.Queries.GetWorkflow(ctx, run.WorkflowID)
+	if err != nil {
+		return nil
+	}
 	deliverables, err := s.Queries.ListWorkflowNodeDeliverables(ctx, nr.WorkflowNodeID)
 	if err != nil {
 		return nil
@@ -266,7 +315,7 @@ func (s *TaskService) giteaDeliverableEnv(ctx context.Context, task db.MulticaAg
 		publicBase = base
 	}
 	owner := gitea.OrgName(util.UUIDToString(run.WorkspaceID))
-	repo := gitea.RepoName(util.UUIDToString(run.WorkflowID))
+	repo := DeliverableRepoNameForWorkflow(workflow)
 	refsJSON, _ := json.Marshal(refs)
 	return map[string]string{
 		"MULTICA_NODE_RUN_ID":        nodeRunIDStr,

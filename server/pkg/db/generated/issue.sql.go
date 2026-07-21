@@ -513,6 +513,55 @@ func (q *Queries) FindActiveDuplicateIssue(ctx context.Context, arg FindActiveDu
 	return i, err
 }
 
+const getDirectIssueByWorkflowRun = `-- name: GetDirectIssueByWorkflowRun :one
+SELECT id, workspace_id, title, description, status, priority, assignee_type, assignee_id, creator_type, creator_id, parent_issue_id, acceptance_criteria, context_refs, position, due_date, created_at, updated_at, number, project_id, origin_type, origin_id, first_executed_at, start_date, metadata, workflow_id, workflow_run_id, stage_id FROM multica_issue
+WHERE workspace_id = $1
+  AND workflow_run_id = $2
+  AND origin_type IS DISTINCT FROM 'workflow'
+ORDER BY created_at ASC
+LIMIT 1
+`
+
+type GetDirectIssueByWorkflowRunParams struct {
+	WorkspaceID   pgtype.UUID `json:"workspace_id"`
+	WorkflowRunID pgtype.UUID `json:"workflow_run_id"`
+}
+
+func (q *Queries) GetDirectIssueByWorkflowRun(ctx context.Context, arg GetDirectIssueByWorkflowRunParams) (MulticaIssue, error) {
+	row := q.db.QueryRow(ctx, getDirectIssueByWorkflowRun, arg.WorkspaceID, arg.WorkflowRunID)
+	var i MulticaIssue
+	err := row.Scan(
+		&i.ID,
+		&i.WorkspaceID,
+		&i.Title,
+		&i.Description,
+		&i.Status,
+		&i.Priority,
+		&i.AssigneeType,
+		&i.AssigneeID,
+		&i.CreatorType,
+		&i.CreatorID,
+		&i.ParentIssueID,
+		&i.AcceptanceCriteria,
+		&i.ContextRefs,
+		&i.Position,
+		&i.DueDate,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.Number,
+		&i.ProjectID,
+		&i.OriginType,
+		&i.OriginID,
+		&i.FirstExecutedAt,
+		&i.StartDate,
+		&i.Metadata,
+		&i.WorkflowID,
+		&i.WorkflowRunID,
+		&i.StageID,
+	)
+	return i, err
+}
+
 const getIssue = `-- name: GetIssue :one
 SELECT id, workspace_id, title, description, status, priority, assignee_type, assignee_id, creator_type, creator_id, parent_issue_id, acceptance_criteria, context_refs, position, due_date, created_at, updated_at, number, project_id, origin_type, origin_id, first_executed_at, start_date, metadata, workflow_id, workflow_run_id, stage_id FROM multica_issue
 WHERE id = $1

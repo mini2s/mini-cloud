@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"regexp"
 	"strings"
 
 	"github.com/jackc/pgx/v5"
@@ -1102,6 +1103,14 @@ func (s *WorkflowService) SubmitWorkerOutput(ctx context.Context, nodeRunID pgty
 		if nr.Status != NodeRunStatusWorking && nr.Status != NodeRunStatusWorkerAssigned {
 			return fmt.Errorf("node run is not in worker phase (status=%s)", nr.Status)
 		}
+		if err := autoSubmitSinglePullRequestDeliverable(ctx, qtx, nr, output); err != nil {
+			return fmt.Errorf("auto-submit pull_request deliverable: %w", err)
+		}
+		if satisfied, err := requiredDeliverablesSatisfiedWithQueries(ctx, qtx, nr); err != nil {
+			return fmt.Errorf("check deliverables: %w", err)
+		} else if !satisfied {
+			return fmt.Errorf("all required deliverables must be submitted before this node can enter review")
+		}
 
 		updated, err := qtx.SetWorkflowNodeRunWorkerOutput(ctx, db.SetWorkflowNodeRunWorkerOutputParams{
 			ID:           nr.ID,
@@ -1122,7 +1131,11 @@ func (s *WorkflowService) SubmitWorkerOutput(ctx context.Context, nodeRunID pgty
 }
 
 func (s *WorkflowService) requiredDeliverablesSatisfied(ctx context.Context, nodeRun db.MulticaWorkflowNodeRun) (bool, error) {
-	deliverables, err := s.Queries.ListWorkflowNodeDeliverables(ctx, nodeRun.WorkflowNodeID)
+	return requiredDeliverablesSatisfiedWithQueries(ctx, s.Queries, nodeRun)
+}
+
+func requiredDeliverablesSatisfiedWithQueries(ctx context.Context, q *db.Queries, nodeRun db.MulticaWorkflowNodeRun) (bool, error) {
+	deliverables, err := q.ListWorkflowNodeDeliverables(ctx, nodeRun.WorkflowNodeID)
 	if err != nil {
 		return false, fmt.Errorf("list deliverables: %w", err)
 	}
@@ -1131,7 +1144,7 @@ func (s *WorkflowService) requiredDeliverablesSatisfied(ctx context.Context, nod
 		return true, nil
 	}
 
-	submissions, err := s.Queries.ListNodeRunDeliverableSubmissions(ctx, nodeRun.ID)
+	submissions, err := q.ListNodeRunDeliverableSubmissions(ctx, nodeRun.ID)
 	if err != nil {
 		return false, fmt.Errorf("list submissions: %w", err)
 	}
@@ -1151,6 +1164,70 @@ func (s *WorkflowService) requiredDeliverablesSatisfied(ctx context.Context, nod
 		}
 	}
 	return true, nil
+}
+
+var gitlabMergeRequestURLPattern = regexp.MustCompile(`https?://[^\s"'<>]+/-/merge_requests/\d+`)
+
+func extractPullRequestURLFromWorkerOutput(output json.RawMessage) string {
+	candidates := []string{string(output)}
+	var payload struct {
+		Output string `json:"output"`
+		PRURL  string `json:"pr_url"`
+	}
+	if json.Unmarshal(output, &payload) == nil {
+		candidates = append(candidates, payload.Output, payload.PRURL)
+	}
+	for _, candidate := range candidates {
+		if url := gitlabMergeRequestURLPattern.FindString(candidate); url != "" {
+			return strings.TrimRight(url, ".,);]")
+		}
+	}
+	return ""
+}
+
+func autoSubmitSinglePullRequestDeliverable(ctx context.Context, q *db.Queries, nodeRun db.MulticaWorkflowNodeRun, output json.RawMessage) error {
+	prURL := extractPullRequestURLFromWorkerOutput(output)
+	if prURL == "" {
+		return nil
+	}
+
+	deliverables, err := q.ListWorkflowNodeDeliverables(ctx, nodeRun.WorkflowNodeID)
+	if err != nil {
+		return fmt.Errorf("list deliverables: %w", err)
+	}
+	var deliverableID pgtype.UUID
+	for _, d := range deliverables {
+		if d.Kind != "pull_request" || !d.Required {
+			continue
+		}
+		if deliverableID.Valid {
+			return nil
+		}
+		deliverableID = d.ID
+	}
+	if !deliverableID.Valid {
+		return nil
+	}
+
+	submissions, err := q.ListNodeRunDeliverableSubmissions(ctx, nodeRun.ID)
+	if err != nil {
+		return fmt.Errorf("list submissions: %w", err)
+	}
+	for _, sub := range submissions {
+		if sub.DeliverableID == deliverableID && sub.Status != "missing" && sub.Status != "rejected" {
+			return nil
+		}
+	}
+
+	_, err = q.UpsertNodeRunDeliverableSubmission(ctx, db.UpsertNodeRunDeliverableSubmissionParams{
+		WorkflowNodeRunID: nodeRun.ID,
+		DeliverableID:     deliverableID,
+		SubmittedByType:   "agent",
+		SubmittedByID:     nodeRun.WorkerID,
+		Content:           "",
+		PullRequestUrl:    prURL,
+	})
+	return err
 }
 
 // ReviewNodeRun handles the Critic's approval or rework decision.
@@ -1518,14 +1595,30 @@ func (s *WorkflowService) dispatchAgentTaskWithQueries(ctx context.Context, q *d
 	if err != nil {
 		return nil, fmt.Errorf("get agent: %w", err)
 	}
-	// Resolve the runtime: use agent's bound runtime, or for built-in agents
-	// use the runtime selected when the workflow run was started, falling back
-	// to auto-selecting the first available runtime in the workspace.
+	// Resolve the runtime: use an agent's bound runtime only when it belongs to
+	// this workflow's workspace. Built-in agents may carry stale runtime links
+	// from another workspace, so they fall back to the run/workspace runtime.
 	var taskRuntimeID pgtype.UUID
 	if agent.RuntimeID.Valid {
-		taskRuntimeID = agent.RuntimeID
-	} else if agent.IsBuiltin {
+		rt, err := q.GetAgentRuntime(ctx, agent.RuntimeID)
+		if err == nil && rt.WorkspaceID == workflow.WorkspaceID {
+			taskRuntimeID = agent.RuntimeID
+		} else if !agent.IsBuiltin {
+			if err != nil {
+				return nil, fmt.Errorf("get agent runtime: %w", err)
+			}
+			return nil, fmt.Errorf("agent runtime belongs to a different workspace")
+		}
+	}
+	if !taskRuntimeID.Valid && agent.IsBuiltin {
 		if run.RuntimeID.Valid {
+			rt, err := q.GetAgentRuntime(ctx, run.RuntimeID)
+			if err != nil {
+				return nil, fmt.Errorf("get workflow run runtime: %w", err)
+			}
+			if rt.WorkspaceID != workflow.WorkspaceID {
+				return nil, fmt.Errorf("workflow run runtime belongs to a different workspace")
+			}
 			taskRuntimeID = run.RuntimeID
 		} else {
 			// Auto-select a runtime for built-in agents. Prefer an online
@@ -1551,7 +1644,8 @@ func (s *WorkflowService) dispatchAgentTaskWithQueries(ctx context.Context, q *d
 			}
 			taskRuntimeID = selected
 		}
-	} else {
+	}
+	if !taskRuntimeID.Valid {
 		return nil, fmt.Errorf("agent has no runtime")
 	}
 
@@ -1886,26 +1980,7 @@ func (s *WorkflowService) HandleWorkflowTaskCompletion(ctx context.Context, task
 				}
 			}
 
-			// Transition to awaiting_critic with the task output as worker output.
-			if err := s.runInTx(ctx, func(qtx *db.Queries) error {
-				updated, err := qtx.SetWorkflowNodeRunWorkerOutput(ctx, db.SetWorkflowNodeRunWorkerOutputParams{
-					ID:           nodeRun.ID,
-					WorkerOutput: task.Result,
-					Status:       NodeRunStatusAwaitingCritic,
-				})
-				if err != nil {
-					return err
-				}
-				// Save updated for use after tx commits.
-				nodeRun = updated
-				return nil
-			}); err != nil {
-				return err
-			}
-			if err := s.dispatchCritic(ctx, nodeRun); err != nil {
-				return fmt.Errorf("dispatch critic: %w", err)
-			}
-			return nil
+			return s.SubmitWorkerOutput(ctx, nodeRun.ID, task.Result)
 		}
 	case "critic":
 		if nodeRun.Status == NodeRunStatusCriticReviewing {
@@ -1932,11 +2007,40 @@ func (s *WorkflowService) HandleWorkflowTaskCompletion(ctx context.Context, task
 				approved = !strings.Contains(strings.ToLower(output.Output), "不通过") &&
 					!strings.Contains(strings.ToLower(output.Output), "reject")
 			}
-			return s.ReviewNodeRun(ctx, nodeRun.ID, approved, output.Comment, task.Result)
+			comment := strings.TrimSpace(output.Comment)
+			if comment == "" {
+				comment = strings.TrimSpace(output.Output)
+			}
+			if comment == "" && len(task.Result) > 0 {
+				comment = strings.TrimSpace(string(task.Result))
+			}
+			comment = normalizeAgentCriticComment(approved, comment)
+			return s.ReviewNodeRun(ctx, nodeRun.ID, approved, comment, task.Result)
 		}
 	}
 
 	return nil
+}
+
+func normalizeAgentCriticComment(approved bool, comment string) string {
+	comment = strings.TrimSpace(comment)
+	lower := strings.ToLower(comment)
+	if strings.Contains(lower, "approved") ||
+		strings.Contains(lower, "rejected") ||
+		strings.Contains(comment, "通过") ||
+		strings.Contains(comment, "驳回") {
+		return comment
+	}
+	if approved {
+		if comment == "" {
+			return "Approved."
+		}
+		return "Approved: " + comment
+	}
+	if comment == "" {
+		return "Rejected."
+	}
+	return "Rejected: " + comment
 }
 
 // HandleWorkflowTaskFailure is called when an agent task linked to a workflow
