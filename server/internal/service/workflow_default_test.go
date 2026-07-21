@@ -244,6 +244,102 @@ func TestStartDefaultRunForIssue_AgentAssignee(t *testing.T) {
 	}
 }
 
+// TestStartDefaultRunForIssue_SquadAssignee verifies the squad path: the
+// node-run worker is set to the squad, and dispatch resolves + tasks the SQUAD
+// LEADER (not the squad id) via dispatchWorker's squad case reading node-run.
+func TestStartDefaultRunForIssue_SquadAssignee(t *testing.T) {
+	pool := openTestPool(t)
+	defer pool.Close()
+	ctx := context.Background()
+	svc := &WorkflowService{
+		Queries:   db.New(pool),
+		TxStarter: pool,
+		TaskSvc:   &TaskService{Queries: db.New(pool), TxStarter: pool},
+	}
+
+	suffix := fmt.Sprintf("sq-%d-%d", os.Getpid(), time.Now().UnixNano())
+
+	var wsID, userID, memberID string
+	if err := pool.QueryRow(ctx, `INSERT INTO multica_workspace (name, slug, description, issue_prefix) VALUES ($1,$2,'t','SQ') RETURNING id`, "SQ WS "+suffix, "sq-"+suffix).Scan(&wsID); err != nil {
+		t.Fatalf("seed workspace: %v", err)
+	}
+	if err := pool.QueryRow(ctx, `INSERT INTO multica_user (name, email) VALUES ($1,$2) RETURNING id`, "SQ User "+suffix, "sq-"+suffix+"@multica.ai").Scan(&userID); err != nil {
+		t.Fatalf("seed user: %v", err)
+	}
+	if err := pool.QueryRow(ctx, `INSERT INTO multica_member (workspace_id, user_id, role) VALUES ($1,$2,'owner') RETURNING id`, wsID, userID).Scan(&memberID); err != nil {
+		t.Fatalf("seed member: %v", err)
+	}
+	memberUUID, _ := util.ParseUUID(memberID)
+
+	var rtID, agentID string
+	if err := pool.QueryRow(ctx, `INSERT INTO multica_agent_runtime (workspace_id, name, runtime_mode, provider, status) VALUES ($1,'SQ RT','local','legacy_local','online') RETURNING id`, wsID).Scan(&rtID); err != nil {
+		t.Fatalf("seed runtime: %v", err)
+	}
+	if err := pool.QueryRow(ctx, `INSERT INTO multica_agent (workspace_id, name, runtime_mode, runtime_id) VALUES ($1,'SQ Leader','local',$2) RETURNING id`, wsID, rtID).Scan(&agentID); err != nil {
+		t.Fatalf("seed leader agent: %v", err)
+	}
+
+	var squadID string
+	if err := pool.QueryRow(ctx, `INSERT INTO multica_squad (workspace_id, name, leader_id, creator_id) VALUES ($1,'SQ Squad',$2,$3) RETURNING id`, wsID, agentID, memberID).Scan(&squadID); err != nil {
+		t.Fatalf("seed squad: %v", err)
+	}
+	squadUUID, _ := util.ParseUUID(squadID)
+	wsUUID, _ := util.ParseUUID(wsID)
+
+	t.Cleanup(func() {
+		pool.Exec(ctx, `DELETE FROM multica_agent_task_queue WHERE agent_id = $1`, agentID)
+		pool.Exec(ctx, `DELETE FROM multica_workflow WHERE workspace_id = $1`, wsID)
+		pool.Exec(ctx, `DELETE FROM multica_squad WHERE id = $1`, squadID)
+		pool.Exec(ctx, `DELETE FROM multica_agent WHERE id = $1`, agentID)
+		pool.Exec(ctx, `DELETE FROM multica_agent_runtime WHERE id = $1`, rtID)
+		pool.Exec(ctx, `DELETE FROM multica_member WHERE workspace_id = $1`, wsID)
+		pool.Exec(ctx, `DELETE FROM multica_workspace WHERE id = $1`, wsID)
+		pool.Exec(ctx, `DELETE FROM multica_user WHERE id = $1`, userID)
+	})
+
+	issue := db.MulticaIssue{
+		WorkspaceID:  wsUUID,
+		Title:        "squad issue",
+		AssigneeType: pgtype.Text{String: "squad", Valid: true},
+		AssigneeID:   squadUUID,
+		CreatorType:  "member",
+		CreatorID:    memberUUID,
+	}
+
+	run, nr, err := svc.StartDefaultRunForIssue(ctx, issue)
+	if err != nil {
+		t.Fatalf("StartDefaultRunForIssue: %v", err)
+	}
+	dwf, err := svc.Queries.GetWorkflow(ctx, run.WorkflowID)
+	if err != nil || !dwf.IsDefault {
+		t.Fatalf("run not on the default workflow (err=%v)", err)
+	}
+
+	got, err := svc.Queries.GetWorkflowNodeRun(ctx, nr.ID)
+	if err != nil {
+		t.Fatalf("get node-run: %v", err)
+	}
+	// worker = the squad (dispatch resolves the leader from it); critic = creator.
+	if got.WorkerType != "squad" || got.WorkerID != squadUUID {
+		t.Fatalf("worker override: type=%q id=%v, want squad/%v", got.WorkerType, got.WorkerID, squadUUID)
+	}
+	if got.CriticType != "human" || got.CriticID != memberUUID {
+		t.Fatalf("critic override: type=%q id=%v, want human/%v", got.CriticType, got.CriticID, memberUUID)
+	}
+
+	// dispatchWorker's squad case must resolve + task the LEADER agent, linked to
+	// the node-run (so buildGiteaDeliverableContext fires for the leader).
+	var taskAgentID string
+	if err := pool.QueryRow(ctx, `
+		SELECT agent_id FROM multica_agent_task_queue WHERE workflow_node_run_id = $1
+	`, nr.ID).Scan(&taskAgentID); err != nil {
+		t.Fatalf("find task for node-run: %v", err)
+	}
+	if taskAgentID != agentID {
+		t.Fatalf("squad dispatch tasked agent %s, want the leader %s", taskAgentID, agentID)
+	}
+}
+
 // uploadFakeGiteaServer stands up a minimal Gitea stand-in handling the branch /
 // contents / pulls calls UploadMemberDeliverable makes. Returns the server and a
 // pointer to a counter of PRs opened.
