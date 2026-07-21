@@ -817,32 +817,43 @@ export function AppSidebar({ topSlot, searchSlot, headerClassName, headerStyle }
           {labeledNavGroups.map((group) => {
             const items = group.items.filter((item) => SKILLS_ENABLED || item.key !== "skills");
             return (
-              <SidebarGroup key={group.labelKey}>
-                <SidebarGroupLabel>{t(($) => $.sidebar[group.labelKey])}</SidebarGroupLabel>
-                <SidebarGroupContent>
-                  <SidebarMenu className="gap-0.5">
-                    {items.map((item) => {
-                      const href = p[item.key]();
-                      const isActive = isNavActive(pathname, href);
-                      return (
-                        <SidebarMenuItem key={item.key}>
-                          <SidebarMenuButton
-                            isActive={isActive}
-                            render={<AppLink href={href} />}
-                            className="text-muted-foreground hover:not-data-active:bg-sidebar-accent/70 data-active:bg-sidebar-accent data-active:text-sidebar-accent-foreground"
-                          >
-                            <item.icon />
-                            <span>{t(($) => $.nav[item.labelKey])}</span>
-                            {item.key === "runtimes" && hasRuntimeUpdates && (
-                              <span className="ml-auto size-1.5 rounded-full bg-destructive" />
-                            )}
-                          </SidebarMenuButton>
-                        </SidebarMenuItem>
-                      );
-                    })}
-                  </SidebarMenu>
-                </SidebarGroupContent>
-              </SidebarGroup>
+              <Collapsible key={group.labelKey} defaultOpen={false}>
+                <SidebarGroup className="group/nav-group">
+                  <SidebarGroupLabel
+                    render={<CollapsibleTrigger />}
+                    className="group/trigger cursor-pointer hover:bg-sidebar-accent/70 hover:text-sidebar-accent-foreground"
+                  >
+                    <span>{t(($) => $.sidebar[group.labelKey])}</span>
+                    <ChevronRight className="!size-3 ml-1 stroke-[2.5] text-muted-foreground transition-transform duration-200 group-data-[panel-open]/trigger:rotate-90" />
+                    <span className="ml-auto text-[10px] text-muted-foreground opacity-0 transition-opacity group-hover/nav-group:opacity-100">{items.length}</span>
+                  </SidebarGroupLabel>
+                  <CollapsibleContent>
+                    <SidebarGroupContent>
+                      <SidebarMenu className="gap-0.5">
+                        {items.map((item) => {
+                          const href = p[item.key]();
+                          const isActive = isNavActive(pathname, href);
+                          return (
+                            <SidebarMenuItem key={item.key}>
+                              <SidebarMenuButton
+                                isActive={isActive}
+                                render={<AppLink href={href} />}
+                                className="text-muted-foreground hover:not-data-active:bg-sidebar-accent/70 data-active:bg-sidebar-accent data-active:text-sidebar-accent-foreground"
+                              >
+                                <item.icon />
+                                <span>{t(($) => $.nav[item.labelKey])}</span>
+                                {item.key === "runtimes" && hasRuntimeUpdates && (
+                                  <span className="ml-auto size-1.5 rounded-full bg-destructive" />
+                                )}
+                              </SidebarMenuButton>
+                            </SidebarMenuItem>
+                          );
+                        })}
+                      </SidebarMenu>
+                    </SidebarGroupContent>
+                  </CollapsibleContent>
+                </SidebarGroup>
+              </Collapsible>
             );
           })}
         </SidebarContent>

@@ -3,13 +3,13 @@
 import { cn } from "@multica/ui/lib/utils";
 import { SidebarTrigger, useSidebar } from "@multica/ui/components/ui/sidebar";
 
-function MobileSidebarTrigger() {
+function SidebarToggle() {
   try {
     useSidebar();
   } catch {
     return null;
   }
-  return <SidebarTrigger className="mr-2 md:hidden" />;
+  return <SidebarTrigger className="mr-2" />;
 }
 
 interface PageHeaderProps {
@@ -20,7 +20,7 @@ interface PageHeaderProps {
 export function PageHeader({ children, className }: PageHeaderProps) {
   return (
     <div className={cn("flex h-12 shrink-0 items-center border-b px-4", className)}>
-      <MobileSidebarTrigger />
+      <SidebarToggle />
       {children}
     </div>
   );
