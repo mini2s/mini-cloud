@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
@@ -316,6 +317,16 @@ func (h *Handler) StartWorkflowRun(w http.ResponseWriter, r *http.Request) {
 		}
 		writeError(w, http.StatusInternalServerError, "failed to start run")
 		return
+	}
+
+	// Dispatch root nodes unless role resolution/assignment is still pending —
+	// those runs are dispatched from the role-assignment path once roles resolve
+	// (see workflow_role_assignment.go:149). Without this call, node_runs stay
+	// stuck at status=format_checking forever.
+	if run.Status != service.RunStatusResolvingRoles && run.Status != service.RunStatusWaitingRoleAssignment {
+		if err := h.WorkflowService.DispatchRootNodeRuns(r.Context(), run.ID); err != nil {
+			slog.Warn("failed to dispatch root workflow nodes", "run_id", uuidToString(run.ID), "error", err)
+		}
 	}
 
 	resp := workflowRunToResponse(*run)
