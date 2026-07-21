@@ -22,7 +22,7 @@ import {
 } from "../../../workflows/components/canvas/workflow-canvas-node-shell";
 import { WORKER_WIDTH } from "../../../workflows/components/overview/constants";
 
-export const RUNTIME_NODE_HEIGHT = 120;
+export const RUNTIME_NODE_HEIGHT = 144;
 
 export type NodeRunActionType =
   | "approve"
@@ -164,7 +164,7 @@ function RuntimeStatusPill({
         gatewayKind={gatewayKind}
         className="h-3.5 w-3.5"
       />
-      <span className="truncate">{label}</span>
+      <span className="min-w-0 break-words leading-3 line-clamp-2">{label}</span>
     </span>
   );
 }
@@ -301,7 +301,7 @@ function ActorSlot({
         </span>
         <span
           className={cn(
-            "min-w-0 truncate font-medium text-foreground/85",
+            "min-w-0 break-words font-medium leading-4 text-foreground/85 line-clamp-2",
             !name && "italic text-muted-foreground",
           )}
         >
@@ -328,10 +328,10 @@ function SplitProgressSummary({
         <GitBranch className="h-3.5 w-3.5" />
       </span>
       <div className="min-w-0">
-        <p className="truncate text-[12px] font-semibold leading-4 text-foreground/90">
+        <p className="break-words text-[12px] font-semibold leading-4 text-foreground/90 line-clamp-2">
           {label}
         </p>
-        <p className="truncate text-[10px] font-medium leading-3 text-muted-foreground">
+        <p className="break-words text-[10px] font-medium leading-3 text-muted-foreground line-clamp-2">
           {summary}
         </p>
       </div>
@@ -433,7 +433,7 @@ export function RuntimeNodeCard({
       tabIndex={canToggleSplitChildren ? 0 : undefined}
       onClick={() => onClick(node.id)}
       onKeyDown={canToggleSplitChildren ? handleShellKeyDown : undefined}
-      className="h-[120px]"
+      className="h-[144px]"
       surfaceClassName={runtimeFocusSurfaceClassName(isRuntimeFocus, displayStatus)}
       contentClassName={cn("h-full justify-between gap-2", workflowNodeInfoAreaClassName(nodeShape))}
       handles={handles}
@@ -445,7 +445,7 @@ export function RuntimeNodeCard({
           <div className="flex items-center justify-between gap-2">
             <div className="flex min-w-0 items-center gap-1.5">
               <GitBranch className="size-3.5 shrink-0 text-muted-foreground" />
-              <span className="truncate text-sm font-medium">{node.title}</span>
+              <span className="min-w-0 break-words text-sm font-medium leading-4 line-clamp-2">{node.title}</span>
             </div>
 						<div className="flex h-5 shrink-0 items-center gap-1">
 							<Badge variant="outline" className="h-5 px-1.5 text-[10px]">
@@ -478,10 +478,10 @@ export function RuntimeNodeCard({
               onClick={handleSplitToggleClick}
             >
               <span className="min-w-0">
-                <span className="block truncate text-[12px] font-semibold leading-4 text-foreground">
+                <span className="block break-words text-[12px] font-semibold leading-4 text-foreground line-clamp-2">
                   {splitChildLabel}
                 </span>
-                <span className="block truncate text-[10px] font-medium leading-3 text-muted-foreground">
+                <span className="block break-words text-[10px] font-medium leading-3 text-muted-foreground line-clamp-2">
                   {splitChildSummaryLabel}
                 </span>
               </span>
@@ -544,7 +544,7 @@ export function RuntimeNodeCard({
               )}
             />
           ) : null}
-          <span className="text-sm font-medium truncate">{node.title}</span>
+          <span className="min-w-0 break-words text-sm font-medium leading-4 line-clamp-2">{node.title}</span>
         </div>
         <RuntimeStatusPill
           status={displayStatus}

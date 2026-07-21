@@ -26,12 +26,12 @@ vi.mock("@multica/views/i18n", () => {
         waiting_upstream: "Waiting for upstream",
       },
       card: {
-        worker_label: "Worker",
-        critic_label: "Critic",
+        worker_label: "Executor",
+        critic_label: "Reviewer",
         artifacts_label: "Artifacts",
-        gateway_label_fork: "Fork gateway",
-        gateway_label_join: "Join gateway",
-        gateway_label: "Gateway",
+        gateway_label_fork: "Branch start",
+        gateway_label_join: "Join point",
+        gateway_label: "Branch node",
         split_child_count: "{{count}} child issues",
         split_child_count_one: "{{count}} child issue",
         split_child_count_other: "{{count}} child issues",
@@ -43,8 +43,8 @@ vi.mock("@multica/views/i18n", () => {
         split_child_cancelled: "{{count}} cancelled",
         split_child_expand: "Expand child issues",
         split_child_collapse: "Collapse child issues",
-			split_mode_barrier: "Barrier",
-			split_mode_pipeline: "Pipeline",
+        split_mode_barrier: "Wait for child issues",
+        split_mode_pipeline: "Continue after creation",
         actions: {
           approve: "Approve",
           reject: "Reject",
@@ -314,7 +314,7 @@ describe("RuntimeNodeCard", () => {
     const card = screen.getByTestId("runtime-node-card-node-1");
     expect(card).toHaveAttribute("data-workflow-canvas-node-shell", "true");
     expect(card.className).not.toContain("min-w-[240px]");
-    expect(card).toHaveStyle({ width: "240px", height: "120px" });
+    expect(card).toHaveStyle({ width: "296px", height: "144px" });
     const surface = card.querySelector('[data-node-shape-surface="true"]');
     expect(surface?.className).toContain("bg-gradient-to-br");
     expect(surface?.className).toContain("border-white/80");
@@ -385,9 +385,9 @@ describe("RuntimeNodeCard", () => {
       />,
     );
 
-    expect(screen.getByText("Worker")).toBeInTheDocument();
+    expect(screen.getByText("Executor")).toBeInTheDocument();
     expect(screen.getByText("小助手")).toBeInTheDocument();
-    expect(screen.getByText("Critic")).toBeInTheDocument();
+    expect(screen.getByText("Reviewer")).toBeInTheDocument();
     expect(screen.getByText("审核员")).toBeInTheDocument();
   });
 
@@ -429,7 +429,7 @@ describe("RuntimeNodeCard", () => {
       />,
     );
 
-    expect(screen.getByText("Fork gateway")).toBeInTheDocument();
+    expect(screen.getByText("Branch start")).toBeInTheDocument();
     expect(screen.getByLabelText("Dispatched")).toBeInTheDocument();
     expect(screen.queryByText("Worker:")).not.toBeInTheDocument();
     expect(screen.queryByText("Critic:")).not.toBeInTheDocument();
@@ -486,8 +486,8 @@ describe("RuntimeNodeCard", () => {
     expect(screen.getByText("5 child issues")).toBeInTheDocument();
     expect(screen.getByText("Not started")).toBeInTheDocument();
     expect(screen.queryByText("Review 5 tasks")).not.toBeInTheDocument();
-    expect(screen.queryByText("Worker")).not.toBeInTheDocument();
-    expect(screen.queryByText("Critic")).not.toBeInTheDocument();
+    expect(screen.queryByText("Executor")).not.toBeInTheDocument();
+    expect(screen.queryByText("Reviewer")).not.toBeInTheDocument();
     expect(screen.getByTestId("runtime-node-split-progress")).toHaveClass("border-t", "border-border/45");
   });
 
@@ -525,18 +525,17 @@ describe("RuntimeNodeCard", () => {
     const card = screen.getByTestId("runtime-node-card-split-generating");
     expect(card).toHaveTextContent("In progress");
     expect(screen.queryByText("Generating draft tasks")).not.toBeInTheDocument();
-		expect(screen.getByText("Barrier")).toBeInTheDocument();
-    expect(screen.getByText("Worker")).toBeInTheDocument();
+    expect(screen.getByText("Wait for child issues")).toBeInTheDocument();
+    expect(screen.getByText("Executor")).toBeInTheDocument();
     expect(screen.getByText("Tester")).toBeInTheDocument();
-    expect(screen.getByText("Critic")).toBeInTheDocument();
-    expect(screen.getByText("Reviewer")).toBeInTheDocument();
+    expect(screen.getAllByText("Reviewer")).toHaveLength(2);
     expect(card.innerHTML).not.toContain("text-amber");
   });
 
-	it.each([
-		["barrier", "Barrier"],
-		["pipeline", "Pipeline"],
-	] as const)("shows %s mode on collapsed split cards", (mode, label) => {
+  it.each([
+    ["barrier", "Wait for child issues"],
+    ["pipeline", "Continue after creation"],
+  ] as const)("shows %s mode as user-facing copy", (mode, label) => {
 		render(
 			<RuntimeNodeCard
 				node={{
@@ -554,7 +553,22 @@ describe("RuntimeNodeCard", () => {
 			/>,
 		);
 		expect(screen.getByText(label)).toBeInTheDocument();
-	});
+  });
+
+  it("keeps long runtime actor names readable", () => {
+    render(
+      <RuntimeNodeCard
+        node={{ ...baseNode, title: "Long runtime node title that should wrap on the card" }}
+        nodeRun={completedRun}
+        workerName="Extremely Long Runtime Worker Name For Verification"
+        criticName="Extremely Long Runtime Reviewer Name"
+        onClick={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText(/Long runtime node title/).className).toContain("line-clamp-2");
+    expect(screen.getByText(/Extremely Long Runtime Worker/).className).toContain("line-clamp-2");
+  });
 
   it("renders split child progress as the expansion control without opening the split panel", async () => {
     const onClick = vi.fn();
