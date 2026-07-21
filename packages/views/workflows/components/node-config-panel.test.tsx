@@ -19,6 +19,7 @@ const mocks = vi.hoisted(() => ({
     assigneeType: string | null;
     assigneeId: string | null;
     includeWorkflows?: boolean;
+    agentFilter?: (agent: { name: string; is_builtin: boolean }) => boolean;
   }>,
   workflows: [
     { id: "wf-1", title: "Parent workflow", status: "active", is_template: false },
@@ -74,6 +75,7 @@ vi.mock("../../issues/components/pickers/assignee-picker", () => ({
     assigneeType,
     assigneeId,
     includeWorkflows,
+    agentFilter,
     trigger,
     triggerRender,
     onUpdate,
@@ -81,12 +83,13 @@ vi.mock("../../issues/components/pickers/assignee-picker", () => ({
     assigneeType: string | null;
     assigneeId: string | null;
     includeWorkflows?: boolean;
+    agentFilter?: (agent: { name: string; is_builtin: boolean }) => boolean;
     trigger?: ReactNode;
     triggerRender?: ReactElement;
     onUpdate: (updates: { assignee_type: string | null; assignee_id: string | null }) => void;
   }) =>
     {
-      mocks.assigneePickerCalls.push({ assigneeType, assigneeId, includeWorkflows });
+      mocks.assigneePickerCalls.push({ assigneeType, assigneeId, includeWorkflows, agentFilter });
       return (
         <div>
           {triggerRender
@@ -535,6 +538,12 @@ describe("NodeConfigPanel", () => {
     expect(screen.getByText("The split planner that drafts child issues.")).toBeInTheDocument();
     expect(screen.getAllByText("Critic").length).toBeGreaterThan(0);
     expect(screen.getByText("The reviewer that approves generated drafts.")).toBeInTheDocument();
+    const splitPlannerPicker = mocks.assigneePickerCalls.find(
+      (call) => call.assigneeId === "agent-1" && typeof call.agentFilter === "function",
+    );
+    expect(splitPlannerPicker?.agentFilter?.({ name: "Split Planner (General)", is_builtin: true })).toBe(true);
+    expect(splitPlannerPicker?.agentFilter?.({ name: "Split Planner (Code)", is_builtin: true })).toBe(false);
+    expect(splitPlannerPicker?.agentFilter?.({ name: "Custom Planner", is_builtin: false })).toBe(true);
   });
 
 	it("orders split sections and shows readiness, connections, and trial run", () => {

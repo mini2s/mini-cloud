@@ -247,6 +247,15 @@ function actorLookupType(type: string): string {
   return type;
 }
 
+const SPLIT_PLANNER_GENERAL_NAME = "Split Planner (General)";
+const SPLIT_PLANNER_PREFIX = "Split Planner (";
+
+function isVisibleSplitPlannerAgent(agent: { name: string; is_builtin: boolean }): boolean {
+  if (!agent.is_builtin) return true;
+  if (!agent.name.startsWith(SPLIT_PLANNER_PREFIX)) return true;
+  return agent.name === SPLIT_PLANNER_GENERAL_NAME;
+}
+
 function AssignmentCard({
   title,
   subtitle,
@@ -758,6 +767,7 @@ export function NodeConfigPanel({
                         assigneeType={toAssigneeType(workerType)}
                         assigneeId={workerId}
                         allowedTypes={["agent", "squad"]}
+                        agentFilter={isVisibleSplitPlannerAgent}
                         triggerRender={
                           <Button
                             type="button"
