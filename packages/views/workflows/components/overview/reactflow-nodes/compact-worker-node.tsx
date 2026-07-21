@@ -1,9 +1,10 @@
-import { memo, type KeyboardEvent, type ReactNode } from "react";
+import { memo, type KeyboardEvent } from "react";
 import type { NodeProps } from "@xyflow/react";
 import { parseNodeFormat, type WorkflowNode } from "@multica/core/types";
 import { cn } from "@multica/ui/lib/utils";
-import { Bot, FileText, GitFork, GitMerge, UserRound, UsersRound } from "lucide-react";
+import { FileText, GitFork, GitMerge } from "lucide-react";
 import { workflowNodeInfoAreaClassName, workflowNodeShapeGlyphClassName } from "../../../../common/workflow-node-shape";
+import { WorkflowActorSlot } from "../../../../common/workflow-actor-slots";
 import { WorkflowCanvasNodeShell } from "../../canvas/workflow-canvas-node-shell";
 import { WORKER_WIDTH, WORKER_HEIGHT, STAGE_LINE_COLORS } from "../constants";
 import { SplitNodeCard } from "../../split/split-node-card";
@@ -16,6 +17,7 @@ export interface CompactWorkerNodeData extends Record<string, unknown> {
   pluginName?: string;
   workerName?: string;
   criticName?: string;
+  splitChildWorkflowName?: string;
   workerConfigured?: boolean;
   criticConfigured?: boolean;
   isAnnotation?: boolean;
@@ -31,51 +33,9 @@ function workerTypeLabel(type: WorkflowNode["worker_type"]): string {
   return "Agent";
 }
 
-function WorkerIcon({ type }: { type: WorkflowNode["worker_type"] }) {
-  if (type === "human") return <UserRound className="size-3 shrink-0" strokeWidth={1.8} />;
-  if (type === "squad") return <UsersRound className="size-3 shrink-0" strokeWidth={1.8} />;
-  if (type === "role") return <FileText className="size-3 shrink-0" strokeWidth={1.8} />;
-  return <Bot className="size-3 shrink-0" strokeWidth={1.8} />;
-}
-
 function GatewayIcon({ kind }: { kind: "fork" | "join" | null }) {
   if (kind === "join") return <GitMerge className="size-3 shrink-0" strokeWidth={1.8} />;
   return <GitFork className="size-3 shrink-0" strokeWidth={1.8} />;
-}
-
-function RoleSlot({
-  testId,
-  label,
-  value,
-  configured,
-  icon,
-}: {
-  testId: string;
-  label: string;
-  value: string;
-  configured: boolean;
-  icon: ReactNode;
-}) {
-  return (
-    <div data-testid={testId} className="grid row-span-2 min-w-0 grid-rows-subgrid gap-0.5">
-      <span className="block text-[8.5px] font-bold uppercase tracking-wide text-muted-foreground">
-        {label}
-      </span>
-      <span className="flex min-w-0 items-start gap-1.5 text-[10px] leading-4">
-        <span
-          aria-hidden="true"
-          className={cn(
-            "mt-[5px] size-1.5 shrink-0 rounded-full",
-            configured ? "bg-emerald-500 shadow-[0_0_0_3px_rgba(16,185,129,0.12)]" : "bg-muted-foreground/45",
-          )}
-        />
-        <span className={cn("min-w-0 break-words font-medium leading-4 line-clamp-2", configured ? "text-foreground/85" : "text-muted-foreground")}>
-          {value}
-        </span>
-        {icon ? <span className="mt-0.5 flex shrink-0">{icon}</span> : null}
-      </span>
-    </div>
-  );
 }
 
 function gatewayLabel(kind: "fork" | "join" | null): string {
@@ -160,8 +120,8 @@ export const CompactWorkerNode = memo(function CompactWorkerNode({
       title={description ? `${displayName}\n${description}` : displayName}
       onDoubleClick={openNode}
       onKeyDown={handleKeyDown}
-      className="h-[136px] w-[296px]"
-      contentClassName={cn("h-full justify-between gap-2.5", workflowNodeInfoAreaClassName(nodeShape))}
+      className="h-[152px] w-[296px]"
+      contentClassName={cn("h-full justify-between gap-2", workflowNodeInfoAreaClassName(nodeShape))}
       handleColorClassName={handleColorClass}
       handles={["left-target", "right-source", "bottom-source"]}
       lateralHandleTop={WORKER_HEIGHT / 2}
@@ -172,6 +132,7 @@ export const CompactWorkerNode = memo(function CompactWorkerNode({
         <SplitNodeCard
           title={displayName}
           config={nodeFormat.split_config}
+          childWorkflowName={nodeData.splitChildWorkflowName}
           status="editing"
           className="h-full w-full min-h-0 border-0 bg-transparent p-0 shadow-none"
         />
@@ -222,21 +183,23 @@ export const CompactWorkerNode = memo(function CompactWorkerNode({
         ) : (
           <div
             data-testid={`compact-worker-node-meta-${id}`}
-            className="grid grid-cols-2 grid-rows-[12px_32px] gap-x-2 gap-y-0.5 border-t border-border/45 pt-2"
+            className="grid grid-cols-2 grid-rows-[12px_42px] gap-x-2 gap-y-1 border-t border-border/45 pt-2"
           >
-            <RoleSlot
+            <WorkflowActorSlot
               testId={`compact-worker-node-worker-role-${id}`}
+              slot="worker"
               label={t(($) => $.panorama.card.worker_label)}
-              value={workerLabel ?? "Not configured"}
-              configured={workerConfigured}
-              icon={workerLabel ? <WorkerIcon type={nodeData.node.worker_type} /> : null}
+              name={workerLabel}
+              fallback="Not configured"
+              state={workerConfigured ? "configured" : "missing"}
             />
-            <RoleSlot
+            <WorkflowActorSlot
               testId={`compact-worker-node-critic-role-${id}`}
+              slot="critic"
               label={t(($) => $.panorama.card.critic_label)}
-              value={nodeData.criticName ?? (nodeData.criticConfigured ? "Configured" : "Optional")}
-              configured={nodeData.criticConfigured === true}
-              icon={<UserRound className="size-3 shrink-0 text-muted-foreground/75" strokeWidth={1.8} />}
+              name={nodeData.criticName ?? (nodeData.criticConfigured ? "Configured" : null)}
+              fallback="Optional"
+              state={nodeData.criticConfigured === true ? "configured" : "optional"}
             />
           </div>
         )}

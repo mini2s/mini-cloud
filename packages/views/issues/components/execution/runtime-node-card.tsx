@@ -10,19 +10,20 @@ import {
 } from "@multica/core/types";
 import { cn } from "@multica/ui/lib/utils";
 import { RuntimeDisplayStatusIcon } from "./node-run-status-icon";
-import { Bot, User, Building2, Check, ChevronDown, ChevronRight, GitBranch, GitFork, GitMerge } from "lucide-react";
+import { Check, ChevronDown, ChevronRight, GitBranch, GitFork, GitMerge } from "lucide-react";
 import { useT } from "@multica/views/i18n";
 import { Button } from "@multica/ui/components/ui/button";
 import { Badge } from "@multica/ui/components/ui/badge";
 import { Loader2 } from "lucide-react";
 import { workflowNodeInfoAreaClassName, workflowNodeShapeGlyphClassName } from "../../../common/workflow-node-shape";
+import { WorkflowActorSlot, type WorkflowActorState } from "../../../common/workflow-actor-slots";
 import {
   WorkflowCanvasNodeShell,
   type WorkflowCanvasNodeHandle,
 } from "../../../workflows/components/canvas/workflow-canvas-node-shell";
 import { WORKER_WIDTH } from "../../../workflows/components/overview/constants";
 
-export const RUNTIME_NODE_HEIGHT = 144;
+export const RUNTIME_NODE_HEIGHT = 156;
 
 export type NodeRunActionType =
   | "approve"
@@ -50,13 +51,6 @@ export interface RuntimeNodeCardProps {
   isSplitExpanded?: boolean;
   splitChildCount?: number;
   onSplitNodeToggle?: (nodeId: string) => void;
-}
-
-/** Maps worker/critic type to its Lucide icon component. */
-function typeIcon(t: string) {
-  if (t === "agent") return Bot;
-  if (t === "squad") return Building2;
-  return User;
 }
 
 function gatewayLabel(t: IssueTranslator, kind: "fork" | "join" | null): string {
@@ -281,35 +275,10 @@ function ActionButtons({
   );
 }
 
-function ActorSlot({
-  icon: Icon,
-  label,
-  name,
-}: {
-  icon: ReturnType<typeof typeIcon>;
-  label: string;
-  name: string | null;
-}) {
-  return (
-    <div className="grid row-span-2 min-w-0 grid-rows-subgrid gap-0.5">
-      <div className="text-[9px] font-semibold uppercase tracking-wide text-muted-foreground">
-        {label}
-      </div>
-      <div className="flex min-w-0 items-start gap-1.5 text-[11px]">
-        <span className="mt-0.5 flex size-4 shrink-0 items-center justify-center rounded-full bg-muted/55 text-muted-foreground ring-1 ring-border/60">
-          <Icon className="h-3 w-3" />
-        </span>
-        <span
-          className={cn(
-            "min-w-0 break-words font-medium leading-4 text-foreground/85 line-clamp-2",
-            !name && "italic text-muted-foreground",
-          )}
-        >
-          {name ?? "--"}
-        </span>
-      </div>
-    </div>
-  );
+function actorState(name: string | null, configured: boolean, optional = false): WorkflowActorState {
+  if (name?.trim()) return "configured";
+  if (configured) return "pending";
+  return optional ? "optional" : "missing";
 }
 
 function SplitProgressSummary({
@@ -367,9 +336,9 @@ export function RuntimeNodeCard({
   const displayStatusLabel = runtimeDisplayStatusText(t, displayStatus, isGateway ? nodeFormat.gateway_kind : null);
   const hasCritic = !isGateway && !isSplit && (node.critic_type || node.critic_id);
 
-  const WorkerIcon = typeIcon(node.worker_type);
-  const CriticIcon = node.critic_type === "agent" ? Bot : node.critic_type === "squad" ? Building2 : User;
   const GatewayIcon = nodeFormat.gateway_kind === "join" ? GitMerge : GitFork;
+  const workerConfigured = Boolean(node.worker_id || node.worker_role_id || node.worker_role);
+  const criticConfigured = Boolean(node.critic_id || node.critic_role_id || node.critic_role || node.critic_api_url);
   const splitProgress = runtimeSummary?.split_progress ?? null;
   const hasSplitProgress = isSplit && !!splitProgress && splitProgress.total > 0;
   const canToggleSplitChildren = isSplit && splitChildCount > 0 && !!onSplitNodeToggle;
@@ -433,7 +402,7 @@ export function RuntimeNodeCard({
       tabIndex={canToggleSplitChildren ? 0 : undefined}
       onClick={() => onClick(node.id)}
       onKeyDown={canToggleSplitChildren ? handleShellKeyDown : undefined}
-      className="h-[144px]"
+      className="h-[156px]"
       surfaceClassName={runtimeFocusSurfaceClassName(isRuntimeFocus, displayStatus)}
       contentClassName={cn("h-full justify-between gap-2", workflowNodeInfoAreaClassName(nodeShape))}
       handles={handles}
@@ -510,20 +479,24 @@ export function RuntimeNodeCard({
             <div
               data-testid="runtime-node-content"
               className={cn(
-                "grid grid-rows-[12px_32px] gap-x-1.5 gap-y-0.5 border-t border-border/45 py-1.5",
+                "grid grid-rows-[12px_42px] gap-x-2 gap-y-1 border-t border-border/45 py-1.5",
                 node.critic_type || node.critic_id ? "grid-cols-2" : "grid-cols-1",
               )}
             >
-              <ActorSlot
-                icon={WorkerIcon}
+              <WorkflowActorSlot
+                slot="worker"
                 label={t(($) => $.execution.card.worker_label)}
                 name={workerName}
+                fallback="--"
+                state={actorState(workerName, workerConfigured)}
               />
               {node.critic_type || node.critic_id ? (
-                <ActorSlot
-                  icon={CriticIcon}
+                <WorkflowActorSlot
+                  slot="critic"
                   label={t(($) => $.execution.card.critic_label)}
                   name={criticName}
+                  fallback="--"
+                  state={actorState(criticName, criticConfigured, true)}
                 />
               ) : null}
             </div>
@@ -573,20 +546,24 @@ export function RuntimeNodeCard({
         <div
           data-testid="runtime-node-content"
           className={cn(
-            "grid grid-rows-[12px_32px] gap-x-1.5 gap-y-0.5 border-t border-border/45 py-1.5",
+            "grid grid-rows-[12px_42px] gap-x-2 gap-y-1 border-t border-border/45 py-1.5",
             hasCritic ? "grid-cols-2" : "grid-cols-1",
           )}
         >
-          <ActorSlot
-            icon={WorkerIcon}
+          <WorkflowActorSlot
+            slot="worker"
             label={t(($) => $.execution.card.worker_label)}
             name={workerName}
+            fallback="--"
+            state={actorState(workerName, workerConfigured)}
           />
           {hasCritic ? (
-            <ActorSlot
-              icon={CriticIcon}
+            <WorkflowActorSlot
+              slot="critic"
               label={t(($) => $.execution.card.critic_label)}
               name={criticName}
+              fallback="--"
+              state={actorState(criticName, criticConfigured, true)}
             />
           ) : null}
         </div>

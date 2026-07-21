@@ -4,7 +4,7 @@ import { parseNodeShape } from "@multica/core/types";
 import { WORKER_HEIGHT, WORKER_WIDTH } from "./overview/constants";
 
 const LANE_START_X = 120;
-const LANE_SLOT_GAP = 80;
+const LANE_SLOT_GAP = 96;
 const LANE_SLOT_STEP = WORKER_WIDTH + LANE_SLOT_GAP;
 
 const SHAPE_DEFAULTS = {

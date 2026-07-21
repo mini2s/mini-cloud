@@ -179,9 +179,10 @@ vi.mock("../../i18n", () => {
       split_default_issue_workflow_label: "Child issue default workflow",
       split_default_issue_workflow_placeholder: "Select child issue workflow...",
       split_release_mode_label: "When should downstream steps continue?",
-      split_release_after_finish: "After child issues finish",
-      split_release_after_created: "After child issues are created",
-      split_mode_hint: "Wait mode continues after child issues finish. Continue mode starts downstream after child issues are created.",
+      split_release_after_finish: "barrier",
+      split_release_after_created: "pipeline",
+      split_mode_barrier_description: "Wait until child issues finish before downstream nodes continue.",
+      split_mode_pipeline_description: "Continue downstream after child issues are created.",
       split_concurrency_question: "How many child issues can run at once?",
       split_concurrency_hint: "This limits child issues running at the same time.",
       split_failure_tolerance_label: "Allowed failed child issues",
@@ -642,7 +643,7 @@ describe("NodeConfigPanel", () => {
       },
     });
 
-    fireEvent.click(screen.getByRole("button", { name: "After child issues are created" }));
+    fireEvent.click(screen.getByRole("button", { name: /pipeline/ }));
     expect(mocks.cacheNodeEdits).toHaveBeenLastCalledWith("split-1", {
       format_schema: {
         type: "split",

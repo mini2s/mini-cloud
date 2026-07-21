@@ -43,7 +43,7 @@ export interface WorkflowCanvasEdgeModelOptions {
 type CanvasEdgeKind = "data" | "condition" | "error" | "rework" | "critic";
 type CanvasEdgeTone = "data" | "condition" | "error" | "rework" | "critic" | "success" | "running" | "blocked" | "waiting";
 
-export const MIN_NODE_HORIZONTAL_GAP = 80;
+export const MIN_NODE_HORIZONTAL_GAP = 96;
 
 function normalizedNodeXMap(
   nodes: WorkflowNode[],

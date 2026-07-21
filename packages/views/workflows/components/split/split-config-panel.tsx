@@ -3,6 +3,7 @@
 import { ShieldCheck } from "lucide-react";
 import type { SplitConfig, Workflow } from "@multica/core/types";
 import { Label } from "@multica/ui/components/ui/label";
+import { cn } from "@multica/ui/lib/utils";
 import { useT } from "../../../i18n";
 
 interface SplitConfigPanelProps {
@@ -72,8 +73,16 @@ export function SplitConfigPanel({
         </Label>
         <div className="inline-flex rounded-lg border bg-muted/40 p-1">
           {([
-            { value: "barrier", label: t(($) => $.detail_panel.split_release_after_finish) },
-            { value: "pipeline", label: t(($) => $.detail_panel.split_release_after_created) },
+            {
+              value: "barrier",
+              label: t(($) => $.detail_panel.split_release_after_finish),
+              description: t(($) => $.detail_panel.split_mode_barrier_description),
+            },
+            {
+              value: "pipeline",
+              label: t(($) => $.detail_panel.split_release_after_created),
+              description: t(($) => $.detail_panel.split_mode_pipeline_description),
+            },
           ] as const).map((option) => {
             const active = config.mode === option.value;
             return (
@@ -82,24 +91,23 @@ export function SplitConfigPanel({
                 type="button"
                 disabled={disabled}
                 aria-pressed={active}
-                className={
+                className={cn(
+                  "grid min-h-11 w-36 content-center rounded-md px-2.5 py-1 text-left transition-colors",
                   active
-                    ? "h-7 rounded-md border border-border bg-background px-2.5 text-[11px] font-medium text-foreground shadow-sm"
-                    : "h-7 rounded-md px-2.5 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-background/70 hover:text-foreground"
-                }
+                    ? "border border-border bg-background text-foreground shadow-sm"
+                    : "text-muted-foreground hover:bg-background/70 hover:text-foreground",
+                )}
                 onClick={() => onChange({
                   ...config,
                   mode: option.value,
                 })}
               >
-                {option.label}
+                <span className="text-[11px] font-semibold leading-4">{option.label}</span>
+                <span className="text-[10px] font-medium leading-3 text-muted-foreground">{option.description}</span>
               </button>
             );
           })}
         </div>
-        <p className="text-[11px] leading-snug text-muted-foreground">
-          {t(($) => $.detail_panel.split_mode_hint)}
-        </p>
       </div>
 
       <div className="space-y-1.5">

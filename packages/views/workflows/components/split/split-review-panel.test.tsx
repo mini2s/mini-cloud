@@ -64,9 +64,13 @@ const i18nMock = vi.hoisted(() => {
     split_node_review_tasks_one: "Review {{count}} task",
     split_node_review_tasks_other: "Review {{count}} tasks",
     split_node_review_tasks: "Review {{count}} tasks",
-    split_node_mode_concurrency: "{{mode}} · concurrency {{concurrency}}",
+    split_node_mode_label: "{{mode}}",
+    split_node_concurrency_label: "Concurrency {{concurrency}}",
+    split_node_failure_label: "Max failures {{max}}",
+    split_node_child_workflow_missing: "No child workflow",
     split_status_fallback: "pending",
     split_draft_child_issue_label: "Child issue",
+    split_draft_created_issue_label: "Created issue",
     split_draft_issue_status_label: "Issue status",
     split_draft_run_status_label: "Run result",
     split_draft_workflow_label: "Workflow",
@@ -92,7 +96,6 @@ const i18nMock = vi.hoisted(() => {
     split_draft_title_label: "Draft title",
     split_draft_description_label: "Draft description",
     split_draft_edit_failed: "Failed to update draft.",
-		split_draft_version: "v{{version}}",
 		split_draft_recovered: "Recovered",
     split_dep_will_appear_after_draft: "Dependencies will appear here after a draft is generated.",
     split_dep_can_start_in_parallel: "These child issues can start in parallel.",
@@ -1126,8 +1129,9 @@ describe("SplitReviewPanel", () => {
     });
 
     expect(screen.getByRole("link", { name: "MUL-42" })).toHaveAttribute("href", "/test/issues/child-1");
-    expect(screen.getByText("Child issue")).toBeInTheDocument();
-    expect(screen.getByText("Issue status: blocked")).toBeInTheDocument();
+    expect(screen.getByTestId("split-draft-child-issue-task-1")).toHaveTextContent("Created issue");
+    expect(screen.getByTestId("split-draft-child-status-task-1")).toHaveTextContent("blocked");
+    expect(screen.getByTestId("split-draft-child-status-task-1")).not.toHaveTextContent("Issue status: blocked");
     expect(screen.getByText("Error: API key is missing")).toBeInTheDocument();
   });
 

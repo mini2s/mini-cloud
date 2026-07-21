@@ -236,52 +236,22 @@ describe("RuntimeNodeCard", () => {
     expect(screen.queryByText(/Critic Output/)).not.toBeInTheDocument();
   });
 
-  it("renders Bot icon for agent worker_type", () => {
+  it.each([
+    ["agent", ".lucide-bot"],
+    ["squad", ".lucide-building-2"],
+    ["human", ".lucide-user"],
+  ] as const)("does not render actor type icon for %s worker slots", (workerType, iconSelector) => {
     const { container } = render(
       <RuntimeNodeCard
-        node={baseNode}
+        node={{ ...baseNode, worker_type: workerType }}
         nodeRun={completedRun}
         workerName="小助手"
         criticName={null}
         onClick={vi.fn()}
       />,
     );
-    // lucide-bot class on the svg
-    expect(container.querySelector(".lucide-bot")).toBeInTheDocument();
-  });
 
-  it("renders Building2 icon for squad worker_type", () => {
-    const squadNode: WorkflowNode = {
-      ...baseNode,
-      worker_type: "squad",
-    };
-    const { container } = render(
-      <RuntimeNodeCard
-        node={squadNode}
-        nodeRun={completedRun}
-        workerName="全栈小队"
-        criticName={null}
-        onClick={vi.fn()}
-      />,
-    );
-    expect(container.querySelector(".lucide-building-2")).toBeInTheDocument();
-  });
-
-  it("renders User icon for human worker_type", () => {
-    const humanNode: WorkflowNode = {
-      ...baseNode,
-      worker_type: "human",
-    };
-    const { container } = render(
-      <RuntimeNodeCard
-        node={humanNode}
-        nodeRun={completedRun}
-        workerName="张伟"
-        criticName={null}
-        onClick={vi.fn()}
-      />,
-    );
-    expect(container.querySelector(".lucide-user")).toBeInTheDocument();
+    expect(container.querySelector(iconSelector)).not.toBeInTheDocument();
   });
 
   it("renders status icon in title row when nodeRun exists", () => {
@@ -314,7 +284,7 @@ describe("RuntimeNodeCard", () => {
     const card = screen.getByTestId("runtime-node-card-node-1");
     expect(card).toHaveAttribute("data-workflow-canvas-node-shell", "true");
     expect(card.className).not.toContain("min-w-[240px]");
-    expect(card).toHaveStyle({ width: "296px", height: "144px" });
+    expect(card).toHaveStyle({ width: "296px", height: "156px" });
     const surface = card.querySelector('[data-node-shape-surface="true"]');
     expect(surface?.className).toContain("bg-gradient-to-br");
     expect(surface?.className).toContain("border-white/80");
@@ -389,6 +359,8 @@ describe("RuntimeNodeCard", () => {
     expect(screen.getByText("小助手")).toBeInTheDocument();
     expect(screen.getByText("Reviewer").parentElement).toHaveClass("row-span-2", "grid-rows-subgrid");
     expect(screen.getByText("审核员")).toBeInTheDocument();
+    expect(screen.getByText("Executor").closest("[data-workflow-actor-slot]")).toHaveAttribute("data-workflow-actor-slot", "worker");
+    expect(screen.getByText("Reviewer").closest("[data-workflow-actor-slot]")).toHaveAttribute("data-workflow-actor-slot", "critic");
   });
 
   it("renders fixed lane-anchored handles when used inside the canvas", () => {

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import type { Issue, SplitTask, SplitTaskStatus, Workflow } from "@multica/core/types";
 import { useWorkspacePaths } from "@multica/core/paths";
@@ -65,14 +65,43 @@ function MetaValue({
   );
 }
 
+function DraftFact({
+  testId,
+  label,
+  children,
+  tone = "neutral",
+}: {
+  testId: string;
+  label: string;
+  children: ReactNode;
+  tone?: "neutral" | "danger";
+}) {
+  return (
+    <div
+      data-testid={testId}
+      className={cn(
+        "min-w-0 rounded-md border bg-muted/20 px-2.5 py-2",
+        tone === "danger" && "border-destructive/25 bg-destructive/10",
+      )}
+    >
+      <div className="text-[10px] font-semibold uppercase leading-3 text-muted-foreground">{label}</div>
+      <div className={cn("mt-1 min-w-0 break-words text-xs font-medium leading-4", tone === "danger" && "text-destructive")}>
+        {children}
+      </div>
+    </div>
+  );
+}
+
 function SplitTaskChildIssueMeta({
   task,
   linkedIssue,
+  workflowName,
   t,
   className,
 }: {
   task: SplitTask;
   linkedIssue: Issue;
+  workflowName: string;
   t: ReturnType<typeof useT<"workflows">>["t"];
   className?: string;
 }) {
@@ -94,26 +123,51 @@ function SplitTaskChildIssueMeta({
   )?.error_message;
 
   return (
-    <div className={cn("flex flex-wrap items-center gap-1.5 text-xs", className)}>
-      <span className="text-muted-foreground">{t(($) => $.detail_panel.split_draft_child_issue_label)}</span>
-      <AppLink
-        href={paths.issueDetail(linkedIssue.id)}
-        className="font-medium text-primary hover:underline"
+    <div
+      data-testid={`split-draft-child-facts-${task.id}`}
+      className={cn(
+        "grid min-w-0 w-full gap-2",
+        task.status === "failed" ? "sm:grid-cols-4" : "sm:grid-cols-3",
+        className,
+      )}
+    >
+      <DraftFact
+        testId={`split-draft-child-issue-${task.id}`}
+        label={t(($) => $.detail_panel.split_draft_created_issue_label)}
       >
-        {linkedIssue.identifier}
-      </AppLink>
-      <MetaValue
+        <AppLink
+          href={paths.issueDetail(linkedIssue.id)}
+          className="text-primary hover:underline"
+        >
+          {linkedIssue.identifier}
+        </AppLink>
+      </DraftFact>
+      <DraftFact
+        testId={`split-draft-child-status-${task.id}`}
         label={t(($) => $.detail_panel.split_draft_issue_status_label)}
-        value={linkedIssue.status}
-      />
+      >
+        {linkedIssue.status}
+      </DraftFact>
       {task.status === "failed" ? (
-        <MetaValue
+        <DraftFact
+          testId={`split-draft-child-run-result-${task.id}`}
           label={t(($) => $.detail_panel.split_draft_run_status_label)}
-          value={taskStatusLabel(task.status)}
           tone="danger"
-        />
+        >
+          {taskStatusLabel(task.status)}
+        </DraftFact>
       ) : null}
-      {errorMessage ? <span className="text-destructive">{t(($) => $.detail_panel.split_draft_error_prefix, { message: errorMessage })}</span> : null}
+      <DraftFact
+        testId={`split-draft-child-workflow-${task.id}`}
+        label={t(($) => $.detail_panel.split_draft_workflow_label)}
+      >
+        <span className="line-clamp-2">{workflowName}</span>
+      </DraftFact>
+      {errorMessage ? (
+        <span className="sm:col-span-3 text-xs text-destructive">
+          {t(($) => $.detail_panel.split_draft_error_prefix, { message: errorMessage })}
+        </span>
+      ) : null}
     </div>
   );
 }
@@ -330,46 +384,52 @@ export function SplitDraftLedger({
                   className="mt-2 flex min-w-0 flex-wrap items-center gap-1.5"
                 >
                   {linkedIssue ? (
-                    <SplitTaskChildIssueMeta task={task} linkedIssue={linkedIssue} t={t} />
+                    <SplitTaskChildIssueMeta
+                      task={task}
+                      linkedIssue={linkedIssue}
+                      workflowName={workflowLabel(t, task, workflows)}
+                      t={t}
+                    />
                   ) : (
                     <SplitTaskIssueFallback task={task} t={t} />
                   )}
                   {!linkedIssue && !task.issue_id ? (
                     <Badge variant="secondary">{taskStatusLabel(task.status)}</Badge>
                   ) : null}
-									<span className="text-[11px] text-muted-foreground">{t(($) => $.detail_panel.split_draft_version, { version: task.version })}</span>
 									{task.draft_source === "recovered" ? (
 										<Badge variant="outline">{t(($) => $.detail_panel.split_draft_recovered)}</Badge>
 									) : null}
-                  {showWorkflowSelect ? (
-                    <label className="flex min-w-[12rem] flex-1 items-center gap-2 text-xs text-muted-foreground">
-                      <span className="shrink-0">{t(($) => $.detail_panel.split_draft_workflow_label)}</span>
-                      <select
-                        aria-label={t(($) => $.detail_panel.split_draft_execution_workflow_for, { title: task.title })}
-                        className="h-8 min-w-[10rem] flex-1 rounded-md border border-input bg-background px-2 text-xs text-foreground"
-                        value={task.workflow_id ?? ""}
-                        onChange={(event) => onWorkflowChange?.(task, event.target.value)}
+                  {!linkedIssue ? (
+                    showWorkflowSelect ? (
+                      <label className="flex min-w-[12rem] flex-1 items-center gap-2 text-xs text-muted-foreground">
+                        <span className="shrink-0">{t(($) => $.detail_panel.split_draft_workflow_label)}</span>
+                        <select
+                          aria-label={t(($) => $.detail_panel.split_draft_execution_workflow_for, { title: task.title })}
+                          className="h-8 min-w-[10rem] flex-1 rounded-md border border-input bg-background px-2 text-xs text-foreground"
+                          value={task.workflow_id ?? ""}
+                          onChange={(event) => onWorkflowChange?.(task, event.target.value)}
+                        >
+                          <option value="">{t(($) => $.detail_panel.split_draft_select_workflow_placeholder)}</option>
+                          {workflows.map((workflow) => (
+                            <option key={workflow.id} value={workflow.id}>
+                              {workflow.title}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                    ) : (
+                      <Badge
+                        variant="outline"
+                        className={cn(
+                          "max-w-full truncate bg-background px-2 py-0.5 font-medium",
+                          isMissingWorkflow && "border-destructive/30 text-destructive",
+                        )}
+                        title={workflowLabel(t, task, workflows)}
                       >
-                        <option value="">{t(($) => $.detail_panel.split_draft_select_workflow_placeholder)}</option>
-                        {workflows.map((workflow) => (
-                          <option key={workflow.id} value={workflow.id}>
-                            {workflow.title}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                  ) : (
-                    <Badge
-                      variant="outline"
-                      className={cn(
-                        "max-w-full truncate bg-background px-2 py-0.5 font-medium",
-                        isMissingWorkflow && "border-destructive/30 text-destructive",
-                      )}
-                      title={workflowLabel(t, task, workflows)}
-                    >
-                      {workflowLabel(t, task, workflows)}
-                    </Badge>
-                  )}
+                        {workflowLabel(t, task, workflows)}
+                      </Badge>
+                    )
+                  ) : null}
                 </div>
               </div>
               <div className="mt-2 grid gap-2 border-t border-border/60 pt-2 sm:grid-cols-[minmax(0,1fr)_auto]">

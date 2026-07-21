@@ -20,7 +20,12 @@ vi.mock("../../../../i18n", () => ({
       const dict = {
         node: { worker_name: "Worker", agent_label: "Agent", not_configured: "Not configured" },
         panorama: { card: { worker_label: "Localized Worker", critic_label: "Localized Critic" } },
-        detail_panel: { split_node_mode_concurrency: "{{mode}} · concurrency {{concurrency}}" },
+        detail_panel: {
+          split_node_mode_label: "{{mode}}",
+          split_node_concurrency_label: "concurrency {{concurrency}}",
+          split_node_failure_label: "max failures {{max}}",
+          split_node_child_workflow_missing: "No child workflow",
+        },
       };
       return getter(dict).replace(/{{\s*(\w+)\s*}}/g, (_match, key: string) => String(values?.[key] ?? ""));
     },
@@ -99,8 +104,8 @@ describe("CompactWorkerNode", () => {
     renderWithProvider(rfn);
     const el = screen.getByTestId("compact-worker-node-1");
     expect(el).toBeInTheDocument();
-    expect(el).toHaveClass("h-[136px]", "w-[296px]");
-    expect(el).toHaveStyle({ width: "296px", height: "136px" });
+    expect(el).toHaveClass("h-[152px]", "w-[296px]");
+    expect(el).toHaveStyle({ width: "296px", height: "152px" });
   });
 
   it("allows long titles, descriptions, and actor names to wrap instead of single-line truncating everything", () => {
@@ -127,7 +132,7 @@ describe("CompactWorkerNode", () => {
     renderWithProvider(rfn);
 
     const card = screen.getByTestId("compact-worker-long-node");
-    expect(card).toHaveClass("h-[136px]", "w-[296px]");
+    expect(card).toHaveClass("h-[152px]", "w-[296px]");
     expect(screen.getByText(/Implement a very long checkout/).className).toContain("line-clamp-2");
     expect(screen.getByText(/Coordinate API/).className).toContain("line-clamp-2");
     expect(screen.getByTestId("compact-worker-node-worker-role-long-node").innerHTML).not.toContain("truncate");
@@ -213,9 +218,11 @@ describe("CompactWorkerNode", () => {
     expect(screen.getByTestId("compact-worker-node-critic-role-node-1")).toHaveTextContent("Reviewer");
     expect(screen.getByText("Localized Worker")).toBeInTheDocument();
     expect(screen.getByText("Localized Critic")).toBeInTheDocument();
-    expect(screen.getByTestId("compact-worker-node-meta-node-1")).toHaveClass("grid-rows-[12px_32px]");
-    expect(screen.getByTestId("compact-worker-node-worker-role-node-1")).toHaveClass("row-span-2", "grid-rows-subgrid");
-    expect(screen.getByTestId("compact-worker-node-critic-role-node-1")).toHaveClass("row-span-2", "grid-rows-subgrid");
+    expect(screen.getByTestId("compact-worker-node-meta-node-1")).toHaveClass("grid-cols-2");
+    expect(screen.getByTestId("compact-worker-node-worker-role-node-1")).toHaveAttribute("data-workflow-actor-slot", "worker");
+    expect(screen.getByTestId("compact-worker-node-critic-role-node-1")).toHaveAttribute("data-workflow-actor-slot", "critic");
+    expect(screen.getByTestId("compact-worker-node-worker-role-node-1").querySelector('[data-workflow-actor-state="configured"]')).toBeInTheDocument();
+    expect(screen.getByTestId("compact-worker-node-critic-role-node-1").querySelector('[data-workflow-actor-state="configured"]')).toBeInTheDocument();
   });
 
   it("does not show missing worker warnings on the card", () => {
@@ -335,6 +342,7 @@ describe("CompactWorkerNode", () => {
       position: { x: 100, y: 12 },
       data: {
         ...baseData,
+        splitChildWorkflowName: "Implementation workflow",
         node: makeWorkerNode({
           id: "split-1",
           title: "Task split",
@@ -358,7 +366,10 @@ describe("CompactWorkerNode", () => {
     renderWithProvider(rfn);
 
     expect(screen.getByText("Task split")).toBeInTheDocument();
-    expect(screen.getByText("barrier · concurrency 5")).toBeInTheDocument();
+    expect(screen.getByText("barrier")).toBeInTheDocument();
+    expect(screen.getByText("concurrency 5")).toBeInTheDocument();
+    expect(screen.getByText("max failures 0")).toBeInTheDocument();
+    expect(screen.getByText("Implementation workflow")).toBeInTheDocument();
     expect(screen.queryByText("GPT-4 Agent")).not.toBeInTheDocument();
     expect(screen.queryByTestId("compact-worker-node-badge-split-1")).not.toBeInTheDocument();
 

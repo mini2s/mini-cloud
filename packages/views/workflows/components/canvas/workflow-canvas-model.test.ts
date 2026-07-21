@@ -69,7 +69,7 @@ describe("workflowEdgesToReactFlowEdges", () => {
 
     expect(Object.fromEntries(rfNodes.map((node) => [node.id, node.position.x]))).toEqual({
       "stage-1-a": 100,
-      "stage-1-b": 476,
+      "stage-1-b": 492,
       "stage-1-c": 900,
       "stage-2-a": 120,
     });
