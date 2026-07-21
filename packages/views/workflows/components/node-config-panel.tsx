@@ -164,35 +164,6 @@ function AssignmentModeControl<T extends string>({
   );
 }
 
-function ActorSummary({
-  type,
-  id,
-  label,
-  emptyText,
-  hint,
-}: {
-  type: string;
-  id: string | null;
-  label?: string | null;
-  emptyText: string;
-  hint: string;
-}) {
-  const Icon = type === "agent" ? Bot : type === "squad" ? Users : type === "role" ? ShieldCheck : User;
-  return (
-    <div className="flex items-center gap-2 rounded-lg border border-border/70 bg-muted/20 px-2.5 py-2">
-      <span className="flex size-8 shrink-0 items-center justify-center rounded-md bg-background text-muted-foreground">
-        <Icon className="size-4" />
-      </span>
-      <div className="min-w-0">
-        <p className="truncate text-xs font-medium">{id ? (label ?? `${type}: ${id}`) : emptyText}</p>
-        <p className="truncate text-[11px] text-muted-foreground">
-          {hint}
-        </p>
-      </div>
-    </div>
-  );
-}
-
 function pickerTriggerLabel(type: string, id: string | null, emptyPrefix: string, t: ReturnType<typeof useT<"workflows">>["t"], label?: string | null): string {
   if (id) return label ?? `${type}: ${id}`;
   const typeLabels: Record<string, () => string> = {
@@ -800,7 +771,6 @@ export function NodeConfigPanel({
                         includeWorkflows={false}
                       />
                     </div>
-                    <ActorSummary type={workerType} id={workerId} label={workerLabel} emptyText={t(($) => $.detail_panel.empty_worker)} hint={t(($) => $.detail_panel.actor_assignee_hint)} />
                     </AssignmentCard>
 
                     <AssignmentCard
@@ -876,7 +846,6 @@ export function NodeConfigPanel({
                               <option key={r.id} value={r.id}>{r.name}</option>
                             ))}
                           </select>
-                          <ActorSummary type="role" id={criticRoleId} label={criticLabel} emptyText={t(($) => $.detail_panel.empty_critic_role)} hint={t(($) => $.detail_panel.actor_role_hint)} />
                         </div>
                       ) : (
                         <div className="space-y-2">
@@ -916,7 +885,6 @@ export function NodeConfigPanel({
                               includeWorkflows={false}
                             />
                           </div>
-                          <ActorSummary type={criticType} id={criticId} label={criticLabel} emptyText={t(($) => $.detail_panel.empty_critic)} hint={t(($) => $.detail_panel.actor_assignee_hint)} />
                         </div>
                       )}
                     </AssignmentCard>
@@ -968,7 +936,6 @@ export function NodeConfigPanel({
                               <option key={r.id} value={r.id}>{r.name}</option>
                             ))}
                           </select>
-                          <ActorSummary type="role" id={workerRoleId} label={workerLabel} emptyText={t(($) => $.detail_panel.empty_worker_role)} hint={t(($) => $.detail_panel.actor_role_hint)} />
                         </div>
                       ) : (
                         <div className="space-y-2">
@@ -1008,7 +975,6 @@ export function NodeConfigPanel({
                               includeWorkflows={false}
                             />
                           </div>
-                          <ActorSummary type={workerType} id={workerId} label={workerLabel} emptyText={t(($) => $.detail_panel.empty_worker)} hint={t(($) => $.detail_panel.actor_assignee_hint)} />
                         </div>
                       )}
                     </AssignmentCard>
@@ -1092,7 +1058,6 @@ export function NodeConfigPanel({
                               <option key={r.id} value={r.id}>{r.name}</option>
                             ))}
                           </select>
-                          <ActorSummary type="role" id={criticRoleId} label={criticLabel} emptyText={t(($) => $.detail_panel.empty_critic_role)} hint={t(($) => $.detail_panel.actor_role_hint)} />
                         </div>
                       ) : (
                         <div className="space-y-2">
@@ -1132,7 +1097,6 @@ export function NodeConfigPanel({
                               includeWorkflows={false}
                             />
                           </div>
-                          <ActorSummary type={criticType} id={criticId} label={criticLabel} emptyText={t(($) => $.detail_panel.empty_critic)} hint={t(($) => $.detail_panel.actor_assignee_hint)} />
                         </div>
                       )}
                     </AssignmentCard>

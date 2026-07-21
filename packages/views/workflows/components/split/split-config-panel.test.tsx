@@ -56,6 +56,8 @@ describe("SplitConfigPanel", () => {
       />,
     );
 
+    expect(screen.queryByText("Split settings")).not.toBeInTheDocument();
+    expect(screen.queryByText("Configure child issue release behavior.")).not.toBeInTheDocument();
     expect(screen.getByText("Release downstream work")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "After child issues finish" })).toHaveAttribute("aria-pressed", "true");
     expect(screen.getByRole("button", { name: "After child issues are created" })).toBeInTheDocument();

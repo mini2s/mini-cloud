@@ -375,6 +375,7 @@ describe("NodeConfigPanel", () => {
       ]),
     );
     expect(mocks.assigneePickerCalls.every((call) => call.includeWorkflows === false)).toBe(true);
+    expect(screen.queryByText("Pick a concrete assignee for predictable execution")).not.toBeInTheDocument();
   });
 
   it("updates Worker type from the unified participant picker selection", () => {
@@ -528,7 +529,7 @@ describe("NodeConfigPanel", () => {
       />,
     );
 
-    expect(screen.getAllByText("Split rules")).toHaveLength(2);
+    expect(screen.getAllByText("Split rules")).toHaveLength(1);
     expect(screen.getByText("Human review is required")).toBeInTheDocument();
     expect(screen.getByText("Generated split tasks always stop for human review before child issues are created.")).toBeInTheDocument();
     expect(screen.getByLabelText("Child issue default workflow")).toHaveValue("child-wf-2");

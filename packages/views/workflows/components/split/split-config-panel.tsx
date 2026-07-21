@@ -1,6 +1,6 @@
 "use client";
 
-import { GitBranch, ShieldCheck } from "lucide-react";
+import { ShieldCheck } from "lucide-react";
 import type { SplitConfig, Workflow } from "@multica/core/types";
 import { Label } from "@multica/ui/components/ui/label";
 import { useT } from "../../../i18n";
@@ -29,19 +29,7 @@ export function SplitConfigPanel({
   const activeChildWorkflows = childWorkflows.filter((workflow) => workflow.status === "active" && workflow.id !== currentWorkflowId);
 
   return (
-    <div className="space-y-3 rounded-lg border border-border/70 bg-muted/15 p-3" data-testid="split-config-panel">
-      <div className="flex items-start gap-2.5">
-        <span className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-md border bg-background text-muted-foreground">
-          <GitBranch className="size-4" />
-        </span>
-        <div className="min-w-0">
-          <h4 className="text-sm font-medium">{t(($) => $.detail_panel.split_title)}</h4>
-          <p className="mt-1 text-[11px] leading-snug text-muted-foreground">
-            {t(($) => $.detail_panel.split_subtitle)}
-          </p>
-        </div>
-      </div>
-
+    <div className="space-y-3" data-testid="split-config-panel">
       <div className="space-y-1.5">
         <Label htmlFor="split-default-issue-workflow" className="text-xs text-muted-foreground">
           {t(($) => $.detail_panel.split_default_issue_workflow_label)}
