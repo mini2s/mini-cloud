@@ -539,7 +539,7 @@ input/output；它可以在专用 renderer 上线后成为新的 fallback
 | 分组 | 使用 `MessagePrimitive.Parts` | 改为 `GroupedParts`，渲染 `part.toolUI` |
 | progress | reducer 已保存，UI 不可访问 | bridge 按 callID/part ID 暴露 |
 | permission/question | state 和 actions 已存在，UI 不可访问 | bridge + interaction decorator |
-| diff | state 已保存，但专用 UI 和依赖不存在 | 适配 diff renderer，不新建第二个 client |
+| diff | 后端未实现 conversation diff 接口 | 仅从 tool metadata/output 适配 diff renderer |
 | host action | 没有 VSCode `openFile/openDiff` bridge | 本次明确不实现，也不显示依赖 host 的动作 |
 
 ## ToolPart 投影与 ID 设计
@@ -862,13 +862,14 @@ Multica 实现前没有 `@pierre/diffs` 依赖，本次已在 workspace catalog
 2. 在 `tools/diff` 内定义 Multica 自己的最小
    `ConversationFileDiff`，不要从 `@assistant-ui/react-opencode`
    import 类型；
-3. 从 Tool bridge 的 provider metadata 或现有 `state.diff`
-   生成 diff；
+3. 从 Tool bridge 的 provider metadata 或 tool output 生成
+   diff；
 4. 只显示路径和内嵌 diff，不提供打开文件或打开 diff 动作；
 5. 第一版不实现 revert/undo。
 
-不要为了 diff 再创建一个 cloud proxy client。当前 runtime 已经加载
-`conversation.diff`，需要刷新时复用现有 controller。
+不要为了 diff 创建 cloud proxy client 或请求
+`conversation.diff`。当前后端没有实现该接口，runtime 不保存
+conversation-level diff 状态。
 
 #### Permission / Question
 
@@ -924,9 +925,9 @@ bridge 只是 Query state 和 controller action 的 React plumbing：
 - `"use generative"` toolkit；
 - 任何 VSCode-only bridge。
 
-`todowrite`、tasks 和 diff 已在 Multica canonical state 中保存。后续
+`todowrite` 和 tasks 已在 Multica canonical state 中保存。后续
 若需要专用 data renderer，应单独设计，避免与标准 tool-call
-renderer 混在第一阶段。
+renderer 混在第一阶段。Diff 仅使用 tool-level metadata/output。
 
 ## Tool bridge
 
@@ -1171,8 +1172,10 @@ packages/views/common/session/
    未触发。
 2. **diff 的未来 contract**：当前部署只提供
    `edit.state.metadata.filediff`，即使 tracked Git diff 非空，
-   `session.diff` 仍为空且 REST diff 返回 501。后续代理版本若补齐
-   conversation diff，需要新增 fixture，而不是覆盖当前降级逻辑。
+   `session.diff` 仍为空且 REST diff 返回 501。因此当前 runtime
+   不定义 `conversation.diff` client 方法，也不保存 session diff。
+   后续代理版本若补齐 conversation diff，需要先增加明确的
+   contract、fixture 和 runtime 测试。
 3. **tool.progress 的未来 contract**：Bash、WebSearch、Agent 均未
    产生该事件。当前只能保留可选兼容处理，无法验证 toolUseID 与
    parentToolUseID 的真实优先级。

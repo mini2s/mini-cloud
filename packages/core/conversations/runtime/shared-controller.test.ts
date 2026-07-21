@@ -93,7 +93,6 @@ describe("shared conversation runtime controller", () => {
         abort: vi.fn(async () => undefined),
         todo: vi.fn(async () => []),
         tasks: vi.fn(async () => []),
-        diff: vi.fn(async () => []),
       },
       permission: {
         list: vi.fn(async () => []),
@@ -146,7 +145,6 @@ describe("shared conversation runtime controller", () => {
     expect(client.question.list).toHaveBeenCalledTimes(1);
     expect(client.conversation.todo).toHaveBeenCalledTimes(1);
     expect(client.conversation.tasks).toHaveBeenCalledTimes(1);
-    expect(client.conversation.diff).toHaveBeenCalledTimes(1);
     expect(client.event.stream).toHaveBeenCalledTimes(1);
     expect(
       queryClient.getQueryData<ConversationRuntimeState>(queryKey)?.loadState,

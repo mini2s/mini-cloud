@@ -32,7 +32,6 @@ function snapshot(
     questions: [],
     todo: [],
     tasks: [],
-    diff: [],
     ...input,
   };
 }
@@ -126,7 +125,6 @@ describe("reduceConversationRuntimeState", () => {
           questions: [],
           todo: [],
           tasks: [],
-          diff: [],
         },
       },
     ).state;

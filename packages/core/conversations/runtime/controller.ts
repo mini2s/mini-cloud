@@ -233,7 +233,6 @@ export class ConversationRuntimeController {
         questions,
         todo,
         tasks,
-        diff,
       ] = await Promise.all([
         this.client.conversation.get(this.conversationId, controller.signal),
         this.client.conversation.messages(
@@ -268,14 +267,6 @@ export class ConversationRuntimeController {
           ),
           null,
         ),
-        optional(
-          "diff",
-          this.client.conversation.diff(
-            this.conversationId,
-            controller.signal,
-          ),
-          [],
-        ),
       ]);
       if (controller.signal.aborted || this.disposed) return;
       this.dispatch({
@@ -288,7 +279,6 @@ export class ConversationRuntimeController {
           questions: normalizeRecordList(questions),
           todo,
           tasks,
-          diff,
         },
       });
     } catch (error) {

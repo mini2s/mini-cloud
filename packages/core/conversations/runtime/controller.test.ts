@@ -76,7 +76,6 @@ function createFakeClient(
       abort: vi.fn(async () => undefined),
       todo: vi.fn(async () => []),
       tasks: vi.fn(async () => []),
-      diff: vi.fn(async () => []),
     },
     permission: {
       list: vi.fn(async () => []),
@@ -258,7 +257,6 @@ describe("ConversationRuntimeController", () => {
     const questions = createDeferred<OpenCodeRecord[]>();
     const todo = createDeferred<OpenCodeRecord[]>();
     const tasks = createDeferred<[]>();
-    const diff = createDeferred<OpenCodeRecord[]>();
     const signals: AbortSignal[] = [];
     const captureSignal = (signal?: AbortSignal) => {
       if (!signal) throw new Error("Expected snapshot abort signal");
@@ -292,10 +290,6 @@ describe("ConversationRuntimeController", () => {
       captureSignal(signal);
       return tasks.promise;
     });
-    client.conversation.diff = vi.fn((_conversationId, signal) => {
-      captureSignal(signal);
-      return diff.promise;
-    });
     const queryClient = new QueryClient();
     const queryKey = conversationKeys.state(
       client.baseUrl,
@@ -310,7 +304,7 @@ describe("ConversationRuntimeController", () => {
     );
 
     const starting = controller.start();
-    await vi.waitFor(() => expect(signals).toHaveLength(8));
+    await vi.waitFor(() => expect(signals).toHaveLength(7));
     controller.dispose();
 
     expect(signals.every((signal) => signal === signals[0])).toBe(true);
@@ -323,7 +317,6 @@ describe("ConversationRuntimeController", () => {
     questions.resolve([{ id: "question-late" }]);
     todo.resolve([{ id: "todo-late" }]);
     tasks.resolve([]);
-    diff.resolve([{ id: "diff-late" }]);
     await starting;
 
     expect(
@@ -335,7 +328,6 @@ describe("ConversationRuntimeController", () => {
       permissions: {},
       questions: {},
       todo: [],
-      diff: [],
       sync: {},
     });
   });

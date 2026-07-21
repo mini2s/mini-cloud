@@ -77,7 +77,6 @@ export type ConversationRuntimeState = {
   tasks: Readonly<Record<string, ConversationTaskState>>;
   toolProgress: Readonly<Record<string, string>>;
   partProgress: Readonly<Record<string, readonly string[]>>;
-  diff: readonly OpenCodeRecord[];
   unhandledEvents: readonly {
     type: string;
     properties: OpenCodeRecord;
@@ -111,7 +110,6 @@ export function createConversationRuntimeState(
     tasks: {},
     toolProgress: {},
     partProgress: {},
-    diff: [],
     unhandledEvents: [],
     sync: {},
   };

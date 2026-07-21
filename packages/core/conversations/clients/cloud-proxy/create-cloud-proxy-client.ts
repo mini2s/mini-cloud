@@ -262,19 +262,6 @@ export function createCloudProxyClient({
           { endpoint: "GET /api/v1/conversations/:id/tasks" },
         );
       },
-      async diff(conversationId, signal) {
-        const raw = await requestJson(
-          "GET",
-          `/api/v1/conversations/${encodeURIComponent(conversationId)}/diff`,
-          { signal },
-        );
-        return parseWithFallback<OpenCodeRecord[]>(
-          raw,
-          OpenCodeRecordArraySchema,
-          [],
-          { endpoint: "GET /api/v1/conversations/:id/diff" },
-        );
-      },
     },
     permission: {
       async list(signal) {

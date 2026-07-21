@@ -335,7 +335,6 @@ export type ConversationRuntimeSnapshot = {
   questions: readonly OpenCodeRecord[];
   todo: readonly OpenCodeRecord[];
   tasks: readonly OpenCodeTaskSnapshot[] | null;
-  diff: readonly OpenCodeRecord[];
 };
 
 export type ConversationRuntimeAction =
@@ -424,7 +423,6 @@ export function reduceConversationRuntimeState(
             action.snapshot.tasks === null
               ? state.tasks
               : indexTasks(action.snapshot.tasks),
-          diff: action.snapshot.diff,
           sync: { ...state.sync, lastSnapshotAt: Date.now() },
         },
         needsRefresh: false,
@@ -838,14 +836,6 @@ export function reduceConversationRuntimeState(
         state: {
           ...withEventTime,
           todo: asRecordArray(properties.todos),
-        },
-        needsRefresh: false,
-      };
-    case "session.diff":
-      return {
-        state: {
-          ...withEventTime,
-          diff: asRecordArray(properties.diff),
         },
         needsRefresh: false,
       };

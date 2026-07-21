@@ -40,7 +40,6 @@ export type CloudProxyClient = {
       conversationId: string,
       signal?: AbortSignal,
     ) => Promise<OpenCodeTaskSnapshot[]>;
-    diff: (conversationId: string, signal?: AbortSignal) => Promise<OpenCodeRecord[]>;
   };
   permission: {
     list: (signal?: AbortSignal) => Promise<OpenCodeRecord[]>;
