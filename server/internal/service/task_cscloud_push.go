@@ -13,6 +13,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/multica-ai/multica/server/internal/cloudruntime"
+	"github.com/multica-ai/multica/server/internal/gitea"
 	"github.com/multica-ai/multica/server/internal/util"
 	db "github.com/multica-ai/multica/server/pkg/db/generated"
 )
@@ -156,6 +157,16 @@ func (s *TaskService) buildCSCloudPayload(ctx context.Context, task db.MulticaAg
 			_ = json.Unmarshal(agent.CustomEnv, &env)
 		}
 	}
+	// Gitea document-deliverable context (MULTICA_GITEA_*) + node-run/issue ids,
+	// so the cs-cloud agent can run `cs-cloud gitea submit` / `gitea fetch`
+	// inside the task. Dormant (no env injected) when Gitea isn't configured or
+	// the node has no document deliverables — matches the claim-time context.
+	for k, v := range s.giteaDeliverableEnv(ctx, task) {
+		env[k] = v
+	}
+	if task.IssueID.Valid {
+		env["MULTICA_ISSUE_ID"] = util.UUIDToString(task.IssueID)
+	}
 
 	return csCloudTaskRunPayload{
 		TaskID:      util.UUIDToString(task.ID),
@@ -169,6 +180,70 @@ func (s *TaskService) buildCSCloudPayload(ctx context.Context, task db.MulticaAg
 		Env:         env,
 		Kind:        kind,
 	}, nil
+}
+
+// giteaDeliverableRefJSON is the per-deliverable shape cs-cloud's
+// `gitea submit` reads from MULTICA_GITEA_DELIVERABLES.
+type giteaDeliverableRefJSON struct {
+	ID    string `json:"deliverable_id"`
+	Title string `json:"title"`
+	Path  string `json:"path"`
+}
+
+// giteaDeliverableEnv builds the MULTICA_GITEA_* env vars for a task's
+// node-run, mirroring handler.giteaContextForNodeRun but in the service layer
+// (the cs-cloud push path lives here, separate from claim). Returns nil when
+// Gitea is dormant or the node has no document deliverables — the caller then
+// injects nothing and the cs-cloud `gitea submit` command is simply unusable
+// for this task (by design).
+func (s *TaskService) giteaDeliverableEnv(ctx context.Context, task db.MulticaAgentTaskQueue) map[string]string {
+	base := strings.TrimSpace(os.Getenv("GITEA_BASE_URL"))
+	if strings.TrimSpace(os.Getenv("GITEA_ADMIN_TOKEN")) == "" || base == "" || !task.WorkflowNodeRunID.Valid {
+		return nil
+	}
+	nr, err := s.Queries.GetWorkflowNodeRun(ctx, task.WorkflowNodeRunID)
+	if err != nil {
+		return nil
+	}
+	run, err := s.Queries.GetWorkflowRun(ctx, nr.WorkflowRunID)
+	if err != nil {
+		return nil
+	}
+	deliverables, err := s.Queries.ListWorkflowNodeDeliverables(ctx, nr.WorkflowNodeID)
+	if err != nil {
+		return nil
+	}
+	nodeRunIDStr := util.UUIDToString(nr.ID)
+	var refs []giteaDeliverableRefJSON
+	for _, d := range deliverables {
+		if d.Kind != "document" {
+			continue
+		}
+		refs = append(refs, giteaDeliverableRefJSON{
+			ID:    util.UUIDToString(d.ID),
+			Title: d.Title,
+			Path:  gitea.DeliverablePath(nodeRunIDStr, util.UUIDToString(d.ID)),
+		})
+	}
+	if len(refs) == 0 {
+		return nil
+	}
+	publicBase := strings.TrimSpace(os.Getenv("GITEA_PUBLIC_BASE_URL"))
+	if publicBase == "" {
+		publicBase = base
+	}
+	owner := gitea.OrgName(util.UUIDToString(run.WorkspaceID))
+	repo := gitea.RepoName(util.UUIDToString(run.WorkflowID))
+	refsJSON, _ := json.Marshal(refs)
+	return map[string]string{
+		"MULTICA_NODE_RUN_ID":           nodeRunIDStr,
+		"MULTICA_GITEA_OWNER":           owner,
+		"MULTICA_GITEA_REPO":            repo,
+		"MULTICA_GITEA_CLONE_URL":       strings.TrimRight(publicBase, "/") + "/" + owner + "/" + repo + ".git",
+		"MULTICA_GITEA_INST_BRANCH":     gitea.InstBranch(util.UUIDToString(run.ID)),
+		"MULTICA_GITEA_NODE_BRANCH":     gitea.NodeBranch(nodeRunIDStr),
+		"MULTICA_GITEA_DELIVERABLES":    string(refsJSON),
+	}
 }
 
 func computeCSCloudTaskKind(task db.MulticaAgentTaskQueue) string {
