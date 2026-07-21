@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
@@ -256,6 +257,11 @@ func (h *Handler) createConversationOnDevice(w http.ResponseWriter, r *http.Requ
 	hdr.Set("X-Workspace-Directory", workspaceDir)
 	if auth := r.Header.Get("Authorization"); auth != "" {
 		hdr.Set("Authorization", auth)
+	}
+	// The gateway's device proxy requires the shared internal secret (same as
+	// the task push path); without it the gateway rejects with 403.
+	if secret := os.Getenv("COSTRICT_INTERNAL_SECRET"); secret != "" {
+		hdr.Set("X-Internal-Secret", secret)
 	}
 
 	// Bound the Gateway HTTP call to avoid holding the DB advisory lock and
