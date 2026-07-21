@@ -53,12 +53,16 @@ func (h *Handler) CreateChatSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Verify agent exists in workspace.
-	agent, err := h.Queries.GetAgentInWorkspace(r.Context(), db.GetAgentInWorkspaceParams{
-		ID:          agentID,
-		WorkspaceID: workspaceUUID,
-	})
+	// Verify the agent exists. Workspace-scoped agents must belong to the
+	// target workspace; global agents (workspace_id IS NULL) are allowed as
+	// long as the caller can access the agent and is a member of the workspace
+	// where the session is being created.
+	agent, err := h.Queries.GetAgent(r.Context(), agentID)
 	if err != nil {
+		writeError(w, http.StatusNotFound, "agent not found")
+		return
+	}
+	if agent.WorkspaceID.Valid && agent.WorkspaceID != workspaceUUID {
 		writeError(w, http.StatusNotFound, "agent not found")
 		return
 	}
