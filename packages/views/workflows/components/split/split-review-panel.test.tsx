@@ -52,7 +52,7 @@ const i18nMock = vi.hoisted(() => {
     split_approve_dialog_description: "This will create {{count}} child issues and start their workflows.",
     split_cancel_dialog_title: "Cancel split?",
     split_cancel_dialog_description: "This will stop unfinished child tasks and cancel their child issues.",
-		split_planner_label: "Planner: {{planner}}",
+		split_planner_label: "Split planner: {{planner}}",
 		split_elapsed: "Elapsed: {{elapsed}}",
 		split_generation_slow: "Planner is still generating drafts",
 		split_cancel_affected_count: "{{count}} child tasks will be cancelled",
@@ -461,7 +461,7 @@ describe("SplitReviewPanel", () => {
 				nodeRun: { ...splitNodeRun, status: "splitting", started_at: "2026-07-19T00:00:00Z" },
 				plannerName: "Split Planner Code",
 			});
-			expect(screen.getByText("Planner: Split Planner Code")).toBeInTheDocument();
+			expect(screen.getByText("Split planner: Split Planner Code")).toBeInTheDocument();
 			expect(screen.getByText("Elapsed: 1:01")).toBeInTheDocument();
 			expect(screen.getByText("Planner is still generating drafts")).toBeInTheDocument();
 		} finally {

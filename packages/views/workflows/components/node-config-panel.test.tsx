@@ -5,6 +5,8 @@ import { cloneElement, type ReactElement, type ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { NodeConfigPanel } from "./node-config-panel";
 import type { WorkflowNode, WorkflowNodeRun, WorkflowStage } from "@multica/core/types";
+import enWorkflows from "../../locales/en/workflows.json";
+import zhHansWorkflows from "../../locales/zh-Hans/workflows.json";
 
 const mocks = vi.hoisted(() => ({
   cacheNodeEdits: vi.fn(),
@@ -129,20 +131,20 @@ vi.mock("../../i18n", () => {
       stage_dialog: { cancel: "Cancel" },
     },
     detail_panel: {
-      eyebrow: "Node inspector",
+      eyebrow: "Node settings",
       close_label: "Close node inspector",
-      section_readiness: "Readiness",
-      section_readiness_desc: "Confirm the node can run before publishing.",
-      section_primary: "Node intent",
-      section_primary_desc: "Definition fields for this workflow node.",
-      section_worker_critic: "Worker and critic",
-      section_worker_critic_desc: "Assign who performs and reviews this node.",
-      section_split_behavior: "Split behavior",
-      section_split_behavior_desc: "Control child issue release, concurrency, and failure handling.",
+      section_readiness: "Activation check",
+      section_readiness_desc: "Check what must be ready before this workflow can be enabled.",
+      section_primary: "Basic information",
+      section_primary_desc: "Name and describe what this step should do.",
+      section_worker_critic: "Executor and reviewer",
+      section_worker_critic_desc: "Choose who performs this step and who reviews it.",
+      section_split_behavior: "Split rules",
+      section_split_behavior_desc: "Choose the child issue workflow and when downstream steps continue.",
       section_annotation_binding: "Annotation binding",
       section_annotation_binding_desc: "Attach this note to a workflow node.",
-      section_runtime: "Runtime",
-      section_runtime_desc: "Latest run context for this node.",
+      section_runtime: "Run status",
+      section_runtime_desc: "Latest run context for this step.",
       section_connections: "Connections",
       section_connections_desc: "Canvas topology stays visible in the editor while details focus on the selected node.",
       section_actions: "Actions",
@@ -156,34 +158,34 @@ vi.mock("../../i18n", () => {
       badge_needs_assignee: "Needs assignee",
       badge_optional: "Optional",
       badge_needs_default_issue_workflow: "Needs default issue workflow",
-      readiness_worker_ready: "Worker ready",
-      readiness_worker_missing: "Worker missing",
-      readiness_critic_ready: "Critic ready",
-      readiness_critic_optional: "Critic optional",
+      readiness_worker_ready: "Executor ready",
+      readiness_worker_missing: "Executor missing",
+      readiness_critic_ready: "Reviewer ready",
+      readiness_critic_optional: "Reviewer optional",
       readiness_split_ready: "Default issue workflow ready",
       readiness_split_missing: "Default issue workflow missing",
       label_bind_to_node: "Bind to Node",
-      label_worker_role: "Worker role",
-      label_critic_role: "Critic role",
-      split_title: "Split settings",
-      split_subtitle: "Configure the planner agent, default issue workflow, and runtime limits for task splitting.",
+      label_worker_role: "Executor role",
+      label_critic_role: "Reviewer role",
+      split_title: "Split rules",
+      split_subtitle: "Choose the child issue workflow, review step, and runtime limits.",
       split_review_required_title: "Human review is required",
       split_review_required_hint: "Generated split tasks always stop for human review before child issues are created.",
-      split_worker_subtitle: "The Agent that generates the task splitting plan.",
-      split_critic_subtitle: "The reviewer that approves generated split drafts.",
-      split_default_issue_workflow_label: "Default issue workflow",
-      split_default_issue_workflow_placeholder: "Select default issue workflow...",
-      split_release_mode_label: "Release downstream work",
+      split_worker_subtitle: "The split planner that drafts child issues.",
+      split_critic_subtitle: "The reviewer that approves generated drafts.",
+      split_default_issue_workflow_label: "Child issue default workflow",
+      split_default_issue_workflow_placeholder: "Select child issue workflow...",
+      split_release_mode_label: "When should downstream steps continue?",
       split_release_after_finish: "After child issues finish",
       split_release_after_created: "After child issues are created",
-      split_mode_hint: "Barrier waits for child tasks; Pipeline releases downstream after issue creation.",
+      split_mode_hint: "Wait mode continues after child issues finish. Continue mode starts downstream after child issues are created.",
       split_concurrency_question: "How many child issues can run at once?",
-      split_concurrency_hint: "Run at most this many child issues at once.",
-      split_failure_tolerance_label: "Failure tolerance",
+      split_concurrency_hint: "This limits child issues running at the same time.",
+      split_failure_tolerance_label: "Allowed failed child issues",
 			connection_upstream_count: "2 upstream",
 			connection_downstream_count: "1 downstream",
-			trial_run: "Trial run",
-      split_max_failures_hint: "Barrier mode fails the parent split when child failures exceed this number.",
+			trial_run: "Test this split",
+      split_max_failures_hint: "If failures exceed this number, the parent split fails.",
       select_node: "Select a node...",
       select_role: "Select a role...",
       actor_role_hint: "Resolved when the workflow runs",
@@ -194,18 +196,18 @@ vi.mock("../../i18n", () => {
       empty_critic: "No critic selected",
       empty_unknown_node: "Unknown node",
       picker_empty_prefix: "Select existing",
-      gateway_label_fork: "Fork gateway",
-      gateway_label_join: "Join gateway",
-      gateway_label_default: "Gateway",
-      gateway_desc_fork: "Automatically completes and fans out to all downstream nodes.",
-      gateway_desc_join: "Waits for all upstream nodes to finish, then automatically completes and continues downstream.",
+      gateway_label_fork: "Branch start",
+      gateway_label_join: "Join point",
+      gateway_label_default: "Branch node",
+      gateway_desc_fork: "Automatically starts every downstream branch.",
+      gateway_desc_join: "Waits for upstream branches, then continues downstream.",
       gateway_desc_invalid: "Gateway kind is invalid. Choose Fork or Join before publishing.",
-      gateway_subtitle: "Gateway nodes control DAG flow and do not run worker or critic tasks.",
+      gateway_subtitle: "Branch nodes control flow automatically and do not need an executor or reviewer.",
       worker_subtitle: "Who performs this workflow step.",
-      critic_subtitle: "Who reviews or validates the worker output.",
-      worker_critic_divider: "Worker output moves to Critic review",
+      critic_subtitle: "Who reviews or validates the output.",
+      worker_critic_divider: "Executor output moves to reviewer approval",
       runtime_status_label: "Status: {{status}}",
-      runtime_hint: "Worker output, critic output and comments remain available in this runtime section.",
+      runtime_hint: "Executor output, reviewer output, and comments remain available here.",
       runtime_no_data: "No run data for this node yet.",
       connections_stage: "Stage: {{stage}}",
       connections_gateway_hint: "Gateway edge counts and topology are shown on the canvas.",
@@ -320,6 +322,28 @@ function renderPanel(recentNodeRun: WorkflowNodeRun | null = null) {
 }
 
 describe("NodeConfigPanel", () => {
+  it("keeps workflow editor copy aligned in English and Simplified Chinese locales", () => {
+    expect(enWorkflows.detail_panel).toMatchObject({
+      eyebrow: "Node settings",
+      section_readiness: "Activation check",
+      section_primary: "Basic information",
+      section_worker_critic: "Executor and reviewer",
+      section_split_behavior: "Split rules",
+      split_default_issue_workflow_label: "Child issue default workflow",
+      gateway_label_fork: "Branch start",
+      split_planner_label: "Split planner: {{planner}}",
+    });
+    expect(zhHansWorkflows.detail_panel).toMatchObject({
+      eyebrow: "节点设置",
+      section_readiness: "启用检查",
+      section_primary: "基本信息",
+      section_worker_critic: "执行者和审核者",
+      section_split_behavior: "拆分规则",
+      split_default_issue_workflow_label: "子 issue 默认 workflow",
+      gateway_label_fork: "分支开始",
+      split_planner_label: "拆分规划者：{{planner}}",
+    });
+  });
   beforeEach(() => {
     mocks.cacheNodeEdits.mockReset();
     mocks.saveNode.mockReset();
@@ -388,7 +412,7 @@ describe("NodeConfigPanel", () => {
   it("does not render legacy nested subsection cards inside the shared primary section", () => {
     renderPanel();
 
-    expect(screen.getByText("Node intent")).toBeInTheDocument();
+    expect(screen.getByText("Basic information")).toBeInTheDocument();
     expect(screen.queryByText("Basics")).not.toBeInTheDocument();
   });
 
@@ -402,7 +426,7 @@ describe("NodeConfigPanel", () => {
       worker_id: null,
       worker_role_id: "role-1",
     });
-    expect(screen.getByLabelText("Worker role")).toBeInTheDocument();
+    expect(screen.getByLabelText("Executor role")).toBeInTheDocument();
   });
 
   it("switches Critic to API and shows the API URL field", () => {
@@ -468,8 +492,8 @@ describe("NodeConfigPanel", () => {
       />,
     );
 
-    expect(screen.getByText("Fork gateway")).toBeInTheDocument();
-    expect(screen.getByText("Automatically completes and fans out to all downstream nodes.")).toBeInTheDocument();
+    expect(screen.getByText("Branch start")).toBeInTheDocument();
+    expect(screen.getByText("Automatically starts every downstream branch.")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Builder Agent" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Reviewer Agent" })).not.toBeInTheDocument();
   });
@@ -501,16 +525,16 @@ describe("NodeConfigPanel", () => {
       />,
     );
 
-    expect(screen.getByText("Split settings")).toBeInTheDocument();
+    expect(screen.getAllByText("Split rules")).toHaveLength(2);
     expect(screen.getByText("Human review is required")).toBeInTheDocument();
     expect(screen.getByText("Generated split tasks always stop for human review before child issues are created.")).toBeInTheDocument();
-    expect(screen.getByLabelText("Default issue workflow")).toHaveValue("child-wf-2");
+    expect(screen.getByLabelText("Child issue default workflow")).toHaveValue("child-wf-2");
     expect(screen.getByLabelText("How many child issues can run at once?")).toHaveValue(3);
-    expect(screen.getByLabelText("Failure tolerance")).toHaveValue(1);
+    expect(screen.getByLabelText("Allowed failed child issues")).toHaveValue(1);
     expect(screen.getAllByText("Worker").length).toBeGreaterThan(0);
-    expect(screen.getByText("The Agent that generates the task splitting plan.")).toBeInTheDocument();
+    expect(screen.getByText("The split planner that drafts child issues.")).toBeInTheDocument();
     expect(screen.getAllByText("Critic").length).toBeGreaterThan(0);
-    expect(screen.getByText("The reviewer that approves generated split drafts.")).toBeInTheDocument();
+    expect(screen.getByText("The reviewer that approves generated drafts.")).toBeInTheDocument();
   });
 
 	it("orders split sections and shows readiness, connections, and trial run", () => {
@@ -559,7 +583,7 @@ describe("NodeConfigPanel", () => {
 		expect(screen.getByText("Automated split draft critics can approve risky task plans")).toBeInTheDocument();
 		expect(screen.getByText("2 upstream")).toBeInTheDocument();
 		expect(screen.getByText("1 downstream")).toBeInTheDocument();
-		fireEvent.click(screen.getByRole("button", { name: "Trial run" }));
+		fireEvent.click(screen.getByRole("button", { name: "Test this split" }));
 		expect(onTrialRun).toHaveBeenCalledOnce();
   });
 
@@ -590,7 +614,7 @@ describe("NodeConfigPanel", () => {
       />,
     );
 
-    fireEvent.change(screen.getByLabelText("Default issue workflow"), {
+    fireEvent.change(screen.getByLabelText("Child issue default workflow"), {
       target: { value: "child-wf-2" },
     });
     expect(mocks.cacheNodeEdits).toHaveBeenLastCalledWith("split-1", {
