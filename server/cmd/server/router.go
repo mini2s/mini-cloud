@@ -151,6 +151,9 @@ type RouterOptions struct {
 	// Gitea is the platform Gitea admin client for document-deliverable storage.
 	// nil → the router constructs one from env (dormant when env unset).
 	Gitea *gitea.Client
+	// WorkflowRoleResolution resolves configurable workflow node roles to
+	// concrete members/agents at dispatch time (main's role-v1 feature).
+	WorkflowRoleResolution workflowRoleResolutionRuntime
 }
 
 func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus, analyticsClient analytics.Client, rdb *redis.Client, opts RouterOptions) chi.Router {
@@ -199,6 +202,11 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 		CloudGatewayProxyPrefix:  strings.TrimRight(strings.TrimSpace(os.Getenv("MULTICA_CLOUD_GATEWAY_PROXY_PREFIX")), "/"),
 	}
 	h := handler.New(queries, pool, hub, bus, emailSvc, store, cfSigner, analyticsClient, signupConfig, daemonHub)
+	h.WorkflowService.AutoResolveRoles = opts.WorkflowRoleResolution.AutoResolutionConfigured()
+	h.WorkflowService.RoleResolutionModel = opts.WorkflowRoleResolution.Model
+	h.WorkflowService.RoleResolutionPromptVersion = workflowRoleResolutionPromptVersion
+	h.WorkflowService.RoleResolutionWorkspaceAllowlist = opts.WorkflowRoleResolution.Allowlist
+	h.WorkflowService.RoleResolutionMaxActiveJobs = opts.WorkflowRoleResolution.MaxActiveJobs
 	if opts.DaemonWakeup != nil {
 		h.TaskService.Wakeup = opts.DaemonWakeup
 	}
@@ -452,6 +460,7 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 					r.Use(middleware.RequireWorkspaceMemberFromURL(queries, "id"))
 					r.Get("/", h.GetWorkspace)
 					r.Get("/members", h.ListMembersWithUser)
+					r.Get("/workflow-roles", h.ListWorkflowRoles)
 					r.Post("/leave", h.LeaveWorkspace)
 					r.Get("/invitations", h.ListWorkspaceInvitations)
 					// Listing GitHub installations is member-visible so the
@@ -468,6 +477,11 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 					r.Use(middleware.RequireWorkspaceRoleFromURL(queries, "id", "owner", "admin"))
 					r.Put("/", h.UpdateWorkspace)
 					r.Patch("/", h.UpdateWorkspace)
+					r.Post("/workflow-roles", h.CreateWorkflowRole)
+					r.Route("/workflow-roles/{roleId}", func(r chi.Router) {
+						r.Patch("/", h.UpdateWorkflowRole)
+						r.Delete("/", h.DeleteWorkflowRole)
+					})
 					r.Post("/dept-members", h.BatchAddDeptMembers)
 					r.Post("/members", h.CreateInvitation)
 					r.Route("/members/{memberId}", func(r chi.Router) {
@@ -634,6 +648,9 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 					r.Get("/runs/{runId}", h.GetWorkflowRun)
 					r.Get("/runs/{runId}/canvas-summary", h.GetWorkflowRunCanvasSummary)
 					r.Get("/runs/{runId}/node-runs", h.ListWorkflowNodeRuns)
+					r.Get("/runs/{runId}/role-resolutions", h.ListWorkflowRoleResolutions)
+					r.Put("/runs/{runId}/role-resolutions", h.AssignWorkflowRoleResolutions)
+					r.Post("/runs/{runId}/role-resolutions/retry", h.RetryWorkflowRoleResolutions)
 					r.Post("/runs/{runId}/cancel", h.CancelWorkflowRun)
 				})
 			})
@@ -674,10 +691,6 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 
 			// My workflow tasks
 			r.Get("/api/my-tasks", h.ListMyWorkflowTasks)
-
-			// Workflow roles
-			r.Get("/api/workflow-roles", h.ListWorkflowRoles)
-			r.Post("/api/workflow-roles", h.CreateWorkflowRole)
 
 			// Squad leader evaluation (writes to activity_log)
 			r.Post("/api/issues/{id}/squad-evaluated", h.RecordSquadLeaderEvaluation)

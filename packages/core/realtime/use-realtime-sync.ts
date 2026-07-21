@@ -600,6 +600,26 @@ export function useRealtimeSync(
         });
       }
     });
+    // Role resolution and run-state events are invalidation signals only.
+    // The authoritative business state remains in TanStack Query responses.
+    const invalidateWorkflowRunQueries = (payload: unknown) => {
+      const { run_id } = payload as { run_id?: string };
+      if (!run_id) return;
+      qc.invalidateQueries({
+        predicate: (query) => {
+          const key = query.queryKey;
+          return Array.isArray(key) && key[0] === "workflows" && key.includes(run_id);
+        },
+      });
+    };
+    const unsubRoleResolutionUpdated = ws.on(
+      "workflow_role_resolution_updated",
+      invalidateWorkflowRunQueries,
+    );
+    const unsubWorkflowRunUpdated = ws.on(
+      "workflow_run_updated",
+      invalidateWorkflowRunQueries,
+    );
 
     // --- Side-effect handlers (toast, navigation) ---
 
@@ -939,6 +959,8 @@ export function useRealtimeSync(
       unsubSubscriberAdded();
       unsubSubscriberRemoved();
       unsubNodeRunUpdated();
+      unsubRoleResolutionUpdated();
+      unsubWorkflowRunUpdated();
       unsubWsUpdated();
       unsubWsDeleted();
       unsubMemberRemoved();

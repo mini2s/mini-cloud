@@ -20,6 +20,7 @@ import {
   workflowEdgesOptions,
   workflowRunsOptions,
   workflowNodeRunsOptions,
+  workflowRolesOptions,
   useUpdateWorkflow,
   useCreateNode,
   useUpdateNode,
@@ -541,8 +542,13 @@ export function WorkflowPanoramaPage({ workflowId, viewToggle }: WorkflowPanoram
   });
   const { data: agents = [] } = useQuery(agentListOptions(wsId));
   const { data: pluginsData } = useQuery(builtinPluginListOptions());
+  const { data: workflowRoles = [] } = useQuery(workflowRolesOptions(wsId));
   const { data: childWorkflows = [] } = useQuery(splitIssueWorkflowOptions(wsId, workflowId));
   const { getActorName } = useActorName();
+  const roleById = useMemo(
+    () => new Map(workflowRoles.map((role) => [role.id, role])),
+    [workflowRoles],
+  );
 
   const isLoading = wfLoading || stLoading || ndLoading || edLoading;
 
@@ -681,6 +687,29 @@ export function WorkflowPanoramaPage({ workflowId, viewToggle }: WorkflowPanoram
     setConfigPanelOpen(false);
   }, []);
 
+  // Builtin role names are seeded in English in the DB; render localized
+  // labels on the canvas so they match the node-config-panel display. Custom
+  // roles fall through to their raw name.
+  const renderRoleName = useCallback(
+    (role: { is_builtin: boolean; name: string } | undefined, rawKey?: string | null): string | undefined => {
+      if (role) {
+        if (!role.is_builtin) return role.name;
+        if (role.name === "developer") return t(($) => $.builtin_roles.developer.name);
+        if (role.name === "qa") return t(($) => $.builtin_roles.qa.name);
+        if (role.name === "tech_lead") return t(($) => $.builtin_roles.tech_lead.name);
+        return role.name;
+      }
+      if (rawKey) {
+        if (rawKey === "developer") return t(($) => $.builtin_roles.developer.name);
+        if (rawKey === "qa") return t(($) => $.builtin_roles.qa.name);
+        if (rawKey === "tech_lead") return t(($) => $.builtin_roles.tech_lead.name);
+        return rawKey;
+      }
+      return undefined;
+    },
+    [t],
+  );
+
   const rfNodes = useMemo(
     () => workflowNodesToReactFlowNodes({
       nodes: visibleNodes,
@@ -701,14 +730,24 @@ export function WorkflowPanoramaPage({ workflowId, viewToggle }: WorkflowPanoram
           pluginName: workerAgent?.plugin_id
             ? pluginLookup.get(workerAgent.plugin_id)?.name
             : undefined,
-          workerName: node.worker_id ? getActorName(node.worker_type ?? "agent", node.worker_id) ?? undefined : undefined,
-          criticName: node.critic_id
-            ? getActorName(node.critic_type ?? "agent", node.critic_id) ?? undefined
-            : node.critic_api_url
-              ? "API review"
-              : undefined,
-          workerConfigured: isAnnotation ? true : Boolean(node.worker_id),
-          criticConfigured: isAnnotation ? false : Boolean(node.critic_id) || Boolean(node.critic_api_url?.trim()),
+          workerName: node.worker_role_id
+            ? renderRoleName(roleById.get(node.worker_role_id)) ?? node.worker_role_id
+            : node.worker_role
+              ? renderRoleName(undefined, node.worker_role)
+              : node.worker_id ? getActorName(node.worker_type ?? "agent", node.worker_id) ?? undefined : undefined,
+          criticName: node.critic_role_id
+            ? renderRoleName(roleById.get(node.critic_role_id)) ?? node.critic_role_id
+            : node.critic_role
+              ? renderRoleName(undefined, node.critic_role)
+              : node.critic_id
+                ? getActorName(node.critic_type ?? "agent", node.critic_id) ?? undefined
+                : node.critic_api_url
+                  ? "API review"
+                  : undefined,
+          workerConfigured: isAnnotation ? true : Boolean(node.worker_id || node.worker_role_id || node.worker_role),
+          criticConfigured: isAnnotation
+            ? false
+            : Boolean(node.critic_id || node.critic_role_id || node.critic_role || node.critic_api_url?.trim()),
           isAnnotation,
           onOpen: openNodePanel,
           onAddConnectedNode: handleOpenConnectedNodePicker,
@@ -716,9 +755,9 @@ export function WorkflowPanoramaPage({ workflowId, viewToggle }: WorkflowPanoram
         };
       },
       includeCriticBadges: false,
-      makeCriticName: (node) => node.critic_id ? getActorName(node.critic_type ?? "agent", node.critic_id) ?? undefined : undefined,
+      makeCriticName: (node) => node.critic_role_id ? renderRoleName(roleById.get(node.critic_role_id)) ?? node.critic_role_id : node.critic_role ? renderRoleName(undefined, node.critic_role) : node.critic_id ? getActorName(node.critic_type ?? "agent", node.critic_id) ?? undefined : undefined,
     }),
-    [stages, visibleNodes, agentLookup, pluginLookup, getActorName, openNodePanel, handleOpenConnectedNodePicker, t],
+    [stages, visibleNodes, agentLookup, pluginLookup, getActorName, openNodePanel, handleOpenConnectedNodePicker, roleById, renderRoleName, t],
   );
 
   const handleInlineEdgeDelete = useCallback(

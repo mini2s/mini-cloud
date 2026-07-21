@@ -2,6 +2,9 @@ export type WorkflowStatus = "draft" | "active" | "paused" | "archived";
 export type WorkerType = "human" | "agent" | "squad" | "role";
 export type CriticType = "human" | "agent" | "squad" | "api" | "role";
 export type RoleActorType = "member" | "agent" | "squad";
+export type WorkflowRoleKey = "developer" | "qa" | "tech_lead" | (string & {});
+
+export const BUILTIN_WORKFLOW_ROLES: WorkflowRoleKey[] = ["developer", "qa", "tech_lead"];
 export type NodeShape = "rectangle" | "diamond" | "pill" | "hexagon";
 export type WorkflowNodeFormatKind = "task" | "gateway" | "annotation" | "split";
 export type GatewayKind = "fork" | "join";
@@ -170,7 +173,13 @@ export type NodeRunStatus =
   | "critic_reviewing" | "critic_approved" | "critic_rework"
   | "completed" | "failed" | "blocked" | "skipped" | "cancelled"
   | "splitting" | "awaiting_split_review" | "split_active";
-export type WorkflowRunStatus = "running" | "completed" | "failed" | "cancelled";
+export type WorkflowRunStatus =
+  | "resolving_roles"
+  | "waiting_role_assignment"
+  | "running"
+  | "completed"
+  | "failed"
+  | "cancelled";
 export type WorkflowRuntimeDisplayStatus =
   | "pending"
   | "todo"
@@ -225,6 +234,7 @@ export interface Workflow {
   node_count: number;
   is_template: boolean;
   source_template_id: string | null;
+  custom_roles: string[];
   created_at: string;
   updated_at: string;
 }
@@ -239,8 +249,14 @@ export interface WorkflowNode {
   format_schema: unknown;
   worker_type: WorkerType;
   worker_id: string | null;
+  worker_role_id?: string | null;
+  /** @deprecated compatibility for pre-role-id responses */
+  worker_role?: WorkflowRoleKey | null;
   critic_type: CriticType;
   critic_id: string | null;
+  critic_role_id?: string | null;
+  /** @deprecated compatibility for pre-role-id responses */
+  critic_role?: WorkflowRoleKey | null;
   critic_api_url: string | null;
   sort_order: number;
   stage_id: string | null;
@@ -438,6 +454,7 @@ export interface UpdateWorkflowRequest {
   description?: string;
   status?: WorkflowStatus;
   max_retries?: number;
+  custom_roles?: string[];
 }
 
 export interface CreateNodeRequest {
@@ -448,8 +465,10 @@ export interface CreateNodeRequest {
   format_schema?: unknown;
   worker_type: WorkerType;
   worker_id?: string | null;
+  worker_role_id?: string | null;
   critic_type: CriticType;
   critic_id?: string | null;
+  critic_role_id?: string | null;
   critic_api_url?: string | null;
   stage_id?: string | null;
 }
@@ -462,8 +481,10 @@ export interface UpdateNodeRequest {
   format_schema?: unknown;
   worker_type?: WorkerType;
   worker_id?: string | null;
+  worker_role_id?: string | null;
   critic_type?: CriticType;
   critic_id?: string | null;
+  critic_role_id?: string | null;
   critic_api_url?: string | null;
   sort_order?: number;
 }
@@ -544,17 +565,40 @@ export interface WorkflowRole {
   workspace_id: string;
   name: string;
   description: string;
+  is_builtin: boolean;
+  needs_description: boolean;
+  is_referenced: boolean;
+  created_by: string | null;
   created_at: string;
   updated_at: string;
 }
 
-export interface WorkflowRoleBinding {
+export type WorkflowRoleResolutionStatus = "pending" | "resolved" | "needs_human" | "invalidated";
+export interface WorkflowRoleResolution {
   id: string;
-  role_id: string;
-  actor_type: RoleActorType;
-  actor_id: string;
-  priority: number;
+  workflow_run_id: string;
+  workflow_node_run_id: string;
+  slot_type: "worker" | "critic";
+  role_id: string | null;
+  role_name: string;
+  role_description: string;
+  status: WorkflowRoleResolutionStatus | (string & {});
+  resolved_user_id: string | null;
+  source: "llm" | "manual" | null;
+  reason_code: string;
+  reason_detail: string;
+  version: number;
+  resolved_by: string | null;
+  resolved_at: string | null;
+  notification_status?: "pending" | "sending" | "sent" | "failed" | "skipped_no_email" | (string & {});
   created_at: string;
+  updated_at: string;
+}
+
+export interface WorkflowRoleAssignmentInput {
+  resolution_id: string;
+  user_id: string;
+  version: number;
 }
 
 // ── Deliverable types ──────────────────────────────────────────────────────

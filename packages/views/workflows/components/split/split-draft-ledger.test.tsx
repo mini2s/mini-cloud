@@ -96,6 +96,7 @@ const workflows: Workflow[] = [{
   node_count: 1,
   is_template: false,
   source_template_id: null,
+  custom_roles: [],
   created_at: "",
   updated_at: "",
 }];

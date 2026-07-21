@@ -11,20 +11,63 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const countWorkflowRoleReferences = `-- name: CountWorkflowRoleReferences :one
+SELECT count(*)::bigint
+FROM multica_workflow_node node
+WHERE node.worker_role_id = $1::uuid
+   OR node.critic_role_id = $1::uuid
+`
+
+func (q *Queries) CountWorkflowRoleReferences(ctx context.Context, dollar_1 pgtype.UUID) (int64, error) {
+	row := q.db.QueryRow(ctx, countWorkflowRoleReferences, dollar_1)
+	var column_1 int64
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
+const createBuiltinWorkflowRoles = `-- name: CreateBuiltinWorkflowRoles :exec
+INSERT INTO multica_workflow_role (
+    workspace_id, name, normalized_name, description, is_builtin, needs_description
+)
+SELECT $1::uuid, builtin.name, builtin.name, builtin.description, true, false
+FROM (VALUES
+    ('developer', 'Implements, tests, and maintains product and engineering work.'),
+    ('qa', 'Validates quality, verifies requirements, and identifies regressions.'),
+    ('tech_lead', 'Owns technical direction, design review, and engineering quality.')
+) AS builtin(name, description)
+ON CONFLICT (workspace_id, normalized_name) DO NOTHING
+`
+
+func (q *Queries) CreateBuiltinWorkflowRoles(ctx context.Context, workspaceID pgtype.UUID) error {
+	_, err := q.db.Exec(ctx, createBuiltinWorkflowRoles, workspaceID)
+	return err
+}
+
 const createWorkflowRole = `-- name: CreateWorkflowRole :one
-INSERT INTO multica_workflow_role (workspace_id, name, description)
-VALUES ($1, $2, $3)
-RETURNING id, workspace_id, name, description, created_at, updated_at
+INSERT INTO multica_workflow_role (
+    workspace_id, name, normalized_name, description,
+    is_builtin, needs_description, created_by
+)
+VALUES ($1, $2, $3, $4, false, false, $5)
+RETURNING id, workspace_id, name, description, created_at, updated_at, normalized_name, is_builtin, needs_description, created_by
 `
 
 type CreateWorkflowRoleParams struct {
-	WorkspaceID pgtype.UUID `json:"workspace_id"`
-	Name        string      `json:"name"`
-	Description string      `json:"description"`
+	WorkspaceID    pgtype.UUID `json:"workspace_id"`
+	Name           string      `json:"name"`
+	NormalizedName string      `json:"normalized_name"`
+	Description    string      `json:"description"`
+	CreatedBy      pgtype.UUID `json:"created_by"`
 }
 
 func (q *Queries) CreateWorkflowRole(ctx context.Context, arg CreateWorkflowRoleParams) (MulticaWorkflowRole, error) {
-	row := q.db.QueryRow(ctx, createWorkflowRole, arg.WorkspaceID, arg.Name, arg.Description)
+	row := q.db.QueryRow(ctx, createWorkflowRole,
+		arg.WorkspaceID,
+		arg.Name,
+		arg.NormalizedName,
+		arg.Description,
+		arg.CreatedBy,
+	)
 	var i MulticaWorkflowRole
 	err := row.Scan(
 		&i.ID,
@@ -33,98 +76,65 @@ func (q *Queries) CreateWorkflowRole(ctx context.Context, arg CreateWorkflowRole
 		&i.Description,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.NormalizedName,
+		&i.IsBuiltin,
+		&i.NeedsDescription,
+		&i.CreatedBy,
 	)
 	return i, err
 }
 
-const createWorkflowRoleBinding = `-- name: CreateWorkflowRoleBinding :one
-INSERT INTO multica_workflow_role_binding (role_id, actor_type, actor_id, priority)
-VALUES ($1, $2, $3, $4)
-RETURNING id, role_id, actor_type, actor_id, priority, created_at
+const deleteWorkflowRole = `-- name: DeleteWorkflowRole :execrows
+DELETE FROM multica_workflow_role
+WHERE id = $1 AND workspace_id = $2 AND is_builtin = false
 `
 
-type CreateWorkflowRoleBindingParams struct {
-	RoleID    pgtype.UUID `json:"role_id"`
-	ActorType string      `json:"actor_type"`
-	ActorID   pgtype.UUID `json:"actor_id"`
-	Priority  int32       `json:"priority"`
+type DeleteWorkflowRoleParams struct {
+	ID          pgtype.UUID `json:"id"`
+	WorkspaceID pgtype.UUID `json:"workspace_id"`
 }
 
-func (q *Queries) CreateWorkflowRoleBinding(ctx context.Context, arg CreateWorkflowRoleBindingParams) (MulticaWorkflowRoleBinding, error) {
-	row := q.db.QueryRow(ctx, createWorkflowRoleBinding,
-		arg.RoleID,
-		arg.ActorType,
-		arg.ActorID,
-		arg.Priority,
-	)
-	var i MulticaWorkflowRoleBinding
+func (q *Queries) DeleteWorkflowRole(ctx context.Context, arg DeleteWorkflowRoleParams) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteWorkflowRole, arg.ID, arg.WorkspaceID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const getWorkflowRoleInWorkspace = `-- name: GetWorkflowRoleInWorkspace :one
+SELECT id, workspace_id, name, description, created_at, updated_at, normalized_name, is_builtin, needs_description, created_by FROM multica_workflow_role
+WHERE id = $1 AND workspace_id = $2
+`
+
+type GetWorkflowRoleInWorkspaceParams struct {
+	ID          pgtype.UUID `json:"id"`
+	WorkspaceID pgtype.UUID `json:"workspace_id"`
+}
+
+func (q *Queries) GetWorkflowRoleInWorkspace(ctx context.Context, arg GetWorkflowRoleInWorkspaceParams) (MulticaWorkflowRole, error) {
+	row := q.db.QueryRow(ctx, getWorkflowRoleInWorkspace, arg.ID, arg.WorkspaceID)
+	var i MulticaWorkflowRole
 	err := row.Scan(
 		&i.ID,
-		&i.RoleID,
-		&i.ActorType,
-		&i.ActorID,
-		&i.Priority,
+		&i.WorkspaceID,
+		&i.Name,
+		&i.Description,
 		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.NormalizedName,
+		&i.IsBuiltin,
+		&i.NeedsDescription,
+		&i.CreatedBy,
 	)
 	return i, err
-}
-
-const deleteWorkflowRole = `-- name: DeleteWorkflowRole :exec
-DELETE FROM multica_workflow_role WHERE id = $1
-`
-
-func (q *Queries) DeleteWorkflowRole(ctx context.Context, id pgtype.UUID) error {
-	_, err := q.db.Exec(ctx, deleteWorkflowRole, id)
-	return err
-}
-
-const deleteWorkflowRoleBinding = `-- name: DeleteWorkflowRoleBinding :exec
-DELETE FROM multica_workflow_role_binding WHERE id = $1
-`
-
-func (q *Queries) DeleteWorkflowRoleBinding(ctx context.Context, id pgtype.UUID) error {
-	_, err := q.db.Exec(ctx, deleteWorkflowRoleBinding, id)
-	return err
-}
-
-const listWorkflowRoleBindings = `-- name: ListWorkflowRoleBindings :many
-SELECT id, role_id, actor_type, actor_id, priority, created_at FROM multica_workflow_role_binding
-WHERE role_id = $1
-ORDER BY priority ASC
-`
-
-func (q *Queries) ListWorkflowRoleBindings(ctx context.Context, roleID pgtype.UUID) ([]MulticaWorkflowRoleBinding, error) {
-	rows, err := q.db.Query(ctx, listWorkflowRoleBindings, roleID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []MulticaWorkflowRoleBinding{}
-	for rows.Next() {
-		var i MulticaWorkflowRoleBinding
-		if err := rows.Scan(
-			&i.ID,
-			&i.RoleID,
-			&i.ActorType,
-			&i.ActorID,
-			&i.Priority,
-			&i.CreatedAt,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
 }
 
 const listWorkflowRoles = `-- name: ListWorkflowRoles :many
 
-SELECT id, workspace_id, name, description, created_at, updated_at FROM multica_workflow_role
+SELECT id, workspace_id, name, description, created_at, updated_at, normalized_name, is_builtin, needs_description, created_by FROM multica_workflow_role
 WHERE workspace_id = $1
-ORDER BY name ASC
+ORDER BY is_builtin DESC, name ASC
 `
 
 // =====================
@@ -146,6 +156,10 @@ func (q *Queries) ListWorkflowRoles(ctx context.Context, workspaceID pgtype.UUID
 			&i.Description,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.NormalizedName,
+			&i.IsBuiltin,
+			&i.NeedsDescription,
+			&i.CreatedBy,
 		); err != nil {
 			return nil, err
 		}
@@ -159,21 +173,31 @@ func (q *Queries) ListWorkflowRoles(ctx context.Context, workspaceID pgtype.UUID
 
 const updateWorkflowRole = `-- name: UpdateWorkflowRole :one
 UPDATE multica_workflow_role SET
-    name = COALESCE($2, name),
-    description = COALESCE($3, description),
+    name = COALESCE($3, name),
+    normalized_name = COALESCE($4, normalized_name),
+    description = COALESCE($5, description),
+    needs_description = false,
     updated_at = now()
-WHERE id = $1
-RETURNING id, workspace_id, name, description, created_at, updated_at
+WHERE id = $1 AND workspace_id = $2 AND is_builtin = false
+RETURNING id, workspace_id, name, description, created_at, updated_at, normalized_name, is_builtin, needs_description, created_by
 `
 
 type UpdateWorkflowRoleParams struct {
-	ID          pgtype.UUID `json:"id"`
-	Name        pgtype.Text `json:"name"`
-	Description pgtype.Text `json:"description"`
+	ID             pgtype.UUID `json:"id"`
+	WorkspaceID    pgtype.UUID `json:"workspace_id"`
+	Name           pgtype.Text `json:"name"`
+	NormalizedName pgtype.Text `json:"normalized_name"`
+	Description    pgtype.Text `json:"description"`
 }
 
 func (q *Queries) UpdateWorkflowRole(ctx context.Context, arg UpdateWorkflowRoleParams) (MulticaWorkflowRole, error) {
-	row := q.db.QueryRow(ctx, updateWorkflowRole, arg.ID, arg.Name, arg.Description)
+	row := q.db.QueryRow(ctx, updateWorkflowRole,
+		arg.ID,
+		arg.WorkspaceID,
+		arg.Name,
+		arg.NormalizedName,
+		arg.Description,
+	)
 	var i MulticaWorkflowRole
 	err := row.Scan(
 		&i.ID,
@@ -182,6 +206,10 @@ func (q *Queries) UpdateWorkflowRole(ctx context.Context, arg UpdateWorkflowRole
 		&i.Description,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.NormalizedName,
+		&i.IsBuiltin,
+		&i.NeedsDescription,
+		&i.CreatedBy,
 	)
 	return i, err
 }

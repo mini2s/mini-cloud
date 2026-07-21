@@ -882,7 +882,3 @@ func TestSplitProgressSummaryCountsByStatus(t *testing.T) {
 		t.Fatalf("skipped = %d, want 1", summary["skipped"])
 	}
 }
-
-func TestSplitChatDispatchesAgentTaskAndReturnsChatSessionID(t *testing.T) {
-	t.Skip("requires database — full integration test for SplitChat dispatch flow")
-}

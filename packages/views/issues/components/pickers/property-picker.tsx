@@ -248,15 +248,18 @@ export function PickerItem({
 
 export function PickerSection({
   label,
+  action,
   children,
 }: {
   label: string;
+  action?: React.ReactNode;
   children: React.ReactNode;
 }) {
   return (
     <div>
-      <div className="px-2 pt-2 pb-1 text-xs font-medium text-muted-foreground uppercase tracking-wider">
+      <div className="px-2 pt-2 pb-1 text-xs font-medium text-muted-foreground uppercase tracking-wider flex items-center justify-between">
         {label}
+        {action}
       </div>
       {children}
     </div>

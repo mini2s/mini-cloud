@@ -204,6 +204,57 @@ func (q *Queries) GetMemberByUserAndWorkspace(ctx context.Context, arg GetMember
 	return i, err
 }
 
+const listActiveWorkflowRoleCandidateMembers = `-- name: ListActiveWorkflowRoleCandidateMembers :many
+SELECT
+    m.id AS member_id,
+    m.user_id,
+    m.external_universal_id,
+    m.external_user_id,
+    COALESCE(NULLIF(m.org_display_name, ''), u.name) AS display_name
+FROM multica_member m
+JOIN multica_user u ON u.id = m.user_id
+WHERE m.workspace_id = $1
+  AND m.status = 'active'
+  AND m.user_id IS NOT NULL
+ORDER BY m.created_at ASC
+`
+
+type ListActiveWorkflowRoleCandidateMembersRow struct {
+	MemberID            pgtype.UUID `json:"member_id"`
+	UserID              pgtype.UUID `json:"user_id"`
+	ExternalUniversalID pgtype.Text `json:"external_universal_id"`
+	ExternalUserID      pgtype.Text `json:"external_user_id"`
+	DisplayName         string      `json:"display_name"`
+}
+
+// Keep the automatic role-resolution candidate boundary local: organization
+// data may enrich these rows, but it must never add users outside this set.
+func (q *Queries) ListActiveWorkflowRoleCandidateMembers(ctx context.Context, workspaceID pgtype.UUID) ([]ListActiveWorkflowRoleCandidateMembersRow, error) {
+	rows, err := q.db.Query(ctx, listActiveWorkflowRoleCandidateMembers, workspaceID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListActiveWorkflowRoleCandidateMembersRow{}
+	for rows.Next() {
+		var i ListActiveWorkflowRoleCandidateMembersRow
+		if err := rows.Scan(
+			&i.MemberID,
+			&i.UserID,
+			&i.ExternalUniversalID,
+			&i.ExternalUserID,
+			&i.DisplayName,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listDeptMemberSnapshots = `-- name: ListDeptMemberSnapshots :many
 SELECT id, user_id, source, status, external_user_id, external_universal_id,
        employee_id, org_display_name, dept_id, dept_name, dept_path,

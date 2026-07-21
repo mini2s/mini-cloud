@@ -24,6 +24,8 @@ import type {
   WorkflowNodeRun,
   WorkflowRunCanvasSummaryResponse,
   WorkflowStage,
+  WorkflowRole,
+  WorkflowRoleResolution,
   SplitProgress,
   SplitTasksResponse,
   SplitChatResponse,
@@ -778,6 +780,7 @@ const WorkflowSchema = z.object({
   node_count: z.number().default(0),
   is_template: z.boolean().default(false),
   source_template_id: z.string().nullable().default(null),
+  custom_roles: z.array(z.string()).catch([]).default([]),
   created_at: z.string().default(""),
   updated_at: z.string().default(""),
 }).loose();
@@ -806,6 +809,7 @@ export const EMPTY_WORKFLOW: Workflow = {
   node_count: 0,
   is_template: false,
   source_template_id: null,
+  custom_roles: [],
   created_at: "",
   updated_at: "",
 };
@@ -820,8 +824,12 @@ const WorkflowNodeSchema = z.object({
   format_schema: z.unknown().nullable().optional(),
   worker_type: z.string().default("human"),
   worker_id: z.string().nullable().default(null),
+  worker_role_id: z.string().nullable().default(null),
   critic_type: z.string().default("human"),
+  worker_role: z.string().nullable().default(null),
   critic_id: z.string().nullable().default(null),
+  critic_role_id: z.string().nullable().default(null),
+  critic_role: z.string().nullable().default(null),
   critic_api_url: z.string().nullable().default(null),
   sort_order: z.number().default(0),
   stage_id: z.string().nullable().default(null),
@@ -925,6 +933,52 @@ export const ListWorkflowRunsResponseSchema = z.object({
 }).loose();
 
 export const EMPTY_LIST_WORKFLOW_RUNS_RESPONSE = { runs: [], total: 0 };
+
+export const WorkflowRoleSchema = z.object({
+  id: z.string(),
+  workspace_id: z.string(),
+  name: z.string().default(""),
+  description: z.string().default(""),
+  is_builtin: z.boolean().default(false),
+  needs_description: z.boolean().default(false),
+  is_referenced: z.boolean().default(false),
+  created_by: z.string().nullable().default(null),
+  created_at: z.string().default(""),
+  updated_at: z.string().default(""),
+}).loose();
+
+export const WorkflowRolesResponseSchema = z.object({
+  roles: z.array(WorkflowRoleSchema).catch([]).default([]),
+}).loose();
+export const EMPTY_WORKFLOW_ROLES_RESPONSE: { roles: WorkflowRole[] } = { roles: [] };
+
+export const WorkflowRoleResolutionSchema = z.object({
+  id: z.string(),
+  workflow_run_id: z.string(),
+  workflow_node_run_id: z.string(),
+  slot_type: z.string().default("worker"),
+  role_id: z.string().nullable().default(null),
+  role_name: z.string().default(""),
+  role_description: z.string().default(""),
+  status: z.string().default("needs_human"),
+  resolved_user_id: z.string().nullable().default(null),
+  source: z.string().nullable().default(null),
+  reason_code: z.string().default(""),
+  reason_detail: z.string().default(""),
+  version: z.number().int().positive().catch(1).default(1),
+  resolved_by: z.string().nullable().default(null),
+  resolved_at: z.string().nullable().default(null),
+  notification_status: z.string().nullable().optional(),
+  created_at: z.string().default(""),
+  updated_at: z.string().default(""),
+}).loose();
+
+export const WorkflowRoleResolutionsResponseSchema = z.object({
+  resolutions: z.array(WorkflowRoleResolutionSchema).catch([]).default([]),
+}).loose();
+export const EMPTY_WORKFLOW_ROLE_RESOLUTIONS_RESPONSE: { resolutions: WorkflowRoleResolution[] } = {
+  resolutions: [],
+};
 
 export const EMPTY_WORKFLOW_RUN: WorkflowRun = {
   id: "",

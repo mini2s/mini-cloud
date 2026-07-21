@@ -16,7 +16,7 @@ UPDATE multica_workflow_node SET
     stage_id = $2,
     updated_at = now()
 WHERE id = $1
-RETURNING id, workflow_id, title, description, position_x, position_y, format_schema, worker_type, worker_id, critic_type, critic_id, critic_api_url, sort_order, created_at, updated_at, stage_id
+RETURNING id, workflow_id, title, description, position_x, position_y, format_schema, worker_type, worker_id, critic_type, critic_id, critic_api_url, sort_order, created_at, updated_at, stage_id, worker_role_id, critic_role_id
 `
 
 type AssignNodeToStageParams struct {
@@ -44,6 +44,8 @@ func (q *Queries) AssignNodeToStage(ctx context.Context, arg AssignNodeToStagePa
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.StageID,
+		&i.WorkerRoleID,
+		&i.CriticRoleID,
 	)
 	return i, err
 }
@@ -337,15 +339,15 @@ func (q *Queries) CreateWorkflowFromTemplate(ctx context.Context, arg CreateWork
 const createWorkflowNode = `-- name: CreateWorkflowNode :one
 INSERT INTO multica_workflow_node (
     workflow_id, title, description, position_x, position_y,
-    format_schema, worker_type, worker_id,
-    critic_type, critic_id, critic_api_url,
+    format_schema, worker_type, worker_id, worker_role_id,
+    critic_type, critic_id, critic_api_url, critic_role_id,
     sort_order, stage_id
 ) VALUES (
     $1, $2, $8, $3, $4,
-    $9, $5, $10,
-    $6, $11, $12,
-    $7, $13
-) RETURNING id, workflow_id, title, description, position_x, position_y, format_schema, worker_type, worker_id, critic_type, critic_id, critic_api_url, sort_order, created_at, updated_at, stage_id
+    $9, $5, $10, $11,
+    $6, $12, $13, $14,
+    $7, $15
+) RETURNING id, workflow_id, title, description, position_x, position_y, format_schema, worker_type, worker_id, critic_type, critic_id, critic_api_url, sort_order, created_at, updated_at, stage_id, worker_role_id, critic_role_id
 `
 
 type CreateWorkflowNodeParams struct {
@@ -359,8 +361,10 @@ type CreateWorkflowNodeParams struct {
 	Description  pgtype.Text `json:"description"`
 	FormatSchema []byte      `json:"format_schema"`
 	WorkerID     pgtype.UUID `json:"worker_id"`
+	WorkerRoleID pgtype.UUID `json:"worker_role_id"`
 	CriticID     pgtype.UUID `json:"critic_id"`
 	CriticApiUrl pgtype.Text `json:"critic_api_url"`
+	CriticRoleID pgtype.UUID `json:"critic_role_id"`
 	StageID      pgtype.UUID `json:"stage_id"`
 }
 
@@ -376,8 +380,10 @@ func (q *Queries) CreateWorkflowNode(ctx context.Context, arg CreateWorkflowNode
 		arg.Description,
 		arg.FormatSchema,
 		arg.WorkerID,
+		arg.WorkerRoleID,
 		arg.CriticID,
 		arg.CriticApiUrl,
+		arg.CriticRoleID,
 		arg.StageID,
 	)
 	var i MulticaWorkflowNode
@@ -398,6 +404,8 @@ func (q *Queries) CreateWorkflowNode(ctx context.Context, arg CreateWorkflowNode
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.StageID,
+		&i.WorkerRoleID,
+		&i.CriticRoleID,
 	)
 	return i, err
 }
@@ -741,7 +749,7 @@ func (q *Queries) GetWorkflowInWorkspace(ctx context.Context, arg GetWorkflowInW
 }
 
 const getWorkflowNode = `-- name: GetWorkflowNode :one
-SELECT id, workflow_id, title, description, position_x, position_y, format_schema, worker_type, worker_id, critic_type, critic_id, critic_api_url, sort_order, created_at, updated_at, stage_id FROM multica_workflow_node
+SELECT id, workflow_id, title, description, position_x, position_y, format_schema, worker_type, worker_id, critic_type, critic_id, critic_api_url, sort_order, created_at, updated_at, stage_id, worker_role_id, critic_role_id FROM multica_workflow_node
 WHERE id = $1
 `
 
@@ -765,6 +773,8 @@ func (q *Queries) GetWorkflowNode(ctx context.Context, id pgtype.UUID) (MulticaW
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.StageID,
+		&i.WorkerRoleID,
+		&i.CriticRoleID,
 	)
 	return i, err
 }
@@ -1133,7 +1143,7 @@ func (q *Queries) ListWorkflowEdgesByTarget(ctx context.Context, targetNodeID pg
 
 const listWorkflowNodes = `-- name: ListWorkflowNodes :many
 
-SELECT id, workflow_id, title, description, position_x, position_y, format_schema, worker_type, worker_id, critic_type, critic_id, critic_api_url, sort_order, created_at, updated_at, stage_id FROM multica_workflow_node
+SELECT id, workflow_id, title, description, position_x, position_y, format_schema, worker_type, worker_id, critic_type, critic_id, critic_api_url, sort_order, created_at, updated_at, stage_id, worker_role_id, critic_role_id FROM multica_workflow_node
 WHERE workflow_id = $1
 ORDER BY sort_order ASC, created_at ASC
 `
@@ -1167,6 +1177,8 @@ func (q *Queries) ListWorkflowNodes(ctx context.Context, workflowID pgtype.UUID)
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.StageID,
+			&i.WorkerRoleID,
+			&i.CriticRoleID,
 		); err != nil {
 			return nil, err
 		}
@@ -1501,7 +1513,7 @@ UPDATE multica_workflow_node SET
     stage_id = NULL,
     updated_at = now()
 WHERE id = $1
-RETURNING id, workflow_id, title, description, position_x, position_y, format_schema, worker_type, worker_id, critic_type, critic_id, critic_api_url, sort_order, created_at, updated_at, stage_id
+RETURNING id, workflow_id, title, description, position_x, position_y, format_schema, worker_type, worker_id, critic_type, critic_id, critic_api_url, sort_order, created_at, updated_at, stage_id, worker_role_id, critic_role_id
 `
 
 func (q *Queries) UnassignNodeFromStage(ctx context.Context, id pgtype.UUID) (MulticaWorkflowNode, error) {
@@ -1524,6 +1536,8 @@ func (q *Queries) UnassignNodeFromStage(ctx context.Context, id pgtype.UUID) (Mu
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.StageID,
+		&i.WorkerRoleID,
+		&i.CriticRoleID,
 	)
 	return i, err
 }
@@ -1582,14 +1596,35 @@ UPDATE multica_workflow_node SET
     position_y = COALESCE($5::float, position_y),
     format_schema = COALESCE($6, format_schema),
     worker_type = COALESCE($7, worker_type),
-    worker_id = COALESCE($8, worker_id),
-    critic_type = COALESCE($9, critic_type),
-    critic_id = COALESCE($10, critic_id),
-    critic_api_url = COALESCE($11, critic_api_url),
-    sort_order = COALESCE($12::int, sort_order),
+    worker_id = CASE
+        WHEN $8::uuid IS NOT NULL THEN NULL
+        ELSE COALESCE($9, worker_id)
+    END,
+    worker_role_id = CASE
+        WHEN $8::uuid IS NOT NULL THEN $8::uuid
+        WHEN $9::uuid IS NOT NULL OR $7::text IS NOT NULL THEN NULL
+        ELSE worker_role_id
+    END,
+    critic_type = COALESCE($10, critic_type),
+    critic_id = CASE
+        WHEN $11::uuid IS NOT NULL THEN NULL
+        ELSE COALESCE($12, critic_id)
+    END,
+    critic_api_url = CASE
+        WHEN $11::uuid IS NOT NULL THEN NULL
+        ELSE COALESCE($13, critic_api_url)
+    END,
+    critic_role_id = CASE
+        WHEN $11::uuid IS NOT NULL THEN $11::uuid
+        WHEN $12::uuid IS NOT NULL
+          OR $10::text IS NOT NULL
+          OR $13::text IS NOT NULL THEN NULL
+        ELSE critic_role_id
+    END,
+    sort_order = COALESCE($14::int, sort_order),
     updated_at = now()
 WHERE id = $1
-RETURNING id, workflow_id, title, description, position_x, position_y, format_schema, worker_type, worker_id, critic_type, critic_id, critic_api_url, sort_order, created_at, updated_at, stage_id
+RETURNING id, workflow_id, title, description, position_x, position_y, format_schema, worker_type, worker_id, critic_type, critic_id, critic_api_url, sort_order, created_at, updated_at, stage_id, worker_role_id, critic_role_id
 `
 
 type UpdateWorkflowNodeParams struct {
@@ -1600,8 +1635,10 @@ type UpdateWorkflowNodeParams struct {
 	PositionY    pgtype.Float8 `json:"position_y"`
 	FormatSchema []byte        `json:"format_schema"`
 	WorkerType   pgtype.Text   `json:"worker_type"`
+	WorkerRoleID pgtype.UUID   `json:"worker_role_id"`
 	WorkerID     pgtype.UUID   `json:"worker_id"`
 	CriticType   pgtype.Text   `json:"critic_type"`
+	CriticRoleID pgtype.UUID   `json:"critic_role_id"`
 	CriticID     pgtype.UUID   `json:"critic_id"`
 	CriticApiUrl pgtype.Text   `json:"critic_api_url"`
 	SortOrder    pgtype.Int4   `json:"sort_order"`
@@ -1616,8 +1653,10 @@ func (q *Queries) UpdateWorkflowNode(ctx context.Context, arg UpdateWorkflowNode
 		arg.PositionY,
 		arg.FormatSchema,
 		arg.WorkerType,
+		arg.WorkerRoleID,
 		arg.WorkerID,
 		arg.CriticType,
+		arg.CriticRoleID,
 		arg.CriticID,
 		arg.CriticApiUrl,
 		arg.SortOrder,
@@ -1640,6 +1679,8 @@ func (q *Queries) UpdateWorkflowNode(ctx context.Context, arg UpdateWorkflowNode
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.StageID,
+		&i.WorkerRoleID,
+		&i.CriticRoleID,
 	)
 	return i, err
 }

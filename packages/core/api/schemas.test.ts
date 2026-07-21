@@ -25,6 +25,9 @@ import {
   SplitChatResponseSchema,
   SplitTasksResponseSchema,
   UserSchema,
+  WorkflowRoleResolutionsResponseSchema,
+  WorkflowRolesResponseSchema,
+  WorkflowRunSchema,
   WorkflowRunCanvasSummaryResponseSchema,
   WorkflowNodeRunSchema,
 } from "./schemas";
@@ -503,7 +506,6 @@ describe("dashboard + runtime usage schema drift", () => {
     expect((parsed[0] as Record<string, unknown>).region).toBe("us-east");
   });
 });
-
 describe("BuiltinPluginSchema", () => {
   it("accepts item-search plugin records with install metadata and extra fields", () => {
     const parsed = BuiltinPluginSchema.parse({
@@ -636,5 +638,61 @@ describe("AgentCloudSkillListSchema", () => {
       { endpoint: "GET /api/agents/{id}/cloud-skills" },
     );
     expect(parsed).toEqual([]);
+  });
+});
+
+describe("workflow role response schemas", () => {
+  it("defaults missing role fields and preserves unknown fields", () => {
+    const parsed = WorkflowRolesResponseSchema.parse({
+      roles: [{ id: "role-1", workspace_id: "ws-1", future_field: true }],
+    });
+    expect(parsed.roles[0]).toMatchObject({
+      id: "role-1",
+      name: "",
+      description: "",
+      is_builtin: false,
+      needs_description: false,
+      is_referenced: false,
+      future_field: true,
+    });
+  });
+
+  it("degrades a malformed role list to an empty list", () => {
+    const parsed = WorkflowRolesResponseSchema.parse({
+      roles: [{ id: 42, workspace_id: "ws-1" }],
+    });
+    expect(parsed.roles).toEqual([]);
+  });
+
+  it("defaults missing resolution fields and preserves unknown statuses", () => {
+    const parsed = WorkflowRoleResolutionsResponseSchema.parse({
+      resolutions: [{
+        id: "resolution-1",
+        workflow_run_id: "run-1",
+        workflow_node_run_id: "node-run-1",
+        status: "future_resolution_state",
+      }],
+    });
+    expect(parsed.resolutions[0]).toMatchObject({
+      slot_type: "worker",
+      role_id: null,
+      status: "future_resolution_state",
+      version: 1,
+      resolved_user_id: null,
+    });
+  });
+
+  it("degrades malformed resolutions and accepts unknown run statuses", () => {
+    expect(WorkflowRoleResolutionsResponseSchema.parse({
+      resolutions: [{ id: null }],
+    }).resolutions).toEqual([]);
+
+    const run = WorkflowRunSchema.parse({
+      id: "run-1",
+      workflow_id: "workflow-1",
+      workspace_id: "ws-1",
+      status: "future_run_state",
+    });
+    expect(run.status).toBe("future_run_state");
   });
 });
