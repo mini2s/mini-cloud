@@ -75,6 +75,15 @@
     "toast_activate_failed": "更新工作流状态失败",
     "toast_run_started": "运行已启动",
     "toast_run_failed": "启动运行失败",
+    "toast_role_added": "角色已添加",
+    "toast_role_add_failed": "添加角色失败",
+    "toast_role_duplicate": "这个角色已经存在",
+    "toast_role_builtin_duplicate": "内置角色无需重复添加",
+    "toast_role_deleted": "角色已删除",
+    "toast_role_deleted_with_refs": "角色已删除，并已清理 {{count}} 个节点引用",
+    "toast_role_delete_failed": "删除角色失败",
+    "toast_role_renamed": "角色已重命名",
+    "toast_role_rename_failed": "重命名角色失败",
     "section_nodes": "节点",
     "section_run_history": "运行历史",
     "add_node": "添加节点",
@@ -275,6 +284,7 @@
     "empty_worker": "未选择执行者",
     "empty_critic_role": "未选择评审角色",
     "empty_critic": "未选择评审者",
+    "manage_roles_shortcut": "管理角色",
     "empty_unknown_node": "未知节点",
     "picker_empty_prefix": "选择已有",
     "gateway_label_fork": "分支网关",
@@ -314,6 +324,12 @@
     "worker_type_role": "角色",
     "worker_id_label": "指派人",
     "worker_id_hint": "留空表示任意工作空间成员",
+    "role_placeholder_label": "角色占位符",
+    "role_placeholder_hint": "仅用于模板表达。启动前请替换为具体负责人。",
+    "role_none": "不使用角色占位符",
+    "role_developer": "研发",
+    "role_qa": "测试",
+    "role_tech_lead": "TL",
     "section_critic": "评审者",
     "critic_type_label": "评审者类型",
     "critic_type_human": "人工",
@@ -357,6 +373,8 @@
   },
   "run": {
     "status": {
+      "resolving_roles": "正在解析角色",
+      "waiting_role_assignment": "等待人工指定角色",
       "running": "运行中",
       "completed": "已完成",
       "failed": "失败",
@@ -370,7 +388,49 @@
     "toast_cancelled": "运行已取消",
     "toast_cancel_failed": "取消运行失败",
     "input": "输入",
-    "output": "输出"
+    "output": "输出",
+    "node_runs": "节点运行",
+    "roles": {
+      "title": "角色分配",
+      "resolving": "正在把 Workflow 角色解析为工作区有效成员...",
+      "waiting": "自动角色解析需要人工处理。请为所有未解决角色选择成员后继续。",
+      "invalidated": "之前分配的成员已失效。请重新指定被阻塞的角色。",
+      "worker": "执行者",
+      "critic": "评审者",
+      "unknown_node": "未知节点",
+      "select_member": "选择有效成员",
+      "assigned_to": "已分配给 {{name}}",
+      "assign_continue": "确认分配并继续",
+      "assigning": "正在保存分配...",
+      "assignment_saved": "已保存角色分配",
+      "assignment_failed": "保存角色分配失败",
+      "assignment_conflict": "分配已被其他操作修改，已加载最新数据。",
+      "retry": "重新自动映射",
+      "retry_started": "已重新启动自动角色解析",
+      "retry_failed": "重新启动自动角色解析失败",
+      "reason": "原因：{{code}}",
+      "notification_failed": "成员已分配，但邮件未发送。",
+      "status": {
+        "pending": "等待解析",
+        "resolved": "已解决",
+        "needs_human": "需要人工指定",
+        "invalidated": "成员已失效"
+      }
+    }
+  },
+  "builtin_roles": {
+    "developer": {
+      "name": "研发",
+      "description": "负责实现、测试并维护产品与工程相关工作。"
+    },
+    "qa": {
+      "name": "测试",
+      "description": "负责质量验证、需求核对与回归问题识别。"
+    },
+    "tech_lead": {
+      "name": "技术负责人",
+      "description": "把握技术方向、设计评审与工程质量管理。"
+    }
   },
   "cancel_dialog": {
     "title": "取消工作流运行？",

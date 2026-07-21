@@ -92,6 +92,7 @@ vi.mock("@multica/core/workflows/queries", () => ({
   workflowEdgesOptions: () => ({ queryKey: ["edges"] }),
   workflowRunsOptions: () => ({ queryKey: ["runs"] }),
   workflowNodeRunsOptions: (_wsId: string, _workflowId: string, runId: string) => ({ queryKey: ["node-runs", runId] }),
+  workflowRolesOptions: () => ({ queryKey: ["roles"] }),
   splitIssueWorkflowOptions: () => ({ queryKey: ["split-issue-workflow-options"] }),
   useCreateNode: () => ({ mutate: mocks.createNodeMutate, mutateAsync: vi.fn() }),
   useUpdateNode: () => ({ mutate: mocks.updateNodeMutate, mutateAsync: mocks.updateNodeMutateAsync }),
@@ -399,6 +400,7 @@ vi.mock("@tanstack/react-query", () => ({
     if (key.includes("detail")) return { data: mocks.workflowData, isLoading: false, isError: false };
     if (key.includes("agents")) return { data: [], isLoading: false };
     if (key.includes("plugins")) return { data: { items: [] }, isLoading: false };
+    if (key.includes("roles")) return { data: [], isLoading: false };
     if (key.includes("split-issue-workflow-options")) return { data: [], isLoading: false };
     return { data: null, isLoading: true, isError: false };
   },

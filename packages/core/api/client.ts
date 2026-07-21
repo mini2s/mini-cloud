@@ -138,6 +138,8 @@ import type {
   MyWorkflowTaskResponse,
   WorkflowAdmin,
   WorkflowRole,
+  WorkflowRoleResolution,
+  WorkflowRoleAssignmentInput,
   RuntimePermission,
   RuntimePermissionListResponse,
   MyRuntimePermissionResponse,
@@ -219,6 +221,10 @@ import {
   EMPTY_LIST_WORKFLOW_RUNS_RESPONSE,
   WorkflowRunDetailResponseSchema,
   EMPTY_WORKFLOW_RUN,
+  WorkflowRolesResponseSchema,
+  EMPTY_WORKFLOW_ROLES_RESPONSE,
+  WorkflowRoleResolutionsResponseSchema,
+  EMPTY_WORKFLOW_ROLE_RESOLUTIONS_RESPONSE,
   WorkflowNodeRunSchema,
   EMPTY_WORKFLOW_NODE_RUN,
   MyWorkflowTasksResponseSchema,
@@ -2589,8 +2595,46 @@ export class ApiClient {
 
   // ── Role CRUD ─────────────────────────────────────────────────────────────
 
-  async listWorkflowRoles(): Promise<WorkflowRole[]> {
-    const raw = await this.fetch<{ roles: WorkflowRole[] }>("/api/workflow-roles");
-    return raw.roles ?? [];
+  async listWorkflowRoles(workspaceId: string): Promise<WorkflowRole[]> {
+    const raw = await this.fetch<unknown>(`/api/workspaces/${workspaceId}/workflow-roles`);
+    return parseWithFallback(raw, WorkflowRolesResponseSchema, EMPTY_WORKFLOW_ROLES_RESPONSE, {
+      endpoint: "GET /api/workspaces/:id/workflow-roles",
+    }).roles;
+  }
+
+  async createWorkflowRole(workspaceId: string, input: { name: string; description: string }): Promise<WorkflowRole> {
+    return this.fetch(`/api/workspaces/${workspaceId}/workflow-roles`, {
+      method: "POST", body: JSON.stringify(input),
+    });
+  }
+
+  async updateWorkflowRole(workspaceId: string, roleId: string, input: { name?: string; description?: string }): Promise<WorkflowRole> {
+    return this.fetch(`/api/workspaces/${workspaceId}/workflow-roles/${roleId}`, {
+      method: "PATCH", body: JSON.stringify(input),
+    });
+  }
+
+  async deleteWorkflowRole(workspaceId: string, roleId: string): Promise<void> {
+    await this.fetch(`/api/workspaces/${workspaceId}/workflow-roles/${roleId}`, { method: "DELETE" });
+  }
+
+  async listWorkflowRoleResolutions(workflowId: string, runId: string): Promise<WorkflowRoleResolution[]> {
+    const raw = await this.fetch<unknown>(`/api/workflows/${workflowId}/runs/${runId}/role-resolutions`);
+    return parseWithFallback(raw, WorkflowRoleResolutionsResponseSchema, EMPTY_WORKFLOW_ROLE_RESOLUTIONS_RESPONSE, {
+      endpoint: "GET /api/workflows/:id/runs/:runId/role-resolutions",
+    }).resolutions;
+  }
+
+  async assignWorkflowRoleResolutions(workflowId: string, runId: string, assignments: WorkflowRoleAssignmentInput[]): Promise<WorkflowRoleResolution[]> {
+    const raw = await this.fetch<unknown>(`/api/workflows/${workflowId}/runs/${runId}/role-resolutions`, {
+      method: "PUT", body: JSON.stringify({ assignments }),
+    });
+    return parseWithFallback(raw, WorkflowRoleResolutionsResponseSchema, EMPTY_WORKFLOW_ROLE_RESOLUTIONS_RESPONSE, {
+      endpoint: "PUT /api/workflows/:id/runs/:runId/role-resolutions",
+    }).resolutions;
+  }
+
+  async retryWorkflowRoleResolutions(workflowId: string, runId: string): Promise<{ job_id: string; status: string }> {
+    return this.fetch(`/api/workflows/${workflowId}/runs/${runId}/role-resolutions/retry`, { method: "POST" });
   }
 }

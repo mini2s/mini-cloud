@@ -24,6 +24,8 @@ const mocks = vi.hoisted(() => ({
   workflowOptionsData: undefined as unknown,
   splitTasksByNodeRunId: {} as Record<string, unknown>,
   pluginsData: undefined as unknown,
+  workflowRolesData: [] as unknown[],
+  roleResolutionsData: [] as unknown[],
   hasOpenInNewTab: true,
   isLoading: true,
   navigationPush: vi.fn(),
@@ -88,6 +90,10 @@ vi.mock("@tanstack/react-query", async () => {
           return { data: mocks.squadsData, isLoading: false };
         if (key.includes("plugins"))
           return { data: mocks.pluginsData, isLoading: false };
+        if (key.includes("role-resolutions"))
+          return { data: mocks.roleResolutionsData, isLoading: false };
+        if (key.includes("roles"))
+          return { data: mocks.workflowRolesData, isLoading: false };
         if (key.includes("split-issue-workflow-options"))
           return { data: mocks.workflowOptionsData, isLoading: false };
         return { data: mocks.workflowData, isLoading: mocks.isLoading };
@@ -135,6 +141,16 @@ vi.mock("@multica/core/workflows/queries", () => ({
   }),
   workflowRunCanvasSummaryOptions: (wsId: string, workflowId: string, runId: string) => ({
     queryKey: ["workflows", wsId, workflowId, runId, "canvas-summary"],
+  }),
+  workflowRolesOptions: (wsId: string) => ({
+    queryKey: ["workflows", wsId, "roles"],
+  }),
+  workflowRoleResolutionsOptions: (
+    wsId: string,
+    workflowId: string,
+    runId: string,
+  ) => ({
+    queryKey: ["workflows", wsId, workflowId, runId, "role-resolutions"],
   }),
   splitTasksOptions: (wsId: string, nodeRunId: string | null | undefined) => ({
     queryKey: ["workflows", wsId, "node-runs", nodeRunId ?? "", "split-tasks"],
@@ -207,6 +223,30 @@ vi.mock("sonner", () => ({
     error: vi.fn(),
     success: vi.fn(),
   },
+}));
+
+vi.mock("../../../i18n", () => ({
+  useT: (_namespace: string) => ({
+    t: (selector: (value: unknown) => string) =>
+      selector({
+        builtin_roles: {
+          developer: { name: "Developer", description: "Builds changes" },
+          qa: { name: "QA", description: "Validates changes" },
+          tech_lead: { name: "Tech Lead", description: "Tech direction" },
+        },
+        execution: {
+          display_status: {
+            pending: "Pending",
+            todo: "To do",
+            in_progress: "In progress",
+            reviewing: "Reviewing",
+            completed: "Completed",
+            blocked: "Blocked",
+            cancelled: "Cancelled",
+          },
+        },
+      }),
+  }),
 }));
 
 // ---------------------------------------------------------------------------
@@ -1990,5 +2030,249 @@ describe("ExecutionPanoramaPage", () => {
     );
 
     expect(screen.getByTestId("reactflow-canvas")).toHaveAttribute("data-edge-count", "1");
+  });
+
+  // ---------------------------------------------------------------------------
+  // Role-based worker/critic display — regression coverage for the fix that
+  // made role-assigned nodes show a name on the runtime canvas. Precedence:
+  // explicit agent/member → resolved user from WorkflowRoleResolution →
+  // localized built-in role name → raw custom role name.
+  // ---------------------------------------------------------------------------
+  const CUSTOM_ROLE = {
+    id: "role-backend",
+    workspace_id: "ws-1",
+    name: "Backend Engineer",
+    description: "Builds backend changes",
+    is_builtin: false,
+    needs_description: false,
+    is_referenced: false,
+    created_by: "user-1",
+    created_at: "",
+    updated_at: "",
+  };
+
+  const BUILTIN_DEV_ROLE = {
+    ...CUSTOM_ROLE,
+    id: "role-dev",
+    name: "developer",
+    is_builtin: true,
+    description: "Builds changes",
+  };
+
+  const MEMBER = {
+    user_id: "user-alice",
+    name: "Alice Johnson",
+    email: "alice@example.com",
+    role: "member",
+    status: "active",
+  };
+
+  const baseNodeRun = {
+    id: "nr-role",
+    workflow_run_id: "run-1",
+    workflow_node_id: "n-role",
+    node_title: "implement",
+    status: "running",
+    retry_count: 0,
+    worker_type: "agent",
+    worker_id: null,
+    worker_output: null,
+    worker_agent_task_id: null,
+    critic_type: "human",
+    critic_id: null,
+    critic_output: null,
+    critic_comment: "",
+    critic_agent_task_id: null,
+    agent_task_id: null,
+    session_id: null,
+    runtime_id: null,
+    device_id: null,
+    started_at: null,
+    completed_at: null,
+    created_at: "",
+    updated_at: "",
+  };
+
+  it("shows the raw custom role name when a worker is role-assigned but unresolved", () => {
+    mocks.isLoading = false;
+    mocks.workflowData = { id: "wf-1", title: "Test Workflow" };
+    mocks.stagesData = [STAGE];
+    mocks.nodesData = [
+      {
+        ...NODE,
+        id: "n-role",
+        worker_type: "role",
+        worker_id: null,
+        worker_role_id: "role-backend",
+        worker_role: null,
+      },
+    ];
+    mocks.workflowRolesData = [CUSTOM_ROLE];
+    mocks.nodeRunsData = [{ ...baseNodeRun, status: "pending" }];
+    mocks.agentsData = [];
+
+    render(
+      <Wrapper>
+        <ExecutionPanoramaPage workflowId="wf-1" runId="run-1" wsId="ws-1" />
+      </Wrapper>,
+    );
+
+    const worker = mocks.reactFlowProps?.nodes.find((n) => n.id === "n-role");
+    expect(worker?.data).toMatchObject({ workerName: "Backend Engineer" });
+  });
+
+  it("localizes the built-in developer role name on the runtime canvas", () => {
+    mocks.isLoading = false;
+    mocks.workflowData = { id: "wf-1", title: "Test Workflow" };
+    mocks.stagesData = [STAGE];
+    mocks.nodesData = [
+      {
+        ...NODE,
+        id: "n-role",
+        worker_type: "role",
+        worker_id: null,
+        worker_role_id: "role-dev",
+        worker_role: null,
+      },
+    ];
+    mocks.workflowRolesData = [BUILTIN_DEV_ROLE];
+    mocks.nodeRunsData = [{ ...baseNodeRun, status: "pending" }];
+    mocks.agentsData = [];
+
+    render(
+      <Wrapper>
+        <ExecutionPanoramaPage workflowId="wf-1" runId="run-1" wsId="ws-1" />
+      </Wrapper>,
+    );
+
+    const worker = mocks.reactFlowProps?.nodes.find((n) => n.id === "n-role");
+    // i18n mock returns "Developer" for the developer built-in — without the
+    // fix this assertion would fail because workerName was null and the node
+    // appeared blank on the canvas.
+    expect(worker?.data).toMatchObject({ workerName: "Developer" });
+  });
+
+  it("surfaces the resolved member name once role resolution completes", () => {
+    mocks.isLoading = false;
+    mocks.workflowData = { id: "wf-1", title: "Test Workflow" };
+    mocks.stagesData = [STAGE];
+    mocks.nodesData = [
+      {
+        ...NODE,
+        id: "n-role",
+        worker_type: "role",
+        worker_id: null,
+        worker_role_id: "role-backend",
+        worker_role: null,
+      },
+    ];
+    mocks.workflowRolesData = [CUSTOM_ROLE];
+    mocks.membersData = [MEMBER];
+    mocks.nodeRunsData = [{ ...baseNodeRun, status: "running" }];
+    mocks.roleResolutionsData = [
+      {
+        id: "res-1",
+        workflow_node_run_id: "nr-role",
+        slot_type: "worker",
+        status: "resolved",
+        resolved_user_id: "user-alice",
+        resolved_at: "",
+        created_at: "",
+        updated_at: "",
+      },
+    ];
+    mocks.agentsData = [];
+
+    render(
+      <Wrapper>
+        <ExecutionPanoramaPage workflowId="wf-1" runId="run-1" wsId="ws-1" />
+      </Wrapper>,
+    );
+
+    const worker = mocks.reactFlowProps?.nodes.find((n) => n.id === "n-role");
+    expect(worker?.data).toMatchObject({ workerName: "Alice Johnson" });
+  });
+
+  it("prefers an explicit worker agent over a resolved role resolution", () => {
+    mocks.isLoading = false;
+    mocks.workflowData = { id: "wf-1", title: "Test Workflow" };
+    mocks.stagesData = [STAGE];
+    mocks.nodesData = [
+      {
+        ...NODE,
+        id: "n-role",
+        worker_type: "agent",
+        worker_id: "agent-1",
+        worker_role_id: "role-backend",
+        worker_role: null,
+      },
+    ];
+    mocks.workflowRolesData = [CUSTOM_ROLE];
+    mocks.membersData = [MEMBER];
+    mocks.nodeRunsData = [{ ...baseNodeRun, status: "running" }];
+    mocks.roleResolutionsData = [
+      {
+        id: "res-1",
+        workflow_node_run_id: "nr-role",
+        slot_type: "worker",
+        status: "resolved",
+        resolved_user_id: "user-alice",
+        resolved_at: "",
+        created_at: "",
+        updated_at: "",
+      },
+    ];
+    mocks.agentsData = [AGENT];
+
+    render(
+      <Wrapper>
+        <ExecutionPanoramaPage workflowId="wf-1" runId="run-1" wsId="ws-1" />
+      </Wrapper>,
+    );
+
+    const worker = mocks.reactFlowProps?.nodes.find((n) => n.id === "n-role");
+    // Explicit agent assignment wins — the resolved member must not override.
+    expect(worker?.data).toMatchObject({ workerName: "Brainstorming Agent" });
+  });
+
+  it("ignores pending role resolutions and falls back to the role name", () => {
+    mocks.isLoading = false;
+    mocks.workflowData = { id: "wf-1", title: "Test Workflow" };
+    mocks.stagesData = [STAGE];
+    mocks.nodesData = [
+      {
+        ...NODE,
+        id: "n-role",
+        worker_type: "role",
+        worker_id: null,
+        worker_role_id: "role-backend",
+        worker_role: null,
+      },
+    ];
+    mocks.workflowRolesData = [CUSTOM_ROLE];
+    mocks.membersData = [MEMBER];
+    mocks.nodeRunsData = [{ ...baseNodeRun, status: "running" }];
+    mocks.roleResolutionsData = [
+      {
+        id: "res-1",
+        workflow_node_run_id: "nr-role",
+        slot_type: "worker",
+        status: "pending",
+        resolved_user_id: null,
+        resolved_at: "",
+        created_at: "",
+        updated_at: "",
+      },
+    ];
+    mocks.agentsData = [];
+
+    render(
+      <Wrapper>
+        <ExecutionPanoramaPage workflowId="wf-1" runId="run-1" wsId="ws-1" />
+      </Wrapper>,
+    );
+
+    const worker = mocks.reactFlowProps?.nodes.find((n) => n.id === "n-role");
+    expect(worker?.data).toMatchObject({ workerName: "Backend Engineer" });
   });
 });

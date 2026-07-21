@@ -10,6 +10,8 @@ const mocks = vi.hoisted(() => ({
   nodes: [] as unknown[],
   edges: [] as unknown[],
   nodeRuns: [] as unknown[],
+  resolutions: [] as unknown[],
+  members: [] as unknown[],
   cancelMutate: vi.fn(),
 }));
 
@@ -20,12 +22,22 @@ vi.mock("@tanstack/react-query", () => ({
     if (key.includes("nodes")) return { data: mocks.nodes, isLoading: false };
     if (key.includes("edges")) return { data: mocks.edges, isLoading: false };
     if (key.includes("node-runs")) return { data: mocks.nodeRuns, isLoading: false };
+    if (key.includes("role-resolutions")) return { data: mocks.resolutions, isLoading: false };
+    if (key.includes("members")) return { data: mocks.members, isLoading: false };
     return { data: undefined, isLoading: false };
   },
 }));
 
 vi.mock("@multica/core/hooks", () => ({
   useWorkspaceId: () => "ws-1",
+}));
+
+vi.mock("@multica/core/auth", () => ({
+  useAuthStore: (selector: (state: unknown) => unknown) => selector({ user: { id: "user-1" } }),
+}));
+
+vi.mock("@multica/core/workspace/queries", () => ({
+  memberListOptions: () => ({ queryKey: ["workspaces", "members"] }),
 }));
 
 vi.mock("@multica/core/workflows/queries", () => ({
@@ -35,6 +47,9 @@ vi.mock("@multica/core/workflows/queries", () => ({
   workflowNodesOptions: () => ({ queryKey: ["workflows", "nodes"] }),
   workflowEdgesOptions: () => ({ queryKey: ["workflows", "edges"] }),
   workflowNodeRunsOptions: () => ({ queryKey: ["workflows", "node-runs"] }),
+  workflowRoleResolutionsOptions: () => ({ queryKey: ["workflows", "role-resolutions"] }),
+  useAssignWorkflowRoleResolutions: () => ({ mutateAsync: vi.fn(), isPending: false }),
+  useRetryWorkflowRoleResolutions: () => ({ mutateAsync: vi.fn(), isPending: false }),
   useCancelWorkflowRun: () => ({ mutate: mocks.cancelMutate, isPending: false }),
   useSubmitNodeRun: () => ({ mutate: vi.fn(), isPending: false }),
   useReviewNodeRun: () => ({ mutate: vi.fn(), isPending: false }),

@@ -10,6 +10,7 @@ import type {
   UpdateStageRequest,
   ReorderStagesItem,
   AssignNodeToStageRequest,
+  WorkflowRoleAssignmentInput,
   ApproveSplitRequest,
   BatchPatchSplitDraftTasksRequest,
   ChatMessage,
@@ -42,6 +43,8 @@ export const workflowKeys = {
   splitIssueWorkflowOptions: (wsId: string, workflowId: string) =>
     [...workflowKeys.detail(wsId, workflowId), "split-issue-workflow-options"] as const,
   roles: (wsId: string) => [...workflowKeys.all(wsId), "roles"] as const,
+  roleResolutions: (wsId: string, workflowId: string, runId: string) =>
+    [...workflowKeys.run(wsId, workflowId, runId), "role-resolutions"] as const,
 };
 
 // ── Queries ──
@@ -655,6 +658,63 @@ export function useAssignNodeToStage(wsId: string, workflowId: string) {
 export function workflowRolesOptions(wsId: string) {
   return queryOptions({
     queryKey: workflowKeys.roles(wsId),
-    queryFn: () => api.listWorkflowRoles(),
+    queryFn: () => api.listWorkflowRoles(wsId),
+  });
+}
+
+export function workflowRoleResolutionsOptions(wsId: string, workflowId: string, runId: string) {
+  return queryOptions({
+    queryKey: workflowKeys.roleResolutions(wsId, workflowId, runId),
+    queryFn: () => api.listWorkflowRoleResolutions(workflowId, runId),
+    refetchInterval: (query) => query.state.data?.some((item) => item.status === "pending") ? 2000 : false,
+  });
+}
+
+export function useCreateWorkflowRole(wsId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (input: { name: string; description: string }) => api.createWorkflowRole(wsId, input),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: workflowKeys.roles(wsId) }),
+  });
+}
+
+export function useUpdateWorkflowRole(wsId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ roleId, ...input }: { roleId: string; name?: string; description?: string }) =>
+      api.updateWorkflowRole(wsId, roleId, input),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: workflowKeys.roles(wsId) }),
+  });
+}
+
+export function useDeleteWorkflowRole(wsId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (roleId: string) => api.deleteWorkflowRole(wsId, roleId),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: workflowKeys.roles(wsId) }),
+  });
+}
+
+export function useAssignWorkflowRoleResolutions(wsId: string, workflowId: string, runId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (assignments: WorkflowRoleAssignmentInput[]) =>
+      api.assignWorkflowRoleResolutions(workflowId, runId, assignments),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: workflowKeys.roleResolutions(wsId, workflowId, runId) });
+      queryClient.invalidateQueries({ queryKey: workflowKeys.run(wsId, workflowId, runId) });
+      queryClient.invalidateQueries({ queryKey: workflowKeys.nodeRuns(wsId, workflowId, runId) });
+    },
+  });
+}
+
+export function useRetryWorkflowRoleResolutions(wsId: string, workflowId: string, runId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () => api.retryWorkflowRoleResolutions(workflowId, runId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: workflowKeys.roleResolutions(wsId, workflowId, runId) });
+      queryClient.invalidateQueries({ queryKey: workflowKeys.run(wsId, workflowId, runId) });
+    },
   });
 }
