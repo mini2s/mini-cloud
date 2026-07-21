@@ -4,8 +4,8 @@ export const LANE_STEP = LANE_HEIGHT + GRADIENT_HEIGHT; // 208
 export const LANE_PADDING_TOP = 12;
 export const PANORAMA_WIDTH = 2400;
 
-export const WORKER_WIDTH = 240;
-export const WORKER_HEIGHT = 104;
+export const WORKER_WIDTH = 296;
+export const WORKER_HEIGHT = 136;
 export const CRITIC_WIDTH = 144;
 export const CRITIC_HEIGHT = 48;
 export const WORKER_CRITIC_GAP = 20;

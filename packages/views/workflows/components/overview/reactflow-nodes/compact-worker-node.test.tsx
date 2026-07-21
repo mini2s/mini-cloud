@@ -97,8 +97,38 @@ describe("CompactWorkerNode", () => {
     renderWithProvider(rfn);
     const el = screen.getByTestId("compact-worker-node-1");
     expect(el).toBeInTheDocument();
-    expect(el).toHaveClass("h-[104px]", "w-[240px]");
-    expect(el).toHaveStyle({ height: "104px" });
+    expect(el).toHaveClass("h-[136px]", "w-[296px]");
+    expect(el).toHaveStyle({ width: "296px", height: "136px" });
+  });
+
+  it("allows long titles, descriptions, and actor names to wrap instead of single-line truncating everything", () => {
+    const rfn = {
+      id: "long-node",
+      type: "compactWorker",
+      position: { x: 100, y: 12 },
+      data: {
+        ...baseData,
+        node: makeWorkerNode({
+          id: "long-node",
+          title: "Implement a very long checkout workflow orchestration step",
+          description: "Coordinate API, UI, and background worker changes without losing context.",
+          worker_id: "agent-1",
+          critic_id: "member-1",
+        }),
+        workerName: "Very Long Builder Agent Name That Should Remain Readable",
+        criticName: "Reviewer With A Long Display Name",
+        workerConfigured: true,
+        criticConfigured: true,
+      },
+    } as Node;
+
+    renderWithProvider(rfn);
+
+    const card = screen.getByTestId("compact-worker-long-node");
+    expect(card).toHaveClass("h-[136px]", "w-[296px]");
+    expect(screen.getByText(/Implement a very long checkout/).className).toContain("line-clamp-2");
+    expect(screen.getByText(/Coordinate API/).className).toContain("line-clamp-2");
+    expect(screen.getByTestId("compact-worker-node-worker-role-long-node").innerHTML).not.toContain("truncate");
   });
 
   it("uses the node title as the primary card label", () => {

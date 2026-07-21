@@ -68,7 +68,7 @@ function RoleSlot({
             configured ? "bg-emerald-500 shadow-[0_0_0_3px_rgba(16,185,129,0.12)]" : "bg-muted-foreground/45",
           )}
         />
-        <span className={cn("truncate font-medium", configured ? "text-foreground/85" : "text-muted-foreground")}>
+        <span className={cn("min-w-0 break-words font-medium leading-4 line-clamp-2", configured ? "text-foreground/85" : "text-muted-foreground")}>
           {value}
         </span>
         {icon}
@@ -158,7 +158,7 @@ export const CompactWorkerNode = memo(function CompactWorkerNode({
       title={description ? `${displayName}\n${description}` : displayName}
       onDoubleClick={openNode}
       onKeyDown={handleKeyDown}
-      className="h-[104px] w-[240px]"
+      className="h-[136px] w-[296px]"
       contentClassName={cn("h-full justify-between gap-2.5", workflowNodeInfoAreaClassName(nodeShape))}
       handleColorClassName={handleColorClass}
       handles={["left-target", "right-source", "bottom-source"]}
@@ -188,7 +188,7 @@ export const CompactWorkerNode = memo(function CompactWorkerNode({
                   )}
                 />
               ) : null}
-              <span className="block truncate text-[13px] font-semibold leading-4 text-foreground">{displayName}</span>
+              <span className="block min-w-0 break-words text-[13px] font-semibold leading-4 text-foreground line-clamp-2">{displayName}</span>
             </span>
             <span
               data-testid={`compact-worker-node-badge-${id}`}
@@ -198,7 +198,7 @@ export const CompactWorkerNode = memo(function CompactWorkerNode({
             </span>
           </span>
           {description ? (
-            <span className="mt-1 block truncate text-[10px] leading-3 text-muted-foreground">{description}</span>
+            <span className="mt-1 block break-words text-[10px] leading-3 text-muted-foreground line-clamp-2">{description}</span>
           ) : null}
         </span>
         {isAnnotation || isGateway ? (
@@ -207,7 +207,7 @@ export const CompactWorkerNode = memo(function CompactWorkerNode({
             className="flex min-w-0 items-center gap-1.5 border-t border-border/45 pt-2 text-[10px] leading-4 text-muted-foreground"
           >
             <span className="inline-block size-1.5 shrink-0 rounded-full bg-[var(--success)] shadow-[0_0_0_3px_rgba(34,197,94,0.12)]" />
-            <span className="truncate font-medium text-foreground/80">{metadataLabel}</span>
+            <span className="min-w-0 break-words font-medium text-foreground/80 line-clamp-2">{metadataLabel}</span>
             {workerConfigured ? (
               <span className="shrink-0 text-muted-foreground/75">Configured</span>
             ) : null}
