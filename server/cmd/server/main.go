@@ -12,8 +12,6 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/go-chi/chi/v5"
-	chimw "github.com/go-chi/chi/v5/middleware"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/joho/godotenv"
 	"github.com/multica-ai/multica/server/internal/analytics"
@@ -542,28 +540,6 @@ func main() {
 		Handler: r,
 	}
 
-	// Gitea UI reverse-proxy listener (RP-Auth). Owns a dedicated port
-	// (GITEA_PROXY_PORT, e.g. :8081) so Gitea's ROOTURL can point at it at
-	// root without colliding with the main /api/* router. A workspace member
-	// clicking a PR link is authenticated by GiteaProxyAuth (JWT cookie, no
-	// CSRF — Gitea has its own), then proxied to Gitea with X-Forwarded-User
-	// injected; Gitea's ENABLE_REVERSE_PROXY_AUTHENTICATION auto-logs them in.
-	// Only starts when both the port and a configured Gitea client exist.
-	var giteaProxyServer *http.Server
-	if proxyPort := strings.TrimSpace(os.Getenv("GITEA_PROXY_PORT")); proxyPort != "" && giteaClient != nil && giteaClient.Configured() {
-		proxyRouter := chi.NewRouter()
-		proxyRouter.Use(chimw.Recoverer)
-		proxyRouter.Use(middleware.GiteaProxyAuth())
-		proxyRouter.Handle("/*", handler.GiteaProxyHandler())
-		giteaProxyServer = &http.Server{Addr: ":" + proxyPort, Handler: proxyRouter}
-		go func() {
-			slog.Info("gitea proxy server starting", "port", proxyPort)
-			if err := giteaProxyServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-				slog.Error("gitea proxy server disabled after startup error", "error", err)
-			}
-		}()
-	}
-
 	// Start background workers.
 	sweepCtx, sweepCancel := context.WithCancel(context.Background())
 	autopilotCtx, autopilotCancel := context.WithCancel(context.Background())
@@ -667,13 +643,6 @@ func main() {
 			slog.Error("metrics server forced to shutdown", "error", err)
 		}
 		metricsShutdownCancel()
-	}
-	if giteaProxyServer != nil {
-		giteaProxyShutdownCtx, giteaProxyShutdownCancel := context.WithTimeout(context.Background(), 3*time.Second)
-		if err := giteaProxyServer.Shutdown(giteaProxyShutdownCtx); err != nil {
-			slog.Error("gitea proxy server forced to shutdown", "error", err)
-		}
-		giteaProxyShutdownCancel()
 	}
 	slog.Info("server stopped")
 }

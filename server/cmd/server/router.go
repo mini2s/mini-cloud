@@ -418,9 +418,9 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 	r.With(middleware.DaemonAuth(queries, patCache, daemonTokenCache, opts.JWKSProvider, opts.SubjectResolver)).
 		Get("/api/gitea/credential", h.HandleGiteaCredential)
 
-	// NOTE: the Gitea UI reverse proxy (RP-Auth) is NOT on this router — it
-	// owns a dedicated listener (GITEA_PROXY_PORT, see main.go) so Gitea's
-	// ROOTURL can point at it at root without colliding with /api/*.
+	// Gitea UI routes are not proxied by Multica. Browser-facing links should
+	// use GITEA_PUBLIC_BASE_URL (for local E2E, http://localhost:23000) and let
+	// the surrounding platform handle any Gitea authentication handoff.
 
 	// Protected API routes
 	r.Group(func(r chi.Router) {
