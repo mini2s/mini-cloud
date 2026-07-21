@@ -127,7 +127,9 @@ func scanTaskQueue(t *db.MulticaAgentTaskQueue, dest []any) error {
 		&t.DispatchedAt, &t.StartedAt, &t.CompletedAt, &t.Result,
 		&t.Error, &t.CreatedAt, &t.Context, &t.RuntimeID,
 		&t.SessionID, &t.WorkDir, &t.TriggerCommentID,
-		&t.ChatSessionID, &t.AutopilotRunID,
+		&t.ChatSessionID, &t.AutopilotRunID, &t.Attempt, &t.MaxAttempts,
+		&t.ParentTaskID, &t.FailureReason, &t.TriggerSummary,
+		&t.ForceFreshSession, &t.IsLeaderTask, &t.WorkflowNodeRunID,
 	}
 	return copyRow(vals, dest)
 }
@@ -211,11 +213,12 @@ func newPushTestDB(runtimeProvider, daemonID string) *pushTaskDB {
 			Provider:    runtimeProvider,
 		},
 		dispatchedResult: db.MulticaAgentTaskQueue{
-			ID:        testUUID(3),
-			AgentID:   testUUID(4),
-			RuntimeID: testUUID(1),
-			IssueID:   testUUID(5),
-			Status:    "queued",
+			ID:                testUUID(3),
+			AgentID:           testUUID(4),
+			RuntimeID:         testUUID(1),
+			IssueID:           testUUID(5),
+			WorkflowNodeRunID: testUUID(6),
+			Status:            "queued",
 		},
 	}
 }
@@ -251,6 +254,12 @@ func TestDispatchToCSCloud_PushesAndMarksDispatched(t *testing.T) {
 	}
 	if payload.Agent != "csc" {
 		t.Fatalf("agent = %q, want csc", payload.Agent)
+	}
+	if payload.AgentID != util.UUIDToString(dbtx.dispatchedResult.AgentID) {
+		t.Fatalf("agent_id = %q, want %q", payload.AgentID, util.UUIDToString(dbtx.dispatchedResult.AgentID))
+	}
+	if payload.NodeRunID != util.UUIDToString(dbtx.dispatchedResult.WorkflowNodeRunID) {
+		t.Fatalf("node_run_id = %q, want %q", payload.NodeRunID, util.UUIDToString(dbtx.dispatchedResult.WorkflowNodeRunID))
 	}
 	if !strings.Contains(payload.Prompt, "Issue") {
 		t.Fatalf("prompt should contain issue title, got %q", payload.Prompt)
