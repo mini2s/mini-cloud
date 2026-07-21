@@ -432,7 +432,12 @@ export function ExecutionDetailPanel({
               <span className="text-muted-foreground">{t(($) => $.execution.detail_panel.worker)}</span>
               <span className="font-medium">{workerName ?? "--"}</span>
             </div>
-            <NodeRunDeliverables wsId={wsId} nodeRunId={nodeRun?.id ?? ""} />
+            <NodeRunDeliverables
+              wsId={wsId}
+              nodeRunId={nodeRun?.id ?? ""}
+              issueId={issueId}
+              canUpload={nodeRun?.worker_type === "human"}
+            />
             <div className="flex items-center gap-2">
               {nodeRun?.critic_type === "agent" ? <Bot className="h-4 w-4" /> : <User className="h-4 w-4" />}
               <span className="text-muted-foreground">{t(($) => $.execution.detail_panel.critic)}</span>

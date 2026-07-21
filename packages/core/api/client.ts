@@ -708,6 +708,19 @@ export class ApiClient {
     });
   }
 
+  /**
+   * Upload a member-authored document deliverable for a member-assigned issue.
+   * The server writes the content to the issue's default-workflow Gitea repo
+   * (node branch), opens a PR, and advances the node-run into review — symmetric
+   * with the agent's cs-workflow submit. Dormant (Gitea unconfigured) → 503.
+   */
+  async uploadIssueDeliverable(issueId: string, content: string): Promise<{ ok: boolean }> {
+    return this.fetch(`/api/issues/${issueId}/deliverables/upload`, {
+      method: "POST",
+      body: JSON.stringify({ content }),
+    });
+  }
+
   async listTimeline(issueId: string): Promise<TimelineEntry[]> {
     const raw = await this.fetch<unknown>(
       `/api/issues/${issueId}/timeline`,

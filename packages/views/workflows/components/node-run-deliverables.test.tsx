@@ -1,12 +1,28 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, fireEvent } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { NodeRunDeliverables } from "./node-run-deliverables";
 
 vi.mock("@multica/core/api", () => ({
   api: {
     listNodeRunDeliverableSubmissions: vi.fn(),
+    uploadIssueDeliverable: vi.fn(),
   },
+}));
+
+// Stub the upload mutation so the component test stays isolated from
+// useWorkspaceId / the real API client. mutateMock records the submitted body.
+const mutateMock = vi.fn();
+vi.mock("@multica/core/issues/mutations", () => ({
+  useUploadIssueDeliverable: vi.fn(() => ({
+    isPending: false,
+    isError: false,
+    error: null,
+    mutate: (content: string, opts?: { onSuccess?: () => void }) => {
+      mutateMock(content);
+      opts?.onSuccess?.();
+    },
+  })),
 }));
 
 vi.mock("../../i18n", () => {
@@ -15,6 +31,11 @@ vi.mock("../../i18n", () => {
       deliverables: {
         heading: "Deliverable PRs",
         pull_request_label: "Pull request",
+        upload_button: "Upload deliverable",
+        upload_heading: "Submit a document",
+        upload_placeholder: "markdown…",
+        upload_submit: "Submit",
+        uploading: "Submitting…",
       },
     },
   };
@@ -67,5 +88,45 @@ describe("NodeRunDeliverables", () => {
       expect(api.listNodeRunDeliverableSubmissions).toHaveBeenCalledTimes(1);
       expect(screen.queryByRole("link")).toBeNull();
     });
+  });
+
+  it("renders nothing when no submissions and not uploadable", async () => {
+    vi.mocked(api.listNodeRunDeliverableSubmissions).mockResolvedValue([]);
+    const { container } = withClient(
+      <NodeRunDeliverables wsId="ws-1" nodeRunId="nr-1" />,
+    );
+    await waitFor(() =>
+      expect(api.listNodeRunDeliverableSubmissions).toHaveBeenCalledTimes(1),
+    );
+    expect(container.firstChild).toBeNull();
+  });
+
+  it("shows the upload control for a human-worker node run (canUpload + issueId)", async () => {
+    vi.mocked(api.listNodeRunDeliverableSubmissions).mockResolvedValue([]);
+    withClient(
+      <NodeRunDeliverables wsId="ws-1" nodeRunId="nr-1" issueId="issue-1" canUpload />,
+    );
+
+    const openBtn = await screen.findByRole("button", { name: /upload deliverable/i });
+    fireEvent.click(openBtn);
+
+    const textarea = await screen.findByPlaceholderText(/markdown/i);
+    fireEvent.change(textarea, { target: { value: "# Hello\n\nBody." } });
+
+    const submit = screen.getByRole("button", { name: /submit/i });
+    fireEvent.click(submit);
+
+    await waitFor(() => expect(mutateMock).toHaveBeenCalledWith("# Hello\n\nBody."));
+  });
+
+  it("does not show the upload control when canUpload is false", async () => {
+    vi.mocked(api.listNodeRunDeliverableSubmissions).mockResolvedValue([]);
+    withClient(
+      <NodeRunDeliverables wsId="ws-1" nodeRunId="nr-1" issueId="issue-1" />,
+    );
+    await waitFor(() =>
+      expect(api.listNodeRunDeliverableSubmissions).toHaveBeenCalledTimes(1),
+    );
+    expect(screen.queryByRole("button", { name: /upload deliverable/i })).toBeNull();
   });
 });

@@ -503,7 +503,12 @@
     "review_comment_placeholder": "添加评审意见...",
     "deliverables": {
       "heading": "交付物 PR",
-      "pull_request_label": "拉取请求"
+      "pull_request_label": "拉取请求",
+      "upload_button": "上传交付物",
+      "upload_heading": "提交文档",
+      "upload_placeholder": "写入或粘贴文档内容（markdown）…",
+      "upload_submit": "提交",
+      "uploading": "提交中…"
     }
   },
   "overview": {
