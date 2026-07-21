@@ -47,14 +47,14 @@ export function WorkflowNodeDetailPanelShell({
   children,
   className,
   contentClassName,
-  widthClassName = "w-[520px]",
+  widthClassName = "w-[620px]",
 }: WorkflowNodeDetailPanelShellProps) {
   const panel = (
     <aside
       data-testid="workflow-node-detail-panel-shell"
       data-mode={mode}
       className={cn(
-        "flex h-full flex-col border-l bg-background",
+        "flex h-full flex-col border-l border-border/80 bg-background shadow-[-10px_0_28px_rgba(15,23,42,0.06)]",
         widthClassName,
         variant === "overlay" &&
           "fixed right-0 top-0 bottom-0 z-50 h-auto shadow-2xl shadow-foreground/10 ring-1 ring-border/70 backdrop-blur",
