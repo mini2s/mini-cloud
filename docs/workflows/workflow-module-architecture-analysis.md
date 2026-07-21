@@ -343,9 +343,9 @@ flowchart TD
 | `POST` | `/api/node-runs/{nodeRunId}/review` | 评审节点（通过/驳回） | `approved: boolean`, `comment?` | `WorkflowNodeRun` |
 | `POST` | `/api/node-runs/{nodeRunId}/skip` | 跳过节点 | — | `WorkflowNodeRun` |
 | `POST` | `/api/node-runs/{nodeRunId}/retry` | 重试节点 | — | `WorkflowNodeRun` |
-| `POST` | `/api/node-runs/{nodeRunId}/blocked` | 人工接管（Design Two） | — | `WorkflowNodeRun` |
-| `POST` | `/api/node-runs/{nodeRunId}/working` | 交还 Agent（Design Two） | — | `WorkflowNodeRun` |
-| `POST` | `/api/node-runs/{nodeRunId}/finalize` | 最终确认（Design Two） | `approved: boolean` | `WorkflowNodeRun` |
+| `POST` | `/api/node-runs/{nodeRunId}/blocked` | 人工接管：暂停 Agent，介入其 CSC 会话（working → blocked，completed_at 留 NULL） | — | `WorkflowNodeRun` |
+| `POST` | `/api/node-runs/{nodeRunId}/working` | 交还 Agent：恢复同一 CSC 会话继续执行（blocked → working，重 dispatch worker task） | — | `WorkflowNodeRun` |
+| `POST` | `/api/node-runs/{nodeRunId}/finalize` | 最终确认：人类直接裁决节点通过/失败（blocked → completed/failed），触发下游传播 | `approved: boolean` | `WorkflowNodeRun` |
 
 ### 6.7 辅助 API
 
