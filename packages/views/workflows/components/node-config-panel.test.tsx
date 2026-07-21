@@ -336,6 +336,14 @@ describe("NodeConfigPanel", () => {
       gateway_label_fork: "Branch start",
       split_planner_label: "Split planner: {{planner}}",
     });
+    expect(enWorkflows.panorama.card).toEqual({
+      worker_label: "Worker",
+      critic_label: "Critic",
+    });
+    expect(zhHansWorkflows.panorama.card).toEqual({
+      worker_label: "执行者",
+      critic_label: "审核者",
+    });
     expect(zhHansWorkflows.detail_panel).toMatchObject({
       eyebrow: "节点设置",
       section_readiness: "启用检查",

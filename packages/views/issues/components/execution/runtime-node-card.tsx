@@ -291,12 +291,12 @@ function ActorSlot({
   name: string | null;
 }) {
   return (
-    <div className="grid min-w-0 grid-rows-[12px_minmax(0,1fr)] gap-0.5">
+    <div className="grid row-span-2 min-w-0 grid-rows-subgrid gap-0.5">
       <div className="text-[9px] font-semibold uppercase tracking-wide text-muted-foreground">
         {label}
       </div>
       <div className="flex min-w-0 items-start gap-1.5 text-[11px]">
-        <span className="flex size-4 shrink-0 items-center justify-center rounded-full bg-muted/55 text-muted-foreground ring-1 ring-border/60">
+        <span className="mt-0.5 flex size-4 shrink-0 items-center justify-center rounded-full bg-muted/55 text-muted-foreground ring-1 ring-border/60">
           <Icon className="h-3 w-3" />
         </span>
         <span
@@ -510,7 +510,7 @@ export function RuntimeNodeCard({
             <div
               data-testid="runtime-node-content"
               className={cn(
-                "grid gap-1.5 border-t border-border/45 py-1.5",
+                "grid grid-rows-[12px_32px] gap-x-1.5 gap-y-0.5 border-t border-border/45 py-1.5",
                 node.critic_type || node.critic_id ? "grid-cols-2" : "grid-cols-1",
               )}
             >
@@ -573,7 +573,7 @@ export function RuntimeNodeCard({
         <div
           data-testid="runtime-node-content"
           className={cn(
-            "grid gap-1.5 border-t border-border/45 py-1.5",
+            "grid grid-rows-[12px_32px] gap-x-1.5 gap-y-0.5 border-t border-border/45 py-1.5",
             hasCritic ? "grid-cols-2" : "grid-cols-1",
           )}
         >

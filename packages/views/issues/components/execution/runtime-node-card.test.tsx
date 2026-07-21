@@ -385,9 +385,9 @@ describe("RuntimeNodeCard", () => {
       />,
     );
 
-    expect(screen.getByText("Executor").parentElement).toHaveClass("grid", "grid-rows-[12px_minmax(0,1fr)]");
+    expect(screen.getByText("Executor").parentElement).toHaveClass("row-span-2", "grid-rows-subgrid");
     expect(screen.getByText("小助手")).toBeInTheDocument();
-    expect(screen.getByText("Reviewer").parentElement).toHaveClass("grid", "grid-rows-[12px_minmax(0,1fr)]");
+    expect(screen.getByText("Reviewer").parentElement).toHaveClass("row-span-2", "grid-rows-subgrid");
     expect(screen.getByText("审核员")).toBeInTheDocument();
   });
 

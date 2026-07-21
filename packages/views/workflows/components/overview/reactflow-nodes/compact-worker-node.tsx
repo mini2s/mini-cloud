@@ -57,7 +57,7 @@ function RoleSlot({
   icon: ReactNode;
 }) {
   return (
-    <div data-testid={testId} className="grid min-w-0 grid-rows-[12px_minmax(0,1fr)] gap-0.5">
+    <div data-testid={testId} className="grid row-span-2 min-w-0 grid-rows-subgrid gap-0.5">
       <span className="block text-[8.5px] font-bold uppercase tracking-wide text-muted-foreground">
         {label}
       </span>
@@ -65,14 +65,14 @@ function RoleSlot({
         <span
           aria-hidden="true"
           className={cn(
-            "size-1.5 shrink-0 rounded-full",
+            "mt-[5px] size-1.5 shrink-0 rounded-full",
             configured ? "bg-emerald-500 shadow-[0_0_0_3px_rgba(16,185,129,0.12)]" : "bg-muted-foreground/45",
           )}
         />
         <span className={cn("min-w-0 break-words font-medium leading-4 line-clamp-2", configured ? "text-foreground/85" : "text-muted-foreground")}>
           {value}
         </span>
-        {icon}
+        {icon ? <span className="mt-0.5 flex shrink-0">{icon}</span> : null}
       </span>
     </div>
   );
@@ -222,7 +222,7 @@ export const CompactWorkerNode = memo(function CompactWorkerNode({
         ) : (
           <div
             data-testid={`compact-worker-node-meta-${id}`}
-            className="grid grid-cols-2 gap-2 border-t border-border/45 pt-2"
+            className="grid grid-cols-2 grid-rows-[12px_32px] gap-x-2 gap-y-0.5 border-t border-border/45 pt-2"
           >
             <RoleSlot
               testId={`compact-worker-node-worker-role-${id}`}

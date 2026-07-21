@@ -586,8 +586,8 @@
   },
   "panorama": {
     "card": {
-      "worker_label": "Worker",
-      "critic_label": "Critic"
+      "worker_label": "执行者",
+      "critic_label": "审核者"
     },
     "empty_all": "创建第一个阶段以开始使用",
     "unassigned": "未分组",

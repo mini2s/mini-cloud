@@ -213,8 +213,9 @@ describe("CompactWorkerNode", () => {
     expect(screen.getByTestId("compact-worker-node-critic-role-node-1")).toHaveTextContent("Reviewer");
     expect(screen.getByText("Localized Worker")).toBeInTheDocument();
     expect(screen.getByText("Localized Critic")).toBeInTheDocument();
-    expect(screen.getByTestId("compact-worker-node-worker-role-node-1")).toHaveClass("grid", "grid-rows-[12px_minmax(0,1fr)]");
-    expect(screen.getByTestId("compact-worker-node-critic-role-node-1")).toHaveClass("grid", "grid-rows-[12px_minmax(0,1fr)]");
+    expect(screen.getByTestId("compact-worker-node-meta-node-1")).toHaveClass("grid-rows-[12px_32px]");
+    expect(screen.getByTestId("compact-worker-node-worker-role-node-1")).toHaveClass("row-span-2", "grid-rows-subgrid");
+    expect(screen.getByTestId("compact-worker-node-critic-role-node-1")).toHaveClass("row-span-2", "grid-rows-subgrid");
   });
 
   it("does not show missing worker warnings on the card", () => {
