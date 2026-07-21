@@ -2038,7 +2038,7 @@ func (h *Handler) CreateIssue(w http.ResponseWriter, r *http.Request) {
 			// Gitea configured → route through the default workflow so the issue
 			// gets a deliverable repo (StartDefaultRunForIssue enqueues the agent
 			// task itself, linked to a node-run). Dormant → bare agent task.
-			if _, ok := h.startDefaultWorkflowRunForAgent(r.Context(), issue); !ok {
+			if _, ok := h.startDefaultWorkflowRunForIssue(r.Context(), issue); !ok {
 				h.TaskService.EnqueueTaskForIssue(r.Context(), issue)
 			}
 		}
@@ -2046,6 +2046,12 @@ func (h *Handler) CreateIssue(w http.ResponseWriter, r *http.Request) {
 		// backlog, same parking-lot semantics as agent assignment).
 		if h.shouldEnqueueSquadLeaderOnAssign(r.Context(), issue) {
 			h.enqueueSquadLeaderTask(r.Context(), issue, pgtype.UUID{}, creatorType, actualCreatorID)
+		}
+		// Member assigned: route to the default workflow so the issue has a
+		// deliverable repo (worker=human, awaits UI upload). Dormant → no-op
+		// (member-assigned issues produce no task today).
+		if issue.AssigneeType.Valid && issue.AssigneeType.String == "member" {
+			h.startDefaultWorkflowRunForIssue(r.Context(), issue)
 		}
 	}
 
@@ -2418,10 +2424,15 @@ func (h *Handler) UpdateIssue(w http.ResponseWriter, r *http.Request) {
 		h.TaskService.CancelTasksForIssue(r.Context(), issue.ID)
 
 		if h.shouldEnqueueAgentTask(r.Context(), issue) {
-			if _, ok := h.startDefaultWorkflowRunForAgent(r.Context(), issue); !ok {
+			if _, ok := h.startDefaultWorkflowRunForIssue(r.Context(), issue); !ok {
 				runtimeIDOverride := parseOptionalRuntimeID(req.RuntimeID)
 				h.TaskService.EnqueueTaskForIssue(r.Context(), issue, pgtype.UUID{}, runtimeIDOverride)
 			}
+		}
+		// Member assigned: route to the default workflow (worker=human, awaits
+		// UI upload). Dormant → no-op.
+		if issue.AssigneeType.Valid && issue.AssigneeType.String == "member" {
+			h.startDefaultWorkflowRunForIssue(r.Context(), issue)
 		}
 
 		// Squad assign: trigger the squad leader, respecting the backlog
@@ -2620,13 +2631,15 @@ func (h *Handler) validateAssigneePair(ctx context.Context, r *http.Request, wor
 // acts as a parking lot where issues can be pre-assigned without immediately
 // triggering execution. Moving out of backlog is handled separately in
 // UpdateIssue.
-// startDefaultWorkflowRunForAgent starts a default-workflow run for an
-// agent-assigned issue when Gitea is configured, stamping the run onto the issue
-// so the execution panel + WS events resolve it. The run's dispatch enqueues the
-// agent task itself (linked to a node-run, so the daemon receives Gitea
-// deliverable context). Returns ok=false when the default path is dormant (Gitea
-// unconfigured) or failed — the caller falls back to a bare EnqueueTaskForIssue.
-func (h *Handler) startDefaultWorkflowRunForAgent(ctx context.Context, issue db.MulticaIssue) (pgtype.UUID, bool) {
+// startDefaultWorkflowRunForIssue starts a default-workflow run for an
+// agent/member/squad-assigned issue when Gitea is configured, stamping the run
+// onto the issue so the execution panel + WS events resolve it. For agent/squad
+// the run's dispatch enqueues the agent task itself (linked to a node-run, so
+// the daemon receives Gitea deliverable context); for member the worker is human
+// (awaits a UI upload). Returns ok=false when dormant (Gitea unconfigured) or
+// failed — agent/squad callers fall back to a bare EnqueueTaskForIssue; member
+// callers no-op (no task today).
+func (h *Handler) startDefaultWorkflowRunForIssue(ctx context.Context, issue db.MulticaIssue) (pgtype.UUID, bool) {
 	if !isGiteaConfigured() {
 		return pgtype.UUID{}, false
 	}
