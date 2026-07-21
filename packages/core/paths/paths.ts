@@ -43,6 +43,27 @@ function workspaceScoped(slug: string) {
     workflowRunDetail: (workflowId: string, runId: string) => `${ws}/workflows/${encode(workflowId)}/runs/${encode(runId)}`,
     settings: () => `${ws}/settings`,
     attachmentPreview: (id: string) => `${ws}/attachments/${encode(id)}/preview`,
+    // Upcoming product surface — placeholder pages, web-only for now.
+    home: () => `${ws}/home`,
+    sessions: () => `${ws}/sessions`,
+    reviews: () => `${ws}/reviews`,
+    dispatch: () => `${ws}/dispatch`,
+    wiki: () => `${ws}/wiki`,
+    memory: () => `${ws}/memory`,
+    metricsEfficiency: () => `${ws}/metrics/efficiency`,
+    metricsQuality: () => `${ws}/metrics/quality`,
+    metricsCost: () => `${ws}/metrics/cost`,
+    metricsCoverage: () => `${ws}/metrics/coverage`,
+    metricsContribution: () => `${ws}/metrics/contribution`,
+    permissions: () => `${ws}/permissions`,
+    devices: () => `${ws}/devices`,
+    connectors: () => `${ws}/connectors`,
+    channels: () => `${ws}/channels`,
+    quotas: () => `${ws}/quotas`,
+    meProfile: () => `${ws}/me/profile`,
+    meQuota: () => `${ws}/me/quota`,
+    meNotifications: () => `${ws}/me/notifications`,
+    meDevices: () => `${ws}/me/devices`,
   };
 }
 

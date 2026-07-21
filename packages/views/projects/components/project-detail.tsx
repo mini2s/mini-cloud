@@ -33,6 +33,7 @@ import { createIssueViewStore } from "@multica/core/issues/stores/view-store";
 import { ViewStoreProvider, useViewStore } from "@multica/core/issues/stores/view-store-context";
 import { filterIssues } from "../../issues/utils/filter";
 import { getProjectIssueMetrics } from "./project-issue-metrics";
+import { PlaceholderBody } from "../../common/placeholder-page";
 import { ActorAvatar } from "../../common/actor-avatar";
 import { AppLink, useNavigation } from "../../navigation";
 import { TitleEditor, ContentEditor, type ContentEditorRef } from "../../editor";
@@ -107,6 +108,11 @@ function PropRow({
 // ---------------------------------------------------------------------------
 
 const projectViewStore = createIssueViewStore("project_issues_view");
+
+// Project IA tabs. "issues" renders the real board/list/gantt surface; the
+// rest are placeholders pending their own implementations.
+type ProjectTab = "overview" | "backlog" | "issues" | "design" | "review" | "settings";
+const PROJECT_TABS: ProjectTab[] = ["overview", "backlog", "issues", "design", "review", "settings"];
 
 function ProjectIssuesContent({
   projectId,
@@ -361,6 +367,7 @@ export function ProjectDetail({ projectId }: { projectId: string }) {
   const isMobile = useIsMobile();
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [iconPickerOpen, setIconPickerOpen] = useState(false);
+  const [activeTab, setActiveTab] = useState<ProjectTab>("issues");
   const [propertiesOpen, setPropertiesOpen] = useState(true);
   const [progressOpen, setProgressOpen] = useState(true);
   const [descriptionOpen, setDescriptionOpen] = useState(true);
@@ -728,13 +735,35 @@ export function ProjectDetail({ projectId }: { projectId: string }) {
             </div>
           </PageHeader>
 
-          <ViewStoreProvider store={projectViewStore}>
+          <div className="flex items-center gap-1 border-b px-2">
+            {PROJECT_TABS.map((tab) => (
+              <button
+                key={tab}
+                type="button"
+                onClick={() => setActiveTab(tab)}
+                className={cn(
+                  "relative -mb-px border-b-2 px-3 py-2 text-sm transition-colors",
+                  activeTab === tab
+                    ? "border-foreground font-medium text-foreground"
+                    : "border-transparent text-muted-foreground hover:text-foreground",
+                )}
+              >
+                {t(($) => $.detail.tabs[tab])}
+              </button>
+            ))}
+          </div>
+
+          {activeTab === "issues" ? (
+            <ViewStoreProvider store={projectViewStore}>
               <ProjectIssuesSurface
                 projectId={projectId}
                 scope={projectScope}
                 filter={projectFilter}
               />
             </ViewStoreProvider>
+          ) : (
+            <PlaceholderBody title={t(($) => $.detail.tabs[activeTab])} />
+          )}
           </div>
         </ResizablePanel>
         {!isMobile && <ResizableHandle />}

@@ -47,6 +47,14 @@
   "detail": {
     "not_found": "未找到该项目",
     "breadcrumb_fallback": "项目",
+    "tabs": {
+      "overview": "总览",
+      "backlog": "待办",
+      "issues": "需求",
+      "design": "设计",
+      "review": "审查",
+      "settings": "设置"
+    },
     "title_placeholder": "项目标题",
     "icon_tooltip": "更换图标",
     "pin_tooltip": "固定到侧边栏",

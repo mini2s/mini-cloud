@@ -3,5 +3,8 @@
   "cancel": "取消",
   "delete": "删除",
   "confirm": "确认",
-  "loading": "加载中..."
+  "loading": "加载中...",
+  "placeholder": {
+    "coming_soon": "敬请期待"
+  }
 }

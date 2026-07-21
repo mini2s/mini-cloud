@@ -18,7 +18,6 @@ import { SortableContext, verticalListSortingStrategy, useSortable, arrayMove } 
 import { CSS } from "@dnd-kit/utilities";
 import {
   Inbox,
-  ListTodo,
   Bot,
   Monitor,
   ChevronDown,
@@ -39,6 +38,27 @@ import {
   IdCard,
   Users,
   GitBranch,
+  // Upcoming product surface — placeholder nav entries.
+  LayoutDashboard,
+  MessagesSquare,
+  ClipboardCheck,
+  Send,
+  FileText,
+  Brain,
+  Gauge,
+  ShieldCheck,
+  Coins,
+  Target,
+  Sparkles,
+  KeyRound,
+  Server,
+  Plug,
+  Megaphone,
+  Percent,
+  User,
+  Wallet,
+  Bell,
+  Smartphone,
 } from "lucide-react";
 import { WorkspaceAvatar } from "../workspace/workspace-avatar";
 import { ActorAvatar } from "@multica/ui/components/common/actor-avatar";
@@ -121,7 +141,28 @@ type NavKey =
   | "runtimes"
   | "skills"
   | "workflows"
-  | "settings";
+  | "settings"
+  // Upcoming product surface (placeholder destinations).
+  | "home"
+  | "sessions"
+  | "reviews"
+  | "dispatch"
+  | "wiki"
+  | "memory"
+  | "metricsEfficiency"
+  | "metricsQuality"
+  | "metricsCost"
+  | "metricsCoverage"
+  | "metricsContribution"
+  | "permissions"
+  | "devices"
+  | "connectors"
+  | "channels"
+  | "quotas"
+  | "meProfile"
+  | "meQuota"
+  | "meNotifications"
+  | "meDevices";
 
 // Static schema (key + icon) — labels resolved at render via useT("layout").
 type NavLabelKey =
@@ -137,30 +178,94 @@ type NavLabelKey =
   | "runtimes"
   | "skills"
   | "workflows"
-  | "settings";
+  | "settings"
+  | "home"
+  | "sessions"
+  | "reviews"
+  | "dispatch"
+  | "wiki"
+  | "memory"
+  | "metrics_efficiency"
+  | "metrics_quality"
+  | "metrics_cost"
+  | "metrics_coverage"
+  | "metrics_contribution"
+  | "permissions"
+  | "devices"
+  | "connectors"
+  | "channels"
+  | "quotas"
+  | "me_profile"
+  | "me_quota"
+  | "me_notifications"
+  | "me_devices";
 
-const personalNav: { key: NavKey; labelKey: NavLabelKey; icon: typeof Inbox }[] = [
+type NavItem = { key: NavKey; labelKey: NavLabelKey; icon: typeof Inbox };
+
+// Top quick-access group (no header label). Inbox keeps its unread badge.
+const personalNav: NavItem[] = [
+  { key: "home", labelKey: "home", icon: LayoutDashboard },
   { key: "inbox", labelKey: "inbox", icon: Inbox },
+];
+
+const workbenchNav: NavItem[] = [
+  { key: "sessions", labelKey: "sessions", icon: MessagesSquare },
   { key: "myIssues", labelKey: "my_issues", icon: CircleUser },
+  { key: "reviews", labelKey: "reviews", icon: ClipboardCheck },
 ];
 
-const workspaceNav: { key: NavKey; labelKey: NavLabelKey; icon: typeof Inbox }[] = [
-  { key: "issues", labelKey: "issues", icon: ListTodo },
+const projectNav: NavItem[] = [
   { key: "projects", labelKey: "projects", icon: FolderKanban },
-  // Hidden per 2026-06-16 product decision.
-  // { key: "autopilots", labelKey: "autopilots", icon: Zap },
-  { key: "workflows", labelKey: "workflows", icon: GitBranch },
-  { key: "agents", labelKey: "agents", icon: Bot },
-  { key: "members", labelKey: "members", icon: IdCard },
-  { key: "squads", labelKey: "squads", icon: Users },
-  // Hidden per 2026-06-16 product decision.
-  // { key: "usage", labelKey: "usage", icon: BarChart3 },
 ];
 
-const configureNav: { key: NavKey; labelKey: NavLabelKey; icon: typeof Inbox }[] = [
-  { key: "runtimes", labelKey: "runtimes", icon: Monitor },
+const collaborationNav: NavItem[] = [
+  { key: "workflows", labelKey: "workflows", icon: GitBranch },
+  { key: "squads", labelKey: "squads", icon: Users },
+  { key: "dispatch", labelKey: "dispatch", icon: Send },
+  { key: "agents", labelKey: "agents", icon: Bot },
+];
+
+const repositoryNav: NavItem[] = [
+  { key: "wiki", labelKey: "wiki", icon: FileText },
   { key: "skills", labelKey: "skills", icon: BookOpenText },
+  { key: "memory", labelKey: "memory", icon: Brain },
+];
+
+const metricsNav: NavItem[] = [
+  { key: "metricsEfficiency", labelKey: "metrics_efficiency", icon: Gauge },
+  { key: "metricsQuality", labelKey: "metrics_quality", icon: ShieldCheck },
+  { key: "metricsCost", labelKey: "metrics_cost", icon: Coins },
+  { key: "metricsCoverage", labelKey: "metrics_coverage", icon: Target },
+  { key: "metricsContribution", labelKey: "metrics_contribution", icon: Sparkles },
+];
+
+const adminNav: NavItem[] = [
+  { key: "members", labelKey: "members", icon: IdCard },
+  { key: "permissions", labelKey: "permissions", icon: KeyRound },
+  { key: "devices", labelKey: "devices", icon: Server },
+  { key: "connectors", labelKey: "connectors", icon: Plug },
+  { key: "channels", labelKey: "channels", icon: Megaphone },
+  { key: "quotas", labelKey: "quotas", icon: Percent },
+  { key: "runtimes", labelKey: "runtimes", icon: Monitor },
+];
+
+const meNav: NavItem[] = [
+  { key: "meProfile", labelKey: "me_profile", icon: User },
+  { key: "meQuota", labelKey: "me_quota", icon: Wallet },
+  { key: "meNotifications", labelKey: "me_notifications", icon: Bell },
+  { key: "meDevices", labelKey: "me_devices", icon: Smartphone },
   { key: "settings", labelKey: "settings", icon: Settings },
+];
+
+// Labeled groups rendered with a header. Order matches the product IA.
+const labeledNavGroups: { labelKey: "workbench_group" | "project_group" | "collaboration_group" | "repository_group" | "metrics_group" | "admin_group" | "me_group"; items: NavItem[] }[] = [
+  { labelKey: "workbench_group", items: workbenchNav },
+  { labelKey: "project_group", items: projectNav },
+  { labelKey: "collaboration_group", items: collaborationNav },
+  { labelKey: "repository_group", items: repositoryNav },
+  { labelKey: "metrics_group", items: metricsNav },
+  { labelKey: "admin_group", items: adminNav },
+  { labelKey: "me_group", items: meNav },
 ];
 
 function DraftDot() {
@@ -707,58 +812,37 @@ export function AppSidebar({ topSlot, searchSlot, headerClassName, headerStyle }
             </Collapsible>
           )}
 
-          <SidebarGroup>
-            <SidebarGroupLabel>{t(($) => $.sidebar.workspace_group)}</SidebarGroupLabel>
-            <SidebarGroupContent>
-              <SidebarMenu className="gap-0.5">
-                {workspaceNav.map((item) => {
-                  const href = p[item.key]();
-                  const isActive = isNavActive(pathname, href);
-                  return (
-                    <SidebarMenuItem key={item.key}>
-                      <SidebarMenuButton
-                        isActive={isActive}
-                        render={<AppLink href={href} />}
-                        className="text-muted-foreground hover:not-data-active:bg-sidebar-accent/70 data-active:bg-sidebar-accent data-active:text-sidebar-accent-foreground"
-                      >
-                        <item.icon />
-                        <span>{t(($) => $.nav[item.labelKey])}</span>
-                      </SidebarMenuButton>
-                    </SidebarMenuItem>
-                  );
-                })}
-              </SidebarMenu>
-            </SidebarGroupContent>
-          </SidebarGroup>
-
-          <SidebarGroup>
-            <SidebarGroupLabel>{t(($) => $.sidebar.configure_group)}</SidebarGroupLabel>
-            <SidebarGroupContent>
-              <SidebarMenu className="gap-0.5">
-                {configureNav
-                  .filter((item) => SKILLS_ENABLED || item.key !== "skills")
-                  .map((item) => {
-                  const href = p[item.key]();
-                  const isActive = isNavActive(pathname, href);
-                  return (
-                    <SidebarMenuItem key={item.key}>
-                      <SidebarMenuButton
-                        isActive={isActive}
-                        render={<AppLink href={href} />}
-                        className="text-muted-foreground hover:not-data-active:bg-sidebar-accent/70 data-active:bg-sidebar-accent data-active:text-sidebar-accent-foreground"
-                      >
-                        <item.icon />
-                        <span>{t(($) => $.nav[item.labelKey])}</span>
-                        {item.key === "runtimes" && hasRuntimeUpdates && (
-                          <span className="ml-auto size-1.5 rounded-full bg-destructive" />
-                        )}
-                      </SidebarMenuButton>
-                    </SidebarMenuItem>
-                  );
-                })}
-              </SidebarMenu>
-            </SidebarGroupContent>
-          </SidebarGroup>
+          {labeledNavGroups.map((group) => {
+            const items = group.items.filter((item) => SKILLS_ENABLED || item.key !== "skills");
+            return (
+              <SidebarGroup key={group.labelKey}>
+                <SidebarGroupLabel>{t(($) => $.sidebar[group.labelKey])}</SidebarGroupLabel>
+                <SidebarGroupContent>
+                  <SidebarMenu className="gap-0.5">
+                    {items.map((item) => {
+                      const href = p[item.key]();
+                      const isActive = isNavActive(pathname, href);
+                      return (
+                        <SidebarMenuItem key={item.key}>
+                          <SidebarMenuButton
+                            isActive={isActive}
+                            render={<AppLink href={href} />}
+                            className="text-muted-foreground hover:not-data-active:bg-sidebar-accent/70 data-active:bg-sidebar-accent data-active:text-sidebar-accent-foreground"
+                          >
+                            <item.icon />
+                            <span>{t(($) => $.nav[item.labelKey])}</span>
+                            {item.key === "runtimes" && hasRuntimeUpdates && (
+                              <span className="ml-auto size-1.5 rounded-full bg-destructive" />
+                            )}
+                          </SidebarMenuButton>
+                        </SidebarMenuItem>
+                      );
+                    })}
+                  </SidebarMenu>
+                </SidebarGroupContent>
+              </SidebarGroup>
+            );
+          })}
         </SidebarContent>
 
         <SidebarFooter className="p-2">
