@@ -70,7 +70,7 @@ function normalizedNodeXMap(
     let previousX: number | null = null;
     for (const node of sortedNodes) {
       const storedX = node.position_x ?? 100;
-      const x = previousX === null
+      const x: number = previousX === null
         ? storedX
         : Math.max(storedX, previousX + nodeWidth + MIN_NODE_HORIZONTAL_GAP);
       positions.set(node.id, x);
