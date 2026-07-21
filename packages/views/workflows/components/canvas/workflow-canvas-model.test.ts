@@ -51,6 +51,30 @@ function makeEdge(overrides: Partial<WorkflowEdge> = {}): WorkflowEdge {
 }
 
 describe("workflowEdgesToReactFlowEdges", () => {
+  it("enforces a minimum horizontal gap within each stage without compressing larger gaps", () => {
+    const rfNodes = workflowNodesToReactFlowNodes({
+      nodes: [
+        makeNode({ id: "stage-1-a", stage_id: "stage-1", position_x: 100, sort_order: 0 }),
+        makeNode({ id: "stage-1-b", stage_id: "stage-1", position_x: 420, sort_order: 1 }),
+        makeNode({ id: "stage-1-c", stage_id: "stage-1", position_x: 900, sort_order: 2 }),
+        makeNode({ id: "stage-2-a", stage_id: "stage-2", position_x: 120, sort_order: 0 }),
+      ],
+      stages: [
+        makeStage({ id: "stage-1", sort_order: 0 }),
+        makeStage({ id: "stage-2", sort_order: 1 }),
+      ],
+      nodeType: "compactWorker",
+      makeNodeData: (node) => ({ node }),
+    });
+
+    expect(Object.fromEntries(rfNodes.map((node) => [node.id, node.position.x]))).toEqual({
+      "stage-1-a": 100,
+      "stage-1-b": 476,
+      "stage-1-c": 900,
+      "stage-2-a": 120,
+    });
+  });
+
   it("does not create critic badge nodes by default", () => {
     const rfNodes = workflowNodesToReactFlowNodes({
       nodes: [makeNode({ id: "node-1", critic_id: "critic-1" })],
