@@ -1810,19 +1810,28 @@ func (h *Handler) buildGiteaDeliverableContext(ctx context.Context, task db.Mult
 	if !isGiteaConfigured() || !task.WorkflowNodeRunID.Valid {
 		return nil
 	}
-	nr, err := h.Queries.GetWorkflowNodeRun(ctx, task.WorkflowNodeRunID)
+	return h.giteaContextForNodeRun(ctx, task.WorkflowNodeRunID)
+}
+
+// giteaContextForNodeRun builds the Gitea deliverable context for an arbitrary
+// node-run (the task's own, or any other — used by the gitea-context endpoint
+// so an agent can read another node's deliverables). Returns nil if Gitea is
+// unconfigured, the node-run/run can't be loaded, or the node has no document
+// deliverables. Errors are swallowed (caller decides 404 vs nil-context).
+func (h *Handler) giteaContextForNodeRun(ctx context.Context, nodeRunID pgtype.UUID) *GiteaDeliverableContext {
+	if !isGiteaConfigured() || !nodeRunID.Valid {
+		return nil
+	}
+	nr, err := h.Queries.GetWorkflowNodeRun(ctx, nodeRunID)
 	if err != nil {
-		slog.Warn("buildGiteaDeliverableContext: failed to get node run", "task_id", uuidToString(task.ID), "error", err)
 		return nil
 	}
 	run, err := h.Queries.GetWorkflowRun(ctx, nr.WorkflowRunID)
 	if err != nil {
-		slog.Warn("buildGiteaDeliverableContext: failed to get run", "task_id", uuidToString(task.ID), "error", err)
 		return nil
 	}
 	deliverables, err := h.Queries.ListWorkflowNodeDeliverables(ctx, nr.WorkflowNodeID)
 	if err != nil {
-		slog.Warn("buildGiteaDeliverableContext: failed to list deliverables", "task_id", uuidToString(task.ID), "error", err)
 		return nil
 	}
 	nodeRunIDStr := util.UUIDToString(nr.ID)
