@@ -400,9 +400,12 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 		r.Post("/tasks/{taskId}/session", h.PinTaskSession)
 		r.Post("/node-runs/{nodeRunId}/session", h.BindNodeRunSession)
 		r.Post("/node-runs/{nodeRunId}/deliverables/{deliverableId}/report-pr", h.HandleReportDeliverablePR)
-		// Gitea deliverable context for an arbitrary node-run — lets an agent
-		// (cs-cloud) fetch any node's deliverables, not just its own task's.
-		r.Get("/node-runs/{nodeRunId}/gitea-context", h.HandleGetNodeRunGiteaContext)
+		// Gitea deliverables by issue (agent-facing read path). Resolve an issue
+		// by UUID or <PREFIX>-<number> and return its workflow deliverable
+		// context — optionally recursively for all descendant issues
+		// (?descendants=true). Lets an agent (cs-cloud) read any issue's /
+		// child / grandchild workflow deliverables without node-run-ids.
+		r.Get("/issues/{issue}/gitea-deliverables", h.HandleGetIssueGiteaDeliverables)
 	})
 
 	// GitLab credential for CLI credential helper (gitlab-credential-multica).
