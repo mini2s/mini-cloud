@@ -161,11 +161,21 @@ func (s *TaskService) buildCSCloudPayload(ctx context.Context, task db.MulticaAg
 	// so the cs-cloud agent can run `cs-cloud gitea submit` / `gitea fetch`
 	// inside the task. Dormant (no env injected) when Gitea isn't configured or
 	// the node has no document deliverables — matches the claim-time context.
-	for k, v := range s.giteaDeliverableEnv(ctx, task) {
+	giteaEnv := s.giteaDeliverableEnv(ctx, task)
+	for k, v := range giteaEnv {
 		env[k] = v
 	}
 	if task.IssueID.Valid {
 		env["MULTICA_ISSUE_ID"] = util.UUIDToString(task.IssueID)
+	}
+	// Enrich the prompt with deliverable instructions when the task has them,
+	// so the agent knows to use `cs-cloud gitea submit` (not inline upload)
+	// and that it can read other issues' deliverables via `gitea fetch`.
+	if raw, ok := giteaEnv["MULTICA_GITEA_DELIVERABLES"]; ok {
+		var refs []giteaDeliverableRefJSON
+		if json.Unmarshal([]byte(raw), &refs) == nil && len(refs) > 0 {
+			prompt = appendDeliverablePrompt(prompt, refs)
+		}
 	}
 
 	return csCloudTaskRunPayload{
@@ -180,6 +190,29 @@ func (s *TaskService) buildCSCloudPayload(ctx context.Context, task db.MulticaAg
 		Env:         env,
 		Kind:        kind,
 	}, nil
+}
+
+// appendDeliverablePrompt adds a "Document Deliverables" section to the prompt,
+// instructing the agent to submit each deliverable via `cs-cloud gitea submit`
+// and that it can read other issues' deliverables via `cs-cloud gitea fetch`.
+func appendDeliverablePrompt(prompt string, refs []giteaDeliverableRefJSON) string {
+	var b strings.Builder
+	b.WriteString(prompt)
+	if prompt != "" && !strings.HasSuffix(prompt, "\n") {
+		b.WriteByte('\n')
+	}
+	b.WriteString("\n---\n## Document Deliverables\n\n")
+	b.WriteString("This node has document deliverables stored in the platform git server. For EACH deliverable below: write the document to a local file, then submit it with the CLI — the command creates a node branch, pushes your file, opens a Gitea PR, and registers the PR back here. Do NOT use inline content upload for these; document deliverables go through git.\n\n")
+	for _, d := range refs {
+		fmt.Fprintf(&b, "- **%s** (id=%s): run `cs-cloud gitea submit --deliverable %s --file <local-path-to-your-document>`\n", d.Title, d.ID, d.ID)
+	}
+	b.WriteString("\nA deliverable is not considered submitted until its PR is registered. Complete every listed deliverable before finishing.\n\n")
+	b.WriteString("### Reading other issues' deliverables\n\n")
+	b.WriteString("You can read document deliverables from ANY issue in this workspace — your own, child issues from task splits, or upstream issues. Each result includes all descendant issues' deliverables, labeled with their source issue_id:\n")
+	b.WriteString("- `cs-cloud gitea fetch` — read the current issue's deliverables (plus all child/grandchild issues').\n")
+	b.WriteString("- `cs-cloud gitea fetch <issue-key>` — read a specific issue (e.g. `cs-cloud gitea fetch MUL-123`).\n")
+	b.WriteString("\n---\n\n")
+	return b.String()
 }
 
 // giteaDeliverableRefJSON is the per-deliverable shape cs-cloud's
@@ -233,16 +266,16 @@ func (s *TaskService) giteaDeliverableEnv(ctx context.Context, task db.MulticaAg
 		publicBase = base
 	}
 	owner := gitea.OrgName(util.UUIDToString(run.WorkspaceID))
-	repo := gitea.RepoName(util.UUIDToString(run.WorkflowID))
+	repo := gitea.RepoName(run.WorkflowTitle)
 	refsJSON, _ := json.Marshal(refs)
 	return map[string]string{
-		"MULTICA_NODE_RUN_ID":           nodeRunIDStr,
-		"MULTICA_GITEA_OWNER":           owner,
-		"MULTICA_GITEA_REPO":            repo,
-		"MULTICA_GITEA_CLONE_URL":       strings.TrimRight(publicBase, "/") + "/" + owner + "/" + repo + ".git",
-		"MULTICA_GITEA_INST_BRANCH":     gitea.InstBranch(util.UUIDToString(run.ID)),
-		"MULTICA_GITEA_NODE_BRANCH":     gitea.NodeBranch(nodeRunIDStr),
-		"MULTICA_GITEA_DELIVERABLES":    string(refsJSON),
+		"MULTICA_NODE_RUN_ID":        nodeRunIDStr,
+		"MULTICA_GITEA_OWNER":        owner,
+		"MULTICA_GITEA_REPO":         repo,
+		"MULTICA_GITEA_CLONE_URL":    strings.TrimRight(publicBase, "/") + "/" + owner + "/" + repo + ".git",
+		"MULTICA_GITEA_INST_BRANCH":  gitea.InstBranch(util.UUIDToString(run.ID)),
+		"MULTICA_GITEA_NODE_BRANCH":  gitea.NodeBranch(nodeRunIDStr),
+		"MULTICA_GITEA_DELIVERABLES": string(refsJSON),
 	}
 }
 
@@ -452,4 +485,3 @@ func (s *TaskService) maybeAbortOnDevice(task db.MulticaAgentTaskQueue) {
 		}
 	}()
 }
-
