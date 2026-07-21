@@ -52,6 +52,12 @@ type TaskService struct {
 	// state machine (worker→awaiting_critic, critic→review).
 	OnTaskCompleted func(ctx context.Context, task db.MulticaAgentTaskQueue)
 
+	// OnTaskFailed is an optional callback invoked after a task reaches the
+	// failed state and is not being auto-retried. The WorkflowService uses
+	// this to transition the linked workflow node run out of its active
+	// phase so a failed task does not leave the run stuck waiting.
+	OnTaskFailed func(ctx context.Context, task db.MulticaAgentTaskQueue)
+
 	analyticsContextMu    sync.Mutex
 	analyticsContextCache map[string]analytics.TaskContext
 	analyticsContextOrder []string
@@ -1409,6 +1415,13 @@ func (s *TaskService) FailTask(ctx context.Context, taskID pgtype.UUID, errMsg, 
 	// and only triggers for issue/chat tasks.
 	retried, _ := s.MaybeRetryFailedTask(ctx, task)
 
+	// Workflow gateway: if this task belongs to a workflow node run and we
+	// are not retrying it, transition the node run to failed so the workflow
+	// does not stay stuck in an active phase.
+	if retried == nil && s.OnTaskFailed != nil && task.WorkflowNodeRunID.Valid {
+		s.OnTaskFailed(ctx, task)
+	}
+
 	// Skip the per-failure system comment when we'll immediately retry —
 	// the new task will surface its own status to the user, and we don't
 	// want to spam the issue with "task timed out" messages on every
@@ -1710,11 +1723,18 @@ func (s *TaskService) HandleFailedTasks(ctx context.Context, tasks []db.MulticaA
 	for _, t := range tasks {
 		// Auto-retry first so the issue stays in_progress rather than
 		// flapping todo → in_progress within a tick.
-		if child, _ := s.MaybeRetryFailedTask(ctx, t); child != nil {
+		child, _ := s.MaybeRetryFailedTask(ctx, t)
+		if child != nil {
 			retried++
 			if t.IssueID.Valid {
 				retriedIssues[util.UUIDToString(t.IssueID)] = true
 			}
+		}
+
+		// Workflow gateway: sweeper-finalized failures that are not retried
+		// still need to advance the linked workflow node run.
+		if child == nil && s.OnTaskFailed != nil && t.WorkflowNodeRunID.Valid {
+			s.OnTaskFailed(ctx, t)
 		}
 
 		failureReason := "agent_error"

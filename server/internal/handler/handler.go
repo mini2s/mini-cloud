@@ -187,6 +187,12 @@ func New(queries *db.Queries, txStarter txStarter, hub *realtime.Hub, bus *event
 	taskSvc.OnTaskCompleted = func(ctx context.Context, task db.MulticaAgentTaskQueue) {
 		_ = workflowSvc.HandleWorkflowTaskCompletion(ctx, task)
 	}
+	// Wire the workflow failure gateway: when an agent task linked to a
+	// workflow node run fails and is not retried, the WorkflowService fails
+	// the node run so the workflow can reach a terminal state.
+	taskSvc.OnTaskFailed = func(ctx context.Context, task db.MulticaAgentTaskQueue) {
+		_ = workflowSvc.HandleWorkflowTaskFailure(ctx, task)
+	}
 
 	h := &Handler{
 		Queries:               queries,

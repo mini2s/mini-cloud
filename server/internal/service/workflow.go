@@ -71,7 +71,7 @@ var validTransitions = map[string][]string{
 	NodeRunStatusWorking:             {NodeRunStatusAwaitingInput, NodeRunStatusAwaitingCritic, NodeRunStatusFailed, NodeRunStatusCancelled, NodeRunStatusBlocked},
 	NodeRunStatusAwaitingInput:       {NodeRunStatusWorking, NodeRunStatusCancelled, NodeRunStatusSkipped},
 	NodeRunStatusAwaitingCritic:      {NodeRunStatusCriticReviewing, NodeRunStatusCancelled, NodeRunStatusSkipped},
-	NodeRunStatusCriticReviewing:     {NodeRunStatusCriticApproved, NodeRunStatusCriticRework, NodeRunStatusCancelled},
+	NodeRunStatusCriticReviewing:     {NodeRunStatusCriticApproved, NodeRunStatusCriticRework, NodeRunStatusFailed, NodeRunStatusCancelled},
 	NodeRunStatusCriticApproved:      {NodeRunStatusCompleted},
 	NodeRunStatusCriticRework:        {NodeRunStatusFormatOk, NodeRunStatusBlocked},
 	NodeRunStatusCompleted:           {},
@@ -1717,6 +1717,53 @@ func (s *WorkflowService) HandleWorkflowTaskCompletion(ctx context.Context, task
 	}
 
 	return nil
+}
+
+// HandleWorkflowTaskFailure is called when an agent task linked to a workflow
+// node run fails and will not be retried. It transitions the node run out of
+// its active phase (working / worker_assigned for the worker, critic_reviewing
+// for the critic) to failed, then propagates the terminal state to downstream
+// completion checking.
+func (s *WorkflowService) HandleWorkflowTaskFailure(ctx context.Context, task db.MulticaAgentTaskQueue) error {
+	if !task.WorkflowNodeRunID.Valid {
+		return nil
+	}
+
+	nodeRun, err := s.Queries.GetWorkflowNodeRun(ctx, task.WorkflowNodeRunID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil
+		}
+		return fmt.Errorf("get node run: %w", err)
+	}
+
+	var ctxPayload struct {
+		Phase string `json:"phase"`
+	}
+	if len(task.Context) > 0 {
+		_ = json.Unmarshal(task.Context, &ctxPayload)
+	}
+
+	var targetStatus string
+	switch ctxPayload.Phase {
+	case "worker":
+		if nodeRun.Status == NodeRunStatusWorking || nodeRun.Status == NodeRunStatusWorkerAssigned {
+			targetStatus = NodeRunStatusFailed
+		}
+	case "critic":
+		if nodeRun.Status == NodeRunStatusCriticReviewing {
+			targetStatus = NodeRunStatusFailed
+		}
+	}
+	if targetStatus == "" {
+		return nil
+	}
+
+	updated, err := s.TransitionNodeRun(ctx, nodeRun, targetStatus)
+	if err != nil {
+		return fmt.Errorf("transition node run on task failure: %w", err)
+	}
+	return s.OnNodeRunCompleted(ctx, updated.ID)
 }
 
 // ── Awaiting input helpers ──────────────────────────────────────────────────
