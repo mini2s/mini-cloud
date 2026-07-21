@@ -534,6 +534,7 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 					r.Get("/active-task", h.GetActiveTaskForIssue)
 					r.Post("/tasks/{taskId}/cancel", h.CancelTask)
 					r.Post("/rerun", h.RerunIssue)
+					r.Post("/deliverables/upload", h.UploadIssueDeliverable)
 					r.Get("/task-runs", h.ListTasksByIssue)
 					r.Get("/usage", h.GetIssueUsage)
 					r.Post("/reactions", h.AddIssueReaction)
@@ -605,17 +606,13 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 					r.Put("/", h.UpdateWorkflow)
 					r.Delete("/", h.DeleteWorkflow)
 					r.Put("/template", h.ToggleWorkflowTemplate)
+					r.Get("/split/issue-workflow-options", h.ListSplitIssueWorkflowOptions)
 					// Nodes
 					r.Get("/nodes", h.ListWorkflowNodes)
 					r.Post("/nodes", h.CreateWorkflowNode)
 					r.Route("/nodes/{nodeId}", func(r chi.Router) {
 						r.Put("/", h.UpdateWorkflowNode)
 						r.Delete("/", h.DeleteWorkflowNode)
-						// Deliverables
-						r.Get("/deliverables", h.ListWorkflowNodeDeliverables)
-						r.Post("/deliverables", h.CreateWorkflowNodeDeliverable)
-						r.Put("/deliverables/{deliverableId}", h.UpdateWorkflowNodeDeliverable)
-						r.Delete("/deliverables/{deliverableId}", h.DeleteWorkflowNodeDeliverable)
 					})
 					// Edges
 					r.Get("/edges", h.ListWorkflowEdges)
@@ -645,14 +642,30 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 			r.Post("/api/node-runs/{nodeRunId}/submit", h.SubmitNodeRun)
 			r.Post("/api/node-runs/{nodeRunId}/review", h.ReviewNodeRun)
 			r.Post("/api/node-runs/{nodeRunId}/skip", h.SkipNodeRun)
+			r.Post("/api/node-runs/{nodeRunId}/retry", h.RetryNodeRun)
+			r.Post("/api/node-runs/{nodeRunId}/split/generate", h.GenerateSplitTasks)
+			r.Post("/api/node-runs/{nodeRunId}/split/recover", h.RecoverSplitDraftTasks)
+			r.Post("/api/node-runs/{nodeRunId}/split/reset-original", h.ResetSplitDraftTasksToOriginal)
+			r.Post("/api/node-runs/{nodeRunId}/split/draft-tasks", h.AddSplitDraftTask)
+			r.Post("/api/node-runs/{nodeRunId}/split/draft-tasks/batch", h.BatchAddSplitDraftTasks)
+			r.Patch("/api/node-runs/{nodeRunId}/split/draft-tasks/batch", h.BatchPatchSplitDraftTasks)
+			r.Patch("/api/node-runs/{nodeRunId}/split/draft-tasks/{taskId}", h.PatchSplitDraftTask)
+			r.Delete("/api/node-runs/{nodeRunId}/split/draft-tasks/{taskId}", h.DeleteSplitDraftTask)
+			r.Patch("/api/node-runs/{nodeRunId}/split/config", h.PatchSplitConfig)
+			r.Post("/api/node-runs/{nodeRunId}/split/tasks/{taskId}/retry", h.RetrySplitTask)
+			r.Post("/api/node-runs/{nodeRunId}/split/draft-submit", h.SubmitSplitDraftTasks)
+			// Deliverable submissions (document deliverable → Gitea PR flow).
+			r.Get("/api/node-runs/{nodeRunId}/deliverables", h.ListNodeRunDeliverableSubmissions)
+			r.Post("/api/node-runs/{nodeRunId}/deliverables/{deliverableId}/submit", h.SubmitNodeRunDeliverable)
+			r.Post("/api/node-runs/{nodeRunId}/deliverables/{submissionId}/review", h.ReviewNodeRunDeliverable)
+			r.Post("/api/node-runs/{nodeRunId}/split/chat", h.HandleSplitChat)
+			r.Post("/api/node-runs/{nodeRunId}/split/approve", h.ApproveSplitTasks)
+			r.Get("/api/node-runs/{nodeRunId}/split/tasks", h.ListSplitTasks)
+			r.Post("/api/node-runs/{nodeRunId}/split/cancel", h.CancelSplitNode)
 			// Human takeover / handback around a live CSC session (Design Two).
 			r.Post("/api/node-runs/{nodeRunId}/blocked", h.TakeoverNodeRun)
 			r.Post("/api/node-runs/{nodeRunId}/working", h.HandbackNodeRun)
 			r.Post("/api/node-runs/{nodeRunId}/finalize", h.FinalizeNodeRun)
-			// Deliverable submissions
-			r.Get("/api/node-runs/{nodeRunId}/deliverables", h.ListNodeRunDeliverableSubmissions)
-			r.Post("/api/node-runs/{nodeRunId}/deliverables/{deliverableId}/submit", h.SubmitNodeRunDeliverable)
-			r.Post("/api/node-runs/{nodeRunId}/deliverables/{submissionId}/review", h.ReviewNodeRunDeliverable)
 
 			// Cross-system permission seam for Design Two: cs-cloud asks Multica
 			// whether a Casdoor-authenticated user may access a CSC session bound

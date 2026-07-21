@@ -5,7 +5,6 @@ import {
   Brain,
   AlertCircle,
   ChevronRight,
-  Loader2,
 } from "lucide-react";
 import { cn } from "@multica/ui/lib/utils";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@multica/ui/components/ui/collapsible";
@@ -126,9 +125,21 @@ export function TaskTranscriptTimeline({
     return (
       <div className="flex items-center justify-center h-full text-sm text-muted-foreground">
         {isLive ? (
-          <div className="flex items-center gap-2">
-            <Loader2 className="h-4 w-4 animate-spin" />
-            {liveEmptyLabel}
+          <div
+            data-testid="task-transcript-live-empty"
+            className="flex items-center gap-2 py-2 text-xs"
+          >
+            <span className="flex items-center gap-1" aria-hidden="true">
+              {[0, 1, 2].map((index) => (
+                <span
+                  key={index}
+                  data-testid="task-transcript-live-dot"
+                  className="size-1.5 rounded-full bg-primary/65 animate-pulse"
+                  style={{ animationDelay: `${index * 160}ms` }}
+                />
+              ))}
+            </span>
+            <span>{liveEmptyLabel}</span>
           </div>
         ) : (
           emptyLabel

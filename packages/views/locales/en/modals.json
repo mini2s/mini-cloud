@@ -18,7 +18,8 @@
     "confirm": "Delete",
     "deleting": "Deleting...",
     "toast_deleted": "Issue deleted",
-    "toast_delete_failed": "Failed to delete issue"
+    "toast_delete_failed": "Failed to delete issue",
+    "active_split_blocking": "The selected issue has an active task split. Cancel the split before deleting it."
   },
   "issue_detail": {
     "title": "Issue details"

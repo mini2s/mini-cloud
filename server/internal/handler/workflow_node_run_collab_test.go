@@ -576,3 +576,36 @@ func TestHandbackNodeRun_DispatchesWorkerResume(t *testing.T) {
 		t.Fatalf("dispatched task must carry node_run_id %q, got %q", nodeRunID, uuidToString(task.WorkflowNodeRunID))
 	}
 }
+
+func TestRetryNodeRun_DispatchesWorkerForBlockedNodeWithoutIssueAssignee(t *testing.T) {
+	nodeRunID, _, _ := seedHandbackNodeRun(t)
+
+	req := withURLParam(
+		newRequest("POST", "/api/node-runs/"+nodeRunID+"/retry", nil),
+		"nodeRunId", nodeRunID,
+	)
+	w := httptest.NewRecorder()
+	testHandler.RetryNodeRun(w, req)
+
+	if w.Code != 200 {
+		t.Fatalf("retry: expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	nr := fetchNodeRun(t, nodeRunID)
+	if nr.Status != "working" {
+		t.Fatalf("expected retry to dispatch worker and set status working, got %s", nr.Status)
+	}
+	if !nr.WorkerAgentTaskID.Valid {
+		t.Fatalf("retry must link a worker task, got NULL")
+	}
+	if nr.CompletedAt.Valid {
+		t.Fatalf("retry must reactivate terminal node run with completed_at NULL, got %v", nr.CompletedAt)
+	}
+	task, err := testHandler.Queries.GetAgentTask(context.Background(), nr.WorkerAgentTaskID)
+	if err != nil {
+		t.Fatalf("fetch retry task: %v", err)
+	}
+	if uuidToString(task.WorkflowNodeRunID) != nodeRunID {
+		t.Fatalf("retry task must carry node_run_id %q, got %q", nodeRunID, uuidToString(task.WorkflowNodeRunID))
+	}
+}

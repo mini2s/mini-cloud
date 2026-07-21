@@ -10,13 +10,6 @@ FROM multica_workflow_node_run wnr
 JOIN multica_workflow_node wn ON wn.id = wnr.workflow_node_id
 JOIN multica_workflow_run wr ON wr.id = wnr.workflow_run_id;
 
--- 1.2 submission → node_run 的 deliverable 是否对应同 node
-SELECT 'submission↔deliverable同node',
-  COUNT(*) FILTER (WHERE d.workflow_node_id != wnr.workflow_node_id)
-FROM multica_workflow_node_deliverable_submission ds
-JOIN multica_workflow_node_deliverable d ON d.id = ds.deliverable_id
-JOIN multica_workflow_node_run wnr ON wnr.id = ds.workflow_node_run_id;
-
 -- 1.3 sub_issue → origin_id (node_run) 都存在
 SELECT 'sub_issue→origin_node_run',
   COUNT(*) FILTER (WHERE i.parent_issue_id IS NOT NULL AND i.origin_type='workflow' AND wnr.id IS NULL)
@@ -70,18 +63,6 @@ WHERE wr.workflow_id='028f13ec-8d4d-49af-907d-7de306f6a2a2';
 
 \echo '=== 3. 状态逻辑一致性 ==='
 
--- 3.1 approved deliverable 的节点应该处于合理状态
-SELECT 'approved交付物节点状态',
-  COUNT(*) FILTER (WHERE ds.status='approved' AND wnr.status NOT IN ('completed','awaiting_critic','critic_reviewing'))
-FROM multica_workflow_node_deliverable_submission ds
-JOIN multica_workflow_node_run wnr ON wnr.id = ds.workflow_node_run_id;
-
--- 3.2 missing deliverable 的节点应该是 blocked 或 failed
-SELECT 'missing交付物节点状态',
-  COUNT(*) FILTER (WHERE ds.status='missing' AND wnr.status NOT IN ('blocked','failed'))
-FROM multica_workflow_node_deliverable_submission ds
-JOIN multica_workflow_node_run wnr ON wnr.id = ds.workflow_node_run_id;
-
 -- 3.3 父Issue workflow_run_id 已设置
 SELECT '父Issue有run_id',
   COUNT(*) FILTER (WHERE workflow_run_id IS NULL)
@@ -105,13 +86,6 @@ FROM multica_workflow_node wn
 LEFT JOIN multica_workflow_node_run wnr ON wnr.workflow_node_id = wn.id
   AND wnr.workflow_run_id = (SELECT id FROM multica_workflow_run WHERE workflow_id='028f13ec-8d4d-49af-907d-7de306f6a2a2')
 LEFT JOIN multica_issue i ON i.origin_id = wnr.id AND i.origin_type = 'workflow'
-WHERE wn.workflow_id = '028f13ec-8d4d-49af-907d-7de306f6a2a2';
-
--- 4.3 每个 node 有交付物定义
-SELECT 'node→deliverable定义',
-  COUNT(*) FILTER (WHERE d.id IS NULL)
-FROM multica_workflow_node wn
-LEFT JOIN multica_workflow_node_deliverable d ON d.workflow_node_id = wn.id
 WHERE wn.workflow_id = '028f13ec-8d4d-49af-907d-7de306f6a2a2';
 
 -- 4.4 agent worker 有 worker_id

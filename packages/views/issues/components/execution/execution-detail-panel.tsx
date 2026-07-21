@@ -1,18 +1,20 @@
 "use client";
 
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   Activity,
   Bot,
-  FileCheck2,
   GitFork,
   GitMerge,
+  ExternalLink,
+  Loader2,
   MessageSquare,
   RotateCcw,
   Unlock,
   User,
 } from "lucide-react";
+import { api } from "@multica/core/api";
 import { useChatStore } from "@multica/core/chat";
 import { chatSessionsOptions } from "@multica/core/chat/queries";
 import {
@@ -22,20 +24,23 @@ import {
 import {
   parseNodeFormat,
   toWorkflowRuntimeDisplayStatus,
-  type NodeRunStatus,
   type WorkflowNode,
   type WorkflowNodeRun,
   type WorkflowNodeRuntimeSummary,
 } from "@multica/core/types";
+import type { AgentTask } from "@multica/core/types/agent";
 import { useT } from "@multica/views/i18n";
-import { cn } from "@multica/ui/lib/utils";
 import {
   NodeDetailSection,
   WorkflowNodeDetailPanelShell,
 } from "../../../common/workflow-node-detail-panel-shell";
-import { ArtifactList } from "./artifact-list";
-import { NodeRunStatusIcon, RuntimeDisplayStatusIcon } from "./node-run-status-icon";
+import { RuntimeDisplayStatusIcon } from "./node-run-status-icon";
 import { NodeRunDeliverables } from "../../../workflows/components/node-run-deliverables";
+import {
+  AgentTranscriptDialog,
+  buildTimeline,
+  type TimelineItem,
+} from "../../../common/task-transcript";
 import { resolveChatSessionId } from "../../../chat/lib/resolve-chat-session-id";
 
 export interface ExecutionDetailPanelProps {
@@ -47,8 +52,12 @@ export interface ExecutionDetailPanelProps {
   wsId: string;
   issueId?: string;
   runtimeSummary?: WorkflowNodeRuntimeSummary | null;
+  onOpenIssue?: () => void;
   onUnblock?: () => void;
   onRetry?: () => void;
+  isChildIssue?: boolean;
+  parentSplitTitle?: string | null;
+  childWorkflowName?: string | null;
 }
 
 function gatewayLabel(kind: "fork" | "join" | null): string {
@@ -71,67 +80,32 @@ function isRetryableNodeRunStatus(status: string | undefined): boolean {
   return status === "failed" || status === "format_failed" || status === "blocked" || status === "critic_rework";
 }
 
-function deliverableSignalTone(signal: WorkflowNodeRuntimeSummary["deliverable_signal"]): string {
-  if (signal === "green") return "border-emerald-200 bg-emerald-50 text-emerald-700";
-  if (signal === "yellow") return "border-amber-200 bg-amber-50 text-amber-700";
-  if (signal === "red") return "border-red-200 bg-red-50 text-red-700";
-  return "border-border bg-muted/30 text-muted-foreground";
-}
-
-type StatusPathStepTone = "muted" | "current" | "complete" | "blocked" | "rework" | "cancelled";
-type StatusPathStep = "format" | "worker" | "critic";
-type StatusPathTones = Record<StatusPathStep, StatusPathStepTone>;
-
-function statusPathStepClassName(tone: StatusPathStepTone): string {
-  switch (tone) {
-    case "current":
-      return "bg-blue-50 text-blue-700";
-    case "complete":
-      return "bg-green-50 text-green-700";
-    case "blocked":
-      return "bg-red-50 text-red-700";
-    case "rework":
-      return "bg-amber-50 text-amber-700";
-    case "cancelled":
-      return "bg-muted/50 text-muted-foreground";
-    case "muted":
-      return "bg-muted/50";
-  }
-}
-
-function getStatusPathTones(status: NodeRunStatus): StatusPathTones {
-  const muted: StatusPathTones = { format: "muted", worker: "muted", critic: "muted" };
-
+function taskStatusFromNodeRun(status: WorkflowNodeRun["status"]): AgentTask["status"] {
   switch (status) {
-    case "pending":
-      return muted;
-    case "format_checking":
-      return { ...muted, format: "current" };
-    case "format_ok":
-      return { ...muted, format: "complete" };
-    case "worker_assigned":
-    case "working":
-    case "awaiting_input":
-      return { ...muted, format: "complete", worker: "current" };
-    case "awaiting_critic":
-    case "critic_reviewing":
-      return { format: "complete", worker: "complete", critic: "current" };
-    case "critic_approved":
     case "completed":
-      return { format: "complete", worker: "complete", critic: "complete" };
-    case "format_failed":
-      return { ...muted, format: "blocked" };
+    case "critic_approved":
+      return "completed";
     case "failed":
+    case "format_failed":
     case "blocked":
-      return { ...muted, format: "complete", worker: "blocked" };
     case "critic_rework":
-      return { format: "complete", worker: "complete", critic: "rework" };
-    case "skipped":
+      return "failed";
     case "cancelled":
-      return { format: "cancelled", worker: "cancelled", critic: "cancelled" };
+    case "skipped":
+      return "cancelled";
+    case "pending":
+      return "queued";
+    case "worker_assigned":
+      return "dispatched";
     default:
-      return muted;
+      return "running";
   }
+}
+
+function readWorkDir(output: unknown): string | undefined {
+  if (!output || typeof output !== "object" || Array.isArray(output)) return undefined;
+  const value = (output as Record<string, unknown>).work_dir;
+  return typeof value === "string" && value.trim() ? value : undefined;
 }
 
 type IssueTranslator = ReturnType<typeof useT<"issues">>["t"];
@@ -168,16 +142,6 @@ function runtimeDisplayStatusText(
   }
 }
 
-function deliverableSignalText(
-  t: IssueTranslator,
-  signal: WorkflowNodeRuntimeSummary["deliverable_signal"],
-): string {
-  if (signal === "green") return t(($) => $.execution.detail_panel.deliverable_status_green);
-  if (signal === "yellow") return t(($) => $.execution.detail_panel.deliverable_status_yellow);
-  if (signal === "red") return t(($) => $.execution.detail_panel.deliverable_status_red);
-  return t(($) => $.execution.detail_panel.deliverable_status_none);
-}
-
 function formatDurationLabel(totalSeconds: number): string {
   if (totalSeconds < 60) return `${totalSeconds}s`;
 
@@ -195,18 +159,6 @@ function formatDurationLabel(totalSeconds: number): string {
   return seconds > 0 ? `${minutes}m ${seconds}s` : `${minutes}m`;
 }
 
-function deliverableProgressText(
-  t: IssueTranslator,
-  submitted: number,
-  total: number,
-  approved: number,
-): string {
-  return t(($) => $.execution.detail_panel.deliverable_progress)
-    .replaceAll("{{submitted}}", String(submitted))
-    .replaceAll("{{total}}", String(total))
-    .replaceAll("{{approved}}", String(approved));
-}
-
 export function ExecutionDetailPanel({
   node,
   nodeRun,
@@ -214,11 +166,20 @@ export function ExecutionDetailPanel({
   criticName,
   onClose,
   wsId,
+  issueId,
   runtimeSummary,
+  onOpenIssue,
   onUnblock,
   onRetry,
+  isChildIssue = false,
+  parentSplitTitle,
+  childWorkflowName,
 }: ExecutionDetailPanelProps) {
   const { t } = useT("issues");
+  const [showEvidence, setShowEvidence] = useState(false);
+  const [transcriptOpen, setTranscriptOpen] = useState(false);
+  const [transcriptLoading, setTranscriptLoading] = useState(false);
+  const [transcriptItems, setTranscriptItems] = useState<TimelineItem[]>([]);
   const nodeFormat = parseNodeFormat(node.format_schema);
   const isGateway = nodeFormat.kind === "gateway";
   const displayStatus = runtimeSummary?.display_status ?? (nodeRun ? toWorkflowRuntimeDisplayStatus(nodeRun.status) : "pending");
@@ -237,7 +198,6 @@ export function ExecutionDetailPanel({
   }, [onClose]);
 
   const status = nodeRun?.status;
-  const statusPathTones = status ? getStatusPathTones(status) : null;
   const duration =
     nodeRun?.started_at && nodeRun?.completed_at
       ? Math.round(
@@ -264,25 +224,71 @@ export function ExecutionDetailPanel({
   }, [nodeRun, status]);
 
   const sessionId = nodeRun?.session_id ?? runtimeSummary?.session_id ?? null;
-  const canOpenSession = !isGateway && !!sessionId;
+  const transcriptTaskId =
+    nodeRun?.worker_agent_task_id ??
+    nodeRun?.agent_task_id ??
+    nodeRun?.critic_agent_task_id ??
+    null;
+  const transcriptAgentName =
+    transcriptTaskId && nodeRun?.critic_agent_task_id === transcriptTaskId
+      ? criticName
+      : workerName;
+  const transcriptAgentId =
+    transcriptTaskId && nodeRun?.critic_agent_task_id === transcriptTaskId
+      ? nodeRun?.critic_id
+      : nodeRun?.worker_id;
+  const transcriptTask = useMemo<AgentTask | null>(() => {
+    if (!nodeRun || !transcriptTaskId) return null;
+    return {
+      id: transcriptTaskId,
+      agent_id: transcriptAgentId ?? "",
+      runtime_id: nodeRun.runtime_id ?? "",
+      issue_id: issueId ?? "",
+      status: taskStatusFromNodeRun(nodeRun.status),
+      priority: 0,
+      dispatched_at: null,
+      started_at: nodeRun.started_at,
+      completed_at: nodeRun.completed_at,
+      result: nodeRun.worker_output ?? nodeRun.critic_output ?? null,
+      error: errorMessage,
+      created_at: nodeRun.created_at,
+      chat_session_id: sessionId ?? undefined,
+      work_dir: readWorkDir(nodeRun.worker_output),
+      session_id: sessionId ?? undefined,
+    };
+  }, [errorMessage, issueId, nodeRun, sessionId, transcriptAgentId, transcriptTaskId]);
+  const canOpenSession = !isGateway && (!!sessionId || !!transcriptTask);
   const canUnblock = !isGateway && status === "blocked" && !!onUnblock;
   const canRetry = !isGateway && isRetryableNodeRunStatus(status) && !!onRetry;
-  const hasAgentOperations = canOpenSession || canUnblock || canRetry;
-  const deliverableSignal = runtimeSummary?.deliverable_signal ?? "none";
-  const requiredDeliverablesTotal = runtimeSummary?.required_deliverables_total ?? 0;
-  const requiredDeliverablesSubmitted = runtimeSummary?.required_deliverables_submitted ?? 0;
-  const requiredDeliverablesApproved = runtimeSummary?.required_deliverables_approved ?? 0;
 
-  const handleOpenSession = () => {
-    if (!sessionId) return;
+  const handleOpenSession = async () => {
+    if (transcriptLoading) return;
     if (isEmbeddedInCostrict()) {
-      postCostrictNavigateToSession({ sessionId });
-      return;
+      if (sessionId) {
+        const posted = postCostrictNavigateToSession({ sessionId });
+        if (posted) return;
+      }
     }
-    const chatSessionId = resolveChatSessionId(chatSessions, sessionId);
-    if (!chatSessionId) return;
-    setChatSession(chatSessionId);
-    setChatOpen(true);
+    if (sessionId) {
+      const chatSessionId = resolveChatSessionId(chatSessions, sessionId);
+      if (chatSessionId) {
+        setChatSession(chatSessionId);
+        setChatOpen(true);
+        return;
+      }
+    }
+    if (!transcriptTask) return;
+    setTranscriptLoading(true);
+    try {
+      const msgs = await api.listTaskMessages(transcriptTask.id);
+      setTranscriptItems(buildTimeline(msgs));
+    } catch (err) {
+      console.error(err);
+      setTranscriptItems([]);
+    } finally {
+      setTranscriptLoading(false);
+      setTranscriptOpen(true);
+    }
   };
 
   return (
@@ -305,125 +311,60 @@ export function ExecutionDetailPanel({
       )}
     >
       <NodeDetailSection
-        sectionId="primary"
+        sectionId="status-next-step"
         icon={<Activity className="size-4" />}
-        title={t(($) => $.execution.detail_panel.section_primary)}
-        subtitle={t(($) => $.execution.detail_panel.section_primary_desc)}
+        title={t(($) => $.execution.detail_panel.section_status_next_step)}
       >
-        {node.description ? (
-          <div>
-            <h3 className="mb-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-              {t(($) => $.detail.desc_label)}
-            </h3>
-            <p className="whitespace-pre-wrap text-sm leading-relaxed text-muted-foreground">
-              {node.description}
-            </p>
-          </div>
-        ) : null}
-
-        {isGateway ? (
-          <div className="flex items-start gap-2 rounded-md border border-border/70 bg-muted/30 p-3">
-            <GatewayIcon className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
-            <div className="min-w-0 space-y-1">
-              <p className="text-sm font-medium">{gatewayLabel(nodeFormat.gateway_kind)}</p>
-              <p className="text-xs text-muted-foreground">
-                {gatewayDescription(nodeFormat.gateway_kind)}
-              </p>
-            </div>
-          </div>
-        ) : null}
-
-        {status && !isGateway ? (
-          <div>
-            <h3 className="mb-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-              {t(($) => $.execution.detail_panel.status_path)}
-            </h3>
-            <div className="flex items-center gap-2 text-xs">
-              <span
-                className={cn(
-                  "rounded px-2 py-0.5",
-                  statusPathStepClassName(statusPathTones?.format ?? "muted"),
-                )}
-              >
-                Format
-              </span>
-              <span className="text-muted-foreground">-&gt;</span>
-              <span
-                className={cn(
-                  "rounded px-2 py-0.5",
-                  statusPathStepClassName(statusPathTones?.worker ?? "muted"),
-                )}
-              >
-                Worker
-              </span>
-              <span className="text-muted-foreground">-&gt;</span>
-              <span
-                className={cn(
-                  "rounded px-2 py-0.5",
-                  statusPathStepClassName(statusPathTones?.critic ?? "muted"),
-                )}
-              >
-                Critic
-              </span>
-            </div>
-          </div>
-        ) : null}
-
-        {!isGateway ? (
-          <div>
-            <h3 className="mb-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-              {t(($) => $.execution.detail_panel.worker)}
-            </h3>
-            <div className="flex items-center gap-2 text-sm">
-              {node.worker_type === "agent" ? <Bot className="h-4 w-4" /> : <User className="h-4 w-4" />}
-              <span className="font-medium">{workerName ?? "--"}</span>
-              {nodeRun ? <NodeRunStatusIcon status={nodeRun.status} className="h-3.5 w-3.5" /> : null}
-            </div>
-          </div>
-        ) : null}
-
-        {!isGateway ? (
-          <div>
-            <h3 className="mb-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-              {t(($) => $.execution.detail_panel.critic)}
-            </h3>
-            {node.critic_type || node.critic_id ? (
-              <>
-                <div className="flex items-center gap-2 text-sm">
-                  {nodeRun?.critic_type === "agent" ? <Bot className="h-4 w-4" /> : <User className="h-4 w-4" />}
-                  <span className="font-medium">{criticName ?? "--"}</span>
-                </div>
-                {nodeRun?.critic_comment ? (
-                  <p className="mt-1 text-xs italic text-muted-foreground">
-                    &ldquo;{nodeRun.critic_comment}&rdquo;
-                  </p>
-                ) : null}
-              </>
-            ) : (
-              <p className="text-xs italic text-muted-foreground">
-                {t(($) => $.execution.detail_panel.not_configured)}
-              </p>
-            )}
-          </div>
-        ) : null}
-      </NodeDetailSection>
-
-      {hasAgentOperations ? (
-        <NodeDetailSection
-          sectionId="agent-operations"
-          icon={<Bot className="size-4" />}
-          title={t(($) => $.execution.detail_panel.section_agent_operations)}
-          subtitle={t(($) => $.execution.detail_panel.section_agent_operations_desc)}
+        <div
+          data-testid="runtime-diagnostic-summary"
+          className="space-y-3 rounded-lg border bg-muted/20 p-3"
         >
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="flex items-start gap-2">
+            <RuntimeDisplayStatusIcon
+              status={displayStatus}
+              gatewayKind={isGateway ? nodeFormat.gateway_kind : null}
+              className="mt-0.5 h-4 w-4 shrink-0"
+            />
+            <div className="min-w-0">
+              <p className="text-sm font-medium">{displayStatusLabel}</p>
+              {errorMessage ? <p className="mt-1 text-sm text-destructive">{errorMessage}</p> : null}
+            </div>
+          </div>
+          {isGateway ? (
+            <div className="flex items-start gap-2 rounded-md border border-border/70 bg-muted/30 p-3">
+              <GatewayIcon className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+              <div className="min-w-0 space-y-1">
+                <p className="text-sm font-medium">{gatewayLabel(nodeFormat.gateway_kind)}</p>
+                <p className="text-xs text-muted-foreground">{gatewayDescription(nodeFormat.gateway_kind)}</p>
+              </div>
+            </div>
+          ) : null}
+          <div data-testid="runtime-primary-actions" className="flex flex-wrap gap-2">
             {canOpenSession ? (
               <button
                 type="button"
                 onClick={handleOpenSession}
+                disabled={transcriptLoading}
                 className="inline-flex h-8 items-center justify-center gap-1.5 rounded-md border bg-background px-3 text-xs font-medium transition-colors hover:bg-muted"
               >
-                <MessageSquare className="h-3.5 w-3.5" />
+                {transcriptLoading ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <MessageSquare className="h-3.5 w-3.5" />
+                )}
                 {t(($) => $.execution.detail_panel.open_session)}
+              </button>
+            ) : null}
+            {onOpenIssue ? (
+              <button
+                type="button"
+                onClick={onOpenIssue}
+                className="inline-flex h-8 items-center justify-center gap-1.5 rounded-md border bg-background px-3 text-xs font-medium transition-colors hover:bg-muted"
+              >
+                <ExternalLink className="h-3.5 w-3.5" />
+                {isChildIssue
+                  ? t(($) => $.execution.detail_panel.open_child_issue)
+                  : t(($) => $.execution.detail_panel.view_full_issue)}
               </button>
             ) : null}
             {canUnblock ? (
@@ -447,117 +388,144 @@ export function ExecutionDetailPanel({
               </button>
             ) : null}
           </div>
+        </div>
+      </NodeDetailSection>
+
+      {isChildIssue ? (
+        <NodeDetailSection
+          sectionId="child-progress"
+          icon={<GitFork className="size-4" />}
+          title={t(($) => $.execution.detail_panel.section_child_progress)}
+        >
+          <dl className="space-y-1 text-xs">
+            {parentSplitTitle ? (
+              <div className="flex justify-between gap-3">
+                <dt className="text-muted-foreground">{t(($) => $.execution.detail_panel.parent_split)}</dt>
+                <dd>{parentSplitTitle}</dd>
+              </div>
+            ) : null}
+            {childWorkflowName ? (
+              <div className="flex justify-between gap-3">
+                <dt className="text-muted-foreground">{t(($) => $.execution.detail_panel.child_workflow)}</dt>
+                <dd>{childWorkflowName}</dd>
+              </div>
+            ) : null}
+            {errorMessage ? (
+              <div className="flex justify-between gap-3">
+                <dt className="text-muted-foreground">{t(($) => $.execution.detail_panel.reason)}</dt>
+                <dd className="text-destructive">{errorMessage}</dd>
+              </div>
+            ) : null}
+          </dl>
         </NodeDetailSection>
       ) : null}
 
       <NodeDetailSection
-        sectionId="deliverables"
-        icon={<FileCheck2 className="size-4" />}
-        title={t(($) => $.execution.detail_panel.section_deliverables)}
-        subtitle={t(($) => $.execution.detail_panel.section_deliverables_desc)}
+        sectionId="worker-critic"
+        icon={<Bot className="size-4" />}
+        title={t(($) => $.execution.detail_panel.section_worker_critic)}
       >
-        {nodeRun && !isGateway ? (
-          <div className="space-y-3">
-            <div className={`rounded-lg border p-3 ${deliverableSignalTone(deliverableSignal)}`}>
-              <p className="text-xs font-medium">
-                {t(($) => $.execution.detail_panel.deliverable_status_label)}
-              </p>
-              <p className="mt-1 text-sm font-semibold">
-                {deliverableSignalText(t, deliverableSignal)}
-              </p>
-              <p className="mt-1 text-xs opacity-80">
-                {deliverableProgressText(t, requiredDeliverablesSubmitted, requiredDeliverablesTotal, requiredDeliverablesApproved)}
-              </p>
+        {!isGateway ? (
+          <div className="grid gap-3 text-sm">
+            <div className="flex items-center gap-2">
+              {node.worker_type === "agent" ? <Bot className="h-4 w-4" /> : <User className="h-4 w-4" />}
+              <span className="text-muted-foreground">{t(($) => $.execution.detail_panel.worker)}</span>
+              <span className="font-medium">{workerName ?? "--"}</span>
             </div>
-            <NodeRunDeliverables wsId={wsId} nodeRunId={nodeRun.id} />
-            <ArtifactList nodeRun={nodeRun} />
+            <NodeRunDeliverables wsId={wsId} nodeRunId={nodeRun?.id ?? ""} />
+            <div className="flex items-center gap-2">
+              {nodeRun?.critic_type === "agent" ? <Bot className="h-4 w-4" /> : <User className="h-4 w-4" />}
+              <span className="text-muted-foreground">{t(($) => $.execution.detail_panel.critic)}</span>
+              <span className="font-medium">
+                {node.critic_type || node.critic_id
+                  ? criticName ?? "--"
+                  : t(($) => $.execution.detail_panel.not_configured)}
+              </span>
+            </div>
+            {nodeRun?.critic_comment ? (
+              <p className="text-xs italic text-muted-foreground">&ldquo;{nodeRun.critic_comment}&rdquo;</p>
+            ) : null}
           </div>
         ) : (
-          <p className="text-sm text-muted-foreground">
-            {isGateway ? "Gateway nodes do not produce deliverables." : "No run data for deliverables yet."}
-          </p>
+          <p className="text-sm text-muted-foreground">{t(($) => $.execution.detail_panel.gateway_no_worker)}</p>
         )}
       </NodeDetailSection>
 
       <NodeDetailSection
-        sectionId="runtime"
-        icon={<Activity className="size-4" />}
-        title={t(($) => $.execution.detail_panel.section_runtime)}
-        subtitle={t(($) => $.execution.detail_panel.section_runtime_desc)}
+        sectionId="evidence-preview"
+        icon={<MessageSquare className="size-4" />}
+        title={t(($) => $.execution.detail_panel.section_evidence_preview)}
       >
-        {nodeRun && !isGateway ? (
-          <div className="space-y-3">
-            {nodeRun.worker_output != null || nodeRun.critic_output != null ? (
-              <div className="space-y-2">
-                {nodeRun.worker_output != null ? (
-                  <div>
-                    <h4 className="mb-1 text-[11px] font-medium text-muted-foreground">
-                      {t(($) => $.execution.detail_panel.worker_output)}
-                    </h4>
-                    <pre className="max-h-24 overflow-auto whitespace-pre-wrap rounded bg-muted/50 p-2 text-xs">
-                      {formatJson(nodeRun.worker_output)}
-                    </pre>
-                  </div>
-                ) : null}
-                {nodeRun.critic_output != null ? (
-                  <div>
-                    <h4 className="mb-1 text-[11px] font-medium text-muted-foreground">
-                      {t(($) => $.execution.detail_panel.critic_output)}
-                    </h4>
-                    <pre className="max-h-24 overflow-auto whitespace-pre-wrap rounded bg-muted/50 p-2 text-xs">
-                      {formatJson(nodeRun.critic_output)}
-                    </pre>
-                  </div>
-                ) : null}
+        <button
+          type="button"
+          className="text-xs font-medium text-primary hover:underline"
+          onClick={() => setShowEvidence((value) => !value)}
+        >
+          {t(($) => $.execution.detail_panel.view_evidence)}
+        </button>
+        {showEvidence ? (
+          <div className="mt-2 space-y-2">
+            {nodeRun?.worker_output != null ? (
+              <pre className="max-h-24 overflow-auto whitespace-pre-wrap rounded bg-muted/50 p-2 text-xs">
+                {formatJson(nodeRun.worker_output)}
+              </pre>
+            ) : null}
+            {nodeRun?.critic_output != null ? (
+              <pre className="max-h-24 overflow-auto whitespace-pre-wrap rounded bg-muted/50 p-2 text-xs">
+                {formatJson(nodeRun.critic_output)}
+              </pre>
+            ) : null}
+            {nodeRun?.worker_output == null && nodeRun?.critic_output == null ? (
+              <p className="text-xs text-muted-foreground">{t(($) => $.execution.detail_panel.no_output)}</p>
+            ) : null}
+          </div>
+        ) : null}
+      </NodeDetailSection>
+
+      <NodeDetailSection
+        sectionId="runtime-facts"
+        icon={<Activity className="size-4" />}
+        title={t(($) => $.execution.detail_panel.section_runtime_facts)}
+      >
+        {nodeRun ? (
+          <dl className="space-y-1 text-xs">
+            {nodeRun.started_at ? (
+              <div className="flex justify-between gap-3">
+                <dt className="text-muted-foreground">{t(($) => $.execution.detail_panel.started_at)}</dt>
+                <dd>{new Date(nodeRun.started_at).toLocaleString()}</dd>
               </div>
             ) : null}
-
-            <div>
-              <h3 className="mb-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-                {t(($) => $.execution.detail_panel.metadata)}
-              </h3>
-              <dl className="space-y-1 text-xs">
-                {nodeRun.started_at ? (
-                  <div className="flex justify-between gap-3">
-                    <dt className="text-muted-foreground">{t(($) => $.execution.detail_panel.started_at)}</dt>
-                    <dd>{new Date(nodeRun.started_at).toLocaleString()}</dd>
-                  </div>
-                ) : null}
-                {nodeRun.completed_at ? (
-                  <div className="flex justify-between gap-3">
-                    <dt className="text-muted-foreground">{t(($) => $.execution.detail_panel.completed_at)}</dt>
-                    <dd>{new Date(nodeRun.completed_at).toLocaleString()}</dd>
-                  </div>
-                ) : null}
-                {durationLabel != null ? (
-                  <div className="flex justify-between gap-3">
-                    <dt className="text-muted-foreground">{t(($) => $.execution.detail_panel.duration)}</dt>
-                    <dd>{durationLabel}</dd>
-                  </div>
-                ) : null}
-                <div className="flex justify-between gap-3">
-                  <dt className="text-muted-foreground">{t(($) => $.execution.detail_panel.retry_count)}</dt>
-                  <dd>{nodeRun.retry_count}</dd>
-                </div>
-                {errorMessage ? (
-                  <div className="mt-2 flex flex-col gap-1 border-t border-border/50 pt-2">
-                    <dt className="font-medium text-red-600 dark:text-red-400">
-                      {t(($) => $.execution.detail_panel.error)}
-                    </dt>
-                    <dd className="whitespace-pre-wrap break-words text-red-600 dark:text-red-400">
-                      {errorMessage}
-                    </dd>
-                  </div>
-                ) : null}
-              </dl>
+            {nodeRun.completed_at ? (
+              <div className="flex justify-between gap-3">
+                <dt className="text-muted-foreground">{t(($) => $.execution.detail_panel.completed_at)}</dt>
+                <dd>{new Date(nodeRun.completed_at).toLocaleString()}</dd>
+              </div>
+            ) : null}
+            {durationLabel != null ? (
+              <div className="flex justify-between gap-3">
+                <dt className="text-muted-foreground">{t(($) => $.execution.detail_panel.duration)}</dt>
+                <dd>{durationLabel}</dd>
+              </div>
+            ) : null}
+            <div className="flex justify-between gap-3">
+              <dt className="text-muted-foreground">{t(($) => $.execution.detail_panel.retry_count)}</dt>
+              <dd>{nodeRun.retry_count}</dd>
             </div>
-          </div>
+          </dl>
         ) : (
-          <p className="text-sm text-muted-foreground">
-            {isGateway ? "Gateway runtime is automatic and has no worker output." : "No runtime data yet."}
-          </p>
+          <p className="text-sm text-muted-foreground">{t(($) => $.execution.detail_panel.no_runtime_data)}</p>
         )}
       </NodeDetailSection>
+
+      {transcriptTask && transcriptOpen ? (
+        <AgentTranscriptDialog
+          open={transcriptOpen}
+          onOpenChange={setTranscriptOpen}
+          task={transcriptTask}
+          items={transcriptItems}
+          agentName={transcriptAgentName ?? "Agent"}
+        />
+      ) : null}
 
     </WorkflowNodeDetailPanelShell>
   );

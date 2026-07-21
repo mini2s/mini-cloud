@@ -10,9 +10,10 @@ import {
 } from "@multica/core/types";
 import { cn } from "@multica/ui/lib/utils";
 import { RuntimeDisplayStatusIcon } from "./node-run-status-icon";
-import { Bot, User, Building2, Check, CircleAlert, CircleCheck, Clock3, FileCheck2, GitFork, GitMerge } from "lucide-react";
+import { Bot, User, Building2, Check, ChevronDown, ChevronRight, GitBranch, GitFork, GitMerge } from "lucide-react";
 import { useT } from "@multica/views/i18n";
 import { Button } from "@multica/ui/components/ui/button";
+import { Badge } from "@multica/ui/components/ui/badge";
 import { Loader2 } from "lucide-react";
 import { workflowNodeInfoAreaClassName, workflowNodeShapeGlyphClassName } from "../../../common/workflow-node-shape";
 import {
@@ -32,20 +33,6 @@ export type NodeRunActionType =
   | "skip"
   | "complete";
 
-export type DeliverableSignal = "red" | "yellow" | "green" | "none";
-
-/** Derive a traffic-light signal from deliverable submission statuses. */
-export function deriveDeliverableSignal(
-  items: Array<{ required: boolean; status: string }> | null | undefined,
-): DeliverableSignal {
-  if (!items || items.length === 0) return "none";
-  const required = items.filter((item) => item.required);
-  if (required.length === 0) return "none";
-  if (required.some((item) => item.status === "rejected" || item.status === "missing")) return "red";
-  if (required.some((item) => item.status === "submitted")) return "yellow";
-  return "green";
-}
-
 export interface RuntimeNodeCardProps {
   node: WorkflowNode;
   nodeRun: WorkflowNodeRun | null;
@@ -53,12 +40,16 @@ export interface RuntimeNodeCardProps {
   criticName: string | null;
   onClick: (nodeId: string) => void;
   isSelected?: boolean;
+  isRuntimeFocus?: boolean;
   elementRef?: (el: HTMLButtonElement | null) => void;
   onAction?: (nodeRunId: string, action: NodeRunActionType) => void;
   isActionLoading?: Partial<Record<NodeRunActionType, boolean>>;
   runtimeSummary?: WorkflowNodeRuntimeSummary | null;
   handles?: WorkflowCanvasNodeHandle[];
   lateralHandleTop?: number;
+  isSplitExpanded?: boolean;
+  splitChildCount?: number;
+  onSplitNodeToggle?: (nodeId: string) => void;
 }
 
 /** Maps worker/critic type to its Lucide icon component. */
@@ -68,10 +59,10 @@ function typeIcon(t: string) {
   return User;
 }
 
-function gatewayLabel(kind: "fork" | "join" | null): string {
-  if (kind === "join") return "Join gateway";
-  if (kind === "fork") return "Fork gateway";
-  return "Gateway";
+function gatewayLabel(t: IssueTranslator, kind: "fork" | "join" | null): string {
+  if (kind === "join") return t(($) => $.execution.card.gateway_label_join);
+  if (kind === "fork") return t(($) => $.execution.card.gateway_label_fork);
+  return t(($) => $.execution.card.gateway_label);
 }
 
 type IssueTranslator = ReturnType<typeof useT<"issues">>["t"];
@@ -108,36 +99,76 @@ function runtimeDisplayStatusText(
   }
 }
 
-function deliverableSignalText(
-  t: IssueTranslator,
-  signal: WorkflowNodeRuntimeSummary["deliverable_signal"],
-): string {
-  if (signal === "green") return t(($) => $.execution.card.deliverable_green);
-  if (signal === "yellow") return t(($) => $.execution.card.deliverable_yellow);
-  if (signal === "red") return t(($) => $.execution.card.deliverable_red);
-  return t(($) => $.execution.card.deliverable_none);
+function splitChildCountLabel(t: IssueTranslator, count: number): string {
+  return t(($) => $.execution.card.split_child_count, { count });
 }
 
-function deliverableProgressText(
+function splitProgressSummaryParts(
   t: IssueTranslator,
-  submitted: number,
-  total: number,
-  approved: number,
-): string {
-  return t(($) => $.execution.card.deliverable_progress)
-    .replaceAll("{{submitted}}", String(submitted))
-    .replaceAll("{{total}}", String(total))
-    .replaceAll("{{approved}}", String(approved));
-}
-
-function deliverableSignalIcon(signal: WorkflowNodeRuntimeSummary["deliverable_signal"]) {
-  if (signal === "green") return { Icon: CircleCheck, className: "text-emerald-600" };
-  if (signal === "yellow") return { Icon: Clock3, className: "text-amber-600" };
-  if (signal === "red") return { Icon: CircleAlert, className: "text-destructive" };
-  return { Icon: FileCheck2, className: "text-muted-foreground" };
+  progress: NonNullable<WorkflowNodeRuntimeSummary["split_progress"]>,
+): string[] {
+  return [
+    progress.done > 0 ? t(($) => $.execution.card.split_child_done, { count: progress.done }) : null,
+    progress.failed > 0 ? t(($) => $.execution.card.split_child_failed, { count: progress.failed }) : null,
+    progress.running > 0 ? t(($) => $.execution.card.split_child_running, { count: progress.running }) : null,
+    progress.created > 0 ? t(($) => $.execution.card.split_child_ready, { count: progress.created }) : null,
+    progress.skipped > 0 ? t(($) => $.execution.card.split_child_skipped, { count: progress.skipped }) : null,
+    progress.cancelled > 0 ? t(($) => $.execution.card.split_child_cancelled, { count: progress.cancelled }) : null,
+  ].filter((part): part is string => Boolean(part));
 }
 
 /** Actionable status → button layout mapping. */
+function runtimeFocusSurfaceClassName(
+  isRuntimeFocus: boolean,
+  status: ReturnType<typeof toWorkflowRuntimeDisplayStatus>,
+): string {
+  if (!isRuntimeFocus) return "";
+  switch (status) {
+    case "blocked":
+      return "border-red-200/90 from-red-50/90 via-white to-red-100/70 ring-2 ring-red-300/80 shadow-[0_20px_48px_rgba(239,68,68,0.24)] group-hover:ring-red-400/80";
+    case "reviewing":
+      return "border-violet-200/90 from-violet-50/90 via-white to-violet-100/70 ring-2 ring-violet-300/75 shadow-[0_18px_42px_rgba(139,92,246,0.18)] group-hover:ring-violet-400/75";
+    case "completed":
+      return "border-emerald-200/80 from-emerald-50/80 via-white to-emerald-100/55 ring-2 ring-emerald-300/70 shadow-[0_14px_32px_rgba(16,185,129,0.14)] group-hover:ring-emerald-400/65";
+    case "todo":
+      return "border-amber-200/70 from-amber-50/70 via-white to-amber-100/45 ring-2 ring-amber-300/60 shadow-[0_14px_34px_rgba(245,158,11,0.14)] group-hover:ring-amber-400/70";
+    case "in_progress":
+      return "border-blue-200/90 from-blue-50/90 via-white to-blue-100/70 ring-2 ring-blue-300/80 shadow-[0_20px_48px_rgba(59,130,246,0.22)] group-hover:ring-blue-400/80";
+    case "pending":
+    case "cancelled":
+    default:
+      return "border-slate-200/80 from-slate-50/85 via-white to-slate-100/65 ring-2 ring-slate-300/75 shadow-[0_16px_38px_rgba(15,23,42,0.16)]";
+  }
+}
+
+function RuntimeStatusPill({
+  status,
+  gatewayKind,
+  label,
+  className,
+}: {
+  status: ReturnType<typeof toWorkflowRuntimeDisplayStatus>;
+  gatewayKind?: "fork" | "join" | null;
+  label: string;
+  className?: string;
+}) {
+  return (
+    <span
+      className={cn(
+        "inline-flex shrink-0 items-center gap-1 rounded-md bg-muted/35 px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground",
+        className,
+      )}
+    >
+      <RuntimeDisplayStatusIcon
+        status={status}
+        gatewayKind={gatewayKind}
+        className="h-3.5 w-3.5"
+      />
+      <span className="truncate">{label}</span>
+    </span>
+  );
+}
+
 const ACTIONABLE_STATUSES = new Set([
   "awaiting_critic",
   "awaiting_input",
@@ -250,39 +281,6 @@ function ActionButtons({
   );
 }
 
-function DeliverableSlot({
-  t,
-  signal,
-  submitted,
-  total,
-  approved,
-}: {
-  t: IssueTranslator;
-  signal: WorkflowNodeRuntimeSummary["deliverable_signal"];
-  submitted: number;
-  total: number;
-  approved: number;
-}) {
-  const { Icon, className } = deliverableSignalIcon(signal);
-
-  return (
-    <div
-      className="col-span-full flex h-4 min-w-0 items-center gap-1.5 text-[10px] leading-none text-muted-foreground"
-      data-testid="runtime-node-deliverables"
-    >
-      <Icon className={cn("h-3 w-3 shrink-0", className)} />
-      <div className="min-w-0 flex-1 truncate">
-        <span className="font-medium text-foreground/75">
-          {deliverableSignalText(t, signal)}
-        </span>
-      </div>
-      <span className="shrink-0 tabular-nums">
-        {deliverableProgressText(t, submitted, total, approved)}
-      </span>
-    </div>
-  );
-}
-
 function ActorSlot({
   icon: Icon,
   label,
@@ -314,6 +312,33 @@ function ActorSlot({
   );
 }
 
+function SplitProgressSummary({
+  label,
+  summary,
+}: {
+  label: string;
+  summary: string;
+}) {
+  return (
+    <div
+      data-testid="runtime-node-split-progress"
+      className="flex min-w-0 items-center gap-2 border-t border-border/45 py-1.5"
+    >
+      <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-muted/55 text-muted-foreground ring-1 ring-border/60">
+        <GitBranch className="h-3.5 w-3.5" />
+      </span>
+      <div className="min-w-0">
+        <p className="truncate text-[12px] font-semibold leading-4 text-foreground/90">
+          {label}
+        </p>
+        <p className="truncate text-[10px] font-medium leading-3 text-muted-foreground">
+          {summary}
+        </p>
+      </div>
+    </div>
+  );
+}
+
 export function RuntimeNodeCard({
   node,
   nodeRun,
@@ -321,32 +346,51 @@ export function RuntimeNodeCard({
   criticName,
   onClick,
   isSelected = false,
+  isRuntimeFocus = false,
   elementRef,
   onAction,
   isActionLoading,
   runtimeSummary,
   handles,
   lateralHandleTop,
+  isSplitExpanded = false,
+  splitChildCount = 0,
+  onSplitNodeToggle,
 }: RuntimeNodeCardProps) {
   const { t } = useT("issues");
   const nodeFormat = parseNodeFormat(node.format_schema);
   const isGateway = nodeFormat.kind === "gateway";
+  const isSplit = nodeFormat.kind === "split";
+	const splitMode = nodeFormat.split_config?.mode ?? "barrier";
   const nodeShape = nodeFormat.shape;
   const displayStatus = runtimeSummary?.display_status ?? (nodeRun ? toWorkflowRuntimeDisplayStatus(nodeRun.status) : "pending");
   const displayStatusLabel = runtimeDisplayStatusText(t, displayStatus, isGateway ? nodeFormat.gateway_kind : null);
-  const hasCritic = !isGateway && (node.critic_type || node.critic_id);
-  const deliverableSignal = runtimeSummary?.deliverable_signal ?? "none";
-  const deliverableTotal = runtimeSummary?.required_deliverables_total ?? 0;
-  const deliverableSubmitted = runtimeSummary?.required_deliverables_submitted ?? 0;
-  const deliverableApproved = runtimeSummary?.required_deliverables_approved ?? 0;
-  const showDeliverableSummary = !isGateway && deliverableTotal > 0;
+  const hasCritic = !isGateway && !isSplit && (node.critic_type || node.critic_id);
 
   const WorkerIcon = typeIcon(node.worker_type);
   const CriticIcon = node.critic_type === "agent" ? Bot : node.critic_type === "squad" ? Building2 : User;
   const GatewayIcon = nodeFormat.gateway_kind === "join" ? GitMerge : GitFork;
+  const splitProgress = runtimeSummary?.split_progress ?? null;
+  const hasSplitProgress = isSplit && !!splitProgress && splitProgress.total > 0;
+  const canToggleSplitChildren = isSplit && splitChildCount > 0 && !!onSplitNodeToggle;
+  const splitChildLabel = splitChildCountLabel(t, splitChildCount || (splitProgress?.total ?? 0));
+  const splitChildSummaryParts = splitProgress ? splitProgressSummaryParts(t, splitProgress) : [];
+  const splitChildSummaryLabel = splitChildSummaryParts.length > 0
+    ? splitChildSummaryParts.join(" · ")
+    : t(($) => $.execution.panorama.not_started);
+  const handleShellKeyDown = useCallback((event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (event.key !== "Enter" && event.key !== " ") return;
+    event.preventDefault();
+    onClick(node.id);
+  }, [node.id, onClick]);
+  const handleSplitToggleClick = useCallback((event: React.MouseEvent<HTMLButtonElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+    onSplitNodeToggle?.(node.id);
+  }, [node.id, onSplitNodeToggle]);
 
   const actionButtons: ActionButtonDef[] = nodeRun
-    ? isGateway
+    ? isGateway || isSplit
       ? []
       : (() => {
         switch (nodeRun.status) {
@@ -377,20 +421,116 @@ export function RuntimeNodeCard({
 
   return (
     <WorkflowCanvasNodeShell
-      as="button"
+      as={canToggleSplitChildren ? "div" : "button"}
       testId={`runtime-node-card-${node.id}`}
       nodeShape={nodeShape}
       selected={isSelected}
       width={WORKER_WIDTH}
       height={RUNTIME_NODE_HEIGHT}
       title={node.title}
+      dataRuntimeDisplayStatus={displayStatus}
+      dataRuntimeFocus={isRuntimeFocus}
+      tabIndex={canToggleSplitChildren ? 0 : undefined}
       onClick={() => onClick(node.id)}
+      onKeyDown={canToggleSplitChildren ? handleShellKeyDown : undefined}
       className="h-[120px]"
+      surfaceClassName={runtimeFocusSurfaceClassName(isRuntimeFocus, displayStatus)}
       contentClassName={cn("h-full justify-between gap-2", workflowNodeInfoAreaClassName(nodeShape))}
       handles={handles}
       lateralHandleTop={lateralHandleTop}
       elementRef={elementRef}
     >
+      {isSplit ? (
+        <>
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex min-w-0 items-center gap-1.5">
+              <GitBranch className="size-3.5 shrink-0 text-muted-foreground" />
+              <span className="truncate text-sm font-medium">{node.title}</span>
+            </div>
+						<div className="flex h-5 shrink-0 items-center gap-1">
+							<Badge variant="outline" className="h-5 px-1.5 text-[10px]">
+								{splitMode === "pipeline"
+									? t(($) => $.execution.card.split_mode_pipeline)
+									: t(($) => $.execution.card.split_mode_barrier)}
+							</Badge>
+							<RuntimeStatusPill status={displayStatus} label={displayStatusLabel} />
+						</div>
+          </div>
+
+          {canToggleSplitChildren ? (
+            <button
+              type="button"
+              data-testid="runtime-node-split-child-toggle"
+              className={cn(
+                "nodrag nopan flex min-h-10 w-full min-w-0 items-center justify-between gap-2 rounded-md border px-2.5 py-1.5 text-left",
+                "bg-background transition-colors",
+                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                isSplitExpanded
+                  ? "border-primary/45 text-primary shadow-[inset_0_0_0_1px_hsl(var(--primary)/0.12)] hover:border-primary/60 hover:bg-muted/35"
+                  : "border-border/80 hover:border-primary/35 hover:bg-muted/45",
+              )}
+              aria-label={
+                isSplitExpanded
+                  ? t(($) => $.execution.card.split_child_collapse)
+                  : t(($) => $.execution.card.split_child_expand)
+              }
+              aria-expanded={isSplitExpanded}
+              onClick={handleSplitToggleClick}
+            >
+              <span className="min-w-0">
+                <span className="block truncate text-[12px] font-semibold leading-4 text-foreground">
+                  {splitChildLabel}
+                </span>
+                <span className="block truncate text-[10px] font-medium leading-3 text-muted-foreground">
+                  {splitChildSummaryLabel}
+                </span>
+              </span>
+              <span
+                className={cn(
+                  "flex size-6 shrink-0 items-center justify-center rounded-md border transition-colors",
+                  isSplitExpanded
+                    ? "border-primary/35 bg-primary/10 text-primary"
+                    : "border-border/80 bg-muted/55 text-muted-foreground",
+                )}
+                aria-hidden
+              >
+                {isSplitExpanded ? (
+                  <ChevronDown className="size-3.5" />
+                ) : (
+                  <ChevronRight className="size-3.5" />
+                )}
+              </span>
+            </button>
+          ) : hasSplitProgress ? (
+            <SplitProgressSummary
+              label={splitChildLabel}
+              summary={splitChildSummaryLabel}
+            />
+          ) : (
+            <div
+              data-testid="runtime-node-content"
+              className={cn(
+                "grid gap-1.5 border-t border-border/45 py-1.5",
+                node.critic_type || node.critic_id ? "grid-cols-2" : "grid-cols-1",
+              )}
+            >
+              <ActorSlot
+                icon={WorkerIcon}
+                label={t(($) => $.execution.card.worker_label)}
+                name={workerName}
+              />
+              {node.critic_type || node.critic_id ? (
+                <ActorSlot
+                  icon={CriticIcon}
+                  label={t(($) => $.execution.card.critic_label)}
+                  name={criticName}
+                />
+              ) : null}
+            </div>
+          )}
+        </>
+      ) : (
+        <>
       {/* Row 1: node title + status icon */}
       <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-1.5 min-w-0">
@@ -406,14 +546,11 @@ export function RuntimeNodeCard({
           ) : null}
           <span className="text-sm font-medium truncate">{node.title}</span>
         </div>
-        <span className="inline-flex shrink-0 items-center gap-1 rounded-md bg-muted/35 px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
-          <RuntimeDisplayStatusIcon
-            status={displayStatus}
-            gatewayKind={isGateway ? nodeFormat.gateway_kind : null}
-            className="h-3.5 w-3.5"
-          />
-          <span>{displayStatusLabel}</span>
-        </span>
+        <RuntimeStatusPill
+          status={displayStatus}
+          gatewayKind={isGateway ? nodeFormat.gateway_kind : null}
+          label={displayStatusLabel}
+        />
       </div>
 
       {isGateway ? (
@@ -424,10 +561,10 @@ export function RuntimeNodeCard({
             </span>
             <div className="min-w-0">
               <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-                Gateway
+                {t(($) => $.execution.card.gateway_label)}
               </p>
               <p className="truncate font-medium text-foreground/85">
-                {gatewayLabel(nodeFormat.gateway_kind)}
+                {gatewayLabel(t, nodeFormat.gateway_kind)}
               </p>
             </div>
           </div>
@@ -452,15 +589,6 @@ export function RuntimeNodeCard({
               name={criticName}
             />
           ) : null}
-          {showDeliverableSummary ? (
-            <DeliverableSlot
-              t={t}
-              signal={deliverableSignal}
-              submitted={deliverableSubmitted}
-              total={deliverableTotal}
-              approved={deliverableApproved}
-            />
-          ) : null}
         </div>
       )}
 
@@ -473,6 +601,8 @@ export function RuntimeNodeCard({
           isActionLoading={isActionLoading}
           buttons={actionButtons}
         />
+      )}
+        </>
       )}
     </WorkflowCanvasNodeShell>
   );

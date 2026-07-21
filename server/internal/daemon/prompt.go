@@ -15,8 +15,14 @@ import (
 // lightweight inline template (or Windows file for any provider on
 // Windows).
 func BuildPrompt(task Task, provider string) string {
+	if task.WorkflowPhase == "split_chat" {
+		return buildSplitChatPrompt(task)
+	}
 	if task.ChatSessionID != "" {
 		return buildChatPrompt(task)
+	}
+	if task.WorkflowPhase == "split" {
+		return buildSplitPrompt(task)
 	}
 	if task.TriggerCommentID != "" {
 		return buildCommentPrompt(task, provider)
@@ -87,6 +93,108 @@ func BuildPrompt(task Task, provider string) string {
 
 	fmt.Fprintf(&b, "Start by running `cs-workflow issue get %s --output json` to understand your task, then complete it.\n", task.IssueID)
 	fmt.Fprintf(&b, "For comment history, follow the rule in your runtime workflow file (assignment-triggered tasks treat the read as mandatory). `cs-workflow issue comment list %s --output json` returns all comments for the issue (server caps at 2000). On long-running issues use `--recent 20 --output json` to read the 20 most recently active threads, then page older threads via the stderr `Next thread cursor: ...` line and the matching `--before` / `--before-id` until you have enough history. `--since <RFC3339>` is still available for incremental polling and may combine with `--recent`.\n", task.IssueID)
+	return b.String()
+}
+
+func buildSplitPrompt(task Task) string {
+	var b strings.Builder
+	if task.WorkflowSplitRepair {
+		b.WriteString("You are repairing a failed split draft generation for a Multica workflow.\n\n")
+		fmt.Fprintf(&b, "Source task ID: %s\n\n", task.WorkflowSplitRepairSourceTaskID)
+		if strings.TrimSpace(task.WorkflowSplitRepairSourceOutput) != "" {
+			b.WriteString("The failed task produced this final output. Use it as one recovery source, but verify against the split planning issue, comments, and attachments before submitting drafts:\n\n")
+			fmt.Fprintf(&b, "```\n%s\n```\n\n", strings.TrimSpace(task.WorkflowSplitRepairSourceOutput))
+		}
+		b.WriteString("Your job is to recover usable draft tasks and submit them for human review.\n\n")
+	} else {
+		b.WriteString("You are running as a dynamic split-task generator for a Multica workflow.\n\n")
+	}
+	if task.WorkflowNodeRunID != "" {
+		fmt.Fprintf(&b, "Workflow node run ID: %s\n", task.WorkflowNodeRunID)
+	}
+	if task.WorkflowSplitParentIssueID != "" {
+		fmt.Fprintf(&b, "Parent issue ID: %s\n", task.WorkflowSplitParentIssueID)
+	}
+	if task.WorkflowSplitParentIssueTitle != "" {
+		fmt.Fprintf(&b, "Parent issue title: %s\n", task.WorkflowSplitParentIssueTitle)
+	}
+	if strings.TrimSpace(task.WorkflowSplitParentIssueDescription) != "" {
+		fmt.Fprintf(&b, "\nParent issue description:\n%s\n", strings.TrimSpace(task.WorkflowSplitParentIssueDescription))
+	}
+	b.WriteString("\n")
+	fmt.Fprintf(&b, "Read the split planning issue with `cs-workflow issue get %s --output json` and inspect comments only if they are needed for context.\n\n", task.IssueID)
+	b.WriteString("Your job is to propose child tasks for human review. The platform will create the actual child issues later after review.\n\n")
+	b.WriteString("The backend applies the configured default issue workflow to every draft. Do NOT output workflow_id. Reviewers change execution workflow later in Multica.\n\n")
+	b.WriteString("Hard rules:\n")
+	b.WriteString("- Do NOT create issues.\n")
+	b.WriteString("- Do NOT change issue status.\n")
+	b.WriteString("- Do NOT post comments.\n")
+	b.WriteString("- Do NOT modify code, docs, or repository files.\n")
+	b.WriteString("- Do NOT use an issue ID as the node run ID.\n")
+	b.WriteString("- Submit draft tasks through the split draft CLI; the platform will route them to human review.\n\n")
+	b.WriteString("Primary success path:\n")
+	b.WriteString("1. Write each draft task description to a UTF-8 markdown file.\n")
+	b.WriteString("2. Add each draft with `cs-workflow workflow split draft add <node-run-id> --key <stable-key> --title \"...\" --description-file <file>`.\n")
+	b.WriteString("3. Use `--depends-on <stable-key>` for each dependency on a previously added draft task.\n")
+	if task.WorkflowNodeRunID != "" {
+		fmt.Fprintf(&b, "4. When all drafts are added, run `cs-workflow workflow split draft submit %s --output json`.\n\n", task.WorkflowNodeRunID)
+		fmt.Fprintf(&b, "After `cs-workflow workflow split draft submit %s --output json` succeeds, stop.\n\n", task.WorkflowNodeRunID)
+	} else {
+		b.WriteString("4. When all drafts are added, run `cs-workflow workflow split draft submit <node-run-id> --output json`.\n\n")
+		b.WriteString("After `cs-workflow workflow split draft submit <node-run-id> --output json` succeeds, stop.\n\n")
+	}
+	b.WriteString("Use the exact workflow node run ID from the task context files.\n\n")
+	b.WriteString("Fallback only: if the draft CLI is unavailable, return a clear Markdown task breakdown. The server will attempt recovery, but CLI submission is more reliable.\n")
+	return b.String()
+}
+
+func buildSplitChatPrompt(task Task) string {
+	var b strings.Builder
+	b.WriteString("You are running as a split review adjustment agent for a Multica workflow.\n\n")
+	b.WriteString("A user reviewed the current split draft tasks and requested an adjustment. Update the draft set for human review; the platform will create child issues later.\n\n")
+	fmt.Fprintf(&b, "Workflow node run ID: %s\n", task.WorkflowNodeRunID)
+	if task.WorkflowSplitParentIssueID != "" {
+		fmt.Fprintf(&b, "Parent issue ID: %s\n", task.WorkflowSplitParentIssueID)
+	}
+	if task.WorkflowSplitParentIssueTitle != "" {
+		fmt.Fprintf(&b, "Parent issue title: %s\n", task.WorkflowSplitParentIssueTitle)
+	}
+	if strings.TrimSpace(task.WorkflowSplitParentIssueDescription) != "" {
+		fmt.Fprintf(&b, "\nParent issue description:\n%s\n", strings.TrimSpace(task.WorkflowSplitParentIssueDescription))
+	}
+	fmt.Fprintf(&b, "\nUser requested:\n%s\n\n", strings.TrimSpace(task.ChatMessage))
+	if len(task.ChatMessageAttachments) > 0 {
+		b.WriteString("Attachments on this message:\n")
+		for _, a := range task.ChatMessageAttachments {
+			if a.ContentType != "" {
+				fmt.Fprintf(&b, "- id=%s filename=%q content_type=%s\n", a.ID, a.Filename, a.ContentType)
+			} else {
+				fmt.Fprintf(&b, "- id=%s filename=%q\n", a.ID, a.Filename)
+			}
+		}
+		b.WriteString("Use `cs-workflow attachment download <id>` to fetch each file locally before referring to it.\n\n")
+	}
+	if strings.TrimSpace(string(task.WorkflowSplitCurrentDrafts)) != "" {
+		fmt.Fprintf(&b, "Current draft tasks:\n```json\n%s\n```\n\n", strings.TrimSpace(string(task.WorkflowSplitCurrentDrafts)))
+	}
+	if strings.TrimSpace(string(task.WorkflowSplitConfig)) != "" {
+		fmt.Fprintf(&b, "Split config:\n```json\n%s\n```\n\n", strings.TrimSpace(string(task.WorkflowSplitConfig)))
+	}
+	b.WriteString("Hard rules:\n")
+	b.WriteString("- Do NOT create issues.\n")
+	b.WriteString("- Do NOT change issue status.\n")
+	b.WriteString("- Do NOT post comments.\n")
+	b.WriteString("- Do NOT modify code, docs, or repository files.\n")
+	b.WriteString("- Do not treat this as a normal chat response; update the split draft set through the draft CLI.\n\n")
+	b.WriteString("Never answer that the task is already complete or that no further operation is needed unless the user's request explicitly asks for no change. A successful run must leave a durable draft update: use the draft CLI, or as a fallback output a clear Markdown task breakdown that the server can recover into draft tasks.\n\n")
+	b.WriteString("Primary success path:\n")
+	b.WriteString("1. Decide which existing drafts to keep, discard or replace based on the user request.\n")
+	b.WriteString("2. Use `cs-workflow workflow split draft delete <node-run-id> <draft-task-id>` to discard drafts that should be removed.\n")
+	b.WriteString("3. Write each new or replacement draft task description to a UTF-8 markdown file.\n")
+	b.WriteString("4. Add or replace drafts with `cs-workflow workflow split draft add <node-run-id> --key <stable-key> --title \"...\" --description-file <file>`.\n")
+	b.WriteString("5. Use `--depends-on <stable-key>` only when a dependency is real and refers to a kept or newly added draft.\n")
+	b.WriteString("6. When the adjusted draft set is complete, run `cs-workflow workflow split draft submit <node-run-id>`.\n\n")
+	b.WriteString("If the user asks to simplify, prefer fewer clearer drafts over preserving every existing draft. Your final assistant output can be brief; the durable result is the submitted draft set.\n")
 	return b.String()
 }
 

@@ -61,6 +61,45 @@ func readInvocations(t *testing.T, dir string) []string {
 	return lines
 }
 
+func writeFailingCommand(t *testing.T, dir string) string {
+	t.Helper()
+	if runtime.GOOS == "windows" {
+		path := filepath.Join(dir, "csc.cmd")
+		script := "@echo off\r\necho Refreshing marketplace cache\r\necho fatal: TLS connect error 1>&2\r\nexit /b 42\r\n"
+		if err := os.WriteFile(path, []byte(script), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		return path
+	}
+	path := filepath.Join(dir, "csc")
+	script := "#!/bin/sh\necho 'Refreshing marketplace cache'\necho 'fatal: TLS connect error' >&2\nexit 42\n"
+	if err := os.WriteFile(path, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+func TestRunCSCCmdErrorIncludesCommandOutput(t *testing.T) {
+	dir := t.TempDir()
+	fakeBin := writeFailingCommand(t, dir)
+	workDir := filepath.Join(dir, "work")
+	if err := os.MkdirAll(workDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	err := runCSCCmd(context.Background(), fakeBin, workDir, "plugin", "marketplace", "update", "costrict-plugins")
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	errText := err.Error()
+	if !strings.Contains(errText, "Refreshing marketplace cache") {
+		t.Fatalf("expected stdout in error, got: %v", err)
+	}
+	if !strings.Contains(errText, "fatal: TLS connect error") {
+		t.Fatalf("expected stderr in error, got: %v", err)
+	}
+}
+
 // testPlugin returns a standard plugin for testing.
 func testPlugin() *AgentPlugin {
 	return &AgentPlugin{

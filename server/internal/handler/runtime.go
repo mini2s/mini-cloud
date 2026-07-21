@@ -561,7 +561,7 @@ func (h *Handler) DeleteAgentRuntime(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if activeCount > 0 {
-		writeError(w, http.StatusConflict, "cannot delete runtime: it has active agents bound to it. Archive or reassign the agents first.")
+		writeCodeError(w, http.StatusConflict, "runtime_has_active_agents", "cannot delete runtime: it has active agents bound to it. Archive or reassign the agents first.")
 		return
 	}
 

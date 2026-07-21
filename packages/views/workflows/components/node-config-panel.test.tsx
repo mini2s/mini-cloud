@@ -11,17 +11,18 @@ const mocks = vi.hoisted(() => ({
   deleteNodeMutateAsync: vi.fn(),
   assignStageMutate: vi.fn(),
   createStageMutateAsync: vi.fn(),
-  createDeliverableMutateAsync: vi.fn(),
-  updateDeliverableMutateAsync: vi.fn(),
-  deleteDeliverableMutateAsync: vi.fn(),
   saveNode: vi.fn(),
   nodeEdits: {} as Record<string, unknown>,
-  deliverables: [] as unknown[],
   assigneePickerCalls: [] as Array<{
     assigneeType: string | null;
     assigneeId: string | null;
     includeWorkflows?: boolean;
   }>,
+  workflows: [
+    { id: "wf-1", title: "Parent workflow", status: "active", is_template: false },
+    { id: "child-wf-1", title: "Default child flow", status: "active", is_template: false },
+    { id: "child-wf-2", title: "Shipping child flow", status: "active", is_template: false },
+  ] as Array<{ id: string; title: string; status: string; is_template: boolean }>,
   roles: [
     { id: "role-1", name: "Implementer" },
     { id: "role-2", name: "Reviewer" },
@@ -30,8 +31,8 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("@tanstack/react-query", () => ({
   useQuery: (options: { queryKey?: unknown[] }) =>
-    options.queryKey?.[0] === "deliverables"
-      ? { data: mocks.deliverables }
+    options.queryKey?.[0] === "workflows"
+        ? { data: mocks.workflows.filter((workflow) => workflow.status === "active") }
       : { data: mocks.roles },
 }));
 
@@ -41,13 +42,10 @@ vi.mock("@multica/core/hooks", () => ({
 
 vi.mock("@multica/core/workflows/queries", () => ({
   workflowRolesOptions: () => ({ queryKey: ["workflow-roles"] }),
-  workflowNodeDeliverablesOptions: () => ({ queryKey: ["deliverables"] }),
+  workflowActiveListOptions: () => ({ queryKey: ["workflows"] }),
   useAssignNodeToStage: () => ({ mutate: mocks.assignStageMutate, isPending: false }),
   useCreateStage: () => ({ mutateAsync: mocks.createStageMutateAsync, isPending: false, error: null }),
   useDeleteNode: () => ({ mutateAsync: mocks.deleteNodeMutateAsync, isPending: false }),
-  useCreateWorkflowNodeDeliverable: () => ({ mutateAsync: mocks.createDeliverableMutateAsync, isPending: false }),
-  useUpdateWorkflowNodeDeliverable: () => ({ mutateAsync: mocks.updateDeliverableMutateAsync, isPending: false }),
-  useDeleteWorkflowNodeDeliverable: () => ({ mutateAsync: mocks.deleteDeliverableMutateAsync, isPending: false }),
 }));
 
 vi.mock("@multica/core/workflows/store", () => ({
@@ -113,10 +111,6 @@ vi.mock("../../issues/components/pickers/assignee-picker", () => ({
     },
 }));
 
-vi.mock("./node-deliverables-editor", () => ({
-  NodeDeliverablesEditor: () => <div data-testid="deliverables-editor">Deliverables editor</div>,
-}));
-
 vi.mock("./node-data-preview", () => ({
   NodeDataPreview: ({ nodeRun }: { nodeRun?: WorkflowNodeRun | null }) => (
     <div data-testid="node-data-preview">{nodeRun?.status ?? "no-data"}</div>
@@ -137,12 +131,16 @@ vi.mock("../../i18n", () => {
     detail_panel: {
       eyebrow: "Node inspector",
       close_label: "Close node inspector",
-      section_primary: "Primary",
-      section_primary_desc: "Definition fields and ownership for this workflow node.",
+      section_readiness: "Readiness",
+      section_readiness_desc: "Confirm the node can run before publishing.",
+      section_primary: "Node intent",
+      section_primary_desc: "Definition fields for this workflow node.",
+      section_worker_critic: "Worker and critic",
+      section_worker_critic_desc: "Assign who performs and reviews this node.",
+      section_split_behavior: "Split behavior",
+      section_split_behavior_desc: "Control child issue release, concurrency, and failure handling.",
       section_annotation_binding: "Annotation binding",
       section_annotation_binding_desc: "Attach this note to a workflow node.",
-      section_deliverables: "Deliverables",
-      section_deliverables_desc: "Required documents or pull requests for this node.",
       section_runtime: "Runtime",
       section_runtime_desc: "Latest run context for this node.",
       section_connections: "Connections",
@@ -157,9 +155,35 @@ vi.mock("../../i18n", () => {
       badge_configured: "Configured",
       badge_needs_assignee: "Needs assignee",
       badge_optional: "Optional",
+      badge_needs_default_issue_workflow: "Needs default issue workflow",
+      readiness_worker_ready: "Worker ready",
+      readiness_worker_missing: "Worker missing",
+      readiness_critic_ready: "Critic ready",
+      readiness_critic_optional: "Critic optional",
+      readiness_split_ready: "Default issue workflow ready",
+      readiness_split_missing: "Default issue workflow missing",
       label_bind_to_node: "Bind to Node",
       label_worker_role: "Worker role",
       label_critic_role: "Critic role",
+      split_title: "Split settings",
+      split_subtitle: "Configure the planner agent, default issue workflow, and runtime limits for task splitting.",
+      split_review_required_title: "Human review is required",
+      split_review_required_hint: "Generated split tasks always stop for human review before child issues are created.",
+      split_worker_subtitle: "The Agent that generates the task splitting plan.",
+      split_critic_subtitle: "The reviewer that approves generated split drafts.",
+      split_default_issue_workflow_label: "Default issue workflow",
+      split_default_issue_workflow_placeholder: "Select default issue workflow...",
+      split_release_mode_label: "Release downstream work",
+      split_release_after_finish: "After child issues finish",
+      split_release_after_created: "After child issues are created",
+      split_mode_hint: "Barrier waits for child tasks; Pipeline releases downstream after issue creation.",
+      split_concurrency_question: "How many child issues can run at once?",
+      split_concurrency_hint: "Run at most this many child issues at once.",
+      split_failure_tolerance_label: "Failure tolerance",
+			connection_upstream_count: "2 upstream",
+			connection_downstream_count: "1 downstream",
+			trial_run: "Trial run",
+      split_max_failures_hint: "Barrier mode fails the parent split when child failures exceed this number.",
       select_node: "Select a node...",
       select_role: "Select a role...",
       actor_role_hint: "Resolved when the workflow runs",
@@ -180,8 +204,6 @@ vi.mock("../../i18n", () => {
       worker_subtitle: "Who performs this workflow step.",
       critic_subtitle: "Who reviews or validates the worker output.",
       worker_critic_divider: "Worker output moves to Critic review",
-      deliverables_not_applicable_gateway: "Gateway nodes do not define deliverables.",
-      deliverables_not_applicable_annotation: "Annotation nodes do not define deliverables.",
       runtime_status_label: "Status: {{status}}",
       runtime_hint: "Worker output, critic output and comments remain available in this runtime section.",
       runtime_no_data: "No run data for this node yet.",
@@ -190,7 +212,6 @@ vi.mock("../../i18n", () => {
       connections_bound_to: "Bound to: {{node}}",
       save_changes: "Save changes",
       actions_disabled: "Node actions are disabled in this context.",
-      deliverable_default_title: "New deliverable",
     },
     node: {
       title: "Node inspector",
@@ -222,10 +243,33 @@ vi.mock("../../i18n", () => {
       toast_deleted: "Node deleted",
       toast_delete_failed: "Failed to delete node",
     },
+    preflight: {
+      detail_split_planner_missing: "Assign an Agent to this split node",
+      detail_split_critic_missing: "Assign a Critic to review split drafts",
+      detail_split_critic_automated: "Automated split draft critics can approve risky task plans",
+      detail_split_default_issue_workflow_missing: "Split node needs a default issue workflow",
+      detail_split_default_issue_workflow_invalid: "Split default issue workflow is unavailable",
+      detail_split_default_issue_workflow_inactive: "Split default issue workflow must be active",
+      detail_split_default_issue_workflow_nested: "Split default issue workflow cannot contain another split node",
+      detail_split_default_issue_workflow_self: "Split default issue workflow cannot be the current workflow",
+      detail_split_max_concurrency_invalid: "Split concurrency must be an integer from 1 to 50",
+      detail_worker_missing: "Assign a worker to this node",
+      detail_stage_missing: "Assign this node to a stage",
+      detail_invalid_critic: "Critic ID not found in available agents",
+      detail_dag_cycle: "Nodes form a cycle: {{path}}",
+      detail_gateway_fork_outgoing: "Fork gateway needs at least two downstream nodes",
+      detail_gateway_join_incoming: "Join gateway needs at least two upstream nodes",
+      detail_gateway_kind_invalid: "Gateway type must be Fork or Join",
+      detail_gateway_join_multiple_outgoing: "Join gateway usually continues to one downstream node",
+    },
   };
   return {
     useT: () => ({
-      t: (selector: (value: typeof translations) => string) => selector(translations),
+      t: (selector: (value: typeof translations) => string, options?: Record<string, string>) => {
+        let value = selector(translations);
+        if (options) for (const [k, r] of Object.entries(options)) value = value.replace(`{{${k}}}`, String(r));
+        return value;
+      },
     }),
   };
 });
@@ -280,7 +324,6 @@ describe("NodeConfigPanel", () => {
     mocks.cacheNodeEdits.mockReset();
     mocks.saveNode.mockReset();
     mocks.nodeEdits = {};
-    mocks.deliverables = [];
     mocks.assigneePickerCalls = [];
   });
 
@@ -332,11 +375,11 @@ describe("NodeConfigPanel", () => {
   it("uses the fixed shared detail section order in edit mode", () => {
     renderPanel();
 
+    expect(screen.getByTestId("node-readiness-summary")).toHaveClass("rounded-lg", "border");
     expect(screen.getAllByTestId("node-detail-section").map((section) => section.getAttribute("data-section"))).toEqual([
+      "readiness",
       "primary",
-      "deliverables",
-      "runtime",
-      "connections",
+      "worker-critic",
       "actions",
     ]);
   });
@@ -344,7 +387,7 @@ describe("NodeConfigPanel", () => {
   it("does not render legacy nested subsection cards inside the shared primary section", () => {
     renderPanel();
 
-    expect(screen.getByText("Primary")).toBeInTheDocument();
+    expect(screen.getByText("Node intent")).toBeInTheDocument();
     expect(screen.queryByText("Basics")).not.toBeInTheDocument();
   });
 
@@ -393,16 +436,18 @@ describe("NodeConfigPanel", () => {
       session_id: null,
       runtime_id: null,
       device_id: null,
+      split_review_chat_session_id: null,
+      split_config_version: 1,
       started_at: null,
       completed_at: null,
       created_at: "",
       updated_at: "",
     });
 
-    expect(screen.getByText("Latest run: {{status}}")).toBeInTheDocument();
+    expect(screen.getByText("Latest run: critic_rework")).toBeInTheDocument();
   });
 
-  it("shows gateway semantics without worker critic or deliverable editors", () => {
+  it("shows gateway semantics without worker or critic editors", () => {
     render(
       <NodeConfigPanel
         node={{
@@ -423,6 +468,174 @@ describe("NodeConfigPanel", () => {
     expect(screen.getByText("Automatically completes and fans out to all downstream nodes.")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Builder Agent" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Reviewer Agent" })).not.toBeInTheDocument();
-    expect(screen.queryByTestId("deliverables-editor")).not.toBeInTheDocument();
+  });
+
+  it("renders split settings with worker and critic", () => {
+    render(
+      <NodeConfigPanel
+        node={{
+          ...node,
+          id: "split-1",
+          title: "Split rollout",
+          critic_id: null,
+          format_schema: {
+            type: "split",
+            template_id: "task-splitter",
+            template_category: "logic",
+            shape: "rectangle",
+            split_config: {
+              default_issue_workflow_id: "child-wf-2",
+              mode: "barrier",
+              max_concurrency: 3,
+              max_failures: 1,
+            },
+          },
+        }}
+        workflowId="wf-1"
+        stages={stages}
+        onClose={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText("Split settings")).toBeInTheDocument();
+    expect(screen.getByText("Human review is required")).toBeInTheDocument();
+    expect(screen.getByText("Generated split tasks always stop for human review before child issues are created.")).toBeInTheDocument();
+    expect(screen.getByLabelText("Default issue workflow")).toHaveValue("child-wf-2");
+    expect(screen.getByLabelText("How many child issues can run at once?")).toHaveValue(3);
+    expect(screen.getByLabelText("Failure tolerance")).toHaveValue(1);
+    expect(screen.getAllByText("Worker").length).toBeGreaterThan(0);
+    expect(screen.getByText("The Agent that generates the task splitting plan.")).toBeInTheDocument();
+    expect(screen.getAllByText("Critic").length).toBeGreaterThan(0);
+    expect(screen.getByText("The reviewer that approves generated split drafts.")).toBeInTheDocument();
+  });
+
+	it("orders split sections and shows readiness, connections, and trial run", () => {
+		const onTrialRun = vi.fn();
+    render(
+      <NodeConfigPanel
+        node={{
+          ...node,
+          id: "split-1",
+          title: "Split work",
+          critic_id: null,
+          format_schema: {
+            type: "split",
+            split_config: {
+              default_issue_workflow_id: "child-wf-1",
+              mode: "barrier",
+              max_concurrency: 5,
+              max_failures: 1,
+            },
+          },
+        }}
+        workflowId="wf-1"
+        stages={stages}
+        onClose={vi.fn()}
+				preflightIssues={[{
+					checkId: "split-critic-automated",
+					severity: "warning",
+					blocking: false,
+					nodeId: "split-1",
+					message: "Automated split draft critics can approve risky task plans",
+				}]}
+				incomingCount={2}
+				outgoingCount={1}
+				onTrialRun={onTrialRun}
+      />,
+    );
+
+    expect(screen.getAllByTestId("node-detail-section").map((section) => section.getAttribute("data-section"))).toEqual([
+      "readiness",
+      "primary",
+      "worker-critic",
+			"split-behavior",
+			"connections",
+      "actions",
+    ]);
+		expect(screen.getByText("Automated split draft critics can approve risky task plans")).toBeInTheDocument();
+		expect(screen.getByText("2 upstream")).toBeInTheDocument();
+		expect(screen.getByText("1 downstream")).toBeInTheDocument();
+		fireEvent.click(screen.getByRole("button", { name: "Trial run" }));
+		expect(onTrialRun).toHaveBeenCalledOnce();
+  });
+
+  it("updates split format_schema fields without dropping existing metadata", () => {
+    render(
+      <NodeConfigPanel
+        node={{
+          ...node,
+          id: "split-1",
+          title: "Split rollout",
+          critic_id: null,
+          format_schema: {
+            type: "split",
+            template_id: "task-splitter",
+            template_category: "logic",
+            shape: "rectangle",
+            split_config: {
+              default_issue_workflow_id: "child-wf-1",
+              mode: "barrier",
+              max_concurrency: 5,
+              max_failures: 0,
+            },
+          },
+        }}
+        workflowId="wf-1"
+        stages={stages}
+        onClose={vi.fn()}
+      />,
+    );
+
+    fireEvent.change(screen.getByLabelText("Default issue workflow"), {
+      target: { value: "child-wf-2" },
+    });
+    expect(mocks.cacheNodeEdits).toHaveBeenLastCalledWith("split-1", {
+      format_schema: {
+        type: "split",
+        template_id: "task-splitter",
+        template_category: "logic",
+        shape: "rectangle",
+        split_config: {
+          default_issue_workflow_id: "child-wf-2",
+          mode: "barrier",
+          max_concurrency: 5,
+          max_failures: 0,
+        },
+      },
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "After child issues are created" }));
+    expect(mocks.cacheNodeEdits).toHaveBeenLastCalledWith("split-1", {
+      format_schema: {
+        type: "split",
+        template_id: "task-splitter",
+        template_category: "logic",
+        shape: "rectangle",
+        split_config: {
+          default_issue_workflow_id: "child-wf-1",
+          mode: "pipeline",
+          max_concurrency: 5,
+          max_failures: 0,
+        },
+      },
+    });
+
+    fireEvent.change(screen.getByLabelText("How many child issues can run at once?"), {
+      target: { value: "7" },
+    });
+    expect(mocks.cacheNodeEdits).toHaveBeenLastCalledWith("split-1", {
+      format_schema: {
+        type: "split",
+        template_id: "task-splitter",
+        template_category: "logic",
+        shape: "rectangle",
+        split_config: {
+          default_issue_workflow_id: "child-wf-1",
+          mode: "barrier",
+          max_concurrency: 7,
+          max_failures: 0,
+        },
+      },
+    });
   });
 });

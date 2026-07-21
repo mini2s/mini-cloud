@@ -18,7 +18,8 @@
     "confirm": "删除",
     "deleting": "删除中...",
     "toast_deleted": "已删除 issue",
-    "toast_delete_failed": "删除 issue 失败"
+    "toast_delete_failed": "删除 issue 失败",
+    "active_split_blocking": "所选 issue 存在正在执行的任务拆分，请先取消拆分后再删除。"
   },
   "issue_detail": {
     "title": "Issue 详情"

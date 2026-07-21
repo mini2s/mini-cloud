@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -85,11 +86,11 @@ func (b *streamJSONBackend) Execute(ctx context.Context, prompt string, opts Exe
 		cancel()
 		return nil, fmt.Errorf("%s stdin pipe: %w", b.name, err)
 	}
+	var closeStdinOnce sync.Once
 	closeStdin := func() {
-		if stdin != nil {
+		closeStdinOnce.Do(func() {
 			_ = stdin.Close()
-			stdin = nil
-		}
+		})
 	}
 	// Capture stderr into both the daemon log (as before) and a bounded tail
 	// buffer so we can include the last few KB in Result.Error when claude
@@ -104,29 +105,16 @@ func (b *streamJSONBackend) Execute(ctx context.Context, prompt string, opts Exe
 		cancel()
 		return nil, fmt.Errorf("start %s: %w", b.name, err)
 	}
-	if err := writeClaudeInput(stdin, prompt); err != nil {
-		// %s almost certainly died during startup (broken pipe). The
-		// real reason is sitting in stderrBuf — surface it the same way the
-		// post-handshake error path does, otherwise the daemon log is the
-		// only place that knows whether it was a V8 abort, a missing native
-		// module, or anything else. cmd.Wait() flushes os/exec's stderr
-		// copy goroutine, so stderrBuf.Tail() is safe to read.
-		closeStdin()
-		cancel()
-		_ = cmd.Wait()
-		return nil, errors.New(withAgentStderr(fmt.Sprintf("write %s input: %v", b.name, err), b.name, stderrBuf.Tail()))
-	}
-	closeStdin()
-
-	b.cfg.Logger.Info(fmt.Sprintf("%s started", b.name), "pid", cmd.Process.Pid, "cwd", opts.Cwd, "model", opts.Model)
 
 	// cmd.Start() succeeded — transfer temp file ownership to the goroutine.
 	mcpFileCleanup = nil
 
 	msgCh := make(chan Message, 256)
 	resCh := make(chan Result, 1)
+	doneCh := make(chan struct{})
 
 	go func() {
+		defer close(doneCh)
 		defer cancel()
 		defer close(msgCh)
 		defer close(resCh)
@@ -239,6 +227,22 @@ func (b *streamJSONBackend) Execute(ctx context.Context, prompt string, opts Exe
 			Usage:      usage,
 		}
 	}()
+
+	if err := writeClaudeInput(stdin, prompt); err != nil {
+		// %s almost certainly died during startup (broken pipe). The
+		// real reason is sitting in stderrBuf — surface it the same way the
+		// post-handshake error path does, otherwise the daemon log is the
+		// only place that knows whether it was a V8 abort, a missing native
+		// module, or anything else. The lifecycle goroutine owns cmd.Wait();
+		// wait for it so stderrBuf.Tail() is complete before returning.
+		closeStdin()
+		cancel()
+		<-doneCh
+		return nil, errors.New(withAgentStderr(fmt.Sprintf("write %s input: %v", b.name, err), b.name, stderrBuf.Tail()))
+	}
+	closeStdin()
+
+	b.cfg.Logger.Info(fmt.Sprintf("%s started", b.name), "pid", cmd.Process.Pid, "cwd", opts.Cwd, "model", opts.Model)
 
 	return &Session{Messages: msgCh, Result: resCh}, nil
 }

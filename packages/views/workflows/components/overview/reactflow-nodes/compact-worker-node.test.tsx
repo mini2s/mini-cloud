@@ -9,9 +9,18 @@ import type { WorkflowNode } from "@multica/core/types";
 // Minimal mock for the i18n hook
 vi.mock("../../../../i18n", () => ({
   useT: () => ({
-    t: (getter: (d: { node: Record<string, string> }) => string) => {
-      const dict = { node: { worker_name: "Worker", agent_label: "Agent", not_configured: "Not configured" } };
-      return getter(dict);
+    t: (
+      getter: (d: {
+        node: Record<string, string>;
+        detail_panel: Record<string, string>;
+      }) => string,
+      values?: Record<string, string | number>,
+    ) => {
+      const dict = {
+        node: { worker_name: "Worker", agent_label: "Agent", not_configured: "Not configured" },
+        detail_panel: { split_node_mode_concurrency: "{{mode}} · concurrency {{concurrency}}" },
+      };
+      return getter(dict).replace(/{{\s*(\w+)\s*}}/g, (_match, key: string) => String(values?.[key] ?? ""));
     },
   }),
 }));
@@ -75,6 +84,7 @@ describe("CompactWorkerNode", () => {
     stageColorIndex: 0,
     pluginName: "builtin/code-review",
     workerName: "GPT-4 Agent",
+    workerConfigured: true,
   };
 
   it("renders with correct dimensions", () => {
@@ -125,7 +135,7 @@ describe("CompactWorkerNode", () => {
     expect(screen.getByText("GPT-4 Agent")).toBeInTheDocument();
   });
 
-  it("renders the Soft Slab node structure with a type badge and footer metadata", () => {
+  it("renders the Soft Slab node structure with a type badge and role metadata", () => {
     const rfn = {
       id: "node-1",
       type: "compactWorker",
@@ -139,9 +149,36 @@ describe("CompactWorkerNode", () => {
     expect(badge).toHaveTextContent("Agent");
     expect(badge).toHaveClass("border-border/55", "bg-background/70", "text-muted-foreground");
     expect(meta).toHaveTextContent("GPT-4 Agent");
-    expect(meta).toHaveTextContent("Configured");
+    expect(meta).toHaveTextContent("Optional");
     expect(meta).toHaveClass("border-t", "border-border/45");
     expect(meta.className).not.toContain("border-slate-200/55");
+  });
+
+  it("renders worker and critic as internal roles on one node", () => {
+    const rfn = {
+      id: "node-1",
+      type: "compactWorker",
+      position: { x: 100, y: 12 },
+      data: {
+        ...baseData,
+        node: makeWorkerNode({
+          id: "node-1",
+          title: "Implement API",
+          worker_type: "agent",
+          worker_id: "agent-1",
+          critic_type: "human",
+          critic_id: "member-1",
+        }),
+        workerName: "Builder Agent",
+        criticName: "Reviewer",
+        workerConfigured: true,
+        criticConfigured: true,
+      },
+    } as Node;
+    renderWithProvider(rfn);
+
+    expect(screen.getByTestId("compact-worker-node-worker-role-node-1")).toHaveTextContent("Builder Agent");
+    expect(screen.getByTestId("compact-worker-node-critic-role-node-1")).toHaveTextContent("Reviewer");
   });
 
   it("does not show missing worker warnings on the card", () => {
@@ -156,11 +193,10 @@ describe("CompactWorkerNode", () => {
       },
     } as Node;
     renderWithProvider(rfn);
-    expect(screen.queryByText("Not configured")).not.toBeInTheDocument();
     expect(screen.queryByText("Needs worker")).not.toBeInTheDocument();
   });
 
-  it("shows configured worker metadata without critic, stage, or runtime state", () => {
+  it("shows configured worker and critic metadata without stage or runtime state", () => {
     const rfn = {
       id: "node-1",
       type: "compactWorker",
@@ -178,7 +214,7 @@ describe("CompactWorkerNode", () => {
     expect(screen.queryByText("Intake")).not.toBeInTheDocument();
     expect(screen.queryByText("Worker ready")).not.toBeInTheDocument();
     expect(screen.getByText("GPT-4 Agent")).toBeInTheDocument();
-    expect(screen.queryByText("Critic")).not.toBeInTheDocument();
+    expect(screen.getByText("Critic")).toBeInTheDocument();
     expect(screen.queryByText("Completed")).not.toBeInTheDocument();
   });
 
@@ -200,7 +236,7 @@ describe("CompactWorkerNode", () => {
 
     expect(screen.queryByText("Build")).not.toBeInTheDocument();
     expect(screen.queryByText("Needs worker")).not.toBeInTheDocument();
-    expect(screen.queryByText("Critic")).not.toBeInTheDocument();
+    expect(screen.getByText("Critic")).toBeInTheDocument();
   });
 
   it("renders annotation nodes without worker warnings", () => {
@@ -253,6 +289,50 @@ describe("CompactWorkerNode", () => {
     expect(screen.getByText("Fork gateway")).toBeInTheDocument();
     expect(screen.queryByText("Agent")).not.toBeInTheDocument();
     expect(screen.queryByText("Needs worker")).not.toBeInTheDocument();
+  });
+
+  it("renders split nodes with split-specific card semantics instead of worker metadata", () => {
+    const rfn = {
+      id: "split-1",
+      type: "compactWorker",
+      position: { x: 100, y: 12 },
+      data: {
+        ...baseData,
+        node: makeWorkerNode({
+          id: "split-1",
+          title: "Task split",
+          format_schema: {
+            type: "split",
+            template_id: "task-splitter",
+            template_category: "logic",
+            shape: "rectangle",
+            split_config: {
+              default_issue_workflow_id: "wf-template-2",
+              mode: "barrier",
+              max_concurrency: 5,
+              max_failures: 0,
+            },
+          },
+        }),
+        pluginName: undefined,
+        workerName: undefined,
+      },
+    } as Node;
+    renderWithProvider(rfn);
+
+    expect(screen.getByText("Task split")).toBeInTheDocument();
+    expect(screen.getByText("barrier · concurrency 5")).toBeInTheDocument();
+    expect(screen.queryByText("GPT-4 Agent")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("compact-worker-node-badge-split-1")).not.toBeInTheDocument();
+
+    const node = screen.getByTestId("compact-worker-split-1");
+    const surface = node.querySelector('[data-node-shape-surface="true"]');
+    expect(surface?.className).toContain("bg-gradient-to-br");
+    expect(surface?.className).toContain("border-white/80");
+    expect(surface?.className).toContain("shadow-[0_14px_32px_rgba(15,23,42,0.12)]");
+    expect(surface?.className).not.toContain("bg-transparent");
+    expect(surface?.className).not.toContain("border-transparent");
+    expect(surface?.className).not.toContain("shadow-none");
   });
 
   it("uses category-derived semantic shape classes", () => {

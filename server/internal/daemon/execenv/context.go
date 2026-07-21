@@ -322,6 +322,12 @@ func renderIssueContext(provider string, ctx TaskContextForEnv) string {
 	if ctx.QuickCreatePrompt != "" {
 		return renderQuickCreateContext(ctx)
 	}
+	if ctx.WorkflowPhase == "split_chat" {
+		return renderSplitChatContext(ctx)
+	}
+	if ctx.WorkflowPhase == "split" {
+		return renderSplitContext(ctx)
+	}
 
 	var b strings.Builder
 
@@ -347,6 +353,82 @@ func renderIssueContext(provider string, ctx TaskContextForEnv) string {
 		b.WriteString("\n")
 	}
 
+	return b.String()
+}
+
+func renderSplitContext(ctx TaskContextForEnv) string {
+	var b strings.Builder
+	b.WriteString("# Split Task Generation\n\n")
+	fmt.Fprintf(&b, "**Issue ID:** %s\n\n", ctx.IssueID)
+	if ctx.WorkflowSplitRepair {
+		b.WriteString("**Trigger:** Workflow split repair phase\n\n")
+		if ctx.WorkflowSplitRepairSourceTaskID != "" {
+			fmt.Fprintf(&b, "**Source task ID:** `%s`\n\n", ctx.WorkflowSplitRepairSourceTaskID)
+		}
+		if strings.TrimSpace(ctx.WorkflowSplitRepairSourceOutput) != "" {
+			b.WriteString("## Failed Task Output\n\n")
+			fmt.Fprintf(&b, "```\n%s\n```\n\n", strings.TrimSpace(ctx.WorkflowSplitRepairSourceOutput))
+		}
+	} else {
+		b.WriteString("**Trigger:** Workflow split phase\n\n")
+	}
+	if ctx.WorkflowNodeRunID != "" {
+		fmt.Fprintf(&b, "**Workflow node run ID:** %s\n\n", ctx.WorkflowNodeRunID)
+	}
+	if ctx.WorkflowSplitParentIssueID != "" {
+		fmt.Fprintf(&b, "**Parent issue ID:** %s\n\n", ctx.WorkflowSplitParentIssueID)
+	}
+	if ctx.WorkflowSplitParentIssueTitle != "" {
+		fmt.Fprintf(&b, "**Parent issue title:** %s\n\n", ctx.WorkflowSplitParentIssueTitle)
+	}
+	if strings.TrimSpace(ctx.WorkflowSplitParentIssueDescription) != "" {
+		fmt.Fprintf(&b, "## Parent Issue Description\n\n%s\n\n", strings.TrimSpace(ctx.WorkflowSplitParentIssueDescription))
+	}
+	if strings.TrimSpace(string(ctx.WorkflowSplitConfig)) != "" {
+		fmt.Fprintf(&b, "## Split Config\n\n```json\n%s\n```\n\n", strings.TrimSpace(string(ctx.WorkflowSplitConfig)))
+	}
+	b.WriteString("The backend applies the configured default issue workflow to every draft. Do not output workflow_id. Reviewers change execution workflow later in Multica.\n\n")
+	b.WriteString("## Quick Start\n\n")
+	fmt.Fprintf(&b, "Run `cs-workflow issue get %s --output json` to read the split planning issue.\n\n", ctx.IssueID)
+	if ctx.WorkflowNodeRunID != "" {
+		fmt.Fprintf(&b, "Submit draft tasks with `cs-workflow workflow split draft add %s` and finish with `cs-workflow workflow split draft submit %s --output json`. Do not create child issues, post comments, or change issue status.\n\n", ctx.WorkflowNodeRunID, ctx.WorkflowNodeRunID)
+	} else {
+		b.WriteString("Submit draft tasks with `cs-workflow workflow split draft add` and finish with `cs-workflow workflow split draft submit <node-run-id> --output json`. Do not create child issues, post comments, or change issue status.\n\n")
+	}
+	return b.String()
+}
+
+func renderSplitChatContext(ctx TaskContextForEnv) string {
+	var b strings.Builder
+	b.WriteString("# Split Review Adjustment\n\n")
+	if ctx.WorkflowNodeRunID != "" {
+		fmt.Fprintf(&b, "**Workflow node run ID:** %s\n\n", ctx.WorkflowNodeRunID)
+	}
+	if ctx.WorkflowSplitParentIssueID != "" {
+		fmt.Fprintf(&b, "**Parent issue ID:** %s\n\n", ctx.WorkflowSplitParentIssueID)
+	}
+	if ctx.WorkflowSplitParentIssueTitle != "" {
+		fmt.Fprintf(&b, "**Parent issue title:** %s\n\n", ctx.WorkflowSplitParentIssueTitle)
+	}
+	b.WriteString("**Trigger:** Split review chat adjustment\n\n")
+	b.WriteString("## User Request\n\n")
+	if strings.TrimSpace(ctx.ChatSessionID) != "" {
+		fmt.Fprintf(&b, "Chat session ID: `%s`\n\n", ctx.ChatSessionID)
+	}
+	if strings.TrimSpace(ctx.ChatMessage) != "" {
+		fmt.Fprintf(&b, "%s\n\n", strings.TrimSpace(ctx.ChatMessage))
+	} else {
+		b.WriteString("Read the exact user request from the per-turn prompt.\n\n")
+	}
+	b.WriteString("Use the request to adjust the current draft task set; do not answer as a normal chat assistant.\n\n")
+	if strings.TrimSpace(string(ctx.WorkflowSplitCurrentDrafts)) != "" {
+		fmt.Fprintf(&b, "## Current Draft Tasks\n\n```json\n%s\n```\n\n", strings.TrimSpace(string(ctx.WorkflowSplitCurrentDrafts)))
+	}
+	if strings.TrimSpace(string(ctx.WorkflowSplitConfig)) != "" {
+		fmt.Fprintf(&b, "## Split Config\n\n```json\n%s\n```\n\n", strings.TrimSpace(string(ctx.WorkflowSplitConfig)))
+	}
+	b.WriteString("## Quick Start\n\n")
+	b.WriteString("Use `cs-workflow workflow split draft delete` to discard drafts, `cs-workflow workflow split draft add` to add or replace drafts, and `cs-workflow workflow split draft submit` when the adjusted set is ready. Do not create child issues, post comments, or change issue status.\n\n")
 	return b.String()
 }
 

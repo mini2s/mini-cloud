@@ -36,11 +36,15 @@ export interface WorkflowCanvasCoreProps {
   viewportY: number;
   viewportZoom: number;
   defaultViewport?: Viewport;
+  viewport?: Viewport;
   fitView?: boolean;
   fitViewOptions?: FitViewOptions;
   reserveStageRail?: boolean;
+  showControls?: boolean;
+  showMiniMap?: boolean;
   children?: ReactNode;
   onNodeClick?: (event: React.MouseEvent, node: Node) => void;
+  onNodeDoubleClick?: (event: React.MouseEvent, node: Node) => void;
   onEdgeClick?: (event: React.MouseEvent, edge: Edge, position: { x: number; y: number }) => void;
   onPaneClick?: () => void;
   onNodeDragStop?: (event: MouseEvent | TouchEvent, node: Node) => void;
@@ -62,11 +66,15 @@ export function WorkflowCanvasCore({
   viewportY,
   viewportZoom,
   defaultViewport = { x: 0, y: 24, zoom: 0.95 },
+  viewport,
   fitView = false,
   fitViewOptions,
   reserveStageRail = true,
+  showControls = true,
+  showMiniMap = true,
   children,
   onNodeClick,
+  onNodeDoubleClick,
   onEdgeClick,
   onPaneClick,
   onNodeDragStop,
@@ -108,6 +116,7 @@ export function WorkflowCanvasCore({
           nodeTypes={nodeTypes}
           edgeTypes={edgeTypes}
           onNodeClick={onNodeClick}
+          onNodeDoubleClick={onNodeDoubleClick}
           onEdgeClick={handleEdgeClick}
           onPaneClick={onPaneClick}
           onNodeDragStop={readOnly ? undefined : onNodeDragStop}
@@ -118,6 +127,7 @@ export function WorkflowCanvasCore({
           minZoom={0.2}
           maxZoom={2}
           defaultViewport={defaultViewport}
+          viewport={viewport}
           deleteKeyCode={readOnly ? null : ["Backspace", "Delete"]}
           connectionMode={ConnectionMode.Loose}
           nodesDraggable={!readOnly}
@@ -128,24 +138,28 @@ export function WorkflowCanvasCore({
           onMove={(_, viewport) => onMove?.(viewport)}
         >
           <Background />
-          <Controls
-            position="bottom-left"
-            orientation="horizontal"
-            className={workflowCanvasControlsClassName}
-          />
-          <MiniMap
-            position="bottom-right"
-            className={workflowCanvasMiniMapClassName}
-            pannable
-            zoomable
-            style={workflowCanvasMiniMapStyle}
-            bgColor="hsl(var(--card))"
-            maskColor="hsl(var(--muted) / 0.14)"
-            maskStrokeColor="transparent"
-            maskStrokeWidth={0}
-            nodeBorderRadius={4}
-            nodeColor={(node) => (node.type === "criticBadge" ? "#f59e0b" : "#64748b")}
-          />
+          {showControls ? (
+            <Controls
+              position="bottom-left"
+              orientation="horizontal"
+              className={workflowCanvasControlsClassName}
+            />
+          ) : null}
+          {showMiniMap ? (
+            <MiniMap
+              position="bottom-right"
+              className={workflowCanvasMiniMapClassName}
+              pannable
+              zoomable
+              style={workflowCanvasMiniMapStyle}
+              bgColor="hsl(var(--card))"
+              maskColor="hsl(var(--muted) / 0.14)"
+              maskStrokeColor="transparent"
+              maskStrokeWidth={0}
+              nodeBorderRadius={4}
+              nodeColor={(node) => (node.type === "criticBadge" ? "#f59e0b" : "#64748b")}
+            />
+          ) : null}
         </ReactFlow>
         {children}
       </div>

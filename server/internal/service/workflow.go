@@ -72,19 +72,22 @@ const (
 
 // validTransitions defines the allowed status transitions for a node run.
 var validTransitions = map[string][]string{
-	NodeRunStatusPending:         {NodeRunStatusFormatChecking, NodeRunStatusSkipped, NodeRunStatusCancelled},
-	NodeRunStatusFormatChecking:  {NodeRunStatusFormatOk, NodeRunStatusCompleted, NodeRunStatusFormatFailed, NodeRunStatusCancelled},
-	NodeRunStatusFormatOk:        {NodeRunStatusWorkerAssigned, NodeRunStatusWorking, NodeRunStatusCancelled, NodeRunStatusSkipped},
-	NodeRunStatusFormatFailed:    {},
-	NodeRunStatusWorkerAssigned:  {NodeRunStatusWorking, NodeRunStatusCancelled, NodeRunStatusSkipped},
-	NodeRunStatusWorking:         {NodeRunStatusAwaitingInput, NodeRunStatusAwaitingCritic, NodeRunStatusFailed, NodeRunStatusCancelled, NodeRunStatusBlocked},
-	NodeRunStatusAwaitingInput:   {NodeRunStatusWorking, NodeRunStatusCancelled, NodeRunStatusSkipped},
-	NodeRunStatusAwaitingCritic:  {NodeRunStatusCriticReviewing, NodeRunStatusCancelled, NodeRunStatusSkipped},
-	NodeRunStatusCriticReviewing: {NodeRunStatusCriticApproved, NodeRunStatusCriticRework, NodeRunStatusCancelled},
-	NodeRunStatusCriticApproved:  {NodeRunStatusCompleted, NodeRunStatusBlocked},
-	NodeRunStatusCriticRework:    {NodeRunStatusFormatOk, NodeRunStatusBlocked},
-	NodeRunStatusCompleted:       {},
-	NodeRunStatusFailed:          {},
+	NodeRunStatusPending:             {NodeRunStatusFormatChecking, NodeRunStatusSplitting, NodeRunStatusSkipped, NodeRunStatusCancelled},
+	NodeRunStatusFormatChecking:      {NodeRunStatusFormatOk, NodeRunStatusCompleted, NodeRunStatusFormatFailed, NodeRunStatusCancelled},
+	NodeRunStatusFormatOk:            {NodeRunStatusWorkerAssigned, NodeRunStatusWorking, NodeRunStatusSplitting, NodeRunStatusCancelled, NodeRunStatusSkipped},
+	NodeRunStatusFormatFailed:        {},
+	NodeRunStatusWorkerAssigned:      {NodeRunStatusWorking, NodeRunStatusCancelled, NodeRunStatusSkipped},
+	NodeRunStatusWorking:             {NodeRunStatusAwaitingInput, NodeRunStatusAwaitingCritic, NodeRunStatusFailed, NodeRunStatusCancelled, NodeRunStatusBlocked},
+	NodeRunStatusAwaitingInput:       {NodeRunStatusWorking, NodeRunStatusCancelled, NodeRunStatusSkipped},
+	NodeRunStatusAwaitingCritic:      {NodeRunStatusCriticReviewing, NodeRunStatusCancelled, NodeRunStatusSkipped},
+	NodeRunStatusCriticReviewing:     {NodeRunStatusCriticApproved, NodeRunStatusCriticRework, NodeRunStatusCancelled},
+	NodeRunStatusCriticApproved:      {NodeRunStatusCompleted, NodeRunStatusBlocked},
+	NodeRunStatusCriticRework:        {NodeRunStatusFormatOk, NodeRunStatusBlocked},
+	NodeRunStatusCompleted:           {},
+	NodeRunStatusFailed:              {},
+	NodeRunStatusSplitting:           {NodeRunStatusAwaitingSplitReview, NodeRunStatusFailed, NodeRunStatusCancelled},
+	NodeRunStatusAwaitingSplitReview: {NodeRunStatusSplitting, NodeRunStatusSplitActive, NodeRunStatusCancelled},
+	NodeRunStatusSplitActive:         {NodeRunStatusCompleted, NodeRunStatusFailed, NodeRunStatusCancelled},
 	// blocked is reached two ways: rework-exhausted ("stuck", completed_at set)
 	// and human takeover ("paused", completed_at NULL). Both reuse the status;
 	// the extra outgoing edges below serve the takeover lifecycle —
@@ -225,6 +228,10 @@ func (s *WorkflowService) ValidateDAG(ctx context.Context, workflowID pgtype.UUI
 // StartRun creates a workflow_run and node_runs for every node, then
 // kicks off root nodes (nodes with no incoming edges).
 func (s *WorkflowService) StartRun(ctx context.Context, workflow db.MulticaWorkflow, triggeredByType, triggeredByID string, input json.RawMessage, runtimeID pgtype.UUID) (*db.MulticaWorkflowRun, error) {
+	return s.startRun(ctx, workflow, triggeredByType, triggeredByID, input, runtimeID, "")
+}
+
+func (s *WorkflowService) startRun(ctx context.Context, workflow db.MulticaWorkflow, triggeredByType, triggeredByID string, input json.RawMessage, runtimeID pgtype.UUID, dispatchKey string) (*db.MulticaWorkflowRun, error) {
 	if workflow.Status != "active" {
 		return nil, fmt.Errorf("workflow is not active (status=%s)", workflow.Status)
 	}
@@ -236,20 +243,45 @@ func (s *WorkflowService) StartRun(ctx context.Context, workflow db.MulticaWorkf
 
 	var run db.MulticaWorkflowRun
 	if err := s.runInTx(ctx, func(qtx *db.Queries) error {
-		r, err := qtx.CreateWorkflowRun(ctx, db.CreateWorkflowRunParams{
-			WorkflowID:      workflow.ID,
-			WorkspaceID:     workflow.WorkspaceID,
-			WorkflowTitle:   workflow.Title,
-			Status:          "running",
-			TriggeredByType: triggeredByType,
-			TriggeredByID:   triggeredByUUID,
-			Input:           input,
-			RuntimeID:       runtimeID,
-		})
+		var r db.MulticaWorkflowRun
+		var err error
+		if dispatchKey == "" {
+			r, err = qtx.CreateWorkflowRun(ctx, db.CreateWorkflowRunParams{
+				WorkflowID:      workflow.ID,
+				WorkspaceID:     workflow.WorkspaceID,
+				WorkflowTitle:   workflow.Title,
+				Status:          "running",
+				TriggeredByType: triggeredByType,
+				TriggeredByID:   triggeredByUUID,
+				Input:           input,
+				RuntimeID:       runtimeID,
+			})
+		} else {
+			r, err = qtx.CreateWorkflowRunWithDispatchKey(ctx, db.CreateWorkflowRunWithDispatchKeyParams{
+				WorkflowID:      workflow.ID,
+				WorkspaceID:     workflow.WorkspaceID,
+				WorkflowTitle:   workflow.Title,
+				Status:          "running",
+				TriggeredByType: triggeredByType,
+				TriggeredByID:   triggeredByUUID,
+				Input:           input,
+				RuntimeID:       runtimeID,
+				DispatchKey:     textToPgText(dispatchKey),
+			})
+		}
 		if err != nil {
 			return fmt.Errorf("create workflow run: %w", err)
 		}
 		run = r
+		if dispatchKey != "" {
+			existingNodeRuns, err := qtx.ListWorkflowNodeRunsByRun(ctx, run.ID)
+			if err != nil {
+				return fmt.Errorf("list node runs: %w", err)
+			}
+			if len(existingNodeRuns) > 0 {
+				return nil
+			}
+		}
 
 		nodes, err := qtx.ListWorkflowNodes(ctx, workflow.ID)
 		if err != nil {
@@ -301,31 +333,37 @@ func (s *WorkflowService) StartRun(ctx context.Context, workflow db.MulticaWorkf
 // DispatchRootNodeRuns kicks off root node runs after the run is created.
 // format_checking -> format_ok -> dispatchWorker.
 // Must be called after sub-issues exist so DispatchAgentTask can link issue_id.
-func (s *WorkflowService) DispatchRootNodeRuns(ctx context.Context, runID pgtype.UUID) {
-	nodeRuns, _ := s.Queries.ListWorkflowNodeRunsByRun(ctx, runID)
+func (s *WorkflowService) DispatchRootNodeRuns(ctx context.Context, runID pgtype.UUID) error {
+	nodeRuns, err := s.Queries.ListWorkflowNodeRunsByRun(ctx, runID)
+	if err != nil {
+		return fmt.Errorf("list root node runs: %w", err)
+	}
 	for _, nr := range nodeRuns {
 		if nr.Status == NodeRunStatusFormatChecking {
 			handled, err := s.completeGatewayNodeRun(ctx, nr)
 			if err != nil {
-				slog.Warn("StartRun: complete gateway failed", "node_run_id", util.UUIDToString(nr.ID), "error", err)
-				continue
+				return fmt.Errorf("complete root gateway node %s: %w", util.UUIDToString(nr.ID), err)
 			}
 			if handled {
 				continue
 			}
 			if _, err := s.TransitionNodeRun(ctx, nr, NodeRunStatusFormatOk); err != nil {
-				slog.Warn("StartRun: transition to format_ok failed", "node_run_id", util.UUIDToString(nr.ID), "error", err)
+				return fmt.Errorf("transition root node %s to format_ok: %w", util.UUIDToString(nr.ID), err)
 			}
 		}
 	}
-	nodeRuns, _ = s.Queries.ListWorkflowNodeRunsByRun(ctx, runID)
+	nodeRuns, err = s.Queries.ListWorkflowNodeRunsByRun(ctx, runID)
+	if err != nil {
+		return fmt.Errorf("reload root node runs: %w", err)
+	}
 	for _, nr := range nodeRuns {
 		if nr.Status == NodeRunStatusFormatOk {
 			if err := s.dispatchWorker(ctx, nr); err != nil {
-				slog.Warn("StartRun: dispatch worker failed", "node_run_id", util.UUIDToString(nr.ID), "error", err)
+				return fmt.Errorf("dispatch root worker %s: %w", util.UUIDToString(nr.ID), err)
 			}
 		}
 	}
+	return nil
 }
 
 // StartRunForIssue creates a workflow run from an issue assignment and returns
@@ -339,6 +377,7 @@ func (s *WorkflowService) StartRunForIssue(
 	runtimeID pgtype.UUID,
 ) (*db.MulticaWorkflowRun, []db.MulticaWorkflowNodeRun, error) {
 	input, err := json.Marshal(map[string]any{
+		"issue_id":    util.UUIDToString(issue.ID),
 		"title":       issue.Title,
 		"description": textToString(issue.Description),
 	})
@@ -390,8 +429,8 @@ func (s *WorkflowService) EnsureDefaultWorkflow(ctx context.Context, workspaceID
 		return db.MulticaWorkflow{}, fmt.Errorf("create default workflow: %w", err)
 	}
 	node, err := s.Queries.CreateWorkflowNode(ctx, db.CreateWorkflowNodeParams{
-		WorkflowID: wf.ID,
-		Title:      "Deliverable",
+		WorkflowID:  wf.ID,
+		Title:       "Deliverable",
 		Description: pgtype.Text{String: "", Valid: true}, // NOT NULL DEFAULT ''
 		WorkerType:  "agent",
 		CriticType:  "human",
@@ -439,7 +478,7 @@ func (s *WorkflowService) StartDefaultRunForIssue(ctx context.Context, issue db.
 	if err != nil {
 		return nil, db.MulticaWorkflowNodeRun{}, fmt.Errorf("marshal issue input: %w", err)
 	}
-	run, err := s.StartRun(ctx, wf, issue.CreatorType, util.UUIDToString(issue.CreatorID), input, pgtype.UUID{})
+	run, err := s.startRun(ctx, wf, issue.CreatorType, util.UUIDToString(issue.CreatorID), input, pgtype.UUID{}, "")
 	if err != nil {
 		return nil, db.MulticaWorkflowNodeRun{}, fmt.Errorf("start default run: %w", err)
 	}
@@ -493,6 +532,33 @@ func defaultRunCriticType(issue db.MulticaIssue) string {
 	}
 	return issue.CreatorType // "agent"
 }
+func (s *WorkflowService) StartRunForIssueWithDispatchKey(
+	ctx context.Context,
+	workflow db.MulticaWorkflow,
+	issue db.MulticaIssue,
+	triggeredByType string,
+	triggeredByID string,
+	runtimeID pgtype.UUID,
+	dispatchKey string,
+) (*db.MulticaWorkflowRun, []db.MulticaWorkflowNodeRun, error) {
+	input, err := json.Marshal(map[string]any{
+		"issue_id":    util.UUIDToString(issue.ID),
+		"title":       issue.Title,
+		"description": textToString(issue.Description),
+	})
+	if err != nil {
+		return nil, nil, fmt.Errorf("marshal issue input: %w", err)
+	}
+	run, err := s.startRun(ctx, workflow, triggeredByType, triggeredByID, input, runtimeID, dispatchKey)
+	if err != nil {
+		return nil, nil, err
+	}
+	nodeRuns, err := s.Queries.ListWorkflowNodeRunsByRun(ctx, run.ID)
+	if err != nil {
+		return nil, nil, fmt.Errorf("list node runs: %w", err)
+	}
+	return run, nodeRuns, nil
+}
 
 func textToString(t pgtype.Text) string {
 	if t.Valid {
@@ -507,11 +573,14 @@ func textToPgText(s string) pgtype.Text {
 
 // CancelRun cancels all active node_runs and marks the run as cancelled.
 func (s *WorkflowService) CancelRun(ctx context.Context, runID pgtype.UUID) error {
-	return s.runInTx(ctx, func(qtx *db.Queries) error {
+	cancelledNodeRuns := make([]db.MulticaWorkflowNodeRun, 0)
+	var cancelledRun db.MulticaWorkflowRun
+	if err := s.runInTx(ctx, func(qtx *db.Queries) error {
 		run, err := qtx.GetWorkflowRun(ctx, runID)
 		if err != nil {
 			return fmt.Errorf("get workflow run: %w", err)
 		}
+		cancelledRun = run
 
 		nodeRuns, err := qtx.ListWorkflowNodeRunsByRun(ctx, runID)
 		if err != nil {
@@ -519,12 +588,14 @@ func (s *WorkflowService) CancelRun(ctx context.Context, runID pgtype.UUID) erro
 		}
 		for _, nr := range nodeRuns {
 			if !isTerminalNodeRunStatus(nr.Status) {
-				if _, err := qtx.UpdateWorkflowNodeRunStatus(ctx, db.UpdateWorkflowNodeRunStatusParams{
+				updated, err := qtx.UpdateWorkflowNodeRunStatus(ctx, db.UpdateWorkflowNodeRunStatusParams{
 					ID:     nr.ID,
 					Status: NodeRunStatusCancelled,
-				}); err != nil {
+				})
+				if err != nil {
 					return fmt.Errorf("cancel node run: %w", err)
 				}
+				cancelledNodeRuns = append(cancelledNodeRuns, updated)
 			}
 			// Cancel the sub-issue created for this node run.
 			subIssue, err := qtx.GetIssueByOrigin(ctx, db.GetIssueByOriginParams{
@@ -554,7 +625,20 @@ func (s *WorkflowService) CancelRun(ctx context.Context, runID pgtype.UUID) erro
 			Status: RunStatusCancelled,
 		})
 		return err
-	})
+	}); err != nil {
+		return err
+	}
+
+	for _, nodeRun := range cancelledNodeRuns {
+		if s.OnNodeStatusChanged != nil {
+			s.OnNodeStatusChanged(ctx, nodeRun)
+		}
+	}
+	if s.OnRunTerminal != nil {
+		cancelledRun.Status = RunStatusCancelled
+		s.OnRunTerminal(ctx, cancelledRun, RunStatusCancelled)
+	}
+	return nil
 }
 
 // ── State machine ────────────────────────────────────────────────────────────
@@ -575,6 +659,9 @@ func (s *WorkflowService) TransitionNodeRun(ctx context.Context, nodeRun db.Mult
 
 	if s.OnNodeStatusChanged != nil {
 		s.OnNodeStatusChanged(ctx, updated)
+	}
+	if isTerminalNodeRunStatus(newStatus) && newStatus != NodeRunStatusCompleted {
+		s.checkRunCompletion(ctx, updated.WorkflowRunID)
 	}
 
 	return &updated, nil
@@ -755,6 +842,36 @@ func (s *WorkflowService) FinalizeNodeRun(ctx context.Context, nodeRun db.Multic
 	return updated, nil
 }
 
+// RetryNodeRun reactivates a stuck node run and dispatches its worker again.
+// This is scoped to the workflow node run, so it does not depend on the parent
+// issue being assigned to an agent or squad.
+func (s *WorkflowService) RetryNodeRun(ctx context.Context, nodeRun db.MulticaWorkflowNodeRun) (*db.MulticaWorkflowNodeRun, error) {
+	switch nodeRun.Status {
+	case NodeRunStatusFailed, NodeRunStatusBlocked, NodeRunStatusFormatFailed, NodeRunStatusCriticRework:
+	default:
+		return nil, fmt.Errorf("node run cannot be retried from status %s", nodeRun.Status)
+	}
+
+	updated, err := s.Queries.UpdateWorkflowNodeRunRework(ctx, db.UpdateWorkflowNodeRunReworkParams{
+		ID:     nodeRun.ID,
+		Status: NodeRunStatusFormatOk,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("retry node run: %w", err)
+	}
+	if s.OnNodeStatusChanged != nil {
+		s.OnNodeStatusChanged(ctx, updated)
+	}
+	if err := s.dispatchWorker(ctx, updated); err != nil {
+		return nil, fmt.Errorf("dispatch retry worker: %w", err)
+	}
+	latest, err := s.Queries.GetWorkflowNodeRun(ctx, nodeRun.ID)
+	if err != nil {
+		return nil, fmt.Errorf("get retried node run: %w", err)
+	}
+	return &latest, nil
+}
+
 // OnNodeRunCompleted checks downstream nodes after a node run reaches a terminal
 // state. If all upstreams of a downstream node are complete, it advances that
 // node to format_checking. If no active node runs remain, the workflow run is
@@ -932,6 +1049,38 @@ func (s *WorkflowService) SubmitWorkerOutput(ctx context.Context, nodeRunID pgty
 	return s.dispatchCritic(ctx, nodeRun)
 }
 
+func (s *WorkflowService) requiredDeliverablesSatisfied(ctx context.Context, nodeRun db.MulticaWorkflowNodeRun) (bool, error) {
+	deliverables, err := s.Queries.ListWorkflowNodeDeliverables(ctx, nodeRun.WorkflowNodeID)
+	if err != nil {
+		return false, fmt.Errorf("list deliverables: %w", err)
+	}
+	// No deliverables defined → trivially satisfied.
+	if len(deliverables) == 0 {
+		return true, nil
+	}
+
+	submissions, err := s.Queries.ListNodeRunDeliverableSubmissions(ctx, nodeRun.ID)
+	if err != nil {
+		return false, fmt.Errorf("list submissions: %w", err)
+	}
+
+	byDeliverable := make(map[string]db.MulticaWorkflowNodeDeliverableSubmission, len(submissions))
+	for _, sub := range submissions {
+		byDeliverable[util.UUIDToString(sub.DeliverableID)] = sub
+	}
+
+	for _, d := range deliverables {
+		if !d.Required {
+			continue
+		}
+		sub, ok := byDeliverable[util.UUIDToString(d.ID)]
+		if !ok || sub.Status == "missing" || sub.Status == "rejected" {
+			return false, nil
+		}
+	}
+	return true, nil
+}
+
 // ReviewNodeRun handles the Critic's approval or rework decision.
 func (s *WorkflowService) ReviewNodeRun(ctx context.Context, nodeRunID pgtype.UUID, approved bool, comment string, criticOutput json.RawMessage) error {
 	var nodeRun db.MulticaWorkflowNodeRun
@@ -1091,6 +1240,10 @@ func (s *WorkflowService) dispatchWorker(ctx context.Context, nodeRun db.Multica
 	if err != nil {
 		return fmt.Errorf("get node: %w", err)
 	}
+	if workflowNodeType(node.FormatSchema) == "split" {
+		_, err := s.TransitionNodeRun(ctx, nodeRun, NodeRunStatusSplitting)
+		return err
+	}
 
 	switch nodeRun.WorkerType {
 	case "human":
@@ -1109,7 +1262,9 @@ func (s *WorkflowService) dispatchWorker(ctx context.Context, nodeRun db.Multica
 			_, err := s.TransitionNodeRun(ctx, nodeRun, NodeRunStatusWorkerAssigned)
 			return err
 		}
-		// Create the agent task.
+		if nodeRun.RetryCount == 0 && !nodeRun.WorkerAgentTaskID.Valid {
+			return s.dispatchInitialWorker(ctx, nodeRun)
+		}
 		task, err := s.DispatchAgentTask(ctx, nodeRun, "worker")
 		if err != nil {
 			return fmt.Errorf("dispatch agent task: %w", err)
@@ -1130,6 +1285,47 @@ func (s *WorkflowService) dispatchWorker(ctx context.Context, nodeRun db.Multica
 	default:
 		return fmt.Errorf("unknown worker type: %s", nodeRun.WorkerType)
 	}
+}
+
+func (s *WorkflowService) dispatchInitialWorker(ctx context.Context, nodeRun db.MulticaWorkflowNodeRun) error {
+	var task db.MulticaAgentTaskQueue
+	var updated db.MulticaWorkflowNodeRun
+	if err := s.runInTx(ctx, func(qtx *db.Queries) error {
+		current, err := qtx.GetWorkflowNodeRunForUpdate(ctx, nodeRun.ID)
+		if err != nil {
+			return fmt.Errorf("lock initial worker node run: %w", err)
+		}
+		if current.Status != NodeRunStatusFormatOk || current.RetryCount != 0 || current.WorkerAgentTaskID.Valid {
+			return fmt.Errorf("initial worker dispatch state changed")
+		}
+		taskPtr, err := s.dispatchAgentTaskWithQueries(ctx, qtx, current, "worker", nil, false)
+		if err != nil {
+			return err
+		}
+		task = *taskPtr
+		if _, err := qtx.LinkNodeRunWorkerTask(ctx, db.LinkNodeRunWorkerTaskParams{
+			ID:                current.ID,
+			WorkerAgentTaskID: task.ID,
+			RuntimeID:         task.RuntimeID,
+		}); err != nil {
+			return fmt.Errorf("link initial worker task: %w", err)
+		}
+		updated, err = qtx.UpdateWorkflowNodeRunStatus(ctx, db.UpdateWorkflowNodeRunStatusParams{
+			ID:     current.ID,
+			Status: NodeRunStatusWorking,
+		})
+		if err != nil {
+			return fmt.Errorf("transition initial worker to working: %w", err)
+		}
+		return nil
+	}); err != nil {
+		return err
+	}
+	s.TaskSvc.NotifyTaskEnqueued(ctx, task)
+	if s.OnNodeStatusChanged != nil {
+		s.OnNodeStatusChanged(ctx, updated)
+	}
+	return nil
 }
 
 // dispatchRoleWorker resolves a workflow role to its highest-priority bound actor
@@ -1207,6 +1403,11 @@ func (s *WorkflowService) dispatchCritic(ctx context.Context, nodeRun db.Multica
 
 	switch nodeRun.CriticType {
 	case "human":
+		if !node.CriticID.Valid {
+			// No specific reviewer assigned — auto-approve to avoid
+			// indefinite "waiting for reviewer" state.
+			return s.ReviewNodeRun(ctx, nodeRun.ID, true, "Auto-approved (no reviewer assigned)", nil)
+		}
 		_, err := s.TransitionNodeRun(ctx, nodeRun, NodeRunStatusCriticReviewing)
 		return err
 	case "agent", "squad":
@@ -1250,17 +1451,27 @@ func (s *WorkflowService) dispatchCritic(ctx context.Context, nodeRun db.Multica
 // DispatchAgentTask creates an agent_task_queue row for a workflow node run
 // and links it via the workflow_node_run_id column.
 func (s *WorkflowService) DispatchAgentTask(ctx context.Context, nodeRun db.MulticaWorkflowNodeRun, phase string) (*db.MulticaAgentTaskQueue, error) {
-	node, err := s.Queries.GetWorkflowNode(ctx, nodeRun.WorkflowNodeID)
+	return s.DispatchAgentTaskWithContextExtras(ctx, nodeRun, phase, nil)
+}
+
+// DispatchAgentTaskWithContextExtras creates an agent task and merges caller
+// supplied metadata into the workflow task context.
+func (s *WorkflowService) DispatchAgentTaskWithContextExtras(ctx context.Context, nodeRun db.MulticaWorkflowNodeRun, phase string, contextExtras map[string]any) (*db.MulticaAgentTaskQueue, error) {
+	return s.dispatchAgentTaskWithQueries(ctx, s.Queries, nodeRun, phase, contextExtras, true)
+}
+
+func (s *WorkflowService) dispatchAgentTaskWithQueries(ctx context.Context, q *db.Queries, nodeRun db.MulticaWorkflowNodeRun, phase string, contextExtras map[string]any, notify bool) (*db.MulticaAgentTaskQueue, error) {
+	node, err := q.GetWorkflowNode(ctx, nodeRun.WorkflowNodeID)
 	if err != nil {
 		return nil, fmt.Errorf("get node: %w", err)
 	}
 
-	run, err := s.Queries.GetWorkflowRun(ctx, nodeRun.WorkflowRunID)
+	run, err := q.GetWorkflowRun(ctx, nodeRun.WorkflowRunID)
 	if err != nil {
 		return nil, fmt.Errorf("get run: %w", err)
 	}
 
-	workflow, err := s.Queries.GetWorkflow(ctx, run.WorkflowID)
+	workflow, err := q.GetWorkflow(ctx, run.WorkflowID)
 	if err != nil {
 		return nil, fmt.Errorf("get workflow: %w", err)
 	}
@@ -1268,16 +1479,30 @@ func (s *WorkflowService) DispatchAgentTask(ctx context.Context, nodeRun db.Mult
 	var agentID pgtype.UUID
 	switch phase {
 	case "worker":
-		agentID = nodeRun.WorkerID
-		if nodeRun.WorkerType == "squad" && nodeRun.WorkerID.Valid {
-			if squad, err := s.Queries.GetSquad(ctx, nodeRun.WorkerID); err == nil {
+		agentID = node.WorkerID
+		if node.WorkerType == "squad" && node.WorkerID.Valid {
+			if squad, err := q.GetSquad(ctx, node.WorkerID); err == nil {
 				agentID = squad.LeaderID
 			}
 		}
+	case "split":
+		switch node.WorkerType {
+		case "agent":
+			agentID = node.WorkerID
+		case "squad":
+			agentID = node.WorkerID
+			if node.WorkerID.Valid {
+				if squad, err := q.GetSquad(ctx, node.WorkerID); err == nil {
+					agentID = squad.LeaderID
+				}
+			}
+		default:
+			return nil, fmt.Errorf("split phase requires agent or squad worker")
+		}
 	case "critic":
-		agentID = nodeRun.CriticID
-		if nodeRun.CriticType == "squad" && nodeRun.CriticID.Valid {
-			if squad, err := s.Queries.GetSquad(ctx, nodeRun.CriticID); err == nil {
+		agentID = node.CriticID
+		if node.CriticType == "squad" && node.CriticID.Valid {
+			if squad, err := q.GetSquad(ctx, node.CriticID); err == nil {
 				agentID = squad.LeaderID
 			}
 		}
@@ -1286,10 +1511,10 @@ func (s *WorkflowService) DispatchAgentTask(ctx context.Context, nodeRun db.Mult
 	}
 
 	if !agentID.Valid {
-		return nil, fmt.Errorf("no agent configured for %s phase", phase)
+		return nil, fmt.Errorf("no agent configured for %s phase on node %q (worker_type=%q, worker_id set=%v)", phase, node.Title, node.WorkerType, node.WorkerID.Valid)
 	}
 
-	agent, err := s.Queries.GetAgent(ctx, agentID)
+	agent, err := q.GetAgent(ctx, agentID)
 	if err != nil {
 		return nil, fmt.Errorf("get agent: %w", err)
 	}
@@ -1303,16 +1528,28 @@ func (s *WorkflowService) DispatchAgentTask(ctx context.Context, nodeRun db.Mult
 		if run.RuntimeID.Valid {
 			taskRuntimeID = run.RuntimeID
 		} else {
-			// Auto-select the first available runtime for built-in agents,
-			// matching the behavior of enqueueIssueTask.
-			runtimes, err := s.Queries.ListAgentRuntimes(ctx, workflow.WorkspaceID)
+			// Auto-select a runtime for built-in agents. Prefer an online
+			// runtime so the task isn't pinned to a stale daemon (matching
+			// the behavior of enqueueIssueTask). Fall back to the first
+			// runtime if none are online.
+			runtimes, err := q.ListAgentRuntimes(ctx, workflow.WorkspaceID)
 			if err != nil {
 				return nil, fmt.Errorf("list runtimes for built-in agent: %w", err)
 			}
-			if len(runtimes) == 0 {
+			var selected pgtype.UUID
+			for _, r := range runtimes {
+				if r.Status == "online" {
+					selected = r.ID
+					break
+				}
+			}
+			if !selected.Valid && len(runtimes) > 0 {
+				selected = runtimes[0].ID
+			}
+			if !selected.Valid {
 				return nil, fmt.Errorf("no runtimes available in workspace for built-in agent")
 			}
-			taskRuntimeID = runtimes[0].ID
+			taskRuntimeID = selected
 		}
 	} else {
 		return nil, fmt.Errorf("agent has no runtime")
@@ -1331,6 +1568,9 @@ func (s *WorkflowService) DispatchAgentTask(ctx context.Context, nodeRun db.Mult
 		"phase":                  phase,
 		"worker_can_await_input": phase == "worker",
 	}
+	for key, value := range contextExtras {
+		contextPayload[key] = value
+	}
 	contextJSON, err := json.Marshal(contextPayload)
 	if err != nil {
 		return nil, fmt.Errorf("marshal context: %w", err)
@@ -1339,7 +1579,7 @@ func (s *WorkflowService) DispatchAgentTask(ctx context.Context, nodeRun db.Mult
 	// Look up the sub-issue linked to this node run so the daemon processes it
 	// as a normal issue task (with issue_id) while still driving the workflow.
 	var issueID pgtype.UUID
-	subIssue, err := s.Queries.GetIssueByOrigin(ctx, db.GetIssueByOriginParams{
+	subIssue, err := q.GetIssueByOrigin(ctx, db.GetIssueByOriginParams{
 		WorkspaceID: workflow.WorkspaceID,
 		OriginType:  pgtype.Text{String: "workflow", Valid: true},
 		OriginID:    nodeRun.ID,
@@ -1347,36 +1587,57 @@ func (s *WorkflowService) DispatchAgentTask(ctx context.Context, nodeRun db.Mult
 	if err == nil {
 		issueID = subIssue.ID
 	}
+	var chatSessionID pgtype.UUID
+	if rawChatSessionID, ok := contextExtras["chat_session_id"]; ok {
+		if value, ok := rawChatSessionID.(string); ok && strings.TrimSpace(value) != "" {
+			if parsed, err := util.ParseUUID(value); err == nil {
+				chatSessionID = parsed
+			} else {
+				slog.Warn("workflow dispatch: invalid chat_session_id context extra", "node_run_id", util.UUIDToString(nodeRun.ID), "chat_session_id", value, "error", err)
+			}
+		}
+	}
 
 	// Create workflow-bound agent task directly.
-	task, err := s.Queries.CreateWorkflowAgentTask(ctx, db.CreateWorkflowAgentTaskParams{
+	task, err := q.CreateWorkflowAgentTask(ctx, db.CreateWorkflowAgentTaskParams{
 		AgentID:           agentID,
 		RuntimeID:         taskRuntimeID,
 		Priority:          2, // medium
 		Context:           contextJSON,
 		WorkflowNodeRunID: nodeRun.ID,
+		ChatSessionID:     chatSessionID,
 		IssueID:           issueID,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("create workflow agent task: %w", err)
 	}
 
-	s.TaskSvc.NotifyTaskEnqueued(ctx, task)
+	if notify {
+		s.TaskSvc.NotifyTaskEnqueued(ctx, task)
+	}
 	return &task, nil
 }
 
 // ── Format checker ───────────────────────────────────────────────────────────
 
-// executeFormatChecker validates the node run's input against the node's JSON
-// Schema (if configured), then transitions accordingly.
+// executeFormatChecker advances format checking. Runtime input validation from
+// task JSON Schema is retired; format_schema is still used as node metadata by
+// split and gateway handling.
 func (s *WorkflowService) executeFormatChecker(ctx context.Context, qtx *db.Queries, nodeRun db.MulticaWorkflowNodeRun) error {
 	node, err := qtx.GetWorkflowNode(ctx, nodeRun.WorkflowNodeID)
 	if err != nil {
 		return err
 	}
 
-	if len(node.FormatSchema) == 0 {
-		// No format schema → format_ok directly.
+	if len(node.FormatSchema) == 0 || !shouldValidateNodeInputFormatSchema(node.FormatSchema) {
+		// Continue to worker dispatch while preserving node metadata handling downstream.
+		if isRetiredTaskJSONSchema(node.FormatSchema) {
+			slog.Warn("workflow: skipping retired task format_schema validation",
+				"node_run_id", util.UUIDToString(nodeRun.ID),
+				"workflow_node_id", util.UUIDToString(nodeRun.WorkflowNodeID),
+				"node_title", nodeRun.NodeTitle,
+			)
+		}
 		if _, err := s.TransitionNodeRun(ctx, nodeRun, NodeRunStatusFormatOk); err != nil {
 			return err
 		}
@@ -1416,6 +1677,28 @@ func (s *WorkflowService) executeFormatChecker(ctx context.Context, qtx *db.Quer
 		return err
 	}
 	return s.dispatchWorker(ctx, updated)
+}
+
+func shouldValidateNodeInputFormatSchema(_ json.RawMessage) bool {
+	return false
+}
+
+func isRetiredTaskJSONSchema(raw json.RawMessage) bool {
+	if len(raw) == 0 {
+		return false
+	}
+	var schema struct {
+		Type string `json:"type"`
+	}
+	if err := json.Unmarshal(raw, &schema); err != nil {
+		return false
+	}
+	switch schema.Type {
+	case "object", "array", "string", "number", "boolean", "null":
+		return true
+	default:
+		return false
+	}
 }
 
 // validateJSONSchema validates input JSON against a JSON Schema.
@@ -2048,39 +2331,4 @@ func (s *WorkflowService) CanManageWorkflows(ctx context.Context, userID pgtype.
 		return false, fmt.Errorf("get user: %w", err)
 	}
 	return user.CanManageWorkflows, nil
-}
-
-// requiredDeliverablesSatisfied checks whether every required deliverable for
-// the given node run has an approved submission. Used as a gate before a critic
-// can approve the node run.
-func (s *WorkflowService) requiredDeliverablesSatisfied(ctx context.Context, nodeRun db.MulticaWorkflowNodeRun) (bool, error) {
-	deliverables, err := s.Queries.ListWorkflowNodeDeliverables(ctx, nodeRun.WorkflowNodeID)
-	if err != nil {
-		return false, fmt.Errorf("list deliverables: %w", err)
-	}
-	// No deliverables defined → trivially satisfied.
-	if len(deliverables) == 0 {
-		return true, nil
-	}
-
-	submissions, err := s.Queries.ListNodeRunDeliverableSubmissions(ctx, nodeRun.ID)
-	if err != nil {
-		return false, fmt.Errorf("list submissions: %w", err)
-	}
-
-	byDeliverable := make(map[string]db.MulticaWorkflowNodeDeliverableSubmission, len(submissions))
-	for _, sub := range submissions {
-		byDeliverable[util.UUIDToString(sub.DeliverableID)] = sub
-	}
-
-	for _, d := range deliverables {
-		if !d.Required {
-			continue
-		}
-		sub, ok := byDeliverable[util.UUIDToString(d.ID)]
-		if !ok || sub.Status == "missing" || sub.Status == "rejected" {
-			return false, nil
-		}
-	}
-	return true, nil
 }

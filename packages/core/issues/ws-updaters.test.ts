@@ -122,6 +122,47 @@ function expectInvalidated(qc: QueryClient, queryKey: readonly unknown[]) {
   expect(qc.getQueryState(queryKey)?.isInvalidated).toBe(true);
 }
 
+describe("onIssueCreated", () => {
+  let qc: QueryClient;
+
+  beforeEach(() => {
+    qc = new QueryClient();
+  });
+
+  it("does not add workflow-origin issues to the default issue list cache", () => {
+    const myFilter = { assignee_id: AGENT_ID };
+    const workflowChildIssue: Issue = {
+      ...otherIssue,
+      parent_issue_id: PARENT_ISSUE_ID,
+      origin_type: "workflow_split",
+      origin_id: "split-task-1",
+    };
+    qc.setQueryData<ListIssuesCache>(
+      issueKeys.list(WS_ID),
+      makeListCache(baseIssue),
+    );
+    qc.setQueryData<ListIssuesCache>(
+      issueKeys.myList(WS_ID, "assigned", myFilter),
+      makeListCache(baseIssue, workflowChildIssue),
+    );
+    qc.setQueryData<Issue[]>(issueKeys.children(WS_ID, PARENT_ISSUE_ID), []);
+    qc.setQueryData(issueKeys.childProgress(WS_ID), new Map());
+
+    onIssueCreated(qc, WS_ID, workflowChildIssue);
+
+    const list = qc.getQueryData<ListIssuesCache>(issueKeys.list(WS_ID));
+    const myList = qc.getQueryData<ListIssuesCache>(
+      issueKeys.myList(WS_ID, "assigned", myFilter),
+    );
+    expect(list?.byStatus.todo?.issues.map((i) => i.id)).toEqual([ISSUE_ID]);
+    expect(list?.byStatus.todo?.total).toBe(1);
+    expect(myList?.byStatus.todo?.issues.map((i) => i.id)).toEqual([ISSUE_ID]);
+    expect(myList?.byStatus.todo?.total).toBe(1);
+    expectInvalidated(qc, issueKeys.children(WS_ID, PARENT_ISSUE_ID));
+    expectInvalidated(qc, issueKeys.childProgress(WS_ID));
+  });
+});
+
 describe("onIssueLabelsChanged", () => {
   let qc: QueryClient;
 

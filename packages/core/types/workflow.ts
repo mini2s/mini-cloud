@@ -3,8 +3,16 @@ export type WorkerType = "human" | "agent" | "squad" | "role";
 export type CriticType = "human" | "agent" | "squad" | "api" | "role";
 export type RoleActorType = "member" | "agent" | "squad";
 export type NodeShape = "rectangle" | "diamond" | "pill" | "hexagon";
-export type WorkflowNodeFormatKind = "task" | "gateway" | "annotation";
+export type WorkflowNodeFormatKind = "task" | "gateway" | "annotation" | "split";
 export type GatewayKind = "fork" | "join";
+export type SplitMode = "barrier" | "pipeline";
+
+export interface SplitConfig {
+  default_issue_workflow_id: string | null;
+  mode: SplitMode;
+  max_concurrency: number;
+  max_failures: number;
+}
 
 export interface WorkflowNodeFormat {
   kind: WorkflowNodeFormatKind;
@@ -13,6 +21,8 @@ export interface WorkflowNodeFormat {
   template_category: string;
   gateway_kind: GatewayKind | null;
   gateway_kind_valid: boolean;
+  split_config: SplitConfig | null;
+  split_config_valid: boolean;
 }
 
 export const NODE_SHAPES: NodeShape[] = ["rectangle", "diamond", "pill", "hexagon"];
@@ -51,6 +61,10 @@ function isGatewayKind(value: unknown): value is GatewayKind {
   return value === "fork" || value === "join";
 }
 
+function isSplitMode(value: unknown): value is SplitMode {
+  return value === "barrier" || value === "pipeline";
+}
+
 function readString(obj: Record<string, unknown>, key: string): string | null {
   const value = obj[key];
   return typeof value === "string" && value.trim() ? value : null;
@@ -64,6 +78,8 @@ export function parseNodeFormat(formatSchema: unknown): WorkflowNodeFormat {
     template_category: "action",
     gateway_kind: null,
     gateway_kind_valid: true,
+    split_config: null,
+    split_config_valid: true,
   };
 
   if (!formatSchema || typeof formatSchema !== "object" || Array.isArray(formatSchema)) {
@@ -95,6 +111,43 @@ export function parseNodeFormat(formatSchema: unknown): WorkflowNodeFormat {
     };
   }
 
+  if (schema.type === "split") {
+    const rawConfig = schema.split_config;
+    const config = rawConfig && typeof rawConfig === "object" && !Array.isArray(rawConfig)
+      ? rawConfig as Record<string, unknown>
+      : {};
+    const defaultIssueWorkflowId = readString(config, "default_issue_workflow_id");
+    const rawMaxConcurrency = config.max_concurrency;
+    const rawMaxFailures = config.max_failures;
+    const maxConcurrencyValid =
+      typeof rawMaxConcurrency === "number" &&
+      Number.isInteger(rawMaxConcurrency) &&
+      rawMaxConcurrency >= 1 &&
+      rawMaxConcurrency <= 50;
+    const maxFailuresValid =
+      typeof rawMaxFailures === "number" &&
+      Number.isInteger(rawMaxFailures) &&
+      rawMaxFailures >= 0;
+    const splitConfig: SplitConfig = {
+      default_issue_workflow_id: defaultIssueWorkflowId,
+      mode: isSplitMode(config.mode) ? config.mode : "barrier",
+      max_concurrency: maxConcurrencyValid ? rawMaxConcurrency : 5,
+      max_failures: maxFailuresValid ? rawMaxFailures : 0,
+    };
+    return {
+      ...base,
+      kind: "split",
+      template_id: templateId,
+      template_category: templateCategory,
+      split_config: splitConfig,
+      split_config_valid:
+        defaultIssueWorkflowId !== null &&
+        (config.mode == null || isSplitMode(config.mode)) &&
+        (rawMaxConcurrency == null || maxConcurrencyValid) &&
+        (rawMaxFailures == null || maxFailuresValid),
+    };
+  }
+
   return {
     ...base,
     template_id: templateId,
@@ -115,7 +168,8 @@ export type NodeRunStatus =
   | "pending" | "format_checking" | "format_ok" | "format_failed"
   | "worker_assigned" | "working" | "awaiting_input" | "awaiting_critic"
   | "critic_reviewing" | "critic_approved" | "critic_rework"
-  | "completed" | "failed" | "blocked" | "skipped" | "cancelled";
+  | "completed" | "failed" | "blocked" | "skipped" | "cancelled"
+  | "splitting" | "awaiting_split_review" | "split_active";
 export type WorkflowRunStatus = "running" | "completed" | "failed" | "cancelled";
 export type WorkflowRuntimeDisplayStatus =
   | "pending"
@@ -125,7 +179,6 @@ export type WorkflowRuntimeDisplayStatus =
   | "completed"
   | "blocked"
   | "cancelled";
-export type WorkflowDeliverableSignal = "none" | "red" | "yellow" | "green";
 
 export function toWorkflowRuntimeDisplayStatus(status: string): WorkflowRuntimeDisplayStatus {
   switch (status) {
@@ -137,9 +190,12 @@ export function toWorkflowRuntimeDisplayStatus(status: string): WorkflowRuntimeD
     case "format_ok":
     case "awaiting_input":
     case "working":
+    case "splitting":
+    case "split_active":
       return "in_progress";
     case "awaiting_critic":
     case "critic_reviewing":
+    case "awaiting_split_review":
       return "reviewing";
     case "critic_approved":
     case "completed":
@@ -239,10 +295,114 @@ export interface WorkflowNodeRun {
   runtime_id: string | null;
   /** Device identifier for the runtime/session bound to this node run, if any. */
   device_id: string | null;
+  /** Chat session used for natural-language split draft review, if any. */
+  split_review_chat_session_id: string | null;
+  split_config_version: number;
   started_at: string | null;
   completed_at: string | null;
   created_at: string;
   updated_at: string;
+}
+
+export type SplitTaskStatus =
+  | "draft"
+  | "approved"
+  | "discarded"
+  | "created"
+  | "running"
+  | "done"
+  | "failed"
+  | "cancelled"
+  | "skipped";
+
+export type SplitDraftSource = "agent" | "chat" | "recovered";
+
+export interface SplitTask {
+  id: string;
+  node_run_id: string;
+  title: string;
+  description: string;
+  workflow_id: string;
+  depends_on: string[];
+  sort_order: number;
+  status: SplitTaskStatus;
+  issue_id: string | null;
+  run_id: string | null;
+  version: number;
+  draft_key: string | null;
+  draft_source: SplitDraftSource;
+  last_error: SplitTaskLastError | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface SplitTaskLastError {
+  code: string;
+  message: string;
+  child_issue_id: string | null;
+  workflow_run_id: string | null;
+  node_run_id: string | null;
+  occurred_at: string;
+}
+
+export interface SplitProgress {
+  total: number;
+  created: number;
+  running: number;
+  done: number;
+  failed: number;
+  cancelled: number;
+  skipped: number;
+}
+
+export interface SplitTasksResponse {
+  tasks: SplitTask[];
+  progress: SplitProgress;
+}
+
+/** Returned by POST /api/node-runs/:id/split/chat — extends SplitTasksResponse
+ *  with the chat session and agent task IDs needed for real-time updates. */
+export interface SplitChatResponse extends SplitTasksResponse {
+  chat_session_id: string;
+  task_id: string;
+}
+
+export interface ApproveSplitRequest {
+  approved_task_ids: string[];
+  confirm_empty?: boolean;
+}
+
+export interface PatchSplitDraftTaskRequest {
+  title?: string;
+  description?: string;
+  depends_on?: string[];
+  discarded?: boolean;
+  workflow_id?: string;
+  expected_version: number;
+}
+
+export interface CreateSplitDraftTaskRequest {
+  title: string;
+  description?: string;
+  workflow_id?: string;
+  depends_on?: string[];
+}
+
+export interface BatchPatchSplitDraftTasksRequest {
+  updates: Array<{
+    task_id: string;
+    workflow_id: string;
+    expected_version: number;
+  }>;
+}
+
+export interface PatchSplitConfigRequest {
+  max_concurrency: number;
+  expected_config_version: number;
+}
+
+export interface RetrySplitTaskRequest {
+  workflow_id?: string;
 }
 
 export interface WorkflowNodeRuntimeSummary {
@@ -251,16 +411,14 @@ export interface WorkflowNodeRuntimeSummary {
   display_status: WorkflowRuntimeDisplayStatus;
   active_actor_type: string;
   active_actor_id: string | null;
-  deliverable_signal: WorkflowDeliverableSignal;
-  required_deliverables_total: number;
-  required_deliverables_submitted: number;
-  required_deliverables_approved: number;
   duration_seconds: number | null;
+  /** Non-null when this node run is bound to a CSC session for human/agent collaboration. */
   session_id: string | null;
   runtime_id: string | null;
   device_id: string | null;
   has_error: boolean;
   error_message: string;
+  split_progress: SplitProgress | null;
 }
 
 export interface WorkflowRunCanvasSummaryResponse {
@@ -379,8 +537,29 @@ export interface WorkflowAdmin {
   can_manage_workflows: boolean;
 }
 
+// ── Role types ──────────────────────────────────────────────────────────────
+
+export interface WorkflowRole {
+  id: string;
+  workspace_id: string;
+  name: string;
+  description: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface WorkflowRoleBinding {
+  id: string;
+  role_id: string;
+  actor_type: RoleActorType;
+  actor_id: string;
+  priority: number;
+  created_at: string;
+}
+
 // ── Deliverable types ──────────────────────────────────────────────────────
 
+export type WorkflowDeliverableSignal = "none" | "red" | "yellow" | "green";
 export type WorkflowDeliverableKind = "document" | "pull_request";
 export type WorkflowDeliverableSubmissionStatus = "missing" | "submitted" | "approved" | "rejected";
 
@@ -417,24 +596,4 @@ export interface WorkflowNodeDeliverableSubmission {
 export interface DeliverableWithSubmission {
   deliverable: WorkflowNodeDeliverable;
   submission: WorkflowNodeDeliverableSubmission | null;
-}
-
-// ── Role types ──────────────────────────────────────────────────────────────
-
-export interface WorkflowRole {
-  id: string;
-  workspace_id: string;
-  name: string;
-  description: string;
-  created_at: string;
-  updated_at: string;
-}
-
-export interface WorkflowRoleBinding {
-  id: string;
-  role_id: string;
-  actor_type: RoleActorType;
-  actor_id: string;
-  priority: number;
-  created_at: string;
 }

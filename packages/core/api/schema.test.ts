@@ -378,6 +378,33 @@ describe("ApiClient schema fallback", () => {
       expect(summary.node_runtime_summaries).toEqual([]);
     });
   });
+
+  describe("getWorkflowRun", () => {
+    it("unwraps the server run detail envelope without falling back", async () => {
+      stubFetchJson({
+        run: {
+          id: "run-1",
+          workflow_id: "wf-1",
+          workspace_id: "ws-1",
+          workflow_title: "Workflow",
+          status: "running",
+          triggered_by_type: "member",
+          triggered_by_id: null,
+          input: {},
+          output: null,
+          started_at: "",
+          completed_at: null,
+          created_at: "",
+        },
+        node_runs: [],
+      });
+      const client = new ApiClient("https://api.example.test");
+      const run = await client.getWorkflowRun("wf-1", "run-1");
+
+      expect(run.id).toBe("run-1");
+      expect(run.workflow_id).toBe("wf-1");
+    });
+  });
 });
 
 // Direct tests for the helper, decoupled from any specific endpoint —

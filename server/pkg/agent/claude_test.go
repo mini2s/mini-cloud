@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"log/slog"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -593,6 +594,81 @@ func TestClaudeExecuteSurfacesStderrWhenChildExitsEarly(t *testing.T) {
 	case <-time.After(10 * time.Second):
 		t.Fatal("timeout waiting for result")
 	}
+}
+
+func TestCSCExecuteDrainsStdoutWhileWritingInitialInput(t *testing.T) {
+	fakePath := buildFakeStreamJSONCLI(t)
+
+	backend, err := New("csc", Config{ExecutablePath: fakePath, Logger: slog.Default()})
+	if err != nil {
+		t.Fatalf("new csc backend: %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	session, err := backend.Execute(ctx, strings.Repeat("large prompt\n", 512*1024), ExecOptions{Timeout: 3 * time.Second})
+	if err != nil {
+		t.Fatalf("execute should drain child stdout while writing stdin, got: %v", err)
+	}
+
+	go func() {
+		for range session.Messages {
+		}
+	}()
+
+	select {
+	case result, ok := <-session.Result:
+		if !ok {
+			t.Fatal("result channel closed without a value")
+		}
+		if result.Status != "completed" {
+			t.Fatalf("expected completed result, got status=%q error=%q", result.Status, result.Error)
+		}
+		if result.Output != "done" {
+			t.Fatalf("expected output %q, got %q", "done", result.Output)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("timeout waiting for result")
+	}
+}
+
+func buildFakeStreamJSONCLI(t *testing.T) string {
+	t.Helper()
+
+	dir := t.TempDir()
+	srcPath := filepath.Join(dir, "fake_stream_json_cli.go")
+	exePath := filepath.Join(dir, "fake-stream-json-cli")
+	if runtime.GOOS == "windows" {
+		exePath += ".exe"
+	}
+
+	src := `package main
+
+import (
+	"fmt"
+	"io"
+	"os"
+	"strings"
+)
+
+func main() {
+	payload := strings.Repeat("x", 2048)
+	for i := 0; i < 512; i++ {
+		fmt.Fprintf(os.Stdout, "{\"type\":\"system\",\"session_id\":\"sess-pipe\",\"pad\":\"%s\"}\n", payload)
+	}
+	_, _ = io.Copy(io.Discard, os.Stdin)
+	fmt.Fprintln(os.Stdout, "{\"type\":\"result\",\"subtype\":\"success\",\"is_error\":false,\"session_id\":\"sess-pipe\",\"result\":\"done\"}")
+}
+`
+	if err := os.WriteFile(srcPath, []byte(src), 0o644); err != nil {
+		t.Fatalf("write fake cli source: %v", err)
+	}
+	cmd := exec.Command("go", "build", "-o", exePath, srcPath)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("build fake cli: %v\n%s", err, out)
+	}
+	return exePath
 }
 
 func TestClaudeExecuteRecordsResultModelUsage(t *testing.T) {

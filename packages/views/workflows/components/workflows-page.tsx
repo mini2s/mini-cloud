@@ -4,7 +4,7 @@ import { useRef, useState } from "react";
 import { Plus, Workflow as WorkflowIcon, Play, Pause, FileText, Archive, History, Trash2 } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { workflowListOptions, workflowNodesOptions, workflowEdgesOptions, useCreateWorkflow, useDeleteWorkflow, workflowTemplateListOptions, useCreateWorkflowFromTemplate } from "@multica/core/workflows/queries";
+import { workflowListOptions, workflowNodesOptions, workflowEdgesOptions, workflowStagesOptions, useCreateWorkflow, useDeleteWorkflow, workflowTemplateListOptions, useCreateWorkflowFromTemplate } from "@multica/core/workflows/queries";
 import { useWorkspaceId } from "@multica/core/hooks";
 import { useWorkspacePaths } from "@multica/core/paths";
 import { AppLink, useNavigation } from "../../navigation";
@@ -23,11 +23,11 @@ import {
   AlertDialogTitle,
 } from "@multica/ui/components/ui/alert-dialog";
 import { Dialog, DialogContent, DialogHeader } from "@multica/ui/components/ui/dialog";
-import { ReactFlowProvider } from "@xyflow/react";
-import { DAGCanvas } from "./dag-canvas";
+import { WorkflowTemplatePreviewCanvas } from "./workflow-template-preview-canvas";
 import { cn } from "@multica/ui/lib/utils";
 import { useT } from "../../i18n";
 import type { Workflow, WorkflowStatus } from "@multica/core/types";
+import { getDeleteConflictMessage } from "../../common/delete-conflict-error";
 
 const STATUS_ICON: Record<WorkflowStatus, typeof Play> = {
   active: Play,
@@ -91,8 +91,12 @@ function WorkflowRow({ workflow }: { workflow: Workflow }) {
     try {
       await deleteWorkflow.mutateAsync(workflow.id);
       toast.success(t(($) => $.detail.toast_deleted));
-    } catch {
-      toast.error(t(($) => $.detail.toast_delete_failed));
+    } catch (error) {
+      toast.error(
+        getDeleteConflictMessage(error, {
+          template_has_derived_workflows: t(($) => $.detail.template_has_derived_workflows),
+        }) ?? t(($) => $.detail.toast_delete_failed),
+      );
     }
   };
 
@@ -233,6 +237,10 @@ export function WorkflowsPage() {
     ...workflowEdgesOptions(selectedTemplate?.workspace_id ?? wsId, selectedTemplateId ?? ""),
     enabled: !!selectedTemplateId,
   });
+  const { data: previewStages = [] } = useQuery({
+    ...workflowStagesOptions(selectedTemplate?.workspace_id ?? wsId, selectedTemplateId ?? ""),
+    enabled: !!selectedTemplateId,
+  });
 
   const handleCreate = async () => {
     const workflow = await createWorkflow.mutateAsync({ title: "Untitled Workflow" });
@@ -352,9 +360,11 @@ export function WorkflowsPage() {
           </DialogHeader>
           <p className="text-xs text-muted-foreground -mt-2">{selectedTemplate?.description}</p>
           <div className="h-[400px] overflow-hidden rounded-lg border bg-muted/20">
-            <ReactFlowProvider>
-              <DAGCanvas nodes={previewNodes} edges={previewEdges} />
-            </ReactFlowProvider>
+            <WorkflowTemplatePreviewCanvas
+              nodes={previewNodes}
+              edges={previewEdges}
+              stages={previewStages}
+            />
           </div>
           <div className="flex items-center justify-between pt-2">
             <span className="text-xs text-muted-foreground">

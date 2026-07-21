@@ -5,7 +5,7 @@
  */
 
 import "./env";
-import pg from "pg";
+import * as pg from "pg";
 import { randomBytes, createHash } from "crypto";
 
 // `||` (not `??`) so an empty `NEXT_PUBLIC_API_URL=` in .env still falls
@@ -20,6 +20,45 @@ interface TestWorkspace {
   slug: string;
 }
 
+interface TestIssue {
+  id: string;
+  workspace_id: string;
+  title: string;
+  workflow_id: string | null;
+  workflow_run_id: string | null;
+}
+
+interface TestWorkflow {
+  id: string;
+  title: string;
+}
+
+interface TestWorkflowNode {
+  id: string;
+  workflow_id: string;
+  title: string;
+}
+
+interface TestWorkflowNodeRun {
+  id: string;
+  workflow_node_id: string;
+  status: string;
+}
+
+interface TestWorkflowRun {
+  id: string;
+  workflow_id: string;
+}
+
+interface DynamicSplitScenario {
+  parentIssue: TestIssue;
+  parentWorkflow: TestWorkflow;
+  splitNode: TestWorkflowNode;
+  splitRun: TestWorkflowNodeRun;
+  implementationWorkflow: TestWorkflow;
+  testWorkflow: TestWorkflow;
+}
+
 export class TestApiClient {
   private static readonly DEFAULT_NODE_GRID_COLUMNS = 4;
   private static readonly DEFAULT_NODE_GRID_X_START = 120;
@@ -28,6 +67,7 @@ export class TestApiClient {
   private static readonly DEFAULT_NODE_GRID_Y_GAP = 180;
 
   private token: string | null = null;
+  private userId: string | null = null;
   private workspaceSlug: string | null = null;
   private workspaceId: string | null = null;
   private createdIssueIds: string[] = [];
@@ -55,6 +95,7 @@ export class TestApiClient {
       const data = await verifyRes.json();
 
       this.token = await this.mintPat(data.user.id);
+      this.userId = data.user?.id ?? null;
 
       if (name && data.user?.name !== name) {
         await this.authedFetch("/api/me", {
@@ -100,6 +141,7 @@ export class TestApiClient {
       const data = await verifyRes.json();
 
       this.token = await this.mintPat(data.user.id);
+      this.userId = data.user?.id ?? null;
 
       if (name && data.user?.name !== name) {
         await this.authedFetch("/api/me", {
@@ -168,6 +210,87 @@ export class TestApiClient {
     return issue;
   }
 
+  async createDynamicSplitScenario(opts: { draftCount?: number } = {}): Promise<DynamicSplitScenario> {
+    if (!this.workspaceId) {
+      await this.ensureWorkspace();
+    }
+    const draftCount = opts.draftCount ?? 3;
+    const suffix = Date.now();
+    const implementationWorkflow = await this.createWorkflow(`E2E implementation ${suffix}`);
+    await this.createWorkflowNode(implementationWorkflow.id, {
+      title: "Implement",
+      worker_type: "human",
+      critic_type: "human",
+      format_schema: {
+        type: "object",
+        properties: { summary: { type: "string" } },
+      },
+    });
+    await this.updateWorkflow(implementationWorkflow.id, { status: "active" });
+
+    const testWorkflow = await this.createWorkflow(`E2E test ${suffix}`);
+    await this.createWorkflowNode(testWorkflow.id, {
+      title: "Test",
+      worker_type: "human",
+      critic_type: "human",
+      format_schema: {
+        type: "object",
+        properties: { result: { type: "string" } },
+      },
+    });
+    await this.updateWorkflow(testWorkflow.id, { status: "active" });
+
+    const parentWorkflow = await this.createWorkflow(`E2E dynamic split ${suffix}`);
+    const reviewerId = await this.currentMemberUserId();
+    const splitNode = await this.createWorkflowNode(parentWorkflow.id, {
+      title: "Split work",
+      worker_type: "human",
+      worker_id: reviewerId,
+      critic_type: "human",
+      critic_id: reviewerId,
+      format_schema: {
+        type: "split",
+        split_config: {
+          default_issue_workflow_id: implementationWorkflow.id,
+          mode: "barrier",
+          max_concurrency: 5,
+          max_failures: 0,
+        },
+      },
+    });
+    await this.updateWorkflow(parentWorkflow.id, { status: "active" });
+
+    const parentIssue = await this.createIssue(`E2E dynamic split parent ${suffix}`, {
+      assignee_type: "workflow",
+      assignee_id: parentWorkflow.id,
+      allow_duplicate: true,
+    }) as TestIssue;
+    if (!parentIssue.workflow_run_id) {
+      throw new Error("dynamic split parent issue did not start a workflow run");
+    }
+
+    const nodeRuns = await this.listWorkflowNodeRuns(parentWorkflow.id, parentIssue.workflow_run_id);
+    const splitRun = nodeRuns.find((nodeRun) => nodeRun.workflow_node_id === splitNode.id);
+    if (!splitRun) {
+      throw new Error("dynamic split workflow did not create a split node run");
+    }
+
+    await this.seedSplitReviewDrafts({
+      splitNodeRunId: splitRun.id,
+      workflowId: implementationWorkflow.id,
+      draftCount,
+    });
+
+    return {
+      parentIssue,
+      parentWorkflow,
+      splitNode,
+      splitRun: { ...splitRun, status: "awaiting_split_review" },
+      implementationWorkflow,
+      testWorkflow,
+    };
+  }
+
   async createWorkflow(title: string) {
     const res = await this.authedFetch("/api/workflows", {
       method: "POST",
@@ -177,6 +300,17 @@ export class TestApiClient {
     this.createdWorkflowIds.push(workflow.id);
     this.workflowNodeCounts.set(workflow.id, 0);
     return workflow;
+  }
+
+  async updateWorkflow(id: string, data: Record<string, unknown>) {
+    const res = await this.authedFetch(`/api/workflows/${id}`, {
+      method: "PUT",
+      body: JSON.stringify(data),
+    });
+    if (!res.ok) {
+      throw new Error(`update workflow failed: ${res.status} ${await res.text()}`);
+    }
+    return res.json();
   }
 
   async listWorkflows(workspaceId?: string) {
@@ -193,6 +327,12 @@ export class TestApiClient {
   async listWorkflowNodes(workflowId: string) {
     const res = await this.authedFetch(`/api/workflows/${workflowId}/nodes`);
     return res.json();
+  }
+
+  async listWorkflowNodeRuns(workflowId: string, runId: string): Promise<TestWorkflowNodeRun[]> {
+    const res = await this.authedFetch(`/api/workflows/${workflowId}/runs/${runId}/node-runs`);
+    const body = await res.json();
+    return body.node_runs ?? [];
   }
 
   async listWorkflowEdges(workflowId: string) {
@@ -279,6 +419,35 @@ export class TestApiClient {
       body: JSON.stringify({ stage_id: stageId }),
     });
     return res.json();
+  }
+
+  async listChildIssues(parentIssueId: string): Promise<TestIssue[]> {
+    const res = await this.authedFetch(`/api/issues/${parentIssueId}/children`);
+    return res.json();
+  }
+
+  async listWorkflowRunsForIssues(issueIds: string[]): Promise<TestWorkflowRun[]> {
+    if (issueIds.length === 0) return [];
+    const client = new pg.Client(DATABASE_URL);
+    await client.connect();
+    try {
+      const result = await client.query(
+        `
+        SELECT wr.id, wr.workflow_id
+        FROM multica_issue i
+        JOIN multica_workflow_run wr ON wr.id = i.workflow_run_id
+        WHERE i.id = ANY($1::uuid[])
+        ORDER BY i.position ASC, i.created_at DESC
+        `,
+        [issueIds],
+      );
+      return result.rows.map((row) => ({
+        id: row.id,
+        workflow_id: row.workflow_id,
+      }));
+    } finally {
+      await client.end();
+    }
   }
 
   // ── Agent / Runtime / Plugin methods ──
@@ -533,5 +702,111 @@ export class TestApiClient {
   private incrementWorkflowNodeCount(workflowId: string) {
     const nextCount = (this.workflowNodeCounts.get(workflowId) ?? 0) + 1;
     this.workflowNodeCounts.set(workflowId, nextCount);
+  }
+
+  private async seedSplitReviewDrafts({
+    splitNodeRunId,
+    workflowId,
+    draftCount,
+  }: {
+    splitNodeRunId: string;
+    workflowId: string;
+    draftCount: number;
+  }) {
+    const client = new pg.Client(DATABASE_URL);
+    await client.connect();
+    try {
+      await client.query("BEGIN");
+      const nodeRun = await client.query<{ workspace_id: string }>(
+        `
+        SELECT wr.workspace_id
+        FROM multica_workflow_node_run wnr
+        JOIN multica_workflow_run wr ON wr.id = wnr.workflow_run_id
+        WHERE wnr.id = $1
+        `,
+        [splitNodeRunId],
+      );
+      const workspaceId = nodeRun.rows[0]?.workspace_id;
+      if (!workspaceId) {
+        throw new Error(`split node run not found: ${splitNodeRunId}`);
+      }
+
+      await client.query(
+        `
+        UPDATE multica_workflow_node_run
+        SET status = 'awaiting_split_review',
+            worker_output = NULL,
+            critic_output = NULL,
+            updated_at = now()
+        WHERE id = $1
+        `,
+        [splitNodeRunId],
+      );
+      await client.query(
+        "DELETE FROM multica_agent_task_queue WHERE workflow_node_run_id = $1",
+        [splitNodeRunId],
+      );
+      await client.query(
+        "DELETE FROM multica_workflow_split_task WHERE node_run_id = $1",
+        [splitNodeRunId],
+      );
+
+      for (let index = 0; index < draftCount; index += 1) {
+        await client.query(
+          `
+          INSERT INTO multica_workflow_split_task (
+            node_run_id, workspace_id, draft_key, title, description,
+            workflow_id, depends_on, sort_order, status, draft_source
+          )
+          VALUES ($1, $2, $3, $4, $5, $6, '[]'::jsonb, $7, 'draft', 'agent')
+          `,
+          [
+            splitNodeRunId,
+            workspaceId,
+            `child-${index + 1}`,
+            `Child task ${index + 1}`,
+            `Child task ${index + 1} description`,
+            workflowId,
+            index,
+          ],
+        );
+      }
+      await client.query("COMMIT");
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      await client.end();
+    }
+  }
+
+  private async currentMemberUserId(): Promise<string> {
+    if (this.userId) return this.userId;
+    if (!this.workspaceId) {
+      await this.ensureWorkspace();
+    }
+    const client = new pg.Client(DATABASE_URL);
+    await client.connect();
+    try {
+      const result = await client.query<{ user_id: string }>(
+        `
+        SELECT m.user_id
+        FROM multica_member m
+        JOIN multica_user u ON u.id = m.user_id
+        WHERE m.workspace_id = $1
+        ORDER BY m.created_at ASC
+        LIMIT 1
+        `,
+        [this.workspaceId],
+      );
+      const userId = result.rows[0]?.user_id;
+      if (!userId) {
+        throw new Error("workspace member not found for dynamic split scenario");
+      }
+      this.userId = userId;
+      return userId;
+    } finally {
+      await client.end();
+    }
   }
 }

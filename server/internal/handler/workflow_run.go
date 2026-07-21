@@ -51,47 +51,46 @@ type WorkflowRunResponse struct {
 }
 
 type WorkflowNodeRunResponse struct {
-	ID                string          `json:"id"`
-	WorkflowRunID     string          `json:"workflow_run_id"`
-	WorkflowNodeID    string          `json:"workflow_node_id"`
-	NodeTitle         string          `json:"node_title"`
-	Status            string          `json:"status"`
-	RetryCount        int32           `json:"retry_count"`
-	WorkerType        string          `json:"worker_type"`
-	WorkerID          *string         `json:"worker_id"`
-	WorkerOutput      json.RawMessage `json:"worker_output"`
-	WorkerAgentTaskID *string         `json:"worker_agent_task_id"`
-	CriticType        string          `json:"critic_type"`
-	CriticID          *string         `json:"critic_id"`
-	CriticOutput      json.RawMessage `json:"critic_output"`
-	CriticComment     string          `json:"critic_comment"`
-	CriticAgentTaskID *string         `json:"critic_agent_task_id"`
-	AgentTaskID       *string         `json:"agent_task_id"`
-	RuntimeID         *string         `json:"runtime_id"`
-	DeviceID          *string         `json:"device_id"`
-	SessionID         *string         `json:"session_id"`
-	StartedAt         *string         `json:"started_at"`
-	CompletedAt       *string         `json:"completed_at"`
-	CreatedAt         string          `json:"created_at"`
-	UpdatedAt         string          `json:"updated_at"`
+	ID                       string          `json:"id"`
+	WorkflowRunID            string          `json:"workflow_run_id"`
+	WorkflowNodeID           string          `json:"workflow_node_id"`
+	NodeTitle                string          `json:"node_title"`
+	Status                   string          `json:"status"`
+	RetryCount               int32           `json:"retry_count"`
+	WorkerType               string          `json:"worker_type"`
+	WorkerID                 *string         `json:"worker_id"`
+	WorkerOutput             json.RawMessage `json:"worker_output"`
+	WorkerAgentTaskID        *string         `json:"worker_agent_task_id"`
+	CriticType               string          `json:"critic_type"`
+	CriticID                 *string         `json:"critic_id"`
+	CriticOutput             json.RawMessage `json:"critic_output"`
+	CriticComment            string          `json:"critic_comment"`
+	CriticAgentTaskID        *string         `json:"critic_agent_task_id"`
+	AgentTaskID              *string         `json:"agent_task_id"`
+	RuntimeID                *string         `json:"runtime_id"`
+	DeviceID                 *string         `json:"device_id"`
+	SessionID                *string         `json:"session_id"`
+	SplitReviewChatSessionID *string         `json:"split_review_chat_session_id"`
+	SplitConfigVersion       int64           `json:"split_config_version"`
+	StartedAt                *string         `json:"started_at"`
+	CompletedAt              *string         `json:"completed_at"`
+	CreatedAt                string          `json:"created_at"`
+	UpdatedAt                string          `json:"updated_at"`
 }
 
 type WorkflowNodeRuntimeSummaryResponse struct {
-	WorkflowNodeID                string  `json:"workflow_node_id"`
-	NodeRunID                     string  `json:"node_run_id"`
-	DisplayStatus                 string  `json:"display_status"`
-	ActiveActorType               string  `json:"active_actor_type"`
-	ActiveActorID                 *string `json:"active_actor_id"`
-	DeliverableSignal             string  `json:"deliverable_signal"`
-	RequiredDeliverablesTotal     int     `json:"required_deliverables_total"`
-	RequiredDeliverablesSubmitted int     `json:"required_deliverables_submitted"`
-	RequiredDeliverablesApproved  int     `json:"required_deliverables_approved"`
-	DurationSeconds               *int64  `json:"duration_seconds"`
-	SessionID                     *string `json:"session_id"`
-	RuntimeID                     *string `json:"runtime_id"`
-	DeviceID                      *string `json:"device_id"`
-	HasError                      bool    `json:"has_error"`
-	ErrorMessage                  string  `json:"error_message"`
+	WorkflowNodeID  string                 `json:"workflow_node_id"`
+	NodeRunID       string                 `json:"node_run_id"`
+	DisplayStatus   string                 `json:"display_status"`
+	ActiveActorType string                 `json:"active_actor_type"`
+	ActiveActorID   *string                `json:"active_actor_id"`
+	DurationSeconds *int64                 `json:"duration_seconds"`
+	SessionID       *string                `json:"session_id"`
+	RuntimeID       *string                `json:"runtime_id"`
+	DeviceID        *string                `json:"device_id"`
+	HasError        bool                   `json:"has_error"`
+	ErrorMessage    string                 `json:"error_message"`
+	SplitProgress   *SplitProgressResponse `json:"split_progress,omitempty"`
 }
 
 // ── Converters ───────────────────────────────────────────────────────────────
@@ -115,57 +114,35 @@ func workflowRunToResponse(r db.MulticaWorkflowRun) WorkflowRunResponse {
 
 func workflowNodeRunToResponse(nr db.MulticaWorkflowNodeRun) WorkflowNodeRunResponse {
 	return WorkflowNodeRunResponse{
-		ID:                uuidToString(nr.ID),
-		WorkflowRunID:     uuidToString(nr.WorkflowRunID),
-		WorkflowNodeID:    uuidToString(nr.WorkflowNodeID),
-		NodeTitle:         nr.NodeTitle,
-		Status:            nr.Status,
-		RetryCount:        nr.RetryCount,
-		WorkerType:        nr.WorkerType,
-		WorkerID:          uuidToPtr(nr.WorkerID),
-		WorkerOutput:      json.RawMessage(nr.WorkerOutput),
-		WorkerAgentTaskID: uuidToPtr(nr.WorkerAgentTaskID),
-		CriticType:        nr.CriticType,
-		CriticID:          uuidToPtr(nr.CriticID),
-		CriticOutput:      json.RawMessage(nr.CriticOutput),
-		CriticComment:     nr.CriticComment.String,
-		CriticAgentTaskID: uuidToPtr(nr.CriticAgentTaskID),
-		AgentTaskID:       uuidToPtr(nr.AgentTaskID),
-		RuntimeID:         uuidToPtr(nr.RuntimeID),
-		DeviceID:          textToPtr(nr.DeviceID),
-		SessionID:         textToPtr(nr.SessionID),
-		StartedAt:         timestampToPtr(nr.StartedAt),
-		CompletedAt:       timestampToPtr(nr.CompletedAt),
-		CreatedAt:         timestampToString(nr.CreatedAt),
-		UpdatedAt:         timestampToString(nr.UpdatedAt),
+		ID:                       uuidToString(nr.ID),
+		WorkflowRunID:            uuidToString(nr.WorkflowRunID),
+		WorkflowNodeID:           uuidToString(nr.WorkflowNodeID),
+		NodeTitle:                nr.NodeTitle,
+		Status:                   nr.Status,
+		RetryCount:               nr.RetryCount,
+		WorkerType:               nr.WorkerType,
+		WorkerID:                 uuidToPtr(nr.WorkerID),
+		WorkerOutput:             json.RawMessage(nr.WorkerOutput),
+		WorkerAgentTaskID:        uuidToPtr(nr.WorkerAgentTaskID),
+		CriticType:               nr.CriticType,
+		CriticID:                 uuidToPtr(nr.CriticID),
+		CriticOutput:             json.RawMessage(nr.CriticOutput),
+		CriticComment:            nr.CriticComment.String,
+		CriticAgentTaskID:        uuidToPtr(nr.CriticAgentTaskID),
+		AgentTaskID:              uuidToPtr(nr.AgentTaskID),
+		RuntimeID:                uuidToPtr(nr.RuntimeID),
+		DeviceID:                 textToPtr(nr.DeviceID),
+		SessionID:                textToPtr(nr.SessionID),
+		SplitReviewChatSessionID: uuidToPtr(nr.SplitReviewChatSessionID),
+		SplitConfigVersion:       nr.SplitConfigVersion,
+		StartedAt:                timestampToPtr(nr.StartedAt),
+		CompletedAt:              timestampToPtr(nr.CompletedAt),
+		CreatedAt:                timestampToString(nr.CreatedAt),
+		UpdatedAt:                timestampToString(nr.UpdatedAt),
 	}
 }
 
 // ── Run handlers ─────────────────────────────────────────────────────────────
-
-type workflowRunDeliverableSummary struct {
-	RequiredTotal     int
-	RequiredSubmitted int
-	RequiredApproved  int
-	HasBlocking       bool
-	HasSubmitted      bool
-}
-
-func (s workflowRunDeliverableSummary) signal() string {
-	if s.RequiredTotal == 0 {
-		return "none"
-	}
-	if s.HasBlocking {
-		return "red"
-	}
-	if s.RequiredApproved == s.RequiredTotal {
-		return "green"
-	}
-	if s.HasSubmitted {
-		return "yellow"
-	}
-	return "red"
-}
 
 func workflowDisplayStatus(status string) string {
 	switch status {
@@ -173,9 +150,9 @@ func workflowDisplayStatus(status string) string {
 		return "pending"
 	case "worker_assigned":
 		return "todo"
-	case "format_checking", "format_ok", "working", "awaiting_input":
+	case "format_checking", "format_ok", "working", "awaiting_input", service.NodeRunStatusSplitting, service.NodeRunStatusSplitActive:
 		return "in_progress"
-	case "awaiting_critic", "critic_reviewing":
+	case "awaiting_critic", "critic_reviewing", service.NodeRunStatusAwaitingSplitReview:
 		return "reviewing"
 	case "critic_approved", "completed":
 		return "completed"
@@ -228,56 +205,37 @@ func extractNodeRunError(nr db.MulticaWorkflowNodeRun) (bool, string) {
 	return true, ""
 }
 
-func (h *Handler) workflowRunDeliverableSummaries(ctx context.Context, runID pgtype.UUID) (map[string]workflowRunDeliverableSummary, error) {
+func (h *Handler) workflowRunSplitProgressSummaries(ctx context.Context, runID pgtype.UUID) (map[string]SplitProgressResponse, error) {
 	rows, err := h.DB.Query(ctx, `
 		SELECT
-			wnr.id::text AS node_run_id,
-			COUNT(d.id) FILTER (WHERE d.required) AS required_total,
-			COUNT(s.id) FILTER (
-				WHERE d.required AND s.status IN ('submitted', 'approved', 'rejected')
-			) AS required_submitted,
-			COUNT(s.id) FILTER (
-				WHERE d.required AND s.status = 'approved'
-			) AS required_approved,
-			COALESCE(BOOL_OR(
-				d.required AND (s.id IS NULL OR s.status IN ('missing', 'rejected'))
-			), false) AS has_blocking,
-			COALESCE(BOOL_OR(
-				d.required AND s.status = 'submitted'
-			), false) AS has_submitted
-		FROM multica_workflow_node_run wnr
-		LEFT JOIN multica_workflow_node_deliverable d
-			ON d.workflow_node_id = wnr.workflow_node_id
-			AND d.required = true
-		LEFT JOIN multica_workflow_node_deliverable_submission s
-			ON s.workflow_node_run_id = wnr.id
-			AND s.deliverable_id = d.id
+			st.node_run_id::text AS node_run_id,
+			st.status
+		FROM multica_workflow_split_task st
+		JOIN multica_workflow_node_run wnr ON wnr.id = st.node_run_id
 		WHERE wnr.workflow_run_id = $1
-		GROUP BY wnr.id
 	`, runID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 
-	result := make(map[string]workflowRunDeliverableSummary)
+	byNodeRunID := make(map[string]service.SplitProgressSummary)
 	for rows.Next() {
 		var nodeRunID string
-		var total, submitted, approved int64
-		var hasBlocking, hasSubmitted bool
-		if err := rows.Scan(&nodeRunID, &total, &submitted, &approved, &hasBlocking, &hasSubmitted); err != nil {
+		var status string
+		if err := rows.Scan(&nodeRunID, &status); err != nil {
 			return nil, err
 		}
-		result[nodeRunID] = workflowRunDeliverableSummary{
-			RequiredTotal:     int(total),
-			RequiredSubmitted: int(submitted),
-			RequiredApproved:  int(approved),
-			HasBlocking:       hasBlocking,
-			HasSubmitted:      hasSubmitted,
-		}
+		progress := byNodeRunID[nodeRunID]
+		progress.AddStatus(status)
+		byNodeRunID[nodeRunID] = progress
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
+	}
+	result := make(map[string]SplitProgressResponse, len(byNodeRunID))
+	for nodeRunID, progress := range byNodeRunID {
+		result[nodeRunID] = splitProgressFromService(progress)
 	}
 	return result, nil
 }
@@ -429,9 +387,9 @@ func (h *Handler) GetWorkflowRunCanvasSummary(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	deliverableSummaries, err := h.workflowRunDeliverableSummaries(r.Context(), run.ID)
+	splitProgressSummaries, err := h.workflowRunSplitProgressSummaries(r.Context(), run.ID)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to summarize deliverables")
+		writeError(w, http.StatusInternalServerError, "failed to summarize split progress")
 		return
 	}
 
@@ -439,26 +397,27 @@ func (h *Handler) GetWorkflowRunCanvasSummary(w http.ResponseWriter, r *http.Req
 	runtimeSummaries := make([]WorkflowNodeRuntimeSummaryResponse, 0, len(nodeRuns))
 	for _, nr := range nodeRuns {
 		nodeRunResp = append(nodeRunResp, workflowNodeRunToResponse(nr))
-		deliverables := deliverableSummaries[uuidToString(nr.ID)]
 		actorType, actorID := nodeRunActiveActor(nr)
 		hasError, errorMessage := extractNodeRunError(nr)
+		var splitProgress *SplitProgressResponse
+		if progress, ok := splitProgressSummaries[uuidToString(nr.ID)]; ok {
+			progressCopy := progress
+			splitProgress = &progressCopy
+		}
 
 		runtimeSummaries = append(runtimeSummaries, WorkflowNodeRuntimeSummaryResponse{
-			WorkflowNodeID:                uuidToString(nr.WorkflowNodeID),
-			NodeRunID:                     uuidToString(nr.ID),
-			DisplayStatus:                 workflowDisplayStatus(nr.Status),
-			ActiveActorType:               actorType,
-			ActiveActorID:                 actorID,
-			DeliverableSignal:             deliverables.signal(),
-			RequiredDeliverablesTotal:     deliverables.RequiredTotal,
-			RequiredDeliverablesSubmitted: deliverables.RequiredSubmitted,
-			RequiredDeliverablesApproved:  deliverables.RequiredApproved,
-			DurationSeconds:               nodeRunDurationSeconds(nr),
-			SessionID:                     textToPtr(nr.SessionID),
-			RuntimeID:                     uuidToPtr(nr.RuntimeID),
-			DeviceID:                      textToPtr(nr.DeviceID),
-			HasError:                      hasError,
-			ErrorMessage:                  errorMessage,
+			WorkflowNodeID:  uuidToString(nr.WorkflowNodeID),
+			NodeRunID:       uuidToString(nr.ID),
+			DisplayStatus:   workflowDisplayStatus(nr.Status),
+			ActiveActorType: actorType,
+			ActiveActorID:   actorID,
+			DurationSeconds: nodeRunDurationSeconds(nr),
+			SessionID:       textToPtr(nr.SessionID),
+			RuntimeID:       uuidToPtr(nr.RuntimeID),
+			DeviceID:        textToPtr(nr.DeviceID),
+			HasError:        hasError,
+			ErrorMessage:    errorMessage,
+			SplitProgress:   splitProgress,
 		})
 	}
 
@@ -649,6 +608,30 @@ func (h *Handler) SkipNodeRun(w http.ResponseWriter, r *http.Request) {
 		// Non-fatal: the skip already persisted.
 	}
 
+	writeJSON(w, http.StatusOK, resp)
+}
+
+func (h *Handler) RetryNodeRun(w http.ResponseWriter, r *http.Request) {
+	userID, ok := requireUserID(w, r)
+	if !ok {
+		return
+	}
+	nodeRun, run, workspaceID, ok := h.loadNodeRunForWorkspace(w, r)
+	if !ok {
+		return
+	}
+
+	updated, err := h.WorkflowService.RetryNodeRun(r.Context(), nodeRun)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	resp := workflowNodeRunToResponse(*updated)
+	h.publish(protocol.EventWorkflowNodeRunResumed, workspaceID, "member", userID, map[string]any{
+		"node_run": resp,
+		"run_id":   uuidToString(run.ID),
+	})
 	writeJSON(w, http.StatusOK, resp)
 }
 

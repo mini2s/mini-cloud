@@ -7,54 +7,89 @@ import type { NodeRunActionType } from "./runtime-node-card";
 import type { WorkflowNode, WorkflowNodeRun, WorkflowNodeRuntimeSummary } from "@multica/core/types";
 
 // Mock @multica/views/i18n for useT hook — handles function selector form
-vi.mock("@multica/views/i18n", () => ({
-  useT: () => ({
-    t: (selector: unknown) => {
-      if (typeof selector === "function") {
-        return selector({
-          execution: {
-            display_status: {
-              pending: "Pending",
-              todo: "Todo",
-              in_progress: "In progress",
-              reviewing: "Reviewing",
-              completed: "Completed",
-              blocked: "Blocked",
-              cancelled: "Cancelled",
-              dispatched: "Dispatched",
-              joined: "Joined",
-              waiting_upstream: "Waiting for upstream",
-            },
-            card: {
-              worker_label: "Worker",
-              critic_label: "Critic",
-              artifacts_label: "Artifacts",
-              deliverable_green: "Deliverables approved",
-              deliverable_yellow: "Awaiting review",
-              deliverable_red: "Deliverables missing",
-              deliverable_none: "No required deliverables",
-              deliverable_progress: "{{submitted}}/{{total}} · {{approved}} passed",
-              actions: {
-                approve: "Approve",
-                reject: "Reject",
-                submit_input: "Submit",
-                handback: "Return",
-                retry: "Retry",
-                skip: "Skip",
-                complete: "Complete",
-              },
-            },
-            detail_panel: {
-              worker_output: "Worker Output",
-              critic_output: "Critic Output",
-            },
-          },
-        });
-      }
-      return String(selector);
+vi.mock("@multica/views/i18n", () => {
+  const issues = {
+    execution: {
+      panorama: {
+        not_started: "Not started",
+      },
+      display_status: {
+        pending: "Pending",
+        todo: "Todo",
+        in_progress: "In progress",
+        reviewing: "Reviewing",
+        completed: "Completed",
+        blocked: "Blocked",
+        cancelled: "Cancelled",
+        dispatched: "Dispatched",
+        joined: "Joined",
+        waiting_upstream: "Waiting for upstream",
+      },
+      card: {
+        worker_label: "Worker",
+        critic_label: "Critic",
+        artifacts_label: "Artifacts",
+        gateway_label_fork: "Fork gateway",
+        gateway_label_join: "Join gateway",
+        gateway_label: "Gateway",
+        split_child_count: "{{count}} child issues",
+        split_child_count_one: "{{count}} child issue",
+        split_child_count_other: "{{count}} child issues",
+        split_child_done: "{{count}} done",
+        split_child_failed: "{{count}} failed",
+        split_child_running: "{{count}} running",
+        split_child_ready: "{{count}} ready",
+        split_child_skipped: "{{count}} skipped",
+        split_child_cancelled: "{{count}} cancelled",
+        split_child_expand: "Expand child issues",
+        split_child_collapse: "Collapse child issues",
+			split_mode_barrier: "Barrier",
+			split_mode_pipeline: "Pipeline",
+        actions: {
+          approve: "Approve",
+          reject: "Reject",
+          submit_input: "Submit",
+          handback: "Return",
+          retry: "Retry",
+          skip: "Skip",
+          complete: "Complete",
+        },
+      },
+      detail_panel: {
+        worker_output: "Worker Output",
+        critic_output: "Critic Output",
+      },
     },
-  }),
-}));
+  };
+
+  const workflows = {
+    detail_panel: {
+      split_node_generating_draft_tasks: "Generating draft tasks",
+      split_node_review_tasks_one: "Review {{count}} task",
+      split_node_review_tasks_other: "Review {{count}} tasks",
+      split_node_review_tasks: "Review {{count}} tasks",
+      split_node_mode_concurrency: "{{mode}} · concurrency {{concurrency}}",
+      split_status_fallback: "pending",
+    },
+  };
+
+  const localeMaps = { issues, workflows } as Record<string, Record<string, unknown>>;
+
+  return {
+    useT: (namespace: string) => ({
+      t: (selector: unknown, options?: Record<string, unknown>) => {
+        if (typeof selector === "function") {
+          const value = selector(localeMaps[namespace] ?? {});
+          if (typeof value === "string" && options) {
+            return value.replace(/\{\{(\w+)\}\}/g, (_match, key) => String(options[key] ?? ""));
+          }
+          return value;
+        }
+        return String(selector);
+      },
+    }),
+  };
+});
 
 const baseNode: WorkflowNode = {
   id: "node-1",
@@ -95,6 +130,8 @@ const completedRun: WorkflowNodeRun = {
   session_id: null,
   runtime_id: null,
   device_id: null,
+  split_review_chat_session_id: null,
+  split_config_version: 1,
   started_at: null,
   completed_at: null,
   created_at: "2026-01-01",
@@ -107,16 +144,13 @@ const runtimeSummary: WorkflowNodeRuntimeSummary = {
   display_status: "reviewing",
   active_actor_type: "agent",
   active_actor_id: "agent-2",
-  deliverable_signal: "red",
-  required_deliverables_total: 1,
-  required_deliverables_submitted: 0,
-  required_deliverables_approved: 0,
   duration_seconds: 90,
   session_id: null,
   runtime_id: null,
   device_id: null,
   has_error: false,
   error_message: "",
+  split_progress: null,
 };
 
 describe("RuntimeNodeCard", () => {
@@ -200,27 +234,6 @@ describe("RuntimeNodeCard", () => {
     expect(screen.queryByText(/Artifacts:/)).not.toBeInTheDocument();
     expect(screen.queryByText(/Worker Output/)).not.toBeInTheDocument();
     expect(screen.queryByText(/Critic Output/)).not.toBeInTheDocument();
-    expect(screen.queryByTestId("runtime-node-deliverables")).not.toBeInTheDocument();
-  });
-
-  it("renders deliverable summary as a compact neutral chip", () => {
-    render(
-      <RuntimeNodeCard
-        node={baseNode}
-        nodeRun={completedRun}
-        runtimeSummary={runtimeSummary}
-        workerName="小助手"
-        criticName="审核员"
-        onClick={vi.fn()}
-      />,
-    );
-    expect(screen.queryByText(/Artifacts:/)).not.toBeInTheDocument();
-    expect(screen.getByTestId("runtime-node-deliverables")).toHaveTextContent("Deliverables missing");
-    expect(screen.getByTestId("runtime-node-deliverables")).toHaveTextContent("0/1 · 0 passed");
-    expect(screen.getByTestId("runtime-node-deliverables")).toHaveClass("col-span-full", "h-4");
-    expect(screen.getByTestId("runtime-node-deliverables").className).not.toContain("ring");
-    expect(screen.getByTestId("runtime-node-deliverables").className).not.toContain("border");
-    expect(screen.getByTestId("runtime-node-deliverables").className).not.toContain("bg-");
   });
 
   it("renders Bot icon for agent worker_type", () => {
@@ -286,22 +299,6 @@ describe("RuntimeNodeCard", () => {
     expect(screen.getByText("Completed")).toBeInTheDocument();
   });
 
-  it("uses runtime summary display status with the compact deliverable chip", () => {
-    render(
-      <RuntimeNodeCard
-        node={baseNode}
-        nodeRun={{ ...completedRun, status: "completed" }}
-        runtimeSummary={runtimeSummary}
-        workerName="Tester"
-        criticName="Reviewer"
-        onClick={vi.fn()}
-      />,
-    );
-
-    expect(screen.getByLabelText("Reviewing")).toBeInTheDocument();
-    expect(screen.getByTestId("runtime-node-deliverables")).toHaveTextContent("Deliverables missing");
-  });
-
   it("uses the shared workflow canvas node shell with the editor-card surface", () => {
     render(
       <RuntimeNodeCard
@@ -331,7 +328,50 @@ describe("RuntimeNodeCard", () => {
     expect(screen.getByTestId("runtime-node-content")).toHaveClass("border-t", "border-border/45");
     expect(screen.getByTestId("runtime-node-content").className).not.toContain("border-y");
     expect(screen.getByLabelText("Reviewing")).toBeInTheDocument();
-    expect(screen.getByTestId("runtime-node-deliverables")).toHaveClass("text-muted-foreground");
+  });
+
+  it("does not emphasize blocked runtime nodes unless they are selected as the runtime focus", () => {
+    render(
+      <RuntimeNodeCard
+        node={baseNode}
+        nodeRun={{ ...completedRun, status: "blocked" }}
+        runtimeSummary={{ ...runtimeSummary, display_status: "blocked" }}
+        workerName="Tester"
+        criticName="Reviewer"
+        onClick={vi.fn()}
+      />,
+    );
+
+    const card = screen.getByTestId("runtime-node-card-node-1");
+    const surface = card.querySelector('[data-node-shape-surface="true"]');
+    expect(card).toHaveAttribute("data-runtime-display-status", "blocked");
+    expect(card).not.toHaveAttribute("data-runtime-focus");
+    expect(surface?.className).toContain("ring-slate-200/70");
+    expect(surface?.className).not.toContain("ring-red");
+    expect(surface?.className).not.toContain("from-red");
+  });
+
+  it("emphasizes only the selected runtime focus node with its status color", () => {
+    render(
+      <RuntimeNodeCard
+        node={baseNode}
+        nodeRun={{ ...completedRun, status: "blocked" }}
+        runtimeSummary={{ ...runtimeSummary, display_status: "blocked" }}
+        workerName="Tester"
+        criticName="Reviewer"
+        onClick={vi.fn()}
+        isRuntimeFocus
+      />,
+    );
+
+    const card = screen.getByTestId("runtime-node-card-node-1");
+    const surface = card.querySelector('[data-node-shape-surface="true"]');
+    expect(card).toHaveAttribute("data-runtime-display-status", "blocked");
+    expect(card).toHaveAttribute("data-runtime-focus", "true");
+    expect(surface?.className).toContain("ring-red-300/80");
+    expect(surface?.className).toContain("ring-2");
+    expect(surface?.className).toContain("from-red-50/90");
+    expect(surface?.className).not.toContain("ring-blue");
   });
 
   it("lays out worker and critic as paired actor slots", () => {
@@ -381,7 +421,7 @@ describe("RuntimeNodeCard", () => {
           format_schema: { type: "gateway", gateway_kind: "fork", shape: "diamond" },
         }}
         nodeRun={{ ...completedRun, status: "awaiting_critic", worker_output: { summary: "done" } }}
-        runtimeSummary={{ ...runtimeSummary, display_status: "completed", deliverable_signal: "red" }}
+        runtimeSummary={{ ...runtimeSummary, display_status: "completed" }}
         workerName="Tester"
         criticName="Reviewer"
         onClick={vi.fn()}
@@ -395,7 +435,416 @@ describe("RuntimeNodeCard", () => {
     expect(screen.queryByText("Critic:")).not.toBeInTheDocument();
     expect(screen.queryByText(/Artifacts:/)).not.toBeInTheDocument();
     expect(screen.queryByTestId("runtime-node-action-approve")).not.toBeInTheDocument();
-    expect(screen.queryByTestId("runtime-node-deliverables")).not.toBeInTheDocument();
+  });
+
+  it("renders split nodes with aggregated child issue status inside the runtime card structure", () => {
+    render(
+      <RuntimeNodeCard
+        node={{
+          ...baseNode,
+          id: "split-1",
+          title: "Task split",
+          format_schema: {
+            type: "split",
+            template_id: "task-splitter",
+            template_category: "logic",
+            shape: "rectangle",
+            split_config: {
+              default_issue_workflow_id: "child-wf-1",
+              mode: "barrier",
+              max_concurrency: 5,
+              max_failures: 0,
+            },
+          },
+        }}
+        nodeRun={{ ...completedRun, workflow_node_id: "split-1", status: "awaiting_split_review" }}
+        runtimeSummary={{
+          ...runtimeSummary,
+          workflow_node_id: "split-1",
+          node_run_id: "run-1",
+          display_status: "reviewing",
+          split_progress: {
+            total: 5,
+            created: 0,
+            running: 0,
+            done: 0,
+            failed: 0,
+            cancelled: 0,
+            skipped: 0,
+          },
+        }}
+        workerName="Tester"
+        criticName="Reviewer"
+        onClick={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText("Task split")).toBeInTheDocument();
+    expect(screen.getByText("Reviewing")).toBeInTheDocument();
+    expect(screen.getByTestId("runtime-node-card-split-1")).toHaveTextContent("Reviewing");
+    expect(screen.getByLabelText("Reviewing")).toBeInTheDocument();
+    expect(screen.getByText("5 child issues")).toBeInTheDocument();
+    expect(screen.getByText("Not started")).toBeInTheDocument();
+    expect(screen.queryByText("Review 5 tasks")).not.toBeInTheDocument();
+    expect(screen.queryByText("Worker")).not.toBeInTheDocument();
+    expect(screen.queryByText("Critic")).not.toBeInTheDocument();
+    expect(screen.getByTestId("runtime-node-split-progress")).toHaveClass("border-t", "border-border/45");
+  });
+
+  it("shows split planner roles while the split planner is running", () => {
+    render(
+      <RuntimeNodeCard
+        node={{
+          ...baseNode,
+          id: "split-generating",
+          title: "Task split",
+          format_schema: {
+            type: "split",
+            template_id: "task-splitter",
+            split_config: {
+              default_issue_workflow_id: "child-wf-1",
+              mode: "barrier",
+              max_concurrency: 5,
+              max_failures: 0,
+            },
+          },
+        }}
+        nodeRun={{ ...completedRun, workflow_node_id: "split-generating", status: "splitting" }}
+        runtimeSummary={{
+          ...runtimeSummary,
+          workflow_node_id: "split-generating",
+          display_status: "in_progress",
+          split_progress: null,
+        }}
+        workerName="Tester"
+        criticName="Reviewer"
+        onClick={vi.fn()}
+      />,
+    );
+
+    const card = screen.getByTestId("runtime-node-card-split-generating");
+    expect(card).toHaveTextContent("In progress");
+    expect(screen.queryByText("Generating draft tasks")).not.toBeInTheDocument();
+		expect(screen.getByText("Barrier")).toBeInTheDocument();
+    expect(screen.getByText("Worker")).toBeInTheDocument();
+    expect(screen.getByText("Tester")).toBeInTheDocument();
+    expect(screen.getByText("Critic")).toBeInTheDocument();
+    expect(screen.getByText("Reviewer")).toBeInTheDocument();
+    expect(card.innerHTML).not.toContain("text-amber");
+  });
+
+	it.each([
+		["barrier", "Barrier"],
+		["pipeline", "Pipeline"],
+	] as const)("shows %s mode on collapsed split cards", (mode, label) => {
+		render(
+			<RuntimeNodeCard
+				node={{
+					...baseNode,
+					id: `split-${mode}`,
+					format_schema: {
+						type: "split",
+						split_config: { default_issue_workflow_id: "child-wf-1", mode, max_concurrency: 5, max_failures: 0 },
+					},
+				}}
+				nodeRun={{ ...completedRun, workflow_node_id: `split-${mode}` }}
+				workerName="Tester"
+				criticName="Reviewer"
+				onClick={vi.fn()}
+			/>,
+		);
+		expect(screen.getByText(label)).toBeInTheDocument();
+	});
+
+  it("renders split child progress as the expansion control without opening the split panel", async () => {
+    const onClick = vi.fn();
+    const onSplitNodeToggle = vi.fn();
+
+    render(
+      <RuntimeNodeCard
+        node={{
+          ...baseNode,
+          id: "split-expand",
+          title: "Task split",
+          format_schema: {
+            type: "split",
+            split_config: {
+              default_issue_workflow_id: "child-wf-1",
+              mode: "barrier",
+              max_concurrency: 5,
+              max_failures: 0,
+            },
+          },
+        }}
+        nodeRun={{ ...completedRun, workflow_node_id: "split-expand", status: "split_active" }}
+        runtimeSummary={{
+          ...runtimeSummary,
+          workflow_node_id: "split-expand",
+          split_progress: {
+            total: 3,
+            created: 1,
+            running: 1,
+            done: 1,
+            failed: 0,
+            cancelled: 0,
+            skipped: 0,
+          },
+        }}
+        workerName="Tester"
+        criticName="Reviewer"
+        onClick={onClick}
+        splitChildCount={3}
+        isSplitExpanded={false}
+        onSplitNodeToggle={onSplitNodeToggle}
+      />,
+    );
+
+    const toggleButton = screen.getByRole("button", { name: "Expand child issues" });
+    expect(toggleButton).toHaveAttribute("data-testid", "runtime-node-split-child-toggle");
+    expect(toggleButton).toHaveTextContent("3 child issues");
+    expect(toggleButton).toHaveTextContent("1 done · 1 running · 1 ready");
+
+    await userEvent.click(toggleButton);
+
+    expect(onSplitNodeToggle).toHaveBeenCalledWith("split-expand");
+    expect(onClick).not.toHaveBeenCalled();
+  });
+
+  it("keeps split nodes with child expansion keyboard focusable", () => {
+    render(
+      <RuntimeNodeCard
+        node={{
+          ...baseNode,
+          id: "split-keyboard",
+          title: "Task split",
+          format_schema: {
+            type: "split",
+            split_config: {
+              default_issue_workflow_id: "child-wf-1",
+              mode: "barrier",
+              max_concurrency: 5,
+              max_failures: 0,
+            },
+          },
+        }}
+        nodeRun={{ ...completedRun, workflow_node_id: "split-keyboard", status: "split_active" }}
+        runtimeSummary={{
+          ...runtimeSummary,
+          workflow_node_id: "split-keyboard",
+          split_progress: {
+            total: 2,
+            created: 1,
+            running: 1,
+            done: 0,
+            failed: 0,
+            cancelled: 0,
+            skipped: 0,
+          },
+        }}
+        workerName="Tester"
+        criticName="Reviewer"
+        onClick={vi.fn()}
+        splitChildCount={2}
+        onSplitNodeToggle={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByTestId("runtime-node-card-split-keyboard")).toHaveAttribute("tabindex", "0");
+  });
+
+  it("marks the split child tray as open when child nodes are expanded", () => {
+    render(
+      <RuntimeNodeCard
+        node={{
+          ...baseNode,
+          id: "split-open",
+          title: "Task split",
+          format_schema: {
+            type: "split",
+            split_config: {
+              default_issue_workflow_id: "child-wf-1",
+              mode: "barrier",
+              max_concurrency: 5,
+              max_failures: 0,
+            },
+          },
+        }}
+        nodeRun={{ ...completedRun, workflow_node_id: "split-open", status: "split_active" }}
+        runtimeSummary={{
+          ...runtimeSummary,
+          workflow_node_id: "split-open",
+          split_progress: {
+            total: 2,
+            created: 0,
+            running: 0,
+            done: 2,
+            failed: 0,
+            cancelled: 0,
+            skipped: 0,
+          },
+        }}
+        workerName="Tester"
+        criticName="Reviewer"
+        onClick={vi.fn()}
+        splitChildCount={2}
+        isSplitExpanded
+        onSplitNodeToggle={vi.fn()}
+      />,
+    );
+
+    const toggleButton = screen.getByRole("button", { name: "Collapse child issues" });
+    expect(toggleButton).toHaveAttribute("aria-expanded", "true");
+    expect(toggleButton.className).toContain("border-primary/45");
+    expect(toggleButton.className).toContain("bg-background");
+    expect(toggleButton.className).not.toContain("bg-primary/10");
+  });
+
+  it("keeps the visible canvas surface without nesting editor split card chrome", () => {
+    render(
+      <RuntimeNodeCard
+        node={{
+          ...baseNode,
+          id: "split-chrome",
+          title: "Task split",
+          format_schema: {
+            type: "split",
+            template_id: "task-splitter",
+            template_category: "logic",
+            shape: "rectangle",
+            split_config: {
+              default_issue_workflow_id: "child-wf-1",
+              mode: "barrier",
+              max_concurrency: 5,
+              max_failures: 0,
+            },
+          },
+        }}
+        nodeRun={{ ...completedRun, workflow_node_id: "split-chrome", status: "split_active" }}
+        runtimeSummary={{
+          ...runtimeSummary,
+          workflow_node_id: "split-chrome",
+          node_run_id: "run-chrome",
+          display_status: "in_progress",
+          split_progress: {
+            total: 2,
+            created: 1,
+            running: 1,
+            done: 0,
+            failed: 0,
+            cancelled: 0,
+            skipped: 0,
+          },
+        }}
+        workerName="Tester"
+        criticName="Reviewer"
+        onClick={vi.fn()}
+      />,
+    );
+
+    const card = screen.getByTestId("runtime-node-card-split-chrome");
+    const surface = card.querySelector('[data-node-shape-surface="true"]');
+    expect(surface?.className).toContain("bg-gradient-to-br");
+    expect(surface?.className).toContain("border-white/80");
+    expect(surface?.className).not.toContain("bg-transparent");
+    expect(surface?.className).not.toContain("border-transparent");
+    expect(surface?.className).not.toContain("shadow-none");
+
+    expect(card.querySelector('[data-testid="runtime-node-split-progress"]')).toBeInTheDocument();
+    expect(card.innerHTML).not.toContain("bg-card");
+    expect(card.innerHTML).not.toContain("shadow-sm");
+    expect(card.innerHTML).not.toContain("text-amber");
+  });
+
+  it("renders split progress badge when runtime summary includes aggregated progress", () => {
+    render(
+      <RuntimeNodeCard
+        node={{
+          ...baseNode,
+          id: "split-2",
+          title: "Split progress",
+          format_schema: {
+            type: "split",
+            template_id: "task-splitter",
+            template_category: "logic",
+            shape: "rectangle",
+            split_config: {
+              default_issue_workflow_id: "child-wf-1",
+              mode: "barrier",
+              max_concurrency: 5,
+              max_failures: 0,
+            },
+          },
+        }}
+        nodeRun={{ ...completedRun, workflow_node_id: "split-2", status: "split_active" }}
+        runtimeSummary={{
+          ...runtimeSummary,
+          workflow_node_id: "split-2",
+          node_run_id: "run-2",
+          display_status: "in_progress",
+          split_progress: {
+            total: 4,
+            created: 1,
+            running: 1,
+            done: 1,
+            failed: 1,
+            cancelled: 0,
+            skipped: 0,
+          },
+        }}
+        workerName="Tester"
+        criticName="Reviewer"
+        onClick={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText("In progress")).toBeInTheDocument();
+    expect(screen.getByText("1 done · 1 failed · 1 running · 1 ready")).toBeInTheDocument();
+  });
+
+  it("keeps split progress visible after the parent split node completes", () => {
+    render(
+      <RuntimeNodeCard
+        node={{
+          ...baseNode,
+          id: "split-completed",
+          title: "Split completed",
+          format_schema: {
+            type: "split",
+            template_id: "task-splitter",
+            template_category: "logic",
+            shape: "rectangle",
+            split_config: {
+              default_issue_workflow_id: "child-wf-1",
+              mode: "barrier",
+              max_concurrency: 5,
+              max_failures: 0,
+            },
+          },
+        }}
+        nodeRun={{ ...completedRun, workflow_node_id: "split-completed", status: "completed" }}
+        runtimeSummary={{
+          ...runtimeSummary,
+          workflow_node_id: "split-completed",
+          node_run_id: "run-completed",
+          display_status: "completed",
+          split_progress: {
+            total: 4,
+            created: 0,
+            running: 0,
+            done: 4,
+            failed: 0,
+            cancelled: 0,
+            skipped: 0,
+          },
+        }}
+        workerName="Tester"
+        criticName="Reviewer"
+        onClick={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText("Completed")).toBeInTheDocument();
+    expect(screen.getByText("4 done")).toBeInTheDocument();
   });
 
   it("uses category-derived semantic shape classes", () => {
