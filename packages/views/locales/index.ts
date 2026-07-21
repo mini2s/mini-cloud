@@ -21,6 +21,7 @@ import enModals from "./en/modals.json";
 import enRuntimes from "./en/runtimes.json";
 import enLayout from "./en/layout.json";
 import enUsage from "./en/usage.json";
+import enHome from "./en/home.json";
 import enUi from "./en/ui.json";
 import enSquads from "./en/squads.json";
 import enWorkflows from "./en/workflows.json";
@@ -46,6 +47,7 @@ import zhHansModals from "./zh-Hans/modals.json";
 import zhHansRuntimes from "./zh-Hans/runtimes.json";
 import zhHansLayout from "./zh-Hans/layout.json";
 import zhHansUsage from "./zh-Hans/usage.json";
+import zhHansHome from "./zh-Hans/home.json";
 import zhHansUi from "./zh-Hans/ui.json";
 import zhHansSquads from "./zh-Hans/squads.json";
 import zhHansWorkflows from "./zh-Hans/workflows.json";
@@ -77,6 +79,7 @@ export const RESOURCES: Record<SupportedLocale, LocaleResources> = {
     runtimes: enRuntimes,
     layout: enLayout,
     usage: enUsage,
+    home: enHome,
     ui: enUi,
     squads: enSquads,
     workflows: enWorkflows,
@@ -104,6 +107,7 @@ export const RESOURCES: Record<SupportedLocale, LocaleResources> = {
     runtimes: zhHansRuntimes,
     layout: zhHansLayout,
     usage: zhHansUsage,
+    home: zhHansHome,
     ui: zhHansUi,
     squads: zhHansSquads,
     workflows: zhHansWorkflows,

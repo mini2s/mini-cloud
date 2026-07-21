@@ -1,0 +1,28 @@
+{
+  "title": "首页",
+  "mock_badge": "示例数据",
+  "stats": {
+    "section": "效能统计",
+    "completion_rate": "完成率",
+    "active_tasks": "进行中任务",
+    "done_this_week": "本周完成",
+    "avg_cycle_time": "平均周期",
+    "period": "近 7 天"
+  },
+  "quick_nav": {
+    "section": "快捷导航",
+    "issues": "需求",
+    "my_issues": "我的任务",
+    "projects": "项目",
+    "inbox": "收件箱",
+    "workflows": "工作流",
+    "skills": "技能"
+  },
+  "lists": {
+    "section_my_work": "我的工作",
+    "section_watching": "我关注的工作",
+    "section_assigned": "指派给我",
+    "view_all": "查看全部",
+    "empty": "暂无内容"
+  }
+}

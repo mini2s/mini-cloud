@@ -25,6 +25,7 @@ import type modals from "../locales/en/modals.json";
 import type runtimes from "../locales/en/runtimes.json";
 import type layout from "../locales/en/layout.json";
 import type usage from "../locales/en/usage.json";
+import type home from "../locales/en/home.json";
 import type squads from "../locales/en/squads.json";
 import type workflows from "../locales/en/workflows.json";
 
@@ -66,6 +67,7 @@ declare global {
     runtimes: typeof runtimes;
     layout: typeof layout;
     usage: typeof usage;
+    home: typeof home;
     squads: typeof squads;
     workflows: typeof workflows;
   }

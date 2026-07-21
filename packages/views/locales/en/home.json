@@ -1,0 +1,28 @@
+{
+  "title": "Home",
+  "mock_badge": "Mock data",
+  "stats": {
+    "section": "Performance",
+    "completion_rate": "Completion rate",
+    "active_tasks": "Active tasks",
+    "done_this_week": "Done this week",
+    "avg_cycle_time": "Avg. cycle time",
+    "period": "Last 7 days"
+  },
+  "quick_nav": {
+    "section": "Quick navigation",
+    "issues": "Issues",
+    "my_issues": "My tasks",
+    "projects": "Projects",
+    "inbox": "Inbox",
+    "workflows": "Workflows",
+    "skills": "Skills"
+  },
+  "lists": {
+    "section_my_work": "My work",
+    "section_watching": "Watching",
+    "section_assigned": "Assigned to me",
+    "view_all": "View all",
+    "empty": "Nothing here yet"
+  }
+}

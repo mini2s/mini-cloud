@@ -18,6 +18,7 @@ import { SortableContext, verticalListSortingStrategy, useSortable, arrayMove } 
 import { CSS } from "@dnd-kit/utilities";
 import {
   Inbox,
+  ListTodo,
   Bot,
   Monitor,
   ChevronDown,
@@ -30,11 +31,9 @@ import {
   SquarePen,
   CircleUser,
   FolderKanban,
-  // Hidden per 2026-06-16 product decision.
-  // BarChart3,
+  BarChart3,
   X,
-  // Hidden per 2026-06-16 product decision.
-  // Zap,
+  Zap,
   IdCard,
   Users,
   GitBranch,
@@ -216,10 +215,12 @@ const workbenchNav: NavItem[] = [
 
 const projectNav: NavItem[] = [
   { key: "projects", labelKey: "projects", icon: FolderKanban },
+  { key: "issues", labelKey: "issues", icon: ListTodo },
 ];
 
 const collaborationNav: NavItem[] = [
   { key: "workflows", labelKey: "workflows", icon: GitBranch },
+  { key: "autopilots", labelKey: "autopilots", icon: Zap },
   { key: "squads", labelKey: "squads", icon: Users },
   { key: "dispatch", labelKey: "dispatch", icon: Send },
   { key: "agents", labelKey: "agents", icon: Bot },
@@ -232,6 +233,7 @@ const repositoryNav: NavItem[] = [
 ];
 
 const metricsNav: NavItem[] = [
+  { key: "usage", labelKey: "usage", icon: BarChart3 },
   { key: "metricsEfficiency", labelKey: "metrics_efficiency", icon: Gauge },
   { key: "metricsQuality", labelKey: "metrics_quality", icon: ShieldCheck },
   { key: "metricsCost", labelKey: "metrics_cost", icon: Coins },

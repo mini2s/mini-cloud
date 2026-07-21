@@ -1,8 +1,7 @@
 "use client";
 
-import { LayoutDashboard } from "lucide-react";
-import { NavPlaceholderPage } from "@multica/views/placeholders";
+import { HomePage } from "@multica/views/home";
 
 export default function Page() {
-  return <NavPlaceholderPage navKey="home" icon={LayoutDashboard} />;
+  return <HomePage />;
 }
