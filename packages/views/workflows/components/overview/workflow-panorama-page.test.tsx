@@ -265,6 +265,15 @@ vi.mock("../../../i18n", () => {
         more: "More",
         blocked_tooltip: "Resolve blocking issues first.",
         activate_disabled_unsaved: "Save changes before activating.",
+        activate: "Activate",
+        reactivate: "Reactivate",
+        deactivate: "Deactivate",
+        save_first: "Save first",
+        review_issues: "Review issues",
+        save_before_activating_status: "Save before activating",
+        available_in_issues: "Available in issues",
+        hidden_from_issue_picker: "Hidden from issue picker",
+        blocking_issues_left: "{{count}} issue(s) left",
       },
     },
     preflight: {
@@ -1048,7 +1057,7 @@ describe("WorkflowPanoramaPage (new)", () => {
     expect(mocks.createNodeMutate).toHaveBeenCalledWith(
       expect.objectContaining({
         title: "Human review",
-        position_x: 436,
+        position_x: 492,
         stage_id: "stage-2",
       }),
       expect.any(Object),
@@ -1270,7 +1279,7 @@ describe("WorkflowPanoramaPage (new)", () => {
 
     expect(mocks.updateNodeMutate).toHaveBeenCalledWith({
       nodeId: "moving",
-      position_x: 760,
+      position_x: 872,
     });
     expect(mocks.assignStageMutate).toHaveBeenCalledWith({
       nodeId: "moving",
@@ -1329,7 +1338,7 @@ describe("WorkflowPanoramaPage (new)", () => {
     // Nodes must carry explicit width/height so MiniMap can render them
     // before the ResizeObserver fires (nodeHasDimensions check in @xyflow/system)
     const worker = mocks.reactFlowProps?.nodes.find((n) => n.id === "node-1");
-    expect(worker).toMatchObject({ width: 240, height: 104 });
+    expect(worker).toMatchObject({ width: 296, height: 136 });
     expect(mocks.reactFlowProps?.nodes.some((n) => n.type === "laneBg" || n.type === "gradientBg")).toBe(false);
   });
 
