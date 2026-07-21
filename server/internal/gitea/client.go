@@ -196,6 +196,9 @@ func (c *Client) GetBranch(ctx context.Context, owner, repo, branch string) (boo
 }
 
 // CreateBranch creates branch from an existing ref (e.g. "main" or an inst branch).
+// Idempotent: 409/422 (branch already exists) → nil, so callers can use it as
+// get-or-create without a prior GetBranch (which can't address slash-bearing
+// branch names like node/<hex> via the GET /branches/{name} path).
 func (c *Client) CreateBranch(ctx context.Context, owner, repo, branch, fromRef string) error {
 	resp, err := c.do(ctx, http.MethodPost, "/repos/"+owner+"/"+repo+"/branches", map[string]any{
 		"new_branch_name": branch,
@@ -207,6 +210,9 @@ func (c *Client) CreateBranch(ctx context.Context, owner, repo, branch, fromRef 
 	defer resp.Body.Close()
 	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
 		return nil
+	}
+	if resp.StatusCode == http.StatusConflict || resp.StatusCode == http.StatusUnprocessableEntity {
+		return nil // already exists — idempotent
 	}
 	return decodeError(resp)
 }

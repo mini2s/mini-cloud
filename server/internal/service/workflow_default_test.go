@@ -2,12 +2,18 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
+	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/multica-ai/multica/server/internal/gitea"
 	"github.com/multica-ai/multica/server/internal/util"
 	db "github.com/multica-ai/multica/server/pkg/db/generated"
 )
@@ -235,5 +241,133 @@ func TestStartDefaultRunForIssue_AgentAssignee(t *testing.T) {
 	}
 	if taskCount != 1 {
 		t.Fatalf("want 1 agent task linked to node-run, got %d", taskCount)
+	}
+}
+
+// uploadFakeGiteaServer stands up a minimal Gitea stand-in handling the branch /
+// contents / pulls calls UploadMemberDeliverable makes. Returns the server and a
+// pointer to a counter of PRs opened.
+func uploadFakeGiteaServer(t *testing.T) (*httptest.Server, *int) {
+	t.Helper()
+	var mu sync.Mutex
+	branches := map[string]bool{}
+	prs := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		defer mu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		p := r.URL.Path
+		switch {
+		case r.Method == http.MethodPost && strings.HasSuffix(p, "/branches"):
+			var body map[string]any
+			_ = json.NewDecoder(r.Body).Decode(&body)
+			if name, ok := body["new_branch_name"].(string); ok {
+				branches[name] = true
+			}
+			w.WriteHeader(http.StatusCreated)
+		case r.Method == http.MethodPost && strings.Contains(p, "/contents/"):
+			w.WriteHeader(http.StatusCreated)
+		case r.Method == http.MethodPost && strings.HasSuffix(p, "/pulls"):
+			prs++
+			w.WriteHeader(http.StatusCreated)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"html_url": fmt.Sprintf("http://gitea.local/o/r/pulls/%d", prs),
+				"number":   prs,
+			})
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	return srv, &prs
+}
+
+// TestUploadMemberDeliverable verifies the member-upload server-side path: writes
+// the doc to the node branch, opens a PR, registers it on the submission, and
+// advances the node-run into the critic phase.
+func TestUploadMemberDeliverable(t *testing.T) {
+	pool := openTestPool(t)
+	defer pool.Close()
+	ctx := context.Background()
+	suffix := fmt.Sprintf("up-%d-%d", os.Getpid(), time.Now().UnixNano())
+
+	var wsID, userID, memberID string
+	if err := pool.QueryRow(ctx, `INSERT INTO multica_workspace (name, slug, description, issue_prefix) VALUES ($1,$2,'t','UP') RETURNING id`, "UP WS "+suffix, "up-"+suffix).Scan(&wsID); err != nil {
+		t.Fatalf("seed workspace: %v", err)
+	}
+	if err := pool.QueryRow(ctx, `INSERT INTO multica_user (name, email) VALUES ($1,$2) RETURNING id`, "UP User "+suffix, "up-"+suffix+"@multica.ai").Scan(&userID); err != nil {
+		t.Fatalf("seed user: %v", err)
+	}
+	if err := pool.QueryRow(ctx, `INSERT INTO multica_member (workspace_id, user_id, role) VALUES ($1,$2,'owner') RETURNING id`, wsID, userID).Scan(&memberID); err != nil {
+		t.Fatalf("seed member: %v", err)
+	}
+	memberUUID, _ := util.ParseUUID(memberID)
+
+	// default workflow + human worker/critic node + document deliverable
+	var wfID, nodeID string
+	if err := pool.QueryRow(ctx, `INSERT INTO multica_workflow (workspace_id, title, status, created_by_type, is_default) VALUES ($1,'Default','active','system',TRUE) RETURNING id`, wsID).Scan(&wfID); err != nil {
+		t.Fatalf("seed default wf: %v", err)
+	}
+	if err := pool.QueryRow(ctx, `INSERT INTO multica_workflow_node (workflow_id, title, worker_type, worker_id, critic_type, critic_id, sort_order) VALUES ($1,'N','human',$2,'human',$3,0) RETURNING id`, wfID, memberID, memberID).Scan(&nodeID); err != nil {
+		t.Fatalf("seed node: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO multica_workflow_node_deliverable (workflow_node_id, kind, title, description, required, sort_order) VALUES ($1,'document','D','',TRUE,0)`, nodeID); err != nil {
+		t.Fatalf("seed deliverable: %v", err)
+	}
+
+	var runID, nrID string
+	if err := pool.QueryRow(ctx, `INSERT INTO multica_workflow_run (workflow_id, workspace_id, workflow_title, status, triggered_by_type, triggered_by_id) VALUES ($1,$2,'Default','running','member',$3) RETURNING id`, wfID, wsID, memberID).Scan(&runID); err != nil {
+		t.Fatalf("seed run: %v", err)
+	}
+	if err := pool.QueryRow(ctx, `INSERT INTO multica_workflow_node_run (workflow_run_id, workflow_node_id, node_title, status, retry_count, worker_type, worker_id, critic_type, critic_id) VALUES ($1,$2,'N','worker_assigned',0,'human',$3,'human',$4) RETURNING id`, runID, nodeID, memberID, memberID).Scan(&nrID); err != nil {
+		t.Fatalf("seed node-run: %v", err)
+	}
+	runUUID, _ := util.ParseUUID(runID)
+	nrUUID, _ := util.ParseUUID(nrID)
+	wsUUID, _ := util.ParseUUID(wsID)
+
+	t.Cleanup(func() {
+		pool.Exec(ctx, `DELETE FROM multica_workflow WHERE workspace_id = $1`, wsID)
+		pool.Exec(ctx, `DELETE FROM multica_member WHERE workspace_id = $1`, wsID)
+		pool.Exec(ctx, `DELETE FROM multica_workspace WHERE id = $1`, wsID)
+		pool.Exec(ctx, `DELETE FROM multica_user WHERE id = $1`, userID)
+	})
+
+	srv, prCount := uploadFakeGiteaServer(t)
+	defer srv.Close()
+	svc := &WorkflowService{
+		Queries:   db.New(pool),
+		TxStarter: pool,
+		Gitea:     gitea.NewClient(gitea.Config{BaseURL: srv.URL, Token: "admin-tok"}),
+	}
+
+	issue := db.MulticaIssue{
+		WorkspaceID:   wsUUID,
+		AssigneeType:  pgtype.Text{String: "member", Valid: true},
+		AssigneeID:    memberUUID,
+		CreatorType:   "member",
+		CreatorID:     memberUUID,
+		WorkflowRunID: runUUID,
+	}
+	if err := svc.UploadMemberDeliverable(ctx, issue, "# Hello\n\nDoc body."); err != nil {
+		t.Fatalf("UploadMemberDeliverable: %v", err)
+	}
+
+	if *prCount != 1 {
+		t.Fatalf("want 1 PR opened, got %d", *prCount)
+	}
+	subs, err := svc.Queries.ListNodeRunDeliverableSubmissions(ctx, nrUUID)
+	if err != nil {
+		t.Fatalf("list submissions: %v", err)
+	}
+	if len(subs) != 1 || subs[0].PullRequestUrl == "" {
+		t.Fatalf("want 1 submission with a PR url, got %+v", subs)
+	}
+	// Node-run advanced into the critic phase (human critic → critic_reviewing).
+	got, err := svc.Queries.GetWorkflowNodeRun(ctx, nrUUID)
+	if err != nil {
+		t.Fatalf("get node-run: %v", err)
+	}
+	if got.Status != "critic_reviewing" && got.Status != "awaiting_critic" {
+		t.Fatalf("node-run status=%q, want critic_reviewing/awaiting_critic", got.Status)
 	}
 }

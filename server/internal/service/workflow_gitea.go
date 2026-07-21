@@ -481,3 +481,91 @@ func (s *WorkflowService) markDocumentSubmissionsApproved(ctx context.Context, n
 		}
 	}
 }
+
+// UploadMemberDeliverable is the server-side mirror of the agent's `cs-workflow
+// gitea submit`: it writes a member-uploaded document to the issue's default-
+// workflow Gitea repo (node branch off the inst branch), opens a node→inst PR,
+// registers the PR URL on the submission, and advances the node-run to
+// awaiting_critic — which dispatches the critic (the issue creator) so the
+// deliverable enters the same review+merge path as agent-produced docs.
+//
+// SubmittedByID is the uploading member (issue.AssigneeID for a member-assigned
+// issue). dormant: returns an error when Gitea is nil/unconfigured; the handler
+// gates the endpoint on isGiteaConfigured() and never calls this otherwise.
+func (s *WorkflowService) UploadMemberDeliverable(ctx context.Context, issue db.MulticaIssue, content string) error {
+	if s.Gitea == nil || !s.Gitea.Configured() {
+		return errors.New("UploadMemberDeliverable: Gitea not configured")
+	}
+	if !issue.WorkflowRunID.Valid {
+		return errors.New("issue has no workflow run (not routed to the default workflow)")
+	}
+	run, err := s.Queries.GetWorkflowRun(ctx, issue.WorkflowRunID)
+	if err != nil {
+		return fmt.Errorf("get run: %w", err)
+	}
+	nodeRuns, err := s.Queries.ListWorkflowNodeRunsByRun(ctx, run.ID)
+	if err != nil {
+		return fmt.Errorf("list node runs: %w", err)
+	}
+	if len(nodeRuns) == 0 {
+		return errors.New("run has no node runs")
+	}
+	nodeRun := nodeRuns[0]
+
+	deliverables, err := s.Queries.ListWorkflowNodeDeliverables(ctx, nodeRun.WorkflowNodeID)
+	if err != nil {
+		return fmt.Errorf("list deliverables: %w", err)
+	}
+	var deliverableID pgtype.UUID
+	for _, d := range deliverables {
+		if d.Kind == "document" {
+			deliverableID = d.ID
+			break
+		}
+	}
+	if !deliverableID.Valid {
+		return errors.New("node has no document deliverable")
+	}
+
+	owner := gitea.OrgName(util.UUIDToString(run.WorkspaceID))
+	repo := gitea.RepoName(util.UUIDToString(run.WorkflowID))
+	inst := gitea.InstBranch(util.UUIDToString(run.ID))
+	nodeBranch := gitea.NodeBranch(util.UUIDToString(nodeRun.ID))
+	path := gitea.DeliverablePath(util.UUIDToString(nodeRun.ID), util.UUIDToString(deliverableID))
+
+	// Idempotent node branch (base = inst). CreateBranch is get-or-create
+	// (handles the slash in node/<hex>, which GET /branches/{name} can't address).
+	if err := s.Gitea.CreateBranch(ctx, owner, repo, nodeBranch, inst); err != nil {
+		return fmt.Errorf("create node branch: %w", err)
+	}
+	if err := s.Gitea.CreateFile(ctx, owner, repo, nodeBranch, path, content, "deliverable upload"); err != nil {
+		return fmt.Errorf("write deliverable file: %w", err)
+	}
+	prURL, err := s.Gitea.OpenPR(ctx, owner, repo, nodeBranch, inst,
+		"document deliverable "+util.UUIDToString(deliverableID))
+	if err != nil {
+		return fmt.Errorf("open PR: %w", err)
+	}
+
+	// Register the PR on the submission (status=submitted via the upsert query).
+	if _, err := s.Queries.UpsertNodeRunDeliverableSubmission(ctx, db.UpsertNodeRunDeliverableSubmissionParams{
+		WorkflowNodeRunID: nodeRun.ID,
+		DeliverableID:     deliverableID,
+		SubmittedByType:   "member",
+		SubmittedByID:     issue.AssigneeID,
+		Content:           "",
+		PullRequestUrl:    prURL,
+	}); err != nil {
+		return fmt.Errorf("upsert submission: %w", err)
+	}
+
+	// Advance the node-run to awaiting_critic (dispatches the critic = creator).
+	// SubmitWorkerOutput accepts the worker_assigned status the member run sits in.
+	output, _ := json.Marshal(map[string]any{"pull_request_url": prURL})
+	if err := s.SubmitWorkerOutput(ctx, nodeRun.ID, output); err != nil {
+		return fmt.Errorf("submit worker output: %w", err)
+	}
+	slog.Info("member deliverable uploaded",
+		"issue_id", util.UUIDToString(issue.ID), "node_run_id", util.UUIDToString(nodeRun.ID), "pr_url", prURL)
+	return nil
+}
