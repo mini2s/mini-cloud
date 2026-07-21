@@ -585,6 +585,10 @@
     "critic_tasks": "待评审"
   },
   "panorama": {
+    "card": {
+      "worker_label": "Worker",
+      "critic_label": "Critic"
+    },
     "empty_all": "创建第一个阶段以开始使用",
     "unassigned": "未分组",
     "not_configured": "未配置",

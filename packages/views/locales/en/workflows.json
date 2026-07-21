@@ -586,6 +586,10 @@
     "critic_tasks": "To Review"
   },
   "panorama": {
+    "card": {
+      "worker_label": "Worker",
+      "critic_label": "Critic"
+    },
     "empty_all": "Create your first stage to get started",
     "unassigned": "Unassigned",
     "not_configured": "Not configured",

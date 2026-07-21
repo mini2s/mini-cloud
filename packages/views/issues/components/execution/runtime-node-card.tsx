@@ -291,11 +291,11 @@ function ActorSlot({
   name: string | null;
 }) {
   return (
-    <div className="min-w-0 space-y-0.5">
+    <div className="grid min-w-0 grid-rows-[12px_minmax(0,1fr)] gap-0.5">
       <div className="text-[9px] font-semibold uppercase tracking-wide text-muted-foreground">
         {label}
       </div>
-      <div className="flex min-w-0 items-center gap-1.5 text-[11px]">
+      <div className="flex min-w-0 items-start gap-1.5 text-[11px]">
         <span className="flex size-4 shrink-0 items-center justify-center rounded-full bg-muted/55 text-muted-foreground ring-1 ring-border/60">
           <Icon className="h-3 w-3" />
         </span>

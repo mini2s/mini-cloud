@@ -7,6 +7,7 @@ import { workflowNodeInfoAreaClassName, workflowNodeShapeGlyphClassName } from "
 import { WorkflowCanvasNodeShell } from "../../canvas/workflow-canvas-node-shell";
 import { WORKER_WIDTH, WORKER_HEIGHT, STAGE_LINE_COLORS } from "../constants";
 import { SplitNodeCard } from "../../split/split-node-card";
+import { useT } from "../../../../i18n";
 
 export interface CompactWorkerNodeData extends Record<string, unknown> {
   node: WorkflowNode;
@@ -56,11 +57,11 @@ function RoleSlot({
   icon: ReactNode;
 }) {
   return (
-    <div data-testid={testId} className="min-w-0 space-y-0.5">
+    <div data-testid={testId} className="grid min-w-0 grid-rows-[12px_minmax(0,1fr)] gap-0.5">
       <span className="block text-[8.5px] font-bold uppercase tracking-wide text-muted-foreground">
         {label}
       </span>
-      <span className="flex min-w-0 items-center gap-1.5 text-[10px] leading-4">
+      <span className="flex min-w-0 items-start gap-1.5 text-[10px] leading-4">
         <span
           aria-hidden="true"
           className={cn(
@@ -103,6 +104,7 @@ export const CompactWorkerNode = memo(function CompactWorkerNode({
   ...rest
 }: NodeProps) {
   const nodeData = data as unknown as CompactWorkerNodeData;
+  const { t } = useT("workflows");
   const selected = (rest as Record<string, unknown>).selected === true;
   const handleColorClass = STAGE_LINE_COLORS[nodeData.stageColorIndex % STAGE_LINE_COLORS.length];
   const displayName = nodeData.node.title || "Untitled";
@@ -224,14 +226,14 @@ export const CompactWorkerNode = memo(function CompactWorkerNode({
           >
             <RoleSlot
               testId={`compact-worker-node-worker-role-${id}`}
-              label="Worker"
+              label={t(($) => $.panorama.card.worker_label)}
               value={workerLabel ?? "Not configured"}
               configured={workerConfigured}
               icon={workerLabel ? <WorkerIcon type={nodeData.node.worker_type} /> : null}
             />
             <RoleSlot
               testId={`compact-worker-node-critic-role-${id}`}
-              label="Critic"
+              label={t(($) => $.panorama.card.critic_label)}
               value={nodeData.criticName ?? (nodeData.criticConfigured ? "Configured" : "Optional")}
               configured={nodeData.criticConfigured === true}
               icon={<UserRound className="size-3 shrink-0 text-muted-foreground/75" strokeWidth={1.8} />}

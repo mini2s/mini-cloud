@@ -13,11 +13,13 @@ vi.mock("../../../../i18n", () => ({
       getter: (d: {
         node: Record<string, string>;
         detail_panel: Record<string, string>;
+        panorama: { card: Record<string, string> };
       }) => string,
       values?: Record<string, string | number>,
     ) => {
       const dict = {
         node: { worker_name: "Worker", agent_label: "Agent", not_configured: "Not configured" },
+        panorama: { card: { worker_label: "Localized Worker", critic_label: "Localized Critic" } },
         detail_panel: { split_node_mode_concurrency: "{{mode}} · concurrency {{concurrency}}" },
       };
       return getter(dict).replace(/{{\s*(\w+)\s*}}/g, (_match, key: string) => String(values?.[key] ?? ""));
@@ -209,6 +211,10 @@ describe("CompactWorkerNode", () => {
 
     expect(screen.getByTestId("compact-worker-node-worker-role-node-1")).toHaveTextContent("Builder Agent");
     expect(screen.getByTestId("compact-worker-node-critic-role-node-1")).toHaveTextContent("Reviewer");
+    expect(screen.getByText("Localized Worker")).toBeInTheDocument();
+    expect(screen.getByText("Localized Critic")).toBeInTheDocument();
+    expect(screen.getByTestId("compact-worker-node-worker-role-node-1")).toHaveClass("grid", "grid-rows-[12px_minmax(0,1fr)]");
+    expect(screen.getByTestId("compact-worker-node-critic-role-node-1")).toHaveClass("grid", "grid-rows-[12px_minmax(0,1fr)]");
   });
 
   it("does not show missing worker warnings on the card", () => {
@@ -244,7 +250,7 @@ describe("CompactWorkerNode", () => {
     expect(screen.queryByText("Intake")).not.toBeInTheDocument();
     expect(screen.queryByText("Worker ready")).not.toBeInTheDocument();
     expect(screen.getByText("GPT-4 Agent")).toBeInTheDocument();
-    expect(screen.getByText("Critic")).toBeInTheDocument();
+    expect(screen.getByText("Localized Critic")).toBeInTheDocument();
     expect(screen.queryByText("Completed")).not.toBeInTheDocument();
   });
 
@@ -266,7 +272,7 @@ describe("CompactWorkerNode", () => {
 
     expect(screen.queryByText("Build")).not.toBeInTheDocument();
     expect(screen.queryByText("Needs worker")).not.toBeInTheDocument();
-    expect(screen.getByText("Critic")).toBeInTheDocument();
+    expect(screen.getByText("Localized Critic")).toBeInTheDocument();
   });
 
   it("renders annotation nodes without worker warnings", () => {
