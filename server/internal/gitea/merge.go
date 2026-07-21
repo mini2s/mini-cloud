@@ -2,7 +2,10 @@ package gitea
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -32,6 +35,37 @@ func (c *Client) MergePR(ctx context.Context, owner, repo string, index int) err
 		return ErrMergeConflict
 	}
 	return decodeError(resp)
+}
+
+// OpenPR creates a pull request (head→base) and returns its html_url. Used by
+// the server-side member-upload path to open a node→inst PR — symmetric with the
+// daemon/cs-workflow path, which opens PRs client-side. Uses the admin token;
+// the submission's submitted_by_* records the human author, not the git committer.
+func (c *Client) OpenPR(ctx context.Context, owner, repo, head, base, title string) (string, error) {
+	resp, err := c.do(ctx, http.MethodPost, "/repos/"+owner+"/"+repo+"/pulls", map[string]any{
+		"head":  head,
+		"base":  base,
+		"title": title,
+	})
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return "", fmt.Errorf("gitea create PR: status %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+	}
+	var pr struct {
+		HTMLURL string `json:"html_url"`
+		Number  int    `json:"number"`
+	}
+	if err := json.Unmarshal(body, &pr); err != nil {
+		return "", fmt.Errorf("parse PR response: %w", err)
+	}
+	if pr.HTMLURL == "" {
+		return "", fmt.Errorf("gitea create PR: empty html_url in response")
+	}
+	return pr.HTMLURL, nil
 }
 
 // ParsePullRequestIndex extracts the numeric PR index from a Gitea PR web URL

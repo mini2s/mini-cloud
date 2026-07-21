@@ -84,3 +84,45 @@ func TestClient_MergePR_ConflictReturnsSentinel(t *testing.T) {
 		t.Errorf("MergePR(409): err = %v, want errors.Is ErrMergeConflict", err)
 	}
 }
+
+func TestClient_OpenPR_NotConfigured(t *testing.T) {
+	c := NewClient(Config{})
+	if _, err := c.OpenPR(context.Background(), "t-x", "wf-y", "node/a", "inst-b", "t"); err != ErrNotConfigured {
+		t.Fatalf("got err %v, want ErrNotConfigured", err)
+	}
+}
+
+func TestClient_OpenPR(t *testing.T) {
+	var got recordedReq
+	srv := newTestServer(t, http.StatusCreated,
+		`{"html_url":"http://gitea.local/t-x/wf-y/pulls/9","number":9}`, &got)
+	defer srv.Close()
+	c := NewClient(Config{BaseURL: srv.URL, Token: "admin-tok"})
+	c.httpClient = srv.Client()
+
+	url, err := c.OpenPR(context.Background(), "t-x", "wf-y", "node/aaa", "inst-bbb", "doc deliverable")
+	if err != nil {
+		t.Fatalf("OpenPR: %v", err)
+	}
+	if want := "http://gitea.local/t-x/wf-y/pulls/9"; url != want {
+		t.Fatalf("html_url = %q, want %q", url, want)
+	}
+	if got.method != http.MethodPost || !strings.HasSuffix(got.path, "/repos/t-x/wf-y/pulls") {
+		t.Errorf("unexpected request: %s %s", got.method, got.path)
+	}
+	if got.body["head"] != "node/aaa" || got.body["base"] != "inst-bbb" {
+		t.Errorf("body = %v, want head=node/aaa base=inst-bbb", got.body)
+	}
+}
+
+func TestClient_OpenPR_ErrorStatus(t *testing.T) {
+	var got recordedReq
+	srv := newTestServer(t, http.StatusInternalServerError, `{"message":"boom"}`, &got)
+	defer srv.Close()
+	c := NewClient(Config{BaseURL: srv.URL, Token: "admin-tok"})
+	c.httpClient = srv.Client()
+
+	if _, err := c.OpenPR(context.Background(), "t-x", "wf-y", "node/a", "inst-b", "t"); err == nil {
+		t.Fatal("OpenPR(500): expected error, got nil")
+	}
+}
