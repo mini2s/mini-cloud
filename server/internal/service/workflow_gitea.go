@@ -292,14 +292,21 @@ func (s *WorkflowService) ProvisionWorkspaceGitea(ctx context.Context, workspace
 		return
 	}
 
-	// 2. Provision the workspace bot (user + PAT + org membership).
+	// 2. Create the workspace-level default deliverable archive repo.
+	if err := gitea.ScaffoldWorkspaceArchiveRepo(ctx, s.Gitea, wsIDStr, ws.Name); err != nil {
+		slog.Warn("provision workspace gitea: scaffold archive repo",
+			"workspace_id", wsIDStr, "error", err)
+		return
+	}
+
+	// 3. Provision the workspace bot (user + PAT + org membership).
 	if err := s.provisionWorkspaceBotIfAbsent(ctx, workspaceID); err != nil {
 		slog.Warn("provision workspace gitea: provision bot",
 			"workspace_id", wsIDStr, "error", err)
 		return
 	}
 
-	// 3. Sync workspace members into the org.
+	// 4. Sync workspace members into the org.
 	s.syncWorkspaceMembers(ctx, workspaceID)
 
 	slog.Info("provisioned workspace gitea",

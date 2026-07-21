@@ -524,6 +524,7 @@ func (h *Handler) CreateMember(w http.ResponseWriter, r *http.Request) {
 		eventPayload["workspace_name"] = ws.Name
 	}
 	h.publish(protocol.EventMemberAdded, uuidToString(requester.WorkspaceID), "member", userID, eventPayload)
+	h.syncWorkspaceGiteaMembers(requester.WorkspaceID)
 
 	writeJSON(w, http.StatusCreated, memberWithUserResponse(member, user))
 }
@@ -667,6 +668,7 @@ func (h *Handler) DeleteMember(w http.ResponseWriter, r *http.Request) {
 		"workspace_id": wsIDStr,
 		"user_id":      uuidToString(target.UserID),
 	})
+	h.syncWorkspaceGiteaMembers(requester.WorkspaceID)
 
 	w.WriteHeader(http.StatusNoContent)
 }
@@ -709,6 +711,7 @@ func (h *Handler) LeaveWorkspace(w http.ResponseWriter, r *http.Request) {
 		"workspace_id": workspaceID,
 		"user_id":      uuidToString(member.UserID),
 	})
+	h.syncWorkspaceGiteaMembers(member.WorkspaceID)
 
 	w.WriteHeader(http.StatusNoContent)
 }

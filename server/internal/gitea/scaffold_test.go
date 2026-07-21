@@ -180,6 +180,38 @@ func TestScaffoldRun_EmptySnapshotSkipsSeed(t *testing.T) {
 	}
 }
 
+func TestScaffoldWorkspaceArchiveRepo_CreatesDefaultRepo(t *testing.T) {
+	f := newFakeScaffold()
+	ws := "7f3c9a1e-d4b2-4c8e-9a3f-1b2c3d4e5f6a"
+
+	if err := ScaffoldWorkspaceArchiveRepo(context.Background(), f, ws, "Platform Team"); err != nil {
+		t.Fatalf("ScaffoldWorkspaceArchiveRepo: %v", err)
+	}
+	if !f.orgs["t-7f3c9a1e"] {
+		t.Error("org not created")
+	}
+	if !f.repos["t-7f3c9a1e/deliverable-archive"] {
+		t.Error("default archive repo not created")
+	}
+	if len(f.prot) != 1 || f.prot[0] != "t-7f3c9a1e/deliverable-archive/main" {
+		t.Errorf("expected main branch protection for archive repo, got %v", f.prot)
+	}
+}
+
+func TestScaffoldWorkspaceArchiveRepo_Idempotent(t *testing.T) {
+	f := newFakeScaffold()
+	f.orgs["t-7f3c9a1e"] = true
+	f.repos["t-7f3c9a1e/deliverable-archive"] = true
+
+	if err := ScaffoldWorkspaceArchiveRepo(context.Background(), f, "7f3c9a1e-d4b2-4c8e-9a3f-1b2c3d4e5f6a", "Platform Team"); err != nil {
+		t.Fatalf("ScaffoldWorkspaceArchiveRepo: %v", err)
+	}
+	if f.createOrgCalls != 0 || f.createRepoCalls != 0 || len(f.prot) != 0 {
+		t.Errorf("idempotent archive scaffold should not call create/protect: org=%d repo=%d prot=%v",
+			f.createOrgCalls, f.createRepoCalls, f.prot)
+	}
+}
+
 // TestScaffoldRun_RealClientE2E runs the real *Client against a stateful
 // httptest Gitea stand-in to verify the orchestration's assumptions (404→not
 // found, 201→created, idempotent re-run) match the real client's HTTP behavior.

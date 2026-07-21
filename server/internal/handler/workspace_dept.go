@@ -181,6 +181,7 @@ func (h *Handler) BatchAddDeptMembers(w http.ResponseWriter, r *http.Request) {
 		h.publish(protocol.EventMemberUpdated, uuidToString(requester.WorkspaceID), "member", requestUserID(r), map[string]any{
 			"workspace_id": uuidToString(requester.WorkspaceID),
 		})
+		h.syncWorkspaceGiteaMembers(requester.WorkspaceID)
 	}
 	writeJSON(w, http.StatusOK, BatchAddDeptMembersResponse{Added: added, Skipped: skipped})
 }

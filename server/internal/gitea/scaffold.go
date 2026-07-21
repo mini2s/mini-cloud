@@ -41,6 +41,37 @@ func ScaffoldOrg(ctx context.Context, c scaffoldAPI, workspaceID, displayName st
 	return nil
 }
 
+// ScaffoldWorkspaceArchiveRepo creates the workspace-level default deliverable
+// archive repo. It is idempotent and created eagerly with the workspace so
+// direct member/agent issues have a stable archival target before any run.
+func ScaffoldWorkspaceArchiveRepo(ctx context.Context, c scaffoldAPI, workspaceID, displayName string) error {
+	owner := OrgName(workspaceID)
+	repo := DefaultArchiveRepoName()
+
+	orgExists, err := c.GetOrg(ctx, owner)
+	if err != nil {
+		return fmt.Errorf("get org: %w", err)
+	}
+	if !orgExists {
+		if err := c.CreateOrg(ctx, owner, displayName); err != nil {
+			return fmt.Errorf("create org: %w", err)
+		}
+	}
+
+	repoExists, err := c.GetRepo(ctx, owner, repo)
+	if err != nil {
+		return fmt.Errorf("get repo: %w", err)
+	}
+	if repoExists {
+		return nil
+	}
+	if err := c.CreateRepo(ctx, owner, repo, displayName+" deliverable archive"); err != nil {
+		return fmt.Errorf("create repo: %w", err)
+	}
+	_ = c.ProtectBranch(ctx, owner, repo, "main")
+	return nil
+}
+
 // ScaffoldWorkflowRepo creates the workflow's type repo (wf-<wf[:8]>) under the
 // workspace org, with main + inst-* branch protection. No inst branch (that's
 // per-run). Called on workflow activation so the repo exists before the first

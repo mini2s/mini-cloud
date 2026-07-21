@@ -51,6 +51,10 @@ func RepoPath(workspaceID, workflowID string) string {
 	return OrgName(workspaceID) + "/" + RepoName(workflowID)
 }
 
+// DefaultArchiveRepoName is the workspace-level repo for issue deliverables
+// that are not tied to a user-defined workflow.
+func DefaultArchiveRepoName() string { return "deliverable-archive" }
+
 func escapeDefSlug(s string) string {
 	var b strings.Builder
 	for _, r := range strings.ToLower(s) {
