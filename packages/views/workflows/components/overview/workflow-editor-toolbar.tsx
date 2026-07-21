@@ -48,7 +48,7 @@ export interface WorkflowEditorToolbarProps {
   canUndo: boolean;
   canRedo: boolean;
   hasUnsavedEdits: boolean;
-  hasBlockingPreflightIssues: boolean;
+  blockingPreflightIssueCount: number;
   onBackToWorkflows: () => void;
   onUpdateTitle: (title: string) => void;
   onUndo: () => void;
@@ -83,7 +83,7 @@ export function WorkflowEditorToolbar({
   canUndo,
   canRedo,
   hasUnsavedEdits,
-  hasBlockingPreflightIssues,
+  blockingPreflightIssueCount,
   onBackToWorkflows,
   onUpdateTitle,
   onUndo,
@@ -103,7 +103,26 @@ export function WorkflowEditorToolbar({
   const titleInputRef = useRef<HTMLInputElement>(null);
 
   const isActive = workflow.status === "active";
-  const statusActionLabel = isActive ? t(($) => $.detail.deactivate) : t(($) => $.detail.activate);
+  const isPaused = workflow.status === "paused";
+  const hasBlockingPreflightIssues = blockingPreflightIssueCount > 0;
+  const workflowAvailabilityLabel = isActive
+    ? `${statusLabel} · ${t(($) => $.panorama.toolbar.available_in_issues)}`
+    : hasUnsavedEdits
+      ? `${t(($) => $.status.draft)} · ${t(($) => $.panorama.toolbar.save_before_activating_status)}`
+      : hasBlockingPreflightIssues
+        ? `${t(($) => $.status.draft)} · ${t(($) => $.panorama.toolbar.blocking_issues_left, { count: blockingPreflightIssueCount })}`
+        : isPaused
+          ? `${statusLabel} · ${t(($) => $.panorama.toolbar.hidden_from_issue_picker)}`
+          : `${t(($) => $.status.draft)} · ${t(($) => $.panorama.toolbar.hidden_from_issue_picker)}`;
+  const statusActionLabel = isActive
+    ? t(($) => $.detail.deactivate)
+    : hasUnsavedEdits
+      ? t(($) => $.panorama.toolbar.save_first)
+      : hasBlockingPreflightIssues
+        ? t(($) => $.panorama.toolbar.review_issues)
+        : isPaused
+          ? t(($) => $.panorama.toolbar.reactivate)
+          : t(($) => $.panorama.toolbar.activate);
   const testRunLabel = hasUnsavedEdits
     ? t(($) => $.panorama.toolbar.save_and_test)
     : t(($) => $.panorama.toolbar.test_run);
@@ -187,9 +206,9 @@ export function WorkflowEditorToolbar({
           <div className="mt-1 flex min-w-0 items-center gap-2">
             <Badge
               variant={isActive ? "default" : "secondary"}
-              className="h-4 rounded px-1.5 text-[10px] capitalize"
+              className="h-4 rounded px-1.5 text-[10px]"
             >
-              {statusLabel}
+              {workflowAvailabilityLabel}
             </Badge>
             {hasUnsavedEdits ? (
               <span className="inline-flex items-center gap-1 text-[11px] font-medium text-amber-600 dark:text-amber-400">

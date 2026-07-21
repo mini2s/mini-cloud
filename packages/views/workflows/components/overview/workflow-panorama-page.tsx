@@ -325,7 +325,7 @@ function PanoramaContent({
         canUndo={canUndo}
         canRedo={canRedo}
         hasUnsavedEdits={hasUnsavedEdits}
-        hasBlockingPreflightIssues={preflightResult.blockingCount > 0}
+        blockingPreflightIssueCount={preflightResult.blockingCount}
         onBackToWorkflows={onBackToWorkflows}
         onUpdateTitle={onUpdateTitle}
         onUndo={undo}

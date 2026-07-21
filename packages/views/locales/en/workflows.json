@@ -624,7 +624,15 @@
       "activate_before_test": "Activate workflow before testing.",
       "more": "More",
       "blocked_tooltip": "Resolve blocking issues first.",
-      "activate_disabled_unsaved": "Save changes before activating."
+      "activate_disabled_unsaved": "Save changes before activating.",
+      "available_in_issues": "Available in issues",
+      "hidden_from_issue_picker": "Hidden from issue picker",
+      "save_before_activating_status": "Save before activating",
+      "blocking_issues_left": "{{count}} issue(s) left",
+      "activate": "Activate",
+      "save_first": "Save first",
+      "review_issues": "Review issues",
+      "reactivate": "Reactivate"
     },
     "stage_label": {
       "edit": "Edit stage",

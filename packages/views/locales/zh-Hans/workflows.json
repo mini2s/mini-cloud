@@ -623,7 +623,15 @@
       "activate_before_test": "请先激活工作流再测试。",
       "more": "更多",
       "blocked_tooltip": "请先解决阻断问题。",
-      "activate_disabled_unsaved": "请先保存更改再启用。"
+      "activate_disabled_unsaved": "请先保存更改再启用。",
+      "available_in_issues": "可在 issue 中选择",
+      "hidden_from_issue_picker": "issue 中暂不可选",
+      "save_before_activating_status": "先保存再启用",
+      "blocking_issues_left": "还有 {{count}} 个问题",
+      "activate": "启用",
+      "save_first": "先保存",
+      "review_issues": "查看问题",
+      "reactivate": "重新启用"
     },
     "stage_label": {
       "edit": "编辑阶段",
