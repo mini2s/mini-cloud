@@ -158,7 +158,7 @@ func (s *TaskService) buildCSCloudPayload(ctx context.Context, task db.MulticaAg
 		}
 	}
 	// Gitea document-deliverable context (MULTICA_GITEA_*) + node-run/issue ids,
-	// so the cs-cloud agent can run `cs-cloud gitea submit` / `gitea fetch`
+	// so the cs-cloud agent can run `cs-cloud workflow deliverable submit` / `gitea fetch`
 	// inside the task. Dormant (no env injected) when Gitea isn't configured or
 	// the node has no document deliverables — matches the claim-time context.
 	giteaEnv := s.giteaDeliverableEnv(ctx, task)
@@ -169,7 +169,7 @@ func (s *TaskService) buildCSCloudPayload(ctx context.Context, task db.MulticaAg
 		env["MULTICA_ISSUE_ID"] = util.UUIDToString(task.IssueID)
 	}
 	// Enrich the prompt with deliverable instructions when the task has them,
-	// so the agent knows to use `cs-cloud gitea submit` (not inline upload)
+	// so the agent knows to use `cs-cloud workflow deliverable submit` (not inline upload)
 	// and that it can read other issues' deliverables via `gitea fetch`.
 	if raw, ok := giteaEnv["MULTICA_GITEA_DELIVERABLES"]; ok {
 		var refs []giteaDeliverableRefJSON
@@ -193,8 +193,8 @@ func (s *TaskService) buildCSCloudPayload(ctx context.Context, task db.MulticaAg
 }
 
 // appendDeliverablePrompt adds a "Document Deliverables" section to the prompt,
-// instructing the agent to submit each deliverable via `cs-cloud gitea submit`
-// and that it can read other issues' deliverables via `cs-cloud gitea fetch`.
+// instructing the agent to submit each deliverable via `cs-cloud workflow deliverable submit`
+// and that it can read other issues' deliverables via `cs-cloud workflow deliverable fetch`.
 func appendDeliverablePrompt(prompt string, refs []giteaDeliverableRefJSON) string {
 	var b strings.Builder
 	b.WriteString(prompt)
@@ -204,13 +204,13 @@ func appendDeliverablePrompt(prompt string, refs []giteaDeliverableRefJSON) stri
 	b.WriteString("\n---\n## Document Deliverables\n\n")
 	b.WriteString("This node has document deliverables stored in the platform git server. For EACH deliverable below: write the document to a local file, then submit it with the CLI — the command creates a node branch, pushes your file, opens a Gitea PR, and registers the PR back here. Do NOT use inline content upload for these; document deliverables go through git.\n\n")
 	for _, d := range refs {
-		fmt.Fprintf(&b, "- **%s** (id=%s): run `cs-cloud gitea submit --deliverable %s --file <local-path-to-your-document>`\n", d.Title, d.ID, d.ID)
+		fmt.Fprintf(&b, "- **%s** (id=%s): run `cs-cloud workflow deliverable submit --deliverable %s --file <local-path-to-your-document>`\n", d.Title, d.ID, d.ID)
 	}
 	b.WriteString("\nA deliverable is not considered submitted until its PR is registered. Complete every listed deliverable before finishing.\n\n")
 	b.WriteString("### Reading other issues' deliverables\n\n")
 	b.WriteString("You can read document deliverables from ANY issue in this workspace — your own, child issues from task splits, or upstream issues. Each result includes all descendant issues' deliverables, labeled with their source issue_id:\n")
-	b.WriteString("- `cs-cloud gitea fetch` — read the current issue's deliverables (plus all child/grandchild issues').\n")
-	b.WriteString("- `cs-cloud gitea fetch <issue-key>` — read a specific issue (e.g. `cs-cloud gitea fetch MUL-123`).\n")
+	b.WriteString("- `cs-cloud workflow deliverable fetch` — read the current issue's deliverables (plus all child/grandchild issues').\n")
+	b.WriteString("- `cs-cloud workflow deliverable fetch <issue-key>` — read a specific issue (e.g. `cs-cloud workflow deliverable fetch MUL-123`).\n")
 	b.WriteString("\n---\n\n")
 	return b.String()
 }
