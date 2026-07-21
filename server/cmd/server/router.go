@@ -633,6 +633,10 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 					r.Route("/nodes/{nodeId}", func(r chi.Router) {
 						r.Put("/", h.UpdateWorkflowNode)
 						r.Delete("/", h.DeleteWorkflowNode)
+						r.Get("/deliverables", h.ListWorkflowNodeDeliverables)
+						r.Post("/deliverables", h.CreateWorkflowNodeDeliverable)
+						r.Put("/deliverables/{deliverableId}", h.UpdateWorkflowNodeDeliverable)
+						r.Delete("/deliverables/{deliverableId}", h.DeleteWorkflowNodeDeliverable)
 					})
 					// Edges
 					r.Get("/edges", h.ListWorkflowEdges)

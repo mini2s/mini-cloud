@@ -338,7 +338,7 @@ func (s *WorkflowService) ProvisionWorkflowRepo(ctx context.Context, workflowID 
 		return
 	}
 	if err := gitea.ScaffoldWorkflowRepo(ctx, s.Gitea,
-		util.UUIDToString(wf.WorkspaceID), wf.Title, wf.Title); err != nil {
+		util.UUIDToString(wf.WorkspaceID), util.UUIDToString(wf.ID), wf.Title); err != nil {
 		slog.Warn("provision workflow repo: scaffold", "workflow_id", util.UUIDToString(workflowID), "error", err)
 		return
 	}

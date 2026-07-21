@@ -131,7 +131,7 @@ func seedGiteaFixture(t *testing.T, pool *pgxpool.Pool, withDocument bool, numRu
 // in-memory state of which orgs/repos/branches exist so the real *Client's
 // 404→201→200 idempotency expectations hold. Returns the server plus pointers
 // to mutable counters (tokens minted, orgs created) the test can assert on.
-func fakeGiteaServer(t *testing.T) (srv *httptest.Server, tokensMinted, orgsCreated *int) {
+func fakeGiteaServer(t *testing.T) (srv *httptest.Server, tokensMinted, orgsCreated *int, repoExists func(string) bool) {
 	t.Helper()
 	var mu sync.Mutex
 	orgs := map[string]bool{}
@@ -161,6 +161,13 @@ func fakeGiteaServer(t *testing.T) (srv *httptest.Server, tokensMinted, orgsCrea
 				parts := strings.Split(path, "/")
 				if repos[parts[4]+"/"+parts[5]] {
 					w.WriteHeader(http.StatusOK)
+				} else {
+					w.WriteHeader(http.StatusNotFound)
+				}
+			case strings.HasPrefix(path, "/api/v1/orgs/") && strings.HasSuffix(path, "/teams"):
+				org := strings.TrimSuffix(strings.TrimPrefix(path, "/api/v1/orgs/"), "/teams")
+				if orgs[org] {
+					_ = json.NewEncoder(w).Encode([]map[string]any{{"id": 7, "name": "Owners"}})
 				} else {
 					w.WriteHeader(http.StatusNotFound)
 				}
@@ -216,7 +223,11 @@ func fakeGiteaServer(t *testing.T) (srv *httptest.Server, tokensMinted, orgsCrea
 		}
 	}))
 	t.Cleanup(srv.Close)
-	return srv, &tok, &orgCreated
+	return srv, &tok, &orgCreated, func(key string) bool {
+		mu.Lock()
+		defer mu.Unlock()
+		return repos[key]
+	}
 }
 
 // workspaceSettings reads back the settings JSONB for the given workspace.
@@ -252,7 +263,7 @@ func TestScaffoldRunDeliverables_ProvisionsBotAndScaffoldsRepo(t *testing.T) {
 	defer pool.Close()
 
 	fix := seedGiteaFixture(t, pool, true /*document deliverable*/, 2 /*two runs*/)
-	srv, tokensMinted, orgsCreated := fakeGiteaServer(t)
+	srv, tokensMinted, orgsCreated, _ := fakeGiteaServer(t)
 
 	svc := &WorkflowService{
 		Queries: db.New(pool),
@@ -326,7 +337,7 @@ func TestScaffoldRunDeliverables_NoOpWithoutDocumentDeliverable(t *testing.T) {
 
 	// Workflow has a node but NO deliverable row.
 	fix := seedGiteaFixture(t, pool, false /*no document*/, 1 /*single run*/)
-	srv, tokensMinted, orgsCreated := fakeGiteaServer(t)
+	srv, tokensMinted, orgsCreated, _ := fakeGiteaServer(t)
 
 	svc := &WorkflowService{
 		Queries: db.New(pool),
@@ -346,6 +357,32 @@ func TestScaffoldRunDeliverables_NoOpWithoutDocumentDeliverable(t *testing.T) {
 	settings := workspaceSettings(t, pool, fix.workspace)
 	if pat, ok := settings["gitea_pat"]; ok && pat != "" {
 		t.Fatalf("code-only workflow wrote gitea_pat=%v, want absent/empty", pat)
+	}
+}
+
+func TestProvisionWorkflowRepo_UsesWorkflowIDForRepoName(t *testing.T) {
+	pool := openTestPool(t)
+	defer pool.Close()
+
+	fix := seedGiteaFixture(t, pool, true /*document deliverable*/, 1 /*single run*/)
+	srv, _, _, repoExists := fakeGiteaServer(t)
+
+	svc := &WorkflowService{
+		Queries: db.New(pool),
+		Gitea:   gitea.NewClient(gitea.Config{BaseURL: srv.URL, Token: "admin-tok"}),
+	}
+
+	svc.ProvisionWorkflowRepo(context.Background(), fix.workflow)
+
+	owner := gitea.OrgName(util.UUIDToString(fix.workspace))
+	expectedRepo := gitea.RepoName(util.UUIDToString(fix.workflow))
+	if !repoExists(owner + "/" + expectedRepo) {
+		t.Fatalf("workflow repo %s/%s was not created", owner, expectedRepo)
+	}
+	titleRepo := gitea.RepoName("Gitea Test Workflow")
+	if repoExists(owner + "/" + titleRepo) {
+		t.Fatalf("workflow repo was created from title as %s/%s; want workflow ID repo %s/%s",
+			owner, titleRepo, owner, expectedRepo)
 	}
 }
 
