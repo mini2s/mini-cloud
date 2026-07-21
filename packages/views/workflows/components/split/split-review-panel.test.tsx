@@ -362,6 +362,8 @@ const splitNodeRun: WorkflowNodeRun = {
   agent_task_id: null,
   session_id: null,
   runtime_id: null,
+  runtime_selection_reason: null,
+  failure_reason: null,
   device_id: null,
   split_review_chat_session_id: null,
   split_config_version: 1,
@@ -1100,6 +1102,7 @@ describe("SplitReviewPanel", () => {
         started_at: "",
         completed_at: "",
         created_at: "",
+        runtime_id: null,
       },
       node_runs: [],
       node_runtime_summaries: [

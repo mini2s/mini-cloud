@@ -265,7 +265,6 @@ func (s *WorkflowService) resolveWorkflowUser(
 // StartRun creates a workflow_run and node_runs for every node, then
 // kicks off root nodes (nodes with no incoming edges).
 func (s *WorkflowService) StartRun(ctx context.Context, workflow db.MulticaWorkflow, triggeredByType, triggeredByID string, input json.RawMessage, runtimeID pgtype.UUID) (*db.MulticaWorkflowRun, error) {
-func (s *WorkflowService) StartRun(ctx context.Context, workflow db.MulticaWorkflow, triggeredByType, triggeredByID string, input json.RawMessage, runtimeID pgtype.UUID) (*db.MulticaWorkflowRun, error) {
 	triggeredByUUID, err := util.ParseUUID(triggeredByID)
 	if err != nil && triggeredByID != "" {
 		triggeredByUUID = pgtype.UUID{}
@@ -496,7 +495,7 @@ func (s *WorkflowService) StartRunForIssue(
 	if parseErr != nil && triggeredByID != "" {
 		triggeredByUUID = pgtype.UUID{}
 	}
-	run, err := s.startRun(ctx, workflow, triggeredByType, triggeredByID, input, runtimeID, workflowRunRuntimeContext{
+	run, err := s.startRun(ctx, workflow, triggeredByType, triggeredByID, input, runtimeID, "", workflowRunRuntimeContext{
 		SourceIssueID:       issue.ID,
 		ResponsibleUserID:   s.resolveWorkflowUser(ctx, issue.CreatorType, issue.CreatorID),
 		RuntimeAuthorizerID: s.resolveWorkflowUser(ctx, triggeredByType, triggeredByUUID),
@@ -1176,14 +1175,11 @@ func (s *WorkflowService) dispatchWorker(ctx context.Context, nodeRun db.Multica
 			return fmt.Errorf("dispatch agent task: %w", err)
 		}
 		return s.transitionNodeRunAfterDispatch(ctx, nodeRun.ID, NodeRunStatusWorking)
-	case "role":
-		return s.dispatchRoleWorker(ctx, nodeRun, node)
 	default:
 		return fmt.Errorf("unknown worker type: %s", nodeRun.WorkerType)
 	}
 }
 
-func (s *WorkflowService) dispatchCritic(ctx context.Context, nodeRun db.MulticaWorkflowNodeRun) error {
 func (s *WorkflowService) dispatchCritic(ctx context.Context, nodeRun db.MulticaWorkflowNodeRun) error {
 	switch nodeRun.CriticType {
 	case "human":
@@ -1207,8 +1203,6 @@ func (s *WorkflowService) dispatchCritic(ctx context.Context, nodeRun db.Multica
 			return fmt.Errorf("dispatch critic task: %w", err)
 		}
 		return s.transitionNodeRunAfterDispatch(ctx, nodeRun.ID, NodeRunStatusCriticReviewing)
-	case "role":
-		return s.dispatchRoleCritic(ctx, nodeRun, node)
 	case "api":
 		// For API critics, we transition to critic_reviewing and let the
 		// API call happen asynchronously (handled by the caller or a sweeper).

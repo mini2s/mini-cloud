@@ -136,7 +136,7 @@ const blockWorkflowNodeRunForInvalidRole = `-- name: BlockWorkflowNodeRunForInva
 UPDATE multica_workflow_node_run
 SET status = 'blocked', updated_at = now()
 WHERE id = $1 AND status = $2
-RETURNING id, workflow_run_id, workflow_node_id, node_title, status, retry_count, worker_type, worker_id, worker_output, critic_type, critic_id, critic_output, critic_comment, agent_task_id, started_at, completed_at, created_at, updated_at, worker_agent_task_id, critic_agent_task_id, runtime_id, device_id, session_id
+RETURNING id, workflow_run_id, workflow_node_id, node_title, status, retry_count, worker_type, worker_id, worker_output, critic_type, critic_id, critic_output, critic_comment, agent_task_id, started_at, completed_at, created_at, updated_at, worker_agent_task_id, critic_agent_task_id, runtime_id, device_id, session_id, split_review_chat_session_id, runtime_selection_reason, failure_reason, split_config_version
 `
 
 type BlockWorkflowNodeRunForInvalidRoleParams struct {
@@ -171,6 +171,10 @@ func (q *Queries) BlockWorkflowNodeRunForInvalidRole(ctx context.Context, arg Bl
 		&i.RuntimeID,
 		&i.DeviceID,
 		&i.SessionID,
+		&i.SplitReviewChatSessionID,
+		&i.RuntimeSelectionReason,
+		&i.FailureReason,
+		&i.SplitConfigVersion,
 	)
 	return i, err
 }
@@ -1051,7 +1055,7 @@ const resumeWorkflowNodeRunAfterRoleAssignment = `-- name: ResumeWorkflowNodeRun
 UPDATE multica_workflow_node_run
 SET status = $2, updated_at = now()
 WHERE id = $1 AND status = 'blocked' AND $2 IN ('format_ok', 'awaiting_critic')
-RETURNING id, workflow_run_id, workflow_node_id, node_title, status, retry_count, worker_type, worker_id, worker_output, critic_type, critic_id, critic_output, critic_comment, agent_task_id, started_at, completed_at, created_at, updated_at, worker_agent_task_id, critic_agent_task_id, runtime_id, device_id, session_id
+RETURNING id, workflow_run_id, workflow_node_id, node_title, status, retry_count, worker_type, worker_id, worker_output, critic_type, critic_id, critic_output, critic_comment, agent_task_id, started_at, completed_at, created_at, updated_at, worker_agent_task_id, critic_agent_task_id, runtime_id, device_id, session_id, split_review_chat_session_id, runtime_selection_reason, failure_reason, split_config_version
 `
 
 type ResumeWorkflowNodeRunAfterRoleAssignmentParams struct {
@@ -1086,6 +1090,10 @@ func (q *Queries) ResumeWorkflowNodeRunAfterRoleAssignment(ctx context.Context, 
 		&i.RuntimeID,
 		&i.DeviceID,
 		&i.SessionID,
+		&i.SplitReviewChatSessionID,
+		&i.RuntimeSelectionReason,
+		&i.FailureReason,
+		&i.SplitConfigVersion,
 	)
 	return i, err
 }

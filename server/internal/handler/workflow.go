@@ -53,9 +53,11 @@ type UpdateNodeRequest struct {
 	PositionY    *float64        `json:"position_y"`
 	FormatSchema json.RawMessage `json:"format_schema"`
 	WorkerType   *string         `json:"worker_type"`
+	WorkerRole   *string         `json:"worker_role"`
 	WorkerID     *string         `json:"worker_id"`
 	WorkerRoleID *string         `json:"worker_role_id"`
 	CriticType   *string         `json:"critic_type"`
+	CriticRole   *string         `json:"critic_role"`
 	CriticID     *string         `json:"critic_id"`
 	CriticRoleID *string         `json:"critic_role_id"`
 	CriticApiURL *string         `json:"critic_api_url"`

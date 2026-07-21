@@ -787,8 +787,8 @@ func (q *Queries) ListChildIssues(ctx context.Context, parentIssueID pgtype.UUID
 }
 
 const listIssueDescendants = `-- name: ListIssueDescendants :many
-WITH RECURSIVE descendants AS (
-    SELECT i.id, i.workspace_id, i.parent_issue_id::uuid AS parent_issue_id, 0::int AS depth
+WITH RECURSIVE descendants(id, workspace_id, parent_issue_id, depth) AS (
+    SELECT i.id, i.workspace_id, i.parent_issue_id::uuid, 0::int AS depth
     FROM multica_issue i
     WHERE i.parent_issue_id = $1 AND i.workspace_id = $2
     UNION ALL
@@ -797,7 +797,7 @@ WITH RECURSIVE descendants AS (
     JOIN descendants d ON i.parent_issue_id = d.id
     WHERE i.workspace_id = $2
 )
-SELECT id, workspace_id, parent_issue_id, depth FROM descendants
+SELECT descendants.id, descendants.workspace_id, descendants.parent_issue_id, descendants.depth FROM descendants
 ORDER BY depth DESC
 `
 

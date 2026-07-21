@@ -29,7 +29,7 @@ UPDATE multica_workflow_node_run SET
     session_id = $4,
     updated_at = now()
 WHERE id = $1
-RETURNING id, workflow_run_id, workflow_node_id, node_title, status, retry_count, worker_type, worker_id, worker_output, critic_type, critic_id, critic_output, critic_comment, agent_task_id, started_at, completed_at, created_at, updated_at, worker_agent_task_id, critic_agent_task_id, runtime_id, device_id, session_id, runtime_selection_reason, failure_reason
+RETURNING id, workflow_run_id, workflow_node_id, node_title, status, retry_count, worker_type, worker_id, worker_output, critic_type, critic_id, critic_output, critic_comment, agent_task_id, started_at, completed_at, created_at, updated_at, worker_agent_task_id, critic_agent_task_id, runtime_id, device_id, session_id, split_review_chat_session_id, runtime_selection_reason, failure_reason, split_config_version
 `
 
 type BindWorkflowNodeRunSessionParams struct {
@@ -74,8 +74,10 @@ func (q *Queries) BindWorkflowNodeRunSession(ctx context.Context, arg BindWorkfl
 		&i.RuntimeID,
 		&i.DeviceID,
 		&i.SessionID,
+		&i.SplitReviewChatSessionID,
 		&i.RuntimeSelectionReason,
 		&i.FailureReason,
+		&i.SplitConfigVersion,
 	)
 	return i, err
 }
@@ -154,8 +156,8 @@ func (q *Queries) CancelWorkflowTasksByRun(ctx context.Context, workflowRunID pg
 }
 
 const createWorkflowAgentTask = `-- name: CreateWorkflowAgentTask :one
-INSERT INTO multica_agent_task_queue (agent_id, runtime_id, issue_id, status, priority, workflow_node_run_id, context)
-VALUES ($1, $2, $4, 'queued', $3, $5, $6)
+INSERT INTO multica_agent_task_queue (agent_id, runtime_id, issue_id, status, priority, workflow_node_run_id, chat_session_id, context)
+VALUES ($1, $2, $4, 'queued', $3, $5, $6, $7)
 RETURNING id, agent_id, issue_id, status, priority, dispatched_at, started_at, completed_at, result, error, created_at, context, runtime_id, session_id, work_dir, trigger_comment_id, chat_session_id, autopilot_run_id, attempt, max_attempts, parent_task_id, failure_reason, trigger_summary, force_fresh_session, is_leader_task, workflow_node_run_id
 `
 
@@ -165,6 +167,7 @@ type CreateWorkflowAgentTaskParams struct {
 	Priority          int32       `json:"priority"`
 	IssueID           pgtype.UUID `json:"issue_id"`
 	WorkflowNodeRunID pgtype.UUID `json:"workflow_node_run_id"`
+	ChatSessionID     pgtype.UUID `json:"chat_session_id"`
 	Context           []byte      `json:"context"`
 }
 
@@ -175,6 +178,7 @@ func (q *Queries) CreateWorkflowAgentTask(ctx context.Context, arg CreateWorkflo
 		arg.Priority,
 		arg.IssueID,
 		arg.WorkflowNodeRunID,
+		arg.ChatSessionID,
 		arg.Context,
 	)
 	var i MulticaAgentTaskQueue
@@ -215,7 +219,7 @@ INSERT INTO multica_workflow_node_run (
     retry_count, worker_type, worker_id, critic_type, critic_id
 ) VALUES (
     $1, $2, $3, $4, $5, $6, $8, $7, $9
-) RETURNING id, workflow_run_id, workflow_node_id, node_title, status, retry_count, worker_type, worker_id, worker_output, critic_type, critic_id, critic_output, critic_comment, agent_task_id, started_at, completed_at, created_at, updated_at, worker_agent_task_id, critic_agent_task_id, runtime_id, device_id, session_id, runtime_selection_reason, failure_reason
+) RETURNING id, workflow_run_id, workflow_node_id, node_title, status, retry_count, worker_type, worker_id, worker_output, critic_type, critic_id, critic_output, critic_comment, agent_task_id, started_at, completed_at, created_at, updated_at, worker_agent_task_id, critic_agent_task_id, runtime_id, device_id, session_id, split_review_chat_session_id, runtime_selection_reason, failure_reason, split_config_version
 `
 
 type CreateWorkflowNodeRunParams struct {
@@ -267,8 +271,10 @@ func (q *Queries) CreateWorkflowNodeRun(ctx context.Context, arg CreateWorkflowN
 		&i.RuntimeID,
 		&i.DeviceID,
 		&i.SessionID,
+		&i.SplitReviewChatSessionID,
 		&i.RuntimeSelectionReason,
 		&i.FailureReason,
+		&i.SplitConfigVersion,
 	)
 	return i, err
 }
@@ -280,7 +286,7 @@ UPDATE multica_workflow_node_run SET
     completed_at = now(),
     updated_at = now()
 WHERE id = $1
-RETURNING id, workflow_run_id, workflow_node_id, node_title, status, retry_count, worker_type, worker_id, worker_output, critic_type, critic_id, critic_output, critic_comment, agent_task_id, started_at, completed_at, created_at, updated_at, worker_agent_task_id, critic_agent_task_id, runtime_id, device_id, session_id, runtime_selection_reason, failure_reason
+RETURNING id, workflow_run_id, workflow_node_id, node_title, status, retry_count, worker_type, worker_id, worker_output, critic_type, critic_id, critic_output, critic_comment, agent_task_id, started_at, completed_at, created_at, updated_at, worker_agent_task_id, critic_agent_task_id, runtime_id, device_id, session_id, split_review_chat_session_id, runtime_selection_reason, failure_reason, split_config_version
 `
 
 func (q *Queries) FailWorkflowNodeRunForRuntime(ctx context.Context, id pgtype.UUID) (MulticaWorkflowNodeRun, error) {
@@ -310,14 +316,16 @@ func (q *Queries) FailWorkflowNodeRunForRuntime(ctx context.Context, id pgtype.U
 		&i.RuntimeID,
 		&i.DeviceID,
 		&i.SessionID,
+		&i.SplitReviewChatSessionID,
 		&i.RuntimeSelectionReason,
 		&i.FailureReason,
+		&i.SplitConfigVersion,
 	)
 	return i, err
 }
 
 const getDownstreamNodeRuns = `-- name: GetDownstreamNodeRuns :many
-SELECT wnr.id, wnr.workflow_run_id, wnr.workflow_node_id, wnr.node_title, wnr.status, wnr.retry_count, wnr.worker_type, wnr.worker_id, wnr.worker_output, wnr.critic_type, wnr.critic_id, wnr.critic_output, wnr.critic_comment, wnr.agent_task_id, wnr.started_at, wnr.completed_at, wnr.created_at, wnr.updated_at, wnr.worker_agent_task_id, wnr.critic_agent_task_id, wnr.runtime_id, wnr.device_id, wnr.session_id, wnr.runtime_selection_reason, wnr.failure_reason
+SELECT wnr.id, wnr.workflow_run_id, wnr.workflow_node_id, wnr.node_title, wnr.status, wnr.retry_count, wnr.worker_type, wnr.worker_id, wnr.worker_output, wnr.critic_type, wnr.critic_id, wnr.critic_output, wnr.critic_comment, wnr.agent_task_id, wnr.started_at, wnr.completed_at, wnr.created_at, wnr.updated_at, wnr.worker_agent_task_id, wnr.critic_agent_task_id, wnr.runtime_id, wnr.device_id, wnr.session_id, wnr.split_review_chat_session_id, wnr.runtime_selection_reason, wnr.failure_reason, wnr.split_config_version
 FROM multica_workflow_node_run wnr
 JOIN multica_workflow_edge we ON we.target_node_id = wnr.workflow_node_id
 WHERE we.source_node_id = $2
@@ -364,8 +372,10 @@ func (q *Queries) GetDownstreamNodeRuns(ctx context.Context, arg GetDownstreamNo
 			&i.RuntimeID,
 			&i.DeviceID,
 			&i.SessionID,
+			&i.SplitReviewChatSessionID,
 			&i.RuntimeSelectionReason,
 			&i.FailureReason,
+			&i.SplitConfigVersion,
 		); err != nil {
 			return nil, err
 		}
@@ -375,6 +385,47 @@ func (q *Queries) GetDownstreamNodeRuns(ctx context.Context, arg GetDownstreamNo
 		return nil, err
 	}
 	return items, nil
+}
+
+const getNodeRunBySplitReviewChatSession = `-- name: GetNodeRunBySplitReviewChatSession :one
+SELECT id, workflow_run_id, workflow_node_id, node_title, status, retry_count, worker_type, worker_id, worker_output, critic_type, critic_id, critic_output, critic_comment, agent_task_id, started_at, completed_at, created_at, updated_at, worker_agent_task_id, critic_agent_task_id, runtime_id, device_id, session_id, split_review_chat_session_id, runtime_selection_reason, failure_reason, split_config_version FROM multica_workflow_node_run
+WHERE split_review_chat_session_id = $1
+LIMIT 1
+`
+
+func (q *Queries) GetNodeRunBySplitReviewChatSession(ctx context.Context, splitReviewChatSessionID pgtype.UUID) (MulticaWorkflowNodeRun, error) {
+	row := q.db.QueryRow(ctx, getNodeRunBySplitReviewChatSession, splitReviewChatSessionID)
+	var i MulticaWorkflowNodeRun
+	err := row.Scan(
+		&i.ID,
+		&i.WorkflowRunID,
+		&i.WorkflowNodeID,
+		&i.NodeTitle,
+		&i.Status,
+		&i.RetryCount,
+		&i.WorkerType,
+		&i.WorkerID,
+		&i.WorkerOutput,
+		&i.CriticType,
+		&i.CriticID,
+		&i.CriticOutput,
+		&i.CriticComment,
+		&i.AgentTaskID,
+		&i.StartedAt,
+		&i.CompletedAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.WorkerAgentTaskID,
+		&i.CriticAgentTaskID,
+		&i.RuntimeID,
+		&i.DeviceID,
+		&i.SessionID,
+		&i.SplitReviewChatSessionID,
+		&i.RuntimeSelectionReason,
+		&i.FailureReason,
+		&i.SplitConfigVersion,
+	)
+	return i, err
 }
 
 const getNodeRunUpstreamStatuses = `-- name: GetNodeRunUpstreamStatuses :many
@@ -409,7 +460,7 @@ func (q *Queries) GetNodeRunUpstreamStatuses(ctx context.Context, id pgtype.UUID
 }
 
 const getWorkflowNodeRun = `-- name: GetWorkflowNodeRun :one
-SELECT id, workflow_run_id, workflow_node_id, node_title, status, retry_count, worker_type, worker_id, worker_output, critic_type, critic_id, critic_output, critic_comment, agent_task_id, started_at, completed_at, created_at, updated_at, worker_agent_task_id, critic_agent_task_id, runtime_id, device_id, session_id, runtime_selection_reason, failure_reason FROM multica_workflow_node_run
+SELECT id, workflow_run_id, workflow_node_id, node_title, status, retry_count, worker_type, worker_id, worker_output, critic_type, critic_id, critic_output, critic_comment, agent_task_id, started_at, completed_at, created_at, updated_at, worker_agent_task_id, critic_agent_task_id, runtime_id, device_id, session_id, split_review_chat_session_id, runtime_selection_reason, failure_reason, split_config_version FROM multica_workflow_node_run
 WHERE id = $1
 `
 
@@ -440,14 +491,16 @@ func (q *Queries) GetWorkflowNodeRun(ctx context.Context, id pgtype.UUID) (Multi
 		&i.RuntimeID,
 		&i.DeviceID,
 		&i.SessionID,
+		&i.SplitReviewChatSessionID,
 		&i.RuntimeSelectionReason,
 		&i.FailureReason,
+		&i.SplitConfigVersion,
 	)
 	return i, err
 }
 
 const getWorkflowNodeRunBySessionID = `-- name: GetWorkflowNodeRunBySessionID :one
-SELECT id, workflow_run_id, workflow_node_id, node_title, status, retry_count, worker_type, worker_id, worker_output, critic_type, critic_id, critic_output, critic_comment, agent_task_id, started_at, completed_at, created_at, updated_at, worker_agent_task_id, critic_agent_task_id, runtime_id, device_id, session_id, runtime_selection_reason, failure_reason FROM multica_workflow_node_run
+SELECT id, workflow_run_id, workflow_node_id, node_title, status, retry_count, worker_type, worker_id, worker_output, critic_type, critic_id, critic_output, critic_comment, agent_task_id, started_at, completed_at, created_at, updated_at, worker_agent_task_id, critic_agent_task_id, runtime_id, device_id, session_id, split_review_chat_session_id, runtime_selection_reason, failure_reason, split_config_version FROM multica_workflow_node_run
 WHERE session_id = $1
 LIMIT 1
 `
@@ -481,14 +534,57 @@ func (q *Queries) GetWorkflowNodeRunBySessionID(ctx context.Context, sessionID p
 		&i.RuntimeID,
 		&i.DeviceID,
 		&i.SessionID,
+		&i.SplitReviewChatSessionID,
 		&i.RuntimeSelectionReason,
 		&i.FailureReason,
+		&i.SplitConfigVersion,
+	)
+	return i, err
+}
+
+const getWorkflowNodeRunForUpdate = `-- name: GetWorkflowNodeRunForUpdate :one
+SELECT id, workflow_run_id, workflow_node_id, node_title, status, retry_count, worker_type, worker_id, worker_output, critic_type, critic_id, critic_output, critic_comment, agent_task_id, started_at, completed_at, created_at, updated_at, worker_agent_task_id, critic_agent_task_id, runtime_id, device_id, session_id, split_review_chat_session_id, runtime_selection_reason, failure_reason, split_config_version FROM multica_workflow_node_run
+WHERE id = $1
+FOR UPDATE
+`
+
+func (q *Queries) GetWorkflowNodeRunForUpdate(ctx context.Context, id pgtype.UUID) (MulticaWorkflowNodeRun, error) {
+	row := q.db.QueryRow(ctx, getWorkflowNodeRunForUpdate, id)
+	var i MulticaWorkflowNodeRun
+	err := row.Scan(
+		&i.ID,
+		&i.WorkflowRunID,
+		&i.WorkflowNodeID,
+		&i.NodeTitle,
+		&i.Status,
+		&i.RetryCount,
+		&i.WorkerType,
+		&i.WorkerID,
+		&i.WorkerOutput,
+		&i.CriticType,
+		&i.CriticID,
+		&i.CriticOutput,
+		&i.CriticComment,
+		&i.AgentTaskID,
+		&i.StartedAt,
+		&i.CompletedAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.WorkerAgentTaskID,
+		&i.CriticAgentTaskID,
+		&i.RuntimeID,
+		&i.DeviceID,
+		&i.SessionID,
+		&i.SplitReviewChatSessionID,
+		&i.RuntimeSelectionReason,
+		&i.FailureReason,
+		&i.SplitConfigVersion,
 	)
 	return i, err
 }
 
 const getWorkflowNodeRunsByStatus = `-- name: GetWorkflowNodeRunsByStatus :many
-SELECT id, workflow_run_id, workflow_node_id, node_title, status, retry_count, worker_type, worker_id, worker_output, critic_type, critic_id, critic_output, critic_comment, agent_task_id, started_at, completed_at, created_at, updated_at, worker_agent_task_id, critic_agent_task_id, runtime_id, device_id, session_id, runtime_selection_reason, failure_reason FROM multica_workflow_node_run
+SELECT id, workflow_run_id, workflow_node_id, node_title, status, retry_count, worker_type, worker_id, worker_output, critic_type, critic_id, critic_output, critic_comment, agent_task_id, started_at, completed_at, created_at, updated_at, worker_agent_task_id, critic_agent_task_id, runtime_id, device_id, session_id, split_review_chat_session_id, runtime_selection_reason, failure_reason, split_config_version FROM multica_workflow_node_run
 WHERE workflow_run_id = $1 AND status = $2
 ORDER BY created_at ASC
 `
@@ -531,8 +627,10 @@ func (q *Queries) GetWorkflowNodeRunsByStatus(ctx context.Context, arg GetWorkfl
 			&i.RuntimeID,
 			&i.DeviceID,
 			&i.SessionID,
+			&i.SplitReviewChatSessionID,
 			&i.RuntimeSelectionReason,
 			&i.FailureReason,
+			&i.SplitConfigVersion,
 		); err != nil {
 			return nil, err
 		}
@@ -550,7 +648,7 @@ UPDATE multica_workflow_node_run SET
     completed_at = NULL,
     updated_at = now()
 WHERE id = $1
-RETURNING id, workflow_run_id, workflow_node_id, node_title, status, retry_count, worker_type, worker_id, worker_output, critic_type, critic_id, critic_output, critic_comment, agent_task_id, started_at, completed_at, created_at, updated_at, worker_agent_task_id, critic_agent_task_id, runtime_id, device_id, session_id, runtime_selection_reason, failure_reason
+RETURNING id, workflow_run_id, workflow_node_id, node_title, status, retry_count, worker_type, worker_id, worker_output, critic_type, critic_id, critic_output, critic_comment, agent_task_id, started_at, completed_at, created_at, updated_at, worker_agent_task_id, critic_agent_task_id, runtime_id, device_id, session_id, split_review_chat_session_id, runtime_selection_reason, failure_reason, split_config_version
 `
 
 // Human handback: return control (blocked -> working) so the daemon resumes the
@@ -583,10 +681,45 @@ func (q *Queries) HandbackWorkflowNodeRun(ctx context.Context, id pgtype.UUID) (
 		&i.RuntimeID,
 		&i.DeviceID,
 		&i.SessionID,
+		&i.SplitReviewChatSessionID,
 		&i.RuntimeSelectionReason,
 		&i.FailureReason,
+		&i.SplitConfigVersion,
 	)
 	return i, err
+}
+
+const hasActiveSplitNodeRunForIssue = `-- name: HasActiveSplitNodeRunForIssue :one
+SELECT EXISTS (
+  SELECT 1
+  FROM multica_workflow_run wr
+  JOIN multica_workflow_node_run wnr ON wnr.workflow_run_id = wr.id
+  JOIN multica_workflow_node wn ON wn.id = wnr.workflow_node_id
+  WHERE wr.workspace_id = $1
+    AND (
+      wr.input ->> 'issue_id' = $2::uuid::text
+      OR EXISTS (
+        SELECT 1
+        FROM multica_issue origin_issue
+        WHERE origin_issue.id = $2
+          AND origin_issue.workflow_run_id = wr.id
+      )
+    )
+    AND wn.format_schema ->> 'type' = 'split'
+    AND wnr.status IN ('splitting', 'awaiting_split_review', 'split_active')
+) AS active
+`
+
+type HasActiveSplitNodeRunForIssueParams struct {
+	WorkspaceID pgtype.UUID `json:"workspace_id"`
+	IssueID     pgtype.UUID `json:"issue_id"`
+}
+
+func (q *Queries) HasActiveSplitNodeRunForIssue(ctx context.Context, arg HasActiveSplitNodeRunForIssueParams) (bool, error) {
+	row := q.db.QueryRow(ctx, hasActiveSplitNodeRunForIssue, arg.WorkspaceID, arg.IssueID)
+	var active bool
+	err := row.Scan(&active)
+	return active, err
 }
 
 const linkNodeRunAgentTask = `-- name: LinkNodeRunAgentTask :one
@@ -594,7 +727,7 @@ UPDATE multica_workflow_node_run SET
     agent_task_id = $2,
     updated_at = now()
 WHERE id = $1
-RETURNING id, workflow_run_id, workflow_node_id, node_title, status, retry_count, worker_type, worker_id, worker_output, critic_type, critic_id, critic_output, critic_comment, agent_task_id, started_at, completed_at, created_at, updated_at, worker_agent_task_id, critic_agent_task_id, runtime_id, device_id, session_id, runtime_selection_reason, failure_reason
+RETURNING id, workflow_run_id, workflow_node_id, node_title, status, retry_count, worker_type, worker_id, worker_output, critic_type, critic_id, critic_output, critic_comment, agent_task_id, started_at, completed_at, created_at, updated_at, worker_agent_task_id, critic_agent_task_id, runtime_id, device_id, session_id, split_review_chat_session_id, runtime_selection_reason, failure_reason, split_config_version
 `
 
 type LinkNodeRunAgentTaskParams struct {
@@ -629,8 +762,10 @@ func (q *Queries) LinkNodeRunAgentTask(ctx context.Context, arg LinkNodeRunAgent
 		&i.RuntimeID,
 		&i.DeviceID,
 		&i.SessionID,
+		&i.SplitReviewChatSessionID,
 		&i.RuntimeSelectionReason,
 		&i.FailureReason,
+		&i.SplitConfigVersion,
 	)
 	return i, err
 }
@@ -643,7 +778,7 @@ UPDATE multica_workflow_node_run SET
     failure_reason = NULL,
     updated_at = now()
 WHERE id = $1
-RETURNING id, workflow_run_id, workflow_node_id, node_title, status, retry_count, worker_type, worker_id, worker_output, critic_type, critic_id, critic_output, critic_comment, agent_task_id, started_at, completed_at, created_at, updated_at, worker_agent_task_id, critic_agent_task_id, runtime_id, device_id, session_id, runtime_selection_reason, failure_reason
+RETURNING id, workflow_run_id, workflow_node_id, node_title, status, retry_count, worker_type, worker_id, worker_output, critic_type, critic_id, critic_output, critic_comment, agent_task_id, started_at, completed_at, created_at, updated_at, worker_agent_task_id, critic_agent_task_id, runtime_id, device_id, session_id, split_review_chat_session_id, runtime_selection_reason, failure_reason, split_config_version
 `
 
 type LinkNodeRunCriticTaskParams struct {
@@ -685,8 +820,10 @@ func (q *Queries) LinkNodeRunCriticTask(ctx context.Context, arg LinkNodeRunCrit
 		&i.RuntimeID,
 		&i.DeviceID,
 		&i.SessionID,
+		&i.SplitReviewChatSessionID,
 		&i.RuntimeSelectionReason,
 		&i.FailureReason,
+		&i.SplitConfigVersion,
 	)
 	return i, err
 }
@@ -699,7 +836,7 @@ UPDATE multica_workflow_node_run SET
     failure_reason = NULL,
     updated_at = now()
 WHERE id = $1
-RETURNING id, workflow_run_id, workflow_node_id, node_title, status, retry_count, worker_type, worker_id, worker_output, critic_type, critic_id, critic_output, critic_comment, agent_task_id, started_at, completed_at, created_at, updated_at, worker_agent_task_id, critic_agent_task_id, runtime_id, device_id, session_id, runtime_selection_reason, failure_reason
+RETURNING id, workflow_run_id, workflow_node_id, node_title, status, retry_count, worker_type, worker_id, worker_output, critic_type, critic_id, critic_output, critic_comment, agent_task_id, started_at, completed_at, created_at, updated_at, worker_agent_task_id, critic_agent_task_id, runtime_id, device_id, session_id, split_review_chat_session_id, runtime_selection_reason, failure_reason, split_config_version
 `
 
 type LinkNodeRunWorkerTaskParams struct {
@@ -741,14 +878,16 @@ func (q *Queries) LinkNodeRunWorkerTask(ctx context.Context, arg LinkNodeRunWork
 		&i.RuntimeID,
 		&i.DeviceID,
 		&i.SessionID,
+		&i.SplitReviewChatSessionID,
 		&i.RuntimeSelectionReason,
 		&i.FailureReason,
+		&i.SplitConfigVersion,
 	)
 	return i, err
 }
 
 const listActiveNodeRuns = `-- name: ListActiveNodeRuns :many
-SELECT id, workflow_run_id, workflow_node_id, node_title, status, retry_count, worker_type, worker_id, worker_output, critic_type, critic_id, critic_output, critic_comment, agent_task_id, started_at, completed_at, created_at, updated_at, worker_agent_task_id, critic_agent_task_id, runtime_id, device_id, session_id, runtime_selection_reason, failure_reason FROM multica_workflow_node_run
+SELECT id, workflow_run_id, workflow_node_id, node_title, status, retry_count, worker_type, worker_id, worker_output, critic_type, critic_id, critic_output, critic_comment, agent_task_id, started_at, completed_at, created_at, updated_at, worker_agent_task_id, critic_agent_task_id, runtime_id, device_id, session_id, split_review_chat_session_id, runtime_selection_reason, failure_reason, split_config_version FROM multica_workflow_node_run
 WHERE workflow_run_id = $1
   AND status NOT IN ('format_failed', 'completed', 'failed', 'blocked', 'skipped', 'cancelled')
 `
@@ -787,8 +926,10 @@ func (q *Queries) ListActiveNodeRuns(ctx context.Context, workflowRunID pgtype.U
 			&i.RuntimeID,
 			&i.DeviceID,
 			&i.SessionID,
+			&i.SplitReviewChatSessionID,
 			&i.RuntimeSelectionReason,
 			&i.FailureReason,
+			&i.SplitConfigVersion,
 		); err != nil {
 			return nil, err
 		}
@@ -868,7 +1009,7 @@ func (q *Queries) ListCompletedUpstreamNodeRuns(ctx context.Context, arg ListCom
 }
 
 const listMyWorkflowTasks = `-- name: ListMyWorkflowTasks :many
-SELECT wnr.id, wnr.workflow_run_id, wnr.workflow_node_id, wnr.node_title, wnr.status, wnr.retry_count, wnr.worker_type, wnr.worker_id, wnr.worker_output, wnr.critic_type, wnr.critic_id, wnr.critic_output, wnr.critic_comment, wnr.agent_task_id, wnr.started_at, wnr.completed_at, wnr.created_at, wnr.updated_at, wnr.worker_agent_task_id, wnr.critic_agent_task_id, wnr.runtime_id, wnr.device_id, wnr.session_id, wnr.runtime_selection_reason, wnr.failure_reason,
+SELECT wnr.id, wnr.workflow_run_id, wnr.workflow_node_id, wnr.node_title, wnr.status, wnr.retry_count, wnr.worker_type, wnr.worker_id, wnr.worker_output, wnr.critic_type, wnr.critic_id, wnr.critic_output, wnr.critic_comment, wnr.agent_task_id, wnr.started_at, wnr.completed_at, wnr.created_at, wnr.updated_at, wnr.worker_agent_task_id, wnr.critic_agent_task_id, wnr.runtime_id, wnr.device_id, wnr.session_id, wnr.split_review_chat_session_id, wnr.runtime_selection_reason, wnr.failure_reason, wnr.split_config_version,
        wr.workflow_title,
        wr.workflow_id,
        wr.workspace_id
@@ -898,34 +1039,36 @@ type ListMyWorkflowTasksParams struct {
 }
 
 type ListMyWorkflowTasksRow struct {
-	ID                     pgtype.UUID        `json:"id"`
-	WorkflowRunID          pgtype.UUID        `json:"workflow_run_id"`
-	WorkflowNodeID         pgtype.UUID        `json:"workflow_node_id"`
-	NodeTitle              string             `json:"node_title"`
-	Status                 string             `json:"status"`
-	RetryCount             int32              `json:"retry_count"`
-	WorkerType             string             `json:"worker_type"`
-	WorkerID               pgtype.UUID        `json:"worker_id"`
-	WorkerOutput           []byte             `json:"worker_output"`
-	CriticType             string             `json:"critic_type"`
-	CriticID               pgtype.UUID        `json:"critic_id"`
-	CriticOutput           []byte             `json:"critic_output"`
-	CriticComment          pgtype.Text        `json:"critic_comment"`
-	AgentTaskID            pgtype.UUID        `json:"agent_task_id"`
-	StartedAt              pgtype.Timestamptz `json:"started_at"`
-	CompletedAt            pgtype.Timestamptz `json:"completed_at"`
-	CreatedAt              pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt              pgtype.Timestamptz `json:"updated_at"`
-	WorkerAgentTaskID      pgtype.UUID        `json:"worker_agent_task_id"`
-	CriticAgentTaskID      pgtype.UUID        `json:"critic_agent_task_id"`
-	RuntimeID              pgtype.UUID        `json:"runtime_id"`
-	DeviceID               pgtype.Text        `json:"device_id"`
-	SessionID              pgtype.Text        `json:"session_id"`
-	RuntimeSelectionReason pgtype.Text        `json:"runtime_selection_reason"`
-	FailureReason          pgtype.Text        `json:"failure_reason"`
-	WorkflowTitle          string             `json:"workflow_title"`
-	WorkflowID             pgtype.UUID        `json:"workflow_id"`
-	WorkspaceID            pgtype.UUID        `json:"workspace_id"`
+	ID                       pgtype.UUID        `json:"id"`
+	WorkflowRunID            pgtype.UUID        `json:"workflow_run_id"`
+	WorkflowNodeID           pgtype.UUID        `json:"workflow_node_id"`
+	NodeTitle                string             `json:"node_title"`
+	Status                   string             `json:"status"`
+	RetryCount               int32              `json:"retry_count"`
+	WorkerType               string             `json:"worker_type"`
+	WorkerID                 pgtype.UUID        `json:"worker_id"`
+	WorkerOutput             []byte             `json:"worker_output"`
+	CriticType               string             `json:"critic_type"`
+	CriticID                 pgtype.UUID        `json:"critic_id"`
+	CriticOutput             []byte             `json:"critic_output"`
+	CriticComment            pgtype.Text        `json:"critic_comment"`
+	AgentTaskID              pgtype.UUID        `json:"agent_task_id"`
+	StartedAt                pgtype.Timestamptz `json:"started_at"`
+	CompletedAt              pgtype.Timestamptz `json:"completed_at"`
+	CreatedAt                pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt                pgtype.Timestamptz `json:"updated_at"`
+	WorkerAgentTaskID        pgtype.UUID        `json:"worker_agent_task_id"`
+	CriticAgentTaskID        pgtype.UUID        `json:"critic_agent_task_id"`
+	RuntimeID                pgtype.UUID        `json:"runtime_id"`
+	DeviceID                 pgtype.Text        `json:"device_id"`
+	SessionID                pgtype.Text        `json:"session_id"`
+	SplitReviewChatSessionID pgtype.UUID        `json:"split_review_chat_session_id"`
+	RuntimeSelectionReason   pgtype.Text        `json:"runtime_selection_reason"`
+	FailureReason            pgtype.Text        `json:"failure_reason"`
+	SplitConfigVersion       int64              `json:"split_config_version"`
+	WorkflowTitle            string             `json:"workflow_title"`
+	WorkflowID               pgtype.UUID        `json:"workflow_id"`
+	WorkspaceID              pgtype.UUID        `json:"workspace_id"`
 }
 
 // Returns node runs assigned to the current user as human worker or critic.
@@ -967,8 +1110,10 @@ func (q *Queries) ListMyWorkflowTasks(ctx context.Context, arg ListMyWorkflowTas
 			&i.RuntimeID,
 			&i.DeviceID,
 			&i.SessionID,
+			&i.SplitReviewChatSessionID,
 			&i.RuntimeSelectionReason,
 			&i.FailureReason,
+			&i.SplitConfigVersion,
 			&i.WorkflowTitle,
 			&i.WorkflowID,
 			&i.WorkspaceID,
@@ -985,7 +1130,7 @@ func (q *Queries) ListMyWorkflowTasks(ctx context.Context, arg ListMyWorkflowTas
 
 const listWorkflowNodeRuns = `-- name: ListWorkflowNodeRuns :many
 
-SELECT id, workflow_run_id, workflow_node_id, node_title, status, retry_count, worker_type, worker_id, worker_output, critic_type, critic_id, critic_output, critic_comment, agent_task_id, started_at, completed_at, created_at, updated_at, worker_agent_task_id, critic_agent_task_id, runtime_id, device_id, session_id, runtime_selection_reason, failure_reason FROM multica_workflow_node_run
+SELECT id, workflow_run_id, workflow_node_id, node_title, status, retry_count, worker_type, worker_id, worker_output, critic_type, critic_id, critic_output, critic_comment, agent_task_id, started_at, completed_at, created_at, updated_at, worker_agent_task_id, critic_agent_task_id, runtime_id, device_id, session_id, split_review_chat_session_id, runtime_selection_reason, failure_reason, split_config_version FROM multica_workflow_node_run
 WHERE workflow_run_id = $1
 ORDER BY created_at ASC
 `
@@ -1026,8 +1171,10 @@ func (q *Queries) ListWorkflowNodeRuns(ctx context.Context, workflowRunID pgtype
 			&i.RuntimeID,
 			&i.DeviceID,
 			&i.SessionID,
+			&i.SplitReviewChatSessionID,
 			&i.RuntimeSelectionReason,
 			&i.FailureReason,
+			&i.SplitConfigVersion,
 		); err != nil {
 			return nil, err
 		}
@@ -1040,7 +1187,7 @@ func (q *Queries) ListWorkflowNodeRuns(ctx context.Context, workflowRunID pgtype
 }
 
 const listWorkflowNodeRunsByRun = `-- name: ListWorkflowNodeRunsByRun :many
-SELECT id, workflow_run_id, workflow_node_id, node_title, status, retry_count, worker_type, worker_id, worker_output, critic_type, critic_id, critic_output, critic_comment, agent_task_id, started_at, completed_at, created_at, updated_at, worker_agent_task_id, critic_agent_task_id, runtime_id, device_id, session_id, runtime_selection_reason, failure_reason FROM multica_workflow_node_run
+SELECT id, workflow_run_id, workflow_node_id, node_title, status, retry_count, worker_type, worker_id, worker_output, critic_type, critic_id, critic_output, critic_comment, agent_task_id, started_at, completed_at, created_at, updated_at, worker_agent_task_id, critic_agent_task_id, runtime_id, device_id, session_id, split_review_chat_session_id, runtime_selection_reason, failure_reason, split_config_version FROM multica_workflow_node_run
 WHERE workflow_run_id = $1
 ORDER BY created_at ASC
 `
@@ -1078,8 +1225,10 @@ func (q *Queries) ListWorkflowNodeRunsByRun(ctx context.Context, workflowRunID p
 			&i.RuntimeID,
 			&i.DeviceID,
 			&i.SessionID,
+			&i.SplitReviewChatSessionID,
 			&i.RuntimeSelectionReason,
 			&i.FailureReason,
+			&i.SplitConfigVersion,
 		); err != nil {
 			return nil, err
 		}
@@ -1092,7 +1241,7 @@ func (q *Queries) ListWorkflowNodeRunsByRun(ctx context.Context, workflowRunID p
 }
 
 const listWorkflowNodeRunsByRunAndNode = `-- name: ListWorkflowNodeRunsByRunAndNode :one
-SELECT id, workflow_run_id, workflow_node_id, node_title, status, retry_count, worker_type, worker_id, worker_output, critic_type, critic_id, critic_output, critic_comment, agent_task_id, started_at, completed_at, created_at, updated_at, worker_agent_task_id, critic_agent_task_id, runtime_id, device_id, session_id, runtime_selection_reason, failure_reason FROM multica_workflow_node_run
+SELECT id, workflow_run_id, workflow_node_id, node_title, status, retry_count, worker_type, worker_id, worker_output, critic_type, critic_id, critic_output, critic_comment, agent_task_id, started_at, completed_at, created_at, updated_at, worker_agent_task_id, critic_agent_task_id, runtime_id, device_id, session_id, split_review_chat_session_id, runtime_selection_reason, failure_reason, split_config_version FROM multica_workflow_node_run
 WHERE workflow_run_id = $1 AND workflow_node_id = $2
 LIMIT 1
 `
@@ -1129,8 +1278,10 @@ func (q *Queries) ListWorkflowNodeRunsByRunAndNode(ctx context.Context, arg List
 		&i.RuntimeID,
 		&i.DeviceID,
 		&i.SessionID,
+		&i.SplitReviewChatSessionID,
 		&i.RuntimeSelectionReason,
 		&i.FailureReason,
+		&i.SplitConfigVersion,
 	)
 	return i, err
 }
@@ -1237,6 +1388,103 @@ func (q *Queries) ListWorkflowRuntimeCandidates(ctx context.Context, arg ListWor
 	return items, nil
 }
 
+const reactivateWorkflowNodeRunStatus = `-- name: ReactivateWorkflowNodeRunStatus :one
+UPDATE multica_workflow_node_run SET
+    status = $2,
+    completed_at = NULL,
+    updated_at = now()
+WHERE id = $1
+RETURNING id, workflow_run_id, workflow_node_id, node_title, status, retry_count, worker_type, worker_id, worker_output, critic_type, critic_id, critic_output, critic_comment, agent_task_id, started_at, completed_at, created_at, updated_at, worker_agent_task_id, critic_agent_task_id, runtime_id, device_id, session_id, split_review_chat_session_id, runtime_selection_reason, failure_reason, split_config_version
+`
+
+type ReactivateWorkflowNodeRunStatusParams struct {
+	ID     pgtype.UUID `json:"id"`
+	Status string      `json:"status"`
+}
+
+func (q *Queries) ReactivateWorkflowNodeRunStatus(ctx context.Context, arg ReactivateWorkflowNodeRunStatusParams) (MulticaWorkflowNodeRun, error) {
+	row := q.db.QueryRow(ctx, reactivateWorkflowNodeRunStatus, arg.ID, arg.Status)
+	var i MulticaWorkflowNodeRun
+	err := row.Scan(
+		&i.ID,
+		&i.WorkflowRunID,
+		&i.WorkflowNodeID,
+		&i.NodeTitle,
+		&i.Status,
+		&i.RetryCount,
+		&i.WorkerType,
+		&i.WorkerID,
+		&i.WorkerOutput,
+		&i.CriticType,
+		&i.CriticID,
+		&i.CriticOutput,
+		&i.CriticComment,
+		&i.AgentTaskID,
+		&i.StartedAt,
+		&i.CompletedAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.WorkerAgentTaskID,
+		&i.CriticAgentTaskID,
+		&i.RuntimeID,
+		&i.DeviceID,
+		&i.SessionID,
+		&i.SplitReviewChatSessionID,
+		&i.RuntimeSelectionReason,
+		&i.FailureReason,
+		&i.SplitConfigVersion,
+	)
+	return i, err
+}
+
+const setNodeRunSplitReviewChatSession = `-- name: SetNodeRunSplitReviewChatSession :one
+UPDATE multica_workflow_node_run SET
+    split_review_chat_session_id = $2,
+    updated_at = now()
+WHERE id = $1
+RETURNING id, workflow_run_id, workflow_node_id, node_title, status, retry_count, worker_type, worker_id, worker_output, critic_type, critic_id, critic_output, critic_comment, agent_task_id, started_at, completed_at, created_at, updated_at, worker_agent_task_id, critic_agent_task_id, runtime_id, device_id, session_id, split_review_chat_session_id, runtime_selection_reason, failure_reason, split_config_version
+`
+
+type SetNodeRunSplitReviewChatSessionParams struct {
+	ID                       pgtype.UUID `json:"id"`
+	SplitReviewChatSessionID pgtype.UUID `json:"split_review_chat_session_id"`
+}
+
+func (q *Queries) SetNodeRunSplitReviewChatSession(ctx context.Context, arg SetNodeRunSplitReviewChatSessionParams) (MulticaWorkflowNodeRun, error) {
+	row := q.db.QueryRow(ctx, setNodeRunSplitReviewChatSession, arg.ID, arg.SplitReviewChatSessionID)
+	var i MulticaWorkflowNodeRun
+	err := row.Scan(
+		&i.ID,
+		&i.WorkflowRunID,
+		&i.WorkflowNodeID,
+		&i.NodeTitle,
+		&i.Status,
+		&i.RetryCount,
+		&i.WorkerType,
+		&i.WorkerID,
+		&i.WorkerOutput,
+		&i.CriticType,
+		&i.CriticID,
+		&i.CriticOutput,
+		&i.CriticComment,
+		&i.AgentTaskID,
+		&i.StartedAt,
+		&i.CompletedAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.WorkerAgentTaskID,
+		&i.CriticAgentTaskID,
+		&i.RuntimeID,
+		&i.DeviceID,
+		&i.SessionID,
+		&i.SplitReviewChatSessionID,
+		&i.RuntimeSelectionReason,
+		&i.FailureReason,
+		&i.SplitConfigVersion,
+	)
+	return i, err
+}
+
 const setWorkflowNodeRunCriticOutput = `-- name: SetWorkflowNodeRunCriticOutput :one
 UPDATE multica_workflow_node_run SET
     critic_output = $3,
@@ -1245,7 +1493,7 @@ UPDATE multica_workflow_node_run SET
     retry_count = COALESCE($5::int, retry_count),
     updated_at = now()
 WHERE id = $1
-RETURNING id, workflow_run_id, workflow_node_id, node_title, status, retry_count, worker_type, worker_id, worker_output, critic_type, critic_id, critic_output, critic_comment, agent_task_id, started_at, completed_at, created_at, updated_at, worker_agent_task_id, critic_agent_task_id, runtime_id, device_id, session_id, runtime_selection_reason, failure_reason
+RETURNING id, workflow_run_id, workflow_node_id, node_title, status, retry_count, worker_type, worker_id, worker_output, critic_type, critic_id, critic_output, critic_comment, agent_task_id, started_at, completed_at, created_at, updated_at, worker_agent_task_id, critic_agent_task_id, runtime_id, device_id, session_id, split_review_chat_session_id, runtime_selection_reason, failure_reason, split_config_version
 `
 
 type SetWorkflowNodeRunCriticOutputParams struct {
@@ -1289,8 +1537,10 @@ func (q *Queries) SetWorkflowNodeRunCriticOutput(ctx context.Context, arg SetWor
 		&i.RuntimeID,
 		&i.DeviceID,
 		&i.SessionID,
+		&i.SplitReviewChatSessionID,
 		&i.RuntimeSelectionReason,
 		&i.FailureReason,
+		&i.SplitConfigVersion,
 	)
 	return i, err
 }
@@ -1301,7 +1551,7 @@ UPDATE multica_workflow_node_run SET
     status = $3,
     updated_at = now()
 WHERE id = $1
-RETURNING id, workflow_run_id, workflow_node_id, node_title, status, retry_count, worker_type, worker_id, worker_output, critic_type, critic_id, critic_output, critic_comment, agent_task_id, started_at, completed_at, created_at, updated_at, worker_agent_task_id, critic_agent_task_id, runtime_id, device_id, session_id, runtime_selection_reason, failure_reason
+RETURNING id, workflow_run_id, workflow_node_id, node_title, status, retry_count, worker_type, worker_id, worker_output, critic_type, critic_id, critic_output, critic_comment, agent_task_id, started_at, completed_at, created_at, updated_at, worker_agent_task_id, critic_agent_task_id, runtime_id, device_id, session_id, split_review_chat_session_id, runtime_selection_reason, failure_reason, split_config_version
 `
 
 type SetWorkflowNodeRunWorkerOutputParams struct {
@@ -1337,8 +1587,10 @@ func (q *Queries) SetWorkflowNodeRunWorkerOutput(ctx context.Context, arg SetWor
 		&i.RuntimeID,
 		&i.DeviceID,
 		&i.SessionID,
+		&i.SplitReviewChatSessionID,
 		&i.RuntimeSelectionReason,
 		&i.FailureReason,
+		&i.SplitConfigVersion,
 	)
 	return i, err
 }
@@ -1348,7 +1600,7 @@ UPDATE multica_workflow_node_run SET
     status = 'blocked',
     updated_at = now()
 WHERE id = $1
-RETURNING id, workflow_run_id, workflow_node_id, node_title, status, retry_count, worker_type, worker_id, worker_output, critic_type, critic_id, critic_output, critic_comment, agent_task_id, started_at, completed_at, created_at, updated_at, worker_agent_task_id, critic_agent_task_id, runtime_id, device_id, session_id, runtime_selection_reason, failure_reason
+RETURNING id, workflow_run_id, workflow_node_id, node_title, status, retry_count, worker_type, worker_id, worker_output, critic_type, critic_id, critic_output, critic_comment, agent_task_id, started_at, completed_at, created_at, updated_at, worker_agent_task_id, critic_agent_task_id, runtime_id, device_id, session_id, split_review_chat_session_id, runtime_selection_reason, failure_reason, split_config_version
 `
 
 // Human takeover: pause the node (working -> blocked) WITHOUT marking it
@@ -1382,8 +1634,60 @@ func (q *Queries) TakeoverWorkflowNodeRun(ctx context.Context, id pgtype.UUID) (
 		&i.RuntimeID,
 		&i.DeviceID,
 		&i.SessionID,
+		&i.SplitReviewChatSessionID,
 		&i.RuntimeSelectionReason,
 		&i.FailureReason,
+		&i.SplitConfigVersion,
+	)
+	return i, err
+}
+
+const updateSplitNodeRunConfigVersion = `-- name: UpdateSplitNodeRunConfigVersion :one
+UPDATE multica_workflow_node_run
+SET split_config_version = split_config_version + 1,
+    updated_at = now()
+WHERE id = $1
+  AND split_config_version = $2
+  AND status IN ('awaiting_split_review', 'split_active')
+RETURNING id, workflow_run_id, workflow_node_id, node_title, status, retry_count, worker_type, worker_id, worker_output, critic_type, critic_id, critic_output, critic_comment, agent_task_id, started_at, completed_at, created_at, updated_at, worker_agent_task_id, critic_agent_task_id, runtime_id, device_id, session_id, split_review_chat_session_id, runtime_selection_reason, failure_reason, split_config_version
+`
+
+type UpdateSplitNodeRunConfigVersionParams struct {
+	ID                 pgtype.UUID `json:"id"`
+	SplitConfigVersion int64       `json:"split_config_version"`
+}
+
+func (q *Queries) UpdateSplitNodeRunConfigVersion(ctx context.Context, arg UpdateSplitNodeRunConfigVersionParams) (MulticaWorkflowNodeRun, error) {
+	row := q.db.QueryRow(ctx, updateSplitNodeRunConfigVersion, arg.ID, arg.SplitConfigVersion)
+	var i MulticaWorkflowNodeRun
+	err := row.Scan(
+		&i.ID,
+		&i.WorkflowRunID,
+		&i.WorkflowNodeID,
+		&i.NodeTitle,
+		&i.Status,
+		&i.RetryCount,
+		&i.WorkerType,
+		&i.WorkerID,
+		&i.WorkerOutput,
+		&i.CriticType,
+		&i.CriticID,
+		&i.CriticOutput,
+		&i.CriticComment,
+		&i.AgentTaskID,
+		&i.StartedAt,
+		&i.CompletedAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.WorkerAgentTaskID,
+		&i.CriticAgentTaskID,
+		&i.RuntimeID,
+		&i.DeviceID,
+		&i.SessionID,
+		&i.SplitReviewChatSessionID,
+		&i.RuntimeSelectionReason,
+		&i.FailureReason,
+		&i.SplitConfigVersion,
 	)
 	return i, err
 }
@@ -1393,7 +1697,7 @@ UPDATE multica_workflow_node_run SET
     agent_task_id = $2,
     updated_at = now()
 WHERE id = $1
-RETURNING id, workflow_run_id, workflow_node_id, node_title, status, retry_count, worker_type, worker_id, worker_output, critic_type, critic_id, critic_output, critic_comment, agent_task_id, started_at, completed_at, created_at, updated_at, worker_agent_task_id, critic_agent_task_id, runtime_id, device_id, session_id, runtime_selection_reason, failure_reason
+RETURNING id, workflow_run_id, workflow_node_id, node_title, status, retry_count, worker_type, worker_id, worker_output, critic_type, critic_id, critic_output, critic_comment, agent_task_id, started_at, completed_at, created_at, updated_at, worker_agent_task_id, critic_agent_task_id, runtime_id, device_id, session_id, split_review_chat_session_id, runtime_selection_reason, failure_reason, split_config_version
 `
 
 type UpdateWorkflowNodeRunAgentTaskParams struct {
@@ -1428,8 +1732,10 @@ func (q *Queries) UpdateWorkflowNodeRunAgentTask(ctx context.Context, arg Update
 		&i.RuntimeID,
 		&i.DeviceID,
 		&i.SessionID,
+		&i.SplitReviewChatSessionID,
 		&i.RuntimeSelectionReason,
 		&i.FailureReason,
+		&i.SplitConfigVersion,
 	)
 	return i, err
 }
@@ -1440,7 +1746,7 @@ UPDATE multica_workflow_node_run SET
     critic_comment = $3,
     updated_at = now()
 WHERE id = $1
-RETURNING id, workflow_run_id, workflow_node_id, node_title, status, retry_count, worker_type, worker_id, worker_output, critic_type, critic_id, critic_output, critic_comment, agent_task_id, started_at, completed_at, created_at, updated_at, worker_agent_task_id, critic_agent_task_id, runtime_id, device_id, session_id, runtime_selection_reason, failure_reason
+RETURNING id, workflow_run_id, workflow_node_id, node_title, status, retry_count, worker_type, worker_id, worker_output, critic_type, critic_id, critic_output, critic_comment, agent_task_id, started_at, completed_at, created_at, updated_at, worker_agent_task_id, critic_agent_task_id, runtime_id, device_id, session_id, split_review_chat_session_id, runtime_selection_reason, failure_reason, split_config_version
 `
 
 type UpdateWorkflowNodeRunCriticReviewParams struct {
@@ -1476,8 +1782,10 @@ func (q *Queries) UpdateWorkflowNodeRunCriticReview(ctx context.Context, arg Upd
 		&i.RuntimeID,
 		&i.DeviceID,
 		&i.SessionID,
+		&i.SplitReviewChatSessionID,
 		&i.RuntimeSelectionReason,
 		&i.FailureReason,
+		&i.SplitConfigVersion,
 	)
 	return i, err
 }
@@ -1489,9 +1797,10 @@ UPDATE multica_workflow_node_run SET
     worker_output = NULL,
     critic_output = NULL,
     critic_comment = '',
+    completed_at = NULL,
     updated_at = now()
 WHERE id = $1
-RETURNING id, workflow_run_id, workflow_node_id, node_title, status, retry_count, worker_type, worker_id, worker_output, critic_type, critic_id, critic_output, critic_comment, agent_task_id, started_at, completed_at, created_at, updated_at, worker_agent_task_id, critic_agent_task_id, runtime_id, device_id, session_id, runtime_selection_reason, failure_reason
+RETURNING id, workflow_run_id, workflow_node_id, node_title, status, retry_count, worker_type, worker_id, worker_output, critic_type, critic_id, critic_output, critic_comment, agent_task_id, started_at, completed_at, created_at, updated_at, worker_agent_task_id, critic_agent_task_id, runtime_id, device_id, session_id, split_review_chat_session_id, runtime_selection_reason, failure_reason, split_config_version
 `
 
 type UpdateWorkflowNodeRunReworkParams struct {
@@ -1526,8 +1835,10 @@ func (q *Queries) UpdateWorkflowNodeRunRework(ctx context.Context, arg UpdateWor
 		&i.RuntimeID,
 		&i.DeviceID,
 		&i.SessionID,
+		&i.SplitReviewChatSessionID,
 		&i.RuntimeSelectionReason,
 		&i.FailureReason,
+		&i.SplitConfigVersion,
 	)
 	return i, err
 }
@@ -1547,7 +1858,7 @@ UPDATE multica_workflow_node_run SET
     END,
     updated_at = now()
 WHERE id = $1
-RETURNING id, workflow_run_id, workflow_node_id, node_title, status, retry_count, worker_type, worker_id, worker_output, critic_type, critic_id, critic_output, critic_comment, agent_task_id, started_at, completed_at, created_at, updated_at, worker_agent_task_id, critic_agent_task_id, runtime_id, device_id, session_id, runtime_selection_reason, failure_reason
+RETURNING id, workflow_run_id, workflow_node_id, node_title, status, retry_count, worker_type, worker_id, worker_output, critic_type, critic_id, critic_output, critic_comment, agent_task_id, started_at, completed_at, created_at, updated_at, worker_agent_task_id, critic_agent_task_id, runtime_id, device_id, session_id, split_review_chat_session_id, runtime_selection_reason, failure_reason, split_config_version
 `
 
 type UpdateWorkflowNodeRunStatusParams struct {
@@ -1582,8 +1893,10 @@ func (q *Queries) UpdateWorkflowNodeRunStatus(ctx context.Context, arg UpdateWor
 		&i.RuntimeID,
 		&i.DeviceID,
 		&i.SessionID,
+		&i.SplitReviewChatSessionID,
 		&i.RuntimeSelectionReason,
 		&i.FailureReason,
+		&i.SplitConfigVersion,
 	)
 	return i, err
 }
@@ -1594,7 +1907,7 @@ UPDATE multica_workflow_node_run SET
     status = 'awaiting_critic',
     updated_at = now()
 WHERE id = $1
-RETURNING id, workflow_run_id, workflow_node_id, node_title, status, retry_count, worker_type, worker_id, worker_output, critic_type, critic_id, critic_output, critic_comment, agent_task_id, started_at, completed_at, created_at, updated_at, worker_agent_task_id, critic_agent_task_id, runtime_id, device_id, session_id, runtime_selection_reason, failure_reason
+RETURNING id, workflow_run_id, workflow_node_id, node_title, status, retry_count, worker_type, worker_id, worker_output, critic_type, critic_id, critic_output, critic_comment, agent_task_id, started_at, completed_at, created_at, updated_at, worker_agent_task_id, critic_agent_task_id, runtime_id, device_id, session_id, split_review_chat_session_id, runtime_selection_reason, failure_reason, split_config_version
 `
 
 type UpdateWorkflowNodeRunWorkerOutputParams struct {
@@ -1629,8 +1942,10 @@ func (q *Queries) UpdateWorkflowNodeRunWorkerOutput(ctx context.Context, arg Upd
 		&i.RuntimeID,
 		&i.DeviceID,
 		&i.SessionID,
+		&i.SplitReviewChatSessionID,
 		&i.RuntimeSelectionReason,
 		&i.FailureReason,
+		&i.SplitConfigVersion,
 	)
 	return i, err
 }
