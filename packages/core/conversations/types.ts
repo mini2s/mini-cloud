@@ -43,6 +43,7 @@ export type OpenCodeTaskUsage = {
 
 export type OpenCodeTaskSnapshot = OpenCodeRecord & {
   taskID: string;
+  toolUseID?: string;
   status?: string;
   description?: string;
   taskType?: string;

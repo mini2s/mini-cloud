@@ -2,9 +2,11 @@ import { QueryClient } from "@tanstack/react-query";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type {
   CloudProxyClient,
+  OpenCodeRecord,
   OpenCodeRuntimeEvent,
   ConversationRuntimeState,
 } from "..";
+import { createConversationRuntimeState } from "./state";
 import { conversationKeys } from "../query-keys";
 import { ConversationRuntimeController } from "./controller";
 import {
@@ -96,6 +98,14 @@ function createFakeClient(
       }),
     },
   };
+}
+
+function createDeferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((resolver) => {
+    resolve = resolver;
+  });
+  return { promise, resolve };
 }
 
 afterEach(() => {
@@ -237,6 +247,99 @@ describe("ConversationRuntimeController", () => {
     controller.dispose();
   });
 
+  it("aborts an in-flight snapshot and ignores its late completion after dispose", async () => {
+    const calls: string[] = [];
+    const hub = new EventHub();
+    const client = createFakeClient(hub, calls);
+    const conversation = createDeferred<OpenCodeRecord | null>();
+    const messages = createDeferred<[]>();
+    const statuses = createDeferred<Record<string, { type: string }>>();
+    const permissions = createDeferred<OpenCodeRecord[]>();
+    const questions = createDeferred<OpenCodeRecord[]>();
+    const todo = createDeferred<OpenCodeRecord[]>();
+    const tasks = createDeferred<[]>();
+    const diff = createDeferred<OpenCodeRecord[]>();
+    const signals: AbortSignal[] = [];
+    const captureSignal = (signal?: AbortSignal) => {
+      if (!signal) throw new Error("Expected snapshot abort signal");
+      signals.push(signal);
+    };
+    client.conversation.get = vi.fn((_conversationId, signal) => {
+      captureSignal(signal);
+      return conversation.promise;
+    });
+    client.conversation.messages = vi.fn((_conversationId, _input, signal) => {
+      captureSignal(signal);
+      return messages.promise;
+    });
+    client.conversation.status = vi.fn((signal) => {
+      captureSignal(signal);
+      return statuses.promise;
+    });
+    client.permission.list = vi.fn((signal) => {
+      captureSignal(signal);
+      return permissions.promise;
+    });
+    client.question.list = vi.fn((signal) => {
+      captureSignal(signal);
+      return questions.promise;
+    });
+    client.conversation.todo = vi.fn((_conversationId, signal) => {
+      captureSignal(signal);
+      return todo.promise;
+    });
+    client.conversation.tasks = vi.fn((_conversationId, signal) => {
+      captureSignal(signal);
+      return tasks.promise;
+    });
+    client.conversation.diff = vi.fn((_conversationId, signal) => {
+      captureSignal(signal);
+      return diff.promise;
+    });
+    const queryClient = new QueryClient();
+    const queryKey = conversationKeys.state(
+      client.baseUrl,
+      client.directory,
+      "conversation-1",
+    );
+    const controller = new ConversationRuntimeController(
+      queryClient,
+      queryKey,
+      client,
+      "conversation-1",
+    );
+
+    const starting = controller.start();
+    await vi.waitFor(() => expect(signals).toHaveLength(8));
+    controller.dispose();
+
+    expect(signals.every((signal) => signal === signals[0])).toBe(true);
+    expect(signals.every((signal) => signal.aborted)).toBe(true);
+
+    conversation.resolve({ id: "conversation-1" });
+    messages.resolve([]);
+    statuses.resolve({ "conversation-1": { type: "idle" } });
+    permissions.resolve([{ id: "permission-late" }]);
+    questions.resolve([{ id: "question-late" }]);
+    todo.resolve([{ id: "todo-late" }]);
+    tasks.resolve([]);
+    diff.resolve([{ id: "diff-late" }]);
+    await starting;
+
+    expect(
+      queryClient.getQueryData<ConversationRuntimeState>(queryKey),
+    ).toMatchObject({
+      conversation: null,
+      loadState: { type: "loading" },
+      messageOrder: [],
+      permissions: {},
+      questions: {},
+      todo: [],
+      diff: [],
+      sync: {},
+    });
+  });
+
   it("reconciles after compaction and exposes real send/cancel actions", async () => {
     const calls: string[] = [];
     const hub = new EventHub();
@@ -303,6 +406,58 @@ describe("ConversationRuntimeController", () => {
 
     expect(client.permission.respond).toHaveBeenCalledWith("permission-1", {
       decision: "always",
+    });
+    controller.dispose();
+  });
+
+  it("forwards question replies and rejections through the proxy client", async () => {
+    const calls: string[] = [];
+    const hub = new EventHub();
+    const client = createFakeClient(hub, calls);
+    const queryClient = new QueryClient();
+    const queryKey = conversationKeys.state(
+      client.baseUrl,
+      client.directory,
+      "conversation-1",
+    );
+    queryClient.setQueryData<ConversationRuntimeState>(queryKey, {
+      ...createConversationRuntimeState("conversation-1"),
+      questions: {
+        "question-1": {
+          id: "question-1",
+          tool: { callID: "call-question-1" },
+        },
+        "question-2": {
+          id: "question-2",
+          tool: { callID: "call-question-2" },
+        },
+      },
+    });
+    const controller = new ConversationRuntimeController(
+      queryClient,
+      queryKey,
+      client,
+      "conversation-1",
+    );
+
+    await controller.replyToQuestion("question-1", [["Continue"]]);
+    await controller.rejectQuestion("question-2");
+
+    expect(client.question.reply).toHaveBeenCalledWith("question-1", {
+      answers: [["Continue"]],
+    });
+    expect(client.question.reject).toHaveBeenCalledWith("question-2");
+    expect(
+      queryClient.getQueryData<ConversationRuntimeState>(queryKey)
+        ?.questionResponses,
+    ).toMatchObject({
+      "question-1": {
+        state: "answered",
+        answers: [["Continue"]],
+      },
+      "question-2": {
+        state: "rejected",
+      },
     });
     controller.dispose();
   });

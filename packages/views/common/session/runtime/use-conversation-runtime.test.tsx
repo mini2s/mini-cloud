@@ -5,10 +5,12 @@ import { I18nProvider } from "@multica/core/i18n/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { StrictMode } from "react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import enChat from "../../../locales/en/chat.json";
 
 const mocks = vi.hoisted(() => ({
+  nextControllerId: 0,
   send: vi.fn(),
   cancel: vi.fn(),
   start: vi.fn(),
@@ -21,6 +23,8 @@ vi.mock("@multica/core/conversations", async (importOriginal) => {
   return {
     ...actual,
     ConversationRuntimeController: class {
+      private readonly id = ++mocks.nextControllerId;
+
       constructor(
         private readonly queryClient: QueryClient,
         private readonly queryKey: readonly unknown[],
@@ -29,7 +33,7 @@ vi.mock("@multica/core/conversations", async (importOriginal) => {
       ) {}
 
       start() {
-        mocks.start();
+        mocks.start(this.id);
         this.queryClient.setQueryData(this.queryKey, {
           ...createConversationRuntimeState(this.conversationId),
           loadState: { type: "ready" },
@@ -38,7 +42,7 @@ vi.mock("@multica/core/conversations", async (importOriginal) => {
       }
 
       send(parts: unknown) {
-        mocks.send(parts);
+        mocks.send(this.id, parts);
         this.queryClient.setQueryData(
           this.queryKey,
           (state: ReturnType<typeof createConversationRuntimeState> | undefined) => ({
@@ -50,7 +54,7 @@ vi.mock("@multica/core/conversations", async (importOriginal) => {
       }
 
       cancel() {
-        mocks.cancel();
+        mocks.cancel(this.id);
         this.queryClient.setQueryData(
           this.queryKey,
           (state: ReturnType<typeof createConversationRuntimeState> | undefined) => ({
@@ -62,13 +66,16 @@ vi.mock("@multica/core/conversations", async (importOriginal) => {
       }
 
       dispose() {
-        mocks.dispose();
+        mocks.dispose(this.id);
       }
     },
   };
 });
 
-import type { CloudProxyClient } from "@multica/core/conversations";
+import {
+  disposeSharedConversationRuntimeControllers,
+  type CloudProxyClient,
+} from "@multica/core/conversations";
 import { SessionThread } from "../session-thread";
 import { SessionRuntimeStateProvider } from "../session-runtime-state";
 import { useConversationRuntime } from "./use-conversation-runtime";
@@ -101,10 +108,15 @@ function Harness() {
 }
 
 beforeEach(() => {
+  mocks.nextControllerId = 0;
   mocks.send.mockReset();
   mocks.cancel.mockReset();
   mocks.start.mockReset();
   mocks.dispose.mockReset();
+});
+
+afterEach(() => {
+  disposeSharedConversationRuntimeControllers();
 });
 
 describe("useConversationRuntime", () => {
@@ -128,7 +140,9 @@ describe("useConversationRuntime", () => {
     await user.type(input, "Inspect the runtime");
     await user.click(screen.getByRole("button", { name: "Send message" }));
 
-    expect(mocks.send).toHaveBeenCalledWith([
+    const controllerId = mocks.start.mock.calls[0]?.[0];
+    expect(controllerId).toEqual(expect.any(Number));
+    expect(mocks.send).toHaveBeenCalledWith(controllerId, [
       { type: "text", text: "Inspect the runtime" },
     ]);
     queryClient.setQueryData(
@@ -148,9 +162,43 @@ describe("useConversationRuntime", () => {
     await user.click(
       await screen.findByRole("button", { name: "Stop generating" }),
     );
-    await waitFor(() => expect(mocks.cancel).toHaveBeenCalledTimes(1));
+    await waitFor(() =>
+      expect(mocks.cancel).toHaveBeenCalledWith(controllerId),
+    );
 
     rendered.unmount();
-    expect(mocks.dispose).toHaveBeenCalledTimes(1);
+    await waitFor(() =>
+      expect(mocks.dispose).toHaveBeenCalledWith(controllerId),
+    );
+  });
+
+  it("shares one controller across the StrictMode effect replay", async () => {
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    const rendered = render(
+      <StrictMode>
+        <I18nProvider locale="en" resources={{ en: { chat: enChat } }}>
+          <QueryClientProvider client={queryClient}>
+            <Harness />
+          </QueryClientProvider>
+        </I18nProvider>
+      </StrictMode>,
+    );
+
+    const input = await screen.findByRole("textbox", {
+      name: "Live session message",
+    });
+    await waitFor(() => expect(input).toBeEnabled());
+    expect(mocks.start).toHaveBeenCalledTimes(1);
+
+    const controllerId = mocks.start.mock.calls[0]?.[0];
+    expect(controllerId).toEqual(expect.any(Number));
+    expect(mocks.dispose).not.toHaveBeenCalled();
+
+    rendered.unmount();
+    await waitFor(() =>
+      expect(mocks.dispose).toHaveBeenCalledWith(controllerId),
+    );
   });
 });

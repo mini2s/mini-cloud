@@ -4,21 +4,20 @@ import {
   ActionBarPrimitive,
   AuiIf,
   ErrorPrimitive,
+  groupPartByType,
   MessagePrimitive,
   useAuiState,
-  type ReasoningMessagePartProps,
 } from "@assistant-ui/react";
 import { MarkdownTextPrimitive } from "@assistant-ui/react-markdown";
 import { Button } from "@multica/ui/components/ui/button";
-import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from "@multica/ui/components/ui/collapsible";
-import { Brain, Check, ChevronRight, Copy } from "lucide-react";
-import { useState } from "react";
+import { Check, Copy, Loader2 } from "lucide-react";
 import { useT } from "../../i18n";
-import { SessionTool } from "./session-tool";
+import { FallbackTool } from "./tools/conversation-tools";
+import {
+  ChainOfThoughtGroup,
+  ReasoningGroup,
+  ToolGroup,
+} from "./tools/tool-groups";
 
 function MarkdownPart() {
   return (
@@ -29,24 +28,11 @@ function MarkdownPart() {
   );
 }
 
-function ReasoningPart({ text, status }: ReasoningMessagePartProps) {
-  const { t } = useT("chat");
-  const [open, setOpen] = useState(status.type === "running");
-  return (
-    <Collapsible open={open} onOpenChange={setOpen} className="mb-2 text-sm text-muted-foreground">
-      <CollapsibleTrigger className="flex items-center gap-1.5 rounded-md py-1 text-xs hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
-        <ChevronRight className={`size-3.5 transition-transform motion-reduce:transition-none ${open ? "rotate-90" : ""}`} />
-        <Brain className="size-3.5" />
-        {status.type === "running"
-          ? t(($) => $.session.reasoning_running)
-          : t(($) => $.session.reasoning)}
-      </CollapsibleTrigger>
-      <CollapsibleContent>
-        <div className="ml-5 mt-1 border-l pl-3 text-xs leading-5 whitespace-pre-wrap">{text}</div>
-      </CollapsibleContent>
-    </Collapsible>
-  );
-}
+const groupMessageParts = groupPartByType({
+  reasoning: ["group-chain-of-thought", "group-reasoning"],
+  "tool-call": ["group-chain-of-thought", "group-tool"],
+  "standalone-tool-call": [],
+} as const);
 
 function AssistantMessage() {
   const { t } = useT("chat");
@@ -54,13 +40,45 @@ function AssistantMessage() {
   return (
     <MessagePrimitive.Root className="group/message relative w-full px-1">
       <div className="min-w-0 text-sm leading-6">
-        <MessagePrimitive.Parts
-          components={{
-            Text: MarkdownPart,
-            Reasoning: ReasoningPart,
-            tools: { Fallback: SessionTool },
+        <MessagePrimitive.GroupedParts groupBy={groupMessageParts}>
+          {({ part, children }) => {
+            switch (part.type) {
+              case "group-chain-of-thought":
+                return (
+                  <ChainOfThoughtGroup>{children}</ChainOfThoughtGroup>
+                );
+              case "group-reasoning":
+                return <ReasoningGroup group={part}>{children}</ReasoningGroup>;
+              case "group-tool":
+                return <ToolGroup group={part}>{children}</ToolGroup>;
+              case "text":
+                return <MarkdownPart />;
+              case "reasoning":
+                return (
+                  <div className="whitespace-pre-wrap">{part.text}</div>
+                );
+              case "tool-call":
+                return part.toolUI ?? <FallbackTool {...part} />;
+              case "indicator":
+                return (
+                  <div
+                    className="inline-flex items-center py-1 text-muted-foreground"
+                    role="status"
+                    aria-label={t(($) => $.session.reasoning_running)}
+                  >
+                    <Loader2 className="size-3.5 animate-spin motion-reduce:animate-none" />
+                  </div>
+                );
+              case "data":
+              case "source":
+              case "image":
+              case "file":
+              case "audio":
+                return null;
+            }
+            return null;
           }}
-        />
+        </MessagePrimitive.GroupedParts>
         <MessagePrimitive.Error>
           <ErrorPrimitive.Root className="mt-2 rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-xs text-destructive">
             <ErrorPrimitive.Message />

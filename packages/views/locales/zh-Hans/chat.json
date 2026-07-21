@@ -134,6 +134,53 @@
     "tool_input": "输入",
     "tool_output": "输出",
     "cancelled": "回复已停止",
-    "error": "回复未能完成。"
+    "error": "回复未能完成。",
+    "tools": {
+      "show_details": "展开工具详情",
+      "hide_details": "收起工具详情",
+      "copy": "复制工具输出",
+      "copied": "工具输出已复制",
+      "names": {
+        "read": "读取",
+        "write": "写入",
+        "edit": "编辑",
+        "grep": "搜索内容",
+        "glob": "列出文件",
+        "bash": "命令",
+        "web_search": "联网搜索",
+        "web_fetch": "获取网页",
+        "apply_patch": "应用补丁",
+        "question": "提问",
+        "task": "task"
+      },
+      "bash": {
+        "exit_code": "退出码 {{code}}"
+      },
+      "patch": {
+        "files": "{{count}} 个文件"
+      },
+      "permission": {
+        "approval_required": "需要授权",
+        "submitted": "授权响应已提交",
+        "request_description": "{{tool}} 需要权限才能继续。",
+        "takeover_required": "接管会话后可以响应。",
+        "allow_once": "仅允许本次",
+        "always": "始终允许",
+        "reject": "拒绝",
+        "submit_failed": "权限响应失败。"
+      },
+      "question": {
+        "answer_required": "需要回答",
+        "submitted": "回答已提交",
+        "dismissed": "已跳过问题",
+        "no_answer": "未回答",
+        "custom_placeholder": "输入其他回答…",
+        "takeover_required": "接管会话后可以回答。",
+        "reject": "跳过",
+        "submit": "提交",
+        "submit_failed": "回答提交失败。",
+        "reject_failed": "问题跳过失败。"
+      }
+    }
   }
 }

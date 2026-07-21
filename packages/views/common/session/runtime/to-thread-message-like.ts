@@ -4,62 +4,14 @@ import type {
   StoredOpenCodeMessage,
 } from "@multica/core/conversations";
 import type { ThreadMessageLike } from "@assistant-ui/react";
+import { projectToolPart } from "./project-tool-part";
 
 type ContentPart = Exclude<ThreadMessageLike["content"], string>[number];
-type JsonValue =
-  | string
-  | number
-  | boolean
-  | null
-  | readonly JsonValue[]
-  | { readonly [key: string]: JsonValue };
-type JsonObject = { readonly [key: string]: JsonValue };
 
 function asRecord(value: unknown): Record<string, unknown> | undefined {
   return typeof value === "object" && value !== null
     ? (value as Record<string, unknown>)
     : undefined;
-}
-
-function parseToolInput(value: unknown): {
-  args: JsonObject;
-  argsText: string;
-} {
-  if (typeof value === "string") {
-    try {
-      const parsed = JSON.parse(value) as unknown;
-      return { args: toJsonObject(parsed), argsText: value };
-    } catch {
-      return { args: {}, argsText: value };
-    }
-  }
-  const args = toJsonObject(value);
-  return { args, argsText: JSON.stringify(args) };
-}
-
-function toJsonValue(value: unknown): JsonValue {
-  if (
-    value === null ||
-    typeof value === "string" ||
-    typeof value === "boolean"
-  ) {
-    return value;
-  }
-  if (typeof value === "number") return Number.isFinite(value) ? value : null;
-  if (Array.isArray(value)) return value.map(toJsonValue);
-  const record = asRecord(value);
-  if (!record) return String(value);
-  return Object.fromEntries(
-    Object.entries(record).map(([key, item]) => [key, toJsonValue(item)]),
-  );
-}
-
-function toJsonObject(value: unknown): JsonObject {
-  const record = asRecord(value);
-  if (!record) return {};
-  return Object.fromEntries(
-    Object.entries(record).map(([key, item]) => [key, toJsonValue(item)]),
-  );
 }
 
 function projectPart(part: OpenCodePart): ContentPart {
@@ -89,23 +41,8 @@ function projectPart(part: OpenCodePart): ContentPart {
         ? { type: "image", image: url, filename }
         : { type: "file", data: url, filename, mimeType: mime };
     }
-    case "tool": {
-      const state = asRecord(part.state);
-      const { args, argsText } = parseToolInput(state?.input);
-      const failed = state?.status === "error";
-      return {
-        type: "tool-call",
-        toolCallId:
-          typeof part.callID === "string"
-            ? part.callID
-            : part.id ?? "unknown-tool-call",
-        toolName: typeof part.tool === "string" ? part.tool : "unknown",
-        args,
-        argsText,
-        result: failed ? state?.error : state?.output,
-        isError: failed,
-      };
-    }
+    case "tool":
+      return projectToolPart(part);
     default:
       return {
         type: "data",
@@ -216,6 +153,53 @@ function projectServerMessage(
   };
 }
 
+function mergeHistoricalToolPart(
+  previous: OpenCodePart,
+  next: OpenCodePart,
+): OpenCodePart {
+  if (previous.type !== "tool" || next.type !== "tool") return next;
+  const previousState = asRecord(previous.state);
+  const nextState = asRecord(next.state);
+  return {
+    ...next,
+    ...(previous.id && previous.callID === next.callID
+      ? { id: previous.id }
+      : {}),
+    ...(previousState || nextState
+      ? { state: { ...(previousState ?? {}), ...(nextState ?? {}) } }
+      : {}),
+  };
+}
+
+function mergeHistoricalParts(
+  previous: readonly OpenCodePart[],
+  next: readonly OpenCodePart[],
+): readonly OpenCodePart[] {
+  const merged = [...previous];
+  for (const part of next) {
+    const indexById = part.id
+      ? merged.findIndex((candidate) => candidate.id === part.id)
+      : -1;
+    const indexByCallId =
+      indexById === -1 &&
+      part.type === "tool" &&
+      typeof part.callID === "string"
+        ? merged.findIndex(
+            (candidate) =>
+              candidate.type === "tool" &&
+              candidate.callID === part.callID,
+          )
+        : -1;
+    const index = indexById !== -1 ? indexById : indexByCallId;
+    if (index === -1) {
+      merged.push(part);
+    } else {
+      merged[index] = mergeHistoricalToolPart(merged[index]!, part);
+    }
+  }
+  return merged;
+}
+
 function mergeConsecutiveAssistantMessages(
   messages: readonly StoredOpenCodeMessage[],
 ) {
@@ -226,28 +210,9 @@ function mergeConsecutiveAssistantMessages(
       previous?.info?.role === "assistant" &&
       message.info?.role === "assistant"
     ) {
-      const partIds = new Set(
-        previous.parts.flatMap((part) => (part.id ? [part.id] : [])),
-      );
-      const callIds = new Set(
-        previous.parts.flatMap((part) =>
-          part.type === "tool" && typeof part.callID === "string"
-            ? [part.callID]
-            : [],
-        ),
-      );
-      const uniqueParts = message.parts.filter(
-        (part) =>
-          !(part.id && partIds.has(part.id)) &&
-          !(
-            part.type === "tool" &&
-            typeof part.callID === "string" &&
-            callIds.has(part.callID)
-          ),
-      );
       merged[merged.length - 1] = {
         info: message.info,
-        parts: [...previous.parts, ...uniqueParts],
+        parts: mergeHistoricalParts(previous.parts, message.parts),
       };
       continue;
     }

@@ -174,6 +174,7 @@
     "workflow_node_label": "Workflow task",
     "session_running": "Running",
     "take_over_session": "Take over session",
+    "take_over_session_failed": "Unable to take over the session.",
     "content_tabs_aria": "Issue content",
     "realtime_session": "Live session",
     "add_sub_issues": "Add sub-issues",
@@ -613,6 +614,7 @@
       "no_runtime_data": "No runtime data yet.",
       "gateway_no_worker": "Gateway runtime is automatic and has no worker or critic.",
       "open_session": "Open session",
+      "take_over_session": "Take over session",
       "unblock": "Unblock",
       "retry": "Retry"
     },

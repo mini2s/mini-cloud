@@ -5,16 +5,20 @@ import {
   type AppendMessage,
 } from "@assistant-ui/react";
 import {
+  acquireSharedConversationRuntimeController,
   ConversationRuntimeController,
   conversationRuntimeStateOptions,
+  type ConversationRuntimeControllerLease,
   type IssueConversationSession,
   type OpenCodePromptPart,
 } from "@multica/core/conversations";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useCallback, useEffect, useMemo } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 import type { SessionMode } from "../session";
 import type { CloudProxyClient } from "@multica/core/conversations";
 import { toThreadMessageLike } from "./to-thread-message-like";
+
+const RUNTIME_NOT_ACTIVE_MESSAGE = "Conversation runtime is not active";
 
 function toPromptParts(message: AppendMessage): OpenCodePromptPart[] {
   return [
@@ -85,21 +89,43 @@ export function useConversationRuntime({
     ],
   );
   const { data: state } = useQuery(options);
-  const controller = useMemo(
-    () =>
-      new ConversationRuntimeController(
-        queryClient,
-        options.queryKey,
-        client,
-        descriptor.conversationId,
-      ),
-    [client, descriptor.conversationId, options.queryKey, queryClient],
-  );
+  const leaseRef = useRef<ConversationRuntimeControllerLease | null>(null);
+
+  const getController = useCallback(() => {
+    const lease = leaseRef.current;
+    if (!lease) throw new Error(RUNTIME_NOT_ACTIVE_MESSAGE);
+    return lease.controller;
+  }, []);
 
   useEffect(() => {
-    void controller.start().catch(onError);
-    return () => controller.dispose();
-  }, [controller, onError]);
+    const lease = acquireSharedConversationRuntimeController({
+      queryClient,
+      queryKey: options.queryKey,
+      client,
+      conversationId: descriptor.conversationId,
+      createController: () =>
+        new ConversationRuntimeController(
+          queryClient,
+          options.queryKey,
+          client,
+          descriptor.conversationId,
+        ),
+    });
+    leaseRef.current = lease;
+    void lease.started.catch((error) => {
+      if (leaseRef.current === lease) onError?.(error);
+    });
+    return () => {
+      if (leaseRef.current === lease) leaseRef.current = null;
+      lease.release();
+    };
+  }, [
+    client,
+    descriptor.conversationId,
+    onError,
+    options.queryKey,
+    queryClient,
+  ]);
 
   const messages = useMemo(() => toThreadMessageLike(state), [state]);
   const isLoading =
@@ -128,7 +154,7 @@ export function useConversationRuntime({
       const parts = toPromptParts(message);
       if (parts.length === 0) return;
       try {
-        await controller.send(parts);
+        await getController().send(parts);
       } catch (error) {
         onError?.(error);
         throw error;
@@ -136,7 +162,7 @@ export function useConversationRuntime({
     },
     onCancel: async () => {
       try {
-        await controller.cancel();
+        await getController().cancel();
       } catch (error) {
         onError?.(error);
         throw error;
@@ -145,12 +171,57 @@ export function useConversationRuntime({
     unstable_capabilities: { copy: true },
   });
   const retry = useCallback(() => {
-    void controller.refresh().catch(onError);
-  }, [controller, onError]);
+    try {
+      void getController().refresh().catch(onError);
+    } catch (error) {
+      onError?.(error);
+    }
+  }, [getController, onError]);
+  const respondToPermission = useCallback(
+    async (
+      requestId: string,
+      decision: "once" | "always" | "reject",
+    ) => {
+      try {
+        await getController().respondToPermission(requestId, decision);
+      } catch (error) {
+        onError?.(error);
+        throw error;
+      }
+    },
+    [getController, onError],
+  );
+  const replyToQuestion = useCallback(
+    async (requestId: string, answers: readonly unknown[]) => {
+      try {
+        await getController().replyToQuestion(requestId, answers);
+      } catch (error) {
+        onError?.(error);
+        throw error;
+      }
+    },
+    [getController, onError],
+  );
+  const rejectQuestion = useCallback(
+    async (requestId: string) => {
+      try {
+        await getController().rejectQuestion(requestId);
+      } catch (error) {
+        onError?.(error);
+        throw error;
+      }
+    },
+    [getController, onError],
+  );
 
   return {
     runtime,
     state,
+    actions: {
+      respondToPermission,
+      replyToQuestion,
+      rejectQuestion,
+    },
     runtimeState: {
       isLoading,
       isRunning,

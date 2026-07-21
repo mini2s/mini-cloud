@@ -26,6 +26,7 @@ const mocks = vi.hoisted(() => ({
   pluginsData: undefined as unknown,
   workflowRolesData: [] as unknown[],
   roleResolutionsData: [] as unknown[],
+  nodeIssuesData: [] as unknown[],
   hasOpenInNewTab: true,
   isLoading: true,
   navigationPush: vi.fn(),
@@ -96,6 +97,8 @@ vi.mock("@tanstack/react-query", async () => {
           return { data: mocks.workflowRolesData, isLoading: false };
         if (key.includes("split-issue-workflow-options"))
           return { data: mocks.workflowOptionsData, isLoading: false };
+        if (key.includes("open-workflow-origin"))
+          return { data: mocks.nodeIssuesData, isLoading: false };
         return { data: mocks.workflowData, isLoading: mocks.isLoading };
       }
       return { data: undefined, isLoading: true };
@@ -196,6 +199,12 @@ vi.mock("@multica/core/workspace/queries", () => ({
   }),
 }));
 
+vi.mock("@multica/core/issues/queries", () => ({
+  openWorkflowOriginIssuesOptions: (wsId: string) => ({
+    queryKey: ["issues", wsId, "open-workflow-origin"],
+  }),
+}));
+
 vi.mock("@multica/core/api", () => ({
   api: {
     retryNodeRun: mocks.retryNodeRun,
@@ -205,6 +214,8 @@ vi.mock("@multica/core/api", () => ({
 vi.mock("@multica/core/paths", () => ({
   useWorkspacePaths: () => ({
     issueDetail: (issueId: string) => `/demo111/issues/${issueId}`,
+    issueLiveSession: (issueId: string, takeover = false) =>
+      `/demo111/issues/${issueId}?view=session${takeover ? "&takeover=1" : ""}`,
   }),
 }));
 
@@ -256,6 +267,7 @@ vi.mock("./execution-detail-panel", () => ({
     nodeRun,
     onClose,
     onOpenIssue,
+    onTakeoverSession,
     onRetry,
     isChildIssue,
     parentSplitTitle,
@@ -264,6 +276,7 @@ vi.mock("./execution-detail-panel", () => ({
     nodeRun: { status: string } | null;
     onClose: () => void;
     onOpenIssue?: () => void;
+    onTakeoverSession?: () => void;
     onRetry?: () => void;
     isChildIssue?: boolean;
     parentSplitTitle?: string | null;
@@ -276,6 +289,11 @@ vi.mock("./execution-detail-panel", () => ({
       {onOpenIssue ? (
         <button type="button" onClick={onOpenIssue}>
           Open issue
+        </button>
+      ) : null}
+      {onTakeoverSession ? (
+        <button type="button" onClick={onTakeoverSession}>
+          Take over session
         </button>
       ) : null}
       {onRetry ? (
@@ -594,6 +612,7 @@ describe("ExecutionPanoramaPage", () => {
     mocks.membersData = [];
     mocks.squadsData = [];
     mocks.workflowOptionsData = [];
+    mocks.nodeIssuesData = [];
     mocks.hasOpenInNewTab = true;
     mocks.splitTasksByNodeRunId = {};
     mocks.fitView.mockClear();
@@ -1614,6 +1633,50 @@ describe("ExecutionPanoramaPage", () => {
       { activate: true },
     );
     expect(mocks.navigationPush).not.toHaveBeenCalled();
+  });
+
+  it("opens the node runtime's corresponding child issue live session", async () => {
+    mocks.isLoading = false;
+    mocks.workflowData = { id: "wf-1", title: "Test Workflow" };
+    mocks.stagesData = [STAGE];
+    mocks.nodesData = [NODE];
+    mocks.nodeRunsData = [{
+      ...SPLIT_NODE_RUN,
+      id: "nr-1",
+      workflow_node_id: "n1",
+      node_title: "brainstorming",
+      status: "working",
+      session_id: "session-1",
+    }];
+    mocks.canvasSummaryData = {
+      node_runs: mocks.nodeRunsData,
+      node_runtime_summaries: [],
+    };
+    mocks.agentsData = [AGENT];
+    mocks.nodeIssuesData = [{
+      id: "node-issue-1",
+      origin_type: "workflow",
+      origin_id: "nr-1",
+      parent_issue_id: "issue-1",
+    }];
+
+    render(
+      <Wrapper>
+        <ExecutionPanoramaPage workflowId="wf-1" runId="run-1" wsId="ws-1" issueId="issue-1" />
+      </Wrapper>,
+    );
+
+    act(() => {
+      mocks.reactFlowProps?.onNodeClick?.({}, { id: "n1" });
+    });
+
+    fireEvent.click(await screen.findByRole("button", { name: "Take over session" }));
+
+    expect(mocks.openInNewTab).toHaveBeenCalledWith(
+      "/demo111/issues/node-issue-1?view=session&takeover=1",
+      "brainstorming",
+      { activate: true },
+    );
   });
 
   it("opens a child issue in a browser tab when the navigation adapter has no app-tab API", async () => {

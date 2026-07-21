@@ -25,6 +25,7 @@ import {
   workflowKeys,
 } from "@multica/core/workflows/queries";
 import { useWorkspacePaths } from "@multica/core/paths";
+import { openWorkflowOriginIssuesOptions } from "@multica/core/issues/queries";
 import { api } from "@multica/core/api";
 import { agentListOptions, memberListOptions, squadListOptions } from "@multica/core/workspace/queries";
 import { workerTypeToActorType } from "@multica/core/types";
@@ -617,6 +618,10 @@ export function ExecutionPanoramaPage({
   const { t: tWf } = useT("workflows");
   const { data: squads } = useQuery(squadListOptions(wsId));
   const { data: splitWorkflowOptions = [] } = useQuery(splitIssueWorkflowOptions(wsId, workflowId));
+  const { data: nodeIssues = [] } = useQuery({
+    ...openWorkflowOriginIssuesOptions(wsId),
+    enabled: !!issueId,
+  });
 
   // ---- Local state ----
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
@@ -1163,6 +1168,15 @@ export function ExecutionPanoramaPage({
   const selectedRun = selectedNodeId
     ? nodeRunMap.get(selectedNodeId) ?? null
     : null;
+  const selectedNodeIssue = selectedRun
+    ? nodeIssues.find(
+        (childIssue) =>
+          childIssue.origin_type === "workflow" &&
+          childIssue.origin_id === selectedRun.id &&
+          childIssue.parent_issue_id === issueId,
+      )
+    : null;
+  const takeoverIssueId = selectedNodeIssue?.id;
   const selectedRuntimeSummary = selectedNodeId
     ? runtimeSummaryMap.get(selectedNodeId) ?? selectedChildDetail?.runtimeSummary ?? null
     : null;
@@ -1256,6 +1270,22 @@ export function ExecutionPanoramaPage({
                       return;
                     }
                     window.open(navigation.getShareableUrl(childIssuePath), "_blank", "noopener,noreferrer");
+                  }
+                : undefined
+            }
+            onTakeoverSession={
+              takeoverIssueId
+                ? () => {
+                    const liveSessionPath = paths.issueLiveSession(takeoverIssueId, true);
+                    if (navigation.openInNewTab) {
+                      navigation.openInNewTab(
+                        liveSessionPath,
+                        selectedNode?.title ?? undefined,
+                        { activate: true },
+                      );
+                      return;
+                    }
+                    window.open(navigation.getShareableUrl(liveSessionPath), "_blank", "noopener,noreferrer");
                   }
                 : undefined
             }

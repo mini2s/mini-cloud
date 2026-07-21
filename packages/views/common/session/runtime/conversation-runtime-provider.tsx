@@ -1,6 +1,10 @@
 "use client";
 
-import { AssistantRuntimeProvider } from "@assistant-ui/react";
+import {
+  AssistantRuntimeProvider,
+  Tools,
+  useAui,
+} from "@assistant-ui/react";
 import {
   createCloudProxyClient,
   type IssueConversationSession,
@@ -9,6 +13,8 @@ import { api } from "@multica/core/api";
 import { useMemo, type PropsWithChildren } from "react";
 import type { SessionMode } from "../session";
 import { SessionRuntimeStateProvider } from "../session-runtime-state";
+import { conversationToolToolkit } from "../tools/toolkit";
+import { ConversationToolBridgeProvider } from "./conversation-tool-bridge";
 import { useConversationRuntime } from "./use-conversation-runtime";
 
 export function ConversationRuntimeProvider({
@@ -33,18 +39,29 @@ export function ConversationRuntimeProvider({
       }),
     [descriptor.proxyBaseUrl, descriptor.workspaceDirectory],
   );
-  const { runtime, runtimeState } = useConversationRuntime({
+  const { runtime, runtimeState, state, actions } = useConversationRuntime({
     descriptor,
     client,
     mode,
     onError,
   });
+  const aui = useAui({
+    tools: Tools({ toolkit: conversationToolToolkit }),
+  });
 
   return (
-    <SessionRuntimeStateProvider value={runtimeState}>
-      <AssistantRuntimeProvider runtime={runtime}>
-        {children}
-      </AssistantRuntimeProvider>
-    </SessionRuntimeStateProvider>
+    <ConversationToolBridgeProvider
+      state={state}
+      canInteract={mode === "control"}
+      respondToPermission={actions.respondToPermission}
+      replyToQuestion={actions.replyToQuestion}
+      rejectQuestion={actions.rejectQuestion}
+    >
+      <SessionRuntimeStateProvider value={runtimeState}>
+        <AssistantRuntimeProvider aui={aui} runtime={runtime}>
+          {children}
+        </AssistantRuntimeProvider>
+      </SessionRuntimeStateProvider>
+    </ConversationToolBridgeProvider>
   );
 }

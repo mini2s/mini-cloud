@@ -43,6 +43,7 @@ export type ConversationSessionError = OpenCodeRecord & {
 
 export type ConversationTaskState = {
   taskID: string;
+  toolUseID?: string;
   status: "running" | "completed" | "failed" | "stopped";
   description: string;
   taskType?: string;
@@ -50,6 +51,13 @@ export type ConversationTaskState = {
   usage?: OpenCodeTaskUsage;
   startTime: number;
   endTime?: number;
+};
+
+export type ConversationQuestionResponse = {
+  request: OpenCodeRecord;
+  state: "answered" | "rejected";
+  answers?: readonly (readonly string[])[];
+  respondedAt: number;
 };
 
 export type ConversationRuntimeState = {
@@ -64,6 +72,7 @@ export type ConversationRuntimeState = {
   pendingMessages: Readonly<Record<string, PendingOpenCodeMessage>>;
   permissions: Readonly<Record<string, OpenCodeRecord>>;
   questions: Readonly<Record<string, OpenCodeRecord>>;
+  questionResponses: Readonly<Record<string, ConversationQuestionResponse>>;
   todo: readonly OpenCodeRecord[];
   tasks: Readonly<Record<string, ConversationTaskState>>;
   toolProgress: Readonly<Record<string, string>>;
@@ -97,6 +106,7 @@ export function createConversationRuntimeState(
     pendingMessages: {},
     permissions: {},
     questions: {},
+    questionResponses: {},
     todo: [],
     tasks: {},
     toolProgress: {},

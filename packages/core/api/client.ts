@@ -2350,6 +2350,15 @@ export class ApiClient {
     });
   }
 
+  async takeoverNodeRun(nodeRunId: string): Promise<WorkflowNodeRun> {
+    const raw = await this.fetch<unknown>(`/api/node-runs/${nodeRunId}/blocked`, {
+      method: "POST",
+    });
+    return parseWithFallback(raw, WorkflowNodeRunSchema, EMPTY_WORKFLOW_NODE_RUN, {
+      endpoint: "POST /api/node-runs/:nodeRunId/blocked",
+    });
+  }
+
   async reviewNodeRun(nodeRunId: string, approved: boolean, comment?: string): Promise<WorkflowNodeRun> {
     return this.fetch(`/api/node-runs/${nodeRunId}/review`, {
       method: "POST",

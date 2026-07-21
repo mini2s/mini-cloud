@@ -65,6 +65,7 @@
     "@floating-ui/dom": "^1.7.6",
     "@multica/core": "workspace:*",
     "@multica/ui": "workspace:*",
+    "@pierre/diffs": "catalog:",
     "@tiptap/core": "^3.22.1",
     "@tiptap/extension-code-block-lowlight": "^3.22.1",
     "@tiptap/extension-document": "^3.22.1",

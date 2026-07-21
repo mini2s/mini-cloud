@@ -1,4 +1,4 @@
-import { useParams } from "react-router-dom";
+import { useParams, useSearchParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { IssueDetail } from "@multica/views/issues/components";
 import { ErrorBoundary } from "@multica/ui/components/common/error-boundary";
@@ -8,15 +8,21 @@ import { useDocumentTitle } from "@/hooks/use-document-title";
 
 export function IssueDetailPage() {
   const { id } = useParams<{ id: string }>();
+  const [searchParams] = useSearchParams();
   const wsId = useWorkspaceId();
   const { data: issue } = useQuery(issueDetailOptions(wsId, id!));
 
   useDocumentTitle(issue ? `${issue.identifier}: ${issue.title}` : "Issue");
 
   if (!id) return null;
+  const initialLiveSession = searchParams.get("view") === "session";
   return (
     <ErrorBoundary resetKeys={[id]}>
-      <IssueDetail issueId={id} />
+      <IssueDetail
+        issueId={id}
+        initialLiveSession={initialLiveSession}
+        takeoverSessionOnOpen={initialLiveSession && searchParams.get("takeover") === "1"}
+      />
     </ErrorBoundary>
   );
 }

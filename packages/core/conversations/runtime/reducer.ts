@@ -10,6 +10,7 @@ import type {
   OpenCodeTaskUsage,
 } from "../types";
 import type {
+  ConversationQuestionResponse,
   ConversationSessionError,
   ConversationTaskState,
   PendingOpenCodeMessage,
@@ -41,7 +42,8 @@ function recordId(value: OpenCodeRecord): string | undefined {
 }
 
 function recordSessionId(value: OpenCodeRecord): string | undefined {
-  return typeof value.sessionID === "string" ? value.sessionID : undefined;
+  if (typeof value.sessionID === "string") return value.sessionID;
+  return typeof value.session_id === "string" ? value.session_id : undefined;
 }
 
 function indexRecords(
@@ -94,16 +96,15 @@ function mergeToolPart(previous: OpenCodePart, next: OpenCodePart): OpenCodePart
   if (previous.type !== "tool" || next.type !== "tool") return next;
   const previousState = asRecord(previous.state);
   const nextState = asRecord(next.state);
-  if (!previousState || !nextState) return next;
+  if (
+    previousState?.output === undefined ||
+    nextState?.output !== undefined
+  ) {
+    return next;
+  }
   return {
     ...next,
-    state: {
-      ...previousState,
-      ...nextState,
-      ...(nextState.output === undefined && previousState.output !== undefined
-        ? { output: previousState.output }
-        : {}),
-    },
+    state: { ...(nextState ?? {}), output: previousState.output },
   };
 }
 
@@ -160,7 +161,10 @@ function applyPartDelta(
       },
     };
   }
-  return null;
+  return {
+    ...part,
+    [field]: `${typeof part[field] === "string" ? part[field] : ""}${delta}`,
+  };
 }
 
 function removeRecord<T>(records: Readonly<Record<string, T>>, id: string) {
@@ -168,6 +172,55 @@ function removeRecord<T>(records: Readonly<Record<string, T>>, id: string) {
   const next = { ...records };
   delete next[id];
   return next;
+}
+
+function normalizeQuestionAnswers(
+  value: unknown,
+): readonly (readonly string[])[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  return value.map((answer) =>
+    Array.isArray(answer)
+      ? answer.filter((item): item is string => typeof item === "string")
+      : [],
+  );
+}
+
+function recordQuestionResponse({
+  state,
+  id,
+  request,
+  response,
+}: {
+  state: ConversationRuntimeState;
+  id: string;
+  request?: OpenCodeRecord;
+  response:
+    | { type: "answered"; answers?: unknown }
+    | { type: "rejected" };
+}): ConversationRuntimeState {
+  const existing = state.questionResponses[id];
+  const resolvedRequest = request ?? state.questions[id] ?? existing?.request;
+  const questions = removeRecord(state.questions, id);
+  if (!resolvedRequest) return { ...state, questions };
+
+  const normalizedAnswers =
+    response.type === "answered"
+      ? normalizeQuestionAnswers(response.answers) ?? existing?.answers
+      : undefined;
+  const resolved: ConversationQuestionResponse = {
+    request: resolvedRequest,
+    state: response.type,
+    ...(normalizedAnswers ? { answers: normalizedAnswers } : {}),
+    respondedAt: Date.now(),
+  };
+  return {
+    ...state,
+    questions,
+    questionResponses: {
+      ...state.questionResponses,
+      [id]: resolved,
+    },
+  };
 }
 
 function normalizeSessionError(
@@ -244,6 +297,7 @@ function indexTasks(
   for (const task of tasks) {
     indexed[task.taskID] = {
       taskID: task.taskID,
+      ...(task.toolUseID !== undefined ? { toolUseID: task.toolUseID } : {}),
       status: normalizeTaskStatus(task.status),
       description: task.description ?? "",
       ...(task.taskType !== undefined ? { taskType: task.taskType } : {}),
@@ -294,6 +348,14 @@ export type ConversationRuntimeAction =
       message: PendingOpenCodeMessage;
     }
   | { type: "pending-message-failed"; id: string; error: unknown }
+  | {
+      type: "question-response-recorded";
+      id: string;
+      request?: OpenCodeRecord;
+      response:
+        | { type: "answered"; answers: readonly unknown[] }
+        | { type: "rejected" };
+    }
   | { type: "run-cancelling" }
   | { type: "run-idle" }
   | { type: "run-failed"; error: unknown }
@@ -332,6 +394,13 @@ export function reduceConversationRuntimeState(
           ),
         };
       }
+      const questions = indexRecords(
+        action.snapshot.questions,
+        state.conversationId,
+      );
+      for (const id of Object.keys(state.questionResponses)) {
+        delete questions[id];
+      }
       return {
         state: {
           ...state,
@@ -349,10 +418,7 @@ export function reduceConversationRuntimeState(
             action.snapshot.permissions,
             state.conversationId,
           ),
-          questions: indexRecords(
-            action.snapshot.questions,
-            state.conversationId,
-          ),
+          questions,
           todo: action.snapshot.todo,
           tasks:
             action.snapshot.tasks === null
@@ -407,6 +473,16 @@ export function reduceConversationRuntimeState(
             },
           },
         },
+        needsRefresh: false,
+      };
+    case "question-response-recorded":
+      return {
+        state: recordQuestionResponse({
+          state,
+          id: action.id,
+          request: action.request,
+          response: action.response,
+        }),
         needsRefresh: false,
       };
     case "run-cancelling":
@@ -720,13 +796,20 @@ export function reduceConversationRuntimeState(
     }
     case "question.asked": {
       const id = recordId(properties);
+      if (!id) {
+        return {
+          state: appendUnhandled(withEventTime, event),
+          needsRefresh: false,
+        };
+      }
+      if (withEventTime.questionResponses[id]) {
+        return { state: withEventTime, needsRefresh: false };
+      }
       return {
-        state: id
-          ? {
-              ...withEventTime,
-              questions: { ...withEventTime.questions, [id]: properties },
-            }
-          : appendUnhandled(withEventTime, event),
+        state: {
+          ...withEventTime,
+          questions: { ...withEventTime.questions, [id]: properties },
+        },
         needsRefresh: false,
       };
     }
@@ -738,10 +821,14 @@ export function reduceConversationRuntimeState(
           : recordId(properties);
       return {
         state: id
-          ? {
-              ...withEventTime,
-              questions: removeRecord(withEventTime.questions, id),
-            }
+          ? recordQuestionResponse({
+              state: withEventTime,
+              id,
+              response:
+                event.type === "question.replied"
+                  ? { type: "answered", answers: properties.answers }
+                  : { type: "rejected" },
+            })
           : appendUnhandled(withEventTime, event),
         needsRefresh: false,
       };
@@ -794,6 +881,9 @@ export function reduceConversationRuntimeState(
             ...withEventTime.tasks,
             [properties.taskID]: {
               taskID: properties.taskID,
+              ...(typeof properties.toolUseID === "string"
+                ? { toolUseID: properties.toolUseID }
+                : {}),
               status: "running",
               description:
                 typeof properties.description === "string"
@@ -851,6 +941,11 @@ export function reduceConversationRuntimeState(
             ...withEventTime.tasks,
             [properties.taskID]: {
               taskID: properties.taskID,
+              ...(typeof properties.toolUseID === "string"
+                ? { toolUseID: properties.toolUseID }
+                : existing?.toolUseID !== undefined
+                  ? { toolUseID: existing.toolUseID }
+                  : {}),
               status:
                 properties.status === "completed" ||
                 properties.status === "failed" ||

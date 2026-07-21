@@ -83,6 +83,7 @@ import {
   workflowStagesOptions,
   workflowNodeRunsOptions,
   useSessionPermission,
+  useTakeoverNodeRun,
 } from "@multica/core/workflows/queries";
 import type { WorkflowNodeRun } from "@multica/core/types";
 import { useNodeRunControlPermission } from "@multica/core/permissions";
@@ -697,6 +698,10 @@ function SubIssueRow({
 
 interface IssueDetailProps {
   issueId: string;
+  /** Opens the live-session tab as soon as the issue session becomes available. */
+  initialLiveSession?: boolean;
+  /** Requests control once when opening a live-session deep link. */
+  takeoverSessionOnOpen?: boolean;
   onDelete?: () => void;
   /** Called after the issue is marked as done via the toolbar button. */
   onDone?: () => void;
@@ -764,7 +769,17 @@ function StagePicker({ workflowId, stageId, onUpdate, disabled }: StagePickerPro
 // IssueDetail
 // ---------------------------------------------------------------------------
 
-export function IssueDetail({ issueId, onDelete, onDone, defaultSidebarOpen = true, layoutId = "multica_issue_detail_layout", highlightCommentId, openIssueLinksInModal = false }: IssueDetailProps) {
+export function IssueDetail({
+  issueId,
+  initialLiveSession = false,
+  takeoverSessionOnOpen = false,
+  onDelete,
+  onDone,
+  defaultSidebarOpen = true,
+  layoutId = "multica_issue_detail_layout",
+  highlightCommentId,
+  openIssueLinksInModal = false,
+}: IssueDetailProps) {
   const { t } = useT("issues");
   const id = issueId;
   const router = useNavigation();
@@ -836,6 +851,7 @@ export function IssueDetail({ issueId, onDelete, onDone, defaultSidebarOpen = tr
   const [contentTab, setContentTab] = useState<"activity" | "session">("activity");
   const [sessionOpened, setSessionOpened] = useState(false);
   const [sessionMode, setSessionMode] = useState<SessionMode>("observe");
+  const deepLinkTakeoverAttemptedRef = useRef<string | null>(null);
 
   // Per-session: which resolved threads the user has temporarily expanded.
   // Not persisted (matches Linear) — reload collapses everything back to bars.
@@ -1159,20 +1175,48 @@ export function IssueDetail({ issueId, onDelete, onDone, defaultSidebarOpen = tr
     wsId,
   );
   const canControlSession = originNodeRun?.session_id != null && sessionControlDecision.allowed;
-  const canTakeOverSession = canControlSession && originNodeRun?.completed_at == null;
+  const sessionIsTakenOver =
+    originNodeRun?.status === "blocked" && originNodeRun.completed_at == null;
+  const canTakeOverSession =
+    canControlSession &&
+    originNodeRun?.status === "working" &&
+    originNodeRun.completed_at == null;
+  const takeoverMutation = useTakeoverNodeRun(
+    wsId,
+    effectiveWorkflowId ?? "",
+    effectiveWorkflowRunId ?? "",
+  );
 
-  const handleTakeoverSession = useCallback(() => {
-    if (!canTakeOverSession) return;
-    setSessionOpened(true);
-    setSessionMode("control");
-    setContentTab("session");
-  }, [canTakeOverSession]);
+  const handleTakeoverSession = useCallback(async () => {
+    if (!canTakeOverSession || !originNodeRun || takeoverMutation.isPending) return;
+    try {
+      await takeoverMutation.mutateAsync(originNodeRun.id);
+      setSessionOpened(true);
+      setSessionMode("control");
+      setContentTab("session");
+    } catch (error) {
+      toast.error(
+        error instanceof Error && error.message
+          ? error.message
+          : t(($) => $.detail.take_over_session_failed),
+      );
+    }
+  }, [canTakeOverSession, originNodeRun, takeoverMutation, t]);
+
+  useEffect(() => {
+    deepLinkTakeoverAttemptedRef.current = null;
+  }, [id]);
 
   useEffect(() => {
     setSessionOpened(false);
-    setSessionMode("observe");
+    setSessionMode(sessionIsTakenOver ? "control" : "observe");
     setContentTab("activity");
-  }, [id, originNodeRun?.session_id, originNodeRun?.completed_at]);
+  }, [
+    id,
+    originNodeRun?.session_id,
+    originNodeRun?.completed_at,
+    sessionIsTakenOver,
+  ]);
 
   useEffect(() => {
     if (!canControlSession) {
@@ -1185,6 +1229,34 @@ export function IssueDetail({ issueId, onDelete, onDone, defaultSidebarOpen = tr
       setSessionOpened(false);
     }
   }, [canControlSession, contentTab]);
+
+  useEffect(() => {
+    if (!initialLiveSession || !originNodeRun?.session_id || !canControlSession) return;
+
+    setSessionOpened(true);
+    setSessionMode(sessionIsTakenOver ? "control" : "observe");
+    setContentTab("session");
+
+    if (
+      !takeoverSessionOnOpen ||
+      !canTakeOverSession ||
+      deepLinkTakeoverAttemptedRef.current === originNodeRun.id
+    ) {
+      return;
+    }
+
+    deepLinkTakeoverAttemptedRef.current = originNodeRun.id;
+    void handleTakeoverSession();
+  }, [
+    canControlSession,
+    canTakeOverSession,
+    handleTakeoverSession,
+    initialLiveSession,
+    originNodeRun?.id,
+    originNodeRun?.session_id,
+    sessionIsTakenOver,
+    takeoverSessionOnOpen,
+  ]);
 
   // Project segment in the breadcrumb. The issue's project_id is the source of
   // truth — same URL renders the same breadcrumb regardless of entry path.
@@ -2029,9 +2101,14 @@ export function IssueDetail({ issueId, onDelete, onDone, defaultSidebarOpen = tr
                     <Button
                       size="sm"
                       className="h-7 text-xs"
+                      disabled={takeoverMutation.isPending}
                       onClick={handleTakeoverSession}
                     >
-                      <CornerDownRight className="mr-1 h-3.5 w-3.5" />
+                      {takeoverMutation.isPending ? (
+                        <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
+                      ) : (
+                        <CornerDownRight className="mr-1 h-3.5 w-3.5" />
+                      )}
                       {t(($) => $.detail.take_over_session)}
                     </Button>
                   )}

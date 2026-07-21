@@ -188,5 +188,10 @@ describe("toThreadMessageLike", () => {
       status: { type: "complete" },
     });
     expect(messages[0]?.content).toHaveLength(3);
+    expect(messages[0]?.content[1]).toMatchObject({
+      type: "tool-call",
+      toolCallId: "call-1",
+      result: "duplicate",
+    });
   });
 });

@@ -131,11 +131,29 @@ export class ConversationRuntimeController {
   }
 
   async replyToQuestion(requestId: string, answers: readonly unknown[]) {
+    const request =
+      this.getState().questions[requestId] ??
+      this.getState().questionResponses[requestId]?.request;
     await this.client.question.reply(requestId, { answers });
+    this.dispatch({
+      type: "question-response-recorded",
+      id: requestId,
+      ...(request ? { request } : {}),
+      response: { type: "answered", answers },
+    });
   }
 
   async rejectQuestion(requestId: string) {
+    const request =
+      this.getState().questions[requestId] ??
+      this.getState().questionResponses[requestId]?.request;
     await this.client.question.reject(requestId);
+    this.dispatch({
+      type: "question-response-recorded",
+      id: requestId,
+      ...(request ? { request } : {}),
+      response: { type: "rejected" },
+    });
   }
 
   dispose() {

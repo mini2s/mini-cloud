@@ -138,6 +138,53 @@
     "tool_input": "Input",
     "tool_output": "Output",
     "cancelled": "Response stopped",
-    "error": "The response could not be completed."
+    "error": "The response could not be completed.",
+    "tools": {
+      "show_details": "Show tool details",
+      "hide_details": "Hide tool details",
+      "copy": "Copy tool output",
+      "copied": "Tool output copied",
+      "names": {
+        "read": "Read",
+        "write": "Write",
+        "edit": "Edit",
+        "grep": "Search",
+        "glob": "List files",
+        "bash": "Bash",
+        "web_search": "Web search",
+        "web_fetch": "Fetch URL",
+        "apply_patch": "Apply patch",
+        "question": "Question",
+        "task": "task"
+      },
+      "bash": {
+        "exit_code": "exit {{code}}"
+      },
+      "patch": {
+        "files": "{{count}} files"
+      },
+      "permission": {
+        "approval_required": "Approval required",
+        "submitted": "Permission response submitted",
+        "request_description": "{{tool}} needs permission to continue.",
+        "takeover_required": "Take over the session to respond.",
+        "allow_once": "Allow once",
+        "always": "Always allow",
+        "reject": "Reject",
+        "submit_failed": "Permission response failed."
+      },
+      "question": {
+        "answer_required": "Answer required",
+        "submitted": "Answer submitted",
+        "dismissed": "Question dismissed",
+        "no_answer": "No answer",
+        "custom_placeholder": "Type another answer…",
+        "takeover_required": "Take over the session to answer.",
+        "reject": "Dismiss",
+        "submit": "Submit",
+        "submit_failed": "The answer could not be submitted.",
+        "reject_failed": "The question could not be dismissed."
+      }
+    }
   }
 }

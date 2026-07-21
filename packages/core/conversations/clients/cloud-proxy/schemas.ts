@@ -50,6 +50,7 @@ export const OpenCodeTaskUsageSchema = z.object({
 export const OpenCodeTaskSnapshotSchema = z
   .object({
     taskID: z.string().min(1),
+    toolUseID: z.string().optional(),
     status: z.string().optional(),
     description: z.string().optional(),
     taskType: z.string().optional(),

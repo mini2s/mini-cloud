@@ -4,7 +4,10 @@ import {
   reduceConversationRuntimeState,
   type ConversationRuntimeSnapshot,
 } from "./reducer";
-import { createConversationRuntimeState } from "./state";
+import {
+  createConversationRuntimeState,
+  type ConversationRuntimeState,
+} from "./state";
 
 function event(
   type: string,
@@ -35,6 +38,71 @@ function snapshot(
 }
 
 describe("reduceConversationRuntimeState", () => {
+  it("preserves answered and rejected question responses after removing pending requests", () => {
+    const answeredRequest = {
+      id: "question-answered",
+      sessionID: "conversation-1",
+      questions: [{ question: "Continue?" }],
+      tool: { callID: "call-question-1" },
+    };
+    const rejectedRequest = {
+      id: "question-rejected",
+      sessionID: "conversation-1",
+      questions: [{ question: "Proceed?" }],
+      tool: { callID: "call-question-2" },
+    };
+    let state: ConversationRuntimeState = {
+      ...createConversationRuntimeState("conversation-1"),
+      questions: {
+        [answeredRequest.id]: answeredRequest,
+        [rejectedRequest.id]: rejectedRequest,
+      },
+    };
+
+    state = reduceConversationRuntimeState(state, {
+      type: "question-response-recorded",
+      id: answeredRequest.id,
+      request: answeredRequest,
+      response: { type: "answered", answers: [["Continue"]] },
+    }).state;
+    state = reduceConversationRuntimeState(state, {
+      type: "event",
+      event: event("question.replied", {
+        requestID: answeredRequest.id,
+      }),
+    }).state;
+    state = reduceConversationRuntimeState(state, {
+      type: "event",
+      event: event("question.rejected", {
+        requestID: rejectedRequest.id,
+      }),
+    }).state;
+
+    expect(state.questions).toEqual({});
+    expect(state.questionResponses).toMatchObject({
+      "question-answered": {
+        request: answeredRequest,
+        state: "answered",
+        answers: [["Continue"]],
+      },
+      "question-rejected": {
+        request: rejectedRequest,
+        state: "rejected",
+      },
+    });
+
+    state = reduceConversationRuntimeState(state, {
+      type: "snapshot-loaded",
+      snapshot: snapshot({
+        questions: [answeredRequest, rejectedRequest],
+      }),
+    }).state;
+    expect(state.questions).toEqual({});
+    expect(state.questionResponses["question-answered"]?.answers).toEqual([
+      ["Continue"],
+    ]);
+  });
+
   it("merges message metadata without losing its creation time", () => {
     const initial = reduceConversationRuntimeState(
       createConversationRuntimeState("conversation-1"),
@@ -176,7 +244,7 @@ describe("reduceConversationRuntimeState", () => {
     });
   });
 
-  it("matches tool updates by callID and preserves omitted output", () => {
+  it("matches tool updates by callID and only preserves omitted output", () => {
     let state = createConversationRuntimeState("conversation-1");
     state = reduceConversationRuntimeState(state, {
       type: "event",
@@ -187,7 +255,12 @@ describe("reduceConversationRuntimeState", () => {
           sessionID: "conversation-1",
           type: "tool",
           callID: "call-1",
-          state: { status: "completed", output: "result" },
+          state: {
+            status: "completed",
+            input: { path: "stale.md" },
+            output: "result",
+            progress: ["stale"],
+          },
         },
       }),
     }).state;
@@ -214,9 +287,12 @@ describe("reduceConversationRuntimeState", () => {
         output: "result",
       },
     });
+    expect(state.messagesById["message-1"]?.parts[0]?.state).not.toHaveProperty(
+      "progress",
+    );
   });
 
-  it("applies text and tool input deltas and requests refresh without a base", () => {
+  it("applies text, tool input, and direct part-field deltas", () => {
     let state = createConversationRuntimeState("conversation-1");
     state = reduceConversationRuntimeState(state, {
       type: "event",
@@ -270,6 +346,19 @@ describe("reduceConversationRuntimeState", () => {
         }
       )?.input,
     ).toBe('{"path":"README.md"}');
+
+    state = reduceConversationRuntimeState(state, {
+      type: "event",
+      event: event("message.part.delta", {
+        messageID: "message-1",
+        partID: "tool-1",
+        field: "output",
+        delta: "streamed output",
+      }),
+    }).state;
+    expect(state.messagesById["message-1"]?.parts[1]?.output).toBe(
+      "streamed output",
+    );
 
     state = reduceConversationRuntimeState(state, {
       type: "event",
@@ -379,6 +468,7 @@ describe("reduceConversationRuntimeState", () => {
       type: "event",
       event: event("task.started", {
         taskID: "task-1",
+        toolUseID: "call-task-1",
         description: "Inspect runtime",
         taskType: "analysis",
       }),
@@ -386,6 +476,7 @@ describe("reduceConversationRuntimeState", () => {
     const startTime = state.tasks["task-1"]?.startTime;
     expect(state.tasks["task-1"]).toMatchObject({
       taskID: "task-1",
+      toolUseID: "call-task-1",
       status: "running",
       description: "Inspect runtime",
       taskType: "analysis",
@@ -429,11 +520,13 @@ describe("reduceConversationRuntimeState", () => {
       type: "event",
       event: event("task.completed", {
         taskID: "task-1",
+        toolUseID: "call-task-1",
         status: "unknown",
       }),
     }).state;
     expect(state.tasks["task-1"]).toMatchObject({
       status: "completed",
+      toolUseID: "call-task-1",
       description: "Inspect reducers",
       taskType: "analysis",
       summary: "Halfway",

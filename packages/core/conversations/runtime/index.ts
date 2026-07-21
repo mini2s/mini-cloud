@@ -4,6 +4,7 @@ export {
 } from "./controller";
 export {
   createConversationRuntimeState,
+  type ConversationQuestionResponse,
   type ConversationSessionError,
   type ConversationTaskState,
   type PendingOpenCodeMessage,
@@ -20,3 +21,14 @@ export {
   type ConversationRuntimeSnapshot,
 } from "./reducer";
 export { conversationRuntimeStateOptions } from "./query";
+export {
+  acquireSharedConversationRuntimeController,
+  disposeSharedConversationRuntimeControllers,
+  SHARED_CONVERSATION_RUNTIME_DISPOSE_DELAY_MS,
+  type ConversationRuntimeControllerLease,
+} from "./shared-controller";
+export {
+  selectConversationTools,
+  type ConversationToolEntry,
+  type ConversationToolSelection,
+} from "./select-conversation-tools";

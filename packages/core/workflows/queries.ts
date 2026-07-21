@@ -297,6 +297,32 @@ export function useSubmitNodeRun(wsId: string) {
   });
 }
 
+export function useTakeoverNodeRun(
+  wsId: string,
+  workflowId: string,
+  runId: string,
+) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (nodeRunId: string) => api.takeoverNodeRun(nodeRunId),
+    onSuccess: (updatedNodeRun) => {
+      if (workflowId && runId) {
+        queryClient.setQueryData(
+          workflowKeys.nodeRuns(wsId, workflowId, runId),
+          (nodeRuns: Array<typeof updatedNodeRun> | undefined) =>
+            nodeRuns?.map((nodeRun) =>
+              nodeRun.id === updatedNodeRun.id ? updatedNodeRun : nodeRun,
+            ),
+        );
+        queryClient.invalidateQueries({
+          queryKey: workflowKeys.nodeRuns(wsId, workflowId, runId),
+        });
+      }
+      queryClient.invalidateQueries({ queryKey: workflowKeys.myTasks(wsId) });
+    },
+  });
+}
+
 export function useReviewNodeRun(wsId: string) {
   const queryClient = useQueryClient();
   return useMutation({

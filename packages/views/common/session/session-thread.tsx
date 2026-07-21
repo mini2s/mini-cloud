@@ -10,6 +10,7 @@ import { Skeleton } from "@multica/ui/components/ui/skeleton";
 import { ArrowDown, ArrowUp, CornerDownRight, Loader2, Square } from "lucide-react";
 import { useT } from "../../i18n";
 import type { SessionMode } from "./session";
+import { ConversationInteractionFallback } from "./runtime/conversation-interaction-fallback";
 import { useSessionRuntimeState } from "./session-runtime-state";
 import { SessionMessage } from "./session-message";
 
@@ -150,6 +151,7 @@ export function SessionThread({
                 <ArrowDown className="size-4" />
               </Button>
             </ThreadPrimitive.ScrollToBottom>
+            <ConversationInteractionFallback />
             {error !== undefined ? null : mode === "observe" ? (
               <TakeoverBar onTakeover={onTakeover} />
             ) : (

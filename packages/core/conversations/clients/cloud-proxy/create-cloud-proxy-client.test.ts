@@ -151,6 +151,28 @@ describe("createCloudProxyClient", () => {
     );
   });
 
+  it("sends captured question answers using an array for each question", async () => {
+    const transport = vi.fn().mockResolvedValue(jsonResponse(undefined));
+    const client = createCloudProxyClient({
+      baseUrl: "https://multica.example.test/proxy",
+      directory: "/workspace",
+      transport,
+    });
+
+    await client.question.reply("question/1", {
+      answers: [["Continue"], ["First", "Second"]],
+    });
+
+    expect(transport.mock.calls[0]?.[0]).toBe(
+      "https://multica.example.test/proxy/api/v1/questions/question%2F1/reply",
+    );
+    expect(transport.mock.calls[0]?.[1]?.body).toBe(
+      JSON.stringify({
+        answers: [["Continue"], ["First", "Second"]],
+      }),
+    );
+  });
+
   it("loads the global status map from the conversation status route", async () => {
     const transport = vi.fn().mockResolvedValue(
       jsonResponse({
