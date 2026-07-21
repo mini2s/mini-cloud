@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
@@ -22,6 +23,11 @@ const csCloudRuntimeProvider = "cs-cloud"
 // during this window, so keeping the timeout short limits head-of-line
 // blocking for concurrent requests targeting the same issue.
 const createConversationTimeout = 15 * time.Second
+
+// verifyConversationTimeout bounds the existence check made on the fast path.
+// It runs outside the advisory lock, so a slow device only delays this one
+// request.
+const verifyConversationTimeout = 10 * time.Second
 
 type IssueConversationSessionResponse struct {
 	ConversationID     string `json:"conversation_id"`
@@ -81,13 +87,27 @@ func (h *Handler) GetIssueConversationSession(w http.ResponseWriter, r *http.Req
 
 	// Fast path: existing mapping outside the transaction.
 	conv, err := h.Queries.GetIssueConversation(r.Context(), issueUUID)
+	staleConversationID := ""
 	if err == nil && conv.ConversationID != "" {
 		if h.isCSCloudDeviceOnline(r.Context(), h.Queries, wsUUID, conv.DeviceID) {
-			h.writeIssueConversationSession(w, conv.ConversationID, conv.WorkspaceDirectory, conv.DeviceID)
-			return
+			// The mapping alone is not proof of life: csc keeps a conversation
+			// in memory until its first prompt, so an agent restart or idle
+			// eviction silently kills it while the mapping survives. Verify
+			// before handing the id back.
+			status, verr := h.verifyConversationOnDevice(r, userID, conv.DeviceID, conv.ConversationID)
+			if verr == nil && status == http.StatusNotFound {
+				// Definitively gone — recreate it under the advisory lock.
+				staleConversationID = conv.ConversationID
+			} else {
+				// Alive — or verification was inconclusive (timeout, 5xx,
+				// unreachable), in which case trust the mapping rather than
+				// destroy state that may still be good.
+				h.writeIssueConversationSession(w, conv.ConversationID, conv.WorkspaceDirectory, conv.DeviceID)
+				return
+			}
 		}
-		// Device recorded in the mapping is offline; fall through to recreate
-		// the conversation under the advisory lock.
+		// Stale conversation, or the recorded device is offline; fall through
+		// to recreate the conversation under the advisory lock.
 	}
 
 	// Resolve local directory from project.
@@ -114,11 +134,14 @@ func (h *Handler) GetIssueConversationSession(w http.ResponseWriter, r *http.Req
 	// Re-check under the advisory lock.
 	conv, err = qtx.GetIssueConversation(r.Context(), issueUUID)
 	if err == nil && conv.ConversationID != "" {
-		if h.isCSCloudDeviceOnline(r.Context(), qtx, wsUUID, conv.DeviceID) {
+		// Trust the mapping only if it is not the conversation this request
+		// already verified as gone — a concurrent request may have recreated
+		// it while we waited on the lock (the id would then differ).
+		if conv.ConversationID != staleConversationID && h.isCSCloudDeviceOnline(r.Context(), qtx, wsUUID, conv.DeviceID) {
 			h.writeIssueConversationSession(w, conv.ConversationID, conv.WorkspaceDirectory, conv.DeviceID)
 			return
 		}
-		// Device offline: recreate below.
+		// Stale conversation or offline device: recreate below (Create upserts).
 	}
 
 	// Find an online cs-cloud runtime for this workspace.
@@ -153,10 +176,14 @@ func (h *Handler) GetIssueConversationSession(w http.ResponseWriter, r *http.Req
 	h.writeIssueConversationSession(w, created.ConversationID, created.WorkspaceDirectory, created.DeviceID)
 }
 
+// resolveIssueWorkspaceDirectory resolves the device's local directory for the
+// issue's project. An issue without a project — or whose project has no
+// local_directory configured — is NOT an error: the conversation is created
+// with an empty directory and the device-side agent falls back to its default
+// working directory. Only a DB failure aborts the request.
 func (h *Handler) resolveIssueWorkspaceDirectory(w http.ResponseWriter, ctx context.Context, issue db.MulticaIssue) (string, bool) {
 	if !issue.ProjectID.Valid {
-		writeError(w, http.StatusBadRequest, "issue has no project")
-		return "", false
+		return "", true
 	}
 
 	localDir, err := h.Queries.GetProjectLocalDirectory(ctx, db.GetProjectLocalDirectoryParams{
@@ -168,9 +195,8 @@ func (h *Handler) resolveIssueWorkspaceDirectory(w http.ResponseWriter, ctx cont
 		writeError(w, http.StatusInternalServerError, "failed to query project local_directory")
 		return "", false
 	}
-	if !localDir.Valid || strings.TrimSpace(localDir.String) == "" {
-		writeError(w, http.StatusBadRequest, "project local_directory not configured")
-		return "", false
+	if !localDir.Valid {
+		return "", true
 	}
 	return strings.TrimSpace(localDir.String), true
 }
@@ -235,6 +261,40 @@ func (h *Handler) isCSCloudDeviceOnline(ctx context.Context, queries *db.Queries
 	return false
 }
 
+// verifyConversationOnDevice GETs the conversation through the Gateway and
+// returns the device-side HTTP status. A 404 means the conversation is
+// definitively gone (csc answers "session not found"); any other status, or a
+// transport error, is inconclusive and callers should keep the cached mapping.
+func (h *Handler) verifyConversationOnDevice(r *http.Request, userID, deviceID, conversationID string) (int, error) {
+	if h.CloudRuntime == nil || !h.CloudRuntime.Enabled() {
+		return 0, fmt.Errorf("cloud runtime is not configured")
+	}
+
+	hdr := http.Header{}
+	if auth := r.Header.Get("Authorization"); auth != "" {
+		hdr.Set("Authorization", auth)
+	}
+	// Same internal-secret requirement as the create path.
+	if secret := os.Getenv("COSTRICT_INTERNAL_SECRET"); secret != "" {
+		hdr.Set("X-Internal-Secret", secret)
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), verifyConversationTimeout)
+	defer cancel()
+
+	resp, err := h.CloudRuntime.Do(ctx, cloudruntime.Request{
+		Method:    http.MethodGet,
+		Path:      fmt.Sprintf("/device/%s/proxy/api/v1/conversations/%s", deviceID, conversationID),
+		UserID:    userID,
+		RequestID: cloudRuntimeRequestID(r),
+		Headers:   hdr,
+	})
+	if err != nil {
+		return 0, err
+	}
+	return resp.StatusCode, nil
+}
+
 func (h *Handler) createConversationOnDevice(w http.ResponseWriter, r *http.Request, deviceID, userID, workspaceDir string, issue db.MulticaIssue) (string, bool) {
 	if h.CloudRuntime == nil || !h.CloudRuntime.Enabled() {
 		writeError(w, http.StatusServiceUnavailable, "cloud runtime is not configured")
@@ -253,9 +313,18 @@ func (h *Handler) createConversationOnDevice(w http.ResponseWriter, r *http.Requ
 	})
 
 	hdr := http.Header{}
-	hdr.Set("X-Workspace-Directory", workspaceDir)
+	// Only send the directory header when a project directory was resolved;
+	// an empty header would otherwise override the agent's default cwd.
+	if workspaceDir != "" {
+		hdr.Set("X-Workspace-Directory", workspaceDir)
+	}
 	if auth := r.Header.Get("Authorization"); auth != "" {
 		hdr.Set("Authorization", auth)
+	}
+	// The gateway's device proxy requires the shared internal secret (same as
+	// the task push path); without it the gateway rejects with 403.
+	if secret := os.Getenv("COSTRICT_INTERNAL_SECRET"); secret != "" {
+		hdr.Set("X-Internal-Secret", secret)
 	}
 
 	// Bound the Gateway HTTP call to avoid holding the DB advisory lock and
