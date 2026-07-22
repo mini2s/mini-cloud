@@ -28,6 +28,7 @@ import (
 	"github.com/multica-ai/multica/server/internal/realtime"
 	"github.com/multica-ai/multica/server/internal/service"
 	"github.com/multica-ai/multica/server/internal/storage"
+	"github.com/multica-ai/multica/server/internal/teamnamespace"
 	"github.com/multica-ai/multica/server/internal/util"
 	db "github.com/multica-ai/multica/server/pkg/db/generated"
 )
@@ -151,6 +152,9 @@ type RouterOptions struct {
 	// Gitea is the platform Gitea admin client for document-deliverable storage.
 	// nil → the router constructs one from env (dormant when env unset).
 	Gitea *gitea.Client
+	// TeamNamespace is the costrict-web-backend internal API client for
+	// TEAM_NAMESPACE_API_REFERENCE.md operations. nil builds from env.
+	TeamNamespace *teamnamespace.Client
 	// WorkflowRoleResolution resolves configurable workflow node roles to
 	// concrete members/agents at dispatch time (main's role-v1 feature).
 	WorkflowRoleResolution workflowRoleResolutionRuntime
@@ -241,6 +245,16 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 		})
 	}
 	h.WorkflowService.Gitea = giteaClient
+	teamNamespaceClient := opts.TeamNamespace
+	if teamNamespaceClient == nil {
+		teamNamespaceClient = teamnamespace.NewClient(teamnamespace.Config{
+			BaseURL: strings.TrimRight(strings.TrimSpace(os.Getenv("TEAM_NAMESPACE_API_BASE_URL")), "/"),
+			Token:   os.Getenv("TEAM_NAMESPACE_INTERNAL_SERVICE_TOKEN"),
+			Tenant:  os.Getenv("TEAM_NAMESPACE_TENANT_ID"),
+			Timeout: envDuration("TEAM_NAMESPACE_API_TIMEOUT", 10*time.Second),
+		})
+	}
+	h.WorkflowService.TeamNamespace = teamNamespaceClient
 	// Auth caches: PAT cache is shared between the regular Auth middleware,
 	// the DaemonAuth fallback (mul_) path, and the revoke handler
 	// (invalidate). DaemonTokenCache backs the DaemonAuth mdt_ path. Both

@@ -13,6 +13,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/multica-ai/multica/server/internal/events"
 	"github.com/multica-ai/multica/server/internal/gitea"
+	"github.com/multica-ai/multica/server/internal/teamnamespace"
 	"github.com/multica-ai/multica/server/internal/util"
 	db "github.com/multica-ai/multica/server/pkg/db/generated"
 )
@@ -37,6 +38,13 @@ type WorkflowService struct {
 	// gated by Client.Configured(), not by a nil pointer. nil only in tests that
 	// construct WorkflowService without going through the router.
 	Gitea *gitea.Client
+
+	// TeamNamespace is the costrict-web-backend internal API client for team
+	// namespace lifecycle, membership sync, bot credentials, and workflow repo
+	// initialization. When configured, it is the source of truth for every
+	// TEAM_NAMESPACE_API_REFERENCE.md boundary; Gitea remains only for current
+	// document PR/file operations that are not covered by that contract.
+	TeamNamespace *teamnamespace.Client
 
 	// OnNodeStatusChanged fires after TransitionNodeRun succeeds.
 	OnNodeStatusChanged func(ctx context.Context, nodeRun db.MulticaWorkflowNodeRun)

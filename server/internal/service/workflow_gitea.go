@@ -6,10 +6,12 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/multica-ai/multica/server/internal/gitea"
+	"github.com/multica-ai/multica/server/internal/teamnamespace"
 	"github.com/multica-ai/multica/server/internal/util"
 	db "github.com/multica-ai/multica/server/pkg/db/generated"
 )
@@ -54,6 +56,182 @@ func deliverableScaffoldParams(run db.MulticaWorkflowRun, workflow db.MulticaWor
 	}
 }
 
+func (s *WorkflowService) teamNamespaceConfigured() bool {
+	return s.TeamNamespace != nil && s.TeamNamespace.Configured()
+}
+
+func userRefFromMember(m db.ListMembersWithUserRow) teamnamespace.UserRef {
+	if m.UserID.Valid {
+		return teamnamespace.UserRef{UserID: util.UUIDToString(m.UserID)}
+	}
+	if m.ExternalUniversalID.Valid && strings.TrimSpace(m.ExternalUniversalID.String) != "" {
+		return teamnamespace.UserRef{UniversalID: strings.TrimSpace(m.ExternalUniversalID.String)}
+	}
+	return teamnamespace.UserRef{}
+}
+
+func (s *WorkflowService) workspaceMemberRefs(ctx context.Context, workspaceID pgtype.UUID) ([]teamnamespace.UserRef, teamnamespace.UserRef, error) {
+	members, err := s.Queries.ListMembersWithUser(ctx, workspaceID)
+	if err != nil {
+		return nil, teamnamespace.UserRef{}, err
+	}
+	refs := make([]teamnamespace.UserRef, 0, len(members))
+	var creator teamnamespace.UserRef
+	for _, m := range members {
+		ref := userRefFromMember(m)
+		if ref.UserID == "" && ref.UniversalID == "" {
+			continue
+		}
+		refs = append(refs, ref)
+		if creator.UserID == "" && creator.UniversalID == "" && m.Role == "owner" {
+			creator = ref
+		}
+	}
+	if creator.UserID == "" && creator.UniversalID == "" && len(refs) > 0 {
+		creator = refs[0]
+	}
+	return refs, creator, nil
+}
+
+func (s *WorkflowService) persistTeamNamespaceSettings(ctx context.Context, workspaceID pgtype.UUID, patch map[string]any) error {
+	ws, err := s.Queries.GetWorkspace(ctx, workspaceID)
+	if err != nil {
+		return fmt.Errorf("get workspace: %w", err)
+	}
+	settingsMap := map[string]any{}
+	if len(ws.Settings) > 0 {
+		if err := json.Unmarshal(ws.Settings, &settingsMap); err != nil {
+			return fmt.Errorf("parse settings: %w", err)
+		}
+	}
+	for k, v := range patch {
+		if s, ok := v.(string); ok && s == "" {
+			continue
+		}
+		settingsMap[k] = v
+	}
+	raw, err := json.Marshal(settingsMap)
+	if err != nil {
+		return fmt.Errorf("marshal settings: %w", err)
+	}
+	if _, err := s.Queries.UpdateWorkspace(ctx, db.UpdateWorkspaceParams{
+		ID:       workspaceID,
+		Settings: raw,
+	}); err != nil {
+		return fmt.Errorf("persist settings: %w", err)
+	}
+	return nil
+}
+
+func (s *WorkflowService) ensureTeamNamespace(ctx context.Context, workspaceID pgtype.UUID) error {
+	ws, err := s.Queries.GetWorkspace(ctx, workspaceID)
+	if err != nil {
+		return fmt.Errorf("get workspace: %w", err)
+	}
+	refs, creator, err := s.workspaceMemberRefs(ctx, workspaceID)
+	if err != nil {
+		return fmt.Errorf("list workspace members: %w", err)
+	}
+	if creator.UserID == "" && creator.UniversalID == "" {
+		return fmt.Errorf("workspace has no syncable creator")
+	}
+	resp, err := s.TeamNamespace.CreateTeam(ctx, teamnamespace.CreateTeamRequest{
+		TeamID:          util.UUIDToString(workspaceID),
+		TeamDisplayName: ws.Name,
+		Creator:         creator,
+		InitialMembers:  refs,
+	})
+	if err != nil {
+		return fmt.Errorf("create team namespace: %w", err)
+	}
+	patch := map[string]any{
+		"team_ns_org":        resp.TeamNSOrg,
+		"gitea_base_url":     resp.GiteaBaseURL,
+		"gitea_bot_username": resp.Bot.GiteaUsername,
+	}
+	if resp.Bot.Token != "" {
+		patch["gitea_pat"] = resp.Bot.Token
+	}
+	if resp.Bot.TokenSHA256 != "" {
+		patch["gitea_pat_sha256"] = resp.Bot.TokenSHA256
+	}
+	return s.persistTeamNamespaceSettings(ctx, workspaceID, patch)
+}
+
+func (s *WorkflowService) initWorkflowNamespace(ctx context.Context, run db.MulticaWorkflowRun, workflow db.MulticaWorkflow) error {
+	if err := s.ensureTeamNamespace(ctx, run.WorkspaceID); err != nil {
+		return err
+	}
+	defSlug := shortHexSafe(util.UUIDToString(workflow.ID))
+	if workflow.IsDefault {
+		defSlug = gitea.DefaultArchiveRepoName()
+	}
+	resp, err := s.TeamNamespace.InitWorkflow(ctx, teamnamespace.WorkflowInitRequest{
+		WorkflowDefSlug: defSlug,
+		InstanceID:      util.UUIDToString(run.ID),
+		TeamID:          util.UUIDToString(run.WorkspaceID),
+	})
+	if err != nil {
+		return fmt.Errorf("init workflow namespace: %w", err)
+	}
+	patch := map[string]any{
+		"last_wf_repo_path":     resp.WFRepoPath,
+		"last_instance_branch":  resp.InstanceBranch,
+		"gitea_bot_username":    resp.BotCredentials.GiteaUsername,
+		"gitea_clone_url":       resp.WFCloneURL,
+		"gitea_web_url":         resp.WFWebURL,
+		"gitea_algorithm_ver":   resp.AlgorithmVersion,
+		"gitea_team_ns_exists":  resp.TeamNSExists,
+		"gitea_clone_url_token": resp.BotCredentials.CloneURLWithToken,
+	}
+	if resp.BotCredentials.Token != "" {
+		patch["gitea_pat"] = resp.BotCredentials.Token
+	}
+	return s.persistTeamNamespaceSettings(ctx, run.WorkspaceID, patch)
+}
+
+func (s *WorkflowService) UpdateTeamNamespace(ctx context.Context, workspaceID pgtype.UUID, name, description string) {
+	if !s.teamNamespaceConfigured() {
+		return
+	}
+	if err := s.TeamNamespace.UpdateTeam(ctx, util.UUIDToString(workspaceID), teamnamespace.UpdateTeamRequest{
+		TeamDisplayName: strings.TrimSpace(name),
+		Description:     description,
+	}); err != nil {
+		slog.Warn("team namespace update failed",
+			"workspace_id", util.UUIDToString(workspaceID), "error", err)
+	}
+}
+
+func (s *WorkflowService) DissolveTeamNamespace(ctx context.Context, workspaceID pgtype.UUID, actor teamnamespace.UserRef, reason string) {
+	if !s.teamNamespaceConfigured() {
+		return
+	}
+	if actor.UserID == "" && actor.UniversalID == "" {
+		refs, creator, err := s.workspaceMemberRefs(ctx, workspaceID)
+		if err == nil && (creator.UserID != "" || creator.UniversalID != "") {
+			actor = creator
+		} else if err == nil && len(refs) > 0 {
+			actor = refs[0]
+		}
+	}
+	if actor.UserID == "" && actor.UniversalID == "" {
+		slog.Warn("team namespace dissolve skipped: no actor",
+			"workspace_id", util.UUIDToString(workspaceID))
+		return
+	}
+	if strings.TrimSpace(reason) == "" {
+		reason = "workspace deleted"
+	}
+	if err := s.TeamNamespace.DissolveTeam(ctx, util.UUIDToString(workspaceID), teamnamespace.DissolveTeamRequest{
+		Reason: reason,
+		Actor:  actor,
+	}); err != nil {
+		slog.Warn("team namespace dissolve failed",
+			"workspace_id", util.UUIDToString(workspaceID), "error", err)
+	}
+}
+
 // ScaffoldRunDeliverables scaffolds the run's deliverable org/repo/inst branch
 // and (once per workspace) provisions the Gitea bot. Idempotent + retry-safe.
 // Called after StartRun commits, ONLY when the workflow has a document
@@ -80,7 +258,7 @@ func (s *WorkflowService) ScaffoldRunDeliverables(ctx context.Context, run db.Mu
 		}
 	}()
 
-	if s.Gitea == nil || !s.Gitea.Configured() {
+	if !s.teamNamespaceConfigured() && (s.Gitea == nil || !s.Gitea.Configured()) {
 		return // feature dormant
 	}
 	runIDStr := util.UUIDToString(run.ID)
@@ -103,6 +281,16 @@ func (s *WorkflowService) ScaffoldRunDeliverables(ctx context.Context, run db.Mu
 	}
 	if !has {
 		return // code-only workflow — no Gitea repo needed
+	}
+
+	if s.teamNamespaceConfigured() {
+		if err := s.initWorkflowNamespace(ctx, run, workflow); err != nil {
+			slog.Error("team namespace workflow init failed", "run_id", runIDStr, "error", err)
+			s.failRun(ctx, run)
+			return
+		}
+		s.syncWorkspaceMembers(ctx, run.WorkspaceID)
+		return
 	}
 
 	// 1. Scaffold org/repo/inst (creates the org).
@@ -130,7 +318,7 @@ func (s *WorkflowService) ScaffoldRunDeliverables(ctx context.Context, run db.Mu
 
 // ensureNodeRunBranch creates the node-run branch when a node enters execution.
 func (s *WorkflowService) ensureNodeRunBranch(ctx context.Context, nodeRun db.MulticaWorkflowNodeRun) error {
-	if s.Gitea == nil || !s.Gitea.Configured() {
+	if !s.teamNamespaceConfigured() && (s.Gitea == nil || !s.Gitea.Configured()) {
 		return nil
 	}
 
@@ -158,7 +346,14 @@ func (s *WorkflowService) ensureNodeRunBranch(ctx context.Context, nodeRun db.Mu
 		return fmt.Errorf("get workflow: %w", err)
 	}
 
-	if _, err := gitea.ScaffoldRunDeliverable(ctx, s.Gitea, deliverableScaffoldParams(run, workflow)); err != nil {
+	if s.teamNamespaceConfigured() {
+		if err := s.initWorkflowNamespace(ctx, run, workflow); err != nil {
+			return err
+		}
+		if s.Gitea == nil || !s.Gitea.Configured() {
+			return nil
+		}
+	} else if _, err := gitea.ScaffoldRunDeliverable(ctx, s.Gitea, deliverableScaffoldParams(run, workflow)); err != nil {
 		return fmt.Errorf("scaffold run deliverable: %w", err)
 	}
 
@@ -178,6 +373,9 @@ func (s *WorkflowService) ensureNodeRunBranch(ctx context.Context, nodeRun db.Mu
 // re-runs reuse the stored PAT even if the bot user was somehow deleted from
 // Gitea (a future task can add a re-provision + revoke flow if needed).
 func (s *WorkflowService) provisionWorkspaceBotIfAbsent(ctx context.Context, workspaceID pgtype.UUID) error {
+	if s.teamNamespaceConfigured() {
+		return s.ensureTeamNamespace(ctx, workspaceID)
+	}
 	ws, err := s.Queries.GetWorkspace(ctx, workspaceID)
 	if err != nil {
 		return fmt.Errorf("get workspace: %w", err)
@@ -224,6 +422,23 @@ func (s *WorkflowService) provisionWorkspaceBotIfAbsent(ctx context.Context, wor
 // push access). Adding members is the common path; removal (dissolve / leave)
 // is a separate follow-up.
 func (s *WorkflowService) syncWorkspaceMembers(ctx context.Context, workspaceID pgtype.UUID) {
+	if s.teamNamespaceConfigured() {
+		refs, _, err := s.workspaceMemberRefs(ctx, workspaceID)
+		if err != nil {
+			slog.Warn("team namespace sync members: list",
+				"workspace_id", util.UUIDToString(workspaceID), "error", err)
+			return
+		}
+		if _, err := s.TeamNamespace.SyncMembers(ctx, util.UUIDToString(workspaceID), teamnamespace.SyncMembersRequest{
+			Mode:       "full_sync",
+			AddMembers: refs,
+		}); err != nil {
+			slog.Warn("team namespace sync members",
+				"workspace_id", util.UUIDToString(workspaceID), "error", err)
+		}
+		return
+	}
+
 	members, err := s.Queries.ListMembersWithUser(ctx, workspaceID)
 	if err != nil {
 		slog.Warn("gitea sync members: list",
@@ -329,7 +544,7 @@ func (s *WorkflowService) ProvisionWorkspaceGitea(ctx context.Context, workspace
 		}
 	}()
 
-	if s.Gitea == nil || !s.Gitea.Configured() {
+	if !s.teamNamespaceConfigured() && (s.Gitea == nil || !s.Gitea.Configured()) {
 		return
 	}
 
@@ -338,6 +553,18 @@ func (s *WorkflowService) ProvisionWorkspaceGitea(ctx context.Context, workspace
 	if err != nil {
 		slog.Warn("provision workspace gitea: get workspace",
 			"workspace_id", wsIDStr, "error", err)
+		return
+	}
+
+	if s.teamNamespaceConfigured() {
+		if err := s.ensureTeamNamespace(ctx, workspaceID); err != nil {
+			slog.Warn("provision workspace team namespace",
+				"workspace_id", wsIDStr, "error", err)
+			return
+		}
+		s.syncWorkspaceMembers(ctx, workspaceID)
+		slog.Info("provisioned workspace team namespace",
+			"workspace_id", wsIDStr)
 		return
 	}
 
@@ -379,6 +606,9 @@ func (s *WorkflowService) ProvisionWorkflowRepo(ctx context.Context, workflowID 
 			slog.Error("panic in ProvisionWorkflowRepo", "workflow_id", util.UUIDToString(workflowID), "panic", r)
 		}
 	}()
+	if s.teamNamespaceConfigured() {
+		return
+	}
 	if s.Gitea == nil || !s.Gitea.Configured() {
 		return
 	}

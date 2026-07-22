@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/multica-ai/multica/server/internal/analytics"
 	"github.com/multica-ai/multica/server/internal/logger"
+	"github.com/multica-ai/multica/server/internal/teamnamespace"
 	db "github.com/multica-ai/multica/server/pkg/db/generated"
 	"github.com/multica-ai/multica/server/pkg/protocol"
 )
@@ -118,7 +119,6 @@ func (h *Handler) ListWorkspaces(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-
 	workspaces, err := h.Queries.ListWorkspaces(r.Context(), parseUUID(userID))
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to list workspaces")
@@ -323,6 +323,9 @@ func (h *Handler) UpdateWorkspace(w http.ResponseWriter, r *http.Request) {
 	slog.Info("workspace updated", append(logger.RequestAttrs(r), "workspace_id", id)...)
 	userID := requestUserID(r)
 	h.publish(protocol.EventWorkspaceUpdated, uuidToString(ws.ID), "member", userID, map[string]any{"workspace": workspaceToResponse(ws)})
+	if h.WorkflowService != nil && (req.Name != nil || req.Description != nil) {
+		go h.WorkflowService.UpdateTeamNamespace(context.Background(), ws.ID, ws.Name, ws.Description.String)
+	}
 
 	writeJSON(w, http.StatusOK, workspaceToResponse(ws))
 }
@@ -439,6 +442,16 @@ func memberWithUserResponse(member db.MulticaMember, user db.MulticaUser) Member
 		Email:               user.Email,
 		AvatarURL:           textToPtr(user.AvatarUrl),
 	}
+}
+
+func memberTeamNamespaceUserRef(member db.MulticaMember) teamnamespace.UserRef {
+	if member.UserID.Valid {
+		return teamnamespace.UserRef{UserID: uuidToString(member.UserID)}
+	}
+	if member.ExternalUniversalID.Valid && strings.TrimSpace(member.ExternalUniversalID.String) != "" {
+		return teamnamespace.UserRef{UniversalID: strings.TrimSpace(member.ExternalUniversalID.String)}
+	}
+	return teamnamespace.UserRef{}
 }
 
 func normalizeMemberRole(role string) (string, bool) {
@@ -744,6 +757,9 @@ func (h *Handler) DeleteWorkspace(w http.ResponseWriter, r *http.Request) {
 
 	// At this point workspaceMember has resolved → workspaceID is a valid UUID
 	// (the lookup would have errored otherwise), so reuse the resolved value.
+	if h.WorkflowService != nil {
+		go h.WorkflowService.DissolveTeamNamespace(context.Background(), requester.WorkspaceID, memberTeamNamespaceUserRef(requester), "workspace deleted")
+	}
 	if err := h.Queries.DeleteWorkspace(r.Context(), requester.WorkspaceID); err != nil {
 		slog.Warn("delete workspace failed", append(logger.RequestAttrs(r), "error", err, "workspace_id", workspaceID)...)
 		writeError(w, http.StatusInternalServerError, "failed to delete workspace")
