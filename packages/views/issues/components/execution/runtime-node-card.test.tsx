@@ -32,6 +32,7 @@ vi.mock("@multica/views/i18n", () => {
         gateway_label_fork: "Branch start",
         gateway_label_join: "Join point",
         gateway_label: "Branch node",
+        split_badge: "Split",
         split_child_count: "{{count}} child issues",
         split_child_count_one: "{{count}} child issue",
         split_child_count_other: "{{count}} child issues",
@@ -454,6 +455,15 @@ describe("RuntimeNodeCard", () => {
     expect(screen.getByText("Task split")).toBeInTheDocument();
     expect(screen.getByText("Reviewing")).toBeInTheDocument();
     expect(screen.getByTestId("runtime-node-card-split-1")).toHaveTextContent("Reviewing");
+    expect(screen.getByTestId("runtime-node-type-badge-split-1")).toHaveTextContent("Split");
+    expect(screen.getByTestId("runtime-node-split-header")).toHaveClass("justify-between");
+    expect(screen.getByTestId("runtime-node-split-header")).toHaveTextContent("Task splitReviewing");
+    expect(screen.getByTestId("runtime-node-split-context")).toHaveClass("border-t", "border-border/45");
+    expect(screen.getByTestId("runtime-node-split-mode")).toHaveClass("text-muted-foreground");
+    expect(screen.getByTestId("runtime-node-split-layout")).toHaveClass(
+      "grid",
+      "grid-rows-[32px_20px_minmax(0,1fr)]",
+    );
     expect(screen.getByLabelText("Reviewing")).toBeInTheDocument();
     expect(screen.getByText("5 child issues")).toBeInTheDocument();
     expect(screen.getByText("Not started")).toBeInTheDocument();
@@ -461,6 +471,7 @@ describe("RuntimeNodeCard", () => {
     expect(screen.queryByText("Executor")).not.toBeInTheDocument();
     expect(screen.queryByText("Reviewer")).not.toBeInTheDocument();
     expect(screen.getByTestId("runtime-node-split-progress")).toHaveClass("border-t", "border-border/45");
+    expect(screen.getByTestId("runtime-node-card-split-1").querySelector(".lucide-git-branch")).not.toBeInTheDocument();
   });
 
   it("shows split planner roles while the split planner is running", () => {
@@ -586,6 +597,10 @@ describe("RuntimeNodeCard", () => {
     );
 
     const toggleButton = screen.getByRole("button", { name: "Expand child issues" });
+    expect(screen.getByTestId("runtime-node-split-layout")).toHaveClass(
+      "grid",
+      "grid-rows-[32px_20px_minmax(0,1fr)]",
+    );
     expect(toggleButton).toHaveAttribute("data-testid", "runtime-node-split-child-toggle");
     expect(toggleButton).toHaveTextContent("3 child issues");
     expect(toggleButton).toHaveTextContent("1 done · 1 running · 1 ready");
@@ -784,6 +799,8 @@ describe("RuntimeNodeCard", () => {
     );
 
     expect(screen.getByText("In progress")).toBeInTheDocument();
+    expect(screen.getByTestId("runtime-node-type-badge-split-2")).toHaveTextContent("Split");
+    expect(screen.getByTestId("runtime-node-split-header")).toHaveTextContent("Split progressIn progress");
     expect(screen.getByText("1 done · 1 failed · 1 running · 1 ready")).toBeInTheDocument();
   });
 
@@ -830,6 +847,8 @@ describe("RuntimeNodeCard", () => {
     );
 
     expect(screen.getByText("Completed")).toBeInTheDocument();
+    expect(screen.getByTestId("runtime-node-type-badge-split-completed")).toHaveTextContent("Split");
+    expect(screen.getByTestId("runtime-node-split-header")).toHaveTextContent("Split completedCompleted");
     expect(screen.getByText("4 done")).toBeInTheDocument();
   });
 

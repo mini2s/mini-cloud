@@ -591,7 +591,12 @@
   "panorama": {
     "card": {
       "worker_label": "执行者",
-      "critic_label": "审核者"
+      "critic_label": "审核者",
+      "split_badge": "拆分",
+      "split_child_workflow_label": "子 workflow",
+      "split_policy_label": "执行策略",
+      "split_policy_summary": "并发 {{concurrency}} · 最多失败 {{maxFailures}}",
+      "split_pipeline_policy_summary": "并发 {{concurrency}}"
     },
     "empty_all": "创建第一个阶段以开始使用",
     "unassigned": "未分组",

@@ -592,7 +592,12 @@
   "panorama": {
     "card": {
       "worker_label": "Worker",
-      "critic_label": "Critic"
+      "critic_label": "Critic",
+      "split_badge": "Split",
+      "split_child_workflow_label": "Child workflow",
+      "split_policy_label": "Execution policy",
+      "split_policy_summary": "Concurrency {{concurrency}} · Max failures {{maxFailures}}",
+      "split_pipeline_policy_summary": "Concurrency {{concurrency}}"
     },
     "empty_all": "Create your first stage to get started",
     "unassigned": "Unassigned",

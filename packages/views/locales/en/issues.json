@@ -519,6 +519,7 @@
       "gateway_label_fork": "Branch start",
       "gateway_label_join": "Join point",
       "gateway_label": "Branch node",
+      "split_badge": "Split",
       "split_child_count_one": "{{count}} child issue",
       "split_child_count_other": "{{count}} child issues",
       "split_mode_barrier": "Wait for child issues",

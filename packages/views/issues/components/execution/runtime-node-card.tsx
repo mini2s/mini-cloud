@@ -10,13 +10,13 @@ import {
 } from "@multica/core/types";
 import { cn } from "@multica/ui/lib/utils";
 import { RuntimeDisplayStatusIcon } from "./node-run-status-icon";
-import { Check, ChevronDown, ChevronRight, GitBranch, GitFork, GitMerge } from "lucide-react";
+import { Check, ChevronDown, ChevronRight, GitFork, GitMerge } from "lucide-react";
 import { useT } from "@multica/views/i18n";
 import { Button } from "@multica/ui/components/ui/button";
-import { Badge } from "@multica/ui/components/ui/badge";
 import { Loader2 } from "lucide-react";
 import { workflowNodeInfoAreaClassName, workflowNodeShapeGlyphClassName } from "../../../common/workflow-node-shape";
 import { WorkflowActorSlot, type WorkflowActorState } from "../../../common/workflow-actor-slots";
+import { WorkflowNodeTypeBadge } from "../../../common/workflow-node-type-badge";
 import {
   WorkflowCanvasNodeShell,
   type WorkflowCanvasNodeHandle,
@@ -293,9 +293,7 @@ function SplitProgressSummary({
       data-testid="runtime-node-split-progress"
       className="flex min-w-0 items-center gap-2 border-t border-border/45 py-1.5"
     >
-      <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-muted/55 text-muted-foreground ring-1 ring-border/60">
-        <GitBranch className="h-3.5 w-3.5" />
-      </span>
+      <span aria-hidden="true" className="size-1.5 shrink-0 rounded-full bg-muted-foreground/50" />
       <div className="min-w-0">
         <p className="break-words text-[12px] font-semibold leading-4 text-foreground/90 line-clamp-2">
           {label}
@@ -410,20 +408,36 @@ export function RuntimeNodeCard({
       elementRef={elementRef}
     >
       {isSplit ? (
-        <>
-          <div className="flex items-center justify-between gap-2">
+        <div
+          data-testid="runtime-node-split-layout"
+          className="grid h-full min-h-0 grid-rows-[32px_20px_minmax(0,1fr)] gap-1.5"
+        >
+          <div
+            data-testid="runtime-node-split-header"
+            className="flex items-center justify-between gap-2"
+          >
             <div className="flex min-w-0 items-center gap-1.5">
-              <GitBranch className="size-3.5 shrink-0 text-muted-foreground" />
               <span className="min-w-0 break-words text-sm font-medium leading-4 line-clamp-2">{node.title}</span>
             </div>
-						<div className="flex h-5 shrink-0 items-center gap-1">
-							<Badge variant="outline" className="h-5 px-1.5 text-[10px]">
-								{splitMode === "pipeline"
-									? t(($) => $.execution.card.split_mode_pipeline)
-									: t(($) => $.execution.card.split_mode_barrier)}
-							</Badge>
-							<RuntimeStatusPill status={displayStatus} label={displayStatusLabel} />
-						</div>
+            <RuntimeStatusPill status={displayStatus} label={displayStatusLabel} />
+          </div>
+
+          <div
+            data-testid="runtime-node-split-context"
+            className="flex min-w-0 items-center justify-between gap-2 border-t border-border/45 pt-1.5"
+          >
+            <WorkflowNodeTypeBadge
+              testId={`runtime-node-type-badge-${node.id}`}
+              label={t(($) => $.execution.card.split_badge)}
+            />
+            <span
+              data-testid="runtime-node-split-mode"
+              className="min-w-0 truncate text-right text-[10px] font-medium leading-3 text-muted-foreground"
+            >
+              {splitMode === "pipeline"
+                ? t(($) => $.execution.card.split_mode_pipeline)
+                : t(($) => $.execution.card.split_mode_barrier)}
+            </span>
           </div>
 
           {canToggleSplitChildren ? (
@@ -501,7 +515,7 @@ export function RuntimeNodeCard({
               ) : null}
             </div>
           )}
-        </>
+        </div>
       ) : (
         <>
       {/* Row 1: node title + status icon */}
