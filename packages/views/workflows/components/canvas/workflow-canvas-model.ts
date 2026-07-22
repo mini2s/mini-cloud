@@ -1,5 +1,6 @@
 import { MarkerType, type Edge, type Node } from "@xyflow/react";
-import type { WorkflowEdge, WorkflowNode, WorkflowStage } from "@multica/core/types";
+import { isBoundaryNode, parseNodeFormat, type WorkflowEdge, type WorkflowNode, type WorkflowStage } from "@multica/core/types";
+import { BOUNDARY_HEIGHT, BOUNDARY_WIDTH } from "../overview/reactflow-nodes/boundary-node";
 import {
   CRITIC_HEIGHT,
   CRITIC_WIDTH,
@@ -68,13 +69,15 @@ function normalizedNodeXMap(
     });
 
     let previousX: number | null = null;
+    let previousWidth = nodeWidth;
     for (const node of sortedNodes) {
       const storedX = node.position_x ?? 100;
       const x: number = previousX === null
         ? storedX
-        : Math.max(storedX, previousX + nodeWidth + MIN_NODE_HORIZONTAL_GAP);
+        : Math.max(storedX, previousX + previousWidth + MIN_NODE_HORIZONTAL_GAP);
       positions.set(node.id, x);
       previousX = x;
+      previousWidth = isBoundaryNode(node) ? BOUNDARY_WIDTH : nodeWidth;
     }
   }
 
@@ -108,16 +111,21 @@ export function workflowNodesToReactFlowNodes({
       laneY,
     };
 
+    const boundaryKind = parseNodeFormat(node.format_schema).kind;
+    const boundary = boundaryKind === "start" || boundaryKind === "end";
     const workerNode: Node = {
       id: node.id,
-      type: nodeType,
+      type: boundary ? "boundary" : nodeType,
       position: { x, y: laneY },
-      width: nodeWidth,
-      height: nodeHeight,
-      data: makeNodeData(node, context),
+      width: boundary ? BOUNDARY_WIDTH : nodeWidth,
+      height: boundary ? BOUNDARY_HEIGHT : nodeHeight,
+      data: {
+        ...makeNodeData(node, context),
+        ...(boundary ? { kind: boundaryKind } : {}),
+      },
     };
 
-    if (!includeCriticBadges || (!node.critic_id && !node.critic_api_url && !node.critic_role_id && !node.critic_role)) return [workerNode];
+    if (boundary || !includeCriticBadges || (!node.critic_id && !node.critic_api_url && !node.critic_role_id && !node.critic_role)) return [workerNode];
 
     const criticNode: Node = {
       id: `${node.id}:critic`,

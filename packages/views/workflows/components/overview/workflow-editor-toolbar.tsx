@@ -56,6 +56,7 @@ export interface WorkflowEditorToolbarProps {
   onSave: () => void | boolean | Promise<void | boolean>;
   onAutoLayout: () => void;
   onSelectTemplate: (template: NodeTemplate) => void;
+  disabledTemplateIds?: Set<string>;
   onTestRun: () => void | Promise<void>;
   onToggleWorkflowStatus: () => void;
   onOpenRunHistory: () => void;
@@ -91,6 +92,7 @@ export function WorkflowEditorToolbar({
   onSave,
   onAutoLayout,
   onSelectTemplate,
+  disabledTemplateIds,
   onTestRun,
   onToggleWorkflowStatus,
   onOpenRunHistory,
@@ -273,7 +275,7 @@ export function WorkflowEditorToolbar({
             align="start"
             side="bottom"
           >
-            <NodeTemplatePicker onSelect={handleSelectTemplate} />
+            <NodeTemplatePicker onSelect={handleSelectTemplate} disabledTemplateIds={disabledTemplateIds} />
           </PopoverContent>
         </Popover>
 

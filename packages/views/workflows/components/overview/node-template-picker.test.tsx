@@ -22,6 +22,7 @@ vi.mock("../../../i18n", () => {
         human_description: "Review or approval",
         annotation: "Notes",
         annotation_description: "Explain the canvas",
+        boundary_already_exists: "This boundary already exists",
       },
     },
   };
@@ -78,5 +79,24 @@ describe("NodeTemplatePicker", () => {
     fireEvent.click(screen.getByRole("button", { name: /Agent task/ }));
 
     expect(onSelect).toHaveBeenCalledWith(expect.objectContaining({ id: "ai-agent-task" }));
+  });
+
+  it("disables existing boundary templates independently", () => {
+    render(
+      <NodeTemplatePicker
+        onSelect={vi.fn()}
+        disabledTemplateIds={new Set(["workflow-start"])}
+      />,
+    );
+
+    expect(screen.getByRole("button", { name: /^Start:/ })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /^End:/ })).toBeEnabled();
+  });
+
+  it("excludes boundary templates from connected-node selection", () => {
+    render(<NodeTemplatePicker onSelect={vi.fn()} excludeBoundary />);
+
+    expect(screen.queryByRole("button", { name: /^Start:/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^End:/ })).not.toBeInTheDocument();
   });
 });

@@ -147,4 +147,23 @@ describe("node-template-catalog", () => {
         },
       });
   });
+
+  it("builds boundary payloads without actor assignments", () => {
+    const start = NODE_TEMPLATES.find((item) => item.id === "workflow-start")!;
+    const end = NODE_TEMPLATES.find((item) => item.id === "workflow-end")!;
+
+    expect(buildCreateNodeRequestFromTemplate(start, { x: 10, y: 20, stageId: "stage-1" }))
+      .toMatchObject({
+        title: "Start",
+        stage_id: "stage-1",
+        worker_type: "human",
+        worker_id: null,
+        critic_type: "human",
+        critic_id: null,
+        critic_api_url: null,
+        format_schema: { type: "start", shape: "pill", template_id: "workflow-start" },
+      });
+    expect((buildCreateNodeRequestFromTemplate(end, { x: 30, y: 20, stageId: null })
+      .format_schema as Record<string, unknown>).type).toBe("end");
+  });
 });

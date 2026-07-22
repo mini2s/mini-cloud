@@ -13,6 +13,8 @@ const mocks = vi.hoisted(() => ({
   resolutions: [] as unknown[],
   members: [] as unknown[],
   cancelMutate: vi.fn(),
+  dagNodes: [] as unknown[],
+  dagNodeStatuses: {} as Record<string, { status: string }>,
 }));
 
 vi.mock("@tanstack/react-query", () => ({
@@ -89,17 +91,22 @@ vi.mock("../../layout/page-header", () => ({
 }));
 
 vi.mock("./dag-canvas", () => ({
-  DAGCanvas: ({ onNodeClick, nodeStatuses }: {
+  DAGCanvas: ({ nodes, onNodeClick, nodeStatuses }: {
+    nodes?: unknown[];
     onNodeClick?: (nodeId: string) => void;
     nodeStatuses?: Record<string, { status: string }>;
-  }) => (
-    <div>
-      <span data-testid="canvas-status">{nodeStatuses?.["split-node"]?.status}</span>
-      <button type="button" onClick={() => onNodeClick?.("split-node")}>
-        Open canvas split
-      </button>
-    </div>
-  ),
+  }) => {
+    mocks.dagNodes = nodes ?? [];
+    mocks.dagNodeStatuses = nodeStatuses ?? {};
+    return (
+      <div>
+        <span data-testid="canvas-status">{nodeStatuses?.["split-node"]?.status}</span>
+        <button type="button" onClick={() => onNodeClick?.("split-node")}>
+          Open canvas split
+        </button>
+      </div>
+    );
+  },
 }));
 
 vi.mock("@xyflow/react", () => ({
@@ -213,6 +220,8 @@ describe("WorkflowRunPage", () => {
     mocks.edges = [];
     mocks.nodeRuns = [splitNodeRun];
     mocks.cancelMutate.mockReset();
+    mocks.dagNodes = [];
+    mocks.dagNodeStatuses = {};
   });
 
   it("localizes split node run status on the canvas", () => {
@@ -220,6 +229,21 @@ describe("WorkflowRunPage", () => {
 
     expect(screen.getByTestId("canvas-status")).toHaveTextContent("Split Active");
     expect(screen.queryByText("split_active")).not.toBeInTheDocument();
+  });
+
+  it("keeps boundary nodes on the run canvas without runtime status", () => {
+    mocks.nodes = [
+      { ...splitNode, id: "start", title: "Start", format_schema: { type: "start" } },
+      splitNode,
+      { ...splitNode, id: "end", title: "End", format_schema: { type: "end" } },
+    ];
+
+    render(<WorkflowRunPage workflowId="wf-1" runId="run-1" />);
+
+    expect(mocks.dagNodes).toEqual(mocks.nodes);
+    expect(mocks.dagNodeStatuses).toEqual({
+      "split-node": expect.objectContaining({ status: "Split Active" }),
+    });
   });
 
   it("opens split review panel from the canvas split node", () => {

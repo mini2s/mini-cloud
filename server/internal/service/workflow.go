@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/multica-ai/multica/server/internal/events"
 	"github.com/multica-ai/multica/server/internal/util"
+	"github.com/multica-ai/multica/server/internal/workflowmeta"
 	db "github.com/multica-ai/multica/server/pkg/db/generated"
 )
 
@@ -164,6 +165,31 @@ func isInvalidWorkflowGatewayFormat(raw json.RawMessage) bool {
 	return isGateway && !valid
 }
 
+func buildExecutableWorkflowGraph(
+	nodes []db.MulticaWorkflowNode,
+	edges []db.MulticaWorkflowEdge,
+) ([]db.MulticaWorkflowNode, []db.MulticaWorkflowEdge) {
+	ids := make(map[string]struct{}, len(nodes))
+	keptNodes := make([]db.MulticaWorkflowNode, 0, len(nodes))
+	for _, node := range nodes {
+		if workflowmeta.IsBoundary(node.FormatSchema) {
+			continue
+		}
+		ids[util.UUIDToString(node.ID)] = struct{}{}
+		keptNodes = append(keptNodes, node)
+	}
+
+	keptEdges := make([]db.MulticaWorkflowEdge, 0, len(edges))
+	for _, edge := range edges {
+		_, sourceOK := ids[util.UUIDToString(edge.SourceNodeID)]
+		_, targetOK := ids[util.UUIDToString(edge.TargetNodeID)]
+		if sourceOK && targetOK {
+			keptEdges = append(keptEdges, edge)
+		}
+	}
+	return keptNodes, keptEdges
+}
+
 // ── DAG validation ───────────────────────────────────────────────────────────
 
 // ValidateDAG checks the workflow for cycles via DFS topological sort.
@@ -250,6 +276,7 @@ func (s *WorkflowService) startRun(ctx context.Context, workflow db.MulticaWorkf
 	if err != nil {
 		return nil, fmt.Errorf("list nodes: %w", err)
 	}
+	nodes, _ = buildExecutableWorkflowGraph(nodes, nil)
 	hasRoleSlots := false
 	for _, node := range nodes {
 		hasRoleSlots = hasRoleSlots || node.WorkerRoleID.Valid || node.CriticRoleID.Valid
@@ -319,6 +346,7 @@ func (s *WorkflowService) startRun(ctx context.Context, workflow db.MulticaWorkf
 		if err != nil {
 			return fmt.Errorf("list edges: %w", err)
 		}
+		nodes, edges = buildExecutableWorkflowGraph(nodes, edges)
 		hasIncoming := make(map[string]bool)
 		for _, edge := range edges {
 			hasIncoming[util.UUIDToString(edge.TargetNodeID)] = true
@@ -423,6 +451,7 @@ func (s *WorkflowService) DispatchRootNodeRuns(ctx context.Context, runID pgtype
 			}
 		}
 	}
+	s.checkRunCompletion(ctx, runID)
 	return nil
 }
 
@@ -824,6 +853,13 @@ func (s *WorkflowService) OnNodeRunCompleted(ctx context.Context, nodeRunID pgty
 
 	if err := s.runInTx(ctx, func(qtx *db.Queries) error {
 		for _, edge := range edges {
+			targetNode, err := qtx.GetWorkflowNode(ctx, edge.TargetNodeID)
+			if err != nil {
+				return fmt.Errorf("get downstream node: %w", err)
+			}
+			if workflowmeta.IsBoundary(targetNode.FormatSchema) {
+				continue
+			}
 			// Check whether ALL upstream node runs of the target are terminal-complete.
 			upstreamEdges, err := qtx.ListWorkflowEdgesByTarget(ctx, edge.TargetNodeID)
 			if err != nil {
@@ -832,6 +868,13 @@ func (s *WorkflowService) OnNodeRunCompleted(ctx context.Context, nodeRunID pgty
 
 			allUpstreamDone := true
 			for _, ue := range upstreamEdges {
+				sourceNode, err := qtx.GetWorkflowNode(ctx, ue.SourceNodeID)
+				if err != nil {
+					return fmt.Errorf("get upstream node: %w", err)
+				}
+				if workflowmeta.IsBoundary(sourceNode.FormatSchema) {
+					continue
+				}
 				// Find the node run for this upstream node in the current run.
 				upstreamNr, err := qtx.ListWorkflowNodeRunsByRunAndNode(ctx, db.ListWorkflowNodeRunsByRunAndNodeParams{
 					WorkflowRunID:  run.ID,

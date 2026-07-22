@@ -51,6 +51,33 @@ function makeEdge(overrides: Partial<WorkflowEdge> = {}): WorkflowEdge {
 }
 
 describe("workflowEdgesToReactFlowEdges", () => {
+  it("maps boundary nodes to their dedicated renderer and dimensions", () => {
+    const rfNodes = workflowNodesToReactFlowNodes({
+      nodes: [
+        makeNode({ id: "start", position_x: 100, format_schema: { type: "start" } }),
+        makeNode({ id: "task", position_x: 200 }),
+        makeNode({ id: "end", position_x: 300, format_schema: { type: "end" } }),
+      ],
+      stages: [makeStage()],
+      nodeType: "compactWorker",
+      makeNodeData: (node) => ({ node }),
+    });
+
+    expect(rfNodes.find((node) => node.id === "start")).toMatchObject({
+      type: "boundary",
+      width: 176,
+      height: 64,
+      data: { kind: "start" },
+    });
+    expect(rfNodes.find((node) => node.id === "end")).toMatchObject({
+      type: "boundary",
+      width: 176,
+      height: 64,
+      data: { kind: "end" },
+    });
+    expect(rfNodes.find((node) => node.id === "task")?.position.x).toBe(372);
+  });
+
   it("enforces a minimum horizontal gap within each stage without compressing larger gaps", () => {
     const rfNodes = workflowNodesToReactFlowNodes({
       nodes: [

@@ -6,7 +6,8 @@ export type WorkflowRoleKey = "developer" | "qa" | "tech_lead" | (string & {});
 
 export const BUILTIN_WORKFLOW_ROLES: WorkflowRoleKey[] = ["developer", "qa", "tech_lead"];
 export type NodeShape = "rectangle" | "diamond" | "pill" | "hexagon";
-export type WorkflowNodeFormatKind = "task" | "gateway" | "annotation" | "split";
+export type WorkflowBoundaryKind = "start" | "end";
+export type WorkflowNodeFormatKind = "task" | "gateway" | "annotation" | "split" | WorkflowBoundaryKind;
 export type GatewayKind = "fork" | "join";
 export type SplitMode = "barrier" | "pipeline";
 
@@ -93,6 +94,15 @@ export function parseNodeFormat(formatSchema: unknown): WorkflowNodeFormat {
   const templateId = readString(schema, "template_id");
   const templateCategory = readString(schema, "template_category") ?? "action";
 
+  if (schema.type === "start" || schema.type === "end") {
+    return {
+      ...base,
+      kind: schema.type,
+      template_id: templateId,
+      template_category: templateCategory,
+    };
+  }
+
   if (schema.type === "annotation") {
     return {
       ...base,
@@ -156,6 +166,35 @@ export function parseNodeFormat(formatSchema: unknown): WorkflowNodeFormat {
     template_id: templateId,
     template_category: templateCategory,
   };
+}
+
+export function isBoundaryNode(node: Pick<WorkflowNode, "format_schema">): boolean {
+  const kind = parseNodeFormat(node.format_schema).kind;
+  return kind === "start" || kind === "end";
+}
+
+export function isStartNode(node: Pick<WorkflowNode, "format_schema">): boolean {
+  return parseNodeFormat(node.format_schema).kind === "start";
+}
+
+export function isEndNode(node: Pick<WorkflowNode, "format_schema">): boolean {
+  return parseNodeFormat(node.format_schema).kind === "end";
+}
+
+export function isInvalidBoundaryConnection(
+  source: Pick<WorkflowNode, "format_schema">,
+  target: Pick<WorkflowNode, "format_schema">,
+): boolean {
+  const sourceKind = parseNodeFormat(source.format_schema).kind;
+  const targetKind = parseNodeFormat(target.format_schema).kind;
+  const sourceBoundary = sourceKind === "start" || sourceKind === "end";
+  const targetBoundary = targetKind === "start" || targetKind === "end";
+
+  return targetKind === "start" ||
+    sourceKind === "end" ||
+    (sourceKind === "start" && targetKind === "end") ||
+    (sourceBoundary && targetKind === "annotation") ||
+    (sourceKind === "annotation" && targetBoundary);
 }
 
 /** Map workflow node worker/critic type to actor type used by useActorName(). */

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"log"
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
@@ -307,11 +308,19 @@ func (h *Handler) StartWorkflowRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	resp := workflowRunToResponse(*run)
+	startedResp := workflowRunToResponse(*run)
 	h.publish(protocol.EventWorkflowRunStarted, workspaceID, "member", userID, map[string]any{
-		"run":      resp,
+		"run":      startedResp,
 		"workflow": map[string]string{"id": uuidToString(wf.ID), "title": wf.Title},
 	})
+	if run.Status == service.RunStatusRunning {
+		if err := h.WorkflowService.DispatchRootNodeRuns(r.Context(), run.ID); err != nil {
+			log.Printf("failed to dispatch workflow root nodes for run %s: %v", uuidToString(run.ID), err)
+		} else if refreshed, err := h.Queries.GetWorkflowRun(r.Context(), run.ID); err == nil {
+			run = &refreshed
+		}
+	}
+	resp := workflowRunToResponse(*run)
 	status := http.StatusCreated
 	if run.Status == service.RunStatusResolvingRoles || run.Status == service.RunStatusWaitingRoleAssignment {
 		status = http.StatusAccepted

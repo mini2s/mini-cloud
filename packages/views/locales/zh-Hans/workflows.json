@@ -111,6 +111,9 @@
     "discard_changes": "放弃"
   },
   "detail_panel": {
+    "boundary_eyebrow": "始末节点",
+    "boundary_badge_start": "开始节点",
+    "boundary_badge_end": "结束节点",
     "eyebrow": "节点设置",
     "close_label": "关闭节点检查器",
     "close_confirm_title": "保存面板更改？",
@@ -617,7 +620,11 @@
       "human": "人工",
       "human_description": "评审或审批",
       "annotation": "注释",
-      "annotation_description": "解释画布内容"
+      "annotation_description": "解释画布内容",
+      "boundary_already_exists": "此工作流已包含该始末节点",
+      "boundary_create_conflict": "此工作流已包含该始末节点",
+      "boundary_create_invalid": "无法添加此始末节点",
+      "boundary_connection_invalid": "不允许这样连接始末节点"
     },
     "toolbar": {
       "undo": "撤销",
@@ -686,6 +693,9 @@
     "check_gateway_join_incoming": "合并网关缺少上游",
     "check_gateway_kind_invalid": "无效的网关类型",
     "check_gateway_join_multiple_outgoing": "合并网关多出口",
+    "check_boundary_start_outgoing": "开始节点缺少出边",
+    "check_boundary_end_incoming": "结束节点缺少入边",
+    "check_boundary_edge_direction": "始末节点连线无效",
     "detail_dag_cycle": "节点形成循环：{{path}}",
     "detail_orphan_node": "节点无任何连接",
     "detail_unreachable_node": "节点无从主阶段的入边",
@@ -705,6 +715,9 @@
     "detail_gateway_join_incoming": "合并网关至少需要两个上游节点",
     "detail_gateway_kind_invalid": "网关类型必须是 Fork 或 Join",
     "detail_gateway_join_multiple_outgoing": "合并网关通常只连接一个下游节点",
+    "detail_boundary_start_outgoing": "开始节点需要一条出边",
+    "detail_boundary_end_incoming": "结束节点需要一条入边",
+    "detail_boundary_edge_direction": "始末节点的连线方向无效",
     "first_stage_guide_title": "创建第一个节点",
     "first_stage_guide_description": "节点是工作流运行的步骤。添加节点以开始使用。",
     "first_stage_guide_cta": "创建阶段"

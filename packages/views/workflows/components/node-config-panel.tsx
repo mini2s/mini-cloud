@@ -33,7 +33,7 @@ import {
 } from "@multica/core/workflows/queries";
 import { useWorkflowEditorStore } from "@multica/core/workflows/store";
 import { AssigneePicker } from "../../issues/components/pickers/assignee-picker";
-import { parseNodeFormat, type WorkflowNode, type WorkflowNodeRun, type WorkflowStage, type WorkerType, type CriticType, type SplitConfig } from "@multica/core/types";
+import { isBoundaryNode, parseNodeFormat, type WorkflowNode, type WorkflowNodeRun, type WorkflowStage, type WorkerType, type CriticType, type SplitConfig } from "@multica/core/types";
 import type { IssueAssigneeType } from "@multica/core/types/issue";
 import {
   NodeDetailSection,
@@ -303,6 +303,7 @@ export function NodeConfigPanel({
   })();
   const isGateway = nodeFormat.kind === "gateway";
   const isSplit = nodeFormat.kind === "split";
+  const isBoundary = isBoundaryNode(node);
 
   const [title, setTitle] = useState(saved?.title ?? node.title);
   const [description, setDescription] = useState(saved?.description ?? node.description);
@@ -454,13 +455,19 @@ export function NodeConfigPanel({
       mode="edit"
       widthClassName="w-[min(800px,calc(100vw-2rem))]"
       title={title || t(($) => $.node.title)}
-      eyebrow={t(($) => $.detail_panel.eyebrow)}
+      eyebrow={isBoundary ? t(($) => $.detail_panel.boundary_eyebrow) : t(($) => $.detail_panel.eyebrow)}
       closeLabel={t(($) => $.detail_panel.close_label)}
       onClose={onClose}
       badges={(
         <>
           <StatusBadge>{currentStageName}</StatusBadge>
-          {recentNodeRun ? (
+          {isBoundary ? (
+            <StatusBadge>
+              {nodeFormat.kind === "start"
+                ? t(($) => $.detail_panel.boundary_badge_start)
+                : t(($) => $.detail_panel.boundary_badge_end)}
+            </StatusBadge>
+          ) : recentNodeRun ? (
             <StatusBadge tone={runTone}>
               <Activity className="size-3" />
               {t(($) => $.detail_panel.badge_latest_run, { status: recentNodeRun.status })}
@@ -515,7 +522,9 @@ export function NodeConfigPanel({
     >
       <div
         data-testid="node-config-grid"
-        className="grid grid-cols-1 gap-6 min-[1280px]:grid-cols-2 min-[1280px]:gap-0"
+        className={isBoundary
+          ? "grid grid-cols-1 gap-6"
+          : "grid grid-cols-1 gap-6 min-[1280px]:grid-cols-2 min-[1280px]:gap-0"}
       >
         <div
           data-testid="node-config-primary-column"
@@ -672,6 +681,7 @@ export function NodeConfigPanel({
 		) : null}
         </div>
 
+        {!isBoundary ? (
         <div
           data-testid="node-config-participants-column"
           className="min-w-0 space-y-6 min-[1280px]:border-l min-[1280px]:border-border/40 min-[1280px]:pl-6"
@@ -1147,6 +1157,7 @@ export function NodeConfigPanel({
 			</NodeDetailSection>
 		) : null}
         </div>
+        ) : null}
       </div>
     </WorkflowNodeDetailPanelShell>
   );
