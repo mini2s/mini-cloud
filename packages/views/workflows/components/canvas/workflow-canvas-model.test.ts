@@ -75,6 +75,9 @@ describe("workflowEdgesToReactFlowEdges", () => {
       height: 64,
       data: { kind: "end" },
     });
+    expect(rfNodes.find((node) => node.id === "start")?.position.y).toBe(56);
+    expect(rfNodes.find((node) => node.id === "task")?.position.y).toBe(12);
+    expect(rfNodes.find((node) => node.id === "end")?.position.y).toBe(56);
     expect(rfNodes.find((node) => node.id === "task")?.position.x).toBe(372);
   });
 

@@ -93,10 +93,4 @@ describe("NodeTemplatePicker", () => {
     expect(screen.getByRole("button", { name: /^End:/ })).toBeEnabled();
   });
 
-  it("excludes boundary templates from connected-node selection", () => {
-    render(<NodeTemplatePicker onSelect={vi.fn()} excludeBoundary />);
-
-    expect(screen.queryByRole("button", { name: /^Start:/ })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /^End:/ })).not.toBeInTheDocument();
-  });
 });

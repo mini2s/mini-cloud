@@ -116,7 +116,10 @@ export function workflowNodesToReactFlowNodes({
     const workerNode: Node = {
       id: node.id,
       type: boundary ? "boundary" : nodeType,
-      position: { x, y: laneY },
+      position: {
+        x,
+        y: boundary ? laneY + (nodeHeight - BOUNDARY_HEIGHT) / 2 : laneY,
+      },
       width: boundary ? BOUNDARY_WIDTH : nodeWidth,
       height: boundary ? BOUNDARY_HEIGHT : nodeHeight,
       data: {

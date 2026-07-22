@@ -62,12 +62,14 @@ import { getDeleteConflictMessage } from "../../../common/delete-conflict-error"
 
 import { WorkflowCanvasCore } from "../canvas/workflow-canvas-core";
 import {
+  MIN_NODE_HORIZONTAL_GAP,
   workflowEdgesToReactFlowEdges,
   workflowNodesToReactFlowNodes,
 } from "../canvas/workflow-canvas-model";
 import { NodeConfigPanel } from "../node-config-panel";
 import { StageCreateDialog } from "./stage-create-dialog";
 import { panoramaNodeTypes } from "./reactflow-nodes";
+import { BOUNDARY_WIDTH } from "./reactflow-nodes/boundary-node";
 import { panoramaEdgeTypes } from "./reactflow-edges";
 import { computeLaneAutoLayout, computeStageTransferPositionX } from "../layout";
 import { PreflightBar } from "./preflight-bar";
@@ -388,7 +390,10 @@ function PanoramaContent({
                 top: Math.min(connectedNodePickerPosition.y, window.innerHeight - 420),
               }}
             >
-              <NodeTemplatePicker onSelect={onConnectedTemplateSelect} excludeBoundary />
+              <NodeTemplatePicker
+                onSelect={onConnectedTemplateSelect}
+                disabledTemplateIds={disabledBoundaryTemplateIds}
+              />
             </div>
           )}
 
@@ -938,7 +943,11 @@ export function WorkflowPanoramaPage({ workflowId, viewToggle }: WorkflowPanoram
       const sourceNode = sourceNodeId ? visibleNodes.find((node) => node.id === sourceNodeId) : undefined;
       const stage = sourceNode ? undefined : findStageAtY(position.y, stages);
       const nodeRequest = buildCreateNodeRequestFromTemplate(template, {
-        x: sourceNode ? (sourceNode.position_x ?? 0) + WORKER_WIDTH + 96 : position.x,
+        x: sourceNode
+          ? template.boundary_kind === "start"
+            ? (sourceNode.position_x ?? 0) - BOUNDARY_WIDTH - MIN_NODE_HORIZONTAL_GAP
+            : (sourceNode.position_x ?? 0) + WORKER_WIDTH + MIN_NODE_HORIZONTAL_GAP
+          : position.x,
         y: sourceNode ? sourceNode.position_y ?? 0 : position.y,
         stageId: sourceNode ? sourceNode.stage_id ?? null : stage?.id ?? null,
       });
@@ -947,9 +956,11 @@ export function WorkflowPanoramaPage({ workflowId, viewToggle }: WorkflowPanoram
         onSuccess: (created) => {
           pushServerAction({ type: "create-node", nodeId: created.id, nodeRequest });
           if (!sourceNodeId) return;
+          const sourceId = template.boundary_kind === "start" ? created.id : sourceNodeId;
+          const targetId = template.boundary_kind === "start" ? sourceNodeId : created.id;
           createEdgeMutation.mutate({
-            source_node_id: sourceNodeId,
-            target_node_id: created.id,
+            source_node_id: sourceId,
+            target_node_id: targetId,
           } as Parameters<typeof createEdgeMutation.mutate>[0], {
             onSuccess: (_edge, vars) => {
               pushServerAction({

@@ -16,7 +16,6 @@ import {
 export interface NodeTemplatePickerProps {
   onSelect: (template: NodeTemplate) => void;
   disabledTemplateIds?: Set<string>;
-  excludeBoundary?: boolean;
 }
 
 function getCategoryLabel(
@@ -42,14 +41,10 @@ function getCategoryLabel(
 export function NodeTemplatePicker({
   onSelect,
   disabledTemplateIds = new Set<string>(),
-  excludeBoundary = false,
 }: NodeTemplatePickerProps) {
   const { t } = useT("workflows");
   const [query, setQuery] = useState("");
-  const templates = useMemo(
-    () => filterNodeTemplates(query).filter((template) => !excludeBoundary || !template.boundary_kind),
-    [excludeBoundary, query],
-  );
+  const templates = useMemo(() => filterNodeTemplates(query), [query]);
 
   return (
     <div

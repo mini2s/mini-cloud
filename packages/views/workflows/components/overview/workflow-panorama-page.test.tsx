@@ -1199,6 +1199,8 @@ describe("WorkflowPanoramaPage (new)", () => {
     });
 
     expect(screen.getByTestId("node-template-picker")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^Start:/ })).toBeEnabled();
+    expect(screen.getByRole("button", { name: /^End:/ })).toBeEnabled();
     expect(mocks.createNodeMutate).not.toHaveBeenCalled();
   });
 
@@ -1235,6 +1237,40 @@ describe("WorkflowPanoramaPage (new)", () => {
       {
         source_node_id: "node-1",
         target_node_id: "created-node",
+      },
+      expect.any(Object),
+    );
+  });
+
+  it("creates a selected start node before the source and connects it in boundary direction", () => {
+    mocks.nodesData = [
+      { id: "node-1", workflow_id: "wf-1", title: "A", description: "", worker_type: "agent", worker_id: null, critic_type: "human", critic_id: null, critic_api_url: null, stage_id: "stage-1", format_schema: null, position_x: 500, position_y: 0, sort_order: 0, created_at: "", updated_at: "" },
+    ];
+
+    render(<WorkflowPanoramaPage workflowId="wf-1" />);
+
+    const worker = mocks.reactFlowProps?.nodes.find((node) => node.id === "node-1");
+    act(() => {
+      (worker?.data.onAddConnectedNode as undefined | ((nodeId: string) => void))?.("node-1");
+    });
+    fireEvent.click(screen.getByRole("button", { name: /^Start:/ }));
+
+    expect(mocks.createNodeMutate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        title: "Start",
+        position_x: 228,
+        stage_id: "stage-1",
+      }),
+      expect.any(Object),
+    );
+
+    const [, options] = mocks.createNodeMutate.mock.calls[0]!;
+    options.onSuccess({ id: "created-start" });
+
+    expect(mocks.createEdgeMutate).toHaveBeenCalledWith(
+      {
+        source_node_id: "created-start",
+        target_node_id: "node-1",
       },
       expect.any(Object),
     );
