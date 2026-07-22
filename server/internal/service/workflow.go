@@ -320,15 +320,18 @@ func (s *WorkflowService) startRun(ctx context.Context, workflow db.MulticaWorkf
 			})
 		} else {
 			r, err = qtx.CreateWorkflowRunWithDispatchKey(ctx, db.CreateWorkflowRunWithDispatchKeyParams{
-				WorkflowID:    workflow.ID,
-				WorkspaceID:   workflow.WorkspaceID,
-				WorkflowTitle: workflow.Title,
-				Status:        runStatus,
+				WorkflowID:          workflow.ID,
+				WorkspaceID:         workflow.WorkspaceID,
+				WorkflowTitle:       workflow.Title,
+				Status:              runStatus,
 				TriggeredByType:     triggeredByType,
 				TriggeredByID:       triggeredByUUID,
 				Input:               input,
 				RuntimeID:           runtimeID,
 				DispatchKey:         textToPgText(dispatchKey),
+				SourceIssueID:       runtimeContext.SourceIssueID,
+				ResponsibleUserID:   runtimeContext.ResponsibleUserID,
+				RuntimeAuthorizerID: runtimeContext.RuntimeAuthorizerID,
 			})
 		}
 		if err != nil {
