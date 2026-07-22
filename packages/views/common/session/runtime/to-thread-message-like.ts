@@ -230,14 +230,17 @@ export function toThreadMessageLike(
       return message ? [message] : [];
     }),
   );
-  const lastAssistantId = [...orderedMessages]
-    .reverse()
-    .find((message) => message.info?.role === "assistant")?.info?.id;
+  const lastMessage = orderedMessages.at(-1);
+  const activeAssistantId =
+    Object.keys(state.pendingMessages).length === 0 &&
+    lastMessage?.info?.role === "assistant"
+      ? lastMessage.info.id
+      : undefined;
   const serverMessages = orderedMessages.flatMap((message) => {
     const projected = projectServerMessage(
       state,
       message,
-      message.info?.id === lastAssistantId,
+      message.info?.id === activeAssistantId,
     );
     return projected ? [projected] : [];
   });

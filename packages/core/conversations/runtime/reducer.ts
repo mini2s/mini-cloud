@@ -310,6 +310,67 @@ function indexTasks(
   return indexed;
 }
 
+function comparablePromptParts(
+  parts: readonly (OpenCodePromptPart | OpenCodePart)[],
+): readonly OpenCodeRecord[] | undefined {
+  const comparable: OpenCodeRecord[] = [];
+  for (const part of parts) {
+    if (part.type === "text" && typeof part.text === "string") {
+      comparable.push({ type: "text", text: part.text });
+      continue;
+    }
+    if (
+      part.type === "file" &&
+      typeof part.filename === "string" &&
+      typeof part.mime === "string" &&
+      typeof part.url === "string"
+    ) {
+      comparable.push({
+        type: "file",
+        filename: part.filename,
+        mime: part.mime,
+        url: part.url,
+      });
+      continue;
+    }
+    return undefined;
+  }
+  return comparable;
+}
+
+function reconcilePendingMessages(
+  state: ConversationRuntimeState,
+  messages: readonly OpenCodeMessageWithParts[],
+): ConversationRuntimeState["pendingMessages"] {
+  const pending = Object.values(state.pendingMessages).sort(
+    (left, right) => left.createdAt - right.createdAt,
+  );
+  if (pending.length === 0) return state.pendingMessages;
+
+  const remaining = { ...state.pendingMessages };
+  for (const message of messages) {
+    if (
+      message.info.role !== "user" ||
+      state.messagesById[message.info.id]?.info?.role === "user"
+    ) {
+      continue;
+    }
+    const serverParts = comparablePromptParts(message.parts);
+    if (!serverParts) continue;
+    const pendingIndex = pending.findIndex((candidate) => {
+      const candidateParts = comparablePromptParts(candidate.parts);
+      return (
+        candidateParts !== undefined &&
+        JSON.stringify(candidateParts) === JSON.stringify(serverParts)
+      );
+    });
+    if (pendingIndex === -1) continue;
+    const [matched] = pending.splice(pendingIndex, 1);
+    if (matched) delete remaining[matched.id];
+  }
+  return remaining;
+}
+
 function appendUnhandled(
   state: ConversationRuntimeState,
   event: OpenCodeRuntimeEvent,
@@ -418,6 +479,10 @@ export function reduceConversationRuntimeState(
             state.conversationId,
           ),
           questions,
+          pendingMessages: reconcilePendingMessages(
+            state,
+            action.snapshot.messages,
+          ),
           todo: action.snapshot.todo,
           tasks:
             action.snapshot.tasks === null

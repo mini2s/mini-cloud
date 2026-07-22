@@ -1033,11 +1033,16 @@ describe("IssueDetail (shared)", () => {
 
     await waitFor(() => expect(mockTakeoverNodeRun).toHaveBeenCalledWith("node-run-1"));
     expect(mockTakeoverNodeRun).toHaveBeenCalledTimes(1);
-    expect(screen.getByRole("tab", { name: "Live session" })).toHaveAttribute(
-      "aria-selected",
-      "true",
-    );
+    const liveSessionTab = screen.getByRole("tab", { name: "Live session" });
+    const activityTab = screen.getByRole("tab", { name: "Activity" });
+    expect(liveSessionTab).toHaveAttribute("aria-selected", "true");
     expect(screen.getByRole("textbox", { name: "Live session message" })).toBeEnabled();
+
+    fireEvent.click(activityTab);
+
+    expect(activityTab).toHaveAttribute("aria-selected", "true");
+    expect(liveSessionTab).toHaveAttribute("aria-selected", "false");
+    expect(mockTakeoverNodeRun).toHaveBeenCalledTimes(1);
   });
 
   it("enters the live session tab in observe mode and takes over from inside", async () => {

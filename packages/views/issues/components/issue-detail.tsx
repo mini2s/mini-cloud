@@ -851,6 +851,7 @@ export function IssueDetail({
   const [contentTab, setContentTab] = useState<"activity" | "session">("activity");
   const [sessionOpened, setSessionOpened] = useState(false);
   const [sessionMode, setSessionMode] = useState<SessionMode>("observe");
+  const deepLinkSessionOpenedRef = useRef<string | null>(null);
   const deepLinkTakeoverAttemptedRef = useRef<string | null>(null);
 
   // Per-session: which resolved threads the user has temporarily expanded.
@@ -1204,6 +1205,7 @@ export function IssueDetail({
   }, [canTakeOverSession, originNodeRun, takeoverMutation, t]);
 
   useEffect(() => {
+    deepLinkSessionOpenedRef.current = null;
     deepLinkTakeoverAttemptedRef.current = null;
   }, [id]);
 
@@ -1231,15 +1233,34 @@ export function IssueDetail({
   }, [canControlSession, contentTab]);
 
   useEffect(() => {
-    if (!initialLiveSession || !originNodeRun?.session_id || !canControlSession) return;
+    if (!initialLiveSession) {
+      deepLinkSessionOpenedRef.current = null;
+      return;
+    }
+    if (!originNodeRun?.session_id || !canControlSession) return;
+
+    const sessionKey = `${id}:${originNodeRun.session_id}`;
+    if (deepLinkSessionOpenedRef.current === sessionKey) return;
+
+    deepLinkSessionOpenedRef.current = sessionKey;
 
     setSessionOpened(true);
     setSessionMode(sessionIsTakenOver ? "control" : "observe");
     setContentTab("session");
+  }, [
+    canControlSession,
+    id,
+    initialLiveSession,
+    originNodeRun?.session_id,
+    sessionIsTakenOver,
+  ]);
 
+  useEffect(() => {
     if (
+      !initialLiveSession ||
       !takeoverSessionOnOpen ||
       !canTakeOverSession ||
+      !originNodeRun?.id ||
       deepLinkTakeoverAttemptedRef.current === originNodeRun.id
     ) {
       return;
@@ -1248,13 +1269,10 @@ export function IssueDetail({
     deepLinkTakeoverAttemptedRef.current = originNodeRun.id;
     void handleTakeoverSession();
   }, [
-    canControlSession,
     canTakeOverSession,
     handleTakeoverSession,
     initialLiveSession,
     originNodeRun?.id,
-    originNodeRun?.session_id,
-    sessionIsTakenOver,
     takeoverSessionOnOpen,
   ]);
 

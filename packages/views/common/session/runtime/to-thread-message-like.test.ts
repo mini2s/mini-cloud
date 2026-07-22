@@ -1,8 +1,62 @@
 import { describe, expect, it } from "vitest";
-import { createConversationRuntimeState } from "@multica/core/conversations";
+import {
+  createConversationRuntimeState,
+  createPendingMessage,
+  reduceConversationRuntimeState,
+} from "@multica/core/conversations";
 import { toThreadMessageLike } from "./to-thread-message-like";
 
 describe("toThreadMessageLike", () => {
+  it("projects one user message after a REST snapshot reconciles its optimistic copy", () => {
+    const pending = {
+      ...createPendingMessage("conversation-1", [
+        { type: "text" as const, text: "hello" },
+      ]),
+      id: "pending-1",
+      createdAt: 100,
+    };
+    let state = reduceConversationRuntimeState(
+      createConversationRuntimeState("conversation-1"),
+      { type: "pending-message-added", message: pending },
+    ).state;
+    state = reduceConversationRuntimeState(state, {
+      type: "snapshot-loaded",
+      snapshot: {
+        conversation: null,
+        messages: [
+          {
+            info: {
+              id: "server-user-1",
+              role: "user",
+              time: { created: 110 },
+            },
+            parts: [
+              {
+                id: "part-1",
+                messageID: "server-user-1",
+                type: "text",
+                text: "hello",
+              },
+            ],
+          },
+        ],
+        status: null,
+        permissions: [],
+        questions: [],
+        todo: [],
+        tasks: [],
+      },
+    }).state;
+
+    expect(toThreadMessageLike(state)).toMatchObject([
+      {
+        id: "server-user-1",
+        role: "user",
+        content: [{ type: "text", text: "hello" }],
+      },
+    ]);
+  });
+
   it("projects text, reasoning, files, tools, and unsupported parts", () => {
     const state = createConversationRuntimeState("conversation-1");
     const next = {
@@ -65,6 +119,77 @@ describe("toThreadMessageLike", () => {
         data: { type: "step-start" },
       },
     ]);
+  });
+
+  it("does not keep the previous assistant running after a new user message is pending", () => {
+    const state = createConversationRuntimeState("conversation-1");
+    const messages = toThreadMessageLike({
+      ...state,
+      runState: { type: "streaming" },
+      messageOrder: ["assistant-1"],
+      messagesById: {
+        "assistant-1": {
+          info: {
+            id: "assistant-1",
+            role: "assistant",
+            time: { created: 10 },
+          },
+          parts: [{ id: "text-1", type: "text", text: "previous reply" }],
+        },
+      },
+      pendingMessages: {
+        "pending-user-1": {
+          id: "pending-user-1",
+          createdAt: 20,
+          status: "pending",
+          parts: [{ type: "text", text: "next question" }],
+        },
+      },
+    });
+
+    expect(messages).toMatchObject([
+      {
+        id: "assistant-1",
+        role: "assistant",
+        status: { type: "incomplete", reason: "other" },
+      },
+      {
+        id: "pending-user-1",
+        role: "user",
+      },
+    ]);
+  });
+
+  it("does not keep the previous assistant running after the REST user message arrives", () => {
+    const state = createConversationRuntimeState("conversation-1");
+    const messages = toThreadMessageLike({
+      ...state,
+      runState: { type: "streaming" },
+      messageOrder: ["assistant-1", "user-1"],
+      messagesById: {
+        "assistant-1": {
+          info: {
+            id: "assistant-1",
+            role: "assistant",
+            time: { created: 10 },
+          },
+          parts: [{ id: "text-1", type: "text", text: "previous reply" }],
+        },
+        "user-1": {
+          info: {
+            id: "user-1",
+            role: "user",
+            time: { created: 20 },
+          },
+          parts: [{ id: "text-2", type: "text", text: "next question" }],
+        },
+      },
+    });
+
+    expect(messages[0]).toMatchObject({
+      id: "assistant-1",
+      status: { type: "incomplete", reason: "other" },
+    });
   });
 
   it("projects errors, pending interactions, and optimistic messages", () => {

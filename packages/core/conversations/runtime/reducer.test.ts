@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { OpenCodeRuntimeEvent } from "../types";
 import {
+  createPendingMessage,
   reduceConversationRuntimeState,
   type ConversationRuntimeSnapshot,
 } from "./reducer";
@@ -37,6 +38,120 @@ function snapshot(
 }
 
 describe("reduceConversationRuntimeState", () => {
+  it("reconciles an optimistic user message from the REST snapshot", () => {
+    const pending = {
+      ...createPendingMessage("conversation-1", [
+        { type: "text" as const, text: "hello" },
+      ]),
+      id: "pending-1",
+      createdAt: 100,
+    };
+    let state = reduceConversationRuntimeState(
+      createConversationRuntimeState("conversation-1"),
+      { type: "pending-message-added", message: pending },
+    ).state;
+
+    state = reduceConversationRuntimeState(state, {
+      type: "snapshot-loaded",
+      snapshot: snapshot({
+        messages: [
+          {
+            info: {
+              id: "server-user-1",
+              role: "user",
+              time: { created: 110 },
+            },
+            parts: [
+              {
+                id: "part-1",
+                messageID: "server-user-1",
+                type: "text",
+                text: "hello",
+              },
+            ],
+          },
+        ],
+      }),
+    }).state;
+
+    expect(state.messageOrder).toEqual(["server-user-1"]);
+    expect(state.pendingMessages).toEqual({});
+  });
+
+  it("preserves an optimistic message when the REST user message differs", () => {
+    const pending = {
+      ...createPendingMessage("conversation-1", [
+        { type: "text" as const, text: "local message" },
+      ]),
+      id: "pending-1",
+      createdAt: 100,
+    };
+    let state = reduceConversationRuntimeState(
+      createConversationRuntimeState("conversation-1"),
+      { type: "pending-message-added", message: pending },
+    ).state;
+
+    state = reduceConversationRuntimeState(state, {
+      type: "snapshot-loaded",
+      snapshot: snapshot({
+        messages: [
+          {
+            info: { id: "server-user-1", role: "user" },
+            parts: [
+              {
+                id: "part-1",
+                messageID: "server-user-1",
+                type: "text",
+                text: "different message",
+              },
+            ],
+          },
+        ],
+      }),
+    }).state;
+
+    expect(state.pendingMessages).toEqual({ "pending-1": pending });
+  });
+
+  it("does not reconcile an optimistic message against existing history", () => {
+    const historicalMessage = {
+      info: { id: "historical-user-1", role: "user" },
+      parts: [
+        {
+          id: "historical-part-1",
+          messageID: "historical-user-1",
+          type: "text",
+          text: "same message",
+        },
+      ],
+    };
+    let state = reduceConversationRuntimeState(
+      createConversationRuntimeState("conversation-1"),
+      {
+        type: "snapshot-loaded",
+        snapshot: snapshot({ messages: [historicalMessage] }),
+      },
+    ).state;
+    const pending = {
+      ...createPendingMessage("conversation-1", [
+        { type: "text" as const, text: "same message" },
+      ]),
+      id: "pending-1",
+      createdAt: 100,
+    };
+    state = reduceConversationRuntimeState(state, {
+      type: "pending-message-added",
+      message: pending,
+    }).state;
+
+    state = reduceConversationRuntimeState(state, {
+      type: "snapshot-loaded",
+      snapshot: snapshot({ messages: [historicalMessage] }),
+    }).state;
+
+    expect(state.pendingMessages).toEqual({ "pending-1": pending });
+  });
+
   it("preserves answered and rejected question responses after removing pending requests", () => {
     const answeredRequest = {
       id: "question-answered",
