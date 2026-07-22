@@ -1,6 +1,6 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import { RuntimeSplitSubflowNode } from "./runtime-canvas-node";
+import { RuntimeSplitSubflowNode, runtimeCanvasNodeTypes } from "./runtime-canvas-node";
 
 vi.mock("@xyflow/react", () => ({
   Handle: () => <div data-testid="subflow-handle" />,
@@ -76,6 +76,10 @@ function runtimeSummary(workflowNodeId: string, displayStatus: string) {
 }
 
 describe("RuntimeSplitSubflowNode", () => {
+  it("registers the boundary renderer used by the shared canvas model", () => {
+    expect(runtimeCanvasNodeTypes).toHaveProperty("boundary");
+  });
+
   it("renders dependency lines and canvas-aligned child cards inside the subflow", () => {
     render(
       <RuntimeSplitSubflowNode
