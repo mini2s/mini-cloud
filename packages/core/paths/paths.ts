@@ -47,6 +47,7 @@ function workspaceScoped(slug: string) {
     home: () => `${ws}/home`,
     sessions: () => `${ws}/sessions`,
     reviews: () => `${ws}/reviews`,
+    hub: () => `${ws}/hub`,
     dispatch: () => `${ws}/dispatch`,
     wiki: () => `${ws}/wiki`,
     memory: () => `${ws}/memory`,

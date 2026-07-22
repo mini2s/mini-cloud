@@ -5,7 +5,7 @@
     "issues": "Issue",
     "projects": "项目",
     "autopilots": "自动化",
-    "agents": "智能体",
+    "digital_human": "数字人",
     "squads": "小队",
     "usage": "用量",
     "runtimes": "运行时",
@@ -32,7 +32,8 @@
     "me_profile": "我的资料",
     "me_quota": "我的配额",
     "me_notifications": "我的通知",
-    "me_devices": "我的设备"
+    "me_devices": "我的设备",
+    "hub": "Hub"
   },
   "help": {
     "trigger": "帮助",

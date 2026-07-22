@@ -5,7 +5,7 @@
     "issues": "Issues",
     "projects": "Projects",
     "autopilots": "Autopilot",
-    "agents": "Agents",
+    "digital_human": "Digital Humans",
     "members": "Members",
     "squads": "Squads",
     "usage": "Usage",
@@ -32,7 +32,8 @@
     "me_profile": "Profile",
     "me_quota": "My Quota",
     "me_notifications": "Notifications",
-    "me_devices": "My Devices"
+    "me_devices": "My Devices",
+    "hub": "Hub"
   },
   "help": {
     "trigger": "Help",

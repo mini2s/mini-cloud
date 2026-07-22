@@ -30,16 +30,14 @@ import {
 import { HOME_NAV, NAV_GROUPS, type NavGroup } from "./sidebar-config";
 
 // Per-group default open state. Groups the operator lives in day-to-day
-// (workbench, projects, collaboration, repository) start expanded; the
-// heavier admin / metrics / me groups stay collapsed until opened.
+// All groups start expanded.
 const DEFAULT_OPEN: Record<string, boolean> = {
   workbench: true,
-  projects: true,
   collaboration: true,
   repository: true,
-  metrics: false,
-  admin: false,
-  me: false,
+  metrics: true,
+  admin: true,
+  me: true,
 };
 
 /**

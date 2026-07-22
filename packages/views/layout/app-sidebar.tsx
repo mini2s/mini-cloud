@@ -18,7 +18,6 @@ import { SortableContext, verticalListSortingStrategy, useSortable, arrayMove } 
 import { CSS } from "@dnd-kit/utilities";
 import {
   Inbox,
-  ListTodo,
   Bot,
   Monitor,
   ChevronDown,
@@ -33,7 +32,6 @@ import {
   FolderKanban,
   BarChart3,
   X,
-  Zap,
   IdCard,
   Users,
   GitBranch,
@@ -41,7 +39,6 @@ import {
   LayoutDashboard,
   MessagesSquare,
   ClipboardCheck,
-  Send,
   FileText,
   Brain,
   Gauge,
@@ -53,6 +50,7 @@ import {
   Server,
   Plug,
   Megaphone,
+  Network,
   Percent,
   User,
   Wallet,
@@ -132,7 +130,6 @@ type NavKey =
   | "myIssues"
   | "issues"
   | "projects"
-  | "autopilots"
   | "agents"
   | "members"
   | "squads"
@@ -145,9 +142,9 @@ type NavKey =
   | "home"
   | "sessions"
   | "reviews"
-  | "dispatch"
   | "wiki"
   | "memory"
+  | "hub"
   | "metricsEfficiency"
   | "metricsQuality"
   | "metricsCost"
@@ -169,8 +166,7 @@ type NavLabelKey =
   | "my_issues"
   | "issues"
   | "projects"
-  | "autopilots"
-  | "agents"
+  | "digital_human"
   | "members"
   | "squads"
   | "usage"
@@ -181,9 +177,9 @@ type NavLabelKey =
   | "home"
   | "sessions"
   | "reviews"
-  | "dispatch"
   | "wiki"
   | "memory"
+  | "hub"
   | "metrics_efficiency"
   | "metrics_quality"
   | "metrics_cost"
@@ -211,25 +207,21 @@ const workbenchNav: NavItem[] = [
   { key: "sessions", labelKey: "sessions", icon: MessagesSquare },
   { key: "myIssues", labelKey: "my_issues", icon: CircleUser },
   { key: "reviews", labelKey: "reviews", icon: ClipboardCheck },
-];
-
-const projectNav: NavItem[] = [
   { key: "projects", labelKey: "projects", icon: FolderKanban },
-  { key: "issues", labelKey: "issues", icon: ListTodo },
 ];
 
 const collaborationNav: NavItem[] = [
   { key: "workflows", labelKey: "workflows", icon: GitBranch },
-  { key: "autopilots", labelKey: "autopilots", icon: Zap },
   { key: "squads", labelKey: "squads", icon: Users },
-  { key: "dispatch", labelKey: "dispatch", icon: Send },
-  { key: "agents", labelKey: "agents", icon: Bot },
+  { key: "members", labelKey: "members", icon: IdCard },
+  { key: "agents", labelKey: "digital_human", icon: Bot },
 ];
 
 const repositoryNav: NavItem[] = [
   { key: "wiki", labelKey: "wiki", icon: FileText },
   { key: "skills", labelKey: "skills", icon: BookOpenText },
   { key: "memory", labelKey: "memory", icon: Brain },
+  { key: "hub", labelKey: "hub", icon: Network },
 ];
 
 const metricsNav: NavItem[] = [
@@ -242,7 +234,6 @@ const metricsNav: NavItem[] = [
 ];
 
 const adminNav: NavItem[] = [
-  { key: "members", labelKey: "members", icon: IdCard },
   { key: "permissions", labelKey: "permissions", icon: KeyRound },
   { key: "devices", labelKey: "devices", icon: Server },
   { key: "connectors", labelKey: "connectors", icon: Plug },
@@ -260,9 +251,8 @@ const meNav: NavItem[] = [
 ];
 
 // Labeled groups rendered with a header. Order matches the product IA.
-const labeledNavGroups: { labelKey: "workbench_group" | "project_group" | "collaboration_group" | "repository_group" | "metrics_group" | "admin_group" | "me_group"; items: NavItem[] }[] = [
+const labeledNavGroups: { labelKey: "workbench_group" | "collaboration_group" | "repository_group" | "metrics_group" | "admin_group" | "me_group"; items: NavItem[] }[] = [
   { labelKey: "workbench_group", items: workbenchNav },
-  { labelKey: "project_group", items: projectNav },
   { labelKey: "collaboration_group", items: collaborationNav },
   { labelKey: "repository_group", items: repositoryNav },
   { labelKey: "metrics_group", items: metricsNav },
@@ -817,7 +807,7 @@ export function AppSidebar({ topSlot, searchSlot, headerClassName, headerStyle }
           {labeledNavGroups.map((group) => {
             const items = group.items.filter((item) => SKILLS_ENABLED || item.key !== "skills");
             return (
-              <Collapsible key={group.labelKey} defaultOpen={false}>
+              <Collapsible key={group.labelKey} defaultOpen={true}>
                 <SidebarGroup className="group/nav-group">
                   <SidebarGroupLabel
                     render={<CollapsibleTrigger />}
