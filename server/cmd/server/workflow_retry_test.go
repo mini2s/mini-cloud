@@ -97,7 +97,9 @@ func TestCreateRetryTaskPreservesWorkflowNodeRunID(t *testing.T) {
 	}
 
 	queries := db.New(testPool)
-	child, err := queries.CreateRetryTask(ctx, pgtype.UUID{Bytes: parseUUIDBytes(parentID), Valid: true})
+	child, err := queries.CreateRetryTask(ctx, db.CreateRetryTaskParams{
+		ParentTaskID: pgtype.UUID{Bytes: parseUUIDBytes(parentID), Valid: true},
+	})
 	if err != nil {
 		t.Fatalf("CreateRetryTask failed: %v", err)
 	}

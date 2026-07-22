@@ -281,6 +281,8 @@ export interface WorkflowRun {
   status: WorkflowRunStatus;
   triggered_by_type: string;
   triggered_by_id: string | null;
+  /** Optional run-level manual runtime preference; actual selection remains per node. */
+  runtime_id: string | null;
   input: unknown;
   output: unknown;
   started_at: string;
@@ -309,6 +311,10 @@ export interface WorkflowNodeRun {
   session_id: string | null;
   /** Runtime that owns the session for this node run, if any. */
   runtime_id: string | null;
+  /** Why this runtime was selected for the current execution phase. */
+  runtime_selection_reason: string | null;
+  /** Stable terminal reason when dispatch cannot select a runtime. */
+  failure_reason: string | null;
   /** Device identifier for the runtime/session bound to this node run, if any. */
   device_id: string | null;
   /** Chat session used for natural-language split draft review, if any. */

@@ -66,6 +66,7 @@ export class TestApiClient {
   private static readonly DEFAULT_NODE_GRID_Y_GAP = 180;
 
   private token: string | null = null;
+  private csrfToken: string | null = null;
   private userId: string | null = null;
   private workspaceSlug: string | null = null;
   private workspaceId: string | null = null;
@@ -91,6 +92,7 @@ export class TestApiClient {
       if (!verifyRes.ok) {
         throw new Error(`verify-code failed: ${verifyRes.status}`);
       }
+      this.captureCsrfCookie(verifyRes);
       const data = await verifyRes.json();
 
       this.token = data.token;
@@ -137,6 +139,7 @@ export class TestApiClient {
       if (!verifyRes.ok) {
         throw new Error(`verify-code failed: ${verifyRes.status}`);
       }
+      this.captureCsrfCookie(verifyRes);
       const data = await verifyRes.json();
 
       this.token = data.token;
@@ -172,7 +175,7 @@ export class TestApiClient {
 
   async ensureWorkspace(name = "E2E Workspace", slug = "e2e-workspace") {
     const workspaces = await this.getWorkspaces();
-    const workspace = workspaces.find((item) => item.slug === slug) ?? workspaces[0];
+    const workspace = workspaces.find((item) => item.slug === slug);
     if (workspace) {
       this.workspaceId = workspace.id;
       this.workspaceSlug = workspace.slug;
@@ -190,7 +193,7 @@ export class TestApiClient {
     }
 
     const refreshed = await this.getWorkspaces();
-    const created = refreshed.find((item) => item.slug === slug) ?? refreshed[0];
+    const created = refreshed.find((item) => item.slug === slug);
     if (created) {
       this.workspaceId = created.id;
       return created;
@@ -332,6 +335,40 @@ export class TestApiClient {
     const res = await this.authedFetch(`/api/workflows/${workflowId}/runs/${runId}/node-runs`);
     const body = await res.json();
     return body.node_runs ?? [];
+  }
+
+  async startWorkflowRun(workflowId: string, runtimeId?: string | null) {
+    const res = await this.requestStartWorkflowRun(workflowId, runtimeId);
+    if (!res.ok) {
+      throw new Error(`start workflow run failed: ${res.status} ${await res.text()}`);
+    }
+    return res.json();
+  }
+
+  async requestStartWorkflowRun(workflowId: string, runtimeId?: string | null) {
+    const body = runtimeId === undefined ? {} : { runtime_id: runtimeId };
+    return this.authedFetch(`/api/workflows/${workflowId}/runs`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    });
+  }
+
+  async getWorkflowRun(workflowId: string, runId: string) {
+    const res = await this.authedFetch(`/api/workflows/${workflowId}/runs/${runId}`);
+    if (!res.ok) {
+      throw new Error(`get workflow run failed: ${res.status} ${await res.text()}`);
+    }
+    return res.json();
+  }
+
+  async cancelWorkflowRun(workflowId: string, runId: string) {
+    const res = await this.authedFetch(`/api/workflows/${workflowId}/runs/${runId}/cancel`, {
+      method: "POST",
+      body: JSON.stringify({}),
+    });
+    if (!res.ok) {
+      throw new Error(`cancel workflow run failed: ${res.status} ${await res.text()}`);
+    }
   }
 
   async listWorkflowEdges(workflowId: string) {
@@ -536,6 +573,15 @@ export class TestApiClient {
   /** Clean up all issues, workflows, agents created during this test.
    *  Workflow cascade deletion handles associated stages and nodes. */
   async cleanup() {
+    for (const id of this.createdIssueIds) {
+      try {
+        await this.deleteIssue(id);
+      } catch {
+        /* ignore — may already be deleted */
+      }
+    }
+    this.createdIssueIds = [];
+
     for (const id of this.createdWorkflowIds) {
       try {
         await this.deleteWorkflow(id);
@@ -555,24 +601,43 @@ export class TestApiClient {
       }
     }
     this.createdAgentIds = [];
-
-    for (const id of this.createdIssueIds) {
-      try {
-        await this.deleteIssue(id);
-      } catch {
-        /* ignore — may already be deleted */
-      }
-    }
-    this.createdIssueIds = [];
   }
 
   getToken() {
     return this.token;
   }
 
+  getCsrfToken() {
+    return this.csrfToken;
+  }
+
+  getUserId() {
+    return this.userId;
+  }
+
+  getWorkspaceId() {
+    return this.workspaceId;
+  }
+
+  getWorkspaceSlug() {
+    return this.workspaceSlug;
+  }
+
   /** Inject an existing JWT token — skip the login flow entirely. */
   injectToken(token: string) {
     this.token = token;
+  }
+
+  private captureCsrfCookie(response: Response) {
+    const headers = response.headers as Headers & { getSetCookie?: () => string[] };
+    const setCookies = headers.getSetCookie?.() ?? [headers.get("set-cookie") ?? ""];
+    for (const value of setCookies) {
+      const match = value.match(/(?:^|,\s*)multica_csrf=([^;,]+)/);
+      if (match?.[1]) {
+        this.csrfToken = match[1];
+        return;
+      }
+    }
   }
 
   private async authedFetch(path: string, init?: RequestInit) {

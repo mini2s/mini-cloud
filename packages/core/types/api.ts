@@ -10,6 +10,8 @@ export interface CreateIssueRequest {
   priority?: IssuePriority;
   assignee_type?: IssueAssigneeType;
   assignee_id?: string;
+  /** Optional preferred runtime when the assignee starts a workflow. */
+  runtime_id?: string | null;
   parent_issue_id?: string;
   project_id?: string;
   start_date?: string;
