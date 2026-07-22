@@ -2,10 +2,10 @@
 
 ## 1. 文档状态
 
-- 状态：待执行
+- 状态：自动化已生成，执行结果见 `artifacts/e2e/workflow-runtime-selection-20260722/report.md`
 - 对应方案：[工作流节点运行时选择策略](./workflow-runtime-selection-strategy.md)
-- 适用分支：`codex/workflow-runtime-selection`
-- 目标提交：`4df1c6d2` 及其后续修订
+- 适用分支：`workflow-runtime-selection`
+- 目标提交：`1dc8e222` 及其后续修订
 - 测试对象：Web、API、Workflow Service、PostgreSQL、任务队列、daemon
 
 ## 2. 测试目标
@@ -61,7 +61,7 @@
 
 ### 4.1 确定性 E2E 环境（PR 必跑）
 
-在独立 worktree 数据库中启动完整 Web、API 和 PostgreSQL。使用测试运行时驱动模拟 daemon 的注册、心跳、claim、start、complete、fail 和 cancel 行为。
+在当前项目的专用 E2E 工作区中启动完整 Web、API 和 PostgreSQL。测试夹具按用例保存并恢复既有运行时状态，使用带 `e2e_suite=workflow_runtime_selection` 标记的测试运行时构造心跳和负载；工作流与 task 仍通过产品 HTTP 入口创建。
 
 测试驱动不得绕过 API 创建 task；允许在专用测试数据库中调整以下外部状态，以构造确定性前置条件：
 
@@ -95,12 +95,11 @@
 
 ### 5.2 启动命令
 
-在隔离 worktree 中执行：
+在当前项目中执行：
 
 ```bash
-make worktree-env
-make setup-worktree
-make start-worktree
+make setup
+make start
 pnpm exec playwright install chromium
 ```
 
