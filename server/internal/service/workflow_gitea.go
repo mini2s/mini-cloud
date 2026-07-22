@@ -61,11 +61,14 @@ func (s *WorkflowService) teamNamespaceConfigured() bool {
 }
 
 func userRefFromMember(m db.ListMembersWithUserRow) teamnamespace.UserRef {
-	if m.UserID.Valid {
-		return teamnamespace.UserRef{UserID: util.UUIDToString(m.UserID)}
-	}
+	// Prefer the costrict universal_id (resolvable by @server via cs-user —
+	// and by the local mock via dept). Fall back to the multica user_id only for
+	// members without a dept identity (the mock can't resolve a bare user_id).
 	if m.ExternalUniversalID.Valid && strings.TrimSpace(m.ExternalUniversalID.String) != "" {
 		return teamnamespace.UserRef{UniversalID: strings.TrimSpace(m.ExternalUniversalID.String)}
+	}
+	if m.UserID.Valid {
+		return teamnamespace.UserRef{UserID: util.UUIDToString(m.UserID)}
 	}
 	return teamnamespace.UserRef{}
 }

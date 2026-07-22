@@ -308,6 +308,11 @@ func (h *Handler) StartWorkflowRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Dispatch root node-runs. StartRun (Test-run path) doesn't dispatch on its
+	// own — only StartRunForIssue does — so root nodes must be dispatched here or
+	// they sit in format_ok and never reach the agent runtime.
+	_ = h.WorkflowService.DispatchRootNodeRuns(r.Context(), run.ID)
+
 	// Scaffold the run's Gitea deliverable repo + lazily provision the workspace
 	// bot (document workflows only; no-op when Gitea is dormant). Fire-and-forget
 	// on context.Background(): the goroutine outlives the HTTP request, so

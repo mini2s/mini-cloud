@@ -346,7 +346,10 @@ func (s *WorkflowService) startRun(ctx context.Context, workflow db.MulticaWorkf
 			if hasRoleSlots {
 				status = NodeRunStatusBlocked
 			} else if !hasIncoming[util.UUIDToString(node.ID)] {
-				status = NodeRunStatusFormatChecking
+				// json_schema format validation is retired (executeFormatChecker
+				// skips it); root nodes go straight to format_ok so dispatch
+				// isn't gated on a vestigial format_checking state.
+				status = NodeRunStatusFormatOk
 			}
 			nodeRun, err := qtx.CreateWorkflowNodeRun(ctx, db.CreateWorkflowNodeRunParams{
 				WorkflowRunID: run.ID, WorkflowNodeID: node.ID, NodeTitle: node.Title,
