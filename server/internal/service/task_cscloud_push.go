@@ -322,10 +322,25 @@ func (s *TaskService) giteaDeliverableEnv(ctx context.Context, task db.MulticaAg
 	owner := gitea.OrgName(util.UUIDToString(run.WorkspaceID))
 	repo := DeliverableRepoNameForWorkflow(workflow)
 	refsJSON, _ := json.Marshal(refs)
+	// Bot PAT + Gitea base URL are pushed down so cs-cloud's `deliverable submit`
+	// can push the document + open a PR against Gitea directly, without relaying
+	// back through multica to fetch credentials. The PAT lives in workspace
+	// settings (minted by the team-namespace provisioning flow).
+	pat := ""
+	if ws, err := s.Queries.GetWorkspace(ctx, run.WorkspaceID); err == nil && len(ws.Settings) > 0 {
+		settingsMap := map[string]any{}
+		if json.Unmarshal(ws.Settings, &settingsMap) == nil {
+			if v, ok := settingsMap["gitea_pat"].(string); ok {
+				pat = v
+			}
+		}
+	}
 	return map[string]string{
 		"MULTICA_NODE_RUN_ID":        nodeRunIDStr,
 		"MULTICA_GITEA_OWNER":        owner,
 		"MULTICA_GITEA_REPO":         repo,
+		"MULTICA_GITEA_BASE_URL":     strings.TrimRight(publicBase, "/"),
+		"MULTICA_GITEA_TOKEN":        pat,
 		"MULTICA_GITEA_CLONE_URL":    strings.TrimRight(publicBase, "/") + "/" + owner + "/" + repo + ".git",
 		"MULTICA_GITEA_INST_BRANCH":  gitea.InstBranch(util.UUIDToString(run.ID)),
 		"MULTICA_GITEA_NODE_BRANCH":  gitea.NodeBranch(nodeSeq, nodeRunIDStr),
