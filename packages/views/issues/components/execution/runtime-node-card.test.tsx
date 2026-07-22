@@ -26,12 +26,13 @@ vi.mock("@multica/views/i18n", () => {
         waiting_upstream: "Waiting for upstream",
       },
       card: {
-        worker_label: "Worker",
-        critic_label: "Critic",
+        worker_label: "Executor",
+        critic_label: "Reviewer",
         artifacts_label: "Artifacts",
-        gateway_label_fork: "Fork gateway",
-        gateway_label_join: "Join gateway",
-        gateway_label: "Gateway",
+        gateway_label_fork: "Branch start",
+        gateway_label_join: "Join point",
+        gateway_label: "Branch node",
+        split_badge: "Split",
         split_child_count: "{{count}} child issues",
         split_child_count_one: "{{count}} child issue",
         split_child_count_other: "{{count}} child issues",
@@ -43,8 +44,8 @@ vi.mock("@multica/views/i18n", () => {
         split_child_cancelled: "{{count}} cancelled",
         split_child_expand: "Expand child issues",
         split_child_collapse: "Collapse child issues",
-			split_mode_barrier: "Barrier",
-			split_mode_pipeline: "Pipeline",
+        split_mode_barrier: "Wait for child issues",
+        split_mode_pipeline: "Continue after creation",
         actions: {
           approve: "Approve",
           reject: "Reject",
@@ -58,6 +59,7 @@ vi.mock("@multica/views/i18n", () => {
       detail_panel: {
         worker_output: "Worker Output",
         critic_output: "Critic Output",
+        open_session: "Open session",
       },
     },
   };
@@ -218,6 +220,44 @@ describe("RuntimeNodeCard", () => {
     expect(onClick).toHaveBeenCalledWith("node-1");
   });
 
+  it("opens the node session without opening the detail panel", async () => {
+    const onClick = vi.fn();
+    const onOpenSession = vi.fn();
+    render(
+      <RuntimeNodeCard
+        node={baseNode}
+        nodeRun={{ ...completedRun, session_id: "session-1" }}
+        workerName="小助手"
+        criticName="审核员"
+        onClick={onClick}
+        onOpenSession={onOpenSession}
+      />,
+    );
+
+    const sessionButton = screen.getByRole("button", { name: "Open session" });
+    expect(sessionButton.querySelector("svg")).toBeNull();
+    expect(sessionButton).toHaveClass("cursor-pointer", "hover:-translate-y-px", "hover:bg-primary/10");
+    await userEvent.click(sessionButton);
+
+    expect(onOpenSession).toHaveBeenCalledWith("node-1");
+    expect(onClick).not.toHaveBeenCalled();
+  });
+
+  it("hides the session action when the node has no session", () => {
+    render(
+      <RuntimeNodeCard
+        node={baseNode}
+        nodeRun={completedRun}
+        workerName="小助手"
+        criticName="审核员"
+        onClick={vi.fn()}
+        onOpenSession={vi.fn()}
+      />,
+    );
+
+    expect(screen.queryByRole("button", { name: "Open session" })).not.toBeInTheDocument();
+  });
+
   it("does not expose raw output names as panorama-card artifacts", () => {
     const runWithOutputs: WorkflowNodeRun = {
       ...completedRun,
@@ -238,52 +278,22 @@ describe("RuntimeNodeCard", () => {
     expect(screen.queryByText(/Critic Output/)).not.toBeInTheDocument();
   });
 
-  it("renders Bot icon for agent worker_type", () => {
+  it.each([
+    ["agent", ".lucide-bot"],
+    ["squad", ".lucide-building-2"],
+    ["human", ".lucide-user"],
+  ] as const)("does not render actor type icon for %s worker slots", (workerType, iconSelector) => {
     const { container } = render(
       <RuntimeNodeCard
-        node={baseNode}
+        node={{ ...baseNode, worker_type: workerType }}
         nodeRun={completedRun}
         workerName="小助手"
         criticName={null}
         onClick={vi.fn()}
       />,
     );
-    // lucide-bot class on the svg
-    expect(container.querySelector(".lucide-bot")).toBeInTheDocument();
-  });
 
-  it("renders Building2 icon for squad worker_type", () => {
-    const squadNode: WorkflowNode = {
-      ...baseNode,
-      worker_type: "squad",
-    };
-    const { container } = render(
-      <RuntimeNodeCard
-        node={squadNode}
-        nodeRun={completedRun}
-        workerName="全栈小队"
-        criticName={null}
-        onClick={vi.fn()}
-      />,
-    );
-    expect(container.querySelector(".lucide-building-2")).toBeInTheDocument();
-  });
-
-  it("renders User icon for human worker_type", () => {
-    const humanNode: WorkflowNode = {
-      ...baseNode,
-      worker_type: "human",
-    };
-    const { container } = render(
-      <RuntimeNodeCard
-        node={humanNode}
-        nodeRun={completedRun}
-        workerName="张伟"
-        criticName={null}
-        onClick={vi.fn()}
-      />,
-    );
-    expect(container.querySelector(".lucide-user")).toBeInTheDocument();
+    expect(container.querySelector(iconSelector)).not.toBeInTheDocument();
   });
 
   it("renders status icon in title row when nodeRun exists", () => {
@@ -316,7 +326,7 @@ describe("RuntimeNodeCard", () => {
     const card = screen.getByTestId("runtime-node-card-node-1");
     expect(card).toHaveAttribute("data-workflow-canvas-node-shell", "true");
     expect(card.className).not.toContain("min-w-[240px]");
-    expect(card).toHaveStyle({ width: "240px", height: "120px" });
+    expect(card).toHaveStyle({ width: "296px", height: "156px" });
     const surface = card.querySelector('[data-node-shape-surface="true"]');
     expect(surface?.className).toContain("bg-gradient-to-br");
     expect(surface?.className).toContain("border-white/80");
@@ -387,10 +397,12 @@ describe("RuntimeNodeCard", () => {
       />,
     );
 
-    expect(screen.getByText("Worker")).toBeInTheDocument();
+    expect(screen.getByText("Executor").parentElement).toHaveClass("row-span-2", "grid-rows-subgrid");
     expect(screen.getByText("小助手")).toBeInTheDocument();
-    expect(screen.getByText("Critic")).toBeInTheDocument();
+    expect(screen.getByText("Reviewer").parentElement).toHaveClass("row-span-2", "grid-rows-subgrid");
     expect(screen.getByText("审核员")).toBeInTheDocument();
+    expect(screen.getByText("Executor").closest("[data-workflow-actor-slot]")).toHaveAttribute("data-workflow-actor-slot", "worker");
+    expect(screen.getByText("Reviewer").closest("[data-workflow-actor-slot]")).toHaveAttribute("data-workflow-actor-slot", "critic");
   });
 
   it("renders fixed lane-anchored handles when used inside the canvas", () => {
@@ -431,7 +443,7 @@ describe("RuntimeNodeCard", () => {
       />,
     );
 
-    expect(screen.getByText("Fork gateway")).toBeInTheDocument();
+    expect(screen.getByText("Branch start")).toBeInTheDocument();
     expect(screen.getByLabelText("Dispatched")).toBeInTheDocument();
     expect(screen.queryByText("Worker:")).not.toBeInTheDocument();
     expect(screen.queryByText("Critic:")).not.toBeInTheDocument();
@@ -484,13 +496,23 @@ describe("RuntimeNodeCard", () => {
     expect(screen.getByText("Task split")).toBeInTheDocument();
     expect(screen.getByText("Reviewing")).toBeInTheDocument();
     expect(screen.getByTestId("runtime-node-card-split-1")).toHaveTextContent("Reviewing");
+    expect(screen.getByTestId("runtime-node-type-badge-split-1")).toHaveTextContent("Split");
+    expect(screen.getByTestId("runtime-node-split-header")).toHaveClass("justify-between");
+    expect(screen.getByTestId("runtime-node-split-header")).toHaveTextContent("Task splitReviewing");
+    expect(screen.getByTestId("runtime-node-split-context")).toHaveClass("border-t", "border-border/45");
+    expect(screen.getByTestId("runtime-node-split-mode")).toHaveClass("text-muted-foreground");
+    expect(screen.getByTestId("runtime-node-split-layout")).toHaveClass(
+      "grid",
+      "grid-rows-[32px_20px_minmax(0,1fr)]",
+    );
     expect(screen.getByLabelText("Reviewing")).toBeInTheDocument();
     expect(screen.getByText("5 child issues")).toBeInTheDocument();
     expect(screen.getByText("Not started")).toBeInTheDocument();
     expect(screen.queryByText("Review 5 tasks")).not.toBeInTheDocument();
-    expect(screen.queryByText("Worker")).not.toBeInTheDocument();
-    expect(screen.queryByText("Critic")).not.toBeInTheDocument();
+    expect(screen.queryByText("Executor")).not.toBeInTheDocument();
+    expect(screen.queryByText("Reviewer")).not.toBeInTheDocument();
     expect(screen.getByTestId("runtime-node-split-progress")).toHaveClass("border-t", "border-border/45");
+    expect(screen.getByTestId("runtime-node-card-split-1").querySelector(".lucide-git-branch")).not.toBeInTheDocument();
   });
 
   it("shows split planner roles while the split planner is running", () => {
@@ -527,18 +549,17 @@ describe("RuntimeNodeCard", () => {
     const card = screen.getByTestId("runtime-node-card-split-generating");
     expect(card).toHaveTextContent("In progress");
     expect(screen.queryByText("Generating draft tasks")).not.toBeInTheDocument();
-		expect(screen.getByText("Barrier")).toBeInTheDocument();
-    expect(screen.getByText("Worker")).toBeInTheDocument();
+    expect(screen.getByText("Wait for child issues")).toBeInTheDocument();
+    expect(screen.getByText("Executor")).toBeInTheDocument();
     expect(screen.getByText("Tester")).toBeInTheDocument();
-    expect(screen.getByText("Critic")).toBeInTheDocument();
-    expect(screen.getByText("Reviewer")).toBeInTheDocument();
+    expect(screen.getAllByText("Reviewer")).toHaveLength(2);
     expect(card.innerHTML).not.toContain("text-amber");
   });
 
-	it.each([
-		["barrier", "Barrier"],
-		["pipeline", "Pipeline"],
-	] as const)("shows %s mode on collapsed split cards", (mode, label) => {
+  it.each([
+    ["barrier", "Wait for child issues"],
+    ["pipeline", "Continue after creation"],
+  ] as const)("shows %s mode as user-facing copy", (mode, label) => {
 		render(
 			<RuntimeNodeCard
 				node={{
@@ -556,7 +577,22 @@ describe("RuntimeNodeCard", () => {
 			/>,
 		);
 		expect(screen.getByText(label)).toBeInTheDocument();
-	});
+  });
+
+  it("keeps long runtime actor names readable", () => {
+    render(
+      <RuntimeNodeCard
+        node={{ ...baseNode, title: "Long runtime node title that should wrap on the card" }}
+        nodeRun={completedRun}
+        workerName="Extremely Long Runtime Worker Name For Verification"
+        criticName="Extremely Long Runtime Reviewer Name"
+        onClick={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText(/Long runtime node title/).className).toContain("line-clamp-2");
+    expect(screen.getByText(/Extremely Long Runtime Worker/).className).toContain("line-clamp-2");
+  });
 
   it("renders split child progress as the expansion control without opening the split panel", async () => {
     const onClick = vi.fn();
@@ -602,6 +638,10 @@ describe("RuntimeNodeCard", () => {
     );
 
     const toggleButton = screen.getByRole("button", { name: "Expand child issues" });
+    expect(screen.getByTestId("runtime-node-split-layout")).toHaveClass(
+      "grid",
+      "grid-rows-[32px_20px_minmax(0,1fr)]",
+    );
     expect(toggleButton).toHaveAttribute("data-testid", "runtime-node-split-child-toggle");
     expect(toggleButton).toHaveTextContent("3 child issues");
     expect(toggleButton).toHaveTextContent("1 done · 1 running · 1 ready");
@@ -800,6 +840,8 @@ describe("RuntimeNodeCard", () => {
     );
 
     expect(screen.getByText("In progress")).toBeInTheDocument();
+    expect(screen.getByTestId("runtime-node-type-badge-split-2")).toHaveTextContent("Split");
+    expect(screen.getByTestId("runtime-node-split-header")).toHaveTextContent("Split progressIn progress");
     expect(screen.getByText("1 done · 1 failed · 1 running · 1 ready")).toBeInTheDocument();
   });
 
@@ -846,6 +888,8 @@ describe("RuntimeNodeCard", () => {
     );
 
     expect(screen.getByText("Completed")).toBeInTheDocument();
+    expect(screen.getByTestId("runtime-node-type-badge-split-completed")).toHaveTextContent("Split");
+    expect(screen.getByTestId("runtime-node-split-header")).toHaveTextContent("Split completedCompleted");
     expect(screen.getByText("4 done")).toBeInTheDocument();
   });
 

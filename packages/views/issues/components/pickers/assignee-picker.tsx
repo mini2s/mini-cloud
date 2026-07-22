@@ -64,6 +64,7 @@ export function AssigneePicker({
   onDeleteCustomRole,
   onRenameCustomRole,
   allowedTypes,
+  agentFilter,
 }: {
   assigneeType: IssueAssigneeType | null;
   assigneeId: string | null;
@@ -91,6 +92,8 @@ export function AssigneePicker({
   onRenameCustomRole?: (oldName: string, newName: string) => void;
   /** When set, only show the specified assignee type sections. Undefined = show all. */
   allowedTypes?: IssueAssigneeType[];
+  /** Optional context-specific filter for agent options. */
+  agentFilter?: (agent: Agent) => boolean;
 }) {
   const { t } = useT("issues");
   const [internalOpen, setInternalOpen] = useState(false);
@@ -255,7 +258,9 @@ export function AssigneePicker({
     .filter((m) => m.name.toLowerCase().includes(query) || matchesPinyin(m.name, query))
     .sort((a, b) => getFreq("member", b.user_id) - getFreq("member", a.user_id));
   const filteredAgents = agents
-    .filter((a) => !a.archived_at && (a.name.toLowerCase().includes(query) || matchesPinyin(a.name, query)))
+    .filter((a) => !a.archived_at)
+    .filter((a) => agentFilter ? agentFilter(a) : true)
+    .filter((a) => a.name.toLowerCase().includes(query) || matchesPinyin(a.name, query))
     .sort((a, b) => getFreq("agent", b.id) - getFreq("agent", a.id));
   const filteredSquads = squads
     .filter((s) => !s.archived_at && (s.name.toLowerCase().includes(query) || matchesPinyin(s.name, query)))

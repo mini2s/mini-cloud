@@ -6,6 +6,8 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactNode } from "react";
 import { ExecutionPanoramaPage, decorateRuntimeEdges } from "./execution-panorama-page";
+import { RUNTIME_NODE_HEIGHT } from "./runtime-node-card";
+import { WORKER_WIDTH } from "../../../workflows/components/overview/constants";
 import type { Edge, Viewport } from "@xyflow/react";
 
 // ---------------------------------------------------------------------------
@@ -26,6 +28,11 @@ const mocks = vi.hoisted(() => ({
   pluginsData: undefined as unknown,
   workflowRolesData: [] as unknown[],
   roleResolutionsData: [] as unknown[],
+  chatSessionsData: [] as unknown[],
+  embedded: false,
+  postCostrictNavigateToSession: vi.fn(),
+  setChatSession: vi.fn(),
+  setChatOpen: vi.fn(),
   hasOpenInNewTab: true,
   isLoading: true,
   navigationPush: vi.fn(),
@@ -94,6 +101,8 @@ vi.mock("@tanstack/react-query", async () => {
           return { data: mocks.roleResolutionsData, isLoading: false };
         if (key.includes("roles"))
           return { data: mocks.workflowRolesData, isLoading: false };
+        if (key[0] === "chat" && key.includes("sessions"))
+          return { data: mocks.chatSessionsData, isLoading: false };
         if (key.includes("split-issue-workflow-options"))
           return { data: mocks.workflowOptionsData, isLoading: false };
         return { data: mocks.workflowData, isLoading: mocks.isLoading };
@@ -202,6 +211,28 @@ vi.mock("@multica/core/api", () => ({
   api: {
     retryNodeRun: mocks.retryNodeRun,
   },
+}));
+
+vi.mock("@multica/core/chat/queries", () => ({
+  chatSessionsOptions: (wsId: string) => ({
+    queryKey: ["chat", wsId, "sessions"],
+  }),
+}));
+
+vi.mock("@multica/core/chat", () => ({
+  useChatStore: (selector: (state: {
+    setActiveSession: typeof mocks.setChatSession;
+    setOpen: typeof mocks.setChatOpen;
+  }) => unknown) => selector({
+    setActiveSession: mocks.setChatSession,
+    setOpen: mocks.setChatOpen,
+  }),
+}));
+
+vi.mock("@multica/core/platform", () => ({
+  isEmbeddedInCostrict: () => mocks.embedded,
+  postCostrictNavigateToSession: (args: unknown) =>
+    mocks.postCostrictNavigateToSession(args),
 }));
 
 vi.mock("@multica/core/paths", () => ({
@@ -596,6 +627,8 @@ describe("ExecutionPanoramaPage", () => {
     mocks.membersData = [];
     mocks.squadsData = [];
     mocks.workflowOptionsData = [];
+    mocks.chatSessionsData = [];
+    mocks.embedded = false;
     mocks.hasOpenInNewTab = true;
     mocks.splitTasksByNodeRunId = {};
     mocks.fitView.mockClear();
@@ -608,6 +641,9 @@ describe("ExecutionPanoramaPage", () => {
     mocks.retryNodeRun.mockResolvedValue({ id: "nr-2" });
     mocks.navigationPush.mockReset();
     mocks.openInNewTab.mockReset();
+    mocks.postCostrictNavigateToSession.mockReset();
+    mocks.setChatSession.mockReset();
+    mocks.setChatOpen.mockReset();
     mocks.reactFlowProps = null;
     mocks.pluginsData = {
       items: [],
@@ -735,6 +771,8 @@ describe("ExecutionPanoramaPage", () => {
     mocks.workflowData = { id: "wf-1", title: "Test Workflow" };
     mocks.stagesData = [STAGE];
     mocks.nodesData = [NODE];
+    mocks.embedded = true;
+    mocks.postCostrictNavigateToSession.mockReturnValue(true);
     mocks.nodeRunsData = [
       {
         id: "nr-1",
@@ -753,7 +791,7 @@ describe("ExecutionPanoramaPage", () => {
         critic_comment: "",
         critic_agent_task_id: null,
         agent_task_id: null,
-        session_id: null,
+        session_id: "runtime-session-1",
         runtime_id: null,
         device_id: null,
         started_at: null,
@@ -791,11 +829,19 @@ describe("ExecutionPanoramaPage", () => {
     const worker = mocks.reactFlowProps?.nodes.find((node) => node.id === "n1");
     expect(worker).toMatchObject({
       type: "runtimeNode",
-      width: 240,
-      height: 120,
+      width: WORKER_WIDTH,
+      height: RUNTIME_NODE_HEIGHT,
       data: expect.objectContaining({
         nodeRun: expect.objectContaining({ status: "completed" }),
+        onOpenSession: expect.any(Function),
       }),
+    });
+
+    const onOpenSession = worker?.data?.onOpenSession as ((nodeId: string) => void) | undefined;
+    onOpenSession?.("n1");
+    expect(mocks.postCostrictNavigateToSession).toHaveBeenCalledWith({
+      sessionId: "runtime-session-1",
+      newTab: true,
     });
   });
 
@@ -948,8 +994,8 @@ describe("ExecutionPanoramaPage", () => {
 
     await waitFor(() => {
       expect(mocks.setCenter).toHaveBeenCalledWith(
-        blockedNode!.position.x + (blockedNode!.width ?? 240) / 2,
-        blockedNode!.position.y + (blockedNode!.height ?? 120) / 2,
+        blockedNode!.position.x + (blockedNode!.width ?? WORKER_WIDTH) / 2,
+        blockedNode!.position.y + (blockedNode!.height ?? RUNTIME_NODE_HEIGHT) / 2,
         expect.objectContaining({ duration: 450, zoom: 1.45 }),
       );
     });
@@ -972,8 +1018,8 @@ describe("ExecutionPanoramaPage", () => {
     expect(mocks.reactFlowProps?.edges.find((edge) => edge.id === "n1:critic-edge")).toBeUndefined();
     expect(mocks.reactFlowProps?.nodes.find((node) => node.id === "n1")).toMatchObject({
       type: "runtimeNode",
-      width: 240,
-      height: 120,
+      width: WORKER_WIDTH,
+      height: RUNTIME_NODE_HEIGHT,
     });
   });
 
@@ -1099,9 +1145,11 @@ describe("ExecutionPanoramaPage", () => {
 
     fireEvent.click(screen.getByTestId("notification-item-test"));
 
+    const runtimeNode = mocks.reactFlowProps?.nodes.find((node) => node.id === "n1");
+    expect(runtimeNode).toBeTruthy();
     expect(mocks.setCenter).toHaveBeenCalledWith(
-      120,
-      72,
+      runtimeNode!.position.x + (runtimeNode!.width ?? WORKER_WIDTH) / 2,
+      runtimeNode!.position.y + (runtimeNode!.height ?? RUNTIME_NODE_HEIGHT) / 2,
       expect.objectContaining({ duration: 450, zoom: 0.95 }),
     );
   });
@@ -1348,7 +1396,7 @@ describe("ExecutionPanoramaPage", () => {
     const parentNode = mocks.reactFlowProps?.nodes.find((node) => node.id === "split-1");
     const subflowNode = mocks.reactFlowProps?.nodes.find((node) => node.id === "split-1:split-subflow");
 
-    expect(subflowNode!.position.x).toBe(parentNode!.position.x + 384);
+    expect(subflowNode!.position.x).toBe(parentNode!.position.x + WORKER_WIDTH + 144);
     expect(downstreamNode!.position.x).toBeGreaterThanOrEqual(
       subflowNode!.position.x + (subflowNode!.width ?? 560) + 96,
     );

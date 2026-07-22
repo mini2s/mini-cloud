@@ -29,6 +29,7 @@ import {
   type WorkflowNodeRuntimeSummary,
 } from "@multica/core/types";
 import type { AgentTask } from "@multica/core/types/agent";
+import { Button } from "@multica/ui/components/ui/button";
 import { useT } from "@multica/views/i18n";
 import {
   NodeDetailSection,
@@ -264,7 +265,7 @@ export function ExecutionDetailPanel({
     if (transcriptLoading) return;
     if (isEmbeddedInCostrict()) {
       if (sessionId) {
-        const posted = postCostrictNavigateToSession({ sessionId });
+        const posted = postCostrictNavigateToSession({ sessionId, newTab: true });
         if (posted) return;
       }
     }
@@ -290,16 +291,107 @@ export function ExecutionDetailPanel({
     }
   };
 
+  const runtimeActions = canOpenSession || onOpenIssue || canUnblock || canRetry ? (
+    <div data-testid="runtime-primary-actions" className="flex flex-wrap items-center justify-end gap-2">
+      {canOpenSession ? (
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          onClick={handleOpenSession}
+          disabled={transcriptLoading}
+        >
+          {transcriptLoading ? (
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+          ) : (
+            <MessageSquare className="h-3.5 w-3.5" />
+          )}
+          {t(($) => $.execution.detail_panel.open_session)}
+        </Button>
+      ) : null}
+      {onOpenIssue ? (
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          onClick={onOpenIssue}
+        >
+          <ExternalLink className="h-3.5 w-3.5" />
+          {isChildIssue
+            ? t(($) => $.execution.detail_panel.open_child_issue)
+            : t(($) => $.execution.detail_panel.view_full_issue)}
+        </Button>
+      ) : null}
+      {canUnblock ? (
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          onClick={onUnblock}
+        >
+          <Unlock className="h-3.5 w-3.5" />
+          {t(($) => $.execution.detail_panel.unblock)}
+        </Button>
+      ) : null}
+      {canRetry ? (
+        <Button
+          type="button"
+          size="sm"
+          variant="destructive"
+          onClick={onRetry}
+        >
+          <RotateCcw className="h-3.5 w-3.5" />
+          {t(($) => $.execution.detail_panel.retry)}
+        </Button>
+      ) : null}
+    </div>
+  ) : null;
+
+  const evidenceSection = (
+    <NodeDetailSection
+      sectionId="evidence-preview"
+      icon={<MessageSquare className="size-4" />}
+      title={t(($) => $.execution.detail_panel.section_evidence_preview)}
+    >
+      <button
+        type="button"
+        className="text-xs font-medium text-primary hover:underline"
+        onClick={() => setShowEvidence((value) => !value)}
+      >
+        {t(($) => $.execution.detail_panel.view_evidence)}
+      </button>
+      {showEvidence ? (
+        <div className="mt-2 space-y-2">
+          {nodeRun?.worker_output != null ? (
+            <pre className="max-h-24 overflow-auto whitespace-pre-wrap rounded bg-muted/50 p-2 text-xs">
+              {formatJson(nodeRun.worker_output)}
+            </pre>
+          ) : null}
+          {nodeRun?.critic_output != null ? (
+            <pre className="max-h-24 overflow-auto whitespace-pre-wrap rounded bg-muted/50 p-2 text-xs">
+              {formatJson(nodeRun.critic_output)}
+            </pre>
+          ) : null}
+          {nodeRun?.worker_output == null && nodeRun?.critic_output == null ? (
+            <p className="text-xs text-muted-foreground">{t(($) => $.execution.detail_panel.no_output)}</p>
+          ) : null}
+        </div>
+      ) : null}
+    </NodeDetailSection>
+  );
+
   return (
     <WorkflowNodeDetailPanelShell
       mode="run"
       variant="overlay"
+      widthClassName="w-[min(800px,calc(100vw-2rem))]"
       title={node.title}
       eyebrow="Node runtime"
       closeLabel="Close"
       onClose={onClose}
+      footer={runtimeActions}
       statusIcon={(
-        <span className="inline-flex shrink-0 items-center gap-1.5 rounded-md border bg-muted/30 px-2 py-1 text-[11px] font-medium text-muted-foreground">
+        <span className="inline-flex shrink-0 items-center gap-1.5 text-[11px] font-medium text-muted-foreground">
           <RuntimeDisplayStatusIcon
             status={displayStatus}
             gatewayKind={isGateway ? nodeFormat.gateway_kind : null}
@@ -309,6 +401,14 @@ export function ExecutionDetailPanel({
         </span>
       )}
     >
+      <div
+        data-testid="runtime-detail-grid"
+        className="grid grid-cols-1 gap-6 min-[1280px]:grid-cols-2 min-[1280px]:gap-0"
+      >
+        <div
+          data-testid="runtime-detail-primary-column"
+          className="min-w-0 space-y-6 min-[1280px]:pr-6"
+        >
       <NodeDetailSection
         sectionId="status-next-step"
         icon={<Activity className="size-4" />}
@@ -316,7 +416,7 @@ export function ExecutionDetailPanel({
       >
         <div
           data-testid="runtime-diagnostic-summary"
-          className="space-y-3 rounded-lg border bg-muted/20 p-3"
+          className="space-y-3"
         >
           <div className="flex items-start gap-2">
             <RuntimeDisplayStatusIcon
@@ -330,7 +430,7 @@ export function ExecutionDetailPanel({
             </div>
           </div>
           {isGateway ? (
-            <div className="flex items-start gap-2 rounded-md border border-border/70 bg-muted/30 p-3">
+            <div className="flex items-start gap-2">
               <GatewayIcon className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
               <div className="min-w-0 space-y-1">
                 <p className="text-sm font-medium">{gatewayLabel(nodeFormat.gateway_kind)}</p>
@@ -338,57 +438,16 @@ export function ExecutionDetailPanel({
               </div>
             </div>
           ) : null}
-          <div data-testid="runtime-primary-actions" className="flex flex-wrap gap-2">
-            {canOpenSession ? (
-              <button
-                type="button"
-                onClick={handleOpenSession}
-                disabled={transcriptLoading}
-                className="inline-flex h-8 items-center justify-center gap-1.5 rounded-md border bg-background px-3 text-xs font-medium transition-colors hover:bg-muted"
-              >
-                {transcriptLoading ? (
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                ) : (
-                  <MessageSquare className="h-3.5 w-3.5" />
-                )}
-                {t(($) => $.execution.detail_panel.open_session)}
-              </button>
-            ) : null}
-            {onOpenIssue ? (
-              <button
-                type="button"
-                onClick={onOpenIssue}
-                className="inline-flex h-8 items-center justify-center gap-1.5 rounded-md border bg-background px-3 text-xs font-medium transition-colors hover:bg-muted"
-              >
-                <ExternalLink className="h-3.5 w-3.5" />
-                {isChildIssue
-                  ? t(($) => $.execution.detail_panel.open_child_issue)
-                  : t(($) => $.execution.detail_panel.view_full_issue)}
-              </button>
-            ) : null}
-            {canUnblock ? (
-              <button
-                type="button"
-                onClick={onUnblock}
-                className="inline-flex h-8 items-center justify-center gap-1.5 rounded-md border border-amber-200 bg-amber-50 px-3 text-xs font-medium text-amber-700 transition-colors hover:bg-amber-100"
-              >
-                <Unlock className="h-3.5 w-3.5" />
-                {t(($) => $.execution.detail_panel.unblock)}
-              </button>
-            ) : null}
-            {canRetry ? (
-              <button
-                type="button"
-                onClick={onRetry}
-                className="inline-flex h-8 items-center justify-center gap-1.5 rounded-md border border-red-200 bg-red-50 px-3 text-xs font-medium text-red-700 transition-colors hover:bg-red-100"
-              >
-                <RotateCcw className="h-3.5 w-3.5" />
-                {t(($) => $.execution.detail_panel.retry)}
-              </button>
-            ) : null}
-          </div>
         </div>
       </NodeDetailSection>
+
+      {evidenceSection}
+        </div>
+
+        <div
+          data-testid="runtime-detail-context-column"
+          className="min-w-0 space-y-6 min-[1280px]:border-l min-[1280px]:border-border/40 min-[1280px]:pl-6"
+        >
 
       {isChildIssue ? (
         <NodeDetailSection
@@ -450,37 +509,6 @@ export function ExecutionDetailPanel({
       </NodeDetailSection>
 
       <NodeDetailSection
-        sectionId="evidence-preview"
-        icon={<MessageSquare className="size-4" />}
-        title={t(($) => $.execution.detail_panel.section_evidence_preview)}
-      >
-        <button
-          type="button"
-          className="text-xs font-medium text-primary hover:underline"
-          onClick={() => setShowEvidence((value) => !value)}
-        >
-          {t(($) => $.execution.detail_panel.view_evidence)}
-        </button>
-        {showEvidence ? (
-          <div className="mt-2 space-y-2">
-            {nodeRun?.worker_output != null ? (
-              <pre className="max-h-24 overflow-auto whitespace-pre-wrap rounded bg-muted/50 p-2 text-xs">
-                {formatJson(nodeRun.worker_output)}
-              </pre>
-            ) : null}
-            {nodeRun?.critic_output != null ? (
-              <pre className="max-h-24 overflow-auto whitespace-pre-wrap rounded bg-muted/50 p-2 text-xs">
-                {formatJson(nodeRun.critic_output)}
-              </pre>
-            ) : null}
-            {nodeRun?.worker_output == null && nodeRun?.critic_output == null ? (
-              <p className="text-xs text-muted-foreground">{t(($) => $.execution.detail_panel.no_output)}</p>
-            ) : null}
-          </div>
-        ) : null}
-      </NodeDetailSection>
-
-      <NodeDetailSection
         sectionId="runtime-facts"
         icon={<Activity className="size-4" />}
         title={t(($) => $.execution.detail_panel.section_runtime_facts)}
@@ -514,6 +542,8 @@ export function ExecutionDetailPanel({
           <p className="text-sm text-muted-foreground">{t(($) => $.execution.detail_panel.no_runtime_data)}</p>
         )}
       </NodeDetailSection>
+        </div>
+      </div>
 
       {transcriptTask && transcriptOpen ? (
         <AgentTranscriptDialog

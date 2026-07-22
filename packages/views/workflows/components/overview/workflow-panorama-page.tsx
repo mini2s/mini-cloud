@@ -88,7 +88,7 @@ import {
   sortStagesForDisplay,
 } from "./constants";
 
-import type { WorkflowNode, WorkflowStage, WorkflowEdge, ReorderStagesItem, WorkflowStatus, Workflow, WorkflowNodeRun } from "@multica/core/types";
+import { parseNodeFormat, type WorkflowNode, type WorkflowStage, type WorkflowEdge, type ReorderStagesItem, type WorkflowStatus, type Workflow, type WorkflowNodeRun } from "@multica/core/types";
 import type { Agent } from "@multica/core/types";
 import type { BuiltinPlugin } from "@multica/core/api/schemas";
 
@@ -327,7 +327,7 @@ function PanoramaContent({
         canUndo={canUndo}
         canRedo={canRedo}
         hasUnsavedEdits={hasUnsavedEdits}
-        hasBlockingPreflightIssues={preflightResult.blockingCount > 0}
+        blockingPreflightIssueCount={preflightResult.blockingCount}
         onBackToWorkflows={onBackToWorkflows}
         onUpdateTitle={onUpdateTitle}
         onUndo={undo}
@@ -421,7 +421,6 @@ function PanoramaContent({
               nodes={apiNodes}
               stages={stages}
               recentNodeRun={recentNodeRun}
-						preflightIssues={preflightResult.issues.filter((issue) => issue.nodeId === selectedNode.id)}
 						incomingCount={apiEdges.filter((edge) => edge.target_node_id === selectedNode.id).length}
 						outgoingCount={apiEdges.filter((edge) => edge.source_node_id === selectedNode.id).length}
 						onTrialRun={() => void onTestRun()}
@@ -726,6 +725,8 @@ export function WorkflowPanoramaPage({ workflowId, viewToggle }: WorkflowPanoram
           !Array.isArray(node.format_schema) &&
           (node.format_schema as Record<string, unknown>).type === "annotation",
         );
+        const nodeFormat = parseNodeFormat(node.format_schema);
+        const splitChildWorkflowId = nodeFormat.split_config?.default_issue_workflow_id ?? null;
         const workerAgent = node.worker_id ? agentLookup.get(node.worker_id) : null;
         return {
           node,
@@ -752,6 +753,9 @@ export function WorkflowPanoramaPage({ workflowId, viewToggle }: WorkflowPanoram
           criticConfigured: isAnnotation
             ? false
             : Boolean(node.critic_id || node.critic_role_id || node.critic_role || node.critic_api_url?.trim()),
+          splitChildWorkflowName: splitChildWorkflowId
+            ? childWorkflows.find((workflow) => workflow.id === splitChildWorkflowId)?.title
+            : undefined,
           isAnnotation,
           onOpen: openNodePanel,
           onAddConnectedNode: handleOpenConnectedNodePicker,
@@ -761,7 +765,7 @@ export function WorkflowPanoramaPage({ workflowId, viewToggle }: WorkflowPanoram
       includeCriticBadges: false,
       makeCriticName: (node) => node.critic_role_id ? renderRoleName(roleById.get(node.critic_role_id)) ?? node.critic_role_id : node.critic_role ? renderRoleName(undefined, node.critic_role) : node.critic_id ? getActorName(node.critic_type ?? "agent", node.critic_id) ?? undefined : undefined,
     }),
-    [stages, visibleNodes, agentLookup, pluginLookup, getActorName, openNodePanel, handleOpenConnectedNodePicker, roleById, renderRoleName, t],
+    [stages, visibleNodes, agentLookup, pluginLookup, getActorName, openNodePanel, handleOpenConnectedNodePicker, roleById, renderRoleName, childWorkflows, t],
   );
 
   const handleInlineEdgeDelete = useCallback(

@@ -455,15 +455,84 @@ export function SplitReviewPanel({
     setCancelDialogOpen(false);
   };
 
+  const dependencySection = (
+    <NodeDetailSection
+      sectionId="connections"
+      icon={<GitBranch className="size-4" />}
+      title={t(($) => $.detail_panel.split_dependencies)}
+      className="min-[1280px]:border-t-0 min-[1280px]:pt-0 min-[1280px]:pl-6"
+    >
+      {isLoading ? (
+        <p className="text-sm text-muted-foreground">{t(($) => $.detail_panel.split_loading_dependencies)}</p>
+      ) : (
+        <SplitDependencyNote tasks={tasks} />
+      )}
+    </NodeDetailSection>
+  );
+
+  const showNoCreatableMessage = !canApprove && nodeRun?.status === "awaiting_split_review" && creatableCount > 0;
+  const showConfirmEmpty = nodeRun?.status === "awaiting_split_review" && creatableCount === 0;
+  const hasReviewActions = canCancel || workflowBlockers.length > 0 || showNoCreatableMessage || showConfirmEmpty || canApprove;
+  const actionBar = hasReviewActions ? (
+    <div data-testid="split-review-action-bar" className="flex items-center justify-between gap-3">
+      <div>
+        {canCancel ? (
+          <Button
+            type="button"
+            size="sm"
+            variant="destructive"
+            onClick={() => setCancelDialogOpen(true)}
+            disabled={cancelMutation.isPending}
+          >
+            <SquareX className="mr-1.5 size-3.5" />
+            {cancelMutation.isPending ? t(($) => $.detail_panel.split_cancelling) : t(($) => $.detail_panel.split_cancel)}
+          </Button>
+        ) : null}
+      </div>
+      <div className="flex items-center gap-2">
+        {workflowBlockers.length > 0 ? (
+          <span className="text-xs text-destructive">{workflowBlockers[0]}</span>
+        ) : showNoCreatableMessage ? (
+          <span className="text-xs text-muted-foreground">{t(($) => $.detail_panel.split_no_creatable_tasks)}</span>
+        ) : null}
+        {showConfirmEmpty ? (
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            onClick={() => setApproveDialogOpen(true)}
+            disabled={approveMutation.isPending}
+          >
+            {t(($) => $.detail_panel.split_confirm_empty)}
+          </Button>
+        ) : null}
+        {canApprove ? (
+          <Button
+            type="button"
+            size="sm"
+            onClick={() => setApproveDialogOpen(true)}
+            disabled={approveMutation.isPending}
+          >
+            <CheckCheck className="mr-1.5 size-3.5" />
+            {approveMutation.isPending
+              ? t(($) => $.detail_panel.split_creating)
+              : t(($) => $.detail_panel.split_confirm_create, { count: creatableCount })}
+          </Button>
+        ) : null}
+      </div>
+    </div>
+  ) : null;
+
   return (
     <WorkflowNodeDetailPanelShell
       mode="run"
       variant="overlay"
+      widthClassName="w-[min(800px,calc(100vw-2rem))]"
       title={node.title}
       eyebrow={nodeRun?.status === "split_active" ? t(($) => $.detail_panel.split_progress_eyebrow) : t(($) => $.detail_panel.split_review_eyebrow)}
       closeLabel={t(($) => $.detail_panel.close_label)}
       onClose={onClose}
-      contentClassName="pb-0"
+      footer={actionBar}
       badges={(
         <>
           <SplitProgressBadge progress={progress} />
@@ -471,10 +540,15 @@ export function SplitReviewPanel({
         </>
       )}
     >
+      <div
+        data-testid="split-review-overview-grid"
+        className="grid grid-cols-1 gap-6 min-[1280px]:grid-cols-2 min-[1280px]:gap-0 min-[1280px]:divide-x min-[1280px]:divide-border/40"
+      >
       <NodeDetailSection
         sectionId="primary"
         icon={<GitBranch className="size-4" />}
         title={t(($) => $.detail_panel.split_verdict_title)}
+        className="min-[1280px]:pr-6"
       >
         <SplitVerdictSummary
           nodeRun={nodeRun}
@@ -492,6 +566,11 @@ export function SplitReviewPanel({
           </p>
         ) : null}
       </NodeDetailSection>
+
+      {dependencySection}
+      </div>
+
+      <div data-testid="split-review-main" className="space-y-6">
 
       <NodeDetailSection
         sectionId="runtime"
@@ -559,18 +638,6 @@ export function SplitReviewPanel({
         )}
       </NodeDetailSection>
 
-      <NodeDetailSection
-        sectionId="connections"
-        icon={<GitBranch className="size-4" />}
-        title={t(($) => $.detail_panel.split_dependencies)}
-      >
-        {isLoading ? (
-          <p className="text-sm text-muted-foreground">{t(($) => $.detail_panel.split_loading_dependencies)}</p>
-        ) : (
-          <SplitDependencyNote tasks={tasks} />
-        )}
-      </NodeDetailSection>
-
       {canChat ? (
         <NodeDetailSection
           sectionId="agent-operations"
@@ -585,58 +652,6 @@ export function SplitReviewPanel({
           />
         </NodeDetailSection>
       ) : null}
-
-      <div
-        data-testid="split-review-action-bar"
-        className="sticky bottom-0 -mx-4 mt-3 border-t bg-background/95 px-4 py-3 shadow-[0_-12px_24px_-20px_hsl(var(--foreground))] backdrop-blur"
-      >
-        <div className="flex items-center justify-between gap-3">
-          <div>
-            {canCancel ? (
-              <Button
-                type="button"
-                size="sm"
-                variant="destructive"
-                onClick={() => setCancelDialogOpen(true)}
-                disabled={cancelMutation.isPending}
-              >
-                <SquareX className="mr-1.5 size-3.5" />
-                {cancelMutation.isPending ? t(($) => $.detail_panel.split_cancelling) : t(($) => $.detail_panel.split_cancel)}
-              </Button>
-            ) : null}
-          </div>
-          <div className="flex items-center gap-2">
-            {workflowBlockers.length > 0 ? (
-              <span className="text-xs text-destructive">{workflowBlockers[0]}</span>
-            ) : !canApprove && nodeRun?.status === "awaiting_split_review" && creatableCount > 0 ? (
-              <span className="text-xs text-muted-foreground">{t(($) => $.detail_panel.split_no_creatable_tasks)}</span>
-            ) : null}
-            {nodeRun?.status === "awaiting_split_review" && creatableCount === 0 ? (
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                onClick={() => setApproveDialogOpen(true)}
-                disabled={approveMutation.isPending}
-              >
-                {t(($) => $.detail_panel.split_confirm_empty)}
-              </Button>
-            ) : null}
-            {canApprove ? (
-              <Button
-                type="button"
-                size="sm"
-                onClick={() => setApproveDialogOpen(true)}
-                disabled={approveMutation.isPending}
-              >
-                <CheckCheck className="mr-1.5 size-3.5" />
-                {approveMutation.isPending
-                  ? t(($) => $.detail_panel.split_creating)
-                  : t(($) => $.detail_panel.split_confirm_create, { count: creatableCount })}
-              </Button>
-            ) : null}
-          </div>
-        </div>
       </div>
 
       <AlertDialog
