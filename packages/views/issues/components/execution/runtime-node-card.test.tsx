@@ -59,6 +59,7 @@ vi.mock("@multica/views/i18n", () => {
       detail_panel: {
         worker_output: "Worker Output",
         critic_output: "Critic Output",
+        open_session: "Open session",
       },
     },
   };
@@ -215,6 +216,44 @@ describe("RuntimeNodeCard", () => {
     );
     await userEvent.click(screen.getByTestId("runtime-node-card-node-1"));
     expect(onClick).toHaveBeenCalledWith("node-1");
+  });
+
+  it("opens the node session without opening the detail panel", async () => {
+    const onClick = vi.fn();
+    const onOpenSession = vi.fn();
+    render(
+      <RuntimeNodeCard
+        node={baseNode}
+        nodeRun={{ ...completedRun, session_id: "session-1" }}
+        workerName="小助手"
+        criticName="审核员"
+        onClick={onClick}
+        onOpenSession={onOpenSession}
+      />,
+    );
+
+    const sessionButton = screen.getByRole("button", { name: "Open session" });
+    expect(sessionButton.querySelector("svg")).toBeNull();
+    expect(sessionButton).toHaveClass("cursor-pointer", "hover:-translate-y-px", "hover:bg-primary/10");
+    await userEvent.click(sessionButton);
+
+    expect(onOpenSession).toHaveBeenCalledWith("node-1");
+    expect(onClick).not.toHaveBeenCalled();
+  });
+
+  it("hides the session action when the node has no session", () => {
+    render(
+      <RuntimeNodeCard
+        node={baseNode}
+        nodeRun={completedRun}
+        workerName="小助手"
+        criticName="审核员"
+        onClick={vi.fn()}
+        onOpenSession={vi.fn()}
+      />,
+    );
+
+    expect(screen.queryByRole("button", { name: "Open session" })).not.toBeInTheDocument();
   });
 
   it("does not expose raw output names as panorama-card artifacts", () => {

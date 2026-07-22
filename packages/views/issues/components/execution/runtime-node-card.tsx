@@ -51,6 +51,7 @@ export interface RuntimeNodeCardProps {
   isSplitExpanded?: boolean;
   splitChildCount?: number;
   onSplitNodeToggle?: (nodeId: string) => void;
+  onOpenSession?: (nodeId: string) => void;
 }
 
 function gatewayLabel(t: IssueTranslator, kind: "fork" | "join" | null): string {
@@ -323,6 +324,7 @@ export function RuntimeNodeCard({
   isSplitExpanded = false,
   splitChildCount = 0,
   onSplitNodeToggle,
+  onOpenSession,
 }: RuntimeNodeCardProps) {
   const { t } = useT("issues");
   const nodeFormat = parseNodeFormat(node.format_schema);
@@ -340,12 +342,16 @@ export function RuntimeNodeCard({
   const splitProgress = runtimeSummary?.split_progress ?? null;
   const hasSplitProgress = isSplit && !!splitProgress && splitProgress.total > 0;
   const canToggleSplitChildren = isSplit && splitChildCount > 0 && !!onSplitNodeToggle;
+  const sessionId = nodeRun?.session_id ?? runtimeSummary?.session_id ?? null;
+  const canOpenSession = !isGateway && !isSplit && !!sessionId && !!onOpenSession;
+  const hasInlineAction = canToggleSplitChildren || canOpenSession;
   const splitChildLabel = splitChildCountLabel(t, splitChildCount || (splitProgress?.total ?? 0));
   const splitChildSummaryParts = splitProgress ? splitProgressSummaryParts(t, splitProgress) : [];
   const splitChildSummaryLabel = splitChildSummaryParts.length > 0
     ? splitChildSummaryParts.join(" · ")
     : t(($) => $.execution.panorama.not_started);
   const handleShellKeyDown = useCallback((event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (event.target !== event.currentTarget) return;
     if (event.key !== "Enter" && event.key !== " ") return;
     event.preventDefault();
     onClick(node.id);
@@ -355,6 +361,11 @@ export function RuntimeNodeCard({
     event.stopPropagation();
     onSplitNodeToggle?.(node.id);
   }, [node.id, onSplitNodeToggle]);
+  const handleOpenSessionClick = useCallback((event: React.MouseEvent<HTMLButtonElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+    onOpenSession?.(node.id);
+  }, [node.id, onOpenSession]);
 
   const actionButtons: ActionButtonDef[] = nodeRun
     ? isGateway || isSplit
@@ -388,7 +399,7 @@ export function RuntimeNodeCard({
 
   return (
     <WorkflowCanvasNodeShell
-      as={canToggleSplitChildren ? "div" : "button"}
+      as={hasInlineAction ? "div" : "button"}
       testId={`runtime-node-card-${node.id}`}
       nodeShape={nodeShape}
       selected={isSelected}
@@ -397,9 +408,9 @@ export function RuntimeNodeCard({
       title={node.title}
       dataRuntimeDisplayStatus={displayStatus}
       dataRuntimeFocus={isRuntimeFocus}
-      tabIndex={canToggleSplitChildren ? 0 : undefined}
+      tabIndex={hasInlineAction ? 0 : undefined}
       onClick={() => onClick(node.id)}
-      onKeyDown={canToggleSplitChildren ? handleShellKeyDown : undefined}
+      onKeyDown={hasInlineAction ? handleShellKeyDown : undefined}
       className="h-[156px]"
       surfaceClassName={runtimeFocusSurfaceClassName(isRuntimeFocus, displayStatus)}
       contentClassName={cn("h-full justify-between gap-2", workflowNodeInfoAreaClassName(nodeShape))}
@@ -518,9 +529,9 @@ export function RuntimeNodeCard({
         </div>
       ) : (
         <>
-      {/* Row 1: node title + status icon */}
-      <div className="flex items-center justify-between gap-2">
-        <div className="flex items-center gap-1.5 min-w-0">
+      {/* Row 1: node title + status/session actions */}
+      <div className="flex items-start justify-between gap-2">
+        <div className="flex min-w-0 flex-1 items-center gap-1.5 pt-0.5">
           {nodeShape !== "rectangle" ? (
             <span
               aria-hidden="true"
@@ -531,13 +542,29 @@ export function RuntimeNodeCard({
               )}
             />
           ) : null}
-          <span className="min-w-0 break-words text-sm font-medium leading-4 line-clamp-2">{node.title}</span>
+          <span className="min-w-0 flex-1 break-words text-sm font-medium leading-4 line-clamp-2">
+            {node.title}
+          </span>
         </div>
-        <RuntimeStatusPill
-          status={displayStatus}
-          gatewayKind={isGateway ? nodeFormat.gateway_kind : null}
-          label={displayStatusLabel}
-        />
+        <div className="flex shrink-0 flex-col items-start gap-1">
+          <RuntimeStatusPill
+            status={displayStatus}
+            gatewayKind={isGateway ? nodeFormat.gateway_kind : null}
+            label={displayStatusLabel}
+          />
+          {canOpenSession ? (
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              data-testid="runtime-node-open-session"
+              className="nodrag nopan h-5 shrink-0 cursor-pointer border-primary/30 px-1.5 text-[10px] font-medium text-primary shadow-xs transition-all hover:-translate-y-px hover:border-primary/60 hover:bg-primary/10 hover:text-primary hover:shadow-sm active:translate-y-0 active:scale-[0.97] motion-reduce:transform-none"
+              onClick={handleOpenSessionClick}
+            >
+              {t(($) => $.execution.detail_panel.open_session)}
+            </Button>
+          ) : null}
+        </div>
       </div>
 
       {isGateway ? (
