@@ -592,7 +592,7 @@
     "card": {
       "worker_label": "执行者",
       "critic_label": "审核者",
-      "split_badge": "拆分",
+      "split_badge": "Split",
       "split_child_workflow_label": "子 workflow",
       "split_policy_label": "执行策略",
       "split_policy_summary": "并发 {{concurrency}} · 最多失败 {{maxFailures}}",

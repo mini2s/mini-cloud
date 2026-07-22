@@ -334,7 +334,6 @@
     "role_developer": "Developer",
     "role_qa": "QA",
     "role_tech_lead": "TL",
-    "section_critic": "Reviewer",
     "section_critic": "Critic",
     "critic_type_label": "Critic Type",
     "critic_type_human": "Human",
