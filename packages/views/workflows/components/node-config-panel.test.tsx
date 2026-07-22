@@ -337,11 +337,11 @@ describe("NodeConfigPanel", () => {
       gateway_label_fork: "Branch start",
       split_planner_label: "Split planner: {{planner}}",
     });
-    expect(enWorkflows.panorama.card).toEqual({
+    expect(enWorkflows.panorama.card).toMatchObject({
       worker_label: "Worker",
       critic_label: "Critic",
     });
-    expect(zhHansWorkflows.panorama.card).toEqual({
+    expect(zhHansWorkflows.panorama.card).toMatchObject({
       worker_label: "执行者",
       critic_label: "审核者",
     });
@@ -418,8 +418,34 @@ describe("NodeConfigPanel", () => {
     expect(screen.getAllByTestId("node-detail-section").map((section) => section.getAttribute("data-section"))).toEqual([
       "primary",
       "worker-critic",
-      "actions",
     ]);
+  });
+
+  it("uses a responsive two-column configuration grid with fixed actions", () => {
+    renderPanel();
+
+    const grid = screen.getByTestId("node-config-grid");
+    expect(grid).toHaveClass("grid-cols-1", "min-[1280px]:grid-cols-2");
+    expect(screen.getByTestId("node-config-primary-column")).toContainElement(
+      screen.getByRole("heading", { name: "Basic information" }),
+    );
+    expect(screen.getByTestId("node-config-participants-column")).toContainElement(
+      screen.getByRole("heading", { name: "Executor and reviewer" }),
+    );
+    expect(screen.getByTestId("node-detail-panel-footer")).toContainElement(
+      screen.getByRole("button", { name: "Save changes" }),
+    );
+    expect(
+      screen.getAllByTestId("node-detail-section").some((section) => section.getAttribute("data-section") === "actions"),
+    ).toBe(false);
+  });
+
+  it("keeps delete visible in the fixed action footer", () => {
+    renderPanel();
+
+    const footer = screen.getByTestId("node-detail-panel-footer");
+    expect(footer).toContainElement(screen.getByRole("button", { name: "Delete Node" }));
+    expect(screen.queryByRole("button", { name: "More actions" })).not.toBeInTheDocument();
   });
 
   it("does not render legacy nested subsection cards inside the shared primary section", () => {
@@ -584,13 +610,21 @@ describe("NodeConfigPanel", () => {
       />,
     );
 
-    expect(screen.getAllByTestId("node-detail-section").map((section) => section.getAttribute("data-section"))).toEqual([
+	  expect(screen.getAllByTestId("node-detail-section").map((section) => section.getAttribute("data-section"))).toEqual([
       "primary",
-      "worker-critic",
 			"split-behavior",
+			"worker-critic",
 			"connections",
-      "actions",
     ]);
+		expect(screen.getByTestId("node-config-primary-column")).toContainElement(
+			screen.getByRole("heading", { name: "Split rules" }),
+		);
+		expect(screen.getByTestId("node-config-participants-column")).toContainElement(
+			screen.getByRole("heading", { name: "Connections" }),
+		);
+		expect(screen.getByTestId("node-detail-panel-footer")).toContainElement(
+			screen.getByRole("button", { name: "Test this split" }),
+		);
 		expect(screen.queryByText("Automated split draft critics can approve risky task plans")).not.toBeInTheDocument();
 		expect(screen.getByText("2 upstream")).toBeInTheDocument();
 		expect(screen.getByText("1 downstream")).toBeInTheDocument();

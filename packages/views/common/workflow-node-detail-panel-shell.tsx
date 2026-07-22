@@ -30,6 +30,7 @@ interface WorkflowNodeDetailPanelShellProps {
   closeLabel: string;
   onClose: () => void;
   children: ReactNode;
+  footer?: ReactNode;
   className?: string;
   contentClassName?: string;
   widthClassName?: string;
@@ -45,6 +46,7 @@ export function WorkflowNodeDetailPanelShell({
   closeLabel,
   onClose,
   children,
+  footer,
   className,
   contentClassName,
   widthClassName = "w-[620px]",
@@ -87,11 +89,19 @@ export function WorkflowNodeDetailPanelShell({
       </div>
 
       <div
-        data-testid="node-detail-section-stack"
+        data-testid="node-detail-panel-content"
         className={cn("min-h-0 flex-1 overflow-y-auto px-4 py-3.5", contentClassName)}
       >
-        <div className="space-y-4">{children}</div>
+        <div data-testid="node-detail-section-stack" className="space-y-4">{children}</div>
       </div>
+      {footer ? (
+        <div
+          data-testid="node-detail-panel-footer"
+          className="shrink-0 border-t border-border/60 bg-background px-4 py-3"
+        >
+          {footer}
+        </div>
+      ) : null}
     </aside>
   );
 

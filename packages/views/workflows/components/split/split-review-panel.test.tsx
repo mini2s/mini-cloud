@@ -472,16 +472,20 @@ describe("SplitReviewPanel", () => {
 		}
 	});
 
-  it("renders a review with verdict, draft plan, dependencies, sticky actions, and draft quick actions", async () => {
+  it("renders a review with a compact overview, full-width draft plan, and fixed actions", async () => {
     const user = userEvent.setup();
     const { container } = renderPanel();
 
     const approveButton = screen.getByRole("button", { name: "Confirm create 1" });
     expect(screen.getByTestId("workflow-node-detail-panel-shell")).toHaveAttribute("data-mode", "run");
+    expect(screen.getByTestId("workflow-node-detail-panel-shell")).toHaveClass("w-[min(800px,calc(100vw-2rem))]");
+    expect(screen.getByTestId("split-review-overview-grid")).toHaveClass("grid-cols-1", "min-[1280px]:grid-cols-2");
+    expect(screen.getByTestId("split-review-main")).toContainElement(screen.getByText("Child issue draft"));
     expect(screen.getByTestId("split-review-summary")).not.toHaveClass("border-l-4", "border-l-primary/70");
     expect(screen.queryByTestId("split-draft-command-bar")).not.toBeInTheDocument();
     expect(screen.queryByText("Actions")).not.toBeInTheDocument();
     expect(screen.getByTestId("split-review-action-bar")).toContainElement(approveButton);
+    expect(screen.getByTestId("node-detail-panel-footer")).toContainElement(approveButton);
     expect(screen.getByText("Child issue readiness")).toBeInTheDocument();
     expect(screen.getByText("Ready to create")).toBeInTheDocument();
     expect(screen.getByText("Child issue draft")).toBeInTheDocument();
@@ -504,7 +508,7 @@ describe("SplitReviewPanel", () => {
     expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Delete task/i })).not.toBeInTheDocument();
     expect(screen.queryByTestId("split-task-dag")).not.toBeInTheDocument();
-    expect(approveButton.closest(".sticky")).not.toBeNull();
+    expect(approveButton.closest(".sticky")).toBeNull();
     expect(container).not.toHaveTextContent(mojibakePattern);
   });
 

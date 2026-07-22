@@ -75,6 +75,27 @@ describe("NodeDetailSection", () => {
 });
 
 describe("WorkflowNodeDetailPanelShell", () => {
+  it("renders an optional footer outside the scrolling content", () => {
+    render(
+      <WorkflowNodeDetailPanelShell
+        mode="edit"
+        title="Node settings"
+        closeLabel="Close"
+        onClose={vi.fn()}
+        footer={<button type="button">Save changes</button>}
+      >
+        <div>Body</div>
+      </WorkflowNodeDetailPanelShell>,
+    );
+
+    const content = screen.getByTestId("node-detail-panel-content");
+    const footer = screen.getByTestId("node-detail-panel-footer");
+
+    expect(content).toContainElement(screen.getByText("Body"));
+    expect(content).not.toContainElement(screen.getByRole("button", { name: "Save changes" }));
+    expect(footer).toContainElement(screen.getByRole("button", { name: "Save changes" }));
+  });
+
   it("uses the wider editor panel width by default", () => {
     render(
       <WorkflowNodeDetailPanelShell

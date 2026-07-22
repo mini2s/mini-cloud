@@ -70,10 +70,9 @@ function statusTone(status: string | null | undefined): "default" | "success" | 
 }
 
 function statusClasses(tone: "default" | "success" | "warning" | "danger"): string {
-  if (tone === "success") return "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900/60 dark:bg-emerald-950/30 dark:text-emerald-300";
-  if (tone === "warning") return "border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-300";
-  if (tone === "danger") return "border-destructive/25 bg-destructive/10 text-destructive";
-  return "border-border bg-muted/40 text-muted-foreground";
+  if (tone === "danger") return "text-destructive";
+  if (tone === "warning") return "text-foreground";
+  return "text-muted-foreground";
 }
 
 function StatusBadge({
@@ -84,7 +83,7 @@ function StatusBadge({
   tone?: "default" | "success" | "warning" | "danger";
 }) {
   return (
-    <span className={`inline-flex h-6 shrink-0 items-center gap-1 rounded-full border px-2 text-[11px] font-medium ${statusClasses(tone)}`}>
+    <span className={`inline-flex min-h-5 shrink-0 items-center gap-1 text-[11px] font-medium ${statusClasses(tone)}`}>
       {children}
     </span>
   );
@@ -106,10 +105,10 @@ function InspectorSection({
   className?: string;
 }) {
   return (
-    <div className={`space-y-3 ${className}`}>
+    <div className={`space-y-2.5 ${className}`}>
       <div className="flex items-start justify-between gap-3">
         <div className="flex min-w-0 items-start gap-2.5">
-          <span className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-md border bg-muted/30 text-muted-foreground">
+          <span className="mt-0.5 flex size-4 shrink-0 items-center justify-center text-muted-foreground">
             {icon}
           </span>
           <div className="min-w-0">
@@ -424,6 +423,14 @@ export function NodeConfigPanel({
     }
   }, [onSaveNode, t]);
 
+  const handleNodeDelete = () => {
+    if (onDeleteNode) {
+      onDeleteNode(node.id);
+      return;
+    }
+    void handleDelete();
+  };
+
   useEffect(() => {
     onDirtyChange?.(hasUnsavedChanges);
   }, [hasUnsavedChanges, onDirtyChange]);
@@ -445,6 +452,7 @@ export function NodeConfigPanel({
   return (
     <WorkflowNodeDetailPanelShell
       mode="edit"
+      widthClassName="w-[min(800px,calc(100vw-2rem))]"
       title={title || t(($) => $.node.title)}
       eyebrow={t(($) => $.detail_panel.eyebrow)}
       closeLabel={t(($) => $.detail_panel.close_label)}
@@ -462,12 +470,60 @@ export function NodeConfigPanel({
           )}
         </>
       )}
+      footer={disabled ? (
+        <p className="text-sm text-muted-foreground">{t(($) => $.detail_panel.actions_disabled)}</p>
+      ) : (
+        <div className="flex items-center justify-between gap-3">
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="text-destructive hover:bg-destructive/10 hover:text-destructive"
+            onClick={handleNodeDelete}
+            disabled={deleteMutation.isPending}
+          >
+            <Trash2 className="mr-1.5 size-3.5" />
+            {deleteMutation.isPending ? t(($) => $.node.saving) : t(($) => $.node.delete)}
+          </Button>
+          <div className="flex min-w-0 items-center justify-end gap-2">
+            {isSplit ? (
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                onClick={onTrialRun}
+                disabled={!onTrialRun}
+              >
+                <Play className="mr-1.5 size-3.5" />
+                {t(($) => $.detail_panel.trial_run)}
+              </Button>
+            ) : null}
+            {onSaveNode ? (
+              <Button
+                type="button"
+                size="sm"
+                onClick={handleSaveAll}
+                disabled={!hasUnsavedChanges}
+              >
+                <Save className="mr-1.5 size-3.5" />
+                {t(($) => $.detail_panel.save_changes)}
+              </Button>
+            ) : null}
+          </div>
+        </div>
+      )}
     >
+      <div
+        data-testid="node-config-grid"
+        className="grid grid-cols-1 gap-6 min-[1280px]:grid-cols-2 min-[1280px]:gap-0"
+      >
+        <div
+          data-testid="node-config-primary-column"
+          className="min-w-0 space-y-6 min-[1280px]:pr-6"
+        >
       <NodeDetailSection
         sectionId="primary"
-        icon={<GitBranch className="size-4" />}
         title={t(($) => $.detail_panel.section_primary)}
-        subtitle={t(($) => $.detail_panel.section_primary_desc)}
       >
         <div className="space-y-3">
               <div className="space-y-1.5">
@@ -600,11 +656,30 @@ export function NodeConfigPanel({
         </div>
       </NodeDetailSection>
 
+		{isSplit ? (
+			<NodeDetailSection
+				sectionId="split-behavior"
+				title={t(($) => $.detail_panel.section_split_behavior)}
+			>
+				<SplitConfigPanel
+					config={splitConfig}
+					childWorkflows={activeWorkflows}
+					currentWorkflowId={workflowId}
+					disabled={disabled}
+					onChange={handleSplitConfigChange}
+				/>
+			</NodeDetailSection>
+		) : null}
+        </div>
+
+        <div
+          data-testid="node-config-participants-column"
+          className="min-w-0 space-y-6 min-[1280px]:border-l min-[1280px]:border-border/40 min-[1280px]:pl-6"
+        >
+
       <NodeDetailSection
         sectionId="worker-critic"
-        icon={<Bot className="size-4" />}
         title={t(($) => $.detail_panel.section_worker_critic)}
-        subtitle={t(($) => $.detail_panel.section_worker_critic_desc)}
       >
         <div className="space-y-3">
             {isAnnotation ? (
@@ -1058,87 +1133,21 @@ export function NodeConfigPanel({
       </NodeDetailSection>
 
 		{isSplit ? (
-			<>
-				<NodeDetailSection
-					sectionId="split-behavior"
-					icon={<GitBranch className="size-4" />}
-					title={t(($) => $.detail_panel.section_split_behavior)}
-					subtitle={t(($) => $.detail_panel.section_split_behavior_desc)}
-				>
-					<SplitConfigPanel
-						config={splitConfig}
-						childWorkflows={activeWorkflows}
-						currentWorkflowId={workflowId}
-						disabled={disabled}
-						onChange={handleSplitConfigChange}
-					/>
-				</NodeDetailSection>
-
-				<NodeDetailSection
-					sectionId="connections"
-					icon={<GitFork className="size-4" />}
-					title={t(($) => $.detail_panel.section_connections)}
-					subtitle={t(($) => $.detail_panel.section_connections_desc)}
-				>
-					<div className="grid grid-cols-2 gap-2 text-xs">
-						<div className="rounded-md border bg-muted/20 p-2">
-							{t(($) => $.detail_panel.connection_upstream_count, { count: incomingCount })}
-						</div>
-						<div className="rounded-md border bg-muted/20 p-2">
-							{t(($) => $.detail_panel.connection_downstream_count, { count: outgoingCount })}
-						</div>
-					</div>
-				</NodeDetailSection>
-			</>
+			<NodeDetailSection
+				sectionId="connections"
+				title={t(($) => $.detail_panel.section_connections)}
+			>
+				<div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
+					<span className="inline-flex items-center gap-1.5">
+						<GitFork className="size-3.5" />
+						{t(($) => $.detail_panel.connection_upstream_count, { count: incomingCount })}
+					</span>
+					<span>{t(($) => $.detail_panel.connection_downstream_count, { count: outgoingCount })}</span>
+				</div>
+			</NodeDetailSection>
 		) : null}
-
-      <NodeDetailSection
-        sectionId="actions"
-        icon={<Trash2 className="size-4" />}
-        title={t(($) => $.detail_panel.section_actions)}
-        subtitle={t(($) => $.detail_panel.section_actions_desc)}
-      >
-        {!disabled ? (
-          <div className="space-y-2">
-			{isSplit ? (
-				<Button type="button" size="sm" variant="outline" className="w-full" onClick={onTrialRun} disabled={disabled || !onTrialRun}>
-					<Play className="mr-1.5 size-3.5" />
-					{t(($) => $.detail_panel.trial_run)}
-				</Button>
-			) : null}
-            {onSaveNode ? (
-              <Button
-                size="sm"
-                variant="default"
-                className="w-full"
-                onClick={handleSaveAll}
-                disabled={!hasUnsavedChanges}
-              >
-                <Save className="mr-1.5 h-3.5 w-3.5" />
-                {t(($) => $.detail_panel.save_changes)}
-              </Button>
-            ) : null}
-            <Button
-              size="sm"
-              variant="destructive"
-              className="w-full"
-              onClick={() => {
-                if (onDeleteNode) {
-                  onDeleteNode(node.id);
-                } else {
-                  handleDelete();
-                }
-              }}
-              disabled={deleteMutation.isPending}
-            >
-              <Trash2 className="mr-1.5 h-3.5 w-3.5" />
-              {deleteMutation.isPending ? t(($) => $.node.saving) : t(($) => $.node.delete)}
-            </Button>
-          </div>
-        ) : (
-          <p className="text-sm text-muted-foreground">{t(($) => $.detail_panel.actions_disabled)}</p>
-        )}
-      </NodeDetailSection>
+        </div>
+      </div>
     </WorkflowNodeDetailPanelShell>
   );
 }
