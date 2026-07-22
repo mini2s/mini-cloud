@@ -18,9 +18,13 @@ import (
 type fakeCloudRuntimeProxy struct {
 	enabled bool
 	req     cloudruntime.Request
+	reqs    []cloudruntime.Request
 	resp    *cloudruntime.Response
 	err     error
 	called  bool
+	// doFunc, when set, handles each request (e.g. to answer differently per
+	// method/path). resp/err are ignored in that case.
+	doFunc func(req cloudruntime.Request) (*cloudruntime.Response, error)
 }
 
 func (f *fakeCloudRuntimeProxy) Enabled() bool {
@@ -30,6 +34,10 @@ func (f *fakeCloudRuntimeProxy) Enabled() bool {
 func (f *fakeCloudRuntimeProxy) Do(ctx context.Context, req cloudruntime.Request) (*cloudruntime.Response, error) {
 	f.called = true
 	f.req = req
+	f.reqs = append(f.reqs, req)
+	if f.doFunc != nil {
+		return f.doFunc(req)
+	}
 	if f.err != nil {
 		return nil, f.err
 	}

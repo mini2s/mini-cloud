@@ -345,13 +345,39 @@ describe("ExecutionDetailPanel", () => {
     );
 
     expect(screen.getByTestId("workflow-node-detail-panel-shell")).toHaveAttribute("data-mode", "run");
-    expect(screen.getByTestId("runtime-diagnostic-summary")).toHaveClass("rounded-lg", "border");
+    expect(screen.getByTestId("workflow-node-detail-panel-shell")).toHaveClass("w-[min(800px,calc(100vw-2rem))]");
+    expect(screen.getByTestId("runtime-diagnostic-summary")).not.toHaveClass("rounded-lg", "border");
     expect(screen.getAllByTestId("node-detail-section").map((section) => section.getAttribute("data-section"))).toEqual([
       "status-next-step",
-      "worker-critic",
       "evidence-preview",
+      "worker-critic",
       "runtime-facts",
     ]);
+  });
+
+  it("uses responsive runtime columns and keeps actions in the fixed footer", () => {
+    render(
+      <ExecutionDetailPanel
+        node={{ ...node, title: "Run node" }}
+        nodeRun={{ ...run, node_title: "Run node", session_id: "sess-1" }}
+        workerName="Backend assistant"
+        criticName="Reviewer"
+        onClose={vi.fn()}
+        onOpenIssue={vi.fn()}
+        wsId="ws-1"
+      />,
+    );
+
+    expect(screen.getByTestId("runtime-detail-grid")).toHaveClass("grid-cols-1", "min-[1280px]:grid-cols-2");
+    expect(screen.getByTestId("runtime-detail-primary-column")).toContainElement(
+      screen.getByRole("heading", { name: "Status and next step" }),
+    );
+    expect(screen.getByTestId("runtime-detail-context-column")).toContainElement(
+      screen.getByRole("heading", { name: "Worker and critic" }),
+    );
+    const footer = screen.getByTestId("node-detail-panel-footer");
+    expect(footer).toContainElement(screen.getByRole("button", { name: "Open session" }));
+    expect(footer).toContainElement(screen.getByRole("button", { name: "View full issue" }));
   });
 
   it("renders an explicit full issue action when provided", async () => {
@@ -427,8 +453,8 @@ describe("ExecutionDetailPanel", () => {
     expect(screen.getByTestId("runtime-primary-actions")).toContainElement(screen.getByRole("button", { name: "Open session" }));
     expect(screen.getAllByTestId("node-detail-section").map((section) => section.getAttribute("data-section"))).toEqual([
       "status-next-step",
-      "worker-critic",
       "evidence-preview",
+      "worker-critic",
       "runtime-facts",
     ]);
     expect(mockSetActiveSession).toHaveBeenCalledWith("11111111-1111-1111-1111-111111111111");
@@ -611,7 +637,7 @@ describe("ExecutionDetailPanel", () => {
     );
 
     const sections = screen.getAllByTestId("node-detail-section").map((section) => section.getAttribute("data-section"));
-    expect(sections).toEqual(["status-next-step", "worker-critic", "evidence-preview", "runtime-facts"]);
+    expect(sections).toEqual(["status-next-step", "evidence-preview", "worker-critic", "runtime-facts"]);
     expect(screen.queryByText(/"nested"/)).not.toBeInTheDocument();
     expect(screen.getByText("View evidence")).toBeInTheDocument();
   });
@@ -650,7 +676,7 @@ describe("ExecutionDetailPanel", () => {
     );
 
     const sections = screen.getAllByTestId("node-detail-section").map((section) => section.getAttribute("data-section"));
-    expect(sections).toEqual(["status-next-step", "child-progress", "worker-critic", "evidence-preview", "runtime-facts"]);
+    expect(sections).toEqual(["status-next-step", "evidence-preview", "child-progress", "worker-critic", "runtime-facts"]);
     expect(screen.getAllByText("Open child issue").length).toBeGreaterThan(0);
     expect(screen.getByText("Split work")).toBeInTheDocument();
     expect(screen.getAllByText("Issue workflow").length).toBeGreaterThan(0);
@@ -726,8 +752,8 @@ describe("ExecutionDetailPanel", () => {
     expect(screen.queryByText("Agent operations")).not.toBeInTheDocument();
     expect(screen.getAllByTestId("node-detail-section").map((section) => section.getAttribute("data-section"))).toEqual([
       "status-next-step",
-      "worker-critic",
       "evidence-preview",
+      "worker-critic",
       "runtime-facts",
     ]);
   });

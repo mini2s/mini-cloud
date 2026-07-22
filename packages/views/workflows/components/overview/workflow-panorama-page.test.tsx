@@ -13,6 +13,7 @@ const mocks = vi.hoisted(() => ({
   ],
   nodesData: [] as unknown[],
   edgesData: [] as unknown[],
+  childWorkflowsData: [] as unknown[],
   runsData: [] as Array<{ id: string }>,
   nodeRunsData: [] as unknown[],
   workflowData: { id: "wf-1", title: "Test Workflow", status: "draft" },
@@ -265,6 +266,15 @@ vi.mock("../../../i18n", () => {
         more: "More",
         blocked_tooltip: "Resolve blocking issues first.",
         activate_disabled_unsaved: "Save changes before activating.",
+        activate: "Activate",
+        reactivate: "Reactivate",
+        deactivate: "Deactivate",
+        save_first: "Save first",
+        review_issues: "Review issues",
+        save_before_activating_status: "Save before activating",
+        available_in_issues: "Available in issues",
+        hidden_from_issue_picker: "Hidden from issue picker",
+        blocking_issues_left: "{{count}} issue(s) left",
       },
     },
     preflight: {
@@ -401,7 +411,7 @@ vi.mock("@tanstack/react-query", () => ({
     if (key.includes("agents")) return { data: [], isLoading: false };
     if (key.includes("plugins")) return { data: { items: [] }, isLoading: false };
     if (key.includes("roles")) return { data: [], isLoading: false };
-    if (key.includes("split-issue-workflow-options")) return { data: [], isLoading: false };
+    if (key.includes("split-issue-workflow-options")) return { data: mocks.childWorkflowsData, isLoading: false };
     return { data: null, isLoading: true, isError: false };
   },
 }));
@@ -417,6 +427,7 @@ describe("WorkflowPanoramaPage (new)", () => {
     mocks.workflowData = { id: "wf-1", title: "Test Workflow", status: "draft" };
     mocks.nodesData = [];
     mocks.edgesData = [];
+    mocks.childWorkflowsData = [];
     mocks.runsData = [];
     mocks.nodeRunsData = [];
     mocks.selectedNodeId = null;
@@ -484,6 +495,59 @@ describe("WorkflowPanoramaPage (new)", () => {
       });
       expect(mocks.clearNodeEdits).toHaveBeenCalledWith("node-1");
     });
+  });
+
+  it("passes the edited split child workflow name into the canvas node data", () => {
+    mocks.nodesData = [
+      {
+        id: "split-1",
+        workflow_id: "wf-1",
+        title: "Split implementation",
+        description: "",
+        worker_type: "agent",
+        worker_id: null,
+        critic_type: "human",
+        critic_id: null,
+        critic_api_url: null,
+        stage_id: "stage-1",
+        format_schema: {
+          type: "split",
+          split_config: {
+            default_issue_workflow_id: "child-wf-1",
+            mode: "barrier",
+            max_concurrency: 5,
+            max_failures: 0,
+          },
+        },
+        position_x: 120,
+        position_y: 0,
+        sort_order: 0,
+        created_at: "",
+        updated_at: "",
+      },
+    ];
+    mocks.nodeEdits = {
+      "split-1": {
+        format_schema: {
+          type: "split",
+          split_config: {
+            default_issue_workflow_id: "child-wf-2",
+            mode: "barrier",
+            max_concurrency: 5,
+            max_failures: 0,
+          },
+        },
+      },
+    };
+    mocks.childWorkflowsData = [
+      { id: "child-wf-1", title: "Old workflow", status: "active", nodes: [] },
+      { id: "child-wf-2", title: "Implementation workflow", status: "active", nodes: [] },
+    ];
+
+    render(<WorkflowPanoramaPage workflowId="wf-1" />);
+
+    const splitNode = mocks.reactFlowProps?.nodes.find((item) => item.id === "split-1");
+    expect(splitNode?.data.splitChildWorkflowName).toBe("Implementation workflow");
   });
 
   it("clears cached node edits when deleting a node from the config panel", async () => {
@@ -1048,7 +1112,7 @@ describe("WorkflowPanoramaPage (new)", () => {
     expect(mocks.createNodeMutate).toHaveBeenCalledWith(
       expect.objectContaining({
         title: "Human review",
-        position_x: 436,
+        position_x: 492,
         stage_id: "stage-2",
       }),
       expect.any(Object),
@@ -1270,7 +1334,7 @@ describe("WorkflowPanoramaPage (new)", () => {
 
     expect(mocks.updateNodeMutate).toHaveBeenCalledWith({
       nodeId: "moving",
-      position_x: 760,
+      position_x: 904,
     });
     expect(mocks.assignStageMutate).toHaveBeenCalledWith({
       nodeId: "moving",
@@ -1329,7 +1393,7 @@ describe("WorkflowPanoramaPage (new)", () => {
     // Nodes must carry explicit width/height so MiniMap can render them
     // before the ResizeObserver fires (nodeHasDimensions check in @xyflow/system)
     const worker = mocks.reactFlowProps?.nodes.find((n) => n.id === "node-1");
-    expect(worker).toMatchObject({ width: 240, height: 104 });
+    expect(worker).toMatchObject({ width: 296, height: 152 });
     expect(mocks.reactFlowProps?.nodes.some((n) => n.type === "laneBg" || n.type === "gradientBg")).toBe(false);
   });
 

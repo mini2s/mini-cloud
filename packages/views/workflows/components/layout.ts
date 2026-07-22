@@ -4,7 +4,7 @@ import { parseNodeShape } from "@multica/core/types";
 import { WORKER_HEIGHT, WORKER_WIDTH } from "./overview/constants";
 
 const LANE_START_X = 120;
-const LANE_SLOT_GAP = 80;
+const LANE_SLOT_GAP = 96;
 const LANE_SLOT_STEP = WORKER_WIDTH + LANE_SLOT_GAP;
 
 const SHAPE_DEFAULTS = {
@@ -143,15 +143,19 @@ export function computeStageTransferPositionX(
   nodeId: string,
   targetStageId: string | null,
 ): number {
-  const occupied = new Set(
-    nodes
-      .filter((node) => node.id !== nodeId && (node.stage_id ?? null) === targetStageId)
-      .map((node) => Math.round(node.position_x ?? LANE_START_X)),
-  );
+  const targetStageNodes = nodes
+    .filter((node) => node.id !== nodeId && (node.stage_id ?? null) === targetStageId)
+    .sort((a, b) => {
+      const xDifference = (a.position_x ?? LANE_START_X) - (b.position_x ?? LANE_START_X);
+      if (xDifference !== 0) return xDifference;
+      if (a.sort_order !== b.sort_order) return a.sort_order - b.sort_order;
+      return a.id.localeCompare(b.id);
+    });
 
-  let x = LANE_START_X;
-  while (occupied.has(x)) {
-    x += LANE_SLOT_STEP;
+  let nextX = LANE_START_X;
+  for (const node of targetStageNodes) {
+    const renderedX = Math.max(node.position_x ?? LANE_START_X, nextX);
+    nextX = renderedX + LANE_SLOT_STEP;
   }
-  return x;
+  return nextX;
 }
