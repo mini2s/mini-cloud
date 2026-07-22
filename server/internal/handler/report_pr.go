@@ -57,6 +57,22 @@ func (h *Handler) HandleReportDeliverablePR(w http.ResponseWriter, r *http.Reque
 	if !h.requireDaemonWorkspaceAccess(w, r, uuidToString(run.WorkspaceID)) {
 		return
 	}
+	deliverables, err := h.Queries.ListWorkflowNodeDeliverables(r.Context(), nodeRun.WorkflowNodeID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to verify deliverable")
+		return
+	}
+	found := false
+	for _, d := range deliverables {
+		if uuidToString(d.ID) == uuidToString(dUUID) {
+			found = true
+			break
+		}
+	}
+	if !found {
+		writeError(w, http.StatusNotFound, "deliverable not found")
+		return
+	}
 
 	sub, err := h.Queries.UpsertNodeRunDeliverableSubmission(r.Context(), db.UpsertNodeRunDeliverableSubmissionParams{
 		WorkflowNodeRunID: nrUUID,

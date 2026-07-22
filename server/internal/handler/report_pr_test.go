@@ -141,6 +141,37 @@ func TestHandleReportDeliverablePR_RejectsForeignWorkspace(t *testing.T) {
 	}
 }
 
+func TestHandleReportDeliverablePR_RejectsDeliverableFromDifferentNode(t *testing.T) {
+	if testHandler == nil {
+		t.Skip("database not available")
+	}
+	ctx := context.Background()
+	nodeRunID, _ := seedDeliverableAndNodeRunIn(t, testWorkspaceID, testUserID)
+	_, foreignDeliverableID := seedDeliverableAndNodeRunIn(t, testWorkspaceID, testUserID)
+	t.Cleanup(func() {
+		testPool.Exec(ctx, `DELETE FROM multica_workflow_node_deliverable_submission WHERE workflow_node_run_id = $1`, nodeRunID)
+	})
+
+	body := map[string]string{"pull_request_url": "https://gitea.example.com/t/wf/pulls/2"}
+	req := newDaemonTokenRequest(http.MethodPost, "/api/daemon/node-runs/"+nodeRunID+"/deliverables/"+foreignDeliverableID+"/report-pr", body, testWorkspaceID, "test-daemon")
+	req = withURLParams(req, "nodeRunId", nodeRunID, "deliverableId", foreignDeliverableID)
+	rec := httptest.NewRecorder()
+	testHandler.HandleReportDeliverablePR(rec, req)
+
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want 404 for deliverable from different node, body = %s", rec.Code, rec.Body.String())
+	}
+	var count int
+	if err := testPool.QueryRow(ctx,
+		`SELECT count(*) FROM multica_workflow_node_deliverable_submission WHERE workflow_node_run_id = $1 AND deliverable_id = $2`,
+		nodeRunID, foreignDeliverableID).Scan(&count); err != nil {
+		t.Fatalf("count submissions: %v", err)
+	}
+	if count != 0 {
+		t.Fatalf("expected no submission row for mismatched deliverable, got %d", count)
+	}
+}
+
 // TestHandleReportDeliverablePR_EmptyURL pins the 400 path for a missing
 // pull_request_url. The ownership check must NOT have run for this request
 // (it would 404 on the seed's valid IDs instead of reaching the 400 guard).

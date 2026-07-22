@@ -11,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/multica-ai/multica/server/internal/gitea"
 	"github.com/multica-ai/multica/server/internal/middleware"
+	"github.com/multica-ai/multica/server/internal/service"
 	"github.com/multica-ai/multica/server/internal/util"
 	db "github.com/multica-ai/multica/server/pkg/db/generated"
 )
@@ -161,12 +162,16 @@ func (h *Handler) giteaContextForRun(ctx context.Context, runID pgtype.UUID) *Is
 	if err != nil {
 		return nil
 	}
+	workflow, err := h.Queries.GetWorkflow(ctx, run.WorkflowID)
+	if err != nil {
+		return nil
+	}
 	nodeRuns, err := h.Queries.ListWorkflowNodeRunsByRun(ctx, runID)
 	if err != nil {
 		return nil
 	}
 	owner := gitea.OrgName(util.UUIDToString(run.WorkspaceID))
-	repo := gitea.RepoName(util.UUIDToString(run.WorkflowID))
+	repo := service.DeliverableRepoNameForWorkflow(workflow)
 	gctx := &IssueGiteaContext{
 		Owner:      owner,
 		Repo:       repo,

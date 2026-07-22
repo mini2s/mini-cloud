@@ -190,6 +190,28 @@ func (s *WorkflowService) initWorkflowNamespace(ctx context.Context, run db.Mult
 	return s.persistTeamNamespaceSettings(ctx, run.WorkspaceID, patch)
 }
 
+// initDefaultArchiveRepo provisions the workspace's default deliverable-archive
+// repo (wf-deliverable-archive) at workspace creation, by running the
+// team-namespace InitWorkflow with the workspace's own ID as the stable
+// instance. Best-effort: errors are logged and never block workspace setup.
+// Idempotent — re-provisioning or a later default-workflow run finds the repo
+// existing. (The archive repo is a multica orchestration concern; the mock
+// stays a faithful /api/internal contract implementor.)
+func (s *WorkflowService) initDefaultArchiveRepo(ctx context.Context, workspaceID pgtype.UUID) {
+	wsIDStr := util.UUIDToString(workspaceID)
+	resp, err := s.TeamNamespace.InitWorkflow(ctx, teamnamespace.WorkflowInitRequest{
+		WorkflowDefSlug: gitea.DefaultArchiveRepoName(),
+		InstanceID:      wsIDStr, // stable per-workspace instance
+		TeamID:          wsIDStr,
+	})
+	if err != nil {
+		slog.Warn("provision default archive repo", "workspace_id", wsIDStr, "error", err)
+		return
+	}
+	slog.Info("provisioned default archive repo",
+		"workspace_id", wsIDStr, "repo", resp.WFRepoPath, "branch", resp.InstanceBranch)
+}
+
 func (s *WorkflowService) UpdateTeamNamespace(ctx context.Context, workspaceID pgtype.UUID, name, description string) {
 	if !s.teamNamespaceConfigured() {
 		return
@@ -563,6 +585,7 @@ func (s *WorkflowService) ProvisionWorkspaceGitea(ctx context.Context, workspace
 			return
 		}
 		s.syncWorkspaceMembers(ctx, workspaceID)
+		s.initDefaultArchiveRepo(ctx, workspaceID)
 		slog.Info("provisioned workspace team namespace",
 			"workspace_id", wsIDStr)
 		return

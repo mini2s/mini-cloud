@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/google/uuid"
@@ -58,5 +59,42 @@ func TestHandleGetIssueGiteaDeliverablesAcceptsWorkspaceHeader(t *testing.T) {
 	}
 	if got := out.Issues[0].Gitea.Deliverables[0].DeliverableID; got != deliverableID {
 		t.Fatalf("deliverable_id = %q, want %q", got, deliverableID)
+	}
+}
+
+func TestGiteaContextForRun_DefaultWorkflowUsesArchiveRepo(t *testing.T) {
+	if testHandler == nil {
+		t.Skip("database not available")
+	}
+	t.Setenv("GITEA_BASE_URL", "https://gitea.example.com")
+	t.Setenv("GITEA_ADMIN_TOKEN", "admin-tok")
+
+	ctx := context.Background()
+	nodeRunID, _ := seedDeliverableAndNodeRunIn(t, testWorkspaceID, testUserID)
+
+	var runID string
+	if err := testPool.QueryRow(ctx,
+		`SELECT workflow_run_id FROM multica_workflow_node_run WHERE id = $1`,
+		nodeRunID).Scan(&runID); err != nil {
+		t.Fatalf("read run id: %v", err)
+	}
+	if _, err := testPool.Exec(ctx, `
+		UPDATE multica_workflow
+		SET is_default = TRUE
+		WHERE id = (
+			SELECT workflow_id FROM multica_workflow_run WHERE id = $1
+		)`, runID); err != nil {
+		t.Fatalf("mark workflow default: %v", err)
+	}
+
+	got := testHandler.giteaContextForRun(ctx, parseUUID(runID))
+	if got == nil {
+		t.Fatal("expected non-nil context")
+	}
+	if got.Repo != "deliverable-archive" {
+		t.Fatalf("Repo = %q, want deliverable-archive", got.Repo)
+	}
+	if want := "/" + got.Owner + "/deliverable-archive.git"; !strings.HasSuffix(got.CloneURL, want) {
+		t.Fatalf("CloneURL = %q, want suffix %q", got.CloneURL, want)
 	}
 }
