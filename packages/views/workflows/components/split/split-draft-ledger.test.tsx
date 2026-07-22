@@ -15,6 +15,7 @@ vi.mock("../../../i18n", () => ({
     ) => {
       const detailPanel = {
         split_draft_child_issue_label: "Child issue",
+        split_draft_created_issue_label: "Created issue",
         split_draft_issue_status_label: "Issue status",
         split_draft_run_status_label: "Run result",
         split_draft_workflow_label: "Workflow",
@@ -39,8 +40,7 @@ vi.mock("../../../i18n", () => ({
         split_draft_hide_discarded: "Hide discarded drafts",
         split_draft_title_label: "Draft title",
         split_draft_description_label: "Draft description",
-			split_draft_recovered: "Recovered",
-			split_draft_version: "v{{version}}",
+        split_draft_recovered: "Recovered",
       };
       const template = selector({ detail_panel: detailPanel });
       if (values) {
@@ -118,9 +118,9 @@ function renderWithQueryClient(ui: React.ReactElement) {
 }
 
 describe("SplitDraftLedger", () => {
-	it("shows draft version and recovered provenance", () => {
+	it("hides internal draft version and shows recovered provenance", () => {
 		render(<SplitDraftLedger tasks={[{ ...baseTask, version: 7, draft_source: "recovered" }]} workflows={workflows} />);
-		expect(screen.getByText("v7")).toBeInTheDocument();
+		expect(screen.queryByText("v7")).not.toBeInTheDocument();
 		expect(screen.getByText("Recovered")).toBeInTheDocument();
 	});
   it("keeps workflow controls from consuming the draft title column", () => {
@@ -200,13 +200,20 @@ describe("SplitDraftLedger", () => {
     );
 
     const metadata = screen.getByTestId("split-draft-metadata-task-1");
+    const childFacts = screen.getByTestId("split-draft-child-facts-task-1");
 
     expect(metadata).toContainElement(screen.getByRole("link", { name: "DEM-478" }));
-    expect(metadata).toHaveTextContent("Issue status: todo");
-    expect(metadata).toHaveTextContent("Run result: Failed");
+    expect(childFacts).toHaveClass("grid", "sm:grid-cols-4", "w-full");
+    expect(screen.getByTestId("split-draft-child-issue-task-1")).toHaveTextContent("Created issue");
+    expect(screen.getByTestId("split-draft-child-issue-task-1")).toHaveTextContent("DEM-478");
+    expect(screen.getByTestId("split-draft-child-status-task-1")).toHaveTextContent("Issue status");
+    expect(screen.getByTestId("split-draft-child-status-task-1")).toHaveTextContent("todo");
+    expect(screen.getByTestId("split-draft-child-status-task-1")).not.toHaveTextContent("Issue status: todo");
+    expect(screen.getByTestId("split-draft-child-run-result-task-1")).toHaveTextContent("Run result");
+    expect(screen.getByTestId("split-draft-child-run-result-task-1")).toHaveTextContent("Failed");
+    expect(screen.getByTestId("split-draft-child-workflow-task-1")).toHaveTextContent("Implementation workflow");
+    expect(screen.getAllByText("Implementation workflow")).toHaveLength(1);
     expect(metadata).toHaveTextContent("Implementation workflow");
-    expect(screen.getByText("Run result: Failed")).toBeInTheDocument();
-    expect(screen.queryByText("todo")).not.toBeInTheDocument();
     expect(screen.queryByTestId("split-draft-actions-task-1")).not.toBeInTheDocument();
   });
 

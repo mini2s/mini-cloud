@@ -13,12 +13,29 @@ vi.mock("../../../../i18n", () => ({
       getter: (d: {
         node: Record<string, string>;
         detail_panel: Record<string, string>;
+        panorama: { card: Record<string, string> };
       }) => string,
       values?: Record<string, string | number>,
     ) => {
       const dict = {
         node: { worker_name: "Worker", agent_label: "Agent", not_configured: "Not configured" },
-        detail_panel: { split_node_mode_concurrency: "{{mode}} · concurrency {{concurrency}}" },
+        panorama: {
+          card: {
+            worker_label: "Localized Worker",
+            critic_label: "Localized Critic",
+            split_badge: "Split",
+            split_child_workflow_label: "Child workflow",
+            split_policy_label: "Execution policy",
+            split_policy_summary: "Concurrency {{concurrency}} · Max failures {{maxFailures}}",
+            split_pipeline_policy_summary: "Concurrency {{concurrency}}",
+          },
+        },
+        detail_panel: {
+          split_node_mode_label: "{{mode}}",
+          split_node_concurrency_label: "concurrency {{concurrency}}",
+          split_node_failure_label: "max failures {{max}}",
+          split_node_child_workflow_missing: "No child workflow",
+        },
       };
       return getter(dict).replace(/{{\s*(\w+)\s*}}/g, (_match, key: string) => String(values?.[key] ?? ""));
     },
@@ -97,8 +114,38 @@ describe("CompactWorkerNode", () => {
     renderWithProvider(rfn);
     const el = screen.getByTestId("compact-worker-node-1");
     expect(el).toBeInTheDocument();
-    expect(el).toHaveClass("h-[104px]", "w-[240px]");
-    expect(el).toHaveStyle({ height: "104px" });
+    expect(el).toHaveClass("h-[152px]", "w-[296px]");
+    expect(el).toHaveStyle({ width: "296px", height: "152px" });
+  });
+
+  it("allows long titles, descriptions, and actor names to wrap instead of single-line truncating everything", () => {
+    const rfn = {
+      id: "long-node",
+      type: "compactWorker",
+      position: { x: 100, y: 12 },
+      data: {
+        ...baseData,
+        node: makeWorkerNode({
+          id: "long-node",
+          title: "Implement a very long checkout workflow orchestration step",
+          description: "Coordinate API, UI, and background worker changes without losing context.",
+          worker_id: "agent-1",
+          critic_id: "member-1",
+        }),
+        workerName: "Very Long Builder Agent Name That Should Remain Readable",
+        criticName: "Reviewer With A Long Display Name",
+        workerConfigured: true,
+        criticConfigured: true,
+      },
+    } as Node;
+
+    renderWithProvider(rfn);
+
+    const card = screen.getByTestId("compact-worker-long-node");
+    expect(card).toHaveClass("h-[152px]", "w-[296px]");
+    expect(screen.getByText(/Implement a very long checkout/).className).toContain("line-clamp-2");
+    expect(screen.getByText(/Coordinate API/).className).toContain("line-clamp-2");
+    expect(screen.getByTestId("compact-worker-node-worker-role-long-node").innerHTML).not.toContain("truncate");
   });
 
   it("uses the node title as the primary card label", () => {
@@ -147,6 +194,7 @@ describe("CompactWorkerNode", () => {
     const badge = screen.getByTestId("compact-worker-node-badge-node-1");
     const meta = screen.getByTestId("compact-worker-node-meta-node-1");
     expect(badge).toHaveTextContent("Agent");
+    expect(badge).toHaveAttribute("data-workflow-node-type-badge", "true");
     expect(badge).toHaveClass("border-border/55", "bg-background/70", "text-muted-foreground");
     expect(meta).toHaveTextContent("GPT-4 Agent");
     expect(meta).toHaveTextContent("Optional");
@@ -179,6 +227,13 @@ describe("CompactWorkerNode", () => {
 
     expect(screen.getByTestId("compact-worker-node-worker-role-node-1")).toHaveTextContent("Builder Agent");
     expect(screen.getByTestId("compact-worker-node-critic-role-node-1")).toHaveTextContent("Reviewer");
+    expect(screen.getByText("Localized Worker")).toBeInTheDocument();
+    expect(screen.getByText("Localized Critic")).toBeInTheDocument();
+    expect(screen.getByTestId("compact-worker-node-meta-node-1")).toHaveClass("grid-cols-2");
+    expect(screen.getByTestId("compact-worker-node-worker-role-node-1")).toHaveAttribute("data-workflow-actor-slot", "worker");
+    expect(screen.getByTestId("compact-worker-node-critic-role-node-1")).toHaveAttribute("data-workflow-actor-slot", "critic");
+    expect(screen.getByTestId("compact-worker-node-worker-role-node-1").querySelector('[data-workflow-actor-state="configured"]')).toBeInTheDocument();
+    expect(screen.getByTestId("compact-worker-node-critic-role-node-1").querySelector('[data-workflow-actor-state="configured"]')).toBeInTheDocument();
   });
 
   it("does not show missing worker warnings on the card", () => {
@@ -214,7 +269,7 @@ describe("CompactWorkerNode", () => {
     expect(screen.queryByText("Intake")).not.toBeInTheDocument();
     expect(screen.queryByText("Worker ready")).not.toBeInTheDocument();
     expect(screen.getByText("GPT-4 Agent")).toBeInTheDocument();
-    expect(screen.getByText("Critic")).toBeInTheDocument();
+    expect(screen.getByText("Localized Critic")).toBeInTheDocument();
     expect(screen.queryByText("Completed")).not.toBeInTheDocument();
   });
 
@@ -236,7 +291,7 @@ describe("CompactWorkerNode", () => {
 
     expect(screen.queryByText("Build")).not.toBeInTheDocument();
     expect(screen.queryByText("Needs worker")).not.toBeInTheDocument();
-    expect(screen.getByText("Critic")).toBeInTheDocument();
+    expect(screen.getByText("Localized Critic")).toBeInTheDocument();
   });
 
   it("renders annotation nodes without worker warnings", () => {
@@ -298,6 +353,7 @@ describe("CompactWorkerNode", () => {
       position: { x: 100, y: 12 },
       data: {
         ...baseData,
+        splitChildWorkflowName: "Implementation workflow",
         node: makeWorkerNode({
           id: "split-1",
           title: "Task split",
@@ -321,9 +377,16 @@ describe("CompactWorkerNode", () => {
     renderWithProvider(rfn);
 
     expect(screen.getByText("Task split")).toBeInTheDocument();
-    expect(screen.getByText("barrier · concurrency 5")).toBeInTheDocument();
+    expect(screen.getByText("barrier")).toBeInTheDocument();
+    expect(screen.getByText("Concurrency 5 · Max failures 0")).toBeInTheDocument();
+    expect(screen.getByText("Implementation workflow")).toBeInTheDocument();
+    expect(screen.getByText("Child workflow")).toBeInTheDocument();
+    expect(screen.getByText("Execution policy")).toBeInTheDocument();
     expect(screen.queryByText("GPT-4 Agent")).not.toBeInTheDocument();
-    expect(screen.queryByTestId("compact-worker-node-badge-split-1")).not.toBeInTheDocument();
+    expect(screen.getByTestId("compact-worker-node-badge-split-1")).toHaveTextContent("Split");
+
+    const meta = screen.getByTestId("compact-worker-node-meta-split-1");
+    expect(meta).toHaveClass("border-t", "grid-cols-2");
 
     const node = screen.getByTestId("compact-worker-split-1");
     const surface = node.querySelector('[data-node-shape-surface="true"]');

@@ -52,7 +52,7 @@ const i18nMock = vi.hoisted(() => {
     split_approve_dialog_description: "This will create {{count}} child issues and start their workflows.",
     split_cancel_dialog_title: "Cancel split?",
     split_cancel_dialog_description: "This will stop unfinished child tasks and cancel their child issues.",
-		split_planner_label: "Planner: {{planner}}",
+		split_planner_label: "Split planner: {{planner}}",
 		split_elapsed: "Elapsed: {{elapsed}}",
 		split_generation_slow: "Planner is still generating drafts",
 		split_cancel_affected_count: "{{count}} child tasks will be cancelled",
@@ -64,9 +64,13 @@ const i18nMock = vi.hoisted(() => {
     split_node_review_tasks_one: "Review {{count}} task",
     split_node_review_tasks_other: "Review {{count}} tasks",
     split_node_review_tasks: "Review {{count}} tasks",
-    split_node_mode_concurrency: "{{mode}} · concurrency {{concurrency}}",
+    split_node_mode_label: "{{mode}}",
+    split_node_concurrency_label: "Concurrency {{concurrency}}",
+    split_node_failure_label: "Max failures {{max}}",
+    split_node_child_workflow_missing: "No child workflow",
     split_status_fallback: "pending",
     split_draft_child_issue_label: "Child issue",
+    split_draft_created_issue_label: "Created issue",
     split_draft_issue_status_label: "Issue status",
     split_draft_run_status_label: "Run result",
     split_draft_workflow_label: "Workflow",
@@ -92,7 +96,6 @@ const i18nMock = vi.hoisted(() => {
     split_draft_title_label: "Draft title",
     split_draft_description_label: "Draft description",
     split_draft_edit_failed: "Failed to update draft.",
-		split_draft_version: "v{{version}}",
 		split_draft_recovered: "Recovered",
     split_dep_will_appear_after_draft: "Dependencies will appear here after a draft is generated.",
     split_dep_can_start_in_parallel: "These child issues can start in parallel.",
@@ -461,7 +464,7 @@ describe("SplitReviewPanel", () => {
 				nodeRun: { ...splitNodeRun, status: "splitting", started_at: "2026-07-19T00:00:00Z" },
 				plannerName: "Split Planner Code",
 			});
-			expect(screen.getByText("Planner: Split Planner Code")).toBeInTheDocument();
+			expect(screen.getByText("Split planner: Split Planner Code")).toBeInTheDocument();
 			expect(screen.getByText("Elapsed: 1:01")).toBeInTheDocument();
 			expect(screen.getByText("Planner is still generating drafts")).toBeInTheDocument();
 		} finally {
@@ -469,16 +472,20 @@ describe("SplitReviewPanel", () => {
 		}
 	});
 
-  it("renders a review with verdict, draft plan, dependencies, sticky actions, and draft quick actions", async () => {
+  it("renders a review with a compact overview, full-width draft plan, and fixed actions", async () => {
     const user = userEvent.setup();
     const { container } = renderPanel();
 
     const approveButton = screen.getByRole("button", { name: "Confirm create 1" });
     expect(screen.getByTestId("workflow-node-detail-panel-shell")).toHaveAttribute("data-mode", "run");
+    expect(screen.getByTestId("workflow-node-detail-panel-shell")).toHaveClass("w-[min(800px,calc(100vw-2rem))]");
+    expect(screen.getByTestId("split-review-overview-grid")).toHaveClass("grid-cols-1", "min-[1280px]:grid-cols-2");
+    expect(screen.getByTestId("split-review-main")).toContainElement(screen.getByText("Child issue draft"));
     expect(screen.getByTestId("split-review-summary")).not.toHaveClass("border-l-4", "border-l-primary/70");
     expect(screen.queryByTestId("split-draft-command-bar")).not.toBeInTheDocument();
     expect(screen.queryByText("Actions")).not.toBeInTheDocument();
     expect(screen.getByTestId("split-review-action-bar")).toContainElement(approveButton);
+    expect(screen.getByTestId("node-detail-panel-footer")).toContainElement(approveButton);
     expect(screen.getByText("Child issue readiness")).toBeInTheDocument();
     expect(screen.getByText("Ready to create")).toBeInTheDocument();
     expect(screen.getByText("Child issue draft")).toBeInTheDocument();
@@ -501,7 +508,7 @@ describe("SplitReviewPanel", () => {
     expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Delete task/i })).not.toBeInTheDocument();
     expect(screen.queryByTestId("split-task-dag")).not.toBeInTheDocument();
-    expect(approveButton.closest(".sticky")).not.toBeNull();
+    expect(approveButton.closest(".sticky")).toBeNull();
     expect(container).not.toHaveTextContent(mojibakePattern);
   });
 
@@ -1126,8 +1133,9 @@ describe("SplitReviewPanel", () => {
     });
 
     expect(screen.getByRole("link", { name: "MUL-42" })).toHaveAttribute("href", "/test/issues/child-1");
-    expect(screen.getByText("Child issue")).toBeInTheDocument();
-    expect(screen.getByText("Issue status: blocked")).toBeInTheDocument();
+    expect(screen.getByTestId("split-draft-child-issue-task-1")).toHaveTextContent("Created issue");
+    expect(screen.getByTestId("split-draft-child-status-task-1")).toHaveTextContent("blocked");
+    expect(screen.getByTestId("split-draft-child-status-task-1")).not.toHaveTextContent("Issue status: blocked");
     expect(screen.getByText("Error: API key is missing")).toBeInTheDocument();
   });
 

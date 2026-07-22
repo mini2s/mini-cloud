@@ -35,6 +35,7 @@ export function SplitNodeCard({
   const { t } = useT("workflows");
   const mode = config?.mode ?? "barrier";
   const maxConcurrency = config?.max_concurrency ?? 5;
+  const maxFailures = config?.max_failures ?? 0;
   const showProgress = (status === "active" || status === "completed") && (progress || progressAction);
   const label =
     status === "generating"
@@ -43,12 +44,12 @@ export function SplitNodeCard({
         ? t(($) => $.detail_panel.split_node_review_tasks, { count: taskCount })
         : showProgress
           ? null
-          : t(($) => $.detail_panel.split_node_mode_concurrency, { mode, concurrency: maxConcurrency });
+          : null;
 
   const content = (
     <div
       className={cn(
-        "flex h-full min-h-20 w-60 flex-col gap-2 rounded-lg border border-border bg-card p-3 text-left text-card-foreground shadow-sm",
+        "flex h-full min-h-20 w-60 flex-col gap-2.5 rounded-lg border border-border bg-card p-3 text-left text-card-foreground shadow-sm",
         "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
         onClick && "cursor-pointer transition-colors hover:bg-accent/40",
         className,
@@ -64,15 +65,9 @@ export function SplitNodeCard({
         {headerAction ? <span className="shrink-0">{headerAction}</span> : null}
       </div>
 
-      {childWorkflowName && (
-        <span className="truncate text-xs text-muted-foreground">
-          {childWorkflowName}
-        </span>
-      )}
-
       {showProgress ? (
         progressAction ?? <SplitProgressBadge progress={progress!} />
-      ) : (
+      ) : label ? (
         <span className={cn(
           "truncate text-xs text-muted-foreground",
           status === "generating" && "font-medium text-amber-600",
@@ -80,6 +75,25 @@ export function SplitNodeCard({
         )}>
           {label}
         </span>
+      ) : (
+        <div className="grid min-w-0 gap-2">
+          <div className={cn("grid min-w-0 gap-1.5", mode === "barrier" ? "grid-cols-3" : "grid-cols-2")}>
+            <span className="min-w-0 truncate rounded-md border border-primary/20 bg-primary/10 px-2 py-1 text-center text-[11px] font-semibold leading-4 text-primary">
+              {t(($) => $.detail_panel.split_node_mode_label, { mode })}
+            </span>
+            <span className="min-w-0 truncate rounded-md border border-border/70 bg-muted/35 px-2 py-1 text-center text-[11px] font-medium leading-4 text-muted-foreground">
+              {t(($) => $.detail_panel.split_node_concurrency_label, { concurrency: maxConcurrency })}
+            </span>
+            {mode === "barrier" ? (
+              <span className="min-w-0 truncate rounded-md border border-border/70 bg-muted/35 px-2 py-1 text-center text-[11px] font-medium leading-4 text-muted-foreground">
+                {t(($) => $.detail_panel.split_node_failure_label, { max: maxFailures })}
+              </span>
+            ) : null}
+          </div>
+          <span className="min-w-0 truncate rounded-md border border-border/70 bg-background/70 px-2 py-1 text-[11px] font-medium leading-4 text-muted-foreground">
+            {childWorkflowName ?? t(($) => $.detail_panel.split_node_child_workflow_missing)}
+          </span>
+        </div>
       )}
     </div>
   );

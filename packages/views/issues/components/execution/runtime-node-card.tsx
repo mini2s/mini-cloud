@@ -10,19 +10,20 @@ import {
 } from "@multica/core/types";
 import { cn } from "@multica/ui/lib/utils";
 import { RuntimeDisplayStatusIcon } from "./node-run-status-icon";
-import { Bot, User, Building2, Check, ChevronDown, ChevronRight, GitBranch, GitFork, GitMerge } from "lucide-react";
+import { Check, ChevronDown, ChevronRight, GitFork, GitMerge } from "lucide-react";
 import { useT } from "@multica/views/i18n";
 import { Button } from "@multica/ui/components/ui/button";
-import { Badge } from "@multica/ui/components/ui/badge";
 import { Loader2 } from "lucide-react";
 import { workflowNodeInfoAreaClassName, workflowNodeShapeGlyphClassName } from "../../../common/workflow-node-shape";
+import { WorkflowActorSlot, type WorkflowActorState } from "../../../common/workflow-actor-slots";
+import { WorkflowNodeTypeBadge } from "../../../common/workflow-node-type-badge";
 import {
   WorkflowCanvasNodeShell,
   type WorkflowCanvasNodeHandle,
 } from "../../../workflows/components/canvas/workflow-canvas-node-shell";
 import { WORKER_WIDTH } from "../../../workflows/components/overview/constants";
 
-export const RUNTIME_NODE_HEIGHT = 120;
+export const RUNTIME_NODE_HEIGHT = 156;
 
 export type NodeRunActionType =
   | "approve"
@@ -50,13 +51,7 @@ export interface RuntimeNodeCardProps {
   isSplitExpanded?: boolean;
   splitChildCount?: number;
   onSplitNodeToggle?: (nodeId: string) => void;
-}
-
-/** Maps worker/critic type to its Lucide icon component. */
-function typeIcon(t: string) {
-  if (t === "agent") return Bot;
-  if (t === "squad") return Building2;
-  return User;
+  onOpenSession?: (nodeId: string) => void;
 }
 
 function gatewayLabel(t: IssueTranslator, kind: "fork" | "join" | null): string {
@@ -164,7 +159,7 @@ function RuntimeStatusPill({
         gatewayKind={gatewayKind}
         className="h-3.5 w-3.5"
       />
-      <span className="truncate">{label}</span>
+      <span className="min-w-0 break-words leading-3 line-clamp-2">{label}</span>
     </span>
   );
 }
@@ -281,35 +276,10 @@ function ActionButtons({
   );
 }
 
-function ActorSlot({
-  icon: Icon,
-  label,
-  name,
-}: {
-  icon: ReturnType<typeof typeIcon>;
-  label: string;
-  name: string | null;
-}) {
-  return (
-    <div className="min-w-0 space-y-0.5">
-      <div className="text-[9px] font-semibold uppercase tracking-wide text-muted-foreground">
-        {label}
-      </div>
-      <div className="flex min-w-0 items-center gap-1.5 text-[11px]">
-        <span className="flex size-4 shrink-0 items-center justify-center rounded-full bg-muted/55 text-muted-foreground ring-1 ring-border/60">
-          <Icon className="h-3 w-3" />
-        </span>
-        <span
-          className={cn(
-            "min-w-0 truncate font-medium text-foreground/85",
-            !name && "italic text-muted-foreground",
-          )}
-        >
-          {name ?? "--"}
-        </span>
-      </div>
-    </div>
-  );
+function actorState(name: string | null, configured: boolean, optional = false): WorkflowActorState {
+  if (name?.trim()) return "configured";
+  if (configured) return "pending";
+  return optional ? "optional" : "missing";
 }
 
 function SplitProgressSummary({
@@ -324,14 +294,12 @@ function SplitProgressSummary({
       data-testid="runtime-node-split-progress"
       className="flex min-w-0 items-center gap-2 border-t border-border/45 py-1.5"
     >
-      <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-muted/55 text-muted-foreground ring-1 ring-border/60">
-        <GitBranch className="h-3.5 w-3.5" />
-      </span>
+      <span aria-hidden="true" className="size-1.5 shrink-0 rounded-full bg-muted-foreground/50" />
       <div className="min-w-0">
-        <p className="truncate text-[12px] font-semibold leading-4 text-foreground/90">
+        <p className="break-words text-[12px] font-semibold leading-4 text-foreground/90 line-clamp-2">
           {label}
         </p>
-        <p className="truncate text-[10px] font-medium leading-3 text-muted-foreground">
+        <p className="break-words text-[10px] font-medium leading-3 text-muted-foreground line-clamp-2">
           {summary}
         </p>
       </div>
@@ -356,6 +324,7 @@ export function RuntimeNodeCard({
   isSplitExpanded = false,
   splitChildCount = 0,
   onSplitNodeToggle,
+  onOpenSession,
 }: RuntimeNodeCardProps) {
   const { t } = useT("issues");
   const nodeFormat = parseNodeFormat(node.format_schema);
@@ -367,18 +336,22 @@ export function RuntimeNodeCard({
   const displayStatusLabel = runtimeDisplayStatusText(t, displayStatus, isGateway ? nodeFormat.gateway_kind : null);
   const hasCritic = !isGateway && !isSplit && (node.critic_type || node.critic_id);
 
-  const WorkerIcon = typeIcon(node.worker_type);
-  const CriticIcon = node.critic_type === "agent" ? Bot : node.critic_type === "squad" ? Building2 : User;
   const GatewayIcon = nodeFormat.gateway_kind === "join" ? GitMerge : GitFork;
+  const workerConfigured = Boolean(node.worker_id || node.worker_role_id || node.worker_role);
+  const criticConfigured = Boolean(node.critic_id || node.critic_role_id || node.critic_role || node.critic_api_url);
   const splitProgress = runtimeSummary?.split_progress ?? null;
   const hasSplitProgress = isSplit && !!splitProgress && splitProgress.total > 0;
   const canToggleSplitChildren = isSplit && splitChildCount > 0 && !!onSplitNodeToggle;
+  const sessionId = nodeRun?.session_id ?? runtimeSummary?.session_id ?? null;
+  const canOpenSession = !isGateway && !isSplit && !!sessionId && !!onOpenSession;
+  const hasInlineAction = canToggleSplitChildren || canOpenSession;
   const splitChildLabel = splitChildCountLabel(t, splitChildCount || (splitProgress?.total ?? 0));
   const splitChildSummaryParts = splitProgress ? splitProgressSummaryParts(t, splitProgress) : [];
   const splitChildSummaryLabel = splitChildSummaryParts.length > 0
     ? splitChildSummaryParts.join(" · ")
     : t(($) => $.execution.panorama.not_started);
   const handleShellKeyDown = useCallback((event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (event.target !== event.currentTarget) return;
     if (event.key !== "Enter" && event.key !== " ") return;
     event.preventDefault();
     onClick(node.id);
@@ -388,6 +361,11 @@ export function RuntimeNodeCard({
     event.stopPropagation();
     onSplitNodeToggle?.(node.id);
   }, [node.id, onSplitNodeToggle]);
+  const handleOpenSessionClick = useCallback((event: React.MouseEvent<HTMLButtonElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+    onOpenSession?.(node.id);
+  }, [node.id, onOpenSession]);
 
   const actionButtons: ActionButtonDef[] = nodeRun
     ? isGateway || isSplit
@@ -421,7 +399,7 @@ export function RuntimeNodeCard({
 
   return (
     <WorkflowCanvasNodeShell
-      as={canToggleSplitChildren ? "div" : "button"}
+      as={hasInlineAction ? "div" : "button"}
       testId={`runtime-node-card-${node.id}`}
       nodeShape={nodeShape}
       selected={isSelected}
@@ -430,10 +408,10 @@ export function RuntimeNodeCard({
       title={node.title}
       dataRuntimeDisplayStatus={displayStatus}
       dataRuntimeFocus={isRuntimeFocus}
-      tabIndex={canToggleSplitChildren ? 0 : undefined}
+      tabIndex={hasInlineAction ? 0 : undefined}
       onClick={() => onClick(node.id)}
-      onKeyDown={canToggleSplitChildren ? handleShellKeyDown : undefined}
-      className="h-[120px]"
+      onKeyDown={hasInlineAction ? handleShellKeyDown : undefined}
+      className="h-[156px]"
       surfaceClassName={runtimeFocusSurfaceClassName(isRuntimeFocus, displayStatus)}
       contentClassName={cn("h-full justify-between gap-2", workflowNodeInfoAreaClassName(nodeShape))}
       handles={handles}
@@ -441,20 +419,36 @@ export function RuntimeNodeCard({
       elementRef={elementRef}
     >
       {isSplit ? (
-        <>
-          <div className="flex items-center justify-between gap-2">
+        <div
+          data-testid="runtime-node-split-layout"
+          className="grid h-full min-h-0 grid-rows-[32px_20px_minmax(0,1fr)] gap-1.5"
+        >
+          <div
+            data-testid="runtime-node-split-header"
+            className="flex items-center justify-between gap-2"
+          >
             <div className="flex min-w-0 items-center gap-1.5">
-              <GitBranch className="size-3.5 shrink-0 text-muted-foreground" />
-              <span className="truncate text-sm font-medium">{node.title}</span>
+              <span className="min-w-0 break-words text-sm font-medium leading-4 line-clamp-2">{node.title}</span>
             </div>
-						<div className="flex h-5 shrink-0 items-center gap-1">
-							<Badge variant="outline" className="h-5 px-1.5 text-[10px]">
-								{splitMode === "pipeline"
-									? t(($) => $.execution.card.split_mode_pipeline)
-									: t(($) => $.execution.card.split_mode_barrier)}
-							</Badge>
-							<RuntimeStatusPill status={displayStatus} label={displayStatusLabel} />
-						</div>
+            <RuntimeStatusPill status={displayStatus} label={displayStatusLabel} />
+          </div>
+
+          <div
+            data-testid="runtime-node-split-context"
+            className="flex min-w-0 items-center justify-between gap-2 border-t border-border/45 pt-1.5"
+          >
+            <WorkflowNodeTypeBadge
+              testId={`runtime-node-type-badge-${node.id}`}
+              label={t(($) => $.execution.card.split_badge)}
+            />
+            <span
+              data-testid="runtime-node-split-mode"
+              className="min-w-0 truncate text-right text-[10px] font-medium leading-3 text-muted-foreground"
+            >
+              {splitMode === "pipeline"
+                ? t(($) => $.execution.card.split_mode_pipeline)
+                : t(($) => $.execution.card.split_mode_barrier)}
+            </span>
           </div>
 
           {canToggleSplitChildren ? (
@@ -478,10 +472,10 @@ export function RuntimeNodeCard({
               onClick={handleSplitToggleClick}
             >
               <span className="min-w-0">
-                <span className="block truncate text-[12px] font-semibold leading-4 text-foreground">
+                <span className="block break-words text-[12px] font-semibold leading-4 text-foreground line-clamp-2">
                   {splitChildLabel}
                 </span>
-                <span className="block truncate text-[10px] font-medium leading-3 text-muted-foreground">
+                <span className="block break-words text-[10px] font-medium leading-3 text-muted-foreground line-clamp-2">
                   {splitChildSummaryLabel}
                 </span>
               </span>
@@ -510,30 +504,34 @@ export function RuntimeNodeCard({
             <div
               data-testid="runtime-node-content"
               className={cn(
-                "grid gap-1.5 border-t border-border/45 py-1.5",
+                "grid grid-rows-[12px_42px] gap-x-2 gap-y-1 border-t border-border/45 py-1.5",
                 node.critic_type || node.critic_id ? "grid-cols-2" : "grid-cols-1",
               )}
             >
-              <ActorSlot
-                icon={WorkerIcon}
+              <WorkflowActorSlot
+                slot="worker"
                 label={t(($) => $.execution.card.worker_label)}
                 name={workerName}
+                fallback="--"
+                state={actorState(workerName, workerConfigured)}
               />
               {node.critic_type || node.critic_id ? (
-                <ActorSlot
-                  icon={CriticIcon}
+                <WorkflowActorSlot
+                  slot="critic"
                   label={t(($) => $.execution.card.critic_label)}
                   name={criticName}
+                  fallback="--"
+                  state={actorState(criticName, criticConfigured, true)}
                 />
               ) : null}
             </div>
           )}
-        </>
+        </div>
       ) : (
         <>
-      {/* Row 1: node title + status icon */}
-      <div className="flex items-center justify-between gap-2">
-        <div className="flex items-center gap-1.5 min-w-0">
+      {/* Row 1: node title + status/session actions */}
+      <div className="flex items-start justify-between gap-2">
+        <div className="flex min-w-0 flex-1 items-center gap-1.5 pt-0.5">
           {nodeShape !== "rectangle" ? (
             <span
               aria-hidden="true"
@@ -544,13 +542,29 @@ export function RuntimeNodeCard({
               )}
             />
           ) : null}
-          <span className="text-sm font-medium truncate">{node.title}</span>
+          <span className="min-w-0 flex-1 break-words text-sm font-medium leading-4 line-clamp-2">
+            {node.title}
+          </span>
         </div>
-        <RuntimeStatusPill
-          status={displayStatus}
-          gatewayKind={isGateway ? nodeFormat.gateway_kind : null}
-          label={displayStatusLabel}
-        />
+        <div className="flex shrink-0 flex-col items-start gap-1">
+          <RuntimeStatusPill
+            status={displayStatus}
+            gatewayKind={isGateway ? nodeFormat.gateway_kind : null}
+            label={displayStatusLabel}
+          />
+          {canOpenSession ? (
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              data-testid="runtime-node-open-session"
+              className="nodrag nopan h-5 shrink-0 cursor-pointer border-primary/30 px-1.5 text-[10px] font-medium text-primary shadow-xs transition-all hover:-translate-y-px hover:border-primary/60 hover:bg-primary/10 hover:text-primary hover:shadow-sm active:translate-y-0 active:scale-[0.97] motion-reduce:transform-none"
+              onClick={handleOpenSessionClick}
+            >
+              {t(($) => $.execution.detail_panel.open_session)}
+            </Button>
+          ) : null}
+        </div>
       </div>
 
       {isGateway ? (
@@ -573,20 +587,24 @@ export function RuntimeNodeCard({
         <div
           data-testid="runtime-node-content"
           className={cn(
-            "grid gap-1.5 border-t border-border/45 py-1.5",
+            "grid grid-rows-[12px_42px] gap-x-2 gap-y-1 border-t border-border/45 py-1.5",
             hasCritic ? "grid-cols-2" : "grid-cols-1",
           )}
         >
-          <ActorSlot
-            icon={WorkerIcon}
+          <WorkflowActorSlot
+            slot="worker"
             label={t(($) => $.execution.card.worker_label)}
             name={workerName}
+            fallback="--"
+            state={actorState(workerName, workerConfigured)}
           />
           {hasCritic ? (
-            <ActorSlot
-              icon={CriticIcon}
+            <WorkflowActorSlot
+              slot="critic"
               label={t(($) => $.execution.card.critic_label)}
               name={criticName}
+              fallback="--"
+              state={actorState(criticName, criticConfigured, true)}
             />
           ) : null}
         </div>

@@ -1,8 +1,9 @@
 "use client";
 
-import { GitBranch, ShieldCheck } from "lucide-react";
+import { ShieldCheck } from "lucide-react";
 import type { SplitConfig, Workflow } from "@multica/core/types";
 import { Label } from "@multica/ui/components/ui/label";
+import { cn } from "@multica/ui/lib/utils";
 import { useT } from "../../../i18n";
 
 interface SplitConfigPanelProps {
@@ -29,19 +30,7 @@ export function SplitConfigPanel({
   const activeChildWorkflows = childWorkflows.filter((workflow) => workflow.status === "active" && workflow.id !== currentWorkflowId);
 
   return (
-    <div className="space-y-3 rounded-lg border border-border/70 bg-muted/15 p-3" data-testid="split-config-panel">
-      <div className="flex items-start gap-2.5">
-        <span className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-md border bg-background text-muted-foreground">
-          <GitBranch className="size-4" />
-        </span>
-        <div className="min-w-0">
-          <h4 className="text-sm font-medium">{t(($) => $.detail_panel.split_title)}</h4>
-          <p className="mt-1 text-[11px] leading-snug text-muted-foreground">
-            {t(($) => $.detail_panel.split_subtitle)}
-          </p>
-        </div>
-      </div>
-
+    <div className="space-y-3" data-testid="split-config-panel">
       <div className="space-y-1.5">
         <Label htmlFor="split-default-issue-workflow" className="text-xs text-muted-foreground">
           {t(($) => $.detail_panel.split_default_issue_workflow_label)}
@@ -84,8 +73,16 @@ export function SplitConfigPanel({
         </Label>
         <div className="inline-flex rounded-lg border bg-muted/40 p-1">
           {([
-            { value: "barrier", label: t(($) => $.detail_panel.split_release_after_finish) },
-            { value: "pipeline", label: t(($) => $.detail_panel.split_release_after_created) },
+            {
+              value: "barrier",
+              label: t(($) => $.detail_panel.split_release_after_finish),
+              description: t(($) => $.detail_panel.split_mode_barrier_description),
+            },
+            {
+              value: "pipeline",
+              label: t(($) => $.detail_panel.split_release_after_created),
+              description: t(($) => $.detail_panel.split_mode_pipeline_description),
+            },
           ] as const).map((option) => {
             const active = config.mode === option.value;
             return (
@@ -94,24 +91,23 @@ export function SplitConfigPanel({
                 type="button"
                 disabled={disabled}
                 aria-pressed={active}
-                className={
+                className={cn(
+                  "grid min-h-11 w-36 content-center rounded-md px-2.5 py-1 text-left transition-colors",
                   active
-                    ? "h-7 rounded-md border border-border bg-background px-2.5 text-[11px] font-medium text-foreground shadow-sm"
-                    : "h-7 rounded-md px-2.5 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-background/70 hover:text-foreground"
-                }
+                    ? "border border-border bg-background text-foreground shadow-sm"
+                    : "text-muted-foreground hover:bg-background/70 hover:text-foreground",
+                )}
                 onClick={() => onChange({
                   ...config,
                   mode: option.value,
                 })}
               >
-                {option.label}
+                <span className="text-[11px] font-semibold leading-4">{option.label}</span>
+                <span className="text-[10px] font-medium leading-3 text-muted-foreground">{option.description}</span>
               </button>
             );
           })}
         </div>
-        <p className="text-[11px] leading-snug text-muted-foreground">
-          {t(($) => $.detail_panel.split_mode_hint)}
-        </p>
       </div>
 
       <div className="space-y-1.5">
