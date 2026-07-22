@@ -265,7 +265,7 @@ export function ExecutionDetailPanel({
     if (transcriptLoading) return;
     if (isEmbeddedInCostrict()) {
       if (sessionId) {
-        const posted = postCostrictNavigateToSession({ sessionId });
+        const posted = postCostrictNavigateToSession({ sessionId, newTab: true });
         if (posted) return;
       }
     }

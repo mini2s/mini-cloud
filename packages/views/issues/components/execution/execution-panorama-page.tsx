@@ -26,6 +26,12 @@ import {
 } from "@multica/core/workflows/queries";
 import { useWorkspacePaths } from "@multica/core/paths";
 import { api } from "@multica/core/api";
+import { useChatStore } from "@multica/core/chat";
+import { chatSessionsOptions } from "@multica/core/chat/queries";
+import {
+  isEmbeddedInCostrict,
+  postCostrictNavigateToSession,
+} from "@multica/core/platform";
 import { agentListOptions, memberListOptions, squadListOptions } from "@multica/core/workspace/queries";
 import { workerTypeToActorType } from "@multica/core/types";
 import type {
@@ -74,6 +80,7 @@ import { toast } from "sonner";
 import { cn } from "@multica/ui/lib/utils";
 import { SplitReviewPanel } from "../../../workflows/components/split/split-review-panel";
 import { useNavigation } from "../../../navigation";
+import { resolveChatSessionId } from "../../../chat/lib/resolve-chat-session-id";
 
 export interface ExecutionPanoramaPageProps {
   workflowId: string;
@@ -617,6 +624,9 @@ export function ExecutionPanoramaPage({
   const { t: tWf } = useT("workflows");
   const { data: squads } = useQuery(squadListOptions(wsId));
   const { data: splitWorkflowOptions = [] } = useQuery(splitIssueWorkflowOptions(wsId, workflowId));
+  const { data: chatSessions = [] } = useQuery(chatSessionsOptions(wsId));
+  const setChatSession = useChatStore((state) => state.setActiveSession);
+  const setChatOpen = useChatStore((state) => state.setOpen);
 
   // ---- Local state ----
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
@@ -648,6 +658,28 @@ export function ExecutionPanoramaPage({
     }
     return map;
   }, [canvasSummary?.node_runtime_summaries]);
+
+  const handleOpenNodeSession = useCallback((nodeId: string) => {
+    const sessionId =
+      nodeRunMap.get(nodeId)?.session_id ??
+      runtimeSummaryMap.get(nodeId)?.session_id ??
+      null;
+    if (!sessionId) return;
+
+    if (isEmbeddedInCostrict()) {
+      const posted = postCostrictNavigateToSession({ sessionId, newTab: true });
+      if (posted) return;
+    }
+
+    const chatSessionId = resolveChatSessionId(chatSessions, sessionId);
+    if (chatSessionId) {
+      setChatSession(chatSessionId);
+      setChatOpen(true);
+      return;
+    }
+
+    setSelectedNodeId(nodeId);
+  }, [chatSessions, nodeRunMap, runtimeSummaryMap, setChatOpen, setChatSession]);
 
   const splitNodeEntries = useMemo(
     () =>
@@ -911,6 +943,7 @@ export function ExecutionPanoramaPage({
       workerName: resolveWorkerName(node),
       criticName: resolveCriticName(node),
       onOpen: setSelectedNodeId,
+      onOpenSession: handleOpenNodeSession,
       isRuntimeFocus: node.id === runtimeFocusNodeId,
       isSplitExpanded: expandedSplitNodeIds.has(node.id),
       splitChildCount: (splitTasksByNodeId.get(node.id) ?? []).filter((task) => task.issue_id).length,

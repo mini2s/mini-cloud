@@ -7,12 +7,37 @@ import type { NextRequest } from "next/server";
 const proxyPrefixes = ["/api/", "/auth/", "/uploads/"];
 const proxyExact = ["/ws"];
 
+function configuredApiBasePath(): string | undefined {
+  const apiUrl = process.env.NEXT_PUBLIC_API_URL?.trim();
+  if (!apiUrl?.startsWith("/") || apiUrl === "/") return undefined;
+  return apiUrl.replace(/\/+$/, "");
+}
+
+function buildRemoteUrl(
+  remoteApiUrl: string,
+  pathname: string,
+  search: string,
+): URL {
+  const url = new URL(remoteApiUrl);
+  const remoteBasePath =
+    url.pathname === "/" ? "" : url.pathname.replace(/\/+$/, "");
+
+  url.pathname = `${remoteBasePath}${pathname}`;
+  url.search = search;
+  url.hash = "";
+  return url;
+}
+
 export function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
+  const apiBasePath = configuredApiBasePath();
 
   const shouldProxy =
     proxyPrefixes.some((p) => pathname.startsWith(p)) ||
-    proxyExact.includes(pathname);
+    proxyExact.includes(pathname) ||
+    (apiBasePath !== undefined &&
+      (pathname === apiBasePath ||
+        pathname.startsWith(`${apiBasePath}/`)));
 
   if (!shouldProxy) {
     return NextResponse.next();
@@ -22,7 +47,11 @@ export function proxy(request: NextRequest) {
   const remoteApiUrl =
     process.env.REMOTE_API_URL || "http://localhost:8080";
 
-  const url = new URL(pathname + request.nextUrl.search, remoteApiUrl);
+  const url = buildRemoteUrl(
+    remoteApiUrl,
+    pathname,
+    request.nextUrl.search,
+  );
 
   return NextResponse.rewrite(url);
 }
