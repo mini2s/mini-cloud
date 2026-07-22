@@ -382,10 +382,14 @@ func (s *WorkflowService) ensureNodeRunBranch(ctx context.Context, nodeRun db.Mu
 		return fmt.Errorf("scaffold run deliverable: %w", err)
 	}
 
+	node, err := s.Queries.GetWorkflowNode(ctx, nodeRun.WorkflowNodeID)
+	if err != nil {
+		return fmt.Errorf("get node: %w", err)
+	}
 	owner := gitea.OrgName(util.UUIDToString(run.WorkspaceID))
 	repo := DeliverableRepoNameForWorkflow(workflow)
 	inst := gitea.InstBranch(util.UUIDToString(run.ID))
-	nodeBranch := gitea.NodeBranch(util.UUIDToString(nodeRun.ID))
+	nodeBranch := gitea.NodeBranch(int(node.SortOrder), util.UUIDToString(nodeRun.ID))
 	if err := s.Gitea.CreateBranch(ctx, owner, repo, nodeBranch, inst); err != nil {
 		return fmt.Errorf("create node branch: %w", err)
 	}
@@ -849,9 +853,11 @@ func (s *WorkflowService) UploadMemberDeliverable(ctx context.Context, issue db.
 		return fmt.Errorf("list deliverables: %w", err)
 	}
 	var deliverableID pgtype.UUID
+	var deliverableTitle string
 	for _, d := range deliverables {
 		if d.Kind == "document" {
 			deliverableID = d.ID
+			deliverableTitle = d.Title
 			break
 		}
 	}
@@ -859,11 +865,15 @@ func (s *WorkflowService) UploadMemberDeliverable(ctx context.Context, issue db.
 		return errors.New("node has no document deliverable")
 	}
 
+	node, err := s.Queries.GetWorkflowNode(ctx, nodeRun.WorkflowNodeID)
+	if err != nil {
+		return fmt.Errorf("get node: %w", err)
+	}
 	owner := gitea.OrgName(util.UUIDToString(run.WorkspaceID))
 	repo := DeliverableRepoNameForWorkflow(workflow)
 	inst := gitea.InstBranch(util.UUIDToString(run.ID))
-	nodeBranch := gitea.NodeBranch(util.UUIDToString(nodeRun.ID))
-	path := gitea.DeliverablePath(util.UUIDToString(nodeRun.ID), util.UUIDToString(deliverableID))
+	nodeBranch := gitea.NodeBranch(int(node.SortOrder), util.UUIDToString(nodeRun.ID))
+	path := gitea.DeliverablePath(int(node.SortOrder), nodeRun.NodeTitle, util.UUIDToString(nodeRun.ID), deliverableTitle)
 
 	// Idempotent node branch (base = inst). CreateBranch is get-or-create
 	// (handles the slash in node/<hex>, which GET /branches/{name} can't address).

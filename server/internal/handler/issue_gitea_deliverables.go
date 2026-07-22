@@ -179,6 +179,11 @@ func (h *Handler) giteaContextForRun(ctx context.Context, runID pgtype.UUID) *Is
 		InstBranch: gitea.InstBranch(util.UUIDToString(run.ID)),
 	}
 	for _, nr := range nodeRuns {
+		node, err := h.Queries.GetWorkflowNode(ctx, nr.WorkflowNodeID)
+		if err != nil {
+			continue
+		}
+		seq := int(node.SortOrder)
 		deliverables, err := h.Queries.ListWorkflowNodeDeliverables(ctx, nr.WorkflowNodeID)
 		if err != nil {
 			continue
@@ -192,7 +197,7 @@ func (h *Handler) giteaContextForRun(ctx context.Context, runID pgtype.UUID) *Is
 				NodeTitle:     nr.NodeTitle,
 				DeliverableID: util.UUIDToString(d.ID),
 				Title:         d.Title,
-				Path:          gitea.DeliverablePath(nrShort, util.UUIDToString(d.ID)),
+				Path:          gitea.DeliverablePath(seq, nr.NodeTitle, nrShort, d.Title),
 			})
 		}
 	}

@@ -10,6 +10,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"strings"
+	"unicode"
 
 	"github.com/google/uuid"
 )
@@ -83,15 +84,93 @@ func escapeDefSlug(s string) string {
 // default branch (main). Long-lived (audit asset); not auto-deleted.
 func InstBranch(runID string) string { return "inst-" + shortHex(runID) }
 
-// NodeBranch is the per-node-run feature branch: node/<nodeRun.id[:8]>. Based
-// off the run's inst branch; deleted after the node PR merges.
-func NodeBranch(nodeRunID string) string { return "node/" + shortHex(nodeRunID) }
+// NodeBranch is the per-node-run feature branch: node/<NN>-<nodeRunShort>, where
+// NN is the node's sort_order (zero-padded). Based off the run's inst branch;
+// deleted after the node PR merges. Branch names are strict-ASCII (Gitea repo/branch
+// charset), so the node title (often CJK) is NOT carried here — it lives in the PR
+// title and in the in-repo node directory (NodeDir).
+func NodeBranch(seq int, nodeRunID string) string {
+	return fmt.Sprintf("node/%02d-%s", seq, shortHex(nodeRunID))
+}
+
+// NodeDir is the in-repo directory holding a node-run's deliverables and reviews:
+// nodes/<NN>[-<title>]-<nodeRunShort>. Unlike repo/branch names, in-repo paths are
+// UTF-8 (git stores bytes, Gitea renders CJK), so the node title is kept when it
+// sanitizes to something usable; an all-symbol/empty title omits the segment.
+func NodeDir(seq int, nodeTitle, nodeRunID string) string {
+	short := shortHex(nodeRunID)
+	title := sanitizePathSeg(nodeTitle)
+	if title == "" {
+		return fmt.Sprintf("nodes/%02d-%s", seq, short)
+	}
+	return fmt.Sprintf("nodes/%02d-%s-%s", seq, title, short)
+}
 
 // DeliverablePath is the in-repo path where a document deliverable body lives:
-// nodes/<nodeRunShort>/<deliverableShort>.md. Aligns with costrict-web's
-// `nodes/` convention (WORKFLOW_REPO_PATH_ALGORITHM.md §7); multica derives the
-// segments from UUIDs (not costrict's seq-slug). The server computes this and
-// sends it in the claim response; the CLI consumes it verbatim (no re-derivation).
-func DeliverablePath(nodeRunID, deliverableID string) string {
-	return "nodes/" + shortHex(nodeRunID) + "/" + shortHex(deliverableID) + ".md"
+// <NodeDir>/<deliverableTitle>.md. The deliverable is named by its own title (no ID
+// suffix); an empty/all-symbol title falls back to "untitled". The server computes
+// this and sends it in the claim response; the CLI consumes it verbatim.
+//
+// Caller is responsible for de-duplicating identical deliverable titles on the same
+// node (append a short-ID suffix to the title before calling) — a rare edge case.
+func DeliverablePath(seq int, nodeTitle, nodeRunID, deliverableTitle string) string {
+	name := sanitizePathSeg(deliverableTitle)
+	if name == "" {
+		name = "untitled"
+	}
+	return NodeDir(seq, nodeTitle, nodeRunID) + "/" + name + ".md"
+}
+
+// ReviewPath is the in-repo path — relative to a NodeDir — where one review round's
+// opinion is archived: reviews/<RR>-<reviewer>-<verdict>.md. RR is the round
+// (zero-padded); verdict is the human word ("通过"/"驳回"). The full path is
+// NodeDir(...) + "/" + ReviewPath(...).
+func ReviewPath(round int, reviewer, verdict string) string {
+	r := sanitizePathSeg(reviewer)
+	if r == "" {
+		r = "unknown"
+	}
+	v := sanitizePathSeg(verdict)
+	if v == "" {
+		v = "unknown"
+	}
+	return fmt.Sprintf("reviews/%02d-%s-%s.md", round, r, v)
+}
+
+// sanitizePathSeg lightly sanitizes a human string for use as a single path
+// segment INSIDE a repo (not a repo/branch name). Unlike escapeDefSlug it
+// preserves CJK and other Unicode letters/digits — git stores paths as UTF-8 and
+// Gitea renders them — and only replaces path separators, control chars, and
+// shell-hostile characters with '-', collapsing runs and trimming ends. Returns
+// "" when nothing usable remains, so callers can omit the segment.
+func sanitizePathSeg(s string) string {
+	var b []rune
+	for _, r := range s {
+		switch {
+		case unicode.IsLetter(r), unicode.IsDigit(r), r == '.', r == '_':
+			b = append(b, r)
+		default:
+			b = append(b, '-')
+		}
+	}
+	// Collapse consecutive '-' (both literal '-' and replaced chars yield '-').
+	var out []rune
+	for _, r := range b {
+		if r == '-' && len(out) > 0 && out[len(out)-1] == '-' {
+			continue
+		}
+		out = append(out, r)
+	}
+	// Trim leading/trailing '-'.
+	for len(out) > 0 && out[0] == '-' {
+		out = out[1:]
+	}
+	for len(out) > 0 && out[len(out)-1] == '-' {
+		out = out[:len(out)-1]
+	}
+	res := string(out)
+	if res == "." || res == ".." { // git forbids these as path components
+		return ""
+	}
+	return res
 }

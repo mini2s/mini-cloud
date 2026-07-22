@@ -295,6 +295,11 @@ func (s *TaskService) giteaDeliverableEnv(ctx context.Context, task db.MulticaAg
 	if err != nil {
 		return nil
 	}
+	node, err := s.Queries.GetWorkflowNode(ctx, nr.WorkflowNodeID)
+	if err != nil {
+		return nil
+	}
+	nodeSeq := int(node.SortOrder)
 	nodeRunIDStr := util.UUIDToString(nr.ID)
 	var refs []giteaDeliverableRefJSON
 	for _, d := range deliverables {
@@ -304,7 +309,7 @@ func (s *TaskService) giteaDeliverableEnv(ctx context.Context, task db.MulticaAg
 		refs = append(refs, giteaDeliverableRefJSON{
 			ID:    util.UUIDToString(d.ID),
 			Title: d.Title,
-			Path:  gitea.DeliverablePath(nodeRunIDStr, util.UUIDToString(d.ID)),
+			Path:  gitea.DeliverablePath(nodeSeq, nr.NodeTitle, nodeRunIDStr, d.Title),
 		})
 	}
 	if len(refs) == 0 {
@@ -323,7 +328,7 @@ func (s *TaskService) giteaDeliverableEnv(ctx context.Context, task db.MulticaAg
 		"MULTICA_GITEA_REPO":         repo,
 		"MULTICA_GITEA_CLONE_URL":    strings.TrimRight(publicBase, "/") + "/" + owner + "/" + repo + ".git",
 		"MULTICA_GITEA_INST_BRANCH":  gitea.InstBranch(util.UUIDToString(run.ID)),
-		"MULTICA_GITEA_NODE_BRANCH":  gitea.NodeBranch(nodeRunIDStr),
+		"MULTICA_GITEA_NODE_BRANCH":  gitea.NodeBranch(nodeSeq, nodeRunIDStr),
 		"MULTICA_GITEA_DELIVERABLES": string(refsJSON),
 	}
 }

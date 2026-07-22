@@ -471,7 +471,11 @@ func TestEnsureNodeRunBranch_CreatesNodeBranchFromInst(t *testing.T) {
 	owner := gitea.OrgName(util.UUIDToString(fix.workspace))
 	repo := gitea.RepoName(util.UUIDToString(fix.workflow))
 	instBranch := gitea.InstBranch(util.UUIDToString(fix.run1))
-	nodeBranch := gitea.NodeBranch(nodeRunID)
+	node, err := queries.GetWorkflowNode(context.Background(), nodeRun.WorkflowNodeID)
+	if err != nil {
+		t.Fatalf("get node: %v", err)
+	}
+	nodeBranch := gitea.NodeBranch(int(node.SortOrder), nodeRunID)
 	if !branchExists(owner + "/" + repo + "/" + instBranch) {
 		t.Fatalf("inst branch %s/%s/%s was not created", owner, repo, instBranch)
 	}

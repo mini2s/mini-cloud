@@ -158,6 +158,16 @@
     "trigger_aria": "附加工作区 skill",
     "trigger_label": "附加"
   },
+  "runtime_select": {
+    "title": "选择运行时",
+    "description": "为 {{name}} 选择一个运行时来执行操作。",
+    "empty_title": "没有可用的运行时",
+    "empty_description": "请先连接一个运行时设备后再执行内置 Agent。",
+    "auto_title": "自动选择（推荐）",
+    "auto_description": "内置 Agent 按节点选择：空闲运行时优先，其次为 Issue 创建人的运行时；普通 Agent 保持自身绑定。",
+    "cancel": "取消",
+    "confirm": "确认执行"
+  },
   "pickers": {
     "concurrency_tooltip": "并发 · 最多 {{value}} 个并行 task",
     "concurrency_range": "最大并行 task 数（{{min}}–{{max}}）",

@@ -222,21 +222,10 @@ export function NodeRunControlActions({
     );
   }
 
-  // Always-visible mode: used on issue detail pages. Take Over and Open Session
-  // are always surfaced so users can discover them; Hand Back / Finalize only
-  // appear once the node is blocked (i.e. after a successful takeover).
+  // Issue-detail mode keeps Open Session visible. Take Over is intentionally
+  // hidden here; Hand Back / Finalize still appear once the node is blocked.
   return (
     <div className="flex items-center gap-1.5 flex-wrap">
-      <Button
-        size={size}
-        variant="outline"
-        className={buttonClass}
-        onClick={handleTakeover}
-        disabled={anyControlPending}
-      >
-        <Hand className={iconClass + " mr-1"} />
-        {takeoverMutation.isPending ? t(($) => $.node_run.taking_over) : t(($) => $.node_run.take_over)}
-      </Button>
       <Button
         size={size}
         variant="outline"

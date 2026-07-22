@@ -470,6 +470,100 @@ func (s *TaskService) resolveRuntimeForAgent(ctx context.Context, agent db.Multi
 	return rt.ID, nil
 }
 
+func (s *TaskService) workflowNodeRuntimeSelectionReason(ctx context.Context, nodeRunID pgtype.UUID) pgtype.Text {
+	nodeRun, err := s.Queries.GetWorkflowNodeRun(ctx, nodeRunID)
+	if err != nil {
+		return pgtype.Text{}
+	}
+	return nodeRun.RuntimeSelectionReason
+}
+
+func workflowTaskPhase(contextJSON []byte) string {
+	var payload struct {
+		Phase string `json:"phase"`
+	}
+	if err := json.Unmarshal(contextJSON, &payload); err == nil && payload.Phase == "critic" {
+		return "critic"
+	}
+	return "worker"
+}
+
+func (s *TaskService) selectRuntimeForWorkflowTask(
+	ctx context.Context,
+	qtx *db.Queries,
+	nodeRunID pgtype.UUID,
+	agentID pgtype.UUID,
+) (db.MulticaWorkflowNodeRun, workflowRuntimeSelection, error) {
+	nodeRun, err := qtx.GetWorkflowNodeRun(ctx, nodeRunID)
+	if err != nil {
+		return db.MulticaWorkflowNodeRun{}, workflowRuntimeSelection{}, fmt.Errorf("get workflow node run: %w", err)
+	}
+	run, err := qtx.GetWorkflowRun(ctx, nodeRun.WorkflowRunID)
+	if err != nil {
+		return nodeRun, workflowRuntimeSelection{}, fmt.Errorf("get workflow run: %w", err)
+	}
+	if s.TxStarter != nil {
+		if _, err := qtx.AcquireWorkflowRuntimeSelectionLock(ctx, util.UUIDToString(run.WorkspaceID)); err != nil {
+			return nodeRun, workflowRuntimeSelection{}, fmt.Errorf("acquire runtime selection lock: %w", err)
+		}
+	}
+	run, err = qtx.GetWorkflowRun(ctx, nodeRun.WorkflowRunID)
+	if err != nil {
+		return nodeRun, workflowRuntimeSelection{}, fmt.Errorf("refresh workflow run: %w", err)
+	}
+	if run.Status != RunStatusRunning {
+		return nodeRun, workflowRuntimeSelection{}, ErrWorkflowRunNotRunning
+	}
+	agent, err := qtx.GetAgent(ctx, agentID)
+	if err != nil {
+		return nodeRun, workflowRuntimeSelection{}, fmt.Errorf("get workflow task agent: %w", err)
+	}
+	selection, err := (&WorkflowService{}).selectWorkflowRuntime(ctx, qtx, run, agent)
+	return nodeRun, selection, err
+}
+
+func linkSelectedWorkflowTask(
+	ctx context.Context,
+	qtx *db.Queries,
+	nodeRunID pgtype.UUID,
+	phase string,
+	task db.MulticaAgentTaskQueue,
+	selection workflowRuntimeSelection,
+) error {
+	reason := pgtype.Text{String: selection.Reason, Valid: true}
+	if phase == "critic" {
+		_, err := qtx.LinkNodeRunCriticTask(ctx, db.LinkNodeRunCriticTaskParams{
+			ID:                     nodeRunID,
+			CriticAgentTaskID:      task.ID,
+			RuntimeID:              selection.RuntimeID,
+			RuntimeSelectionReason: reason,
+		})
+		return err
+	}
+	_, err := qtx.LinkNodeRunWorkerTask(ctx, db.LinkNodeRunWorkerTaskParams{
+		ID:                     nodeRunID,
+		WorkerAgentTaskID:      task.ID,
+		RuntimeID:              selection.RuntimeID,
+		RuntimeSelectionReason: reason,
+	})
+	return err
+}
+
+func (s *TaskService) failWorkflowTaskRuntimeSelection(
+	ctx context.Context,
+	nodeRun db.MulticaWorkflowNodeRun,
+	selectionErr error,
+) error {
+	if !errors.Is(selectionErr, ErrWorkflowRuntimeUnavailable) {
+		return selectionErr
+	}
+	workflowSvc := NewWorkflowService(s.Queries, s.TxStarter, s.Bus, s)
+	if err := workflowSvc.failWorkflowForRuntimeUnavailable(ctx, nodeRun); err != nil {
+		return fmt.Errorf("%w; fail workflow: %v", selectionErr, err)
+	}
+	return selectionErr
+}
+
 // buildWorkflowTaskContext rebuilds the JSON context that the workflow
 // completion gateway needs to route a task. Used by rerun paths that create
 // a fresh task for a workflow node run but cannot reuse the source task's
@@ -573,8 +667,10 @@ func (s *TaskService) enqueueIssueTask(ctx context.Context, issue db.MulticaIssu
 	// workflow state machine track the correct active worker task.
 	if workflowNodeRunID.Valid {
 		if _, linkErr := s.Queries.LinkNodeRunWorkerTask(ctx, db.LinkNodeRunWorkerTaskParams{
-			ID:                workflowNodeRunID,
-			WorkerAgentTaskID: task.ID,
+			ID:                     workflowNodeRunID,
+			WorkerAgentTaskID:      task.ID,
+			RuntimeID:              task.RuntimeID,
+			RuntimeSelectionReason: s.workflowNodeRuntimeSelectionReason(ctx, workflowNodeRunID),
 		}); linkErr != nil {
 			slog.Warn("task enqueue: failed to link node run worker task",
 				"task_id", util.UUIDToString(task.ID),
@@ -655,8 +751,10 @@ func (s *TaskService) enqueueMentionTask(ctx context.Context, issue db.MulticaIs
 	// workflow state machine track the correct active worker task.
 	if workflowNodeRunID.Valid {
 		if _, linkErr := s.Queries.LinkNodeRunWorkerTask(ctx, db.LinkNodeRunWorkerTaskParams{
-			ID:                workflowNodeRunID,
-			WorkerAgentTaskID: task.ID,
+			ID:                     workflowNodeRunID,
+			WorkerAgentTaskID:      task.ID,
+			RuntimeID:              task.RuntimeID,
+			RuntimeSelectionReason: s.workflowNodeRuntimeSelectionReason(ctx, workflowNodeRunID),
 		}); linkErr != nil {
 			slog.Warn("mention task enqueue: failed to link node run worker task",
 				"task_id", util.UUIDToString(task.ID),
@@ -1508,13 +1606,64 @@ func resumeUnsafeFailureReason(reason string) bool {
 // MaybeRetryFailedTask spawns a fresh queued attempt for a recently-failed
 // task when the failure was infrastructure-shaped (daemon crash, runtime
 // went offline, dispatch/run timeout) and the task hasn't exhausted its
-// max_attempts budget. The child task inherits agent/runtime/issue/chat
+// max_attempts budget. Workflow tasks re-run the node-level runtime policy;
+// other tasks inherit the parent runtime. The child preserves issue/chat
 // links and, for resume-safe failures, the parent's session_id/work_dir so
 // the agent can resume the conversation when the backend supports it. Returns
 // the new task, or nil when no retry was created.
 //
 // Autopilot tasks are NOT auto-retried here; the autopilot scheduler owns
 // its own re-run cadence and we don't want to double-fire it.
+func (s *TaskService) createRetryTaskWithRuntimeSelection(
+	ctx context.Context,
+	parent db.MulticaAgentTaskQueue,
+) (*db.MulticaAgentTaskQueue, error) {
+	if !parent.WorkflowNodeRunID.Valid {
+		child, err := s.Queries.CreateRetryTask(ctx, db.CreateRetryTaskParams{
+			ParentTaskID: parent.ID,
+		})
+		return &child, err
+	}
+
+	var (
+		child     db.MulticaAgentTaskQueue
+		nodeRun   db.MulticaWorkflowNodeRun
+		selection workflowRuntimeSelection
+	)
+	err := s.runInTx(ctx, func(qtx *db.Queries) error {
+		var err error
+		nodeRun, selection, err = s.selectRuntimeForWorkflowTask(ctx, qtx, parent.WorkflowNodeRunID, parent.AgentID)
+		if err != nil {
+			return err
+		}
+		child, err = qtx.CreateRetryTask(ctx, db.CreateRetryTaskParams{
+			RuntimeID:    selection.RuntimeID,
+			ParentTaskID: parent.ID,
+		})
+		if err != nil {
+			return fmt.Errorf("create workflow retry task: %w", err)
+		}
+		if err := linkSelectedWorkflowTask(
+			ctx,
+			qtx,
+			parent.WorkflowNodeRunID,
+			workflowTaskPhase(parent.Context),
+			child,
+			selection,
+		); err != nil {
+			return fmt.Errorf("link workflow retry task: %w", err)
+		}
+		return nil
+	})
+	if errors.Is(err, ErrWorkflowRunNotRunning) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, s.failWorkflowTaskRuntimeSelection(ctx, nodeRun, err)
+	}
+	return &child, nil
+}
+
 func (s *TaskService) MaybeRetryFailedTask(ctx context.Context, parent db.MulticaAgentTaskQueue) (*db.MulticaAgentTaskQueue, error) {
 	if parent.Status != "failed" {
 		return nil, nil
@@ -1542,7 +1691,7 @@ func (s *TaskService) MaybeRetryFailedTask(ctx context.Context, parent db.Multic
 		return nil, nil
 	}
 
-	child, err := s.Queries.CreateRetryTask(ctx, parent.ID)
+	child, err := s.createRetryTaskWithRuntimeSelection(ctx, parent)
 	if err != nil {
 		slog.Warn("task auto-retry failed",
 			"parent_task_id", util.UUIDToString(parent.ID),
@@ -1550,6 +1699,9 @@ func (s *TaskService) MaybeRetryFailedTask(ctx context.Context, parent db.Multic
 			"error", err,
 		)
 		return nil, err
+	}
+	if child == nil {
+		return nil, nil
 	}
 	slog.Info("task auto-retry enqueued",
 		"parent_task_id", util.UUIDToString(parent.ID),
@@ -1561,9 +1713,9 @@ func (s *TaskService) MaybeRetryFailedTask(ctx context.Context, parent db.Multic
 	// Retry creates a fresh queued row, same status transition (∅ → queued)
 	// as EnqueueTaskFor*. Broadcast queued first, then notify the daemon —
 	// see EnqueueTaskForIssue for ordering rationale.
-	s.broadcastTaskEvent(ctx, protocol.EventTaskQueued, child)
-	s.NotifyTaskEnqueued(ctx, child)
-	return &child, nil
+	s.broadcastTaskEvent(ctx, protocol.EventTaskQueued, *child)
+	s.NotifyTaskEnqueued(ctx, *child)
+	return child, nil
 }
 
 // RerunIssue creates a fresh queued task for an agent on the issue. Used by
@@ -1649,20 +1801,6 @@ func (s *TaskService) RerunIssue(ctx context.Context, issueID pgtype.UUID, sourc
 		}
 	}
 
-	// For workflow node run tasks, use the workflow run's runtime instead
-	// of auto-resolving. Otherwise built-in agents may pick a different
-	// runtime (e.g. Claude instead of CSC) on rerun.
-	var overrideRuntimeID pgtype.UUID
-	if workflowNodeRunID.Valid {
-		nodeRun, err := s.Queries.GetWorkflowNodeRun(ctx, workflowNodeRunID)
-		if err == nil {
-			run, err := s.Queries.GetWorkflowRun(ctx, nodeRun.WorkflowRunID)
-			if err == nil && run.RuntimeID.Valid {
-				overrideRuntimeID = run.RuntimeID
-			}
-		}
-	}
-
 	// Cancel only the target agent's active/queued tasks on this issue.
 	cancelled, err := s.Queries.CancelAgentTasksByIssueAndAgent(ctx, db.CancelAgentTasksByIssueAndAgentParams{
 		IssueID: issueID,
@@ -1681,7 +1819,12 @@ func (s *TaskService) RerunIssue(ctx context.Context, issueID pgtype.UUID, sourc
 		s.broadcastTaskEvent(ctx, protocol.EventTaskCancelled, t)
 	}
 
-	task, err := s.enqueueRerunTask(ctx, issue, agentID, triggerCommentID, isLeader, overrideRuntimeID, workflowNodeRunID, contextJSON)
+	var task db.MulticaAgentTaskQueue
+	if workflowNodeRunID.Valid {
+		task, err = s.enqueueWorkflowRerunTask(ctx, issue, agentID, triggerCommentID, isLeader, workflowNodeRunID, contextJSON)
+	} else {
+		task, err = s.enqueueRerunTask(ctx, issue, agentID, triggerCommentID, isLeader, pgtype.UUID{}, workflowNodeRunID, contextJSON)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -1708,6 +1851,67 @@ func (s *TaskService) enqueueRerunTask(ctx context.Context, issue db.MulticaIssu
 		return s.enqueueIssueTask(ctx, issue, triggerCommentID, true, overrideRuntimeID, workflowNodeRunID, contextJSON)
 	}
 	return s.enqueueMentionTask(ctx, issue, agentID, triggerCommentID, isLeader, true, workflowNodeRunID, contextJSON)
+}
+
+func (s *TaskService) enqueueWorkflowRerunTask(
+	ctx context.Context,
+	issue db.MulticaIssue,
+	agentID pgtype.UUID,
+	triggerCommentID pgtype.UUID,
+	isLeader bool,
+	workflowNodeRunID pgtype.UUID,
+	contextJSON []byte,
+) (db.MulticaAgentTaskQueue, error) {
+	if len(contextJSON) == 0 {
+		var err error
+		contextJSON, err = s.buildWorkflowTaskContext(ctx, workflowNodeRunID, "worker")
+		if err != nil {
+			slog.Warn("rerun: failed to build workflow context",
+				"workflow_node_run_id", util.UUIDToString(workflowNodeRunID),
+				"error", err,
+			)
+		}
+	}
+	triggerSummary := s.buildCommentTriggerSummary(ctx, triggerCommentID)
+	phase := workflowTaskPhase(contextJSON)
+	var (
+		task      db.MulticaAgentTaskQueue
+		nodeRun   db.MulticaWorkflowNodeRun
+		selection workflowRuntimeSelection
+	)
+	err := s.runInTx(ctx, func(qtx *db.Queries) error {
+		var err error
+		nodeRun, selection, err = s.selectRuntimeForWorkflowTask(ctx, qtx, workflowNodeRunID, agentID)
+		if err != nil {
+			return err
+		}
+		task, err = qtx.CreateAgentTask(ctx, db.CreateAgentTaskParams{
+			AgentID:           agentID,
+			RuntimeID:         selection.RuntimeID,
+			IssueID:           issue.ID,
+			Priority:          priorityToInt(issue.Priority),
+			TriggerCommentID:  triggerCommentID,
+			TriggerSummary:    triggerSummary,
+			IsLeaderTask:      pgtype.Bool{Bool: isLeader, Valid: isLeader},
+			ForceFreshSession: pgtype.Bool{Bool: true, Valid: true},
+			WorkflowNodeRunID: workflowNodeRunID,
+			Context:           contextJSON,
+		})
+		if err != nil {
+			return fmt.Errorf("create workflow rerun task: %w", err)
+		}
+		if err := linkSelectedWorkflowTask(ctx, qtx, workflowNodeRunID, phase, task, selection); err != nil {
+			return fmt.Errorf("link workflow rerun task: %w", err)
+		}
+		return nil
+	})
+	if err != nil {
+		return db.MulticaAgentTaskQueue{}, s.failWorkflowTaskRuntimeSelection(ctx, nodeRun, err)
+	}
+
+	s.broadcastTaskEvent(ctx, protocol.EventTaskQueued, task)
+	s.NotifyTaskEnqueued(ctx, task)
+	return task, nil
 }
 
 // HandleFailedTasks runs the post-failure side effects for a batch of

@@ -1841,6 +1841,12 @@ func (h *Handler) giteaContextForNodeRun(ctx context.Context, nodeRunID pgtype.U
 	if err != nil {
 		return nil
 	}
+	// Node sort_order drives the readable <NN> prefix in repo paths.
+	node, err := h.Queries.GetWorkflowNode(ctx, nr.WorkflowNodeID)
+	if err != nil {
+		return nil
+	}
+	seq := int(node.SortOrder)
 	deliverables, err := h.Queries.ListWorkflowNodeDeliverables(ctx, nr.WorkflowNodeID)
 	if err != nil {
 		return nil
@@ -1854,7 +1860,7 @@ func (h *Handler) giteaContextForNodeRun(ctx context.Context, nodeRunID pgtype.U
 		refs = append(refs, GiteaDeliverableRef{
 			ID:    util.UUIDToString(d.ID),
 			Title: d.Title,
-			Path:  gitea.DeliverablePath(nodeRunIDStr, util.UUIDToString(d.ID)),
+			Path:  gitea.DeliverablePath(seq, nr.NodeTitle, nodeRunIDStr, d.Title),
 		})
 	}
 	if len(refs) == 0 {
@@ -1867,7 +1873,7 @@ func (h *Handler) giteaContextForNodeRun(ctx context.Context, nodeRunID pgtype.U
 		Repo:         repo,
 		CloneURL:     strings.TrimRight(giteaPublicBaseURL(), "/") + "/" + owner + "/" + repo + ".git",
 		InstBranch:   gitea.InstBranch(util.UUIDToString(run.ID)),
-		NodeBranch:   gitea.NodeBranch(nodeRunIDStr),
+		NodeBranch:   gitea.NodeBranch(seq, nodeRunIDStr),
 		Deliverables: refs,
 	}
 }

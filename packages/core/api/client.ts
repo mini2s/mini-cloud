@@ -2298,10 +2298,13 @@ export class ApiClient {
     });
   }
 
-  async startWorkflowRun(workflowId: string, input?: unknown): Promise<WorkflowRun> {
+  async startWorkflowRun(workflowId: string, input?: unknown, runtimeId?: string): Promise<WorkflowRun> {
     return this.fetch(`/api/workflows/${workflowId}/runs`, {
       method: "POST",
-      body: JSON.stringify(input ? { input } : {}),
+      body: JSON.stringify({
+        ...(input !== undefined ? { input } : {}),
+        ...(runtimeId ? { runtime_id: runtimeId } : {}),
+      }),
     });
   }
 

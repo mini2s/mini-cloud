@@ -180,6 +180,8 @@ RETURNING *;
 UPDATE multica_workflow_node_run SET
     worker_agent_task_id = $2,
     runtime_id = $3,
+    runtime_selection_reason = $4,
+    failure_reason = NULL,
     updated_at = now()
 WHERE id = $1
 RETURNING *;
@@ -188,6 +190,17 @@ RETURNING *;
 UPDATE multica_workflow_node_run SET
     critic_agent_task_id = $2,
     runtime_id = $3,
+    runtime_selection_reason = $4,
+    failure_reason = NULL,
+    updated_at = now()
+WHERE id = $1
+RETURNING *;
+
+-- name: FailWorkflowNodeRunForRuntime :one
+UPDATE multica_workflow_node_run SET
+    status = 'failed',
+    failure_reason = 'runtime_unavailable',
+    completed_at = now(),
     updated_at = now()
 WHERE id = $1
 RETURNING *;
@@ -206,6 +219,17 @@ UPDATE multica_workflow_node_run SET
     updated_at = now()
 WHERE workflow_run_id = $1
   AND status NOT IN ('format_failed', 'completed', 'failed', 'blocked', 'skipped', 'cancelled');
+
+-- name: CancelWorkflowTasksByRun :many
+UPDATE multica_agent_task_queue task SET
+    status = 'cancelled',
+    completed_at = now(),
+    failure_reason = 'workflow_failed'
+FROM multica_workflow_node_run node_run
+WHERE node_run.id = task.workflow_node_run_id
+  AND node_run.workflow_run_id = $1
+  AND task.status IN ('queued', 'dispatched', 'running')
+RETURNING task.*;
 
 -- name: GetWorkflowNodeRunsByStatus :many
 SELECT * FROM multica_workflow_node_run
@@ -284,6 +308,42 @@ LIMIT $2 OFFSET $3;
 INSERT INTO multica_agent_task_queue (agent_id, runtime_id, issue_id, status, priority, workflow_node_run_id, chat_session_id, context)
 VALUES ($1, $2, sqlc.narg('issue_id'), 'queued', $3, sqlc.narg('workflow_node_run_id'), sqlc.narg('chat_session_id'), sqlc.narg('context'))
 RETURNING *;
+
+-- name: AcquireWorkflowRuntimeSelectionLock :one
+SELECT pg_advisory_xact_lock(hashtextextended($1::text, 0));
+
+-- name: ListWorkflowRuntimeCandidates :many
+SELECT
+    runtime.*,
+    COUNT(task.id)::bigint AS active_task_count
+FROM multica_agent_runtime runtime
+LEFT JOIN multica_agent_task_queue task
+    ON task.runtime_id = runtime.id
+   AND task.status IN ('queued', 'dispatched', 'running')
+WHERE runtime.workspace_id = sqlc.arg('workspace_id')
+  AND runtime.status = 'online'
+  AND runtime.last_seen_at >= now() - make_interval(secs => sqlc.arg('stale_seconds')::double precision)
+  AND (
+      runtime.visibility = 'public'
+      OR runtime.owner_id = sqlc.narg('authorizer_user_id')
+      OR runtime.owner_id = sqlc.narg('responsible_user_id')
+      OR EXISTS (
+          SELECT 1
+          FROM multica_member member
+          WHERE member.workspace_id = runtime.workspace_id
+            AND member.user_id = sqlc.narg('authorizer_user_id')
+            AND member.role IN ('owner', 'admin')
+      )
+      OR EXISTS (
+          SELECT 1
+          FROM multica_runtime_permission permission
+          WHERE permission.runtime_id = runtime.id
+            AND permission.user_id = sqlc.narg('authorizer_user_id')
+            AND permission.role IN ('admin', 'operator')
+      )
+  )
+GROUP BY runtime.id
+ORDER BY runtime.last_seen_at DESC, runtime.created_at ASC, runtime.id ASC;
 
 -- name: ListCompletedUpstreamNodeRuns :many
 -- Returns completed node runs from earlier stages (lower stage sort_order) for

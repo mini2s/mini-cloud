@@ -172,9 +172,11 @@ WHERE id = $1;
 -- name: CreateWorkflowRun :one
 INSERT INTO multica_workflow_run (
     workflow_id, workspace_id, workflow_title, status,
-    triggered_by_type, triggered_by_id, input, runtime_id
+    triggered_by_type, triggered_by_id, input, runtime_id,
+    source_issue_id, responsible_user_id, runtime_authorizer_id
 ) VALUES (
-    $1, $2, $3, $4, $5, sqlc.narg('triggered_by_id'), sqlc.narg('input'), sqlc.narg('runtime_id')
+    $1, $2, $3, $4, $5, sqlc.narg('triggered_by_id'), sqlc.narg('input'), sqlc.narg('runtime_id'),
+    sqlc.narg('source_issue_id'), sqlc.narg('responsible_user_id'), sqlc.narg('runtime_authorizer_id')
 ) RETURNING *;
 
 -- name: GetWorkflowRunByDispatchKey :one
@@ -187,10 +189,12 @@ LIMIT 1;
 -- name: CreateWorkflowRunWithDispatchKey :one
 INSERT INTO multica_workflow_run (
     workflow_id, workspace_id, workflow_title, status,
-    triggered_by_type, triggered_by_id, input, runtime_id, dispatch_key
+    triggered_by_type, triggered_by_id, input, runtime_id, dispatch_key,
+    source_issue_id, responsible_user_id, runtime_authorizer_id
 ) VALUES (
     $1, $2, $3, $4,
-    $5, sqlc.narg('triggered_by_id'), sqlc.narg('input'), sqlc.narg('runtime_id'), $6
+    $5, sqlc.narg('triggered_by_id'), sqlc.narg('input'), sqlc.narg('runtime_id'), $6,
+    sqlc.narg('source_issue_id'), sqlc.narg('responsible_user_id'), sqlc.narg('runtime_authorizer_id')
 )
 ON CONFLICT (dispatch_key)
 WHERE dispatch_key IS NOT NULL AND dispatch_key <> ''

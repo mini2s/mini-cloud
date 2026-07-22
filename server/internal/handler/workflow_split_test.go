@@ -2696,6 +2696,48 @@ func TestScheduleReadyTasksRecoversClaimedDispatchAttempt(t *testing.T) {
 	}
 }
 
+func TestStartRunForIssueWithDispatchKeyPersistsRuntimeContext(t *testing.T) {
+	f := createSplitApproveFixture(t, "barrier")
+	ctx := context.Background()
+
+	workflow, err := testHandler.Queries.GetWorkflow(ctx, parseUUID(f.childWorkflow))
+	if err != nil {
+		t.Fatalf("load child workflow: %v", err)
+	}
+	issue, err := testHandler.Queries.GetIssue(ctx, parseUUID(f.splitSubIssueID))
+	if err != nil {
+		t.Fatalf("load split issue: %v", err)
+	}
+
+	run, _, err := testHandler.SplitOrchestrator.WfService.StartRunForIssueWithDispatchKey(
+		ctx,
+		workflow,
+		issue,
+		"member",
+		testUserID,
+		parseUUID(testRuntimeID),
+		"runtime-context:"+f.taskAID,
+	)
+	if err != nil {
+		t.Fatalf("start keyed workflow run: %v", err)
+	}
+
+	persisted, err := testHandler.Queries.GetWorkflowRun(ctx, run.ID)
+	if err != nil {
+		t.Fatalf("load keyed workflow run: %v", err)
+	}
+	if persisted.SourceIssueID != issue.ID {
+		t.Fatalf("source_issue_id = %s, want %s", uuidToString(persisted.SourceIssueID), uuidToString(issue.ID))
+	}
+	wantUserID := parseUUID(testUserID)
+	if persisted.ResponsibleUserID != wantUserID {
+		t.Fatalf("responsible_user_id = %s, want %s", uuidToString(persisted.ResponsibleUserID), testUserID)
+	}
+	if persisted.RuntimeAuthorizerID != wantUserID {
+		t.Fatalf("runtime_authorizer_id = %s, want %s", uuidToString(persisted.RuntimeAuthorizerID), testUserID)
+	}
+}
+
 func TestScheduleReadyTasksRecoversFinalizedRunBeforeSideEffects(t *testing.T) {
 	f := createSplitApproveFixture(t, "barrier")
 	configureSplitChildAgent(t, f)

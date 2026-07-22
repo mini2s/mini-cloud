@@ -361,7 +361,7 @@ func TestDispatchAgentTask_IgnoresBuiltinAgentRuntimeFromOtherWorkspace(t *testi
 	if agent.RuntimeID != staleRuntimeUUID {
 		t.Fatalf("fixture agent runtime = %v, want stale runtime %v", agent.RuntimeID, staleRuntimeUUID)
 	}
-	task, err := svc.DispatchAgentTask(ctx, nodeRun, "worker")
+	task, err := svc.DispatchAgentTask(ctx, nodeRun, "worker", map[string]any{})
 	if err != nil {
 		t.Fatalf("DispatchAgentTask: %v", err)
 	}

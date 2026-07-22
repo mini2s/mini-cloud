@@ -243,7 +243,7 @@ type GiteaDeliverableContext struct {
 	Repo         string                `json:"repo"`         // wf-<wf[:8]>
 	CloneURL     string                `json:"clone_url"`    // <base>/<owner>/<repo>.git — single source of truth (spec §10.3.1); CLI consumes verbatim, never self-concatenates
 	InstBranch   string                `json:"inst_branch"`  // inst-<run[:8]>
-	NodeBranch   string                `json:"node_branch"`  // node/<nodeRun[:8]>
+	NodeBranch   string                `json:"node_branch"`  // node/<NN>-<nodeRun[:8]>
 	Deliverables []GiteaDeliverableRef `json:"deliverables"` // one entry per document deliverable on the node
 }
 
@@ -251,7 +251,7 @@ type GiteaDeliverableContext struct {
 type GiteaDeliverableRef struct {
 	ID    string `json:"deliverable_id"`
 	Title string `json:"title"`
-	Path  string `json:"path"` // nodes/<nodeRun[:8]>/<deliverable[:8]>.md
+	Path  string `json:"path"` // nodes/<NN>-<nodeTitle>-<nodeRun[:8]>/<deliverableTitle>.md
 }
 
 // TaskAgentData holds agent info included in claim responses so the daemon

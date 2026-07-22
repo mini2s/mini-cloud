@@ -256,6 +256,8 @@ const run: WorkflowNodeRun = {
   agent_task_id: null,
   session_id: null,
   runtime_id: null,
+  runtime_selection_reason: null,
+  failure_reason: null,
   device_id: null,
   split_review_chat_session_id: null,
   split_config_version: 1,
@@ -461,6 +463,31 @@ describe("ExecutionDetailPanel", () => {
     expect(mockSetOpen).toHaveBeenCalledWith(true);
   });
 
+  it("asks CoStrict to open the runtime session in a new browser tab when embedded", async () => {
+    mockIsEmbeddedInCostrict.mockReturnValue(true);
+    mockPostCostrictNavigateToSession.mockReturnValue(true);
+
+    render(
+      <ExecutionDetailPanel
+        node={{ ...node, title: "Run node" }}
+        nodeRun={{ ...run, node_title: "Run node", session_id: "sess-1" }}
+        workerName="Backend assistant"
+        criticName="Reviewer"
+        onClose={vi.fn()}
+        wsId="ws-1"
+      />,
+    );
+
+    await userEvent.click(screen.getByRole("button", { name: "Open session" }));
+
+    expect(mockPostCostrictNavigateToSession).toHaveBeenCalledWith({
+      sessionId: "sess-1",
+      newTab: true,
+    });
+    expect(mockSetActiveSession).not.toHaveBeenCalled();
+    expect(mockSetOpen).not.toHaveBeenCalled();
+  });
+
   it("falls back to the matching chat session when CoStrict navigation cannot post to a parent frame", async () => {
     mockIsEmbeddedInCostrict.mockReturnValue(true);
     mockPostCostrictNavigateToSession.mockReturnValue(false);
@@ -478,7 +505,10 @@ describe("ExecutionDetailPanel", () => {
 
     await userEvent.click(screen.getByRole("button", { name: "Open session" }));
 
-    expect(mockPostCostrictNavigateToSession).toHaveBeenCalledWith({ sessionId: "sess-1" });
+    expect(mockPostCostrictNavigateToSession).toHaveBeenCalledWith({
+      sessionId: "sess-1",
+      newTab: true,
+    });
     expect(mockSetActiveSession).toHaveBeenCalledWith("11111111-1111-1111-1111-111111111111");
     expect(mockSetOpen).toHaveBeenCalledWith(true);
   });
@@ -849,4 +879,3 @@ describe("ExecutionDetailPanel", () => {
     expect(screen.getByRole("button", { name: "Reject" })).toBeInTheDocument();
   });
 });
-

@@ -5,8 +5,9 @@ import type { Issue } from "@multica/core/types";
 import { I18nProvider } from "@multica/core/i18n/react";
 import enCommon from "../../../locales/en/common.json";
 import enIssues from "../../../locales/en/issues.json";
+import enAgents from "../../../locales/en/agents.json";
 
-const TEST_RESOURCES = { en: { common: enCommon, issues: enIssues } };
+const TEST_RESOURCES = { en: { common: enCommon, issues: enIssues, agents: enAgents } };
 
 // ---------------------------------------------------------------------------
 // Mocks — same pattern as the issue-detail test suite.
@@ -227,14 +228,14 @@ describe("IssueActionsDropdown", () => {
     fireEvent.click(await screen.findByText("Assignee"));
     fireEvent.click(await screen.findByText("Built-in Agent"));
 
-    expect(await screen.findByText("选择运行时")).toBeInTheDocument();
+    expect(await screen.findByText("Select runtime")).toBeInTheDocument();
     const runtimeOption = (await screen.findByText("Runtime One")).closest("label");
     expect(runtimeOption).not.toBeNull();
     fireEvent.pointerDown(runtimeOption!);
     fireEvent.click(runtimeOption!);
 
     expect(
-      screen.getByRole("button", { name: "确认执行" }),
+      screen.getByRole("button", { name: "Run" }),
     ).toBeInTheDocument();
   });
 

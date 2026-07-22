@@ -1727,6 +1727,7 @@ type CreateIssueRequest struct {
 	Priority      string   `json:"priority"`
 	AssigneeType  *string  `json:"assignee_type"`
 	AssigneeID    *string  `json:"assignee_id"`
+	RuntimeID     *string  `json:"runtime_id"`
 	ParentIssueID *string  `json:"parent_issue_id"`
 	ProjectID     *string  `json:"project_id"`
 	StartDate     *string  `json:"start_date"`
@@ -1763,6 +1764,10 @@ func (h *Handler) CreateIssue(w http.ResponseWriter, r *http.Request) {
 
 	workspaceID := h.resolveWorkspaceID(r)
 	wsUUID, ok := parseUUIDOrBadRequest(w, workspaceID, "workspace_id")
+	if !ok {
+		return
+	}
+	runtimePreference, ok := h.validateWorkflowRuntimePreference(w, r, req.RuntimeID, wsUUID)
 	if !ok {
 		return
 	}
@@ -2089,7 +2094,7 @@ func (h *Handler) CreateIssue(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			slog.Warn("failed to load workflow for new issue", "issue_id", uuidToString(issue.ID), "error", err)
 		} else {
-			run, nodeRuns, err := h.WorkflowService.StartRunForIssue(ctx, workflow, issue, creatorType, actualCreatorID, pgtype.UUID{})
+			run, nodeRuns, err := h.WorkflowService.StartRunForIssue(ctx, workflow, issue, creatorType, actualCreatorID, runtimePreference)
 			if err != nil {
 				slog.Warn("failed to start workflow run for new issue", "issue_id", uuidToString(issue.ID), "error", err)
 			} else {
@@ -2213,6 +2218,10 @@ func (h *Handler) UpdateIssue(w http.ResponseWriter, r *http.Request) {
 	}
 	if _, splitPhase := h.runningSplitPhaseTask(r); splitPhase {
 		writeError(w, http.StatusForbidden, "split phase tasks cannot mutate issues")
+		return
+	}
+	runtimePreference, ok := h.validateWorkflowRuntimePreference(w, r, req.RuntimeID, prevIssue.WorkspaceID)
+	if !ok {
 		return
 	}
 
@@ -2465,7 +2474,7 @@ func (h *Handler) UpdateIssue(w http.ResponseWriter, r *http.Request) {
 
 		if h.shouldEnqueueAgentTask(r.Context(), issue) {
 			if _, ok := h.startDefaultWorkflowRunForIssue(r.Context(), issue); !ok {
-				runtimeIDOverride := parseOptionalRuntimeID(req.RuntimeID)
+				runtimeIDOverride := runtimePreference
 				h.TaskService.EnqueueTaskForIssue(r.Context(), issue, pgtype.UUID{}, runtimeIDOverride)
 			}
 		}
@@ -2489,7 +2498,7 @@ func (h *Handler) UpdateIssue(w http.ResponseWriter, r *http.Request) {
 				slog.Warn("failed to load workflow for issue assignee change", "issue_id", uuidToString(issue.ID), "error", wfErr)
 				resp.WorkflowID = uuidToPtr(issue.AssigneeID)
 			} else {
-				run, nodeRuns, wfErr := h.WorkflowService.StartRunForIssue(ctx, workflow, issue, actorType, actorID, parseOptionalRuntimeID(req.RuntimeID))
+				run, nodeRuns, wfErr := h.WorkflowService.StartRunForIssue(ctx, workflow, issue, actorType, actorID, runtimePreference)
 				if wfErr != nil {
 					resp.WorkflowID = uuidToPtr(issue.AssigneeID)
 					slog.Warn("failed to start workflow run on assignee change", "issue_id", uuidToString(issue.ID), "error", wfErr)
@@ -2542,7 +2551,7 @@ func (h *Handler) UpdateIssue(w http.ResponseWriter, r *http.Request) {
 	if statusChanged && !assigneeChanged && actorType == "member" &&
 		prevIssue.Status == "backlog" && issue.Status != "done" && issue.Status != "cancelled" {
 		if h.isAgentAssigneeReady(r.Context(), issue) {
-			runtimeIDOverride := parseOptionalRuntimeID(req.RuntimeID)
+			runtimeIDOverride := runtimePreference
 			h.TaskService.EnqueueTaskForIssue(r.Context(), issue, pgtype.UUID{}, runtimeIDOverride)
 		}
 		if h.isSquadLeaderReady(r.Context(), issue) {
