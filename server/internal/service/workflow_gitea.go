@@ -663,10 +663,17 @@ func (s *WorkflowService) ProvisionWorkflowRepo(ctx context.Context, workflowID 
 		"repo", gitea.RepoName(util.UUIDToString(wf.ID)))
 }
 
-// ArchiveReviewComment pushes the critic's review comment to the Gitea repo as
-// a document (reviews/<nodeRunShort>/review.md on the inst branch), fulfilling
-// the requirement that the review opinion is itself a deliverable archived to
-// Gitea. Best-effort: errors are logged, never block the review.
+// ArchiveReviewComment archives the critic's review opinion into the run's Gitea
+// repo (inst branch), co-located with the node's deliverables under
+// nodes/<NN>-<nodeTitle>-<nodeRunShort>/reviews/<RR>-<reviewer>-<通过|驳回>.md. The
+// review is authored in the multica UI; this is a best-effort, read-only audit
+// copy — the approve/reject decision itself stays in multica (§3.3). Errors are
+// logged, never block the review.
+//
+// Round derivation: RetryCount counts prior rejects. The current review number is
+// RetryCount+1 on approve (the tx leaves RetryCount unchanged) and RetryCount on
+// reject (the tx has already incremented it). Reviewer resolves from the assigned
+// critic member's display name, falling back to "critic".
 func (s *WorkflowService) ArchiveReviewComment(ctx context.Context, nodeRun db.MulticaWorkflowNodeRun, decision, comment string) {
 	if s.Gitea == nil || !s.Gitea.Configured() || comment == "" {
 		return
@@ -681,17 +688,42 @@ func (s *WorkflowService) ArchiveReviewComment(ctx context.Context, nodeRun db.M
 		slog.Warn("archive review comment: get workflow", "error", err)
 		return
 	}
+	node, err := s.Queries.GetWorkflowNode(ctx, nodeRun.WorkflowNodeID)
+	if err != nil {
+		slog.Warn("archive review comment: get node", "error", err)
+		return
+	}
+
+	approved := decision == "approved"
+	verdict := "驳回"
+	if approved {
+		verdict = "通过"
+	}
+	round := int(nodeRun.RetryCount)
+	if approved {
+		round++
+	}
+	reviewer := "critic"
+	if nodeRun.CriticID.Valid {
+		if m, err := s.Queries.GetMember(ctx, nodeRun.CriticID); err == nil && m.OrgDisplayName.Valid && m.OrgDisplayName.String != "" {
+			reviewer = m.OrgDisplayName.String
+		}
+	}
+
+	nodeRunIDStr := util.UUIDToString(nodeRun.ID)
+	path := gitea.NodeDir(int(node.SortOrder), nodeRun.NodeTitle, nodeRunIDStr) + "/" +
+		gitea.ReviewPath(round, reviewer, verdict)
+	content := fmt.Sprintf("---\nround: %d\nverdict: %s\nreviewer: %s\nnode_run: %s\n---\n\n## 评审意见\n\n%s\n",
+		round, decision, reviewer, nodeRunIDStr, comment)
+
 	owner := gitea.OrgName(util.UUIDToString(run.WorkspaceID))
 	repo := DeliverableRepoNameForWorkflow(workflow)
 	inst := gitea.InstBranch(util.UUIDToString(run.ID))
-	nrShort := shortHexSafe(util.UUIDToString(nodeRun.ID))
-	path := "reviews/" + nrShort + "/review.md"
-	content := fmt.Sprintf("# Review: %s\n\n**Decision:** %s\n\n**Comment:**\n\n%s\n", decision, decision, comment)
 	if err := s.Gitea.UpsertFile(ctx, owner, repo, inst, path, content, "review: "+decision); err != nil {
-		slog.Warn("archive review comment: create file", "node_run_id", nrShort, "error", err)
+		slog.Warn("archive review comment: write file", "node_run_id", nodeRunIDStr, "path", path, "error", err)
 		return
 	}
-	slog.Info("archived review comment", "node_run_id", nrShort, "decision", decision, "path", path)
+	slog.Info("archived review comment", "node_run_id", nodeRunIDStr, "round", round, "verdict", verdict, "path", path)
 }
 
 // shortHexSafe returns the first 8 hex chars of a UUID string, or the full

@@ -105,8 +105,14 @@ submission: http://localhost:23000/t-6aacc277/wf-cd431ac0/pulls/2
 | repo 内交付物路径 | 未细化（实现为 `nodes/<short>/<short>.md`） | `nodes/<NN>-<title>-<nodeRunShort>/<deliverableTitle>.md` |
 | 评审存储 | 无（评审只在 multica 云端） | 新增：意见归档到 `nodes/<node>/reviews/` |
 
-## 9. 未决
+## 9. 已决（实现时定）
 
-1. **"Node ID"**：用 node-run ID（默认，定位本次执行）还是 node 定义 ID？
-2. **评审粒度**：节点级 vs 按交付物逐一——决定 review 文件是否需要交付物维度（影响第 7 节假设）。
-3. **归档**：本规范并回 SoT design-doc §3.2，还是留在 multica specs 独立维护？
+1. **"Node ID"** = node-run ID（定位本次执行，与现有 `DeliverablePath` 调用点一致）。
+2. **评审粒度** = 节点级：`ReviewNodeRun` 出一个总决定，`ArchiveReviewComment` 每次调用归档一条 review 文件，不带交付物维度。
+3. **归档** = 留在 multica specs 独立维护（本文件）；尚未并回 design-doc SoT §3.2。
+
+## 10. 实现状态（2026-07-22）
+
+- topology 纯函数（`NodeDir`/`DeliverablePath`/`ReviewPath`/`sanitizePathSeg`/`NodeBranch(seq,id)`）+ 全部 caller + 单测：**已在 HEAD 提交**。
+- `ArchiveReviewComment` 重写为 Scheme A（原为 `reviews/<short>/review.md`）+ `TestArchiveReviewComment_WritesReviewUnderNodeDir`（3 case，RED→GREEN）：**未提交**，分支 `feat/deliverable-git-storage`。
+- 验证：`go vet ./...` 干净；gitea 包 + service 的 Gitea/交付物/评审测试全绿。DB 测试需先 `make migrate-up`（补 migration 138）。3 个 service 测试失败为预存腐烂（旧表名 `workspace`、`runtime_authorizer_id` FK、`normalizeAgentCriticComment` 前缀），不在本改动范围。

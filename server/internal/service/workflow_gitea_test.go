@@ -484,6 +484,110 @@ func TestEnsureNodeRunBranch_CreatesNodeBranchFromInst(t *testing.T) {
 	}
 }
 
+// fakeGiteaContentsServer stands up an httptest server that records file writes
+// to the Gitea contents API (POST/PUT .../contents/<path>) and returns 201 so
+// UpsertFile succeeds on a fresh file. Other requests get a permissive 200 so a
+// stray probe does not 500 the client.
+func fakeGiteaContentsServer(t *testing.T) (srv *httptest.Server, writtenPaths func() []string) {
+	t.Helper()
+	var mu sync.Mutex
+	var paths []string
+	srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if idx := strings.Index(r.URL.Path, "/contents/"); idx >= 0 && (r.Method == http.MethodPost || r.Method == http.MethodPut) {
+			mu.Lock()
+			paths = append(paths, r.URL.Path[idx+len("/contents/"):])
+			mu.Unlock()
+			w.WriteHeader(http.StatusCreated)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	t.Cleanup(srv.Close)
+	return srv, func() []string {
+		mu.Lock()
+		defer mu.Unlock()
+		out := make([]string, len(paths))
+		copy(out, paths)
+		return out
+	}
+}
+
+// TestArchiveReviewComment_WritesReviewUnderNodeDir asserts the critic's review
+// opinion is archived co-located with the node's deliverables under
+// nodes/<NN>-<title>-<short>/reviews/<RR>-<reviewer>-<通过|驳回>.md, with the round
+// derived from RetryCount and the verdict word mapped from the decision.
+func TestArchiveReviewComment_WritesReviewUnderNodeDir(t *testing.T) {
+	pool := openTestPool(t)
+	defer pool.Close()
+
+	fix := seedGiteaFixture(t, pool, true /*document deliverable*/, 1 /*single run*/)
+	queries := db.New(pool)
+	ctx := context.Background()
+
+	// Give the seeded workspace owner a display name so it resolves as the reviewer.
+	var memberID string
+	if err := pool.QueryRow(ctx, `
+		UPDATE multica_member SET org_display_name = '张三'
+		WHERE workspace_id = $1 RETURNING id
+	`, fix.workspace).Scan(&memberID); err != nil {
+		t.Fatalf("set member display name: %v", err)
+	}
+
+	cases := []struct {
+		name        string
+		retryCount  int32
+		decision    string
+		wantRound   int
+		wantVerdict string
+	}{
+		// RetryCount is the POST-tx value ArchiveReviewComment sees. approve leaves
+		// it unchanged (round = RetryCount+1); the tx has already incremented it on
+		// reject (round = RetryCount).
+		{"first_review_approved", 0, "approved", 1, "通过"},
+		{"first_review_rejected", 1, "rejected", 1, "驳回"},
+		{"second_review_approved", 1, "approved", 2, "通过"}, // after one prior reject
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			srv, writtenPaths := fakeGiteaContentsServer(t)
+			var nodeRunID string
+			if err := pool.QueryRow(ctx, `
+				INSERT INTO multica_workflow_node_run (
+					workflow_run_id, workflow_node_id, node_title, status,
+					worker_type, critic_type, critic_id, retry_count
+				)
+				VALUES ($1, $2, '需求分析', 'format_ok', 'agent', 'human', $3, $4)
+				RETURNING id
+			`, fix.run1, fix.node, memberID, c.retryCount).Scan(&nodeRunID); err != nil {
+				t.Fatalf("seed node run: %v", err)
+			}
+			nodeRunUUID, _ := util.ParseUUID(nodeRunID)
+			nodeRun, err := queries.GetWorkflowNodeRun(ctx, nodeRunUUID)
+			if err != nil {
+				t.Fatalf("get node run: %v", err)
+			}
+			node, err := queries.GetWorkflowNode(ctx, nodeRun.WorkflowNodeID)
+			if err != nil {
+				t.Fatalf("get node: %v", err)
+			}
+
+			svc := &WorkflowService{
+				Queries: queries,
+				Gitea:   gitea.NewClient(gitea.Config{BaseURL: srv.URL, Token: "admin-tok"}),
+			}
+			svc.ArchiveReviewComment(ctx, nodeRun, c.decision, "评审意见正文")
+
+			expected := gitea.NodeDir(int(node.SortOrder), nodeRun.NodeTitle, nodeRunID) + "/" +
+				gitea.ReviewPath(c.wantRound, "张三", c.wantVerdict)
+			got := writtenPaths()
+			if len(got) != 1 || got[0] != expected {
+				t.Fatalf("archive review write = %v, want exactly [%s]", got, expected)
+			}
+		})
+	}
+}
+
 // fakeGiteaMergeServer stands up an httptest server that responds to PR merge
 // requests (POST .../pulls/{index}/merge) with the configured status — 200 for
 // a successful merge, 409 for a conflict. All other paths get a permissive 200
