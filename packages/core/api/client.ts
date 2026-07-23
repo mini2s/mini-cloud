@@ -110,6 +110,7 @@ import type {
   SquadMember,
   SquadMemberStatusListResponse,
   Workflow,
+  WorkflowRuntimeSelectionPolicy,
   WorkflowNode,
   WorkflowEdge,
   WorkflowRun,
@@ -2299,11 +2300,25 @@ export class ApiClient {
   }
 
   async startWorkflowRun(workflowId: string, input?: unknown, runtimeId?: string): Promise<WorkflowRun> {
+    return this.startWorkflowRunWithRuntimeSelection(workflowId, { input, runtimeId });
+  }
+
+  async startWorkflowRunWithRuntimeSelection(
+    workflowId: string,
+    options: {
+      input?: unknown;
+      runtimeSelectionPolicy?: WorkflowRuntimeSelectionPolicy;
+      runtimeId?: string;
+    } = {},
+  ): Promise<WorkflowRun> {
     return this.fetch(`/api/workflows/${workflowId}/runs`, {
       method: "POST",
       body: JSON.stringify({
-        ...(input !== undefined ? { input } : {}),
-        ...(runtimeId ? { runtime_id: runtimeId } : {}),
+        ...(options.input !== undefined ? { input: options.input } : {}),
+        ...(options.runtimeSelectionPolicy
+          ? { runtime_selection_policy: options.runtimeSelectionPolicy }
+          : {}),
+        ...(options.runtimeId ? { runtime_id: options.runtimeId } : {}),
       }),
     });
   }

@@ -36,7 +36,12 @@ import { useT } from "../../i18n";
 import { DAGCanvas } from "./dag-canvas";
 import { ReactFlowProvider } from "@xyflow/react";
 import { NodeRunCard } from "./node-run-card";
-import { parseNodeFormat, type WorkflowRunStatus, type NodeRunStatus } from "@multica/core/types";
+import {
+  parseNodeFormat,
+  type WorkflowRunStatus,
+  type NodeRunStatus,
+  type WorkflowRuntimeSelectionPolicy,
+} from "@multica/core/types";
 import { useAuthStore } from "@multica/core/auth";
 import { SplitReviewPanel } from "./split/split-review-panel";
 
@@ -83,6 +88,20 @@ function formatWorkflowRunStatus(t: WorkflowTranslator, status: WorkflowRunStatu
       return t(($) => $.run.status.cancelled);
     default:
       return status;
+  }
+}
+
+function formatRuntimeSelectionPolicy(
+  t: WorkflowTranslator,
+  policy: WorkflowRuntimeSelectionPolicy | undefined,
+): string {
+  switch (policy) {
+    case "specified_runtime_first":
+      return t(($) => $.run.runtime_policy_specified);
+    case "issue_creator_first":
+      return t(($) => $.run.runtime_policy_issue_creator);
+    default:
+      return t(($) => $.run.runtime_policy_idle);
   }
 }
 
@@ -304,6 +323,9 @@ export function WorkflowRunPage({ workflowId, runId }: WorkflowRunPageProps) {
           <h1 className="text-sm font-medium truncate">{run.workflow_title}</h1>
           <Badge variant="secondary" className="text-[10px] px-1.5 h-4">
             {formatWorkflowRunStatus(t, run.status as WorkflowRunStatus)}
+          </Badge>
+          <Badge variant="outline" className="text-[10px] px-1.5 h-4">
+            {t(($) => $.run.runtime_policy)}: {formatRuntimeSelectionPolicy(t, run.runtime_selection_policy)}
           </Badge>
         </div>
         <div className="flex items-center gap-2">

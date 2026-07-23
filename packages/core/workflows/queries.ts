@@ -19,6 +19,7 @@ import type {
   PatchSplitConfigRequest,
   PatchSplitDraftTaskRequest,
   RetrySplitTaskRequest,
+  WorkflowRuntimeSelectionPolicy,
 } from "../types";
 import { chatKeys } from "../chat/queries";
 
@@ -269,8 +270,12 @@ export function useDeleteEdge(wsId: string, workflowId: string) {
 export function useStartWorkflowRun(wsId: string) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ workflowId, input, runtimeId }: { workflowId: string; input?: unknown; runtimeId?: string }) =>
-      api.startWorkflowRun(workflowId, input, runtimeId),
+    mutationFn: ({ workflowId, ...options }: {
+      workflowId: string;
+      input?: unknown;
+      runtimeSelectionPolicy?: WorkflowRuntimeSelectionPolicy;
+      runtimeId?: string;
+    }) => api.startWorkflowRunWithRuntimeSelection(workflowId, options),
     onSuccess: (_data, vars) => {
       queryClient.invalidateQueries({ queryKey: workflowKeys.runs(wsId, vars.workflowId) });
     },

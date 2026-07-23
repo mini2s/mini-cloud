@@ -725,19 +725,21 @@ type MulticaWebhookDelivery struct {
 }
 
 type MulticaWorkflow struct {
-	ID               pgtype.UUID        `json:"id"`
-	WorkspaceID      pgtype.UUID        `json:"workspace_id"`
-	Title            string             `json:"title"`
-	Description      string             `json:"description"`
-	Status           string             `json:"status"`
-	MaxRetries       int32              `json:"max_retries"`
-	CreatedByType    string             `json:"created_by_type"`
-	CreatedByID      pgtype.UUID        `json:"created_by_id"`
-	CreatedAt        pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt        pgtype.Timestamptz `json:"updated_at"`
-	IsTemplate       bool               `json:"is_template"`
-	SourceTemplateID pgtype.UUID        `json:"source_template_id"`
-	IsDefault        bool               `json:"is_default"`
+	ID                            pgtype.UUID        `json:"id"`
+	WorkspaceID                   pgtype.UUID        `json:"workspace_id"`
+	Title                         string             `json:"title"`
+	Description                   string             `json:"description"`
+	Status                        string             `json:"status"`
+	MaxRetries                    int32              `json:"max_retries"`
+	CreatedByType                 string             `json:"created_by_type"`
+	CreatedByID                   pgtype.UUID        `json:"created_by_id"`
+	CreatedAt                     pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt                     pgtype.Timestamptz `json:"updated_at"`
+	IsTemplate                    bool               `json:"is_template"`
+	SourceTemplateID              pgtype.UUID        `json:"source_template_id"`
+	IsDefault                     bool               `json:"is_default"`
+	DefaultRuntimeSelectionPolicy string             `json:"default_runtime_selection_policy"`
+	DefaultRuntimeID              pgtype.UUID        `json:"default_runtime_id"`
 }
 
 type MulticaWorkflowEdge struct {
@@ -942,23 +944,24 @@ type MulticaWorkflowRoleResolutionJob struct {
 }
 
 type MulticaWorkflowRun struct {
-	ID                  pgtype.UUID        `json:"id"`
-	WorkflowID          pgtype.UUID        `json:"workflow_id"`
-	WorkspaceID         pgtype.UUID        `json:"workspace_id"`
-	WorkflowTitle       string             `json:"workflow_title"`
-	Status              string             `json:"status"`
-	TriggeredByType     string             `json:"triggered_by_type"`
-	TriggeredByID       pgtype.UUID        `json:"triggered_by_id"`
-	Input               []byte             `json:"input"`
-	Output              []byte             `json:"output"`
-	StartedAt           pgtype.Timestamptz `json:"started_at"`
-	CompletedAt         pgtype.Timestamptz `json:"completed_at"`
-	CreatedAt           pgtype.Timestamptz `json:"created_at"`
-	RuntimeID           pgtype.UUID        `json:"runtime_id"`
-	SourceIssueID       pgtype.UUID        `json:"source_issue_id"`
-	ResponsibleUserID   pgtype.UUID        `json:"responsible_user_id"`
-	RuntimeAuthorizerID pgtype.UUID        `json:"runtime_authorizer_id"`
-	DispatchKey         pgtype.Text        `json:"dispatch_key"`
+	ID                     pgtype.UUID        `json:"id"`
+	WorkflowID             pgtype.UUID        `json:"workflow_id"`
+	WorkspaceID            pgtype.UUID        `json:"workspace_id"`
+	WorkflowTitle          string             `json:"workflow_title"`
+	Status                 string             `json:"status"`
+	TriggeredByType        string             `json:"triggered_by_type"`
+	TriggeredByID          pgtype.UUID        `json:"triggered_by_id"`
+	Input                  []byte             `json:"input"`
+	Output                 []byte             `json:"output"`
+	StartedAt              pgtype.Timestamptz `json:"started_at"`
+	CompletedAt            pgtype.Timestamptz `json:"completed_at"`
+	CreatedAt              pgtype.Timestamptz `json:"created_at"`
+	RuntimeID              pgtype.UUID        `json:"runtime_id"`
+	SourceIssueID          pgtype.UUID        `json:"source_issue_id"`
+	ResponsibleUserID      pgtype.UUID        `json:"responsible_user_id"`
+	RuntimeAuthorizerID    pgtype.UUID        `json:"runtime_authorizer_id"`
+	DispatchKey            pgtype.Text        `json:"dispatch_key"`
+	RuntimeSelectionPolicy string             `json:"runtime_selection_policy"`
 }
 
 type MulticaWorkflowSplitTask struct {

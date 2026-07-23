@@ -396,6 +396,10 @@
     "triggered_by": "Triggered by",
     "started_at": "Started",
     "completed_at": "Completed",
+    "runtime_policy": "Runtime strategy",
+    "runtime_policy_specified": "Specified runtime first",
+    "runtime_policy_idle": "Idle runtime first",
+    "runtime_policy_issue_creator": "Issue creator runtime first",
     "cancel": "Cancel Run",
     "cancelling": "Cancelling...",
     "toast_cancelled": "Run cancelled",
@@ -653,6 +657,7 @@
       "unsaved": "Unsaved",
       "editor": "Editor",
       "run_history": "Run history",
+      "run_settings": "Run settings",
       "test_run": "Test run",
       "save_and_test": "Save & test",
       "activate_before_test": "Activate workflow before testing.",
@@ -673,6 +678,39 @@
       "delete": "Delete stage",
       "move_up": "Move stage up",
       "move_down": "Move stage down"
+    }
+  },
+  "runtime_strategy": {
+    "default_title": "Default run strategy",
+    "default_description": "Choose how {{name}} selects a runtime for future runs.",
+    "run_title": "Start workflow",
+    "run_description": "Use the workflow default or override the strategy for this run of {{name}}.",
+    "runtime_label": "Preferred runtime",
+    "runtime_placeholder": "Select a runtime",
+    "online": "Online",
+    "offline": "Offline",
+    "deleted_runtime": "The saved runtime is no longer available to you. Select another runtime before continuing.",
+    "no_runtime": "No runtime is available in this workspace.",
+    "direct_run_hint": "A direct test run has no issue creator, so selection starts with an idle runtime.",
+    "cancel": "Cancel",
+    "saving": "Saving...",
+    "save_default": "Save default",
+    "start_run": "Start run",
+    "toast_default_saved": "Default run strategy saved",
+    "toast_default_failed": "Failed to save default run strategy",
+    "policy": {
+      "specified_runtime_first": {
+        "title": "Specified runtime first",
+        "description": "Specified runtime → idle runtime → issue creator runtime → fail"
+      },
+      "idle_first": {
+        "title": "Idle runtime first",
+        "description": "Idle runtime → issue creator runtime → fail"
+      },
+      "issue_creator_first": {
+        "title": "Issue creator runtime first",
+        "description": "Issue creator runtime → idle runtime → fail"
+      }
     }
   },
   "preflight": {
