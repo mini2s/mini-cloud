@@ -116,6 +116,73 @@ func TestRunGiteaSubmit_HappyPath(t *testing.T) {
 	}
 }
 
+func TestRunRepoSubmit_HappyPath(t *testing.T) {
+	var credentialPath string
+	var reportedURL string
+	multica := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/repositories/credential":
+			credentialPath = r.URL.Path
+			jsonResponse(w, 200, map[string]string{"base_url": "https://repo.test", "token": "pat-xyz"})
+		case "/api/daemon/node-runs/nr-1/deliverables/d1/report-pr":
+			var body struct {
+				PullRequestURL string `json:"pull_request_url"`
+			}
+			_ = json.NewDecoder(r.Body).Decode(&body)
+			reportedURL = body.PullRequestURL
+			jsonResponse(w, 200, map[string]any{"id": "sub-1", "pull_request_url": body.PullRequestURL})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer multica.Close()
+
+	repoSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/pulls") {
+			jsonResponse(w, 201, map[string]any{"number": 7, "html_url": "https://repo.test/t-aaa/wf-bbb/pulls/7"})
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer repoSrv.Close()
+
+	t.Setenv("MULTICA_TOKEN", "tok")
+	t.Setenv("MULTICA_SERVER_URL", multica.URL)
+	t.Setenv("MULTICA_WORKSPACE_ID", "ws-1")
+	t.Setenv("MULTICA_NODE_RUN_ID", "nr-1")
+	t.Setenv("MULTICA_REPO_PROVIDER", "gitea")
+	t.Setenv("MULTICA_REPO_OWNER", "t-aaa")
+	t.Setenv("MULTICA_REPO_NAME", "wf-bbb")
+	t.Setenv("MULTICA_REPO_INST_BRANCH", "inst-cc")
+	t.Setenv("MULTICA_REPO_NODE_BRANCH", "node/dd")
+	t.Setenv("MULTICA_REPO_DELIVERABLES", `[{"deliverable_id":"d1","title":"Doc","path":"nodes/dd/d1.md"}]`)
+
+	tmpFile := tempFile(t, "# my document body")
+
+	fake := &fakeGitOps{}
+	err := submitDeliverable(submitConfig{
+		repoBaseOverride: repoSrv.URL,
+		deliverableID:    "d1",
+		filePath:         tmpFile,
+		gitOps:           fake,
+	})
+	if err != nil {
+		t.Fatalf("submitDeliverable: %v", err)
+	}
+	if credentialPath != "/api/repositories/credential" {
+		t.Errorf("credential path = %q, want neutral repository endpoint", credentialPath)
+	}
+	if len(fake.cloneCalls) != 1 || fake.cloneCalls[0].branch != "inst-cc" {
+		t.Errorf("expected one clone of inst-cc, got %+v", fake.cloneCalls)
+	}
+	if len(fake.written) != 1 || fake.written[0].path != "nodes/dd/d1.md" {
+		t.Errorf("expected file written to nodes/dd/d1.md, got %+v", fake.written)
+	}
+	if reportedURL != "https://repo.test/t-aaa/wf-bbb/pulls/7" {
+		t.Errorf("report-pr received %q, want the PR html_url", reportedURL)
+	}
+}
+
 func TestRunGiteaSubmit_MissingNodeRunID(t *testing.T) {
 	t.Setenv("MULTICA_NODE_RUN_ID", "")
 	// other MULTICA_GITEA_* may be set or not; the node-run check fires first

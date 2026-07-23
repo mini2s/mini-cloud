@@ -18,6 +18,7 @@ import (
 
 	"github.com/multica-ai/multica/server/internal/analytics"
 	"github.com/multica-ai/multica/server/internal/auth"
+	"github.com/multica-ai/multica/server/internal/coderepo"
 	"github.com/multica-ai/multica/server/internal/daemonws"
 	"github.com/multica-ai/multica/server/internal/deptsync"
 	"github.com/multica-ai/multica/server/internal/events"
@@ -245,6 +246,13 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 		})
 	}
 	h.WorkflowService.Gitea = giteaClient
+	repositoryProvider, err := coderepo.NewFactory(coderepo.FactoryConfig{
+		Gitea: giteaClient,
+	}).Provider(coderepo.ProviderGitea)
+	if err != nil {
+		slog.Warn("repository provider setup failed", "error", err)
+	}
+	h.WorkflowService.RepositoryProvider = repositoryProvider
 	teamNamespaceClient := opts.TeamNamespace
 	if teamNamespaceClient == nil {
 		teamNamespaceClient = teamnamespace.NewClient(teamnamespace.Config{
@@ -427,10 +435,12 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 	r.With(middleware.DaemonAuth(queries, patCache, daemonTokenCache, opts.JWKSProvider, opts.SubjectResolver)).
 		Get("/api/gitlab/credential", h.HandleGitlabCredential)
 
-	// Gitea credential for the cs-workflow CLI document-deliverable flow
-	// (M3). Same daemon-auth shape as GitLab; base_url + PAT returned.
-	r.With(middleware.DaemonAuth(queries, patCache, daemonTokenCache, opts.JWKSProvider, opts.SubjectResolver)).
-		Get("/api/gitea/credential", h.HandleGiteaCredential)
+	// Repository credential for the cs-workflow CLI document-deliverable flow.
+	// Same daemon-auth shape as GitLab; base_url + PAT returned. The old Gitea
+	// path stays as a compatibility alias for already-installed CLI builds.
+	repoCredentialAuth := middleware.DaemonAuth(queries, patCache, daemonTokenCache, opts.JWKSProvider, opts.SubjectResolver)
+	r.With(repoCredentialAuth).Get("/api/repositories/credential", h.HandleRepositoryCredential)
+	r.With(repoCredentialAuth).Get("/api/gitea/credential", h.HandleGiteaCredential)
 
 	// Gitea UI routes are not proxied by Multica. Browser-facing links should
 	// use GITEA_PUBLIC_BASE_URL (for local E2E, http://localhost:23000) and let

@@ -124,6 +124,8 @@ export function ManualCreatePanel({
   const [projectId, setProjectId] = useState<string | undefined>(
     (data?.project_id as string) || undefined,
   );
+  const [projectRequiredVisible, setProjectRequiredVisible] = useState(false);
+  const [projectPickerOpen, setProjectPickerOpen] = useState(false);
   const [parentIssueId, setParentIssueId] = useState<string | undefined>(
     (data?.parent_issue_id as string) || undefined,
   );
@@ -171,6 +173,8 @@ export function ManualCreatePanel({
     setStartDate(null);
     setDueDate(null);
     setProjectId(undefined);
+    setProjectRequiredVisible(false);
+    setProjectPickerOpen(false);
     setParentIssueId(undefined);
     setChildIssues([]);
     setAttachmentIds([]);
@@ -190,6 +194,11 @@ export function ManualCreatePanel({
 
   const handleSubmit = async () => {
     if (!title.trim() || submitting) return;
+    if (!projectId) {
+      setProjectRequiredVisible(true);
+      setProjectPickerOpen(true);
+      return;
+    }
     setSubmitting(true);
     try {
       const issue = await createIssueMutation.mutateAsync({
@@ -466,6 +475,28 @@ export function ManualCreatePanel({
 
             {/* Property toolbar */}
             <div className="flex items-center gap-1.5 px-4 py-2 shrink-0 flex-wrap">
+              {/* Project — required, leads the row so the scope is set first.
+                  A subtle brand ring highlights the pill until a project is
+                  picked, so users can tell the field is mandatory. */}
+              <ProjectPicker
+                projectId={projectId ?? null}
+                onUpdate={(u) => {
+                  setProjectId(u.project_id ?? undefined);
+                  if (u.project_id) setProjectRequiredVisible(false);
+                }}
+                triggerRender={
+                  <PillButton
+                    className={cn(
+                      !projectId && "ring-1 ring-brand/30 bg-brand/5",
+                      projectRequiredVisible && "border-destructive/60 bg-destructive/10 text-destructive ring-2 ring-destructive/25",
+                    )}
+                  />
+                }
+                align="start"
+                open={projectPickerOpen}
+                onOpenChange={setProjectPickerOpen}
+              />
+
               {/* Status */}
               <StatusPicker
                 status={status}
@@ -506,14 +537,6 @@ export function ManualCreatePanel({
               <DueDatePicker
                 dueDate={dueDate}
                 onUpdate={(u) => updateDueDate(u.due_date ?? null)}
-                triggerRender={<PillButton />}
-                align="start"
-              />
-
-              {/* Project */}
-              <ProjectPicker
-                projectId={projectId ?? null}
-                onUpdate={(u) => setProjectId(u.project_id ?? undefined)}
                 triggerRender={<PillButton />}
                 align="start"
               />
@@ -612,6 +635,12 @@ export function ManualCreatePanel({
 
             {/* Parent / child pickers — rendered inline so they stack over this
                 modal instead of replacing it via useModalStore. */}
+            {projectRequiredVisible && !projectId && (
+              <div className="px-5 pb-2 text-xs font-medium text-destructive">
+                {t(($) => $.create_issue.project_required_detail)}
+              </div>
+            )}
+
             <IssuePickerModal
               open={parentPickerOpen}
               onOpenChange={setParentPickerOpen}
@@ -670,7 +699,9 @@ export function ManualCreatePanel({
                   <TooltipProvider delay={200}>
                     <Tooltip>
                       <TooltipTrigger render={<span><Button size="sm" onClick={handleSubmit} disabled>{t(($) => $.create_issue.submit)}</Button></span>} />
-                      <TooltipContent side="top">{t(($) => $.create_issue.title_required)}</TooltipContent>
+                      <TooltipContent side="top">
+                        {t(($) => $.create_issue.title_required)}
+                      </TooltipContent>
                     </Tooltip>
                   </TooltipProvider>
                 ) : (

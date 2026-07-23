@@ -122,6 +122,8 @@
     "description_placeholder": "Add description...",
     "more_options_aria": "More options",
     "title_required": "Enter a title to create",
+    "project_required": "Pick a project to create",
+    "project_required_detail": "Pick a project first. Every issue must belong to a project.",
     "submit": "Create Issue",
     "submitting": "Creating...",
     "toast_created": "Issue created",

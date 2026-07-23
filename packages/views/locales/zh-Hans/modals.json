@@ -122,6 +122,8 @@
     "description_placeholder": "添加描述...",
     "more_options_aria": "更多选项",
     "title_required": "请输入标题后再创建",
+    "project_required": "请选择项目后再创建",
+    "project_required_detail": "请先选择项目。每个 issue 都必须归属到一个项目。",
     "submit": "创建 issue",
     "submitting": "创建中...",
     "toast_created": "已创建 issue",

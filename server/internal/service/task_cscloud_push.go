@@ -162,8 +162,8 @@ func (s *TaskService) buildCSCloudPayload(ctx context.Context, task db.MulticaAg
 	// so the cs-cloud agent can run `cs-cloud workflow deliverable submit` / `gitea fetch`
 	// inside the task. Dormant (no env injected) when Gitea isn't configured or
 	// the node has no document deliverables — matches the claim-time context.
-	giteaEnv := s.giteaDeliverableEnv(ctx, task)
-	for k, v := range giteaEnv {
+	repoEnv := s.repositoryDeliverableEnv(ctx, task)
+	for k, v := range repoEnv {
 		env[k] = v
 	}
 	if task.IssueID.Valid {
@@ -176,8 +176,8 @@ func (s *TaskService) buildCSCloudPayload(ctx context.Context, task db.MulticaAg
 		if phase == "worker" {
 			prompt = appendWorkerTaskPrompt(prompt)
 		}
-		if raw, ok := giteaEnv["MULTICA_GITEA_DELIVERABLES"]; ok {
-			var refs []giteaDeliverableRefJSON
+		if raw, ok := repoEnv["MULTICA_REPO_DELIVERABLES"]; ok {
+			var refs []repositoryDeliverableRefJSON
 			if json.Unmarshal([]byte(raw), &refs) == nil && len(refs) > 0 {
 				prompt = appendDeliverablePrompt(prompt, refs)
 			}
@@ -225,21 +225,21 @@ func appendWorkerTaskPrompt(prompt string) string {
 // (authed clone URL in the task env), so reading/exploring is plain git; only
 // the final submit — which opens the node->inst PR and registers it back here —
 // goes through the `cs-cloud workflow deliverable submit` command.
-func appendDeliverablePrompt(prompt string, refs []giteaDeliverableRefJSON) string {
+func appendDeliverablePrompt(prompt string, refs []repositoryDeliverableRefJSON) string {
 	var b strings.Builder
 	b.WriteString(prompt)
 	if prompt != "" && !strings.HasSuffix(prompt, "\n") {
 		b.WriteByte('\n')
 	}
 	b.WriteString("\n---\n## Document Deliverables\n\n")
-	b.WriteString("This node has document deliverables stored in the platform git server. The repository is exposed as a normal git remote: clone it with plain git using the authed URL in `$MULTICA_GITEA_CLONE_URL_AUTHED` (credentials are already embedded, so clone/push just work — do not set up a separate credential helper). The instance branch is `$MULTICA_GITEA_INST_BRANCH` and this node's branch is `$MULTICA_GITEA_NODE_BRANCH`.\n\n")
-	b.WriteString("For EACH deliverable below: write the document to a local file, then submit it with the CLI — the command pushes your file to the node branch, opens a Gitea PR (node -> inst), and registers the PR back here. Do NOT use inline content upload for these; document deliverables go through git.\n\n")
+	b.WriteString("This node has document deliverables stored in the platform repository. The repository is exposed as a normal git remote: clone it with plain git using the authed URL in `$MULTICA_REPO_CLONE_URL_AUTHED` (credentials are already embedded, so clone/push just work; do not set up a separate credential helper). The instance branch is `$MULTICA_REPO_INST_BRANCH` and this node's branch is `$MULTICA_REPO_NODE_BRANCH`.\n\n")
+	b.WriteString("For EACH deliverable below: write the document to a local file, then submit it with the CLI. The command pushes your file to the node branch, opens a review request (node -> inst), and registers the review URL back here. Do NOT use inline content upload for these; document deliverables go through git.\n\n")
 	for _, d := range refs {
-		fmt.Fprintf(&b, "- **%s** (id=%s): run `cs-cloud workflow deliverable submit --deliverable %s --file <local-path-to-your-document>`\n", d.Title, d.ID, d.ID)
+		fmt.Fprintf(&b, "- **%s** (id=%s): run `cs-workflow repo submit --deliverable %s --file <local-path-to-your-document>`\n", d.Title, d.ID, d.ID)
 	}
 	b.WriteString("\nA deliverable is not considered submitted until its PR is registered. Complete every listed deliverable before finishing.\n\n")
 	b.WriteString("### Reading the deliverable repository\n\n")
-	b.WriteString("Use plain git to read or explore — there is no separate fetch command. For example: `git clone $MULTICA_GITEA_CLONE_URL_AUTHED` then `git checkout $MULTICA_GITEA_INST_BRANCH` to see the current run's tree (this node's deliverables live under its node directory). Only this run's repository is exposed via the env; if you need another issue's deliverables and they are not in this repo, ask the user rather than guessing the URL.\n")
+	b.WriteString("Use plain git to read or explore. There is no separate fetch command. For example: `git clone $MULTICA_REPO_CLONE_URL_AUTHED` then `git checkout $MULTICA_REPO_INST_BRANCH` to see the current run's tree (this node's deliverables live under its node directory). Only this run's repository is exposed via the env; if you need another issue's deliverables and they are not in this repo, ask the user rather than guessing the URL.\n")
 	b.WriteString("\n---\n\n")
 	return b.String()
 }
@@ -271,13 +271,15 @@ func workflowPhaseFromTask(task db.MulticaAgentTaskQueue) string {
 	return strings.TrimSpace(payload.Phase)
 }
 
-// giteaDeliverableRefJSON is the per-deliverable shape cs-cloud's
-// `gitea submit` reads from MULTICA_GITEA_DELIVERABLES.
-type giteaDeliverableRefJSON struct {
+// repositoryDeliverableRefJSON is the per-deliverable shape cs-cloud's
+// `repo submit` reads from MULTICA_REPO_DELIVERABLES.
+type repositoryDeliverableRefJSON struct {
 	ID    string `json:"deliverable_id"`
 	Title string `json:"title"`
 	Path  string `json:"path"`
 }
+
+type giteaDeliverableRefJSON = repositoryDeliverableRefJSON
 
 // giteaDeliverableEnv builds the MULTICA_GITEA_* env vars for a task's
 // node-run, mirroring handler.giteaContextForNodeRun but in the service layer
@@ -285,7 +287,7 @@ type giteaDeliverableRefJSON struct {
 // Gitea is dormant or the node has no document deliverables — the caller then
 // injects nothing and the cs-cloud `gitea submit` command is simply unusable
 // for this task (by design).
-func (s *TaskService) giteaDeliverableEnv(ctx context.Context, task db.MulticaAgentTaskQueue) map[string]string {
+func (s *TaskService) repositoryDeliverableEnv(ctx context.Context, task db.MulticaAgentTaskQueue) map[string]string {
 	base := strings.TrimSpace(os.Getenv("GITEA_BASE_URL"))
 	if strings.TrimSpace(os.Getenv("GITEA_ADMIN_TOKEN")) == "" || base == "" || !task.WorkflowNodeRunID.Valid {
 		return nil
@@ -318,7 +320,7 @@ func (s *TaskService) giteaDeliverableEnv(ctx context.Context, task db.MulticaAg
 	}
 	nodeSeq := topo[util.UUIDToString(node.ID)]
 	nodeRunIDStr := util.UUIDToString(nr.ID)
-	var refs []giteaDeliverableRefJSON
+	var refs []repositoryDeliverableRefJSON
 	for _, d := range deliverables {
 		if d.Kind != "document" {
 			continue
@@ -357,18 +359,41 @@ func (s *TaskService) giteaDeliverableEnv(ctx context.Context, task db.MulticaAg
 		}
 	}
 	cloneURL := strings.TrimRight(publicBase, "/") + "/" + owner + "/" + repo + ".git"
-	return map[string]string{
-		"MULTICA_NODE_RUN_ID":            nodeRunIDStr,
-		"MULTICA_GITEA_OWNER":            owner,
-		"MULTICA_GITEA_REPO":             repo,
-		"MULTICA_GITEA_BASE_URL":         strings.TrimRight(publicBase, "/"),
-		"MULTICA_GITEA_TOKEN":            pat,
-		"MULTICA_GITEA_CLONE_URL":        cloneURL,
-		"MULTICA_GITEA_CLONE_URL_AUTHED": injectGiteaToken(cloneURL, botUser, pat),
-		"MULTICA_GITEA_INST_BRANCH":      gitea.InstBranch(util.UUIDToString(run.ID)),
-		"MULTICA_GITEA_NODE_BRANCH":      gitea.NodeBranch(nodeSeq, nodeRunIDStr),
-		"MULTICA_GITEA_DELIVERABLES":     string(refsJSON),
+	baseURL := strings.TrimRight(publicBase, "/")
+	authedCloneURL := injectGiteaToken(cloneURL, botUser, pat)
+	instBranch := gitea.InstBranch(util.UUIDToString(run.ID))
+	nodeBranch := gitea.NodeBranch(nodeSeq, nodeRunIDStr)
+	out := map[string]string{
+		"MULTICA_NODE_RUN_ID":           nodeRunIDStr,
+		"MULTICA_REPO_PROVIDER":         "gitea",
+		"MULTICA_REPO_OWNER":            owner,
+		"MULTICA_REPO_NAME":             repo,
+		"MULTICA_REPO_BASE_URL":         baseURL,
+		"MULTICA_REPO_TOKEN":            pat,
+		"MULTICA_REPO_CLONE_URL":        cloneURL,
+		"MULTICA_REPO_CLONE_URL_AUTHED": authedCloneURL,
+		"MULTICA_REPO_INST_BRANCH":      instBranch,
+		"MULTICA_REPO_NODE_BRANCH":      nodeBranch,
+		"MULTICA_REPO_DELIVERABLES":     string(refsJSON),
 	}
+	for oldKey, newKey := range map[string]string{
+		"MULTICA_GITEA_OWNER":            "MULTICA_REPO_OWNER",
+		"MULTICA_GITEA_REPO":             "MULTICA_REPO_NAME",
+		"MULTICA_GITEA_BASE_URL":         "MULTICA_REPO_BASE_URL",
+		"MULTICA_GITEA_TOKEN":            "MULTICA_REPO_TOKEN",
+		"MULTICA_GITEA_CLONE_URL":        "MULTICA_REPO_CLONE_URL",
+		"MULTICA_GITEA_CLONE_URL_AUTHED": "MULTICA_REPO_CLONE_URL_AUTHED",
+		"MULTICA_GITEA_INST_BRANCH":      "MULTICA_REPO_INST_BRANCH",
+		"MULTICA_GITEA_NODE_BRANCH":      "MULTICA_REPO_NODE_BRANCH",
+		"MULTICA_GITEA_DELIVERABLES":     "MULTICA_REPO_DELIVERABLES",
+	} {
+		out[oldKey] = out[newKey]
+	}
+	return out
+}
+
+func (s *TaskService) giteaDeliverableEnv(ctx context.Context, task db.MulticaAgentTaskQueue) map[string]string {
+	return s.repositoryDeliverableEnv(ctx, task)
 }
 
 // injectGiteaToken embeds the bot credential into a Gitea clone URL so the

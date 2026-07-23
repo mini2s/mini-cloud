@@ -11,6 +11,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/multica-ai/multica/server/internal/coderepo"
 	"github.com/multica-ai/multica/server/internal/events"
 	"github.com/multica-ai/multica/server/internal/gitea"
 	"github.com/multica-ai/multica/server/internal/teamnamespace"
@@ -31,6 +32,10 @@ type WorkflowService struct {
 	RoleResolutionPromptVersion      string
 	RoleResolutionWorkspaceAllowlist map[string]struct{}
 	RoleResolutionMaxActiveJobs      int64
+
+	// RepositoryProvider is the provider-neutral surface for deliverable
+	// repository file, branch, review-request, and merge operations.
+	RepositoryProvider coderepo.RepositoryProvider
 
 	// Gitea is the platform Gitea admin client, used (in M2 Tasks 4-5) for
 	// run-start scaffolding and approve-time PR merging of document deliverables.

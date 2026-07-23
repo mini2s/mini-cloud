@@ -485,10 +485,10 @@ func TestAppendDeliverablePrompt_GitAndSubmitNoFetch(t *testing.T) {
 	refs := []giteaDeliverableRefJSON{{ID: "d1", Title: "Doc1", Path: "nodes/01-x/d1.md"}}
 	got := appendDeliverablePrompt("base prompt", refs)
 	for _, want := range []string{
-		"MULTICA_GITEA_CLONE_URL_AUTHED", // authed clone URL exposed
-		"git clone",                      // raw-git read guidance
-		"MULTICA_GITEA_INST_BRANCH",      // branch context
-		"deliverable submit --deliverable d1", // submit still the submit path
+		"MULTICA_REPO_CLONE_URL_AUTHED",            // authed clone URL exposed
+		"git clone",                                // raw-git read guidance
+		"MULTICA_REPO_INST_BRANCH",                 // branch context
+		"cs-workflow repo submit --deliverable d1", // neutral submit path
 		"Document Deliverables",
 	} {
 		if !strings.Contains(got, want) {

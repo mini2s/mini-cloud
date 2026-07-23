@@ -247,6 +247,8 @@ export function AgentCreatePanel({
   const [justSent, setJustSent] = useState(false);
   const [sentCount, setSentCount] = useState(0);
   const [error, setError] = useState<string | null>(null);
+  const [projectRequiredVisible, setProjectRequiredVisible] = useState(false);
+  const [projectPickerOpen, setProjectPickerOpen] = useState(false);
 
   // Image paste/drop support: route uploads through the same helper Advanced
   // uses, so users can paste screenshots straight into the prompt and the
@@ -271,6 +273,11 @@ export function AgentCreatePanel({
   const submit = async () => {
     const md = editorRef.current?.getMarkdown()?.trim() ?? "";
     if (!md || !actor || submitting || versionBlocked || uploading) return;
+    if (!projectId) {
+      setProjectRequiredVisible(true);
+      setProjectPickerOpen(true);
+      return;
+    }
     setSubmitting(true);
     setError(null);
     try {
@@ -421,6 +428,39 @@ export function AgentCreatePanel({
           />
         </div>
 
+        {/* Project — required. Sits directly under the actor so "created by
+            X / in project Y" read together, above the prompt. A subtle brand
+            ring highlights the pill until a project is picked. */}
+        <div className="flex items-center gap-1.5 px-5 pb-2 shrink-0 flex-wrap">
+          <ProjectPicker
+            projectId={projectId}
+            onUpdate={(u) => {
+              setProjectId(u.project_id ?? null);
+              if (u.project_id) setProjectRequiredVisible(false);
+            }}
+            triggerRender={
+              <PillButton
+                className={
+                  !projectId
+                    ? projectRequiredVisible
+                      ? "border-destructive/60 bg-destructive/10 text-destructive ring-2 ring-destructive/25"
+                      : "ring-1 ring-brand/30 bg-brand/5"
+                    : undefined
+                }
+              />
+            }
+            align="start"
+            open={projectPickerOpen}
+            onOpenChange={setProjectPickerOpen}
+          />
+        </div>
+
+        {projectRequiredVisible && !projectId && (
+          <div className="px-5 pb-2 text-xs font-medium text-destructive">
+            {t(($) => $.create_issue.project_required_detail)}
+          </div>
+        )}
+
         {selectedAgent && versionBlocked && (
           <div className="mx-5 mb-2 shrink-0 rounded-md border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-xs text-amber-700 dark:text-amber-300">
             {versionCheck.state === "missing"
@@ -461,21 +501,6 @@ export function AgentCreatePanel({
         {error && (
           <div className="px-5 pb-2 text-xs text-destructive">{error}</div>
         )}
-
-        {/* Property toolbar — mirrors the manual panel's pill row so the
-            project pill sits in the same place across both modes. Agent mode
-            owns only the project (status / priority / assignee / due-date are
-            inferred from the prompt), so it's a single pill. The pick is
-            persisted per-workspace via useQuickCreateStore.lastProjectId so
-            users targeting one project skip retyping "in project X". */}
-        <div className="flex items-center gap-1.5 px-4 pb-2 shrink-0 flex-wrap">
-          <ProjectPicker
-            projectId={projectId}
-            onUpdate={(u) => setProjectId(u.project_id ?? null)}
-            triggerRender={<PillButton />}
-            align="start"
-          />
-        </div>
 
         {/* Footer */}
         <div className="flex flex-col gap-2 border-t px-4 py-3 shrink-0 sm:flex-row sm:items-center sm:justify-between">

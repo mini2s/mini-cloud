@@ -195,7 +195,9 @@ vi.mock("../issues/components", () => ({
 }));
 
 vi.mock("../projects/components/project-picker", () => ({
-  ProjectPicker: () => <div data-testid="project-picker" />,
+  ProjectPicker: ({ triggerRender, open }: { triggerRender?: ReactNode; open?: boolean }) => (
+    <div data-testid="project-picker" data-open={open ? "true" : "false"}>{triggerRender}</div>
+  ),
 }));
 
 vi.mock("@multica/ui/components/ui/dialog", () => ({
@@ -316,11 +318,33 @@ describe("CreateIssueModal", () => {
     });
   });
 
+  // A project is required to create an issue. When the user tries to submit
+  // without one, the form should say what blocked creation and open the
+  // project picker instead of silently doing nothing.
+  it("shows project-required feedback when Create Issue is clicked without a project", async () => {
+    const user = userEvent.setup();
+    renderModal(<CreateIssueModal onClose={vi.fn()} />);
+
+    await user.type(screen.getByPlaceholderText("Issue title"), "Needs a project");
+    await user.click(screen.getByRole("button", { name: "Create Issue" }));
+
+    expect(mockCreateIssue).not.toHaveBeenCalled();
+    expect(screen.getByText("Pick a project first. Every issue must belong to a project.")).toBeInTheDocument();
+    expect(screen.getByTestId("project-picker")).toHaveAttribute("data-open", "true");
+  });
+
+  it("highlights the project picker while project is missing", () => {
+    renderModal(<CreateIssueModal onClose={vi.fn()} />);
+
+    const projectPill = screen.getByTestId("project-picker").querySelector("button");
+    expect(projectPill).toHaveClass("ring-1", "ring-brand/30", "bg-brand/5");
+  });
+
   it("shows success feedback with a direct path to the new issue", async () => {
     const user = userEvent.setup();
     const onClose = vi.fn();
 
-    renderModal(<CreateIssueModal onClose={onClose} />);
+    renderModal(<CreateIssueModal onClose={onClose} data={{ project_id: "proj-test" }} />);
 
     fireEvent.change(screen.getByPlaceholderText("Issue title"), {
       target: { value: "  Ship create issue regression coverage  " },
@@ -339,7 +363,7 @@ describe("CreateIssueModal", () => {
         due_date: undefined,
         attachment_ids: undefined,
         parent_issue_id: undefined,
-        project_id: undefined,
+        project_id: "proj-test",
       });
     });
 
@@ -368,7 +392,7 @@ describe("CreateIssueModal", () => {
     const onClose = vi.fn();
     mockQuickCreateStore.keepOpen = true;
 
-    renderModal(<CreateIssueModal onClose={onClose} />);
+    renderModal(<CreateIssueModal onClose={onClose} data={{ project_id: "proj-test" }} />);
 
     await user.type(screen.getByPlaceholderText("Issue title"), "First follow-up issue");
     await user.type(screen.getByPlaceholderText("Add description..."), "Description to clear");
@@ -386,7 +410,7 @@ describe("CreateIssueModal", () => {
         due_date: undefined,
         attachment_ids: undefined,
         parent_issue_id: undefined,
-        project_id: undefined,
+        project_id: "proj-test",
       });
     });
 
@@ -457,7 +481,7 @@ describe("CreateIssueModal", () => {
       }),
     );
 
-    renderModal(<CreateIssueModal onClose={onClose} />);
+    renderModal(<CreateIssueModal onClose={onClose} data={{ project_id: "proj-test" }} />);
     await user.type(screen.getByPlaceholderText("Issue title"), "Login bug");
     await user.click(screen.getByRole("button", { name: "Create Issue" }));
 
@@ -490,7 +514,7 @@ describe("CreateIssueModal", () => {
       }),
     );
 
-    renderModal(<CreateIssueModal onClose={vi.fn()} />);
+    renderModal(<CreateIssueModal onClose={vi.fn()} data={{ project_id: "proj-test" }} />);
     await user.type(screen.getByPlaceholderText("Issue title"), "Login bug");
     await user.click(screen.getByRole("button", { name: "Create Issue" }));
 
@@ -505,7 +529,7 @@ describe("CreateIssueModal", () => {
     const user = userEvent.setup();
     mockCreateIssue.mockRejectedValue(new Error("Server is overloaded, try again"));
 
-    renderModal(<CreateIssueModal onClose={vi.fn()} />);
+    renderModal(<CreateIssueModal onClose={vi.fn()} data={{ project_id: "proj-test" }} />);
     await user.type(screen.getByPlaceholderText("Issue title"), "Anything");
     await user.click(screen.getByRole("button", { name: "Create Issue" }));
 
@@ -519,7 +543,7 @@ describe("CreateIssueModal", () => {
     const user = userEvent.setup();
     mockCreateIssue.mockRejectedValue("network exploded");
 
-    renderModal(<CreateIssueModal onClose={vi.fn()} />);
+    renderModal(<CreateIssueModal onClose={vi.fn()} data={{ project_id: "proj-test" }} />);
     await user.type(screen.getByPlaceholderText("Issue title"), "Anything");
     await user.click(screen.getByRole("button", { name: "Create Issue" }));
 

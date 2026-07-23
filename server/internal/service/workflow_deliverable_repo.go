@@ -12,11 +12,19 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/multica-ai/multica/server/internal/coderepo"
 	"github.com/multica-ai/multica/server/internal/gitea"
 	"github.com/multica-ai/multica/server/internal/teamnamespace"
 	"github.com/multica-ai/multica/server/internal/util"
 	db "github.com/multica-ai/multica/server/pkg/db/generated"
 )
+
+func (s *WorkflowService) deliverableRepository() coderepo.RepositoryProvider {
+	if s.RepositoryProvider != nil {
+		return s.RepositoryProvider
+	}
+	return coderepo.GiteaAdapter{Client: s.Gitea}
+}
 
 // hasDocumentDeliverable reports whether the workflow has any document-type
 // deliverable. Scaffolding only runs for document-bearing workflows;
@@ -345,7 +353,8 @@ func (s *WorkflowService) ScaffoldRunDeliverables(ctx context.Context, run db.Mu
 
 // ensureNodeRunBranch creates the node-run branch when a node enters execution.
 func (s *WorkflowService) ensureNodeRunBranch(ctx context.Context, nodeRun db.MulticaWorkflowNodeRun) error {
-	if !s.teamNamespaceConfigured() && (s.Gitea == nil || !s.Gitea.Configured()) {
+	repoProvider := s.deliverableRepository()
+	if !s.teamNamespaceConfigured() && !repoProvider.Configured() {
 		return nil
 	}
 
@@ -377,7 +386,7 @@ func (s *WorkflowService) ensureNodeRunBranch(ctx context.Context, nodeRun db.Mu
 		if err := s.initWorkflowNamespace(ctx, run, workflow); err != nil {
 			return err
 		}
-		if s.Gitea == nil || !s.Gitea.Configured() {
+		if !repoProvider.Configured() {
 			return nil
 		}
 	} else if _, err := gitea.ScaffoldRunDeliverable(ctx, s.Gitea, deliverableScaffoldParams(run, workflow)); err != nil {
@@ -396,7 +405,7 @@ func (s *WorkflowService) ensureNodeRunBranch(ctx context.Context, nodeRun db.Mu
 	repo := DeliverableRepoNameForWorkflow(workflow)
 	inst := gitea.InstBranch(util.UUIDToString(run.ID))
 	nodeBranch := gitea.NodeBranch(topo[util.UUIDToString(node.ID)], util.UUIDToString(nodeRun.ID))
-	if err := s.Gitea.CreateBranch(ctx, owner, repo, nodeBranch, inst); err != nil {
+	if err := repoProvider.CreateBranch(ctx, owner, repo, nodeBranch, inst); err != nil {
 		return fmt.Errorf("create node branch: %w", err)
 	}
 	return nil
@@ -520,7 +529,7 @@ func (s *WorkflowService) syncWorkspaceMembers(ctx context.Context, workspaceID 
 	// (journey 2: 增删成员). Keep the bot + the Gitea admin.
 	org := gitea.OrgName(wsIDStr)
 	botName := gitea.BotUsername(wsIDStr)
-	giteaMembers, err := s.Gitea.ListOrgMembers(ctx, org)
+	giteaMembers, err := s.deliverableRepository().ListOrgMembers(ctx, org)
 	if err != nil {
 		slog.Warn("gitea sync members: list org members", "error", err)
 	} else {
@@ -681,7 +690,8 @@ func (s *WorkflowService) ProvisionWorkflowRepo(ctx context.Context, workflowID 
 // reject (the tx has already incremented it). Reviewer resolves from the assigned
 // critic member's display name, falling back to "critic".
 func (s *WorkflowService) ArchiveReviewComment(ctx context.Context, nodeRun db.MulticaWorkflowNodeRun, decision, comment string) {
-	if s.Gitea == nil || !s.Gitea.Configured() || comment == "" {
+	repoProvider := s.deliverableRepository()
+	if !repoProvider.Configured() || comment == "" {
 		return
 	}
 	run, err := s.Queries.GetWorkflowRun(ctx, nodeRun.WorkflowRunID)
@@ -731,7 +741,7 @@ func (s *WorkflowService) ArchiveReviewComment(ctx context.Context, nodeRun db.M
 	owner := gitea.OrgName(util.UUIDToString(run.WorkspaceID))
 	repo := DeliverableRepoNameForWorkflow(workflow)
 	inst := gitea.InstBranch(util.UUIDToString(run.ID))
-	if err := s.Gitea.UpsertFile(ctx, owner, repo, inst, path, content, "review: "+decision); err != nil {
+	if err := repoProvider.UpsertFile(ctx, owner, repo, inst, path, content, "review: "+decision); err != nil {
 		slog.Warn("archive review comment: write file", "node_run_id", nodeRunIDStr, "path", path, "error", err)
 		return
 	}
@@ -788,7 +798,7 @@ func (s *WorkflowService) mergeDocumentDeliverables(ctx context.Context, nodeRun
 		if err != nil {
 			return fmt.Errorf("parse PR url %q: %w", sub.PullRequestUrl, err)
 		}
-		if err := retryMergeDocPR(ctx, s.Gitea, owner, repo, index); err != nil {
+		if err := retryMergeDocPR(ctx, s.deliverableRepository(), owner, repo, index); err != nil {
 			return fmt.Errorf("merge PR #%d: %w", index, err)
 		}
 	}
@@ -798,11 +808,11 @@ func (s *WorkflowService) mergeDocumentDeliverables(ctx context.Context, nodeRun
 // retryMergeDocPR calls MergePR with bounded backoff. A 409 conflict
 // (gitea.ErrMergeConflict) is terminal — returned immediately, no retry. Other
 // errors (5xx, network) are retried up to maxAttempts with exponential backoff.
-func retryMergeDocPR(ctx context.Context, c *gitea.Client, owner, repo string, index int) error {
+func retryMergeDocPR(ctx context.Context, provider coderepo.RepositoryProvider, owner, repo string, index int) error {
 	const maxAttempts = 3
 	var lastErr error
 	for attempt := 0; attempt < maxAttempts; attempt++ {
-		err := c.MergePR(ctx, owner, repo, index)
+		err := provider.MergeReviewRequest(ctx, owner, repo, index)
 		if err == nil {
 			return nil
 		}
@@ -913,7 +923,8 @@ func (s *WorkflowService) UploadMemberDeliverablePR(ctx context.Context, issue d
 	// the file body; the PR URL is what gets registered on the submission,
 	// keeping the review surface consistent with document deliverables.
 	var prURL string
-	if s.Gitea != nil && s.Gitea.Configured() {
+	repoProvider := s.deliverableRepository()
+	if repoProvider.Configured() {
 		workflow, err := s.Queries.GetWorkflow(ctx, run.WorkflowID)
 		if err != nil {
 			return fmt.Errorf("get workflow: %w", err)
@@ -934,13 +945,13 @@ func (s *WorkflowService) UploadMemberDeliverablePR(ctx context.Context, issue d
 		nodeDir := gitea.NodeDir(nodeSeq, nodeRun.NodeTitle, util.UUIDToString(nodeRun.ID))
 		path := nodeDir + "/" + sanitizeArchiveFileName(deliverableTitle) + ".md"
 		content := fmt.Sprintf("# %s\n\n%s\n", deliverableTitle, pullRequestURL)
-		if err := s.Gitea.CreateBranch(ctx, owner, repo, nodeBranch, inst); err != nil {
+		if err := repoProvider.CreateBranch(ctx, owner, repo, nodeBranch, inst); err != nil {
 			return fmt.Errorf("create node branch: %w", err)
 		}
-		if err := s.Gitea.UpsertFile(ctx, owner, repo, nodeBranch, path, content, "code merge request link: "+pullRequestURL); err != nil {
+		if err := repoProvider.UpsertFile(ctx, owner, repo, nodeBranch, path, content, "code merge request link: "+pullRequestURL); err != nil {
 			return fmt.Errorf("archive code link: %w", err)
 		}
-		prURL, err = s.Gitea.OpenPR(ctx, owner, repo, nodeBranch, inst, "code deliverable "+util.UUIDToString(deliverableID))
+		prURL, err = repoProvider.OpenReviewRequest(ctx, owner, repo, nodeBranch, inst, "code deliverable "+util.UUIDToString(deliverableID))
 		if err != nil {
 			return fmt.Errorf("open PR: %w", err)
 		}
@@ -995,8 +1006,9 @@ func sanitizeArchiveFileName(name string) string {
 }
 
 func (s *WorkflowService) UploadMemberDeliverable(ctx context.Context, issue db.MulticaIssue, files []MemberDeliverableFile) error {
-	if s.Gitea == nil || !s.Gitea.Configured() {
-		return errors.New("UploadMemberDeliverable: Gitea not configured")
+	repoProvider := s.deliverableRepository()
+	if !repoProvider.Configured() {
+		return errors.New("UploadMemberDeliverable: repository provider not configured")
 	}
 	if len(files) == 0 {
 		return errors.New("no files to upload")
@@ -1053,7 +1065,7 @@ func (s *WorkflowService) UploadMemberDeliverable(ctx context.Context, issue db.
 
 	// Idempotent node branch (base = inst). CreateBranch is get-or-create
 	// (handles the slash in node/<hex>, which GET /branches/{name} can't address).
-	if err := s.Gitea.CreateBranch(ctx, owner, repo, nodeBranch, inst); err != nil {
+	if err := repoProvider.CreateBranch(ctx, owner, repo, nodeBranch, inst); err != nil {
 		return fmt.Errorf("create node branch: %w", err)
 	}
 	// Archive every uploaded file under the node directory, preserving each
@@ -1064,11 +1076,11 @@ func (s *WorkflowService) UploadMemberDeliverable(ctx context.Context, issue db.
 			return fmt.Errorf("decode file %q: %w", f.Name, err)
 		}
 		filePath := nodeDir + "/" + sanitizeArchiveFileName(f.Name)
-		if err := s.Gitea.UpsertFile(ctx, owner, repo, nodeBranch, filePath, string(raw), "deliverable upload: "+f.Name); err != nil {
+		if err := repoProvider.UpsertFile(ctx, owner, repo, nodeBranch, filePath, string(raw), "deliverable upload: "+f.Name); err != nil {
 			return fmt.Errorf("write deliverable file %q: %w", f.Name, err)
 		}
 	}
-	prURL, err := s.Gitea.OpenPR(ctx, owner, repo, nodeBranch, inst,
+	prURL, err := repoProvider.OpenReviewRequest(ctx, owner, repo, nodeBranch, inst,
 		"document deliverable "+util.UUIDToString(deliverableID))
 	if err != nil {
 		return fmt.Errorf("open PR: %w", err)

@@ -31,19 +31,42 @@ var giteaCmd = &cobra.Command{
 	Short: "Platform git-server deliverable operations",
 }
 
+var repoSubmitCmd = &cobra.Command{
+	Use:   "submit",
+	Short: "Push a document deliverable to the platform repository and open a review request",
+	Long:  "Reads MULTICA_REPO_* env (set by the daemon), fetches the workspace repository credential, pushes the document to the node branch, opens a review request (node->inst), and registers the review URL back to Multica.",
+	RunE:  runRepoSubmit,
+}
+
 var giteaSubmitCmd = &cobra.Command{
 	Use:   "submit",
-	Short: "Push a document deliverable to the platform Gitea and open a PR",
-	Long:  "Reads MULTICA_GITEA_* env (set by the daemon), fetches the workspace Gitea PAT, pushes the document to the node branch, opens a Gitea PR (node->inst), and registers the PR URL back to Multica.",
+	Short: "Compatibility alias for repo submit",
+	Long:  "Compatibility alias for repo submit. Prefer `cs-workflow repo submit`.",
 	RunE:  runGiteaSubmit,
 }
 
 func init() {
+	repoCmd.AddCommand(repoSubmitCmd)
+	repoSubmitCmd.Flags().String("deliverable", "", "Deliverable ID (required)")
+	repoSubmitCmd.Flags().String("file", "", "Local file whose content is the document body (required)")
+	_ = repoSubmitCmd.MarkFlagRequired("deliverable")
+	_ = repoSubmitCmd.MarkFlagRequired("file")
+
 	giteaCmd.AddCommand(giteaSubmitCmd)
 	giteaSubmitCmd.Flags().String("deliverable", "", "Deliverable ID (required)")
 	giteaSubmitCmd.Flags().String("file", "", "Local file whose content is the document body (required)")
 	_ = giteaSubmitCmd.MarkFlagRequired("deliverable")
 	_ = giteaSubmitCmd.MarkFlagRequired("file")
+}
+
+func runRepoSubmit(cmd *cobra.Command, _ []string) error {
+	deliverableID, _ := cmd.Flags().GetString("deliverable")
+	filePath, _ := cmd.Flags().GetString("file")
+	return submitDeliverable(submitConfig{
+		deliverableID: deliverableID,
+		filePath:      filePath,
+		gitOps:        &execGitOps{},
+	})
 }
 
 func runGiteaSubmit(cmd *cobra.Command, _ []string) error {
@@ -61,6 +84,7 @@ type submitConfig struct {
 	deliverableID     string
 	filePath          string
 	gitOps            gitOps
+	repoBaseOverride  string // test-only: override the repository base URL (else from credential)
 	giteaBaseOverride string // test-only: override the Gitea base URL (else from credential)
 }
 
@@ -74,56 +98,60 @@ type gitOps interface {
 	Push(dir, authURL, branch string) error
 }
 
-type giteaContext struct {
+type repoContext struct {
 	nodeRunID    string
 	owner        string
 	repo         string
 	cloneURL     string // full <base>/<owner>/<repo>.git from the server (SoT, spec §10.3.1); preferred over self-built
 	instBranch   string
 	nodeBranch   string
-	deliverables []giteaDeliverableRef
+	deliverables []repoDeliverableRef
 }
 
-type giteaDeliverableRef struct {
+type repoDeliverableRef struct {
 	ID    string `json:"deliverable_id"`
 	Title string `json:"title"`
 	Path  string `json:"path"`
 }
 
-func readGiteaContext() (*giteaContext, error) {
-	c := &giteaContext{
+func readRepoContext() (*repoContext, error) {
+	c := &repoContext{
 		nodeRunID:  os.Getenv("MULTICA_NODE_RUN_ID"),
-		owner:      os.Getenv("MULTICA_GITEA_OWNER"),
-		repo:       os.Getenv("MULTICA_GITEA_REPO"),
-		cloneURL:   os.Getenv("MULTICA_GITEA_CLONE_URL"),
-		instBranch: os.Getenv("MULTICA_GITEA_INST_BRANCH"),
-		nodeBranch: os.Getenv("MULTICA_GITEA_NODE_BRANCH"),
+		owner:      envOr("MULTICA_REPO_OWNER", os.Getenv("MULTICA_GITEA_OWNER")),
+		repo:       envOr("MULTICA_REPO_NAME", os.Getenv("MULTICA_GITEA_REPO")),
+		cloneURL:   envOr("MULTICA_REPO_CLONE_URL", os.Getenv("MULTICA_GITEA_CLONE_URL")),
+		instBranch: envOr("MULTICA_REPO_INST_BRANCH", os.Getenv("MULTICA_GITEA_INST_BRANCH")),
+		nodeBranch: envOr("MULTICA_REPO_NODE_BRANCH", os.Getenv("MULTICA_GITEA_NODE_BRANCH")),
 	}
 	if c.nodeRunID == "" {
 		return nil, fmt.Errorf("MULTICA_NODE_RUN_ID not set; this command must run inside a workflow-node task")
 	}
 	for _, f := range []string{c.owner, c.repo, c.instBranch, c.nodeBranch} {
 		if f == "" {
-			return nil, fmt.Errorf("MULTICA_GITEA_* env incomplete (owner/repo/inst/node-branch required)")
+			return nil, fmt.Errorf("MULTICA_REPO_* env incomplete (owner/name/inst/node-branch required)")
 		}
 	}
-	raw := os.Getenv("MULTICA_GITEA_DELIVERABLES")
+	raw := envOr("MULTICA_REPO_DELIVERABLES", os.Getenv("MULTICA_GITEA_DELIVERABLES"))
 	if raw == "" {
-		return nil, fmt.Errorf("MULTICA_GITEA_DELIVERABLES not set")
+		return nil, fmt.Errorf("MULTICA_REPO_DELIVERABLES not set")
 	}
 	if err := json.Unmarshal([]byte(raw), &c.deliverables); err != nil {
-		return nil, fmt.Errorf("parse MULTICA_GITEA_DELIVERABLES: %w", err)
+		return nil, fmt.Errorf("parse MULTICA_REPO_DELIVERABLES: %w", err)
 	}
 	return c, nil
 }
 
-func (c *giteaContext) deliverablePath(id string) (string, error) {
+func readGiteaContext() (*repoContext, error) {
+	return readRepoContext()
+}
+
+func (c *repoContext) deliverablePath(id string) (string, error) {
 	for _, d := range c.deliverables {
 		if d.ID == id {
 			return d.Path, nil
 		}
 	}
-	return "", fmt.Errorf("deliverable %q not in MULTICA_GITEA_DELIVERABLES", id)
+	return "", fmt.Errorf("deliverable %q not in MULTICA_REPO_DELIVERABLES", id)
 }
 
 // submitDeliverable is the testable core. Returns nil only after the PR is
@@ -131,7 +159,7 @@ func (c *giteaContext) deliverablePath(id string) (string, error) {
 func submitDeliverable(cfg submitConfig) error {
 	ctx := context.Background()
 
-	gctx, err := readGiteaContext()
+	gctx, err := readRepoContext()
 	if err != nil {
 		return err
 	}
@@ -144,13 +172,16 @@ func submitDeliverable(cfg submitConfig) error {
 		return fmt.Errorf("read --file: %w", err)
 	}
 
-	cred, err := fetchGiteaCredential(envOr("MULTICA_SERVER_URL", ""), os.Getenv("MULTICA_TOKEN"), os.Getenv("MULTICA_WORKSPACE_ID"))
+	cred, err := fetchRepoCredential(envOr("MULTICA_SERVER_URL", ""), os.Getenv("MULTICA_TOKEN"), os.Getenv("MULTICA_WORKSPACE_ID"))
 	if err != nil {
-		return fmt.Errorf("fetch gitea credential: %w", err)
+		return fmt.Errorf("fetch repository credential: %w", err)
 	}
-	giteaBase := cfg.giteaBaseOverride
-	if giteaBase == "" {
-		giteaBase = cred.BaseURL
+	repoBase := cfg.repoBaseOverride
+	if repoBase == "" {
+		repoBase = cfg.giteaBaseOverride
+	}
+	if repoBase == "" {
+		repoBase = cred.BaseURL
 	}
 	// Prefer the server-provided full clone URL (spec §10.3.1 SoT); fall back to
 	// self-building from base+owner+repo for older daemons that don't deliver it.
@@ -159,10 +190,10 @@ func submitDeliverable(cfg submitConfig) error {
 		cloneAuth = injectTokenIntoURL(gctx.cloneURL, cred.Token)
 	}
 	if cloneAuth == "" {
-		cloneAuth = injectToken(giteaBase, gctx.owner, gctx.repo, cred.Token)
+		cloneAuth = injectToken(repoBase, gctx.owner, gctx.repo, cred.Token)
 	}
 
-	dir, err := os.MkdirTemp("", "multica-gitea-*")
+	dir, err := os.MkdirTemp("", "multica-repo-*")
 	if err != nil {
 		return err
 	}
@@ -184,7 +215,7 @@ func submitDeliverable(cfg submitConfig) error {
 		return fmt.Errorf("push: %w", err)
 	}
 
-	prURL, err := openGiteaPR(ctx, giteaBase, cred.Token, gctx.owner, gctx.repo, gctx.nodeBranch, gctx.instBranch, cfg.deliverableID)
+	prURL, err := openRepoReviewRequest(ctx, repoBase, cred.Token, gctx.owner, gctx.repo, gctx.nodeBranch, gctx.instBranch, cfg.deliverableID)
 	if err != nil {
 		return fmt.Errorf("open PR: %w", err)
 	}
@@ -227,9 +258,22 @@ func injectTokenIntoURL(cloneURL, token string) string {
 	return u.String()
 }
 
-// fetchGiteaCredential calls GET /api/gitea/credential. Mirrors
-// fetchGitlabCredential in cmd_mr.go.
-func fetchGiteaCredential(serverURL, token, workspaceID string) (struct {
+// fetchRepoCredential calls the neutral repository credential endpoint.
+func fetchRepoCredential(serverURL, token, workspaceID string) (struct {
+	BaseURL string `json:"base_url"`
+	Token   string `json:"token"`
+}, error) {
+	cred, err := fetchCredentialAt(serverURL, token, workspaceID, "/api/repositories/credential")
+	if err == nil {
+		return cred, nil
+	}
+	if strings.Contains(err.Error(), "status 404") {
+		return fetchCredentialAt(serverURL, token, workspaceID, "/api/gitea/credential")
+	}
+	return cred, err
+}
+
+func fetchCredentialAt(serverURL, token, workspaceID, endpoint string) (struct {
 	BaseURL string `json:"base_url"`
 	Token   string `json:"token"`
 }, error) {
@@ -240,7 +284,7 @@ func fetchGiteaCredential(serverURL, token, workspaceID string) (struct {
 	if serverURL == "" || token == "" {
 		return out, fmt.Errorf("MULTICA_SERVER_URL/MULTICA_TOKEN not set")
 	}
-	req, _ := http.NewRequest(http.MethodGet, serverURL+"/api/gitea/credential", nil)
+	req, _ := http.NewRequest(http.MethodGet, serverURL+endpoint, nil)
 	req.Header.Set("Authorization", "Bearer "+token)
 	if workspaceID != "" {
 		req.Header.Set("X-Workspace-ID", workspaceID)
@@ -263,8 +307,16 @@ func fetchGiteaCredential(serverURL, token, workspaceID string) (struct {
 	return out, nil
 }
 
-// openGiteaPR POSTs /api/v1/repos/{owner}/{repo}/pulls and returns html_url.
-func openGiteaPR(ctx context.Context, base, token, owner, repo, head, baseBranch, deliverableID string) (string, error) {
+func fetchGiteaCredential(serverURL, token, workspaceID string) (struct {
+	BaseURL string `json:"base_url"`
+	Token   string `json:"token"`
+}, error) {
+	return fetchRepoCredential(serverURL, token, workspaceID)
+}
+
+// openRepoReviewRequest opens a review request through the selected provider.
+// The current adapter uses the Gitea-compatible pull request API.
+func openRepoReviewRequest(ctx context.Context, base, token, owner, repo, head, baseBranch, deliverableID string) (string, error) {
 	body, _ := json.Marshal(map[string]string{
 		"head":  head,
 		"base":  baseBranch,
@@ -281,7 +333,7 @@ func openGiteaPR(ctx context.Context, base, token, owner, repo, head, baseBranch
 	defer resp.Body.Close()
 	respBody, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return "", fmt.Errorf("gitea create PR: status %d: %s", resp.StatusCode, strings.TrimSpace(string(respBody)))
+		return "", fmt.Errorf("repository create review request: status %d: %s", resp.StatusCode, strings.TrimSpace(string(respBody)))
 	}
 	var pr struct {
 		HTMLURL string `json:"html_url"`
@@ -291,6 +343,10 @@ func openGiteaPR(ctx context.Context, base, token, owner, repo, head, baseBranch
 		return "", fmt.Errorf("parse PR response: %w", err)
 	}
 	return pr.HTMLURL, nil
+}
+
+func openGiteaPR(ctx context.Context, base, token, owner, repo, head, baseBranch, deliverableID string) (string, error) {
+	return openRepoReviewRequest(ctx, base, token, owner, repo, head, baseBranch, deliverableID)
 }
 
 // reportDeliverablePR POSTs the PR URL to the daemon report-pr endpoint.
