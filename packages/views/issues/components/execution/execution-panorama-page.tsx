@@ -1279,6 +1279,9 @@ export function ExecutionPanoramaPage({
             criticName={selectedCriticName}
             onClose={() => setSelectedNodeId(null)}
             wsId={wsId}
+            issueId={issueId}
+            workflowId={workflowId}
+            runId={runId}
             runtimeSummary={selectedRuntimeSummary}
             onOpenIssue={
               selectedChildDetail

@@ -6,11 +6,14 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"regexp"
 	"strings"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/multica-ai/multica/server/internal/events"
+	"github.com/multica-ai/multica/server/internal/gitea"
+	"github.com/multica-ai/multica/server/internal/teamnamespace"
 	"github.com/multica-ai/multica/server/internal/util"
 	db "github.com/multica-ai/multica/server/pkg/db/generated"
 )
@@ -27,6 +30,21 @@ type WorkflowService struct {
 	RoleResolutionPromptVersion      string
 	RoleResolutionWorkspaceAllowlist map[string]struct{}
 	RoleResolutionMaxActiveJobs      int64
+
+	// Gitea is the platform Gitea admin client, used (in M2 Tasks 4-5) for
+	// run-start scaffolding and approve-time PR merging of document deliverables.
+	// Dormant (scaffold + merge are skipped) when GITEA_BASE_URL/GITEA_ADMIN_TOKEN
+	// are unset — the client is always non-nil post-construction; dormancy is
+	// gated by Client.Configured(), not by a nil pointer. nil only in tests that
+	// construct WorkflowService without going through the router.
+	Gitea *gitea.Client
+
+	// TeamNamespace is the costrict-web-backend internal API client for team
+	// namespace lifecycle, membership sync, bot credentials, and workflow repo
+	// initialization. When configured, it is the source of truth for every
+	// TEAM_NAMESPACE_API_REFERENCE.md boundary; Gitea remains only for current
+	// document PR/file operations that are not covered by that contract.
+	TeamNamespace *teamnamespace.Client
 
 	// OnNodeStatusChanged fires after TransitionNodeRun succeeds.
 	OnNodeStatusChanged func(ctx context.Context, nodeRun db.MulticaWorkflowNodeRun)
@@ -92,7 +110,7 @@ var validTransitions = map[string][]string{
 	NodeRunStatusAwaitingInput:       {NodeRunStatusWorking, NodeRunStatusCancelled, NodeRunStatusSkipped},
 	NodeRunStatusAwaitingCritic:      {NodeRunStatusCriticReviewing, NodeRunStatusCancelled, NodeRunStatusSkipped},
 	NodeRunStatusCriticReviewing:     {NodeRunStatusCriticApproved, NodeRunStatusCriticRework, NodeRunStatusFailed, NodeRunStatusCancelled},
-	NodeRunStatusCriticApproved:      {NodeRunStatusCompleted},
+	NodeRunStatusCriticApproved:      {NodeRunStatusCompleted, NodeRunStatusBlocked},
 	NodeRunStatusCriticRework:        {NodeRunStatusFormatOk, NodeRunStatusBlocked},
 	NodeRunStatusCompleted:           {},
 	NodeRunStatusFailed:              {},
@@ -377,7 +395,10 @@ func (s *WorkflowService) startRun(ctx context.Context, workflow db.MulticaWorkf
 			if hasRoleSlots {
 				status = NodeRunStatusBlocked
 			} else if !hasIncoming[util.UUIDToString(node.ID)] {
-				status = NodeRunStatusFormatChecking
+				// json_schema format validation is retired (executeFormatChecker
+				// skips it); root nodes go straight to format_ok so dispatch
+				// isn't gated on a vestigial format_checking state.
+				status = NodeRunStatusFormatOk
 			}
 			nodeRun, err := qtx.CreateWorkflowNodeRun(ctx, db.CreateWorkflowNodeRunParams{
 				WorkflowRunID: run.ID, WorkflowNodeID: node.ID, NodeTitle: node.Title,
@@ -512,9 +533,145 @@ func (s *WorkflowService) StartRunForIssue(
 		return nil, nil, fmt.Errorf("list node runs: %w", err)
 	}
 
+	// Scaffold deliverable git storage for this run, mirroring the workflow-run
+	// path (handler/workflow_run.go). Fire-and-forget: ScaffoldRunDeliverables
+	// runs detached, panic-recovered, and no-ops when Gitea is unconfigured.
+	if run != nil {
+		go s.ScaffoldRunDeliverables(context.Background(), *run)
+	}
+
 	return run, nodeRuns, nil
 }
 
+// EnsureDefaultWorkflow get-or-creates the workspace's system default workflow —
+// the hidden, single-node, one-document-deliverable archive sink for issues
+// assigned to agent/member/squad that have no bound workflow. Idempotent: the
+// uniq_workflow_default_per_workspace index guarantees at most one per workspace,
+// so concurrent callers (CreateIssue + UpdateIssue) race without harm — a Create
+// that loses the race re-reads the winner.
+func (s *WorkflowService) EnsureDefaultWorkflow(ctx context.Context, workspaceID pgtype.UUID) (db.MulticaWorkflow, error) {
+	if wf, err := s.Queries.GetDefaultWorkflow(ctx, workspaceID); err == nil {
+		return wf, nil
+	} else if !errors.Is(err, pgx.ErrNoRows) {
+		return db.MulticaWorkflow{}, fmt.Errorf("get default workflow: %w", err)
+	}
+	wf, err := s.Queries.CreateDefaultWorkflow(ctx, db.CreateDefaultWorkflowParams{
+		WorkspaceID: workspaceID,
+		Title:       "Default Archive Workflow",
+	})
+	if err != nil {
+		// Race: another caller created it between our Get and Create. Re-read.
+		if wf2, err2 := s.Queries.GetDefaultWorkflow(ctx, workspaceID); err2 == nil {
+			return wf2, nil
+		}
+		return db.MulticaWorkflow{}, fmt.Errorf("create default workflow: %w", err)
+	}
+	node, err := s.Queries.CreateWorkflowNode(ctx, db.CreateWorkflowNodeParams{
+		WorkflowID:  wf.ID,
+		Title:       "Deliverable",
+		Description: pgtype.Text{String: "", Valid: true}, // NOT NULL DEFAULT ''
+		WorkerType:  "agent",
+		CriticType:  "human",
+		PositionX:   0,
+		PositionY:   0,
+		SortOrder:   0,
+	})
+	if err != nil {
+		return db.MulticaWorkflow{}, fmt.Errorf("create default node: %w", err)
+	}
+	if _, err := s.Queries.CreateWorkflowNodeDeliverable(ctx, db.CreateWorkflowNodeDeliverableParams{
+		WorkflowNodeID: node.ID,
+		Kind:           "document",
+		Title:          "Deliverable",
+		Description:    "",
+		Required:       true,
+		SortOrder:      0,
+	}); err != nil {
+		return db.MulticaWorkflow{}, fmt.Errorf("create default deliverable: %w", err)
+	}
+	return wf, nil
+}
+
+// StartDefaultRunForIssue starts a run of the workspace's default workflow for
+// an agent/member/squad-assigned issue that has no bound workflow, so the issue
+// gets a Gitea deliverable home: one inst branch in the default repo, with the
+// full scaffold → submit → review → merge path reusable unchanged. The single
+// node-run's worker is set to the issue's assignee and critic to the issue's
+// creator, then the root node-run is dispatched (agent/squad → agent task;
+// member → human worker, awaits UI upload in M2). Gitea scaffolding fires
+// async (dormant no-op when unconfigured). Returns the run + the single node-run.
+//
+// The caller (CreateIssue/UpdateIssue) MUST gate on Gitea configured — this
+// method always builds the run + node-run regardless, so calling it with Gitea
+// unconfigured would create a run whose inst branch never gets scaffolded.
+func (s *WorkflowService) StartDefaultRunForIssue(ctx context.Context, issue db.MulticaIssue) (*db.MulticaWorkflowRun, db.MulticaWorkflowNodeRun, error) {
+	wf, err := s.EnsureDefaultWorkflow(ctx, issue.WorkspaceID)
+	if err != nil {
+		return nil, db.MulticaWorkflowNodeRun{}, err
+	}
+	input, err := json.Marshal(map[string]any{
+		"title":       issue.Title,
+		"description": textToString(issue.Description),
+	})
+	if err != nil {
+		return nil, db.MulticaWorkflowNodeRun{}, fmt.Errorf("marshal issue input: %w", err)
+	}
+	run, err := s.startRun(ctx, wf, issue.CreatorType, util.UUIDToString(issue.CreatorID), input, pgtype.UUID{}, "", workflowRunRuntimeContext{
+		RuntimeAuthorizerID: s.resolveWorkflowUser(ctx, issue.CreatorType, issue.CreatorID),
+	})
+	if err != nil {
+		return nil, db.MulticaWorkflowNodeRun{}, fmt.Errorf("start default run: %w", err)
+	}
+	nodeRuns, err := s.Queries.ListWorkflowNodeRunsByRun(ctx, run.ID)
+	if err != nil {
+		return nil, db.MulticaWorkflowNodeRun{}, fmt.Errorf("list node runs: %w", err)
+	}
+	if len(nodeRuns) == 0 {
+		return nil, db.MulticaWorkflowNodeRun{}, fmt.Errorf("default workflow %s has no node", util.UUIDToString(wf.ID))
+	}
+	nr := nodeRuns[0]
+	nr, err = s.Queries.UpdateWorkflowNodeRunAssignees(ctx, db.UpdateWorkflowNodeRunAssigneesParams{
+		ID:         nr.ID,
+		WorkerType: defaultRunWorkerType(issue),
+		WorkerID:   issue.AssigneeID,
+		CriticType: defaultRunCriticType(issue),
+		CriticID:   issue.CreatorID,
+	})
+	if err != nil {
+		return nil, db.MulticaWorkflowNodeRun{}, fmt.Errorf("override node-run assignees: %w", err)
+	}
+
+	// Dispatch the root node-run. dispatchWorker reads the node-run's (now
+	// overridden) worker type: agent/squad → agent task; human (member) →
+	// worker_assigned, awaits UI upload. Errors are logged inside, not returned.
+	s.DispatchRootNodeRuns(ctx, run.ID)
+
+	// Scaffold Gitea for the run (dormant no-op when unconfigured).
+	go s.ScaffoldRunDeliverables(context.Background(), *run)
+
+	return run, nr, nil
+}
+
+// defaultRunWorkerType maps an issue's assignee to a node-run worker type. The
+// node-run worker type drives dispatchWorker's switch (human/agent/squad/role),
+// so a member assignee — who produces via UI upload — maps to "human".
+// issue.AssigneeType is already constrained to member/agent/squad at the API.
+func defaultRunWorkerType(issue db.MulticaIssue) string {
+	if issue.AssigneeType.Valid && issue.AssigneeType.String == "member" {
+		return "human"
+	}
+	return issue.AssigneeType.String // "agent" | "squad"
+}
+
+// defaultRunCriticType maps an issue's creator to a node-run critic type. The
+// critic type drives dispatchCritic's switch (human/agent/squad/api/role), so a
+// member creator — who reviews via the multica UI — maps to "human".
+func defaultRunCriticType(issue db.MulticaIssue) string {
+	if issue.CreatorType == "member" {
+		return "human"
+	}
+	return issue.CreatorType // "agent"
+}
 func (s *WorkflowService) StartRunForIssueWithDispatchKey(
 	ctx context.Context,
 	workflow db.MulticaWorkflow,
@@ -1017,6 +1174,14 @@ func (s *WorkflowService) SubmitWorkerOutput(ctx context.Context, nodeRunID pgty
 		if nr.Status != NodeRunStatusWorking && nr.Status != NodeRunStatusWorkerAssigned {
 			return fmt.Errorf("node run is not in worker phase (status=%s)", nr.Status)
 		}
+		if err := autoSubmitSinglePullRequestDeliverable(ctx, qtx, nr, output); err != nil {
+			return fmt.Errorf("auto-submit pull_request deliverable: %w", err)
+		}
+		if satisfied, err := requiredDeliverablesSatisfiedWithQueries(ctx, qtx, nr); err != nil {
+			return fmt.Errorf("check deliverables: %w", err)
+		} else if !satisfied {
+			return fmt.Errorf("all required deliverables must be submitted before this node can enter review")
+		}
 
 		updated, err := qtx.SetWorkflowNodeRunWorkerOutput(ctx, db.SetWorkflowNodeRunWorkerOutputParams{
 			ID:           nr.ID,
@@ -1036,6 +1201,106 @@ func (s *WorkflowService) SubmitWorkerOutput(ctx context.Context, nodeRunID pgty
 	return s.dispatchCritic(ctx, nodeRun)
 }
 
+func (s *WorkflowService) requiredDeliverablesSatisfied(ctx context.Context, nodeRun db.MulticaWorkflowNodeRun) (bool, error) {
+	return requiredDeliverablesSatisfiedWithQueries(ctx, s.Queries, nodeRun)
+}
+
+func requiredDeliverablesSatisfiedWithQueries(ctx context.Context, q *db.Queries, nodeRun db.MulticaWorkflowNodeRun) (bool, error) {
+	deliverables, err := q.ListWorkflowNodeDeliverables(ctx, nodeRun.WorkflowNodeID)
+	if err != nil {
+		return false, fmt.Errorf("list deliverables: %w", err)
+	}
+	// No deliverables defined → trivially satisfied.
+	if len(deliverables) == 0 {
+		return true, nil
+	}
+
+	submissions, err := q.ListNodeRunDeliverableSubmissions(ctx, nodeRun.ID)
+	if err != nil {
+		return false, fmt.Errorf("list submissions: %w", err)
+	}
+
+	byDeliverable := make(map[string]db.MulticaWorkflowNodeDeliverableSubmission, len(submissions))
+	for _, sub := range submissions {
+		byDeliverable[util.UUIDToString(sub.DeliverableID)] = sub
+	}
+
+	for _, d := range deliverables {
+		if !d.Required {
+			continue
+		}
+		sub, ok := byDeliverable[util.UUIDToString(d.ID)]
+		if !ok || sub.Status == "missing" || sub.Status == "rejected" {
+			return false, nil
+		}
+	}
+	return true, nil
+}
+
+var gitlabMergeRequestURLPattern = regexp.MustCompile(`https?://[^\s"'<>]+/-/merge_requests/\d+`)
+
+func extractPullRequestURLFromWorkerOutput(output json.RawMessage) string {
+	candidates := []string{string(output)}
+	var payload struct {
+		Output string `json:"output"`
+		PRURL  string `json:"pr_url"`
+	}
+	if json.Unmarshal(output, &payload) == nil {
+		candidates = append(candidates, payload.Output, payload.PRURL)
+	}
+	for _, candidate := range candidates {
+		if url := gitlabMergeRequestURLPattern.FindString(candidate); url != "" {
+			return strings.TrimRight(url, ".,);]")
+		}
+	}
+	return ""
+}
+
+func autoSubmitSinglePullRequestDeliverable(ctx context.Context, q *db.Queries, nodeRun db.MulticaWorkflowNodeRun, output json.RawMessage) error {
+	prURL := extractPullRequestURLFromWorkerOutput(output)
+	if prURL == "" {
+		return nil
+	}
+
+	deliverables, err := q.ListWorkflowNodeDeliverables(ctx, nodeRun.WorkflowNodeID)
+	if err != nil {
+		return fmt.Errorf("list deliverables: %w", err)
+	}
+	var deliverableID pgtype.UUID
+	for _, d := range deliverables {
+		if d.Kind != "pull_request" || !d.Required {
+			continue
+		}
+		if deliverableID.Valid {
+			return nil
+		}
+		deliverableID = d.ID
+	}
+	if !deliverableID.Valid {
+		return nil
+	}
+
+	submissions, err := q.ListNodeRunDeliverableSubmissions(ctx, nodeRun.ID)
+	if err != nil {
+		return fmt.Errorf("list submissions: %w", err)
+	}
+	for _, sub := range submissions {
+		if sub.DeliverableID == deliverableID && sub.Status != "missing" && sub.Status != "rejected" {
+			return nil
+		}
+	}
+
+	_, err = q.UpsertNodeRunDeliverableSubmission(ctx, db.UpsertNodeRunDeliverableSubmissionParams{
+		WorkflowNodeRunID: nodeRun.ID,
+		DeliverableID:     deliverableID,
+		SubmittedByType:   "agent",
+		SubmittedByID:     nodeRun.WorkerID,
+		Content:           "",
+		PullRequestUrl:    prURL,
+	})
+	return err
+}
+
 // ReviewNodeRun handles the Critic's approval or rework decision.
 func (s *WorkflowService) ReviewNodeRun(ctx context.Context, nodeRunID pgtype.UUID, approved bool, comment string, criticOutput json.RawMessage) error {
 	var nodeRun db.MulticaWorkflowNodeRun
@@ -1049,7 +1314,16 @@ func (s *WorkflowService) ReviewNodeRun(ctx context.Context, nodeRunID pgtype.UU
 		}
 
 		if approved {
-			// critic_approved → completed
+			// Gate: all required deliverables must be satisfied before approval.
+			if satisfied, err := s.requiredDeliverablesSatisfied(ctx, nr); err != nil {
+				return fmt.Errorf("check deliverables: %w", err)
+			} else if !satisfied {
+				return fmt.Errorf("all required deliverables must be submitted and approved before this node can be approved")
+			}
+
+			// Persist critic_approved + critic output. Do NOT complete inside the
+			// tx — the document-PR merge is an external call that can't be rolled
+			// back, so completion happens after the tx commits (below).
 			updated, err := qtx.UpdateWorkflowNodeRunStatus(ctx, db.UpdateWorkflowNodeRunStatusParams{
 				ID:     nr.ID,
 				Status: NodeRunStatusCriticApproved,
@@ -1057,15 +1331,15 @@ func (s *WorkflowService) ReviewNodeRun(ctx context.Context, nodeRunID pgtype.UU
 			if err != nil {
 				return fmt.Errorf("approve node run: %w", err)
 			}
-			// Store critic output.
+			// Store critic output; stay critic_approved (completed after merge).
 			updated, err = qtx.SetWorkflowNodeRunCriticOutput(ctx, db.SetWorkflowNodeRunCriticOutputParams{
 				ID:            nr.ID,
 				CriticOutput:  criticOutput,
 				CriticComment: pgtype.Text{String: comment, Valid: comment != ""},
-				Status:        NodeRunStatusCompleted,
+				Status:        NodeRunStatusCriticApproved,
 			})
 			if err != nil {
-				return fmt.Errorf("complete node run: %w", err)
+				return fmt.Errorf("store critic output: %w", err)
 			}
 			nodeRun = updated
 		} else {
@@ -1122,6 +1396,42 @@ func (s *WorkflowService) ReviewNodeRun(ctx context.Context, nodeRunID pgtype.UU
 		return err
 	}
 
+	// Archive the review comment to Gitea as a document (journey 7: review
+	// opinion is itself a deliverable, archived to the repo). Best-effort.
+	if comment != "" {
+		decision := "approved"
+		if !approved {
+			decision = "rejected"
+		}
+		s.ArchiveReviewComment(context.Background(), nodeRun, decision, comment)
+	}
+
+	// Approve path: the tx persisted critic_approved. Merge document PRs
+	// (external, only when Gitea is configured) THEN complete — or block on
+	// merge failure. UpdateWorkflowNodeRunStatus is called DIRECTLY (not
+	// TransitionNodeRun) so OnNodeStatusChanged fires exactly once, from the
+	// completed/blocked blocks below. The reject/rework path (FormatOk) is
+	// untouched and skips this block entirely.
+	if approved && nodeRun.Status == NodeRunStatusCriticApproved {
+		finalStatus := NodeRunStatusCompleted
+		if s.Gitea != nil && s.Gitea.Configured() {
+			if err := s.mergeDocumentDeliverables(ctx, nodeRun); err != nil {
+				slog.Error("gitea merge document deliverables failed; blocking node run",
+					"node_run_id", util.UUIDToString(nodeRun.ID), "error", err)
+				finalStatus = NodeRunStatusBlocked
+			} else {
+				s.markDocumentSubmissionsApproved(ctx, nodeRun)
+			}
+		}
+		updated, err := s.Queries.UpdateWorkflowNodeRunStatus(ctx, db.UpdateWorkflowNodeRunStatusParams{
+			ID: nodeRun.ID, Status: finalStatus,
+		})
+		if err != nil {
+			return fmt.Errorf("set node run status after merge decision: %w", err)
+		}
+		nodeRun = updated
+	}
+
 	if nodeRun.Status == NodeRunStatusFormatOk {
 		// Re-dispatch the worker after rework.
 		return s.dispatchWorker(ctx, nodeRun)
@@ -1146,6 +1456,10 @@ func (s *WorkflowService) ReviewNodeRun(ctx context.Context, nodeRunID pgtype.UU
 
 // dispatchWorker advances a node run from format_ok to the worker phase.
 func (s *WorkflowService) dispatchWorker(ctx context.Context, nodeRun db.MulticaWorkflowNodeRun) error {
+	if err := s.ensureNodeRunBranch(ctx, nodeRun); err != nil {
+		return fmt.Errorf("ensure node branch: %w", err)
+	}
+
 	node, err := s.Queries.GetWorkflowNode(ctx, nodeRun.WorkflowNodeID)
 	if err != nil {
 		return fmt.Errorf("get node: %w", err)
@@ -1493,26 +1807,7 @@ func (s *WorkflowService) HandleWorkflowTaskCompletion(ctx context.Context, task
 				}
 			}
 
-			// Transition to awaiting_critic with the task output as worker output.
-			if err := s.runInTx(ctx, func(qtx *db.Queries) error {
-				updated, err := qtx.SetWorkflowNodeRunWorkerOutput(ctx, db.SetWorkflowNodeRunWorkerOutputParams{
-					ID:           nodeRun.ID,
-					WorkerOutput: task.Result,
-					Status:       NodeRunStatusAwaitingCritic,
-				})
-				if err != nil {
-					return err
-				}
-				// Save updated for use after tx commits.
-				nodeRun = updated
-				return nil
-			}); err != nil {
-				return err
-			}
-			if err := s.dispatchCritic(ctx, nodeRun); err != nil {
-				return fmt.Errorf("dispatch critic: %w", err)
-			}
-			return nil
+			return s.SubmitWorkerOutput(ctx, nodeRun.ID, task.Result)
 		}
 	case "critic":
 		if nodeRun.Status == NodeRunStatusCriticReviewing {
@@ -1539,11 +1834,40 @@ func (s *WorkflowService) HandleWorkflowTaskCompletion(ctx context.Context, task
 				approved = !strings.Contains(strings.ToLower(output.Output), "不通过") &&
 					!strings.Contains(strings.ToLower(output.Output), "reject")
 			}
-			return s.ReviewNodeRun(ctx, nodeRun.ID, approved, output.Comment, task.Result)
+			comment := strings.TrimSpace(output.Comment)
+			if comment == "" {
+				comment = strings.TrimSpace(output.Output)
+			}
+			if comment == "" && len(task.Result) > 0 {
+				comment = strings.TrimSpace(string(task.Result))
+			}
+			comment = normalizeAgentCriticComment(approved, comment)
+			return s.ReviewNodeRun(ctx, nodeRun.ID, approved, comment, task.Result)
 		}
 	}
 
 	return nil
+}
+
+func normalizeAgentCriticComment(approved bool, comment string) string {
+	comment = strings.TrimSpace(comment)
+	lower := strings.ToLower(comment)
+	if strings.Contains(lower, "approved") ||
+		strings.Contains(lower, "rejected") ||
+		strings.Contains(comment, "通过") ||
+		strings.Contains(comment, "驳回") {
+		return comment
+	}
+	if approved {
+		if comment == "" {
+			return "Approved."
+		}
+		return "Approved: " + comment
+	}
+	if comment == "" {
+		return "Rejected."
+	}
+	return "Rejected: " + comment
 }
 
 // HandleWorkflowTaskFailure is called when an agent task linked to a workflow

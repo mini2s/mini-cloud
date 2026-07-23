@@ -896,9 +896,14 @@ export function IssueDetail({ issueId, onDelete, onDone, defaultSidebarOpen = tr
     },
   });
 
-  // Workflow issues can toggle between detail mode and fullscreen mode.
-  // Default to fullscreen mode so the workflow panorama is immediately visible.
-  const hasWorkflow = issue?.assignee_type === "workflow" && !!issue?.assignee_id;
+  const workflowAssigneeId = issue?.assignee_type === "workflow" ? issue.assignee_id : null;
+  const effectiveWorkflowId = issue?.workflow_id ?? workflowAssigneeId;
+  const effectiveWorkflowRunId = issue?.workflow_run_id ?? null;
+
+  // Issues backed by a workflow run can toggle between detail mode and
+  // fullscreen mode. This includes direct member/agent issues routed through
+  // the default archive workflow.
+  const hasWorkflow = !!effectiveWorkflowId && !!effectiveWorkflowRunId;
   const [isFullscreen, setIsFullscreen] = useState(true);
   // Only activate fullscreen when the issue actually has a workflow assigned.
   const effectiveFullscreen = isFullscreen && hasWorkflow;
@@ -916,8 +921,8 @@ export function IssueDetail({ issueId, onDelete, onDone, defaultSidebarOpen = tr
   // maintains its own observer with the same queryKey that handles polling.
   // Two observers on the same key with refetchInterval would double-poll.
   const { data: workflowNodeRuns } = useQuery({
-    ...workflowNodeRunsOptions(wsId, issue?.assignee_id ?? "", issue?.workflow_run_id ?? ""),
-    enabled: issue?.assignee_type === "workflow" && !!issue?.assignee_id && !!issue?.workflow_run_id,
+    ...workflowNodeRunsOptions(wsId, effectiveWorkflowId ?? "", effectiveWorkflowRunId ?? ""),
+    enabled: hasWorkflow,
     refetchInterval: false,
   });
   const isWorkflowRunning = useMemo(() => {
@@ -1132,12 +1137,11 @@ export function IssueDetail({ issueId, onDelete, onDone, defaultSidebarOpen = tr
   // Older sub-issues may not have workflow_id/workflow_run_id stamped, so fall
   // back to the parent issue's workflow fields when available.
   const isWorkflowOrigin = issue?.origin_type === "workflow" && !!issue?.origin_id;
-  const workflowAssigneeId = issue?.assignee_type === "workflow" ? issue.assignee_id : null;
-  const effectiveWorkflowId = issue?.workflow_id ?? workflowAssigneeId ?? parentIssue?.workflow_id;
-  const effectiveWorkflowRunId = issue?.workflow_run_id ?? parentIssue?.workflow_run_id;
+  const originEffectiveWorkflowId = effectiveWorkflowId ?? parentIssue?.workflow_id;
+  const originEffectiveWorkflowRunId = effectiveWorkflowRunId ?? parentIssue?.workflow_run_id;
   const { data: nodeRuns = [] } = useQuery({
-    ...workflowNodeRunsOptions(wsId, effectiveWorkflowId ?? "", effectiveWorkflowRunId ?? ""),
-    enabled: isWorkflowOrigin && !!effectiveWorkflowId && !!effectiveWorkflowRunId,
+    ...workflowNodeRunsOptions(wsId, originEffectiveWorkflowId ?? "", originEffectiveWorkflowRunId ?? ""),
+    enabled: isWorkflowOrigin && !!originEffectiveWorkflowId && !!originEffectiveWorkflowRunId,
   });
   const originNodeRun: WorkflowNodeRun | undefined = useMemo(
     () => nodeRuns.find((nr) => nr.id === issue?.origin_id),
@@ -2022,7 +2026,7 @@ export function IssueDetail({ issueId, onDelete, onDone, defaultSidebarOpen = tr
           </div>
           )}
           {/* Full-width Workflow Panorama (replaces old WorkflowDagViewer position) */}
-          {issue.assignee_type === "workflow" && issue.assignee_id && (
+          {hasWorkflow && (
             <div className={
               effectiveFullscreen
                 ? "flex-1 min-h-0 flex flex-col"

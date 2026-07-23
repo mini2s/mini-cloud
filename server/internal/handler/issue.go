@@ -16,6 +16,7 @@ import (
 	"unicode"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/multica-ai/multica/server/internal/analytics"
 	"github.com/multica-ai/multica/server/internal/issueguard"
@@ -2063,12 +2064,26 @@ func (h *Handler) CreateIssue(w http.ResponseWriter, r *http.Request) {
 	// Enqueue agent task when an agent-assigned issue is created.
 	if issue.AssigneeType.Valid && issue.AssigneeID.Valid {
 		if h.shouldEnqueueAgentTask(r.Context(), issue) {
-			h.TaskService.EnqueueTaskForIssue(r.Context(), issue)
+			// Gitea configured → route through the default workflow so the issue
+			// gets a deliverable repo (StartDefaultRunForIssue enqueues the agent
+			// task itself, linked to a node-run). Dormant → bare agent task.
+			if _, ok := h.startDefaultWorkflowRunForIssue(r.Context(), issue); !ok {
+				h.TaskService.EnqueueTaskForIssue(r.Context(), issue)
+			}
 		}
-		// Squad assigned at creation: trigger the squad leader (skipping
-		// backlog, same parking-lot semantics as agent assignment).
+		// Squad assigned at creation: trigger the squad leader. Gitea configured
+		// → route through the default workflow (the leader is dispatched via the
+		// run's node-run, with Gitea deliverable context). Dormant → bare leader task.
 		if h.shouldEnqueueSquadLeaderOnAssign(r.Context(), issue) {
-			h.enqueueSquadLeaderTask(r.Context(), issue, pgtype.UUID{}, creatorType, actualCreatorID)
+			if _, ok := h.startDefaultWorkflowRunForIssue(r.Context(), issue); !ok {
+				h.enqueueSquadLeaderTask(r.Context(), issue, pgtype.UUID{}, creatorType, actualCreatorID)
+			}
+		}
+		// Member assigned: route to the default workflow so the issue has a
+		// deliverable repo (worker=human, awaits UI upload). Dormant → no-op
+		// (member-assigned issues produce no task today).
+		if issue.AssigneeType.Valid && issue.AssigneeType.String == "member" {
+			h.startDefaultWorkflowRunForIssue(r.Context(), issue)
 		}
 	}
 
@@ -2458,14 +2473,23 @@ func (h *Handler) UpdateIssue(w http.ResponseWriter, r *http.Request) {
 		h.TaskService.CancelTasksForIssue(r.Context(), issue.ID)
 
 		if h.shouldEnqueueAgentTask(r.Context(), issue) {
-			runtimeIDOverride := runtimePreference
-			h.TaskService.EnqueueTaskForIssue(r.Context(), issue, pgtype.UUID{}, runtimeIDOverride)
+			if _, ok := h.startDefaultWorkflowRunForIssue(r.Context(), issue); !ok {
+				runtimeIDOverride := runtimePreference
+				h.TaskService.EnqueueTaskForIssue(r.Context(), issue, pgtype.UUID{}, runtimeIDOverride)
+			}
+		}
+		// Member assigned: route to the default workflow (worker=human, awaits
+		// UI upload). Dormant → no-op.
+		if issue.AssigneeType.Valid && issue.AssigneeType.String == "member" {
+			h.startDefaultWorkflowRunForIssue(r.Context(), issue)
 		}
 
-		// Squad assign: trigger the squad leader, respecting the backlog
-		// parking-lot rule used by agent assignment.
+		// Squad assign: trigger the squad leader. Gitea configured → default
+		// workflow (leader dispatched via the run's node-run); dormant → bare task.
 		if h.shouldEnqueueSquadLeaderOnAssign(r.Context(), issue) {
-			h.enqueueSquadLeaderTask(r.Context(), issue, pgtype.UUID{}, actorType, actorID)
+			if _, ok := h.startDefaultWorkflowRunForIssue(r.Context(), issue); !ok {
+				h.enqueueSquadLeaderTask(r.Context(), issue, pgtype.UUID{}, actorType, actorID)
+			}
 		}
 		// Workflow assign: start a workflow run and create sub-issues.
 		if issue.AssigneeType.Valid && issue.AssigneeType.String == "workflow" && !issue.WorkflowRunID.Valid {
@@ -2634,6 +2658,9 @@ func (h *Handler) validateAssigneePair(ctx context.Context, r *http.Request, wor
 		if err != nil {
 			return http.StatusBadRequest, "assignee_id does not refer to a workflow in this workspace"
 		}
+		if workflow.IsDefault {
+			return http.StatusBadRequest, "default workflow cannot be assigned to issues"
+		}
 		if workflow.Status != "active" {
 			return http.StatusBadRequest, "workflow is not active"
 		}
@@ -2657,6 +2684,41 @@ func (h *Handler) validateAssigneePair(ctx context.Context, r *http.Request, wor
 // acts as a parking lot where issues can be pre-assigned without immediately
 // triggering execution. Moving out of backlog is handled separately in
 // UpdateIssue.
+// startDefaultWorkflowRunForIssue starts a default-workflow run for an
+// agent/member/squad-assigned issue when Gitea is configured, stamping the run
+// onto the issue so the execution panel + WS events resolve it. For agent/squad
+// the run's dispatch enqueues the agent task itself (linked to a node-run, so
+// the daemon receives Gitea deliverable context); for member the worker is human
+// (awaits a UI upload). Returns ok=false when dormant (Gitea unconfigured) or
+// failed — agent/squad callers fall back to a bare EnqueueTaskForIssue; member
+// callers no-op (no task today).
+func (h *Handler) startDefaultWorkflowRunForIssue(ctx context.Context, issue db.MulticaIssue) (pgtype.UUID, bool) {
+	if !isGiteaConfigured() {
+		return pgtype.UUID{}, false
+	}
+	run, _, err := h.WorkflowService.StartDefaultRunForIssue(ctx, issue)
+	if err != nil {
+		slog.Warn("default workflow run failed; falling back to bare agent task",
+			"issue_id", uuidToString(issue.ID), "error", err)
+		return pgtype.UUID{}, false
+	}
+	if _, err := h.Queries.UpdateIssue(ctx, db.UpdateIssueParams{
+		ID:            issue.ID,
+		AssigneeType:  issue.AssigneeType,
+		AssigneeID:    issue.AssigneeID,
+		StartDate:     issue.StartDate,
+		DueDate:       issue.DueDate,
+		ParentIssueID: issue.ParentIssueID,
+		ProjectID:     issue.ProjectID,
+		WorkflowID:    run.WorkflowID,
+		WorkflowRunID: run.ID,
+	}); err != nil {
+		slog.Warn("failed to stamp default workflow run on issue",
+			"issue_id", uuidToString(issue.ID), "error", err)
+	}
+	return run.ID, true
+}
+
 func (h *Handler) shouldEnqueueAgentTask(ctx context.Context, issue db.MulticaIssue) bool {
 	if issue.Status == "backlog" {
 		return false
@@ -3252,6 +3314,7 @@ func (h *Handler) createWorkflowSubIssue(
 	}
 
 	subTitle := fmt.Sprintf("%s — %s", parentIssue.Title, node.Title)
+	description := service.BuildWorkflowWorkerSubIssueDescription(parentIssue, node)
 
 	var assigneeType pgtype.Text
 	var assigneeID pgtype.UUID
@@ -3270,7 +3333,7 @@ func (h *Handler) createWorkflowSubIssue(
 	return qtx.CreateIssueWithOrigin(ctx, db.CreateIssueWithOriginParams{
 		WorkspaceID:   wsUUID,
 		Title:         subTitle,
-		Description:   parentIssue.Description,
+		Description:   pgtype.Text{String: description, Valid: description != ""},
 		Status:        "todo",
 		Priority:      parentIssue.Priority,
 		AssigneeType:  assigneeType,
@@ -3405,6 +3468,10 @@ func (h *Handler) injectDownstreamContext(ctx context.Context, run db.MulticaWor
 // handleWorkflowRunTerminal auto-completes or leaves the parent issue when a
 // workflow run reaches a terminal state.
 func (h *Handler) handleWorkflowRunTerminal(ctx context.Context, run db.MulticaWorkflowRun, status string) {
+	if status != service.RunStatusCompleted {
+		return
+	}
+
 	// Find the parent issue by scanning for a sub-issue whose parent has this
 	// workflow run. We look up the sub-issue via origin, then follow parent_issue_id.
 	nodeRuns, err := h.Queries.ListWorkflowNodeRunsByRun(ctx, run.ID)
@@ -3419,10 +3486,28 @@ func (h *Handler) handleWorkflowRunTerminal(ctx context.Context, run db.MulticaW
 		OriginID:    nodeRuns[0].ID,
 	})
 	if err != nil || !subIssue.ParentIssueID.Valid {
+		directIssue, directErr := h.Queries.GetDirectIssueByWorkflowRun(ctx, db.GetDirectIssueByWorkflowRunParams{
+			WorkspaceID:   run.WorkspaceID,
+			WorkflowRunID: run.ID,
+		})
+		if directErr != nil {
+			if !errors.Is(directErr, pgx.ErrNoRows) {
+				slog.Warn("handleWorkflowRunTerminal: failed to find direct issue", "workflow_run_id", uuidToString(run.ID), "error", directErr)
+			}
+			return
+		}
+
+		_, directErr = h.Queries.UpdateIssueStatus(ctx, db.UpdateIssueStatusParams{
+			ID:          directIssue.ID,
+			Status:      "done",
+			WorkspaceID: directIssue.WorkspaceID,
+		})
+		if directErr != nil {
+			slog.Warn("handleWorkflowRunTerminal: failed to complete direct issue", "issue_id", uuidToString(directIssue.ID), "error", directErr)
+		}
 		return
 	}
-
-	if status == service.RunStatusCompleted {
+	if err == nil && subIssue.ParentIssueID.Valid {
 		_, err = h.Queries.UpdateIssueStatus(ctx, db.UpdateIssueStatusParams{
 			ID:          subIssue.ParentIssueID,
 			Status:      "done",
@@ -3431,6 +3516,7 @@ func (h *Handler) handleWorkflowRunTerminal(ctx context.Context, run db.MulticaW
 		if err != nil {
 			slog.Warn("handleWorkflowRunTerminal: failed to complete parent issue", "parent_issue_id", uuidToString(subIssue.ParentIssueID), "error", err)
 		}
+		return
 	}
 	// For failed/cancelled, leave the parent issue in its current status —
 	// the user should decide what to do.

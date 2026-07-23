@@ -49,14 +49,20 @@ func init() {
 }
 
 func resolveToken(cmd *cobra.Command) string {
-	// 1. Prefer explicit multica CLI config (test-environment PAT, legacy token).
+	// 1. Inside daemon-spawned tasks, the daemon-provided token is the
+	// authoritative credential for the task workspace.
+	if val := strings.TrimSpace(os.Getenv("MULTICA_TOKEN")); val != "" {
+		return val
+	}
+
+	// 2. Prefer explicit multica CLI config (test-environment PAT, legacy token).
 	profile := resolveProfile(cmd)
 	cfg, _ := cli.LoadCLIConfigForProfile(profile)
 	if cfg.Token != "" {
 		return cfg.Token
 	}
 
-	// 2. Fall back to costrict auth.json (csc auth login).
+	// 3. Fall back to costrict auth.json (csc auth login).
 	cred, _ := costrictauth.LoadCredentials()
 	if cred != nil && cred.AccessToken != "" {
 		return cred.AccessToken

@@ -13,6 +13,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/multica-ai/multica/server/internal/cloudruntime"
+	"github.com/multica-ai/multica/server/internal/gitea"
 	"github.com/multica-ai/multica/server/internal/util"
 	db "github.com/multica-ai/multica/server/pkg/db/generated"
 )
@@ -156,6 +157,31 @@ func (s *TaskService) buildCSCloudPayload(ctx context.Context, task db.MulticaAg
 			_ = json.Unmarshal(agent.CustomEnv, &env)
 		}
 	}
+	// Gitea document-deliverable context (MULTICA_GITEA_*) + node-run/issue ids,
+	// so the cs-cloud agent can run `cs-cloud workflow deliverable submit` / `gitea fetch`
+	// inside the task. Dormant (no env injected) when Gitea isn't configured or
+	// the node has no document deliverables — matches the claim-time context.
+	giteaEnv := s.giteaDeliverableEnv(ctx, task)
+	for k, v := range giteaEnv {
+		env[k] = v
+	}
+	if task.IssueID.Valid {
+		env["MULTICA_ISSUE_ID"] = util.UUIDToString(task.IssueID)
+	}
+	phase := workflowPhaseFromTask(task)
+	if phase == "critic" {
+		prompt = appendCriticReviewPrompt(prompt)
+	} else {
+		if phase == "worker" {
+			prompt = appendWorkerTaskPrompt(prompt)
+		}
+		if raw, ok := giteaEnv["MULTICA_GITEA_DELIVERABLES"]; ok {
+			var refs []giteaDeliverableRefJSON
+			if json.Unmarshal([]byte(raw), &refs) == nil && len(refs) > 0 {
+				prompt = appendDeliverablePrompt(prompt, refs)
+			}
+		}
+	}
 
 	return csCloudTaskRunPayload{
 		TaskID:      util.UUIDToString(task.ID),
@@ -169,6 +195,157 @@ func (s *TaskService) buildCSCloudPayload(ctx context.Context, task db.MulticaAg
 		Env:         env,
 		Kind:        kind,
 	}, nil
+}
+
+func appendWorkerTaskPrompt(prompt string) string {
+	var b strings.Builder
+	b.WriteString(prompt)
+	if prompt != "" && !strings.HasSuffix(prompt, "\n") {
+		b.WriteByte('\n')
+	}
+	b.WriteString("\n---\n## Workflow Worker Task\n\n")
+	b.WriteString("You are the worker for this workflow node. Complete the assigned work and submit every required deliverable before finishing.\n")
+	b.WriteString("Do NOT perform critic review. Do NOT approve or reject the work. If the issue text mentions a critic/reviewer, treat that as context for the later review phase, not your current task.\n")
+	b.WriteString("\n---\n\n")
+	return b.String()
+}
+
+// appendDeliverablePrompt adds a "Document Deliverables" section to the prompt,
+// instructing the agent to submit each deliverable via `cs-cloud workflow deliverable submit`
+// and that it can read other issues' deliverables via `cs-cloud workflow deliverable fetch`.
+func appendDeliverablePrompt(prompt string, refs []giteaDeliverableRefJSON) string {
+	var b strings.Builder
+	b.WriteString(prompt)
+	if prompt != "" && !strings.HasSuffix(prompt, "\n") {
+		b.WriteByte('\n')
+	}
+	b.WriteString("\n---\n## Document Deliverables\n\n")
+	b.WriteString("This node has document deliverables stored in the platform git server. For EACH deliverable below: write the document to a local file, then submit it with the CLI — the command creates a node branch, pushes your file, opens a Gitea PR, and registers the PR back here. Do NOT use inline content upload for these; document deliverables go through git.\n\n")
+	for _, d := range refs {
+		fmt.Fprintf(&b, "- **%s** (id=%s): run `cs-cloud workflow deliverable submit --deliverable %s --file <local-path-to-your-document>`\n", d.Title, d.ID, d.ID)
+	}
+	b.WriteString("\nA deliverable is not considered submitted until its PR is registered. Complete every listed deliverable before finishing.\n\n")
+	b.WriteString("### Reading other issues' deliverables\n\n")
+	b.WriteString("You can read document deliverables from ANY issue in this workspace — your own, child issues from task splits, or upstream issues. Each result includes all descendant issues' deliverables, labeled with their source issue_id:\n")
+	b.WriteString("- `cs-cloud workflow deliverable fetch` — read the current issue's deliverables (plus all child/grandchild issues').\n")
+	b.WriteString("- `cs-cloud workflow deliverable fetch <issue-key>` — read a specific issue (e.g. `cs-cloud workflow deliverable fetch MUL-123`).\n")
+	b.WriteString("\n---\n\n")
+	return b.String()
+}
+
+func appendCriticReviewPrompt(prompt string) string {
+	var b strings.Builder
+	b.WriteString(prompt)
+	if prompt != "" && !strings.HasSuffix(prompt, "\n") {
+		b.WriteByte('\n')
+	}
+	b.WriteString("\n---\n## Workflow Critic Review\n\n")
+	b.WriteString("You are reviewing the worker's submitted deliverables for this workflow node. Inspect the issue context and deliverable PRs, then finish with a JSON object only:\n\n")
+	b.WriteString("```json\n{\"approved\":true,\"comment\":\"short review opinion\"}\n```\n\n")
+	b.WriteString("Use `approved:false` when the work needs rework, and put the actionable rejection reason in `comment`.\n\n")
+	b.WriteString("---\n\n")
+	return b.String()
+}
+
+func workflowPhaseFromTask(task db.MulticaAgentTaskQueue) string {
+	if len(task.Context) == 0 {
+		return ""
+	}
+	var payload struct {
+		Phase string `json:"phase"`
+	}
+	if err := json.Unmarshal(task.Context, &payload); err != nil {
+		return ""
+	}
+	return strings.TrimSpace(payload.Phase)
+}
+
+// giteaDeliverableRefJSON is the per-deliverable shape cs-cloud's
+// `gitea submit` reads from MULTICA_GITEA_DELIVERABLES.
+type giteaDeliverableRefJSON struct {
+	ID    string `json:"deliverable_id"`
+	Title string `json:"title"`
+	Path  string `json:"path"`
+}
+
+// giteaDeliverableEnv builds the MULTICA_GITEA_* env vars for a task's
+// node-run, mirroring handler.giteaContextForNodeRun but in the service layer
+// (the cs-cloud push path lives here, separate from claim). Returns nil when
+// Gitea is dormant or the node has no document deliverables — the caller then
+// injects nothing and the cs-cloud `gitea submit` command is simply unusable
+// for this task (by design).
+func (s *TaskService) giteaDeliverableEnv(ctx context.Context, task db.MulticaAgentTaskQueue) map[string]string {
+	base := strings.TrimSpace(os.Getenv("GITEA_BASE_URL"))
+	if strings.TrimSpace(os.Getenv("GITEA_ADMIN_TOKEN")) == "" || base == "" || !task.WorkflowNodeRunID.Valid {
+		return nil
+	}
+	nr, err := s.Queries.GetWorkflowNodeRun(ctx, task.WorkflowNodeRunID)
+	if err != nil {
+		return nil
+	}
+	run, err := s.Queries.GetWorkflowRun(ctx, nr.WorkflowRunID)
+	if err != nil {
+		return nil
+	}
+	workflow, err := s.Queries.GetWorkflow(ctx, run.WorkflowID)
+	if err != nil {
+		return nil
+	}
+	deliverables, err := s.Queries.ListWorkflowNodeDeliverables(ctx, nr.WorkflowNodeID)
+	if err != nil {
+		return nil
+	}
+	node, err := s.Queries.GetWorkflowNode(ctx, nr.WorkflowNodeID)
+	if err != nil {
+		return nil
+	}
+	nodeSeq := int(node.SortOrder)
+	nodeRunIDStr := util.UUIDToString(nr.ID)
+	var refs []giteaDeliverableRefJSON
+	for _, d := range deliverables {
+		if d.Kind != "document" {
+			continue
+		}
+		refs = append(refs, giteaDeliverableRefJSON{
+			ID:    util.UUIDToString(d.ID),
+			Title: d.Title,
+			Path:  gitea.DeliverablePath(nodeSeq, nr.NodeTitle, nodeRunIDStr, d.Title),
+		})
+	}
+	if len(refs) == 0 {
+		return nil
+	}
+	publicBase := strings.TrimSpace(os.Getenv("GITEA_PUBLIC_BASE_URL"))
+	if publicBase == "" {
+		publicBase = base
+	}
+	owner := gitea.OrgName(util.UUIDToString(run.WorkspaceID))
+	repo := DeliverableRepoNameForWorkflow(workflow)
+	refsJSON, _ := json.Marshal(refs)
+	// Bot PAT + Gitea base URL are pushed down so cs-cloud's `deliverable submit`
+	// can push the document + open a PR against Gitea directly, without relaying
+	// back through multica to fetch credentials. The PAT lives in workspace
+	// settings (minted by the team-namespace provisioning flow).
+	pat := ""
+	if ws, err := s.Queries.GetWorkspace(ctx, run.WorkspaceID); err == nil && len(ws.Settings) > 0 {
+		settingsMap := map[string]any{}
+		if json.Unmarshal(ws.Settings, &settingsMap) == nil {
+			if v, ok := settingsMap["gitea_pat"].(string); ok {
+				pat = v
+			}
+		}
+	}
+	return map[string]string{
+		"MULTICA_NODE_RUN_ID":        nodeRunIDStr,
+		"MULTICA_GITEA_OWNER":        owner,
+		"MULTICA_GITEA_REPO":         repo,
+		"MULTICA_GITEA_BASE_URL":     strings.TrimRight(publicBase, "/"),
+		"MULTICA_GITEA_TOKEN":        pat,
+		"MULTICA_GITEA_CLONE_URL":    strings.TrimRight(publicBase, "/") + "/" + owner + "/" + repo + ".git",
+		"MULTICA_GITEA_INST_BRANCH":  gitea.InstBranch(util.UUIDToString(run.ID)),
+		"MULTICA_GITEA_NODE_BRANCH":  gitea.NodeBranch(nodeSeq, nodeRunIDStr),
+		"MULTICA_GITEA_DELIVERABLES": string(refsJSON),
+	}
 }
 
 func computeCSCloudTaskKind(task db.MulticaAgentTaskQueue) string {
@@ -377,4 +554,3 @@ func (s *TaskService) maybeAbortOnDevice(task db.MulticaAgentTaskQueue) {
 		}
 	}()
 }
-

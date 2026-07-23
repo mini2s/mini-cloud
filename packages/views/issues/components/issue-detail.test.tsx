@@ -670,6 +670,30 @@ describe("IssueDetail (shared)", () => {
     });
   });
 
+  it("renders the execution panorama for direct member issues with a default workflow run", async () => {
+    mockApiObj.getIssue.mockResolvedValue({
+      ...mockIssue,
+      assignee_type: "member",
+      assignee_id: "user-1",
+      workflow_id: "default-wf-1",
+      workflow_run_id: "run-1",
+    });
+
+    renderIssueDetail();
+
+    await waitFor(() => {
+      expect(screen.getByTestId("execution-panorama-props")).toBeInTheDocument();
+    });
+
+    expect(mockExecutionPanoramaProps.latest).toEqual({
+      workflowId: "default-wf-1",
+      runId: "run-1",
+      wsId: "ws-1",
+      issueId: "issue-1",
+      fillAvailableHeight: true,
+    });
+  });
+
   it("lets the fullscreen workflow panorama fill the issue detail body", async () => {
     mockApiObj.getIssue.mockResolvedValue({
       ...mockIssue,

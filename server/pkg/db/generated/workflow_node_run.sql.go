@@ -1740,6 +1740,68 @@ func (q *Queries) UpdateWorkflowNodeRunAgentTask(ctx context.Context, arg Update
 	return i, err
 }
 
+const updateWorkflowNodeRunAssignees = `-- name: UpdateWorkflowNodeRunAssignees :one
+UPDATE multica_workflow_node_run SET
+    worker_type = $2,
+    worker_id   = $3,
+    critic_type = $4,
+    critic_id   = $5,
+    updated_at  = now()
+WHERE id = $1
+RETURNING id, workflow_run_id, workflow_node_id, node_title, status, retry_count, worker_type, worker_id, worker_output, critic_type, critic_id, critic_output, critic_comment, agent_task_id, started_at, completed_at, created_at, updated_at, worker_agent_task_id, critic_agent_task_id, runtime_id, device_id, session_id, split_review_chat_session_id, split_config_version
+`
+
+type UpdateWorkflowNodeRunAssigneesParams struct {
+	ID         pgtype.UUID `json:"id"`
+	WorkerType string      `json:"worker_type"`
+	WorkerID   pgtype.UUID `json:"worker_id"`
+	CriticType string      `json:"critic_type"`
+	CriticID   pgtype.UUID `json:"critic_id"`
+}
+
+// Override worker/critic on a node run. Used by the default-workflow path: the
+// single node-run's worker is set to the issue assignee and critic to the issue
+// creator, rather than inherited from the default workflow's placeholder node.
+// dispatch reads node-run assignees, so this is what drives agent/critic dispatch.
+func (q *Queries) UpdateWorkflowNodeRunAssignees(ctx context.Context, arg UpdateWorkflowNodeRunAssigneesParams) (MulticaWorkflowNodeRun, error) {
+	row := q.db.QueryRow(ctx, updateWorkflowNodeRunAssignees,
+		arg.ID,
+		arg.WorkerType,
+		arg.WorkerID,
+		arg.CriticType,
+		arg.CriticID,
+	)
+	var i MulticaWorkflowNodeRun
+	err := row.Scan(
+		&i.ID,
+		&i.WorkflowRunID,
+		&i.WorkflowNodeID,
+		&i.NodeTitle,
+		&i.Status,
+		&i.RetryCount,
+		&i.WorkerType,
+		&i.WorkerID,
+		&i.WorkerOutput,
+		&i.CriticType,
+		&i.CriticID,
+		&i.CriticOutput,
+		&i.CriticComment,
+		&i.AgentTaskID,
+		&i.StartedAt,
+		&i.CompletedAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.WorkerAgentTaskID,
+		&i.CriticAgentTaskID,
+		&i.RuntimeID,
+		&i.DeviceID,
+		&i.SessionID,
+		&i.SplitReviewChatSessionID,
+		&i.SplitConfigVersion,
+	)
+	return i, err
+}
+
 const updateWorkflowNodeRunCriticReview = `-- name: UpdateWorkflowNodeRunCriticReview :one
 UPDATE multica_workflow_node_run SET
     critic_output = $2,

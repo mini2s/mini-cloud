@@ -606,3 +606,44 @@ export interface WorkflowRoleAssignmentInput {
   user_id: string;
   version: number;
 }
+
+// ── Deliverable types ──────────────────────────────────────────────────────
+
+export type WorkflowDeliverableSignal = "none" | "red" | "yellow" | "green";
+export type WorkflowDeliverableKind = "document" | "pull_request";
+export type WorkflowDeliverableSubmissionStatus = "missing" | "submitted" | "approved" | "rejected";
+
+export interface WorkflowNodeDeliverable {
+  id: string;
+  workflow_node_id: string;
+  kind: WorkflowDeliverableKind;
+  title: string;
+  description: string;
+  required: boolean;
+  sort_order: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface WorkflowNodeDeliverableSubmission {
+  id: string;
+  workflow_node_run_id: string;
+  deliverable_id: string;
+  submitted_by_type: "member" | "agent" | "system";
+  submitted_by_id: string | null;
+  status: WorkflowDeliverableSubmissionStatus;
+  content: string;
+  attachment_id: string | null;
+  pull_request_url: string;
+  review_comment: string;
+  submitted_at: string;
+  reviewed_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+/** Composite view joining a deliverable definition with its submission for a node run. */
+export interface DeliverableWithSubmission {
+  deliverable: WorkflowNodeDeliverable;
+  submission: WorkflowNodeDeliverableSubmission | null;
+}

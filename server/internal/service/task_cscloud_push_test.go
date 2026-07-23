@@ -50,8 +50,8 @@ func (f *fakePushClient) snapshot() []cloudruntime.Request {
 // pushTaskDB is a minimal in-memory queries stub for the paths exercised by
 // the cs-cloud push tests. It only implements the exact subset needed.
 type pushTaskDB struct {
-	runtime db.MulticaAgentRuntime
-	task    db.MulticaAgentTaskQueue
+	runtime          db.MulticaAgentRuntime
+	task             db.MulticaAgentTaskQueue
 	dispatchedCalled bool
 	dispatchedResult db.MulticaAgentTaskQueue
 }
@@ -196,13 +196,13 @@ func copyRow(src []any, dest []any) error {
 
 type mockRowsChat struct{}
 
-func (mockRowsChat) Next() bool                       { return false }
-func (mockRowsChat) Close()                           {}
-func (mockRowsChat) Err() error                       { return nil }
-func (mockRowsChat) Scan(...any) error                { return nil }
-func (mockRowsChat) CommandTag() pgconn.CommandTag    { return pgconn.NewCommandTag("") }
+func (mockRowsChat) Next() bool                                   { return false }
+func (mockRowsChat) Close()                                       {}
+func (mockRowsChat) Err() error                                   { return nil }
+func (mockRowsChat) Scan(...any) error                            { return nil }
+func (mockRowsChat) CommandTag() pgconn.CommandTag                { return pgconn.NewCommandTag("") }
 func (mockRowsChat) FieldDescriptions() []pgconn.FieldDescription { return nil }
-func (mockRowsChat) RawValues() [][]byte              { return nil }
+func (mockRowsChat) RawValues() [][]byte                          { return nil }
 
 func newPushTestDB(runtimeProvider, daemonID string) *pushTaskDB {
 	return &pushTaskDB{
@@ -387,6 +387,23 @@ func TestComputeCSCloudTaskKind(t *testing.T) {
 				t.Fatalf("kind = %q, want %q", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestAppendWorkerPromptWarnsNotToActAsCritic(t *testing.T) {
+	got := appendWorkerTaskPrompt("Issue: mixed worker and critic instructions")
+	for _, want := range []string{
+		"Workflow Worker Task",
+		"You are the worker",
+		"Do NOT perform critic review",
+		"Do NOT approve or reject",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("worker prompt missing %q:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "Workflow Critic Review") {
+		t.Fatalf("worker prompt must not include critic review section:\n%s", got)
 	}
 }
 
