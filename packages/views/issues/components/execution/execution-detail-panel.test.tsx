@@ -49,24 +49,38 @@ vi.mock("@tanstack/react-query", () => ({
   }),
 }));
 
-const mockDeliverableSubmissions = [
-  {
-    id: "sub-1",
-    deliverable_id: "del-1",
-    workflow_node_run_id: "r1",
-    status: "submitted",
-    pull_request_url: "http://gitea.test/t-ws1/wf-n1/pulls/7",
-    content: null,
-    attachment_id: null,
-    review_comment: null,
-    submitted_by_type: "agent",
-    submitted_by_id: "a1",
-    submitted_at: null,
-    reviewed_at: null,
-    created_at: "",
-    updated_at: "",
-  },
-];
+const mockDeliverableSubmissions = {
+  deliverables: [
+    {
+      id: "del-1",
+      workflow_node_id: "n1",
+      title: "Code changes",
+      kind: "pull_request",
+      required: true,
+      sort_order: 0,
+      created_at: "",
+      updated_at: "",
+    },
+  ],
+  submissions: [
+    {
+      id: "sub-1",
+      deliverable_id: "del-1",
+      workflow_node_run_id: "r1",
+      status: "submitted",
+      pull_request_url: "http://gitea.test/t-ws1/wf-n1/pulls/7",
+      content: null,
+      attachment_id: null,
+      review_comment: null,
+      submitted_by_type: "agent",
+      submitted_by_id: "a1",
+      submitted_at: null,
+      reviewed_at: null,
+      created_at: "",
+      updated_at: "",
+    },
+  ],
+};
 
 vi.mock("@multica/core/chat/queries", () => ({
   chatSessionsOptions: () => ({ queryKey: ["chat", "sessions"] }),

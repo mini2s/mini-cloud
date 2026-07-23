@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -653,7 +654,7 @@ func TestUploadMemberDeliverable(t *testing.T) {
 		CreatorID:     memberUUID,
 		WorkflowRunID: runUUID,
 	}
-	if err := svc.UploadMemberDeliverable(ctx, issue, "# Hello\n\nDoc body."); err != nil {
+	if err := svc.UploadMemberDeliverable(ctx, issue, []MemberDeliverableFile{{Name: "doc.md", Content: base64.StdEncoding.EncodeToString([]byte("# Hello\n\nDoc body."))}}); err != nil {
 		t.Fatalf("UploadMemberDeliverable: %v", err)
 	}
 
@@ -746,7 +747,7 @@ func TestUploadMemberDeliverable_UpdatesExistingFileAfterRejection(t *testing.T)
 		CreatorID:     memberUUID,
 		WorkflowRunID: runUUID,
 	}
-	if err := svc.UploadMemberDeliverable(ctx, issue, "# v1\n\nIncomplete."); err != nil {
+	if err := svc.UploadMemberDeliverable(ctx, issue, []MemberDeliverableFile{{Name: "doc.md", Content: base64.StdEncoding.EncodeToString([]byte("# v1\n\nIncomplete."))}}); err != nil {
 		t.Fatalf("first UploadMemberDeliverable: %v", err)
 	}
 
@@ -761,7 +762,7 @@ func TestUploadMemberDeliverable_UpdatesExistingFileAfterRejection(t *testing.T)
 		t.Fatalf("after rejection node-run status=%q, want %q", got, NodeRunStatusWorkerAssigned)
 	}
 
-	if err := svc.UploadMemberDeliverable(ctx, issue, "# v2\n\nFinal evidence."); err != nil {
+	if err := svc.UploadMemberDeliverable(ctx, issue, []MemberDeliverableFile{{Name: "doc.md", Content: base64.StdEncoding.EncodeToString([]byte("# v2\n\nFinal evidence."))}}); err != nil {
 		t.Fatalf("second UploadMemberDeliverable after rejection: %v", err)
 	}
 

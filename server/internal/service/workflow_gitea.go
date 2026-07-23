@@ -2,10 +2,12 @@ package service
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
+	"path"
 	"strings"
 	"time"
 
@@ -866,9 +868,138 @@ func (s *WorkflowService) markDocumentSubmissionsApproved(ctx context.Context, n
 // SubmittedByID is the uploading member (issue.AssigneeID for a member-assigned
 // issue). dormant: returns an error when Gitea is nil/unconfigured; the handler
 // gates the endpoint on isGiteaConfigured() and never calls this otherwise.
-func (s *WorkflowService) UploadMemberDeliverable(ctx context.Context, issue db.MulticaIssue, content string) error {
+// UploadMemberDeliverablePR handles a member-submitted code merge-request URL
+// for the issue's pull_request-kind deliverable. It mirrors UploadMemberDeliverable:
+// the link is archived as a file on the node branch, a Gitea PR (node -> inst) is
+// opened, the PR URL is registered on the submission, and the node-run advances
+// into review — keeping the code flow identical to the document flow (no direct
+// merge to inst).
+func (s *WorkflowService) UploadMemberDeliverablePR(ctx context.Context, issue db.MulticaIssue, pullRequestURL, userID string) error {
+	if !issue.WorkflowRunID.Valid {
+		return errors.New("issue has no workflow run (not routed to a deliverable workflow)")
+	}
+	run, err := s.Queries.GetWorkflowRun(ctx, issue.WorkflowRunID)
+	if err != nil {
+		return fmt.Errorf("get run: %w", err)
+	}
+	nodeRuns, err := s.Queries.ListWorkflowNodeRunsByRun(ctx, run.ID)
+	if err != nil {
+		return fmt.Errorf("list node runs: %w", err)
+	}
+	if len(nodeRuns) == 0 {
+		return errors.New("run has no node runs")
+	}
+	nodeRun := nodeRuns[0]
+	deliverables, err := s.Queries.ListWorkflowNodeDeliverables(ctx, nodeRun.WorkflowNodeID)
+	if err != nil {
+		return fmt.Errorf("list deliverables: %w", err)
+	}
+	var deliverableID pgtype.UUID
+	var deliverableTitle string
+	for _, d := range deliverables {
+		if d.Kind == "pull_request" {
+			deliverableID = d.ID
+			deliverableTitle = d.Title
+			break
+		}
+	}
+	if !deliverableID.Valid {
+		return errors.New("node has no pull_request deliverable")
+	}
+
+	// Mirror the document flow: archive the code link as a file on the node
+	// branch + open a Gitea PR (node -> inst) so it goes through review like a
+	// document deliverable (no direct merge to inst). The member's pasted URL is
+	// the file body; the PR URL is what gets registered on the submission,
+	// keeping the review surface consistent with document deliverables.
+	var prURL string
+	if s.Gitea != nil && s.Gitea.Configured() {
+		workflow, err := s.Queries.GetWorkflow(ctx, run.WorkflowID)
+		if err != nil {
+			return fmt.Errorf("get workflow: %w", err)
+		}
+		node, err := s.Queries.GetWorkflowNode(ctx, nodeRun.WorkflowNodeID)
+		if err != nil {
+			return fmt.Errorf("get node: %w", err)
+		}
+		topo, err := NodeTopoOrder(ctx, s.Queries, run.WorkflowID)
+		if err != nil {
+			return fmt.Errorf("node topo order: %w", err)
+		}
+		nodeSeq := topo[util.UUIDToString(node.ID)]
+		owner := gitea.OrgName(util.UUIDToString(run.WorkspaceID))
+		repo := DeliverableRepoNameForWorkflow(workflow)
+		inst := gitea.InstBranch(util.UUIDToString(run.ID))
+		nodeBranch := gitea.NodeBranch(nodeSeq, util.UUIDToString(nodeRun.ID))
+		nodeDir := gitea.NodeDir(nodeSeq, nodeRun.NodeTitle, util.UUIDToString(nodeRun.ID))
+		path := nodeDir + "/" + sanitizeArchiveFileName(deliverableTitle) + ".md"
+		content := fmt.Sprintf("# %s\n\n%s\n", deliverableTitle, pullRequestURL)
+		if err := s.Gitea.CreateBranch(ctx, owner, repo, nodeBranch, inst); err != nil {
+			return fmt.Errorf("create node branch: %w", err)
+		}
+		if err := s.Gitea.UpsertFile(ctx, owner, repo, nodeBranch, path, content, "code merge request link: "+pullRequestURL); err != nil {
+			return fmt.Errorf("archive code link: %w", err)
+		}
+		prURL, err = s.Gitea.OpenPR(ctx, owner, repo, nodeBranch, inst, "code deliverable "+util.UUIDToString(deliverableID))
+		if err != nil {
+			return fmt.Errorf("open PR: %w", err)
+		}
+	}
+
+	submissionURL := prURL
+	if submissionURL == "" {
+		submissionURL = pullRequestURL // dormant fallback: no Gitea, just record the link
+	}
+	if _, err := s.Queries.UpsertNodeRunDeliverableSubmission(ctx, db.UpsertNodeRunDeliverableSubmissionParams{
+		WorkflowNodeRunID: nodeRun.ID,
+		DeliverableID:     deliverableID,
+		SubmittedByType:   "member",
+		PullRequestUrl:    submissionURL,
+		SubmittedByID:     util.MustParseUUID(userID),
+	}); err != nil {
+		return fmt.Errorf("upsert deliverable submission: %w", err)
+	}
+
+	// Advance the node-run into review, mirroring UploadMemberDeliverable. (Like
+	// the document path this fails if other required deliverables are unsubmitted.)
+	if prURL != "" {
+		output, _ := json.Marshal(map[string]any{"pull_request_url": prURL})
+		if err := s.SubmitWorkerOutput(ctx, nodeRun.ID, output); err != nil {
+			return fmt.Errorf("submit worker output: %w", err)
+		}
+	}
+	slog.Info("member code deliverable uploaded",
+		"issue_id", util.UUIDToString(issue.ID), "node_run_id", util.UUIDToString(nodeRun.ID), "pr_url", prURL)
+	return nil
+}
+
+// MemberDeliverableFile is one uploaded document file. Content is the file
+// bytes base64-encoded (so JSON transport is binary-safe — any format, not
+// just text). Each file is archived to Gitea under the node directory using
+// its original filename.
+type MemberDeliverableFile struct {
+	Name    string `json:"name"`    // original filename; archived under the node dir
+	Content string `json:"content"` // base64-encoded file bytes
+}
+
+// sanitizeArchiveFileName returns a safe single-segment filename for archiving
+// an uploaded file under the node directory: it keeps only the base name
+// (stripping any directory components to prevent path traversal) and falls back
+// to "untitled" when empty.
+func sanitizeArchiveFileName(name string) string {
+	base := path.Base(strings.TrimSpace(name))
+	if base == "" || base == "." || base == ".." {
+		return "untitled"
+	}
+	return base
+}
+
+func (s *WorkflowService) UploadMemberDeliverable(ctx context.Context, issue db.MulticaIssue, files []MemberDeliverableFile) error {
 	if s.Gitea == nil || !s.Gitea.Configured() {
 		return errors.New("UploadMemberDeliverable: Gitea not configured")
+	}
+	if len(files) == 0 {
+		return errors.New("no files to upload")
 	}
 	if !issue.WorkflowRunID.Valid {
 		return errors.New("issue has no workflow run (not routed to the default workflow)")
@@ -895,11 +1026,9 @@ func (s *WorkflowService) UploadMemberDeliverable(ctx context.Context, issue db.
 		return fmt.Errorf("list deliverables: %w", err)
 	}
 	var deliverableID pgtype.UUID
-	var deliverableTitle string
 	for _, d := range deliverables {
 		if d.Kind == "document" {
 			deliverableID = d.ID
-			deliverableTitle = d.Title
 			break
 		}
 	}
@@ -920,15 +1049,24 @@ func (s *WorkflowService) UploadMemberDeliverable(ctx context.Context, issue db.
 	repo := DeliverableRepoNameForWorkflow(workflow)
 	inst := gitea.InstBranch(util.UUIDToString(run.ID))
 	nodeBranch := gitea.NodeBranch(nodeSeq, util.UUIDToString(nodeRun.ID))
-	path := gitea.DeliverablePath(nodeSeq, nodeRun.NodeTitle, util.UUIDToString(nodeRun.ID), deliverableTitle)
+	nodeDir := gitea.NodeDir(nodeSeq, nodeRun.NodeTitle, util.UUIDToString(nodeRun.ID))
 
 	// Idempotent node branch (base = inst). CreateBranch is get-or-create
 	// (handles the slash in node/<hex>, which GET /branches/{name} can't address).
 	if err := s.Gitea.CreateBranch(ctx, owner, repo, nodeBranch, inst); err != nil {
 		return fmt.Errorf("create node branch: %w", err)
 	}
-	if err := s.Gitea.UpsertFile(ctx, owner, repo, nodeBranch, path, content, "deliverable upload"); err != nil {
-		return fmt.Errorf("write deliverable file: %w", err)
+	// Archive every uploaded file under the node directory, preserving each
+	// file's original name + format (binary-safe via base64 → UpsertFile).
+	for _, f := range files {
+		raw, err := base64.StdEncoding.DecodeString(f.Content)
+		if err != nil {
+			return fmt.Errorf("decode file %q: %w", f.Name, err)
+		}
+		filePath := nodeDir + "/" + sanitizeArchiveFileName(f.Name)
+		if err := s.Gitea.UpsertFile(ctx, owner, repo, nodeBranch, filePath, string(raw), "deliverable upload: "+f.Name); err != nil {
+			return fmt.Errorf("write deliverable file %q: %w", f.Name, err)
+		}
 	}
 	prURL, err := s.Gitea.OpenPR(ctx, owner, repo, nodeBranch, inst,
 		"document deliverable "+util.UUIDToString(deliverableID))

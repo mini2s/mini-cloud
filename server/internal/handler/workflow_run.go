@@ -1007,7 +1007,21 @@ func (h *Handler) ListNodeRunDeliverableSubmissions(w http.ResponseWriter, r *ht
 		resp = append(resp, workflowNodeDeliverableSubmissionToResponse(s))
 	}
 
-	writeJSON(w, http.StatusOK, map[string]any{"submissions": resp})
+	// Also return the node's deliverable definitions (kind) so the frontend can
+	// render the right manual-upload control (file picker vs PR-link input)
+	// before any submission exists.
+	out := map[string]any{"submissions": resp}
+	if nodeRun, err := h.Queries.GetWorkflowNodeRun(r.Context(), nrUUID); err == nil {
+		if defs, err := h.Queries.ListWorkflowNodeDeliverables(r.Context(), nodeRun.WorkflowNodeID); err == nil {
+			defResp := make([]WorkflowNodeDeliverableResponse, 0, len(defs))
+			for _, d := range defs {
+				defResp = append(defResp, workflowNodeDeliverableToResponse(d))
+			}
+			out["deliverables"] = defResp
+		}
+	}
+
+	writeJSON(w, http.StatusOK, out)
 }
 
 // SubmitNodeRunDeliverable POST /api/node-runs/{nodeRunId}/deliverables/{deliverableId}/submit

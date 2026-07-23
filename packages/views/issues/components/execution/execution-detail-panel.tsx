@@ -200,10 +200,11 @@ export function ExecutionDetailPanel({
   const setChatSession = useChatStore((s) => s.setActiveSession);
   const setChatOpen = useChatStore((s) => s.setOpen);
   const { data: chatSessions = [] } = useQuery(chatSessionsOptions(wsId));
-  const { data: deliverableSubmissions = [] } = useQuery({
+  const { data: deliverableData } = useQuery({
     ...nodeRunDeliverableSubmissionsOptions(wsId, nodeRun?.id ?? ""),
     enabled: !!nodeRun?.id,
   });
+  const deliverableSubmissions = deliverableData?.submissions ?? [];
 
   useEffect(() => {
     const handleKey = (e: KeyboardEvent) => {

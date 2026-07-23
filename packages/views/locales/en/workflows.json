@@ -516,11 +516,20 @@
     "review_comment_placeholder": "Add a comment with your review...",
     "deliverables": {
       "heading": "Deliverable PRs",
+      "document_section": "Documents",
+      "code_section": "Code",
       "pull_request_label": "Pull request",
-      "upload_button": "Upload deliverable",
+      "upload_button": "Upload document",
       "upload_heading": "Submit a document",
       "upload_placeholder": "Write or paste the document content (markdown)…",
       "upload_submit": "Submit",
+      "upload_file_hint": "Any format; multiple files supported",
+      "upload_file_choose": "Choose a file",
+      "upload_pr_button": "Submit code",
+      "upload_pr_heading": "Submit a merge request link",
+      "upload_pr_placeholder": "Paste the pull / merge request URL…",
+      "upload_pr_submit": "Submit link",
+      "cancel": "Cancel",
       "uploading": "Submitting…"
     }
   },
