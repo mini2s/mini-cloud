@@ -2339,6 +2339,7 @@ func (s *SplitOrchestrator) createWorkflowSubIssue(
 	}
 
 	subTitle := fmt.Sprintf("%s — %s", parentIssue.Title, node.Title)
+	description := BuildWorkflowWorkerSubIssueDescription(parentIssue, node)
 	var assigneeType pgtype.Text
 	var assigneeID pgtype.UUID
 	if node.WorkerType != "" {
@@ -2356,7 +2357,7 @@ func (s *SplitOrchestrator) createWorkflowSubIssue(
 	return s.Queries.CreateIssueWithOrigin(ctx, db.CreateIssueWithOriginParams{
 		WorkspaceID:   parentIssue.WorkspaceID,
 		Title:         subTitle,
-		Description:   parentIssue.Description,
+		Description:   pgtype.Text{String: description, Valid: description != ""},
 		Status:        "todo",
 		Priority:      parentIssue.Priority,
 		AssigneeType:  assigneeType,
@@ -2373,6 +2374,45 @@ func (s *SplitOrchestrator) createWorkflowSubIssue(
 		WorkflowRunID: nodeRun.WorkflowRunID,
 		StageID:       node.StageID,
 	})
+}
+
+func BuildWorkflowWorkerSubIssueDescription(parentIssue db.MulticaIssue, node db.MulticaWorkflowNode) string {
+	parentDescription := strings.TrimSpace(textToString(parentIssue.Description))
+	workerInstruction := ExtractWorkflowRoleInstruction(parentDescription, "worker", []string{"critic", "reviewer"})
+	if workerInstruction == "" {
+		workerInstruction = parentDescription
+	}
+
+	var b strings.Builder
+	fmt.Fprintf(&b, "Workflow worker task for node: %s\n\n", strings.TrimSpace(node.Title))
+	b.WriteString("Complete the worker portion of the parent issue and submit every required deliverable before finishing.\n")
+	b.WriteString("Do not perform critic review, approve, or reject this work; the review phase runs after your deliverable is submitted.\n\n")
+	if workerInstruction != "" {
+		b.WriteString("Worker instructions:\n")
+		b.WriteString(workerInstruction)
+		b.WriteString("\n\n")
+	}
+	b.WriteString("Parent issue title:\n")
+	b.WriteString(parentIssue.Title)
+	return strings.TrimSpace(b.String())
+}
+
+func ExtractWorkflowRoleInstruction(description string, role string, stopRoles []string) string {
+	lower := strings.ToLower(description)
+	marker := strings.ToLower(role) + ":"
+	start := strings.Index(lower, marker)
+	if start < 0 {
+		return ""
+	}
+	contentStart := start + len(marker)
+	end := len(description)
+	for _, stopRole := range stopRoles {
+		stopMarker := strings.ToLower(stopRole) + ":"
+		if idx := strings.Index(lower[contentStart:], stopMarker); idx >= 0 && contentStart+idx < end {
+			end = contentStart + idx
+		}
+	}
+	return strings.TrimSpace(description[contentStart:end])
 }
 
 func (s *SplitOrchestrator) markBlockedDependents(ctx context.Context, nodeRunID pgtype.UUID) error {

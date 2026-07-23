@@ -3,7 +3,14 @@
 import { useEffect, useMemo, useState } from "react";
 import { GitBranch, Lock, Pencil, Plus, Trash2, UserMinus, UserRoundCog, X, Zap, Check } from "lucide-react";
 import { toast } from "sonner";
-import type { Agent, IssueAssigneeType, UpdateIssueRequest, WorkflowRoleKey } from "@multica/core/types";
+import type {
+  Agent,
+  IssueAssigneeType,
+  UpdateIssueRequest,
+  Workflow,
+  WorkflowRoleKey,
+  WorkflowRuntimeSelectionPolicy,
+} from "@multica/core/types";
 import { BUILTIN_WORKFLOW_ROLES } from "@multica/core/types";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useAuthStore } from "@multica/core/auth";
@@ -13,7 +20,7 @@ import { api } from "@multica/core/api";
 import { useWorkspaceId } from "@multica/core/hooks";
 import { memberListOptions, agentListOptions, squadListOptions, assigneeFrequencyOptions } from "@multica/core/workspace/queries";
 import { isActiveWorkspaceMember } from "@multica/core/workspace/members";
-import { workflowActiveListOptions, workflowTemplateListOptions, workflowNodesOptions } from "@multica/core/workflows/queries";
+import { workflowActiveListOptions, workflowTemplateListOptions } from "@multica/core/workflows/queries";
 import { runtimeListOptions } from "@multica/core/runtimes/queries";
 import { ActorAvatar } from "../../../common/actor-avatar";
 import {
@@ -25,6 +32,11 @@ import {
 import { useT } from "../../../i18n";
 import { matchesPinyin } from "../../../editor/extensions/pinyin-match";
 import { RuntimeSelectDialog } from "../../../agents/components/runtime-select-dialog";
+import {
+  WorkflowRuntimeStrategyDialog,
+  type WorkflowRuntimeStrategyValue,
+} from "../../../workflows/components/workflow-runtime-strategy-dialog";
+import { useUsableWorkflowRuntimes } from "../../../workflows/components/use-usable-workflow-runtimes";
 
 /**
  * Legacy boolean shape kept around for callers (e.g. `use-issue-actions.ts`)
@@ -211,6 +223,7 @@ export function AssigneePicker({
   }, [activeWorkflows, templatesResponse]);
   const { data: frequency = [] } = useQuery(assigneeFrequencyOptions(wsId));
   const { data: runtimes = [] } = useQuery(runtimeListOptions(wsId));
+  const usableWorkflowRuntimes = useUsableWorkflowRuntimes(runtimes);
   const { getActorName } = useActorName();
   const queryClient = useQueryClient();
 
@@ -235,6 +248,8 @@ export function AssigneePicker({
   const [pendingWorkflowRuntime, setPendingWorkflowRuntime] = useState<{
     workflowId: string;
     workflowTitle: string;
+    defaultPolicy: WorkflowRuntimeSelectionPolicy;
+    defaultRuntimeId: string | null;
   } | null>(null);
   const [checkingWorkflow, setCheckingWorkflow] = useState(false);
 
@@ -321,8 +336,9 @@ export function AssigneePicker({
     }
   };
 
-  const handleRuntimeConfirm = (runtimeId: string) => {
+  const handleRuntimeConfirm = (runtimeId: string | null) => {
     if (!pendingBuiltinAgent) return;
+    if (!runtimeId) return;
     guardedUpdate({
       assignee_type: "agent",
       assignee_id: pendingBuiltinAgent.id,
@@ -332,16 +348,14 @@ export function AssigneePicker({
     setOpen(false);
   };
 
-  // Handle clicking a workflow: check if any node has a built-in agent,
-  // and if so, show the runtime selection dialog so all built-in agents
-  // in this workflow share the same runtime.
-  //
   // For cross-workspace templates: lazily clone into the current workspace
   // on first use. Subsequent uses reuse the existing clone (matched by
   // source_template_id) so each workspace gets at most one clone per template.
-  const handleWorkflowClick = async (workflow: { id: string; title: string; is_template?: boolean; source_template_id?: string | null }) => {
+  const handleWorkflowClick = async (workflow: Workflow) => {
     let targetId = workflow.id;
     let targetTitle = workflow.title;
+    let targetPolicy = workflow.default_runtime_selection_policy;
+    let targetRuntimeId = workflow.default_runtime_id;
 
     // Lazy-clone: only cross-workspace templates need a local clone.
     // Templates already in the current workspace can be used directly.
@@ -354,6 +368,8 @@ export function AssigneePicker({
         if (existingClone) {
           targetId = existingClone.id;
           targetTitle = existingClone.title;
+          targetPolicy = existingClone.default_runtime_selection_policy;
+          targetRuntimeId = existingClone.default_runtime_id;
         } else {
           setCheckingWorkflow(true);
           try {
@@ -362,6 +378,8 @@ export function AssigneePicker({
             queryClient.invalidateQueries({ queryKey: ["workflows", wsId] });
             targetId = cloned.id;
             targetTitle = cloned.title;
+            targetPolicy = cloned.default_runtime_selection_policy;
+            targetRuntimeId = cloned.default_runtime_id;
           } catch {
             // Clone or activation failed — abort, don't assign.
             setCheckingWorkflow(false);
@@ -371,79 +389,22 @@ export function AssigneePicker({
       }
     }
 
-    setCheckingWorkflow(true);
-    try {
-      const nodes = await queryClient.fetchQuery(workflowNodesOptions(wsId, targetId));
-      const agentMap = new Map(agents.map((a) => [a.id, a]));
-
-      const hasBuiltinAgent = nodes.some((node) => {
-        if ((node.worker_type === "agent" || node.worker_type === "squad") && node.worker_id) {
-          const agentId = node.worker_type === "squad"
-            ? squads.find((s) => s.id === node.worker_id)?.leader_id
-            : node.worker_id;
-          if (agentId) {
-            const agent = agentMap.get(agentId);
-            if (agent?.is_builtin) return true;
-          }
-        }
-        if ((node.critic_type === "agent" || node.critic_type === "squad") && node.critic_id) {
-          const agentId = node.critic_type === "squad"
-            ? squads.find((s) => s.id === node.critic_id)?.leader_id
-            : node.critic_id;
-          if (agentId) {
-            const agent = agentMap.get(agentId);
-            if (agent?.is_builtin) return true;
-          }
-        }
-        return false;
-      });
-
-      if (hasBuiltinAgent) {
-        const onlineRuntimes = runtimes.filter((r) => r.status === "online");
-        if (onlineRuntimes.length === 1) {
-          guardedUpdate({
-            assignee_type: "workflow",
-            assignee_id: targetId,
-            runtime_id: onlineRuntimes[0]!.id,
-          });
-          setOpen(false);
-        } else if (onlineRuntimes.length > 1) {
-          setPendingWorkflowRuntime({
-            workflowId: targetId,
-            workflowTitle: targetTitle,
-          });
-        } else {
-          // No online runtimes — can't execute built-in agents.
-          toast.error(t(($) => $.pickers.assignee.no_runtime_available));
-          setCheckingWorkflow(false);
-          return;
-        }
-      } else {
-        // No built-in agents in workflow — assign normally
-        guardedUpdate({
-          assignee_type: "workflow",
-          assignee_id: targetId,
-        });
-        setOpen(false);
-      }
-    } catch {
-      // On error, still assign the workflow (nodes may not have loaded)
-      guardedUpdate({
-        assignee_type: "workflow",
-        assignee_id: targetId,
-      });
-      setOpen(false);
-    } finally {
-      setCheckingWorkflow(false);
-    }
+    setPendingWorkflowRuntime({
+      workflowId: targetId,
+      workflowTitle: targetTitle,
+      defaultPolicy: targetPolicy,
+      defaultRuntimeId: targetRuntimeId,
+    });
+    setCheckingWorkflow(false);
   };
 
-  const handleWorkflowRuntimeConfirm = (runtimeId: string) => {
+  const handleWorkflowRuntimeConfirm = ({ policy, runtimeId }: WorkflowRuntimeStrategyValue) => {
     if (!pendingWorkflowRuntime) return;
     guardedUpdate({
       assignee_type: "workflow",
       assignee_id: pendingWorkflowRuntime.workflowId,
       runtime_id: runtimeId,
+      runtime_selection_policy: policy,
     });
     setPendingWorkflowRuntime(null);
     setOpen(false);
@@ -853,7 +814,7 @@ export function AssigneePicker({
     {pendingBuiltinAgent && (
       <RuntimeSelectDialog
         agentName={pendingBuiltinAgent.name}
-        runtimes={runtimes}
+        runtimes={runtimes.filter((runtime) => runtime.status === "online")}
         loading={false}
         onConfirm={handleRuntimeConfirm}
         onClose={() => {
@@ -862,10 +823,15 @@ export function AssigneePicker({
       />
     )}
     {pendingWorkflowRuntime && (
-      <RuntimeSelectDialog
-        agentName={pendingWorkflowRuntime.workflowTitle}
-        runtimes={runtimes}
-        loading={false}
+      <WorkflowRuntimeStrategyDialog
+        mode="run"
+        workflowTitle={pendingWorkflowRuntime.workflowTitle}
+        initialValue={{
+          policy: pendingWorkflowRuntime.defaultPolicy,
+          runtimeId: pendingWorkflowRuntime.defaultRuntimeId,
+        }}
+        runtimes={usableWorkflowRuntimes.runtimes}
+        loading={usableWorkflowRuntimes.isLoading}
         onConfirm={handleWorkflowRuntimeConfirm}
         onClose={() => {
           setPendingWorkflowRuntime(null);

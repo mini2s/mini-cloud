@@ -780,6 +780,11 @@ const WorkflowSchema = z.object({
   node_count: z.number().default(0),
   is_template: z.boolean().default(false),
   source_template_id: z.string().nullable().default(null),
+  default_runtime_selection_policy: z
+    .enum(["specified_runtime_first", "idle_first", "issue_creator_first"])
+    .catch("idle_first")
+    .default("idle_first"),
+  default_runtime_id: z.string().nullable().default(null),
   custom_roles: z.array(z.string()).catch([]).default([]),
   created_at: z.string().default(""),
   updated_at: z.string().default(""),
@@ -809,6 +814,8 @@ export const EMPTY_WORKFLOW: Workflow = {
   node_count: 0,
   is_template: false,
   source_template_id: null,
+  default_runtime_selection_policy: "idle_first",
+  default_runtime_id: null,
   custom_roles: [],
   created_at: "",
   updated_at: "",
@@ -918,6 +925,11 @@ const WorkflowRunSchema = z.object({
   status: z.string().default("running"),
   triggered_by_type: z.string().default("member"),
   triggered_by_id: z.string().nullable().default(null),
+  runtime_id: z.string().nullable().default(null),
+  runtime_selection_policy: z
+    .enum(["specified_runtime_first", "idle_first", "issue_creator_first"])
+    .catch("idle_first")
+    .default("idle_first"),
   input: z.unknown().optional(),
   output: z.unknown().nullable().optional(),
   started_at: z.string().default(""),
@@ -988,6 +1000,8 @@ export const EMPTY_WORKFLOW_RUN: WorkflowRun = {
   status: "running",
   triggered_by_type: "member",
   triggered_by_id: null,
+  runtime_id: null,
+  runtime_selection_policy: "idle_first",
   input: {},
   output: null,
   started_at: "",
@@ -1021,6 +1035,8 @@ export const WorkflowNodeRunSchema = z.object({
   agent_task_id: z.string().nullable().default(null),
   session_id: z.string().nullable().default(null),
   runtime_id: z.string().nullable().default(null),
+  runtime_selection_reason: z.string().nullable().default(null),
+  failure_reason: z.string().nullable().default(null),
   device_id: z.string().nullable().default(null),
   split_review_chat_session_id: z.string().nullable().default(null),
   split_config_version: z.number().int().positive().default(1),
@@ -1051,6 +1067,8 @@ export const EMPTY_WORKFLOW_NODE_RUN: WorkflowNodeRun = {
   agent_task_id: null,
   session_id: null,
   runtime_id: null,
+  runtime_selection_reason: null,
+  failure_reason: null,
   device_id: null,
   split_review_chat_session_id: null,
   split_config_version: 1,
@@ -1359,3 +1377,46 @@ export const EMPTY_GITLAB_SETTINGS_RESPONSE = {
     autoLinkEnabled: false,
   },
 };
+
+// ── Deliverable schemas (restored: document deliverable git-storage) ────────
+
+const WorkflowNodeDeliverableSchema = z.object({
+  id: z.string(),
+  workflow_node_id: z.string(),
+  kind: z.string().default("document"),
+  title: z.string().default(""),
+  description: z.string().default(""),
+  required: z.boolean().default(true),
+  sort_order: z.number().default(0),
+  created_at: z.string().default(""),
+  updated_at: z.string().default(""),
+}).loose();
+
+export const WorkflowNodeDeliverablesResponseSchema = z.object({
+  deliverables: z.array(WorkflowNodeDeliverableSchema).default([]),
+}).loose();
+
+export const EMPTY_WORKFLOW_NODE_DELIVERABLES_RESPONSE = { deliverables: [] };
+
+const WorkflowNodeDeliverableSubmissionSchema = z.object({
+  id: z.string(),
+  workflow_node_run_id: z.string(),
+  deliverable_id: z.string(),
+  submitted_by_type: z.string().default("member"),
+  submitted_by_id: z.string().nullable().default(null),
+  status: z.string().default("submitted"),
+  content: z.string().default(""),
+  attachment_id: z.string().nullable().default(null),
+  pull_request_url: z.string().default(""),
+  review_comment: z.string().default(""),
+  submitted_at: z.string().default(""),
+  reviewed_at: z.string().nullable().default(null),
+  created_at: z.string().default(""),
+  updated_at: z.string().default(""),
+}).loose();
+
+export const WorkflowNodeDeliverableSubmissionsResponseSchema = z.object({
+  submissions: z.array(WorkflowNodeDeliverableSubmissionSchema).default([]),
+}).loose();
+
+export const EMPTY_WORKFLOW_NODE_DELIVERABLE_SUBMISSIONS_RESPONSE = { submissions: [] };

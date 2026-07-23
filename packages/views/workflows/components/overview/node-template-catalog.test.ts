@@ -12,18 +12,15 @@ describe("node-template-catalog", () => {
       "trigger",
       "action",
       "logic",
-      "ai",
-      "human",
-      "annotation",
     ]);
     expect(NODE_TEMPLATES.some((template) => template.category === "trigger")).toBe(true);
-    expect(NODE_TEMPLATES.some((template) => template.category === "ai")).toBe(true);
+    expect(NODE_TEMPLATES.some((template) => template.category === "action")).toBe(true);
   });
 
   it("支持按标题、描述、tag 搜索", () => {
-    expect(filterNodeTemplates("agent").map((template) => template.id)).toContain("ai-agent-task");
-    expect(filterNodeTemplates("manual").map((template) => template.id)).toContain("manual-trigger");
-    expect(filterNodeTemplates("review").map((template) => template.id)).toContain("human-review");
+    expect(filterNodeTemplates("task").map((template) => template.id)).toContain("agent-task");
+    expect(filterNodeTemplates("task").map((template) => template.id)).toContain("task-splitter");
+    expect(filterNodeTemplates("start").map((template) => template.id)).toContain("workflow-start");
   });
 
   it("空搜索返回所有模板", () => {
@@ -32,7 +29,7 @@ describe("node-template-catalog", () => {
   });
 
   it("根据模板生成 create-node payload", () => {
-    const template = NODE_TEMPLATES.find((item) => item.id === "ai-agent-task");
+    const template = NODE_TEMPLATES.find((item) => item.id === "agent-task");
     expect(template).toBeDefined();
 
     const request = buildCreateNodeRequestFromTemplate(template!, {
@@ -42,8 +39,8 @@ describe("node-template-catalog", () => {
     });
 
     expect(request).toMatchObject({
-      title: "Agent task",
-      description: "Ask an agent to complete a workflow step.",
+      title: "Task",
+      description: "Create a normal task for a member, agent, or squad.",
       position_x: 126,
       position_y: 0,
       stage_id: "stage-1",
@@ -54,67 +51,10 @@ describe("node-template-catalog", () => {
       critic_api_url: null,
       format_schema: {
         shape: "rectangle",
-        template_id: "ai-agent-task",
-        template_category: "ai",
+        template_id: "agent-task",
+        template_category: "action",
       },
     });
-  });
-
-  it("注释模板生成 annotation format_schema", () => {
-    const template = NODE_TEMPLATES.find((item) => item.id === "sticky-note");
-    expect(template).toBeDefined();
-
-    const request = buildCreateNodeRequestFromTemplate(template!, {
-      x: -10,
-      y: 30,
-      stageId: null,
-    });
-
-    expect(request.title).toBe("Note");
-    expect(request.position_x).toBe(-10);
-    expect(request.stage_id).toBeNull();
-    expect(request.format_schema).toMatchObject({
-      type: "annotation",
-      template_id: "sticky-note",
-      template_category: "annotation",
-    });
-  });
-
-  it("generates gateway node payloads with semantic format_schema", () => {
-    const fork = NODE_TEMPLATES.find((item) => item.id === "fork-gateway");
-    const join = NODE_TEMPLATES.find((item) => item.id === "join-gateway");
-
-    expect(fork).toMatchObject({
-      category: "logic",
-      title: "Fork",
-      shape: "diamond",
-      worker_type: "agent",
-      critic_type: "human",
-    });
-    expect(join).toMatchObject({
-      category: "logic",
-      title: "Join",
-      shape: "diamond",
-      worker_type: "agent",
-      critic_type: "human",
-    });
-
-    expect(buildCreateNodeRequestFromTemplate(fork!, { x: 10, y: 0, stageId: "stage-1" }).format_schema)
-      .toMatchObject({
-        type: "gateway",
-        gateway_kind: "fork",
-        shape: "diamond",
-        template_id: "fork-gateway",
-        template_category: "logic",
-      });
-    expect(buildCreateNodeRequestFromTemplate(join!, { x: 10, y: 0, stageId: "stage-1" }).format_schema)
-      .toMatchObject({
-        type: "gateway",
-        gateway_kind: "join",
-        shape: "diamond",
-        template_id: "join-gateway",
-        template_category: "logic",
-      });
   });
 
   it("generates split node payloads with conservative split defaults", () => {
@@ -146,5 +86,24 @@ describe("node-template-catalog", () => {
           },
         },
       });
+  });
+
+  it("builds boundary payloads without actor assignments", () => {
+    const start = NODE_TEMPLATES.find((item) => item.id === "workflow-start")!;
+    const end = NODE_TEMPLATES.find((item) => item.id === "workflow-end")!;
+
+    expect(buildCreateNodeRequestFromTemplate(start, { x: 10, y: 20, stageId: "stage-1" }))
+      .toMatchObject({
+        title: "Start",
+        stage_id: "stage-1",
+        worker_type: "human",
+        worker_id: null,
+        critic_type: "human",
+        critic_id: null,
+        critic_api_url: null,
+        format_schema: { type: "start", shape: "pill", template_id: "workflow-start" },
+      });
+    expect((buildCreateNodeRequestFromTemplate(end, { x: 30, y: 20, stageId: null })
+      .format_schema as Record<string, unknown>).type).toBe("end");
   });
 });

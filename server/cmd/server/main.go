@@ -19,12 +19,14 @@ import (
 	"github.com/multica-ai/multica/server/internal/daemonws"
 	"github.com/multica-ai/multica/server/internal/deptsync"
 	"github.com/multica-ai/multica/server/internal/events"
+	"github.com/multica-ai/multica/server/internal/gitea"
 	"github.com/multica-ai/multica/server/internal/handler"
 	"github.com/multica-ai/multica/server/internal/logger"
 	obsmetrics "github.com/multica-ai/multica/server/internal/metrics"
 	"github.com/multica-ai/multica/server/internal/middleware"
 	"github.com/multica-ai/multica/server/internal/realtime"
 	"github.com/multica-ai/multica/server/internal/service"
+	"github.com/multica-ai/multica/server/internal/teamnamespace"
 	"github.com/multica-ai/multica/server/internal/util"
 	db "github.com/multica-ai/multica/server/pkg/db/generated"
 	"github.com/redis/go-redis/v9"
@@ -311,6 +313,17 @@ func main() {
 		Timeout:  envDuration("DEPT_SYNC_TIMEOUT", 10*time.Second),
 		CacheTTL: envDuration("DEPT_SYNC_CACHE_TTL", time.Minute),
 	})
+	giteaClient := gitea.NewClient(gitea.Config{
+		BaseURL: strings.TrimRight(strings.TrimSpace(os.Getenv("GITEA_BASE_URL")), "/"),
+		Token:   os.Getenv("GITEA_ADMIN_TOKEN"),
+		Timeout: envDuration("GITEA_TIMEOUT", 10*time.Second),
+	})
+	teamNamespaceClient := teamnamespace.NewClient(teamnamespace.Config{
+		BaseURL: strings.TrimRight(strings.TrimSpace(os.Getenv("TEAM_NAMESPACE_API_BASE_URL")), "/"),
+		Token:   os.Getenv("TEAM_NAMESPACE_INTERNAL_SERVICE_TOKEN"),
+		Tenant:  os.Getenv("TEAM_NAMESPACE_TENANT_ID"),
+		Timeout: envDuration("TEAM_NAMESPACE_API_TIMEOUT", 10*time.Second),
+	})
 	// The SubjectResolver fires on every authenticated request; bound the
 	// dept-link work (dept-sync call + DB writes) to once per window per user.
 	deptLinkThrottle := &linkThrottle{last: make(map[string]time.Time), ttl: envDuration("DEPT_LINK_INTERVAL", 5*time.Minute)}
@@ -525,6 +538,8 @@ func main() {
 		CasdoorEnabled:         casdoorEnabled,
 		SkillProxy:             skillProxy,
 		DeptSync:               deptSyncClient,
+		Gitea:                  giteaClient,
+		TeamNamespace:          teamNamespaceClient,
 		WorkflowRoleResolution: roleResolutionRuntime,
 	})
 

@@ -20,6 +20,9 @@ vi.mock("../../../i18n", () => {
       check_dag_cycle: "Cycle",
       check_worker_missing: "No worker",
       check_stage_missing: "No stage",
+      check_boundary_start_outgoing: "Start needs an exit",
+      check_boundary_end_incoming: "End needs an entry",
+      check_boundary_edge_direction: "Invalid boundary connection",
     },
   };
   return {
@@ -94,6 +97,23 @@ describe("PreflightBar", () => {
     const chips = screen.getAllByTestId("preflight-issue-item");
     expect(chips.length).toBe(2);
     expect(screen.getByTestId("preflight-activate-btn")).toBeDisabled();
+  });
+
+  it("shows localized labels for boundary issues", () => {
+    render(<PreflightBar {...base} result={makeResult({
+      passed: false,
+      blockingCount: 1,
+      issues: [{
+        checkId: "boundary-start-outgoing",
+        severity: "error",
+        blocking: true,
+        nodeId: "start",
+        nodeTitle: "Start",
+        message: "",
+      }],
+    })} />);
+
+    expect(screen.getByTestId("preflight-issue-item")).toHaveTextContent("Start needs an exit");
   });
 
   it("summarizes many issues behind a review popover instead of expanding the bar", () => {

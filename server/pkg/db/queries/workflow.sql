@@ -5,6 +5,7 @@
 -- name: ListWorkflows :many
 SELECT * FROM multica_workflow
 WHERE workspace_id = $1
+  AND is_default = FALSE
   AND (sqlc.narg('status')::text IS NULL OR status = sqlc.narg('status'))
 ORDER BY created_at DESC
 LIMIT $2 OFFSET $3;
@@ -35,6 +36,18 @@ UPDATE multica_workflow SET
     description = COALESCE(sqlc.narg('description'), description),
     status = COALESCE(sqlc.narg('status'), status),
     max_retries = COALESCE(sqlc.narg('max_retries')::int, max_retries),
+    default_runtime_selection_policy = COALESCE(
+        sqlc.narg('default_runtime_selection_policy')::text,
+        default_runtime_selection_policy
+    ),
+    default_runtime_id = CASE
+        WHEN sqlc.narg('default_runtime_selection_policy')::text IS NOT NULL
+         AND sqlc.narg('default_runtime_selection_policy')::text <> 'specified_runtime_first'
+            THEN NULL
+        WHEN sqlc.narg('default_runtime_id')::uuid IS NOT NULL
+            THEN sqlc.narg('default_runtime_id')::uuid
+        ELSE default_runtime_id
+    END,
     updated_at = now()
 WHERE id = $1
 RETURNING *;
@@ -171,9 +184,11 @@ WHERE id = $1;
 -- name: CreateWorkflowRun :one
 INSERT INTO multica_workflow_run (
     workflow_id, workspace_id, workflow_title, status,
-    triggered_by_type, triggered_by_id, input, runtime_id
+    triggered_by_type, triggered_by_id, input, runtime_selection_policy, runtime_id,
+    source_issue_id, responsible_user_id, runtime_authorizer_id
 ) VALUES (
-    $1, $2, $3, $4, $5, sqlc.narg('triggered_by_id'), sqlc.narg('input'), sqlc.narg('runtime_id')
+    $1, $2, $3, $4, $5, sqlc.narg('triggered_by_id'), sqlc.narg('input'), sqlc.arg('runtime_selection_policy'), sqlc.narg('runtime_id'),
+    sqlc.narg('source_issue_id'), sqlc.narg('responsible_user_id'), sqlc.narg('runtime_authorizer_id')
 ) RETURNING *;
 
 -- name: GetWorkflowRunByDispatchKey :one
@@ -186,10 +201,12 @@ LIMIT 1;
 -- name: CreateWorkflowRunWithDispatchKey :one
 INSERT INTO multica_workflow_run (
     workflow_id, workspace_id, workflow_title, status,
-    triggered_by_type, triggered_by_id, input, runtime_id, dispatch_key
+    triggered_by_type, triggered_by_id, input, runtime_selection_policy, runtime_id, dispatch_key,
+    source_issue_id, responsible_user_id, runtime_authorizer_id
 ) VALUES (
     $1, $2, $3, $4,
-    $5, sqlc.narg('triggered_by_id'), sqlc.narg('input'), sqlc.narg('runtime_id'), $6
+    $5, sqlc.narg('triggered_by_id'), sqlc.narg('input'), sqlc.arg('runtime_selection_policy'), sqlc.narg('runtime_id'), sqlc.arg('dispatch_key'),
+    sqlc.narg('source_issue_id'), sqlc.narg('responsible_user_id'), sqlc.narg('runtime_authorizer_id')
 )
 ON CONFLICT (dispatch_key)
 WHERE dispatch_key IS NOT NULL AND dispatch_key <> ''
@@ -236,7 +253,7 @@ ORDER BY created_at DESC;
 
 -- name: ListWorkflowsExcludingTemplates :many
 SELECT * FROM multica_workflow
-WHERE workspace_id = $1 AND is_template = FALSE
+WHERE workspace_id = $1 AND is_template = FALSE AND is_default = FALSE
   AND (sqlc.narg('status')::text IS NULL OR status = sqlc.narg('status'))
 ORDER BY created_at DESC
 LIMIT $2 OFFSET $3;
@@ -279,6 +296,23 @@ INSERT INTO multica_workflow (
     created_by_type, created_by_id, is_template, source_template_id
 ) VALUES (
     $1, $2, sqlc.narg('description'), $3, $4, $5, $6, FALSE, $7
+) RETURNING *;
+
+-- =====================
+-- Default (system) workflow
+-- =====================
+
+-- name: GetDefaultWorkflow :one
+SELECT * FROM multica_workflow
+WHERE workspace_id = $1 AND is_default = TRUE;
+
+-- name: CreateDefaultWorkflow :one
+-- System-created default workflow (archive sink for agent/member/squad issues).
+-- created_by_type='system', created_by_id NULL (migration 136 relaxed both).
+INSERT INTO multica_workflow (
+    workspace_id, title, status, max_retries, created_by_type, is_default
+) VALUES (
+    $1, $2, 'active', 3, 'system', TRUE
 ) RETURNING *;
 
 -- =====================

@@ -130,7 +130,18 @@ export type {
   ListWebhookDeliveriesResponse,
 } from "./autopilot";
 export type * from "./workflow";
-export { BUILTIN_WORKFLOW_ROLES, NODE_SHAPES, parseNodeFormat, parseNodeShape, toWorkflowRuntimeDisplayStatus, workerTypeToActorType } from "./workflow";
+export {
+  BUILTIN_WORKFLOW_ROLES,
+  NODE_SHAPES,
+  isBoundaryNode,
+  isEndNode,
+  isInvalidBoundaryConnection,
+  isStartNode,
+  parseNodeFormat,
+  parseNodeShape,
+  toWorkflowRuntimeDisplayStatus,
+  workerTypeToActorType,
+} from "./workflow";
 export type {
   Squad,
   SquadMember,

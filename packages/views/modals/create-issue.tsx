@@ -17,7 +17,14 @@ import {
 } from "lucide-react";
 import { cn } from "@multica/ui/lib/utils";
 import { toast } from "sonner";
-import type { Issue, IssueStatus, IssuePriority, IssueAssigneeType } from "@multica/core/types";
+import type {
+  Issue,
+  IssueStatus,
+  IssuePriority,
+  IssueAssigneeType,
+  UpdateIssueRequest,
+  WorkflowRuntimeSelectionPolicy,
+} from "@multica/core/types";
 import {
   DialogContent,
   DialogTitle,
@@ -119,6 +126,12 @@ export function ManualCreatePanel({
     }
     return draft.assigneeId;
   });
+  const [runtimeSelectionPolicy, setRuntimeSelectionPolicy] = useState<WorkflowRuntimeSelectionPolicy | undefined>(
+    data?.runtime_selection_policy as WorkflowRuntimeSelectionPolicy | undefined,
+  );
+  const [runtimeId, setRuntimeId] = useState<string | undefined>(
+    (data?.runtime_id as string | null | undefined) ?? undefined,
+  );
   const [startDate, setStartDate] = useState<string | null>(draft.startDate);
   const [dueDate, setDueDate] = useState<string | null>(draft.dueDate);
   const [projectId, setProjectId] = useState<string | undefined>(
@@ -155,8 +168,12 @@ export function ManualCreatePanel({
   const updateTitle = (v: string) => { setTitle(v); setDraft({ title: v }); };
   const updateStatus = (v: IssueStatus) => { setStatus(v); setDraft({ status: v }); };
   const updatePriority = (v: IssuePriority) => { setPriority(v); setDraft({ priority: v }); };
-  const updateAssignee = (type?: IssueAssigneeType, id?: string) => {
+  const updateAssignee = (updates: Partial<UpdateIssueRequest>) => {
+    const type = updates.assignee_type ?? undefined;
+    const id = updates.assignee_id ?? undefined;
     setAssigneeType(type); setAssigneeId(id);
+    setRuntimeSelectionPolicy(type === "workflow" ? updates.runtime_selection_policy : undefined);
+    setRuntimeId(type === "workflow" || type === "agent" ? updates.runtime_id ?? undefined : undefined);
     setDraft({ assigneeType: type, assigneeId: id });
   };
   const updateStartDate = (v: string | null) => { setStartDate(v); setDraft({ startDate: v }); };
@@ -199,6 +216,8 @@ export function ManualCreatePanel({
         priority,
         assignee_type: assigneeType,
         assignee_id: assigneeId,
+        runtime_selection_policy: assigneeType === "workflow" ? runtimeSelectionPolicy : undefined,
+        runtime_id: assigneeType === "workflow" || assigneeType === "agent" ? runtimeId : undefined,
         start_date: startDate || undefined,
         due_date: dueDate || undefined,
         attachment_ids: attachmentIds.length > 0 ? attachmentIds : undefined,
@@ -486,10 +505,7 @@ export function ManualCreatePanel({
               <AssigneePicker
                 assigneeType={assigneeType ?? null}
                 assigneeId={assigneeId ?? null}
-                onUpdate={(u) => updateAssignee(
-                  u.assignee_type ?? undefined,
-                  u.assignee_id ?? undefined,
-                )}
+                onUpdate={updateAssignee}
                 triggerRender={<PillButton />}
                 align="start"
               />

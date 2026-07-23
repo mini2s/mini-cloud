@@ -1,6 +1,7 @@
 import type { Issue, IssueMetadata, IssueStatus, IssuePriority, IssueAssigneeType } from "./issue";
 import type { MemberRole } from "./workspace";
 import type { Project } from "./project";
+import type { WorkflowRuntimeSelectionPolicy } from "./workflow";
 
 // Issue API
 export interface CreateIssueRequest {
@@ -10,6 +11,9 @@ export interface CreateIssueRequest {
   priority?: IssuePriority;
   assignee_type?: IssueAssigneeType;
   assignee_id?: string;
+  /** Optional preferred runtime when the assignee starts a workflow. */
+  runtime_id?: string | null;
+  runtime_selection_policy?: WorkflowRuntimeSelectionPolicy;
   parent_issue_id?: string;
   project_id?: string;
   start_date?: string;
@@ -41,6 +45,7 @@ export interface UpdateIssueRequest {
   stage_id?: string | null;
   /** Runtime to use when assigning a built-in agent (no bound runtime). */
   runtime_id?: string | null;
+  runtime_selection_policy?: WorkflowRuntimeSelectionPolicy;
 }
 
 export interface ListIssuesParams {

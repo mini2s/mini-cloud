@@ -6,7 +6,8 @@ export type WorkflowRoleKey = "developer" | "qa" | "tech_lead" | (string & {});
 
 export const BUILTIN_WORKFLOW_ROLES: WorkflowRoleKey[] = ["developer", "qa", "tech_lead"];
 export type NodeShape = "rectangle" | "diamond" | "pill" | "hexagon";
-export type WorkflowNodeFormatKind = "task" | "gateway" | "annotation" | "split";
+export type WorkflowBoundaryKind = "start" | "end";
+export type WorkflowNodeFormatKind = "task" | "gateway" | "annotation" | "split" | WorkflowBoundaryKind;
 export type GatewayKind = "fork" | "join";
 export type SplitMode = "barrier" | "pipeline";
 
@@ -93,6 +94,15 @@ export function parseNodeFormat(formatSchema: unknown): WorkflowNodeFormat {
   const templateId = readString(schema, "template_id");
   const templateCategory = readString(schema, "template_category") ?? "action";
 
+  if (schema.type === "start" || schema.type === "end") {
+    return {
+      ...base,
+      kind: schema.type,
+      template_id: templateId,
+      template_category: templateCategory,
+    };
+  }
+
   if (schema.type === "annotation") {
     return {
       ...base,
@@ -156,6 +166,35 @@ export function parseNodeFormat(formatSchema: unknown): WorkflowNodeFormat {
     template_id: templateId,
     template_category: templateCategory,
   };
+}
+
+export function isBoundaryNode(node: Pick<WorkflowNode, "format_schema">): boolean {
+  const kind = parseNodeFormat(node.format_schema).kind;
+  return kind === "start" || kind === "end";
+}
+
+export function isStartNode(node: Pick<WorkflowNode, "format_schema">): boolean {
+  return parseNodeFormat(node.format_schema).kind === "start";
+}
+
+export function isEndNode(node: Pick<WorkflowNode, "format_schema">): boolean {
+  return parseNodeFormat(node.format_schema).kind === "end";
+}
+
+export function isInvalidBoundaryConnection(
+  source: Pick<WorkflowNode, "format_schema">,
+  target: Pick<WorkflowNode, "format_schema">,
+): boolean {
+  const sourceKind = parseNodeFormat(source.format_schema).kind;
+  const targetKind = parseNodeFormat(target.format_schema).kind;
+  const sourceBoundary = sourceKind === "start" || sourceKind === "end";
+  const targetBoundary = targetKind === "start" || targetKind === "end";
+
+  return targetKind === "start" ||
+    sourceKind === "end" ||
+    (sourceKind === "start" && targetKind === "end") ||
+    (sourceBoundary && targetKind === "annotation") ||
+    (sourceKind === "annotation" && targetBoundary);
 }
 
 /** Map workflow node worker/critic type to actor type used by useActorName(). */
@@ -234,10 +273,17 @@ export interface Workflow {
   node_count: number;
   is_template: boolean;
   source_template_id: string | null;
+  default_runtime_selection_policy: WorkflowRuntimeSelectionPolicy;
+  default_runtime_id: string | null;
   custom_roles: string[];
   created_at: string;
   updated_at: string;
 }
+
+export type WorkflowRuntimeSelectionPolicy =
+  | "specified_runtime_first"
+  | "idle_first"
+  | "issue_creator_first";
 
 export interface WorkflowNode {
   id: string;
@@ -281,6 +327,10 @@ export interface WorkflowRun {
   status: WorkflowRunStatus;
   triggered_by_type: string;
   triggered_by_id: string | null;
+  /** Optional run-level manual runtime preference; actual selection remains per node. */
+  runtime_id: string | null;
+  /** Immutable runtime selection policy snapshot for this run. */
+  runtime_selection_policy: WorkflowRuntimeSelectionPolicy;
   input: unknown;
   output: unknown;
   started_at: string;
@@ -309,6 +359,10 @@ export interface WorkflowNodeRun {
   session_id: string | null;
   /** Runtime that owns the session for this node run, if any. */
   runtime_id: string | null;
+  /** Why this runtime was selected for the current execution phase. */
+  runtime_selection_reason: string | null;
+  /** Stable terminal reason when dispatch cannot select a runtime. */
+  failure_reason: string | null;
   /** Device identifier for the runtime/session bound to this node run, if any. */
   device_id: string | null;
   /** Chat session used for natural-language split draft review, if any. */
@@ -455,6 +509,8 @@ export interface UpdateWorkflowRequest {
   status?: WorkflowStatus;
   max_retries?: number;
   custom_roles?: string[];
+  default_runtime_selection_policy?: WorkflowRuntimeSelectionPolicy;
+  default_runtime_id?: string | null;
 }
 
 export interface CreateNodeRequest {
@@ -599,4 +655,45 @@ export interface WorkflowRoleAssignmentInput {
   resolution_id: string;
   user_id: string;
   version: number;
+}
+
+// ── Deliverable types ──────────────────────────────────────────────────────
+
+export type WorkflowDeliverableSignal = "none" | "red" | "yellow" | "green";
+export type WorkflowDeliverableKind = "document" | "pull_request";
+export type WorkflowDeliverableSubmissionStatus = "missing" | "submitted" | "approved" | "rejected";
+
+export interface WorkflowNodeDeliverable {
+  id: string;
+  workflow_node_id: string;
+  kind: WorkflowDeliverableKind;
+  title: string;
+  description: string;
+  required: boolean;
+  sort_order: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface WorkflowNodeDeliverableSubmission {
+  id: string;
+  workflow_node_run_id: string;
+  deliverable_id: string;
+  submitted_by_type: "member" | "agent" | "system";
+  submitted_by_id: string | null;
+  status: WorkflowDeliverableSubmissionStatus;
+  content: string;
+  attachment_id: string | null;
+  pull_request_url: string;
+  review_comment: string;
+  submitted_at: string;
+  reviewed_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+/** Composite view joining a deliverable definition with its submission for a node run. */
+export interface DeliverableWithSubmission {
+  deliverable: WorkflowNodeDeliverable;
+  submission: WorkflowNodeDeliverableSubmission | null;
 }

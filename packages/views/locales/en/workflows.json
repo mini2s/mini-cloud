@@ -111,6 +111,9 @@
     "discard_changes": "Discard"
   },
   "detail_panel": {
+    "boundary_eyebrow": "Boundary node",
+    "boundary_badge_start": "Start boundary",
+    "boundary_badge_end": "End boundary",
     "eyebrow": "Node settings",
     "close_label": "Close node inspector",
     "close_confirm_title": "Save panel changes?",
@@ -150,6 +153,12 @@
     "label_bind_to_node": "Bind to Node",
     "label_worker_role": "Executor role",
     "label_critic_role": "Reviewer role",
+    "worker_category_label": "Executor category",
+    "critic_category_label": "Reviewer category",
+    "participant_type_human": "Human",
+    "participant_type_agent": "agent",
+    "participant_type_role": "Development role",
+    "participant_type_squad": "Squad",
     "split_title": "Split rules",
     "split_subtitle": "Choose the child issue workflow, review step, and runtime limits.",
     "split_review_required_title": "Human review is required",
@@ -387,6 +396,10 @@
     "triggered_by": "Triggered by",
     "started_at": "Started",
     "completed_at": "Completed",
+    "runtime_policy": "Runtime strategy",
+    "runtime_policy_specified": "Specified runtime first",
+    "runtime_policy_idle": "Idle runtime first",
+    "runtime_policy_issue_creator": "Issue creator runtime first",
     "cancel": "Cancel Run",
     "cancelling": "Cancelling...",
     "toast_cancelled": "Run cancelled",
@@ -504,7 +517,16 @@
     "take_over_wrong_status": "Only working nodes can be taken over.",
     "hand_back_wrong_status": "Only blocked nodes can be handed back.",
     "finalize_wrong_status": "Only blocked nodes can be finalized.",
-    "review_comment_placeholder": "Add a comment with your review..."
+    "review_comment_placeholder": "Add a comment with your review...",
+    "deliverables": {
+      "heading": "Deliverable PRs",
+      "pull_request_label": "Pull request",
+      "upload_button": "Upload deliverable",
+      "upload_heading": "Submit a document",
+      "upload_placeholder": "Write or paste the document content (markdown)…",
+      "upload_submit": "Submit",
+      "uploading": "Submitting…"
+    }
   },
   "overview": {
     "title": "Workflow Overview",
@@ -617,7 +639,11 @@
       "human": "Human",
       "human_description": "Review or approval",
       "annotation": "Notes",
-      "annotation_description": "Explain the canvas"
+      "annotation_description": "Explain the canvas",
+      "boundary_already_exists": "This workflow already has this boundary node",
+      "boundary_create_conflict": "This workflow already has this boundary node",
+      "boundary_create_invalid": "This boundary node could not be added",
+      "boundary_connection_invalid": "This boundary connection is not allowed"
     },
     "toolbar": {
       "undo": "Undo",
@@ -631,6 +657,7 @@
       "unsaved": "Unsaved",
       "editor": "Editor",
       "run_history": "Run history",
+      "run_settings": "Run settings",
       "test_run": "Test run",
       "save_and_test": "Save & test",
       "activate_before_test": "Activate workflow before testing.",
@@ -651,6 +678,39 @@
       "delete": "Delete stage",
       "move_up": "Move stage up",
       "move_down": "Move stage down"
+    }
+  },
+  "runtime_strategy": {
+    "default_title": "Default run strategy",
+    "default_description": "Choose how {{name}} selects a runtime for future runs.",
+    "run_title": "Start workflow",
+    "run_description": "Use the workflow default or override the strategy for this run of {{name}}.",
+    "runtime_label": "Preferred runtime",
+    "runtime_placeholder": "Select a runtime",
+    "online": "Online",
+    "offline": "Offline",
+    "deleted_runtime": "The saved runtime is no longer available to you. Select another runtime before continuing.",
+    "no_runtime": "No runtime is available in this workspace.",
+    "direct_run_hint": "A direct test run has no issue creator, so selection starts with an idle runtime.",
+    "cancel": "Cancel",
+    "saving": "Saving...",
+    "save_default": "Save default",
+    "start_run": "Start run",
+    "toast_default_saved": "Default run strategy saved",
+    "toast_default_failed": "Failed to save default run strategy",
+    "policy": {
+      "specified_runtime_first": {
+        "title": "Specified runtime first",
+        "description": "Specified runtime → idle runtime → issue creator runtime → fail"
+      },
+      "idle_first": {
+        "title": "Idle runtime first",
+        "description": "Idle runtime → issue creator runtime → fail"
+      },
+      "issue_creator_first": {
+        "title": "Issue creator runtime first",
+        "description": "Issue creator runtime → idle runtime → fail"
+      }
     }
   },
   "preflight": {
@@ -686,6 +746,9 @@
     "check_gateway_join_incoming": "Join missing sources",
     "check_gateway_kind_invalid": "Invalid gateway type",
     "check_gateway_join_multiple_outgoing": "Join with multiple exits",
+    "check_boundary_start_outgoing": "Start needs an exit",
+    "check_boundary_end_incoming": "End needs an entry",
+    "check_boundary_edge_direction": "Invalid boundary connection",
     "detail_dag_cycle": "Nodes form a cycle: {{path}}",
     "detail_orphan_node": "Node has no connections",
     "detail_unreachable_node": "Node has no incoming connections from the primary stage",
@@ -705,6 +768,9 @@
     "detail_gateway_join_incoming": "Join gateway needs at least two upstream nodes",
     "detail_gateway_kind_invalid": "Gateway type must be Fork or Join",
     "detail_gateway_join_multiple_outgoing": "Join gateway usually continues to one downstream node",
+    "detail_boundary_start_outgoing": "Start node needs an outgoing connection",
+    "detail_boundary_end_incoming": "End node needs an incoming connection",
+    "detail_boundary_edge_direction": "Boundary connection direction is invalid",
     "first_stage_guide_title": "Create your first node",
     "first_stage_guide_description": "Nodes are the steps that make this workflow run. Add a node to get started.",
     "first_stage_guide_cta": "Create stage"
