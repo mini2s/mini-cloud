@@ -118,10 +118,10 @@ func TestBuildGiteaDeliverableContext_DefaultWorkflowUsesArchiveRepo(t *testing.
 	if got == nil {
 		t.Fatal("expected non-nil context")
 	}
-	if got.Repo != "deliverable-archive" {
-		t.Fatalf("Repo = %q, want deliverable-archive", got.Repo)
+	if got.Repo != "wf-deliverable-archive" {
+		t.Fatalf("Repo = %q, want wf-deliverable-archive", got.Repo)
 	}
-	if !strings.Contains(got.CloneURL, "/deliverable-archive.git") {
+	if !strings.Contains(got.CloneURL, "/wf-deliverable-archive.git") {
 		t.Fatalf("CloneURL = %q, want archive repo clone URL", got.CloneURL)
 	}
 }

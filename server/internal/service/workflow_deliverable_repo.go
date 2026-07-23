@@ -50,7 +50,13 @@ func (s *WorkflowService) hasDocumentDeliverable(ctx context.Context, workflowID
 
 func DeliverableRepoNameForWorkflow(workflow db.MulticaWorkflow) string {
 	if workflow.IsDefault {
-		return gitea.DefaultArchiveRepoName()
+		// The archive repo is provisioned (by the team-namespace service and the
+		// local mock) as gitea.RepoName of the archive slug — i.e. with the same
+		// "wf-" prefix every workflow repo gets under WORKFLOW_REPO_PATH_ALGORITHM
+		// v2. Returning the bare slug here caused the upload/clone paths to target
+		// a non-existent "deliverable-archive" repo while the real repo lived at
+		// "wf-deliverable-archive" (404 on member deliverable upload).
+		return gitea.RepoName(gitea.DefaultArchiveRepoName())
 	}
 	return gitea.RepoName(util.UUIDToString(workflow.ID))
 }

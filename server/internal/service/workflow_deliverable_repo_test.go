@@ -339,7 +339,7 @@ func TestScaffoldRunDeliverables_DefaultWorkflowUsesArchiveRepo(t *testing.T) {
 	})
 
 	owner := gitea.OrgName(util.UUIDToString(fix.workspace))
-	archiveRepo := owner + "/" + gitea.DefaultArchiveRepoName()
+	archiveRepo := owner + "/" + gitea.RepoName(gitea.DefaultArchiveRepoName())
 	workflowRepo := owner + "/" + gitea.RepoName(util.UUIDToString(fix.workflow))
 	if !repoExists(archiveRepo) {
 		t.Fatalf("default workflow did not scaffold archive repo %q", archiveRepo)
@@ -355,8 +355,13 @@ func TestScaffoldRunDeliverables_DefaultWorkflowUsesArchiveRepo(t *testing.T) {
 func TestDeliverableRepoNameForWorkflow(t *testing.T) {
 	workflowID, _ := util.ParseUUID("11111111-2222-3333-4444-555555555555")
 
-	if got := DeliverableRepoNameForWorkflow(db.MulticaWorkflow{ID: workflowID, IsDefault: true}); got != "deliverable-archive" {
-		t.Fatalf("default workflow repo = %q, want deliverable-archive", got)
+	// The default archive workflow's repo is provisioned by the team-namespace
+	// service (and the local mock) as gitea.RepoName of the archive slug — i.e.
+	// "wf-deliverable-archive", NOT the bare slug. The wf- prefix is applied by
+	// the same WORKFLOW_REPO_PATH_ALGORITHM v2 that names every workflow repo;
+	// consumption (upload branch, clone URL) must match or it 404s.
+	if got := DeliverableRepoNameForWorkflow(db.MulticaWorkflow{ID: workflowID, IsDefault: true}); got != "wf-deliverable-archive" {
+		t.Fatalf("default workflow repo = %q, want wf-deliverable-archive", got)
 	}
 	if got := DeliverableRepoNameForWorkflow(db.MulticaWorkflow{ID: workflowID}); got != "wf-11111111" {
 		t.Fatalf("regular workflow repo = %q, want wf-11111111", got)
