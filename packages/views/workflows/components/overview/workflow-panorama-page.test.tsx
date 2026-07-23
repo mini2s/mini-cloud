@@ -66,6 +66,7 @@ const mocks = vi.hoisted(() => ({
   updateWorkflowMutate: vi.fn(),
   startWorkflowRunMutateAsync: vi.fn(),
   navigationPush: vi.fn(),
+  getActorName: vi.fn(() => "Test Agent"),
   selectNode: vi.fn(),
   clearNodeEdits: vi.fn(),
   cacheNodeDelete: vi.fn(),
@@ -154,7 +155,7 @@ vi.mock("@multica/core/runtimes/queries", () => ({
 }));
 
 vi.mock("@multica/core/workspace/hooks", () => ({
-  useActorName: () => ({ getActorName: () => "Test Agent" }),
+  useActorName: () => ({ getActorName: mocks.getActorName }),
 }));
 
 vi.mock("@multica/core/hooks", () => ({
@@ -1014,6 +1015,7 @@ describe("WorkflowPanoramaPage (new)", () => {
     expect(worker?.data).not.toHaveProperty("stageName");
     expect(worker?.data).not.toHaveProperty("stageDescription");
     expect(worker?.data).not.toHaveProperty("runStatus");
+    expect(mocks.getActorName).toHaveBeenCalledWith("member", "member-1");
   });
 
   it("marks annotation nodes so they do not require worker configuration", () => {

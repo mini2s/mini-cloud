@@ -91,7 +91,7 @@ import {
   sortStagesForDisplay,
 } from "./constants";
 
-import { isBoundaryNode, isEndNode, isInvalidBoundaryConnection, isStartNode, parseNodeFormat, type WorkflowNode, type WorkflowStage, type WorkflowEdge, type ReorderStagesItem, type WorkflowStatus, type Workflow, type WorkflowNodeRun, type UpdateNodeRequest } from "@multica/core/types";
+import { isBoundaryNode, isEndNode, isInvalidBoundaryConnection, isStartNode, parseNodeFormat, workerTypeToActorType, type WorkflowNode, type WorkflowStage, type WorkflowEdge, type ReorderStagesItem, type WorkflowStatus, type Workflow, type WorkflowNodeRun, type UpdateNodeRequest } from "@multica/core/types";
 import type { Agent } from "@multica/core/types";
 import type { BuiltinPlugin } from "@multica/core/api/schemas";
 
@@ -775,13 +775,13 @@ export function WorkflowPanoramaPage({ workflowId, viewToggle }: WorkflowPanoram
             ? renderRoleName(roleById.get(node.worker_role_id)) ?? node.worker_role_id
             : node.worker_role
               ? renderRoleName(undefined, node.worker_role)
-              : node.worker_id ? getActorName(node.worker_type ?? "agent", node.worker_id) ?? undefined : undefined,
+              : node.worker_id ? getActorName(workerTypeToActorType(node.worker_type), node.worker_id) ?? undefined : undefined,
           criticName: node.critic_role_id
             ? renderRoleName(roleById.get(node.critic_role_id)) ?? node.critic_role_id
             : node.critic_role
               ? renderRoleName(undefined, node.critic_role)
               : node.critic_id
-                ? getActorName(node.critic_type ?? "agent", node.critic_id) ?? undefined
+                ? getActorName(workerTypeToActorType(node.critic_type), node.critic_id) ?? undefined
                 : node.critic_api_url
                   ? "API review"
                   : undefined,
@@ -799,7 +799,7 @@ export function WorkflowPanoramaPage({ workflowId, viewToggle }: WorkflowPanoram
         };
       },
       includeCriticBadges: false,
-      makeCriticName: (node) => node.critic_role_id ? renderRoleName(roleById.get(node.critic_role_id)) ?? node.critic_role_id : node.critic_role ? renderRoleName(undefined, node.critic_role) : node.critic_id ? getActorName(node.critic_type ?? "agent", node.critic_id) ?? undefined : undefined,
+      makeCriticName: (node) => node.critic_role_id ? renderRoleName(roleById.get(node.critic_role_id)) ?? node.critic_role_id : node.critic_role ? renderRoleName(undefined, node.critic_role) : node.critic_id ? getActorName(workerTypeToActorType(node.critic_type), node.critic_id) ?? undefined : undefined,
     }),
     [stages, visibleNodes, agentLookup, pluginLookup, getActorName, openNodePanel, handleOpenConnectedNodePicker, roleById, renderRoleName, childWorkflows, t],
   );
