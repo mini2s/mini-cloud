@@ -367,16 +367,36 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 	r.Get("/api/catalog/skills/{id}", h.GetCatalogSkill)
 	r.With(contactSalesRL).Post("/api/contact-sales", h.CreateContactSales)
 
-	// Hub (capability store) public browse routes — proxied to the cloud-store
-	// backend so anonymous users can browse the marketplace, same as the source
-	// store home. Authenticated-only operations (distributions, repos, CRUD)
-	// are registered inside the protected group below.
+	// Hub (capability store) proxy — ALL hub routes are proxied to the cloud-store
+	// backend here (outside the auth group). The cloud-store backend has its own
+	// authentication (Casdoor JWT via HUB_DEV_TOKEN in dev, or shared session in
+	// prod), so mini-cloud's Auth middleware must NOT gate these routes.
 	if hubProxy := h.HubProxy(); hubProxy != nil {
 		r.MethodFunc(http.MethodGet, "/api/items", hubProxy)
+		r.MethodFunc(http.MethodPost, "/api/items", hubProxy)
+		r.MethodFunc(http.MethodDelete, "/api/items", hubProxy)
 		r.MethodFunc(http.MethodGet, "/api/items/*", hubProxy)
+		r.MethodFunc(http.MethodPost, "/api/items/*", hubProxy)
+		r.MethodFunc(http.MethodPut, "/api/items/*", hubProxy)
+		r.MethodFunc(http.MethodDelete, "/api/items/*", hubProxy)
+		r.MethodFunc(http.MethodGet, "/api/distributions/*", hubProxy)
+		r.MethodFunc(http.MethodPost, "/api/distributions/*", hubProxy)
+		r.MethodFunc(http.MethodDelete, "/api/distributions/*", hubProxy)
+		r.MethodFunc(http.MethodGet, "/api/repositories/*", hubProxy)
+		r.MethodFunc(http.MethodPost, "/api/repositories/*", hubProxy)
+		r.MethodFunc(http.MethodPut, "/api/repositories/*", hubProxy)
+		r.MethodFunc(http.MethodDelete, "/api/repositories/*", hubProxy)
+		r.MethodFunc(http.MethodGet, "/api/registries/*", hubProxy)
+		r.MethodFunc(http.MethodPost, "/api/registries/*", hubProxy)
 		r.MethodFunc(http.MethodGet, "/api/categories", hubProxy)
 		r.MethodFunc(http.MethodGet, "/api/tags", hubProxy)
 		r.MethodFunc(http.MethodGet, "/api/marketplace/*", hubProxy)
+		r.MethodFunc(http.MethodPost, "/api/marketplace/*", hubProxy)
+		r.MethodFunc(http.MethodGet, "/api/enterprise-customers", hubProxy)
+		r.MethodFunc(http.MethodPost, "/api/plugins/upload", hubProxy)
+		r.MethodFunc(http.MethodGet, "/api/users/search", hubProxy)
+		r.MethodFunc(http.MethodGet, "/api/users/names", hubProxy)
+		r.MethodFunc(http.MethodGet, "/api/users/info", hubProxy)
 	}
 
 	// Webhook ingress for autopilots. Outside the authenticated group on
@@ -939,33 +959,6 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 			sph := handler.NewSkillProxyHandler(opts.SkillProxy)
 			r.Get("/api/agent-skills", sph.ListAgentSkills)
 			r.Get("/api/agent-skills/{id}", sph.GetAgentSkill)
-		}
-
-		// Hub (capability store) authenticated routes — proxied to the cloud-store
-		// backend. Public browse (GET /api/items, categories, tags) is registered
-		// in the public section above; here only operations requiring a logged-in
-		// user (distributions, repositories, CRUD, plugin upload, user lookups).
-		if hubProxy := h.HubProxy(); hubProxy != nil {
-			r.MethodFunc(http.MethodPost, "/api/items", hubProxy)
-			r.MethodFunc(http.MethodPost, "/api/items/*", hubProxy)
-			r.MethodFunc(http.MethodPut, "/api/items/*", hubProxy)
-			r.MethodFunc(http.MethodDelete, "/api/items", hubProxy)
-			r.MethodFunc(http.MethodDelete, "/api/items/*", hubProxy)
-			r.MethodFunc(http.MethodGet, "/api/distributions/*", hubProxy)
-			r.MethodFunc(http.MethodPost, "/api/distributions/*", hubProxy)
-			r.MethodFunc(http.MethodDelete, "/api/distributions/*", hubProxy)
-			r.MethodFunc(http.MethodGet, "/api/repositories/*", hubProxy)
-			r.MethodFunc(http.MethodPost, "/api/repositories/*", hubProxy)
-			r.MethodFunc(http.MethodPut, "/api/repositories/*", hubProxy)
-			r.MethodFunc(http.MethodDelete, "/api/repositories/*", hubProxy)
-			r.MethodFunc(http.MethodGet, "/api/registries/*", hubProxy)
-			r.MethodFunc(http.MethodPost, "/api/registries/*", hubProxy)
-			r.MethodFunc(http.MethodPost, "/api/marketplace/*", hubProxy)
-			r.MethodFunc(http.MethodGet, "/api/enterprise-customers", hubProxy)
-			r.MethodFunc(http.MethodPost, "/api/plugins/upload", hubProxy)
-			r.MethodFunc(http.MethodGet, "/api/users/search", hubProxy)
-			r.MethodFunc(http.MethodGet, "/api/users/names", hubProxy)
-			r.MethodFunc(http.MethodGet, "/api/users/info", hubProxy)
 		}
 	})
 

@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httputil"
 	"net/url"
+	"os"
 	"strings"
 )
 
@@ -87,6 +88,13 @@ func (h *Handler) HubProxy() http.HandlerFunc {
 		return nil
 	}
 
+	// Dev-only: the cloud-store backend uses a separate Casdoor session. In dev
+	// the mini-cloud session is not recognized upstream, so HUB_DEV_TOKEN lets
+	// the operator inject a valid cloud-store JWT (the zgsmAdminToken cookie
+	// value) so authenticated hub operations work locally. Leave empty in prod
+	// where the two systems share a session domain.
+	devToken := strings.TrimSpace(os.Getenv("HUB_DEV_TOKEN"))
+
 	proxy := &httputil.ReverseProxy{
 		Director: func(req *http.Request) {
 			// The frontend sends /api/items. The cloud-store backend is behind a
@@ -98,6 +106,15 @@ func (h *Handler) HubProxy() http.HandlerFunc {
 			req.URL.Host = targetURL.Host
 			req.URL.Path = strings.TrimRight(targetURL.Path, "/") + req.URL.Path
 			req.Host = targetURL.Host
+			// Inject the dev token so the upstream sees an authenticated request.
+			// The cloud-store backend authenticates via the zgsmAdminToken cookie,
+			// so we send it both as a cookie and as a Bearer header for max compat.
+			if devToken != "" {
+				req.Header.Set("Cookie", "zgsmAdminToken="+devToken)
+				if req.Header.Get("Authorization") == "" {
+					req.Header.Set("Authorization", "Bearer "+devToken)
+				}
+			}
 		},
 		// Strip upstream CORS headers — the cloud-store backend sets its own
 		// Access-Control-Allow-* headers, which would duplicate the ones this
