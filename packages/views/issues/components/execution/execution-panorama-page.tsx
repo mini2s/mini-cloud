@@ -20,6 +20,8 @@ import {
   workflowRunCanvasSummaryOptions,
   workflowRolesOptions,
   workflowRoleResolutionsOptions,
+  workflowNodeDeliverablesOptions,
+  nodeRunDeliverableSubmissionsOptions,
   splitTasksOptions,
   splitIssueWorkflowOptions,
   workflowKeys,
@@ -74,7 +76,11 @@ import {
   runtimeCanvasNodeTypes,
   type RuntimeSplitSubflowChildIssue,
 } from "./runtime-canvas-node";
-import { RUNTIME_NODE_HEIGHT } from "./runtime-node-card";
+import {
+  RUNTIME_NODE_HEIGHT,
+  RUNTIME_SPLIT_NODE_HEIGHT,
+  type RuntimeNodeDeliverableSummary,
+} from "./runtime-node-card";
 import { Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@multica/ui/lib/utils";
@@ -638,8 +644,8 @@ export function ExecutionPanoramaPage({
   const restoreViewportRequestIdRef = useRef(0);
   const [restoreViewportRequest, setRestoreViewportRequest] = useState<SplitViewportRestoreRequest | null>(null);
 
-  const allStages: WorkflowStage[] = stages ?? [];
-  const allNodes: WorkflowNode[] = nodes ?? [];
+  const allStages = useMemo<WorkflowStage[]>(() => stages ?? [], [stages]);
+  const allNodes = useMemo<WorkflowNode[]>(() => nodes ?? [], [nodes]);
 
   // ---- Lookup maps ----
   const nodeRunMap = useMemo(() => {
@@ -659,26 +665,26 @@ export function ExecutionPanoramaPage({
     return map;
   }, [canvasSummary?.node_runtime_summaries]);
 
-  const handleOpenNodeSession = useCallback((nodeId: string) => {
+  const handleOpenNodeSession = useCallback(async (nodeId: string): Promise<boolean> => {
     const sessionId =
       nodeRunMap.get(nodeId)?.session_id ??
       runtimeSummaryMap.get(nodeId)?.session_id ??
       null;
-    if (!sessionId) return;
+    if (!sessionId) return false;
 
     if (isEmbeddedInCostrict()) {
       const posted = postCostrictNavigateToSession({ sessionId, newTab: true });
-      if (posted) return;
+      if (posted) return true;
     }
 
     const chatSessionId = resolveChatSessionId(chatSessions, sessionId);
     if (chatSessionId) {
       setChatSession(chatSessionId);
       setChatOpen(true);
-      return;
+      return true;
     }
-
     setSelectedNodeId(nodeId);
+    return true;
   }, [chatSessions, nodeRunMap, runtimeSummaryMap, setChatOpen, setChatSession]);
 
   const splitNodeEntries = useMemo(
@@ -706,6 +712,49 @@ export function ExecutionPanoramaPage({
     });
     return map;
   }, [splitNodeEntries, splitTaskQueries]);
+
+  const deliverableNodeEntries = useMemo(
+    () => allNodes.filter((node) => {
+      const kind = parseNodeFormat(node.format_schema).kind;
+      return kind !== "gateway" && kind !== "split";
+    }),
+    [allNodes],
+  );
+  const deliverableDefinitionQueries = useQueries({
+    queries: deliverableNodeEntries.map((node) =>
+      workflowNodeDeliverablesOptions(wsId, workflowId, node.id),
+    ),
+  });
+  const deliverableSubmissionQueries = useQueries({
+    queries: deliverableNodeEntries.map((node) => {
+      const nodeRunId = nodeRunMap.get(node.id)?.id ?? "";
+      return {
+        ...nodeRunDeliverableSubmissionsOptions(wsId, nodeRunId),
+        enabled: !!nodeRunId,
+      };
+    }),
+  });
+  const deliverablesByNodeId = useMemo(() => {
+    const result = new Map<string, RuntimeNodeDeliverableSummary[]>();
+    deliverableNodeEntries.forEach((node, index) => {
+      const definitions = [...(deliverableDefinitionQueries[index]?.data ?? [])]
+        .sort((left, right) => left.sort_order - right.sort_order);
+      const submissions = deliverableSubmissionQueries[index]?.data ?? [];
+      const submissionByDeliverableId = new Map(
+        submissions.map((submission) => [submission.deliverable_id, submission]),
+      );
+      result.set(node.id, definitions.map((definition) => {
+        const submission = submissionByDeliverableId.get(definition.id);
+        return {
+          id: definition.id,
+          title: definition.title,
+          status: submission?.status ?? "missing",
+          pullRequestUrl: submission?.pull_request_url || null,
+        };
+      }));
+    });
+    return result;
+  }, [deliverableDefinitionQueries, deliverableNodeEntries, deliverableSubmissionQueries]);
 
   const handleToggleSplitNode = useCallback((nodeId: string) => {
     const isExpanded = expandedSplitNodeIds.has(nodeId);
@@ -944,12 +993,22 @@ export function ExecutionPanoramaPage({
       criticName: resolveCriticName(node),
       onOpen: setSelectedNodeId,
       onOpenSession: handleOpenNodeSession,
+      deliverables: deliverablesByNodeId.get(node.id) ?? [],
       isRuntimeFocus: node.id === runtimeFocusNodeId,
       isSplitExpanded: expandedSplitNodeIds.has(node.id),
       splitChildCount: (splitTasksByNodeId.get(node.id) ?? []).filter((task) => task.issue_id).length,
       onSplitNodeToggle: handleToggleSplitNode,
     }),
     makeCriticName: (node) => resolveCriticName(node) ?? undefined,
+  }).map((reactFlowNode) => {
+    const workflowNode = reactFlowNode.data.node as WorkflowNode | undefined;
+    if (!workflowNode || parseNodeFormat(workflowNode.format_schema).kind !== "split") {
+      return reactFlowNode;
+    }
+    return {
+      ...reactFlowNode,
+      height: RUNTIME_SPLIT_NODE_HEIGHT,
+    };
   });
   const baseRfEdges = workflowEdgesToReactFlowEdges({
     edges: edges ?? [],
@@ -1003,14 +1062,17 @@ export function ExecutionPanoramaPage({
 
     const parentX = parentRfNode.position.x + (nodeShiftById.get(parentRfNode.id) ?? 0);
     const parentY = parentRfNode.position.y;
+    const parentHeight = typeof parentRfNode.height === "number"
+      ? parentRfNode.height
+      : RUNTIME_SPLIT_NODE_HEIGHT;
     const childClusterStartX = parentX + WORKER_WIDTH + SPLIT_CHILD_X_GAP;
     const subflowHeight = splitSubflowHeight(layout.levelGroups);
     const subflowWidth = splitSubflowWidth(layout.levelGroups);
     const bounds = {
       left: childClusterStartX,
       right: childClusterStartX + subflowWidth,
-      top: parentY - (subflowHeight - RUNTIME_NODE_HEIGHT) / 2,
-      bottom: parentY - (subflowHeight - RUNTIME_NODE_HEIGHT) / 2 + subflowHeight,
+      top: parentY - (subflowHeight - parentHeight) / 2,
+      bottom: parentY - (subflowHeight - parentHeight) / 2 + subflowHeight,
     };
 
     clusterBoundsBySplitNodeId.set(layout.splitNode.id, bounds);
@@ -1139,12 +1201,15 @@ export function ExecutionPanoramaPage({
     const subflowNodeId = createSplitSubflowNodeId(splitNode.id);
     const subflowHeight = splitSubflowHeight(layout.levelGroups);
     const subflowWidth = splitSubflowWidth(layout.levelGroups);
+    const parentHeight = typeof parentRfNode.height === "number"
+      ? parentRfNode.height
+      : RUNTIME_SPLIT_NODE_HEIGHT;
     splitSubflowNodes.push({
       id: subflowNodeId,
       type: "runtimeSplitSubflow",
       position: {
         x: childClusterStartX,
-        y: parentRfNode.position.y - (subflowHeight - RUNTIME_NODE_HEIGHT) / 2,
+        y: parentRfNode.position.y - (subflowHeight - parentHeight) / 2,
       },
       width: subflowWidth,
       height: subflowHeight,

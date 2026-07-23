@@ -736,15 +736,15 @@ describe("WorkflowPanoramaPage (new)", () => {
     render(<WorkflowPanoramaPage workflowId="wf-1" />);
 
     fireEvent.click(screen.getAllByRole("button", { name: "Add node" })[0]!);
-    fireEvent.click(screen.getByRole("button", { name: /Agent task/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Task:/ }));
 
     expect(mocks.createNodeMutate).toHaveBeenCalledWith(
       expect.objectContaining({
-        title: "Agent task",
+        title: "Task",
         worker_type: "agent",
         format_schema: expect.objectContaining({
-          template_id: "ai-agent-task",
-          template_category: "ai",
+          template_id: "agent-task",
+          template_category: "action",
         }),
       }),
       expect.any(Object),
@@ -811,15 +811,15 @@ describe("WorkflowPanoramaPage (new)", () => {
     render(<WorkflowPanoramaPage workflowId="wf-1" />);
 
     fireEvent.click(screen.getByRole("button", { name: "Add node" }));
-    fireEvent.click(screen.getByRole("button", { name: /Agent task/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Task:/ }));
 
     expect(mocks.createNodeMutate).toHaveBeenCalledWith(
       expect.objectContaining({
-        title: "Agent task",
+        title: "Task",
         stage_id: null,
         format_schema: expect.objectContaining({
-          template_id: "ai-agent-task",
-          template_category: "ai",
+          template_id: "agent-task",
+          template_category: "action",
         }),
       }),
       expect.any(Object),
@@ -1254,11 +1254,11 @@ describe("WorkflowPanoramaPage (new)", () => {
     act(() => {
       (worker?.data.onAddConnectedNode as undefined | ((nodeId: string) => void))?.("node-1");
     });
-    fireEvent.click(screen.getByRole("button", { name: /Human review/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Task:/ }));
 
     expect(mocks.createNodeMutate).toHaveBeenCalledWith(
       expect.objectContaining({
-        title: "Human review",
+        title: "Task",
         position_x: 492,
         stage_id: "stage-2",
       }),
