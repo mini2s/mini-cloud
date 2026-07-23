@@ -758,12 +758,13 @@ func shortHexSafe(id string) string {
 	return id
 }
 
-// mergeDocumentDeliverables merges every document-type deliverable submission
-// that has a pull_request_url, with bounded retry. Returns nil only if all such
-// PRs merged; a non-nil error means at least one failed terminally (conflict) or
-// after retries (transient) — the caller blocks the node run. Only called when
-// s.Gitea is configured.
-func (s *WorkflowService) mergeDocumentDeliverables(ctx context.Context, nodeRun db.MulticaWorkflowNodeRun) error {
+// mergeDeliverablePRs merges the Gitea PR behind every PR-backed deliverable
+// submission (document deliverables uploaded as files AND pull_request
+// deliverables whose pasted code link is wrapped in a node→inst PR), with
+// bounded retry. Returns nil only if all such PRs merged; a non-nil error means
+// at least one failed terminally (conflict) or after retries (transient) — the
+// caller blocks the node run. Only called when s.Gitea is configured.
+func (s *WorkflowService) mergeDeliverablePRs(ctx context.Context, nodeRun db.MulticaWorkflowNodeRun) error {
 	run, err := s.Queries.GetWorkflowRun(ctx, nodeRun.WorkflowRunID)
 	if err != nil {
 		return fmt.Errorf("get run: %w", err)
@@ -779,10 +780,13 @@ func (s *WorkflowService) mergeDocumentDeliverables(ctx context.Context, nodeRun
 	if err != nil {
 		return fmt.Errorf("list deliverables: %w", err)
 	}
-	isDoc := make(map[string]bool, len(deliverables))
+	// PR-backed kinds: document (file uploaded to a node→inst PR) and
+	// pull_request (code link wrapped in a node→inst PR). Both open a Gitea PR
+	// on submit, so both merge on approve.
+	isPRBacked := make(map[string]bool, len(deliverables))
 	for _, d := range deliverables {
-		if d.Kind == "document" {
-			isDoc[util.UUIDToString(d.ID)] = true
+		if d.Kind == "document" || d.Kind == "pull_request" {
+			isPRBacked[util.UUIDToString(d.ID)] = true
 		}
 	}
 
@@ -791,7 +795,7 @@ func (s *WorkflowService) mergeDocumentDeliverables(ctx context.Context, nodeRun
 		return fmt.Errorf("list submissions: %w", err)
 	}
 	for _, sub := range submissions {
-		if !isDoc[util.UUIDToString(sub.DeliverableID)] || sub.PullRequestUrl == "" {
+		if !isPRBacked[util.UUIDToString(sub.DeliverableID)] || sub.PullRequestUrl == "" {
 			continue
 		}
 		index, err := gitea.ParsePullRequestIndex(sub.PullRequestUrl)
@@ -832,36 +836,37 @@ func retryMergeDocPR(ctx context.Context, provider coderepo.RepositoryProvider, 
 	return lastErr
 }
 
-// markDocumentSubmissionsApproved flips every document submission with a PR URL
-// to status=approved (called after a successful merge). Best-effort: errors are
-// logged, not returned — the merge already succeeded, so the node will complete
-// regardless of a status-write hiccup here. The existing review_comment is
-// preserved (the critic's comment lives on the node run, not the submission).
-func (s *WorkflowService) markDocumentSubmissionsApproved(ctx context.Context, nodeRun db.MulticaWorkflowNodeRun) {
+// markDeliverableSubmissionsApproved flips every PR-backed submission (document
+// or pull_request) with a PR URL to status=approved (called after a successful
+// merge). Best-effort: errors are logged, not returned — the merge already
+// succeeded, so the node will complete regardless of a status-write hiccup
+// here. The existing review_comment is preserved (the critic's comment lives on
+// the node run, not the submission).
+func (s *WorkflowService) markDeliverableSubmissionsApproved(ctx context.Context, nodeRun db.MulticaWorkflowNodeRun) {
 	deliverables, err := s.Queries.ListWorkflowNodeDeliverables(ctx, nodeRun.WorkflowNodeID)
 	if err != nil {
-		slog.Warn("mark doc submissions approved: list deliverables", "error", err)
+		slog.Warn("mark deliverable submissions approved: list deliverables", "error", err)
 		return
 	}
-	isDoc := make(map[string]bool, len(deliverables))
+	isPRBacked := make(map[string]bool, len(deliverables))
 	for _, d := range deliverables {
-		if d.Kind == "document" {
-			isDoc[util.UUIDToString(d.ID)] = true
+		if d.Kind == "document" || d.Kind == "pull_request" {
+			isPRBacked[util.UUIDToString(d.ID)] = true
 		}
 	}
 	subs, err := s.Queries.ListNodeRunDeliverableSubmissions(ctx, nodeRun.ID)
 	if err != nil {
-		slog.Warn("mark doc submissions approved: list submissions", "error", err)
+		slog.Warn("mark deliverable submissions approved: list submissions", "error", err)
 		return
 	}
 	for _, sub := range subs {
-		if isDoc[util.UUIDToString(sub.DeliverableID)] && sub.PullRequestUrl != "" {
+		if isPRBacked[util.UUIDToString(sub.DeliverableID)] && sub.PullRequestUrl != "" {
 			if _, err := s.Queries.ReviewNodeRunDeliverableSubmission(ctx, db.ReviewNodeRunDeliverableSubmissionParams{
 				ID:            sub.ID,
 				Status:        "approved",
 				ReviewComment: sub.ReviewComment, // preserve; critic comment is on the node run
 			}); err != nil {
-				slog.Warn("mark doc submission approved",
+				slog.Warn("mark deliverable submission approved",
 					"submission_id", util.UUIDToString(sub.ID), "error", err)
 			}
 		}

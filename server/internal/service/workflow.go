@@ -1463,12 +1463,12 @@ func (s *WorkflowService) ReviewNodeRun(ctx context.Context, nodeRunID pgtype.UU
 	if approved && nodeRun.Status == NodeRunStatusCriticApproved {
 		finalStatus := NodeRunStatusCompleted
 		if s.Gitea != nil && s.Gitea.Configured() {
-			if err := s.mergeDocumentDeliverables(ctx, nodeRun); err != nil {
-				slog.Error("gitea merge document deliverables failed; blocking node run",
+			if err := s.mergeDeliverablePRs(ctx, nodeRun); err != nil {
+				slog.Error("gitea merge deliverable PRs failed; blocking node run",
 					"node_run_id", util.UUIDToString(nodeRun.ID), "error", err)
 				finalStatus = NodeRunStatusBlocked
 			} else {
-				s.markDocumentSubmissionsApproved(ctx, nodeRun)
+				s.markDeliverableSubmissionsApproved(ctx, nodeRun)
 			}
 		}
 		updated, err := s.Queries.UpdateWorkflowNodeRunStatus(ctx, db.UpdateWorkflowNodeRunStatusParams{
