@@ -224,7 +224,7 @@ func appendWorkerTaskPrompt(prompt string) string {
 // The deliverable repository is exposed to the agent as a normal git remote
 // (authed clone URL in the task env), so reading/exploring is plain git; only
 // the final submit — which opens the node->inst PR and registers it back here —
-// goes through the `cs-cloud workflow deliverable submit` command.
+// goes through the `cs-workflow repo submit` command.
 func appendDeliverablePrompt(prompt string, refs []repositoryDeliverableRefJSON) string {
 	var b strings.Builder
 	b.WriteString(prompt)
@@ -239,7 +239,10 @@ func appendDeliverablePrompt(prompt string, refs []repositoryDeliverableRefJSON)
 	}
 	b.WriteString("\nA deliverable is not considered submitted until its PR is registered. Complete every listed deliverable before finishing.\n\n")
 	b.WriteString("### Reading the deliverable repository\n\n")
-	b.WriteString("Use plain git to read or explore. There is no separate fetch command. For example: `git clone $MULTICA_REPO_CLONE_URL_AUTHED` then `git checkout $MULTICA_REPO_INST_BRANCH` to see the current run's tree (this node's deliverables live under its node directory). Only this run's repository is exposed via the env; if you need another issue's deliverables and they are not in this repo, ask the user rather than guessing the URL.\n")
+	b.WriteString("Use plain git to read or explore: `git clone $MULTICA_REPO_CLONE_URL_AUTHED` then `git checkout $MULTICA_REPO_INST_BRANCH` to see the current run's tree (this node's deliverables live under its node directory).\n\n")
+	b.WriteString("To inspect the rest of the workflow chain — other issues' progress and their deliverable repositories — use the read commands instead of guessing URLs:\n")
+	b.WriteString("- `cs-workflow issue workflow <issue-id> --descendants` — workflow run + node run status for this issue and its children.\n")
+	b.WriteString("- `cs-workflow issue deliverables <issue-id> --descendants` — the Gitea repository address and deliverable list for this issue and its children; clone the inst branch to read another issue's documents.\n")
 	b.WriteString("\n---\n\n")
 	return b.String()
 }

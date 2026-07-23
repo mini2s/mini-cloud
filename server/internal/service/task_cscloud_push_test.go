@@ -489,6 +489,7 @@ func TestAppendDeliverablePrompt_GitAndSubmitNoFetch(t *testing.T) {
 		"git clone",                                // raw-git read guidance
 		"MULTICA_REPO_INST_BRANCH",                 // branch context
 		"cs-workflow repo submit --deliverable d1", // neutral submit path
+		"cs-workflow issue deliverables",           // self-service read command
 		"Document Deliverables",
 	} {
 		if !strings.Contains(got, want) {
@@ -497,5 +498,8 @@ func TestAppendDeliverablePrompt_GitAndSubmitNoFetch(t *testing.T) {
 	}
 	if strings.Contains(got, "deliverable fetch") {
 		t.Errorf("prompt must NOT reference fetch (command removed):\n%s", got)
+	}
+	if strings.Contains(got, "ask the user") {
+		t.Errorf("prompt must NOT ask the user (use read commands instead):\n%s", got)
 	}
 }
