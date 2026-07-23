@@ -30,6 +30,9 @@ const mocks = vi.hoisted(() => ({
   roles: [
     { id: "role-1", name: "Implementer" },
     { id: "role-2", name: "Reviewer" },
+    { id: "role-builtin-dev", name: "developer", is_builtin: true },
+    { id: "role-builtin-qa", name: "qa", is_builtin: true },
+    { id: "role-builtin-lead", name: "tech_lead", is_builtin: true },
   ],
 }));
 
@@ -42,6 +45,14 @@ vi.mock("@tanstack/react-query", () => ({
 
 vi.mock("@multica/core/hooks", () => ({
   useWorkspaceId: () => "ws-1",
+}));
+
+vi.mock("../../navigation", () => ({
+  useNavigation: () => ({ push: vi.fn() }),
+}));
+
+vi.mock("@multica/core/paths", () => ({
+  useWorkspacePaths: () => ({ settings: () => "/ws-1/settings" }),
 }));
 
 vi.mock("@multica/core/workflows/queries", () => ({
@@ -298,6 +309,11 @@ vi.mock("../../i18n", () => {
       detail_gateway_kind_invalid: "Gateway type must be Fork or Join",
       detail_gateway_join_multiple_outgoing: "Join gateway usually continues to one downstream node",
     },
+    builtin_roles: {
+      developer: { name: "研发" },
+      qa: { name: "测试" },
+      tech_lead: { name: "技术负责人" },
+    },
   };
   return {
     useT: () => ({
@@ -542,6 +558,28 @@ describe("NodeConfigPanel", () => {
       worker_role_id: null,
     });
     expect(screen.getByLabelText("Executor role")).toBeInTheDocument();
+  });
+
+  it("localizes builtin role names in the worker role picker", () => {
+    renderPanel();
+
+    fireEvent.click(
+      within(screen.getByRole("tablist", { name: "Worker category" })).getByRole(
+        "tab",
+        { name: "Development role" },
+      ),
+    );
+
+    screen.getByLabelText("Executor role");
+    expect(screen.getByRole("option", { name: "研发" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "测试" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "技术负责人" })).toBeInTheDocument();
+    expect(screen.queryByRole("option", { name: "developer" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("option", { name: "qa" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("option", { name: "tech_lead" })).not.toBeInTheDocument();
+    // Custom roles keep their raw name.
+    expect(screen.getByRole("option", { name: "Implementer" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "Reviewer" })).toBeInTheDocument();
   });
 
   it("switches Critic to Squad, clears API fields, and only shows squads", () => {

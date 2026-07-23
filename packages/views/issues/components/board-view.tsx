@@ -165,6 +165,26 @@ function buildColumns(
   return cols;
 }
 
+/** Structural equality for column id maps. Used to make setColumns idempotent
+ *  so unstable upstream deps don't trigger a render loop. */
+function columnsEqual(
+  a: Record<string, string[]>,
+  b: Record<string, string[]>,
+): boolean {
+  const aKeys = Object.keys(a);
+  const bKeys = Object.keys(b);
+  if (aKeys.length !== bKeys.length) return false;
+  for (const key of aKeys) {
+    const av = a[key];
+    const bv = b[key];
+    if (!av || !bv || av.length !== bv.length) return false;
+    for (let i = 0; i < av.length; i++) {
+      if (av[i] !== bv[i]) return false;
+    }
+  }
+  return true;
+}
+
 /** Compute a float position for `activeId` based on its neighbors in `ids`. */
 function computePosition(ids: string[], activeId: string, issueMap: Map<string, Issue>): number {
   const idx = ids.indexOf(activeId);
@@ -322,9 +342,11 @@ export function BoardView({
   columnsRef.current = columns;
 
   useEffect(() => {
-    if (!isDraggingRef.current) {
-      setColumns(buildColumns(groupedIssues, groups, grouping, sortBy, sortDirection));
-    }
+    if (isDraggingRef.current) return;
+    setColumns((prev) => {
+      const next = buildColumns(groupedIssues, groups, grouping, sortBy, sortDirection);
+      return columnsEqual(prev, next) ? prev : next;
+    });
   }, [groupedIssues, groups, grouping, sortBy, sortDirection]);
 
   // After a cross-column move, lock for one animation frame so dnd-kit's

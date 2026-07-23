@@ -57,6 +57,7 @@ import {
   Smartphone,
   SquareTerminal,
   Puzzle,
+  UserRoundCog,
 } from "lucide-react";
 import { WorkspaceAvatar } from "../workspace/workspace-avatar";
 import { ActorAvatar } from "@multica/ui/components/common/actor-avatar";
@@ -165,7 +166,8 @@ type NavKey =
   | "meProfile"
   | "meQuota"
   | "meNotifications"
-  | "meDevices";
+  | "meDevices"
+  | "roles";
 
 // Static schema (key + icon) — labels resolved at render via useT("layout").
 type NavLabelKey =
@@ -206,7 +208,8 @@ type NavLabelKey =
   | "me_profile"
   | "me_quota"
   | "me_notifications"
-  | "me_devices";
+  | "me_devices"
+  | "roles";
 
 type NavItem = { key: NavKey; labelKey: NavLabelKey; icon: typeof Inbox };
 
@@ -225,6 +228,7 @@ const workbenchNav: NavItem[] = [
 
 const collaborationNav: NavItem[] = [
   { key: "workflows", labelKey: "workflows", icon: GitBranch },
+  { key: "roles", labelKey: "roles", icon: UserRoundCog },
   { key: "squads", labelKey: "squads", icon: Users },
   { key: "members", labelKey: "members", icon: IdCard },
   { key: "agents", labelKey: "digital_human", icon: Bot },

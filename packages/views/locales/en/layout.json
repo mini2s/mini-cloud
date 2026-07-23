@@ -39,7 +39,8 @@
     "hub_command": "Commands",
     "hub_mcp": "MCP Servers",
     "hub_plugin": "Plugins",
-    "hub_manager": "Manager"
+    "hub_manager": "Manager",
+    "roles": "Dev Roles"
   },
   "help": {
     "trigger": "Help",

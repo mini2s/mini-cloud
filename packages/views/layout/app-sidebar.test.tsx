@@ -72,7 +72,7 @@ vi.mock("../auth", () => ({ useLogout: () => vi.fn() }));
 vi.mock("../issues/components/status-icon", () => ({ StatusIcon: () => <span /> }));
 vi.mock("../navigation", () => ({
   AppLink: ({ children, href }: { children: React.ReactNode; href: string }) => <a href={href}>{children}</a>,
-  useNavigation: () => ({ pathname: "/acme/issues", push: vi.fn() }),
+  useNavigation: () => ({ pathname: "/acme/issues", push: vi.fn(), searchParams: new URLSearchParams("") }),
 }));
 vi.mock("../i18n", () => ({
   useT: () => ({
@@ -105,6 +105,7 @@ vi.mock("@multica/core/paths", () => ({
     usage: () => "/acme/usage",
     runtimes: () => "/acme/runtimes",
     skills: () => "/acme/skills",
+    roles: () => "/acme/roles",
     settings: () => "/acme/settings",
     home: () => "/acme/home",
     sessions: () => "/acme/sessions",
@@ -112,6 +113,13 @@ vi.mock("@multica/core/paths", () => ({
     dispatch: () => "/acme/dispatch",
     wiki: () => "/acme/wiki",
     memory: () => "/acme/memory",
+    hub: () => "/acme/hub",
+    hubSkill: () => "/acme/hub?type=skill",
+    hubSubagent: () => "/acme/hub?type=subagent",
+    hubCommand: () => "/acme/hub?type=command",
+    hubMcp: () => "/acme/hub?type=mcp",
+    hubPlugin: () => "/acme/hub?type=plugin",
+    hubManager: () => "/acme/hub/manager",
     metricsEfficiency: () => "/acme/metrics/efficiency",
     metricsQuality: () => "/acme/metrics/quality",
     metricsCost: () => "/acme/metrics/cost",

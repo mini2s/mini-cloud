@@ -71,6 +71,11 @@ vi.mock("../../i18n", () => {
         assignment_conflict: "Assignment conflict", assignment_failed: "Assignment failed",
       },
     },
+    builtin_roles: {
+      developer: { name: "研发", description: "实现变更" },
+      qa: { name: "测试", description: "验证变更" },
+      tech_lead: { name: "技术负责人", description: "统筹技术决策" },
+    },
     cancel_dialog: {
       title: "Cancel workflow run?",
       description: "This will stop unfinished node runs.",
@@ -147,5 +152,28 @@ describe("WorkflowRunPage role assignment", () => {
     fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
     fireEvent.click(screen.getByRole("button", { name: "Confirm cancel" }));
     expect(mocks.cancel).toHaveBeenCalledWith({ workflowId: "workflow-1", runId: "run-1" });
+  });
+
+  it("localizes builtin role identifiers emitted by the backend snapshot", () => {
+    mocks.resolutions = [{
+      ...unresolvedResolution,
+      role_name: "developer",
+      role_description: "developer",
+    }];
+    render(<WorkflowRunPage workflowId="workflow-1" runId="run-1" />);
+    expect(screen.getByText(/研发/)).toBeInTheDocument();
+    expect(screen.getByText(/实现变更/)).toBeInTheDocument();
+    expect(screen.queryByText("developer")).not.toBeInTheDocument();
+  });
+
+  it("renders custom role names verbatim without localization", () => {
+    mocks.resolutions = [{
+      ...unresolvedResolution,
+      role_name: "Code Reviewer",
+      role_description: "Reviews PRs",
+    }];
+    render(<WorkflowRunPage workflowId="workflow-1" runId="run-1" />);
+    expect(screen.getByText(/Code Reviewer/)).toBeInTheDocument();
+    expect(screen.getByText(/Reviews PRs/)).toBeInTheDocument();
   });
 });

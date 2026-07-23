@@ -24,6 +24,7 @@ const mocks = vi.hoisted(() => ({
   membersData: undefined as unknown as unknown[],
   squadsData: undefined as unknown as unknown[],
   workflowOptionsData: undefined as unknown,
+  childIssuesData: [] as unknown[],
   splitTasksByNodeRunId: {} as Record<string, unknown>,
   deliverableDefinitionsByNodeId: {} as Record<string, unknown>,
   deliverableSubmissionsByNodeRunId: {} as Record<string, unknown>,
@@ -107,6 +108,8 @@ vi.mock("@tanstack/react-query", async () => {
           return { data: mocks.chatSessionsData, isLoading: false };
         if (key.includes("split-issue-workflow-options"))
           return { data: mocks.workflowOptionsData, isLoading: false };
+        if (key.includes("children"))
+          return { data: mocks.childIssuesData, isLoading: false };
         return { data: mocks.workflowData, isLoading: mocks.isLoading };
       }
       return { data: undefined, isLoading: true };
@@ -231,6 +234,13 @@ vi.mock("@multica/core/workspace/queries", () => ({
   }),
 }));
 
+vi.mock("@multica/core/issues/queries", () => ({
+  childIssuesOptions: (wsId: string, issueId: string) => ({
+    queryKey: ["issues", wsId, issueId, "children"],
+    enabled: !!issueId,
+  }),
+}));
+
 vi.mock("@multica/core/api", () => ({
   api: {
     retryNodeRun: mocks.retryNodeRun,
@@ -290,6 +300,16 @@ vi.mock("../../../i18n", () => ({
           tech_lead: { name: "Tech Lead", description: "Tech direction" },
         },
         execution: {
+          card: {
+            child_issue_fallback: "Child issue",
+            child_workflow_running: "Workflow in progress",
+            child_waiting_dependencies: "Waiting for dependencies",
+            child_waiting_workflow: "Waiting for workflow to start",
+            child_workflow_completed: "Workflow completed",
+            child_workflow_failed: "Workflow failed",
+            child_workflow_cancelled: "Cancelled",
+            child_workflow_skipped: "Skipped because a dependency failed",
+          },
           display_status: {
             pending: "Pending",
             todo: "To do",
@@ -651,6 +671,7 @@ describe("ExecutionPanoramaPage", () => {
     mocks.membersData = [];
     mocks.squadsData = [];
     mocks.workflowOptionsData = [];
+    mocks.childIssuesData = [];
     mocks.chatSessionsData = [];
     mocks.embedded = false;
     mocks.hasOpenInNewTab = true;
@@ -1385,6 +1406,10 @@ describe("ExecutionPanoramaPage", () => {
     mocks.splitTasksByNodeRunId = {
       "split-run-1": SPLIT_TASKS_RESPONSE,
     };
+    mocks.childIssuesData = [
+      { id: "child-issue-1", identifier: "MUL-580" },
+      { id: "child-issue-2", identifier: "MUL-581" },
+    ];
 
     render(
       <Wrapper>
@@ -1426,6 +1451,8 @@ describe("ExecutionPanoramaPage", () => {
             title: "Implement API contract",
             displayStatus: "in_progress",
             workerName: "wf-impl",
+            issueIdentifier: "MUL-580",
+            progressLabel: "Workflow in progress",
             level: 0,
           }),
           expect.objectContaining({
@@ -1434,6 +1461,8 @@ describe("ExecutionPanoramaPage", () => {
             title: "Backfill tests",
             displayStatus: "todo",
             workerName: "wf-test",
+            issueIdentifier: "MUL-581",
+            progressLabel: "Waiting for dependencies",
             level: 1,
           }),
         ],
