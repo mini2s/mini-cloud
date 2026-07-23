@@ -116,7 +116,7 @@ flowchart TD
         SO --> CI["启动子 WorkflowRun"]
         CI --> AGGR["聚合子任务进度"]
         AGGR -->|"barrier: 全部终态"| DN["父节点 completed"]
-        AGGR -->|"pipeline: initial dispatch 完成"| DN
+        AGGR -->|"pipeline: 首轮调度完成"| DN
     end
 ```
 

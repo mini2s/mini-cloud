@@ -737,6 +737,7 @@ type MulticaWorkflow struct {
 	UpdatedAt                     pgtype.Timestamptz `json:"updated_at"`
 	IsTemplate                    bool               `json:"is_template"`
 	SourceTemplateID              pgtype.UUID        `json:"source_template_id"`
+	IsDefault                     bool               `json:"is_default"`
 	DefaultRuntimeSelectionPolicy string             `json:"default_runtime_selection_policy"`
 	DefaultRuntimeID              pgtype.UUID        `json:"default_runtime_id"`
 }

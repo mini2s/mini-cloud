@@ -107,8 +107,17 @@ describe("WorkflowTemplatePreviewCanvas", () => {
   it("uses the workflow editor canvas model in read-only mode", () => {
     render(
       <WorkflowTemplatePreviewCanvas
-        nodes={[makeNode(), makeNode({ id: "node-2", title: "Build", position_x: 420 })]}
-        edges={[makeEdge()]}
+        nodes={[
+          makeNode({ id: "start", title: "Start", position_x: -100, format_schema: { type: "start" } }),
+          makeNode(),
+          makeNode({ id: "node-2", title: "Build", position_x: 420 }),
+          makeNode({ id: "end", title: "End", position_x: 720, format_schema: { type: "end" } }),
+        ]}
+        edges={[
+          makeEdge({ id: "edge-start", source_node_id: "start", target_node_id: "node-1" }),
+          makeEdge(),
+          makeEdge({ id: "edge-end", source_node_id: "node-2", target_node_id: "end" }),
+        ]}
         stages={[makeStage()]}
       />,
     );
@@ -124,8 +133,13 @@ describe("WorkflowTemplatePreviewCanvas", () => {
     const props = reactFlowPropsRef.at(-1)!;
     const rfNodes = props.nodes as Array<{ type: string }>;
     const rfEdges = props.edges as Array<{ type: string }>;
-    expect(rfNodes.map((node) => node.type)).toEqual(["compactWorker", "compactWorker"]);
-    expect(rfEdges.map((edge) => edge.type)).toEqual(["panorama"]);
+    expect(rfNodes.map((node) => node.type)).toEqual([
+      "boundary",
+      "compactWorker",
+      "compactWorker",
+      "boundary",
+    ]);
+    expect(rfEdges.map((edge) => edge.type)).toEqual(["panorama", "panorama", "panorama"]);
   });
 
   it("computes a centered viewport for the preview bounds", () => {

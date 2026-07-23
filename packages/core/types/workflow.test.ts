@@ -1,7 +1,47 @@
 import { describe, expect, it } from "vitest";
-import { parseNodeFormat, parseNodeShape, toWorkflowRuntimeDisplayStatus } from "./workflow";
+import {
+  isBoundaryNode,
+  isEndNode,
+  isInvalidBoundaryConnection,
+  isStartNode,
+  parseNodeFormat,
+  parseNodeShape,
+  toWorkflowRuntimeDisplayStatus,
+  type WorkflowNode,
+} from "./workflow";
+
+function makeNode(formatSchema: unknown): Pick<WorkflowNode, "format_schema"> {
+  return { format_schema: formatSchema };
+}
 
 describe("workflow node format parsing", () => {
+  it("parses and classifies workflow boundary nodes", () => {
+    const start = makeNode({ type: "start", shape: "pill" });
+    const end = makeNode({ type: "end", shape: "pill" });
+    const task = makeNode({ shape: "rectangle" });
+
+    expect(parseNodeFormat(start.format_schema).kind).toBe("start");
+    expect(parseNodeFormat(end.format_schema).kind).toBe("end");
+    expect(isStartNode(start)).toBe(true);
+    expect(isEndNode(end)).toBe(true);
+    expect(isBoundaryNode(task)).toBe(false);
+  });
+
+  it("rejects invalid boundary node connections", () => {
+    const start = makeNode({ type: "start" });
+    const end = makeNode({ type: "end" });
+    const task = makeNode({});
+    const annotation = makeNode({ type: "annotation" });
+
+    expect(isInvalidBoundaryConnection(start, task)).toBe(false);
+    expect(isInvalidBoundaryConnection(task, end)).toBe(false);
+    expect(isInvalidBoundaryConnection(task, start)).toBe(true);
+    expect(isInvalidBoundaryConnection(end, task)).toBe(true);
+    expect(isInvalidBoundaryConnection(start, end)).toBe(true);
+    expect(isInvalidBoundaryConnection(start, annotation)).toBe(true);
+    expect(isInvalidBoundaryConnection(annotation, end)).toBe(true);
+  });
+
   it("falls back to a task rectangle for non-object input", () => {
     expect(parseNodeFormat(null)).toEqual({
       kind: "task",

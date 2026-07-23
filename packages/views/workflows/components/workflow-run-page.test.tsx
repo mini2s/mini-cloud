@@ -13,6 +13,9 @@ const mocks = vi.hoisted(() => ({
   resolutions: [] as unknown[],
   members: [] as unknown[],
   cancelMutate: vi.fn(),
+  dagNodes: [] as unknown[],
+  dagNodeStatuses: {} as Record<string, { status: string }>,
+  reviewMutate: vi.fn(),
 }));
 
 vi.mock("@tanstack/react-query", () => ({
@@ -47,12 +50,13 @@ vi.mock("@multica/core/workflows/queries", () => ({
   workflowNodesOptions: () => ({ queryKey: ["workflows", "nodes"] }),
   workflowEdgesOptions: () => ({ queryKey: ["workflows", "edges"] }),
   workflowNodeRunsOptions: () => ({ queryKey: ["workflows", "node-runs"] }),
+  nodeRunDeliverableSubmissionsOptions: () => ({ queryKey: ["workflows", "node-run-deliverables"] }),
   workflowRoleResolutionsOptions: () => ({ queryKey: ["workflows", "role-resolutions"] }),
   useAssignWorkflowRoleResolutions: () => ({ mutateAsync: vi.fn(), isPending: false }),
   useRetryWorkflowRoleResolutions: () => ({ mutateAsync: vi.fn(), isPending: false }),
   useCancelWorkflowRun: () => ({ mutate: mocks.cancelMutate, isPending: false }),
   useSubmitNodeRun: () => ({ mutate: vi.fn(), isPending: false }),
-  useReviewNodeRun: () => ({ mutate: vi.fn(), isPending: false }),
+  useReviewNodeRun: () => ({ mutate: mocks.reviewMutate, isPending: false }),
   useSkipNodeRun: () => ({ mutate: vi.fn(), isPending: false }),
   useSessionPermission: () => ({ data: { can_control: false } }),
   useTakeoverNodeRun: () => ({ mutate: vi.fn(), isPending: false }),
@@ -82,6 +86,13 @@ vi.mock("@multica/core/platform", () => ({
   postCostrictNavigateToSession: vi.fn(),
 }));
 
+vi.mock("@multica/core/issues/mutations", () => ({
+  useUploadIssueDeliverable: () => ({
+    mutate: vi.fn(),
+    isPending: false,
+  }),
+}));
+
 vi.mock("../../layout/page-header", () => ({
   PageHeader: ({ children, className }: { children: ReactNode; className?: string }) => (
     <div className={className}>{children}</div>
@@ -89,17 +100,22 @@ vi.mock("../../layout/page-header", () => ({
 }));
 
 vi.mock("./dag-canvas", () => ({
-  DAGCanvas: ({ onNodeClick, nodeStatuses }: {
+  DAGCanvas: ({ nodes, onNodeClick, nodeStatuses }: {
+    nodes?: unknown[];
     onNodeClick?: (nodeId: string) => void;
     nodeStatuses?: Record<string, { status: string }>;
-  }) => (
-    <div>
-      <span data-testid="canvas-status">{nodeStatuses?.["split-node"]?.status}</span>
-      <button type="button" onClick={() => onNodeClick?.("split-node")}>
-        Open canvas split
-      </button>
-    </div>
-  ),
+  }) => {
+    mocks.dagNodes = nodes ?? [];
+    mocks.dagNodeStatuses = nodeStatuses ?? {};
+    return (
+      <div>
+        <span data-testid="canvas-status">{nodeStatuses?.["split-node"]?.status}</span>
+        <button type="button" onClick={() => onNodeClick?.("split-node")}>
+          Open canvas split
+        </button>
+      </div>
+    );
+  },
 }));
 
 vi.mock("@xyflow/react", () => ({
@@ -139,6 +155,15 @@ vi.mock("../../i18n", () => {
       skip: "Skip",
       review_comment_placeholder: "Review comment",
       split_details: "Open split details",
+      deliverables: {
+        heading: "Deliverable PRs",
+        pull_request_label: "Pull request",
+        upload_button: "Upload deliverable",
+        upload_heading: "Submit a document",
+        upload_placeholder: "markdown",
+        upload_submit: "Submit",
+        uploading: "Submitting",
+      },
     },
   };
   return {
@@ -213,6 +238,9 @@ describe("WorkflowRunPage", () => {
     mocks.edges = [];
     mocks.nodeRuns = [splitNodeRun];
     mocks.cancelMutate.mockReset();
+    mocks.dagNodes = [];
+    mocks.dagNodeStatuses = {};
+    mocks.reviewMutate.mockReset();
   });
 
   it("localizes split node run status on the canvas", () => {
@@ -220,6 +248,21 @@ describe("WorkflowRunPage", () => {
 
     expect(screen.getByTestId("canvas-status")).toHaveTextContent("Split Active");
     expect(screen.queryByText("split_active")).not.toBeInTheDocument();
+  });
+
+  it("keeps boundary nodes on the run canvas without runtime status", () => {
+    mocks.nodes = [
+      { ...splitNode, id: "start", title: "Start", format_schema: { type: "start" } },
+      splitNode,
+      { ...splitNode, id: "end", title: "End", format_schema: { type: "end" } },
+    ];
+
+    render(<WorkflowRunPage workflowId="wf-1" runId="run-1" />);
+
+    expect(mocks.dagNodes).toEqual(mocks.nodes);
+    expect(mocks.dagNodeStatuses).toEqual({
+      "split-node": expect.objectContaining({ status: "Split Active" }),
+    });
   });
 
   it("opens split review panel from the canvas split node", () => {
@@ -249,5 +292,34 @@ describe("WorkflowRunPage", () => {
     fireEvent.click(screen.getByRole("button", { name: "Confirm cancel" }));
 
     expect(mocks.cancelMutate).toHaveBeenCalledWith({ workflowId: "wf-1", runId: "run-1" });
+  });
+
+  it("shows human deliverable upload and review actions for direct issue runs", () => {
+    mocks.run = {
+      ...(mocks.run as Record<string, unknown>),
+      input: { issue_id: "issue-1" },
+    };
+    mocks.nodeRuns = [{
+      ...splitNodeRun,
+      status: "critic_reviewing",
+      worker_type: "human",
+      worker_output: { pull_request_url: "http://localhost:23000/t-demo/deliverable-archive/pulls/1" },
+    }];
+
+    render(<WorkflowRunPage workflowId="wf-1" runId="run-1" />);
+
+    expect(screen.getByRole("button", { name: "Upload deliverable" })).toBeInTheDocument();
+    fireEvent.change(screen.getByPlaceholderText("Review comment"), {
+      target: { value: "Looks good" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Approve" }));
+
+    expect(mocks.reviewMutate).toHaveBeenCalledWith({
+      nodeRunId: "node-run-1",
+      approved: true,
+      comment: "Looks good",
+      workflowId: "wf-1",
+      runId: "run-1",
+    });
   });
 });

@@ -471,3 +471,79 @@ func TestBuildPromptNoUpstreamStageContext(t *testing.T) {
 		t.Errorf("BuildPrompt should NOT contain upstream context section when empty, got:\n%s", out)
 	}
 }
+
+func TestBuildPromptGiteaDeliverables(t *testing.T) {
+	task := Task{
+		IssueID: "iss-1",
+		AgentID: "a-1",
+		GiteaDeliverables: &GiteaDeliverableContext{
+			Owner: "t-aaa", Repo: "wf-bbb", InstBranch: "inst-cc", NodeBranch: "node/dd",
+			Deliverables: []GiteaDeliverableRef{
+				{ID: "d1", Title: "Design Doc", Path: "nodes/dd/d1.md"},
+				{ID: "d2", Title: "API Spec", Path: "nodes/dd/d2.md"},
+			},
+		},
+	}
+	got := BuildPrompt(task, "claude")
+	if !strings.Contains(got, "Document Deliverables") {
+		t.Errorf("prompt missing Document Deliverables section:\n%s", got)
+	}
+	if !strings.Contains(got, "cs-workflow gitea submit --deliverable d1 --file") {
+		t.Errorf("prompt missing gitea submit command for d1:\n%s", got)
+	}
+	if !strings.Contains(got, "cs-workflow gitea submit --deliverable d2 --file") {
+		t.Errorf("prompt missing gitea submit command for d2:\n%s", got)
+	}
+	if !strings.Contains(got, "Design Doc") || !strings.Contains(got, "API Spec") {
+		t.Errorf("prompt missing deliverable titles:\n%s", got)
+	}
+}
+
+func TestBuildPromptWorkerPhaseWarnsNotToActAsCritic(t *testing.T) {
+	got := BuildPrompt(Task{
+		IssueID:       "iss-1",
+		WorkflowPhase: "worker",
+	}, "claude")
+	for _, want := range []string{
+		"Workflow Worker Task",
+		"You are the worker",
+		"Do NOT perform critic review",
+		"Do NOT approve or reject",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("worker prompt missing %q:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "Workflow Critic Review") {
+		t.Fatalf("worker prompt must not include critic review section:\n%s", got)
+	}
+}
+
+func TestBuildPromptCriticReviewOmitsDeliverableSubmissionInstructions(t *testing.T) {
+	task := Task{
+		IssueID:       "iss-1",
+		AgentID:       "a-1",
+		WorkflowPhase: "critic",
+		GiteaDeliverables: &GiteaDeliverableContext{
+			Owner: "t-aaa", Repo: "wf-bbb", InstBranch: "inst-cc", NodeBranch: "node/dd",
+			Deliverables: []GiteaDeliverableRef{{ID: "d1", Title: "Design Doc", Path: "nodes/dd/d1.md"}},
+		},
+	}
+	got := BuildPrompt(task, "claude")
+	if !strings.Contains(got, "Workflow Critic Review") {
+		t.Fatalf("critic prompt missing review instructions:\n%s", got)
+	}
+	if !strings.Contains(got, `"approved":true`) || !strings.Contains(got, `"comment"`) {
+		t.Fatalf("critic prompt missing JSON decision contract:\n%s", got)
+	}
+	if strings.Contains(got, "cs-workflow gitea submit") {
+		t.Fatalf("critic prompt must not ask the critic to submit deliverables:\n%s", got)
+	}
+}
+
+func TestBuildPromptNoGiteaDeliverablesWhenAbsent(t *testing.T) {
+	got := BuildPrompt(Task{IssueID: "iss-1", AgentID: "a-1"}, "claude")
+	if strings.Contains(got, "Document Deliverables") {
+		t.Errorf("prompt must not mention document deliverables when context absent:\n%s", got)
+	}
+}

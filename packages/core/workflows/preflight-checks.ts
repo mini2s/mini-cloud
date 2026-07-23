@@ -1,4 +1,13 @@
-import { parseNodeFormat, type WorkflowNode, type WorkflowEdge, type WorkflowStage } from "../types";
+import {
+  isBoundaryNode,
+  isEndNode,
+  isInvalidBoundaryConnection,
+  isStartNode,
+  parseNodeFormat,
+  type WorkflowNode,
+  type WorkflowEdge,
+  type WorkflowStage,
+} from "../types";
 
 // ── Types ──
 
@@ -17,6 +26,9 @@ export type PreflightCheckId =
   | "gateway-join-incoming"
   | "gateway-kind-invalid"
   | "gateway-join-multiple-outgoing"
+  | "boundary-start-outgoing"
+  | "boundary-end-incoming"
+  | "boundary-edge-direction"
   | "split-default-issue-workflow-missing"
   | "split-default-issue-workflow-invalid"
   | "split-default-issue-workflow-inactive"
@@ -160,7 +172,7 @@ export function checkOrphanNodes(nodes: WorkflowNode[], edges: WorkflowEdge[]): 
   }
 
   return nodes
-    .filter((n) => !connected.has(n.id))
+    .filter((n) => !isBoundaryNode(n) && !connected.has(n.id))
     .map((n) => ({
       checkId: "orphan-node" as const,
       severity: "warning" as const,
@@ -195,6 +207,7 @@ export function checkUnreachableNodes(
 
   return nodes
     .filter((n) => {
+      if (isBoundaryNode(n)) return false;
       if (indegree.get(n.id) !== 0) return false; // has incoming edges
       // Check if this node belongs to a later stage (not the primary one or unassigned)
       const stageId = nodeStageMap.get(n.id);
@@ -220,7 +233,7 @@ export function checkUnreachableNodes(
 /** Detect nodes without an assigned worker. */
 export function checkWorkerMissing(nodes: WorkflowNode[]): PreflightIssue[] {
   return nodes
-    .filter((n) => !isAnnotation(n) && !isGateway(n) && (!n.worker_type || (!n.worker_id && !n.worker_role_id && !n.worker_role)))
+    .filter((n) => !isAnnotation(n) && !isGateway(n) && !isBoundaryNode(n) && (!n.worker_type || (!n.worker_id && !n.worker_role_id && !n.worker_role)))
     .map((n): PreflightIssue => ({
       checkId: isSplit(n) ? "split-planner-missing" : "worker-missing",
       severity: "error" as const,
@@ -234,7 +247,7 @@ export function checkWorkerMissing(nodes: WorkflowNode[]): PreflightIssue[] {
 /** Roles are resolved to active workspace members when the run starts. */
 export function checkRolePlaceholders(nodes: WorkflowNode[]): PreflightIssue[] {
   return nodes.flatMap((node) => {
-    if (isAnnotation(node) || isGateway(node)) return [];
+    if (isAnnotation(node) || isGateway(node) || isBoundaryNode(node)) return [];
     const issues: PreflightIssue[] = [];
     const workerRole = node.worker_role_id ?? node.worker_role;
     if (workerRole) {
@@ -265,7 +278,7 @@ export function checkRolePlaceholders(nodes: WorkflowNode[]): PreflightIssue[] {
 export function checkInvalidCriticRef(nodes: WorkflowNode[], agentIds: Set<string>): PreflightIssue[] {
   return nodes
     .filter((n) => {
-      if (isGateway(n)) return false;
+      if (isGateway(n) || isBoundaryNode(n)) return false;
       if (!n.critic_id) return false;
       if (n.critic_type !== "agent") return false;
       return !agentIds.has(n.critic_id);
@@ -497,6 +510,48 @@ export function checkGatewayTopology(nodes: WorkflowNode[], edges: WorkflowEdge[
   return issues;
 }
 
+function boundaryIssue(
+  checkId: "boundary-start-outgoing" | "boundary-end-incoming" | "boundary-edge-direction",
+  node: WorkflowNode,
+  message: string,
+): PreflightIssue {
+  return {
+    checkId,
+    severity: "error",
+    blocking: true,
+    nodeId: node.id,
+    nodeTitle: node.title,
+    message,
+  };
+}
+
+export function checkBoundaryNodes(nodes: WorkflowNode[], edges: WorkflowEdge[]): PreflightIssue[] {
+  const issues: PreflightIssue[] = [];
+  const start = nodes.find(isStartNode);
+  const end = nodes.find(isEndNode);
+
+  if (start && !edges.some((edge) => edge.source_node_id === start.id)) {
+    issues.push(boundaryIssue("boundary-start-outgoing", start, "Start node needs an outgoing connection"));
+  }
+  if (end && !edges.some((edge) => edge.target_node_id === end.id)) {
+    issues.push(boundaryIssue("boundary-end-incoming", end, "End node needs an incoming connection"));
+  }
+
+  const byId = new Map(nodes.map((node) => [node.id, node]));
+  for (const edge of edges) {
+    const source = byId.get(edge.source_node_id);
+    const target = byId.get(edge.target_node_id);
+    if (source && target && isInvalidBoundaryConnection(source, target)) {
+      issues.push(boundaryIssue(
+        "boundary-edge-direction",
+        isBoundaryNode(source) ? source : target,
+        "Boundary connection direction is invalid",
+      ));
+    }
+  }
+  return issues;
+}
+
 // ── Master aggregator ──
 
 export interface PreflightCheckInput {
@@ -525,6 +580,7 @@ export function runAllPreflightChecks(input: PreflightCheckInput): PreflightResu
     ...checkInvalidCriticRef(nodes, agentIds),
     ...checkStageMissing(nodes),
     ...checkGatewayTopology(nodes, edges),
+    ...checkBoundaryNodes(nodes, edges),
     ...checkSplitChildWorkflowConfig(nodes, input.splitChildWorkflows ?? []),
     ...checkSplitMaxConcurrency(nodes),
   ];

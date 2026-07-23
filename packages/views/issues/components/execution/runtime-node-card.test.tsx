@@ -1,8 +1,12 @@
-import { render, screen } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import { describe, it, expect, vi } from "vitest";
 import userEvent from "@testing-library/user-event";
 import { ReactFlowProvider } from "@xyflow/react";
-import { RuntimeNodeCard, RUNTIME_NODE_HEIGHT } from "./runtime-node-card";
+import {
+  RuntimeNodeCard,
+  RUNTIME_NODE_HEIGHT,
+  RUNTIME_SPLIT_NODE_HEIGHT,
+} from "./runtime-node-card";
 import type { NodeRunActionType } from "./runtime-node-card";
 import type { WorkflowNode, WorkflowNodeRun, WorkflowNodeRuntimeSummary } from "@multica/core/types";
 
@@ -29,6 +33,16 @@ vi.mock("@multica/views/i18n", () => {
         worker_label: "Executor",
         critic_label: "Reviewer",
         artifacts_label: "Artifacts",
+        deliverable_more: "+{{count}}",
+        deliverable_status: {
+          missing: "Not submitted",
+          submitted: "Submitted",
+          approved: "Approved",
+          rejected: "Rejected",
+        },
+        session_opening: "Opening...",
+        session_opened: "Opened",
+        session_open_failed: "Unable to open",
         gateway_label_fork: "Branch start",
         gateway_label_join: "Join point",
         gateway_label: "Branch node",
@@ -222,7 +236,10 @@ describe("RuntimeNodeCard", () => {
 
   it("opens the node session without opening the detail panel", async () => {
     const onClick = vi.fn();
-    const onOpenSession = vi.fn();
+    let resolveOpenSession: ((opened: boolean) => void) | undefined;
+    const onOpenSession = vi.fn(() => new Promise<boolean>((resolve) => {
+      resolveOpenSession = resolve;
+    }));
     render(
       <RuntimeNodeCard
         node={baseNode}
@@ -235,12 +252,34 @@ describe("RuntimeNodeCard", () => {
     );
 
     const sessionButton = screen.getByRole("button", { name: "Open session" });
-    expect(sessionButton.querySelector("svg")).toBeNull();
-    expect(sessionButton).toHaveClass("cursor-pointer", "hover:-translate-y-px", "hover:bg-primary/10");
+    expect(sessionButton.querySelector("svg")).not.toBeNull();
+    expect(sessionButton).toHaveClass("text-muted-foreground", "hover:bg-muted/50");
+    expect(sessionButton).not.toHaveClass("border-primary/30", "shadow-xs", "hover:-translate-y-px");
     await userEvent.click(sessionButton);
 
     expect(onOpenSession).toHaveBeenCalledWith("node-1");
     expect(onClick).not.toHaveBeenCalled();
+    expect(sessionButton).toBeDisabled();
+    expect(sessionButton).toHaveTextContent("Opening...");
+
+    await act(async () => resolveOpenSession?.(true));
+    await waitFor(() => expect(sessionButton).toHaveTextContent("Opened"));
+  });
+
+  it("shows a failed state when the session cannot be opened", async () => {
+    render(
+      <RuntimeNodeCard
+        node={baseNode}
+        nodeRun={{ ...completedRun, session_id: "session-1" }}
+        workerName="Requirements analyst"
+        criticName="Product owner"
+        onClick={vi.fn()}
+        onOpenSession={vi.fn().mockResolvedValue(false)}
+      />,
+    );
+
+    await userEvent.click(screen.getByRole("button", { name: "Open session" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Unable to open" })).toBeDisabled());
   });
 
   it("hides the session action when the node has no session", () => {
@@ -256,6 +295,87 @@ describe("RuntimeNodeCard", () => {
     );
 
     expect(screen.queryByRole("button", { name: "Open session" })).not.toBeInTheDocument();
+  });
+
+  it("shows deliverable summary and keeps PR and session actions independent from the card", async () => {
+    const onClick = vi.fn();
+    const onOpenSession = vi.fn();
+    render(
+      <RuntimeNodeCard
+        node={baseNode}
+        nodeRun={{ ...completedRun, session_id: "session-1" }}
+        workerName="Requirements analyst"
+        criticName="Product owner"
+        onClick={onClick}
+        onOpenSession={onOpenSession}
+        deliverables={[
+          {
+            id: "deliverable-1",
+            title: "Requirements specification",
+            status: "approved",
+            pullRequestUrl: "https://gitea.test/workflow/pulls/7",
+          },
+          {
+            id: "deliverable-2",
+            title: "Acceptance checklist",
+            status: "submitted",
+            pullRequestUrl: null,
+          },
+          {
+            id: "deliverable-3",
+            title: "Data dictionary",
+            status: "missing",
+            pullRequestUrl: null,
+          },
+        ]}
+      />,
+    );
+
+    const deliverableLink = screen.getByRole("link", { name: /Requirements specification.*Approved/i });
+    expect(deliverableLink).toHaveAttribute("href", "https://gitea.test/workflow/pulls/7");
+    expect(deliverableLink).toHaveClass("text-muted-foreground");
+    expect(deliverableLink).not.toHaveClass("border", "bg-muted/35");
+    const deliverableStatus = screen.getByText("Approved");
+    expect(deliverableStatus.parentElement).toHaveClass("gap-1");
+    expect(deliverableStatus.parentElement).toContainElement(screen.getByText("Requirements specification"));
+    expect(deliverableStatus.previousElementSibling).toHaveTextContent("·");
+    expect(deliverableStatus).toHaveClass("rounded-sm", "bg-muted/50", "px-1");
+    expect(screen.getByText("+2")).toBeInTheDocument();
+
+    await userEvent.click(deliverableLink);
+    expect(onClick).not.toHaveBeenCalled();
+
+    await userEvent.click(screen.getByRole("button", { name: "Open session" }));
+    expect(onOpenSession).toHaveBeenCalledWith("node-1");
+    expect(onClick).not.toHaveBeenCalled();
+  });
+
+  it("keeps a non-link deliverable from opening the detail panel", async () => {
+    const onClick = vi.fn();
+    render(
+      <RuntimeNodeCard
+        node={baseNode}
+        nodeRun={completedRun}
+        workerName="Requirements analyst"
+        criticName="Product owner"
+        onClick={onClick}
+        deliverables={[
+          {
+            id: "deliverable-1",
+            title: "Requirements specification",
+            status: "missing",
+            pullRequestUrl: null,
+          },
+        ]}
+      />,
+    );
+
+    expect(screen.getByText("Requirements specification")).toBeInTheDocument();
+    expect(screen.getByText("Not submitted")).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: /Requirements specification/i })).not.toBeInTheDocument();
+
+    await userEvent.click(screen.getByText("Requirements specification"));
+    expect(onClick).not.toHaveBeenCalled();
   });
 
   it("does not expose raw output names as panorama-card artifacts", () => {
@@ -326,7 +446,7 @@ describe("RuntimeNodeCard", () => {
     const card = screen.getByTestId("runtime-node-card-node-1");
     expect(card).toHaveAttribute("data-workflow-canvas-node-shell", "true");
     expect(card.className).not.toContain("min-w-[240px]");
-    expect(card).toHaveStyle({ width: "296px", height: "156px" });
+    expect(card).toHaveStyle({ width: "296px", height: `${RUNTIME_NODE_HEIGHT}px` });
     const surface = card.querySelector('[data-node-shape-surface="true"]');
     expect(surface?.className).toContain("bg-gradient-to-br");
     expect(surface?.className).toContain("border-white/80");
@@ -496,6 +616,9 @@ describe("RuntimeNodeCard", () => {
     expect(screen.getByText("Task split")).toBeInTheDocument();
     expect(screen.getByText("Reviewing")).toBeInTheDocument();
     expect(screen.getByTestId("runtime-node-card-split-1")).toHaveTextContent("Reviewing");
+    expect(screen.getByTestId("runtime-node-card-split-1")).toHaveStyle({
+      height: `${RUNTIME_SPLIT_NODE_HEIGHT}px`,
+    });
     expect(screen.getByTestId("runtime-node-type-badge-split-1")).toHaveTextContent("Split");
     expect(screen.getByTestId("runtime-node-split-header")).toHaveClass("justify-between");
     expect(screen.getByTestId("runtime-node-split-header")).toHaveTextContent("Task splitReviewing");
@@ -643,6 +766,7 @@ describe("RuntimeNodeCard", () => {
       "grid-rows-[32px_20px_minmax(0,1fr)]",
     );
     expect(toggleButton).toHaveAttribute("data-testid", "runtime-node-split-child-toggle");
+    expect(toggleButton).toHaveClass("self-start", "mt-1.5");
     expect(toggleButton).toHaveTextContent("3 child issues");
     expect(toggleButton).toHaveTextContent("1 done · 1 running · 1 ready");
 

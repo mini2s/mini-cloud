@@ -14,6 +14,7 @@ import {
 } from "@multica/core/workflows/queries";
 import type { WorkflowNodeRun, NodeRunStatus } from "@multica/core/types";
 import { NodeRunControlActions } from "./node-run-control-actions";
+import { NodeRunDeliverables } from "./node-run-deliverables";
 
 const STATUS_ACTIVE: Set<NodeRunStatus> = new Set([
   "format_checking", "working", "critic_reviewing", "splitting", "split_active",
@@ -66,6 +67,7 @@ function CollapsibleJSON({ data, label }: { data: unknown; label: string }) {
 
 interface NodeRunCardProps {
   nodeRun: WorkflowNodeRun;
+  issueId?: string;
   maxRetries?: number;
   workflowId?: string;
   runId?: string;
@@ -75,6 +77,7 @@ interface NodeRunCardProps {
 
 export function NodeRunCard({
   nodeRun,
+  issueId,
   maxRetries = 3,
   workflowId,
   runId,
@@ -92,7 +95,7 @@ export function NodeRunCard({
   const status = nodeRun.status as NodeRunStatus;
   const isActive = STATUS_ACTIVE.has(status);
   const canSubmit = status === "worker_assigned" || status === "working";
-  const canReview = status === "awaiting_critic";
+  const canReview = status === "awaiting_critic" || status === "critic_reviewing";
   const canSkip = !["completed", "failed", "cancelled", "skipped", "awaiting_split_review", "split_active"].includes(status);
 
   return (
@@ -127,6 +130,14 @@ export function NodeRunCard({
       )}
       <CollapsibleJSON data={nodeRun.critic_output} label="Critic Output" />
 
+      {/* Deliverable PRs (document deliverables from agents) */}
+      <NodeRunDeliverables
+        wsId={wsId}
+        nodeRunId={nodeRun.id}
+        issueId={issueId}
+        canUpload={nodeRun.worker_type === "human"}
+      />
+
       {/* Actions */}
       <div className="flex items-center gap-1.5 pt-1 flex-wrap">
         {canSubmit && (
@@ -154,7 +165,7 @@ export function NodeRunCard({
               <Button
                 size="sm"
                 className="h-7 text-xs"
-                onClick={() => reviewMutation.mutate({ nodeRunId: nodeRun.id, approved: true, comment: reviewComment })}
+                onClick={() => reviewMutation.mutate({ nodeRunId: nodeRun.id, approved: true, comment: reviewComment, workflowId, runId })}
                 disabled={reviewMutation.isPending}
               >
                 {t(($) => $.node_run.approve)}
@@ -163,7 +174,7 @@ export function NodeRunCard({
                 size="sm"
                 variant="outline"
                 className="h-7 text-xs"
-                onClick={() => reviewMutation.mutate({ nodeRunId: nodeRun.id, approved: false, comment: reviewComment })}
+                onClick={() => reviewMutation.mutate({ nodeRunId: nodeRun.id, approved: false, comment: reviewComment, workflowId, runId })}
                 disabled={reviewMutation.isPending}
               >
                 <RotateCcw className="h-3 w-3 mr-1" />

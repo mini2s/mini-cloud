@@ -1,4 +1,11 @@
-import type { CreateNodeRequest, CriticType, GatewayKind, NodeShape, WorkerType } from "@multica/core/types";
+import type {
+  CreateNodeRequest,
+  CriticType,
+  GatewayKind,
+  NodeShape,
+  WorkerType,
+  WorkflowBoundaryKind,
+} from "@multica/core/types";
 
 export type NodeTemplateCategoryId =
   | "trigger"
@@ -26,27 +33,37 @@ export interface NodeTemplate {
   gateway_kind?: GatewayKind;
   annotation?: boolean;
   split?: boolean;
+  boundary_kind?: WorkflowBoundaryKind;
 }
 
 export const NODE_TEMPLATE_CATEGORIES: NodeTemplateCategory[] = [
   { id: "trigger", labelKey: "trigger", descriptionKey: "trigger_description" },
   { id: "action", labelKey: "action", descriptionKey: "action_description" },
   { id: "logic", labelKey: "logic", descriptionKey: "logic_description" },
-  { id: "ai", labelKey: "ai", descriptionKey: "ai_description" },
-  { id: "human", labelKey: "human", descriptionKey: "human_description" },
-  { id: "annotation", labelKey: "annotation", descriptionKey: "annotation_description" },
 ];
 
 export const NODE_TEMPLATES: NodeTemplate[] = [
   {
-    id: "manual-trigger",
+    id: "workflow-start",
     category: "trigger",
-    title: "Manual trigger",
-    description: "Start this workflow from a button or manual run.",
-    tags: ["start", "manual", "trigger"],
+    title: "Start",
+    description: "Mark the workflow entry boundary.",
+    tags: ["start", "entry", "boundary"],
     shape: "pill",
     worker_type: "human",
     critic_type: "human",
+    boundary_kind: "start",
+  },
+  {
+    id: "workflow-end",
+    category: "trigger",
+    title: "End",
+    description: "Mark the workflow exit boundary.",
+    tags: ["end", "finish", "boundary"],
+    shape: "pill",
+    worker_type: "human",
+    critic_type: "human",
+    boundary_kind: "end",
   },
   {
     id: "agent-task",
@@ -59,38 +76,6 @@ export const NODE_TEMPLATES: NodeTemplate[] = [
     critic_type: "human",
   },
   {
-    id: "condition-branch",
-    category: "logic",
-    title: "Decision",
-    description: "Represent a branch or approval decision.",
-    tags: ["if", "condition", "branch", "decision"],
-    shape: "diamond",
-    worker_type: "human",
-    critic_type: "human",
-  },
-  {
-    id: "fork-gateway",
-    category: "logic",
-    title: "Fork",
-    description: "Run multiple downstream branches in parallel.",
-    tags: ["parallel", "fork", "gateway", "split"],
-    shape: "diamond",
-    worker_type: "agent",
-    critic_type: "human",
-    gateway_kind: "fork",
-  },
-  {
-    id: "join-gateway",
-    category: "logic",
-    title: "Join",
-    description: "Wait for multiple upstream branches before continuing.",
-    tags: ["join", "gateway", "merge", "wait"],
-    shape: "diamond",
-    worker_type: "agent",
-    critic_type: "human",
-    gateway_kind: "join",
-  },
-  {
     id: "task-splitter",
     category: "logic",
     title: "Task split",
@@ -100,37 +85,6 @@ export const NODE_TEMPLATES: NodeTemplate[] = [
     worker_type: "agent",
     critic_type: "human",
     split: true,
-  },
-  {
-    id: "ai-agent-task",
-    category: "ai",
-    title: "Agent task",
-    description: "Ask an agent to complete a workflow step.",
-    tags: ["ai", "agent", "automation"],
-    shape: "rectangle",
-    worker_type: "agent",
-    critic_type: "human",
-  },
-  {
-    id: "human-review",
-    category: "human",
-    title: "Human review",
-    description: "Pause for a person to review or approve output.",
-    tags: ["human", "review", "approval"],
-    shape: "hexagon",
-    worker_type: "human",
-    critic_type: "human",
-  },
-  {
-    id: "sticky-note",
-    category: "annotation",
-    title: "Note",
-    description: "Add context, assumptions, or handoff notes to the canvas.",
-    tags: ["note", "annotation", "comment"],
-    shape: "rectangle",
-    worker_type: "human",
-    critic_type: "human",
-    annotation: true,
   },
 ];
 
@@ -153,7 +107,14 @@ export function buildCreateNodeRequestFromTemplate(
   template: NodeTemplate,
   input: { x: number; y: number; stageId: string | null },
 ): CreateNodeRequest {
-  const formatSchema = template.annotation
+  const formatSchema = template.boundary_kind
+    ? {
+        type: template.boundary_kind,
+        shape: template.shape,
+        template_id: template.id,
+        template_category: template.category,
+      }
+    : template.annotation
     ? {
         type: "annotation",
         template_id: template.id,
@@ -194,7 +155,7 @@ export function buildCreateNodeRequestFromTemplate(
     stage_id: input.stageId,
     format_schema: formatSchema,
     worker_type: template.worker_type,
-    worker_id: template.split ? null : null,
+    worker_id: null,
     critic_type: template.critic_type,
     critic_id: null,
     critic_api_url: null,
