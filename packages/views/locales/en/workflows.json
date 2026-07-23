@@ -485,7 +485,7 @@
     "submit": "Submit",
     "submitting": "Submitting...",
     "approve": "Approve",
-    "request_rework": "Request Rework",
+    "request_rework": "Reject",
     "skip": "Skip",
     "toast_submitted": "Output submitted",
     "toast_submit_failed": "Failed to submit output",
@@ -514,6 +514,7 @@
     "hand_back_wrong_status": "Only blocked nodes can be handed back.",
     "finalize_wrong_status": "Only blocked nodes can be finalized.",
     "review_comment_placeholder": "Add a comment with your review...",
+    "review_comment_required": "Please add a review comment before approving or rejecting",
     "deliverables": {
       "heading": "Deliverable PRs",
       "document_section": "Documents",

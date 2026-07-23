@@ -533,7 +533,7 @@
       "split_child_collapse": "收起子 issue",
       "actions": {
         "approve": "通过",
-        "reject": "打回",
+        "reject": "驳回",
         "submit_input": "提交",
         "handback": "交还",
         "retry": "重试",
@@ -593,6 +593,7 @@
       "not_configured": "未配置",
       "no_output": "暂无输出",
       "review_comment": "审核意见",
+      "review_comment_required": "请填写评审意见后再通过或驳回",
       "metadata": "元数据",
       "started_at": "开始时间",
       "completed_at": "完成时间",

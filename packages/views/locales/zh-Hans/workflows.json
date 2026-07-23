@@ -485,7 +485,7 @@
     "submit": "提交",
     "submitting": "提交中...",
     "approve": "通过",
-    "request_rework": "需返工",
+    "request_rework": "驳回",
     "skip": "跳过",
     "toast_submitted": "输出已提交",
     "toast_submit_failed": "提交输出失败",
@@ -514,6 +514,7 @@
     "hand_back_wrong_status": "只有已阻塞的节点可以交还。",
     "finalize_wrong_status": "只有已阻塞的节点可以完成。",
     "review_comment_placeholder": "添加评审意见...",
+    "review_comment_required": "请填写评审意见后再通过或驳回",
     "deliverables": {
       "heading": "交付物 PR",
       "document_section": "文档",

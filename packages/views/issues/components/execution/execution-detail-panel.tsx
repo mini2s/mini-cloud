@@ -282,6 +282,10 @@ export function ExecutionDetailPanel({
     (nodeRun?.status === "awaiting_critic" || nodeRun?.status === "critic_reviewing") &&
     (nodeRun.critic_type === "human" || node.critic_type === "human");
 
+  // A review decision must carry a comment — it is archived to Gitea as the
+  // reviewer's opinion, so an empty one is rejected at the UI boundary.
+  const reviewCommentEmpty = !reviewComment.trim();
+
   const reviewMutation = useMutation({
     mutationFn: async (approved: boolean) => {
       if (!nodeRun) return;
@@ -579,10 +583,15 @@ export function ExecutionDetailPanel({
                       : "Failed to review node run"}
                   </p>
                 ) : null}
+                {reviewCommentEmpty ? (
+                  <p className="text-xs text-muted-foreground">
+                    {t(($) => $.execution.detail_panel.review_comment_required)}
+                  </p>
+                ) : null}
                 <div className="flex flex-wrap gap-2">
                   <button
                     type="button"
-                    disabled={reviewMutation.isPending}
+                    disabled={reviewMutation.isPending || reviewCommentEmpty}
                     onClick={() => reviewMutation.mutate(true)}
                     className="bg-primary text-primary-foreground inline-flex h-8 items-center justify-center gap-1.5 rounded-md px-3 text-xs font-medium transition-colors disabled:opacity-50"
                   >
@@ -591,7 +600,7 @@ export function ExecutionDetailPanel({
                   </button>
                   <button
                     type="button"
-                    disabled={reviewMutation.isPending}
+                    disabled={reviewMutation.isPending || reviewCommentEmpty}
                     onClick={() => reviewMutation.mutate(false)}
                     className="inline-flex h-8 items-center justify-center gap-1.5 rounded-md border bg-background px-3 text-xs font-medium transition-colors hover:bg-muted disabled:opacity-50"
                   >

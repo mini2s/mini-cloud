@@ -96,6 +96,9 @@ export function NodeRunCard({
   const isActive = STATUS_ACTIVE.has(status);
   const canSubmit = status === "worker_assigned" || status === "working";
   const canReview = status === "awaiting_critic" || status === "critic_reviewing";
+  // A review decision must carry a comment — it is archived to Gitea as the
+  // reviewer's opinion, so an empty one is rejected at the UI boundary.
+  const reviewCommentEmpty = !reviewComment.trim();
   const canSkip = !["completed", "failed", "cancelled", "skipped", "awaiting_split_review", "split_active"].includes(status);
 
   return (
@@ -166,7 +169,7 @@ export function NodeRunCard({
                 size="sm"
                 className="h-7 text-xs"
                 onClick={() => reviewMutation.mutate({ nodeRunId: nodeRun.id, approved: true, comment: reviewComment, workflowId, runId })}
-                disabled={reviewMutation.isPending}
+                disabled={reviewMutation.isPending || reviewCommentEmpty}
               >
                 {t(($) => $.node_run.approve)}
               </Button>
@@ -175,12 +178,15 @@ export function NodeRunCard({
                 variant="outline"
                 className="h-7 text-xs"
                 onClick={() => reviewMutation.mutate({ nodeRunId: nodeRun.id, approved: false, comment: reviewComment, workflowId, runId })}
-                disabled={reviewMutation.isPending}
+                disabled={reviewMutation.isPending || reviewCommentEmpty}
               >
                 <RotateCcw className="h-3 w-3 mr-1" />
                 {t(($) => $.node_run.request_rework)}
               </Button>
             </div>
+            {reviewCommentEmpty ? (
+              <p className="text-[11px] text-muted-foreground">{t(($) => $.node_run.review_comment_required)}</p>
+            ) : null}
           </>
         )}
         {canSkip && (
