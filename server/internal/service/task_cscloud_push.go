@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	"time"
@@ -210,9 +211,11 @@ func appendWorkerTaskPrompt(prompt string) string {
 	return b.String()
 }
 
-// appendDeliverablePrompt adds a "Document Deliverables" section to the prompt,
-// instructing the agent to submit each deliverable via `cs-cloud workflow deliverable submit`
-// and that it can read other issues' deliverables via `cs-cloud workflow deliverable fetch`.
+// appendDeliverablePrompt adds a "Document Deliverables" section to the prompt.
+// The deliverable repository is exposed to the agent as a normal git remote
+// (authed clone URL in the task env), so reading/exploring is plain git; only
+// the final submit — which opens the node->inst PR and registers it back here —
+// goes through the `cs-cloud workflow deliverable submit` command.
 func appendDeliverablePrompt(prompt string, refs []giteaDeliverableRefJSON) string {
 	var b strings.Builder
 	b.WriteString(prompt)
@@ -220,15 +223,14 @@ func appendDeliverablePrompt(prompt string, refs []giteaDeliverableRefJSON) stri
 		b.WriteByte('\n')
 	}
 	b.WriteString("\n---\n## Document Deliverables\n\n")
-	b.WriteString("This node has document deliverables stored in the platform git server. For EACH deliverable below: write the document to a local file, then submit it with the CLI — the command creates a node branch, pushes your file, opens a Gitea PR, and registers the PR back here. Do NOT use inline content upload for these; document deliverables go through git.\n\n")
+	b.WriteString("This node has document deliverables stored in the platform git server. The repository is exposed as a normal git remote: clone it with plain git using the authed URL in `$MULTICA_GITEA_CLONE_URL_AUTHED` (credentials are already embedded, so clone/push just work — do not set up a separate credential helper). The instance branch is `$MULTICA_GITEA_INST_BRANCH` and this node's branch is `$MULTICA_GITEA_NODE_BRANCH`.\n\n")
+	b.WriteString("For EACH deliverable below: write the document to a local file, then submit it with the CLI — the command pushes your file to the node branch, opens a Gitea PR (node -> inst), and registers the PR back here. Do NOT use inline content upload for these; document deliverables go through git.\n\n")
 	for _, d := range refs {
 		fmt.Fprintf(&b, "- **%s** (id=%s): run `cs-cloud workflow deliverable submit --deliverable %s --file <local-path-to-your-document>`\n", d.Title, d.ID, d.ID)
 	}
 	b.WriteString("\nA deliverable is not considered submitted until its PR is registered. Complete every listed deliverable before finishing.\n\n")
-	b.WriteString("### Reading other issues' deliverables\n\n")
-	b.WriteString("You can read document deliverables from ANY issue in this workspace — your own, child issues from task splits, or upstream issues. Each result includes all descendant issues' deliverables, labeled with their source issue_id:\n")
-	b.WriteString("- `cs-cloud workflow deliverable fetch` — read the current issue's deliverables (plus all child/grandchild issues').\n")
-	b.WriteString("- `cs-cloud workflow deliverable fetch <issue-key>` — read a specific issue (e.g. `cs-cloud workflow deliverable fetch MUL-123`).\n")
+	b.WriteString("### Reading the deliverable repository\n\n")
+	b.WriteString("Use plain git to read or explore — there is no separate fetch command. For example: `git clone $MULTICA_GITEA_CLONE_URL_AUTHED` then `git checkout $MULTICA_GITEA_INST_BRANCH` to see the current run's tree (this node's deliverables live under its node directory). Only this run's repository is exposed via the env; if you need another issue's deliverables and they are not in this repo, ask the user rather than guessing the URL.\n")
 	b.WriteString("\n---\n\n")
 	return b.String()
 }
@@ -333,25 +335,51 @@ func (s *TaskService) giteaDeliverableEnv(ctx context.Context, task db.MulticaAg
 	// back through multica to fetch credentials. The PAT lives in workspace
 	// settings (minted by the team-namespace provisioning flow).
 	pat := ""
+	botUser := ""
 	if ws, err := s.Queries.GetWorkspace(ctx, run.WorkspaceID); err == nil && len(ws.Settings) > 0 {
 		settingsMap := map[string]any{}
 		if json.Unmarshal(ws.Settings, &settingsMap) == nil {
 			if v, ok := settingsMap["gitea_pat"].(string); ok {
 				pat = v
 			}
+			if v, ok := settingsMap["gitea_bot_username"].(string); ok {
+				botUser = v
+			}
 		}
 	}
+	cloneURL := strings.TrimRight(publicBase, "/") + "/" + owner + "/" + repo + ".git"
 	return map[string]string{
-		"MULTICA_NODE_RUN_ID":        nodeRunIDStr,
-		"MULTICA_GITEA_OWNER":        owner,
-		"MULTICA_GITEA_REPO":         repo,
-		"MULTICA_GITEA_BASE_URL":     strings.TrimRight(publicBase, "/"),
-		"MULTICA_GITEA_TOKEN":        pat,
-		"MULTICA_GITEA_CLONE_URL":    strings.TrimRight(publicBase, "/") + "/" + owner + "/" + repo + ".git",
-		"MULTICA_GITEA_INST_BRANCH":  gitea.InstBranch(util.UUIDToString(run.ID)),
-		"MULTICA_GITEA_NODE_BRANCH":  gitea.NodeBranch(nodeSeq, nodeRunIDStr),
-		"MULTICA_GITEA_DELIVERABLES": string(refsJSON),
+		"MULTICA_NODE_RUN_ID":            nodeRunIDStr,
+		"MULTICA_GITEA_OWNER":            owner,
+		"MULTICA_GITEA_REPO":             repo,
+		"MULTICA_GITEA_BASE_URL":         strings.TrimRight(publicBase, "/"),
+		"MULTICA_GITEA_TOKEN":            pat,
+		"MULTICA_GITEA_CLONE_URL":        cloneURL,
+		"MULTICA_GITEA_CLONE_URL_AUTHED": injectGiteaToken(cloneURL, botUser, pat),
+		"MULTICA_GITEA_INST_BRANCH":      gitea.InstBranch(util.UUIDToString(run.ID)),
+		"MULTICA_GITEA_NODE_BRANCH":      gitea.NodeBranch(nodeSeq, nodeRunIDStr),
+		"MULTICA_GITEA_DELIVERABLES":     string(refsJSON),
 	}
+}
+
+// injectGiteaToken embeds the bot credential into a Gitea clone URL so the
+// agent can git clone/push without a separate credential step. It uses the bot
+// username when known, falling back to the "oauth2" pseudo-user that Gitea
+// accepts for any PAT. Returns the URL unchanged when the token is empty.
+func injectGiteaToken(cloneURL, botUser, token string) string {
+	if strings.TrimSpace(token) == "" {
+		return cloneURL
+	}
+	u, err := url.Parse(strings.TrimSpace(cloneURL))
+	if err != nil || u.Host == "" {
+		return cloneURL
+	}
+	user := strings.TrimSpace(botUser)
+	if user == "" {
+		user = "oauth2"
+	}
+	u.User = url.UserPassword(user, token)
+	return u.String()
 }
 
 func computeCSCloudTaskKind(task db.MulticaAgentTaskQueue) string {
