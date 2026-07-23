@@ -10,6 +10,7 @@ import type {
   DashboardTrendDelta,
   DashboardTrendPoint,
   DashboardTrends,
+  GlobalConfig,
 } from "../types";
 
 // startDate/endDate are accepted for signature parity with the real query
@@ -98,5 +99,16 @@ export function getMockDashboardTrends(_p: {
     granularity: "week",
     points,
     compare: { efficiency, usage, cost, contribution },
+  };
+}
+
+// Global platform config sample. Mirrors the /v2/config response used by the
+// executive dashboard (person-day rates, title prefix, chat-stats gate).
+export function getMockGlobalConfig(): GlobalConfig {
+  return {
+    traditional_dev_lines_per_day: 500,
+    cost_per_person_day: 2000,
+    dashboard_title_prefix: "",
+    chat_stats_enabled: false,
   };
 }

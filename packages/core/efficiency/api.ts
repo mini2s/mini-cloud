@@ -9,7 +9,7 @@ import type { DashboardSummary, DashboardTrends, GlobalConfig } from "./types";
 
 const BASE = "/api/v2/efficiency";
 const NOT_WIRED =
-  "Efficiency backend not yet wired — set EFFICIENCY_MOCK=1 (default) or wait for /api/v2/efficiency/* endpoints.";
+  "Efficiency backend not yet wired — re-enable mock with EFFICIENCY_MOCK=1, or wire up /api/v2/efficiency/* endpoints (slice 7+).";
 
 function qs(params: Record<string, string | undefined>): string {
   const s = new URLSearchParams();

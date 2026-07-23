@@ -51,14 +51,7 @@ export function globalConfigOptions(wsId: string) {
   return queryOptions({
     queryKey: efficiencyKeys.config(wsId),
     queryFn: async () => {
-      if (MOCK_ENABLED) {
-        return {
-          traditional_dev_lines_per_day: 500,
-          cost_per_person_day: 2000,
-          dashboard_title_prefix: "",
-          chat_stats_enabled: false,
-        };
-      }
+      if (MOCK_ENABLED) return mock.globalConfig();
       return getGlobalConfig();
     },
     enabled: !!wsId,
