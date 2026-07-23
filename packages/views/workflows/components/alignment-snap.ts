@@ -1,5 +1,4 @@
 import type { Node } from "@xyflow/react";
-import type { WorkflowNodeData } from "./reactflow-nodes";
 
 export interface AlignmentGuide {
   orientation: "vertical" | "horizontal";
@@ -22,7 +21,7 @@ const SNAP_THRESHOLD = 5;
 const DEFAULT_WIDTH = 150;
 const DEFAULT_HEIGHT = 70;
 
-function nodeEdges(node: Node<WorkflowNodeData>) {
+function nodeEdges(node: Node) {
   const w = (node.measured?.width ?? node.width ?? DEFAULT_WIDTH) as number;
   const h = (node.measured?.height ?? node.height ?? DEFAULT_HEIGHT) as number;
   const x = node.position.x;
@@ -47,7 +46,7 @@ export function computeAlignmentSnap(
   draggingNodeId: string,
   proposedX: number,
   proposedY: number,
-  allNodes: Node<WorkflowNodeData>[],
+  allNodes: Node[],
   threshold: number = SNAP_THRESHOLD,
 ): SnapResult {
   const others = allNodes.filter((n) => n.id !== draggingNodeId);

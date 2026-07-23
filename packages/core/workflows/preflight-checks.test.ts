@@ -11,6 +11,7 @@ import {
   checkStageMissing,
   checkSplitChildWorkflowConfig,
   checkSplitMaxConcurrency,
+  checkBoundaryNodes,
   runAllPreflightChecks,
 } from "./preflight-checks";
 import type { WorkflowNode, WorkflowEdge, WorkflowStage } from "../types";
@@ -61,6 +62,67 @@ function makeStage(overrides: Partial<WorkflowStage> & { id: string; sort_order:
     ...overrides,
   };
 }
+
+function preflightInput(overrides: Partial<Parameters<typeof runAllPreflightChecks>[0]> = {}) {
+  return {
+    nodes: [],
+    edges: [],
+    stages: [],
+    agentIds: new Set<string>(),
+    ...overrides,
+  };
+}
+
+describe("boundary node preflight", () => {
+  const start = makeNode({
+    id: "start",
+    title: "Start",
+    format_schema: { type: "start" },
+    worker_id: null,
+  });
+  const task = makeNode({ id: "task", title: "Task" });
+  const end = makeNode({
+    id: "end",
+    title: "End",
+    format_schema: { type: "end" },
+    worker_id: null,
+  });
+
+  it("keeps boundary nodes optional but validates present nodes", () => {
+    expect(runAllPreflightChecks(preflightInput({ nodes: [task] })).issues)
+      .not.toEqual(expect.arrayContaining([
+        expect.objectContaining({ checkId: expect.stringContaining("boundary") }),
+      ]));
+    expect(runAllPreflightChecks(preflightInput({ nodes: [start, task] })).issues)
+      .toContainEqual(expect.objectContaining({ checkId: "boundary-start-outgoing", blocking: true }));
+    expect(runAllPreflightChecks(preflightInput({ nodes: [task, end] })).issues)
+      .toContainEqual(expect.objectContaining({ checkId: "boundary-end-incoming", blocking: true }));
+    expect(checkWorkerMissing([start, end])).toEqual([]);
+    expect(checkOrphanNodes([start, task], []))
+      .not.toContainEqual(expect.objectContaining({ nodeId: start.id }));
+  });
+
+  it("rejects invalid boundary directions and annotation connections", () => {
+    const annotation = makeNode({ id: "note", format_schema: { type: "annotation" } });
+    const invalidEdges = [
+      makeEdge({ source_node_id: "task", target_node_id: "start" }),
+      makeEdge({ source_node_id: "end", target_node_id: "task" }),
+      makeEdge({ source_node_id: "start", target_node_id: "end" }),
+      makeEdge({ source_node_id: "start", target_node_id: "note" }),
+    ];
+
+    expect(checkBoundaryNodes([start, task, end, annotation], invalidEdges))
+      .toEqual(expect.arrayContaining([
+        expect.objectContaining({ checkId: "boundary-edge-direction", blocking: true }),
+      ]));
+  });
+
+  it("keeps the missing-stage warning for boundary nodes", () => {
+    const unassignedStart = { ...start, stage_id: null };
+    expect(checkStageMissing([unassignedStart]))
+      .toContainEqual(expect.objectContaining({ checkId: "stage-missing", nodeId: start.id }));
+  });
+});
 
 // ── checkDAGCycles ──
 
@@ -156,6 +218,19 @@ describe("checkUnreachableNodes", () => {
   it("returns empty for N<=1", () => {
     const nodes = [makeNode({ id: "a" })];
     const stages = [makeStage({ id: "stage-1", sort_order: 0 })];
+    expect(checkUnreachableNodes(nodes, [], stages)).toEqual([]);
+  });
+
+  it("does not report boundary nodes as unreachable", () => {
+    const nodes = [
+      makeNode({ id: "task", stage_id: "stage-1" }),
+      makeNode({ id: "start", stage_id: "stage-2", format_schema: { type: "start" } }),
+    ];
+    const stages = [
+      makeStage({ id: "stage-1", sort_order: 0 }),
+      makeStage({ id: "stage-2", sort_order: 1 }),
+    ];
+
     expect(checkUnreachableNodes(nodes, [], stages)).toEqual([]);
   });
 

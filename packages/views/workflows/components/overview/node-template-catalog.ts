@@ -1,4 +1,11 @@
-import type { CreateNodeRequest, CriticType, GatewayKind, NodeShape, WorkerType } from "@multica/core/types";
+import type {
+  CreateNodeRequest,
+  CriticType,
+  GatewayKind,
+  NodeShape,
+  WorkerType,
+  WorkflowBoundaryKind,
+} from "@multica/core/types";
 
 export type NodeTemplateCategoryId =
   | "trigger"
@@ -26,6 +33,7 @@ export interface NodeTemplate {
   gateway_kind?: GatewayKind;
   annotation?: boolean;
   split?: boolean;
+  boundary_kind?: WorkflowBoundaryKind;
 }
 
 export const NODE_TEMPLATE_CATEGORIES: NodeTemplateCategory[] = [
@@ -38,6 +46,28 @@ export const NODE_TEMPLATE_CATEGORIES: NodeTemplateCategory[] = [
 ];
 
 export const NODE_TEMPLATES: NodeTemplate[] = [
+  {
+    id: "workflow-start",
+    category: "trigger",
+    title: "Start",
+    description: "Mark the workflow entry boundary.",
+    tags: ["start", "entry", "boundary"],
+    shape: "pill",
+    worker_type: "human",
+    critic_type: "human",
+    boundary_kind: "start",
+  },
+  {
+    id: "workflow-end",
+    category: "trigger",
+    title: "End",
+    description: "Mark the workflow exit boundary.",
+    tags: ["end", "finish", "boundary"],
+    shape: "pill",
+    worker_type: "human",
+    critic_type: "human",
+    boundary_kind: "end",
+  },
   {
     id: "manual-trigger",
     category: "trigger",
@@ -153,7 +183,14 @@ export function buildCreateNodeRequestFromTemplate(
   template: NodeTemplate,
   input: { x: number; y: number; stageId: string | null },
 ): CreateNodeRequest {
-  const formatSchema = template.annotation
+  const formatSchema = template.boundary_kind
+    ? {
+        type: template.boundary_kind,
+        shape: template.shape,
+        template_id: template.id,
+        template_category: template.category,
+      }
+    : template.annotation
     ? {
         type: "annotation",
         template_id: template.id,
@@ -194,7 +231,7 @@ export function buildCreateNodeRequestFromTemplate(
     stage_id: input.stageId,
     format_schema: formatSchema,
     worker_type: template.worker_type,
-    worker_id: template.split ? null : null,
+    worker_id: null,
     critic_type: template.critic_type,
     critic_id: null,
     critic_api_url: null,

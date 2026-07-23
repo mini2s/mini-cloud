@@ -42,6 +42,9 @@ function checkLabel(checkId: PreflightIssue["checkId"], t: ReturnType<typeof use
     case "gateway-join-incoming":                  return t(($) => $.preflight.check_gateway_join_incoming);
     case "gateway-kind-invalid":                   return t(($) => $.preflight.check_gateway_kind_invalid);
     case "gateway-join-multiple-outgoing":         return t(($) => $.preflight.check_gateway_join_multiple_outgoing);
+    case "boundary-start-outgoing":                return t(($) => $.preflight.check_boundary_start_outgoing);
+    case "boundary-end-incoming":                  return t(($) => $.preflight.check_boundary_end_incoming);
+    case "boundary-edge-direction":                return t(($) => $.preflight.check_boundary_edge_direction);
     default:                                       return checkId;
   }
 }
@@ -67,6 +70,9 @@ export function checkDetailLabel(issue: PreflightIssue, t: ReturnType<typeof use
     case "gateway-join-incoming":                  return t(($) => $.preflight.detail_gateway_join_incoming);
     case "gateway-kind-invalid":                   return t(($) => $.preflight.detail_gateway_kind_invalid);
     case "gateway-join-multiple-outgoing":         return t(($) => $.preflight.detail_gateway_join_multiple_outgoing);
+    case "boundary-start-outgoing":                return t(($) => $.preflight.detail_boundary_start_outgoing);
+    case "boundary-end-incoming":                  return t(($) => $.preflight.detail_boundary_end_incoming);
+    case "boundary-edge-direction":                return t(($) => $.preflight.detail_boundary_edge_direction);
     default:                                       return issue.message;
   }
 }

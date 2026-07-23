@@ -2,9 +2,41 @@
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { act, fireEvent, render, screen } from "@testing-library/react";
-import { WorkflowPanoramaPage } from "./workflow-panorama-page";
+import { isValidWorkflowConnection, WorkflowPanoramaPage } from "./workflow-panorama-page";
 import { STAGE_MARKER_COLORS } from "./constants";
 import type { Edge, Node } from "@xyflow/react";
+import type { WorkflowNode } from "@multica/core/types";
+
+it("validates boundary connections before mutation", () => {
+  const node = (id: string, type?: string): WorkflowNode => ({
+    id,
+    workflow_id: "wf-1",
+    title: id,
+    description: "",
+    position_x: 0,
+    position_y: 0,
+    format_schema: type ? { type } : null,
+    worker_type: "human",
+    worker_id: null,
+    critic_type: "human",
+    critic_id: null,
+    critic_api_url: null,
+    sort_order: 0,
+    stage_id: "stage-1",
+    created_at: "",
+    updated_at: "",
+  });
+  const nodes = new Map(["start", "task", "end", "note"].map((id) => [
+    id,
+    node(id, id === "task" ? undefined : id === "note" ? "annotation" : id),
+  ]));
+
+  expect(isValidWorkflowConnection({ source: "start", target: "task", sourceHandle: null, targetHandle: null }, nodes)).toBe(true);
+  expect(isValidWorkflowConnection({ source: "task", target: "end", sourceHandle: null, targetHandle: null }, nodes)).toBe(true);
+  expect(isValidWorkflowConnection({ source: "task", target: "start", sourceHandle: null, targetHandle: null }, nodes)).toBe(false);
+  expect(isValidWorkflowConnection({ source: "start", target: "end", sourceHandle: null, targetHandle: null }, nodes)).toBe(false);
+  expect(isValidWorkflowConnection({ source: "start", target: "note", sourceHandle: null, targetHandle: null }, nodes)).toBe(false);
+});
 
 // Hoisted mock data — allows per-test overrides via beforeEach
 const mocks = vi.hoisted(() => ({
@@ -526,6 +558,57 @@ describe("WorkflowPanoramaPage (new)", () => {
     });
   });
 
+  it("only sends title and description when saving cached boundary node edits", async () => {
+    mocks.nodesData = [
+      {
+        id: "start-1",
+        workflow_id: "wf-1",
+        title: "Start",
+        description: "",
+        worker_type: "human",
+        worker_id: null,
+        worker_role_id: null,
+        critic_type: "human",
+        critic_id: null,
+        critic_role_id: null,
+        critic_api_url: null,
+        stage_id: "stage-1",
+        format_schema: { type: "start" },
+        position_x: 120,
+        position_y: 0,
+        sort_order: 0,
+        created_at: "",
+        updated_at: "",
+      },
+    ];
+    mocks.nodeEdits = {
+      "start-1": {
+        title: "Begin",
+        description: "Entry point",
+        worker_type: "agent",
+        worker_id: "agent-1",
+        worker_role_id: "role-1",
+        critic_type: "api",
+        critic_id: "critic-1",
+        critic_role_id: "role-2",
+        critic_api_url: "https://critic.example.test",
+        format_schema: { type: "split" },
+      },
+    };
+    mocks.updateNodeMutateAsync.mockResolvedValueOnce({});
+
+    render(<WorkflowPanoramaPage workflowId="wf-1" />);
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+
+    await vi.waitFor(() => {
+      expect(mocks.updateNodeMutateAsync).toHaveBeenCalledWith({
+        nodeId: "start-1",
+        title: "Begin",
+        description: "Entry point",
+      });
+    });
+  });
+
   it("passes the edited split child workflow name into the canvas node data", () => {
     mocks.nodesData = [
       {
@@ -666,6 +749,33 @@ describe("WorkflowPanoramaPage (new)", () => {
       }),
       expect.any(Object),
     );
+  });
+
+  it("disables boundary templates that already exist in the workflow", () => {
+    mocks.nodesData = [{
+      id: "start",
+      workflow_id: "wf-1",
+      title: "Start",
+      description: "",
+      worker_type: "human",
+      worker_id: null,
+      critic_type: "human",
+      critic_id: null,
+      critic_api_url: null,
+      stage_id: "stage-1",
+      format_schema: { type: "start" },
+      position_x: 120,
+      position_y: 0,
+      sort_order: 0,
+      created_at: "",
+      updated_at: "",
+    }];
+
+    render(<WorkflowPanoramaPage workflowId="wf-1" />);
+    fireEvent.click(screen.getAllByRole("button", { name: "Add node" })[0]!);
+
+    expect(screen.getByRole("button", { name: /^Start:/ })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /^End:/ })).toBeEnabled();
   });
 
   it("first-step guide 打开 picker，而不是直接创建默认矩形", () => {
@@ -1124,6 +1234,8 @@ describe("WorkflowPanoramaPage (new)", () => {
     });
 
     expect(screen.getByTestId("node-template-picker")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^Start:/ })).toBeEnabled();
+    expect(screen.getByRole("button", { name: /^End:/ })).toBeEnabled();
     expect(mocks.createNodeMutate).not.toHaveBeenCalled();
   });
 
@@ -1160,6 +1272,40 @@ describe("WorkflowPanoramaPage (new)", () => {
       {
         source_node_id: "node-1",
         target_node_id: "created-node",
+      },
+      expect.any(Object),
+    );
+  });
+
+  it("creates a selected start node before the source and connects it in boundary direction", () => {
+    mocks.nodesData = [
+      { id: "node-1", workflow_id: "wf-1", title: "A", description: "", worker_type: "agent", worker_id: null, critic_type: "human", critic_id: null, critic_api_url: null, stage_id: "stage-1", format_schema: null, position_x: 500, position_y: 0, sort_order: 0, created_at: "", updated_at: "" },
+    ];
+
+    render(<WorkflowPanoramaPage workflowId="wf-1" />);
+
+    const worker = mocks.reactFlowProps?.nodes.find((node) => node.id === "node-1");
+    act(() => {
+      (worker?.data.onAddConnectedNode as undefined | ((nodeId: string) => void))?.("node-1");
+    });
+    fireEvent.click(screen.getByRole("button", { name: /^Start:/ }));
+
+    expect(mocks.createNodeMutate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        title: "Start",
+        position_x: 228,
+        stage_id: "stage-1",
+      }),
+      expect.any(Object),
+    );
+
+    const [, options] = mocks.createNodeMutate.mock.calls[0]!;
+    options.onSuccess({ id: "created-start" });
+
+    expect(mocks.createEdgeMutate).toHaveBeenCalledWith(
+      {
+        source_node_id: "created-start",
+        target_node_id: "node-1",
       },
       expect.any(Object),
     );

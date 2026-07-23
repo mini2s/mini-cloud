@@ -320,13 +320,16 @@ func (h *Handler) StartWorkflowRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Dispatch root nodes unless role resolution/assignment is still pending —
-	// those runs are dispatched from the role-assignment path once roles resolve
-	// (see workflow_role_assignment.go:149). Without this call, node_runs stay
-	// stuck at status=format_checking forever.
-	if run.Status != service.RunStatusResolvingRoles && run.Status != service.RunStatusWaitingRoleAssignment {
+	startedResp := workflowRunToResponse(*run)
+	h.publish(protocol.EventWorkflowRunStarted, workspaceID, "member", userID, map[string]any{
+		"run":      startedResp,
+		"workflow": map[string]string{"id": uuidToString(wf.ID), "title": wf.Title},
+	})
+	if run.Status == service.RunStatusRunning {
 		if err := h.WorkflowService.DispatchRootNodeRuns(r.Context(), run.ID); err != nil {
 			slog.Warn("failed to dispatch root workflow nodes", "run_id", uuidToString(run.ID), "error", err)
+		} else if refreshed, err := h.Queries.GetWorkflowRun(r.Context(), run.ID); err == nil {
+			run = &refreshed
 		}
 	}
 
@@ -338,10 +341,6 @@ func (h *Handler) StartWorkflowRun(w http.ResponseWriter, r *http.Request) {
 	go h.WorkflowService.ScaffoldRunDeliverables(context.Background(), *run)
 
 	resp := workflowRunToResponse(*run)
-	h.publish(protocol.EventWorkflowRunStarted, workspaceID, "member", userID, map[string]any{
-		"run":      resp,
-		"workflow": map[string]string{"id": uuidToString(wf.ID), "title": wf.Title},
-	})
 	status := http.StatusCreated
 	if run.Status == service.RunStatusResolvingRoles || run.Status == service.RunStatusWaitingRoleAssignment {
 		status = http.StatusAccepted

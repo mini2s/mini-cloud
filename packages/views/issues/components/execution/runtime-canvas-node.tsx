@@ -9,7 +9,7 @@ import type {
   WorkflowNodeRuntimeSummary,
   WorkflowRuntimeDisplayStatus,
 } from "@multica/core/types";
-import { CriticBadgeNode } from "../../../workflows/components/overview/reactflow-nodes";
+import { BoundaryNode, CriticBadgeNode } from "../../../workflows/components/overview/reactflow-nodes";
 import { WORKER_WIDTH } from "../../../workflows/components/overview/constants";
 import { RuntimeNodeCard, RUNTIME_NODE_HEIGHT } from "./runtime-node-card";
 import { useT } from "@multica/views/i18n";
@@ -265,4 +265,5 @@ export const runtimeCanvasNodeTypes = {
   runtimeNode: RuntimeCanvasNode,
   runtimeSplitSubflow: RuntimeSplitSubflowNode,
   criticBadge: CriticBadgeNode,
+  boundary: BoundaryNode,
 };

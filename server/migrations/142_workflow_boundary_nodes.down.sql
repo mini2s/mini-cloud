@@ -1,0 +1,1 @@
+DROP INDEX IF EXISTS multica_workflow_node_boundary_kind_unique;
