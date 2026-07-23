@@ -1,6 +1,11 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import { RuntimeSplitSubflowNode, runtimeCanvasNodeTypes } from "./runtime-canvas-node";
+import {
+  RUNTIME_SPLIT_SUBFLOW_CARD_HEIGHT,
+  RUNTIME_SPLIT_SUBFLOW_CARD_WIDTH,
+  RuntimeSplitSubflowNode,
+  runtimeCanvasNodeTypes,
+} from "./runtime-canvas-node";
 
 vi.mock("@xyflow/react", () => ({
   Handle: () => <div data-testid="subflow-handle" />,
@@ -9,6 +14,8 @@ vi.mock("@xyflow/react", () => ({
 
 vi.mock("./runtime-node-card", () => ({
   RUNTIME_NODE_HEIGHT: 120,
+  RUNTIME_CHILD_ISSUE_NODE_HEIGHT: 96,
+  RUNTIME_CHILD_ISSUE_NODE_WIDTH: 240,
   RuntimeNodeCard: ({
     node,
     onClick,
@@ -76,6 +83,11 @@ function runtimeSummary(workflowNodeId: string, displayStatus: string) {
 }
 
 describe("RuntimeSplitSubflowNode", () => {
+  it("uses the compact child issue card height for subflow rows", () => {
+    expect(RUNTIME_SPLIT_SUBFLOW_CARD_HEIGHT).toBe(96);
+    expect(RUNTIME_SPLIT_SUBFLOW_CARD_WIDTH).toBe(240);
+  });
+
   it("registers the boundary renderer used by the shared canvas model", () => {
     expect(runtimeCanvasNodeTypes).toHaveProperty("boundary");
   });

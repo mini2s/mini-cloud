@@ -11,17 +11,18 @@ import type {
 } from "@multica/core/types";
 import { parseNodeFormat } from "@multica/core/types";
 import { BoundaryNode, CriticBadgeNode } from "../../../workflows/components/overview/reactflow-nodes";
-import { WORKER_WIDTH } from "../../../workflows/components/overview/constants";
 import {
   RuntimeNodeCard,
+  RUNTIME_CHILD_ISSUE_NODE_HEIGHT,
+  RUNTIME_CHILD_ISSUE_NODE_WIDTH,
   RUNTIME_NODE_HEIGHT,
   RUNTIME_SPLIT_NODE_HEIGHT,
   type RuntimeNodeDeliverableSummary,
 } from "./runtime-node-card";
 import { useT } from "@multica/views/i18n";
 
-export const RUNTIME_SPLIT_SUBFLOW_CARD_WIDTH = WORKER_WIDTH;
-export const RUNTIME_SPLIT_SUBFLOW_CARD_HEIGHT = RUNTIME_NODE_HEIGHT;
+export const RUNTIME_SPLIT_SUBFLOW_CARD_WIDTH = RUNTIME_CHILD_ISSUE_NODE_WIDTH;
+export const RUNTIME_SPLIT_SUBFLOW_CARD_HEIGHT = RUNTIME_CHILD_ISSUE_NODE_HEIGHT;
 export const RUNTIME_SPLIT_SUBFLOW_COLUMN_GAP = 96;
 export const RUNTIME_SPLIT_SUBFLOW_ROW_GAP = 32;
 export const RUNTIME_SPLIT_SUBFLOW_X_PADDING = 24;
@@ -56,6 +57,8 @@ export interface RuntimeSplitSubflowChildIssue {
   displayStatus: WorkflowRuntimeDisplayStatus;
   displayStatusLabel: string;
   workerName: string | null;
+  issueIdentifier: string;
+  progressLabel: string;
   level: number;
   rowIndex: number;
   dependencyNodeIds: string[];
@@ -259,6 +262,11 @@ export const RuntimeSplitSubflowNode = memo(function RuntimeSplitSubflowNode({
                     nodeRun={null}
                     workerName={child.workerName}
                     criticName={null}
+                    childIssueSummary={{
+                      identifier: child.issueIdentifier,
+                      workflowName: child.workerName,
+                      progressLabel: child.progressLabel,
+                    }}
                     runtimeSummary={child.runtimeSummary}
                     onClick={nodeData.onOpenChild}
                   />

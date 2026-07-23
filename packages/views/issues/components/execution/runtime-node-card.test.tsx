@@ -172,6 +172,39 @@ const runtimeSummary: WorkflowNodeRuntimeSummary = {
 };
 
 describe("RuntimeNodeCard", () => {
+  it("renders child issue progress context instead of executor and reviewer slots", () => {
+    render(
+      <RuntimeNodeCard
+        node={baseNode}
+        nodeRun={null}
+        workerName="Implementation workflow"
+        criticName={null}
+        childIssueSummary={{
+          identifier: "MUL-580",
+          workflowName: "Implementation workflow",
+          progressLabel: "Waiting for MUL-579 to complete",
+        }}
+        onClick={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByTestId("runtime-node-child-issue-context")).toHaveTextContent(
+      "MUL-580 · Implementation workflow",
+    );
+    expect(screen.getByTestId("runtime-node-child-issue-progress")).toHaveTextContent(
+      "Waiting for MUL-579 to complete",
+    );
+    expect(screen.getByTestId("runtime-node-card-node-1")).toHaveStyle({
+      width: "264px",
+      height: "136px",
+    });
+    expect(screen.getByTestId("runtime-node-card-node-1").querySelectorAll(
+      '[data-testid="runtime-display-status-icon"]',
+    )).toHaveLength(1);
+    expect(screen.queryByText("Executor")).not.toBeInTheDocument();
+    expect(screen.queryByText("Reviewer")).not.toBeInTheDocument();
+  });
+
   it("renders with completed status", () => {
     render(
       <RuntimeNodeCard
