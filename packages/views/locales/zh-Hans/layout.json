@@ -33,7 +33,12 @@
     "me_quota": "我的配额",
     "me_notifications": "我的通知",
     "me_devices": "我的设备",
-    "hub": "Hub"
+    "hub": "Hub",
+    "hub_skill": "技能",
+    "hub_subagent": "子 Agent",
+    "hub_command": "命令",
+    "hub_mcp": "MCP 服务",
+    "hub_plugin": "插件"
   },
   "help": {
     "trigger": "帮助",

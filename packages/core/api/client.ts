@@ -146,6 +146,34 @@ import type {
   SessionPermissionResponse,
   CreateRuntimePermissionRequest,
   UpdateRuntimePermissionRequest,
+  CapabilityItem,
+  CapabilityVersion,
+  CapabilityRegistry,
+  ItemTag,
+  Category,
+  ScanResult,
+  Repository,
+  RepoMember,
+  SearchedUser,
+  EnterpriseCustomer,
+  AdminEnterpriseCustomer,
+  DistributionResult,
+  DistributionReceipt,
+  ItemFilterOptions,
+  SearchResult,
+  HubItemListParams,
+  HubItemCreateParams,
+  HubItemUpdateParams,
+  HubDistributionCreateParams,
+  HubRepoCreateParams,
+  HubRepoUpdateParams,
+  HubRepoMemberAddParams,
+  HubRepoInviteParams,
+  HubMcpConfigFields,
+  HubBehaviorLogBody,
+  HubTagListParams,
+  HubSemanticSearchParams,
+  EnterpriseCustomerInput,
 } from "../types";
 import type { OnboardingCompletionPath } from "../onboarding/types";
 import type {
@@ -2633,8 +2661,285 @@ export class ApiClient {
       endpoint: "PUT /api/workflows/:id/runs/:runId/role-resolutions",
     }).resolutions;
   }
+async retryWorkflowRoleResolutions(workflowId: string, runId: string): Promise<{ job_id: string; status: string }> {
+  return this.fetch(`/api/workflows/${workflowId}/runs/${runId}/role-resolutions/retry`, { method: "POST" });
+}
 
-  async retryWorkflowRoleResolutions(workflowId: string, runId: string): Promise<{ job_id: string; status: string }> {
-    return this.fetch(`/api/workflows/${workflowId}/runs/${runId}/role-resolutions/retry`, { method: "POST" });
+// ═══════════════════════════════════════════════════════════════════════════
+// Hub Items API
+// ═══════════════════════════════════════════════════════════════════════════
+
+async hubListItems(params?: HubItemListParams): Promise<{ items: CapabilityItem[]; total: number; hasMore?: boolean }> {
+  const p = new URLSearchParams();
+  if (params?.type) p.set("type", params.type);
+  if (params?.search) p.set("search", params.search);
+  if (params?.category) p.set("category", params.category);
+  if (params?.categories?.length) p.set("categories", params.categories.join(","));
+  if (params?.source?.length) p.set("source", params.source.join(","));
+  if (params?.tags?.length) p.set("tags", params.tags.join(","));
+  if (params?.securityStatuses?.length) p.set("securityStatuses", params.securityStatuses.join(","));
+  if (params?.riskGroup) p.set("riskGroup", params.riskGroup);
+  if (params?.sort) p.set("sortBy", params.sort);
+  if (params?.order) p.set("sortOrder", params.order);
+  if (params?.page) p.set("page", String(params.page));
+  if (params?.pageSize) p.set("pageSize", String(params.pageSize));
+  if (params?.hideForks) p.set("hideForks", "true");
+  if (params?.hideSubItems) p.set("hideSubItems", "true");
+  if (params?.registryId) p.set("registryId", params.registryId);
+  if (params?.status) p.set("status", params.status);
+  if (params?.favorited) p.set("favorited", "true");
+  if (params?.includeForks) p.set("includeForks", "true");
+  if (params?.paginated) p.set("paginated", "true");
+  if (params?.parentPluginId) p.set("parentPluginId", params.parentPluginId);
+  if (params?.excludeSubSkills) p.set("excludeSubSkills", "true");
+  const qs = p.toString();
+  return this.fetch(`/api/items${qs ? `?${qs}` : ""}`);
+}
+
+async hubGetItem(id: string): Promise<CapabilityItem> {
+  return this.fetch(`/api/items/${encodeURIComponent(id)}`);
+}
+
+async hubCreateItem(data: HubItemCreateParams): Promise<CapabilityItem> {
+  if (data.file) {
+    const form = new FormData();
+    form.append("file", data.file);
+    if (data.itemType) form.append("itemType", data.itemType);
+    if (data.name) form.append("name", data.name);
+    if (data.slug) form.append("slug", data.slug);
+    if (data.description) form.append("description", data.description);
+    if (data.category) form.append("category", data.category);
+    if (data.version) form.append("version", data.version);
+    if (data.registryId) form.append("registryId", data.registryId);
+    if (data.createdBy) form.append("createdBy", data.createdBy);
+    return this.fetch("/api/items", { method: "POST", body: form });
   }
+  const { file: _, ...rest } = data;
+  return this.fetch("/api/items", { method: "POST", body: JSON.stringify(rest) });
+}
+
+async hubUpdateItem(id: string, data: HubItemUpdateParams): Promise<CapabilityItem> {
+  if (data.file) {
+    const form = new FormData();
+    form.append("file", data.file);
+    if (data.name) form.append("name", data.name);
+    if (data.description) form.append("description", data.description);
+    if (data.category) form.append("category", data.category);
+    if (data.version) form.append("version", data.version);
+    if (data.commitMsg) form.append("commitMsg", data.commitMsg);
+    return this.fetch(`/api/items/${encodeURIComponent(id)}`, { method: "PUT", body: form });
+  }
+  const { file: _, ...rest } = data;
+  return this.fetch(`/api/items/${encodeURIComponent(id)}`, { method: "PUT", body: JSON.stringify(rest) });
+}
+
+async hubDeleteItem(id: string): Promise<void> {
+  await this.fetch(`/api/items/${encodeURIComponent(id)}`, { method: "DELETE" });
+}
+
+async hubBatchDeleteItems(ids: string[]): Promise<{ deleted: number; skipped: number; forbidden: number; deletedIds: string[]; forbiddenIds: string[] }> {
+  return this.fetch("/api/items", { method: "DELETE", body: JSON.stringify({ ids }) });
+}
+
+async hubForkItem(id: string): Promise<CapabilityItem> {
+  return this.fetch(`/api/items/${encodeURIComponent(id)}/fork`, { method: "POST" });
+}
+
+async hubGetItemVersions(id: string): Promise<CapabilityVersion[]> {
+  const res = await this.fetch<{ versions: CapabilityVersion[] }>(`/api/items/${encodeURIComponent(id)}/versions`);
+  return res.versions ?? [];
+}
+
+async hubGetItemVersion(id: string, rev: number): Promise<CapabilityVersion> {
+  return this.fetch(`/api/items/${encodeURIComponent(id)}/versions/${rev}`);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Hub Behavior API
+// ═══════════════════════════════════════════════════════════════════════════
+
+async hubFavoriteItem(id: string): Promise<{ favorited: boolean; favoriteCount: number }> {
+  return this.fetch(`/api/items/${encodeURIComponent(id)}/favorite`, { method: "POST" });
+}
+
+async hubUnfavoriteItem(id: string): Promise<{ favorited: boolean; favoriteCount: number }> {
+  return this.fetch(`/api/items/${encodeURIComponent(id)}/favorite`, { method: "DELETE" });
+}
+
+async hubLogBehavior(id: string, body: HubBehaviorLogBody): Promise<void> {
+  await this.fetch(`/api/items/${encodeURIComponent(id)}/behavior`, { method: "POST", body: JSON.stringify(body) });
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Hub Distribution API
+// ═══════════════════════════════════════════════════════════════════════════
+
+async hubDistributeItem(id: string, data: HubDistributionCreateParams): Promise<DistributionResult> {
+  const res = await this.fetch<{ distributions: DistributionResult[] }>(`/api/items/${encodeURIComponent(id)}/distribute`, { method: "POST", body: JSON.stringify(data) });
+  return res.distributions[0]!;
+}
+
+async hubListDistributions(itemId: string): Promise<DistributionResult[]> {
+  const res = await this.fetch<{ distributions: DistributionResult[] }>(`/api/items/${encodeURIComponent(itemId)}/distributions`);
+  return res.distributions ?? [];
+}
+
+async hubMySentDistributions(): Promise<DistributionResult[]> {
+  const res = await this.fetch<{ distributions: DistributionResult[] }>("/api/distributions/my/sent");
+  return res.distributions ?? [];
+}
+
+async hubMyReceivedDistributions(): Promise<DistributionReceipt[]> {
+  const res = await this.fetch<{ receipts: DistributionReceipt[] }>("/api/distributions/my/received");
+  return res.receipts ?? [];
+}
+
+async hubMyDistributionAuthority(): Promise<{ canDistribute: boolean; unlimited: boolean; departments: unknown[] }> {
+  return this.fetch("/api/distributions/my/authority");
+}
+
+async hubSearchEligibleUsers(q: string): Promise<{ id: string; name: string }[]> {
+  const res = await this.fetch<{ users: { id: string; name: string }[] }>(`/api/distributions/eligible-users?q=${encodeURIComponent(q)}`);
+  return res.users ?? [];
+}
+
+async hubRevokeDistribution(id: string): Promise<void> {
+  await this.fetch(`/api/distributions/${encodeURIComponent(id)}`, { method: "DELETE" });
+}
+
+async hubDismissDistribution(id: string): Promise<void> {
+  await this.fetch(`/api/distributions/${encodeURIComponent(id)}/dismiss`, { method: "POST" });
+}
+
+async hubMarkDistributionRead(id: string): Promise<void> {
+  await this.fetch(`/api/distributions/${encodeURIComponent(id)}/read`, { method: "POST" });
+}
+
+async hubForkDistribution(id: string): Promise<CapabilityItem> {
+  return this.fetch(`/api/distributions/${encodeURIComponent(id)}/fork`, { method: "POST" });
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Hub MCP Config API
+// ═══════════════════════════════════════════════════════════════════════════
+
+async hubUpsertMcpConfig(itemId: string, fields: HubMcpConfigFields): Promise<void> {
+  await this.fetch(`/api/items/${encodeURIComponent(itemId)}/mcp-config`, { method: "PUT", body: JSON.stringify({ fields }) });
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Hub Repo API
+// ═══════════════════════════════════════════════════════════════════════════
+
+async hubListMyRepos(): Promise<Repository[]> {
+  const res = await this.fetch<{ repositories: Repository[] }>("/api/repositories/my");
+  return res.repositories ?? [];
+}
+
+async hubCreateRepo(data: HubRepoCreateParams): Promise<Repository> {
+  return this.fetch("/api/repositories", { method: "POST", body: JSON.stringify(data) });
+}
+
+async hubUpdateRepo(id: string, data: HubRepoUpdateParams): Promise<Repository> {
+  return this.fetch(`/api/repositories/${encodeURIComponent(id)}`, { method: "PUT", body: JSON.stringify(data) });
+}
+
+async hubDeleteRepo(id: string): Promise<void> {
+  await this.fetch(`/api/repositories/${encodeURIComponent(id)}`, { method: "DELETE" });
+}
+
+async hubListRepoMembers(repoId: string): Promise<RepoMember[]> {
+  const res = await this.fetch<{ members: RepoMember[] }>(`/api/repositories/${encodeURIComponent(repoId)}/members`);
+  return res.members ?? [];
+}
+
+async hubAddRepoMember(repoId: string, data: HubRepoMemberAddParams): Promise<void> {
+  await this.fetch(`/api/repositories/${encodeURIComponent(repoId)}/members`, { method: "POST", body: JSON.stringify(data) });
+}
+
+async hubRemoveRepoMember(repoId: string, userId: string): Promise<void> {
+  await this.fetch(`/api/repositories/${encodeURIComponent(repoId)}/members/${encodeURIComponent(userId)}`, { method: "DELETE" });
+}
+
+async hubInviteRepoMember(repoId: string, data: HubRepoInviteParams): Promise<void> {
+  await this.fetch(`/api/repositories/${encodeURIComponent(repoId)}/invitations`, { method: "POST", body: JSON.stringify(data) });
+}
+
+async hubGetRegistry(repoId: string): Promise<CapabilityRegistry> {
+  return this.fetch(`/api/repositories/${encodeURIComponent(repoId)}/registry`);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Hub Enterprise API
+// ═══════════════════════════════════════════════════════════════════════════
+
+async hubListEnterpriseCustomers(): Promise<EnterpriseCustomer[]> {
+  const res = await this.fetch<{ customers: EnterpriseCustomer[] }>("/api/enterprise-customers");
+  return res.customers ?? [];
+}
+
+async hubAdminListEnterpriseCustomers(): Promise<AdminEnterpriseCustomer[]> {
+  const res = await this.fetch<{ customers: AdminEnterpriseCustomer[] }>("/api/admin/enterprise-customers");
+  return res.customers ?? [];
+}
+
+async hubCreateEnterpriseCustomer(data: EnterpriseCustomerInput): Promise<EnterpriseCustomer> {
+  return this.fetch("/api/admin/enterprise-customers", { method: "POST", body: JSON.stringify(data) });
+}
+
+async hubUpdateEnterpriseCustomer(id: string, data: EnterpriseCustomerInput): Promise<EnterpriseCustomer> {
+  return this.fetch(`/api/admin/enterprise-customers/${encodeURIComponent(id)}`, { method: "PUT", body: JSON.stringify(data) });
+}
+
+async hubRemoveEnterpriseCustomer(id: string): Promise<void> {
+  await this.fetch(`/api/admin/enterprise-customers/${encodeURIComponent(id)}`, { method: "DELETE" });
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Hub Misc API
+// ═══════════════════════════════════════════════════════════════════════════
+
+async hubListCategories(): Promise<Category[]> {
+  const res = await this.fetch<{ categories: Category[] }>("/api/categories");
+  return res.categories ?? [];
+}
+
+async hubListTags(params?: HubTagListParams): Promise<ItemTag[]> {
+  const p = new URLSearchParams();
+  if (params?.query) p.set("q", params.query);
+  if (params?.page) p.set("page", String(params.page));
+  if (params?.pageSize) p.set("pageSize", String(params.pageSize));
+  if (params?.tagClass) p.set("tagClass", params.tagClass);
+  const qs = p.toString();
+  const res = await this.fetch<{ tags: ItemTag[] }>(`/api/tags${qs ? `?${qs}` : ""}`);
+  return res.tags ?? [];
+}
+
+async hubListFilterOptions(): Promise<ItemFilterOptions> {
+  return this.fetch("/api/items/filter-options");
+}
+
+async hubScanItem(id: string): Promise<void> {
+  await this.fetch(`/api/items/${encodeURIComponent(id)}/scan`, { method: "POST" });
+}
+
+async hubGetScanResults(id: string): Promise<ScanResult[]> {
+  const res = await this.fetch<{ results: ScanResult[] }>(`/api/items/${encodeURIComponent(id)}/scan-results`);
+  return res.results ?? [];
+}
+
+async hubSemanticSearch(params: HubSemanticSearchParams): Promise<CapabilityItem[]> {
+  const res = await this.fetch<SearchResult>("/api/marketplace/items/search", { method: "POST", body: JSON.stringify(params) });
+  return res.items ?? [];
+}
+
+async hubSearchUsers(q: string): Promise<SearchedUser[]> {
+  const res = await this.fetch<{ users: SearchedUser[] }>(`/api/users/search?q=${encodeURIComponent(q)}`);
+  return res.users ?? [];
+}
+
+async hubGetUserNames(ids: string[]): Promise<Record<string, string>> {
+  const res = await this.fetch<{ names: Record<string, string> }>(`/api/users/names?ids=${ids.map(encodeURIComponent).join(",")}`);
+  return res.names ?? {};
+}
 }

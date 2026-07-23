@@ -148,3 +148,4 @@ export type {
   SquadMemberStatus,
   SquadMemberStatusListResponse,
 } from "./squad";
+export type * from "./hub";

@@ -28,6 +28,7 @@ import type usage from "../locales/en/usage.json";
 import type home from "../locales/en/home.json";
 import type squads from "../locales/en/squads.json";
 import type workflows from "../locales/en/workflows.json";
+import type hub from "../locales/en/hub.json";
 
 // Module augmentation enables i18next v26 selector API across the monorepo:
 // `t($ => $.signin.title)` resolves to the value in en/auth.json.
@@ -70,6 +71,7 @@ declare global {
     home: typeof home;
     squads: typeof squads;
     workflows: typeof workflows;
+    hub: typeof hub;
   }
 }
 

@@ -50,12 +50,13 @@ import {
   Server,
   Plug,
   Megaphone,
-  Network,
   Percent,
   User,
   Wallet,
   Bell,
   Smartphone,
+  SquareTerminal,
+  Puzzle,
 } from "lucide-react";
 import { WorkspaceAvatar } from "../workspace/workspace-avatar";
 import { ActorAvatar } from "@multica/ui/components/common/actor-avatar";
@@ -145,6 +146,11 @@ type NavKey =
   | "wiki"
   | "memory"
   | "hub"
+  | "hubSkill"
+  | "hubSubagent"
+  | "hubCommand"
+  | "hubMcp"
+  | "hubPlugin"
   | "metricsEfficiency"
   | "metricsQuality"
   | "metricsCost"
@@ -180,6 +186,11 @@ type NavLabelKey =
   | "wiki"
   | "memory"
   | "hub"
+  | "hub_skill"
+  | "hub_subagent"
+  | "hub_command"
+  | "hub_mcp"
+  | "hub_plugin"
   | "metrics_efficiency"
   | "metrics_quality"
   | "metrics_cost"
@@ -221,7 +232,11 @@ const repositoryNav: NavItem[] = [
   { key: "wiki", labelKey: "wiki", icon: FileText },
   { key: "skills", labelKey: "skills", icon: BookOpenText },
   { key: "memory", labelKey: "memory", icon: Brain },
-  { key: "hub", labelKey: "hub", icon: Network },
+  { key: "hubSkill", labelKey: "hub_skill", icon: Sparkles },
+  { key: "hubSubagent", labelKey: "hub_subagent", icon: Bot },
+  { key: "hubCommand", labelKey: "hub_command", icon: SquareTerminal },
+  { key: "hubMcp", labelKey: "hub_mcp", icon: Plug },
+  { key: "hubPlugin", labelKey: "hub_plugin", icon: Puzzle },
 ];
 
 const metricsNav: NavItem[] = [
@@ -452,7 +467,7 @@ interface AppSidebarProps {
 
 export function AppSidebar({ topSlot, searchSlot, headerClassName, headerStyle }: AppSidebarProps = {}) {
   const { t } = useT("layout");
-  const { pathname, push } = useNavigation();
+  const { pathname, push, searchParams } = useNavigation();
   const user = useAuthStore((s) => s.user);
   const userId = useAuthStore((s) => s.user?.id);
   const logout = useLogout();
@@ -821,8 +836,16 @@ export function AppSidebar({ topSlot, searchSlot, headerClassName, headerStyle }
                     <SidebarGroupContent>
                       <SidebarMenu className="gap-0.5">
                         {items.map((item) => {
-                          const href = p[item.key]();
-                          const isActive = isNavActive(pathname, href);
+                          const href = p[item.key]() ?? "";
+                          const hasQuery = href.includes("?");
+                          const basePath = href.split("?")[0] as string;
+                          // Hub type items carry ?type= in the href; match the
+                          // query param exactly so only the active type lights up
+                          // instead of all hub entries sharing the same base path.
+                          const currentType = searchParams?.get("type");
+                          const isActive = hasQuery
+                            ? isNavActive(pathname, basePath) && href.includes(`type=${currentType}`)
+                            : isNavActive(pathname, basePath);
                           return (
                             <SidebarMenuItem key={item.key}>
                               <SidebarMenuButton
