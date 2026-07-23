@@ -12,7 +12,8 @@
     "runtimes": "Runtimes",
     "skills": "Skills",
     "workflows": "Workflows",
-    "settings": "Settings"
+    "settings": "Settings",
+    "roles": "Dev Roles"
   },
   "help": {
     "trigger": "Help",

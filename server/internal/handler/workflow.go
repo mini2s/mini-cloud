@@ -12,6 +12,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/multica-ai/multica/server/internal/service"
 	"github.com/multica-ai/multica/server/internal/util"
 	"github.com/multica-ai/multica/server/internal/workflowmeta"
 	db "github.com/multica-ai/multica/server/pkg/db/generated"
@@ -27,10 +28,12 @@ type CreateWorkflowRequest struct {
 }
 
 type UpdateWorkflowRequest struct {
-	Title       *string `json:"title"`
-	Description *string `json:"description"`
-	Status      *string `json:"status"`
-	MaxRetries  *int32  `json:"max_retries"`
+	Title                         *string `json:"title"`
+	Description                   *string `json:"description"`
+	Status                        *string `json:"status"`
+	MaxRetries                    *int32  `json:"max_retries"`
+	DefaultRuntimeSelectionPolicy *string `json:"default_runtime_selection_policy"`
+	DefaultRuntimeID              *string `json:"default_runtime_id"`
 }
 
 type CreateNodeRequest struct {
@@ -92,19 +95,21 @@ type UpdateWorkflowNodeDeliverableRequest struct {
 // ── Response types ───────────────────────────────────────────────────────────
 
 type WorkflowResponse struct {
-	ID               string `json:"id"`
-	WorkspaceID      string `json:"workspace_id"`
-	Title            string `json:"title"`
-	Description      string `json:"description"`
-	Status           string `json:"status"`
-	MaxRetries       int32  `json:"max_retries"`
-	CreatedByType    string `json:"created_by_type"`
-	CreatedByID      string `json:"created_by_id"`
-	NodeCount        int64  `json:"node_count"`
-	IsTemplate       bool   `json:"is_template"`
-	SourceTemplateID string `json:"source_template_id"`
-	CreatedAt        string `json:"created_at"`
-	UpdatedAt        string `json:"updated_at"`
+	ID                            string  `json:"id"`
+	WorkspaceID                   string  `json:"workspace_id"`
+	Title                         string  `json:"title"`
+	Description                   string  `json:"description"`
+	Status                        string  `json:"status"`
+	MaxRetries                    int32   `json:"max_retries"`
+	CreatedByType                 string  `json:"created_by_type"`
+	CreatedByID                   string  `json:"created_by_id"`
+	NodeCount                     int64   `json:"node_count"`
+	IsTemplate                    bool    `json:"is_template"`
+	SourceTemplateID              string  `json:"source_template_id"`
+	DefaultRuntimeSelectionPolicy string  `json:"default_runtime_selection_policy"`
+	DefaultRuntimeID              *string `json:"default_runtime_id"`
+	CreatedAt                     string  `json:"created_at"`
+	UpdatedAt                     string  `json:"updated_at"`
 }
 
 type WorkflowNodeResponse struct {
@@ -197,37 +202,41 @@ type WorkflowAdminResponse struct {
 
 func workflowToResponse(wf db.MulticaWorkflow, nodeCount int64) WorkflowResponse {
 	return WorkflowResponse{
-		ID:               uuidToString(wf.ID),
-		WorkspaceID:      uuidToString(wf.WorkspaceID),
-		Title:            wf.Title,
-		Description:      wf.Description,
-		Status:           wf.Status,
-		MaxRetries:       wf.MaxRetries,
-		CreatedByType:    wf.CreatedByType,
-		CreatedByID:      uuidToString(wf.CreatedByID),
-		NodeCount:        nodeCount,
-		IsTemplate:       wf.IsTemplate,
-		SourceTemplateID: uuidToString(wf.SourceTemplateID),
-		CreatedAt:        timestampToString(wf.CreatedAt),
-		UpdatedAt:        timestampToString(wf.UpdatedAt),
+		ID:                            uuidToString(wf.ID),
+		WorkspaceID:                   uuidToString(wf.WorkspaceID),
+		Title:                         wf.Title,
+		Description:                   wf.Description,
+		Status:                        wf.Status,
+		MaxRetries:                    wf.MaxRetries,
+		CreatedByType:                 wf.CreatedByType,
+		CreatedByID:                   uuidToString(wf.CreatedByID),
+		NodeCount:                     nodeCount,
+		IsTemplate:                    wf.IsTemplate,
+		SourceTemplateID:              uuidToString(wf.SourceTemplateID),
+		DefaultRuntimeSelectionPolicy: wf.DefaultRuntimeSelectionPolicy,
+		DefaultRuntimeID:              uuidToPtr(wf.DefaultRuntimeID),
+		CreatedAt:                     timestampToString(wf.CreatedAt),
+		UpdatedAt:                     timestampToString(wf.UpdatedAt),
 	}
 }
 
 func splitIssueWorkflowOptionToResponse(wf db.ListSplitIssueWorkflowOptionsRow) WorkflowResponse {
 	return WorkflowResponse{
-		ID:               uuidToString(wf.ID),
-		WorkspaceID:      uuidToString(wf.WorkspaceID),
-		Title:            wf.Title,
-		Description:      wf.Description,
-		Status:           wf.Status,
-		MaxRetries:       wf.MaxRetries,
-		CreatedByType:    wf.CreatedByType,
-		CreatedByID:      uuidToString(wf.CreatedByID),
-		NodeCount:        wf.NodeCount,
-		IsTemplate:       wf.IsTemplate,
-		SourceTemplateID: uuidToString(wf.SourceTemplateID),
-		CreatedAt:        timestampToString(wf.CreatedAt),
-		UpdatedAt:        timestampToString(wf.UpdatedAt),
+		ID:                            uuidToString(wf.ID),
+		WorkspaceID:                   uuidToString(wf.WorkspaceID),
+		Title:                         wf.Title,
+		Description:                   wf.Description,
+		Status:                        wf.Status,
+		MaxRetries:                    wf.MaxRetries,
+		CreatedByType:                 wf.CreatedByType,
+		CreatedByID:                   uuidToString(wf.CreatedByID),
+		NodeCount:                     wf.NodeCount,
+		IsTemplate:                    wf.IsTemplate,
+		SourceTemplateID:              uuidToString(wf.SourceTemplateID),
+		DefaultRuntimeSelectionPolicy: wf.DefaultRuntimeSelectionPolicy,
+		DefaultRuntimeID:              uuidToPtr(wf.DefaultRuntimeID),
+		CreatedAt:                     timestampToString(wf.CreatedAt),
+		UpdatedAt:                     timestampToString(wf.UpdatedAt),
 	}
 }
 
@@ -586,6 +595,42 @@ func (h *Handler) UpdateWorkflow(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.MaxRetries != nil {
 		params.MaxRetries = pgtype.Int4{Int32: *req.MaxRetries, Valid: true}
+	}
+	if req.DefaultRuntimeSelectionPolicy != nil {
+		policy := strings.TrimSpace(*req.DefaultRuntimeSelectionPolicy)
+		if !service.IsWorkflowRuntimeSelectionPolicy(policy) {
+			writeError(w, http.StatusBadRequest, "invalid default_runtime_selection_policy")
+			return
+		}
+		params.DefaultRuntimeSelectionPolicy = pgtype.Text{String: policy, Valid: true}
+	}
+	defaultRuntimeID, validRuntime := h.validateWorkflowRuntimePreference(
+		w,
+		r,
+		req.DefaultRuntimeID,
+		wf.WorkspaceID,
+	)
+	if !validRuntime {
+		return
+	}
+	if defaultRuntimeID.Valid {
+		params.DefaultRuntimeID = defaultRuntimeID
+	}
+	effectivePolicy := wf.DefaultRuntimeSelectionPolicy
+	if params.DefaultRuntimeSelectionPolicy.Valid {
+		effectivePolicy = params.DefaultRuntimeSelectionPolicy.String
+	}
+	effectiveRuntimeID := wf.DefaultRuntimeID
+	if defaultRuntimeID.Valid {
+		effectiveRuntimeID = defaultRuntimeID
+	}
+	if effectivePolicy == service.RuntimeSelectionPolicySpecifiedRuntimeFirst && !effectiveRuntimeID.Valid {
+		writeError(w, http.StatusBadRequest, "specified default runtime selection policy requires default_runtime_id")
+		return
+	}
+	if effectivePolicy != service.RuntimeSelectionPolicySpecifiedRuntimeFirst && defaultRuntimeID.Valid {
+		writeError(w, http.StatusBadRequest, "default_runtime_id is only valid with specified_runtime_first")
+		return
 	}
 	updated, err := h.Queries.UpdateWorkflow(r.Context(), params)
 	if err != nil {

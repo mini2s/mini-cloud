@@ -22,6 +22,7 @@
     "./autopilots/components": "./autopilots/components/index.ts",
     "./workflows/components": "./workflows/components/index.ts",
     "./workflows/components/overview": "./workflows/components/overview/index.ts",
+    "./workflow-roles": "./workflow-roles/index.ts",
     "./modals/registry": "./modals/registry.tsx",
     "./modals/create-issue": "./modals/create-issue.tsx",
     "./my-issues": "./my-issues/index.ts",

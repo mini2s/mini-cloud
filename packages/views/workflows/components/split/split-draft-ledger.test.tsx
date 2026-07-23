@@ -96,6 +96,8 @@ const workflows: Workflow[] = [{
   node_count: 1,
   is_template: false,
   source_template_id: null,
+  default_runtime_selection_policy: "idle_first",
+  default_runtime_id: null,
   custom_roles: [],
   created_at: "",
   updated_at: "",

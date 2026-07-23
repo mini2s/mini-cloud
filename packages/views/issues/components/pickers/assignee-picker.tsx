@@ -3,7 +3,14 @@
 import { useEffect, useMemo, useState } from "react";
 import { GitBranch, Lock, Pencil, Plus, Trash2, UserMinus, UserRoundCog, X, Zap, Check } from "lucide-react";
 import { toast } from "sonner";
-import type { Agent, IssueAssigneeType, UpdateIssueRequest, WorkflowRoleKey } from "@multica/core/types";
+import type {
+  Agent,
+  IssueAssigneeType,
+  UpdateIssueRequest,
+  Workflow,
+  WorkflowRoleKey,
+  WorkflowRuntimeSelectionPolicy,
+} from "@multica/core/types";
 import { BUILTIN_WORKFLOW_ROLES } from "@multica/core/types";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useAuthStore } from "@multica/core/auth";
@@ -25,6 +32,11 @@ import {
 import { useT } from "../../../i18n";
 import { matchesPinyin } from "../../../editor/extensions/pinyin-match";
 import { RuntimeSelectDialog } from "../../../agents/components/runtime-select-dialog";
+import {
+  WorkflowRuntimeStrategyDialog,
+  type WorkflowRuntimeStrategyValue,
+} from "../../../workflows/components/workflow-runtime-strategy-dialog";
+import { useUsableWorkflowRuntimes } from "../../../workflows/components/use-usable-workflow-runtimes";
 
 /**
  * Legacy boolean shape kept around for callers (e.g. `use-issue-actions.ts`)
@@ -211,6 +223,7 @@ export function AssigneePicker({
   }, [activeWorkflows, templatesResponse]);
   const { data: frequency = [] } = useQuery(assigneeFrequencyOptions(wsId));
   const { data: runtimes = [] } = useQuery(runtimeListOptions(wsId));
+  const usableWorkflowRuntimes = useUsableWorkflowRuntimes(runtimes);
   const { getActorName } = useActorName();
   const queryClient = useQueryClient();
 
@@ -235,6 +248,8 @@ export function AssigneePicker({
   const [pendingWorkflowRuntime, setPendingWorkflowRuntime] = useState<{
     workflowId: string;
     workflowTitle: string;
+    defaultPolicy: WorkflowRuntimeSelectionPolicy;
+    defaultRuntimeId: string | null;
   } | null>(null);
   const [checkingWorkflow, setCheckingWorkflow] = useState(false);
 
@@ -333,15 +348,14 @@ export function AssigneePicker({
     setOpen(false);
   };
 
-  // Workflow assignment always exposes the run-level runtime preference.
-  // "Auto" leaves runtime_id unset so the backend applies the per-node policy.
-  //
   // For cross-workspace templates: lazily clone into the current workspace
   // on first use. Subsequent uses reuse the existing clone (matched by
   // source_template_id) so each workspace gets at most one clone per template.
-  const handleWorkflowClick = async (workflow: { id: string; title: string; is_template?: boolean; source_template_id?: string | null }) => {
+  const handleWorkflowClick = async (workflow: Workflow) => {
     let targetId = workflow.id;
     let targetTitle = workflow.title;
+    let targetPolicy = workflow.default_runtime_selection_policy;
+    let targetRuntimeId = workflow.default_runtime_id;
 
     // Lazy-clone: only cross-workspace templates need a local clone.
     // Templates already in the current workspace can be used directly.
@@ -354,6 +368,8 @@ export function AssigneePicker({
         if (existingClone) {
           targetId = existingClone.id;
           targetTitle = existingClone.title;
+          targetPolicy = existingClone.default_runtime_selection_policy;
+          targetRuntimeId = existingClone.default_runtime_id;
         } else {
           setCheckingWorkflow(true);
           try {
@@ -362,6 +378,8 @@ export function AssigneePicker({
             queryClient.invalidateQueries({ queryKey: ["workflows", wsId] });
             targetId = cloned.id;
             targetTitle = cloned.title;
+            targetPolicy = cloned.default_runtime_selection_policy;
+            targetRuntimeId = cloned.default_runtime_id;
           } catch {
             // Clone or activation failed — abort, don't assign.
             setCheckingWorkflow(false);
@@ -374,16 +392,19 @@ export function AssigneePicker({
     setPendingWorkflowRuntime({
       workflowId: targetId,
       workflowTitle: targetTitle,
+      defaultPolicy: targetPolicy,
+      defaultRuntimeId: targetRuntimeId,
     });
     setCheckingWorkflow(false);
   };
 
-  const handleWorkflowRuntimeConfirm = (runtimeId: string | null) => {
+  const handleWorkflowRuntimeConfirm = ({ policy, runtimeId }: WorkflowRuntimeStrategyValue) => {
     if (!pendingWorkflowRuntime) return;
     guardedUpdate({
       assignee_type: "workflow",
       assignee_id: pendingWorkflowRuntime.workflowId,
       runtime_id: runtimeId,
+      runtime_selection_policy: policy,
     });
     setPendingWorkflowRuntime(null);
     setOpen(false);
@@ -802,11 +823,15 @@ export function AssigneePicker({
       />
     )}
     {pendingWorkflowRuntime && (
-      <RuntimeSelectDialog
-        agentName={pendingWorkflowRuntime.workflowTitle}
-        runtimes={runtimes.filter((runtime) => runtime.status === "online")}
-        loading={false}
-        allowAuto
+      <WorkflowRuntimeStrategyDialog
+        mode="run"
+        workflowTitle={pendingWorkflowRuntime.workflowTitle}
+        initialValue={{
+          policy: pendingWorkflowRuntime.defaultPolicy,
+          runtimeId: pendingWorkflowRuntime.defaultRuntimeId,
+        }}
+        runtimes={usableWorkflowRuntimes.runtimes}
+        loading={usableWorkflowRuntimes.isLoading}
         onConfirm={handleWorkflowRuntimeConfirm}
         onClose={() => {
           setPendingWorkflowRuntime(null);

@@ -9,6 +9,7 @@ import {
   GitBranch,
 	GitFork,
 	Play,
+  Plus,
   ShieldCheck,
   Save,
   Trash2,
@@ -22,6 +23,8 @@ import { Input } from "@multica/ui/components/ui/input";
 import { Textarea } from "@multica/ui/components/ui/textarea";
 import { Label } from "@multica/ui/components/ui/label";
 import { useT } from "../../i18n";
+import { useNavigation } from "../../navigation";
+import { useWorkspacePaths } from "@multica/core/paths";
 import { useWorkspaceId } from "@multica/core/hooks";
 import { useActorName } from "@multica/core/workspace/hooks";
 import {
@@ -288,6 +291,8 @@ export function NodeConfigPanel({
 }: NodeConfigPanelProps) {
   const { t } = useT("workflows");
   const wsId = useWorkspaceId();
+  const navigation = useNavigation();
+  const wsPaths = useWorkspacePaths();
   const deleteMutation = useDeleteNode(wsId, workflowId);
   const assignStageMutation = useAssignNodeToStage(wsId, workflowId);
   const createStageMutation = useCreateStage(wsId, workflowId);
@@ -392,13 +397,28 @@ export function NodeConfigPanel({
     max_failures: 0,
   };
   const runTone = statusTone(recentNodeRun?.status);
+  // Builtin role names are seeded in English (developer/qa/tech_lead); localize
+  // them so the picker and summary stay in the active locale. Custom roles fall
+  // through to their raw name.
+  const renderRoleName = useCallback(
+    (role: { is_builtin: boolean; name: string }): string => {
+      if (!role.is_builtin) return role.name;
+      if (role.name === "developer") return t(($) => $.builtin_roles.developer.name);
+      if (role.name === "qa") return t(($) => $.builtin_roles.qa.name);
+      if (role.name === "tech_lead") return t(($) => $.builtin_roles.tech_lead.name);
+      return role.name;
+    },
+    [t],
+  );
+  const workerRole = workerRoleId ? roles.find((role) => role.id === workerRoleId) : undefined;
+  const criticRole = criticRoleId ? roles.find((role) => role.id === criticRoleId) : undefined;
   const workerLabel = workerRoleId
-    ? roles.find((role) => role.id === workerRoleId)?.name ?? null
+    ? (workerRole ? renderRoleName(workerRole) : null)
     : workerId
       ? getActorName(actorLookupType(workerType), workerId)
       : null;
   const criticLabel = criticRoleId
-    ? roles.find((role) => role.id === criticRoleId)?.name ?? null
+    ? (criticRole ? renderRoleName(criticRole) : null)
     : criticId
       ? getActorName(actorLookupType(criticType), criticId)
       : null;
@@ -907,9 +927,19 @@ export function NodeConfigPanel({
                           >
                             <option value="">{t(($) => $.detail_panel.select_role)}</option>
                             {roles.map((r) => (
-                              <option key={r.id} value={r.id}>{r.name}</option>
+                              <option key={r.id} value={r.id}>{renderRoleName(r)}</option>
                             ))}
                           </select>
+                          <Button
+                            type="button"
+                            variant="link"
+                            size="sm"
+                            className="h-5 px-0 text-[11px] text-muted-foreground"
+                            onClick={() => navigation.push(wsPaths.roles())}
+                          >
+                            <Plus className="mr-1 size-3" />
+                            {t(($) => $.detail_panel.manage_roles_shortcut)}
+                          </Button>
                         </div>
                       ) : (
                         <div className="space-y-2">
@@ -997,9 +1027,19 @@ export function NodeConfigPanel({
                           >
                             <option value="">{t(($) => $.detail_panel.select_role)}</option>
                             {roles.map((r) => (
-                              <option key={r.id} value={r.id}>{r.name}</option>
+                              <option key={r.id} value={r.id}>{renderRoleName(r)}</option>
                             ))}
                           </select>
+                          <Button
+                            type="button"
+                            variant="link"
+                            size="sm"
+                            className="h-5 px-0 text-[11px] text-muted-foreground"
+                            onClick={() => navigation.push(wsPaths.roles())}
+                          >
+                            <Plus className="mr-1 size-3" />
+                            {t(($) => $.detail_panel.manage_roles_shortcut)}
+                          </Button>
                         </div>
                       ) : (
                         <div className="space-y-2">
@@ -1098,9 +1138,19 @@ export function NodeConfigPanel({
                           >
                             <option value="">{t(($) => $.detail_panel.select_role)}</option>
                             {roles.map((r) => (
-                              <option key={r.id} value={r.id}>{r.name}</option>
+                              <option key={r.id} value={r.id}>{renderRoleName(r)}</option>
                             ))}
                           </select>
+                          <Button
+                            type="button"
+                            variant="link"
+                            size="sm"
+                            className="h-5 px-0 text-[11px] text-muted-foreground"
+                            onClick={() => navigation.push(wsPaths.roles())}
+                          >
+                            <Plus className="mr-1 size-3" />
+                            {t(($) => $.detail_panel.manage_roles_shortcut)}
+                          </Button>
                         </div>
                       ) : (
                         <div className="space-y-2">

@@ -15,6 +15,7 @@ const mocks = vi.hoisted(() => ({
   testRun: vi.fn(),
   toggleStatus: vi.fn(),
   openRuns: vi.fn(),
+  openSettings: vi.fn(),
   deleteWorkflow: vi.fn(),
 }));
 
@@ -60,6 +61,7 @@ vi.mock("../../../i18n", () => {
         unsaved: "Unsaved",
         editor: "Editor",
         run_history: "Run history",
+        run_settings: "Run settings",
         test_run: "Test run",
         save_and_test: "Save & test",
         more: "More",
@@ -125,6 +127,7 @@ function renderToolbar(overrides: Partial<React.ComponentProps<typeof WorkflowEd
       onTestRun={mocks.testRun}
       onToggleWorkflowStatus={mocks.toggleStatus}
       onOpenRunHistory={mocks.openRuns}
+      onOpenRunSettings={mocks.openSettings}
       onDeleteWorkflow={mocks.deleteWorkflow}
       {...overrides}
     />,
@@ -234,13 +237,15 @@ describe("WorkflowEditorToolbar", () => {
     expect(screen.getByRole("button", { name: "Deactivate" })).not.toBeDisabled();
   });
 
-  it("keeps run history and delete in the More menu", () => {
+  it("keeps run settings, run history, and delete in the More menu", () => {
     renderToolbar();
 
     const menu = screen.getByRole("menu");
+    fireEvent.click(within(menu).getByRole("menuitem", { name: /Run settings/ }));
     fireEvent.click(within(menu).getByRole("menuitem", { name: /Run history/ }));
     fireEvent.click(within(menu).getByRole("menuitem", { name: /Delete/ }));
 
+    expect(mocks.openSettings).toHaveBeenCalledTimes(1);
     expect(mocks.openRuns).toHaveBeenCalledTimes(1);
     expect(mocks.deleteWorkflow).toHaveBeenCalledTimes(1);
   });

@@ -29,7 +29,6 @@
       "notifications": "通知",
       "tokens": "API Token",
       "general": "通用",
-      "roles": "Workflow 角色",
       "repositories": "代码仓库",
       "github": "GitHub",
       "gitlab": "GitLab",
@@ -355,7 +354,7 @@
     }
   },
   "workflow_roles": {
-    "title": "Workflow 角色",
+    "title": "研发角色",
     "description": "定义可复用角色；工作流启动时，系统会把角色解析为当前工作区的有效成员。",
     "read_only": "当前为只读视图。只有工作区所有者和管理员可以管理角色。",
     "create_title": "创建角色",

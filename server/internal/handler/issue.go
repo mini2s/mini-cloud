@@ -1721,19 +1721,20 @@ func readRuntimeCLIVersion(metadata []byte) string {
 }
 
 type CreateIssueRequest struct {
-	Title         string   `json:"title"`
-	Description   *string  `json:"description"`
-	Status        string   `json:"status"`
-	Priority      string   `json:"priority"`
-	AssigneeType  *string  `json:"assignee_type"`
-	AssigneeID    *string  `json:"assignee_id"`
-	RuntimeID     *string  `json:"runtime_id"`
-	ParentIssueID *string  `json:"parent_issue_id"`
-	ProjectID     *string  `json:"project_id"`
-	StartDate     *string  `json:"start_date"`
-	DueDate       *string  `json:"due_date"`
-	StageID       *string  `json:"stage_id"`
-	AttachmentIDs []string `json:"attachment_ids,omitempty"`
+	Title                  string   `json:"title"`
+	Description            *string  `json:"description"`
+	Status                 string   `json:"status"`
+	Priority               string   `json:"priority"`
+	AssigneeType           *string  `json:"assignee_type"`
+	AssigneeID             *string  `json:"assignee_id"`
+	RuntimeSelectionPolicy *string  `json:"runtime_selection_policy"`
+	RuntimeID              *string  `json:"runtime_id"`
+	ParentIssueID          *string  `json:"parent_issue_id"`
+	ProjectID              *string  `json:"project_id"`
+	StartDate              *string  `json:"start_date"`
+	DueDate                *string  `json:"due_date"`
+	StageID                *string  `json:"stage_id"`
+	AttachmentIDs          []string `json:"attachment_ids,omitempty"`
 	// OriginType / OriginID stamp the new issue with its provenance so
 	// platform-internal flows can deterministically locate it later. Only
 	// trusted callers should set these — currently the daemon CLI passes
@@ -1767,7 +1768,13 @@ func (h *Handler) CreateIssue(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	runtimePreference, ok := h.validateWorkflowRuntimePreference(w, r, req.RuntimeID, wsUUID)
+	runtimeSelectionPolicy, runtimePreference, ok := h.validateWorkflowRuntimeSelectionOverride(
+		w,
+		r,
+		req.RuntimeSelectionPolicy,
+		req.RuntimeID,
+		wsUUID,
+	)
 	if !ok {
 		return
 	}
@@ -2094,7 +2101,7 @@ func (h *Handler) CreateIssue(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			slog.Warn("failed to load workflow for new issue", "issue_id", uuidToString(issue.ID), "error", err)
 		} else {
-			run, nodeRuns, err := h.WorkflowService.StartRunForIssue(ctx, workflow, issue, creatorType, actualCreatorID, runtimePreference)
+			run, nodeRuns, err := h.WorkflowService.StartRunForIssueWithRuntimeSelection(ctx, workflow, issue, creatorType, actualCreatorID, runtimeSelectionPolicy, runtimePreference)
 			if err != nil {
 				slog.Warn("failed to start workflow run for new issue", "issue_id", uuidToString(issue.ID), "error", err)
 			} else {
@@ -2156,8 +2163,9 @@ type UpdateIssueRequest struct {
 	AttachmentIDs []string `json:"attachment_ids"`
 	// RuntimeID is set by the frontend runtime-select dialog when assigning
 	// a built-in agent (which has no bound runtime).
-	RuntimeID *string `json:"runtime_id"`
-	StageID   *string `json:"stage_id"`
+	RuntimeID              *string `json:"runtime_id"`
+	RuntimeSelectionPolicy *string `json:"runtime_selection_policy"`
+	StageID                *string `json:"stage_id"`
 }
 
 // parseOptionalRuntimeID converts the optional runtime_id string from the
@@ -2220,7 +2228,13 @@ func (h *Handler) UpdateIssue(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusForbidden, "split phase tasks cannot mutate issues")
 		return
 	}
-	runtimePreference, ok := h.validateWorkflowRuntimePreference(w, r, req.RuntimeID, prevIssue.WorkspaceID)
+	runtimeSelectionPolicy, runtimePreference, ok := h.validateWorkflowRuntimeSelectionOverride(
+		w,
+		r,
+		req.RuntimeSelectionPolicy,
+		req.RuntimeID,
+		prevIssue.WorkspaceID,
+	)
 	if !ok {
 		return
 	}
@@ -2498,7 +2512,7 @@ func (h *Handler) UpdateIssue(w http.ResponseWriter, r *http.Request) {
 				slog.Warn("failed to load workflow for issue assignee change", "issue_id", uuidToString(issue.ID), "error", wfErr)
 				resp.WorkflowID = uuidToPtr(issue.AssigneeID)
 			} else {
-				run, nodeRuns, wfErr := h.WorkflowService.StartRunForIssue(ctx, workflow, issue, actorType, actorID, runtimePreference)
+				run, nodeRuns, wfErr := h.WorkflowService.StartRunForIssueWithRuntimeSelection(ctx, workflow, issue, actorType, actorID, runtimeSelectionPolicy, runtimePreference)
 				if wfErr != nil {
 					resp.WorkflowID = uuidToPtr(issue.AssigneeID)
 					slog.Warn("failed to start workflow run on assignee change", "issue_id", uuidToString(issue.ID), "error", wfErr)

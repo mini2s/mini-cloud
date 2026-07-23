@@ -273,10 +273,17 @@ export interface Workflow {
   node_count: number;
   is_template: boolean;
   source_template_id: string | null;
+  default_runtime_selection_policy: WorkflowRuntimeSelectionPolicy;
+  default_runtime_id: string | null;
   custom_roles: string[];
   created_at: string;
   updated_at: string;
 }
+
+export type WorkflowRuntimeSelectionPolicy =
+  | "specified_runtime_first"
+  | "idle_first"
+  | "issue_creator_first";
 
 export interface WorkflowNode {
   id: string;
@@ -322,6 +329,8 @@ export interface WorkflowRun {
   triggered_by_id: string | null;
   /** Optional run-level manual runtime preference; actual selection remains per node. */
   runtime_id: string | null;
+  /** Immutable runtime selection policy snapshot for this run. */
+  runtime_selection_policy: WorkflowRuntimeSelectionPolicy;
   input: unknown;
   output: unknown;
   started_at: string;
@@ -500,6 +509,8 @@ export interface UpdateWorkflowRequest {
   status?: WorkflowStatus;
   max_retries?: number;
   custom_roles?: string[];
+  default_runtime_selection_policy?: WorkflowRuntimeSelectionPolicy;
+  default_runtime_id?: string | null;
 }
 
 export interface CreateNodeRequest {
