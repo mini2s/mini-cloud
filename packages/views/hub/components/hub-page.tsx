@@ -520,7 +520,3 @@ const updateURL = useCallback((updates: Record<string, string | null>) => {
     </HubLayout>
   )
 }
-
-export function HubManager() {
-  return <div>Hub Manager - Coming Soon</div>
-}

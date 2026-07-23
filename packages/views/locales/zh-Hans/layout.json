@@ -38,7 +38,8 @@
     "hub_subagent": "子 Agent",
     "hub_command": "命令",
     "hub_mcp": "MCP 服务",
-    "hub_plugin": "插件"
+    "hub_plugin": "插件",
+    "hub_manager": "管理控制台"
   },
   "help": {
     "trigger": "帮助",

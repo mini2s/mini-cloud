@@ -1,2 +1,3 @@
-export { HubPage, HubManager } from "./components/hub-page"
+export { HubPage } from "./components/hub-page"
+export { HubManager } from "./components/hub-manager"
 export { HubDetail } from "./components/hub-detail"

@@ -53,6 +53,7 @@ function workspaceScoped(slug: string) {
     hubCommand: () => `${ws}/hub?type=command`,
     hubMcp: () => `${ws}/hub?type=mcp`,
     hubPlugin: () => `${ws}/hub?type=plugin`,
+    hubManager: () => `${ws}/hub/manager`,
     dispatch: () => `${ws}/dispatch`,
     wiki: () => `${ws}/wiki`,
     memory: () => `${ws}/memory`,

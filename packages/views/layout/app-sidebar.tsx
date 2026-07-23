@@ -151,6 +151,7 @@ type NavKey =
   | "hubCommand"
   | "hubMcp"
   | "hubPlugin"
+  | "hubManager"
   | "metricsEfficiency"
   | "metricsQuality"
   | "metricsCost"
@@ -191,6 +192,7 @@ type NavLabelKey =
   | "hub_command"
   | "hub_mcp"
   | "hub_plugin"
+  | "hub_manager"
   | "metrics_efficiency"
   | "metrics_quality"
   | "metrics_cost"
@@ -237,6 +239,7 @@ const repositoryNav: NavItem[] = [
   { key: "hubCommand", labelKey: "hub_command", icon: SquareTerminal },
   { key: "hubMcp", labelKey: "hub_mcp", icon: Plug },
   { key: "hubPlugin", labelKey: "hub_plugin", icon: Puzzle },
+  { key: "hubManager", labelKey: "hub_manager", icon: Settings },
 ];
 
 const metricsNav: NavItem[] = [
