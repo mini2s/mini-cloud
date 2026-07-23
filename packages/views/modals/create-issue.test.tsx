@@ -426,7 +426,7 @@ describe("CreateIssueModal", () => {
     );
 
     await user.type(screen.getByPlaceholderText("Issue title"), "Refactor auth");
-    await user.click(screen.getByRole("button", { name: /Switch to Agent/i }));
+    await user.click(screen.getByRole("button", { name: /Switch to Digital Human/i }));
 
     expect(onSwitchMode).toHaveBeenCalledTimes(1);
     const carry = onSwitchMode.mock.calls[0]?.[0];
@@ -545,7 +545,7 @@ describe("CreateIssueModal", () => {
 
     await user.type(screen.getByPlaceholderText("Issue title"), "Refactor auth");
 
-    await user.click(screen.getByRole("button", { name: /Switch to Agent/i }));
+    await user.click(screen.getByRole("button", { name: /Switch to Digital Human/i }));
 
     expect(onSwitchMode).toHaveBeenCalledTimes(1);
     expect(onSwitchMode.mock.calls[0]?.[0]).toEqual(
@@ -578,7 +578,7 @@ describe("CreateIssueModal", () => {
     await user.type(screen.getByPlaceholderText("Add description..."), "Some body");
 
     mockSetDraft.mockClear();
-    await user.click(screen.getByRole("button", { name: /Switch to Agent/i }));
+    await user.click(screen.getByRole("button", { name: /Switch to Digital Human/i }));
 
     expect(mockSetDraft).toHaveBeenCalledWith({ title: "", description: "" });
   });

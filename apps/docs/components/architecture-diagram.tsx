@@ -95,7 +95,7 @@ function MulticaSide() {
         <div className="text-xs space-y-1.5 text-foreground/80">
           <div>Workspaces</div>
           <div>Issues &amp; tasks</div>
-          <div>Agent definitions</div>
+          <div>Digital Human definitions</div>
           <div>Realtime (WebSocket)</div>
         </div>
       </div>

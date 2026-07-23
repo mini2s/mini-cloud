@@ -7,7 +7,7 @@ import { Callout } from "fumadocs-ui/components/callout";
 
 Multica 内置支持 **11 款 AI 编程工具**。它们都实现了同一套接口——排队、派发、执行、结果回传，所以你可以从 Multica 的同一个看板上指挥任意一款。**但它们在能力细节上差异很大**：会话恢复是否真用、是否支持 MCP、skill 文件该放在哪里、模型怎么选。这一页是完整对照。
 
-创建智能体时挑选工具的指引见 [创建和配置智能体](/agents-create)。
+创建数智人时挑选工具的指引见 [创建和配置数智人](/agents-create)。
 
 ## 能力对照矩阵
 
@@ -22,7 +22,7 @@ Multica 内置支持 **11 款 AI 编程工具**。它们都实现了同一套接
 | **Kimi** | Moonshot | ✅ | ❌ | `.kimi/skills/` | 动态发现 |
 | **Kiro CLI** | Amazon | ✅ | ❌ | `.kiro/skills/` | 动态发现 |
 | **OpenCode** | SST | ✅ | ❌ | `.opencode/skills/` | 动态发现 |
-| **OpenClaw** | 开源项目 | ✅ | ❌ | `.agent_context/skills/` （fallback）| 绑定在智能体上，不能在任务里切换 |
+| **OpenClaw** | 开源项目 | ✅ | ❌ | `.agent_context/skills/` （fallback）| 绑定在数智人上，不能在任务里切换 |
 | **Pi** | Inflection AI | ✅（session 为文件路径）| ❌ | `.pi/skills/` | 动态发现 |
 
 ## 每款工具的定位
@@ -65,7 +65,7 @@ SST 出品，开源。动态发现可用模型（扫 CLI 的配置文件）。�
 
 ### OpenClaw
 
-开源项目，CLI agent 编排器。**模型绑定在智能体层**（`openclaw agents add --model`）——不能在单次任务里覆盖。配置严格受控：用户不能传 `--model` 或 `--system-prompt`，由智能体注册时的配置决定。
+开源项目，CLI agent 编排器。**模型绑定在数智人层**（`openclaw agents add --model`）——不能在单次任务里覆盖。配置严格受控：用户不能传 `--model` 或 `--system-prompt`，由数智人注册时的配置决定。
 
 ### Pi
 
@@ -81,14 +81,14 @@ Inflection AI 出品，极简主义。**会话恢复机制特殊**——session 
 | ⚠️ 代码存在但不可达 | Codex、Cursor | 代码里有 resume 路径但实际走不到（Codex 静默回落、Cursor session id 不回传）—— **当作不支持** |
 | ❌ 无 | Gemini | CLI 无 resume 机制 |
 
-**对你的决策**：如果工作流需要智能体在多次任务之间保持上下文（失败重试、手动重跑、对话式迭代），只选 ✅ 那一行的工具。
+**对你的决策**：如果工作流需要数智人在多次任务之间保持上下文（失败重试、手动重跑、对话式迭代），只选 ✅ 那一行的工具。
 
 ## MCP 配置：只有 Claude Code 真的读
 
 **11 款工具里只有 Claude Code 实际消费 `mcp_config`**。其他 10 款会接收这个字段但**完全忽略**——不报错、不警告，只是配置不生效。
 
 <Callout type="warning">
-如果你在智能体配置里设置了 `mcp_config`，但选了 Claude Code 之外的工具，你的 MCP server 对这个智能体**没有效果**。目前的 MCP 集成只覆盖 Claude Code。
+如果你在数智人配置里设置了 `mcp_config`，但选了 Claude Code 之外的工具，你的 MCP server 对这个数智人**没有效果**。目前的 MCP 集成只覆盖 Claude Code。
 </Callout>
 
 ## skill 文件该放哪儿
@@ -115,6 +115,6 @@ skill 的创建和使用详见 [技能](/skills)。
 
 ## 下一步
 
-- [创建和配置智能体](/agents-create) —— 给你的智能体挑一款工具
+- [创建和配置数智人](/agents-create) —— 给你的数智人挑一款工具
 - [执行任务](/tasks) —— 任务的生命周期和会话恢复机制
 - [守护进程与运行时](/daemon-runtimes) —— 工具跑在哪里、怎么连进 Multica

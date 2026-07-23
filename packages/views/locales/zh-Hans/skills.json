@@ -1,7 +1,7 @@
 {
   "page": {
     "title": "skill",
-    "tagline": "工作区里任何智能体都能使用的指令。",
+    "tagline": "工作区里任何数智人都能使用的指令。",
     "learn_more": "了解更多 →",
     "new_skill": "新建 skill",
     "search_placeholder": "搜索 skill...",
@@ -12,11 +12,11 @@
       },
       "used": {
         "label": "使用中",
-        "description": "至少分配给一个智能体的 skill"
+        "description": "至少分配给一个数智人的 skill"
       },
       "unused": {
         "label": "未使用",
-        "description": "未分配给任何智能体的 skill"
+        "description": "未分配给任何数智人的 skill"
       },
       "mine": {
         "label": "我创建的",
@@ -25,7 +25,7 @@
     },
     "empty": {
       "title": "还没有 skill",
-      "description": "创建第一个 skill、从 URL 导入、或从已连接的运行时复制——之后工作区里每个智能体都能用它。"
+      "description": "创建第一个 skill、从 URL 导入、或从已连接的运行时复制——之后工作区里每个数智人都能用它。"
     },
     "no_matches": {
       "title": "无匹配",
@@ -36,7 +36,7 @@
     },
     "intro_banner": {
       "title": "在工作区内共享。",
-      "body": "任何成员都可以创建 skill、从 URL 导入、或从本地运行时复制——之后所有智能体都能用它。",
+      "body": "任何成员都可以创建 skill、从 URL 导入、或从本地运行时复制——之后所有数智人都能用它。",
       "highlight": "本地运行时里的 skill 在你复制过来之前是私有的。"
     },
     "list_error": {
@@ -76,7 +76,7 @@
     "name_aria": "skill 名称",
     "name_placeholder": "skill-name",
     "description_label": "描述",
-    "description_placeholder": "用一句话描述智能体什么时候应该使用这个 skill...",
+    "description_placeholder": "用一句话描述数智人什么时候应该使用这个 skill...",
     "subline": {
       "origin_runtime_named": "本地运行时 · {{name}}",
       "origin_runtime_provider": "本地运行时 · {{provider}}",
@@ -106,13 +106,13 @@
       "files": "文件",
       "id": "ID",
       "origin": "来源",
-      "used_by_one": "被 {{count}} 个智能体使用",
-      "used_by_other": "被 {{count}} 个智能体使用",
+      "used_by_one": "被 {{count}} 个数智人使用",
+      "used_by_other": "被 {{count}} 个数智人使用",
       "permissions": "权限",
-      "permissions_owner": "你可以编辑和删除这个 skill。修改在智能体下次运行时生效。",
+      "permissions_owner": "你可以编辑和删除这个 skill。修改在数智人下次运行时生效。",
       "permissions_locked_creator": "只有创建者（{{name}}）或工作区管理员能编辑这个 skill。",
       "permissions_locked": "只有创建者或工作区管理员能编辑这个 skill。",
-      "used_by_empty": "还未分配给任何智能体。打开某个智能体的 Skills 标签页进行分配。"
+      "used_by_empty": "还未分配给任何数智人。打开某个数智人的 Skills 标签页进行分配。"
     },
     "origin_card": {
       "imported_runtime": "从本地运行时导入",
@@ -132,9 +132,9 @@
     "toast_delete_failed": "删除 skill 失败",
     "delete_dialog": {
       "title": "删除这个 skill？",
-      "description_with_agents_one": "将永久删除\"{{name}}\"，并从当前正在使用它的 {{count}} 个智能体上移除。",
-      "description_with_agents_other": "将永久删除\"{{name}}\"，并从当前正在使用它的 {{count}} 个智能体上移除。",
-      "description_no_agents": "将永久删除\"{{name}}\"，并从所有智能体上移除。",
+      "description_with_agents_one": "将永久删除\"{{name}}\"，并从当前正在使用它的 {{count}} 个数智人上移除。",
+      "description_with_agents_other": "将永久删除\"{{name}}\"，并从当前正在使用它的 {{count}} 个数智人上移除。",
+      "description_no_agents": "将永久删除\"{{name}}\"，并从所有数智人上移除。",
       "warning": "此操作不可撤销。",
       "cancel": "取消",
       "confirm": "永久删除",
@@ -189,7 +189,7 @@
       "name_placeholder": "例如：review-helper",
       "name_hint": "工作区内必须唯一。",
       "description_label": "描述",
-      "description_placeholder": "用一句话说什么时候应该把这个 skill 分配给智能体。",
+      "description_placeholder": "用一句话说什么时候应该把这个 skill 分配给数智人。",
       "name_conflict_hint": "请换一个名字再提交。",
       "fallback_error": "创建 skill 失败",
       "cancel": "取消",
@@ -232,7 +232,7 @@
     "skill_files_other": "{{count}} 个文件",
     "skill_name_label": "工作区里的 skill 名称",
     "skill_description_label": "描述",
-    "skill_description_placeholder": "可选——描述智能体什么时候应该使用这个 skill。",
+    "skill_description_placeholder": "可选——描述数智人什么时候应该使用这个 skill。",
     "toast_imported": "已导入 skill",
     "toast_import_failed": "导入 skill 失败",
     "select_all": "全选 ({{count}})",

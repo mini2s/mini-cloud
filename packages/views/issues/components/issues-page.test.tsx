@@ -586,7 +586,7 @@ describe("IssuesPage (shared)", () => {
 
     await screen.findByText("All");
     expect(screen.getByText("Members")).toBeInTheDocument();
-    expect(screen.getByText("Agents")).toBeInTheDocument();
+    expect(screen.getByText("Digital Humans")).toBeInTheDocument();
   });
 
   it("agents scope includes squad-assigned issues", async () => {

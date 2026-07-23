@@ -1,7 +1,7 @@
 {
   "page": {
     "title": "Runtimes",
-    "tagline": "Machines and cloud workers running CLI sessions for your agents.",
+    "tagline": "Machines and cloud workers running CLI sessions for your digital humans.",
     "learn_more": "Learn more →",
     "connect_remote": "Add a computer",
     "search_placeholder": "Search runtimes…",
@@ -95,9 +95,9 @@
     "fact_daemon_cli": "Daemon CLI",
     "fact_daemon_id": "Daemon ID",
     "serving_title": "Serving",
-    "serving_count_one": "{{count}} agent",
-    "serving_count_other": "{{count}} agents",
-    "no_agents": "No agents are bound to this runtime yet.",
+    "serving_count_one": "{{count}} digital human",
+    "serving_count_other": "{{count}} digital humans",
+    "no_agents": "No digital humans are bound to this runtime yet.",
     "diagnostics_title": "Diagnostics",
     "diagnostics_cli": "CLI",
     "diagnostics_visibility": "Visibility",
@@ -135,8 +135,8 @@
       "public": "Public"
     },
     "visibility_hint": {
-      "private": "Only you and workspace admins can create agents on this runtime.",
-      "public": "Any workspace member can create agents on this runtime."
+      "private": "Only you and workspace admins can create digital humans on this runtime.",
+      "public": "Any workspace member can create digital humans on this runtime."
     },
     "visibility_toast_updated": "Visibility set to {{visibility}}",
     "visibility_toast_failed": "Failed to update visibility",
@@ -149,7 +149,7 @@
     },
     "toast_deleted": "Runtime deleted",
     "toast_delete_failed": "Failed to delete runtime",
-    "runtime_has_active_agents": "This runtime still has active agents. Archive or reassign them before deleting it.",
+    "runtime_has_active_agents": "This runtime still has active digital humans. Archive or reassign them before deleting it.",
     "running_chip_one": "· {{count}} running",
     "running_chip_other": "· {{count}} running",
     "queued_chip_one": "· {{count}} queued",
@@ -181,9 +181,9 @@
     "copy_aria": "Copy",
     "cancel": "Cancel",
     "success_title": "Computer connected",
-    "success_description": "Your computer is online and ready. Create an agent and it can start picking up tasks here.",
+    "success_description": "Your computer is online and ready. Create a digital human and it can start picking up tasks here.",
     "view_runtime": "View runtime",
-    "create_agent": "Create an agent"
+    "create_agent": "Create a digital human"
   },
   "cloud_runtime": {
     "action": "Cloud Runtime",
@@ -253,7 +253,7 @@
     "col_runtime": "Runtime",
     "col_health": "Health",
     "col_owner": "Owner",
-    "col_agents": "Agents",
+    "col_agents": "Digital Humans",
     "col_workload": "Workload",
     "col_cost": "Cost · 7d",
     "col_cli": "CLI",
@@ -307,12 +307,12 @@
       "cancel": "Cancel",
       "save": "Save"
     },
-    "cost_by_title_agent": "Cost by agent",
+    "cost_by_title_agent": "Cost by digital human",
     "cost_by_title_model": "Cost by model",
-    "cost_by_tab_agent": "By agent",
+    "cost_by_tab_agent": "By digital human",
     "cost_by_tab_model": "By model",
-    "cost_by_caption_agent_one": "{{count}} agent on this runtime",
-    "cost_by_caption_agent_other": "{{count}} agents on this runtime",
+    "cost_by_caption_agent_one": "{{count}} digital human on this runtime",
+    "cost_by_caption_agent_other": "{{count}} digital humans on this runtime",
     "cost_by_caption_model_one": "{{count}} model used",
     "cost_by_caption_model_other": "{{count}} models used",
     "daily_breakdown_toggle": "Daily breakdown table",

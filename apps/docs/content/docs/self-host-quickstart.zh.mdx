@@ -5,9 +5,9 @@ description: 在自己的服务器或本机用 Docker 把 Multica 跑起来。�
 
 import { Callout } from "fumadocs-ui/components/callout";
 
-这一页带你用 Docker 把 Multica 的**服务器**（后端 + 前端 + PostgreSQL）跑在自己的机器或服务器上。走完这一篇你的数据就完全在自己手里——包括 [工作区](/workspaces)、[issue](/issues)、[评论](/comments)、[智能体](/agents) 配置。
+这一页带你用 Docker 把 Multica 的**服务器**（后端 + 前端 + PostgreSQL）跑在自己的机器或服务器上。走完这一篇你的数据就完全在自己手里——包括 [工作区](/workspaces)、[issue](/issues)、[评论](/comments)、[数智人](/agents) 配置。
 
-智能体**执行**还是靠你本地跑的 [守护进程](/daemon-runtimes) + 本地装好的 [AI 编程工具](/providers)——这点和 Cloud 完全一样。Self-host 换掉的是服务器那一层，不是执行那一层。
+数智人**执行**还是靠你本地跑的 [守护进程](/daemon-runtimes) + 本地装好的 [AI 编程工具](/providers)——这点和 Cloud 完全一样。Self-host 换掉的是服务器那一层，不是执行那一层。
 
 ## 前置要求
 
@@ -150,9 +150,9 @@ multica.example.com {
 
 [Cloudflare Tunnel](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/) 也是不错的选择——它直接给一个公开域名 + TLS，host 上不用对外暴露任何端口。Nginx 也能做（分 `app.` / `api.` 两个域名 + `proxy_set_header Upgrade` 转 WebSocket），关键就是终结 TLS、并在 `/ws` 上转发 `Upgrade` 头。
 
-## 6. 创建智能体 + 分配第一个任务
+## 6. 创建数智人 + 分配第一个任务
 
-流程和 Cloud 一样——见 [Cloud 快速上手 → 5-6 步](/cloud-quickstart#5-创建智能体)。
+流程和 Cloud 一样——见 [Cloud 快速上手 → 5-6 步](/cloud-quickstart#5-创建数智人)。
 
 ## 常见问题
 

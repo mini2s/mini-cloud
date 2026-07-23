@@ -29,7 +29,7 @@
       "notifications": "Notifications",
       "tokens": "API Tokens",
       "general": "General",
-            "roles": "Workflow Roles",
+      "roles": "Workflow Roles",
       "repositories": "Repositories",
       "github": "GitHub",
       "gitlab": "GitLab",
@@ -44,7 +44,7 @@
     "click_avatar_hint": "Click to upload avatar",
     "name_label": "Name",
     "profile_description_label": "About you",
-    "profile_description_hint": "Shared with agents working on your behalf — role, stack, preferences, anything you'd tell a new collaborator on day one.",
+    "profile_description_hint": "Shared with digital humans working on your behalf — role, stack, preferences, anything you'd tell a new collaborator on day one.",
     "profile_description_placeholder": "e.g. Backend engineer (Go + Postgres). Prefer terse PRs and tests alongside the change.",
     "profile_description_too_long": "Profile is too long (max {{max}} characters; currently {{count}}).",
     "save": "Update Profile",
@@ -76,8 +76,8 @@
         "description": "When priority or due date changes on issues you follow"
       },
       "agent_activity": {
-        "label": "Agent activity",
-        "description": "When an agent task completes or fails"
+        "label": "Digital Human activity",
+        "description": "When a digital human task completes or fails"
       }
     },
     "system": {
@@ -128,7 +128,7 @@
     "description_label": "Description",
     "description_placeholder": "What does this workspace focus on?",
     "context_label": "Context",
-    "context_placeholder": "Background information and context for AI agents working in this workspace",
+    "context_placeholder": "Background information and context for AI digital humans working in this workspace",
     "slug_label": "Slug",
     "issue_prefix_label": "Issue prefix",
     "issue_prefix_hint": "Used in issue numbers like {{example}}.",
@@ -140,7 +140,7 @@
     "toast_saved": "Workspace settings saved",
     "toast_save_failed": "Failed to save workspace settings",
     "auto_reply_title": "Workflow Auto-Reply",
-    "auto_reply_description": "Automatically reply to agent questions using the recommended option",
+    "auto_reply_description": "Automatically reply to digital human questions using the recommended option",
     "auto_reply_toast_saved": "Auto-reply setting saved",
     "auto_reply_toast_failed": "Failed to save auto-reply setting",
     "danger_zone": "Danger Zone",
@@ -163,7 +163,7 @@
   },
   "delete_workspace_dialog": {
     "title": "Delete workspace",
-    "description": "This cannot be undone. All issues, agents, and data will be permanently removed.",
+    "description": "This cannot be undone. All issues, digital humans, and data will be permanently removed.",
     "type_to_confirm_prefix": "To confirm, type",
     "type_to_confirm_suffix": " below.",
     "cancel": "Cancel",
@@ -182,7 +182,7 @@
     "manage_hint": "Only admins and owners can manage integrations."
   },
   "github": {
-    "page_description": "Connect a GitHub App, control how Pull Requests show up inside Multica, and decide what your agents leave behind in commit history.",
+    "page_description": "Connect a GitHub App, control how Pull Requests show up inside Multica, and decide what your digital humans leave behind in commit history.",
     "section_master": "Enable GitHub features",
     "master_description_on": "When off, every GitHub UI affordance is hidden and no new side-effects are written. Existing data is kept on the backend. Not a development team? Just turn it off here.",
     "master_description_off": "GitHub features are turned off. The PR sidebar, co-author trailer, and auto-link are paused. Data on the backend is not deleted.",
@@ -216,7 +216,7 @@
     "feature_pr_sidebar_description": "Show linked pull requests inside the issue detail sidebar.",
     "feature_co_author_label": "Co-authored-by trailer",
     "feature_co_author_description_prefix": "Append",
-    "feature_co_author_description_suffix": "to commits authored by agents.",
+    "feature_co_author_description_suffix": "to commits authored by digital humans.",
     "feature_auto_link_label": "Auto-link issues and PRs",
     "feature_auto_link_description": "Match PR titles, bodies, and branch names against issue identifiers and create the link automatically.",
     "section_repositories": "Repositories",
@@ -264,7 +264,7 @@
   },
   "repositories": {
     "section_title": "Repositories",
-    "description": "Git repositories associated with this workspace. Agents use these to clone and work on code.",
+    "description": "Git repositories associated with this workspace. Digital Humans use these to clone and work on code.",
     "url_placeholder": "https://git.example.com/org/repo.git or git@git.example.com:org/repo.git",
     "url_empty": "(empty URL)",
     "description_placeholder": "Description (e.g. Go backend + Next.js frontend)",
@@ -389,7 +389,8 @@
     "toast_deleted": "Workflow role deleted",
     "toast_save_failed": "Failed to save workflow role",
     "toast_delete_failed": "Failed to delete workflow role"
-  },  "workflow_admins": {
+  },
+  "workflow_admins": {
     "section_title": "Workflow Admins ({{count}})",
     "save": "Save",
     "saving": "Saving...",
@@ -398,7 +399,7 @@
     "permission_denied": "You do not have permission to manage workflow admins.",
     "empty_hint": "No members found. Please invite members to the workspace first.",
     "auto_reply_title": "Workflow Auto-Reply",
-    "auto_reply_description": "Automatically reply to agent questions using the recommended option",
+    "auto_reply_description": "Automatically reply to digital human questions using the recommended option",
     "auto_reply_toast_saved": "Auto-reply setting saved",
     "auto_reply_toast_failed": "Failed to save auto-reply setting"
   }

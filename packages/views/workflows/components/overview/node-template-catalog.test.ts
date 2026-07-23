@@ -42,8 +42,8 @@ describe("node-template-catalog", () => {
     });
 
     expect(request).toMatchObject({
-      title: "Agent task",
-      description: "Ask an agent to complete a workflow step.",
+      title: "Digital human task",
+      description: "Ask a digital human to complete a workflow step.",
       position_x: 126,
       position_y: 0,
       stage_id: "stage-1",

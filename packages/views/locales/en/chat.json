@@ -6,7 +6,7 @@
     "default": "Ask Multica"
   },
   "input": {
-    "placeholder_no_agent": "Create an agent to start chatting",
+    "placeholder_no_agent": "Create a digital human to start chatting",
     "placeholder_archived": "This session is archived",
     "placeholder_named": "Tell {{name}} what to do…",
     "placeholder_default": "Tell me what to do…",
@@ -58,15 +58,15 @@
     "unread": "Unread",
     "no_previous": "No previous chats",
     "untitled": "New chat",
-    "my_agents": "My agents",
+    "my_agents": "My digital humans",
     "others": "Others",
-    "no_agents": "No agents",
+    "no_agents": "No digital humans",
     "active_group": "Active",
     "archived_group_one": "{{count}} archived chat",
     "archived_group_other": "{{count}} archived chats"
   },
   "empty_state": {
-    "first_time_title": "Chat with your agents",
+    "first_time_title": "Chat with your digital humans",
     "first_time_intro": "✨ They know your workspace —",
     "first_time_pillars": "issues, projects, skills",
     "first_time_pillars_suffix": ".",
@@ -91,9 +91,9 @@
     "aria_stop": "Stop sharing current page",
     "aria_start": "Share current page with Multica"
   },
-  "no_agent_banner": "You need an agent to start chatting.",
+  "no_agent_banner": "You need a digital human to start chatting.",
   "offline_banner": {
-    "fallback_name": "the agent",
+    "fallback_name": "the digital human",
     "unstable": "{{name}}'s connection is unstable — replies may be delayed.",
     "offline": "{{name}} is offline — your message will be delivered when they're back."
   },

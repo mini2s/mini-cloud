@@ -57,7 +57,7 @@ describe("NodeTemplatePicker", () => {
 
     expect(screen.getByText("Triggers")).toBeInTheDocument();
     expect(screen.getByText("Manual trigger")).toBeInTheDocument();
-    expect(screen.getByText("Agent task")).toBeInTheDocument();
+    expect(screen.getByText("Digital human task")).toBeInTheDocument();
   });
 
   it("filters templates by search term", () => {
@@ -75,7 +75,7 @@ describe("NodeTemplatePicker", () => {
     const onSelect = vi.fn();
     render(<NodeTemplatePicker onSelect={onSelect} />);
 
-    fireEvent.click(screen.getByRole("button", { name: /Agent task/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Digital human task/ }));
 
     expect(onSelect).toHaveBeenCalledWith(expect.objectContaining({ id: "ai-agent-task" }));
   });

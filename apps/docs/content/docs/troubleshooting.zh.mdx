@@ -38,9 +38,9 @@ cs-workflow workspace list            # 确认你是目标工作区成员
 
 **可能原因**（按触发概率排）：
 
-1. **智能体并发上限已满** —— 该 agent 的 `max_concurrent_tasks`（默认 6）已经被其他正在跑的任务占满
+1. **数智人并发上限已满** —— 该 agent 的 `max_concurrent_tasks`（默认 6）已经被其他正在跑的任务占满
 2. **同一 issue 上有另一个同 agent 的任务还没结束** —— 同 agent × 同 issue 强制串行（防止重复执行）
-3. **智能体已经被 archive** —— 被归档后新任务仍能入队，但无法被 claim，会卡到 5 分钟超时（code-issue G-01）
+3. **数智人已经被 archive** —— 被归档后新任务仍能入队，但无法被 claim，会卡到 5 分钟超时（code-issue G-01）
 4. **Daemon 没在当前工作区注册该 runtime** —— 重启 daemon 或在 UI 重新选一次 runtime
 5. **守护进程失联** —— 最近 45 秒没心跳。`daemon status` 看起来 `online` 也可能是刚失联
 

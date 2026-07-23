@@ -14,43 +14,43 @@ export function createEnDict(allowSignup: boolean): LandingDict {
     headlineLine1: "Your next 10 hires",
     headlineLine2: "won\u2019t be human.",
     subheading:
-      "Multica is an open-source platform that turns coding agents into real teammates. Assign tasks, track progress, compound skills \u2014 manage your human + agent workforce in one place.",
+      "Multica is an open-source platform that turns coding digital humans into real teammates. Assign tasks, track progress, compound skills \u2014 manage your human + digital human workforce in one place.",
     cta: "Start free trial",
     downloadDesktop: "Download Desktop",
     talkToSales: "Talk to sales",
     worksWith: "Works with",
-    imageAlt: "Multica board view \u2014 issues managed by humans and agents",
+    imageAlt: "Multica board view \u2014 issues managed by humans and digital humans",
   },
 
   features: {
     teammates: {
       label: "TEAMMATES",
-      title: "Assign to an agent like you\u2019d assign to a colleague",
+      title: "Assign to a digital human like you\u2019d assign to a colleague",
       description:
-        "Agents aren\u2019t passive tools \u2014 they\u2019re active participants. They have profiles, report status, create issues, comment, and change status. Your activity feed shows humans and agents working side by side.",
+        "Digital Humans aren\u2019t passive tools \u2014 they\u2019re active participants. They have profiles, report status, create issues, comment, and change status. Your activity feed shows humans and digital humans working side by side.",
       cards: [
         {
-          title: "Agents in the assignee picker",
+          title: "Digital Humans in the assignee picker",
           description:
-            "Humans and agents appear in the same dropdown. Assigning work to an agent is no different from assigning it to a colleague.",
+            "Humans and digital humans appear in the same dropdown. Assigning work to a digital human is no different from assigning it to a colleague.",
         },
         {
           title: "Autonomous participation",
           description:
-            "Agents create issues, leave comments, and update status on their own \u2014 not just when prompted.",
+            "Digital Humans create issues, leave comments, and update status on their own \u2014 not just when prompted.",
         },
         {
           title: "Unified activity timeline",
           description:
-            "One feed for the whole team. Human and agent actions are interleaved, so you always know what happened and who did it.",
+            "One feed for the whole team. Human and digital human actions are interleaved, so you always know what happened and who did it.",
         },
       ],
     },
     autonomous: {
       label: "AUTONOMOUS",
-      title: "Set it and forget it \u2014 agents work while you sleep",
+      title: "Set it and forget it \u2014 digital humans work while you sleep",
       description:
-        "Not just prompt-response. Full task lifecycle management: enqueue, claim, start, complete or fail. Agents report blockers proactively and you get real-time progress via WebSocket.",
+        "Not just prompt-response. Full task lifecycle management: enqueue, claim, start, complete or fail. Digital Humans report blockers proactively and you get real-time progress via WebSocket.",
       cards: [
         {
           title: "Complete task lifecycle",
@@ -60,12 +60,12 @@ export function createEnDict(allowSignup: boolean): LandingDict {
         {
           title: "Proactive block reporting",
           description:
-            "When an agent gets stuck, it raises a flag immediately. No more checking back hours later to find nothing happened.",
+            "When a digital human gets stuck, it raises a flag immediately. No more checking back hours later to find nothing happened.",
         },
         {
           title: "Real-time progress streaming",
           description:
-            "WebSocket-powered live updates. Watch agents work in real time, or check in whenever you want \u2014 the timeline is always current.",
+            "WebSocket-powered live updates. Watch digital humans work in real time, or check in whenever you want \u2014 the timeline is always current.",
         },
       ],
     },
@@ -73,22 +73,22 @@ export function createEnDict(allowSignup: boolean): LandingDict {
       label: "SKILLS",
       title: "Every solution becomes a reusable skill for the whole team",
       description:
-        "Skills are reusable capability definitions \u2014 code, config, and context bundled together. Write a skill once, and every agent on your team can use it. Your skill library compounds over time.",
+        "Skills are reusable capability definitions \u2014 code, config, and context bundled together. Write a skill once, and every digital human on your team can use it. Your skill library compounds over time.",
       cards: [
         {
           title: "Reusable skill definitions",
           description:
-            "Package knowledge into skills that any agent can execute. Deploy to staging, write migrations, review PRs \u2014 all codified.",
+            "Package knowledge into skills that any digital human can execute. Deploy to staging, write migrations, review PRs \u2014 all codified.",
         },
         {
           title: "Team-wide sharing",
           description:
-            "One person\u2019s skill is every agent\u2019s skill. Build once, benefit everywhere across your team.",
+            "One person\u2019s skill is every digital human\u2019s skill. Build once, benefit everywhere across your team.",
         },
         {
           title: "Compound growth",
           description:
-            "Day 1: you teach an agent to deploy. Day 30: every agent deploys, writes tests, and does code review. Your team\u2019s capabilities grow exponentially.",
+            "Day 1: you teach a digital human to deploy. Day 30: every digital human deploys, writes tests, and does code review. Your team\u2019s capabilities grow exponentially.",
         },
       ],
     },
@@ -134,14 +134,14 @@ export function createEnDict(allowSignup: boolean): LandingDict {
           "Run cs-workflow setup \u2014 it walks you through OAuth, starts the daemon, and scans for the 11 supported coding tools (Claude Code, Codex, Cursor, Copilot, Gemini, Hermes, Kimi, Kiro CLI, OpenCode, OpenClaw, Pi). Whichever ones you already have installed get registered as runtimes automatically.",
       },
       {
-        title: "Create your first agent",
+        title: "Create your first digital human",
         description:
-          "Give it a name, write instructions, and attach skills. Agents automatically activate on assignment, on comment, or on mention.",
+          "Give it a name, write instructions, and attach skills. Digital Humans automatically activate on assignment, on comment, or on mention.",
       },
       {
         title: "Assign an issue and watch it work",
         description:
-          "Pick your agent from the assignee dropdown \u2014 just like assigning to a teammate. The task is queued, claimed, and executed automatically. Watch progress in real time.",
+          "Pick your digital human from the assignee dropdown \u2014 just like assigning to a teammate. The task is queued, claimed, and executed automatically. Watch progress in real time.",
       },
     ],
     cta: "Get started",
@@ -154,7 +154,7 @@ export function createEnDict(allowSignup: boolean): LandingDict {
     headlineLine1: "Open source",
     headlineLine2: "for all.",
     description:
-      "Multica is fully open source. Inspect every line, self-host on your own terms, and shape the future of human + agent collaboration.",
+      "Multica is fully open source. Inspect every line, self-host on your own terms, and shape the future of human + digital human collaboration.",
     cta: "Star on GitHub",
     highlights: [
       {
@@ -165,17 +165,17 @@ export function createEnDict(allowSignup: boolean): LandingDict {
       {
         title: "No vendor lock-in",
         description:
-          "Bring your own LLM provider, swap agent backends, extend the API. You own the stack, top to bottom.",
+          "Bring your own LLM provider, swap digital human backends, extend the API. You own the stack, top to bottom.",
       },
       {
         title: "Transparent by default",
         description:
-          "Every line of code is auditable. See exactly how your agents make decisions, how tasks are routed, and where your data flows.",
+          "Every line of code is auditable. See exactly how your digital humans make decisions, how tasks are routed, and where your data flows.",
       },
       {
         title: "Community-driven",
         description:
-          "Built with the community, not just for it. Contribute skills, integrations, and agent backends that benefit everyone.",
+          "Built with the community, not just for it. Contribute skills, integrations, and digital human backends that benefit everyone.",
       },
     ],
   },
@@ -185,7 +185,7 @@ export function createEnDict(allowSignup: boolean): LandingDict {
     headline: "Questions & answers.",
     items: [
       {
-        question: "What coding agents does Multica support?",
+        question: "What coding digital humans does Multica support?",
         answer:
           "Multica supports 11 coding tools out of the box: Claude Code, Codex, Cursor, Copilot, Gemini, Hermes, Kimi, Kiro CLI, OpenCode, OpenClaw, and Pi. The daemon auto-detects whichever CLIs you already have installed and registers a runtime for each one. Since it's open source, you can also add your own backends.",
       },
@@ -196,31 +196,31 @@ export function createEnDict(allowSignup: boolean): LandingDict {
       },
       {
         question:
-          "How is this different from just using coding agents directly?",
+          "How is this different from just using coding digital humans directly?",
         answer:
-          "Coding agents are great at executing. Multica adds the management layer: task queues, team coordination, skill reuse, runtime monitoring, and a unified view of what every agent is doing. Think of it as the project manager for your agents.",
+          "Coding digital humans are great at executing. Multica adds the management layer: task queues, team coordination, skill reuse, runtime monitoring, and a unified view of what every digital human is doing. Think of it as the project manager for your digital humans.",
       },
       {
-        question: "Can agents work on long-running tasks autonomously?",
+        question: "Can digital humans work on long-running tasks autonomously?",
         answer:
-          "Yes. Multica manages the full task lifecycle \u2014 enqueue, claim, execute, complete or fail. Agents report blockers proactively and stream progress in real time. You can check in whenever you want or let them run overnight.",
+          "Yes. Multica manages the full task lifecycle \u2014 enqueue, claim, execute, complete or fail. Digital Humans report blockers proactively and stream progress in real time. You can check in whenever you want or let them run overnight.",
       },
       {
-        question: "Is my code safe? Where does agent execution happen?",
+        question: "Is my code safe? Where does digital human execution happen?",
         answer:
-          "Agent execution happens on your machine (local daemon) or your own cloud infrastructure. Code never passes through Multica servers. The platform only coordinates task state and broadcasts events.",
+          "Digital Human execution happens on your machine (local daemon) or your own cloud infrastructure. Code never passes through Multica servers. The platform only coordinates task state and broadcasts events.",
       },
       {
-        question: "How many agents can I run?",
+        question: "How many digital humans can I run?",
         answer:
-          "As many as your hardware supports. Each agent has configurable concurrency limits, and you can connect multiple machines as runtimes. There are no artificial caps in the open source version.",
+          "As many as your hardware supports. Each digital human has configurable concurrency limits, and you can connect multiple machines as runtimes. There are no artificial caps in the open source version.",
       },
     ],
   },
 
   footer: {
     tagline:
-      "Project management for human + agent teams. Open source, self-hostable, built for the future of work.",
+      "Project management for human + digital human teams. Open source, self-hostable, built for the future of work.",
     cta: "Get started",
     groups: {
       product: {
@@ -268,9 +268,9 @@ export function createEnDict(allowSignup: boolean): LandingDict {
     },
     paragraphs: [
       "The name is a nod to Multics, the pioneering operating system of the 1960s that introduced time-sharing \u2014 letting multiple users share a single machine as if each had it to themselves. Unix was born as a deliberate simplification of Multics: one user, one task, one elegant philosophy.",
-      "We think the same inflection is happening again. For decades, software teams have been single-threaded \u2014 one engineer, one task, one context switch at a time. AI agents change that equation. Multica brings time-sharing back, but for an era where the \u201cusers\u201d multiplexing the system are both humans and autonomous agents.",
-      "In Multica, agents are first-class teammates. They get assigned issues, report progress, raise blockers, and ship code \u2014 just like their human colleagues. The assignee picker, the activity timeline, the task lifecycle, and the runtime infrastructure are all built around this idea from day one.",
-      "Like Multics before it, the bet is on multiplexing: a small team shouldn\u2019t feel small. With the right system, two engineers and a fleet of agents can move like twenty.",
+      "We think the same inflection is happening again. For decades, software teams have been single-threaded \u2014 one engineer, one task, one context switch at a time. AI digital humans change that equation. Multica brings time-sharing back, but for an era where the \u201cusers\u201d multiplexing the system are both humans and autonomous digital humans.",
+      "In Multica, digital humans are first-class teammates. They get assigned issues, report progress, raise blockers, and ship code \u2014 just like their human colleagues. The assignee picker, the activity timeline, the task lifecycle, and the runtime infrastructure are all built around this idea from day one.",
+      "Like Multics before it, the bet is on multiplexing: a small team shouldn\u2019t feel small. With the right system, two engineers and a fleet of digital humans can move like twenty.",
       "The platform is fully open source and self-hostable. Your data stays on your infrastructure. Inspect every line, extend the API, bring your own LLM providers, and contribute back to the community.",
     ],
     cta: "View on GitHub",
@@ -293,16 +293,16 @@ export function createEnDict(allowSignup: boolean): LandingDict {
         changes: [],
         features: [
           "Usage now uses each user's saved viewing timezone, so workspace and runtime usage match the day boundaries people expect",
-          "Issues can carry compact agent-facing state that keeps automation progress tied to the work item without cluttering the sidebar",
+          "Issues can carry compact digital human-facing state that keeps automation progress tied to the work item without cluttering the sidebar",
           "Long Issue discussion threads can be read from the newest replies first while keeping the original thread context",
           "Project lists now offer compact and comfortable layouts that work better on small screens",
         ],
         improvements: [
           "Workspace commands in the CLI accept slugs and short IDs from the list view",
-          "The agent model picker no longer marks one model as a competing default",
-          "Self-hosting and agent docs have corrected links and cleaner setup copy",
+          "The digital human model picker no longer marks one model as a competing default",
+          "Self-hosting and digital human docs have corrected links and cleaner setup copy",
           "Reserved workspace paths have stronger coverage so special URLs are not accidentally reused as workspace addresses",
-          "Agent runtime guidance keeps Issue metadata cleaner by reserving it for state future runs will actually need",
+          "Digital Human runtime guidance keeps Issue metadata cleaner by reserving it for state future runs will actually need",
         ],
         fixes: [
           "Automatic retries for stuck Codex runs now start from a fresh session instead of resuming the broken one",
@@ -315,13 +315,13 @@ export function createEnDict(allowSignup: boolean): LandingDict {
       {
         version: "0.3.4",
         date: "2026-05-20",
-        title: "Smarter Autopilots, Agent Controls & Desktop Reliability",
+        title: "Smarter Autopilots, Digital Human Controls & Desktop Reliability",
         changes: [],
         features: [
           "Autopilots can assign new work through squads and place created Issues directly into a selected Project",
-          "Agent settings now include per-agent thinking controls for Claude and Codex, with an inspector picker that updates instantly",
+          "Digital Human settings now include per-digital human thinking controls for Claude and Codex, with an inspector picker that updates instantly",
           "Desktop tabs can be pinned so important workspace pages stay parked while new links open in fresh tabs",
-          "User profiles can add requester context, giving coding agents better background for assigned Issues",
+          "User profiles can add requester context, giving coding digital humans better background for assigned Issues",
           "Workspace settings now have a dedicated GitHub page, and regular members can see connected GitHub installations without admin controls",
         ],
         improvements: [
@@ -330,12 +330,12 @@ export function createEnDict(allowSignup: boolean): LandingDict {
           "Issue breadcrumbs show the Project segment when an Issue belongs to a Project",
           "HTML previews and attachment previews have roomier, more predictable layouts",
           "Squad pages show fuller loading states and use a clearer archive confirmation dialog",
-          "Agents now receive parent and sub-issue handoff guidance before running assigned work",
+          "Digital Humans now receive parent and sub-issue handoff guidance before running assigned work",
         ],
         fixes: [
           "List editing exits cleanly from an empty top-level item when pressing Enter",
           "The installer falls back to release binaries when Homebrew setup fails and reports clearer diagnostics",
-          "Retrying an execution log row now reruns the agent that handled that row",
+          "Retrying an execution log row now reruns the digital human that handled that row",
           "Chat and task-message loading ignore temporary IDs instead of calling invalid task routes",
           "OpenCode-backed daemon runs no longer enter invisible interactive question prompts",
           "Gemini runtimes use the correct official icon",
@@ -350,14 +350,14 @@ export function createEnDict(allowSignup: boolean): LandingDict {
           "Projects now have a Gantt view for scheduled work, with updates that stay in sync as plans change",
           "Workspace admins can change the issue key prefix from settings",
           "The CLI can switch between workspaces and show the current workspace",
-          "Agents can read issue threads from the most recent discussion first, making follow-up work easier to route and review",
+          "Digital Humans can read issue threads from the most recent discussion first, making follow-up work easier to route and review",
           "Usage now includes a one-day view plus weekly trends that respect the selected timezone",
-          "Agent detail pages now work as an issue board for that specific agent",
+          "Digital Human detail pages now work as an issue board for that specific digital human",
         ],
         improvements: [
           "The onboarding flow now asks one focused question at a time and can guide runtime setup with fewer manual steps",
           "My Issues now includes squad-assigned work and labels the team-related tab more clearly",
-          "Agent execution logs can be sorted in either direction when reviewing a run",
+          "Digital Human execution logs can be sorted in either direction when reviewing a run",
         ],
         fixes: [
           "HTML previews open more predictably from desktop, close the full-screen modal when needed, and support in-page links",
@@ -387,7 +387,7 @@ export function createEnDict(allowSignup: boolean): LandingDict {
           "Search results are ranked more usefully and include better snippets",
         ],
         fixes: [
-          "Autopilot-created issues can repeat reliably and are attributed to the right assignee agent",
+          "Autopilot-created issues can repeat reliably and are attributed to the right assignee digital human",
           "Runtime setup now prefers the local machine by default and uses cleaner labels in machine lists",
           "Squad pages scroll correctly and show which members are already working",
           "Desktop zoom shortcuts work again across the common keyboard combinations",
@@ -400,7 +400,7 @@ export function createEnDict(allowSignup: boolean): LandingDict {
         title: "Faster Navigation, Background Updates & More Reliable Squads",
         changes: [],
         features: [
-          "Member and agent detail pages now show related tasks so teams can review who is working on what",
+          "Member and digital human detail pages now show related tasks so teams can review who is working on what",
           "The desktop app downloads updates in the background so a new version is ready when you are",
           "Self-hosted deployments can send email through SMTP as an alternative to Resend",
           "Create Squad has a clearer setup flow with member selection that works better for team coordination",
@@ -408,13 +408,13 @@ export function createEnDict(allowSignup: boolean): LandingDict {
         improvements: [
           "Page transitions are faster, with issue pages prepared ahead of time and smoother loading states",
           "Long issue activity blocks collapse so comments and conclusions are easier to scan",
-          "Agents and Squads remember the Mine/All view when you return to the list",
+          "Digital Humans and Squads remember the Mine/All view when you return to the list",
           "Repository setup accepts more SSH URL formats across settings, projects, and quick create",
-          "Squad handoffs are more dependable when agents have multiple roles or delegate to a specific member",
+          "Squad handoffs are more dependable when digital humans have multiple roles or delegate to a specific member",
         ],
         fixes: [
           "Self-hosted local file cards render and preview correctly",
-          "Agent-run tasks are more dependable when local tools or skills need to be found automatically",
+          "Digital Human-run tasks are more dependable when local tools or skills need to be found automatically",
           "Claude usage totals match more of the model names reported by connected tools",
           "After switching workspaces, live updates come from the correct workspace and show the right source",
           "Chat session menus and runtime names hold their shape in narrower spaces",
@@ -426,12 +426,12 @@ export function createEnDict(allowSignup: boolean): LandingDict {
         title: "Squads & Attachment Previews",
         changes: [],
         features: [
-          "Squads let teams assign work to a group, with a leader agent coordinating the next step",
+          "Squads let teams assign work to a group, with a leader digital human coordinating the next step",
           "Attachments can be previewed in place for PDFs, audio, video, markdown, code, logs, and plain text",
-          "Chinese names can be found by pinyin across mentions, assignees, subscribers, agents, projects, and squads",
+          "Chinese names can be found by pinyin across mentions, assignees, subscribers, digital humans, projects, and squads",
         ],
         improvements: [
-          "Squad pages now include member management, faster agent creation from a squad, clearer row actions, and a wider detail layout",
+          "Squad pages now include member management, faster digital human creation from a squad, clearer row actions, and a wider detail layout",
           "Quick-create and picker flows are easier to search and now include squad-aware routing",
           "Usage charts can switch between cost and token views, with the same timezone controls used by runtimes",
           "Workspace operators get command-line controls for managing squads and stopping a runaway issue run",
@@ -439,7 +439,7 @@ export function createEnDict(allowSignup: boolean): LandingDict {
         ],
         fixes: [
           "Squad leaders stay quiet when a human already routed the conversation to someone specific",
-          "Mentioning a squad now wakes the right leader while preserving private-agent access rules",
+          "Mentioning a squad now wakes the right leader while preserving private-digital human access rules",
           "Issue lists stay fresher after deletes and follow-up comments no longer trigger stale Done replies",
           "Attachment previews keep working for files added while writing or editing issues and comments",
         ],
@@ -450,18 +450,18 @@ export function createEnDict(allowSignup: boolean): LandingDict {
         title: "Usage Insights, Chat Renaming & Smoother Desktop Flows",
         changes: [],
         features: [
-          "Usage now shows workspace and project token activity, runtime trends, and per-agent rankings in one place",
+          "Usage now shows workspace and project token activity, runtime trends, and per-digital human rankings in one place",
           "Chat sessions can be renamed directly from the chat header",
           "Feedback reports can include screenshots or files so teams have the context they need",
         ],
         improvements: [
-          "The Usage page has clearer naming and a more dynamic agent leaderboard",
+          "The Usage page has clearer naming and a more dynamic digital human leaderboard",
           "New chats and completed chat responses update more smoothly with fewer loading flashes",
           "Self-hosted GitHub setup is easier to configure and the setup docs point to the right cloud URL",
           "User-installed Codex skills are available automatically when new tasks run",
         ],
         fixes: [
-          "Empty successful agent responses are marked completed instead of blocked",
+          "Empty successful digital human responses are marked completed instead of blocked",
           "Pasted mentions in instruction editors keep their mention links",
           "Desktop attachment downloads use the native Linux flow and tab closing no longer loops",
           "Gemini and Windows runtime startup checks are more reliable in unattended runs",
@@ -476,8 +476,8 @@ export function createEnDict(allowSignup: boolean): LandingDict {
         features: [
           "Connect GitHub so linked pull requests appear on Multica issues, sync their status, and close the Multica issue automatically when the PR closes",
           "Chat messages can include file attachments and image previews",
-          "Agents and runtimes can now be kept public or private for clearer team access",
-          "Stopping a single agent task now asks for confirmation before it is terminated",
+          "Digital Humans and runtimes can now be kept public or private for clearer team access",
+          "Stopping a single digital human task now asks for confirmation before it is terminated",
           "New GitHub integration docs cover both hosted and self-hosted setup",
         ],
         improvements: [
@@ -503,7 +503,7 @@ export function createEnDict(allowSignup: boolean): LandingDict {
           "Mermaid diagrams render inline in issue descriptions",
           "Sub-issue rows gain inline status and assignee pickers, with batch select across rows",
           "Per-runtime timezone for token-usage aggregation, so daily rollups respect your local day",
-          "Private agents are gated by an `allowed_principals` predicate, with fine-grained visibility",
+          "Private digital humans are gated by an `allowed_principals` predicate, with fine-grained visibility",
           "A member leaving or being removed from a workspace now revokes their runtimes automatically",
           "Set custom per-token prices for unmaintained models so usage reflects real cost",
           "Landing page header gains a Changelog link",
@@ -536,28 +536,28 @@ export function createEnDict(allowSignup: boolean): LandingDict {
         features: [
           "Quick Create lets you pick a project, and remembers your last choice",
           "Comment threads can be resolved and collapsed, keeping long discussions tidy",
-          "Issue live banner now shows agent tasks waiting in queue",
+          "Issue live banner now shows digital human tasks waiting in queue",
           "Failed or cancelled tasks can be rerun in one click from the Execution Log",
-          "Agent Create modal gains an expand button for editing long descriptions",
+          "Digital Human Create modal gains an expand button for editing long descriptions",
         ],
         improvements: [
           "Issue timeline no longer fully re-renders on every WebSocket event — long issues scroll smoothly",
           "Editor skips parsing very large or JSON pastes, eliminating freezes",
           "Autopilot skips dispatch when the assignee runtime is offline, avoiding empty runs",
           "Inbox auto-archives `task_failed` rows once they reach a terminal state",
-          "Hermes sends agent instructions inline with each request",
+          "Hermes sends digital human instructions inline with each request",
           "Timeline and Comment switched to client-side virtualization, dropping server-side pagination",
           "Reserved slugs share a single JSON between front and back end, with CI guarding drift",
           "ACP error messages include the JSON-RPC `error.data` field for clearer debugging",
         ],
         fixes: [
-          "429 / insufficient-balance agent runs are now marked `failed` instead of `completed`",
-          "Agent sessions stuck on poisoned images can recover, so the issue resumes",
+          "429 / insufficient-balance digital human runs are now marked `failed` instead of `completed`",
+          "Digital Human sessions stuck on poisoned images can recover, so the issue resumes",
           "`pi --list-models` table format parses correctly, restoring model discovery",
           "`pi` colon-to-slash normalization only applies to the legacy format",
           "`kiro` and `kimi` added to the inline-system-prompt provider allowlist",
           "Priority dropdown badge colors aligned with PriorityIcon semantic tokens",
-          "Long single-line agent messages now expand correctly",
+          "Long single-line digital human messages now expand correctly",
           "Desktop \"copy issue link\" uses the current connection URL instead of localhost",
           "Mobile WebSocket handshake succeeds without cookies",
           "Workspace slug creation validates reserved words; slug error messages are translated",
@@ -572,7 +572,7 @@ export function createEnDict(allowSignup: boolean): LandingDict {
         changes: [],
         features: [
           "New `cs-workflow daemon disk-usage` CLI surfaces per-task and per-workspace disk footprint",
-          "Skill picker in agent settings has a search box for fast lookup",
+          "Skill picker in digital human settings has a search box for fast lookup",
           "Daemon GC extends to chat, autopilot, and quick-create tasks",
           "Issue detail breadcrumb now shows the MUL-xxxx identifier for quick reference",
         ],
@@ -581,7 +581,7 @@ export function createEnDict(allowSignup: boolean): LandingDict {
           "'Show older / newer' affordances now appear in edge cases and look clearly clickable",
           "Server `task_usage` rolls up into a daily aggregate table, dropping DB load significantly",
           "Daemon health check stays responsive while repo lookups are in flight",
-          "Runtime stats exclude archived agents for accurate active counts",
+          "Runtime stats exclude archived digital humans for accurate active counts",
         ],
         fixes: [
           "Linux daemon self-restart uses `brew prefix` symlinks, so Homebrew Cellar deletion no longer orphans runtimes",
@@ -634,15 +634,15 @@ export function createEnDict(allowSignup: boolean): LandingDict {
           "CI now enforces lint on every PR, and the existing lint debt has been cleared",
         ],
         fixes: [
-          "Daemon cancels the running agent when the task is deleted server-side, eliminating orphan processes",
+          "Daemon cancels the running digital human when the task is deleted server-side, eliminating orphan processes",
           "Daemon refreshes a stale Codex `auth.json` when reusing an exec env, fixing intermittent auth errors",
           "Daemon refuses to write `.gc_meta.json` when `issue_id` is empty",
-          "Session / resume across ACP backends now trusts the agent-reported session id, fixing cross-session bleed",
+          "Session / resume across ACP backends now trusts the digital human-reported session id, fixing cross-session bleed",
           "OpenCode skills are written under `.opencode/skills/` so they are discovered natively",
           "404 task-not-found semantics tightened on both server and the final guard",
           "Pinned sidebar rows are auto-unpinned when the underlying entity disappears",
           "Project detail page splits desktop and mobile sidebar state",
-          "Runtime detail page hides archived agents",
+          "Runtime detail page hides archived digital humans",
           "Already-attached repos in Add Resource show a URL tooltip; empty project state has a New Issue button",
           "S3 public URLs are region-qualified, fixing cross-region access",
           "Windows installer parses version numbers and decodes checksums correctly",
@@ -656,7 +656,7 @@ export function createEnDict(allowSignup: boolean): LandingDict {
         changes: [],
         features: [
           "`cs-workflow repo checkout --ref` targets a branch, tag, or specific commit when pulling a repo into the workspace",
-          "`cs-workflow agent avatar` uploads an agent avatar straight from the CLI",
+          "`cs-workflow agent avatar` uploads a digital human avatar straight from the CLI",
           "Inbox shows an archive button on done tasks; the redundant mark-as-done hover button is gone",
         ],
         improvements: [
@@ -665,7 +665,7 @@ export function createEnDict(allowSignup: boolean): LandingDict {
           "Daemon empty-claim cache TTL bumped, further reducing idle DB load",
         ],
         fixes: [
-          "Newly created agents show up everywhere immediately — the agent cache is hydrated on create",
+          "Newly created digital humans show up everywhere immediately — the digital human cache is hydrated on create",
           "Hermes no longer replays the previous answer when a new turn starts — historical chunks are gated behind a per-turn flag",
           "Codex runtime model picker exposes the GPT-5.5 family",
           "`cs-workflow login --token <PAT>` accepts the PAT as a flag value instead of rejecting it",
@@ -687,11 +687,11 @@ export function createEnDict(allowSignup: boolean): LandingDict {
           "Quick Capture replaces the old New Issue dialog — continuous-create mode, file uploads, and automatic enrichment from pasted URLs",
           "Mermaid diagrams render inline in markdown, with a fullscreen lightbox for complex graphs",
           "Projects can bind their own repo, separate from the workspace default",
-          "Permission-aware UI across agents, comments, runtimes, and skills — actions you can't take are no longer offered",
+          "Permission-aware UI across digital humans, comments, runtimes, and skills — actions you can't take are no longer offered",
         ],
         improvements: [
           "Daemon `/tasks/claim` polling uses a Redis empty-claim fast-path, dropping idle DB load and reclaiming disk on long-open issues",
-          "Multica Agent commits include a `Co-authored-by` trailer for proper Git attribution",
+          "Multica Digital Human commits include a `Co-authored-by` trailer for proper Git attribution",
           "Desktop blocks Cmd+R / Ctrl+R / F5 from reloading the app and shows the real version in dev and Updates settings",
         ],
         fixes: [
@@ -704,24 +704,24 @@ export function createEnDict(allowSignup: boolean): LandingDict {
       {
         version: "0.2.20",
         date: "2026-04-29",
-        title: "Create Issue by Agent, Agent Presence v3 & Daemon WebSocket Heartbeat",
+        title: "Create Issue by Digital Human, Digital Human Presence v3 & Daemon WebSocket Heartbeat",
         changes: [],
         features: [
-          "Create Issue by Agent — press `c`, write one line, pick an agent; issue creation runs async and the result lands in your inbox",
-          "Agent Presence v3 — availability and last-task split into clearer signals, with an execution log on the issue panel showing active and recent runs",
+          "Create Issue by Digital Human — press `c`, write one line, pick a digital human; issue creation runs async and the result lands in your inbox",
+          "Digital Human Presence v3 — availability and last-task split into clearer signals, with an execution log on the issue panel showing active and recent runs",
           "Daemon ↔ server heartbeat now flows over WebSocket with HTTP fallback, cutting task wakeup latency",
           "Mention picker ranks suggestions by your local recency",
         ],
         improvements: [
           "Server caches PAT / daemon token lookups in Redis, so large fleets stop hammering the database on every request",
-          "Backend default agent CLI args via `MULTICA_CLAUDE_ARGS` / `MULTICA_CODEX_ARGS` env vars",
-          "Manual and agent create-issue flows share one dialog shell, and picker agents become the default assignee",
+          "Backend default digital human CLI args via `MULTICA_CLAUDE_ARGS` / `MULTICA_CODEX_ARGS` env vars",
+          "Manual and digital human create-issue flows share one dialog shell, and picker digital humans become the default assignee",
         ],
         fixes: [
-          "Create-issue-by-agent no longer leaves tasks stuck queued, and no longer duplicates the issue when an attachment upload fails",
-          "Agent comments respect newlines instead of rendering literal `\\n`, and multi-line replies keep their formatting",
-          "Agent-authored root comments no longer inherit parent @mentions, breaking accidental agent loops",
-          "Cursor agent on Windows preserves multi-line prompts",
+          "Create-issue-by-digital human no longer leaves tasks stuck queued, and no longer duplicates the issue when an attachment upload fails",
+          "Digital Human comments respect newlines instead of rendering literal `\\n`, and multi-line replies keep their formatting",
+          "Digital Human-authored root comments no longer inherit parent @mentions, breaking accidental digital human loops",
+          "Cursor digital human on Windows preserves multi-line prompts",
         ],
       },
       {
@@ -730,7 +730,7 @@ export function createEnDict(allowSignup: boolean): LandingDict {
         title: "Kiro CLI Runtime, Desktop Notifications & Issue Label Filter",
         changes: [],
         features: [
-          "Kiro CLI added as a local agent runtime option",
+          "Kiro CLI added as a local digital human runtime option",
           "macOS dock badge for unread issues, plus a native notification when the window is unfocused — click to jump straight to the issue",
           "Issue list now supports filtering by label, combinable with status / priority / assignee",
           "Daemon receives task wakeups over WebSocket — task startup latency drops noticeably",
@@ -742,10 +742,10 @@ export function createEnDict(allowSignup: boolean): LandingDict {
           "Mention picker's issue search refreshes as you type",
         ],
         fixes: [
-          "Deleting a comment now cancels any agent task it triggered — no more ghost runs",
+          "Deleting a comment now cancels any digital human task it triggered — no more ghost runs",
           "Stalled Codex turns now time out instead of holding the slot",
           "Windows daemon no longer dies when the parent shell closes",
-          "Agent-to-agent mention threads no longer cause feedback loops",
+          "Digital Human-to-digital human mention threads no longer cause feedback loops",
         ],
       },
       {
@@ -764,30 +764,30 @@ export function createEnDict(allowSignup: boolean): LandingDict {
           "Self-hosted deployments correctly honor signup gating env vars",
         ],
         fixes: [
-          "Agent comments preserve line breaks again",
+          "Digital Human comments preserve line breaks again",
           "Desktop RPM no longer conflicts with Slack / VS Code on Fedora",
-          "Windows agents handle multi-line prompts correctly",
+          "Windows digital humans handle multi-line prompts correctly",
         ],
       },
       {
         version: "0.2.17",
         date: "2026-04-26",
-        title: "Custom Agent Env, Better Failure Messages & Reliability Fixes",
+        title: "Custom Digital Human Env, Better Failure Messages & Reliability Fixes",
         changes: [],
         features: [
-          "`cs-workflow agent create/update --custom-env KEY=VALUE` injects custom environment variables into agent runs",
-          "Agent failure messages now include a tail of the runtime CLI's stderr — much easier to debug runtime errors",
+          "`cs-workflow agent create/update --custom-env KEY=VALUE` injects custom environment variables into digital human runs",
+          "Digital Human failure messages now include a tail of the runtime CLI's stderr — much easier to debug runtime errors",
           "CLI update download timeout is now configurable, so slow links no longer abort `cs-workflow update`",
         ],
         improvements: [
-          "Daemon reports cancelled tasks as `cancelled` instead of `timeout`, and reconciles agent status when an issue's tasks are cancelled",
+          "Daemon reports cancelled tasks as `cancelled` instead of `timeout`, and reconciles digital human status when an issue's tasks are cancelled",
           "Server heartbeat split into probe/claim with slow-log + a model-list running-timeout, so a lost heartbeat no longer wedges the UI",
         ],
         fixes: [
           "Server validates `assignee_id` on issue create/update so phantom IDs are rejected, and `DeleteIssue` uses the resolved issue ID",
           "Pi runtime now reads/writes `.pi/skills` instead of the old `.pi/agent/skills` path",
-          "Windows daemon uses `CREATE_NEW_CONSOLE` so grandchild console popups no longer appear when launching agents",
-          "Autopilot run-only context is now properly forwarded to the agent",
+          "Windows daemon uses `CREATE_NEW_CONSOLE` so grandchild console popups no longer appear when launching digital humans",
+          "Autopilot run-only context is now properly forwarded to the digital human",
         ],
       },
       {
@@ -804,9 +804,9 @@ export function createEnDict(allowSignup: boolean): LandingDict {
           "Bilingual flat-content rewrite of the docs site — English and Chinese sections share one tree",
         ],
         improvements: [
-          "Agent profile card appears on avatar hover for quick context",
+          "Digital Human profile card appears on avatar hover for quick context",
           "Native right-click menu on desktop with clipboard actions (copy / paste / cut / select all)",
-          "Daemon agent prompts hardened to break self-mention loops between agents",
+          "Daemon digital human prompts hardened to break self-mention loops between digital humans",
           "Server readiness health endpoints for proper rollout / ingress probes",
           "Daemon GC defaults tightened and now accept flexible duration suffixes (e.g. `7d`, `12h`)",
           "Test Connection / runtime ping removed — runtime reachability is detected automatically",
@@ -816,10 +816,10 @@ export function createEnDict(allowSignup: boolean): LandingDict {
           "Desktop reopens the last-used workspace on app start instead of falling back to the first one",
           "Editor preserves nested ordered lists through the readonly render path",
           "CLI `browser-login` now works from a machine that isn't running the server",
-          "Daemon suppresses extra terminal windows when launching agents on Windows, and retries local-skill reports on transient server errors",
+          "Daemon suppresses extra terminal windows when launching digital humans on Windows, and retries local-skill reports on transient server errors",
           "`/api/config` is publicly reachable again so unauthenticated clients can bootstrap",
           "Defense-in-depth owner check on workspace deletion, and `/health/realtime` metrics restricted to authorized callers (security)",
-          "Hermes ACP runtime now receives the configured model; OpenClaw agent discovery timeout raised to 30s",
+          "Hermes ACP runtime now receives the configured model; OpenClaw digital human discovery timeout raised to 30s",
         ],
       },
       {
@@ -829,7 +829,7 @@ export function createEnDict(allowSignup: boolean): LandingDict {
         changes: [],
         features: [
           "Import runtime local Skills into the workspace as first-class artifacts",
-          "Orphan-task recovery — abandoned agent runs auto-retry, with manual rerun as fallback",
+          "Orphan-task recovery — abandoned digital human runs auto-retry, with manual rerun as fallback",
           "LaTeX rendering in issues, comments and chat",
           "Chat Focus mode — share the page you're on as conversation context",
         ],
@@ -858,26 +858,26 @@ export function createEnDict(allowSignup: boolean): LandingDict {
           "Issue board paginates every status column, not only Done — large backlogs stay responsive",
         ],
         fixes: [
-          "Workspace isolation enforced end-to-end for agent execution on the local daemon (security)",
-          "Windows daemon stays alive after the terminal closes, so background agents keep running",
+          "Workspace isolation enforced end-to-end for digital human execution on the local daemon (security)",
+          "Windows daemon stays alive after the terminal closes, so background digital humans keep running",
           "Board cards render their description preview again — list queries no longer strip the description field",
-          "OpenClaw agent runtime now reads the real model from agent metadata instead of falling back to a default",
+          "OpenClaw digital human runtime now reads the real model from digital human metadata instead of falling back to a default",
           "Comment Markdown preserved end-to-end — the HTML sanitizer that was stripping formatting has been removed",
         ],
       },
       {
         version: "0.2.8",
         date: "2026-04-20",
-        title: "Per-Agent Models, Kimi Runtime & Self-Host Auth",
+        title: "Per-Digital Human Models, Kimi Runtime & Self-Host Auth",
         changes: [],
         features: [
-          "Per-agent `model` field with a provider-aware dropdown — pick the LLM model for each agent from the UI or via `cs-workflow agent create/update --model`, with live discovery from each runtime's CLI",
-          "Kimi CLI as a new agent runtime (Moonshot AI's `kimi-cli` over ACP), with model selection, auto-approved tool permissions, and streaming tool-call rendering",
+          "Per-digital human `model` field with a provider-aware dropdown — pick the LLM model for each digital human from the UI or via `cs-workflow agent create/update --model`, with live discovery from each runtime's CLI",
+          "Kimi CLI as a new digital human runtime (Moonshot AI's `kimi-cli` over ACP), with model selection, auto-approved tool permissions, and streaming tool-call rendering",
           "Expand toggle on inline comment and reply editors for composing long text",
         ],
         fixes: [
-          "Posting the result comment is now an explicit, numbered step in agent workflows so final replies reach the issue instead of terminal output",
-          "Agent live status card no longer leaks across issues when switching via Cmd+K",
+          "Posting the result comment is now an explicit, numbered step in digital human workflows so final replies reach the issue instead of terminal output",
+          "Digital Human live status card no longer leaks across issues when switching via Cmd+K",
           "Self-hosted session cookies honor the `FRONTEND_ORIGIN` scheme — plain-HTTP deployments stop silently dropping cookies, and `COOKIE_DOMAIN=<ip>` now falls back to host-only with a warning instead of breaking login",
         ],
       },
@@ -889,7 +889,7 @@ export function createEnDict(allowSignup: boolean): LandingDict {
         features: [
           "Create sub-issue directly from selected text in the editor bubble menu",
           "Self-hosted instance gating — `ALLOW_SIGNUP` and `ALLOWED_EMAIL_*` env vars to restrict account creation",
-          "Per-agent `mcp_config` field to restore MCP access",
+          "Per-digital human `mcp_config` field to restore MCP access",
           "Desktop app hourly update poll with manual check button in settings",
         ],
         fixes: [
@@ -913,25 +913,25 @@ export function createEnDict(allowSignup: boolean): LandingDict {
           "Persist comment collapse state across sessions",
         ],
         fixes: [
-          "Agents now triggered on comments regardless of issue status",
+          "Digital Humans now triggered on comments regardless of issue status",
           "Codex sandbox config fixed for macOS network access",
           "Editor bubble menu rewritten with @floating-ui/dom for reliable scroll hiding",
           "Autopilot creator automatically subscribed to autopilot-created issues",
           "Autopilot workspace ID correctly resolved for run-only tasks",
           "Desktop restricts `shell.openExternal` to http/https schemes (security)",
-          "Duplicate agent names return 409 instead of silently failing",
+          "Duplicate digital human names return 409 instead of silently failing",
           "New tabs in desktop inherit current workspace",
         ],
       },
       {
         version: "0.2.1",
         date: "2026-04-16",
-        title: "New Agent Runtimes",
+        title: "New Digital Human Runtimes",
         changes: [],
         features: [
           "GitHub Copilot CLI runtime support",
-          "Cursor Agent CLI runtime support",
-          "Pi agent runtime support",
+          "Cursor Digital Human CLI runtime support",
+          "Pi digital human runtime support",
           "Workspace URL refactor — slug-first routing (`/{slug}/issues`) with legacy URL redirects",
         ],
         fixes: [
@@ -951,20 +951,20 @@ export function createEnDict(allowSignup: boolean): LandingDict {
         changes: [],
         features: [
           "Desktop app for macOS — native Electron app with tab system, built-in daemon management, immersive mode, and auto-update",
-          "Autopilot — scheduled and triggered automations for AI agents",
+          "Autopilot — scheduled and triggered automations for AI digital humans",
           "Workspace invitations with email notifications and dedicated accept page",
-          "Custom CLI arguments per agent for advanced runtime configuration",
+          "Custom CLI arguments per digital human for advanced runtime configuration",
           "Chat redesign with unread tracking and improved session management",
-          "Create Agent dialog shows runtime owner with Mine/All filter",
+          "Create Digital Human dialog shows runtime owner with Mine/All filter",
         ],
         improvements: [
           "Inter font with CJK fallback and automatic CJK+Latin spacing",
           "Sidebar user menu redesigned as full-row popover",
           "WebSocket ping/pong heartbeat to detect dead connections",
-          "Members can now create agents and manage their own skills",
+          "Members can now create digital humans and manage their own skills",
         ],
         fixes: [
-          "Agent now triggered on reply in threads where it already participated",
+          "Digital Human now triggered on reply in threads where it already participated",
           "Self-hosting: local uploads persist in Docker, WebSocket URL auto-derived for LAN access",
           "Stale cmd+k recent issues resolved",
         ],
@@ -972,11 +972,11 @@ export function createEnDict(allowSignup: boolean): LandingDict {
       {
         version: "0.1.33",
         date: "2026-04-14",
-        title: "Gemini CLI & Agent Env Vars",
+        title: "Gemini CLI & Digital Human Env Vars",
         changes: [],
         features: [
-          "Google Gemini CLI as a new agent runtime with live log streaming",
-          "Custom environment variables for agents (router/proxy mode) with dedicated settings tab",
+          "Google Gemini CLI as a new digital human runtime with live log streaming",
+          "Custom environment variables for digital humans (router/proxy mode) with dedicated settings tab",
           "\"Set parent issue\" and \"Add sub-issue\" actions in issue context menu",
           "CLI `--parent` flag for issue update and `--content-stdin` for piping comment content",
           "Sub-issues inherit parent project automatically",
@@ -990,7 +990,7 @@ export function createEnDict(allowSignup: boolean): LandingDict {
           "S3 upload keys scoped by workspace (security)",
           "Workspace membership validation for subscriptions and uploads (security)",
           "Active tasks auto-cancelled when issue status changes to cancelled",
-          "Agent task stall when process hangs on stdout",
+          "Digital Human task stall when process hangs on stdout",
           "Daemon trigger prompt now embeds the actual triggering comment content",
           "Login and dashboard redirect stability improvements",
         ],
@@ -1004,7 +1004,7 @@ export function createEnDict(allowSignup: boolean): LandingDict {
           "Windows support — CLI installation, daemon, and release builds",
           "Auth migrated to HttpOnly Cookie with WebSocket Origin whitelist",
           "Full-screen onboarding wizard for new workspaces",
-          "Resizable Master Agent chat window with session history improvements",
+          "Resizable Master Digital Human chat window with session history improvements",
           "Token usage log scanning for OpenCode, OpenClaw, and Hermes runtimes",
         ],
         fixes: [
@@ -1024,7 +1024,7 @@ export function createEnDict(allowSignup: boolean): LandingDict {
           "Inline property editing (priority, status, lead) on project list page",
         ],
         improvements: [
-          "Stale agent tasks auto-swept; agent live card shows immediately without waiting for first message",
+          "Stale digital human tasks auto-swept; digital human live card shows immediately without waiting for first message",
           "Comment attachments uploaded via CLI now visible in the UI",
           "Pinned items scoped per user with fixed sidebar pin action",
         ],
@@ -1045,13 +1045,13 @@ export function createEnDict(allowSignup: boolean): LandingDict {
           "CLI `--project` filter for issue list",
         ],
         improvements: [
-          "Meta-skill workflow defers to agent Skills instead of hardcoded logic",
+          "Meta-skill workflow defers to digital human Skills instead of hardcoded logic",
         ],
         fixes: [
           "Workspace ownership checks on all daemon API routes",
           "Workspace ownership validation for attachment uploads and queries",
-          "Reply mentions no longer inherit parent thread's agent mentions",
-          "Agent comment creation missing workspace ID",
+          "Reply mentions no longer inherit parent thread's digital human mentions",
+          "Digital Human comment creation missing workspace ID",
           "Self-hosting Docker build failures (file permissions, CRLF, missing deps)",
         ],
       },
@@ -1083,11 +1083,11 @@ export function createEnDict(allowSignup: boolean): LandingDict {
         changes: [],
         features: [
           "Full-stack Docker Compose for one-command self-hosting",
-          "Hermes Agent Provider via ACP protocol",
-          "Documentation site with Fumadocs (Getting Started, CLI reference, Agents guide)",
+          "Hermes Digital Human Provider via ACP protocol",
+          "Documentation site with Fumadocs (Getting Started, CLI reference, Digital Humans guide)",
           "Mobile-responsive sidebar and inbox layout",
           "Token usage display per issue in the detail sidebar",
-          "Switch agent runtime from the UI",
+          "Switch digital human runtime from the UI",
           "'C' keyboard shortcut for quick issue creation",
           "Chat session history panel for archived conversations",
           "Minimum CLI version check in daemon for Claude Code and Codex",
@@ -1099,7 +1099,7 @@ export function createEnDict(allowSignup: boolean): LandingDict {
           "Search ranking — case-insensitive matching, identifier search (MUL-123), multi-word support",
           "Search result keyword highlighting",
           "Daily token usage chart with cleaner Y-axis and per-category tooltip",
-          "Master Agent multiline input support",
+          "Master Digital Human multiline input support",
           "Unified picker components (Status, Priority, DueDate, Project, Assignee) across all views",
           "Workspace-scoped storage isolation with auto-rehydration on switch",
           "Startup warnings for missing env vars in self-hosted deployments",
@@ -1107,14 +1107,14 @@ export function createEnDict(allowSignup: boolean): LandingDict {
         fixes: [
           "Sub-issue deletion not invalidating parent's children cache",
           "Search index compatibility with pg_bigm 1.2 on RDS",
-          "Create Agent showing \"No runtime available\" when runtimes exist",
+          "Create Digital Human showing \"No runtime available\" when runtimes exist",
           "Claude stream-json startup hangs",
-          "Multiple agents unable to queue tasks for the same issue",
+          "Multiple digital humans unable to queue tasks for the same issue",
           "Logout not clearing workspace and query cache",
           "Drag-drop overlay too small on empty editors",
           "Skills import hardcoding \"main\" as default branch",
           "PAT authentication not working on WebSocket endpoint",
-          "Runtime deletion blocked when all bound agents are archived",
+          "Runtime deletion blocked when all bound digital humans are archived",
         ],
       },
       {
@@ -1126,7 +1126,7 @@ export function createEnDict(allowSignup: boolean): LandingDict {
           "Project picker in the create-issue modal and CLI project commands",
           "Full-text search for issues with pg_bigm",
           "Monorepo extraction — shared packages for core, UI, and views (Turborepo)",
-          "Fullscreen agent execution transcript view",
+          "Fullscreen digital human execution transcript view",
           "Drag-and-drop file upload with file card display in the editor",
           "Attachment section with image grid and file cards on issues",
           "Runtime owner tracking, filtering, avatar display, and point-to-point update notifications",
@@ -1143,8 +1143,8 @@ export function createEnDict(allowSignup: boolean): LandingDict {
         changes: [
           "Sub-issue support — create, view, and manage child issues within any issue",
           "Full migration to TanStack Query for server state (issues, inbox, workspace, runtimes)",
-          "Per-task token usage tracking across all agent providers",
-          "Multiple agents can now run concurrently on the same issue",
+          "Per-task token usage tracking across all digital human providers",
+          "Multiple digital humans can now run concurrently on the same issue",
           "Board view: Done column shows total count with infinite scroll",
           "ReadonlyContent component for lightweight Markdown display in comments",
           "Optimistic UI updates for reactions and mutations with rollback",
@@ -1160,13 +1160,13 @@ export function createEnDict(allowSignup: boolean): LandingDict {
         title: "OAuth, OpenClaw & Issue Loading",
         changes: [
           "Google OAuth login",
-          "OpenClaw runtime support for running agents on OpenClaw infrastructure",
-          "Redesigned agent live card — always sticky with manual expand/collapse toggle",
+          "OpenClaw runtime support for running digital humans on OpenClaw infrastructure",
+          "Redesigned digital human live card — always sticky with manual expand/collapse toggle",
           "Load all open issues without pagination limit; closed issues paginate on scroll",
           "JWT and CloudFront cookie expiration extended from 72 hours to 30 days",
           "Remember last selected workspace after re-login",
-          "Daemon ensures multica CLI is on PATH in agent task environment",
-          "PR template and CLI install guide for agent-driven setup",
+          "Daemon ensures multica CLI is on PATH in digital human task environment",
+          "PR template and CLI install guide for digital human-driven setup",
         ],
       },
       {
@@ -1178,7 +1178,7 @@ export function createEnDict(allowSignup: boolean): LandingDict {
           "Inbox archive now dismisses all items for the same issue at once",
           "CLI help output overhauled to match gh CLI style with examples",
           "Attachments use UUIDv7 as S3 key and auto-link on issue/comment creation",
-          "@mention assigned agents on done or cancelled issues",
+          "@mention assigned digital humans on done or cancelled issues",
           "Reply @mention inheritance skips when the reply only mentions members",
           "Worktree setup preserves existing .env.worktree variables",
         ],
@@ -1186,15 +1186,15 @@ export function createEnDict(allowSignup: boolean): LandingDict {
       {
         version: "0.1.15",
         date: "2026-04-03",
-        title: "Editor Overhaul & Agent Lifecycle",
+        title: "Editor Overhaul & Digital Human Lifecycle",
         changes: [
           "Unified Tiptap editor with a single Markdown pipeline for editing and display",
           "Reliable Markdown paste, inline code spacing, and link styling",
-          "Agent archive and restore — soft delete replaces hard delete",
-          "Archived agents hidden from default agent list",
+          "Digital Human archive and restore — soft delete replaces hard delete",
+          "Archived digital humans hidden from default digital human list",
           "Skeleton loading states, error toasts, and confirmation dialogs across the app",
-          "OpenCode added as a supported agent provider",
-          "Reply-triggered agent tasks now inherit thread-root @mentions",
+          "OpenCode added as a supported digital human provider",
+          "Reply-triggered digital human tasks now inherit thread-root @mentions",
           "Granular real-time event handling for issues and inbox — no more full refetches",
           "Unified image upload flow for paste and button in the editor",
         ],
@@ -1210,7 +1210,7 @@ export function createEnDict(allowSignup: boolean): LandingDict {
           "Repositories extracted into a standalone settings tab",
           "CLI update support from the web runtime page and direct download for non-Homebrew installs",
           "CLI commands for viewing issue execution runs and run messages",
-          "Agent permission model — owners and admins manage agents, members manage skills on their own agents",
+          "Digital Human permission model — owners and admins manage digital humans, members manage skills on their own digital humans",
           "Per-issue serial execution to prevent concurrent task collisions",
           "File upload now supports all file types",
           "README redesign with quickstart guide",
@@ -1224,7 +1224,7 @@ export function createEnDict(allowSignup: boolean): LandingDict {
           "My Issues page with kanban board, list view, and scope tabs",
           "Simplified Chinese localization for the landing page",
           "About and Changelog pages for the marketing site",
-          "Agent avatar upload in settings",
+          "Digital Human avatar upload in settings",
           "Attachment support for CLI comments and issue/comment APIs",
           "Unified avatar rendering with ActorAvatar across all pickers",
           "SEO optimization and auth flow improvements for landing pages",
@@ -1235,13 +1235,13 @@ export function createEnDict(allowSignup: boolean): LandingDict {
       {
         version: "0.1.3",
         date: "2026-03-31",
-        title: "Agent Intelligence",
+        title: "Digital Human Intelligence",
         changes: [
-          "Trigger agents via @mention in comments",
-          "Stream live agent output to issue detail page",
+          "Trigger digital humans via @mention in comments",
+          "Stream live digital human output to issue detail page",
           "Rich text editor \u2014 mentions, link paste, emoji reactions, collapsible threads",
           "File upload with S3 + CloudFront signed URLs and attachment tracking",
-          "Agent-driven repo checkout with bare clone cache for task isolation",
+          "Digital Human-driven repo checkout with bare clone cache for task isolation",
           "Batch operations for issue list view",
           "Daemon authentication and security hardening",
         ],
@@ -1267,8 +1267,8 @@ export function createEnDict(allowSignup: boolean): LandingDict {
         title: "Core Platform",
         changes: [
           "Multi-workspace switching and creation",
-          "Agent management UI with skills",
-          "Unified agent SDK supporting Claude Code and Codex backends",
+          "Digital Human management UI with skills",
+          "Unified digital human SDK supporting Claude Code and Codex backends",
           "Comment CRUD with real-time WebSocket updates",
           "Task service layer and daemon REST protocol",
           "Event bus with workspace-scoped WebSocket isolation",
@@ -1284,7 +1284,7 @@ export function createEnDict(allowSignup: boolean): LandingDict {
           "Go backend with REST API, JWT auth, and real-time WebSocket",
           "Next.js frontend with Linear-inspired UI",
           "Issues with board and list views and drag-and-drop kanban",
-          "Agents, Inbox, and Settings pages",
+          "Digital Humans, Inbox, and Settings pages",
           "One-click setup, migration CLI, and seed tool",
           "Comprehensive test suite \u2014 Go unit/integration, Vitest, Playwright E2E",
         ],
@@ -1369,7 +1369,7 @@ export function createEnDict(allowSignup: boolean): LandingDict {
   contactSales: {
     pageTitle: "Contact Sales",
     pageDescription:
-      "Talk to the Multica team about rolling out human + agent workflows at your company.",
+      "Talk to the Multica team about rolling out human + digital human workflows at your company.",
     eyebrow: "Contact Sales",
     title: "Let’s understand your needs",
     subtitle:

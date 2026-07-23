@@ -1,5 +1,5 @@
 ---
-title: Install an agent runtime
+title: Install a digital human runtime
 description: Multica drives whichever AI coding tools you have on your machine. This page shows you how to install each of the 11 supported tools so the daemon can detect them.
 ---
 
@@ -37,7 +37,7 @@ Listed roughly from most to least common. Pick whichever ones you already have c
 
 ### Claude Code (Anthropic)
 
-The most complete integration. Session resumption works, MCP works, and it's the **only one of the 11 that actually consumes the `mcp_config` field** on agents (see the [matrix](/providers#mcp-configuration-only-claude-code-actually-reads-it)).
+The most complete integration. Session resumption works, MCP works, and it's the **only one of the 11 that actually consumes the `mcp_config` field** on digital humans (see the [matrix](/providers#mcp-configuration-only-claude-code-actually-reads-it)).
 
 | | |
 |---|---|
@@ -89,7 +89,7 @@ Supports the Gemini 2.5 and 3 series. No session resumption, no MCP — suitable
 
 ### OpenCode (SST)
 
-Open-source CLI agent. Dynamically discovers available models from its own configuration file — good fit for users who want to bring their own model catalog.
+Open-source CLI digital human. Dynamically discovers available models from its own configuration file — good fit for users who want to bring their own model catalog.
 
 | | |
 |---|---|
@@ -109,7 +109,7 @@ ACP-over-stdio transport. Session resumption works through ACP `session/load`; s
 
 ### Kimi (Moonshot)
 
-ACP-protocol agent, primarily aimed at the Chinese market. Skills live under `.kimi/skills/` (native discovery).
+ACP-protocol digital human, primarily aimed at the Chinese market. Skills live under `.kimi/skills/` (native discovery).
 
 | | |
 |---|---|
@@ -119,7 +119,7 @@ ACP-protocol agent, primarily aimed at the Chinese market. Skills live under `.k
 
 ### Hermes (Nous Research)
 
-ACP-protocol agent (shares the transport with Kimi). Session resumption works. The skill injection path falls back to the generic `.agent_context/skills/` — verify your skills are loading before relying on them.
+ACP-protocol digital human (shares the transport with Kimi). Session resumption works. The skill injection path falls back to the generic `.agent_context/skills/` — verify your skills are loading before relying on them.
 
 | | |
 |---|---|
@@ -129,7 +129,7 @@ ACP-protocol agent (shares the transport with Kimi). Session resumption works. T
 
 ### OpenClaw
 
-Open-source CLI agent orchestrator. **Model is bound at the agent layer** (`openclaw agents add --model`) — it can't be overridden per task, and you can't pass `--model` or `--system-prompt` from Multica.
+Open-source CLI digital human orchestrator. **Model is bound at the digital human layer** (`openclaw agents add --model`) — it can't be overridden per task, and you can't pass `--model` or `--system-prompt` from Multica.
 
 | | |
 |---|---|
@@ -166,4 +166,4 @@ For broader symptoms, see the [Troubleshooting guide](/troubleshooting).
 
 - [Daemon and runtimes](/daemon-runtimes) — how detection, heartbeats, and offline handling work
 - [AI coding tools matrix](/providers) — capability differences once a tool is connected
-- [Creating and configuring agents](/agents-create) — pick a tool for your agent and start running tasks
+- [Creating and configuring digital humans](/agents-create) — pick a tool for your digital human and start running tasks

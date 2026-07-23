@@ -653,11 +653,11 @@ describe("WorkflowPanoramaPage (new)", () => {
     render(<WorkflowPanoramaPage workflowId="wf-1" />);
 
     fireEvent.click(screen.getAllByRole("button", { name: "Add node" })[0]!);
-    fireEvent.click(screen.getByRole("button", { name: /Agent task/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Digital human task/ }));
 
     expect(mocks.createNodeMutate).toHaveBeenCalledWith(
       expect.objectContaining({
-        title: "Agent task",
+        title: "Digital human task",
         worker_type: "agent",
         format_schema: expect.objectContaining({
           template_id: "ai-agent-task",
@@ -701,11 +701,11 @@ describe("WorkflowPanoramaPage (new)", () => {
     render(<WorkflowPanoramaPage workflowId="wf-1" />);
 
     fireEvent.click(screen.getByRole("button", { name: "Add node" }));
-    fireEvent.click(screen.getByRole("button", { name: /Agent task/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Digital human task/ }));
 
     expect(mocks.createNodeMutate).toHaveBeenCalledWith(
       expect.objectContaining({
-        title: "Agent task",
+        title: "Digital human task",
         stage_id: null,
         format_schema: expect.objectContaining({
           template_id: "ai-agent-task",
@@ -985,7 +985,7 @@ describe("WorkflowPanoramaPage (new)", () => {
 
   it("redoes a created node by recreating it from the stored request", async () => {
     const nodeRequest = {
-      title: "Agent task",
+      title: "Digital human task",
       worker_type: "agent" as const,
       critic_type: "human" as const,
     };

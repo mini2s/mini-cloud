@@ -1,19 +1,31 @@
 {
   "page": {
     "title": "Skills",
-    "tagline": "Instructions any agent in this workspace can use.",
+    "tagline": "Instructions any digital human in this workspace can use.",
     "learn_more": "Learn more →",
     "new_skill": "New skill",
     "search_placeholder": "Search skills…",
     "scopes": {
-      "all": { "label": "All", "description": "All skills in this workspace" },
-      "used": { "label": "In use", "description": "Skills assigned to at least one agent" },
-      "unused": { "label": "Unused", "description": "Skills not assigned to any agent" },
-      "mine": { "label": "Created by me", "description": "Skills you created" }
+      "all": {
+        "label": "All",
+        "description": "All skills in this workspace"
+      },
+      "used": {
+        "label": "In use",
+        "description": "Skills assigned to at least one digital human"
+      },
+      "unused": {
+        "label": "Unused",
+        "description": "Skills not assigned to any digital human"
+      },
+      "mine": {
+        "label": "Created by me",
+        "description": "Skills you created"
+      }
     },
     "empty": {
       "title": "No skills yet",
-      "description": "Create your first skill, import one from a URL, or copy one from a connected runtime — and every agent in the workspace can use it."
+      "description": "Create your first skill, import one from a URL, or copy one from a connected runtime — and every digital human in the workspace can use it."
     },
     "no_matches": {
       "title": "No matches",
@@ -24,7 +36,7 @@
     },
     "intro_banner": {
       "title": "Shared with your workspace.",
-      "body": "Anyone can create a skill, import one from a URL, or copy one from their local runtime — and every agent can use it.",
+      "body": "Anyone can create a skill, import one from a URL, or copy one from their local runtime — and every digital human can use it.",
       "highlight": "Local runtime skills stay private until you copy one here."
     },
     "list_error": {
@@ -64,7 +76,7 @@
     "name_aria": "Skill name",
     "name_placeholder": "skill-name",
     "description_label": "Description",
-    "description_placeholder": "One sentence describing when an agent should use this skill…",
+    "description_placeholder": "One sentence describing when a digital human should use this skill…",
     "subline": {
       "origin_runtime_named": "Local runtime · {{name}}",
       "origin_runtime_provider": "Local runtime · {{provider}}",
@@ -94,13 +106,13 @@
       "files": "Files",
       "id": "ID",
       "origin": "Origin",
-      "used_by_one": "Used by {{count}} agent",
-      "used_by_other": "Used by {{count}} agents",
+      "used_by_one": "Used by {{count}} digital human",
+      "used_by_other": "Used by {{count}} digital humans",
       "permissions": "Permissions",
-      "permissions_owner": "You can edit and delete this skill. Changes take effect on the next agent run.",
+      "permissions_owner": "You can edit and delete this skill. Changes take effect on the next digital human run.",
       "permissions_locked_creator": "Only the creator ({{name}}) or a workspace admin can edit this skill.",
       "permissions_locked": "Only the creator or a workspace admin can edit this skill.",
-      "used_by_empty": "Not assigned to any agent yet. Open an agent's Skills tab to assign."
+      "used_by_empty": "Not assigned to any digital human yet. Open a digital human's Skills tab to assign."
     },
     "origin_card": {
       "imported_runtime": "Imported from local runtime",
@@ -120,9 +132,9 @@
     "toast_delete_failed": "Failed to delete skill",
     "delete_dialog": {
       "title": "Delete skill?",
-      "description_with_agents_one": "This will permanently delete \"{{name}}\" and remove it from {{count}} agent currently using it.",
-      "description_with_agents_other": "This will permanently delete \"{{name}}\" and remove it from {{count}} agents currently using it.",
-      "description_no_agents": "This will permanently delete \"{{name}}\" and remove it from all agents.",
+      "description_with_agents_one": "This will permanently delete \"{{name}}\" and remove it from {{count}} digital human currently using it.",
+      "description_with_agents_other": "This will permanently delete \"{{name}}\" and remove it from {{count}} digital humans currently using it.",
+      "description_no_agents": "This will permanently delete \"{{name}}\" and remove it from all digital humans.",
       "warning": "This action cannot be undone.",
       "cancel": "Cancel",
       "confirm": "Delete permanently",
@@ -177,7 +189,7 @@
       "name_placeholder": "e.g. review-helper",
       "name_hint": "Must be unique within the workspace.",
       "description_label": "Description",
-      "description_placeholder": "One sentence on when to assign this skill to an agent.",
+      "description_placeholder": "One sentence on when to assign this skill to a digital human.",
       "name_conflict_hint": " Try a different name and submit again.",
       "fallback_error": "Failed to create skill",
       "cancel": "Cancel",
@@ -220,7 +232,7 @@
     "skill_files_other": "{{count}} files",
     "skill_name_label": "Workspace skill name",
     "skill_description_label": "Description",
-    "skill_description_placeholder": "Optional — describe when an agent should use this skill.",
+    "skill_description_placeholder": "Optional — describe when a digital human should use this skill.",
     "toast_imported": "Skill imported",
     "toast_import_failed": "Failed to import skill",
     "select_all": "Select all ({{count}})",
