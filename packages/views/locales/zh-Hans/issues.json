@@ -505,6 +505,16 @@
       "worker_label": "执行者",
       "critic_label": "审核者",
       "artifacts_label": "产物",
+      "deliverable_more": "+{{count}}",
+      "deliverable_status": {
+        "missing": "未提交",
+        "submitted": "已提交",
+        "approved": "已批准",
+        "rejected": "已拒绝"
+      },
+      "session_opening": "正在打开",
+      "session_opened": "已打开",
+      "session_open_failed": "打开失败",
       "gateway_label_fork": "分支开始",
       "gateway_label_join": "汇合节点",
       "gateway_label": "分支节点",

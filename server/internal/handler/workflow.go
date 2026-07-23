@@ -3,14 +3,17 @@ package handler
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
 	"strings"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/multica-ai/multica/server/internal/util"
+	"github.com/multica-ai/multica/server/internal/workflowmeta"
 	db "github.com/multica-ai/multica/server/pkg/db/generated"
 	"github.com/multica-ai/multica/server/pkg/protocol"
 )
@@ -331,15 +334,22 @@ func workflowNodeFormatType(formatSchema []byte) string {
 	return schema.Type
 }
 
-// isNonExecutableNode returns true for annotation and gateway nodes.
+// isNonExecutableNode returns true for annotation, gateway, and boundary nodes.
 // Split nodes still need Worker/Critic validation because their Worker
 // generates draft tasks and their Critic reviews those drafts.
 func isNonExecutableNode(formatSchema []byte) bool {
-	switch workflowNodeFormatType(formatSchema) {
-	case "annotation", "gateway":
+	switch workflowmeta.KindOf(formatSchema) {
+	case workflowmeta.KindAnnotation, workflowmeta.KindGateway, workflowmeta.KindStart, workflowmeta.KindEnd:
 		return true
 	}
 	return false
+}
+
+func isWorkflowBoundaryUniqueViolation(err error) bool {
+	var pgErr *pgconn.PgError
+	return errors.As(err, &pgErr) &&
+		pgErr.Code == "23505" &&
+		pgErr.ConstraintName == "multica_workflow_node_boundary_kind_unique"
 }
 
 func isSplitWorkflowNode(formatSchema []byte) bool {
@@ -671,6 +681,15 @@ func (h *Handler) CreateWorkflowNode(w http.ResponseWriter, r *http.Request) {
 	if req.CriticType == "" {
 		req.CriticType = "human"
 	}
+	if workflowmeta.IsBoundary(req.FormatSchema) {
+		if req.WorkerID != nil || req.WorkerRoleID != nil || req.CriticID != nil ||
+			req.CriticRoleID != nil || req.CriticApiURL != nil {
+			writeError(w, http.StatusUnprocessableEntity, "boundary nodes cannot configure workers or critics")
+			return
+		}
+		req.WorkerType = "human"
+		req.CriticType = "human"
+	}
 	workerRoleID, ok := h.parseWorkflowRoleID(w, r, req.WorkerRoleID, "worker_role_id", wf.WorkspaceID)
 	if !ok {
 		return
@@ -760,6 +779,10 @@ func (h *Handler) CreateWorkflowNode(w http.ResponseWriter, r *http.Request) {
 		StageID:      stageID,
 	})
 	if err != nil {
+		if isWorkflowBoundaryUniqueViolation(err) {
+			writeError(w, http.StatusConflict, "workflow already has this boundary node")
+			return
+		}
 		writeError(w, http.StatusInternalServerError, "failed to create node")
 		return
 	}
@@ -785,6 +808,21 @@ func (h *Handler) UpdateWorkflowNode(w http.ResponseWriter, r *http.Request) {
 	var req UpdateNodeRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	currentKind := workflowmeta.KindOf(currentNode.FormatSchema)
+	if len(req.FormatSchema) > 0 {
+		updatedKind := workflowmeta.KindOf(req.FormatSchema)
+		if updatedKind != currentKind {
+			writeError(w, http.StatusUnprocessableEntity, "workflow node type cannot be changed")
+			return
+		}
+	}
+	if workflowmeta.IsBoundary(currentNode.FormatSchema) &&
+		(len(req.FormatSchema) > 0 || req.SortOrder != nil ||
+			req.WorkerType != nil || req.WorkerID != nil || req.WorkerRoleID != nil ||
+			req.CriticType != nil || req.CriticID != nil || req.CriticRoleID != nil || req.CriticApiURL != nil) {
+		writeError(w, http.StatusUnprocessableEntity, "boundary nodes only support title, description, and position updates")
 		return
 	}
 	workerRoleID, ok := h.parseWorkflowRoleID(w, r, req.WorkerRoleID, "worker_role_id", wf.WorkspaceID)
@@ -881,6 +919,10 @@ func (h *Handler) UpdateWorkflowNode(w http.ResponseWriter, r *http.Request) {
 	updated, err := h.Queries.UpdateWorkflowNode(r.Context(), params)
 	if err != nil {
 		log.Printf("failed to update node %s: %v", uuidToString(currentNode.ID), err)
+		if isWorkflowBoundaryUniqueViolation(err) {
+			writeError(w, http.StatusConflict, "workflow already has this boundary node")
+			return
+		}
 		writeError(w, http.StatusInternalServerError, "failed to update node")
 		return
 	}
@@ -986,8 +1028,14 @@ func (h *Handler) CreateWorkflowEdge(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "target node not found")
 		return
 	}
-	_ = sourceNode // used for future validation
-	_ = targetNode
+	if sourceNode.WorkflowID != wf.ID || targetNode.WorkflowID != wf.ID {
+		writeError(w, http.StatusUnprocessableEntity, "edge nodes must belong to this workflow")
+		return
+	}
+	if err := workflowmeta.ValidateBoundaryEdge(sourceNode.FormatSchema, targetNode.FormatSchema); err != nil {
+		writeError(w, http.StatusUnprocessableEntity, err.Error())
+		return
+	}
 
 	workspaceID := h.resolveWorkspaceID(r)
 	userID, _ := requireUserID(w, r)

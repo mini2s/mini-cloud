@@ -156,6 +156,9 @@ vi.mock("../../i18n", () => {
     },
     detail_panel: {
       eyebrow: "Node settings",
+      boundary_eyebrow: "Boundary node",
+      boundary_badge_start: "Start boundary",
+      boundary_badge_end: "End boundary",
       close_label: "Close node inspector",
       section_readiness: "Activation check",
       section_readiness_desc: "Check what must be ready before this workflow can be enabled.",
@@ -339,10 +342,10 @@ const stages: WorkflowStage[] = [
   },
 ];
 
-function renderPanel(recentNodeRun: WorkflowNodeRun | null = null) {
+function renderPanel(recentNodeRun: WorkflowNodeRun | null = null, panelNode: WorkflowNode = node) {
   return render(
     <NodeConfigPanel
-      node={node}
+      node={panelNode}
       workflowId="wf-1"
       stages={stages}
       recentNodeRun={recentNodeRun}
@@ -419,6 +422,33 @@ describe("NodeConfigPanel", () => {
     );
     expect(mocks.assigneePickerCalls.every((call) => call.includeWorkflows === false)).toBe(true);
     expect(screen.queryByText("Pick a concrete assignee for predictable execution")).not.toBeInTheDocument();
+  });
+
+  it("shows only editable boundary fields", () => {
+    const boundaryNode: WorkflowNode = {
+      ...node,
+      id: "start",
+      title: "Start",
+      description: "Entry boundary",
+      format_schema: { type: "start" },
+      worker_type: "human",
+      worker_id: null,
+      critic_type: "human",
+      critic_id: null,
+    };
+
+    renderPanel(null, boundaryNode);
+
+    expect(screen.getByDisplayValue("Start")).toBeInTheDocument();
+    expect(screen.getByDisplayValue("Entry boundary")).toBeInTheDocument();
+    expect(screen.getByText("Stage")).toBeInTheDocument();
+    expect(screen.queryByText("Executor and reviewer")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Trial run" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Delete Node" })).toBeInTheDocument();
+    expect(screen.getByText("Boundary node")).toBeInTheDocument();
+    expect(screen.getByText("Start boundary")).toBeInTheDocument();
+    expect(screen.getAllByTestId("node-detail-section").map((section) => section.getAttribute("data-section")))
+      .toEqual(["primary"]);
   });
 
   it("switches Worker to Human, clears the previous assignment, and only shows members", () => {

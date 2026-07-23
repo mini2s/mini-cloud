@@ -516,6 +516,16 @@
       "worker_label": "Executor",
       "critic_label": "Reviewer",
       "artifacts_label": "Artifacts",
+      "deliverable_more": "+{{count}}",
+      "deliverable_status": {
+        "missing": "Not submitted",
+        "submitted": "Submitted",
+        "approved": "Approved",
+        "rejected": "Rejected"
+      },
+      "session_opening": "Opening...",
+      "session_opened": "Opened",
+      "session_open_failed": "Unable to open",
       "gateway_label_fork": "Branch start",
       "gateway_label_join": "Join point",
       "gateway_label": "Branch node",

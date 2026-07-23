@@ -42,7 +42,7 @@ func setupTemplateFixtures(t *testing.T, pool *pgxpool.Pool) (pgtype.UUID, pgtyp
 
 	var workspaceID string
 	err := pool.QueryRow(ctx, `
-		INSERT INTO workspace (name, slug, description, issue_prefix)
+		INSERT INTO multica_workspace (name, slug, description, issue_prefix)
 		VALUES ($1, $2, 'template test workspace', 'TPL')
 		RETURNING id
 	`, "Template Test Workspace "+suffix, "template-test-"+suffix).Scan(&workspaceID)
@@ -52,7 +52,7 @@ func setupTemplateFixtures(t *testing.T, pool *pgxpool.Pool) (pgtype.UUID, pgtyp
 
 	var userID string
 	err = pool.QueryRow(ctx, `
-		INSERT INTO "user" (name, email)
+		INSERT INTO multica_user (name, email)
 		VALUES ($1, $2)
 		RETURNING id
 	`, "Template Test User "+suffix, "template-test-"+suffix+"@multica.ai").Scan(&userID)
@@ -61,7 +61,7 @@ func setupTemplateFixtures(t *testing.T, pool *pgxpool.Pool) (pgtype.UUID, pgtyp
 	}
 
 	_, err = pool.Exec(ctx, `
-		INSERT INTO member (workspace_id, user_id, role)
+		INSERT INTO multica_member (workspace_id, user_id, role)
 		VALUES ($1, $2, 'owner')
 	`, workspaceID, userID)
 	if err != nil {
@@ -71,7 +71,7 @@ func setupTemplateFixtures(t *testing.T, pool *pgxpool.Pool) (pgtype.UUID, pgtyp
 	// Create a template workflow.
 	var tmplID string
 	err = pool.QueryRow(ctx, `
-		INSERT INTO workflow (workspace_id, title, description, status, max_retries, created_by_type, created_by_id, is_template)
+		INSERT INTO multica_workflow (workspace_id, title, description, status, max_retries, created_by_type, created_by_id, is_template)
 		VALUES ($1, 'Test Template', 'A test template', 'active', 3, 'member', $2, TRUE)
 		RETURNING id
 	`, workspaceID, userID).Scan(&tmplID)
@@ -79,47 +79,70 @@ func setupTemplateFixtures(t *testing.T, pool *pgxpool.Pool) (pgtype.UUID, pgtyp
 		t.Fatalf("create template workflow: %v", err)
 	}
 
-	// Create 3 nodes.
-	var n1, n2, n3 string
+	// Create 3 executable nodes and the optional workflow boundaries.
+	var start, n1, n2, n3, end string
 	err = pool.QueryRow(ctx, `
-		INSERT INTO workflow_node (workflow_id, title, description, position_x, position_y, worker_type, critic_type, sort_order)
-		VALUES ($1, 'Node 1', 'First node', 100, 50, 'agent', 'human', 0)
+		INSERT INTO multica_workflow_node (workflow_id, title, description, position_x, position_y, format_schema, worker_type, critic_type, sort_order)
+		VALUES ($1, 'Start', 'Workflow entry', -150, 50, '{"type":"start"}'::jsonb, 'human', 'human', 0)
+		RETURNING id
+	`, tmplID).Scan(&start)
+	if err != nil {
+		t.Fatalf("create start node: %v", err)
+	}
+	err = pool.QueryRow(ctx, `
+		INSERT INTO multica_workflow_node (workflow_id, title, description, position_x, position_y, worker_type, critic_type, sort_order)
+		VALUES ($1, 'Node 1', 'First node', 100, 50, 'agent', 'human', 1)
 		RETURNING id
 	`, tmplID).Scan(&n1)
 	if err != nil {
 		t.Fatalf("create node 1: %v", err)
 	}
 	err = pool.QueryRow(ctx, `
-		INSERT INTO workflow_node (workflow_id, title, description, position_x, position_y, worker_type, critic_type, sort_order)
-		VALUES ($1, 'Node 2', 'Second node', 350, 50, 'agent', 'human', 1)
+		INSERT INTO multica_workflow_node (workflow_id, title, description, position_x, position_y, worker_type, critic_type, sort_order)
+		VALUES ($1, 'Node 2', 'Second node', 350, 50, 'agent', 'human', 2)
 		RETURNING id
 	`, tmplID).Scan(&n2)
 	if err != nil {
 		t.Fatalf("create node 2: %v", err)
 	}
 	err = pool.QueryRow(ctx, `
-		INSERT INTO workflow_node (workflow_id, title, description, position_x, position_y, worker_type, critic_type, sort_order)
-		VALUES ($1, 'Node 3', 'Third node', 600, 50, 'human', 'agent', 2)
+		INSERT INTO multica_workflow_node (workflow_id, title, description, position_x, position_y, worker_type, critic_type, sort_order)
+		VALUES ($1, 'Node 3', 'Third node', 600, 50, 'human', 'agent', 3)
 		RETURNING id
 	`, tmplID).Scan(&n3)
 	if err != nil {
 		t.Fatalf("create node 3: %v", err)
 	}
+	err = pool.QueryRow(ctx, `
+		INSERT INTO multica_workflow_node (workflow_id, title, description, position_x, position_y, format_schema, worker_type, critic_type, sort_order)
+		VALUES ($1, 'End', 'Workflow exit', 850, 50, '{"type":"end"}'::jsonb, 'human', 'human', 4)
+		RETURNING id
+	`, tmplID).Scan(&end)
+	if err != nil {
+		t.Fatalf("create end node: %v", err)
+	}
 
-	// Create 2 edges: n1->n2, n2->n3.
+	// Create 4 edges: start->n1, n1->n2, n2->n3, n3->end.
 	_, err = pool.Exec(ctx, `
-		INSERT INTO workflow_edge (workflow_id, source_node_id, target_node_id)
+		INSERT INTO multica_workflow_edge (workflow_id, source_node_id, target_node_id)
 		VALUES ($1, $2, $3)
-	`, tmplID, n1, n2)
+	`, tmplID, start, n1)
 	if err != nil {
 		t.Fatalf("create edge 1: %v", err)
 	}
 	_, err = pool.Exec(ctx, `
-		INSERT INTO workflow_edge (workflow_id, source_node_id, target_node_id)
+		INSERT INTO multica_workflow_edge (workflow_id, source_node_id, target_node_id)
 		VALUES ($1, $2, $3)
-	`, tmplID, n2, n3)
+	`, tmplID, n1, n2)
 	if err != nil {
 		t.Fatalf("create edge 2: %v", err)
+	}
+	_, err = pool.Exec(ctx, `
+		INSERT INTO multica_workflow_edge (workflow_id, source_node_id, target_node_id)
+		VALUES ($1, $2, $3), ($1, $4, $5)
+	`, tmplID, n2, n3, n3, end)
+	if err != nil {
+		t.Fatalf("create boundary exit edges: %v", err)
 	}
 
 	wsUUID, _ := util.ParseUUID(workspaceID)
@@ -135,12 +158,12 @@ func setupTemplateFixtures(t *testing.T, pool *pgxpool.Pool) (pgtype.UUID, pgtyp
 func cleanupTemplateFixtures(t *testing.T, pool *pgxpool.Pool, workspaceID string) {
 	t.Helper()
 	ctx := context.Background()
-	pool.Exec(ctx, `DELETE FROM workflow_edge WHERE workflow_id IN (SELECT id FROM workflow WHERE workspace_id = $1)`, workspaceID)
-	pool.Exec(ctx, `DELETE FROM workflow_node WHERE workflow_id IN (SELECT id FROM workflow WHERE workspace_id = $1)`, workspaceID)
-	pool.Exec(ctx, `DELETE FROM workflow WHERE workspace_id = $1`, workspaceID)
-	pool.Exec(ctx, `DELETE FROM member WHERE workspace_id = $1`, workspaceID)
-	pool.Exec(ctx, `DELETE FROM workspace WHERE id = $1`, workspaceID)
-	pool.Exec(ctx, `DELETE FROM "user" WHERE email LIKE 'template-test-%'`)
+	pool.Exec(ctx, `DELETE FROM multica_workflow_edge WHERE workflow_id IN (SELECT id FROM multica_workflow WHERE workspace_id = $1)`, workspaceID)
+	pool.Exec(ctx, `DELETE FROM multica_workflow_node WHERE workflow_id IN (SELECT id FROM multica_workflow WHERE workspace_id = $1)`, workspaceID)
+	pool.Exec(ctx, `DELETE FROM multica_workflow WHERE workspace_id = $1`, workspaceID)
+	pool.Exec(ctx, `DELETE FROM multica_member WHERE workspace_id = $1`, workspaceID)
+	pool.Exec(ctx, `DELETE FROM multica_workspace WHERE id = $1`, workspaceID)
+	pool.Exec(ctx, `DELETE FROM multica_user WHERE email LIKE 'template-test-%'`)
 }
 
 // TestCloneWorkflowFromTemplate verifies that cloning a template workflow
@@ -190,8 +213,8 @@ func TestCloneWorkflowFromTemplate(t *testing.T) {
 	}
 
 	// Verify node count.
-	if len(clonedNodes) != 3 {
-		t.Fatalf("expected 3 cloned nodes, got %d", len(clonedNodes))
+	if len(clonedNodes) != 5 {
+		t.Fatalf("expected 5 cloned nodes, got %d", len(clonedNodes))
 	}
 	// Verify each node belongs to the new workflow.
 	for _, n := range clonedNodes {
@@ -202,8 +225,8 @@ func TestCloneWorkflowFromTemplate(t *testing.T) {
 	}
 
 	// Verify edge count.
-	if len(clonedEdges) != 2 {
-		t.Fatalf("expected 2 cloned edges, got %d", len(clonedEdges))
+	if len(clonedEdges) != 4 {
+		t.Fatalf("expected 4 cloned edges, got %d", len(clonedEdges))
 	}
 	// Verify each edge belongs to the new workflow and references cloned nodes.
 	nodeIDs := make(map[string]bool)
@@ -228,21 +251,37 @@ func TestCloneWorkflowFromTemplate(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListWorkflowNodes: %v", err)
 	}
-	if len(dbNodes) != 3 {
-		t.Fatalf("DB has %d nodes, expected 3", len(dbNodes))
+	if len(dbNodes) != 5 {
+		t.Fatalf("DB has %d nodes, expected 5", len(dbNodes))
+	}
+	var startCount, endCount int
+	if err := pool.QueryRow(context.Background(), `
+		SELECT count(*) FILTER (WHERE format_schema->>'type' = 'start'),
+		       count(*) FILTER (WHERE format_schema->>'type' = 'end')
+		FROM multica_workflow_node WHERE workflow_id = $1
+	`, cloned.ID).Scan(&startCount, &endCount); err != nil {
+		t.Fatal(err)
+	}
+	if startCount != 1 || endCount != 1 {
+		t.Fatalf("cloned boundary counts = (%d, %d), want (1, 1)", startCount, endCount)
 	}
 	dbEdges, err := q.ListWorkflowEdges(context.Background(), cloned.ID)
 	if err != nil {
 		t.Fatalf("ListWorkflowEdges: %v", err)
 	}
-	if len(dbEdges) != 2 {
-		t.Fatalf("DB has %d edges, expected 2", len(dbEdges))
+	if len(dbEdges) != 4 {
+		t.Fatalf("DB has %d edges, expected 4", len(dbEdges))
+	}
+	for _, e := range dbEdges {
+		if !nodeIDs[util.UUIDToString(e.SourceNodeID)] || !nodeIDs[util.UUIDToString(e.TargetNodeID)] {
+			t.Fatal("persisted cloned edge references a node outside the cloned workflow")
+		}
 	}
 
 	// Clean up the cloned workflow.
-	pool.Exec(context.Background(), `DELETE FROM workflow_edge WHERE workflow_id = $1`, cloned.ID)
-	pool.Exec(context.Background(), `DELETE FROM workflow_node WHERE workflow_id = $1`, cloned.ID)
-	pool.Exec(context.Background(), `DELETE FROM workflow WHERE id = $1`, cloned.ID)
+	pool.Exec(context.Background(), `DELETE FROM multica_workflow_edge WHERE workflow_id = $1`, cloned.ID)
+	pool.Exec(context.Background(), `DELETE FROM multica_workflow_node WHERE workflow_id = $1`, cloned.ID)
+	pool.Exec(context.Background(), `DELETE FROM multica_workflow WHERE id = $1`, cloned.ID)
 }
 
 // TestCloneWorkflowFromTemplate_RejectsNonTemplate verifies that attempting to
@@ -258,7 +297,7 @@ func TestCloneWorkflowFromTemplate_RejectsNonTemplate(t *testing.T) {
 	// Create a non-template workflow directly.
 	var workflowID string
 	err := pool.QueryRow(ctx, `
-		INSERT INTO workflow (workspace_id, title, status, max_retries, created_by_type, created_by_id, is_template)
+		INSERT INTO multica_workflow (workspace_id, title, status, max_retries, created_by_type, created_by_id, is_template)
 		VALUES ($1, 'Not A Template', 'active', 3, 'member', $2, FALSE)
 		RETURNING id
 	`, util.UUIDToString(wsID), "00000000-0000-0000-0000-000000000001").Scan(&workflowID)
@@ -288,7 +327,7 @@ func TestSetWorkflowTemplate(t *testing.T) {
 	// Create an active workflow.
 	var workflowID string
 	err := pool.QueryRow(ctx, `
-		INSERT INTO workflow (workspace_id, title, status, max_retries, created_by_type, created_by_id)
+		INSERT INTO multica_workflow (workspace_id, title, status, max_retries, created_by_type, created_by_id)
 		VALUES ($1, 'Togglable Workflow', 'active', 3, 'member', $2)
 		RETURNING id
 	`, util.UUIDToString(wsID), "00000000-0000-0000-0000-000000000001").Scan(&workflowID)
@@ -345,9 +384,9 @@ func TestDeleteWorkflowWithTemplateCheck_BlocksWithDerivedWorkflows(t *testing.T
 		t.Fatalf("CloneWorkflowFromTemplate: %v", err)
 	}
 	defer func() {
-		pool.Exec(ctx, `DELETE FROM workflow_edge WHERE workflow_id = $1`, cloned.ID)
-		pool.Exec(ctx, `DELETE FROM workflow_node WHERE workflow_id = $1`, cloned.ID)
-		pool.Exec(ctx, `DELETE FROM workflow WHERE id = $1`, cloned.ID)
+		pool.Exec(ctx, `DELETE FROM multica_workflow_edge WHERE workflow_id = $1`, cloned.ID)
+		pool.Exec(ctx, `DELETE FROM multica_workflow_node WHERE workflow_id = $1`, cloned.ID)
+		pool.Exec(ctx, `DELETE FROM multica_workflow WHERE id = $1`, cloned.ID)
 	}()
 
 	// Try to delete the template — should fail because there's a derived workflow.
@@ -389,14 +428,14 @@ func TestCanManageWorkflows(t *testing.T) {
 	// Create a user with can_manage_workflows flag set.
 	var userID string
 	err := pool.QueryRow(ctx, `
-		INSERT INTO "user" (name, email, can_manage_workflows)
+		INSERT INTO multica_user (name, email, can_manage_workflows)
 		VALUES ('WF Admin User', 'wf-admin-test@multica.ai', TRUE)
 		RETURNING id
 	`).Scan(&userID)
 	if err != nil {
 		t.Fatalf("create admin user: %v", err)
 	}
-	defer pool.Exec(ctx, `DELETE FROM "user" WHERE email = 'wf-admin-test@multica.ai'`)
+	defer pool.Exec(ctx, `DELETE FROM multica_user WHERE email = 'wf-admin-test@multica.ai'`)
 
 	userUUID, _ := util.ParseUUID(userID)
 
@@ -413,14 +452,14 @@ func TestCanManageWorkflows(t *testing.T) {
 	// Create a non-admin user.
 	var regularUserID string
 	err = pool.QueryRow(ctx, `
-		INSERT INTO "user" (name, email, can_manage_workflows)
+		INSERT INTO multica_user (name, email, can_manage_workflows)
 		VALUES ('Regular User', 'regular-test@multica.ai', FALSE)
 		RETURNING id
 	`).Scan(&regularUserID)
 	if err != nil {
 		t.Fatalf("create regular user: %v", err)
 	}
-	defer pool.Exec(ctx, `DELETE FROM "user" WHERE email = 'regular-test@multica.ai'`)
+	defer pool.Exec(ctx, `DELETE FROM multica_user WHERE email = 'regular-test@multica.ai'`)
 
 	regularUUID, _ := util.ParseUUID(regularUserID)
 

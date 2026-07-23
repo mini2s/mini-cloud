@@ -13,6 +13,7 @@ import {
 import "@xyflow/react/dist/style.css";
 
 import { useWorkspaceId } from "@multica/core/hooks";
+import { ApiError } from "@multica/core/api";
 import {
   workflowOverviewOptions,
   workflowStagesOptions,
@@ -62,12 +63,14 @@ import { getDeleteConflictMessage } from "../../../common/delete-conflict-error"
 
 import { WorkflowCanvasCore } from "../canvas/workflow-canvas-core";
 import {
+  MIN_NODE_HORIZONTAL_GAP,
   workflowEdgesToReactFlowEdges,
   workflowNodesToReactFlowNodes,
 } from "../canvas/workflow-canvas-model";
 import { NodeConfigPanel } from "../node-config-panel";
 import { StageCreateDialog } from "./stage-create-dialog";
 import { panoramaNodeTypes } from "./reactflow-nodes";
+import { BOUNDARY_WIDTH } from "./reactflow-nodes/boundary-node";
 import { panoramaEdgeTypes } from "./reactflow-edges";
 import { computeLaneAutoLayout, computeStageTransferPositionX } from "../layout";
 import { PreflightBar } from "./preflight-bar";
@@ -88,7 +91,7 @@ import {
   sortStagesForDisplay,
 } from "./constants";
 
-import { parseNodeFormat, type WorkflowNode, type WorkflowStage, type WorkflowEdge, type ReorderStagesItem, type WorkflowStatus, type Workflow, type WorkflowNodeRun } from "@multica/core/types";
+import { isBoundaryNode, isEndNode, isInvalidBoundaryConnection, isStartNode, parseNodeFormat, type WorkflowNode, type WorkflowStage, type WorkflowEdge, type ReorderStagesItem, type WorkflowStatus, type Workflow, type WorkflowNodeRun, type UpdateNodeRequest } from "@multica/core/types";
 import type { Agent } from "@multica/core/types";
 import type { BuiltinPlugin } from "@multica/core/api/schemas";
 
@@ -115,6 +118,15 @@ function findStageAtY(y: number, stages: WorkflowStage[]): WorkflowStage | undef
     if (y >= laneTop && y <= laneBottom) return stage;
   }
   return undefined;
+}
+
+export function isValidWorkflowConnection(
+  connection: Connection | Edge,
+  nodesById: Map<string, WorkflowNode>,
+): boolean {
+  const source = connection.source ? nodesById.get(connection.source) : undefined;
+  const target = connection.target ? nodesById.get(connection.target) : undefined;
+  return Boolean(source && target && !isInvalidBoundaryConnection(source, target));
 }
 
 // ── Skeleton ──
@@ -178,6 +190,7 @@ interface PanoramaContentProps {
   onSave: () => boolean | Promise<boolean>;
   onTestRun: () => Promise<void>;
   onOpenRunHistory: () => void;
+  disabledBoundaryTemplateIds: Set<string>;
 }
 
 function PanoramaContent({
@@ -226,6 +239,7 @@ function PanoramaContent({
   onSave,
   onTestRun,
   onOpenRunHistory,
+  disabledBoundaryTemplateIds,
 }: PanoramaContentProps) {
   const { t } = useT("workflows");
   const reactFlowInstance = useReactFlow();
@@ -254,6 +268,11 @@ function PanoramaContent({
       splitChildWorkflows,
     }),
     [visibleNodes, apiEdges, stages, agentIds, splitChildWorkflows],
+  );
+  const nodesById = useMemo(() => new Map(visibleNodes.map((node) => [node.id, node])), [visibleNodes]);
+  const validateConnection = useCallback(
+    (connection: Edge | Connection) => isValidWorkflowConnection(connection, nodesById),
+    [nodesById],
   );
 
   const handleNavigateToNode = useCallback((nodeId: string) => {
@@ -335,6 +354,7 @@ function PanoramaContent({
         onSave={onSave}
         onAutoLayout={onAutoLayout}
         onSelectTemplate={handleSelectTemplate}
+        disabledTemplateIds={disabledBoundaryTemplateIds}
         onTestRun={onTestRun}
         onToggleWorkflowStatus={onToggleWorkflowStatus}
         onOpenRunHistory={onOpenRunHistory}
@@ -353,6 +373,7 @@ function PanoramaContent({
             onPaneClick={onPaneClick}
             onNodeDragStop={onNodeDragStop}
             onConnect={onConnect}
+            isValidConnection={validateConnection}
             onEdgesDelete={onEdgeDelete}
             defaultViewport={{ x: 0, y: 24, zoom: 0.95 }}
           viewportY={viewportY}
@@ -371,7 +392,10 @@ function PanoramaContent({
                 top: Math.min(connectedNodePickerPosition.y, window.innerHeight - 420),
               }}
             >
-              <NodeTemplatePicker onSelect={onConnectedTemplateSelect} />
+              <NodeTemplatePicker
+                onSelect={onConnectedTemplateSelect}
+                disabledTemplateIds={disabledBoundaryTemplateIds}
+              />
             </div>
           )}
 
@@ -683,6 +707,18 @@ export function WorkflowPanoramaPage({ workflowId, viewToggle }: WorkflowPanoram
       })),
     [apiNodes, deletedNodeIds, nodeEdits],
   );
+  const apiNodesById = useMemo(
+    () => new Map(apiNodes.map((node) => [node.id, node])),
+    [apiNodes],
+  );
+  const disabledBoundaryTemplateIds = useMemo(() => new Set([
+    ...(visibleNodes.some(isStartNode) ? ["workflow-start"] : []),
+    ...(visibleNodes.some(isEndNode) ? ["workflow-end"] : []),
+  ]), [visibleNodes]);
+  const visibleNodesById = useMemo(
+    () => new Map(visibleNodes.map((node) => [node.id, node])),
+    [visibleNodes],
+  );
 
   const handleOpenConnectedNodePicker = useCallback((sourceNodeId: string) => {
     setConnectedNodePickerSourceId(sourceNodeId);
@@ -833,7 +869,7 @@ export function WorkflowPanoramaPage({ workflowId, viewToggle }: WorkflowPanoram
 
   const handleNodeDragStop = useCallback(
     (_event: MouseEvent | TouchEvent, node: Node) => {
-      if (node.type !== "compactWorker") return;
+      if (node.type !== "compactWorker" && node.type !== "boundary") return;
 
       const nodeData = node.data as Record<string, unknown>;
       const nodeId = (nodeData.node as { id: string } | undefined)?.id;
@@ -864,6 +900,10 @@ export function WorkflowPanoramaPage({ workflowId, viewToggle }: WorkflowPanoram
   const handleConnect = useCallback(
     (connection: Connection) => {
       if (!connection.source || !connection.target) return;
+      if (!isValidWorkflowConnection(connection, visibleNodesById)) {
+        toast.error(t(($) => $.panorama.node_picker.boundary_connection_invalid));
+        return;
+      }
       createEdgeMutation.mutate({
         source_node_id: connection.source,
         target_node_id: connection.target,
@@ -877,7 +917,7 @@ export function WorkflowPanoramaPage({ workflowId, viewToggle }: WorkflowPanoram
         },
       });
     },
-    [createEdgeMutation, pushServerAction],
+    [createEdgeMutation, pushServerAction, t, visibleNodesById],
   );
 
   useEffect(() => {
@@ -907,7 +947,11 @@ export function WorkflowPanoramaPage({ workflowId, viewToggle }: WorkflowPanoram
       const sourceNode = sourceNodeId ? visibleNodes.find((node) => node.id === sourceNodeId) : undefined;
       const stage = sourceNode ? undefined : findStageAtY(position.y, stages);
       const nodeRequest = buildCreateNodeRequestFromTemplate(template, {
-        x: sourceNode ? (sourceNode.position_x ?? 0) + WORKER_WIDTH + 96 : position.x,
+        x: sourceNode
+          ? template.boundary_kind === "start"
+            ? (sourceNode.position_x ?? 0) - BOUNDARY_WIDTH - MIN_NODE_HORIZONTAL_GAP
+            : (sourceNode.position_x ?? 0) + WORKER_WIDTH + MIN_NODE_HORIZONTAL_GAP
+          : position.x,
         y: sourceNode ? sourceNode.position_y ?? 0 : position.y,
         stageId: sourceNode ? sourceNode.stage_id ?? null : stage?.id ?? null,
       });
@@ -916,9 +960,11 @@ export function WorkflowPanoramaPage({ workflowId, viewToggle }: WorkflowPanoram
         onSuccess: (created) => {
           pushServerAction({ type: "create-node", nodeId: created.id, nodeRequest });
           if (!sourceNodeId) return;
+          const sourceId = template.boundary_kind === "start" ? created.id : sourceNodeId;
+          const targetId = template.boundary_kind === "start" ? sourceNodeId : created.id;
           createEdgeMutation.mutate({
-            source_node_id: sourceNodeId,
-            target_node_id: created.id,
+            source_node_id: sourceId,
+            target_node_id: targetId,
           } as Parameters<typeof createEdgeMutation.mutate>[0], {
             onSuccess: (_edge, vars) => {
               pushServerAction({
@@ -929,9 +975,17 @@ export function WorkflowPanoramaPage({ workflowId, viewToggle }: WorkflowPanoram
             },
           });
         },
+        onError: (error) => {
+          if (!template.boundary_kind || !(error instanceof ApiError)) return;
+          if (error.status === 409) {
+            toast.error(t(($) => $.panorama.node_picker.boundary_create_conflict));
+          } else if (error.status === 422) {
+            toast.error(t(($) => $.panorama.node_picker.boundary_create_invalid));
+          }
+        },
       });
     },
-    [createEdgeMutation, createNodeMutation, stages, pushServerAction, visibleNodes],
+    [createEdgeMutation, createNodeMutation, stages, pushServerAction, t, visibleNodes],
   );
 
   const handleConnectedTemplateSelect = useCallback(
@@ -1054,9 +1108,20 @@ export function WorkflowPanoramaPage({ workflowId, viewToggle }: WorkflowPanoram
     if (activeEntries.length === 0) return true;
     try {
       await Promise.all(
-        activeEntries.map(([nodeId, edits]) =>
-          updateNodeMutation.mutateAsync({ nodeId, ...edits } as Parameters<typeof updateNodeMutation.mutateAsync>[0]),
-        ),
+        activeEntries.map(([nodeId, edits]) => {
+          let updates: Partial<UpdateNodeRequest> = edits;
+          const apiNode = apiNodesById.get(nodeId);
+          if (apiNode && isBoundaryNode(apiNode)) {
+            updates = {
+              ...(edits.title !== undefined ? { title: edits.title } : {}),
+              ...(edits.description !== undefined ? { description: edits.description } : {}),
+            };
+          }
+          return updateNodeMutation.mutateAsync({
+            nodeId,
+            ...updates,
+          } as Parameters<typeof updateNodeMutation.mutateAsync>[0]);
+        }),
       );
       activeEntries.forEach(([nodeId]) => clearNodeEdits(nodeId));
       toast.success(t(($) => $.detail.toast_saved));
@@ -1065,7 +1130,7 @@ export function WorkflowPanoramaPage({ workflowId, viewToggle }: WorkflowPanoram
       toast.error(t(($) => $.detail.toast_save_failed));
       return false;
     }
-  }, [updateNodeMutation, clearNodeEdits, t]);
+  }, [apiNodesById, updateNodeMutation, clearNodeEdits, t]);
 
   const handleTestRun = useCallback(async () => {
     const saved = await handleSave();
@@ -1268,6 +1333,7 @@ export function WorkflowPanoramaPage({ workflowId, viewToggle }: WorkflowPanoram
         onSave={handleSave}
         onTestRun={handleTestRun}
         onOpenRunHistory={() => navigation.push(wsPaths.workflowRuns(workflowId))}
+        disabledBoundaryTemplateIds={disabledBoundaryTemplateIds}
       />
       {showRuntimeDialog && (
         <RuntimeSelectDialog

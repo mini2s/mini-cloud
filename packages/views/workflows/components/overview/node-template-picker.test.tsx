@@ -22,6 +22,7 @@ vi.mock("../../../i18n", () => {
         human_description: "Review or approval",
         annotation: "Notes",
         annotation_description: "Explain the canvas",
+        boundary_already_exists: "This boundary already exists",
       },
     },
   };
@@ -56,27 +57,40 @@ describe("NodeTemplatePicker", () => {
     render(<NodeTemplatePicker onSelect={vi.fn()} />);
 
     expect(screen.getByText("Triggers")).toBeInTheDocument();
-    expect(screen.getByText("Manual trigger")).toBeInTheDocument();
-    expect(screen.getByText("Digital human task")).toBeInTheDocument();
+    expect(screen.getByText("Start")).toBeInTheDocument();
+    expect(screen.getByText("Task")).toBeInTheDocument();
   });
 
   it("filters templates by search term", () => {
     render(<NodeTemplatePicker onSelect={vi.fn()} />);
 
     fireEvent.change(screen.getByPlaceholderText("Search nodes or actions..."), {
-      target: { value: "review" },
+      target: { value: "split" },
     });
 
-    expect(screen.getByText("Human review")).toBeInTheDocument();
-    expect(screen.queryByText("Manual trigger")).not.toBeInTheDocument();
+    expect(screen.getByText("Task split")).toBeInTheDocument();
+    expect(screen.queryByText("Start")).not.toBeInTheDocument();
   });
 
   it("returns the selected template when a template is clicked", () => {
     const onSelect = vi.fn();
     render(<NodeTemplatePicker onSelect={onSelect} />);
 
-    fireEvent.click(screen.getByRole("button", { name: /Digital human task/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Task:/ }));
 
-    expect(onSelect).toHaveBeenCalledWith(expect.objectContaining({ id: "ai-agent-task" }));
+    expect(onSelect).toHaveBeenCalledWith(expect.objectContaining({ id: "agent-task" }));
   });
+
+  it("disables existing boundary templates independently", () => {
+    render(
+      <NodeTemplatePicker
+        onSelect={vi.fn()}
+        disabledTemplateIds={new Set(["workflow-start"])}
+      />,
+    );
+
+    expect(screen.getByRole("button", { name: /^Start:/ })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /^End:/ })).toBeEnabled();
+  });
+
 });
