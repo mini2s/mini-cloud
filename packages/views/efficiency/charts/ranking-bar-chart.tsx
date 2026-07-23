@@ -1,4 +1,3 @@
-"use client";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid } from "recharts";
 import {
   ChartContainer,
@@ -16,11 +15,12 @@ export interface BarDatum {
 // decides the empty-state. Uses layout="vertical" so categories sit on Y.
 // ChartContainer needs a concrete height for horizontal layout (the default
 // aspect-video sizing collapses with vertical layout), so we pin h-[300px].
+// Color is config-driven (var(--color-value)), keeping config as single source.
 const config = {
   value: { label: "Value", color: "var(--chart-1)" },
 } satisfies ChartConfig;
 
-export function HBarChart({ data }: { data: BarDatum[] }) {
+export function RankingBarChart({ data }: { data: BarDatum[] }) {
   return (
     <ChartContainer config={config} className="h-[300px] w-full">
       <BarChart
@@ -38,7 +38,7 @@ export function HBarChart({ data }: { data: BarDatum[] }) {
           width={90}
         />
         <ChartTooltip content={<ChartTooltipContent />} />
-        <Bar dataKey="value" fill="var(--chart-1)" radius={4} />
+        <Bar dataKey="value" fill="var(--color-value)" radius={4} />
       </BarChart>
     </ChartContainer>
   );

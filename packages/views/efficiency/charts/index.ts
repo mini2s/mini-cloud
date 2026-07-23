@@ -1,2 +1,2 @@
 export { TrendChart, type TrendPoint } from "./trend-chart";
-export { HBarChart, type BarDatum } from "./bar-chart";
+export { RankingBarChart, type BarDatum } from "./ranking-bar-chart";

@@ -1,4 +1,3 @@
-"use client";
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid } from "recharts";
 import {
   ChartContainer,
@@ -13,8 +12,9 @@ export interface TrendPoint {
 }
 
 // Single-series area trend. The parent passes pre-shaped {label, value}
-// points and decides the empty-state. Color follows the runtimes chart
-// convention: chart-1 for the primary series.
+// points and decides the empty-state. Color is config-driven (ChartContainer
+// emits --color-{key}); the series references var(--color-value) so config
+// stays the single source of truth (matches runtimes single-series charts).
 const config = {
   value: { label: "Value", color: "var(--chart-1)" },
 } satisfies ChartConfig;
@@ -36,8 +36,8 @@ export function TrendChart({ data }: { data: TrendPoint[] }) {
         <Area
           dataKey="value"
           type="monotone"
-          stroke="var(--chart-1)"
-          fill="var(--chart-1)"
+          stroke="var(--color-value)"
+          fill="var(--color-value)"
           fillOpacity={0.2}
         />
       </AreaChart>
