@@ -128,7 +128,8 @@ WHERE id = $1 AND issue_id IS NULL;
 -- incremented; max_attempts, trigger_comment_id, and is_leader_task are
 -- inherited so the retried task keeps the same multica_squad-role provenance as its
 -- parent and the self-trigger guard in shouldEnqueueSquadLeaderOnComment
--- continues to recognise it as a leader task.
+-- continues to recognise it as a leader task. runtime_id defaults to the
+-- parent's runtime but workflow retries may supply a freshly selected runtime.
 INSERT INTO multica_agent_task_queue (
     agent_id, runtime_id, issue_id, chat_session_id, autopilot_run_id,
     status, priority, trigger_comment_id, trigger_summary, context,
@@ -137,7 +138,7 @@ INSERT INTO multica_agent_task_queue (
     workflow_node_run_id
 )
 SELECT
-    p.agent_id, p.runtime_id, p.issue_id, p.chat_session_id, p.autopilot_run_id,
+    p.agent_id, COALESCE(sqlc.narg('runtime_id')::uuid, p.runtime_id), p.issue_id, p.chat_session_id, p.autopilot_run_id,
     'queued', p.priority, p.trigger_comment_id, p.trigger_summary, p.context,
     CASE WHEN p.failure_reason IS NOT DISTINCT FROM 'codex_semantic_inactivity' THEN NULL ELSE p.session_id END,
     CASE WHEN p.failure_reason IS NOT DISTINCT FROM 'codex_semantic_inactivity' THEN NULL ELSE p.work_dir END,
@@ -146,7 +147,7 @@ SELECT
     p.is_leader_task,
     p.workflow_node_run_id
 FROM multica_agent_task_queue p
-WHERE p.id = $1
+WHERE p.id = sqlc.arg('parent_task_id')
 RETURNING *;
 
 -- name: CancelAgentTasksByIssue :many

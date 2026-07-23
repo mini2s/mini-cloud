@@ -4,7 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"log"
+	"fmt"
+	"log/slog"
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
@@ -17,7 +18,8 @@ import (
 // ── Request types ────────────────────────────────────────────────────────────
 
 type StartRunRequest struct {
-	Input json.RawMessage `json:"input"`
+	Input     json.RawMessage `json:"input"`
+	RuntimeID *string         `json:"runtime_id"`
 }
 
 type SubmitNodeRunRequest struct {
@@ -43,6 +45,7 @@ type WorkflowRunResponse struct {
 	Status          string          `json:"status"`
 	TriggeredByType string          `json:"triggered_by_type"`
 	TriggeredByID   *string         `json:"triggered_by_id"`
+	RuntimeID       *string         `json:"runtime_id"`
 	Input           json.RawMessage `json:"input"`
 	Output          json.RawMessage `json:"output"`
 	StartedAt       string          `json:"started_at"`
@@ -68,6 +71,8 @@ type WorkflowNodeRunResponse struct {
 	CriticAgentTaskID        *string         `json:"critic_agent_task_id"`
 	AgentTaskID              *string         `json:"agent_task_id"`
 	RuntimeID                *string         `json:"runtime_id"`
+	RuntimeSelectionReason   *string         `json:"runtime_selection_reason"`
+	FailureReason            *string         `json:"failure_reason"`
 	DeviceID                 *string         `json:"device_id"`
 	SessionID                *string         `json:"session_id"`
 	SplitReviewChatSessionID *string         `json:"split_review_chat_session_id"`
@@ -104,6 +109,7 @@ func workflowRunToResponse(r db.MulticaWorkflowRun) WorkflowRunResponse {
 		Status:          r.Status,
 		TriggeredByType: r.TriggeredByType,
 		TriggeredByID:   uuidToPtr(r.TriggeredByID),
+		RuntimeID:       uuidToPtr(r.RuntimeID),
 		Input:           json.RawMessage(r.Input),
 		Output:          json.RawMessage(r.Output),
 		StartedAt:       timestampToString(r.StartedAt),
@@ -131,6 +137,8 @@ func workflowNodeRunToResponse(nr db.MulticaWorkflowNodeRun) WorkflowNodeRunResp
 		CriticAgentTaskID:        uuidToPtr(nr.CriticAgentTaskID),
 		AgentTaskID:              uuidToPtr(nr.AgentTaskID),
 		RuntimeID:                uuidToPtr(nr.RuntimeID),
+		RuntimeSelectionReason:   textToPtr(nr.RuntimeSelectionReason),
+		FailureReason:            textToPtr(nr.FailureReason),
 		DeviceID:                 textToPtr(nr.DeviceID),
 		SessionID:                textToPtr(nr.SessionID),
 		SplitReviewChatSessionID: uuidToPtr(nr.SplitReviewChatSessionID),
@@ -291,6 +299,10 @@ func (h *Handler) StartWorkflowRun(w http.ResponseWriter, r *http.Request) {
 	if len(req.Input) == 0 {
 		req.Input = json.RawMessage("{}")
 	}
+	runtimePreference, ok := h.validateWorkflowRuntimePreference(w, r, req.RuntimeID, wf.WorkspaceID)
+	if !ok {
+		return
+	}
 
 	// Validate DAG before starting.
 	if err := h.WorkflowService.ValidateDAG(r.Context(), wf.ID); err != nil {
@@ -298,7 +310,7 @@ func (h *Handler) StartWorkflowRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	run, err := h.WorkflowService.StartRun(r.Context(), wf, "member", userID, req.Input, pgtype.UUID{})
+	run, err := h.WorkflowService.StartRun(r.Context(), wf, "member", userID, req.Input, runtimePreference)
 	if err != nil {
 		if errors.Is(err, service.ErrWorkflowRoleResolutionLimit) {
 			writeError(w, http.StatusTooManyRequests, "too many active workflow role resolution jobs")
@@ -315,11 +327,19 @@ func (h *Handler) StartWorkflowRun(w http.ResponseWriter, r *http.Request) {
 	})
 	if run.Status == service.RunStatusRunning {
 		if err := h.WorkflowService.DispatchRootNodeRuns(r.Context(), run.ID); err != nil {
-			log.Printf("failed to dispatch workflow root nodes for run %s: %v", uuidToString(run.ID), err)
+			slog.Warn("failed to dispatch root workflow nodes", "run_id", uuidToString(run.ID), "error", err)
 		} else if refreshed, err := h.Queries.GetWorkflowRun(r.Context(), run.ID); err == nil {
 			run = &refreshed
 		}
 	}
+
+	// Scaffold the run's Gitea deliverable repo + lazily provision the workspace
+	// bot (document workflows only; no-op when Gitea is dormant). Fire-and-forget
+	// on context.Background(): the goroutine outlives the HTTP request, so
+	// r.Context() would cancel mid-scaffold the moment we write the response.
+	// Persistent failure transitions the run to failed inside the service.
+	go h.WorkflowService.ScaffoldRunDeliverables(context.Background(), *run)
+
 	resp := workflowRunToResponse(*run)
 	status := http.StatusCreated
 	if run.Status == service.RunStatusResolvingRoles || run.Status == service.RunStatusWaitingRoleAssignment {
@@ -889,4 +909,199 @@ func (h *Handler) ListWorkflowNodeRuns(w http.ResponseWriter, r *http.Request) {
 		resp = append(resp, workflowNodeRunToResponse(nr))
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"node_runs": resp})
+}
+
+// ── Deliverable submission request/response types ─────────────────────────────
+
+type SubmitDeliverableRequest struct {
+	Content        string  `json:"content"`
+	AttachmentID   *string `json:"attachment_id"`
+	PullRequestURL string  `json:"pull_request_url"`
+}
+
+type ReviewDeliverableRequest struct {
+	Status  string `json:"status"` // "approved" | "rejected"
+	Comment string `json:"review_comment"`
+}
+
+type WorkflowNodeDeliverableSubmissionResponse struct {
+	ID                string  `json:"id"`
+	WorkflowNodeRunID string  `json:"workflow_node_run_id"`
+	DeliverableID     string  `json:"deliverable_id"`
+	SubmittedByType   string  `json:"submitted_by_type"`
+	SubmittedByID     *string `json:"submitted_by_id"`
+	Status            string  `json:"status"`
+	Content           string  `json:"content"`
+	AttachmentID      *string `json:"attachment_id"`
+	PullRequestURL    string  `json:"pull_request_url"`
+	ReviewComment     string  `json:"review_comment"`
+	SubmittedAt       string  `json:"submitted_at"`
+	ReviewedAt        *string `json:"reviewed_at"`
+	CreatedAt         string  `json:"created_at"`
+	UpdatedAt         string  `json:"updated_at"`
+}
+
+func workflowNodeDeliverableSubmissionToResponse(s db.MulticaWorkflowNodeDeliverableSubmission) WorkflowNodeDeliverableSubmissionResponse {
+	return WorkflowNodeDeliverableSubmissionResponse{
+		ID:                uuidToString(s.ID),
+		WorkflowNodeRunID: uuidToString(s.WorkflowNodeRunID),
+		DeliverableID:     uuidToString(s.DeliverableID),
+		SubmittedByType:   s.SubmittedByType,
+		SubmittedByID:     uuidToPtr(s.SubmittedByID),
+		Status:            s.Status,
+		Content:           s.Content,
+		AttachmentID:      uuidToPtr(s.AttachmentID),
+		PullRequestURL:    s.PullRequestUrl,
+		ReviewComment:     s.ReviewComment,
+		SubmittedAt:       timestampToString(s.SubmittedAt),
+		ReviewedAt:        timestampToPtr(s.ReviewedAt),
+		CreatedAt:         timestampToString(s.CreatedAt),
+		UpdatedAt:         timestampToString(s.UpdatedAt),
+	}
+}
+
+// errDeliverableNotFound is returned by deliverableKind when the deliverable
+// exists in neither this node run's node nor its siblings. Distinct from the
+// DB-error case so the caller can map it to 404 instead of masking 500s.
+var errDeliverableNotFound = errors.New("deliverable not found on this node run")
+
+// deliverableKind resolves the kind of the deliverable submitted against the
+// given node run. Used to gate document deliverables out of the inline-content
+// upload path — document bodies live in Gitea (submitted via the report-pr
+// flow) once the platform Gitea is configured.
+func (h *Handler) deliverableKind(ctx context.Context, nodeRunID, deliverableID pgtype.UUID) (string, error) {
+	nr, err := h.Queries.GetWorkflowNodeRun(ctx, nodeRunID)
+	if err != nil {
+		return "", fmt.Errorf("get node run: %w", err)
+	}
+	deliverables, err := h.Queries.ListWorkflowNodeDeliverables(ctx, nr.WorkflowNodeID)
+	if err != nil {
+		return "", fmt.Errorf("list deliverables: %w", err)
+	}
+	for _, d := range deliverables {
+		if d.ID == deliverableID {
+			return d.Kind, nil
+		}
+	}
+	return "", errDeliverableNotFound
+}
+
+// ── Deliverable submission handlers ──────────────────────────────────────────
+
+// ListNodeRunDeliverableSubmissions GET /api/node-runs/{nodeRunId}/deliverables
+func (h *Handler) ListNodeRunDeliverableSubmissions(w http.ResponseWriter, r *http.Request) {
+	nodeRunID := chi.URLParam(r, "nodeRunId")
+	nrUUID, ok := parseUUIDOrBadRequest(w, nodeRunID, "nodeRunId")
+	if !ok {
+		return
+	}
+
+	submissions, err := h.Queries.ListNodeRunDeliverableSubmissions(r.Context(), nrUUID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to list deliverable submissions")
+		return
+	}
+
+	resp := make([]WorkflowNodeDeliverableSubmissionResponse, 0, len(submissions))
+	for _, s := range submissions {
+		resp = append(resp, workflowNodeDeliverableSubmissionToResponse(s))
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{"submissions": resp})
+}
+
+// SubmitNodeRunDeliverable POST /api/node-runs/{nodeRunId}/deliverables/{deliverableId}/submit
+func (h *Handler) SubmitNodeRunDeliverable(w http.ResponseWriter, r *http.Request) {
+	nodeRunID := chi.URLParam(r, "nodeRunId")
+	nrUUID, ok := parseUUIDOrBadRequest(w, nodeRunID, "nodeRunId")
+	if !ok {
+		return
+	}
+
+	deliverableID := chi.URLParam(r, "deliverableId")
+	dUUID, ok := parseUUIDOrBadRequest(w, deliverableID, "deliverableId")
+	if !ok {
+		return
+	}
+
+	var req SubmitDeliverableRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	// Document deliverables are submitted via Gitea PRs (the agent's report-pr
+	// flow), not inline content uploads — but only when the platform Gitea is
+	// configured. When dormant, document content uploads behave as before.
+	if isGiteaConfigured() && (req.Content != "" || req.AttachmentID != nil) {
+		kind, err := h.deliverableKind(r.Context(), nrUUID, dUUID)
+		if err != nil {
+			if errors.Is(err, errDeliverableNotFound) {
+				writeError(w, http.StatusNotFound, "deliverable not found")
+			} else {
+				writeError(w, http.StatusInternalServerError, "failed to load deliverable")
+			}
+			return
+		}
+		if kind == "document" {
+			writeError(w, http.StatusUnprocessableEntity,
+				"document deliverables are submitted via git PR; inline content upload is disabled")
+			return
+		}
+	}
+
+	// Derive submitted_by from the authenticated user
+	userID, ok := requireUserID(w, r)
+	if !ok {
+		return
+	}
+	submittedByType := "member"
+	submittedByID := parseUUID(userID)
+
+	submission, err := h.Queries.UpsertNodeRunDeliverableSubmission(r.Context(), db.UpsertNodeRunDeliverableSubmissionParams{
+		WorkflowNodeRunID: nrUUID,
+		DeliverableID:     dUUID,
+		SubmittedByType:   submittedByType,
+		SubmittedByID:     submittedByID,
+		Content:           req.Content,
+		AttachmentID:      ptrStrToUUID(req.AttachmentID),
+		PullRequestUrl:    req.PullRequestURL,
+	})
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to submit deliverable")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, workflowNodeDeliverableSubmissionToResponse(submission))
+}
+
+// ReviewNodeRunDeliverable POST /api/node-runs/{nodeRunId}/deliverables/{submissionId}/review
+func (h *Handler) ReviewNodeRunDeliverable(w http.ResponseWriter, r *http.Request) {
+	submissionID := chi.URLParam(r, "submissionId")
+	sUUID, ok := parseUUIDOrBadRequest(w, submissionID, "submissionId")
+	if !ok {
+		return
+	}
+
+	var req ReviewDeliverableRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if req.Status != "approved" && req.Status != "rejected" {
+		writeError(w, http.StatusBadRequest, "status must be 'approved' or 'rejected'")
+		return
+	}
+
+	submission, err := h.Queries.ReviewNodeRunDeliverableSubmission(r.Context(), db.ReviewNodeRunDeliverableSubmissionParams{
+		ID:            sUUID,
+		Status:        req.Status,
+		ReviewComment: req.Comment,
+	})
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to review deliverable")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, workflowNodeDeliverableSubmissionToResponse(submission))
 }

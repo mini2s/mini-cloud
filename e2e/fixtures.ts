@@ -6,6 +6,7 @@
 
 import "./env";
 import * as pg from "pg";
+import { randomBytes, createHash } from "crypto";
 
 // `||` (not `??`) so an empty `NEXT_PUBLIC_API_URL=` in .env still falls
 // back to localhost. dotenv sets unset-vs-empty both as "" — treating them
@@ -66,6 +67,7 @@ export class TestApiClient {
   private static readonly DEFAULT_NODE_GRID_Y_GAP = 180;
 
   private token: string | null = null;
+  private csrfToken: string | null = null;
   private userId: string | null = null;
   private workspaceSlug: string | null = null;
   private workspaceId: string | null = null;
@@ -91,9 +93,10 @@ export class TestApiClient {
       if (!verifyRes.ok) {
         throw new Error(`verify-code failed: ${verifyRes.status}`);
       }
+      this.captureCsrfCookie(verifyRes);
       const data = await verifyRes.json();
 
-      this.token = data.token;
+      this.token = await this.mintPat(data.user.id);
       this.userId = data.user?.id ?? null;
 
       if (name && data.user?.name !== name) {
@@ -137,9 +140,10 @@ export class TestApiClient {
       if (!verifyRes.ok) {
         throw new Error(`verify-code failed: ${verifyRes.status}`);
       }
+      this.captureCsrfCookie(verifyRes);
       const data = await verifyRes.json();
 
-      this.token = data.token;
+      this.token = await this.mintPat(data.user.id);
       this.userId = data.user?.id ?? null;
 
       if (name && data.user?.name !== name) {
@@ -172,7 +176,7 @@ export class TestApiClient {
 
   async ensureWorkspace(name = "E2E Workspace", slug = "e2e-workspace") {
     const workspaces = await this.getWorkspaces();
-    const workspace = workspaces.find((item) => item.slug === slug) ?? workspaces[0];
+    const workspace = workspaces.find((item) => item.slug === slug);
     if (workspace) {
       this.workspaceId = workspace.id;
       this.workspaceSlug = workspace.slug;
@@ -190,7 +194,7 @@ export class TestApiClient {
     }
 
     const refreshed = await this.getWorkspaces();
-    const created = refreshed.find((item) => item.slug === slug) ?? refreshed[0];
+    const created = refreshed.find((item) => item.slug === slug);
     if (created) {
       this.workspaceId = created.id;
       return created;
@@ -332,6 +336,40 @@ export class TestApiClient {
     const res = await this.authedFetch(`/api/workflows/${workflowId}/runs/${runId}/node-runs`);
     const body = await res.json();
     return body.node_runs ?? [];
+  }
+
+  async startWorkflowRun(workflowId: string, runtimeId?: string | null) {
+    const res = await this.requestStartWorkflowRun(workflowId, runtimeId);
+    if (!res.ok) {
+      throw new Error(`start workflow run failed: ${res.status} ${await res.text()}`);
+    }
+    return res.json();
+  }
+
+  async requestStartWorkflowRun(workflowId: string, runtimeId?: string | null) {
+    const body = runtimeId === undefined ? {} : { runtime_id: runtimeId };
+    return this.authedFetch(`/api/workflows/${workflowId}/runs`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    });
+  }
+
+  async getWorkflowRun(workflowId: string, runId: string) {
+    const res = await this.authedFetch(`/api/workflows/${workflowId}/runs/${runId}`);
+    if (!res.ok) {
+      throw new Error(`get workflow run failed: ${res.status} ${await res.text()}`);
+    }
+    return res.json();
+  }
+
+  async cancelWorkflowRun(workflowId: string, runId: string) {
+    const res = await this.authedFetch(`/api/workflows/${workflowId}/runs/${runId}/cancel`, {
+      method: "POST",
+      body: JSON.stringify({}),
+    });
+    if (!res.ok) {
+      throw new Error(`cancel workflow run failed: ${res.status} ${await res.text()}`);
+    }
   }
 
   async listWorkflowEdges(workflowId: string) {
@@ -523,6 +561,77 @@ export class TestApiClient {
     return res.json();
   }
 
+  // ── Deliverable / run / review (PR #88 deliverable git-storage) ──
+
+  async createWorkflowNodeDeliverable(workflowId: string, nodeId: string, data: {
+    kind: "document" | "pull_request";
+    title: string;
+    description?: string;
+    required?: boolean;
+    sort_order?: number;
+  }) {
+    const res = await this.authedFetch(`/api/workflows/${workflowId}/nodes/${nodeId}/deliverables`, {
+      method: "POST",
+      body: JSON.stringify(data),
+    });
+    if (!res.ok) throw new Error(`createDeliverable: ${res.status} ${await res.text()}`);
+    return res.json();
+  }
+
+  async activateWorkflow(workflowId: string) {
+    const res = await this.authedFetch(`/api/workflows/${workflowId}`, {
+      method: "PUT",
+      body: JSON.stringify({ status: "active" }),
+    });
+    if (!res.ok) throw new Error(`activateWorkflow: ${res.status} ${await res.text()}`);
+    return res.json();
+  }
+
+  async startWorkflowRun(workflowId: string) {
+    const res = await this.authedFetch(`/api/workflows/${workflowId}/runs`, {
+      method: "POST",
+      body: JSON.stringify({}),
+    });
+    if (!res.ok) throw new Error(`startWorkflowRun: ${res.status} ${await res.text()}`);
+    return res.json();
+  }
+
+  async listWorkflowNodeRuns(workflowId: string, runId: string) {
+    const res = await this.authedFetch(`/api/workflows/${workflowId}/runs/${runId}/node-runs`);
+    if (!res.ok) throw new Error(`listNodeRuns: ${res.status}`);
+    const data = await res.json();
+    return data.node_runs as Array<{ id: string; status: string; [k: string]: unknown }>;
+  }
+
+  /** Submit a deliverable for a node run. Returns {status, body} so tests can
+   *  assert on non-2xx (e.g. 422 when document content upload is disabled). */
+  async submitDeliverable(nodeRunId: string, deliverableId: string, body: {
+    content?: string;
+    attachment_id?: string | null;
+    pull_request_url?: string;
+  }) {
+    const res = await this.authedFetch(`/api/node-runs/${nodeRunId}/deliverables/${deliverableId}/submit`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    });
+    return { status: res.status, body: await res.json().catch(() => null) };
+  }
+
+  async reviewNodeRun(nodeRunId: string, body: { approved: boolean; comment?: string }) {
+    const res = await this.authedFetch(`/api/node-runs/${nodeRunId}/review`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    });
+    return { status: res.status, body: await res.json().catch(() => null) };
+  }
+
+  async listDeliverableSubmissions(nodeRunId: string) {
+    const res = await this.authedFetch(`/api/node-runs/${nodeRunId}/deliverables`);
+    if (!res.ok) throw new Error(`listDeliverableSubmissions: ${res.status}`);
+    const data = await res.json();
+    return data.submissions as Array<{ id: string; status: string; pull_request_url: string; [k: string]: unknown }>;
+  }
+
   async deleteIssue(id: string) {
     await this.authedFetch(`/api/issues/${id}`, { method: "DELETE" });
   }
@@ -536,6 +645,15 @@ export class TestApiClient {
   /** Clean up all issues, workflows, agents created during this test.
    *  Workflow cascade deletion handles associated stages and nodes. */
   async cleanup() {
+    for (const id of this.createdIssueIds) {
+      try {
+        await this.deleteIssue(id);
+      } catch {
+        /* ignore — may already be deleted */
+      }
+    }
+    this.createdIssueIds = [];
+
     for (const id of this.createdWorkflowIds) {
       try {
         await this.deleteWorkflow(id);
@@ -555,24 +673,66 @@ export class TestApiClient {
       }
     }
     this.createdAgentIds = [];
-
-    for (const id of this.createdIssueIds) {
-      try {
-        await this.deleteIssue(id);
-      } catch {
-        /* ignore — may already be deleted */
-      }
-    }
-    this.createdIssueIds = [];
   }
 
   getToken() {
     return this.token;
   }
 
+  getCsrfToken() {
+    return this.csrfToken;
+  }
+
+  getUserId() {
+    return this.userId;
+  }
+
+  getWorkspaceId() {
+    return this.workspaceId;
+  }
+
+  getWorkspaceSlug() {
+    return this.workspaceSlug;
+  }
+
+  /** Mint a Personal Access Token for the logged-in user. PATs (mul_…) bypass
+   *  CasdoorAuth — which otherwise treats any Bearer JWT as a Casdoor RS256
+   *  token and rejects the multica HMAC JWT that /auth/verify-code returns in
+   *  a Casdoor-enabled local stack. PATs fall through to the Auth middleware,
+   *  which validates them directly. Used instead of the verify-code JWT so the
+   *  E2E API client works in both CI (no Casdoor) and local (Casdoor on). */
+  private async mintPat(userId: string): Promise<string> {
+    const token = "mul_" + randomBytes(32).toString("hex");
+    const hash = createHash("sha256").update(token).digest("hex");
+    const client = new pg.Client(DATABASE_URL);
+    await client.connect();
+    try {
+      await client.query(
+        `INSERT INTO multica_personal_access_token (user_id, name, token_hash, token_prefix, expires_at)
+         VALUES ($1, 'e2e', $2, $3, now() + interval '365 days')`,
+        [userId, hash, token.slice(0, 12)],
+      );
+    } finally {
+      await client.end();
+    }
+    return token;
+  }
+
   /** Inject an existing JWT token — skip the login flow entirely. */
   injectToken(token: string) {
     this.token = token;
+  }
+
+  private captureCsrfCookie(response: Response) {
+    const headers = response.headers as Headers & { getSetCookie?: () => string[] };
+    const setCookies = headers.getSetCookie?.() ?? [headers.get("set-cookie") ?? ""];
+    for (const value of setCookies) {
+      const match = value.match(/(?:^|,\s*)multica_csrf=([^;,]+)/);
+      if (match?.[1]) {
+        this.csrfToken = match[1];
+        return;
+      }
+    }
   }
 
   private async authedFetch(path: string, init?: RequestInit) {

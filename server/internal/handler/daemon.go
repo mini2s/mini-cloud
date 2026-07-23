@@ -18,6 +18,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/multica-ai/multica/server/internal/analytics"
 	"github.com/multica-ai/multica/server/internal/daemonws"
+	"github.com/multica-ai/multica/server/internal/gitea"
 	"github.com/multica-ai/multica/server/internal/middleware"
 	"github.com/multica-ai/multica/server/internal/service"
 	"github.com/multica-ai/multica/server/internal/util"
@@ -1192,6 +1193,22 @@ func (h *Handler) ClaimTaskByRuntime(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Inject the critic's review feedback when this is a rework (the node-run
+	// was rejected + has a critic_comment). Journey 8: "驳回 → 评审意见注入
+	// 到对应运行时、对应会话、对应工作目录，让它基于意见去优化改进".
+	if task.WorkflowNodeRunID.Valid {
+		if nr, err := h.Queries.GetWorkflowNodeRun(r.Context(), task.WorkflowNodeRunID); err == nil && nr.CriticComment.Valid && nr.CriticComment.String != "" {
+			if resp.Agent != nil {
+				if resp.Agent.Instructions != "" {
+					resp.Agent.Instructions += "\n\n"
+				}
+				resp.Agent.Instructions += "## Review Feedback (your previous submission was rejected)\n\n" +
+					"The reviewer rejected your previous work. Address the feedback below, improve, and resubmit:\n\n" +
+					"> " + nr.CriticComment.String + "\n"
+			}
+		}
+	}
+
 	// Resolve the runtime owner's profile description so the daemon can
 	// inject "## Requesting User" into the brief. Empty fields short-circuit
 	// the heading entirely on the daemon side; cloud / system runtimes with
@@ -1609,9 +1626,16 @@ func (h *Handler) ClaimTaskByRuntime(w http.ResponseWriter, r *http.Request) {
 			"has_autopilot_run", task.AutopilotRunID.Valid,
 			"has_quick_create", hasQuickCreate,
 		)
-		if _, cerr := h.TaskService.CancelTask(r.Context(), task.ID); cerr != nil {
+		if cancelled, cerr := h.TaskService.CancelTask(r.Context(), task.ID); cerr != nil {
 			slog.Error("task claim: cancel after workspace check failed",
 				"task_id", uuidToString(task.ID), "error", cerr)
+		} else if cancelled != nil && cancelled.WorkflowNodeRunID.Valid && h.WorkflowService != nil {
+			if ferr := h.WorkflowService.HandleWorkflowTaskFailure(r.Context(), *cancelled); ferr != nil {
+				slog.Error("task claim: fail workflow node after workspace check failed",
+					"task_id", uuidToString(task.ID),
+					"node_run_id", uuidToString(cancelled.WorkflowNodeRunID),
+					"error", ferr)
+			}
 		}
 		writeError(w, http.StatusInternalServerError, "task workspace isolation check failed")
 		return
@@ -1623,6 +1647,14 @@ func (h *Handler) ClaimTaskByRuntime(w http.ResponseWriter, r *http.Request) {
 		if upstream := h.buildUpstreamStageContext(r.Context(), *task); len(upstream) > 0 {
 			resp.UpstreamStageContext = upstream
 		}
+	}
+
+	// Workflow task: attach the platform-Gitea document-deliverable context so
+	// the daemon (M3) can forward it to the CLI (M5), which pushes the body
+	// and opens a PR. nil when dormant (Gitea unconfigured, no document
+	// deliverables, or transient DB error) — see buildGiteaDeliverableContext.
+	if gctx := h.buildGiteaDeliverableContext(r.Context(), *task); gctx != nil {
+		resp.GiteaDeliverables = gctx
 	}
 
 	slog.Info("task claimed by runtime", "task_id", uuidToString(task.ID), "runtime_id", runtimeID, "agent_id", uuidToString(task.AgentID), "prior_session", resp.PriorSessionID)
@@ -1773,6 +1805,77 @@ func (h *Handler) buildUpstreamStageContext(ctx context.Context, task db.Multica
 	}
 
 	return result
+}
+
+// buildGiteaDeliverableContext attaches the platform-Gitea context the daemon
+// + CLI need to push document deliverables, when (a) Gitea is configured, (b)
+// the task executes a workflow node-run, and (c) that node has ≥1 document
+// deliverable. Returns nil otherwise (dormant). Errors are swallowed (nil
+// return) — a transient DB blip here must not break the claim; the agent would
+// simply lack the Gitea context and the run surfaces a clone failure later.
+func (h *Handler) buildGiteaDeliverableContext(ctx context.Context, task db.MulticaAgentTaskQueue) *GiteaDeliverableContext {
+	if !isGiteaConfigured() || !task.WorkflowNodeRunID.Valid {
+		return nil
+	}
+	return h.giteaContextForNodeRun(ctx, task.WorkflowNodeRunID)
+}
+
+// giteaContextForNodeRun builds the Gitea deliverable context for an arbitrary
+// node-run (the task's own, or any other — used by the gitea-context endpoint
+// so an agent can read another node's deliverables). Returns nil if Gitea is
+// unconfigured, the node-run/run can't be loaded, or the node has no document
+// deliverables. Errors are swallowed (caller decides 404 vs nil-context).
+func (h *Handler) giteaContextForNodeRun(ctx context.Context, nodeRunID pgtype.UUID) *GiteaDeliverableContext {
+	if !isGiteaConfigured() || !nodeRunID.Valid {
+		return nil
+	}
+	nr, err := h.Queries.GetWorkflowNodeRun(ctx, nodeRunID)
+	if err != nil {
+		return nil
+	}
+	run, err := h.Queries.GetWorkflowRun(ctx, nr.WorkflowRunID)
+	if err != nil {
+		return nil
+	}
+	workflow, err := h.Queries.GetWorkflow(ctx, run.WorkflowID)
+	if err != nil {
+		return nil
+	}
+	// Node sort_order drives the readable <NN> prefix in repo paths.
+	node, err := h.Queries.GetWorkflowNode(ctx, nr.WorkflowNodeID)
+	if err != nil {
+		return nil
+	}
+	seq := int(node.SortOrder)
+	deliverables, err := h.Queries.ListWorkflowNodeDeliverables(ctx, nr.WorkflowNodeID)
+	if err != nil {
+		return nil
+	}
+	nodeRunIDStr := util.UUIDToString(nr.ID)
+	var refs []GiteaDeliverableRef
+	for _, d := range deliverables {
+		if d.Kind != "document" {
+			continue
+		}
+		refs = append(refs, GiteaDeliverableRef{
+			ID:    util.UUIDToString(d.ID),
+			Title: d.Title,
+			Path:  gitea.DeliverablePath(seq, nr.NodeTitle, nodeRunIDStr, d.Title),
+		})
+	}
+	if len(refs) == 0 {
+		return nil
+	}
+	owner := gitea.OrgName(util.UUIDToString(run.WorkspaceID))
+	repo := service.DeliverableRepoNameForWorkflow(workflow)
+	return &GiteaDeliverableContext{
+		Owner:        owner,
+		Repo:         repo,
+		CloneURL:     strings.TrimRight(giteaPublicBaseURL(), "/") + "/" + owner + "/" + repo + ".git",
+		InstBranch:   gitea.InstBranch(util.UUIDToString(run.ID)),
+		NodeBranch:   gitea.NodeBranch(seq, nodeRunIDStr),
+		Deliverables: refs,
+	}
 }
 
 // ListPendingTasksByRuntime returns queued/dispatched tasks for a runtime.

@@ -936,7 +936,7 @@ INSERT INTO multica_agent_task_queue (
     workflow_node_run_id
 )
 SELECT
-    p.agent_id, p.runtime_id, p.issue_id, p.chat_session_id, p.autopilot_run_id,
+    p.agent_id, COALESCE($1::uuid, p.runtime_id), p.issue_id, p.chat_session_id, p.autopilot_run_id,
     'queued', p.priority, p.trigger_comment_id, p.trigger_summary, p.context,
     CASE WHEN p.failure_reason IS NOT DISTINCT FROM 'codex_semantic_inactivity' THEN NULL ELSE p.session_id END,
     CASE WHEN p.failure_reason IS NOT DISTINCT FROM 'codex_semantic_inactivity' THEN NULL ELSE p.work_dir END,
@@ -945,9 +945,14 @@ SELECT
     p.is_leader_task,
     p.workflow_node_run_id
 FROM multica_agent_task_queue p
-WHERE p.id = $1
+WHERE p.id = $2
 RETURNING id, agent_id, issue_id, status, priority, dispatched_at, started_at, completed_at, result, error, created_at, context, runtime_id, session_id, work_dir, trigger_comment_id, chat_session_id, autopilot_run_id, attempt, max_attempts, parent_task_id, failure_reason, trigger_summary, force_fresh_session, is_leader_task, workflow_node_run_id
 `
+
+type CreateRetryTaskParams struct {
+	RuntimeID    pgtype.UUID `json:"runtime_id"`
+	ParentTaskID pgtype.UUID `json:"parent_task_id"`
+}
 
 // Clones a parent task into a fresh queued attempt. Carries forward the
 // multica_agent's resume context (session_id/work_dir) so the child can continue
@@ -958,9 +963,10 @@ RETURNING id, agent_id, issue_id, status, priority, dispatched_at, started_at, c
 // incremented; max_attempts, trigger_comment_id, and is_leader_task are
 // inherited so the retried task keeps the same multica_squad-role provenance as its
 // parent and the self-trigger guard in shouldEnqueueSquadLeaderOnComment
-// continues to recognise it as a leader task.
-func (q *Queries) CreateRetryTask(ctx context.Context, id pgtype.UUID) (MulticaAgentTaskQueue, error) {
-	row := q.db.QueryRow(ctx, createRetryTask, id)
+// continues to recognise it as a leader task. runtime_id defaults to the
+// parent's runtime but workflow retries may supply a freshly selected runtime.
+func (q *Queries) CreateRetryTask(ctx context.Context, arg CreateRetryTaskParams) (MulticaAgentTaskQueue, error) {
+	row := q.db.QueryRow(ctx, createRetryTask, arg.RuntimeID, arg.ParentTaskID)
 	var i MulticaAgentTaskQueue
 	err := row.Scan(
 		&i.ID,

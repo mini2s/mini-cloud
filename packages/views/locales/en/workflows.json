@@ -153,6 +153,12 @@
     "label_bind_to_node": "Bind to Node",
     "label_worker_role": "Executor role",
     "label_critic_role": "Reviewer role",
+    "worker_category_label": "Executor category",
+    "critic_category_label": "Reviewer category",
+    "participant_type_human": "Human",
+    "participant_type_agent": "agent",
+    "participant_type_role": "Development role",
+    "participant_type_squad": "Squad",
     "split_title": "Split rules",
     "split_subtitle": "Choose the child issue workflow, review step, and runtime limits.",
     "split_review_required_title": "Human review is required",
@@ -507,7 +513,16 @@
     "take_over_wrong_status": "Only working nodes can be taken over.",
     "hand_back_wrong_status": "Only blocked nodes can be handed back.",
     "finalize_wrong_status": "Only blocked nodes can be finalized.",
-    "review_comment_placeholder": "Add a comment with your review..."
+    "review_comment_placeholder": "Add a comment with your review...",
+    "deliverables": {
+      "heading": "Deliverable PRs",
+      "pull_request_label": "Pull request",
+      "upload_button": "Upload deliverable",
+      "upload_heading": "Submit a document",
+      "upload_placeholder": "Write or paste the document content (markdown)…",
+      "upload_submit": "Submit",
+      "uploading": "Submitting…"
+    }
   },
   "overview": {
     "title": "Workflow Overview",

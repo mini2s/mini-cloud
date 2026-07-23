@@ -21,12 +21,14 @@ import (
 	"github.com/multica-ai/multica/server/internal/daemonws"
 	"github.com/multica-ai/multica/server/internal/deptsync"
 	"github.com/multica-ai/multica/server/internal/events"
+	"github.com/multica-ai/multica/server/internal/gitea"
 	"github.com/multica-ai/multica/server/internal/handler"
 	obsmetrics "github.com/multica-ai/multica/server/internal/metrics"
 	"github.com/multica-ai/multica/server/internal/middleware"
 	"github.com/multica-ai/multica/server/internal/realtime"
 	"github.com/multica-ai/multica/server/internal/service"
 	"github.com/multica-ai/multica/server/internal/storage"
+	"github.com/multica-ai/multica/server/internal/teamnamespace"
 	"github.com/multica-ai/multica/server/internal/util"
 	db "github.com/multica-ai/multica/server/pkg/db/generated"
 )
@@ -146,7 +148,15 @@ type RouterOptions struct {
 	// handler (member management) and the SubjectResolver (login-time dept
 	// linking). main.go constructs it once and passes it in; tests leave it
 	// nil and the router falls back to constructing one from env.
-	DeptSync               *deptsync.Client
+	DeptSync *deptsync.Client
+	// Gitea is the platform Gitea admin client for document-deliverable storage.
+	// nil → the router constructs one from env (dormant when env unset).
+	Gitea *gitea.Client
+	// TeamNamespace is the costrict-web-backend internal API client for
+	// TEAM_NAMESPACE_API_REFERENCE.md operations. nil builds from env.
+	TeamNamespace *teamnamespace.Client
+	// WorkflowRoleResolution resolves configurable workflow node roles to
+	// concrete members/agents at dispatch time (main's role-v1 feature).
 	WorkflowRoleResolution workflowRoleResolutionRuntime
 }
 
@@ -226,6 +236,25 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 			CacheTTL: envDuration("DEPT_SYNC_CACHE_TTL", time.Minute),
 		})
 	}
+	giteaClient := opts.Gitea
+	if giteaClient == nil {
+		giteaClient = gitea.NewClient(gitea.Config{
+			BaseURL: strings.TrimRight(strings.TrimSpace(os.Getenv("GITEA_BASE_URL")), "/"),
+			Token:   os.Getenv("GITEA_ADMIN_TOKEN"),
+			Timeout: envDuration("GITEA_TIMEOUT", 10*time.Second),
+		})
+	}
+	h.WorkflowService.Gitea = giteaClient
+	teamNamespaceClient := opts.TeamNamespace
+	if teamNamespaceClient == nil {
+		teamNamespaceClient = teamnamespace.NewClient(teamnamespace.Config{
+			BaseURL: strings.TrimRight(strings.TrimSpace(os.Getenv("TEAM_NAMESPACE_API_BASE_URL")), "/"),
+			Token:   os.Getenv("TEAM_NAMESPACE_INTERNAL_SERVICE_TOKEN"),
+			Tenant:  os.Getenv("TEAM_NAMESPACE_TENANT_ID"),
+			Timeout: envDuration("TEAM_NAMESPACE_API_TIMEOUT", 10*time.Second),
+		})
+	}
+	h.WorkflowService.TeamNamespace = teamNamespaceClient
 	// Auth caches: PAT cache is shared between the regular Auth middleware,
 	// the DaemonAuth fallback (mul_) path, and the revoke handler
 	// (invalidate). DaemonTokenCache backs the DaemonAuth mdt_ path. Both
@@ -384,12 +413,28 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 		r.Post("/runtimes/{runtimeId}/recover-orphans", h.RecoverOrphanedTasks)
 		r.Post("/tasks/{taskId}/session", h.PinTaskSession)
 		r.Post("/node-runs/{nodeRunId}/session", h.BindNodeRunSession)
+		r.Post("/node-runs/{nodeRunId}/deliverables/{deliverableId}/report-pr", h.HandleReportDeliverablePR)
+		// Gitea deliverables by issue (agent-facing read path). Resolve an issue
+		// by UUID or <PREFIX>-<number> and return its workflow deliverable
+		// context — optionally recursively for all descendant issues
+		// (?descendants=true). Lets an agent (cs-cloud) read any issue's /
+		// child / grandchild workflow deliverables without node-run-ids.
+		r.Get("/issues/{issue}/gitea-deliverables", h.HandleGetIssueGiteaDeliverables)
 	})
 
 	// GitLab credential for CLI credential helper (gitlab-credential-multica).
 	// Requires daemon token or valid user token to access — workspace is derived from the token.
 	r.With(middleware.DaemonAuth(queries, patCache, daemonTokenCache, opts.JWKSProvider, opts.SubjectResolver)).
 		Get("/api/gitlab/credential", h.HandleGitlabCredential)
+
+	// Gitea credential for the cs-workflow CLI document-deliverable flow
+	// (M3). Same daemon-auth shape as GitLab; base_url + PAT returned.
+	r.With(middleware.DaemonAuth(queries, patCache, daemonTokenCache, opts.JWKSProvider, opts.SubjectResolver)).
+		Get("/api/gitea/credential", h.HandleGiteaCredential)
+
+	// Gitea UI routes are not proxied by Multica. Browser-facing links should
+	// use GITEA_PUBLIC_BASE_URL (for local E2E, http://localhost:23000) and let
+	// the surrounding platform handle any Gitea authentication handoff.
 
 	// Protected API routes
 	r.Group(func(r chi.Router) {
@@ -523,6 +568,7 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 					r.Get("/active-task", h.GetActiveTaskForIssue)
 					r.Post("/tasks/{taskId}/cancel", h.CancelTask)
 					r.Post("/rerun", h.RerunIssue)
+					r.Post("/deliverables/upload", h.UploadIssueDeliverable)
 					r.Get("/task-runs", h.ListTasksByIssue)
 					r.Get("/usage", h.GetIssueUsage)
 					r.Post("/reactions", h.AddIssueReaction)
@@ -601,6 +647,10 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 					r.Route("/nodes/{nodeId}", func(r chi.Router) {
 						r.Put("/", h.UpdateWorkflowNode)
 						r.Delete("/", h.DeleteWorkflowNode)
+						r.Get("/deliverables", h.ListWorkflowNodeDeliverables)
+						r.Post("/deliverables", h.CreateWorkflowNodeDeliverable)
+						r.Put("/deliverables/{deliverableId}", h.UpdateWorkflowNodeDeliverable)
+						r.Delete("/deliverables/{deliverableId}", h.DeleteWorkflowNodeDeliverable)
 					})
 					// Edges
 					r.Get("/edges", h.ListWorkflowEdges)
@@ -645,6 +695,10 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 			r.Patch("/api/node-runs/{nodeRunId}/split/config", h.PatchSplitConfig)
 			r.Post("/api/node-runs/{nodeRunId}/split/tasks/{taskId}/retry", h.RetrySplitTask)
 			r.Post("/api/node-runs/{nodeRunId}/split/draft-submit", h.SubmitSplitDraftTasks)
+			// Deliverable submissions (document deliverable → Gitea PR flow).
+			r.Get("/api/node-runs/{nodeRunId}/deliverables", h.ListNodeRunDeliverableSubmissions)
+			r.Post("/api/node-runs/{nodeRunId}/deliverables/{deliverableId}/submit", h.SubmitNodeRunDeliverable)
+			r.Post("/api/node-runs/{nodeRunId}/deliverables/{submissionId}/review", h.ReviewNodeRunDeliverable)
 			r.Post("/api/node-runs/{nodeRunId}/split/chat", h.HandleSplitChat)
 			r.Post("/api/node-runs/{nodeRunId}/split/approve", h.ApproveSplitTasks)
 			r.Get("/api/node-runs/{nodeRunId}/split/tasks", h.ListSplitTasks)

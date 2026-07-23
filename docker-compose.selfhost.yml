@@ -74,6 +74,8 @@ services:
       ALLOWED_EMAIL_DOMAINS: ${ALLOWED_EMAIL_DOMAINS:-}
       GITHUB_APP_SLUG: ${GITHUB_APP_SLUG:-}
       GITHUB_WEBHOOK_SECRET: ${GITHUB_WEBHOOK_SECRET:-}
+      GITEA_BASE_URL: ${GITEA_BASE_URL:-}
+      GITEA_ADMIN_TOKEN: ${GITEA_ADMIN_TOKEN:-}
       # Public URL the API is reachable at from the open internet, no
       # trailing slash. Used to mint absolute webhook URLs for autopilot
       # webhook triggers. Leave unset behind a same-origin reverse proxy

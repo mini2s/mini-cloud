@@ -33,6 +33,10 @@ export const workflowKeys = {
   nodeRuns: (wsId: string, workflowId: string, runId: string) => [...workflowKeys.run(wsId, workflowId, runId), "node-runs"] as const,
   runCanvasSummary: (wsId: string, workflowId: string, runId: string) => [...workflowKeys.run(wsId, workflowId, runId), "canvas-summary"] as const,
   nodeRunsAll: () => ["workflows", "node-runs"] as const,
+  workflowNodeDeliverables: (wsId: string, workflowId: string, nodeId: string) =>
+    [...workflowKeys.nodes(wsId, workflowId), nodeId, "deliverables"] as const,
+  nodeRunDeliverables: (nodeRunId: string) =>
+    [...workflowKeys.nodeRunsAll(), nodeRunId, "deliverables"] as const,
   myTasks: (wsId: string) => [...workflowKeys.all(wsId), "my-tasks"] as const,
   templates: () => ["templates"] as const,
   admins: () => ["workflow-admins"] as const,
@@ -265,8 +269,8 @@ export function useDeleteEdge(wsId: string, workflowId: string) {
 export function useStartWorkflowRun(wsId: string) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ workflowId, input }: { workflowId: string; input?: unknown }) =>
-      api.startWorkflowRun(workflowId, input),
+    mutationFn: ({ workflowId, input, runtimeId }: { workflowId: string; input?: unknown; runtimeId?: string }) =>
+      api.startWorkflowRun(workflowId, input, runtimeId),
     onSuccess: (_data, vars) => {
       queryClient.invalidateQueries({ queryKey: workflowKeys.runs(wsId, vars.workflowId) });
     },
@@ -300,10 +304,15 @@ export function useSubmitNodeRun(wsId: string) {
 export function useReviewNodeRun(wsId: string) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ nodeRunId, approved, comment }: { nodeRunId: string; approved: boolean; comment?: string }) =>
+    mutationFn: ({ nodeRunId, approved, comment }: { nodeRunId: string; approved: boolean; comment?: string; workflowId?: string; runId?: string }) =>
       api.reviewNodeRun(nodeRunId, approved, comment),
-    onSuccess: () => {
+    onSuccess: (_data, vars) => {
       queryClient.invalidateQueries({ queryKey: workflowKeys.myTasks(wsId) });
+      if (vars.workflowId && vars.runId) {
+        queryClient.invalidateQueries({ queryKey: workflowKeys.run(wsId, vars.workflowId, vars.runId) });
+        queryClient.invalidateQueries({ queryKey: workflowKeys.nodeRuns(wsId, vars.workflowId, vars.runId) });
+        queryClient.invalidateQueries({ queryKey: workflowKeys.runCanvasSummary(wsId, vars.workflowId, vars.runId) });
+      }
     },
   });
 }
@@ -650,6 +659,22 @@ export function useAssignNodeToStage(wsId: string, workflowId: string) {
       queryClient.invalidateQueries({ queryKey: workflowKeys.detail(wsId, workflowId) });
       queryClient.invalidateQueries({ queryKey: workflowKeys.nodes(wsId, workflowId) });
     },
+  });
+}
+
+// ── Deliverable queries ───────────────────────────────────────────────────
+
+export function workflowNodeDeliverablesOptions(wsId: string, workflowId: string, nodeId: string) {
+  return queryOptions({
+    queryKey: workflowKeys.workflowNodeDeliverables(wsId, workflowId, nodeId),
+    queryFn: () => api.listWorkflowNodeDeliverables(workflowId, nodeId),
+  });
+}
+
+export function nodeRunDeliverableSubmissionsOptions(_wsId: string, nodeRunId: string) {
+  return queryOptions({
+    queryKey: workflowKeys.nodeRunDeliverables(nodeRunId),
+    queryFn: () => api.listNodeRunDeliverableSubmissions(nodeRunId),
   });
 }
 

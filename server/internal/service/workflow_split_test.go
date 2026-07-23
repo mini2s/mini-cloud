@@ -58,6 +58,30 @@ func TestSplitTaskDispatchKeyUsesTaskVersionAsAttempt(t *testing.T) {
 	}
 }
 
+func TestBuildWorkflowWorkerSubIssueDescriptionOmitsCriticInstructions(t *testing.T) {
+	parent := db.MulticaIssue{
+		Title:       "E2E agent critic archive",
+		Description: pgtype.Text{String: "Worker: create a short markdown document and submit it. Critic: review the submitted PR and approve if the document exists.", Valid: true},
+	}
+	node := db.MulticaWorkflowNode{Title: "Agent Critic Node"}
+
+	got := BuildWorkflowWorkerSubIssueDescription(parent, node)
+
+	for _, want := range []string{
+		"Workflow worker task for node: Agent Critic Node",
+		"create a short markdown document and submit it.",
+		"Do not perform critic review",
+		"Parent issue title:\nE2E agent critic archive",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("description missing %q:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "review the submitted PR") || strings.Contains(got, "approve if the document exists") {
+		t.Fatalf("description leaked critic instructions:\n%s", got)
+	}
+}
+
 func TestValidateDraftSplitTaskRowsAllowsEmptyPlan(t *testing.T) {
 	if err := validateDraftSplitTaskRows(nil); err != nil {
 		t.Fatalf("validateDraftSplitTaskRows(nil) = %v, want nil", err)

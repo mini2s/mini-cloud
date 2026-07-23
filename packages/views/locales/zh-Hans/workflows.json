@@ -153,6 +153,12 @@
     "label_bind_to_node": "绑定到节点",
     "label_worker_role": "执行者角色",
     "label_critic_role": "审核者角色",
+    "worker_category_label": "执行者类别",
+    "critic_category_label": "审核者类别",
+    "participant_type_human": "人",
+    "participant_type_agent": "数智人",
+    "participant_type_role": "研发角色",
+    "participant_type_squad": "小队",
     "split_title": "拆分规则",
     "split_subtitle": "选择子 issue workflow、审核方式和运行限制。",
     "split_review_required_title": "必须人工审核",
@@ -507,7 +513,16 @@
     "take_over_wrong_status": "只有执行中的节点可以接管。",
     "hand_back_wrong_status": "只有已阻塞的节点可以交还。",
     "finalize_wrong_status": "只有已阻塞的节点可以完成。",
-    "review_comment_placeholder": "添加评审意见..."
+    "review_comment_placeholder": "添加评审意见...",
+    "deliverables": {
+      "heading": "交付物 PR",
+      "pull_request_label": "拉取请求",
+      "upload_button": "上传交付物",
+      "upload_heading": "提交文档",
+      "upload_placeholder": "写入或粘贴文档内容（markdown）…",
+      "upload_submit": "提交",
+      "uploading": "提交中…"
+    }
   },
   "overview": {
     "title": "Workflow 概览",

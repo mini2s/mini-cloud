@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"encoding/json"
 	"log/slog"
 	"net/http"
@@ -11,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/multica-ai/multica/server/internal/analytics"
 	"github.com/multica-ai/multica/server/internal/logger"
+	"github.com/multica-ai/multica/server/internal/teamnamespace"
 	db "github.com/multica-ai/multica/server/pkg/db/generated"
 	"github.com/multica-ai/multica/server/pkg/protocol"
 )
@@ -117,7 +119,6 @@ func (h *Handler) ListWorkspaces(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-
 	workspaces, err := h.Queries.ListWorkspaces(r.Context(), parseUUID(userID))
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to list workspaces")
@@ -240,6 +241,12 @@ func (h *Handler) CreateWorkspace(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Async: provision the workspace's Gitea namespace (org + bot + members)
+	// on creation — not lazily on the first document-run. Best-effort.
+	if h.WorkflowService != nil {
+		go h.WorkflowService.ProvisionWorkspaceGitea(context.Background(), ws.ID)
+	}
+
 	wsID := uuidToString(ws.ID)
 
 	// "Is this the user's first workspace?" is derived in PostHog by looking
@@ -316,6 +323,9 @@ func (h *Handler) UpdateWorkspace(w http.ResponseWriter, r *http.Request) {
 	slog.Info("workspace updated", append(logger.RequestAttrs(r), "workspace_id", id)...)
 	userID := requestUserID(r)
 	h.publish(protocol.EventWorkspaceUpdated, uuidToString(ws.ID), "member", userID, map[string]any{"workspace": workspaceToResponse(ws)})
+	if h.WorkflowService != nil && (req.Name != nil || req.Description != nil) {
+		go h.WorkflowService.UpdateTeamNamespace(context.Background(), ws.ID, ws.Name, ws.Description.String)
+	}
 
 	writeJSON(w, http.StatusOK, workspaceToResponse(ws))
 }
@@ -434,6 +444,16 @@ func memberWithUserResponse(member db.MulticaMember, user db.MulticaUser) Member
 	}
 }
 
+func memberTeamNamespaceUserRef(member db.MulticaMember) teamnamespace.UserRef {
+	if member.UserID.Valid {
+		return teamnamespace.UserRef{UserID: uuidToString(member.UserID)}
+	}
+	if member.ExternalUniversalID.Valid && strings.TrimSpace(member.ExternalUniversalID.String) != "" {
+		return teamnamespace.UserRef{UniversalID: strings.TrimSpace(member.ExternalUniversalID.String)}
+	}
+	return teamnamespace.UserRef{}
+}
+
 func normalizeMemberRole(role string) (string, bool) {
 	if role == "" {
 		return "member", true
@@ -517,6 +537,7 @@ func (h *Handler) CreateMember(w http.ResponseWriter, r *http.Request) {
 		eventPayload["workspace_name"] = ws.Name
 	}
 	h.publish(protocol.EventMemberAdded, uuidToString(requester.WorkspaceID), "member", userID, eventPayload)
+	h.syncWorkspaceGiteaMembers(requester.WorkspaceID)
 
 	writeJSON(w, http.StatusCreated, memberWithUserResponse(member, user))
 }
@@ -660,6 +681,7 @@ func (h *Handler) DeleteMember(w http.ResponseWriter, r *http.Request) {
 		"workspace_id": wsIDStr,
 		"user_id":      uuidToString(target.UserID),
 	})
+	h.syncWorkspaceGiteaMembers(requester.WorkspaceID)
 
 	w.WriteHeader(http.StatusNoContent)
 }
@@ -702,6 +724,7 @@ func (h *Handler) LeaveWorkspace(w http.ResponseWriter, r *http.Request) {
 		"workspace_id": workspaceID,
 		"user_id":      uuidToString(member.UserID),
 	})
+	h.syncWorkspaceGiteaMembers(member.WorkspaceID)
 
 	w.WriteHeader(http.StatusNoContent)
 }
@@ -734,6 +757,9 @@ func (h *Handler) DeleteWorkspace(w http.ResponseWriter, r *http.Request) {
 
 	// At this point workspaceMember has resolved → workspaceID is a valid UUID
 	// (the lookup would have errored otherwise), so reuse the resolved value.
+	if h.WorkflowService != nil {
+		go h.WorkflowService.DissolveTeamNamespace(context.Background(), requester.WorkspaceID, memberTeamNamespaceUserRef(requester), "workspace deleted")
+	}
 	if err := h.Queries.DeleteWorkspace(r.Context(), requester.WorkspaceID); err != nil {
 		slog.Warn("delete workspace failed", append(logger.RequestAttrs(r), "error", err, "workspace_id", workspaceID)...)
 		writeError(w, http.StatusInternalServerError, "failed to delete workspace")

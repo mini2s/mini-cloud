@@ -101,13 +101,13 @@ export function SettingsPage({ extraAccountTabs }: SettingsPageProps = {}) {
   const { data: admins = [] } = useWorkflowAdmins();
   const isWorkflowAdmin = user ? admins.some((a) => a.id === user.id) : false;
 
-  // Default to "gitlab" if code_platform is not set
+  // Keep existing GitHub PR integrations reachable for workspaces that already
+  // use GitHub, while the Repositories tab no longer exposes platform switching.
   const codePlatform =
     (workspace?.settings as Record<string, unknown> | undefined)?.code_platform === "github"
       ? "github"
       : "gitlab";
 
-  // Filter workspace tabs based on code platform (only one platform tab shown)
   const visibleWorkspaceTabs = WORKSPACE_TAB_KEYS.filter((key) => {
     if (key === "github") return codePlatform === "github";
     if (key === "gitlab") return codePlatform === "gitlab";

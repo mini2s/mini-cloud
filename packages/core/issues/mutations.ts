@@ -24,6 +24,7 @@ import {
   pruneDeletedIssueFromParentChildrenCaches,
 } from "./delete-cache";
 import { useWorkspaceId } from "../hooks";
+import { workflowKeys } from "../workflows/queries";
 import { useRecentIssuesStore } from "./stores";
 import type { GroupedIssuesResponse, Issue, IssueAssigneeGroup, IssueReaction, IssueStatus } from "../types";
 import type {
@@ -724,6 +725,28 @@ export function useToggleIssueReaction(issueId: string) {
 // ---------------------------------------------------------------------------
 // Issue Subscribers
 // ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// Member deliverable upload (member-assigned issue → default-workflow repo)
+// ---------------------------------------------------------------------------
+
+/**
+ * Upload a member-authored document deliverable. The server writes it to the
+ * issue's default-workflow Gitea repo, opens a PR, and advances the node-run
+ * into review. On settle, refresh the node-run's submissions (so the PR link
+ * renders) and the issue detail (so status reflects the new submission).
+ */
+export function useUploadIssueDeliverable(issueId: string, nodeRunId: string) {
+  const qc = useQueryClient();
+  const wsId = useWorkspaceId();
+  return useMutation({
+    mutationFn: (content: string) => api.uploadIssueDeliverable(issueId, content),
+    onSettled: () => {
+      qc.invalidateQueries({ queryKey: workflowKeys.nodeRunDeliverables(nodeRunId) });
+      qc.invalidateQueries({ queryKey: issueKeys.detail(wsId, issueId) });
+    },
+  });
+}
 
 export function useToggleIssueSubscriber(issueId: string) {
   const qc = useQueryClient();

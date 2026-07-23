@@ -56,9 +56,11 @@ type UpdateNodeRequest struct {
 	PositionY    *float64        `json:"position_y"`
 	FormatSchema json.RawMessage `json:"format_schema"`
 	WorkerType   *string         `json:"worker_type"`
+	WorkerRole   *string         `json:"worker_role"`
 	WorkerID     *string         `json:"worker_id"`
 	WorkerRoleID *string         `json:"worker_role_id"`
 	CriticType   *string         `json:"critic_type"`
+	CriticRole   *string         `json:"critic_role"`
 	CriticID     *string         `json:"critic_id"`
 	CriticRoleID *string         `json:"critic_role_id"`
 	CriticApiURL *string         `json:"critic_api_url"`
@@ -69,6 +71,22 @@ type CreateEdgeRequest struct {
 	SourceNodeID string          `json:"source_node_id"`
 	TargetNodeID string          `json:"target_node_id"`
 	Condition    json.RawMessage `json:"condition"`
+}
+
+type CreateWorkflowNodeDeliverableRequest struct {
+	Kind        string `json:"kind"`
+	Title       string `json:"title"`
+	Description string `json:"description"`
+	Required    *bool  `json:"required"`
+	SortOrder   int32  `json:"sort_order"`
+}
+
+type UpdateWorkflowNodeDeliverableRequest struct {
+	Kind        *string `json:"kind"`
+	Title       *string `json:"title"`
+	Description *string `json:"description"`
+	Required    *bool   `json:"required"`
+	SortOrder   *int32  `json:"sort_order"`
 }
 
 // ── Response types ───────────────────────────────────────────────────────────
@@ -117,6 +135,18 @@ type WorkflowEdgeResponse struct {
 	TargetNodeID string          `json:"target_node_id"`
 	Condition    json.RawMessage `json:"condition"`
 	CreatedAt    string          `json:"created_at"`
+}
+
+type WorkflowNodeDeliverableResponse struct {
+	ID             string `json:"id"`
+	WorkflowNodeID string `json:"workflow_node_id"`
+	Kind           string `json:"kind"`
+	Title          string `json:"title"`
+	Description    string `json:"description"`
+	Required       bool   `json:"required"`
+	SortOrder      int32  `json:"sort_order"`
+	CreatedAt      string `json:"created_at"`
+	UpdatedAt      string `json:"updated_at"`
 }
 
 type ToggleTemplateRequest struct {
@@ -232,6 +262,20 @@ func workflowEdgeToResponse(edge db.MulticaWorkflowEdge) WorkflowEdgeResponse {
 		TargetNodeID: uuidToString(edge.TargetNodeID),
 		Condition:    edge.Condition,
 		CreatedAt:    timestampToString(edge.CreatedAt),
+	}
+}
+
+func workflowNodeDeliverableToResponse(d db.MulticaWorkflowNodeDeliverable) WorkflowNodeDeliverableResponse {
+	return WorkflowNodeDeliverableResponse{
+		ID:             uuidToString(d.ID),
+		WorkflowNodeID: uuidToString(d.WorkflowNodeID),
+		Kind:           d.Kind,
+		Title:          d.Title,
+		Description:    d.Description,
+		Required:       d.Required,
+		SortOrder:      d.SortOrder,
+		CreatedAt:      timestampToString(d.CreatedAt),
+		UpdatedAt:      timestampToString(d.UpdatedAt),
 	}
 }
 
@@ -549,6 +593,12 @@ func (h *Handler) UpdateWorkflow(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Async: provision the Gitea repo when the workflow is activated (not
+	// lazily on the first run). Best-effort. Uses context.Background() so the
+	// goroutine survives after the HTTP response is sent (r.Context() cancels).
+	if req.Status != nil && *req.Status == "active" && h.WorkflowService != nil {
+		go h.WorkflowService.ProvisionWorkflowRepo(context.Background(), updated.ID)
+	}
 	count, _ := h.Queries.CountWorkflowNodes(r.Context(), updated.ID)
 	resp := workflowToResponse(updated, count)
 	h.publish(protocol.EventWorkflowUpdated, workspaceID, "member", userID, map[string]any{"workflow": resp})
@@ -1036,6 +1086,140 @@ func (h *Handler) DeleteWorkflowEdge(w http.ResponseWriter, r *http.Request) {
 }
 
 // ── Stage Handlers ─────────────────────────────────────────────────────────────
+
+func (h *Handler) ListWorkflowNodeDeliverables(w http.ResponseWriter, r *http.Request) {
+	wfID := chi.URLParam(r, "id")
+	nodeID := chi.URLParam(r, "nodeId")
+	node, ok := h.loadWorkflowNode(w, r, wfID, nodeID)
+	if !ok {
+		return
+	}
+
+	deliverables, err := h.Queries.ListWorkflowNodeDeliverables(r.Context(), node.ID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to list deliverables")
+		return
+	}
+	resp := make([]WorkflowNodeDeliverableResponse, 0, len(deliverables))
+	for _, d := range deliverables {
+		resp = append(resp, workflowNodeDeliverableToResponse(d))
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"deliverables": resp})
+}
+
+func (h *Handler) CreateWorkflowNodeDeliverable(w http.ResponseWriter, r *http.Request) {
+	wfID := chi.URLParam(r, "id")
+	nodeID := chi.URLParam(r, "nodeId")
+	node, ok := h.loadWorkflowNode(w, r, wfID, nodeID)
+	if !ok {
+		return
+	}
+
+	var req CreateWorkflowNodeDeliverableRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if req.Kind == "" {
+		req.Kind = "document"
+	}
+	if req.Title == "" {
+		writeError(w, http.StatusBadRequest, "title is required")
+		return
+	}
+	required := true
+	if req.Required != nil {
+		required = *req.Required
+	}
+
+	deliverable, err := h.Queries.CreateWorkflowNodeDeliverable(r.Context(), db.CreateWorkflowNodeDeliverableParams{
+		WorkflowNodeID: node.ID,
+		Kind:           req.Kind,
+		Title:          req.Title,
+		Description:    req.Description,
+		Required:       required,
+		SortOrder:      req.SortOrder,
+	})
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to create deliverable")
+		return
+	}
+	writeJSON(w, http.StatusCreated, workflowNodeDeliverableToResponse(deliverable))
+}
+
+func (h *Handler) UpdateWorkflowNodeDeliverable(w http.ResponseWriter, r *http.Request) {
+	wfID := chi.URLParam(r, "id")
+	nodeID := chi.URLParam(r, "nodeId")
+	node, ok := h.loadWorkflowNode(w, r, wfID, nodeID)
+	if !ok {
+		return
+	}
+	deliverableID := chi.URLParam(r, "deliverableId")
+	dID, ok := parseUUIDOrBadRequest(w, deliverableID, "deliverableId")
+	if !ok {
+		return
+	}
+
+	var req UpdateWorkflowNodeDeliverableRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if !h.workflowNodeDeliverableExists(r.Context(), node.ID, dID) {
+		writeError(w, http.StatusNotFound, "deliverable not found")
+		return
+	}
+
+	updated, err := h.Queries.UpdateWorkflowNodeDeliverable(r.Context(), db.UpdateWorkflowNodeDeliverableParams{
+		ID:          dID,
+		Kind:        ptrToText(req.Kind),
+		Title:       ptrToText(req.Title),
+		Description: ptrToText(req.Description),
+		Required:    boolToBool(req.Required),
+		SortOrder:   int32ToInt4(req.SortOrder),
+	})
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to update deliverable")
+		return
+	}
+	writeJSON(w, http.StatusOK, workflowNodeDeliverableToResponse(updated))
+}
+
+func (h *Handler) DeleteWorkflowNodeDeliverable(w http.ResponseWriter, r *http.Request) {
+	wfID := chi.URLParam(r, "id")
+	nodeID := chi.URLParam(r, "nodeId")
+	node, ok := h.loadWorkflowNode(w, r, wfID, nodeID)
+	if !ok {
+		return
+	}
+	deliverableID := chi.URLParam(r, "deliverableId")
+	dID, ok := parseUUIDOrBadRequest(w, deliverableID, "deliverableId")
+	if !ok {
+		return
+	}
+	if !h.workflowNodeDeliverableExists(r.Context(), node.ID, dID) {
+		writeError(w, http.StatusNotFound, "deliverable not found")
+		return
+	}
+	if err := h.Queries.DeleteWorkflowNodeDeliverable(r.Context(), dID); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to delete deliverable")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"deleted": deliverableID})
+}
+
+func (h *Handler) workflowNodeDeliverableExists(ctx context.Context, nodeID, deliverableID pgtype.UUID) bool {
+	deliverables, err := h.Queries.ListWorkflowNodeDeliverables(ctx, nodeID)
+	if err != nil {
+		return false
+	}
+	for _, d := range deliverables {
+		if d.ID == deliverableID {
+			return true
+		}
+	}
+	return false
+}
 
 func (h *Handler) ListWorkflowStages(w http.ResponseWriter, r *http.Request) {
 	wfID := chi.URLParam(r, "id")
@@ -1595,6 +1779,13 @@ func int32ToInt4(v *int32) pgtype.Int4 {
 		return pgtype.Int4{}
 	}
 	return pgtype.Int4{Int32: *v, Valid: true}
+}
+
+func boolToBool(v *bool) pgtype.Bool {
+	if v == nil {
+		return pgtype.Bool{}
+	}
+	return pgtype.Bool{Bool: *v, Valid: true}
 }
 
 func ptrStrToUUID(s *string) pgtype.UUID {

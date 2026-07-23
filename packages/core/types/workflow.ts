@@ -320,6 +320,8 @@ export interface WorkflowRun {
   status: WorkflowRunStatus;
   triggered_by_type: string;
   triggered_by_id: string | null;
+  /** Optional run-level manual runtime preference; actual selection remains per node. */
+  runtime_id: string | null;
   input: unknown;
   output: unknown;
   started_at: string;
@@ -348,6 +350,10 @@ export interface WorkflowNodeRun {
   session_id: string | null;
   /** Runtime that owns the session for this node run, if any. */
   runtime_id: string | null;
+  /** Why this runtime was selected for the current execution phase. */
+  runtime_selection_reason: string | null;
+  /** Stable terminal reason when dispatch cannot select a runtime. */
+  failure_reason: string | null;
   /** Device identifier for the runtime/session bound to this node run, if any. */
   device_id: string | null;
   /** Chat session used for natural-language split draft review, if any. */
@@ -638,4 +644,45 @@ export interface WorkflowRoleAssignmentInput {
   resolution_id: string;
   user_id: string;
   version: number;
+}
+
+// ── Deliverable types ──────────────────────────────────────────────────────
+
+export type WorkflowDeliverableSignal = "none" | "red" | "yellow" | "green";
+export type WorkflowDeliverableKind = "document" | "pull_request";
+export type WorkflowDeliverableSubmissionStatus = "missing" | "submitted" | "approved" | "rejected";
+
+export interface WorkflowNodeDeliverable {
+  id: string;
+  workflow_node_id: string;
+  kind: WorkflowDeliverableKind;
+  title: string;
+  description: string;
+  required: boolean;
+  sort_order: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface WorkflowNodeDeliverableSubmission {
+  id: string;
+  workflow_node_run_id: string;
+  deliverable_id: string;
+  submitted_by_type: "member" | "agent" | "system";
+  submitted_by_id: string | null;
+  status: WorkflowDeliverableSubmissionStatus;
+  content: string;
+  attachment_id: string | null;
+  pull_request_url: string;
+  review_comment: string;
+  submitted_at: string;
+  reviewed_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+/** Composite view joining a deliverable definition with its submission for a node run. */
+export interface DeliverableWithSubmission {
+  deliverable: WorkflowNodeDeliverable;
+  submission: WorkflowNodeDeliverableSubmission | null;
 }

@@ -737,6 +737,7 @@ type MulticaWorkflow struct {
 	UpdatedAt        pgtype.Timestamptz `json:"updated_at"`
 	IsTemplate       bool               `json:"is_template"`
 	SourceTemplateID pgtype.UUID        `json:"source_template_id"`
+	IsDefault        bool               `json:"is_default"`
 }
 
 type MulticaWorkflowEdge struct {
@@ -823,6 +824,8 @@ type MulticaWorkflowNodeRun struct {
 	DeviceID                 pgtype.Text        `json:"device_id"`
 	SessionID                pgtype.Text        `json:"session_id"`
 	SplitReviewChatSessionID pgtype.UUID        `json:"split_review_chat_session_id"`
+	RuntimeSelectionReason   pgtype.Text        `json:"runtime_selection_reason"`
+	FailureReason            pgtype.Text        `json:"failure_reason"`
 	SplitConfigVersion       int64              `json:"split_config_version"`
 }
 
@@ -939,20 +942,23 @@ type MulticaWorkflowRoleResolutionJob struct {
 }
 
 type MulticaWorkflowRun struct {
-	ID              pgtype.UUID        `json:"id"`
-	WorkflowID      pgtype.UUID        `json:"workflow_id"`
-	WorkspaceID     pgtype.UUID        `json:"workspace_id"`
-	WorkflowTitle   string             `json:"workflow_title"`
-	Status          string             `json:"status"`
-	TriggeredByType string             `json:"triggered_by_type"`
-	TriggeredByID   pgtype.UUID        `json:"triggered_by_id"`
-	Input           []byte             `json:"input"`
-	Output          []byte             `json:"output"`
-	StartedAt       pgtype.Timestamptz `json:"started_at"`
-	CompletedAt     pgtype.Timestamptz `json:"completed_at"`
-	CreatedAt       pgtype.Timestamptz `json:"created_at"`
-	RuntimeID       pgtype.UUID        `json:"runtime_id"`
-	DispatchKey     pgtype.Text        `json:"dispatch_key"`
+	ID                  pgtype.UUID        `json:"id"`
+	WorkflowID          pgtype.UUID        `json:"workflow_id"`
+	WorkspaceID         pgtype.UUID        `json:"workspace_id"`
+	WorkflowTitle       string             `json:"workflow_title"`
+	Status              string             `json:"status"`
+	TriggeredByType     string             `json:"triggered_by_type"`
+	TriggeredByID       pgtype.UUID        `json:"triggered_by_id"`
+	Input               []byte             `json:"input"`
+	Output              []byte             `json:"output"`
+	StartedAt           pgtype.Timestamptz `json:"started_at"`
+	CompletedAt         pgtype.Timestamptz `json:"completed_at"`
+	CreatedAt           pgtype.Timestamptz `json:"created_at"`
+	RuntimeID           pgtype.UUID        `json:"runtime_id"`
+	SourceIssueID       pgtype.UUID        `json:"source_issue_id"`
+	ResponsibleUserID   pgtype.UUID        `json:"responsible_user_id"`
+	RuntimeAuthorizerID pgtype.UUID        `json:"runtime_authorizer_id"`
+	DispatchKey         pgtype.Text        `json:"dispatch_key"`
 }
 
 type MulticaWorkflowSplitTask struct {

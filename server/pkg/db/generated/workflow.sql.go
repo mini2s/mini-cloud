@@ -55,7 +55,7 @@ UPDATE multica_workflow_run SET
     status = 'cancelled',
     completed_at = now()
 WHERE id = $1
-RETURNING id, workflow_id, workspace_id, workflow_title, status, triggered_by_type, triggered_by_id, input, output, started_at, completed_at, created_at, runtime_id, dispatch_key
+RETURNING id, workflow_id, workspace_id, workflow_title, status, triggered_by_type, triggered_by_id, input, output, started_at, completed_at, created_at, runtime_id, source_issue_id, responsible_user_id, runtime_authorizer_id, dispatch_key
 `
 
 func (q *Queries) CancelWorkflowRun(ctx context.Context, id pgtype.UUID) (MulticaWorkflowRun, error) {
@@ -75,6 +75,9 @@ func (q *Queries) CancelWorkflowRun(ctx context.Context, id pgtype.UUID) (Multic
 		&i.CompletedAt,
 		&i.CreatedAt,
 		&i.RuntimeID,
+		&i.SourceIssueID,
+		&i.ResponsibleUserID,
+		&i.RuntimeAuthorizerID,
 		&i.DispatchKey,
 	)
 	return i, err
@@ -102,7 +105,7 @@ UPDATE multica_workflow_run SET
     output = $2,
     completed_at = now()
 WHERE id = $1
-RETURNING id, workflow_id, workspace_id, workflow_title, status, triggered_by_type, triggered_by_id, input, output, started_at, completed_at, created_at, runtime_id, dispatch_key
+RETURNING id, workflow_id, workspace_id, workflow_title, status, triggered_by_type, triggered_by_id, input, output, started_at, completed_at, created_at, runtime_id, source_issue_id, responsible_user_id, runtime_authorizer_id, dispatch_key
 `
 
 type CompleteWorkflowRunParams struct {
@@ -127,6 +130,9 @@ func (q *Queries) CompleteWorkflowRun(ctx context.Context, arg CompleteWorkflowR
 		&i.CompletedAt,
 		&i.CreatedAt,
 		&i.RuntimeID,
+		&i.SourceIssueID,
+		&i.ResponsibleUserID,
+		&i.RuntimeAuthorizerID,
 		&i.DispatchKey,
 	)
 	return i, err
@@ -168,13 +174,49 @@ func (q *Queries) CountWorkflowsBySourceTemplate(ctx context.Context, sourceTemp
 	return column_1, err
 }
 
+const createDefaultWorkflow = `-- name: CreateDefaultWorkflow :one
+INSERT INTO multica_workflow (
+    workspace_id, title, status, max_retries, created_by_type, is_default
+) VALUES (
+    $1, $2, 'active', 3, 'system', TRUE
+) RETURNING id, workspace_id, title, description, status, max_retries, created_by_type, created_by_id, created_at, updated_at, is_template, source_template_id, is_default
+`
+
+type CreateDefaultWorkflowParams struct {
+	WorkspaceID pgtype.UUID `json:"workspace_id"`
+	Title       string      `json:"title"`
+}
+
+// System-created default workflow (archive sink for agent/member/squad issues).
+// created_by_type='system', created_by_id NULL (migration 136 relaxed both).
+func (q *Queries) CreateDefaultWorkflow(ctx context.Context, arg CreateDefaultWorkflowParams) (MulticaWorkflow, error) {
+	row := q.db.QueryRow(ctx, createDefaultWorkflow, arg.WorkspaceID, arg.Title)
+	var i MulticaWorkflow
+	err := row.Scan(
+		&i.ID,
+		&i.WorkspaceID,
+		&i.Title,
+		&i.Description,
+		&i.Status,
+		&i.MaxRetries,
+		&i.CreatedByType,
+		&i.CreatedByID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.IsTemplate,
+		&i.SourceTemplateID,
+		&i.IsDefault,
+	)
+	return i, err
+}
+
 const createWorkflow = `-- name: CreateWorkflow :one
 INSERT INTO multica_workflow (
     workspace_id, title, description, status, max_retries,
     created_by_type, created_by_id
 ) VALUES (
     $1, $2, $7, $3, $4, $5, $6
-) RETURNING id, workspace_id, title, description, status, max_retries, created_by_type, created_by_id, created_at, updated_at, is_template, source_template_id
+) RETURNING id, workspace_id, title, description, status, max_retries, created_by_type, created_by_id, created_at, updated_at, is_template, source_template_id, is_default
 `
 
 type CreateWorkflowParams struct {
@@ -211,6 +253,7 @@ func (q *Queries) CreateWorkflow(ctx context.Context, arg CreateWorkflowParams) 
 		&i.UpdatedAt,
 		&i.IsTemplate,
 		&i.SourceTemplateID,
+		&i.IsDefault,
 	)
 	return i, err
 }
@@ -255,7 +298,7 @@ INSERT INTO multica_workflow (
     created_by_type, created_by_id, is_template, source_template_id
 ) VALUES (
     $1, $2, $8, $3, $4, $5, $6, FALSE, $7
-) RETURNING id, workspace_id, title, description, status, max_retries, created_by_type, created_by_id, created_at, updated_at, is_template, source_template_id
+) RETURNING id, workspace_id, title, description, status, max_retries, created_by_type, created_by_id, created_at, updated_at, is_template, source_template_id, is_default
 `
 
 type CreateWorkflowFromTemplateParams struct {
@@ -294,6 +337,7 @@ func (q *Queries) CreateWorkflowFromTemplate(ctx context.Context, arg CreateWork
 		&i.UpdatedAt,
 		&i.IsTemplate,
 		&i.SourceTemplateID,
+		&i.IsDefault,
 	)
 	return i, err
 }
@@ -375,21 +419,26 @@ func (q *Queries) CreateWorkflowNode(ctx context.Context, arg CreateWorkflowNode
 const createWorkflowRun = `-- name: CreateWorkflowRun :one
 INSERT INTO multica_workflow_run (
     workflow_id, workspace_id, workflow_title, status,
-    triggered_by_type, triggered_by_id, input, runtime_id
+    triggered_by_type, triggered_by_id, input, runtime_id,
+    source_issue_id, responsible_user_id, runtime_authorizer_id
 ) VALUES (
-    $1, $2, $3, $4, $5, $6, $7, $8
-) RETURNING id, workflow_id, workspace_id, workflow_title, status, triggered_by_type, triggered_by_id, input, output, started_at, completed_at, created_at, runtime_id, dispatch_key
+    $1, $2, $3, $4, $5, $6, $7, $8,
+    $9, $10, $11
+) RETURNING id, workflow_id, workspace_id, workflow_title, status, triggered_by_type, triggered_by_id, input, output, started_at, completed_at, created_at, runtime_id, source_issue_id, responsible_user_id, runtime_authorizer_id, dispatch_key
 `
 
 type CreateWorkflowRunParams struct {
-	WorkflowID      pgtype.UUID `json:"workflow_id"`
-	WorkspaceID     pgtype.UUID `json:"workspace_id"`
-	WorkflowTitle   string      `json:"workflow_title"`
-	Status          string      `json:"status"`
-	TriggeredByType string      `json:"triggered_by_type"`
-	TriggeredByID   pgtype.UUID `json:"triggered_by_id"`
-	Input           []byte      `json:"input"`
-	RuntimeID       pgtype.UUID `json:"runtime_id"`
+	WorkflowID          pgtype.UUID `json:"workflow_id"`
+	WorkspaceID         pgtype.UUID `json:"workspace_id"`
+	WorkflowTitle       string      `json:"workflow_title"`
+	Status              string      `json:"status"`
+	TriggeredByType     string      `json:"triggered_by_type"`
+	TriggeredByID       pgtype.UUID `json:"triggered_by_id"`
+	Input               []byte      `json:"input"`
+	RuntimeID           pgtype.UUID `json:"runtime_id"`
+	SourceIssueID       pgtype.UUID `json:"source_issue_id"`
+	ResponsibleUserID   pgtype.UUID `json:"responsible_user_id"`
+	RuntimeAuthorizerID pgtype.UUID `json:"runtime_authorizer_id"`
 }
 
 func (q *Queries) CreateWorkflowRun(ctx context.Context, arg CreateWorkflowRunParams) (MulticaWorkflowRun, error) {
@@ -402,6 +451,9 @@ func (q *Queries) CreateWorkflowRun(ctx context.Context, arg CreateWorkflowRunPa
 		arg.TriggeredByID,
 		arg.Input,
 		arg.RuntimeID,
+		arg.SourceIssueID,
+		arg.ResponsibleUserID,
+		arg.RuntimeAuthorizerID,
 	)
 	var i MulticaWorkflowRun
 	err := row.Scan(
@@ -418,6 +470,9 @@ func (q *Queries) CreateWorkflowRun(ctx context.Context, arg CreateWorkflowRunPa
 		&i.CompletedAt,
 		&i.CreatedAt,
 		&i.RuntimeID,
+		&i.SourceIssueID,
+		&i.ResponsibleUserID,
+		&i.RuntimeAuthorizerID,
 		&i.DispatchKey,
 	)
 	return i, err
@@ -426,27 +481,32 @@ func (q *Queries) CreateWorkflowRun(ctx context.Context, arg CreateWorkflowRunPa
 const createWorkflowRunWithDispatchKey = `-- name: CreateWorkflowRunWithDispatchKey :one
 INSERT INTO multica_workflow_run (
     workflow_id, workspace_id, workflow_title, status,
-    triggered_by_type, triggered_by_id, input, runtime_id, dispatch_key
+    triggered_by_type, triggered_by_id, input, runtime_id, dispatch_key,
+    source_issue_id, responsible_user_id, runtime_authorizer_id
 ) VALUES (
     $1, $2, $3, $4,
-    $5, $7, $8, $9, $6
+    $5, $7, $8, $9, $6,
+    $10, $11, $12
 )
 ON CONFLICT (dispatch_key)
 WHERE dispatch_key IS NOT NULL AND dispatch_key <> ''
 DO UPDATE SET dispatch_key = EXCLUDED.dispatch_key
-RETURNING id, workflow_id, workspace_id, workflow_title, status, triggered_by_type, triggered_by_id, input, output, started_at, completed_at, created_at, runtime_id, dispatch_key
+RETURNING id, workflow_id, workspace_id, workflow_title, status, triggered_by_type, triggered_by_id, input, output, started_at, completed_at, created_at, runtime_id, source_issue_id, responsible_user_id, runtime_authorizer_id, dispatch_key
 `
 
 type CreateWorkflowRunWithDispatchKeyParams struct {
-	WorkflowID      pgtype.UUID `json:"workflow_id"`
-	WorkspaceID     pgtype.UUID `json:"workspace_id"`
-	WorkflowTitle   string      `json:"workflow_title"`
-	Status          string      `json:"status"`
-	TriggeredByType string      `json:"triggered_by_type"`
-	DispatchKey     pgtype.Text `json:"dispatch_key"`
-	TriggeredByID   pgtype.UUID `json:"triggered_by_id"`
-	Input           []byte      `json:"input"`
-	RuntimeID       pgtype.UUID `json:"runtime_id"`
+	WorkflowID          pgtype.UUID `json:"workflow_id"`
+	WorkspaceID         pgtype.UUID `json:"workspace_id"`
+	WorkflowTitle       string      `json:"workflow_title"`
+	Status              string      `json:"status"`
+	TriggeredByType     string      `json:"triggered_by_type"`
+	DispatchKey         pgtype.Text `json:"dispatch_key"`
+	TriggeredByID       pgtype.UUID `json:"triggered_by_id"`
+	Input               []byte      `json:"input"`
+	RuntimeID           pgtype.UUID `json:"runtime_id"`
+	SourceIssueID       pgtype.UUID `json:"source_issue_id"`
+	ResponsibleUserID   pgtype.UUID `json:"responsible_user_id"`
+	RuntimeAuthorizerID pgtype.UUID `json:"runtime_authorizer_id"`
 }
 
 func (q *Queries) CreateWorkflowRunWithDispatchKey(ctx context.Context, arg CreateWorkflowRunWithDispatchKeyParams) (MulticaWorkflowRun, error) {
@@ -460,6 +520,9 @@ func (q *Queries) CreateWorkflowRunWithDispatchKey(ctx context.Context, arg Crea
 		arg.TriggeredByID,
 		arg.Input,
 		arg.RuntimeID,
+		arg.SourceIssueID,
+		arg.ResponsibleUserID,
+		arg.RuntimeAuthorizerID,
 	)
 	var i MulticaWorkflowRun
 	err := row.Scan(
@@ -476,6 +539,9 @@ func (q *Queries) CreateWorkflowRunWithDispatchKey(ctx context.Context, arg Crea
 		&i.CompletedAt,
 		&i.CreatedAt,
 		&i.RuntimeID,
+		&i.SourceIssueID,
+		&i.ResponsibleUserID,
+		&i.RuntimeAuthorizerID,
 		&i.DispatchKey,
 	)
 	return i, err
@@ -579,7 +645,7 @@ UPDATE multica_workflow_run SET
     status = 'failed',
     completed_at = now()
 WHERE id = $1
-RETURNING id, workflow_id, workspace_id, workflow_title, status, triggered_by_type, triggered_by_id, input, output, started_at, completed_at, created_at, runtime_id, dispatch_key
+RETURNING id, workflow_id, workspace_id, workflow_title, status, triggered_by_type, triggered_by_id, input, output, started_at, completed_at, created_at, runtime_id, source_issue_id, responsible_user_id, runtime_authorizer_id, dispatch_key
 `
 
 func (q *Queries) FailWorkflowRun(ctx context.Context, id pgtype.UUID) (MulticaWorkflowRun, error) {
@@ -599,13 +665,46 @@ func (q *Queries) FailWorkflowRun(ctx context.Context, id pgtype.UUID) (MulticaW
 		&i.CompletedAt,
 		&i.CreatedAt,
 		&i.RuntimeID,
+		&i.SourceIssueID,
+		&i.ResponsibleUserID,
+		&i.RuntimeAuthorizerID,
 		&i.DispatchKey,
 	)
 	return i, err
 }
 
+const getDefaultWorkflow = `-- name: GetDefaultWorkflow :one
+
+SELECT id, workspace_id, title, description, status, max_retries, created_by_type, created_by_id, created_at, updated_at, is_template, source_template_id, is_default FROM multica_workflow
+WHERE workspace_id = $1 AND is_default = TRUE
+`
+
+// =====================
+// Default (system) workflow
+// =====================
+func (q *Queries) GetDefaultWorkflow(ctx context.Context, workspaceID pgtype.UUID) (MulticaWorkflow, error) {
+	row := q.db.QueryRow(ctx, getDefaultWorkflow, workspaceID)
+	var i MulticaWorkflow
+	err := row.Scan(
+		&i.ID,
+		&i.WorkspaceID,
+		&i.Title,
+		&i.Description,
+		&i.Status,
+		&i.MaxRetries,
+		&i.CreatedByType,
+		&i.CreatedByID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.IsTemplate,
+		&i.SourceTemplateID,
+		&i.IsDefault,
+	)
+	return i, err
+}
+
 const getWorkflow = `-- name: GetWorkflow :one
-SELECT id, workspace_id, title, description, status, max_retries, created_by_type, created_by_id, created_at, updated_at, is_template, source_template_id FROM multica_workflow
+SELECT id, workspace_id, title, description, status, max_retries, created_by_type, created_by_id, created_at, updated_at, is_template, source_template_id, is_default FROM multica_workflow
 WHERE id = $1
 `
 
@@ -625,6 +724,7 @@ func (q *Queries) GetWorkflow(ctx context.Context, id pgtype.UUID) (MulticaWorkf
 		&i.UpdatedAt,
 		&i.IsTemplate,
 		&i.SourceTemplateID,
+		&i.IsDefault,
 	)
 	return i, err
 }
@@ -649,7 +749,7 @@ func (q *Queries) GetWorkflowEdge(ctx context.Context, id pgtype.UUID) (MulticaW
 }
 
 const getWorkflowInWorkspace = `-- name: GetWorkflowInWorkspace :one
-SELECT id, workspace_id, title, description, status, max_retries, created_by_type, created_by_id, created_at, updated_at, is_template, source_template_id FROM multica_workflow
+SELECT id, workspace_id, title, description, status, max_retries, created_by_type, created_by_id, created_at, updated_at, is_template, source_template_id, is_default FROM multica_workflow
 WHERE id = $1 AND workspace_id = $2
 `
 
@@ -674,6 +774,7 @@ func (q *Queries) GetWorkflowInWorkspace(ctx context.Context, arg GetWorkflowInW
 		&i.UpdatedAt,
 		&i.IsTemplate,
 		&i.SourceTemplateID,
+		&i.IsDefault,
 	)
 	return i, err
 }
@@ -710,7 +811,7 @@ func (q *Queries) GetWorkflowNode(ctx context.Context, id pgtype.UUID) (MulticaW
 }
 
 const getWorkflowRun = `-- name: GetWorkflowRun :one
-SELECT id, workflow_id, workspace_id, workflow_title, status, triggered_by_type, triggered_by_id, input, output, started_at, completed_at, created_at, runtime_id, dispatch_key FROM multica_workflow_run
+SELECT id, workflow_id, workspace_id, workflow_title, status, triggered_by_type, triggered_by_id, input, output, started_at, completed_at, created_at, runtime_id, source_issue_id, responsible_user_id, runtime_authorizer_id, dispatch_key FROM multica_workflow_run
 WHERE id = $1
 `
 
@@ -731,13 +832,16 @@ func (q *Queries) GetWorkflowRun(ctx context.Context, id pgtype.UUID) (MulticaWo
 		&i.CompletedAt,
 		&i.CreatedAt,
 		&i.RuntimeID,
+		&i.SourceIssueID,
+		&i.ResponsibleUserID,
+		&i.RuntimeAuthorizerID,
 		&i.DispatchKey,
 	)
 	return i, err
 }
 
 const getWorkflowRunByDispatchKey = `-- name: GetWorkflowRunByDispatchKey :one
-SELECT id, workflow_id, workspace_id, workflow_title, status, triggered_by_type, triggered_by_id, input, output, started_at, completed_at, created_at, runtime_id, dispatch_key
+SELECT id, workflow_id, workspace_id, workflow_title, status, triggered_by_type, triggered_by_id, input, output, started_at, completed_at, created_at, runtime_id, source_issue_id, responsible_user_id, runtime_authorizer_id, dispatch_key
 FROM multica_workflow_run
 WHERE workspace_id = $1
   AND dispatch_key = $2
@@ -766,6 +870,9 @@ func (q *Queries) GetWorkflowRunByDispatchKey(ctx context.Context, arg GetWorkfl
 		&i.CompletedAt,
 		&i.CreatedAt,
 		&i.RuntimeID,
+		&i.SourceIssueID,
+		&i.ResponsibleUserID,
+		&i.RuntimeAuthorizerID,
 		&i.DispatchKey,
 	)
 	return i, err
@@ -791,7 +898,7 @@ func (q *Queries) GetWorkflowStage(ctx context.Context, id pgtype.UUID) (Multica
 }
 
 const listSplitIssueWorkflowOptions = `-- name: ListSplitIssueWorkflowOptions :many
-SELECT wf.id, wf.workspace_id, wf.title, wf.description, wf.status, wf.max_retries, wf.created_by_type, wf.created_by_id, wf.created_at, wf.updated_at, wf.is_template, wf.source_template_id,
+SELECT wf.id, wf.workspace_id, wf.title, wf.description, wf.status, wf.max_retries, wf.created_by_type, wf.created_by_id, wf.created_at, wf.updated_at, wf.is_template, wf.source_template_id, wf.is_default,
        (
          SELECT count(*)::bigint
          FROM multica_workflow_node wn_count
@@ -832,6 +939,7 @@ type ListSplitIssueWorkflowOptionsRow struct {
 	UpdatedAt        pgtype.Timestamptz `json:"updated_at"`
 	IsTemplate       bool               `json:"is_template"`
 	SourceTemplateID pgtype.UUID        `json:"source_template_id"`
+	IsDefault        bool               `json:"is_default"`
 	NodeCount        int64              `json:"node_count"`
 }
 
@@ -862,6 +970,7 @@ func (q *Queries) ListSplitIssueWorkflowOptions(ctx context.Context, arg ListSpl
 			&i.UpdatedAt,
 			&i.IsTemplate,
 			&i.SourceTemplateID,
+			&i.IsDefault,
 			&i.NodeCount,
 		); err != nil {
 			return nil, err
@@ -876,7 +985,7 @@ func (q *Queries) ListSplitIssueWorkflowOptions(ctx context.Context, arg ListSpl
 
 const listTemplates = `-- name: ListTemplates :many
 
-SELECT id, workspace_id, title, description, status, max_retries, created_by_type, created_by_id, created_at, updated_at, is_template, source_template_id FROM multica_workflow
+SELECT id, workspace_id, title, description, status, max_retries, created_by_type, created_by_id, created_at, updated_at, is_template, source_template_id, is_default FROM multica_workflow
 WHERE is_template = TRUE
 ORDER BY created_at DESC
 `
@@ -906,6 +1015,7 @@ func (q *Queries) ListTemplates(ctx context.Context) ([]MulticaWorkflow, error) 
 			&i.UpdatedAt,
 			&i.IsTemplate,
 			&i.SourceTemplateID,
+			&i.IsDefault,
 		); err != nil {
 			return nil, err
 		}
@@ -1119,7 +1229,7 @@ func (q *Queries) ListWorkflowNodes(ctx context.Context, workflowID pgtype.UUID)
 
 const listWorkflowRuns = `-- name: ListWorkflowRuns :many
 
-SELECT id, workflow_id, workspace_id, workflow_title, status, triggered_by_type, triggered_by_id, input, output, started_at, completed_at, created_at, runtime_id, dispatch_key FROM multica_workflow_run
+SELECT id, workflow_id, workspace_id, workflow_title, status, triggered_by_type, triggered_by_id, input, output, started_at, completed_at, created_at, runtime_id, source_issue_id, responsible_user_id, runtime_authorizer_id, dispatch_key FROM multica_workflow_run
 WHERE workflow_id = $1
 ORDER BY created_at DESC
 LIMIT $2 OFFSET $3
@@ -1157,6 +1267,9 @@ func (q *Queries) ListWorkflowRuns(ctx context.Context, arg ListWorkflowRunsPara
 			&i.CompletedAt,
 			&i.CreatedAt,
 			&i.RuntimeID,
+			&i.SourceIssueID,
+			&i.ResponsibleUserID,
+			&i.RuntimeAuthorizerID,
 			&i.DispatchKey,
 		); err != nil {
 			return nil, err
@@ -1170,7 +1283,7 @@ func (q *Queries) ListWorkflowRuns(ctx context.Context, arg ListWorkflowRunsPara
 }
 
 const listWorkflowRunsByWorkspace = `-- name: ListWorkflowRunsByWorkspace :many
-SELECT id, workflow_id, workspace_id, workflow_title, status, triggered_by_type, triggered_by_id, input, output, started_at, completed_at, created_at, runtime_id, dispatch_key FROM multica_workflow_run
+SELECT id, workflow_id, workspace_id, workflow_title, status, triggered_by_type, triggered_by_id, input, output, started_at, completed_at, created_at, runtime_id, source_issue_id, responsible_user_id, runtime_authorizer_id, dispatch_key FROM multica_workflow_run
 WHERE workspace_id = $1
 ORDER BY created_at DESC
 LIMIT $2 OFFSET $3
@@ -1205,6 +1318,9 @@ func (q *Queries) ListWorkflowRunsByWorkspace(ctx context.Context, arg ListWorkf
 			&i.CompletedAt,
 			&i.CreatedAt,
 			&i.RuntimeID,
+			&i.SourceIssueID,
+			&i.ResponsibleUserID,
+			&i.RuntimeAuthorizerID,
 			&i.DispatchKey,
 		); err != nil {
 			return nil, err
@@ -1253,8 +1369,9 @@ func (q *Queries) ListWorkflowStagesByWorkflow(ctx context.Context, workflowID p
 
 const listWorkflows = `-- name: ListWorkflows :many
 
-SELECT id, workspace_id, title, description, status, max_retries, created_by_type, created_by_id, created_at, updated_at, is_template, source_template_id FROM multica_workflow
+SELECT id, workspace_id, title, description, status, max_retries, created_by_type, created_by_id, created_at, updated_at, is_template, source_template_id, is_default FROM multica_workflow
 WHERE workspace_id = $1
+  AND is_default = FALSE
   AND ($4::text IS NULL OR status = $4)
 ORDER BY created_at DESC
 LIMIT $2 OFFSET $3
@@ -1297,6 +1414,7 @@ func (q *Queries) ListWorkflows(ctx context.Context, arg ListWorkflowsParams) ([
 			&i.UpdatedAt,
 			&i.IsTemplate,
 			&i.SourceTemplateID,
+			&i.IsDefault,
 		); err != nil {
 			return nil, err
 		}
@@ -1309,8 +1427,8 @@ func (q *Queries) ListWorkflows(ctx context.Context, arg ListWorkflowsParams) ([
 }
 
 const listWorkflowsExcludingTemplates = `-- name: ListWorkflowsExcludingTemplates :many
-SELECT id, workspace_id, title, description, status, max_retries, created_by_type, created_by_id, created_at, updated_at, is_template, source_template_id FROM multica_workflow
-WHERE workspace_id = $1 AND is_template = FALSE
+SELECT id, workspace_id, title, description, status, max_retries, created_by_type, created_by_id, created_at, updated_at, is_template, source_template_id, is_default FROM multica_workflow
+WHERE workspace_id = $1 AND is_template = FALSE AND is_default = FALSE
   AND ($4::text IS NULL OR status = $4)
 ORDER BY created_at DESC
 LIMIT $2 OFFSET $3
@@ -1350,6 +1468,7 @@ func (q *Queries) ListWorkflowsExcludingTemplates(ctx context.Context, arg ListW
 			&i.UpdatedAt,
 			&i.IsTemplate,
 			&i.SourceTemplateID,
+			&i.IsDefault,
 		); err != nil {
 			return nil, err
 		}
@@ -1403,7 +1522,7 @@ UPDATE multica_workflow SET
     is_template = $2,
     updated_at = now()
 WHERE id = $1
-RETURNING id, workspace_id, title, description, status, max_retries, created_by_type, created_by_id, created_at, updated_at, is_template, source_template_id
+RETURNING id, workspace_id, title, description, status, max_retries, created_by_type, created_by_id, created_at, updated_at, is_template, source_template_id, is_default
 `
 
 type SetWorkflowTemplateParams struct {
@@ -1427,6 +1546,7 @@ func (q *Queries) SetWorkflowTemplate(ctx context.Context, arg SetWorkflowTempla
 		&i.UpdatedAt,
 		&i.IsTemplate,
 		&i.SourceTemplateID,
+		&i.IsDefault,
 	)
 	return i, err
 }
@@ -1473,7 +1593,7 @@ UPDATE multica_workflow SET
     max_retries = COALESCE($5::int, max_retries),
     updated_at = now()
 WHERE id = $1
-RETURNING id, workspace_id, title, description, status, max_retries, created_by_type, created_by_id, created_at, updated_at, is_template, source_template_id
+RETURNING id, workspace_id, title, description, status, max_retries, created_by_type, created_by_id, created_at, updated_at, is_template, source_template_id, is_default
 `
 
 type UpdateWorkflowParams struct {
@@ -1506,6 +1626,7 @@ func (q *Queries) UpdateWorkflow(ctx context.Context, arg UpdateWorkflowParams) 
 		&i.UpdatedAt,
 		&i.IsTemplate,
 		&i.SourceTemplateID,
+		&i.IsDefault,
 	)
 	return i, err
 }
@@ -1612,7 +1733,7 @@ UPDATE multica_workflow_run SET
     status = $2,
     completed_at = CASE WHEN $2 IN ('completed', 'failed', 'cancelled') THEN now() ELSE completed_at END
 WHERE id = $1
-RETURNING id, workflow_id, workspace_id, workflow_title, status, triggered_by_type, triggered_by_id, input, output, started_at, completed_at, created_at, runtime_id, dispatch_key
+RETURNING id, workflow_id, workspace_id, workflow_title, status, triggered_by_type, triggered_by_id, input, output, started_at, completed_at, created_at, runtime_id, source_issue_id, responsible_user_id, runtime_authorizer_id, dispatch_key
 `
 
 type UpdateWorkflowRunStatusParams struct {
@@ -1637,6 +1758,9 @@ func (q *Queries) UpdateWorkflowRunStatus(ctx context.Context, arg UpdateWorkflo
 		&i.CompletedAt,
 		&i.CreatedAt,
 		&i.RuntimeID,
+		&i.SourceIssueID,
+		&i.ResponsibleUserID,
+		&i.RuntimeAuthorizerID,
 		&i.DispatchKey,
 	)
 	return i, err

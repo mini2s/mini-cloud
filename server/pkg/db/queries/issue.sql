@@ -295,6 +295,14 @@ WHERE workspace_id = $1
   AND origin_id = $3
 LIMIT 1;
 
+-- name: GetDirectIssueByWorkflowRun :one
+SELECT * FROM multica_issue
+WHERE workspace_id = $1
+  AND workflow_run_id = $2
+  AND origin_type IS DISTINCT FROM 'workflow'
+ORDER BY created_at ASC
+LIMIT 1;
+
 -- name: CountCreatedIssueAssignees :many
 -- Count assignees on issues created by a specific user.
 SELECT
