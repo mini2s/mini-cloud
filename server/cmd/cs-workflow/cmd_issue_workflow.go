@@ -126,3 +126,96 @@ func printWorkflowTree(w io.Writer, issues []issueWorkflowNode) {
 func issueKey(number int32) string {
 	return fmt.Sprintf("#%d", number)
 }
+
+var issueDeliverablesCmd = &cobra.Command{
+	Use:   "deliverables <issue-id>",
+	Short: "Show the deliverable repository address + deliverable list for an issue (and its descendants)",
+	Args:  exactArgs(1),
+	RunE:  runIssueDeliverables,
+}
+
+func init() {
+	issueCmd.AddCommand(issueDeliverablesCmd)
+	issueDeliverablesCmd.Flags().Bool("descendants", false, "Include child/grandchild issues")
+	issueDeliverablesCmd.Flags().BoolP("json", "j", false, "Output raw JSON")
+}
+
+// issueDeliverablesResponse mirrors server handler IssueGiteaDeliverablesResponse.
+type issueDeliverablesResponse struct {
+	Issues []issueDeliverableNode `json:"issues"`
+}
+
+type issueDeliverableNode struct {
+	IssueID string               `json:"issue_id"`
+	Number  int32                `json:"number"`
+	Title   string               `json:"title"`
+	Depth   int                  `json:"depth"`
+	Gitea   *issueDeliverableCtx `json:"gitea"`
+}
+
+type issueDeliverableCtx struct {
+	Owner        string                `json:"owner"`
+	Repo         string                `json:"repo"`
+	CloneURL     string                `json:"clone_url"`
+	InstBranch   string                `json:"inst_branch"`
+	Deliverables []issueDeliverableRef `json:"deliverables"`
+}
+
+type issueDeliverableRef struct {
+	NodeTitle     string `json:"node_title"`
+	DeliverableID string `json:"deliverable_id"`
+	Title         string `json:"title"`
+	Path          string `json:"path"`
+}
+
+func runIssueDeliverables(cmd *cobra.Command, args []string) error {
+	client, err := newAPIClient(cmd)
+	if err != nil {
+		return err
+	}
+	descendants, _ := cmd.Flags().GetBool("descendants")
+	asJSON, _ := cmd.Flags().GetBool("json")
+
+	resp, err := fetchIssueDeliverables(client, args[0], descendants)
+	if err != nil {
+		return err
+	}
+	if asJSON {
+		return cli.PrintJSON(os.Stdout, resp)
+	}
+	printIssueDeliverables(os.Stdout, resp.Issues)
+	return nil
+}
+
+func fetchIssueDeliverables(client *cli.APIClient, issueID string, descendants bool) (issueDeliverablesResponse, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	path := "/api/daemon/issues/" + issueID + "/gitea-deliverables"
+	if descendants {
+		path += "?descendants=true"
+	}
+	var resp issueDeliverablesResponse
+	if err := client.GetJSON(ctx, path, &resp); err != nil {
+		return resp, fmt.Errorf("get issue deliverables: %w", err)
+	}
+	return resp, nil
+}
+
+func printIssueDeliverables(w io.Writer, issues []issueDeliverableNode) {
+	for _, iss := range issues {
+		fmt.Fprintf(w, "%s (depth %d) %s\n", issueKey(iss.Number), iss.Depth, iss.Title)
+		if iss.Gitea == nil {
+			fmt.Fprintln(w, "  (no deliverable repository)")
+			continue
+		}
+		fmt.Fprintf(w, "  repo:   %s/%s\n", iss.Gitea.Owner, iss.Gitea.Repo)
+		fmt.Fprintf(w, "  inst:   %s\n", iss.Gitea.InstBranch)
+		fmt.Fprintf(w, "  clone:  %s\n", iss.Gitea.CloneURL)
+		if len(iss.Gitea.Deliverables) > 0 {
+			fmt.Fprintln(w, "  deliverables:")
+			for _, d := range iss.Gitea.Deliverables {
+				fmt.Fprintf(w, "    %s %q  path: %s\n", d.DeliverableID, d.Title, d.Path)
+			}
+		}
+	}
+}

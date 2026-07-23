@@ -54,3 +54,30 @@ func TestFetchIssueWorkflow_DescendantsFlag(t *testing.T) {
 		t.Errorf("descendants flag not forwarded, path=%s", gotPath)
 	}
 }
+
+func TestFetchIssueDeliverables_PrintsList(t *testing.T) {
+	body := `{"issues":[{"issue_id":"u1","number":123,"title":"Root","depth":0,"gitea":{"owner":"o","repo":"r","clone_url":"https://g/o/r.git","inst_branch":"inst-r","deliverables":[{"node_title":"Design spec","deliverable_id":"d1","title":"spec.md","path":"docs/spec.md"}]}}]}`
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/daemon/issues/MUL-123/gitea-deliverables" {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, body)
+	}))
+	defer srv.Close()
+
+	client := cli.NewAPIClient(srv.URL, "ws", "t")
+	resp, err := fetchIssueDeliverables(client, "MUL-123", false)
+	if err != nil {
+		t.Fatalf("fetch: %v", err)
+	}
+	var b strings.Builder
+	printIssueDeliverables(&b, resp.Issues)
+	out := b.String()
+	for _, want := range []string{"#123", "o/r", "docs/spec.md"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("output missing %q:\n%s", want, out)
+		}
+	}
+}
