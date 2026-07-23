@@ -297,7 +297,7 @@
     "empty_worker": "No worker selected",
     "empty_critic_role": "No critic role selected",
     "empty_critic": "No critic selected",
-    "manage_roles_shortcut": "Manage roles",
+    "manage_roles_shortcut": "Add dev role",
     "empty_unknown_node": "Unknown node",
     "picker_empty_prefix": "Select existing",
     "gateway_label_fork": "Branch start",

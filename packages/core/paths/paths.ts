@@ -42,6 +42,7 @@ function workspaceScoped(slug: string) {
     workflowRuns: (id: string) => `${ws}/workflows/${encode(id)}/runs`,
     workflowRunDetail: (workflowId: string, runId: string) => `${ws}/workflows/${encode(workflowId)}/runs/${encode(runId)}`,
     settings: () => `${ws}/settings`,
+    roles: () => `${ws}/roles`,
     attachmentPreview: (id: string) => `${ws}/attachments/${encode(id)}/preview`,
   };
 }

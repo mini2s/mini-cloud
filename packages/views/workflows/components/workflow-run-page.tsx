@@ -150,6 +150,23 @@ function formatNodeRunStatus(t: WorkflowTranslator, status: NodeRunStatus): stri
   }
 }
 
+// Resolution rows snapshot the built-in role name as the English identifier
+// (developer/qa/tech_lead). Map those to localized labels so the role-assignment
+// panel stays in the active locale; custom roles fall through to their raw name.
+function formatRoleName(t: WorkflowTranslator, rawName: string): string {
+  if (rawName === "developer") return t(($) => $.builtin_roles.developer.name);
+  if (rawName === "qa") return t(($) => $.builtin_roles.qa.name);
+  if (rawName === "tech_lead") return t(($) => $.builtin_roles.tech_lead.name);
+  return rawName;
+}
+
+function formatRoleDescription(t: WorkflowTranslator, rawName: string, rawDescription: string): string {
+  if (rawName === "developer") return t(($) => $.builtin_roles.developer.description);
+  if (rawName === "qa") return t(($) => $.builtin_roles.qa.description);
+  if (rawName === "tech_lead") return t(($) => $.builtin_roles.tech_lead.description);
+  return rawDescription;
+}
+
 export function WorkflowRunPage({ workflowId, runId }: WorkflowRunPageProps) {
   const { t } = useT("workflows");
   const wsId = useWorkspaceId();
@@ -389,11 +406,11 @@ export function WorkflowRunPage({ workflowId, runId }: WorkflowRunPageProps) {
                     <div className="flex items-start justify-between gap-2">
                       <div className="min-w-0">
                         <p className="truncate text-xs text-muted-foreground">{nodeRunTitleById.get(resolution.workflow_node_run_id) ?? t(($) => $.run.roles.unknown_node)}</p>
-                        <p className="text-sm font-medium">{resolution.role_name} → {resolution.slot_type === "worker" ? t(($) => $.run.roles.worker) : t(($) => $.run.roles.critic)}</p>
+                        <p className="text-sm font-medium">{formatRoleName(t, resolution.role_name)} → {resolution.slot_type === "worker" ? t(($) => $.run.roles.worker) : t(($) => $.run.roles.critic)}</p>
                       </div>
                       <Badge variant="secondary" className="shrink-0 text-[10px]">{t(($) => ($.run.roles.status as Record<string, string>)[resolution.status] ?? resolution.status)}</Badge>
                     </div>
-                    <p className="text-xs text-muted-foreground">{resolution.role_description}</p>
+                    <p className="text-xs text-muted-foreground">{formatRoleDescription(t, resolution.role_name, resolution.role_description)}</p>
                     {editable ? (
                       <select
                         className="flex h-8 w-full rounded-md border border-input bg-background px-2 text-sm"
