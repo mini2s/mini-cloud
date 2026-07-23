@@ -6,7 +6,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactNode } from "react";
 import { ExecutionPanoramaPage, decorateRuntimeEdges } from "./execution-panorama-page";
-import { RUNTIME_NODE_HEIGHT } from "./runtime-node-card";
+import { RUNTIME_NODE_HEIGHT, RUNTIME_SPLIT_NODE_HEIGHT } from "./runtime-node-card";
 import { WORKER_WIDTH } from "../../../workflows/components/overview/constants";
 import type { Edge, Viewport } from "@xyflow/react";
 
@@ -25,6 +25,8 @@ const mocks = vi.hoisted(() => ({
   squadsData: undefined as unknown as unknown[],
   workflowOptionsData: undefined as unknown,
   splitTasksByNodeRunId: {} as Record<string, unknown>,
+  deliverableDefinitionsByNodeId: {} as Record<string, unknown>,
+  deliverableSubmissionsByNodeRunId: {} as Record<string, unknown>,
   pluginsData: undefined as unknown,
   workflowRolesData: [] as unknown[],
   roleResolutionsData: [] as unknown[],
@@ -113,6 +115,22 @@ vi.mock("@tanstack/react-query", async () => {
       queries.map((opts) => {
         const key = opts.queryKey ?? [];
         const enabled = opts.enabled !== false;
+        if (key.includes("node-deliverable-definitions")) {
+          const markerIndex = key.indexOf("node-deliverable-definitions");
+          const nodeId = String(key[markerIndex + 1] ?? "");
+          return {
+            data: enabled ? mocks.deliverableDefinitionsByNodeId[nodeId] : undefined,
+            isLoading: false,
+          };
+        }
+        if (key.includes("node-deliverable-submissions")) {
+          const markerIndex = key.indexOf("node-deliverable-submissions");
+          const nodeRunId = String(key[markerIndex + 1] ?? "");
+          return {
+            data: enabled ? mocks.deliverableSubmissionsByNodeRunId[nodeRunId] : undefined,
+            isLoading: false,
+          };
+        }
         const nodeRunsIndex = Array.isArray(key) ? key.indexOf("node-runs") : -1;
         const nodeRunId = nodeRunsIndex >= 0 ? String(key[nodeRunsIndex + 1] ?? "") : "";
         return {
@@ -160,6 +178,12 @@ vi.mock("@multica/core/workflows/queries", () => ({
     runId: string,
   ) => ({
     queryKey: ["workflows", wsId, workflowId, runId, "role-resolutions"],
+  }),
+  workflowNodeDeliverablesOptions: (_wsId: string, _workflowId: string, nodeId: string) => ({
+    queryKey: ["workflows", "node-deliverable-definitions", nodeId],
+  }),
+  nodeRunDeliverableSubmissionsOptions: (_wsId: string, nodeRunId: string) => ({
+    queryKey: ["workflows", "node-deliverable-submissions", nodeRunId],
   }),
   splitTasksOptions: (wsId: string, nodeRunId: string | null | undefined) => ({
     queryKey: ["workflows", wsId, "node-runs", nodeRunId ?? "", "split-tasks"],
@@ -631,6 +655,8 @@ describe("ExecutionPanoramaPage", () => {
     mocks.embedded = false;
     mocks.hasOpenInNewTab = true;
     mocks.splitTasksByNodeRunId = {};
+    mocks.deliverableDefinitionsByNodeId = {};
+    mocks.deliverableSubmissionsByNodeRunId = {};
     mocks.fitView.mockClear();
     mocks.setCenter.mockClear();
     mocks.getViewport.mockClear();
@@ -766,7 +792,7 @@ describe("ExecutionPanoramaPage", () => {
     expect(screen.queryByTestId("stage-lane-stage-1")).not.toBeInTheDocument();
   });
 
-  it("builds runtime worker nodes through the shared canvas model while preserving runtime data", () => {
+  it("builds runtime worker nodes through the shared canvas model while preserving runtime data", async () => {
     mocks.isLoading = false;
     mocks.workflowData = { id: "wf-1", title: "Test Workflow" };
     mocks.stagesData = [STAGE];
@@ -837,12 +863,96 @@ describe("ExecutionPanoramaPage", () => {
       }),
     });
 
-    const onOpenSession = worker?.data?.onOpenSession as ((nodeId: string) => void) | undefined;
-    onOpenSession?.("n1");
+    const onOpenSession = worker?.data?.onOpenSession as ((nodeId: string) => Promise<boolean>) | undefined;
+    let opened = false;
+    await act(async () => {
+      opened = await onOpenSession?.("n1") ?? false;
+    });
+    expect(opened).toBe(true);
     expect(mocks.postCostrictNavigateToSession).toHaveBeenCalledWith({
       sessionId: "runtime-session-1",
       newTab: true,
     });
+
+    mocks.embedded = false;
+    mocks.postCostrictNavigateToSession.mockReturnValue(false);
+    await act(async () => {
+      opened = await onOpenSession?.("n1") ?? false;
+    });
+    expect(opened).toBe(true);
+    expect(screen.getByTestId("execution-detail-panel")).toBeInTheDocument();
+  });
+
+  it("joins deliverable definitions and submissions into runtime card summaries", () => {
+    mocks.isLoading = false;
+    mocks.workflowData = { id: "wf-1", title: "Test Workflow" };
+    mocks.stagesData = [STAGE];
+    mocks.nodesData = [NODE];
+    mocks.nodeRunsData = [{
+      id: "nr-1",
+      workflow_run_id: "run-1",
+      workflow_node_id: "n1",
+      node_title: "brainstorming",
+      status: "completed",
+      retry_count: 0,
+      worker_type: "agent",
+      worker_id: "agent-1",
+      worker_output: null,
+      worker_agent_task_id: null,
+      critic_type: "human",
+      critic_id: null,
+      critic_output: null,
+      critic_comment: "",
+      critic_agent_task_id: null,
+      agent_task_id: null,
+      session_id: null,
+      runtime_id: null,
+      device_id: null,
+      started_at: null,
+      completed_at: null,
+      created_at: "",
+      updated_at: "",
+    }];
+    mocks.canvasSummaryData = { node_runs: mocks.nodeRunsData, node_runtime_summaries: [] };
+    mocks.agentsData = [AGENT];
+    mocks.deliverableDefinitionsByNodeId = {
+      n1: [
+        { id: "d-2", title: "Acceptance checklist", sort_order: 2 },
+        { id: "d-1", title: "Requirements specification", sort_order: 1 },
+      ],
+    };
+    mocks.deliverableSubmissionsByNodeRunId = {
+      "nr-1": [
+        {
+          id: "s-1",
+          deliverable_id: "d-1",
+          status: "approved",
+          pull_request_url: "https://gitea.test/workflow/pulls/7",
+        },
+      ],
+    };
+
+    render(
+      <Wrapper>
+        <ExecutionPanoramaPage workflowId="wf-1" runId="run-1" wsId="ws-1" />
+      </Wrapper>,
+    );
+
+    const worker = mocks.reactFlowProps?.nodes.find((node) => node.id === "n1");
+    expect(worker?.data?.deliverables).toEqual([
+      {
+        id: "d-1",
+        title: "Requirements specification",
+        status: "approved",
+        pullRequestUrl: "https://gitea.test/workflow/pulls/7",
+      },
+      {
+        id: "d-2",
+        title: "Acceptance checklist",
+        status: "missing",
+        pullRequestUrl: null,
+      },
+    ]);
   });
 
   it("marks only the highest-priority runtime node as the runtime focus", () => {
@@ -1283,6 +1393,7 @@ describe("ExecutionPanoramaPage", () => {
     );
 
     const splitNode = mocks.reactFlowProps?.nodes.find((node) => node.id === "split-1");
+    expect(splitNode?.height).toBe(RUNTIME_SPLIT_NODE_HEIGHT);
     expect(splitNode?.data).toMatchObject({
       splitChildCount: 2,
       isSplitExpanded: false,

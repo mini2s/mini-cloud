@@ -7,10 +7,11 @@ import {
   type WorkflowNode,
   type WorkflowNodeRun,
   type WorkflowNodeRuntimeSummary,
+  type WorkflowDeliverableSubmissionStatus,
 } from "@multica/core/types";
 import { cn } from "@multica/ui/lib/utils";
 import { RuntimeDisplayStatusIcon } from "./node-run-status-icon";
-import { Check, ChevronDown, ChevronRight, GitFork, GitMerge } from "lucide-react";
+import { Check, ChevronDown, ChevronRight, CircleAlert, FileText, GitFork, GitMerge, MessageSquare } from "lucide-react";
 import { useT } from "@multica/views/i18n";
 import { Button } from "@multica/ui/components/ui/button";
 import { Loader2 } from "lucide-react";
@@ -23,7 +24,15 @@ import {
 } from "../../../workflows/components/canvas/workflow-canvas-node-shell";
 import { WORKER_WIDTH } from "../../../workflows/components/overview/constants";
 
-export const RUNTIME_NODE_HEIGHT = 156;
+export const RUNTIME_NODE_HEIGHT = 176;
+export const RUNTIME_SPLIT_NODE_HEIGHT = 156;
+
+export interface RuntimeNodeDeliverableSummary {
+  id: string;
+  title: string;
+  status: WorkflowDeliverableSubmissionStatus;
+  pullRequestUrl: string | null;
+}
 
 export type NodeRunActionType =
   | "approve"
@@ -51,7 +60,8 @@ export interface RuntimeNodeCardProps {
   isSplitExpanded?: boolean;
   splitChildCount?: number;
   onSplitNodeToggle?: (nodeId: string) => void;
-  onOpenSession?: (nodeId: string) => void;
+  onOpenSession?: (nodeId: string) => Promise<boolean>;
+  deliverables?: RuntimeNodeDeliverableSummary[];
 }
 
 function gatewayLabel(t: IssueTranslator, kind: "fork" | "join" | null): string {
@@ -282,6 +292,18 @@ function actorState(name: string | null, configured: boolean, optional = false):
   return optional ? "optional" : "missing";
 }
 
+function deliverableStatusClassName(status: WorkflowDeliverableSubmissionStatus): string {
+  switch (status) {
+    case "rejected":
+      return "text-destructive/80";
+    case "approved":
+    case "submitted":
+    case "missing":
+    default:
+      return "text-muted-foreground";
+  }
+}
+
 function SplitProgressSummary({
   label,
   summary,
@@ -325,11 +347,14 @@ export function RuntimeNodeCard({
   splitChildCount = 0,
   onSplitNodeToggle,
   onOpenSession,
+  deliverables = [],
 }: RuntimeNodeCardProps) {
   const { t } = useT("issues");
+  const [openSessionState, setOpenSessionState] = useState<"idle" | "opening" | "opened" | "failed">("idle");
   const nodeFormat = parseNodeFormat(node.format_schema);
   const isGateway = nodeFormat.kind === "gateway";
   const isSplit = nodeFormat.kind === "split";
+	const cardHeight = isSplit ? RUNTIME_SPLIT_NODE_HEIGHT : RUNTIME_NODE_HEIGHT;
 	const splitMode = nodeFormat.split_config?.mode ?? "barrier";
   const nodeShape = nodeFormat.shape;
   const displayStatus = runtimeSummary?.display_status ?? (nodeRun ? toWorkflowRuntimeDisplayStatus(nodeRun.status) : "pending");
@@ -344,7 +369,9 @@ export function RuntimeNodeCard({
   const canToggleSplitChildren = isSplit && splitChildCount > 0 && !!onSplitNodeToggle;
   const sessionId = nodeRun?.session_id ?? runtimeSummary?.session_id ?? null;
   const canOpenSession = !isGateway && !isSplit && !!sessionId && !!onOpenSession;
-  const hasInlineAction = canToggleSplitChildren || canOpenSession;
+  const primaryDeliverable = !isGateway && !isSplit ? deliverables[0] : undefined;
+  const remainingDeliverableCount = Math.max(0, deliverables.length - 1);
+  const hasInlineAction = canToggleSplitChildren || canOpenSession || !!primaryDeliverable?.pullRequestUrl;
   const splitChildLabel = splitChildCountLabel(t, splitChildCount || (splitProgress?.total ?? 0));
   const splitChildSummaryParts = splitProgress ? splitProgressSummaryParts(t, splitProgress) : [];
   const splitChildSummaryLabel = splitChildSummaryParts.length > 0
@@ -361,11 +388,24 @@ export function RuntimeNodeCard({
     event.stopPropagation();
     onSplitNodeToggle?.(node.id);
   }, [node.id, onSplitNodeToggle]);
-  const handleOpenSessionClick = useCallback((event: React.MouseEvent<HTMLButtonElement>) => {
+  const handleOpenSessionClick = useCallback(async (event: React.MouseEvent<HTMLButtonElement>) => {
     event.preventDefault();
     event.stopPropagation();
-    onOpenSession?.(node.id);
-  }, [node.id, onOpenSession]);
+    if (!onOpenSession || openSessionState !== "idle") return;
+    setOpenSessionState("opening");
+    try {
+      const opened = await onOpenSession(node.id);
+      setOpenSessionState(opened ? "opened" : "failed");
+    } catch {
+      setOpenSessionState("failed");
+    }
+  }, [node.id, onOpenSession, openSessionState]);
+
+  useEffect(() => {
+    if (openSessionState !== "opened" && openSessionState !== "failed") return undefined;
+    const timer = setTimeout(() => setOpenSessionState("idle"), 1200);
+    return () => clearTimeout(timer);
+  }, [openSessionState]);
 
   const actionButtons: ActionButtonDef[] = nodeRun
     ? isGateway || isSplit
@@ -404,14 +444,14 @@ export function RuntimeNodeCard({
       nodeShape={nodeShape}
       selected={isSelected}
       width={WORKER_WIDTH}
-      height={RUNTIME_NODE_HEIGHT}
+      height={cardHeight}
       title={node.title}
       dataRuntimeDisplayStatus={displayStatus}
       dataRuntimeFocus={isRuntimeFocus}
       tabIndex={hasInlineAction ? 0 : undefined}
       onClick={() => onClick(node.id)}
       onKeyDown={hasInlineAction ? handleShellKeyDown : undefined}
-      className="h-[156px]"
+      className={isSplit ? "h-[156px]" : "h-[176px]"}
       surfaceClassName={runtimeFocusSurfaceClassName(isRuntimeFocus, displayStatus)}
       contentClassName={cn("h-full justify-between gap-2", workflowNodeInfoAreaClassName(nodeShape))}
       handles={handles}
@@ -456,7 +496,7 @@ export function RuntimeNodeCard({
               type="button"
               data-testid="runtime-node-split-child-toggle"
               className={cn(
-                "nodrag nopan flex min-h-10 w-full min-w-0 items-center justify-between gap-2 rounded-md border px-2.5 py-1.5 text-left",
+                "nodrag nopan mt-1.5 flex min-h-10 w-full min-w-0 self-start items-center justify-between gap-2 rounded-md border px-2.5 py-1.5 text-left",
                 "bg-background transition-colors",
                 "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                 isSplitExpanded
@@ -529,7 +569,7 @@ export function RuntimeNodeCard({
         </div>
       ) : (
         <>
-      {/* Row 1: node title + status/session actions */}
+      {/* Row 1: node title + status */}
       <div className="flex items-start justify-between gap-2">
         <div className="flex min-w-0 flex-1 items-center gap-1.5 pt-0.5">
           {nodeShape !== "rectangle" ? (
@@ -546,25 +586,11 @@ export function RuntimeNodeCard({
             {node.title}
           </span>
         </div>
-        <div className="flex shrink-0 flex-col items-start gap-1">
-          <RuntimeStatusPill
-            status={displayStatus}
-            gatewayKind={isGateway ? nodeFormat.gateway_kind : null}
-            label={displayStatusLabel}
-          />
-          {canOpenSession ? (
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              data-testid="runtime-node-open-session"
-              className="nodrag nopan h-5 shrink-0 cursor-pointer border-primary/30 px-1.5 text-[10px] font-medium text-primary shadow-xs transition-all hover:-translate-y-px hover:border-primary/60 hover:bg-primary/10 hover:text-primary hover:shadow-sm active:translate-y-0 active:scale-[0.97] motion-reduce:transform-none"
-              onClick={handleOpenSessionClick}
-            >
-              {t(($) => $.execution.detail_panel.open_session)}
-            </Button>
-          ) : null}
-        </div>
+        <RuntimeStatusPill
+          status={displayStatus}
+          gatewayKind={isGateway ? nodeFormat.gateway_kind : null}
+          label={displayStatusLabel}
+        />
       </div>
 
       {isGateway ? (
@@ -609,6 +635,93 @@ export function RuntimeNodeCard({
           ) : null}
         </div>
       )}
+
+      {!isGateway && (primaryDeliverable || canOpenSession) ? (
+        <div
+          data-testid="runtime-node-utility-rail"
+          className="flex min-w-0 items-center gap-1 border-t border-border/30 pt-1"
+        >
+          {primaryDeliverable ? (
+            primaryDeliverable.pullRequestUrl ? (
+              <a
+                href={primaryDeliverable.pullRequestUrl}
+                target="_blank"
+                rel="noreferrer"
+                title={primaryDeliverable.title}
+                className="nodrag nopan flex h-6 min-w-0 flex-1 items-center gap-1.5 rounded-md px-1 text-[10px] text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                onClick={(event) => event.stopPropagation()}
+              >
+                <FileText className="size-3.5 shrink-0 text-muted-foreground/70" />
+                <span className="flex min-w-0 items-center gap-1">
+                  <span className="min-w-0 truncate font-medium text-foreground/75">
+                    {primaryDeliverable.title}
+                  </span>
+                  <span aria-hidden="true" className="shrink-0 text-muted-foreground/50">·</span>
+                  <span className={cn("shrink-0 rounded-sm bg-muted/50 px-1 font-medium", deliverableStatusClassName(primaryDeliverable.status))}>
+                    {t(($) => $.execution.card.deliverable_status[primaryDeliverable.status])}
+                  </span>
+                </span>
+                {remainingDeliverableCount > 0 ? (
+                  <span className="shrink-0 text-muted-foreground">
+                    {t(($) => $.execution.card.deliverable_more, { count: remainingDeliverableCount })}
+                  </span>
+                ) : null}
+              </a>
+            ) : (
+              <div
+                title={primaryDeliverable.title}
+                className="flex h-6 min-w-0 flex-1 items-center gap-1.5 rounded-md px-1 text-[10px] text-muted-foreground"
+                onClick={(event) => event.stopPropagation()}
+              >
+                <FileText className="size-3.5 shrink-0 text-muted-foreground/70" />
+                <span className="flex min-w-0 items-center gap-1">
+                  <span className="min-w-0 truncate font-medium text-foreground/75">
+                    {primaryDeliverable.title}
+                  </span>
+                  <span aria-hidden="true" className="shrink-0 text-muted-foreground/50">·</span>
+                  <span className={cn("shrink-0 rounded-sm bg-muted/50 px-1 font-medium", deliverableStatusClassName(primaryDeliverable.status))}>
+                    {t(($) => $.execution.card.deliverable_status[primaryDeliverable.status])}
+                  </span>
+                </span>
+                {remainingDeliverableCount > 0 ? (
+                  <span className="shrink-0 text-muted-foreground">
+                    {t(($) => $.execution.card.deliverable_more, { count: remainingDeliverableCount })}
+                  </span>
+                ) : null}
+              </div>
+            )
+          ) : null}
+          {canOpenSession ? (
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              data-testid="runtime-node-open-session"
+              disabled={openSessionState !== "idle"}
+              aria-live="polite"
+              className="nodrag nopan h-6 w-[84px] shrink-0 cursor-pointer px-1.5 text-[10px] font-medium text-muted-foreground shadow-none transition-colors hover:bg-muted/50 hover:text-foreground"
+              onClick={handleOpenSessionClick}
+            >
+              {openSessionState === "opening" ? (
+                <Loader2 className="size-3 animate-spin" />
+              ) : openSessionState === "opened" ? (
+                <Check className="size-3 text-emerald-500" />
+              ) : openSessionState === "failed" ? (
+                <CircleAlert className="size-3 text-destructive" />
+              ) : (
+                <MessageSquare className="size-3" />
+              )}
+              {openSessionState === "opening"
+                ? t(($) => $.execution.card.session_opening)
+                : openSessionState === "opened"
+                  ? t(($) => $.execution.card.session_opened)
+                  : openSessionState === "failed"
+                    ? t(($) => $.execution.card.session_open_failed)
+                    : t(($) => $.execution.detail_panel.open_session)}
+            </Button>
+          ) : null}
+        </div>
+      ) : null}
 
       {/* Action buttons */}
       {onAction && actionButtons.length > 0 && (
