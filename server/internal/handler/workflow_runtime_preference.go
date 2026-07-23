@@ -2,10 +2,49 @@ package handler
 
 import (
 	"net/http"
+	"strings"
 
 	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/multica-ai/multica/server/internal/service"
 	db "github.com/multica-ai/multica/server/pkg/db/generated"
 )
+
+func (h *Handler) validateWorkflowRuntimeSelectionOverride(
+	w http.ResponseWriter,
+	r *http.Request,
+	rawPolicy *string,
+	rawRuntimeID *string,
+	workspaceID pgtype.UUID,
+) (string, pgtype.UUID, bool) {
+	policy := ""
+	if rawPolicy != nil {
+		policy = strings.TrimSpace(*rawPolicy)
+		if !service.IsWorkflowRuntimeSelectionPolicy(policy) {
+			writeError(w, http.StatusBadRequest, "invalid runtime_selection_policy")
+			return "", pgtype.UUID{}, false
+		}
+	}
+
+	runtimeID, ok := h.validateWorkflowRuntimePreference(w, r, rawRuntimeID, workspaceID)
+	if !ok {
+		return "", pgtype.UUID{}, false
+	}
+	if rawPolicy == nil {
+		return policy, runtimeID, true
+	}
+	if policy == service.RuntimeSelectionPolicySpecifiedRuntimeFirst {
+		if !runtimeID.Valid {
+			writeError(w, http.StatusBadRequest, "specified runtime selection policy requires runtime_id")
+			return "", pgtype.UUID{}, false
+		}
+		return policy, runtimeID, true
+	}
+	if runtimeID.Valid {
+		writeError(w, http.StatusBadRequest, "runtime_id is only valid with specified_runtime_first")
+		return "", pgtype.UUID{}, false
+	}
+	return policy, pgtype.UUID{}, true
+}
 
 // validateWorkflowRuntimePreference validates an optional manual preference at
 // the request boundary. Runtime health is deliberately checked again when each

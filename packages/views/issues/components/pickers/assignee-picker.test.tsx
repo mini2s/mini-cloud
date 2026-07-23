@@ -1,9 +1,9 @@
 // @vitest-environment jsdom
 
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { AssigneePicker } from "./assignee-picker";
-import type { Agent } from "@multica/core/types";
+import type { Agent, Workflow } from "@multica/core/types";
 
 const agents: Agent[] = [
   { id: "general", workspace_id: "", runtime_id: "", name: "Split Planner (General)", description: "", instructions: "", avatar_url: null, runtime_mode: "local", runtime_config: {}, custom_env: {}, custom_args: [], custom_env_redacted: false, visibility: "workspace", status: "idle", max_concurrent_tasks: 1, model: "", plugin_id: null, is_builtin: true, owner_id: null, skills: [], created_at: "", updated_at: "", archived_at: null, archived_by: null },
@@ -11,13 +11,32 @@ const agents: Agent[] = [
   { id: "custom", workspace_id: "", runtime_id: "", name: "Custom Planner", description: "", instructions: "", avatar_url: null, runtime_mode: "local", runtime_config: {}, custom_env: {}, custom_args: [], custom_env_redacted: false, visibility: "workspace", status: "idle", max_concurrent_tasks: 1, model: "", plugin_id: null, is_builtin: false, owner_id: null, skills: [], created_at: "", updated_at: "", archived_at: null, archived_by: null },
 ];
 
+const workflows: Workflow[] = [{
+  id: "workflow-1",
+  workspace_id: "ws-1",
+  title: "Release workflow",
+  description: "",
+  status: "active",
+  max_retries: 3,
+  created_by_type: "member",
+  created_by_id: "user-1",
+  node_count: 1,
+  is_template: false,
+  source_template_id: null,
+  default_runtime_selection_policy: "idle_first",
+  default_runtime_id: null,
+  custom_roles: [],
+  created_at: "",
+  updated_at: "",
+}];
+
 vi.mock("@tanstack/react-query", () => ({
   useQuery: (options: { queryKey?: unknown[] }) => {
     const key = options.queryKey ?? [];
     if (key.includes("agents")) return { data: agents };
     if (key.includes("members")) return { data: [] };
     if (key.includes("squads")) return { data: [] };
-    if (key.includes("workflows")) return { data: [] };
+    if (key.includes("workflows")) return { data: workflows };
     if (key.includes("runtimes")) return { data: [] };
     return { data: [] };
   },
@@ -63,6 +82,22 @@ vi.mock("../../../i18n", () => ({
 }));
 vi.mock("../../../common/actor-avatar", () => ({ ActorAvatar: () => <span data-testid="avatar" /> }));
 vi.mock("../../../agents/components/runtime-select-dialog", () => ({ RuntimeSelectDialog: () => null }));
+vi.mock("../../../workflows/components/use-usable-workflow-runtimes", () => ({
+  useUsableWorkflowRuntimes: (runtimes: unknown[]) => ({ runtimes, isLoading: false }),
+}));
+vi.mock("../../../workflows/components/workflow-runtime-strategy-dialog", () => ({
+  WorkflowRuntimeStrategyDialog: ({
+    initialValue,
+    onConfirm,
+  }: {
+    initialValue: { policy: string; runtimeId: string | null };
+    onConfirm: (value: { policy: string; runtimeId: string | null }) => void;
+  }) => (
+    <button type="button" onClick={() => onConfirm(initialValue)}>
+      Confirm workflow runtime
+    </button>
+  ),
+}));
 
 describe("AssigneePicker agentFilter", () => {
   it("filters agent picker options without changing saved assignee rendering", () => {
@@ -82,5 +117,30 @@ describe("AssigneePicker agentFilter", () => {
     expect(screen.getByText("Split Planner (General)")).toBeInTheDocument();
     expect(screen.getByText("Custom Planner")).toBeInTheDocument();
     expect(screen.queryByText("Split Planner (Code)")).not.toBeInTheDocument();
+  });
+
+  it("submits the workflow default strategy as this run's snapshot", async () => {
+    const onUpdate = vi.fn();
+    render(
+      <AssigneePicker
+        assigneeType={null}
+        assigneeId={null}
+        open
+        onOpenChange={vi.fn()}
+        onUpdate={onUpdate}
+      />,
+    );
+
+    fireEvent.click(screen.getByText("Release workflow"));
+    fireEvent.click(await screen.findByRole("button", { name: "Confirm workflow runtime" }));
+
+    await waitFor(() => {
+      expect(onUpdate).toHaveBeenCalledWith({
+        assignee_type: "workflow",
+        assignee_id: "workflow-1",
+        runtime_id: null,
+        runtime_selection_policy: "idle_first",
+      });
+    });
   });
 });

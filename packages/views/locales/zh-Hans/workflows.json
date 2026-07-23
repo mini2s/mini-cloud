@@ -387,6 +387,10 @@
     "triggered_by": "触发者",
     "started_at": "开始时间",
     "completed_at": "完成时间",
+    "runtime_policy": "运行时策略",
+    "runtime_policy_specified": "人工指定优先",
+    "runtime_policy_idle": "空闲运行时优先",
+    "runtime_policy_issue_creator": "Issue 创建人运行时优先",
     "cancel": "取消运行",
     "cancelling": "取消中...",
     "toast_cancelled": "运行已取消",
@@ -631,6 +635,7 @@
       "unsaved": "未保存",
       "editor": "编辑器",
       "run_history": "运行历史",
+      "run_settings": "运行设置",
       "test_run": "测试运行",
       "save_and_test": "保存并测试",
       "activate_before_test": "请先激活工作流再测试。",
@@ -651,6 +656,39 @@
       "delete": "删除阶段",
       "move_up": "上移阶段",
       "move_down": "下移阶段"
+    }
+  },
+  "runtime_strategy": {
+    "default_title": "默认运行策略",
+    "default_description": "设置 {{name}} 后续运行时选择运行时的默认方式。",
+    "run_title": "启动工作流",
+    "run_description": "使用 {{name}} 的默认策略，或仅为本次运行选择其他策略。",
+    "runtime_label": "优先运行时",
+    "runtime_placeholder": "选择运行时",
+    "online": "在线",
+    "offline": "离线",
+    "deleted_runtime": "已保存的运行时不存在或你已无权使用，请选择其他运行时后继续。",
+    "no_runtime": "当前工作区没有可用运行时。",
+    "direct_run_hint": "直接测试运行没有所属 Issue 的创建人，将从空闲运行时开始选择。",
+    "cancel": "取消",
+    "saving": "保存中...",
+    "save_default": "保存默认策略",
+    "start_run": "开始运行",
+    "toast_default_saved": "默认运行策略已保存",
+    "toast_default_failed": "默认运行策略保存失败",
+    "policy": {
+      "specified_runtime_first": {
+        "title": "人工指定优先",
+        "description": "人工指定 → 空闲运行时 → Issue 创建人运行时 → 失败"
+      },
+      "idle_first": {
+        "title": "空闲运行时优先",
+        "description": "空闲运行时 → Issue 创建人运行时 → 失败"
+      },
+      "issue_creator_first": {
+        "title": "Issue 创建人运行时优先",
+        "description": "Issue 创建人运行时 → 空闲运行时 → 失败"
+      }
     }
   },
   "preflight": {

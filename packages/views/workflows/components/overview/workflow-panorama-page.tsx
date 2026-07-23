@@ -74,7 +74,11 @@ import { PreflightBar } from "./preflight-bar";
 import { runAllPreflightChecks, type SplitIssueWorkflowPreflightContext } from "@multica/core/workflows/preflight-checks";
 import { NodeTemplatePicker } from "./node-template-picker";
 import { WorkflowEditorToolbar } from "./workflow-editor-toolbar";
-import { RuntimeSelectDialog } from "../../../agents/components/runtime-select-dialog";
+import {
+  WorkflowRuntimeStrategyDialog,
+  type WorkflowRuntimeStrategyValue,
+} from "../workflow-runtime-strategy-dialog";
+import { useUsableWorkflowRuntimes } from "../use-usable-workflow-runtimes";
 import {
   buildCreateNodeRequestFromTemplate,
   type NodeTemplate,
@@ -178,6 +182,7 @@ interface PanoramaContentProps {
   onSave: () => boolean | Promise<boolean>;
   onTestRun: () => Promise<void>;
   onOpenRunHistory: () => void;
+  onOpenRunSettings: () => void;
 }
 
 function PanoramaContent({
@@ -226,6 +231,7 @@ function PanoramaContent({
   onSave,
   onTestRun,
   onOpenRunHistory,
+  onOpenRunSettings,
 }: PanoramaContentProps) {
   const { t } = useT("workflows");
   const reactFlowInstance = useReactFlow();
@@ -338,6 +344,7 @@ function PanoramaContent({
         onTestRun={onTestRun}
         onToggleWorkflowStatus={onToggleWorkflowStatus}
         onOpenRunHistory={onOpenRunHistory}
+        onOpenRunSettings={onOpenRunSettings}
         onDeleteWorkflow={() => setDeleteDialogOpen(true)}
       />
 
@@ -543,6 +550,7 @@ export function WorkflowPanoramaPage({ workflowId, viewToggle }: WorkflowPanoram
   });
   const { data: agents = [] } = useQuery(agentListOptions(wsId));
   const { data: runtimes = [], isLoading: runtimesLoading } = useQuery(runtimeListOptions(wsId));
+  const usableWorkflowRuntimes = useUsableWorkflowRuntimes(runtimes);
   const { data: pluginsData } = useQuery(builtinPluginListOptions());
   const { data: workflowRoles = [] } = useQuery(workflowRolesOptions(wsId));
   const { data: childWorkflows = [] } = useQuery(splitIssueWorkflowOptions(wsId, workflowId));
@@ -587,6 +595,7 @@ export function WorkflowPanoramaPage({ workflowId, viewToggle }: WorkflowPanoram
   const [configPanelOpen, setConfigPanelOpen] = useState(false);
   const [showStageDialog, setShowStageDialog] = useState(false);
   const [showRuntimeDialog, setShowRuntimeDialog] = useState(false);
+  const [showRuntimeSettingsDialog, setShowRuntimeSettingsDialog] = useState(false);
   const [editingStage, setEditingStage] = useState<WorkflowStage | null>(null);
   const [emptyStatePickerOpen, setEmptyStatePickerOpen] = useState(false);
   const [selectedEdgeAnchor, setSelectedEdgeAnchor] = useState<{ x: number; y: number } | null>(null);
@@ -1073,11 +1082,12 @@ export function WorkflowPanoramaPage({ workflowId, viewToggle }: WorkflowPanoram
     setShowRuntimeDialog(true);
   }, [handleSave]);
 
-  const startTestRun = useCallback(async (runtimeId: string | null) => {
+  const startTestRun = useCallback(async ({ policy, runtimeId }: WorkflowRuntimeStrategyValue) => {
     setShowRuntimeDialog(false);
     try {
       const run = await startWorkflowRunMutation.mutateAsync({
         workflowId,
+        runtimeSelectionPolicy: policy,
         ...(runtimeId ? { runtimeId } : {}),
       });
       toast.success(t(($) => $.detail.toast_run_started));
@@ -1086,6 +1096,23 @@ export function WorkflowPanoramaPage({ workflowId, viewToggle }: WorkflowPanoram
       toast.error(t(($) => $.detail.toast_run_failed));
     }
   }, [startWorkflowRunMutation, workflowId, navigation, wsPaths, t]);
+
+  const saveDefaultRuntimeStrategy = useCallback(async ({
+    policy,
+    runtimeId,
+  }: WorkflowRuntimeStrategyValue) => {
+    try {
+      await updateWorkflowMutation.mutateAsync({
+        id: workflowId,
+        default_runtime_selection_policy: policy,
+        default_runtime_id: runtimeId,
+      });
+      setShowRuntimeSettingsDialog(false);
+      toast.success(t(($) => $.runtime_strategy.toast_default_saved));
+    } catch {
+      toast.error(t(($) => $.runtime_strategy.toast_default_failed));
+    }
+  }, [updateWorkflowMutation, workflowId, t]);
 
   const handleViewportChange = useCallback((viewport: Viewport) => {
     setViewportY(viewport.y);
@@ -1268,15 +1295,36 @@ export function WorkflowPanoramaPage({ workflowId, viewToggle }: WorkflowPanoram
         onSave={handleSave}
         onTestRun={handleTestRun}
         onOpenRunHistory={() => navigation.push(wsPaths.workflowRuns(workflowId))}
+        onOpenRunSettings={() => setShowRuntimeSettingsDialog(true)}
       />
       {showRuntimeDialog && (
-        <RuntimeSelectDialog
-          agentName={workflow.title}
-          runtimes={runtimes.filter((runtime) => runtime.status === "online")}
-          loading={runtimesLoading}
-          allowAuto
+        <WorkflowRuntimeStrategyDialog
+          mode="run"
+          workflowTitle={workflow.title}
+          initialValue={{
+            policy: workflow.default_runtime_selection_policy,
+            runtimeId: workflow.default_runtime_id,
+          }}
+          runtimes={usableWorkflowRuntimes.runtimes}
+          loading={runtimesLoading || usableWorkflowRuntimes.isLoading}
+          directRun
           onConfirm={startTestRun}
           onClose={() => setShowRuntimeDialog(false)}
+        />
+      )}
+      {showRuntimeSettingsDialog && (
+        <WorkflowRuntimeStrategyDialog
+          mode="default"
+          workflowTitle={workflow.title}
+          initialValue={{
+            policy: workflow.default_runtime_selection_policy,
+            runtimeId: workflow.default_runtime_id,
+          }}
+          runtimes={usableWorkflowRuntimes.runtimes}
+          loading={runtimesLoading || usableWorkflowRuntimes.isLoading}
+          saving={updateWorkflowMutation.isPending}
+          onConfirm={saveDefaultRuntimeStrategy}
+          onClose={() => setShowRuntimeSettingsDialog(false)}
         />
       )}
       <AlertDialog open={configPanelCloseDialogOpen} onOpenChange={(open) => {

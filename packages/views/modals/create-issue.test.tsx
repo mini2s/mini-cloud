@@ -189,7 +189,20 @@ vi.mock("../issues/components", () => ({
   StatusIcon: ({ status }: { status: string }) => <span data-testid="status-icon">{status}</span>,
   StatusPicker: () => <div data-testid="status-picker" />,
   PriorityPicker: () => <div data-testid="priority-picker" />,
-  AssigneePicker: () => <div data-testid="assignee-picker" />,
+  AssigneePicker: ({ onUpdate }: { onUpdate: (updates: Record<string, unknown>) => void }) => (
+    <button
+      type="button"
+      data-testid="assignee-picker"
+      onClick={() => onUpdate({
+        assignee_type: "workflow",
+        assignee_id: "workflow-1",
+        runtime_selection_policy: "specified_runtime_first",
+        runtime_id: "runtime-1",
+      })}
+    >
+      Select workflow assignee
+    </button>
+  ),
   StartDatePicker: () => <div data-testid="start-date-picker" />,
   DueDatePicker: () => <div data-testid="due-date-picker" />,
 }));
@@ -335,6 +348,8 @@ describe("CreateIssueModal", () => {
         priority: "none",
         assignee_type: undefined,
         assignee_id: undefined,
+        runtime_selection_policy: undefined,
+        runtime_id: undefined,
         start_date: undefined,
         due_date: undefined,
         attachment_ids: undefined,
@@ -382,6 +397,8 @@ describe("CreateIssueModal", () => {
         priority: "none",
         assignee_type: undefined,
         assignee_id: undefined,
+        runtime_selection_policy: undefined,
+        runtime_id: undefined,
         start_date: undefined,
         due_date: undefined,
         attachment_ids: undefined,
@@ -402,6 +419,24 @@ describe("CreateIssueModal", () => {
       assigneeId: undefined,
       startDate: null,
       dueDate: null,
+    });
+  });
+
+  it("forwards the selected workflow runtime strategy when creating an issue", async () => {
+    const user = userEvent.setup();
+    renderModal(<CreateIssueModal onClose={vi.fn()} />);
+
+    await user.type(screen.getByPlaceholderText("Issue title"), "Run release workflow");
+    await user.click(screen.getByRole("button", { name: "Select workflow assignee" }));
+    await user.click(screen.getByRole("button", { name: "Create Issue" }));
+
+    await waitFor(() => {
+      expect(mockCreateIssue).toHaveBeenCalledWith(expect.objectContaining({
+        assignee_type: "workflow",
+        assignee_id: "workflow-1",
+        runtime_selection_policy: "specified_runtime_first",
+        runtime_id: "runtime-1",
+      }));
     });
   });
 

@@ -265,18 +265,26 @@ func (s *WorkflowService) resolveWorkflowUser(
 // StartRun creates a workflow_run and node_runs for every node, then
 // kicks off root nodes (nodes with no incoming edges).
 func (s *WorkflowService) StartRun(ctx context.Context, workflow db.MulticaWorkflow, triggeredByType, triggeredByID string, input json.RawMessage, runtimeID pgtype.UUID) (*db.MulticaWorkflowRun, error) {
+	return s.StartRunWithRuntimeSelection(ctx, workflow, triggeredByType, triggeredByID, input, "", runtimeID)
+}
+
+func (s *WorkflowService) StartRunWithRuntimeSelection(ctx context.Context, workflow db.MulticaWorkflow, triggeredByType, triggeredByID string, input json.RawMessage, runtimeSelectionPolicy string, runtimeID pgtype.UUID) (*db.MulticaWorkflowRun, error) {
 	triggeredByUUID, err := util.ParseUUID(triggeredByID)
 	if err != nil && triggeredByID != "" {
 		triggeredByUUID = pgtype.UUID{}
 	}
-	return s.startRun(ctx, workflow, triggeredByType, triggeredByID, input, runtimeID, "", workflowRunRuntimeContext{
+	return s.startRun(ctx, workflow, triggeredByType, triggeredByID, input, runtimeSelectionPolicy, runtimeID, "", workflowRunRuntimeContext{
 		RuntimeAuthorizerID: s.resolveWorkflowUser(ctx, triggeredByType, triggeredByUUID),
 	})
 }
 
-func (s *WorkflowService) startRun(ctx context.Context, workflow db.MulticaWorkflow, triggeredByType, triggeredByID string, input json.RawMessage, runtimeID pgtype.UUID, dispatchKey string, runtimeContext workflowRunRuntimeContext) (*db.MulticaWorkflowRun, error) {
+func (s *WorkflowService) startRun(ctx context.Context, workflow db.MulticaWorkflow, triggeredByType, triggeredByID string, input json.RawMessage, runtimeSelectionPolicy string, runtimeID pgtype.UUID, dispatchKey string, runtimeContext workflowRunRuntimeContext) (*db.MulticaWorkflowRun, error) {
 	if workflow.Status != "active" {
 		return nil, fmt.Errorf("workflow is not active (status=%s)", workflow.Status)
+	}
+	resolvedPolicy, resolvedRuntimeID, err := resolveWorkflowRuntimeSelectionPolicy(workflow, runtimeSelectionPolicy, runtimeID)
+	if err != nil {
+		return nil, err
 	}
 	nodes, err := s.Queries.ListWorkflowNodes(ctx, workflow.ID)
 	if err != nil {
@@ -306,32 +314,34 @@ func (s *WorkflowService) startRun(ctx context.Context, workflow db.MulticaWorkf
 		var err error
 		if dispatchKey == "" {
 			r, err = qtx.CreateWorkflowRun(ctx, db.CreateWorkflowRunParams{
-				WorkflowID:          workflow.ID,
-				WorkspaceID:         workflow.WorkspaceID,
-				WorkflowTitle:       workflow.Title,
-				Status:              runStatus,
-				TriggeredByType:     triggeredByType,
-				TriggeredByID:       triggeredByUUID,
-				Input:               input,
-				RuntimeID:           runtimeID,
-				SourceIssueID:       runtimeContext.SourceIssueID,
-				ResponsibleUserID:   runtimeContext.ResponsibleUserID,
-				RuntimeAuthorizerID: runtimeContext.RuntimeAuthorizerID,
+				WorkflowID:             workflow.ID,
+				WorkspaceID:            workflow.WorkspaceID,
+				WorkflowTitle:          workflow.Title,
+				Status:                 runStatus,
+				TriggeredByType:        triggeredByType,
+				TriggeredByID:          triggeredByUUID,
+				Input:                  input,
+				RuntimeSelectionPolicy: resolvedPolicy,
+				RuntimeID:              resolvedRuntimeID,
+				SourceIssueID:          runtimeContext.SourceIssueID,
+				ResponsibleUserID:      runtimeContext.ResponsibleUserID,
+				RuntimeAuthorizerID:    runtimeContext.RuntimeAuthorizerID,
 			})
 		} else {
 			r, err = qtx.CreateWorkflowRunWithDispatchKey(ctx, db.CreateWorkflowRunWithDispatchKeyParams{
-				WorkflowID:          workflow.ID,
-				WorkspaceID:         workflow.WorkspaceID,
-				WorkflowTitle:       workflow.Title,
-				Status:              runStatus,
-				TriggeredByType:     triggeredByType,
-				TriggeredByID:       triggeredByUUID,
-				Input:               input,
-				RuntimeID:           runtimeID,
-				DispatchKey:         textToPgText(dispatchKey),
-				SourceIssueID:       runtimeContext.SourceIssueID,
-				ResponsibleUserID:   runtimeContext.ResponsibleUserID,
-				RuntimeAuthorizerID: runtimeContext.RuntimeAuthorizerID,
+				WorkflowID:             workflow.ID,
+				WorkspaceID:            workflow.WorkspaceID,
+				WorkflowTitle:          workflow.Title,
+				Status:                 runStatus,
+				TriggeredByType:        triggeredByType,
+				TriggeredByID:          triggeredByUUID,
+				Input:                  input,
+				RuntimeSelectionPolicy: resolvedPolicy,
+				RuntimeID:              resolvedRuntimeID,
+				DispatchKey:            textToPgText(dispatchKey),
+				SourceIssueID:          runtimeContext.SourceIssueID,
+				ResponsibleUserID:      runtimeContext.ResponsibleUserID,
+				RuntimeAuthorizerID:    runtimeContext.RuntimeAuthorizerID,
 			})
 		}
 		if err != nil {
@@ -485,6 +495,18 @@ func (s *WorkflowService) StartRunForIssue(
 	triggeredByID string,
 	runtimeID pgtype.UUID,
 ) (*db.MulticaWorkflowRun, []db.MulticaWorkflowNodeRun, error) {
+	return s.StartRunForIssueWithRuntimeSelection(ctx, workflow, issue, triggeredByType, triggeredByID, "", runtimeID)
+}
+
+func (s *WorkflowService) StartRunForIssueWithRuntimeSelection(
+	ctx context.Context,
+	workflow db.MulticaWorkflow,
+	issue db.MulticaIssue,
+	triggeredByType string,
+	triggeredByID string,
+	runtimeSelectionPolicy string,
+	runtimeID pgtype.UUID,
+) (*db.MulticaWorkflowRun, []db.MulticaWorkflowNodeRun, error) {
 	input, err := json.Marshal(map[string]any{
 		"issue_id":    util.UUIDToString(issue.ID),
 		"title":       issue.Title,
@@ -498,7 +520,7 @@ func (s *WorkflowService) StartRunForIssue(
 	if parseErr != nil && triggeredByID != "" {
 		triggeredByUUID = pgtype.UUID{}
 	}
-	run, err := s.startRun(ctx, workflow, triggeredByType, triggeredByID, input, runtimeID, "", workflowRunRuntimeContext{
+	run, err := s.startRun(ctx, workflow, triggeredByType, triggeredByID, input, runtimeSelectionPolicy, runtimeID, "", workflowRunRuntimeContext{
 		SourceIssueID:       issue.ID,
 		ResponsibleUserID:   s.resolveWorkflowUser(ctx, issue.CreatorType, issue.CreatorID),
 		RuntimeAuthorizerID: s.resolveWorkflowUser(ctx, triggeredByType, triggeredByUUID),
@@ -536,7 +558,7 @@ func (s *WorkflowService) StartRunForIssueWithDispatchKey(
 	if parseErr != nil && triggeredByID != "" {
 		triggeredByUUID = pgtype.UUID{}
 	}
-	run, err := s.startRun(ctx, workflow, triggeredByType, triggeredByID, input, runtimeID, dispatchKey, workflowRunRuntimeContext{
+	run, err := s.startRun(ctx, workflow, triggeredByType, triggeredByID, input, "", runtimeID, dispatchKey, workflowRunRuntimeContext{
 		SourceIssueID:       issue.ID,
 		ResponsibleUserID:   s.resolveWorkflowUser(ctx, issue.CreatorType, issue.CreatorID),
 		RuntimeAuthorizerID: s.resolveWorkflowUser(ctx, triggeredByType, triggeredByUUID),

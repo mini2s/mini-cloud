@@ -1110,6 +1110,7 @@ describe("SplitReviewPanel", () => {
         completed_at: "",
         created_at: "",
         runtime_id: null,
+        runtime_selection_policy: "idle_first",
       },
       node_runs: [],
       node_runtime_summaries: [
