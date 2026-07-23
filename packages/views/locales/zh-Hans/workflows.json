@@ -297,7 +297,7 @@
     "empty_worker": "未选择执行者",
     "empty_critic_role": "未选择评审角色",
     "empty_critic": "未选择审核者",
-    "manage_roles_shortcut": "管理角色",
+    "manage_roles_shortcut": "添加研发角色",
     "empty_unknown_node": "未知节点",
     "picker_empty_prefix": "选择已有",
     "gateway_label_fork": "分支开始",
