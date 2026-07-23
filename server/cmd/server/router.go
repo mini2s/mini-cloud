@@ -428,6 +428,12 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 		// (?descendants=true). Lets an agent (cs-cloud) read any issue's /
 		// child / grandchild workflow deliverables without node-run-ids.
 		r.Get("/issues/{issue}/gitea-deliverables", h.HandleGetIssueGiteaDeliverables)
+		// Workflow run + node run status tree by issue (agent-facing read path).
+		// Resolve an issue by UUID or <PREFIX>-<number> and return its workflow
+		// chain — optionally recursively for all descendant issues
+		// (?descendants=true). Lets an agent read any issue's / child / grandchild
+		// workflow progress without node-run-ids.
+		r.Get("/issues/{issue}/workflow-tree", h.HandleGetIssueWorkflowTree)
 	})
 
 	// GitLab credential for CLI credential helper (gitlab-credential-multica).
