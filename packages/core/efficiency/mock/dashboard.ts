@@ -31,7 +31,7 @@ export function getMockDashboardSummary(_p: {
     total_task_lines: 312_400,
     total_commit_lines: 486_900,
     total_diff_lines: 799_300,
-    total_real_minutes: 96_400,
+    total_real_minutes: 170_600,
     avg_efficiency_ratio: 2.84,
     total_task_ancient_minutes: 286_500,
     total_task_real_minutes: 96_400,
@@ -63,14 +63,14 @@ export function getMockDashboardTrends(_p: {
   // actual<=0); active_users / merged_need_count / cost / commit_diff_lines
   // mirror the DashboardTrendPoint fields.
   const points: DashboardTrendPoint[] = [
-    { week_start: "2026-06-02", efficiency_ratio: 2.41, active_users: 18, merged_need_count: 42, cost: 820.4, commit_diff_lines: 84_200 },
-    { week_start: "2026-06-09", efficiency_ratio: 2.58, active_users: 22, merged_need_count: 51, cost: 910.2, commit_diff_lines: 92_700 },
-    { week_start: "2026-06-16", efficiency_ratio: 2.72, active_users: 25, merged_need_count: 58, cost: 1024.8, commit_diff_lines: 101_400 },
-    { week_start: "2026-06-23", efficiency_ratio: 2.69, active_users: 24, merged_need_count: 55, cost: 998.1, commit_diff_lines: 98_300 },
-    { week_start: "2026-06-30", efficiency_ratio: 2.85, active_users: 27, merged_need_count: 63, cost: 1142.6, commit_diff_lines: 108_900 },
-    { week_start: "2026-07-07", efficiency_ratio: 2.93, active_users: 29, merged_need_count: 67, cost: 1218.4, commit_diff_lines: 115_200 },
-    { week_start: "2026-07-14", efficiency_ratio: 2.88, active_users: 28, merged_need_count: 64, cost: 1186.7, commit_diff_lines: 112_500 },
-    { week_start: "2026-07-21", efficiency_ratio: 3.04, active_users: 31, merged_need_count: 72, cost: 1310.9, commit_diff_lines: 124_800 },
+    { week_start: "2026-06-01", efficiency_ratio: 2.41, active_users: 18, merged_need_count: 42, cost: 820.4, commit_diff_lines: 84_200 },
+    { week_start: "2026-06-08", efficiency_ratio: 2.58, active_users: 22, merged_need_count: 51, cost: 910.2, commit_diff_lines: 92_700 },
+    { week_start: "2026-06-15", efficiency_ratio: 2.72, active_users: 25, merged_need_count: 58, cost: 1024.8, commit_diff_lines: 101_400 },
+    { week_start: "2026-06-22", efficiency_ratio: 2.69, active_users: 24, merged_need_count: 55, cost: 998.1, commit_diff_lines: 98_300 },
+    { week_start: "2026-06-29", efficiency_ratio: 2.85, active_users: 27, merged_need_count: 63, cost: 1142.6, commit_diff_lines: 108_900 },
+    { week_start: "2026-07-06", efficiency_ratio: 2.93, active_users: 29, merged_need_count: 67, cost: 1218.4, commit_diff_lines: 115_200 },
+    { week_start: "2026-07-13", efficiency_ratio: 2.88, active_users: 28, merged_need_count: 64, cost: 1186.7, commit_diff_lines: 112_500 },
+    { week_start: "2026-07-20", efficiency_ratio: 3.04, active_users: 31, merged_need_count: 72, cost: 1310.9, commit_diff_lines: 124_800 },
   ];
 
   const efficiency: DashboardTrendDelta = {
