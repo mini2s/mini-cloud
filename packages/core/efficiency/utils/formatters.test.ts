@@ -12,7 +12,7 @@ import {
   PERSON_DAY_MINUTES,
 } from './formatters'
 
-// 这些是 V1→V2 迁移后口径混淆的高发区，单测锁死契约（见记忆 react-frontend-gotchas「两套口径」）。
+// These are high-risk areas for scope confusion after the V1→V2 migration; unit tests lock the contract (see the "two scopes" note in the react-frontend-gotchas memory).
 
 describe('formatV2Ratio（小数口径，×100）', () => {
   it('小数转百分比', () => {
@@ -36,7 +36,7 @@ describe('formatPercent（百分比口径，不 ×100）', () => {
     expect(formatPercent(25)).toBe('25.0%')
   })
   it('与 formatV2Ratio 口径必须不同（关键回归防护）', () => {
-    // 同一个数 25：百分比口径=25%，小数口径=2500%。混用即 100 倍错误。
+    // Same number 25: percentage scope = 25%, decimal scope = 2500%. Mixing them produces a 100x error.
     expect(formatPercent(25)).toBe('25.0%')
     expect(formatV2Ratio(25)).toBe('2500.0%')
   })

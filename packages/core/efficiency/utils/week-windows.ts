@@ -1,17 +1,17 @@
-// 周窗口切分 —— 平台(chat-stats)无「按用户的时间桶」，但 /stats/users/ranking 吃日期范围。
-// 故把全局 timeRange 切成 N 个 ISO 周窗口，各查一次区间聚合，拼成「按周」的个人/组织时间线。
-// 纯函数，便于单测；不依赖 React / 网络。窗口以周一为界（对齐 lib/week.ts 的 ISO 周口径）。
+// Week-window slicing — the platform (chat-stats) has no "per-user time bucket", but /stats/users/ranking accepts a date range.
+// So we split the global timeRange into N ISO-week windows, query a per-range aggregate once each, and stitch them into a "by-week" personal/org timeline.
+// Pure functions for easy unit testing; no React / network dependency. Windows are bounded by Monday (aligned with lib/week.ts's ISO-week scope).
 
 function pad2(n: number): string {
   return String(n).padStart(2, '0')
 }
 
-/** Date → 本地 'YYYY-MM-DD'。 */
+/** Date → local 'YYYY-MM-DD'. */
 function toDateStr(d: Date): string {
   return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`
 }
 
-/** 'YYYY-MM-DD' → 本地 Date（置零到 00:00:00）。非法返回 null。 */
+/** 'YYYY-MM-DD' → local Date (zeroed to 00:00:00). Returns null if invalid. */
 function parseLocalDate(s: string): Date | null {
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s)
   if (!m) {
@@ -21,7 +21,7 @@ function parseLocalDate(s: string): Date | null {
   return new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]))
 }
 
-/** 取某日期所在 ISO 周的周一（本地 00:00:00；周一为一周起始）。 */
+/** Get the Monday of the ISO week containing a date (local 00:00:00; week starts Monday). */
 function isoWeekMonday(d: Date): Date {
   const date = new Date(d.getFullYear(), d.getMonth(), d.getDate())
   const day = (date.getDay() + 6) % 7
@@ -30,17 +30,17 @@ function isoWeekMonday(d: Date): Date {
 }
 
 export interface WeekWindow {
-  /** 'YYYY-Wxx'（对齐 lib/week.ts 的 key 口径）。 */
+  /** 'YYYY-Wxx' (aligned with lib/week.ts's key scope). */
   key: string
-  /** 该周周一（本地 00:00:00），趋势排序/标签用。 */
+  /** Monday of the week (local 00:00:00), for trend sorting/labeling. */
   monday: Date
-  /** 查询用起始日期 'YYYY-MM-DD'（不早于 rangeStart）。 */
+  /** Query start date 'YYYY-MM-DD' (no earlier than rangeStart). */
   startDate: string
-  /** 查询用结束日期 'YYYY-MM-DD'（不晚于 rangeEnd）。 */
+  /** Query end date 'YYYY-MM-DD' (no later than rangeEnd). */
   endDate: string
 }
 
-/** ISO 周编号（ISO-8601：含当年第一个周四的那周为第 1 周）—— 与 lib/week.ts 一致。 */
+/** ISO week number (ISO-8601: the week containing the year's first Thursday is week 1) — consistent with lib/week.ts. */
 function isoWeekNumber(d: Date): { year: number; week: number } {
   const date = new Date(d.getFullYear(), d.getMonth(), d.getDate())
   const day = (date.getDay() + 6) % 7
@@ -53,9 +53,9 @@ function isoWeekNumber(d: Date): { year: number; week: number } {
 }
 
 /**
- * 把 [rangeStart, rangeEnd]（含端点，'YYYY-MM-DD'）切成按 ISO 周（周一为界）的窗口列表。
- * 首尾窗口被 range 端点裁剪（startDate/endDate 不越界）。区间过大时用 maxWindows 兜底（取最后 N 周，
- * 避免 N 次串行请求拖死）。非法/空区间返回空数组。
+ * Split [rangeStart, rangeEnd] (inclusive, 'YYYY-MM-DD') into a list of windows by ISO week (bounded by Monday).
+ * The first and last windows are clipped by the range endpoints (startDate/endDate stay in bounds). When the range is too large, maxWindows caps it (taking the last N weeks,
+ * to avoid N serial requests hanging). Returns an empty array for invalid/empty ranges.
  */
 export function sliceWeekWindows(
   rangeStart: string,
@@ -67,12 +67,12 @@ export function sliceWeekWindows(
   if (!start || !end || start.getTime() > end.getTime()) return []
 
   const windows: WeekWindow[] = []
-  // 从首周周一逐周推进，直到越过 end。
+  // Advance week by week from the first Monday until past end.
   let cursor = isoWeekMonday(start)
   while (cursor.getTime() <= end.getTime()) {
     const weekEnd = new Date(cursor)
-    weekEnd.setDate(weekEnd.getDate() + 6) // 该周周日
-    // 与 range 端点求交集（首尾窗口裁剪）。
+    weekEnd.setDate(weekEnd.getDate() + 6) // Sunday of that week
+    // Intersect with range endpoints (clip the first/last windows).
     const winStart = cursor.getTime() < start.getTime() ? start : cursor
     const winEnd = weekEnd.getTime() > end.getTime() ? end : weekEnd
     const { year, week } = isoWeekNumber(cursor)
@@ -86,12 +86,12 @@ export function sliceWeekWindows(
     cursor.setDate(cursor.getDate() + 7)
   }
 
-  // 兜底：窗口太多只取最近 maxWindows 周（趋势看近况，且限制串行请求数）。
+  // Fallback: too many windows → keep only the most recent maxWindows weeks (trends look at recent state, and this caps the number of serial requests).
   if (windows.length > maxWindows) return windows.slice(windows.length - maxWindows)
   return windows
 }
 
-/** 周一日期 → 'MM/DD' 显示标签（趋势 x 轴用；对齐 lib/week.ts weekLabel）。 */
+/** Monday date → 'MM/DD' display label (for the trend x-axis; aligned with lib/week.ts weekLabel). */
 export function weekWindowLabel(monday: Date): string {
   return `${pad2(monday.getMonth() + 1)}/${pad2(monday.getDate())}`
 }

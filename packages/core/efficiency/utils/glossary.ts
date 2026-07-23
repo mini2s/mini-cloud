@@ -1,15 +1,15 @@
-// 中央术语表（名词解释单一事实源）。给主管看的看板，每个口径词都要能就地解释"是什么/怎么算/什么口径"。
-// 复用方式：组件把 glossaryTip(key) 的返回值塞进 MetricCard / MetricScorecard 的 tip（ⓘ 悬浮 title）。
-// 新增/改口径只改这里一处，全站一致。已有页面也可逐步接入。
+// Central glossary (the single source of truth for term definitions). On a dashboard for managers, every metric term must be explainable in place — "what it is / how it's computed / what scope".
+// Reuse: components put the return value of glossaryTip(key) into MetricCard / MetricScorecard's tip (ⓘ hover title).
+// Add/change a scope in this one place only, for site-wide consistency. Existing pages can be migrated incrementally.
 
 export interface GlossaryEntry {
-  /** 名词 */
+  /** Term */
   term: string
-  /** 一句话定义 */
+  /** One-sentence definition */
   short: string
-  /** 怎么算（可选） */
+  /** How it is computed (optional) */
   formula?: string
-  /** 口径/注意（可选） */
+  /** Scope / notes (optional) */
   caliber?: string
 }
 
@@ -91,7 +91,7 @@ export const GLOSSARY = {
 
 export type GlossaryKey = keyof typeof GLOSSARY
 
-/** 拼成 ⓘ 悬浮文本（多行；原生 title 支持 \n 换行）。 */
+/** Assemble the ⓘ hover text (multi-line; native title supports \n line breaks). */
 export function glossaryTip(key: GlossaryKey): string {
   const e: GlossaryEntry = GLOSSARY[key]
   const lines = [`${e.term}：${e.short}`]

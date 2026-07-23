@@ -1,6 +1,6 @@
-// 趋势时间分桶 —— 把「按天」数据重聚合成 天/周/月 粒度（纯前端，不改后端取数）。
-// 周**以周日为一周首天**（区别于 lib/week.ts 的 ISO 周一口径，故另起一套）。
-// 首尾桶的日期范围 / 天数按 clamp（一般传所选 timeRange）裁剪，避免越界。
+// Trend time bucketing — re-aggregates "by-day" data into day/week/month granularity (front-end only, does not change backend data fetching).
+// Weeks **start on Sunday** (unlike lib/week.ts's ISO Monday-start scope, so a separate implementation).
+// The date range / day count of the first and last buckets is clipped by clamp (usually the selected timeRange) to avoid going out of bounds.
 
 export type Granularity = 'day' | 'week' | 'month'
 
@@ -8,7 +8,7 @@ function pad2(n: number): string {
   return String(n).padStart(2, '0')
 }
 
-/** 'YYYY-MM-DD' → 本地 Date（置零到 00:00:00）。非法返回 null。 */
+/** 'YYYY-MM-DD' → local Date (zeroed to 00:00:00). Returns null if invalid. */
 function parseLocalDate(s: string): Date | null {
   const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(s)
   if (m) return new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]))
@@ -16,18 +16,18 @@ function parseLocalDate(s: string): Date | null {
   return isNaN(d.getTime()) ? null : new Date(d.getFullYear(), d.getMonth(), d.getDate())
 }
 
-/** Date → 本地 'YYYY-MM-DD'。 */
+/** Date → local 'YYYY-MM-DD'. */
 function toDateStr(d: Date): string {
   return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`
 }
 
-/** 'YYYY-MM-DD' → 'MM/DD'（x 轴标签）。 */
+/** 'YYYY-MM-DD' → 'MM/DD' (x-axis label). */
 function mmdd(s: string): string {
   const d = parseLocalDate(s)
   return d ? `${pad2(d.getMonth() + 1)}/${pad2(d.getDate())}` : s
 }
 
-/** 含端点的天数跨度。非法/逆序返回 0。 */
+/** Inclusive day span. Returns 0 if invalid/reversed. */
 export function rangeDays(start: string, end: string): number {
   const a = parseLocalDate(start)
   const b = parseLocalDate(end)
@@ -35,14 +35,14 @@ export function rangeDays(start: string, end: string): number {
   return Math.round((b.getTime() - a.getTime()) / 86_400_000) + 1
 }
 
-/** 按区间跨度给可选粒度集合（< 14d 仅天；≥ 14d 天/周；≥ 60d 天/周/月）。 */
+/** Available granularity set based on range span (< 14d day only; ≥ 14d day/week; ≥ 60d day/week/month). */
 export function availableGranularities(spanDays: number): Granularity[] {
   if (spanDays >= 60) return ['day', 'week', 'month']
   if (spanDays >= 14) return ['day', 'week']
   return ['day']
 }
 
-/** 默认粒度：≥ 60d 月，≥ 14d 周，否则天。 */
+/** Default granularity: ≥ 60d month, ≥ 14d week, otherwise day. */
 export function defaultGranularity(spanDays: number): Granularity {
   if (spanDays >= 60) return 'month'
   if (spanDays >= 14) return 'week'
@@ -52,22 +52,22 @@ export function defaultGranularity(spanDays: number): Granularity {
 export const GRANULARITY_CN: Record<Granularity, string> = { day: '按天', week: '按周', month: '按月' }
 
 export interface TimeBucket {
-  /** 唯一键。day: 'YYYY-MM-DD'；week: 该周周日 'YYYY-MM-DD'；month: 'YYYY-MM'。 */
+  /** Unique key. day: 'YYYY-MM-DD'; week: that week's Sunday 'YYYY-MM-DD'; month: 'YYYY-MM'. */
   key: string
-  /** x 轴标签。day/week: 'MM/DD'（week 取周日）；month: 'M月'。 */
+  /** x-axis label. day/week: 'MM/DD' (week uses Sunday); month: 'M月'. */
   label: string
-  /** tooltip 头部日期范围（首尾桶按 clamp 裁剪）。day: 'YYYY-MM-DD'；week/month: 'YYYY-MM-DD ~ YYYY-MM-DD'。 */
+  /** Tooltip header date range (first/last buckets clipped by clamp). day: 'YYYY-MM-DD'; week/month: 'YYYY-MM-DD ~ YYYY-MM-DD'. */
   rangeText: string
-  /** 落入该桶、且在数据里出现的日期（升序）。 */
+  /** Dates that fall into this bucket and appear in the data (ascending). */
   dates: string[]
-  /** 该桶在 clamp 内覆盖的日历天数（活跃用户「日均」分母用）。 */
+  /** Calendar days this bucket covers within clamp (denominator for the active-user "daily average"). */
   spanDays: number
 }
 
-/** 取某日期所在周的周日（本地 00:00:00；周日为一周首天）。 */
+/** Get the Sunday of the week containing a date (local 00:00:00; Sunday is the first day of the week). */
 function sundayOf(d: Date): Date {
   const x = new Date(d.getFullYear(), d.getMonth(), d.getDate())
-  x.setDate(x.getDate() - x.getDay()) // getDay(): 周日=0
+  x.setDate(x.getDate() - x.getDay()) // getDay(): Sunday=0
   return x
 }
 
@@ -79,10 +79,10 @@ function strMin(a: string, b?: string): string {
 }
 
 /**
- * 把数据里出现的日期重聚合成指定粒度的桶（按时间升序）。
- * @param sortedDates 数据中出现的日期（'YYYY-MM-DD'，会内部去重+排序）。
- * @param gran 目标粒度。
- * @param clamp 用于裁剪首尾桶 rangeText/spanDays 的区间（一般传所选 timeRange）。
+ * Re-aggregate dates appearing in the data into buckets of the specified granularity (ascending by time).
+ * @param sortedDates Dates appearing in the data ('YYYY-MM-DD'; deduped + sorted internally).
+ * @param gran Target granularity.
+ * @param clamp Range used to clip the first/last buckets' rangeText/spanDays (usually the selected timeRange).
  */
 export function buildBuckets(
   dates: string[],
@@ -92,7 +92,7 @@ export function buildBuckets(
   const uniq = Array.from(new Set(dates.filter((d) => parseLocalDate(d)))).sort()
   if (!uniq.length) return []
 
-  // 1. 分组：key → 成员日期（按出现顺序，因 uniq 已升序故天然时间序）。
+  // 1. Group: key → member dates (in appearance order; since uniq is ascending, naturally time-ordered).
   const order: string[] = []
   const groups = new Map<string, string[]>()
   for (const ds of uniq) {
@@ -108,7 +108,7 @@ export function buildBuckets(
     groups.get(key)!.push(ds)
   }
 
-  // 2. 每桶算 label / rangeText / spanDays（首尾按 clamp 裁剪自然边界）。
+  // 2. Compute label / rangeText / spanDays per bucket (first/last clipped to natural bounds by clamp).
   return order.map((key) => {
     const memberDates = groups.get(key)!
     let label: string
@@ -130,9 +130,9 @@ export function buildBuckets(
       const mo = Number(key.slice(5, 7))
       label = `${mo}月`
       boundStart = `${key}-01`
-      boundEnd = toDateStr(new Date(y, mo, 0)) // 该月最后一天
+      boundEnd = toDateStr(new Date(y, mo, 0)) // last day of that month
     }
-    // clamp 裁剪
+    // clamp clipping
     const clampedStart = strMax(boundStart, clamp?.start)
     const clampedEnd = strMin(boundEnd, clamp?.end)
     const spanDays = Math.max(1, rangeDays(clampedStart, clampedEnd))

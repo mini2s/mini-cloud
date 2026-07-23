@@ -1,17 +1,17 @@
-// 后端返回类型 —— 字段对齐 backend Go struct json tag，见 research/api-contract.md §2。
-// PR0 先定义高管大屏/核心列表会用到的类型；其余 detail/mutation 类型在对应 PR 补。
+// Backend response types — fields align with backend Go struct json tags, see research/api-contract.md §2.
+// PR0 first defines types used by the executive dashboard / core lists; other detail/mutation types are added in their respective PRs.
 
-/** 通用分页响应包（多数 list 端点） */
+/** Generic paginated response envelope (most list endpoints) */
 export interface ApiList<T> {
   total: number
-  /** 仅需求列表：默认折叠掉的(coverage_eligible=false)条数，供"已折叠N个"提示；其它列表 / “显示全部”时为 0/缺省 */
+  /** Needs list only: count of entries folded by default (coverage_eligible=false), for the "N collapsed" hint; 0/omitted for other lists / "show all" */
   folded_count?: number
   page: number
   pageSize: number
   data: T[]
 }
 
-/** 无分页响应包（Org/Project 列表） */
+/** Non-paginated response envelope (Org/Project lists) */
 export interface ApiData<T> {
   data: T[]
 }
@@ -19,10 +19,10 @@ export interface ApiData<T> {
 /** /v2/config */
 export interface GlobalConfig {
   traditional_dev_lines_per_day: number
-  /** 人天单价（¥/人天），高管大屏节省成本折算用；缺省时前端兜底 2000。 */
+  /** Cost per person-day (¥/person-day), used to convert saved cost on the executive dashboard; front-end falls back to 2000 when omitted. */
   cost_per_person_day?: number
   dashboard_title_prefix: string
-  /** chat-indicator-statistics 代理是否启用（backend chat_stats.base_url 非空）。false/缺省时「平台」导航组不渲染。 */
+  /** Whether the chat-indicator-statistics proxy is enabled (backend chat_stats.base_url non-empty). When false/omitted the "Platform" nav group is not rendered. */
   chat_stats_enabled?: boolean
 }
 
@@ -53,14 +53,14 @@ export interface DashboardSummary {
   eligible_needs: number
   need_actual_calendar_min: number
   need_baseline_calendar_min: number
-  need_calendar_ratio: number | null // 小数口径
-  need_work_ratio: number | null // 小数口径
-  ai_code_ratio?: number | null // 小数口径
-  ai_coverage_rate?: number | null // AI 渗透率卡：覆盖率 = 看板能直接看到 AI 数据的 need 占比（≈0.28）
-  ai_penetration_rate?: number | null // AI 渗透率卡：渗透率 = 作者实际在用 AI 的 need 占比（≈0.72，含被切散）；缺口=渗透−覆盖前端算
+  need_calendar_ratio: number | null // decimal ratio
+  need_work_ratio: number | null // decimal ratio
+  ai_code_ratio?: number | null // decimal ratio
+  ai_coverage_rate?: number | null // AI penetration card: coverage rate = share of needs whose AI data the dashboard can directly see (~0.28)
+  ai_penetration_rate?: number | null // AI penetration card: penetration rate = share of needs whose authors actually use AI (~0.72, including split ones); gap = penetration − coverage, computed on the front-end
 }
 
-/** /v2/dashboard/trends 单周点（efficiency_ratio 小数口径，actual<=0 时为 null） */
+/** /v2/dashboard/trends single-week point (efficiency_ratio is a decimal ratio; null when actual<=0) */
 export interface DashboardTrendPoint {
   week_start: string // YYYY-MM-DD
   efficiency_ratio: number | null
@@ -70,25 +70,25 @@ export interface DashboardTrendPoint {
   commit_diff_lines: number
 }
 
-/** 单维度"本期 vs 等长上期"环比；delta_pct 在上期为 0 时为 null（不画箭头） */
+/** Single-dimension "current period vs. equal-length previous period" delta; delta_pct is null when the previous period is 0 (no arrow drawn) */
 export interface DashboardTrendDelta {
   current: number
   previous: number
   delta_pct: number | null
 }
 
-/** /v2/dashboard/trends 响应。compare 键：efficiency/usage/cost/contribution */
+/** /v2/dashboard/trends response. compare keys: efficiency/usage/cost/contribution */
 export interface DashboardTrends {
   granularity: string
   points: DashboardTrendPoint[]
   compare: Partial<Record<'efficiency' | 'usage' | 'cost' | 'contribution', DashboardTrendDelta>>
 }
 
-/** /v2/needs 列表项（§2.1，小数口径） */
+/** /v2/needs list item (§2.1, decimal ratio) */
 export interface NeedsV2Summary {
   need_id: string
   boundary_source: string
-  // 后端返回字符串枚举（如 'high'），curl 已证实，非数值
+  // Backend returns a string enum (e.g. 'high'); verified via curl, not a number
   boundary_confidence?: string | null
   status: string
   repo_addr: string
@@ -100,17 +100,17 @@ export interface NeedsV2Summary {
   baseline_calendar_min: number | null
   total_active_work_corrected_min: number
   baseline_fused_work_min: number | null
-  efficiency_ratio: number | null // 日历提效，小数口径
+  efficiency_ratio: number | null // calendar efficiency, decimal ratio
   efficiency_band_low: number | null
   efficiency_band_high: number | null
-  work_efficiency_ratio: number | null // 工作量提效，小数口径
+  work_efficiency_ratio: number | null // workload efficiency, decimal ratio
   total_loc_net?: number | null
   ai_covered_loc?: number | null
   ai_code_ratio?: number | null
   confidence_level?: string
-  outlier_flag: boolean // 派生 = 任一口径异常
-  calendar_outlier_flag?: boolean // 日历提效口径异常
-  work_outlier_flag?: boolean // 工作量提效口径异常
+  outlier_flag: boolean // derived = outlier in any ratio
+  calendar_outlier_flag?: boolean // calendar-efficiency ratio outlier
+  work_outlier_flag?: boolean // workload-efficiency ratio outlier
   coverage_eligible: boolean
   total_think_min: number
   total_exec_min: number
@@ -119,8 +119,8 @@ export interface NeedsV2Summary {
 }
 
 /**
- * /v2/needs/{id} 的 need 对象（§3.1.1，全部 snake_case；指针字段普遍可 null）。
- * 仅声明详情页用到的字段；其余字段后端有但页面未消费，留 index 兜底。
+ * need object of /v2/needs/{id} (§3.1.1, all snake_case; pointer fields are generally nullable).
+ * Only fields used by the detail page are declared; other fields exist in the backend but are not consumed by the page, falling back to the index signature.
  */
 export interface NeedDetail {
   need_id: string
@@ -167,9 +167,9 @@ export interface NeedDetail {
   efficiency_band_high?: number | null
   work_efficiency_ratio?: number | null
   confidence_level?: string
-  outlier_flag?: boolean // 派生 = 任一口径异常
-  calendar_outlier_flag?: boolean // 日历提效口径异常
-  work_outlier_flag?: boolean // 工作量提效口径异常
+  outlier_flag?: boolean // derived = outlier in any ratio
+  calendar_outlier_flag?: boolean // calendar-efficiency ratio outlier
+  work_outlier_flag?: boolean // workload-efficiency ratio outlier
   coverage_eligible?: boolean
   baseline_fused_work_min?: number | null
   baseline_calendar_min?: number | null
@@ -177,7 +177,7 @@ export interface NeedDetail {
   [k: string]: unknown
 }
 
-/** SessionStageMetric（§3.1.2，详情用到的字段） */
+/** SessionStageMetric (§3.1.2, fields used by detail) */
 export interface NeedSession {
   session_id: string
   user_id?: string
@@ -192,7 +192,7 @@ export interface NeedSession {
   [k: string]: unknown
 }
 
-/** 关联 Commit（§3.1.3，详情用到的字段） */
+/** Related Commit (§3.1.3, fields used by detail) */
 export interface NeedCommit {
   commit_id: string
   commit_time?: string | null
@@ -204,7 +204,7 @@ export interface NeedCommit {
   [k: string]: unknown
 }
 
-/** baseline_components（§3.1.4，指针可 null） */
+/** baseline_components (§3.1.4, pointers nullable) */
 export interface NeedBaselineComponents {
   algo_think_min?: number | null
   algo_exec_min?: number | null
@@ -224,7 +224,7 @@ export interface NeedBaselineComponents {
   team_work_density?: number | null
 }
 
-/** /v2/needs/{id} 顶层响应（§3.1） */
+/** /v2/needs/{id} top-level response (§3.1) */
 export interface NeedsV2DetailResponse {
   need: NeedDetail
   sessions?: NeedSession[]
@@ -235,7 +235,7 @@ export interface NeedsV2DetailResponse {
   quality_signals?: Record<string, unknown> & { reason?: string }
 }
 
-/** /v2/users 列表项（§2.2，小数口径） */
+/** /v2/users list item (§2.2, decimal ratio) */
 export interface UserV2Row {
   user_id: string
   user_name: string
@@ -245,22 +245,22 @@ export interface UserV2Row {
   abandoned_need_count: number
   actual_calendar_min: number
   baseline_calendar_min: number
-  calendar_ratio: number | null // 小数口径
+  calendar_ratio: number | null // decimal ratio
   actual_work_min: number
   baseline_work_min: number
-  work_ratio: number | null // 小数口径
+  work_ratio: number | null // decimal ratio
   commit_count: number
   commit_diff_lines: number
   cost: number
   tokens: number
-  ai_code_ratio?: number | null // 小数口径
+  ai_code_ratio?: number | null // decimal ratio
   confidence_limited: boolean
   confidence_reason?: string
 }
 
 /**
- * /v2/users/{id} 周明细项（models.UserProductivityV2，小数口径）。
- * 仅声明 UserDetail 周表/趋势用到的字段；其余后端有但页面未消费，留 index 兜底。
+ * /v2/users/{id} weekly detail item (models.UserProductivityV2, decimal ratio).
+ * Only fields used by the UserDetail weekly table / trend are declared; other fields exist in the backend but are not consumed by the page, falling back to the index signature.
  */
 export interface UserProductivityV2 {
   user_productivity_v2_id?: string
@@ -274,8 +274,8 @@ export interface UserProductivityV2 {
   baseline_calendar_min?: number
   actual_active_work_corrected_min?: number
   baseline_fused_work_min?: number
-  efficiency_ratio?: number | null // 小数口径
-  work_efficiency_ratio?: number | null // 小数口径
+  efficiency_ratio?: number | null // decimal ratio
+  work_efficiency_ratio?: number | null // decimal ratio
   commit_count?: number
   commit_diff_lines?: number
   confidence_limited?: boolean
@@ -286,13 +286,13 @@ export interface UserProductivityV2 {
   [k: string]: unknown
 }
 
-/** /v2/efficiency 顶层响应（user×week 周聚合行，小数口径 efficiency_ratio）。 */
+/** /v2/efficiency top-level response (user×week aggregate rows, decimal-ratio efficiency_ratio). */
 export interface EfficiencyV2AggregateResponse {
   total: number
   data: UserProductivityV2[]
 }
 
-/** /v2/users/{id} 顶层响应（§User-2，summary 小数口径） */
+/** /v2/users/{id} top-level response (§User-2, summary uses decimal ratio) */
 export interface UserV2DetailResponse {
   summary: UserV2Row
   weeks: UserProductivityV2[]
@@ -300,7 +300,7 @@ export interface UserV2DetailResponse {
   commits: NeedCommit[]
 }
 
-/** /v2/user-groups/{id} 成员/汇总项（§User-3，⚠️ 百分比口径） */
+/** /v2/user-groups/{id} member/summary item (§User-3, WARNING percentage ratio) */
 export interface UserGroupMember {
   user_id: string
   user_name: string
@@ -313,11 +313,11 @@ export interface UserGroupMember {
   cost: number
   task_real_minutes: number
   task_ancient_minutes: number
-  task_efficiency_ratio: number | null // 百分比口径
+  task_efficiency_ratio: number | null // percentage ratio
   commit_diff_lines: number
   commit_ancient_minutes: number
   commit_real_minutes: number
-  commit_efficiency_ratio: number | null // 百分比口径
+  commit_efficiency_ratio: number | null // percentage ratio
 }
 
 export interface UserGroupSummary {
@@ -330,11 +330,11 @@ export interface UserGroupSummary {
   cost: number
   task_real_minutes: number
   task_ancient_minutes: number
-  task_efficiency_ratio: number | null // 百分比口径
+  task_efficiency_ratio: number | null // percentage ratio
   commit_diff_lines: number
   commit_ancient_minutes: number
   commit_real_minutes: number
-  commit_efficiency_ratio: number | null // 百分比口径
+  commit_efficiency_ratio: number | null // percentage ratio
 }
 
 export interface UserGroup {
@@ -346,70 +346,70 @@ export interface UserGroup {
   updated_at?: string
 }
 
-/** /v2/user-groups/{id} 顶层响应（§User-3） */
+/** /v2/user-groups/{id} top-level response (§User-3) */
 export interface UserGroupDetailResponse {
   group: UserGroup | null
   summary: UserGroupSummary
   members: UserGroupMember[]
 }
 
-/** /v2/orgs 列表项（§2.3，小数口径） */
+/** /v2/orgs list item (§2.3, decimal ratio) */
 export interface OrgV2Row {
   org_name: string
   user_count: number
   merged_need_count: number
   actual_calendar_min: number
   baseline_calendar_min: number
-  calendar_ratio: number | null // 小数口径
-  work_ratio: number | null // 小数口径
-  ai_code_ratio?: number | null // 小数口径
+  calendar_ratio: number | null // decimal ratio
+  work_ratio: number | null // decimal ratio
+  ai_code_ratio?: number | null // decimal ratio
   commit_count: number
   commit_diff_lines: number
   cost: number
 }
 
-/** /v2/repos 列表项（§Repo-4，⚠️ 百分比口径 efficiency_ratio = CalcEfficiencyRatio(ancient,real)）。
- *  整仓口径：后端跨全部分支聚合（一仓一行），repo_branch 为空、branch_count=合并分支数。 */
+/** /v2/repos list item (§Repo-4, WARNING percentage-ratio efficiency_ratio = CalcEfficiencyRatio(ancient,real)).
+ *  Whole-repo scope: backend aggregates across all branches (one row per repo), repo_branch is empty, branch_count = number of merged branches. */
 export interface RepoListItem {
   repo_addr: string
-  repo_branch: string // 整仓聚合后为空；下钻进详情可切分支
-  branch_count?: number // 该仓库合并的分支数
+  repo_branch: string // empty after whole-repo aggregation; can switch branch when drilling into detail
+  branch_count?: number // number of merged branches for this repo
   commit_count: number
   start_time: string
   end_time: string
   sum_ancient_minutes: number
   sum_real_minutes: number
   task_count: number
-  efficiency_ratio: number // 百分比口径
-  ai_code_ratio?: number | null // 小数口径
-  cost?: number // 看板派生费用（Need→session→tasks.cost 跨分支聚合）；无 tasks 数据的库为 0
+  efficiency_ratio: number // percentage ratio
+  ai_code_ratio?: number | null // decimal ratio
+  cost?: number // dashboard-derived cost (Need→session→tasks.cost aggregated across branches); 0 for repos without tasks data
 }
 
-/** /v2/repo-trend、/v2/project-trend 的周聚合点（efficiency_pct 已是百分比提效率，前端直接画不再 ×100）。 */
+/** /v2/repo-trend、/v2/project-trend weekly aggregate point (efficiency_pct is already a percentage efficiency; front-end renders directly without ×100). */
 export interface EntityTrendPoint {
-  week_start: string // 该周周一 YYYY-MM-DD
-  efficiency_pct: number // 提效率百分比(gain%，200=2倍提升)；项目侧=每周Σbaseline/Σactual守恒，与项目卡片同口径
-  commit_count: number // 仓库口径：本周提交数
-  diff_lines: number // 仓库口径：本周代码行
-  need_count: number // 项目口径：本周干净 Need 数
-  loc: number // 项目口径：本周生成代码净行
-  cost?: number // 仓库口径：本周会话费用(Need→session→tasks.cost,按 dev_end_ts 分桶);archive 库恒 0
+  week_start: string // Monday of the week, YYYY-MM-DD
+  efficiency_pct: number // efficiency percentage (gain%, 200 = 2x uplift); project side = weekly Σbaseline/Σactual conserved, same scope as project cards
+  commit_count: number // repo scope: number of commits this week
+  diff_lines: number // repo scope: lines of code this week
+  need_count: number // project scope: number of clean Needs this week
+  loc: number // project scope: net generated code lines this week
+  cost?: number // repo scope: session cost this week (Need→session→tasks.cost, bucketed by dev_end_ts); always 0 for archived repos
 }
 
 export interface EntityTrendResponse {
   data: EntityTrendPoint[]
 }
 
-/** /v2/repos/detail 的 efficiency 块（百分比口径）。 */
+/** efficiency block of /v2/repos/detail (percentage ratio). */
 export interface RepoEfficiency {
   repo_ancient_minutes: number
   repo_real_minutes: number
-  efficiency_ratio: number // 百分比口径
+  efficiency_ratio: number // percentage ratio
   repo_ancient_minutes_reason?: string
   repo_real_minutes_reason?: string
 }
 
-/** /v2/repos/detail 的 commits 项（§Repo-5，commit_*_manual 优先；silica 为 Commit 级 AI 代码占比，小数口径）。 */
+/** commits item of /v2/repos/detail (§Repo-5, commit_*_manual takes precedence; silica is the commit-level AI code share, decimal ratio). */
 export interface RepoCommitItem {
   commit_id: string
   commit_time?: string | null
@@ -424,11 +424,11 @@ export interface RepoCommitItem {
   cost?: number | null
   upstream_tokens?: number | null
   downstream_tokens?: number | null
-  efficiency_ratio?: number | null // 百分比口径
+  efficiency_ratio?: number | null // percentage ratio
   [k: string]: unknown
 }
 
-/** /v2/repos/detail 顶层响应（§Repo-5）。 */
+/** /v2/repos/detail top-level response (§Repo-5). */
 export interface RepoDetailResponse {
   repo_addr: string
   repo_branch: string
@@ -439,28 +439,28 @@ export interface RepoDetailResponse {
   summary?: { commit_count?: number; task_count?: number; ai_code_ratio?: number | null }
 }
 
-/** /v2/repos/branches 响应。 */
+/** /v2/repos/branches response. */
 export interface RepoBranchesResponse {
   branches: string[]
 }
 
-/** /v2/orgs/detail 汇总块（§Org-7，⚠️ 百分比口径）。 */
+/** /v2/orgs/detail summary block (§Org-7, WARNING percentage ratio). */
 export interface OrgSummary {
   user_count: number
   task_diff_lines: number
   task_real_minutes: number
   task_ancient_minutes: number
-  task_efficiency_ratio: number // 百分比口径
+  task_efficiency_ratio: number // percentage ratio
   commit_diff_lines: number
   commit_real_minutes: number
   commit_ancient_minutes: number
-  commit_efficiency_ratio: number // 百分比口径
+  commit_efficiency_ratio: number // percentage ratio
   upstream_tokens: number
   downstream_tokens: number
   cost: number
 }
 
-/** /v2/orgs/detail commits 时序项（§Org-7，百分比口径）。 */
+/** /v2/orgs/detail commits time-series item (§Org-7, percentage ratio). */
 export interface CommitTimeSeriesItem {
   period_key: string
   period_label: string
@@ -468,14 +468,14 @@ export interface CommitTimeSeriesItem {
   commit_diff_lines: number
   commit_real_minutes: number
   commit_ancient_minutes: number
-  commit_efficiency_ratio: number // 百分比口径
+  commit_efficiency_ratio: number // percentage ratio
   upstream_tokens: number
   downstream_tokens: number
   cost: number
   [k: string]: unknown
 }
 
-/** /v2/orgs/detail tasks 时序项（§Org-7，百分比口径）。 */
+/** /v2/orgs/detail tasks time-series item (§Org-7, percentage ratio). */
 export interface TaskTimeSeriesItem {
   period_key: string
   period_label: string
@@ -483,14 +483,14 @@ export interface TaskTimeSeriesItem {
   task_diff_lines: number
   task_real_minutes: number
   task_ancient_minutes: number
-  task_efficiency_ratio: number // 百分比口径
+  task_efficiency_ratio: number // percentage ratio
   upstream_tokens: number
   downstream_tokens: number
   cost: number
   [k: string]: unknown
 }
 
-/** /v2/orgs/detail members 项（UserDetail，§Org-7，百分比口径）。 */
+/** /v2/orgs/detail members item (UserDetail, §Org-7, percentage ratio). */
 export interface OrgMember {
   user_id: string
   user_name: string
@@ -502,18 +502,18 @@ export interface OrgMember {
   task_diff_lines: number
   task_real_minutes: number
   task_ancient_minutes: number
-  task_efficiency_ratio: number // 百分比口径
+  task_efficiency_ratio: number // percentage ratio
   commit_diff_lines: number
   commit_real_minutes: number
   commit_ancient_minutes: number
-  commit_efficiency_ratio: number // 百分比口径
+  commit_efficiency_ratio: number // percentage ratio
   upstream_tokens: number
   downstream_tokens: number
   cost: number
   [k: string]: unknown
 }
 
-/** /v2/dept-tree 节点（递归）。来自 dept-sync 权威全量部门树（透传）。 */
+/** /v2/dept-tree node (recursive). Sourced from the authoritative full department tree provided by dept-sync (passed through). */
 export interface DeptTreeNode {
   dept_id: string
   dept_name: string
@@ -526,7 +526,7 @@ export interface DeptTreeNode {
   children: DeptTreeNode[]
 }
 
-/** /v2/dept-tree/overview 节点：树结构 + 本节点整棵子树守恒提效汇总（一次性返回，替代逐节点 ranking N+1）。 */
+/** /v2/dept-tree/overview node: tree structure + conserved efficiency summary of this node's entire subtree (returned in one pass, replacing per-node ranking N+1). */
 export interface DeptTreeNodeWithSummary {
   dept_id: string
   dept_name: string
@@ -540,17 +540,17 @@ export interface DeptTreeNodeWithSummary {
   children: DeptTreeNodeWithSummary[]
 }
 
-/** /v2/dept-tree/overview 顶层响应：森林（多根）+ 每节点子树守恒汇总。 */
+/** /v2/dept-tree/overview top-level response: a forest (multiple roots) + per-node conserved subtree summary. */
 export interface DeptOverviewResponse {
   nodes: DeptTreeNodeWithSummary[]
 }
 
-/** /v2/dept-tree/members 一名成员：dept-sync 花名册 + 左连看板 V2 指标（按 universal_id）。 */
+/** /v2/dept-tree/members a single member: dept-sync roster + left-joined dashboard V2 metrics (by universal_id). */
 export interface DeptMember {
   universal_id: string
   real_name: string
   emp_no: string
-  /** 成员直属部门 id（成本树按此归桶算各部门直属成本）。 */
+  /** The member's direct department id (the cost tree buckets direct costs per department by this). */
   dept_id: string
   position: string
   is_main: number
@@ -558,15 +558,15 @@ export interface DeptMember {
   merged_need_count: number
   actual_calendar_min: number
   baseline_calendar_min: number
-  calendar_ratio: number | null // 小数口径
-  work_ratio: number | null // 小数口径
-  ai_code_ratio?: number | null // 小数口径
+  calendar_ratio: number | null // decimal ratio
+  work_ratio: number | null // decimal ratio
+  ai_code_ratio?: number | null // decimal ratio
   commit_count: number
   commit_diff_lines: number
   cost: number
 }
 
-/** /v2/dept-tree/members summary（该部门直属成员合计，小数提效比）。 */
+/** /v2/dept-tree/members summary (sum of this department's direct members, decimal efficiency ratio). */
 export interface DeptMembersSummary {
   dept_id: string
   member_count: number
@@ -574,37 +574,37 @@ export interface DeptMembersSummary {
   merged_need_count: number
   actual_calendar_min: number
   baseline_calendar_min: number
-  calendar_ratio: number | null // 小数口径
-  work_ratio: number | null // 小数口径
-  ai_code_ratio?: number | null // 小数口径
+  calendar_ratio: number | null // decimal ratio
+  work_ratio: number | null // decimal ratio
+  ai_code_ratio?: number | null // decimal ratio
   commit_count: number
   commit_diff_lines: number
   cost: number
 }
 
-/** /v2/dept-tree/members 顶层响应。 */
+/** /v2/dept-tree/members top-level response. */
 export interface DeptMembersResponse {
   summary: DeptMembersSummary
   members: DeptMember[]
 }
 
-/** /v2/dept-tree/ranking 一级子部门排行项（整棵子树汇总，复用 DeptMembersSummary 口径）。 */
+/** /v2/dept-tree/ranking first-level child department ranking item (whole-subtree summary, reuses the DeptMembersSummary scope). */
 export interface DeptRankingItem {
   dept_id: string
   dept_name: string
   summary: DeptMembersSummary
 }
 
-/** /v2/dept-tree/ranking 顶层响应：parent 的各直接子部门汇总排行（一次聚合，替代逐部门 N× members 调用）。 */
+/** /v2/dept-tree/ranking top-level response: aggregated ranking of each direct child department under parent (single aggregation, replacing per-department N× members calls). */
 export interface DeptRankingResponse {
   parent_dept_id: string
   items: DeptRankingItem[]
-  /** 批次4：parent 整棵子树（含直属 parent 本级）全部成员守恒汇总；parent 无子部门走早返回时缺省/为 null。
-   *  self.dept_id == parent_dept_id；calendar_ratio/work_ratio 小数倍数口径(RatioPill)；cost 元。 */
+  /** Batch 4: conserved summary of all members under parent's entire subtree (including the parent level itself); defaults to null when parent has no child departments and takes the early return.
+   *  self.dept_id == parent_dept_id; calendar_ratio/work_ratio are decimal multiplier ratios (RatioPill); cost in yuan. */
   self?: DeptMembersSummary | null
 }
 
-/** /v2/orgs/detail 顶层响应（§Org-7）。 */
+/** /v2/orgs/detail top-level response (§Org-7). */
 export interface OrgDetailResponse {
   org_path: string
   summary: OrgSummary | null
@@ -614,7 +614,7 @@ export interface OrgDetailResponse {
   granularity: string
 }
 
-/** 通用列表 query 参数 */
+/** Generic list query params */
 export interface ListParams {
   startDate?: string
   endDate?: string
@@ -625,9 +625,9 @@ export interface ListParams {
 }
 
 /**
- * /v2/tasks 列表项 & 详情 task 对象（§6，backend db.go TaskListItem）。
- * ⚠️ efficiency_ratio 是**百分比口径**（300=300%），后端 ((ancient-real)/real)*100 算出，含 manual 覆盖。
- * 与 Need 小数口径相反，前端展示**不 ×100**，绝不用 formatV2Ratio/RatioPill。
+ * /v2/tasks list item & detail task object (§6, backend db.go TaskListItem).
+ * WARNING: efficiency_ratio is a **percentage ratio** (300=300%), computed by the backend as ((ancient-real)/real)*100, including manual overrides.
+ * Opposite of the Need decimal ratio; the front-end renders it **without ×100** and must never use formatV2Ratio/RatioPill.
  */
 export interface TaskListItem {
   task_id: string
@@ -662,7 +662,7 @@ export interface TaskListItem {
   task_real_minutes_reason?: string
   task_real_minutes_manual?: number | null
   task_real_minutes_reason_manual?: string
-  efficiency_ratio?: number | null // 百分比口径
+  efficiency_ratio?: number | null // percentage ratio
   org1?: string
   org2?: string
   org3?: string
@@ -676,7 +676,7 @@ export interface TaskListItem {
   [k: string]: unknown
 }
 
-/** Conversation（§7.5，core/models/models.go Conversation，详情对话历史用） */
+/** Conversation (§7.5, core/models/models.go Conversation, used for the detail conversation history) */
 export interface Conversation {
   id?: number
   session_id?: string
@@ -703,14 +703,14 @@ export interface Conversation {
   [k: string]: unknown
 }
 
-/** /v2/tasks/{id} 顶层响应（§7.1，无 time_segments，那是死代码） */
+/** /v2/tasks/{id} top-level response (§7.1, no time_segments — that is dead code) */
 export interface TaskDetailResponse {
   task: TaskListItem
   conversations?: Conversation[]
-  efficiency_ratio?: number | null // 顶层再给一份，百分比口径
+  efficiency_ratio?: number | null // provided again at top level, percentage ratio
 }
 
-/** PUT /v2/tasks/{id}/manual 请求体（§7.6） */
+/** PUT /v2/tasks/{id}/manual request body (§7.6) */
 export interface UpdateTaskManualRequest {
   task_real_minutes_manual: number | null
   task_real_minutes_reason_manual: string
@@ -719,8 +719,8 @@ export interface UpdateTaskManualRequest {
 }
 
 /**
- * /v2/commits 列表项（PR4 §1.1，backend db.go CommitListItem）。
- * ⚠️ efficiency_ratio 是**百分比口径**（300=300%，直接 .toFixed(1)+'%'，不 ×100）。
+ * /v2/commits list item (PR4 §1.1, backend db.go CommitListItem).
+ * WARNING: efficiency_ratio is a **percentage ratio** (300=300%, rendered directly as .toFixed(1)+'%' without ×100).
  */
 export interface CommitListItem {
   commit_id: string
@@ -745,7 +745,7 @@ export interface CommitListItem {
   upstream_tokens?: number | null
   downstream_tokens?: number | null
   silica?: number | null
-  efficiency_ratio?: number | null // 百分比口径
+  efficiency_ratio?: number | null // percentage ratio
   org1?: string
   org2?: string
   org3?: string
@@ -760,7 +760,7 @@ export interface CommitListItem {
 }
 
 /**
- * /v2/commits/{id} 的 commit 对象（models.Commit，详情用到的字段；指针字段可 null）。
+ * commit object of /v2/commits/{id} (models.Commit, fields used by detail; pointer fields are nullable).
  */
 export interface CommitDetail {
   commit_id: string
@@ -782,11 +782,11 @@ export interface CommitDetail {
   commit_real_minutes_manual?: number | null
   commit_real_minutes_reason_manual?: string
   silica?: number | null
-  efficiency_ratio?: number | null // 百分比口径
+  efficiency_ratio?: number | null // percentage ratio
   [k: string]: unknown
 }
 
-/** /v2/commits/{id} 的 related_tasks 项（db.go RelatedTask，silica 0~1 要 ×100）。 */
+/** related_tasks item of /v2/commits/{id} (db.go RelatedTask, silica is 0~1 and must be ×100). */
 export interface RelatedTask {
   task_id: string
   user_name?: string
@@ -798,18 +798,18 @@ export interface RelatedTask {
   [k: string]: unknown
 }
 
-/** /v2/commits/{id} 顶层响应（PR4 §1.2）。 */
+/** /v2/commits/{id} top-level response (PR4 §1.2). */
 export interface CommitDetailResponse {
   commit: CommitDetail
   related_tasks?: RelatedTask[]
-  efficiency_ratio?: number | null // 顶层，百分比口径
+  efficiency_ratio?: number | null // top level, percentage ratio
   total_cost?: number | null
   silica?: number | null
   upstream_tokens?: number | null
   downstream_tokens?: number | null
 }
 
-/** PUT /v2/commits/{id}/manual 请求体（PR4 §1.2，4 字段）。 */
+/** PUT /v2/commits/{id}/manual request body (PR4 §1.2, 4 fields). */
 export interface UpdateCommitManualRequest {
   commit_ancient_minutes_manual: number | null
   commit_ancient_minutes_reason_manual: string
@@ -817,16 +817,16 @@ export interface UpdateCommitManualRequest {
   commit_real_minutes_reason_manual: string
 }
 
-// ============ Projects（PR4b，百分比口径；列表无分页） ============
+// ============ Projects (PR4b, percentage ratio; list is unpaginated) ============
 
-/** 项目「添加来源」仓库选择器：仓库下一条特性分支可选项（need-repo-options 端点）。 */
+/** Project "add source" repo selector: a selectable feature branch under a repo (need-repo-options endpoint). */
 export interface NeedRepoBranchOption {
   repo_branch: string
   need_count: number
   last_active?: string | null
 }
 
-/** 项目「添加来源」仓库选择器：一个可作为来源的仓库（needs 同源，规范化地址，选了必命中）。 */
+/** Project "add source" repo selector: a repo that can be used as a source (same origin as needs, normalized address, selecting it always matches). */
 export interface NeedRepoOption {
   repo_addr: string
   need_count: number
@@ -834,7 +834,7 @@ export interface NeedRepoOption {
   branches: NeedRepoBranchOption[]
 }
 
-/** 项目内 repo filter 配置（project.repos JSON 数组项）。 */
+/** In-project repo filter config (an item of the project.repos JSON array). */
 export interface ProjectRepo {
   repo_addr: string
   repo_branch: string
@@ -842,15 +842,15 @@ export interface ProjectRepo {
   end_time?: string | null
   exclude_commits?: string[] | null
   include_only_commits?: string[] | null
-  // Need 维度白/黑名单（need_id），仅作用于"按 Need(branch) 聚合"口径，与 commit 级名单独立。
+  // Need-dimension allow/deny list (need_id); only applies to the "aggregate by Need (branch)" scope, independent of the commit-level lists.
   exclude_needs?: string[] | null
   include_only_needs?: string[] | null
   [k: string]: unknown
 }
 
 /**
- * /v2/projects 列表项（PR4 §2.1 / §五，project_handler_v2.go ProjectListItem）。
- * ⚠️ efficiency_ratio 是**百分比口径**（300=300%），用 PercentPill。
+ * /v2/projects list item (PR4 §2.1 / §5, project_handler_v2.go ProjectListItem).
+ * WARNING: efficiency_ratio is a **percentage ratio** (300=300%); use PercentPill.
  */
 export interface ProjectListItem {
   project_id: string
@@ -885,8 +885,8 @@ export interface ProjectListItem {
   user_count?: number
   total_code_lines?: number
   actual_lines_per_day?: number | null
-  efficiency_ratio?: number | null // 百分比口径（古法，列表已迁 Need 口径不再展示）
-  // —— Need(branch) 口径（小数倍数，与详情页同源；列表展示用这些）——
+  efficiency_ratio?: number | null // percentage ratio (legacy method; the list has migrated to the Need scope and no longer renders this)
+  // —— Need(branch) scope (decimal multipliers, same source as the detail page; the list renders these) ——
   need_calendar_efficiency_ratio?: number | null
   need_work_efficiency_ratio?: number | null
   need_ai_code_ratio?: number | null
@@ -895,55 +895,55 @@ export interface ProjectListItem {
   need_cost?: number | null
   need_eligible_count?: number
   need_total_count?: number
-  // —— 批次3：per-项目 baseline/actual 合计（跨项目守恒均值用 Σbaseline/Σactual，绝不对各项目比值取算术平均）——
-  need_baseline_calendar_min?: number // 日历基线分钟合计 Σbaseline
-  need_actual_calendar_min?: number // 日历实际分钟合计 Σactual
-  need_baseline_work_min?: number // 工作量基线分钟合计（配 need_actual_work_min 做工作量守恒）
-  need_done_count?: number // 已完成（status='merged'）需求数，供「¥/完成需求」分母
+  // —— Batch 3: per-project baseline/actual totals (cross-project conserved average uses Σbaseline/Σactual; never take the arithmetic mean of per-project ratios) ——
+  need_baseline_calendar_min?: number // calendar baseline minutes total Σbaseline
+  need_actual_calendar_min?: number // calendar actual minutes total Σactual
+  need_baseline_work_min?: number // workload baseline minutes total (paired with need_actual_work_min for workload conservation)
+  need_done_count?: number // number of completed (status='merged') needs, denominator for "¥ per completed need"
   [k: string]: unknown
 }
 
-/** /v2/projects/{id} 的 project 对象（models.Project，含 repos/task_ids/task_ids_silica）。 */
+/** project object of /v2/projects/{id} (models.Project, includes repos/task_ids/task_ids_silica). */
 export interface ProjectModel extends ProjectListItem {
   repos?: ProjectRepo[] | null
   task_ids?: string[] | null
   task_ids_silica?: number[] | null
 }
 
-/** /v2/projects/{id} 顶层响应（纯 Need(branch) 口径；项目=一组 Need，小数口径用 RatioPill）。 */
+/** /v2/projects/{id} top-level response (pure Need(branch) scope; a project = a set of Needs, decimal ratio uses RatioPill). */
 export interface ProjectDetailResponse {
   project: ProjectModel
-  need_calendar_efficiency_ratio?: number | null // 日历口径提效比（主）
-  need_work_efficiency_ratio?: number | null // 工作量口径提效比（下钻）
-  need_ai_code_ratio?: number | null // AI 代码占比（0~1）
+  need_calendar_efficiency_ratio?: number | null // calendar-scope efficiency ratio (primary)
+  need_work_efficiency_ratio?: number | null // workload-scope efficiency ratio (drilldown)
+  need_ai_code_ratio?: number | null // AI code share (0~1)
   need_actual_calendar_min?: number | null
   need_baseline_calendar_min?: number | null
   need_actual_work_min?: number | null
   need_baseline_work_min?: number | null
-  need_eligible_count?: number // 计入指标的干净 Need 数
-  need_excluded_count?: number // 因日历口径 outlier 自动剔除的 Need 数
-  need_total_count?: number // 候选池内（看板口径）Need 总数（含未选/已排除/不合格）
-  need_total_loc_net?: number // 已选干净 Need 净 LOC 之和（生成代码量）
-  need_cost?: number // 选中 Need 会话成本之和（按 session 去重）
+  need_eligible_count?: number // number of clean Needs counted toward the metrics
+  need_excluded_count?: number // number of Needs auto-excluded as calendar-scope outliers
+  need_total_count?: number // total Needs in the candidate pool (dashboard scope, including unselected / excluded / ineligible)
+  need_total_loc_net?: number // sum of net LOC across selected clean Needs (generated code volume)
+  need_cost?: number // sum of session cost across selected Needs (deduplicated by session)
   need_upstream_tokens?: number
   need_downstream_tokens?: number
 }
 
-/** /v2/projects/{id}/needs 列表项：复用 NeedsV2Summary（小数口径）+ 当前是否被项目排除。 */
+/** /v2/projects/{id}/needs list item: reuses NeedsV2Summary (decimal ratio) + whether currently excluded by the project. */
 export interface ProjectNeedItem extends NeedsV2Summary {
   excluded: boolean
 }
 
-/** /v2/projects/{id}/needs 响应。 */
+/** /v2/projects/{id}/needs response. */
 export interface ProjectNeedsResponse {
   data: ProjectNeedItem[] | null
-  total_count: number // 候选池总数（含未选/已排除/不合格），与详情卡 need_total_count 同源
+  total_count: number // candidate-pool total (including unselected / excluded / ineligible), same source as the detail card's need_total_count
   eligible_count: number
   excluded_count: number
-  stale_count: number // 配置名单中已不在候选池的陈旧 need_id 数（重算漂移）
+  stale_count: number // number of need_ids in the configured list that are no longer in the candidate pool (recompute drift)
 }
 
-/** PUT /v2/projects/{id}/needs/selection（纳入/排除单个 Need）。 */
+/** PUT /v2/projects/{id}/needs/selection (include/exclude a single Need). */
 export interface UpdateProjectNeedSelectionRequest {
   repo_addr: string
   repo_branch: string
@@ -951,20 +951,20 @@ export interface UpdateProjectNeedSelectionRequest {
   excluded: boolean
 }
 
-/** POST/PUT /v2/projects（创建/编辑） */
+/** POST/PUT /v2/projects (create/edit) */
 export interface CreateProjectRequest {
   name: string
   description?: string
 }
 
-/** PUT /v2/projects/{id}（必须回传 repos 原值，否则后端清空；task_ids 已不属项目模型）。 */
+/** PUT /v2/projects/{id} (repos must be echoed back as-is, otherwise the backend clears them; task_ids no longer belong to the project model). */
 export interface UpdateProjectRequest {
   name: string
   description?: string
   repos: ProjectRepo[]
 }
 
-/** PUT /v2/projects/{id}/manual（6 minutes/reason + start/end_time_manual）。 */
+/** PUT /v2/projects/{id}/manual (6 minutes/reason + start/end_time_manual). */
 export interface UpdateProjectManualRequest {
   project_ancient_minutes_manual: number | null
   project_ancient_minutes_reason_manual: string
@@ -976,13 +976,13 @@ export interface UpdateProjectManualRequest {
   end_time_manual: string | null
 }
 
-/** POST /v2/projects/{id}/tasks（task_ids + 同长 silica 数组）。 */
+/** POST /v2/projects/{id}/tasks (task_ids + a silica array of the same length). */
 export interface AddTasksRequest {
   task_ids: string[]
   task_ids_silica: number[]
 }
 
-/** POST /v2/projects/{id}/repos（end_time 白名单 now → null）。 */
+/** POST /v2/projects/{id}/repos (end_time whitelist: now → null). */
 export interface AddRepoRequest {
   repo_addr: string
   repo_branch: string
@@ -992,7 +992,7 @@ export interface AddRepoRequest {
   include_only_commits: string[]
 }
 
-/** POST /v2/projects/check-conflicts 响应项。 */
+/** POST /v2/projects/check-conflicts response item. */
 export interface ProjectConflict {
   commit_id: string
   project_id: string
@@ -1003,7 +1003,7 @@ export interface CheckConflictsResponse {
   conflicts: ProjectConflict[]
 }
 
-/** POST /v2/projects（创建）响应（含 project_id）。 */
+/** POST /v2/projects (create) response (includes project_id). */
 export interface CreateProjectResponse {
   project_id: string
   name?: string
@@ -1011,13 +1011,13 @@ export interface CreateProjectResponse {
 }
 
 // ============================================================
-// chat-indicator-statistics 代理类型（/api/v2/chat/* → chat 服务 /chat-indicator-statistics/api/v1/*）
-// 字段对照其源码 pkg/model/models.go + pkg/http/handler/{realtime,handler}.go 的 json tag，勿凭空增删。
-// ⚠️ chat 侧响应信封是 {success,code,data}（错误 400 + {error:{code,message,type}}），
-//    与看板「裸数据 + {error:string}」不同 —— 走 client.ts 的 chatGet/chatPost/... 解包，不要混用 apiGet。
+// chat-indicator-statistics proxy types (/api/v2/chat/* → chat service /chat-indicator-statistics/api/v1/*)
+// Fields mirror the json tags of its source code pkg/model/models.go + pkg/http/handler/{realtime,handler}.go; do not add/remove fields arbitrarily.
+// WARNING: the chat-side response envelope is {success,code,data} (errors are 400 + {error:{code,message,type}}),
+//    unlike the dashboard's "bare data + {error:string}" — unpack via client.ts's chatGet/chatPost/... and never mix with apiGet.
 // ============================================================
 
-/** GET /v2/chat/stats/realtime 响应 summary（realtime.go aggregateRealtime）。 */
+/** GET /v2/chat/stats/realtime response summary (realtime.go aggregateRealtime). */
 export interface ChatRealtimeSummary {
   total_requests: number
   total_users: number
@@ -1028,7 +1028,7 @@ export interface ChatRealtimeSummary {
   total_cost: number
 }
 
-/** token 分钟趋势项（time 形如 "HH:mm"）。 */
+/** token per-minute trend item (time is formatted like "HH:mm"). */
 export interface ChatTokenTrendItem {
   time: string
   prompt_tokens: number
@@ -1036,7 +1036,7 @@ export interface ChatTokenTrendItem {
   cache_tokens: number
 }
 
-/** 缓存命中率分钟趋势项（rate 为百分比 0-100）。 */
+/** Cache hit-rate per-minute trend item (rate is a percentage 0-100). */
 export interface ChatCacheRateItem {
   time: string
   cache_tokens: number
@@ -1044,7 +1044,7 @@ export interface ChatCacheRateItem {
   rate: number
 }
 
-/** 模型请求分布项。 */
+/** Model request distribution item. */
 export interface ChatModelRequestItem {
   model: string
   request_count: number
@@ -1054,20 +1054,20 @@ export interface ChatModelRequestItem {
   total_cost: number
 }
 
-/** Auto 路由细分项（percentage 为百分比 0-100，保留 1 位）。 */
+/** Auto-routing breakdown item (percentage is 0-100, 1 decimal place). */
 export interface ChatAutoRouterItem {
   routed_model: string
   request_count: number
   percentage: number
 }
 
-/** 请求量分钟趋势项。 */
+/** Request volume per-minute trend item. */
 export interface ChatRequestTrendItem {
   time: string
   request_count: number
 }
 
-/** Top50 用户项。 */
+/** Top-50 user item. */
 export interface ChatTopUserItem {
   universal_id: string
   username: string
@@ -1076,7 +1076,7 @@ export interface ChatTopUserItem {
   completion_tokens: number
 }
 
-/** GET /v2/chat/stats/realtime（range=30m|1h|3h；服务端 10 秒限频）。 */
+/** GET /v2/chat/stats/realtime (range=30m|1h|3h; server-side rate limit of 10s). */
 export interface ChatRealtimeResponse {
   summary: ChatRealtimeSummary
   token_trend: ChatTokenTrendItem[]
@@ -1087,7 +1087,7 @@ export interface ChatRealtimeResponse {
   top_users: ChatTopUserItem[]
 }
 
-/** POST /v2/chat/stats/detail/query 请求体（realtime.go RawDataQuery；时间 ISO 8601，必填）。 */
+/** POST /v2/chat/stats/detail/query request body (realtime.go RawDataQuery; times are ISO 8601 and required). */
 export interface ChatDetailQueryReq {
   datasource_id?: string
   start_time: string
@@ -1096,17 +1096,17 @@ export interface ChatDetailQueryReq {
   request_id?: string
   user_id?: string
   username?: string
-  /** true=仅错误，false=仅成功，缺省=全部 */
+  /** true = errors only, false = successes only, omitted = all */
   has_error?: boolean
   model?: string
   routed_model?: string
-  /** 页面默认 100，最大 5000 */
+  /** Page default 100, max 5000 */
   limit?: number
-  /** 'asc' | 'desc'（默认 desc） */
+  /** 'asc' | 'desc' (default desc) */
   order?: string
 }
 
-/** 明细行（rawMetricItem；指针字段可为 null）。 */
+/** Detail row (rawMetricItem; pointer fields can be null). */
 export interface ChatDetailRow {
   id: number
   request_id: string
@@ -1147,7 +1147,7 @@ export interface ChatDetailQueryResponse {
   items: ChatDetailRow[]
 }
 
-/** POST /v2/chat/stats/detail/log-preview 响应。超过阈值或非 UTF-8 时只返回提示，不返回 content。 */
+/** POST /v2/chat/stats/detail/log-preview response. When the threshold is exceeded or content is not UTF-8, only a hint is returned and no content. */
 export interface ChatLogPreviewResponse {
   path: string
   file_name: string
@@ -1160,7 +1160,7 @@ export interface ChatLogPreviewResponse {
   message?: string
 }
 
-/** model_pricing 行（models.go ModelPricing；pricing_mode ∈ token|request|hybrid）。 */
+/** model_pricing row (models.go ModelPricing; pricing_mode ∈ token|request|hybrid). */
 export interface ModelPricing {
   id: number
   model_name: string
@@ -1182,18 +1182,18 @@ export interface ModelPricing {
   created_at: string
 }
 
-/** 创建/编辑价格请求体（id/created_at 服务端生成）。 */
+/** Create/edit pricing request body (id/created_at are server-generated). */
 export type ModelPricingUpsert = Omit<ModelPricing, 'id' | 'created_at'> & { id?: number }
 
-/** source_datasource 行（models.go SourceDatasource；source_type ∈ postgres|elasticsearch）。 */
+/** source_datasource row (models.go SourceDatasource; source_type ∈ postgres|elasticsearch). */
 export interface ChatDatasource {
   id: number
   name: string
   source_type: string
   is_enabled: boolean
-  /** 新类型（loki/dept_api/log_storage）的 JSON 配置；PG/ES 也可能迁移到此字段。 */
+  /** JSON config for new types (loki/dept_api/log_storage); PG/ES may also migrate to this field. */
   config_json: string | null
-  // -- PG 扁平字段（向后兼容旧数据） --
+  // -- PG flat fields (backward compatibility for legacy data) --
   pg_host: string | null
   pg_port: number | null
   pg_database: string | null
@@ -1202,21 +1202,21 @@ export interface ChatDatasource {
   pg_username: string | null
   pg_password: string | null
   pg_ssl_mode: string | null
-  // -- ES 扁平字段 --
+  // -- ES flat fields --
   es_hosts: string | null
   es_username: string | null
   es_password: string | null
   es_index: string | null
   es_verify_certs: boolean | null
   es_scroll_duration: string | null
-  // -- Loki 扁平字段（向后兼容） --
+  // -- Loki flat fields (backward compatibility) --
   loki_url: string | null
   loki_username: string | null
   loki_password: string | null
   loki_tenant_id: string | null
   loki_verify_certs: boolean | null
-  loki_queries: string | null // JSON 数组 [{name, label_selector}]
-  // -- 其他 --
+  loki_queries: string | null // JSON array [{name, label_selector}]
+  // -- Other --
   max_open_conns: number | null
   max_idle_conns: number | null
   notes: string | null
@@ -1224,18 +1224,18 @@ export interface ChatDatasource {
   updated_at: string | null
 }
 
-/** 创建/编辑数据源请求体。 */
+/** Create/edit datasource request body. */
 export type ChatDatasourceUpsert = Partial<Omit<ChatDatasource, 'id' | 'created_at' | 'updated_at'>> &
   Pick<ChatDatasource, 'name' | 'source_type'>
 
-/** POST /v2/chat/datasources/{id}/test 结果（注意：连接失败也是 HTTP 200，看 success）。 */
+/** POST /v2/chat/datasources/{id}/test result (note: a connection failure is also HTTP 200; check success). */
 export interface ChatDatasourceTestResult {
   success: boolean
   message: string
   ping_ms: number
 }
 
-/** sync_task 行（models.go SyncTask；status ∈ pending|running|completed|failed|retrying）。 */
+/** sync_task row (models.go SyncTask; status ∈ pending|running|completed|failed|retrying). */
 export interface ChatSyncTask {
   id: number
   task_id: string
@@ -1254,22 +1254,22 @@ export interface ChatSyncTask {
   created_at: string
 }
 
-/** GET /v2/chat/sync/tasks 响应。 */
+/** GET /v2/chat/sync/tasks response. */
 export interface ChatSyncTaskListResponse {
   total: number
   tasks: ChatSyncTask[]
 }
 
-/** POST /v2/chat/sync/tasks 请求体（时间 ISO 8601）。 */
+/** POST /v2/chat/sync/tasks request body (times are ISO 8601). */
 export interface ChatSyncSubmitReq {
   start_time: string
   end_time: string
   source_id?: number
-  /** 强制覆盖：预删该范围日期的汇总数据 */
+  /** Force overwrite: pre-deletes the summary data for the dates in this range */
   force?: boolean
 }
 
-/** POST /v2/chat/sync/tasks 响应（⚠️ 该端点信封是 {code:0,data}，chatPost 仍按 data 解包）。 */
+/** POST /v2/chat/sync/tasks response (WARNING: this endpoint's envelope is {code:0,data}; chatPost still unpacks data). */
 export interface ChatSyncSubmitResponse {
   task_id: string
   status: string
@@ -1278,7 +1278,7 @@ export interface ChatSyncSubmitResponse {
   source_name: string
 }
 
-/** GET /v2/chat/sync/tasks/{task_id} 响应（progress 为百分比 0-100）。 */
+/** GET /v2/chat/sync/tasks/{task_id} response (progress is a percentage 0-100). */
 export interface ChatSyncTaskStatus {
   task_id: string
   status: string
@@ -1293,7 +1293,7 @@ export interface ChatSyncTaskStatus {
   finished_at: string | null
 }
 
-/** GET/PUT /v2/chat/config —— KV 扁平 map（如 system_currency / exchange_rate_usd_cny）。 */
+/** GET/PUT /v2/chat/config — flat KV map (e.g. system_currency / exchange_rate_usd_cny). */
 export type ChatSystemConfig = Record<string, string>
 
 // ---- trace-logs ----

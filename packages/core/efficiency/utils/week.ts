@@ -1,26 +1,26 @@
-// ISO 周工具 —— 高管大屏「提效趋势」按周聚合 needs 用。
-// 周一为一周起始；key 形如 '2026-W21'。
+// ISO week utilities — aggregates needs by week for the executive "efficiency trend" view.
+// Week starts Monday; key format like '2026-W21'.
 
-/** 解析日期字符串为 Date（支持 ISO8601 带时区）。无效返回 null */
+/** Parse a date string into a Date (supports ISO8601 with timezone). Returns null if invalid. */
 function parseDate(dateStr: string | null | undefined): Date | null {
   if (!dateStr) return null
   const d = new Date(dateStr)
   return isNaN(d.getTime()) ? null : d
 }
 
-/** 取某日期所在 ISO 周的周一（本地时区，置零到 00:00:00） */
+/** Get the Monday of the ISO week containing a date (local timezone, zeroed to 00:00:00). */
 function isoWeekMonday(d: Date): Date {
   const date = new Date(d.getFullYear(), d.getMonth(), d.getDate())
-  // getDay(): 周日=0 … 周六=6 → 换算到周一为 0 的偏移
+  // getDay(): Sunday=0 … Saturday=6 → convert to an offset where Monday is 0
   const day = (date.getDay() + 6) % 7
   date.setDate(date.getDate() - day)
   return date
 }
 
-/** ISO 周编号（ISO-8601：含当年第一个周四的那周为第 1 周） */
+/** ISO week number (ISO-8601: the week containing the year's first Thursday is week 1). */
 function isoWeekNumber(d: Date): { year: number; week: number } {
   const date = new Date(d.getFullYear(), d.getMonth(), d.getDate())
-  // 移到本周周四（ISO 周以周四定年）
+  // Move to this week's Thursday (the ISO week determines the year by Thursday)
   const day = (date.getDay() + 6) % 7
   date.setDate(date.getDate() - day + 3)
   const firstThursday = new Date(date.getFullYear(), 0, 4)
@@ -33,11 +33,11 @@ function isoWeekNumber(d: Date): { year: number; week: number } {
 export interface IsoWeek {
   /** 'YYYY-Wxx' */
   key: string
-  /** 该周周一（本地 00:00:00） */
+  /** Monday of the week (local 00:00:00) */
   monday: Date
 }
 
-/** 日期字符串 → ISO 周。无效日期返回 null */
+/** Date string → ISO week. Returns null for an invalid date. */
 export function isoWeekOf(dateStr: string | null | undefined): IsoWeek | null {
   const d = parseDate(dateStr)
   if (!d) return null
@@ -45,7 +45,7 @@ export function isoWeekOf(dateStr: string | null | undefined): IsoWeek | null {
   return { key: `${year}-W${String(week).padStart(2, '0')}`, monday: isoWeekMonday(d) }
 }
 
-/** 周一日期 → 'MM/DD' 显示标签（趋势 x 轴用） */
+/** Monday date → 'MM/DD' display label (for the trend x-axis). */
 export function weekLabel(monday: Date): string {
   const m = String(monday.getMonth() + 1).padStart(2, '0')
   const d = String(monday.getDate()).padStart(2, '0')

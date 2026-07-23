@@ -1,5 +1,5 @@
-// 日期工具 —— 从 Vue frontend/src/utils/date.js 原样搬运。
-// list 端点参数要先 formatDateParam 转 YYYYMMDD 再发。见 research/api-contract.md §3.5。
+// Date utilities — ported verbatim from Vue frontend/src/utils/date.js.
+// list endpoint params must first be converted via formatDateParam to YYYYMMDD before sending. See research/api-contract.md §3.5.
 
 function fmt(d: Date): string {
   const y = d.getFullYear()
@@ -8,7 +8,7 @@ function fmt(d: Date): string {
   return `${y}-${m}-${day}`
 }
 
-/** 最近 7 天范围 → [startStr, endStr]，格式 YYYY-MM-DD（含今天，-6） */
+/** Last 7 days range → [startStr, endStr], format YYYY-MM-DD (includes today, -6) */
 export function getDefaultDateRange(): [string, string] {
   const end = new Date()
   const start = new Date()
@@ -16,7 +16,7 @@ export function getDefaultDateRange(): [string, string] {
   return [fmt(start), fmt(end)]
 }
 
-/** 最近 N 天范围（默认 90），用于数据跨度大的页面（Home/高管大屏用） */
+/** Last N days range (default 90), for pages with a wide data span (Home / executive dashboard) */
 export function getDefaultDateRangeWide(days = 90): [string, string] {
   const end = new Date()
   const start = new Date()
