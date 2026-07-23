@@ -182,6 +182,15 @@ func (s *TaskService) buildCSCloudPayload(ctx context.Context, task db.MulticaAg
 				prompt = appendDeliverablePrompt(prompt, refs)
 			}
 		}
+		// Rework feedback: if this worker task is a retry (retry_count > 0),
+		// surface the previous critic's rejection so the worker knows what to fix.
+		if phase == "worker" && task.WorkflowNodeRunID.Valid {
+			if nr, err := s.Queries.GetWorkflowNodeRun(ctx, task.WorkflowNodeRunID); err == nil && nr.RetryCount > 0 && nr.CriticComment.Valid {
+				if fb := strings.TrimSpace(nr.CriticComment.String); fb != "" {
+					prompt += fmt.Sprintf("\n\n---\n## 上一轮评审驳回意见（第 %d 轮）\n\n%s\n\n请针对以上评审意见修改后重新提交。\n", nr.RetryCount, fb)
+				}
+			}
+		}
 	}
 
 	return csCloudTaskRunPayload{
