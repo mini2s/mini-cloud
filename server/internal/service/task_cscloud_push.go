@@ -299,7 +299,13 @@ func (s *TaskService) giteaDeliverableEnv(ctx context.Context, task db.MulticaAg
 	if err != nil {
 		return nil
 	}
-	nodeSeq := int(node.SortOrder)
+	// Use the node's topological position (not raw sort_order) so the <NN>
+	// prefix reflects execution order even when sort_order wasn't set.
+	topo, err := NodeTopoOrder(ctx, s.Queries, run.WorkflowID)
+	if err != nil {
+		return nil
+	}
+	nodeSeq := topo[util.UUIDToString(node.ID)]
 	nodeRunIDStr := util.UUIDToString(nr.ID)
 	var refs []giteaDeliverableRefJSON
 	for _, d := range deliverables {

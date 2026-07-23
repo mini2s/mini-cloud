@@ -386,10 +386,14 @@ func (s *WorkflowService) ensureNodeRunBranch(ctx context.Context, nodeRun db.Mu
 	if err != nil {
 		return fmt.Errorf("get node: %w", err)
 	}
+	topo, err := NodeTopoOrder(ctx, s.Queries, run.WorkflowID)
+	if err != nil {
+		return fmt.Errorf("node topo order: %w", err)
+	}
 	owner := gitea.OrgName(util.UUIDToString(run.WorkspaceID))
 	repo := DeliverableRepoNameForWorkflow(workflow)
 	inst := gitea.InstBranch(util.UUIDToString(run.ID))
-	nodeBranch := gitea.NodeBranch(int(node.SortOrder), util.UUIDToString(nodeRun.ID))
+	nodeBranch := gitea.NodeBranch(topo[util.UUIDToString(node.ID)], util.UUIDToString(nodeRun.ID))
 	if err := s.Gitea.CreateBranch(ctx, owner, repo, nodeBranch, inst); err != nil {
 		return fmt.Errorf("create node branch: %w", err)
 	}
@@ -711,7 +715,13 @@ func (s *WorkflowService) ArchiveReviewComment(ctx context.Context, nodeRun db.M
 	}
 
 	nodeRunIDStr := util.UUIDToString(nodeRun.ID)
-	path := gitea.NodeDir(int(node.SortOrder), nodeRun.NodeTitle, nodeRunIDStr) + "/" +
+	// Topological position for the <NN> prefix; fall back to sort_order if the
+	// graph lookup fails so review archival is never skipped on a rare DB error.
+	nodeSeq := int(node.SortOrder)
+	if topo, err := NodeTopoOrder(ctx, s.Queries, run.WorkflowID); err == nil {
+		nodeSeq = topo[util.UUIDToString(node.ID)]
+	}
+	path := gitea.NodeDir(nodeSeq, nodeRun.NodeTitle, nodeRunIDStr) + "/" +
 		gitea.ReviewPath(round, reviewer, verdict)
 	content := fmt.Sprintf("---\nround: %d\nverdict: %s\nreviewer: %s\nnode_run: %s\n---\n\n## 评审意见\n\n%s\n",
 		round, decision, reviewer, nodeRunIDStr, comment)
@@ -901,11 +911,16 @@ func (s *WorkflowService) UploadMemberDeliverable(ctx context.Context, issue db.
 	if err != nil {
 		return fmt.Errorf("get node: %w", err)
 	}
+	topo, err := NodeTopoOrder(ctx, s.Queries, run.WorkflowID)
+	if err != nil {
+		return fmt.Errorf("node topo order: %w", err)
+	}
+	nodeSeq := topo[util.UUIDToString(node.ID)]
 	owner := gitea.OrgName(util.UUIDToString(run.WorkspaceID))
 	repo := DeliverableRepoNameForWorkflow(workflow)
 	inst := gitea.InstBranch(util.UUIDToString(run.ID))
-	nodeBranch := gitea.NodeBranch(int(node.SortOrder), util.UUIDToString(nodeRun.ID))
-	path := gitea.DeliverablePath(int(node.SortOrder), nodeRun.NodeTitle, util.UUIDToString(nodeRun.ID), deliverableTitle)
+	nodeBranch := gitea.NodeBranch(nodeSeq, util.UUIDToString(nodeRun.ID))
+	path := gitea.DeliverablePath(nodeSeq, nodeRun.NodeTitle, util.UUIDToString(nodeRun.ID), deliverableTitle)
 
 	// Idempotent node branch (base = inst). CreateBranch is get-or-create
 	// (handles the slash in node/<hex>, which GET /branches/{name} can't address).
