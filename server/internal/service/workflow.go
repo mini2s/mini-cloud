@@ -667,7 +667,7 @@ func (s *WorkflowService) StartDefaultRunForIssue(ctx context.Context, issue db.
 	if err != nil {
 		return nil, db.MulticaWorkflowNodeRun{}, fmt.Errorf("marshal issue input: %w", err)
 	}
-	run, err := s.startRun(ctx, wf, issue.CreatorType, util.UUIDToString(issue.CreatorID), input, pgtype.UUID{}, "", workflowRunRuntimeContext{
+	run, err := s.startRun(ctx, wf, issue.CreatorType, util.UUIDToString(issue.CreatorID), input, "", pgtype.UUID{}, "", workflowRunRuntimeContext{
 		RuntimeAuthorizerID: s.resolveWorkflowUser(ctx, issue.CreatorType, issue.CreatorID),
 	})
 	if err != nil {
