@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/multica-ai/multica/server/internal/cloudruntime"
 	"github.com/multica-ai/multica/server/internal/gitea"
 	"github.com/multica-ai/multica/server/internal/util"
@@ -46,7 +47,10 @@ type csCloudTaskRunPayload struct {
 	Agent       string            `json:"agent"`
 	Prompt      string            `json:"prompt"`
 	Env         map[string]string `json:"env,omitempty"`
-	Kind        string            `json:"kind,omitempty"`
+	// RepoURL is the workspace/project code repo the agent clones into its
+	// worktree and develops in. Empty when the workspace has no code repo.
+	RepoURL string `json:"repo_url,omitempty"`
+	Kind    string `json:"kind,omitempty"`
 }
 
 // maybePushToCSCloud is called synchronously from notifyTaskAvailable. It
@@ -193,18 +197,85 @@ func (s *TaskService) buildCSCloudPayload(ctx context.Context, task db.MulticaAg
 		}
 	}
 
+	// Code repository: attach the workspace's code repo so cs-cloud clones it
+	// into the worktree and the agent develops there. Worker phase only — the
+	// critic/review phase doesn't code.
+	codeRepoURL, projectID := "", ""
+	if phase == "worker" {
+		var gitlabToken string
+		codeRepoURL, gitlabToken, projectID = s.resolveCodeRepoAndProject(ctx, task, runtime.WorkspaceID)
+		if codeRepoURL != "" {
+			env["MULTICA_CODE_REPO_URL"] = codeRepoURL
+			if gitlabToken != "" {
+				// GitLab PAT so cs-cloud can push + open the MR after coding.
+				env["MULTICA_GITLAB_TOKEN"] = gitlabToken
+			}
+			prompt = appendCodeRepoPrompt(prompt, codeRepoURL)
+		}
+	}
+
 	return csCloudTaskRunPayload{
 		TaskID:      util.UUIDToString(task.ID),
 		WorkspaceID: util.UUIDToString(runtime.WorkspaceID),
 		IssueID:     util.UUIDToString(task.IssueID),
-		ProjectID:   "",
+		ProjectID:   projectID,
 		NodeRunID:   util.UUIDToString(task.WorkflowNodeRunID),
 		AgentID:     util.UUIDToString(task.AgentID),
 		Agent:       "csc",
 		Prompt:      prompt,
 		Env:         env,
+		RepoURL:     codeRepoURL,
 		Kind:        kind,
 	}, nil
+}
+
+// resolveCodeRepoAndProject returns the workspace's first code repo URL (for
+// cs-cloud to clone), the workspace's GitLab PAT (so cs-cloud can push + open
+// the MR), and the issue's project ID. Best-effort: errors are logged and yield
+// empty strings so a lookup hiccup never blocks dispatch.
+func (s *TaskService) resolveCodeRepoAndProject(ctx context.Context, task db.MulticaAgentTaskQueue, workspaceID pgtype.UUID) (repoURL, gitlabToken, projectID string) {
+	if ws, err := s.Queries.GetWorkspace(ctx, workspaceID); err == nil {
+		var repos []struct {
+			URL string `json:"url"`
+		}
+		if json.Unmarshal(ws.Repos, &repos) == nil {
+			for _, r := range repos {
+				if u := strings.TrimSpace(r.URL); u != "" {
+					repoURL = u
+					break
+				}
+			}
+		}
+		var settings struct {
+			GitlabAccessToken string `json:"gitlab_access_token"`
+		}
+		if json.Unmarshal(ws.Settings, &settings) == nil {
+			gitlabToken = strings.TrimSpace(settings.GitlabAccessToken)
+		}
+	} else {
+		slog.Warn("cs-cloud code repo: get workspace", "error", err)
+	}
+	if task.IssueID.Valid {
+		if issue, err := s.Queries.GetIssue(ctx, task.IssueID); err == nil && issue.ProjectID.Valid {
+			projectID = util.UUIDToString(issue.ProjectID)
+		}
+	}
+	return repoURL, gitlabToken, projectID
+}
+
+// appendCodeRepoPrompt tells the worker agent it is developing inside a cloned
+// code repo and that the platform will push + open an MR from its changes.
+func appendCodeRepoPrompt(prompt, repoURL string) string {
+	var b strings.Builder
+	b.WriteString(prompt)
+	if prompt != "" && !strings.HasSuffix(prompt, "\n") {
+		b.WriteByte('\n')
+	}
+	b.WriteString("\n---\n## 代码仓库开发\n\n")
+	b.WriteString(fmt.Sprintf("你的工作树已 clone 了代码仓库 `%s`。请在该仓库内完成本次编码任务（直接编辑工作树中的文件即可，无需自行 clone）。\n", repoURL))
+	b.WriteString("完成后平台会自动提交你的改动、推送源分支、开 Merge Request，并把 MR 链接上报到本节点的代码交付物。\n")
+	b.WriteString("\n---\n\n")
+	return b.String()
 }
 
 func appendWorkerTaskPrompt(prompt string) string {
