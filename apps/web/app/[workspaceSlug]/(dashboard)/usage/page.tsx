@@ -1,1 +1,1 @@
-export { DashboardPage as default } from "@multica/views/dashboard";
+export { UsageKanban as default } from "@multica/views/efficiency";
