@@ -5,15 +5,21 @@
 import type {
   ApiData,
   ApiList,
+  ChatCacheHitRateRow,
+  ChatCostTrendRow,
+  ChatDailyGlobal,
   ChatDatasource,
   ChatDetailQueryReq,
   ChatDetailQueryResponse,
   ChatLogPreviewResponse,
+  ChatModelCostRow,
   ChatModelTrendSeries,
+  ChatModelsUsageResp,
   ChatRealtimeResponse,
   ChatSyncTaskListResponse,
   ChatSystemConfig,
   ChatUserTrendRow,
+  ChatUsersRankingResp,
   CommitDetailResponse,
   DashboardSummary,
   DashboardTrends,
@@ -128,6 +134,12 @@ import {
   getMockChatSyncTasks,
   getMockChatSystemConfig,
   getMockChatUserTrend,
+  getMockChatGlobalDaily,
+  getMockChatCostTrend,
+  getMockChatCacheHitRate,
+  getMockChatModelCostRanking,
+  getMockChatModelsUsage,
+  getMockChatUsersRanking,
 } from "./chat";
 
 const RAW = process.env.EFFICIENCY_MOCK;
@@ -283,4 +295,36 @@ export const mock = {
     getMockChatDetailQuery(req),
   chatLogPreview: (localLogPath: string): ChatLogPreviewResponse =>
     getMockChatLogPreview(localLogPath),
+
+  // ---- Chat dimension: platform overview historical stats (/stats/*) ----
+  // Per-day series + ranked lists backing the PlatformOverview multi-tab page.
+  chatGlobalDaily: (p: {
+    startDate: string;
+    endDate: string;
+  }): ChatDailyGlobal[] => getMockChatGlobalDaily(p),
+  chatCostTrend: (p: {
+    startDate: string;
+    endDate: string;
+    model?: string;
+  }): ChatCostTrendRow[] => getMockChatCostTrend(p),
+  chatCacheHitRate: (p: {
+    startDate: string;
+    endDate: string;
+  }): ChatCacheHitRateRow[] => getMockChatCacheHitRate(p),
+  chatModelCostRanking: (p: {
+    startDate: string;
+    endDate: string;
+  }): ChatModelCostRow[] => getMockChatModelCostRanking(p),
+  chatModelsUsage: (p: {
+    startDate: string;
+    endDate: string;
+  }): ChatModelsUsageResp => getMockChatModelsUsage(p),
+  chatUsersRanking: (p: {
+    startDate: string;
+    endDate: string;
+    sortBy?: string;
+    search?: string;
+    page?: number;
+    pageSize?: number;
+  }): ChatUsersRankingResp => getMockChatUsersRanking(p),
 } as const;

@@ -1357,3 +1357,101 @@ export interface ChatModelTrendRow {
   input_tokens: number
   output_tokens: number
 }
+
+// ---- Platform overview historical stats (/stats/*) ----
+// These mirror the inline interfaces of the source PlatformOverview.tsx (the
+// chat-indicator-statistics historical summary endpoints). Field names keep the
+// backend snake_case; see research/api-contract.md §6 for the chat summary ETL.
+
+/** GET /stats/global/daily row — per-day platform aggregate. */
+export interface ChatDailyGlobal {
+  date: string
+  total_requests: number
+  total_users: number
+  total_error_requests: number
+  error_rate: number | null
+  unique_task_count: number
+  total_requests_including_errors: number
+  sum_prompt_tokens: number
+  sum_completion_tokens: number
+  sum_total_tokens: number
+  sum_cache_tokens: number
+  avg_duration_ms: number | null
+  avg_first_token_duration_ms: number | null
+  avg_token_output_speed: number | null
+  estimated_total_cost: number | null
+  /** JSON {model: count} when the auto router is enabled; null otherwise. */
+  auto_router_breakdown_global?: string | null
+}
+
+/** GET /stats/cost-trend row — per-day cost split by input/output/cache/request. */
+export interface ChatCostTrendRow {
+  date: string
+  total_cost: number
+  input_cost: number
+  output_cost: number
+  cache_cost: number
+  request_cost: number
+  total_requests: number
+  /** Present when the caller filtered to a single model. */
+  model?: string
+}
+
+/** GET /stats/cache-hit-rate row — per-day cache hit rate (rate computed as cache/prompt tokens). */
+export interface ChatCacheHitRateRow {
+  date: string
+  sum_cache_tokens: number
+  sum_prompt_tokens: number
+  cache_hit_rate_pct: number
+}
+
+/** GET /stats/models/cost-ranking row — per-model cost ranking. */
+export interface ChatModelCostRow {
+  model: string
+  total_requests: number
+  total_input_tokens: number
+  total_output_tokens: number
+  total_cost: number
+}
+
+/** GET /stats/models/usage item — per-model request/token share. */
+export interface ChatModelUsageItem {
+  model: string
+  request_count: number
+  request_pct: number
+  total_tokens: number
+  token_pct: number
+}
+
+/** GET /stats/models/usage response. */
+export interface ChatModelsUsageResp {
+  models: ChatModelUsageItem[]
+}
+
+/** GET /stats/users/ranking row — a single ranked user. */
+export interface ChatUserRankingRow {
+  universal_id: string
+  username: string | null
+  total_requests: number
+  success_requests: number
+  error_requests: number
+  sum_prompt_tokens: number
+  sum_completion_tokens: number
+  sum_total_tokens: number
+  sum_cache_tokens: number
+  unique_task_count: number
+  active_days: number
+  estimated_total_cost: number
+  avg_duration_ms: number
+  error_rate: number
+  max_duration_ms: number
+  avg_token_output_speed: number
+}
+
+/** GET /stats/users/ranking response (paginated envelope). */
+export interface ChatUsersRankingResp {
+  total: number
+  page: number
+  page_size: number
+  data: ChatUserRankingRow[]
+}

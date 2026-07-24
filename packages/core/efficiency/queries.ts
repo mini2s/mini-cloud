@@ -12,6 +12,12 @@ import {
   getChatSyncTasks,
   getChatSystemConfig,
   getChatUserTrend,
+  getChatGlobalDaily,
+  getChatCostTrend,
+  getChatCacheHitRate,
+  getChatModelCostRanking,
+  getChatModelsUsage,
+  getChatUsersRanking,
   getCommitDetailV2,
   getCostAnomaly,
   getCostMembers,
@@ -470,6 +476,65 @@ export const efficiencyKeys = {
     [...efficiencyKeys.all(wsId), "chat", "detail-query", req] as const,
   chatLogPreview: (wsId: string, localLogPath: string) =>
     [...efficiencyKeys.all(wsId), "chat", "log-preview", localLogPath] as const,
+  // ---- Chat dimension: platform overview historical stats (/stats/*) ----
+  // Per-day series + ranked lists. Window (start/end) always part of the key;
+  // cost-trend additionally keys on model filter, users-ranking on sort + search.
+  chatGlobalDaily: (wsId: string, startDate: string, endDate: string) =>
+    [
+      ...efficiencyKeys.all(wsId),
+      "chat",
+      "global-daily",
+      startDate,
+      endDate,
+    ] as const,
+  chatCostTrend: (
+    wsId: string,
+    startDate: string,
+    endDate: string,
+    model?: string,
+  ) =>
+    [
+      ...efficiencyKeys.all(wsId),
+      "chat",
+      "cost-trend",
+      startDate,
+      endDate,
+      model,
+    ] as const,
+  chatCacheHitRate: (wsId: string, startDate: string, endDate: string) =>
+    [
+      ...efficiencyKeys.all(wsId),
+      "chat",
+      "cache-hit-rate",
+      startDate,
+      endDate,
+    ] as const,
+  chatModelCostRanking: (wsId: string, startDate: string, endDate: string) =>
+    [
+      ...efficiencyKeys.all(wsId),
+      "chat",
+      "model-cost-ranking",
+      startDate,
+      endDate,
+    ] as const,
+  chatModelsUsage: (wsId: string, startDate: string, endDate: string) =>
+    [...efficiencyKeys.all(wsId), "chat", "models-usage", startDate, endDate] as const,
+  chatUsersRanking: (
+    wsId: string,
+    startDate: string,
+    endDate: string,
+    sortBy?: string,
+    search?: string,
+  ) =>
+    [
+      ...efficiencyKeys.all(wsId),
+      "chat",
+      "users-ranking",
+      startDate,
+      endDate,
+      sortBy,
+      search,
+    ] as const,
 };
 
 const STALE_TIME = 60 * 1000; // 1 min — matches dashboard rollup cadence
@@ -1266,6 +1331,122 @@ export function chatLogPreviewOptions(wsId: string, localLogPath: string) {
       return getChatLogPreview(localLogPath);
     },
     enabled: !!wsId && !!localLogPath,
+    staleTime: STALE_TIME,
+  });
+}
+
+// ============================ Chat dimension: platform overview historical stats ============================
+// Source: PlatformOverview.tsx inline useQuery calls to /stats/* . Each becomes
+// an xxxOptions(wsId, ...) queryOptions factory. All take a start/end window;
+// cost-trend additionally takes an optional model filter, users-ranking an
+// optional sort_by + search. enabled gates on wsId only (the page gates on the
+// active tab/range itself before calling useQuery).
+
+export function chatGlobalDailyOptions(
+  wsId: string,
+  startDate: string,
+  endDate: string,
+) {
+  return queryOptions({
+    queryKey: efficiencyKeys.chatGlobalDaily(wsId, startDate, endDate),
+    queryFn: async () => {
+      if (MOCK_ENABLED) return mock.chatGlobalDaily({ startDate, endDate });
+      return getChatGlobalDaily({ startDate, endDate });
+    },
+    enabled: !!wsId,
+    staleTime: STALE_TIME,
+  });
+}
+
+export function chatCostTrendOptions(
+  wsId: string,
+  startDate: string,
+  endDate: string,
+  model?: string,
+) {
+  return queryOptions({
+    queryKey: efficiencyKeys.chatCostTrend(wsId, startDate, endDate, model),
+    queryFn: async () => {
+      if (MOCK_ENABLED)
+        return mock.chatCostTrend({ startDate, endDate, model });
+      return getChatCostTrend({ startDate, endDate, model });
+    },
+    enabled: !!wsId,
+    staleTime: STALE_TIME,
+  });
+}
+
+export function chatCacheHitRateOptions(
+  wsId: string,
+  startDate: string,
+  endDate: string,
+) {
+  return queryOptions({
+    queryKey: efficiencyKeys.chatCacheHitRate(wsId, startDate, endDate),
+    queryFn: async () => {
+      if (MOCK_ENABLED) return mock.chatCacheHitRate({ startDate, endDate });
+      return getChatCacheHitRate({ startDate, endDate });
+    },
+    enabled: !!wsId,
+    staleTime: STALE_TIME,
+  });
+}
+
+export function chatModelCostRankingOptions(
+  wsId: string,
+  startDate: string,
+  endDate: string,
+) {
+  return queryOptions({
+    queryKey: efficiencyKeys.chatModelCostRanking(wsId, startDate, endDate),
+    queryFn: async () => {
+      if (MOCK_ENABLED)
+        return mock.chatModelCostRanking({ startDate, endDate });
+      return getChatModelCostRanking({ startDate, endDate });
+    },
+    enabled: !!wsId,
+    staleTime: STALE_TIME,
+  });
+}
+
+export function chatModelsUsageOptions(
+  wsId: string,
+  startDate: string,
+  endDate: string,
+) {
+  return queryOptions({
+    queryKey: efficiencyKeys.chatModelsUsage(wsId, startDate, endDate),
+    queryFn: async () => {
+      if (MOCK_ENABLED) return mock.chatModelsUsage({ startDate, endDate });
+      return getChatModelsUsage({ startDate, endDate });
+    },
+    enabled: !!wsId,
+    staleTime: STALE_TIME,
+  });
+}
+
+export function chatUsersRankingOptions(
+  wsId: string,
+  startDate: string,
+  endDate: string,
+  sortBy?: string,
+  search?: string,
+) {
+  return queryOptions({
+    queryKey: efficiencyKeys.chatUsersRanking(
+      wsId,
+      startDate,
+      endDate,
+      sortBy,
+      search,
+    ),
+    queryFn: async () => {
+      if (MOCK_ENABLED)
+        return mock.chatUsersRanking({ startDate, endDate, sortBy, search });
+      return getChatUsersRanking({ startDate, endDate, sortBy, search });
+    },
+    enabled: !!wsId,
+    placeholderData: keepPreviousData,
     staleTime: STALE_TIME,
   });
 }

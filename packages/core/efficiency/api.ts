@@ -12,10 +12,15 @@ import type {
   ChatDatasource,
   ChatDatasourceTestResult,
   ChatDatasourceUpsert,
+  ChatDailyGlobal,
+  ChatCacheHitRateRow,
+  ChatCostTrendRow,
   ChatDetailQueryReq,
   ChatDetailQueryResponse,
   ChatLogPreviewResponse,
+  ChatModelCostRow,
   ChatModelTrendSeries,
+  ChatModelsUsageResp,
   ChatRealtimeResponse,
   ChatSyncSubmitReq,
   ChatSyncSubmitResponse,
@@ -24,6 +29,7 @@ import type {
   ChatSystemConfig,
   ChatTraceLogResponse,
   ChatUserTrendRow,
+  ChatUsersRankingResp,
   CheckConflictsResponse,
   CommitDetailResponse,
   CreateProjectRequest,
@@ -949,6 +955,95 @@ export async function getChatModelTrend(p: {
     start_date: p.startDate,
     end_date: p.endDate,
     models: p.models,
+  })}`;
+  throw new Error(NOT_WIRED);
+}
+
+// ---- Platform ops: historical overview stats (/stats/*) ----
+// Source path /stats/*; mirrored under /api/v2/efficiency/chat/stats/*. Each
+// returns a per-day series or ranked list aggregated from the chat summary ETL.
+// All take a start_date/end_date window; some take an extra filter (model for
+// cost-trend, sort_by for users ranking).
+
+// Per-day global aggregate (requests / tokens / cost / users / errors).
+export async function getChatGlobalDaily(p: {
+  startDate: string;
+  endDate: string;
+}): Promise<ChatDailyGlobal[]> {
+  void `${CHAT}/stats/global/daily${qs({
+    start_date: p.startDate,
+    end_date: p.endDate,
+  })}`;
+  throw new Error(NOT_WIRED);
+}
+
+// Per-day cost split (total/input/output/cache/request); model optional.
+export async function getChatCostTrend(p: {
+  startDate: string;
+  endDate: string;
+  model?: string;
+}): Promise<ChatCostTrendRow[]> {
+  void `${CHAT}/stats/cost-trend${qs({
+    start_date: p.startDate,
+    end_date: p.endDate,
+    model: p.model,
+  })}`;
+  throw new Error(NOT_WIRED);
+}
+
+// Per-day cache hit rate (cache/prompt token ratio).
+export async function getChatCacheHitRate(p: {
+  startDate: string;
+  endDate: string;
+}): Promise<ChatCacheHitRateRow[]> {
+  void `${CHAT}/stats/cache-hit-rate${qs({
+    start_date: p.startDate,
+    end_date: p.endDate,
+  })}`;
+  throw new Error(NOT_WIRED);
+}
+
+// Per-model cost ranking (sorted by cumulative cost desc).
+export async function getChatModelCostRanking(p: {
+  startDate: string;
+  endDate: string;
+}): Promise<ChatModelCostRow[]> {
+  void `${CHAT}/stats/models/cost-ranking${qs({
+    start_date: p.startDate,
+    end_date: p.endDate,
+  })}`;
+  throw new Error(NOT_WIRED);
+}
+
+// Per-model request/token share.
+export async function getChatModelsUsage(p: {
+  startDate: string;
+  endDate: string;
+}): Promise<ChatModelsUsageResp> {
+  void `${CHAT}/stats/models/usage${qs({
+    start_date: p.startDate,
+    end_date: p.endDate,
+  })}`;
+  throw new Error(NOT_WIRED);
+}
+
+// Top-N users ranking (paginated; sortBy ∈ sum_total_tokens | total_requests |
+// estimated_total_cost; search filters by universal_id/username).
+export async function getChatUsersRanking(p: {
+  startDate: string;
+  endDate: string;
+  sortBy?: string;
+  search?: string;
+  page?: number;
+  pageSize?: number;
+}): Promise<ChatUsersRankingResp> {
+  void `${CHAT}/stats/users/ranking${qs({
+    start_date: p.startDate,
+    end_date: p.endDate,
+    sort_by: p.sortBy,
+    search: p.search,
+    page: p.page != null ? String(p.page) : undefined,
+    page_size: p.pageSize != null ? String(p.pageSize) : undefined,
   })}`;
   throw new Error(NOT_WIRED);
 }
