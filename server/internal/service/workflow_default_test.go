@@ -1,10 +1,12 @@
 package service
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -169,7 +171,10 @@ func TestStartDefaultRunForIssue_AgentAssignee(t *testing.T) {
 	`, wsID, userID).Scan(&memberID); err != nil {
 		t.Fatalf("seed member: %v", err)
 	}
-	memberUUID, _ := util.ParseUUID(memberID)
+	// Issue creator_id for a member creator is the USER id (the handler stores the
+	// authenticated user's id; runtime_authorizer_id FK references multica_user),
+	// not the member row id.
+	memberUUID, _ := util.ParseUUID(userID)
 
 	var rtID string
 	if err := pool.QueryRow(ctx, `
@@ -435,6 +440,100 @@ func TestResolveRuntimeForAgent_IgnoresBuiltinAgentRuntimeFromOtherWorkspace(t *
 	}
 }
 
+// TestStartDefaultRunForIssue_LogsDispatchFailure asserts that when the default
+// run's root-node dispatch fails (here: the assignee agent has no runtime bound,
+// so selectWorkflowRuntime returns "agent has no runtime"), the error is logged
+// rather than silently swallowed. Without this, the node-run sits at format_ok
+// looking "in progress" with no agent task enqueued and no clue why — exactly
+// the silent failure observed with a runtime-less agent assignee.
+func TestStartDefaultRunForIssue_LogsDispatchFailure(t *testing.T) {
+	pool := openTestPool(t)
+	defer pool.Close()
+	ctx := context.Background()
+	svc := &WorkflowService{
+		Queries:   db.New(pool),
+		TxStarter: pool,
+		TaskSvc:   &TaskService{Queries: db.New(pool), TxStarter: pool},
+	}
+
+	suffix := fmt.Sprintf("ld-%d-%d", os.Getpid(), time.Now().UnixNano())
+
+	var wsID string
+	if err := pool.QueryRow(ctx, `
+		INSERT INTO multica_workspace (name, slug, description, issue_prefix)
+		VALUES ($1, $2, 'default run dispatch-failure test', 'LD') RETURNING id
+	`, "LD WS "+suffix, "ld-"+suffix).Scan(&wsID); err != nil {
+		t.Fatalf("seed workspace: %v", err)
+	}
+	ws, _ := util.ParseUUID(wsID)
+
+	var userID string
+	if err := pool.QueryRow(ctx, `
+		INSERT INTO multica_user (name, email) VALUES ($1, $2) RETURNING id
+	`, "LD User "+suffix, "ld-"+suffix+"@multica.ai").Scan(&userID); err != nil {
+		t.Fatalf("seed user: %v", err)
+	}
+	var memberID string
+	if err := pool.QueryRow(ctx, `
+		INSERT INTO multica_member (workspace_id, user_id, role) VALUES ($1, $2, 'owner') RETURNING id
+	`, wsID, userID).Scan(&memberID); err != nil {
+		t.Fatalf("seed member: %v", err)
+	}
+	// Issue creator_id for a member creator is the USER id (matches the live
+	// handler contract); runtime_authorizer_id FK references multica_user.
+	userUUID, _ := util.ParseUUID(userID)
+
+	// Agent with NO runtime bound → selectWorkflowRuntime returns
+	// "agent has no runtime" → DispatchAgentTask fails.
+	var agentID string
+	if err := pool.QueryRow(ctx, `
+		INSERT INTO multica_agent (workspace_id, name, runtime_mode)
+		VALUES ($1, 'LD Agent no-runtime', 'local') RETURNING id
+	`, wsID).Scan(&agentID); err != nil {
+		t.Fatalf("seed agent: %v", err)
+	}
+	agentUUID, _ := util.ParseUUID(agentID)
+
+	t.Cleanup(func() {
+		pool.Exec(ctx, `DELETE FROM multica_agent_task_queue WHERE agent_id = $1`, agentID)
+		pool.Exec(ctx, `DELETE FROM multica_workflow WHERE workspace_id = $1`, wsID) // cascade: nodes/runs/node-runs
+		pool.Exec(ctx, `DELETE FROM multica_agent WHERE id = $1`, agentID)
+		pool.Exec(ctx, `DELETE FROM multica_member WHERE workspace_id = $1`, wsID)
+		pool.Exec(ctx, `DELETE FROM multica_workspace WHERE id = $1`, wsID)
+		pool.Exec(ctx, `DELETE FROM multica_user WHERE id = $1`, userID)
+	})
+
+	issue := db.MulticaIssue{
+		WorkspaceID:  ws,
+		Title:        "adhoc issue, agent has no runtime",
+		AssigneeType: pgtype.Text{String: "agent", Valid: true},
+		AssigneeID:   agentUUID,
+		CreatorType:  "member",
+		CreatorID:    userUUID,
+	}
+
+	// Capture slog output (the service logs via the global default logger).
+	var logs bytes.Buffer
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelDebug})))
+	defer slog.SetDefault(prev)
+
+	// StartDefaultRunForIssue must NOT error — dispatch is best-effort and the
+	// run is still created. The dispatch failure must surface in the logs.
+	if _, _, err := svc.StartDefaultRunForIssue(ctx, issue); err != nil {
+		t.Fatalf("StartDefaultRunForIssue returned error (dispatch should be best-effort): %v", err)
+	}
+
+	// The dispatch failure must be logged (not silently swallowed). Assert the
+	// warning is emitted; the exact internal error ("no agent configured for
+	// worker phase", "agent has no runtime", etc.) is incidental — what matters
+	// is that a best-effort dispatch failure surfaces instead of leaving the
+	// node-run stuck at format_ok with no clue.
+	if !strings.Contains(logs.String(), "dispatch default run root nodes") {
+		t.Fatalf("dispatch failure not logged; expected \"dispatch default run root nodes\" warning, got:\n%s", logs.String())
+	}
+}
+
 // TestStartDefaultRunForIssue_SquadAssignee verifies the squad path: the
 // node-run worker is set to the squad, and dispatch resolves + tasks the SQUAD
 // LEADER (not the squad id) via dispatchWorker's squad case reading node-run.
@@ -460,7 +559,9 @@ func TestStartDefaultRunForIssue_SquadAssignee(t *testing.T) {
 	if err := pool.QueryRow(ctx, `INSERT INTO multica_member (workspace_id, user_id, role) VALUES ($1,$2,'owner') RETURNING id`, wsID, userID).Scan(&memberID); err != nil {
 		t.Fatalf("seed member: %v", err)
 	}
-	memberUUID, _ := util.ParseUUID(memberID)
+	// Issue creator_id for a member creator is the USER id (handler stores the
+	// authenticated user's id; runtime_authorizer_id FK references multica_user).
+	memberUUID, _ := util.ParseUUID(userID)
 
 	var rtID, agentID string
 	if err := pool.QueryRow(ctx, `INSERT INTO multica_agent_runtime (workspace_id, name, runtime_mode, provider, status) VALUES ($1,'SQ RT','local','legacy_local','online') RETURNING id`, wsID).Scan(&rtID); err != nil {
@@ -780,4 +881,18 @@ func TestUploadMemberDeliverable_UpdatesExistingFileAfterRejection(t *testing.T)
 	if status != "submitted" || prURL == "" {
 		t.Fatalf("submission after retry = status %q url %q, want submitted with PR", status, prURL)
 	}
+}
+
+// TestPublishWorkflowEvent_NilBusNoPanic asserts that publishing a workflow
+// event is a no-op (not a nil-pointer panic) when the service has no event Bus.
+// Tests construct WorkflowService without a Bus, and dispatch / run-completion
+// paths call publishWorkflowEvent; a missing Bus must never crash the process.
+func TestPublishWorkflowEvent_NilBusNoPanic(t *testing.T) {
+	s := &WorkflowService{} // Bus is nil
+	defer func() {
+		if r := recover(); r != nil {
+			t.Fatalf("publishWorkflowEvent panicked with nil Bus: %v", r)
+		}
+	}()
+	s.publishWorkflowEvent("workflow.run.completed", "ws-test", map[string]any{"k": "v"})
 }

@@ -699,8 +699,14 @@ func (s *WorkflowService) StartDefaultRunForIssue(ctx context.Context, issue db.
 
 	// Dispatch the root node-run. dispatchWorker reads the node-run's (now
 	// overridden) worker type: agent/squad → agent task; human (member) →
-	// worker_assigned, awaits UI upload. Errors are logged inside, not returned.
-	s.DispatchRootNodeRuns(ctx, run.ID)
+	// worker_assigned, awaits UI upload. Dispatch is best-effort — the run is
+	// already created, so a failure here must be logged, not silently dropped,
+	// or the node-run sits at format_ok looking "in progress" with no task and
+	// no clue why (e.g. the agent has no runtime bound).
+	if err := s.DispatchRootNodeRuns(ctx, run.ID); err != nil {
+		slog.Warn("dispatch default run root nodes",
+			"run_id", util.UUIDToString(run.ID), "error", err)
+	}
 
 	// Scaffold Gitea for the run (dormant no-op when unconfigured).
 	go s.ScaffoldRunDeliverables(context.Background(), *run)
@@ -2177,6 +2183,9 @@ func (s *WorkflowService) createSystemComment(ctx context.Context, issueID pgtyp
 // ── WS event helpers ─────────────────────────────────────────────────────────
 
 func (s *WorkflowService) publishWorkflowEvent(eventType, workspaceID string, payload any) {
+	if s.Bus == nil {
+		return // best-effort: no event bus wired (e.g. service constructed in tests) — skip, don't crash.
+	}
 	s.Bus.Publish(events.Event{
 		Type:        eventType,
 		WorkspaceID: workspaceID,
