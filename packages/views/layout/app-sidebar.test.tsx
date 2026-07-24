@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiError } from "@multica/core/api";
 import { AppSidebar } from "./app-sidebar";
 
-const { detail, deletePin, pins, inboxItems } = vi.hoisted(() => ({
+const { detail, deletePin, pins /* , inboxItems */ } = vi.hoisted(() => ({
   detail: { current: { isPending: false, isError: false, data: null as unknown, error: null as unknown } },
   deletePin: vi.fn(),
   pins: {
@@ -19,7 +19,7 @@ const { detail, deletePin, pins, inboxItems } = vi.hoisted(() => ({
       },
     ],
   },
-  inboxItems: { current: [] as Array<{ id: string; read: boolean }> },
+  // inboxItems: { current: [] as Array<{ id: string; read: boolean }> }, // Hidden per product decision — inbox menu removed.
 }));
 
 vi.mock("@dnd-kit/core", () => ({
@@ -93,7 +93,7 @@ vi.mock("@multica/core/paths", () => ({
   paths: { workspace: (slug: string) => ({ issues: () => `/${slug}/issues` }) },
   useCurrentWorkspace: () => ({ id: "ws-1", name: "Acme", slug: "acme" }),
   useWorkspacePaths: () => ({
-    inbox: () => "/acme/inbox",
+    // inbox: () => "/acme/inbox", // Hidden per product decision — inbox menu removed.
     myIssues: () => "/acme/my-issues",
     issues: () => "/acme/issues",
     workflows: () => "/acme/workflows",
@@ -139,7 +139,7 @@ vi.mock("@multica/core/paths", () => ({
   }),
 }));
 vi.mock("@multica/core/api", async (importOriginal) => ({ ...(await importOriginal<typeof import("@multica/core/api")>()), api: {} }));
-vi.mock("@multica/core/inbox/queries", () => ({ deduplicateInboxItems: (items: unknown[]) => items, inboxKeys: { list: () => ["inbox"] } }));
+// vi.mock("@multica/core/inbox/queries", () => ({ deduplicateInboxItems: (items: unknown[]) => items, inboxKeys: { list: () => ["inbox"] } })); // Hidden per product decision — inbox menu removed.
 vi.mock("@multica/core/issues/queries", () => ({ issueDetailOptions: () => ({ queryKey: ["issue"] }) }));
 vi.mock("@multica/core/issues/stores/create-mode-store", () => ({
   useCreateModeStore: { getState: () => ({ lastMode: "agent" }) },
@@ -162,7 +162,7 @@ vi.mock("@tanstack/react-query", async (importOriginal) => ({
   useQuery: ({ queryKey }: { queryKey: readonly unknown[] }) => {
     if (queryKey[0] === "pins") return { data: pins.current };
     if (queryKey[0] === "issue") return detail.current;
-    if (queryKey[0] === "inbox") return { data: inboxItems.current };
+    // if (queryKey[0] === "inbox") return { data: inboxItems.current }; // Hidden per product decision — inbox menu removed.
     return { data: [] };
   },
   useQueryClient: () => ({ fetchQuery: vi.fn(), invalidateQueries: vi.fn() }),
@@ -171,7 +171,6 @@ vi.mock("@tanstack/react-query", async (importOriginal) => ({
 describe("PinRow", () => {
   beforeEach(() => {
     deletePin.mockReset();
-    inboxItems.current = [];
     detail.current = { isPending: false, isError: false, data: null, error: null };
   });
 
@@ -191,31 +190,5 @@ describe("PinRow", () => {
     detail.current = { isPending: false, isError: false, data: { identifier: "MUL-123", title: "Keep this pin", status: "todo" }, error: null };
     render(<AppSidebar />);
     expect(await screen.findByText("MUL-123 Keep this pin")).toBeInTheDocument();
-  });
-});
-
-describe("inbox indicator", () => {
-  beforeEach(() => {
-    inboxItems.current = [];
-  });
-
-  it("surfaces unread notifications with an accessible count", () => {
-    inboxItems.current = [
-      { id: "inbox-1", read: false },
-      { id: "inbox-2", read: false },
-      { id: "inbox-3", read: true },
-    ];
-
-    render(<AppSidebar />);
-
-    expect(screen.getByLabelText("2 unread notifications")).toHaveTextContent("2");
-    expect(screen.getByLabelText("2 unread notifications")).toHaveClass("bg-destructive");
-    expect(screen.getByLabelText("2 unread notifications")).toHaveClass("text-white");
-  });
-
-  it("does not render an unread badge when the inbox is clear", () => {
-    render(<AppSidebar />);
-
-    expect(screen.queryByLabelText(/unread notification/)).not.toBeInTheDocument();
   });
 });

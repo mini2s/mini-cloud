@@ -98,7 +98,7 @@ vi.mock("@multica/core", () => ({
 
 vi.mock("@multica/core/paths", () => ({
   useWorkspacePaths: () => ({
-    inbox: () => "/ws-test/inbox",
+    // inbox: () => "/ws-test/inbox", // Hidden per product decision — inbox menu removed.
     myIssues: () => "/ws-test/my-issues",
     issues: () => "/ws-test/issues",
     projects: () => "/ws-test/projects",

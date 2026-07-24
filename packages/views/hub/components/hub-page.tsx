@@ -8,7 +8,7 @@ import { Search, X, RefreshCw } from "lucide-react"
 import type { CapabilityItem, ItemSort, ItemOrder } from "@multica/core/types"
 
 import HubLayout from "./hub-layout"
-import { TypeHero } from "./type-hero"
+import { PageHeader } from "../../layout/page-header"
 import { SearchTokenBox } from "./search-token-box"
 import { HubFilterBar } from "./hub-filter-bar"
 import type { FilterGroup } from "./hub-filter-bar"
@@ -122,26 +122,6 @@ export function HubPage() {
 
   const items = listData?.items ?? []
   const total = listData?.total ?? 0
-
-  // Popular items for type-hero
-  const popularParams = useMemo(() =>
-    activeType !== "all"
-      ? { type: activeType, page: 1, pageSize: 20 }
-      : null
-  , [activeType])
-
-  const { data: popularData } = useHubItems(popularParams ?? { pageSize: 0 })
-  const popularItems = useMemo(() => {
-    if (!popularData?.items) return []
-    return [...popularData.items]
-      .sort((a, b) => (b.installCount ?? 0) - (a.installCount ?? 0))
-      .slice(0, 3)
-  }, [popularData])
-
-  const totalInstalls = useMemo(() => {
-    if (!popularData?.items) return 0
-    return popularData.items.reduce((s, i) => s + (i.installCount ?? 0), 0)
-  }, [popularData])
 // ── URL update helper ──
 const updateURL = useCallback((updates: Record<string, string | null>) => {
   const next = new URLSearchParams(searchParams)
@@ -321,7 +301,6 @@ const updateURL = useCallback((updates: Record<string, string | null>) => {
   , [t])
 
   // ── Render ──
-  const showHero = activeType !== "all"
   const detailOpen = selectedItemId !== null
   const hasActiveQuery = debouncedSearch.length > 0
     || appliedCategories.length > 0
@@ -332,18 +311,10 @@ const updateURL = useCallback((updates: Record<string, string | null>) => {
   return (
     <HubLayout>
       <div className="flex min-w-0 flex-1 flex-col overflow-y-auto">
-        {/* ═══ TYPE HERO (type-specific mode) ═══ */}
-          {showHero && (
-            <div className="px-6 pt-4 max-[640px]:px-4">
-              <TypeHero
-                type={activeType}
-                items={popularItems}
-                total={popularData?.total ?? 0}
-                totalInstalls={totalInstalls}
-                onItemClick={openDetail}
-              />
-            </div>
-          )}
+        {/* ═══ PAGE HEADER ═══ */}
+        <PageHeader>
+          <h1 className="text-sm font-semibold">{t(($) => $.home.typeTab[activeType])}</h1>
+        </PageHeader>
 
           {/* ═══ SEARCH / TOOLBAR ═══ */}
           <div className="flex w-full flex-col gap-3 px-6 py-4 max-[640px]:px-4">

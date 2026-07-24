@@ -11,7 +11,7 @@ import {
   MessageSquare,
   Plus,
   SearchIcon,
-  Inbox,
+  // Inbox, // Hidden per product decision — inbox menu removed.
   CircleUser,
   ListTodo,
   FolderKanban,
@@ -111,7 +111,7 @@ function HighlightText({ text, query }: { text: string; query: string }) {
 // against the current workspace slug at render time (see SearchCommand body).
 // Only parameterless paths are valid nav destinations.
 type NavKey =
-  | "inbox"
+  // | "inbox" // Hidden per product decision — inbox menu removed.
   | "myIssues"
   | "issues"
   | "projects"
@@ -164,7 +164,7 @@ interface SearchResults {
 export function SearchCommand() {
   const { t } = useT("search");
   const navPages: NavPage[] = [
-    { key: "inbox", label: t(($) => $.pages.inbox), icon: Inbox, keywords: ["inbox", "notifications", "收件箱"] },
+    // { key: "inbox", label: t(($) => $.pages.inbox), icon: Inbox, keywords: ["inbox", "notifications", "收件箱"] }, // Hidden per product decision — inbox menu removed.
     { key: "myIssues", label: t(($) => $.pages.my_issues), icon: CircleUser, keywords: ["my", "issues", "assigned", "我的"] },
     { key: "issues", label: t(($) => $.pages.issues), icon: ListTodo, keywords: ["issues", "tasks", "bugs"] },
     { key: "projects", label: t(($) => $.pages.projects), icon: FolderKanban, keywords: ["projects", "kanban", "项目"] },

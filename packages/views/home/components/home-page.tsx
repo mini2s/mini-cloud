@@ -6,7 +6,7 @@ import {
   ListTodo,
   CircleUser,
   FolderKanban,
-  Inbox,
+  // Inbox, // Hidden per product decision — inbox menu removed.
   GitBranch,
   BookOpenText,
   ArrowRight,
@@ -70,7 +70,7 @@ const QUICK_NAV: { labelKey: "issues" | "my_issues" | "projects" | "inbox" | "wo
   { labelKey: "issues", icon: ListTodo, href: (p) => p.issues() },
   { labelKey: "my_issues", icon: CircleUser, href: (p) => p.myIssues() },
   { labelKey: "projects", icon: FolderKanban, href: (p) => p.projects() },
-  { labelKey: "inbox", icon: Inbox, href: (p) => p.inbox() },
+  // { labelKey: "inbox", icon: Inbox, href: (p) => p.inbox() }, // Hidden per product decision — inbox menu removed.
   { labelKey: "workflows", icon: GitBranch, href: (p) => p.workflows() },
   { labelKey: "skills", icon: BookOpenText, href: (p) => p.skills() },
 ];
