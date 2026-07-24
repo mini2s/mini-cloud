@@ -3,6 +3,15 @@ import {
   getAllNeeds,
   getAllRepos,
   getAllUsers,
+  getChatDatasources,
+  getChatDetailQuery,
+  getChatLogPreview,
+  getChatModelTrend,
+  getChatPricing,
+  getChatRealtime,
+  getChatSyncTasks,
+  getChatSystemConfig,
+  getChatUserTrend,
   getCommitDetailV2,
   getCostAnomaly,
   getCostMembers,
@@ -45,6 +54,7 @@ import {
 } from "./api";
 import { MOCK_ENABLED, mock } from "./mock";
 import { computePreviousRange } from "./utils/date";
+import type { ChatDetailQueryReq } from "./types";
 import type { DeptQuery, MembersQuery } from "./types-usage";
 import type { CostMembersQuery } from "./types-cost";
 
@@ -398,6 +408,59 @@ export const efficiencyKeys = {
     [...efficiencyKeys.all(wsId), "detail", "task", taskId] as const,
   commitDetail: (wsId: string, commitId: string) =>
     [...efficiencyKeys.all(wsId), "detail", "commit", commitId] as const,
+
+  // ---- Chat dimension (chat-settings + platform-ops pages) ----
+  // Workspace-scoped (wsId first). The settings reads are parameterless
+  // (pricing/datasources/sync-tasks/config); the platform-ops reads carry
+  // their filter shape (range/datasourceId, uid/window, models, req, path).
+  chatPricing: (wsId: string) =>
+    [...efficiencyKeys.all(wsId), "chat", "pricing"] as const,
+  chatDatasources: (wsId: string) =>
+    [...efficiencyKeys.all(wsId), "chat", "datasources"] as const,
+  chatSyncTasks: (wsId: string) =>
+    [...efficiencyKeys.all(wsId), "chat", "sync-tasks"] as const,
+  chatSystemConfig: (wsId: string) =>
+    [...efficiencyKeys.all(wsId), "chat", "system-config"] as const,
+  chatRealtime: (
+    wsId: string,
+    p: { range: "30m" | "1h" | "3h"; datasourceId?: string },
+  ) =>
+    [
+      ...efficiencyKeys.all(wsId),
+      "chat",
+      "realtime",
+      p.range,
+      p.datasourceId,
+    ] as const,
+  chatModelTrend: (
+    wsId: string,
+    p: { startDate: string; endDate: string; models?: string },
+  ) =>
+    [
+      ...efficiencyKeys.all(wsId),
+      "chat",
+      "model-trend",
+      p.startDate,
+      p.endDate,
+      p.models,
+    ] as const,
+  chatUserTrend: (
+    wsId: string,
+    uid: string,
+    p: { startDate: string; endDate: string },
+  ) =>
+    [
+      ...efficiencyKeys.all(wsId),
+      "chat",
+      "user-trend",
+      uid,
+      p.startDate,
+      p.endDate,
+    ] as const,
+  chatDetailQuery: (wsId: string, req: ChatDetailQueryReq) =>
+    [...efficiencyKeys.all(wsId), "chat", "detail-query", req] as const,
+  chatLogPreview: (wsId: string, localLogPath: string) =>
+    [...efficiencyKeys.all(wsId), "chat", "log-preview", localLogPath] as const,
 };
 
 const STALE_TIME = 60 * 1000; // 1 min — matches dashboard rollup cadence
@@ -1032,6 +1095,139 @@ export function commitDetailOptions(wsId: string, commitId: string) {
       return getCommitDetailV2(commitId);
     },
     enabled: !!wsId && !!commitId,
+    staleTime: STALE_TIME,
+  });
+}
+
+// ============================ Chat dimension ============================
+// Source hooks: useChatPricing / useChatDatasources / useChatSyncTasks /
+// useChatSystemConfig / useChatRealtime + inline useQuery calls for
+// chatStats.modelTrend / chatStats.userTrend / chatStats.queryDetail /
+// chatStats.previewLog. Each becomes an xxxOptions(wsId, ...) queryOptions
+// factory. The settings reads are parameterless; the platform-ops reads carry
+// their filter shape. enabled gates on wsId (and the path/uid for
+// log-preview / user-trend). Mutations are NOT queryOptions — they stay as
+// direct api.ts calls in the UI (the source did the same: page-level
+// mutationFn calling chatStats.createPricing etc.).
+//
+// The source useChatRealtime turned off auto-refetch (server 10s rate limit)
+// and used staleTime 10s; that page-level behavior is preserved by carrying
+// the shared STALE_TIME here and letting the page drive manual refresh.
+
+export function chatPricingOptions(wsId: string) {
+  return queryOptions({
+    queryKey: efficiencyKeys.chatPricing(wsId),
+    queryFn: async () => {
+      if (MOCK_ENABLED) return mock.chatPricing();
+      return getChatPricing();
+    },
+    enabled: !!wsId,
+    staleTime: STALE_TIME,
+  });
+}
+
+export function chatDatasourcesOptions(wsId: string) {
+  return queryOptions({
+    queryKey: efficiencyKeys.chatDatasources(wsId),
+    queryFn: async () => {
+      if (MOCK_ENABLED) return mock.chatDatasources();
+      return getChatDatasources();
+    },
+    enabled: !!wsId,
+    staleTime: STALE_TIME,
+  });
+}
+
+export function chatSyncTasksOptions(wsId: string) {
+  return queryOptions({
+    queryKey: efficiencyKeys.chatSyncTasks(wsId),
+    queryFn: async () => {
+      if (MOCK_ENABLED) return mock.chatSyncTasks();
+      return getChatSyncTasks();
+    },
+    enabled: !!wsId,
+    staleTime: STALE_TIME,
+  });
+}
+
+export function chatSystemConfigOptions(wsId: string) {
+  return queryOptions({
+    queryKey: efficiencyKeys.chatSystemConfig(wsId),
+    queryFn: async () => {
+      if (MOCK_ENABLED) return mock.chatSystemConfig();
+      return getChatSystemConfig();
+    },
+    enabled: !!wsId,
+    staleTime: STALE_TIME,
+  });
+}
+
+export function chatRealtimeOptions(
+  wsId: string,
+  p: { range: "30m" | "1h" | "3h"; datasourceId?: string },
+) {
+  return queryOptions({
+    queryKey: efficiencyKeys.chatRealtime(wsId, p),
+    queryFn: async () => {
+      if (MOCK_ENABLED) return mock.chatRealtime(p);
+      return getChatRealtime(p);
+    },
+    enabled: !!wsId,
+    staleTime: STALE_TIME,
+  });
+}
+
+export function chatModelTrendOptions(
+  wsId: string,
+  p: { startDate: string; endDate: string; models?: string },
+) {
+  return queryOptions({
+    queryKey: efficiencyKeys.chatModelTrend(wsId, p),
+    queryFn: async () => {
+      if (MOCK_ENABLED) return mock.chatModelTrend(p);
+      return getChatModelTrend(p);
+    },
+    enabled: !!wsId,
+    staleTime: STALE_TIME,
+  });
+}
+
+export function chatUserTrendOptions(
+  wsId: string,
+  uid: string,
+  p: { startDate: string; endDate: string },
+) {
+  return queryOptions({
+    queryKey: efficiencyKeys.chatUserTrend(wsId, uid, p),
+    queryFn: async () => {
+      if (MOCK_ENABLED) return mock.chatUserTrend(uid, p);
+      return getChatUserTrend(uid, p);
+    },
+    enabled: !!wsId && !!uid,
+    staleTime: STALE_TIME,
+  });
+}
+
+export function chatDetailQueryOptions(wsId: string, req: ChatDetailQueryReq) {
+  return queryOptions({
+    queryKey: efficiencyKeys.chatDetailQuery(wsId, req),
+    queryFn: async () => {
+      if (MOCK_ENABLED) return mock.chatDetailQuery(req);
+      return getChatDetailQuery(req);
+    },
+    enabled: !!wsId,
+    staleTime: STALE_TIME,
+  });
+}
+
+export function chatLogPreviewOptions(wsId: string, localLogPath: string) {
+  return queryOptions({
+    queryKey: efficiencyKeys.chatLogPreview(wsId, localLogPath),
+    queryFn: async () => {
+      if (MOCK_ENABLED) return mock.chatLogPreview(localLogPath);
+      return getChatLogPreview(localLogPath);
+    },
+    enabled: !!wsId && !!localLogPath,
     staleTime: STALE_TIME,
   });
 }

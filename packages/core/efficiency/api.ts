@@ -7,6 +7,21 @@
 // backend lands. Until then the false-MOCK path throws a clear error.
 import type {
   ApiList,
+  ChatDatasource,
+  ChatDatasourceTestResult,
+  ChatDatasourceUpsert,
+  ChatDetailQueryReq,
+  ChatDetailQueryResponse,
+  ChatLogPreviewResponse,
+  ChatModelTrendSeries,
+  ChatRealtimeResponse,
+  ChatSyncSubmitReq,
+  ChatSyncSubmitResponse,
+  ChatSyncTaskListResponse,
+  ChatSyncTaskStatus,
+  ChatSystemConfig,
+  ChatTraceLogResponse,
+  ChatUserTrendRow,
   CommitDetailResponse,
   DashboardSummary,
   DashboardTrends,
@@ -16,6 +31,8 @@ import type {
   EntityTrendResponse,
   GlobalConfig,
   ListParams,
+  ModelPricing,
+  ModelPricingUpsert,
   NeedsV2DetailResponse,
   NeedsV2Summary,
   ProjectDetailResponse,
@@ -572,5 +589,214 @@ export async function getCommitDetailV2(
   commitId: string,
 ): Promise<CommitDetailResponse> {
   void `${BASE}/commits/${encodeURIComponent(commitId)}`;
+  throw new Error(NOT_WIRED);
+}
+
+// ============================================================================
+// Chat dimension (platform AI monitoring + admin settings). Source wrapped the
+// chat-indicator-statistics proxy via the `chatStats` object (chatGet/chatPost
+// under /api/v2/chat/*); the mini-cloud backend will mount these as efficiency
+// endpoints under /api/v2/efficiency/chat/* (NOT migrated as a chat proxy).
+// Read endpoints return mock data in the mock phase; mutation endpoints are
+// NOT_WIRED stubs so the types exist for the later UI form wiring.
+// ============================================================================
+
+const CHAT = `${BASE}/chat`;
+
+// ---- Settings: model pricing CRUD ----
+
+export async function getChatPricing(): Promise<ModelPricing[]> {
+  void `${CHAT}/pricing/models`;
+  throw new Error(NOT_WIRED);
+}
+
+export async function createChatPricing(
+  body: ModelPricingUpsert,
+): Promise<ModelPricing> {
+  void `${CHAT}/pricing/models`;
+  void body;
+  throw new Error(NOT_WIRED);
+}
+
+export async function updateChatPricing(
+  id: number,
+  body: ModelPricingUpsert,
+): Promise<ModelPricing> {
+  void `${CHAT}/pricing/models/${id}`;
+  void body;
+  throw new Error(NOT_WIRED);
+}
+
+export async function deleteChatPricing(id: number): Promise<void> {
+  void `${CHAT}/pricing/models/${id}`;
+  throw new Error(NOT_WIRED);
+}
+
+// ---- Settings: datasource management ----
+
+export async function getChatDatasources(): Promise<ChatDatasource[]> {
+  void `${CHAT}/datasources`;
+  throw new Error(NOT_WIRED);
+}
+
+export async function createChatDatasource(
+  body: ChatDatasourceUpsert,
+): Promise<ChatDatasource> {
+  void `${CHAT}/datasources`;
+  void body;
+  throw new Error(NOT_WIRED);
+}
+
+export async function updateChatDatasource(
+  id: number,
+  body: ChatDatasourceUpsert,
+): Promise<ChatDatasource> {
+  void `${CHAT}/datasources/${id}`;
+  void body;
+  throw new Error(NOT_WIRED);
+}
+
+export async function deleteChatDatasource(id: number): Promise<void> {
+  void `${CHAT}/datasources/${id}`;
+  throw new Error(NOT_WIRED);
+}
+
+// Connection test (NOTE: a failure is also HTTP 200; the caller checks the
+// returned success/message). Not wired during the mock phase.
+export async function testChatDatasource(
+  id: number,
+): Promise<ChatDatasourceTestResult> {
+  void `${CHAT}/datasources/${id}/test`;
+  throw new Error(NOT_WIRED);
+}
+
+// ---- Settings: sync tasks ----
+
+export async function getChatSyncTasks(): Promise<ChatSyncTaskListResponse> {
+  void `${CHAT}/sync/tasks`;
+  throw new Error(NOT_WIRED);
+}
+
+export async function getChatSyncTask(
+  taskId: string,
+): Promise<ChatSyncTaskStatus> {
+  void `${CHAT}/sync/tasks/${encodeURIComponent(taskId)}`;
+  throw new Error(NOT_WIRED);
+}
+
+export async function submitChatSyncTask(
+  body: ChatSyncSubmitReq,
+): Promise<ChatSyncSubmitResponse> {
+  void `${CHAT}/sync/tasks`;
+  void body;
+  throw new Error(NOT_WIRED);
+}
+
+export async function retryChatSyncTask(
+  taskId: string,
+): Promise<{ task_id: string; status: string }> {
+  void `${CHAT}/sync/tasks/${encodeURIComponent(taskId)}/retry`;
+  throw new Error(NOT_WIRED);
+}
+
+export async function cancelChatSyncTask(
+  taskId: string,
+): Promise<{ task_id: string; status: string }> {
+  void `${CHAT}/sync/tasks/${encodeURIComponent(taskId)}/cancel`;
+  throw new Error(NOT_WIRED);
+}
+
+// ---- Settings: system config (flat KV, e.g. system_currency) ----
+
+export async function getChatSystemConfig(): Promise<ChatSystemConfig> {
+  void `${CHAT}/config`;
+  throw new Error(NOT_WIRED);
+}
+
+export async function updateChatSystemConfig(
+  body: ChatSystemConfig,
+): Promise<void> {
+  void `${CHAT}/config`;
+  void body;
+  throw new Error(NOT_WIRED);
+}
+
+// ---- Platform ops: realtime aggregate + detail/log query ----
+
+// Realtime aggregate (range ∈ 30m|1h|3h; source had a 10s server rate limit,
+// so the UI drives manual refresh). datasourceId scopes to a source.
+export async function getChatRealtime(p: {
+  range: "30m" | "1h" | "3h";
+  datasourceId?: string;
+}): Promise<ChatRealtimeResponse> {
+  void `${CHAT}/stats/realtime${qs({
+    range: p.range,
+    datasource_id: p.datasourceId,
+  })}`;
+  throw new Error(NOT_WIRED);
+}
+
+// Detail point query (max 100 rows; ISO 8601 times required). Source path
+// /stats/detail/query is a POST body; mirrored here.
+export async function getChatDetailQuery(
+  req: ChatDetailQueryReq,
+): Promise<ChatDetailQueryResponse> {
+  void `${CHAT}/stats/detail/query`;
+  void req;
+  throw new Error(NOT_WIRED);
+}
+
+// Raw log preview (local_log_path is server-clamped to the configured root).
+export async function getChatLogPreview(
+  localLogPath: string,
+): Promise<ChatLogPreviewResponse> {
+  void `${CHAT}/stats/detail/log-preview`;
+  void localLogPath;
+  throw new Error(NOT_WIRED);
+}
+
+// Trace-log query (Loki etc. backend). Not part of the settings/platform read
+// list, but stubbed here for type parity with the later RealtimeQuery wiring.
+export async function getChatTraceLogs(
+  body: {
+    datasource_id: string;
+    request_id: string;
+    label_selector?: string;
+    start_time: string;
+    end_time: string;
+    limit?: number;
+    cursor?: string;
+  },
+): Promise<ChatTraceLogResponse> {
+  void `${CHAT}/stats/trace-logs`;
+  void body;
+  throw new Error(NOT_WIRED);
+}
+
+// ---- Platform ops: per-user trend ----
+
+export async function getChatUserTrend(
+  uid: string,
+  p: { startDate: string; endDate: string },
+): Promise<ChatUserTrendRow[]> {
+  void `${CHAT}/stats/users/${encodeURIComponent(uid)}/trend${qs({
+    start_date: p.startDate,
+    end_date: p.endDate,
+  })}`;
+  throw new Error(NOT_WIRED);
+}
+
+// ---- Platform ops: model request/token trend ----
+
+export async function getChatModelTrend(p: {
+  startDate: string;
+  endDate: string;
+  models?: string;
+}): Promise<ChatModelTrendSeries[]> {
+  void `${CHAT}/stats/model-trend${qs({
+    start_date: p.startDate,
+    end_date: p.endDate,
+    models: p.models,
+  })}`;
   throw new Error(NOT_WIRED);
 }

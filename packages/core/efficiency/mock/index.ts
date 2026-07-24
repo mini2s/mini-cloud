@@ -4,6 +4,15 @@
 // /api/v2/efficiency/* endpoints are live.
 import type {
   ApiList,
+  ChatDatasource,
+  ChatDetailQueryReq,
+  ChatDetailQueryResponse,
+  ChatLogPreviewResponse,
+  ChatModelTrendSeries,
+  ChatRealtimeResponse,
+  ChatSyncTaskListResponse,
+  ChatSystemConfig,
+  ChatUserTrendRow,
   CommitDetailResponse,
   DashboardSummary,
   DashboardTrends,
@@ -12,6 +21,7 @@ import type {
   EfficiencyV2AggregateResponse,
   EntityTrendResponse,
   GlobalConfig,
+  ModelPricing,
   NeedsV2DetailResponse,
   NeedsV2Summary,
   ProjectDetailResponse,
@@ -103,6 +113,17 @@ import {
   getMockCostTeamComposition,
   getMockCostTeamTrend,
 } from "./cost";
+import {
+  getMockChatDatasources,
+  getMockChatDetailQuery,
+  getMockChatLogPreview,
+  getMockChatModelTrend,
+  getMockChatPricing,
+  getMockChatRealtime,
+  getMockChatSyncTasks,
+  getMockChatSystemConfig,
+  getMockChatUserTrend,
+} from "./chat";
 
 const RAW = process.env.EFFICIENCY_MOCK;
 // Default: mock ON (backend not yet live). Set EFFICIENCY_MOCK=0 to disable.
@@ -227,4 +248,31 @@ export const mock = {
   taskDetail: (taskId: string): TaskDetailResponse => getMockTaskDetail(taskId),
   commitDetail: (commitId: string): CommitDetailResponse =>
     getMockCommitDetail(commitId),
+
+  // ---- Chat dimension (chat-settings + platform-ops pages) ----
+  // Read entries only. Mutations (upsert/delete pricing|datasource|config,
+  // submit/retry/cancel sync, test datasource) are NOT mocked — their api.ts
+  // stubs throw NOT_WIRED, so the settings forms won't submit in the mock
+  // phase. That's intentional until the live backend is wired.
+  chatPricing: (): ModelPricing[] => getMockChatPricing(),
+  chatDatasources: (): ChatDatasource[] => getMockChatDatasources(),
+  chatSyncTasks: (): ChatSyncTaskListResponse => getMockChatSyncTasks(),
+  chatSystemConfig: (): ChatSystemConfig => getMockChatSystemConfig(),
+  chatRealtime: (p: {
+    range: "30m" | "1h" | "3h";
+    datasourceId?: string;
+  }): ChatRealtimeResponse => getMockChatRealtime(p),
+  chatModelTrend: (p: {
+    startDate: string;
+    endDate: string;
+    models?: string;
+  }): ChatModelTrendSeries[] => getMockChatModelTrend(p),
+  chatUserTrend: (
+    uid: string,
+    p: { startDate: string; endDate: string },
+  ): ChatUserTrendRow[] => getMockChatUserTrend(uid, p),
+  chatDetailQuery: (req: ChatDetailQueryReq): ChatDetailQueryResponse =>
+    getMockChatDetailQuery(req),
+  chatLogPreview: (localLogPath: string): ChatLogPreviewResponse =>
+    getMockChatLogPreview(localLogPath),
 } as const;

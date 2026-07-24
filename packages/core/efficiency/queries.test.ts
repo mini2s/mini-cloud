@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { efficiencyKeys } from "./queries";
+import type { ChatDetailQueryReq } from "./types";
 import type { DeptQuery, MembersQuery } from "./types-usage";
 import type { CostMembersQuery } from "./types-cost";
 
@@ -565,5 +566,224 @@ describe("efficiencyKeys", () => {
     expect(efficiencyKeys.userDetail("ws1", "overview")[2]).toBe("detail");
     expect(efficiencyKeys.costOverview("ws1", deptQ)[2]).toBe("cost");
     expect(efficiencyKeys.usageDeptOverview("ws1", deptQ)[2]).toBe("usage");
+  });
+
+  // ---- Chat dimension keys (chat-settings + platform-ops pages) ----
+
+  it("chat settings keys are workspace-scoped with a stable segment", () => {
+    expect(efficiencyKeys.chatPricing("ws1")).toEqual([
+      "efficiency",
+      "ws1",
+      "chat",
+      "pricing",
+    ]);
+    expect(efficiencyKeys.chatDatasources("ws1")).toEqual([
+      "efficiency",
+      "ws1",
+      "chat",
+      "datasources",
+    ]);
+    expect(efficiencyKeys.chatSyncTasks("ws1")).toEqual([
+      "efficiency",
+      "ws1",
+      "chat",
+      "sync-tasks",
+    ]);
+    expect(efficiencyKeys.chatSystemConfig("ws1")).toEqual([
+      "efficiency",
+      "ws1",
+      "chat",
+      "system-config",
+    ]);
+  });
+
+  it("chatRealtime key carries range and datasourceId", () => {
+    expect(
+      efficiencyKeys.chatRealtime("ws1", { range: "1h", datasourceId: "ds-1" }),
+    ).toEqual([
+      "efficiency",
+      "ws1",
+      "chat",
+      "realtime",
+      "1h",
+      "ds-1",
+    ]);
+  });
+
+  it("chatRealtime key handles undefined datasourceId", () => {
+    expect(efficiencyKeys.chatRealtime("ws1", { range: "30m" })).toEqual([
+      "efficiency",
+      "ws1",
+      "chat",
+      "realtime",
+      "30m",
+      undefined,
+    ]);
+  });
+
+  it("chatRealtime distinguishes different ranges/datasources", () => {
+    expect(
+      efficiencyKeys.chatRealtime("ws1", { range: "1h", datasourceId: "ds-1" }),
+    ).not.toEqual(
+      efficiencyKeys.chatRealtime("ws1", { range: "3h", datasourceId: "ds-1" }),
+    );
+    expect(
+      efficiencyKeys.chatRealtime("ws1", { range: "1h", datasourceId: "ds-1" }),
+    ).not.toEqual(
+      efficiencyKeys.chatRealtime("ws1", { range: "1h", datasourceId: "ds-2" }),
+    );
+  });
+
+  it("chatModelTrend key carries window and models filter", () => {
+    expect(
+      efficiencyKeys.chatModelTrend("ws1", {
+        startDate: "2026-07-01",
+        endDate: "2026-07-31",
+        models: "glm-4.6,gpt-4o",
+      }),
+    ).toEqual([
+      "efficiency",
+      "ws1",
+      "chat",
+      "model-trend",
+      "2026-07-01",
+      "2026-07-31",
+      "glm-4.6,gpt-4o",
+    ]);
+  });
+
+  it("chatModelTrend key handles undefined models filter", () => {
+    expect(
+      efficiencyKeys.chatModelTrend("ws1", {
+        startDate: "2026-07-01",
+        endDate: "2026-07-31",
+      }),
+    ).toEqual([
+      "efficiency",
+      "ws1",
+      "chat",
+      "model-trend",
+      "2026-07-01",
+      "2026-07-31",
+      undefined,
+    ]);
+  });
+
+  it("chatUserTrend key carries uid + window", () => {
+    expect(
+      efficiencyKeys.chatUserTrend("ws1", "u-300", {
+        startDate: "2026-07-01",
+        endDate: "2026-07-31",
+      }),
+    ).toEqual([
+      "efficiency",
+      "ws1",
+      "chat",
+      "user-trend",
+      "u-300",
+      "2026-07-01",
+      "2026-07-31",
+    ]);
+  });
+
+  it("chatUserTrend distinguishes different users", () => {
+    expect(
+      efficiencyKeys.chatUserTrend("ws1", "u-300", {
+        startDate: "2026-07-01",
+        endDate: "2026-07-31",
+      }),
+    ).not.toEqual(
+      efficiencyKeys.chatUserTrend("ws1", "u-301", {
+        startDate: "2026-07-01",
+        endDate: "2026-07-31",
+      }),
+    );
+  });
+
+  it("chatDetailQuery key nests the full request shape", () => {
+    const req: ChatDetailQueryReq = {
+      datasource_id: "ds-1",
+      start_time: "2026-07-21T00:00:00Z",
+      end_time: "2026-07-21T23:59:59Z",
+      has_error: true,
+      limit: 100,
+      order: "desc",
+    };
+    expect(efficiencyKeys.chatDetailQuery("ws1", req)).toEqual([
+      "efficiency",
+      "ws1",
+      "chat",
+      "detail-query",
+      req,
+    ]);
+  });
+
+  it("chatDetailQuery distinguishes different request bodies", () => {
+    const a: ChatDetailQueryReq = {
+      start_time: "2026-07-21T00:00:00Z",
+      end_time: "2026-07-21T23:59:59Z",
+    };
+    const b: ChatDetailQueryReq = {
+      start_time: "2026-07-21T00:00:00Z",
+      end_time: "2026-07-21T23:59:59Z",
+      has_error: true,
+    };
+    expect(efficiencyKeys.chatDetailQuery("ws1", a)).not.toEqual(
+      efficiencyKeys.chatDetailQuery("ws1", b),
+    );
+  });
+
+  it("chatLogPreview key nests the path under wsId", () => {
+    expect(
+      efficiencyKeys.chatLogPreview("ws1", "/var/log/chat/req-0.log"),
+    ).toEqual([
+      "efficiency",
+      "ws1",
+      "chat",
+      "log-preview",
+      "/var/log/chat/req-0.log",
+    ]);
+  });
+
+  it("chatLogPreview distinguishes different paths", () => {
+    expect(
+      efficiencyKeys.chatLogPreview("ws1", "/var/log/chat/req-0.log"),
+    ).not.toEqual(
+      efficiencyKeys.chatLogPreview("ws1", "/var/log/chat/req-1.log"),
+    );
+  });
+
+  it("each chat segment namespacing is distinct (no cross-query cache collisions)", () => {
+    const segments = [
+      efficiencyKeys.chatPricing("ws1"),
+      efficiencyKeys.chatDatasources("ws1"),
+      efficiencyKeys.chatSyncTasks("ws1"),
+      efficiencyKeys.chatSystemConfig("ws1"),
+      efficiencyKeys.chatRealtime("ws1", { range: "1h" }),
+      efficiencyKeys.chatModelTrend("ws1", {
+        startDate: "2026-07-01",
+        endDate: "2026-07-31",
+      }),
+      efficiencyKeys.chatUserTrend("ws1", "u-300", {
+        startDate: "2026-07-01",
+        endDate: "2026-07-31",
+      }),
+      efficiencyKeys.chatDetailQuery("ws1", {
+        start_time: "2026-07-21T00:00:00Z",
+        end_time: "2026-07-21T23:59:59Z",
+      }),
+      efficiencyKeys.chatLogPreview("ws1", "/var/log/chat/req-0.log"),
+    ];
+    const dedup = new Set(segments.map((k) => JSON.stringify(k)));
+    expect(dedup.size).toBe(segments.length);
+  });
+
+  it("chat keys never collide with other dimensions (different dimension segment)", () => {
+    // The "chat" discriminator at index 2 keeps chat cache isolated from the
+    // cost/usage/detail dimensions even when ids happen to coincide.
+    expect(efficiencyKeys.chatPricing("ws1")[2]).toBe("chat");
+    expect(efficiencyKeys.costOverview("ws1", deptQ)[2]).toBe("cost");
+    expect(efficiencyKeys.usageDeptOverview("ws1", deptQ)[2]).toBe("usage");
+    expect(efficiencyKeys.userDetail("ws1", "u-1")[2]).toBe("detail");
   });
 });
