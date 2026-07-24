@@ -48,6 +48,9 @@ export {
   DatasourcesPage,
   SyncTasksPage,
   SystemConfigPage,
+  PlatformOverviewPage,
+  PlatformHealthPage,
+  RealtimeReportPage,
 } from "./settings";
 export {
   DetailShell,
