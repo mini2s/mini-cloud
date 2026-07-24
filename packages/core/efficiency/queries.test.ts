@@ -391,4 +391,179 @@ describe("efficiencyKeys", () => {
     expect(efficiencyKeys.costOverview("ws1", deptQ)[2]).toBe("cost");
     expect(efficiencyKeys.usageDeptOverview("ws1", deptQ)[2]).toBe("usage");
   });
+
+  // ---- Detail dimension keys (per-entity drill-downs) ----
+
+  it("userDetail key nests userId + window under wsId", () => {
+    expect(
+      efficiencyKeys.userDetail("ws1", "u-200", "2026-07-01", "2026-07-31"),
+    ).toEqual([
+      "efficiency",
+      "ws1",
+      "detail",
+      "user",
+      "u-200",
+      "2026-07-01",
+      "2026-07-31",
+    ]);
+  });
+
+  it("userDetail key handles undefined window", () => {
+    expect(efficiencyKeys.userDetail("ws1", "u-200")).toEqual([
+      "efficiency",
+      "ws1",
+      "detail",
+      "user",
+      "u-200",
+      undefined,
+      undefined,
+    ]);
+  });
+
+  it("userDetail distinguishes different users", () => {
+    expect(
+      efficiencyKeys.userDetail("ws1", "u-200", "2026-07-01", "2026-07-31"),
+    ).not.toEqual(
+      efficiencyKeys.userDetail("ws1", "u-201", "2026-07-01", "2026-07-31"),
+    );
+  });
+
+  it("repoDetail key carries the full param shape (addr/branch/window)", () => {
+    expect(
+      efficiencyKeys.repoDetail("ws1", {
+        repoAddr: "git@github.com:costrict/repo-1.git",
+        repoBranch: "main",
+        startDate: "2026-07-01",
+        endDate: "2026-07-31",
+      }),
+    ).toEqual([
+      "efficiency",
+      "ws1",
+      "detail",
+      "repo",
+      "git@github.com:costrict/repo-1.git",
+      "main",
+      "2026-07-01",
+      "2026-07-31",
+    ]);
+  });
+
+  it("repoDetail distinguishes branches of the same repo", () => {
+    expect(
+      efficiencyKeys.repoDetail("ws1", {
+        repoAddr: "git@github.com:costrict/repo-1.git",
+        repoBranch: "main",
+      }),
+    ).not.toEqual(
+      efficiencyKeys.repoDetail("ws1", {
+        repoAddr: "git@github.com:costrict/repo-1.git",
+        repoBranch: "develop",
+      }),
+    );
+  });
+
+  it("repoBranches / repoTrend / projectTrend keys carry their id/window fields", () => {
+    expect(
+      efficiencyKeys.repoBranches("ws1", "git@github.com:costrict/repo-1.git"),
+    ).toEqual([
+      "efficiency",
+      "ws1",
+      "detail",
+      "repo-branches",
+      "git@github.com:costrict/repo-1.git",
+    ]);
+    expect(
+      efficiencyKeys.repoTrend("ws1", {
+        repoAddr: "git@github.com:costrict/repo-1.git",
+        startDate: "2026-07-01",
+        endDate: "2026-07-31",
+      }),
+    ).toEqual([
+      "efficiency",
+      "ws1",
+      "detail",
+      "repo-trend",
+      "git@github.com:costrict/repo-1.git",
+      "2026-07-01",
+      "2026-07-31",
+    ]);
+    expect(
+      efficiencyKeys.projectTrend("ws1", {
+        projectId: "p-100",
+        startDate: "2026-07-01",
+        endDate: "2026-07-31",
+      }),
+    ).toEqual([
+      "efficiency",
+      "ws1",
+      "detail",
+      "project-trend",
+      "p-100",
+      "2026-07-01",
+      "2026-07-31",
+    ]);
+  });
+
+  it("projectDetail / projectNeeds / needDetail / taskDetail / commitDetail keys nest the id", () => {
+    expect(efficiencyKeys.projectDetail("ws1", "p-100")).toEqual([
+      "efficiency",
+      "ws1",
+      "detail",
+      "project",
+      "p-100",
+    ]);
+    expect(efficiencyKeys.projectNeeds("ws1", "p-100")).toEqual([
+      "efficiency",
+      "ws1",
+      "detail",
+      "project-needs",
+      "p-100",
+    ]);
+    expect(efficiencyKeys.needDetail("ws1", "n-1000")).toEqual([
+      "efficiency",
+      "ws1",
+      "detail",
+      "need",
+      "n-1000",
+    ]);
+    expect(efficiencyKeys.taskDetail("ws1", "t-100")).toEqual([
+      "efficiency",
+      "ws1",
+      "detail",
+      "task",
+      "t-100",
+    ]);
+    expect(efficiencyKeys.commitDetail("ws1", "c-100")).toEqual([
+      "efficiency",
+      "ws1",
+      "detail",
+      "commit",
+      "c-100",
+    ]);
+  });
+
+  it("each detail segment namespacing is distinct (no cross-query cache collisions)", () => {
+    const segments = [
+      efficiencyKeys.userDetail("ws1", "u-200"),
+      efficiencyKeys.repoDetail("ws1", { repoAddr: "r" }),
+      efficiencyKeys.repoBranches("ws1", "r"),
+      efficiencyKeys.repoTrend("ws1", { repoAddr: "r" }),
+      efficiencyKeys.projectDetail("ws1", "p"),
+      efficiencyKeys.projectTrend("ws1", { projectId: "p" }),
+      efficiencyKeys.projectNeeds("ws1", "p"),
+      efficiencyKeys.needDetail("ws1", "n"),
+      efficiencyKeys.taskDetail("ws1", "t"),
+      efficiencyKeys.commitDetail("ws1", "c"),
+    ];
+    const dedup = new Set(segments.map((k) => JSON.stringify(k)));
+    expect(dedup.size).toBe(segments.length);
+  });
+
+  it("detail keys never collide with cost/usage keys (different dimension segment)", () => {
+    // The "detail" discriminator at index 2 keeps detail cache isolated from
+    // the cost/usage dimensions even when ids happen to coincide.
+    expect(efficiencyKeys.userDetail("ws1", "overview")[2]).toBe("detail");
+    expect(efficiencyKeys.costOverview("ws1", deptQ)[2]).toBe("cost");
+    expect(efficiencyKeys.usageDeptOverview("ws1", deptQ)[2]).toBe("usage");
+  });
 });

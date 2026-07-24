@@ -3,6 +3,7 @@ import {
   getAllNeeds,
   getAllRepos,
   getAllUsers,
+  getCommitDetailV2,
   getCostAnomaly,
   getCostMembers,
   getCostModelComposition,
@@ -19,7 +20,15 @@ import {
   getDeptTree,
   getEfficiencyAggregate,
   getGlobalConfig,
+  getNeedDetailV2,
+  getProjectDetail,
   getProjectList,
+  getProjectNeeds,
+  getProjectTrendV2,
+  getRepoBranches,
+  getRepoDetailV2,
+  getRepoTrendV2,
+  getTaskDetailV2,
   getUsageDeptActiveUsers,
   getUsageDeptMembers,
   getUsageDeptModeUsage,
@@ -29,6 +38,7 @@ import {
   getUsageDeptTrend,
   getUsageDeptWeekly,
   getUsageDeptPeriodCompare,
+  getUserDetailV2,
   getUsageUserDetail,
   getUsageUserTrend,
   getUsers,
@@ -320,6 +330,74 @@ export const efficiencyKeys = {
       q.sortOrder,
       q.search,
     ] as const,
+
+  // ---- Detail dimension (per-entity drill-downs) ----
+  // Workspace-scoped (wsId first) so cache isolates per workspace; the trailing
+  // id/window fields mirror the source queryKey shapes so different entities /
+  // branches / windows all isolate.
+  userDetail: (
+    wsId: string,
+    userId: string,
+    startDate?: string,
+    endDate?: string,
+  ) =>
+    [
+      ...efficiencyKeys.all(wsId),
+      "detail",
+      "user",
+      userId,
+      startDate,
+      endDate,
+    ] as const,
+  repoDetail: (
+    wsId: string,
+    p: { repoAddr: string; repoBranch?: string; startDate?: string; endDate?: string },
+  ) =>
+    [
+      ...efficiencyKeys.all(wsId),
+      "detail",
+      "repo",
+      p.repoAddr,
+      p.repoBranch,
+      p.startDate,
+      p.endDate,
+    ] as const,
+  repoBranches: (wsId: string, repoAddr: string) =>
+    [...efficiencyKeys.all(wsId), "detail", "repo-branches", repoAddr] as const,
+  repoTrend: (
+    wsId: string,
+    p: { repoAddr?: string; startDate?: string; endDate?: string },
+  ) =>
+    [
+      ...efficiencyKeys.all(wsId),
+      "detail",
+      "repo-trend",
+      p.repoAddr,
+      p.startDate,
+      p.endDate,
+    ] as const,
+  projectDetail: (wsId: string, projectId: string) =>
+    [...efficiencyKeys.all(wsId), "detail", "project", projectId] as const,
+  projectTrend: (
+    wsId: string,
+    p: { projectId?: string; startDate?: string; endDate?: string },
+  ) =>
+    [
+      ...efficiencyKeys.all(wsId),
+      "detail",
+      "project-trend",
+      p.projectId,
+      p.startDate,
+      p.endDate,
+    ] as const,
+  projectNeeds: (wsId: string, projectId: string) =>
+    [...efficiencyKeys.all(wsId), "detail", "project-needs", projectId] as const,
+  needDetail: (wsId: string, needId: string) =>
+    [...efficiencyKeys.all(wsId), "detail", "need", needId] as const,
+  taskDetail: (wsId: string, taskId: string) =>
+    [...efficiencyKeys.all(wsId), "detail", "task", taskId] as const,
+  commitDetail: (wsId: string, commitId: string) =>
+    [...efficiencyKeys.all(wsId), "detail", "commit", commitId] as const,
 };
 
 const STALE_TIME = 60 * 1000; // 1 min — matches dashboard rollup cadence
@@ -812,6 +890,148 @@ export function costMembersOptions(wsId: string, q: CostMembersQuery) {
   });
 }
 
-// TODO(slice 5-6): add contribution/detail options.
+// ============================ Detail dimension ============================
+// Source hooks: useUserDetail / useRepoDetail / useRepoBranches / useRepoTrend /
+// useProjectDetail / useProjectTrend / useProjectNeeds / useNeedDetail /
+// useTaskDetail / useCommitDetail. Each becomes an xxxOptions(wsId, ...)
+// queryOptions factory. enabled gates on wsId AND the entity id (matches the
+// source hooks' enabled: !!id / !!repoAddr). repoDetail/branches/trend carry
+// repoAddr; userDetail carries an optional window; the trends accept an empty
+// repoAddr/projectId for the "all entities" aggregate view (enabled gate stays
+// wsId-only for those, matching source).
 
+export function userDetailOptions(
+  wsId: string,
+  userId: string,
+  startDate?: string,
+  endDate?: string,
+) {
+  return queryOptions({
+    queryKey: efficiencyKeys.userDetail(wsId, userId, startDate, endDate),
+    queryFn: async () => {
+      if (MOCK_ENABLED) return mock.userDetail(userId, { startDate, endDate });
+      return getUserDetailV2(userId, { startDate, endDate });
+    },
+    enabled: !!wsId && !!userId,
+    staleTime: STALE_TIME,
+  });
+}
 
+export function repoDetailOptions(
+  wsId: string,
+  p: { repoAddr: string; repoBranch?: string; startDate?: string; endDate?: string },
+) {
+  return queryOptions({
+    queryKey: efficiencyKeys.repoDetail(wsId, p),
+    queryFn: async () => {
+      if (MOCK_ENABLED) return mock.repoDetail(p);
+      return getRepoDetailV2(p);
+    },
+    enabled: !!wsId && !!p.repoAddr,
+    staleTime: STALE_TIME,
+  });
+}
+
+export function repoBranchesOptions(wsId: string, repoAddr: string) {
+  return queryOptions({
+    queryKey: efficiencyKeys.repoBranches(wsId, repoAddr),
+    queryFn: async () => {
+      if (MOCK_ENABLED) return mock.repoBranches(repoAddr);
+      return getRepoBranches(repoAddr);
+    },
+    enabled: !!wsId && !!repoAddr,
+    staleTime: STALE_TIME,
+  });
+}
+
+export function repoTrendOptions(
+  wsId: string,
+  p: { repoAddr?: string; startDate?: string; endDate?: string },
+) {
+  return queryOptions({
+    queryKey: efficiencyKeys.repoTrend(wsId, p),
+    queryFn: async () => {
+      if (MOCK_ENABLED) return mock.repoTrend(p);
+      return getRepoTrendV2(p);
+    },
+    // source useRepoTrend has no id gate (repoAddr empty = all repos); wsId-only.
+    enabled: !!wsId,
+    staleTime: STALE_TIME,
+  });
+}
+
+export function projectDetailOptions(wsId: string, projectId: string) {
+  return queryOptions({
+    queryKey: efficiencyKeys.projectDetail(wsId, projectId),
+    queryFn: async () => {
+      if (MOCK_ENABLED) return mock.projectDetail(projectId);
+      return getProjectDetail(projectId);
+    },
+    enabled: !!wsId && !!projectId,
+    staleTime: STALE_TIME,
+  });
+}
+
+export function projectTrendOptions(
+  wsId: string,
+  p: { projectId?: string; startDate?: string; endDate?: string },
+) {
+  return queryOptions({
+    queryKey: efficiencyKeys.projectTrend(wsId, p),
+    queryFn: async () => {
+      if (MOCK_ENABLED) return mock.projectTrend(p);
+      return getProjectTrendV2(p);
+    },
+    // source useProjectTrend has no id gate (projectId empty = all projects); wsId-only.
+    enabled: !!wsId,
+    staleTime: STALE_TIME,
+  });
+}
+
+export function projectNeedsOptions(wsId: string, projectId: string) {
+  return queryOptions({
+    queryKey: efficiencyKeys.projectNeeds(wsId, projectId),
+    queryFn: async () => {
+      if (MOCK_ENABLED) return mock.projectNeeds(projectId);
+      return getProjectNeeds(projectId);
+    },
+    enabled: !!wsId && !!projectId,
+    staleTime: STALE_TIME,
+  });
+}
+
+export function needDetailOptions(wsId: string, needId: string) {
+  return queryOptions({
+    queryKey: efficiencyKeys.needDetail(wsId, needId),
+    queryFn: async () => {
+      if (MOCK_ENABLED) return mock.needDetail(needId);
+      return getNeedDetailV2(needId);
+    },
+    enabled: !!wsId && !!needId,
+    staleTime: STALE_TIME,
+  });
+}
+
+export function taskDetailOptions(wsId: string, taskId: string) {
+  return queryOptions({
+    queryKey: efficiencyKeys.taskDetail(wsId, taskId),
+    queryFn: async () => {
+      if (MOCK_ENABLED) return mock.taskDetail(taskId);
+      return getTaskDetailV2(taskId);
+    },
+    enabled: !!wsId && !!taskId,
+    staleTime: STALE_TIME,
+  });
+}
+
+export function commitDetailOptions(wsId: string, commitId: string) {
+  return queryOptions({
+    queryKey: efficiencyKeys.commitDetail(wsId, commitId),
+    queryFn: async () => {
+      if (MOCK_ENABLED) return mock.commitDetail(commitId);
+      return getCommitDetailV2(commitId);
+    },
+    enabled: !!wsId && !!commitId,
+    staleTime: STALE_TIME,
+  });
+}

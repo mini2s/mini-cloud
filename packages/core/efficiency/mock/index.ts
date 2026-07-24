@@ -4,15 +4,24 @@
 // /api/v2/efficiency/* endpoints are live.
 import type {
   ApiList,
+  CommitDetailResponse,
   DashboardSummary,
   DashboardTrends,
   DeptRankingResponse,
   DeptTreeNode,
   EfficiencyV2AggregateResponse,
+  EntityTrendResponse,
   GlobalConfig,
+  NeedsV2DetailResponse,
   NeedsV2Summary,
+  ProjectDetailResponse,
   ProjectListItem,
+  ProjectNeedsResponse,
+  RepoBranchesResponse,
+  RepoDetailResponse,
   RepoListItem,
+  TaskDetailResponse,
+  UserV2DetailResponse,
   UserV2Row,
 } from "../types";
 import type {
@@ -48,6 +57,18 @@ import {
   getMockDashboardTrends,
   getMockGlobalConfig,
 } from "./dashboard";
+import {
+  getMockCommitDetail,
+  getMockNeedDetail,
+  getMockProjectDetail,
+  getMockProjectNeeds,
+  getMockProjectTrend,
+  getMockRepoBranches,
+  getMockRepoDetail,
+  getMockRepoTrend,
+  getMockTaskDetail,
+  getMockUserDetail,
+} from "./detail";
 import { getMockDeptRanking, getMockDeptTree } from "./dept";
 import {
   getMockAllRepos,
@@ -173,5 +194,37 @@ export const mock = {
   costTeamComposition: (q: DeptQuery): CostTeamCompositionResp =>
     getMockCostTeamComposition(q),
   costMembers: (q: CostMembersQuery): CostUsersResp => getMockCostMembers(q),
-  // contribution/detail mock entry points added in later slices.
+
+  // ---- Detail dimension (per-entity drill-downs) ----
+  userDetail: (
+    userId: string,
+    p: { startDate?: string; endDate?: string },
+  ): UserV2DetailResponse => getMockUserDetail(userId, p),
+  repoDetail: (p: {
+    repoAddr: string;
+    repoBranch?: string;
+    startDate?: string;
+    endDate?: string;
+  }): RepoDetailResponse => getMockRepoDetail(p),
+  repoBranches: (repoAddr: string): RepoBranchesResponse =>
+    getMockRepoBranches(repoAddr),
+  repoTrend: (p: {
+    repoAddr?: string;
+    startDate?: string;
+    endDate?: string;
+  }): EntityTrendResponse => getMockRepoTrend(p),
+  projectDetail: (projectId: string): ProjectDetailResponse =>
+    getMockProjectDetail(projectId),
+  projectTrend: (p: {
+    projectId?: string;
+    startDate?: string;
+    endDate?: string;
+  }): EntityTrendResponse => getMockProjectTrend(p),
+  projectNeeds: (projectId: string): ProjectNeedsResponse =>
+    getMockProjectNeeds(projectId),
+  needDetail: (needId: string): NeedsV2DetailResponse =>
+    getMockNeedDetail(needId),
+  taskDetail: (taskId: string): TaskDetailResponse => getMockTaskDetail(taskId),
+  commitDetail: (commitId: string): CommitDetailResponse =>
+    getMockCommitDetail(commitId),
 } as const;

@@ -7,16 +7,25 @@
 // backend lands. Until then the false-MOCK path throws a clear error.
 import type {
   ApiList,
+  CommitDetailResponse,
   DashboardSummary,
   DashboardTrends,
   DeptRankingResponse,
   DeptTreeNode,
   EfficiencyV2AggregateResponse,
+  EntityTrendResponse,
   GlobalConfig,
   ListParams,
+  NeedsV2DetailResponse,
   NeedsV2Summary,
+  ProjectDetailResponse,
   ProjectListItem,
+  ProjectNeedsResponse,
+  RepoBranchesResponse,
+  RepoDetailResponse,
   RepoListItem,
+  TaskDetailResponse,
+  UserV2DetailResponse,
   UserV2Row,
 } from "./types";
 import type {
@@ -447,5 +456,121 @@ export async function getCostMembers(
     sort_order: q.sortOrder,
     search: q.search || undefined,
   })}`;
+  throw new Error(NOT_WIRED);
+}
+
+// ============================================================================
+// Detail dimension (per-entity drill-downs). Source wrapped getUserDetailV2 /
+// getRepoDetailV2 / getRepoBranches / getRepoTrendV2 / getProjectDetail /
+// getProjectTrendV2 / getProjectNeeds / getNeedDetailV2 / getTaskDetailV2 /
+// getCommitDetailV2 under /v2/*; the mini-cloud backend will mount these under
+// /api/v2/efficiency/* (query params serialized snake_case, matching the
+// source endpoints.ts shapes). needId may contain slashes — encoded so the
+// whole id lands in a single path segment.
+// ============================================================================
+
+// /v2/users/{id} → user summary + weekly rows + needs + commits.
+export async function getUserDetailV2(
+  userId: string,
+  p: { startDate?: string; endDate?: string },
+): Promise<UserV2DetailResponse> {
+  void `${BASE}/users/${encodeURIComponent(userId)}/detail${qs({
+    start_date: p.startDate,
+    end_date: p.endDate,
+  })}`;
+  throw new Error(NOT_WIRED);
+}
+
+// /v2/repos/detail → repo scope (single branch) commits/tasks + efficiency.
+export async function getRepoDetailV2(p: {
+  repoAddr: string;
+  repoBranch?: string;
+  startDate?: string;
+  endDate?: string;
+}): Promise<RepoDetailResponse> {
+  void `${BASE}/repos/detail${qs({
+    repo_addr: p.repoAddr,
+    repo_branch: p.repoBranch,
+    start_date: p.startDate,
+    end_date: p.endDate,
+  })}`;
+  throw new Error(NOT_WIRED);
+}
+
+// /v2/repos/branches → selectable branches for the repo-detail branch switcher.
+export async function getRepoBranches(
+  repoAddr: string,
+): Promise<RepoBranchesResponse> {
+  void `${BASE}/repos/branches${qs({ repo_addr: repoAddr })}`;
+  throw new Error(NOT_WIRED);
+}
+
+// /v2/repo-trend → weekly aggregate trend (repoAddr empty = all repos).
+export async function getRepoTrendV2(p: {
+  repoAddr?: string;
+  startDate?: string;
+  endDate?: string;
+}): Promise<EntityTrendResponse> {
+  void `${BASE}/repo-trend${qs({
+    repo_addr: p.repoAddr,
+    start_date: p.startDate,
+    end_date: p.endDate,
+  })}`;
+  throw new Error(NOT_WIRED);
+}
+
+// /v2/projects/{id} → project detail (pure Need-scope ratio block).
+export async function getProjectDetail(
+  projectId: string,
+): Promise<ProjectDetailResponse> {
+  void `${BASE}/projects/${encodeURIComponent(projectId)}`;
+  throw new Error(NOT_WIRED);
+}
+
+// /v2/project-trend → weekly aggregate trend (projectId empty = all projects).
+export async function getProjectTrendV2(p: {
+  projectId?: string;
+  startDate?: string;
+  endDate?: string;
+}): Promise<EntityTrendResponse> {
+  void `${BASE}/project-trend${qs({
+    project_id: p.projectId,
+    start_date: p.startDate,
+    end_date: p.endDate,
+  })}`;
+  throw new Error(NOT_WIRED);
+}
+
+// /v2/projects/{id}/needs → candidate-pool needs with per-need excluded flag.
+export async function getProjectNeeds(
+  projectId: string,
+): Promise<ProjectNeedsResponse> {
+  void `${BASE}/projects/${encodeURIComponent(projectId)}/needs`;
+  throw new Error(NOT_WIRED);
+}
+
+// /v2/needs/{id} → need detail (sessions + commits + stage_metrics + baseline).
+// needId may contain slashes (e.g. repo/branch/path) — encodeURIComponent keeps
+// the whole id inside one path segment.
+export async function getNeedDetailV2(
+  needId: string,
+): Promise<NeedsV2DetailResponse> {
+  void `${BASE}/needs/${encodeURIComponent(needId)}`;
+  throw new Error(NOT_WIRED);
+}
+
+// /v2/tasks/{id} → task detail (task + conversations; no time_segments).
+export async function getTaskDetailV2(
+  taskId: string,
+): Promise<TaskDetailResponse> {
+  void `${BASE}/tasks/${encodeURIComponent(taskId)}`;
+  throw new Error(NOT_WIRED);
+}
+
+// /v2/commits/{id} → commit detail + related tasks.
+export async function getCommitDetailV2(
+  commitId: string,
+): Promise<CommitDetailResponse> {
+  void `${BASE}/commits/${encodeURIComponent(commitId)}`;
   throw new Error(NOT_WIRED);
 }
