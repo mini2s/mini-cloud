@@ -448,7 +448,8 @@ describe("CreateIssueModal", () => {
 
   it("forwards the selected workflow runtime strategy when creating an issue", async () => {
     const user = userEvent.setup();
-    renderModal(<CreateIssueModal onClose={vi.fn()} />);
+    // A project is required to create an issue (see require-project-on-issue-create).
+    renderModal(<CreateIssueModal onClose={vi.fn()} data={{ project_id: "proj-test" }} />);
 
     await user.type(screen.getByPlaceholderText("Issue title"), "Run release workflow");
     await user.click(screen.getByRole("button", { name: "Select workflow assignee" }));
