@@ -58,6 +58,7 @@ function workspaceScoped(slug: string) {
     dispatch: () => `${ws}/dispatch`,
     wiki: () => `${ws}/wiki`,
     memory: () => `${ws}/memory`,
+    metricsOverview: () => `${ws}/metrics`,
     metricsEfficiency: () => `${ws}/metrics/efficiency`,
     metricsQuality: () => `${ws}/metrics/quality`,
     metricsCost: () => `${ws}/metrics/cost`,

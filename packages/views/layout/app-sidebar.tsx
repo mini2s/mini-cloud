@@ -150,6 +150,7 @@ type NavKey =
   | "hubMcp"
   | "hubPlugin"
   | "hubManager"
+  | "metricsOverview"
   | "metricsEfficiency"
   | "metricsQuality"
   | "metricsCost"
@@ -190,6 +191,7 @@ type NavLabelKey =
   | "hub_mcp"
   | "hub_plugin"
   | "hub_manager"
+  | "metrics_overview"
   | "metrics_efficiency"
   | "metrics_quality"
   | "metrics_cost"
@@ -241,6 +243,7 @@ const repositoryNav: NavItem[] = [
 ];
 
 const metricsNav: NavItem[] = [
+  { key: "metricsOverview", labelKey: "metrics_overview", icon: LayoutDashboard },
   { key: "usage", labelKey: "usage", icon: BarChart3 },
   { key: "metricsEfficiency", labelKey: "metrics_efficiency", icon: Gauge },
   { key: "metricsQuality", labelKey: "metrics_quality", icon: ShieldCheck },
