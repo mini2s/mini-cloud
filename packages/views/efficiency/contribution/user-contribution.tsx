@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useWorkspaceId } from "@multica/core/hooks";
+import { useWorkspacePaths } from "@multica/core/paths";
 import {
   allUsersOptions,
   formatNumber,
@@ -13,6 +14,7 @@ import {
 } from "@multica/core/efficiency";
 import { KpiCard } from "../../runtimes/components/shared";
 import { PCT, Td, TdNum, Th, ThNum, SortHeader } from "../usage/shared";
+import { useNavigation } from "../../navigation";
 
 // User contribution — personal deliverables derived from /v2/users
 // (UserV2Row carries commit_count / commit_diff_lines / merged_need_count,
@@ -43,6 +45,8 @@ export function UserContribution({
   endDate: string;
 }) {
   const wsId = useWorkspaceId();
+  const p = useWorkspacePaths();
+  const { push } = useNavigation();
   const q = useQuery(allUsersOptions(wsId, startDate, endDate));
   const rows = useMemo<UserV2Row[]>(() => q.data ?? [], [q.data]);
 
@@ -187,7 +191,8 @@ export function UserContribution({
                   sorted.map((r, i) => (
                     <tr
                       key={r.user_id}
-                      className="border-b transition-colors last:border-0 hover:bg-muted/50"
+                      onClick={() => push(p.metricsUserDetail(r.user_id))}
+                      className="cursor-pointer border-b transition-colors last:border-0 hover:bg-muted/50"
                     >
                       <TdNum>
                         <span className="text-muted-foreground">{i + 1}</span>

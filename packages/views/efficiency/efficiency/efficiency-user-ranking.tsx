@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useWorkspaceId } from "@multica/core/hooks";
+import { useWorkspacePaths } from "@multica/core/paths";
 import {
   allUsersOptions,
   formatNumber,
@@ -14,6 +15,7 @@ import {
 } from "@multica/core/efficiency";
 import { KpiCard } from "../../runtimes/components/shared";
 import { PCT, Td, TdNum, Th, ThNum, SortHeader } from "../usage/shared";
+import { useNavigation } from "../../navigation";
 
 // User efficiency ranking — pure-efficiency view of all users (no AI-share /
 // code-line / cost cross-dimension columns). Ports the source
@@ -64,6 +66,8 @@ export function EfficiencyUserRanking({
   endDate: string;
 }) {
   const wsId = useWorkspaceId();
+  const p = useWorkspacePaths();
+  const { push } = useNavigation();
   const [order, setOrder] = useState<string>(
     toOrder("calendar_ratio", true) ?? "",
   );
@@ -231,7 +235,8 @@ export function EfficiencyUserRanking({
                     return (
                       <tr
                         key={row.user_id}
-                        className="border-b transition-colors last:border-0 hover:bg-muted/50"
+                        onClick={() => push(p.metricsUserDetail(row.user_id))}
+                        className="cursor-pointer border-b transition-colors last:border-0 hover:bg-muted/50"
                       >
                         <TdNum>{i + 1}</TdNum>
                         <Td title={row.user_name}>

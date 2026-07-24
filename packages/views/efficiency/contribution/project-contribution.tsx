@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useWorkspaceId } from "@multica/core/hooks";
+import { useWorkspacePaths } from "@multica/core/paths";
 import {
   formatNumber,
   parseOrder,
@@ -13,6 +14,7 @@ import {
 } from "@multica/core/efficiency";
 import { KpiCard } from "../../runtimes/components/shared";
 import { PCT, Td, TdNum, Th, ThNum, SortHeader } from "../usage/shared";
+import { useNavigation } from "../../navigation";
 
 // Project contribution — project deliverables derived from /v2/projects
 // (ProjectListItem carries need_total_count / need_eligible_count /
@@ -44,6 +46,8 @@ export function ProjectContribution({
   endDate: string;
 }) {
   const wsId = useWorkspaceId();
+  const p = useWorkspacePaths();
+  const { push } = useNavigation();
   const q = useQuery(projectListOptions(wsId, startDate, endDate));
   const rows = useMemo<ProjectListItem[]>(() => q.data ?? [], [q.data]);
 
@@ -191,7 +195,8 @@ export function ProjectContribution({
                   sorted.map((r, i) => (
                     <tr
                       key={r.project_id}
-                      className="border-b transition-colors last:border-0 hover:bg-muted/50"
+                      onClick={() => push(p.metricsProjectDetail(r.project_id))}
+                      className="cursor-pointer border-b transition-colors last:border-0 hover:bg-muted/50"
                     >
                       <TdNum>
                         <span className="text-muted-foreground">{i + 1}</span>

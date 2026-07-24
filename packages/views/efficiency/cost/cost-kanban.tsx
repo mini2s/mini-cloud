@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Coins } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { useWorkspaceId } from "@multica/core/hooks";
+import { useWorkspacePaths } from "@multica/core/paths";
 import { deptTreeOptions, useViewState } from "@multica/core/efficiency";
 import { Skeleton } from "@multica/ui/components/ui/skeleton";
 import { Switch } from "@multica/ui/components/ui/switch";
@@ -13,6 +14,7 @@ import { DeptTreePanel, findDeptName } from "../usage/dept-tree-panel";
 import { CostAggregateView } from "./cost-aggregate-view";
 import { CostCompareView } from "./cost-compare-view";
 import { CostMembersView } from "./cost-members-view";
+import { useNavigation } from "../../navigation";
 
 // Cost Kanban — the cost dimension page. Ports the source CostKanban
 // (172 lines, URL-driven) to component-state-driven per design decision #1
@@ -25,24 +27,24 @@ import { CostMembersView } from "./cost-members-view";
 //   - selectedDeptId: defaults to the dept-tree's root once it loads
 //   - view: 'aggregate' | 'compare' | 'members'
 //   - includeChildren: default true (matches source default)
-//   - selectedMember: the uid for the member drill-down, null when none.
-//     Per design decision #2 (NO navigation), the source's drill-down
-//     useNavigate is omitted; clicking a member row only updates local
-//     state. TODO: member detail / navigation in slice 5.
+//
+// Drill-down: clicking a member row in the members view pushes to the user
+// detail page (p.metricsUserDetail(uid)) via useNavigation().push — there is
+// no cost-specific member detail dialog, so the row goes straight to the
+// full detail page.
 
 type View = "aggregate" | "compare" | "members";
 
 export function CostKanban() {
   const wsId = useWorkspaceId();
+  const p = useWorkspacePaths();
+  const { push } = useNavigation();
   const { timeRange, setTimeRange } = useViewState();
   const [startDate, endDate] = timeRange;
 
   const [selectedDeptId, setSelectedDeptId] = useState<string>("");
   const [view, setView] = useState<View>("aggregate");
   const [includeChildren, setIncludeChildren] = useState(true);
-  // Tracked for the slice-5 member-detail / navigation hook. The kanban
-  // renders nothing from it yet (no cost member-detail dialog built).
-  const [, setSelectedMember] = useState<string | null>(null);
 
   const treeQ = useQuery(deptTreeOptions(wsId));
   const tree = useMemo(() => treeQ.data ?? [], [treeQ.data]);
@@ -150,7 +152,7 @@ export function CostKanban() {
                   startDate={startDate}
                   endDate={endDate}
                   includeChildren={includeChildren}
-                  onRowClick={(uid) => setSelectedMember(uid)}
+                  onRowClick={(uid) => push(p.metricsUserDetail(uid))}
                 />
               ) : (
                 <CostAggregateView

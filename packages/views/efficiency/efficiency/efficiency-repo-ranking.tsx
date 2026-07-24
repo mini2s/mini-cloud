@@ -3,6 +3,7 @@
 import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useWorkspaceId } from "@multica/core/hooks";
+import { useWorkspacePaths } from "@multica/core/paths";
 import {
   allReposOptions,
   formatNumber,
@@ -12,6 +13,7 @@ import {
 } from "@multica/core/efficiency";
 import { KpiCard } from "../../runtimes/components/shared";
 import { Td, TdNum, Th, ThNum } from "../usage/shared";
+import { useNavigation } from "../../navigation";
 
 // Repo efficiency ranking — pure-efficiency view of all repos (whole-repo
 // scope, aggregated across all branches). Ports the source
@@ -50,6 +52,8 @@ export function EfficiencyRepoRanking({
   endDate: string;
 }) {
   const wsId = useWorkspaceId();
+  const p = useWorkspacePaths();
+  const { push } = useNavigation();
   const q = useQuery(allReposOptions(wsId, startDate, endDate));
   const rows = useMemo<RepoListItem[]>(() => q.data ?? [], [q.data]);
 
@@ -154,7 +158,8 @@ export function EfficiencyRepoRanking({
                     return (
                       <tr
                         key={row.repo_addr}
-                        className="border-b transition-colors last:border-0 hover:bg-muted/50"
+                        onClick={() => push(p.metricsRepoDetail(row.repo_addr))}
+                        className="cursor-pointer border-b transition-colors last:border-0 hover:bg-muted/50"
                       >
                         <TdNum>
                           <span className="text-muted-foreground">{i + 1}</span>

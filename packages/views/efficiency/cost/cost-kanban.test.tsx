@@ -13,6 +13,20 @@ vi.mock("@multica/core/hooks", () => ({
   useWorkspaceId: () => "ws-1",
 }));
 
+// CostKanban drills into the user detail page on member row click, so it
+// pulls the workspace path builder via useWorkspacePaths() and the push hook
+// via useNavigation(). The test isn't workspace-scoped (no
+// WorkspaceSlugProvider / NavigationProvider), so stub both.
+vi.mock("@multica/core/paths", () => ({
+  useWorkspacePaths: () => ({
+    metricsUserDetail: (uid: string) => `/ws/metrics/user/${uid}`,
+  }),
+}));
+
+vi.mock("../../navigation", () => ({
+  useNavigation: () => ({ push: () => {} }),
+}));
+
 vi.mock("@multica/core/efficiency", async () => {
   const actual =
     await vi.importActual<typeof import("@multica/core/efficiency")>(

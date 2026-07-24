@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import { Gauge } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { useWorkspaceId } from "@multica/core/hooks";
+import { useWorkspacePaths } from "@multica/core/paths";
 import {
   deptRankingOptions,
   deptTreeOptions,
@@ -21,6 +22,7 @@ import { DistributionOverview } from "./distribution-overview";
 import { EfficiencyTimeline } from "./efficiency-timeline";
 import { EfficiencyRepoRanking } from "./efficiency-repo-ranking";
 import { EfficiencyUserRanking } from "./efficiency-user-ranking";
+import { useNavigation } from "../../navigation";
 
 // Efficiency Dimension — the efficiency dimension page. Ports the source
 // EfficiencyDimension (590 lines, URL-driven entity tabs + focused mode) to
@@ -313,6 +315,8 @@ function ProjectRanking({
   endDate: string;
 }) {
   const wsId = useWorkspaceId();
+  const wp = useWorkspacePaths();
+  const { push } = useNavigation();
   const q = useQuery(projectListOptions(wsId, startDate, endDate));
   const rows = useMemo<ProjectListItem[]>(
     () =>
@@ -413,7 +417,8 @@ function ProjectRanking({
                 {rows.map((p, i) => (
                   <tr
                     key={p.project_id}
-                    className="border-b transition-colors last:border-0 hover:bg-muted/50"
+                    onClick={() => push(wp.metricsProjectDetail(p.project_id))}
+                    className="cursor-pointer border-b transition-colors last:border-0 hover:bg-muted/50"
                   >
                     <TdNum>
                       <span className="text-muted-foreground">{i + 1}</span>
