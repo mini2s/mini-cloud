@@ -12,3 +12,4 @@ export { DeptPKCard } from "./dept-pk-card";
 export { TopRankCard } from "./top-rank-card";
 export { PlatformObjectiveCard } from "./platform-objective-card";
 export { PeriodSelect } from "./period-select";
+export { useGranularity, GranularityToggle } from "./granularity-toggle";

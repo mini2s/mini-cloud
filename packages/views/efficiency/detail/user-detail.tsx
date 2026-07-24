@@ -16,6 +16,7 @@ import {
 } from "@multica/core/efficiency";
 import { KpiCard } from "../../runtimes/components/shared";
 import { DetailShell } from "./detail-shell";
+import { DualAxisTrendChart } from "../charts";
 import {
   EmptyRow,
   Panel,
@@ -26,7 +27,7 @@ import {
 
 // User efficiency detail page. Ports the source UserDetail (read-only) to the
 // shared-views layer: DetailShell owns back/title/states, this file owns the
-// KPI grid + weekly detail + related needs/commits tables.
+// KPI grid + weekly trend + weekly detail + related needs/commits tables.
 //
 // Caliber (matches source):
 //   - summary.calendar_ratio / work_ratio are DECIMAL ratios → formatV2Ratio (×100).
@@ -37,9 +38,10 @@ import {
 //   - No router: navigation is the caller's job (onBack). Needs/commits tables
 //     render ids as text (no links) — cross-entity drill-down is wired at the
 //     route layer if/when needed.
-//   - No ECharts: the weekly trend chart is dropped (source used a combo line
-//     + bar). The weekly table carries the same data; a recharts port can be
-//     added later without touching this file's data path.
+//   - The source's weekly trend (combo line + bar) is ported to the recharts
+//     DualAxisTrendChart: code lines on the left axis (Bar), merged needs +
+//     commits on the right axis (Line). Same magnitude problem as the
+//     contribution dimension — code lines dwarf the small counts.
 
 interface UserDetailProps {
   userId: string;
@@ -98,6 +100,29 @@ export function UserDetail({
           value={`${summary?.commit_count ?? 0} / ${formatNumber(summary?.commit_diff_lines, 0)}`}
         />
       </section>
+
+      {/* Weekly contribution trend — code lines (left axis, Bar) vs merged
+          needs + commits (right axis, Line). Reuses the weeks already fetched
+          for the breakdown table (no extra query). Same dual-axis treatment as
+          the contribution dimension: commit_diff_lines dwarfs the small counts. */}
+      <Panel title="Weekly contribution trend" hint={`${weeks.length} weeks`}>
+        {weeks.length === 0 ? (
+          <div className="flex min-h-[16rem] items-center justify-center text-sm text-muted-foreground">
+            No weekly data
+          </div>
+        ) : (
+          <DualAxisTrendChart
+            data={weeks.map((w) => ({
+              label: fmtWeek(w.week_start),
+              primary: w.commit_diff_lines ?? 0,
+              secondary: (w.merged_need_count ?? 0) + (w.commit_count ?? 0),
+            }))}
+            primaryLabel="代码行"
+            secondaryLabel="合并需求/提交"
+            formatLeftY={(v) => formatNumber(v, 0)}
+          />
+        )}
+      </Panel>
 
       {/* Weekly breakdown — the source's left column. */}
       <Panel title="Weekly breakdown" hint={`${weeks.length} weeks`} bodyClassName="overflow-x-auto">

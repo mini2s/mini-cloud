@@ -14,6 +14,7 @@ import {
 } from "@multica/core/efficiency";
 import { KpiCard } from "../../runtimes/components/shared";
 import { Td, TdNum, Th, ThNum, SortHeader } from "../usage/shared";
+import { ContributionTrendSection } from "./contribution-trend-section";
 
 // Org contribution — org deliverables derived from /v2/dept-tree/ranking
 // (DeptRankingItem.summary is the DeptMembersSummary scope: merged_need_count
@@ -90,6 +91,13 @@ export function OrgContribution({
 
   return (
     <div className="space-y-4">
+      {/* Weekly contribution trend — company-wide (no userId). */}
+      <ContributionTrendSection
+        startDate={startDate}
+        endDate={endDate}
+        subtitle="全部用户"
+      />
+
       {/* KPI strip — counts only (contribution caliber, not tokens). */}
       <section className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         <div className="rounded-lg border bg-card shadow-sm">

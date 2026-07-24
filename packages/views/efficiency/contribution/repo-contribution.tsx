@@ -15,6 +15,7 @@ import {
 import { KpiCard } from "../../runtimes/components/shared";
 import { PCT, Td, TdNum, Th, ThNum, SortHeader } from "../usage/shared";
 import { useNavigation } from "../../navigation";
+import { ContributionTrendSection } from "./contribution-trend-section";
 
 // Repo contribution — repo deliverables derived from /v2/repos
 // (RepoListItem carries commit_count / task_count / branch_count /
@@ -89,6 +90,13 @@ export function RepoContribution({
 
   return (
     <div className="space-y-4">
+      {/* Weekly contribution trend — company-wide (no userId). */}
+      <ContributionTrendSection
+        startDate={startDate}
+        endDate={endDate}
+        subtitle="全部用户"
+      />
+
       {/* KPI strip — counts only (contribution caliber, not tokens). */}
       <section className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         <div className="rounded-lg border bg-card shadow-sm">

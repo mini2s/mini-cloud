@@ -15,6 +15,7 @@ import {
 import { KpiCard } from "../../runtimes/components/shared";
 import { PCT, Td, TdNum, Th, ThNum, SortHeader } from "../usage/shared";
 import { useNavigation } from "../../navigation";
+import { ContributionTrendSection } from "./contribution-trend-section";
 
 // Project contribution — project deliverables derived from /v2/projects
 // (ProjectListItem carries need_total_count / need_eligible_count /
@@ -88,6 +89,13 @@ export function ProjectContribution({
 
   return (
     <div className="space-y-4">
+      {/* Weekly contribution trend — company-wide (no userId). */}
+      <ContributionTrendSection
+        startDate={startDate}
+        endDate={endDate}
+        subtitle="全部用户"
+      />
+
       {/* KPI strip — counts only (contribution caliber, not tokens). */}
       <section className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         <div className="rounded-lg border bg-card shadow-sm">

@@ -4,3 +4,4 @@ export { PieBreakdownChart, type PieDatum } from "./pie-chart";
 export { MultiTrendChart, type MultiTrendPoint, type MultiTrendSeries } from "./multi-trend-chart";
 export { VerticalBarChart } from "./vertical-bar-chart";
 export { ComboTrendChart, type ComboTrendPoint } from "./combo-trend-chart";
+export { DualAxisTrendChart, type DualAxisTrendPoint } from "./dual-axis-trend-chart";

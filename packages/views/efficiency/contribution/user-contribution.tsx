@@ -15,11 +15,14 @@ import {
 import { KpiCard } from "../../runtimes/components/shared";
 import { PCT, Td, TdNum, Th, ThNum, SortHeader } from "../usage/shared";
 import { useNavigation } from "../../navigation";
+import { ContributionTrendSection } from "./contribution-trend-section";
 
 // User contribution — personal deliverables derived from /v2/users
 // (UserV2Row carries commit_count / commit_diff_lines / merged_need_count,
 // the three "contribution" fields). Per design decision #5
-// (zero-platform-request) this consumes only the existing allUsersOptions.
+// (zero-platform-request) this consumes only the existing allUsersOptions,
+// plus efficiencyAggregateOptions for the weekly trend (the source's lead
+// chart).
 //
 // Caliber (matches source UserContribution):
 //   - merged_need_count / commit_diff_lines / commit_count are COUNTS → formatNumber.
@@ -28,9 +31,9 @@ import { useNavigation } from "../../navigation";
 //     but expose a 3-state sort on the 3 count columns.
 //   - Per design decision #2 (NO navigation) the source's row onClick
 //     (navigate to /user/:id) is dropped; clicking is a no-op (TODO slice 5).
-//   - Per design decision #3 (NO ECharts) the source's ContributionTrend
-//     (ECharts with a second Y axis for code lines) is omitted; a recharts
-//     multi-series variant is deferred.
+//   - The source's ContributionTrend (ECharts, dual Y axis for code lines vs
+//     needs/commits) is ported to the recharts DualAxisTrendChart via the
+//     shared ContributionTrendSection (lead chart, same as the source).
 
 type SortField =
   | "merged_need_count"
@@ -84,6 +87,15 @@ export function UserContribution({
 
   return (
     <div className="space-y-4">
+      {/* Weekly contribution trend — the source's lead chart. /v2/efficiency
+          with no userId = full user×week rows, bucketed by ISO week and
+          summed across users → company-wide weekly contribution trend. */}
+      <ContributionTrendSection
+        startDate={startDate}
+        endDate={endDate}
+        subtitle="全部用户"
+      />
+
       {/* KPI strip — counts only (contribution caliber, not tokens). */}
       <section className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         <div className="rounded-lg border bg-card shadow-sm">
