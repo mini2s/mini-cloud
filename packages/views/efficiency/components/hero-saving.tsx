@@ -105,9 +105,11 @@ export function HeroSaving({ startDate, endDate }: HeroSavingProps) {
     <div className="flex min-h-[15rem] flex-col rounded-lg border bg-card p-6 transition-shadow hover:shadow-lg md:p-8">
       <div className="mb-6 flex flex-wrap items-start justify-between gap-3 md:mb-8">
         <div>
-          <h1 className="mb-1 text-2xl font-bold text-card-foreground">
-            AI 提效总览
-          </h1>
+          {/* h2, not h1 — the page title h1 lives in PageHeader (app chrome
+              convention). This sub-title conveys the cost basis. */}
+          <h2 className="mb-1 text-xl font-semibold text-card-foreground">
+            提效节省概览
+          </h2>
           <p className="text-sm text-muted-foreground">
             按 ¥{formatNumber(costPerPersonDay)}/人天估算 · 基于可计入且非异常的已合并需求 · 人均 = 总节省人天 ÷ 活跃用户数
           </p>
@@ -213,9 +215,8 @@ function BigStat({
 /** 'YYYY-MM-DD'×2 (or undefined) → '2026/03/06 ~ 2026/06/04'; empty when unset. */
 function fmtPeriod(start?: string, end?: string): string {
   if (!start || !end) return "";
-  const f = (s: string) =>
-    s.length === 8
-      ? `${s.slice(0, 4)}/${s.slice(4, 6)}/${s.slice(6, 8)}`
-      : s.replace(/-/g, "/");
+  // Store time range is always YYYY-MM-DD (see view-state-store); just swap
+  // the separators for display.
+  const f = (s: string) => s.replace(/-/g, "/");
   return `${f(start)} ~ ${f(end)}`;
 }

@@ -12,7 +12,10 @@ import { getDefaultDateRangeWide } from "./utils/date";
 // lives in the URL query (?object=<id>) as the single source of truth so that
 // refresh/deep-link keeps state and switching dimension tabs doesn't lose it.
 // Only the time range is persisted, so a refresh keeps the selected window.
-// Default reuses the wide 7-day range from utils/date (getDefaultDateRangeWide(7)).
+// Default reuses the wide 90-day range from utils/date — matches the
+// executive-dashboard intent and the Overview page's "90d" preset initial
+// activeKey (a 7-day default would show "90d" highlighted on first load
+// while the cards render 7-day data).
 
 interface ViewState {
   /** Global time range [start, end], format YYYY-MM-DD. */
@@ -27,7 +30,7 @@ const stateStorage = defaultStorage as unknown as StateStorage;
 export const useViewState = create<ViewState>()(
   persist(
     (set) => ({
-      timeRange: getDefaultDateRangeWide(7),
+      timeRange: getDefaultDateRangeWide(90),
       setTimeRange: (range) => set({ timeRange: range }),
     }),
     {
