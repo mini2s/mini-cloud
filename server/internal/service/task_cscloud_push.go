@@ -295,7 +295,7 @@ func appendWorkerTaskPrompt(prompt string) string {
 // The deliverable repository is exposed to the agent as a normal git remote
 // (authed clone URL in the task env), so reading/exploring is plain git; only
 // the final submit — which opens the node->inst PR and registers it back here —
-// goes through the `cs-workflow repo submit` command.
+// goes through the `cs-cloud workflow deliverable submit` command.
 func appendDeliverablePrompt(prompt string, refs []repositoryDeliverableRefJSON) string {
 	var b strings.Builder
 	b.WriteString(prompt)
@@ -306,7 +306,7 @@ func appendDeliverablePrompt(prompt string, refs []repositoryDeliverableRefJSON)
 	b.WriteString("This node has document deliverables stored in the platform repository. The repository is exposed as a normal git remote: clone it with plain git using the authed URL in `$MULTICA_REPO_CLONE_URL_AUTHED` (credentials are already embedded, so clone/push just work; do not set up a separate credential helper). The instance branch is `$MULTICA_REPO_INST_BRANCH` and this node's branch is `$MULTICA_REPO_NODE_BRANCH`.\n\n")
 	b.WriteString("For EACH deliverable below: write the document to a local file, then submit it with the CLI. The command pushes your file to the node branch, opens a review request (node -> inst), and registers the review URL back here. Do NOT use inline content upload for these; document deliverables go through git.\n\n")
 	for _, d := range refs {
-		fmt.Fprintf(&b, "- **%s** (id=%s): run `cs-workflow repo submit --deliverable %s --file <local-path-to-your-document>`\n", d.Title, d.ID, d.ID)
+		fmt.Fprintf(&b, "- **%s** (id=%s): run `cs-cloud workflow deliverable submit --deliverable %s --file <local-path-to-your-document>`\n", d.Title, d.ID, d.ID)
 	}
 	b.WriteString("\nA deliverable is not considered submitted until its PR is registered. Complete every listed deliverable before finishing.\n\n")
 	b.WriteString("### Reading the deliverable repository\n\n")

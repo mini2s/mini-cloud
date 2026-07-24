@@ -83,6 +83,14 @@ backend:
     # via backend.extraEnv); it is intentionally not exposed here.
     cscPluginMarketplaceName: ""
     cscPluginMarketplaceRepo: ""
+    # Gitea — backs the workflow deliverable feature: document deliverables are
+    # stored in per-workspace Gitea repos. Leave all empty to keep the feature
+    # dormant (server reports isGiteaConfigured=false). Enable by setting
+    # giteaBaseUrl + giteaAdminToken (below in backend.secrets). Set
+    # giteaPublicBaseUrl to a daemon/agent-reachable clone URL when the
+    # in-cluster giteaBaseUrl is not resolvable from where daemons run.
+    giteaBaseUrl: ""
+    giteaPublicBaseUrl: ""
     # Workflow role-to-member resolution. Keep disabled until the organization
     # integration and workflowRoleLlmApiKey secret are configured.
     workflowRoleResolutionEnabled: "false"
@@ -123,6 +131,7 @@ backend:
     casdoorClientSecret: ""
     deptSyncQueryKey: ""
     workflowRoleLlmApiKey: ""
+    giteaAdminToken: ""
 
   resources: {}
   nodeSelector: {}
