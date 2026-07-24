@@ -144,7 +144,7 @@ export function Kv({
 // small semantic-tone vocabulary to badge variants + semantic colour classes.
 // Centralized here so all four pages share one mapping.
 
-type BadgeTone =
+export type BadgeTone =
   | "success"
   | "warning"
   | "error"

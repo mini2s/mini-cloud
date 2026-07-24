@@ -44,6 +44,12 @@ export {
   RepoContribution,
 } from "./contribution";
 export {
+  PricingPage,
+  DatasourcesPage,
+  SyncTasksPage,
+  SystemConfigPage,
+} from "./settings";
+export {
   DetailShell,
   UserDetail,
   NeedDetail,
