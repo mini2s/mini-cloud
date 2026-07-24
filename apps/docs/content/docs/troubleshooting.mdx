@@ -34,13 +34,13 @@ cs-workflow workspace list            # confirm you're a member of the target wo
 
 ## Tasks stuck in `queued`
 
-**Symptom**: after assigning an issue to an agent, the issue status flips to `in_progress` immediately, but a long time passes with no sign of agent execution on the page; `cs-workflow daemon status` shows the daemon `online`.
+**Symptom**: after assigning an issue to a digital human, the issue status flips to `in_progress` immediately, but a long time passes with no sign of digital human execution on the page; `cs-workflow daemon status` shows the daemon `online`.
 
 **Likely causes** (ordered by frequency):
 
-1. **Agent concurrency limit reached** — this agent's `max_concurrent_tasks` (default 6) is fully occupied by other running tasks
-2. **Another task from the same agent is still running on the same issue** — same agent × same issue is forced to run sequentially (prevents duplicate execution)
-3. **Agent has been archived** — after archival, new tasks still enqueue but can't be claimed, and they time out after 5 minutes (code-issue G-01)
+1. **Digital Human concurrency limit reached** — this digital human's `max_concurrent_tasks` (default 6) is fully occupied by other running tasks
+2. **Another task from the same digital human is still running on the same issue** — same digital human × same issue is forced to run sequentially (prevents duplicate execution)
+3. **Digital Human has been archived** — after archival, new tasks still enqueue but can't be claimed, and they time out after 5 minutes (code-issue G-01)
 4. **Daemon hasn't registered this runtime in the current workspace** — restart the daemon or reselect the runtime in the UI
 5. **Daemon disconnected** — no heartbeat in the last 45 seconds. `daemon status` reporting `online` may reflect a very recent disconnect
 
@@ -57,8 +57,8 @@ On the server side (self-host), grep for `"no_tasks"` / `"no_capacity"` to see t
 **How to fix**:
 
 - Concurrency full → wait for running tasks to finish, or `cs-workflow agent update <id> --max-concurrent-tasks 10` to raise the ceiling
-- Same-issue serialization → wait for the previous task to finish, or reassign to a different agent
-- Agent archived → `cs-workflow agent restore <id>`
+- Same-issue serialization → wait for the previous task to finish, or reassign to a different digital human
+- Digital Human archived → `cs-workflow agent restore <id>`
 - Runtime not registered → `cs-workflow daemon restart`, and the daemon will re-register
 
 ## WebSocket can't connect

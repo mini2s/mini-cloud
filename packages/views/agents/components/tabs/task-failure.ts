@@ -8,7 +8,7 @@ import type { TaskFailureReason } from "@multica/core/types";
 // failed tasks no longer have a top-level workload state; failure context
 // is purely a detail-page concern now.
 export const failureReasonLabel: Record<TaskFailureReason, string> = {
-  agent_error: "Agent execution error",
+  agent_error: "Digital human execution error",
   timeout: "Task timed out",
   codex_semantic_inactivity: "Codex semantic inactivity timeout",
   runtime_offline: "Daemon offline",

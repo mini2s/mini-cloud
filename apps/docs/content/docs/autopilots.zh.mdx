@@ -1,20 +1,20 @@
 ---
 title: Autopilots
-description: 让智能体按 cron 定时自己开工，或在 webhook 到来时被触发——也可以通过 UI / CLI 手动触发一次。
+description: 让数智人按 cron 定时自己开工，或在 webhook 到来时被触发——也可以通过 UI / CLI 手动触发一次。
 ---
 
 import { Callout } from "fumadocs-ui/components/callout";
 
-Autopilots 让 [智能体](/agents) **按调度自动开工**——配好 cron 和时区，到点 Multica 自己派发 [`task`](/tasks)，不需要你每次触发。适合定期巡检、周期性报告、凌晨跑的清理任务这类"standing order"场景。和前三种触发方式（[分配](/assigning-issues) / [@ 提及](/mentioning-agents) / [对话](/chat) 都是你主动喊一声）相比，Autopilots 的核心差别是**时间驱动**。
+Autopilots 让 [数智人](/agents) **按调度自动开工**——配好 cron 和时区，到点 Multica 自己派发 [`task`](/tasks)，不需要你每次触发。适合定期巡检、周期性报告、凌晨跑的清理任务这类"standing order"场景。和前三种触发方式（[分配](/assigning-issues) / [@ 提及](/mentioning-agents) / [对话](/chat) 都是你主动喊一声）相比，Autopilots 的核心差别是**时间驱动**。
 
 ## 配置一个 Autopilot
 
 在工作区的 **Autopilot** 页新建一条 autopilot，要定下：
 
 - **名字** — 显示名
-- **执行智能体** — 到点派给谁
+- **执行数智人** — 到点派给谁
 - **优先级** — 继承给它产生的 `task`（语义同 issue 优先级）
-- **描述 / Prompt** — 智能体每次执行拿到的工作说明
+- **描述 / Prompt** — 数智人每次执行拿到的工作说明
 - **执行模式** — 见下节
 - **触发器** — 至少加一条 `schedule`（cron + 时区）或 `webhook`
 
@@ -22,7 +22,7 @@ Autopilots 让 [智能体](/agents) **按调度自动开工**——配好 cron �
 
 Autopilot 有两种执行模式，**建议从"先建 issue 模式"开始**：
 
-- **先建 issue 模式**（`create_issue`）—— 默认，**推荐**。每次触发先在工作区里建一个 issue（标题目前只支持一个占位符 `{{date}}`，会插值成 UTC 日期 `YYYY-MM-DD`；其他 `{{...}}` 形式的占位符会在创建时被拒绝，避免拼错以后悄无声息地把原文当成 issue 标题），再按分配流程把 issue 派给智能体。所有工作都落在 issue 看板上，历史、评论、状态和手动分配的 issue 完全一致。
+- **先建 issue 模式**（`create_issue`）—— 默认，**推荐**。每次触发先在工作区里建一个 issue（标题目前只支持一个占位符 `{{date}}`，会插值成 UTC 日期 `YYYY-MM-DD`；其他 `{{...}}` 形式的占位符会在创建时被拒绝，避免拼错以后悄无声息地把原文当成 issue 标题），再按分配流程把 issue 派给数智人。所有工作都落在 issue 看板上，历史、评论、状态和手动分配的 issue 完全一致。
 - **直跑模式**（`run_only`）—— 不建 issue，直接入队一个 `task`。看板上看不到这一次运行——只能在 Autopilot 的运行历史里看到。
 
 ## 让它按时间跑
@@ -61,7 +61,7 @@ https://<你的 Multica host>/api/webhooks/autopilots/awt_…
 
 向这个 URL POST 任意 JSON——Multica 会记录一条 `source = webhook` 的
 run，把请求体保存为 run 的 `trigger_payload`，然后按和 schedule 触发器
-完全一致的方式派发给智能体。
+完全一致的方式派发给数智人。
 
 ```bash
 curl -X POST "$MULTICA_WEBHOOK_URL" \
@@ -69,7 +69,7 @@ curl -X POST "$MULTICA_WEBHOOK_URL" \
   -d '{"event":"demo.received","eventPayload":{"message":"hello"}}'
 ```
 
-在**先建 issue 模式**下，入站 payload 会附加在新 issue 的描述里供智能体
+在**先建 issue 模式**下，入站 payload 会附加在新 issue 的描述里供数智人
 直接读到；**直跑模式**下，payload 也会随 run 一并交给 daemon。
 
 ### Payload 形态
@@ -119,7 +119,7 @@ curl -X POST "$MULTICA_WEBHOOK_URL" \
 - `{"status":"accepted","run_id":"…","autopilot_id":"…","trigger_id":"…"}`
   —— 已派发一次 run。
 - `{"status":"skipped","run_id":"…","reason":"agent runtime is offline at dispatch time"}`
-  —— 受派智能体的 runtime 离线，记为 `skipped` run。
+  —— 受派数智人的 runtime 离线，记为 `skipped` run。
 - `{"status":"ignored","reason":"trigger_disabled"}` —— 触发器已禁用。
 - `{"status":"ignored","reason":"autopilot_paused"}` —— Autopilot 已暂停。
 - `{"status":"ignored","reason":"autopilot_archived"}` —— Autopilot 已归档。
@@ -155,7 +155,7 @@ curl -X POST "$MULTICA_WEBHOOK_URL" \
 <Callout type="warning">
 **Autopilot 失败不自动重试，也不发 inbox 通知。** 失败后只在运行历史里留一条 `failed` 记录——不会像分配 / @ 提及那样由系统重新排队，也不会给任何人发通知。如果这条 Autopilot 是周期任务，**下一次 cron 到点会重新触发一次**（新的 run），但这一次失败的工作不会被自动补跑。
 
-如果 Autopilot 很重要，要自己设计监控——例如让智能体在成功时给自己发个评论，通过缺失评论来发现失败。
+如果 Autopilot 很重要，要自己设计监控——例如让数智人在成功时给自己发个评论，通过缺失评论来发现失败。
 </Callout>
 
 不自动重试的理由：Autopilot 本身是周期性的，系统层再加自动重试容易和下一次调度叠加，产生重复执行。调度权完全交给 cron 最干净。
@@ -169,6 +169,6 @@ copy / rotate 操作。Per-trigger HMAC 签名校验、IP allowlist、按提供�
 
 ## 下一步
 
-- [**分配 issue 给智能体**](/assigning-issues) —— 一次性把 issue 指派给智能体
-- [**在评论里 @ 智能体**](/mentioning-agents) —— 评论里让智能体看一眼
+- [**分配 issue 给数智人**](/assigning-issues) —— 一次性把 issue 指派给数智人
+- [**在评论里 @ 数智人**](/mentioning-agents) —— 评论里让数智人看一眼
 - [**对话**](/chat) —— 独立于 issue 的一对一聊天

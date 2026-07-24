@@ -128,34 +128,6 @@ var issueStatusCmd = &cobra.Command{
 	RunE:  runIssueStatus,
 }
 
-// Comment subcommands.
-
-var issueCommentCmd = &cobra.Command{
-	Use:   "comment",
-	Short: "Work with issue comments",
-}
-
-var issueCommentListCmd = &cobra.Command{
-	Use:   "list <issue-id>",
-	Short: "List comments on an issue",
-	Args:  exactArgs(1),
-	RunE:  runIssueCommentList,
-}
-
-var issueCommentAddCmd = &cobra.Command{
-	Use:   "add <issue-id>",
-	Short: "Add a comment to an issue",
-	Args:  exactArgs(1),
-	RunE:  runIssueCommentAdd,
-}
-
-var issueCommentDeleteCmd = &cobra.Command{
-	Use:   "delete <comment-id>",
-	Short: "Delete a comment",
-	Args:  exactArgs(1),
-	RunE:  runIssueCommentDelete,
-}
-
 // Subscriber subcommands.
 
 var issueSubscriberCmd = &cobra.Command{
@@ -235,17 +207,12 @@ func init() {
 	issueCmd.AddCommand(issueUpdateCmd)
 	issueCmd.AddCommand(issueAssignCmd)
 	issueCmd.AddCommand(issueStatusCmd)
-	issueCmd.AddCommand(issueCommentCmd)
 	issueCmd.AddCommand(issueSubscriberCmd)
 	issueCmd.AddCommand(issueRunsCmd)
 	issueCmd.AddCommand(issueRunMessagesCmd)
 	issueCmd.AddCommand(issueRerunCmd)
 	issueCmd.AddCommand(issueCancelTaskCmd)
 	issueCmd.AddCommand(issueSearchCmd)
-
-	issueCommentCmd.AddCommand(issueCommentListCmd)
-	issueCommentCmd.AddCommand(issueCommentAddCmd)
-	issueCommentCmd.AddCommand(issueCommentDeleteCmd)
 
 	issueSubscriberCmd.AddCommand(issueSubscriberListCmd)
 	issueSubscriberCmd.AddCommand(issueSubscriberAddCmd)
@@ -307,15 +274,6 @@ func init() {
 	issueAssignCmd.Flags().Bool("unassign", false, "Remove current assignee")
 	issueAssignCmd.Flags().String("output", "json", "Output format: table or json")
 
-	// issue comment list
-	issueCommentListCmd.Flags().String("output", "table", "Output format: table or json")
-	issueCommentListCmd.Flags().String("since", "", "Only return comments created after this timestamp (RFC3339)")
-	issueCommentListCmd.Flags().String("thread", "", "Comment UUID — return the thread containing this comment (root + every descendant). May be a root or a reply id.")
-	issueCommentListCmd.Flags().Int("tail", 0, "Only valid with --thread. Cap reply count to the N most recent replies; the thread root is always included (even with --tail 0). Use --before/--before-id to scroll to older replies.")
-	issueCommentListCmd.Flags().Int("recent", 0, "Return the N most recently active threads (root + descendants per thread). Use --before/--before-id from the previous response to scroll to older threads.")
-	issueCommentListCmd.Flags().String("before", "", "Cursor (RFC3339Nano timestamp). With --recent: thread cursor (last_activity_at). With --thread + --tail: reply cursor (reply created_at). Read from the X-Multica-Next-Before response header; must be paired with --before-id.")
-	issueCommentListCmd.Flags().String("before-id", "", "Cursor UUID. With --recent: thread root UUID. With --thread + --tail: oldest reply UUID. Read from the X-Multica-Next-Before-Id response header; must be paired with --before.")
-
 	// issue runs
 	issueRunsCmd.Flags().String("output", "table", "Output format: table or json")
 	issueRunsCmd.Flags().Bool("full-id", false, "Show full task UUIDs in table output")
@@ -329,14 +287,6 @@ func init() {
 	issueRunMessagesCmd.Flags().String("output", "json", "Output format: table or json")
 	issueRunMessagesCmd.Flags().Int("since", 0, "Only return messages after this sequence number")
 	issueRunMessagesCmd.Flags().String("issue", "", "Issue ID/key to scope short task ID prefix resolution")
-
-	// issue comment add
-	issueCommentAddCmd.Flags().String("content", "", "Comment content (decodes \\n, \\r, \\t, \\\\; pipe via --content-stdin for multi-line bodies or to preserve literal backslashes)")
-	issueCommentAddCmd.Flags().Bool("content-stdin", false, "Read comment content from stdin (preserves multi-line content verbatim)")
-	issueCommentAddCmd.Flags().String("content-file", "", "Read comment content from a UTF-8 file (preserves multi-line content verbatim; use this on Windows when stdin piping mangles non-ASCII bytes)")
-	issueCommentAddCmd.Flags().String("parent", "", "Parent comment ID (reply to a specific comment)")
-	issueCommentAddCmd.Flags().StringSlice("attachment", nil, "File path(s) to attach (can be specified multiple times)")
-	issueCommentAddCmd.Flags().String("output", "json", "Output format: table or json")
 
 	// issue search
 	issueSearchCmd.Flags().Int("limit", 20, "Maximum number of results to return")
@@ -913,233 +863,6 @@ func runIssueStatus(cmd *cobra.Command, args []string) error {
 	if output == "json" {
 		return cli.PrintJSON(os.Stdout, result)
 	}
-	return nil
-}
-
-// ---------------------------------------------------------------------------
-// Comment commands
-// ---------------------------------------------------------------------------
-
-func runIssueCommentList(cmd *cobra.Command, args []string) error {
-	client, err := newAPIClient(cmd)
-	if err != nil {
-		return err
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-	defer cancel()
-
-	issueRef, err := resolveIssueRef(ctx, client, args[0])
-	if err != nil {
-		return fmt.Errorf("resolve issue: %w", err)
-	}
-
-	since, _ := cmd.Flags().GetString("since")
-	thread, _ := cmd.Flags().GetString("thread")
-	recent, _ := cmd.Flags().GetInt("recent")
-	tail, _ := cmd.Flags().GetInt("tail")
-	// Flags().Changed distinguishes "user did not pass --recent" from
-	// "user explicitly passed --recent 0" (or a negative value). The
-	// GetInt zero-value collapses both cases, which would otherwise
-	// cause us to silently drop an invalid value and fall back to the
-	// default unparameterized list — exactly the drift Elon flagged in
-	// the PR #2787 second review. --tail follows the same pattern, and
-	// also keeps "--tail 0" (root-only) distinguishable from "no --tail".
-	recentSet := cmd.Flags().Changed("recent")
-	tailSet := cmd.Flags().Changed("tail")
-	before, _ := cmd.Flags().GetString("before")
-	beforeID, _ := cmd.Flags().GetString("before-id")
-
-	// Mirror the server-side combination rules client-side so the user gets
-	// a clear local error instead of a 400 round-trip. These match the
-	// validation in handler.ListComments (server/internal/handler/comment.go).
-	if recentSet && recent <= 0 {
-		return fmt.Errorf("--recent must be a positive integer")
-	}
-	if tailSet && tail < 0 {
-		return fmt.Errorf("--tail must be a non-negative integer (0 returns just the thread root)")
-	}
-	if thread != "" && recentSet {
-		return fmt.Errorf("--thread and --recent are mutually exclusive")
-	}
-	if tailSet && thread == "" {
-		return fmt.Errorf("--tail requires --thread (it is a thread-scoped limit)")
-	}
-	if (before == "") != (beforeID == "") {
-		return fmt.Errorf("--before and --before-id must be set together (composite cursor for stable pagination)")
-	}
-	if before != "" && !recentSet && !(thread != "" && tailSet) {
-		return fmt.Errorf("--before / --before-id require --recent (thread cursor) or --thread + --tail (reply cursor)")
-	}
-
-	params := url.Values{}
-	if since != "" {
-		params.Set("since", since)
-	}
-	if thread != "" {
-		params.Set("thread", thread)
-	}
-	if tailSet {
-		params.Set("tail", fmt.Sprintf("%d", tail))
-	}
-	if recentSet {
-		params.Set("recent", fmt.Sprintf("%d", recent))
-	}
-	if before != "" {
-		params.Set("before", before)
-		params.Set("before_id", beforeID)
-	}
-
-	path := "/api/issues/" + issueRef.ID + "/comments"
-	if len(params) > 0 {
-		path += "?" + params.Encode()
-	}
-
-	var comments []map[string]any
-	respHeaders, err := client.GetJSONWithHeaders(ctx, path, &comments)
-	if err != nil {
-		return fmt.Errorf("list comments: %w", err)
-	}
-	fmt.Fprintf(os.Stderr, "Showing %d comments.\n", len(comments))
-	// The server emits the next-page cursor in headers when there is likely
-	// an older page. Surface it on stderr so an operator (and the agent
-	// prompt update that follows this PR) can scroll deeper without having
-	// to dig into the raw HTTP response. Label depends on which paging mode
-	// the caller is in — under --recent the cursor is a thread cursor;
-	// under --thread + --tail it is a reply cursor inside that thread.
-	if nb := respHeaders.Get("X-Multica-Next-Before"); nb != "" {
-		if nbid := respHeaders.Get("X-Multica-Next-Before-Id"); nbid != "" {
-			label := "Next thread cursor"
-			if thread != "" && tailSet {
-				label = "Next reply cursor"
-			}
-			fmt.Fprintf(os.Stderr, "%s: --before %s --before-id %s\n", label, nb, nbid)
-		}
-	}
-
-	output, _ := cmd.Flags().GetString("output")
-	if output == "json" {
-		return cli.PrintJSON(os.Stdout, comments)
-	}
-
-	actors := loadActorDisplayLookup(ctx, client)
-	headers := []string{"ID", "PARENT", "AUTHOR", "TYPE", "CONTENT", "CREATED"}
-	rows := make([][]string, 0, len(comments))
-	for _, c := range comments {
-		content := strVal(c, "content")
-		if utf8.RuneCountInString(content) > 80 {
-			runes := []rune(content)
-			content = string(runes[:77]) + "..."
-		}
-		created := strVal(c, "created_at")
-		if len(created) >= 16 {
-			created = created[:16]
-		}
-		parentID := strVal(c, "parent_id")
-		if parentID == "" {
-			parentID = "—"
-		}
-		rows = append(rows, []string{
-			strVal(c, "id"),
-			parentID,
-			actors.actor(strVal(c, "author_type"), strVal(c, "author_id")),
-			strVal(c, "type"),
-			content,
-			created,
-		})
-	}
-	cli.PrintTable(os.Stdout, headers, rows)
-	return nil
-}
-
-func runIssueCommentAdd(cmd *cobra.Command, args []string) error {
-	content, hasContent, err := resolveTextFlag(cmd, "content")
-	if err != nil {
-		return err
-	}
-	if !hasContent {
-		return fmt.Errorf("--content, --content-stdin, or --content-file is required")
-	}
-
-	client, err := newAPIClient(cmd)
-	if err != nil {
-		return err
-	}
-
-	// Use a longer timeout when attachments are present (file uploads can be slow).
-	timeout := 15 * time.Second
-	attachments, _ := cmd.Flags().GetStringSlice("attachment")
-	if len(attachments) > 0 {
-		timeout = 60 * time.Second
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
-	defer cancel()
-
-	issueRef, err := resolveIssueRef(ctx, client, args[0])
-	if err != nil {
-		return fmt.Errorf("resolve issue: %w", err)
-	}
-	issueID := issueRef.ID
-
-	// Upload attachments and collect their IDs. URLs are skipped with a
-	// warning — `--attachment` only accepts local file paths, and a
-	// markdown image URL embedded in agent-supplied content should never
-	// be re-uploaded as if it were a file. Unlike `issue create`, this
-	// path uploads BEFORE posting the comment, so a hard failure on a
-	// real (local) attachment correctly aborts the whole call.
-	var attachmentIDs []string
-	for _, filePath := range attachments {
-		if isHTTPURL(filePath) {
-			fmt.Fprintf(os.Stderr, "Skipping --attachment %q: URLs are not supported here, only local file paths.\n", filePath)
-			continue
-		}
-		data, readErr := os.ReadFile(filePath)
-		if readErr != nil {
-			return fmt.Errorf("read attachment %s: %w", filePath, readErr)
-		}
-		id, uploadErr := client.UploadFile(ctx, data, filePath, issueID)
-		if uploadErr != nil {
-			return fmt.Errorf("upload attachment %s: %w", filePath, uploadErr)
-		}
-		attachmentIDs = append(attachmentIDs, id)
-		fmt.Fprintf(os.Stderr, "Uploaded %s\n", filePath)
-	}
-
-	body := map[string]any{"content": content}
-	if parentID, _ := cmd.Flags().GetString("parent"); parentID != "" {
-		body["parent_id"] = parentID
-	}
-	if len(attachmentIDs) > 0 {
-		body["attachment_ids"] = attachmentIDs
-	}
-	var result map[string]any
-	if err := client.PostJSON(ctx, "/api/issues/"+issueID+"/comments", body, &result); err != nil {
-		return fmt.Errorf("add comment: %w", err)
-	}
-
-	fmt.Fprintf(os.Stderr, "Comment added to issue %s.\n", issueRef.Display)
-
-	output, _ := cmd.Flags().GetString("output")
-	if output == "table" {
-		return nil
-	}
-	return cli.PrintJSON(os.Stdout, result)
-}
-
-func runIssueCommentDelete(cmd *cobra.Command, args []string) error {
-	client, err := newAPIClient(cmd)
-	if err != nil {
-		return err
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-	defer cancel()
-
-	if err := client.DeleteJSON(ctx, "/api/comments/"+args[0]); err != nil {
-		return fmt.Errorf("delete comment: %w", err)
-	}
-
-	fmt.Fprintf(os.Stderr, "Comment %s deleted.\n", args[0])
 	return nil
 }
 

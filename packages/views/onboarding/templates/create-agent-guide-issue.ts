@@ -20,8 +20,8 @@ const HELPER_AGENT_NAME = "Multica Helper";
  * Step 2 of the skip-path bundle. Bilingual title.
  */
 export const CREATE_AGENT_GUIDE_ISSUE_TITLE = {
-  en: "Step 2 — Create your first Multica Agent",
-  zh: "第 2 步 —— 创建你的第一个 Multica Agent",
+  en: "Step 2 — Create your first Multica digital human",
+  zh: "第 2 步 —— 创建你的第一个 Multica 数智人",
 } as const;
 
 interface BodyOpts {
@@ -39,11 +39,11 @@ export function getCreateAgentGuideBody(opts: BodyOpts): string {
 }
 
 function enBody(installRuntimeMention: string): string {
-  return `Once your runtime is online (see ${installRuntimeMention}), build your first agent — Multica Helper. The prompt below is pre-written; just copy.
+  return `Once your runtime is online (see ${installRuntimeMention}), build your first digital human — Multica Helper. The prompt below is pre-written; just copy.
 
-## 1. Open the new-agent screen
+## 1. Open the new-digital-human screen
 
-Go to **Agents** in the sidebar → click **New Agent**.
+Go to **Digital Humans** in the sidebar → click **New digital human**.
 
 ## 2. Pick the runtime you just installed
 
@@ -68,24 +68,24 @@ ${HELPER_INSTRUCTIONS.en}
 
 ## 4. Save → assign an issue
 
-Hit **Create**. The new agent shows up in the workspace agent list.
+Hit **Create**. The new digital human shows up in the workspace digital human list.
 
 Now create an issue (or reassign an existing one) → set assignee = Multica Helper → set status to **todo**. The runtime picks the task up within a few seconds and starts working. Watch progress in the issue's task panel.
 
 ## Where to go next
 
-- **Skills** — reusable instruction packs you can attach to any agent.
-- **Squads** — groups of agents that can be assigned together.
+- **Skills** — reusable instruction packs you can attach to any digital human.
+- **Squads** — groups of digital humans that can be assigned together.
 - **Autopilots** — scheduled or webhook-triggered runs.
 - **Docs** — https://multica.ai/docs.`;
 }
 
 function zhBody(installRuntimeMention: string): string {
-  return `等运行时上线（见 ${installRuntimeMention}）之后，把第一个 agent —— Multica Helper —— 建出来。下面的提示词已经写好，直接复制即可。
+  return `等运行时上线（见 ${installRuntimeMention}）之后，把第一个数智人 —— Multica Helper —— 建出来。下面的提示词已经写好，直接复制即可。
 
-## 1. 打开新建 agent 页
+## 1. 打开新建数智人页
 
-在侧边栏点 **Agents** → 点 **New Agent**。
+在侧边栏点 **数智人** → 点 **新建数智人**。
 
 ## 2. 选你刚装好的运行时
 
@@ -110,14 +110,14 @@ ${HELPER_INSTRUCTIONS.zh}
 
 ## 4. 保存 → 分派 issue
 
-点 **Create**。新 agent 会出现在 workspace 的 agent 列表里。
+点 **Create**。新数智人会出现在 workspace 的数智人列表里。
 
 接着创建一个 issue（或把已有 issue 重新分派）→ 把 assignee 设成 Multica Helper → 状态切到 **todo**。运行时会在几秒内接走任务并开始工作。在 issue 的任务面板里看进度。
 
 ## 接下来去哪
 
-- **Skills** —— 可复用的指令包，可挂到任何 agent 上。
-- **Squads** —— 可一起被分派的一组 agent。
+- **Skills** —— 可复用的指令包，可挂到任何数智人上。
+- **Squads** —— 可一起被分派的一组数智人。
 - **Autopilots** —— 定时或 webhook 触发的运行。
 - **文档** —— https://multica.ai/docs。`;
 }

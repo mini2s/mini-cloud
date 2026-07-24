@@ -1,23 +1,23 @@
 ---
 title: Issues and projects
-description: Multica's core unit of work — assignable to a person or to an agent.
+description: Multica's core unit of work — assignable to a person or to a digital human.
 ---
 
 import { Callout } from "fumadocs-ui/components/callout";
 
 An issue is a self-contained unit of work in Multica — a bug, a new feature, a thing that needs doing. Every issue has a **title**, a **description** (Markdown supported), a **status**, a **priority**, an **assignee**, and optionally belongs to a **project**. If you've used Linear or Jira, this is the same shape.
 
-**Multica's defining trait is that an issue's assignee can be a person or an [agent](/agents)** — which is where we'll start.
+**Multica's defining trait is that an issue's assignee can be a person or an [digital human](/agents)** — which is where we'll start.
 
-## Assigning an issue to an agent
+## Assigning an issue to a digital human
 
-[Assigning](/assigning-issues) an issue to an agent hands that work over to it. The agent **starts automatically** — executing within seconds, reporting progress in comments, and flipping the status to done when finished. The only difference from handing work to a teammate is that an agent doesn't go offline, doesn't need reminders, and is available 24/7.
+[Assigning](/assigning-issues) an issue to a digital human hands that work over to it. The digital human **starts automatically** — executing within seconds, reporting progress in comments, and flipping the status to done when finished. The only difference from handing work to a teammate is that a digital human doesn't go offline, doesn't need reminders, and is available 24/7.
 
 <Callout type="info">
-For agent identity, configuration, and where they run, see [Agents](/agents).
+For digital human identity, configuration, and where they run, see [Digital Humans](/agents).
 </Callout>
 
-Private agents can only be assigned to issues by workspace owners and admins. For role permissions, see [Members and roles](/members-roles).
+Private digital humans can only be assigned to issues by workspace owners and admins. For role permissions, see [Members and roles](/members-roles).
 
 ## Status
 
@@ -33,7 +33,7 @@ Multica has seven statuses. **Any status can move directly to any other** — Mu
 | `blocked` | Stuck on an external factor |
 | `cancelled` | Cancelled |
 
-Once an issue is assigned to an agent, the agent automatically moves the status from `backlog` / `todo` to `in_progress`, then to `done` on completion. You can also change it manually at any time.
+Once an issue is assigned to a digital human, the digital human automatically moves the status from `backlog` / `todo` to `in_progress`, then to `done` on completion. You can also change it manually at any time.
 
 ## Priority
 
@@ -53,14 +53,14 @@ Every issue has a workspace-unique number in the format `<prefix>-<digits>` — 
 
 ## Comments
 
-The comment thread under an issue is where collaboration happens — reply to a comment, `@` a person or agent, add a reaction.
+The comment thread under an issue is where collaboration happens — reply to a comment, `@` a person or digital human, add a reaction.
 
-`@` an agent in a comment and **it triggers automatically** — this is the second way to start an agent, alongside "assign to." See [Comments and mentions](/comments) and [Mentioning agents in comments](/mentioning-agents).
+`@` a digital human in a comment and **it triggers automatically** — this is the second way to start a digital human, alongside "assign to." See [Comments and mentions](/comments) and [Mentioning digital humans in comments](/mentioning-agents).
 
 ## Deleting an issue
 
 <Callout type="warning">
-Deleting an issue **immediately** clears every comment, reaction, and attachment under it, along with any queued agent tasks (running tasks are cancelled). **It cannot be undone.**
+Deleting an issue **immediately** clears every comment, reaction, and attachment under it, along with any queued digital human tasks (running tasks are cancelled). **It cannot be undone.**
 
 If you just want the issue out of sight, **changing the status to `cancelled` is safer than deleting** — the data stays, and you can pull it back later.
 </Callout>
@@ -69,11 +69,11 @@ If you just want the issue out of sight, **changing the status to `cancelled` is
 
 A project is a container that groups multiple issues together. An issue belongs to at most one project, or to no project at all.
 
-Projects have their own **lead** — **just like an issue's assignee, a lead can be a person or an agent**.
+Projects have their own **lead** — **just like an issue's assignee, a lead can be a person or a digital human**.
 
 Deleting a project **does not delete the issues inside it**: those issues simply detach from the project and remain in the workspace.
 
 ## Next
 
 - [Comments and mentions](/comments) — collaborating under an issue
-- [Agents](/agents) — understand how "assign to an agent" actually works
+- [Digital Humans](/agents) — understand how "assign to a digital human" actually works

@@ -5,7 +5,7 @@
     "default": "问 Multica"
   },
   "input": {
-    "placeholder_no_agent": "创建一个智能体后才能开始对话",
+    "placeholder_no_agent": "创建一个数智人后才能开始对话",
     "placeholder_archived": "此会话已归档",
     "placeholder_named": "告诉 {{name}} 该做什么...",
     "placeholder_default": "告诉我该做什么...",
@@ -55,14 +55,14 @@
     "unread": "未读",
     "no_previous": "暂无历史对话",
     "untitled": "新对话",
-    "my_agents": "我的智能体",
+    "my_agents": "我的数智人",
     "others": "其他",
-    "no_agents": "暂无智能体",
+    "no_agents": "暂无数智人",
     "active_group": "进行中",
     "archived_group_other": "{{count}} 条已归档"
   },
   "empty_state": {
-    "first_time_title": "和你的智能体对话",
+    "first_time_title": "和你的数智人对话",
     "first_time_intro": "✨ 它们了解你的工作区——",
     "first_time_pillars": "issue、项目、skill",
     "first_time_pillars_suffix": "。",
@@ -87,9 +87,9 @@
     "aria_stop": "停止共享当前页面",
     "aria_start": "把当前页面共享给 Multica"
   },
-  "no_agent_banner": "需要先有一个智能体才能开始对话。",
+  "no_agent_banner": "需要先有一个数智人才能开始对话。",
   "offline_banner": {
-    "fallback_name": "智能体",
+    "fallback_name": "数智人",
     "unstable": "{{name}} 的连接不稳定——回复可能延迟。",
     "offline": "{{name}} 离线——你的消息将在它上线后发送。"
   },

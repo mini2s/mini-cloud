@@ -1841,12 +1841,16 @@ func (h *Handler) giteaContextForNodeRun(ctx context.Context, nodeRunID pgtype.U
 	if err != nil {
 		return nil
 	}
-	// Node sort_order drives the readable <NN> prefix in repo paths.
+	// Node topological position drives the readable <NN> prefix in repo paths.
 	node, err := h.Queries.GetWorkflowNode(ctx, nr.WorkflowNodeID)
 	if err != nil {
 		return nil
 	}
-	seq := int(node.SortOrder)
+	topo, err := service.NodeTopoOrder(ctx, h.Queries, run.WorkflowID)
+	if err != nil {
+		return nil
+	}
+	seq := topo[util.UUIDToString(node.ID)]
 	deliverables, err := h.Queries.ListWorkflowNodeDeliverables(ctx, nr.WorkflowNodeID)
 	if err != nil {
 		return nil

@@ -161,7 +161,7 @@ describe("CreateAgentDialog cloud skills", () => {
     mockSetAgentCloudSkills.mockResolvedValue([]);
     const { onCreate } = renderDialog();
 
-    fireEvent.change(screen.getByPlaceholderText("e.g. Deep Research Agent"), {
+    fireEvent.change(screen.getByPlaceholderText("e.g. Deep Research Digital Human"), {
       target: { value: "Research Agent" },
     });
 

@@ -9,27 +9,27 @@
     "headline_emphasis": "one workspace.",
     "lede": "Assign them work like you'd assign a colleague — they pick it up, update status, and comment when done.",
     "lede_web": "Desktop bundles the runtime — nothing to install. Continue on web to connect your own CLI.",
-    "lede_desktop": "By the end, a real agent will be replying to your first issue.",
+    "lede_desktop": "By the end, a real digital human will be replying to your first issue.",
     "download_desktop": "Download Desktop",
     "continue_on_web": "Continue on web",
     "start_exploring": "Start exploring",
     "skip_existing": "I've done this before",
-    "illustration_caption": "Every issue, every thread, every decision — shared by your team and agents.",
+    "illustration_caption": "Every issue, every thread, every decision — shared by your team and digital humans.",
     "illustration": {
       "card1_actor_name": "You",
       "card1_actor_initial": "N",
       "card1_body_prefix": " can you draft a short launch post? Pull from ",
       "card1_body_suffix": "'s interview findings.",
-      "card1_mention_content": "@Content Agent",
-      "card1_mention_research": "@Research Agent",
-      "card2_actor_name": "Content Agent",
+      "card1_mention_content": "@Content Digital Human",
+      "card1_mention_research": "@Research Digital Human",
+      "card2_actor_name": "Content Digital Human",
       "card2_body": "On it. Pulling Research's quotes, drafting around the \"time saved\" angle…",
-      "card3_actor_name": "Research Agent",
+      "card3_actor_name": "Research Digital Human",
       "card3_body": "This week's user interviews summarized — 12 calls, 4 recurring themes, 3 pull-quotes.",
       "card3_timestamp": "15 min ago",
-      "card4_actor_name": "Review Agent",
+      "card4_actor_name": "Review Digital Human",
       "card4_body": "Reviewed Monday's draft — left 4 notes on tone. Standing by for the new one.",
-      "card5_actor_name": "Coding Agent",
+      "card5_actor_name": "Coding Digital Human",
       "card5_body_prefix": "Shipped the export feature ",
       "card5_body_suffix": " flagged. Preview link in the PR.",
       "card5_mention_you": "@you",
@@ -76,7 +76,7 @@
     },
     "use_case": {
       "question": "What do you want to use Multica for?",
-      "ship_code": "Ship code with AI agents",
+      "ship_code": "Ship code with AI digital humans",
       "manage_team": "Manage tasks for my team",
       "personal_tasks": "Organize my own tasks",
       "plan_research": "Plan, brainstorm, research",
@@ -96,31 +96,31 @@
     "hint_continue": "Looks good. Hit Continue when you're ready."
   },
   "runtime_aside": {
-    "what_eyebrow": "What's an agent runtime?",
+    "what_eyebrow": "What's a digital human runtime?",
     "what_prefix": "The \"computer\" you connect is what we internally call an ",
-    "what_term": "agent runtime",
-    "what_suffix": ": a small background process on the computer paired with one AI coding tool — Claude Code, Codex, and so on. One tool, one agent runtime. The agent runtime is what actually executes the tasks your agent picks up.",
+    "what_term": "digital human runtime",
+    "what_suffix": ": a small background process on the computer paired with one AI coding tool — Claude Code, Codex, and so on. One tool, one digital human runtime. The digital human runtime is what actually executes the tasks your digital human picks up.",
     "good_eyebrow": "Good to know",
     "swap_title": "Swap anytime",
-    "swap_body": "Each agent's runtime is just a setting. Change it whenever you want.",
+    "swap_body": "Each digital human's runtime is just a setting. Change it whenever you want.",
     "add_more_title": "Add more later",
-    "add_more_body": "You can connect another computer for a teammate, or a dedicated one per agent.",
-    "learn_more": "Learn about agent runtimes →"
+    "add_more_body": "You can connect another computer for a teammate, or a dedicated one per digital human.",
+    "learn_more": "Learn about digital human runtimes →"
   },
   "cli_install": {
     "copy_aria": "Copy",
-    "intro": "You'll need an agent runtime on this computer (Claude Code, Codex, Cursor, …) for it to run your agent. Also works on servers and remote dev boxes.",
+    "intro": "You'll need a digital human runtime on this computer (Claude Code, Codex, Cursor, …) for it to run your digital human. Also works on servers and remote dev boxes.",
     "step1_label": "Install the Multica CLI",
     "step2_label": "Start the daemon"
   },
   "cloud_waitlist": {
     "intro_main": "Cloud runtimes aren't live yet. Leave your email and we'll reach out when they are.",
-    "intro_warning": "Heads-up: agents can't execute tasks without a runtime — if you hit Skip now, your workspace is read-only until you come back and install one.",
+    "intro_warning": "Heads-up: digital humans can't execute tasks without a runtime — if you hit Skip now, your workspace is read-only until you come back and install one.",
     "email_label": "Email",
     "email_placeholder": "you@work.com",
     "reason_label": "Why cloud?",
     "optional": "Optional",
-    "reason_placeholder": "e.g. we want agents running 24/7, or my team works across different devices.",
+    "reason_placeholder": "e.g. we want digital humans running 24/7, or my team works across different devices.",
     "join": "Join waitlist",
     "on_list": "You're on the list",
     "success_toast": "You're on the list. We'll email when cloud runtimes are live.",
@@ -134,29 +134,29 @@
     "opening": "Almost there — opening your workspace."
   },
   "step_agent": {
-    "eyebrow": "Your first agent",
+    "eyebrow": "Your first digital human",
     "headline": "Meet your first teammate.",
     "lede_prefix": "Your answers point to a ",
-    "lede_suffix": ". Pick whichever of the four fits you — each template ships ready to take its first issue. You can retune its instructions from the agent settings page later.",
-    "footer_hint": "One agent is enough to start. Add more from the sidebar later.",
+    "lede_suffix": ". Pick whichever of the four fits you — each template ships ready to take its first issue. You can retune its instructions from the digital human settings page later.",
+    "footer_hint": "One digital human is enough to start. Add more from the sidebar later.",
     "create_action": "Create {{name}}",
-    "create_failed": "Failed to create agent",
+    "create_failed": "Failed to create digital human",
     "recommended_badge": "Recommended",
     "templates": {
       "coding": {
-        "label": "Coding Agent",
+        "label": "Coding Digital Human",
         "blurb": "Writes, refactors, and ships code. Reads your repo.",
-        "instructions": "You are a Coding Agent on a product team. Pick up coding issues — implement features, fix bugs, write tests, and open pull requests. Read the repository before you start, follow existing code conventions, and keep diffs focused. Ask for clarification when the acceptance criteria are ambiguous."
+        "instructions": "You are a Coding Digital Human on a product team. Pick up coding issues — implement features, fix bugs, write tests, and open pull requests. Read the repository before you start, follow existing code conventions, and keep diffs focused. Ask for clarification when the acceptance criteria are ambiguous."
       },
       "planning": {
-        "label": "Planning Agent",
+        "label": "Planning Digital Human",
         "blurb": "Breaks down work, drafts specs, keeps the board tidy.",
-        "instructions": "You are a Planning Agent. Turn loose ideas and open issues into scoped, ready-to-execute work: break them down into subtasks, write acceptance criteria, and propose owners and sequencing. Prefer clarity over speed. When blocked by missing context, ask one specific question rather than guessing."
+        "instructions": "You are a Planning Digital Human. Turn loose ideas and open issues into scoped, ready-to-execute work: break them down into subtasks, write acceptance criteria, and propose owners and sequencing. Prefer clarity over speed. When blocked by missing context, ask one specific question rather than guessing."
       },
       "writing": {
-        "label": "Writing Agent",
+        "label": "Writing Digital Human",
         "blurb": "Drafts, summarizes, researches. Long-form friendly.",
-        "instructions": "You are a Writing Agent. Draft documents, summarize long content, and research topics on the web when needed. Structure your output as finished prose a reader can use directly — not an outline. Cite sources when you draw from them. Match the tone the user establishes in the issue."
+        "instructions": "You are a Writing Digital Human. Draft documents, summarize long content, and research topics on the web when needed. Structure your output as finished prose a reader can use directly — not an outline. Cite sources when you draw from them. Match the tone the user establishes in the issue."
       },
       "assistant": {
         "label": "Assistant",
@@ -164,10 +164,10 @@
         "instructions": "You are a general-purpose teammate. Handle varied tasks — light coding, writing, research, planning — and stay pragmatic about scope. When the task is ambiguous, ask one clarifying question before diving in. Default to short, useful outputs over exhaustive ones."
       }
     },
-    "about_eyebrow": "What's an agent",
+    "about_eyebrow": "What's a digital human",
     "about_headline": "An AI teammate that lives in your workspace.",
-    "about_body": "Agents show up in every assignee picker, just like any other colleague — except they can work 24/7 on whatever runtime you give them.",
-    "ways_eyebrow": "Ways to work with an agent",
+    "about_body": "Digital Humans show up in every assignee picker, just like any other colleague — except they can work 24/7 on whatever runtime you give them.",
+    "ways_eyebrow": "Ways to work with a digital human",
     "way_assign_title": "Assign it an issue",
     "way_assign_body": "It picks up the task and reports back in the thread.",
     "way_mention_title": "@mention in a comment",
@@ -176,8 +176,8 @@
     "way_chat_body": "Ask quick questions without creating an issue.",
     "way_autopilot_title": "Put it on Autopilot",
     "way_autopilot_body": "Daily triage, weekly digest, monthly audit — on a schedule.",
-    "add_more_hint": "Add more agents anytime. A small team of specialized agents beats one jack-of-all-trades.",
-    "docs_link": "Creating your first agent →"
+    "add_more_hint": "Add more digital humans anytime. A small team of specialized digital humans beats one jack-of-all-trades.",
+    "docs_link": "Creating your first digital human →"
   },
   "welcome_after_onboarding": {
     "loading_helper": "Preparing your Helper…",
@@ -191,8 +191,8 @@
     "user_context_use_case_label": "What I want to do with Multica",
     "runtime": {
       "greeting": "Hi, welcome to Multica",
-      "subtitle": "I'm your first Agent assistant.",
-      "capabilities": "Ask me anything about how to use Multica. You can also have me get things done in your workspace — create issues, set up cron tasks, build new agents…",
+      "subtitle": "I'm your first Digital Human assistant.",
+      "capabilities": "Ask me anything about how to use Multica. You can also have me get things done in your workspace — create issues, set up cron tasks, build new digital humans…",
       "section_label": "Pick one or more tasks to start with:",
       "assign_empty": "Pick one or more",
       "assign_count": "Assign {{count}} task to me →",
@@ -202,7 +202,7 @@
           "subtitle": "Let me explain in 1–2 paragraphs what Multica is and what it can do."
         },
         "tour": {
-          "subtitle": "I'll walk you through how issue, agent, squad, autopilot fit together."
+          "subtitle": "I'll walk you through how issue, digital human, squad, autopilot fit together."
         },
         "welcome_page": {
           "subtitle": "I'll write you a small HTML welcome page to celebrate the kickoff."
@@ -226,11 +226,11 @@
       "cards": {
         "install_runtime": {
           "title": "Connect a runtime",
-          "subtitle": "Install Codex or Kimi to bring agents online."
+          "subtitle": "Install Codex or Kimi to bring digital humans online."
         },
         "create_agent": {
-          "title": "Create your first agent",
-          "subtitle": "Once a runtime is online, build your first Multica agent."
+          "title": "Create your first digital human",
+          "subtitle": "Once a runtime is online, build your first Multica digital human."
         }
       }
     }
@@ -240,7 +240,7 @@
     "eyebrow_resume": "Pick up or start fresh",
     "headline_first": "Name your workspace.",
     "headline_resume": "Continue with {{name}}, or start another.",
-    "lede_first": "A workspace is where your issues, agents, and projects live. You can invite teammates or spin up more workspaces later.",
+    "lede_first": "A workspace is where your issues, digital humans, and projects live. You can invite teammates or spin up more workspaces later.",
     "lede_resume": "Resume setup with the workspace you already have, or create a new one alongside it — you can belong to any number of workspaces.",
     "name_label": "Workspace name",
     "name_placeholder": "Acme Inc, My Lab, Side Projects…",
@@ -272,11 +272,11 @@
     "side_next_eyebrow": "What's next",
     "side_preview_name": "Your workspace",
     "side_preview_slug": "workspace",
-    "perk_assign": "Assign issues to agents like you would a teammate",
-    "perk_chat": "Chat with any agent without creating an issue",
+    "perk_assign": "Assign issues to digital humans like you would a teammate",
+    "perk_chat": "Chat with any digital human without creating an issue",
     "perk_invite": "Invite teammates — they see only this workspace",
     "perk_switch": "Switch to other workspaces anytime from the top-left",
-    "next_runtime": "Connect a computer so your agents have somewhere to run",
+    "next_runtime": "Connect a computer so your digital humans have somewhere to run",
     "next_agent": "Create Multica Helper from your connected runtime",
     "next_starter": "Open one onboarding issue for your next step",
     "preview": {
@@ -284,14 +284,14 @@
       "inbox_meta": "your notifications",
       "issues_label": "Issues",
       "issues_meta": "shared task board",
-      "agents_label": "Agents",
+      "agents_label": "Digital Humans",
       "agents_meta": "your AI teammates",
       "projects_label": "Projects",
       "projects_meta": "group related issues",
       "autopilot_label": "Autopilot",
       "autopilot_meta": "scheduled automation",
       "runtimes_label": "Runtimes",
-      "runtimes_meta": "where agents run",
+      "runtimes_meta": "where digital humans run",
       "skills_label": "Skills",
       "skills_meta": "reusable playbooks",
       "more_label": "And more",
@@ -300,22 +300,22 @@
   },
   "step_runtime": {
     "scanning_headline": "Connecting this computer…",
-    "scanning_lede_prefix": "Your agent works through an AI coding tool you already have — like ",
+    "scanning_lede_prefix": "Your digital human works through an AI coding tool you already have — like ",
     "scanning_lede_suffix": ", and others. We're checking this computer for ones you've installed.",
-    "found_headline": "This computer is connected. Pick an agent runtime.",
-    "found_lede": "These are the agent runtimes we found on this computer. Pick one for your first agent — you can switch or add more later.",
-    "runtime_count_one": "{{count}} agent runtime",
-    "runtime_count_other": "{{count}} agent runtimes",
+    "found_headline": "This computer is connected. Pick a digital human runtime.",
+    "found_lede": "These are the digital human runtimes we found on this computer. Pick one for your first digital human — you can switch or add more later.",
+    "runtime_count_one": "{{count}} digital human runtime",
+    "runtime_count_other": "{{count}} digital human runtimes",
     "status_all_online": "all online",
     "status_none_online": "none online",
     "status_n_online": "{{count}} online",
     "online_label": "online",
     "offline_label": "offline",
-    "empty_headline": "No agent runtime found on this computer yet.",
-    "empty_lede_prefix": "An agent runtime is an AI coding tool we connect to — like ",
+    "empty_headline": "No digital human runtime found on this computer yet.",
+    "empty_lede_prefix": "A digital human runtime is an AI coding tool we connect to — like ",
     "empty_lede_suffix": ". Install one and refresh, or pick a path below.",
     "empty_skip_title": "Skip for now",
-    "empty_skip_subtitle": "Enter your workspace in read-only mode. Your agent can't run tasks until an agent runtime is connected on this computer — but you can still browse, plan, and invite teammates.",
+    "empty_skip_subtitle": "Enter your workspace in read-only mode. Your digital human can't run tasks until a digital human runtime is connected on this computer — but you can still browse, plan, and invite teammates.",
     "empty_skip_action": "Skip",
     "empty_waitlist_title": "Use a cloud computer",
     "empty_waitlist_subtitle": "We'll run a computer for you in the cloud. Not live yet.",
@@ -324,15 +324,15 @@
     "refresh": "Refresh",
     "refreshing": "Refreshing…",
     "hint_selected": "Selected: {{name}}",
-    "hint_pick": "Pick an agent runtime above to continue.",
+    "hint_pick": "Pick a digital human runtime above to continue.",
     "hint_waiting": "Waiting for the first result…",
     "hint_skip_or_refresh": "Refresh after installing one, or skip to enter your workspace.",
     "start_exploring": "Start exploring"
   },
   "step_platform": {
     "eyebrow": "Connect a computer",
-    "headline": "Connect a computer to run your agent.",
-    "lede": "Your agent runs on a real computer that you connect to Multica. Pick how you want to connect one.",
+    "headline": "Connect a computer to run your digital human.",
+    "lede": "Your digital human runs on a real computer that you connect to Multica. Pick how you want to connect one.",
     "hint_default": "Pick a way to connect — or skip and connect a computer later.",
     "hint_downloaded": "Finish setup on the download page, then come back to this tab.",
     "download_title": "Use this computer",

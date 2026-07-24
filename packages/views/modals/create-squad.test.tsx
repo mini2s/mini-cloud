@@ -315,8 +315,8 @@ describe("CreateSquadModal", () => {
     renderModal();
     // The leader group headers come from the LeaderPicker — agent name "MineAgentOne"
     // appears under the My Agents section, "OtherAgentOne" under Workspace Agents.
-    const myGroupLabels = screen.getAllByText("My Agents");
-    const wsGroupLabels = screen.getAllByText("Workspace Agents");
+    const myGroupLabels = screen.getAllByText("My Digital Humans");
+    const wsGroupLabels = screen.getAllByText("Workspace Digital Humans");
     expect(myGroupLabels.length).toBeGreaterThanOrEqual(1);
     expect(wsGroupLabels.length).toBeGreaterThanOrEqual(1);
 
@@ -325,8 +325,8 @@ describe("CreateSquadModal", () => {
     // both sections; the additional-members picker also has them, but both
     // pickers follow the same order so the assertion holds either way).
     const all = Array.from(document.querySelectorAll("*"));
-    const myIdx = all.findIndex((n) => n.textContent === "My Agents");
-    const wsIdx = all.findIndex((n) => n.textContent === "Workspace Agents");
+    const myIdx = all.findIndex((n) => n.textContent === "My Digital Humans");
+    const wsIdx = all.findIndex((n) => n.textContent === "Workspace Digital Humans");
     expect(myIdx).toBeLessThan(wsIdx);
   });
 

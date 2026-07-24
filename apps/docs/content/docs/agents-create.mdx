@@ -1,17 +1,17 @@
 ---
-title: Create and configure an agent
-description: The minimum fields to create an agent, plus every optional setting — system instructions, environment variables, visibility, concurrency limit, and archiving.
+title: Create and configure a digital human
+description: The minimum fields to create a digital human, plus every optional setting — system instructions, environment variables, visibility, concurrency limit, and archiving.
 ---
 
 import { Callout } from "fumadocs-ui/components/callout";
 
-Creating an [agent](/agents) takes only two things: **a name** and **a choice of [AI coding tool](/providers)**. Everything else is optional — system instructions, model, environment variables, CLI arguments, visibility, concurrency limit — the defaults work fine. Get it running first and tune later; every field can be changed at any time.
+Creating an [digital human](/agents) takes only two things: **a name** and **a choice of [AI coding tool](/providers)**. Everything else is optional — system instructions, model, environment variables, CLI arguments, visibility, concurrency limit — the defaults work fine. Get it running first and tune later; every field can be changed at any time.
 
-## Create an agent
+## Create a digital human
 
 Prerequisite: you already have at least one supported [AI coding tool](/providers) installed on your machine (Claude Code, Codex, etc.) and a [daemon](/daemon-runtimes) running. If you're not there yet, start with [Cloud quickstart](/cloud-quickstart) or [Self-host quickstart](/self-host-quickstart).
 
-Once that's in place, go to the **Agents** page in your workspace and click **+ New**, or use the CLI:
+Once that's in place, go to the **Digital Humans** page in your workspace and click **+ New**, or use the CLI:
 
 ```bash
 cs-workflow agent create
@@ -35,7 +35,7 @@ The other six (Hermes, Kimi, Kiro CLI, OpenCode, Pi, OpenClaw), along with each 
 
 ## Writing system instructions
 
-**System instructions** (`instructions`) are prepended to every task, telling the agent what role it plays and what rules to follow:
+**System instructions** (`instructions`) are prepended to every task, telling the digital human what role it plays and what rules to follow:
 
 ```text
 You're a frontend code-review agent. When an issue comes in, read the diff first. Focus only on:
@@ -44,7 +44,7 @@ You're a frontend code-review agent. When an issue comes in, read the diff first
 Don't change code — leave suggestions in a comment.
 ```
 
-When left blank (the default), the agent uses the native behavior of its underlying AI coding tool with no extra constraints.
+When left blank (the default), the digital human uses the native behavior of its underlying AI coding tool with no extra constraints.
 
 ## Picking a model
 
@@ -66,7 +66,7 @@ System-critical variables cannot be overridden: `PATH`, `HOME`, `USER`, `SHELL`,
 <Callout type="warning">
 **Values in `custom_env` are stored in plaintext in Multica's server database.** Non-creators and non-workspace-admins can't see the values (the API returns `****`), but they're still visible in database backups and DB audits.
 
-**Don't put high-value secrets in `custom_env`** (production database passwords, root-level tokens, etc.). Use **dedicated, limited-scope credentials** for agents (read-only API keys, single-scope PATs), and rotate them regularly.
+**Don't put high-value secrets in `custom_env`** (production database passwords, root-level tokens, etc.). Use **dedicated, limited-scope credentials** for digital humans (read-only API keys, single-scope PATs), and rotate them regularly.
 </Callout>
 
 ## Custom CLI arguments (custom_args)
@@ -92,36 +92,36 @@ Arguments are passed as-is, not through a shell (no injection risk), but whether
 ## Visibility
 
 - **Workspace** (`workspace`) — any member of the workspace can assign it
-- **Private** (`private`) — only workspace owners, admins, or the agent's creator can assign it
+- **Private** (`private`) — only workspace owners, admins, or the digital human's creator can assign it
 
-New agents default to `private`.
+New digital humans default to `private`.
 
-**Private does not mean hidden** — every member sees a private agent's name and description in the list, they just can't see sensitive config fields (the values in `custom_env` and MCP config are masked). Full meaning in [Agents → Who can assign an agent](/agents#who-can-assign-an-agent).
+**Private does not mean hidden** — every member sees a private digital human's name and description in the list, they just can't see sensitive config fields (the values in `custom_env` and MCP config are masked). Full meaning in [Digital Humans → Who can assign a digital human](/agents#who-can-assign-an-agent).
 
 ## Concurrency limit
 
-**Concurrency limit** (`max_concurrent_tasks`) controls how many tasks this agent can run in parallel at once. The default is **6**. New tasks that hit the cap queue up — they aren't rejected.
+**Concurrency limit** (`max_concurrent_tasks`) controls how many tasks this digital human can run in parallel at once. The default is **6**. New tasks that hit the cap queue up — they aren't rejected.
 
-This is only the "agent layer" of a two-tier limit — the daemon itself enforces a broader cap (default 20), and whichever is tighter wins. Details in [Daemon and runtimes → How many tasks can run in parallel](/daemon-runtimes#how-many-tasks-can-run-in-parallel).
+This is only the "digital human layer" of a two-tier limit — the daemon itself enforces a broader cap (default 20), and whichever is tighter wins. Details in [Daemon and runtimes → How many tasks can run in parallel](/daemon-runtimes#how-many-tasks-can-run-in-parallel).
 
 Changing this value **does not cancel tasks already running** — it only applies to the next task about to be picked up.
 
 ## Attaching domain expertise: Skills
 
-A created agent can have **Skills** attached — **knowledge packs** (`SKILL.md` + supporting files) automatically delivered to the AI coding tool at task execution time. You can create a new skill, import from GitHub or ClawHub, or scan one from an existing skill directory on your machine. See [Skills](/skills).
+A created digital human can have **Skills** attached — **knowledge packs** (`SKILL.md` + supporting files) automatically delivered to the AI coding tool at task execution time. You can create a new skill, import from GitHub or ClawHub, or scan one from an existing skill directory on your machine. See [Skills](/skills).
 
 ## Archive and restore
 
-Agents you no longer use can be **archived** — they disappear from everyday views, but their historical data (tasks run, comments posted) is fully preserved. **Restore** them anytime to put them back to work.
+Digital Humans you no longer use can be **archived** — they disappear from everyday views, but their historical data (tasks run, comments posted) is fully preserved. **Restore** them anytime to put them back to work.
 
 <Callout type="warning">
-**Archiving immediately cancels every unfinished task belonging to the agent** — running, dispatched, and queued tasks are all marked `cancelled` and won't continue. If you have an important task in flight, let it finish before archiving.
+**Archiving immediately cancels every unfinished task belonging to the digital human** — running, dispatched, and queued tasks are all marked `cancelled` and won't continue. If you have an important task in flight, let it finish before archiving.
 </Callout>
 
-Archived agents can't be assigned new tasks.
+Archived digital humans can't be assigned new tasks.
 
 ## Next steps
 
-- [Skills](/skills) — attach knowledge packs to an agent
+- [Skills](/skills) — attach knowledge packs to a digital human
 - [AI coding tools comparison](/providers) — full capability matrix across all 11 tools
-- [Assigning issues to agents](/assigning-issues) — put your new agent to work
+- [Assigning issues to digital humans](/assigning-issues) — put your new digital human to work

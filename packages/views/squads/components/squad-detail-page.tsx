@@ -637,7 +637,7 @@ function AddMemberDialog({
                 )}
                 <div className="min-w-0 flex-1">
                   <div className="truncate font-medium">
-                    {target?.name ?? "Select a member or agent"}
+                    {target?.name ?? "Select a member or digital human"}
                   </div>
                   {target && (
                     <div className="truncate text-xs text-muted-foreground capitalize">{target.type}</div>
@@ -652,7 +652,7 @@ function AddMemberDialog({
                     type="text"
                     value={pickerFilter}
                     onChange={(e) => setPickerFilter(e.target.value)}
-                    placeholder="Search members or agents..."
+                    placeholder="Search members or digital humans..."
                     className="w-full bg-transparent text-sm placeholder:text-muted-foreground outline-none"
                   />
                 </div>
@@ -676,7 +676,7 @@ function AddMemberDialog({
                     </PickerSection>
                   )}
                   {filteredAgents.length > 0 && (
-                    <PickerSection label="Agents">
+                    <PickerSection label="Digital Humans">
                       {filteredAgents.map((a) => (
                         <PickerItem
                           key={a.id}

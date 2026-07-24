@@ -776,7 +776,7 @@ export function ExecutionPanoramaPage({
     deliverableNodeEntries.forEach((node, index) => {
       const definitions = [...(deliverableDefinitionQueries[index]?.data ?? [])]
         .sort((left, right) => left.sort_order - right.sort_order);
-      const submissions = deliverableSubmissionQueries[index]?.data ?? [];
+      const submissions = deliverableSubmissionQueries[index]?.data?.submissions ?? [];
       const submissionByDeliverableId = new Map(
         submissions.map((submission) => [submission.deliverable_id, submission]),
       );

@@ -265,6 +265,26 @@ func (s *WorkflowService) DispatchAgentTask(
 		if run.Status != RunStatusRunning {
 			return ErrWorkflowRunNotRunning
 		}
+		// The node-run carries the effective worker/critic assignment. For the
+		// default (adhoc) workflow these are overridden per-run from the issue's
+		// assignee/creator and the node template's IDs are empty; resolveWorkflowAgent
+		// reads the node, so project the node-run's resolved assignment onto it.
+		// For ordinary workflows the node-run inherits the node's values, so this
+		// is a no-op. Without it, a default-run agent/squad issue dispatches with
+		// "no agent configured for worker phase" (node.WorkerID is the empty
+		// template) and — the error being best-effort — silently sits at format_ok.
+		if freshNodeRun.WorkerType != "" {
+			node.WorkerType = freshNodeRun.WorkerType
+		}
+		if freshNodeRun.WorkerID.Valid {
+			node.WorkerID = freshNodeRun.WorkerID
+		}
+		if freshNodeRun.CriticType != "" {
+			node.CriticType = freshNodeRun.CriticType
+		}
+		if freshNodeRun.CriticID.Valid {
+			node.CriticID = freshNodeRun.CriticID
+		}
 		agent, err := s.resolveWorkflowAgent(ctx, qtx, node, phase)
 		if err != nil {
 			return err

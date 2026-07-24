@@ -83,9 +83,9 @@ func BuildPrompt(task Task, provider string) string {
 	// here). Only present when Gitea is configured for this run.
 	if task.WorkflowPhase != "critic" && task.GiteaDeliverables != nil {
 		b.WriteString("## Document Deliverables\n\n")
-		b.WriteString("This node has document deliverables stored in the platform git server. For EACH deliverable below: write the document to a local file, then submit it with the CLI — the command creates a node branch off the run's instance branch, pushes your file, opens a Gitea PR, and registers the PR back here. Do NOT use inline content upload for these; document deliverables go through git.\n\n")
+		b.WriteString("This node has document deliverables stored in the platform repository. For EACH deliverable below: write the document to a local file, then submit it with the CLI. The command creates a node branch off the run's instance branch, pushes your file, opens a review request, and registers the review URL back here. Do NOT use inline content upload for these; document deliverables go through git.\n\n")
 		for _, d := range task.GiteaDeliverables.Deliverables {
-			fmt.Fprintf(&b, "- **%s** (id=%s): run `cs-workflow gitea submit --deliverable %s --file <local-path-to-your-document>`\n", d.Title, d.ID, d.ID)
+			fmt.Fprintf(&b, "- **%s** (id=%s): run `cs-workflow repo submit --deliverable %s --file <local-path-to-your-document>`\n", d.Title, d.ID, d.ID)
 		}
 		b.WriteString("A deliverable is not considered submitted until its PR is registered. Complete every listed deliverable before finishing.\n\n")
 		b.WriteString("---\n\n")

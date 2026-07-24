@@ -715,10 +715,17 @@ export class ApiClient {
    * (node branch), opens a PR, and advances the node-run into review — symmetric
    * with the agent's cs-workflow submit. Dormant (Gitea unconfigured) → 503.
    */
-  async uploadIssueDeliverable(issueId: string, content: string): Promise<{ ok: boolean }> {
+  async uploadIssueDeliverable(issueId: string, files: { name: string; content: string }[]): Promise<{ ok: boolean }> {
     return this.fetch(`/api/issues/${issueId}/deliverables/upload`, {
       method: "POST",
-      body: JSON.stringify({ content }),
+      body: JSON.stringify({ files }),
+    });
+  }
+
+  async uploadIssueDeliverablePR(issueId: string, pullRequestURL: string): Promise<{ ok: boolean }> {
+    return this.fetch(`/api/issues/${issueId}/deliverables/upload-pr`, {
+      method: "POST",
+      body: JSON.stringify({ pull_request_url: pullRequestURL }),
     });
   }
 
@@ -2672,12 +2679,15 @@ export class ApiClient {
     });
   }
 
-  async listNodeRunDeliverableSubmissions(nodeRunId: string): Promise<WorkflowNodeDeliverableSubmission[]> {
+  async listNodeRunDeliverableSubmissions(nodeRunId: string): Promise<{
+    submissions: WorkflowNodeDeliverableSubmission[];
+    deliverables: WorkflowNodeDeliverable[];
+  }> {
     const raw = await this.fetch<unknown>(`/api/node-runs/${nodeRunId}/deliverables`);
     const parsed = parseWithFallback(raw, WorkflowNodeDeliverableSubmissionsResponseSchema, EMPTY_WORKFLOW_NODE_DELIVERABLE_SUBMISSIONS_RESPONSE, {
       endpoint: "GET /api/node-runs/:nodeRunId/deliverables",
     });
-    return parsed.submissions;
+    return { submissions: parsed.submissions, deliverables: parsed.deliverables };
   }
 
   async submitNodeRunDeliverable(nodeRunId: string, deliverableId: string, body: {

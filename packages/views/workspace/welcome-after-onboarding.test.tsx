@@ -322,7 +322,7 @@ describe("WelcomeAfterOnboarding", () => {
       // First createIssue call: install-runtime (Step 1).
       const [firstCall] = mockCreateIssue.mock.calls;
       expect(firstCall![0].title).toBe(
-        "Step 1 — Connect a runtime to start using agents",
+        "Step 1 — Connect a runtime to start using digital humans",
       );
       expect(firstCall![0].status).toBe("in_progress");
       expect(firstCall![0].assignee_type).toBe("member");
@@ -332,7 +332,7 @@ describe("WelcomeAfterOnboarding", () => {
       // install-runtime mention chip pointing at MUL-1 / issue-install.
       const [secondCall] = mockCreateIssue.mock.calls.slice(1);
       expect(secondCall![0].title).toBe(
-        "Step 2 — Create your first Multica Agent",
+        "Step 2 — Create your first Multica digital human",
       );
       expect(secondCall![0].status).toBe("todo");
       expect(secondCall![0].description).toContain(

@@ -157,3 +157,60 @@ func TestSanitizePathSeg(t *testing.T) {
 		}
 	}
 }
+
+func TestNodeTopoOrder(t *testing.T) {
+	// Linear chain A→B→C→D→E→F (the e2e six-node shape). All sort_order 0,
+	// mirroring a workflow authored by edges alone — the case this fixes.
+	nodes := []TopoNode{
+		{ID: "A", Title: "需求梳理"},
+		{ID: "B", Title: "方案设计"},
+		{ID: "C", Title: "任务拆解"},
+		{ID: "D", Title: "TDD 编码"},
+		{ID: "E", Title: "测试生成"},
+		{ID: "F", Title: "集成验证"},
+	}
+	edges := []TopoEdge{
+		{From: "A", To: "B"}, {From: "B", To: "C"}, {From: "C", To: "D"},
+		{From: "D", To: "E"}, {From: "E", To: "F"},
+	}
+	got := NodeTopoOrder(nodes, edges)
+	want := map[string]int{"A": 1, "B": 2, "C": 3, "D": 4, "E": 5, "F": 6}
+	for id, w := range want {
+		if got[id] != w {
+			t.Errorf("linear: node %s position = %d, want %d (full=%v)", id, got[id], w, got)
+		}
+	}
+
+	// Parallel branches off a root: R→{X,Y}, both →Z. X before Y by title,
+	// regardless of input slice order.
+	parNodes := []TopoNode{
+		{ID: "Y", Title: "y"},
+		{ID: "X", Title: "x"},
+		{ID: "R", Title: "r"},
+		{ID: "Z", Title: "z"},
+	}
+	parEdges := []TopoEdge{{From: "R", To: "X"}, {From: "R", To: "Y"}, {From: "X", To: "Z"}, {From: "Y", To: "Z"}}
+	got = NodeTopoOrder(parNodes, parEdges)
+	// R=1, then X (title "x"<"y")=2, Y=3, Z=4.
+	if got["R"] != 1 || got["X"] != 2 || got["Y"] != 3 || got["Z"] != 4 {
+		t.Errorf("parallel: order = %v, want R=1 X=2 Y=3 Z=4", got)
+	}
+
+	// sort_order tiebreak beats title: two roots, the lower sort_order first.
+	soNodes := []TopoNode{
+		{ID: "P", Title: "zzz", SortOrder: 0},
+		{ID: "Q", Title: "aaa", SortOrder: 1},
+	}
+	got = NodeTopoOrder(soNodes, nil)
+	if got["P"] != 1 || got["Q"] != 2 {
+		t.Errorf("sort_order tiebreak: order = %v, want P=1 Q=2", got)
+	}
+
+	// Cycle: A→B→A. Both nodes still get positions (cycle fallback), one each.
+	cycNodes := []TopoNode{{ID: "A", Title: "a"}, {ID: "B", Title: "b"}}
+	cycEdges := []TopoEdge{{From: "A", To: "B"}, {From: "B", To: "A"}}
+	got = NodeTopoOrder(cycNodes, cycEdges)
+	if len(got) != 2 || (got["A"] == got["B"]) {
+		t.Errorf("cycle: expected 2 distinct positions, got %v", got)
+	}
+}

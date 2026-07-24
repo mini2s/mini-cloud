@@ -178,12 +178,17 @@ func (h *Handler) giteaContextForRun(ctx context.Context, runID pgtype.UUID) *Is
 		CloneURL:   strings.TrimRight(giteaPublicBaseURL(), "/") + "/" + owner + "/" + repo + ".git",
 		InstBranch: gitea.InstBranch(util.UUIDToString(run.ID)),
 	}
+	// One topological ordering per workflow — all node runs in a run share it.
+	topo, err := service.NodeTopoOrder(ctx, h.Queries, run.WorkflowID)
+	if err != nil {
+		return nil
+	}
 	for _, nr := range nodeRuns {
 		node, err := h.Queries.GetWorkflowNode(ctx, nr.WorkflowNodeID)
 		if err != nil {
 			continue
 		}
-		seq := int(node.SortOrder)
+		seq := topo[util.UUIDToString(node.ID)]
 		deliverables, err := h.Queries.ListWorkflowNodeDeliverables(ctx, nr.WorkflowNodeID)
 		if err != nil {
 			continue

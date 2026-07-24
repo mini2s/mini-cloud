@@ -943,14 +943,17 @@ describe("ExecutionPanoramaPage", () => {
       ],
     };
     mocks.deliverableSubmissionsByNodeRunId = {
-      "nr-1": [
+      "nr-1": {
+        deliverables: [],
+        submissions: [
         {
           id: "s-1",
           deliverable_id: "d-1",
           status: "approved",
           pull_request_url: "https://gitea.test/workflow/pulls/7",
         },
-      ],
+        ],
+      },
     };
 
     render(

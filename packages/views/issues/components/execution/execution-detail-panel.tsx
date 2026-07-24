@@ -200,10 +200,11 @@ export function ExecutionDetailPanel({
   const setChatSession = useChatStore((s) => s.setActiveSession);
   const setChatOpen = useChatStore((s) => s.setOpen);
   const { data: chatSessions = [] } = useQuery(chatSessionsOptions(wsId));
-  const { data: deliverableSubmissions = [] } = useQuery({
+  const { data: deliverableData } = useQuery({
     ...nodeRunDeliverableSubmissionsOptions(wsId, nodeRun?.id ?? ""),
     enabled: !!nodeRun?.id,
   });
+  const deliverableSubmissions = deliverableData?.submissions ?? [];
 
   useEffect(() => {
     const handleKey = (e: KeyboardEvent) => {
@@ -280,6 +281,10 @@ export function ExecutionDetailPanel({
     !isGateway &&
     (nodeRun?.status === "awaiting_critic" || nodeRun?.status === "critic_reviewing") &&
     (nodeRun.critic_type === "human" || node.critic_type === "human");
+
+  // A review decision must carry a comment — it is archived to Gitea as the
+  // reviewer's opinion, so an empty one is rejected at the UI boundary.
+  const reviewCommentEmpty = !reviewComment.trim();
 
   const reviewMutation = useMutation({
     mutationFn: async (approved: boolean) => {
@@ -578,10 +583,15 @@ export function ExecutionDetailPanel({
                       : "Failed to review node run"}
                   </p>
                 ) : null}
+                {reviewCommentEmpty ? (
+                  <p className="text-xs text-muted-foreground">
+                    {t(($) => $.execution.detail_panel.review_comment_required)}
+                  </p>
+                ) : null}
                 <div className="flex flex-wrap gap-2">
                   <button
                     type="button"
-                    disabled={reviewMutation.isPending}
+                    disabled={reviewMutation.isPending || reviewCommentEmpty}
                     onClick={() => reviewMutation.mutate(true)}
                     className="bg-primary text-primary-foreground inline-flex h-8 items-center justify-center gap-1.5 rounded-md px-3 text-xs font-medium transition-colors disabled:opacity-50"
                   >
@@ -590,7 +600,7 @@ export function ExecutionDetailPanel({
                   </button>
                   <button
                     type="button"
-                    disabled={reviewMutation.isPending}
+                    disabled={reviewMutation.isPending || reviewCommentEmpty}
                     onClick={() => reviewMutation.mutate(false)}
                     className="inline-flex h-8 items-center justify-center gap-1.5 rounded-md border bg-background px-3 text-xs font-medium transition-colors hover:bg-muted disabled:opacity-50"
                   >

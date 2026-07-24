@@ -13,7 +13,7 @@ Multica has three components:
 | **Frontend** | Web application | Next.js 16 |
 | **Database** | Primary data store | PostgreSQL 17 with pgvector |
 
-Each user who wants to run AI agents locally also installs the **`cs-workflow` CLI** and runs the **agent daemon** on their own machine.
+Each user who wants to run AI digital humans locally also installs the **`cs-workflow` CLI** and runs the **digital human daemon** on their own machine.
 
 ## Prerequisites
 
@@ -82,15 +82,15 @@ Changes to `ALLOW_SIGNUP` and `GOOGLE_CLIENT_ID` also take effect after restarti
 
 ### Step 3 — Install CLI & Start Daemon
 
-The daemon runs on your local machine (not inside Docker). It detects installed AI agent CLIs, registers them with the server, and executes tasks.
+The daemon runs on your local machine (not inside Docker). It detects installed AI digital human CLIs, registers them with the server, and executes tasks.
 
-### a) Install the CLI and an AI agent
+### a) Install the CLI and an AI digital human
 
 ```bash
 brew install multica-ai/tap/multica
 ```
 
-You also need at least one AI agent CLI:
+You also need at least one AI digital human CLI:
 - [Claude Code](https://docs.anthropic.com/en/docs/claude-code) (`claude` on PATH)
 - [Codex](https://github.com/openai/codex) (`codex` on PATH)
 - [Gemini CLI](https://github.com/google-gemini/gemini-cli) (`gemini` on PATH)
@@ -130,8 +130,8 @@ Alternatively, configure step by step: `cs-workflow config set server_url http:/
 
 1. Open your workspace at http://localhost:3000
 2. Navigate to **Settings → Runtimes** — you should see your machine listed
-3. Go to **Settings → Agents** and create a new agent
-4. Create an issue and assign it to your agent
+3. Go to **Settings → Digital Humans** and create a new digital human
+4. Create an issue and assign it to your digital human
 
 ## Stopping Services
 
@@ -252,7 +252,7 @@ These are configured on each user's machine, not on the server:
 | `MULTICA_DAEMON_POLL_INTERVAL` | `3s` | How often the daemon polls for tasks |
 | `MULTICA_DAEMON_HEARTBEAT_INTERVAL` | `15s` | Heartbeat frequency |
 
-Agent-specific overrides:
+Digital Human-specific overrides:
 
 | Variable | Description |
 |----------|-------------|

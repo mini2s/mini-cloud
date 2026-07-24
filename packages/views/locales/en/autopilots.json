@@ -5,7 +5,7 @@
     "start_blank": "Start from scratch",
     "table": {
       "name": "Name",
-      "agent": "Agent",
+      "agent": "Digital Human",
       "mode": "Mode",
       "status": "Status",
       "last_run": "Last run"
@@ -13,7 +13,7 @@
     "last_run_empty": "--",
     "empty": {
       "title": "No autopilots yet",
-      "hint": "Schedule recurring tasks for your AI agents. Pick a template or start from scratch."
+      "hint": "Schedule recurring tasks for your AI digital humans. Pick a template or start from scratch."
     }
   },
   "status": {
@@ -70,7 +70,7 @@
     "section_triggers": "Triggers",
     "section_run_history": "Run History",
     "section_danger": "Danger Zone",
-    "field_agent": "Agent",
+    "field_agent": "Digital Human",
     "field_output_mode": "Output Mode",
     "field_project": "Project",
     "no_project": "No project",
@@ -95,8 +95,7 @@
     "running": "Running",
     "skipped": "Skipped",
     "completed": "Completed",
-    "failed": "Failed",
-    "skipped": "Skipped"
+    "failed": "Failed"
   },
   "run_source": {
     "schedule": "Schedule",
@@ -224,8 +223,8 @@
     "close": "Close",
     "title_placeholder": "Autopilot name",
     "runbook_label": "Runbook",
-    "runbook_hint": "Read by the agent on every run",
-    "description_placeholder": "# Goal\nWhat should the agent accomplish?\n\n# Context\nWho is this for? Any constraints?\n\n# Steps\n1. …\n2. …",
+    "runbook_hint": "Read by the digital human on every run",
+    "description_placeholder": "# Goal\nWhat should the digital human accomplish?\n\n# Context\nWho is this for? Any constraints?\n\n# Steps\n1. …\n2. …",
     "auto_run_hint": "Once saved, runs automatically until paused.",
     "cancel": "Cancel",
     "create": "Create autopilot",
@@ -240,10 +239,10 @@
     "toast_update_partial": "Autopilot updated, but schedule failed to save",
     "toast_update_partial_with_reason": "Autopilot updated, but schedule failed to save: {{reason}}",
     "toast_update_failed": "Failed to update autopilot",
-    "section_agent": "Agent",
+    "section_agent": "Digital Human",
     "section_assignee": "Assignee",
-    "select_agent": "Select agent",
-    "select_assignee": "Select agent or squad",
+    "select_agent": "Select digital human",
+    "select_assignee": "Select digital human or squad",
     "section_project": "Project",
     "no_project": "No project",
     "section_output_mode": "Output mode",
@@ -333,10 +332,10 @@
     }
   },
   "agent_picker": {
-    "filter_placeholder": "Filter agents or squads...",
-    "select_agent": "Select agent",
-    "select_assignee": "Select agent or squad",
-    "agents_group": "Agents",
+    "filter_placeholder": "Filter digital humans or squads...",
+    "select_agent": "Select digital human",
+    "select_assignee": "Select digital human or squad",
+    "agents_group": "Digital Humans",
     "squads_group": "Squads"
   },
   "timezone_picker": {

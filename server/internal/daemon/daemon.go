@@ -2294,6 +2294,9 @@ func (d *Daemon) buildAgentEnv(task Task, agentName, slot string) map[string]str
 		env["MULTICA_NODE_RUN_ID"] = task.WorkflowNodeRunID
 	}
 	if g := task.GiteaDeliverables; g != nil {
+		env["MULTICA_REPO_PROVIDER"] = "gitea"
+		env["MULTICA_REPO_OWNER"] = g.Owner
+		env["MULTICA_REPO_NAME"] = g.Repo
 		env["MULTICA_GITEA_OWNER"] = g.Owner
 		env["MULTICA_GITEA_REPO"] = g.Repo
 		if g.CloneURL != "" {
@@ -2301,11 +2304,15 @@ func (d *Daemon) buildAgentEnv(task Task, agentName, slot string) map[string]str
 			// the clone URL; the CLI must use it verbatim instead of self-building
 			// <base>/<owner>/<repo>. Kept alongside OWNER/REPO for back-compat
 			// with older daemons that don't deliver clone_url.
+			env["MULTICA_REPO_CLONE_URL"] = g.CloneURL
 			env["MULTICA_GITEA_CLONE_URL"] = g.CloneURL
 		}
+		env["MULTICA_REPO_INST_BRANCH"] = g.InstBranch
+		env["MULTICA_REPO_NODE_BRANCH"] = g.NodeBranch
 		env["MULTICA_GITEA_INST_BRANCH"] = g.InstBranch
 		env["MULTICA_GITEA_NODE_BRANCH"] = g.NodeBranch
 		if raw, err := json.Marshal(g.Deliverables); err == nil {
+			env["MULTICA_REPO_DELIVERABLES"] = string(raw)
 			env["MULTICA_GITEA_DELIVERABLES"] = string(raw)
 		} else {
 			d.logger.Warn("buildAgentEnv: marshal gitea deliverables failed", "task_id", task.ID, "error", err)

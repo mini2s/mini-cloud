@@ -740,7 +740,19 @@ export function useUploadIssueDeliverable(issueId: string, nodeRunId: string) {
   const qc = useQueryClient();
   const wsId = useWorkspaceId();
   return useMutation({
-    mutationFn: (content: string) => api.uploadIssueDeliverable(issueId, content),
+    mutationFn: (files: { name: string; content: string }[]) => api.uploadIssueDeliverable(issueId, files),
+    onSettled: () => {
+      qc.invalidateQueries({ queryKey: workflowKeys.nodeRunDeliverables(nodeRunId) });
+      qc.invalidateQueries({ queryKey: issueKeys.detail(wsId, issueId) });
+    },
+  });
+}
+
+export function useUploadIssueDeliverablePR(issueId: string, nodeRunId: string) {
+  const qc = useQueryClient();
+  const wsId = useWorkspaceId();
+  return useMutation({
+    mutationFn: (pullRequestURL: string) => api.uploadIssueDeliverablePR(issueId, pullRequestURL),
     onSettled: () => {
       qc.invalidateQueries({ queryKey: workflowKeys.nodeRunDeliverables(nodeRunId) });
       qc.invalidateQueries({ queryKey: issueKeys.detail(wsId, issueId) });
