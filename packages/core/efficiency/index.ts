@@ -5,6 +5,7 @@ export * from "./types-usage";
 export * from "./types-cost";
 export * from "./utils";
 export * from "./queries";
+export * from "./mutations";
 export * from "./api";
 export * from "./view-state-store";
 export { MOCK_ENABLED, mock } from "./mock";

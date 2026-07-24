@@ -8,6 +8,10 @@ import {
   chatSyncTasksOptions,
   chatDatasourcesOptions,
   formatLocalTime,
+  useCancelChatSyncTask,
+  useRetryChatSyncTask,
+  useSubmitChatSyncTask,
+  type ChatSyncSubmitReq,
   type ChatSyncTask,
 } from "@multica/core/efficiency";
 import { Button } from "@multica/ui/components/ui/button";
@@ -24,7 +28,6 @@ import {
 import { PageHeader } from "../../layout/page-header";
 import {
   ErrorBanner,
-  NotWiredNotice,
   Section,
   SettingsField,
   Td,
@@ -37,9 +40,10 @@ import { ToneBadge, type BadgeTone } from "../detail/shared";
 // Settings · Sync tasks. Ports the source SyncTasks.tsx to the shared-views
 // layer. The read table (task id / status / datasource / progress / range /
 // rows / error) is the deliverable. The "submit sync" form + the retry/cancel
-// row actions are UI-only — the chat submit/retry/cancel mutations throw
-// NOT_WIRED in the mock phase, so each surfaces the NotWiredNotice instead of
-// calling the backend.
+// row actions submit via useSubmitChatSyncTask / useRetryChatSyncTask /
+// useCancelChatSyncTask. In the mock phase the mutations return plausible
+// task states without hitting the network; once the backend is live
+// (EFFICIENCY_MOCK=0) the same hooks call the real chat sync endpoints.
 
 const STATUS_TONE: Record<string, BadgeTone> = {
   pending: "neutral",
@@ -60,6 +64,9 @@ export function SyncTasksPage() {
   const wsId = useWorkspaceId();
   const tasksQ = useQuery(chatSyncTasksOptions(wsId));
   const dsQ = useQuery(chatDatasourcesOptions(wsId));
+  const submitSync = useSubmitChatSyncTask();
+  const retrySync = useRetryChatSyncTask();
+  const cancelSync = useCancelChatSyncTask();
 
   const tasks = useMemo(() => tasksQ.data?.tasks ?? [], [tasksQ.data]);
   const enabledSources = useMemo(
@@ -67,32 +74,60 @@ export function SyncTasksPage() {
     [dsQ.data],
   );
 
-  // Submit-sync form state (UI-only submit).
+  // Submit-sync form state.
   const [sourceId, setSourceId] = useState("");
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
-  const [submitNotice, setSubmitNotice] = useState(false);
 
-  // Retry/cancel confirmation dialog (UI-only action).
+  // Retry/cancel confirmation dialog.
   const [pendingAction, setPendingAction] = useState<{
     type: "retry" | "cancel";
     task: ChatSyncTask;
   } | null>(null);
-  const [actionNotice, setActionNotice] = useState(false);
 
   const hasActive = useMemo(
     () => tasks.some((t) => ACTIVE_STATUSES.has(t.status)),
     [tasks],
   );
 
-  // Submit handler — UI-only in the mock phase.
+  // Submit handler. In the mock phase the mutation returns a queued task
+  // without hitting the network; once wired it calls the real chat submit.
   function handleSubmit() {
-    setSubmitNotice(true);
+    const payload: ChatSyncSubmitReq = {
+      // Syncs are inclusive of the start/end dates — send them as day-start
+      // ISO 8601 so the backend sees the full requested range.
+      start_time: startDate
+        ? `${startDate}T00:00:00Z`
+        : new Date().toISOString(),
+      end_time: endDate
+        ? `${endDate}T23:59:59Z`
+        : new Date().toISOString(),
+      source_id: sourceId ? Number(sourceId) : undefined,
+    };
+    submitSync.mutate(payload);
   }
 
+  // Confirm a retry or cancel action via the active mutation hook.
   function confirmAction() {
-    setActionNotice(true);
+    if (!pendingAction) return;
+    const { type, task } = pendingAction;
+    const mutation = type === "retry" ? retrySync : cancelSync;
+    mutation.mutate(task.task_id, {
+      onSuccess: () => setPendingAction(null),
+    });
   }
+
+  // Which mutation (if any) is currently confirming, for the dialog's
+  // button disabled + loading state.
+  const actionPending =
+    pendingAction?.type === "retry"
+      ? retrySync.isPending
+      : pendingAction?.type === "cancel"
+        ? cancelSync.isPending
+        : false;
+  const actionError =
+    (pendingAction?.type === "retry" ? retrySync.error : cancelSync.error) ??
+    null;
 
   return (
     <div className="flex h-full flex-col">
@@ -153,7 +188,11 @@ export function SyncTasksPage() {
                 />
               </SettingsField>
               <div className="flex items-end">
-                <Button type="button" onClick={handleSubmit}>
+                <Button
+                  type="button"
+                  disabled={submitSync.isPending}
+                  onClick={handleSubmit}
+                >
                   <Play className="size-3.5" />
                   Start sync
                 </Button>
@@ -162,11 +201,24 @@ export function SyncTasksPage() {
             <p className="px-4 pb-4 text-xs text-muted-foreground">
               Syncs run in Beijing time; both start and end dates are inclusive.
             </p>
-            {submitNotice && (
+            {submitSync.error ? (
               <div className="px-4 pb-4">
-                <NotWiredNotice />
+                <ErrorBanner
+                  message={
+                    (submitSync.error as Error)?.message ||
+                    "Failed to submit sync task."
+                  }
+                />
               </div>
-            )}
+            ) : null}
+            {submitSync.isSuccess ? (
+              <div className="px-4 pb-4 text-xs text-success">
+                Sync task queued
+                {submitSync.data?.task_id
+                  ? ` — ${String(submitSync.data.task_id).slice(0, 16)}…`
+                  : ""}
+              </div>
+            ) : null}
           </Section>
 
           {/* Task list */}
@@ -339,13 +391,12 @@ export function SyncTasksPage() {
         </div>
       </div>
 
-      {/* Retry / cancel confirmation (UI-only action). */}
+      {/* Retry / cancel confirmation. */}
       <Dialog
         open={!!pendingAction}
         onOpenChange={(next) => {
           if (!next) {
             setPendingAction(null);
-            setActionNotice(false);
           }
         }}
       >
@@ -362,21 +413,26 @@ export function SyncTasksPage() {
               ? `Retry task ${pendingAction?.task.task_id.slice(0, 12)}…?`
               : `Stop task ${pendingAction?.task.task_id.slice(0, 12)}…? It will be marked as failed.`}
           </p>
-          {actionNotice && <NotWiredNotice />}
+          {actionError ? (
+            <ErrorBanner
+              message={
+                (actionError as Error)?.message ||
+                "Failed to perform the requested action."
+              }
+            />
+          ) : null}
           <DialogFooter>
             <Button
               type="button"
               variant="ghost"
-              onClick={() => {
-                setPendingAction(null);
-                setActionNotice(false);
-              }}
+              onClick={() => setPendingAction(null)}
             >
               Cancel
             </Button>
             <Button
               type="button"
               variant={pendingAction?.type === "cancel" ? "destructive" : "default"}
+              disabled={actionPending}
               onClick={confirmAction}
             >
               {pendingAction?.type === "retry" ? "Retry" : "Stop task"}

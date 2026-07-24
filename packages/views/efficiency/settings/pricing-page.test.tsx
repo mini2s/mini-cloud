@@ -1,5 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { cleanup, screen } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import type { ReactNode } from "react";
 import { renderWithI18n } from "../../test/i18n";
 
 // PricingPage integration smoke test. Mirrors the cost-kanban / usage-kanban
@@ -12,6 +14,11 @@ import { renderWithI18n } from "../../test/i18n";
 //   ["efficiency", wsId, "chat", "pricing"]
 //   ["efficiency", wsId, "chat", "system-config"]
 // so key[2] === "chat" and key[3] is the segment.
+//
+// The page now also calls mutation hooks (useUpsertChatPricing /
+// useDeleteChatPricing) which need a QueryClient for useQueryClient. The
+// wrapper below provides an in-memory QueryClient; the smoke test never
+// drives a mutation, so no mutationFn ever fires.
 
 vi.mock("@multica/core/hooks", () => ({
   useWorkspaceId: () => "ws-1",
@@ -43,18 +50,27 @@ vi.mock("@tanstack/react-query", async () => {
 
 import { PricingPage } from "./pricing-page";
 
+function renderWithQueryClient(ui: ReactNode) {
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+  });
+  return renderWithI18n(
+    <QueryClientProvider client={client}>{ui}</QueryClientProvider>,
+  );
+}
+
 describe("PricingPage (smoke)", () => {
   beforeEach(() => cleanup());
 
   it("mounts and renders the page header title", () => {
-    renderWithI18n(<PricingPage />);
+    renderWithQueryClient(<PricingPage />);
     // "Model pricing" appears in both the PageHeader and the Section title —
     // assert at least one match (header renders the page mounted).
     expect(screen.getAllByText("Model pricing").length).toBeGreaterThan(0);
   });
 
   it("renders the pricing table section header", () => {
-    renderWithI18n(<PricingPage />);
+    renderWithQueryClient(<PricingPage />);
     // The Section title is "Model pricing" (also the header); assert the count
     // surface renders by checking the column header text.
     expect(screen.getByText("Mode")).toBeTruthy();
@@ -62,7 +78,7 @@ describe("PricingPage (smoke)", () => {
   });
 
   it("renders a row per mock pricing entry", () => {
-    const { container } = renderWithI18n(<PricingPage />);
+    const { container } = renderWithQueryClient(<PricingPage />);
     // The mock sample has 3 pricing rows. Each renders as a <tr> with the
     // model name in a cell. glm-4.6 is the first mock model name.
     expect(container.textContent).toContain("glm-4.6");
@@ -71,7 +87,7 @@ describe("PricingPage (smoke)", () => {
   });
 
   it("renders the Add pricing button", () => {
-    renderWithI18n(<PricingPage />);
+    renderWithQueryClient(<PricingPage />);
     expect(screen.getByText("Add pricing")).toBeTruthy();
   });
 });

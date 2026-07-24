@@ -6,7 +6,11 @@ import { useQuery } from "@tanstack/react-query";
 import { useWorkspaceId } from "@multica/core/hooks";
 import {
   chatDatasourcesOptions,
+  useDeleteChatDatasource,
+  useTestChatDatasource,
+  useUpsertChatDatasource,
   type ChatDatasource,
+  type ChatDatasourceUpsert,
 } from "@multica/core/efficiency";
 import { Button } from "@multica/ui/components/ui/button";
 import { Input } from "@multica/ui/components/ui/input";
@@ -23,7 +27,6 @@ import {
 import { PageHeader } from "../../layout/page-header";
 import {
   ErrorBanner,
-  NotWiredNotice,
   Section,
   SettingsField,
   Td,
@@ -33,10 +36,11 @@ import { ToneBadge, type BadgeTone } from "../detail/shared";
 
 // Settings · Datasources. Ports the source Datasources.tsx to the shared-views
 // layer. The read table (name / type / host / db / enabled / test result) is
-// the deliverable; the add/edit dialog + the per-row "test connection" button
-// are UI-only. The chat create/update/delete/testDatasource mutations throw
-// NOT_WIRED in the mock phase, so both submit and test surface the
-// NotWiredNotice / a placeholder result instead of calling the backend.
+// the deliverable. The add/edit dialog + the per-row "test connection" +
+// per-row Delete submit via useUpsertChatDatasource / useTestChatDatasource /
+// useDeleteChatDatasource. In the mock phase the mutations return plausible
+// results without hitting the network; once the backend is live
+// (EFFICIENCY_MOCK=0) the same hooks call the real chat datasource endpoints.
 
 const SOURCE_TYPES = [
   { value: "postgres", label: "PostgreSQL" },
@@ -149,21 +153,37 @@ type TestState = { loading?: boolean; ok?: boolean; text?: string };
 export function DatasourcesPage() {
   const wsId = useWorkspaceId();
   const dsQ = useQuery(chatDatasourcesOptions(wsId));
+  const testDs = useTestChatDatasource();
+  const deleteDs = useDeleteChatDatasource();
 
   const rows = dsQ.data ?? [];
 
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<ChatDatasource | null>(null);
-  // Per-row test placeholder result (UI-only — real test is NOT_WIRED).
+  // Per-row test result. In the mock phase the mutation returns a success
+  // result without hitting the network; once wired it surfaces the real
+  // connection-check envelope.
   const [testState, setTestState] = useState<Record<number, TestState>>({});
 
   function handleTest(id: number) {
-    // Placeholder: surface the "not wired" notice as the test result so the
-    // button visibly does something without a live backend.
-    setTestState((s) => ({
-      ...s,
-      [id]: { ok: false, text: "Backend not wired (mock phase)" },
-    }));
+    setTestState((s) => ({ ...s, [id]: { loading: true } }));
+    testDs.mutate(id, {
+      onSuccess: (res) => {
+        setTestState((s) => ({
+          ...s,
+          [id]: { ok: res.success, text: res.message },
+        }));
+      },
+      onError: (err: unknown) => {
+        setTestState((s) => ({
+          ...s,
+          [id]: {
+            ok: false,
+            text: (err as Error)?.message || "Connection test failed.",
+          },
+        }));
+      },
+    });
   }
 
   return (
@@ -306,6 +326,19 @@ export function DatasourcesPage() {
                             >
                               Test
                             </Button>
+                            <Button
+                              type="button"
+                              variant="link"
+                              size="sm"
+                              className="h-auto p-0 text-destructive"
+                              disabled={
+                                deleteDs.isPending &&
+                                deleteDs.variables === r.id
+                              }
+                              onClick={() => deleteDs.mutate(r.id)}
+                            >
+                              Delete
+                            </Button>
                           </div>
                         </Td>
                       </tr>
@@ -322,6 +355,7 @@ export function DatasourcesPage() {
         open={dialogOpen}
         editing={editing}
         onClose={() => setDialogOpen(false)}
+        onSaved={() => setDialogOpen(false)}
       />
     </div>
   );
@@ -333,13 +367,16 @@ interface DatasourceDialogProps {
   open: boolean;
   editing: ChatDatasource | null;
   onClose: () => void;
+  onSaved: () => void;
 }
 
 function DatasourceDialog({
   open,
   editing,
   onClose,
+  onSaved,
 }: DatasourceDialogProps) {
+  const upsertDs = useUpsertChatDatasource();
   const [name, setName] = useState("");
   const [sourceType, setSourceType] = useState<string>("postgres");
   const [isEnabled, setIsEnabled] = useState(true);
@@ -355,7 +392,6 @@ function DatasourceDialog({
   const [esIndex, setEsIndex] = useState("");
   const [baseUrl, setBaseUrl] = useState("");
   const [notes, setNotes] = useState("");
-  const [showNotWired, setShowNotWired] = useState(false);
 
   function handleOpenChange(next: boolean) {
     if (!next) {
@@ -376,12 +412,36 @@ function DatasourceDialog({
     setEsIndex(editing?.es_index ?? "");
     setBaseUrl("");
     setNotes(editing?.notes ?? "");
-    setShowNotWired(false);
   }
 
-  // Submit is UI-only in the mock phase.
+  // Submit handler. In the mock phase the mutation returns a plausible row
+  // without hitting the network; once the backend lands it calls the real
+  // chat create/update datasource endpoint.
   function handleSubmit() {
-    setShowNotWired(true);
+    const payload: ChatDatasourceUpsert & { id?: number } = {
+      id: editing?.id,
+      name: name.trim(),
+      source_type: sourceType,
+      is_enabled: isEnabled,
+      notes: notes.trim() || null,
+    };
+    if (sourceType === "postgres") {
+      payload.pg_host = pgHost.trim() || null;
+      payload.pg_port = pgPort.trim() ? Number(pgPort) : null;
+      payload.pg_database = pgDatabase.trim() || null;
+      payload.pg_username = pgUsername.trim() || null;
+      payload.pg_password = pgPassword || null;
+    } else if (sourceType === "elasticsearch") {
+      payload.es_hosts = esHosts.trim() || null;
+      payload.es_index = esIndex.trim() || null;
+    } else if (baseUrl.trim()) {
+      // Loki/dept_api/log_storage — encode the URL into config_json so the
+      // read table's dsHost() picks it up.
+      payload.config_json = JSON.stringify({ url: baseUrl.trim() });
+    }
+    upsertDs.mutate(payload, {
+      onSuccess: () => onSaved(),
+    });
   }
 
   return (
@@ -521,14 +581,25 @@ function DatasourceDialog({
             />
           </SettingsField>
 
-          {showNotWired && <NotWiredNotice />}
+          {upsertDs.error ? (
+            <ErrorBanner
+              message={
+                (upsertDs.error as Error)?.message ||
+                "Failed to save datasource."
+              }
+            />
+          ) : null}
         </div>
 
         <DialogFooter>
           <Button type="button" variant="ghost" onClick={onClose}>
             Cancel
           </Button>
-          <Button type="button" onClick={handleSubmit}>
+          <Button
+            type="button"
+            disabled={upsertDs.isPending}
+            onClick={handleSubmit}
+          >
             {editing ? "Save" : "Add"}
           </Button>
         </DialogFooter>

@@ -7,20 +7,23 @@ import { useWorkspaceId } from "@multica/core/hooks";
 import {
   chatSystemConfigOptions,
   chatDatasourcesOptions,
+  useUpdateChatSystemConfig,
+  type ChatSystemConfig,
 } from "@multica/core/efficiency";
 import { Button } from "@multica/ui/components/ui/button";
 import { Input } from "@multica/ui/components/ui/input";
 import { NativeSelect } from "@multica/ui/components/ui/native-select";
 import { Skeleton } from "@multica/ui/components/ui/skeleton";
 import { PageHeader } from "../../layout/page-header";
-import { ErrorBanner, NotWiredNotice, Section, SettingsField } from "./shared";
+import { ErrorBanner, Section, SettingsField } from "./shared";
 
 // Settings · System config. Ports the source SystemConfig.tsx to the shared-
 // views layer. The chat config is a flat string→string KV map, so this page
 // renders the known keys (ETL cron/datasource, system currency, default
 // exchange rate, log preview settings) and an editable form. The save action
-// is UI-only — the chat updateConfig mutation throws NOT_WIRED in the mock
-// phase, so it surfaces the NotWiredNotice instead of calling the backend.
+// submits via useUpdateChatSystemConfig: in the mock phase the mutation merges
+// the patch onto the cached KV without hitting the network; once the backend
+// is live (EFFICIENCY_MOCK=0) it PUTs the real chat config.
 //
 // The mock KV sample uses a slightly different key set than the live backend
 // (system_currency / exchange_rate_usd_cny / realtime_refresh_seconds / etc.),
@@ -46,6 +49,7 @@ export function SystemConfigPage() {
   const wsId = useWorkspaceId();
   const cfgQ = useQuery(chatSystemConfigOptions(wsId));
   const dsQ = useQuery(chatDatasourcesOptions(wsId));
+  const updateCfg = useUpdateChatSystemConfig();
 
   const cfg = cfgQ.data;
 
@@ -61,7 +65,6 @@ export function SystemConfigPage() {
   const [rawLogPreviewMaxMb, setRawLogPreviewMaxMb] = useState<string>(
     DEFAULTS.rawLogPreviewMaxMb,
   );
-  const [showNotWired, setShowNotWired] = useState(false);
 
   // Hydrate the form once the config KV lands. The live backend uses the
   // daily_etl_* / system_currency / default_exchange_rate / log_preview_* /
@@ -110,9 +113,20 @@ export function SystemConfigPage() {
     ? Object.keys(cfg).filter((k) => !knownKeys.has(k))
     : [];
 
-  // Save handler — UI-only in the mock phase.
+  // Save handler. In the mock phase the mutation merges the patch onto the
+  // cached KV without hitting the network; once wired it PUTs the chat config.
   function handleSave() {
-    setShowNotWired(true);
+    const patch: ChatSystemConfig = {
+      daily_etl_enabled: etlEnabled ? "true" : "false",
+      daily_etl_cron: cron,
+      daily_etl_source: etlSource,
+      system_currency: currency,
+      default_exchange_rate: rate,
+      log_preview_source: logPreviewSource,
+      raw_log_root_dir: rawLogRootDir,
+      raw_log_preview_max_mb: rawLogPreviewMaxMb,
+    };
+    updateCfg.mutate(patch);
   }
 
   return (
@@ -272,11 +286,27 @@ export function SystemConfigPage() {
                   </SettingsField>
 
                   <div className="flex items-center gap-3 pt-1">
-                    <Button type="button" onClick={handleSave}>
+                    <Button
+                      type="button"
+                      disabled={updateCfg.isPending}
+                      onClick={handleSave}
+                    >
                       <Save className="size-3.5" />
                       Save config
                     </Button>
-                    {showNotWired && <NotWiredNotice />}
+                    {updateCfg.isError ? (
+                      <ErrorBanner
+                        message={
+                          (updateCfg.error as Error)?.message ||
+                          "Failed to save config."
+                        }
+                      />
+                    ) : null}
+                    {updateCfg.isSuccess ? (
+                      <span className="text-xs text-success">
+                        Config saved.
+                      </span>
+                    ) : null}
                   </div>
                 </>
               )}

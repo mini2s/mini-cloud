@@ -8,7 +8,10 @@ import {
   chatPricingOptions,
   chatSystemConfigOptions,
   currencySymbol,
+  useDeleteChatPricing,
+  useUpsertChatPricing,
   type ModelPricing,
+  type ModelPricingUpsert,
 } from "@multica/core/efficiency";
 import { Button } from "@multica/ui/components/ui/button";
 import { Input } from "@multica/ui/components/ui/input";
@@ -26,7 +29,6 @@ import {
 import { PageHeader } from "../../layout/page-header";
 import {
   ErrorBanner,
-  NotWiredNotice,
   Section,
   SettingsField,
   Td,
@@ -38,9 +40,11 @@ import { ToneBadge, type BadgeTone } from "../detail/shared";
 
 // Settings · Model pricing. Ports the source Pricing.tsx to the shared-views
 // layer. The read table (model / mode / input / output / cache rates /
-// currency / dates) is the deliverable; the add/edit dialog is rendered as
-// UI-only — submit surfaces NotWiredNotice because the chat upsertPricing
-// mutation throws NOT_WIRED in the mock phase.
+// currency / dates) is the deliverable. The add/edit dialog + per-row Delete
+// submit via useUpsertChatPricing / useDeleteChatPricing: in the mock phase
+// the mutation returns a plausible row without hitting the network (the
+// invalidate refetches the static mock sample); once the backend is live
+// (EFFICIENCY_MOCK=0) the same hooks call the real chat pricing endpoints.
 //
 // Per-token prices are stored "per token" but shown/entered "per 1M tokens"
 // (×/÷ 1_000_000), matching the source. Non-system currency rows carry the
@@ -81,6 +85,7 @@ export function PricingPage() {
   const wsId = useWorkspaceId();
   const pricingQ = useQuery(chatPricingOptions(wsId));
   const sysCfgQ = useQuery(chatSystemConfigOptions(wsId));
+  const deletePricing = useDeleteChatPricing();
 
   const systemCurrency = sysCfgQ.data?.system_currency || "CNY";
   const defaultRate =
@@ -90,7 +95,7 @@ export function PricingPage() {
 
   const rows = pricingQ.data ?? [];
 
-  // Add/edit dialog state (editing=null means "add"). Submit is UI-only.
+  // Add/edit dialog state (editing=null means "add").
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<ModelPricing | null>(null);
 
@@ -152,20 +157,21 @@ export function PricingPage() {
                   <Th>Expires</Th>
                   <Th>Original currency</Th>
                   <Th>Notes</Th>
+                  <Th>Actions</Th>
                 </tr>
               </thead>
               <tbody>
                 {pricingQ.isLoading ? (
                   Array.from({ length: 4 }).map((_, i) => (
                     <tr key={i} className="border-b">
-                      <td colSpan={10} className="px-3 py-2">
+                      <td colSpan={11} className="px-3 py-2">
                         <Skeleton className="h-6 w-full rounded" />
                       </td>
                     </tr>
                   ))
                 ) : rows.length === 0 ? (
                   <tr>
-                    <td colSpan={10} className="px-3 py-10 text-center">
+                    <td colSpan={11} className="px-3 py-10 text-center">
                       <span className="text-sm text-muted-foreground">
                         No pricing yet — click “Add pricing” to begin.
                       </span>
@@ -235,6 +241,35 @@ export function PricingPage() {
                           {r.notes || "-"}
                         </div>
                       </Td>
+                      <Td>
+                        <div className="inline-flex items-center gap-1.5">
+                          <Button
+                            type="button"
+                            variant="link"
+                            size="sm"
+                            className="h-auto p-0"
+                            onClick={() => {
+                              setEditing(r);
+                              setDialogOpen(true);
+                            }}
+                          >
+                            Edit
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="link"
+                            size="sm"
+                            className="h-auto p-0 text-destructive"
+                            disabled={
+                              deletePricing.isPending &&
+                              deletePricing.variables === r.id
+                            }
+                            onClick={() => deletePricing.mutate(r.id)}
+                          >
+                            Delete
+                          </Button>
+                        </div>
+                      </Td>
                     </tr>
                   ))
                 )}
@@ -260,6 +295,7 @@ export function PricingPage() {
         systemCurrency={systemCurrency}
         defaultRate={defaultRate}
         onClose={() => setDialogOpen(false)}
+        onSaved={() => setDialogOpen(false)}
       />
     </div>
   );
@@ -273,6 +309,7 @@ interface PricingDialogProps {
   systemCurrency: string;
   defaultRate: number;
   onClose: () => void;
+  onSaved: () => void;
 }
 
 function PricingDialog({
@@ -281,7 +318,9 @@ function PricingDialog({
   systemCurrency,
   defaultRate,
   onClose,
+  onSaved,
 }: PricingDialogProps) {
+  const upsertPricing = useUpsertChatPricing();
   const [modelName, setModelName] = useState("");
   const [mode, setMode] = useState<string>("token");
   const [currency, setCurrency] = useState<string>(systemCurrency);
@@ -293,7 +332,6 @@ function PricingDialog({
   const [effectiveDate, setEffectiveDate] = useState("");
   const [endDate, setEndDate] = useState("");
   const [notes, setNotes] = useState("");
-  const [showNotWired, setShowNotWired] = useState(false);
 
   // Reset / hydrate the form whenever the dialog opens. The source used a
   // useEffect; here we key off `open` to flip local state on each open.
@@ -340,17 +378,55 @@ function PricingDialog({
     setEffectiveDate(dateOnly(editing?.effective_date));
     setEndDate(editing?.end_date ? dateOnly(editing.end_date) : "");
     setNotes(editing?.notes ?? "");
-    setShowNotWired(false);
   }
 
   const showToken = mode === "token" || mode === "hybrid";
   const showRequest = mode === "request" || mode === "hybrid";
   const isNonSystemCurrency = currency !== systemCurrency;
 
-  // Submit handler. UI-only in the mock phase — the chat upsertPricing stub
-  // throws NOT_WIRED, so we surface the notice instead of attempting the call.
+  // Submit handler. In the mock phase the mutation returns a plausible row
+  // without hitting the network; once the backend lands (EFFICIENCY_MOCK=0)
+  // it calls the real chat upsertPricing.
   function handleSubmit() {
-    setShowNotWired(true);
+    const numOr = (s: string): number | null =>
+      s.trim() === "" ? null : Number(s);
+    const isNonSys = currency !== systemCurrency;
+    const rate = isNonSys ? Number(exchangeRate) || null : null;
+
+    // Per-token prices are entered per 1M; stored per token (÷ 1M).
+    const inputPerToken =
+      showToken && inputM.trim() !== "" ? numOr(inputM)! / M : null;
+    const outputPerToken =
+      showToken && outputM.trim() !== "" ? numOr(outputM)! / M : null;
+    const cachePerToken =
+      showToken && cacheM.trim() !== ""
+        ? numOr(cacheM)! / M
+        : null;
+    const reqPrice =
+      showRequest && requestPrice.trim() !== "" ? numOr(requestPrice) : null;
+
+    const payload: ModelPricingUpsert = {
+      id: editing?.id,
+      model_name: modelName.trim(),
+      pricing_mode: mode,
+      input_price_per_token: isNonSys ? null : inputPerToken,
+      output_price_per_token: isNonSys ? null : outputPerToken,
+      cache_price_per_token: isNonSys ? null : cachePerToken,
+      request_price: isNonSys ? null : reqPrice,
+      currency: systemCurrency,
+      exchange_rate: rate,
+      original_currency: isNonSys ? currency : null,
+      original_input_price: isNonSys ? inputPerToken : null,
+      original_output_price: isNonSys ? outputPerToken : null,
+      original_cache_price: isNonSys ? cachePerToken : null,
+      original_request_price: isNonSys ? reqPrice : null,
+      effective_date: effectiveDate || new Date().toISOString().slice(0, 10),
+      end_date: endDate ? endDate : null,
+      notes: notes.trim() || null,
+    };
+    upsertPricing.mutate(payload, {
+      onSuccess: () => onSaved(),
+    });
   }
 
   return (
@@ -499,14 +575,25 @@ function PricingDialog({
             />
           </SettingsField>
 
-          {showNotWired && <NotWiredNotice />}
+          {upsertPricing.error ? (
+            <ErrorBanner
+              message={
+                (upsertPricing.error as Error)?.message ||
+                "Failed to save pricing."
+              }
+            />
+          ) : null}
         </div>
 
         <DialogFooter>
           <Button type="button" variant="ghost" onClick={onClose}>
             Cancel
           </Button>
-          <Button type="button" onClick={handleSubmit}>
+          <Button
+            type="button"
+            disabled={upsertPricing.isPending}
+            onClick={handleSubmit}
+          >
             {editing ? "Save" : "Add"}
           </Button>
         </DialogFooter>
