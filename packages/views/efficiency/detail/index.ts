@@ -6,3 +6,5 @@ export { UserDetail } from "./user-detail";
 export { NeedDetail } from "./need-detail";
 export { TaskDetail } from "./task-detail";
 export { CommitDetail } from "./commit-detail";
+export { RepoDetail } from "./repo-detail";
+export { ProjectDetail } from "./project-detail";

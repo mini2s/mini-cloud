@@ -49,4 +49,6 @@ export {
   NeedDetail,
   TaskDetail,
   CommitDetail,
+  RepoDetail,
+  ProjectDetail,
 } from "./detail";
