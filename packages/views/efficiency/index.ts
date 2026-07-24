@@ -28,3 +28,4 @@ export {
   MembersView,
   MemberDetailDialog,
 } from "./usage";
+export { CostKanban, CostAggregateView, CostCompareView, CostMembersView } from "./cost";
