@@ -33,6 +33,7 @@
     "./inbox": "./inbox/index.ts",
     "./runtimes": "./runtimes/index.ts",
     "./dashboard": "./dashboard/index.ts",
+    "./efficiency": "./efficiency/index.ts",
     "./home": "./home/index.ts",
     "./squads": "./squads/index.ts",
     "./squads/components": "./squads/components/index.ts",

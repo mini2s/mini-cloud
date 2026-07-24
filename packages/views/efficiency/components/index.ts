@@ -6,3 +6,8 @@ export { MetricScorecard } from "./metric-scorecard";
 export { ScorecardStrip } from "./scorecard-strip";
 export { CountsCard } from "./counts-card";
 export { AIPenetrationCard } from "./ai-penetration-card";
+export { HeroSaving } from "./hero-saving";
+export { TrendCard } from "./trend-card";
+export { DeptPKCard } from "./dept-pk-card";
+export { TopRankCard } from "./top-rank-card";
+export { PlatformObjectiveCard } from "./platform-objective-card";
