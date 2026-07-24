@@ -29,3 +29,10 @@ export {
   MemberDetailDialog,
 } from "./usage";
 export { CostKanban, CostAggregateView, CostCompareView, CostMembersView } from "./cost";
+export {
+  EfficiencyDimension,
+  EfficiencyTimeline,
+  EfficiencyUserRanking,
+  EfficiencyRepoRanking,
+  DistributionOverview,
+} from "./efficiency";
