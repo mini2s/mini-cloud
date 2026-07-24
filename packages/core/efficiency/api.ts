@@ -31,6 +31,19 @@ import type {
   UserDetailResp,
   UserTrendPoint,
 } from "./types-usage";
+import type {
+  CostAnomalyResp,
+  CostMembersQuery,
+  CostModelCompositionResp,
+  CostModelsResp,
+  CostModelTrendResp,
+  CostOverviewResp,
+  CostPeriodCompareResp,
+  CostSubDeptResp,
+  CostTeamCompositionResp,
+  CostTeamTrendResp,
+  CostUsersResp,
+} from "./types-cost";
 
 const BASE = "/api/v2/efficiency";
 const NOT_WIRED =
@@ -254,6 +267,114 @@ export async function getUsageUserTrend(
   void `${USAGE_USER}/${encodeURIComponent(uid)}/trend${qs({
     start_date: start,
     end_date: end,
+  })}`;
+  throw new Error(NOT_WIRED);
+}
+
+// ============================================================================
+// Cost dimension (department aggregation + model/team breakdown + per-user).
+// Source wrapped ~10 cost endpoints under /stats/departments/:id/cost/*; the
+// mini-cloud backend will mount these under /api/v2/efficiency/cost/dept/:id/*.
+// include_children and pagination params are serialized as the source did
+// (string "true"/"false"). Cost reuses usage's DeptQuery, so the shared
+// deptParams helper applies unchanged.
+// ============================================================================
+
+const COST_DEPT = `${BASE}/cost/dept`;
+
+// ---- Department aggregation ----
+
+export async function getCostOverview(
+  q: DeptQuery,
+): Promise<CostOverviewResp> {
+  void `${COST_DEPT}/${encodeURIComponent(q.deptId)}/overview${qs(deptParams(q))}`;
+  throw new Error(NOT_WIRED);
+}
+
+// Period-over-period compare: the previous window is the same length as the
+// current window, immediately preceding it. The caller computes prevStart /
+// prevEnd via the shared computePreviousRange util (same as usage); the
+// backend only needs the four boundary strings.
+export async function getCostPeriodCompare(
+  q: DeptQuery,
+  prevStart: string,
+  prevEnd: string,
+): Promise<CostPeriodCompareResp> {
+  void `${COST_DEPT}/${encodeURIComponent(q.deptId)}/period-compare${qs({
+    current_start: q.start,
+    current_end: q.end,
+    previous_start: prevStart,
+    previous_end: prevEnd,
+    include_children: q.includeChildren ? "true" : "false",
+  })}`;
+  throw new Error(NOT_WIRED);
+}
+
+// ---- Model breakdown ----
+
+export async function getCostModels(q: DeptQuery): Promise<CostModelsResp> {
+  void `${COST_DEPT}/${encodeURIComponent(q.deptId)}/models${qs(deptParams(q))}`;
+  throw new Error(NOT_WIRED);
+}
+
+export async function getCostModelTrend(
+  q: DeptQuery,
+): Promise<CostModelTrendResp> {
+  void `${COST_DEPT}/${encodeURIComponent(q.deptId)}/model-trend${qs(deptParams(q))}`;
+  throw new Error(NOT_WIRED);
+}
+
+export async function getCostModelComposition(
+  q: DeptQuery,
+): Promise<CostModelCompositionResp> {
+  void `${COST_DEPT}/${encodeURIComponent(q.deptId)}/composition/models${qs(deptParams(q))}`;
+  throw new Error(NOT_WIRED);
+}
+
+// ---- Anomaly detection ----
+
+export async function getCostAnomaly(
+  q: DeptQuery,
+): Promise<CostAnomalyResp> {
+  void `${COST_DEPT}/${encodeURIComponent(q.deptId)}/anomaly${qs(deptParams(q))}`;
+  throw new Error(NOT_WIRED);
+}
+
+// ---- Team (sub-department) breakdown ----
+
+export async function getCostSubDepts(
+  q: DeptQuery,
+): Promise<CostSubDeptResp> {
+  void `${COST_DEPT}/${encodeURIComponent(q.deptId)}/sub-departments${qs(deptParams(q))}`;
+  throw new Error(NOT_WIRED);
+}
+
+export async function getCostTeamTrend(
+  q: DeptQuery,
+): Promise<CostTeamTrendResp> {
+  void `${COST_DEPT}/${encodeURIComponent(q.deptId)}/team-trend${qs(deptParams(q))}`;
+  throw new Error(NOT_WIRED);
+}
+
+export async function getCostTeamComposition(
+  q: DeptQuery,
+): Promise<CostTeamCompositionResp> {
+  void `${COST_DEPT}/${encodeURIComponent(q.deptId)}/composition/teams${qs(deptParams(q))}`;
+  throw new Error(NOT_WIRED);
+}
+
+// ---- Per-user (members) ----
+
+export async function getCostMembers(
+  q: CostMembersQuery,
+): Promise<CostUsersResp> {
+  void `${COST_DEPT}/${encodeURIComponent(q.deptId)}/users${qs({
+    ...deptParams(q),
+    page: String(q.page),
+    page_size: String(q.pageSize),
+    sort_by: q.sortBy,
+    sort_order: q.sortOrder,
+    search: q.search || undefined,
   })}`;
   throw new Error(NOT_WIRED);
 }

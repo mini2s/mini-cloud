@@ -2,6 +2,7 @@
 // @multica/views/efficiency via `import { ... } from "@multica/core/efficiency"`.
 export * from "./types";
 export * from "./types-usage";
+export * from "./types-cost";
 export * from "./utils";
 export * from "./queries";
 export * from "./api";

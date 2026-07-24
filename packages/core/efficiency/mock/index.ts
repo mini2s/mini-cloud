@@ -27,6 +27,19 @@ import type {
   UserDetailResp,
   UserTrendPoint,
 } from "../types-usage";
+import type {
+  CostAnomalyResp,
+  CostMembersQuery,
+  CostModelCompositionResp,
+  CostModelsResp,
+  CostModelTrendResp,
+  CostOverviewResp,
+  CostPeriodCompareResp,
+  CostSubDeptResp,
+  CostTeamCompositionResp,
+  CostTeamTrendResp,
+  CostUsersResp,
+} from "../types-cost";
 import {
   getMockDashboardSummary,
   getMockDashboardTrends,
@@ -48,6 +61,18 @@ import {
   getMockUsageUserDetail,
   getMockUsageUserTrend,
 } from "./usage";
+import {
+  getMockCostAnomaly,
+  getMockCostMembers,
+  getMockCostModelComposition,
+  getMockCostModels,
+  getMockCostModelTrend,
+  getMockCostOverview,
+  getMockCostPeriodCompare,
+  getMockCostSubDepts,
+  getMockCostTeamComposition,
+  getMockCostTeamTrend,
+} from "./cost";
 
 const RAW = process.env.EFFICIENCY_MOCK;
 // Default: mock ON (backend not yet live). Set EFFICIENCY_MOCK=0 to disable.
@@ -102,5 +127,22 @@ export const mock = {
     start: string,
     end: string,
   ): UserTrendPoint[] => getMockUsageUserTrend(uid, start, end),
-  // cost/contribution/detail mock entry points added in later slices.
+
+  // ---- Cost dimension (department aggregation + model/team breakdown + per-user) ----
+  costOverview: (q: DeptQuery): CostOverviewResp => getMockCostOverview(q),
+  // Period-compare mock computes the previous window internally from q.start/q.end
+  // (via the shared computePreviousRange), so it only needs q.
+  costPeriodCompare: (q: DeptQuery): CostPeriodCompareResp =>
+    getMockCostPeriodCompare(q),
+  costModels: (q: DeptQuery): CostModelsResp => getMockCostModels(q),
+  costModelTrend: (q: DeptQuery): CostModelTrendResp => getMockCostModelTrend(q),
+  costModelComposition: (q: DeptQuery): CostModelCompositionResp =>
+    getMockCostModelComposition(q),
+  costAnomaly: (q: DeptQuery): CostAnomalyResp => getMockCostAnomaly(q),
+  costSubDepts: (q: DeptQuery): CostSubDeptResp => getMockCostSubDepts(q),
+  costTeamTrend: (q: DeptQuery): CostTeamTrendResp => getMockCostTeamTrend(q),
+  costTeamComposition: (q: DeptQuery): CostTeamCompositionResp =>
+    getMockCostTeamComposition(q),
+  costMembers: (q: CostMembersQuery): CostUsersResp => getMockCostMembers(q),
+  // contribution/detail mock entry points added in later slices.
 } as const;

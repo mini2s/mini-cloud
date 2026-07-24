@@ -1,6 +1,16 @@
 import { keepPreviousData, queryOptions } from "@tanstack/react-query";
 import {
   getAllNeeds,
+  getCostAnomaly,
+  getCostMembers,
+  getCostModelComposition,
+  getCostModels,
+  getCostModelTrend,
+  getCostOverview,
+  getCostPeriodCompare,
+  getCostSubDepts,
+  getCostTeamComposition,
+  getCostTeamTrend,
   getDashboardSummary,
   getDashboardTrends,
   getDeptRanking,
@@ -22,6 +32,7 @@ import {
 import { MOCK_ENABLED, mock } from "./mock";
 import { computePreviousRange } from "./utils/date";
 import type { DeptQuery, MembersQuery } from "./types-usage";
+import type { CostMembersQuery } from "./types-cost";
 
 // Query keys — workspace-scoped (wsId first) so cache isolates per workspace,
 // matching the architectural rule "workspace-scoped queries must key on wsId".
@@ -162,6 +173,117 @@ export const efficiencyKeys = {
     ] as const,
   usageUserTrend: (wsId: string, uid: string, start: string, end: string) =>
     [...efficiencyKeys.all(wsId), "usage", "user-trend", uid, start, end] as const,
+
+  // ---- Cost dimension ----
+  // Same trailing-field shape as usage (deptId, start, end, includeChildren
+  // [+ members paging/sort/search]) so different depts/windows/cache-shape all
+  // isolate. The leading ["efficiency", wsId, "cost", <segment>] keeps them
+  // workspace-scoped and distinct from usage keys.
+  costOverview: (wsId: string, q: DeptQuery) =>
+    [
+      ...efficiencyKeys.all(wsId),
+      "cost",
+      "overview",
+      q.deptId,
+      q.start,
+      q.end,
+      q.includeChildren,
+    ] as const,
+  costPeriodCompare: (wsId: string, q: DeptQuery) =>
+    [
+      ...efficiencyKeys.all(wsId),
+      "cost",
+      "period-compare",
+      q.deptId,
+      q.start,
+      q.end,
+      q.includeChildren,
+    ] as const,
+  costModels: (wsId: string, q: DeptQuery) =>
+    [
+      ...efficiencyKeys.all(wsId),
+      "cost",
+      "models",
+      q.deptId,
+      q.start,
+      q.end,
+      q.includeChildren,
+    ] as const,
+  costModelTrend: (wsId: string, q: DeptQuery) =>
+    [
+      ...efficiencyKeys.all(wsId),
+      "cost",
+      "model-trend",
+      q.deptId,
+      q.start,
+      q.end,
+      q.includeChildren,
+    ] as const,
+  costModelComposition: (wsId: string, q: DeptQuery) =>
+    [
+      ...efficiencyKeys.all(wsId),
+      "cost",
+      "model-composition",
+      q.deptId,
+      q.start,
+      q.end,
+      q.includeChildren,
+    ] as const,
+  costAnomaly: (wsId: string, q: DeptQuery) =>
+    [
+      ...efficiencyKeys.all(wsId),
+      "cost",
+      "anomaly",
+      q.deptId,
+      q.start,
+      q.end,
+      q.includeChildren,
+    ] as const,
+  costSubDepts: (wsId: string, q: DeptQuery) =>
+    [
+      ...efficiencyKeys.all(wsId),
+      "cost",
+      "sub-depts",
+      q.deptId,
+      q.start,
+      q.end,
+      q.includeChildren,
+    ] as const,
+  costTeamTrend: (wsId: string, q: DeptQuery) =>
+    [
+      ...efficiencyKeys.all(wsId),
+      "cost",
+      "team-trend",
+      q.deptId,
+      q.start,
+      q.end,
+      q.includeChildren,
+    ] as const,
+  costTeamComposition: (wsId: string, q: DeptQuery) =>
+    [
+      ...efficiencyKeys.all(wsId),
+      "cost",
+      "team-composition",
+      q.deptId,
+      q.start,
+      q.end,
+      q.includeChildren,
+    ] as const,
+  costMembers: (wsId: string, q: CostMembersQuery) =>
+    [
+      ...efficiencyKeys.all(wsId),
+      "cost",
+      "members",
+      q.deptId,
+      q.start,
+      q.end,
+      q.includeChildren,
+      q.page,
+      q.pageSize,
+      q.sortBy,
+      q.sortOrder,
+      q.search,
+    ] as const,
 };
 
 const STALE_TIME = 60 * 1000; // 1 min — matches dashboard rollup cadence
@@ -435,6 +557,144 @@ export function usageUserTrendOptions(
   });
 }
 
-// TODO(slice 4-6): add cost/contribution/detail options.
+// ============================ Cost dimension ============================
+// Source hooks: useCostOverview / useCostPeriodCompare / useCostModels /
+// useCostModelTrend / useCostModelComposition / useCostAnomaly /
+// useCostSubDepts / useCostTeamTrend / useCostTeamComposition /
+// useCostMembers. Each becomes an xxxOptions(wsId, q) queryOptions factory.
+// enabled gates on wsId AND deptId (matches source's enabled: !!q.deptId).
+// The members hook used keepPreviousData; queryOptions carries
+// placeholderData: keepPreviousData to preserve that paging UX. Cost reuses
+// the usage DeptQuery; costPeriodCompare computes the previous window via
+// the shared computePreviousRange util (one place for the business rule).
+
+export function costOverviewOptions(wsId: string, q: DeptQuery) {
+  return queryOptions({
+    queryKey: efficiencyKeys.costOverview(wsId, q),
+    queryFn: async () => {
+      if (MOCK_ENABLED) return mock.costOverview(q);
+      return getCostOverview(q);
+    },
+    enabled: !!wsId && !!q.deptId,
+    staleTime: STALE_TIME,
+  });
+}
+
+// Period-over-period compare. The "previous" window is the equal-length span
+// immediately before the current one, computed once via the shared
+// computePreviousRange util (same rule used by the mock path). The api stub
+// takes the four boundary strings; the mock computes the previous window
+// itself from q.
+export function costPeriodCompareOptions(wsId: string, q: DeptQuery) {
+  return queryOptions({
+    queryKey: efficiencyKeys.costPeriodCompare(wsId, q),
+    queryFn: async () => {
+      if (MOCK_ENABLED) return mock.costPeriodCompare(q);
+      const [prevStart, prevEnd] = computePreviousRange(q.start, q.end);
+      return getCostPeriodCompare(q, prevStart, prevEnd);
+    },
+    enabled: !!wsId && !!q.deptId,
+    staleTime: STALE_TIME,
+  });
+}
+
+export function costModelsOptions(wsId: string, q: DeptQuery) {
+  return queryOptions({
+    queryKey: efficiencyKeys.costModels(wsId, q),
+    queryFn: async () => {
+      if (MOCK_ENABLED) return mock.costModels(q);
+      return getCostModels(q);
+    },
+    enabled: !!wsId && !!q.deptId,
+    staleTime: STALE_TIME,
+  });
+}
+
+export function costModelTrendOptions(wsId: string, q: DeptQuery) {
+  return queryOptions({
+    queryKey: efficiencyKeys.costModelTrend(wsId, q),
+    queryFn: async () => {
+      if (MOCK_ENABLED) return mock.costModelTrend(q);
+      return getCostModelTrend(q);
+    },
+    enabled: !!wsId && !!q.deptId,
+    staleTime: STALE_TIME,
+  });
+}
+
+export function costModelCompositionOptions(wsId: string, q: DeptQuery) {
+  return queryOptions({
+    queryKey: efficiencyKeys.costModelComposition(wsId, q),
+    queryFn: async () => {
+      if (MOCK_ENABLED) return mock.costModelComposition(q);
+      return getCostModelComposition(q);
+    },
+    enabled: !!wsId && !!q.deptId,
+    staleTime: STALE_TIME,
+  });
+}
+
+export function costAnomalyOptions(wsId: string, q: DeptQuery) {
+  return queryOptions({
+    queryKey: efficiencyKeys.costAnomaly(wsId, q),
+    queryFn: async () => {
+      if (MOCK_ENABLED) return mock.costAnomaly(q);
+      return getCostAnomaly(q);
+    },
+    enabled: !!wsId && !!q.deptId,
+    staleTime: STALE_TIME,
+  });
+}
+
+export function costSubDeptsOptions(wsId: string, q: DeptQuery) {
+  return queryOptions({
+    queryKey: efficiencyKeys.costSubDepts(wsId, q),
+    queryFn: async () => {
+      if (MOCK_ENABLED) return mock.costSubDepts(q);
+      return getCostSubDepts(q);
+    },
+    enabled: !!wsId && !!q.deptId,
+    staleTime: STALE_TIME,
+  });
+}
+
+export function costTeamTrendOptions(wsId: string, q: DeptQuery) {
+  return queryOptions({
+    queryKey: efficiencyKeys.costTeamTrend(wsId, q),
+    queryFn: async () => {
+      if (MOCK_ENABLED) return mock.costTeamTrend(q);
+      return getCostTeamTrend(q);
+    },
+    enabled: !!wsId && !!q.deptId,
+    staleTime: STALE_TIME,
+  });
+}
+
+export function costTeamCompositionOptions(wsId: string, q: DeptQuery) {
+  return queryOptions({
+    queryKey: efficiencyKeys.costTeamComposition(wsId, q),
+    queryFn: async () => {
+      if (MOCK_ENABLED) return mock.costTeamComposition(q);
+      return getCostTeamComposition(q);
+    },
+    enabled: !!wsId && !!q.deptId,
+    staleTime: STALE_TIME,
+  });
+}
+
+export function costMembersOptions(wsId: string, q: CostMembersQuery) {
+  return queryOptions({
+    queryKey: efficiencyKeys.costMembers(wsId, q),
+    queryFn: async () => {
+      if (MOCK_ENABLED) return mock.costMembers(q);
+      return getCostMembers(q);
+    },
+    enabled: !!wsId && !!q.deptId,
+    placeholderData: keepPreviousData,
+    staleTime: STALE_TIME,
+  });
+}
+
+// TODO(slice 5-6): add contribution/detail options.
 
 
