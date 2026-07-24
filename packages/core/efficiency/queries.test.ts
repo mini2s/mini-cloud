@@ -96,6 +96,111 @@ describe("efficiencyKeys", () => {
     ]);
   });
 
+  // ---- Efficiency dimension keys (aggregate + non-paginated full lists) ----
+
+  it("efficiencyAggregate key nests window + userId under wsId", () => {
+    expect(
+      efficiencyKeys.efficiencyAggregate(
+        "ws1",
+        "2026-07-01",
+        "2026-07-31",
+        "u-200",
+      ),
+    ).toEqual([
+      "efficiency",
+      "ws1",
+      "efficiency-aggregate",
+      "2026-07-01",
+      "2026-07-31",
+      "u-200",
+    ]);
+  });
+
+  it("efficiencyAggregate key handles undefined window/userId", () => {
+    expect(efficiencyKeys.efficiencyAggregate("ws1")).toEqual([
+      "efficiency",
+      "ws1",
+      "efficiency-aggregate",
+      undefined,
+      undefined,
+      undefined,
+    ]);
+  });
+
+  it("efficiencyAggregate distinguishes per-user aggregations", () => {
+    expect(
+      efficiencyKeys.efficiencyAggregate("ws1", "2026-07-01", "2026-07-31", "u-200"),
+    ).not.toEqual(
+      efficiencyKeys.efficiencyAggregate("ws1", "2026-07-01", "2026-07-31", "u-201"),
+    );
+    // userId undefined vs explicit must NOT collide
+    expect(
+      efficiencyKeys.efficiencyAggregate("ws1", "2026-07-01", "2026-07-31"),
+    ).not.toEqual(
+      efficiencyKeys.efficiencyAggregate("ws1", "2026-07-01", "2026-07-31", "u-200"),
+    );
+  });
+
+  it("allUsers key nests window under wsId", () => {
+    expect(efficiencyKeys.allUsers("ws1", "2026-07-01", "2026-07-31")).toEqual([
+      "efficiency",
+      "ws1",
+      "all-users",
+      "2026-07-01",
+      "2026-07-31",
+    ]);
+  });
+
+  it("allRepos key nests window under wsId", () => {
+    expect(efficiencyKeys.allRepos("ws1", "2026-07-01", "2026-07-31")).toEqual([
+      "efficiency",
+      "ws1",
+      "all-repos",
+      "2026-07-01",
+      "2026-07-31",
+    ]);
+  });
+
+  it("allUsers and allRepos keys are distinct (no cross-query cache collisions)", () => {
+    expect(
+      efficiencyKeys.allUsers("ws1", "2026-07-01", "2026-07-31"),
+    ).not.toEqual(
+      efficiencyKeys.allRepos("ws1", "2026-07-01", "2026-07-31"),
+    );
+  });
+
+  it("projectList key includes window and order under wsId", () => {
+    expect(
+      efficiencyKeys.projectList("ws1", "2026-07-01", "2026-07-31", "desc"),
+    ).toEqual([
+      "efficiency",
+      "ws1",
+      "project-list",
+      "2026-07-01",
+      "2026-07-31",
+      "desc",
+    ]);
+  });
+
+  it("projectList key handles all-undefined params", () => {
+    expect(efficiencyKeys.projectList("ws1")).toEqual([
+      "efficiency",
+      "ws1",
+      "project-list",
+      undefined,
+      undefined,
+      undefined,
+    ]);
+  });
+
+  it("projectList distinguishes different orders", () => {
+    expect(
+      efficiencyKeys.projectList("ws1", "2026-07-01", "2026-07-31", "asc"),
+    ).not.toEqual(
+      efficiencyKeys.projectList("ws1", "2026-07-01", "2026-07-31", "desc"),
+    );
+  });
+
   // ---- Usage dimension keys (must mirror source usageData.ts trailing
   // fields so different depts/windows isolate) ----
 

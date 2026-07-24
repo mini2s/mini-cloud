@@ -8,8 +8,11 @@ import type {
   DashboardTrends,
   DeptRankingResponse,
   DeptTreeNode,
+  EfficiencyV2AggregateResponse,
   GlobalConfig,
   NeedsV2Summary,
+  ProjectListItem,
+  RepoListItem,
   UserV2Row,
 } from "../types";
 import type {
@@ -46,6 +49,12 @@ import {
   getMockGlobalConfig,
 } from "./dashboard";
 import { getMockDeptRanking, getMockDeptTree } from "./dept";
+import {
+  getMockAllRepos,
+  getMockAllUsers,
+  getMockEfficiencyAggregate,
+  getMockProjectList,
+} from "./efficiency";
 import { getMockAllNeeds } from "./needs";
 import { getMockUsers } from "./users";
 import {
@@ -99,6 +108,26 @@ export const mock = {
     endDate?: string;
     pageSize?: number;
   }): ApiList<UserV2Row> => getMockUsers(p),
+
+  // ---- Efficiency dimension (aggregate + non-paginated full lists) ----
+  efficiencyAggregate: (p: {
+    startDate?: string;
+    endDate?: string;
+    userId?: string;
+  }): EfficiencyV2AggregateResponse => getMockEfficiencyAggregate(p),
+  allUsers: (p: {
+    startDate?: string;
+    endDate?: string;
+  }): UserV2Row[] => getMockAllUsers(p),
+  allRepos: (p: {
+    startDate?: string;
+    endDate?: string;
+  }): RepoListItem[] => getMockAllRepos(p),
+  projectList: (p: {
+    order?: string;
+    startDate?: string;
+    endDate?: string;
+  }): ProjectListItem[] => getMockProjectList(p),
 
   // ---- Usage dimension (department aggregation + per-user) ----
   usageDeptOverview: (q: DeptQuery): DeptOverviewResp =>

@@ -1,6 +1,8 @@
 import { keepPreviousData, queryOptions } from "@tanstack/react-query";
 import {
   getAllNeeds,
+  getAllRepos,
+  getAllUsers,
   getCostAnomaly,
   getCostMembers,
   getCostModelComposition,
@@ -15,7 +17,9 @@ import {
   getDashboardTrends,
   getDeptRanking,
   getDeptTree,
+  getEfficiencyAggregate,
   getGlobalConfig,
+  getProjectList,
   getUsageDeptActiveUsers,
   getUsageDeptMembers,
   getUsageDeptModeUsage,
@@ -61,6 +65,38 @@ export const efficiencyKeys = {
     [...efficiencyKeys.all(wsId), "all-needs", startDate, endDate] as const,
   users: (wsId: string, startDate?: string, endDate?: string, pageSize?: number) =>
     [...efficiencyKeys.all(wsId), "users", startDate, endDate, pageSize] as const,
+
+  // ---- Efficiency dimension (aggregate + non-paginated full lists) ----
+  efficiencyAggregate: (
+    wsId: string,
+    startDate?: string,
+    endDate?: string,
+    userId?: string,
+  ) =>
+    [
+      ...efficiencyKeys.all(wsId),
+      "efficiency-aggregate",
+      startDate,
+      endDate,
+      userId,
+    ] as const,
+  allUsers: (wsId: string, startDate?: string, endDate?: string) =>
+    [...efficiencyKeys.all(wsId), "all-users", startDate, endDate] as const,
+  allRepos: (wsId: string, startDate?: string, endDate?: string) =>
+    [...efficiencyKeys.all(wsId), "all-repos", startDate, endDate] as const,
+  projectList: (
+    wsId: string,
+    startDate?: string,
+    endDate?: string,
+    order?: string,
+  ) =>
+    [
+      ...efficiencyKeys.all(wsId),
+      "project-list",
+      startDate,
+      endDate,
+      order,
+    ] as const,
 
   // ---- Usage dimension ----
   // Trailing field order mirrors the source usageData.ts queryKey exactly
@@ -392,6 +428,87 @@ export function usersOptions(
     queryFn: async () => {
       if (MOCK_ENABLED) return mock.users({ startDate, endDate, pageSize });
       return getUsers({ startDate, endDate, pageSize });
+    },
+    enabled: !!wsId,
+    staleTime: STALE_TIME,
+  });
+}
+
+// ============================ Efficiency dimension ============================
+// Source hooks: useEfficiencyV2 / useAllUsers / useAllRepos / useProjectList.
+// Each becomes an xxxOptions(wsId, ...) queryOptions factory. allUsers/allRepos
+// are the NON-paginated "fetch everything" variants (source paginated
+// internally + flattened) used for client-side ranking/distribution; distinct
+// from the paginated usersOptions (which returns the ApiList envelope).
+// enabled gates on wsId only (matches the source hooks' no-extra-gating).
+
+export function efficiencyAggregateOptions(
+  wsId: string,
+  startDate?: string,
+  endDate?: string,
+  userId?: string,
+) {
+  return queryOptions({
+    queryKey: efficiencyKeys.efficiencyAggregate(
+      wsId,
+      startDate,
+      endDate,
+      userId,
+    ),
+    queryFn: async () => {
+      if (MOCK_ENABLED)
+        return mock.efficiencyAggregate({ startDate, endDate, userId });
+      return getEfficiencyAggregate({ startDate, endDate, userId });
+    },
+    enabled: !!wsId,
+    staleTime: STALE_TIME,
+  });
+}
+
+export function allUsersOptions(
+  wsId: string,
+  startDate?: string,
+  endDate?: string,
+) {
+  return queryOptions({
+    queryKey: efficiencyKeys.allUsers(wsId, startDate, endDate),
+    queryFn: async () => {
+      if (MOCK_ENABLED) return mock.allUsers({ startDate, endDate });
+      return getAllUsers({ startDate, endDate });
+    },
+    enabled: !!wsId,
+    staleTime: STALE_TIME,
+  });
+}
+
+export function allReposOptions(
+  wsId: string,
+  startDate?: string,
+  endDate?: string,
+) {
+  return queryOptions({
+    queryKey: efficiencyKeys.allRepos(wsId, startDate, endDate),
+    queryFn: async () => {
+      if (MOCK_ENABLED) return mock.allRepos({ startDate, endDate });
+      return getAllRepos({ startDate, endDate });
+    },
+    enabled: !!wsId,
+    staleTime: STALE_TIME,
+  });
+}
+
+export function projectListOptions(
+  wsId: string,
+  startDate?: string,
+  endDate?: string,
+  order?: string,
+) {
+  return queryOptions({
+    queryKey: efficiencyKeys.projectList(wsId, startDate, endDate, order),
+    queryFn: async () => {
+      if (MOCK_ENABLED)
+        return mock.projectList({ order, startDate, endDate });
+      return getProjectList({ order, startDate, endDate });
     },
     enabled: !!wsId,
     staleTime: STALE_TIME,

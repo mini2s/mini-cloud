@@ -11,9 +11,12 @@ import type {
   DashboardTrends,
   DeptRankingResponse,
   DeptTreeNode,
+  EfficiencyV2AggregateResponse,
   GlobalConfig,
   ListParams,
   NeedsV2Summary,
+  ProjectListItem,
+  RepoListItem,
   UserV2Row,
 } from "./types";
 import type {
@@ -133,6 +136,74 @@ export async function getUsers(p: {
     start_date: p.startDate,
     end_date: p.endDate,
     page_size: p.pageSize != null ? String(p.pageSize) : undefined,
+  })}`;
+  throw new Error(NOT_WIRED);
+}
+
+// ============================================================================
+// Efficiency dimension (user×week aggregate + the non-paginated "fetch
+// everything" variants used by the efficiency dimension for client-side
+// ranking/distribution). Source wrapped useEfficiencyV2 / useAllUsers /
+// useAllRepos / useProjectList; the mini-cloud backend will mount these under
+// /api/v2/efficiency/*.
+// ============================================================================
+
+// User×week aggregate rows (decimal-ratio efficiency_ratio). Source path
+// /v2/efficiency maps to /api/v2/efficiency/efficiency here.
+export async function getEfficiencyAggregate(p: {
+  startDate?: string;
+  endDate?: string;
+  userId?: string;
+}): Promise<EfficiencyV2AggregateResponse> {
+  void `${BASE}/efficiency${qs({
+    start_date: p.startDate,
+    end_date: p.endDate,
+    user_id: p.userId,
+  })}`;
+  throw new Error(NOT_WIRED);
+}
+
+// Non-paginated full users list (source getAllUsersV2 paginates internally and
+// returns a flat array; distinct from getUsers which returns the ApiList
+// envelope). Used for client-side ranking/distribution across the whole window.
+export async function getAllUsers(p: {
+  startDate?: string;
+  endDate?: string;
+}): Promise<UserV2Row[]> {
+  void `${BASE}/users/all${qs({
+    start_date: p.startDate,
+    end_date: p.endDate,
+  })}`;
+  throw new Error(NOT_WIRED);
+}
+
+// Non-paginated full repos list (source getAllReposV2 paginates internally and
+// returns a flat array). Whole-repo aggregation across all branches; one row
+// per repo (repo_branch empty, branch_count populated). percentage-ratio
+// efficiency_ratio.
+export async function getAllRepos(p: {
+  startDate?: string;
+  endDate?: string;
+}): Promise<RepoListItem[]> {
+  void `${BASE}/repos/all${qs({
+    start_date: p.startDate,
+    end_date: p.endDate,
+  })}`;
+  throw new Error(NOT_WIRED);
+}
+
+// Unpaginated project list (ApiData envelope; the efficiency dimension only
+// consumes the bare array, so this returns ProjectListItem[] for direct use by
+// client-side filtering/sorting).
+export async function getProjectList(p: {
+  order?: string;
+  startDate?: string;
+  endDate?: string;
+}): Promise<ProjectListItem[]> {
+  void `${BASE}/projects${qs({
+    order: p.order,
+    start_date: p.startDate,
+    end_date: p.endDate,
   })}`;
   throw new Error(NOT_WIRED);
 }
