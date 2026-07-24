@@ -16,6 +16,21 @@ import type {
   NeedsV2Summary,
   UserV2Row,
 } from "./types";
+import type {
+  DeptActiveUsersResp,
+  DeptMembersResp,
+  DeptModeUsageResp,
+  DeptModelsResp,
+  DeptOverviewResp,
+  DeptPeriodCompareResp,
+  DeptResultsResp,
+  DeptTrendResp,
+  DeptWeeklyResp,
+  DeptQuery,
+  MembersQuery,
+  UserDetailResp,
+  UserTrendPoint,
+} from "./types-usage";
 
 const BASE = "/api/v2/efficiency";
 const NOT_WIRED =
@@ -105,6 +120,140 @@ export async function getUsers(p: {
     start_date: p.startDate,
     end_date: p.endDate,
     page_size: p.pageSize != null ? String(p.pageSize) : undefined,
+  })}`;
+  throw new Error(NOT_WIRED);
+}
+
+// ============================================================================
+// Usage dimension (department aggregation + per-user). Source wrapped ~10
+// chat-stats endpoints under /stats/departments/:id/* and /stats/users/:uid/*;
+// the mini-cloud backend will mount these under /api/v2/efficiency/usage/*.
+// Migrated as efficiency endpoints (no chat-proxy). include_children and
+// pagination params are serialized as the source did (string "true"/"false").
+// ============================================================================
+
+const USAGE_DEPT = `${BASE}/usage/dept`;
+const USAGE_USER = `${BASE}/usage/user`;
+
+function deptParams(q: DeptQuery): Record<string, string> {
+  return {
+    start_date: q.start,
+    end_date: q.end,
+    include_children: q.includeChildren ? "true" : "false",
+  };
+}
+
+// ---- Department aggregation ----
+
+export async function getUsageDeptOverview(
+  q: DeptQuery,
+): Promise<DeptOverviewResp> {
+  void `${USAGE_DEPT}/${encodeURIComponent(q.deptId)}/overview${qs(deptParams(q))}`;
+  throw new Error(NOT_WIRED);
+}
+
+export async function getUsageDeptActiveUsers(
+  q: DeptQuery,
+): Promise<DeptActiveUsersResp> {
+  void `${USAGE_DEPT}/${encodeURIComponent(q.deptId)}/active-users${qs(deptParams(q))}`;
+  throw new Error(NOT_WIRED);
+}
+
+export async function getUsageDeptTrend(
+  q: DeptQuery,
+): Promise<DeptTrendResp> {
+  void `${USAGE_DEPT}/${encodeURIComponent(q.deptId)}/trend${qs(deptParams(q))}`;
+  throw new Error(NOT_WIRED);
+}
+
+export async function getUsageDeptModels(
+  q: DeptQuery,
+): Promise<DeptModelsResp> {
+  void `${USAGE_DEPT}/${encodeURIComponent(q.deptId)}/models/usage${qs(deptParams(q))}`;
+  throw new Error(NOT_WIRED);
+}
+
+export async function getUsageDeptWeekly(
+  q: DeptQuery,
+): Promise<DeptWeeklyResp> {
+  void `${USAGE_DEPT}/${encodeURIComponent(q.deptId)}/distribution/weekly${qs(deptParams(q))}`;
+  throw new Error(NOT_WIRED);
+}
+
+export async function getUsageDeptResults(
+  q: DeptQuery,
+): Promise<DeptResultsResp> {
+  void `${USAGE_DEPT}/${encodeURIComponent(q.deptId)}/results${qs(deptParams(q))}`;
+  throw new Error(NOT_WIRED);
+}
+
+// Period-over-period compare: the previous window is the same length as the
+// current window, immediately preceding it. The caller computes prevStart /
+// prevEnd (mirrors the source computePreviousRange); the backend only needs
+// the four boundary strings.
+export async function getUsagePeriodCompare(
+  q: DeptQuery,
+  prevStart: string,
+  prevEnd: string,
+): Promise<DeptPeriodCompareResp> {
+  void `${USAGE_DEPT}/${encodeURIComponent(q.deptId)}/usage/period-compare${qs({
+    current_start: q.start,
+    current_end: q.end,
+    previous_start: prevStart,
+    previous_end: prevEnd,
+    include_children: q.includeChildren ? "true" : "false",
+  })}`;
+  throw new Error(NOT_WIRED);
+}
+
+// Kanban-local mode usage (the only non-chat-stats card in the source): one
+// row per conversation mode with deduped user_count + request_count.
+export async function getUsageDeptModeUsage(
+  q: DeptQuery,
+): Promise<DeptModeUsageResp> {
+  void `${USAGE_DEPT}/${encodeURIComponent(q.deptId)}/mode-usage${qs(deptParams(q))}`;
+  throw new Error(NOT_WIRED);
+}
+
+export async function getUsageDeptMembers(
+  q: MembersQuery,
+): Promise<DeptMembersResp> {
+  void `${USAGE_DEPT}/${encodeURIComponent(q.deptId)}/members${qs({
+    ...deptParams(q),
+    page: String(q.page),
+    page_size: String(q.pageSize),
+    sort_by: q.sortBy,
+    sort_order: q.sortOrder,
+    search: q.search || undefined,
+  })}`;
+  throw new Error(NOT_WIRED);
+}
+
+// ---- Per-user ----
+
+export async function getUsageUserDetail(
+  uid: string,
+  start: string,
+  end: string,
+): Promise<UserDetailResp> {
+  void `${USAGE_USER}/${encodeURIComponent(uid)}/detail${qs({
+    start_date: start,
+    end_date: end,
+  })}`;
+  throw new Error(NOT_WIRED);
+}
+
+// Per-user per-day trend. The source normalizes a bare-array OR {trend:[]}
+// backend response into a flat array; the api layer returns that normalized
+// array so the hook consumer never sees the two shapes.
+export async function getUsageUserTrend(
+  uid: string,
+  start: string,
+  end: string,
+): Promise<UserTrendPoint[]> {
+  void `${USAGE_USER}/${encodeURIComponent(uid)}/trend${qs({
+    start_date: start,
+    end_date: end,
   })}`;
   throw new Error(NOT_WIRED);
 }
