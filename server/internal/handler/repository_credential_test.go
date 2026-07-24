@@ -64,6 +64,36 @@ func TestHandleGiteaCredential_ReturnsPATAndEnvBaseURL(t *testing.T) {
 	}
 }
 
+func TestHandleRepositoryCredential_ReturnsPATAndPublicBaseURL(t *testing.T) {
+	if testHandler == nil {
+		t.Skip("database not available")
+	}
+	seedGiteaSettings(t, "pat-secret")
+
+	t.Setenv("GITEA_BASE_URL", "https://gitea.internal.example.com")
+	t.Setenv("GITEA_PUBLIC_BASE_URL", "https://repo.example.com")
+
+	req := newRequest(http.MethodGet, "/api/repositories/credential", nil)
+	req.Header.Set("X-Workspace-ID", testWorkspaceID)
+	rec := httptest.NewRecorder()
+	testHandler.HandleRepositoryCredential(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	var out map[string]string
+	json.Unmarshal(rec.Body.Bytes(), &out)
+	if out["provider"] != "gitea" {
+		t.Errorf("provider = %q", out["provider"])
+	}
+	if out["token"] != "pat-secret" {
+		t.Errorf("token = %q", out["token"])
+	}
+	if out["base_url"] != "https://repo.example.com" {
+		t.Errorf("base_url = %q", out["base_url"])
+	}
+}
+
 func TestHandleGiteaCredential_NotConfigured(t *testing.T) {
 	if testHandler == nil {
 		t.Skip("database not available")

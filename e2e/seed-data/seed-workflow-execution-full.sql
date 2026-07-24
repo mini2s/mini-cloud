@@ -25,9 +25,9 @@
 --   [4.1.2.5 任务分配] squad节点拆解
 --   [4.1.2.6 代码提交] PR交付物
 --   [4.1.3 小队执行者] squad worker + leader agent
---   [4.2.1 人评审者] human critic approve/reject
---   [4.2.2 agent评审者] agent auto-review
---   [4.2.3 小队评审者] squad critic
+--   [4.2.1 人审核者] human critic approve/reject
+--   [4.2.2 agent审核者] agent auto-review
+--   [4.2.3 小队审核者] squad critic
 -- =============================================================================
 
 DO $$
@@ -167,7 +167,7 @@ BEGIN
     ) VALUES (
         c_workflow_id, c_workspace_id,
         '全栈研发工作流 (全量测试)',
-        '覆盖用户旅程文档中所有工作流执行场景的测试工作流，包含人/智能体/小队执行者与评审者的全部组合',
+        '覆盖用户旅程文档中所有工作流执行场景的测试工作流，包含人/智能体/小队执行者与审核者的全部组合',
         'active', 3,
         'member', c_user_id, FALSE, NULL
     );
@@ -361,7 +361,7 @@ BEGIN
         ) VALUES (
             c_workspace_id,
             '【全量测试】全栈Web应用研发 v3.0',
-            '这是一个覆盖工作流执行全部场景的测试Issue。\n\n包含场景：\n- 所有运行状态（待规划/待办/进行中/审核中/已完成/已阻塞/已失败）\n- 所有执行者类型（人/智能体/小队）\n- 所有评审者类型（人/智能体/小队/API）\n- 交付物红绿灯状态\n- 智能体会话交互\n- 任务重试与失败',
+            '这是一个覆盖工作流执行全部场景的测试Issue。\n\n包含场景：\n- 所有运行状态（待规划/待办/进行中/审核中/已完成/已阻塞/已失败）\n- 所有执行者类型（人/智能体/小队）\n- 所有审核者类型（人/智能体/小队/API）\n- 交付物红绿灯状态\n- 智能体会话交互\n- 任务重试与失败',
             'in_progress', 'high', v_issue_seq,
             'workflow', c_workflow_id, 'member', c_user_id,
             c_workflow_id,
@@ -435,7 +435,7 @@ BEGIN
         NOW() - INTERVAL '4 days', NOW() - INTERVAL '3 days 12 hours'
     ) RETURNING id INTO v_nr_frontend;
 
-    -- 节点13: 单元测试 — agent评审完成 [4.2.2 agent评审者]
+    -- 节点13: 单元测试 — agent评审完成 [4.2.2 agent审核者]
     INSERT INTO multica_workflow_node_run (
         workflow_run_id, workflow_node_id, node_title, status,
         worker_type, worker_id, worker_output,

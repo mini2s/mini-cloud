@@ -39,6 +39,7 @@ import {
   IdCard,
   Users,
   GitBranch,
+  UserRoundCog,
 } from "lucide-react";
 import { WorkspaceAvatar } from "../workspace/workspace-avatar";
 import { ActorAvatar } from "@multica/ui/components/common/actor-avatar";
@@ -121,6 +122,7 @@ type NavKey =
   | "runtimes"
   | "skills"
   | "workflows"
+  | "roles"
   | "settings";
 
 // Static schema (key + icon) — labels resolved at render via useT("layout").
@@ -137,6 +139,7 @@ type NavLabelKey =
   | "runtimes"
   | "skills"
   | "workflows"
+  | "roles"
   | "settings";
 
 const personalNav: { key: NavKey; labelKey: NavLabelKey; icon: typeof Inbox }[] = [
@@ -153,6 +156,7 @@ const workspaceNav: { key: NavKey; labelKey: NavLabelKey; icon: typeof Inbox }[]
   { key: "agents", labelKey: "agents", icon: Bot },
   { key: "members", labelKey: "members", icon: IdCard },
   { key: "squads", labelKey: "squads", icon: Users },
+  { key: "roles", labelKey: "roles", icon: UserRoundCog },
   // Hidden per 2026-06-16 product decision.
   // { key: "usage", labelKey: "usage", icon: BarChart3 },
 ];

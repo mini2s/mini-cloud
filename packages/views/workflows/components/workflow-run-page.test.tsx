@@ -25,6 +25,26 @@ vi.mock("@tanstack/react-query", () => ({
     if (key.includes("nodes")) return { data: mocks.nodes, isLoading: false };
     if (key.includes("edges")) return { data: mocks.edges, isLoading: false };
     if (key.includes("node-runs")) return { data: mocks.nodeRuns, isLoading: false };
+    if (key.includes("node-run-deliverables")) {
+      return {
+        data: {
+          submissions: [],
+          deliverables: [
+            {
+              id: "del-1",
+              workflow_node_id: "split-node",
+              title: "Deliverable",
+              kind: "document",
+              required: true,
+              sort_order: 0,
+              created_at: "",
+              updated_at: "",
+            },
+          ],
+        },
+        isLoading: false,
+      };
+    }
     if (key.includes("role-resolutions")) return { data: mocks.resolutions, isLoading: false };
     if (key.includes("members")) return { data: mocks.members, isLoading: false };
     return { data: undefined, isLoading: false };

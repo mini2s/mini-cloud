@@ -94,6 +94,92 @@ func TestChooseWorkflowRuntimeUsesLeastLoadedIssueCreatorRuntime(t *testing.T) {
 	}
 }
 
+func TestChooseWorkflowRuntimeIssueCreatorFirstPrecedesIdle(t *testing.T) {
+	ownerID := runtimeTestUUID(1)
+	ownerBusyID := runtimeTestUUID(2)
+	idleID := runtimeTestUUID(3)
+	run := db.MulticaWorkflowRun{
+		RuntimeSelectionPolicy: RuntimeSelectionPolicyIssueCreatorFirst,
+		ResponsibleUserID:      ownerID,
+	}
+	candidates := []db.ListWorkflowRuntimeCandidatesRow{
+		{ID: idleID, ActiveTaskCount: 0},
+		{ID: ownerBusyID, OwnerID: ownerID, ActiveTaskCount: 4},
+	}
+
+	selection, err := chooseWorkflowRuntime(run, candidates)
+	if err != nil {
+		t.Fatalf("choose runtime: %v", err)
+	}
+	if selection.RuntimeID != ownerBusyID || selection.Reason != RuntimeSelectionIssueCreator {
+		t.Fatalf("got runtime=%v reason=%q, want issue creator runtime", selection.RuntimeID, selection.Reason)
+	}
+}
+
+func TestResolveWorkflowRuntimeSelectionPolicy(t *testing.T) {
+	defaultRuntimeID := runtimeTestUUID(1)
+	manualRuntimeID := runtimeTestUUID(2)
+	tests := []struct {
+		name            string
+		workflow        db.MulticaWorkflow
+		requestedPolicy string
+		runtimeID       pgtype.UUID
+		wantPolicy      string
+		wantRuntimeID   pgtype.UUID
+		wantErr         bool
+	}{
+		{
+			name:       "legacy workflow defaults to idle first",
+			workflow:   db.MulticaWorkflow{},
+			wantPolicy: RuntimeSelectionPolicyIdleFirst,
+		},
+		{
+			name: "workflow specified default is snapshotted",
+			workflow: db.MulticaWorkflow{
+				DefaultRuntimeSelectionPolicy: RuntimeSelectionPolicySpecifiedRuntimeFirst,
+				DefaultRuntimeID:              defaultRuntimeID,
+			},
+			wantPolicy:    RuntimeSelectionPolicySpecifiedRuntimeFirst,
+			wantRuntimeID: defaultRuntimeID,
+		},
+		{
+			name:          "legacy runtime only request means specified first",
+			runtimeID:     manualRuntimeID,
+			wantPolicy:    RuntimeSelectionPolicySpecifiedRuntimeFirst,
+			wantRuntimeID: manualRuntimeID,
+		},
+		{
+			name:            "explicit idle override drops runtime",
+			requestedPolicy: RuntimeSelectionPolicyIdleFirst,
+			runtimeID:       manualRuntimeID,
+			wantPolicy:      RuntimeSelectionPolicyIdleFirst,
+		},
+		{
+			name:            "specified policy requires runtime",
+			requestedPolicy: RuntimeSelectionPolicySpecifiedRuntimeFirst,
+			wantErr:         true,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			policy, runtimeID, err := resolveWorkflowRuntimeSelectionPolicy(test.workflow, test.requestedPolicy, test.runtimeID)
+			if test.wantErr {
+				if !errors.Is(err, ErrWorkflowRuntimeSelectionInvalid) {
+					t.Fatalf("got err=%v, want ErrWorkflowRuntimeSelectionInvalid", err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("resolve policy: %v", err)
+			}
+			if policy != test.wantPolicy || runtimeID != test.wantRuntimeID {
+				t.Fatalf("got policy=%q runtime=%v, want policy=%q runtime=%v", policy, runtimeID, test.wantPolicy, test.wantRuntimeID)
+			}
+		})
+	}
+}
+
 func TestChooseWorkflowRuntimeFailsWithoutCandidate(t *testing.T) {
 	_, err := chooseWorkflowRuntime(db.MulticaWorkflowRun{}, nil)
 	if !errors.Is(err, ErrWorkflowRuntimeUnavailable) {

@@ -18,8 +18,9 @@ import (
 // ── Request types ────────────────────────────────────────────────────────────
 
 type StartRunRequest struct {
-	Input     json.RawMessage `json:"input"`
-	RuntimeID *string         `json:"runtime_id"`
+	Input                  json.RawMessage `json:"input"`
+	RuntimeSelectionPolicy *string         `json:"runtime_selection_policy"`
+	RuntimeID              *string         `json:"runtime_id"`
 }
 
 type SubmitNodeRunRequest struct {
@@ -38,19 +39,20 @@ type FinalizeNodeRunRequest struct {
 // ── Response types ───────────────────────────────────────────────────────────
 
 type WorkflowRunResponse struct {
-	ID              string          `json:"id"`
-	WorkflowID      string          `json:"workflow_id"`
-	WorkspaceID     string          `json:"workspace_id"`
-	WorkflowTitle   string          `json:"workflow_title"`
-	Status          string          `json:"status"`
-	TriggeredByType string          `json:"triggered_by_type"`
-	TriggeredByID   *string         `json:"triggered_by_id"`
-	RuntimeID       *string         `json:"runtime_id"`
-	Input           json.RawMessage `json:"input"`
-	Output          json.RawMessage `json:"output"`
-	StartedAt       string          `json:"started_at"`
-	CompletedAt     *string         `json:"completed_at"`
-	CreatedAt       string          `json:"created_at"`
+	ID                     string          `json:"id"`
+	WorkflowID             string          `json:"workflow_id"`
+	WorkspaceID            string          `json:"workspace_id"`
+	WorkflowTitle          string          `json:"workflow_title"`
+	Status                 string          `json:"status"`
+	TriggeredByType        string          `json:"triggered_by_type"`
+	TriggeredByID          *string         `json:"triggered_by_id"`
+	RuntimeID              *string         `json:"runtime_id"`
+	RuntimeSelectionPolicy string          `json:"runtime_selection_policy"`
+	Input                  json.RawMessage `json:"input"`
+	Output                 json.RawMessage `json:"output"`
+	StartedAt              string          `json:"started_at"`
+	CompletedAt            *string         `json:"completed_at"`
+	CreatedAt              string          `json:"created_at"`
 }
 
 type WorkflowNodeRunResponse struct {
@@ -102,19 +104,20 @@ type WorkflowNodeRuntimeSummaryResponse struct {
 
 func workflowRunToResponse(r db.MulticaWorkflowRun) WorkflowRunResponse {
 	return WorkflowRunResponse{
-		ID:              uuidToString(r.ID),
-		WorkflowID:      uuidToString(r.WorkflowID),
-		WorkspaceID:     uuidToString(r.WorkspaceID),
-		WorkflowTitle:   r.WorkflowTitle,
-		Status:          r.Status,
-		TriggeredByType: r.TriggeredByType,
-		TriggeredByID:   uuidToPtr(r.TriggeredByID),
-		RuntimeID:       uuidToPtr(r.RuntimeID),
-		Input:           json.RawMessage(r.Input),
-		Output:          json.RawMessage(r.Output),
-		StartedAt:       timestampToString(r.StartedAt),
-		CompletedAt:     timestampToPtr(r.CompletedAt),
-		CreatedAt:       timestampToString(r.CreatedAt),
+		ID:                     uuidToString(r.ID),
+		WorkflowID:             uuidToString(r.WorkflowID),
+		WorkspaceID:            uuidToString(r.WorkspaceID),
+		WorkflowTitle:          r.WorkflowTitle,
+		Status:                 r.Status,
+		TriggeredByType:        r.TriggeredByType,
+		TriggeredByID:          uuidToPtr(r.TriggeredByID),
+		RuntimeID:              uuidToPtr(r.RuntimeID),
+		RuntimeSelectionPolicy: r.RuntimeSelectionPolicy,
+		Input:                  json.RawMessage(r.Input),
+		Output:                 json.RawMessage(r.Output),
+		StartedAt:              timestampToString(r.StartedAt),
+		CompletedAt:            timestampToPtr(r.CompletedAt),
+		CreatedAt:              timestampToString(r.CreatedAt),
 	}
 }
 
@@ -299,7 +302,13 @@ func (h *Handler) StartWorkflowRun(w http.ResponseWriter, r *http.Request) {
 	if len(req.Input) == 0 {
 		req.Input = json.RawMessage("{}")
 	}
-	runtimePreference, ok := h.validateWorkflowRuntimePreference(w, r, req.RuntimeID, wf.WorkspaceID)
+	runtimeSelectionPolicy, runtimePreference, ok := h.validateWorkflowRuntimeSelectionOverride(
+		w,
+		r,
+		req.RuntimeSelectionPolicy,
+		req.RuntimeID,
+		wf.WorkspaceID,
+	)
 	if !ok {
 		return
 	}
@@ -310,8 +319,20 @@ func (h *Handler) StartWorkflowRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	run, err := h.WorkflowService.StartRun(r.Context(), wf, "member", userID, req.Input, runtimePreference)
+	run, err := h.WorkflowService.StartRunWithRuntimeSelection(
+		r.Context(),
+		wf,
+		"member",
+		userID,
+		req.Input,
+		runtimeSelectionPolicy,
+		runtimePreference,
+	)
 	if err != nil {
+		if errors.Is(err, service.ErrWorkflowRuntimeSelectionInvalid) {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
 		if errors.Is(err, service.ErrWorkflowRoleResolutionLimit) {
 			writeError(w, http.StatusTooManyRequests, "too many active workflow role resolution jobs")
 			return
@@ -1007,7 +1028,21 @@ func (h *Handler) ListNodeRunDeliverableSubmissions(w http.ResponseWriter, r *ht
 		resp = append(resp, workflowNodeDeliverableSubmissionToResponse(s))
 	}
 
-	writeJSON(w, http.StatusOK, map[string]any{"submissions": resp})
+	// Also return the node's deliverable definitions (kind) so the frontend can
+	// render the right manual-upload control (file picker vs PR-link input)
+	// before any submission exists.
+	out := map[string]any{"submissions": resp}
+	if nodeRun, err := h.Queries.GetWorkflowNodeRun(r.Context(), nrUUID); err == nil {
+		if defs, err := h.Queries.ListWorkflowNodeDeliverables(r.Context(), nodeRun.WorkflowNodeID); err == nil {
+			defResp := make([]WorkflowNodeDeliverableResponse, 0, len(defs))
+			for _, d := range defs {
+				defResp = append(defResp, workflowNodeDeliverableToResponse(d))
+			}
+			out["deliverables"] = defResp
+		}
+	}
+
+	writeJSON(w, http.StatusOK, out)
 }
 
 // SubmitNodeRunDeliverable POST /api/node-runs/{nodeRunId}/deliverables/{deliverableId}/submit

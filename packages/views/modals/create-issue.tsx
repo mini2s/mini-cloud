@@ -17,7 +17,14 @@ import {
 } from "lucide-react";
 import { cn } from "@multica/ui/lib/utils";
 import { toast } from "sonner";
-import type { Issue, IssueStatus, IssuePriority, IssueAssigneeType } from "@multica/core/types";
+import type {
+  Issue,
+  IssueStatus,
+  IssuePriority,
+  IssueAssigneeType,
+  UpdateIssueRequest,
+  WorkflowRuntimeSelectionPolicy,
+} from "@multica/core/types";
 import {
   DialogContent,
   DialogTitle,
@@ -119,11 +126,19 @@ export function ManualCreatePanel({
     }
     return draft.assigneeId;
   });
+  const [runtimeSelectionPolicy, setRuntimeSelectionPolicy] = useState<WorkflowRuntimeSelectionPolicy | undefined>(
+    data?.runtime_selection_policy as WorkflowRuntimeSelectionPolicy | undefined,
+  );
+  const [runtimeId, setRuntimeId] = useState<string | undefined>(
+    (data?.runtime_id as string | null | undefined) ?? undefined,
+  );
   const [startDate, setStartDate] = useState<string | null>(draft.startDate);
   const [dueDate, setDueDate] = useState<string | null>(draft.dueDate);
   const [projectId, setProjectId] = useState<string | undefined>(
     (data?.project_id as string) || undefined,
   );
+  const [projectRequiredVisible, setProjectRequiredVisible] = useState(false);
+  const [projectPickerOpen, setProjectPickerOpen] = useState(false);
   const [parentIssueId, setParentIssueId] = useState<string | undefined>(
     (data?.parent_issue_id as string) || undefined,
   );
@@ -155,8 +170,12 @@ export function ManualCreatePanel({
   const updateTitle = (v: string) => { setTitle(v); setDraft({ title: v }); };
   const updateStatus = (v: IssueStatus) => { setStatus(v); setDraft({ status: v }); };
   const updatePriority = (v: IssuePriority) => { setPriority(v); setDraft({ priority: v }); };
-  const updateAssignee = (type?: IssueAssigneeType, id?: string) => {
+  const updateAssignee = (updates: Partial<UpdateIssueRequest>) => {
+    const type = updates.assignee_type ?? undefined;
+    const id = updates.assignee_id ?? undefined;
     setAssigneeType(type); setAssigneeId(id);
+    setRuntimeSelectionPolicy(type === "workflow" ? updates.runtime_selection_policy : undefined);
+    setRuntimeId(type === "workflow" || type === "agent" ? updates.runtime_id ?? undefined : undefined);
     setDraft({ assigneeType: type, assigneeId: id });
   };
   const updateStartDate = (v: string | null) => { setStartDate(v); setDraft({ startDate: v }); };
@@ -171,6 +190,8 @@ export function ManualCreatePanel({
     setStartDate(null);
     setDueDate(null);
     setProjectId(undefined);
+    setProjectRequiredVisible(false);
+    setProjectPickerOpen(false);
     setParentIssueId(undefined);
     setChildIssues([]);
     setAttachmentIds([]);
@@ -190,6 +211,11 @@ export function ManualCreatePanel({
 
   const handleSubmit = async () => {
     if (!title.trim() || submitting) return;
+    if (!projectId) {
+      setProjectRequiredVisible(true);
+      setProjectPickerOpen(true);
+      return;
+    }
     setSubmitting(true);
     try {
       const issue = await createIssueMutation.mutateAsync({
@@ -199,6 +225,8 @@ export function ManualCreatePanel({
         priority,
         assignee_type: assigneeType,
         assignee_id: assigneeId,
+        runtime_selection_policy: assigneeType === "workflow" ? runtimeSelectionPolicy : undefined,
+        runtime_id: assigneeType === "workflow" || assigneeType === "agent" ? runtimeId : undefined,
         start_date: startDate || undefined,
         due_date: dueDate || undefined,
         attachment_ids: attachmentIds.length > 0 ? attachmentIds : undefined,
@@ -466,6 +494,28 @@ export function ManualCreatePanel({
 
             {/* Property toolbar */}
             <div className="flex items-center gap-1.5 px-4 py-2 shrink-0 flex-wrap">
+              {/* Project — required, leads the row so the scope is set first.
+                  A subtle brand ring highlights the pill until a project is
+                  picked, so users can tell the field is mandatory. */}
+              <ProjectPicker
+                projectId={projectId ?? null}
+                onUpdate={(u) => {
+                  setProjectId(u.project_id ?? undefined);
+                  if (u.project_id) setProjectRequiredVisible(false);
+                }}
+                triggerRender={
+                  <PillButton
+                    className={cn(
+                      !projectId && "ring-1 ring-brand/30 bg-brand/5",
+                      projectRequiredVisible && "border-destructive/60 bg-destructive/10 text-destructive ring-2 ring-destructive/25",
+                    )}
+                  />
+                }
+                align="start"
+                open={projectPickerOpen}
+                onOpenChange={setProjectPickerOpen}
+              />
+
               {/* Status */}
               <StatusPicker
                 status={status}
@@ -486,10 +536,7 @@ export function ManualCreatePanel({
               <AssigneePicker
                 assigneeType={assigneeType ?? null}
                 assigneeId={assigneeId ?? null}
-                onUpdate={(u) => updateAssignee(
-                  u.assignee_type ?? undefined,
-                  u.assignee_id ?? undefined,
-                )}
+                onUpdate={updateAssignee}
                 triggerRender={<PillButton />}
                 align="start"
               />
@@ -506,14 +553,6 @@ export function ManualCreatePanel({
               <DueDatePicker
                 dueDate={dueDate}
                 onUpdate={(u) => updateDueDate(u.due_date ?? null)}
-                triggerRender={<PillButton />}
-                align="start"
-              />
-
-              {/* Project */}
-              <ProjectPicker
-                projectId={projectId ?? null}
-                onUpdate={(u) => setProjectId(u.project_id ?? undefined)}
                 triggerRender={<PillButton />}
                 align="start"
               />
@@ -612,6 +651,12 @@ export function ManualCreatePanel({
 
             {/* Parent / child pickers — rendered inline so they stack over this
                 modal instead of replacing it via useModalStore. */}
+            {projectRequiredVisible && !projectId && (
+              <div className="px-5 pb-2 text-xs font-medium text-destructive">
+                {t(($) => $.create_issue.project_required_detail)}
+              </div>
+            )}
+
             <IssuePickerModal
               open={parentPickerOpen}
               onOpenChange={setParentPickerOpen}
@@ -670,7 +715,9 @@ export function ManualCreatePanel({
                   <TooltipProvider delay={200}>
                     <Tooltip>
                       <TooltipTrigger render={<span><Button size="sm" onClick={handleSubmit} disabled>{t(($) => $.create_issue.submit)}</Button></span>} />
-                      <TooltipContent side="top">{t(($) => $.create_issue.title_required)}</TooltipContent>
+                      <TooltipContent side="top">
+                        {t(($) => $.create_issue.title_required)}
+                      </TooltipContent>
                     </Tooltip>
                   </TooltipProvider>
                 ) : (

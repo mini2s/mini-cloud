@@ -26,12 +26,20 @@ import { WORKER_WIDTH } from "../../../workflows/components/overview/constants";
 
 export const RUNTIME_NODE_HEIGHT = 176;
 export const RUNTIME_SPLIT_NODE_HEIGHT = 156;
+export const RUNTIME_CHILD_ISSUE_NODE_HEIGHT = 136;
+export const RUNTIME_CHILD_ISSUE_NODE_WIDTH = 264;
 
 export interface RuntimeNodeDeliverableSummary {
   id: string;
   title: string;
   status: WorkflowDeliverableSubmissionStatus;
   pullRequestUrl: string | null;
+}
+
+export interface RuntimeChildIssueSummary {
+  identifier: string;
+  workflowName: string | null;
+  progressLabel: string;
 }
 
 export type NodeRunActionType =
@@ -62,6 +70,7 @@ export interface RuntimeNodeCardProps {
   onSplitNodeToggle?: (nodeId: string) => void;
   onOpenSession?: (nodeId: string) => Promise<boolean>;
   deliverables?: RuntimeNodeDeliverableSummary[];
+  childIssueSummary?: RuntimeChildIssueSummary;
 }
 
 function gatewayLabel(t: IssueTranslator, kind: "fork" | "join" | null): string {
@@ -348,13 +357,18 @@ export function RuntimeNodeCard({
   onSplitNodeToggle,
   onOpenSession,
   deliverables = [],
+  childIssueSummary,
 }: RuntimeNodeCardProps) {
   const { t } = useT("issues");
   const [openSessionState, setOpenSessionState] = useState<"idle" | "opening" | "opened" | "failed">("idle");
   const nodeFormat = parseNodeFormat(node.format_schema);
   const isGateway = nodeFormat.kind === "gateway";
   const isSplit = nodeFormat.kind === "split";
-	const cardHeight = isSplit ? RUNTIME_SPLIT_NODE_HEIGHT : RUNTIME_NODE_HEIGHT;
+	const cardHeight = isSplit
+    ? RUNTIME_SPLIT_NODE_HEIGHT
+    : childIssueSummary
+      ? RUNTIME_CHILD_ISSUE_NODE_HEIGHT
+      : RUNTIME_NODE_HEIGHT;
 	const splitMode = nodeFormat.split_config?.mode ?? "barrier";
   const nodeShape = nodeFormat.shape;
   const displayStatus = runtimeSummary?.display_status ?? (nodeRun ? toWorkflowRuntimeDisplayStatus(nodeRun.status) : "pending");
@@ -443,7 +457,7 @@ export function RuntimeNodeCard({
       testId={`runtime-node-card-${node.id}`}
       nodeShape={nodeShape}
       selected={isSelected}
-      width={WORKER_WIDTH}
+      width={childIssueSummary ? RUNTIME_CHILD_ISSUE_NODE_WIDTH : WORKER_WIDTH}
       height={cardHeight}
       title={node.title}
       dataRuntimeDisplayStatus={displayStatus}
@@ -451,7 +465,7 @@ export function RuntimeNodeCard({
       tabIndex={hasInlineAction ? 0 : undefined}
       onClick={() => onClick(node.id)}
       onKeyDown={hasInlineAction ? handleShellKeyDown : undefined}
-      className={isSplit ? "h-[156px]" : "h-[176px]"}
+      className={isSplit ? "h-[156px]" : childIssueSummary ? "h-[136px]" : "h-[176px]"}
       surfaceClassName={runtimeFocusSurfaceClassName(isRuntimeFocus, displayStatus)}
       contentClassName={cn("h-full justify-between gap-2", workflowNodeInfoAreaClassName(nodeShape))}
       handles={handles}
@@ -593,7 +607,29 @@ export function RuntimeNodeCard({
         />
       </div>
 
-      {isGateway ? (
+      {childIssueSummary ? (
+        <div
+          data-testid="runtime-node-content"
+          className="flex min-w-0 flex-col gap-2 border-t border-border/45 py-2"
+        >
+          <div
+            data-testid="runtime-node-child-issue-context"
+            className="flex min-w-0 items-center gap-1 text-[10px] font-medium leading-3 text-muted-foreground"
+            title={`${childIssueSummary.identifier} · ${childIssueSummary.workflowName ?? "--"}`}
+          >
+            <span className="shrink-0">{childIssueSummary.identifier}</span>
+            <span aria-hidden className="text-muted-foreground/50">{" · "}</span>
+            <span className="min-w-0 truncate">{childIssueSummary.workflowName ?? "--"}</span>
+          </div>
+          <div
+            data-testid="runtime-node-child-issue-progress"
+            className="min-w-0 text-[11px] font-medium leading-4 text-foreground/85 line-clamp-2"
+            title={childIssueSummary.progressLabel}
+          >
+            {childIssueSummary.progressLabel}
+          </div>
+        </div>
+      ) : isGateway ? (
         <div className="border-t border-border/45 py-2" data-testid="runtime-node-content">
           <div className="flex min-w-0 items-center gap-2 text-[12px]">
             <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-muted/55 text-muted-foreground ring-1 ring-border/60">

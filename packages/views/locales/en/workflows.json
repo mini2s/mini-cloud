@@ -297,7 +297,7 @@
     "empty_worker": "No worker selected",
     "empty_critic_role": "No critic role selected",
     "empty_critic": "No critic selected",
-    "manage_roles_shortcut": "Manage roles",
+    "manage_roles_shortcut": "Add dev role",
     "empty_unknown_node": "Unknown node",
     "picker_empty_prefix": "Select existing",
     "gateway_label_fork": "Branch start",
@@ -396,6 +396,10 @@
     "triggered_by": "Triggered by",
     "started_at": "Started",
     "completed_at": "Completed",
+    "runtime_policy": "Runtime strategy",
+    "runtime_policy_specified": "Specified runtime first",
+    "runtime_policy_idle": "Idle runtime first",
+    "runtime_policy_issue_creator": "Issue creator runtime first",
     "cancel": "Cancel Run",
     "cancelling": "Cancelling...",
     "toast_cancelled": "Run cancelled",
@@ -485,7 +489,7 @@
     "submit": "Submit",
     "submitting": "Submitting...",
     "approve": "Approve",
-    "request_rework": "Request Rework",
+    "request_rework": "Reject",
     "skip": "Skip",
     "toast_submitted": "Output submitted",
     "toast_submit_failed": "Failed to submit output",
@@ -514,13 +518,23 @@
     "hand_back_wrong_status": "Only blocked nodes can be handed back.",
     "finalize_wrong_status": "Only blocked nodes can be finalized.",
     "review_comment_placeholder": "Add a comment with your review...",
+    "review_comment_required": "Please add a review comment before approving or rejecting",
     "deliverables": {
       "heading": "Deliverable PRs",
+      "document_section": "Documents",
+      "code_section": "Code",
       "pull_request_label": "Pull request",
-      "upload_button": "Upload deliverable",
+      "upload_button": "Upload document",
       "upload_heading": "Submit a document",
       "upload_placeholder": "Write or paste the document content (markdown)…",
       "upload_submit": "Submit",
+      "upload_file_hint": "Any format; multiple files supported",
+      "upload_file_choose": "Choose a file",
+      "upload_pr_button": "Submit code",
+      "upload_pr_heading": "Submit a merge request link",
+      "upload_pr_placeholder": "Paste the pull / merge request URL…",
+      "upload_pr_submit": "Submit link",
+      "cancel": "Cancel",
       "uploading": "Submitting…"
     }
   },
@@ -653,6 +667,7 @@
       "unsaved": "Unsaved",
       "editor": "Editor",
       "run_history": "Run history",
+      "run_settings": "Run settings",
       "test_run": "Test run",
       "save_and_test": "Save & test",
       "activate_before_test": "Activate workflow before testing.",
@@ -673,6 +688,39 @@
       "delete": "Delete stage",
       "move_up": "Move stage up",
       "move_down": "Move stage down"
+    }
+  },
+  "runtime_strategy": {
+    "default_title": "Default run strategy",
+    "default_description": "Choose how {{name}} selects a runtime for future runs.",
+    "run_title": "Start workflow",
+    "run_description": "Use the workflow default or override the strategy for this run of {{name}}.",
+    "runtime_label": "Preferred runtime",
+    "runtime_placeholder": "Select a runtime",
+    "online": "Online",
+    "offline": "Offline",
+    "deleted_runtime": "The saved runtime is no longer available to you. Select another runtime before continuing.",
+    "no_runtime": "No runtime is available in this workspace.",
+    "direct_run_hint": "A direct test run has no issue creator, so selection starts with an idle runtime.",
+    "cancel": "Cancel",
+    "saving": "Saving...",
+    "save_default": "Save default",
+    "start_run": "Start run",
+    "toast_default_saved": "Default run strategy saved",
+    "toast_default_failed": "Failed to save default run strategy",
+    "policy": {
+      "specified_runtime_first": {
+        "title": "Specified runtime first",
+        "description": "Specified runtime → idle runtime → issue creator runtime → fail"
+      },
+      "idle_first": {
+        "title": "Idle runtime first",
+        "description": "Idle runtime → issue creator runtime → fail"
+      },
+      "issue_creator_first": {
+        "title": "Issue creator runtime first",
+        "description": "Issue creator runtime → idle runtime → fail"
+      }
     }
   },
   "preflight": {

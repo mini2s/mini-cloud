@@ -14,6 +14,7 @@ import {
   Plus,
   Redo2,
   Save,
+  Settings2,
   Trash2,
   Undo2,
   WandSparkles,
@@ -60,6 +61,7 @@ export interface WorkflowEditorToolbarProps {
   onTestRun: () => void | Promise<void>;
   onToggleWorkflowStatus: () => void;
   onOpenRunHistory: () => void;
+  onOpenRunSettings: () => void;
   onDeleteWorkflow: () => void;
 }
 
@@ -96,6 +98,7 @@ export function WorkflowEditorToolbar({
   onTestRun,
   onToggleWorkflowStatus,
   onOpenRunHistory,
+  onOpenRunSettings,
   onDeleteWorkflow,
 }: WorkflowEditorToolbarProps) {
   const { t } = useT("workflows");
@@ -316,6 +319,10 @@ export function WorkflowEditorToolbar({
             }
           />
           <DropdownMenuContent align="end" className="w-44">
+            <DropdownMenuItem onClick={onOpenRunSettings}>
+              <Settings2 className="size-4" />
+              {t(($) => $.panorama.toolbar.run_settings)}
+            </DropdownMenuItem>
             <DropdownMenuItem onClick={onOpenRunHistory}>
               <History className="size-4" />
               {t(($) => $.panorama.toolbar.run_history)}

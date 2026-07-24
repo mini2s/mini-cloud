@@ -133,11 +133,15 @@ vi.mock("../issues/components", () => ({
 }));
 
 vi.mock("../projects/components/project-picker", () => ({
-  ProjectPicker: () => <div data-testid="project-picker" />,
+  ProjectPicker: ({ triggerRender, open }: { triggerRender?: ReactNode; open?: boolean }) => (
+    <div data-testid="project-picker" data-open={open ? "true" : "false"}>{triggerRender}</div>
+  ),
 }));
 
 vi.mock("../common/pill-button", () => ({
-  PillButton: () => <div data-testid="pill-button" />,
+  PillButton: ({ className }: { className?: string }) => (
+    <div data-testid="pill-button" className={className} />
+  ),
 }));
 
 vi.mock("../editor", () => {
@@ -292,6 +296,30 @@ describe("AgentCreatePanel", () => {
     });
   });
 
+  // A project is required to create an issue. When the user tries to submit
+  // without one, the form should say what blocked creation and open the
+  // project picker instead of silently doing nothing.
+  it("shows project-required feedback when Create is clicked without a project", async () => {
+    const user = userEvent.setup();
+    renderPanel({ onClose: vi.fn(), isExpanded: false, setIsExpanded: vi.fn() });
+
+    const editor = screen.getByPlaceholderText(
+      'Tell the digital human what to do, e.g. "let Bohan fix the inbox loading slowness in the Web project"',
+    );
+    await user.type(editor, "Do something");
+    await user.click(screen.getByRole("button", { name: /^Create \(/i }));
+
+    expect(mockQuickCreateIssue).not.toHaveBeenCalled();
+    expect(screen.getByText("Pick a project first. Every issue must belong to a project.")).toBeInTheDocument();
+    expect(screen.getByTestId("project-picker")).toHaveAttribute("data-open", "true");
+  });
+
+  it("highlights the project picker while project is missing", () => {
+    renderPanel({ onClose: vi.fn(), isExpanded: false, setIsExpanded: vi.fn() });
+
+    expect(screen.getByTestId("pill-button")).toHaveClass("ring-1", "ring-brand/30", "bg-brand/5");
+  });
+
   it("loads the persisted prompt draft when no transient prompt is provided", () => {
     renderPanel({ onClose: vi.fn(), isExpanded: false, setIsExpanded: vi.fn() });
 
@@ -305,6 +333,10 @@ describe("AgentCreatePanel", () => {
   it("writes prompt changes back to the draft store and clears them after submit", async () => {
     const user = userEvent.setup();
     const onClose = vi.fn();
+    // A project is required to create — seed one so Create is enabled and
+    // the submission carries it.
+    mockProjectsQuery.data = [{ id: "proj-1", title: "Project 1", icon: null }];
+    mockQuickCreateStore.lastProjectId = "proj-1";
 
     renderPanel({ onClose, isExpanded: false, setIsExpanded: vi.fn() });
 
@@ -322,14 +354,12 @@ describe("AgentCreatePanel", () => {
       expect(mockQuickCreateIssue).toHaveBeenCalledWith({
         agent_id: "agent-1",
         prompt: "New agent prompt",
-        project_id: undefined,
+        project_id: "proj-1",
       });
     });
 
     expect(mockSetLastActor).toHaveBeenCalledWith("agent", "agent-1");
-    // No project picked → persisted project preference is cleared so the
-    // store stays in sync with the actual outgoing request.
-    expect(mockSetLastProjectId).toHaveBeenCalledWith(null);
+    expect(mockSetLastProjectId).toHaveBeenCalledWith("proj-1");
     expect(mockClearPrompt).toHaveBeenCalled();
     expect(mockSetLastMode).toHaveBeenCalledWith("agent");
     expect(onClose).toHaveBeenCalled();
@@ -345,6 +375,8 @@ describe("AgentCreatePanel", () => {
     ];
     const user = userEvent.setup();
     const onClose = vi.fn();
+    mockProjectsQuery.data = [{ id: "proj-1", title: "Project 1", icon: null }];
+    mockQuickCreateStore.lastProjectId = "proj-1";
 
     renderPanel({ onClose, isExpanded: false, setIsExpanded: vi.fn() });
 
@@ -364,7 +396,7 @@ describe("AgentCreatePanel", () => {
       expect(mockQuickCreateIssue).toHaveBeenCalledWith({
         squad_id: "squad-1",
         prompt: "Investigate the regression",
-        project_id: undefined,
+        project_id: "proj-1",
       });
     });
     expect(mockSetLastActor).toHaveBeenCalledWith("squad", "squad-1");

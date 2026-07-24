@@ -35,6 +35,7 @@ import {
   postCostrictNavigateToSession,
 } from "@multica/core/platform";
 import { agentListOptions, memberListOptions, squadListOptions } from "@multica/core/workspace/queries";
+import { childIssuesOptions } from "@multica/core/issues/queries";
 import { workerTypeToActorType } from "@multica/core/types";
 import type {
   WorkflowNode,
@@ -157,6 +158,38 @@ function splitTaskDisplayStatus(status: SplitTask["status"]): WorkflowRuntimeDis
 }
 
 type IssueTranslator = ReturnType<typeof useT<"issues">>["t"];
+
+function splitTaskProgressLabel(
+  t: IssueTranslator,
+  task: SplitTask,
+  taskById: Map<string, SplitTask>,
+): string {
+  switch (task.status) {
+    case "running":
+      return t(($) => $.execution.card.child_workflow_running);
+    case "done":
+      return t(($) => $.execution.card.child_workflow_completed);
+    case "cancelled":
+    case "discarded":
+      return t(($) => $.execution.card.child_workflow_cancelled);
+    case "failed":
+      return task.last_error?.message || t(($) => $.execution.card.child_workflow_failed);
+    case "skipped":
+      return t(($) => $.execution.card.child_workflow_skipped);
+    case "created":
+    case "approved": {
+      const hasUnfinishedDependency = task.depends_on.some(
+        (dependencyId) => taskById.get(dependencyId)?.status !== "done",
+      );
+      return hasUnfinishedDependency
+        ? t(($) => $.execution.card.child_waiting_dependencies)
+        : t(($) => $.execution.card.child_waiting_workflow);
+    }
+    case "draft":
+    default:
+      return t(($) => $.execution.card.child_waiting_workflow);
+  }
+}
 
 function runtimeDisplayStatusText(t: IssueTranslator, status: WorkflowRuntimeDisplayStatus): string {
   switch (status) {
@@ -630,6 +663,10 @@ export function ExecutionPanoramaPage({
   const { t: tWf } = useT("workflows");
   const { data: squads } = useQuery(squadListOptions(wsId));
   const { data: splitWorkflowOptions = [] } = useQuery(splitIssueWorkflowOptions(wsId, workflowId));
+  const { data: childIssues = [] } = useQuery({
+    ...childIssuesOptions(wsId, issueId ?? ""),
+    enabled: !!issueId,
+  });
   const { data: chatSessions = [] } = useQuery(chatSessionsOptions(wsId));
   const setChatSession = useChatStore((state) => state.setActiveSession);
   const setChatOpen = useChatStore((state) => state.setOpen);
@@ -739,7 +776,7 @@ export function ExecutionPanoramaPage({
     deliverableNodeEntries.forEach((node, index) => {
       const definitions = [...(deliverableDefinitionQueries[index]?.data ?? [])]
         .sort((left, right) => left.sort_order - right.sort_order);
-      const submissions = deliverableSubmissionQueries[index]?.data ?? [];
+      const submissions = deliverableSubmissionQueries[index]?.data?.submissions ?? [];
       const submissionByDeliverableId = new Map(
         submissions.map((submission) => [submission.deliverable_id, submission]),
       );
@@ -843,6 +880,11 @@ export function ExecutionPanoramaPage({
     }
     return map;
   }, [splitWorkflowOptions]);
+
+  const childIssueIdentifierById = useMemo(
+    () => new Map(childIssues.map((childIssue) => [childIssue.id, childIssue.identifier])),
+    [childIssues],
+  );
 
   const getActorName = useCallback((type: string, id: string): string | null => {
     if (type === "agent") {
@@ -1164,6 +1206,9 @@ export function ExecutionPanoramaPage({
         const childWorkerName = task.workflow_id
           ? splitWorkflowLookup.get(task.workflow_id)?.title ?? task.workflow_id
           : null;
+        const issueIdentifier = childIssueIdentifierById.get(issueId)
+          ?? t(($) => $.execution.card.child_issue_fallback);
+        const progressLabel = splitTaskProgressLabel(t, task, taskMap);
 
         splitChildDetailByNodeId.set(childNodeId, {
           issueId,
@@ -1181,6 +1226,8 @@ export function ExecutionPanoramaPage({
           displayStatus,
           displayStatusLabel: runtimeDisplayStatusText(t, displayStatus),
           workerName: childWorkerName,
+          issueIdentifier,
+          progressLabel,
           level,
           rowIndex: index,
           dependencyNodeIds: validDependencies.map((depId) => createSplitChildNodeId(splitNode.id, depId)),

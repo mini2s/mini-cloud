@@ -11,6 +11,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/multica-ai/multica/server/internal/coderepo"
 	"github.com/multica-ai/multica/server/internal/events"
 	"github.com/multica-ai/multica/server/internal/gitea"
 	"github.com/multica-ai/multica/server/internal/teamnamespace"
@@ -31,6 +32,10 @@ type WorkflowService struct {
 	RoleResolutionPromptVersion      string
 	RoleResolutionWorkspaceAllowlist map[string]struct{}
 	RoleResolutionMaxActiveJobs      int64
+
+	// RepositoryProvider is the provider-neutral surface for deliverable
+	// repository file, branch, review-request, and merge operations.
+	RepositoryProvider coderepo.RepositoryProvider
 
 	// Gitea is the platform Gitea admin client, used (in M2 Tasks 4-5) for
 	// run-start scaffolding and approve-time PR merging of document deliverables.
@@ -309,18 +314,26 @@ func (s *WorkflowService) resolveWorkflowUser(
 // StartRun creates a workflow_run and node_runs for every node, then
 // kicks off root nodes (nodes with no incoming edges).
 func (s *WorkflowService) StartRun(ctx context.Context, workflow db.MulticaWorkflow, triggeredByType, triggeredByID string, input json.RawMessage, runtimeID pgtype.UUID) (*db.MulticaWorkflowRun, error) {
+	return s.StartRunWithRuntimeSelection(ctx, workflow, triggeredByType, triggeredByID, input, "", runtimeID)
+}
+
+func (s *WorkflowService) StartRunWithRuntimeSelection(ctx context.Context, workflow db.MulticaWorkflow, triggeredByType, triggeredByID string, input json.RawMessage, runtimeSelectionPolicy string, runtimeID pgtype.UUID) (*db.MulticaWorkflowRun, error) {
 	triggeredByUUID, err := util.ParseUUID(triggeredByID)
 	if err != nil && triggeredByID != "" {
 		triggeredByUUID = pgtype.UUID{}
 	}
-	return s.startRun(ctx, workflow, triggeredByType, triggeredByID, input, runtimeID, "", workflowRunRuntimeContext{
+	return s.startRun(ctx, workflow, triggeredByType, triggeredByID, input, runtimeSelectionPolicy, runtimeID, "", workflowRunRuntimeContext{
 		RuntimeAuthorizerID: s.resolveWorkflowUser(ctx, triggeredByType, triggeredByUUID),
 	})
 }
 
-func (s *WorkflowService) startRun(ctx context.Context, workflow db.MulticaWorkflow, triggeredByType, triggeredByID string, input json.RawMessage, runtimeID pgtype.UUID, dispatchKey string, runtimeContext workflowRunRuntimeContext) (*db.MulticaWorkflowRun, error) {
+func (s *WorkflowService) startRun(ctx context.Context, workflow db.MulticaWorkflow, triggeredByType, triggeredByID string, input json.RawMessage, runtimeSelectionPolicy string, runtimeID pgtype.UUID, dispatchKey string, runtimeContext workflowRunRuntimeContext) (*db.MulticaWorkflowRun, error) {
 	if workflow.Status != "active" {
 		return nil, fmt.Errorf("workflow is not active (status=%s)", workflow.Status)
+	}
+	resolvedPolicy, resolvedRuntimeID, err := resolveWorkflowRuntimeSelectionPolicy(workflow, runtimeSelectionPolicy, runtimeID)
+	if err != nil {
+		return nil, err
 	}
 	nodes, err := s.Queries.ListWorkflowNodes(ctx, workflow.ID)
 	if err != nil {
@@ -351,32 +364,34 @@ func (s *WorkflowService) startRun(ctx context.Context, workflow db.MulticaWorkf
 		var err error
 		if dispatchKey == "" {
 			r, err = qtx.CreateWorkflowRun(ctx, db.CreateWorkflowRunParams{
-				WorkflowID:          workflow.ID,
-				WorkspaceID:         workflow.WorkspaceID,
-				WorkflowTitle:       workflow.Title,
-				Status:              runStatus,
-				TriggeredByType:     triggeredByType,
-				TriggeredByID:       triggeredByUUID,
-				Input:               input,
-				RuntimeID:           runtimeID,
-				SourceIssueID:       runtimeContext.SourceIssueID,
-				ResponsibleUserID:   runtimeContext.ResponsibleUserID,
-				RuntimeAuthorizerID: runtimeContext.RuntimeAuthorizerID,
+				WorkflowID:             workflow.ID,
+				WorkspaceID:            workflow.WorkspaceID,
+				WorkflowTitle:          workflow.Title,
+				Status:                 runStatus,
+				TriggeredByType:        triggeredByType,
+				TriggeredByID:          triggeredByUUID,
+				Input:                  input,
+				RuntimeSelectionPolicy: resolvedPolicy,
+				RuntimeID:              resolvedRuntimeID,
+				SourceIssueID:          runtimeContext.SourceIssueID,
+				ResponsibleUserID:      runtimeContext.ResponsibleUserID,
+				RuntimeAuthorizerID:    runtimeContext.RuntimeAuthorizerID,
 			})
 		} else {
 			r, err = qtx.CreateWorkflowRunWithDispatchKey(ctx, db.CreateWorkflowRunWithDispatchKeyParams{
-				WorkflowID:          workflow.ID,
-				WorkspaceID:         workflow.WorkspaceID,
-				WorkflowTitle:       workflow.Title,
-				Status:              runStatus,
-				TriggeredByType:     triggeredByType,
-				TriggeredByID:       triggeredByUUID,
-				Input:               input,
-				RuntimeID:           runtimeID,
-				DispatchKey:         textToPgText(dispatchKey),
-				SourceIssueID:       runtimeContext.SourceIssueID,
-				ResponsibleUserID:   runtimeContext.ResponsibleUserID,
-				RuntimeAuthorizerID: runtimeContext.RuntimeAuthorizerID,
+				WorkflowID:             workflow.ID,
+				WorkspaceID:            workflow.WorkspaceID,
+				WorkflowTitle:          workflow.Title,
+				Status:                 runStatus,
+				TriggeredByType:        triggeredByType,
+				TriggeredByID:          triggeredByUUID,
+				Input:                  input,
+				RuntimeSelectionPolicy: resolvedPolicy,
+				RuntimeID:              resolvedRuntimeID,
+				DispatchKey:            textToPgText(dispatchKey),
+				SourceIssueID:          runtimeContext.SourceIssueID,
+				ResponsibleUserID:      runtimeContext.ResponsibleUserID,
+				RuntimeAuthorizerID:    runtimeContext.RuntimeAuthorizerID,
 			})
 		}
 		if err != nil {
@@ -535,6 +550,18 @@ func (s *WorkflowService) StartRunForIssue(
 	triggeredByID string,
 	runtimeID pgtype.UUID,
 ) (*db.MulticaWorkflowRun, []db.MulticaWorkflowNodeRun, error) {
+	return s.StartRunForIssueWithRuntimeSelection(ctx, workflow, issue, triggeredByType, triggeredByID, "", runtimeID)
+}
+
+func (s *WorkflowService) StartRunForIssueWithRuntimeSelection(
+	ctx context.Context,
+	workflow db.MulticaWorkflow,
+	issue db.MulticaIssue,
+	triggeredByType string,
+	triggeredByID string,
+	runtimeSelectionPolicy string,
+	runtimeID pgtype.UUID,
+) (*db.MulticaWorkflowRun, []db.MulticaWorkflowNodeRun, error) {
 	input, err := json.Marshal(map[string]any{
 		"issue_id":    util.UUIDToString(issue.ID),
 		"title":       issue.Title,
@@ -548,7 +575,7 @@ func (s *WorkflowService) StartRunForIssue(
 	if parseErr != nil && triggeredByID != "" {
 		triggeredByUUID = pgtype.UUID{}
 	}
-	run, err := s.startRun(ctx, workflow, triggeredByType, triggeredByID, input, runtimeID, "", workflowRunRuntimeContext{
+	run, err := s.startRun(ctx, workflow, triggeredByType, triggeredByID, input, runtimeSelectionPolicy, runtimeID, "", workflowRunRuntimeContext{
 		SourceIssueID:       issue.ID,
 		ResponsibleUserID:   s.resolveWorkflowUser(ctx, issue.CreatorType, issue.CreatorID),
 		RuntimeAuthorizerID: s.resolveWorkflowUser(ctx, triggeredByType, triggeredByUUID),
@@ -645,7 +672,7 @@ func (s *WorkflowService) StartDefaultRunForIssue(ctx context.Context, issue db.
 	if err != nil {
 		return nil, db.MulticaWorkflowNodeRun{}, fmt.Errorf("marshal issue input: %w", err)
 	}
-	run, err := s.startRun(ctx, wf, issue.CreatorType, util.UUIDToString(issue.CreatorID), input, pgtype.UUID{}, "", workflowRunRuntimeContext{
+	run, err := s.startRun(ctx, wf, issue.CreatorType, util.UUIDToString(issue.CreatorID), input, "", pgtype.UUID{}, "", workflowRunRuntimeContext{
 		RuntimeAuthorizerID: s.resolveWorkflowUser(ctx, issue.CreatorType, issue.CreatorID),
 	})
 	if err != nil {
@@ -672,8 +699,14 @@ func (s *WorkflowService) StartDefaultRunForIssue(ctx context.Context, issue db.
 
 	// Dispatch the root node-run. dispatchWorker reads the node-run's (now
 	// overridden) worker type: agent/squad → agent task; human (member) →
-	// worker_assigned, awaits UI upload. Errors are logged inside, not returned.
-	s.DispatchRootNodeRuns(ctx, run.ID)
+	// worker_assigned, awaits UI upload. Dispatch is best-effort — the run is
+	// already created, so a failure here must be logged, not silently dropped,
+	// or the node-run sits at format_ok looking "in progress" with no task and
+	// no clue why (e.g. the agent has no runtime bound).
+	if err := s.DispatchRootNodeRuns(ctx, run.ID); err != nil {
+		slog.Warn("dispatch default run root nodes",
+			"run_id", util.UUIDToString(run.ID), "error", err)
+	}
 
 	// Scaffold Gitea for the run (dormant no-op when unconfigured).
 	go s.ScaffoldRunDeliverables(context.Background(), *run)
@@ -722,7 +755,7 @@ func (s *WorkflowService) StartRunForIssueWithDispatchKey(
 	if parseErr != nil && triggeredByID != "" {
 		triggeredByUUID = pgtype.UUID{}
 	}
-	run, err := s.startRun(ctx, workflow, triggeredByType, triggeredByID, input, runtimeID, dispatchKey, workflowRunRuntimeContext{
+	run, err := s.startRun(ctx, workflow, triggeredByType, triggeredByID, input, "", runtimeID, dispatchKey, workflowRunRuntimeContext{
 		SourceIssueID:       issue.ID,
 		ResponsibleUserID:   s.resolveWorkflowUser(ctx, issue.CreatorType, issue.CreatorID),
 		RuntimeAuthorizerID: s.resolveWorkflowUser(ctx, triggeredByType, triggeredByUUID),
@@ -1458,12 +1491,12 @@ func (s *WorkflowService) ReviewNodeRun(ctx context.Context, nodeRunID pgtype.UU
 	if approved && nodeRun.Status == NodeRunStatusCriticApproved {
 		finalStatus := NodeRunStatusCompleted
 		if s.Gitea != nil && s.Gitea.Configured() {
-			if err := s.mergeDocumentDeliverables(ctx, nodeRun); err != nil {
-				slog.Error("gitea merge document deliverables failed; blocking node run",
+			if err := s.mergeDeliverablePRs(ctx, nodeRun); err != nil {
+				slog.Error("gitea merge deliverable PRs failed; blocking node run",
 					"node_run_id", util.UUIDToString(nodeRun.ID), "error", err)
 				finalStatus = NodeRunStatusBlocked
 			} else {
-				s.markDocumentSubmissionsApproved(ctx, nodeRun)
+				s.markDeliverableSubmissionsApproved(ctx, nodeRun)
 			}
 		}
 		updated, err := s.Queries.UpdateWorkflowNodeRunStatus(ctx, db.UpdateWorkflowNodeRunStatusParams{
@@ -2150,6 +2183,9 @@ func (s *WorkflowService) createSystemComment(ctx context.Context, issueID pgtyp
 // ── WS event helpers ─────────────────────────────────────────────────────────
 
 func (s *WorkflowService) publishWorkflowEvent(eventType, workspaceID string, payload any) {
+	if s.Bus == nil {
+		return // best-effort: no event bus wired (e.g. service constructed in tests) — skip, don't crash.
+	}
 	s.Bus.Publish(events.Event{
 		Type:        eventType,
 		WorkspaceID: workspaceID,

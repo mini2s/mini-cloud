@@ -780,6 +780,11 @@ const WorkflowSchema = z.object({
   node_count: z.number().default(0),
   is_template: z.boolean().default(false),
   source_template_id: z.string().nullable().default(null),
+  default_runtime_selection_policy: z
+    .enum(["specified_runtime_first", "idle_first", "issue_creator_first"])
+    .catch("idle_first")
+    .default("idle_first"),
+  default_runtime_id: z.string().nullable().default(null),
   custom_roles: z.array(z.string()).catch([]).default([]),
   created_at: z.string().default(""),
   updated_at: z.string().default(""),
@@ -809,6 +814,8 @@ export const EMPTY_WORKFLOW: Workflow = {
   node_count: 0,
   is_template: false,
   source_template_id: null,
+  default_runtime_selection_policy: "idle_first",
+  default_runtime_id: null,
   custom_roles: [],
   created_at: "",
   updated_at: "",
@@ -919,6 +926,10 @@ const WorkflowRunSchema = z.object({
   triggered_by_type: z.string().default("member"),
   triggered_by_id: z.string().nullable().default(null),
   runtime_id: z.string().nullable().default(null),
+  runtime_selection_policy: z
+    .enum(["specified_runtime_first", "idle_first", "issue_creator_first"])
+    .catch("idle_first")
+    .default("idle_first"),
   input: z.unknown().optional(),
   output: z.unknown().nullable().optional(),
   started_at: z.string().default(""),
@@ -990,6 +1001,7 @@ export const EMPTY_WORKFLOW_RUN: WorkflowRun = {
   triggered_by_type: "member",
   triggered_by_id: null,
   runtime_id: null,
+  runtime_selection_policy: "idle_first",
   input: {},
   output: null,
   started_at: "",
@@ -1405,6 +1417,7 @@ const WorkflowNodeDeliverableSubmissionSchema = z.object({
 
 export const WorkflowNodeDeliverableSubmissionsResponseSchema = z.object({
   submissions: z.array(WorkflowNodeDeliverableSubmissionSchema).default([]),
+  deliverables: z.array(WorkflowNodeDeliverableSchema).default([]),
 }).loose();
 
-export const EMPTY_WORKFLOW_NODE_DELIVERABLE_SUBMISSIONS_RESPONSE = { submissions: [] };
+export const EMPTY_WORKFLOW_NODE_DELIVERABLE_SUBMISSIONS_RESPONSE = { submissions: [], deliverables: [] };

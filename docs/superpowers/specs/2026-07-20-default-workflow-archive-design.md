@@ -26,7 +26,7 @@ Gitea 拓扑 `repo = wf-<workflow.id[:8]>` 锁死在 workflow.id 上——没有
 | 归档对象范围 | agent + member + squad（全部非 workflow 派单） |
 | member 产出方式 | "人上传→git" UI 路径：人在网页上传，服务端代写进 Gitea + 开 PR |
 | 归档形态 | 评审 + 合并（与 workflow 完全对称） |
-| critic（评审者） | Issue 创建者；复用现有 ReviewNodeRun/评审派发，**不加新字段、不加新 UI、不改权限模型**；创建者==assignee（自派自）不做特例 |
+| critic（审核者） | Issue 创建者；复用现有 ReviewNodeRun/评审派发，**不加新字段、不加新 UI、不改权限模型**；创建者==assignee（自派自）不做特例 |
 | 粒度 | 每 workspace 一个默认 workflow（系统、隐藏、单节点） |
 | worker | run 创建时动态 = Issue 的 assignee |
 | dormant | 仅 Gitea 已配置时启用；未配置时 agent/member/squad 派单行为与今天完全一致 |
@@ -107,7 +107,7 @@ agent 推 / member 上传 → 都开出 PR → critic（=创建者）经现有 R
 ## 七、待定 / 后续
 
 - member 上传的文件类型范围（MVP：text/markdown → `.md`；附件后续）。
-- 自派自（创建者==assignee）时的评审者回退策略——本期按"不做特例"处理，后续若成痛点再补。
+- 自派自（创建者==assignee）时的审核者回退策略——本期按"不做特例"处理，后续若成痛点再补。
 - 改派跨类型（如 workflow → agent）时的 run 生命周期细节（cancel 旧 run + 起默认 run）。
 - secret manager 加密 PAT（沿用上游待定项）。
 

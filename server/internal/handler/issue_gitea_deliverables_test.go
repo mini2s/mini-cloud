@@ -91,10 +91,10 @@ func TestGiteaContextForRun_DefaultWorkflowUsesArchiveRepo(t *testing.T) {
 	if got == nil {
 		t.Fatal("expected non-nil context")
 	}
-	if got.Repo != "deliverable-archive" {
-		t.Fatalf("Repo = %q, want deliverable-archive", got.Repo)
+	if got.Repo != "wf-deliverable-archive" {
+		t.Fatalf("Repo = %q, want wf-deliverable-archive", got.Repo)
 	}
-	if want := "/" + got.Owner + "/deliverable-archive.git"; !strings.HasSuffix(got.CloneURL, want) {
+	if want := "/" + got.Owner + "/wf-deliverable-archive.git"; !strings.HasSuffix(got.CloneURL, want) {
 		t.Fatalf("CloneURL = %q, want suffix %q", got.CloneURL, want)
 	}
 }

@@ -49,7 +49,13 @@ const mocks = vi.hoisted(() => ({
   runsData: [] as Array<{ id: string }>,
   nodeRunsData: [] as unknown[],
   runtimesData: [] as unknown[],
-  workflowData: { id: "wf-1", title: "Test Workflow", status: "draft" },
+  workflowData: {
+    id: "wf-1",
+    title: "Test Workflow",
+    status: "draft",
+    default_runtime_selection_policy: "idle_first",
+    default_runtime_id: null,
+  },
   selectedNodeId: null as string | null,
   selectedEdgeId: null as string | null,
   nodeEdits: {} as Record<string, unknown>,
@@ -64,8 +70,10 @@ const mocks = vi.hoisted(() => ({
   updateStageMutateAsync: vi.fn(),
   deleteStageMutate: vi.fn(),
   updateWorkflowMutate: vi.fn(),
+  updateWorkflowMutateAsync: vi.fn(),
   startWorkflowRunMutateAsync: vi.fn(),
   navigationPush: vi.fn(),
+  getActorName: vi.fn(() => "Test Agent"),
   selectNode: vi.fn(),
   clearNodeEdits: vi.fn(),
   cacheNodeDelete: vi.fn(),
@@ -130,7 +138,11 @@ vi.mock("@multica/core/workflows/queries", () => ({
   splitIssueWorkflowOptions: () => ({ queryKey: ["split-issue-workflow-options"] }),
   useCreateNode: () => ({ mutate: mocks.createNodeMutate, mutateAsync: vi.fn() }),
   useUpdateNode: () => ({ mutate: mocks.updateNodeMutate, mutateAsync: mocks.updateNodeMutateAsync }),
-  useUpdateWorkflow: () => ({ mutate: mocks.updateWorkflowMutate, mutateAsync: vi.fn() }),
+  useUpdateWorkflow: () => ({
+    mutate: mocks.updateWorkflowMutate,
+    mutateAsync: mocks.updateWorkflowMutateAsync,
+    isPending: false,
+  }),
   useMutateWorkflowRole: () => ({ mutateAsync: vi.fn() }),
   useDeleteNode: () => ({ mutateAsync: mocks.deleteNodeMutateAsync }),
   useCreateEdge: () => ({ mutate: mocks.createEdgeMutate, mutateAsync: vi.fn() }),
@@ -153,8 +165,12 @@ vi.mock("@multica/core/runtimes/queries", () => ({
   runtimeListOptions: () => ({ queryKey: ["runtimes"] }),
 }));
 
+vi.mock("../use-usable-workflow-runtimes", () => ({
+  useUsableWorkflowRuntimes: (runtimes: unknown[]) => ({ runtimes, isLoading: false }),
+}));
+
 vi.mock("@multica/core/workspace/hooks", () => ({
-  useActorName: () => ({ getActorName: () => "Test Agent" }),
+  useActorName: () => ({ getActorName: mocks.getActorName }),
 }));
 
 vi.mock("@multica/core/hooks", () => ({
@@ -316,6 +332,7 @@ vi.mock("../../../i18n", () => {
         unsaved: "Unsaved",
         editor: "Editor",
         run_history: "Run history",
+        run_settings: "Run settings",
         test_run: "Test run",
         save_and_test: "Save & test",
         more: "More",
@@ -330,6 +347,30 @@ vi.mock("../../../i18n", () => {
         available_in_issues: "Available in issues",
         hidden_from_issue_picker: "Hidden from issue picker",
         blocking_issues_left: "{{count}} issue(s) left",
+      },
+    },
+    runtime_strategy: {
+      default_title: "Default run strategy",
+      default_description: "Default for {{name}}",
+      run_title: "Start workflow",
+      run_description: "Run {{name}}",
+      runtime_label: "Preferred runtime",
+      runtime_placeholder: "Select a runtime",
+      online: "Online",
+      offline: "Offline",
+      deleted_runtime: "Runtime unavailable",
+      no_runtime: "No runtime",
+      direct_run_hint: "No issue creator",
+      cancel: "Cancel",
+      saving: "Saving...",
+      save_default: "Save default",
+      start_run: "Start run",
+      toast_default_saved: "Saved",
+      toast_default_failed: "Failed",
+      policy: {
+        specified_runtime_first: { title: "Specified runtime first", description: "Specified → idle → creator" },
+        idle_first: { title: "Idle runtime first", description: "Idle → creator" },
+        issue_creator_first: { title: "Issue creator first", description: "Creator → idle" },
       },
     },
     preflight: {
@@ -484,7 +525,13 @@ describe("WorkflowPanoramaPage (new)", () => {
     mocks.stagesData = [
       { id: "stage-1", workflow_id: "wf-1", name: "Stage 1", description: "", sort_order: 0, node_count: 0, created_at: "", updated_at: "" },
     ];
-    mocks.workflowData = { id: "wf-1", title: "Test Workflow", status: "draft" };
+    mocks.workflowData = {
+      id: "wf-1",
+      title: "Test Workflow",
+      status: "draft",
+      default_runtime_selection_policy: "idle_first",
+      default_runtime_id: null,
+    };
     mocks.nodesData = [];
     mocks.edgesData = [];
     mocks.childWorkflowsData = [];
@@ -505,6 +552,7 @@ describe("WorkflowPanoramaPage (new)", () => {
     mocks.updateStageMutateAsync.mockReset();
     mocks.deleteStageMutate.mockReset();
     mocks.updateWorkflowMutate.mockReset();
+    mocks.updateWorkflowMutateAsync.mockReset();
     mocks.startWorkflowRunMutateAsync.mockReset();
     mocks.navigationPush.mockReset();
     mocks.selectNode.mockReset();
@@ -869,8 +917,14 @@ describe("WorkflowPanoramaPage (new)", () => {
     expect(worker).toMatchObject({ position: { x: 120, y: 12 } });
   });
 
-  it("saves cached node edits, asks for a runtime, and starts a test run in auto mode", async () => {
-    mocks.workflowData = { id: "wf-1", title: "Test Workflow", status: "active" };
+  it("saves cached node edits, confirms the default strategy, and starts a test run", async () => {
+    mocks.workflowData = {
+      id: "wf-1",
+      title: "Test Workflow",
+      status: "active",
+      default_runtime_selection_policy: "idle_first",
+      default_runtime_id: null,
+    };
     mocks.nodesData = [
       { id: "node-1", workflow_id: "wf-1", title: "Server title", description: "", worker_type: "agent", worker_id: null, critic_type: "human", critic_id: null, critic_api_url: null, stage_id: "stage-1", format_schema: null, position_x: 120, position_y: 0, sort_order: 0, created_at: "", updated_at: "" },
     ];
@@ -889,18 +943,38 @@ describe("WorkflowPanoramaPage (new)", () => {
         nodeId: "node-1",
         title: "Edited title",
       });
-      expect(screen.getByText("Auto-select (recommended)")).toBeInTheDocument();
+      expect(screen.getByText("Idle runtime first")).toBeInTheDocument();
     });
 
-    fireEvent.click(screen.getByRole("button", { name: "Run" }));
+    fireEvent.click(screen.getByRole("button", { name: "Start run" }));
 
     await vi.waitFor(() => {
-      expect(mocks.startWorkflowRunMutateAsync).toHaveBeenCalledWith({ workflowId: "wf-1" });
+      expect(mocks.startWorkflowRunMutateAsync).toHaveBeenCalledWith({
+        workflowId: "wf-1",
+        runtimeSelectionPolicy: "idle_first",
+      });
       expect(mocks.navigationPush).toHaveBeenCalledWith("/workflows/wf-1/runs/run-1");
     });
     expect(mocks.updateNodeMutateAsync.mock.invocationCallOrder[0]).toBeLessThan(
       mocks.startWorkflowRunMutateAsync.mock.invocationCallOrder[0]!,
     );
+  });
+
+  it("saves the workflow-level default runtime strategy", async () => {
+    mocks.updateWorkflowMutateAsync.mockResolvedValueOnce({});
+    render(<WorkflowPanoramaPage workflowId="wf-1" />);
+
+    fireEvent.click(screen.getByRole("button", { name: "More" }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Run settings" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Save default" }));
+
+    await vi.waitFor(() => {
+      expect(mocks.updateWorkflowMutateAsync).toHaveBeenCalledWith({
+        id: "wf-1",
+        default_runtime_selection_policy: "idle_first",
+        default_runtime_id: null,
+      });
+    });
   });
 
   it("renders worker nodes in the first visible lane when stage sort orders are sparse", () => {
@@ -1014,6 +1088,7 @@ describe("WorkflowPanoramaPage (new)", () => {
     expect(worker?.data).not.toHaveProperty("stageName");
     expect(worker?.data).not.toHaveProperty("stageDescription");
     expect(worker?.data).not.toHaveProperty("runStatus");
+    expect(mocks.getActorName).toHaveBeenCalledWith("member", "member-1");
   });
 
   it("marks annotation nodes so they do not require worker configuration", () => {
@@ -1630,7 +1705,13 @@ describe("WorkflowPanoramaPage (new)", () => {
     );
 
     mocks.updateWorkflowMutate.mockReset();
-    mocks.workflowData = { id: "wf-1", title: "Test Workflow", status: "active" };
+    mocks.workflowData = {
+      id: "wf-1",
+      title: "Test Workflow",
+      status: "active",
+      default_runtime_selection_policy: "idle_first",
+      default_runtime_id: null,
+    };
     rerender(<WorkflowPanoramaPage workflowId="wf-1" />);
 
     fireEvent.click(screen.getByRole("button", { name: "Deactivate" }));

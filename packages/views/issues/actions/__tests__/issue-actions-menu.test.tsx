@@ -75,6 +75,9 @@ vi.mock("@multica/core/runtimes/queries", () => ({
       { id: "runtime-2", name: "Runtime Two", status: "online", runtime_mode: "local" },
     ]),
   }),
+  // AssigneePicker resolves usable runtimes via useUsableWorkflowRuntimes, which
+  // calls myRuntimePermissionOptions — provide a stub so the mock is complete.
+  myRuntimePermissionOptions: (runtimeId: string) => ({ queryKey: ["runtime-permission", runtimeId] }),
 }));
 
 vi.mock("@multica/core/workspace/hooks", () => ({

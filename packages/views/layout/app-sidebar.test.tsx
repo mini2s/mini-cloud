@@ -72,7 +72,7 @@ vi.mock("../auth", () => ({ useLogout: () => vi.fn() }));
 vi.mock("../issues/components/status-icon", () => ({ StatusIcon: () => <span /> }));
 vi.mock("../navigation", () => ({
   AppLink: ({ children, href }: { children: React.ReactNode; href: string }) => <a href={href}>{children}</a>,
-  useNavigation: () => ({ pathname: "/acme/issues", push: vi.fn() }),
+  useNavigation: () => ({ pathname: "/acme/issues", push: vi.fn(), searchParams: new URLSearchParams("") }),
 }));
 vi.mock("../i18n", () => ({
   useT: () => ({
@@ -105,6 +105,7 @@ vi.mock("@multica/core/paths", () => ({
     usage: () => "/acme/usage",
     runtimes: () => "/acme/runtimes",
     skills: () => "/acme/skills",
+    roles: () => "/acme/roles",
     settings: () => "/acme/settings",
     issueDetail: (id: string) => `/acme/issues/${id}`,
     projectDetail: (id: string) => `/acme/projects/${id}`,

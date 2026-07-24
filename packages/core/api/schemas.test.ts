@@ -27,6 +27,7 @@ import {
   UserSchema,
   WorkflowRoleResolutionsResponseSchema,
   WorkflowRolesResponseSchema,
+  WorkflowSchema,
   WorkflowRunSchema,
   WorkflowRunCanvasSummaryResponseSchema,
   WorkflowNodeRunSchema,
@@ -694,5 +695,17 @@ describe("workflow role response schemas", () => {
       status: "future_run_state",
     });
     expect(run.status).toBe("future_run_state");
+    expect(run.runtime_selection_policy).toBe("idle_first");
+  });
+
+  it("defaults legacy workflows to the idle-first runtime strategy", () => {
+    const workflow = WorkflowSchema.parse({
+      id: "workflow-1",
+      workspace_id: "ws-1",
+      title: "Legacy workflow",
+    });
+
+    expect(workflow.default_runtime_selection_policy).toBe("idle_first");
+    expect(workflow.default_runtime_id).toBeNull();
   });
 });

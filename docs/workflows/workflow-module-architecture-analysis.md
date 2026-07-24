@@ -120,7 +120,7 @@ flowchart TD
     end
 ```
 
-### 2.3 Node Run 执行者/评审者交互流程
+### 2.3 Node Run 执行者/审核者交互流程
 
 ```mermaid
 flowchart LR
@@ -132,7 +132,7 @@ flowchart LR
         DV --> SUBMIT["submit 提交"]
     end
 
-    subgraph 评审者["评审者（Critic）"]
+    subgraph 审核者["审核者（Critic）"]
         direction TB
         SUBMIT --> C_AG["Agent 评审"]
         SUBMIT --> C_HM["人工评审"]
@@ -163,7 +163,7 @@ flowchart LR
 | **项目（Project）** | Issue 关联 Workflow 时必须关联项目 |
 | **成员（Member）** | 成员创建、编辑、删除、启用、停用 Workflow；在审核期确认草案 |
 | **管理员（Admin）** | 审核 Workflow 发布至知识中心的申请 |
-| **组织关系（CoStrict）** | 研发角色动态映射关联研发岗位，用于节点执行者/评审者配置 |
+| **组织关系（CoStrict）** | 研发角色动态映射关联研发岗位，用于节点执行者/审核者配置 |
 
 ---
 
@@ -172,14 +172,14 @@ flowchart LR
 | 下游模块 | 关系说明 |
 |---------|---------|
 | **Issue** | Workflow 被 Issue 关联后启动执行；Workflow 执行过程中创建节点子 Issue（`origin_type = "workflow"`）；Split Node 创建子 Issue（`origin_type = "workflow_split"`）。删除/停用 Workflow 时提示关联 Issue 影响 |
-| **Agent / 智能体** | Workflow 节点可配置 Agent 作为执行者或评审者。Agent 按节点上下文、交付物要求、插件能力执行任务。Split Node 的 Planner Agent 负责生成草案 |
-| **Squad / 小队** | Workflow 节点可配置 Squad 作为执行者或评审者，由 Leader Agent 负责小队内任务分配 |
+| **Agent / 智能体** | Workflow 节点可配置 Agent 作为执行者或审核者。Agent 按节点上下文、交付物要求、插件能力执行任务。Split Node 的 Planner Agent 负责生成草案 |
+| **Squad / 小队** | Workflow 节点可配置 Squad 作为执行者或审核者，由 Leader Agent 负责小队内任务分配 |
 | **Runtime / 运行时** | Agent 执行需要指定运行时（Issue 粒度）。支持指定运行时和动态运行时策略；不可用时支持路由至其他运行时 |
 | **Worktree** | Agent 执行任务时基于 Worktree 创建工作目录 |
 | **Plugin / Skill** | Agent 执行时从知识中心下载 Plugin/Skill，作用范围限当前工作目录。智能体创建时可选择关联 Plugin/Skill |
 | **Chat Session / 会话** | 人工介入 Agent 执行、头脑风暴、纠偏均通过会话空间完成。Split Node 审核期支持 `/split/chat` NL 调整草案 |
 | **Notification / 通知** | 任务失败、头脑风暴、任务分配等场景通过邮箱、企微、CSC 状态栏通知用户 |
-| **Deliverable / 交付物** | 节点定义交付物（文档/PR）及交付要求；执行者完成任务后提交交付物。评审者检视交付物并给出评审结论 |
+| **Deliverable / 交付物** | 节点定义交付物（文档/PR）及交付要求；执行者完成任务后提交交付物。审核者检视交付物并给出评审结论 |
 | **Code Repository / 代码仓库** | 编码阶段关联代码仓库，完成开发后提交 PR 作为交付物上传。所有编码节点完成后由 Agent 汇总代码变更并整合 |
 | **SplitOrchestrator** | 管理 Split Node 的子任务调度：按拓扑顺序 + 并发上限启动子 WorkflowRun，聚合子任务进度 |
 

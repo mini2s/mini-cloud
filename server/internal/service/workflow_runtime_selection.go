@@ -22,8 +22,57 @@ const (
 	RuntimeSelectionAgentBinding = "agent_binding"
 )
 
+const (
+	RuntimeSelectionPolicySpecifiedRuntimeFirst = "specified_runtime_first"
+	RuntimeSelectionPolicyIdleFirst             = "idle_first"
+	RuntimeSelectionPolicyIssueCreatorFirst     = "issue_creator_first"
+)
+
 var ErrWorkflowRuntimeUnavailable = errors.New("no eligible runtime is available for workflow node")
 var ErrWorkflowRunNotRunning = errors.New("workflow run is not running")
+var ErrWorkflowRuntimeSelectionInvalid = errors.New("invalid workflow runtime selection")
+
+func IsWorkflowRuntimeSelectionPolicy(policy string) bool {
+	switch policy {
+	case RuntimeSelectionPolicySpecifiedRuntimeFirst,
+		RuntimeSelectionPolicyIdleFirst,
+		RuntimeSelectionPolicyIssueCreatorFirst:
+		return true
+	default:
+		return false
+	}
+}
+
+func resolveWorkflowRuntimeSelectionPolicy(
+	workflow db.MulticaWorkflow,
+	requestedPolicy string,
+	runtimeID pgtype.UUID,
+) (string, pgtype.UUID, error) {
+	policy := strings.TrimSpace(requestedPolicy)
+	if policy == "" {
+		if runtimeID.Valid {
+			policy = RuntimeSelectionPolicySpecifiedRuntimeFirst
+		} else {
+			policy = strings.TrimSpace(workflow.DefaultRuntimeSelectionPolicy)
+			if policy == "" {
+				policy = RuntimeSelectionPolicyIdleFirst
+			}
+			if policy == RuntimeSelectionPolicySpecifiedRuntimeFirst {
+				runtimeID = workflow.DefaultRuntimeID
+			}
+		}
+	}
+	if !IsWorkflowRuntimeSelectionPolicy(policy) {
+		return "", pgtype.UUID{}, fmt.Errorf("%w: invalid policy %s", ErrWorkflowRuntimeSelectionInvalid, policy)
+	}
+	if policy == RuntimeSelectionPolicySpecifiedRuntimeFirst {
+		if !runtimeID.Valid {
+			return "", pgtype.UUID{}, fmt.Errorf("%w: specified policy requires a runtime", ErrWorkflowRuntimeSelectionInvalid)
+		}
+		return policy, runtimeID, nil
+	}
+	return policy, pgtype.UUID{}, nil
+}
 
 type workflowRuntimeSelection struct {
 	RuntimeID       pgtype.UUID
@@ -63,7 +112,15 @@ func chooseWorkflowRuntime(
 	run db.MulticaWorkflowRun,
 	candidates []db.ListWorkflowRuntimeCandidatesRow,
 ) (workflowRuntimeSelection, error) {
-	if run.RuntimeID.Valid {
+	policy := run.RuntimeSelectionPolicy
+	if policy == "" {
+		if run.RuntimeID.Valid {
+			policy = RuntimeSelectionPolicySpecifiedRuntimeFirst
+		} else {
+			policy = RuntimeSelectionPolicyIdleFirst
+		}
+	}
+	if policy == RuntimeSelectionPolicySpecifiedRuntimeFirst && run.RuntimeID.Valid {
 		for _, candidate := range candidates {
 			if candidate.ID == run.RuntimeID {
 				return workflowRuntimeSelection{
@@ -75,16 +132,21 @@ func chooseWorkflowRuntime(
 		}
 	}
 
-	for _, candidate := range candidates {
-		if candidate.ActiveTaskCount == 0 {
-			return workflowRuntimeSelection{
-				RuntimeID: candidate.ID,
-				Reason:    RuntimeSelectionIdle,
-			}, nil
+	chooseIdle := func() (workflowRuntimeSelection, bool) {
+		for _, candidate := range candidates {
+			if candidate.ActiveTaskCount == 0 {
+				return workflowRuntimeSelection{
+					RuntimeID: candidate.ID,
+					Reason:    RuntimeSelectionIdle,
+				}, true
+			}
 		}
+		return workflowRuntimeSelection{}, false
 	}
-
-	if run.ResponsibleUserID.Valid {
+	chooseIssueCreator := func() (workflowRuntimeSelection, bool) {
+		if !run.ResponsibleUserID.Valid {
+			return workflowRuntimeSelection{}, false
+		}
 		var selected *db.ListWorkflowRuntimeCandidatesRow
 		for i := range candidates {
 			candidate := &candidates[i]
@@ -100,7 +162,24 @@ func chooseWorkflowRuntime(
 				RuntimeID:       selected.ID,
 				Reason:          RuntimeSelectionIssueCreator,
 				ActiveTaskCount: selected.ActiveTaskCount,
-			}, nil
+			}, true
+		}
+		return workflowRuntimeSelection{}, false
+	}
+
+	if policy == RuntimeSelectionPolicyIssueCreatorFirst {
+		if selection, ok := chooseIssueCreator(); ok {
+			return selection, nil
+		}
+		if selection, ok := chooseIdle(); ok {
+			return selection, nil
+		}
+	} else {
+		if selection, ok := chooseIdle(); ok {
+			return selection, nil
+		}
+		if selection, ok := chooseIssueCreator(); ok {
+			return selection, nil
 		}
 	}
 
@@ -185,6 +264,26 @@ func (s *WorkflowService) DispatchAgentTask(
 		}
 		if run.Status != RunStatusRunning {
 			return ErrWorkflowRunNotRunning
+		}
+		// The node-run carries the effective worker/critic assignment. For the
+		// default (adhoc) workflow these are overridden per-run from the issue's
+		// assignee/creator and the node template's IDs are empty; resolveWorkflowAgent
+		// reads the node, so project the node-run's resolved assignment onto it.
+		// For ordinary workflows the node-run inherits the node's values, so this
+		// is a no-op. Without it, a default-run agent/squad issue dispatches with
+		// "no agent configured for worker phase" (node.WorkerID is the empty
+		// template) and — the error being best-effort — silently sits at format_ok.
+		if freshNodeRun.WorkerType != "" {
+			node.WorkerType = freshNodeRun.WorkerType
+		}
+		if freshNodeRun.WorkerID.Valid {
+			node.WorkerID = freshNodeRun.WorkerID
+		}
+		if freshNodeRun.CriticType != "" {
+			node.CriticType = freshNodeRun.CriticType
+		}
+		if freshNodeRun.CriticID.Valid {
+			node.CriticID = freshNodeRun.CriticID
 		}
 		agent, err := s.resolveWorkflowAgent(ctx, qtx, node, phase)
 		if err != nil {
