@@ -24,7 +24,7 @@ function makeSummary(deptId: string, memberCount: number): DeptMembersSummary {
     merged_need_count: mergedNeedCount,
     actual_calendar_min: actualCalendarMin,
     baseline_calendar_min: baselineCalendarMin,
-    calendar_ratio: baselineCalendarMin > 0 ? actualCalendarMin / baselineCalendarMin : null,
+    calendar_ratio: actualCalendarMin > 0 ? baselineCalendarMin / actualCalendarMin : null,
     work_ratio: 2.6 + (memberCount % 5) * 0.07, // ~2.6–2.9 decimal ratio
     commit_count: Math.round(memberCount * 6.2),
     commit_diff_lines: commitDiffLines,
@@ -53,7 +53,8 @@ function leaf(
   };
 }
 
-// Small authoritative tree: company root + 2 business lines, one with a sub-team.
+// Small authoritative tree: company root + 5 business lines (aligned with
+// getMockDeptRanking so tree joins resolve). d-infra has two sub-teams.
 // dept_path uses a leading slash + slash-separated breadcrumb (matches backend).
 export function getMockDeptTree(): DeptTreeNode[] {
   const infraChildren: DeptTreeNode[] = [
@@ -71,17 +72,13 @@ export function getMockDeptTree(): DeptTreeNode[] {
     status: 1,
     children: infraChildren,
   };
-  const dataNode: DeptTreeNode = {
-    dept_id: "d-data",
-    dept_name: "Data & AI",
-    parent_dept_id: "d-company",
-    dept_path: "/company/data",
-    dept_level: 2,
-    order_num: 2,
-    child_dept_count: 0,
-    status: 1,
-    children: [],
-  };
+  const companyChildren: DeptTreeNode[] = [
+    infraNode,
+    leaf("d-data", "Data & AI", "d-company", "/company/data", 2),
+    leaf("d-product", "Product & Design", "d-company", "/company/product", 3),
+    leaf("d-growth", "Growth & Marketing", "d-company", "/company/growth", 4),
+    leaf("d-ops", "Operations", "d-company", "/company/ops", 5),
+  ];
   const companyNode: DeptTreeNode = {
     dept_id: "d-company",
     dept_name: "Costrict Corp.",
@@ -89,9 +86,9 @@ export function getMockDeptTree(): DeptTreeNode[] {
     dept_path: "/company",
     dept_level: 1,
     order_num: 1,
-    child_dept_count: 2,
+    child_dept_count: companyChildren.length,
     status: 1,
-    children: [infraNode, dataNode],
+    children: companyChildren,
   };
   return [companyNode];
 }

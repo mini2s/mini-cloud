@@ -34,10 +34,10 @@ function makeUser(i: number): UserV2Row {
     actual_calendar_min: actualCalendarMin,
     baseline_calendar_min: baselineCalendarMin,
     calendar_ratio:
-      baselineCalendarMin > 0 ? actualCalendarMin / baselineCalendarMin : null,
+      actualCalendarMin > 0 ? baselineCalendarMin / actualCalendarMin : null,
     actual_work_min: actualWorkMin,
     baseline_work_min: baselineWorkMin,
-    work_ratio: baselineWorkMin > 0 ? actualWorkMin / baselineWorkMin : null,
+    work_ratio: actualWorkMin > 0 ? baselineWorkMin / actualWorkMin : null,
     commit_count: 14 + i * 3,
     commit_diff_lines: 3200 + i * 210,
     cost: 180 + i * 24.5,
@@ -54,10 +54,13 @@ export function getMockUsers(_p: {
   pageSize?: number;
 }): ApiList<UserV2Row> {
   const data = Array.from({ length: 8 }, (_, i) => makeUser(i));
+  // Mock envelope is internally consistent: total === data length so any
+  // "showing N of M" UI renders sensibly regardless of the pageSize the
+  // caller requests.
   return {
     total: data.length,
     page: 1,
-    pageSize: _p.pageSize ?? data.length,
+    pageSize: data.length,
     data,
   };
 }
