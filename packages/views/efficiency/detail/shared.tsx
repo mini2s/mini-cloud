@@ -257,5 +257,19 @@ export function EmptyRow({
   );
 }
 
+/**
+ * Inline error banner for a failed mutation (shown inside a dialog body or a
+ * panel). Mirrors the settings/shared ErrorBanner so the detail-page forms
+ * have a consistent "failed to save" affordance without coupling to the
+ * settings module.
+ */
+export function ErrorBanner({ message }: { message: string }) {
+  return (
+    <div className="rounded-md border border-destructive/20 bg-destructive/5 px-3 py-2 text-sm text-destructive">
+      {message}
+    </div>
+  );
+}
+
 /** <Fragment> re-export so pages don't pull react just for keyed row groups. */
 export { Fragment };

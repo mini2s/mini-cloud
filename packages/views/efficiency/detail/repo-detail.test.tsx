@@ -1,5 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { cleanup, screen } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import type { ReactNode } from "react";
 import { renderWithI18n } from "../../test/i18n";
 
 // RepoDetail integration smoke test. Mirrors the need-detail test pattern:
@@ -9,6 +11,12 @@ import { renderWithI18n } from "../../test/i18n";
 // (KPI grid + branch selector + sortable commits/tasks + branch overview +
 // trend chart) exercises its "data present" render path and mounts without
 // throwing — the most faithful check possible without a backend.
+//
+// The page now also calls mutation hooks (useCreateProject /
+// useCheckProjectConflicts / useAddRepoToProject) inside AddRepoToProjectDialog,
+// which need a QueryClient for useQueryClient. The wrapper below provides an
+// in-memory QueryClient; the smoke test never drives a mutation, so no
+// mutationFn ever fires.
 
 vi.mock("@multica/core/hooks", () => ({
   useWorkspaceId: () => "ws-1",
@@ -63,12 +71,21 @@ vi.mock("@tanstack/react-query", async () => {
 
 import { RepoDetail } from "./repo-detail";
 
+function renderWithQueryClient(ui: ReactNode) {
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+  });
+  return renderWithI18n(
+    <QueryClientProvider client={client}>{ui}</QueryClientProvider>,
+  );
+}
+
 describe("RepoDetail (smoke)", () => {
   beforeEach(() => cleanup());
 
   it("mounts and renders the title + KPI grid + commits + tasks + trend", async () => {
     const onBack = vi.fn();
-    const { container } = renderWithI18n(
+    const { container } = renderWithQueryClient(
       <RepoDetail repoAddr="git@github.com:costrict/repo-1.git" onBack={onBack} />,
     );
 
@@ -100,7 +117,7 @@ describe("RepoDetail (smoke)", () => {
 
   it("invokes onBack when the back button is clicked", async () => {
     const onBack = vi.fn();
-    const { container } = renderWithI18n(
+    const { container } = renderWithQueryClient(
       <RepoDetail repoAddr="git@github.com:costrict/repo-2.git" onBack={onBack} />,
     );
     const backBtn = container.querySelector("button");

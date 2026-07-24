@@ -10,14 +10,24 @@ import {
   formatNumber,
   formatPercent,
   formatV2Ratio,
+  projectListOptions,
   repoBranchesOptions,
   repoDetailOptions,
   repoTrendOptions,
+  useAddRepoToProject,
+  useCheckProjectConflicts,
+  useCreateProject,
   type EntityTrendPoint,
+  type ProjectConflict,
+  type ProjectListItem,
   type RepoCommitItem,
   type RepoEfficiency,
   type TaskListItem,
 } from "@multica/core/efficiency";
+import { Plus } from "lucide-react";
+import { Button } from "@multica/ui/components/ui/button";
+import { Input } from "@multica/ui/components/ui/input";
+import { Textarea } from "@multica/ui/components/ui/textarea";
 import {
   Select,
   SelectContent,
@@ -25,19 +35,23 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@multica/ui/components/ui/select";
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@multica/ui/components/ui/dialog";
 import { KpiCard } from "../../runtimes/components/shared";
 import { MultiTrendChart, type MultiTrendPoint, type MultiTrendSeries } from "../charts";
 import { SortHeader, Th, ThNum, Td, TdNum } from "../usage/shared";
 import { DetailShell } from "./detail-shell";
-import { EmptyRow, Kv, KvGrid, Panel, shortId, ToneBadge } from "./shared";
+import { EmptyRow, ErrorBanner, Kv, KvGrid, Panel, shortId, ToneBadge } from "./shared";
 
 // Repo detail page — the largest of the efficiency drill-downs. Ports the
-// source RepoDetail (read-only) to the shared-views layer: branch selector +
-// efficiency KPI grid + sortable commits / tasks tables + branch overview +
-// weekly trend. Display-only: the source's "add to project" mutation (and its
-// two-phase conflict modal) is intentionally dropped here — the route page is
-// read-only. Adding mutations later is a pure addition once a mutation hook
-// lands.
+// source RepoDetail to the shared-views layer: branch selector + efficiency
+// KPI grid + sortable commits / tasks tables + branch overview + weekly trend
+// + "add to project" modal.
 //
 // Caliber (matches source §Repo-5, footguns the source comments call out):
 //   - efficiency_ratio / commit_efficiency_ratio / task_efficiency_ratio are
@@ -49,10 +63,15 @@ import { EmptyRow, Kv, KvGrid, Panel, shortId, ToneBadge } from "./shared";
 //     (same for tasks). Efficiency only computable when both ancient & real
 //     are > 0; otherwise null → renders "-" and sorts to the bottom.
 //
-// Simplifications vs source (per task brief):
+// Wiring vs source:
+//   - "Add to project" modal: select an existing project (or create new) →
+//     two-phase conflict check (useCheckProjectConflicts) → useAddRepoToProject
+//     (mock-aware; mock phase reports no conflicts and the add succeeds without
+//     hitting the network). Simplified: no per-commit whitelist table — the add
+//     targets all commits in the current scope/date-window (the source's
+//     default mode). The whitelist UI is a pure addition later.
 //   - No router: commit_id / task_id render as plain mono text (no links). The
 //     route layer owns cross-entity navigation.
-//   - No "add to project" modal (mutation dropped).
 //   - Branch switch is internal state + onBranchChange callback (the parent
 //     decides whether to re-route); the shared view never imports next/* or
 //     react-router-dom.
@@ -200,6 +219,7 @@ export function RepoDetail({
   // Client-side sort state for the two tables.
   const [commitSort, setCommitSort] = useState<SortState | null>(null);
   const [taskSort, setTaskSort] = useState<SortState | null>(null);
+  const [addToProjectOpen, setAddToProjectOpen] = useState(false);
 
   function cycle(prev: SortState | null, field: SortField): SortState | null {
     if (!prev || prev.field !== field) return { field, desc: false };
@@ -293,22 +313,34 @@ export function RepoDetail({
       title="Repo detail"
       subtitle={subtitle}
       headerExtra={
-        branches.length > 0 ? (
-          <Select value={selectValue} onValueChange={handleBranchChange}>
-            <SelectTrigger size="sm" className="w-[200px]" aria-label="Switch branch">
-              <SelectValue placeholder="All branches (whole repo)" />
-            </SelectTrigger>
-            <SelectContent>
-              {/* "" = whole-repo scope: backend returns all branches. */}
-              <SelectItem value={ALL_BRANCHES}>All branches (whole repo)</SelectItem>
-              {branches.map((b) => (
-                <SelectItem key={b} value={b}>
-                  {b}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        ) : null
+        <>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            onClick={() => setAddToProjectOpen(true)}
+            disabled={!detailQ.data}
+          >
+            <Plus className="h-3.5 w-3.5" />
+            Add to project
+          </Button>
+          {branches.length > 0 ? (
+            <Select value={selectValue} onValueChange={handleBranchChange}>
+              <SelectTrigger size="sm" className="w-[200px]" aria-label="Switch branch">
+                <SelectValue placeholder="All branches (whole repo)" />
+              </SelectTrigger>
+              <SelectContent>
+                {/* "" = whole-repo scope: backend returns all branches. */}
+                <SelectItem value={ALL_BRANCHES}>All branches (whole repo)</SelectItem>
+                {branches.map((b) => (
+                  <SelectItem key={b} value={b}>
+                    {b}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          ) : null}
+        </>
       }
       loading={detailQ.isLoading}
       error={detailQ.error}
@@ -649,10 +681,278 @@ export function RepoDetail({
         )}
       </Panel>
 
-      {/* TODO(mutations): "Add to project" flow (source §4.2) — needs a
-          mutation hook (addRepoToProject + checkProjectConflicts) and a
-          two-phase confirm modal. Out of scope for the read-only route page. */}
+      {detailQ.data && (
+        <AddRepoToProjectDialog
+          open={addToProjectOpen}
+          onOpenChange={setAddToProjectOpen}
+          wsId={wsId}
+          repoAddr={repoAddr}
+          repoBranch={currentBranch}
+          commits={commits}
+          startDate={startDate}
+          endDate={endDate}
+        />
+      )}
     </DetailShell>
+  );
+}
+
+// ====================== Add to project dialog ======================
+// Two-phase: select/create a target project → checkProjectConflicts against
+// the in-scope commit_ids → if conflicts, list them and let the user "add
+// anyway"; otherwise addRepoToProject. Simplified vs source: no per-commit
+// whitelist table (always targets all commits in the current scope/date
+// window — the source's default mode).
+
+const NEW_PROJECT_VALUE = "__new__";
+
+function AddRepoToProjectDialog({
+  open,
+  onOpenChange,
+  wsId,
+  repoAddr,
+  repoBranch,
+  commits,
+  startDate,
+  endDate,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  wsId: string;
+  repoAddr: string;
+  repoBranch: string;
+  commits: RepoCommitItem[];
+  startDate?: string;
+  endDate?: string;
+}) {
+  const projectsQ = useQuery(projectListOptions(wsId, startDate, endDate));
+  const createProject = useCreateProject();
+  const checkConflicts = useCheckProjectConflicts();
+  const addRepo = useAddRepoToProject();
+
+  const [selectedProjectId, setSelectedProjectId] = useState("");
+  const [newName, setNewName] = useState("");
+  const [newDesc, setNewDesc] = useState("");
+  const [conflicts, setConflicts] = useState<ProjectConflict[]>([]);
+  const [conflictsChecked, setConflictsChecked] = useState(false);
+  const [err, setErr] = useState("");
+
+  // Reset on open.
+  function handleOpenChange(next: boolean) {
+    if (!next) {
+      onOpenChange(false);
+      return;
+    }
+    setSelectedProjectId("");
+    setNewName("");
+    setNewDesc("");
+    setConflicts([]);
+    setConflictsChecked(false);
+    setErr("");
+    onOpenChange(true);
+  }
+
+  // Commit_ids in scope: all commits (whitelist mode omitted — the source's
+  // default targets every commit in the current view).
+  function getTargetCommitIds(): string[] {
+    return commits.map((c) => c.commit_id);
+  }
+
+  function resetConflictCheck() {
+    setConflicts([]);
+    setConflictsChecked(false);
+  }
+
+  async function doAdd() {
+    setErr("");
+    let projectId = selectedProjectId;
+    if (selectedProjectId === NEW_PROJECT_VALUE) {
+      if (!newName.trim()) {
+        setErr("New project name is required");
+        return;
+      }
+      try {
+        const created = await createProject.mutateAsync({
+          name: newName.trim(),
+          description: newDesc.trim(),
+        });
+        projectId = created.project_id;
+      } catch (e) {
+        setErr(e instanceof Error ? e.message : "Failed to create project");
+        return;
+      }
+    }
+    try {
+      await addRepo.mutateAsync({
+        projectId,
+        body: {
+          repo_addr: repoAddr,
+          repo_branch: repoBranch,
+          start_time: null,
+          end_time: null,
+          include_only_commits: [],
+          exclude_commits: [],
+        },
+      });
+      onOpenChange(false);
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Failed to add");
+    }
+  }
+
+  async function handleConfirm() {
+    if (!selectedProjectId) {
+      setErr("Select a target project");
+      return;
+    }
+    if (selectedProjectId === NEW_PROJECT_VALUE && !newName.trim()) {
+      setErr("New project name is required");
+      return;
+    }
+    // Phase 1: conflict check (skip if already checked).
+    if (!conflictsChecked) {
+      const targets = getTargetCommitIds();
+      if (targets.length === 0) {
+        setErr("No commits to add");
+        return;
+      }
+      setErr("");
+      try {
+        const res = await checkConflicts.mutateAsync({ commit_ids: targets });
+        const found = res.conflicts ?? [];
+        setConflicts(found);
+        setConflictsChecked(true);
+        if (found.length > 0) {
+          // Conflicts → stop and let the user "add anyway".
+          return;
+        }
+      } catch (e) {
+        setErr(e instanceof Error ? e.message : "Conflict check failed");
+        return;
+      }
+    }
+    // Phase 2: no conflicts (or user confirmed) → add.
+    await doAdd();
+  }
+
+  const hasConflict = conflictsChecked && conflicts.length > 0;
+  const busy =
+    createProject.isPending ||
+    checkConflicts.isPending ||
+    addRepo.isPending;
+
+  return (
+    <Dialog open={open} onOpenChange={handleOpenChange}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>Add to project</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-3">
+          {err && <ErrorBanner message={err} />}
+          <Field label="Target project">
+            <Select
+              value={selectedProjectId}
+              onValueChange={(v) => {
+                setSelectedProjectId(v ?? "");
+                resetConflictCheck();
+              }}
+            >
+              <SelectTrigger className="w-full">
+                <SelectValue placeholder="Select…" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={NEW_PROJECT_VALUE}>+ New project</SelectItem>
+                {(projectsQ.data ?? []).map((p: ProjectListItem) => (
+                  <SelectItem key={p.project_id} value={p.project_id}>
+                    {p.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </Field>
+          {selectedProjectId === NEW_PROJECT_VALUE && (
+            <>
+              <Field label="Name">
+                <Input
+                  type="text"
+                  value={newName}
+                  onChange={(e) => setNewName(e.target.value)}
+                />
+              </Field>
+              <Field label="Description">
+                <Textarea
+                  rows={2}
+                  value={newDesc}
+                  onChange={(e) => setNewDesc(e.target.value)}
+                />
+              </Field>
+            </>
+          )}
+          <div className="text-xs text-muted-foreground">
+            Adds repo <span className="font-mono">{repoAddr}</span>
+            {repoBranch ? ` @ ${repoBranch}` : " (whole repo)"} as a source
+            filter. Targets {getTargetCommitIds().length} commit(s) in the
+            current scope.
+          </div>
+          {hasConflict && (
+            <div className="rounded-md border border-warning/40 bg-warning/10 p-3 text-sm text-warning">
+              <div className="mb-1 font-medium">
+                These commits already belong to another project:
+              </div>
+              <ul className="space-y-0.5">
+                {conflicts.map((c) => (
+                  <li key={c.commit_id} className="font-mono text-xs">
+                    {shortId(c.commit_id, 8)} → {c.project_name}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </div>
+        <DialogFooter>
+          <Button
+            type="button"
+            variant="ghost"
+            onClick={() => onOpenChange(false)}
+          >
+            Cancel
+          </Button>
+          {hasConflict ? (
+            <Button
+              type="button"
+              disabled={busy}
+              onClick={doAdd}
+              className="bg-warning text-warning-foreground hover:bg-warning/90"
+            >
+              {busy ? "Adding..." : "Add anyway"}
+            </Button>
+          ) : (
+            <Button
+              type="button"
+              disabled={busy}
+              onClick={handleConfirm}
+            >
+              {busy ? "Working..." : "Confirm"}
+            </Button>
+          )}
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function Field({
+  label,
+  children,
+}: {
+  label: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <label className="block">
+      <span className="mb-1 block text-xs text-muted-foreground">{label}</span>
+      {children}
+    </label>
   );
 }
 

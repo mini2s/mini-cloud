@@ -3,6 +3,7 @@
 // the API. Flip EFFICIENCY_MOCK=0 in env to disable once the backend
 // /api/v2/efficiency/* endpoints are live.
 import type {
+  ApiData,
   ApiList,
   ChatDatasource,
   ChatDetailQueryReq,
@@ -22,6 +23,7 @@ import type {
   EntityTrendResponse,
   GlobalConfig,
   ModelPricing,
+  NeedRepoOption,
   NeedsV2DetailResponse,
   NeedsV2Summary,
   ProjectDetailResponse,
@@ -70,6 +72,7 @@ import {
 import {
   getMockCommitDetail,
   getMockNeedDetail,
+  getMockNeedRepoOptions,
   getMockProjectDetail,
   getMockProjectNeeds,
   getMockProjectTrend,
@@ -243,6 +246,7 @@ export const mock = {
   }): EntityTrendResponse => getMockProjectTrend(p),
   projectNeeds: (projectId: string): ProjectNeedsResponse =>
     getMockProjectNeeds(projectId),
+  needRepoOptions: (): ApiData<NeedRepoOption> => getMockNeedRepoOptions(),
   needDetail: (needId: string): NeedsV2DetailResponse =>
     getMockNeedDetail(needId),
   taskDetail: (taskId: string): TaskDetailResponse => getMockTaskDetail(taskId),

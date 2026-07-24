@@ -30,6 +30,7 @@ import {
   getEfficiencyAggregate,
   getGlobalConfig,
   getNeedDetailV2,
+  getNeedRepoOptions,
   getProjectDetail,
   getProjectList,
   getProjectNeeds,
@@ -408,6 +409,10 @@ export const efficiencyKeys = {
     [...efficiencyKeys.all(wsId), "detail", "task", taskId] as const,
   commitDetail: (wsId: string, commitId: string) =>
     [...efficiencyKeys.all(wsId), "detail", "commit", commitId] as const,
+  // Project "add source" repo selector (need-repo-options). Workspace-scoped,
+  // date-independent.
+  needRepoOptions: (wsId: string) =>
+    [...efficiencyKeys.all(wsId), "detail", "need-repo-options"] as const,
 
   // ---- Chat dimension (chat-settings + platform-ops pages) ----
   // Workspace-scoped (wsId first). The settings reads are parameterless
@@ -1059,6 +1064,20 @@ export function projectNeedsOptions(wsId: string, projectId: string) {
       return getProjectNeeds(projectId);
     },
     enabled: !!wsId && !!projectId,
+    staleTime: STALE_TIME,
+  });
+}
+
+// Project "add source" repo selector (need-repo-options). wsId-only gate;
+// date-independent (the candidate pool is configured server-side).
+export function needRepoOptionsOptions(wsId: string) {
+  return queryOptions({
+    queryKey: efficiencyKeys.needRepoOptions(wsId),
+    queryFn: async () => {
+      if (MOCK_ENABLED) return mock.needRepoOptions();
+      return getNeedRepoOptions();
+    },
+    enabled: !!wsId,
     staleTime: STALE_TIME,
   });
 }

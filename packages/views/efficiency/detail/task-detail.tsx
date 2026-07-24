@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useWorkspaceId } from "@multica/core/hooks";
 import {
@@ -8,28 +8,40 @@ import {
   formatDuration,
   formatLocalTime,
   taskDetailOptions,
+  useUpdateTaskManual,
   type Conversation,
   type TaskListItem,
+  type UpdateTaskManualRequest,
 } from "@multica/core/efficiency";
+import { Pencil } from "lucide-react";
+import { Button } from "@multica/ui/components/ui/button";
+import { Input } from "@multica/ui/components/ui/input";
+import { Textarea } from "@multica/ui/components/ui/textarea";
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@multica/ui/components/ui/dialog";
 import { DetailShell } from "./detail-shell";
-import { Kv, KvGrid, Panel } from "./shared";
+import { ErrorBanner, Kv, KvGrid, Panel } from "./shared";
 
-// Task detail page. Ports the source TaskDetail (read-only) to the shared-
-// views layer: basic info + metrics + conversation timeline.
+// Task detail page. Ports the source TaskDetail to the shared-views layer:
+// basic info + metrics + conversation timeline + manual-override modal.
 //
 // Caliber (matches source):
 //   - efficiency_ratio is a PERCENTAGE ratio (300 = 300%, rendered directly,
 //     never ×100 / never via formatV2Ratio).
 //   - cost via fmtCost (2dp).
 //
-// Simplifications vs source (documented per task brief):
-//   - No manual-adjustment Modal: the data layer only exposes read queries
-//     (no updateTaskManualV2 endpoint). Manual-override VALUES are still
-//     rendered (ManualValue shows the manual figure + struck-through AI
-//     original) — only the edit affordance is dropped. Adding the modal later
-//     is a pure addition once a mutation hook lands.
+// Wiring vs source:
+//   - The manual-override modal submits via useUpdateTaskManual (mock-aware:
+//     mock phase returns success without hitting the network, then invalidates
+//     the task-detail cache; real path calls the NOT_WIRED api stub until the
+//     backend mounts /api/v2/efficiency/tasks/{id}/manual).
 //   - No getTaskFileUrl external links (raw-data / summary file) — that helper
-//     isn't in the data layer either.
+//     isn't in the data layer.
 //   - No router: user/repo/workdir render as text.
 
 interface TaskDetailProps {
@@ -71,6 +83,7 @@ export function TaskDetail({ taskId, onBack }: TaskDetailProps) {
   const conversations: Conversation[] = q.data?.conversations ?? [];
 
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [manualOpen, setManualOpen] = useState(false);
 
   // Front-end aggregates from conversations (matches source §7.4).
   const totalUpstreamTokens = useMemo(
@@ -106,6 +119,18 @@ export function TaskDetail({ taskId, onBack }: TaskDetailProps) {
       onBack={onBack}
       title="Task detail"
       subtitle={task.task_id || "-"}
+      headerExtra={
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          onClick={() => setManualOpen(true)}
+          disabled={!q.data?.task}
+        >
+          <Pencil className="h-3.5 w-3.5" />
+          Manual adjust
+        </Button>
+      }
       loading={q.isLoading}
       error={q.error}
       empty={!q.data?.task ? "No data for this task." : undefined}
@@ -262,7 +287,144 @@ export function TaskDetail({ taskId, onBack }: TaskDetailProps) {
           </ol>
         )}
       </Panel>
+
+      {q.data?.task && (
+        <TaskManualDialog
+          open={manualOpen}
+          task={task}
+          onOpenChange={setManualOpen}
+        />
+      )}
     </DetailShell>
+  );
+}
+
+// ---- manual-override modal (§7.6) ----
+
+/**
+ * Manual override dialog. Seeds the form from the task's current manual (or
+ * fallback AI) values on each open; submits via useUpdateTaskManual. 4 fields
+ * (real/ancient minutes + reasons) — empty minutes parse to null (clears the
+ * override), matching the source.
+ */
+function TaskManualDialog({
+  open,
+  task,
+  onOpenChange,
+}: {
+  open: boolean;
+  task: TaskListItem;
+  onOpenChange: (open: boolean) => void;
+}) {
+  const updateManual = useUpdateTaskManual();
+  const [real, setReal] = useState("");
+  const [realReason, setRealReason] = useState("");
+  const [ancient, setAncient] = useState("");
+  const [ancientReason, setAncientReason] = useState("");
+
+  // Seed on open: manual value takes precedence over the AI original.
+  useEffect(() => {
+    if (!open) return;
+    const r = task.task_real_minutes_manual ?? task.task_real_minutes ?? null;
+    const a =
+      task.task_ancient_minutes_manual ?? task.task_ancient_minutes ?? null;
+    setReal(r == null ? "" : String(r));
+    setRealReason(task.task_real_minutes_reason_manual || "");
+    setAncient(a == null ? "" : String(a));
+    setAncientReason(task.task_ancient_minutes_reason_manual || "");
+  }, [open, task]);
+
+  function handleSubmit() {
+    const body: UpdateTaskManualRequest = {
+      task_real_minutes_manual: real === "" ? null : Number(real),
+      task_real_minutes_reason_manual: realReason,
+      task_ancient_minutes_manual: ancient === "" ? null : Number(ancient),
+      task_ancient_minutes_reason_manual: ancientReason,
+    };
+    updateManual.mutate(
+      { taskId: task.task_id, body },
+      { onSuccess: () => onOpenChange(false) },
+    );
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>Manual adjust</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-3">
+          <Field label="Actual time (minutes)">
+            <Input
+              type="number"
+              step={10}
+              value={real}
+              onChange={(e) => setReal(e.target.value)}
+            />
+          </Field>
+          <Field label="Actual time reason">
+            <Textarea
+              rows={2}
+              value={realReason}
+              onChange={(e) => setRealReason(e.target.value)}
+            />
+          </Field>
+          <Field label="Baseline estimate (minutes)">
+            <Input
+              type="number"
+              step={10}
+              value={ancient}
+              onChange={(e) => setAncient(e.target.value)}
+            />
+          </Field>
+          <Field label="Baseline estimate reason">
+            <Textarea
+              rows={2}
+              value={ancientReason}
+              onChange={(e) => setAncientReason(e.target.value)}
+            />
+          </Field>
+          {updateManual.error ? (
+            <ErrorBanner
+              message={
+                (updateManual.error as Error)?.message || "Failed to save."
+              }
+            />
+          ) : null}
+        </div>
+        <DialogFooter>
+          <Button
+            type="button"
+            variant="ghost"
+            onClick={() => onOpenChange(false)}
+          >
+            Cancel
+          </Button>
+          <Button
+            type="button"
+            disabled={updateManual.isPending}
+            onClick={handleSubmit}
+          >
+            {updateManual.isPending ? "Saving..." : "Save"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function Field({
+  label,
+  children,
+}: {
+  label: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <label className="block">
+      <span className="mb-1 block text-xs text-muted-foreground">{label}</span>
+      {children}
+    </label>
   );
 }
 

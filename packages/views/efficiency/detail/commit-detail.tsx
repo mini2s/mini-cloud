@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useWorkspaceId } from "@multica/core/hooks";
 import {
@@ -9,14 +9,27 @@ import {
   formatDuration,
   formatLocalTime,
   formatV2Ratio,
+  useUpdateCommitManual,
   type CommitDetail as CommitDetailType,
   type RelatedTask,
+  type UpdateCommitManualRequest,
 } from "@multica/core/efficiency";
+import { Pencil } from "lucide-react";
+import { Button } from "@multica/ui/components/ui/button";
+import { Input } from "@multica/ui/components/ui/input";
+import { Textarea } from "@multica/ui/components/ui/textarea";
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@multica/ui/components/ui/dialog";
 import { DetailShell } from "./detail-shell";
-import { EmptyRow, Kv, KvGrid, Panel, ToneBadge } from "./shared";
+import { EmptyRow, ErrorBanner, Kv, KvGrid, Panel, ToneBadge } from "./shared";
 
-// Commit detail page. Ports the source CommitDetail (read-only) to the shared-
-// views layer: basic info + metrics + related tasks table.
+// Commit detail page. Ports the source CommitDetail to the shared-views
+// layer: basic info + metrics + related tasks table + manual-override modal.
 //
 // Caliber (matches source; footguns the source comments call out):
 //   - efficiency_ratio is a PERCENTAGE ratio (300 = 300%). The big number is
@@ -24,10 +37,11 @@ import { EmptyRow, Kv, KvGrid, Panel, ToneBadge } from "./shared";
 //     formatV2Ratio. Coloured by sign (positive=success, negative=destructive).
 //   - silica (AI code share) is a 0~1 DECIMAL ratio → formatV2Ratio (×100).
 //
-// Simplifications vs source (documented per task brief):
-//   - No manual-adjustment Modal: the data layer only exposes read queries
-//     (no updateCommitManualV2 endpoint). Manual-override VALUES are still
-//     rendered (ManualValue) — only the edit affordance is dropped.
+// Wiring vs source:
+//   - The manual-override modal submits via useUpdateCommitManual (mock-aware:
+//     mock phase returns success without hitting the network, then invalidates
+//     the commit-detail cache; real path calls the NOT_WIRED api stub until
+//     the backend mounts /api/v2/efficiency/commits/{id}/manual).
 //   - No router: user/repo render as text.
 
 interface CommitDetailProps {
@@ -47,6 +61,8 @@ export function CommitDetail({ commitId, onBack }: CommitDetailProps) {
     }
     return c;
   }, [q.data, commitId]);
+
+  const [manualOpen, setManualOpen] = useState(false);
 
   const relatedTasks: RelatedTask[] = q.data?.related_tasks ?? [];
   const totalCost = q.data?.total_cost ?? 0;
@@ -75,6 +91,18 @@ export function CommitDetail({ commitId, onBack }: CommitDetailProps) {
       onBack={onBack}
       title="Commit detail"
       subtitle={commit.commit_id || "-"}
+      headerExtra={
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          onClick={() => setManualOpen(true)}
+          disabled={!q.data?.commit}
+        >
+          <Pencil className="h-3.5 w-3.5" />
+          Manual adjust
+        </Button>
+      }
       loading={q.isLoading}
       error={q.error}
       empty={!q.data?.commit ? "No data for this commit." : undefined}
@@ -193,7 +221,146 @@ export function CommitDetail({ commitId, onBack }: CommitDetailProps) {
           </tbody>
         </table>
       </Panel>
+
+      {q.data?.commit && (
+        <CommitManualDialog
+          open={manualOpen}
+          commit={commit}
+          onOpenChange={setManualOpen}
+        />
+      )}
     </DetailShell>
+  );
+}
+
+// ---- manual-override modal (§1.2) ----
+
+/**
+ * Manual override dialog. Seeds from the commit's current manual (or fallback
+ * AI) values on each open; submits via useUpdateCommitManual. 4 fields
+ * (ancient/real minutes + reasons) — empty minutes parse to null (clears the
+ * override), matching the source.
+ */
+function CommitManualDialog({
+  open,
+  commit,
+  onOpenChange,
+}: {
+  open: boolean;
+  commit: CommitDetailType;
+  onOpenChange: (open: boolean) => void;
+}) {
+  const updateManual = useUpdateCommitManual();
+  const [ancient, setAncient] = useState("");
+  const [ancientReason, setAncientReason] = useState("");
+  const [real, setReal] = useState("");
+  const [realReason, setRealReason] = useState("");
+
+  // Seed on open: manual value takes precedence over the AI original.
+  useEffect(() => {
+    if (!open) return;
+    const a =
+      commit.commit_ancient_minutes_manual ?? commit.commit_ancient_minutes ??
+      null;
+    const r =
+      commit.commit_real_minutes_manual ?? commit.commit_real_minutes ?? null;
+    setAncient(a == null ? "" : String(a));
+    setAncientReason(commit.commit_ancient_minutes_reason_manual || "");
+    setReal(r == null ? "" : String(r));
+    setRealReason(commit.commit_real_minutes_reason_manual || "");
+  }, [open, commit]);
+
+  function handleSubmit() {
+    const body: UpdateCommitManualRequest = {
+      commit_ancient_minutes_manual: ancient === "" ? null : Number(ancient),
+      commit_ancient_minutes_reason_manual: ancientReason,
+      commit_real_minutes_manual: real === "" ? null : Number(real),
+      commit_real_minutes_reason_manual: realReason,
+    };
+    updateManual.mutate(
+      { commitId: commit.commit_id, body },
+      { onSuccess: () => onOpenChange(false) },
+    );
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>Manual adjust</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-3">
+          <Field label="Baseline estimate (minutes)">
+            <Input
+              type="number"
+              step={10}
+              value={ancient}
+              onChange={(e) => setAncient(e.target.value)}
+            />
+          </Field>
+          <Field label="Baseline estimate reason">
+            <Textarea
+              rows={2}
+              value={ancientReason}
+              onChange={(e) => setAncientReason(e.target.value)}
+            />
+          </Field>
+          <Field label="Actual time (minutes)">
+            <Input
+              type="number"
+              step={10}
+              value={real}
+              onChange={(e) => setReal(e.target.value)}
+            />
+          </Field>
+          <Field label="Actual time reason">
+            <Textarea
+              rows={2}
+              value={realReason}
+              onChange={(e) => setRealReason(e.target.value)}
+            />
+          </Field>
+          {updateManual.error ? (
+            <ErrorBanner
+              message={
+                (updateManual.error as Error)?.message || "Failed to save."
+              }
+            />
+          ) : null}
+        </div>
+        <DialogFooter>
+          <Button
+            type="button"
+            variant="ghost"
+            onClick={() => onOpenChange(false)}
+          >
+            Cancel
+          </Button>
+          <Button
+            type="button"
+            disabled={updateManual.isPending}
+            onClick={handleSubmit}
+          >
+            {updateManual.isPending ? "Saving..." : "Save"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function Field({
+  label,
+  children,
+}: {
+  label: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <label className="block">
+      <span className="mb-1 block text-xs text-muted-foreground">{label}</span>
+      {children}
+    </label>
   );
 }
 

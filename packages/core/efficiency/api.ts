@@ -6,6 +6,8 @@
 // added as ApiClient methods (or a dedicated efficiency transport) when the
 // backend lands. Until then the false-MOCK path throws a clear error.
 import type {
+  AddRepoRequest,
+  AddTasksRequest,
   ApiList,
   ChatDatasource,
   ChatDatasourceTestResult,
@@ -22,7 +24,10 @@ import type {
   ChatSystemConfig,
   ChatTraceLogResponse,
   ChatUserTrendRow,
+  CheckConflictsResponse,
   CommitDetailResponse,
+  CreateProjectRequest,
+  CreateProjectResponse,
   DashboardSummary,
   DashboardTrends,
   DeptRankingResponse,
@@ -33,6 +38,7 @@ import type {
   ListParams,
   ModelPricing,
   ModelPricingUpsert,
+  NeedRepoOption,
   NeedsV2DetailResponse,
   NeedsV2Summary,
   ProjectDetailResponse,
@@ -42,8 +48,14 @@ import type {
   RepoDetailResponse,
   RepoListItem,
   TaskDetailResponse,
+  UpdateCommitManualRequest,
+  UpdateProjectManualRequest,
+  UpdateProjectNeedSelectionRequest,
+  UpdateProjectRequest,
+  UpdateTaskManualRequest,
   UserV2DetailResponse,
   UserV2Row,
+  ApiData,
 } from "./types";
 import type {
   DeptActiveUsersResp,
@@ -589,6 +601,137 @@ export async function getCommitDetailV2(
   commitId: string,
 ): Promise<CommitDetailResponse> {
   void `${BASE}/commits/${encodeURIComponent(commitId)}`;
+  throw new Error(NOT_WIRED);
+}
+
+// ----------------------------------------------------------------------------
+// Detail-dimension mutations (project / task / commit manual override, repo
+// source management, need selection). NOT_WIRED stubs — the UI form layer
+// drives these via the mock-aware mutation hooks in mutations.ts; once the
+// backend mounts /api/v2/efficiency/* the same hooks call the real paths.
+// Source paths: see efficiency-dashboard endpoints.ts (createProject,
+// updateProject, deleteProject, updateProjectManual, addTasksToProject,
+// addRepoToProject, removeRepoFromProject, checkProjectConflicts,
+// updateProjectNeedSelection, updateTaskManualV2, updateCommitManualV2).
+// ----------------------------------------------------------------------------
+
+// /v2/need-repo-options → project "add source" repo selector data (needs-same-
+// origin normalized repo addresses with their feature branches). Used by the
+// project-detail SourceModal; mocked in queries.ts (mock.needRepoOptions).
+export async function getNeedRepoOptions(): Promise<ApiData<NeedRepoOption>> {
+  void `${BASE}/need-repo-options`;
+  throw new Error(NOT_WIRED);
+}
+
+// POST /v2/projects → create a project; returns the new project_id.
+export async function createProject(
+  body: CreateProjectRequest,
+): Promise<CreateProjectResponse> {
+  void `${BASE}/projects`;
+  void body;
+  throw new Error(NOT_WIRED);
+}
+
+// PUT /v2/projects/{id} → edit a project. ⚠️ repos MUST be echoed back as-is
+// (the backend clears them when omitted); task_ids no longer belong to the
+// project model.
+export async function updateProject(
+  projectId: string,
+  body: UpdateProjectRequest,
+): Promise<void> {
+  void `${BASE}/projects/${encodeURIComponent(projectId)}`;
+  void body;
+  throw new Error(NOT_WIRED);
+}
+
+// DELETE /v2/projects/{id} → delete a project.
+export async function deleteProject(projectId: string): Promise<void> {
+  void `${BASE}/projects/${encodeURIComponent(projectId)}`;
+  throw new Error(NOT_WIRED);
+}
+
+// PUT /v2/projects/{id}/manual → manual override (3 minutes/reason pairs +
+// start/end_time_manual).
+export async function updateProjectManual(
+  projectId: string,
+  body: UpdateProjectManualRequest,
+): Promise<void> {
+  void `${BASE}/projects/${encodeURIComponent(projectId)}/manual`;
+  void body;
+  throw new Error(NOT_WIRED);
+}
+
+// POST /v2/projects/{id}/tasks → attach tasks (task_ids + same-length silica).
+export async function addTasksToProject(
+  projectId: string,
+  body: AddTasksRequest,
+): Promise<void> {
+  void `${BASE}/projects/${encodeURIComponent(projectId)}/tasks`;
+  void body;
+  throw new Error(NOT_WIRED);
+}
+
+// POST /v2/projects/{id}/repos → add a repo source filter (end_time whitelist
+// now → null on the backend).
+export async function addRepoToProject(
+  projectId: string,
+  body: AddRepoRequest,
+): Promise<void> {
+  void `${BASE}/projects/${encodeURIComponent(projectId)}/repos`;
+  void body;
+  throw new Error(NOT_WIRED);
+}
+
+// DELETE /v2/projects/{id}/repos/{index} → remove a repo source filter by
+// array index (indexes drift after a remove, so callers must reload).
+export async function removeRepoFromProject(
+  projectId: string,
+  index: number,
+): Promise<void> {
+  void `${BASE}/projects/${encodeURIComponent(projectId)}/repos/${index}`;
+  throw new Error(NOT_WIRED);
+}
+
+// POST /v2/projects/check-conflicts → detect commits that already belong to
+// another project (two-phase add-to-project confirm flow).
+export async function checkProjectConflicts(body: {
+  commit_ids: string[];
+}): Promise<CheckConflictsResponse> {
+  void `${BASE}/projects/check-conflicts`;
+  void body;
+  throw new Error(NOT_WIRED);
+}
+
+// PUT /v2/projects/{id}/needs/selection → include/exclude a single need (writes
+// exclude_needs; does not affect the commit-level ancient caliber).
+export async function updateProjectNeedSelection(
+  projectId: string,
+  body: UpdateProjectNeedSelectionRequest,
+): Promise<void> {
+  void `${BASE}/projects/${encodeURIComponent(projectId)}/needs/selection`;
+  void body;
+  throw new Error(NOT_WIRED);
+}
+
+// PUT /v2/tasks/{id}/manual → task manual override (real/ancient minutes +
+// reasons).
+export async function updateTaskManual(
+  taskId: string,
+  body: UpdateTaskManualRequest,
+): Promise<void> {
+  void `${BASE}/tasks/${encodeURIComponent(taskId)}/manual`;
+  void body;
+  throw new Error(NOT_WIRED);
+}
+
+// PUT /v2/commits/{id}/manual → commit manual override (ancient/real minutes +
+// reasons).
+export async function updateCommitManual(
+  commitId: string,
+  body: UpdateCommitManualRequest,
+): Promise<void> {
+  void `${BASE}/commits/${encodeURIComponent(commitId)}/manual`;
+  void body;
   throw new Error(NOT_WIRED);
 }
 

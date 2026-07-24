@@ -12,6 +12,7 @@
 // the queryOptions layer will stop calling these.
 
 import type {
+  ApiData,
   CommitDetail,
   CommitDetailResponse,
   Conversation,
@@ -20,6 +21,7 @@ import type {
   NeedBaselineComponents,
   NeedCommit,
   NeedDetail,
+  NeedRepoOption,
   NeedSession,
   NeedsV2DetailResponse,
   NeedsV2Summary,
@@ -435,6 +437,33 @@ export function getMockProjectNeeds(
     excluded_count: excluded,
     stale_count: 0,
   };
+}
+
+// /v2/need-repo-options: the project "add source" repo selector. Same origin
+// as the candidate-pool needs (normalized addresses, feature branches only).
+// Static plausible sample so the SourceModal is functional in the mock phase.
+export function getMockNeedRepoOptions(): ApiData<NeedRepoOption> {
+  const data: NeedRepoOption[] = Array.from({ length: 6 }, (_, i) => {
+    const n = i + 1;
+    return {
+      repo_addr: `git@github.com:costrict/repo-${n}.git`,
+      need_count: 12 - i,
+      last_active: "2026-07-15T00:00:00Z",
+      branches: [
+        {
+          repo_branch: `feature/branch-${n}a`,
+          need_count: Math.max(1, 6 - i),
+          last_active: "2026-07-10T00:00:00Z",
+        },
+        {
+          repo_branch: `feature/branch-${n}b`,
+          need_count: Math.max(1, 4 - i),
+          last_active: "2026-07-05T00:00:00Z",
+        },
+      ],
+    };
+  });
+  return { data };
 }
 
 // ---- need detail ----------------------------------------------------------
