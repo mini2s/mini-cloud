@@ -43,3 +43,10 @@ export {
   ProjectContribution,
   RepoContribution,
 } from "./contribution";
+export {
+  DetailShell,
+  UserDetail,
+  NeedDetail,
+  TaskDetail,
+  CommitDetail,
+} from "./detail";
