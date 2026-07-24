@@ -34,27 +34,7 @@ import type {
   UserTrendPoint,
   WeekdayItem,
 } from "../types-usage";
-
-// ---- date helpers (mirror the source computePreviousRange for period-compare) ----
-
-function addDays(dateStr: string, delta: number): string {
-  const d = new Date(dateStr + "T00:00:00");
-  d.setDate(d.getDate() + delta);
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${y}-${m}-${day}`;
-}
-
-export function computePreviousRange(start: string, end: string): [string, string] {
-  const span =
-    Math.round(
-      (new Date(end + "T00:00:00").getTime() -
-        new Date(start + "T00:00:00").getTime()) /
-        86_400_000,
-    ) + 1;
-  return [addDays(start, -span), addDays(start, -1)];
-}
+import { addDays, computePreviousRange } from "../utils/date";
 
 // Enumerate the days in [start, end] as YYYY-MM-DD. Falls back to a static
 // 7-day sample window if the query didn't carry dates (defensive).

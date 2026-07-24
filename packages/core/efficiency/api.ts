@@ -191,7 +191,7 @@ export async function getUsageDeptResults(
 // current window, immediately preceding it. The caller computes prevStart /
 // prevEnd (mirrors the source computePreviousRange); the backend only needs
 // the four boundary strings.
-export async function getUsagePeriodCompare(
+export async function getUsageDeptPeriodCompare(
   q: DeptQuery,
   prevStart: string,
   prevEnd: string,

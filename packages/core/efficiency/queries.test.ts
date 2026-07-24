@@ -190,7 +190,7 @@ describe("efficiencyKeys", () => {
       efficiencyKeys.usageDeptModels("ws1", deptQ),
       efficiencyKeys.usageDeptWeekly("ws1", deptQ),
       efficiencyKeys.usageDeptResults("ws1", deptQ),
-      efficiencyKeys.usagePeriodCompare("ws1", deptQ),
+      efficiencyKeys.usageDeptPeriodCompare("ws1", deptQ),
       efficiencyKeys.usageDeptModeUsage("ws1", deptQ),
     ];
     const dedup = new Set(segments.map((k) => JSON.stringify(k)));

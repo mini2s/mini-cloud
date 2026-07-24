@@ -14,12 +14,13 @@ import {
   getUsageDeptResults,
   getUsageDeptTrend,
   getUsageDeptWeekly,
-  getUsagePeriodCompare,
+  getUsageDeptPeriodCompare,
   getUsageUserDetail,
   getUsageUserTrend,
   getUsers,
 } from "./api";
 import { MOCK_ENABLED, mock } from "./mock";
+import { computePreviousRange } from "./utils/date";
 import type { DeptQuery, MembersQuery } from "./types-usage";
 
 // Query keys — workspace-scoped (wsId first) so cache isolates per workspace,
@@ -115,7 +116,7 @@ export const efficiencyKeys = {
       q.end,
       q.includeChildren,
     ] as const,
-  usagePeriodCompare: (wsId: string, q: DeptQuery) =>
+  usageDeptPeriodCompare: (wsId: string, q: DeptQuery) =>
     [
       ...efficiencyKeys.all(wsId),
       "usage",
@@ -358,26 +359,17 @@ export function usageDeptResultsOptions(wsId: string, q: DeptQuery) {
 }
 
 // Period-over-period compare. The "previous" window is the equal-length span
-// immediately before the current one (source computePreviousRange). The api
-// stub takes the four boundary strings; the mock computes the previous window
-// itself from q, so we only forward q to mock and (q, prev*) to api.
-export function usagePeriodCompareOptions(wsId: string, q: DeptQuery) {
+// immediately before the current one, computed once via the shared
+// computePreviousRange util (same rule used by the mock path, so the business
+// logic lives in one place). The api stub takes the four boundary strings; the
+// mock computes the previous window itself from q.
+export function usageDeptPeriodCompareOptions(wsId: string, q: DeptQuery) {
   return queryOptions({
-    queryKey: efficiencyKeys.usagePeriodCompare(wsId, q),
+    queryKey: efficiencyKeys.usageDeptPeriodCompare(wsId, q),
     queryFn: async () => {
-      if (MOCK_ENABLED) return mock.usagePeriodCompare(q);
-      // computePreviousRange is duplicated in the real api path so the
-      // backend receives explicit previous_start/previous_end; the mock
-      // path's computePreviousRange lives in mock/usage.ts.
-      const span =
-        Math.round(
-          (new Date(q.end + "T00:00:00").getTime() -
-            new Date(q.start + "T00:00:00").getTime()) /
-            86_400_000,
-        ) + 1;
-      const prevStart = addDays(q.start, -span);
-      const prevEnd = addDays(q.start, -1);
-      return getUsagePeriodCompare(q, prevStart, prevEnd);
+      if (MOCK_ENABLED) return mock.usageDeptPeriodCompare(q);
+      const [prevStart, prevEnd] = computePreviousRange(q.start, q.end);
+      return getUsageDeptPeriodCompare(q, prevStart, prevEnd);
     },
     enabled: !!wsId && !!q.deptId,
     staleTime: STALE_TIME,
@@ -443,15 +435,6 @@ export function usageUserTrendOptions(
   });
 }
 
-// ---- small date helpers local to the period-compare api path ----
-function addDays(dateStr: string, delta: number): string {
-  const d = new Date(dateStr + "T00:00:00");
-  d.setDate(d.getDate() + delta);
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${y}-${m}-${day}`;
-}
+// TODO(slice 4-6): add cost/contribution/detail options.
 
-// TODO(slice 3-6): add deptOverview/repos/commits/tasks/projects/cost/
-// contribution options.
+

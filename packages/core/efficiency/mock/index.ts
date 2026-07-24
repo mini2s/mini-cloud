@@ -86,7 +86,7 @@ export const mock = {
   usageDeptResults: (q: DeptQuery): DeptResultsResp => getMockUsageDeptResults(q),
   // Period-compare mock computes the previous window internally from q.start/q.end
   // (mirrors the source computePreviousRange), so it only needs q.
-  usagePeriodCompare: (q: DeptQuery): DeptPeriodCompareResp =>
+  usageDeptPeriodCompare: (q: DeptQuery): DeptPeriodCompareResp =>
     getMockUsagePeriodCompare(q),
   usageDeptModeUsage: (q: DeptQuery): DeptModeUsageResp =>
     getMockUsageDeptModeUsage(q),

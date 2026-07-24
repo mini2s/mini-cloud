@@ -28,3 +28,27 @@ export function getDefaultDateRangeWide(days = 90): [string, string] {
 export function formatDateParam(dateStr: string): string {
   return dateStr.replace(/-/g, '')
 }
+
+/** Add (or subtract) N days to a 'YYYY-MM-DD' string, returning 'YYYY-MM-DD'. */
+export function addDays(dateStr: string, delta: number): string {
+  const d = new Date(dateStr + 'T00:00:00')
+  d.setDate(d.getDate() + delta)
+  return fmt(d)
+}
+
+/**
+ * The previous comparison window for a [start, end] range: an equal-length
+ * span immediately before `start` (i.e. [start - span, start - 1]). Used by
+ * the usage period-compare query to feed the backend's previous_start /
+ * previous_end params. Shared by the mock path and the real-api path so the
+ * "previous = equal span before current" rule lives in one place.
+ */
+export function computePreviousRange(start: string, end: string): [string, string] {
+  const span =
+    Math.round(
+      (new Date(end + 'T00:00:00').getTime() -
+        new Date(start + 'T00:00:00').getTime()) /
+        86_400_000,
+    ) + 1
+  return [addDays(start, -span), addDays(start, -1)]
+}
