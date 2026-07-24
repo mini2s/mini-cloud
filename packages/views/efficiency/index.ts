@@ -36,3 +36,10 @@ export {
   EfficiencyRepoRanking,
   DistributionOverview,
 } from "./efficiency";
+export {
+  ContributionDimension,
+  OrgContribution,
+  UserContribution,
+  ProjectContribution,
+  RepoContribution,
+} from "./contribution";
