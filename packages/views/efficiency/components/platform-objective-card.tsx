@@ -54,7 +54,7 @@ export function PlatformObjectiveCard({
   if (!configResolved) return null;
 
   const wrap = (children: React.ReactNode) => (
-    <section className="flex flex-col rounded-lg border bg-card p-5 transition-shadow hover:shadow-lg md:p-6">
+    <section className="flex flex-col rounded-lg border bg-card shadow-sm p-5 transition-shadow hover:shadow-lg md:p-6">
       <div className="mb-1 flex items-center justify-between gap-3">
         <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
           平台客观指标

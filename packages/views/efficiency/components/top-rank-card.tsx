@@ -78,7 +78,7 @@ export function TopRankCard({ startDate, endDate }: TopRankCardProps) {
   const empty = tab === "need" ? topNeeds.length === 0 : topUsers.length === 0;
 
   return (
-    <div className="flex flex-col rounded-lg border bg-card p-5 transition-shadow hover:shadow-lg md:p-6">
+    <div className="flex flex-col rounded-lg border bg-card shadow-sm p-5 transition-shadow hover:shadow-lg md:p-6">
       <Tabs
         value={tab}
         onValueChange={(v) => setTab((v as Tab) ?? "need")}

@@ -96,7 +96,7 @@ export function CostKanban() {
       </PageHeader>
 
       <div className="flex-1 overflow-y-auto">
-        <div className="mx-auto max-w-6xl space-y-4 p-6 lg:space-y-6">
+        <div className="space-y-4 p-6 lg:space-y-6 lg:px-8">
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-[18rem_1fr] lg:gap-6 lg:items-start">
             {/* Left: dept tree (reused from the usage dimension). */}
             <DeptTreePanel

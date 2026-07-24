@@ -90,28 +90,28 @@ export function ProjectContribution({
     <div className="space-y-4">
       {/* KPI strip — counts only (contribution caliber, not tokens). */}
       <section className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <div className="rounded-lg border bg-card">
+        <div className="rounded-lg border bg-card shadow-sm">
           <KpiCard
             label="项目数"
             value={formatNumber(kpi.projects)}
             accent="brand"
           />
         </div>
-        <div className="rounded-lg border bg-card">
+        <div className="rounded-lg border bg-card shadow-sm">
           <KpiCard
             label="完成需求"
             value={formatNumber(kpi.eligible)}
             hint={`候选 ${formatNumber(kpi.needs)}`}
           />
         </div>
-        <div className="rounded-lg border bg-card">
+        <div className="rounded-lg border bg-card shadow-sm">
           <KpiCard
             label="贡献者(累计)"
             value={formatNumber(kpi.contributors)}
             hint="各项目人数合计(可重复)"
           />
         </div>
-        <div className="rounded-lg border bg-card">
+        <div className="rounded-lg border bg-card shadow-sm">
           <KpiCard
             label="生成代码(合计)"
             value={kpi.loc > 0 ? `${formatNumber(kpi.loc)} 行` : "-"}
@@ -121,7 +121,7 @@ export function ProjectContribution({
 
       {/* Ranking table — derived from projectList. Click is a no-op (project
           detail page deferred to slice 5 per design decision #2). */}
-      <section className="rounded-lg border bg-card">
+      <section className="rounded-lg border bg-card shadow-sm">
         <div className="flex items-center justify-between gap-3 border-b px-4 py-3">
           <span className="text-sm font-semibold text-card-foreground">
             项目贡献排行

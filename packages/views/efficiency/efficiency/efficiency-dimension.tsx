@@ -78,7 +78,7 @@ export function EfficiencyDimension() {
       </PageHeader>
 
       <div className="flex-1 overflow-y-auto">
-        <div className="mx-auto max-w-6xl space-y-4 p-6 lg:space-y-6">
+        <div className="space-y-4 p-6 lg:space-y-6 lg:px-8">
           {/* Entity tabs (internal state, no URL). */}
           <div
             className="flex flex-wrap items-center gap-1"
@@ -213,7 +213,7 @@ function OrgRanking({
         </section>
       )}
 
-      <section className="rounded-lg border bg-card">
+      <section className="rounded-lg border bg-card shadow-sm">
         <div className="flex items-center justify-between gap-3 border-b px-4 py-3">
           <span className="text-sm font-semibold text-card-foreground">
             部门效率排行
@@ -287,7 +287,7 @@ function OrgKpi({
   hint?: string;
 }) {
   return (
-    <div className="flex flex-col gap-1 rounded-lg border bg-card p-4">
+    <div className="flex flex-col gap-1 rounded-lg border bg-card shadow-sm p-4">
       <span className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
         {label}
       </span>
@@ -375,7 +375,7 @@ function ProjectRanking({
         />
       </section>
 
-      <section className="rounded-lg border bg-card">
+      <section className="rounded-lg border bg-card shadow-sm">
         <div className="flex items-center justify-between gap-3 border-b px-4 py-3">
           <span className="text-sm font-semibold text-card-foreground">
             项目效率排行
@@ -450,7 +450,7 @@ function NoWeeklyAxis({ entity }: { entity: Entity }) {
       ? "项目维度无按周提效时间线（/v2/efficiency 仅含 user×week）；按项目聚合的提效比见下方排行。"
       : "仓库维度无按周提效时间线（/v2/efficiency 仅含 user×week）；按仓库聚合的提效比见下方排行。";
   return (
-    <div className="rounded-lg border bg-card p-4 lg:p-5">
+    <div className="rounded-lg border bg-card shadow-sm p-4 lg:p-5">
       <div className="mb-3 flex items-center justify-between gap-3">
         <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
           提效趋势

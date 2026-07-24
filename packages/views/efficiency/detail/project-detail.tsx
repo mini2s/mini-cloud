@@ -1157,7 +1157,7 @@ function KpiTile({
   hint?: string;
 }) {
   return (
-    <div className="rounded-lg border bg-card">
+    <div className="rounded-lg border bg-card shadow-sm">
       <KpiCard label={label} value={value} hint={hint} />
     </div>
   );

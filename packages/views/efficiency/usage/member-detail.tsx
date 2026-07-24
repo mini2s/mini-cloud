@@ -236,14 +236,14 @@ export function MemberDetailDialog({
             {/* Model preference pie + per-model table. */}
             <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
               {mergedModelPref && (
-                <div className="flex flex-col rounded-lg border bg-card p-4">
+                <div className="flex flex-col rounded-lg border bg-card shadow-sm p-4">
                   <h3 className="mb-2 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
                     模型偏好（使用次数）
                   </h3>
                   <PieBreakdownChart data={mergedModelPref as PieDatum[]} />
                 </div>
               )}
-              <div className="flex flex-col rounded-lg border bg-card p-4">
+              <div className="flex flex-col rounded-lg border bg-card shadow-sm p-4">
                 <h3 className="mb-2 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
                   各模型使用 {hiddenCount > 0 ? `（隐藏 ${hiddenCount} 个 0 请求）` : ""}
                 </h3>
@@ -318,7 +318,7 @@ function KpiTile({
         ? "text-destructive"
         : "text-card-foreground";
   return (
-    <div className="rounded-lg border bg-card p-3">
+    <div className="rounded-lg border bg-card shadow-sm p-3">
       <div className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
         {title}
       </div>
@@ -329,7 +329,7 @@ function KpiTile({
 
 function ChartTile({ title, children }: { title: string; children: ReactNode }) {
   return (
-    <div className="flex flex-col rounded-lg border bg-card p-4">
+    <div className="flex flex-col rounded-lg border bg-card shadow-sm p-4">
       <h3 className="mb-2 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
         {title}
       </h3>

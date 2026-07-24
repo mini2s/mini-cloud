@@ -55,7 +55,7 @@ export function EfficiencyTimeline({
   const points = useMemo(() => buildWeeklyPoints(rows), [rows]);
 
   return (
-    <div className="rounded-lg border bg-card p-4 lg:p-5">
+    <div className="rounded-lg border bg-card shadow-sm p-4 lg:p-5">
       <div className="mb-3 flex items-center justify-between gap-3">
         <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
           提效趋势

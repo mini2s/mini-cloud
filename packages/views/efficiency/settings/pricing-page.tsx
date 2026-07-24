@@ -123,7 +123,7 @@ export function PricingPage() {
       </PageHeader>
 
       <div className="flex-1 overflow-y-auto">
-        <div className="mx-auto max-w-6xl space-y-4 p-6">
+        <div className="space-y-4 p-6 lg:px-8">
           <Section
             title="Model pricing"
             count={rows.length}

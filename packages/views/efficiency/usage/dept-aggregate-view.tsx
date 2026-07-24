@@ -205,7 +205,7 @@ function Card({
   className?: string;
 }) {
   return (
-    <div className={`flex flex-col rounded-lg border bg-card p-5 md:p-6 ${className}`}>
+    <div className={`flex flex-col rounded-lg border bg-card shadow-sm p-5 md:p-6 ${className}`}>
       <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
           <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">

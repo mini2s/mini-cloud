@@ -76,7 +76,7 @@ export function DistributionOverview({
           : "项目日历提效比 · 小数口径 ×100";
 
   return (
-    <div className="rounded-lg border bg-card p-4 lg:p-5">
+    <div className="rounded-lg border bg-card shadow-sm p-4 lg:p-5">
       <div className="mb-3 flex items-center justify-between gap-3">
         <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
           提效比分布

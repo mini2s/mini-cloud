@@ -53,7 +53,7 @@ export function Panel({
       <Collapsible
         open={open}
         onOpenChange={setOpen}
-        className="overflow-hidden rounded-lg border bg-card"
+        className="overflow-hidden rounded-lg border bg-card shadow-sm"
       >
         <CollapsibleTrigger className="flex w-full items-center justify-between border-b px-4 py-3 text-left focus:outline-none data-[state=closed]:border-0">
           <span className="inline-flex items-center gap-1.5 text-sm font-semibold text-card-foreground">
@@ -73,7 +73,7 @@ export function Panel({
   }
 
   return (
-    <section className="overflow-hidden rounded-lg border bg-card">
+    <section className="overflow-hidden rounded-lg border bg-card shadow-sm">
       <div className="flex items-center justify-between border-b px-4 py-3">
         <span className="text-sm font-semibold text-card-foreground">
           {title}

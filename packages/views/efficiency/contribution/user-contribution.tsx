@@ -86,7 +86,7 @@ export function UserContribution({
     <div className="space-y-4">
       {/* KPI strip — counts only (contribution caliber, not tokens). */}
       <section className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <div className="rounded-lg border bg-card">
+        <div className="rounded-lg border bg-card shadow-sm">
           <KpiCard
             label="贡献人数"
             value={formatNumber(kpi.contributors)}
@@ -94,20 +94,20 @@ export function UserContribution({
             accent="brand"
           />
         </div>
-        <div className="rounded-lg border bg-card">
+        <div className="rounded-lg border bg-card shadow-sm">
           <KpiCard
             label="合并需求总数"
             value={formatNumber(kpi.merged)}
           />
         </div>
-        <div className="rounded-lg border bg-card">
+        <div className="rounded-lg border bg-card shadow-sm">
           <KpiCard
             label="代码行总数"
             value={formatNumber(kpi.diffLines)}
             hint="commit diff 行合计"
           />
         </div>
-        <div className="rounded-lg border bg-card">
+        <div className="rounded-lg border bg-card shadow-sm">
           <KpiCard
             label="提交总数"
             value={formatNumber(kpi.commits)}
@@ -117,7 +117,7 @@ export function UserContribution({
 
       {/* Ranking table — derived from allUsers. Click is a no-op (user
           detail page deferred to slice 5 per design decision #2). */}
-      <section className="rounded-lg border bg-card">
+      <section className="rounded-lg border bg-card shadow-sm">
         <div className="flex items-center justify-between gap-3 border-b px-4 py-3">
           <span className="text-sm font-semibold text-card-foreground">
             个人贡献排行

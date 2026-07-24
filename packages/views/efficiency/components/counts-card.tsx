@@ -24,7 +24,7 @@ export function CountsCard({ startDate, endDate }: CountsCardProps) {
   );
 
   return (
-    <div className="flex flex-col rounded-lg border bg-card p-5 md:p-6">
+    <div className="flex flex-col rounded-lg border bg-card shadow-sm p-5 md:p-6">
       <h2 className="mb-4 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
         规模概览
       </h2>

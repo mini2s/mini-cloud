@@ -308,7 +308,7 @@ export function RealtimeQueryPage() {
       <div className="flex h-full flex-col">
         {header}
         <div className="flex-1 overflow-y-auto">
-          <div className="mx-auto max-w-6xl space-y-4 p-6">
+          <div className="space-y-4 p-6 lg:px-8">
             <FormSkeleton />
           </div>
         </div>
@@ -321,7 +321,7 @@ export function RealtimeQueryPage() {
       <div className="flex h-full flex-col">
         {header}
         <div className="flex-1 overflow-y-auto">
-          <div className="mx-auto max-w-6xl p-6">
+          <div className="p-6 lg:px-8">
             <div className="flex min-h-[12rem] items-center justify-center rounded-lg border bg-card px-4 text-center text-sm text-muted-foreground">
               当前环境未启用平台指标服务（chat_stats_enabled=false），配置平台源后将可按条件点查 LLM 请求明细。
             </div>
@@ -335,7 +335,7 @@ export function RealtimeQueryPage() {
     <div className="flex h-full flex-col">
       {header}
       <div className="flex-1 overflow-y-auto">
-        <div className="mx-auto max-w-6xl space-y-4 p-6">
+        <div className="space-y-4 p-6 lg:px-8">
           {/* ============ Filter form ============ */}
           <Section
             title="查询条件"

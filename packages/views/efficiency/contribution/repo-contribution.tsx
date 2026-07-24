@@ -91,28 +91,28 @@ export function RepoContribution({
     <div className="space-y-4">
       {/* KPI strip — counts only (contribution caliber, not tokens). */}
       <section className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <div className="rounded-lg border bg-card">
+        <div className="rounded-lg border bg-card shadow-sm">
           <KpiCard
             label="仓库数"
             value={formatNumber(kpi.repos)}
             accent="brand"
           />
         </div>
-        <div className="rounded-lg border bg-card">
+        <div className="rounded-lg border bg-card shadow-sm">
           <KpiCard
             label="Commit 总数"
             value={formatNumber(kpi.commits)}
             hint="各仓库提交数合计"
           />
         </div>
-        <div className="rounded-lg border bg-card">
+        <div className="rounded-lg border bg-card shadow-sm">
           <KpiCard
             label="Task 总数"
             value={formatNumber(kpi.tasks)}
             hint="各仓库任务数合计"
           />
         </div>
-        <div className="rounded-lg border bg-card">
+        <div className="rounded-lg border bg-card shadow-sm">
           <KpiCard
             label="平均 AI 占比"
             value={kpi.avgAi == null ? "-" : PCT(kpi.avgAi * 100)}
@@ -123,7 +123,7 @@ export function RepoContribution({
 
       {/* Ranking table — derived from allRepos. Click is a no-op (repo
           detail page deferred to slice 5 per design decision #2). */}
-      <section className="rounded-lg border bg-card">
+      <section className="rounded-lg border bg-card shadow-sm">
         <div className="flex items-center justify-between gap-3 border-b px-4 py-3">
           <span className="text-sm font-semibold text-card-foreground">
             仓库贡献排行

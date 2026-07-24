@@ -142,7 +142,7 @@ export function PlatformOverviewPage() {
       <div className="flex h-full flex-col">
         {header}
         <div className="flex-1 overflow-y-auto">
-          <div className="mx-auto max-w-6xl space-y-4 p-6">
+          <div className="space-y-4 p-6 lg:px-8">
             <OverviewSkeleton />
           </div>
         </div>
@@ -156,7 +156,7 @@ export function PlatformOverviewPage() {
       <div className="flex h-full flex-col">
         {header}
         <div className="flex-1 overflow-y-auto">
-          <div className="mx-auto max-w-6xl p-6">
+          <div className="p-6 lg:px-8">
             <div className="flex min-h-[12rem] items-center justify-center rounded-lg border bg-card px-4 text-center text-sm text-muted-foreground">
               当前环境未启用平台指标服务（chat_stats_enabled=false），配置平台源后将自动展示 AI 调用花费 / 请求 / Token 等客观数据。
             </div>
@@ -172,7 +172,7 @@ export function PlatformOverviewPage() {
     <div className="flex h-full flex-col">
       {header}
       <div className="flex-1 overflow-y-auto">
-        <div className="mx-auto max-w-6xl space-y-4 p-6">
+        <div className="space-y-4 p-6 lg:px-8">
           {realtimeQ.error ? (
             <div className="rounded-lg border border-destructive/20 bg-destructive/5 px-4 py-2 text-sm text-destructive">
               {(realtimeQ.error as Error)?.message || "加载实时数据失败"}
@@ -341,7 +341,7 @@ function OverviewBody({
         {kpis.map((k) => (
           <div
             key={k.title}
-            className="rounded-lg border bg-card p-4 transition-shadow hover:shadow-lg"
+            className="rounded-lg border bg-card shadow-sm p-4 transition-shadow hover:shadow-lg"
           >
             <div className="mb-1 text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
               {k.title}

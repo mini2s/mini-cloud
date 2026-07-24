@@ -124,7 +124,7 @@ export function PlatformHealthPage() {
       <div className="flex h-full flex-col">
         {header}
         <div className="flex-1 overflow-y-auto">
-          <div className="mx-auto max-w-6xl space-y-4 p-6">
+          <div className="space-y-4 p-6 lg:px-8">
             <HealthSkeleton />
           </div>
         </div>
@@ -137,7 +137,7 @@ export function PlatformHealthPage() {
       <div className="flex h-full flex-col">
         {header}
         <div className="flex-1 overflow-y-auto">
-          <div className="mx-auto max-w-6xl p-6">
+          <div className="p-6 lg:px-8">
             <div className="flex min-h-[12rem] items-center justify-center rounded-lg border bg-card px-4 text-center text-sm text-muted-foreground">
               当前环境未启用平台指标服务（chat_stats_enabled=false），配置平台源后将自动展示 AI 服务健康度（成功率 / 错误率 / 时延）。
             </div>
@@ -153,7 +153,7 @@ export function PlatformHealthPage() {
     <div className="flex h-full flex-col">
       {header}
       <div className="flex-1 overflow-y-auto">
-        <div className="mx-auto max-w-6xl space-y-4 p-6">
+        <div className="space-y-4 p-6 lg:px-8">
           <CaliberNotice />
 
           {realtimeQ.error ? (
@@ -239,7 +239,7 @@ function HealthBody({ data }: { data: ChatRealtimeResponse }) {
         {kpis.map((k) => (
           <div
             key={k.label}
-            className="rounded-lg border bg-card p-4 transition-shadow hover:shadow-lg"
+            className="rounded-lg border bg-card shadow-sm p-4 transition-shadow hover:shadow-lg"
           >
             <div className="mb-1 text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
               {k.label}

@@ -120,28 +120,28 @@ export function EfficiencyUserRanking({
     <div className="space-y-4">
       {/* KPI cards (conserved caliber). */}
       <section className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <div className="rounded-lg border bg-card">
+        <div className="rounded-lg border bg-card shadow-sm">
           <KpiCard
             label="用户数"
             value={formatNumber(kpi.userCount)}
             accent="brand"
           />
         </div>
-        <div className="rounded-lg border bg-card">
+        <div className="rounded-lg border bg-card shadow-sm">
           <KpiCard
             label="平均日历提效比"
             value={formatV2Ratio(kpi.avgCalRatio)}
             hint="守恒加权：Σ基线 ÷ Σ实际（小数口径），非算术均值"
           />
         </div>
-        <div className="rounded-lg border bg-card">
+        <div className="rounded-lg border bg-card shadow-sm">
           <KpiCard
             label="平均人力提效比"
             value={formatV2Ratio(kpi.avgWorkRatio)}
             hint="守恒加权：Σ基线 ÷ Σ实际（小数口径），非算术均值"
           />
         </div>
-        <div className="rounded-lg border bg-card">
+        <div className="rounded-lg border bg-card shadow-sm">
           <KpiCard
             label="总节省（人天）"
             value={
@@ -153,7 +153,7 @@ export function EfficiencyUserRanking({
       </section>
 
       {/* Ranking table (efficiency-only columns). */}
-      <section className="rounded-lg border bg-card">
+      <section className="rounded-lg border bg-card shadow-sm">
         <div className="flex items-center justify-between gap-3 border-b px-4 py-3">
           <span className="text-sm font-semibold text-card-foreground">
             用户效率排行

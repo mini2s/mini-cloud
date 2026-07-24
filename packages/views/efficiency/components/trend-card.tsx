@@ -44,7 +44,7 @@ export function TrendCard({ startDate, endDate }: TrendCardProps) {
   );
 
   return (
-    <div className="flex min-h-[20rem] flex-col rounded-lg border bg-card p-5 transition-shadow hover:shadow-lg md:p-6">
+    <div className="flex min-h-[20rem] flex-col rounded-lg border bg-card shadow-sm p-5 transition-shadow hover:shadow-lg md:p-6">
       <div className="mb-4 flex items-center justify-between">
         <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
           提效趋势

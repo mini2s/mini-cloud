@@ -49,7 +49,7 @@ export function OverviewPage() {
       </PageHeader>
 
       <div className="flex-1 overflow-y-auto">
-        <div className="mx-auto max-w-6xl space-y-4 p-6 lg:space-y-6">
+        <div className="space-y-4 p-6 lg:space-y-6 lg:px-8">
           <div className="grid grid-cols-12 gap-4 lg:gap-6">
             {/* Row 1: Hero (person-day / cost savings / efficiency). */}
             <Cell className="col-span-12">

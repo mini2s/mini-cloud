@@ -92,7 +92,7 @@ export function OrgContribution({
     <div className="space-y-4">
       {/* KPI strip — counts only (contribution caliber, not tokens). */}
       <section className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <div className="rounded-lg border bg-card">
+        <div className="rounded-lg border bg-card shadow-sm">
           <KpiCard
             label="参与部门"
             value={formatNumber(kpi.depts)}
@@ -100,21 +100,21 @@ export function OrgContribution({
             accent="brand"
           />
         </div>
-        <div className="rounded-lg border bg-card">
+        <div className="rounded-lg border bg-card shadow-sm">
           <KpiCard
             label="合并需求"
             value={formatNumber(kpi.mergedNeeds)}
             hint="各部门 merged_need 合计"
           />
         </div>
-        <div className="rounded-lg border bg-card">
+        <div className="rounded-lg border bg-card shadow-sm">
           <KpiCard
             label="代码行"
             value={formatNumber(kpi.codeLines)}
             hint="各部门 commit 净代码行合计"
           />
         </div>
-        <div className="rounded-lg border bg-card">
+        <div className="rounded-lg border bg-card shadow-sm">
           <KpiCard
             label="提交数"
             value={formatNumber(kpi.commits)}
@@ -125,7 +125,7 @@ export function OrgContribution({
 
       {/* Ranking table — derived from dept ranking. Click is a no-op
           (focused-mode dept detail deferred to slice 5 per design decision #2). */}
-      <section className="rounded-lg border bg-card">
+      <section className="rounded-lg border bg-card shadow-sm">
         <div className="flex items-center justify-between gap-3 border-b px-4 py-3">
           <span className="text-sm font-semibold text-card-foreground">
             部门贡献排行

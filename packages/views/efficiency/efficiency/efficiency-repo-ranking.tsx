@@ -82,21 +82,21 @@ export function EfficiencyRepoRanking({
     <div className="space-y-4">
       {/* KPI cards (conserved caliber). */}
       <section className="grid grid-cols-2 gap-3 lg:grid-cols-3">
-        <div className="rounded-lg border bg-card">
+        <div className="rounded-lg border bg-card shadow-sm">
           <KpiCard
             label="仓库数"
             value={formatNumber(agg.repoCount)}
             accent="brand"
           />
         </div>
-        <div className="rounded-lg border bg-card">
+        <div className="rounded-lg border bg-card shadow-sm">
           <KpiCard
             label="平均提效比"
             value={agg.avgRatioPct == null ? "-" : formatPercent(agg.avgRatioPct)}
             hint="守恒口径：Σ(古法 − 实际) / Σ实际 ×100（百分比口径）"
           />
         </div>
-        <div className="rounded-lg border bg-card">
+        <div className="rounded-lg border bg-card shadow-sm">
           <KpiCard
             label="总节省"
             value={`${formatNumber(agg.savedDays, 1)} 人天`}
@@ -106,7 +106,7 @@ export function EfficiencyRepoRanking({
       </section>
 
       {/* Ranking table (efficiency-only columns). */}
-      <section className="rounded-lg border bg-card">
+      <section className="rounded-lg border bg-card shadow-sm">
         <div className="flex items-center justify-between gap-3 border-b px-4 py-3">
           <span className="text-sm font-semibold text-card-foreground">
             仓库效率排行

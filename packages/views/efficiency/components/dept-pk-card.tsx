@@ -106,7 +106,7 @@ export function DeptPKCard({ startDate, endDate }: DeptPKCardProps) {
   const errored = treeQ.isError || rankingQ.isError;
 
   return (
-    <div className="flex flex-col rounded-lg border bg-card p-5 transition-shadow hover:shadow-lg md:p-6">
+    <div className="flex flex-col rounded-lg border bg-card shadow-sm p-5 transition-shadow hover:shadow-lg md:p-6">
       <div className="mb-4 flex items-center justify-between gap-3">
         <div className="flex min-w-0 items-center gap-1">
           <h2 className="truncate text-sm font-semibold uppercase tracking-wide text-muted-foreground">

@@ -71,7 +71,7 @@ export function Section({
   bodyClassName,
 }: SectionProps) {
   return (
-    <section className="overflow-hidden rounded-lg border bg-card">
+    <section className="overflow-hidden rounded-lg border bg-card shadow-sm">
       <div className="flex flex-wrap items-center justify-between gap-2 border-b px-4 py-3">
         <span className="text-sm font-semibold text-card-foreground">
           {title}

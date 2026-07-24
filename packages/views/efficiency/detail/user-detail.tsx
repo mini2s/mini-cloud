@@ -237,7 +237,7 @@ export function UserDetail({
 
 function KpiTile({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-lg border bg-card">
+    <div className="rounded-lg border bg-card shadow-sm">
       <KpiCard label={label} value={value} />
     </div>
   );

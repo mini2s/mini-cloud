@@ -33,7 +33,7 @@ export function AIPenetrationCard({
   const gap = pen != null && cov != null ? pen - cov : null;
 
   return (
-    <div className="flex flex-col rounded-lg border bg-card p-5 md:p-6">
+    <div className="flex flex-col rounded-lg border bg-card shadow-sm p-5 md:p-6">
       <h2 className="mb-4 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
         AI 渗透率
       </h2>

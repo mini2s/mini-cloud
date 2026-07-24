@@ -89,7 +89,7 @@ export function HeroSaving({ startDate, endDate }: HeroSavingProps) {
 
   if (summaryQ.isLoading || !data) {
     return (
-      <div className="flex min-h-[15rem] flex-col rounded-lg border bg-card p-6 md:p-8">
+      <div className="flex min-h-[15rem] flex-col rounded-lg border bg-card shadow-sm p-6 md:p-8">
         <Skeleton className="mb-2 h-7 w-48" />
         <Skeleton className="mb-8 h-4 w-64" />
         <div className="grid flex-1 grid-cols-1 gap-8 sm:grid-cols-3">
@@ -102,7 +102,7 @@ export function HeroSaving({ startDate, endDate }: HeroSavingProps) {
   }
 
   return (
-    <div className="flex min-h-[15rem] flex-col rounded-lg border bg-card p-6 transition-shadow hover:shadow-lg md:p-8">
+    <div className="flex min-h-[15rem] flex-col rounded-lg border bg-card shadow-sm p-6 transition-shadow hover:shadow-lg md:p-8">
       <div className="mb-6 flex flex-wrap items-start justify-between gap-3 md:mb-8">
         <div>
           {/* h2, not h1 — the page title h1 lives in PageHeader (app chrome

@@ -63,7 +63,7 @@ export function ContributionDimension() {
       </PageHeader>
 
       <div className="flex-1 overflow-y-auto">
-        <div className="mx-auto max-w-6xl space-y-4 p-6 lg:space-y-6">
+        <div className="space-y-4 p-6 lg:space-y-6 lg:px-8">
           {/* Caliber note: contribution is derived-only (no platform data). */}
           <p className="text-xs text-muted-foreground">
             贡献 = 交付物（合并需求 / 代码行 / 提交 / 贡献者），为
