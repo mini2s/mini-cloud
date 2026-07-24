@@ -31,6 +31,7 @@ describe("paths.workspace() shape", () => {
         "runtimes",
         "skills",
         "settings",
+        "efficiencySettings",
         "workflows",
         "roles",
         // Upcoming product surface (web-only placeholder destinations).
@@ -89,6 +90,7 @@ describe("paths.workspace() shape", () => {
       ["runtimes", "runtimes"],
       ["skills", "skills"],
       ["settings", "settings"],
+      ["efficiencySettings", "settings/efficiency"],
       ["workflows", "workflows"],
       ["roles", "roles"],
       // Upcoming product surface.

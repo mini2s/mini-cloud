@@ -23,6 +23,7 @@ import {
   ChevronDown,
   ChevronRight,
   Settings,
+  SlidersHorizontal,
   LogOut,
   Plus,
   Check,
@@ -163,7 +164,8 @@ type NavKey =
   | "meProfile"
   | "meQuota"
   | "meNotifications"
-  | "roles";
+  | "roles"
+  | "efficiencySettings";
 
 // Static schema (key + icon) — labels resolved at render via useT("layout").
 type NavLabelKey =
@@ -204,7 +206,8 @@ type NavLabelKey =
   | "me_profile"
   | "me_quota"
   | "me_notifications"
-  | "roles";
+  | "roles"
+  | "efficiency_settings";
 
 // type NavItem = { key: NavKey; labelKey: NavLabelKey; icon: typeof Inbox };
 type NavItem = { key: NavKey; labelKey: NavLabelKey; icon: typeof LayoutDashboard };
@@ -258,6 +261,10 @@ const adminNav: NavItem[] = [
   { key: "channels", labelKey: "channels", icon: Megaphone },
   { key: "quotas", labelKey: "quotas", icon: Percent },
   { key: "runtimes", labelKey: "runtimes", icon: Monitor },
+  // One entry for the eight efficiency settings/ops pages (pricing /
+  // datasources / sync / config + platform overview / health / realtime /
+  // realtime query) — surfaced via a tabbed shell rather than eight rows.
+  { key: "efficiencySettings", labelKey: "efficiency_settings", icon: SlidersHorizontal },
 ];
 
 const meNav: NavItem[] = [

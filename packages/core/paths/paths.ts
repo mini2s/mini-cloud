@@ -42,6 +42,11 @@ function workspaceScoped(slug: string) {
     workflowRuns: (id: string) => `${ws}/workflows/${encode(id)}/runs`,
     workflowRunDetail: (workflowId: string, runId: string) => `${ws}/workflows/${encode(workflowId)}/runs/${encode(runId)}`,
     settings: () => `${ws}/settings`,
+    // Efficiency settings/ops shell — one sidebar entry that surfaces the
+    // eight efficiency sub-pages (pricing / datasources / sync / config +
+    // platform overview / health / realtime / realtime query) via tabs. The
+    // eight sub-routes below stay reachable directly for deep-linking.
+    efficiencySettings: () => `${ws}/settings/efficiency`,
     roles: () => `${ws}/roles`,
     attachmentPreview: (id: string) => `${ws}/attachments/${encode(id)}/preview`,
     // Upcoming product surface — placeholder pages, web-only for now.

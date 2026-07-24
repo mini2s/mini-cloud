@@ -52,6 +52,7 @@ export {
   PlatformHealthPage,
   RealtimeReportPage,
   RealtimeQueryPage,
+  EfficiencySettingsShell,
 } from "./settings";
 export {
   DetailShell,

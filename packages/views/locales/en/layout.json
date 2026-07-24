@@ -41,7 +41,8 @@
     "hub_mcp": "MCP Servers",
     "hub_plugin": "Plugins",
     "hub_manager": "Manager",
-    "roles": "Dev Roles"
+    "roles": "Dev Roles",
+    "efficiency_settings": "Efficiency Ops"
   },
   "help": {
     "trigger": "Help",

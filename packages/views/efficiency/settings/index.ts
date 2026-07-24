@@ -18,3 +18,4 @@ export { PlatformOverviewPage } from "./platform-overview-page";
 export { PlatformHealthPage } from "./platform-health-page";
 export { RealtimeReportPage } from "./realtime-report-page";
 export { RealtimeQueryPage } from "./realtime-query-page";
+export { EfficiencySettingsShell } from "./settings-shell";
