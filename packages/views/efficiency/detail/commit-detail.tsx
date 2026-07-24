@@ -10,6 +10,7 @@ import {
   formatLocalTime,
   formatV2Ratio,
   useUpdateCommitManual,
+  useUserNameMap,
   type CommitDetail as CommitDetailType,
   type RelatedTask,
   type UpdateCommitManualRequest,
@@ -51,6 +52,7 @@ interface CommitDetailProps {
 
 export function CommitDetail({ commitId, onBack }: CommitDetailProps) {
   const wsId = useWorkspaceId();
+  const { resolveName } = useUserNameMap();
   const q = useQuery(commitDetailOptions(wsId, commitId));
 
   // Top-level efficiency_ratio overrides the commit's own (source §1.2).
@@ -111,7 +113,7 @@ export function CommitDetail({ commitId, onBack }: CommitDetailProps) {
       <Panel title="Basic info">
         <KvGrid>
           <Kv label="Commit ID" mono>{commit.commit_id || "-"}</Kv>
-          <Kv label="User">{commit.user_name || commit.user_id || "-"}</Kv>
+          <Kv label="User">{commit.user_name || resolveName(commit.user_id)}</Kv>
           <Kv label="Git user">
             {commit.git_user_name
               ? `${commit.git_user_name}${commit.git_user_email ? ` <${commit.git_user_email}>` : ""}`

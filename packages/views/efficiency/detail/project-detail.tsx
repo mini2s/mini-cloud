@@ -21,6 +21,7 @@ import {
   type ProjectNeedItem,
   type ProjectRepo,
   PERSON_DAY_MINUTES,
+  useUserNameMap,
 } from "@multica/core/efficiency";
 import { Pencil, Plus, Trash2, X } from "lucide-react";
 import { Button } from "@multica/ui/components/ui/button";
@@ -113,6 +114,7 @@ export function ProjectDetail({
   onDeleted,
 }: ProjectDetailProps) {
   const wsId = useWorkspaceId();
+  const { resolveName } = useUserNameMap();
 
   const detailQ = useQuery(projectDetailOptions(wsId, projectId));
   const needsQ = useQuery(projectNeedsOptions(wsId, projectId));
@@ -490,10 +492,7 @@ export function ProjectDetail({
               contributors.map((c) => (
                 <tr key={c.user_id} className="border-b text-card-foreground last:border-0">
                   <Td>
-                    {/* TODO(names): source used useUserNameMap to resolve
-                        display names; that resolver isn't in the data layer.
-                        Falls back to the raw user_id. */}
-                    <span title={c.user_id}>{c.user_id}</span>
+                    <span title={c.user_id}>{resolveName(c.user_id)}</span>
                   </Td>
                   <TdNum>{c.needCount}</TdNum>
                   <td className="px-3 py-2 text-center align-middle">

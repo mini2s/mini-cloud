@@ -9,6 +9,7 @@ import {
   formatNumber,
   formatV2Ratio,
   userDetailOptions,
+  useUserNameMap,
   type NeedCommit,
   type NeedsV2Summary,
   type UserProductivityV2,
@@ -55,6 +56,7 @@ export function UserDetail({
   onBack,
 }: UserDetailProps) {
   const wsId = useWorkspaceId();
+  const { resolveName } = useUserNameMap();
   const q = useQuery(userDetailOptions(wsId, userId, startDate, endDate));
 
   const summary = q.data?.summary;
@@ -71,7 +73,7 @@ export function UserDetail({
     [q.data?.commits],
   );
 
-  const titleName = summary?.user_name || userId;
+  const titleName = summary?.user_name || resolveName(userId);
 
   return (
     <DetailShell

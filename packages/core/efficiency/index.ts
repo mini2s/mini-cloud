@@ -9,3 +9,4 @@ export * from "./mutations";
 export * from "./api";
 export * from "./view-state-store";
 export { MOCK_ENABLED, mock } from "./mock";
+export { useUserNameMap } from "./hooks";

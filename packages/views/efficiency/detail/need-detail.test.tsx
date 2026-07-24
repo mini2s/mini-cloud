@@ -1,5 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { cleanup, screen } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import type { ReactNode } from "react";
 import { renderWithI18n } from "../../test/i18n";
 
 // NeedDetail integration smoke test. Mirrors the efficiency-dimension /
@@ -9,6 +11,11 @@ import { renderWithI18n } from "../../test/i18n";
 // exercises its "data present" render path. The point is that the whole page
 // graph mounts without throwing and the title/KPI/sections render — the most
 // faithful check possible without a backend.
+//
+// The page calls useUserNameMap, which fires its own useQuery for the
+// user-names roster. That query is also intercepted below (returning the mock
+// roster) so resolver-backed cells ("Primary user", session user) render real
+// names instead of raw ids.
 
 vi.mock("@multica/core/hooks", () => ({
   useWorkspaceId: () => "ws-1",
@@ -17,7 +24,8 @@ vi.mock("@multica/core/hooks", () => ({
 // Intercept useQuery and return mock data for the need-detail queryKey:
 //   ["efficiency", wsId, "detail", "need", needId]
 // so indices are: [2]="detail" (segment), [3]="need" (entity), [4]=needId.
-// Other keys fall through to a no-data return (none expected here).
+// The user-names roster key is ["efficiency", wsId, "user-names"] ([2] is the
+// segment). Other keys fall through to a no-data return (none expected here).
 vi.mock("@tanstack/react-query", async () => {
   const actual =
     await vi.importActual<typeof import("@tanstack/react-query")>(
@@ -30,11 +38,18 @@ vi.mock("@tanstack/react-query", async () => {
     ...actual,
     useQuery: (opts: { queryKey: unknown[] }) => {
       const key = opts.queryKey;
-      const segment = key[2]; // "detail"
+      const segment = key[2]; // "detail" | "user-names"
       const entity = key[3]; // "need" / "user" / "task" / "commit"
       if (segment === "detail" && entity === "need") {
         return {
           data: eff.mock.needDetail(String(key[4] ?? "n-test")),
+          isLoading: false,
+          error: null,
+        };
+      }
+      if (segment === "user-names") {
+        return {
+          data: eff.mock.userNames(),
           isLoading: false,
           error: null,
         };
@@ -46,13 +61,26 @@ vi.mock("@tanstack/react-query", async () => {
 
 import { NeedDetail } from "./need-detail";
 
+// The page's useUserNameMap calls useQuery; provide an in-memory QueryClient so
+// the hook's query is valid even if a future change bypasses the mock above.
+function withQueryClient(node: ReactNode) {
+  const qc = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
+  return (
+    <QueryClientProvider client={qc}>
+      {node}
+    </QueryClientProvider>
+  );
+}
+
 describe("NeedDetail (smoke)", () => {
   beforeEach(() => cleanup());
 
   it("mounts and renders the title + KPI grid + collapsible commits section", async () => {
     const onBack = vi.fn();
     const { container } = renderWithI18n(
-      <NeedDetail needId="n-test-1" onBack={onBack} />,
+      withQueryClient(<NeedDetail needId="n-test-1" onBack={onBack} />),
     );
 
     // Title block: "Need detail" + the need id subtitle.
@@ -85,7 +113,7 @@ describe("NeedDetail (smoke)", () => {
   it("invokes onBack when the back button is clicked", async () => {
     const onBack = vi.fn();
     const { container } = renderWithI18n(
-      <NeedDetail needId="n-test-2" onBack={onBack} />,
+      withQueryClient(<NeedDetail needId="n-test-2" onBack={onBack} />),
     );
     const backBtn = container.querySelector("button");
     backBtn?.click();

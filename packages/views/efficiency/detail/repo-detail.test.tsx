@@ -64,6 +64,13 @@ vi.mock("@tanstack/react-query", async () => {
           error: null,
         };
       }
+      if (segment === "user-names") {
+        return {
+          data: eff.mock.userNames(),
+          isLoading: false,
+          error: null,
+        };
+      }
       return { data: undefined, isLoading: false, error: null };
     },
   };

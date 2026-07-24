@@ -12,6 +12,7 @@ import {
   needDetailOptions,
   STAGE_ESTIMATE_TIP,
   VERIFY_UNAVAILABLE_TIP,
+  useUserNameMap,
   type NeedBaselineComponents,
   type NeedCommit,
   type NeedDetail as NeedDetailModel,
@@ -59,6 +60,7 @@ const FILE_PREVIEW_N = 24;
 
 export function NeedDetail({ needId, onBack }: NeedDetailProps) {
   const wsId = useWorkspaceId();
+  const { resolveName } = useUserNameMap();
   const q = useQuery(needDetailOptions(wsId, needId));
 
   const need: NeedDetailModel = useMemo(
@@ -178,7 +180,7 @@ export function NeedDetail({ needId, onBack }: NeedDetailProps) {
           <Kv label="Boundary key" wide mono>{need.boundary_key || "-"}</Kv>
           <Kv label="Repo" wide mono>{need.repo_addr || "-"}</Kv>
           <Kv label="Branch" mono>{need.repo_branch || "-"}</Kv>
-          <Kv label="Primary user">{need.primary_user_id || "-"}</Kv>
+          <Kv label="Primary user">{resolveName(need.primary_user_id)}</Kv>
           <Kv label="Contributors">{contributorCount}</Kv>
           <Kv label="Start time">{formatLocalTime(need.dev_start_ts)}</Kv>
           <Kv label="End time">{formatLocalTime(need.dev_end_ts)}</Kv>
@@ -307,7 +309,7 @@ export function NeedDetail({ needId, onBack }: NeedDetailProps) {
                 <tr key={s.session_id} className="border-b text-card-foreground last:border-0">
                   <td className="px-3 py-2 font-mono text-xs">{shortId(s.session_id)}</td>
                   <td className="max-w-[220px] truncate px-3 py-2" title={s.user_id ?? ""}>
-                    {s.user_id || "-"}
+                    {resolveName(s.user_id)}
                   </td>
                   <td className="px-3 py-2">{formatLocalTime(s.session_start_ts)}</td>
                   <td className="px-3 py-2">{formatLocalTime(s.session_end_ts)}</td>

@@ -9,6 +9,7 @@ import {
   formatLocalTime,
   taskDetailOptions,
   useUpdateTaskManual,
+  useUserNameMap,
   type Conversation,
   type TaskListItem,
   type UpdateTaskManualRequest,
@@ -74,6 +75,7 @@ function extractUserQuestion(raw?: string): string {
 
 export function TaskDetail({ taskId, onBack }: TaskDetailProps) {
   const wsId = useWorkspaceId();
+  const { resolveName } = useUserNameMap();
   const q = useQuery(taskDetailOptions(wsId, taskId));
 
   const task: TaskListItem = useMemo(
@@ -140,7 +142,7 @@ export function TaskDetail({ taskId, onBack }: TaskDetailProps) {
         <KvGrid>
           <Kv label="Task ID" mono>{task.task_id || "-"}</Kv>
           <Kv label="Title" wide>{task.title || "-"}</Kv>
-          <Kv label="User">{task.user_name || task.user_id || "-"}</Kv>
+          <Kv label="User">{task.user_name || resolveName(task.user_id)}</Kv>
           <Kv label="Repo">{repoDisplay}</Kv>
           <Kv label="Workdir">{task.work_dir || task.work_dir_id || "-"}</Kv>
           <Kv label="Start time">{formatLocalTime(task.start_time)}</Kv>

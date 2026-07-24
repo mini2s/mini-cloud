@@ -35,6 +35,7 @@ import type {
   TaskDetailResponse,
   UserV2DetailResponse,
   UserV2Row,
+  UserNameRow,
 } from "../types";
 import type {
   DeptActiveUsersResp,
@@ -90,6 +91,7 @@ import {
   getMockProjectList,
 } from "./efficiency";
 import { getMockAllNeeds } from "./needs";
+import { getMockUserNames } from "./user-names";
 import { getMockUsers } from "./users";
 import {
   getMockUsageDeptActiveUsers,
@@ -153,6 +155,8 @@ export const mock = {
     endDate?: string;
     pageSize?: number;
   }): ApiList<UserV2Row> => getMockUsers(p),
+  // Display-name roster (date-independent). Resolves raw user_id → "真名(工号)".
+  userNames: (): UserNameRow[] => getMockUserNames(),
 
   // ---- Efficiency dimension (aggregate + non-paginated full lists) ----
   efficiencyAggregate: (p: {

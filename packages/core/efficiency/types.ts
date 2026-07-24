@@ -292,6 +292,19 @@ export interface EfficiencyV2AggregateResponse {
   data: UserProductivityV2[]
 }
 
+/**
+ * /v2/user-names row: maps a dashboard user_id (and/or universal_id) to the
+ * display name + employee number shown on the detail pages. Resolves the raw
+ * UUID-style user_id that lists otherwise surface into "真名(工号)".
+ * universal_id is optional — populated only when the roster links the two.
+ */
+export interface UserNameRow {
+  user_id: string
+  universal_id?: string
+  real_name: string
+  emp_no: string
+}
+
 /** /v2/users/{id} top-level response (§User-2, summary uses decimal ratio) */
 export interface UserV2DetailResponse {
   summary: UserV2Row

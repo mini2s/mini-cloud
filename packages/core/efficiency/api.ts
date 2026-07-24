@@ -55,6 +55,7 @@ import type {
   UpdateTaskManualRequest,
   UserV2DetailResponse,
   UserV2Row,
+  UserNameRow,
   ApiData,
 } from "./types";
 import type {
@@ -212,6 +213,14 @@ export async function getAllUsers(p: {
     start_date: p.startDate,
     end_date: p.endDate,
   })}`;
+  throw new Error(NOT_WIRED);
+}
+
+// /v2/user-names → workspace roster for display-name resolution. Bare array of
+// {user_id, universal_id, real_name, emp_no}; date-independent. Used by
+// useUserNameMap so contributor/member rows show "真名(工号)" instead of raw ids.
+export async function getUserNames(): Promise<UserNameRow[]> {
+  void `${BASE}/user-names`;
   throw new Error(NOT_WIRED);
 }
 

@@ -39,6 +39,7 @@ import {
   getRepoDetailV2,
   getRepoTrendV2,
   getTaskDetailV2,
+  getUserNames,
   getUsageDeptActiveUsers,
   getUsageDeptMembers,
   getUsageDeptModeUsage,
@@ -86,6 +87,9 @@ export const efficiencyKeys = {
     [...efficiencyKeys.all(wsId), "all-needs", startDate, endDate] as const,
   users: (wsId: string, startDate?: string, endDate?: string, pageSize?: number) =>
     [...efficiencyKeys.all(wsId), "users", startDate, endDate, pageSize] as const,
+  // Display-name roster (date-independent); resolves user_id → "真名(工号)".
+  userNames: (wsId: string) =>
+    [...efficiencyKeys.all(wsId), "user-names"] as const,
 
   // ---- Efficiency dimension (aggregate + non-paginated full lists) ----
   efficiencyAggregate: (
@@ -577,6 +581,21 @@ export function usersOptions(
     },
     enabled: !!wsId,
     staleTime: STALE_TIME,
+  });
+}
+
+// Display-name roster. Date-independent and rarely changing (dept-sync roster),
+// so it uses a longer 5min staleTime than the shared 1min cadence — the source
+// useUserNameMap treated this as a near-static lookup table.
+export function userNamesOptions(wsId: string) {
+  return queryOptions({
+    queryKey: efficiencyKeys.userNames(wsId),
+    queryFn: async () => {
+      if (MOCK_ENABLED) return mock.userNames();
+      return getUserNames();
+    },
+    enabled: !!wsId,
+    staleTime: 5 * 60 * 1000,
   });
 }
 
