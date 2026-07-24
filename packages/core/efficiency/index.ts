@@ -5,4 +5,4 @@ export * from "./utils";
 export * from "./queries";
 export * from "./api";
 export * from "./view-state-store";
-export { MOCK_ENABLED } from "./mock";
+export { MOCK_ENABLED, mock } from "./mock";
