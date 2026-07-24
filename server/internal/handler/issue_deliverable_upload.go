@@ -20,7 +20,7 @@ type UploadIssueDeliverableRequest struct {
 // server archives each file (any format, binary-safe) to the issue's
 // default-workflow Gitea repo under the node directory, opens a PR, registers
 // it on the submission, and advances the node-run into review — the server-side
-// mirror of the agent's cs-workflow gitea submit.
+// mirror of the agent's cs-cloud workflow deliverable submit.
 // Dormant (Gitea unconfigured) → 503; issue without a workflow run → 409.
 func (h *Handler) UploadIssueDeliverable(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")

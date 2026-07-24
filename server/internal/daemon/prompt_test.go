@@ -488,10 +488,10 @@ func TestBuildPromptGiteaDeliverables(t *testing.T) {
 	if !strings.Contains(got, "Document Deliverables") {
 		t.Errorf("prompt missing Document Deliverables section:\n%s", got)
 	}
-	if !strings.Contains(got, "cs-workflow repo submit --deliverable d1 --file") {
+	if !strings.Contains(got, "cs-cloud workflow deliverable submit --deliverable d1 --file") {
 		t.Errorf("prompt missing repo submit command for d1:\n%s", got)
 	}
-	if !strings.Contains(got, "cs-workflow repo submit --deliverable d2 --file") {
+	if !strings.Contains(got, "cs-cloud workflow deliverable submit --deliverable d2 --file") {
 		t.Errorf("prompt missing repo submit command for d2:\n%s", got)
 	}
 	if !strings.Contains(got, "Design Doc") || !strings.Contains(got, "API Spec") {
@@ -536,7 +536,7 @@ func TestBuildPromptCriticReviewOmitsDeliverableSubmissionInstructions(t *testin
 	if !strings.Contains(got, `"approved":true`) || !strings.Contains(got, `"comment"`) {
 		t.Fatalf("critic prompt missing JSON decision contract:\n%s", got)
 	}
-	if strings.Contains(got, "cs-workflow repo submit") {
+	if strings.Contains(got, "cs-cloud workflow deliverable submit") {
 		t.Fatalf("critic prompt must not ask the critic to submit deliverables:\n%s", got)
 	}
 }

@@ -488,7 +488,7 @@ func TestAppendDeliverablePrompt_GitAndSubmitNoFetch(t *testing.T) {
 		"MULTICA_REPO_CLONE_URL_AUTHED",            // authed clone URL exposed
 		"git clone",                                // raw-git read guidance
 		"MULTICA_REPO_INST_BRANCH",                 // branch context
-		"cs-workflow repo submit --deliverable d1", // neutral submit path
+		"cs-cloud workflow deliverable submit --deliverable d1", // neutral submit path
 		"cs-workflow issue deliverables",           // self-service read command
 		"Document Deliverables",
 	} {
