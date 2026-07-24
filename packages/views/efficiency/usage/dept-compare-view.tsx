@@ -11,7 +11,7 @@ import {
   type DeptQuery,
 } from "@multica/core/efficiency";
 import { findDeptChildren } from "./dept-tree-panel";
-import { PCT, shortToken } from "./shared";
+import { PCT, SortHeader, shortToken, Td, TdNum, Th, ThNum } from "./shared";
 
 // Sub-department comparison (PK) — third tab of the Usage Kanban. Ports the
 // source DeptCompareView. Lists the direct children of the selected dept and
@@ -204,52 +204,6 @@ export function DeptCompareView({
   );
 }
 
-/** Sortable column header — pure button with arrow indicator. */
-function SortHeader({
-  label,
-  active,
-  desc,
-  onClick,
-}: {
-  label: string;
-  active: boolean;
-  desc: boolean;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className="inline-flex cursor-pointer items-center gap-1 border-none bg-transparent p-0 font-semibold text-inherit hover:text-foreground focus:outline-none"
-    >
-      {label}
-      <span aria-hidden="true" className="text-xs">
-        {active ? (desc ? "▼" : "▲") : "↕"}
-      </span>
-    </button>
-  );
-}
-
-function Th({ children }: { children: React.ReactNode }) {
-  return <th className="whitespace-nowrap px-3 py-2 text-left font-semibold">{children}</th>;
-}
-function ThNum({ children }: { children: React.ReactNode }) {
-  return <th className="whitespace-nowrap px-3 py-2 text-right font-semibold">{children}</th>;
-}
-function Td({ children, title }: { children: React.ReactNode; title?: string }) {
-  return (
-    <td className="whitespace-nowrap px-3 py-2 align-middle text-card-foreground" title={title}>
-      {children}
-    </td>
-  );
-}
-function TdNum({ children, title }: { children: React.ReactNode; title?: string }) {
-  return (
-    <td
-      className="whitespace-nowrap px-3 py-2 text-right align-middle tabular-nums text-card-foreground"
-      title={title}
-    >
-      {children}
-    </td>
-  );
-}
+/** Sortable column header + table cell primitives (Th/ThNum/Td/TdNum) are
+ * imported from ./shared — single source of truth shared with the other
+ * usage views. */

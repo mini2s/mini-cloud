@@ -6,19 +6,12 @@ import { useQuery } from "@tanstack/react-query";
 import { useWorkspaceId } from "@multica/core/hooks";
 import {
   deptTreeOptions,
-  getDefaultDateRangeWide,
   useViewState,
 } from "@multica/core/efficiency";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@multica/ui/components/ui/select";
 import { Skeleton } from "@multica/ui/components/ui/skeleton";
 import { Switch } from "@multica/ui/components/ui/switch";
 import { PageHeader } from "../../layout/page-header";
+import { PeriodSelect } from "../components";
 import { DeptAggregateView } from "./dept-aggregate-view";
 import { DeptCompareView } from "./dept-compare-view";
 import { DeptTreePanel, findDeptName } from "./dept-tree-panel";
@@ -213,53 +206,5 @@ function ViewTab({
   );
 }
 
-// Preset period selector — duplicated from OverviewPage. Kept local (not
-// shared) intentionally: the source had a richer DateRangePicker that slice 5
-// will land across the whole dashboard; for now both pages carry the same
-// preset Select so the look stays consistent. TODO: extract a shared period
-// picker in slice 5.
-interface Preset {
-  label: string;
-  days: number;
-}
-const PRESETS: Preset[] = [
-  { label: "7d", days: 7 },
-  { label: "30d", days: 30 },
-  { label: "90d", days: 90 },
-];
+// PeriodSelect is imported from ../components (shared with the Overview page).
 
-function PeriodSelect({
-  value,
-  onChange,
-}: {
-  value: string;
-  onChange: (range: [string, string]) => void;
-}) {
-  const activeKey = (() => {
-    for (const p of PRESETS) {
-      const [start] = getDefaultDateRangeWide(p.days);
-      if (start === value) return p.label;
-    }
-    return "90d";
-  })();
-
-  const handle = (label: string) => {
-    const preset = PRESETS.find((p) => p.label === label);
-    if (preset) onChange(getDefaultDateRangeWide(preset.days));
-  };
-
-  return (
-    <Select value={activeKey} onValueChange={(v) => handle(v ?? "90d")}>
-      <SelectTrigger size="sm" className="min-w-[90px]">
-        <SelectValue />
-      </SelectTrigger>
-      <SelectContent>
-        {PRESETS.map((p) => (
-          <SelectItem key={p.label} value={p.label}>
-            {p.label}
-          </SelectItem>
-        ))}
-      </SelectContent>
-    </Select>
-  );
-}

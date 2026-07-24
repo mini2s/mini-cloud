@@ -23,7 +23,18 @@ import {
   type MultiTrendPoint,
   type PieDatum,
 } from "../charts";
-import { PCT, filterZeroRequests, fmtMs, shortDate, shortToken } from "./shared";
+import {
+  PCT,
+  chartColorFor,
+  filterZeroRequests,
+  fmtMs,
+  shortDate,
+  shortToken,
+  Td,
+  TdNum,
+  Th,
+  ThNum,
+} from "./shared";
 
 // Member detail dialog — shown when the user clicks a row in MembersView.
 // Ports the source UserDetailModal (308 lines, ECharts). Per design decision
@@ -333,7 +344,7 @@ function ModelTable({
                 <span className="inline-flex items-center gap-2">
                   <span
                     className="inline-block h-2.5 w-2.5 rounded-full"
-                    style={{ background: `var(--chart-${(i % 5) + 1})` }}
+                    style={{ background: chartColorFor(i) }}
                   />
                   <span className="max-w-[140px] truncate" title={m.model}>
                     {m.model || "-"}
@@ -410,26 +421,4 @@ function PerDayTable({
   );
 }
 
-function Th({ children }: { children: ReactNode }) {
-  return <th className="whitespace-nowrap px-3 py-2 text-left font-semibold">{children}</th>;
-}
-function ThNum({ children }: { children: ReactNode }) {
-  return <th className="whitespace-nowrap px-3 py-2 text-right font-semibold">{children}</th>;
-}
-function Td({ children, title }: { children: ReactNode; title?: string }) {
-  return (
-    <td className="whitespace-nowrap px-3 py-2 align-middle text-card-foreground" title={title}>
-      {children}
-    </td>
-  );
-}
-function TdNum({ children, title }: { children: ReactNode; title?: string }) {
-  return (
-    <td
-      className="whitespace-nowrap px-3 py-2 text-right align-middle tabular-nums text-card-foreground"
-      title={title}
-    >
-      {children}
-    </td>
-  );
-}
+

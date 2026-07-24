@@ -33,7 +33,16 @@ import {
   type MultiTrendPoint,
   type PieDatum,
 } from "../charts";
-import { PCT, filterZeroRequests, shortToken } from "./shared";
+import {
+  PCT,
+  chartColorFor,
+  filterZeroRequests,
+  shortToken,
+  Td,
+  TdNum,
+  Th,
+  ThNum,
+} from "./shared";
 
 // Department aggregation view — the primary tab of the Usage Kanban. Ports
 // the source DeptAggregateView (646 lines, ECharts) to recharts + semantic
@@ -99,17 +108,10 @@ export function DeptAggregateView({
     );
   }
 
-  const fatalErr = [overviewQ, activeQ, trendQ, modelsQ, weeklyQ, resultsQ].find(
-    (h) => h.error,
-  )?.error;
-  if (fatalErr) {
-    return (
-      <div className="rounded-lg border bg-card p-10 text-center text-sm text-destructive">
-        加载部门指标失败：{(fatalErr as Error).message}
-      </div>
-    );
-  }
-
+  // No page-level fatal-error short-circuit: each block surfaces its own
+  // error state (see per-block `if (q.error) return <ErrorHint />`). This is
+  // the per-block resilience intent — a failing weeklyQ must not hide the rest.
+  // modeUsageQ is treated the same as the others now (no special exclusion).
   const ov = overviewQ.data;
   const au = activeQ.data;
   const cmp = compareQ.data;
@@ -131,11 +133,16 @@ export function DeptAggregateView({
   return (
     <div className="flex flex-col gap-4">
       {/* Active users: DAU/WAU/MAU + stickiness. */}
-      <ActiveUsersBlock loading={activeQ.isLoading && !au} data={au} />
+      <ActiveUsersBlock
+        loading={activeQ.isLoading && !au}
+        error={activeQ.error as Error | null}
+        data={au}
+      />
 
       {/* Overview KPIs + period-compare badges. */}
       <OverviewBlock
         loading={overviewQ.isLoading && !ov}
+        error={overviewQ.error as Error | null}
         overview={ov}
         compare={cmp}
       />
@@ -143,23 +150,39 @@ export function DeptAggregateView({
       {/* Trend: requests (bar) + active users (line) on dual axes, plus a
           separate token trend (input + output areas). Per-day granularity
           (source's granularity toggle is dropped — see file header). */}
-      <TrendBlock loading={trendQ.isLoading} trend={trendQ.data?.trend} />
+      <TrendBlock
+        loading={trendQ.isLoading && !trendQ.data}
+        error={trendQ.error as Error | null}
+        trend={trendQ.data?.trend}
+      />
 
       {/* Per-model volume: donut + detail table. */}
-      <ModelsBlock loading={modelsQ.isLoading} models={modelsQ.data?.models} />
+      <ModelsBlock
+        loading={modelsQ.isLoading && !modelsQ.data}
+        error={modelsQ.error as Error | null}
+        models={modelsQ.data?.models}
+      />
 
       {/* Per-mode usage (kanban-local caliber). */}
       <ModeUsageBlock
-        loading={modeUsageQ.isLoading}
+        loading={modeUsageQ.isLoading && !modeUsageQ.data}
         error={modeUsageQ.error as Error | null}
         items={modeUsageQ.data?.items}
       />
 
       {/* By-weekday request distribution. */}
-      <WeeklyBlock loading={weeklyQ.isLoading} weekdays={weeklyQ.data?.weekdays} />
+      <WeeklyBlock
+        loading={weeklyQ.isLoading && !weeklyQ.data}
+        error={weeklyQ.error as Error | null}
+        weekdays={weeklyQ.data?.weekdays}
+      />
 
       {/* Request outcomes + per-model success rate bar. */}
-      <ResultsBlock loading={resultsQ.isLoading} data={resultsQ.data} />
+      <ResultsBlock
+        loading={resultsQ.isLoading && !resultsQ.data}
+        error={resultsQ.error as Error | null}
+        data={resultsQ.data}
+      />
     </div>
   );
 }
@@ -209,15 +232,38 @@ function EmptyHint({ compact = false }: { compact?: boolean }) {
   );
 }
 
+/**
+ * Per-block error state. Renders inside a Card shell so the block keeps its
+ * title + frame; only the body swaps to a destructive message. The `title`
+ * is passed so the failed block is identifiable (matches the card header the
+ * block would otherwise render).
+ */
+function ErrorHint({ title, sub, error }: { title: ReactNode; sub?: ReactNode; error: Error }) {
+  return (
+    <Card title={title} sub={sub}>
+      <div className="flex min-h-[8rem] items-center justify-center text-center text-sm text-destructive">
+        加载失败：{error.message}
+      </div>
+    </Card>
+  );
+}
+
 // ============================ Active users ============================
 function ActiveUsersBlock({
   loading,
+  error,
   data,
 }: {
   loading: boolean;
+  error: Error | null;
   data?: { dau: number; wau: number; mau: number; dau_wau_ratio: number };
 }) {
   if (loading) return <SkeletonCard title="活跃用户" rows={4} />;
+  if (error) {
+    return (
+      <ErrorHint title="活跃用户" sub="DAU/WAU/MAU · DAU/WAU 比值衡量粘性" error={error} />
+    );
+  }
   if (!data) {
     return (
       <Card title="活跃用户" sub="DAU/WAU/MAU · DAU/WAU 比值衡量粘性">
@@ -240,10 +286,12 @@ function ActiveUsersBlock({
 // ============================ Overview KPIs + period compare ============================
 function OverviewBlock({
   loading,
+  error,
   overview: ov,
   compare: cmp,
 }: {
   loading: boolean;
+  error: Error | null;
   overview?: {
     total_requests: number;
     active_users: number;
@@ -261,6 +309,9 @@ function OverviewBlock({
   } | null;
 }) {
   if (loading) return <SkeletonCard title="使用概览" rows={8} />;
+  if (error) {
+    return <ErrorHint title="使用概览" sub="除成功率/失败率外，均已排除失败请求" error={error} />;
+  }
   if (!ov) {
     return (
       <Card title="使用概览" sub="除成功率/失败率外，均已排除失败请求">
@@ -333,12 +384,17 @@ function ChangeBadge({ label, pct }: { label: string; pct: number }) {
 // ============================ Trend (combo bar+line + token area) ============================
 function TrendBlock({
   loading,
+  error,
   trend,
 }: {
   loading: boolean;
+  error: Error | null;
   trend?: DeptTrendPoint[];
 }) {
   if (loading) return <SkeletonCard title="使用趋势（按天）" />;
+  if (error) {
+    return <ErrorHint title="使用趋势（按天）" sub="请求量 / 活跃用户" error={error} />;
+  }
   if (!trend || !trend.length) {
     return (
       <Card title="使用趋势（按天）" sub="请求量 / 活跃用户">
@@ -389,9 +445,11 @@ function TrendBlock({
 // ============================ Per-model volume (donut + table) ============================
 function ModelsBlock({
   loading,
+  error,
   models,
 }: {
   loading: boolean;
+  error: Error | null;
   models?: DeptModelItem[];
 }) {
   const [showZero, setShowZero] = useState(false);
@@ -399,6 +457,9 @@ function ModelsBlock({
   const effective = showZero ? models ?? [] : visible;
 
   if (loading) return <SkeletonCard title="各模型使用" />;
+  if (error) {
+    return <ErrorHint title="各模型使用" sub="请求次数 / 占比 / Token / 成功率" error={error} />;
+  }
   if (!models || !models.length) {
     return (
       <Card title="各模型使用" sub="请求次数 / 占比 / Token / 成功率">
@@ -450,7 +511,7 @@ function ModelTable({ models }: { models: DeptModelItem[] }) {
                 <span className="inline-flex items-center gap-2">
                   <span
                     className="inline-block h-2.5 w-2.5 rounded-full"
-                    style={{ background: `var(--chart-${(i % 5) + 1})` }}
+                    style={{ background: chartColorFor(i) }}
                   />
                   <span className="max-w-[180px] truncate" title={m.model}>
                     {m.model || "-"}
@@ -485,11 +546,11 @@ function ModeUsageBlock({
   if (loading) return <SkeletonCard title="各 Mode 使用情况" />;
   if (error) {
     return (
-      <Card title="各 Mode 使用情况" sub="看板口径（本地同步数据），与平台活跃用户口径不同源">
-        <div className="py-8 text-center text-sm text-muted-foreground">
-          加载失败：{error.message}
-        </div>
-      </Card>
+      <ErrorHint
+        title="各 Mode 使用情况"
+        sub="看板口径（本地同步数据），与平台活跃用户口径不同源"
+        error={error}
+      />
     );
   }
   if (!items || !items.length) {
@@ -521,7 +582,7 @@ function ModeUsageBlock({
                     <span className="inline-flex items-center gap-2">
                       <span
                         className="inline-block h-2.5 w-2.5 rounded-full"
-                        style={{ background: `var(--chart-${(i % 5) + 1})` }}
+                        style={{ background: chartColorFor(i) }}
                       />
                       <span className="max-w-[180px] truncate" title={m.mode}>
                         {!m.mode || m.mode === "unknown" ? "-" : m.mode}
@@ -556,12 +617,17 @@ function ModeUsageBlock({
 // ============================ By-weekday distribution ============================
 function WeeklyBlock({
   loading,
+  error,
   weekdays,
 }: {
   loading: boolean;
+  error: Error | null;
   weekdays?: { weekday: number; weekday_name: string; request_count: number }[];
 }) {
   if (loading) return <SkeletonCard title="按星期聚合请求量分布" />;
+  if (error) {
+    return <ErrorHint title="按星期聚合请求量分布" sub="一周 7 天各日请求次数" error={error} />;
+  }
   if (!weekdays || !weekdays.length) {
     return (
       <Card title="按星期聚合请求量分布" sub="一周 7 天各日请求次数">
@@ -580,12 +646,17 @@ function WeeklyBlock({
 // ============================ Request results + per-model success ============================
 function ResultsBlock({
   loading,
+  error,
   data,
 }: {
   loading: boolean;
+  error: Error | null;
   data?: DeptResultsResp;
 }) {
   if (loading) return <SkeletonCard title="请求结果" />;
+  if (error) {
+    return <ErrorHint title="请求结果" sub="成功率 / 失败率 / 各模型成功率" error={error} />;
+  }
   if (!data) {
     return (
       <Card title="请求结果" sub="成功率 / 失败率 / 各模型成功率">
@@ -623,29 +694,8 @@ function ResultsBlock({
 }
 
 // ============================ Small shared bits ============================
-function Th({ children }: { children: ReactNode }) {
-  return <th className="whitespace-nowrap px-3 py-2 text-left font-semibold">{children}</th>;
-}
-function ThNum({ children }: { children: ReactNode }) {
-  return <th className="whitespace-nowrap px-3 py-2 text-right font-semibold">{children}</th>;
-}
-function Td({ children, title }: { children: ReactNode; title?: string }) {
-  return (
-    <td className="whitespace-nowrap px-3 py-2 align-middle text-card-foreground" title={title}>
-      {children}
-    </td>
-  );
-}
-function TdNum({ children, title }: { children: ReactNode; title?: string }) {
-  return (
-    <td
-      className="whitespace-nowrap px-3 py-2 text-right align-middle tabular-nums text-card-foreground"
-      title={title}
-    >
-      {children}
-    </td>
-  );
-}
+// Th / ThNum / Td / TdNum are imported from ./shared (single source of truth
+// shared with dept-compare-view, members-view, member-detail).
 
 function ZeroToggle({
   showZero,
