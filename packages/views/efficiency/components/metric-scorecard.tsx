@@ -7,7 +7,7 @@ import {
   TooltipTrigger,
 } from "@multica/ui/components/ui/tooltip";
 import { Skeleton } from "@multica/ui/components/ui/skeleton";
-import { formatV2Ratio, type DashboardTrendDelta } from "@multica/core/efficiency";
+import { type DashboardTrendDelta } from "@multica/core/efficiency";
 
 // Overview scorecard: dimension label + glossary tooltip + big value + hint +
 // wow delta arrow + weekly sparkline. Display-only (no drill-down). The info
@@ -88,6 +88,8 @@ export function MetricScorecard({
               <span
                 className="inline-flex cursor-help text-muted-foreground"
                 aria-label={tip}
+                tabIndex={0}
+                role="button"
               >
                 <svg
                   className="h-3.5 w-3.5"
@@ -164,7 +166,7 @@ function DeltaArrow({
       className={`text-xs font-medium tabular-nums ${color}`}
       title="环比：本期 vs 上期"
     >
-      {up ? "▲" : "▼"} {formatV2Ratio(Math.abs(pct), 0)}
+      {up ? "▲" : "▼"} {Math.abs(pct).toFixed(0)}%
     </span>
   );
 }

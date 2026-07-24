@@ -28,6 +28,9 @@ export function ScorecardStrip({ startDate, endDate }: ScorecardStripProps) {
   const trendsQ = useQuery(dashboardTrendsOptions(wsId, startDate, endDate));
 
   const s = summaryQ.data;
+  // Trends failure degrades softly: summary is the load-bearing data, so a
+  // trends fetch error leaves the cards rendering without sparklines/deltas
+  // (empty series + empty compare) rather than blocking the whole strip.
   const points = trendsQ.data?.points ?? [];
   const compare = trendsQ.data?.compare ?? {};
   const loading = summaryQ.isLoading || trendsQ.isLoading;
