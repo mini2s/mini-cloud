@@ -1,3 +1,5 @@
+"use client";
+
 import { SystemConfigPage } from "@multica/views/efficiency";
 
 export default function Page() {
