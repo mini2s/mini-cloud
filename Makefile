@@ -87,14 +87,14 @@ selfhost: ## Create .env if needed, then pull and start the official self-hosted
 		echo "  Frontend: http://localhost:$${FRONTEND_PORT:-3000}"; \
 		echo "  Backend:  http://localhost:$${PORT:-8081}"; \
 		echo ""; \
-		echo "Images: $${MULTICA_BACKEND_IMAGE:-ghcr.io/multica-ai/multica-backend}:$${MULTICA_IMAGE_TAG:-latest}"; \
-		echo "        $${MULTICA_WEB_IMAGE:-ghcr.io/multica-ai/multica-web}:$${MULTICA_IMAGE_TAG:-latest}"; \
+		echo "Images: $${MULTICA_BACKEND_IMAGE:-ghcr.io/askhz/multica-backend}:$${MULTICA_IMAGE_TAG:-latest}"; \
+		echo "        $${MULTICA_WEB_IMAGE:-ghcr.io/askhz/multica-web}:$${MULTICA_IMAGE_TAG:-latest}"; \
 		echo ""; \
 		echo "Log in: configure RESEND_API_KEY in .env for email codes,"; \
 		echo "        or read the generated code from backend logs when Resend is unset."; \
 		echo ""; \
 		echo "Next — install the CLI and connect your machine:"; \
-		echo "  brew install multica-ai/tap/multica"; \
+		echo "  curl -fsSL https://raw.githubusercontent.com/Askhz/multica/main/scripts/install.sh | bash"; \
 		echo "  cs-workflow setup self-host"; \
 	else \
 		echo ""; \
@@ -136,7 +136,7 @@ selfhost-build: ## Build backend/web from the current checkout and start the sel
 		echo "Local tags: multica-backend:dev and multica-web:dev."; \
 		echo ""; \
 		echo "Next — install the CLI and connect your machine:"; \
-		echo "  brew install multica-ai/tap/multica"; \
+		echo "  curl -fsSL https://raw.githubusercontent.com/Askhz/multica/main/scripts/install.sh | bash"; \
 		echo "  cs-workflow setup self-host"; \
 	else \
 		echo ""; \
