@@ -123,6 +123,16 @@ FROM multica_workflow_node_run_dispatch_job
 WHERE workflow_node_run_id = $1
   AND phase = $2;
 
+-- name: AdvancePendingWorkflowNodeRun :one
+UPDATE multica_workflow_node_run
+SET status = sqlc.arg('status'),
+    started_at = CASE WHEN sqlc.arg('status') = 'format_ok' AND started_at IS NULL THEN now() ELSE started_at END,
+    completed_at = CASE WHEN sqlc.arg('status') IN ('completed', 'format_failed') THEN now() ELSE completed_at END,
+    updated_at = now()
+WHERE id = sqlc.arg('id')
+  AND status = 'pending'
+RETURNING *;
+
 -- name: GetAgentTaskByWorkflowDispatchJob :one
 SELECT *
 FROM multica_agent_task_queue

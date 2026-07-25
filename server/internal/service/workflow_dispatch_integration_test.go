@@ -6,11 +6,13 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"reflect"
 	"testing"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/multica-ai/multica/server/internal/events"
 	db "github.com/multica-ai/multica/server/pkg/db/generated"
 )
 
@@ -170,6 +172,219 @@ func TestWorkflowDispatchWorkerRetriesRuntimeUnavailableWithoutFailingRun(t *tes
 	}
 }
 
+func TestWorkflowDispatchWorkerDispatchesSplitNodeFromSnapshot(t *testing.T) {
+	fixture := newWorkflowDispatchFixture(t)
+	if _, err := fixture.pool.Exec(fixture.ctx, `
+		UPDATE multica_workflow_node_run
+		SET format_schema = '{"type":"split","split_config":{"mode":"barrier"}}'::jsonb
+		WHERE id = $1
+	`, fixture.nodeRunID); err != nil {
+		t.Fatal(err)
+	}
+	dispatched := 0
+	worker := fixture.worker("split-worker")
+	worker.DispatchSplit = func(_ context.Context, nodeRun db.MulticaWorkflowNodeRun, jobID pgtype.UUID) error {
+		dispatched++
+		if nodeRun.Status != NodeRunStatusSplitting {
+			t.Fatalf("split callback status=%s, want %s", nodeRun.Status, NodeRunStatusSplitting)
+		}
+		if !jobID.Valid {
+			t.Fatal("split callback received empty dispatch job id")
+		}
+		return nil
+	}
+	if err := worker.runOnce(fixture.ctx); err != nil {
+		t.Fatal(err)
+	}
+	if dispatched != 1 {
+		t.Fatalf("split dispatches=%d, want 1", dispatched)
+	}
+	if got := fixture.dispatchJobStatus(t, fixture.pendingJob(t).ID); got != "succeeded" {
+		t.Fatalf("split dispatch job status=%s, want succeeded", got)
+	}
+}
+
+func TestRetryNodeRunCreatesNextGenerationWithoutDefinitionRead(t *testing.T) {
+	fixture := newWorkflowDispatchFixture(t)
+	if _, err := fixture.pool.Exec(fixture.ctx, `
+		UPDATE multica_workflow_node_run SET status = 'failed' WHERE id = $1
+	`, fixture.nodeRunID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fixture.pool.Exec(fixture.ctx, `
+		DELETE FROM multica_workflow_node
+		WHERE id = (SELECT source_workflow_node_id FROM multica_workflow_node_run WHERE id = $1)
+	`, fixture.nodeRunID); err != nil {
+		t.Fatal(err)
+	}
+	nodeRun, err := fixture.queries.GetWorkflowNodeRun(fixture.ctx, fixture.nodeRunID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fixture.service.RetryNodeRun(fixture.ctx, nodeRun); err != nil {
+		t.Fatal(err)
+	}
+	rows, err := fixture.pool.Query(fixture.ctx, `
+		SELECT generation FROM multica_workflow_node_run_dispatch_job
+		WHERE workflow_node_run_id = $1 AND phase = 'worker'
+		ORDER BY generation
+	`, fixture.nodeRunID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	var generations []int32
+	for rows.Next() {
+		var generation int32
+		if err := rows.Scan(&generation); err != nil {
+			t.Fatal(err)
+		}
+		generations = append(generations, generation)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	if want := []int32{1, 2}; !reflect.DeepEqual(generations, want) {
+		t.Fatalf("generations=%v, want %v", generations, want)
+	}
+}
+
+func TestWorkflowTaskAutoRetryEnqueuesNextDispatchGeneration(t *testing.T) {
+	fixture := newWorkflowDispatchFixture(t)
+	if err := fixture.worker("auto-retry-worker").runOnce(fixture.ctx); err != nil {
+		t.Fatal(err)
+	}
+	firstJob := fixture.pendingJob(t)
+	parent, err := fixture.queries.GetAgentTaskByWorkflowDispatchJob(fixture.ctx, firstJob.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var memberID, issueID pgtype.UUID
+	if err := fixture.pool.QueryRow(fixture.ctx, `
+		SELECT id FROM multica_member WHERE workspace_id = $1 AND user_id = $2
+	`, fixture.workspaceID, fixture.userID).Scan(&memberID); err != nil {
+		t.Fatal(err)
+	}
+	if err := fixture.pool.QueryRow(fixture.ctx, `
+		INSERT INTO multica_issue (
+			workspace_id, title, status, creator_id, creator_type,
+			assignee_type, assignee_id, origin_type, origin_id, number
+		) VALUES ($1, 'Dispatch retry issue', 'in_progress', $2, 'member',
+		          'agent', $3, 'workflow', $4, 1)
+		RETURNING id
+	`, fixture.workspaceID, memberID, fixture.agentID, fixture.nodeRunID).Scan(&issueID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fixture.pool.Exec(fixture.ctx, `
+		UPDATE multica_agent_task_queue
+		SET status = 'failed', failure_reason = 'runtime_offline',
+		    attempt = 1, max_attempts = 3, completed_at = now(), issue_id = $2
+		WHERE id = $1
+	`, parent.ID, issueID); err != nil {
+		t.Fatal(err)
+	}
+	parent, err = fixture.queries.GetAgentTask(fixture.ctx, parent.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	failureCallbacks := 0
+	fixture.service.TaskSvc.OnTaskFailed = func(context.Context, db.MulticaAgentTaskQueue) {
+		failureCallbacks++
+	}
+	if retried := fixture.service.TaskSvc.HandleFailedTasks(fixture.ctx, []db.MulticaAgentTaskQueue{parent}); retried != 1 {
+		t.Fatalf("scheduled retries=%d, want 1", retried)
+	}
+	if failureCallbacks != 0 {
+		t.Fatalf("failure callbacks=%d, want 0 while durable retry is scheduled", failureCallbacks)
+	}
+	var generations []int32
+	rows, err := fixture.pool.Query(fixture.ctx, `
+		SELECT generation
+		FROM multica_workflow_node_run_dispatch_job
+		WHERE workflow_node_run_id = $1 AND phase = 'worker'
+		ORDER BY generation
+	`, fixture.nodeRunID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var generation int32
+		if err := rows.Scan(&generation); err != nil {
+			t.Fatal(err)
+		}
+		generations = append(generations, generation)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	if want := []int32{1, 2}; !reflect.DeepEqual(generations, want) {
+		t.Fatalf("dispatch generations=%v, want %v", generations, want)
+	}
+	var taskCount int
+	if err := fixture.pool.QueryRow(fixture.ctx, `
+		SELECT count(*) FROM multica_agent_task_queue WHERE workflow_node_run_id = $1
+	`, fixture.nodeRunID).Scan(&taskCount); err != nil {
+		t.Fatal(err)
+	}
+	if taskCount != 1 {
+		t.Fatalf("workflow tasks=%d, want failed parent only", taskCount)
+	}
+}
+
+func TestActivateDownstreamAndEnqueueUsesRunEdgesAfterDefinitionDeletion(t *testing.T) {
+	fixture := newWorkflowDispatchFixture(t)
+	if _, err := fixture.pool.Exec(fixture.ctx, `
+		UPDATE multica_workflow_node_run SET status = 'completed' WHERE id = $1
+	`, fixture.nodeRunID); err != nil {
+		t.Fatal(err)
+	}
+	var childNodeRunID pgtype.UUID
+	if err := fixture.pool.QueryRow(fixture.ctx, `
+		INSERT INTO multica_workflow_node_run (
+			workflow_run_id, workflow_node_id, node_title, status, retry_count,
+			worker_type, critic_type, format_schema
+		) VALUES ($1, gen_random_uuid(), 'Runtime child', 'pending', 0, 'human', 'human', '{}'::jsonb)
+		RETURNING id
+	`, fixture.runID).Scan(&childNodeRunID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fixture.pool.Exec(fixture.ctx, `
+		INSERT INTO multica_workflow_run_edge (
+			workflow_run_id, source_node_run_id, target_node_run_id, condition
+		) VALUES ($1, $2, $3, '{}'::jsonb)
+	`, fixture.runID, fixture.nodeRunID, childNodeRunID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fixture.pool.Exec(fixture.ctx, `
+		DELETE FROM multica_workflow_node
+		WHERE id = (SELECT source_workflow_node_id FROM multica_workflow_node_run WHERE id = $1)
+	`, fixture.nodeRunID); err != nil {
+		t.Fatal(err)
+	}
+	if err := fixture.service.runInTx(fixture.ctx, func(qtx *db.Queries) error {
+		return ActivateDownstreamAndEnqueue(fixture.ctx, qtx, fixture.nodeRunID)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	var status string
+	var jobs int
+	if err := fixture.pool.QueryRow(fixture.ctx, `
+		SELECT node_run.status, count(job.id)
+		FROM multica_workflow_node_run node_run
+		LEFT JOIN multica_workflow_node_run_dispatch_job job
+		  ON job.workflow_node_run_id = node_run.id
+		 AND job.phase = 'worker' AND job.generation = 1
+		WHERE node_run.id = $1
+		GROUP BY node_run.status
+	`, childNodeRunID).Scan(&status, &jobs); err != nil {
+		t.Fatal(err)
+	}
+	if status != NodeRunStatusFormatOk || jobs != 1 {
+		t.Fatalf("child status/jobs=%s/%d, want format_ok/1", status, jobs)
+	}
+}
+
 type workflowDispatchFixture struct {
 	ctx         context.Context
 	pool        *pgxpool.Pool
@@ -190,7 +405,7 @@ func newWorkflowDispatchFixture(t *testing.T) *workflowDispatchFixture {
 	fixture := &workflowDispatchFixture{
 		ctx: context.Background(), pool: pool, queries: queries,
 	}
-	fixture.service = NewWorkflowService(queries, pool, nil, &TaskService{Queries: queries, TxStarter: pool})
+	fixture.service = NewWorkflowService(queries, pool, events.New(), &TaskService{Queries: queries, TxStarter: pool, Bus: events.New()})
 	suffix := fmt.Sprintf("dispatch-%d-%d", os.Getpid(), time.Now().UnixNano())
 	if err := pool.QueryRow(fixture.ctx, `
 		INSERT INTO multica_workspace (name, slug, description, issue_prefix)

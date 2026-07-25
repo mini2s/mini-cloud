@@ -642,6 +642,22 @@ func (s *SplitOrchestrator) HandleNodeRunStatusChanged(ctx context.Context, node
 }
 
 func (s *SplitOrchestrator) GenerateSplitTasks(ctx context.Context, nodeRun db.MulticaWorkflowNodeRun) error {
+	return s.generateSplitTasks(ctx, nodeRun, pgtype.UUID{})
+}
+
+func (s *SplitOrchestrator) GenerateSplitTasksForDispatch(
+	ctx context.Context,
+	nodeRun db.MulticaWorkflowNodeRun,
+	dispatchJobID pgtype.UUID,
+) error {
+	return s.generateSplitTasks(ctx, nodeRun, dispatchJobID)
+}
+
+func (s *SplitOrchestrator) generateSplitTasks(
+	ctx context.Context,
+	nodeRun db.MulticaWorkflowNodeRun,
+	dispatchJobID pgtype.UUID,
+) error {
 	currentNodeRun := nodeRun
 	if !canRegenerateSplitNodeStatus(currentNodeRun.Status) {
 		return fmt.Errorf("split node cannot generate tasks from current status")
@@ -715,7 +731,12 @@ func (s *SplitOrchestrator) GenerateSplitTasks(ctx context.Context, nodeRun db.M
 		"parent_issue_description": textToString(parentIssue.Description),
 		"split_config":             cfg,
 	}
-	task, err := s.WfService.DispatchAgentTaskWithContextExtras(ctx, currentNodeRun, "split", contextExtras)
+	var task *db.MulticaAgentTaskQueue
+	if dispatchJobID.Valid {
+		task, err = s.WfService.dispatchAgentTask(ctx, currentNodeRun, "split", contextExtras, dispatchJobID)
+	} else {
+		task, err = s.WfService.DispatchAgentTaskWithContextExtras(ctx, currentNodeRun, "split", contextExtras)
+	}
 	if err != nil {
 		return fmt.Errorf("dispatch split generation task: %w", err)
 	}

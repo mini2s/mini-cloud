@@ -176,12 +176,20 @@ WHERE resolution.id = sqlc.arg('id')
 RETURNING resolution.*;
 
 -- name: SetWorkflowNodeRunResolvedWorker :execrows
-UPDATE multica_workflow_node_run SET worker_type = 'human', worker_id = $2, updated_at = now()
-WHERE id = $1 AND status IN ('blocked', 'pending', 'format_checking', 'format_ok');
+UPDATE multica_workflow_node_run node_run
+SET worker_type = 'human',
+    worker_id = $2,
+    worker_name_snapshot = COALESCE((SELECT app_user.name FROM multica_user app_user WHERE app_user.id = $2), ''),
+    updated_at = now()
+WHERE node_run.id = $1 AND node_run.status IN ('blocked', 'pending', 'format_checking', 'format_ok');
 
 -- name: SetWorkflowNodeRunResolvedCritic :execrows
-UPDATE multica_workflow_node_run SET critic_type = 'human', critic_id = $2, updated_at = now()
-WHERE id = $1 AND status IN (
+UPDATE multica_workflow_node_run node_run
+SET critic_type = 'human',
+    critic_id = $2,
+    critic_name_snapshot = COALESCE((SELECT app_user.name FROM multica_user app_user WHERE app_user.id = $2), ''),
+    updated_at = now()
+WHERE node_run.id = $1 AND node_run.status IN (
     'blocked', 'pending', 'format_checking', 'format_ok',
     'worker_assigned', 'working', 'awaiting_input', 'awaiting_critic'
 );
@@ -192,26 +200,25 @@ SET status = 'waiting_role_assignment'
 WHERE id = $1 AND status IN ('resolving_roles', 'waiting_role_assignment');
 
 -- name: PromoteWorkflowRunAfterRoleResolution :execrows
-WITH promoted AS (
-    UPDATE multica_workflow_run run
-    SET status = 'running'
-    WHERE run.id = $1
-      AND run.status IN ('resolving_roles', 'waiting_role_assignment')
-      AND NOT EXISTS (
-          SELECT 1 FROM multica_workflow_role_resolution resolution
-          WHERE resolution.workflow_run_id = run.id AND resolution.status <> 'resolved'
-      )
-    RETURNING run.id, run.workflow_id
-)
+UPDATE multica_workflow_run run
+SET status = 'running'
+WHERE run.id = $1
+  AND run.status IN ('resolving_roles', 'waiting_role_assignment')
+  AND NOT EXISTS (
+      SELECT 1 FROM multica_workflow_role_resolution resolution
+      WHERE resolution.workflow_run_id = run.id AND resolution.status <> 'resolved'
+  );
+
+-- name: UnblockWorkflowNodeRunsAfterRoleResolution :many
 UPDATE multica_workflow_node_run node_run
 SET status = CASE WHEN EXISTS (
-        SELECT 1 FROM multica_workflow_edge edge
-        WHERE edge.workflow_id = promoted.workflow_id
-          AND edge.target_node_id = node_run.workflow_node_id
-    ) THEN 'pending' ELSE 'format_checking' END,
+        SELECT 1 FROM multica_workflow_run_edge edge
+        WHERE edge.workflow_run_id = node_run.workflow_run_id
+          AND edge.target_node_run_id = node_run.id
+    ) THEN 'pending' ELSE 'format_ok' END,
     updated_at = now()
-FROM promoted
-WHERE node_run.workflow_run_id = promoted.id AND node_run.status = 'blocked';
+WHERE node_run.workflow_run_id = $1 AND node_run.status = 'blocked'
+RETURNING node_run.*;
 
 
 -- name: LockWorkflowRoleResolutionRun :exec

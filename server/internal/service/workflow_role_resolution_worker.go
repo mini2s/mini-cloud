@@ -33,7 +33,6 @@ type WorkflowRoleResolutionWorker struct {
 	MaxCandidates  int
 	MaxSlots       int
 	MaxInputChars  int
-	OnRunPromoted  func(context.Context, pgtype.UUID)
 	OnStateChanged func(context.Context, pgtype.UUID, pgtype.UUID)
 }
 
@@ -418,7 +417,7 @@ func (w *WorkflowRoleResolutionWorker) persistResults(ctx context.Context, job d
 	if err != nil {
 		return err
 	}
-	status, promoted := "succeeded", int64(0)
+	status := "succeeded"
 	if unresolved > 0 {
 		status = "partial"
 		slog.Info("workflow role resolution finished with unresolved slots; run waits for manual assignment",
@@ -430,14 +429,12 @@ func (w *WorkflowRoleResolutionWorker) persistResults(ctx context.Context, job d
 			return err
 		}
 	} else {
-		promoted, err = q.PromoteWorkflowRunAfterRoleResolution(ctx, job.WorkflowRunID)
-		if err != nil {
+		if err = PromoteWorkflowRunAndEnqueueRoots(ctx, q, job.WorkflowRunID); err != nil {
 			return err
 		}
 		slog.Info("workflow role resolution complete; run promoted to running",
 			"job_id", util.UUIDToString(job.ID),
 			"workflow_run_id", util.UUIDToString(job.WorkflowRunID),
-			"promoted", promoted,
 		)
 	}
 	affected, err := q.FinishWorkflowRoleResolutionJob(ctx, db.FinishWorkflowRoleResolutionJobParams{ID: job.ID, Generation: job.Generation, Status: status, LastErrorCode: "", LastErrorDetail: ""})
@@ -452,9 +449,6 @@ func (w *WorkflowRoleResolutionWorker) persistResults(ctx context.Context, job d
 	}
 	if w.OnStateChanged != nil {
 		w.OnStateChanged(ctx, job.WorkspaceID, job.WorkflowRunID)
-	}
-	if promoted > 0 && w.OnRunPromoted != nil {
-		w.OnRunPromoted(ctx, job.WorkflowRunID)
 	}
 	return nil
 }
@@ -567,8 +561,7 @@ func (w *WorkflowRoleResolutionWorker) finishAccordingToResolutions(ctx context.
 	}
 	defer tx.Rollback(ctx)
 	q := w.Queries.WithTx(tx)
-	promoted, err := q.PromoteWorkflowRunAfterRoleResolution(ctx, job.WorkflowRunID)
-	if err != nil {
+	if err := PromoteWorkflowRunAndEnqueueRoots(ctx, q, job.WorkflowRunID); err != nil {
 		return err
 	}
 	affected, err := q.FinishWorkflowRoleResolutionJob(ctx, db.FinishWorkflowRoleResolutionJobParams{ID: job.ID, Generation: job.Generation, Status: "succeeded", LastErrorCode: "", LastErrorDetail: ""})
@@ -583,9 +576,6 @@ func (w *WorkflowRoleResolutionWorker) finishAccordingToResolutions(ctx context.
 	}
 	if w.OnStateChanged != nil {
 		w.OnStateChanged(ctx, job.WorkspaceID, job.WorkflowRunID)
-	}
-	if promoted > 0 && w.OnRunPromoted != nil {
-		w.OnRunPromoted(ctx, job.WorkflowRunID)
 	}
 	return nil
 }

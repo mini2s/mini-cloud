@@ -19,6 +19,7 @@ type WorkflowDispatchWorker struct {
 	Queries       *db.Queries
 	TxStarter     TxStarter
 	Workflow      *WorkflowService
+	DispatchSplit func(context.Context, db.MulticaWorkflowNodeRun, pgtype.UUID) error
 	WorkerID      string
 	PollInterval  time.Duration
 	LeaseDuration time.Duration
@@ -31,7 +32,7 @@ func EnqueueWorkflowDispatch(
 	phase string,
 	generation int32,
 ) error {
-	if phase != "worker" && phase != "critic" {
+	if phase != "worker" && phase != "critic" && phase != "recovery" && phase != "split" {
 		return fmt.Errorf("unknown workflow dispatch phase: %s", phase)
 	}
 	nodeRun, err := queries.GetWorkflowNodeRun(ctx, nodeRunID)
@@ -44,6 +45,115 @@ func EnqueueWorkflowDispatch(
 	})
 	if err != nil {
 		return fmt.Errorf("create workflow dispatch job: %w", err)
+	}
+	return nil
+}
+
+func NextWorkflowDispatchGeneration(
+	ctx context.Context,
+	queries *db.Queries,
+	nodeRunID pgtype.UUID,
+	phase string,
+) (int32, error) {
+	generation, err := queries.NextWorkflowDispatchGeneration(ctx, db.NextWorkflowDispatchGenerationParams{
+		WorkflowNodeRunID: nodeRunID,
+		Phase:             phase,
+	})
+	if err != nil {
+		return 0, fmt.Errorf("get next workflow dispatch generation: %w", err)
+	}
+	return generation, nil
+}
+
+func PromoteWorkflowRunAndEnqueueRoots(
+	ctx context.Context,
+	queries *db.Queries,
+	runID pgtype.UUID,
+) error {
+	promoted, err := queries.PromoteWorkflowRunAfterRoleResolution(ctx, runID)
+	if err != nil {
+		return fmt.Errorf("promote workflow run after role resolution: %w", err)
+	}
+	if promoted == 0 {
+		return nil
+	}
+	nodeRuns, err := queries.UnblockWorkflowNodeRunsAfterRoleResolution(ctx, runID)
+	if err != nil {
+		return fmt.Errorf("unblock workflow node runs after role resolution: %w", err)
+	}
+	for _, nodeRun := range nodeRuns {
+		if nodeRun.Status != NodeRunStatusFormatOk {
+			continue
+		}
+		if err := EnqueueWorkflowDispatch(ctx, queries, nodeRun.ID, "worker", 1); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func ActivateDownstreamAndEnqueue(
+	ctx context.Context,
+	queries *db.Queries,
+	completedNodeRunID pgtype.UUID,
+) error {
+	edges, err := queries.ListWorkflowRunEdgesBySource(ctx, completedNodeRunID)
+	if err != nil {
+		return fmt.Errorf("list runtime downstream edges: %w", err)
+	}
+	for _, edge := range edges {
+		upstreamEdges, err := queries.ListWorkflowRunEdgesByTarget(ctx, edge.TargetNodeRunID)
+		if err != nil {
+			return fmt.Errorf("list runtime upstream edges: %w", err)
+		}
+		allUpstreamDone := true
+		for _, upstreamEdge := range upstreamEdges {
+			upstream, err := queries.GetWorkflowNodeRun(ctx, upstreamEdge.SourceNodeRunID)
+			if err != nil {
+				return fmt.Errorf("get runtime upstream node: %w", err)
+			}
+			if !isTerminalNodeRunStatus(upstream.Status) {
+				allUpstreamDone = false
+				break
+			}
+		}
+		if !allUpstreamDone {
+			continue
+		}
+		target, err := queries.GetWorkflowNodeRun(ctx, edge.TargetNodeRunID)
+		if err != nil {
+			return fmt.Errorf("get runtime downstream node: %w", err)
+		}
+		targetStatus := NodeRunStatusFormatOk
+		gateway := false
+		if isInvalidWorkflowGatewayFormat(target.FormatSchema) {
+			targetStatus = NodeRunStatusFormatFailed
+		} else if _, ok := parseWorkflowNodeFormat(target.FormatSchema); ok {
+			targetStatus = NodeRunStatusCompleted
+			gateway = true
+		}
+		advanced, err := queries.AdvancePendingWorkflowNodeRun(ctx, db.AdvancePendingWorkflowNodeRunParams{
+			Status: targetStatus,
+			ID:     target.ID,
+		})
+		if errors.Is(err, pgx.ErrNoRows) {
+			continue
+		}
+		if err != nil {
+			return fmt.Errorf("advance runtime downstream node: %w", err)
+		}
+		if gateway {
+			if err := ActivateDownstreamAndEnqueue(ctx, queries, advanced.ID); err != nil {
+				return err
+			}
+			continue
+		}
+		if targetStatus == NodeRunStatusFormatFailed {
+			continue
+		}
+		if err := EnqueueWorkflowDispatch(ctx, queries, advanced.ID, "worker", 1); err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -159,6 +269,14 @@ func (w *WorkflowDispatchWorker) process(ctx context.Context, job db.MulticaWork
 		if err := w.dispatchCriticPhase(ctx, job, nodeRun); err != nil {
 			return err
 		}
+	case "recovery":
+		if err := w.dispatchRecoveryPhase(ctx, job, nodeRun); err != nil {
+			return err
+		}
+	case "split":
+		if err := w.dispatchSplitPhase(ctx, job, nodeRun); err != nil {
+			return err
+		}
 	default:
 		return fmt.Errorf("unknown workflow dispatch phase: %s", job.Phase)
 	}
@@ -176,16 +294,88 @@ func (w *WorkflowDispatchWorker) dispatchWorkerPhase(
 	job db.MulticaWorkflowNodeRunDispatchJob,
 	nodeRun db.MulticaWorkflowNodeRun,
 ) error {
+	if workflowNodeType(nodeRun.FormatSchema) == "split" {
+		return w.dispatchSplitPhase(ctx, job, nodeRun)
+	}
+	if _, gateway := parseWorkflowNodeFormat(nodeRun.FormatSchema); gateway {
+		return w.completeGatewayDispatch(ctx, nodeRun)
+	}
 	switch nodeRun.Status {
 	case NodeRunStatusFormatOk:
 		return w.Workflow.dispatchWorkerForJob(ctx, nodeRun, job.ID)
 	case NodeRunStatusWorking:
-		return w.requireAgentTaskForCompletedDispatch(ctx, job, nodeRun.WorkerType)
+		return w.ensureAgentTaskForActiveDispatch(ctx, job, nodeRun, "worker", nodeRun.WorkerType)
 	case NodeRunStatusWorkerAssigned, NodeRunStatusSplitting:
 		return nil
 	default:
 		return fmt.Errorf("worker dispatch cannot resume node status %s", nodeRun.Status)
 	}
+}
+
+func (w *WorkflowDispatchWorker) dispatchSplitPhase(
+	ctx context.Context,
+	job db.MulticaWorkflowNodeRunDispatchJob,
+	nodeRun db.MulticaWorkflowNodeRun,
+) error {
+	current := nodeRun
+	if err := w.Workflow.ensureNodeRunBranch(ctx, nodeRun); err != nil {
+		return fmt.Errorf("ensure split node branch: %w", err)
+	}
+	switch nodeRun.Status {
+	case NodeRunStatusFormatOk:
+		updated, err := w.Workflow.TransitionNodeRun(ctx, nodeRun, NodeRunStatusSplitting)
+		if err != nil {
+			return err
+		}
+		current = *updated
+	case NodeRunStatusSplitting:
+		// Resume a job whose status transition committed before task dispatch.
+	case NodeRunStatusAwaitingSplitReview:
+		return nil
+	default:
+		return fmt.Errorf("split dispatch cannot resume node status %s", nodeRun.Status)
+	}
+	if w.DispatchSplit == nil {
+		return errors.New("split dispatch is not configured")
+	}
+	return w.DispatchSplit(ctx, current, job.ID)
+}
+
+func (w *WorkflowDispatchWorker) completeGatewayDispatch(
+	ctx context.Context,
+	nodeRun db.MulticaWorkflowNodeRun,
+) error {
+	var completed db.MulticaWorkflowNodeRun
+	newlyCompleted := false
+	err := w.Workflow.runInTx(ctx, func(qtx *db.Queries) error {
+		locked, err := qtx.GetWorkflowNodeRunForUpdate(ctx, nodeRun.ID)
+		if err != nil {
+			return fmt.Errorf("lock gateway node run: %w", err)
+		}
+		if locked.Status == NodeRunStatusCompleted {
+			completed = locked
+			return nil
+		}
+		if locked.Status != NodeRunStatusFormatOk {
+			return fmt.Errorf("gateway dispatch cannot resume node status %s", locked.Status)
+		}
+		completed, err = qtx.UpdateWorkflowNodeRunStatus(ctx, db.UpdateWorkflowNodeRunStatusParams{
+			ID: locked.ID, Status: NodeRunStatusCompleted,
+		})
+		if err != nil {
+			return fmt.Errorf("complete gateway node run: %w", err)
+		}
+		newlyCompleted = true
+		return ActivateDownstreamAndEnqueue(ctx, qtx, completed.ID)
+	})
+	if err != nil {
+		return err
+	}
+	if newlyCompleted && w.Workflow.OnNodeStatusChanged != nil {
+		w.Workflow.OnNodeStatusChanged(ctx, completed)
+	}
+	w.Workflow.checkRunCompletion(ctx, completed.WorkflowRunID)
+	return nil
 }
 
 func (w *WorkflowDispatchWorker) dispatchCriticPhase(
@@ -197,24 +387,40 @@ func (w *WorkflowDispatchWorker) dispatchCriticPhase(
 	case NodeRunStatusAwaitingCritic:
 		return w.Workflow.dispatchCriticForJob(ctx, nodeRun, job.ID)
 	case NodeRunStatusCriticReviewing:
-		return w.requireAgentTaskForCompletedDispatch(ctx, job, nodeRun.CriticType)
+		return w.ensureAgentTaskForActiveDispatch(ctx, job, nodeRun, "critic", nodeRun.CriticType)
 	default:
 		return fmt.Errorf("critic dispatch cannot resume node status %s", nodeRun.Status)
 	}
 }
 
-func (w *WorkflowDispatchWorker) requireAgentTaskForCompletedDispatch(
+func (w *WorkflowDispatchWorker) dispatchRecoveryPhase(
 	ctx context.Context,
 	job db.MulticaWorkflowNodeRunDispatchJob,
+	nodeRun db.MulticaWorkflowNodeRun,
+) error {
+	if nodeRun.Status != NodeRunStatusWorking {
+		return fmt.Errorf("recovery dispatch cannot resume node status %s", nodeRun.Status)
+	}
+	return w.ensureAgentTaskForActiveDispatch(ctx, job, nodeRun, "worker", nodeRun.WorkerType)
+}
+
+func (w *WorkflowDispatchWorker) ensureAgentTaskForActiveDispatch(
+	ctx context.Context,
+	job db.MulticaWorkflowNodeRunDispatchJob,
+	nodeRun db.MulticaWorkflowNodeRun,
+	phase string,
 	actorType string,
 ) error {
 	if actorType != "agent" && actorType != "squad" {
 		return nil
 	}
-	if _, err := w.Queries.GetAgentTaskByWorkflowDispatchJob(ctx, job.ID); err != nil {
-		return fmt.Errorf("get task for completed dispatch: %w", err)
+	if _, err := w.Queries.GetAgentTaskByWorkflowDispatchJob(ctx, job.ID); err == nil {
+		return nil
+	} else if !errors.Is(err, pgx.ErrNoRows) {
+		return fmt.Errorf("get task for active dispatch: %w", err)
 	}
-	return nil
+	_, err := w.Workflow.dispatchAgentTask(ctx, nodeRun, phase, nil, job.ID)
+	return err
 }
 
 func (w *WorkflowDispatchWorker) handleFailure(

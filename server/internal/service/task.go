@@ -482,10 +482,25 @@ func workflowTaskPhase(contextJSON []byte) string {
 	var payload struct {
 		Phase string `json:"phase"`
 	}
-	if err := json.Unmarshal(contextJSON, &payload); err == nil && payload.Phase == "critic" {
-		return "critic"
+	if err := json.Unmarshal(contextJSON, &payload); err == nil {
+		switch payload.Phase {
+		case "critic":
+			return "critic"
+		case "split", splitPhaseGenerate:
+			return "split"
+		}
 	}
 	return "worker"
+}
+
+func workflowTaskRequiresDirectRetry(contextJSON []byte) bool {
+	var payload struct {
+		Phase string `json:"phase"`
+	}
+	if err := json.Unmarshal(contextJSON, &payload); err != nil {
+		return false
+	}
+	return payload.Phase == splitPhaseRepair || payload.Phase == splitPhaseChat
 }
 
 func (s *TaskService) selectRuntimeForWorkflowTask(
@@ -1520,12 +1535,12 @@ func (s *TaskService) FailTask(ctx context.Context, taskID pgtype.UUID, errMsg, 
 	// Auto-retry eligible failures (orphan, timeout, runtime_offline,
 	// runtime_recovery). The helper itself enforces attempt < max_attempts
 	// and only triggers for issue/chat tasks.
-	retried, _ := s.MaybeRetryFailedTask(ctx, task)
+	retryResult, _ := s.maybeRetryFailedTask(ctx, task)
 
 	// Workflow gateway: if this task belongs to a workflow node run and we
 	// are not retrying it, transition the node run to failed so the workflow
 	// does not stay stuck in an active phase.
-	if retried == nil && s.OnTaskFailed != nil && task.WorkflowNodeRunID.Valid {
+	if !retryResult.Scheduled && s.OnTaskFailed != nil && task.WorkflowNodeRunID.Valid {
 		s.OnTaskFailed(ctx, task)
 	}
 
@@ -1533,7 +1548,7 @@ func (s *TaskService) FailTask(ctx context.Context, taskID pgtype.UUID, errMsg, 
 	// the new task will surface its own status to the user, and we don't
 	// want to spam the issue with "task timed out" messages on every
 	// daemon hiccup.
-	if errMsg != "" && task.IssueID.Valid && retried == nil {
+	if errMsg != "" && task.IssueID.Valid && !retryResult.Scheduled {
 		s.createAgentComment(ctx, task.IssueID, task.AgentID, redact.Text(errMsg), "system", task.TriggerCommentID)
 	}
 
@@ -1542,7 +1557,7 @@ func (s *TaskService) FailTask(ctx context.Context, taskID pgtype.UUID, errMsg, 
 	// conversation history shows what happened. Skip when auto-retry is
 	// pending (the new attempt will write its own outcome) — same guard as
 	// the issue path above.
-	if task.ChatSessionID.Valid && retried == nil {
+	if task.ChatSessionID.Valid && !retryResult.Scheduled {
 		if _, err := s.Queries.CreateChatMessage(ctx, db.CreateChatMessageParams{
 			ChatSessionID: task.ChatSessionID,
 			Role:          "assistant",
@@ -1566,7 +1581,7 @@ func (s *TaskService) FailTask(ctx context.Context, taskID pgtype.UUID, errMsg, 
 	// requester so they can either retry or fall back to the advanced form
 	// without losing their original prompt. Skipped when an auto-retry is
 	// pending — the new attempt will write its own outcome.
-	if retried == nil {
+	if !retryResult.Scheduled {
 		if qc, ok := s.parseQuickCreateContext(task); ok {
 			s.notifyQuickCreateFailed(ctx, task, qc, errMsg)
 		}
@@ -1603,28 +1618,65 @@ func resumeUnsafeFailureReason(reason string) bool {
 	}
 }
 
-// MaybeRetryFailedTask spawns a fresh queued attempt for a recently-failed
-// task when the failure was infrastructure-shaped (daemon crash, runtime
-// went offline, dispatch/run timeout) and the task hasn't exhausted its
-// max_attempts budget. Workflow tasks re-run the node-level runtime policy;
-// other tasks inherit the parent runtime. The child preserves issue/chat
-// links and, for resume-safe failures, the parent's session_id/work_dir so
-// the agent can resume the conversation when the backend supports it. Returns
-// the new task, or nil when no retry was created.
+// MaybeRetryFailedTask schedules another attempt for a recently-failed task
+// when the failure was infrastructure-shaped and the task has retry budget.
+// Ordinary tasks return the newly queued child. Workflow tasks atomically
+// create the next durable dispatch generation and return nil; internal callers
+// use taskRetryResult.Scheduled to distinguish that case from no retry.
 //
 // Autopilot tasks are NOT auto-retried here; the autopilot scheduler owns
 // its own re-run cadence and we don't want to double-fire it.
+type taskRetryResult struct {
+	Task      *db.MulticaAgentTaskQueue
+	Scheduled bool
+}
+
 func (s *TaskService) createRetryTaskWithRuntimeSelection(
 	ctx context.Context,
 	parent db.MulticaAgentTaskQueue,
-) (*db.MulticaAgentTaskQueue, error) {
+) (taskRetryResult, error) {
 	if !parent.WorkflowNodeRunID.Valid {
 		child, err := s.Queries.CreateRetryTask(ctx, db.CreateRetryTaskParams{
 			ParentTaskID: parent.ID,
 		})
-		return &child, err
+		return taskRetryResult{Task: &child, Scheduled: err == nil}, err
+	}
+	if workflowTaskRequiresDirectRetry(parent.Context) {
+		return s.createDirectWorkflowRetryTask(ctx, parent)
 	}
 
+	err := s.runInTx(ctx, func(qtx *db.Queries) error {
+		nodeRun, err := qtx.GetWorkflowNodeRunForUpdate(ctx, parent.WorkflowNodeRunID)
+		if err != nil {
+			return fmt.Errorf("lock workflow node run for retry: %w", err)
+		}
+		run, err := qtx.GetWorkflowRun(ctx, nodeRun.WorkflowRunID)
+		if err != nil {
+			return fmt.Errorf("get workflow run for retry: %w", err)
+		}
+		if run.Status != RunStatusRunning {
+			return ErrWorkflowRunNotRunning
+		}
+		phase := workflowTaskPhase(parent.Context)
+		generation, err := NextWorkflowDispatchGeneration(ctx, qtx, nodeRun.ID, phase)
+		if err != nil {
+			return err
+		}
+		return EnqueueWorkflowDispatch(ctx, qtx, nodeRun.ID, phase, generation)
+	})
+	if errors.Is(err, ErrWorkflowRunNotRunning) {
+		return taskRetryResult{}, nil
+	}
+	if err != nil {
+		return taskRetryResult{}, err
+	}
+	return taskRetryResult{Scheduled: true}, nil
+}
+
+func (s *TaskService) createDirectWorkflowRetryTask(
+	ctx context.Context,
+	parent db.MulticaAgentTaskQueue,
+) (taskRetryResult, error) {
 	var (
 		child     db.MulticaAgentTaskQueue
 		nodeRun   db.MulticaWorkflowNodeRun
@@ -1637,43 +1689,42 @@ func (s *TaskService) createRetryTaskWithRuntimeSelection(
 			return err
 		}
 		child, err = qtx.CreateRetryTask(ctx, db.CreateRetryTaskParams{
-			RuntimeID:    selection.RuntimeID,
-			ParentTaskID: parent.ID,
+			RuntimeID: selection.RuntimeID, ParentTaskID: parent.ID,
 		})
 		if err != nil {
 			return fmt.Errorf("create workflow retry task: %w", err)
 		}
 		if err := linkSelectedWorkflowTask(
-			ctx,
-			qtx,
-			parent.WorkflowNodeRunID,
-			workflowTaskPhase(parent.Context),
-			child,
-			selection,
+			ctx, qtx, parent.WorkflowNodeRunID, "worker", child, selection,
 		); err != nil {
 			return fmt.Errorf("link workflow retry task: %w", err)
 		}
 		return nil
 	})
 	if errors.Is(err, ErrWorkflowRunNotRunning) {
-		return nil, nil
+		return taskRetryResult{}, nil
 	}
 	if err != nil {
-		return nil, s.failWorkflowTaskRuntimeSelection(ctx, nodeRun, err)
+		return taskRetryResult{}, s.failWorkflowTaskRuntimeSelection(ctx, nodeRun, err)
 	}
-	return &child, nil
+	return taskRetryResult{Task: &child, Scheduled: true}, nil
 }
 
 func (s *TaskService) MaybeRetryFailedTask(ctx context.Context, parent db.MulticaAgentTaskQueue) (*db.MulticaAgentTaskQueue, error) {
+	result, err := s.maybeRetryFailedTask(ctx, parent)
+	return result.Task, err
+}
+
+func (s *TaskService) maybeRetryFailedTask(ctx context.Context, parent db.MulticaAgentTaskQueue) (taskRetryResult, error) {
 	if parent.Status != "failed" {
-		return nil, nil
+		return taskRetryResult{}, nil
 	}
 	reason := ""
 	if parent.FailureReason.Valid {
 		reason = parent.FailureReason.String
 	}
 	if !retryableReasons[reason] {
-		return nil, nil
+		return taskRetryResult{}, nil
 	}
 	if parent.Attempt >= parent.MaxAttempts {
 		slog.Info("task auto-retry skipped: budget exhausted",
@@ -1681,28 +1732,37 @@ func (s *TaskService) MaybeRetryFailedTask(ctx context.Context, parent db.Multic
 			"attempt", parent.Attempt,
 			"max_attempts", parent.MaxAttempts,
 		)
-		return nil, nil
+		return taskRetryResult{}, nil
 	}
 	if parent.AutopilotRunID.Valid {
 		// Autopilot has its own retry semantics; do not double-trigger.
-		return nil, nil
+		return taskRetryResult{}, nil
 	}
 	if !parent.IssueID.Valid && !parent.ChatSessionID.Valid {
-		return nil, nil
+		return taskRetryResult{}, nil
 	}
 
-	child, err := s.createRetryTaskWithRuntimeSelection(ctx, parent)
+	result, err := s.createRetryTaskWithRuntimeSelection(ctx, parent)
 	if err != nil {
 		slog.Warn("task auto-retry failed",
 			"parent_task_id", util.UUIDToString(parent.ID),
 			"reason", reason,
 			"error", err,
 		)
-		return nil, err
+		return taskRetryResult{}, err
 	}
-	if child == nil {
-		return nil, nil
+	if !result.Scheduled {
+		return taskRetryResult{}, nil
 	}
+	if result.Task == nil {
+		slog.Info("workflow task auto-retry dispatch scheduled",
+			"parent_task_id", util.UUIDToString(parent.ID),
+			"workflow_node_run_id", util.UUIDToString(parent.WorkflowNodeRunID),
+			"reason", reason,
+		)
+		return result, nil
+	}
+	child := result.Task
 	slog.Info("task auto-retry enqueued",
 		"parent_task_id", util.UUIDToString(parent.ID),
 		"child_task_id", util.UUIDToString(child.ID),
@@ -1715,7 +1775,7 @@ func (s *TaskService) MaybeRetryFailedTask(ctx context.Context, parent db.Multic
 	// see EnqueueTaskForIssue for ordering rationale.
 	s.broadcastTaskEvent(ctx, protocol.EventTaskQueued, *child)
 	s.NotifyTaskEnqueued(ctx, *child)
-	return child, nil
+	return result, nil
 }
 
 // RerunIssue creates a fresh queued task for an agent on the issue. Used by
@@ -1936,8 +1996,8 @@ func (s *TaskService) HandleFailedTasks(ctx context.Context, tasks []db.MulticaA
 	for _, t := range tasks {
 		// Auto-retry first so the issue stays in_progress rather than
 		// flapping todo → in_progress within a tick.
-		child, _ := s.MaybeRetryFailedTask(ctx, t)
-		if child != nil {
+		retryResult, _ := s.maybeRetryFailedTask(ctx, t)
+		if retryResult.Scheduled {
 			retried++
 			if t.IssueID.Valid {
 				retriedIssues[util.UUIDToString(t.IssueID)] = true
@@ -1946,7 +2006,7 @@ func (s *TaskService) HandleFailedTasks(ctx context.Context, tasks []db.MulticaA
 
 		// Workflow gateway: sweeper-finalized failures that are not retried
 		// still need to advance the linked workflow node run.
-		if child == nil && s.OnTaskFailed != nil && t.WorkflowNodeRunID.Valid {
+		if !retryResult.Scheduled && s.OnTaskFailed != nil && t.WorkflowNodeRunID.Valid {
 			s.OnTaskFailed(ctx, t)
 		}
 

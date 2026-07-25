@@ -806,51 +806,32 @@ func (s *WorkflowService) HandbackNodeRun(ctx context.Context, nodeRun db.Multic
 	if err := s.syncNodeRunSessionFromTask(ctx, nodeRun); err != nil {
 		return nil, fmt.Errorf("sync node-run session: %w", err)
 	}
-	updated, err := s.Queries.HandbackWorkflowNodeRun(ctx, nodeRun.ID)
+	var updated db.MulticaWorkflowNodeRun
+	err := s.runInTx(ctx, func(qtx *db.Queries) error {
+		fresh, err := qtx.GetWorkflowNodeRunForUpdate(ctx, nodeRun.ID)
+		if err != nil {
+			return err
+		}
+		if fresh.Status != NodeRunStatusBlocked {
+			return fmt.Errorf("node run is not blocked (status=%s)", fresh.Status)
+		}
+		updated, err = qtx.HandbackWorkflowNodeRun(ctx, fresh.ID)
+		if err != nil {
+			return fmt.Errorf("handback node run: %w", err)
+		}
+		generation, err := NextWorkflowDispatchGeneration(ctx, qtx, fresh.ID, "recovery")
+		if err != nil {
+			return err
+		}
+		return EnqueueWorkflowDispatch(ctx, qtx, fresh.ID, "recovery", generation)
+	})
 	if err != nil {
-		return nil, fmt.Errorf("handback node run: %w", err)
+		return nil, err
 	}
 	if s.OnNodeStatusChanged != nil {
 		s.OnNodeStatusChanged(ctx, updated)
 	}
-	// Re-dispatch the worker so execution continues on the bound CSC session.
-	// HandbackWorkflowNodeRun already set status=working, so we dispatch the
-	// task directly without re-transitioning.
-	if err := s.dispatchHandbackResume(ctx, updated); err != nil {
-		return nil, fmt.Errorf("dispatch handback resume: %w", err)
-	}
 	return &updated, nil
-}
-
-// dispatchHandbackResume re-creates the worker agent task after a human hands a
-// taken-over node back (blocked → working). Unlike dispatchWorkerResume it does
-// NOT re-transition status — HandbackNodeRun has already set working — it only
-// re-creates the worker task so the daemon resumes the bound CSC session. Human
-// workers have no agent session to resume, so they are a no-op.
-func (s *WorkflowService) dispatchHandbackResume(ctx context.Context, nodeRun db.MulticaWorkflowNodeRun) error {
-	node, err := s.Queries.GetWorkflowNode(ctx, nodeRun.WorkflowNodeID)
-	if err != nil {
-		return fmt.Errorf("get node: %w", err)
-	}
-	switch node.WorkerType {
-	case "agent", "squad":
-		agentID := node.WorkerID
-		if node.WorkerType == "squad" && node.WorkerID.Valid {
-			if squad, err := s.Queries.GetSquad(ctx, node.WorkerID); err == nil {
-				agentID = squad.LeaderID
-			}
-		}
-		if !agentID.Valid {
-			return nil // no agent bound — nothing to resume
-		}
-		_, err := s.DispatchAgentTask(ctx, nodeRun, "worker", nil)
-		if err != nil {
-			return fmt.Errorf("dispatch agent task: %w", err)
-		}
-		return nil
-	default:
-		return nil // human worker: no agent session to resume
-	}
 }
 
 // FinalizeNodeRun lets a human conclude a taken-over node directly
@@ -874,30 +855,36 @@ func (s *WorkflowService) FinalizeNodeRun(ctx context.Context, nodeRun db.Multic
 // This is scoped to the workflow node run, so it does not depend on the parent
 // issue being assigned to an agent or squad.
 func (s *WorkflowService) RetryNodeRun(ctx context.Context, nodeRun db.MulticaWorkflowNodeRun) (*db.MulticaWorkflowNodeRun, error) {
-	switch nodeRun.Status {
-	case NodeRunStatusFailed, NodeRunStatusBlocked, NodeRunStatusFormatFailed, NodeRunStatusCriticRework:
-	default:
-		return nil, fmt.Errorf("node run cannot be retried from status %s", nodeRun.Status)
-	}
-
-	updated, err := s.Queries.UpdateWorkflowNodeRunRework(ctx, db.UpdateWorkflowNodeRunReworkParams{
-		ID:     nodeRun.ID,
-		Status: NodeRunStatusFormatOk,
+	var updated db.MulticaWorkflowNodeRun
+	err := s.runInTx(ctx, func(qtx *db.Queries) error {
+		fresh, err := qtx.GetWorkflowNodeRunForUpdate(ctx, nodeRun.ID)
+		if err != nil {
+			return err
+		}
+		switch fresh.Status {
+		case NodeRunStatusFailed, NodeRunStatusBlocked, NodeRunStatusFormatFailed, NodeRunStatusCriticRework:
+		default:
+			return fmt.Errorf("node run cannot be retried from status %s", fresh.Status)
+		}
+		updated, err = qtx.UpdateWorkflowNodeRunRework(ctx, db.UpdateWorkflowNodeRunReworkParams{
+			ID: fresh.ID, Status: NodeRunStatusFormatOk,
+		})
+		if err != nil {
+			return fmt.Errorf("retry node run: %w", err)
+		}
+		generation, err := NextWorkflowDispatchGeneration(ctx, qtx, fresh.ID, "worker")
+		if err != nil {
+			return err
+		}
+		return EnqueueWorkflowDispatch(ctx, qtx, fresh.ID, "worker", generation)
 	})
 	if err != nil {
-		return nil, fmt.Errorf("retry node run: %w", err)
+		return nil, err
 	}
 	if s.OnNodeStatusChanged != nil {
 		s.OnNodeStatusChanged(ctx, updated)
 	}
-	if err := s.dispatchWorker(ctx, updated); err != nil {
-		return nil, fmt.Errorf("dispatch retry worker: %w", err)
-	}
-	latest, err := s.Queries.GetWorkflowNodeRun(ctx, nodeRun.ID)
-	if err != nil {
-		return nil, fmt.Errorf("get retried node run: %w", err)
-	}
-	return &latest, nil
+	return &updated, nil
 }
 
 // OnNodeRunCompleted checks downstream nodes after a node run reaches a terminal
@@ -910,98 +897,14 @@ func (s *WorkflowService) OnNodeRunCompleted(ctx context.Context, nodeRunID pgty
 		return fmt.Errorf("get node run: %w", err)
 	}
 
-	run, err := s.Queries.GetWorkflowRun(ctx, nodeRun.WorkflowRunID)
-	if err != nil {
-		return fmt.Errorf("get run: %w", err)
-	}
-
-	// Find downstream edges from the completed node.
-	edges, err := s.Queries.ListWorkflowEdgesBySource(ctx, nodeRun.WorkflowNodeID)
-	if err != nil {
-		return fmt.Errorf("list outgoing edges: %w", err)
-	}
-
 	if err := s.runInTx(ctx, func(qtx *db.Queries) error {
-		for _, edge := range edges {
-			targetNode, err := qtx.GetWorkflowNode(ctx, edge.TargetNodeID)
-			if err != nil {
-				return fmt.Errorf("get downstream node: %w", err)
-			}
-			if workflowmeta.IsBoundary(targetNode.FormatSchema) {
-				continue
-			}
-			// Check whether ALL upstream node runs of the target are terminal-complete.
-			upstreamEdges, err := qtx.ListWorkflowEdgesByTarget(ctx, edge.TargetNodeID)
-			if err != nil {
-				return fmt.Errorf("list incoming edges: %w", err)
-			}
-
-			allUpstreamDone := true
-			for _, ue := range upstreamEdges {
-				sourceNode, err := qtx.GetWorkflowNode(ctx, ue.SourceNodeID)
-				if err != nil {
-					return fmt.Errorf("get upstream node: %w", err)
-				}
-				if workflowmeta.IsBoundary(sourceNode.FormatSchema) {
-					continue
-				}
-				// Find the node run for this upstream node in the current run.
-				upstreamNr, err := qtx.ListWorkflowNodeRunsByRunAndNode(ctx, db.ListWorkflowNodeRunsByRunAndNodeParams{
-					WorkflowRunID:  run.ID,
-					WorkflowNodeID: ue.SourceNodeID,
-				})
-				if err != nil {
-					allUpstreamDone = false
-					break
-				}
-				if !isTerminalNodeRunStatus(upstreamNr.Status) {
-					allUpstreamDone = false
-					break
-				}
-			}
-
-			if allUpstreamDone {
-				// Find the downstream node run and advance it.
-				dnr, err := qtx.ListWorkflowNodeRunsByRunAndNode(ctx, db.ListWorkflowNodeRunsByRunAndNodeParams{
-					WorkflowRunID:  run.ID,
-					WorkflowNodeID: edge.TargetNodeID,
-				})
-				if err != nil {
-					continue
-				}
-				if dnr.Status == NodeRunStatusPending {
-					if _, err := qtx.UpdateWorkflowNodeRunStatus(ctx, db.UpdateWorkflowNodeRunStatusParams{
-						ID:     dnr.ID,
-						Status: NodeRunStatusFormatChecking,
-					}); err != nil {
-						return fmt.Errorf("advance downstream node: %w", err)
-					}
-				}
-			}
-		}
-		return nil
+		return ActivateDownstreamAndEnqueue(ctx, qtx, nodeRun.ID)
 	}); err != nil {
 		return err
 	}
 
-	// After advancing downstream nodes, kick off format checkers for newly
-	// advanced nodes outside the tx.
-	allNodeRuns, _ := s.Queries.ListWorkflowNodeRunsByRun(ctx, run.ID)
-	for _, nr := range allNodeRuns {
-		if nr.Status == NodeRunStatusFormatChecking {
-			handled, err := s.completeGatewayNodeRun(ctx, nr)
-			if err != nil {
-				return err
-			}
-			if handled {
-				continue
-			}
-			s.executeFormatChecker(ctx, qtxForRun(s.Queries), nr)
-		}
-	}
-
 	// Check run completion.
-	s.checkRunCompletion(ctx, run.ID)
+	s.checkRunCompletion(ctx, nodeRun.WorkflowRunID)
 
 	return nil
 }
@@ -1090,13 +993,19 @@ func (s *WorkflowService) SubmitWorkerOutput(ctx context.Context, nodeRunID pgty
 			return fmt.Errorf("set worker output: %w", err)
 		}
 		nodeRun = updated
-		return nil
+		generation, err := NextWorkflowDispatchGeneration(ctx, qtx, nr.ID, "critic")
+		if err != nil {
+			return err
+		}
+		return EnqueueWorkflowDispatch(ctx, qtx, nr.ID, "critic", generation)
 	}); err != nil {
 		return err
 	}
 
-	// Dispatch critic outside the tx.
-	return s.dispatchCritic(ctx, nodeRun)
+	if s.OnNodeStatusChanged != nil {
+		s.OnNodeStatusChanged(ctx, nodeRun)
+	}
+	return nil
 }
 
 func (s *WorkflowService) requiredDeliverablesSatisfied(ctx context.Context, nodeRun db.MulticaWorkflowNodeRun) (bool, error) {
@@ -1247,10 +1156,6 @@ func (s *WorkflowService) ReviewNodeRun(ctx context.Context, nodeRunID pgtype.UU
 			if err != nil {
 				return fmt.Errorf("get run: %w", err)
 			}
-			workflow, err := qtx.GetWorkflow(ctx, run.WorkflowID)
-			if err != nil {
-				return fmt.Errorf("get workflow: %w", err)
-			}
 
 			// Always go through critic_rework first (state machine contract).
 			updated, err := qtx.SetWorkflowNodeRunCriticOutput(ctx, db.SetWorkflowNodeRunCriticOutputParams{
@@ -1264,7 +1169,7 @@ func (s *WorkflowService) ReviewNodeRun(ctx context.Context, nodeRunID pgtype.UU
 				return fmt.Errorf("rework node run: %w", err)
 			}
 
-			if newRetry > workflow.MaxRetries {
+			if newRetry > run.MaxRetries {
 				// Max retries exhausted: transition from critic_rework to blocked.
 				updated, err = qtx.UpdateWorkflowNodeRunStatus(ctx, db.UpdateWorkflowNodeRunStatusParams{
 					ID:     updated.ID,
@@ -1288,6 +1193,13 @@ func (s *WorkflowService) ReviewNodeRun(ctx context.Context, nodeRunID pgtype.UU
 				return fmt.Errorf("re-dispatch after rework: %w", err)
 			}
 			nodeRun = u
+			generation, err := NextWorkflowDispatchGeneration(ctx, qtx, nr.ID, "worker")
+			if err != nil {
+				return err
+			}
+			if err := EnqueueWorkflowDispatch(ctx, qtx, nr.ID, "worker", generation); err != nil {
+				return err
+			}
 		}
 		return nil
 	}); err != nil {
@@ -1331,8 +1243,10 @@ func (s *WorkflowService) ReviewNodeRun(ctx context.Context, nodeRunID pgtype.UU
 	}
 
 	if nodeRun.Status == NodeRunStatusFormatOk {
-		// Re-dispatch the worker after rework.
-		return s.dispatchWorker(ctx, nodeRun)
+		if s.OnNodeStatusChanged != nil {
+			s.OnNodeStatusChanged(ctx, nodeRun)
+		}
+		return nil
 	}
 
 	if nodeRun.Status == NodeRunStatusBlocked {
@@ -1888,23 +1802,53 @@ func (s *WorkflowService) handleAutoReply(ctx context.Context, nodeRun db.Multic
 	s.createSystemComment(ctx, subIssue.ID, wf.WorkspaceID, commentContent)
 
 	// Transition awaiting_input → working and dispatch a resume agent task.
-	updated, err := s.TransitionNodeRun(ctx, nodeRun, NodeRunStatusWorking)
+	updated, err := s.resumeNodeRunAndEnqueue(ctx, nodeRun)
 	if err != nil {
 		return err
 	}
-	return s.dispatchWorkerResume(ctx, *updated, signal.Recommended)
+	if s.OnNodeStatusChanged != nil {
+		s.OnNodeStatusChanged(ctx, updated)
+	}
+	return nil
 }
 
 // ResumeNodeRunFromComment handles a user's manual reply to an awaiting_input
 // node. It transitions the node back to working and dispatches a resume task
 // with the user's reply content.
 func (s *WorkflowService) ResumeNodeRunFromComment(ctx context.Context, nodeRun db.MulticaWorkflowNodeRun, comment db.MulticaComment) error {
-	// Transition awaiting_input → working.
-	if _, err := s.TransitionNodeRun(ctx, nodeRun, NodeRunStatusWorking); err != nil {
+	updated, err := s.resumeNodeRunAndEnqueue(ctx, nodeRun)
+	if err != nil {
 		return err
 	}
-	// Dispatch resume agent task with the user's reply content.
-	return s.dispatchWorkerResume(ctx, nodeRun, comment.Content)
+	if s.OnNodeStatusChanged != nil {
+		s.OnNodeStatusChanged(ctx, updated)
+	}
+	return nil
+}
+
+func (s *WorkflowService) resumeNodeRunAndEnqueue(ctx context.Context, nodeRun db.MulticaWorkflowNodeRun) (db.MulticaWorkflowNodeRun, error) {
+	var updated db.MulticaWorkflowNodeRun
+	err := s.runInTx(ctx, func(qtx *db.Queries) error {
+		fresh, err := qtx.GetWorkflowNodeRunForUpdate(ctx, nodeRun.ID)
+		if err != nil {
+			return err
+		}
+		if fresh.Status != NodeRunStatusAwaitingInput {
+			return fmt.Errorf("node run is not awaiting input (status=%s)", fresh.Status)
+		}
+		updated, err = qtx.UpdateWorkflowNodeRunStatus(ctx, db.UpdateWorkflowNodeRunStatusParams{
+			ID: fresh.ID, Status: NodeRunStatusWorking,
+		})
+		if err != nil {
+			return err
+		}
+		generation, err := NextWorkflowDispatchGeneration(ctx, qtx, fresh.ID, "recovery")
+		if err != nil {
+			return err
+		}
+		return EnqueueWorkflowDispatch(ctx, qtx, fresh.ID, "recovery", generation)
+	})
+	return updated, err
 }
 
 // extractJSONObject attempts to extract a balanced JSON object from s starting
@@ -1955,45 +1899,6 @@ func extractJSONObject(s string, startIdx int) string {
 		}
 	}
 	return s[startIdx:]
-}
-
-// dispatchWorkerResume dispatches a new agent task for the node run after a
-// user has replied to an awaiting_input pause. It carries the user's reply
-// in the context payload so the agent knows what was answered.
-func (s *WorkflowService) dispatchWorkerResume(ctx context.Context, nodeRun db.MulticaWorkflowNodeRun, replyContent string) error {
-	// Reuse DispatchAgentTask but with the reply injected into context.
-	// We call the standard dispatchWorker which reads worker_type/worker_id
-	// and creates the task — but we override the context to include the reply.
-	node, err := s.Queries.GetWorkflowNode(ctx, nodeRun.WorkflowNodeID)
-	if err != nil {
-		return fmt.Errorf("get node: %w", err)
-	}
-
-	switch node.WorkerType {
-	case "human":
-		if err := s.validateResolvedHumanMember(ctx, nodeRun, "worker"); err != nil {
-			return err
-		}
-		return s.transitionHumanRolePhase(ctx, nodeRun, "worker", NodeRunStatusWorkerAssigned)
-	case "agent", "squad":
-		agentID := node.WorkerID
-		if node.WorkerType == "squad" && node.WorkerID.Valid {
-			if squad, err := s.Queries.GetSquad(ctx, node.WorkerID); err == nil {
-				agentID = squad.LeaderID
-			}
-		}
-		if !agentID.Valid {
-			_, err := s.TransitionNodeRun(ctx, nodeRun, NodeRunStatusWorkerAssigned)
-			return err
-		}
-		_, err := s.DispatchAgentTask(ctx, nodeRun, "worker", nil)
-		if err != nil {
-			return fmt.Errorf("dispatch agent task: %w", err)
-		}
-		return s.transitionNodeRunAfterDispatch(ctx, nodeRun.ID, NodeRunStatusWorking)
-	default:
-		return fmt.Errorf("unknown worker type: %s", nodeRun.WorkerType)
-	}
 }
 
 // createSystemComment posts a system-authored comment on an issue.

@@ -11,6 +11,67 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const advancePendingWorkflowNodeRun = `-- name: AdvancePendingWorkflowNodeRun :one
+UPDATE multica_workflow_node_run
+SET status = $1,
+    started_at = CASE WHEN $1 = 'format_ok' AND started_at IS NULL THEN now() ELSE started_at END,
+    completed_at = CASE WHEN $1 IN ('completed', 'format_failed') THEN now() ELSE completed_at END,
+    updated_at = now()
+WHERE id = $2
+  AND status = 'pending'
+RETURNING id, workflow_run_id, workflow_node_id, node_title, status, retry_count, worker_type, worker_id, worker_output, critic_type, critic_id, critic_output, critic_comment, agent_task_id, started_at, completed_at, created_at, updated_at, worker_agent_task_id, critic_agent_task_id, runtime_id, device_id, session_id, split_review_chat_session_id, runtime_selection_reason, failure_reason, split_config_version, source_workflow_node_id, node_description, format_schema, critic_api_url, stage_snapshot, worker_role_snapshot, critic_role_snapshot, runtime_config, worker_name_snapshot, critic_name_snapshot
+`
+
+type AdvancePendingWorkflowNodeRunParams struct {
+	Status string      `json:"status"`
+	ID     pgtype.UUID `json:"id"`
+}
+
+func (q *Queries) AdvancePendingWorkflowNodeRun(ctx context.Context, arg AdvancePendingWorkflowNodeRunParams) (MulticaWorkflowNodeRun, error) {
+	row := q.db.QueryRow(ctx, advancePendingWorkflowNodeRun, arg.Status, arg.ID)
+	var i MulticaWorkflowNodeRun
+	err := row.Scan(
+		&i.ID,
+		&i.WorkflowRunID,
+		&i.WorkflowNodeID,
+		&i.NodeTitle,
+		&i.Status,
+		&i.RetryCount,
+		&i.WorkerType,
+		&i.WorkerID,
+		&i.WorkerOutput,
+		&i.CriticType,
+		&i.CriticID,
+		&i.CriticOutput,
+		&i.CriticComment,
+		&i.AgentTaskID,
+		&i.StartedAt,
+		&i.CompletedAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.WorkerAgentTaskID,
+		&i.CriticAgentTaskID,
+		&i.RuntimeID,
+		&i.DeviceID,
+		&i.SessionID,
+		&i.SplitReviewChatSessionID,
+		&i.RuntimeSelectionReason,
+		&i.FailureReason,
+		&i.SplitConfigVersion,
+		&i.SourceWorkflowNodeID,
+		&i.NodeDescription,
+		&i.FormatSchema,
+		&i.CriticApiUrl,
+		&i.StageSnapshot,
+		&i.WorkerRoleSnapshot,
+		&i.CriticRoleSnapshot,
+		&i.RuntimeConfig,
+		&i.WorkerNameSnapshot,
+		&i.CriticNameSnapshot,
+	)
+	return i, err
+}
+
 const claimWorkflowDispatchJob = `-- name: ClaimWorkflowDispatchJob :one
 WITH candidate AS (
     SELECT id
