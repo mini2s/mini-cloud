@@ -12,6 +12,9 @@ func TestProjectResourceLifecycle(t *testing.T) {
 	w := httptest.NewRecorder()
 	req := newRequest("POST", "/api/projects?workspace_id="+testWorkspaceID, map[string]any{
 		"title": "Resource lifecycle project",
+		"resources": []map[string]any{
+			{"resource_type": "github_repo", "resource_ref": map[string]any{"url": "https://github.com/multica-ai/seed"}},
+		},
 	})
 	testHandler.CreateProject(w, req)
 	if w.Code != http.StatusCreated {
@@ -70,11 +73,18 @@ func TestProjectResourceLifecycle(t *testing.T) {
 	if err := json.NewDecoder(w.Body).Decode(&listResp); err != nil {
 		t.Fatalf("decode list: %v", err)
 	}
-	if listResp.Total != 1 || len(listResp.Resources) != 1 {
-		t.Fatalf("list returned %d resources, want 1", listResp.Total)
+	if listResp.Total != 2 || len(listResp.Resources) != 2 {
+		t.Fatalf("list returned %d resources, want 2", listResp.Total)
 	}
-	if listResp.Resources[0].ID != created.ID {
-		t.Errorf("list[0].ID = %q, want %q", listResp.Resources[0].ID, created.ID)
+	foundCreated := false
+	for _, r := range listResp.Resources {
+		if r.ID == created.ID {
+			foundCreated = true
+			break
+		}
+	}
+	if !foundCreated {
+		t.Errorf("created resource %s not found in list: %+v", created.ID, listResp.Resources)
 	}
 
 	// Duplicate attach must conflict (UNIQUE on project_id + type + ref).
@@ -122,7 +132,7 @@ func TestProjectResourceLifecycle(t *testing.T) {
 		t.Fatalf("DeleteProjectResource: expected 204, got %d: %s", w.Code, w.Body.String())
 	}
 
-	// After deletion the list should be empty.
+	// After deletion only the seed repo (created with the project) remains.
 	w = httptest.NewRecorder()
 	req = newRequest("GET", "/api/projects/"+project.ID+"/resources", nil)
 	req = withURLParam(req, "id", project.ID)
@@ -130,8 +140,8 @@ func TestProjectResourceLifecycle(t *testing.T) {
 	if err := json.NewDecoder(w.Body).Decode(&listResp); err != nil {
 		t.Fatalf("decode post-delete list: %v", err)
 	}
-	if listResp.Total != 0 {
-		t.Errorf("post-delete list: total = %d, want 0", listResp.Total)
+	if listResp.Total != 1 {
+		t.Errorf("post-delete list: total = %d, want 1", listResp.Total)
 	}
 }
 
@@ -143,6 +153,9 @@ func TestProjectResourceAcceptsSSHRepoURLs(t *testing.T) {
 	w := httptest.NewRecorder()
 	req := newRequest("POST", "/api/projects?workspace_id="+testWorkspaceID, map[string]any{
 		"title": "SSH repo URL acceptance",
+		"resources": []map[string]any{
+			{"resource_type": "github_repo", "resource_ref": map[string]any{"url": "https://github.com/multica-ai/seed"}},
+		},
 	})
 	testHandler.CreateProject(w, req)
 	if w.Code != http.StatusCreated {
@@ -271,6 +284,9 @@ func TestProjectResourceCountBreadcrumb(t *testing.T) {
 	w := httptest.NewRecorder()
 	req := newRequest("POST", "/api/projects?workspace_id="+testWorkspaceID, map[string]any{
 		"title": "Resource count breadcrumb",
+		"resources": []map[string]any{
+			{"resource_type": "github_repo", "resource_ref": map[string]any{"url": "https://github.com/multica-ai/seed"}},
+		},
 	})
 	testHandler.CreateProject(w, req)
 	if w.Code != http.StatusCreated {
@@ -300,8 +316,8 @@ func TestProjectResourceCountBreadcrumb(t *testing.T) {
 		}
 		return resp.ResourceCount
 	}
-	if got := getCount(); got != 0 {
-		t.Errorf("initial GetProject ResourceCount = %d, want 0", got)
+	if got := getCount(); got != 1 {
+		t.Errorf("initial GetProject ResourceCount = %d, want 1", got)
 	}
 
 	w = httptest.NewRecorder()
@@ -315,8 +331,8 @@ func TestProjectResourceCountBreadcrumb(t *testing.T) {
 		t.Fatalf("CreateProjectResource: %d %s", w.Code, w.Body.String())
 	}
 
-	if got := getCount(); got != 1 {
-		t.Errorf("after attach GetProject ResourceCount = %d, want 1", got)
+	if got := getCount(); got != 2 {
+		t.Errorf("after attach GetProject ResourceCount = %d, want 2", got)
 	}
 
 	w = httptest.NewRecorder()
@@ -335,8 +351,8 @@ func TestProjectResourceCountBreadcrumb(t *testing.T) {
 	for _, p := range list.Projects {
 		if p.ID == project.ID {
 			found = true
-			if p.ResourceCount != 1 {
-				t.Errorf("ListProjects[%s].ResourceCount = %d, want 1", p.ID, p.ResourceCount)
+			if p.ResourceCount != 2 {
+				t.Errorf("ListProjects[%s].ResourceCount = %d, want 2", p.ID, p.ResourceCount)
 			}
 			break
 		}
@@ -360,8 +376,8 @@ func TestProjectResourceCountBreadcrumb(t *testing.T) {
 	if err := json.NewDecoder(w.Body).Decode(&updated); err != nil {
 		t.Fatalf("decode UpdateProject: %v", err)
 	}
-	if updated.ResourceCount != 1 {
-		t.Errorf("UpdateProject ResourceCount = %d, want 1", updated.ResourceCount)
+	if updated.ResourceCount != 2 {
+		t.Errorf("UpdateProject ResourceCount = %d, want 2", updated.ResourceCount)
 	}
 }
 

@@ -1,25 +1,22 @@
 "use client";
 
 import { useState, useRef } from "react";
-import { ChevronRight, Maximize2, Minimize2, X as XIcon, UserMinus } from "lucide-react";
+import { ChevronRight, Maximize2, Minimize2, X as XIcon, UserMinus, GitBranch } from "lucide-react";
 
-/**
- * GitHub mark — lucide-react v1 dropped brand icons, so we inline the
- * Octicon-style mark here (24×24 viewBox, currentColor fill so it inherits
- * the parent's text color). Stays in this file because there's only one
- * caller; promote to packages/ui if a second use crops up.
- */
-function GithubIcon({ className }: { className?: string }) {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      fill="currentColor"
-      aria-hidden="true"
-      className={className}
-    >
-      <path d="M12 .5C5.73.5.66 5.57.66 11.84c0 5.01 3.25 9.26 7.76 10.76.57.1.78-.25.78-.55 0-.27-.01-1.17-.02-2.13-3.16.69-3.83-1.34-3.83-1.34-.52-1.31-1.27-1.66-1.27-1.66-1.04-.71.08-.7.08-.7 1.15.08 1.76 1.18 1.76 1.18 1.02 1.75 2.68 1.24 3.34.95.1-.74.4-1.24.72-1.53-2.52-.29-5.18-1.26-5.18-5.62 0-1.24.45-2.26 1.18-3.06-.12-.29-.51-1.45.11-3.02 0 0 .96-.31 3.15 1.17a10.93 10.93 0 0 1 5.74 0c2.19-1.48 3.15-1.17 3.15-1.17.62 1.57.23 2.73.11 3.02.74.8 1.18 1.82 1.18 3.06 0 4.37-2.67 5.32-5.21 5.61.41.35.78 1.04.78 2.1 0 1.52-.01 2.74-.01 3.11 0 .3.21.66.79.55 4.51-1.5 7.76-5.75 7.76-10.76C23.34 5.57 18.27.5 12 .5Z" />
-    </svg>
-  );
+// Repo host icon: GitHub mark for github.com, generic git icon (lucide
+// GitBranch) for everything else — GitLab/Gitea/etc. lucide v1 dropped
+// brand icons, so we inline the Octicon-style GitHub mark and fall back to
+// GitBranch for non-GitHub hosts.
+function RepoIcon({ url, className }: { url?: string; className?: string }) {
+  const isGithub = !!url && /(^|\.)github\.com(:|\/|$)/i.test(url);
+  if (isGithub) {
+    return (
+      <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" className={className}>
+        <path d="M12 .5C5.73.5.66 5.57.66 11.84c0 5.01 3.25 9.26 7.76 10.76.57.1.78-.25.78-.55 0-.27-.01-1.17-.02-2.13-3.16.69-3.83-1.34-3.83-1.34-.52-1.31-1.27-1.66-1.27-1.66-1.04-.71.08-.7.08-.7 1.15.08 1.76 1.18 1.76 1.18 1.02 1.75 2.68 1.24 3.34.95.1-.74.4-1.24.72-1.53-2.52-.29-5.18-1.26-5.18-5.62 0-1.24.45-2.26 1.18-3.06-.12-.29-.51-1.45.11-3.02 0 0 .96-.31 3.15 1.17a10.93 10.93 0 0 1 5.74 0c2.19-1.48 3.15-1.17 3.15-1.17.62 1.57.23 2.73.11 3.02.74.8 1.18 1.82 1.18 3.06 0 4.37-2.67 5.32-5.21 5.61.41.35.78 1.04.78 2.1 0 1.52-.01 2.74-.01 3.11 0 .3.21.66.79.55 4.51-1.5 7.76-5.75 7.76-10.76C23.34 5.57 18.27.5 12 .5Z" />
+      </svg>
+    );
+  }
+  return <GitBranch className={className} aria-hidden="true" />;
 }
 import { useQuery } from "@tanstack/react-query";
 import { useCreateProject } from "@multica/core/projects/mutations";
@@ -135,8 +132,7 @@ export function CreateProjectModal({ onClose }: { onClose: () => void }) {
   // Repos selected to attach as github_repo resources after the project is
   // created. Stored as URLs (not full ProjectResource rows) — they're not
   // persisted until handleSubmit fires the createProjectResource calls.
-  const [selectedRepos, setSelectedRepos] = useState<string[]>([]);
-  const [repoPopoverOpen, setRepoPopoverOpen] = useState(false);
+  const [selectedRepos, setSelectedRepos] = useState<string[]>(draft.repos);
   const [customRepoUrl, setCustomRepoUrl] = useState("");
   const workspaceRepos = workspace?.repos ?? [];
 
@@ -201,15 +197,21 @@ export function CreateProjectModal({ onClose }: { onClose: () => void }) {
   };
 
   const toggleRepo = (url: string) => {
-    setSelectedRepos((prev) =>
-      prev.includes(url) ? prev.filter((u) => u !== url) : [...prev, url],
-    );
+    setSelectedRepos((prev) => {
+      const next = prev.includes(url) ? prev.filter((u) => u !== url) : [...prev, url];
+      setDraft({ repos: next });
+      return next;
+    });
   };
 
   const addCustomRepo = () => {
     const url = customRepoUrl.trim();
     if (!url) return;
-    setSelectedRepos((prev) => (prev.includes(url) ? prev : [...prev, url]));
+    setSelectedRepos((prev) => {
+      const next = prev.includes(url) ? prev : [...prev, url];
+      setDraft({ repos: next });
+      return next;
+    });
     setCustomRepoUrl("");
   };
 
@@ -308,14 +310,95 @@ export function CreateProjectModal({ onClose }: { onClose: () => void }) {
             onUpdate={(md) => setDraft({ description: md })}
             debounceMs={500}
           />
+
+          {/* Code repository — required. Requirements iterate on the linked
+              repo, so the link (and its rationale) live in the form body, not
+              a footer popover. */}
+          <div className="border-t pt-3 mt-3 space-y-2">
+            <div className="flex items-center gap-1 text-xs font-medium">
+              <RepoIcon className="size-3.5" />
+              <span>{t(($) => $.create_project.repos_section_title)}</span>
+              <span className="text-destructive">*</span>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              {t(($) => $.create_project.repos_hint)}
+            </p>
+            {workspaceRepos.length > 0 ? (
+              <div className="space-y-1 max-h-40 overflow-y-auto">
+                {workspaceRepos.map((repo) => {
+                  const checked = selectedRepos.includes(repo.url);
+                  return (
+                    <button
+                      type="button"
+                      key={repo.url}
+                      onClick={() => toggleRepo(repo.url)}
+                      className={cn(
+                        "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-xs hover:bg-accent transition-colors",
+                        checked && "bg-accent",
+                      )}
+                    >
+                      <input type="checkbox" checked={checked} readOnly className="size-3.5" />
+                      <RepoIcon url={repo.url} className="size-3.5" />
+                      <RepoUrlText url={repo.url} />
+                    </button>
+                  );
+                })}
+              </div>
+            ) : (
+              <p className="text-xs text-muted-foreground">
+                {t(($) => $.create_project.repos_empty)}
+              </p>
+            )}
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                addCustomRepo();
+              }}
+              className="flex items-center gap-1.5"
+            >
+              <input
+                type="text"
+                value={customRepoUrl}
+                onChange={(e) => setCustomRepoUrl(e.target.value)}
+                placeholder={t(($) => $.create_project.repos_url_placeholder)}
+                className="flex-1 bg-transparent text-xs px-2 py-1 rounded-md border outline-none placeholder:text-muted-foreground"
+              />
+              <Button
+                type="submit"
+                size="sm"
+                variant="ghost"
+                className="h-6 px-2 text-xs"
+                disabled={!customRepoUrl.trim()}
+              >
+                {t(($) => $.create_project.repos_add)}
+              </Button>
+            </form>
+            {selectedRepos.length > 0 && (
+              <div className="space-y-1 pt-1 border-t">
+                <div className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
+                  {t(($) => $.create_project.repos_selected)}
+                </div>
+                {selectedRepos.map((url) => (
+                  <div key={url} className="flex items-center gap-2 text-xs">
+                    <RepoIcon url={url} className="size-3 text-muted-foreground" />
+                    <RepoUrlText url={url} />
+                    <button
+                      type="button"
+                      onClick={() => toggleRepo(url)}
+                      className="text-muted-foreground hover:text-foreground"
+                    >
+                      <XIcon className="size-3" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
 
         {/* Footer: properties (left, wrap) + Create button (right). Single row
-            so the modal stays compact — Linear-style.
-            Repos lives here alongside the property pills for now. Once we
-            support more resource types (Linear / Notion / Figma / Slack), pull
-            them out into a dedicated Resources strip above this footer — a
-            single Repos pill on its own row looked too sparse. */}
+            so the modal stays compact — Linear-style. Code repository lives in
+            the form body above (required), not here. */}
         <div className="flex items-center justify-between gap-2 px-4 py-3 border-t shrink-0">
           <div className="flex items-center gap-1.5 flex-wrap min-w-0">
           <DropdownMenu>
@@ -452,113 +535,24 @@ export function CreateProjectModal({ onClose }: { onClose: () => void }) {
             </PopoverContent>
           </Popover>
 
-          <Popover open={repoPopoverOpen} onOpenChange={setRepoPopoverOpen}>
-            <PopoverTrigger
-              render={
-                <PillButton>
-                  <GithubIcon className="size-3" />
-                  <span>
-                    {selectedRepos.length === 0
-                      ? t(($) => $.create_project.repos_pill)
-                      : t(($) => $.create_project.repos_pill_count, { count: selectedRepos.length })}
-                  </span>
-                </PillButton>
-              }
-            />
-            <PopoverContent align="start" className="w-72 p-2 space-y-2">
-              <div className="text-xs font-medium text-muted-foreground">
-                {t(($) => $.create_project.repos_heading)}
-              </div>
-              {workspaceRepos.length > 0 ? (
-                <div className="space-y-1 max-h-48 overflow-y-auto">
-                  {workspaceRepos.map((repo) => {
-                    const checked = selectedRepos.includes(repo.url);
-                    return (
-                      <button
-                        type="button"
-                        key={repo.url}
-                        onClick={() => toggleRepo(repo.url)}
-                        className={cn(
-                          "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-xs hover:bg-accent transition-colors",
-                          checked && "bg-accent",
-                        )}
-                      >
-                        <input
-                          type="checkbox"
-                          checked={checked}
-                          readOnly
-                          className="size-3.5"
-                        />
-                        <GithubIcon className="size-3.5" />
-                        <RepoUrlText url={repo.url} />
-                      </button>
-                    );
-                  })}
-                </div>
-              ) : (
-                <p className="text-xs text-muted-foreground">
-                  {t(($) => $.create_project.repos_empty)}
-                </p>
-              )}
-              <form
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  addCustomRepo();
-                }}
-                className="flex items-center gap-1.5 pt-1 border-t"
-              >
-                <input
-                  type="text"
-                  value={customRepoUrl}
-                  onChange={(e) => setCustomRepoUrl(e.target.value)}
-                  placeholder={t(($) => $.create_project.repos_url_placeholder)}
-                  className="flex-1 bg-transparent text-xs px-2 py-1 outline-none placeholder:text-muted-foreground"
-                />
-                <Button
-                  type="submit"
-                  size="sm"
-                  variant="ghost"
-                  className="h-6 px-2 text-xs"
-                  disabled={!customRepoUrl.trim()}
-                >
-                  {t(($) => $.create_project.repos_add)}
-                </Button>
-              </form>
-              {selectedRepos.length > 0 && (
-                <div className="space-y-1 pt-1 border-t">
-                  <div className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
-                    {t(($) => $.create_project.repos_selected)}
-                  </div>
-                  {selectedRepos.map((url) => (
-                    <div
-                      key={url}
-                      className="flex items-center gap-2 text-xs"
-                    >
-                      <GithubIcon className="size-3 text-muted-foreground" />
-                      <RepoUrlText url={url} />
-                      <button
-                        type="button"
-                        onClick={() => toggleRepo(url)}
-                        className="text-muted-foreground hover:text-foreground"
-                      >
-                        <XIcon className="size-3" />
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </PopoverContent>
-          </Popover>
           </div>
 
-          <Button
-            size="sm"
-            onClick={handleSubmit}
-            disabled={!title.trim() || submitting}
-            className="shrink-0"
-          >
-            {submitting ? t(($) => $.create_project.submitting) : t(($) => $.create_project.submit)}
-          </Button>
+          <div className="flex items-center gap-2 shrink-0">
+            {(!title.trim() || selectedRepos.length === 0) && (
+              <span className="text-xs text-muted-foreground">
+                {selectedRepos.length === 0
+                  ? t(($) => $.create_project.repos_required_hint)
+                  : t(($) => $.create_project.title_placeholder)}
+              </span>
+            )}
+            <Button
+              size="sm"
+              onClick={handleSubmit}
+              disabled={!title.trim() || selectedRepos.length === 0 || submitting}
+            >
+              {submitting ? t(($) => $.create_project.submitting) : t(($) => $.create_project.submit)}
+            </Button>
+          </div>
         </div>
       </DialogContent>
     </Dialog>

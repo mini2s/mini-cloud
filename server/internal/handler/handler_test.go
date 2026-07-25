@@ -525,6 +525,9 @@ func TestCreateSubIssueInheritsParentProject(t *testing.T) {
 	w := httptest.NewRecorder()
 	req := newRequest("POST", "/api/projects?workspace_id="+testWorkspaceID, map[string]any{
 		"title": "Sub-issue inheritance project",
+		"resources": []map[string]any{
+			{"resource_type": "github_repo", "resource_ref": map[string]any{"url": "https://github.com/multica-ai/seed"}},
+		},
 	})
 	testHandler.CreateProject(w, req)
 	if w.Code != http.StatusCreated {
@@ -595,6 +598,9 @@ func TestCreateSubIssueUsesExplicitProjectOverParentProject(t *testing.T) {
 	w := httptest.NewRecorder()
 	req := newRequest("POST", "/api/projects?workspace_id="+testWorkspaceID, map[string]any{
 		"title": "Parent project",
+		"resources": []map[string]any{
+			{"resource_type": "github_repo", "resource_ref": map[string]any{"url": "https://github.com/multica-ai/seed"}},
+		},
 	})
 	testHandler.CreateProject(w, req)
 	if w.Code != http.StatusCreated {
@@ -607,6 +613,9 @@ func TestCreateSubIssueUsesExplicitProjectOverParentProject(t *testing.T) {
 	w = httptest.NewRecorder()
 	req = newRequest("POST", "/api/projects?workspace_id="+testWorkspaceID, map[string]any{
 		"title": "Child explicit project",
+		"resources": []map[string]any{
+			{"resource_type": "github_repo", "resource_ref": map[string]any{"url": "https://github.com/multica-ai/seed"}},
+		},
 	})
 	testHandler.CreateProject(w, req)
 	if w.Code != http.StatusCreated {
