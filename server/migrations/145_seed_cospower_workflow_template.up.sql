@@ -32,7 +32,7 @@ BEGIN
 
     INSERT INTO multica_workflow (id, workspace_id, title, description, status, max_retries, created_by_type, created_by_id, is_template)
     VALUES (c_workflow_id, c_template_ws, 'CosPower 全链路研发',
-        '基于 6 个 CosPower 插件的研发全链路：产品经理 → 架构师 → 项目经理 → 研发工程师 → 测试工程师 → DevOps 工程师，技术负责人全程审核。',
+        '覆盖需求分析、方案设计、任务拆解、TDD 编码、测试生成到集成验证的完整研发流程，由 6 个 CosPower 插件驱动，技术负责人全程审核。',
         'active', 3, 'system', NULL, TRUE);
 
     INSERT INTO multica_workflow_stage (workflow_id, name, description, sort_order) VALUES
