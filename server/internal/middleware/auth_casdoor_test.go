@@ -4,16 +4,12 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/rsa"
-	"encoding/base64"
-	"encoding/json"
-	"math/big"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
-	"github.com/multica-ai/multica/server/internal/auth"
 )
 
 // casdoorCookieName is the Casdoor session cookie read by the middleware.
@@ -21,57 +17,9 @@ import (
 // auth_casdoor.go.
 const casdoorCookieName = "zgsmAdminToken"
 
-// testJWKS mirrors auth.jwksResponse / auth.jwkKey — those types are
-// unexported, so the test rebuilds the minimal JWKS JSON it needs.
-type testJWKS struct {
-	Keys []testJWK `json:"keys"`
-}
-
-type testJWK struct {
-	Kty string `json:"kty"`
-	Use string `json:"use"`
-	Kid string `json:"kid"`
-	Alg string `json:"alg"`
-	N   string `json:"n"`
-	E   string `json:"e"`
-}
-
-// setupTestJWKS spins up an httptest server that serves a single-key JWKS
-// document for the given RSA public key and kid, and returns a JWKSProvider
-// that has already been preloaded against it.
-func setupTestJWKS(t *testing.T, pub *rsa.PublicKey, kid string) *auth.JWKSProvider {
-	t.Helper()
-
-	nBytes := pub.N.Bytes()
-	eBytes := big.NewInt(int64(pub.E)).Bytes()
-	body, err := json.Marshal(testJWKS{
-		Keys: []testJWK{
-			{
-				Kty: "RSA",
-				Use: "sig",
-				Kid: kid,
-				Alg: "RS256",
-				N:   base64.RawURLEncoding.EncodeToString(nBytes),
-				E:   base64.RawURLEncoding.EncodeToString(eBytes),
-			},
-		},
-	})
-	if err != nil {
-		t.Fatalf("marshal JWKS: %v", err)
-	}
-
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write(body)
-	}))
-	t.Cleanup(srv.Close)
-
-	p := auth.NewJWKSProvider(srv.URL)
-	p.Preload()
-	return p
-}
-
 // signRS256 creates a signed RS256 JWT with the given kid header and claims.
+// ParseCasdoorJWT no longer verifies the signature (the gateway does), but a
+// well-formed RS256 token remains a realistic fixture.
 func signRS256(t *testing.T, key *rsa.PrivateKey, kid string, claims jwt.MapClaims) string {
 	t.Helper()
 	token := jwt.NewWithClaims(jwt.SigningMethodRS256, claims)
@@ -106,10 +54,9 @@ func TestCasdoorAuth_ValidCookie(t *testing.T) {
 		subjectID   = "casdoor-user-42"
 		multicaUUID = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
 	)
-	jwks := setupTestJWKS(t, &key.PublicKey, kid)
 	resolver := stubResolver(t, subjectID, multicaUUID)
 
-	mw := CasdoorAuth(jwks, resolver)
+	mw := CasdoorAuth(resolver)
 
 	var gotUserID, gotSubject string
 	handler := mw(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -142,17 +89,12 @@ func TestCasdoorAuth_ValidCookie(t *testing.T) {
 }
 
 func TestCasdoorAuth_NoCookiePassesThrough(t *testing.T) {
-	key, err := rsa.GenerateKey(rand.Reader, 2048)
-	if err != nil {
-		t.Fatalf("generate key: %v", err)
-	}
-	jwks := setupTestJWKS(t, &key.PublicKey, "kid")
 	resolver := func(_ context.Context, _, _, _, _ string) (string, error) {
 		t.Fatal("resolver should not be called when no token is present")
 		return "", nil
 	}
 
-	mw := CasdoorAuth(jwks, resolver)
+	mw := CasdoorAuth(resolver)
 	called := false
 	handler := mw(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		called = true
@@ -179,19 +121,14 @@ func TestCasdoorAuth_NoCookiePassesThrough(t *testing.T) {
 }
 
 func TestCasdoorAuth_PATTokenPassesThrough(t *testing.T) {
-	// JWKS and resolver are irrelevant — a PAT-prefixed Bearer token must
-	// short-circuit before either is consulted.
-	key, err := rsa.GenerateKey(rand.Reader, 2048)
-	if err != nil {
-		t.Fatalf("generate key: %v", err)
-	}
-	jwks := setupTestJWKS(t, &key.PublicKey, "kid")
+	// The resolver is irrelevant — a PAT-prefixed Bearer token must
+	// short-circuit before it is consulted.
 	resolver := func(_ context.Context, _, _, _, _ string) (string, error) {
 		t.Fatal("resolver should not be called for PAT tokens")
 		return "", nil
 	}
 
-	mw := CasdoorAuth(jwks, resolver)
+	mw := CasdoorAuth(resolver)
 
 	called := false
 	handler := mw(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

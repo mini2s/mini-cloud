@@ -136,10 +136,9 @@ type RouterOptions struct {
 	// BatchedHeartbeatScheduler here so the caller can also drive Run/Stop;
 	// tests leave this nil and get the legacy synchronous behavior.
 	HeartbeatScheduler handler.HeartbeatScheduler
-	// Casdoor SSO: when JWKSProvider is non-nil, the CasdoorAuth middleware
+	// Casdoor SSO: when CasdoorEnabled is true, the CasdoorAuth middleware
 	// is stacked before the legacy Auth middleware on protected routes.
 	// SubjectResolver maps Casdoor subject_id to a Multica user UUID.
-	JWKSProvider    *auth.JWKSProvider
 	SubjectResolver middleware.SubjectResolver
 	CasdoorEnabled  bool
 	// SkillProxy, when non-nil, enables the /api/agent-skills endpoints that
@@ -336,7 +335,7 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 		return util.UUIDToString(ws.ID), nil
 	})
 	r.Get("/ws", func(w http.ResponseWriter, r *http.Request) {
-		realtime.HandleWebSocket(hub, mc, pr, slugResolver, opts.JWKSProvider, realtime.SubjectResolver(opts.SubjectResolver), w, r)
+		realtime.HandleWebSocket(hub, mc, pr, slugResolver, realtime.SubjectResolver(opts.SubjectResolver), w, r)
 	})
 
 	// Local file serving (when using local storage)
@@ -389,7 +388,7 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 
 	// Daemon API routes (require daemon token or valid user token)
 	r.Route("/api/daemon", func(r chi.Router) {
-		r.Use(middleware.DaemonAuth(queries, patCache, daemonTokenCache, opts.JWKSProvider, opts.SubjectResolver))
+		r.Use(middleware.DaemonAuth(queries, patCache, daemonTokenCache, opts.SubjectResolver))
 
 		r.Post("/register", h.DaemonRegister)
 		r.Post("/deregister", h.DaemonDeregister)
@@ -438,13 +437,13 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 
 	// GitLab credential for CLI credential helper (gitlab-credential-multica).
 	// Requires daemon token or valid user token to access — workspace is derived from the token.
-	r.With(middleware.DaemonAuth(queries, patCache, daemonTokenCache, opts.JWKSProvider, opts.SubjectResolver)).
+	r.With(middleware.DaemonAuth(queries, patCache, daemonTokenCache, opts.SubjectResolver)).
 		Get("/api/gitlab/credential", h.HandleGitlabCredential)
 
 	// Repository credential for the cs-workflow CLI document-deliverable flow.
 	// Same daemon-auth shape as GitLab; base_url + PAT returned. The old Gitea
 	// path stays as a compatibility alias for already-installed CLI builds.
-	repoCredentialAuth := middleware.DaemonAuth(queries, patCache, daemonTokenCache, opts.JWKSProvider, opts.SubjectResolver)
+	repoCredentialAuth := middleware.DaemonAuth(queries, patCache, daemonTokenCache, opts.SubjectResolver)
 	r.With(repoCredentialAuth).Get("/api/repositories/credential", h.HandleRepositoryCredential)
 	r.With(repoCredentialAuth).Get("/api/gitea/credential", h.HandleGiteaCredential)
 
@@ -454,8 +453,8 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 
 	// Protected API routes
 	r.Group(func(r chi.Router) {
-		if opts.JWKSProvider != nil {
-			r.Use(middleware.CasdoorAuth(opts.JWKSProvider, opts.SubjectResolver))
+		if opts.CasdoorEnabled {
+			r.Use(middleware.CasdoorAuth(opts.SubjectResolver))
 		}
 		r.Use(middleware.Auth(queries, patCache))
 		r.Use(middleware.RefreshCloudFrontCookies(cfSigner))
