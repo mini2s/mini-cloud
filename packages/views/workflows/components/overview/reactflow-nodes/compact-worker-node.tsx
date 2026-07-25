@@ -4,7 +4,10 @@ import { parseNodeFormat, type WorkflowNode } from "@multica/core/types";
 import { cn } from "@multica/ui/lib/utils";
 import { FileText, GitFork, GitMerge } from "lucide-react";
 import { workflowNodeInfoAreaClassName, workflowNodeShapeGlyphClassName } from "../../../../common/workflow-node-shape";
-import { WorkflowActorSlot } from "../../../../common/workflow-actor-slots";
+import {
+  WorkflowActorSlot,
+  type WorkflowActorIdentity,
+} from "../../../../common/workflow-actor-slots";
 import { WorkflowNodeTypeBadge } from "../../../../common/workflow-node-type-badge";
 import { WorkflowCanvasNodeShell } from "../../canvas/workflow-canvas-node-shell";
 import { WORKER_WIDTH, WORKER_HEIGHT, STAGE_LINE_COLORS } from "../constants";
@@ -17,6 +20,8 @@ export interface CompactWorkerNodeData extends Record<string, unknown> {
   pluginName?: string;
   workerName?: string;
   criticName?: string;
+  workerIdentity?: WorkflowActorIdentity | null;
+  criticIdentity?: WorkflowActorIdentity | null;
   splitChildWorkflowName?: string;
   workerConfigured?: boolean;
   criticConfigured?: boolean;
@@ -236,16 +241,16 @@ export const CompactWorkerNode = memo(function CompactWorkerNode({
               testId={`compact-worker-node-worker-role-${id}`}
               slot="worker"
               label={t(($) => $.panorama.card.worker_label)}
-              name={workerLabel}
-              fallback="Not configured"
+              identity={nodeData.workerIdentity}
+              fallback={t(($) => $.panorama.card.actor_not_configured)}
               state={workerConfigured ? "configured" : "missing"}
             />
             <WorkflowActorSlot
               testId={`compact-worker-node-critic-role-${id}`}
               slot="critic"
               label={t(($) => $.panorama.card.critic_label)}
-              name={nodeData.criticName ?? (nodeData.criticConfigured ? "Configured" : null)}
-              fallback="Optional"
+              identity={nodeData.criticIdentity}
+              fallback={t(($) => $.panorama.card.actor_optional)}
               state={nodeData.criticConfigured === true ? "configured" : "optional"}
             />
           </div>
