@@ -1829,23 +1829,24 @@ func (q *Queries) TakeoverWorkflowNodeRun(ctx context.Context, id pgtype.UUID) (
 	return i, err
 }
 
-const updateSplitNodeRunConfigVersion = `-- name: UpdateSplitNodeRunConfigVersion :one
+const updateNodeRunRuntimeConfig = `-- name: UpdateNodeRunRuntimeConfig :one
 UPDATE multica_workflow_node_run
-SET split_config_version = split_config_version + 1,
+SET runtime_config = $2,
+    split_config_version = split_config_version + 1,
     updated_at = now()
 WHERE id = $1
-  AND split_config_version = $2
-  AND status IN ('awaiting_split_review', 'split_active')
+  AND split_config_version = $3
 RETURNING id, workflow_run_id, workflow_node_id, node_title, status, retry_count, worker_type, worker_id, worker_output, critic_type, critic_id, critic_output, critic_comment, agent_task_id, started_at, completed_at, created_at, updated_at, worker_agent_task_id, critic_agent_task_id, runtime_id, device_id, session_id, split_review_chat_session_id, runtime_selection_reason, failure_reason, split_config_version, source_workflow_node_id, node_description, format_schema, critic_api_url, stage_snapshot, worker_role_snapshot, critic_role_snapshot, runtime_config, worker_name_snapshot, critic_name_snapshot
 `
 
-type UpdateSplitNodeRunConfigVersionParams struct {
+type UpdateNodeRunRuntimeConfigParams struct {
 	ID                 pgtype.UUID `json:"id"`
+	RuntimeConfig      []byte      `json:"runtime_config"`
 	SplitConfigVersion int64       `json:"split_config_version"`
 }
 
-func (q *Queries) UpdateSplitNodeRunConfigVersion(ctx context.Context, arg UpdateSplitNodeRunConfigVersionParams) (MulticaWorkflowNodeRun, error) {
-	row := q.db.QueryRow(ctx, updateSplitNodeRunConfigVersion, arg.ID, arg.SplitConfigVersion)
+func (q *Queries) UpdateNodeRunRuntimeConfig(ctx context.Context, arg UpdateNodeRunRuntimeConfigParams) (MulticaWorkflowNodeRun, error) {
+	row := q.db.QueryRow(ctx, updateNodeRunRuntimeConfig, arg.ID, arg.RuntimeConfig, arg.SplitConfigVersion)
 	var i MulticaWorkflowNodeRun
 	err := row.Scan(
 		&i.ID,

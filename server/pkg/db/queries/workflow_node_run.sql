@@ -26,13 +26,13 @@ SELECT * FROM multica_workflow_node_run
 WHERE id = $1
 FOR UPDATE;
 
--- name: UpdateSplitNodeRunConfigVersion :one
+-- name: UpdateNodeRunRuntimeConfig :one
 UPDATE multica_workflow_node_run
-SET split_config_version = split_config_version + 1,
+SET runtime_config = $2,
+    split_config_version = split_config_version + 1,
     updated_at = now()
 WHERE id = $1
-  AND split_config_version = $2
-  AND status IN ('awaiting_split_review', 'split_active')
+  AND split_config_version = $3
 RETURNING *;
 
 -- name: CreateWorkflowNodeRun :one
