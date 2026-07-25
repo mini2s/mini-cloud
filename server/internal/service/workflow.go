@@ -331,6 +331,9 @@ func (s *WorkflowService) startRun(ctx context.Context, workflow db.MulticaWorkf
 	if workflow.Status != "active" {
 		return nil, fmt.Errorf("workflow is not active (status=%s)", workflow.Status)
 	}
+	if workflow.IsTemplate {
+		return nil, errors.New("workflow template cannot be run")
+	}
 	resolvedPolicy, resolvedRuntimeID, err := resolveWorkflowRuntimeSelectionPolicy(workflow, runtimeSelectionPolicy, runtimeID)
 	if err != nil {
 		return nil, err
@@ -2215,7 +2218,7 @@ const (
 
 // CloneWorkflowFromTemplate creates a new workflow by cloning a template's
 // stages, nodes, and edges within a single transaction. The new workflow is
-// created with is_template=false, source_template_id=templateID, status="draft".
+// created with is_template=false, source_template_id=templateID, status="active".
 // Returns the created workflow, its nodes, and edges.
 func (s *WorkflowService) CloneWorkflowFromTemplate(
 	ctx context.Context,
@@ -2246,7 +2249,7 @@ func (s *WorkflowService) CloneWorkflowFromTemplate(
 			WorkspaceID:      workspaceID,
 			Title:            title,
 			Description:      desc,
-			Status:           "draft",
+			Status:           "active",
 			MaxRetries:       tmpl.MaxRetries,
 			CreatedByType:    creatorType,
 			CreatedByID:      creatorID,

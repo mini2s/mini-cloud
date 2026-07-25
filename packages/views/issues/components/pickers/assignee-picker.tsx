@@ -12,15 +12,14 @@ import type {
   WorkflowRuntimeSelectionPolicy,
 } from "@multica/core/types";
 import { BUILTIN_WORKFLOW_ROLES } from "@multica/core/types";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { useAuthStore } from "@multica/core/auth";
 import { canAssignAgentToIssue } from "@multica/core/permissions";
 import { useActorName } from "@multica/core/workspace/hooks";
-import { api } from "@multica/core/api";
 import { useWorkspaceId } from "@multica/core/hooks";
 import { memberListOptions, agentListOptions, squadListOptions, assigneeFrequencyOptions } from "@multica/core/workspace/queries";
 import { isActiveWorkspaceMember } from "@multica/core/workspace/members";
-import { workflowActiveListOptions, workflowTemplateListOptions } from "@multica/core/workflows/queries";
+import { workflowActiveListOptions } from "@multica/core/workflows/queries";
 import { runtimeListOptions } from "@multica/core/runtimes/queries";
 import { ActorAvatar } from "../../../common/actor-avatar";
 import {
@@ -208,24 +207,10 @@ export function AssigneePicker({
   const { data: agents = [] } = useQuery(agentListOptions(wsId));
   const { data: squads = [] } = useQuery(squadListOptions(wsId));
   const { data: activeWorkflows = [] } = useQuery(workflowActiveListOptions(wsId));
-  const { data: templatesResponse } = useQuery(workflowTemplateListOptions(wsId));
-
-  // Merge workspace workflows with cross-workspace active templates.
-  // Deduplicate by ID so templates already present locally don't appear twice.
-  const mergedActiveWorkflows = useMemo(() => {
-    const templateWorkflows = templatesResponse?.workflows ?? [];
-    if (templateWorkflows.length === 0) return activeWorkflows;
-    const seen = new Set(activeWorkflows.map((w) => w.id));
-    const externalActiveTemplates = templateWorkflows.filter(
-      (w) => w.status === "active" && !seen.has(w.id),
-    );
-    return [...activeWorkflows, ...externalActiveTemplates];
-  }, [activeWorkflows, templatesResponse]);
   const { data: frequency = [] } = useQuery(assigneeFrequencyOptions(wsId));
   const { data: runtimes = [] } = useQuery(runtimeListOptions(wsId));
   const usableWorkflowRuntimes = useUsableWorkflowRuntimes(runtimes);
   const { getActorName } = useActorName();
-  const queryClient = useQueryClient();
 
   // Guard: prevent changing assignee while a workflow run is in progress.
   const guardedUpdate = (updates: Partial<UpdateIssueRequest>) => {
@@ -251,7 +236,6 @@ export function AssigneePicker({
     defaultPolicy: WorkflowRuntimeSelectionPolicy;
     defaultRuntimeId: string | null;
   } | null>(null);
-  const [checkingWorkflow, setCheckingWorkflow] = useState(false);
 
   const currentMember = members.find((m) => m.user_id === user?.id);
   const memberRole = currentMember?.role;
@@ -280,7 +264,7 @@ export function AssigneePicker({
   const filteredSquads = squads
     .filter((s) => !s.archived_at && (s.name.toLowerCase().includes(query) || matchesPinyin(s.name, query)))
     .sort((a, b) => getFreq("squad", b.id) - getFreq("squad", a.id));
-  const filteredWorkflows = mergedActiveWorkflows
+  const filteredWorkflows = activeWorkflows
     .filter((w) => w.title.toLowerCase().includes(query) || matchesPinyin(w.title, query))
     .sort((a, b) => getFreq("workflow", b.id) - getFreq("workflow", a.id));
   const roleMatchesQuery = (value: string) =>
@@ -348,54 +332,13 @@ export function AssigneePicker({
     setOpen(false);
   };
 
-  // For cross-workspace templates: lazily clone into the current workspace
-  // on first use. Subsequent uses reuse the existing clone (matched by
-  // source_template_id) so each workspace gets at most one clone per template.
-  const handleWorkflowClick = async (workflow: Workflow) => {
-    let targetId = workflow.id;
-    let targetTitle = workflow.title;
-    let targetPolicy = workflow.default_runtime_selection_policy;
-    let targetRuntimeId = workflow.default_runtime_id;
-
-    // Lazy-clone: only cross-workspace templates need a local clone.
-    // Templates already in the current workspace can be used directly.
-    if (workflow.is_template) {
-      const isLocal = activeWorkflows.some((w) => w.id === workflow.id);
-      if (!isLocal) {
-        const existingClone = activeWorkflows.find(
-          (w) => w.source_template_id === workflow.id,
-        );
-        if (existingClone) {
-          targetId = existingClone.id;
-          targetTitle = existingClone.title;
-          targetPolicy = existingClone.default_runtime_selection_policy;
-          targetRuntimeId = existingClone.default_runtime_id;
-        } else {
-          setCheckingWorkflow(true);
-          try {
-            const cloned = await api.createWorkflowFromTemplate(workflow.id, workflow.title);
-            await api.updateWorkflow(cloned.id, { status: "active" });
-            queryClient.invalidateQueries({ queryKey: ["workflows", wsId] });
-            targetId = cloned.id;
-            targetTitle = cloned.title;
-            targetPolicy = cloned.default_runtime_selection_policy;
-            targetRuntimeId = cloned.default_runtime_id;
-          } catch {
-            // Clone or activation failed — abort, don't assign.
-            setCheckingWorkflow(false);
-            return;
-          }
-        }
-      }
-    }
-
+  const handleWorkflowClick = (workflow: Workflow) => {
     setPendingWorkflowRuntime({
-      workflowId: targetId,
-      workflowTitle: targetTitle,
-      defaultPolicy: targetPolicy,
-      defaultRuntimeId: targetRuntimeId,
+      workflowId: workflow.id,
+      workflowTitle: workflow.title,
+      defaultPolicy: workflow.default_runtime_selection_policy,
+      defaultRuntimeId: workflow.default_runtime_id,
     });
-    setCheckingWorkflow(false);
   };
 
   const handleWorkflowRuntimeConfirm = ({ policy, runtimeId }: WorkflowRuntimeStrategyValue) => {
@@ -464,16 +407,9 @@ export function AssigneePicker({
               onClick={() => {
                 handleWorkflowClick(w);
               }}
-              disabled={checkingWorkflow}
             >
               <GitBranch className="h-3.5 w-3.5 text-muted-foreground" />
               <span className="truncate" title={w.title}>{w.title}</span>
-              {w.is_template && (
-                <span className="ml-auto shrink-0 inline-flex items-center gap-0.5 rounded bg-amber-100 px-1 py-0.5 text-[10px] font-medium text-amber-700 dark:bg-amber-900/30 dark:text-amber-400">
-                  <Zap className="h-2.5 w-2.5" />
-                  {t(($) => $.pickers.assignee.template_label)}
-                </span>
-              )}
             </PickerItem>
           ))}
         </PickerSection>
