@@ -4,8 +4,10 @@ import { parseNodeFormat, type WorkflowNode } from "@multica/core/types";
 import { cn } from "@multica/ui/lib/utils";
 import { FileText, GitFork, GitMerge } from "lucide-react";
 import { workflowNodeInfoAreaClassName, workflowNodeShapeGlyphClassName } from "../../../../common/workflow-node-shape";
-import { WorkflowActorSlot } from "../../../../common/workflow-actor-slots";
-import { WorkflowNodeTypeBadge } from "../../../../common/workflow-node-type-badge";
+import {
+  WorkflowActorSlot,
+  type WorkflowActorIdentity,
+} from "../../../../common/workflow-actor-slots";
 import { WorkflowCanvasNodeShell } from "../../canvas/workflow-canvas-node-shell";
 import { WORKER_WIDTH, WORKER_HEIGHT, STAGE_LINE_COLORS } from "../constants";
 import { useT } from "../../../../i18n";
@@ -17,6 +19,8 @@ export interface CompactWorkerNodeData extends Record<string, unknown> {
   pluginName?: string;
   workerName?: string;
   criticName?: string;
+  workerIdentity?: WorkflowActorIdentity | null;
+  criticIdentity?: WorkflowActorIdentity | null;
   splitChildWorkflowName?: string;
   workerConfigured?: boolean;
   criticConfigured?: boolean;
@@ -42,20 +46,6 @@ function gatewayLabel(kind: "fork" | "join" | null): string {
   if (kind === "join") return "Join gateway";
   if (kind === "fork") return "Fork gateway";
   return "Gateway";
-}
-
-function nodeBadgeLabel({
-  isAnnotation,
-  isGateway,
-  workerType,
-}: {
-  isAnnotation: boolean;
-  isGateway: boolean;
-  workerType: WorkflowNode["worker_type"];
-}): string {
-  if (isAnnotation) return "Note";
-  if (isGateway) return "Logic";
-  return workerTypeLabel(workerType);
 }
 
 export const CompactWorkerNode = memo(function CompactWorkerNode({
@@ -90,13 +80,6 @@ export const CompactWorkerNode = memo(function CompactWorkerNode({
     : workerConfigured
     ? nodeData.workerName ?? nodeData.pluginName ?? workerTypeLabel(nodeData.node.worker_type)
     : null;
-  const badgeLabel = isSplit
-    ? t(($) => $.panorama.card.split_badge)
-    : nodeBadgeLabel({
-        isAnnotation,
-        isGateway,
-        workerType: nodeData.node.worker_type,
-      });
   const metadataLabel = isAnnotation
     ? "Canvas note"
     : isSplit
@@ -142,7 +125,7 @@ export const CompactWorkerNode = memo(function CompactWorkerNode({
     >
       <>
         <span className="min-w-0">
-          <span className="flex min-w-0 items-start justify-between gap-2">
+          <span className="flex min-w-0 items-start gap-2">
             <span className="flex min-w-0 items-center gap-1.5">
               {nodeShape !== "rectangle" ? (
                 <span
@@ -156,10 +139,6 @@ export const CompactWorkerNode = memo(function CompactWorkerNode({
               ) : null}
               <span className="block min-w-0 break-words text-[13px] font-semibold leading-4 text-foreground line-clamp-2">{displayName}</span>
             </span>
-            <WorkflowNodeTypeBadge
-              testId={`compact-worker-node-badge-${id}`}
-              label={badgeLabel}
-            />
           </span>
           {description ? (
             <span className="mt-1 block break-words text-[10px] leading-3 text-muted-foreground line-clamp-2">{description}</span>
@@ -236,16 +215,16 @@ export const CompactWorkerNode = memo(function CompactWorkerNode({
               testId={`compact-worker-node-worker-role-${id}`}
               slot="worker"
               label={t(($) => $.panorama.card.worker_label)}
-              name={workerLabel}
-              fallback="Not configured"
+              identity={nodeData.workerIdentity}
+              fallback={t(($) => $.panorama.card.actor_not_configured)}
               state={workerConfigured ? "configured" : "missing"}
             />
             <WorkflowActorSlot
               testId={`compact-worker-node-critic-role-${id}`}
               slot="critic"
               label={t(($) => $.panorama.card.critic_label)}
-              name={nodeData.criticName ?? (nodeData.criticConfigured ? "Configured" : null)}
-              fallback="Optional"
+              identity={nodeData.criticIdentity}
+              fallback={t(($) => $.panorama.card.actor_optional)}
               state={nodeData.criticConfigured === true ? "configured" : "optional"}
             />
           </div>

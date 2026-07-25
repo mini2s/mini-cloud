@@ -16,7 +16,11 @@ import { useT } from "@multica/views/i18n";
 import { Button } from "@multica/ui/components/ui/button";
 import { Loader2 } from "lucide-react";
 import { workflowNodeInfoAreaClassName, workflowNodeShapeGlyphClassName } from "../../../common/workflow-node-shape";
-import { WorkflowActorSlot, type WorkflowActorState } from "../../../common/workflow-actor-slots";
+import {
+  WorkflowActorSlot,
+  type WorkflowActorIdentity,
+  type WorkflowActorState,
+} from "../../../common/workflow-actor-slots";
 import { WorkflowNodeTypeBadge } from "../../../common/workflow-node-type-badge";
 import {
   WorkflowCanvasNodeShell,
@@ -56,6 +60,8 @@ export interface RuntimeNodeCardProps {
   nodeRun: WorkflowNodeRun | null;
   workerName: string | null;
   criticName: string | null;
+  workerIdentity?: WorkflowActorIdentity | null;
+  criticIdentity?: WorkflowActorIdentity | null;
   onClick: (nodeId: string) => void;
   isSelected?: boolean;
   isRuntimeFocus?: boolean;
@@ -343,6 +349,8 @@ export function RuntimeNodeCard({
   nodeRun,
   workerName,
   criticName,
+  workerIdentity,
+  criticIdentity,
   onClick,
   isSelected = false,
   isRuntimeFocus = false,
@@ -373,11 +381,11 @@ export function RuntimeNodeCard({
   const nodeShape = nodeFormat.shape;
   const displayStatus = runtimeSummary?.display_status ?? (nodeRun ? toWorkflowRuntimeDisplayStatus(nodeRun.status) : "pending");
   const displayStatusLabel = runtimeDisplayStatusText(t, displayStatus, isGateway ? nodeFormat.gateway_kind : null);
-  const hasCritic = !isGateway && !isSplit && (node.critic_type || node.critic_id);
+  const hasCritic = !isGateway && !isSplit && Boolean(node.critic_type || node.critic_id || criticIdentity);
 
   const GatewayIcon = nodeFormat.gateway_kind === "join" ? GitMerge : GitFork;
-  const workerConfigured = Boolean(node.worker_id || node.worker_role_id || node.worker_role);
-  const criticConfigured = Boolean(node.critic_id || node.critic_role_id || node.critic_role || node.critic_api_url);
+  const workerConfigured = Boolean(workerIdentity || node.worker_id || node.worker_role_id || node.worker_role);
+  const criticConfigured = Boolean(criticIdentity || node.critic_id || node.critic_role_id || node.critic_role || node.critic_api_url);
   const splitProgress = runtimeSummary?.split_progress ?? null;
   const hasSplitProgress = isSplit && !!splitProgress && splitProgress.total > 0;
   const canToggleSplitChildren = isSplit && splitChildCount > 0 && !!onSplitNodeToggle;
@@ -565,7 +573,7 @@ export function RuntimeNodeCard({
               <WorkflowActorSlot
                 slot="worker"
                 label={t(($) => $.execution.card.worker_label)}
-                name={workerName}
+                identity={workerIdentity}
                 fallback="--"
                 state={actorState(workerName, workerConfigured)}
               />
@@ -573,7 +581,7 @@ export function RuntimeNodeCard({
                 <WorkflowActorSlot
                   slot="critic"
                   label={t(($) => $.execution.card.critic_label)}
-                  name={criticName}
+                  identity={criticIdentity}
                   fallback="--"
                   state={actorState(criticName, criticConfigured, true)}
                 />
@@ -656,7 +664,7 @@ export function RuntimeNodeCard({
           <WorkflowActorSlot
             slot="worker"
             label={t(($) => $.execution.card.worker_label)}
-            name={workerName}
+            identity={workerIdentity}
             fallback="--"
             state={actorState(workerName, workerConfigured)}
           />
@@ -664,7 +672,7 @@ export function RuntimeNodeCard({
             <WorkflowActorSlot
               slot="critic"
               label={t(($) => $.execution.card.critic_label)}
-              name={criticName}
+              identity={criticIdentity}
               fallback="--"
               state={actorState(criticName, criticConfigured, true)}
             />

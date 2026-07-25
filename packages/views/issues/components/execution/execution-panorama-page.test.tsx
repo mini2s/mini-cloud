@@ -48,6 +48,10 @@ const mocks = vi.hoisted(() => ({
   nodesInitialized: true,
   viewportInitialized: true,
   retryNodeRun: vi.fn(),
+  useWorkspacePresenceMap: vi.fn(() => ({
+    byAgent: new Map<string, { availability: "online" | "offline" | "unstable" }>(),
+    loading: false,
+  })),
   reactFlowProps: null as null | {
     nodes: Array<{
       id: string;
@@ -269,6 +273,10 @@ vi.mock("@multica/core/platform", () => ({
     mocks.postCostrictNavigateToSession(args),
 }));
 
+vi.mock("@multica/core/agents", () => ({
+  useWorkspacePresenceMap: mocks.useWorkspacePresenceMap,
+}));
+
 vi.mock("@multica/core/paths", () => ({
   useWorkspacePaths: () => ({
     issueDetail: (issueId: string) => `/demo111/issues/${issueId}`,
@@ -298,6 +306,17 @@ vi.mock("../../../i18n", () => ({
           developer: { name: "Developer", description: "Builds changes" },
           qa: { name: "QA", description: "Validates changes" },
           tech_lead: { name: "Tech Lead", description: "Tech direction" },
+        },
+        panorama: {
+          card: {
+            actor_type_agent: "Digital human",
+            actor_type_member: "Member",
+            actor_type_squad: "Squad",
+            actor_type_role: "Development role",
+            actor_type_api: "API reviewer",
+            actor_online: "Online",
+            actor_offline: "Offline",
+          },
         },
         execution: {
           card: {
@@ -686,6 +705,8 @@ describe("ExecutionPanoramaPage", () => {
     mocks.viewportInitialized = true;
     mocks.retryNodeRun.mockReset();
     mocks.retryNodeRun.mockResolvedValue({ id: "nr-2" });
+    mocks.useWorkspacePresenceMap.mockClear();
+    mocks.useWorkspacePresenceMap.mockReturnValue({ byAgent: new Map(), loading: false });
     mocks.navigationPush.mockReset();
     mocks.openInNewTab.mockReset();
     mocks.postCostrictNavigateToSession.mockReset();
@@ -2465,5 +2486,78 @@ describe("ExecutionPanoramaPage", () => {
 
     const worker = mocks.reactFlowProps?.nodes.find((n) => n.id === "n-role");
     expect(worker?.data).toMatchObject({ workerName: "Backend Engineer" });
+  });
+
+  it("resolves concrete runtime actors before node roles and attaches agent presence", () => {
+    mocks.isLoading = false;
+    mocks.workflowData = { id: "wf-1", title: "Test Workflow" };
+    mocks.stagesData = [STAGE];
+    mocks.workflowRolesData = [BUILTIN_DEV_ROLE];
+    mocks.membersData = [{ ...MEMBER, avatar_url: "/reviewer.png" }];
+    mocks.agentsData = [{ ...AGENT, avatar_url: "/agent.png" }];
+    mocks.squadsData = [{ id: "squad-1", name: "Platform Squad", avatar_url: null }];
+    mocks.useWorkspacePresenceMap.mockReturnValue({
+      byAgent: new Map([["agent-1", { availability: "online" as const }]]),
+      loading: false,
+    });
+    mocks.nodesData = [
+      { ...NODE, id: "resolved-role-node", worker_type: "role", worker_id: null, worker_role_id: "role-dev" },
+      { ...NODE, id: "pending-role-node", worker_type: "role", worker_id: null, worker_role_id: "role-dev" },
+      { ...NODE, id: "agent-node", worker_type: "agent", worker_id: "agent-1" },
+      { ...NODE, id: "squad-api-node", worker_type: "squad", worker_id: "squad-1", critic_type: "api", critic_id: null, critic_api_url: "https://review.example.test" },
+    ];
+    mocks.nodeRunsData = [
+      { ...baseNodeRun, id: "nr-resolved", workflow_node_id: "resolved-role-node", worker_type: "human", worker_id: "user-alice" },
+      { ...baseNodeRun, id: "nr-pending", workflow_node_id: "pending-role-node", worker_type: "role", worker_id: null },
+      { ...baseNodeRun, id: "nr-agent", workflow_node_id: "agent-node", worker_type: "agent", worker_id: "agent-1" },
+      { ...baseNodeRun, id: "nr-squad", workflow_node_id: "squad-api-node", worker_type: "squad", worker_id: "squad-1", critic_type: "api", critic_id: null },
+    ];
+
+    render(
+      <Wrapper>
+        <ExecutionPanoramaPage workflowId="wf-1" runId="run-1" wsId="ws-1" />
+      </Wrapper>,
+    );
+
+    const renderedNodes = mocks.reactFlowProps?.nodes ?? [];
+    expect(renderedNodes.find((node) => node.id === "resolved-role-node")?.data?.workerIdentity).toMatchObject({
+      type: "member",
+      id: "user-alice",
+      name: "Alice Johnson",
+      avatarUrl: "/reviewer.png",
+      typeLabel: "Member",
+    });
+    expect(renderedNodes.find((node) => node.id === "pending-role-node")?.data?.workerIdentity).toEqual({
+      type: "role",
+      id: null,
+      name: "Developer",
+      typeLabel: "Development role",
+    });
+    expect(renderedNodes.find((node) => node.id === "agent-node")?.data?.workerIdentity).toMatchObject({
+      type: "agent",
+      id: "agent-1",
+      name: "Brainstorming Agent",
+      avatarUrl: "/agent.png",
+      availability: "online",
+      availabilityLabel: "Online",
+    });
+    expect(renderedNodes.find((node) => node.id === "squad-api-node")?.data).toMatchObject({
+      workerIdentity: {
+        type: "squad",
+        id: "squad-1",
+        name: "Platform Squad",
+        typeLabel: "Squad",
+      },
+      criticIdentity: {
+        type: "api",
+        id: null,
+        name: "API review",
+        typeLabel: "API reviewer",
+      },
+    });
+    expect(renderedNodes.find((node) => node.id === "squad-api-node")?.data?.workerIdentity).not.toHaveProperty("availability");
+    expect(renderedNodes.find((node) => node.id === "squad-api-node")?.data?.criticIdentity).not.toHaveProperty("availability");
+    expect(mocks.useWorkspacePresenceMap).toHaveBeenCalledTimes(1);
+    expect(mocks.useWorkspacePresenceMap).toHaveBeenCalledWith("ws-1");
   });
 });

@@ -18,6 +18,19 @@ func cleanupBoundaryWorkflow(t *testing.T, workflowID string) {
 	})
 }
 
+func getBoundaryNodeID(t *testing.T, workflowID, kind string) string {
+	t.Helper()
+	var nodeID string
+	if err := testPool.QueryRow(context.Background(), `
+		SELECT id
+		FROM multica_workflow_node
+		WHERE workflow_id = $1 AND format_schema->>'type' = $2
+	`, workflowID, kind).Scan(&nodeID); err != nil {
+		t.Fatalf("get %s boundary: %v", kind, err)
+	}
+	return nodeID
+}
+
 func createBoundaryNode(t *testing.T, workflowID, title, kind string, wantStatus int) string {
 	t.Helper()
 	w := httptest.NewRecorder()
@@ -89,7 +102,6 @@ func TestCreateWorkflowBoundaryNodeRejectsDuplicateKind(t *testing.T) {
 	}
 	workflowID := createTestWorkflow(t)
 	cleanupBoundaryWorkflow(t, workflowID)
-	createBoundaryNode(t, workflowID, "Start", "start", http.StatusCreated)
 	createBoundaryNode(t, workflowID, "Start again", "start", http.StatusConflict)
 }
 
@@ -116,7 +128,7 @@ func TestUpdateWorkflowBoundaryNodeRejectsTypeMutation(t *testing.T) {
 	}
 	workflowID := createTestWorkflow(t)
 	cleanupBoundaryWorkflow(t, workflowID)
-	nodeID := createBoundaryNode(t, workflowID, "Start", "start", http.StatusCreated)
+	nodeID := getBoundaryNodeID(t, workflowID, "start")
 	updateBoundaryNode(t, workflowID, nodeID, map[string]any{
 		"format_schema": map[string]any{"type": "end"},
 	}, http.StatusUnprocessableEntity)
@@ -128,7 +140,7 @@ func TestUpdateWorkflowBoundaryNodeRejectsRestrictedFields(t *testing.T) {
 	}
 	workflowID := createTestWorkflow(t)
 	cleanupBoundaryWorkflow(t, workflowID)
-	nodeID := createBoundaryNode(t, workflowID, "Start", "start", http.StatusCreated)
+	nodeID := getBoundaryNodeID(t, workflowID, "start")
 	for name, body := range map[string]map[string]any{
 		"format schema": {"format_schema": map[string]any{"type": "start", "shape": "rectangle"}},
 		"sort order":    {"sort_order": 3},
@@ -145,8 +157,8 @@ func TestCreateWorkflowEdgeValidatesBoundaryDirection(t *testing.T) {
 	}
 	workflowID := createTestWorkflow(t)
 	cleanupBoundaryWorkflow(t, workflowID)
-	startID := createBoundaryNode(t, workflowID, "Start", "start", http.StatusCreated)
-	endID := createBoundaryNode(t, workflowID, "End", "end", http.StatusCreated)
+	startID := getBoundaryNodeID(t, workflowID, "start")
+	endID := getBoundaryNodeID(t, workflowID, "end")
 	taskID := createBoundaryTaskNode(t, workflowID, "Task")
 	createBoundaryEdge(t, workflowID, startID, taskID, http.StatusCreated)
 	createBoundaryEdge(t, workflowID, taskID, endID, http.StatusCreated)
@@ -161,8 +173,6 @@ func TestStartWorkflowBoundaryOnlyRunReturnsCompleted(t *testing.T) {
 	}
 	workflowID := createTestWorkflow(t)
 	cleanupBoundaryWorkflow(t, workflowID)
-	createBoundaryNode(t, workflowID, "Start", "start", http.StatusCreated)
-	createBoundaryNode(t, workflowID, "End", "end", http.StatusCreated)
 	if _, err := testPool.Exec(context.Background(), `
 		UPDATE multica_workflow SET status = 'active' WHERE id = $1
 	`, workflowID); err != nil {

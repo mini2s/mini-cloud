@@ -361,6 +361,33 @@ func isWorkflowBoundaryUniqueViolation(err error) bool {
 		pgErr.ConstraintName == "multica_workflow_node_boundary_kind_unique"
 }
 
+func defaultWorkflowBoundaryNodes(workflowID pgtype.UUID) []db.CreateWorkflowNodeParams {
+	return []db.CreateWorkflowNodeParams{
+		{
+			WorkflowID:   workflowID,
+			Title:        "Start",
+			Description:  nonNullText(""),
+			PositionX:    120,
+			PositionY:    0,
+			FormatSchema: []byte(`{"type":"start","shape":"pill","template_id":"workflow-start","template_category":"trigger"}`),
+			WorkerType:   "human",
+			CriticType:   "human",
+			SortOrder:    0,
+		},
+		{
+			WorkflowID:   workflowID,
+			Title:        "End",
+			Description:  nonNullText(""),
+			PositionX:    600,
+			PositionY:    0,
+			FormatSchema: []byte(`{"type":"end","shape":"pill","template_id":"workflow-end","template_category":"trigger"}`),
+			WorkerType:   "human",
+			CriticType:   "human",
+			SortOrder:    1,
+		},
+	}
+}
+
 func isSplitWorkflowNode(formatSchema []byte) bool {
 	return workflowNodeFormatType(formatSchema) == "split"
 }
@@ -448,7 +475,15 @@ func (h *Handler) CreateWorkflow(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	wf, err := h.Queries.CreateWorkflow(r.Context(), db.CreateWorkflowParams{
+	tx, err := h.TxStarter.Begin(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to start transaction")
+		return
+	}
+	defer tx.Rollback(r.Context())
+	qtx := h.Queries.WithTx(tx)
+
+	wf, err := qtx.CreateWorkflow(r.Context(), db.CreateWorkflowParams{
 		WorkspaceID:   wsUUID,
 		Title:         req.Title,
 		Description:   nonNullText(req.Description),
@@ -462,7 +497,20 @@ func (h *Handler) CreateWorkflow(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	resp := workflowToResponse(wf, 0)
+	for _, params := range defaultWorkflowBoundaryNodes(wf.ID) {
+		if _, err := qtx.CreateWorkflowNode(r.Context(), params); err != nil {
+			log.Printf("create default workflow boundary %q: %v", params.Title, err)
+			writeError(w, http.StatusInternalServerError, "failed to create workflow boundaries")
+			return
+		}
+	}
+
+	if err := tx.Commit(r.Context()); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to commit workflow")
+		return
+	}
+
+	resp := workflowToResponse(wf, 2)
 
 	h.publish(protocol.EventWorkflowCreated, workspaceID, "member", userID, map[string]any{"workflow": resp})
 	writeJSON(w, http.StatusCreated, resp)

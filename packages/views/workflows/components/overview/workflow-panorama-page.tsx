@@ -38,6 +38,7 @@ import {
 import { agentListOptions, builtinPluginListOptions } from "@multica/core/workspace/queries";
 import { runtimeListOptions } from "@multica/core/runtimes/queries";
 import { useActorName } from "@multica/core/workspace/hooks";
+import { useWorkspacePresenceMap, type AgentAvailability } from "@multica/core/agents";
 import { useWorkflowEditorStore } from "@multica/core/workflows/store";
 import { useNavigation } from "../../../navigation";
 import { useWorkspacePaths } from "@multica/core/paths";
@@ -98,12 +99,60 @@ import {
 import { isBoundaryNode, isEndNode, isInvalidBoundaryConnection, isStartNode, parseNodeFormat, workerTypeToActorType, type WorkflowNode, type WorkflowStage, type WorkflowEdge, type ReorderStagesItem, type WorkflowStatus, type Workflow, type WorkflowNodeRun, type UpdateNodeRequest } from "@multica/core/types";
 import type { Agent } from "@multica/core/types";
 import type { BuiltinPlugin } from "@multica/core/api/schemas";
+import type { CriticType, WorkerType } from "@multica/core/types";
+import type {
+  WorkflowActorEntityType,
+  WorkflowActorIdentity,
+} from "../../../common/workflow-actor-slots";
 
 // ── Types ──
 
 export interface WorkflowPanoramaPageProps {
   workflowId: string;
   viewToggle?: ReactNode;
+}
+
+function buildEditorActorIdentity(input: {
+  type: WorkerType | CriticType;
+  id: string | null;
+  roleName?: string;
+  getActorName: (type: string, id: string) => string;
+  getActorInitials: (type: string, id: string) => string;
+  getActorAvatarUrl: (type: string, id: string) => string | null;
+  availability?: AgentAvailability;
+  labels: Record<WorkflowActorEntityType, string>;
+  availabilityLabels: { online: string; offline: string };
+}): WorkflowActorIdentity | null {
+  const { type, id, roleName, labels } = input;
+  if (type === "role") {
+    return roleName
+      ? { type: "role", id: null, name: roleName, typeLabel: labels.role }
+      : null;
+  }
+  if (type === "api") {
+    return roleName
+      ? { type: "api", id: null, name: roleName, typeLabel: labels.api }
+      : null;
+  }
+  if (!id) return null;
+
+  const actorType: Exclude<WorkflowActorEntityType, "role" | "api"> =
+    type === "human" ? "member" : type;
+  const identity: WorkflowActorIdentity = {
+    type: actorType,
+    id,
+    name: input.getActorName(actorType, id),
+    typeLabel: labels[actorType],
+    initials: input.getActorInitials(actorType, id),
+    avatarUrl: input.getActorAvatarUrl(actorType, id),
+  };
+  if (actorType === "agent" && input.availability) {
+    identity.availability = input.availability;
+    identity.availabilityLabel = input.availability === "online"
+      ? input.availabilityLabels.online
+      : input.availabilityLabels.offline;
+  }
+  return identity;
 }
 
 // ── Data conversion: API nodes → ReactFlow nodes ──
@@ -578,7 +627,19 @@ export function WorkflowPanoramaPage({ workflowId, viewToggle }: WorkflowPanoram
   const { data: pluginsData } = useQuery(builtinPluginListOptions());
   const { data: workflowRoles = [] } = useQuery(workflowRolesOptions(wsId));
   const { data: childWorkflows = [] } = useQuery(splitIssueWorkflowOptions(wsId, workflowId));
-  const { getActorName } = useActorName();
+  const { getActorName, getActorInitials, getActorAvatarUrl } = useActorName();
+  const { byAgent: presenceByAgent } = useWorkspacePresenceMap(wsId);
+  const actorTypeLabels = useMemo<Record<WorkflowActorEntityType, string>>(() => ({
+    agent: t(($) => $.panorama.card.actor_type_agent),
+    member: t(($) => $.panorama.card.actor_type_member),
+    squad: t(($) => $.panorama.card.actor_type_squad),
+    role: t(($) => $.panorama.card.actor_type_role),
+    api: t(($) => $.panorama.card.actor_type_api),
+  }), [t]);
+  const actorAvailabilityLabels = useMemo(() => ({
+    online: t(($) => $.panorama.card.actor_online),
+    offline: t(($) => $.panorama.card.actor_offline),
+  }), [t]);
   const roleById = useMemo(
     () => new Map(workflowRoles.map((role) => [role.id, role])),
     [workflowRoles],
@@ -773,6 +834,43 @@ export function WorkflowPanoramaPage({ workflowId, viewToggle }: WorkflowPanoram
         const nodeFormat = parseNodeFormat(node.format_schema);
         const splitChildWorkflowId = nodeFormat.split_config?.default_issue_workflow_id ?? null;
         const workerAgent = node.worker_id ? agentLookup.get(node.worker_id) : null;
+        const workerRoleName = node.worker_role_id
+          ? renderRoleName(roleById.get(node.worker_role_id)) ?? node.worker_role_id
+          : node.worker_role
+            ? renderRoleName(undefined, node.worker_role)
+            : undefined;
+        const criticRoleName = node.critic_role_id
+          ? renderRoleName(roleById.get(node.critic_role_id)) ?? node.critic_role_id
+          : node.critic_role
+            ? renderRoleName(undefined, node.critic_role)
+            : undefined;
+        const workerIdentity = buildEditorActorIdentity({
+          type: workerRoleName ? "role" : node.worker_type,
+          id: workerRoleName ? null : node.worker_id,
+          roleName: workerRoleName,
+          getActorName,
+          getActorInitials,
+          getActorAvatarUrl,
+          availability: node.worker_type === "agent" && node.worker_id
+            ? presenceByAgent.get(node.worker_id)?.availability
+            : undefined,
+          labels: actorTypeLabels,
+          availabilityLabels: actorAvailabilityLabels,
+        });
+        const criticApiName = node.critic_api_url?.trim() ? "API review" : undefined;
+        const criticIdentity = buildEditorActorIdentity({
+          type: criticRoleName ? "role" : criticApiName ? "api" : node.critic_type,
+          id: criticRoleName || criticApiName ? null : node.critic_id,
+          roleName: criticRoleName ?? criticApiName,
+          getActorName,
+          getActorInitials,
+          getActorAvatarUrl,
+          availability: node.critic_type === "agent" && node.critic_id
+            ? presenceByAgent.get(node.critic_id)?.availability
+            : undefined,
+          labels: actorTypeLabels,
+          availabilityLabels: actorAvailabilityLabels,
+        });
         return {
           node,
           stage_id: context.stage_id,
@@ -780,20 +878,15 @@ export function WorkflowPanoramaPage({ workflowId, viewToggle }: WorkflowPanoram
           pluginName: workerAgent?.plugin_id
             ? pluginLookup.get(workerAgent.plugin_id)?.name
             : undefined,
-          workerName: node.worker_role_id
-            ? renderRoleName(roleById.get(node.worker_role_id)) ?? node.worker_role_id
-            : node.worker_role
-              ? renderRoleName(undefined, node.worker_role)
-              : node.worker_id ? getActorName(workerTypeToActorType(node.worker_type), node.worker_id) ?? undefined : undefined,
-          criticName: node.critic_role_id
-            ? renderRoleName(roleById.get(node.critic_role_id)) ?? node.critic_role_id
-            : node.critic_role
-              ? renderRoleName(undefined, node.critic_role)
+          workerName: workerRoleName
+            ?? (node.worker_id ? getActorName(workerTypeToActorType(node.worker_type), node.worker_id) ?? undefined : undefined),
+          criticName: criticRoleName
+              ? criticRoleName
               : node.critic_id
                 ? getActorName(workerTypeToActorType(node.critic_type), node.critic_id) ?? undefined
-                : node.critic_api_url
-                  ? "API review"
-                  : undefined,
+                : criticApiName,
+          workerIdentity,
+          criticIdentity,
           workerConfigured: isAnnotation ? true : Boolean(node.worker_id || node.worker_role_id || node.worker_role),
           criticConfigured: isAnnotation
             ? false
@@ -810,7 +903,7 @@ export function WorkflowPanoramaPage({ workflowId, viewToggle }: WorkflowPanoram
       includeCriticBadges: false,
       makeCriticName: (node) => node.critic_role_id ? renderRoleName(roleById.get(node.critic_role_id)) ?? node.critic_role_id : node.critic_role ? renderRoleName(undefined, node.critic_role) : node.critic_id ? getActorName(workerTypeToActorType(node.critic_type), node.critic_id) ?? undefined : undefined,
     }),
-    [stages, visibleNodes, agentLookup, pluginLookup, getActorName, openNodePanel, handleOpenConnectedNodePicker, roleById, renderRoleName, childWorkflows, t],
+    [stages, visibleNodes, agentLookup, pluginLookup, getActorName, getActorInitials, getActorAvatarUrl, presenceByAgent, actorTypeLabels, actorAvailabilityLabels, openNodePanel, handleOpenConnectedNodePicker, roleById, renderRoleName, childWorkflows, t],
   );
 
   const handleInlineEdgeDelete = useCallback(
