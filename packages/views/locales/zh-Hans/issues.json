@@ -27,8 +27,8 @@
     "all_description": "工作区内的全部 issue",
     "members_label": "成员",
     "members_description": "分配给成员的 issue",
-    "agents_label": "智能体",
-    "agents_description": "分配给智能体的 issue"
+    "agents_label": "数智人",
+    "agents_description": "分配给数智人的 issue"
   },
   "filters": {
     "tooltip": "筛选",
@@ -44,7 +44,7 @@
     "section_project": "项目",
     "section_label": "标签",
     "members_group": "成员",
-    "agents_group": "智能体",
+    "agents_group": "数智人",
     "squads_group": "小队",
     "issue_count_other": "{{count}} 个 issue",
     "active_count_other": "{{count}} 个筛选",
@@ -128,11 +128,11 @@
     "scope": {
       "assigned": {
         "label": "已分配",
-        "description": "分配给这个成员或智能体的 issue"
+        "description": "分配给这个成员或数智人的 issue"
       },
       "created": {
         "label": "已创建",
-        "description": "这个成员或智能体创建的 issue"
+        "description": "这个成员或数智人创建的 issue"
       }
     },
     "empty": {
@@ -235,7 +235,7 @@
     "no_subscribers_results": "未找到结果",
     "change_subscribers_placeholder": "更改订阅者...",
     "members_group": "成员",
-    "agents_group": "智能体",
+    "agents_group": "数智人",
     "mark_done_tooltip": "标记为已完成",
     "archive_tooltip": "归档",
     "pin_tooltip": "固定到侧边栏",
@@ -321,22 +321,22 @@
     "collapse_tooltip": "收起"
   },
   "agent_activity": {
-    "hover_header_other": "{{count}} 个智能体正在工作",
+    "hover_header_other": "{{count}} 个数智人正在工作",
     "status_running": "正在工作",
     "status_queued": "排队中",
     "chip_label": "工作中",
-    "empty_hover": "当前没有智能体在工作",
-    "filter_active_label": "正在查看工作中的智能体"
+    "empty_hover": "当前没有数智人在工作",
+    "filter_active_label": "正在查看工作中的数智人"
   },
   "agent_live": {
     "is_working": "{{name}} 正在处理",
     "is_queued": "{{name}} 排队中",
     "queued_elapsed_prefix": "已排队 {{elapsed}}",
-    "fallback_name": "智能体",
+    "fallback_name": "数智人",
     "tool_count_other": "{{count}} 次工具调用",
     "transcript_button": "查看记录",
     "stop_button": "停止",
-    "stop_tooltip": "停止智能体",
+    "stop_tooltip": "停止数智人",
     "cancel_failed": "取消 task 失败"
   },
   "execution_log": {
@@ -432,7 +432,7 @@
       "trigger_unassigned": "未分配",
       "search_placeholder": "分配给...",
       "members_group": "成员",
-      "agents_group": "智能体",
+      "agents_group": "数智人",
       "squads_group": "小队",
       "workflows_group": "工作流",
       "builtin_label": "内置",
@@ -541,7 +541,7 @@
       "child_workflow_skipped": "因前置 issue 失败而跳过",
       "actions": {
         "approve": "通过",
-        "reject": "打回",
+        "reject": "驳回",
         "submit_input": "提交",
         "handback": "交还",
         "retry": "重试",
@@ -589,7 +589,7 @@
       "section_child_progress": "子进度",
       "section_primary": "主要信息",
       "section_primary_desc": "处理人和诊断上下文。",
-      "section_agent_operations": "智能体操作",
+      "section_agent_operations": "数智人操作",
       "section_agent_operations_desc": "此节点运行的会话和恢复操作。",
       "section_runtime": "运行信息",
       "section_runtime_desc": "耗时、重试、错误和原始输出。",
@@ -601,6 +601,7 @@
       "not_configured": "未配置",
       "no_output": "暂无输出",
       "review_comment": "审核意见",
+      "review_comment_required": "请填写评审意见后再通过或驳回",
       "metadata": "元数据",
       "started_at": "开始时间",
       "completed_at": "完成时间",
@@ -640,12 +641,12 @@
     }
   },
   "backlog_hint": {
-    "title": "智能体在 backlog 状态下暂停",
-    "description": "这个 issue 处于待规划状态，被分配的智能体会等待。准备启动时把它移到 todo。",
+    "title": "数智人在 backlog 状态下暂停",
+    "description": "这个 issue 处于待规划状态，被分配的数智人会等待。准备启动时把它移到 todo。",
     "row_backlog_label": "Backlog",
-    "row_backlog_hint": "智能体保持暂停",
+    "row_backlog_hint": "数智人保持暂停",
     "row_todo_label": "Todo",
-    "row_todo_hint": "启动智能体",
+    "row_todo_hint": "启动数智人",
     "dont_show_again": "不再提示",
     "keep_in_backlog": "保持在 Backlog",
     "move_to_todo": "移到 Todo"

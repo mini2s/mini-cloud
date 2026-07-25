@@ -342,9 +342,9 @@ function MentionRow({
         {item.type === "all" ? t(($) => $.mention.all_members) : item.label}
       </span>
       {item.type === "agent" && (
-        // "Agent" is a glossary-protected product term — kept un-translated.
+        // "Digital Human" badge — entity-type indicator, same string in both locales.
         // eslint-disable-next-line i18next/no-literal-string
-        <Badge variant="outline" className="ml-auto text-[10px] h-4 px-1.5">Agent</Badge>
+        <Badge variant="outline" className="ml-auto text-[10px] h-4 px-1.5">Digital Human</Badge>
       )}
       {item.type === "squad" && (
         // "Squad" is a glossary-protected product term — kept un-translated.

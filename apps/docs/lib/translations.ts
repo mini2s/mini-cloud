@@ -29,13 +29,13 @@ export const localeLabels: Record<Lang, string> = {
 export const homeCopy = {
   en: {
     eyebrow: "Multica Docs",
-    titleLead: "Humans and agents,",
+    titleLead: "Humans and digital humans,",
     titleAccent: "in one place.",
     byline: ["Getting started", "Updated April 2026", "6 min read"],
   },
   zh: {
     eyebrow: "Multica 文档",
-    titleLead: "人与智能体，",
+    titleLead: "人与数智人，",
     titleAccent: "共处一方。",
     byline: ["开始使用", "2026 年 4 月更新", "阅读约 6 分钟"],
   },

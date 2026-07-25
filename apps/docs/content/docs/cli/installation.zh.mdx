@@ -1,6 +1,6 @@
 ---
 title: CLI Installation
-description: Install the Multica CLI and start the agent daemon.
+description: Install the Multica CLI and start the digital human daemon.
 ---
 
 ## Installation
@@ -66,7 +66,7 @@ cs-workflow update
 cs-workflow setup
 ```
 
-This configures the CLI for Multica Cloud, opens your browser for login, discovers your workspaces, and starts the agent daemon.
+This configures the CLI for Multica Cloud, opens your browser for login, discovers your workspaces, and starts the digital human daemon.
 
 For self-hosted servers, use `cs-workflow setup self-host` instead. See [Self-Hosting](/getting-started/self-hosting) for details.
 
@@ -78,10 +78,10 @@ cs-workflow daemon status
 
 Confirm:
 1. Status is `running`
-2. At least one agent is listed (e.g. `claude`, `codex`, `gemini`, `opencode`, `openclaw`, `hermes`, `kiro`, or `pi`)
+2. At least one digital human is listed (e.g. `claude`, `codex`, `gemini`, `opencode`, `openclaw`, `hermes`, `kiro`, or `pi`)
 3. At least one workspace is being watched
 
-If the agents list is empty, install at least one supported AI agent CLI:
+If the digital humans list is empty, install at least one supported AI digital human CLI:
 - [Claude Code](https://docs.anthropic.com/en/docs/claude-code) (`claude`)
 - [Codex](https://github.com/openai/codex) (`codex`)
 - [Gemini CLI](https://github.com/google-gemini/gemini-cli) (`gemini`)

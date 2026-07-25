@@ -1417,6 +1417,7 @@ const WorkflowNodeDeliverableSubmissionSchema = z.object({
 
 export const WorkflowNodeDeliverableSubmissionsResponseSchema = z.object({
   submissions: z.array(WorkflowNodeDeliverableSubmissionSchema).default([]),
+  deliverables: z.array(WorkflowNodeDeliverableSchema).default([]),
 }).loose();
 
-export const EMPTY_WORKFLOW_NODE_DELIVERABLE_SUBMISSIONS_RESPONSE = { submissions: [] };
+export const EMPTY_WORKFLOW_NODE_DELIVERABLE_SUBMISSIONS_RESPONSE = { submissions: [], deliverables: [] };

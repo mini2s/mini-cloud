@@ -5,7 +5,7 @@
     "start_blank": "从空白开始",
     "table": {
       "name": "名称",
-      "agent": "智能体",
+      "agent": "数智人",
       "mode": "模式",
       "status": "状态",
       "last_run": "上次运行"
@@ -13,7 +13,7 @@
     "last_run_empty": "--",
     "empty": {
       "title": "还没有自动化",
-      "hint": "为你的智能体安排周期性 task。从模板选一个，或从空白开始。"
+      "hint": "为你的数智人安排周期性 task。从模板选一个，或从空白开始。"
     }
   },
   "status": {
@@ -70,7 +70,7 @@
     "section_triggers": "触发器",
     "section_run_history": "运行历史",
     "section_danger": "危险操作",
-    "field_agent": "智能体",
+    "field_agent": "数智人",
     "field_output_mode": "输出模式",
     "field_project": "关联项目",
     "no_project": "不关联项目",
@@ -95,8 +95,7 @@
     "running": "运行中",
     "skipped": "已跳过",
     "completed": "已完成",
-    "failed": "失败",
-    "skipped": "已跳过"
+    "failed": "失败"
   },
   "run_source": {
     "schedule": "时间表",
@@ -224,8 +223,8 @@
     "close": "关闭",
     "title_placeholder": "自动化名称",
     "runbook_label": "Runbook",
-    "runbook_hint": "智能体每次运行时读取",
-    "description_placeholder": "# 目标\n你希望智能体完成什么？\n\n# 上下文\n这是给谁的？有什么约束？\n\n# 步骤\n1. ...\n2. ...",
+    "runbook_hint": "数智人每次运行时读取",
+    "description_placeholder": "# 目标\n你希望数智人完成什么？\n\n# 上下文\n这是给谁的？有什么约束？\n\n# 步骤\n1. ...\n2. ...",
     "auto_run_hint": "保存后会自动运行，直到暂停。",
     "cancel": "取消",
     "create": "创建自动化",
@@ -240,10 +239,10 @@
     "toast_update_partial": "自动化已更新，但时间表保存失败",
     "toast_update_partial_with_reason": "自动化已更新，但时间表保存失败：{{reason}}",
     "toast_update_failed": "更新自动化失败",
-    "section_agent": "智能体",
+    "section_agent": "数智人",
     "section_assignee": "执行方",
-    "select_agent": "选择智能体",
-    "select_assignee": "选择智能体或小队",
+    "select_agent": "选择数智人",
+    "select_assignee": "选择数智人或小队",
     "section_project": "关联项目",
     "no_project": "不关联项目",
     "section_output_mode": "输出模式",
@@ -333,10 +332,10 @@
     }
   },
   "agent_picker": {
-    "filter_placeholder": "筛选智能体或小队...",
-    "select_agent": "选择智能体",
-    "select_assignee": "选择智能体或小队",
-    "agents_group": "智能体",
+    "filter_placeholder": "筛选数智人或小队...",
+    "select_agent": "选择数智人",
+    "select_assignee": "选择数智人或小队",
+    "agents_group": "数智人",
     "squads_group": "小队"
   },
   "timezone_picker": {

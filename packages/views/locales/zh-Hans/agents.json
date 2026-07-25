@@ -1,14 +1,14 @@
 {
   "page": {
-    "title": "智能体",
+    "title": "数智人",
     "tagline": "能领取 issue、留下评论、推进状态的 AI 队友。",
     "learn_more": "了解更多 →",
-    "new_agent": "新建智能体",
-    "search_placeholder": "搜索智能体...",
+    "new_agent": "新建数智人",
+    "search_placeholder": "搜索数智人...",
     "show_archived": "显示已归档（{{count}}）→",
     "of_total": "{{visible}} / {{total}}",
-    "list_load_failed": "无法加载智能体列表",
-    "list_load_failed_default": "获取智能体列表时出错。",
+    "list_load_failed": "无法加载数智人列表",
+    "list_load_failed_default": "获取数智人列表时出错。",
     "try_again": "重试"
   },
   "scope": {
@@ -33,23 +33,23 @@
     "idle": "空闲"
   },
   "archived": {
-    "active_link": "活跃智能体",
-    "title": "已归档智能体"
+    "active_link": "活跃数智人",
+    "title": "已归档数智人"
   },
   "empty": {
-    "title": "还没有智能体",
-    "description": "创建一个智能体，像分配给同事那样把 issue 交给它。本地智能体在你的机器上运行，云智能体在 Multica 运行时上运行。"
+    "title": "还没有数智人",
+    "description": "创建一个数智人，像分配给同事那样把 issue 交给它。本地数智人在你的机器上运行，云数智人在 Multica 运行时上运行。"
   },
   "no_matches": {
     "title": "无匹配项",
-    "search_archived": "没有已归档智能体匹配\"{{query}}\"。",
-    "no_archived": "还没有已归档智能体。",
-    "search_active": "没有智能体匹配\"{{query}}\"。",
-    "search_active_filtered": "在该筛选下没有智能体匹配\"{{query}}\"。",
-    "no_filter_match": "该筛选下没有匹配的智能体。"
+    "search_archived": "没有已归档数智人匹配\"{{query}}\"。",
+    "no_archived": "还没有已归档数智人。",
+    "search_active": "没有数智人匹配\"{{query}}\"。",
+    "search_active_filtered": "在该筛选下没有数智人匹配\"{{query}}\"。",
+    "no_filter_match": "该筛选下没有匹配的数智人。"
   },
   "columns": {
-    "agent": "智能体",
+    "agent": "数智人",
     "status": "状态",
     "workload": "工作负载",
     "runtime": "运行时",
@@ -77,10 +77,10 @@
     "duplicate": "复制",
     "restore": "恢复",
     "archive": "归档",
-    "agent_archived_toast": "已归档智能体",
-    "archive_failed_toast": "归档智能体失败",
-    "agent_restored_toast": "已恢复智能体",
-    "restore_failed_toast": "恢复智能体失败",
+    "agent_archived_toast": "已归档数智人",
+    "archive_failed_toast": "归档数智人失败",
+    "agent_restored_toast": "已恢复数智人",
+    "restore_failed_toast": "恢复数智人失败",
     "no_tasks_to_cancel_toast": "没有要取消的活动 task",
     "cancelled_tasks_toast_other": "已取消 {{count}} 个 task",
     "cancel_failed_toast": "取消 task 失败",
@@ -94,31 +94,31 @@
     "cancel_dialog_keep": "保留",
     "cancel_dialog_confirm": "取消全部 task",
     "archive_dialog_title": "归档\"{{name}}\"？",
-    "archive_dialog_description": "归档后这个智能体将无法被分配或提及，进行中的 task 会被取消。所有历史会被保留，可以稍后恢复。",
+    "archive_dialog_description": "归档后这个数智人将无法被分配或提及，进行中的 task 会被取消。所有历史会被保留，可以稍后恢复。",
     "archive_dialog_cancel": "取消",
     "archive_dialog_confirm": "归档"
   },
   "detail": {
-    "back_to_agents": "智能体",
-    "back_to_agents_full": "返回智能体列表",
-    "not_found_title": "未找到该智能体",
-    "not_found_default": "该智能体可能已被归档或删除。",
-    "no_access_title": "你没有访问该智能体的权限",
-    "no_access_hint": "只有该私密智能体的拥有者或工作区管理员可以查看。",
+    "back_to_agents": "数智人",
+    "back_to_agents_full": "返回数智人列表",
+    "not_found_title": "未找到该数智人",
+    "not_found_default": "该数智人可能已被归档或删除。",
+    "no_access_title": "你没有访问该数智人的权限",
+    "no_access_hint": "只有该私密数智人的拥有者或工作区管理员可以查看。",
     "try_again": "重试",
-    "archived_banner": "该智能体已归档，无法被分配或提及。",
+    "archived_banner": "该数智人已归档，无法被分配或提及。",
     "restore": "恢复",
-    "archive_dialog_title": "归档智能体？",
+    "archive_dialog_title": "归档数智人？",
     "archive_dialog_description": "\"{{name}}\"将被归档，无法被分配或提及，但所有历史会被保留。可以稍后恢复。",
     "archive_dialog_cancel": "取消",
     "archive_dialog_confirm": "归档",
-    "more_archive": "归档智能体",
-    "agent_updated_toast": "已更新智能体",
-    "update_failed_toast": "更新智能体失败",
-    "agent_archived_toast": "已归档智能体",
-    "archive_failed_toast": "归档智能体失败",
-    "agent_restored_toast": "已恢复智能体",
-    "restore_failed_toast": "恢复智能体失败"
+    "more_archive": "归档数智人",
+    "agent_updated_toast": "已更新数智人",
+    "update_failed_toast": "更新数智人失败",
+    "agent_archived_toast": "已归档数智人",
+    "archive_failed_toast": "归档数智人失败",
+    "agent_restored_toast": "已恢复数智人",
+    "restore_failed_toast": "恢复数智人失败"
   },
   "inspector": {
     "section_properties": "属性",
@@ -146,11 +146,11 @@
     "change_avatar_aria": "更换头像",
     "avatar_updated_toast": "已更新头像",
     "avatar_upload_failed_toast": "头像上传失败",
-    "rename_title": "重命名智能体",
-    "rename_placeholder": "智能体名称",
+    "rename_title": "重命名数智人",
+    "rename_placeholder": "数智人名称",
     "rename_required": "名称必填",
     "edit_description_title": "编辑描述",
-    "description_placeholder": "这个智能体做什么？",
+    "description_placeholder": "这个数智人做什么？",
     "save": "保存",
     "cancel": "取消"
   },
@@ -219,14 +219,14 @@
     "discard_confirm": "放弃修改"
   },
   "create_dialog": {
-    "title_create": "创建智能体",
-    "title_duplicate": "复制智能体",
-    "description_create": "为工作区创建一个新的 AI 智能体。",
-    "description_duplicate": "基于\"{{name}}\"创建一个新智能体。指令、环境变量和 skill 会一并复制。",
+    "title_create": "创建数智人",
+    "title_duplicate": "复制数智人",
+    "description_create": "为工作区创建一个新的 AI 数智人。",
+    "description_duplicate": "基于\"{{name}}\"创建一个新数智人。指令、环境变量和 skill 会一并复制。",
     "name_label": "名称",
-    "name_placeholder": "例如：深度研究智能体",
+    "name_placeholder": "例如：深度研究数智人",
     "description_label": "描述",
-    "description_placeholder": "这个智能体做什么？",
+    "description_placeholder": "这个数智人做什么？",
     "visibility_label": "可见性",
     "runtime_label": "运行时",
     "runtime_filter_mine": "我的",
@@ -235,20 +235,20 @@
     "runtime_none": "暂无可用运行时",
     "runtime_cloud_badge": "云端",
     "runtime_private_badge": "私有",
-    "runtime_private_locked_tooltip": "私有运行时——只有 runtime 所有者或工作区管理员可在其上创建智能体。如果需要共享，请联系所有者切换为「公开」。",
+    "runtime_private_locked_tooltip": "私有运行时——只有 runtime 所有者或工作区管理员可在其上创建数智人。如果需要共享，请联系所有者切换为「公开」。",
     "duplicate_copy_suffix": "（副本）",
     "create": "创建",
     "creating": "创建中...",
     "cancel": "取消",
-    "create_failed_toast": "创建智能体失败",
-    "skill_attach_failed_toast": "智能体已创建，但 skill 关联失败：{{error}}",
-    "squad_join_failed_toast": "智能体「{{name}}」已创建，但加入小队失败：{{error}}。你可以在 Members 标签里手动添加。",
+    "create_failed_toast": "创建数智人失败",
+    "skill_attach_failed_toast": "数智人已创建，但 skill 关联失败：{{error}}",
+    "squad_join_failed_toast": "数智人「{{name}}」已创建，但加入小队失败：{{error}}。你可以在 Members 标签里手动添加。",
     "instructions": {
       "label": "指令",
       "placeholder_blank": "点击撰写指令…",
       "placeholder_duplicate": "点击查看或编辑复制的指令",
       "collapse": "收起",
-      "editor_placeholder": "写下这个智能体该做什么、关注什么、要避开什么…"
+      "editor_placeholder": "写下这个数智人该做什么、关注什么、要避开什么…"
     },
     "skills_section": {
       "label": "Skill",
@@ -282,13 +282,13 @@
       "unsaved_changes": "未保存的修改"
     },
     "instructions": {
-      "intro": "定义这个智能体的身份和工作风格。会注入到每个 task 的上下文。支持 Markdown。",
-      "placeholder": "定义这个智能体的角色、专长和工作风格。\n\n# 示例\n你是一名专注 React 和 TypeScript 的前端工程师。\n\n## 工作风格\n- 写小而聚焦的 PR —— 每个逻辑变更一个 commit\n- 优先组合而不是继承\n- 新组件总是配单元测试\n\n## 约束\n- 未经明确批准不要修改 shared/ 下的 type\n- 遵循 features/ 中现有的组件模式"
+      "intro": "定义这个数智人的身份和工作风格。会注入到每个 task 的上下文。支持 Markdown。",
+      "placeholder": "定义这个数智人的角色、专长和工作风格。\n\n# 示例\n你是一名专注 React 和 TypeScript 的前端工程师。\n\n## 工作风格\n- 写小而聚焦的 PR —— 每个逻辑变更一个 commit\n- 优先组合而不是继承\n- 新组件总是配单元测试\n\n## 约束\n- 未经明确批准不要修改 shared/ 下的 type\n- 遵循 features/ 中现有的组件模式"
     },
     "env": {
-      "intro_readonly": "在智能体进程启动时注入。值已隐藏 —— 只有智能体所有者或工作区管理员可以查看和编辑。",
+      "intro_readonly": "在数智人进程启动时注入。值已隐藏 —— 只有数智人所有者或工作区管理员可以查看和编辑。",
       "empty_readonly": "尚未配置环境变量。",
-      "intro_prefix": "在智能体进程启动时注入（例如 ",
+      "intro_prefix": "在数智人进程启动时注入（例如 ",
       "intro_separator": "、",
       "intro_suffix": "）。",
       "key_placeholder": "KEY",
@@ -301,7 +301,7 @@
       "save_failed_toast": "保存环境变量失败"
     },
     "custom_args": {
-      "intro": "在智能体命令启动时追加的额外 CLI 参数。多 token 的参数可以共用一行 —— 在传给 CLI 前会按空白拆分。",
+      "intro": "在数智人命令启动时追加的额外 CLI 参数。多 token 的参数可以共用一行 —— 在传给 CLI 前会按空白拆分。",
       "launch_mode_prefix": "启动方式： ",
       "launch_mode_args_placeholder": "<你的参数>",
       "input_placeholder": "--flag 值",
@@ -310,18 +310,18 @@
       "save_failed_toast": "保存自定义参数失败"
     },
     "skills": {
-      "intro": "分配给该智能体的工作区 skill。本地运行时 skill 会自动可用。",
+      "intro": "分配给该数智人的工作区 skill。本地运行时 skill 会自动可用。",
       "add_action": "添加 skill",
       "import_hint": "导入会在工作区创建一份副本，团队可以编辑和复用。",
       "empty_title": "尚未分配 skill",
-      "empty_hint": "添加工作区 skill，把团队知识共享给这个智能体。",
+      "empty_hint": "添加工作区 skill，把团队知识共享给这个数智人。",
       "remove_failed_toast": "移除 skill 失败",
       "add_dialog_title": "添加 skill",
-      "add_dialog_description": "选择一个工作区 skill 分配给该智能体。",
+      "add_dialog_description": "选择一个工作区 skill 分配给该数智人。",
       "add_dialog_search_placeholder": "搜索 skill",
       "add_dialog_empty": "全部工作区 skill 都已分配。",
       "add_dialog_no_match": "没有匹配的 skill。",
-      "add_dialog_empty_partial": "已无可添加的 skill —— 全部都已分配给该智能体。",
+      "add_dialog_empty_partial": "已无可添加的 skill —— 全部都已分配给该数智人。",
       "add_dialog_saving": "添加中…",
       "add_dialog_confirm_default": "添加",
       "add_dialog_confirm_other": "添加 {{count}} 个 skill",
@@ -330,12 +330,12 @@
     },
     "plugin": {
       "section_title": "Plugin",
-      "intro": "从插件市场为智能体分配一个内置插件。插件会为该智能体扩展额外的能力。",
+      "intro": "从插件市场为数智人分配一个内置插件。插件会为该数智人扩展额外的能力。",
       "info_hint": "插件由社区维护。安装前请查看插件说明。",
       "change_action": "切换",
       "select_action": "选择插件",
       "empty_title": "未选择插件",
-      "empty_hint": "从市场中选择一个插件来扩展该智能体的能力。",
+      "empty_hint": "从市场中选择一个插件来扩展该数智人的能力。",
       "picker": {
         "search_placeholder": "搜索插件",
         "loading": "正在加载插件…",
@@ -346,14 +346,14 @@
       },
       "cloud_skills": {
         "section_title": "Skills",
-        "intro": "绑定到该智能体的 skill，不会导入到工作区中。",
+        "intro": "绑定到该数智人的 skill，不会导入到工作区中。",
         "add_action": "添加 skill",
         "search_placeholder": "搜索 skill",
         "picker_loading": "搜索中…",
         "picker_empty": "暂无可用的 skill",
         "picker_no_match": "没有匹配的 skill",
         "empty_title": "未选择 skill",
-        "empty_hint": "从知识中心添加 skill 以扩展该智能体。",
+        "empty_hint": "从知识中心添加 skill 以扩展该数智人。",
         "load_error": "加载 skill 失败",
         "retry_action": "重试",
         "remove_label": "移除 {{name}}",
@@ -371,9 +371,9 @@
       "subtitle_no_recent": "还没有完成的 task",
       "subtitle_recent_progress": "{{shown}} / {{total}}",
       "subtitle_recent_latest": "最近 {{count}} 条",
-      "empty_now": "这个智能体当前没有在跑任何 task。",
+      "empty_now": "这个数智人当前没有在跑任何 task。",
       "empty_30d": "近 30 天没有任何完成记录。",
-      "empty_recent": "这个智能体还没有完成过任何 task。",
+      "empty_recent": "这个数智人还没有完成过任何 task。",
       "show_more": "查看更多 →",
       "runs_other": "次运行",
       "success_pct": "{{percent}}% 成功",
@@ -410,15 +410,15 @@
   "visibility": {
     "private": {
       "label": "个人",
-      "tooltip": "个人 · 仅你和工作区管理员可以使用该智能体"
+      "tooltip": "个人 · 仅你和工作区管理员可以使用该数智人"
     },
     "workspace": {
       "label": "工作区",
-      "tooltip": "工作区 · 工作区内所有人都可以使用该智能体"
+      "tooltip": "工作区 · 工作区内所有人都可以使用该数智人"
     }
   },
   "profile_card": {
-    "unavailable": "智能体不可用",
+    "unavailable": "数智人不可用",
     "detail_link": "详情 →",
     "runtime_label": "运行时",
     "skills_label": "skill",
@@ -433,7 +433,7 @@
     "failed_indicator": "失败"
   },
   "transcript": {
-    "dialog_title": "智能体执行记录",
+    "dialog_title": "数智人执行记录",
     "status_running": "进行中",
     "status_completed": "已完成",
     "status_failed": "失败",
@@ -452,7 +452,7 @@
     "sort_newest_first": "最新在前"
   },
   "task_failure": {
-    "agent_error": "智能体执行出错",
+    "agent_error": "数智人执行出错",
     "timeout": "task 超时",
     "runtime_offline": "守护进程离线",
     "runtime_recovery": "守护进程已重启",

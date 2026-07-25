@@ -11,6 +11,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/multica-ai/multica/server/internal/coderepo"
 	"github.com/multica-ai/multica/server/internal/events"
 	"github.com/multica-ai/multica/server/internal/gitea"
 	"github.com/multica-ai/multica/server/internal/teamnamespace"
@@ -31,6 +32,10 @@ type WorkflowService struct {
 	RoleResolutionPromptVersion      string
 	RoleResolutionWorkspaceAllowlist map[string]struct{}
 	RoleResolutionMaxActiveJobs      int64
+
+	// RepositoryProvider is the provider-neutral surface for deliverable
+	// repository file, branch, review-request, and merge operations.
+	RepositoryProvider coderepo.RepositoryProvider
 
 	// Gitea is the platform Gitea admin client, used (in M2 Tasks 4-5) for
 	// run-start scaffolding and approve-time PR merging of document deliverables.
@@ -694,8 +699,14 @@ func (s *WorkflowService) StartDefaultRunForIssue(ctx context.Context, issue db.
 
 	// Dispatch the root node-run. dispatchWorker reads the node-run's (now
 	// overridden) worker type: agent/squad → agent task; human (member) →
-	// worker_assigned, awaits UI upload. Errors are logged inside, not returned.
-	s.DispatchRootNodeRuns(ctx, run.ID)
+	// worker_assigned, awaits UI upload. Dispatch is best-effort — the run is
+	// already created, so a failure here must be logged, not silently dropped,
+	// or the node-run sits at format_ok looking "in progress" with no task and
+	// no clue why (e.g. the agent has no runtime bound).
+	if err := s.DispatchRootNodeRuns(ctx, run.ID); err != nil {
+		slog.Warn("dispatch default run root nodes",
+			"run_id", util.UUIDToString(run.ID), "error", err)
+	}
 
 	// Scaffold Gitea for the run (dormant no-op when unconfigured).
 	go s.ScaffoldRunDeliverables(context.Background(), *run)
@@ -1480,12 +1491,12 @@ func (s *WorkflowService) ReviewNodeRun(ctx context.Context, nodeRunID pgtype.UU
 	if approved && nodeRun.Status == NodeRunStatusCriticApproved {
 		finalStatus := NodeRunStatusCompleted
 		if s.Gitea != nil && s.Gitea.Configured() {
-			if err := s.mergeDocumentDeliverables(ctx, nodeRun); err != nil {
-				slog.Error("gitea merge document deliverables failed; blocking node run",
+			if err := s.mergeDeliverablePRs(ctx, nodeRun); err != nil {
+				slog.Error("gitea merge deliverable PRs failed; blocking node run",
 					"node_run_id", util.UUIDToString(nodeRun.ID), "error", err)
 				finalStatus = NodeRunStatusBlocked
 			} else {
-				s.markDocumentSubmissionsApproved(ctx, nodeRun)
+				s.markDeliverableSubmissionsApproved(ctx, nodeRun)
 			}
 		}
 		updated, err := s.Queries.UpdateWorkflowNodeRunStatus(ctx, db.UpdateWorkflowNodeRunStatusParams{
@@ -2172,6 +2183,9 @@ func (s *WorkflowService) createSystemComment(ctx context.Context, issueID pgtyp
 // ── WS event helpers ─────────────────────────────────────────────────────────
 
 func (s *WorkflowService) publishWorkflowEvent(eventType, workspaceID string, payload any) {
+	if s.Bus == nil {
+		return // best-effort: no event bus wired (e.g. service constructed in tests) — skip, don't crash.
+	}
 	s.Bus.Publish(events.Event{
 		Type:        eventType,
 		WorkspaceID: workspaceID,

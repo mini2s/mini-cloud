@@ -174,3 +174,104 @@ func sanitizePathSeg(s string) string {
 	}
 	return res
 }
+
+// TopoNode is the minimal node identity needed to compute a topological order.
+type TopoNode struct {
+	ID        string
+	SortOrder int32 // tiebreaker only
+	Title     string
+}
+
+// TopoEdge is a directed edge From → To.
+type TopoEdge struct{ From, To string }
+
+// NodeTopoOrder returns each node's 1-based position in a stable topological
+// order of the DAG (Kahn's algorithm). Among nodes that are simultaneously
+// ready (in-degree zero), the one with the smallest (sort_order, title, ID) is
+// emitted first, so the order is deterministic across runs/restarts and does
+// not depend on the input slice order.
+//
+// The result drives the readable <NN> prefix in deliverable repo paths (see
+// NodeBranch/NodeDir/DeliverablePath), so the first node is 01 (not 00) and
+// nodes sort in execution order even when sort_order was not explicitly set.
+// Every node in `nodes` receives a position; nodes locked by a cycle
+// (ValidateDAG should prevent these) get the trailing positions in tiebreak
+// order.
+func NodeTopoOrder(nodes []TopoNode, edges []TopoEdge) map[string]int {
+	byID := make(map[string]TopoNode, len(nodes))
+	inDegree := make(map[string]int, len(nodes))
+	adj := make(map[string][]string)
+	for _, n := range nodes {
+		byID[n.ID] = n
+		inDegree[n.ID] = 0
+	}
+	for _, e := range edges {
+		if _, ok := byID[e.From]; !ok {
+			continue
+		}
+		if _, ok := byID[e.To]; !ok {
+			continue
+		}
+		adj[e.From] = append(adj[e.From], e.To)
+		inDegree[e.To]++
+	}
+
+	order := make(map[string]int, len(nodes))
+	emitted := make(map[string]bool, len(nodes))
+	for pos := 0; pos < len(nodes); pos++ {
+		pick := readyMin(nodes, byID, emitted, inDegree)
+		if pick == "" {
+			// No in-degree-zero node remains (cycle). Fall back to tiebreak
+			// order for the remaining nodes so the map stays complete.
+			pick = leftoverMin(nodes, byID, emitted)
+			if pick == "" {
+				break
+			}
+		}
+		order[pick] = pos + 1 // 1-based: first node is 01
+		emitted[pick] = true
+		for _, v := range adj[pick] {
+			inDegree[v]--
+		}
+	}
+	return order
+}
+
+// readyMin returns the smallest (by tiebreak) in-degree-zero, unemitted node.
+func readyMin(nodes []TopoNode, byID map[string]TopoNode, emitted map[string]bool, inDegree map[string]int) string {
+	var pick string
+	for _, n := range nodes {
+		if emitted[n.ID] || inDegree[n.ID] != 0 {
+			continue
+		}
+		if pick == "" || lessTopo(n, byID[pick]) {
+			pick = n.ID
+		}
+	}
+	return pick
+}
+
+// leftoverMin returns the smallest unemitted node (cycle fallback).
+func leftoverMin(nodes []TopoNode, byID map[string]TopoNode, emitted map[string]bool) string {
+	var pick string
+	for _, n := range nodes {
+		if emitted[n.ID] {
+			continue
+		}
+		if pick == "" || lessTopo(n, byID[pick]) {
+			pick = n.ID
+		}
+	}
+	return pick
+}
+
+// lessTopo is the stable tiebreak: sort_order, then title, then ID.
+func lessTopo(a, b TopoNode) bool {
+	if a.SortOrder != b.SortOrder {
+		return a.SortOrder < b.SortOrder
+	}
+	if a.Title != b.Title {
+		return a.Title < b.Title
+	}
+	return a.ID < b.ID
+}

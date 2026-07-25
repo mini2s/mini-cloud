@@ -1,7 +1,7 @@
 {
   "page": {
     "title": "运行时",
-    "tagline": "为智能体跑 CLI 会话的机器和云端 worker。",
+    "tagline": "为数智人跑 CLI 会话的机器和云端 worker。",
     "learn_more": "了解更多 →",
     "connect_remote": "添加电脑",
     "search_placeholder": "搜索运行时...",
@@ -91,8 +91,8 @@
     "fact_daemon_cli": "守护进程 CLI",
     "fact_daemon_id": "守护进程 ID",
     "serving_title": "服务中",
-    "serving_count_other": "{{count}} 个智能体",
-    "no_agents": "还没有智能体绑定到这个运行时。",
+    "serving_count_other": "{{count}} 个数智人",
+    "no_agents": "还没有数智人绑定到这个运行时。",
     "diagnostics_title": "诊断",
     "diagnostics_cli": "CLI",
     "diagnostics_visibility": "可见性",
@@ -129,8 +129,8 @@
       "public": "公开"
     },
     "visibility_hint": {
-      "private": "仅你和工作区管理员可以在此运行时上创建智能体。",
-      "public": "工作区内任何成员都可以在此运行时上创建智能体。"
+      "private": "仅你和工作区管理员可以在此运行时上创建数智人。",
+      "public": "工作区内任何成员都可以在此运行时上创建数智人。"
     },
     "visibility_toast_updated": "可见性已设为「{{visibility}}」",
     "visibility_toast_failed": "更新可见性失败",
@@ -143,7 +143,7 @@
     },
     "toast_deleted": "已删除运行时",
     "toast_delete_failed": "删除运行时失败",
-    "runtime_has_active_agents": "该运行时仍绑定活跃智能体，请先归档智能体或将其分配到其他运行时。",
+    "runtime_has_active_agents": "该运行时仍绑定活跃数智人，请先归档数智人或将其分配到其他运行时。",
     "running_chip_other": "· {{count}} 个进行中",
     "queued_chip_other": "· {{count}} 个排队中"
   },
@@ -171,9 +171,9 @@
     "copy_aria": "复制",
     "cancel": "取消",
     "success_title": "电脑已连接",
-    "success_description": "电脑已经上线就绪。创建一个智能体，task 就可以派发到这里运行。",
+    "success_description": "电脑已经上线就绪。创建一个数智人，task 就可以派发到这里运行。",
     "view_runtime": "查看运行时",
-    "create_agent": "创建智能体"
+    "create_agent": "创建数智人"
   },
   "cloud_runtime": {
     "action": "Cloud Runtime",
@@ -243,7 +243,7 @@
     "col_runtime": "运行时",
     "col_health": "健康度",
     "col_owner": "所有者",
-    "col_agents": "智能体",
+    "col_agents": "数智人",
     "col_workload": "工作负载",
     "col_cost": "费用 · 7 天",
     "col_cli": "CLI",
@@ -296,11 +296,11 @@
       "cancel": "取消",
       "save": "保存"
     },
-    "cost_by_title_agent": "按智能体分摊",
+    "cost_by_title_agent": "按数智人分摊",
     "cost_by_title_model": "按模型分摊",
-    "cost_by_tab_agent": "按智能体",
+    "cost_by_tab_agent": "按数智人",
     "cost_by_tab_model": "按模型",
-    "cost_by_caption_agent_other": "{{count}} 个智能体使用此运行时",
+    "cost_by_caption_agent_other": "{{count}} 个数智人使用此运行时",
     "cost_by_caption_model_other": "{{count}} 个模型已使用",
     "daily_breakdown_toggle": "每日明细表",
     "table_date": "日期",

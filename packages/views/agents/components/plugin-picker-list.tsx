@@ -51,7 +51,8 @@ export function PluginPickerList({
   const [localQuery, setLocalQuery] = useState("");
   const query = searchQuery ?? localQuery;
   const normalizedQuery = query.trim().toLocaleLowerCase();
-  const filteredBuiltinPlugins = normalizedQuery
+  const usesServerSearch = searchQuery !== undefined && !!onSearchChange;
+  const filteredBuiltinPlugins = normalizedQuery && !usesServerSearch
     ? plugins.filter((plugin) =>
         [plugin.name, plugin.description, plugin.slug, plugin.category].some(
           (value) => value.toLocaleLowerCase().includes(normalizedQuery),

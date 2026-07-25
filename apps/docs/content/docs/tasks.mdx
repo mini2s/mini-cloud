@@ -1,12 +1,12 @@
 ---
 title: Tasks
-description: The unit of work for every agent run, with a clear state machine, timeouts, and retry rules.
+description: The unit of work for every digital human run, with a clear state machine, timeouts, and retry rules.
 ---
 
 import { Callout } from "fumadocs-ui/components/callout";
 import { Mermaid } from "@/components/mermaid";
 
-A **task** is the unit of every [agent](/agents) run — [assigning an issue to an agent](/assigning-issues), [@-mentioning an agent in a comment](/mentioning-agents), sending a message in [chat](/chat), or an [Autopilot](/autopilots) firing on schedule all produce a task. Multica puts it in a queue; a [daemon](/daemon-runtimes) picks it up and hands it off to the corresponding [AI coding tool](/providers), then writes the result back to the server when it finishes.
+A **task** is the unit of every [digital human](/agents) run — [assigning an issue to a digital human](/assigning-issues), [@-mentioning a digital human in a comment](/mentioning-agents), sending a message in [chat](/chat), or an [Autopilot](/autopilots) firing on schedule all produce a task. Multica puts it in a queue; a [daemon](/daemon-runtimes) picks it up and hands it off to the corresponding [AI coding tool](/providers), then writes the result back to the server when it finishes.
 
 Tasks and [issues](/issues) are two different objects. A single issue can be assigned, @-mentioned, and manually rerun many times — each produces a **new** task.
 
@@ -15,7 +15,7 @@ Tasks and [issues](/issues) are two different objects. A single issue can be ass
 <Mermaid chart={`
 graph LR
     Q["Queued<br/>queued"] -->|daemon picks up| D["Dispatched<br/>dispatched"]
-    D -->|agent starts| R["Running<br/>running"]
+    D -->|digital human starts| R["Running<br/>running"]
     R -->|success| C["Completed<br/>completed"]
     R -->|error or timeout| F["Failed<br/>failed"]
     Q -->|user cancels| X["Cancelled<br/>cancelled"]
@@ -77,11 +77,11 @@ cs-workflow issue rerun <issue-id>
 
 Behavior:
 
-- By default, targets the issue's **current agent assignee** — useful when you want the rerun to follow the current assignment regardless of who ran the prior task.
-- The execution-log retry button on a specific row sends that row's task ID alongside, so the rerun targets **the agent that ran that exact task** — not the current assignee. This makes per-row retry meaningful for squad workers, parallel @-mention agents, or rows whose agent has since been displaced by a reassignment.
-- **Cancels** the target agent's queued or running task on this issue (if any). Tasks owned by other agents on the same issue (e.g. parallel @-mention runs) are left alone.
+- By default, targets the issue's **current digital human assignee** — useful when you want the rerun to follow the current assignment regardless of who ran the prior task.
+- The execution-log retry button on a specific row sends that row's task ID alongside, so the rerun targets **the digital human that ran that exact task** — not the current assignee. This makes per-row retry meaningful for squad workers, parallel @-mention digital humans, or rows whose digital human has since been displaced by a reassignment.
+- **Cancels** the target digital human's queued or running task on this issue (if any). Tasks owned by other digital humans on the same issue (e.g. parallel @-mention runs) are left alone.
 - Creates a **brand-new** task — attempt count resets to 1, even if the original task hit the attempt ceiling.
-- Starts a **fresh agent session** — the prior session ID is **not** inherited. A manual rerun means you've judged the previous output bad, so resuming the same conversation would replay the same poisoned state. (Automatic retry, by contrast, does inherit the session — that path is for infrastructure failures, not bad output.)
+- Starts a **fresh digital human session** — the prior session ID is **not** inherited. A manual rerun means you've judged the previous output bad, so resuming the same conversation would replay the same poisoned state. (Automatic retry, by contrast, does inherit the session — that path is for infrastructure failures, not bad output.)
 
 Comparison:
 
@@ -89,19 +89,19 @@ Comparison:
 |---|---|---|
 | Trigger | System, based on failure reason | You, manually |
 | Ceiling | 2 attempts | No limit |
-| Applicable sources | Issues, chat | Issues with an agent assignee |
-| Agent picked | Same agent as the failed task | Source task's agent (UI per-row retry) or issue's current assignee (CLI / no task_id) |
+| Applicable sources | Issues, chat | Issues with a digital human assignee |
+| Digital Human picked | Same digital human as the failed task | Source task's digital human (UI per-row retry) or issue's current assignee (CLI / no task_id) |
 | Session inheritance | Yes (resumes prior session) | No (fresh session) |
 
 ## How a failed task affects issue status
 
-If an issue-triggered task fails (and no automatic retry succeeds) because the issue was assigned to an agent, **the issue's status automatically rolls back from `in_progress` to `todo`** — so when you open the board you immediately see "this one needs another look." See [Issues and projects](/issues).
+If an issue-triggered task fails (and no automatic retry succeeds) because the issue was assigned to a digital human, **the issue's status automatically rolls back from `in_progress` to `todo`** — so when you open the board you immediately see "this one needs another look." See [Issues and projects](/issues).
 
 ## Can a task continue from the previous context
 
 Yes — as long as the AI coding tool supports session resumption.
 
-Multica pins the session ID **twice** during a task: once at the start (when the AI tool returns its first system message), and once at the end (on completion or failure). The first lets the daemon recover if it crashes mid-run; the second is reserved for the next **automatic retry**, where that ID is passed back so the agent can pick up the previous conversation and file state. **Manual rerun deliberately skips this** and starts a fresh session — see [Manual rerun vs. automatic retry](#manual-rerun-vs-automatic-retry).
+Multica pins the session ID **twice** during a task: once at the start (when the AI tool returns its first system message), and once at the end (on completion or failure). The first lets the daemon recover if it crashes mid-run; the second is reserved for the next **automatic retry**, where that ID is passed back so the digital human can pick up the previous conversation and file state. **Manual rerun deliberately skips this** and starts a fresh session — see [Manual rerun vs. automatic retry](#manual-rerun-vs-automatic-retry).
 
 But **which AI coding tools actually support this** varies a lot:
 
@@ -114,4 +114,4 @@ See [Providers Matrix → Session resumption](/providers#session-resumption-who-
 ## Next
 
 - [Providers Matrix](/providers) — capability differences across the 11 AI coding tools (including the exact session-resumption status)
-- [Assigning issues to agents](/assigning-issues) / [@-mentioning agents in comments](/mentioning-agents) / [Chat](/chat) / [Autopilots](/autopilots) — the four ways to trigger a task
+- [Assigning issues to digital humans](/assigning-issues) / [@-mentioning digital humans in comments](/mentioning-agents) / [Chat](/chat) / [Autopilots](/autopilots) — the four ways to trigger a task

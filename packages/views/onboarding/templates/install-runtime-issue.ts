@@ -1,5 +1,5 @@
 /**
- * Skip path, issue 1/2: "Connect a runtime to start using agents".
+ * Skip path, issue 1/2: "Connect a runtime to start using digital humans".
  *
  * Written to a new issue (assigned to the user themselves) by the welcome
  * hook when the user took the Skip exit on Step 3. Content is the
@@ -21,13 +21,13 @@
  * the v3 frontend population, so the two title-spaces drifting is fine.
  */
 export const INSTALL_RUNTIME_ISSUE_TITLE = {
-  en: "Step 1 — Connect a runtime to start using agents",
-  zh: "第 1 步 —— 连接运行时,开始使用 agent",
+  en: "Step 1 — Connect a runtime to start using digital humans",
+  zh: "第 1 步 —— 连接运行时,开始使用数智人",
 } as const;
 
 const en = `Welcome to Multica.
 
-Agents need a runtime before they can execute work. You can still use Multica as a lightweight project-management workspace while you install one.
+Digital Humans need a runtime before they can execute work. You can still use Multica as a lightweight project-management workspace while you install one.
 
 ## Try Multica first
 
@@ -38,9 +38,9 @@ Before the runtime is ready, you can:
 3. Add priorities, labels, comments, and subscriptions.
 4. Use Inbox to track assignments and mentions.
 
-That gives you the project-management layer first. Once a runtime is connected, agents can start working from the same issues.
+That gives you the project-management layer first. Once a runtime is connected, digital humans can start working from the same issues.
 
-## Install your first agent runtime
+## Install your first digital human runtime
 
 Full guide: https://multica.ai/docs/install-agent-runtime
 
@@ -58,7 +58,7 @@ For English users, the fastest first path is Codex:
    cs-workflow daemon restart
    If you use the desktop app, restarting the app is enough.
 6. Return to Runtimes and refresh. You should see a Codex runtime online.
-7. Create your first agent from that runtime, then assign an issue to the agent and set status to todo.
+7. Create your first digital human from that runtime, then assign an issue to the digital human and set status to todo.
 
 Codex reference: https://developers.openai.com/codex/cli
 
@@ -66,7 +66,7 @@ When the runtime is connected, you can create Multica Helper for a guided first 
 
 const zh = `欢迎来到 Multica。
 
-智能体需要先连上运行时才能执行工作。运行时还没准备好时,你也可以先把 Multica 当作轻量项目管理工具体验起来。
+数智人需要先连上运行时才能执行工作。运行时还没准备好时,你也可以先把 Multica 当作轻量项目管理工具体验起来。
 
 ## 先体验项目管理功能
 
@@ -77,9 +77,9 @@ const zh = `欢迎来到 Multica。
 3. 给 issue 加优先级、标签、评论和订阅。
 4. 用收件箱追踪分配给你的事项和 @mention。
 
-这样你先熟悉项目管理层。连上运行时后,智能体会直接在这些 issue 上开始工作。
+这样你先熟悉项目管理层。连上运行时后,数智人会直接在这些 issue 上开始工作。
 
-## 安装第一个 Agent 运行时
+## 安装第一个数智人运行时
 
 完整文档:https://multica.ai/docs/install-agent-runtime
 
@@ -98,11 +98,11 @@ const zh = `欢迎来到 Multica。
    cs-workflow daemon restart
    如果你用桌面端,重启 app 即可。
 6. 回到 Runtimes 页面刷新。你应该能看到一个在线的 Kimi 运行时。
-7. 用这个运行时创建第一个智能体,再把一个 issue 分配给它,并把状态切到 todo。
+7. 用这个运行时创建第一个数智人,再把一个 issue 分配给它,并把状态切到 todo。
 
 Kimi CLI 官方文档:https://moonshotai.github.io/kimi-cli/zh/guides/getting-started.html
 
-运行时连上后,你就可以创建 Multica Helper,开始一次有智能体参与的上手引导。`;
+运行时连上后,你就可以创建 Multica Helper,开始一次有数智人参与的上手引导。`;
 
 export const INSTALL_RUNTIME_ISSUE_BODY = { en, zh } as const;
 

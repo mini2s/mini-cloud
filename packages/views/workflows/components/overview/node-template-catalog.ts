@@ -69,7 +69,7 @@ export const NODE_TEMPLATES: NodeTemplate[] = [
     id: "agent-task",
     category: "action",
     title: "Task",
-    description: "Create a normal task for a member, agent, or squad.",
+    description: "Create a normal task for a member, digital human, or squad.",
     tags: ["task", "action", "worker"],
     shape: "rectangle",
     worker_type: "agent",

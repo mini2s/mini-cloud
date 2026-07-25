@@ -53,12 +53,11 @@ func parseGiteaSettings(raw []byte) (giteaSettings, error) {
 	return s, err
 }
 
-// HandleGiteaCredential (GET /api/gitea/credential) returns the workspace's
-// Gitea bot PAT + the platform Gitea base URL for the authenticated daemon.
-// Used by the cs-workflow CLI (M3) to push document deliverables and open PRs.
-// Mirrors HandleGitlabCredential; base_url comes from env (not hardcoded),
-// because the platform Gitea URL is a deployment-wide constant.
-func (h *Handler) HandleGiteaCredential(w http.ResponseWriter, r *http.Request) {
+// HandleRepositoryCredential (GET /api/repositories/credential) returns the
+// workspace repository bot PAT plus the caller-reachable repository base URL
+// for the authenticated daemon. Gitea is the current adapter behind this
+// neutral contract.
+func (h *Handler) HandleRepositoryCredential(w http.ResponseWriter, r *http.Request) {
 	workspaceID := middleware.DaemonWorkspaceIDFromContext(r.Context())
 	if workspaceID == "" {
 		workspaceID = r.Header.Get("X-Workspace-ID")
@@ -92,6 +91,12 @@ func (h *Handler) HandleGiteaCredential(w http.ResponseWriter, r *http.Request) 
 
 	writeJSON(w, http.StatusOK, map[string]string{
 		"base_url": giteaPublicBaseURL(),
+		"provider": "gitea",
 		"token":    token,
 	})
+}
+
+// HandleGiteaCredential is a compatibility alias for older daemons/CLI builds.
+func (h *Handler) HandleGiteaCredential(w http.ResponseWriter, r *http.Request) {
+	h.HandleRepositoryCredential(w, r)
 }

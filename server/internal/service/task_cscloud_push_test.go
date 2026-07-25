@@ -454,3 +454,52 @@ var _ = util.UUIDToString
 
 // Ensure errors.Is is used.
 var _ = errors.Is
+
+func TestInjectGiteaToken(t *testing.T) {
+	tests := []struct {
+		name     string
+		cloneURL string
+		botUser  string
+		token    string
+		want     string
+	}{
+		{"bot user embedded", "https://gitea.test/owner/repo.git", "multica-bot", "tok123", "https://multica-bot:tok123@gitea.test/owner/repo.git"},
+		{"oauth2 fallback when no bot user", "https://gitea.test/owner/repo.git", "", "tok123", "https://oauth2:tok123@gitea.test/owner/repo.git"},
+		{"empty token returns URL unchanged", "https://gitea.test/owner/repo.git", "multica-bot", "", "https://gitea.test/owner/repo.git"},
+		{"whitespace token treated as empty", "https://gitea.test/owner/repo.git", "multica-bot", "  ", "https://gitea.test/owner/repo.git"},
+		{"unparseable URL returns input unchanged", "://bad", "bot", "tok", "://bad"},
+		{"bot user trimmed", "https://gitea.test/o/r.git", "  bot  ", "t", "https://bot:t@gitea.test/o/r.git"},
+		{"port preserved", "https://gitea.test:3000/owner/repo.git", "bot", "t", "https://bot:t@gitea.test:3000/owner/repo.git"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := injectGiteaToken(tt.cloneURL, tt.botUser, tt.token)
+			if got != tt.want {
+				t.Fatalf("injectGiteaToken(%q,%q,%q) = %q, want %q", tt.cloneURL, tt.botUser, tt.token, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestAppendDeliverablePrompt_GitAndSubmitNoFetch(t *testing.T) {
+	refs := []giteaDeliverableRefJSON{{ID: "d1", Title: "Doc1", Path: "nodes/01-x/d1.md"}}
+	got := appendDeliverablePrompt("base prompt", refs)
+	for _, want := range []string{
+		"MULTICA_REPO_CLONE_URL_AUTHED",            // authed clone URL exposed
+		"git clone",                                // raw-git read guidance
+		"MULTICA_REPO_INST_BRANCH",                 // branch context
+		"cs-cloud workflow deliverable submit --deliverable d1", // neutral submit path
+		"cs-workflow issue deliverables",           // self-service read command
+		"Document Deliverables",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("prompt missing %q:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "deliverable fetch") {
+		t.Errorf("prompt must NOT reference fetch (command removed):\n%s", got)
+	}
+	if strings.Contains(got, "ask the user") {
+		t.Errorf("prompt must NOT ask the user (use read commands instead):\n%s", got)
+	}
+}

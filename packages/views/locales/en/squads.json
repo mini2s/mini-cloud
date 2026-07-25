@@ -21,7 +21,7 @@
   },
   "add_member_dialog": {
     "title": "Add Member",
-    "description": "Add a workspace member or agent to this squad.",
+    "description": "Add a workspace member or digital human to this squad.",
     "label_member": "Member",
     "label_role": "Role",
     "label_optional": "(optional)",
@@ -44,9 +44,9 @@
     "section_count_one": "{{count}} member in this squad",
     "section_count_other": "{{count}} members in this squad",
     "add_member_button": "Add Member",
-    "create_agent_button": "Create Agent",
+    "create_agent_button": "Create Digital Human",
     "leader_chip": "Leader",
-    "view_agent_tooltip": "Open agent detail",
+    "view_agent_tooltip": "Open digital human detail",
     "make_leader_tooltip": "Make squad leader",
     "remove_member_tooltip": "Remove from squad",
     "status_working": "Working",
@@ -58,7 +58,7 @@
     "last_active_label": "last active {{time}}"
   },
   "instructions_tab": {
-    "description": "Squad instructions are injected into the leader agent's prompt whenever it works on an issue assigned to this squad. Use them to give the leader squad-wide guidance, working agreements, or context the leader should follow on every task.",
+    "description": "Squad instructions are injected into the leader digital human's prompt whenever it works on an issue assigned to this squad. Use them to give the leader squad-wide guidance, working agreements, or context the leader should follow on every task.",
     "unsaved_changes": "Unsaved changes",
     "save_button": "Save"
   }

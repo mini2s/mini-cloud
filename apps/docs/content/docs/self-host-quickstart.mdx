@@ -5,9 +5,9 @@ description: Run Multica on your own server or machine with Docker. Takes about 
 
 import { Callout } from "fumadocs-ui/components/callout";
 
-This page walks you through running the Multica **server** (backend + frontend + PostgreSQL) on your own machine or server with Docker. When you're done, your data is fully under your control — including [workspaces](/workspaces), [issues](/issues), [comments](/comments), and [agent](/agents) configuration.
+This page walks you through running the Multica **server** (backend + frontend + PostgreSQL) on your own machine or server with Docker. When you're done, your data is fully under your control — including [workspaces](/workspaces), [issues](/issues), [comments](/comments), and [digital human](/agents) configuration.
 
-Agent **execution** still relies on the [daemon](/daemon-runtimes) you run locally plus the [AI coding tools](/providers) installed on that machine — exactly like Cloud. Self-host swaps out the server layer, not the execution layer.
+Digital Human **execution** still relies on the [daemon](/daemon-runtimes) you run locally plus the [AI coding tools](/providers) installed on that machine — exactly like Cloud. Self-host swaps out the server layer, not the execution layer.
 
 ## Prerequisites
 
@@ -151,7 +151,7 @@ After bringing the proxy up, set `FRONTEND_ORIGIN=https://multica.example.com` i
 
 [Cloudflare Tunnel](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/) is another solid option — it gives you TLS and a public hostname without exposing any port on the host at all. An Nginx equivalent (separate `app.` / `api.` hostnames, `proxy_set_header Upgrade` for WebSockets) works just as well; the key requirements are TLS termination and forwarding the `Upgrade` header on `/ws`.
 
-## 6. Create an agent + assign your first task
+## 6. Create a digital human + assign your first task
 
 Same flow as Cloud — see [Cloud quickstart → Steps 5-6](/cloud-quickstart#5-create-an-agent).
 

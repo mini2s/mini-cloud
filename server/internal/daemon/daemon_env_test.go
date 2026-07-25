@@ -5,11 +5,10 @@ import (
 	"testing"
 )
 
-// TestBuildAgentEnv_GiteaContext pins the M3 plumbing: when a task carries a
-// GiteaDeliverables context (document deliverable git-storage), the env map
-// handed to the spawned agent CLI must surface it as MULTICA_GITEA_* vars plus
-// a MULTICA_NODE_RUN_ID. The CLI reads these to push deliverable content into
-// the platform Gitea and open a PR without re-deriving topology.
+// TestBuildAgentEnv_GiteaContext pins the repository plumbing: when a task
+// carries document deliverable git-storage context, the env map handed to the
+// spawned agent CLI must surface provider-neutral MULTICA_REPO_* vars plus the
+// legacy MULTICA_GITEA_* aliases.
 func TestBuildAgentEnv_GiteaContext(t *testing.T) {
 	t.Parallel()
 
@@ -32,6 +31,24 @@ func TestBuildAgentEnv_GiteaContext(t *testing.T) {
 
 	if env["MULTICA_NODE_RUN_ID"] != "nr-1" {
 		t.Errorf("MULTICA_NODE_RUN_ID = %q, want nr-1", env["MULTICA_NODE_RUN_ID"])
+	}
+	if env["MULTICA_REPO_PROVIDER"] != "gitea" {
+		t.Errorf("MULTICA_REPO_PROVIDER = %q", env["MULTICA_REPO_PROVIDER"])
+	}
+	if env["MULTICA_REPO_OWNER"] != "t-aaa" {
+		t.Errorf("MULTICA_REPO_OWNER = %q", env["MULTICA_REPO_OWNER"])
+	}
+	if env["MULTICA_REPO_NAME"] != "wf-bbb" {
+		t.Errorf("MULTICA_REPO_NAME = %q", env["MULTICA_REPO_NAME"])
+	}
+	if env["MULTICA_REPO_INST_BRANCH"] != "inst-cccc" {
+		t.Errorf("MULTICA_REPO_INST_BRANCH = %q", env["MULTICA_REPO_INST_BRANCH"])
+	}
+	if env["MULTICA_REPO_NODE_BRANCH"] != "node/dddd" {
+		t.Errorf("MULTICA_REPO_NODE_BRANCH = %q", env["MULTICA_REPO_NODE_BRANCH"])
+	}
+	if env["MULTICA_REPO_DELIVERABLES"] == "" {
+		t.Error("MULTICA_REPO_DELIVERABLES not set")
 	}
 	if env["MULTICA_GITEA_OWNER"] != "t-aaa" {
 		t.Errorf("MULTICA_GITEA_OWNER = %q", env["MULTICA_GITEA_OWNER"])
@@ -64,10 +81,8 @@ func TestBuildAgentEnv_GiteaContext(t *testing.T) {
 	}
 }
 
-// TestBuildAgentEnv_OmitsGiteaWhenAbsent ensures the Gitea + node-run env vars
-// stay absent for the vast majority of tasks that have no document deliverable
-// context. The feature is dormant by default; leaking empty MULTICA_GITEA_*
-// vars would confuse the CLI into attempting Gitea pushes on plain tasks.
+// TestBuildAgentEnv_OmitsGiteaWhenAbsent ensures repository + node-run env vars
+// stay absent for tasks that have no document deliverable context.
 func TestBuildAgentEnv_OmitsGiteaWhenAbsent(t *testing.T) {
 	t.Parallel()
 
@@ -79,6 +94,12 @@ func TestBuildAgentEnv_OmitsGiteaWhenAbsent(t *testing.T) {
 		"MULTICA_GITEA_INST_BRANCH",
 		"MULTICA_GITEA_NODE_BRANCH",
 		"MULTICA_GITEA_DELIVERABLES",
+		"MULTICA_REPO_PROVIDER",
+		"MULTICA_REPO_OWNER",
+		"MULTICA_REPO_NAME",
+		"MULTICA_REPO_INST_BRANCH",
+		"MULTICA_REPO_NODE_BRANCH",
+		"MULTICA_REPO_DELIVERABLES",
 		"MULTICA_NODE_RUN_ID",
 	} {
 		if _, ok := env[k]; ok {

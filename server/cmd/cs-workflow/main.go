@@ -48,7 +48,6 @@ func init() {
 	skillCmd.GroupID = groupCore
 	squadCmd.GroupID = groupCore
 	mrCmd.GroupID = groupCore
-	giteaCmd.GroupID = groupCore
 
 	// Runtime commands
 	daemonCmd.GroupID = groupRuntime
@@ -59,7 +58,6 @@ func init() {
 	userCmd.GroupID = groupAdditional
 	loginCmd.GroupID = groupAdditional
 	setupCmd.GroupID = groupAdditional
-	attachmentCmd.GroupID = groupAdditional
 	configCmd.GroupID = groupAdditional
 	updateCmd.GroupID = groupAdditional
 	versionCmd.GroupID = groupAdditional
@@ -75,14 +73,12 @@ func init() {
 	rootCmd.AddCommand(skillCmd)
 	rootCmd.AddCommand(squadCmd)
 	rootCmd.AddCommand(mrCmd)
-	rootCmd.AddCommand(giteaCmd)
 	rootCmd.AddCommand(daemonCmd)
 	rootCmd.AddCommand(runtimeCmd)
 	rootCmd.AddCommand(authCmd)
 	rootCmd.AddCommand(userCmd)
 	rootCmd.AddCommand(loginCmd)
 	rootCmd.AddCommand(setupCmd)
-	rootCmd.AddCommand(attachmentCmd)
 	rootCmd.AddCommand(configCmd)
 	rootCmd.AddCommand(updateCmd)
 	rootCmd.AddCommand(versionCmd)

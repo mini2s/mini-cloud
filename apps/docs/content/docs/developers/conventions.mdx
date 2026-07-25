@@ -101,9 +101,9 @@ This rule is aligned with `apps/docs/content/docs/*.zh.mdx` — the docs are the
 
 | Context | Render | Example |
 | --- | --- | --- |
-| **UI strings, state names, code references** | lowercase English | "排队中的 task"、"创建子 issue"、"为智能体注入 skill" |
+| **UI strings, state names, code references** | lowercase English | "排队中的 task"、"创建子 issue"、"为数智人注入 skill" |
 | **Doc titles / section headings** | Title-case English **or** the Chinese term | "Issue 与 project"、"Skills"、"执行任务" |
-| **Long-form doc prose, when the entity is the running subject** | Chinese term, with English in parentheses on first mention | "**执行任务**（task）是智能体每一次工作的单位" |
+| **Long-form doc prose, when the entity is the running subject** | Chinese term, with English in parentheses on first mention | "**执行任务**（task）是数智人每一次工作的单位" |
 | **API / DB fields** | always `task` / `issue` / `skill` | `task_id`, `issue_status`, `skill_uuid` |
 
 Chinese term reference:
@@ -131,7 +131,7 @@ Chinese term reference:
 | English | Chinese |
 | --- | --- |
 | Workspace | **工作区** |
-| Agent | **智能体** |
+| Digital Human | **数智人** |
 | Project | **项目** |
 | Autopilot | **自动化** |
 | Daemon | **守护进程** |
@@ -192,7 +192,7 @@ In UI, surface them in English (optionally `code-style` wrapped):
 Always put **a single space** between an English word (entity / brand / acronym) and surrounding Chinese:
 
 - "Create new issue" → "新建 issue"
-- "Assign to agent" → "分配给智能体"
+- "Assign to digital human" → "分配给数智人"
 - "Configure runtime" → "配置运行时"
 - "Stop daemon" → "停止守护进程"
 
@@ -216,7 +216,7 @@ i18next uses `_one` / `_other`; Chinese has no grammatical number, only fill `_o
 Common count formats:
 
 - `{{count}} issues` → `{{count}} 个 issue`
-- `{{count}} agents` → `{{count}} 个智能体`
+- `{{count}} digital humans` → `{{count}} 个数智人`
 - `{{count}} workspaces` → `{{count}} 个工作区`
 - `{{count}} comments` → `{{count}} 条评论`
 - `{{count}} members` → `{{count}} 位成员`

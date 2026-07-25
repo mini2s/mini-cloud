@@ -40,7 +40,7 @@ describe("node-template-catalog", () => {
 
     expect(request).toMatchObject({
       title: "Task",
-      description: "Create a normal task for a member, agent, or squad.",
+      description: "Create a normal task for a member, digital human, or squad.",
       position_x: 126,
       position_y: 0,
       stage_id: "stage-1",

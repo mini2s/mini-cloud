@@ -1,14 +1,14 @@
 {
   "page": {
-    "title": "Agents",
+    "title": "Digital Humans",
     "tagline": "AI teammates that pick up issues, comment, and update status.",
     "learn_more": "Learn more →",
-    "new_agent": "New agent",
-    "search_placeholder": "Search agents…",
+    "new_agent": "New digital human",
+    "search_placeholder": "Search digital humans…",
     "show_archived": "Show archived ({{count}}) →",
     "of_total": "{{visible}} of {{total}}",
-    "list_load_failed": "Couldn't load agents",
-    "list_load_failed_default": "Something went wrong fetching the agent list.",
+    "list_load_failed": "Couldn't load digital humans",
+    "list_load_failed_default": "Something went wrong fetching the digital human list.",
     "try_again": "Try again"
   },
   "scope": {
@@ -33,23 +33,23 @@
     "idle": "Idle"
   },
   "archived": {
-    "active_link": "Active agents",
-    "title": "Archived agents"
+    "active_link": "Active digital humans",
+    "title": "Archived digital humans"
   },
   "empty": {
-    "title": "No agents yet",
-    "description": "Create an agent and assign it issues, like any teammate. Local agents run on your machine; cloud agents run on Multica's runtime."
+    "title": "No digital humans yet",
+    "description": "Create a digital human and assign it issues, like any teammate. Local digital humans run on your machine; cloud digital humans run on Multica's runtime."
   },
   "no_matches": {
     "title": "No matches",
-    "search_archived": "No archived agents match \"{{query}}\".",
-    "no_archived": "No archived agents yet.",
-    "search_active": "No agents match \"{{query}}\".",
-    "search_active_filtered": "No agents match \"{{query}}\" in this filter.",
-    "no_filter_match": "No agents match this filter."
+    "search_archived": "No archived digital humans match \"{{query}}\".",
+    "no_archived": "No archived digital humans yet.",
+    "search_active": "No digital humans match \"{{query}}\".",
+    "search_active_filtered": "No digital humans match \"{{query}}\" in this filter.",
+    "no_filter_match": "No digital humans match this filter."
   },
   "columns": {
-    "agent": "Agent",
+    "agent": "Digital Human",
     "status": "Status",
     "workload": "Workload",
     "runtime": "Runtime",
@@ -79,10 +79,10 @@
     "duplicate": "Duplicate",
     "restore": "Restore",
     "archive": "Archive",
-    "agent_archived_toast": "Agent archived",
-    "archive_failed_toast": "Failed to archive agent",
-    "agent_restored_toast": "Agent restored",
-    "restore_failed_toast": "Failed to restore agent",
+    "agent_archived_toast": "Digital Human archived",
+    "archive_failed_toast": "Failed to archive digital human",
+    "agent_restored_toast": "Digital Human restored",
+    "restore_failed_toast": "Failed to restore digital human",
     "no_tasks_to_cancel_toast": "No active tasks to cancel",
     "cancelled_tasks_toast_one": "Cancelled {{count}} task",
     "cancelled_tasks_toast_other": "Cancelled {{count}} tasks",
@@ -98,31 +98,31 @@
     "cancel_dialog_keep": "Keep them",
     "cancel_dialog_confirm": "Cancel all tasks",
     "archive_dialog_title": "Archive \"{{name}}\"?",
-    "archive_dialog_description": "The agent won't be assignable or mentionable, and any active tasks will be cancelled. All history is preserved and you can restore it later.",
+    "archive_dialog_description": "The digital human won't be assignable or mentionable, and any active tasks will be cancelled. All history is preserved and you can restore it later.",
     "archive_dialog_cancel": "Cancel",
     "archive_dialog_confirm": "Archive"
   },
   "detail": {
-    "back_to_agents": "Agents",
-    "back_to_agents_full": "Back to agents",
-    "not_found_title": "Agent not found",
-    "not_found_default": "This agent may have been archived or deleted.",
-    "no_access_title": "You don't have access to this agent",
-    "no_access_hint": "Only the agent owner or a workspace admin can view this private agent.",
+    "back_to_agents": "Digital Humans",
+    "back_to_agents_full": "Back to digital humans",
+    "not_found_title": "Digital Human not found",
+    "not_found_default": "This digital human may have been archived or deleted.",
+    "no_access_title": "You don't have access to this digital human",
+    "no_access_hint": "Only the digital human owner or a workspace admin can view this private digital human.",
     "try_again": "Try again",
-    "archived_banner": "This agent is archived. It cannot be assigned or mentioned.",
+    "archived_banner": "This digital human is archived. It cannot be assigned or mentioned.",
     "restore": "Restore",
-    "archive_dialog_title": "Archive agent?",
+    "archive_dialog_title": "Archive digital human?",
     "archive_dialog_description": "\"{{name}}\" will be archived. It won't be assignable or mentionable, but all history is preserved. You can restore it later.",
     "archive_dialog_cancel": "Cancel",
     "archive_dialog_confirm": "Archive",
-    "more_archive": "Archive Agent",
-    "agent_updated_toast": "Agent updated",
-    "update_failed_toast": "Failed to update agent",
-    "agent_archived_toast": "Agent archived",
-    "archive_failed_toast": "Failed to archive agent",
-    "agent_restored_toast": "Agent restored",
-    "restore_failed_toast": "Failed to restore agent"
+    "more_archive": "Archive Digital Human",
+    "agent_updated_toast": "Digital Human updated",
+    "update_failed_toast": "Failed to update digital human",
+    "agent_archived_toast": "Digital Human archived",
+    "archive_failed_toast": "Failed to archive digital human",
+    "agent_restored_toast": "Digital Human restored",
+    "restore_failed_toast": "Failed to restore digital human"
   },
   "inspector": {
     "section_properties": "Properties",
@@ -150,11 +150,11 @@
     "change_avatar_aria": "Change avatar",
     "avatar_updated_toast": "Avatar updated",
     "avatar_upload_failed_toast": "Failed to upload avatar",
-    "rename_title": "Rename agent",
-    "rename_placeholder": "Agent name",
+    "rename_title": "Rename digital human",
+    "rename_placeholder": "Digital Human name",
     "rename_required": "Name is required",
     "edit_description_title": "Edit description",
-    "description_placeholder": "What does this agent do?",
+    "description_placeholder": "What does this digital human do?",
     "save": "Save",
     "cancel": "Cancel"
   },
@@ -166,9 +166,9 @@
     "title": "Select runtime",
     "description": "Choose a runtime to run {{name}}.",
     "empty_title": "No runtime available",
-    "empty_description": "Connect a runtime device before running a built-in agent.",
+    "empty_description": "Connect a runtime device before running a built-in digital human.",
     "auto_title": "Auto-select (recommended)",
-    "auto_description": "For built-in agents, select per node: idle first, then the Issue creator's runtime. Regular agents keep their binding.",
+    "auto_description": "For built-in digital humans, select per node: idle first, then the Issue creator's runtime. Regular digital humans keep their binding.",
     "cancel": "Cancel",
     "confirm": "Run"
   },
@@ -223,14 +223,14 @@
     "discard_confirm": "Discard changes"
   },
   "create_dialog": {
-    "title_create": "Create Agent",
-    "title_duplicate": "Duplicate Agent",
-    "description_create": "Create a new AI agent for your workspace.",
-    "description_duplicate": "Create a new agent based on \"{{name}}\". Instructions, env, and skills are copied for you.",
+    "title_create": "Create Digital Human",
+    "title_duplicate": "Duplicate Digital Human",
+    "description_create": "Create a new AI digital human for your workspace.",
+    "description_duplicate": "Create a new digital human based on \"{{name}}\". Instructions, env, and skills are copied for you.",
     "name_label": "Name",
-    "name_placeholder": "e.g. Deep Research Agent",
+    "name_placeholder": "e.g. Deep Research Digital Human",
     "description_label": "Description",
-    "description_placeholder": "What does this agent do?",
+    "description_placeholder": "What does this digital human do?",
     "visibility_label": "Visibility",
     "runtime_label": "Runtime",
     "runtime_filter_mine": "Mine",
@@ -239,20 +239,20 @@
     "runtime_none": "No runtime available",
     "runtime_cloud_badge": "Cloud",
     "runtime_private_badge": "Private",
-    "runtime_private_locked_tooltip": "Private runtime — only its owner or a workspace admin can create agents on it. Ask the owner to switch it to Public to share.",
+    "runtime_private_locked_tooltip": "Private runtime — only its owner or a workspace admin can create digital humans on it. Ask the owner to switch it to Public to share.",
     "duplicate_copy_suffix": " (Copy)",
     "create": "Create",
     "creating": "Creating...",
     "cancel": "Cancel",
-    "create_failed_toast": "Failed to create agent",
-    "skill_attach_failed_toast": "Agent created, but failed to attach skills: {{error}}",
-    "squad_join_failed_toast": "Agent \"{{name}}\" was created but couldn't join the squad: {{error}}. You can add it manually from Members.",
+    "create_failed_toast": "Failed to create digital human",
+    "skill_attach_failed_toast": "Digital Human created, but failed to attach skills: {{error}}",
+    "squad_join_failed_toast": "Digital Human \"{{name}}\" was created but couldn't join the squad: {{error}}. You can add it manually from Members.",
     "instructions": {
       "label": "Instructions",
       "placeholder_blank": "Click to write instructions…",
       "placeholder_duplicate": "Click to view or edit the duplicated instructions",
       "collapse": "Collapse",
-      "editor_placeholder": "Write what this agent should do, what to focus on, what to avoid…"
+      "editor_placeholder": "Write what this digital human should do, what to focus on, what to avoid…"
     },
     "skills_section": {
       "label": "Skills",
@@ -287,13 +287,13 @@
       "unsaved_changes": "Unsaved changes"
     },
     "instructions": {
-      "intro": "Define this agent's identity and working style. Injected into the agent's context for every task. Markdown is supported.",
-      "placeholder": "Define this agent's role, expertise, and working style.\n\n# Example\nYou are a frontend engineer specializing in React and TypeScript.\n\n## Working Style\n- Write small, focused PRs — one commit per logical change\n- Prefer composition over inheritance\n- Always add unit tests for new components\n\n## Constraints\n- Do not modify shared/ types without explicit approval\n- Follow the existing component patterns in features/"
+      "intro": "Define this digital human's identity and working style. Injected into the digital human's context for every task. Markdown is supported.",
+      "placeholder": "Define this digital human's role, expertise, and working style.\n\n# Example\nYou are a frontend engineer specializing in React and TypeScript.\n\n## Working Style\n- Write small, focused PRs — one commit per logical change\n- Prefer composition over inheritance\n- Always add unit tests for new components\n\n## Constraints\n- Do not modify shared/ types without explicit approval\n- Follow the existing component patterns in features/"
     },
     "env": {
-      "intro_readonly": "Injected into the agent process at launch. Values are hidden — only the agent owner or workspace admin can view and edit them.",
+      "intro_readonly": "Injected into the digital human process at launch. Values are hidden — only the digital human owner or workspace admin can view and edit them.",
       "empty_readonly": "No environment variables configured.",
-      "intro_prefix": "Injected into the agent process at launch (e.g. ",
+      "intro_prefix": "Injected into the digital human process at launch (e.g. ",
       "intro_separator": ", ",
       "intro_suffix": ").",
       "key_placeholder": "KEY",
@@ -306,7 +306,7 @@
       "save_failed_toast": "Failed to save environment variables"
     },
     "custom_args": {
-      "intro": "Additional CLI arguments appended to the agent command at launch. Multi-token flags can share one row — they'll be split on whitespace before being passed to the CLI.",
+      "intro": "Additional CLI arguments appended to the digital human command at launch. Multi-token flags can share one row — they'll be split on whitespace before being passed to the CLI.",
       "launch_mode_prefix": "Launch mode: ",
       "launch_mode_args_placeholder": "<your args>",
       "input_placeholder": "--flag value",
@@ -315,18 +315,18 @@
       "save_failed_toast": "Failed to save custom arguments"
     },
     "skills": {
-      "intro": "Workspace skills assigned to this agent. Local runtime skills are always available automatically.",
+      "intro": "Workspace skills assigned to this digital human. Local runtime skills are always available automatically.",
       "add_action": "Add skill",
       "import_hint": "Importing creates a workspace copy that your team can edit and reuse.",
       "empty_title": "No skills assigned",
-      "empty_hint": "Add workspace skills to share team knowledge with this agent.",
+      "empty_hint": "Add workspace skills to share team knowledge with this digital human.",
       "remove_failed_toast": "Failed to remove skill",
       "add_dialog_title": "Add skill",
-      "add_dialog_description": "Select a workspace skill to assign to this agent.",
+      "add_dialog_description": "Select a workspace skill to assign to this digital human.",
       "add_dialog_search_placeholder": "Search skills",
       "add_dialog_empty": "All workspace skills are already assigned.",
       "add_dialog_no_match": "No skills match your search.",
-      "add_dialog_empty_partial": "No more skills to add — this agent already has all of them.",
+      "add_dialog_empty_partial": "No more skills to add — this digital human already has all of them.",
       "add_dialog_saving": "Adding…",
       "add_dialog_confirm_default": "Add",
       "add_dialog_confirm_one": "Add {{count}} skill",
@@ -336,12 +336,12 @@
     },
     "plugin": {
       "section_title": "Plugin",
-      "intro": "Assign a built-in plugin from the plugin marketplace. The plugin extends this agent with additional capabilities.",
+      "intro": "Assign a built-in plugin from the plugin marketplace. The plugin extends this digital human with additional capabilities.",
       "info_hint": "Plugins are maintained by the community. Check the plugin description before installing.",
       "change_action": "Change",
       "select_action": "Select plugin",
       "empty_title": "No plugin selected",
-      "empty_hint": "Choose a plugin from the marketplace to extend this agent's capabilities.",
+      "empty_hint": "Choose a plugin from the marketplace to extend this digital human's capabilities.",
       "picker": {
         "search_placeholder": "Search plugins",
         "loading": "Loading plugins…",
@@ -352,14 +352,14 @@
       },
       "cloud_skills": {
         "section_title": "Skills",
-        "intro": "Public catalog skills bound to this agent without importing them into the workspace.",
+        "intro": "Public catalog skills bound to this digital human without importing them into the workspace.",
         "add_action": "Add skill",
         "search_placeholder": "Search skills",
         "picker_loading": "Searching…",
         "picker_empty": "No skills available",
         "picker_no_match": "No skills match your search",
         "empty_title": "No skills selected",
-        "empty_hint": "Add skills from the catalog to extend this agent.",
+        "empty_hint": "Add skills from the catalog to extend this digital human.",
         "load_error": "Failed to load skills",
         "retry_action": "Retry",
         "remove_label": "Remove {{name}}",
@@ -378,9 +378,9 @@
       "subtitle_no_recent": "Nothing finished yet",
       "subtitle_recent_progress": "{{shown}} of {{total}}",
       "subtitle_recent_latest": "{{count}} latest",
-      "empty_now": "This agent isn't running anything right now.",
+      "empty_now": "This digital human isn't running anything right now.",
       "empty_30d": "No completions in the last 30 days.",
-      "empty_recent": "This agent hasn't completed anything yet.",
+      "empty_recent": "This digital human hasn't completed anything yet.",
       "show_more": "Show more →",
       "runs_one": "run",
       "runs_other": "runs",
@@ -418,15 +418,15 @@
   "visibility": {
     "private": {
       "label": "Personal",
-      "tooltip": "Personal · only you and workspace admins can use this agent"
+      "tooltip": "Personal · only you and workspace admins can use this digital human"
     },
     "workspace": {
       "label": "Workspace",
-      "tooltip": "Workspace · everyone in this workspace can use this agent"
+      "tooltip": "Workspace · everyone in this workspace can use this digital human"
     }
   },
   "profile_card": {
-    "unavailable": "Agent unavailable",
+    "unavailable": "Digital Human unavailable",
     "detail_link": "Detail →",
     "runtime_label": "Runtime",
     "skills_label": "Skills",
@@ -441,7 +441,7 @@
     "failed_indicator": "Failed"
   },
   "transcript": {
-    "dialog_title": "Agent Execution Transcript",
+    "dialog_title": "Digital Human Execution Transcript",
     "status_running": "Running",
     "status_completed": "Completed",
     "status_failed": "Failed",
@@ -462,7 +462,7 @@
     "sort_newest_first": "Newest first"
   },
   "task_failure": {
-    "agent_error": "Agent execution error",
+    "agent_error": "Digital Human execution error",
     "timeout": "Task timed out",
     "runtime_offline": "Daemon offline",
     "runtime_recovery": "Daemon restarted",
