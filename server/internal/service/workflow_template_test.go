@@ -198,8 +198,8 @@ func TestCloneWorkflowFromTemplate(t *testing.T) {
 	if cloned.Title != "Cloned Workflow" {
 		t.Fatalf("expected title 'Cloned Workflow', got %q", cloned.Title)
 	}
-	if cloned.Status != "draft" {
-		t.Fatalf("expected status 'draft', got %q", cloned.Status)
+	if cloned.Status != "active" {
+		t.Fatalf("expected status 'active', got %q", cloned.Status)
 	}
 	if cloned.IsTemplate {
 		t.Fatal("cloned workflow must not be a template")
@@ -282,6 +282,18 @@ func TestCloneWorkflowFromTemplate(t *testing.T) {
 	pool.Exec(context.Background(), `DELETE FROM multica_workflow_edge WHERE workflow_id = $1`, cloned.ID)
 	pool.Exec(context.Background(), `DELETE FROM multica_workflow_node WHERE workflow_id = $1`, cloned.ID)
 	pool.Exec(context.Background(), `DELETE FROM multica_workflow WHERE id = $1`, cloned.ID)
+}
+
+func TestStartRunRejectsTemplate(t *testing.T) {
+	svc := &WorkflowService{Queries: db.New(&mockDBTX{})}
+
+	_, err := svc.StartRun(context.Background(), db.MulticaWorkflow{
+		Status:     "active",
+		IsTemplate: true,
+	}, "member", "", nil, pgtype.UUID{})
+	if err == nil || err.Error() != "workflow template cannot be run" {
+		t.Fatalf("got error %v, want workflow template cannot be run", err)
+	}
 }
 
 // TestCloneWorkflowFromTemplate_RejectsNonTemplate verifies that attempting to

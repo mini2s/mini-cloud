@@ -57,15 +57,17 @@ export const workflowKeys = {
 export function workflowListOptions(wsId: string) {
   return queryOptions({
     queryKey: workflowKeys.list(wsId),
-    queryFn: () => api.listWorkflows(wsId),
+    queryFn: () => api.listWorkflows(wsId, false),
   });
 }
 
 export function workflowActiveListOptions(wsId: string) {
   return queryOptions({
     queryKey: [...workflowKeys.list(wsId), "active"],
-    queryFn: () => api.listWorkflows(wsId),
-    select: (data) => data.workflows.filter((w) => w.status === "active"),
+    queryFn: () => api.listWorkflows(wsId, false),
+    select: (data) => data.workflows.filter(
+      (workflow) => workflow.status === "active" && workflow.is_template === false,
+    ),
   });
 }
 

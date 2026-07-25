@@ -30,12 +30,22 @@ const workflows: Workflow[] = [{
   updated_at: "",
 }];
 
+const templateWorkflow: Workflow = {
+  ...workflows[0]!,
+  id: "template-1",
+  title: "Release template",
+  is_template: true,
+};
+
 vi.mock("@tanstack/react-query", () => ({
   useQuery: (options: { queryKey?: unknown[] }) => {
     const key = options.queryKey ?? [];
     if (key.includes("agents")) return { data: agents };
     if (key.includes("members")) return { data: [] };
     if (key.includes("squads")) return { data: [] };
+    if (key.includes("workflow-templates")) {
+      return { data: { workflows: [templateWorkflow], total: 1 } };
+    }
     if (key.includes("workflows")) return { data: workflows };
     if (key.includes("runtimes")) return { data: [] };
     return { data: [] };
@@ -142,5 +152,20 @@ describe("AssigneePicker agentFilter", () => {
         runtime_selection_policy: "idle_first",
       });
     });
+  });
+
+  it("does not include templates in runnable workflow options", () => {
+    render(
+      <AssigneePicker
+        assigneeType={null}
+        assigneeId={null}
+        open
+        onOpenChange={vi.fn()}
+        onUpdate={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText("Release workflow")).toBeInTheDocument();
+    expect(screen.queryByText("Release template")).not.toBeInTheDocument();
   });
 });

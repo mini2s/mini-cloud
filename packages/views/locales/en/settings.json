@@ -354,7 +354,7 @@
     }
   },
   "workflow_roles": {
-    "title": "Dev Roles",
+    "title": "Roles",
     "description": "Define reusable roles that are resolved to active workspace members when a workflow run starts.",
     "read_only": "Read-only view. Only workspace owners and admins can manage roles.",
     "create_title": "Create role",
