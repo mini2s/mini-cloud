@@ -31,7 +31,7 @@ export function PromoteConfirmDialog({
           </div>
           <DialogHeader className="flex-1 gap-1">
             <DialogTitle className="text-sm font-semibold">
-              提升为内置 Agent
+              提升为内置数智人
             </DialogTitle>
             <DialogDescription className="text-xs">
               此操作将使"{agentName}"全局可见，并移除其运行时绑定。
@@ -46,7 +46,7 @@ export function PromoteConfirmDialog({
           </div>
           <div className="flex items-center gap-2">
             <Unplug className="h-3.5 w-3.5 shrink-0" />
-            <span>移除运行时绑定 — 内置 Agent 不与特定运行时绑定</span>
+            <span>移除运行时绑定 — 内置数智人 不与特定运行时绑定</span>
           </div>
         </div>
 
