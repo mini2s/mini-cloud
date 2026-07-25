@@ -5,16 +5,16 @@ description: Install the Multica CLI and start the digital human daemon.
 
 ## Installation
 
-### Homebrew (macOS/Linux)
+### Install script (macOS/Linux)
 
 ```bash
-brew install multica-ai/tap/multica
+curl -fsSL https://raw.githubusercontent.com/Askhz/multica/main/scripts/install.sh | bash
 ```
 
 ### Build from Source
 
 ```bash
-git clone https://github.com/multica-ai/multica.git
+git clone https://github.com/Askhz/multica.git
 cd multica
 make build
 cp server/bin/cs-workflow /usr/local/bin/cs-workflow
@@ -22,7 +22,7 @@ cp server/bin/cs-workflow /usr/local/bin/cs-workflow
 
 ### Download from GitHub Releases
 
-If Homebrew is not available, download the binary directly:
+To download the binary directly:
 
 ```bash
 OS=$(uname -s | tr '[:upper:]' '[:lower:]')   # "darwin" or "linux"
@@ -34,24 +34,19 @@ if [ "$ARCH" = "x86_64" ]; then
 fi
 
 # Get the latest release tag from GitHub
-LATEST=$(curl -sI https://github.com/multica-ai/multica/releases/latest \
+LATEST=$(curl -sI https://github.com/Askhz/multica/releases/latest \
   | grep -i '^location:' | sed 's/.*tag\///' | tr -d '\r\n')
+VERSION="${LATEST#v}"
 
 # Download and extract
-curl -sL "https://github.com/multica-ai/multica/releases/download/${LATEST}/multica_${OS}_${ARCH}.tar.gz" \
+curl -sL "https://github.com/Askhz/multica/releases/download/${LATEST}/cs-workflow-cli-${VERSION}-${OS}-${ARCH}.tar.gz" \
   -o /tmp/cs-workflow.tar.gz
-tar -xzf /tmp/cs-workflow.tar.gz -C /tmp multica
+tar -xzf /tmp/cs-workflow.tar.gz -C /tmp cs-workflow
 sudo mv /tmp/cs-workflow /usr/local/bin/cs-workflow
 rm /tmp/cs-workflow.tar.gz
 ```
 
 ### Update
-
-```bash
-brew upgrade multica-ai/tap/multica
-```
-
-For install script or manual installs, use:
 
 ```bash
 cs-workflow update
