@@ -93,6 +93,7 @@ import type {
   WorkflowActorEntityType,
   WorkflowActorIdentity,
 } from "../../../common/workflow-actor-slots";
+import { useRuntimeDurationClock } from "./runtime-duration-clock";
 
 export interface ExecutionPanoramaPageProps {
   workflowId: string;
@@ -719,6 +720,16 @@ export function ExecutionPanoramaPage({
     return map;
   }, [canvasSummary?.node_runtime_summaries]);
 
+  const hasRunningDuration = useMemo(
+    () => Array.from(nodeRunMap.values()).some((nodeRun) => (
+      nodeRun.started_at != null &&
+      Number.isFinite(Date.parse(nodeRun.started_at)) &&
+      nodeRun.completed_at == null
+    )),
+    [nodeRunMap],
+  );
+  const runtimeNowMs = useRuntimeDurationClock(hasRunningDuration);
+
   const handleOpenNodeSession = useCallback(async (nodeId: string): Promise<boolean> => {
     const sessionId =
       nodeRunMap.get(nodeId)?.session_id ??
@@ -1089,6 +1100,7 @@ export function ExecutionPanoramaPage({
         node,
         nodeRun: nodeRunMap.get(node.id) ?? null,
         runtimeSummary: runtimeSummaryMap.get(node.id) ?? null,
+        nowMs: runtimeNowMs,
         workerName: workerIdentity?.name ?? null,
         criticName: criticIdentity?.name ?? null,
         workerIdentity,

@@ -31,6 +31,7 @@ vi.mock("@multica/views/i18n", () => {
         waiting_upstream: "Waiting for upstream",
       },
       card: {
+        duration_label: "Duration {{duration}}",
         worker_label: "Executor",
         critic_label: "Reviewer",
         artifacts_label: "Artifacts",
@@ -556,6 +557,83 @@ describe("RuntimeNodeCard", () => {
     expect(screen.getByTestId("runtime-node-content")).toHaveClass("border-t", "border-border/45");
     expect(screen.getByTestId("runtime-node-content").className).not.toContain("border-y");
     expect(screen.getByLabelText("Reviewing")).toBeInTheDocument();
+  });
+
+  it("shows the completed duration below the status", () => {
+    render(
+      <RuntimeNodeCard
+        node={baseNode}
+        nodeRun={completedRun}
+        runtimeSummary={{ ...runtimeSummary, display_status: "completed" }}
+        workerName="Tester"
+        criticName="Reviewer"
+        onClick={vi.fn()}
+      />,
+    );
+
+    const duration = screen.getByTestId("runtime-node-duration");
+    expect(duration).toHaveTextContent("1m 30s");
+    expect(duration).toHaveAttribute("aria-label", "Duration 1m 30s");
+    expect(duration.parentElement).toHaveClass("items-end");
+  });
+
+  it("shows elapsed duration from the shared current time while a node is running", () => {
+    render(
+      <RuntimeNodeCard
+        node={baseNode}
+        nodeRun={{
+          ...completedRun,
+          status: "working",
+          started_at: "2026-07-25T10:00:00Z",
+          completed_at: null,
+        }}
+        runtimeSummary={{
+          ...runtimeSummary,
+          display_status: "in_progress",
+          duration_seconds: null,
+        }}
+        nowMs={Date.parse("2026-07-25T10:01:40Z")}
+        workerName="Tester"
+        criticName="Reviewer"
+        onClick={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByTestId("runtime-node-duration")).toHaveTextContent("1m 40s");
+  });
+
+  it("does not reserve a duration row for a node that has not started", () => {
+    render(
+      <RuntimeNodeCard
+        node={baseNode}
+        nodeRun={null}
+        runtimeSummary={null}
+        nowMs={Date.parse("2026-07-25T10:01:40Z")}
+        workerName="Tester"
+        criticName="Reviewer"
+        onClick={vi.fn()}
+      />,
+    );
+
+    expect(screen.queryByTestId("runtime-node-duration")).not.toBeInTheDocument();
+  });
+
+  it.each([
+    ["gateway", { type: "gateway", gateway_kind: "fork", shape: "diamond" }],
+    ["split", { type: "split", shape: "rectangle" }],
+  ])("shows duration in the %s node status area", (_kind, formatSchema) => {
+    render(
+      <RuntimeNodeCard
+        node={{ ...baseNode, format_schema: formatSchema }}
+        nodeRun={completedRun}
+        runtimeSummary={{ ...runtimeSummary, display_status: "completed" }}
+        workerName="Tester"
+        criticName="Reviewer"
+        onClick={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByTestId("runtime-node-duration")).toHaveTextContent("1m 30s");
   });
 
   it("does not emphasize blocked runtime nodes unless they are selected as the runtime focus", () => {

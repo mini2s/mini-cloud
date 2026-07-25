@@ -502,6 +502,7 @@
       "unassigned": "未分组"
     },
     "card": {
+      "duration_label": "耗时 {{duration}}",
       "worker_label": "执行者",
       "critic_label": "审核者",
       "artifacts_label": "产物",

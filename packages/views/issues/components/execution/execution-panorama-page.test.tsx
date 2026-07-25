@@ -925,6 +925,35 @@ describe("ExecutionPanoramaPage", () => {
     expect(screen.getByTestId("execution-detail-panel")).toBeInTheDocument();
   });
 
+  it("passes the shared duration clock to nodes with an unfinished run", () => {
+    mocks.isLoading = false;
+    mocks.workflowData = { id: "wf-1", title: "Test Workflow" };
+    mocks.stagesData = [STAGE];
+    mocks.nodesData = [NODE];
+    mocks.nodeRunsData = [{
+      ...SPLIT_NODE_RUN,
+      workflow_node_id: "n1",
+      status: "working",
+      started_at: "2026-07-25T10:00:00Z",
+      completed_at: null,
+    }];
+    mocks.canvasSummaryData = {
+      node_runs: mocks.nodeRunsData,
+      node_runtime_summaries: [],
+    };
+    mocks.agentsData = [AGENT];
+
+    render(
+      <Wrapper>
+        <ExecutionPanoramaPage workflowId="wf-1" runId="run-1" wsId="ws-1" />
+      </Wrapper>,
+    );
+
+    expect(mocks.reactFlowProps?.nodes.find((node) => node.id === "n1")?.data).toEqual(
+      expect.objectContaining({ nowMs: expect.any(Number) }),
+    );
+  });
+
   it("joins deliverable definitions and submissions into runtime card summaries", () => {
     mocks.isLoading = false;
     mocks.workflowData = { id: "wf-1", title: "Test Workflow" };

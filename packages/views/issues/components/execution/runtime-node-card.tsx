@@ -11,7 +11,7 @@ import {
 } from "@multica/core/types";
 import { cn } from "@multica/ui/lib/utils";
 import { RuntimeDisplayStatusIcon } from "./node-run-status-icon";
-import { Check, ChevronDown, ChevronRight, CircleAlert, FileText, GitFork, GitMerge, MessageSquare } from "lucide-react";
+import { Check, ChevronDown, ChevronRight, CircleAlert, Clock3, FileText, GitFork, GitMerge, MessageSquare } from "lucide-react";
 import { useT } from "@multica/views/i18n";
 import { Button } from "@multica/ui/components/ui/button";
 import { Loader2 } from "lucide-react";
@@ -27,6 +27,10 @@ import {
   type WorkflowCanvasNodeHandle,
 } from "../../../workflows/components/canvas/workflow-canvas-node-shell";
 import { WORKER_WIDTH } from "../../../workflows/components/overview/constants";
+import {
+  formatRuntimeDuration,
+  resolveRuntimeDurationSeconds,
+} from "./runtime-node-duration";
 
 export const RUNTIME_NODE_HEIGHT = 176;
 export const RUNTIME_SPLIT_NODE_HEIGHT = 156;
@@ -69,6 +73,7 @@ export interface RuntimeNodeCardProps {
   onAction?: (nodeRunId: string, action: NodeRunActionType) => void;
   isActionLoading?: Partial<Record<NodeRunActionType, boolean>>;
   runtimeSummary?: WorkflowNodeRuntimeSummary | null;
+  nowMs?: number;
   handles?: WorkflowCanvasNodeHandle[];
   lateralHandleTop?: number;
   isSplitExpanded?: boolean;
@@ -186,6 +191,40 @@ function RuntimeStatusPill({
       />
       <span className="min-w-0 break-words leading-3 line-clamp-2">{label}</span>
     </span>
+  );
+}
+
+function RuntimeStatusSummary({
+  status,
+  gatewayKind,
+  statusLabel,
+  durationLabel,
+  durationAriaLabel,
+}: {
+  status: ReturnType<typeof toWorkflowRuntimeDisplayStatus>;
+  gatewayKind?: "fork" | "join" | null;
+  statusLabel: string;
+  durationLabel: string | null;
+  durationAriaLabel: string | null;
+}) {
+  return (
+    <div className="flex shrink-0 flex-col items-end gap-0.5">
+      <RuntimeStatusPill
+        status={status}
+        gatewayKind={gatewayKind}
+        label={statusLabel}
+      />
+      {durationLabel && durationAriaLabel ? (
+        <span
+          data-testid="runtime-node-duration"
+          aria-label={durationAriaLabel}
+          className="inline-flex items-center gap-1 text-[9px] font-medium leading-3 text-muted-foreground/80 tabular-nums"
+        >
+          <Clock3 aria-hidden="true" className="size-2.5 shrink-0" strokeWidth={1.8} />
+          {durationLabel}
+        </span>
+      ) : null}
+    </div>
   );
 }
 
@@ -358,6 +397,7 @@ export function RuntimeNodeCard({
   onAction,
   isActionLoading,
   runtimeSummary,
+  nowMs,
   handles,
   lateralHandleTop,
   isSplitExpanded = false,
@@ -381,6 +421,18 @@ export function RuntimeNodeCard({
   const nodeShape = nodeFormat.shape;
   const displayStatus = runtimeSummary?.display_status ?? (nodeRun ? toWorkflowRuntimeDisplayStatus(nodeRun.status) : "pending");
   const displayStatusLabel = runtimeDisplayStatusText(t, displayStatus, isGateway ? nodeFormat.gateway_kind : null);
+  const durationSeconds = resolveRuntimeDurationSeconds({
+    summarySeconds: runtimeSummary?.duration_seconds,
+    startedAt: nodeRun?.started_at,
+    completedAt: nodeRun?.completed_at,
+    nowMs: nowMs ?? Date.now(),
+  });
+  const durationLabel = durationSeconds == null
+    ? null
+    : formatRuntimeDuration(durationSeconds);
+  const durationAriaLabel = durationLabel
+    ? t(($) => $.execution.card.duration_label, { duration: durationLabel })
+    : null;
   const hasCritic = !isGateway && !isSplit && Boolean(node.critic_type || node.critic_id || criticIdentity);
 
   const GatewayIcon = nodeFormat.gateway_kind === "join" ? GitMerge : GitFork;
@@ -492,7 +544,12 @@ export function RuntimeNodeCard({
             <div className="flex min-w-0 items-center gap-1.5">
               <span className="min-w-0 break-words text-sm font-medium leading-4 line-clamp-2">{node.title}</span>
             </div>
-            <RuntimeStatusPill status={displayStatus} label={displayStatusLabel} />
+            <RuntimeStatusSummary
+              status={displayStatus}
+              statusLabel={displayStatusLabel}
+              durationLabel={durationLabel}
+              durationAriaLabel={durationAriaLabel}
+            />
           </div>
 
           <div
@@ -608,10 +665,12 @@ export function RuntimeNodeCard({
             {node.title}
           </span>
         </div>
-        <RuntimeStatusPill
+        <RuntimeStatusSummary
           status={displayStatus}
           gatewayKind={isGateway ? nodeFormat.gateway_kind : null}
-          label={displayStatusLabel}
+          statusLabel={displayStatusLabel}
+          durationLabel={durationLabel}
+          durationAriaLabel={durationAriaLabel}
         />
       </div>
 
