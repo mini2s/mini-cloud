@@ -31,6 +31,11 @@ DELETE FROM multica_workflow_node_deliverable WHERE id = $1;
 -- Deliverable Submission Queries
 -- =====================
 
+-- name: GetNodeRunDeliverableRequirementForSubmission :one
+SELECT *
+FROM multica_workflow_node_run_deliverable
+WHERE id = $1 AND workflow_node_run_id = $2;
+
 -- name: ListNodeRunDeliverableSubmissions :many
 SELECT * FROM multica_workflow_node_deliverable_submission
 WHERE workflow_node_run_id = $1

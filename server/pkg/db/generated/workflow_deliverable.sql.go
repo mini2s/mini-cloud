@@ -60,16 +60,44 @@ func (q *Queries) DeleteWorkflowNodeDeliverable(ctx context.Context, id pgtype.U
 	return err
 }
 
-const listNodeRunDeliverableSubmissions = `-- name: ListNodeRunDeliverableSubmissions :many
+const getNodeRunDeliverableRequirementForSubmission = `-- name: GetNodeRunDeliverableRequirementForSubmission :one
 
+SELECT id, workflow_node_run_id, source_deliverable_id, kind, title, description, required, sort_order, created_at
+FROM multica_workflow_node_run_deliverable
+WHERE id = $1 AND workflow_node_run_id = $2
+`
+
+type GetNodeRunDeliverableRequirementForSubmissionParams struct {
+	ID                pgtype.UUID `json:"id"`
+	WorkflowNodeRunID pgtype.UUID `json:"workflow_node_run_id"`
+}
+
+// =====================
+// Deliverable Submission Queries
+// =====================
+func (q *Queries) GetNodeRunDeliverableRequirementForSubmission(ctx context.Context, arg GetNodeRunDeliverableRequirementForSubmissionParams) (MulticaWorkflowNodeRunDeliverable, error) {
+	row := q.db.QueryRow(ctx, getNodeRunDeliverableRequirementForSubmission, arg.ID, arg.WorkflowNodeRunID)
+	var i MulticaWorkflowNodeRunDeliverable
+	err := row.Scan(
+		&i.ID,
+		&i.WorkflowNodeRunID,
+		&i.SourceDeliverableID,
+		&i.Kind,
+		&i.Title,
+		&i.Description,
+		&i.Required,
+		&i.SortOrder,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
+const listNodeRunDeliverableSubmissions = `-- name: ListNodeRunDeliverableSubmissions :many
 SELECT id, workflow_node_run_id, deliverable_id, submitted_by_type, submitted_by_id, status, content, attachment_id, pull_request_url, review_comment, submitted_at, reviewed_at, created_at, updated_at FROM multica_workflow_node_deliverable_submission
 WHERE workflow_node_run_id = $1
 ORDER BY created_at ASC
 `
 
-// =====================
-// Deliverable Submission Queries
-// =====================
 func (q *Queries) ListNodeRunDeliverableSubmissions(ctx context.Context, workflowNodeRunID pgtype.UUID) ([]MulticaWorkflowNodeDeliverableSubmission, error) {
 	rows, err := q.db.Query(ctx, listNodeRunDeliverableSubmissions, workflowNodeRunID)
 	if err != nil {
