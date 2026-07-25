@@ -39,27 +39,35 @@ type FinalizeNodeRunRequest struct {
 // ── Response types ───────────────────────────────────────────────────────────
 
 type WorkflowRunResponse struct {
-	ID                     string          `json:"id"`
-	WorkflowID             string          `json:"workflow_id"`
-	WorkspaceID            string          `json:"workspace_id"`
-	WorkflowTitle          string          `json:"workflow_title"`
-	Status                 string          `json:"status"`
-	TriggeredByType        string          `json:"triggered_by_type"`
-	TriggeredByID          *string         `json:"triggered_by_id"`
-	RuntimeID              *string         `json:"runtime_id"`
-	RuntimeSelectionPolicy string          `json:"runtime_selection_policy"`
-	Input                  json.RawMessage `json:"input"`
-	Output                 json.RawMessage `json:"output"`
-	StartedAt              string          `json:"started_at"`
-	CompletedAt            *string         `json:"completed_at"`
-	CreatedAt              string          `json:"created_at"`
+	ID                      string          `json:"id"`
+	WorkflowID              string          `json:"workflow_id"`
+	WorkspaceID             string          `json:"workspace_id"`
+	WorkflowTitle           string          `json:"workflow_title"`
+	Status                  string          `json:"status"`
+	TriggeredByType         string          `json:"triggered_by_type"`
+	TriggeredByID           *string         `json:"triggered_by_id"`
+	RuntimeID               *string         `json:"runtime_id"`
+	RuntimeSelectionPolicy  string          `json:"runtime_selection_policy"`
+	Input                   json.RawMessage `json:"input"`
+	Output                  json.RawMessage `json:"output"`
+	StartedAt               string          `json:"started_at"`
+	CompletedAt             *string         `json:"completed_at"`
+	CreatedAt               string          `json:"created_at"`
+	SourceConfigRevision    int64           `json:"source_config_revision,omitempty"`
+	DefinitionSchemaVersion int32           `json:"definition_schema_version,omitempty"`
+	DefinitionSnapshot      json.RawMessage `json:"definition_snapshot,omitempty"`
+	MaxRetries              int32           `json:"max_retries,omitempty"`
+	FailureReason           *string         `json:"failure_reason,omitempty"`
+	ValidationErrors        json.RawMessage `json:"validation_errors,omitempty"`
 }
 
 type WorkflowNodeRunResponse struct {
 	ID                       string          `json:"id"`
 	WorkflowRunID            string          `json:"workflow_run_id"`
 	WorkflowNodeID           string          `json:"workflow_node_id"`
+	SourceWorkflowNodeID     string          `json:"source_workflow_node_id,omitempty"`
 	NodeTitle                string          `json:"node_title"`
+	NodeDescription          string          `json:"node_description,omitempty"`
 	Status                   string          `json:"status"`
 	RetryCount               int32           `json:"retry_count"`
 	WorkerType               string          `json:"worker_type"`
@@ -83,6 +91,14 @@ type WorkflowNodeRunResponse struct {
 	CompletedAt              *string         `json:"completed_at"`
 	CreatedAt                string          `json:"created_at"`
 	UpdatedAt                string          `json:"updated_at"`
+	FormatSchema             json.RawMessage `json:"format_schema,omitempty"`
+	CriticAPIURL             *string         `json:"critic_api_url,omitempty"`
+	StageSnapshot            json.RawMessage `json:"stage_snapshot,omitempty"`
+	WorkerRoleSnapshot       json.RawMessage `json:"worker_role_snapshot,omitempty"`
+	CriticRoleSnapshot       json.RawMessage `json:"critic_role_snapshot,omitempty"`
+	RuntimeConfig            json.RawMessage `json:"runtime_config,omitempty"`
+	WorkerNameSnapshot       string          `json:"worker_name_snapshot,omitempty"`
+	CriticNameSnapshot       string          `json:"critic_name_snapshot,omitempty"`
 }
 
 type WorkflowNodeRuntimeSummaryResponse struct {
@@ -104,29 +120,38 @@ type WorkflowNodeRuntimeSummaryResponse struct {
 
 func workflowRunToResponse(r db.MulticaWorkflowRun) WorkflowRunResponse {
 	return WorkflowRunResponse{
-		ID:                     uuidToString(r.ID),
-		WorkflowID:             uuidToString(r.WorkflowID),
-		WorkspaceID:            uuidToString(r.WorkspaceID),
-		WorkflowTitle:          r.WorkflowTitle,
-		Status:                 r.Status,
-		TriggeredByType:        r.TriggeredByType,
-		TriggeredByID:          uuidToPtr(r.TriggeredByID),
-		RuntimeID:              uuidToPtr(r.RuntimeID),
-		RuntimeSelectionPolicy: r.RuntimeSelectionPolicy,
-		Input:                  json.RawMessage(r.Input),
-		Output:                 json.RawMessage(r.Output),
-		StartedAt:              timestampToString(r.StartedAt),
-		CompletedAt:            timestampToPtr(r.CompletedAt),
-		CreatedAt:              timestampToString(r.CreatedAt),
+		ID:                      uuidToString(r.ID),
+		WorkflowID:              uuidToString(r.WorkflowID),
+		WorkspaceID:             uuidToString(r.WorkspaceID),
+		WorkflowTitle:           r.WorkflowTitle,
+		Status:                  r.Status,
+		TriggeredByType:         r.TriggeredByType,
+		TriggeredByID:           uuidToPtr(r.TriggeredByID),
+		RuntimeID:               uuidToPtr(r.RuntimeID),
+		RuntimeSelectionPolicy:  r.RuntimeSelectionPolicy,
+		Input:                   json.RawMessage(r.Input),
+		Output:                  json.RawMessage(r.Output),
+		StartedAt:               timestampToString(r.StartedAt),
+		CompletedAt:             timestampToPtr(r.CompletedAt),
+		CreatedAt:               timestampToString(r.CreatedAt),
+		SourceConfigRevision:    r.SourceConfigRevision,
+		DefinitionSchemaVersion: r.DefinitionSchemaVersion,
+		DefinitionSnapshot:      json.RawMessage(r.DefinitionSnapshot),
+		MaxRetries:              r.MaxRetries,
+		FailureReason:           textToPtr(r.FailureReason),
+		ValidationErrors:        json.RawMessage(r.ValidationErrors),
 	}
 }
 
 func workflowNodeRunToResponse(nr db.MulticaWorkflowNodeRun) WorkflowNodeRunResponse {
+	sourceNodeID := uuidToString(nr.SourceWorkflowNodeID)
 	return WorkflowNodeRunResponse{
 		ID:                       uuidToString(nr.ID),
 		WorkflowRunID:            uuidToString(nr.WorkflowRunID),
-		WorkflowNodeID:           uuidToString(nr.WorkflowNodeID),
+		WorkflowNodeID:           sourceNodeID,
+		SourceWorkflowNodeID:     sourceNodeID,
 		NodeTitle:                nr.NodeTitle,
+		NodeDescription:          nr.NodeDescription,
 		Status:                   nr.Status,
 		RetryCount:               nr.RetryCount,
 		WorkerType:               nr.WorkerType,
@@ -150,6 +175,14 @@ func workflowNodeRunToResponse(nr db.MulticaWorkflowNodeRun) WorkflowNodeRunResp
 		CompletedAt:              timestampToPtr(nr.CompletedAt),
 		CreatedAt:                timestampToString(nr.CreatedAt),
 		UpdatedAt:                timestampToString(nr.UpdatedAt),
+		FormatSchema:             json.RawMessage(nr.FormatSchema),
+		CriticAPIURL:             textToPtr(nr.CriticApiUrl),
+		StageSnapshot:            json.RawMessage(nr.StageSnapshot),
+		WorkerRoleSnapshot:       json.RawMessage(nr.WorkerRoleSnapshot),
+		CriticRoleSnapshot:       json.RawMessage(nr.CriticRoleSnapshot),
+		RuntimeConfig:            json.RawMessage(nr.RuntimeConfig),
+		WorkerNameSnapshot:       nr.WorkerNameSnapshot,
+		CriticNameSnapshot:       nr.CriticNameSnapshot,
 	}
 }
 
@@ -325,7 +358,10 @@ func (h *Handler) StartWorkflowRun(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		var invalid *service.WorkflowConfigInvalidError
 		if errors.As(err, &invalid) {
-			writeError(w, http.StatusUnprocessableEntity, "workflow configuration is invalid")
+			writeJSON(w, http.StatusUnprocessableEntity, map[string]any{
+				"error": "workflow configuration is invalid", "code": "workflow_config_invalid",
+				"run_id": uuidToString(invalid.RunID), "issues": invalid.Issues,
+			})
 			return
 		}
 		if errors.Is(err, service.ErrWorkflowRuntimeSelectionInvalid) {

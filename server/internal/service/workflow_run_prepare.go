@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/multica-ai/multica/server/internal/util"
@@ -98,9 +99,36 @@ func (s *WorkflowService) PrepareWorkflowRunSnapshot(
 		return nil, err
 	}
 	if configErr != nil {
+		s.notifyWorkflowConfigInvalid(ctx, prepared.Run, configErr.Issues)
 		return nil, configErr
 	}
 	return &prepared, nil
+}
+
+func (s *WorkflowService) notifyWorkflowConfigInvalid(ctx context.Context, run db.MulticaWorkflowRun, issues []WorkflowConfigIssue) {
+	s.publishWorkflowEvent(EventWorkflowRunFailed, util.UUIDToString(run.WorkspaceID), map[string]any{
+		"run_id": util.UUIDToString(run.ID), "workflow_id": util.UUIDToString(run.WorkflowID),
+		"failure_reason": "config_invalid", "issues": issues,
+	})
+	if !run.ResponsibleUserID.Valid {
+		return
+	}
+	details, err := json.Marshal(map[string]any{
+		"run_id": util.UUIDToString(run.ID), "workflow_id": util.UUIDToString(run.WorkflowID), "issues": issues,
+	})
+	if err != nil {
+		slog.Warn("workflow config invalid: encode inbox details", "run_id", util.UUIDToString(run.ID), "error", err)
+		return
+	}
+	if _, err := s.Queries.CreateInboxItem(ctx, db.CreateInboxItemParams{
+		WorkspaceID: run.WorkspaceID, RecipientType: "member", RecipientID: run.ResponsibleUserID,
+		Type: "workflow_config_invalid", Severity: "action_required", IssueID: run.SourceIssueID,
+		Title:     "Workflow configuration needs attention",
+		Body:      pgtype.Text{String: "The workflow could not start because its configuration is invalid.", Valid: true},
+		ActorType: pgtype.Text{String: "system", Valid: true}, Details: details,
+	}); err != nil {
+		slog.Warn("workflow config invalid: create inbox notification", "run_id", util.UUIDToString(run.ID), "error", err)
+	}
 }
 
 func loadWorkflowDefinitionRows(

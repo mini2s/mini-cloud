@@ -43,8 +43,9 @@ func TestPrepareWorkflowRunSnapshotInvalidConfigCreatesOnlyFailedRun(t *testing.
 	defer fixture.cleanup(t)
 
 	_, err := fixture.service.PrepareWorkflowRunSnapshot(fixture.ctx, fixture.workflowID, PrepareWorkflowRunParams{
-		TriggeredByType: "member",
-		TriggeredByID:   fixture.userID,
+		TriggeredByType:   "member",
+		TriggeredByID:     fixture.userID,
+		ResponsibleUserID: fixture.userID,
 	})
 	var invalid *WorkflowConfigInvalidError
 	if !errors.As(err, &invalid) {
@@ -64,6 +65,16 @@ func TestPrepareWorkflowRunSnapshotInvalidConfigCreatesOnlyFailedRun(t *testing.
 		t.Fatalf("status=%q failure_reason=%v, want failed/config_invalid", status, failureReason)
 	}
 	fixture.assertRunEntityCounts(t, invalid.RunID, 0, 0, 0, 0)
+	var notifications int
+	if err := fixture.pool.QueryRow(fixture.ctx, `
+		SELECT count(*) FROM multica_inbox_item
+		WHERE workspace_id = $1 AND recipient_id = $2 AND type = 'workflow_config_invalid'
+	`, fixture.workspaceID, fixture.userID).Scan(&notifications); err != nil {
+		t.Fatal(err)
+	}
+	if notifications != 1 {
+		t.Fatalf("config invalid notifications=%d, want 1", notifications)
+	}
 }
 
 func TestPrepareWorkflowRunSnapshotDispatchKeyIsIdempotent(t *testing.T) {
