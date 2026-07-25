@@ -242,14 +242,10 @@ func (w *WorkflowRoleResolutionWorker) process(ctx context.Context, job db.Multi
 		if err != nil {
 			return w.retryGeneric(ctx, job, "resolution_load_failed", err)
 		}
-		node, err := w.Queries.GetWorkflowNode(ctx, nodeRun.WorkflowNodeID)
-		if err != nil {
-			return w.retryGeneric(ctx, job, "resolution_load_failed", err)
-		}
 		slot := WorkflowRoleResolutionSlot{
 			ID: fmt.Sprintf("slot_%d", len(slots)+1), SlotType: row.SlotType,
 			RoleName: row.RoleNameSnapshot, RoleDescription: row.RoleDescriptionSnapshot,
-			NodeTitle: node.Title, NodeDescription: node.Description,
+			NodeTitle: nodeRun.NodeTitle, NodeDescription: nodeRun.NodeDescription,
 		}
 		if workflowRolePromptInjectionSuspected(slot) {
 			unsafeRows = append(unsafeRows, row)

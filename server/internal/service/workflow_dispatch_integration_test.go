@@ -172,6 +172,29 @@ func TestWorkflowDispatchWorkerRetriesRuntimeUnavailableWithoutFailingRun(t *tes
 	}
 }
 
+func TestWorkflowDispatchWorkerUsesNodeSnapshotAfterDefinitionDeletion(t *testing.T) {
+	fixture := newWorkflowDispatchFixture(t)
+	if _, err := fixture.pool.Exec(fixture.ctx, `
+		DELETE FROM multica_workflow_node
+		WHERE id = (
+			SELECT source_workflow_node_id FROM multica_workflow_node_run WHERE id = $1
+		)
+	`, fixture.nodeRunID); err != nil {
+		t.Fatal(err)
+	}
+	if err := fixture.worker("snapshot-worker").runOnce(fixture.ctx); err != nil {
+		t.Fatal(err)
+	}
+	job := fixture.pendingJob(t)
+	task, err := fixture.queries.GetAgentTaskByWorkflowDispatchJob(fixture.ctx, job.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if task.AgentID != fixture.agentID {
+		t.Fatalf("task agent=%v, want snapshot agent %v", task.AgentID, fixture.agentID)
+	}
+}
+
 func TestWorkflowDispatchWorkerDispatchesSplitNodeFromSnapshot(t *testing.T) {
 	fixture := newWorkflowDispatchFixture(t)
 	if _, err := fixture.pool.Exec(fixture.ctx, `

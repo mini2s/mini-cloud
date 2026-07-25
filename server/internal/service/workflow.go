@@ -703,17 +703,13 @@ func (s *WorkflowService) TransitionNodeRun(ctx context.Context, nodeRun db.Mult
 }
 
 func (s *WorkflowService) completeGatewayNodeRun(ctx context.Context, nodeRun db.MulticaWorkflowNodeRun) (bool, error) {
-	node, err := s.Queries.GetWorkflowNode(ctx, nodeRun.WorkflowNodeID)
-	if err != nil {
-		return false, fmt.Errorf("get node: %w", err)
-	}
-	if isInvalidWorkflowGatewayFormat(node.FormatSchema) {
+	if isInvalidWorkflowGatewayFormat(nodeRun.FormatSchema) {
 		if _, err := s.TransitionNodeRun(ctx, nodeRun, NodeRunStatusFormatFailed); err != nil {
 			return true, err
 		}
 		return true, nil
 	}
-	if _, ok := parseWorkflowNodeFormat(node.FormatSchema); !ok {
+	if _, ok := parseWorkflowNodeFormat(nodeRun.FormatSchema); !ok {
 		return false, nil
 	}
 
@@ -1276,11 +1272,7 @@ func (s *WorkflowService) dispatchWorkerForJob(ctx context.Context, nodeRun db.M
 		return fmt.Errorf("ensure node branch: %w", err)
 	}
 
-	node, err := s.Queries.GetWorkflowNode(ctx, nodeRun.WorkflowNodeID)
-	if err != nil {
-		return fmt.Errorf("get node: %w", err)
-	}
-	if workflowNodeType(node.FormatSchema) == "split" {
+	if workflowNodeType(nodeRun.FormatSchema) == "split" {
 		_, err := s.TransitionNodeRun(ctx, nodeRun, NodeRunStatusSplitting)
 		return err
 	}
@@ -1365,14 +1357,9 @@ func (s *WorkflowService) DispatchAgentTaskWithContextExtras(ctx context.Context
 // task JSON Schema is retired; format_schema is still used as node metadata by
 // split and gateway handling.
 func (s *WorkflowService) executeFormatChecker(ctx context.Context, qtx *db.Queries, nodeRun db.MulticaWorkflowNodeRun) error {
-	node, err := qtx.GetWorkflowNode(ctx, nodeRun.WorkflowNodeID)
-	if err != nil {
-		return err
-	}
-
-	if len(node.FormatSchema) == 0 || !shouldValidateNodeInputFormatSchema(node.FormatSchema) {
+	if len(nodeRun.FormatSchema) == 0 || !shouldValidateNodeInputFormatSchema(nodeRun.FormatSchema) {
 		// Continue to worker dispatch while preserving node metadata handling downstream.
-		if isRetiredTaskJSONSchema(node.FormatSchema) {
+		if isRetiredTaskJSONSchema(nodeRun.FormatSchema) {
 			slog.Warn("workflow: skipping retired task format_schema validation",
 				"node_run_id", util.UUIDToString(nodeRun.ID),
 				"workflow_node_id", util.UUIDToString(nodeRun.WorkflowNodeID),
@@ -1395,7 +1382,7 @@ func (s *WorkflowService) executeFormatChecker(ctx context.Context, qtx *db.Quer
 		return err
 	}
 
-	valid, valErr := validateJSONSchema(node.FormatSchema, run.Input)
+	valid, valErr := validateJSONSchema(nodeRun.FormatSchema, run.Input)
 	if !valid {
 		if _, err := s.TransitionNodeRun(ctx, nodeRun, NodeRunStatusFormatFailed); err != nil {
 			return err

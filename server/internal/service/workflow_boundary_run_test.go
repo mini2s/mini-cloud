@@ -54,7 +54,7 @@ func TestWorkflowBoundaryNodesDoNotCreateRuns(t *testing.T) {
 	svc := NewWorkflowService(q, pool, nil, nil)
 	suffix := fmt.Sprintf("boundary-%d-%d", os.Getpid(), time.Now().UnixNano())
 
-	var workspaceID string
+	var workspaceID, userID string
 	if err := pool.QueryRow(ctx, `
 		INSERT INTO multica_workspace (name, slug, description, issue_prefix)
 		VALUES ($1, $2, 'boundary run test workspace', 'BND')
@@ -62,17 +62,30 @@ func TestWorkflowBoundaryNodesDoNotCreateRuns(t *testing.T) {
 	`, "Boundary Run Test Workspace "+suffix, suffix).Scan(&workspaceID); err != nil {
 		t.Fatalf("create workspace: %v", err)
 	}
+	if err := pool.QueryRow(ctx, `
+		INSERT INTO multica_user (name, email)
+		VALUES ('Boundary User', $1)
+		RETURNING id
+	`, suffix+"@multica.test").Scan(&userID); err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO multica_member (workspace_id, user_id, role)
+		VALUES ($1, $2, 'owner')
+	`, workspaceID, userID); err != nil {
+		t.Fatalf("create member: %v", err)
+	}
 	t.Cleanup(func() {
-		_, _ = pool.Exec(ctx, `DELETE FROM multica_workflow WHERE workspace_id = $1`, workspaceID)
 		_, _ = pool.Exec(ctx, `DELETE FROM multica_workspace WHERE id = $1`, workspaceID)
+		_, _ = pool.Exec(ctx, `DELETE FROM multica_user WHERE id = $1`, userID)
 	})
 
 	var workflowID string
 	if err := pool.QueryRow(ctx, `
 		INSERT INTO multica_workflow (workspace_id, title, description, status, max_retries, created_by_type, created_by_id)
-		VALUES ($1, 'Boundary Run', 'boundary execution filtering', 'active', 3, 'member', gen_random_uuid())
+		VALUES ($1, 'Boundary Run', 'boundary execution filtering', 'active', 3, 'member', $2)
 		RETURNING id
-	`, workspaceID).Scan(&workflowID); err != nil {
+	`, workspaceID, userID).Scan(&workflowID); err != nil {
 		t.Fatalf("create workflow: %v", err)
 	}
 
@@ -82,11 +95,11 @@ func TestWorkflowBoundaryNodesDoNotCreateRuns(t *testing.T) {
 		if err := pool.QueryRow(ctx, `
 			INSERT INTO multica_workflow_node (
 				workflow_id, title, description, position_x, position_y,
-				format_schema, worker_type, critic_type, sort_order
+				format_schema, worker_type, worker_id, critic_type, critic_id, sort_order
 			)
-			VALUES ($1, $2, '', 0, 0, $3::jsonb, 'human', 'human', $4)
+			VALUES ($1, $2, '', 0, 0, $3::jsonb, 'human', $4, 'human', $4, $5)
 			RETURNING id
-		`, workflowID, title, format, sortOrder).Scan(&id); err != nil {
+		`, workflowID, title, format, userID, sortOrder).Scan(&id); err != nil {
 			t.Fatalf("create node %s: %v", title, err)
 		}
 		return id
@@ -123,7 +136,7 @@ func TestWorkflowBoundaryNodesDoNotCreateRuns(t *testing.T) {
 		WorkspaceID: workspaceUUID,
 		Title:       "Boundary Run",
 		Status:      "active",
-	}, "member", "", json.RawMessage(`{}`), pgtype.UUID{})
+	}, "member", userID, json.RawMessage(`{}`), pgtype.UUID{})
 	if err != nil {
 		t.Fatalf("StartRun: %v", err)
 	}
@@ -144,30 +157,64 @@ func TestWorkflowBoundaryNodesDoNotCreateRuns(t *testing.T) {
 	if !rootOK || !dependentOK {
 		t.Fatalf("unexpected node runs: %#v", byTitle)
 	}
-	if rootRun.Status != NodeRunStatusFormatChecking || dependentRun.Status != NodeRunStatusPending {
-		t.Fatalf("initial statuses = (%s, %s), want (%s, %s)", rootRun.Status, dependentRun.Status, NodeRunStatusFormatChecking, NodeRunStatusPending)
+	if rootRun.Status != NodeRunStatusFormatOk || dependentRun.Status != NodeRunStatusPending {
+		t.Fatalf("initial statuses = (%s, %s), want (%s, %s)", rootRun.Status, dependentRun.Status, NodeRunStatusFormatOk, NodeRunStatusPending)
 	}
 
-	completedRoot, err := svc.TransitionNodeRun(ctx, rootRun, NodeRunStatusCompleted)
-	if err != nil {
-		t.Fatalf("complete root: %v", err)
+	drainNextDispatch := func() {
+		t.Helper()
+		if _, err := pool.Exec(ctx, `
+			UPDATE multica_workflow_node_run_dispatch_job
+			SET scheduled_at = '1990-01-01 00:00:00+00'
+			WHERE workflow_run_id = $1 AND status = 'pending'
+		`, run.ID); err != nil {
+			t.Fatal(err)
+		}
+		worker := &WorkflowDispatchWorker{
+			Queries: q, TxStarter: pool, Workflow: svc,
+			WorkerID: "boundary-worker", LeaseDuration: 30 * time.Second,
+		}
+		if err := worker.runOnce(ctx); err != nil {
+			t.Fatal(err)
+		}
 	}
-	if err := svc.OnNodeRunCompleted(ctx, completedRoot.ID); err != nil {
-		t.Fatalf("propagate root completion: %v", err)
+	completeHumanNode := func(nodeRunID pgtype.UUID) {
+		t.Helper()
+		nodeRun, err := q.GetWorkflowNodeRun(ctx, nodeRunID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := svc.TransitionNodeRun(ctx, nodeRun, NodeRunStatusWorking); err != nil {
+			t.Fatal(err)
+		}
+		if err := svc.SubmitWorkerOutput(ctx, nodeRun.ID, json.RawMessage(`{"result":"done"}`)); err != nil {
+			t.Fatal(err)
+		}
+		drainNextDispatch()
+		if err := svc.ReviewNodeRun(ctx, nodeRun.ID, true, "", json.RawMessage(`{"approved":true}`)); err != nil {
+			t.Fatal(err)
+		}
 	}
+
+	drainNextDispatch()
+	rootRun, err = q.GetWorkflowNodeRun(ctx, rootRun.ID)
+	if err != nil || rootRun.Status != NodeRunStatusWorkerAssigned {
+		t.Fatalf("root after dispatch=%s error=%v", rootRun.Status, err)
+	}
+	completeHumanNode(rootRun.ID)
 	dependentRun, err = q.GetWorkflowNodeRun(ctx, dependentRun.ID)
 	if err != nil {
 		t.Fatalf("reload dependent run: %v", err)
 	}
-	if dependentRun.Status != NodeRunStatusWorkerAssigned {
-		t.Fatalf("dependent status = %s, want %s", dependentRun.Status, NodeRunStatusWorkerAssigned)
+	if dependentRun.Status != NodeRunStatusFormatOk {
+		t.Fatalf("dependent status = %s, want %s", dependentRun.Status, NodeRunStatusFormatOk)
 	}
-	if err := svc.SubmitWorkerOutput(ctx, dependentRun.ID, json.RawMessage(`{"result":"done"}`)); err != nil {
-		t.Fatalf("submit dependent output: %v", err)
+	drainNextDispatch()
+	dependentRun, err = q.GetWorkflowNodeRun(ctx, dependentRun.ID)
+	if err != nil || dependentRun.Status != NodeRunStatusWorkerAssigned {
+		t.Fatalf("dependent after dispatch=%s error=%v", dependentRun.Status, err)
 	}
-	if err := svc.ReviewNodeRun(ctx, dependentRun.ID, true, "", json.RawMessage(`{"approved":true}`)); err != nil {
-		t.Fatalf("approve dependent output: %v", err)
-	}
+	completeHumanNode(dependentRun.ID)
 
 	completedRun, err := q.GetWorkflowRun(ctx, run.ID)
 	if err != nil {

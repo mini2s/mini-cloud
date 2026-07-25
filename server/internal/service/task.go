@@ -592,21 +592,13 @@ func (s *TaskService) buildWorkflowTaskContext(ctx context.Context, nodeRunID pg
 	if err != nil {
 		return nil, fmt.Errorf("get run: %w", err)
 	}
-	workflow, err := s.Queries.GetWorkflow(ctx, run.WorkflowID)
-	if err != nil {
-		return nil, fmt.Errorf("get workflow: %w", err)
-	}
-	node, err := s.Queries.GetWorkflowNode(ctx, nodeRun.WorkflowNodeID)
-	if err != nil {
-		return nil, fmt.Errorf("get node: %w", err)
-	}
 	contextPayload := map[string]any{
 		"type":                   "workflow",
-		"workflow_id":            util.UUIDToString(workflow.ID),
-		"workflow_title":         workflow.Title,
+		"workflow_id":            util.UUIDToString(run.WorkflowID),
+		"workflow_title":         run.WorkflowTitle,
 		"workflow_run_id":        util.UUIDToString(run.ID),
-		"workflow_node_id":       util.UUIDToString(node.ID),
-		"node_title":             node.Title,
+		"workflow_node_id":       util.UUIDToString(nodeRun.SourceWorkflowNodeID),
+		"node_title":             nodeRun.NodeTitle,
 		"node_run_id":            util.UUIDToString(nodeRun.ID),
 		"phase":                  phase,
 		"worker_can_await_input": phase == "worker",
@@ -2320,13 +2312,11 @@ func (s *TaskService) ResolveTaskWorkspaceID(ctx context.Context, task db.Multic
 			}
 		}
 	}
-	// Workflow tasks: resolve workspace from workflow_node_run → run → workflow.
+	// Workflow tasks: workspace is frozen directly on the run.
 	if task.WorkflowNodeRunID.Valid {
 		if nodeRun, err := s.Queries.GetWorkflowNodeRun(ctx, task.WorkflowNodeRunID); err == nil {
 			if run, err := s.Queries.GetWorkflowRun(ctx, nodeRun.WorkflowRunID); err == nil {
-				if wf, err := s.Queries.GetWorkflow(ctx, run.WorkflowID); err == nil {
-					return util.UUIDToString(wf.WorkspaceID)
-				}
+				return util.UUIDToString(run.WorkspaceID)
 			}
 		}
 	}

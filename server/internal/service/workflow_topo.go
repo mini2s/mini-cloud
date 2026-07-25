@@ -44,6 +44,42 @@ func NodeTopoOrder(ctx context.Context, q *db.Queries, workflowID pgtype.UUID) (
 	return gitea.NodeTopoOrder(topoNodes, topoEdges), nil
 }
 
+// RunNodeTopoOrder returns stable positions keyed by node-run ID. Runtime
+// edges determine dependencies while the immutable definition snapshot only
+// supplies the captured sort order.
+func RunNodeTopoOrder(ctx context.Context, q *db.Queries, runID pgtype.UUID) (map[string]int, error) {
+	nodeRuns, err := q.ListWorkflowNodeRunsByRun(ctx, runID)
+	if err != nil {
+		return nil, fmt.Errorf("list workflow node runs: %w", err)
+	}
+	edges, err := q.ListWorkflowRunEdges(ctx, runID)
+	if err != nil {
+		return nil, fmt.Errorf("list workflow run edges: %w", err)
+	}
+	sortOrderBySource := make(map[string]int32, len(nodeRuns))
+	if snapshot, snapshotErr := (WorkflowRuntimeRepository{Queries: q}).GetRunDefinitionSnapshot(ctx, runID); snapshotErr == nil {
+		for _, node := range snapshot.Nodes {
+			sortOrderBySource[node.ID] = node.SortOrder
+		}
+	}
+	topoNodes := make([]gitea.TopoNode, len(nodeRuns))
+	for i, nodeRun := range nodeRuns {
+		topoNodes[i] = gitea.TopoNode{
+			ID:        util.UUIDToString(nodeRun.ID),
+			SortOrder: sortOrderBySource[util.UUIDToString(nodeRun.SourceWorkflowNodeID)],
+			Title:     nodeRun.NodeTitle,
+		}
+	}
+	topoEdges := make([]gitea.TopoEdge, len(edges))
+	for i, edge := range edges {
+		topoEdges[i] = gitea.TopoEdge{
+			From: util.UUIDToString(edge.SourceNodeRunID),
+			To:   util.UUIDToString(edge.TargetNodeRunID),
+		}
+	}
+	return gitea.NodeTopoOrder(topoNodes, topoEdges), nil
+}
+
 // workflowDAGHasCycle reports whether the directed graph contains a cycle.
 // Unknown edge endpoints are ignored because callers validate references
 // separately before using this topology result.

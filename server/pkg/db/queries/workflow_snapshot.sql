@@ -231,6 +231,35 @@ FROM multica_workflow_run_edge
 WHERE target_node_run_id = $1
 ORDER BY created_at, id;
 
+-- name: ListCompletedRuntimeUpstreamNodeRuns :many
+WITH RECURSIVE upstream(node_run_id) AS (
+    SELECT edge.source_node_run_id
+    FROM multica_workflow_run_edge edge
+    WHERE edge.target_node_run_id = sqlc.arg('node_run_id')
+    UNION
+    SELECT edge.source_node_run_id
+    FROM multica_workflow_run_edge edge
+    JOIN upstream ON upstream.node_run_id = edge.target_node_run_id
+), current_node AS (
+    SELECT workflow_run_id,
+           COALESCE((stage_snapshot ->> 'sort_order')::int, -1) AS stage_sort_order
+    FROM multica_workflow_node_run
+    WHERE id = sqlc.arg('node_run_id')
+)
+SELECT
+    node_run.id,
+    node_run.source_workflow_node_id AS workflow_node_id,
+    node_run.node_title,
+    node_run.status,
+    node_run.worker_output
+FROM upstream
+JOIN multica_workflow_node_run node_run ON node_run.id = upstream.node_run_id
+JOIN current_node ON current_node.workflow_run_id = node_run.workflow_run_id
+WHERE node_run.status = 'completed'
+  AND COALESCE((node_run.stage_snapshot ->> 'sort_order')::int, -1) < current_node.stage_sort_order
+ORDER BY COALESCE((node_run.stage_snapshot ->> 'sort_order')::int, -1), node_run.created_at, node_run.id
+LIMIT sqlc.arg('result_limit');
+
 -- name: ListNodeRunDeliverableRequirements :many
 SELECT *
 FROM multica_workflow_node_run_deliverable

@@ -498,6 +498,75 @@ func (q *Queries) GetWorkflowWorkspaceID(ctx context.Context, id pgtype.UUID) (p
 	return workspace_id, err
 }
 
+const listCompletedRuntimeUpstreamNodeRuns = `-- name: ListCompletedRuntimeUpstreamNodeRuns :many
+WITH RECURSIVE upstream(node_run_id) AS (
+    SELECT edge.source_node_run_id
+    FROM multica_workflow_run_edge edge
+    WHERE edge.target_node_run_id = $2
+    UNION
+    SELECT edge.source_node_run_id
+    FROM multica_workflow_run_edge edge
+    JOIN upstream ON upstream.node_run_id = edge.target_node_run_id
+), current_node AS (
+    SELECT workflow_run_id,
+           COALESCE((stage_snapshot ->> 'sort_order')::int, -1) AS stage_sort_order
+    FROM multica_workflow_node_run
+    WHERE id = $2
+)
+SELECT
+    node_run.id,
+    node_run.source_workflow_node_id AS workflow_node_id,
+    node_run.node_title,
+    node_run.status,
+    node_run.worker_output
+FROM upstream
+JOIN multica_workflow_node_run node_run ON node_run.id = upstream.node_run_id
+JOIN current_node ON current_node.workflow_run_id = node_run.workflow_run_id
+WHERE node_run.status = 'completed'
+  AND COALESCE((node_run.stage_snapshot ->> 'sort_order')::int, -1) < current_node.stage_sort_order
+ORDER BY COALESCE((node_run.stage_snapshot ->> 'sort_order')::int, -1), node_run.created_at, node_run.id
+LIMIT $1
+`
+
+type ListCompletedRuntimeUpstreamNodeRunsParams struct {
+	ResultLimit int32       `json:"result_limit"`
+	NodeRunID   pgtype.UUID `json:"node_run_id"`
+}
+
+type ListCompletedRuntimeUpstreamNodeRunsRow struct {
+	ID             pgtype.UUID `json:"id"`
+	WorkflowNodeID pgtype.UUID `json:"workflow_node_id"`
+	NodeTitle      string      `json:"node_title"`
+	Status         string      `json:"status"`
+	WorkerOutput   []byte      `json:"worker_output"`
+}
+
+func (q *Queries) ListCompletedRuntimeUpstreamNodeRuns(ctx context.Context, arg ListCompletedRuntimeUpstreamNodeRunsParams) ([]ListCompletedRuntimeUpstreamNodeRunsRow, error) {
+	rows, err := q.db.Query(ctx, listCompletedRuntimeUpstreamNodeRuns, arg.ResultLimit, arg.NodeRunID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListCompletedRuntimeUpstreamNodeRunsRow{}
+	for rows.Next() {
+		var i ListCompletedRuntimeUpstreamNodeRunsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.WorkflowNodeID,
+			&i.NodeTitle,
+			&i.Status,
+			&i.WorkerOutput,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listNodeRunDeliverableRequirements = `-- name: ListNodeRunDeliverableRequirements :many
 SELECT id, workflow_node_run_id, source_deliverable_id, kind, title, description, required, sort_order, created_at
 FROM multica_workflow_node_run_deliverable
