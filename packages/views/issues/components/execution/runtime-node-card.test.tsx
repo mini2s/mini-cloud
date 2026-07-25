@@ -9,6 +9,7 @@ import {
 } from "./runtime-node-card";
 import type { NodeRunActionType } from "./runtime-node-card";
 import type { WorkflowNode, WorkflowNodeRun, WorkflowNodeRuntimeSummary } from "@multica/core/types";
+import type { WorkflowActorIdentity } from "../../../common/workflow-actor-slots";
 
 // Mock @multica/views/i18n for useT hook — handles function selector form
 vi.mock("@multica/views/i18n", () => {
@@ -171,7 +172,61 @@ const runtimeSummary: WorkflowNodeRuntimeSummary = {
   split_progress: null,
 };
 
+function actorIdentity(
+  name: string,
+  type: WorkflowActorIdentity["type"] = "member",
+): WorkflowActorIdentity {
+  return {
+    type,
+    id: `${type}-1`,
+    name,
+    typeLabel: type === "agent" ? "Digital human" : "Member",
+    initials: name.slice(0, 2),
+    avatarUrl: null,
+  };
+}
+
 describe("RuntimeNodeCard", () => {
+  it("renders resolved actor identity and agent availability", () => {
+    const workerIdentity: WorkflowActorIdentity = {
+      type: "agent",
+      id: "agent-1",
+      name: "Runtime Agent",
+      typeLabel: "Digital human",
+      initials: "RA",
+      avatarUrl: null,
+      availability: "offline",
+      availabilityLabel: "Offline",
+    };
+    const criticIdentity: WorkflowActorIdentity = {
+      type: "member",
+      id: "member-1",
+      name: "Runtime Reviewer",
+      typeLabel: "Member",
+      initials: "RR",
+      avatarUrl: null,
+    };
+
+    render(
+      <RuntimeNodeCard
+        node={baseNode}
+        nodeRun={completedRun}
+        workerName="Runtime Agent"
+        criticName="Runtime Reviewer"
+        workerIdentity={workerIdentity}
+        criticIdentity={criticIdentity}
+        onClick={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText("Runtime Agent")).toBeInTheDocument();
+    expect(screen.getByText("Digital human")).toBeInTheDocument();
+    expect(screen.getByText("Offline")).toBeInTheDocument();
+    expect(screen.getByText("Runtime Reviewer")).toBeInTheDocument();
+    expect(screen.getByText("Member")).toBeInTheDocument();
+    expect(screen.getByTestId("runtime-node-card-node-1").querySelector("[data-workflow-actor-state]")).not.toBeInTheDocument();
+  });
+
   it("renders child issue progress context instead of executor and reviewer slots", () => {
     render(
       <RuntimeNodeCard
@@ -212,6 +267,8 @@ describe("RuntimeNodeCard", () => {
         nodeRun={completedRun}
         workerName="小助手"
         criticName="审核员"
+        workerIdentity={actorIdentity("小助手", "agent")}
+        criticIdentity={actorIdentity("审核员")}
         onClick={vi.fn()}
       />,
     );
@@ -472,6 +529,8 @@ describe("RuntimeNodeCard", () => {
         runtimeSummary={runtimeSummary}
         workerName="Tester"
         criticName="Reviewer"
+        workerIdentity={actorIdentity("Tester", "agent")}
+        criticIdentity={actorIdentity("Reviewer")}
         onClick={vi.fn()}
       />,
     );
@@ -546,6 +605,8 @@ describe("RuntimeNodeCard", () => {
         nodeRun={completedRun}
         workerName="小助手"
         criticName="审核员"
+        workerIdentity={actorIdentity("小助手", "agent")}
+        criticIdentity={actorIdentity("审核员")}
         onClick={vi.fn()}
       />,
     );
@@ -698,6 +759,8 @@ describe("RuntimeNodeCard", () => {
         }}
         workerName="Tester"
         criticName="Reviewer"
+        workerIdentity={actorIdentity("Tester", "agent")}
+        criticIdentity={actorIdentity("Reviewer")}
         onClick={vi.fn()}
       />,
     );
@@ -742,12 +805,17 @@ describe("RuntimeNodeCard", () => {
         nodeRun={completedRun}
         workerName="Extremely Long Runtime Worker Name For Verification"
         criticName="Extremely Long Runtime Reviewer Name"
+        workerIdentity={actorIdentity("Extremely Long Runtime Worker Name For Verification", "agent")}
+        criticIdentity={actorIdentity("Extremely Long Runtime Reviewer Name")}
         onClick={vi.fn()}
       />,
     );
 
     expect(screen.getByText(/Long runtime node title/).className).toContain("line-clamp-2");
-    expect(screen.getByText(/Extremely Long Runtime Worker/).className).toContain("line-clamp-2");
+    expect(screen.getByText(/Extremely Long Runtime Worker/)).toHaveAttribute(
+      "title",
+      "Extremely Long Runtime Worker Name For Verification",
+    );
   });
 
   it("renders split child progress as the expansion control without opening the split panel", async () => {
