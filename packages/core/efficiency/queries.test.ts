@@ -753,6 +753,34 @@ describe("efficiencyKeys", () => {
     );
   });
 
+  it("chatTraceLogs key nests the request body under wsId", () => {
+    const req = {
+      datasource_id: "ds-1",
+      request_id: "req-123",
+      start_time: "2026-07-21T00:00:00Z",
+      end_time: "2026-07-21T23:59:59Z",
+      limit: 100,
+    };
+    expect(efficiencyKeys.chatTraceLogs("ws1", req)).toEqual([
+      "efficiency",
+      "ws1",
+      "chat",
+      "trace-logs",
+      req,
+    ]);
+  });
+
+  it("chatTraceLogs distinguishes different request_ids", () => {
+    const base = {
+      datasource_id: "ds-1",
+      start_time: "2026-07-21T00:00:00Z",
+      end_time: "2026-07-21T23:59:59Z",
+    };
+    expect(efficiencyKeys.chatTraceLogs("ws1", { ...base, request_id: "req-a" })).not.toEqual(
+      efficiencyKeys.chatTraceLogs("ws1", { ...base, request_id: "req-b" }),
+    );
+  });
+
   it("each chat segment namespacing is distinct (no cross-query cache collisions)", () => {
     const segments = [
       efficiencyKeys.chatPricing("ws1"),
@@ -773,6 +801,12 @@ describe("efficiencyKeys", () => {
         end_time: "2026-07-21T23:59:59Z",
       }),
       efficiencyKeys.chatLogPreview("ws1", "/var/log/chat/req-0.log"),
+      efficiencyKeys.chatTraceLogs("ws1", {
+        datasource_id: "ds-1",
+        request_id: "req-0",
+        start_time: "2026-07-21T00:00:00Z",
+        end_time: "2026-07-21T23:59:59Z",
+      }),
     ];
     const dedup = new Set(segments.map((k) => JSON.stringify(k)));
     expect(dedup.size).toBe(segments.length);

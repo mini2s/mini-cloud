@@ -43,6 +43,8 @@ import type {
   ChatSystemConfig,
   ChatTokenTrendItem,
   ChatTopUserItem,
+  ChatTraceLogEntry,
+  ChatTraceLogResponse,
   ChatUserRankingRow,
   ChatUserTrendRow,
   ChatUsersRankingResp,
@@ -524,6 +526,56 @@ export function getMockChatLogPreview(
     exceeded: false,
     content,
     message: undefined,
+  };
+}
+
+// ============================ Platform ops: trace logs (Loki) ============================
+
+// Trace-log samples for the RealtimeQuery "链路日志" drawer. The backend query
+// targets a Loki datasource scoped to a single request_id across the form's
+// time window; each entry is a timestamped log line. We synthesize a plausible
+// request lifecycle (receive → route → upstream call → stream chunks → complete)
+// anchored on the window's start so the drawer shows a coherent timeline. The
+// cursor/has_more paging fields are static (no second page in the mock).
+export function getMockChatTraceLogs(
+  req: {
+    datasource_id: string;
+    request_id: string;
+    label_selector?: string;
+    start_time: string;
+    end_time: string;
+    limit?: number;
+    cursor?: string;
+  },
+): ChatTraceLogResponse {
+  const limit = req.limit ?? 100;
+  // Anchor the synthetic timeline on the window start (fallback: a fixed ts).
+  const baseMs = req.start_time
+    ? Date.parse(req.start_time)
+    : Date.parse("2026-07-21T10:15:00Z");
+  const anchor = Number.isFinite(baseMs) ? baseMs : Date.now();
+  const rid = req.request_id || "req-unknown";
+  const model = MODEL_NAMES[0]!;
+  const lines: Array<{ offsetMs: number; level: string; text: string }> = [
+    { offsetMs: 0, level: "INFO", text: `request received request_id=${rid} model=${model} mode=chat` },
+    { offsetMs: 120, level: "INFO", text: `auth ok user_id=u-301 universal_id=u-301 client=ide/2.4.1` },
+    { offsetMs: 180, level: "INFO", text: `auto-router selected model=${model} routed_model=${model}` },
+    { offsetMs: 240, level: "INFO", text: `upstream connect host=api.example.com port=443 tls=true` },
+    { offsetMs: 420, level: "INFO", text: `first token ttft=180ms prompt_tokens=4840` },
+    { offsetMs: 1800, level: "WARN", text: `slow chunk detected gap=640ms chunk_index=12` },
+    { offsetMs: 2400, level: "INFO", text: `stream complete completion_tokens=1280 duration=2400ms` },
+    { offsetMs: 2420, level: "INFO", text: `request finished cost=0.32 status=ok` },
+  ];
+  const entries: ChatTraceLogEntry[] = lines
+    .slice(0, limit)
+    .map(({ offsetMs, level, text }) => {
+      const ts = new Date(anchor + offsetMs).toISOString();
+      return { timestamp: ts, line: `${ts.replace("T", " ").replace("Z", "")} [${level}] ${text}` };
+    });
+  return {
+    entries,
+    next_cursor: "",
+    has_more: false,
   };
 }
 

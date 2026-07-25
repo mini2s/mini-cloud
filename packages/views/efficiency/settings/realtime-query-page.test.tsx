@@ -55,6 +55,17 @@ vi.mock("@tanstack/react-query", async () => {
             limit: 100,
             order: "desc",
           });
+        else if (segment === "trace-logs") {
+          // The drawer fetches trace logs scoped to a request_id. Return the
+          // mock factory so the drawer renders entries.
+          const req = key[4] as {
+            datasource_id: string;
+            request_id: string;
+            start_time: string;
+            end_time: string;
+          };
+          data = eff.mock.chatTraceLogs(req);
+        }
       }
       const resolved = queryEnabled && data !== undefined;
       return {
@@ -132,6 +143,63 @@ describe("RealtimeQueryPage (smoke)", () => {
     // The detail dialog title carries the "请求详情" prefix.
     await waitFor(() => {
       expect(screen.getByText(/请求详情/)).toBeInTheDocument();
+    });
+  });
+
+  it("renders the export button in the results section header", async () => {
+    const user = userEvent.setup();
+    renderWithI18n(<RealtimeQueryPage />);
+
+    // Export button is disabled until results land.
+    expect(
+      screen.getByRole("button", { name: /导出/ }),
+    ).toBeDisabled();
+
+    await user.click(screen.getByText("查询", { selector: "button" }));
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /导出/ })).toBeEnabled();
+    });
+  });
+
+  it("downloads a CSV when the export button is clicked", async () => {
+    // jsdom doesn't implement URL.createObjectURL, and anchor.click() doesn't
+    // trigger a real navigation. Stub the URL blob APIs + the prototype click
+    // so the download helper runs end-to-end without a real browser download.
+    const createUrl = vi
+      .spyOn(URL, "createObjectURL")
+      .mockReturnValue("blob:mock");
+    const revokeUrl = vi.spyOn(URL, "revokeObjectURL");
+    const anchorClick = vi
+      .spyOn(HTMLAnchorElement.prototype, "click")
+      .mockImplementation(() => {});
+
+    const user = userEvent.setup();
+    renderWithI18n(<RealtimeQueryPage />);
+
+    await user.click(screen.getByText("查询", { selector: "button" }));
+    const exportBtn = await screen.findByRole("button", { name: /导出/ });
+    await user.click(exportBtn);
+
+    expect(createUrl).toHaveBeenCalledTimes(1);
+    expect(anchorClick).toHaveBeenCalledTimes(1);
+    expect(revokeUrl).toHaveBeenCalledWith("blob:mock");
+
+    createUrl.mockRestore();
+    revokeUrl.mockRestore();
+    anchorClick.mockRestore();
+  });
+
+  it("renders the speed distribution chart after results land", async () => {
+    const user = userEvent.setup();
+    renderWithI18n(<RealtimeQueryPage />);
+
+    // Before query: no speed-distribution section.
+    expect(screen.queryByText("输出速度分布")).not.toBeInTheDocument();
+
+    await user.click(screen.getByText("查询", { selector: "button" }));
+    // After query: the speed-distribution section title appears.
+    await waitFor(() => {
+      expect(screen.getByText("输出速度分布")).toBeInTheDocument();
     });
   });
 });

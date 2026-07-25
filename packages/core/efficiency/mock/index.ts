@@ -18,6 +18,7 @@ import type {
   ChatRealtimeResponse,
   ChatSyncTaskListResponse,
   ChatSystemConfig,
+  ChatTraceLogResponse,
   ChatUserTrendRow,
   ChatUsersRankingResp,
   CommitDetailResponse,
@@ -140,6 +141,7 @@ import {
   getMockChatModelCostRanking,
   getMockChatModelsUsage,
   getMockChatUsersRanking,
+  getMockChatTraceLogs,
 } from "./chat";
 
 const RAW = process.env.EFFICIENCY_MOCK;
@@ -295,6 +297,15 @@ export const mock = {
     getMockChatDetailQuery(req),
   chatLogPreview: (localLogPath: string): ChatLogPreviewResponse =>
     getMockChatLogPreview(localLogPath),
+  chatTraceLogs: (req: {
+    datasource_id: string;
+    request_id: string;
+    label_selector?: string;
+    start_time: string;
+    end_time: string;
+    limit?: number;
+    cursor?: string;
+  }): ChatTraceLogResponse => getMockChatTraceLogs(req),
 
   // ---- Chat dimension: platform overview historical stats (/stats/*) ----
   // Per-day series + ranked lists backing the PlatformOverview multi-tab page.

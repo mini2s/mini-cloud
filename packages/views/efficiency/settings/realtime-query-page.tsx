@@ -1,13 +1,14 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { ListFilter, Search } from "lucide-react";
+import { Download, ListFilter, Search } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { useWorkspaceId } from "@multica/core/hooks";
 import {
   chatDatasourcesOptions,
   chatDetailQueryOptions,
   chatLogPreviewOptions,
+  chatTraceLogsOptions,
   globalConfigOptions,
   formatLocalTime,
   formatNumber,
@@ -15,6 +16,7 @@ import {
   type ChatDetailQueryReq,
   type ChatDetailRow,
   type ChatLogPreviewResponse,
+  type ChatTraceLogEntry,
 } from "@multica/core/efficiency";
 import { Button } from "@multica/ui/components/ui/button";
 import { Input } from "@multica/ui/components/ui/input";
@@ -27,10 +29,18 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@multica/ui/components/ui/dialog";
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+} from "@multica/ui/components/ui/sheet";
 import { PageHeader } from "../../layout/page-header";
 import { Section } from "./shared";
 import { Th, ThNum, Td, TdNum, fmtMs } from "../usage/shared";
 import { ToneBadge } from "../detail/shared";
+import { VerticalBarChart } from "../charts";
 
 // Platform ops · Realtime (detail) query. Ports the source RealtimeQuery.tsx
 // (2138 lines) — a live LLM-request detail lookup (chat-indicator-statistics
@@ -39,18 +49,24 @@ import { ToneBadge } from "../detail/shared";
 // dialog; the detail's "preview log" button opens a log preview dialog.
 //
 // This is the largest source file. Per the migration brief we port the CORE
-// flow (filter form → results table → row detail → log preview) and drop the
-// exotic pieces. Simplifications vs source:
-//   - DROP: speed-distribution chart + speed-range filter modal (~250 lines,
-//     ECharts bar + bucket math).
+// flow (filter form → results table → row detail → log preview) PLUS the three
+// additive features that bring it to source parity:
+//   - Speed-distribution chart (bar chart of token_output_speed buckets,
+//     computed client-side from the detail rows — no new endpoint).
+//   - Loki trace-log drawer (Sheet) — when a row is selected, a "查询链路日志"
+//     button opens a side panel showing that request's Loki trace entries
+//     (fetched via chatTraceLogsOptions).
+//   - CSV export — serializes the current ChatDetailRow[] to CSV + triggers a
+//     browser download (pure frontend).
+// Remaining simplifications vs source:
 //   - DROP: concurrency chart + "Request Time + TTFT" modal (~180 lines,
 //     ECharts step-line + concurrency math).
-//   - DROP: Loki trace-log drawer + per-entry detail modal + JSON fold/highlight
-//     view (~600 lines; needs a Loki datasource + chatStats.traceLogs which is
-//     not in the shared query layer yet).
 //   - DROP: client-side stats block (avg/p90/p95 tokens / speed / TTFT). The
 //     source computes these from the returned rows; we keep the table only.
-//   - DROP: result export (the source had no export either; NOT_WIRED button).
+//   - DROP: speed-range filter modal (the chart is read-only; clicking a
+//     bucket does not re-filter the table).
+//   - DROP: trace per-entry detail modal + JSON fold/highlight view. The
+//     drawer shows the raw lines only.
 //   - SIMPLIFY: filters kept are the most-used subset (datasource / time range
 //     / quick ranges / user id / username / request id / model / error-only /
 //     limit / order). Dropped universal_id + routed_model + limit-as-pager.
@@ -59,7 +75,8 @@ import { ToneBadge } from "../detail/shared";
 //     full field set is still visible in the row detail dialog.
 //
 // Design decisions:
-//   - No react-router, no ECharts. Semantic tokens only.
+//   - No react-router, no ECharts. Semantic tokens only. Charts use the
+//     shared recharts-based VerticalBarChart primitive.
 //   - Mock phase: useQuery(chatDetailQueryOptions) — returns mock rows. The
 //     source used useMutation (point-query, no cache); we use useQuery keyed
 //     on the form so refetch-on-filter-change is automatic. This matches the
@@ -89,6 +106,140 @@ const DEFAULT_DISPLAY_PAGE_SIZE = 20;
 /** error_code is an error when non-empty and not "0" (source isErrorCode). */
 function isErrorCode(code: string | null | undefined): boolean {
   return !!code && code !== "0";
+}
+
+// ============================ Speed distribution buckets ============================
+// Ports the source buildSpeedBuckets (RealtimeQuery.tsx ~L211-263): bucket the
+// detail rows' token_output_speed into up to SPEED_BUCKET_COUNT equal-width
+// ranges between min and max, plus a single overflow bucket for speeds beyond
+// SPEED_OVERFLOW_THRESHOLD. Each bucket counts the rows whose speed falls in
+// [min, max]. Pure frontend — no new endpoint.
+
+/** Max number of regular (non-overflow) buckets. */
+const SPEED_BUCKET_COUNT = 12;
+/** Speeds above this roll into one ">threshold" overflow bucket. */
+const SPEED_OVERFLOW_THRESHOLD = 1000;
+
+interface SpeedBucket {
+  label: string;
+  min: number;
+  max: number;
+  count: number;
+  overflow?: boolean;
+}
+
+/** Numeric token_output_speed, or null when missing/invalid. */
+function getOutputSpeed(row: ChatDetailRow): number | null {
+  const value = Number(row.token_output_speed);
+  return Number.isFinite(value) ? value : null;
+}
+
+function formatSpeedBucketLabel(min: number, max: number): string {
+  if (min === max) return formatNumber(min, 0);
+  return `${formatNumber(min, 0)}~${formatNumber(max, 0)}`;
+}
+
+function buildSpeedBuckets(rows: ChatDetailRow[]): SpeedBucket[] {
+  const speedRows = rows
+    .map((row) => ({ row, speed: getOutputSpeed(row) }))
+    .filter((item): item is { row: ChatDetailRow; speed: number } => item.speed != null)
+    .sort((a, b) => a.speed - b.speed);
+
+  if (speedRows.length === 0) return [];
+
+  const regularRows = speedRows.filter((item) => item.speed <= SPEED_OVERFLOW_THRESHOLD);
+  const overflowRows = speedRows.filter((item) => item.speed > SPEED_OVERFLOW_THRESHOLD);
+  const buckets: SpeedBucket[] = [];
+
+  if (regularRows.length === 0) {
+    return [{
+      label: `>${formatNumber(SPEED_OVERFLOW_THRESHOLD, 0)}`,
+      min: SPEED_OVERFLOW_THRESHOLD,
+      max: Number.POSITIVE_INFINITY,
+      count: overflowRows.length,
+      overflow: true,
+    }];
+  }
+
+  const minSpeed = regularRows[0]!.speed;
+  const maxSpeed = regularRows[regularRows.length - 1]!.speed;
+  const span = maxSpeed - minSpeed;
+  const bucketCount = Math.min(SPEED_BUCKET_COUNT, Math.max(1, regularRows.length));
+  const bucketSize = span > 0 ? span / bucketCount : 1;
+  buckets.push(...Array.from({ length: bucketCount }, (_, index): SpeedBucket => {
+    const min = span > 0 ? minSpeed + index * bucketSize : minSpeed;
+    const max = span > 0 && index < bucketCount - 1 ? min + bucketSize : maxSpeed;
+    return { label: formatSpeedBucketLabel(min, max), min, max, count: 0 };
+  }));
+
+  regularRows.forEach(({ speed }) => {
+    const index = span > 0
+      ? Math.min(Math.floor((speed - minSpeed) / bucketSize), buckets.length - 1)
+      : 0;
+    buckets[index]!.count += 1;
+  });
+
+  if (overflowRows.length > 0) {
+    buckets.push({
+      label: `>${formatNumber(SPEED_OVERFLOW_THRESHOLD, 0)}`,
+      min: SPEED_OVERFLOW_THRESHOLD,
+      max: Number.POSITIVE_INFINITY,
+      count: overflowRows.length,
+      overflow: true,
+    });
+  }
+
+  return buckets;
+}
+
+// ============================ CSV export ============================
+// Serializes the current ChatDetailRow[] to CSV. Columns mirror the results
+// table (time / request id / user / model / routed / status / tokens /
+// duration / output speed). Pure frontend — Blob + anchor download.
+
+/** CSV columns matching the results-table header order. */
+const CSV_COLUMNS: Array<{ header: string; get: (row: ChatDetailRow) => string }> = [
+  { header: "时间", get: (r) => r.ts ?? "" },
+  { header: "Request ID", get: (r) => r.request_id ?? "" },
+  { header: "User ID", get: (r) => r.user_id ?? "" },
+  { header: "用户名", get: (r) => r.username ?? "" },
+  { header: "Model", get: (r) => r.model ?? "" },
+  { header: "Routed", get: (r) => r.routed_model ?? "" },
+  { header: "状态", get: (r) => (isErrorCode(r.error_code) ? r.error_code ?? "" : "OK") },
+  { header: "输入 Token", get: (r) => String(r.prompt_tokens ?? "") },
+  { header: "输出 Token", get: (r) => String(r.completion_tokens ?? "") },
+  { header: "耗时(ms)", get: (r) => String(r.duration ?? "") },
+  { header: "输出速度(token/s)", get: (r) => String(r.token_output_speed ?? "") },
+];
+
+/** RFC 4180 CSV cell quoting: wrap in quotes if it contains comma/quote/newline. */
+function csvCell(value: string): string {
+  if (/[",\n\r]/.test(value)) {
+    return `"${value.replace(/"/g, '""')}"`;
+  }
+  return value;
+}
+
+function rowsToCsv(rows: ChatDetailRow[]): string {
+  const header = CSV_COLUMNS.map((c) => csvCell(c.header)).join(",");
+  const body = rows
+    .map((row) => CSV_COLUMNS.map((c) => csvCell(c.get(row))).join(","))
+    .join("\r\n");
+  // Prepend a UTF-8 BOM so Excel opens Chinese headers correctly.
+  return `\uFEFF${header}\r\n${body}`;
+}
+
+/** Trigger a browser download of `csv` as a timestamped .csv file. */
+function downloadCsv(csv: string, filename: string): void {
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = filename;
+  document.body.appendChild(anchor);
+  anchor.click();
+  document.body.removeChild(anchor);
+  URL.revokeObjectURL(url);
 }
 
 // ---- datetime-local <-> ISO 8601 with browser offset (source helpers) ----
@@ -290,6 +441,29 @@ export function RealtimeQueryPage() {
   const chatEnabled = MOCK_ENABLED || gcQ.data?.chat_stats_enabled === true;
 
   const [detailRow, setDetailRow] = useState<ChatDetailRow | null>(null);
+
+  // ---- Speed distribution buckets (client-side, from the detail rows) ----
+  const speedBuckets = useMemo(() => buildSpeedBuckets(rows), [rows]);
+
+  // ---- Loki trace-log drawer state ----
+  // When a row is selected the detail dialog offers a "查询链路日志" button
+  // (only when a Loki datasource exists). Opening it sets `traceRequestId`,
+  // which drives the Sheet's open state and the trace-logs query.
+  const hasEnabledLokiDatasource = useMemo(
+    () => (dsQ.data ?? []).some((d) => d.source_type === "loki" && d.is_enabled),
+    [dsQ.data],
+  );
+  const [traceRequestId, setTraceRequestId] = useState<string | null>(null);
+
+  function exportResults() {
+    if (rows.length === 0) return;
+    const csv = rowsToCsv(rows);
+    const stamp = new Date()
+      .toISOString()
+      .replace(/[:T]/g, "")
+      .replace(/\..+/, "");
+    downloadCsv(csv, `realtime-query-${stamp}.csv`);
+  }
 
   const header = (
     <PageHeader className="h-auto min-h-12 flex-wrap items-center px-5 py-1.5 sm:py-0">
@@ -519,6 +693,19 @@ export function RealtimeQueryPage() {
                 </span>
               ) : null
             }
+            rightSlot={
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                onClick={exportResults}
+                disabled={!detailQ.isSuccess || rows.length === 0}
+                title="导出当前查询结果为 CSV"
+              >
+                <Download className="size-3.5" />
+                导出
+              </Button>
+            }
             bodyClassName="overflow-x-auto"
           >
             {detailQ.error ? (
@@ -655,6 +842,23 @@ export function RealtimeQueryPage() {
               />
             ) : null}
           </Section>
+
+          {/* ============ Speed distribution chart ============ */}
+          {/* Bar chart of token_output_speed buckets computed client-side from
+              the detail rows. Only shown once results land with speed data. */}
+          {detailQ.isSuccess && speedBuckets.length > 0 ? (
+            <Section
+              title="输出速度分布"
+              count={
+                <span className="font-normal text-muted-foreground">
+                  按输出速度（token/s）分桶统计 {formatNumber(rows.length)} 条记录
+                </span>
+              }
+              bodyClassName="p-4"
+            >
+              <SpeedDistributionChart buckets={speedBuckets} />
+            </Section>
+          ) : null}
         </div>
       </div>
 
@@ -671,10 +875,30 @@ export function RealtimeQueryPage() {
             <RowDetail
               row={detailRow}
               onClose={() => setDetailRow(null)}
+              canOpenTrace={
+                !!detailRow.request_id && hasEnabledLokiDatasource
+              }
+              onOpenTrace={(requestId) => setTraceRequestId(requestId)}
             />
           ) : null}
         </DialogContent>
       </Dialog>
+
+      {/* ============ Loki trace-log drawer ============ */}
+      {/* Side panel showing the selected request's trace-log entries fetched
+          via chatTraceLogsOptions (scoped to the committed query window). */}
+      <TraceLogDrawer
+        wsId={wsId}
+        requestId={traceRequestId}
+        datasourceId={committed?.datasourceId ?? form.datasourceId}
+        startTime={
+          committed ? toIsoWithOffset(committed.start) : toIsoWithOffset(form.start)
+        }
+        endTime={
+          committed ? toIsoWithOffset(committed.end) : toIsoWithOffset(form.end)
+        }
+        onClose={() => setTraceRequestId(null)}
+      />
     </div>
   );
 }
@@ -773,9 +997,15 @@ function ResultsPager({
 function RowDetail({
   row,
   onClose,
+  canOpenTrace,
+  onOpenTrace,
 }: {
   row: ChatDetailRow;
   onClose: () => void;
+  /** Whether a Loki datasource exists + this row has a request_id. */
+  canOpenTrace?: boolean;
+  /** Open the Loki trace-log drawer for the given request_id. */
+  onOpenTrace?: (requestId: string) => void;
 }) {
   const hasErr = isErrorCode(row.error_code);
   const localLogPath = (row.local_log_path || "").trim();
@@ -803,7 +1033,30 @@ function RowDetail({
             )
           }
         />
-        <Field label="Request ID" value={row.request_id} mono />
+        <Field
+          label="Request ID"
+          span2
+          mono
+          value={
+            row.request_id ? (
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="break-all">{row.request_id}</span>
+                {canOpenTrace && onOpenTrace ? (
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    onClick={() => onOpenTrace(row.request_id)}
+                  >
+                    查询链路日志
+                  </Button>
+                ) : null}
+              </div>
+            ) : (
+              "-"
+            )
+          }
+        />
         <Field label="Universal ID" value={row.universal_id} mono />
         <Field label="User ID" value={row.user_id} mono />
         <Field label="用户名" value={row.username} />
@@ -1111,5 +1364,131 @@ function FormSkeleton() {
       <Skeleton className="h-9 w-full rounded" />
       <Skeleton className="h-9 w-full rounded" />
     </div>
+  );
+}
+
+/**
+ * Speed distribution chart. Renders the bucketed token_output_speed as a
+ * vertical bar chart (categories on X = speed range labels, values on Y =
+ * request count). The overflow bucket (">1000") is tinted with a warning
+ * color so outliers stand out. Pure presentation — no interactivity.
+ */
+function SpeedDistributionChart({ buckets }: { buckets: SpeedBucket[] }) {
+  const data = buckets.map((b) => ({ label: b.label, value: b.count }));
+  const colors = buckets.map((b) =>
+    b.overflow ? "var(--chart-5, #ef4444)" : "var(--chart-1)",
+  );
+  return (
+    <VerticalBarChart
+      data={data}
+      colors={colors}
+      formatY={(v) => formatNumber(v)}
+      heightClass="h-[280px]"
+    />
+  );
+}
+
+/**
+ * Loki trace-log drawer. A right-side Sheet that fetches the trace-log entries
+ * for the given request_id (scoped to the committed query window) via
+ * chatTraceLogsOptions and renders them as a timestamped log list. The source's
+ * per-entry detail modal + JSON fold/highlight view is dropped as a
+ * simplification — entries are shown raw.
+ *
+ * Open state is driven by `requestId` (non-null = open). Closing sets it back
+ * to null via `onClose`.
+ */
+function TraceLogDrawer({
+  wsId,
+  requestId,
+  datasourceId,
+  startTime,
+  endTime,
+  onClose,
+}: {
+  wsId: string;
+  requestId: string | null;
+  datasourceId: string;
+  startTime: string;
+  endTime: string;
+  onClose: () => void;
+}) {
+  const open = !!requestId;
+  // Fetch trace logs only while the drawer is open. The query is scoped to the
+  // committed query window + the selected request_id + a Loki datasource.
+  const req = useMemo(
+    () => ({
+      datasource_id: datasourceId,
+      request_id: requestId ?? "",
+      start_time: startTime,
+      end_time: endTime,
+      limit: 100,
+    }),
+    [datasourceId, endTime, requestId, startTime],
+  );
+  const traceQ = useQuery({
+    ...chatTraceLogsOptions(wsId, req),
+    enabled: open && !!requestId && !!datasourceId && !!startTime,
+  });
+
+  const entries: ChatTraceLogEntry[] = traceQ.data?.entries ?? [];
+  const loading = traceQ.isLoading;
+  const error = traceQ.error as Error | null;
+
+  return (
+    <Sheet
+      open={open}
+      onOpenChange={(o) => {
+        if (!o) onClose();
+      }}
+    >
+      <SheetContent side="right" className="w-full sm:max-w-2xl">
+        <SheetHeader>
+          <SheetTitle>链路日志 · {requestId || "-"}</SheetTitle>
+          <SheetDescription>
+            来自 Loki 数据源的该请求链路日志（最多 100 条）。
+            {!datasourceId ? " 未配置 Loki 数据源。" : ""}
+          </SheetDescription>
+        </SheetHeader>
+
+        <div className="flex-1 space-y-3 overflow-y-auto px-4 pb-4">
+          {error ? (
+            <div className="rounded-lg border border-destructive/20 bg-destructive/5 px-4 py-3 text-sm text-destructive">
+              {error.message || "链路日志查询失败"}
+            </div>
+          ) : null}
+
+          {loading && entries.length === 0 ? (
+            <div className="space-y-2 py-6">
+              <Skeleton className="h-5 w-full rounded" />
+              <Skeleton className="h-5 w-full rounded" />
+              <Skeleton className="h-5 w-3/4 rounded" />
+            </div>
+          ) : entries.length === 0 ? (
+            <div className="py-12 text-center text-sm text-muted-foreground">
+              未找到相关日志
+            </div>
+          ) : (
+            <div className="space-y-1">
+              {entries.map((entry, i) => (
+                <div
+                  key={`${entry.timestamp}-${i}`}
+                  className="flex items-start gap-2 rounded px-2 py-1 font-mono text-xs leading-relaxed hover:bg-muted/50"
+                >
+                  <span className="mt-0.5 shrink-0 text-muted-foreground">
+                    {entry.timestamp
+                      ? entry.timestamp.replace("T", " ").replace(/\+.*/, "")
+                      : "-"}
+                  </span>
+                  <span className="break-all text-card-foreground">
+                    {entry.line}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </SheetContent>
+    </Sheet>
   );
 }

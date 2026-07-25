@@ -7,6 +7,7 @@ import {
   getChatDetailQuery,
   getChatLogPreview,
   getChatModelTrend,
+  getChatTraceLogs,
   getChatPricing,
   getChatRealtime,
   getChatSyncTasks,
@@ -65,6 +66,21 @@ import { computePreviousRange } from "./utils/date";
 import type { ChatDetailQueryReq } from "./types";
 import type { DeptQuery, MembersQuery } from "./types-usage";
 import type { CostMembersQuery } from "./types-cost";
+
+/**
+ * Trace-log query body (POST /stats/trace-logs). Mirrors the getChatTraceLogs
+ * api.ts signature so the RealtimeQuery drawer can pass it straight through.
+ * Shared here so both the queryKey factory and the options factory stay in sync.
+ */
+export interface ChatTraceLogReq {
+  datasource_id: string;
+  request_id: string;
+  label_selector?: string;
+  start_time: string;
+  end_time: string;
+  limit?: number;
+  cursor?: string;
+}
 
 // Query keys — workspace-scoped (wsId first) so cache isolates per workspace,
 // matching the architectural rule "workspace-scoped queries must key on wsId".
@@ -476,6 +492,8 @@ export const efficiencyKeys = {
     [...efficiencyKeys.all(wsId), "chat", "detail-query", req] as const,
   chatLogPreview: (wsId: string, localLogPath: string) =>
     [...efficiencyKeys.all(wsId), "chat", "log-preview", localLogPath] as const,
+  chatTraceLogs: (wsId: string, req: ChatTraceLogReq) =>
+    [...efficiencyKeys.all(wsId), "chat", "trace-logs", req] as const,
   // ---- Chat dimension: platform overview historical stats (/stats/*) ----
   // Per-day series + ranked lists. Window (start/end) always part of the key;
   // cost-trend additionally keys on model filter, users-ranking on sort + search.
@@ -1331,6 +1349,23 @@ export function chatLogPreviewOptions(wsId: string, localLogPath: string) {
       return getChatLogPreview(localLogPath);
     },
     enabled: !!wsId && !!localLogPath,
+    staleTime: STALE_TIME,
+  });
+}
+
+// Trace-log query (Loki datasource). Backs the RealtimeQuery "链路日志" drawer:
+// when a row is selected the drawer fetches that request_id's log lines scoped
+// to the committed query window. enabled gates on wsId + a non-empty request_id
+// + a datasource (the drawer won't open without one).
+export function chatTraceLogsOptions(wsId: string, req: ChatTraceLogReq) {
+  return queryOptions({
+    queryKey: efficiencyKeys.chatTraceLogs(wsId, req),
+    queryFn: async () => {
+      if (MOCK_ENABLED) return mock.chatTraceLogs(req);
+      return getChatTraceLogs(req);
+    },
+    enabled:
+      !!wsId && !!req.request_id && !!req.datasource_id && !!req.start_time,
     staleTime: STALE_TIME,
   });
 }
