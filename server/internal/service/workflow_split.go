@@ -1313,9 +1313,13 @@ func (s *SplitOrchestrator) PatchSplitConfig(ctx context.Context, nodeRun db.Mul
 	if expectedConfigVersion < 1 {
 		return NewSplitAPIError(SplitErrorBadRequest, "invalid_split_request", errors.New("expected_config_version is required"))
 	}
+	workflowRun, err := s.Queries.GetWorkflowRun(ctx, nodeRun.WorkflowRunID)
+	if err != nil {
+		return fmt.Errorf("get workflow run: %w", err)
+	}
 
 	var shouldSchedule bool
-	if err := s.WfService.runInTx(ctx, func(qtx *db.Queries) error {
+	if err := s.WfService.RunDefinitionWrite(ctx, workflowRun.WorkspaceID, workflowRun.WorkflowID, DefinitionLockWorkflowOnly, func(qtx *db.Queries) error {
 		lockedNodeRun, err := qtx.GetWorkflowNodeRunForUpdate(ctx, nodeRun.ID)
 		if err != nil {
 			return fmt.Errorf("lock split node run: %w", err)
@@ -1326,7 +1330,10 @@ func (s *SplitOrchestrator) PatchSplitConfig(ctx context.Context, nodeRun db.Mul
 			return NewSplitAPIError(SplitErrorBadRequest, "invalid_split_request", errors.New("split config cannot be patched from current status"))
 		}
 
-		node, err := qtx.GetWorkflowNode(ctx, lockedNodeRun.WorkflowNodeID)
+		node, err := qtx.GetWorkflowNodeInWorkflow(ctx, db.GetWorkflowNodeInWorkflowParams{
+			ID:         lockedNodeRun.WorkflowNodeID,
+			WorkflowID: workflowRun.WorkflowID,
+		})
 		if err != nil {
 			return fmt.Errorf("get split node: %w", err)
 		}

@@ -2,6 +2,18 @@
 -- Workflow Role Queries
 -- =====================
 
+-- name: LockWorkflowRoleDefinitionsShared :exec
+SELECT pg_advisory_xact_lock_shared(
+    ('x' || substr(replace(sqlc.arg('workspace_id')::uuid::text, '-', ''), 1, 8))::bit(32)::int,
+    ('x' || substr(replace(sqlc.arg('workspace_id')::uuid::text, '-', ''), 9, 8))::bit(32)::int
+);
+
+-- name: LockWorkflowRoleDefinitionsExclusive :exec
+SELECT pg_advisory_xact_lock(
+    ('x' || substr(replace(sqlc.arg('workspace_id')::uuid::text, '-', ''), 1, 8))::bit(32)::int,
+    ('x' || substr(replace(sqlc.arg('workspace_id')::uuid::text, '-', ''), 9, 8))::bit(32)::int
+);
+
 -- name: ListWorkflowRoles :many
 SELECT * FROM multica_workflow_role
 WHERE workspace_id = $1
@@ -46,6 +58,12 @@ SELECT count(*)::bigint
 FROM multica_workflow_node node
 WHERE node.worker_role_id = $1::uuid
    OR node.critic_role_id = $1::uuid;
+
+-- name: ListWorkflowIDsReferencingRole :many
+SELECT DISTINCT workflow_id
+FROM multica_workflow_node
+WHERE worker_role_id = $1::uuid OR critic_role_id = $1::uuid
+ORDER BY workflow_id;
 
 -- name: DeleteWorkflowRole :execrows
 DELETE FROM multica_workflow_role

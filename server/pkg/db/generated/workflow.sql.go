@@ -802,6 +802,30 @@ func (q *Queries) GetWorkflowEdge(ctx context.Context, id pgtype.UUID) (MulticaW
 	return i, err
 }
 
+const getWorkflowEdgeInWorkflow = `-- name: GetWorkflowEdgeInWorkflow :one
+SELECT id, workflow_id, source_node_id, target_node_id, condition, created_at FROM multica_workflow_edge
+WHERE id = $1 AND workflow_id = $2
+`
+
+type GetWorkflowEdgeInWorkflowParams struct {
+	ID         pgtype.UUID `json:"id"`
+	WorkflowID pgtype.UUID `json:"workflow_id"`
+}
+
+func (q *Queries) GetWorkflowEdgeInWorkflow(ctx context.Context, arg GetWorkflowEdgeInWorkflowParams) (MulticaWorkflowEdge, error) {
+	row := q.db.QueryRow(ctx, getWorkflowEdgeInWorkflow, arg.ID, arg.WorkflowID)
+	var i MulticaWorkflowEdge
+	err := row.Scan(
+		&i.ID,
+		&i.WorkflowID,
+		&i.SourceNodeID,
+		&i.TargetNodeID,
+		&i.Condition,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
 const getWorkflowInWorkspace = `-- name: GetWorkflowInWorkspace :one
 SELECT id, workspace_id, title, description, status, max_retries, created_by_type, created_by_id, created_at, updated_at, is_template, source_template_id, is_default, default_runtime_selection_policy, default_runtime_id, config_revision FROM multica_workflow
 WHERE id = $1 AND workspace_id = $2
@@ -843,6 +867,42 @@ WHERE id = $1
 
 func (q *Queries) GetWorkflowNode(ctx context.Context, id pgtype.UUID) (MulticaWorkflowNode, error) {
 	row := q.db.QueryRow(ctx, getWorkflowNode, id)
+	var i MulticaWorkflowNode
+	err := row.Scan(
+		&i.ID,
+		&i.WorkflowID,
+		&i.Title,
+		&i.Description,
+		&i.PositionX,
+		&i.PositionY,
+		&i.FormatSchema,
+		&i.WorkerType,
+		&i.WorkerID,
+		&i.CriticType,
+		&i.CriticID,
+		&i.CriticApiUrl,
+		&i.SortOrder,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.StageID,
+		&i.WorkerRoleID,
+		&i.CriticRoleID,
+	)
+	return i, err
+}
+
+const getWorkflowNodeInWorkflow = `-- name: GetWorkflowNodeInWorkflow :one
+SELECT id, workflow_id, title, description, position_x, position_y, format_schema, worker_type, worker_id, critic_type, critic_id, critic_api_url, sort_order, created_at, updated_at, stage_id, worker_role_id, critic_role_id FROM multica_workflow_node
+WHERE id = $1 AND workflow_id = $2
+`
+
+type GetWorkflowNodeInWorkflowParams struct {
+	ID         pgtype.UUID `json:"id"`
+	WorkflowID pgtype.UUID `json:"workflow_id"`
+}
+
+func (q *Queries) GetWorkflowNodeInWorkflow(ctx context.Context, arg GetWorkflowNodeInWorkflowParams) (MulticaWorkflowNode, error) {
+	row := q.db.QueryRow(ctx, getWorkflowNodeInWorkflow, arg.ID, arg.WorkflowID)
 	var i MulticaWorkflowNode
 	err := row.Scan(
 		&i.ID,
@@ -966,6 +1026,43 @@ func (q *Queries) GetWorkflowStage(ctx context.Context, id pgtype.UUID) (Multica
 		&i.UpdatedAt,
 	)
 	return i, err
+}
+
+const getWorkflowStageInWorkflow = `-- name: GetWorkflowStageInWorkflow :one
+SELECT id, workflow_id, name, description, sort_order, created_at, updated_at FROM multica_workflow_stage
+WHERE id = $1 AND workflow_id = $2
+`
+
+type GetWorkflowStageInWorkflowParams struct {
+	ID         pgtype.UUID `json:"id"`
+	WorkflowID pgtype.UUID `json:"workflow_id"`
+}
+
+func (q *Queries) GetWorkflowStageInWorkflow(ctx context.Context, arg GetWorkflowStageInWorkflowParams) (MulticaWorkflowStage, error) {
+	row := q.db.QueryRow(ctx, getWorkflowStageInWorkflow, arg.ID, arg.WorkflowID)
+	var i MulticaWorkflowStage
+	err := row.Scan(
+		&i.ID,
+		&i.WorkflowID,
+		&i.Name,
+		&i.Description,
+		&i.SortOrder,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const incrementWorkflowConfigRevision = `-- name: IncrementWorkflowConfigRevision :exec
+UPDATE multica_workflow
+SET config_revision = config_revision + 1,
+    updated_at = now()
+WHERE id = $1
+`
+
+func (q *Queries) IncrementWorkflowConfigRevision(ctx context.Context, id pgtype.UUID) error {
+	_, err := q.db.Exec(ctx, incrementWorkflowConfigRevision, id)
+	return err
 }
 
 const listSplitIssueWorkflowOptions = `-- name: ListSplitIssueWorkflowOptions :many
@@ -1578,6 +1675,66 @@ func (q *Queries) ListWorkflowsExcludingTemplates(ctx context.Context, arg ListW
 		return nil, err
 	}
 	return items, nil
+}
+
+const lockWorkflowDefinitionForShare = `-- name: LockWorkflowDefinitionForShare :one
+SELECT id, workspace_id, title, description, status, max_retries, created_by_type, created_by_id, created_at, updated_at, is_template, source_template_id, is_default, default_runtime_selection_policy, default_runtime_id, config_revision FROM multica_workflow
+WHERE id = $1
+FOR SHARE
+`
+
+func (q *Queries) LockWorkflowDefinitionForShare(ctx context.Context, id pgtype.UUID) (MulticaWorkflow, error) {
+	row := q.db.QueryRow(ctx, lockWorkflowDefinitionForShare, id)
+	var i MulticaWorkflow
+	err := row.Scan(
+		&i.ID,
+		&i.WorkspaceID,
+		&i.Title,
+		&i.Description,
+		&i.Status,
+		&i.MaxRetries,
+		&i.CreatedByType,
+		&i.CreatedByID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.IsTemplate,
+		&i.SourceTemplateID,
+		&i.IsDefault,
+		&i.DefaultRuntimeSelectionPolicy,
+		&i.DefaultRuntimeID,
+		&i.ConfigRevision,
+	)
+	return i, err
+}
+
+const lockWorkflowDefinitionForUpdate = `-- name: LockWorkflowDefinitionForUpdate :one
+SELECT id, workspace_id, title, description, status, max_retries, created_by_type, created_by_id, created_at, updated_at, is_template, source_template_id, is_default, default_runtime_selection_policy, default_runtime_id, config_revision FROM multica_workflow
+WHERE id = $1
+FOR UPDATE
+`
+
+func (q *Queries) LockWorkflowDefinitionForUpdate(ctx context.Context, id pgtype.UUID) (MulticaWorkflow, error) {
+	row := q.db.QueryRow(ctx, lockWorkflowDefinitionForUpdate, id)
+	var i MulticaWorkflow
+	err := row.Scan(
+		&i.ID,
+		&i.WorkspaceID,
+		&i.Title,
+		&i.Description,
+		&i.Status,
+		&i.MaxRetries,
+		&i.CreatedByType,
+		&i.CreatedByID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.IsTemplate,
+		&i.SourceTemplateID,
+		&i.IsDefault,
+		&i.DefaultRuntimeSelectionPolicy,
+		&i.DefaultRuntimeID,
+		&i.ConfigRevision,
+	)
+	return i, err
 }
 
 const setUserWorkflowAdmin = `-- name: SetUserWorkflowAdmin :one

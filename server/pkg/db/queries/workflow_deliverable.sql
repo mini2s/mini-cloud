@@ -7,6 +7,14 @@ SELECT * FROM multica_workflow_node_deliverable
 WHERE workflow_node_id = $1
 ORDER BY sort_order ASC, created_at ASC;
 
+-- name: GetWorkflowNodeDeliverableInWorkflow :one
+SELECT deliverable.*
+FROM multica_workflow_node_deliverable deliverable
+JOIN multica_workflow_node node ON node.id = deliverable.workflow_node_id
+WHERE deliverable.id = $1
+  AND deliverable.workflow_node_id = $2
+  AND node.workflow_id = $3;
+
 -- name: CreateWorkflowNodeDeliverable :one
 INSERT INTO multica_workflow_node_deliverable (
     workflow_node_id, kind, title, description, required, sort_order

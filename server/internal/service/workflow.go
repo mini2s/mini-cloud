@@ -2360,10 +2360,17 @@ func (s *WorkflowService) CloneWorkflowFromTemplate(
 
 // SetWorkflowTemplate toggles the is_template flag on a workflow.
 func (s *WorkflowService) SetWorkflowTemplate(ctx context.Context, workflowID pgtype.UUID, isTemplate bool) (db.MulticaWorkflow, error) {
-	return s.Queries.SetWorkflowTemplate(ctx, db.SetWorkflowTemplateParams{
-		ID:         workflowID,
-		IsTemplate: isTemplate,
+	workflow, err := s.Queries.GetWorkflow(ctx, workflowID)
+	if err != nil {
+		return db.MulticaWorkflow{}, err
+	}
+	var updated db.MulticaWorkflow
+	err = s.RunDefinitionWrite(ctx, workflow.WorkspaceID, workflow.ID, DefinitionLockWorkflowOnly, func(qtx *db.Queries) error {
+		var err error
+		updated, err = qtx.SetWorkflowTemplate(ctx, db.SetWorkflowTemplateParams{ID: workflowID, IsTemplate: isTemplate})
+		return err
 	})
+	return updated, err
 }
 
 // DeleteWorkflowWithTemplateCheck checks whether a template workflow has
