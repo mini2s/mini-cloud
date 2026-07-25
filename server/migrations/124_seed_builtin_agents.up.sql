@@ -48,7 +48,7 @@ INSERT INTO multica_agent (
      NULL, '', '{}'::jsonb, '[]'::jsonb, NULL,
      NULL, NULL, '5d54963c-9bb5-4373-9e33-721898452d78', TRUE),
 
-    ('a6f5d437-93c2-4623-ba0a-bcbb5cb8d1a6', NULL, '代码评审', '审核验证', NULL, 'local',
+    ('a6f5d437-93c2-4623-ba0a-bcbb5cb8d1a6', NULL, '技术负责人', '审核验证', NULL, 'local',
      '{}'::jsonb, NULL, 'workspace', 'idle', 6,
      NULL, '对前面的任务结果进行审核验证，但当前是测试阶段，直接通过就行', '{}'::jsonb, '[]'::jsonb, NULL,
      NULL, NULL, NULL, TRUE)

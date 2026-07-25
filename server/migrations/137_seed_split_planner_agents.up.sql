@@ -1,8 +1,5 @@
 -- 137_seed_split_planner_agents.up.sql
--- Seed the single built-in split planner used by workflow split nodes.
--- Originally four domain-specific planners (general/code/design/test); the
--- roster was consolidated into one 技术负责人. 144_rename_builtin_agents deletes
--- the three extra planners on environments that already ran the original seed.
+-- Complete the built-in split planner roster used by workflow split nodes.
 
 INSERT INTO multica_agent (
     id, workspace_id, name, description, avatar_url, runtime_mode,
@@ -13,8 +10,8 @@ INSERT INTO multica_agent (
     (
         'dd79d98e-3be1-4cb5-9cdd-aee809287741',
         NULL,
-        '技术负责人',
-        '工作流拆分节点的任务规划，把节点拆成可评审的子任务草稿',
+        'Split Planner (General)',
+        'General-purpose split draft planner for workflow split nodes.',
         NULL,
         'local',
         '{}'::jsonb,
@@ -33,6 +30,90 @@ Produce child task drafts for human review. Use the split draft CLI whenever it 
 3. Run `cs-workflow workflow split draft submit <node-run-id>` after all drafts are added.
 
 Do not create issues, change issue status, modify repository files, or treat the final assistant message as the source of truth.
+$instructions$,
+        '{}'::jsonb,
+        '[]'::jsonb,
+        NULL,
+        NULL,
+        NULL,
+        NULL,
+        TRUE
+    ),
+    (
+        '3ef3f4fd-0de7-4a84-a03d-cb5d4df2f30c',
+        NULL,
+        'Split Planner (Code)',
+        'Code-focused split draft planner for implementation workflows.',
+        NULL,
+        'local',
+        '{}'::jsonb,
+        NULL,
+        'workspace',
+        'idle',
+        6,
+        NULL,
+        $instructions$
+You are a code-focused split draft planner for Multica workflow split nodes.
+
+Break implementation work into reviewable child task drafts with clear dependencies, ownership, and acceptance criteria. Prefer tasks that can be implemented and verified independently. Submit drafts through `cs-workflow workflow split draft add` and finish with `cs-workflow workflow split draft submit`.
+
+Do not create issues, change issue status, modify repository files, or bypass human split review.
+$instructions$,
+        '{}'::jsonb,
+        '[]'::jsonb,
+        NULL,
+        NULL,
+        NULL,
+        NULL,
+        TRUE
+    ),
+    (
+        '32fc6f0c-2f00-44d7-a6a2-36f1d75a144a',
+        NULL,
+        'Split Planner (Design)',
+        'Design-focused split draft planner for product and UI workflows.',
+        NULL,
+        'local',
+        '{}'::jsonb,
+        NULL,
+        'workspace',
+        'idle',
+        6,
+        NULL,
+        $instructions$
+You are a design-focused split draft planner for Multica workflow split nodes.
+
+Break product, UX, and visual design work into reviewable child task drafts. Keep research, structure, interaction, content, and visual execution separated when that improves review quality. Submit drafts through `cs-workflow workflow split draft add` and finish with `cs-workflow workflow split draft submit`.
+
+Do not create issues, change issue status, modify repository files, or bypass human split review.
+$instructions$,
+        '{}'::jsonb,
+        '[]'::jsonb,
+        NULL,
+        NULL,
+        NULL,
+        NULL,
+        TRUE
+    ),
+    (
+        '6b3ea222-f3ee-44c5-b4c9-33a1674a1127',
+        NULL,
+        'Split Planner (Test)',
+        'Test-focused split draft planner for QA and verification workflows.',
+        NULL,
+        'local',
+        '{}'::jsonb,
+        NULL,
+        'workspace',
+        'idle',
+        6,
+        NULL,
+        $instructions$
+You are a test-focused split draft planner for Multica workflow split nodes.
+
+Break QA, validation, and regression work into reviewable child task drafts. Separate fixture setup, unit coverage, integration coverage, edge cases, and manual verification when useful. Submit drafts through `cs-workflow workflow split draft add` and finish with `cs-workflow workflow split draft submit`.
+
+Do not create issues, change issue status, modify repository files, or bypass human split review.
 $instructions$,
         '{}'::jsonb,
         '[]'::jsonb,
