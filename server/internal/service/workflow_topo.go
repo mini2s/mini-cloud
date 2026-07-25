@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"slices"
 
 	"github.com/jackc/pgx/v5/pgtype"
 
@@ -41,4 +42,46 @@ func NodeTopoOrder(ctx context.Context, q *db.Queries, workflowID pgtype.UUID) (
 		}
 	}
 	return gitea.NodeTopoOrder(topoNodes, topoEdges), nil
+}
+
+// workflowDAGHasCycle reports whether the directed graph contains a cycle.
+// Unknown edge endpoints are ignored because callers validate references
+// separately before using this topology result.
+func workflowDAGHasCycle(nodes []gitea.TopoNode, edges []gitea.TopoEdge) bool {
+	inDegree := make(map[string]int, len(nodes))
+	adjacency := make(map[string][]string, len(nodes))
+	for _, node := range nodes {
+		inDegree[node.ID] = 0
+	}
+	for _, edge := range edges {
+		if _, ok := inDegree[edge.From]; !ok {
+			continue
+		}
+		if _, ok := inDegree[edge.To]; !ok {
+			continue
+		}
+		adjacency[edge.From] = append(adjacency[edge.From], edge.To)
+		inDegree[edge.To]++
+	}
+	ready := make([]string, 0, len(nodes))
+	for id, degree := range inDegree {
+		if degree == 0 {
+			ready = append(ready, id)
+		}
+	}
+	slices.Sort(ready)
+	emitted := 0
+	for len(ready) > 0 {
+		id := ready[0]
+		ready = ready[1:]
+		emitted++
+		for _, target := range adjacency[id] {
+			inDegree[target]--
+			if inDegree[target] == 0 {
+				ready = append(ready, target)
+				slices.Sort(ready)
+			}
+		}
+	}
+	return emitted != len(inDegree)
 }
