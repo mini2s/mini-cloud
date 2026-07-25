@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"testing"
@@ -177,7 +178,7 @@ func TestWorkflowBoundaryNodesDoNotCreateRuns(t *testing.T) {
 	}
 }
 
-func TestWorkflowBoundaryOnlyRunCompletesAfterRootDispatch(t *testing.T) {
+func TestWorkflowBoundaryOnlyRunCreatesFailedConfigRun(t *testing.T) {
 	pool := openTestPool(t)
 	defer pool.Close()
 
@@ -219,27 +220,21 @@ func TestWorkflowBoundaryOnlyRunCompletesAfterRootDispatch(t *testing.T) {
 	}
 	workflowUUID, _ := util.ParseUUID(workflowID)
 	workspaceUUID, _ := util.ParseUUID(workspaceID)
-	run, err := svc.StartRun(ctx, db.MulticaWorkflow{
+	_, err := svc.StartRun(ctx, db.MulticaWorkflow{
 		ID: workflowUUID, WorkspaceID: workspaceUUID, Title: "Boundary Only", Status: "active",
 	}, "member", "", json.RawMessage(`{}`), pgtype.UUID{})
-	if err != nil {
-		t.Fatalf("StartRun: %v", err)
+	var invalid *WorkflowConfigInvalidError
+	if !errors.As(err, &invalid) {
+		t.Fatalf("StartRun error=%v, want WorkflowConfigInvalidError", err)
 	}
-	events = append(events, "started")
-	if run.Status != RunStatusRunning {
-		t.Fatalf("start response status = %s, want %s", run.Status, RunStatusRunning)
+	var status string
+	if err := pool.QueryRow(ctx, `SELECT status FROM multica_workflow_run WHERE id = $1`, invalid.RunID).Scan(&status); err != nil {
+		t.Fatal(err)
 	}
-	if err := svc.DispatchRootNodeRuns(ctx, run.ID); err != nil {
-		t.Fatalf("DispatchRootNodeRuns: %v", err)
+	if status != RunStatusFailed {
+		t.Fatalf("run status=%s, want %s", status, RunStatusFailed)
 	}
-	completed, err := q.GetWorkflowRun(ctx, run.ID)
-	if err != nil {
-		t.Fatalf("reload run: %v", err)
-	}
-	if completed.Status != RunStatusCompleted {
-		t.Fatalf("run status = %s, want %s", completed.Status, RunStatusCompleted)
-	}
-	if len(events) != 2 || events[0] != "started" || events[1] != RunStatusCompleted {
-		t.Fatalf("event order = %#v, want [started completed]", events)
+	if len(events) != 0 {
+		t.Fatalf("terminal callbacks=%#v, want none during preparation", events)
 	}
 }

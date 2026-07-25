@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log/slog"
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
@@ -313,12 +312,6 @@ func (h *Handler) StartWorkflowRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Validate DAG before starting.
-	if err := h.WorkflowService.ValidateDAG(r.Context(), wf.ID); err != nil {
-		writeError(w, http.StatusBadRequest, "workflow has cycles: "+err.Error())
-		return
-	}
-
 	run, err := h.WorkflowService.StartRunWithRuntimeSelection(
 		r.Context(),
 		wf,
@@ -329,6 +322,11 @@ func (h *Handler) StartWorkflowRun(w http.ResponseWriter, r *http.Request) {
 		runtimePreference,
 	)
 	if err != nil {
+		var invalid *service.WorkflowConfigInvalidError
+		if errors.As(err, &invalid) {
+			writeError(w, http.StatusUnprocessableEntity, "workflow configuration is invalid")
+			return
+		}
 		if errors.Is(err, service.ErrWorkflowRuntimeSelectionInvalid) {
 			writeError(w, http.StatusBadRequest, err.Error())
 			return
@@ -346,14 +344,6 @@ func (h *Handler) StartWorkflowRun(w http.ResponseWriter, r *http.Request) {
 		"run":      startedResp,
 		"workflow": map[string]string{"id": uuidToString(wf.ID), "title": wf.Title},
 	})
-	if run.Status == service.RunStatusRunning {
-		if err := h.WorkflowService.DispatchRootNodeRuns(r.Context(), run.ID); err != nil {
-			slog.Warn("failed to dispatch root workflow nodes", "run_id", uuidToString(run.ID), "error", err)
-		} else if refreshed, err := h.Queries.GetWorkflowRun(r.Context(), run.ID); err == nil {
-			run = &refreshed
-		}
-	}
-
 	// Scaffold the run's Gitea deliverable repo + lazily provision the workspace
 	// bot (document workflows only; no-op when Gitea is dormant). Fire-and-forget
 	// on context.Background(): the goroutine outlives the HTTP request, so

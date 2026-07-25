@@ -2222,10 +2222,6 @@ func (s *SplitOrchestrator) startChildTaskRunLocked(ctx context.Context, splitNo
 			return err
 		}
 	}
-	if err := s.WfService.DispatchRootNodeRuns(ctx, run.ID); err != nil {
-		return err
-	}
-
 	currentTask, err := s.Queries.GetSplitTask(ctx, task.ID)
 	if err != nil {
 		return fmt.Errorf("reload split task before marking dispatch complete: %w", err)

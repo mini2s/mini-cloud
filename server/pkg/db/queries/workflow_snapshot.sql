@@ -12,6 +12,18 @@ SELECT workspace_id
 FROM multica_workflow
 WHERE id = $1;
 
+-- name: LockWorkflowRolesForSnapshot :many
+SELECT role.*
+FROM multica_workflow_role role
+WHERE EXISTS (
+    SELECT 1
+    FROM multica_workflow_node node
+    WHERE node.workflow_id = sqlc.arg('workflow_id')
+      AND (node.worker_role_id = role.id OR node.critic_role_id = role.id)
+)
+ORDER BY role.id
+FOR SHARE OF role;
+
 -- name: ListWorkflowDefinitionForSnapshot :one
 SELECT
     workflow.id AS workflow_id,
@@ -23,7 +35,23 @@ SELECT
     workflow.default_runtime_id,
     workflow.config_revision,
     COALESCE((
-        SELECT jsonb_agg(to_jsonb(node) ORDER BY node.sort_order, node.id)
+        SELECT jsonb_agg(
+            to_jsonb(node) || jsonb_build_object(
+                'worker_name', COALESCE(CASE node.worker_type
+                    WHEN 'human' THEN (SELECT member.name FROM multica_user member WHERE member.id = node.worker_id)
+                    WHEN 'agent' THEN (SELECT agent.name FROM multica_agent agent WHERE agent.id = node.worker_id)
+                    WHEN 'squad' THEN (SELECT squad.name FROM multica_squad squad WHERE squad.id = node.worker_id)
+                    ELSE ''
+                END, ''),
+                'critic_name', COALESCE(CASE node.critic_type
+                    WHEN 'human' THEN (SELECT member.name FROM multica_user member WHERE member.id = node.critic_id)
+                    WHEN 'agent' THEN (SELECT agent.name FROM multica_agent agent WHERE agent.id = node.critic_id)
+                    WHEN 'squad' THEN (SELECT squad.name FROM multica_squad squad WHERE squad.id = node.critic_id)
+                    ELSE ''
+                END, '')
+            )
+            ORDER BY node.sort_order, node.id
+        )
         FROM multica_workflow_node node
         WHERE node.workflow_id = workflow.id
     ), '[]'::jsonb)::text AS nodes,
@@ -98,6 +126,9 @@ INSERT INTO multica_workflow_run (
     sqlc.narg('failure_reason'),
     sqlc.narg('validation_errors')
 )
+ON CONFLICT (dispatch_key)
+WHERE dispatch_key IS NOT NULL AND dispatch_key <> ''
+DO UPDATE SET dispatch_key = EXCLUDED.dispatch_key
 RETURNING *;
 
 -- name: CreateWorkflowNodeRunSnapshot :one

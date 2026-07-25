@@ -2132,10 +2132,6 @@ func (h *Handler) CreateIssue(w http.ResponseWriter, r *http.Request) {
 				} else {
 					resp.WorkflowID = uuidToPtr(issue.AssigneeID)
 					resp.WorkflowRunID = uuidToPtr(run.ID)
-					// Dispatch after the durable run link and sub-issues both exist.
-					if err = h.WorkflowService.DispatchRootNodeRuns(ctx, run.ID); err != nil {
-						slog.Warn("failed to dispatch root workflow nodes", "run_id", uuidToString(run.ID), "error", err)
-					}
 				}
 			}
 		}
@@ -2543,9 +2539,6 @@ func (h *Handler) UpdateIssue(w http.ResponseWriter, r *http.Request) {
 						slog.Warn("failed to set workflow_run_id on parent issue", "issue_id", uuidToString(issue.ID), "error", cerr)
 					} else {
 						resp.WorkflowRunID = uuidToPtr(run.ID)
-						if cerr := h.WorkflowService.DispatchRootNodeRuns(ctx, run.ID); cerr != nil {
-							slog.Warn("failed to dispatch root workflow nodes", "run_id", uuidToString(run.ID), "error", cerr)
-						}
 					}
 				}
 			}

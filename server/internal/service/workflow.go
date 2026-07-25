@@ -328,182 +328,20 @@ func (s *WorkflowService) StartRunWithRuntimeSelection(ctx context.Context, work
 }
 
 func (s *WorkflowService) startRun(ctx context.Context, workflow db.MulticaWorkflow, triggeredByType, triggeredByID string, input json.RawMessage, runtimeSelectionPolicy string, runtimeID pgtype.UUID, dispatchKey string, runtimeContext workflowRunRuntimeContext) (*db.MulticaWorkflowRun, error) {
-	if workflow.Status != "active" {
-		return nil, fmt.Errorf("workflow is not active (status=%s)", workflow.Status)
-	}
-	if workflow.IsTemplate {
-		return nil, errors.New("workflow template cannot be run")
-	}
-	resolvedPolicy, resolvedRuntimeID, err := resolveWorkflowRuntimeSelectionPolicy(workflow, runtimeSelectionPolicy, runtimeID)
-	if err != nil {
-		return nil, err
-	}
-	nodes, err := s.Queries.ListWorkflowNodes(ctx, workflow.ID)
-	if err != nil {
-		return nil, fmt.Errorf("list nodes: %w", err)
-	}
-	nodes, _ = buildExecutableWorkflowGraph(nodes, nil)
-	hasRoleSlots := false
-	for _, node := range nodes {
-		hasRoleSlots = hasRoleSlots || node.WorkerRoleID.Valid || node.CriticRoleID.Valid
-	}
-	autoResolveRoles := hasRoleSlots && s.roleResolutionEnabledFor(workflow.WorkspaceID)
 	triggeredByUUID, err := util.ParseUUID(triggeredByID)
 	if err != nil && triggeredByID != "" {
 		triggeredByUUID = pgtype.UUID{}
 	}
-
-	var run db.MulticaWorkflowRun
-	if err := s.runInTx(ctx, func(qtx *db.Queries) error {
-		runStatus := RunStatusRunning
-		if hasRoleSlots {
-			runStatus = RunStatusWaitingRoleAssignment
-			if autoResolveRoles {
-				runStatus = RunStatusResolvingRoles
-			}
-		}
-
-		var r db.MulticaWorkflowRun
-		var err error
-		if dispatchKey == "" {
-			r, err = qtx.CreateWorkflowRun(ctx, db.CreateWorkflowRunParams{
-				WorkflowID:             workflow.ID,
-				WorkspaceID:            workflow.WorkspaceID,
-				WorkflowTitle:          workflow.Title,
-				Status:                 runStatus,
-				TriggeredByType:        triggeredByType,
-				TriggeredByID:          triggeredByUUID,
-				Input:                  input,
-				RuntimeSelectionPolicy: resolvedPolicy,
-				RuntimeID:              resolvedRuntimeID,
-				SourceIssueID:          runtimeContext.SourceIssueID,
-				ResponsibleUserID:      runtimeContext.ResponsibleUserID,
-				RuntimeAuthorizerID:    runtimeContext.RuntimeAuthorizerID,
-			})
-		} else {
-			r, err = qtx.CreateWorkflowRunWithDispatchKey(ctx, db.CreateWorkflowRunWithDispatchKeyParams{
-				WorkflowID:             workflow.ID,
-				WorkspaceID:            workflow.WorkspaceID,
-				WorkflowTitle:          workflow.Title,
-				Status:                 runStatus,
-				TriggeredByType:        triggeredByType,
-				TriggeredByID:          triggeredByUUID,
-				Input:                  input,
-				RuntimeSelectionPolicy: resolvedPolicy,
-				RuntimeID:              resolvedRuntimeID,
-				DispatchKey:            textToPgText(dispatchKey),
-				SourceIssueID:          runtimeContext.SourceIssueID,
-				ResponsibleUserID:      runtimeContext.ResponsibleUserID,
-				RuntimeAuthorizerID:    runtimeContext.RuntimeAuthorizerID,
-			})
-		}
-		if err != nil {
-			return fmt.Errorf("create workflow run: %w", err)
-		}
-		run = r
-		if dispatchKey != "" {
-			existingNodeRuns, err := qtx.ListWorkflowNodeRunsByRun(ctx, run.ID)
-			if err != nil {
-				return fmt.Errorf("list node runs: %w", err)
-			}
-			if len(existingNodeRuns) > 0 {
-				return nil
-			}
-		}
-		if autoResolveRoles && s.RoleResolutionMaxActiveJobs > 0 {
-			if err := qtx.LockWorkflowRoleResolutionWorkspace(ctx, workflow.WorkspaceID); err != nil {
-				return fmt.Errorf("lock workflow role resolution workspace: %w", err)
-			}
-			activeJobs, err := qtx.CountActiveWorkflowRoleResolutionJobsForWorkspace(ctx, workflow.WorkspaceID)
-			if err != nil {
-				return fmt.Errorf("count active workflow role resolution jobs: %w", err)
-			}
-			if activeJobs >= s.RoleResolutionMaxActiveJobs {
-				return ErrWorkflowRoleResolutionLimit
-			}
-		}
-
-		nodes, err := qtx.ListWorkflowNodes(ctx, workflow.ID)
-		if err != nil {
-			return fmt.Errorf("list nodes: %w", err)
-		}
-		edges, err := qtx.ListWorkflowEdges(ctx, workflow.ID)
-		if err != nil {
-			return fmt.Errorf("list edges: %w", err)
-		}
-		nodes, edges = buildExecutableWorkflowGraph(nodes, edges)
-		hasIncoming := make(map[string]bool)
-		for _, edge := range edges {
-			hasIncoming[util.UUIDToString(edge.TargetNodeID)] = true
-		}
-		for _, node := range nodes {
-			status := NodeRunStatusPending
-			if hasRoleSlots {
-				status = NodeRunStatusBlocked
-			} else if !hasIncoming[util.UUIDToString(node.ID)] {
-				// json_schema format validation is retired (executeFormatChecker
-				// skips it); root nodes go straight to format_ok so dispatch
-				// isn't gated on a vestigial format_checking state.
-				status = NodeRunStatusFormatOk
-			}
-			nodeRun, err := qtx.CreateWorkflowNodeRun(ctx, db.CreateWorkflowNodeRunParams{
-				WorkflowRunID: run.ID, WorkflowNodeID: node.ID, NodeTitle: node.Title,
-				Status: status, RetryCount: 0, WorkerType: node.WorkerType, WorkerID: node.WorkerID,
-				CriticType: node.CriticType, CriticID: node.CriticID,
-			})
-			if err != nil {
-				return fmt.Errorf("create node run for %s: %w", node.Title, err)
-			}
-			slots := []struct {
-				slotType string
-				roleID   pgtype.UUID
-			}{{"worker", node.WorkerRoleID}, {"critic", node.CriticRoleID}}
-			for _, slot := range slots {
-				if !slot.roleID.Valid {
-					continue
-				}
-				role, err := qtx.GetWorkflowRoleInWorkspace(ctx, db.GetWorkflowRoleInWorkspaceParams{ID: slot.roleID, WorkspaceID: workflow.WorkspaceID})
-				if err != nil {
-					return fmt.Errorf("load %s role for %s: %w", slot.slotType, node.Title, err)
-				}
-				resolutionStatus, reasonCode := "pending", ""
-				if !autoResolveRoles {
-					resolutionStatus, reasonCode = "needs_human", "resolver_not_configured"
-				}
-				if role.NeedsDescription {
-					resolutionStatus, reasonCode = "needs_human", "insufficient_data"
-				}
-				if _, err := qtx.CreateWorkflowRoleResolution(ctx, db.CreateWorkflowRoleResolutionParams{
-					WorkflowRunID: run.ID, WorkflowNodeRunID: nodeRun.ID, SlotType: slot.slotType,
-					RoleID: slot.roleID, RoleNameSnapshot: role.Name, RoleDescriptionSnapshot: role.Description,
-					Status: resolutionStatus, ReasonCode: reasonCode, ReasonDetail: "",
-				}); err != nil {
-					return fmt.Errorf("create %s role resolution for %s: %w", slot.slotType, node.Title, err)
-				}
-			}
-		}
-		if hasRoleSlots && !autoResolveRoles {
-			resolutions, err := qtx.ListWorkflowRoleResolutions(ctx, run.ID)
-			if err != nil {
-				return fmt.Errorf("list manual workflow role resolutions: %w", err)
-			}
-			if err := enqueueWorkflowRoleManualNotifications(ctx, qtx, run, resolutions); err != nil {
-				return fmt.Errorf("enqueue manual workflow role notifications: %w", err)
-			}
-		}
-		if autoResolveRoles {
-			if _, err := qtx.CreateWorkflowRoleResolutionJob(ctx, db.CreateWorkflowRoleResolutionJobParams{
-				WorkspaceID: workflow.WorkspaceID, WorkflowRunID: run.ID,
-				Model: s.RoleResolutionModel, PromptVersion: s.RoleResolutionPromptVersion,
-			}); err != nil {
-				return fmt.Errorf("create role resolution job: %w", err)
-			}
-		}
-		return nil
-	}); err != nil {
+	prepared, err := s.PrepareWorkflowRunSnapshot(ctx, workflow.ID, PrepareWorkflowRunParams{
+		TriggeredByType: triggeredByType, TriggeredByID: triggeredByUUID, Input: input,
+		RuntimeSelectionPolicy: runtimeSelectionPolicy, RuntimeID: runtimeID, DispatchKey: dispatchKey,
+		SourceIssueID: runtimeContext.SourceIssueID, ResponsibleUserID: runtimeContext.ResponsibleUserID,
+		RuntimeAuthorizerID: runtimeContext.RuntimeAuthorizerID,
+	})
+	if err != nil {
 		return nil, err
 	}
-	return &run, nil
+	return &prepared.Run, nil
 }
 
 // DispatchRootNodeRuns kicks off root node runs after the run is created.
@@ -675,41 +513,22 @@ func (s *WorkflowService) StartDefaultRunForIssue(ctx context.Context, issue db.
 	if err != nil {
 		return nil, db.MulticaWorkflowNodeRun{}, fmt.Errorf("marshal issue input: %w", err)
 	}
-	run, err := s.startRun(ctx, wf, issue.CreatorType, util.UUIDToString(issue.CreatorID), input, "", pgtype.UUID{}, "", workflowRunRuntimeContext{
+	prepared, err := s.PrepareWorkflowRunSnapshot(ctx, wf.ID, PrepareWorkflowRunParams{
+		TriggeredByType: issue.CreatorType, TriggeredByID: issue.CreatorID, Input: input,
+		SourceIssueID: issue.ID, ResponsibleUserID: s.resolveWorkflowUser(ctx, issue.CreatorType, issue.CreatorID),
 		RuntimeAuthorizerID: s.resolveWorkflowUser(ctx, issue.CreatorType, issue.CreatorID),
+		defaultWorkerType:   defaultRunWorkerType(issue), defaultWorkerID: issue.AssigneeID,
+		defaultCriticType: defaultRunCriticType(issue), defaultCriticID: issue.CreatorID,
 	})
 	if err != nil {
 		return nil, db.MulticaWorkflowNodeRun{}, fmt.Errorf("start default run: %w", err)
 	}
-	nodeRuns, err := s.Queries.ListWorkflowNodeRunsByRun(ctx, run.ID)
-	if err != nil {
-		return nil, db.MulticaWorkflowNodeRun{}, fmt.Errorf("list node runs: %w", err)
-	}
+	run := &prepared.Run
+	nodeRuns := prepared.NodeRuns
 	if len(nodeRuns) == 0 {
 		return nil, db.MulticaWorkflowNodeRun{}, fmt.Errorf("default workflow %s has no node", util.UUIDToString(wf.ID))
 	}
 	nr := nodeRuns[0]
-	nr, err = s.Queries.UpdateWorkflowNodeRunAssignees(ctx, db.UpdateWorkflowNodeRunAssigneesParams{
-		ID:         nr.ID,
-		WorkerType: defaultRunWorkerType(issue),
-		WorkerID:   issue.AssigneeID,
-		CriticType: defaultRunCriticType(issue),
-		CriticID:   issue.CreatorID,
-	})
-	if err != nil {
-		return nil, db.MulticaWorkflowNodeRun{}, fmt.Errorf("override node-run assignees: %w", err)
-	}
-
-	// Dispatch the root node-run. dispatchWorker reads the node-run's (now
-	// overridden) worker type: agent/squad → agent task; human (member) →
-	// worker_assigned, awaits UI upload. Dispatch is best-effort — the run is
-	// already created, so a failure here must be logged, not silently dropped,
-	// or the node-run sits at format_ok looking "in progress" with no task and
-	// no clue why (e.g. the agent has no runtime bound).
-	if err := s.DispatchRootNodeRuns(ctx, run.ID); err != nil {
-		slog.Warn("dispatch default run root nodes",
-			"run_id", util.UUIDToString(run.ID), "error", err)
-	}
 
 	// Scaffold Gitea for the run (dormant no-op when unconfigured).
 	go s.ScaffoldRunDeliverables(context.Background(), *run)

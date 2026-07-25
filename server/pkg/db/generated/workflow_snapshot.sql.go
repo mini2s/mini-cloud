@@ -268,6 +268,9 @@ INSERT INTO multica_workflow_run (
     $18,
     $19
 )
+ON CONFLICT (dispatch_key)
+WHERE dispatch_key IS NOT NULL AND dispatch_key <> ''
+DO UPDATE SET dispatch_key = EXCLUDED.dispatch_key
 RETURNING id, workflow_id, workspace_id, workflow_title, status, triggered_by_type, triggered_by_id, input, output, started_at, completed_at, created_at, runtime_id, source_issue_id, responsible_user_id, runtime_authorizer_id, dispatch_key, runtime_selection_policy, source_config_revision, definition_schema_version, definition_snapshot, max_retries, failure_reason, validation_errors
 `
 
@@ -543,7 +546,23 @@ SELECT
     workflow.default_runtime_id,
     workflow.config_revision,
     COALESCE((
-        SELECT jsonb_agg(to_jsonb(node) ORDER BY node.sort_order, node.id)
+        SELECT jsonb_agg(
+            to_jsonb(node) || jsonb_build_object(
+                'worker_name', COALESCE(CASE node.worker_type
+                    WHEN 'human' THEN (SELECT member.name FROM multica_user member WHERE member.id = node.worker_id)
+                    WHEN 'agent' THEN (SELECT agent.name FROM multica_agent agent WHERE agent.id = node.worker_id)
+                    WHEN 'squad' THEN (SELECT squad.name FROM multica_squad squad WHERE squad.id = node.worker_id)
+                    ELSE ''
+                END, ''),
+                'critic_name', COALESCE(CASE node.critic_type
+                    WHEN 'human' THEN (SELECT member.name FROM multica_user member WHERE member.id = node.critic_id)
+                    WHEN 'agent' THEN (SELECT agent.name FROM multica_agent agent WHERE agent.id = node.critic_id)
+                    WHEN 'squad' THEN (SELECT squad.name FROM multica_squad squad WHERE squad.id = node.critic_id)
+                    ELSE ''
+                END, '')
+            )
+            ORDER BY node.sort_order, node.id
+        )
         FROM multica_workflow_node node
         WHERE node.workflow_id = workflow.id
     ), '[]'::jsonb)::text AS nodes,
@@ -705,6 +724,50 @@ func (q *Queries) ListWorkflowRunEdgesByTarget(ctx context.Context, targetNodeRu
 			&i.TargetNodeRunID,
 			&i.Condition,
 			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const lockWorkflowRolesForSnapshot = `-- name: LockWorkflowRolesForSnapshot :many
+SELECT role.id, role.workspace_id, role.name, role.description, role.created_at, role.updated_at, role.normalized_name, role.is_builtin, role.needs_description, role.created_by
+FROM multica_workflow_role role
+WHERE EXISTS (
+    SELECT 1
+    FROM multica_workflow_node node
+    WHERE node.workflow_id = $1
+      AND (node.worker_role_id = role.id OR node.critic_role_id = role.id)
+)
+ORDER BY role.id
+FOR SHARE OF role
+`
+
+func (q *Queries) LockWorkflowRolesForSnapshot(ctx context.Context, workflowID pgtype.UUID) ([]MulticaWorkflowRole, error) {
+	rows, err := q.db.Query(ctx, lockWorkflowRolesForSnapshot, workflowID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []MulticaWorkflowRole{}
+	for rows.Next() {
+		var i MulticaWorkflowRole
+		if err := rows.Scan(
+			&i.ID,
+			&i.WorkspaceID,
+			&i.Name,
+			&i.Description,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.NormalizedName,
+			&i.IsBuiltin,
+			&i.NeedsDescription,
+			&i.CreatedBy,
 		); err != nil {
 			return nil, err
 		}
