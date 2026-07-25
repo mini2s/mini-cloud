@@ -69,16 +69,18 @@ SET status = 'succeeded',
 WHERE id = $1
   AND generation = $2
   AND status = 'running'
+  AND locked_by = $3
 RETURNING id, workflow_run_id, workflow_node_run_id, phase, generation, status, attempt_count, max_attempts, scheduled_at, locked_by, lease_expires_at, last_error, created_at, updated_at
 `
 
 type CompleteWorkflowDispatchJobParams struct {
 	ID         pgtype.UUID `json:"id"`
 	Generation int32       `json:"generation"`
+	LockedBy   pgtype.Text `json:"locked_by"`
 }
 
 func (q *Queries) CompleteWorkflowDispatchJob(ctx context.Context, arg CompleteWorkflowDispatchJobParams) (MulticaWorkflowNodeRunDispatchJob, error) {
-	row := q.db.QueryRow(ctx, completeWorkflowDispatchJob, arg.ID, arg.Generation)
+	row := q.db.QueryRow(ctx, completeWorkflowDispatchJob, arg.ID, arg.Generation, arg.LockedBy)
 	var i MulticaWorkflowNodeRunDispatchJob
 	err := row.Scan(
 		&i.ID,
@@ -169,6 +171,7 @@ SET status = 'failed',
 WHERE id = $2
   AND generation = $3
   AND status = 'running'
+  AND locked_by = $4
 RETURNING id, workflow_run_id, workflow_node_run_id, phase, generation, status, attempt_count, max_attempts, scheduled_at, locked_by, lease_expires_at, last_error, created_at, updated_at
 `
 
@@ -176,10 +179,16 @@ type FailWorkflowDispatchJobParams struct {
 	LastError  string      `json:"last_error"`
 	ID         pgtype.UUID `json:"id"`
 	Generation int32       `json:"generation"`
+	LockedBy   pgtype.Text `json:"locked_by"`
 }
 
 func (q *Queries) FailWorkflowDispatchJob(ctx context.Context, arg FailWorkflowDispatchJobParams) (MulticaWorkflowNodeRunDispatchJob, error) {
-	row := q.db.QueryRow(ctx, failWorkflowDispatchJob, arg.LastError, arg.ID, arg.Generation)
+	row := q.db.QueryRow(ctx, failWorkflowDispatchJob,
+		arg.LastError,
+		arg.ID,
+		arg.Generation,
+		arg.LockedBy,
+	)
 	var i MulticaWorkflowNodeRunDispatchJob
 	err := row.Scan(
 		&i.ID,
@@ -196,6 +205,102 @@ func (q *Queries) FailWorkflowDispatchJob(ctx context.Context, arg FailWorkflowD
 		&i.LastError,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const failWorkflowNodeRunForDispatch = `-- name: FailWorkflowNodeRunForDispatch :one
+UPDATE multica_workflow_node_run
+SET status = 'failed',
+    failure_reason = 'dispatch_failed',
+    completed_at = now(),
+    updated_at = now()
+WHERE id = $1
+RETURNING id, workflow_run_id, workflow_node_id, node_title, status, retry_count, worker_type, worker_id, worker_output, critic_type, critic_id, critic_output, critic_comment, agent_task_id, started_at, completed_at, created_at, updated_at, worker_agent_task_id, critic_agent_task_id, runtime_id, device_id, session_id, split_review_chat_session_id, runtime_selection_reason, failure_reason, split_config_version, source_workflow_node_id, node_description, format_schema, critic_api_url, stage_snapshot, worker_role_snapshot, critic_role_snapshot, runtime_config, worker_name_snapshot, critic_name_snapshot
+`
+
+func (q *Queries) FailWorkflowNodeRunForDispatch(ctx context.Context, id pgtype.UUID) (MulticaWorkflowNodeRun, error) {
+	row := q.db.QueryRow(ctx, failWorkflowNodeRunForDispatch, id)
+	var i MulticaWorkflowNodeRun
+	err := row.Scan(
+		&i.ID,
+		&i.WorkflowRunID,
+		&i.WorkflowNodeID,
+		&i.NodeTitle,
+		&i.Status,
+		&i.RetryCount,
+		&i.WorkerType,
+		&i.WorkerID,
+		&i.WorkerOutput,
+		&i.CriticType,
+		&i.CriticID,
+		&i.CriticOutput,
+		&i.CriticComment,
+		&i.AgentTaskID,
+		&i.StartedAt,
+		&i.CompletedAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.WorkerAgentTaskID,
+		&i.CriticAgentTaskID,
+		&i.RuntimeID,
+		&i.DeviceID,
+		&i.SessionID,
+		&i.SplitReviewChatSessionID,
+		&i.RuntimeSelectionReason,
+		&i.FailureReason,
+		&i.SplitConfigVersion,
+		&i.SourceWorkflowNodeID,
+		&i.NodeDescription,
+		&i.FormatSchema,
+		&i.CriticApiUrl,
+		&i.StageSnapshot,
+		&i.WorkerRoleSnapshot,
+		&i.CriticRoleSnapshot,
+		&i.RuntimeConfig,
+		&i.WorkerNameSnapshot,
+		&i.CriticNameSnapshot,
+	)
+	return i, err
+}
+
+const failWorkflowRunForDispatch = `-- name: FailWorkflowRunForDispatch :one
+UPDATE multica_workflow_run
+SET status = 'failed',
+    failure_reason = 'dispatch_failed',
+    completed_at = now()
+WHERE id = $1
+RETURNING id, workflow_id, workspace_id, workflow_title, status, triggered_by_type, triggered_by_id, input, output, started_at, completed_at, created_at, runtime_id, source_issue_id, responsible_user_id, runtime_authorizer_id, dispatch_key, runtime_selection_policy, source_config_revision, definition_schema_version, definition_snapshot, max_retries, failure_reason, validation_errors
+`
+
+func (q *Queries) FailWorkflowRunForDispatch(ctx context.Context, id pgtype.UUID) (MulticaWorkflowRun, error) {
+	row := q.db.QueryRow(ctx, failWorkflowRunForDispatch, id)
+	var i MulticaWorkflowRun
+	err := row.Scan(
+		&i.ID,
+		&i.WorkflowID,
+		&i.WorkspaceID,
+		&i.WorkflowTitle,
+		&i.Status,
+		&i.TriggeredByType,
+		&i.TriggeredByID,
+		&i.Input,
+		&i.Output,
+		&i.StartedAt,
+		&i.CompletedAt,
+		&i.CreatedAt,
+		&i.RuntimeID,
+		&i.SourceIssueID,
+		&i.ResponsibleUserID,
+		&i.RuntimeAuthorizerID,
+		&i.DispatchKey,
+		&i.RuntimeSelectionPolicy,
+		&i.SourceConfigRevision,
+		&i.DefinitionSchemaVersion,
+		&i.DefinitionSnapshot,
+		&i.MaxRetries,
+		&i.FailureReason,
+		&i.ValidationErrors,
 	)
 	return i, err
 }
@@ -311,7 +416,7 @@ UPDATE multica_workflow_node_run_dispatch_job
 SET status = 'pending',
     locked_by = NULL,
     lease_expires_at = NULL,
-    scheduled_at = now(),
+    scheduled_at = LEAST(scheduled_at, now()),
     updated_at = now()
 WHERE status = 'running'
   AND lease_expires_at < now()
@@ -364,6 +469,7 @@ SET status = 'pending',
 WHERE id = $3
   AND generation = $4
   AND status = 'running'
+  AND locked_by = $5
 RETURNING id, workflow_run_id, workflow_node_run_id, phase, generation, status, attempt_count, max_attempts, scheduled_at, locked_by, lease_expires_at, last_error, created_at, updated_at
 `
 
@@ -372,6 +478,7 @@ type RequeueWorkflowDispatchJobParams struct {
 	LastError   string             `json:"last_error"`
 	ID          pgtype.UUID        `json:"id"`
 	Generation  int32              `json:"generation"`
+	LockedBy    pgtype.Text        `json:"locked_by"`
 }
 
 func (q *Queries) RequeueWorkflowDispatchJob(ctx context.Context, arg RequeueWorkflowDispatchJobParams) (MulticaWorkflowNodeRunDispatchJob, error) {
@@ -380,6 +487,7 @@ func (q *Queries) RequeueWorkflowDispatchJob(ctx context.Context, arg RequeueWor
 		arg.LastError,
 		arg.ID,
 		arg.Generation,
+		arg.LockedBy,
 	)
 	var i MulticaWorkflowNodeRunDispatchJob
 	err := row.Scan(

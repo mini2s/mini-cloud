@@ -1354,6 +1354,10 @@ func (s *WorkflowService) ReviewNodeRun(ctx context.Context, nodeRunID pgtype.UU
 
 // dispatchWorker advances a node run from format_ok to the worker phase.
 func (s *WorkflowService) dispatchWorker(ctx context.Context, nodeRun db.MulticaWorkflowNodeRun) error {
+	return s.dispatchWorkerForJob(ctx, nodeRun, pgtype.UUID{})
+}
+
+func (s *WorkflowService) dispatchWorkerForJob(ctx context.Context, nodeRun db.MulticaWorkflowNodeRun, dispatchJobID pgtype.UUID) error {
 	if err := s.ensureNodeRunBranch(ctx, nodeRun); err != nil {
 		return fmt.Errorf("ensure node branch: %w", err)
 	}
@@ -1386,7 +1390,7 @@ func (s *WorkflowService) dispatchWorker(ctx context.Context, nodeRun db.Multica
 			_, err := s.TransitionNodeRun(ctx, nodeRun, NodeRunStatusWorkerAssigned)
 			return err
 		}
-		if _, err := s.DispatchAgentTask(ctx, nodeRun, "worker", nil); err != nil {
+		if _, err := s.dispatchAgentTask(ctx, nodeRun, "worker", nil, dispatchJobID); err != nil {
 			return fmt.Errorf("dispatch agent task: %w", err)
 		}
 		return s.transitionNodeRunAfterDispatch(ctx, nodeRun.ID, NodeRunStatusWorking)
@@ -1396,6 +1400,10 @@ func (s *WorkflowService) dispatchWorker(ctx context.Context, nodeRun db.Multica
 }
 
 func (s *WorkflowService) dispatchCritic(ctx context.Context, nodeRun db.MulticaWorkflowNodeRun) error {
+	return s.dispatchCriticForJob(ctx, nodeRun, pgtype.UUID{})
+}
+
+func (s *WorkflowService) dispatchCriticForJob(ctx context.Context, nodeRun db.MulticaWorkflowNodeRun, dispatchJobID pgtype.UUID) error {
 	switch nodeRun.CriticType {
 	case "human":
 		if err := s.validateResolvedHumanMember(ctx, nodeRun, "critic"); err != nil {
@@ -1413,7 +1421,7 @@ func (s *WorkflowService) dispatchCritic(ctx context.Context, nodeRun db.Multica
 		if !agentID.Valid {
 			return fmt.Errorf("no agent resolved for critic")
 		}
-		_, err := s.DispatchAgentTask(ctx, nodeRun, "critic", nil)
+		_, err := s.dispatchAgentTask(ctx, nodeRun, "critic", nil, dispatchJobID)
 		if err != nil {
 			return fmt.Errorf("dispatch critic task: %w", err)
 		}

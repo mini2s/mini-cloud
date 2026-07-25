@@ -372,10 +372,7 @@ func (s *WorkflowService) persistPreparedWorkflowRun(
 			if hasIncoming[sourceID] {
 				continue
 			}
-			if _, err := qtx.CreateWorkflowDispatchJob(ctx, db.CreateWorkflowDispatchJobParams{
-				WorkflowRunID: run.ID, WorkflowNodeRunID: nodeRun.ID,
-				Phase: "worker", Generation: 1, MaxAttempts: 5,
-			}); err != nil {
+			if err := EnqueueWorkflowDispatch(ctx, qtx, nodeRun.ID, "worker", 1); err != nil {
 				return nil, fmt.Errorf("create root workflow dispatch job: %w", err)
 			}
 		}

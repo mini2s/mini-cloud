@@ -36,6 +36,12 @@ var (
 	commit  = "unknown"
 )
 
+const (
+	workflowDispatchWorkerConcurrency = 2
+	workflowDispatchPollInterval      = time.Second
+	workflowDispatchLeaseDuration     = 30 * time.Second
+)
+
 func newNamedRedisClient(base *redis.Options, suffix string) *redis.Client {
 	opts := *base
 	opts.ClientName = redisClientName(opts.ClientName, suffix)
@@ -561,6 +567,8 @@ func main() {
 	taskSvc := service.NewTaskService(queries, pool, hub, bus, daemonWakeup)
 	taskSvc.Analytics = analyticsClient
 	roleWorkflowSvc := service.NewWorkflowService(queries, pool, bus, taskSvc)
+	roleWorkflowSvc.Gitea = giteaClient
+	roleWorkflowSvc.TeamNamespace = teamNamespaceClient
 	hostname, _ := os.Hostname()
 	for i := 0; i < roleResolutionRuntime.WorkerConcurrency; i++ {
 		worker := &service.WorkflowRoleResolutionWorker{
@@ -570,11 +578,6 @@ func main() {
 			PollInterval: roleResolutionRuntime.PollInterval, LeaseDuration: roleResolutionRuntime.LeaseDuration,
 			MaxCandidates: roleResolutionRuntime.MaxCandidates, MaxSlots: roleResolutionRuntime.MaxSlots,
 			MaxInputChars: roleResolutionRuntime.MaxInputChars,
-			OnRunPromoted: func(ctx context.Context, runID pgtype.UUID) {
-				if err := roleWorkflowSvc.DispatchRootNodeRuns(ctx, runID); err != nil {
-					slog.Error("dispatch workflow roots after role resolution", "run_id", util.UUIDToString(runID), "error", err)
-				}
-			},
 			OnStateChanged: func(_ context.Context, workspaceID, runID pgtype.UUID) {
 				payload := map[string]any{"run_id": util.UUIDToString(runID)}
 				for _, eventType := range []string{"workflow_role_resolution_updated", "workflow_run_updated"} {
@@ -584,6 +587,15 @@ func main() {
 					})
 				}
 			},
+		}
+		go worker.Run(sweepCtx)
+	}
+	for i := 0; i < workflowDispatchWorkerConcurrency; i++ {
+		worker := &service.WorkflowDispatchWorker{
+			Queries: queries, TxStarter: pool, Workflow: roleWorkflowSvc,
+			WorkerID:      hostname + "-workflow-dispatch-" + strconv.Itoa(i+1),
+			PollInterval:  workflowDispatchPollInterval,
+			LeaseDuration: workflowDispatchLeaseDuration,
 		}
 		go worker.Run(sweepCtx)
 	}

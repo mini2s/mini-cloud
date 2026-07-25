@@ -54,7 +54,7 @@ UPDATE multica_workflow_node_run_dispatch_job
 SET status = 'pending',
     locked_by = NULL,
     lease_expires_at = NULL,
-    scheduled_at = now(),
+    scheduled_at = LEAST(scheduled_at, now()),
     updated_at = now()
 WHERE status = 'running'
   AND lease_expires_at < now()
@@ -71,6 +71,7 @@ SET status = 'pending',
 WHERE id = sqlc.arg('id')
   AND generation = sqlc.arg('generation')
   AND status = 'running'
+  AND locked_by = sqlc.arg('locked_by')
 RETURNING *;
 
 -- name: CompleteWorkflowDispatchJob :one
@@ -83,6 +84,7 @@ SET status = 'succeeded',
 WHERE id = sqlc.arg('id')
   AND generation = sqlc.arg('generation')
   AND status = 'running'
+  AND locked_by = sqlc.arg('locked_by')
 RETURNING *;
 
 -- name: FailWorkflowDispatchJob :one
@@ -95,6 +97,24 @@ SET status = 'failed',
 WHERE id = sqlc.arg('id')
   AND generation = sqlc.arg('generation')
   AND status = 'running'
+  AND locked_by = sqlc.arg('locked_by')
+RETURNING *;
+
+-- name: FailWorkflowNodeRunForDispatch :one
+UPDATE multica_workflow_node_run
+SET status = 'failed',
+    failure_reason = 'dispatch_failed',
+    completed_at = now(),
+    updated_at = now()
+WHERE id = $1
+RETURNING *;
+
+-- name: FailWorkflowRunForDispatch :one
+UPDATE multica_workflow_run
+SET status = 'failed',
+    failure_reason = 'dispatch_failed',
+    completed_at = now()
+WHERE id = $1
 RETURNING *;
 
 -- name: NextWorkflowDispatchGeneration :one
