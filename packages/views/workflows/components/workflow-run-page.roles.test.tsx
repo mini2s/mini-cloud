@@ -7,8 +7,6 @@ import { WorkflowRunPage } from "./workflow-run-page";
 
 const mocks = vi.hoisted(() => ({
   run: {} as Record<string, unknown>,
-  nodes: [] as Array<Record<string, unknown>>,
-  edges: [] as Array<Record<string, unknown>>,
   nodeRuns: [] as Array<Record<string, unknown>>,
   resolutions: [] as Array<Record<string, unknown>>,
   members: [] as Array<Record<string, unknown>>,
@@ -24,8 +22,6 @@ vi.mock("@tanstack/react-query", () => ({
   useQuery: (opts: { queryKey: string[] }) => {
     const key = opts.queryKey[0];
     if (key === "run") return { data: mocks.run, isLoading: false };
-    if (key === "nodes") return { data: mocks.nodes, isLoading: false };
-    if (key === "edges") return { data: mocks.edges, isLoading: false };
     if (key === "node-runs") return { data: mocks.nodeRuns, isLoading: false };
     if (key === "resolutions") return { data: mocks.resolutions, refetch: mocks.refetchResolutions };
     if (key === "members") return { data: mocks.members };
@@ -39,8 +35,6 @@ vi.mock("@multica/core/auth", () => ({
 vi.mock("@multica/core/workspace/queries", () => ({ memberListOptions: () => ({ queryKey: ["members"] }) }));
 vi.mock("@multica/core/workflows/queries", () => ({
   workflowRunOptions: () => ({ queryKey: ["run"] }),
-  workflowNodesOptions: () => ({ queryKey: ["nodes"] }),
-  workflowEdgesOptions: () => ({ queryKey: ["edges"] }),
   workflowNodeRunsOptions: () => ({ queryKey: ["node-runs"] }),
   workflowRoleResolutionsOptions: () => ({ queryKey: ["resolutions"] }),
   useAssignWorkflowRoleResolutions: () => ({ mutateAsync: mocks.assign, isPending: false }),
@@ -49,9 +43,9 @@ vi.mock("@multica/core/workflows/queries", () => ({
 }));
 vi.mock("sonner", () => ({ toast: { error: mocks.toastError, success: mocks.toastSuccess } }));
 vi.mock("../../layout/page-header", () => ({ PageHeader: ({ children }: { children: React.ReactNode }) => <header>{children}</header> }));
-vi.mock("./dag-canvas", () => ({ DAGCanvas: () => <div>Canvas</div> }));
-vi.mock("./node-run-card", () => ({ NodeRunCard: () => <div>Node run</div> }));
-vi.mock("@xyflow/react", () => ({ ReactFlowProvider: ({ children }: { children: React.ReactNode }) => <>{children}</> }));
+vi.mock("../../issues/components/execution", () => ({
+  ExecutionPanoramaPage: () => <div data-testid="execution-panorama" />,
+}));
 
 vi.mock("../../i18n", () => {
   const translations = {
@@ -97,8 +91,6 @@ const unresolvedResolution = {
 describe("WorkflowRunPage role assignment", () => {
   beforeEach(() => {
     mocks.run = { id: "run-1", workflow_title: "Release", status: "waiting_role_assignment", triggered_by_id: "starter-1" };
-    mocks.nodes = [];
-    mocks.edges = [];
     mocks.nodeRuns = [{ id: "node-run-1", workflow_node_id: "node-1", node_title: "Implement", status: "blocked" }];
     mocks.resolutions = [unresolvedResolution];
     mocks.members = [
