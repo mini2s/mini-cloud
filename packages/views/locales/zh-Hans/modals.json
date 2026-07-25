@@ -107,10 +107,10 @@
     "repos_section_title": "代码仓库",
     "repos_hint": "后续需求将基于关联的代码仓库迭代开发;未关联则每个需求都从零开始。",
     "repos_required_hint": "请关联至少一个代码仓库",
-    "repos_empty": "还没有工作区级别的仓库。可在下方粘贴 URL 关联一个。",
-    "repos_url_placeholder": "https://github.com/owner/repo 或 git@github.com:owner/repo.git",
-    "repos_add": "添加",
-    "repos_selected": "已选"
+    "repos_combobox_placeholder": "选择或输入代码仓库地址…",
+    "repos_add_new": "添加 {{url}}",
+    "repos_empty": "没有匹配的仓库,输入地址后回车添加",
+    "repos_url_placeholder": "https://github.com/owner/repo 或 git@github.com:owner/repo.git"
   },
   "create_issue": {
     "sr_manual": "新建 issue",

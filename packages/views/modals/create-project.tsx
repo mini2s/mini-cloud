@@ -18,8 +18,9 @@ function RepoIcon({ url, className }: { url?: string; className?: string }) {
   }
   return <GitBranch className={className} aria-hidden="true" />;
 }
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCreateProject } from "@multica/core/projects/mutations";
+import { api } from "@multica/core/api";
 import { useProjectDraftStore } from "@multica/core/projects";
 import {
   PROJECT_STATUS_CONFIG,
@@ -28,10 +29,10 @@ import {
 } from "@multica/core/projects/config";
 import { useWorkspaceId } from "@multica/core/hooks";
 import { useCurrentWorkspace, useWorkspacePaths } from "@multica/core/paths";
-import { memberListOptions, agentListOptions } from "@multica/core/workspace/queries";
+import { memberListOptions, agentListOptions, workspaceKeys } from "@multica/core/workspace/queries";
 import { isActiveWorkspaceMember } from "@multica/core/workspace/members";
 import { useActorName } from "@multica/core/workspace/hooks";
-import type { ProjectStatus, ProjectPriority } from "@multica/core/types";
+import type { ProjectStatus, ProjectPriority, Workspace } from "@multica/core/types";
 import { cn } from "@multica/ui/lib/utils";
 import { toast } from "sonner";
 import { Dialog, DialogContent, DialogTitle } from "@multica/ui/components/ui/dialog";
@@ -133,8 +134,12 @@ export function CreateProjectModal({ onClose }: { onClose: () => void }) {
   // created. Stored as URLs (not full ProjectResource rows) — they're not
   // persisted until handleSubmit fires the createProjectResource calls.
   const [selectedRepos, setSelectedRepos] = useState<string[]>(draft.repos);
-  const [customRepoUrl, setCustomRepoUrl] = useState("");
+  const [repoComboboxOpen, setRepoComboboxOpen] = useState(false);
+  const [repoQuery, setRepoQuery] = useState("");
   const workspaceRepos = workspace?.repos ?? [];
+  const filteredRepos = workspaceRepos.filter((r) =>
+    r.url.toLowerCase().includes(repoQuery.trim().toLowerCase()),
+  );
 
   // Sync field changes to draft store
   const updateTitle = (v: string) => { setTitle(v); setDraft({ title: v }); };
@@ -158,6 +163,7 @@ export function CreateProjectModal({ onClose }: { onClose: () => void }) {
   const leadLabel =
     leadType && leadId ? getActorName(leadType, leadId) : t(($) => $.create_project.lead);
 
+  const qc = useQueryClient();
   const createProject = useCreateProject();
 
   const handleSubmit = async () => {
@@ -204,15 +210,28 @@ export function CreateProjectModal({ onClose }: { onClose: () => void }) {
     });
   };
 
-  const addCustomRepo = () => {
-    const url = customRepoUrl.trim();
+  const addCustomRepo = async (url: string) => {
+    url = url.trim();
     if (!url) return;
     setSelectedRepos((prev) => {
       const next = prev.includes(url) ? prev : [...prev, url];
       setDraft({ repos: next });
       return next;
     });
-    setCustomRepoUrl("");
+    // Register the URL at the workspace level too, so it shows up in
+    // Settings → Repositories and is reusable by other projects.
+    if (workspace && !workspace.repos.some((r) => r.url === url)) {
+      try {
+        const updated = await api.updateWorkspace(workspace.id, {
+          repos: [...workspace.repos, { url }],
+        });
+        qc.setQueryData(workspaceKeys.list(), (old: Workspace[] | undefined) =>
+          old?.map((ws) => (ws.id === updated.id ? updated : ws)),
+        );
+      } catch {
+        // best-effort: project attach already recorded in local state
+      }
+    }
   };
 
   return (
@@ -310,22 +329,68 @@ export function CreateProjectModal({ onClose }: { onClose: () => void }) {
             onUpdate={(md) => setDraft({ description: md })}
             debounceMs={500}
           />
+        </div>
 
-          {/* Code repository — required. Requirements iterate on the linked
-              repo, so the link (and its rationale) live in the form body, not
-              a footer popover. */}
-          <div className="border-t pt-3 mt-3 space-y-2">
-            <div className="flex items-center gap-1 text-xs font-medium">
-              <RepoIcon className="size-3.5" />
-              <span>{t(($) => $.create_project.repos_section_title)}</span>
-              <span className="text-destructive">*</span>
+        {/* Code repository — required. Pinned to the bottom. Combobox: type to
+            search workspace repos or paste a URL; selections show as chips. */}
+        <div className="px-5 py-3 space-y-2 border-t shrink-0">
+          <div className="flex items-center gap-1 text-xs font-medium">
+            <RepoIcon className="size-3.5" />
+            <span>{t(($) => $.create_project.repos_section_title)}</span>
+            <span className="text-destructive">*</span>
+          </div>
+
+          {selectedRepos.length > 0 && (
+            <div className="flex flex-wrap gap-1">
+              {selectedRepos.map((url) => (
+                <span
+                  key={url}
+                  className="inline-flex items-center gap-1 rounded-md bg-accent px-1.5 py-0.5 text-xs"
+                >
+                  <RepoIcon url={url} className="size-3 shrink-0" />
+                  <span className="truncate max-w-[220px]" title={url}>{url}</span>
+                  <button
+                    type="button"
+                    onClick={() => toggleRepo(url)}
+                    className="text-muted-foreground hover:text-foreground shrink-0"
+                  >
+                    <XIcon className="size-3" />
+                  </button>
+                </span>
+              ))}
             </div>
-            <p className="text-xs text-muted-foreground">
-              {t(($) => $.create_project.repos_hint)}
-            </p>
-            {workspaceRepos.length > 0 ? (
-              <div className="space-y-1 max-h-40 overflow-y-auto">
-                {workspaceRepos.map((repo) => {
+          )}
+
+          <Popover open={repoComboboxOpen} onOpenChange={setRepoComboboxOpen}>
+            <PopoverTrigger
+              render={
+                <div className="flex items-center gap-1.5 rounded-md border px-2 py-1.5 text-xs text-muted-foreground cursor-pointer hover:bg-accent/60 transition-colors">
+                  <RepoIcon className="size-3.5" />
+                  <span>{t(($) => $.create_project.repos_combobox_placeholder)}</span>
+                </div>
+              }
+            />
+            <PopoverContent align="start" className="w-72 p-2 space-y-1">
+              <input
+                type="text"
+                value={repoQuery}
+                onChange={(e) => setRepoQuery(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    const url = repoQuery.trim();
+                    if (url) {
+                      addCustomRepo(url);
+                      setRepoQuery("");
+                    }
+                  }
+                }}
+                placeholder={t(($) => $.create_project.repos_url_placeholder)}
+                className="w-full bg-transparent text-xs px-1 py-1 border-b outline-none placeholder:text-muted-foreground"
+                autoFocus
+              />
+              <div className="max-h-44 overflow-y-auto">
+                {filteredRepos.map((repo) => {
                   const checked = selectedRepos.includes(repo.url);
                   return (
                     <button
@@ -343,57 +408,31 @@ export function CreateProjectModal({ onClose }: { onClose: () => void }) {
                     </button>
                   );
                 })}
+                {filteredRepos.length === 0 && (
+                  <p className="px-2 py-1.5 text-xs text-muted-foreground">
+                    {t(($) => $.create_project.repos_empty)}
+                  </p>
+                )}
               </div>
-            ) : (
-              <p className="text-xs text-muted-foreground">
-                {t(($) => $.create_project.repos_empty)}
-              </p>
-            )}
-            <form
-              onSubmit={(e) => {
-                e.preventDefault();
-                addCustomRepo();
-              }}
-              className="flex items-center gap-1.5"
-            >
-              <input
-                type="text"
-                value={customRepoUrl}
-                onChange={(e) => setCustomRepoUrl(e.target.value)}
-                placeholder={t(($) => $.create_project.repos_url_placeholder)}
-                className="flex-1 bg-transparent text-xs px-2 py-1 rounded-md border outline-none placeholder:text-muted-foreground"
-              />
-              <Button
-                type="submit"
-                size="sm"
-                variant="ghost"
-                className="h-6 px-2 text-xs"
-                disabled={!customRepoUrl.trim()}
-              >
-                {t(($) => $.create_project.repos_add)}
-              </Button>
-            </form>
-            {selectedRepos.length > 0 && (
-              <div className="space-y-1 pt-1 border-t">
-                <div className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
-                  {t(($) => $.create_project.repos_selected)}
-                </div>
-                {selectedRepos.map((url) => (
-                  <div key={url} className="flex items-center gap-2 text-xs">
-                    <RepoIcon url={url} className="size-3 text-muted-foreground" />
-                    <RepoUrlText url={url} />
-                    <button
-                      type="button"
-                      onClick={() => toggleRepo(url)}
-                      className="text-muted-foreground hover:text-foreground"
-                    >
-                      <XIcon className="size-3" />
-                    </button>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
+              {repoQuery.trim() && !workspaceRepos.some((r) => r.url === repoQuery.trim()) && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    addCustomRepo(repoQuery.trim());
+                    setRepoQuery("");
+                  }}
+                  className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-xs hover:bg-accent transition-colors border-t"
+                >
+                  <RepoIcon url={repoQuery.trim()} className="size-3.5" />
+                  <span className="truncate">{t(($) => $.create_project.repos_add_new, { url: repoQuery.trim() })}</span>
+                </button>
+              )}
+            </PopoverContent>
+          </Popover>
+
+          <p className="text-xs text-muted-foreground">
+            {t(($) => $.create_project.repos_hint)}
+          </p>
         </div>
 
         {/* Footer: properties (left, wrap) + Create button (right). Single row

@@ -107,10 +107,10 @@
     "repos_section_title": "Code repository",
     "repos_hint": "Future requirements iterate on the linked repo; without one, every requirement starts from scratch.",
     "repos_required_hint": "Link at least one code repository",
-    "repos_empty": "No workspace-level repos yet. Paste a URL below to attach one.",
-    "repos_url_placeholder": "https://github.com/owner/repo or git@github.com:owner/repo.git",
-    "repos_add": "Add",
-    "repos_selected": "Selected"
+    "repos_combobox_placeholder": "Select or type a repo URL…",
+    "repos_add_new": "Add {{url}}",
+    "repos_empty": "No matching repos; type a URL and press Enter to add one.",
+    "repos_url_placeholder": "https://github.com/owner/repo or git@github.com:owner/repo.git"
   },
   "create_issue": {
     "sr_manual": "New Issue",
