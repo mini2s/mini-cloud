@@ -221,7 +221,11 @@ describe("RuntimeNodeCard", () => {
 
     expect(screen.getByText("Runtime Agent")).toBeInTheDocument();
     expect(screen.getByText("Digital human")).toBeInTheDocument();
-    expect(screen.getByText("Offline")).toBeInTheDocument();
+    expect(screen.queryByText("Offline")).not.toBeInTheDocument();
+    expect(
+      screen.getByTestId("runtime-node-card-node-1")
+        .querySelector('[data-workflow-actor-presence="offline"]'),
+    ).toHaveClass("bg-muted-foreground/55");
     expect(screen.getByText("Runtime Reviewer")).toBeInTheDocument();
     expect(screen.getByText("Member")).toBeInTheDocument();
     expect(screen.getByTestId("runtime-node-card-node-1").querySelector("[data-workflow-actor-state]")).not.toBeInTheDocument();

@@ -1,6 +1,6 @@
 import { ActorAvatar } from "@multica/ui/components/common/actor-avatar";
 import { cn } from "@multica/ui/lib/utils";
-import { BadgeCheck, Braces, CircleDashed, Wifi, WifiOff } from "lucide-react";
+import { BadgeCheck, Braces, CircleDashed } from "lucide-react";
 
 export type WorkflowActorSlotKind = "worker" | "critic";
 export type WorkflowActorState = "configured" | "optional" | "missing" | "pending";
@@ -51,7 +51,10 @@ function WorkflowActorVisual({ identity }: { identity: WorkflowActorIdentity | n
   if (identity.type === "role" || identity.type === "api") {
     return <WorkflowActorGlyph type={identity.type} />;
   }
-  return (
+  const presence = identity.type === "agent" && identity.availability
+    ? identity.availability === "online" ? "online" : "offline"
+    : null;
+  const avatar = (
     <ActorAvatar
       name={identity.name}
       initials={identity.initials || identity.name.slice(0, 2).toUpperCase()}
@@ -59,31 +62,27 @@ function WorkflowActorVisual({ identity }: { identity: WorkflowActorIdentity | n
       isAgent={identity.type === "agent"}
       isSquad={identity.type === "squad"}
       size={24}
+      className={cn(
+        identity.type === "agent" && identity.availability === "online" &&
+          "bg-primary/10 text-primary",
+      )}
     />
   );
-}
+  if (!presence) return avatar;
 
-function WorkflowActorAvailabilityMeta({ identity }: { identity: WorkflowActorIdentity }) {
-  if (identity.type !== "agent" || !identity.availability || !identity.availabilityLabel) {
-    return null;
-  }
-  const online = identity.availability === "online";
-  const Icon = online ? Wifi : WifiOff;
   return (
-    <span
-      data-workflow-actor-availability={identity.availability}
-      className={cn(
-        "inline-flex min-w-0 items-center gap-0.5 font-medium",
-        online ? "text-emerald-700 dark:text-emerald-400" : "text-muted-foreground",
-      )}
-    >
-      <Icon
-        data-workflow-availability-icon={online ? "online" : "offline"}
-        className="size-2.5 shrink-0"
-        strokeWidth={2}
-        aria-hidden="true"
+    <span className="relative inline-flex shrink-0">
+      {avatar}
+      <span
+        role="img"
+        aria-label={identity.availabilityLabel}
+        title={identity.availabilityLabel}
+        data-workflow-actor-presence={presence}
+        className={cn(
+          "absolute -bottom-0.5 -right-0.5 size-2.5 rounded-full border-2 border-background transition-colors duration-200",
+          presence === "online" ? "bg-[var(--success)]" : "bg-muted-foreground/55",
+        )}
       />
-      <span>{identity.availabilityLabel}</span>
     </span>
   );
 }
@@ -128,7 +127,6 @@ export function WorkflowActorSlot({
               <span className="min-w-0 shrink truncate font-semibold" title={identity.typeLabel}>
                 {identity.typeLabel}
               </span>
-              <WorkflowActorAvailabilityMeta identity={identity} />
             </span>
           ) : null}
         </span>

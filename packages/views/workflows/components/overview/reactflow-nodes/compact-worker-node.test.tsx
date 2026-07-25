@@ -216,7 +216,7 @@ describe("CompactWorkerNode", () => {
     expect(screen.getByText("GPT-4 Agent")).toBeInTheDocument();
   });
 
-  it("renders the Soft Slab node structure with a type badge and role metadata", () => {
+  it("renders the Soft Slab node structure without a top-right type badge", () => {
     const rfn = {
       id: "node-1",
       type: "compactWorker",
@@ -225,11 +225,8 @@ describe("CompactWorkerNode", () => {
     } as Node;
     renderWithProvider(rfn);
 
-    const badge = screen.getByTestId("compact-worker-node-badge-node-1");
     const meta = screen.getByTestId("compact-worker-node-meta-node-1");
-    expect(badge).toHaveTextContent("Agent");
-    expect(badge).toHaveAttribute("data-workflow-node-type-badge", "true");
-    expect(badge).toHaveClass("border-border/55", "bg-background/70", "text-muted-foreground");
+    expect(screen.queryByTestId("compact-worker-node-badge-node-1")).not.toBeInTheDocument();
     expect(meta).toHaveTextContent("GPT-4 Agent");
     expect(meta).toHaveTextContent("Optional");
     expect(meta).toHaveClass("border-t", "border-border/45");
@@ -274,7 +271,11 @@ describe("CompactWorkerNode", () => {
     expect(screen.getByTestId("compact-worker-node-worker-role-node-1")).toHaveTextContent("Builder Agent");
     expect(screen.getByTestId("compact-worker-node-critic-role-node-1")).toHaveTextContent("Reviewer");
     expect(screen.getByTestId("compact-worker-node-worker-role-node-1")).toHaveTextContent("Digital human");
-    expect(screen.getByTestId("compact-worker-node-worker-role-node-1")).toHaveTextContent("Online");
+    expect(screen.getByTestId("compact-worker-node-worker-role-node-1")).not.toHaveTextContent("Online");
+    expect(
+      screen.getByTestId("compact-worker-node-worker-role-node-1")
+        .querySelector('[data-workflow-actor-presence="online"]'),
+    ).toHaveClass("bg-[var(--success)]");
     expect(screen.getByTestId("compact-worker-node-critic-role-node-1")).toHaveTextContent("Member");
     expect(screen.getByText("Localized Worker")).toBeInTheDocument();
     expect(screen.getByText("Localized Critic")).toBeInTheDocument();
@@ -368,7 +369,8 @@ describe("CompactWorkerNode", () => {
     renderWithProvider(rfn);
 
     expect(screen.getByText("Handoff note")).toBeInTheDocument();
-    expect(screen.getByText("Note")).toBeInTheDocument();
+    expect(screen.queryByText("Note")).not.toBeInTheDocument();
+    expect(screen.getByText("Canvas note")).toBeInTheDocument();
     expect(screen.queryByText("Intake")).not.toBeInTheDocument();
     expect(screen.queryByText("Needs worker")).not.toBeInTheDocument();
   });
@@ -436,7 +438,7 @@ describe("CompactWorkerNode", () => {
     expect(screen.getByText("Child workflow")).toBeInTheDocument();
     expect(screen.getByText("Execution policy")).toBeInTheDocument();
     expect(screen.queryByText("GPT-4 Agent")).not.toBeInTheDocument();
-    expect(screen.getByTestId("compact-worker-node-badge-split-1")).toHaveTextContent("Split");
+    expect(screen.queryByTestId("compact-worker-node-badge-split-1")).not.toBeInTheDocument();
 
     const meta = screen.getByTestId("compact-worker-node-meta-split-1");
     expect(meta).toHaveClass("border-t", "grid-cols-2");
