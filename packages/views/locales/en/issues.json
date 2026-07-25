@@ -513,6 +513,7 @@
       "unassigned": "Unassigned"
     },
     "card": {
+      "duration_label": "Duration {{duration}}",
       "worker_label": "Executor",
       "critic_label": "Reviewer",
       "artifacts_label": "Artifacts",

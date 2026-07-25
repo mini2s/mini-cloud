@@ -41,6 +41,7 @@ import {
   WorkflowNodeDetailPanelShell,
 } from "../../../common/workflow-node-detail-panel-shell";
 import { RuntimeDisplayStatusIcon } from "./node-run-status-icon";
+import { formatRuntimeDuration } from "./runtime-node-duration";
 import { NodeRunDeliverables } from "../../../workflows/components/node-run-deliverables";
 import {
   AgentTranscriptDialog,
@@ -150,23 +151,6 @@ function runtimeDisplayStatusText(
   }
 }
 
-function formatDurationLabel(totalSeconds: number): string {
-  if (totalSeconds < 60) return `${totalSeconds}s`;
-
-  const days = Math.floor(totalSeconds / 86400);
-  const hours = Math.floor((totalSeconds % 86400) / 3600);
-  const minutes = Math.floor((totalSeconds % 3600) / 60);
-  const seconds = totalSeconds % 60;
-
-  if (days > 0) {
-    return hours > 0 ? `${days}d ${hours}h` : `${days}d`;
-  }
-  if (hours > 0) {
-    return minutes > 0 ? `${hours}h ${minutes}m` : `${hours}h`;
-  }
-  return seconds > 0 ? `${minutes}m ${seconds}s` : `${minutes}m`;
-}
-
 export function ExecutionDetailPanel({
   node,
   nodeRun,
@@ -226,7 +210,7 @@ export function ExecutionDetailPanel({
 
   const durationLabel = useMemo(() => {
     if (duration == null) return null;
-    return formatDurationLabel(duration);
+    return formatRuntimeDuration(duration);
   }, [duration]);
 
   const errorMessage = useMemo(() => {

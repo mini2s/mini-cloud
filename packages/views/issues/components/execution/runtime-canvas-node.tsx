@@ -39,6 +39,7 @@ export interface RuntimeCanvasNodeData extends Record<string, unknown> {
   node: WorkflowNode;
   nodeRun: WorkflowNodeRun | null;
   runtimeSummary: WorkflowNodeRuntimeSummary | null;
+  nowMs?: number;
   workerName: string | null;
   criticName: string | null;
   workerIdentity?: WorkflowActorIdentity | null;
@@ -105,6 +106,7 @@ export const RuntimeCanvasNode = memo(function RuntimeCanvasNode({
         onOpenSession={nodeData.onOpenSession}
         deliverables={nodeData.deliverables}
         runtimeSummary={nodeData.runtimeSummary}
+        nowMs={nodeData.nowMs}
         isRuntimeFocus={nodeData.isRuntimeFocus === true}
         isSplitExpanded={nodeData.isSplitExpanded}
         splitChildCount={nodeData.splitChildCount}
