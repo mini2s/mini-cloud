@@ -374,7 +374,7 @@ func (s *TaskService) repositoryDeliverableEnv(ctx context.Context, task db.Mult
 	if err != nil {
 		return nil
 	}
-	deliverables, err := s.Queries.ListWorkflowNodeDeliverables(ctx, nr.SourceWorkflowNodeID)
+	deliverables, err := s.Queries.ListNodeRunDeliverableRequirements(ctx, nr.ID)
 	if err != nil {
 		return nil
 	}
@@ -405,7 +405,11 @@ func (s *TaskService) repositoryDeliverableEnv(ctx context.Context, task db.Mult
 		publicBase = base
 	}
 	owner := gitea.OrgName(util.UUIDToString(run.WorkspaceID))
-	repo := gitea.RepoName(util.UUIDToString(run.WorkflowID))
+	snapshot, err := (WorkflowRuntimeRepository{Queries: s.Queries}).GetRunDefinitionSnapshot(ctx, run.ID)
+	if err != nil {
+		return nil
+	}
+	repo := DeliverableRepoName(run.WorkflowID, snapshot.Workflow.IsDefault)
 	refsJSON, _ := json.Marshal(refs)
 	// Bot PAT + Gitea base URL are pushed down so cs-cloud's `deliverable submit`
 	// can push the document + open a PR against Gitea directly, without relaying

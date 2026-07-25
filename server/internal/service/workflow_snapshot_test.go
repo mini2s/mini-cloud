@@ -8,6 +8,7 @@ import (
 
 func TestBuildWorkflowDefinitionSnapshotProducesStableTypedJSON(t *testing.T) {
 	rows := workflowDefinitionRowsFixture()
+	rows.Workflow.IsDefault = true
 	first, err := BuildWorkflowDefinitionSnapshot(rows)
 	if err != nil {
 		t.Fatal(err)
@@ -29,6 +30,9 @@ func TestBuildWorkflowDefinitionSnapshotProducesStableTypedJSON(t *testing.T) {
 	}
 	if first.SchemaVersion != 1 || first.SnapshotOrigin != "native" {
 		t.Fatalf("unexpected header: %#v", first)
+	}
+	if !first.Workflow.IsDefault {
+		t.Fatal("default workflow identity was not preserved in the snapshot")
 	}
 	if got := []string{first.Stages[0].ID, first.Stages[1].ID}; !equalStrings(got, []string{"stage-a", "stage-b"}) {
 		t.Fatalf("stage order=%v", got)

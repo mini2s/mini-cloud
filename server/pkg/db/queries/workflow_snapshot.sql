@@ -30,6 +30,7 @@ SELECT
     workflow.workspace_id,
     workflow.title,
     workflow.description,
+    workflow.is_default,
     workflow.max_retries,
     workflow.default_runtime_selection_policy,
     workflow.default_runtime_id,

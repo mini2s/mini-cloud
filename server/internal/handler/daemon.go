@@ -1841,7 +1841,7 @@ func (h *Handler) giteaContextForNodeRun(ctx context.Context, nodeRunID pgtype.U
 		return nil
 	}
 	seq := topo[util.UUIDToString(nr.ID)]
-	deliverables, err := h.Queries.ListWorkflowNodeDeliverables(ctx, nr.SourceWorkflowNodeID)
+	deliverables, err := h.Queries.ListNodeRunDeliverableRequirements(ctx, nr.ID)
 	if err != nil {
 		return nil
 	}
@@ -1861,7 +1861,11 @@ func (h *Handler) giteaContextForNodeRun(ctx context.Context, nodeRunID pgtype.U
 		return nil
 	}
 	owner := gitea.OrgName(util.UUIDToString(run.WorkspaceID))
-	repo := gitea.RepoName(util.UUIDToString(run.WorkflowID))
+	snapshot, err := (service.WorkflowRuntimeRepository{Queries: h.Queries}).GetRunDefinitionSnapshot(ctx, run.ID)
+	if err != nil {
+		return nil
+	}
+	repo := service.DeliverableRepoName(run.WorkflowID, snapshot.Workflow.IsDefault)
 	return &GiteaDeliverableContext{
 		Owner:        owner,
 		Repo:         repo,

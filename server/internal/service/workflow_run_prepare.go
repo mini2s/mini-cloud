@@ -115,7 +115,7 @@ func loadWorkflowDefinitionRows(
 	rows := WorkflowDefinitionRows{
 		Workflow: WorkflowSnapshotWorkflow{
 			ID: util.UUIDToString(row.WorkflowID), WorkspaceID: util.UUIDToString(row.WorkspaceID),
-			Title: row.Title, Description: row.Description, MaxRetries: row.MaxRetries,
+			Title: row.Title, Description: row.Description, IsDefault: row.IsDefault, MaxRetries: row.MaxRetries,
 			RuntimeSelectionPolicy: row.DefaultRuntimeSelectionPolicy,
 			RuntimeID:              util.UUIDToString(row.DefaultRuntimeID), ConfigRevision: row.ConfigRevision,
 		},

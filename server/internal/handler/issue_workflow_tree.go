@@ -146,15 +146,15 @@ func (h *Handler) workflowRunSummary(ctx context.Context, runID pgtype.UUID) *Wo
 		for _, s := range subs {
 			subByDeliv[util.UUIDToString(s.DeliverableID)] = s.Status
 		}
-		// Deliverable definitions defined on this node; each carries its
+		// Captured deliverable requirements for this node run; each carries its
 		// submission status ("" when not yet submitted).
-		defs, _ := h.Queries.ListWorkflowNodeDeliverables(ctx, nr.WorkflowNodeID)
-		dels := make([]NodeDeliverableStatus, 0, len(defs))
-		for _, d := range defs {
+		requirements, _ := h.Queries.ListNodeRunDeliverableRequirements(ctx, nr.ID)
+		dels := make([]NodeDeliverableStatus, 0, len(requirements))
+		for _, requirement := range requirements {
 			dels = append(dels, NodeDeliverableStatus{
-				DeliverableID:    util.UUIDToString(d.ID),
-				Title:            d.Title,
-				SubmissionStatus: subByDeliv[util.UUIDToString(d.ID)],
+				DeliverableID:    util.UUIDToString(requirement.ID),
+				Title:            requirement.Title,
+				SubmissionStatus: subByDeliv[util.UUIDToString(requirement.ID)],
 			})
 		}
 		summaries = append(summaries, NodeRunSummary{

@@ -34,6 +34,7 @@ type WorkflowSnapshotWorkflow struct {
 	WorkspaceID            string `json:"workspace_id"`
 	Title                  string `json:"title"`
 	Description            string `json:"description"`
+	IsDefault              bool   `json:"is_default"`
 	MaxRetries             int32  `json:"max_retries"`
 	RuntimeSelectionPolicy string `json:"runtime_selection_policy"`
 	RuntimeID              string `json:"runtime_id,omitempty"`

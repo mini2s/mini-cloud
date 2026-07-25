@@ -8,6 +8,7 @@ import (
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/multica-ai/multica/server/internal/service"
 	db "github.com/multica-ai/multica/server/pkg/db/generated"
@@ -981,20 +982,25 @@ var errDeliverableNotFound = errors.New("deliverable not found on this node run"
 // upload path — document bodies live in Gitea (submitted via the report-pr
 // flow) once the platform Gitea is configured.
 func (h *Handler) deliverableKind(ctx context.Context, nodeRunID, deliverableID pgtype.UUID) (string, error) {
-	nr, err := h.Queries.GetWorkflowNodeRun(ctx, nodeRunID)
+	requirement, err := h.Queries.GetNodeRunDeliverableRequirementForSubmission(ctx, db.GetNodeRunDeliverableRequirementForSubmissionParams{
+		ID: deliverableID, WorkflowNodeRunID: nodeRunID,
+	})
 	if err != nil {
-		return "", fmt.Errorf("get node run: %w", err)
-	}
-	deliverables, err := h.Queries.ListWorkflowNodeDeliverables(ctx, nr.WorkflowNodeID)
-	if err != nil {
-		return "", fmt.Errorf("list deliverables: %w", err)
-	}
-	for _, d := range deliverables {
-		if d.ID == deliverableID {
-			return d.Kind, nil
+		if errors.Is(err, pgx.ErrNoRows) {
+			return "", errDeliverableNotFound
 		}
+		return "", fmt.Errorf("get deliverable requirement: %w", err)
 	}
-	return "", errDeliverableNotFound
+	return requirement.Kind, nil
+}
+
+func workflowNodeRunDeliverableToResponse(d db.MulticaWorkflowNodeRunDeliverable, sourceNodeID pgtype.UUID) WorkflowNodeDeliverableResponse {
+	createdAt := timestampToString(d.CreatedAt)
+	return WorkflowNodeDeliverableResponse{
+		ID: uuidToString(d.ID), WorkflowNodeID: uuidToString(sourceNodeID), Kind: d.Kind,
+		Title: d.Title, Description: d.Description, Required: d.Required, SortOrder: d.SortOrder,
+		CreatedAt: createdAt, UpdatedAt: createdAt,
+	}
 }
 
 // ── Deliverable submission handlers ──────────────────────────────────────────
@@ -1018,15 +1024,15 @@ func (h *Handler) ListNodeRunDeliverableSubmissions(w http.ResponseWriter, r *ht
 		resp = append(resp, workflowNodeDeliverableSubmissionToResponse(s))
 	}
 
-	// Also return the node's deliverable definitions (kind) so the frontend can
+	// Also return the node-run's captured requirements so the frontend can
 	// render the right manual-upload control (file picker vs PR-link input)
 	// before any submission exists.
 	out := map[string]any{"submissions": resp}
 	if nodeRun, err := h.Queries.GetWorkflowNodeRun(r.Context(), nrUUID); err == nil {
-		if defs, err := h.Queries.ListWorkflowNodeDeliverables(r.Context(), nodeRun.WorkflowNodeID); err == nil {
-			defResp := make([]WorkflowNodeDeliverableResponse, 0, len(defs))
-			for _, d := range defs {
-				defResp = append(defResp, workflowNodeDeliverableToResponse(d))
+		if requirements, err := h.Queries.ListNodeRunDeliverableRequirements(r.Context(), nodeRun.ID); err == nil {
+			defResp := make([]WorkflowNodeDeliverableResponse, 0, len(requirements))
+			for _, requirement := range requirements {
+				defResp = append(defResp, workflowNodeRunDeliverableToResponse(requirement, nodeRun.SourceWorkflowNodeID))
 			}
 			out["deliverables"] = defResp
 		}
@@ -1054,20 +1060,20 @@ func (h *Handler) SubmitNodeRunDeliverable(w http.ResponseWriter, r *http.Reques
 		writeError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
+	kind, err := h.deliverableKind(r.Context(), nrUUID, dUUID)
+	if err != nil {
+		if errors.Is(err, errDeliverableNotFound) {
+			writeError(w, http.StatusNotFound, "deliverable not found")
+		} else {
+			writeError(w, http.StatusInternalServerError, "failed to load deliverable")
+		}
+		return
+	}
 
 	// Document deliverables are submitted via Gitea PRs (the agent's report-pr
 	// flow), not inline content uploads — but only when the platform Gitea is
 	// configured. When dormant, document content uploads behave as before.
 	if isGiteaConfigured() && (req.Content != "" || req.AttachmentID != nil) {
-		kind, err := h.deliverableKind(r.Context(), nrUUID, dUUID)
-		if err != nil {
-			if errors.Is(err, errDeliverableNotFound) {
-				writeError(w, http.StatusNotFound, "deliverable not found")
-			} else {
-				writeError(w, http.StatusInternalServerError, "failed to load deliverable")
-			}
-			return
-		}
 		if kind == "document" {
 			writeError(w, http.StatusUnprocessableEntity,
 				"document deliverables are submitted via git PR; inline content upload is disabled")

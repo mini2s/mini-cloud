@@ -716,7 +716,22 @@ func TestUploadMemberDeliverable(t *testing.T) {
 	}
 	runUUID, _ := util.ParseUUID(runID)
 	nrUUID, _ := util.ParseUUID(nrID)
+	nodeUUID, _ := util.ParseUUID(nodeID)
 	wsUUID, _ := util.ParseUUID(wsID)
+	if _, err := pool.Exec(ctx, `
+		UPDATE multica_workflow_run
+		SET definition_schema_version = 1,
+		    definition_snapshot = jsonb_build_object(
+		        'schema_version', 1, 'snapshot_origin', 'native',
+		        'workflow', jsonb_build_object('id', $2::uuid, 'workspace_id', $3::uuid, 'title', 'Default', 'is_default', true),
+		        'nodes', jsonb_build_array(jsonb_build_object('id', $4::uuid, 'title', 'N', 'sort_order', 0)),
+		        'edges', '[]'::jsonb, 'stages', '[]'::jsonb, 'roles', '[]'::jsonb, 'deliverables', '[]'::jsonb
+		    )
+		WHERE id = $1
+	`, runUUID, wfID, wsID, nodeID); err != nil {
+		t.Fatalf("seed run snapshot: %v", err)
+	}
+	seedRuntimeDeliverableRequirement(t, pool, nrUUID, nodeUUID, "document")
 
 	t.Cleanup(func() {
 		pool.Exec(ctx, `DELETE FROM multica_workflow WHERE workspace_id = $1`, wsID)
@@ -748,7 +763,7 @@ func TestUploadMemberDeliverable(t *testing.T) {
 	if *prCount != 1 {
 		t.Fatalf("want 1 PR opened, got %d", *prCount)
 	}
-	archiveRepoPath := "/api/v1/repos/" + gitea.OrgName(wsID) + "/" + gitea.DefaultArchiveRepoName() + "/"
+	archiveRepoPath := "/api/v1/repos/" + gitea.OrgName(wsID) + "/" + gitea.RepoName(gitea.DefaultArchiveRepoName()) + "/"
 	for _, p := range *paths {
 		if !strings.Contains(p, archiveRepoPath) {
 			t.Fatalf("Gitea request %q did not use default archive repo path %q; all paths: %v", p, archiveRepoPath, *paths)
@@ -809,7 +824,22 @@ func TestUploadMemberDeliverable_UpdatesExistingFileAfterRejection(t *testing.T)
 	}
 	runUUID, _ := util.ParseUUID(runID)
 	nrUUID, _ := util.ParseUUID(nrID)
+	nodeUUID, _ := util.ParseUUID(nodeID)
 	wsUUID, _ := util.ParseUUID(wsID)
+	if _, err := pool.Exec(ctx, `
+		UPDATE multica_workflow_run
+		SET definition_schema_version = 1,
+		    definition_snapshot = jsonb_build_object(
+		        'schema_version', 1, 'snapshot_origin', 'native',
+		        'workflow', jsonb_build_object('id', $2::uuid, 'workspace_id', $3::uuid, 'title', 'Default', 'is_default', true),
+		        'nodes', jsonb_build_array(jsonb_build_object('id', $4::uuid, 'title', 'N', 'sort_order', 0)),
+		        'edges', '[]'::jsonb, 'stages', '[]'::jsonb, 'roles', '[]'::jsonb, 'deliverables', '[]'::jsonb
+		    )
+		WHERE id = $1
+	`, runUUID, wfID, wsID, nodeID); err != nil {
+		t.Fatalf("seed run snapshot: %v", err)
+	}
+	runtimeDeliverableID := seedRuntimeDeliverableRequirement(t, pool, nrUUID, nodeUUID, "document")
 
 	t.Cleanup(func() {
 		pool.Exec(ctx, `DELETE FROM multica_workflow WHERE workspace_id = $1`, wsID)
@@ -861,7 +891,7 @@ func TestUploadMemberDeliverable_UpdatesExistingFileAfterRejection(t *testing.T)
 		SELECT status, pull_request_url
 		FROM multica_workflow_node_deliverable_submission
 		WHERE workflow_node_run_id = $1 AND deliverable_id = $2
-	`, nrID, deliverableID).Scan(&status, &prURL); err != nil {
+	`, nrID, runtimeDeliverableID).Scan(&status, &prURL); err != nil {
 		t.Fatalf("read submission: %v", err)
 	}
 	if status != "submitted" || prURL == "" {

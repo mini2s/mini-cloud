@@ -610,6 +610,7 @@ SELECT
     workflow.workspace_id,
     workflow.title,
     workflow.description,
+    workflow.is_default,
     workflow.max_retries,
     workflow.default_runtime_selection_policy,
     workflow.default_runtime_id,
@@ -670,6 +671,7 @@ type ListWorkflowDefinitionForSnapshotRow struct {
 	WorkspaceID                   pgtype.UUID `json:"workspace_id"`
 	Title                         string      `json:"title"`
 	Description                   string      `json:"description"`
+	IsDefault                     bool        `json:"is_default"`
 	MaxRetries                    int32       `json:"max_retries"`
 	DefaultRuntimeSelectionPolicy string      `json:"default_runtime_selection_policy"`
 	DefaultRuntimeID              pgtype.UUID `json:"default_runtime_id"`
@@ -689,6 +691,7 @@ func (q *Queries) ListWorkflowDefinitionForSnapshot(ctx context.Context, id pgty
 		&i.WorkspaceID,
 		&i.Title,
 		&i.Description,
+		&i.IsDefault,
 		&i.MaxRetries,
 		&i.DefaultRuntimeSelectionPolicy,
 		&i.DefaultRuntimeID,

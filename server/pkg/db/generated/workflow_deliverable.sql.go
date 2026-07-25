@@ -292,7 +292,13 @@ const upsertNodeRunDeliverableSubmission = `-- name: UpsertNodeRunDeliverableSub
 INSERT INTO multica_workflow_node_deliverable_submission (
     workflow_node_run_id, deliverable_id, submitted_by_type, submitted_by_id,
     status, content, attachment_id, pull_request_url
-) VALUES ($1, $2, $3, $6, 'submitted', $4, $7, $5)
+) SELECT
+    $1, requirement.id, $2,
+    $3, 'submitted', $4,
+    $5, $6
+FROM multica_workflow_node_run_deliverable requirement
+WHERE requirement.id = $7
+  AND requirement.workflow_node_run_id = $1
 ON CONFLICT (workflow_node_run_id, deliverable_id)
 DO UPDATE SET
     submitted_by_type = EXCLUDED.submitted_by_type,
@@ -308,23 +314,23 @@ RETURNING id, workflow_node_run_id, deliverable_id, submitted_by_type, submitted
 
 type UpsertNodeRunDeliverableSubmissionParams struct {
 	WorkflowNodeRunID pgtype.UUID `json:"workflow_node_run_id"`
-	DeliverableID     pgtype.UUID `json:"deliverable_id"`
 	SubmittedByType   string      `json:"submitted_by_type"`
-	Content           string      `json:"content"`
-	PullRequestUrl    string      `json:"pull_request_url"`
 	SubmittedByID     pgtype.UUID `json:"submitted_by_id"`
+	Content           string      `json:"content"`
 	AttachmentID      pgtype.UUID `json:"attachment_id"`
+	PullRequestUrl    string      `json:"pull_request_url"`
+	DeliverableID     pgtype.UUID `json:"deliverable_id"`
 }
 
 func (q *Queries) UpsertNodeRunDeliverableSubmission(ctx context.Context, arg UpsertNodeRunDeliverableSubmissionParams) (MulticaWorkflowNodeDeliverableSubmission, error) {
 	row := q.db.QueryRow(ctx, upsertNodeRunDeliverableSubmission,
 		arg.WorkflowNodeRunID,
-		arg.DeliverableID,
 		arg.SubmittedByType,
-		arg.Content,
-		arg.PullRequestUrl,
 		arg.SubmittedByID,
+		arg.Content,
 		arg.AttachmentID,
+		arg.PullRequestUrl,
+		arg.DeliverableID,
 	)
 	var i MulticaWorkflowNodeDeliverableSubmission
 	err := row.Scan(
@@ -344,4 +350,20 @@ func (q *Queries) UpsertNodeRunDeliverableSubmission(ctx context.Context, arg Up
 		&i.UpdatedAt,
 	)
 	return i, err
+}
+
+const workflowHasDocumentDeliverable = `-- name: WorkflowHasDocumentDeliverable :one
+SELECT EXISTS (
+    SELECT 1
+    FROM multica_workflow_node_deliverable deliverable
+    JOIN multica_workflow_node node ON node.id = deliverable.workflow_node_id
+    WHERE node.workflow_id = $1 AND deliverable.kind = 'document'
+)
+`
+
+func (q *Queries) WorkflowHasDocumentDeliverable(ctx context.Context, workflowID pgtype.UUID) (bool, error) {
+	row := q.db.QueryRow(ctx, workflowHasDocumentDeliverable, workflowID)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
 }

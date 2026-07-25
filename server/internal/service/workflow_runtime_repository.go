@@ -70,6 +70,14 @@ func (r WorkflowRuntimeRepository) ListRunEdgesByTarget(ctx context.Context, nod
 	return edges, nil
 }
 
+func (r WorkflowRuntimeRepository) ListNodeRunDeliverableRequirements(ctx context.Context, nodeRunID pgtype.UUID) ([]db.MulticaWorkflowNodeRunDeliverable, error) {
+	requirements, err := r.Queries.ListNodeRunDeliverableRequirements(ctx, nodeRunID)
+	if err != nil {
+		return nil, fmt.Errorf("list runtime deliverable requirements: %w", err)
+	}
+	return requirements, nil
+}
+
 func (r WorkflowRuntimeRepository) GetRunDefinitionSnapshot(ctx context.Context, runID pgtype.UUID) (WorkflowDefinitionSnapshot, error) {
 	row, err := r.Queries.GetWorkflowRunDefinitionSnapshot(ctx, runID)
 	if err != nil {

@@ -1009,7 +1009,7 @@ func (s *WorkflowService) requiredDeliverablesSatisfied(ctx context.Context, nod
 }
 
 func requiredDeliverablesSatisfiedWithQueries(ctx context.Context, q *db.Queries, nodeRun db.MulticaWorkflowNodeRun) (bool, error) {
-	deliverables, err := q.ListWorkflowNodeDeliverables(ctx, nodeRun.WorkflowNodeID)
+	deliverables, err := q.ListNodeRunDeliverableRequirements(ctx, nodeRun.ID)
 	if err != nil {
 		return false, fmt.Errorf("list deliverables: %w", err)
 	}
@@ -1065,7 +1065,7 @@ func autoSubmitSinglePullRequestDeliverable(ctx context.Context, q *db.Queries, 
 		return nil
 	}
 
-	deliverables, err := q.ListWorkflowNodeDeliverables(ctx, nodeRun.WorkflowNodeID)
+	deliverables, err := q.ListNodeRunDeliverableRequirements(ctx, nodeRun.ID)
 	if err != nil {
 		return fmt.Errorf("list deliverables: %w", err)
 	}
