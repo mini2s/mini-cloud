@@ -2822,6 +2822,27 @@ async hubListItems(params?: HubItemListParams): Promise<{ items: CapabilityItem[
   return this.fetch(`/api/items${qs ? `?${qs}` : ""}`);
 }
 
+/**
+ * List items created by the current user (server resolves "me" from the session
+ * token). Mirrors the source project's `itemApi.listMy` -> `/api/items/my`.
+ * Only filter params meaningful for "my items" are serialized.
+ */
+async hubListMyItems(params?: HubItemListParams): Promise<{ items: CapabilityItem[]; total: number; hasMore?: boolean }> {
+  const p = new URLSearchParams();
+  if (params?.type) p.set("type", params.type);
+  if (params?.search) p.set("search", params.search);
+  if (params?.categories?.length) p.set("categories", params.categories.join(","));
+  if (params?.source?.length) p.set("source", params.source.join(","));
+  if (params?.tags?.length) p.set("tags", params.tags.join(","));
+  if (params?.securityStatuses?.length) p.set("securityStatuses", params.securityStatuses.join(","));
+  if (params?.sort) p.set("sortBy", params.sort);
+  if (params?.order) p.set("sortOrder", params.order);
+  if (params?.page) p.set("page", String(params.page));
+  if (params?.pageSize) p.set("pageSize", String(params.pageSize));
+  const qs = p.toString();
+  return this.fetch(`/api/items/my${qs ? `?${qs}` : ""}`);
+}
+
 async hubGetItem(id: string): Promise<CapabilityItem> {
   return this.fetch(`/api/items/${encodeURIComponent(id)}`);
 }

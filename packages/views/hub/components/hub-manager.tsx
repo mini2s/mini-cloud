@@ -17,6 +17,7 @@ import { api } from "@multica/core/api"
 import { useT } from "@multica/views/i18n"
 import {
   useHubItems,
+  useHubMyItems,
   useHubFavoriteMutation,
   useHubUnfavoriteMutation,
   useHubForkDistributionMutation,
@@ -154,7 +155,9 @@ export function HubManager() {
   }), [page, debounced, typeFilter, catFilter, secFilter, srcFilter, tagFilter, sort])
 
   // ── Data fetching ───────────────────────────────────────────────────────
-  const createdQuery = useHubItems(listParams)
+  // "我创建的" 走 /api/items/my（后端按会话 token 识别用户），不能用公开的
+  // /api/items + createdBy:"me"（后端不认 "me"，会返回全站数据）。
+  const createdQuery = useHubMyItems(listParams)
   const favQuery = useHubItems({ ...listParams, favorited: true })
   const receivedQuery = useHubMyReceivedDistributions()
   const sentQuery = useHubMySentDistributions()
@@ -335,7 +338,7 @@ export function HubManager() {
   const startBatchDelete = useCallback(async () => {
     let ids: string[]
     if (allMatching) {
-      const res = await api.hubListItems({ ...listParams, page: 1, pageSize: MAX_BATCH_DELETE })
+      const res = await api.hubListMyItems({ ...listParams, page: 1, pageSize: MAX_BATCH_DELETE })
       ids = res.items.map((i) => i.id)
       const capped = itemTotal > MAX_BATCH_DELETE
       let desc = t(($) => $.manager.confirmBatchDelete, { count: ids.length })

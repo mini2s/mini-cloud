@@ -21,6 +21,10 @@ export const hubKeys = {
   all: ["hub"] as const,
   items: () => [...hubKeys.all, "items"] as const,
   itemsList: (params: HubItemListParams) => [...hubKeys.items(), params] as const,
+  /** Items created by the current user — own namespace so the "my items" list
+   *  and badge counts don't collide with the public list cache. */
+  myItems: () => [...hubKeys.items(), "my"] as const,
+  myItemsList: (params: HubItemListParams) => [...hubKeys.myItems(), params] as const,
   /** Per-type totals for the sidebar badges (FR-08) — own key namespace so
    *  filter/sort changes on the list never collide with the count cache. */
   typeCounts: () => [...hubKeys.all, "type-counts"] as const,
@@ -60,6 +64,26 @@ export function hubItemsQueryOptions(params: HubItemListParams) {
 
 export function useHubItems(params: HubItemListParams) {
   return useQuery(hubItemsQueryOptions(params));
+}
+
+// ── My items (created by current user) ───────────────────────────────────
+// Source project uses a dedicated `/api/items/my` endpoint where the server
+// resolves the caller from the session token. `createdBy: "me"` on the public
+// `/api/items` endpoint is NOT honored by the backend, so the manager "created"
+// tab must go through this path instead.
+
+export function hubMyItemsQueryOptions(params: HubItemListParams) {
+  return queryOptions({
+    queryKey: hubKeys.myItemsList(params),
+    queryFn: async (): Promise<HubItemsResult> => {
+      const res = await api.hubListMyItems(params);
+      return { items: res.items ?? [], total: res.total ?? 0 };
+    },
+  });
+}
+
+export function useHubMyItems(params: HubItemListParams) {
+  return useQuery(hubMyItemsQueryOptions(params));
 }
 
 // ── Item detail ──────────────────────────────────────────────────────────
@@ -202,16 +226,18 @@ export function useHubTypeCounts(): { counts: HubTypeCounts; isLoading: boolean 
 // ── Manager tab counts (M-01) ────────────────────────────────────────────
 
 /**
- * "我创建的" badge total: `hubListItems({ createdBy: "me", pageSize: 1 })`
- * -> `total`. Lives under the items namespace so any items invalidation
- * (create/edit/delete/favorite mutations) refreshes the badge, while the
- * independent key keeps it from colliding with the filtered list caches.
+ * "我创建的" badge total: `hubListMyItems({ pageSize: 1 })` -> `total`.
+ * Uses the `/api/items/my` endpoint (server resolves caller from session),
+ * NOT the public `/api/items` with `createdBy: "me"` (which the backend does
+ * not honor). Lives under the my-items namespace so any items invalidation
+ * (create/edit/delete mutations) refreshes the badge, while the independent
+ * key keeps it from colliding with the filtered list caches.
  */
 export function hubManagerCreatedCountQueryOptions() {
   return queryOptions({
-    queryKey: [...hubKeys.items(), "__count__", "created"] as const,
+    queryKey: [...hubKeys.myItems(), "__count__"] as const,
     queryFn: async (): Promise<number> => {
-      const res = await api.hubListItems({ createdBy: "me", pageSize: 1 });
+      const res = await api.hubListMyItems({ pageSize: 1 });
       return res.total ?? 0;
     },
     staleTime: 60 * 1000,
