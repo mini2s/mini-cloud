@@ -61,7 +61,7 @@ function FilterDropdown({
           <button
             type="button"
             className={cn(
-              "inline-flex h-[2.125rem] cursor-pointer items-center gap-[7px] rounded-[10px] border px-3 text-[12.5px] font-bold transition-[color,border-color,background-color] duration-150",
+              "inline-flex h-[34px] cursor-pointer items-center gap-[7px] rounded-[10px] border px-3 text-[12.5px] font-bold transition-[color,border-color,background-color] duration-150",
               active
                 ? "border-primary/45 bg-primary/10 text-primary"
                 : "border-border/60 bg-background text-muted-foreground hover:border-muted-foreground/30 hover:text-foreground",
@@ -70,7 +70,7 @@ function FilterDropdown({
         }
       >
         {active && (
-          <span className="inline-flex h-4 min-w-4 items-center justify-center rounded-[99px] bg-primary px-1 text-[10.5px] font-extrabold leading-none text-primary-foreground [font-variant-numeric:tabular-nums]">
+          <span className="inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10.5px] font-extrabold leading-none text-primary-foreground [font-variant-numeric:tabular-nums]">
             {count}
           </span>
         )}
@@ -81,12 +81,12 @@ function FilterDropdown({
           className={cn("shrink-0 transition-transform duration-250 ease-out", open && "rotate-180")}
         />
       </PopoverTrigger>
-      <PopoverContent className="min-w-[11.75rem] p-[7px]" align="start">
-        <div className="thin-scrollbar flex max-h-[19.2rem] flex-col gap-0.5 overflow-y-auto">
+      <PopoverContent className="min-w-48 p-[7px]" align="start">
+        <div className="flex max-h-80 flex-col gap-0.5 overflow-y-auto">
           {group.options.map((option) => (
             <label
               key={option.value}
-              className="flex cursor-pointer items-center gap-[9px] rounded-[9px] px-[9px] py-2 text-[13px] text-foreground transition-colors hover:bg-muted/50"
+              className="flex cursor-pointer items-center gap-[9px] rounded-[9px] px-[9px] py-2 text-sm text-foreground transition-colors hover:bg-muted/50"
               onClick={(e) => {
                 e.preventDefault()
                 group.toggle(option.value)
@@ -95,7 +95,7 @@ function FilterDropdown({
               <Checkbox checked={isSelected(option.value)} className="size-[17px]" />
               {kind === "security" && (
                 <span
-                  className="size-2 shrink-0 rounded-[99px]"
+                  className="size-2 shrink-0 rounded-full"
                   style={{ backgroundColor: RISK_DOT[option.value] ?? RISK_DOT.unknown }}
                 />
               )}
@@ -108,7 +108,7 @@ function FilterDropdown({
             </label>
           ))}
           {group.options.length === 0 && (
-            <div className="px-2.5 py-3 text-[13px] text-muted-foreground">
+            <div className="px-2.5 py-3 text-sm text-muted-foreground">
               {t(($) => $.home.filter.noOptions)}
             </div>
           )}
@@ -128,12 +128,12 @@ export function FilterChip({
   onRemove: () => void
 }) {
   return (
-    <span className="inline-flex h-[1.875rem] items-center gap-1.5 rounded-[99px] border border-primary/40 bg-primary/10 pl-[11px] pr-1.5 text-[12px] font-bold text-primary">
-      {dotColor && <span className="size-2 shrink-0 rounded-[99px]" style={{ backgroundColor: dotColor }} />}
-      <span className="max-w-[12rem] truncate">{label}</span>
+    <span className="inline-flex h-[30px] items-center gap-1.5 rounded-full border border-primary/40 bg-primary/10 pl-[11px] pr-1.5 text-xs font-bold text-primary">
+      {dotColor && <span className="size-2 shrink-0 rounded-full" style={{ backgroundColor: dotColor }} />}
+      <span className="max-w-48 truncate">{label}</span>
       <button
         type="button"
-        className="flex size-[18px] shrink-0 cursor-pointer items-center justify-center rounded-[99px] text-primary/80 transition-colors hover:bg-primary/20"
+        className="flex size-[18px] shrink-0 cursor-pointer items-center justify-center rounded-full text-primary/80 transition-colors hover:bg-primary/20"
         onClick={onRemove}
         aria-label="remove"
       >
@@ -211,7 +211,7 @@ export function HubFilterBar({
           </span>
           <button
             type="button"
-            className="cursor-pointer rounded-[8px] px-2 py-1.5 text-[12px] font-bold text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground"
+            className="cursor-pointer rounded-[8px] px-2 py-1.5 text-xs font-bold text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground"
             onClick={onClearAll}
           >
             {t(($) => $.home.filter.clearAll)}

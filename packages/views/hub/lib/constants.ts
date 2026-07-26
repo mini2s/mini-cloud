@@ -10,13 +10,10 @@ export const TYPE_PREFIX: Record<string, string> = {
   plugin: "plugin-",
 }
 
-export const TYPE_COLORS: Record<string, string> = {
-  skill: "#F59E0B",
-  subagent: "#3B82F6",
-  command: "#10B981",
-  mcp: "#8B5CF6",
-  plugin: "#EC4899",
-}
+/* SD-09: TYPE_COLORS moved to ./type-colors.ts as a themeable token map.
+   Re-exported here so existing consumers keep working while imports are
+   migrated to the new module. */
+export { TYPE_COLORS, typeColor } from "./type-colors"
 
 export const TYPE_CONTENT_PLACEHOLDER: Record<string, string> = {
   skill: "# SKILL\n\nDescribe what this skill does...",

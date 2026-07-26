@@ -1,28 +1,37 @@
 "use client"
 
 import { useCallback } from "react"
-import { useParams, useRouter } from "next/navigation"
 import { ArrowLeft } from "lucide-react"
 import { Button } from "@multica/ui/components/ui/button"
 import { ScrollArea } from "@multica/ui/components/ui/scroll-area"
+import { useNavigation } from "../../navigation"
+import { useWorkspacePaths } from "@multica/core/paths"
+import { useT } from "@multica/views/i18n"
+import { PageHeader } from "../../layout/page-header"
 import { ItemDetailContent } from "./item-detail-content"
 
-export function HubDetail() {
-  const router = useRouter()
-  const params = useParams<{ itemId: string }>()
-  const itemId = params?.itemId ?? ""
+export interface HubDetailProps {
+  itemId: string
+}
 
+export function HubDetail({ itemId }: HubDetailProps) {
+  const { t } = useT("hub")
+  const navigation = useNavigation()
+  const paths = useWorkspacePaths()
+
+  // SD-08: detail page offers an adapter.back() action, falling back to the
+  // hub home when there is no in-app history to pop (e.g. shared link).
   const handleBack = useCallback(() => {
     if (window.history.length > 1) {
-      router.back()
+      navigation.back()
     } else {
-      router.push("/hub")
+      navigation.push(paths.hub())
     }
-  }, [router])
+  }, [navigation, paths])
 
   const handleDeleted = useCallback(() => {
-    router.push("/hub")
-  }, [router])
+    navigation.push(paths.hub())
+  }, [navigation, paths])
 
   if (!itemId) {
     return (
@@ -33,14 +42,22 @@ export function HubDetail() {
   }
 
   return (
-    <div className="h-full w-full">
-      <ScrollArea>
+    <div className="flex h-full w-full min-h-0 flex-col">
+      <PageHeader>
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="-ml-2 mr-1 h-8 shrink-0 px-2"
+          onClick={handleBack}
+        >
+          <ArrowLeft className="mr-1 size-4" />
+          {t(($) => $.manager.backToHub)}
+        </Button>
+        <h1 className="truncate text-sm font-semibold">{t(($) => $.detail.title)}</h1>
+      </PageHeader>
+      <ScrollArea className="min-h-0 flex-1">
         <div className="mx-auto max-w-5xl px-4 py-6">
-          <Button variant="ghost" onClick={handleBack} className="mb-4">
-            <ArrowLeft className="mr-2 h-4 w-4" />
-            {"Back"}
-          </Button>
-
           <ItemDetailContent
             itemId={itemId}
             onDeleted={handleDeleted}

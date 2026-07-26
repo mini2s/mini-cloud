@@ -19,7 +19,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@multica/ui/components/ui/select"
-import { api } from "@multica/core/api"
+import { useHubUpdateRepoMutation } from "@multica/core/hub"
 import type { Repository } from "@multica/core/types/hub"
 import { useT } from "@multica/views/i18n"
 import { toast } from "sonner"
@@ -37,22 +37,25 @@ export function EditRepoDialog(props: EditRepoDialogProps) {
   const [displayName, setDisplayName] = useState(props.repo.displayName)
   const [desc, setDesc] = useState(props.repo.description)
   const [visibility, setVisibility] = useState(props.repo.visibility)
-  const [saving, setSaving] = useState(false)
   const [error, setError] = useState("")
+  const updateMutation = useHubUpdateRepoMutation()
+  const saving = updateMutation.isPending
 
   async function handle(e: React.FormEvent) {
     e.preventDefault()
     const trimmed = name.trim()
     if (!trimmed) return
 
-    setSaving(true)
     setError("")
     try {
-      const updated = await api.hubUpdateRepo(props.repo.id, {
-        name: trimmed,
-        displayName: displayName.trim() || undefined,
-        description: desc.trim() || undefined,
-        visibility,
+      const updated = await updateMutation.mutateAsync({
+        id: props.repo.id,
+        data: {
+          name: trimmed,
+          displayName: displayName.trim() || undefined,
+          description: desc.trim() || undefined,
+          visibility,
+        },
       })
       props.onUpdated(updated)
       toast.success(t(($) => $.repo.updated_toast))
@@ -61,8 +64,6 @@ export function EditRepoDialog(props: EditRepoDialogProps) {
       const msg = err instanceof Error ? err.message : String(err)
       setError(msg)
       toast.error(t(($) => $.repo.update_failed), { description: msg })
-    } finally {
-      setSaving(false)
     }
   }
 

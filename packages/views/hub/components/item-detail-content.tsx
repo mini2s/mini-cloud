@@ -23,6 +23,8 @@ import {
   Link,
   ChevronLeft,
   Copy,
+  Send,
+  Download,
 } from "lucide-react"
 import { Button } from "@multica/ui/components/ui/button"
 import { Badge } from "@multica/ui/components/ui/badge"
@@ -32,7 +34,6 @@ import { useT } from "@multica/views/i18n"
 import { toast } from "sonner"
 import { api } from "@multica/core/api"
 import type { CapabilityItem, CapabilityVersion, ItemTag } from "@multica/core/types"
-import { SecurityTag } from "./security-tag"
 import FromPluginBadge from "./from-plugin-badge"
 import HealthRadar from "./health-radar"
 import { SubItemTree } from "./sub-item-tree"
@@ -40,11 +41,26 @@ import type { VirtualTreeNode } from "./sub-item-tree"
 import { SubscribeButton } from "./subscribe-button"
 import { McpConfigForm } from "./mcp-config-form"
 import { ConfirmDialog } from "./confirm-dialog"
-import { useHubItemDetail } from "../hooks/use-hub-item-detail"
-import { useHubFavoriteStatus, useHubFavoriteMutation, useHubUnfavoriteMutation } from "../hooks/use-hub-favorites"
-import { TYPE_COLORS, typeKey } from "../lib/constants"
+import { ShareButton } from "./share-button"
+import { ScanResults } from "./scan-results"
+import { ArtifactList } from "./artifact-list"
+import { BuiltinContentDialog } from "./builtin-content-dialog"
+import {
+  useHubItemDetail,
+  useHubFavoriteStatus,
+  useHubFavoriteMutation,
+  useHubUnfavoriteMutation,
+  useHubDistributionAuthority,
+  useHubLogBehaviorMutation,
+} from "@multica/core/hub"
+import { DistributeDialog } from "./distribute-dialog"
+import { getInstallCommand } from "../lib/install-command"
+import { formatCompact } from "../lib/format"
+import { typeKey } from "../lib/constants"
+import { TYPE_COLORS } from "../lib/type-colors"
 import { pickItemDescription } from "../lib/item-description"
 import { matchEnterprise, matchEnterpriseByName, type EnterpriseInfo } from "../lib/enterprise"
+import { useLogoColor } from "../lib/use-logo-color"
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -107,12 +123,6 @@ function fmtDate(iso: string) {
   }).format(d)
 }
 
-function fmtCompact(n: number) {
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(n >= 10_000_000 ? 0 : 1).replace(/\.0$/, "")}M`
-  if (n >= 1000) return `${(n / 1000).toFixed(n >= 10000 ? 0 : 1).replace(/\.0$/, "")}K`
-  return String(n)
-}
-
 function compareTags(a: ItemTag, b: ItemTag) {
   const ap = a.tagClass === "system" ? 0 : 1
   const bp = b.tagClass === "system" ? 0 : 1
@@ -120,7 +130,8 @@ function compareTags(a: ItemTag, b: ItemTag) {
   return a.slug.localeCompare(b.slug)
 }
 
-const ENTERPRISE_GOLD = "#E5B645"
+// SD-09: was "#E5B645" — now the semantic --warning token (theme-aware).
+const ENTERPRISE_GOLD = "var(--warning)"
 
 // ── Type meta lookup ────────────────────────────────────────────────────────
 
@@ -137,7 +148,7 @@ const TYPE_ICONS: Record<string, typeof Zap> = {
 function typeMeta(t?: string) {
   const type = t ?? "skill"
   const Icon = TYPE_ICONS[type] ?? Zap
-  const color = TYPE_COLORS[type] ?? "#F59E0B"
+  const color = TYPE_COLORS[type] ?? "var(--warning)"
   return { Icon, color }
 }
 
@@ -151,6 +162,9 @@ export interface ItemDetailContentProps {
   onDeleted?: () => void
   onFavoriteChanged?: (item: CapabilityItem) => void
   onFav?: (item: CapabilityItem) => void
+  /** When true, scroll the MCP config form into view once the item loads
+   *  (used when the detail was opened from a blocked MCP subscribe click). */
+  autoFocusMcpConfig?: boolean
 }
 
 // ── Component ───────────────────────────────────────────────────────────────
@@ -162,6 +176,7 @@ export function ItemDetailContent({
   onBack,
   onDeleted,
   onFavoriteChanged,
+  autoFocusMcpConfig,
 }: ItemDetailContentProps) {
   const { t } = useT("hub")
 
@@ -190,14 +205,25 @@ export function ItemDetailContent({
     if (!item) return null
     return matchEnterprise(item.createdBy) ?? matchEnterpriseByName(item.name)
   }, [item])
+  // FR-07: brand color extracted from the enterprise logo (cached per logo);
+  // falls back to `var(--card)` when there is no logo or extraction fails, so
+  // the header `color-mix` expressions degrade to the plain card color.
+  const brandColor = useLogoColor(enterprise?.logo)
 
+  // State
   // State
   const [delOpen, setDelOpen] = useState(false)
   const [, setDelLoading] = useState(false)
   const [versionsOpen, setVersionsOpen] = useState(false)
   const [copied, setCopied] = useState(false)
   const [cmdCopied, setCmdCopied] = useState(false)
+  const [distOpen, setDistOpen] = useState(false)
+  const [builtinOpen, setBuiltinOpen] = useState(false)
+  const [builtinToggling, setBuiltinToggling] = useState(false)
 
+  // Distribute entry gating (D-17): hidden entirely when the caller has no
+  // distribution reach.
+  const { canDistribute } = useHubDistributionAuthority()
   const { color: typeColor } = typeMeta(item?.itemType)
   const desc = item ? pickItemDescription(item, "en") : ""
 
@@ -214,17 +240,44 @@ export function ItemDetailContent({
     })
   }, [item, itemId, actualFav.favorited, favMut, unfavMut, onFavoriteChanged])
 
+  // F-09: subscribing an unconfigured MCP is blocked by SubscribeButton — guide
+  // the user to the MCP config form by scrolling it into view and focusing the
+  // first input.
+  const mcpConfigRef = useRef<HTMLDivElement>(null)
+  const focusMcpConfig = useCallback(() => {
+    const el = mcpConfigRef.current
+    if (!el) return
+    el.scrollIntoView({ behavior: "smooth", block: "center" })
+    window.setTimeout(() => {
+      el.querySelector("input")?.focus({ preventScroll: true })
+    }, 350)
+  }, [])
+
+  // Auto-locate the MCP config form when the detail was opened from a blocked
+  // subscribe click in the list (fires once per opening, after data arrives).
+  const autoFocusDoneRef = useRef(false)
+  useEffect(() => {
+    if (!autoFocusMcpConfig) {
+      autoFocusDoneRef.current = false
+      return
+    }
+    if (autoFocusDoneRef.current || !mcpConfig) return
+    autoFocusDoneRef.current = true
+    focusMcpConfig()
+  }, [autoFocusMcpConfig, mcpConfig, focusMcpConfig])
+
+  // Behavior logging (FR-10): single mutation entry point from core/hub —
+  // components only declare the action point, the wire format stays
+  // centralized in the mutation.
+  const logBehavior = useHubLogBehaviorMutation()
+
   // View behavior tracking (once per item)
   const trackedRef = useRef<string | null>(null)
   useEffect(() => {
     if (!item || trackedRef.current === itemId) return
     trackedRef.current = itemId
-    api.hubLogBehavior(itemId, {
-      action: "view",
-      actionType: "view",
-      context: "detail",
-    }).catch(() => {})
-  }, [item, itemId])
+    logBehavior.mutate({ id: itemId, actionType: "view", context: "detail" })
+  }, [item, itemId, logBehavior])
 
   // Fork
   const [forking, setForking] = useState(false)
@@ -241,11 +294,30 @@ export function ItemDetailContent({
     }
   }, [item, itemId, forking, t])
 
-  // Install command (plugins)
-  const installCmd = useMemo(() => {
-    if (!item || item.itemType !== "plugin") return null
-    return `csc plugin install ${item.name}`
+  // Install command — zip_download commands / plugin marketplace install,
+  // matching the source store's getInstallCommand rules.
+  const installCmd = useMemo(() => getInstallCommand(item), [item])
+
+  // Preview behavior (FR-10 preview point): long content starts collapsed;
+  // expanding the content preview logs a `preview` action once per item.
+  const [contentExpanded, setContentExpanded] = useState(false)
+  const previewTrackedRef = useRef<string | null>(null)
+  useEffect(() => {
+    setContentExpanded(false)
+  }, [itemId])
+
+  const isLongContent = useMemo(() => {
+    const content = item?.content
+    if (!content) return false
+    return content.length > 600 || content.split("\n").length > 12
   }, [item])
+
+  const expandContentPreview = useCallback(() => {
+    setContentExpanded(true)
+    if (previewTrackedRef.current === itemId) return
+    previewTrackedRef.current = itemId
+    logBehavior.mutate({ id: itemId, actionType: "preview", context: "content-preview" })
+  }, [itemId, logBehavior])
 
   // Delete
   const handleDelete = useCallback(async () => {
@@ -269,13 +341,37 @@ export function ItemDetailContent({
     setTimeout(() => setCopied(false), 1500)
   }, [itemId])
 
-  // Copy install command
+  // Copy install command (+ install behavior log)
   const copyCmd = useCallback(async () => {
     if (!installCmd) return
     await navigator.clipboard.writeText(installCmd)
     setCmdCopied(true)
     setTimeout(() => setCmdCopied(false), 1500)
-  }, [installCmd])
+    logBehavior.mutate({ id: itemId, actionType: "install", context: "copy-install-command" })
+  }, [installCmd, itemId, logBehavior])
+
+  // Built-in toggle (source semantics: gated by distribution authority and
+  // plugin type). Un-setting is a plain update; setting opens the markdown
+  // upload dialog.
+  const handleBuiltinToggle = useCallback(async () => {
+    if (!item || builtinToggling) return
+    if (!item.isBuiltIn) {
+      setBuiltinOpen(true)
+      return
+    }
+    setBuiltinToggling(true)
+    try {
+      await api.hubUpdateItem(itemId, { isBuiltIn: false })
+      toast.success(t(($) => $.detail.unset_builtin_success))
+      refetch()
+    } catch (err) {
+      toast.error(t(($) => $.detail.toggle_builtin_failed), {
+        description: err instanceof Error ? err.message : String(err),
+      })
+    } finally {
+      setBuiltinToggling(false)
+    }
+  }, [item, itemId, builtinToggling, refetch, t])
 
   // Loading state
   if (isLoading) {
@@ -319,7 +415,7 @@ export function ItemDetailContent({
         className="relative overflow-hidden border-b px-6 pb-5 pr-14 pt-6"
         style={
           enterprise
-            ? { "--brand": enterprise.logo ? undefined : typeColor } as React.CSSProperties
+            ? ({ "--hub-brand": brandColor } as React.CSSProperties)
             : undefined
         }
       >
@@ -329,14 +425,15 @@ export function ItemDetailContent({
               aria-hidden="true"
               className="pointer-events-none absolute inset-0"
               style={{
-                background: `linear-gradient(135deg, color-mix(in oklab, ${ENTERPRISE_GOLD} 12%, transparent), transparent 46%)`,
+                background:
+                  "linear-gradient(135deg, color-mix(in oklab, var(--hub-brand) 12%, transparent), transparent 46%)",
               }}
             />
             <div
               aria-hidden="true"
-              className="pointer-events-none absolute inset-x-0 top-0 h-[2px]"
+              className="pointer-events-none absolute inset-x-0 top-0 h-0.5"
               style={{
-                background: `linear-gradient(90deg, color-mix(in oklab, ${ENTERPRISE_GOLD} 70%, transparent), transparent 40%, color-mix(in oklab, ${typeColor} 55%, transparent))`,
+                background: `linear-gradient(90deg, color-mix(in oklab, ${ENTERPRISE_GOLD} 70%, transparent), transparent 40%, color-mix(in oklab, var(--hub-brand) 55%, transparent))`,
               }}
             />
             {enterprise.logo && (
@@ -344,7 +441,7 @@ export function ItemDetailContent({
                 src={enterprise.logo}
                 alt=""
                 aria-hidden="true"
-                className="pointer-events-none absolute right-[-30px] top-1/2 size-[168px] -translate-y-1/2 rounded-[18px] object-contain opacity-[0.06]"
+                className="pointer-events-none absolute right-[-30px] top-1/2 size-[168px] -translate-y-1/2 rounded-2xl object-contain opacity-[0.06]"
               />
             )}
           </>
@@ -375,11 +472,11 @@ export function ItemDetailContent({
                   {/* Enterprise seal */}
                   {enterprise && (
                     <span
-                      className="inline-flex shrink-0 items-center gap-1 rounded-full border px-2.5 py-[2px] text-[11.5px] font-bold"
+                      className="inline-flex shrink-0 items-center gap-1 rounded-full border px-2.5 py-0.5 text-[11.5px] font-bold"
                       style={{
-                        borderColor: `color-mix(in oklab, ${ENTERPRISE_GOLD} 35%, transparent)`,
-                        backgroundColor: `color-mix(in oklab, ${ENTERPRISE_GOLD} 10%, transparent)`,
-                        color: ENTERPRISE_GOLD,
+                        borderColor: "color-mix(in oklab, var(--hub-brand) 35%, transparent)",
+                        backgroundColor: "color-mix(in oklab, var(--hub-brand) 10%, var(--card))",
+                        color: "var(--hub-brand)",
                       }}
                     >
                       {enterprise.name}
@@ -431,12 +528,55 @@ export function ItemDetailContent({
                   pending={favMut.isPending || unfavMut.isPending}
                   authenticated={true}
                   onToggle={toggleFav}
+                  onSubscribeBlocked={focusMcpConfig}
                   labels={{
                     subscribe: t(($) => $.detail.favorite),
                     subscribed: t(($) => $.detail.unfavorite),
                     tooltip: "Toggle subscription",
                   }}
                 />
+
+                {/* Share (D-10) */}
+                <ShareButton itemId={itemId} />
+
+                {/* Built-in toggle (D-13) — source gating: distribution
+                    authority + plugin type only */}
+                {canDistribute && item.itemType === "plugin" && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={handleBuiltinToggle}
+                    disabled={builtinToggling}
+                    className="text-muted-foreground hover:text-foreground"
+                    title={
+                      item.isBuiltIn
+                        ? t(($) => $.detail.cancel_builtin)
+                        : t(($) => $.detail.set_builtin)
+                    }
+                  >
+                    <Star
+                      className={`h-4 w-4 ${item.isBuiltIn ? "fill-current text-amber-500" : ""}`}
+                    />
+                    <span className="ml-1.5">
+                      {item.isBuiltIn
+                        ? t(($) => $.detail.cancel_builtin)
+                        : t(($) => $.detail.set_builtin)}
+                    </span>
+                  </Button>
+                )}
+
+                {/* Distribute — only with distribution authority (D-17) */}
+                {canDistribute && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setDistOpen(true)}
+                    className="text-muted-foreground hover:text-foreground"
+                  >
+                    <Send className="h-4 w-4" />
+                    <span className="ml-1.5">{t(($) => $.detail.distribute)}</span>
+                  </Button>
+                )}
               </div>
             </div>
 
@@ -455,7 +595,7 @@ export function ItemDetailContent({
           <div className="min-w-0 space-y-5">
             {/* Description */}
             {desc && (
-              <p className="text-[13px] leading-6 text-muted-foreground">{desc}</p>
+              <p className="text-sm leading-6 text-muted-foreground">{desc}</p>
             )}
 
             {/* Install command (plugins) */}
@@ -463,7 +603,7 @@ export function ItemDetailContent({
               <div className="space-y-1.5">
                 <span className={FIELD_LABEL}>{t(($) => $.detail.installCommand)}</span>
                 <div className="flex items-center gap-2">
-                  <code className="flex-1 truncate rounded-lg border bg-muted/50 px-3 py-2 font-mono text-[13px] text-foreground">
+                  <code className="flex-1 truncate rounded-lg border bg-muted/50 px-3 py-2 font-mono text-sm text-foreground">
                     {installCmd}
                   </code>
                   <Button variant="outline" size="icon" onClick={copyCmd} className="h-9 w-9 shrink-0">
@@ -479,7 +619,7 @@ export function ItemDetailContent({
                 <div className="flex flex-wrap gap-4">
                   {/* Content quality */}
                   {item.evaluation && (item.evaluation.content_quality ?? contentQuality(item.evaluation)) != null && (
-                    <div className="min-w-[260px] flex-1 rounded-lg border bg-muted/30 p-4">
+                    <div className="min-w-64 flex-1 rounded-lg border bg-muted/30 p-4">
                       <div className="mb-3 flex items-center justify-between gap-4">
                         <span className={FIELD_LABEL}>{"Content Quality"}</span>
                         <span className="inline-flex items-baseline gap-0.5 font-bold" style={{ color: typeColor }}>
@@ -529,7 +669,7 @@ export function ItemDetailContent({
 
                   {/* Health radar */}
                   {hasHealth(item.health) && item.health && (
-                    <div className="min-w-[260px] flex-1 rounded-lg border bg-muted/30 p-4">
+                    <div className="min-w-64 flex-1 rounded-lg border bg-muted/30 p-4">
                       <div className="mb-3 flex items-center justify-between gap-4">
                         <span className={FIELD_LABEL}>{t(($) => $.detail.health.label)}</span>
                         {(item.health.effective_score ?? item.health.score) != null && (
@@ -562,13 +702,47 @@ export function ItemDetailContent({
             )}
 
             {/* Content */}
+            {/* Content — long content starts collapsed; expanding logs the
+                `preview` behavior (FR-10) */}
             {item.content && (
-              <div className="min-h-[28rem] overflow-y-auto rounded-lg border bg-muted/50 p-4">
-                <pre className="whitespace-pre-wrap text-sm leading-6 text-foreground">
-                  {item.content}
-                </pre>
+              <div className="space-y-1.5">
+                <div
+                  className={
+                    contentExpanded || !isLongContent
+                      ? "min-h-[26rem] overflow-y-auto rounded-lg border bg-muted/50 p-4"
+                      : "max-h-40 overflow-hidden rounded-lg border bg-muted/50 p-4"
+                  }
+                >
+                  <pre className="whitespace-pre-wrap text-sm leading-6 text-foreground">
+                    {item.content}
+                  </pre>
+                </div>
+                {isLongContent && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 px-2 text-xs text-muted-foreground"
+                    onClick={() =>
+                      contentExpanded ? setContentExpanded(false) : expandContentPreview()
+                    }
+                  >
+                    {contentExpanded ? (
+                      <>
+                        <ChevronUp className="mr-1 h-3.5 w-3.5" />
+                        {t(($) => $.detail.contentCollapse)}
+                      </>
+                    ) : (
+                      <>
+                        <ChevronDown className="mr-1 h-3.5 w-3.5" />
+                        {t(($) => $.detail.contentExpand)}
+                      </>
+                    )}
+                  </Button>
+                )}
               </div>
             )}
+            {/* Artifacts (D-16) — authenticated per-file download */}
+            <ArtifactList itemId={itemId} fallbackArtifacts={item.artifacts} />
 
             {/* Plugin sub-items */}
             {item.itemType === "plugin" && (
@@ -579,7 +753,7 @@ export function ItemDetailContent({
                     <SubItemTree nodes={subItems} />
                   </div>
                 ) : (
-                  <p className="text-[13px] text-muted-foreground">{"No bundled skills"}</p>
+                  <p className="text-sm text-muted-foreground">{"No bundled skills"}</p>
                 )}
               </div>
             )}
@@ -600,21 +774,29 @@ export function ItemDetailContent({
                     </div>
                     <span>{t(($) => $.home.typeTab[(item.itemType ?? "all") as "all" | "skill" | "subagent" | "command" | "mcp" | "plugin"])}</span>
                   </span>
-                  <span className="inline-flex items-center gap-1.5" title={`Previews: ${(item.previewCount ?? 0).toLocaleString()}`}>
-                    <Eye className="h-3.5 w-3.5 text-muted-foreground" />
-                    <span>{fmtCompact(item.previewCount ?? 0)}</span>
-                  </span>
+                  {/* D-12: behavior counts render only when the backend
+                      returns the field — no zero placeholders */}
+                  {item.previewCount != null && (
+                    <span className="inline-flex items-center gap-1.5" title={`Previews: ${item.previewCount.toLocaleString()}`}>
+                      <Eye className="h-3.5 w-3.5 text-muted-foreground" />
+                      <span>{formatCompact(item.previewCount)}</span>
+                    </span>
+                  )}
+                  {item.installCount != null && (
+                    <span className="inline-flex items-center gap-1.5" title={`Installs: ${item.installCount.toLocaleString()}`}>
+                      <Download className="h-3.5 w-3.5 text-muted-foreground" />
+                      <span>{formatCompact(item.installCount)}</span>
+                    </span>
+                  )}
                   <span className="inline-flex items-center gap-1.5" title={`Subscribers: ${(item.favoriteCount ?? 0).toLocaleString()}`}>
                     <Star className="h-3.5 w-3.5 text-muted-foreground" />
-                    <span>{fmtCompact(item.favoriteCount ?? 0)}</span>
+                    <span>{formatCompact(item.favoriteCount ?? 0)}</span>
                   </span>
                 </div>
 
-                {/* Security */}
-                <div className="flex items-center justify-between gap-4">
-                  <span className={FIELD_LABEL}>{t(($) => $.detail.security.label)}</span>
-                  <SecurityTag status={item.securityStatus} />
-                </div>
+                {/* Security scan details (D-08) — collapsible ScanRows via
+                    hubGetScanResults; falls back to the plain status tag */}
+                <ScanResults itemId={itemId} securityStatus={item.securityStatus} />
 
                 {/* Tags */}
                 {item.tags && item.tags.length > 0 && (
@@ -659,7 +841,7 @@ export function ItemDetailContent({
                 <div className="flex items-center justify-between gap-4">
                   <span className={FIELD_LABEL}>{t(($) => $.detail.author)}</span>
                   <div className="flex min-w-0 items-center gap-2">
-                    <span className="max-w-[12rem] truncate text-right text-sm text-foreground">
+                    <span className="max-w-48 truncate text-right text-sm text-foreground">
                       {item.createdBy}
                     </span>
                     <button
@@ -742,7 +924,7 @@ export function ItemDetailContent({
 
                 {/* MCP Config */}
                 {mcpConfig && (
-                  <div className="space-y-2 rounded-lg border bg-muted/30 p-3">
+                  <div ref={mcpConfigRef} className="space-y-2 rounded-lg border bg-muted/30 p-3">
                     <span className={FIELD_LABEL}>{t(($) => $.detail.mcp.label)}</span>
                     <McpConfigForm
                       itemId={itemId}
@@ -767,6 +949,27 @@ export function ItemDetailContent({
         variant="danger"
         onConfirm={handleDelete}
       />
+
+      {/* ── Distribute Dialog (shared by Sheet and standalone page) ── */}
+      {item && (
+        <DistributeDialog
+          item={item}
+          open={distOpen}
+          onOpenChange={setDistOpen}
+          onCreated={() => setDistOpen(false)}
+        />
+      )}
+
+      {/* ── Built-in Content Dialog (D-13, set built-in via .md upload) ── */}
+      {item && (
+        <BuiltinContentDialog
+          itemId={itemId}
+          itemName={item.name}
+          open={builtinOpen}
+          onOpenChange={setBuiltinOpen}
+          onSuccess={() => refetch()}
+        />
+      )}
     </div>
   )
 }

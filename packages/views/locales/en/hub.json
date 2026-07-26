@@ -17,7 +17,7 @@
       "skill": "Skills",
       "subagent": "Subagents",
       "command": "Commands",
-      "mcp": "MCP Servers",
+      "mcp": "MCP",
       "plugin": "Plugins"
     },
     "type": {
@@ -30,27 +30,39 @@
     },
     "filter": {
       "category": "Category",
-      "risk": "Security",
+      "risk": "Risk",
       "source": "Source",
       "type": "Type",
       "tags": "Tags",
-      "clearAll": "Clear all",
+      "clearAll": "Clear filters",
       "noOptions": "No options",
       "totalItems": "{{count}} total"
     },
     "sort": {
       "label": "Sort",
       "favoriteCount": "Most subscribed",
-      "experienceScore": "Highest rated",
+      "experienceScore": "Top rated",
       "updatedAt": "Recently updated"
     },
     "view": {
       "grid": "Grid",
       "list": "List"
     },
+    "bestPractices": {
+      "title": "Best Practices",
+      "description": "Most installed capabilities in this category"
+    },
+    "showForks": "Show forks",
+    "hidePluginItems": "Hide plugin items",
+    "hidePluginItemsLabel": {
+      "all": "Hide plugin items",
+      "skill": "Hide plugin items",
+      "mcp": "Hide plugin items"
+    },
     "empty": {
       "noMatch": "No matching capabilities found",
-      "noCategory": "No capabilities in this category yet"
+      "noCategory": "No capabilities in this category yet",
+      "clearFilters": "Clear search and filters"
     },
     "error": {
       "loadFailed": "Failed to load capabilities",
@@ -63,6 +75,8 @@
     "pageSize": "{{count}} per page"
   },
   "detail": {
+    "title": "Capability Details",
+    "description": "View capability details and manage subscriptions",
     "preview": "Preview",
     "install": "Install",
     "installing": "Installing…",
@@ -73,13 +87,20 @@
     "unfavorite": "Unsubscribe",
     "unfavoriting": "Unsubscribing…",
     "fork": "Fork",
+    "distribute": "Distribute",
     "installCommand": "Install",
     "edit": "Edit",
     "delete": "Delete",
     "copyLink": "Copy link",
+    "copyInstall": "Copy install command",
+    "favoriteTooltip": "Subscribe",
+    "unfavoriteTooltip": "Unsubscribe",
+    "installCount": "Installs",
     "download": "Download",
     "version": "Version",
     "versions": "Versions",
+    "contentExpand": "Expand preview",
+    "contentCollapse": "Collapse",
     "security": {
       "label": "Security",
       "verified": "Verified",
@@ -123,7 +144,8 @@
       "auth": "Authentication",
       "tools": "Tools",
       "tools_one": "{{count}} tool",
-      "tools_other": "{{count}} tools"
+      "tools_other": "{{count}} tools",
+      "subscribeBlocked": "This MCP requires configuration before subscribing. Please save your settings in the MCP Configuration form in the detail view."
     },
     "source": "Source",
     "author": "Author",
@@ -145,6 +167,44 @@
     "toast_deleted": "Deleted",
     "toast_delete_failed": "Failed to delete",
     "toast_link_copied": "Link copied",
+    "share": "Share",
+    "copied": "Copied",
+    "share_failed": "Failed to copy link",
+    "set_builtin": "Set as built-in",
+    "cancel_builtin": "Remove built-in",
+    "set_builtin_success": "Marked as built-in",
+    "unset_builtin_success": "Built-in removed",
+    "toggle_builtin_failed": "Failed to update built-in status",
+    "scanResults": {
+      "details": "Scan details",
+      "loading": "Loading scan results…",
+      "foundIssues": "Findings",
+      "noRedFlags": "No red flags",
+      "suggestions": "Recommendations",
+      "noRecommendations": "No recommendations",
+      "permissions": "Permissions",
+      "permFiles": "Files",
+      "permNetwork": "Network",
+      "permCommands": "Commands",
+      "rawJson": "Raw JSON"
+    },
+    "artifacts": {
+      "label": "Artifacts",
+      "latest": "Latest",
+      "download_failed": "Download failed"
+    },
+    "builtinContent": {
+      "title": "Set \"{{name}}\" as built-in",
+      "description": "Upload a Markdown file as the built-in content for this plugin. It will be shown to users by default after installation.",
+      "drag_hint": "Drag and drop a .md file here",
+      "click_select": "or click to select a file",
+      "size_hint": "Markdown (.md) only, up to 5 MB",
+      "saving": "Saving…",
+      "confirm": "Confirm",
+      "error_not_md": "Only Markdown (.md) files are supported",
+      "error_too_large": "File size exceeds the 5 MB limit",
+      "error_read_failed": "Failed to read file content"
+    },
     "delete_dialog": {
       "title": "Delete item?",
       "description": "This will permanently delete \"{{name}}\".",
@@ -164,6 +224,8 @@
     "backToHub": "Back to Hub",
     "create": "Create",
     "upload": "Upload",
+    "full_editor": "Full editor",
+    "open_in_editor": "Open in editor",
     "searchPlaceholder": "Search items…",
     "deleteSuccess": "Deleted successfully",
     "deleteFailed": "Delete failed",
@@ -182,7 +244,8 @@
       "created": "My Created",
       "favorited": "My Favorites",
       "received": "Received",
-      "sent": "Sent"
+      "sent": "Sent",
+      "repos": "My Repos"
     },
     "batch": {
       "label": "Batch operations",
@@ -261,7 +324,9 @@
     "confirmBatchDelete": "Delete {{count}} items?",
     "batchCapped": "Only the first {{max}} of {{total}} matching items will be deleted.",
     "distributeSelectItem": "Select an item to distribute first.",
-    "edit": "Edit"
+    "edit": "Edit",
+    "titleRepos": "My Repos",
+    "descRepos": "Manage your repositories and members"
   },
   "dialog": {
     "plugin_upload_title": "Upload Plugin",
@@ -309,20 +374,26 @@
       "error_no_target": "Please select at least one target",
       "success": "Distributed successfully",
       "error_failed": "Failed to distribute",
-      "subtitle": "Distribute \"{{name}}\" to enterprise customers",
-      "recipient": "Recipient",
-      "recipient_placeholder": "Select workspace, squad, or member",
-      "target_label": "Target enterprise",
-      "target_placeholder": "Select enterprise customers…",
-      "search_placeholder": "Search customers…",
-      "target_empty": "No customers found",
-      "no_customers": "No enterprise customers",
+      "subtitle": "Distribute \"{{name}}\" to departments or users",
+      "scope_label": "Target scope",
+      "scope_user": "By user",
+      "scope_department": "By department",
+      "user_search_label": "Users",
+      "user_search_placeholder": "Search users…",
+      "user_search_empty": "No users found",
+      "dept_label": "Departments",
+      "dept_empty": "No managed departments available",
+      "selected_label": "Selected targets",
       "permission_label": "Permission mode",
+      "permission": {
+        "readonly": "Read-only",
+        "dismissible": "Dismissible"
+      },
       "message_label": "Message",
       "message_placeholder": "Optional message…",
       "cancel": "Cancel",
-      "submit": "Send",
-      "submitting": "Sending…"
+      "submit": "Distribute",
+      "submitting": "Distributing…"
     },
     "create": {
       "title_new": "Create New {{type}}",
@@ -383,7 +454,71 @@
     "visibility_public": "Public",
     "updated_toast": "Repository updated",
     "update_failed": "Failed to update repository",
-    "edit_title": "Edit Repository"
+    "edit_title": "Edit Repository",
+    "my_repos": "My Repos",
+    "empty": "No repositories yet. Create one to get started.",
+    "load_failed": "Failed to load repositories",
+    "col_visibility": "Visibility",
+    "col_repo_type": "Type",
+    "col_members": "Members",
+    "col_actions": "Actions",
+    "type_normal": "Normal",
+    "type_sync": "Sync",
+    "members_one": "{{count}} member",
+    "members_other": "{{count}} members",
+    "members_loading": "Loading members…",
+    "members_empty": "No members yet",
+    "show_members": "Show members",
+    "hide_members": "Hide members",
+    "edit": "Edit",
+    "delete": "Delete",
+    "delete_title": "Delete repository?",
+    "delete_confirm": "This will permanently delete repository \"{{name}}\". This action cannot be undone.",
+    "deleted_toast": "Repository deleted",
+    "delete_failed": "Failed to delete repository",
+    "invite_member": "Invite member",
+    "remove_member": "Remove",
+    "member_removed": "Member removed",
+    "remove_member_failed": "Failed to remove member",
+    "role_owner": "Owner",
+    "role_admin": "Admin",
+    "role_member": "Member",
+    "sync": {
+      "title": "Sync",
+      "sync_now": "Sync now",
+      "dry_run": "Dry run (no changes applied)",
+      "triggered_toast": "Sync triggered",
+      "dry_run_triggered_toast": "Dry run triggered",
+      "trigger_failed": "Failed to trigger sync",
+      "last_synced_at": "Last synced {{time}}",
+      "never_synced": "Never synced",
+      "pending_jobs_other": "{{count}} pending jobs",
+      "pending_jobs_one": "{{count}} pending job",
+      "status_idle": "Idle",
+      "status_pending": "Pending",
+      "status_running": "Running",
+      "status_success": "Success",
+      "status_failed": "Failed",
+      "status_cancelled": "Cancelled",
+      "trigger_manual": "Manual",
+      "trigger_scheduled": "Scheduled",
+      "trigger_webhook": "Webhook",
+      "logs_title": "Recent logs",
+      "logs_loading": "Loading logs…",
+      "logs_empty": "No sync logs yet",
+      "log_added_other": "+{{count}} added",
+      "log_added_one": "+{{count}} added",
+      "log_updated_other": "~{{count}} updated",
+      "log_updated_one": "~{{count}} updated",
+      "log_deleted_other": "-{{count}} deleted",
+      "log_deleted_one": "-{{count}} deleted",
+      "log_skipped_other": "{{count}} skipped",
+      "log_skipped_one": "{{count}} skipped",
+      "log_failed_other": "{{count}} failed",
+      "log_failed_one": "{{count}} failed",
+      "log_duration": "took {{duration}}",
+      "unavailable_hint": "Sync endpoints are not available on this backend. Sync source settings can still be maintained via Edit Repository."
+    }
   },
   "invite": {
     "title": "Invite Members",
@@ -417,5 +552,78 @@
     "type": "Type",
     "visibility": "Visibility",
     "repository": "Repository"
+  },
+  "editor": {
+    "title_create": "Create capability",
+    "title_edit": "Edit capability",
+    "back_to_manager": "Back to manager",
+    "unsaved_badge": "Unsaved",
+    "loading": "Loading…",
+    "load_failed": "Failed to load the capability",
+    "no_file_selected": "Select a file on the left to start editing",
+    "open_tree": "Files",
+    "open_props": "Properties & publish",
+    "preview_title": "Preview",
+    "props": {
+      "type": "Type",
+      "name": "Name",
+      "name_placeholder": "Capability name",
+      "description": "Description",
+      "description_placeholder": "Briefly describe this capability…",
+      "tags": "Tags",
+      "namespace": "Publish to",
+      "namespace_hint_edit": "Only visibility changes apply when editing an existing capability"
+    },
+    "toast": {
+      "create_success": "Capability created",
+      "create_failed": "Failed to create the capability",
+      "update_success": "Capability updated",
+      "update_failed": "Failed to update the capability"
+    },
+    "tree": {
+      "title": "Files",
+      "new_file": "New file",
+      "new_dir": "New folder",
+      "import_dir": "Import folder",
+      "new_file_placeholder": "File name, e.g. helper.py",
+      "new_dir_placeholder": "Folder name",
+      "create_in": "Create under {{dir}}…",
+      "empty": "No files yet — use the buttons above to create or import",
+      "main_badge": "main",
+      "error_invalid_name": "Invalid name",
+      "error_exists": "A file or folder with this name already exists",
+      "action_select_dir": "Create inside this folder",
+      "action_rename": "Rename",
+      "action_delete": "Delete",
+      "delete_title": "Confirm deletion",
+      "delete_dir_desc": "This will delete the folder and its {{count}} files. This cannot be undone.",
+      "delete_file_desc": "This will delete the file. This cannot be undone."
+    },
+    "preview": {
+      "not_markdown": "The current file is not Markdown — nothing to preview",
+      "empty": "Nothing to preview yet"
+    },
+    "tags": {
+      "placeholder": "Add tags…",
+      "remove": "Remove tag {{tag}}"
+    },
+    "namespace": {
+      "public": "Public catalog",
+      "private": "Private",
+      "repo_prefix": "Repo: "
+    },
+    "publish": {
+      "install_preview": "Install command preview",
+      "no_install_command": "This type is distributed via subscription — no install command",
+      "copy": "Copy",
+      "copy_failed": "Copy failed",
+      "version_placeholder": "Version",
+      "version_label": "Version",
+      "commit_placeholder": "Commit message (optional)",
+      "commit_label": "Commit message",
+      "publishing": "Publishing…",
+      "submit_create": "Publish",
+      "submit_update": "Update"
+    }
   }
 }

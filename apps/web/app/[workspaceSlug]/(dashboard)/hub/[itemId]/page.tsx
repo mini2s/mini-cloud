@@ -1,5 +1,13 @@
-import { HubDetail } from "@multica/views/hub"
+"use client";
 
-export default function Page() {
-  return <HubDetail />
+import { use } from "react";
+import { HubDetail } from "@multica/views/hub";
+
+export default function Page({
+  params,
+}: {
+  params: Promise<{ itemId: string }>;
+}) {
+  const { itemId } = use(params);
+  return <HubDetail itemId={itemId} />;
 }

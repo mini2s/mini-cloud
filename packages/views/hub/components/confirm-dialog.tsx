@@ -44,7 +44,7 @@ export function ConfirmDialog(props: ConfirmDialogProps) {
 
   return (
     <Dialog open={props.open} onOpenChange={(v) => { if (!loading && !v) props.onOpenChange(false) }}>
-      <DialogContent className="sm:max-w-[440px]">
+      <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>{props.title}</DialogTitle>
           <DialogDescription className="pt-2">{props.description}</DialogDescription>

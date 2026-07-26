@@ -178,6 +178,29 @@ export function detectMcpFields(
   return fields
 }
 
+// mcpListSubscribeBlocked gates the per-row subscribe control in the LIST, mirroring
+// the source project's same-named helper (store-capability-table.tsx). The list
+// response carries no per-row `mcpConfig` status, so we gate using only `itemType`
+// + `favorited` + detected placeholders: an unsubscribed MCP that still has
+// fillable placeholder params (or requires its parent plugin's runtime) must be
+// configured on the detail page first. Already-favorited rows (unsubscribe) are
+// never blocked, and non-MCP / MCP-without-placeholders rows are unaffected.
+//
+// `favoritedOverride`: callers holding the live favorited truth (e.g. a detail
+// page favorite-status query) MUST pass it, since the list item object's
+// `favorited` can be frozen at a stale value. Falls back to `item.favorited`.
+export function mcpListSubscribeBlocked(
+  item: { itemType?: string; metadata?: Record<string, unknown> | null; favorited?: boolean },
+  favoritedOverride?: boolean,
+): boolean {
+  const favorited = favoritedOverride ?? item.favorited ?? false
+  return (
+    item.itemType === "mcp" &&
+    !favorited &&
+    (mcpRequiresPluginRuntime(item.metadata) || detectMcpFields(item.metadata).length > 0)
+  )
+}
+
 // mcpRequiresPluginRuntime reports whether the template references
 // runtime-provided variables anywhere (command/url/args/env/headers). Such an MCP
 // cannot run outside its parent plugin's runtime, so standalone subscribe is

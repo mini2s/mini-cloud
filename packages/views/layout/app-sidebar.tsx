@@ -173,7 +173,7 @@ type NavLabelKey =
   | "my_issues"
   | "issues"
   | "projects"
-  | "digital_human"
+  | "agents"
   | "members"
   | "squads"
   | "usage"
@@ -230,7 +230,7 @@ const collaborationNav: NavItem[] = [
   { key: "roles", labelKey: "roles", icon: UserRoundCog },
   { key: "squads", labelKey: "squads", icon: Users },
   { key: "members", labelKey: "members", icon: IdCard },
-  { key: "agents", labelKey: "digital_human", icon: Bot },
+  { key: "agents", labelKey: "agents", icon: Bot },
 ];
 
 const repositoryNav: NavItem[] = [

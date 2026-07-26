@@ -15,7 +15,7 @@ export function ItemDetailSkeleton({ className }: ItemDetailSkeletonProps) {
             <div className="flex min-w-0 flex-1 items-center gap-3">
               <Skeleton className="h-10 w-10 rounded-lg bg-muted" />
               <div className="min-w-0 flex-1 space-y-2">
-                <Skeleton className="h-6 w-56 max-w-[65%] rounded-md bg-muted" />
+                <Skeleton className="h-6 w-56 max-w-[60%] rounded-md bg-muted" />
                 <Skeleton className="h-3.5 w-28 rounded-full bg-muted" />
               </div>
             </div>
@@ -41,7 +41,7 @@ export function ItemDetailSkeleton({ className }: ItemDetailSkeletonProps) {
                 <Skeleton className="h-3.5 w-[96%] rounded bg-muted" />
                 <Skeleton className="h-3.5 w-[88%] rounded bg-muted" />
                 <Skeleton className="h-3.5 w-[82%] rounded bg-muted" />
-                <Skeleton className="mt-2 h-[22rem] rounded-lg bg-muted" />
+                <Skeleton className="mt-2 h-88 rounded-lg bg-muted" />
               </div>
             </div>
           </div>

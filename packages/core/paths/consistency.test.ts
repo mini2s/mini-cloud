@@ -48,6 +48,7 @@ describe("paths.workspace() shape", () => {
         "hubMcp",
         "hubPlugin",
         "hubManager",
+        "hubEditor",
         // Efficiency dashboard.
         "metricsOverview",
         "metricsEfficiency",
@@ -107,6 +108,7 @@ describe("paths.workspace() shape", () => {
       ["hubMcp", "hub?type=mcp"],
       ["hubPlugin", "hub?type=plugin"],
       ["hubManager", "hub/manager"],
+      ["hubEditor", "hub/editor"],
       // Efficiency dashboard.
       ["metricsOverview", "metrics"],
       ["metricsEfficiency", "metrics/efficiency"],

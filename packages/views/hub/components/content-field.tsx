@@ -98,7 +98,7 @@ export function ContentField(props: Props) {
           value={props.text}
           onChange={(e) => props.onTextChange(e.target.value)}
           rows={props.rows ?? 10}
-          className={cn("min-h-[200px] resize-y", props.textClass)}
+          className={cn("min-h-52 resize-y", props.textClass)}
         />
       ) : (
         <div

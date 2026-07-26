@@ -21,7 +21,7 @@ export default function FromPluginBadge({ name, className }: FromPluginBadgeProp
     >
       <Blocks className="h-3 w-3 shrink-0 opacity-70" />
       <span className="shrink-0">{t(($) => $.detail.fromPluginLabel)}</span>
-      <span className="inline-block max-w-[7rem] truncate align-bottom">{name}</span>
+      <span className="inline-block max-w-28 truncate align-bottom">{name}</span>
     </Badge>
   )
 }

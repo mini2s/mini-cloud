@@ -10,7 +10,10 @@ export interface SearchTokenBoxProps {
   value: string
   onInput: (value: string) => void
   onClear: () => void
-  onSubmit?: () => void
+  /** Fired on Enter (or picking the "Search" row). Receives the input's live
+   *  DOM value — the controlled `value` prop can lag behind keystrokes while
+   *  the internal debounce is still pending. */
+  onSubmit?: (value: string) => void
   placeholder: string
   tags: string[]
   onAddTag: (slug: string) => void
@@ -21,11 +24,11 @@ export interface SearchTokenBoxProps {
 
 function FilterChip({ label, onRemove }: { label: string; onRemove: () => void }) {
   return (
-    <span className="inline-flex h-[1.875rem] items-center gap-1.5 rounded-[99px] border border-primary/40 bg-primary/10 pl-[11px] pr-1.5 text-[12px] font-bold text-primary">
-      <span className="max-w-[12rem] truncate">{label}</span>
+    <span className="inline-flex h-[30px] items-center gap-1.5 rounded-full border border-primary/40 bg-primary/10 pl-[11px] pr-1.5 text-xs font-bold text-primary">
+      <span className="max-w-48 truncate">{label}</span>
       <button
         type="button"
-        className="flex size-[18px] shrink-0 cursor-pointer items-center justify-center rounded-[99px] text-primary/80 transition-colors hover:bg-primary/20"
+        className="flex size-[18px] shrink-0 cursor-pointer items-center justify-center rounded-full text-primary/80 transition-colors hover:bg-primary/20"
         onClick={onRemove}
         aria-label="remove"
       >
@@ -81,9 +84,15 @@ export function SearchTokenBox({
   )
 
   const submitNameSearch = useCallback(() => {
-    onSubmit?.()
+    // Flush the pending input debounce so the submit always carries what the
+    // user actually sees in the box, not a 300ms-stale controlled value.
+    if (debounceTimer.current) {
+      clearTimeout(debounceTimer.current)
+      debounceTimer.current = null
+    }
+    onSubmit?.(inputRef.current?.value ?? value)
     setDismissed(true)
-  }, [onSubmit])
+  }, [onSubmit, value])
 
   const activateHighlighted = useCallback(() => {
     if (highlightedIndex <= 0) {
@@ -98,7 +107,7 @@ export function SearchTokenBox({
     <Popover open={isOpen} onOpenChange={(v) => { if (!v) setDismissed(true) }}>
       <div
         ref={anchorRef}
-        className="relative flex min-h-[42px] min-w-0 max-w-[560px] flex-1 flex-wrap items-center gap-1.5 rounded-[13px] border border-border bg-background py-1 pl-[13px] pr-1 transition-[border-color,box-shadow] hover:shadow-sm focus-within:border-ring/50 focus-within:shadow-[0_0_0_3px_hsl(var(--ring)/0.15)]"
+        className="relative flex min-h-10 min-w-0 max-w-xl flex-1 flex-wrap items-center gap-1.5 rounded-[13px] border border-border bg-background py-1 pl-[13px] pr-1 transition-[border-color,box-shadow] hover:shadow-sm focus-within:border-ring/50 focus-within:shadow-[0_0_0_3px_hsl(var(--ring)/0.15)]"
       >
         <span className="flex shrink-0 items-center text-muted-foreground">
           <HubIcon name="search" size={16} />
@@ -161,7 +170,7 @@ export function SearchTokenBox({
                   break
               }
             }}
-            className="h-[32px] min-w-[100px] flex-1 border-none bg-transparent text-sm font-medium text-foreground caret-primary outline-none placeholder:font-normal placeholder:text-muted-foreground/70 focus:outline-none focus-visible:outline-none"
+            className="h-8 min-w-24 flex-1 border-none bg-transparent text-sm font-medium text-foreground caret-primary outline-none placeholder:font-normal placeholder:text-muted-foreground/70 focus:outline-none focus-visible:outline-none"
           />
         </PopoverTrigger>
 
@@ -179,11 +188,11 @@ export function SearchTokenBox({
       </div>
 
       <PopoverContent
-        className="w-(--anchor-width) min-w-[16rem] p-[7px]"
+        className="w-(--anchor-width) min-w-64 p-[7px]"
         align="start"
         sideOffset={4}
       >
-        <ul className="thin-scrollbar flex max-h-[19.2rem] flex-col gap-0.5 overflow-y-auto" role="listbox">
+        <ul className="flex max-h-80 flex-col gap-0.5 overflow-y-auto" role="listbox">
           <li
             role="option"
             aria-selected={highlightedIndex === 0}
@@ -191,7 +200,7 @@ export function SearchTokenBox({
             onMouseEnter={() => setHighlightedIndex(0)}
             onClick={submitNameSearch}
             className={cn(
-              "flex cursor-pointer items-center gap-[9px] rounded-[9px] px-[9px] py-2 text-[13px] text-foreground transition-colors",
+              "flex cursor-pointer items-center gap-[9px] rounded-[9px] px-[9px] py-2 text-sm text-foreground transition-colors",
               highlightedIndex === 0
                 ? "bg-primary/10"
                 : "hover:bg-muted/50",
@@ -222,7 +231,7 @@ export function SearchTokenBox({
                     onMouseEnter={() => setHighlightedIndex(rowIdx)}
                     onClick={() => onAddTag(tag)}
                     className={cn(
-                      "flex cursor-pointer items-center gap-[9px] rounded-[9px] px-[9px] py-2 text-[13px] text-foreground transition-colors",
+                      "flex cursor-pointer items-center gap-[9px] rounded-[9px] px-[9px] py-2 text-sm text-foreground transition-colors",
                       highlightedIndex === rowIdx
                         ? "bg-primary/10"
                         : "hover:bg-muted/50",
@@ -241,7 +250,7 @@ export function SearchTokenBox({
           )}
 
           {loading && (
-            <li className="flex items-center justify-center py-3 text-[13px] text-muted-foreground">
+            <li className="flex items-center justify-center py-3 text-sm text-muted-foreground">
               <span className="size-4 animate-spin rounded-full border-2 border-muted-foreground/30 border-t-muted-foreground" />
             </li>
           )}

@@ -152,6 +152,7 @@ import type {
   CapabilityItem,
   CapabilityVersion,
   CapabilityRegistry,
+  CapabilityArtifact,
   ItemTag,
   Category,
   ScanResult,
@@ -168,6 +169,7 @@ import type {
   HubItemCreateParams,
   HubItemUpdateParams,
   HubDistributionCreateParams,
+  HubDistributionAuthority,
   HubRepoCreateParams,
   HubRepoUpdateParams,
   HubRepoMemberAddParams,
@@ -176,6 +178,11 @@ import type {
   HubBehaviorLogBody,
   HubTagListParams,
   HubSemanticSearchParams,
+  HubUploadPluginParams,
+  HubUploadPluginProgress,
+  HubRepoSyncStatusResult,
+  HubRepoSyncTriggerResult,
+  HubRepoSyncLogListResult,
   EnterpriseCustomerInput,
 } from "../types";
 import type { OnboardingCompletionPath } from "../onboarding/types";
@@ -2806,6 +2813,7 @@ async hubListItems(params?: HubItemListParams): Promise<{ items: CapabilityItem[
   if (params?.registryId) p.set("registryId", params.registryId);
   if (params?.status) p.set("status", params.status);
   if (params?.favorited) p.set("favorited", "true");
+  if (params?.createdBy) p.set("createdBy", params.createdBy);
   if (params?.includeForks) p.set("includeForks", "true");
   if (params?.paginated) p.set("paginated", "true");
   if (params?.parentPluginId) p.set("parentPluginId", params.parentPluginId);
@@ -2872,6 +2880,99 @@ async hubGetItemVersion(id: string, rev: number): Promise<CapabilityVersion> {
   return this.fetch(`/api/items/${encodeURIComponent(id)}/versions/${rev}`);
 }
 
+// Uploads a plugin package to the hub (SD-05). Multipart POST to
+// /api/plugins/upload with auth headers injected internally — callers never
+// touch tokens/CSRF. `onProgress` receives (loaded, total) byte snapshots.
+async hubUploadPlugin(
+  params: HubUploadPluginParams,
+  onProgress?: (progress: HubUploadPluginProgress) => void,
+): Promise<CapabilityItem> {
+  const form = new FormData();
+  form.append("repo_id", params.repoId);
+  form.append("file", params.file);
+
+  const path = "/api/plugins/upload";
+
+  // fetch() cannot report upload progress without request streaming (limited
+  // browser support), so the progress-capable path uses XHR. Unlike the old
+  // dialog implementation, the XHR lives inside the client where baseUrl and
+  // auth headers are injected internally.
+  if (typeof XMLHttpRequest !== "undefined") {
+    return this.uploadWithProgress(path, form, onProgress);
+  }
+
+  // Non-browser fallback (tests / SSR): plain fetch, progress only brackets
+  // the transfer.
+  const total = params.file.size;
+  onProgress?.({ loaded: 0, total });
+  const res = await this.fetchRaw(path, { method: "POST", body: form });
+  onProgress?.({ loaded: total, total });
+  const json = (await res.json()) as { data?: CapabilityItem } | CapabilityItem;
+  return ("data" in json && json.data ? json.data : json) as CapabilityItem;
+}
+
+// XHR-backed multipart upload with progress events. Centralized here so the
+// auth/CSRF/identity headers stay private to the client and error handling
+// mirrors fetchRaw (401 → handleUnauthorized, structured ApiError).
+private uploadWithProgress(
+  path: string,
+  form: FormData,
+  onProgress?: (progress: HubUploadPluginProgress) => void,
+): Promise<CapabilityItem> {
+  const rid = createRequestId();
+  const start = Date.now();
+  this.logger.debug(`→ POST ${path}`, { rid });
+
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", `${this.baseUrl}${path}`, true);
+    xhr.withCredentials = true;
+    xhr.setRequestHeader("X-Request-ID", rid);
+    for (const [key, value] of Object.entries(this.authHeaders())) {
+      xhr.setRequestHeader(key, value);
+    }
+
+    xhr.upload.onprogress = (e) => {
+      if (e.lengthComputable) {
+        onProgress?.({ loaded: e.loaded, total: e.total });
+      }
+    };
+
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        this.logger.debug(`← ${xhr.status} ${path}`, { rid, duration: `${Date.now() - start}ms` });
+        try {
+          const json = JSON.parse(xhr.responseText) as { data?: CapabilityItem } | CapabilityItem;
+          resolve(("data" in json && json.data ? json.data : json) as CapabilityItem);
+        } catch {
+          reject(new ApiError("Invalid response from server", xhr.status, xhr.statusText));
+        }
+        return;
+      }
+      if (xhr.status === 401) this.handleUnauthorized();
+      let message = `Upload failed: ${xhr.status} ${xhr.statusText}`;
+      let body: unknown;
+      try {
+        body = JSON.parse(xhr.responseText) as { error?: string; message?: string };
+        const b = body as { error?: string; message?: string };
+        if (typeof b.error === "string" && b.error) message = b.error;
+        else if (typeof b.message === "string" && b.message) message = b.message;
+      } catch {
+        // Ignore non-JSON error bodies.
+      }
+      const logLevel = xhr.status === 404 ? "warn" : "error";
+      this.logger[logLevel](`← ${xhr.status} ${path}`, { rid, duration: `${Date.now() - start}ms`, error: message });
+      reject(new ApiError(message, xhr.status, xhr.statusText, body));
+    };
+
+    xhr.onerror = () => {
+      this.logger.error(`← network error ${path}`, { rid, duration: `${Date.now() - start}ms` });
+      reject(new ApiError("Network error", 0, ""));
+    };
+    xhr.send(form);
+  });
+}
+
 // ═══════════════════════════════════════════════════════════════════════════
 // Hub Behavior API
 // ═══════════════════════════════════════════════════════════════════════════
@@ -2912,12 +3013,12 @@ async hubMyReceivedDistributions(): Promise<DistributionReceipt[]> {
   return res.receipts ?? [];
 }
 
-async hubMyDistributionAuthority(): Promise<{ canDistribute: boolean; unlimited: boolean; departments: unknown[] }> {
+async hubMyDistributionAuthority(): Promise<HubDistributionAuthority> {
   return this.fetch("/api/distributions/my/authority");
 }
 
-async hubSearchEligibleUsers(q: string): Promise<{ id: string; name: string }[]> {
-  const res = await this.fetch<{ users: { id: string; name: string }[] }>(`/api/distributions/eligible-users?q=${encodeURIComponent(q)}`);
+async hubSearchEligibleUsers(q: string): Promise<SearchedUser[]> {
+  const res = await this.fetch<{ users: SearchedUser[] }>(`/api/distributions/eligible-users?q=${encodeURIComponent(q)}`);
   return res.users ?? [];
 }
 
@@ -2987,6 +3088,43 @@ async hubGetRegistry(repoId: string): Promise<CapabilityRegistry> {
   return this.fetch(`/api/repositories/${encodeURIComponent(repoId)}/registry`);
 }
 
+// ── Hub Repo Sync API (FR-04) ────────────────────────────────────────────
+// Paths mirror the source store project's syncApi (`/api/repositories/{id}/sync*`),
+// already covered by the hubProxy prefix — zero server-side change. Upstream
+// may answer 404/501 when the sync service is absent; callers degrade via
+// `isHubSyncUnavailableError` in @multica/core/hub.
+
+async hubTriggerRepoSync(
+  repoId: string,
+  opts?: { dryRun?: boolean; registryId?: string },
+): Promise<HubRepoSyncTriggerResult> {
+  const params = new URLSearchParams();
+  if (opts?.dryRun) params.set("dryRun", "true");
+  if (opts?.registryId) params.set("registryId", opts.registryId);
+  const qs = params.toString();
+  return this.fetch(
+    `/api/repositories/${encodeURIComponent(repoId)}/sync${qs ? `?${qs}` : ""}`,
+    { method: "POST" },
+  );
+}
+
+async hubGetRepoSyncStatus(repoId: string, registryId?: string): Promise<HubRepoSyncStatusResult> {
+  const qs = registryId ? `?registryId=${encodeURIComponent(registryId)}` : "";
+  return this.fetch(`/api/repositories/${encodeURIComponent(repoId)}/sync-status${qs}`);
+}
+
+async hubListRepoSyncLogs(
+  repoId: string,
+  params?: { page?: number; pageSize?: number; registryId?: string },
+): Promise<HubRepoSyncLogListResult> {
+  const search = new URLSearchParams({
+    page: String(params?.page ?? 1),
+    pageSize: String(params?.pageSize ?? 20),
+  });
+  if (params?.registryId) search.set("registryId", params.registryId);
+  return this.fetch(`/api/repositories/${encodeURIComponent(repoId)}/sync-logs?${search.toString()}`);
+}
+
 // ═══════════════════════════════════════════════════════════════════════════
 // Hub Enterprise API
 // ═══════════════════════════════════════════════════════════════════════════
@@ -3044,6 +3182,30 @@ async hubScanItem(id: string): Promise<void> {
 async hubGetScanResults(id: string): Promise<ScanResult[]> {
   const res = await this.fetch<{ results: ScanResult[] }>(`/api/items/${encodeURIComponent(id)}/scan-results`);
   return res.results ?? [];
+}
+
+async hubListArtifacts(id: string): Promise<CapabilityArtifact[]> {
+  const res = await this.fetch<{ artifacts: CapabilityArtifact[] }>(`/api/items/${encodeURIComponent(id)}/artifacts`);
+  return res.artifacts ?? [];
+}
+
+/**
+ * Authenticated artifact download: rides the same fetch + credentials path as
+ * every other call (a bare `<a href>` to an /api/* URL can neither carry
+ * non-cookie auth nor survive SPA fallbacks), then triggers a browser save
+ * from the resulting blob. Mirrors the source store's downloadViaFetch.
+ */
+async hubDownloadArtifact(artifactId: string, filename: string): Promise<void> {
+  const res = await this.fetchRaw(`/api/artifacts/${encodeURIComponent(artifactId)}/download`);
+  const blob = await res.blob();
+  const objUrl = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = objUrl;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(objUrl);
 }
 
 async hubSemanticSearch(params: HubSemanticSearchParams): Promise<CapabilityItem[]> {

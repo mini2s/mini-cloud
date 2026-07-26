@@ -19,7 +19,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@multica/ui/components/ui/select"
-import { api } from "@multica/core/api"
+import { useHubCreateRepoMutation } from "@multica/core/hub"
 import type { Repository } from "@multica/core/types/hub"
 import { useT } from "@multica/views/i18n"
 import { toast } from "sonner"
@@ -36,8 +36,9 @@ export function CreateRepoDialog(props: CreateRepoDialogProps) {
   const [displayName, setDisplayName] = useState("")
   const [desc, setDesc] = useState("")
   const [visibility, setVisibility] = useState("private")
-  const [saving, setSaving] = useState(false)
   const [error, setError] = useState("")
+  const createMutation = useHubCreateRepoMutation()
+  const saving = createMutation.isPending
 
   function reset() {
     setName("")
@@ -52,15 +53,14 @@ export function CreateRepoDialog(props: CreateRepoDialogProps) {
     const trimmed = name.trim()
     if (!trimmed) return
 
-    setSaving(true)
     setError("")
-    const repo = await api.hubCreateRepo({
-      name: trimmed,
-      displayName: displayName.trim() || undefined,
-      description: desc.trim() || undefined,
-      visibility,
-    } as any)
     try {
+      const repo = await createMutation.mutateAsync({
+        name: trimmed,
+        displayName: displayName.trim() || undefined,
+        description: desc.trim() || undefined,
+        visibility,
+      })
       props.onCreated(repo)
       toast.success(t(($) => $.repo.created_toast))
       setOpen(false)
@@ -69,8 +69,6 @@ export function CreateRepoDialog(props: CreateRepoDialogProps) {
       const msg = err instanceof Error ? err.message : String(err)
       setError(msg)
       toast.error(t(($) => $.repo.create_failed), { description: msg })
-    } finally {
-      setSaving(false)
     }
   }
 

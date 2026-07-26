@@ -48,6 +48,41 @@
     --radius-2xl: calc(var(--radius) * 1.8);
     --radius-3xl: calc(var(--radius) * 2.2);
     --radius-4xl: calc(var(--radius) * 2.6);
+
+    /* Hub subscribe button: one-shot ping halo + bell jiggle.
+       Registered here so components consume real utilities instead of
+       dangling class names. Always apply with the `motion-safe:` variant
+       so users with prefers-reduced-motion get no animation.
+       Keyframes animate the standalone `scale`/`rotate` properties (not
+       `transform`) so they compose with Tailwind translate utilities. */
+    --animate-store-ping: store-ping 0.7s cubic-bezier(0, 0, 0.2, 1) both;
+    --animate-bell-once: bell-once 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+
+    /* Hub list entrance: new result sets (filter / search / page change)
+       fade in with a small rise, staggered per item via inline
+       `animation-delay`. Always apply with the `motion-safe:` variant so
+       users with prefers-reduced-motion get no animation. Keyframes
+       animate the standalone `translate` property (not `transform`) so
+       they compose with Tailwind hover translate utilities. */
+    --animate-hub-list-enter: hub-list-enter 0.45s cubic-bezier(0.22, 1, 0.36, 1) both;
+
+    @keyframes store-ping {
+        0% { scale: 1; opacity: 0.9; }
+        75%, 100% { scale: 2; opacity: 0; }
+    }
+
+    @keyframes bell-once {
+        0% { rotate: 0deg; }
+        25% { rotate: 12deg; }
+        50% { rotate: -9deg; }
+        75% { rotate: 5deg; }
+        100% { rotate: 0deg; }
+    }
+
+    @keyframes hub-list-enter {
+        from { opacity: 0; translate: 0 14px; }
+        to { opacity: 1; translate: 0 0; }
+    }
 }
 
 :root {
@@ -93,6 +128,11 @@
     --success: oklch(0.55 0.16 145);
     --warning: oklch(0.75 0.16 85);
     --info: oklch(0.55 0.18 250);
+    /* Hub capability type accents without a semantic-token counterpart
+       (SD-09). Purple for MCP servers, pink for plugins; consumed via
+       `typeColor()` in packages/views/hub/lib/type-colors.ts. */
+    --hub-type-mcp: oklch(0.55 0.20 293);
+    --hub-type-plugin: oklch(0.60 0.22 350);
     --scrollbar-thumb: oklch(0 0 0 / 10%);
     --scrollbar-thumb-hover: oklch(0 0 0 / 18%);
     --scrollbar-track: transparent;
@@ -139,7 +179,42 @@
     --success: oklch(0.65 0.15 145);
     --warning: oklch(0.70 0.16 85);
     --info: oklch(0.65 0.18 250);
+    /* Dark variants lift lightness ~+0.10 so the type accents stay legible
+       on the dark card backgrounds (SD-09 "暗色主题下可读"). */
+    --hub-type-mcp: oklch(0.66 0.19 293);
+    --hub-type-plugin: oklch(0.68 0.20 350);
     --scrollbar-thumb: oklch(1 0 0 / 8%);
     --scrollbar-thumb-hover: oklch(1 0 0 / 18%);
     --scrollbar-track: transparent;
+}
+
+/* Hub card⇄list view switch transition (View Transitions API, FR-14).
+   hub-page wraps the viewMode commit in `document.startViewTransition`;
+   these rules give the captured snapshots a continuous old-fades-out /
+   new-fades-in cross-fade. The pseudo tree only exists while a view
+   transition is running, and the whole effect is disabled under
+   prefers-reduced-motion (the JS caller also skips startViewTransition). */
+@keyframes hub-view-fade-out {
+    from { opacity: 1; }
+    to { opacity: 0; }
+}
+
+@keyframes hub-view-fade-in {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+
+::view-transition-old(root) {
+    animation: hub-view-fade-out 160ms ease-out both;
+}
+
+::view-transition-new(root) {
+    animation: hub-view-fade-in 220ms ease-out 60ms both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    ::view-transition-old(root),
+    ::view-transition-new(root) {
+        animation: none;
+    }
 }

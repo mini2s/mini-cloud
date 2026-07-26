@@ -5,11 +5,15 @@ import { useT } from "@multica/views/i18n"
 import { cn } from "@multica/ui/lib/utils"
 import { Star, Eye, Download, GitFork } from "lucide-react"
 import { HubIcon, type HubIconName } from "../lib/hub-icons"
-import { TYPE_COLORS } from "../lib/constants"
+import { TYPE_COLORS } from "../lib/type-colors"
+import { formatCount } from "../lib/format"
+import { mcpListSubscribeBlocked } from "../lib/mcp-config"
 import { pickItemDescription } from "../lib/item-description"
 import { matchEnterprise, matchEnterpriseByName } from "../lib/enterprise"
+import { useLogoColor } from "../lib/use-logo-color"
 import SecurityTag from "./security-tag"
 import FromPluginBadge from "./from-plugin-badge"
+import { HighlightText } from "./highlight-text"
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -20,32 +24,33 @@ function iconName(t: string): HubIconName {
 }
 
 function col(t: string): string {
-  return TYPE_COLORS[t] ?? "var(--native-primary)"
+  return TYPE_COLORS[t] ?? "var(--primary)"
 }
 
-const GOLD = "#E5B545"
-
-function fmt(n: number | undefined | null) {
-  if (n == null) return "—"
-  if (n < 1000) return String(n)
-  if (n < 1_000_000) return `${(n / 1000).toFixed(1).replace(/\.0$/, "")}K`
-  return `${(n / 1_000_000).toFixed(1).replace(/\.0$/, "")}M`
-}
+// SD-09: enterprise-brand gold reuses the semantic --warning token so the
+// highlight stays legible in both light and dark themes.
+const GOLD = "var(--warning)"
 
 // ── Props ─────────────────────────────────────────────────────────────────────
 
 export interface HubCardGridProps {
   items: CapabilityItem[]
   loading?: boolean
+  /** Current search keyword — title/description hits are highlighted (FR-06). */
+  searchQuery?: string
   onItemClick?: (item: CapabilityItem) => void
   onFavoriteToggle?: (item: CapabilityItem) => void
+  /** Called when a subscribe click is blocked because the MCP item still needs
+   *  its config saved (F-09). The caller should open the item detail so the
+   *  user lands on the MCP config form. */
+  onMcpSubscribeBlocked?: (item: CapabilityItem) => void
 }
 
 // ── Skeleton ──────────────────────────────────────────────────────────────────
 
 function Skeleton() {
   return (
-    <div className="flex animate-pulse flex-col overflow-hidden rounded-[18px] border bg-background">
+    <div className="flex animate-pulse flex-col overflow-hidden rounded-2xl border bg-background">
       <div className="h-[62px] bg-muted" />
       <div className="space-y-3 p-4">
         <div className="h-4 w-3/4 rounded bg-muted" />
@@ -68,16 +73,24 @@ function Skeleton() {
 
 interface CardProps {
   item: CapabilityItem
+  /** Position in the result set — drives the stagger animation-delay (FR-14). */
+  index: number
+  searchQuery?: string
   onClick?: (item: CapabilityItem) => void
   onFav?: (item: CapabilityItem) => void
+  onMcpSubscribeBlocked?: (item: CapabilityItem) => void
 }
 
-function Card({ item, onClick, onFav }: CardProps) {
+function Card({ item, index, searchQuery, onClick, onFav, onMcpSubscribeBlocked }: CardProps) {
   const { t, i18n } = useT("hub")
   const locale = i18n.language
   const ent = matchEnterprise(item.createdBy) ?? matchEnterpriseByName(item.name)
   const tc = col(item.itemType)
   const desc = pickItemDescription(item, locale)
+  // FR-07: brand color extracted from the enterprise logo (cached per logo);
+  // falls back to `var(--card)` when there is no logo or extraction fails, so
+  // the `color-mix` expressions below degrade to the plain card color.
+  const brandColor = useLogoColor(ent?.logo)
 
   return (
     <article
@@ -91,9 +104,12 @@ function Card({ item, onClick, onFav }: CardProps) {
         }
       }}
       className={cn(
-        "group relative flex cursor-pointer flex-col overflow-hidden rounded-[18px] border bg-background",
+        "group relative flex cursor-pointer flex-col overflow-hidden rounded-2xl border bg-background",
         "transition-all duration-[260ms] ease-[cubic-bezier(0.22,1,0.36,1)]",
         "hover:-translate-y-[3px] hover:shadow-lg hover:will-change-transform",
+        // FR-14: entrance rise+fade for new result sets, staggered by index.
+        // `motion-safe:` disables it entirely under prefers-reduced-motion.
+        "motion-safe:animate-hub-list-enter",
         ent
           ? "border-[color:color-mix(in_oklab,var(--card-brand)_45%,var(--border))]"
           : "border-border/40 hover:border-[color:color-mix(in_oklab,var(--card-type)_55%,var(--border))]",
@@ -101,7 +117,8 @@ function Card({ item, onClick, onFav }: CardProps) {
       style={
         {
           "--card-type": tc,
-          ...(ent ? { "--card-brand": tc } : {}),
+          ...(ent ? { "--card-brand": brandColor } : {}),
+          animationDelay: `${Math.min(index * 40, 320)}ms`,
         } as React.CSSProperties
       }
     >
@@ -109,7 +126,7 @@ function Card({ item, onClick, onFav }: CardProps) {
       {ent && (
         <span
           aria-hidden="true"
-          className="pointer-events-none absolute inset-0 z-[2] rounded-[18px]"
+          className="pointer-events-none absolute inset-0 z-[2] rounded-2xl"
           style={{
             padding: "1px",
             background: `linear-gradient(135deg, color-mix(in oklab, ${GOLD} 70%, transparent), transparent 40%, color-mix(in oklab, var(--card-brand) 55%, transparent))`,
@@ -125,7 +142,7 @@ function Card({ item, onClick, onFav }: CardProps) {
         className="relative flex h-[62px] items-start justify-between overflow-hidden px-[14px] py-[11px]"
         style={{
           background: ent
-            ? "linear-gradient(135deg, color-mix(in oklab, var(--card-brand) 24%, var(--background)), color-mix(in oklab, var(--card-brand) 6%, var(--background)))"
+            ? "linear-gradient(135deg, color-mix(in oklab, var(--card-brand) 24%, var(--card)), color-mix(in oklab, var(--card-brand) 6%, var(--card)))"
             : `linear-gradient(135deg, color-mix(in oklab, var(--card-type) 28%, var(--background)), color-mix(in oklab, var(--card-type) 7%, var(--background)))`,
         }}
       >
@@ -135,7 +152,7 @@ function Card({ item, onClick, onFav }: CardProps) {
             src={ent.logo}
             alt=""
             aria-hidden="true"
-            className="pointer-events-none absolute right-[-18px] top-1/2 size-[104px] -translate-y-1/2 rounded-[18px] object-contain opacity-10"
+            className="pointer-events-none absolute right-[-18px] top-1/2 size-[104px] -translate-y-1/2 rounded-2xl object-contain opacity-10"
           />
         )}
 
@@ -156,18 +173,18 @@ function Card({ item, onClick, onFav }: CardProps) {
         {/* Enterprise seal / user-uploaded pill */}
         {ent ? (
           <span
-            className="relative z-[1] inline-flex h-6 items-center gap-1.5 rounded-full border px-[9px] py-[2px] text-[11.5px] font-bold backdrop-blur-[6px]"
+            className="relative z-[1] inline-flex h-6 items-center gap-1.5 rounded-full border px-[9px] py-0.5 text-[11.5px] font-bold backdrop-blur-[6px]"
             style={{
-              borderColor: `color-mix(in oklab, ${tc} 35%, transparent)`,
-              backgroundColor: `color-mix(in oklab, ${tc} 10%, #ffffffcc)`,
-              color: tc,
+              borderColor: "color-mix(in oklab, var(--card-brand) 35%, transparent)",
+              backgroundColor: "color-mix(in oklab, var(--card-brand) 10%, var(--card))",
+              color: "var(--card-brand)",
             }}
           >
             {ent.name}
-            <HubIcon name="checkCircle" size={11} style={{ color: tc }} />
+            <HubIcon name="checkCircle" size={11} style={{ color: "var(--card-brand)" }} />
           </span>
         ) : item.createdBy !== "system" ? (
-          <span className="relative z-[1] inline-flex h-6 items-center gap-1.5 rounded-full border border-[#00000012] bg-[#ffffffcc] px-[9px] py-[2px] text-[11.5px] font-bold text-foreground backdrop-blur-[6px] dark:border-[#ffffff24] dark:bg-[#ffffff14]">
+          <span className="relative z-[1] inline-flex h-6 items-center gap-1.5 rounded-full border border-[#00000012] bg-[#ffffffcc] px-[9px] py-0.5 text-[11.5px] font-bold text-foreground backdrop-blur-[6px] dark:border-[#ffffff24] dark:bg-[#ffffff14]">
             <HubIcon name="upload" size={12} />
             {t(($) => $.detail.source)}
           </span>
@@ -176,14 +193,14 @@ function Card({ item, onClick, onFav }: CardProps) {
 
       {/* ── Body ── */}
       <div className="px-[15px] pt-[12px]">
-        <div className="truncate text-[16px] font-black text-foreground" title={item.name}>
-          {item.name}
+        <div className="truncate text-base font-black text-foreground" title={item.name}>
+          <HighlightText text={item.name} query={searchQuery} />
         </div>
         <p
           className="mt-[5px] min-h-[2.6em] overflow-hidden text-[12.5px] font-semibold leading-[1.5] text-muted-foreground [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:2]"
           title={desc}
         >
-          {desc}
+          <HighlightText text={desc} query={searchQuery} />
         </p>
       </div>
 
@@ -205,25 +222,25 @@ function Card({ item, onClick, onFav }: CardProps) {
           {item.favoriteCount != null && (
             <span className="inline-flex items-center gap-1" title={t(($) => $.detail.favorite)}>
               <Star size={13} className="fill-amber-400 text-amber-400" />
-              {fmt(item.favoriteCount)}
+              {formatCount(item.favoriteCount)}
             </span>
           )}
           {item.previewCount != null && (
             <span className="inline-flex items-center gap-1" title={t(($) => $.detail.preview)}>
               <Eye size={13} />
-              {fmt(item.previewCount)}
+              {formatCount(item.previewCount)}
             </span>
           )}
           {item.installCount != null && (
             <span className="inline-flex items-center gap-1" title={t(($) => $.detail.install)}>
               <Download size={13} />
-              {fmt(item.installCount)}
+              {formatCount(item.installCount)}
             </span>
           )}
           {item.forkCount != null && (
             <span className="inline-flex items-center gap-1" title={t(($) => $.detail.fork)}>
               <GitFork size={13} />
-              {fmt(item.forkCount)}
+              {formatCount(item.forkCount)}
             </span>
           )}
         </div>
@@ -233,6 +250,12 @@ function Card({ item, onClick, onFav }: CardProps) {
             type="button"
             onClick={(e) => {
               e.stopPropagation()
+              // F-09: block subscribing an unconfigured MCP from the list and
+              // route the user to the detail page's MCP config form instead.
+              if (mcpListSubscribeBlocked(item, item.favorited)) {
+                onMcpSubscribeBlocked?.(item)
+                return
+              }
               onFav(item)
             }}
             className="ml-auto inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-bold transition-colors hover:bg-accent"
@@ -248,12 +271,17 @@ function Card({ item, onClick, onFav }: CardProps) {
 
 // ── Grid ──────────────────────────────────────────────────────────────────────
 
-export function HubCardGrid({ items, loading, onItemClick, onFavoriteToggle }: HubCardGridProps) {
+// L-12: auto-fill grid adapts the column count to the container width instead
+// of stepping through fixed breakpoints; `min(290px,100%)` keeps a single
+// column from overflowing on very narrow screens (mirrors the source project).
+const GRID_CLASS = "grid grid-cols-[repeat(auto-fill,minmax(min(290px,100%),1fr))] gap-4"
+
+export function HubCardGrid({ items, loading, searchQuery, onItemClick, onFavoriteToggle, onMcpSubscribeBlocked }: HubCardGridProps) {
   const { t } = useT("hub")
 
   if (loading) {
     return (
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
+      <div className={GRID_CLASS}>
         {Array.from({ length: 6 }).map((_, i) => <Skeleton key={i} />)}
       </div>
     )
@@ -268,9 +296,17 @@ export function HubCardGrid({ items, loading, onItemClick, onFavoriteToggle }: H
   }
 
   return (
-    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
-      {items.map((item) => (
-        <Card key={item.id} item={item} onClick={onItemClick} onFav={onFavoriteToggle} />
+    <div className={GRID_CLASS}>
+      {items.map((item, index) => (
+        <Card
+          key={item.id}
+          item={item}
+          index={index}
+          searchQuery={searchQuery}
+          onClick={onItemClick}
+          onFav={onFavoriteToggle}
+          onMcpSubscribeBlocked={onMcpSubscribeBlocked}
+        />
       ))}
     </div>
   )

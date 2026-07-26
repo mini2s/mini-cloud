@@ -29,7 +29,7 @@ export function PaginationBar({
 
   return (
     <div className="flex items-center justify-between gap-4 pt-4">
-      <div className="flex items-center gap-2 text-[13px] text-muted-foreground">
+      <div className="flex items-center gap-2 text-sm text-muted-foreground">
         <span>
           {t(($) => $.pagination.total, { count: total })}
         </span>
@@ -39,7 +39,7 @@ export function PaginationBar({
             <select
               value={pageSize}
               onChange={(e) => onPageSizeChange(Number(e.target.value))}
-              className="cursor-pointer rounded-md border border-border/60 bg-background px-2 py-0.5 text-[12px] text-foreground outline-none hover:border-muted-foreground/30"
+              className="cursor-pointer rounded-md border border-border/60 bg-background px-2 py-0.5 text-xs text-foreground outline-none hover:border-muted-foreground/30"
             >
               {pageSizeOptions.map((size) => (
                 <option key={size} value={size}>
@@ -64,7 +64,7 @@ export function PaginationBar({
 
         {pages.map((p, i) =>
           p === "..." ? (
-            <span key={`ellipsis-${i}`} className="flex h-8 w-8 items-center justify-center text-[13px] text-muted-foreground">
+            <span key={`ellipsis-${i}`} className="flex h-8 w-8 items-center justify-center text-sm text-muted-foreground">
               ...
             </span>
           ) : (
@@ -73,7 +73,7 @@ export function PaginationBar({
               variant={page === p ? "default" : "outline"}
               size="icon"
               onClick={() => onPageChange(p as number)}
-              className={cn("h-8 w-8 text-[13px]", page === p && "pointer-events-none")}
+              className={cn("h-8 w-8 text-sm", page === p && "pointer-events-none")}
             >
               {p}
             </Button>

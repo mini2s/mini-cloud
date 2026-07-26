@@ -248,11 +248,73 @@ export interface SyncStatus {
   lastLog?: SyncLog
 }
 
+/**
+ * Per-registry sync status entry, returned for repos backed by multiple
+ * registries (mirrors the source store project's `RepoRegistryStatus`).
+ */
+export interface RepoRegistryStatus {
+  registryId: string
+  name: string
+  externalUrl: string
+  syncStatus: string
+  lastSyncedAt?: string
+  lastSyncSha: string
+  pendingJobs: number
+}
+
+/**
+ * `GET /api/repositories/{id}/sync-status` response — a flat `SyncStatus`
+ * for single-registry repos, or a per-registry breakdown for multi-registry
+ * repos (source syncApi.getRepoSyncStatus union).
+ */
+export type HubRepoSyncStatusResult = SyncStatus | { registries: RepoRegistryStatus[] }
+
+/** `POST /api/repositories/{id}/sync` response (source syncApi.triggerRepoSync). */
+export interface HubRepoSyncTriggerResult {
+  jobId?: string
+  status?: string
+  jobs?: { jobId: string; registryId: string; status: string }[]
+}
+
+/** `GET /api/repositories/{id}/sync-logs` response (source syncApi.listRepoSyncLogs). */
+export interface HubRepoSyncLogListResult {
+  logs: SyncLog[]
+  total: number
+}
+
 // ── Distribution ─────────────────────────────────────────────────────────
 
 export interface DistributionTarget {
   scopeType: "user" | "department"
   targetId: string
+}
+
+/**
+ * A department the caller may distribute to, as returned by
+ * `/api/distributions/my/authority`. Mirrors the source store project's
+ * `AdminDept` shape (dept-sync tree node); `children` nests the subtrees the
+ * caller leads.
+ */
+export interface HubDistributionDepartment {
+  deptId: string
+  deptName: string
+  deptPath?: string
+  parentDeptId?: string
+  deptLevel?: number
+  children?: HubDistributionDepartment[]
+}
+
+/**
+ * The caller's own distribution reach (`hubMyDistributionAuthority`):
+ * `unlimited === true` for platform admins, otherwise `departments` lists the
+ * subtrees the caller leads — empty means the caller may not distribute at
+ * all. `canDistribute` is honored when the server provides it; consumers
+ * otherwise derive it from `unlimited || departments.length > 0`.
+ */
+export interface HubDistributionAuthority {
+  canDistribute?: boolean
+  unlimited: boolean
+  departments: HubDistributionDepartment[]
 }
 
 export interface DistributionResult {
@@ -419,6 +481,9 @@ export interface HubItemListParams {
   registryId?: string
   status?: string
   favorited?: boolean
+  /** "created by me" filter (manager tab counts); the upstream store backend
+   *  resolves the literal value `"me"` to the caller. */
+  createdBy?: string
   includeForks?: boolean
   paginated?: boolean
   parentPluginId?: string
@@ -453,6 +518,24 @@ export interface HubItemUpdateParams {
   file?: File | null
   tags?: string[]
   status?: string
+  /** Built-in flag toggle (source builtin-content-dialog sets this together
+   *  with markdown `content` when marking a plugin as built-in). */
+  isBuiltIn?: boolean
+}
+
+// ── Plugin package upload (SD-05) ────────────────────────────────────────
+
+/** Upload progress snapshot: bytes sent so far / total bytes to send. */
+export interface HubUploadPluginProgress {
+  loaded: number
+  total: number
+}
+
+export interface HubUploadPluginParams {
+  /** Target repository (registry) id — sent as `repo_id` (source pluginApi.upload). */
+  repoId: string
+  /** Plugin package archive (.zip). */
+  file: File
 }
 
 export interface HubDistributionCreateParams {
@@ -466,7 +549,9 @@ export interface HubRepoCreateParams {
   displayName?: string
   description?: string
   visibility?: string
-  ownerId: string
+  /** Optional — the upstream store derives the owner from the caller's
+   *  authenticated identity, so create flows never send it. */
+  ownerId?: string
   repoType?: "normal" | "sync"
 }
 

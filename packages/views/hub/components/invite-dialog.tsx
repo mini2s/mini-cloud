@@ -22,6 +22,7 @@ import {
 import { Avatar } from "@multica/ui/components/ui/avatar"
 import { Badge } from "@multica/ui/components/ui/badge"
 import { api } from "@multica/core/api"
+import { useHubInviteRepoMemberMutation } from "@multica/core/hub"
 import type { SearchedUser } from "@multica/core/types/hub"
 import { useT } from "@multica/views/i18n"
 import { toast } from "sonner"
@@ -47,7 +48,8 @@ export function InviteDialog(props: InviteDialogProps) {
   const [searching, setSearching] = useState(false)
   const [selected, setSelected] = useState<SearchedUser | null>(null)
   const [role, setRole] = useState("member")
-  const [submitting, setSubmitting] = useState(false)
+  const inviteMutation = useHubInviteRepoMemberMutation()
+  const submitting = inviteMutation.isPending
   const timer = useRef<ReturnType<typeof setTimeout>>(undefined)
 
   useEffect(() => {
@@ -77,12 +79,14 @@ export function InviteDialog(props: InviteDialogProps) {
 
   async function handle() {
     if (!selected) return
-    setSubmitting(true)
     try {
-      await api.hubInviteRepoMember(props.repoId, {
-        inviteeId: selected.id,
-        inviteeUsername: selected.name,
-        role,
+      await inviteMutation.mutateAsync({
+        repoId: props.repoId,
+        data: {
+          inviteeId: selected.id,
+          inviteeUsername: selected.name,
+          role,
+        },
       })
       toast.success(
         t(($) => $.invite.success, { name: selected.displayName || selected.name }),
@@ -92,8 +96,6 @@ export function InviteDialog(props: InviteDialogProps) {
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
       toast.error(t(($) => $.invite.failed), { description: msg })
-    } finally {
-      setSubmitting(false)
     }
   }
 

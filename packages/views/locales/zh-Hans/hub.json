@@ -14,10 +14,10 @@
     },
     "typeTab": {
       "all": "全部",
-      "skill": "Skill",
-      "subagent": "子 Agent",
+      "skill": "技能",
+      "subagent": "子代理",
       "command": "命令",
-      "mcp": "MCP 服务",
+      "mcp": "MCP",
       "plugin": "插件"
     },
     "type": {
@@ -42,27 +42,39 @@
     },
     "filter": {
       "category": "分类",
-      "risk": "安全",
+      "risk": "风险",
       "source": "来源",
       "type": "类型",
       "tags": "标签",
-      "clearAll": "清除全部",
+      "clearAll": "清除筛选",
       "noOptions": "暂无选项",
       "totalItems": "共 {{count}} 个"
     },
     "sort": {
       "label": "排序",
-      "favoriteCount": "最多订阅",
-      "experienceScore": "最高评分",
+      "favoriteCount": "订阅最多",
+      "experienceScore": "评分最高",
       "updatedAt": "最近更新"
     },
     "view": {
       "grid": "网格",
       "list": "列表"
     },
+    "bestPractices": {
+      "title": "最佳实践",
+      "description": "该分类下安装量最高的能力"
+    },
+    "showForks": "显示 Fork",
+    "hidePluginItems": "隐藏插件子集",
+    "hidePluginItemsLabel": {
+      "all": "隐藏插件子集",
+      "skill": "隐藏插件子集",
+      "mcp": "隐藏插件子集"
+    },
     "empty": {
       "noMatch": "未找到匹配的能力项",
-      "noCategory": "此分类暂无内容"
+      "noCategory": "此分类暂无内容",
+      "clearFilters": "清除搜索与筛选"
     },
     "error": {
       "loadFailed": "加载能力失败",
@@ -75,6 +87,8 @@
     "pageSize": "每页 {{count}} 项"
   },
   "detail": {
+    "title": "能力详情",
+    "description": "查看能力详情并管理订阅",
     "preview": "预览",
     "install": "安装",
     "installing": "安装中…",
@@ -85,13 +99,20 @@
     "unfavorite": "取消订阅",
     "unfavoriting": "取消订阅中…",
     "fork": "Fork",
+    "distribute": "分发",
     "installCommand": "安装",
     "edit": "编辑",
     "delete": "删除",
     "copyLink": "复制链接",
+    "copyInstall": "复制安装命令",
+    "favoriteTooltip": "订阅",
+    "unfavoriteTooltip": "取消订阅",
+    "installCount": "安装量",
     "download": "下载",
     "version": "版本",
     "versions": "版本历史",
+    "contentExpand": "展开预览",
+    "contentCollapse": "收起",
     "security": {
       "label": "安全",
       "verified": "已验证",
@@ -135,7 +156,8 @@
       "auth": "认证方式",
       "tools": "工具",
       "tools_one": "{{count}} 个工具",
-      "tools_other": "{{count}} 个工具"
+      "tools_other": "{{count}} 个工具",
+      "subscribeBlocked": "该 MCP 需要先完成配置才能订阅，请在详情中的 MCP 配置表单填写并保存参数。"
     },
     "source": "来源",
     "author": "作者",
@@ -157,6 +179,44 @@
     "toast_deleted": "已删除",
     "toast_delete_failed": "删除失败",
     "toast_link_copied": "链接已复制",
+    "share": "分享",
+    "copied": "已复制",
+    "share_failed": "复制链接失败",
+    "set_builtin": "设为内置",
+    "cancel_builtin": "取消内置",
+    "set_builtin_success": "已设为内置",
+    "unset_builtin_success": "已取消内置",
+    "toggle_builtin_failed": "更新内置状态失败",
+    "scanResults": {
+      "details": "扫描明细",
+      "loading": "正在加载扫描结果…",
+      "foundIssues": "发现的问题",
+      "noRedFlags": "无风险标记",
+      "suggestions": "修复建议",
+      "noRecommendations": "暂无建议",
+      "permissions": "权限",
+      "permFiles": "文件",
+      "permNetwork": "网络",
+      "permCommands": "命令",
+      "rawJson": "原始 JSON"
+    },
+    "artifacts": {
+      "label": "产物",
+      "latest": "最新",
+      "download_failed": "下载失败"
+    },
+    "builtinContent": {
+      "title": "将 \"{{name}}\" 设为内置",
+      "description": "上传一个 Markdown 文件作为该插件的内置内容，安装后将默认展示给用户。",
+      "drag_hint": "将 .md 文件拖拽到此处",
+      "click_select": "或点击选择文件",
+      "size_hint": "仅支持 Markdown（.md），大小不超过 5 MB",
+      "saving": "保存中…",
+      "confirm": "确认",
+      "error_not_md": "仅支持 Markdown（.md）文件",
+      "error_too_large": "文件大小超过 5 MB 限制",
+      "error_read_failed": "读取文件内容失败"
+    },
     "delete_dialog": {
       "title": "确认删除？",
       "description": "此操作将永久删除 \"{{name}}\"。",
@@ -176,6 +236,8 @@
     "backToHub": "返回 Hub",
     "create": "创建",
     "upload": "上传",
+    "full_editor": "完整编辑器",
+    "open_in_editor": "在编辑器中打开",
     "searchPlaceholder": "搜索项目…",
     "deleteSuccess": "删除成功",
     "deleteFailed": "删除失败",
@@ -194,7 +256,8 @@
       "created": "我创建的",
       "favorited": "我的订阅",
       "received": "收到的",
-      "sent": "发出的"
+      "sent": "发出的",
+      "repos": "我的仓库"
     },
     "batch": {
       "label": "批量操作",
@@ -273,7 +336,9 @@
     "confirmBatchDelete": "删除 {{count}} 个项目？",
     "batchCapped": "仅删除 {{total}} 个匹配项中的前 {{max}} 个。",
     "distributeSelectItem": "请先选择要分发的项目。",
-    "edit": "编辑"
+    "edit": "编辑",
+    "titleRepos": "我的仓库",
+    "descRepos": "管理你的仓库与成员"
   },
   "dialog": {
     "plugin_upload_title": "上传插件",
@@ -321,20 +386,26 @@
       "error_no_target": "请至少选择一个目标",
       "success": "分发成功",
       "error_failed": "分发失败",
-      "subtitle": "将 \"{{name}}\" 分发给企业客户",
-      "recipient": "接收方",
-      "recipient_placeholder": "选择工作区、小队或成员",
-      "target_label": "目标企业",
-      "target_placeholder": "选择企业客户…",
-      "search_placeholder": "搜索客户…",
-      "target_empty": "未找到客户",
-      "no_customers": "暂无企业客户",
+      "subtitle": "将 \"{{name}}\" 分发给部门或用户",
+      "scope_label": "目标范围",
+      "scope_user": "按用户",
+      "scope_department": "按部门",
+      "user_search_label": "用户",
+      "user_search_placeholder": "搜索用户…",
+      "user_search_empty": "未找到用户",
+      "dept_label": "部门",
+      "dept_empty": "暂无可分发的部门",
+      "selected_label": "已选目标",
       "permission_label": "权限模式",
+      "permission": {
+        "readonly": "只读",
+        "dismissible": "可移除"
+      },
       "message_label": "消息",
       "message_placeholder": "可选的消息…",
       "cancel": "取消",
-      "submit": "发送",
-      "submitting": "发送中…"
+      "submit": "分发",
+      "submitting": "分发中…"
     },
     "create": {
       "title_new": "创建新{{type}}",
@@ -395,7 +466,64 @@
     "visibility_public": "公开",
     "updated_toast": "仓库已更新",
     "update_failed": "更新仓库失败",
-    "edit_title": "编辑仓库"
+    "edit_title": "编辑仓库",
+    "my_repos": "我的仓库",
+    "empty": "还没有仓库，点击右上角创建第一个仓库。",
+    "load_failed": "加载仓库失败",
+    "col_visibility": "可见性",
+    "col_repo_type": "类型",
+    "col_members": "成员数",
+    "col_actions": "操作",
+    "type_normal": "普通",
+    "type_sync": "同步",
+    "members_other": "{{count}} 名成员",
+    "members_loading": "成员加载中…",
+    "members_empty": "暂无成员",
+    "show_members": "展开成员",
+    "hide_members": "收起成员",
+    "edit": "编辑",
+    "delete": "删除",
+    "delete_title": "删除仓库？",
+    "delete_confirm": "此操作将永久删除仓库 \"{{name}}\"，且不可撤销。",
+    "deleted_toast": "仓库已删除",
+    "delete_failed": "删除仓库失败",
+    "invite_member": "邀请成员",
+    "remove_member": "移除",
+    "member_removed": "成员已移除",
+    "remove_member_failed": "移除成员失败",
+    "role_owner": "所有者",
+    "role_admin": "管理员",
+    "role_member": "成员",
+    "sync": {
+      "title": "同步",
+      "sync_now": "立即同步",
+      "dry_run": "试运行（不产生实际变更）",
+      "triggered_toast": "已触发同步",
+      "dry_run_triggered_toast": "已触发试运行",
+      "trigger_failed": "同步触发失败",
+      "last_synced_at": "最近同步 {{time}}",
+      "never_synced": "从未同步",
+      "pending_jobs_other": "{{count}} 个排队任务",
+      "status_idle": "空闲",
+      "status_pending": "排队中",
+      "status_running": "同步中",
+      "status_success": "成功",
+      "status_failed": "失败",
+      "status_cancelled": "已取消",
+      "trigger_manual": "手动",
+      "trigger_scheduled": "定时",
+      "trigger_webhook": "Webhook",
+      "logs_title": "最近日志",
+      "logs_loading": "日志加载中…",
+      "logs_empty": "暂无同步日志",
+      "log_added_other": "新增 {{count}}",
+      "log_updated_other": "更新 {{count}}",
+      "log_deleted_other": "删除 {{count}}",
+      "log_skipped_other": "跳过 {{count}}",
+      "log_failed_other": "失败 {{count}}",
+      "log_duration": "耗时 {{duration}}",
+      "unavailable_hint": "当前后端未提供仓库同步接口，可在「编辑仓库」中维护同步源配置。"
+    }
   },
   "invite": {
     "title": "邀请成员",
@@ -429,5 +557,78 @@
     "type": "类型",
     "visibility": "可见性",
     "repository": "仓库"
+  },
+  "editor": {
+    "title_create": "创建能力",
+    "title_edit": "编辑能力",
+    "back_to_manager": "返回管理页",
+    "unsaved_badge": "未保存",
+    "loading": "加载中…",
+    "load_failed": "加载能力失败",
+    "no_file_selected": "选择左侧文件开始编辑",
+    "open_tree": "文件",
+    "open_props": "属性与发布",
+    "preview_title": "预览",
+    "props": {
+      "type": "类型",
+      "name": "名称",
+      "name_placeholder": "能力名称",
+      "description": "描述",
+      "description_placeholder": "简要描述这个能力…",
+      "tags": "标签",
+      "namespace": "发布位置",
+      "namespace_hint_edit": "编辑已有能力时仅应用可见性变更"
+    },
+    "toast": {
+      "create_success": "能力已创建",
+      "create_failed": "创建能力失败",
+      "update_success": "能力已更新",
+      "update_failed": "更新能力失败"
+    },
+    "tree": {
+      "title": "文件",
+      "new_file": "新建文件",
+      "new_dir": "新建目录",
+      "import_dir": "导入目录",
+      "new_file_placeholder": "文件名，如 helper.py",
+      "new_dir_placeholder": "目录名",
+      "create_in": "在 {{dir}} 下新建…",
+      "empty": "暂无文件，点击上方按钮新建或导入目录",
+      "main_badge": "主文件",
+      "error_invalid_name": "名称无效",
+      "error_exists": "同名文件或目录已存在",
+      "action_select_dir": "在此目录下新建",
+      "action_rename": "重命名",
+      "action_delete": "删除",
+      "delete_title": "确认删除",
+      "delete_dir_desc": "将删除该目录及其中的 {{count}} 个文件，且不可撤销。",
+      "delete_file_desc": "将删除该文件，且不可撤销。"
+    },
+    "preview": {
+      "not_markdown": "当前文件不是 Markdown，无法预览",
+      "empty": "暂无内容可预览"
+    },
+    "tags": {
+      "placeholder": "添加标签…",
+      "remove": "移除标签 {{tag}}"
+    },
+    "namespace": {
+      "public": "公开目录",
+      "private": "私有",
+      "repo_prefix": "仓库："
+    },
+    "publish": {
+      "install_preview": "安装命令预览",
+      "no_install_command": "该类型通过订阅分发，无安装命令",
+      "copy": "复制",
+      "copy_failed": "复制失败",
+      "version_placeholder": "版本号",
+      "version_label": "版本号",
+      "commit_placeholder": "提交说明（可选）",
+      "commit_label": "提交说明",
+      "publishing": "发布中…",
+      "submit_create": "发布",
+      "submit_update": "更新"
+    }
   }
 }

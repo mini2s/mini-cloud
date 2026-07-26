@@ -43,7 +43,7 @@ function TreeNode({
             onSelect?.(node.path)
           }
         }}
-        className="flex h-8 w-full min-w-0 items-center gap-1.5 rounded-md px-1.5 text-left text-[13px] transition-colors hover:bg-muted/50"
+        className="flex h-8 w-full min-w-0 items-center gap-1.5 rounded-md px-1.5 text-left text-sm transition-colors hover:bg-muted/50"
         style={{ paddingLeft: pad }}
         title={node.name}
       >

@@ -17,12 +17,11 @@ import {
   SelectValue,
 } from "@multica/ui/components/ui/select"
 import { Label } from "@multica/ui/components/ui/label"
-import { api } from "@multica/core/api"
 import type { CapabilityItem } from "@multica/core/types/hub"
 import { useT } from "@multica/views/i18n"
 import { toast } from "sonner"
 import { Upload, X, File, Package } from "lucide-react"
-import { useHubMyRepos } from "../hooks/use-hub-repos"
+import { useHubMyRepos, useHubUploadPluginMutation } from "@multica/core/hub"
 import { cn } from "@multica/ui/lib/utils"
 
 export type UploadPluginDialogProps = {
@@ -31,65 +30,18 @@ export type UploadPluginDialogProps = {
   onOpenChange: (open: boolean) => void
 }
 
-/**
- * Upload a file with progress tracking via XMLHttpRequest.
- * Returns a promise that resolves with the response JSON.
- */
-function uploadWithProgress(
-  url: string,
-  form: FormData,
-  onProgress: (pct: number) => void,
-): Promise<{ data: CapabilityItem }> {
-  return new Promise((resolve, reject) => {
-    const xhr = new XMLHttpRequest()
-    xhr.open("POST", url, true)
-    xhr.withCredentials = true
-
-    // Copy auth headers from the api client
-    const ah = (api as any).authHeaders?.() ?? {}
-    for (const [k, v] of Object.entries(ah)) {
-      xhr.setRequestHeader(k, v as string)
-    }
-
-    xhr.upload.onprogress = (e) => {
-      if (e.lengthComputable) {
-        onProgress(e.loaded / e.total)
-      }
-    }
-
-    xhr.onload = () => {
-      if (xhr.status >= 200 && xhr.status < 300) {
-        try {
-          resolve(JSON.parse(xhr.responseText))
-        } catch {
-          resolve({ data: xhr.responseText as any })
-        }
-      } else {
-        let msg = `Upload failed (${xhr.status})`
-        try {
-          const body = JSON.parse(xhr.responseText)
-          msg = (body as any).message ?? (body as any).error ?? msg
-        } catch { /* ignore parse errors */ }
-        reject(new Error(msg))
-      }
-    }
-
-    xhr.onerror = () => reject(new Error("Network error"))
-    xhr.send(form)
-  })
-}
-
 export function UploadPluginDialog(props: UploadPluginDialogProps) {
   const { t } = useT("hub")
   const { repos, isLoading: reposLoading } = useHubMyRepos()
+  const uploadPlugin = useHubUploadPluginMutation()
   const inputRef = useRef<HTMLInputElement>(null)
 
   const [file, setFile] = useState<File | null>(null)
   const [repoId, setRepoId] = useState("")
-  const [uploading, setUploading] = useState(false)
   const [progress, setProgress] = useState(0)
   const [error, setError] = useState("")
   const [dragOver, setDragOver] = useState(false)
+  const uploading = uploadPlugin.isPending
 
   // Default to first repo when repos load
   const [initialized, setInitialized] = useState(false)
@@ -130,7 +82,6 @@ export function UploadPluginDialog(props: UploadPluginDialogProps) {
     setFile(null)
     setProgress(0)
     setError("")
-    setUploading(false)
     if (inputRef.current) inputRef.current.value = ""
   }
 
@@ -138,23 +89,18 @@ export function UploadPluginDialog(props: UploadPluginDialogProps) {
     e.preventDefault()
     if (!file || !repoId || uploading) return
 
-    setUploading(true)
     setProgress(0)
     setError("")
 
     try {
-      const form = new FormData()
-      form.append("file", file)
-      form.append("itemType", "plugin")
-      form.append("registryId", repoId)
-      form.append("name", file.name.replace(/\.zip$/i, ""))
-
-      const baseUrl = (api as any).getBaseUrl?.() ?? ""
-      const result = await uploadWithProgress(`${baseUrl}/api/items`, form, (pct) => {
-        setProgress(pct)
+      const item = await uploadPlugin.mutateAsync({
+        repoId,
+        file,
+        onProgress: (p) => {
+          setProgress(p.total > 0 ? p.loaded / p.total : 0)
+        },
       })
-      const item = (result as any).data ?? result
-      props.onCreated(item as CapabilityItem)
+      props.onCreated(item)
       toast.success(t(($) => $.dialog.plugin_uploaded))
       props.onOpenChange(false)
       reset()
@@ -162,8 +108,6 @@ export function UploadPluginDialog(props: UploadPluginDialogProps) {
       const msg = err instanceof Error ? err.message : String(err)
       setError(msg)
       toast.error(t(($) => $.dialog.plugin_upload_failed), { description: msg })
-    } finally {
-      setUploading(false)
     }
   }
 

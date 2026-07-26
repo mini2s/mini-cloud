@@ -26,8 +26,8 @@ import type { CapabilityItem } from "@multica/core/types/hub"
 import { useT } from "@multica/views/i18n"
 import { toast } from "sonner"
 import { X } from "lucide-react"
-import { TYPE_COLORS } from "../lib/constants"
-import { useHubFilterOptions } from "../hooks/use-hub-filters"
+import { TYPE_COLORS } from "../lib/type-colors"
+import { useHubFilterOptions } from "@multica/core/hub"
 
 const VISIBILITY_OPTS = ["public", "private", "org"] as const
 

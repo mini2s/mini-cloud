@@ -1,7 +1,8 @@
 "use client"
 
 import { useState, useCallback, useRef, useMemo, useEffect } from "react"
-import { useRouter, useSearchParams } from "next/navigation"
+import { useNavigation } from "../../navigation"
+import { useWorkspacePaths } from "@multica/core/paths"
 import { useQueryClient, useMutation, useQuery } from "@tanstack/react-query"
 import { Button } from "@multica/ui/components/ui/button"
 import {
@@ -22,8 +23,11 @@ import {
   useHubMyReceivedDistributions,
   useHubMySentDistributions,
   useHubDistributionAuthority,
-} from "../hooks"
-import { useHubFilterOptions } from "../hooks/use-hub-filters"
+  useHubFilterOptions,
+  useHubMyRepos,
+  useHubManagerTabCounts,
+  useHubLogBehaviorMutation,
+} from "@multica/core/hub"
 import type { FilterGroup } from "./hub-filter-bar"
 import type {
   CapabilityItem,
@@ -36,34 +40,34 @@ import { CreateCapabilityDialog } from "./create-capability-dialog"
 import { EditCapabilityDialog } from "./edit-capability-dialog"
 import { UploadPluginDialog } from "./upload-plugin-dialog"
 import { DistributeDialog } from "./distribute-dialog"
+import { HubRepoList } from "./hub-repo-list"
 import HubLayout from "./hub-layout"
+import { PageHeader } from "../../layout/page-header"
 import { PaginationBar } from "./pagination-bar"
 import { ConfirmDialog } from "./confirm-dialog"
 import { SearchTokenBox } from "./search-token-box"
-import { ChevronLeft, Share2, CloudUpload, Trash2 } from "lucide-react"
+import { formatCompact } from "../lib/format"
+import { ChevronLeft, Share2, CloudUpload, Trash2, FileCode2, Package, Star, Inbox, Send, Database } from "lucide-react"
+import type { LucideIcon } from "lucide-react"
 
 const PAGE_SIZE = 20 as const
 const MAX_BATCH_DELETE = 200
 
-type TabKey = "created" | "favorited" | "received" | "sent"
+type TabKey = "created" | "favorited" | "received" | "sent" | "repos"
 
 interface SidebarNavItem {
   key: TabKey
-  icon: string
+  icon: LucideIcon
 }
 
+// SD-06: lucide icons only — emoji were a leftover from the source project.
 const SIDEBAR_NAV: SidebarNavItem[] = [
-  { key: "created", icon: "📦" },
-  { key: "favorited", icon: "⭐" },
-  { key: "received", icon: "📥" },
-  { key: "sent", icon: "📤" },
+  { key: "created", icon: Package },
+  { key: "favorited", icon: Star },
+  { key: "received", icon: Inbox },
+  { key: "sent", icon: Send },
+  { key: "repos", icon: Database },
 ]
-
-function fmtCompact(n: number): string {
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`
-  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`
-  return String(n)
-}
 
 function mkGroup(applied: string[], toggle: (v: string) => void, reset: () => void): FilterGroup {
   return { options: [], appliedValues: applied, toggle, reset }
@@ -71,8 +75,9 @@ function mkGroup(applied: string[], toggle: (v: string) => void, reset: () => vo
 
 export function HubManager() {
   const { t } = useT("hub")
-  const router = useRouter()
-  const searchParams = useSearchParams()
+  const navigation = useNavigation()
+  const paths = useWorkspacePaths()
+  const searchParams = navigation.searchParams
   const qc = useQueryClient()
   const { data: filterOpts } = useHubFilterOptions()
   const revokeTargetRef = useRef<string | null>(null)
@@ -83,7 +88,7 @@ export function HubManager() {
 
   useEffect(() => {
     const urlTab = searchParams.get("tab") as TabKey | null
-    if (urlTab && ["created", "favorited", "received", "sent"].includes(urlTab)) {
+    if (urlTab && ["created", "favorited", "received", "sent", "repos"].includes(urlTab)) {
       setTab(urlTab as TabKey)
     }
   }, [searchParams])
@@ -153,6 +158,7 @@ export function HubManager() {
   const favQuery = useHubItems({ ...listParams, favorited: true })
   const receivedQuery = useHubMyReceivedDistributions()
   const sentQuery = useHubMySentDistributions()
+  const { repos } = useHubMyRepos()
 
   const isItemTab = tab === "created" || tab === "favorited"
 
@@ -199,29 +205,42 @@ export function HubManager() {
     })
   }, [tab, distributions, debounced])
 
+  // ── Tab badge counts (M-01) ─────────────────────────────────────────────
+  // 我创建的 = hubListItems({ createdBy: "me", pageSize: 1 }).total and
+  // 我订阅的 = favorites list total — both filter-independent dedicated count
+  // queries that refresh via items-namespace invalidation. 收到的分发 =
+  // unread receipts; 发出的分发 / 我的仓库 = list lengths.
+  const { createdCount, favoritedCount } = useHubManagerTabCounts()
+  const unreadCount = useMemo(
+    () => receipts.filter((r) => r.receiptStatus === "unread").length,
+    [receipts],
+  )
+
   const tabCount = useCallback((key: TabKey): number => {
     switch (key) {
-      case "created": return createdQuery.data?.total ?? 0
-      case "favorited": return favQuery.data?.total ?? 0
-      case "received": return receipts.length
+      case "created": return createdCount
+      case "favorited": return favoritedCount
+      case "received": return unreadCount
       case "sent": return distributions.length
+      case "repos": return repos.length
     }
-  }, [createdQuery.data, favQuery.data, receipts.length, distributions.length])
+  }, [createdCount, favoritedCount, unreadCount, distributions.length, repos.length])
 
-  // ── Detail sheet + view tracking ────────────────────────────────────────
+  // ── Detail sheet + view tracking (FR-10, via the core/hub mutation) ─────
   const [detailItemId, setDetailItemId] = useState<string | null>(null)
   const trackedIdRef = useRef<string | null>(null)
+  const logBehavior = useHubLogBehaviorMutation()
 
   useEffect(() => {
     if (!detailItemId || trackedIdRef.current === detailItemId) return
     trackedIdRef.current = detailItemId
-    api.hubLogBehavior(detailItemId, {
-      action: "view",
+    logBehavior.mutate({
+      id: detailItemId,
       actionType: "view",
       context: "manager",
       metadata: { route: "hub-manager" },
-    }).catch(() => {})
-  }, [detailItemId])
+    })
+  }, [detailItemId, logBehavior])
 
   useEffect(() => {
     if (!detailItemId) trackedIdRef.current = null
@@ -242,8 +261,8 @@ export function HubManager() {
   useEffect(() => {
     const p = new URLSearchParams(searchParams.toString())
     p.set("tab", tab)
-    router.replace(`?${p.toString()}`, { scroll: false })
-  }, [tab, router, searchParams])
+    navigation.replace(`${navigation.pathname}?${p.toString()}`)
+  }, [tab, navigation, searchParams])
 
   // ── Selection (batch) ───────────────────────────────────────────────────
   const [selected, setSelected] = useState<Set<string>>(new Set())
@@ -347,8 +366,7 @@ export function HubManager() {
   }, [unfavMutation, favMutation, qc])
 
   // ── Distribution authority + gating ─────────────────────────────────────
-  const { authority } = useHubDistributionAuthority()
-  const canDistribute = !!authority && (authority.unlimited || (authority.departments?.length ?? 0) > 0)
+  const { canDistribute } = useHubDistributionAuthority()
 
   // ── Distribution mutations ──────────────────────────────────────────────
   const revokeMutation = useMutation({
@@ -437,11 +455,11 @@ export function HubManager() {
                   : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"
               }`}
             >
-              <span className="text-base">{item.icon}</span>
+              <item.icon size={16} className="shrink-0" />
               <span className="flex-1">{t(($) => $.manager.tabs[item.key])}</span>
               {count > 0 && (
                 <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] font-semibold tabular-nums">
-                  {fmtCompact(count)}
+                  {formatCompact(count)}
                 </span>
               )}
             </button>
@@ -451,23 +469,25 @@ export function HubManager() {
     </aside>
   )
 
+  // SD-08: header shares the dashboard-wide PageHeader (h-12, border-b) so the
+  // manager page title/action hierarchy matches every other dashboard page.
   const renderToolbar = (
-    <header className="relative overflow-hidden border-b border-border bg-gradient-to-br from-background via-primary/[2%] to-primary/[10%]">
-      <div className="mx-auto flex max-w-[78rem] items-center gap-4 px-4 py-5">
-        <div className="min-w-0 flex-1">
-          <h1 className="relative m-0 shrink-0 text-[1.625rem] leading-[1.15] font-extrabold tracking-[-0.035em] text-foreground">
-            {t(($) => tab === "received" ? $.manager.titleReceived : tab === "sent" ? $.manager.titleSent : $.manager.title)}
-          </h1>
-          <p className="relative m-0 min-w-0 max-w-[38rem] text-[0.8125rem] leading-6 text-muted-foreground">
-            {t(($) => tab === "received" ? $.manager.descReceived : tab === "sent" ? $.manager.descSent : $.manager.desc)}
-          </p>
-        </div>
-        <div className="flex shrink-0 items-center justify-end gap-3">
-          <Button type="button" variant="outline" size="sm" className="h-8 cursor-pointer px-3" onClick={() => router.push("/hub")}>
+    <PageHeader>
+      <h1 className="text-sm font-semibold">
+        {t(($) => tab === "received" ? $.manager.titleReceived : tab === "sent" ? $.manager.titleSent : tab === "repos" ? $.manager.titleRepos : $.manager.title)}
+      </h1>
+        <div className="ml-auto flex shrink-0 items-center justify-end gap-2">
+          <Button type="button" variant="outline" size="sm" className="h-8 cursor-pointer px-3" onClick={() => navigation.push(paths.hub())}>
             <ChevronLeft size={16} />
             {t(($) => $.manager.backToHub)}
           </Button>
+          {tab !== "repos" && (
+            <>
           <CreateCapabilityDialog onCreated={() => qc.invalidateQueries({ queryKey: ["hub"] })} />
+          <Button type="button" variant="outline" size="sm" className="h-8 cursor-pointer px-3" onClick={() => navigation.push(paths.hubEditor())}>
+            <FileCode2 size={14} />
+            {t(($) => $.manager.full_editor)}
+          </Button>
           <Button type="button" variant="default" size="sm" className="h-8 cursor-pointer px-3" onClick={() => setUploadOpen(true)}>
             <CloudUpload size={14} />
             {t(($) => $.manager.upload)}
@@ -489,9 +509,10 @@ export function HubManager() {
               {t(($) => $.manager.distribute.label)}
             </Button>
           )}
+            </>
+          )}
         </div>
-      </div>
-    </header>
+    </PageHeader>
   )
 
   const isLoadingView = isItemTab ? itemLoading : (tab === "received" ? receivedQuery.isLoading : sentQuery.isLoading)
@@ -504,7 +525,8 @@ export function HubManager() {
         <div className="flex min-h-0 flex-1">
           <div className="hidden md:block">{renderSidebar}</div>
           <section className="flex min-h-0 flex-1 flex-col px-2 sm:px-3">
-            {/* Search */}
+            {/* Search — hidden on the repos tab (repo list has its own header row) */}
+            {tab !== "repos" && (
             <div className="flex items-center gap-2 py-3">
               <div className="relative min-w-0 flex-1">
                 <SearchTokenBox
@@ -519,10 +541,11 @@ export function HubManager() {
                 />
               </div>
             </div>
+            )}
 
             {/* Filter bar — item tabs only */}
             {isItemTab && (
-              <div className="mx-auto mb-2.5 w-full max-w-[64rem] px-4">
+              <div className="mx-auto mb-2.5 w-full max-w-5xl px-4">
                 <HubFilterBar
                   type={mkGroup(typeFilter, (v) => toggleFilter(typeFilter, setTypeFilter, v), () => setTypeFilter([]))}
                   category={mkGroup(catFilter, (v) => toggleFilter(catFilter, setCatFilter, v), () => setCatFilter([]))}
@@ -537,7 +560,7 @@ export function HubManager() {
 
             {/* Selection bar — created tab only */}
             {tab === "created" && selected.size > 0 && (
-              <div className="mx-auto flex w-full max-w-[64rem] items-center gap-2 px-4 pb-2">
+              <div className="mx-auto flex w-full max-w-5xl items-center gap-2 px-4 pb-2">
                 <span className="text-sm text-muted-foreground">
                   {allMatching
                     ? t(($) => $.manager.allMatchingSelected, { count: itemTotal })
@@ -574,7 +597,10 @@ export function HubManager() {
 
             {/* Content area */}
             <div className="min-h-0 flex-1 overflow-auto px-4 pb-4">
-              {isLoadingView && isEmpty && (
+              {/* Repos tab */}
+              {tab === "repos" && <HubRepoList />}
+
+              {tab !== "repos" && isLoadingView && isEmpty && (
                 <HubManagerListView
                   items={[]}
                   loading={true}
@@ -584,15 +610,16 @@ export function HubManager() {
                   onItemClick={openDetail}
                   onFav={handleFav}
                   onEdit={(item) => setEditItem(item)}
+                  onOpenInEditor={(item) => navigation.push(paths.hubEditorItem(item.id))}
                   onDelete={(id) => setDeleteDialog({ open: true, id, ids: [], batch: false, desc: t(($) => $.manager.confirmDelete) })}
                   searchQuery={debounced}
                   total={itemTotal}
                 />
               )}
 
-              {!isLoadingView && isEmpty && (
+              {tab !== "repos" && !isLoadingView && isEmpty && (
                 <div className="flex flex-col items-center justify-center py-20">
-                  <p className="mb-1 text-[0.9375rem] font-medium text-muted-foreground">
+                  <p className="mb-1 text-[15px] font-medium text-muted-foreground">
                     {t(($) => tab === "created" ? $.manager.emptyCreated : tab === "favorited" ? $.manager.emptyFavorited : tab === "received" ? $.manager.emptyReceived : $.manager.emptySent)}
                   </p>
                 </div>
@@ -600,17 +627,17 @@ export function HubManager() {
 
               {/* Received tab */}
               {tab === "received" && !isEmpty && (
-                <div className="min-h-0 flex-1 overflow-auto rounded-[0.875rem] border border-border">
+                <div className="min-h-0 flex-1 overflow-auto rounded-xl border border-border">
                   <table className="w-full text-left text-sm">
                     <thead>
                       <tr className="border-b border-border bg-muted/30">
                         <th className="px-4 py-3 font-semibold text-foreground">{t(($) => $.manager.colName)}</th>
-                        <th className="w-[14rem] px-4 py-3 font-semibold text-foreground">{t(($) => $.manager.colDesc)}</th>
-                        <th className="w-[8rem] px-4 py-3 font-semibold text-foreground">{t(($) => $.manager.colType)}</th>
-                        <th className="w-[10rem] px-4 py-3 font-semibold text-foreground">{t(($) => $.manager.colFrom)}</th>
-                        <th className="w-[10rem] px-4 py-3 font-semibold text-foreground">{t(($) => $.manager.colPermission)}</th>
-                        <th className="w-[8rem] px-4 py-3 font-semibold text-foreground">{t(($) => $.manager.colStatus)}</th>
-                        <th className="w-[12rem] px-4 py-3 text-right font-semibold text-foreground">{t(($) => $.manager.colAction)}</th>
+                        <th className="w-56 px-4 py-3 font-semibold text-foreground">{t(($) => $.manager.colDesc)}</th>
+                        <th className="w-32 px-4 py-3 font-semibold text-foreground">{t(($) => $.manager.colType)}</th>
+                        <th className="w-40 px-4 py-3 font-semibold text-foreground">{t(($) => $.manager.colFrom)}</th>
+                        <th className="w-40 px-4 py-3 font-semibold text-foreground">{t(($) => $.manager.colPermission)}</th>
+                        <th className="w-32 px-4 py-3 font-semibold text-foreground">{t(($) => $.manager.colStatus)}</th>
+                        <th className="w-48 px-4 py-3 text-right font-semibold text-foreground">{t(($) => $.manager.colAction)}</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -636,7 +663,7 @@ export function HubManager() {
                                 <div className="mt-0.5 truncate text-xs text-muted-foreground">{dist.message}</div>
                               )}
                             </td>
-                            <td className="max-w-[14rem] px-4 py-3">
+                            <td className="max-w-56 px-4 py-3">
                               <span className="line-clamp-2 text-muted-foreground">{item?.description ?? "—"}</span>
                             </td>
                             <td className="px-4 py-3 text-muted-foreground">{item ? t(($) => $.home.typeTab[item.itemType as "skill" | "subagent" | "command" | "mcp" | "plugin"]) : "—"}</td>
@@ -688,17 +715,17 @@ export function HubManager() {
 
               {/* Sent tab */}
               {tab === "sent" && !isEmpty && (
-                <div className="min-h-0 flex-1 overflow-auto rounded-[0.875rem] border border-border">
+                <div className="min-h-0 flex-1 overflow-auto rounded-xl border border-border">
                   <table className="w-full text-left text-sm">
                     <thead>
                       <tr className="border-b border-border bg-muted/30">
                         <th className="px-4 py-3 font-semibold text-foreground">{t(($) => $.manager.colName)}</th>
-                        <th className="w-[14rem] px-4 py-3 font-semibold text-foreground">{t(($) => $.manager.colDesc)}</th>
-                        <th className="w-[8rem] px-4 py-3 font-semibold text-foreground">{t(($) => $.manager.colType)}</th>
-                        <th className="w-[10rem] px-4 py-3 font-semibold text-foreground">{t(($) => $.manager.colScope)}</th>
-                        <th className="w-[10rem] px-4 py-3 font-semibold text-foreground">{t(($) => $.manager.colPermission)}</th>
-                        <th className="w-[8rem] px-4 py-3 font-semibold text-foreground">{t(($) => $.manager.colStatus)}</th>
-                        <th className="w-[6rem] px-4 py-3 text-right font-semibold text-foreground">{t(($) => $.manager.colAction)}</th>
+                        <th className="w-56 px-4 py-3 font-semibold text-foreground">{t(($) => $.manager.colDesc)}</th>
+                        <th className="w-32 px-4 py-3 font-semibold text-foreground">{t(($) => $.manager.colType)}</th>
+                        <th className="w-40 px-4 py-3 font-semibold text-foreground">{t(($) => $.manager.colScope)}</th>
+                        <th className="w-40 px-4 py-3 font-semibold text-foreground">{t(($) => $.manager.colPermission)}</th>
+                        <th className="w-32 px-4 py-3 font-semibold text-foreground">{t(($) => $.manager.colStatus)}</th>
+                        <th className="w-24 px-4 py-3 text-right font-semibold text-foreground">{t(($) => $.manager.colAction)}</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -715,7 +742,7 @@ export function HubManager() {
                                 {item?.name ?? t(($) => $.manager.unknownItem)}
                               </button>
                             </td>
-                            <td className="max-w-[14rem] px-4 py-3">
+                            <td className="max-w-56 px-4 py-3">
                               <span className="line-clamp-2 text-muted-foreground">{item?.description ?? "—"}</span>
                             </td>
                             <td className="px-4 py-3 text-muted-foreground">{item ? t(($) => $.home.typeTab[item.itemType as "skill" | "subagent" | "command" | "mcp" | "plugin"]) : "—"}</td>
@@ -771,6 +798,7 @@ export function HubManager() {
                   onItemClick={openDetail}
                   onFav={handleFav}
                   onEdit={(item) => setEditItem(item)}
+                  onOpenInEditor={(item) => navigation.push(paths.hubEditorItem(item.id))}
                   onDelete={(id) => setDeleteDialog({ open: true, id, ids: [], batch: false, desc: t(($) => $.manager.confirmDelete) })}
                   searchQuery={debounced}
                   total={itemTotal}
@@ -795,7 +823,7 @@ export function HubManager() {
 
       {/* Detail sheet */}
       <Sheet open={detailItemId != null} onOpenChange={(open) => { if (!open) setDetailItemId(null) }} modal={false}>
-        <SheetContent className="w-[min(68rem,94vw)] overflow-y-auto data-[side=right]:w-[min(68rem,94vw)] data-[side=right]:sm:max-w-none">
+        <SheetContent className="w-screen overflow-y-auto data-[side=right]:w-screen data-[side=right]:sm:w-[min(68rem,94vw)] data-[side=right]:sm:max-w-none">
           <SheetHeader className="sr-only">
             <SheetTitle>{t(($) => $.detail.preview)}</SheetTitle>
             <SheetDescription>{t(($) => $.detail.preview)}</SheetDescription>
