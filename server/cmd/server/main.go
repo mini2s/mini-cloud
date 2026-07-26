@@ -359,7 +359,17 @@ func main() {
 				handler.LinkDeptIdentity(bgCtx, queries, deptSyncClient, bus, uid, uni)
 			}()
 		}()
-		user, err := queries.GetUserBySubjectID(ctx, pgtype.Text{String: subjectID, Valid: true})
+		// Prefer universal_id (stable across identity systems): a cs-user token's
+		// sub is cs-user's own user id, not the local Casdoor sub this account was
+		// originally provisioned under — but universal_id identifies the same
+		// person. Fall back to subject_id when universal_id is absent/unbound.
+		var user db.MulticaUser
+		if universalID != "" {
+			user, err = queries.GetUserByCasdoorUniversalID(ctx, pgtype.Text{String: universalID, Valid: true})
+		}
+		if universalID == "" || err != nil {
+			user, err = queries.GetUserBySubjectID(ctx, pgtype.Text{String: subjectID, Valid: true})
+		}
 		if err != nil {
 			// Auto-provision: use real name/email from JWT, fall back to placeholders.
 			if name == "" {
