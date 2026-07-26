@@ -21,6 +21,7 @@ function RepoIcon({ url, className }: { url?: string; className?: string }) {
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCreateProject } from "@multica/core/projects/mutations";
 import { api } from "@multica/core/api";
+import { isValidGitRepoURL } from "@multica/core/repo-url";
 import { useProjectDraftStore } from "@multica/core/projects";
 import {
   PROJECT_STATUS_CONFIG,
@@ -379,16 +380,24 @@ export function CreateProjectModal({ onClose }: { onClose: () => void }) {
                   if (e.key === "Enter") {
                     e.preventDefault();
                     const url = repoQuery.trim();
-                    if (url) {
+                    if (url && isValidGitRepoURL(url)) {
                       addCustomRepo(url);
                       setRepoQuery("");
                     }
                   }
                 }}
                 placeholder={t(($) => $.create_project.repos_url_placeholder)}
-                className="w-full bg-transparent text-xs px-1 py-1 border-b outline-none placeholder:text-muted-foreground"
+                className={cn(
+                  "w-full bg-transparent text-xs px-1 py-1 border-b outline-none placeholder:text-muted-foreground",
+                  repoQuery.trim() && !isValidGitRepoURL(repoQuery.trim()) && "border-destructive",
+                )}
                 autoFocus
               />
+              {repoQuery.trim() && !isValidGitRepoURL(repoQuery.trim()) && (
+                <p className="px-1 py-1 text-xs text-destructive">
+                  {t(($) => $.create_project.repos_invalid_hint)}
+                </p>
+              )}
               <div className="max-h-44 overflow-y-auto">
                 {filteredRepos.map((repo) => {
                   const checked = selectedRepos.includes(repo.url);
@@ -414,7 +423,7 @@ export function CreateProjectModal({ onClose }: { onClose: () => void }) {
                   </p>
                 )}
               </div>
-              {repoQuery.trim() && !workspaceRepos.some((r) => r.url === repoQuery.trim()) && (
+              {repoQuery.trim() && isValidGitRepoURL(repoQuery.trim()) && !workspaceRepos.some((r) => r.url === repoQuery.trim()) && (
                 <button
                   type="button"
                   onClick={() => {

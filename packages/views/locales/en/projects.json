@@ -67,18 +67,18 @@
     "toast_move_issue_failed": "Failed to move issue"
   },
   "resources": {
-    "section_header": "Resources",
-    "empty": "No resources attached.",
-    "add_button": "Add resource",
-    "popover_title": "Attach a GitHub repo",
-    "attached_badge": "attached",
+    "section_header": "Code repositories",
+    "empty": "No repositories linked.",
+    "combobox_placeholder": "Add repository…",
+    "invalid_hint": "Not a valid repo URL",
+    "add_new": "Add {{url}}",
+    "attached_badge": "linked",
     "remove_tooltip": "Remove",
     "url_placeholder": "https://github.com/owner/repo or git@github.com:owner/repo.git",
-    "url_submit": "Add",
-    "toast_attached": "Repository attached",
-    "toast_attach_failed": "Failed to attach",
-    "toast_removed": "Resource removed",
-    "toast_remove_failed": "Failed to remove resource"
+    "toast_attached": "Repository linked",
+    "toast_attach_failed": "Failed to link",
+    "toast_removed": "Repository removed",
+    "toast_remove_failed": "Failed to remove"
   },
   "delete_dialog": {
     "title": "Delete project",
