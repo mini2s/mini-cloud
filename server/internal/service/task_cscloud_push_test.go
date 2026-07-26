@@ -504,6 +504,288 @@ func TestAppendDeliverablePrompt_GitAndSubmitNoFetch(t *testing.T) {
 	}
 }
 
+// --- resolveCodeRepoAndProject tests ---
+
+// resolveTestDB is a focused mock for resolveCodeRepoAndProject.
+// It handles exactly three queries: GetWorkspace, GetIssue, ListProjectResources.
+type resolveTestDB struct {
+	workspace   *db.MulticaWorkspace
+	issue       *db.MulticaIssue
+	projResRows []db.MulticaProjectResource
+}
+
+func (m *resolveTestDB) QueryRow(_ context.Context, sql string, _ ...interface{}) pgx.Row {
+	switch {
+	case strings.Contains(sql, "GetWorkspace"):
+		if m.workspace != nil {
+			return &resolveMockRow{workspace: m.workspace}
+		}
+		return &resolveMockRow{err: pgx.ErrNoRows}
+	case strings.Contains(sql, "GetIssue"):
+		if m.issue != nil {
+			return &resolveMockRow{issue: m.issue}
+		}
+		return &resolveMockRow{err: pgx.ErrNoRows}
+	default:
+		return &resolveMockRow{err: pgx.ErrNoRows}
+	}
+}
+
+func (m *resolveTestDB) Query(_ context.Context, sql string, _ ...interface{}) (pgx.Rows, error) {
+	if strings.Contains(sql, "ListProjectResources") && m.projResRows != nil {
+		return &mockRowsProjectResources{rows: m.projResRows, idx: -1}, nil
+	}
+	return nil, pgx.ErrNoRows
+}
+
+func (m *resolveTestDB) Exec(_ context.Context, _ string, _ ...interface{}) (pgconn.CommandTag, error) {
+	return pgconn.NewCommandTag(""), nil
+}
+
+type resolveMockRow struct {
+	workspace *db.MulticaWorkspace
+	issue     *db.MulticaIssue
+	err       error
+}
+
+func (r *resolveMockRow) Scan(dest ...any) error {
+	if r.err != nil {
+		return r.err
+	}
+	if r.workspace != nil {
+		return scanWorkspaceFull(r.workspace, dest)
+	}
+	if r.issue != nil {
+		return scanIssueFull(r.issue, dest)
+	}
+	return nil
+}
+
+// scanWorkspaceFull scans all MulticaWorkspace fields (SELECT *).
+func scanWorkspaceFull(w *db.MulticaWorkspace, dest []any) error {
+	vals := []any{
+		&w.ID, &w.Name, &w.Slug, &w.Description, &w.Settings,
+		&w.CreatedAt, &w.UpdatedAt, &w.Context, &w.Repos,
+		&w.IssuePrefix, &w.IssueCounter,
+	}
+	return copyRow(vals, dest)
+}
+
+// scanIssueFull scans all MulticaIssue fields (SELECT *).
+// The existing scanIssue only goes up to UpdatedAt; this one includes
+// Number, ProjectID, OriginType, OriginID, FirstExecutedAt, StartDate,
+// Metadata, WorkflowID, WorkflowRunID, StageID.
+func scanIssueFull(i *db.MulticaIssue, dest []any) error {
+	vals := []any{
+		&i.ID, &i.WorkspaceID, &i.Title, &i.Description, &i.Status,
+		&i.Priority, &i.AssigneeType, &i.AssigneeID, &i.CreatorType,
+		&i.CreatorID, &i.ParentIssueID, &i.AcceptanceCriteria,
+		&i.ContextRefs, &i.Position, &i.DueDate, &i.CreatedAt,
+		&i.UpdatedAt, &i.Number, &i.ProjectID, &i.OriginType,
+		&i.OriginID, &i.FirstExecutedAt, &i.StartDate, &i.Metadata,
+		&i.WorkflowID, &i.WorkflowRunID, &i.StageID,
+	}
+	return copyRow(vals, dest)
+}
+
+// mockRowsProjectResources is a pgx.Rows that yields pre-set
+// MulticaProjectResource rows for ListProjectResources.
+type mockRowsProjectResources struct {
+	rows []db.MulticaProjectResource
+	idx  int // starts at -1; Next() bumps to 0
+}
+
+func (m *mockRowsProjectResources) Next() bool { m.idx++; return m.idx < len(m.rows) }
+func (m *mockRowsProjectResources) Close()     {}
+func (m *mockRowsProjectResources) Err() error { return nil }
+func (m *mockRowsProjectResources) CommandTag() pgconn.CommandTag       { return pgconn.NewCommandTag("") }
+func (m *mockRowsProjectResources) FieldDescriptions() []pgconn.FieldDescription { return nil }
+func (m *mockRowsProjectResources) RawValues() [][]byte      { return nil }
+func (m *mockRowsProjectResources) Values() ([]any, error)   { return nil, nil }
+func (m *mockRowsProjectResources) Conn() *pgx.Conn          { return nil }
+
+func (m *mockRowsProjectResources) Scan(dest ...any) error {
+	r := &m.rows[m.idx]
+	vals := []any{
+		&r.ID, &r.ProjectID, &r.WorkspaceID, &r.ResourceType,
+		&r.ResourceRef, &r.Label, &r.Position, &r.CreatedAt, &r.CreatedBy,
+	}
+	return copyRow(vals, dest)
+}
+
+func TestResolveCodeRepo_FallbackAllWorkspaceRepos(t *testing.T) {
+	wsRepos, _ := json.Marshal([]struct{ URL string }{
+		{URL: "https://gitlab.example.com/a/backend.git"},
+		{URL: "https://gitlab.example.com/a/frontend.git"},
+	})
+	wsSettings, _ := json.Marshal(struct {
+		GitlabAccessToken string `json:"gitlab_access_token"`
+	}{GitlabAccessToken: "tok-abc"})
+	mdb := &resolveTestDB{
+		workspace: &db.MulticaWorkspace{
+			ID:       testUUID(1),
+			Repos:    wsRepos,
+			Settings: wsSettings,
+		},
+		// issue without project -> fallback path
+		issue: &db.MulticaIssue{ID: testUUID(5), WorkspaceID: testUUID(1)},
+	}
+	svc := &TaskService{Queries: db.New(mdb)}
+	task := db.MulticaAgentTaskQueue{IssueID: testUUID(5)}
+
+	repos, token, projectID := svc.resolveCodeRepoAndProject(context.Background(), task, testUUID(1))
+
+	if token != "tok-abc" {
+		t.Fatalf("gitlab token = %q, want tok-abc", token)
+	}
+	if projectID != "" {
+		t.Fatalf("projectID = %q, want empty", projectID)
+	}
+	if len(repos) != 2 {
+		t.Fatalf("repos count = %d, want 2", len(repos))
+	}
+	if repos[0].URL != "https://gitlab.example.com/a/backend.git" {
+		t.Fatalf("repos[0].URL = %q", repos[0].URL)
+	}
+	if repos[1].URL != "https://gitlab.example.com/a/frontend.git" {
+		t.Fatalf("repos[1].URL = %q", repos[1].URL)
+	}
+	for _, r := range repos {
+		if r.Provider != "gitlab" {
+			t.Fatalf("repo provider = %q, want gitlab", r.Provider)
+		}
+		if r.Role != "code" {
+			t.Fatalf("repo role = %q, want code", r.Role)
+		}
+	}
+}
+
+func TestResolveCodeRepo_ProjectResourcesOverrideWorkspace(t *testing.T) {
+	wsRepos, _ := json.Marshal([]struct{ URL string }{
+		{URL: "https://gitlab.example.com/ws/old.git"},
+	})
+	wsSettings, _ := json.Marshal(struct {
+		GitlabAccessToken string `json:"gitlab_access_token"`
+	}{GitlabAccessToken: "tok-xyz"})
+	projID := testUUID(10)
+	mdb := &resolveTestDB{
+		workspace: &db.MulticaWorkspace{
+			ID:       testUUID(1),
+			Repos:    wsRepos,
+			Settings: wsSettings,
+		},
+		issue: &db.MulticaIssue{
+			ID:         testUUID(5),
+			WorkspaceID: testUUID(1),
+			ProjectID:  projID,
+		},
+		projResRows: []db.MulticaProjectResource{
+			{
+				ResourceType: "github_repo",
+				ResourceRef:  []byte(`{"url":"https://gitlab.example.com/p/repo-a.git"}`),
+			},
+			{
+				ResourceType: "github_repo",
+				ResourceRef:  []byte(`{"url":"https://gitlab.example.com/p/repo-b.git"}`),
+			},
+		},
+	}
+	svc := &TaskService{Queries: db.New(mdb)}
+	task := db.MulticaAgentTaskQueue{IssueID: testUUID(5)}
+
+	repos, token, projectID := svc.resolveCodeRepoAndProject(context.Background(), task, testUUID(1))
+
+	if token != "tok-xyz" {
+		t.Fatalf("gitlab token = %q, want tok-xyz", token)
+	}
+	if projectID != util.UUIDToString(projID) {
+		t.Fatalf("projectID = %q, want %s", projectID, util.UUIDToString(projID))
+	}
+	if len(repos) != 2 {
+		t.Fatalf("repos count = %d, want 2", len(repos))
+	}
+	if repos[0].URL != "https://gitlab.example.com/p/repo-a.git" {
+		t.Fatalf("repos[0].URL = %q", repos[0].URL)
+	}
+	if repos[1].URL != "https://gitlab.example.com/p/repo-b.git" {
+		t.Fatalf("repos[1].URL = %q", repos[1].URL)
+	}
+}
+
+func TestResolveCodeRepo_ProjectNoGithubRepoFallsBackToWorkspace(t *testing.T) {
+	wsRepos, _ := json.Marshal([]struct{ URL string }{
+		{URL: "https://gitlab.example.com/ws/fallback.git"},
+	})
+	wsSettings, _ := json.Marshal(struct {
+		GitlabAccessToken string `json:"gitlab_access_token"`
+	}{GitlabAccessToken: "tok-fb"})
+	projID := testUUID(10)
+	mdb := &resolveTestDB{
+		workspace: &db.MulticaWorkspace{
+			ID:       testUUID(1),
+			Repos:    wsRepos,
+			Settings: wsSettings,
+		},
+		issue: &db.MulticaIssue{
+			ID:         testUUID(5),
+			WorkspaceID: testUUID(1),
+			ProjectID:  projID,
+		},
+		// project has a resource but NOT github_repo -> should fallback
+		projResRows: []db.MulticaProjectResource{
+			{
+				ResourceType: "link",
+				ResourceRef:  []byte(`{"url":"https://wiki.example.com"}`),
+			},
+		},
+	}
+	svc := &TaskService{Queries: db.New(mdb)}
+	task := db.MulticaAgentTaskQueue{IssueID: testUUID(5)}
+
+	repos, token, projectID := svc.resolveCodeRepoAndProject(context.Background(), task, testUUID(1))
+
+	if token != "tok-fb" {
+		t.Fatalf("gitlab token = %q, want tok-fb", token)
+	}
+	if projectID != util.UUIDToString(projID) {
+		t.Fatalf("projectID = %q, want %s", projectID, util.UUIDToString(projID))
+	}
+	// projectID is set from issue, but repos fall back to workspace
+	if len(repos) != 1 {
+		t.Fatalf("repos count = %d, want 1 (workspace fallback)", len(repos))
+	}
+	if repos[0].URL != "https://gitlab.example.com/ws/fallback.git" {
+		t.Fatalf("repos[0].URL = %q", repos[0].URL)
+	}
+}
+
+func TestResolveCodeRepo_NoIssueReturnsEmpty(t *testing.T) {
+	wsRepos, _ := json.Marshal([]struct{ URL string }{
+		{URL: "https://gitlab.example.com/a/repo.git"},
+	})
+	mdb := &resolveTestDB{
+		workspace: &db.MulticaWorkspace{
+			ID:    testUUID(1),
+			Repos: wsRepos,
+		},
+		// no issue
+	}
+	svc := &TaskService{Queries: db.New(mdb)}
+	task := db.MulticaAgentTaskQueue{} // IssueID not valid
+
+	repos, token, projectID := svc.resolveCodeRepoAndProject(context.Background(), task, testUUID(1))
+
+	if len(repos) != 1 {
+		t.Fatalf("repos count = %d, want 1", len(repos))
+	}
+	if token != "" {
+		t.Fatalf("token = %q, want empty", token)
+	}
+	if projectID != "" {
+		t.Fatalf("projectID = %q, want empty", projectID)
+	}
+}
+
 func TestCsCloudPayloadSerializesReposAndDeliverables(t *testing.T) {
 	payload := csCloudTaskRunPayload{
 		TaskID: "t-1", WorkspaceID: "ws", Agent: "csc", Prompt: "p",

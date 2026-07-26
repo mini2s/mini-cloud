@@ -225,14 +225,17 @@ func (s *TaskService) buildCSCloudPayload(ctx context.Context, task db.MulticaAg
 		}
 	}
 
-	// Code repository: attach the workspace's code repo so cs-cloud clones it
-	// into the worktree and the agent develops there. Worker phase only — the
-	// critic/review phase doesn't code.
+	// Code repository: attach the workspace/project code repos so cs-cloud
+	// clones them into the worktree and the agent develops there. Worker phase
+	// only — the critic/review phase doesn't code.
+	// TODO Task 3: use repos to populate payload.Repos instead of legacy codeRepoURL.
 	codeRepoURL, projectID := "", ""
 	if phase == "worker" {
 		var gitlabToken string
-		codeRepoURL, gitlabToken, projectID = s.resolveCodeRepoAndProject(ctx, task, runtime.WorkspaceID)
-		if codeRepoURL != "" {
+		var repos []csCloudRepoSpec
+		repos, gitlabToken, projectID = s.resolveCodeRepoAndProject(ctx, task, runtime.WorkspaceID)
+		if len(repos) > 0 {
+			codeRepoURL = repos[0].URL
 			env["MULTICA_CODE_REPO_URL"] = codeRepoURL
 			if gitlabToken != "" {
 				// GitLab PAT so cs-cloud can push + open the MR after coding.
@@ -257,38 +260,69 @@ func (s *TaskService) buildCSCloudPayload(ctx context.Context, task db.MulticaAg
 	}, nil
 }
 
-// resolveCodeRepoAndProject returns the workspace's first code repo URL (for
-// cs-cloud to clone), the workspace's GitLab PAT (so cs-cloud can push + open
-// the MR), and the issue's project ID. Best-effort: errors are logged and yield
-// empty strings so a lookup hiccup never blocks dispatch.
-func (s *TaskService) resolveCodeRepoAndProject(ctx context.Context, task db.MulticaAgentTaskQueue, workspaceID pgtype.UUID) (repoURL, gitlabToken, projectID string) {
-	if ws, err := s.Queries.GetWorkspace(ctx, workspaceID); err == nil {
-		var repos []struct {
-			URL string `json:"url"`
-		}
-		if json.Unmarshal(ws.Repos, &repos) == nil {
-			for _, r := range repos {
-				if u := strings.TrimSpace(r.URL); u != "" {
-					repoURL = u
-					break
+// resolveCodeRepoAndProject returns all code repos for the task's issue,
+// the workspace's GitLab PAT, and the issue's project ID.
+//
+// Project-bound github_repo resources take priority (all collected). If the
+// issue's project has no github_repo resources, falls back to all non-empty
+// workspace repos. Best-effort: errors are logged and yield empty results so a
+// lookup hiccup never blocks dispatch.
+func (s *TaskService) resolveCodeRepoAndProject(ctx context.Context, task db.MulticaAgentTaskQueue, workspaceID pgtype.UUID) (repos []csCloudRepoSpec, gitlabToken, projectID string) {
+	// 1. Try project github_repo resources (override workspace repos).
+	if task.IssueID.Valid {
+		if issue, err := s.Queries.GetIssue(ctx, task.IssueID); err == nil && issue.ProjectID.Valid {
+			projectID = util.UUIDToString(issue.ProjectID)
+			rows, err := s.Queries.ListProjectResources(ctx, issue.ProjectID)
+			if err == nil {
+				for _, row := range rows {
+					if row.ResourceType != "github_repo" {
+						continue
+					}
+					var ref struct {
+						URL string `json:"url"`
+					}
+					if json.Unmarshal(row.ResourceRef, &ref) == nil && strings.TrimSpace(ref.URL) != "" {
+						repos = append(repos, csCloudRepoSpec{
+							URL:      strings.TrimSpace(ref.URL),
+							Provider: "gitlab",
+							Role:     "code",
+						})
+					}
 				}
 			}
 		}
+	}
+
+	// 2. Read workspace settings (gitlab token needed regardless of repo path).
+	if ws, err := s.Queries.GetWorkspace(ctx, workspaceID); err == nil {
 		var settings struct {
 			GitlabAccessToken string `json:"gitlab_access_token"`
 		}
 		if json.Unmarshal(ws.Settings, &settings) == nil {
 			gitlabToken = strings.TrimSpace(settings.GitlabAccessToken)
 		}
+
+		// 3. Fallback: if project had no github_repo resources, use all workspace repos.
+		if len(repos) == 0 {
+			var wsRepos []struct {
+				URL string `json:"url"`
+			}
+			if json.Unmarshal(ws.Repos, &wsRepos) == nil {
+				for _, r := range wsRepos {
+					if u := strings.TrimSpace(r.URL); u != "" {
+						repos = append(repos, csCloudRepoSpec{
+							URL:      u,
+							Provider: "gitlab",
+							Role:     "code",
+						})
+					}
+				}
+			}
+		}
 	} else {
 		slog.Warn("cs-cloud code repo: get workspace", "error", err)
 	}
-	if task.IssueID.Valid {
-		if issue, err := s.Queries.GetIssue(ctx, task.IssueID); err == nil && issue.ProjectID.Valid {
-			projectID = util.UUIDToString(issue.ProjectID)
-		}
-	}
-	return repoURL, gitlabToken, projectID
+	return repos, gitlabToken, projectID
 }
 
 // appendCodeRepoPrompt tells the worker agent it is developing inside a cloned
