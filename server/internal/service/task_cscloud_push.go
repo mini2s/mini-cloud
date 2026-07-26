@@ -228,21 +228,17 @@ func (s *TaskService) buildCSCloudPayload(ctx context.Context, task db.MulticaAg
 	// Code repository: attach the workspace/project code repos so cs-cloud
 	// clones them into the worktree and the agent develops there. Worker phase
 	// only — the critic/review phase doesn't code.
-	// TODO Task 3: use repos to populate payload.Repos instead of legacy codeRepoURL.
-	codeRepoURL, projectID := "", ""
+	repos, deliverables, projectID := []csCloudRepoSpec{}, []csCloudDeliverableSpec{}, ""
+	var gitlabToken string
 	if phase == "worker" {
-		var gitlabToken string
-		var repos []csCloudRepoSpec
 		repos, gitlabToken, projectID = s.resolveCodeRepoAndProject(ctx, task, runtime.WorkspaceID)
 		if len(repos) > 0 {
-			codeRepoURL = repos[0].URL
-			env["MULTICA_CODE_REPO_URL"] = codeRepoURL
 			if gitlabToken != "" {
-				// GitLab PAT so cs-cloud can push + open the MR after coding.
 				env["MULTICA_GITLAB_TOKEN"] = gitlabToken
 			}
-			prompt = appendCodeRepoPrompt(prompt, codeRepoURL)
+			prompt = appendCodeRepoPrompt(prompt, repos)
 		}
+		deliverables = s.deliverableSpecsForTask(ctx, task)
 	}
 
 	return csCloudTaskRunPayload{
@@ -255,7 +251,8 @@ func (s *TaskService) buildCSCloudPayload(ctx context.Context, task db.MulticaAg
 		Agent:       "csc",
 		Prompt:      prompt,
 		Env:         env,
-		RepoURL:     codeRepoURL,
+		Repos:       repos,
+		Deliverables: deliverables,
 		Kind:        kind,
 	}, nil
 }
@@ -325,17 +322,65 @@ func (s *TaskService) resolveCodeRepoAndProject(ctx context.Context, task db.Mul
 	return repos, gitlabToken, projectID
 }
 
-// appendCodeRepoPrompt tells the worker agent it is developing inside a cloned
-// code repo and that the platform will push + open an MR from its changes.
-func appendCodeRepoPrompt(prompt, repoURL string) string {
+// deliverableSpecsForTask builds the deliverable contract list for the task's
+// workflow node run (pull_request -> /submit endpoint; document -> /report-pr).
+func (s *TaskService) deliverableSpecsForTask(ctx context.Context, task db.MulticaAgentTaskQueue) []csCloudDeliverableSpec {
+	if !task.WorkflowNodeRunID.Valid {
+		return nil
+	}
+	nr, err := s.Queries.GetWorkflowNodeRun(ctx, task.WorkflowNodeRunID)
+	if err != nil {
+		return nil
+	}
+	rows, err := s.Queries.ListWorkflowNodeDeliverables(ctx, nr.WorkflowNodeID)
+	if err != nil {
+		return nil
+	}
+	nid := util.UUIDToString(nr.ID)
+	var out []csCloudDeliverableSpec
+	for _, d := range rows {
+		spec := csCloudDeliverableSpec{
+			ID:   util.UUIDToString(d.ID),
+			Kind: d.Kind,
+		}
+		switch d.Kind {
+		case "pull_request":
+			spec.Report = csCloudReportSpec{
+				Endpoint:  "/api/node-runs/" + nid + "/deliverables/" + util.UUIDToString(d.ID) + "/submit",
+				Method:    "POST",
+				BodyField: "pull_request_url",
+			}
+		case "document":
+			spec.Report = csCloudReportSpec{
+				Endpoint:  "/api/daemon/node-runs/" + nid + "/deliverables/" + util.UUIDToString(d.ID) + "/report-pr",
+				Method:    "POST",
+				BodyField: "pull_request_url",
+			}
+		}
+		out = append(out, spec)
+	}
+	return out
+}
+
+// appendCodeRepoPrompt tells the worker agent which code repos are available
+// and instructs it to open MRs via CLI (not via platform auto-MR).
+func appendCodeRepoPrompt(prompt string, repos []csCloudRepoSpec) string {
 	var b strings.Builder
 	b.WriteString(prompt)
 	if prompt != "" && !strings.HasSuffix(prompt, "\n") {
 		b.WriteByte('\n')
 	}
 	b.WriteString("\n---\n## 代码仓库开发\n\n")
-	b.WriteString(fmt.Sprintf("你的工作树已 clone 了代码仓库 `%s`。请在该仓库内完成本次编码任务（直接编辑工作树中的文件即可，无需自行 clone）。\n", repoURL))
-	b.WriteString("完成后平台会自动提交你的改动、推送源分支、开 Merge Request，并把 MR 链接上报到本节点的代码交付物。\n")
+	b.WriteString("你的工作环境已准备好以下代码仓库（选你要改的那个，调用 `cs-cloud repo checkout <url>` 拉到本地后编辑）：\n")
+	for _, r := range repos {
+		label := r.Alias
+		if label == "" {
+			label = r.URL
+		}
+		fmt.Fprintf(&b, "- %s (`%s`)\n", label, r.URL)
+	}
+	b.WriteString("\n完成编码后，对每个 `kind=pull_request` 交付物：在工作区内 `git add/commit`，然后运行 `cs-cloud deliverable submit --repo <url> --deliverable <id> --mr` 开 Merge Request 并自动上报 MR 链接。\n")
+	b.WriteString("Token 从环境变量读取（`$MULTICA_GITLAB_TOKEN`），无需自己找。**不要**等平台自动开 MR——你自己用 CLI 开。\n")
 	b.WriteString("\n---\n\n")
 	return b.String()
 }

@@ -786,6 +786,209 @@ func TestResolveCodeRepo_NoIssueReturnsEmpty(t *testing.T) {
 	}
 }
 
+func TestAppendCodeRepoPrompt_MultiRepo(t *testing.T) {
+	repos := []csCloudRepoSpec{
+		{URL: "https://gitlab.example.com/a/backend.git", Alias: "后端"},
+		{URL: "https://gitlab.example.com/a/frontend.git", Alias: "前端"},
+	}
+	got := appendCodeRepoPrompt("base", repos)
+	// Both repos must be listed.
+	if !strings.Contains(got, "后端") || !strings.Contains(got, "frontend.git") {
+		t.Fatalf("prompt missing repo listing:\n%s", got)
+	}
+	// Must instruct CLI-based MR, not platform auto-MR.
+	if !strings.Contains(got, "deliverable submit --repo") {
+		t.Fatalf("prompt missing CLI submit instruction:\n%s", got)
+	}
+	if !strings.Contains(got, "--mr") {
+		t.Fatalf("prompt missing --mr flag:\n%s", got)
+	}
+	if strings.Contains(got, "平台会自动") || strings.Contains(got, "平台自动提交") {
+		t.Fatalf("prompt must NOT say platform auto-MR (old wording):\n%s", got)
+	}
+}
+
+func TestAppendCodeRepoPrompt_NoAliasFallsBackToURL(t *testing.T) {
+	repos := []csCloudRepoSpec{
+		{URL: "https://gitlab.example.com/a/r.git"},
+	}
+	got := appendCodeRepoPrompt("", repos)
+	if !strings.Contains(got, "https://gitlab.example.com/a/r.git") {
+		t.Fatalf("prompt missing URL when no alias:\n%s", got)
+	}
+}
+
+// --- deliverableSpecsForTask tests ---
+
+// deliverableTestDB is a focused mock for deliverableSpecsForTask.
+// It handles GetWorkflowNodeRun and ListWorkflowNodeDeliverables.
+type deliverableTestDB struct {
+	nodeRun      *db.MulticaWorkflowNodeRun
+	deliverables []db.MulticaWorkflowNodeDeliverable
+}
+
+func (m *deliverableTestDB) QueryRow(_ context.Context, sql string, _ ...interface{}) pgx.Row {
+	if strings.Contains(sql, "GetWorkflowNodeRun") {
+		if m.nodeRun != nil {
+			return &deliverableMockRow{nodeRun: m.nodeRun}
+		}
+		return &deliverableMockRow{err: pgx.ErrNoRows}
+	}
+	return &deliverableMockRow{err: pgx.ErrNoRows}
+}
+
+func (m *deliverableTestDB) Query(_ context.Context, sql string, _ ...interface{}) (pgx.Rows, error) {
+	if strings.Contains(sql, "ListWorkflowNodeDeliverables") {
+		if m.deliverables != nil {
+			return &mockRowsDeliverables{rows: m.deliverables, idx: -1}, nil
+		}
+	}
+	return nil, pgx.ErrNoRows
+}
+
+func (m *deliverableTestDB) Exec(_ context.Context, _ string, _ ...interface{}) (pgconn.CommandTag, error) {
+	return pgconn.NewCommandTag(""), nil
+}
+
+type deliverableMockRow struct {
+	nodeRun *db.MulticaWorkflowNodeRun
+	err     error
+}
+
+func (r *deliverableMockRow) Scan(dest ...any) error {
+	if r.err != nil {
+		return r.err
+	}
+	if r.nodeRun != nil {
+		return scanNodeRun(r.nodeRun, dest)
+	}
+	return nil
+}
+
+// scanNodeRun scans all MulticaWorkflowNodeRun fields (SELECT *).
+func scanNodeRun(nr *db.MulticaWorkflowNodeRun, dest []any) error {
+	vals := []any{
+		&nr.ID, &nr.WorkflowRunID, &nr.WorkflowNodeID, &nr.NodeTitle,
+		&nr.Status, &nr.RetryCount, &nr.WorkerType, &nr.WorkerID,
+		&nr.WorkerOutput, &nr.CriticType, &nr.CriticID, &nr.CriticOutput,
+		&nr.CriticComment, &nr.AgentTaskID, &nr.StartedAt, &nr.CompletedAt,
+		&nr.CreatedAt, &nr.UpdatedAt, &nr.WorkerAgentTaskID,
+		&nr.CriticAgentTaskID, &nr.RuntimeID, &nr.DeviceID, &nr.SessionID,
+		&nr.SplitReviewChatSessionID, &nr.RuntimeSelectionReason,
+		&nr.FailureReason, &nr.SplitConfigVersion,
+	}
+	return copyRow(vals, dest)
+}
+
+// mockRowsDeliverables is a pgx.Rows that yields pre-set
+// MulticaWorkflowNodeDeliverable rows.
+type mockRowsDeliverables struct {
+	rows []db.MulticaWorkflowNodeDeliverable
+	idx  int
+}
+
+func (m *mockRowsDeliverables) Next() bool        { m.idx++; return m.idx < len(m.rows) }
+func (m *mockRowsDeliverables) Close()            {}
+func (m *mockRowsDeliverables) Err() error        { return nil }
+func (m *mockRowsDeliverables) CommandTag() pgconn.CommandTag       { return pgconn.NewCommandTag("") }
+func (m *mockRowsDeliverables) FieldDescriptions() []pgconn.FieldDescription { return nil }
+func (m *mockRowsDeliverables) RawValues() [][]byte      { return nil }
+func (m *mockRowsDeliverables) Values() ([]any, error)   { return nil, nil }
+func (m *mockRowsDeliverables) Conn() *pgx.Conn          { return nil }
+
+func (m *mockRowsDeliverables) Scan(dest ...any) error {
+	r := &m.rows[m.idx]
+	vals := []any{
+		&r.ID, &r.WorkflowNodeID, &r.Kind, &r.Title,
+		&r.Description, &r.Required, &r.SortOrder,
+		&r.CreatedAt, &r.UpdatedAt,
+	}
+	return copyRow(vals, dest)
+}
+
+func TestDeliverableSpecsForTask_PullRequestAndDocument(t *testing.T) {
+	nrID := testUUID(100)
+	prDeliverable := db.MulticaWorkflowNodeDeliverable{
+		ID:             testUUID(50),
+		WorkflowNodeID: testUUID(60),
+		Kind:           "pull_request",
+		Title:          "Code PR",
+		Required:       true,
+	}
+	docDeliverable := db.MulticaWorkflowNodeDeliverable{
+		ID:             testUUID(51),
+		WorkflowNodeID: testUUID(60),
+		Kind:           "document",
+		Title:          "Design Doc",
+		Required:       true,
+	}
+	mdb := &deliverableTestDB{
+		nodeRun: &db.MulticaWorkflowNodeRun{
+			ID:             nrID,
+			WorkflowNodeID: testUUID(60),
+		},
+		deliverables: []db.MulticaWorkflowNodeDeliverable{prDeliverable, docDeliverable},
+	}
+	svc := &TaskService{Queries: db.New(mdb)}
+	task := db.MulticaAgentTaskQueue{WorkflowNodeRunID: pgtype.UUID{Bytes: nrID.Bytes, Valid: true}}
+
+	got := svc.deliverableSpecsForTask(context.Background(), task)
+
+	if len(got) != 2 {
+		t.Fatalf("deliverables count = %d, want 2", len(got))
+	}
+	// pull_request -> /submit endpoint
+	if got[0].Kind != "pull_request" {
+		t.Fatalf("got[0].Kind = %q, want pull_request", got[0].Kind)
+	}
+	if !strings.Contains(got[0].Report.Endpoint, "/submit") {
+		t.Fatalf("pull_request endpoint = %q, want /submit", got[0].Report.Endpoint)
+	}
+	if got[0].Report.Method != "POST" {
+		t.Fatalf("pull_request method = %q, want POST", got[0].Report.Method)
+	}
+	if got[0].Report.BodyField != "pull_request_url" {
+		t.Fatalf("pull_request body_field = %q, want pull_request_url", got[0].Report.BodyField)
+	}
+	// document -> /report-pr endpoint
+	if got[1].Kind != "document" {
+		t.Fatalf("got[1].Kind = %q, want document", got[1].Kind)
+	}
+	if !strings.Contains(got[1].Report.Endpoint, "/report-pr") {
+		t.Fatalf("document endpoint = %q, want /report-pr", got[1].Report.Endpoint)
+	}
+	// Both should contain the node-run ID.
+	nrIDStr := util.UUIDToString(nrID)
+	if !strings.Contains(got[0].Report.Endpoint, nrIDStr) {
+		t.Fatalf("pull_request endpoint missing node-run ID: %q", got[0].Report.Endpoint)
+	}
+	if !strings.Contains(got[1].Report.Endpoint, nrIDStr) {
+		t.Fatalf("document endpoint missing node-run ID: %q", got[1].Report.Endpoint)
+	}
+}
+
+func TestDeliverableSpecsForTask_NoNodeRunID(t *testing.T) {
+	mdb := &deliverableTestDB{}
+	svc := &TaskService{Queries: db.New(mdb)}
+	task := db.MulticaAgentTaskQueue{} // WorkflowNodeRunID not valid
+
+	got := svc.deliverableSpecsForTask(context.Background(), task)
+	if got != nil {
+		t.Fatalf("expected nil when no node run ID, got %+v", got)
+	}
+}
+
+func TestDeliverableSpecsForTask_NodeRunNotFound(t *testing.T) {
+	mdb := &deliverableTestDB{} // nodeRun is nil -> ErrNoRows
+	svc := &TaskService{Queries: db.New(mdb)}
+	task := db.MulticaAgentTaskQueue{WorkflowNodeRunID: testUUID(100)}
+
+	got := svc.deliverableSpecsForTask(context.Background(), task)
+	if got != nil {
+		t.Fatalf("expected nil when node run not found, got %+v", got)
+	}
+}
+
 func TestCsCloudPayloadSerializesReposAndDeliverables(t *testing.T) {
 	payload := csCloudTaskRunPayload{
 		TaskID: "t-1", WorkspaceID: "ws", Agent: "csc", Prompt: "p",
