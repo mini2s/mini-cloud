@@ -34,6 +34,31 @@ const (
 	promptItemMaxRunes = 32 * 1024
 )
 
+// csCloudRepoSpec describes one repository the agent may work in.
+type csCloudRepoSpec struct {
+	URL        string `json:"url"`
+	Provider   string `json:"provider"`             // "gitlab" | "gitea"
+	Role       string `json:"role"`                 // "code" | "delivery"
+	BaseBranch string `json:"base_branch"`          // code=remote default; delivery=inst branch
+	Alias      string `json:"alias,omitempty"`      // semantic label for the agent
+	BotToken   string `json:"bot_token,omitempty"`  // delivery only (Gitea team bot); code omits (CLI reads live)
+}
+
+// csCloudDeliverableSpec is one deliverable contract for the node.
+type csCloudDeliverableSpec struct {
+	ID        string            `json:"id"`
+	Kind      string            `json:"kind"`               // "document" | "pull_request"
+	RepoAlias string            `json:"repo_alias,omitempty"` // maps to repos[].alias
+	Report    csCloudReportSpec `json:"report"`
+}
+
+// csCloudReportSpec describes the HTTP endpoint where a deliverable result is posted.
+type csCloudReportSpec struct {
+	Endpoint  string `json:"endpoint"`
+	Method    string `json:"method"`
+	BodyField string `json:"body_field"`
+}
+
 // csCloudTaskRunPayload is the JSON body posted to a cs-cloud device when a
 // task is pushed. Fields are named to match cs-cloud's
 // internal/workflow.TaskRunPayload with an additive kind field.
@@ -49,8 +74,11 @@ type csCloudTaskRunPayload struct {
 	Env         map[string]string `json:"env,omitempty"`
 	// RepoURL is the workspace/project code repo the agent clones into its
 	// worktree and develops in. Empty when the workspace has no code repo.
-	RepoURL string `json:"repo_url,omitempty"`
-	Kind    string `json:"kind,omitempty"`
+	// deprecated: Task 3 uses Repos instead.
+	RepoURL     string                    `json:"repo_url,omitempty"`
+	Kind        string                    `json:"kind,omitempty"`
+	Repos       []csCloudRepoSpec         `json:"repos,omitempty"`
+	Deliverables []csCloudDeliverableSpec  `json:"deliverables,omitempty"`
 }
 
 // maybePushToCSCloud is called synchronously from notifyTaskAvailable. It

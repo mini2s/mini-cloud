@@ -503,3 +503,29 @@ func TestAppendDeliverablePrompt_GitAndSubmitNoFetch(t *testing.T) {
 		t.Errorf("prompt must NOT ask the user (use read commands instead):\n%s", got)
 	}
 }
+
+func TestCsCloudPayloadSerializesReposAndDeliverables(t *testing.T) {
+	payload := csCloudTaskRunPayload{
+		TaskID: "t-1", WorkspaceID: "ws", Agent: "csc", Prompt: "p",
+		Repos: []csCloudRepoSpec{
+			{URL: "https://gitlab.example.com/o/r.git", Provider: "gitlab", Role: "code", BaseBranch: "main", Alias: "后端"},
+		},
+		Deliverables: []csCloudDeliverableSpec{
+			{ID: "d1", Kind: "pull_request", RepoAlias: "后端", Report: csCloudReportSpec{Endpoint: "https://example.com/report", Method: "POST", BodyField: "content"}},
+		},
+	}
+	raw, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	var got csCloudTaskRunPayload
+	if err := json.Unmarshal(raw, &got); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if len(got.Repos) != 1 || got.Repos[0].URL != "https://gitlab.example.com/o/r.git" {
+		t.Errorf("repos round-trip mismatch: %+v", got.Repos)
+	}
+	if len(got.Deliverables) != 1 || got.Deliverables[0].Kind != "pull_request" {
+		t.Errorf("deliverables round-trip mismatch: %+v", got.Deliverables)
+	}
+}
