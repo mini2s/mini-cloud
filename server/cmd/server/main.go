@@ -15,7 +15,6 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/joho/godotenv"
 	"github.com/multica-ai/multica/server/internal/analytics"
-	"github.com/multica-ai/multica/server/internal/auth"
 	"github.com/multica-ai/multica/server/internal/daemonws"
 	"github.com/multica-ai/multica/server/internal/deptsync"
 	"github.com/multica-ai/multica/server/internal/events"
@@ -289,16 +288,15 @@ func main() {
 		}
 	}
 
-	// Casdoor SSO: when CASDOOR_ENDPOINT is set, validate RS256 JWTs issued
-	// by Casdoor. Otherwise fall back to legacy HMAC JWT auth. Both modes
-	// support PAT tokens (the CasdoorAuth middleware passes "mul_" prefixed
-	// Bearer tokens through to the downstream Auth middleware).
+	// Casdoor SSO: when CASDOOR_ENDPOINT is set, Casdoor JWTs are accepted on
+	// protected routes. The RS256 signature is verified by the gateway in
+	// front of Multica, so the backend only gates the CasdoorAuth middleware
+	// and the SSO login/callback routes. Both modes support PAT tokens (the
+	// CasdoorAuth middleware passes "mul_" prefixed Bearer tokens through to
+	// the downstream Auth middleware).
 	casdoorEndpoint := os.Getenv("CASDOOR_ENDPOINT")
 	casdoorEnabled := casdoorEndpoint != ""
-	var jwksProvider *auth.JWKSProvider
 	if casdoorEnabled {
-		jwksProvider = auth.NewJWKSProvider(casdoorEndpoint)
-		jwksProvider.Preload()
 		slog.Info("Casdoor SSO enabled", "endpoint", casdoorEndpoint)
 	} else {
 		slog.Warn("Casdoor SSO not configured — using legacy HMAC JWT auth")
@@ -533,7 +531,6 @@ func main() {
 		DaemonHub:              daemonHub,
 		DaemonWakeup:           daemonWakeup,
 		HeartbeatScheduler:     heartbeatScheduler,
-		JWKSProvider:           jwksProvider,
 		SubjectResolver:        subjectResolver,
 		CasdoorEnabled:         casdoorEnabled,
 		SkillProxy:             skillProxy,

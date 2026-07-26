@@ -22,8 +22,9 @@ const CasdoorCookieName = "zgsmAdminToken"
 // for auto-provisioning and updating the user's profile.
 type SubjectResolver func(ctx context.Context, subjectID, universalID, name, email string) (userID string, err error)
 
-// CasdoorAuth returns Chi middleware that validates Casdoor-issued RS256 JWTs
-// and resolves the Casdoor subject to a Multica user.
+// CasdoorAuth returns Chi middleware that parses a Casdoor-issued JWT (its
+// RS256 signature is verified upstream by the gateway) and resolves the
+// Casdoor subject to a Multica user.
 //
 // Token sources (in priority order):
 //  1. zgsmAdminToken cookie (Casdoor session)
@@ -37,7 +38,7 @@ type SubjectResolver func(ctx context.Context, subjectID, universalID, name, ema
 //   - X-Subject-ID: the raw Casdoor subject ID from the JWT "sub" claim
 //
 // On failure it responds with 401 and a JSON error body.
-func CasdoorAuth(jwks *auth.JWKSProvider, resolver SubjectResolver) func(http.Handler) http.Handler {
+func CasdoorAuth(resolver SubjectResolver) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			token := extractCasdoorToken(r)
@@ -56,7 +57,7 @@ func CasdoorAuth(jwks *auth.JWKSProvider, resolver SubjectResolver) func(http.Ha
 				return
 			}
 
-			userInfo, err := auth.ParseCasdoorJWT(token, jwks)
+			userInfo, err := auth.ParseCasdoorJWT(token)
 			if err != nil {
 				slog.Debug("casdoor auth: invalid JWT", "path", r.URL.Path, "error", err)
 				writeUnauthorized(w, "invalid token")

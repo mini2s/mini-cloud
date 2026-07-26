@@ -4,7 +4,8 @@ import React from "react";
 import {
   User,
   SlidersHorizontal,
-  Key,
+  // Hidden: API tokens tab no longer needed.
+  // Key,
   Settings,
   FolderGit2,
   // Hidden per 2026-06-16 product decision.
@@ -21,7 +22,8 @@ import { useCurrentWorkspace } from "@multica/core/paths";
 import { useNavigation } from "../../navigation";
 import { AccountTab } from "./account-tab";
 import { PreferencesTab } from "./preferences-tab";
-import { TokensTab } from "./tokens-tab";
+// Hidden: API tokens tab no longer needed.
+// import { TokensTab } from "./tokens-tab";
 import { WorkspaceTab } from "./workspace-tab";
 import { RepositoriesTab } from "./repositories-tab";
 import { GitHubTab } from "./github-tab";
@@ -35,12 +37,20 @@ import { useWorkflowAdmins } from "@multica/core/workflows/queries";
 import { useAuthStore } from "@multica/core/auth";
 import { useT } from "../../i18n";
 
-const ACCOUNT_TAB_KEYS = ["profile", "preferences", "notifications", "tokens", "workflow-admins"] as const;
+const ACCOUNT_TAB_KEYS = [
+  "profile",
+  "preferences",
+  "notifications",
+  // Hidden: API tokens tab no longer needed.
+  // "tokens",
+  "workflow-admins",
+] as const;
 const ACCOUNT_TAB_ICONS = {
   profile: User,
   preferences: SlidersHorizontal,
   notifications: Bell,
-  tokens: Key,
+  // Hidden: API tokens tab no longer needed.
+  // tokens: Key,
   "workflow-admins": Workflow,
 } as const;
 
@@ -187,7 +197,8 @@ export function SettingsPage({ extraAccountTabs }: SettingsPageProps = {}) {
           <TabsContent value="profile"><AccountTab /></TabsContent>
           <TabsContent value="preferences"><PreferencesTab /></TabsContent>
           <TabsContent value="notifications"><NotificationsTab /></TabsContent>
-          <TabsContent value="tokens"><TokensTab /></TabsContent>
+          {/* Hidden: API tokens tab no longer needed. */}
+          {/* <TabsContent value="tokens"><TokensTab /></TabsContent> */}
           {isWorkflowAdmin && <TabsContent value="workflow-admins"><WorkflowAdminsTab /></TabsContent>}
           <TabsContent value="workspace"><WorkspaceTab /></TabsContent>
           <TabsContent value="repositories"><RepositoriesTab /></TabsContent>
