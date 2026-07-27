@@ -117,6 +117,8 @@ function runtimeDisplayStatusText(
       return t(($) => $.execution.display_status.reviewing);
     case "completed":
       return t(($) => $.execution.display_status.completed);
+    case "failed":
+      return t(($) => $.execution.display_status.failed);
     case "blocked":
       return t(($) => $.execution.display_status.blocked);
     case "cancelled":
@@ -149,6 +151,7 @@ function runtimeFocusSurfaceClassName(
 ): string {
   if (!isRuntimeFocus) return "";
   switch (status) {
+    case "failed":
     case "blocked":
       return "border-red-200/90 from-red-50/90 via-white to-red-100/70 ring-2 ring-red-300/80 shadow-[0_20px_48px_rgba(239,68,68,0.24)] group-hover:ring-red-400/80";
     case "reviewing":
@@ -419,7 +422,9 @@ export function RuntimeNodeCard({
       : RUNTIME_NODE_HEIGHT;
 	const splitMode = nodeFormat.split_config?.mode ?? "barrier";
   const nodeShape = nodeFormat.shape;
-  const displayStatus = runtimeSummary?.display_status ?? (nodeRun ? toWorkflowRuntimeDisplayStatus(nodeRun.status) : "pending");
+  const displayStatus = nodeRun?.status === "failed"
+    ? "failed"
+    : runtimeSummary?.display_status ?? (nodeRun ? toWorkflowRuntimeDisplayStatus(nodeRun.status) : "pending");
   const displayStatusLabel = runtimeDisplayStatusText(t, displayStatus, isGateway ? nodeFormat.gateway_kind : null);
   const durationSeconds = resolveRuntimeDurationSeconds({
     summarySeconds: runtimeSummary?.duration_seconds,

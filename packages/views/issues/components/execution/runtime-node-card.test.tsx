@@ -24,6 +24,7 @@ vi.mock("@multica/views/i18n", () => {
         in_progress: "In progress",
         reviewing: "Reviewing",
         completed: "Completed",
+        failed: "Failed",
         blocked: "Blocked",
         cancelled: "Cancelled",
         dispatched: "Dispatched",
@@ -655,6 +656,29 @@ describe("RuntimeNodeCard", () => {
     expect(surface?.className).toContain("ring-slate-200/70");
     expect(surface?.className).not.toContain("ring-red");
     expect(surface?.className).not.toContain("from-red");
+  });
+
+  it("prefers the exact failed node status over a compatibility blocked summary", () => {
+    render(
+      <RuntimeNodeCard
+        node={baseNode}
+        nodeRun={{ ...completedRun, status: "failed" }}
+        runtimeSummary={{
+          ...runtimeSummary,
+          display_status: "blocked",
+          has_error: true,
+          error_message: "Max turns reached",
+        }}
+        workerName="Tester"
+        criticName="Reviewer"
+        onClick={vi.fn()}
+      />,
+    );
+
+    const card = screen.getByTestId("runtime-node-card-node-1");
+    expect(card).toHaveAttribute("data-runtime-display-status", "failed");
+    expect(screen.getByText("Failed")).toBeInTheDocument();
+    expect(screen.queryByText("Blocked")).not.toBeInTheDocument();
   });
 
   it("emphasizes only the selected runtime focus node with its status color", () => {

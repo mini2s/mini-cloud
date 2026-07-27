@@ -174,6 +174,7 @@ vi.mock("@multica/views/i18n", () => ({
               in_progress: "In progress",
               reviewing: "Reviewing",
               completed: "Completed",
+              failed: "Failed",
               blocked: "Blocked",
               cancelled: "Cancelled",
               dispatched: "Dispatched",
@@ -450,6 +451,34 @@ describe("ExecutionDetailPanel", () => {
     expect(screen.getByText("Status and next step")).toBeInTheDocument();
     expect(screen.queryByText("Status Path")).not.toBeInTheDocument();
     expect(screen.queryByText("Current status")).not.toBeInTheDocument();
+  });
+
+  it("shows a failed node and its projected agent task error", () => {
+    render(
+      <ExecutionDetailPanel
+        node={{ ...node, title: "Run node" }}
+        nodeRun={{
+          ...run,
+          node_title: "Run node",
+          status: "failed",
+          worker_output: null,
+        }}
+        runtimeSummary={{
+          ...runtimeSummary,
+          display_status: "blocked",
+          has_error: true,
+          error_message: "Max turns reached",
+        }}
+        workerName="Backend assistant"
+        criticName="Reviewer"
+        onClose={vi.fn()}
+        wsId="ws-1"
+      />,
+    );
+
+    expect(screen.getAllByText("Failed").length).toBeGreaterThan(0);
+    expect(screen.queryByText("Blocked")).not.toBeInTheDocument();
+    expect(screen.getAllByText("Max turns reached").length).toBeGreaterThan(0);
   });
 
   it("opens the matching chat session from a runtime session id in run mode", async () => {

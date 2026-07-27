@@ -215,6 +215,8 @@ function runtimeDisplayStatusText(t: IssueTranslator, status: WorkflowRuntimeDis
       return t(($) => $.execution.display_status.reviewing);
     case "completed":
       return t(($) => $.execution.display_status.completed);
+    case "failed":
+      return t(($) => $.execution.display_status.failed);
     case "blocked":
       return t(($) => $.execution.display_status.blocked);
     case "cancelled":
