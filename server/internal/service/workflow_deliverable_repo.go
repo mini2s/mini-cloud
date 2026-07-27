@@ -369,7 +369,7 @@ func (s *WorkflowService) ScaffoldRunDeliverables(ctx context.Context, run db.Mu
 		// M5: register this child run's deliverable address into its parent
 		// issue's Gitea repo (if this run's source issue is a split-out child).
 		// Best-effort, async — never blocks scaffolding.
-		go s.ArchiveSubIssueAddress(context.Background(), run, workflow)
+		go s.ArchiveSubIssueAddress(context.Background(), run)
 		return
 	}
 
@@ -397,7 +397,7 @@ func (s *WorkflowService) ScaffoldRunDeliverables(ctx context.Context, run db.Mu
 	// M5: register this child run's deliverable address into its parent issue's
 	// Gitea repo (if this run's source issue is a split-out child). Best-effort,
 	// async — never blocks scaffolding.
-	go s.ArchiveSubIssueAddress(context.Background(), run, workflow)
+	go s.ArchiveSubIssueAddress(context.Background(), run)
 }
 
 // ensureNodeRunBranch creates the node-run branch when a node enters execution.
@@ -861,7 +861,7 @@ func (s *WorkflowService) ArchiveCodeDeliverable(ctx context.Context, nodeRun db
 // deliverables by browsing the parent repo. Best-effort: skips silently when
 // the child has no parent, the parent has no Gitea repo, or the parent run has
 // no split node. Errors are logged, never block the child run.
-func (s *WorkflowService) ArchiveSubIssueAddress(ctx context.Context, childRun db.MulticaWorkflowRun, childWorkflow db.MulticaWorkflow) {
+func (s *WorkflowService) ArchiveSubIssueAddress(ctx context.Context, childRun db.MulticaWorkflowRun) {
 	repoProvider := s.deliverableRepository()
 	if !repoProvider.Configured() {
 		return // feature dormant

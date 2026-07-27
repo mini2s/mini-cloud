@@ -1726,12 +1726,11 @@ func TestArchiveSubIssueAddress_WritesToParentRepoUnderSplitNode(t *testing.T) {
 		WorkspaceID:   mock.childIssue.WorkspaceID,
 		SourceIssueID: mock.childIssue.ID,
 	}
-	childWorkflow := db.MulticaWorkflow{ID: childRun.WorkflowID, WorkspaceID: mock.childIssue.WorkspaceID}
 
 	spy := &spyRepoProvider{configured: true}
 	svc := &WorkflowService{Queries: db.New(mock), RepositoryProvider: spy}
 
-	svc.ArchiveSubIssueAddress(context.Background(), childRun, childWorkflow)
+	svc.ArchiveSubIssueAddress(context.Background(), childRun)
 
 	calls := spy.snapshot()
 	if len(calls) != 1 {
@@ -1826,8 +1825,7 @@ func TestArchiveSubIssueAddress_NoOpCases(t *testing.T) {
 			svc := &WorkflowService{Queries: db.New(mock), RepositoryProvider: spy}
 
 			run := c.runFunc(mock)
-			wf := db.MulticaWorkflow{ID: run.WorkflowID, WorkspaceID: run.WorkspaceID}
-			svc.ArchiveSubIssueAddress(context.Background(), run, wf)
+			svc.ArchiveSubIssueAddress(context.Background(), run)
 
 			if calls := spy.snapshot(); len(calls) != 0 {
 				t.Fatalf("UpsertFile calls = %d, want 0 (no-op path: %s)", len(calls), c.name)
@@ -1842,8 +1840,7 @@ func TestArchiveSubIssueAddress_NoOpCases(t *testing.T) {
 		svc := &WorkflowService{Queries: db.New(mock), RepositoryProvider: spy}
 
 		run := childRun(mock)
-		wf := db.MulticaWorkflow{ID: run.WorkflowID, WorkspaceID: run.WorkspaceID}
-		svc.ArchiveSubIssueAddress(context.Background(), run, wf)
+		svc.ArchiveSubIssueAddress(context.Background(), run)
 
 		if calls := spy.snapshot(); len(calls) != 0 {
 			t.Fatalf("UpsertFile calls = %d, want 0 (dormant provider)", len(calls))
