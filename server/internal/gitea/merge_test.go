@@ -71,6 +71,31 @@ func TestClient_MergePR(t *testing.T) {
 	}
 }
 
+func TestClient_ClosePR_NotConfigured(t *testing.T) {
+	c := NewClient(Config{})
+	if err := c.ClosePR(context.Background(), "t-7f3c9a1e", "wf-11111111", 5); err != ErrNotConfigured {
+		t.Fatalf("got err %v, want ErrNotConfigured", err)
+	}
+}
+
+func TestClient_ClosePR(t *testing.T) {
+	var got recordedReq
+	srv := newTestServer(t, http.StatusOK, `{}`, &got)
+	defer srv.Close()
+	c := NewClient(Config{BaseURL: srv.URL, Token: "admin-tok"})
+	c.httpClient = srv.Client()
+
+	if err := c.ClosePR(context.Background(), "t-7f3c9a1e", "wf-11111111", 5); err != nil {
+		t.Fatalf("ClosePR: %v", err)
+	}
+	if got.method != http.MethodPatch || !strings.HasSuffix(got.path, "/repos/t-7f3c9a1e/wf-11111111/pulls/5") {
+		t.Errorf("unexpected request: %s %s", got.method, got.path)
+	}
+	if got.body["state"] != "closed" {
+		t.Errorf("body state = %v, want \"closed\"", got.body["state"])
+	}
+}
+
 func TestClient_MergePR_ConflictReturnsSentinel(t *testing.T) {
 	var got recordedReq
 	srv := newTestServer(t, http.StatusConflict, `{"message":"conflict"}`, &got)
