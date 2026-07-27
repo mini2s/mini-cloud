@@ -56,7 +56,8 @@ type pushTaskDB struct {
 	task             db.MulticaAgentTaskQueue
 	dispatchedCalled bool
 	dispatchedResult db.MulticaAgentTaskQueue
-	lastSessionRow   *db.GetLastTaskSessionRow // nil => 仿 ErrNoRows（首次/全中毒失败）
+	lastSessionRow   *db.GetLastTaskSessionRow  // nil => 仿 ErrNoRows（首次/全中毒失败）
+	nodeRunRow       *db.MulticaWorkflowNodeRun // nil => ErrNoRows (Task 4 node-run handback)
 }
 
 func (m *pushTaskDB) QueryRow(_ context.Context, sql string, args ...interface{}) pgx.Row {
@@ -88,6 +89,11 @@ func (m *pushTaskDB) QueryRow(_ context.Context, sql string, args ...interface{}
 			return &pushMockRow{err: pgx.ErrNoRows}
 		}
 		return &pushMockRow{lastSession: m.lastSessionRow}
+	case strings.Contains(sql, "GetWorkflowNodeRun"):
+		if m.nodeRunRow == nil {
+			return &pushMockRow{err: pgx.ErrNoRows}
+		}
+		return &pushMockRow{nodeRun: m.nodeRunRow}
 	default:
 		return &pushMockRow{err: pgx.ErrNoRows}
 	}
@@ -107,7 +113,8 @@ type pushMockRow struct {
 	taskRuntime *db.MulticaAgentRuntime
 	agent       *db.MulticaAgent
 	issue       *db.MulticaIssue
-	lastSession *db.GetLastTaskSessionRow // GetLastTaskSession 命中时填
+	lastSession *db.GetLastTaskSessionRow  // GetLastTaskSession 命中时填
+	nodeRun     *db.MulticaWorkflowNodeRun // GetWorkflowNodeRun hit (Task 4 handback)
 	err         error
 }
 
@@ -141,6 +148,9 @@ func (r *pushMockRow) Scan(dest ...any) error {
 	}
 	if r.issue != nil {
 		return scanIssue(r.issue, dest)
+	}
+	if r.nodeRun != nil {
+		return scanNodeRun(r.nodeRun, dest)
 	}
 	return nil
 }
@@ -1166,6 +1176,95 @@ func TestBuildCSCloudPayload_NoPriorWhenGetLastReturnsNoRows(t *testing.T) {
 	}
 	if payload.PriorSessionID != "" || payload.PriorWorkDir != "" {
 		t.Errorf("no prior expected; got session=%q workdir=%q", payload.PriorSessionID, payload.PriorWorkDir)
+	}
+}
+
+// --- node-run handback fallback (M2.5 Task 4) tests ---
+//
+// Workflow tasks with IssueID NULL can't use GetLastTaskSession (it keys on
+// (agent, issue)). When a human takes over a node and hands it back, the bound
+// CSC session on the node_run is the canonical resume pointer. The fallback
+// reads GetWorkflowNodeRun and injects its SessionID when the runtime matches
+// (a session is device-scoped). Ported from handler/daemon.go (pull path).
+
+func TestBuildCSCloudPayload_NodeRunHandbackFallback(t *testing.T) {
+	// Workflow task with IssueID NULL: GetLastTaskSession block is gated on
+	// task.IssueID.Valid, so it skips and priorSessionID stays "". The fallback
+	// reads the node-run's bound session and injects it (runtime matches).
+	runtimeID := testUUID(0xC3)
+	dbtx := newPushTestDB(csCloudProvider, "device-123")
+	dbtx.nodeRunRow = &db.MulticaWorkflowNodeRun{
+		ID:        testUUID(6),
+		SessionID: pgtype.Text{String: "sess-noderun", Valid: true},
+		RuntimeID: runtimeID, // matches task.RuntimeID
+	}
+	svc := &TaskService{Queries: db.New(dbtx), Bus: events.New()}
+	task := dbtx.dispatchedResult
+	task.AgentID = testUUID(0xA1)
+	task.IssueID = pgtype.UUID{} // NULL — workflow task, GetLastTaskSession can't apply
+	task.RuntimeID = runtimeID
+	task.WorkflowNodeRunID = testUUID(6)
+
+	payload, err := svc.buildCSCloudPayload(context.Background(), task, dbtx.runtime)
+	if err != nil {
+		t.Fatalf("build: %v", err)
+	}
+	if payload.PriorSessionID != "sess-noderun" {
+		t.Errorf("prior_session_id = %q, want sess-noderun (node-run handback)", payload.PriorSessionID)
+	}
+}
+
+func TestBuildCSCloudPayload_NodeRunHandback_RuntimeMismatch(t *testing.T) {
+	// Device-scoping: a csc session on device A cannot be resumed on device B.
+	// node-run's RuntimeID differs from task.RuntimeID → no inject.
+	dbtx := newPushTestDB(csCloudProvider, "device-123")
+	dbtx.nodeRunRow = &db.MulticaWorkflowNodeRun{
+		ID:        testUUID(6),
+		SessionID: pgtype.Text{String: "sess-other-device", Valid: true},
+		RuntimeID: testUUID(0xDD), // different runtime/device
+	}
+	svc := &TaskService{Queries: db.New(dbtx), Bus: events.New()}
+	task := dbtx.dispatchedResult
+	task.AgentID = testUUID(0xA1)
+	task.IssueID = pgtype.UUID{} // NULL
+	task.RuntimeID = testUUID(0xC3)
+	task.WorkflowNodeRunID = testUUID(6)
+
+	payload, err := svc.buildCSCloudPayload(context.Background(), task, dbtx.runtime)
+	if err != nil {
+		t.Fatalf("build: %v", err)
+	}
+	if payload.PriorSessionID != "" {
+		t.Errorf("prior_session_id = %q, want empty (runtime mismatch — session is device-scoped)", payload.PriorSessionID)
+	}
+}
+
+func TestBuildCSCloudPayload_NodeRunHandback_ForceFreshSessionSkips(t *testing.T) {
+	// ForceFreshSession (manual rerun) must start a fresh session — the
+	// fallback's !shouldSkipPriorTaskState guard blocks the inject. Mirrors
+	// daemon.go, where the whole prior-session block (handback included) sits
+	// under !shouldSkipPriorTaskState.
+	runtimeID := testUUID(0xC3)
+	dbtx := newPushTestDB(csCloudProvider, "device-123")
+	dbtx.nodeRunRow = &db.MulticaWorkflowNodeRun{
+		ID:        testUUID(6),
+		SessionID: pgtype.Text{String: "sess-noderun", Valid: true},
+		RuntimeID: runtimeID, // matches
+	}
+	svc := &TaskService{Queries: db.New(dbtx), Bus: events.New()}
+	task := dbtx.dispatchedResult
+	task.AgentID = testUUID(0xA1)
+	task.IssueID = pgtype.UUID{} // NULL
+	task.RuntimeID = runtimeID
+	task.WorkflowNodeRunID = testUUID(6)
+	task.ForceFreshSession = true // manual rerun — must NOT resume
+
+	payload, err := svc.buildCSCloudPayload(context.Background(), task, dbtx.runtime)
+	if err != nil {
+		t.Fatalf("build: %v", err)
+	}
+	if payload.PriorSessionID != "" {
+		t.Errorf("prior_session_id = %q, want empty (ForceFreshSession must skip handback)", payload.PriorSessionID)
 	}
 }
 

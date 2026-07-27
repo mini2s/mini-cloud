@@ -311,6 +311,19 @@ func (s *TaskService) buildCSCloudPayload(ctx context.Context, task db.MulticaAg
 		}
 	}
 
+	// Workflow node-run handback: if GetLastTaskSession missed (no issue, or no
+	// matching prior), fall back to the node-run's bound CSC session. Lets
+	// workflow tasks (issue_id NULL) continue via the node-run session binding.
+	// Runtime must match — a session can only resume on the runtime that owns it.
+	// Ported from handler/daemon.go (pull path).
+	if !shouldSkipPriorTaskState(task) && priorSessionID == "" && task.WorkflowNodeRunID.Valid {
+		if nr, err := s.Queries.GetWorkflowNodeRun(ctx, task.WorkflowNodeRunID); err == nil {
+			if nr.SessionID.Valid && nr.RuntimeID.Valid && nr.RuntimeID == task.RuntimeID {
+				priorSessionID = nr.SessionID.String
+			}
+		}
+	}
+
 	return csCloudTaskRunPayload{
 		TaskID:         util.UUIDToString(task.ID),
 		WorkspaceID:    util.UUIDToString(runtime.WorkspaceID),
