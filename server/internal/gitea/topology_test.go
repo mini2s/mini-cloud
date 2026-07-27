@@ -133,6 +133,24 @@ func TestReviewPath(t *testing.T) {
 	}
 }
 
+func TestCodePath(t *testing.T) {
+	got := CodePath("d1a2b3c4-d5e6-7890-abcd-ef1234567890")
+	if got != "code/d1a2b3c4-d5e6-7890-abcd-ef1234567890.md" {
+		t.Fatalf("CodePath = %q", got)
+	}
+}
+
+func TestSplitChildPath(t *testing.T) {
+	got := SplitChildPath(42, "登录模块拆分")
+	if got != "splits/42-登录模块拆分.md" {
+		t.Fatalf("SplitChildPath = %q", got)
+	}
+	got = SplitChildPath(7, "")
+	if got != "splits/7.md" {
+		t.Fatalf("SplitChildPath empty title = %q", got)
+	}
+}
+
 func TestSanitizePathSeg(t *testing.T) {
 	cases := []struct {
 		in   string

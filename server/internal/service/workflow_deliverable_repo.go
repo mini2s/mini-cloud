@@ -49,6 +49,27 @@ func (s *WorkflowService) hasDocumentDeliverable(ctx context.Context, workflowID
 	return false, nil
 }
 
+// hasAnyDeliverable reports whether the workflow has ANY deliverable (document
+// OR pull_request). Used to gate Gitea provisioning: with M5 decision ①, every
+// deliverable-bearing run gets a Gitea repo (so code MRs have an archive home
+// too), not just document-bearing runs.
+func (s *WorkflowService) hasAnyDeliverable(ctx context.Context, workflowID pgtype.UUID) (bool, error) {
+	nodes, err := s.Queries.ListWorkflowNodes(ctx, workflowID)
+	if err != nil {
+		return false, fmt.Errorf("list nodes: %w", err)
+	}
+	for _, n := range nodes {
+		deliverables, err := s.Queries.ListWorkflowNodeDeliverables(ctx, n.ID)
+		if err != nil {
+			return false, fmt.Errorf("list deliverables: %w", err)
+		}
+		if len(deliverables) > 0 {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
 func DeliverableRepoNameForWorkflow(workflow db.MulticaWorkflow) string {
 	if workflow.IsDefault {
 		// The archive repo is provisioned (by the team-namespace service and the

@@ -198,6 +198,12 @@ WHERE workspace_id = $1
   AND dispatch_key = $2
 LIMIT 1;
 
+-- name: GetWorkflowRunBySourceIssue :one
+SELECT * FROM multica_workflow_run
+WHERE source_issue_id = $1
+ORDER BY created_at DESC
+LIMIT 1;
+
 -- name: CreateWorkflowRunWithDispatchKey :one
 INSERT INTO multica_workflow_run (
     workflow_id, workspace_id, workflow_title, status,

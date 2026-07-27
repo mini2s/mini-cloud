@@ -1017,6 +1017,14 @@ func hasDocumentDeliverableSpec(deliverables []csCloudDeliverableSpec) bool {
 	return false
 }
 
+// hasAnyDeliverableSpec reports whether the deliverable slice has ANY entry
+// (document OR pull_request). M5 decision ①: the dispatch safety net fires for
+// any deliverable-bearing worker task, so code-only runs also get a Gitea repo
+// provisioned (for code-MR archiving).
+func hasAnyDeliverableSpec(deliverables []csCloudDeliverableSpec) bool {
+	return len(deliverables) > 0
+}
+
 // giteaProvisioningBundle is the subset of workspace.settings written by
 // initWorkflowNamespace (interface-8): the wf repo clone URL, the run's inst
 // branch, and the bot PAT. All three fields are written atomically, so in
