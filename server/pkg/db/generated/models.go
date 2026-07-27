@@ -96,33 +96,32 @@ type MulticaAgentSkill struct {
 }
 
 type MulticaAgentTaskQueue struct {
-	ID                    pgtype.UUID        `json:"id"`
-	AgentID               pgtype.UUID        `json:"agent_id"`
-	IssueID               pgtype.UUID        `json:"issue_id"`
-	Status                string             `json:"status"`
-	Priority              int32              `json:"priority"`
-	DispatchedAt          pgtype.Timestamptz `json:"dispatched_at"`
-	StartedAt             pgtype.Timestamptz `json:"started_at"`
-	CompletedAt           pgtype.Timestamptz `json:"completed_at"`
-	Result                []byte             `json:"result"`
-	Error                 pgtype.Text        `json:"error"`
-	CreatedAt             pgtype.Timestamptz `json:"created_at"`
-	Context               []byte             `json:"context"`
-	RuntimeID             pgtype.UUID        `json:"runtime_id"`
-	SessionID             pgtype.Text        `json:"session_id"`
-	WorkDir               pgtype.Text        `json:"work_dir"`
-	TriggerCommentID      pgtype.UUID        `json:"trigger_comment_id"`
-	ChatSessionID         pgtype.UUID        `json:"chat_session_id"`
-	AutopilotRunID        pgtype.UUID        `json:"autopilot_run_id"`
-	Attempt               int32              `json:"attempt"`
-	MaxAttempts           int32              `json:"max_attempts"`
-	ParentTaskID          pgtype.UUID        `json:"parent_task_id"`
-	FailureReason         pgtype.Text        `json:"failure_reason"`
-	TriggerSummary        pgtype.Text        `json:"trigger_summary"`
-	ForceFreshSession     bool               `json:"force_fresh_session"`
-	IsLeaderTask          bool               `json:"is_leader_task"`
-	WorkflowNodeRunID     pgtype.UUID        `json:"workflow_node_run_id"`
-	WorkflowDispatchJobID pgtype.UUID        `json:"workflow_dispatch_job_id"`
+	ID                pgtype.UUID        `json:"id"`
+	AgentID           pgtype.UUID        `json:"agent_id"`
+	IssueID           pgtype.UUID        `json:"issue_id"`
+	Status            string             `json:"status"`
+	Priority          int32              `json:"priority"`
+	DispatchedAt      pgtype.Timestamptz `json:"dispatched_at"`
+	StartedAt         pgtype.Timestamptz `json:"started_at"`
+	CompletedAt       pgtype.Timestamptz `json:"completed_at"`
+	Result            []byte             `json:"result"`
+	Error             pgtype.Text        `json:"error"`
+	CreatedAt         pgtype.Timestamptz `json:"created_at"`
+	Context           []byte             `json:"context"`
+	RuntimeID         pgtype.UUID        `json:"runtime_id"`
+	SessionID         pgtype.Text        `json:"session_id"`
+	WorkDir           pgtype.Text        `json:"work_dir"`
+	TriggerCommentID  pgtype.UUID        `json:"trigger_comment_id"`
+	ChatSessionID     pgtype.UUID        `json:"chat_session_id"`
+	AutopilotRunID    pgtype.UUID        `json:"autopilot_run_id"`
+	Attempt           int32              `json:"attempt"`
+	MaxAttempts       int32              `json:"max_attempts"`
+	ParentTaskID      pgtype.UUID        `json:"parent_task_id"`
+	FailureReason     pgtype.Text        `json:"failure_reason"`
+	TriggerSummary    pgtype.Text        `json:"trigger_summary"`
+	ForceFreshSession bool               `json:"force_fresh_session"`
+	IsLeaderTask      bool               `json:"is_leader_task"`
+	WorkflowNodeRunID pgtype.UUID        `json:"workflow_node_run_id"`
 }
 
 type MulticaAttachment struct {
@@ -741,7 +740,6 @@ type MulticaWorkflow struct {
 	IsDefault                     bool               `json:"is_default"`
 	DefaultRuntimeSelectionPolicy string             `json:"default_runtime_selection_policy"`
 	DefaultRuntimeID              pgtype.UUID        `json:"default_runtime_id"`
-	ConfigRevision                int64              `json:"config_revision"`
 }
 
 type MulticaWorkflowEdge struct {
@@ -831,45 +829,6 @@ type MulticaWorkflowNodeRun struct {
 	RuntimeSelectionReason   pgtype.Text        `json:"runtime_selection_reason"`
 	FailureReason            pgtype.Text        `json:"failure_reason"`
 	SplitConfigVersion       int64              `json:"split_config_version"`
-	SourceWorkflowNodeID     pgtype.UUID        `json:"source_workflow_node_id"`
-	NodeDescription          string             `json:"node_description"`
-	FormatSchema             []byte             `json:"format_schema"`
-	CriticApiUrl             pgtype.Text        `json:"critic_api_url"`
-	StageSnapshot            []byte             `json:"stage_snapshot"`
-	WorkerRoleSnapshot       []byte             `json:"worker_role_snapshot"`
-	CriticRoleSnapshot       []byte             `json:"critic_role_snapshot"`
-	RuntimeConfig            []byte             `json:"runtime_config"`
-	WorkerNameSnapshot       string             `json:"worker_name_snapshot"`
-	CriticNameSnapshot       string             `json:"critic_name_snapshot"`
-}
-
-type MulticaWorkflowNodeRunDeliverable struct {
-	ID                  pgtype.UUID        `json:"id"`
-	WorkflowNodeRunID   pgtype.UUID        `json:"workflow_node_run_id"`
-	SourceDeliverableID pgtype.UUID        `json:"source_deliverable_id"`
-	Kind                string             `json:"kind"`
-	Title               string             `json:"title"`
-	Description         string             `json:"description"`
-	Required            bool               `json:"required"`
-	SortOrder           int32              `json:"sort_order"`
-	CreatedAt           pgtype.Timestamptz `json:"created_at"`
-}
-
-type MulticaWorkflowNodeRunDispatchJob struct {
-	ID                pgtype.UUID        `json:"id"`
-	WorkflowRunID     pgtype.UUID        `json:"workflow_run_id"`
-	WorkflowNodeRunID pgtype.UUID        `json:"workflow_node_run_id"`
-	Phase             string             `json:"phase"`
-	Generation        int32              `json:"generation"`
-	Status            string             `json:"status"`
-	AttemptCount      int32              `json:"attempt_count"`
-	MaxAttempts       int32              `json:"max_attempts"`
-	ScheduledAt       pgtype.Timestamptz `json:"scheduled_at"`
-	LockedBy          pgtype.Text        `json:"locked_by"`
-	LeaseExpiresAt    pgtype.Timestamptz `json:"lease_expires_at"`
-	LastError         string             `json:"last_error"`
-	CreatedAt         pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt         pgtype.Timestamptz `json:"updated_at"`
 }
 
 type MulticaWorkflowRole struct {
@@ -985,39 +944,24 @@ type MulticaWorkflowRoleResolutionJob struct {
 }
 
 type MulticaWorkflowRun struct {
-	ID                      pgtype.UUID        `json:"id"`
-	WorkflowID              pgtype.UUID        `json:"workflow_id"`
-	WorkspaceID             pgtype.UUID        `json:"workspace_id"`
-	WorkflowTitle           string             `json:"workflow_title"`
-	Status                  string             `json:"status"`
-	TriggeredByType         string             `json:"triggered_by_type"`
-	TriggeredByID           pgtype.UUID        `json:"triggered_by_id"`
-	Input                   []byte             `json:"input"`
-	Output                  []byte             `json:"output"`
-	StartedAt               pgtype.Timestamptz `json:"started_at"`
-	CompletedAt             pgtype.Timestamptz `json:"completed_at"`
-	CreatedAt               pgtype.Timestamptz `json:"created_at"`
-	RuntimeID               pgtype.UUID        `json:"runtime_id"`
-	SourceIssueID           pgtype.UUID        `json:"source_issue_id"`
-	ResponsibleUserID       pgtype.UUID        `json:"responsible_user_id"`
-	RuntimeAuthorizerID     pgtype.UUID        `json:"runtime_authorizer_id"`
-	DispatchKey             pgtype.Text        `json:"dispatch_key"`
-	RuntimeSelectionPolicy  string             `json:"runtime_selection_policy"`
-	SourceConfigRevision    int64              `json:"source_config_revision"`
-	DefinitionSchemaVersion int32              `json:"definition_schema_version"`
-	DefinitionSnapshot      []byte             `json:"definition_snapshot"`
-	MaxRetries              int32              `json:"max_retries"`
-	FailureReason           pgtype.Text        `json:"failure_reason"`
-	ValidationErrors        []byte             `json:"validation_errors"`
-}
-
-type MulticaWorkflowRunEdge struct {
-	ID              pgtype.UUID        `json:"id"`
-	WorkflowRunID   pgtype.UUID        `json:"workflow_run_id"`
-	SourceNodeRunID pgtype.UUID        `json:"source_node_run_id"`
-	TargetNodeRunID pgtype.UUID        `json:"target_node_run_id"`
-	Condition       []byte             `json:"condition"`
-	CreatedAt       pgtype.Timestamptz `json:"created_at"`
+	ID                     pgtype.UUID        `json:"id"`
+	WorkflowID             pgtype.UUID        `json:"workflow_id"`
+	WorkspaceID            pgtype.UUID        `json:"workspace_id"`
+	WorkflowTitle          string             `json:"workflow_title"`
+	Status                 string             `json:"status"`
+	TriggeredByType        string             `json:"triggered_by_type"`
+	TriggeredByID          pgtype.UUID        `json:"triggered_by_id"`
+	Input                  []byte             `json:"input"`
+	Output                 []byte             `json:"output"`
+	StartedAt              pgtype.Timestamptz `json:"started_at"`
+	CompletedAt            pgtype.Timestamptz `json:"completed_at"`
+	CreatedAt              pgtype.Timestamptz `json:"created_at"`
+	RuntimeID              pgtype.UUID        `json:"runtime_id"`
+	SourceIssueID          pgtype.UUID        `json:"source_issue_id"`
+	ResponsibleUserID      pgtype.UUID        `json:"responsible_user_id"`
+	RuntimeAuthorizerID    pgtype.UUID        `json:"runtime_authorizer_id"`
+	DispatchKey            pgtype.Text        `json:"dispatch_key"`
+	RuntimeSelectionPolicy string             `json:"runtime_selection_policy"`
 }
 
 type MulticaWorkflowSplitTask struct {

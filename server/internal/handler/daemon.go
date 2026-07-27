@@ -1683,8 +1683,10 @@ func (h *Handler) buildUpstreamStageContext(ctx context.Context, task db.Multica
 	}
 
 	// Fetch completed upstream node runs from earlier stages.
-	upstreamRows, err := h.Queries.ListCompletedRuntimeUpstreamNodeRuns(ctx, db.ListCompletedRuntimeUpstreamNodeRunsParams{
-		NodeRunID: nodeRun.ID, ResultLimit: 10,
+	upstreamRows, err := h.Queries.ListCompletedUpstreamNodeRuns(ctx, db.ListCompletedUpstreamNodeRunsParams{
+		WorkflowRunID:  nodeRun.WorkflowRunID,
+		WorkflowNodeID: nodeRun.WorkflowNodeID,
+		Limit:          10,
 	})
 	if err != nil {
 		slog.Warn("buildUpstreamStageContext: failed to list upstream node runs", "task_id", uuidToString(task.ID), "error", err)
@@ -1696,7 +1698,7 @@ func (h *Handler) buildUpstreamStageContext(ctx context.Context, task db.Multica
 
 	// Resolve sub-issue for each upstream node run.
 	type upstreamInfo struct {
-		row     db.ListCompletedRuntimeUpstreamNodeRunsRow
+		row     db.ListCompletedUpstreamNodeRunsRow
 		issueID pgtype.UUID
 	}
 	upstreams := make([]upstreamInfo, 0, len(upstreamRows))
@@ -1835,13 +1837,21 @@ func (h *Handler) giteaContextForNodeRun(ctx context.Context, nodeRunID pgtype.U
 	if err != nil {
 		return nil
 	}
-	// Node topological position drives the readable <NN> prefix in repo paths.
-	topo, err := service.RunNodeTopoOrder(ctx, h.Queries, run.ID)
+	workflow, err := h.Queries.GetWorkflow(ctx, run.WorkflowID)
 	if err != nil {
 		return nil
 	}
-	seq := topo[util.UUIDToString(nr.ID)]
-	deliverables, err := h.Queries.ListNodeRunDeliverableRequirements(ctx, nr.ID)
+	// Node topological position drives the readable <NN> prefix in repo paths.
+	node, err := h.Queries.GetWorkflowNode(ctx, nr.WorkflowNodeID)
+	if err != nil {
+		return nil
+	}
+	topo, err := service.NodeTopoOrder(ctx, h.Queries, run.WorkflowID)
+	if err != nil {
+		return nil
+	}
+	seq := topo[util.UUIDToString(node.ID)]
+	deliverables, err := h.Queries.ListWorkflowNodeDeliverables(ctx, nr.WorkflowNodeID)
 	if err != nil {
 		return nil
 	}
@@ -1861,11 +1871,7 @@ func (h *Handler) giteaContextForNodeRun(ctx context.Context, nodeRunID pgtype.U
 		return nil
 	}
 	owner := gitea.OrgName(util.UUIDToString(run.WorkspaceID))
-	snapshot, err := (service.WorkflowRuntimeRepository{Queries: h.Queries}).GetRunDefinitionSnapshot(ctx, run.ID)
-	if err != nil {
-		return nil
-	}
-	repo := service.DeliverableRepoName(run.WorkflowID, snapshot.Workflow.IsDefault)
+	repo := service.DeliverableRepoNameForWorkflow(workflow)
 	return &GiteaDeliverableContext{
 		Owner:        owner,
 		Repo:         repo,

@@ -78,12 +78,7 @@ vi.mock("../../issues/components/execution", () => ({
 vi.mock("../../i18n", () => {
   const translations = {
     detail: { not_found: "Not found", no_nodes: "No nodes" },
-    run: {
-      status: { running: "Running" },
-      cancel: "Cancel run",
-      cancelling: "Cancelling",
-      historical_config_incomplete: "Historical configuration may be incomplete",
-    },
+    run: { status: { running: "Running" }, cancel: "Cancel run", cancelling: "Cancelling" },
     cancel_dialog: {
       title: "Cancel workflow run?",
       description: "This will stop unfinished node runs and cancel active child tasks.",
@@ -150,18 +145,6 @@ describe("WorkflowRunPage", () => {
     expect(mocks.executionPanoramaProps).toEqual(expect.objectContaining({
       issueId: undefined,
     }));
-  });
-
-  it("marks a legacy run whose historical configuration is incomplete", () => {
-    mocks.run = {
-      ...(mocks.run as Record<string, unknown>),
-      definition_schema_version: 0,
-      definition_snapshot: null,
-    };
-
-    render(<WorkflowRunPage workflowId="wf-1" runId="run-1" />);
-
-    expect(screen.getByText("Historical configuration may be incomplete")).toBeInTheDocument();
   });
 
   it("confirms before cancelling a running workflow run", () => {

@@ -39,19 +39,8 @@ func seedDeliverableAndNodeRunIn(t *testing.T, workspaceID, creatorID string) (n
 	}
 	runID := uuid.NewString()
 	if _, err := testPool.Exec(ctx, `
-		INSERT INTO multica_workflow_run (
-			id, workflow_id, workspace_id, workflow_title, status, triggered_by_type,
-			triggered_by_id, definition_schema_version, definition_snapshot
-		)
-		VALUES (
-			$1, $2, $3, 'R', 'running', 'member', $4, 1,
-			jsonb_build_object(
-				'schema_version', 1, 'snapshot_origin', 'native',
-				'workflow', jsonb_build_object('id', $2::uuid, 'workspace_id', $3::uuid, 'title', 'R', 'is_default', false),
-				'nodes', jsonb_build_array(jsonb_build_object('id', $5::uuid, 'title', 'N', 'sort_order', 0)),
-				'edges', '[]'::jsonb, 'stages', '[]'::jsonb, 'roles', '[]'::jsonb, 'deliverables', '[]'::jsonb
-			)
-		)`, runID, wfID, workspaceID, creatorID, nodeID); err != nil {
+		INSERT INTO multica_workflow_run (id, workflow_id, workspace_id, workflow_title, status, triggered_by_type, triggered_by_id)
+		VALUES ($1, $2, $3, 'R', 'running', 'member', $4)`, runID, wfID, workspaceID, creatorID); err != nil {
 		t.Fatalf("seed run: %v", err)
 	}
 	nrID := uuid.NewString()
@@ -60,15 +49,7 @@ func seedDeliverableAndNodeRunIn(t *testing.T, workspaceID, creatorID string) (n
 		VALUES ($1, $2, $3, 'N', 'working', 0, 'agent', 'agent')`, nrID, runID, nodeID); err != nil {
 		t.Fatalf("seed node run: %v", err)
 	}
-	runtimeDeliverableID := uuid.NewString()
-	if _, err := testPool.Exec(ctx, `
-		INSERT INTO multica_workflow_node_run_deliverable (
-			id, workflow_node_run_id, source_deliverable_id, kind, title, description, required, sort_order
-		) VALUES ($1, $2, $3, 'document', 'Doc', '', true, 0)
-	`, runtimeDeliverableID, nrID, dID); err != nil {
-		t.Fatalf("seed runtime deliverable: %v", err)
-	}
-	return nrID, runtimeDeliverableID
+	return nrID, dID
 }
 
 func TestHandleReportDeliverablePR(t *testing.T) {
