@@ -209,6 +209,7 @@ export function GlobalNotificationBar({
 
   if (progress.total === 0) return null;
 
+  const hasFailure = progress.failed > 0 || progress.blocked > 0;
   const hasActionableNodes = progress.running > 0 || progress.reviewing > 0 || progress.failed > 0 || progress.blocked > 0 || progress.waiting > 0;
   const progressChips = ([
     {
@@ -275,20 +276,20 @@ export function GlobalNotificationBar({
           <span
             className={cn(
               "relative grid h-6 w-6 shrink-0 place-items-center rounded-md border",
-              progress.blocked > 0
+              hasFailure
                 ? "border-destructive/25 bg-destructive/10 text-destructive"
                 : hasActionableNodes
                   ? "border-blue-200/70 bg-blue-50/70 text-blue-700"
                   : "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900/60 dark:bg-emerald-950/30 dark:text-emerald-300",
             )}
           >
-            {progress.blocked > 0 ? (
+            {hasFailure ? (
               <span
                 aria-hidden="true"
                 className="absolute -right-0.5 -top-0.5 h-2 w-2 rounded-full bg-destructive ring-2 ring-background"
               />
             ) : null}
-            {progress.blocked > 0 ? <AlertCircle className="h-3.5 w-3.5" /> : <CheckCircle2 className="h-3.5 w-3.5" />}
+            {hasFailure ? <AlertCircle className="h-3.5 w-3.5" /> : <CheckCircle2 className="h-3.5 w-3.5" />}
           </span>
           <div className="min-w-0">
             <div className="flex items-baseline gap-1.5">

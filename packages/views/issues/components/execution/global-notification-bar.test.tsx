@@ -193,6 +193,8 @@ describe("GlobalNotificationBar", () => {
     expect(screen.getByTestId("progress-chip-blocked")).toHaveTextContent("0 blocked");
     expect(screen.getByTestId("notification-summary")).toHaveTextContent("Current: Run CSC");
     expect(screen.getByTestId("run-progress-counts")).toHaveTextContent("0 waiting");
+    expect(screen.getByTestId("notification-summary").querySelector(".lucide-circle-alert")).not.toBeNull();
+    expect(screen.getByTestId("notification-summary").querySelector(".text-destructive")).not.toBeNull();
   });
 
   it("shows counts, current node, and elapsed fallback in the progress summary", () => {
