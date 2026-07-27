@@ -530,10 +530,13 @@ func appendWorkerTaskPrompt(prompt string) string {
 }
 
 // appendDeliverablePrompt adds a "Document Deliverables" section to the prompt.
-// The deliverable repository is exposed to the agent as a normal git remote
-// (authed clone URL in the task env), so reading/exploring is plain git; only
-// the final submit — which opens the node->inst PR and registers it back here —
-// goes through the `cs-cloud workflow deliverable submit` command.
+// The delivery repository is accessed via a managed worktree created by
+// `cs-cloud repo checkout` (NOT a plain git clone): cs-cloud matches the
+// passed URL against payload.Repos[] to pick the role, injects the auth token
+// from $MULTICA_REPO_TOKEN, and places the worktree on this node's branch.
+// The agent then writes each document into the worktree and finalizes via
+// `cs-cloud workflow deliverable submit`, which pushes the node branch, opens
+// the node->inst review PR, and registers the review URL back here.
 func appendDeliverablePrompt(prompt string, refs []repositoryDeliverableRefJSON) string {
 	var b strings.Builder
 	b.WriteString(prompt)
@@ -541,17 +544,17 @@ func appendDeliverablePrompt(prompt string, refs []repositoryDeliverableRefJSON)
 		b.WriteByte('\n')
 	}
 	b.WriteString("\n---\n## Document Deliverables\n\n")
-	b.WriteString("This node has document deliverables stored in the platform repository. The repository is exposed as a normal git remote: clone it with plain git using the authed URL in `$MULTICA_REPO_CLONE_URL_AUTHED` (credentials are already embedded, so clone/push just work; do not set up a separate credential helper). The instance branch is `$MULTICA_REPO_INST_BRANCH` and this node's branch is `$MULTICA_REPO_NODE_BRANCH`.\n\n")
-	b.WriteString("For EACH deliverable below: write the document to a local file, then submit it with the CLI. The command pushes your file to the node branch, opens a review request (node -> inst), and registers the review URL back here. Do NOT use inline content upload for these; document deliverables go through git.\n\n")
+	b.WriteString("This node has document deliverables stored in the platform Gitea repository. Before submitting anything, pull the repository into a managed worktree by running ONCE: `cs-cloud repo checkout $MULTICA_REPO_CLONE_URL --base $MULTICA_REPO_INST_BRANCH`. Use the PLAIN `$MULTICA_REPO_CLONE_URL` (do NOT pass the `_AUTHED` variant) — cs-cloud matches this URL against the repo registry to pick the delivery role, and injects the auth token from `$MULTICA_REPO_TOKEN` itself. The worktree is created on this node's branch `$MULTICA_REPO_NODE_BRANCH`.\n\n")
+	b.WriteString("For EACH deliverable below: write the document to a local file, then run the submit command. The CLI writes your file into the checked-out worktree at the right path, pushes this node's branch, opens a review request (node -> inst), and registers the review URL back here. You MUST run `cs-cloud repo checkout` (above) first — submit needs the worktree to exist. Do NOT use inline content upload for these; document deliverables go through git.\n\n")
 	for _, d := range refs {
 		fmt.Fprintf(&b, "- **%s** (id=%s): run `cs-cloud workflow deliverable submit --deliverable %s --file <local-path-to-your-document>`\n", d.Title, d.ID, d.ID)
 	}
 	b.WriteString("\nA deliverable is not considered submitted until its PR is registered. Complete every listed deliverable before finishing.\n\n")
 	b.WriteString("### Reading the deliverable repository\n\n")
-	b.WriteString("Use plain git to read or explore: `git clone $MULTICA_REPO_CLONE_URL_AUTHED` then `git checkout $MULTICA_REPO_INST_BRANCH` to see the current run's tree (this node's deliverables live under its node directory).\n\n")
+	b.WriteString("You already have the worktree from `cs-cloud repo checkout` (on this node's branch). To READ files from the inst branch (e.g. another node's documents), fetch and show them inside that worktree: `git -C <worktree> fetch origin && git -C <worktree> show origin/$MULTICA_REPO_INST_BRANCH:<path>`. For a different issue's repo, run `cs-cloud repo checkout <url> --base <inst-branch>` again; if you genuinely need a plain-git clone outside the worktree, the authed URL `$MULTICA_REPO_CLONE_URL_AUTHED` is still available as a fallback.\n\n")
 	b.WriteString("To inspect the rest of the workflow chain — other issues' progress and their deliverable repositories — use the read commands instead of guessing URLs:\n")
 	b.WriteString("- `cs-workflow issue workflow <issue-id> --descendants` — workflow run + node run status for this issue and its children.\n")
-	b.WriteString("- `cs-workflow issue deliverables <issue-id> --descendants` — the Gitea repository address and deliverable list for this issue and its children; clone the inst branch to read another issue's documents.\n")
+	b.WriteString("- `cs-workflow issue deliverables <issue-id> --descendants` — the Gitea repository address and deliverable list for this issue and its children; use it to find another issue's repo URL before checking it out.\n")
 	b.WriteString("\n---\n\n")
 	return b.String()
 }

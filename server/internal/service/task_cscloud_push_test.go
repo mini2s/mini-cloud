@@ -515,20 +515,25 @@ func TestInjectGiteaToken(t *testing.T) {
 	}
 }
 
-func TestAppendDeliverablePrompt_GitAndSubmitNoFetch(t *testing.T) {
+func TestAppendDeliverablePrompt_CheckoutAndSubmit(t *testing.T) {
 	refs := []giteaDeliverableRefJSON{{ID: "d1", Title: "Doc1", Path: "nodes/01-x/d1.md"}}
 	got := appendDeliverablePrompt("base prompt", refs)
 	for _, want := range []string{
-		"MULTICA_REPO_CLONE_URL_AUTHED", // authed clone URL exposed
-		"git clone",                     // raw-git read guidance
-		"MULTICA_REPO_INST_BRANCH",      // branch context
-		"cs-cloud workflow deliverable submit --deliverable d1", // neutral submit path
+		"cs-cloud repo checkout",                                // managed-worktree checkout command
+		"$MULTICA_REPO_CLONE_URL --base",                        // PLAIN url + base flag (not authed)
+		"MULTICA_REPO_NODE_BRANCH",                              // per-node branch context
+		"MULTICA_REPO_INST_BRANCH",                              // inst branch context
+		"cs-cloud workflow deliverable submit --deliverable d1", // per-deliverable submit path
 		"cs-workflow issue deliverables",                        // self-service read command
 		"Document Deliverables",
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("prompt missing %q:\n%s", want, got)
 		}
+	}
+	// The OLD primary clone instruction must be gone — checkout goes through cs-cloud.
+	if strings.Contains(got, "git clone $MULTICA_REPO_CLONE_URL_AUTHED") {
+		t.Errorf("prompt must NOT instruct plain `git clone $MULTICA_REPO_CLONE_URL_AUTHED` (use cs-cloud repo checkout):\n%s", got)
 	}
 	if strings.Contains(got, "deliverable fetch") {
 		t.Errorf("prompt must NOT reference fetch (command removed):\n%s", got)
