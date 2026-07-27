@@ -225,6 +225,7 @@ export type WorkflowRuntimeDisplayStatus =
   | "in_progress"
   | "reviewing"
   | "completed"
+  | "failed"
   | "blocked"
   | "cancelled";
 
@@ -249,6 +250,7 @@ export function toWorkflowRuntimeDisplayStatus(status: string): WorkflowRuntimeD
     case "completed":
       return "completed";
     case "failed":
+      return "failed";
     case "format_failed":
     case "blocked":
     case "critic_rework":

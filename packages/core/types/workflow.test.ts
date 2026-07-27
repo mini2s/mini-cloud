@@ -205,7 +205,8 @@ describe("workflow node format parsing", () => {
     expect(toWorkflowRuntimeDisplayStatus("awaiting_split_review")).toBe("reviewing");
     expect(toWorkflowRuntimeDisplayStatus("split_active")).toBe("in_progress");
     expect(toWorkflowRuntimeDisplayStatus("critic_approved")).toBe("completed");
-    expect(toWorkflowRuntimeDisplayStatus("failed")).toBe("blocked");
+    expect(toWorkflowRuntimeDisplayStatus("failed")).toBe("failed");
+    expect(toWorkflowRuntimeDisplayStatus("blocked")).toBe("blocked");
     expect(toWorkflowRuntimeDisplayStatus("cancelled")).toBe("cancelled");
     expect(toWorkflowRuntimeDisplayStatus("skipped")).toBe("cancelled");
   });

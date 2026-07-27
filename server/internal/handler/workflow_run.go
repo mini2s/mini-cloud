@@ -194,9 +194,13 @@ func nodeRunDurationSeconds(nr db.MulticaWorkflowNodeRun) *int64 {
 	return &seconds
 }
 
-func extractNodeRunError(nr db.MulticaWorkflowNodeRun) (bool, string) {
+func extractNodeRunError(nr db.MulticaWorkflowNodeRun, taskError string) (bool, string) {
 	if nr.Status != "failed" && nr.Status != "blocked" && nr.Status != "format_failed" && nr.Status != "critic_rework" {
 		return false, ""
+	}
+
+	if taskError != "" {
+		return true, taskError
 	}
 
 	for _, raw := range [][]byte{nr.WorkerOutput, nr.CriticOutput} {
@@ -214,6 +218,58 @@ func extractNodeRunError(nr db.MulticaWorkflowNodeRun) (bool, string) {
 		}
 	}
 	return true, ""
+}
+
+func (h *Handler) workflowRunTaskErrors(ctx context.Context, runID pgtype.UUID) (map[string]string, error) {
+	rows, err := h.DB.Query(ctx, `
+		SELECT
+			node_run.id::text,
+			COALESCE(
+				NULLIF(phase_task.error, ''),
+				CASE
+					WHEN phase_task.id IS NULL THEN NULLIF(agent_task.error, '')
+				END,
+				''
+			) AS error_message
+		FROM multica_workflow_node_run node_run
+		LEFT JOIN LATERAL (
+			SELECT linked_task.id, linked_task.error
+			FROM multica_agent_task_queue linked_task
+			WHERE linked_task.status = 'failed'
+				AND linked_task.id IN (
+					node_run.worker_agent_task_id,
+					node_run.critic_agent_task_id
+				)
+			ORDER BY
+				linked_task.completed_at DESC NULLS LAST,
+				linked_task.created_at DESC,
+				linked_task.id DESC
+			LIMIT 1
+		) phase_task ON TRUE
+		LEFT JOIN multica_agent_task_queue agent_task
+			ON agent_task.id = node_run.agent_task_id
+			AND agent_task.status = 'failed'
+		WHERE node_run.workflow_run_id = $1
+	`, runID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	taskErrors := make(map[string]string)
+	for rows.Next() {
+		var nodeRunID, errorMessage string
+		if err := rows.Scan(&nodeRunID, &errorMessage); err != nil {
+			return nil, err
+		}
+		if errorMessage != "" {
+			taskErrors[nodeRunID] = errorMessage
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return taskErrors, nil
 }
 
 func (h *Handler) workflowRunSplitProgressSummaries(ctx context.Context, runID pgtype.UUID) (map[string]SplitProgressResponse, error) {
@@ -441,13 +497,18 @@ func (h *Handler) GetWorkflowRunCanvasSummary(w http.ResponseWriter, r *http.Req
 		writeError(w, http.StatusInternalServerError, "failed to summarize split progress")
 		return
 	}
+	taskErrors, err := h.workflowRunTaskErrors(r.Context(), run.ID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to summarize task errors")
+		return
+	}
 
 	nodeRunResp := make([]WorkflowNodeRunResponse, 0, len(nodeRuns))
 	runtimeSummaries := make([]WorkflowNodeRuntimeSummaryResponse, 0, len(nodeRuns))
 	for _, nr := range nodeRuns {
 		nodeRunResp = append(nodeRunResp, workflowNodeRunToResponse(nr))
 		actorType, actorID := nodeRunActiveActor(nr)
-		hasError, errorMessage := extractNodeRunError(nr)
+		hasError, errorMessage := extractNodeRunError(nr, taskErrors[uuidToString(nr.ID)])
 		var splitProgress *SplitProgressResponse
 		if progress, ok := splitProgressSummaries[uuidToString(nr.ID)]; ok {
 			progressCopy := progress

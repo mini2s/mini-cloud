@@ -314,6 +314,28 @@ describe("split API response schemas", () => {
     });
   });
 
+  it("keeps failed runtime status when error details are missing or extended", () => {
+    const parsed = WorkflowRunCanvasSummaryResponseSchema.parse({
+      run: { id: "run-1", workflow_id: "wf-1", workspace_id: "ws-1" },
+      node_runs: [],
+      node_runtime_summaries: [
+        {
+          workflow_node_id: "node-1",
+          node_run_id: "node-run-1",
+          display_status: "failed",
+          has_error: true,
+          provider_error_code: "future_error_code",
+        },
+      ],
+    });
+
+    expect(parsed.node_runtime_summaries[0]).toMatchObject({
+      display_status: "failed",
+      has_error: true,
+      error_message: "",
+    });
+  });
+
   it("falls back when canvas summary split progress has the wrong shape", () => {
     const parsed = parseWithFallback(
       {

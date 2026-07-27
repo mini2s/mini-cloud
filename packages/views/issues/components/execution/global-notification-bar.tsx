@@ -22,10 +22,12 @@ interface RunProgressSummary {
   done: number;
   reviewing: number;
   running: number;
+  failed: number;
   blocked: number;
   waiting: number;
   firstReviewingNodeId: string | null;
   firstRunningNodeId: string | null;
+  firstFailedNodeId: string | null;
   firstBlockedNodeId: string | null;
   firstWaitingNodeId: string | null;
   currentNodeTitle: string | null;
@@ -37,6 +39,7 @@ function displayStatusForRun(
   run: WorkflowNodeRun,
   runtimeSummaryMap?: Map<string, WorkflowNodeRuntimeSummary>,
 ): WorkflowRuntimeDisplayStatus {
+  if (run.status === "failed") return "failed";
   return runtimeSummaryMap?.get(nodeId)?.display_status ?? toWorkflowRuntimeDisplayStatus(run.status);
 }
 
@@ -48,6 +51,10 @@ function isBlockedStatus(status: WorkflowRuntimeDisplayStatus): boolean {
   return status === "blocked";
 }
 
+function isFailedStatus(status: WorkflowRuntimeDisplayStatus): boolean {
+  return status === "failed";
+}
+
 function isReviewingStatus(status: WorkflowRuntimeDisplayStatus): boolean {
   return status === "reviewing";
 }
@@ -57,6 +64,7 @@ function isRunningStatus(status: WorkflowRuntimeDisplayStatus): boolean {
 }
 
 function runActionPriority(status: WorkflowRuntimeDisplayStatus): number {
+  if (isFailedStatus(status)) return 60;
   if (isBlockedStatus(status)) return 50;
   if (isReviewingStatus(status)) return 40;
   if (isRunningStatus(status)) return 30;
@@ -94,15 +102,18 @@ function deriveRunProgress(
     }))
     .sort((a, b) => b.priority - a.priority || a.index - b.index);
   const done = entries.filter((entry) => isDoneStatus(entry.displayStatus)).length;
+  const failed = entries.filter((entry) => isFailedStatus(entry.displayStatus)).length;
   const blocked = entries.filter((entry) => isBlockedStatus(entry.displayStatus)).length;
   const reviewing = entries.filter((entry) => isReviewingStatus(entry.displayStatus)).length;
   const running = entries.filter((entry) => isRunningStatus(entry.displayStatus)).length;
-  const waiting = Math.max(0, entries.length - done - blocked - reviewing - running);
+  const waiting = Math.max(0, entries.length - done - failed - blocked - reviewing - running);
   const firstReviewingNodeId = prioritizedEntries.find((entry) => isReviewingStatus(entry.displayStatus))?.nodeId ?? null;
   const firstRunningNodeId = prioritizedEntries.find((entry) => isRunningStatus(entry.displayStatus))?.nodeId ?? null;
+  const firstFailedNodeId = prioritizedEntries.find((entry) => isFailedStatus(entry.displayStatus))?.nodeId ?? null;
   const firstBlockedNodeId = prioritizedEntries.find((entry) => isBlockedStatus(entry.displayStatus))?.nodeId ?? null;
   const firstWaitingNodeId = prioritizedEntries.find((entry) =>
     !isDoneStatus(entry.displayStatus) &&
+    !isFailedStatus(entry.displayStatus) &&
     !isBlockedStatus(entry.displayStatus) &&
     !isReviewingStatus(entry.displayStatus) &&
     !isRunningStatus(entry.displayStatus)
@@ -118,10 +129,12 @@ function deriveRunProgress(
     done,
     reviewing,
     running,
+    failed,
     blocked,
     waiting,
     firstReviewingNodeId,
     firstRunningNodeId,
+    firstFailedNodeId,
     firstBlockedNodeId,
     firstWaitingNodeId,
     currentNodeTitle: currentRun?.node_title ?? null,
@@ -170,9 +183,10 @@ function ProgressChip({
 }
 
 type ProgressChipTone = "running" | "reviewing" | "blocked" | "waiting";
+type ProgressChipKey = ProgressChipTone | "failed";
 
 interface ProgressChipItem {
-  key: ProgressChipTone;
+  key: ProgressChipKey;
   testId: string;
   label: string;
   nodeId: string | null;
@@ -195,8 +209,18 @@ export function GlobalNotificationBar({
 
   if (progress.total === 0) return null;
 
-  const hasActionableNodes = progress.running > 0 || progress.reviewing > 0 || progress.blocked > 0 || progress.waiting > 0;
+  const hasFailure = progress.failed > 0 || progress.blocked > 0;
+  const hasActionableNodes = progress.running > 0 || progress.reviewing > 0 || progress.failed > 0 || progress.blocked > 0 || progress.waiting > 0;
   const progressChips = ([
+    {
+      key: "failed",
+      testId: "progress-chip-failed",
+      label: t(($) => $.execution.notification.failed_count, { count: progress.failed }),
+      nodeId: progress.firstFailedNodeId,
+      tone: "blocked",
+      count: progress.failed,
+      priority: 35,
+    },
     {
       key: "blocked",
       testId: "progress-chip-blocked",
@@ -252,20 +276,20 @@ export function GlobalNotificationBar({
           <span
             className={cn(
               "relative grid h-6 w-6 shrink-0 place-items-center rounded-md border",
-              progress.blocked > 0
+              hasFailure
                 ? "border-destructive/25 bg-destructive/10 text-destructive"
                 : hasActionableNodes
                   ? "border-blue-200/70 bg-blue-50/70 text-blue-700"
                   : "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900/60 dark:bg-emerald-950/30 dark:text-emerald-300",
             )}
           >
-            {progress.blocked > 0 ? (
+            {hasFailure ? (
               <span
                 aria-hidden="true"
                 className="absolute -right-0.5 -top-0.5 h-2 w-2 rounded-full bg-destructive ring-2 ring-background"
               />
             ) : null}
-            {progress.blocked > 0 ? <AlertCircle className="h-3.5 w-3.5" /> : <CheckCircle2 className="h-3.5 w-3.5" />}
+            {hasFailure ? <AlertCircle className="h-3.5 w-3.5" /> : <CheckCircle2 className="h-3.5 w-3.5" />}
           </span>
           <div className="min-w-0">
             <div className="flex items-baseline gap-1.5">
