@@ -258,18 +258,27 @@ func (h *Handler) workflowRunTaskErrors(ctx context.Context, runID pgtype.UUID) 
 		SELECT
 			node_run.id::text,
 			COALESCE(
-				NULLIF(critic_task.error, ''),
-				NULLIF(worker_task.error, ''),
-				NULLIF(agent_task.error, ''),
+				NULLIF(phase_task.error, ''),
+				CASE
+					WHEN phase_task.id IS NULL THEN NULLIF(agent_task.error, '')
+				END,
 				''
 			) AS error_message
 		FROM multica_workflow_node_run node_run
-		LEFT JOIN multica_agent_task_queue critic_task
-			ON critic_task.id = node_run.critic_agent_task_id
-			AND critic_task.status = 'failed'
-		LEFT JOIN multica_agent_task_queue worker_task
-			ON worker_task.id = node_run.worker_agent_task_id
-			AND worker_task.status = 'failed'
+		LEFT JOIN LATERAL (
+			SELECT linked_task.id, linked_task.error
+			FROM multica_agent_task_queue linked_task
+			WHERE linked_task.status = 'failed'
+				AND linked_task.id IN (
+					node_run.worker_agent_task_id,
+					node_run.critic_agent_task_id
+				)
+			ORDER BY
+				linked_task.completed_at DESC NULLS LAST,
+				linked_task.created_at DESC,
+				linked_task.id DESC
+			LIMIT 1
+		) phase_task ON TRUE
 		LEFT JOIN multica_agent_task_queue agent_task
 			ON agent_task.id = node_run.agent_task_id
 			AND agent_task.status = 'failed'

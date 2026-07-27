@@ -21,6 +21,7 @@ vi.mock("@multica/views/i18n", () => ({
             no_current_node: "No active node",
             running_count: `${params?.count ?? ""} running`,
             reviewing_count: `${params?.count ?? ""} reviewing`,
+            failed_count: `${params?.count ?? ""} failed`,
             blocked_count: `${params?.count ?? ""} blocked`,
             waiting_count: `${params?.count ?? ""} waiting`,
             elapsed: `Elapsed ${params?.elapsed ?? ""}`,
@@ -151,7 +152,8 @@ describe("GlobalNotificationBar", () => {
     );
 
     expect(screen.getByTestId("notification-summary")).toHaveTextContent("Run progress:0/3 done");
-    expect(screen.getByTestId("progress-chip-blocked")).toHaveTextContent("2 blocked");
+    expect(screen.getByTestId("progress-chip-failed")).toHaveTextContent("1 failed");
+    expect(screen.getByTestId("progress-chip-blocked")).toHaveTextContent("1 blocked");
     expect(screen.getByTestId("progress-chip-reviewing")).toHaveTextContent("1 reviewing");
   });
 
@@ -187,7 +189,8 @@ describe("GlobalNotificationBar", () => {
       />,
     );
 
-    expect(screen.getByTestId("progress-chip-blocked")).toHaveTextContent("1 blocked");
+    expect(screen.getByTestId("progress-chip-failed")).toHaveTextContent("1 failed");
+    expect(screen.getByTestId("progress-chip-blocked")).toHaveTextContent("0 blocked");
     expect(screen.getByTestId("notification-summary")).toHaveTextContent("Current: Run CSC");
     expect(screen.getByTestId("run-progress-counts")).toHaveTextContent("0 waiting");
   });
@@ -275,6 +278,7 @@ describe("GlobalNotificationBar", () => {
       "progress-chip-blocked",
       "progress-chip-running",
       "progress-chip-waiting",
+      "progress-chip-failed",
       "progress-chip-reviewing",
     ]);
   });
@@ -297,7 +301,7 @@ describe("GlobalNotificationBar", () => {
     fireEvent.click(screen.getByTestId("progress-chip-running"));
     expect(onScrollToNode).toHaveBeenLastCalledWith("running-low");
 
-    fireEvent.click(screen.getByTestId("progress-chip-blocked"));
+    fireEvent.click(screen.getByTestId("progress-chip-failed"));
     expect(onScrollToNode).toHaveBeenLastCalledWith("blocked-low");
   });
 

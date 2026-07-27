@@ -56,6 +56,7 @@ func TestGetWorkflowRunCanvasSummaryAggregatesRuntimeState(t *testing.T) {
 	blockedNodeID := createNode("Blocked node with error", 2)
 	splitNodeID := createNode("Split tasks active", 3)
 	failedNodeID := createNode("Failed CSC node", 4)
+	failedCriticNodeID := createNode("Failed critic node", 5)
 
 	var runID string
 	if err := testPool.QueryRow(ctx, `
@@ -93,6 +94,7 @@ func TestGetWorkflowRunCanvasSummaryAggregatesRuntimeState(t *testing.T) {
 	blockedRunID := createNodeRun(blockedNodeID, "Blocked node with error", "blocked", `{"error":"tool failed"}`)
 	splitRunID := createNodeRun(splitNodeID, "Split tasks active", "split_active", `{}`)
 	failedRunID := createNodeRun(failedNodeID, "Failed CSC node", "failed", `{}`)
+	failedCriticRunID := createNodeRun(failedCriticNodeID, "Failed critic node", "failed", `{}`)
 	_ = completedRunID
 	_ = reviewingRunID
 	_ = blockedRunID
@@ -118,6 +120,66 @@ func TestGetWorkflowRunCanvasSummaryAggregatesRuntimeState(t *testing.T) {
 		WHERE id = $1
 	`, failedRunID, failedTaskID); err != nil {
 		t.Fatalf("link failed CSC task: %v", err)
+	}
+
+	var staleCriticTaskID string
+	if err := testPool.QueryRow(ctx, `
+		INSERT INTO multica_agent_task_queue (
+			agent_id, runtime_id, status, priority, workflow_node_run_id,
+			error, failure_reason, context, started_at, completed_at
+		)
+		VALUES (
+			$1, $2, 'failed', 2, $3,
+			'stale critic error', 'agent_error', '{"phase":"critic"}'::jsonb,
+			now() - interval '4 minutes', now() - interval '3 minutes'
+		)
+		RETURNING id
+	`, agentID, testRuntimeID, failedRunID).Scan(&staleCriticTaskID); err != nil {
+		t.Fatalf("create stale critic task: %v", err)
+	}
+	if _, err := testPool.Exec(ctx, `
+		UPDATE multica_workflow_node_run
+		SET critic_agent_task_id = $2
+		WHERE id = $1
+	`, failedRunID, staleCriticTaskID); err != nil {
+		t.Fatalf("link stale critic task: %v", err)
+	}
+
+	var staleWorkerTaskID, failedCriticTaskID string
+	if err := testPool.QueryRow(ctx, `
+		INSERT INTO multica_agent_task_queue (
+			agent_id, runtime_id, status, priority, workflow_node_run_id,
+			error, failure_reason, context, started_at, completed_at
+		)
+		VALUES (
+			$1, $2, 'failed', 2, $3,
+			'stale worker error', 'agent_error', '{"phase":"worker"}'::jsonb,
+			now() - interval '4 minutes', now() - interval '3 minutes'
+		)
+		RETURNING id
+	`, agentID, testRuntimeID, failedCriticRunID).Scan(&staleWorkerTaskID); err != nil {
+		t.Fatalf("create stale worker task: %v", err)
+	}
+	if err := testPool.QueryRow(ctx, `
+		INSERT INTO multica_agent_task_queue (
+			agent_id, runtime_id, status, priority, workflow_node_run_id,
+			error, failure_reason, context, started_at, completed_at
+		)
+		VALUES (
+			$1, $2, 'failed', 2, $3,
+			'current critic error', 'agent_error', '{"phase":"critic"}'::jsonb,
+			now() - interval '2 minutes', now() - interval '1 minute'
+		)
+		RETURNING id
+	`, agentID, testRuntimeID, failedCriticRunID).Scan(&failedCriticTaskID); err != nil {
+		t.Fatalf("create current critic task: %v", err)
+	}
+	if _, err := testPool.Exec(ctx, `
+		UPDATE multica_workflow_node_run
+		SET worker_agent_task_id = $2, critic_agent_task_id = $3
+		WHERE id = $1
+	`, failedCriticRunID, staleWorkerTaskID, failedCriticTaskID); err != nil {
+		t.Fatalf("link failed critic tasks: %v", err)
 	}
 
 	if _, err := testPool.Exec(ctx, `
@@ -175,8 +237,8 @@ func TestGetWorkflowRunCanvasSummaryAggregatesRuntimeState(t *testing.T) {
 	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("decode response: %v", err)
 	}
-	if len(resp.NodeRuntimeSummaries) != 5 {
-		t.Fatalf("expected 5 summaries, got %d", len(resp.NodeRuntimeSummaries))
+	if len(resp.NodeRuntimeSummaries) != 6 {
+		t.Fatalf("expected 6 summaries, got %d", len(resp.NodeRuntimeSummaries))
 	}
 
 	byNodeID := map[string]struct {
@@ -253,6 +315,11 @@ func TestGetWorkflowRunCanvasSummaryAggregatesRuntimeState(t *testing.T) {
 	}
 	if !failed.HasError || failed.ErrorMessage != "Max turns reached" {
 		t.Fatalf("expected failed node error from linked task, got %+v", failed)
+	}
+
+	failedCritic := byNodeID[failedCriticNodeID]
+	if !failedCritic.HasError || failedCritic.ErrorMessage != "current critic error" {
+		t.Fatalf("expected newest failed phase task error, got %+v", failedCritic)
 	}
 
 	split := byNodeID[splitNodeID]

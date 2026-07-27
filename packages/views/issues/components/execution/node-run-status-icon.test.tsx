@@ -48,7 +48,7 @@ describe("NodeRunStatusIcon", () => {
 
   it("renders failed runtime display status as a distinct error", () => {
     render(<RuntimeDisplayStatusIcon status="failed" />);
-    expect(screen.getByLabelText("Failed")).toHaveClass("text-red-500");
+    expect(screen.getByLabelText("Failed")).toHaveClass("text-destructive");
   });
 
   it("overrides gateway completed labels", () => {

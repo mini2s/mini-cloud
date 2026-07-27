@@ -558,6 +558,7 @@
       "no_current_node": "暂无活跃节点",
       "running_count": "{{count}} 运行中",
       "reviewing_count": "{{count}} 审核中",
+      "failed_count": "{{count}} 失败",
       "blocked_count": "{{count}} 阻塞",
       "waiting_count": "{{count}} 等待中",
       "elapsed": "耗时 {{elapsed}}",
