@@ -1014,3 +1014,36 @@ func TestCsCloudPayloadSerializesReposAndDeliverables(t *testing.T) {
 		t.Errorf("deliverables round-trip mismatch: %+v", got.Deliverables)
 	}
 }
+
+func TestCsCloudPayloadSerializesPriorSession(t *testing.T) {
+	payload := csCloudTaskRunPayload{
+		TaskID: "t-1", WorkspaceID: "ws", Agent: "csc", Prompt: "p",
+		PriorSessionID: "sess-abc",
+		PriorWorkDir:   "/data/work/ws/tasks/t-1",
+	}
+	raw, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	var got csCloudTaskRunPayload
+	if err := json.Unmarshal(raw, &got); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if got.PriorSessionID != "sess-abc" {
+		t.Errorf("prior_session_id round-trip: %q", got.PriorSessionID)
+	}
+	if got.PriorWorkDir != "/data/work/ws/tasks/t-1" {
+		t.Errorf("prior_work_dir round-trip: %q", got.PriorWorkDir)
+	}
+}
+
+func TestShouldSkipPriorTaskState(t *testing.T) {
+	// ForceFreshSession (manual rerun) => skip prior, fresh session.
+	if !shouldSkipPriorTaskState(db.MulticaAgentTaskQueue{ForceFreshSession: true}) {
+		t.Error("ForceFreshSession=true should skip prior")
+	}
+	// Normal task => keep prior.
+	if shouldSkipPriorTaskState(db.MulticaAgentTaskQueue{ForceFreshSession: false}) {
+		t.Error("ForceFreshSession=false should keep prior")
+	}
+}

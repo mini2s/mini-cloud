@@ -75,10 +75,27 @@ type csCloudTaskRunPayload struct {
 	// RepoURL is the workspace/project code repo the agent clones into its
 	// worktree and develops in. Empty when the workspace has no code repo.
 	// deprecated: Task 3 uses Repos instead.
-	RepoURL     string                    `json:"repo_url,omitempty"`
-	Kind        string                    `json:"kind,omitempty"`
-	Repos       []csCloudRepoSpec         `json:"repos,omitempty"`
-	Deliverables []csCloudDeliverableSpec  `json:"deliverables,omitempty"`
+	RepoURL string `json:"repo_url,omitempty"`
+	Kind    string `json:"kind,omitempty"`
+	// PriorSessionID is the csc session id of the last task on the same
+	// (agent, issue), so cs-cloud resumes the conversation context. Empty on
+	// first round, manual rerun, or runtime mismatch (session is device-scoped).
+	PriorSessionID string `json:"prior_session_id,omitempty"`
+	// PriorWorkDir is the workdir of the last task on the same (agent, issue),
+	// so cs-cloud reuses (resets) the same checkout. Empty on first round.
+	PriorWorkDir string                   `json:"prior_work_dir,omitempty"`
+	Repos        []csCloudRepoSpec        `json:"repos,omitempty"`
+	Deliverables []csCloudDeliverableSpec `json:"deliverables,omitempty"`
+}
+
+// shouldSkipPriorTaskState reports whether the task should start a fresh
+// session/workdir instead of resuming the prior (agent, issue) conversation.
+// Mirrors handler.shouldSkipPriorTaskState but lives in the service package
+// (cross-package import is not allowed). The handler's split_chat check is
+// omitted here because split tasks are daemon-only and never dispatched to
+// cs-cloud, so only the manual-rerun (ForceFreshSession) gate remains.
+func shouldSkipPriorTaskState(t db.MulticaAgentTaskQueue) bool {
+	return t.ForceFreshSession
 }
 
 // maybePushToCSCloud is called synchronously from notifyTaskAvailable. It
