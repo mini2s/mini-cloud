@@ -211,12 +211,15 @@ func (s *TaskService) buildCSCloudPayload(ctx context.Context, task db.MulticaAg
 	if phase == "worker" {
 		deliverables = s.deliverableSpecsForTask(ctx, task)
 	}
-	// Document deliverable: ensure Gitea wf repo + inst branch exist (safety
-	// net if run-start ScaffoldRunDeliverables failed/skipped). Idempotent —
-	// re-running initWorkflowNamespace on an already-provisioned workspace
-	// is a no-op. Best-effort: errors are logged, never block dispatch (the
-	// payload still goes out; a later re-run or member upload recovers).
-	if phase == "worker" && hasDocumentDeliverableSpec(deliverables) && s.teamNamespaceConfigured() && s.settingsLackGiteaData(ctx, runtime.WorkspaceID) {
+	// Any deliverable (document OR pull_request): ensure Gitea wf repo + inst
+	// branch exist (safety net if run-start ScaffoldRunDeliverables
+	// failed/skipped). M5 decision ① widens this from document-only to any
+	// deliverable — code-only runs get a Gitea repo too, so Task 3's
+	// ArchiveCodeDeliverable has a place to write. Idempotent — re-running
+	// initWorkflowNamespace on an already-provisioned workspace is a no-op.
+	// Best-effort: errors are logged, never block dispatch (the payload still
+	// goes out; a later re-run or member upload recovers).
+	if phase == "worker" && hasAnyDeliverableSpec(deliverables) && s.teamNamespaceConfigured() && s.settingsLackGiteaData(ctx, runtime.WorkspaceID) {
 		if err := s.ensureDeliveryRepo(ctx, task); err != nil {
 			slog.Warn("cs-cloud dispatch: ensure delivery repo",
 				"task_id", util.UUIDToString(task.ID), "error", err)
@@ -1002,19 +1005,6 @@ func (s *TaskService) maybeAbortOnDevice(task db.MulticaAgentTaskQueue) {
 // present). Read by buildCSCloudPayload to gate the safety net.
 func (s *TaskService) teamNamespaceConfigured() bool {
 	return s.TeamNamespace != nil && s.TeamNamespace.Configured()
-}
-
-// hasDocumentDeliverableSpec reports whether the local deliverable slice (as
-// already assembled by deliverableSpecsForTask) contains any document-kind
-// entry. This is a LOCAL check on the in-memory slice; the similarly named
-// WorkflowService.hasDocumentDeliverable queries nodes by workflowID instead.
-func hasDocumentDeliverableSpec(deliverables []csCloudDeliverableSpec) bool {
-	for _, d := range deliverables {
-		if d.Kind == "document" {
-			return true
-		}
-	}
-	return false
 }
 
 // hasAnyDeliverableSpec reports whether the deliverable slice has ANY entry

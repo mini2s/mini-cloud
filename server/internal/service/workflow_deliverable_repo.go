@@ -27,28 +27,6 @@ func (s *WorkflowService) deliverableRepository() coderepo.RepositoryProvider {
 	return coderepo.GiteaAdapter{Client: s.Gitea}
 }
 
-// hasDocumentDeliverable reports whether the workflow has any document-type
-// deliverable. Scaffolding only runs for document-bearing workflows;
-// code-only workflows (no document deliverable) never touch Gitea.
-func (s *WorkflowService) hasDocumentDeliverable(ctx context.Context, workflowID pgtype.UUID) (bool, error) {
-	nodes, err := s.Queries.ListWorkflowNodes(ctx, workflowID)
-	if err != nil {
-		return false, fmt.Errorf("list nodes: %w", err)
-	}
-	for _, n := range nodes {
-		deliverables, err := s.Queries.ListWorkflowNodeDeliverables(ctx, n.ID)
-		if err != nil {
-			return false, fmt.Errorf("list deliverables: %w", err)
-		}
-		for _, d := range deliverables {
-			if d.Kind == "document" {
-				return true, nil
-			}
-		}
-	}
-	return false, nil
-}
-
 // hasAnyDeliverable reports whether the workflow has ANY deliverable (document
 // OR pull_request). Used to gate Gitea provisioning: with M5 decision ①, every
 // deliverable-bearing run gets a Gitea repo (so code MRs have an archive home
@@ -372,13 +350,13 @@ func (s *WorkflowService) ScaffoldRunDeliverables(ctx context.Context, run db.Mu
 		slog.Warn("gitea scaffold: get workflow", "run_id", runIDStr, "error", err)
 		return
 	}
-	has, err := s.hasDocumentDeliverable(ctx, workflow.ID)
+	has, err := s.hasAnyDeliverable(ctx, workflow.ID)
 	if err != nil {
 		slog.Warn("gitea scaffold: check deliverables", "run_id", runIDStr, "error", err)
 		return
 	}
 	if !has {
-		return // code-only workflow — no Gitea repo needed
+		return // deliverable-free workflow — no Gitea repo needed
 	}
 
 	if s.teamNamespaceConfigured() {
@@ -725,9 +703,9 @@ func (s *WorkflowService) ProvisionWorkflowRepo(ctx context.Context, workflowID 
 		slog.Warn("provision workflow repo: get workflow", "error", err)
 		return
 	}
-	// Only create the repo if the workflow has document deliverables (code-only
-	// workflows don't need a Gitea repo).
-	has, err := s.hasDocumentDeliverable(ctx, workflowID)
+	// Only create the repo if the workflow has any deliverable (M5 decision ①:
+	// code-only runs get a repo for code-MR archiving).
+	has, err := s.hasAnyDeliverable(ctx, workflowID)
 	if err != nil || !has {
 		return
 	}

@@ -318,6 +318,47 @@ func TestScaffoldRunDeliverables_ProvisionsBotAndScaffoldsRepo(t *testing.T) {
 	}
 }
 
+// TestScaffoldRunDeliverables_ProvisionsRepoForCodeOnlyWorkflow verifies M5
+// decision ①: a workflow whose only deliverable is a pull_request (code-only,
+// no document) STILL gets a Gitea repo scaffolded — so Task 3's code-MR
+// archive has a place to write. Mirrors ProvisionsBotAndScaffoldsRepo but
+// swaps the deliverable Kind from "document" to "pull_request".
+func TestScaffoldRunDeliverables_ProvisionsRepoForCodeOnlyWorkflow(t *testing.T) {
+	pool := openTestPool(t)
+	defer pool.Close()
+	ctx := context.Background()
+
+	// Seed a workflow with NO document deliverable, then add a pull_request one.
+	fix := seedGiteaFixture(t, pool, false /*no document*/, 1 /*single run*/)
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO multica_workflow_node_deliverable (workflow_node_id, kind, title, description, required, sort_order)
+		VALUES ($1, 'pull_request', 'Code MR', 'open an MR', TRUE, 0)
+	`, util.UUIDToString(fix.node)); err != nil {
+		t.Fatalf("seed pull_request deliverable: %v", err)
+	}
+
+	srv, tokensMinted, orgsCreated, _, _ := fakeGiteaServer(t)
+	svc := &WorkflowService{
+		Queries: db.New(pool),
+		Gitea:   gitea.NewClient(gitea.Config{BaseURL: srv.URL, Token: "admin-tok"}),
+	}
+
+	svc.ScaffoldRunDeliverables(ctx, db.MulticaWorkflowRun{
+		ID: fix.run1, WorkflowID: fix.workflow, WorkspaceID: fix.workspace,
+	})
+
+	if *tokensMinted != 1 {
+		t.Fatalf("code-only workflow: tokens minted = %d, want exactly 1 (repo must scaffold under M5 decision ①)", *tokensMinted)
+	}
+	if *orgsCreated != 1 {
+		t.Fatalf("code-only workflow: orgs created = %d, want exactly 1 (repo must scaffold under M5 decision ①)", *orgsCreated)
+	}
+	settings := workspaceSettings(t, pool, fix.workspace)
+	if pat, _ := settings["gitea_pat"].(string); pat == "" {
+		t.Fatalf("code-only workflow must persist gitea_pat (M5 decision ①): %+v", settings)
+	}
+}
+
 func TestScaffoldRunDeliverables_DefaultWorkflowUsesArchiveRepo(t *testing.T) {
 	pool := openTestPool(t)
 	defer pool.Close()
@@ -382,15 +423,18 @@ func TestScaffoldRunDeliverables_NoOpWhenGiteaNil(t *testing.T) {
 	})
 }
 
-// TestScaffoldRunDeliverables_NoOpWithoutDocumentDeliverable verifies that
-// code-only workflows (no document deliverable) skip scaffolding entirely:
-// no Gitea HTTP traffic, no PAT minted, nothing written to workspace.settings.
-func TestScaffoldRunDeliverables_NoOpWithoutDocumentDeliverable(t *testing.T) {
+// TestScaffoldRunDeliverables_NoOpWhenDeliverableFree verifies that a workflow
+// with NO deliverables at all (neither document nor pull_request) skips
+// scaffolding entirely: no Gitea HTTP traffic, no PAT minted, nothing written
+// to workspace.settings. (Note: "code-only" workflows — those with a
+// pull_request deliverable — DO scaffold under M5 decision ①; see
+// TestScaffoldRunDeliverables_ProvisionsRepoForCodeOnlyWorkflow.)
+func TestScaffoldRunDeliverables_NoOpWhenDeliverableFree(t *testing.T) {
 	pool := openTestPool(t)
 	defer pool.Close()
 
 	// Workflow has a node but NO deliverable row.
-	fix := seedGiteaFixture(t, pool, false /*no document*/, 1 /*single run*/)
+	fix := seedGiteaFixture(t, pool, false /*no deliverable*/, 1 /*single run*/)
 	srv, tokensMinted, orgsCreated, _, _ := fakeGiteaServer(t)
 
 	svc := &WorkflowService{
@@ -403,14 +447,14 @@ func TestScaffoldRunDeliverables_NoOpWithoutDocumentDeliverable(t *testing.T) {
 	})
 
 	if *tokensMinted != 0 {
-		t.Fatalf("code-only workflow: %d tokens minted, want 0", *tokensMinted)
+		t.Fatalf("deliverable-free workflow: %d tokens minted, want 0", *tokensMinted)
 	}
 	if *orgsCreated != 0 {
-		t.Fatalf("code-only workflow: %d orgs created, want 0", *orgsCreated)
+		t.Fatalf("deliverable-free workflow: %d orgs created, want 0", *orgsCreated)
 	}
 	settings := workspaceSettings(t, pool, fix.workspace)
 	if pat, ok := settings["gitea_pat"]; ok && pat != "" {
-		t.Fatalf("code-only workflow wrote gitea_pat=%v, want absent/empty", pat)
+		t.Fatalf("deliverable-free workflow wrote gitea_pat=%v, want absent/empty", pat)
 	}
 }
 
@@ -1062,7 +1106,10 @@ func seedReviewSubmissionsNodeRun(t *testing.T, pool *pgxpool.Pool, fix *giteaFi
 	`, util.UUIDToString(fix.run1), util.UUIDToString(fix.node)).Scan(&nodeRunID); err != nil {
 		t.Fatalf("seed node run: %v", err)
 	}
-	for _, s := range []struct{ deliverable pgtype.UUID; url string }{
+	for _, s := range []struct {
+		deliverable pgtype.UUID
+		url         string
+	}{
 		{deliverableIDDoc, docPRURL},
 		{deliverableIDCode, codeMRURL},
 	} {
