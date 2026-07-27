@@ -328,6 +328,9 @@ func (s *WorkflowService) StartRunWithRuntimeSelection(ctx context.Context, work
 }
 
 func (s *WorkflowService) startRun(ctx context.Context, workflow db.MulticaWorkflow, triggeredByType, triggeredByID string, input json.RawMessage, runtimeSelectionPolicy string, runtimeID pgtype.UUID, dispatchKey string, runtimeContext workflowRunRuntimeContext) (*db.MulticaWorkflowRun, error) {
+	if workflow.IsTemplate {
+		return nil, errors.New("workflow template cannot be run")
+	}
 	triggeredByUUID, err := util.ParseUUID(triggeredByID)
 	if err != nil && triggeredByID != "" {
 		triggeredByUUID = pgtype.UUID{}
