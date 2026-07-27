@@ -67,7 +67,7 @@ func (r activeRunDefinitionReferences) complete(t *testing.T) {
 	}
 }
 
-func TestDeleteWorkflowNodeWithActiveRunReturnsConflict(t *testing.T) {
+func TestWorkflowNodeActiveRunReferenceLifecycle(t *testing.T) {
 	references := prepareActiveRunDefinitionReferences(t)
 	defer references.fixture.cleanup(t)
 
@@ -82,7 +82,7 @@ func TestDeleteWorkflowNodeWithActiveRunReturnsConflict(t *testing.T) {
 	}
 }
 
-func TestDeleteWorkflowNodeDeliverableWithActiveRunReturnsConflict(t *testing.T) {
+func TestWorkflowDeliverableActiveRunReferenceLifecycle(t *testing.T) {
 	references := prepareActiveRunDefinitionReferences(t)
 	defer references.fixture.cleanup(t)
 
@@ -97,7 +97,7 @@ func TestDeleteWorkflowNodeDeliverableWithActiveRunReturnsConflict(t *testing.T)
 	}
 }
 
-func TestDeleteWorkflowRoleWithActiveRunReturnsConflict(t *testing.T) {
+func TestWorkflowRoleActiveRunReferenceLifecycle(t *testing.T) {
 	references := prepareActiveRunDefinitionReferences(t)
 	defer references.fixture.cleanup(t)
 
