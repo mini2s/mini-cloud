@@ -810,7 +810,12 @@ func (s *WorkflowService) CancelRun(ctx context.Context, runID pgtype.UUID) erro
 				}
 				cancelledNodeRuns = append(cancelledNodeRuns, updated)
 			}
-			// Cancel the sub-issue created for this node run.
+			// Cancel any active agent tasks for this node run's sub-issue.
+			// The sub-issue STATUS is not updated here: the
+			// OnNodeStatusChanged callback (handler.syncSubIssueForNodeRun)
+			// syncs it after commit and broadcasts issue:updated — writing
+			// the status inside this tx would preempt that path and silence
+			// inbox notifications, activity log, and frontend refresh.
 			subIssue, err := qtx.GetIssueByOrigin(ctx, db.GetIssueByOriginParams{
 				WorkspaceID: run.WorkspaceID,
 				OriginType:  pgtype.Text{String: "workflow", Valid: true},
@@ -819,18 +824,8 @@ func (s *WorkflowService) CancelRun(ctx context.Context, runID pgtype.UUID) erro
 			if err != nil {
 				continue // sub-issue may not exist yet; not an error
 			}
-			if subIssue.Status != "cancelled" && subIssue.Status != "done" {
-				if _, err := qtx.UpdateIssueStatus(ctx, db.UpdateIssueStatusParams{
-					ID:          subIssue.ID,
-					Status:      "cancelled",
-					WorkspaceID: run.WorkspaceID,
-				}); err != nil {
-					return fmt.Errorf("cancel sub-issue %s: %w", util.UUIDToString(subIssue.ID), err)
-				}
-				// Cancel any active agent tasks for this sub-issue.
-				if _, err := qtx.CancelAgentTasksByIssue(ctx, subIssue.ID); err != nil {
-					slog.Warn("failed to cancel agent tasks for sub-issue", "issue_id", util.UUIDToString(subIssue.ID), "error", err)
-				}
+			if _, err := qtx.CancelAgentTasksByIssue(ctx, subIssue.ID); err != nil {
+				slog.Warn("failed to cancel agent tasks for sub-issue", "issue_id", util.UUIDToString(subIssue.ID), "error", err)
 			}
 		}
 		if err := qtx.CancelWorkflowRoleResolutionJobs(ctx, runID); err != nil {

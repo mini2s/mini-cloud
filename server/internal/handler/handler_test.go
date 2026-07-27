@@ -25,6 +25,7 @@ import (
 
 var testHandler *Handler
 var testPool *pgxpool.Pool
+var testBus *events.Bus
 var testUserID string
 var testWorkspaceID string
 var testRuntimeID string
@@ -57,6 +58,7 @@ func TestMain(m *testing.M) {
 	hub := realtime.NewHub()
 	go hub.Run()
 	bus := events.New()
+	testBus = bus
 	emailSvc := service.NewEmailService()
 	testHandler = New(queries, pool, hub, bus, emailSvc, nil, nil, analytics.NoopClient{}, Config{AllowSignup: true})
 	// httptest.NewRequest defaults RemoteAddr to 192.0.2.1, so every webhook
