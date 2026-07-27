@@ -136,8 +136,31 @@ func TestGatewayRunForkAndJoinSemantics(t *testing.T) {
 	}
 	t.Cleanup(func() {
 		_, _ = pool.Exec(ctx, `DELETE FROM multica_workflow WHERE workspace_id = $1`, workspaceID)
+		_, _ = pool.Exec(ctx, `DELETE FROM multica_member WHERE workspace_id = $1`, workspaceID)
 		_, _ = pool.Exec(ctx, `DELETE FROM multica_workspace WHERE id = $1`, workspaceID)
+		_, _ = pool.Exec(ctx, `DELETE FROM multica_user WHERE email = $1`, "gateway-user-"+suffix+"@multica.ai")
 	})
+
+	// The role-resolution dispatch model requires each human worker/critic slot
+	// to carry a recipient (member_id) on the node. Seed a member and assign it
+	// to every node's worker_id/critic_id — gateway nodes ignore it (they
+	// auto-complete), human nodes need it to dispatch.
+	var userID string
+	if err := pool.QueryRow(ctx, `
+		INSERT INTO multica_user (name, email)
+		VALUES ($1, $2)
+		RETURNING id
+	`, "Gateway User "+suffix, "gateway-user-"+suffix+"@multica.ai").Scan(&userID); err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+	var memberID string
+	if err := pool.QueryRow(ctx, `
+		INSERT INTO multica_member (workspace_id, user_id, role)
+		VALUES ($1, $2, 'owner')
+		RETURNING id
+	`, workspaceID, userID).Scan(&memberID); err != nil {
+		t.Fatalf("create member: %v", err)
+	}
 
 	var workflowID string
 	if err := pool.QueryRow(ctx, `
@@ -154,11 +177,11 @@ func TestGatewayRunForkAndJoinSemantics(t *testing.T) {
 		if err := pool.QueryRow(ctx, `
 			INSERT INTO multica_workflow_node (
 				workflow_id, title, description, position_x, position_y,
-				format_schema, worker_type, critic_type, sort_order
+				format_schema, worker_type, worker_id, critic_type, critic_id, sort_order
 			)
-			VALUES ($1, $2, '', 0, 0, $3::jsonb, 'human', 'human', 0)
+			VALUES ($1, $2, '', 0, 0, $3::jsonb, 'human', $4, 'human', $4, 0)
 			RETURNING id
-		`, workflowID, title, format).Scan(&id); err != nil {
+		`, workflowID, title, format, memberID).Scan(&id); err != nil {
 			t.Fatalf("create node %s: %v", title, err)
 		}
 		return id
@@ -236,16 +259,24 @@ func TestGatewayRunForkAndJoinSemantics(t *testing.T) {
 	completeHumanNode := func(nodeID string) {
 		t.Helper()
 		nodeRun := getNodeRun(nodeID)
+		// Drive the human worker+critic lifecycle:
+		// WorkerAssigned → Working → AwaitingCritic → CriticReviewing → (approve) → Completed.
+		// ReviewNodeRun(approved) performs critic_approved→completed AND propagates
+		// via OnNodeRunCompleted, so no manual propagation is needed.
 		working, err := svc.TransitionNodeRun(ctx, nodeRun, NodeRunStatusWorking)
 		if err != nil {
 			t.Fatalf("transition %s to working: %v", nodeID, err)
 		}
-		completed, err := svc.TransitionNodeRun(ctx, *working, NodeRunStatusCompleted)
+		awaiting, err := svc.TransitionNodeRun(ctx, *working, NodeRunStatusAwaitingCritic)
 		if err != nil {
-			t.Fatalf("transition %s to completed: %v", nodeID, err)
+			t.Fatalf("transition %s to awaitingCritic: %v", nodeID, err)
 		}
-		if err := svc.OnNodeRunCompleted(ctx, completed.ID); err != nil {
-			t.Fatalf("propagate %s completion: %v", nodeID, err)
+		reviewing, err := svc.TransitionNodeRun(ctx, *awaiting, NodeRunStatusCriticReviewing)
+		if err != nil {
+			t.Fatalf("transition %s to criticReviewing: %v", nodeID, err)
+		}
+		if err := svc.ReviewNodeRun(ctx, reviewing.ID, true /*approved*/, "ok", nil); err != nil {
+			t.Fatalf("review %s approved: %v", nodeID, err)
 		}
 	}
 
