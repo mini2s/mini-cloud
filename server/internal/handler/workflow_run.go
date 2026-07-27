@@ -1168,6 +1168,25 @@ func (h *Handler) SubmitNodeRunDeliverable(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
+	// M5: archive the code MR pointer into the run's Gitea repo (best-effort,
+	// async — never blocks the submission response). Document deliverables go via
+	// git PR and don't enter this archive path; only a pull_request submission
+	// carries a worker's MR URL worth archiving.
+	if req.PullRequestURL != "" && h.WorkflowService != nil {
+		if nr, err := h.Queries.GetWorkflowNodeRun(r.Context(), nrUUID); err == nil {
+			if deliverables, err := h.Queries.ListWorkflowNodeDeliverables(r.Context(), nr.WorkflowNodeID); err == nil {
+				for _, d := range deliverables {
+					if d.ID == dUUID {
+						d := d // capture for the goroutine
+						go h.WorkflowService.ArchiveCodeDeliverable(
+							context.Background(), nr, d, req.PullRequestURL, "", "", "")
+						break
+					}
+				}
+			}
+		}
+	}
+
 	writeJSON(w, http.StatusOK, workflowNodeDeliverableSubmissionToResponse(submission))
 }
 

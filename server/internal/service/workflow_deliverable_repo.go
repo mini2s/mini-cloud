@@ -789,6 +789,61 @@ func (s *WorkflowService) ArchiveReviewComment(ctx context.Context, nodeRun db.M
 	slog.Info("archived review comment", "node_run_id", nodeRunIDStr, "round", round, "verdict", verdict, "path", path)
 }
 
+// ArchiveCodeDeliverable archives a code (GitLab MR) deliverable's pointer into
+// the run's Gitea repo (inst branch), co-located with the node's other artifacts
+// under nodes/<NN>-<nodeTitle>-<nodeRunShort>/code/<deliverableID>.md. The MR
+// itself stays in GitLab (source of truth); this is a best-effort read-only audit
+// copy so the Gitea repo is the unified archive of EVERYTHING a node produced
+// (document + code + review + split). Errors are logged, never block submission.
+//
+// M5 simplification: the handler only has the MR URL (the worker's submission
+// payload); codeRepoURL/branch/agentName come from the task payload and aren't
+// threaded through yet, so those frontmatter fields stay empty for now. The MR
+// URL is the key pointer — the rest is a follow-up.
+func (s *WorkflowService) ArchiveCodeDeliverable(ctx context.Context, nodeRun db.MulticaWorkflowNodeRun, deliverable db.MulticaWorkflowNodeDeliverable, mrURL, codeRepoURL, codeBranch, agentName string) {
+	repoProvider := s.deliverableRepository()
+	if !repoProvider.Configured() || mrURL == "" {
+		return
+	}
+	run, err := s.Queries.GetWorkflowRun(ctx, nodeRun.WorkflowRunID)
+	if err != nil {
+		slog.Warn("archive code deliverable: get run", "error", err)
+		return
+	}
+	workflow, err := s.Queries.GetWorkflow(ctx, run.WorkflowID)
+	if err != nil {
+		slog.Warn("archive code deliverable: get workflow", "error", err)
+		return
+	}
+	node, err := s.Queries.GetWorkflowNode(ctx, nodeRun.WorkflowNodeID)
+	if err != nil {
+		slog.Warn("archive code deliverable: get node", "error", err)
+		return
+	}
+
+	nodeRunIDStr := util.UUIDToString(nodeRun.ID)
+	// Topological position for the <NN> prefix; fall back to sort_order if the
+	// graph lookup fails so code archival is never skipped on a rare DB error
+	// (mirrors ArchiveReviewComment's nodeSeq derivation).
+	nodeSeq := int(node.SortOrder)
+	if topo, err := NodeTopoOrder(ctx, s.Queries, run.WorkflowID); err == nil {
+		nodeSeq = topo[util.UUIDToString(node.ID)]
+	}
+	path := gitea.NodeDir(nodeSeq, nodeRun.NodeTitle, nodeRunIDStr) + "/" +
+		gitea.CodePath(util.UUIDToString(deliverable.ID))
+	content := fmt.Sprintf("---\ndeliverable_id: %s\nmr_url: %s\ncode_repo: %s\nbranch: %s\nagent: %s\nnode_run: %s\n---\n\n## 代码 MR\n\n%s\n",
+		util.UUIDToString(deliverable.ID), mrURL, codeRepoURL, codeBranch, agentName, nodeRunIDStr, mrURL)
+
+	owner := gitea.OrgName(util.UUIDToString(run.WorkspaceID))
+	repo := DeliverableRepoNameForWorkflow(workflow)
+	inst := gitea.InstBranch(util.UUIDToString(run.ID))
+	if err := repoProvider.UpsertFile(ctx, owner, repo, inst, path, content, "code deliverable: "+mrURL); err != nil {
+		slog.Warn("archive code deliverable: write file", "node_run_id", nodeRunIDStr, "path", path, "error", err)
+		return
+	}
+	slog.Info("archived code deliverable", "node_run_id", nodeRunIDStr, "deliverable_id", util.UUIDToString(deliverable.ID), "path", path)
+}
+
 // shortHexSafe returns the first 8 hex chars of a UUID string, or the full
 // string if shorter (defensive — the gitea package's shortHex panics on
 // non-UUID, so we validate first).

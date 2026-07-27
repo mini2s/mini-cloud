@@ -14,6 +14,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/multica-ai/multica/server/internal/coderepo"
 	"github.com/multica-ai/multica/server/internal/events"
 	"github.com/multica-ai/multica/server/internal/gitea"
 	"github.com/multica-ai/multica/server/internal/util"
@@ -635,6 +636,189 @@ func TestArchiveReviewComment_WritesReviewUnderNodeDir(t *testing.T) {
 			}
 		})
 	}
+}
+
+// spyRepoProvider is a coderepo.RepositoryProvider spy that records UpsertFile
+// calls (the only method ArchiveCodeDeliverable exercises). Other methods are
+// stubbed to no-op so the spy satisfies the interface without a full httptest
+// backend. Used by the ArchiveCodeDeliverable test to assert the exact owner,
+// repo, branch, path, and content handed to UpsertFile.
+type spyRepoProvider struct {
+	configured bool
+	mu         sync.Mutex
+	upserts    []spyUpsertCall
+}
+
+type spyUpsertCall struct {
+	Owner, Repo, Branch, Path, Content, Message string
+}
+
+func (s *spyRepoProvider) Name() coderepo.Provider { return coderepo.ProviderGitea }
+func (s *spyRepoProvider) Configured() bool        { return s.configured }
+func (s *spyRepoProvider) CreateBranch(ctx context.Context, owner, repo, branch, fromRef string) error {
+	return nil
+}
+func (s *spyRepoProvider) UpsertFile(ctx context.Context, owner, repo, branch, p, content, message string) error {
+	s.mu.Lock()
+	s.upserts = append(s.upserts, spyUpsertCall{owner, repo, branch, p, content, message})
+	s.mu.Unlock()
+	return nil
+}
+func (s *spyRepoProvider) OpenReviewRequest(ctx context.Context, owner, repo, head, base, title string) (string, error) {
+	return "", nil
+}
+func (s *spyRepoProvider) MergeReviewRequest(ctx context.Context, owner, repo string, index int) error {
+	return nil
+}
+func (s *spyRepoProvider) CloseReviewRequest(ctx context.Context, owner, repo string, index int) error {
+	return nil
+}
+func (s *spyRepoProvider) ListOrgMembers(ctx context.Context, org string) ([]coderepo.OrgMember, error) {
+	return nil, nil
+}
+
+func (s *spyRepoProvider) snapshot() []spyUpsertCall {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := make([]spyUpsertCall, len(s.upserts))
+	copy(out, s.upserts)
+	return out
+}
+
+// TestArchiveCodeDeliverable_WritesCodePointerUnderNodeDir asserts that a code
+// (GitLab MR) deliverable is archived co-located with the node's other artifacts
+// under nodes/<NN>-<title>-<short>/code/<deliverableID>.md when a pull_request
+// submission arrives. The MR itself stays in GitLab (source of truth); this is
+// a best-effort read-only audit copy in the run's Gitea repo. Also covers the
+// two no-op paths: empty MR URL and a dormant (not Configured) provider.
+func TestArchiveCodeDeliverable_WritesCodePointerUnderNodeDir(t *testing.T) {
+	pool := openTestPool(t)
+	defer pool.Close()
+
+	fix := seedGiteaFixture(t, pool, false /*no document deliverable*/, 1 /*single run*/)
+	queries := db.New(pool)
+	ctx := context.Background()
+
+	// Seed a pull_request-kind deliverable on the node.
+	var deliverableID string
+	if err := pool.QueryRow(ctx, `
+		INSERT INTO multica_workflow_node_deliverable (workflow_node_id, kind, title, description, required, sort_order)
+		VALUES ($1, 'pull_request', 'Source MR', 'the worker code MR', TRUE, 0)
+		RETURNING id
+	`, fix.node).Scan(&deliverableID); err != nil {
+		t.Fatalf("seed pull_request deliverable: %v", err)
+	}
+
+	// Seed a node_run under the seeded run.
+	var nodeRunID string
+	if err := pool.QueryRow(ctx, `
+		INSERT INTO multica_workflow_node_run (
+			workflow_run_id, workflow_node_id, node_title, status, worker_type, critic_type
+		)
+		VALUES ($1, $2, '实现', 'format_ok', 'agent', 'human')
+		RETURNING id
+	`, fix.run1, fix.node).Scan(&nodeRunID); err != nil {
+		t.Fatalf("seed node run: %v", err)
+	}
+	nodeRunUUID, _ := util.ParseUUID(nodeRunID)
+	nodeRun, err := queries.GetWorkflowNodeRun(ctx, nodeRunUUID)
+	if err != nil {
+		t.Fatalf("get node run: %v", err)
+	}
+	node, err := queries.GetWorkflowNode(ctx, nodeRun.WorkflowNodeID)
+	if err != nil {
+		t.Fatalf("get node: %v", err)
+	}
+	workflow, err := queries.GetWorkflow(ctx, fix.workflow)
+	if err != nil {
+		t.Fatalf("get workflow: %v", err)
+	}
+	deliverableUUID, _ := util.ParseUUID(deliverableID)
+	deliverable, err := lookupNodeDeliverable(ctx, queries, fix.node, deliverableUUID)
+	if err != nil {
+		t.Fatalf("get deliverable: %v", err)
+	}
+
+	const mrURL = "https://gitlab.example.com/group/proj/-/merge_requests/1"
+
+	// Expected topological position for the node — mirrors the nodeSeq derivation
+	// in ArchiveCodeDeliverable (topo first, fall back to sort_order). Computed
+	// once outside the sub-tests so the assertion reflects the same path logic.
+	wantNodeSeq := int(node.SortOrder)
+	if topo, err := NodeTopoOrder(ctx, queries, fix.workflow); err == nil {
+		wantNodeSeq = topo[util.UUIDToString(node.ID)]
+	}
+
+	t.Run("archives_mr_pointer", func(t *testing.T) {
+		spy := &spyRepoProvider{configured: true}
+		svc := &WorkflowService{Queries: queries, RepositoryProvider: spy}
+
+		svc.ArchiveCodeDeliverable(ctx, nodeRun, deliverable, mrURL, "", "", "")
+
+		calls := spy.snapshot()
+		if len(calls) != 1 {
+			t.Fatalf("UpsertFile calls = %d, want 1", len(calls))
+		}
+		got := calls[0]
+		wantOwner := gitea.OrgName(util.UUIDToString(fix.workspace))
+		wantRepo := DeliverableRepoNameForWorkflow(workflow)
+		wantBranch := gitea.InstBranch(util.UUIDToString(fix.run1))
+		if got.Owner != wantOwner || got.Repo != wantRepo || got.Branch != wantBranch {
+			t.Errorf(" UpsertFile target = %s/%s @%s, want %s/%s @%s",
+				got.Owner, got.Repo, got.Branch, wantOwner, wantRepo, wantBranch)
+		}
+		// Full path: NodeDir(...) + "/" + CodePath(<deliverableID>).
+		wantPath := gitea.NodeDir(wantNodeSeq, nodeRun.NodeTitle, nodeRunID) + "/" +
+			gitea.CodePath(deliverableID)
+		if got.Path != wantPath {
+			t.Errorf("UpsertFile path = %q, want %q", got.Path, wantPath)
+		}
+		if !strings.Contains(got.Path, "/code/"+deliverableID+".md") {
+			t.Errorf("UpsertFile path = %q, want it under code/<deliverableID>.md", got.Path)
+		}
+		// Content carries the MR URL (the key pointer).
+		if !strings.Contains(got.Content, mrURL) {
+			t.Errorf("UpsertFile content missing MR URL %q; content=%q", mrURL, got.Content)
+		}
+	})
+
+	t.Run("noop_when_mr_url_empty", func(t *testing.T) {
+		spy := &spyRepoProvider{configured: true}
+		svc := &WorkflowService{Queries: queries, RepositoryProvider: spy}
+
+		svc.ArchiveCodeDeliverable(ctx, nodeRun, deliverable, "", "", "", "")
+
+		if calls := spy.snapshot(); len(calls) != 0 {
+			t.Fatalf("UpsertFile calls = %d, want 0 (empty MR URL = no-op)", len(calls))
+		}
+	})
+
+	t.Run("noop_when_provider_dormant", func(t *testing.T) {
+		spy := &spyRepoProvider{configured: false}
+		svc := &WorkflowService{Queries: queries, RepositoryProvider: spy}
+
+		svc.ArchiveCodeDeliverable(ctx, nodeRun, deliverable, mrURL, "", "", "")
+
+		if calls := spy.snapshot(); len(calls) != 0 {
+			t.Fatalf("UpsertFile calls = %d, want 0 (dormant provider = no-op)", len(calls))
+		}
+	})
+}
+
+// lookupNodeDeliverable loads a single deliverable by ID via the list-then-filter
+// pattern (sqlc generated no GetWorkflowNodeDeliverable :one query). Returns the
+// matching row or an error if not found on the node.
+func lookupNodeDeliverable(ctx context.Context, q *db.Queries, nodeID, deliverableID pgtype.UUID) (db.MulticaWorkflowNodeDeliverable, error) {
+	deliverables, err := q.ListWorkflowNodeDeliverables(ctx, nodeID)
+	if err != nil {
+		return db.MulticaWorkflowNodeDeliverable{}, err
+	}
+	for _, d := range deliverables {
+		if d.ID == deliverableID {
+			return d, nil
+		}
+	}
+	return db.MulticaWorkflowNodeDeliverable{}, fmt.Errorf("deliverable %s not found on node %s", deliverableID, nodeID)
 }
 
 // fakeGiteaMergeServer stands up an httptest server that responds to PR merge
