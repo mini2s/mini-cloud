@@ -838,6 +838,57 @@ func TestGetIssueGCCheck_WithDaemonToken_CrossWorkspace(t *testing.T) {
 	}
 }
 
+func TestGetWorkflowNodeRunGCCheck(t *testing.T) {
+	if testHandler == nil {
+		t.Skip("database not available")
+	}
+
+	// seedDeliverableAndNodeRunIn builds workflow→node→run→node_run under the
+	// test workspace with the node_run in 'working' status. Stamp it terminal
+	// and stale so a GC caller sees a reclaimable record.
+	nodeRunID, _ := seedDeliverableAndNodeRunIn(t, testWorkspaceID, testUserID)
+	if _, err := testPool.Exec(context.Background(), `
+		UPDATE multica_workflow_node_run SET status = 'completed', completed_at = NOW() - INTERVAL '10 days'
+		WHERE id = $1`, nodeRunID); err != nil {
+		t.Fatalf("stamp node run: %v", err)
+	}
+
+	// Cross-workspace daemon token → 404 (anti-enumeration, same shape as the
+	// issue gc-check endpoint).
+	w := httptest.NewRecorder()
+	req := newDaemonTokenRequest(http.MethodGet, "/api/daemon/workflow-node-runs/"+nodeRunID+"/gc-check", nil,
+		"00000000-0000-0000-0000-000000000000", "attacker-daemon")
+	req = withURLParam(req, "nodeRunId", nodeRunID)
+	testHandler.GetWorkflowNodeRunGCCheck(w, req)
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("cross-workspace token: expected 404, got %d: %s", w.Code, w.Body.String())
+	}
+
+	// Same-workspace daemon token → 200 + status + completed_at.
+	w = httptest.NewRecorder()
+	req = newDaemonTokenRequest(http.MethodGet, "/api/daemon/workflow-node-runs/"+nodeRunID+"/gc-check", nil,
+		testWorkspaceID, "legit-daemon")
+	req = withURLParam(req, "nodeRunId", nodeRunID)
+	testHandler.GetWorkflowNodeRunGCCheck(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("same-workspace token: expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp struct {
+		Status      string `json:"status"`
+		CompletedAt string `json:"completed_at"`
+	}
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if resp.Status != "completed" {
+		t.Fatalf("expected status %q, got %q", "completed", resp.Status)
+	}
+	if resp.CompletedAt == "" {
+		t.Fatal("expected completed_at to be set")
+	}
+}
+
 // withURLParams merges the given chi URL parameters into the request context.
 // Unlike calling withURLParam twice (which replaces the whole chi.RouteContext
 // and loses earlier params), this preserves previously-added params.

@@ -421,6 +421,7 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 		r.Get("/chat-sessions/{sessionId}/gc-check", h.GetChatSessionGCCheck)
 		r.Get("/autopilot-runs/{runId}/gc-check", h.GetAutopilotRunGCCheck)
 		r.Get("/tasks/{taskId}/gc-check", h.GetTaskGCCheck)
+		r.Get("/workflow-node-runs/{nodeRunId}/gc-check", h.GetWorkflowNodeRunGCCheck)
 
 		r.Post("/runtimes/{runtimeId}/recover-orphans", h.RecoverOrphanedTasks)
 		r.Post("/tasks/{taskId}/session", h.PinTaskSession)
