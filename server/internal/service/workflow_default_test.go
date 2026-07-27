@@ -234,6 +234,12 @@ func TestStartDefaultRunForIssue_AgentAssignee(t *testing.T) {
 	if got.CriticType != "human" || got.CriticID != memberUUID {
 		t.Fatalf("critic override: type=%q id=%v, want human/%v", got.CriticType, got.CriticID, memberUUID)
 	}
+	if got.WorkerNameSnapshot != "SD Agent" || got.CriticNameSnapshot != "SD User "+suffix {
+		t.Fatalf(
+			"actor name snapshots: worker=%q critic=%q, want %q/%q",
+			got.WorkerNameSnapshot, got.CriticNameSnapshot, "SD Agent", "SD User "+suffix,
+		)
+	}
 
 	// Run preparation durably enqueues dispatch; the worker creates the agent
 	// task asynchronously.

@@ -18,9 +18,9 @@ import {
   workflowEdgesOptions,
   workflowNodeRunsOptions,
   workflowRunCanvasSummaryOptions,
+  workflowRunCanvasDefinition,
   workflowRolesOptions,
   workflowRoleResolutionsOptions,
-  workflowNodeDeliverablesOptions,
   nodeRunDeliverableSubmissionsOptions,
   splitTasksOptions,
   splitIssueWorkflowOptions,
@@ -646,25 +646,36 @@ export function ExecutionPanoramaPage({
   const paths = useWorkspacePaths();
   const navigation = useNavigation();
   const { t } = useT("issues");
+  const { t: tWf } = useT("workflows");
   // ---- Data queries ----
-  const { isLoading: wfLoading } = useQuery(
-    workflowDetailOptions(wsId, workflowId),
+  const { data: canvasSummary, isLoading: canvasSummaryLoading } = useQuery({
+    ...workflowRunCanvasSummaryOptions(wsId, workflowId, runId ?? ""),
+    enabled: !!runId,
+  });
+  const run = runId ? canvasSummary?.run : undefined;
+  const shouldLoadCurrentDefinition = !runId || Boolean(
+    run?.id &&
+    (run.definition_schema_version ?? 0) <= 0 &&
+    !run.definition_snapshot,
   );
+  const { isLoading: wfLoading } = useQuery({
+    ...workflowDetailOptions(wsId, workflowId),
+    enabled: shouldLoadCurrentDefinition,
+  });
   const { data: stages, isLoading: stLoading } = useQuery(
-    workflowStagesOptions(wsId, workflowId),
+    { ...workflowStagesOptions(wsId, workflowId), enabled: shouldLoadCurrentDefinition },
   );
   const { data: nodes, isLoading: ndLoading } = useQuery(
-    workflowNodesOptions(wsId, workflowId),
+    { ...workflowNodesOptions(wsId, workflowId), enabled: shouldLoadCurrentDefinition },
   );
   const { data: nodeRuns = [] } = useQuery({
     ...workflowNodeRunsOptions(wsId, workflowId, runId ?? ""),
     enabled: !!runId,
   });
-  const { data: canvasSummary } = useQuery({
-    ...workflowRunCanvasSummaryOptions(wsId, workflowId, runId ?? ""),
-    enabled: !!runId,
+  const { data: edges } = useQuery({
+    ...workflowEdgesOptions(wsId, workflowId),
+    enabled: shouldLoadCurrentDefinition,
   });
-  const { data: edges } = useQuery(workflowEdgesOptions(wsId, workflowId));
   const { data: agents } = useQuery(agentListOptions(wsId));
   const { data: workflowRoles = [] } = useQuery(workflowRolesOptions(wsId));
   const { data: members = [] } = useQuery(memberListOptions(wsId));
@@ -672,7 +683,6 @@ export function ExecutionPanoramaPage({
     ...workflowRoleResolutionsOptions(wsId, workflowId, runId ?? ""),
     enabled: !!runId,
   });
-  const { t: tWf } = useT("workflows");
   const { data: squads } = useQuery(squadListOptions(wsId));
   const { byAgent: presenceByAgent } = useWorkspacePresenceMap(wsId);
   const actorTypeLabels = useMemo<Record<WorkflowActorEntityType, string>>(() => ({
@@ -705,18 +715,33 @@ export function ExecutionPanoramaPage({
   const restoreViewportRequestIdRef = useRef(0);
   const [restoreViewportRequest, setRestoreViewportRequest] = useState<SplitViewportRestoreRequest | null>(null);
 
-  const allStages = useMemo<WorkflowStage[]>(() => stages ?? [], [stages]);
-  const allNodes = useMemo<WorkflowNode[]>(() => nodes ?? [], [nodes]);
+  const canvasNodeRuns = canvasSummary?.node_runs.length
+    ? canvasSummary.node_runs
+    : nodeRuns;
+  const snapshotCanvas = useMemo(
+    () => run && !shouldLoadCurrentDefinition
+      ? workflowRunCanvasDefinition(run, canvasNodeRuns, tWf(($) => $.run.roles.unknown_node))
+      : null,
+    [canvasNodeRuns, run, shouldLoadCurrentDefinition, tWf],
+  );
+  const allStages = useMemo<WorkflowStage[]>(
+    () => snapshotCanvas?.stages ?? stages ?? [],
+    [snapshotCanvas?.stages, stages],
+  );
+  const allNodes = useMemo<WorkflowNode[]>(
+    () => snapshotCanvas?.nodes ?? nodes ?? [],
+    [nodes, snapshotCanvas?.nodes],
+  );
+  const allEdges = snapshotCanvas?.edges ?? edges ?? [];
 
   // ---- Lookup maps ----
   const nodeRunMap = useMemo(() => {
     const map = new Map<string, WorkflowNodeRun>();
-    const runs = canvasSummary?.node_runs ?? nodeRuns;
-    for (const nr of runs) {
-      map.set(nr.workflow_node_id, nr);
+    for (const nr of canvasNodeRuns) {
+      map.set(nr.source_workflow_node_id ?? nr.workflow_node_id, nr);
     }
     return map;
-  }, [canvasSummary?.node_runs, nodeRuns]);
+  }, [canvasNodeRuns]);
 
   const runtimeSummaryMap = useMemo(() => {
     const map = new Map<string, WorkflowNodeRuntimeSummary>();
@@ -791,11 +816,6 @@ export function ExecutionPanoramaPage({
     }),
     [allNodes],
   );
-  const deliverableDefinitionQueries = useQueries({
-    queries: deliverableNodeEntries.map((node) =>
-      workflowNodeDeliverablesOptions(wsId, workflowId, node.id),
-    ),
-  });
   const deliverableSubmissionQueries = useQueries({
     queries: deliverableNodeEntries.map((node) => {
       const nodeRunId = nodeRunMap.get(node.id)?.id ?? "";
@@ -808,7 +828,7 @@ export function ExecutionPanoramaPage({
   const deliverablesByNodeId = useMemo(() => {
     const result = new Map<string, RuntimeNodeDeliverableSummary[]>();
     deliverableNodeEntries.forEach((node, index) => {
-      const definitions = [...(deliverableDefinitionQueries[index]?.data ?? [])]
+      const definitions = [...(deliverableSubmissionQueries[index]?.data?.deliverables ?? [])]
         .sort((left, right) => left.sort_order - right.sort_order);
       const submissions = deliverableSubmissionQueries[index]?.data?.submissions ?? [];
       const submissionByDeliverableId = new Map(
@@ -825,7 +845,7 @@ export function ExecutionPanoramaPage({
       }));
     });
     return result;
-  }, [deliverableDefinitionQueries, deliverableNodeEntries, deliverableSubmissionQueries]);
+  }, [deliverableNodeEntries, deliverableSubmissionQueries]);
 
   const handleToggleSplitNode = useCallback((nodeId: string) => {
     const isExpanded = expandedSplitNodeIds.has(nodeId);
@@ -1070,7 +1090,9 @@ export function ExecutionPanoramaPage({
   }, [queryClient, runId, workflowId, wsId]);
 
   // ---- Derived ----
-  const isLoading = wfLoading || stLoading || ndLoading;
+  const isLoading = runId
+    ? canvasSummaryLoading || (shouldLoadCurrentDefinition && (wfLoading || stLoading || ndLoading))
+    : wfLoading || stLoading || ndLoading;
 
   if (isLoading) {
     return (
@@ -1139,7 +1161,7 @@ export function ExecutionPanoramaPage({
     };
   });
   const baseRfEdges = workflowEdgesToReactFlowEdges({
-    edges: edges ?? [],
+    edges: allEdges,
     nodes: allNodes,
     stages: sortStagesForDisplay(allStages),
     includeCriticEdges: false,

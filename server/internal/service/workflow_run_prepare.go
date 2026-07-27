@@ -78,15 +78,25 @@ func (s *WorkflowService) PrepareWorkflowRunSnapshot(
 			return err
 		}
 		if workflow.IsDefault && params.defaultWorkerType != "" {
+			workerName, err := workflowActorSnapshotName(ctx, qtx, params.defaultWorkerType, params.defaultWorkerID)
+			if err != nil {
+				return fmt.Errorf("snapshot default worker name: %w", err)
+			}
+			criticName, err := workflowActorSnapshotName(ctx, qtx, params.defaultCriticType, params.defaultCriticID)
+			if err != nil {
+				return fmt.Errorf("snapshot default critic name: %w", err)
+			}
 			for i := range snapshot.Nodes {
 				if !snapshotNodeExecutesActors(snapshot.Nodes[i].Kind) {
 					continue
 				}
 				snapshot.Nodes[i].WorkerType = params.defaultWorkerType
 				snapshot.Nodes[i].WorkerID = util.UUIDToString(params.defaultWorkerID)
+				snapshot.Nodes[i].WorkerName = workerName
 				snapshot.Nodes[i].WorkerRoleID = ""
 				snapshot.Nodes[i].CriticType = params.defaultCriticType
 				snapshot.Nodes[i].CriticID = util.UUIDToString(params.defaultCriticID)
+				snapshot.Nodes[i].CriticName = criticName
 				snapshot.Nodes[i].CriticRoleID = ""
 			}
 		}
@@ -109,6 +119,34 @@ func (s *WorkflowService) PrepareWorkflowRunSnapshot(
 		return nil, configErr
 	}
 	return &prepared, nil
+}
+
+func workflowActorSnapshotName(ctx context.Context, qtx *db.Queries, actorType string, actorID pgtype.UUID) (string, error) {
+	if !actorID.Valid {
+		return "", nil
+	}
+	switch actorType {
+	case "human", "member":
+		actor, err := qtx.GetUser(ctx, actorID)
+		if err != nil {
+			return "", err
+		}
+		return actor.Name, nil
+	case "agent":
+		actor, err := qtx.GetAgent(ctx, actorID)
+		if err != nil {
+			return "", err
+		}
+		return actor.Name, nil
+	case "squad":
+		actor, err := qtx.GetSquad(ctx, actorID)
+		if err != nil {
+			return "", err
+		}
+		return actor.Name, nil
+	default:
+		return "", nil
+	}
 }
 
 func validateWorkflowDefinitionForRun(

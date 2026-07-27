@@ -143,8 +143,15 @@ func workflowRunToResponse(r db.MulticaWorkflowRun) WorkflowRunResponse {
 	}
 }
 
+func workflowNodeRunCanvasID(nr db.MulticaWorkflowNodeRun) string {
+	if nr.SourceWorkflowNodeID.Valid {
+		return uuidToString(nr.SourceWorkflowNodeID)
+	}
+	return uuidToString(nr.WorkflowNodeID)
+}
+
 func workflowNodeRunToResponse(nr db.MulticaWorkflowNodeRun) WorkflowNodeRunResponse {
-	sourceNodeID := uuidToString(nr.SourceWorkflowNodeID)
+	sourceNodeID := workflowNodeRunCanvasID(nr)
 	return WorkflowNodeRunResponse{
 		ID:                       uuidToString(nr.ID),
 		WorkflowRunID:            uuidToString(nr.WorkflowRunID),
@@ -482,7 +489,7 @@ func (h *Handler) GetWorkflowRunCanvasSummary(w http.ResponseWriter, r *http.Req
 		}
 
 		runtimeSummaries = append(runtimeSummaries, WorkflowNodeRuntimeSummaryResponse{
-			WorkflowNodeID:  uuidToString(nr.WorkflowNodeID),
+			WorkflowNodeID:  workflowNodeRunCanvasID(nr),
 			NodeRunID:       uuidToString(nr.ID),
 			DisplayStatus:   workflowDisplayStatus(nr.Status),
 			ActiveActorType: actorType,

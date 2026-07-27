@@ -1738,11 +1738,7 @@ func (s *WorkflowService) autoReplyEnabled(ctx context.Context, nodeRun db.Multi
 	if err != nil {
 		return false
 	}
-	wf, err := s.Queries.GetWorkflow(ctx, run.WorkflowID)
-	if err != nil {
-		return false
-	}
-	ws, err := s.Queries.GetWorkspace(ctx, wf.WorkspaceID)
+	ws, err := s.Queries.GetWorkspace(ctx, run.WorkspaceID)
 	if err != nil {
 		return false
 	}
@@ -1776,12 +1772,8 @@ func (s *WorkflowService) handleAutoReply(ctx context.Context, nodeRun db.Multic
 	if err != nil {
 		return err
 	}
-	wf, err := s.Queries.GetWorkflow(ctx, run.WorkflowID)
-	if err != nil {
-		return err
-	}
 	subIssue, err := s.Queries.GetIssueByOrigin(ctx, db.GetIssueByOriginParams{
-		WorkspaceID: wf.WorkspaceID,
+		WorkspaceID: run.WorkspaceID,
 		OriginType:  pgtype.Text{String: "workflow", Valid: true},
 		OriginID:    nodeRun.ID,
 	})
@@ -1791,7 +1783,7 @@ func (s *WorkflowService) handleAutoReply(ctx context.Context, nodeRun db.Multic
 
 	// Post a system comment with the auto-reply text.
 	commentContent := fmt.Sprintf("**%s**\n\nAuto-reply (recommended): %s", signal.Question, signal.Recommended)
-	s.createSystemComment(ctx, subIssue.ID, wf.WorkspaceID, commentContent)
+	s.createSystemComment(ctx, subIssue.ID, run.WorkspaceID, commentContent)
 
 	// Transition awaiting_input → working and dispatch a resume agent task.
 	updated, err := s.resumeNodeRunAndEnqueue(ctx, nodeRun)

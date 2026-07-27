@@ -47,21 +47,34 @@ func TestStartWorkflowRunReturnsStructuredConfigError(t *testing.T) {
 func TestWorkflowNodeRunResponseKeepsWorkflowNodeIDAlias(t *testing.T) {
 	legacyID := pgtype.UUID{Bytes: [16]byte{1}, Valid: true}
 	sourceID := pgtype.UUID{Bytes: [16]byte{2}, Valid: true}
-	response := workflowNodeRunToResponse(db.MulticaWorkflowNodeRun{
-		WorkflowNodeID: legacyID, SourceWorkflowNodeID: sourceID,
-	})
-	raw, err := json.Marshal(response)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var body struct {
-		WorkflowNodeID       string `json:"workflow_node_id"`
-		SourceWorkflowNodeID string `json:"source_workflow_node_id"`
-	}
-	if err := json.Unmarshal(raw, &body); err != nil {
-		t.Fatal(err)
-	}
-	if body.WorkflowNodeID == "" || body.WorkflowNodeID != body.SourceWorkflowNodeID {
-		t.Fatalf("response=%s", raw)
+	for _, test := range []struct {
+		name   string
+		source pgtype.UUID
+		want   pgtype.UUID
+	}{
+		{name: "source snapshot id", source: sourceID, want: sourceID},
+		{name: "legacy id fallback", want: legacyID},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			nodeRun := db.MulticaWorkflowNodeRun{
+				WorkflowNodeID: legacyID, SourceWorkflowNodeID: test.source,
+			}
+			response := workflowNodeRunToResponse(nodeRun)
+			raw, err := json.Marshal(response)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var body struct {
+				WorkflowNodeID       string `json:"workflow_node_id"`
+				SourceWorkflowNodeID string `json:"source_workflow_node_id"`
+			}
+			if err := json.Unmarshal(raw, &body); err != nil {
+				t.Fatal(err)
+			}
+			want := uuidToString(test.want)
+			if workflowNodeRunCanvasID(nodeRun) != want || body.WorkflowNodeID != want || body.SourceWorkflowNodeID != want {
+				t.Fatalf("response=%s canvas_id=%q want=%q", raw, workflowNodeRunCanvasID(nodeRun), want)
+			}
+		})
 	}
 }

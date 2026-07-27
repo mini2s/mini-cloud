@@ -20,6 +20,7 @@ func TestRuntimeFilesDoNotReadWorkflowDefinitionTables(t *testing.T) {
 		}
 		for _, forbidden := range []string{
 			"GetWorkflowNode(ctx", "ListWorkflowEdgesBySource(ctx", "ListWorkflowEdgesByTarget(ctx",
+			"GetWorkflow(ctx, run.WorkflowID)",
 		} {
 			if bytes.Contains(body, []byte(forbidden)) {
 				t.Errorf("%s contains runtime definition read %s", name, forbidden)
