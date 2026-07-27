@@ -366,6 +366,10 @@ func (s *WorkflowService) ScaffoldRunDeliverables(ctx context.Context, run db.Mu
 			return
 		}
 		s.syncWorkspaceMembers(ctx, run.WorkspaceID)
+		// M5: register this child run's deliverable address into its parent
+		// issue's Gitea repo (if this run's source issue is a split-out child).
+		// Best-effort, async — never blocks scaffolding.
+		go s.ArchiveSubIssueAddress(context.Background(), run, workflow)
 		return
 	}
 
@@ -390,6 +394,10 @@ func (s *WorkflowService) ScaffoldRunDeliverables(ctx context.Context, run db.Mu
 	//    Best-effort + count-gated: never blocks the run, only re-provisions
 	//    when the member count changes since the last sync.
 	s.syncWorkspaceMembers(ctx, run.WorkspaceID)
+	// M5: register this child run's deliverable address into its parent issue's
+	// Gitea repo (if this run's source issue is a split-out child). Best-effort,
+	// async — never blocks scaffolding.
+	go s.ArchiveSubIssueAddress(context.Background(), run, workflow)
 }
 
 // ensureNodeRunBranch creates the node-run branch when a node enters execution.
@@ -842,6 +850,150 @@ func (s *WorkflowService) ArchiveCodeDeliverable(ctx context.Context, nodeRun db
 		return
 	}
 	slog.Info("archived code deliverable", "node_run_id", nodeRunIDStr, "deliverable_id", util.UUIDToString(deliverable.ID), "path", path)
+}
+
+// ArchiveSubIssueAddress registers a split-out child issue's deliverable-repo
+// address into the PARENT issue's Gitea repo, under the split node's directory
+// (nodes/<split-NN>-.../splits/<childIssueNumber>-<title>.md). Hooked at the
+// child run's ScaffoldRunDeliverables (after the child's own repo is created),
+// so the parent repo incrementally indexes each child's deliverable repo as
+// children are provisioned — letting later nodes / humans discover children's
+// deliverables by browsing the parent repo. Best-effort: skips silently when
+// the child has no parent, the parent has no Gitea repo, or the parent run has
+// no split node. Errors are logged, never block the child run.
+func (s *WorkflowService) ArchiveSubIssueAddress(ctx context.Context, childRun db.MulticaWorkflowRun, childWorkflow db.MulticaWorkflow) {
+	repoProvider := s.deliverableRepository()
+	if !repoProvider.Configured() {
+		return // feature dormant
+	}
+	if !childRun.SourceIssueID.Valid {
+		return // run isn't tied to an issue — can't be a split child
+	}
+
+	// 1. childRun.SourceIssueID → child issue.
+	childIssue, err := s.Queries.GetIssue(ctx, childRun.SourceIssueID)
+	if err != nil {
+		slog.Warn("archive sub-issue address: get child issue",
+			"run_id", util.UUIDToString(childRun.ID), "error", err)
+		return
+	}
+	// 2. Not a split child → no-op.
+	if !childIssue.ParentIssueID.Valid {
+		return
+	}
+	// 3. childIssue.ParentIssueID → parent issue (needed for Number + Title).
+	parentIssue, err := s.Queries.GetIssue(ctx, childIssue.ParentIssueID)
+	if err != nil {
+		slog.Warn("archive sub-issue address: get parent issue",
+			"child_issue_id", util.UUIDToString(childIssue.ID), "error", err)
+		return
+	}
+	// 4. parent issue → parent run (latest run keyed by source_issue_id).
+	parentRun, err := s.Queries.GetWorkflowRunBySourceIssue(ctx, childIssue.ParentIssueID)
+	if err != nil {
+		slog.Warn("archive sub-issue address: get parent run",
+			"parent_issue_id", util.UUIDToString(parentIssue.ID), "error", err)
+		return
+	}
+	// 5. parent run → node-runs → find the FIRST split node-run.
+	parentNodeRuns, err := s.Queries.ListWorkflowNodeRunsByRun(ctx, parentRun.ID)
+	if err != nil {
+		slog.Warn("archive sub-issue address: list parent node runs",
+			"parent_run_id", util.UUIDToString(parentRun.ID), "error", err)
+		return
+	}
+	var splitNodeRun db.MulticaWorkflowNodeRun
+	var splitNode db.MulticaWorkflowNode
+	foundSplit := false
+	for _, nr := range parentNodeRuns {
+		node, err := s.Queries.GetWorkflowNode(ctx, nr.WorkflowNodeID)
+		if err != nil {
+			continue // best-effort: skip nodes we can't resolve
+		}
+		if workflowNodeType(node.FormatSchema) == "split" {
+			splitNodeRun = nr
+			splitNode = node
+			foundSplit = true
+			break
+		}
+	}
+	if !foundSplit {
+		return // parent run has no split node — nothing to index under
+	}
+	// 6. parent run → parent workflow (for DeliverableRepoNameForWorkflow).
+	parentWorkflow, err := s.Queries.GetWorkflow(ctx, parentRun.WorkflowID)
+	if err != nil {
+		slog.Warn("archive sub-issue address: get parent workflow",
+			"parent_run_id", util.UUIDToString(parentRun.ID), "error", err)
+		return
+	}
+	// 7. Resolve split node's <NN> via topological order.
+	topo, err := NodeTopoOrder(ctx, s.Queries, parentRun.WorkflowID)
+	if err != nil {
+		slog.Warn("archive sub-issue address: node topo order",
+			"parent_workflow_id", util.UUIDToString(parentRun.WorkflowID), "error", err)
+		return
+	}
+	splitSeq := topo[util.UUIDToString(splitNode.ID)]
+
+	// 8. Build the in-repo path: <split NodeDir>/<SplitChildPath>.
+	dir := gitea.NodeDir(splitSeq, splitNodeRun.NodeTitle, util.UUIDToString(splitNodeRun.ID))
+	suffix := gitea.SplitChildPath(int(childIssue.Number), childIssue.Title)
+	fullPath := dir + "/" + suffix
+
+	// 9. Child's deliverable address: clone URL (from workspace.settings, the
+	// canonical source — M2.5 lesson) + inst branch of the child run.
+	childInst := gitea.InstBranch(util.UUIDToString(childRun.ID))
+	childCloneURL, err := s.readGiteaCloneURL(ctx, childRun.WorkspaceID)
+	if err != nil {
+		slog.Warn("archive sub-issue address: read gitea_clone_url",
+			"workspace_id", util.UUIDToString(childRun.WorkspaceID), "error", err)
+		return
+	}
+	if childCloneURL == "" {
+		slog.Warn("archive sub-issue address: no gitea_clone_url in workspace settings",
+			"workspace_id", util.UUIDToString(childRun.WorkspaceID))
+		return
+	}
+
+	// 10. PARENT repo coordinates (the child's address is written to the parent).
+	owner := gitea.OrgName(util.UUIDToString(parentRun.WorkspaceID))
+	repo := DeliverableRepoNameForWorkflow(parentWorkflow)
+	inst := gitea.InstBranch(util.UUIDToString(parentRun.ID))
+
+	// 11. UpsertFile — best-effort, never blocks.
+	content := fmt.Sprintf("---\nchild_issue: %s\nchild_issue_number: %d\nchild_run: %s\nclone_url: %s\ninst_branch: %s\n---\n\n## 子任务交付仓库\n\n%s %s\n",
+		util.UUIDToString(childIssue.ID), childIssue.Number,
+		util.UUIDToString(childRun.ID), childCloneURL, childInst,
+		childCloneURL, childInst)
+	msg := "split child: " + fmt.Sprint(childIssue.Number)
+	if err := repoProvider.UpsertFile(ctx, owner, repo, inst, fullPath, content, msg); err != nil {
+		slog.Warn("archive sub-issue address: write file",
+			"child_issue_id", util.UUIDToString(childIssue.ID), "path", fullPath, "error", err)
+		return
+	}
+	slog.Info("archived sub-issue address",
+		"child_issue_id", util.UUIDToString(childIssue.ID),
+		"parent_run_id", util.UUIDToString(parentRun.ID), "path", fullPath)
+}
+
+// readGiteaCloneURL reads the Gitea clone URL from workspace.settings
+// (gitea_clone_url), the canonical source per the M2.5 lesson. Returns empty
+// string when the field is absent or the workspace has no settings.
+func (s *WorkflowService) readGiteaCloneURL(ctx context.Context, workspaceID pgtype.UUID) (string, error) {
+	ws, err := s.Queries.GetWorkspace(ctx, workspaceID)
+	if err != nil {
+		return "", fmt.Errorf("get workspace: %w", err)
+	}
+	var bundle struct {
+		GiteaCloneURL string `json:"gitea_clone_url"`
+	}
+	if len(ws.Settings) > 0 {
+		if err := json.Unmarshal(ws.Settings, &bundle); err != nil {
+			return "", fmt.Errorf("parse settings: %w", err)
+		}
+	}
+	return strings.TrimSpace(bundle.GiteaCloneURL), nil
 }
 
 // shortHexSafe returns the first 8 hex chars of a UUID string, or the full

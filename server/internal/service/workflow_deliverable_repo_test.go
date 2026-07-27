@@ -12,6 +12,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/multica-ai/multica/server/internal/coderepo"
@@ -1529,4 +1531,322 @@ func TestReviewNodeRun_CompletesWithoutMergeWhenGiteaNil(t *testing.T) {
 	if got := submissionStatus(t, pool, nodeRunID); got != "submitted" {
 		t.Fatalf("submission status = %q, want %q (dormant: must not touch submissions)", got, "submitted")
 	}
+}
+
+// subIssueMockDBTX is a focused mock of db.DBTX for ArchiveSubIssueAddress's
+// cross-run linkage chain. It routes by SQL comment (sqlc embeds "-- name:
+// <QueryName> :one/:many" at the top of every generated SQL string) and by the
+// first positional arg where the same query is called with different IDs
+// (GetIssue for child vs parent, GetWorkflowNode for split vs non-split).
+// Reuses the scan helpers + mockRows types from task_cscloud_push_test.go
+// (same package).
+type subIssueMockDBTX struct {
+	childIssue     db.MulticaIssue
+	parentIssue    db.MulticaIssue
+	parentRun      db.MulticaWorkflowRun
+	parentNodeRuns []db.MulticaWorkflowNodeRun
+	splitNode      db.MulticaWorkflowNode
+	otherNodes     []db.MulticaWorkflowNode // returned by GetWorkflowNode for non-split IDs + ListWorkflowNodes
+	parentWorkflow db.MulticaWorkflow
+	workspace      db.MulticaWorkspace
+}
+
+func (m *subIssueMockDBTX) Exec(_ context.Context, _ string, _ ...interface{}) (pgconn.CommandTag, error) {
+	return pgconn.NewCommandTag(""), nil
+}
+
+func (m *subIssueMockDBTX) Query(_ context.Context, sql string, _ ...interface{}) (pgx.Rows, error) {
+	switch {
+	case strings.Contains(sql, "ListWorkflowNodeRunsByRun"):
+		return &mockRowsNodeRuns{rows: m.parentNodeRuns, idx: -1}, nil
+	case strings.Contains(sql, "ListWorkflowNodes"):
+		nodes := append([]db.MulticaWorkflowNode{m.splitNode}, m.otherNodes...)
+		return &mockRowsWorkflowNodes{rows: nodes, idx: -1}, nil
+	case strings.Contains(sql, "ListWorkflowEdges"):
+		return &mockRowsWorkflowEdges{idx: -1}, nil
+	default:
+		return nil, fmt.Errorf("subIssueMockDBTX: unexpected Query: %s", sql)
+	}
+}
+
+func (m *subIssueMockDBTX) QueryRow(_ context.Context, sql string, args ...interface{}) pgx.Row {
+	switch {
+	case strings.Contains(sql, "GetIssue"):
+		if len(args) > 0 {
+			if id, ok := args[0].(pgtype.UUID); ok && id == m.parentIssue.ID && m.parentIssue.ID.Valid {
+				return &subIssueRow{issue: &m.parentIssue}
+			}
+		}
+		return &subIssueRow{issue: &m.childIssue}
+	case strings.Contains(sql, "GetWorkflowRunBySourceIssue"):
+		if !m.parentRun.ID.Valid {
+			return &subIssueRow{err: pgx.ErrNoRows}
+		}
+		return &subIssueRow{run: &m.parentRun}
+	case strings.Contains(sql, "GetWorkflowNode"):
+		if len(args) > 0 {
+			if id, ok := args[0].(pgtype.UUID); ok && id == m.splitNode.ID && m.splitNode.ID.Valid {
+				return &subIssueRow{node: &m.splitNode}
+			}
+		}
+		if len(m.otherNodes) > 0 {
+			return &subIssueRow{node: &m.otherNodes[0]}
+		}
+		return &subIssueRow{err: pgx.ErrNoRows}
+	case strings.Contains(sql, "GetWorkflow "): // "GetWorkflow :one" (not GetWorkflowRun/Node)
+		return &subIssueRow{workflow: &m.parentWorkflow}
+	case strings.Contains(sql, "GetWorkspace"):
+		return &subIssueRow{workspace: &m.workspace}
+	default:
+		return &subIssueRow{err: fmt.Errorf("subIssueMockDBTX: unexpected QueryRow: %s", sql)}
+	}
+}
+
+// subIssueRow routes Scan to the correct per-model scan helper (all reused from
+// task_cscloud_push_test.go). Exactly one model pointer is non-nil per row.
+type subIssueRow struct {
+	issue     *db.MulticaIssue
+	run       *db.MulticaWorkflowRun
+	workflow  *db.MulticaWorkflow
+	node      *db.MulticaWorkflowNode
+	workspace *db.MulticaWorkspace
+	err       error
+}
+
+func (r *subIssueRow) Scan(dest ...any) error {
+	if r.err != nil {
+		return r.err
+	}
+	switch {
+	case r.issue != nil:
+		return scanIssueFull(r.issue, dest)
+	case r.run != nil:
+		return scanWorkflowRun(r.run, dest)
+	case r.workflow != nil:
+		return scanWorkflow(r.workflow, dest)
+	case r.node != nil:
+		return scanWorkflowNode(r.node, dest)
+	case r.workspace != nil:
+		return scanWorkspaceFull(r.workspace, dest)
+	}
+	return nil
+}
+
+// mockRowsNodeRuns is a pgx.Rows yielding MulticaWorkflowNodeRun values, for
+// ListWorkflowNodeRunsByRun. Reuses scanNodeRun from task_cscloud_push_test.go.
+type mockRowsNodeRuns struct {
+	rows []db.MulticaWorkflowNodeRun
+	idx  int
+}
+
+func (m *mockRowsNodeRuns) Next() bool                                   { m.idx++; return m.idx < len(m.rows) }
+func (m *mockRowsNodeRuns) Close()                                       {}
+func (m *mockRowsNodeRuns) Err() error                                   { return nil }
+func (m *mockRowsNodeRuns) CommandTag() pgconn.CommandTag                { return pgconn.NewCommandTag("") }
+func (m *mockRowsNodeRuns) FieldDescriptions() []pgconn.FieldDescription { return nil }
+func (m *mockRowsNodeRuns) RawValues() [][]byte                          { return nil }
+func (m *mockRowsNodeRuns) Values() ([]any, error)                       { return nil, nil }
+func (m *mockRowsNodeRuns) Conn() *pgx.Conn                              { return nil }
+func (m *mockRowsNodeRuns) Scan(dest ...any) error {
+	r := &m.rows[m.idx]
+	return scanNodeRun(r, dest)
+}
+
+// newSubIssueMockDBTX builds the happy-path mock: a child issue with a parent,
+// the parent's run containing one split node-run, and a workspace with a Gitea
+// clone URL. Individual test cases override fields to exercise no-op paths.
+func newSubIssueMockDBTX() *subIssueMockDBTX {
+	wsID := testUUID(20)
+	childIssueID := testUUID(21)
+	parentIssueID := testUUID(22)
+	parentRunID := testUUID(23)
+	parentWFID := testUUID(24)
+	splitNodeID := testUUID(25)
+	splitNodeRunID := testUUID(26)
+	settings, _ := json.Marshal(map[string]any{
+		"gitea_clone_url": "https://gitea.example.com/t-202020202020/child.git",
+	})
+	return &subIssueMockDBTX{
+		childIssue: db.MulticaIssue{
+			ID:            childIssueID,
+			WorkspaceID:   wsID,
+			Title:         "登录模块",
+			ParentIssueID: parentIssueID,
+			Number:        42,
+		},
+		parentIssue: db.MulticaIssue{
+			ID:          parentIssueID,
+			WorkspaceID: wsID,
+			Title:       "父需求",
+		},
+		parentRun: db.MulticaWorkflowRun{
+			ID:          parentRunID,
+			WorkflowID:  parentWFID,
+			WorkspaceID: wsID,
+		},
+		parentNodeRuns: []db.MulticaWorkflowNodeRun{
+			{
+				ID:             splitNodeRunID,
+				WorkflowRunID:  parentRunID,
+				WorkflowNodeID: splitNodeID,
+				NodeTitle:      "需求拆分",
+			},
+		},
+		splitNode: db.MulticaWorkflowNode{
+			ID:           splitNodeID,
+			WorkflowID:   parentWFID,
+			Title:        "需求拆分",
+			FormatSchema: []byte(`{"type":"split"}`),
+			SortOrder:    1,
+		},
+		parentWorkflow: db.MulticaWorkflow{
+			ID:          parentWFID,
+			WorkspaceID: wsID,
+			Title:       "Parent Workflow",
+		},
+		workspace: db.MulticaWorkspace{
+			ID:       wsID,
+			Settings: settings,
+		},
+	}
+}
+
+// TestArchiveSubIssueAddress_WritesToParentRepoUnderSplitNode is the happy path:
+// a child run whose source issue is a split-out child → the child's
+// deliverable-repo address is written into the PARENT issue's Gitea repo, under
+// the split node's NodeDir at splits/<childIssueNumber>-<title>.md. The UpsertFile
+// target is the parent run's org/repo/inst — NOT the child's.
+func TestArchiveSubIssueAddress_WritesToParentRepoUnderSplitNode(t *testing.T) {
+	mock := newSubIssueMockDBTX()
+	const cloneURL = "https://gitea.example.com/t-202020202020/child.git"
+
+	childRun := db.MulticaWorkflowRun{
+		ID:            testUUID(27),
+		WorkflowID:    testUUID(28),
+		WorkspaceID:   mock.childIssue.WorkspaceID,
+		SourceIssueID: mock.childIssue.ID,
+	}
+	childWorkflow := db.MulticaWorkflow{ID: childRun.WorkflowID, WorkspaceID: mock.childIssue.WorkspaceID}
+
+	spy := &spyRepoProvider{configured: true}
+	svc := &WorkflowService{Queries: db.New(mock), RepositoryProvider: spy}
+
+	svc.ArchiveSubIssueAddress(context.Background(), childRun, childWorkflow)
+
+	calls := spy.snapshot()
+	if len(calls) != 1 {
+		t.Fatalf("UpsertFile calls = %d, want 1", len(calls))
+	}
+	got := calls[0]
+
+	// Target: PARENT run's repo, NOT the child's.
+	wantOwner := gitea.OrgName(util.UUIDToString(mock.parentRun.WorkspaceID))
+	wantRepo := DeliverableRepoNameForWorkflow(mock.parentWorkflow)
+	wantBranch := gitea.InstBranch(util.UUIDToString(mock.parentRun.ID))
+	if got.Owner != wantOwner || got.Repo != wantRepo || got.Branch != wantBranch {
+		t.Errorf("UpsertFile target = %s/%s @%s, want %s/%s @%s (PARENT repo)",
+			got.Owner, got.Repo, got.Branch, wantOwner, wantRepo, wantBranch)
+	}
+
+	// Path: under the split node's NodeDir, with the SplitChildPath suffix.
+	if !strings.HasPrefix(got.Path, "nodes/") {
+		t.Errorf("path %q must be under nodes/", got.Path)
+	}
+	if !strings.Contains(got.Path, "/splits/42-") {
+		t.Errorf("path %q must contain '/splits/42-' (child issue Number=42)", got.Path)
+	}
+	if !strings.Contains(got.Path, "需求拆分") {
+		t.Errorf("path %q must contain the split node title '需求拆分'", got.Path)
+	}
+
+	// Content: carries the child's clone URL + inst branch.
+	childInst := gitea.InstBranch(util.UUIDToString(childRun.ID))
+	if !strings.Contains(got.Content, cloneURL) {
+		t.Errorf("content missing child clone URL %q", cloneURL)
+	}
+	if !strings.Contains(got.Content, childInst) {
+		t.Errorf("content missing child inst branch %q", childInst)
+	}
+	// Commit message references the child issue number.
+	if !strings.Contains(got.Message, "42") {
+		t.Errorf("commit message %q must reference child issue Number 42", got.Message)
+	}
+}
+
+// TestArchiveSubIssueAddress_NoOpCases covers every early-return path: the
+// function must never call UpsertFile when the linkage chain can't resolve.
+// Each case mutates the base happy-path mock to break one link.
+func TestArchiveSubIssueAddress_NoOpCases(t *testing.T) {
+	childRun := func(mock *subIssueMockDBTX) db.MulticaWorkflowRun {
+		return db.MulticaWorkflowRun{
+			ID:            testUUID(27),
+			WorkflowID:    testUUID(28),
+			WorkspaceID:   mock.childIssue.WorkspaceID,
+			SourceIssueID: mock.childIssue.ID,
+		}
+	}
+
+	cases := []struct {
+		name    string
+		setup   func(*subIssueMockDBTX)
+		runFunc func(*subIssueMockDBTX) db.MulticaWorkflowRun
+	}{
+		{
+			name:  "child_run_source_issue_invalid",
+			setup: func(m *subIssueMockDBTX) {},
+			runFunc: func(m *subIssueMockDBTX) db.MulticaWorkflowRun {
+				r := childRun(m)
+				r.SourceIssueID = pgtype.UUID{} // invalid → not a split child
+				return r
+			},
+		},
+		{
+			name: "child_issue_has_no_parent",
+			setup: func(m *subIssueMockDBTX) {
+				m.childIssue.ParentIssueID = pgtype.UUID{} // no parent → not a split child
+			},
+			runFunc: childRun,
+		},
+		{
+			name: "parent_run_has_no_split_node",
+			setup: func(m *subIssueMockDBTX) {
+				// Make the only node-run point at a non-split node: set its
+				// WorkflowNodeID to something that doesn't match splitNode.ID,
+				// so GetWorkflowNode returns a non-split node.
+				m.parentNodeRuns[0].WorkflowNodeID = testUUID(99)
+			},
+			runFunc: childRun,
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			mock := newSubIssueMockDBTX()
+			c.setup(mock)
+			spy := &spyRepoProvider{configured: true}
+			svc := &WorkflowService{Queries: db.New(mock), RepositoryProvider: spy}
+
+			run := c.runFunc(mock)
+			wf := db.MulticaWorkflow{ID: run.WorkflowID, WorkspaceID: run.WorkspaceID}
+			svc.ArchiveSubIssueAddress(context.Background(), run, wf)
+
+			if calls := spy.snapshot(); len(calls) != 0 {
+				t.Fatalf("UpsertFile calls = %d, want 0 (no-op path: %s)", len(calls), c.name)
+			}
+		})
+	}
+
+	// Dormant provider: Configured() == false → return before any DB call.
+	t.Run("provider_dormant", func(t *testing.T) {
+		mock := newSubIssueMockDBTX()
+		spy := &spyRepoProvider{configured: false}
+		svc := &WorkflowService{Queries: db.New(mock), RepositoryProvider: spy}
+
+		run := childRun(mock)
+		wf := db.MulticaWorkflow{ID: run.WorkflowID, WorkspaceID: run.WorkspaceID}
+		svc.ArchiveSubIssueAddress(context.Background(), run, wf)
+
+		if calls := spy.snapshot(); len(calls) != 0 {
+			t.Fatalf("UpsertFile calls = %d, want 0 (dormant provider)", len(calls))
+		}
+	})
 }
