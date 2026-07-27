@@ -21,7 +21,7 @@ import (
 )
 
 const (
-	csCloudProvider             = "cs-cloud"
+	csCloudProvider             = "csc"
 	failureReasonDispatchFailed = "dispatch_failed"
 	csCloudPushTimeout          = 25 * time.Second
 	csCloudAbortTimeout         = 10 * time.Second

@@ -290,7 +290,7 @@ func TestDispatchToCSCloud_PushesAndMarksDispatched(t *testing.T) {
 
 func TestDispatchToCSCloud_SkipsNonCSCloudRuntime(t *testing.T) {
 	pusher := &fakePushClient{status: http.StatusOK}
-	dbtx := newPushTestDB("csc", "device-123")
+	dbtx := newPushTestDB("legacy_local", "device-123")
 	svc := &TaskService{Queries: db.New(dbtx), CSCloudPush: pusher}
 
 	task := dbtx.dispatchedResult
