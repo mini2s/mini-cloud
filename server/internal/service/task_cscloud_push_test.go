@@ -54,6 +54,7 @@ type pushTaskDB struct {
 	task             db.MulticaAgentTaskQueue
 	dispatchedCalled bool
 	dispatchedResult db.MulticaAgentTaskQueue
+	lastSessionRow   *db.GetLastTaskSessionRow // nil => 仿 ErrNoRows（首次/全中毒失败）
 }
 
 func (m *pushTaskDB) QueryRow(_ context.Context, sql string, args ...interface{}) pgx.Row {
@@ -80,6 +81,11 @@ func (m *pushTaskDB) QueryRow(_ context.Context, sql string, args ...interface{}
 		return &pushMockRow{err: pgx.ErrNoRows}
 	case strings.Contains(sql, "CancelAgentTask"):
 		return &pushMockRow{task: &m.task}
+	case strings.Contains(sql, "GetLastTaskSession"):
+		if m.lastSessionRow == nil {
+			return &pushMockRow{err: pgx.ErrNoRows}
+		}
+		return &pushMockRow{lastSession: m.lastSessionRow}
 	default:
 		return &pushMockRow{err: pgx.ErrNoRows}
 	}
@@ -99,12 +105,28 @@ type pushMockRow struct {
 	taskRuntime *db.MulticaAgentRuntime
 	agent       *db.MulticaAgent
 	issue       *db.MulticaIssue
+	lastSession *db.GetLastTaskSessionRow // GetLastTaskSession 命中时填
 	err         error
 }
 
 func (r *pushMockRow) Scan(dest ...any) error {
 	if r.err != nil {
 		return r.err
+	}
+	if r.lastSession != nil {
+		// sqlc-generated GetLastTaskSession calls row.Scan(&i.SessionID, &i.WorkDir, &i.RuntimeID)
+		if len(dest) >= 3 {
+			if p, ok := dest[0].(*pgtype.Text); ok {
+				*p = r.lastSession.SessionID
+			}
+			if p, ok := dest[1].(*pgtype.Text); ok {
+				*p = r.lastSession.WorkDir
+			}
+			if p, ok := dest[2].(*pgtype.UUID); ok {
+				*p = r.lastSession.RuntimeID
+			}
+		}
+		return nil
 	}
 	if r.task != nil {
 		return scanTaskQueue(r.task, dest)
@@ -1045,5 +1067,102 @@ func TestShouldSkipPriorTaskState(t *testing.T) {
 	// Normal task => keep prior.
 	if shouldSkipPriorTaskState(db.MulticaAgentTaskQueue{ForceFreshSession: false}) {
 		t.Error("ForceFreshSession=false should keep prior")
+	}
+}
+
+func TestBuildCSCloudPayload_InjectsPriorSession(t *testing.T) {
+	agentID := testUUID(0xA1)
+	issueID := testUUID(0xB2)
+	runtimeID := testUUID(0xC3)
+	dbtx := newPushTestDB(csCloudProvider, "device-123")
+	dbtx.lastSessionRow = &db.GetLastTaskSessionRow{
+		SessionID: pgtype.Text{String: "sess-prior", Valid: true},
+		WorkDir:   pgtype.Text{String: "/prior/work", Valid: true},
+		RuntimeID: runtimeID, // same runtime
+	}
+	svc := &TaskService{Queries: db.New(dbtx), Bus: events.New()}
+	task := dbtx.dispatchedResult
+	task.AgentID = agentID
+	task.IssueID = issueID
+	task.RuntimeID = runtimeID
+
+	payload, err := svc.buildCSCloudPayload(context.Background(), task, dbtx.runtime)
+	if err != nil {
+		t.Fatalf("build: %v", err)
+	}
+	if payload.PriorSessionID != "sess-prior" {
+		t.Errorf("prior_session_id = %q, want sess-prior", payload.PriorSessionID)
+	}
+	if payload.PriorWorkDir != "/prior/work" {
+		t.Errorf("prior_work_dir = %q, want /prior/work", payload.PriorWorkDir)
+	}
+}
+
+func TestBuildCSCloudPayload_PriorSessionRuntimeMismatch(t *testing.T) {
+	// prior on a different runtime (device) => PriorSessionID NOT injected (session is device-scoped),
+	// but PriorWorkDir IS still injected (a missing dir on another device just falls back to fresh Prepare).
+	dbtx := newPushTestDB(csCloudProvider, "device-123")
+	dbtx.lastSessionRow = &db.GetLastTaskSessionRow{
+		SessionID: pgtype.Text{String: "sess-prior", Valid: true},
+		WorkDir:   pgtype.Text{String: "/prior/work", Valid: true},
+		RuntimeID: testUUID(0xDD), // different runtime
+	}
+	svc := &TaskService{Queries: db.New(dbtx), Bus: events.New()}
+	task := dbtx.dispatchedResult
+	task.AgentID = testUUID(0xA1)
+	task.IssueID = testUUID(0xB2)
+	task.RuntimeID = testUUID(0xC3)
+
+	payload, err := svc.buildCSCloudPayload(context.Background(), task, dbtx.runtime)
+	if err != nil {
+		t.Fatalf("build: %v", err)
+	}
+	if payload.PriorSessionID != "" {
+		t.Errorf("prior_session_id = %q, want empty (runtime mismatch)", payload.PriorSessionID)
+	}
+	if payload.PriorWorkDir != "/prior/work" {
+		t.Errorf("prior_work_dir = %q, want /prior/work (forwarded regardless)", payload.PriorWorkDir)
+	}
+}
+
+func TestBuildCSCloudPayload_ForceFreshSessionSkipsPrior(t *testing.T) {
+	dbtx := newPushTestDB(csCloudProvider, "device-123")
+	dbtx.lastSessionRow = &db.GetLastTaskSessionRow{
+		SessionID: pgtype.Text{String: "sess-prior", Valid: true},
+		WorkDir:   pgtype.Text{String: "/prior/work", Valid: true},
+		RuntimeID: testUUID(0xC3),
+	}
+	svc := &TaskService{Queries: db.New(dbtx), Bus: events.New()}
+	task := dbtx.dispatchedResult
+	task.AgentID = testUUID(0xA1)
+	task.IssueID = testUUID(0xB2)
+	task.RuntimeID = testUUID(0xC3)
+	task.ForceFreshSession = true // manual rerun
+
+	payload, err := svc.buildCSCloudPayload(context.Background(), task, dbtx.runtime)
+	if err != nil {
+		t.Fatalf("build: %v", err)
+	}
+	if payload.PriorSessionID != "" || payload.PriorWorkDir != "" {
+		t.Errorf("force fresh should skip prior; got session=%q workdir=%q", payload.PriorSessionID, payload.PriorWorkDir)
+	}
+}
+
+func TestBuildCSCloudPayload_NoPriorWhenGetLastReturnsNoRows(t *testing.T) {
+	// GetLastTaskSession no hit (first round / all poisoned failures) => both prior empty.
+	dbtx := newPushTestDB(csCloudProvider, "device-123")
+	dbtx.lastSessionRow = nil // => ErrNoRows
+	svc := &TaskService{Queries: db.New(dbtx), Bus: events.New()}
+	task := dbtx.dispatchedResult
+	task.AgentID = testUUID(0xA1)
+	task.IssueID = testUUID(0xB2)
+	task.RuntimeID = testUUID(0xC3)
+
+	payload, err := svc.buildCSCloudPayload(context.Background(), task, dbtx.runtime)
+	if err != nil {
+		t.Fatalf("build: %v", err)
+	}
+	if payload.PriorSessionID != "" || payload.PriorWorkDir != "" {
+		t.Errorf("no prior expected; got session=%q workdir=%q", payload.PriorSessionID, payload.PriorWorkDir)
 	}
 }

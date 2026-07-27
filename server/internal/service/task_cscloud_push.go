@@ -258,19 +258,42 @@ func (s *TaskService) buildCSCloudPayload(ctx context.Context, task db.MulticaAg
 		deliverables = s.deliverableSpecsForTask(ctx, task)
 	}
 
+	// Prior (agent, issue) session/workdir so cs-cloud resumes the conversation
+	// and reuses the checkout. Ported from the pull path (handler/daemon.go).
+	// PriorSessionID is device-scoped: a csc session on device A cannot be
+	// resumed on device B, so forward it only when the prior task ran on the
+	// same runtime. PriorWorkDir is forwarded regardless — a missing dir on a
+	// different device just makes cs-cloud fall back to a fresh Prepare.
+	priorSessionID, priorWorkDir := "", ""
+	if !shouldSkipPriorTaskState(task) && task.AgentID.Valid && task.IssueID.Valid {
+		if prior, err := s.Queries.GetLastTaskSession(ctx, db.GetLastTaskSessionParams{
+			AgentID: task.AgentID,
+			IssueID: task.IssueID,
+		}); err == nil && prior.SessionID.Valid {
+			if prior.RuntimeID == task.RuntimeID {
+				priorSessionID = prior.SessionID.String
+			}
+			if prior.WorkDir.Valid {
+				priorWorkDir = prior.WorkDir.String
+			}
+		}
+	}
+
 	return csCloudTaskRunPayload{
-		TaskID:      util.UUIDToString(task.ID),
-		WorkspaceID: util.UUIDToString(runtime.WorkspaceID),
-		IssueID:     util.UUIDToString(task.IssueID),
-		ProjectID:   projectID,
-		NodeRunID:   util.UUIDToString(task.WorkflowNodeRunID),
-		AgentID:     util.UUIDToString(task.AgentID),
-		Agent:       "csc",
-		Prompt:      prompt,
-		Env:         env,
-		Repos:       repos,
-		Deliverables: deliverables,
-		Kind:        kind,
+		TaskID:         util.UUIDToString(task.ID),
+		WorkspaceID:    util.UUIDToString(runtime.WorkspaceID),
+		IssueID:        util.UUIDToString(task.IssueID),
+		ProjectID:      projectID,
+		NodeRunID:      util.UUIDToString(task.WorkflowNodeRunID),
+		AgentID:        util.UUIDToString(task.AgentID),
+		Agent:          "csc",
+		Prompt:         prompt,
+		Env:            env,
+		Repos:          repos,
+		Deliverables:   deliverables,
+		Kind:           kind,
+		PriorSessionID: priorSessionID,
+		PriorWorkDir:   priorWorkDir,
 	}, nil
 }
 
