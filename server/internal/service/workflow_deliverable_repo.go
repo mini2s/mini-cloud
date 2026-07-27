@@ -918,6 +918,63 @@ func (s *WorkflowService) gitlabAccessToken(ctx context.Context, workspaceID pgt
 	return strings.TrimSpace(settings.GitlabAccessToken), nil
 }
 
+// closeDeliverableReviewRequests closes the node-run's DOCUMENT deliverable PRs
+// (Gitea) after a critic rejection, so a stale document PR doesn't linger into
+// the next retry round (the worker opens a fresh one). Code MRs (pull_request
+// kind) are deliberately NOT closed — the worker revises them in place across
+// retries via findOpenPR, so closing would discard work-in-progress. Best-effort:
+// failures are logged and never block the rework/blocked transition (closing is
+// cleanup, not a gate on the review outcome). Dormant when no provider is
+// configured.
+func (s *WorkflowService) closeDeliverableReviewRequests(ctx context.Context, nodeRun db.MulticaWorkflowNodeRun) {
+	provider := s.deliverableRepository()
+	if !provider.Configured() {
+		return // dormant — nothing to close against
+	}
+	run, err := s.Queries.GetWorkflowRun(ctx, nodeRun.WorkflowRunID)
+	if err != nil {
+		slog.Warn("close deliverable PRs: get run", "error", err)
+		return
+	}
+	workflow, err := s.Queries.GetWorkflow(ctx, run.WorkflowID)
+	if err != nil {
+		slog.Warn("close deliverable PRs: get workflow", "error", err)
+		return
+	}
+	owner := gitea.OrgName(util.UUIDToString(run.WorkspaceID))
+	repo := DeliverableRepoNameForWorkflow(workflow)
+
+	deliverables, err := s.Queries.ListWorkflowNodeDeliverables(ctx, nodeRun.WorkflowNodeID)
+	if err != nil {
+		slog.Warn("close deliverable PRs: list deliverables", "error", err)
+		return
+	}
+	isDocument := make(map[string]bool, len(deliverables))
+	for _, d := range deliverables {
+		if d.Kind == "document" { // code MRs (pull_request) deliberately skipped
+			isDocument[util.UUIDToString(d.ID)] = true
+		}
+	}
+	submissions, err := s.Queries.ListNodeRunDeliverableSubmissions(ctx, nodeRun.ID)
+	if err != nil {
+		slog.Warn("close deliverable PRs: list submissions", "error", err)
+		return
+	}
+	for _, sub := range submissions {
+		if !isDocument[util.UUIDToString(sub.DeliverableID)] || sub.PullRequestUrl == "" {
+			continue
+		}
+		index, err := gitea.ParsePullRequestIndex(sub.PullRequestUrl)
+		if err != nil {
+			slog.Warn("close deliverable PR: parse url", "url", sub.PullRequestUrl, "error", err)
+			continue
+		}
+		if err := provider.CloseReviewRequest(ctx, owner, repo, index); err != nil {
+			slog.Warn("close deliverable PR failed (best-effort)", "index", index, "error", err)
+		}
+	}
+}
+
 // retryMergeDocPR calls MergePR with bounded backoff. A 409 conflict
 // (gitea.ErrMergeConflict) is terminal — returned immediately, no retry. Other
 // errors (5xx, network) are retried up to maxAttempts with exponential backoff.

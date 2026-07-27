@@ -1028,6 +1028,146 @@ func TestReviewNodeRun_MergesGitLabMR(t *testing.T) {
 	}
 }
 
+// fakeGiteaCloseServer stands up an httptest.Server that counts PATCH requests
+// on a pulls/{n} path (the Gitea close-PR call). Returns the close-call counter.
+func fakeGiteaCloseServer(t *testing.T, closeStatus int) (srv *httptest.Server, closeCalls *int) {
+	t.Helper()
+	var mu sync.Mutex
+	calls := 0
+	srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		defer mu.Unlock()
+		if r.Method == http.MethodPatch && strings.Contains(r.URL.Path, "/pulls/") {
+			calls++
+			w.WriteHeader(closeStatus)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	t.Cleanup(srv.Close)
+	return srv, &calls
+}
+
+// seedReviewSubmissionsNodeRun inserts a critic_reviewing node_run plus two
+// submissions: one for deliverableIDDoc (document) with docPRURL, one for
+// deliverableIDCode (pull_request) with codeMRURL. Returns the node_run ID.
+func seedReviewSubmissionsNodeRun(t *testing.T, pool *pgxpool.Pool, fix *giteaFixture, deliverableIDDoc, deliverableIDCode pgtype.UUID, docPRURL, codeMRURL string) pgtype.UUID {
+	t.Helper()
+	ctx := context.Background()
+	var nodeRunID string
+	if err := pool.QueryRow(ctx, `
+		INSERT INTO multica_workflow_node_run (workflow_run_id, workflow_node_id, node_title, status, worker_type, critic_type)
+		VALUES ($1, $2, 'Review Node', 'critic_reviewing', 'agent', 'human')
+		RETURNING id
+	`, util.UUIDToString(fix.run1), util.UUIDToString(fix.node)).Scan(&nodeRunID); err != nil {
+		t.Fatalf("seed node run: %v", err)
+	}
+	for _, s := range []struct{ deliverable pgtype.UUID; url string }{
+		{deliverableIDDoc, docPRURL},
+		{deliverableIDCode, codeMRURL},
+	} {
+		if _, err := pool.Exec(ctx, `
+			INSERT INTO multica_workflow_node_deliverable_submission (
+				workflow_node_run_id, deliverable_id, submitted_by_type, status, content, pull_request_url)
+			VALUES ($1, $2, 'system', 'submitted', 'body', $3)
+		`, nodeRunID, util.UUIDToString(s.deliverable), s.url); err != nil {
+			t.Fatalf("seed submission: %v", err)
+		}
+	}
+	nrID, _ := util.ParseUUID(nodeRunID)
+	return nrID
+}
+
+// TestCloseDeliverableReviewRequests_ClosesDocumentPROnly verifies the M4
+// reject-close filter: a document deliverable PR (Gitea) is closed; a code MR
+// (pull_request kind, GitLab) is left untouched. The function is best-effort
+// (void) — see the _BestEffortOnError companion for failure handling.
+func TestCloseDeliverableReviewRequests_ClosesDocumentPROnly(t *testing.T) {
+	pool := openTestPool(t)
+	defer pool.Close()
+	ctx := context.Background()
+	fix := seedGiteaFixture(t, pool, false, 1)
+
+	var docID, codeID string
+	if err := pool.QueryRow(ctx, `INSERT INTO multica_workflow_node_deliverable (workflow_node_id, kind, title, required, sort_order) VALUES ($1,'document','Doc',TRUE,0) RETURNING id`, util.UUIDToString(fix.node)).Scan(&docID); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, `INSERT INTO multica_workflow_node_deliverable (workflow_node_id, kind, title, required, sort_order) VALUES ($1,'pull_request','Code',TRUE,1) RETURNING id`, util.UUIDToString(fix.node)).Scan(&codeID); err != nil {
+		t.Fatal(err)
+	}
+	docUUID, _ := util.ParseUUID(docID)
+	codeUUID, _ := util.ParseUUID(codeID)
+
+	giteaSrv, closeCalls := fakeGiteaCloseServer(t, http.StatusOK)
+	glSrv, glCalls := fakeGitlabMergeServer(t, http.StatusOK)
+	svc := &WorkflowService{
+		Queries:   db.New(pool),
+		TxStarter: pool,
+		Bus:       events.New(),
+		Gitea:     gitea.NewClient(gitea.Config{BaseURL: giteaSrv.URL, Token: "admin"}),
+	}
+
+	nrID := seedReviewSubmissionsNodeRun(t, pool, fix, docUUID, codeUUID,
+		giteaSrv.URL+"/owner/repo/pulls/5", glSrv.URL+"/root/repo/-/merge_requests/9")
+
+	svc.closeDeliverableReviewRequests(ctx, db.MulticaWorkflowNodeRun{
+		ID: nrID, WorkflowRunID: fix.run1, WorkflowNodeID: fix.node,
+	})
+	if *closeCalls != 1 {
+		t.Fatalf("document PR close calls = %d, want 1", *closeCalls)
+	}
+	if *glCalls != 0 {
+		t.Fatalf("gitlab merge/close calls = %d, want 0 (code MR must NOT be touched)", *glCalls)
+	}
+}
+
+// TestCloseDeliverableReviewRequests_BestEffortOnError verifies a close failure
+// (Gitea 500) does not abort the loop or surface — the function is best-effort.
+func TestCloseDeliverableReviewRequests_BestEffortOnError(t *testing.T) {
+	pool := openTestPool(t)
+	defer pool.Close()
+	ctx := context.Background()
+	fix := seedGiteaFixture(t, pool, false, 1)
+
+	var docID string
+	if err := pool.QueryRow(ctx, `INSERT INTO multica_workflow_node_deliverable (workflow_node_id, kind, title, required, sort_order) VALUES ($1,'document','Doc',TRUE,0) RETURNING id`, util.UUIDToString(fix.node)).Scan(&docID); err != nil {
+		t.Fatal(err)
+	}
+
+	giteaSrv, closeCalls := fakeGiteaCloseServer(t, http.StatusInternalServerError)
+	svc := &WorkflowService{
+		Queries:   db.New(pool),
+		TxStarter: pool,
+		Bus:       events.New(),
+		Gitea:     gitea.NewClient(gitea.Config{BaseURL: giteaSrv.URL, Token: "admin"}),
+	}
+	// Seed only the document submission (a 500 on its close must not abort).
+	var nodeRunID string
+	if err := pool.QueryRow(ctx, `
+		INSERT INTO multica_workflow_node_run (workflow_run_id, workflow_node_id, node_title, status, worker_type, critic_type)
+		VALUES ($1, $2, 'Review Node', 'critic_reviewing', 'agent', 'human')
+		RETURNING id
+	`, util.UUIDToString(fix.run1), util.UUIDToString(fix.node)).Scan(&nodeRunID); err != nil {
+		t.Fatalf("seed node run: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO multica_workflow_node_deliverable_submission (
+			workflow_node_run_id, deliverable_id, submitted_by_type, status, content, pull_request_url)
+		VALUES ($1, $2, 'system', 'submitted', 'body', $3)
+	`, nodeRunID, docID, giteaSrv.URL+"/owner/repo/pulls/5"); err != nil {
+		t.Fatalf("seed submission: %v", err)
+	}
+	nrID, _ := util.ParseUUID(nodeRunID)
+
+	// Must not panic and must return (void); the 500 is logged, not propagated.
+	svc.closeDeliverableReviewRequests(ctx, db.MulticaWorkflowNodeRun{
+		ID: nrID, WorkflowRunID: fix.run1, WorkflowNodeID: fix.node,
+	})
+	if *closeCalls != 1 {
+		t.Fatalf("close attempts = %d, want 1 (failure must not abort)", *closeCalls)
+	}
+}
+
 // TestReviewNodeRun_BlocksWhenMergeConflicts verifies the failure path: a 409
 // (gitea.ErrMergeConflict, terminal) blocks the node run instead of completing
 // it. Blocking is NOT an error from ReviewNodeRun — the caller observes the
