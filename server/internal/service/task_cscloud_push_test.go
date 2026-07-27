@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"sync"
 	"testing"
@@ -15,6 +16,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/multica-ai/multica/server/internal/cloudruntime"
 	"github.com/multica-ai/multica/server/internal/events"
+	"github.com/multica-ai/multica/server/internal/teamnamespace"
 	"github.com/multica-ai/multica/server/internal/util"
 	db "github.com/multica-ai/multica/server/pkg/db/generated"
 )
@@ -507,11 +509,11 @@ func TestAppendDeliverablePrompt_GitAndSubmitNoFetch(t *testing.T) {
 	refs := []giteaDeliverableRefJSON{{ID: "d1", Title: "Doc1", Path: "nodes/01-x/d1.md"}}
 	got := appendDeliverablePrompt("base prompt", refs)
 	for _, want := range []string{
-		"MULTICA_REPO_CLONE_URL_AUTHED",            // authed clone URL exposed
-		"git clone",                                // raw-git read guidance
-		"MULTICA_REPO_INST_BRANCH",                 // branch context
+		"MULTICA_REPO_CLONE_URL_AUTHED", // authed clone URL exposed
+		"git clone",                     // raw-git read guidance
+		"MULTICA_REPO_INST_BRANCH",      // branch context
 		"cs-cloud workflow deliverable submit --deliverable d1", // neutral submit path
-		"cs-workflow issue deliverables",           // self-service read command
+		"cs-workflow issue deliverables",                        // self-service read command
 		"Document Deliverables",
 	} {
 		if !strings.Contains(got, want) {
@@ -617,14 +619,14 @@ type mockRowsProjectResources struct {
 	idx  int // starts at -1; Next() bumps to 0
 }
 
-func (m *mockRowsProjectResources) Next() bool { m.idx++; return m.idx < len(m.rows) }
-func (m *mockRowsProjectResources) Close()     {}
-func (m *mockRowsProjectResources) Err() error { return nil }
-func (m *mockRowsProjectResources) CommandTag() pgconn.CommandTag       { return pgconn.NewCommandTag("") }
+func (m *mockRowsProjectResources) Next() bool                                   { m.idx++; return m.idx < len(m.rows) }
+func (m *mockRowsProjectResources) Close()                                       {}
+func (m *mockRowsProjectResources) Err() error                                   { return nil }
+func (m *mockRowsProjectResources) CommandTag() pgconn.CommandTag                { return pgconn.NewCommandTag("") }
 func (m *mockRowsProjectResources) FieldDescriptions() []pgconn.FieldDescription { return nil }
-func (m *mockRowsProjectResources) RawValues() [][]byte      { return nil }
-func (m *mockRowsProjectResources) Values() ([]any, error)   { return nil, nil }
-func (m *mockRowsProjectResources) Conn() *pgx.Conn          { return nil }
+func (m *mockRowsProjectResources) RawValues() [][]byte                          { return nil }
+func (m *mockRowsProjectResources) Values() ([]any, error)                       { return nil, nil }
+func (m *mockRowsProjectResources) Conn() *pgx.Conn                              { return nil }
 
 func (m *mockRowsProjectResources) Scan(dest ...any) error {
 	r := &m.rows[m.idx]
@@ -697,9 +699,9 @@ func TestResolveCodeRepo_ProjectResourcesOverrideWorkspace(t *testing.T) {
 			Settings: wsSettings,
 		},
 		issue: &db.MulticaIssue{
-			ID:         testUUID(5),
+			ID:          testUUID(5),
 			WorkspaceID: testUUID(1),
-			ProjectID:  projID,
+			ProjectID:   projID,
 		},
 		projResRows: []db.MulticaProjectResource{
 			{
@@ -749,9 +751,9 @@ func TestResolveCodeRepo_ProjectNoGithubRepoFallsBackToWorkspace(t *testing.T) {
 			Settings: wsSettings,
 		},
 		issue: &db.MulticaIssue{
-			ID:         testUUID(5),
+			ID:          testUUID(5),
 			WorkspaceID: testUUID(1),
-			ProjectID:  projID,
+			ProjectID:   projID,
 		},
 		// project has a resource but NOT github_repo -> should fallback
 		projResRows: []db.MulticaProjectResource{
@@ -909,14 +911,14 @@ type mockRowsDeliverables struct {
 	idx  int
 }
 
-func (m *mockRowsDeliverables) Next() bool        { m.idx++; return m.idx < len(m.rows) }
-func (m *mockRowsDeliverables) Close()            {}
-func (m *mockRowsDeliverables) Err() error        { return nil }
-func (m *mockRowsDeliverables) CommandTag() pgconn.CommandTag       { return pgconn.NewCommandTag("") }
+func (m *mockRowsDeliverables) Next() bool                                   { m.idx++; return m.idx < len(m.rows) }
+func (m *mockRowsDeliverables) Close()                                       {}
+func (m *mockRowsDeliverables) Err() error                                   { return nil }
+func (m *mockRowsDeliverables) CommandTag() pgconn.CommandTag                { return pgconn.NewCommandTag("") }
 func (m *mockRowsDeliverables) FieldDescriptions() []pgconn.FieldDescription { return nil }
-func (m *mockRowsDeliverables) RawValues() [][]byte      { return nil }
-func (m *mockRowsDeliverables) Values() ([]any, error)   { return nil, nil }
-func (m *mockRowsDeliverables) Conn() *pgx.Conn          { return nil }
+func (m *mockRowsDeliverables) RawValues() [][]byte                          { return nil }
+func (m *mockRowsDeliverables) Values() ([]any, error)                       { return nil, nil }
+func (m *mockRowsDeliverables) Conn() *pgx.Conn                              { return nil }
 
 func (m *mockRowsDeliverables) Scan(dest ...any) error {
 	r := &m.rows[m.idx]
@@ -1164,5 +1166,407 @@ func TestBuildCSCloudPayload_NoPriorWhenGetLastReturnsNoRows(t *testing.T) {
 	}
 	if payload.PriorSessionID != "" || payload.PriorWorkDir != "" {
 		t.Errorf("no prior expected; got session=%q workdir=%q", payload.PriorSessionID, payload.PriorWorkDir)
+	}
+}
+
+// --- buildCSCloudPayload safety-net (M2.5 Task 2) tests ---
+//
+// The safety net ensures a Gitea wf repo + inst branch exist for document
+// deliverables at dispatch time, as a fallback for when run-start
+// ScaffoldRunDeliverables failed or was skipped. It fires when ALL hold:
+// phase=worker, the node has a document deliverable, the team-namespace client
+// is configured, AND workspace.settings lack Gitea provisioning data. The test
+// mocks the DB query chain buildCSCloudPayload walks + an httptest server
+// standing in for the costrict team-namespace service (recording the
+// interface-8 InitWorkflow POST).
+
+// ensureRepoTestDB mocks the full query chain the safety net exercises:
+// GetAgent, GetIssue, GetWorkspace, GetWorkflowNodeRun, GetWorkflowRun,
+// GetWorkflow, GetLastTaskSession, ListProjectResources,
+// ListWorkflowNodeDeliverables, ListMembersWithUser, UpdateWorkspace.
+type ensureRepoTestDB struct {
+	runtime      db.MulticaAgentRuntime
+	agent        db.MulticaAgent
+	issue        db.MulticaIssue
+	workspace    db.MulticaWorkspace
+	nodeRun      db.MulticaWorkflowNodeRun
+	run          db.MulticaWorkflowRun
+	workflow     db.MulticaWorkflow
+	deliverables []db.MulticaWorkflowNodeDeliverable
+	members      []db.ListMembersWithUserRow
+
+	mu           sync.Mutex
+	updateCount  int
+	lastSettings []byte
+}
+
+func (m *ensureRepoTestDB) QueryRow(_ context.Context, sql string, args ...interface{}) pgx.Row {
+	switch {
+	case strings.Contains(sql, "GetAgentRuntime"):
+		return &ensureRepoRow{runtime: &m.runtime}
+	case strings.Contains(sql, "GetAgent "):
+		return &ensureRepoRow{agent: &m.agent}
+	case strings.Contains(sql, "GetIssue"):
+		return &ensureRepoRow{issue: &m.issue}
+	case strings.Contains(sql, "GetWorkflowNodeRun"):
+		return &ensureRepoRow{nodeRun: &m.nodeRun}
+	case strings.Contains(sql, "GetWorkflowRun"):
+		return &ensureRepoRow{run: &m.run}
+	case strings.Contains(sql, "GetWorkflow "): // "GetWorkflow :one" (not GetWorkflowRun/Node)
+		return &ensureRepoRow{workflow: &m.workflow}
+	case strings.Contains(sql, "GetWorkspace"):
+		return &ensureRepoRow{workspace: &m.workspace}
+	case strings.Contains(sql, "UpdateWorkspace"):
+		// UpdateWorkspaceParams positional order:
+		// ID, Name, Description, Context, Settings, Repos, IssuePrefix.
+		if len(args) >= 5 {
+			if settings, ok := args[4].([]byte); ok {
+				m.mu.Lock()
+				m.updateCount++
+				m.lastSettings = append([]byte(nil), settings...)
+				m.mu.Unlock()
+			}
+		}
+		return &ensureRepoRow{workspace: &m.workspace}
+	case strings.Contains(sql, "GetLastTaskSession"):
+		return &ensureRepoRow{err: pgx.ErrNoRows}
+	case strings.Contains(sql, "GetComment"):
+		return &ensureRepoRow{err: pgx.ErrNoRows}
+	case strings.Contains(sql, "GetAutopilotRun"):
+		return &ensureRepoRow{err: pgx.ErrNoRows}
+	default:
+		return &ensureRepoRow{err: pgx.ErrNoRows}
+	}
+}
+
+func (m *ensureRepoTestDB) Query(_ context.Context, sql string, _ ...interface{}) (pgx.Rows, error) {
+	switch {
+	case strings.Contains(sql, "ListProjectResources"):
+		return &mockRowsProjectResources{rows: nil, idx: -1}, nil
+	case strings.Contains(sql, "ListWorkflowNodeDeliverables"):
+		return &mockRowsDeliverables{rows: m.deliverables, idx: -1}, nil
+	case strings.Contains(sql, "ListMembersWithUser"):
+		return &mockRowsMembers{rows: m.members, idx: -1}, nil
+	default:
+		return nil, pgx.ErrNoRows
+	}
+}
+
+func (m *ensureRepoTestDB) Exec(_ context.Context, _ string, _ ...interface{}) (pgconn.CommandTag, error) {
+	return pgconn.NewCommandTag(""), nil
+}
+
+type ensureRepoRow struct {
+	runtime   *db.MulticaAgentRuntime
+	agent     *db.MulticaAgent
+	issue     *db.MulticaIssue
+	workspace *db.MulticaWorkspace
+	nodeRun   *db.MulticaWorkflowNodeRun
+	run       *db.MulticaWorkflowRun
+	workflow  *db.MulticaWorkflow
+	err       error
+}
+
+func (r *ensureRepoRow) Scan(dest ...any) error {
+	if r.err != nil {
+		return r.err
+	}
+	switch {
+	case r.runtime != nil:
+		return scanRuntime(r.runtime, dest)
+	case r.agent != nil:
+		return scanAgent(r.agent, dest)
+	case r.issue != nil:
+		return scanIssueFull(r.issue, dest)
+	case r.workspace != nil:
+		return scanWorkspaceFull(r.workspace, dest)
+	case r.nodeRun != nil:
+		return scanNodeRun(r.nodeRun, dest)
+	case r.run != nil:
+		return scanWorkflowRun(r.run, dest)
+	case r.workflow != nil:
+		return scanWorkflow(r.workflow, dest)
+	}
+	return nil
+}
+
+func scanWorkflowRun(w *db.MulticaWorkflowRun, dest []any) error {
+	vals := []any{
+		&w.ID, &w.WorkflowID, &w.WorkspaceID, &w.WorkflowTitle, &w.Status,
+		&w.TriggeredByType, &w.TriggeredByID, &w.Input, &w.Output,
+		&w.StartedAt, &w.CompletedAt, &w.CreatedAt, &w.RuntimeID,
+		&w.SourceIssueID, &w.ResponsibleUserID, &w.RuntimeAuthorizerID,
+		&w.DispatchKey, &w.RuntimeSelectionPolicy,
+	}
+	return copyRow(vals, dest)
+}
+
+func scanWorkflow(w *db.MulticaWorkflow, dest []any) error {
+	vals := []any{
+		&w.ID, &w.WorkspaceID, &w.Title, &w.Description, &w.Status,
+		&w.MaxRetries, &w.CreatedByType, &w.CreatedByID, &w.CreatedAt,
+		&w.UpdatedAt, &w.IsTemplate, &w.SourceTemplateID, &w.IsDefault,
+		&w.DefaultRuntimeSelectionPolicy, &w.DefaultRuntimeID,
+	}
+	return copyRow(vals, dest)
+}
+
+// mockRowsMembers is a pgx.Rows yielding ListMembersWithUserRow values.
+type mockRowsMembers struct {
+	rows []db.ListMembersWithUserRow
+	idx  int
+}
+
+func (m *mockRowsMembers) Next() bool                                   { m.idx++; return m.idx < len(m.rows) }
+func (m *mockRowsMembers) Close()                                       {}
+func (m *mockRowsMembers) Err() error                                   { return nil }
+func (m *mockRowsMembers) CommandTag() pgconn.CommandTag                { return pgconn.NewCommandTag("") }
+func (m *mockRowsMembers) FieldDescriptions() []pgconn.FieldDescription { return nil }
+func (m *mockRowsMembers) RawValues() [][]byte                          { return nil }
+func (m *mockRowsMembers) Values() ([]any, error)                       { return nil, nil }
+func (m *mockRowsMembers) Conn() *pgx.Conn                              { return nil }
+
+func (m *mockRowsMembers) Scan(dest ...any) error {
+	r := &m.rows[m.idx]
+	vals := []any{
+		&r.ID, &r.WorkspaceID, &r.UserID, &r.Role, &r.CreatedAt,
+		&r.Source, &r.Status, &r.ExternalUserID, &r.ExternalUniversalID,
+		&r.EmployeeID, &r.OrgDisplayName, &r.DeptID, &r.DeptName,
+		&r.DeptPath, &r.Position, &r.IsMainDepartment, &r.DeptUserStatus,
+		&r.LastSyncedAt, &r.UserName, &r.UserEmail, &r.UserAvatarUrl,
+	}
+	return copyRow(vals, dest)
+}
+
+// newEnsureRepoTestDB builds a fully-wired mock for the document-deliverable
+// safety-net path. Settings default to empty (no Gitea data → safety net fires).
+func newEnsureRepoTestDB() *ensureRepoTestDB {
+	wsID := testUUID(2)
+	runtimeID := testUUID(1)
+	agentID := testUUID(4)
+	issueID := testUUID(5)
+	nodeRunID := testUUID(6)
+	runID := testUUID(7)
+	workflowID := testUUID(8)
+	nodeID := testUUID(9)
+	deliverableID := testUUID(10)
+	return &ensureRepoTestDB{
+		runtime: db.MulticaAgentRuntime{
+			ID:          runtimeID,
+			WorkspaceID: wsID,
+			Provider:    csCloudProvider,
+		},
+		agent: db.MulticaAgent{
+			ID:          agentID,
+			WorkspaceID: wsID,
+		},
+		issue: db.MulticaIssue{
+			ID:          issueID,
+			WorkspaceID: wsID,
+		},
+		workspace: db.MulticaWorkspace{
+			ID:       wsID,
+			Name:     "test-ws",
+			Settings: []byte(`{}`), // no Gitea data → safety net fires
+		},
+		nodeRun: db.MulticaWorkflowNodeRun{
+			ID:             nodeRunID,
+			WorkflowRunID:  runID,
+			WorkflowNodeID: nodeID,
+		},
+		run: db.MulticaWorkflowRun{
+			ID:          runID,
+			WorkflowID:  workflowID,
+			WorkspaceID: wsID,
+		},
+		workflow: db.MulticaWorkflow{
+			ID:          workflowID,
+			WorkspaceID: wsID,
+			Title:       "Doc workflow",
+		},
+		deliverables: []db.MulticaWorkflowNodeDeliverable{
+			{
+				ID:             deliverableID,
+				WorkflowNodeID: nodeID,
+				Kind:           "document",
+				Title:          "Design doc",
+			},
+		},
+		members: []db.ListMembersWithUserRow{
+			{
+				UserID:              testUUID(20),
+				Role:                "owner",
+				ExternalUniversalID: pgtype.Text{String: "ou_owner", Valid: true},
+			},
+		},
+	}
+}
+
+// newTeamNamespaceTestServer returns an httptest server that handles the
+// team-namespace interface-8 endpoints (CreateTeam + InitWorkflow) and records
+// calls. Returns (server, pointer-to-flags struct).
+type teamNamespaceRecorder struct {
+	mu               sync.Mutex
+	initCalled       bool
+	createTeamCalled bool
+}
+
+func newTeamNamespaceTestServer(t *testing.T) (*httptest.Server, *teamNamespaceRecorder) {
+	t.Helper()
+	rec := &teamNamespaceRecorder{}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/internal/workflow/init":
+			rec.mu.Lock()
+			rec.initCalled = true
+			rec.mu.Unlock()
+			_ = json.NewEncoder(w).Encode(teamnamespace.WorkflowInitResponse{
+				WFRepoPath:       "t-ws/wf-docworkflow",
+				WFCloneURL:       "https://gitea.test/t-ws/wf-docworkflow.git",
+				WFWebURL:         "https://gitea.test/t-ws/wf-docworkflow",
+				InstanceBranch:   "inst-run",
+				TeamNSExists:     true,
+				AlgorithmVersion: "v2",
+				BotCredentials: struct {
+					GiteaUsername     string `json:"gitea_username"`
+					GiteaUserID       int64  `json:"gitea_user_id"`
+					Token             string `json:"token"`
+					CloneURLWithToken string `json:"clone_url_with_token"`
+				}{
+					GiteaUsername:     "multica-bot-ws",
+					Token:             "pat-bot-abc",
+					CloneURLWithToken: "https://multica-bot-ws:pat-bot-abc@gitea.test/t-ws/wf-docworkflow.git",
+				},
+			})
+		case "/api/internal/teams":
+			rec.mu.Lock()
+			rec.createTeamCalled = true
+			rec.mu.Unlock()
+			_ = json.NewEncoder(w).Encode(teamnamespace.CreateTeamResponse{
+				TeamID:       "ws-uuid",
+				TeamNSOrg:    "t-ws",
+				GiteaBaseURL: "https://gitea.test",
+				Bot: teamnamespace.BotInfo{
+					GiteaUsername: "multica-bot-ws",
+					Token:         "pat-bot-abc",
+					TokenSHA256:   "sha-abc",
+				},
+			})
+		default:
+			t.Errorf("unexpected team-namespace request path: %s", r.URL.Path)
+		}
+	}))
+	return srv, rec
+}
+
+func TestBuildCSCloudPayload_DocDeliverableSafetyNet_TriggersInitWorkflow(t *testing.T) {
+	srv, rec := newTeamNamespaceTestServer(t)
+	defer srv.Close()
+
+	tnClient := teamnamespace.NewClient(teamnamespace.Config{
+		BaseURL: srv.URL,
+		Token:   "svc-token",
+		Tenant:  "default",
+	})
+
+	mdb := newEnsureRepoTestDB()
+	svc := &TaskService{
+		Queries:       db.New(mdb),
+		Bus:           events.New(),
+		TeamNamespace: tnClient,
+	}
+
+	task := db.MulticaAgentTaskQueue{
+		ID:                testUUID(11),
+		AgentID:           mdb.agent.ID,
+		IssueID:           mdb.issue.ID,
+		RuntimeID:         mdb.runtime.ID,
+		WorkflowNodeRunID: mdb.nodeRun.ID,
+		Status:            "queued",
+		Context:           []byte(`{"phase":"worker"}`),
+	}
+
+	if _, err := svc.buildCSCloudPayload(context.Background(), task, mdb.runtime); err != nil {
+		t.Fatalf("buildCSCloudPayload: %v", err)
+	}
+
+	rec.mu.Lock()
+	initCalled := rec.initCalled
+	createTeamCalled := rec.createTeamCalled
+	rec.mu.Unlock()
+
+	if !createTeamCalled {
+		t.Errorf("expected CreateTeam (interface-8 ensure precursor) to be called")
+	}
+	if !initCalled {
+		t.Fatalf("expected InitWorkflow (interface-8) to be called for document deliverable without Gitea settings")
+	}
+
+	mdb.mu.Lock()
+	gotUpdateCount := mdb.updateCount
+	lastSettings := mdb.lastSettings
+	mdb.mu.Unlock()
+
+	if gotUpdateCount == 0 {
+		t.Fatalf("expected UpdateWorkspace to persist bot credentials, got 0 calls")
+	}
+	var settings map[string]any
+	if err := json.Unmarshal(lastSettings, &settings); err != nil {
+		t.Fatalf("unmarshal settings: %v", err)
+	}
+	if v, _ := settings["gitea_clone_url"].(string); v == "" {
+		t.Errorf("settings missing gitea_clone_url: %v", settings)
+	}
+	if v, _ := settings["gitea_pat"].(string); v == "" {
+		t.Errorf("settings missing gitea_pat: %v", settings)
+	}
+}
+
+func TestBuildCSCloudPayload_DocDeliverableSafetyNet_SkipsWhenSettingsHaveGiteaData(t *testing.T) {
+	srv, rec := newTeamNamespaceTestServer(t)
+	defer srv.Close()
+
+	tnClient := teamnamespace.NewClient(teamnamespace.Config{
+		BaseURL: srv.URL,
+		Token:   "svc-token",
+		Tenant:  "default",
+	})
+
+	mdb := newEnsureRepoTestDB()
+	// Settings already carry Gitea provisioning data → safety net must skip.
+	mdb.workspace.Settings = []byte(`{"gitea_clone_url":"https://gitea.test/t-ws/wf-x.git","gitea_pat":"pat-existing"}`)
+
+	svc := &TaskService{
+		Queries:       db.New(mdb),
+		Bus:           events.New(),
+		TeamNamespace: tnClient,
+	}
+
+	task := db.MulticaAgentTaskQueue{
+		ID:                testUUID(11),
+		AgentID:           mdb.agent.ID,
+		IssueID:           mdb.issue.ID,
+		RuntimeID:         mdb.runtime.ID,
+		WorkflowNodeRunID: mdb.nodeRun.ID,
+		Status:            "queued",
+		Context:           []byte(`{"phase":"worker"}`),
+	}
+
+	if _, err := svc.buildCSCloudPayload(context.Background(), task, mdb.runtime); err != nil {
+		t.Fatalf("buildCSCloudPayload: %v", err)
+	}
+
+	rec.mu.Lock()
+	initCalled := rec.initCalled
+	rec.mu.Unlock()
+
+	if initCalled {
+		t.Errorf("InitWorkflow must NOT fire when settings already have Gitea data")
+	}
+	mdb.mu.Lock()
+	updateCount := mdb.updateCount
+	mdb.mu.Unlock()
+	if updateCount != 0 {
+		t.Errorf("UpdateWorkspace must NOT be called when already provisioned, got %d", updateCount)
 	}
 }

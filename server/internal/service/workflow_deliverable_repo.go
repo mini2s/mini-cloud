@@ -90,7 +90,16 @@ func userRefFromMember(m db.ListMembersWithUserRow) teamnamespace.UserRef {
 }
 
 func (s *WorkflowService) workspaceMemberRefs(ctx context.Context, workspaceID pgtype.UUID) ([]teamnamespace.UserRef, teamnamespace.UserRef, error) {
-	members, err := s.Queries.ListMembersWithUser(ctx, workspaceID)
+	return workspaceMemberRefsForQueries(ctx, s.Queries, workspaceID)
+}
+
+// workspaceMemberRefsForQueries is the free-function form of
+// WorkflowService.workspaceMemberRefs, extracted so TaskService.ensureDeliveryRepo
+// can call the team-namespace provisioning sequence without importing
+// WorkflowService (which already depends on TaskService — reverse import would
+// be a cycle). The method wrapper above delegates here.
+func workspaceMemberRefsForQueries(ctx context.Context, q *db.Queries, workspaceID pgtype.UUID) ([]teamnamespace.UserRef, teamnamespace.UserRef, error) {
+	members, err := q.ListMembersWithUser(ctx, workspaceID)
 	if err != nil {
 		return nil, teamnamespace.UserRef{}, err
 	}
@@ -113,7 +122,15 @@ func (s *WorkflowService) workspaceMemberRefs(ctx context.Context, workspaceID p
 }
 
 func (s *WorkflowService) persistTeamNamespaceSettings(ctx context.Context, workspaceID pgtype.UUID, patch map[string]any) error {
-	ws, err := s.Queries.GetWorkspace(ctx, workspaceID)
+	return persistTeamNamespaceSettings(ctx, s.Queries, workspaceID, patch)
+}
+
+// persistTeamNamespaceSettings is the free-function form of the identically
+// named WorkflowService method. It merges patch into workspace.settings and
+// persists via UpdateWorkspace. Empty-string patch values are skipped (treated
+// as "no value yet" so they don't clobber existing data on a partial re-run).
+func persistTeamNamespaceSettings(ctx context.Context, q *db.Queries, workspaceID pgtype.UUID, patch map[string]any) error {
+	ws, err := q.GetWorkspace(ctx, workspaceID)
 	if err != nil {
 		return fmt.Errorf("get workspace: %w", err)
 	}
@@ -133,7 +150,7 @@ func (s *WorkflowService) persistTeamNamespaceSettings(ctx context.Context, work
 	if err != nil {
 		return fmt.Errorf("marshal settings: %w", err)
 	}
-	if _, err := s.Queries.UpdateWorkspace(ctx, db.UpdateWorkspaceParams{
+	if _, err := q.UpdateWorkspace(ctx, db.UpdateWorkspaceParams{
 		ID:       workspaceID,
 		Settings: raw,
 	}); err != nil {
@@ -143,18 +160,26 @@ func (s *WorkflowService) persistTeamNamespaceSettings(ctx context.Context, work
 }
 
 func (s *WorkflowService) ensureTeamNamespace(ctx context.Context, workspaceID pgtype.UUID) error {
-	ws, err := s.Queries.GetWorkspace(ctx, workspaceID)
+	return ensureTeamNamespace(ctx, s.Queries, s.TeamNamespace, workspaceID)
+}
+
+// ensureTeamNamespace is the free-function form of the identically named
+// WorkflowService method: CreateTeam (interface-8 team-ns) + persist bot
+// credentials into workspace.settings. Idempotent — re-runs find the team
+// existing and just re-record credentials.
+func ensureTeamNamespace(ctx context.Context, q *db.Queries, tn *teamnamespace.Client, workspaceID pgtype.UUID) error {
+	ws, err := q.GetWorkspace(ctx, workspaceID)
 	if err != nil {
 		return fmt.Errorf("get workspace: %w", err)
 	}
-	refs, creator, err := s.workspaceMemberRefs(ctx, workspaceID)
+	refs, creator, err := workspaceMemberRefsForQueries(ctx, q, workspaceID)
 	if err != nil {
 		return fmt.Errorf("list workspace members: %w", err)
 	}
 	if creator.UserID == "" && creator.UniversalID == "" {
 		return fmt.Errorf("workspace has no syncable creator")
 	}
-	resp, err := s.TeamNamespace.CreateTeam(ctx, teamnamespace.CreateTeamRequest{
+	resp, err := tn.CreateTeam(ctx, teamnamespace.CreateTeamRequest{
 		TeamID:          util.UUIDToString(workspaceID),
 		TeamDisplayName: ws.Name,
 		Creator:         creator,
@@ -174,18 +199,28 @@ func (s *WorkflowService) ensureTeamNamespace(ctx context.Context, workspaceID p
 	if resp.Bot.TokenSHA256 != "" {
 		patch["gitea_pat_sha256"] = resp.Bot.TokenSHA256
 	}
-	return s.persistTeamNamespaceSettings(ctx, workspaceID, patch)
+	return persistTeamNamespaceSettings(ctx, q, workspaceID, patch)
 }
 
 func (s *WorkflowService) initWorkflowNamespace(ctx context.Context, run db.MulticaWorkflowRun, workflow db.MulticaWorkflow) error {
-	if err := s.ensureTeamNamespace(ctx, run.WorkspaceID); err != nil {
+	return initWorkflowNamespace(ctx, s.Queries, s.TeamNamespace, run, workflow)
+}
+
+// initWorkflowNamespace is the free-function form of the identically named
+// WorkflowService method: ensure team-ns exists, then InitWorkflow
+// (interface-8 wf repo + inst branch), then persist bot_credentials + wf repo
+// metadata into workspace.settings. Idempotent. Called from
+// WorkflowService.ScaffoldRunDeliverables / ensureNodeRunBranch and from
+// TaskService.ensureDeliveryRepo (the dispatch-time safety net).
+func initWorkflowNamespace(ctx context.Context, q *db.Queries, tn *teamnamespace.Client, run db.MulticaWorkflowRun, workflow db.MulticaWorkflow) error {
+	if err := ensureTeamNamespace(ctx, q, tn, run.WorkspaceID); err != nil {
 		return err
 	}
 	defSlug := shortHexSafe(util.UUIDToString(workflow.ID))
 	if workflow.IsDefault {
 		defSlug = gitea.DefaultArchiveRepoName()
 	}
-	resp, err := s.TeamNamespace.InitWorkflow(ctx, teamnamespace.WorkflowInitRequest{
+	resp, err := tn.InitWorkflow(ctx, teamnamespace.WorkflowInitRequest{
 		WorkflowDefSlug: defSlug,
 		InstanceID:      util.UUIDToString(run.ID),
 		TeamID:          util.UUIDToString(run.WorkspaceID),
@@ -206,7 +241,7 @@ func (s *WorkflowService) initWorkflowNamespace(ctx context.Context, run db.Mult
 	if resp.BotCredentials.Token != "" {
 		patch["gitea_pat"] = resp.BotCredentials.Token
 	}
-	return s.persistTeamNamespaceSettings(ctx, run.WorkspaceID, patch)
+	return persistTeamNamespaceSettings(ctx, q, run.WorkspaceID, patch)
 }
 
 // initDefaultArchiveRepo provisions the workspace's default deliverable-archive

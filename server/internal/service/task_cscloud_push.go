@@ -37,17 +37,17 @@ const (
 // csCloudRepoSpec describes one repository the agent may work in.
 type csCloudRepoSpec struct {
 	URL        string `json:"url"`
-	Provider   string `json:"provider"`             // "gitlab" | "gitea"
-	Role       string `json:"role"`                 // "code" | "delivery"
-	BaseBranch string `json:"base_branch"`          // code=remote default; delivery=inst branch
-	Alias      string `json:"alias,omitempty"`      // semantic label for the agent
-	BotToken   string `json:"bot_token,omitempty"`  // delivery only (Gitea team bot); code omits (CLI reads live)
+	Provider   string `json:"provider"`            // "gitlab" | "gitea"
+	Role       string `json:"role"`                // "code" | "delivery"
+	BaseBranch string `json:"base_branch"`         // code=remote default; delivery=inst branch
+	Alias      string `json:"alias,omitempty"`     // semantic label for the agent
+	BotToken   string `json:"bot_token,omitempty"` // delivery only (Gitea team bot); code omits (CLI reads live)
 }
 
 // csCloudDeliverableSpec is one deliverable contract for the node.
 type csCloudDeliverableSpec struct {
 	ID        string            `json:"id"`
-	Kind      string            `json:"kind"`               // "document" | "pull_request"
+	Kind      string            `json:"kind"`                 // "document" | "pull_request"
 	RepoAlias string            `json:"repo_alias,omitempty"` // maps to repos[].alias
 	Report    csCloudReportSpec `json:"report"`
 }
@@ -256,6 +256,17 @@ func (s *TaskService) buildCSCloudPayload(ctx context.Context, task db.MulticaAg
 			prompt = appendCodeRepoPrompt(prompt, repos)
 		}
 		deliverables = s.deliverableSpecsForTask(ctx, task)
+		// Document deliverable: ensure Gitea wf repo + inst branch exist (safety
+		// net if run-start ScaffoldRunDeliverables failed/skipped). Idempotent —
+		// re-running initWorkflowNamespace on an already-provisioned workspace
+		// is a no-op. Best-effort: errors are logged, never block dispatch (the
+		// payload still goes out; a later re-run or member upload recovers).
+		if hasDocumentDeliverableSpec(deliverables) && s.teamNamespaceConfigured() && s.settingsLackGiteaData(ctx, runtime.WorkspaceID) {
+			if err := s.ensureDeliveryRepo(ctx, task, runtime.WorkspaceID); err != nil {
+				slog.Warn("cs-cloud dispatch: ensure delivery repo",
+					"task_id", util.UUIDToString(task.ID), "error", err)
+			}
+		}
 	}
 
 	// Prior (agent, issue) session/workdir so cs-cloud resumes the conversation
@@ -842,4 +853,87 @@ func (s *TaskService) maybeAbortOnDevice(task db.MulticaAgentTaskQueue) {
 			)
 		}
 	}()
+}
+
+// --- Document-deliverable dispatch-time safety net (M2.5 Task 2) ---
+//
+// The run-start ScaffoldRunDeliverables path occasionally fails or is skipped
+// (transient DB error, team-namespace hiccup, goroutine panic). Without a
+// safety net, the cs-cloud device gets a task whose workspace has no Gitea wf
+// repo + inst branch and no bot credentials in settings — so the agent's first
+// `gitea submit` / clone 404s and the run fails for a fixable reason. This
+// safety net runs at dispatch time, inside buildCSCloudPayload: if the task is
+// a document-deliverable worker AND the workspace lacks Gitea data, re-fire
+// the interface-8 InitWorkflow (idempotent) before the payload goes out. See
+// docs/superpowers/cs-cloud-delivery-m2.5-plan.md §Task 2.
+
+// teamNamespaceConfigured mirrors WorkflowService.teamNamespaceConfigured:
+// TeamNamespace client wired (post-router) and Configured() (base URL + token
+// present). Read by buildCSCloudPayload to gate the safety net.
+func (s *TaskService) teamNamespaceConfigured() bool {
+	return s.TeamNamespace != nil && s.TeamNamespace.Configured()
+}
+
+// hasDocumentDeliverableSpec reports whether the local deliverable slice (as
+// already assembled by deliverableSpecsForTask) contains any document-kind
+// entry. This is a LOCAL check on the in-memory slice; the similarly named
+// WorkflowService.hasDocumentDeliverable queries nodes by workflowID instead.
+func hasDocumentDeliverableSpec(deliverables []csCloudDeliverableSpec) bool {
+	for _, d := range deliverables {
+		if d.Kind == "document" {
+			return true
+		}
+	}
+	return false
+}
+
+// settingsLackGiteaData reports whether workspace.settings are missing the
+// Gitea provisioning bundle. Returns true (fire safety net) on any read/parse
+// error or when either gitea_clone_url or gitea_pat is absent/empty — partial
+// state also triggers re-provisioning (initWorkflowNamespace is idempotent).
+func (s *TaskService) settingsLackGiteaData(ctx context.Context, workspaceID pgtype.UUID) bool {
+	ws, err := s.Queries.GetWorkspace(ctx, workspaceID)
+	if err != nil {
+		return true
+	}
+	if len(ws.Settings) == 0 {
+		return true
+	}
+	var settings struct {
+		GiteaCloneURL string `json:"gitea_clone_url"`
+		GiteaPAT      string `json:"gitea_pat"`
+	}
+	if err := json.Unmarshal(ws.Settings, &settings); err != nil {
+		return true
+	}
+	return strings.TrimSpace(settings.GiteaCloneURL) == "" || strings.TrimSpace(settings.GiteaPAT) == ""
+}
+
+// ensureDeliveryRepo walks task → node run → run → workflow and fires the
+// team-namespace interface-8 InitWorkflow via the free initWorkflowNamespace
+// helper (which itself runs ensureTeamNamespace → CreateTeam first, then
+// InitWorkflow, then persists bot_credentials + wf repo metadata into
+// workspace.settings). Idempotent; safe to call on every dispatch.
+//
+// Returns an error only when a hard provisioning step fails; the caller
+// (buildCSCloudPayload) logs and continues — the payload still goes out and
+// the run is not failed for a fixable provisioning gap (a later re-run or
+// member upload path can also recover).
+func (s *TaskService) ensureDeliveryRepo(ctx context.Context, task db.MulticaAgentTaskQueue, workspaceID pgtype.UUID) error {
+	if !task.WorkflowNodeRunID.Valid {
+		return nil
+	}
+	nr, err := s.Queries.GetWorkflowNodeRun(ctx, task.WorkflowNodeRunID)
+	if err != nil {
+		return fmt.Errorf("get node run: %w", err)
+	}
+	run, err := s.Queries.GetWorkflowRun(ctx, nr.WorkflowRunID)
+	if err != nil {
+		return fmt.Errorf("get workflow run: %w", err)
+	}
+	workflow, err := s.Queries.GetWorkflow(ctx, run.WorkflowID)
+	if err != nil {
+		return fmt.Errorf("get workflow: %w", err)
+	}
+	return initWorkflowNamespace(ctx, s.Queries, s.TeamNamespace, run, workflow)
 }
