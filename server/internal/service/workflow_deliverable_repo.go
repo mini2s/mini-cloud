@@ -118,7 +118,19 @@ func workspaceMemberRefsForQueries(ctx context.Context, q *db.Queries, workspace
 	if creator.UserID == "" && creator.UniversalID == "" && len(refs) > 0 {
 		creator = refs[0]
 	}
-	return refs, creator, nil
+	// team-ns contract §1.5: the creator is passed separately and must NOT also
+	// appear in initial_members — costrict-web's CreateTeam rejects the request
+	// with INVALID_REQUEST when they overlap (validateCreateTeamRequest). Exclude
+	// the chosen creator from the member list so the request is well-formed.
+	initialMembers := make([]teamnamespace.UserRef, 0, len(refs))
+	for _, r := range refs {
+		if (r.UserID != "" && r.UserID == creator.UserID) ||
+			(r.UniversalID != "" && r.UniversalID == creator.UniversalID) {
+			continue
+		}
+		initialMembers = append(initialMembers, r)
+	}
+	return initialMembers, creator, nil
 }
 
 func (s *WorkflowService) persistTeamNamespaceSettings(ctx context.Context, workspaceID pgtype.UUID, patch map[string]any) error {
