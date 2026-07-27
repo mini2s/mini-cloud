@@ -1168,6 +1168,65 @@ func TestCloseDeliverableReviewRequests_BestEffortOnError(t *testing.T) {
 	}
 }
 
+// TestReviewNodeRun_ClosesDocumentPROnReject verifies the M4 reject wiring:
+// a critic rejection (retry < MaxRetries) closes the node-run's document
+// deliverable PR, and the node transitions to rework (not completed).
+func TestReviewNodeRun_ClosesDocumentPROnReject(t *testing.T) {
+	pool := openTestPool(t)
+	defer pool.Close()
+	ctx := context.Background()
+	fix := seedGiteaFixture(t, pool, true /*document deliverable*/, 1)
+
+	giteaSrv, closeCalls := fakeGiteaCloseServer(t, http.StatusOK)
+	svc := &WorkflowService{
+		Queries:   db.New(pool),
+		TxStarter: pool,
+		Bus:       events.New(),
+		Gitea:     gitea.NewClient(gitea.Config{BaseURL: giteaSrv.URL, Token: "admin"}),
+	}
+	prURL := giteaSrv.URL + "/owner/repo/pulls/5"
+	nodeRunID := seedNodeRunForReview(t, pool, fix, fix.run1, prURL, "submitted")
+
+	if err := svc.ReviewNodeRun(ctx, nodeRunID, false /*rejected*/, "needs work", nil); err != nil {
+		t.Fatalf("ReviewNodeRun: %v", err)
+	}
+	if *closeCalls != 1 {
+		t.Fatalf("document PR close calls = %d, want 1 on reject", *closeCalls)
+	}
+	if got := nodeRunStatus(t, pool, nodeRunID); got == NodeRunStatusCompleted {
+		t.Fatalf("node run completed on reject (should be rework/dispatched)")
+	}
+}
+
+// TestReviewNodeRun_ApproveDoesNotClose is the symmetric regression: approve
+// must NOT close the document PR (it merges it instead — covered by the merge
+// tests). Asserts the close endpoint is untouched on approve.
+func TestReviewNodeRun_ApproveDoesNotClose(t *testing.T) {
+	pool := openTestPool(t)
+	defer pool.Close()
+	ctx := context.Background()
+	fix := seedGiteaFixture(t, pool, true, 1)
+
+	giteaSrv, closeCalls := fakeGiteaCloseServer(t, http.StatusOK)
+	svc := &WorkflowService{
+		Queries:   db.New(pool),
+		TxStarter: pool,
+		Bus:       events.New(),
+		Gitea:     gitea.NewClient(gitea.Config{BaseURL: giteaSrv.URL, Token: "admin"}),
+	}
+	// Use a non-merge URL shape so mergeDeliverablePRs finds nothing to merge
+	// (the fake server doesn't implement /merge) — we only care that close isn't hit.
+	prURL := giteaSrv.URL + "/owner/repo/pulls/5"
+	nodeRunID := seedNodeRunForReview(t, pool, fix, fix.run1, prURL, "submitted")
+
+	if err := svc.ReviewNodeRun(ctx, nodeRunID, true /*approved*/, "lgtm", nil); err != nil {
+		t.Fatalf("ReviewNodeRun: %v", err)
+	}
+	if *closeCalls != 0 {
+		t.Fatalf("close calls on approve = %d, want 0 (approve merges, never closes)", *closeCalls)
+	}
+}
+
 // TestReviewNodeRun_BlocksWhenMergeConflicts verifies the failure path: a 409
 // (gitea.ErrMergeConflict, terminal) blocks the node run instead of completing
 // it. Blocking is NOT an error from ReviewNodeRun — the caller observes the

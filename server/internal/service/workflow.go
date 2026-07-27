@@ -1475,6 +1475,14 @@ func (s *WorkflowService) ReviewNodeRun(ctx context.Context, nodeRunID pgtype.UU
 		return err
 	}
 
+	// Critic rejected (rework or blocked-after-MaxRetries): close the node-run's
+	// document deliverable PRs so a stale PR doesn't linger into the next round.
+	// Code MRs are left open (worker revises in place). Best-effort, like the
+	// archive below — runs after the tx commits, uses a fresh context.
+	if !approved {
+		s.closeDeliverableReviewRequests(context.Background(), nodeRun)
+	}
+
 	// Archive the review comment to Gitea as a document (journey 7: review
 	// opinion is itself a deliverable, archived to the repo). Best-effort.
 	if comment != "" {
