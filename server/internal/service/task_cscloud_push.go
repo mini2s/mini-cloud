@@ -660,8 +660,20 @@ func (s *TaskService) repositoryDeliverableEnv(ctx context.Context, task db.Mult
 	// can push the document + open a PR against Gitea directly, without relaying
 	// back through multica to fetch credentials. The PAT lives in workspace
 	// settings (minted by the team-namespace provisioning flow).
+	// We ALSO read gitea_clone_url / last_instance_branch / gitea_web_url from
+	// the SAME settings bundle and prefer them over the GITEA_PUBLIC_BASE_URL
+	// self-assembly below. This is a cross-repo contract: cs-cloud's lookupRepoRole
+	// matches the checkout URL against payload.Repos[].URL by EXACT equality, and
+	// resolveDeliveryRepo puts settings.gitea_clone_url into repos[].URL. If the
+	// env's MULTICA_REPO_CLONE_URL diverges (e.g. GITEA_PUBLIC_BASE_URL points at
+	// a different host than the tenant-scoped Gitea), cs-cloud silently downgrades
+	// delivery → code → wrong token (GitLab PAT) → Gitea clone 401. Reading both
+	// URLs from the same settings field guarantees they stay identical.
 	pat := ""
 	botUser := ""
+	settingsCloneURL := ""
+	settingsInstBranch := ""
+	settingsWebURL := ""
 	if ws, err := s.Queries.GetWorkspace(ctx, run.WorkspaceID); err == nil && len(ws.Settings) > 0 {
 		settingsMap := map[string]any{}
 		if json.Unmarshal(ws.Settings, &settingsMap) == nil {
@@ -671,12 +683,42 @@ func (s *TaskService) repositoryDeliverableEnv(ctx context.Context, task db.Mult
 			if v, ok := settingsMap["gitea_bot_username"].(string); ok {
 				botUser = v
 			}
+			if v, ok := settingsMap["gitea_clone_url"].(string); ok {
+				settingsCloneURL = v
+			}
+			if v, ok := settingsMap["last_instance_branch"].(string); ok {
+				settingsInstBranch = v
+			}
+			if v, ok := settingsMap["gitea_web_url"].(string); ok {
+				settingsWebURL = v
+			}
 		}
 	}
-	cloneURL := strings.TrimRight(publicBase, "/") + "/" + owner + "/" + repo + ".git"
-	baseURL := strings.TrimRight(publicBase, "/")
+	// Clone URL: prefer settings value (== repos[].URL) so cs-cloud's role lookup
+	// matches; fall back to self-assembly only when pre-provisioning.
+	var cloneURL string
+	if strings.TrimSpace(settingsCloneURL) != "" {
+		cloneURL = strings.TrimSpace(settingsCloneURL)
+	} else {
+		cloneURL = strings.TrimRight(publicBase, "/") + "/" + owner + "/" + repo + ".git"
+	}
+	// Base URL: prefer settings gitea_web_url (the Gitea web/API root cs-cloud's
+	// PR API targets); fall back to GITEA_PUBLIC_BASE_URL.
+	var baseURL string
+	if strings.TrimSpace(settingsWebURL) != "" {
+		baseURL = strings.TrimRight(strings.TrimSpace(settingsWebURL), "/")
+	} else {
+		baseURL = strings.TrimRight(publicBase, "/")
+	}
 	authedCloneURL := injectGiteaToken(cloneURL, botUser, pat)
-	instBranch := gitea.InstBranch(util.UUIDToString(run.ID))
+	// Inst branch: prefer settings last_instance_branch (matches repos[].BaseBranch);
+	// fall back to the deterministic run-ID derivation.
+	var instBranch string
+	if strings.TrimSpace(settingsInstBranch) != "" {
+		instBranch = strings.TrimSpace(settingsInstBranch)
+	} else {
+		instBranch = gitea.InstBranch(util.UUIDToString(run.ID))
+	}
 	nodeBranch := gitea.NodeBranch(nodeSeq, nodeRunIDStr)
 	out := map[string]string{
 		"MULTICA_NODE_RUN_ID":           nodeRunIDStr,
@@ -691,6 +733,11 @@ func (s *TaskService) repositoryDeliverableEnv(ctx context.Context, task db.Mult
 		"MULTICA_REPO_NODE_BRANCH":      nodeBranch,
 		"MULTICA_REPO_DELIVERABLES":     string(refsJSON),
 	}
+	// CROSS-REPO CONTRACT: cs-cloud's deliverable-submit CLI (internal/cli/gitea.go
+	// readGiteaContext) reads ONLY the legacy MULTICA_GITEA_* names; the aliasing
+	// below is the sole bridge between the renamed MULTICA_REPO_* env and that
+	// legacy reader. Do NOT remove this aliasing without migrating cs-cloud to
+	// read MULTICA_REPO_* directly.
 	for oldKey, newKey := range map[string]string{
 		"MULTICA_GITEA_OWNER":            "MULTICA_REPO_OWNER",
 		"MULTICA_GITEA_REPO":             "MULTICA_REPO_NAME",

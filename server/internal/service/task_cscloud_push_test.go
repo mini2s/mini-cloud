@@ -1319,8 +1319,9 @@ func TestBuildCSCloudPayload_NodeRunHandback_DoesNotOverrideGetLastTaskSession(t
 
 // ensureRepoTestDB mocks the full query chain the safety net exercises:
 // GetAgent, GetIssue, GetWorkspace, GetWorkflowNodeRun, GetWorkflowRun,
-// GetWorkflow, GetLastTaskSession, ListProjectResources,
-// ListWorkflowNodeDeliverables, ListMembersWithUser, UpdateWorkspace.
+// GetWorkflow, GetWorkflowNode, GetLastTaskSession, ListProjectResources,
+// ListWorkflowNodeDeliverables, ListWorkflowNodes, ListWorkflowEdges,
+// ListMembersWithUser, UpdateWorkspace.
 type ensureRepoTestDB struct {
 	runtime      db.MulticaAgentRuntime
 	agent        db.MulticaAgent
@@ -1329,6 +1330,7 @@ type ensureRepoTestDB struct {
 	nodeRun      db.MulticaWorkflowNodeRun
 	run          db.MulticaWorkflowRun
 	workflow     db.MulticaWorkflow
+	node         db.MulticaWorkflowNode
 	deliverables []db.MulticaWorkflowNodeDeliverable
 	members      []db.ListMembersWithUserRow
 
@@ -1347,6 +1349,8 @@ func (m *ensureRepoTestDB) QueryRow(_ context.Context, sql string, args ...inter
 		return &ensureRepoRow{issue: &m.issue}
 	case strings.Contains(sql, "GetWorkflowNodeRun"):
 		return &ensureRepoRow{nodeRun: &m.nodeRun}
+	case strings.Contains(sql, "GetWorkflowNode"): // must be after GetWorkflowNodeRun
+		return &ensureRepoRow{node: &m.node}
 	case strings.Contains(sql, "GetWorkflowRun"):
 		return &ensureRepoRow{run: &m.run}
 	case strings.Contains(sql, "GetWorkflow "): // "GetWorkflow :one" (not GetWorkflowRun/Node)
@@ -1382,6 +1386,10 @@ func (m *ensureRepoTestDB) Query(_ context.Context, sql string, _ ...interface{}
 		return &mockRowsProjectResources{rows: nil, idx: -1}, nil
 	case strings.Contains(sql, "ListWorkflowNodeDeliverables"):
 		return &mockRowsDeliverables{rows: m.deliverables, idx: -1}, nil
+	case strings.Contains(sql, "ListWorkflowNodes"):
+		return &mockRowsWorkflowNodes{rows: []db.MulticaWorkflowNode{m.node}, idx: -1}, nil
+	case strings.Contains(sql, "ListWorkflowEdges"):
+		return &mockRowsWorkflowEdges{idx: -1}, nil // no edges: single-node workflow
 	case strings.Contains(sql, "ListMembersWithUser"):
 		return &mockRowsMembers{rows: m.members, idx: -1}, nil
 	default:
@@ -1401,6 +1409,7 @@ type ensureRepoRow struct {
 	nodeRun   *db.MulticaWorkflowNodeRun
 	run       *db.MulticaWorkflowRun
 	workflow  *db.MulticaWorkflow
+	node      *db.MulticaWorkflowNode
 	err       error
 }
 
@@ -1423,6 +1432,8 @@ func (r *ensureRepoRow) Scan(dest ...any) error {
 		return scanWorkflowRun(r.run, dest)
 	case r.workflow != nil:
 		return scanWorkflow(r.workflow, dest)
+	case r.node != nil:
+		return scanWorkflowNode(r.node, dest)
 	}
 	return nil
 }
@@ -1444,6 +1455,62 @@ func scanWorkflow(w *db.MulticaWorkflow, dest []any) error {
 		&w.MaxRetries, &w.CreatedByType, &w.CreatedByID, &w.CreatedAt,
 		&w.UpdatedAt, &w.IsTemplate, &w.SourceTemplateID, &w.IsDefault,
 		&w.DefaultRuntimeSelectionPolicy, &w.DefaultRuntimeID,
+	}
+	return copyRow(vals, dest)
+}
+
+// scanWorkflowNode scans all MulticaWorkflowNode fields (SELECT *).
+func scanWorkflowNode(n *db.MulticaWorkflowNode, dest []any) error {
+	vals := []any{
+		&n.ID, &n.WorkflowID, &n.Title, &n.Description,
+		&n.PositionX, &n.PositionY, &n.FormatSchema, &n.WorkerType,
+		&n.WorkerID, &n.CriticType, &n.CriticID, &n.CriticApiUrl,
+		&n.SortOrder, &n.CreatedAt, &n.UpdatedAt, &n.StageID,
+		&n.WorkerRoleID, &n.CriticRoleID,
+	}
+	return copyRow(vals, dest)
+}
+
+// mockRowsWorkflowNodes is a pgx.Rows yielding MulticaWorkflowNode values.
+type mockRowsWorkflowNodes struct {
+	rows []db.MulticaWorkflowNode
+	idx  int
+}
+
+func (m *mockRowsWorkflowNodes) Next() bool                                   { m.idx++; return m.idx < len(m.rows) }
+func (m *mockRowsWorkflowNodes) Close()                                       {}
+func (m *mockRowsWorkflowNodes) Err() error                                   { return nil }
+func (m *mockRowsWorkflowNodes) CommandTag() pgconn.CommandTag                { return pgconn.NewCommandTag("") }
+func (m *mockRowsWorkflowNodes) FieldDescriptions() []pgconn.FieldDescription { return nil }
+func (m *mockRowsWorkflowNodes) RawValues() [][]byte                          { return nil }
+func (m *mockRowsWorkflowNodes) Values() ([]any, error)                       { return nil, nil }
+func (m *mockRowsWorkflowNodes) Conn() *pgx.Conn                              { return nil }
+
+func (m *mockRowsWorkflowNodes) Scan(dest ...any) error {
+	r := &m.rows[m.idx]
+	return scanWorkflowNode(r, dest)
+}
+
+// mockRowsWorkflowEdges is a pgx.Rows yielding MulticaWorkflowEdge values.
+type mockRowsWorkflowEdges struct {
+	rows []db.MulticaWorkflowEdge
+	idx  int
+}
+
+func (m *mockRowsWorkflowEdges) Next() bool                                   { m.idx++; return m.idx < len(m.rows) }
+func (m *mockRowsWorkflowEdges) Close()                                       {}
+func (m *mockRowsWorkflowEdges) Err() error                                   { return nil }
+func (m *mockRowsWorkflowEdges) CommandTag() pgconn.CommandTag                { return pgconn.NewCommandTag("") }
+func (m *mockRowsWorkflowEdges) FieldDescriptions() []pgconn.FieldDescription { return nil }
+func (m *mockRowsWorkflowEdges) RawValues() [][]byte                          { return nil }
+func (m *mockRowsWorkflowEdges) Values() ([]any, error)                       { return nil, nil }
+func (m *mockRowsWorkflowEdges) Conn() *pgx.Conn                              { return nil }
+
+func (m *mockRowsWorkflowEdges) Scan(dest ...any) error {
+	r := &m.rows[m.idx]
+	vals := []any{
+		&r.ID, &r.WorkflowID, &r.SourceNodeID, &r.TargetNodeID,
+		&r.Condition, &r.CreatedAt,
 	}
 	return copyRow(vals, dest)
 }
@@ -1521,6 +1588,12 @@ func newEnsureRepoTestDB() *ensureRepoTestDB {
 			ID:          workflowID,
 			WorkspaceID: wsID,
 			Title:       "Doc workflow",
+		},
+		node: db.MulticaWorkflowNode{
+			ID:         nodeID,
+			WorkflowID: workflowID,
+			Title:      "Doc node",
+			SortOrder:  1,
 		},
 		deliverables: []db.MulticaWorkflowNodeDeliverable{
 			{
@@ -1915,5 +1988,94 @@ func TestBuildCSCloudPayload_NonWorkerPhaseHasNoDeliverables(t *testing.T) {
 		if r.Role == "delivery" {
 			t.Errorf("critic phase must not emit a delivery repo; got %+v", r)
 		}
+	}
+}
+
+// --- repositoryDeliverableEnv cross-repo alignment tests (M2.5 holistic fix) ---
+//
+// cs-cloud's lookupRepoRole matches the checkout URL against payload.Repos[].URL
+// by EXACT equality. repos[].URL comes from workspace.settings gitea_clone_url
+// (read by resolveDeliveryRepo); MULTICA_REPO_CLONE_URL is what the agent passes
+// to `cs-cloud repo checkout`. If the two URLs diverge — e.g. GITEA_PUBLIC_BASE_URL
+// points at a different host than the tenant-scoped Gitea that wrote the settings —
+// cs-cloud silently downgrades delivery → code, picks the GitLab PAT, and the
+// Gitea clone 401s. These tests pin that repositoryDeliverableEnv sources
+// cloneURL/instBranch/baseURL from the SAME settings fields as resolveDeliveryRepo.
+
+func TestRepositoryDeliverableEnv_PrefersSettingsCloneURL(t *testing.T) {
+	// GITEA_* env vars are required by the guard at the top of the function.
+	// GITEA_PUBLIC_BASE_URL is deliberately a DIFFERENT host than the settings
+	// value — if the function self-builds from it, the test fails.
+	t.Setenv("GITEA_BASE_URL", "http://gitea:3000")
+	t.Setenv("GITEA_ADMIN_TOKEN", "set")
+	t.Setenv("GITEA_PUBLIC_BASE_URL", "http://localhost:23000")
+
+	mdb := newEnsureRepoTestDB()
+	// Settings value is on a completely different host than GITEA_PUBLIC_BASE_URL.
+	mdb.workspace.Settings = []byte(`{` +
+		`"gitea_clone_url":"https://gitea-tenant.example/x/wf-abc.git",` +
+		`"last_instance_branch":"inst-from-settings",` +
+		`"gitea_web_url":"https://gitea-tenant.example",` +
+		`"gitea_pat":"pat-xyz",` +
+		`"gitea_bot_username":"multica-bot"}`)
+
+	svc := &TaskService{Queries: db.New(mdb)}
+	task := db.MulticaAgentTaskQueue{WorkflowNodeRunID: mdb.nodeRun.ID}
+
+	env := svc.repositoryDeliverableEnv(context.Background(), task)
+	if env == nil {
+		t.Fatal("repositoryDeliverableEnv returned nil — document deliverable not found or gitea env unset")
+	}
+
+	// Clone URL MUST come from settings so it exactly equals repos[].URL
+	// (which resolveDeliveryRepo also reads from settings.gitea_clone_url).
+	// Self-assembly from GITEA_PUBLIC_BASE_URL would produce http://localhost:23000/...
+	if got, want := env["MULTICA_REPO_CLONE_URL"], "https://gitea-tenant.example/x/wf-abc.git"; got != want {
+		t.Errorf("MULTICA_REPO_CLONE_URL = %q, want settings value %q", got, want)
+	}
+	// Inst branch MUST come from settings so it matches repos[].BaseBranch.
+	if got, want := env["MULTICA_REPO_INST_BRANCH"], "inst-from-settings"; got != want {
+		t.Errorf("MULTICA_REPO_INST_BRANCH = %q, want %q", got, want)
+	}
+	// Base URL (cs-cloud's PR API target) comes from settings.gitea_web_url.
+	if got, want := env["MULTICA_REPO_BASE_URL"], "https://gitea-tenant.example"; got != want {
+		t.Errorf("MULTICA_REPO_BASE_URL = %q, want %q", got, want)
+	}
+	// Authed clone URL derives from the settings-sourced cloneURL (token embedded).
+	if got := env["MULTICA_REPO_CLONE_URL_AUTHED"]; !strings.Contains(got, "gitea-tenant.example") {
+		t.Errorf("MULTICA_REPO_CLONE_URL_AUTHED = %q, want to derive from settings cloneURL", got)
+	}
+	// The legacy alias must carry the SAME settings-sourced value.
+	if got := env["MULTICA_GITEA_CLONE_URL"]; got != "https://gitea-tenant.example/x/wf-abc.git" {
+		t.Errorf("MULTICA_GITEA_CLONE_URL = %q, want settings value (aliased)", got)
+	}
+}
+
+func TestRepositoryDeliverableEnv_FallsBackToSelfBuiltWhenSettingsLackCloneURL(t *testing.T) {
+	// When settings are pre-provisioning (no gitea_clone_url yet), the function
+	// must still produce a usable cloneURL from GITEA_PUBLIC_BASE_URL — this is
+	// the fallback path, not the cross-repo-aligned happy path.
+	t.Setenv("GITEA_BASE_URL", "http://gitea:3000")
+	t.Setenv("GITEA_ADMIN_TOKEN", "set")
+	t.Setenv("GITEA_PUBLIC_BASE_URL", "http://localhost:23000")
+
+	mdb := newEnsureRepoTestDB()
+	// Settings have PAT/bot but NO gitea_clone_url / last_instance_branch / gitea_web_url.
+	mdb.workspace.Settings = []byte(`{"gitea_pat":"pat-xyz","gitea_bot_username":"multica-bot"}`)
+
+	svc := &TaskService{Queries: db.New(mdb)}
+	task := db.MulticaAgentTaskQueue{WorkflowNodeRunID: mdb.nodeRun.ID}
+
+	env := svc.repositoryDeliverableEnv(context.Background(), task)
+	if env == nil {
+		t.Fatal("repositoryDeliverableEnv returned nil")
+	}
+
+	// Fallback: self-built from GITEA_PUBLIC_BASE_URL.
+	if got := env["MULTICA_REPO_CLONE_URL"]; !strings.Contains(got, "localhost:23000") {
+		t.Errorf("MULTICA_REPO_CLONE_URL = %q, want self-built from GITEA_PUBLIC_BASE_URL (localhost:23000)", got)
+	}
+	if strings.Contains(env["MULTICA_REPO_CLONE_URL"], "gitea-tenant.example") {
+		t.Errorf("MULTICA_REPO_CLONE_URL should NOT be the settings value when gitea_clone_url is absent")
 	}
 }
