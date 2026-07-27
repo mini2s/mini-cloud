@@ -400,6 +400,7 @@
     "runtime_policy_specified": "Specified runtime first",
     "runtime_policy_idle": "Idle runtime first",
     "runtime_policy_issue_creator": "Issue creator runtime first",
+    "historical_config_incomplete": "Historical configuration may be incomplete",
     "cancel": "Cancel Run",
     "cancelling": "Cancelling...",
     "toast_cancelled": "Run cancelled",

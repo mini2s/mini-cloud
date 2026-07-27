@@ -692,6 +692,8 @@ describe("ExecutionPanoramaPage", () => {
     mocks.workflowOptionsData = [];
     mocks.childIssuesData = [];
     mocks.chatSessionsData = [];
+    mocks.workflowRolesData = [];
+    mocks.roleResolutionsData = [];
     mocks.embedded = false;
     mocks.hasOpenInNewTab = true;
     mocks.splitTasksByNodeRunId = {};
@@ -2333,6 +2335,75 @@ describe("ExecutionPanoramaPage", () => {
     created_at: "",
     updated_at: "",
   };
+
+  it("uses captured actor names instead of renamed current entities", () => {
+    mocks.isLoading = false;
+    mocks.nodesData = [{ ...NODE, critic_id: "user-alice" }];
+    mocks.nodeRunsData = [{
+      ...baseNodeRun,
+      workflow_node_id: "n1",
+      worker_type: "agent",
+      worker_id: "agent-1",
+      worker_name_snapshot: "Original Agent",
+      critic_type: "human",
+      critic_id: "user-alice",
+      critic_name_snapshot: "Original Reviewer",
+    }];
+    mocks.agentsData = [{ ...AGENT, name: "Renamed Agent" }];
+    mocks.membersData = [{ ...MEMBER, name: "Renamed Reviewer" }];
+
+    render(
+      <Wrapper>
+        <ExecutionPanoramaPage workflowId="wf-1" runId="run-1" wsId="ws-1" />
+      </Wrapper>,
+    );
+
+    const node = mocks.reactFlowProps?.nodes.find((item) => item.id === "n1");
+    expect(node?.data).toMatchObject({
+      workerName: "Original Agent",
+      criticName: "Original Reviewer",
+      workerIdentity: { name: "Original Agent" },
+      criticIdentity: { name: "Original Reviewer" },
+    });
+  });
+
+  it("uses the captured role name after the current role is deleted", () => {
+    mocks.isLoading = false;
+    mocks.nodesData = [{
+      ...NODE,
+      id: "n-role",
+      worker_type: "role",
+      worker_id: null,
+      worker_role_id: "role-deleted",
+    }];
+    mocks.nodeRunsData = [{
+      ...baseNodeRun,
+      workflow_node_id: "n-role",
+      worker_type: "role",
+      worker_id: null,
+      worker_role_snapshot: {
+        id: "role-deleted",
+        name: "Historical Architect",
+        description: "Captured role",
+      },
+    }];
+    mocks.workflowRolesData = [];
+
+    render(
+      <Wrapper>
+        <ExecutionPanoramaPage workflowId="wf-1" runId="run-1" wsId="ws-1" />
+      </Wrapper>,
+    );
+
+    const node = mocks.reactFlowProps?.nodes.find((item) => item.id === "n-role");
+    expect(node?.data).toMatchObject({
+      workerName: "Historical Architect",
+      workerIdentity: {
+        type: "role",
+        name: "Historical Architect",
+      },
+    });
+  });
 
   it("shows the raw custom role name when a worker is role-assigned but unresolved", () => {
     mocks.isLoading = false;

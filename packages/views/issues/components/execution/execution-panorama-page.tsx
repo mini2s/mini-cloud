@@ -142,6 +142,12 @@ interface SplitViewportRestoreRequest {
   viewport: Viewport;
 }
 
+function snapshotRoleName(value: unknown): string | null {
+  if (!value || typeof value !== "object" || !("name" in value)) return null;
+  const name = (value as { name?: unknown }).name;
+  return typeof name === "string" && name.trim() ? name.trim() : null;
+}
+
 function splitTaskDisplayStatus(status: SplitTask["status"]): WorkflowRuntimeDisplayStatus {
   switch (status) {
     case "running":
@@ -929,6 +935,7 @@ export function ExecutionPanoramaPage({
   const buildConcreteActorIdentity = useCallback((
     type: WorkerType | CriticType | string | null | undefined,
     id: string | null | undefined,
+    nameOverride?: string | null,
   ): WorkflowActorIdentity | null => {
     if (!id) return null;
     const actorType = type === "human" || type === "member"
@@ -937,7 +944,7 @@ export function ExecutionPanoramaPage({
         ? type
         : null;
     if (!actorType) return null;
-    const name = getActorName(actorType, id);
+    const name = nameOverride?.trim() || getActorName(actorType, id);
     if (!name) return null;
     const avatarUrl = actorType === "agent"
       ? agentLookup.get(id)?.avatar_url ?? null
@@ -994,7 +1001,10 @@ export function ExecutionPanoramaPage({
     const nodeRun = nodeRunMap.get(node.id);
     const runType = slot === "worker" ? nodeRun?.worker_type : nodeRun?.critic_type;
     const runId = slot === "worker" ? nodeRun?.worker_id : nodeRun?.critic_id;
-    const runtimeIdentity = buildConcreteActorIdentity(runType, runId);
+    const actorNameSnapshot = slot === "worker"
+      ? nodeRun?.worker_name_snapshot
+      : nodeRun?.critic_name_snapshot;
+    const runtimeIdentity = buildConcreteActorIdentity(runType, runId, actorNameSnapshot);
     if (runtimeIdentity) return runtimeIdentity;
 
     const nodeType = slot === "worker" ? node.worker_type : node.critic_type;
@@ -1004,13 +1014,16 @@ export function ExecutionPanoramaPage({
 
     const roleId = slot === "worker" ? node.worker_role_id : node.critic_role_id;
     const roleKey = slot === "worker" ? node.worker_role : node.critic_role;
-    if (roleId || roleKey) {
+    const roleNameSnapshot = snapshotRoleName(
+      slot === "worker" ? nodeRun?.worker_role_snapshot : nodeRun?.critic_role_snapshot,
+    );
+    if (roleId || roleKey || roleNameSnapshot) {
       if (nodeRun) {
         const resolvedUserId = resolvedUserIdByNodeRunSlot.get(`${nodeRun.id}:${slot}`);
         const resolvedIdentity = buildConcreteActorIdentity("member", resolvedUserId);
         if (resolvedIdentity) return resolvedIdentity;
       }
-      const roleName = renderRoleName(
+      const roleName = roleNameSnapshot ?? renderRoleName(
         roleId ? roleById.get(roleId) : undefined,
         roleId ?? roleKey,
       );
