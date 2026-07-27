@@ -262,7 +262,7 @@ func (s *TaskService) buildCSCloudPayload(ctx context.Context, task db.MulticaAg
 		// is a no-op. Best-effort: errors are logged, never block dispatch (the
 		// payload still goes out; a later re-run or member upload recovers).
 		if hasDocumentDeliverableSpec(deliverables) && s.teamNamespaceConfigured() && s.settingsLackGiteaData(ctx, runtime.WorkspaceID) {
-			if err := s.ensureDeliveryRepo(ctx, task, runtime.WorkspaceID); err != nil {
+			if err := s.ensureDeliveryRepo(ctx, task); err != nil {
 				slog.Warn("cs-cloud dispatch: ensure delivery repo",
 					"task_id", util.UUIDToString(task.ID), "error", err)
 			}
@@ -919,7 +919,16 @@ func (s *TaskService) settingsLackGiteaData(ctx context.Context, workspaceID pgt
 // (buildCSCloudPayload) logs and continues — the payload still goes out and
 // the run is not failed for a fixable provisioning gap (a later re-run or
 // member upload path can also recover).
-func (s *TaskService) ensureDeliveryRepo(ctx context.Context, task db.MulticaAgentTaskQueue, workspaceID pgtype.UUID) error {
+//
+// Timing limitation: this provisions for the NEXT dispatch on this workspace.
+// buildCSCloudPayload has already assembled the current payload's
+// MULTICA_REPO_* env from the stale (pre-provisioning) workspace.settings
+// (repositoryDeliverableEnv runs earlier, ~line 214), so when the safety net
+// actually provisions here the triggering dispatch still ships stale
+// credentials and the agent's first clone can 401. The idempotent re-run on
+// retry / next round picks up the now-populated settings. Task 3 will reorder
+// env + repos[] assembly so the current dispatch benefits too.
+func (s *TaskService) ensureDeliveryRepo(ctx context.Context, task db.MulticaAgentTaskQueue) error {
 	if !task.WorkflowNodeRunID.Valid {
 		return nil
 	}
