@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/multica-ai/multica/server/internal/gitea"
+	"github.com/multica-ai/multica/server/internal/util"
 )
 
 type WorkflowConfigIssue struct {
@@ -27,7 +28,13 @@ func ValidateWorkflowDefinition(snapshot WorkflowDefinitionSnapshot) []WorkflowC
 }
 
 func validateSnapshotTopology(nodes []WorkflowSnapshotNode, edges []WorkflowSnapshotEdge) []WorkflowConfigIssue {
-	if len(nodes) == 0 {
+	topologyNodeCount := 0
+	for _, node := range nodes {
+		if node.Kind != WorkflowSnapshotNodeKindAnnotation {
+			topologyNodeCount++
+		}
+	}
+	if topologyNodeCount == 0 {
 		return []WorkflowConfigIssue{{Code: "workflow_empty", Detail: "Workflow has no nodes"}}
 	}
 	issues := make([]WorkflowConfigIssue, 0)
@@ -107,7 +114,7 @@ func validateSnapshotTopology(nodes []WorkflowSnapshotNode, edges []WorkflowSnap
 				issues = append(issues, workflowIssue("node_unreachable", node, "Node is not reachable from the start node"))
 			}
 		}
-	} else if len(nodes) > 1 {
+	} else if topologyNodeCount > 1 {
 		for _, node := range nodes {
 			if node.Kind != WorkflowSnapshotNodeKindAnnotation && len(incoming[node.ID]) == 0 && len(outgoing[node.ID]) == 0 {
 				issues = append(issues, workflowIssue("node_unreachable", node, "Node is isolated from the workflow graph"))
@@ -187,6 +194,10 @@ func validateSnapshotSplit(nodes []WorkflowSnapshotNode) []WorkflowConfigIssue {
 			(config.Mode != SplitModeBarrier && config.Mode != SplitModePipeline) ||
 			config.MaxConcurrency < 1 || config.MaxConcurrency > 50 || config.MaxFailures < 0 {
 			issues = append(issues, workflowIssue("split_config_invalid", node, "Split configuration is incomplete or invalid"))
+			continue
+		}
+		if _, err := util.ParseUUID(config.DefaultIssueWorkflowID); err != nil {
+			issues = append(issues, workflowIssue("split_config_invalid", node, "Split issue workflow ID is invalid"))
 		}
 	}
 	return issues
@@ -218,6 +229,15 @@ func snapshotNodeExecutesActors(kind string) bool {
 	switch kind {
 	case WorkflowSnapshotNodeKindStart, WorkflowSnapshotNodeKindEnd,
 		WorkflowSnapshotNodeKindGateway, WorkflowSnapshotNodeKindAnnotation:
+		return false
+	default:
+		return true
+	}
+}
+
+func snapshotNodeCreatesRun(kind string) bool {
+	switch kind {
+	case WorkflowSnapshotNodeKindStart, WorkflowSnapshotNodeKindEnd, WorkflowSnapshotNodeKindAnnotation:
 		return false
 	default:
 		return true

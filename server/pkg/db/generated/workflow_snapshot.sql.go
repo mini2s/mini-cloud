@@ -246,7 +246,8 @@ INSERT INTO multica_workflow_run (
     definition_snapshot,
     max_retries,
     failure_reason,
-    validation_errors
+    validation_errors,
+    completed_at
 ) VALUES (
     $1,
     $2,
@@ -266,7 +267,8 @@ INSERT INTO multica_workflow_run (
     $16,
     $17,
     $18,
-    $19
+    $19,
+    CASE WHEN $4 = 'failed' THEN now() ELSE NULL END
 )
 ON CONFLICT (dispatch_key)
 WHERE dispatch_key IS NOT NULL AND dispatch_key <> ''

@@ -105,7 +105,8 @@ INSERT INTO multica_workflow_run (
     definition_snapshot,
     max_retries,
     failure_reason,
-    validation_errors
+    validation_errors,
+    completed_at
 ) VALUES (
     $1,
     $2,
@@ -125,7 +126,8 @@ INSERT INTO multica_workflow_run (
     sqlc.arg('definition_snapshot'),
     sqlc.arg('max_retries'),
     sqlc.narg('failure_reason'),
-    sqlc.narg('validation_errors')
+    sqlc.narg('validation_errors'),
+    CASE WHEN $4 = 'failed' THEN now() ELSE NULL END
 )
 ON CONFLICT (dispatch_key)
 WHERE dispatch_key IS NOT NULL AND dispatch_key <> ''

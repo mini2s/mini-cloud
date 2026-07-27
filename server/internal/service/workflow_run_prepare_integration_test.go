@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"slices"
 	"testing"
 	"time"
 
@@ -56,13 +57,17 @@ func TestPrepareWorkflowRunSnapshotInvalidConfigCreatesOnlyFailedRun(t *testing.
 	}
 	var status string
 	var failureReason pgtype.Text
+	var completedAt pgtype.Timestamptz
 	if err := fixture.pool.QueryRow(fixture.ctx, `
-		SELECT status, failure_reason FROM multica_workflow_run WHERE id = $1
-	`, invalid.RunID).Scan(&status, &failureReason); err != nil {
+		SELECT status, failure_reason, completed_at FROM multica_workflow_run WHERE id = $1
+	`, invalid.RunID).Scan(&status, &failureReason, &completedAt); err != nil {
 		t.Fatal(err)
 	}
 	if status != RunStatusFailed || !failureReason.Valid || failureReason.String != "config_invalid" {
 		t.Fatalf("status=%q failure_reason=%v, want failed/config_invalid", status, failureReason)
+	}
+	if !completedAt.Valid {
+		t.Fatal("config-invalid run has no completed_at")
 	}
 	fixture.assertRunEntityCounts(t, invalid.RunID, 0, 0, 0, 0)
 	var notifications int
@@ -75,6 +80,66 @@ func TestPrepareWorkflowRunSnapshotInvalidConfigCreatesOnlyFailedRun(t *testing.
 	if notifications != 1 {
 		t.Fatalf("config invalid notifications=%d, want 1", notifications)
 	}
+}
+
+func TestPrepareWorkflowRunSnapshotDoesNotMaterializeAnnotationNodes(t *testing.T) {
+	fixture := newWorkflowPrepareFixture(t, true)
+	defer fixture.cleanup(t)
+
+	if _, err := fixture.pool.Exec(fixture.ctx, `
+		INSERT INTO multica_workflow_node (
+			workflow_id, title, description, format_schema, worker_type, critic_type
+		) VALUES ($1, 'Annotation', '', '{"type":"annotation"}'::jsonb, 'human', 'human')
+	`, fixture.workflowID); err != nil {
+		t.Fatal(err)
+	}
+
+	prepared, err := fixture.service.PrepareWorkflowRunSnapshot(fixture.ctx, fixture.workflowID, PrepareWorkflowRunParams{
+		TriggeredByType: "member", TriggeredByID: fixture.userID,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	fixture.assertRunEntityCounts(t, prepared.Run.ID, 1, 0, 1, 1)
+}
+
+func TestPrepareWorkflowRunSnapshotRejectsMissingSplitWorkflow(t *testing.T) {
+	fixture := newWorkflowPrepareFixture(t, true)
+	defer fixture.cleanup(t)
+
+	var missingWorkflowID string
+	if err := fixture.pool.QueryRow(fixture.ctx, `SELECT gen_random_uuid()::text`).Scan(&missingWorkflowID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fixture.pool.Exec(fixture.ctx, `
+		UPDATE multica_workflow_node
+		SET format_schema = jsonb_build_object(
+			'type', 'split',
+			'split_config', jsonb_build_object(
+				'default_issue_workflow_id', $2::text,
+				'mode', 'barrier',
+				'max_concurrency', 1,
+				'max_failures', 0
+			)
+		)
+		WHERE workflow_id = $1
+	`, fixture.workflowID, missingWorkflowID); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := fixture.service.PrepareWorkflowRunSnapshot(fixture.ctx, fixture.workflowID, PrepareWorkflowRunParams{
+		TriggeredByType: "member", TriggeredByID: fixture.userID,
+	})
+	var invalid *WorkflowConfigInvalidError
+	if !errors.As(err, &invalid) {
+		t.Fatalf("error=%v, want WorkflowConfigInvalidError", err)
+	}
+	if !slices.ContainsFunc(invalid.Issues, func(issue WorkflowConfigIssue) bool {
+		return issue.Code == "split_config_invalid"
+	}) {
+		t.Fatalf("issues=%#v, want split_config_invalid", invalid.Issues)
+	}
+	fixture.assertRunEntityCounts(t, invalid.RunID, 0, 0, 0, 0)
 }
 
 func TestPrepareWorkflowRunSnapshotDispatchKeyIsIdempotent(t *testing.T) {

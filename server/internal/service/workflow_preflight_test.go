@@ -5,6 +5,27 @@ import (
 	"testing"
 )
 
+func TestSnapshotNodeCreatesRunExcludesDisplayOnlyNodes(t *testing.T) {
+	tests := []struct {
+		kind string
+		want bool
+	}{
+		{kind: WorkflowSnapshotNodeKindTask, want: true},
+		{kind: WorkflowSnapshotNodeKindGateway, want: true},
+		{kind: WorkflowSnapshotNodeKindSplit, want: true},
+		{kind: WorkflowSnapshotNodeKindStart, want: false},
+		{kind: WorkflowSnapshotNodeKindEnd, want: false},
+		{kind: WorkflowSnapshotNodeKindAnnotation, want: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.kind, func(t *testing.T) {
+			if got := snapshotNodeCreatesRun(tt.kind); got != tt.want {
+				t.Fatalf("snapshotNodeCreatesRun(%q)=%v, want %v", tt.kind, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestValidateWorkflowDefinitionReturnsStructuredIssues(t *testing.T) {
 	tests := []struct {
 		name   string
@@ -26,6 +47,7 @@ func TestValidateWorkflowDefinitionReturnsStructuredIssues(t *testing.T) {
 		{name: "missing critic", mutate: clearSnapshotCritic, code: "critic_missing"},
 		{name: "missing stage", mutate: pointAtMissingSnapshotStage, code: "stage_missing"},
 		{name: "invalid split", mutate: invalidateSnapshotSplitConfig, code: "split_config_invalid"},
+		{name: "invalid split workflow id", mutate: invalidateSnapshotSplitWorkflowID, code: "split_config_invalid"},
 		{name: "invalid gateway", mutate: invalidateSnapshotGateway, code: "gateway_kind_invalid"},
 		{name: "invalid boundary direction", mutate: reverseSnapshotStartEdge, code: "boundary_edge_direction"},
 		{name: "invalid deliverable", mutate: invalidateSnapshotDeliverable, code: "deliverable_invalid"},
@@ -135,6 +157,17 @@ func invalidateSnapshotSplitConfig(snapshot *WorkflowDefinitionSnapshot) {
 	node.Kind = WorkflowSnapshotNodeKindSplit
 	node.SplitConfig = &WorkflowSnapshotSplitConfig{
 		Mode: "invalid", MaxConcurrency: 0, MaxFailures: -1,
+	}
+}
+
+func invalidateSnapshotSplitWorkflowID(snapshot *WorkflowDefinitionSnapshot) {
+	node := snapshotNode(snapshot, "work")
+	node.Kind = WorkflowSnapshotNodeKindSplit
+	node.SplitConfig = &WorkflowSnapshotSplitConfig{
+		DefaultIssueWorkflowID: "not-a-uuid",
+		Mode:                   SplitModeBarrier,
+		MaxConcurrency:         1,
+		MaxFailures:            0,
 	}
 }
 
