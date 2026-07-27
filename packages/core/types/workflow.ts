@@ -321,72 +321,6 @@ export interface WorkflowEdge {
   created_at: string;
 }
 
-export interface WorkflowSnapshotWorkflow {
-  id: string;
-  workspace_id: string;
-  title: string;
-  description: string;
-  is_default: boolean;
-  max_retries: number;
-  runtime_selection_policy: string;
-  runtime_id?: string;
-  config_revision: number;
-}
-
-export interface WorkflowSnapshotNode {
-  id: string;
-  title: string;
-  description: string;
-  position_x: number;
-  position_y: number;
-  sort_order: number;
-  stage_id?: string;
-  kind: string;
-  gateway_kind?: string;
-  split_config?: {
-    default_issue_workflow_id: string;
-    mode: string;
-    max_concurrency: number;
-    max_failures: number;
-  };
-  format_schema?: unknown;
-  worker_type: string;
-  worker_id?: string;
-  worker_name?: string;
-  worker_role_id?: string;
-  critic_type: string;
-  critic_id?: string;
-  critic_name?: string;
-  critic_api_url?: string;
-  critic_role_id?: string;
-}
-
-export interface WorkflowDefinitionSnapshot {
-  schema_version: 1;
-  snapshot_origin: string;
-  workflow: WorkflowSnapshotWorkflow;
-  nodes: WorkflowSnapshotNode[];
-  edges: Array<{ id: string; source_node_id: string; target_node_id: string; condition?: unknown; created_at?: string }>;
-  stages: Array<{ id: string; name: string; description: string; sort_order: number }>;
-  roles: Array<{ id: string; name: string; description: string }>;
-  deliverables: Array<{
-    id: string;
-    workflow_node_id: string;
-    kind: string;
-    title: string;
-    description: string;
-    required: boolean;
-    sort_order: number;
-  }>;
-}
-
-export interface WorkflowConfigIssue {
-  code: string;
-  node_id?: string;
-  node_title?: string;
-  detail: string;
-}
-
 export interface WorkflowRun {
   id: string;
   workflow_id: string;
@@ -404,21 +338,13 @@ export interface WorkflowRun {
   started_at: string;
   completed_at: string | null;
   created_at: string;
-  source_config_revision?: number;
-  definition_schema_version?: number | null;
-  definition_snapshot?: WorkflowDefinitionSnapshot | null;
-  max_retries?: number;
-  failure_reason?: string | null;
-  validation_errors?: WorkflowConfigIssue[] | null;
 }
 
 export interface WorkflowNodeRun {
   id: string;
   workflow_run_id: string;
   workflow_node_id: string;
-  source_workflow_node_id?: string;
   node_title: string;
-  node_description?: string;
   status: NodeRunStatus;
   retry_count: number;
   worker_type: WorkerType;
@@ -448,14 +374,6 @@ export interface WorkflowNodeRun {
   completed_at: string | null;
   created_at: string;
   updated_at: string;
-  format_schema?: unknown;
-  critic_api_url?: string | null;
-  stage_snapshot?: unknown;
-  worker_role_snapshot?: unknown;
-  critic_role_snapshot?: unknown;
-  runtime_config?: unknown;
-  worker_name_snapshot?: string;
-  critic_name_snapshot?: string;
 }
 
 export type SplitTaskStatus =

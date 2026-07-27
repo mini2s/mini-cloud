@@ -61,7 +61,7 @@ func TestHandleWorkflowTaskFailure(t *testing.T) {
 			workflow_id, title, description, position_x, position_y,
 			format_schema, worker_type, critic_type, sort_order
 		)
-		VALUES ($1, 'Do work', '', 0, 0, '{}'::jsonb, 'human', 'human', 0)
+		VALUES ($1, 'Do work', '', 0, 0, '{}'::jsonb, 'agent', 'human', 0)
 		RETURNING id
 	`, workflowID).Scan(&nodeID); err != nil {
 		t.Fatalf("create node: %v", err)

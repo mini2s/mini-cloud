@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -26,6 +27,11 @@ type WorkflowRoleManualAssignment struct {
 	Version      int32
 }
 
+type resumedWorkflowRoleNode struct {
+	NodeRun  db.MulticaWorkflowNodeRun
+	SlotType string
+}
+
 func (s *WorkflowService) AssignWorkflowRoles(ctx context.Context, runID, actorUserID pgtype.UUID, assignments []WorkflowRoleManualAssignment) ([]db.MulticaWorkflowRoleResolution, error) {
 	if len(assignments) == 0 {
 		return nil, errors.New("assignments are required")
@@ -37,6 +43,8 @@ func (s *WorkflowService) AssignWorkflowRoles(ctx context.Context, runID, actorU
 		}
 		seen[assignment.ResolutionID] = struct{}{}
 	}
+	var promoted int64
+	var resumed []resumedWorkflowRoleNode
 	err := s.runInTx(ctx, func(q *db.Queries) error {
 		run, err := q.GetWorkflowRun(ctx, runID)
 		if err != nil {
@@ -120,17 +128,7 @@ func (s *WorkflowService) AssignWorkflowRoles(ctx context.Context, runID, actorU
 				if err != nil {
 					return err
 				}
-				phase := "worker"
-				if locked.SlotType == "critic" {
-					phase = "critic"
-				}
-				generation, err := NextWorkflowDispatchGeneration(ctx, q, resumedNode.ID, phase)
-				if err != nil {
-					return err
-				}
-				if err := EnqueueWorkflowDispatch(ctx, q, resumedNode.ID, phase, generation); err != nil {
-					return err
-				}
+				resumed = append(resumed, resumedWorkflowRoleNode{NodeRun: resumedNode, SlotType: locked.SlotType})
 			}
 		}
 		unresolved, err := q.CountUnresolvedWorkflowRoleResolutions(ctx, runID)
@@ -138,13 +136,30 @@ func (s *WorkflowService) AssignWorkflowRoles(ctx context.Context, runID, actorU
 			return err
 		}
 		if unresolved == 0 {
-			return PromoteWorkflowRunAndEnqueueRoots(ctx, q, runID)
+			promoted, err = q.PromoteWorkflowRunAfterRoleResolution(ctx, runID)
+			return err
 		}
 		_, err = q.SetWorkflowRunWaitingForRoleAssignment(ctx, runID)
 		return err
 	})
 	if err != nil {
 		return nil, err
+	}
+	if promoted > 0 {
+		if err := s.DispatchRootNodeRuns(ctx, runID); err != nil {
+			slog.Error("dispatch workflow roots after manual role assignment", "run_id", runID, "error", err)
+		}
+	}
+	for _, item := range resumed {
+		var dispatchErr error
+		if item.SlotType == "worker" {
+			dispatchErr = s.dispatchWorker(ctx, item.NodeRun)
+		} else {
+			dispatchErr = s.dispatchCritic(ctx, item.NodeRun)
+		}
+		if dispatchErr != nil {
+			slog.Warn("resume workflow node after role assignment", "node_run_id", item.NodeRun.ID, "error", dispatchErr)
+		}
 	}
 	return s.Queries.ListWorkflowRoleResolutions(ctx, runID)
 }

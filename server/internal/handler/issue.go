@@ -2132,6 +2132,10 @@ func (h *Handler) CreateIssue(w http.ResponseWriter, r *http.Request) {
 				} else {
 					resp.WorkflowID = uuidToPtr(issue.AssigneeID)
 					resp.WorkflowRunID = uuidToPtr(run.ID)
+					// Dispatch after the durable run link and sub-issues both exist.
+					if err = h.WorkflowService.DispatchRootNodeRuns(ctx, run.ID); err != nil {
+						slog.Warn("failed to dispatch root workflow nodes", "run_id", uuidToString(run.ID), "error", err)
+					}
 				}
 			}
 		}
@@ -2539,6 +2543,9 @@ func (h *Handler) UpdateIssue(w http.ResponseWriter, r *http.Request) {
 						slog.Warn("failed to set workflow_run_id on parent issue", "issue_id", uuidToString(issue.ID), "error", cerr)
 					} else {
 						resp.WorkflowRunID = uuidToPtr(run.ID)
+						if cerr := h.WorkflowService.DispatchRootNodeRuns(ctx, run.ID); cerr != nil {
+							slog.Warn("failed to dispatch root workflow nodes", "run_id", uuidToString(run.ID), "error", cerr)
+						}
 					}
 				}
 			}
@@ -3315,18 +3322,18 @@ func (h *Handler) createWorkflowSubIssue(
 	wsUUID pgtype.UUID,
 	issueNumber int32,
 ) (db.MulticaIssue, error) {
-	run, err := qtx.GetWorkflowRun(ctx, nodeRun.WorkflowRunID)
+	node, err := qtx.GetWorkflowNode(ctx, nodeRun.WorkflowNodeID)
 	if err != nil {
-		return db.MulticaIssue{}, fmt.Errorf("get workflow run: %w", err)
+		return db.MulticaIssue{}, fmt.Errorf("get workflow node: %w", err)
 	}
 
-	subTitle := fmt.Sprintf("%s — %s", parentIssue.Title, nodeRun.NodeTitle)
-	description := service.BuildWorkflowWorkerSubIssueDescription(parentIssue, db.MulticaWorkflowNode{Title: nodeRun.NodeTitle})
+	subTitle := fmt.Sprintf("%s — %s", parentIssue.Title, node.Title)
+	description := service.BuildWorkflowWorkerSubIssueDescription(parentIssue, node)
 
 	var assigneeType pgtype.Text
 	var assigneeID pgtype.UUID
-	if nodeRun.WorkerType != "" {
-		switch nodeRun.WorkerType {
+	if node.WorkerType != "" {
+		switch node.WorkerType {
 		case "human":
 			assigneeType = pgtype.Text{String: "member", Valid: true}
 		case "agent":
@@ -3334,14 +3341,7 @@ func (h *Handler) createWorkflowSubIssue(
 		case "squad":
 			assigneeType = pgtype.Text{String: "squad", Valid: true}
 		}
-		assigneeID = nodeRun.WorkerID
-	}
-	var stageID pgtype.UUID
-	var stageSnapshot struct {
-		ID string `json:"id"`
-	}
-	if json.Unmarshal(nodeRun.StageSnapshot, &stageSnapshot) == nil && stageSnapshot.ID != "" {
-		stageID, _ = util.ParseUUID(stageSnapshot.ID)
+		assigneeID = node.WorkerID
 	}
 
 	return qtx.CreateIssueWithOrigin(ctx, db.CreateIssueWithOriginParams{
@@ -3360,9 +3360,9 @@ func (h *Handler) createWorkflowSubIssue(
 		ProjectID:     parentIssue.ProjectID,
 		OriginType:    pgtype.Text{String: "workflow", Valid: true},
 		OriginID:      nodeRun.ID,
-		WorkflowID:    run.WorkflowID,
+		WorkflowID:    node.WorkflowID,
 		WorkflowRunID: nodeRun.WorkflowRunID,
-		StageID:       stageID,
+		StageID:       node.StageID,
 	})
 }
 
@@ -3427,7 +3427,7 @@ func (h *Handler) injectDownstreamContext(ctx context.Context, run db.MulticaWor
 	}
 
 	// Find downstream edges.
-	edges, err := h.Queries.ListWorkflowRunEdgesBySource(ctx, nodeRun.ID)
+	edges, err := h.Queries.ListWorkflowEdgesBySource(ctx, nodeRun.WorkflowNodeID)
 	if err != nil || len(edges) == 0 {
 		return
 	}
@@ -3435,7 +3435,10 @@ func (h *Handler) injectDownstreamContext(ctx context.Context, run db.MulticaWor
 	contextBlock := fmt.Sprintf("\n\n---\n\n## %s Output\n\n%s", nodeRun.NodeTitle, text)
 
 	for _, edge := range edges {
-		downstreamNr, err := h.Queries.GetWorkflowNodeRun(ctx, edge.TargetNodeRunID)
+		downstreamNr, err := h.Queries.ListWorkflowNodeRunsByRunAndNode(ctx, db.ListWorkflowNodeRunsByRunAndNodeParams{
+			WorkflowRunID:  run.ID,
+			WorkflowNodeID: edge.TargetNodeID,
+		})
 		if err != nil {
 			continue
 		}

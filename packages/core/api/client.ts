@@ -114,7 +114,6 @@ import type {
   WorkflowNode,
   WorkflowEdge,
   WorkflowRun,
-  WorkflowConfigIssue,
   WorkflowNodeRun,
   WorkflowRunCanvasSummaryResponse,
   WorkflowStage,
@@ -224,8 +223,6 @@ import {
   ListWorkflowRunsResponseSchema,
   EMPTY_LIST_WORKFLOW_RUNS_RESPONSE,
   WorkflowRunDetailResponseSchema,
-  WorkflowRunSchema,
-  WorkflowConfigInvalidErrorBodySchema,
   EMPTY_WORKFLOW_RUN,
   WorkflowRolesResponseSchema,
   EMPTY_WORKFLOW_ROLES_RESPONSE,
@@ -305,18 +302,6 @@ export class ApiError extends Error {
     this.status = status;
     this.statusText = statusText;
     this.body = body;
-  }
-}
-
-export class WorkflowConfigInvalidError extends Error {
-  readonly runId: string;
-  readonly issues: WorkflowConfigIssue[];
-
-  constructor(runId: string, issues: WorkflowConfigIssue[]) {
-    super("无法启动工作流，请检查配置。");
-    this.name = "WorkflowConfigInvalidError";
-    this.runId = runId;
-    this.issues = issues;
   }
 }
 
@@ -2333,30 +2318,16 @@ export class ApiClient {
       runtimeId?: string;
     } = {},
   ): Promise<WorkflowRun> {
-    try {
-      const raw = await this.fetch<unknown>(`/api/workflows/${workflowId}/runs`, {
-        method: "POST",
-        body: JSON.stringify({
-          ...(options.input !== undefined ? { input: options.input } : {}),
-          ...(options.runtimeSelectionPolicy
-            ? { runtime_selection_policy: options.runtimeSelectionPolicy }
-            : {}),
-          ...(options.runtimeId ? { runtime_id: options.runtimeId } : {}),
-        }),
-      });
-      return parseWithFallback(raw, WorkflowRunSchema, EMPTY_WORKFLOW_RUN, {
-        endpoint: "POST /api/workflows/:id/runs",
-      });
-    } catch (error) {
-      if (error instanceof ApiError && error.status === 422) {
-        const parsed = WorkflowConfigInvalidErrorBodySchema.safeParse(error.body);
-        if (parsed.success) {
-          throw new WorkflowConfigInvalidError(parsed.data.run_id, parsed.data.issues);
-        }
-        throw new Error("无法启动工作流，请检查配置。");
-      }
-      throw error;
-    }
+    return this.fetch(`/api/workflows/${workflowId}/runs`, {
+      method: "POST",
+      body: JSON.stringify({
+        ...(options.input !== undefined ? { input: options.input } : {}),
+        ...(options.runtimeSelectionPolicy
+          ? { runtime_selection_policy: options.runtimeSelectionPolicy }
+          : {}),
+        ...(options.runtimeId ? { runtime_id: options.runtimeId } : {}),
+      }),
+    });
   }
 
   async getWorkflowRun(workflowId: string, runId: string): Promise<WorkflowRun> {

@@ -2,18 +2,6 @@
 -- Workflow Role Queries
 -- =====================
 
--- name: LockWorkflowRoleDefinitionsShared :exec
-SELECT pg_advisory_xact_lock_shared(
-    ('x' || substr(replace(sqlc.arg('workspace_id')::uuid::text, '-', ''), 1, 8))::bit(32)::int,
-    ('x' || substr(replace(sqlc.arg('workspace_id')::uuid::text, '-', ''), 9, 8))::bit(32)::int
-);
-
--- name: LockWorkflowRoleDefinitionsExclusive :exec
-SELECT pg_advisory_xact_lock(
-    ('x' || substr(replace(sqlc.arg('workspace_id')::uuid::text, '-', ''), 1, 8))::bit(32)::int,
-    ('x' || substr(replace(sqlc.arg('workspace_id')::uuid::text, '-', ''), 9, 8))::bit(32)::int
-);
-
 -- name: ListWorkflowRoles :many
 SELECT * FROM multica_workflow_role
 WHERE workspace_id = $1
@@ -59,24 +47,6 @@ FROM multica_workflow_node node
 WHERE node.worker_role_id = $1::uuid
    OR node.critic_role_id = $1::uuid;
 
--- name: ListWorkflowIDsReferencingRole :many
-SELECT DISTINCT workflow_id
-FROM multica_workflow_node
-WHERE worker_role_id = $1::uuid OR critic_role_id = $1::uuid
-ORDER BY workflow_id;
-
 -- name: DeleteWorkflowRole :execrows
 DELETE FROM multica_workflow_role
 WHERE id = $1 AND workspace_id = $2 AND is_builtin = false;
-
--- name: WorkflowRoleHasActiveRunReferences :one
-SELECT EXISTS (
-    SELECT 1
-    FROM multica_workflow_node_run node_run
-    JOIN multica_workflow_run run ON run.id = node_run.workflow_run_id
-    WHERE run.status NOT IN ('completed', 'failed', 'cancelled')
-      AND (
-        node_run.worker_role_snapshot ->> 'id' = $1::uuid::text
-        OR node_run.critic_role_snapshot ->> 'id' = $1::uuid::text
-      )
-);

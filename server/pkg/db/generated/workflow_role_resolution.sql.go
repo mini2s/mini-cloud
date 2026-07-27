@@ -136,7 +136,7 @@ const blockWorkflowNodeRunForInvalidRole = `-- name: BlockWorkflowNodeRunForInva
 UPDATE multica_workflow_node_run
 SET status = 'blocked', updated_at = now()
 WHERE id = $1 AND status = $2
-RETURNING id, workflow_run_id, workflow_node_id, node_title, status, retry_count, worker_type, worker_id, worker_output, critic_type, critic_id, critic_output, critic_comment, agent_task_id, started_at, completed_at, created_at, updated_at, worker_agent_task_id, critic_agent_task_id, runtime_id, device_id, session_id, split_review_chat_session_id, runtime_selection_reason, failure_reason, split_config_version, source_workflow_node_id, node_description, format_schema, critic_api_url, stage_snapshot, worker_role_snapshot, critic_role_snapshot, runtime_config, worker_name_snapshot, critic_name_snapshot
+RETURNING id, workflow_run_id, workflow_node_id, node_title, status, retry_count, worker_type, worker_id, worker_output, critic_type, critic_id, critic_output, critic_comment, agent_task_id, started_at, completed_at, created_at, updated_at, worker_agent_task_id, critic_agent_task_id, runtime_id, device_id, session_id, split_review_chat_session_id, runtime_selection_reason, failure_reason, split_config_version
 `
 
 type BlockWorkflowNodeRunForInvalidRoleParams struct {
@@ -175,16 +175,6 @@ func (q *Queries) BlockWorkflowNodeRunForInvalidRole(ctx context.Context, arg Bl
 		&i.RuntimeSelectionReason,
 		&i.FailureReason,
 		&i.SplitConfigVersion,
-		&i.SourceWorkflowNodeID,
-		&i.NodeDescription,
-		&i.FormatSchema,
-		&i.CriticApiUrl,
-		&i.StageSnapshot,
-		&i.WorkerRoleSnapshot,
-		&i.CriticRoleSnapshot,
-		&i.RuntimeConfig,
-		&i.WorkerNameSnapshot,
-		&i.CriticNameSnapshot,
 	)
 	return i, err
 }
@@ -892,14 +882,26 @@ func (q *Queries) MarkWorkflowRoleResolutionNeedsHuman(ctx context.Context, arg 
 }
 
 const promoteWorkflowRunAfterRoleResolution = `-- name: PromoteWorkflowRunAfterRoleResolution :execrows
-UPDATE multica_workflow_run run
-SET status = 'running'
-WHERE run.id = $1
-  AND run.status IN ('resolving_roles', 'waiting_role_assignment')
-  AND NOT EXISTS (
-      SELECT 1 FROM multica_workflow_role_resolution resolution
-      WHERE resolution.workflow_run_id = run.id AND resolution.status <> 'resolved'
-  )
+WITH promoted AS (
+    UPDATE multica_workflow_run run
+    SET status = 'running'
+    WHERE run.id = $1
+      AND run.status IN ('resolving_roles', 'waiting_role_assignment')
+      AND NOT EXISTS (
+          SELECT 1 FROM multica_workflow_role_resolution resolution
+          WHERE resolution.workflow_run_id = run.id AND resolution.status <> 'resolved'
+      )
+    RETURNING run.id, run.workflow_id
+)
+UPDATE multica_workflow_node_run node_run
+SET status = CASE WHEN EXISTS (
+        SELECT 1 FROM multica_workflow_edge edge
+        WHERE edge.workflow_id = promoted.workflow_id
+          AND edge.target_node_id = node_run.workflow_node_id
+    ) THEN 'pending' ELSE 'format_checking' END,
+    updated_at = now()
+FROM promoted
+WHERE node_run.workflow_run_id = promoted.id AND node_run.status = 'blocked'
 `
 
 func (q *Queries) PromoteWorkflowRunAfterRoleResolution(ctx context.Context, id pgtype.UUID) (int64, error) {
@@ -1053,7 +1055,7 @@ const resumeWorkflowNodeRunAfterRoleAssignment = `-- name: ResumeWorkflowNodeRun
 UPDATE multica_workflow_node_run
 SET status = $2, updated_at = now()
 WHERE id = $1 AND status = 'blocked' AND $2 IN ('format_ok', 'awaiting_critic')
-RETURNING id, workflow_run_id, workflow_node_id, node_title, status, retry_count, worker_type, worker_id, worker_output, critic_type, critic_id, critic_output, critic_comment, agent_task_id, started_at, completed_at, created_at, updated_at, worker_agent_task_id, critic_agent_task_id, runtime_id, device_id, session_id, split_review_chat_session_id, runtime_selection_reason, failure_reason, split_config_version, source_workflow_node_id, node_description, format_schema, critic_api_url, stage_snapshot, worker_role_snapshot, critic_role_snapshot, runtime_config, worker_name_snapshot, critic_name_snapshot
+RETURNING id, workflow_run_id, workflow_node_id, node_title, status, retry_count, worker_type, worker_id, worker_output, critic_type, critic_id, critic_output, critic_comment, agent_task_id, started_at, completed_at, created_at, updated_at, worker_agent_task_id, critic_agent_task_id, runtime_id, device_id, session_id, split_review_chat_session_id, runtime_selection_reason, failure_reason, split_config_version
 `
 
 type ResumeWorkflowNodeRunAfterRoleAssignmentParams struct {
@@ -1092,27 +1094,13 @@ func (q *Queries) ResumeWorkflowNodeRunAfterRoleAssignment(ctx context.Context, 
 		&i.RuntimeSelectionReason,
 		&i.FailureReason,
 		&i.SplitConfigVersion,
-		&i.SourceWorkflowNodeID,
-		&i.NodeDescription,
-		&i.FormatSchema,
-		&i.CriticApiUrl,
-		&i.StageSnapshot,
-		&i.WorkerRoleSnapshot,
-		&i.CriticRoleSnapshot,
-		&i.RuntimeConfig,
-		&i.WorkerNameSnapshot,
-		&i.CriticNameSnapshot,
 	)
 	return i, err
 }
 
 const setWorkflowNodeRunResolvedCritic = `-- name: SetWorkflowNodeRunResolvedCritic :execrows
-UPDATE multica_workflow_node_run node_run
-SET critic_type = 'human',
-    critic_id = $2,
-    critic_name_snapshot = COALESCE((SELECT app_user.name FROM multica_user app_user WHERE app_user.id = $2), ''),
-    updated_at = now()
-WHERE node_run.id = $1 AND node_run.status IN (
+UPDATE multica_workflow_node_run SET critic_type = 'human', critic_id = $2, updated_at = now()
+WHERE id = $1 AND status IN (
     'blocked', 'pending', 'format_checking', 'format_ok',
     'worker_assigned', 'working', 'awaiting_input', 'awaiting_critic'
 )
@@ -1132,12 +1120,8 @@ func (q *Queries) SetWorkflowNodeRunResolvedCritic(ctx context.Context, arg SetW
 }
 
 const setWorkflowNodeRunResolvedWorker = `-- name: SetWorkflowNodeRunResolvedWorker :execrows
-UPDATE multica_workflow_node_run node_run
-SET worker_type = 'human',
-    worker_id = $2,
-    worker_name_snapshot = COALESCE((SELECT app_user.name FROM multica_user app_user WHERE app_user.id = $2), ''),
-    updated_at = now()
-WHERE node_run.id = $1 AND node_run.status IN ('blocked', 'pending', 'format_checking', 'format_ok')
+UPDATE multica_workflow_node_run SET worker_type = 'human', worker_id = $2, updated_at = now()
+WHERE id = $1 AND status IN ('blocked', 'pending', 'format_checking', 'format_ok')
 `
 
 type SetWorkflowNodeRunResolvedWorkerParams struct {
@@ -1179,76 +1163,6 @@ func (q *Queries) SetWorkflowRunWaitingForRoleAssignment(ctx context.Context, id
 		return 0, err
 	}
 	return result.RowsAffected(), nil
-}
-
-const unblockWorkflowNodeRunsAfterRoleResolution = `-- name: UnblockWorkflowNodeRunsAfterRoleResolution :many
-UPDATE multica_workflow_node_run node_run
-SET status = CASE WHEN EXISTS (
-        SELECT 1 FROM multica_workflow_run_edge edge
-        WHERE edge.workflow_run_id = node_run.workflow_run_id
-          AND edge.target_node_run_id = node_run.id
-    ) THEN 'pending' ELSE 'format_ok' END,
-    updated_at = now()
-WHERE node_run.workflow_run_id = $1 AND node_run.status = 'blocked'
-RETURNING node_run.id, node_run.workflow_run_id, node_run.workflow_node_id, node_run.node_title, node_run.status, node_run.retry_count, node_run.worker_type, node_run.worker_id, node_run.worker_output, node_run.critic_type, node_run.critic_id, node_run.critic_output, node_run.critic_comment, node_run.agent_task_id, node_run.started_at, node_run.completed_at, node_run.created_at, node_run.updated_at, node_run.worker_agent_task_id, node_run.critic_agent_task_id, node_run.runtime_id, node_run.device_id, node_run.session_id, node_run.split_review_chat_session_id, node_run.runtime_selection_reason, node_run.failure_reason, node_run.split_config_version, node_run.source_workflow_node_id, node_run.node_description, node_run.format_schema, node_run.critic_api_url, node_run.stage_snapshot, node_run.worker_role_snapshot, node_run.critic_role_snapshot, node_run.runtime_config, node_run.worker_name_snapshot, node_run.critic_name_snapshot
-`
-
-func (q *Queries) UnblockWorkflowNodeRunsAfterRoleResolution(ctx context.Context, workflowRunID pgtype.UUID) ([]MulticaWorkflowNodeRun, error) {
-	rows, err := q.db.Query(ctx, unblockWorkflowNodeRunsAfterRoleResolution, workflowRunID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []MulticaWorkflowNodeRun{}
-	for rows.Next() {
-		var i MulticaWorkflowNodeRun
-		if err := rows.Scan(
-			&i.ID,
-			&i.WorkflowRunID,
-			&i.WorkflowNodeID,
-			&i.NodeTitle,
-			&i.Status,
-			&i.RetryCount,
-			&i.WorkerType,
-			&i.WorkerID,
-			&i.WorkerOutput,
-			&i.CriticType,
-			&i.CriticID,
-			&i.CriticOutput,
-			&i.CriticComment,
-			&i.AgentTaskID,
-			&i.StartedAt,
-			&i.CompletedAt,
-			&i.CreatedAt,
-			&i.UpdatedAt,
-			&i.WorkerAgentTaskID,
-			&i.CriticAgentTaskID,
-			&i.RuntimeID,
-			&i.DeviceID,
-			&i.SessionID,
-			&i.SplitReviewChatSessionID,
-			&i.RuntimeSelectionReason,
-			&i.FailureReason,
-			&i.SplitConfigVersion,
-			&i.SourceWorkflowNodeID,
-			&i.NodeDescription,
-			&i.FormatSchema,
-			&i.CriticApiUrl,
-			&i.StageSnapshot,
-			&i.WorkerRoleSnapshot,
-			&i.CriticRoleSnapshot,
-			&i.RuntimeConfig,
-			&i.WorkerNameSnapshot,
-			&i.CriticNameSnapshot,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
 }
 
 const updateWorkflowRoleResolutionManual = `-- name: UpdateWorkflowRoleResolutionManual :one

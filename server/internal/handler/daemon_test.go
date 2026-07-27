@@ -3792,12 +3792,11 @@ func createUpstreamStageContextFixture(t *testing.T, ctx context.Context, suffix
 		INSERT INTO multica_workflow_node_run (
 			workflow_run_id, workflow_node_id, node_title, status,
 			worker_type, worker_id, critic_type, critic_id,
-			worker_output, completed_at, stage_snapshot
+			worker_output, completed_at
 		)
-		VALUES ($1, $2, 'Node 1', 'completed', 'agent', $3, 'human', NULL, $4, now(),
-		        jsonb_build_object('id', $5::text, 'name', 'Stage 1', 'sort_order', 0))
+		VALUES ($1, $2, 'Node 1', 'completed', 'agent', $3, 'human', NULL, $4, now())
 		RETURNING id
-	`, parseUUID(f.runID), parseUUID(f.node1ID), parseUUID(f.agentID), []byte(`{"output":"upstream output"}`), f.stage1ID).Scan(&f.nodeRun1ID); err != nil {
+	`, parseUUID(f.runID), parseUUID(f.node1ID), parseUUID(f.agentID), []byte(`{"output":"upstream output"}`)).Scan(&f.nodeRun1ID); err != nil {
 		t.Fatalf("setup: create node run 1: %v", err)
 	}
 
@@ -3805,20 +3804,12 @@ func createUpstreamStageContextFixture(t *testing.T, ctx context.Context, suffix
 	if err := testPool.QueryRow(ctx, `
 		INSERT INTO multica_workflow_node_run (
 			workflow_run_id, workflow_node_id, node_title, status,
-			worker_type, worker_id, critic_type, critic_id, stage_snapshot
+			worker_type, worker_id, critic_type, critic_id
 		)
-		VALUES ($1, $2, 'Node 2', 'worker_assigned', 'agent', $3, 'human', NULL,
-		        jsonb_build_object('id', $4::text, 'name', 'Stage 2', 'sort_order', 1))
+		VALUES ($1, $2, 'Node 2', 'worker_assigned', 'agent', $3, 'human', NULL)
 		RETURNING id
-	`, parseUUID(f.runID), parseUUID(f.node2ID), parseUUID(f.agentID), f.stage2ID).Scan(&f.nodeRun2ID); err != nil {
+	`, parseUUID(f.runID), parseUUID(f.node2ID), parseUUID(f.agentID)).Scan(&f.nodeRun2ID); err != nil {
 		t.Fatalf("setup: create node run 2: %v", err)
-	}
-	if _, err := testPool.Exec(ctx, `
-		INSERT INTO multica_workflow_run_edge (
-			workflow_run_id, source_node_run_id, target_node_run_id, condition
-		) VALUES ($1, $2, $3, '{}'::jsonb)
-	`, f.runID, f.nodeRun1ID, f.nodeRun2ID); err != nil {
-		t.Fatalf("setup: create runtime edge: %v", err)
 	}
 
 	// Sub-issue for upstream node run 1
@@ -4001,13 +3992,11 @@ func TestClaimTaskByRuntime_NoUpstreamContextForSameStage(t *testing.T) {
 	ctx := context.Background()
 	f := createUpstreamStageContextFixture(t, ctx, "same-stage")
 
-	// Model a run that captured both nodes in the same stage.
+	// Move node 2 into the same stage as node 1 so they are no longer cross-stage.
 	if _, err := testPool.Exec(ctx, `
-		UPDATE multica_workflow_node_run
-		SET stage_snapshot = jsonb_build_object('id', $1::text, 'name', 'Stage 1', 'sort_order', 0)
-		WHERE id = $2
-	`, f.stage1ID, f.nodeRun2ID); err != nil {
-		t.Fatalf("set node run 2 stage snapshot: %v", err)
+		UPDATE multica_workflow_node SET stage_id = $1 WHERE id = $2
+	`, parseUUID(f.stage1ID), parseUUID(f.node2ID)); err != nil {
+		t.Fatalf("move node 2 to stage 1: %v", err)
 	}
 
 	task, body := claimUpstreamTaskByRuntime(t, f.runtimeID)
@@ -4081,20 +4070,12 @@ func TestClaimTaskByRuntime_UpstreamContextLimit(t *testing.T) {
 			INSERT INTO multica_workflow_node_run (
 				workflow_run_id, workflow_node_id, node_title, status,
 				worker_type, worker_id, critic_type, critic_id,
-				completed_at, stage_snapshot
+				completed_at
 			)
-			VALUES ($1, $2, $3, 'completed', 'agent', $4, 'human', NULL, now(),
-			        jsonb_build_object('id', $5::text, 'name', 'Stage 1', 'sort_order', 0))
+			VALUES ($1, $2, $3, 'completed', 'agent', $4, 'human', NULL, now())
 			RETURNING id
-		`, parseUUID(f.runID), parseUUID(nodeID), fmt.Sprintf("Extra Node %d", i), parseUUID(f.agentID), f.stage1ID).Scan(&nodeRunID); err != nil {
+		`, parseUUID(f.runID), parseUUID(nodeID), fmt.Sprintf("Extra Node %d", i), parseUUID(f.agentID)).Scan(&nodeRunID); err != nil {
 			t.Fatalf("setup: create extra node run %d: %v", i, err)
-		}
-		if _, err := testPool.Exec(ctx, `
-			INSERT INTO multica_workflow_run_edge (
-				workflow_run_id, source_node_run_id, target_node_run_id, condition
-			) VALUES ($1, $2, $3, '{}'::jsonb)
-		`, f.runID, nodeRunID, f.nodeRun2ID); err != nil {
-			t.Fatalf("setup: create extra runtime edge %d: %v", i, err)
 		}
 
 		var issueID string

@@ -1,7 +1,6 @@
 package handler
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -230,12 +229,11 @@ func createSplitApproveFixture(t *testing.T, mode string) splitApproveFixture {
 
 	if err := testPool.QueryRow(ctx, `
 		INSERT INTO multica_workflow_node_run (
-			workflow_run_id, workflow_node_id, node_title, status, worker_type, worker_id, critic_type,
-			format_schema, runtime_config
+			workflow_run_id, workflow_node_id, node_title, status, worker_type, worker_id, critic_type
 		)
-		VALUES ($1, $2, 'Split node', 'awaiting_split_review', 'human', $3, 'human', $4::jsonb, $4::jsonb)
+		VALUES ($1, $2, 'Split node', 'awaiting_split_review', 'human', $3, 'human')
 		RETURNING id
-	`, f.parentRunID, f.splitNodeID, testUserID, string(splitFormat)).Scan(&f.splitNodeRunID); err != nil {
+	`, f.parentRunID, f.splitNodeID, testUserID).Scan(&f.splitNodeRunID); err != nil {
 		t.Fatalf("create split node run: %v", err)
 	}
 
@@ -506,12 +504,11 @@ func createSplitGenerateFixture(t *testing.T, mode string) splitGenerateFixture 
 
 	if err := testPool.QueryRow(ctx, `
 		INSERT INTO multica_workflow_node_run (
-			workflow_run_id, workflow_node_id, node_title, status, worker_type, worker_id, critic_type,
-			format_schema, runtime_config
+			workflow_run_id, workflow_node_id, node_title, status, worker_type, worker_id, critic_type
 		)
-		VALUES ($1, $2, 'Split node', 'splitting', 'agent', $3, 'human', $4::jsonb, $4::jsonb)
+		VALUES ($1, $2, 'Split node', 'splitting', 'agent', $3, 'human')
 		RETURNING id
-	`, f.parentRunID, f.splitNodeID, f.agentID, string(splitFormat)).Scan(&f.splitNodeRunID); err != nil {
+	`, f.parentRunID, f.splitNodeID, f.agentID).Scan(&f.splitNodeRunID); err != nil {
 		t.Fatalf("create split node run: %v", err)
 	}
 
@@ -1086,11 +1083,11 @@ func TestAddSplitDraftTaskRejectsMissingDefaultIssueWorkflow(t *testing.T) {
 		t.Fatalf("marshal split format: %v", err)
 	}
 	if _, err := testPool.Exec(context.Background(), `
-		UPDATE multica_workflow_node_run
-		SET runtime_config = $1::jsonb
+		UPDATE multica_workflow_node
+		SET format_schema = $1::jsonb
 		WHERE id = $2
-	`, string(splitFormat), f.splitNodeRunID); err != nil {
-		t.Fatalf("remove default child assignee from split node run snapshot: %v", err)
+	`, string(splitFormat), f.splitNodeID); err != nil {
+		t.Fatalf("remove default child assignee from split node: %v", err)
 	}
 	addResp := httptest.NewRecorder()
 	addReq := newRequest("POST", "/api/node-runs/"+f.splitNodeRunID+"/split/draft-tasks", map[string]any{
@@ -2402,13 +2399,8 @@ func TestCancelWorkflowRunCascadesActiveSplitTasks(t *testing.T) {
 	}
 }
 
-func TestPatchSplitConfigOnlyUpdatesNodeRunSnapshot(t *testing.T) {
+func TestPatchSplitConfigUpdatesMaxConcurrencyWithExpectedVersion(t *testing.T) {
 	f := createSplitApproveFixture(t, "barrier")
-	ctx := context.Background()
-	before, err := testHandler.Queries.GetWorkflowNode(ctx, parseUUID(f.splitNodeID))
-	if err != nil {
-		t.Fatalf("load split node before patch: %v", err)
-	}
 
 	req := newRequest("PATCH", "/api/node-runs/"+f.splitNodeRunID+"/split/config", map[string]any{
 		"max_concurrency":         4,
@@ -2422,6 +2414,7 @@ func TestPatchSplitConfigOnlyUpdatesNodeRunSnapshot(t *testing.T) {
 		t.Fatalf("PatchSplitConfig: expected 200, got %d: %s", resp.Code, resp.Body.String())
 	}
 
+	ctx := context.Background()
 	nodeRun, err := testHandler.Queries.GetWorkflowNodeRun(ctx, parseUUID(f.splitNodeRunID))
 	if err != nil {
 		t.Fatalf("reload node run: %v", err)
@@ -2433,19 +2426,16 @@ func TestPatchSplitConfigOnlyUpdatesNodeRunSnapshot(t *testing.T) {
 	if err != nil {
 		t.Fatalf("reload split node: %v", err)
 	}
-	if !bytes.Equal(node.FormatSchema, before.FormatSchema) {
-		t.Fatalf("definition format_schema changed: before=%s after=%s", before.FormatSchema, node.FormatSchema)
-	}
-	var runtimeConfig struct {
+	var format struct {
 		SplitConfig struct {
 			MaxConcurrency int `json:"max_concurrency"`
 		} `json:"split_config"`
 	}
-	if err := json.Unmarshal(nodeRun.RuntimeConfig, &runtimeConfig); err != nil {
-		t.Fatalf("parse node-run runtime config: %v", err)
+	if err := json.Unmarshal(node.FormatSchema, &format); err != nil {
+		t.Fatalf("parse node format: %v", err)
 	}
-	if runtimeConfig.SplitConfig.MaxConcurrency != 4 {
-		t.Fatalf("runtime max_concurrency = %d, want 4", runtimeConfig.SplitConfig.MaxConcurrency)
+	if format.SplitConfig.MaxConcurrency != 4 {
+		t.Fatalf("max_concurrency = %d, want 4", format.SplitConfig.MaxConcurrency)
 	}
 }
 
@@ -2499,83 +2489,6 @@ func TestPatchSplitConfigImmediatelySchedulesNewConcurrencySlots(t *testing.T) {
 	}
 	if !taskB.RunID.Valid {
 		t.Fatal("task B should have a run_id after immediate scheduling")
-	}
-}
-
-func TestScheduleReadyTasksUsesNodeRunSnapshotAfterDefinitionEdit(t *testing.T) {
-	f := createSplitApproveFixture(t, "barrier")
-	ctx := context.Background()
-	prepareSplitTaskForScheduling(t, f)
-
-	mutatedFormat, err := json.Marshal(map[string]any{
-		"type": "split",
-		"split_config": map[string]any{
-			"default_issue_workflow_id": f.parentWorkflow,
-			"mode":                      "barrier",
-			"max_concurrency":           1,
-			"max_failures":              0,
-		},
-	})
-	if err != nil {
-		t.Fatalf("marshal mutated split definition: %v", err)
-	}
-	if _, err := testPool.Exec(ctx, `
-		UPDATE multica_workflow_node SET format_schema = $2::jsonb WHERE id = $1
-	`, f.splitNodeID, mutatedFormat); err != nil {
-		t.Fatalf("mutate split definition: %v", err)
-	}
-
-	if err := testHandler.SplitOrchestrator.ScheduleReadyTasks(ctx, parseUUID(f.splitNodeRunID)); err != nil {
-		t.Fatalf("ScheduleReadyTasks after definition edit: %v", err)
-	}
-	task, err := testHandler.Queries.GetSplitTask(ctx, parseUUID(f.taskAID))
-	if err != nil {
-		t.Fatalf("reload split task: %v", err)
-	}
-	if task.Status != service.SplitTaskStatusRunning || !task.RunID.Valid {
-		t.Fatalf("split task status=%s run_id=%v, want running child run", task.Status, task.RunID)
-	}
-	childRun, err := testHandler.Queries.GetWorkflowRun(ctx, task.RunID)
-	if err != nil {
-		t.Fatalf("load child run: %v", err)
-	}
-	if childRun.WorkflowID != parseUUID(f.childWorkflow) {
-		t.Fatalf("child workflow_id=%s, want %s", uuidToString(childRun.WorkflowID), f.childWorkflow)
-	}
-}
-
-func TestSplitChildRunUsesChildWorkflowCurrentSnapshotOnly(t *testing.T) {
-	f := createSplitApproveFixture(t, "barrier")
-	ctx := context.Background()
-	task := prepareSplitTaskForScheduling(t, f)
-	const editedTitle = "Edited child snapshot node"
-	if _, err := testPool.Exec(ctx, `
-		UPDATE multica_workflow_node SET title = $2 WHERE workflow_id = $1
-	`, f.childWorkflow, editedTitle); err != nil {
-		t.Fatalf("edit child workflow definition: %v", err)
-	}
-
-	if err := testHandler.SplitOrchestrator.ScheduleReadyTasks(ctx, parseUUID(f.splitNodeRunID)); err != nil {
-		t.Fatalf("ScheduleReadyTasks: %v", err)
-	}
-	started, err := testHandler.Queries.GetSplitTask(ctx, task.ID)
-	if err != nil {
-		t.Fatalf("reload split task: %v", err)
-	}
-	if !started.RunID.Valid {
-		t.Fatal("child run was not started")
-	}
-	snapshot, err := (service.WorkflowRuntimeRepository{Queries: testHandler.Queries}).GetRunDefinitionSnapshot(ctx, started.RunID)
-	if err != nil {
-		t.Fatalf("load child run snapshot: %v", err)
-	}
-	if len(snapshot.Nodes) != 1 || snapshot.Nodes[0].Title != editedTitle {
-		t.Fatalf("child snapshot nodes=%#v, want edited child node", snapshot.Nodes)
-	}
-	for _, node := range snapshot.Nodes {
-		if node.ID == f.splitNodeID {
-			t.Fatalf("child snapshot contains parent split node %s", f.splitNodeID)
-		}
 	}
 }
 
@@ -2765,8 +2678,9 @@ func TestScheduleReadyTasksRecoversClaimedDispatchAttempt(t *testing.T) {
 		t.Fatalf("count child workflow sub-issues: %v", err)
 	}
 	if err := testPool.QueryRow(ctx, `
-		SELECT count(*) FROM multica_workflow_node_run_dispatch_job
-		WHERE workflow_run_id = $1
+		SELECT count(*) FROM multica_agent_task_queue atq
+		JOIN multica_workflow_node_run nr ON nr.id = atq.workflow_node_run_id
+		WHERE nr.workflow_run_id = $1
 	`, uuidToString(interruptedRun.ID)).Scan(&dispatchCount); err != nil {
 		t.Fatalf("count child dispatches: %v", err)
 	}
@@ -2777,8 +2691,8 @@ func TestScheduleReadyTasksRecoversClaimedDispatchAttempt(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load recovered child node run: %v", err)
 	}
-	if recoveredNodeRun.Status != service.NodeRunStatusFormatOk || recoveredNodeRun.WorkerAgentTaskID.Valid {
-		t.Fatalf("recovered child node status/task = %s/%s, want format_ok/unlinked", recoveredNodeRun.Status, uuidToString(recoveredNodeRun.WorkerAgentTaskID))
+	if recoveredNodeRun.Status != service.NodeRunStatusWorking {
+		t.Fatalf("recovered child node status = %s, want working", recoveredNodeRun.Status)
 	}
 }
 
@@ -2875,8 +2789,9 @@ func TestScheduleReadyTasksRecoversFinalizedRunBeforeSideEffects(t *testing.T) {
 		t.Fatalf("count recovered sub-issues: %v", err)
 	}
 	if err := testPool.QueryRow(ctx, `
-		SELECT count(*) FROM multica_workflow_node_run_dispatch_job
-		WHERE workflow_run_id = $1
+		SELECT count(*) FROM multica_agent_task_queue atq
+		JOIN multica_workflow_node_run nr ON nr.id = atq.workflow_node_run_id
+		WHERE nr.workflow_run_id = $1
 	`, uuidToString(run.ID)).Scan(&dispatchCount); err != nil {
 		t.Fatalf("count recovered dispatches: %v", err)
 	}
@@ -2885,7 +2800,7 @@ func TestScheduleReadyTasksRecoversFinalizedRunBeforeSideEffects(t *testing.T) {
 	}
 }
 
-func TestScheduleReadyTasksRecoversFinalizedRunWithDurableDispatch(t *testing.T) {
+func TestScheduleReadyTasksRecoversWorkerQueueInsertBeforeLink(t *testing.T) {
 	f := createSplitApproveFixture(t, "barrier")
 	configureSplitChildAgent(t, f)
 	task := prepareSplitTaskForScheduling(t, f)
@@ -2919,8 +2834,84 @@ func TestScheduleReadyTasksRecoversFinalizedRunWithDurableDispatch(t *testing.T)
 		t.Fatalf("finalize child run: rows=%d err=%v", rowsAffected, err)
 	}
 
+	if _, err := testPool.Exec(ctx, `DROP TRIGGER IF EXISTS test_fail_split_worker_link ON multica_workflow_node_run`); err != nil {
+		t.Fatalf("drop stale worker-link trigger: %v", err)
+	}
+	if _, err := testPool.Exec(ctx, `DROP FUNCTION IF EXISTS test_fail_split_worker_link()`); err != nil {
+		t.Fatalf("drop stale worker-link function: %v", err)
+	}
+	if _, err := testPool.Exec(ctx, `
+		CREATE FUNCTION test_fail_split_worker_link() RETURNS trigger
+		LANGUAGE plpgsql AS $$
+		BEGIN
+			RAISE EXCEPTION 'injected worker link failure';
+		END;
+		$$
+	`); err != nil {
+		t.Fatalf("create worker-link failure function: %v", err)
+	}
+	if _, err := testPool.Exec(ctx, `
+		CREATE TRIGGER test_fail_split_worker_link
+		BEFORE UPDATE OF worker_agent_task_id ON multica_workflow_node_run
+		FOR EACH ROW
+		WHEN (OLD.worker_agent_task_id IS NULL AND NEW.worker_agent_task_id IS NOT NULL)
+		EXECUTE FUNCTION test_fail_split_worker_link()
+	`); err != nil {
+		t.Fatalf("create worker-link failure trigger: %v", err)
+	}
+	t.Cleanup(func() {
+		_, _ = testPool.Exec(context.Background(), `DROP TRIGGER IF EXISTS test_fail_split_worker_link ON multica_workflow_node_run`)
+		_, _ = testPool.Exec(context.Background(), `DROP FUNCTION IF EXISTS test_fail_split_worker_link()`)
+	})
+
 	if err := testHandler.SplitOrchestrator.ScheduleReadyTasks(ctx, parseUUID(f.splitNodeRunID)); err != nil {
-		t.Fatalf("recover finalized child run: %v", err)
+		t.Fatalf("first ScheduleReadyTasks: %v", err)
+	}
+	afterFailure, err := testHandler.Queries.GetIssue(ctx, task.IssueID)
+	if err != nil {
+		t.Fatalf("load issue after failed dispatch: %v", err)
+	}
+	if afterFailure.WorkflowRunID.Valid {
+		t.Fatalf("failed dispatch wrote durable workflow_run_id = %s", uuidToString(afterFailure.WorkflowRunID))
+	}
+	var queueRowsAfterFailure int
+	if err := testPool.QueryRow(ctx, `
+		SELECT count(*) FROM multica_agent_task_queue
+		WHERE workflow_node_run_id = $1
+		  AND context->>'phase' = 'worker'
+	`, uuidToString(nodeRuns[0].ID)).Scan(&queueRowsAfterFailure); err != nil {
+		t.Fatalf("count worker queue rows after failed transaction: %v", err)
+	}
+	if queueRowsAfterFailure != 0 {
+		t.Fatalf("worker queue rows after failed transaction = %d, want 0", queueRowsAfterFailure)
+	}
+	if _, err := testPool.Exec(ctx, `DROP TRIGGER test_fail_split_worker_link ON multica_workflow_node_run`); err != nil {
+		t.Fatalf("drop worker-link failure trigger: %v", err)
+	}
+	if _, err := testPool.Exec(ctx, `DROP FUNCTION test_fail_split_worker_link()`); err != nil {
+		t.Fatalf("drop worker-link failure function: %v", err)
+	}
+
+	if err := testHandler.SplitOrchestrator.ScheduleReadyTasks(ctx, parseUUID(f.splitNodeRunID)); err != nil {
+		t.Fatalf("recovery ScheduleReadyTasks: %v", err)
+	}
+	recoveredNodeRun, err := testHandler.Queries.GetWorkflowNodeRun(ctx, nodeRuns[0].ID)
+	if err != nil {
+		t.Fatalf("load recovered node run: %v", err)
+	}
+	if recoveredNodeRun.Status != service.NodeRunStatusWorking || !recoveredNodeRun.WorkerAgentTaskID.Valid {
+		t.Fatalf("recovered node status/task = %s/%s, want working/linked", recoveredNodeRun.Status, uuidToString(recoveredNodeRun.WorkerAgentTaskID))
+	}
+	var queueCount int
+	if err := testPool.QueryRow(ctx, `
+		SELECT count(*) FROM multica_agent_task_queue
+		WHERE workflow_node_run_id = $1
+		  AND context->>'phase' = 'worker'
+	`, uuidToString(nodeRuns[0].ID)).Scan(&queueCount); err != nil {
+		t.Fatalf("count recovered worker queue rows: %v", err)
+	}
+	if queueCount != 1 {
+		t.Fatalf("worker queue rows = %d, want 1", queueCount)
 	}
 	recoveredIssue, err := testHandler.Queries.GetIssue(ctx, task.IssueID)
 	if err != nil {
@@ -2928,23 +2919,6 @@ func TestScheduleReadyTasksRecoversFinalizedRunWithDurableDispatch(t *testing.T)
 	}
 	if recoveredIssue.WorkflowRunID != run.ID {
 		t.Fatalf("recovered issue workflow_run_id = %s, want %s", uuidToString(recoveredIssue.WorkflowRunID), uuidToString(run.ID))
-	}
-	var dispatchCount int
-	if err := testPool.QueryRow(ctx, `
-		SELECT count(*) FROM multica_workflow_node_run_dispatch_job
-		WHERE workflow_node_run_id = $1
-	`, uuidToString(nodeRuns[0].ID)).Scan(&dispatchCount); err != nil {
-		t.Fatalf("count durable child dispatch jobs: %v", err)
-	}
-	if dispatchCount != 1 {
-		t.Fatalf("durable child dispatch jobs = %d, want 1", dispatchCount)
-	}
-	recoveredNodeRun, err := testHandler.Queries.GetWorkflowNodeRun(ctx, nodeRuns[0].ID)
-	if err != nil {
-		t.Fatalf("load recovered node run: %v", err)
-	}
-	if recoveredNodeRun.Status != service.NodeRunStatusFormatOk || recoveredNodeRun.WorkerAgentTaskID.Valid {
-		t.Fatalf("recovered node status/task = %s/%s, want format_ok/unlinked", recoveredNodeRun.Status, uuidToString(recoveredNodeRun.WorkerAgentTaskID))
 	}
 }
 
@@ -3195,8 +3169,8 @@ func TestScheduleReadyTasksCancelsRunWhenTaskCancelledBeforeFinalize(t *testing.
 	if err != nil {
 		t.Fatalf("load cancelled split task: %v", err)
 	}
-	if cancelledTask.Status != service.SplitTaskStatusSkipped || cancelledTask.RunID.Valid {
-		t.Fatalf("cancelled task status/run = %s/%s, want skipped/empty", cancelledTask.Status, uuidToString(cancelledTask.RunID))
+	if cancelledTask.Status != service.SplitTaskStatusCancelled || cancelledTask.RunID.Valid {
+		t.Fatalf("cancelled task status/run = %s/%s, want cancelled/empty", cancelledTask.Status, uuidToString(cancelledTask.RunID))
 	}
 	run, err := testHandler.Queries.GetWorkflowRunByDispatchKey(ctx, db.GetWorkflowRunByDispatchKeyParams{
 		WorkspaceID: task.WorkspaceID,
@@ -3316,15 +3290,10 @@ func TestScheduleReadyTasksPersistsStartFailureAndSkipsDependents(t *testing.T) 
 	}
 	if _, err := testPool.Exec(ctx, `
 		UPDATE multica_workflow_split_task
-		SET status = 'created', issue_id = $2
+		SET status = 'created', issue_id = $2, workflow_id = NULL
 		WHERE id = $1
 	`, f.taskAID, childIssueID); err != nil {
 		t.Fatalf("make task A unstartable: %v", err)
-	}
-	if _, err := testPool.Exec(ctx, `
-		UPDATE multica_workflow SET status = 'paused' WHERE id = $1
-	`, f.childWorkflow); err != nil {
-		t.Fatalf("pause child workflow: %v", err)
 	}
 	if _, err := testPool.Exec(ctx, `
 		UPDATE multica_workflow_split_task

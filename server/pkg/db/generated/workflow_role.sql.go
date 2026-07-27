@@ -130,39 +130,16 @@ func (q *Queries) GetWorkflowRoleInWorkspace(ctx context.Context, arg GetWorkflo
 	return i, err
 }
 
-const listWorkflowIDsReferencingRole = `-- name: ListWorkflowIDsReferencingRole :many
-SELECT DISTINCT workflow_id
-FROM multica_workflow_node
-WHERE worker_role_id = $1::uuid OR critic_role_id = $1::uuid
-ORDER BY workflow_id
-`
-
-func (q *Queries) ListWorkflowIDsReferencingRole(ctx context.Context, dollar_1 pgtype.UUID) ([]pgtype.UUID, error) {
-	rows, err := q.db.Query(ctx, listWorkflowIDsReferencingRole, dollar_1)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []pgtype.UUID{}
-	for rows.Next() {
-		var workflow_id pgtype.UUID
-		if err := rows.Scan(&workflow_id); err != nil {
-			return nil, err
-		}
-		items = append(items, workflow_id)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
 const listWorkflowRoles = `-- name: ListWorkflowRoles :many
+
 SELECT id, workspace_id, name, description, created_at, updated_at, normalized_name, is_builtin, needs_description, created_by FROM multica_workflow_role
 WHERE workspace_id = $1
 ORDER BY is_builtin DESC, name ASC
 `
 
+// =====================
+// Workflow Role Queries
+// =====================
 func (q *Queries) ListWorkflowRoles(ctx context.Context, workspaceID pgtype.UUID) ([]MulticaWorkflowRole, error) {
 	rows, err := q.db.Query(ctx, listWorkflowRoles, workspaceID)
 	if err != nil {
@@ -192,34 +169,6 @@ func (q *Queries) ListWorkflowRoles(ctx context.Context, workspaceID pgtype.UUID
 		return nil, err
 	}
 	return items, nil
-}
-
-const lockWorkflowRoleDefinitionsExclusive = `-- name: LockWorkflowRoleDefinitionsExclusive :exec
-SELECT pg_advisory_xact_lock(
-    ('x' || substr(replace($1::uuid::text, '-', ''), 1, 8))::bit(32)::int,
-    ('x' || substr(replace($1::uuid::text, '-', ''), 9, 8))::bit(32)::int
-)
-`
-
-func (q *Queries) LockWorkflowRoleDefinitionsExclusive(ctx context.Context, workspaceID pgtype.UUID) error {
-	_, err := q.db.Exec(ctx, lockWorkflowRoleDefinitionsExclusive, workspaceID)
-	return err
-}
-
-const lockWorkflowRoleDefinitionsShared = `-- name: LockWorkflowRoleDefinitionsShared :exec
-
-SELECT pg_advisory_xact_lock_shared(
-    ('x' || substr(replace($1::uuid::text, '-', ''), 1, 8))::bit(32)::int,
-    ('x' || substr(replace($1::uuid::text, '-', ''), 9, 8))::bit(32)::int
-)
-`
-
-// =====================
-// Workflow Role Queries
-// =====================
-func (q *Queries) LockWorkflowRoleDefinitionsShared(ctx context.Context, workspaceID pgtype.UUID) error {
-	_, err := q.db.Exec(ctx, lockWorkflowRoleDefinitionsShared, workspaceID)
-	return err
 }
 
 const updateWorkflowRole = `-- name: UpdateWorkflowRole :one
@@ -263,24 +212,4 @@ func (q *Queries) UpdateWorkflowRole(ctx context.Context, arg UpdateWorkflowRole
 		&i.CreatedBy,
 	)
 	return i, err
-}
-
-const workflowRoleHasActiveRunReferences = `-- name: WorkflowRoleHasActiveRunReferences :one
-SELECT EXISTS (
-    SELECT 1
-    FROM multica_workflow_node_run node_run
-    JOIN multica_workflow_run run ON run.id = node_run.workflow_run_id
-    WHERE run.status NOT IN ('completed', 'failed', 'cancelled')
-      AND (
-        node_run.worker_role_snapshot ->> 'id' = $1::uuid::text
-        OR node_run.critic_role_snapshot ->> 'id' = $1::uuid::text
-      )
-)
-`
-
-func (q *Queries) WorkflowRoleHasActiveRunReferences(ctx context.Context, dollar_1 pgtype.UUID) (bool, error) {
-	row := q.db.QueryRow(ctx, workflowRoleHasActiveRunReferences, dollar_1)
-	var exists bool
-	err := row.Scan(&exists)
-	return exists, err
 }

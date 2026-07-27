@@ -18,22 +18,6 @@ WHERE id = $1;
 SELECT * FROM multica_workflow
 WHERE id = $1 AND workspace_id = $2;
 
--- name: LockWorkflowDefinitionForUpdate :one
-SELECT * FROM multica_workflow
-WHERE id = $1
-FOR UPDATE;
-
--- name: LockWorkflowDefinitionForShare :one
-SELECT * FROM multica_workflow
-WHERE id = $1
-FOR SHARE;
-
--- name: IncrementWorkflowConfigRevision :exec
-UPDATE multica_workflow
-SET config_revision = config_revision + 1,
-    updated_at = now()
-WHERE id = $1;
-
 -- name: CountWorkflowNodes :one
 SELECT count(*)::bigint FROM multica_workflow_node
 WHERE workflow_id = $1;
@@ -71,11 +55,6 @@ RETURNING *;
 -- name: DeleteWorkflow :exec
 DELETE FROM multica_workflow WHERE id = $1;
 
--- name: WorkflowHasRuns :one
-SELECT EXISTS (
-    SELECT 1 FROM multica_workflow_run WHERE workflow_id = $1
-);
-
 -- =====================
 -- Workflow Node CRUD
 -- =====================
@@ -88,10 +67,6 @@ ORDER BY sort_order ASC, created_at ASC;
 -- name: GetWorkflowNode :one
 SELECT * FROM multica_workflow_node
 WHERE id = $1;
-
--- name: GetWorkflowNodeInWorkflow :one
-SELECT * FROM multica_workflow_node
-WHERE id = $1 AND workflow_id = $2;
 
 -- name: CreateWorkflowNode :one
 INSERT INTO multica_workflow_node (
@@ -147,15 +122,6 @@ RETURNING *;
 -- name: DeleteWorkflowNode :exec
 DELETE FROM multica_workflow_node WHERE id = $1;
 
--- name: WorkflowNodeHasActiveRunReferences :one
-SELECT EXISTS (
-    SELECT 1
-    FROM multica_workflow_node_run node_run
-    JOIN multica_workflow_run run ON run.id = node_run.workflow_run_id
-    WHERE node_run.source_workflow_node_id = $1
-      AND run.status NOT IN ('completed', 'failed', 'cancelled')
-);
-
 -- name: DeleteWorkflowNodesByWorkflow :exec
 DELETE FROM multica_workflow_node WHERE workflow_id = $1;
 
@@ -171,10 +137,6 @@ ORDER BY created_at ASC;
 -- name: GetWorkflowEdge :one
 SELECT * FROM multica_workflow_edge
 WHERE id = $1;
-
--- name: GetWorkflowEdgeInWorkflow :one
-SELECT * FROM multica_workflow_edge
-WHERE id = $1 AND workflow_id = $2;
 
 -- name: CreateWorkflowEdge :one
 INSERT INTO multica_workflow_edge (
@@ -381,10 +343,6 @@ INSERT INTO multica_workflow_stage (
 
 -- name: GetWorkflowStage :one
 SELECT * FROM multica_workflow_stage WHERE id = $1;
-
--- name: GetWorkflowStageInWorkflow :one
-SELECT * FROM multica_workflow_stage
-WHERE id = $1 AND workflow_id = $2;
 
 -- name: ListWorkflowStagesByWorkflow :many
 SELECT * FROM multica_workflow_stage

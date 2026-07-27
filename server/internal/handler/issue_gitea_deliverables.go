@@ -162,7 +162,7 @@ func (h *Handler) giteaContextForRun(ctx context.Context, runID pgtype.UUID) *Is
 	if err != nil {
 		return nil
 	}
-	snapshot, err := (service.WorkflowRuntimeRepository{Queries: h.Queries}).GetRunDefinitionSnapshot(ctx, run.ID)
+	workflow, err := h.Queries.GetWorkflow(ctx, run.WorkflowID)
 	if err != nil {
 		return nil
 	}
@@ -171,21 +171,25 @@ func (h *Handler) giteaContextForRun(ctx context.Context, runID pgtype.UUID) *Is
 		return nil
 	}
 	owner := gitea.OrgName(util.UUIDToString(run.WorkspaceID))
-	repo := service.DeliverableRepoName(run.WorkflowID, snapshot.Workflow.IsDefault)
+	repo := service.DeliverableRepoNameForWorkflow(workflow)
 	gctx := &IssueGiteaContext{
 		Owner:      owner,
 		Repo:       repo,
 		CloneURL:   strings.TrimRight(giteaPublicBaseURL(), "/") + "/" + owner + "/" + repo + ".git",
 		InstBranch: gitea.InstBranch(util.UUIDToString(run.ID)),
 	}
-	// One immutable topological ordering per run.
-	topo, err := service.RunNodeTopoOrder(ctx, h.Queries, run.ID)
+	// One topological ordering per workflow — all node runs in a run share it.
+	topo, err := service.NodeTopoOrder(ctx, h.Queries, run.WorkflowID)
 	if err != nil {
 		return nil
 	}
 	for _, nr := range nodeRuns {
-		seq := topo[util.UUIDToString(nr.ID)]
-		deliverables, err := h.Queries.ListNodeRunDeliverableRequirements(ctx, nr.ID)
+		node, err := h.Queries.GetWorkflowNode(ctx, nr.WorkflowNodeID)
+		if err != nil {
+			continue
+		}
+		seq := topo[util.UUIDToString(node.ID)]
+		deliverables, err := h.Queries.ListWorkflowNodeDeliverables(ctx, nr.WorkflowNodeID)
 		if err != nil {
 			continue
 		}

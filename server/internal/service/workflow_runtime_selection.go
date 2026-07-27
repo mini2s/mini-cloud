@@ -8,7 +8,6 @@ import (
 	"log/slog"
 	"strings"
 
-	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/multica-ai/multica/server/internal/util"
 	db "github.com/multica-ai/multica/server/pkg/db/generated"
@@ -190,24 +189,24 @@ func chooseWorkflowRuntime(
 func (s *WorkflowService) resolveWorkflowAgent(
 	ctx context.Context,
 	qtx *db.Queries,
-	nodeRun db.MulticaWorkflowNodeRun,
+	node db.MulticaWorkflowNode,
 	phase string,
 ) (db.MulticaAgent, error) {
 	var agentID pgtype.UUID
 	switch phase {
 	case "worker", "split":
-		agentID = nodeRun.WorkerID
-		if nodeRun.WorkerType == "squad" && nodeRun.WorkerID.Valid {
-			squad, err := qtx.GetSquad(ctx, nodeRun.WorkerID)
+		agentID = node.WorkerID
+		if node.WorkerType == "squad" && node.WorkerID.Valid {
+			squad, err := qtx.GetSquad(ctx, node.WorkerID)
 			if err != nil {
 				return db.MulticaAgent{}, fmt.Errorf("get worker squad: %w", err)
 			}
 			agentID = squad.LeaderID
 		}
 	case "critic":
-		agentID = nodeRun.CriticID
-		if nodeRun.CriticType == "squad" && nodeRun.CriticID.Valid {
-			squad, err := qtx.GetSquad(ctx, nodeRun.CriticID)
+		agentID = node.CriticID
+		if node.CriticType == "squad" && node.CriticID.Valid {
+			squad, err := qtx.GetSquad(ctx, node.CriticID)
 			if err != nil {
 				return db.MulticaAgent{}, fmt.Errorf("get critic squad: %w", err)
 			}
@@ -235,16 +234,6 @@ func (s *WorkflowService) DispatchAgentTask(
 	phase string,
 	contextExtras map[string]any,
 ) (*db.MulticaAgentTaskQueue, error) {
-	return s.dispatchAgentTask(ctx, nodeRun, phase, contextExtras, pgtype.UUID{})
-}
-
-func (s *WorkflowService) dispatchAgentTask(
-	ctx context.Context,
-	nodeRun db.MulticaWorkflowNodeRun,
-	phase string,
-	contextExtras map[string]any,
-	dispatchJobID pgtype.UUID,
-) (*db.MulticaAgentTaskQueue, error) {
 	var task db.MulticaAgentTaskQueue
 	var selection workflowRuntimeSelection
 	err := s.runInTx(ctx, func(qtx *db.Queries) error {
@@ -252,9 +241,17 @@ func (s *WorkflowService) dispatchAgentTask(
 		if err != nil {
 			return fmt.Errorf("get node run: %w", err)
 		}
+		node, err := qtx.GetWorkflowNode(ctx, freshNodeRun.WorkflowNodeID)
+		if err != nil {
+			return fmt.Errorf("get node: %w", err)
+		}
 		run, err := qtx.GetWorkflowRun(ctx, freshNodeRun.WorkflowRunID)
 		if err != nil {
 			return fmt.Errorf("get run: %w", err)
+		}
+		workflow, err := qtx.GetWorkflow(ctx, run.WorkflowID)
+		if err != nil {
+			return fmt.Errorf("get workflow: %w", err)
 		}
 		if s.TxStarter != nil {
 			if _, err := qtx.AcquireWorkflowRuntimeSelectionLock(ctx, util.UUIDToString(run.WorkspaceID)); err != nil {
@@ -268,39 +265,27 @@ func (s *WorkflowService) dispatchAgentTask(
 		if run.Status != RunStatusRunning {
 			return ErrWorkflowRunNotRunning
 		}
-		linkTask := func(linkedTask db.MulticaAgentTaskQueue, reason string) error {
-			runtimeReason := pgtype.Text{String: reason, Valid: reason != ""}
-			switch phase {
-			case "worker", "split":
-				_, err = qtx.LinkNodeRunWorkerTask(ctx, db.LinkNodeRunWorkerTaskParams{
-					ID: freshNodeRun.ID, WorkerAgentTaskID: linkedTask.ID,
-					RuntimeID: linkedTask.RuntimeID, RuntimeSelectionReason: runtimeReason,
-				})
-			case "critic":
-				_, err = qtx.LinkNodeRunCriticTask(ctx, db.LinkNodeRunCriticTaskParams{
-					ID: freshNodeRun.ID, CriticAgentTaskID: linkedTask.ID,
-					RuntimeID: linkedTask.RuntimeID, RuntimeSelectionReason: runtimeReason,
-				})
-			default:
-				return fmt.Errorf("unknown workflow task phase: %s", phase)
-			}
-			if err != nil {
-				return fmt.Errorf("link %s task: %w", phase, err)
-			}
-			return nil
+		// The node-run carries the effective worker/critic assignment. For the
+		// default (adhoc) workflow these are overridden per-run from the issue's
+		// assignee/creator and the node template's IDs are empty; resolveWorkflowAgent
+		// reads the node, so project the node-run's resolved assignment onto it.
+		// For ordinary workflows the node-run inherits the node's values, so this
+		// is a no-op. Without it, a default-run agent/squad issue dispatches with
+		// "no agent configured for worker phase" (node.WorkerID is the empty
+		// template) and — the error being best-effort — silently sits at format_ok.
+		if freshNodeRun.WorkerType != "" {
+			node.WorkerType = freshNodeRun.WorkerType
 		}
-		if dispatchJobID.Valid {
-			existingTask, getErr := qtx.GetAgentTaskByWorkflowDispatchJob(ctx, dispatchJobID)
-			if getErr == nil {
-				task = existingTask
-				selection = workflowRuntimeSelection{RuntimeID: task.RuntimeID}
-				return linkTask(task, selection.Reason)
-			}
-			if !errors.Is(getErr, pgx.ErrNoRows) {
-				return fmt.Errorf("get existing workflow dispatch task: %w", getErr)
-			}
+		if freshNodeRun.WorkerID.Valid {
+			node.WorkerID = freshNodeRun.WorkerID
 		}
-		agent, err := s.resolveWorkflowAgent(ctx, qtx, freshNodeRun, phase)
+		if freshNodeRun.CriticType != "" {
+			node.CriticType = freshNodeRun.CriticType
+		}
+		if freshNodeRun.CriticID.Valid {
+			node.CriticID = freshNodeRun.CriticID
+		}
+		agent, err := s.resolveWorkflowAgent(ctx, qtx, node, phase)
 		if err != nil {
 			return err
 		}
@@ -311,11 +296,11 @@ func (s *WorkflowService) dispatchAgentTask(
 
 		contextPayload := map[string]any{
 			"type":                   "workflow",
-			"workflow_id":            util.UUIDToString(run.WorkflowID),
-			"workflow_title":         run.WorkflowTitle,
+			"workflow_id":            util.UUIDToString(workflow.ID),
+			"workflow_title":         workflow.Title,
 			"workflow_run_id":        util.UUIDToString(run.ID),
-			"workflow_node_id":       util.UUIDToString(freshNodeRun.SourceWorkflowNodeID),
-			"node_title":             freshNodeRun.NodeTitle,
+			"workflow_node_id":       util.UUIDToString(node.ID),
+			"node_title":             node.Title,
 			"node_run_id":            util.UUIDToString(freshNodeRun.ID),
 			"phase":                  phase,
 			"worker_can_await_input": phase == "worker",
@@ -330,7 +315,7 @@ func (s *WorkflowService) dispatchAgentTask(
 
 		var issueID pgtype.UUID
 		subIssue, err := qtx.GetIssueByOrigin(ctx, db.GetIssueByOriginParams{
-			WorkspaceID: run.WorkspaceID,
+			WorkspaceID: workflow.WorkspaceID,
 			OriginType:  pgtype.Text{String: "workflow", Valid: true},
 			OriginID:    freshNodeRun.ID,
 		})
@@ -350,19 +335,41 @@ func (s *WorkflowService) dispatchAgentTask(
 		}
 
 		task, err = qtx.CreateWorkflowAgentTask(ctx, db.CreateWorkflowAgentTaskParams{
-			AgentID: agent.ID, RuntimeID: selection.RuntimeID, Priority: 2,
-			Context: contextJSON, WorkflowNodeRunID: freshNodeRun.ID,
-			WorkflowDispatchJobID: dispatchJobID,
-			ChatSessionID:         chatSessionID, IssueID: issueID,
+			AgentID:           agent.ID,
+			RuntimeID:         selection.RuntimeID,
+			Priority:          2,
+			Context:           contextJSON,
+			WorkflowNodeRunID: freshNodeRun.ID,
+			ChatSessionID:     chatSessionID,
+			IssueID:           issueID,
 		})
 		if err != nil {
 			return fmt.Errorf("create workflow agent task: %w", err)
 		}
-		selection.RuntimeID = task.RuntimeID
 
-		return linkTask(task, selection.Reason)
+		reason := pgtype.Text{String: selection.Reason, Valid: true}
+		switch phase {
+		case "worker":
+			_, err = qtx.LinkNodeRunWorkerTask(ctx, db.LinkNodeRunWorkerTaskParams{
+				ID:                     freshNodeRun.ID,
+				WorkerAgentTaskID:      task.ID,
+				RuntimeID:              selection.RuntimeID,
+				RuntimeSelectionReason: reason,
+			})
+		case "critic":
+			_, err = qtx.LinkNodeRunCriticTask(ctx, db.LinkNodeRunCriticTaskParams{
+				ID:                     freshNodeRun.ID,
+				CriticAgentTaskID:      task.ID,
+				RuntimeID:              selection.RuntimeID,
+				RuntimeSelectionReason: reason,
+			})
+		}
+		if err != nil {
+			return fmt.Errorf("link %s task: %w", phase, err)
+		}
+		return nil
 	})
-	if errors.Is(err, ErrWorkflowRuntimeUnavailable) && !dispatchJobID.Valid {
+	if errors.Is(err, ErrWorkflowRuntimeUnavailable) {
 		if failErr := s.failWorkflowForRuntimeUnavailable(ctx, nodeRun); failErr != nil {
 			return nil, fmt.Errorf("%w; fail workflow: %v", err, failErr)
 		}
@@ -378,9 +385,7 @@ func (s *WorkflowService) dispatchAgentTask(
 		"selection_reason", selection.Reason,
 		"active_task_count", selection.ActiveTaskCount,
 	)
-	if s.TaskSvc != nil {
-		s.TaskSvc.NotifyTaskEnqueued(ctx, task)
-	}
+	s.TaskSvc.NotifyTaskEnqueued(ctx, task)
 	return &task, nil
 }
 

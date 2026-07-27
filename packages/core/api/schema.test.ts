@@ -24,41 +24,6 @@ afterEach(() => {
 // app in past incidents. The contract is: a malformed response degrades to
 // an empty/safe shape, never throws into React.
 describe("ApiClient schema fallback", () => {
-  describe("workflow run start", () => {
-    it("parses a successful run response through the workflow schema", async () => {
-      stubFetchJson({ id: 7, workflow_id: "wf-1", workspace_id: "ws-1" });
-      const client = new ApiClient("https://api.example.test");
-      const run = await client.startWorkflowRun("wf-1");
-      expect(run.id).toBe("");
-    });
-
-    it("throws a structured workflow config error", async () => {
-      stubFetchJson({
-        error: "workflow configuration is invalid",
-        code: "workflow_config_invalid",
-        run_id: "run-failed",
-        issues: [{ code: "workflow_empty", detail: "Workflow has no nodes" }],
-      }, 422);
-      const client = new ApiClient("https://api.example.test");
-      try {
-        await client.startWorkflowRun("wf-1");
-        expect.unreachable("expected workflow start to fail");
-      } catch (error) {
-        expect(error).toMatchObject({
-          name: "WorkflowConfigInvalidError",
-          runId: "run-failed",
-          issues: [{ code: "workflow_empty", detail: "Workflow has no nodes" }],
-        });
-      }
-    });
-
-    it("uses a generic message for a malformed workflow config error", async () => {
-      stubFetchJson({ code: "workflow_config_invalid", issues: null }, 422);
-      const client = new ApiClient("https://api.example.test");
-      await expect(client.startWorkflowRun("wf-1")).rejects.toThrow("无法启动工作流，请检查配置。");
-    });
-  });
-
   describe("listTimeline", () => {
     it("falls back to an empty array when the body is null", async () => {
       stubFetchJson(null);

@@ -20,13 +20,6 @@ import type {
   PatchSplitDraftTaskRequest,
   RetrySplitTaskRequest,
   WorkflowRuntimeSelectionPolicy,
-  WorkflowRun,
-  WorkflowNodeRun,
-  WorkflowNode,
-  WorkflowEdge,
-  WorkflowStage,
-  WorkerType,
-  CriticType,
 } from "../types";
 import { chatKeys } from "../chat/queries";
 
@@ -112,92 +105,6 @@ export function workflowRunOptions(wsId: string, workflowId: string, runId: stri
     queryKey: workflowKeys.run(wsId, workflowId, runId),
     queryFn: () => api.getWorkflowRun(workflowId, runId),
   });
-}
-
-function snapshotWorkerType(value: string): WorkerType {
-  return value === "agent" || value === "squad" || value === "role" ? value : "human";
-}
-
-function snapshotCriticType(value: string): CriticType {
-  return value === "agent" || value === "squad" || value === "api" || value === "role" ? value : "human";
-}
-
-export function workflowRunCanvasDefinition(
-  run: WorkflowRun,
-  nodeRuns: WorkflowNodeRun[],
-  genericNodeTitle: string,
-): { nodes: WorkflowNode[]; edges: WorkflowEdge[]; stages: WorkflowStage[] } {
-  const snapshot = run.definition_snapshot;
-  if (!snapshot) {
-    return {
-      nodes: nodeRuns.map((nodeRun, index) => ({
-        id: nodeRun.source_workflow_node_id ?? nodeRun.workflow_node_id,
-        workflow_id: run.workflow_id,
-        title: nodeRun.node_title || genericNodeTitle,
-        description: nodeRun.node_description ?? "",
-        position_x: index * 240,
-        position_y: 0,
-        format_schema: nodeRun.format_schema ?? null,
-        worker_type: nodeRun.worker_type,
-        worker_id: nodeRun.worker_id,
-        critic_type: nodeRun.critic_type,
-        critic_id: nodeRun.critic_id,
-        critic_api_url: nodeRun.critic_api_url ?? null,
-        sort_order: index,
-        stage_id: null,
-        created_at: nodeRun.created_at,
-        updated_at: nodeRun.updated_at,
-      })),
-      edges: [],
-      stages: [],
-    };
-  }
-
-  return {
-    nodes: snapshot.nodes.map((node) => {
-      const format = node.format_schema && typeof node.format_schema === "object" && !Array.isArray(node.format_schema)
-        ? { ...(node.format_schema as Record<string, unknown>) }
-        : {};
-      if (node.kind !== "task") format.type = node.kind;
-      if (node.gateway_kind) format.gateway_kind = node.gateway_kind;
-      if (node.split_config) format.split_config = node.split_config;
-      return {
-        id: node.id,
-        workflow_id: snapshot.workflow.id,
-        title: node.title,
-        description: node.description,
-        position_x: node.position_x,
-        position_y: node.position_y,
-        format_schema: Object.keys(format).length > 0 ? format : null,
-        worker_type: snapshotWorkerType(node.worker_type),
-        worker_id: node.worker_id ?? null,
-        worker_role_id: node.worker_role_id ?? null,
-        critic_type: snapshotCriticType(node.critic_type),
-        critic_id: node.critic_id ?? null,
-        critic_role_id: node.critic_role_id ?? null,
-        critic_api_url: node.critic_api_url ?? null,
-        sort_order: node.sort_order,
-        stage_id: node.stage_id ?? null,
-        created_at: "",
-        updated_at: "",
-      } satisfies WorkflowNode;
-    }),
-    edges: snapshot.edges.map((edge) => ({
-      id: edge.id,
-      workflow_id: snapshot.workflow.id,
-      source_node_id: edge.source_node_id,
-      target_node_id: edge.target_node_id,
-      condition: edge.condition ?? null,
-      created_at: edge.created_at ?? "",
-    })),
-    stages: snapshot.stages.map((stage) => ({
-      ...stage,
-      workflow_id: snapshot.workflow.id,
-      node_count: snapshot.nodes.filter((node) => node.stage_id === stage.id).length,
-      created_at: "",
-      updated_at: "",
-    })),
-  };
 }
 
 export function workflowNodeRunsOptions(wsId: string, workflowId: string, runId: string) {
