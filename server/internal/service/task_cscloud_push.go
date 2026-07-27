@@ -398,9 +398,9 @@ func (s *TaskService) resolveCodeRepoAndProject(ctx context.Context, task db.Mul
 // (gitea_clone_url + last_instance_branch + gitea_pat), written by the
 // team-namespace interface-8 InitWorkflow path, and assembles a csCloudRepoSpec
 // with role="delivery" + alias="delivery". Returns ok=false when the workspace
-// lacks Gitea data (no clone URL or inst branch) — the caller then skips
-// appending the delivery repo. Mirrors the settings-reading pattern of
-// resolveCodeRepoAndProject / repositoryDeliverableEnv.
+// lacks a complete bundle (any of the three fields missing/empty); completeness
+// is judged by giteaProvisioningBundle.complete, shared with settingsLackGiteaData
+// so the two helpers can never disagree on "Gitea data present".
 //
 // The agent authenticates via the MULTICA_REPO_TOKEN env (already injected by
 // repositoryDeliverableEnv from the same settings), so the URL stays plain
@@ -416,26 +416,20 @@ func (s *TaskService) resolveDeliveryRepo(ctx context.Context, workspaceID pgtyp
 	if len(ws.Settings) == 0 {
 		return csCloudRepoSpec{}, false
 	}
-	var settings struct {
-		GiteaCloneURL string `json:"gitea_clone_url"`
-		InstBranch    string `json:"last_instance_branch"`
-		GiteaPAT      string `json:"gitea_pat"`
-	}
-	if err := json.Unmarshal(ws.Settings, &settings); err != nil {
+	var bundle giteaProvisioningBundle
+	if err := json.Unmarshal(ws.Settings, &bundle); err != nil {
 		return csCloudRepoSpec{}, false
 	}
-	cloneURL := strings.TrimSpace(settings.GiteaCloneURL)
-	instBranch := strings.TrimSpace(settings.InstBranch)
-	if cloneURL == "" || instBranch == "" {
+	if !bundle.complete() {
 		return csCloudRepoSpec{}, false
 	}
 	return csCloudRepoSpec{
-		URL:        cloneURL,
+		URL:        strings.TrimSpace(bundle.GiteaCloneURL),
 		Provider:   "gitea",
 		Role:       "delivery",
-		BaseBranch: instBranch,
+		BaseBranch: strings.TrimSpace(bundle.InstBranch),
 		Alias:      "delivery",
-		BotToken:   strings.TrimSpace(settings.GiteaPAT),
+		BotToken:   strings.TrimSpace(bundle.GiteaPAT),
 	}, true
 }
 
@@ -960,10 +954,36 @@ func hasDocumentDeliverableSpec(deliverables []csCloudDeliverableSpec) bool {
 	return false
 }
 
+// giteaProvisioningBundle is the subset of workspace.settings written by
+// initWorkflowNamespace (interface-8): the wf repo clone URL, the run's inst
+// branch, and the bot PAT. All three fields are written atomically, so in
+// practice they're all-present or all-absent; the complete() method below is
+// the single source of truth for "Gitea data present" shared by the dispatch
+// safety net (settingsLackGiteaData) and the delivery-repo resolver
+// (resolveDeliveryRepo). Keeping the two helpers aligned avoids a partial-state
+// gap where the safety net skips but resolveDeliveryRepo returns false (or vice
+// versa) and the agent silently loses the repos[] role=delivery entry.
+type giteaProvisioningBundle struct {
+	GiteaCloneURL string `json:"gitea_clone_url"`
+	InstBranch    string `json:"last_instance_branch"`
+	GiteaPAT      string `json:"gitea_pat"`
+}
+
+// complete reports whether the bundle carries all three fields needed to act.
+// A delivery repo without a PAT is useless — the agent authenticates via
+// MULTICA_REPO_TOKEN=pat — so PAT presence is required even though the spec's
+// URL/BaseBranch/Alias don't directly carry it.
+func (b giteaProvisioningBundle) complete() bool {
+	return strings.TrimSpace(b.GiteaCloneURL) != "" &&
+		strings.TrimSpace(b.GiteaPAT) != "" &&
+		strings.TrimSpace(b.InstBranch) != ""
+}
+
 // settingsLackGiteaData reports whether workspace.settings are missing the
 // Gitea provisioning bundle. Returns true (fire safety net) on any read/parse
-// error or when either gitea_clone_url or gitea_pat is absent/empty — partial
-// state also triggers re-provisioning (initWorkflowNamespace is idempotent).
+// error or when the bundle is incomplete — partial state also triggers
+// re-provisioning (initWorkflowNamespace is idempotent). Completeness is
+// judged by giteaProvisioningBundle.complete, shared with resolveDeliveryRepo.
 func (s *TaskService) settingsLackGiteaData(ctx context.Context, workspaceID pgtype.UUID) bool {
 	ws, err := s.Queries.GetWorkspace(ctx, workspaceID)
 	if err != nil {
@@ -972,14 +992,11 @@ func (s *TaskService) settingsLackGiteaData(ctx context.Context, workspaceID pgt
 	if len(ws.Settings) == 0 {
 		return true
 	}
-	var settings struct {
-		GiteaCloneURL string `json:"gitea_clone_url"`
-		GiteaPAT      string `json:"gitea_pat"`
-	}
-	if err := json.Unmarshal(ws.Settings, &settings); err != nil {
+	var bundle giteaProvisioningBundle
+	if err := json.Unmarshal(ws.Settings, &bundle); err != nil {
 		return true
 	}
-	return strings.TrimSpace(settings.GiteaCloneURL) == "" || strings.TrimSpace(settings.GiteaPAT) == ""
+	return !bundle.complete()
 }
 
 // ensureDeliveryRepo walks task → node run → run → workflow and fires the

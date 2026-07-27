@@ -1350,6 +1350,7 @@ func newEnsureRepoTestDB() *ensureRepoTestDB {
 	workflowID := testUUID(8)
 	nodeID := testUUID(9)
 	deliverableID := testUUID(10)
+	prDeliverableID := testUUID(12)
 	return &ensureRepoTestDB{
 		runtime: db.MulticaAgentRuntime{
 			ID:          runtimeID,
@@ -1390,6 +1391,12 @@ func newEnsureRepoTestDB() *ensureRepoTestDB {
 				WorkflowNodeID: nodeID,
 				Kind:           "document",
 				Title:          "Design doc",
+			},
+			{
+				ID:             prDeliverableID,
+				WorkflowNodeID: nodeID,
+				Kind:           "pull_request",
+				Title:          "Backend code MR",
 			},
 		},
 		members: []db.ListMembersWithUserRow{
@@ -1533,8 +1540,10 @@ func TestBuildCSCloudPayload_DocDeliverableSafetyNet_SkipsWhenSettingsHaveGiteaD
 	})
 
 	mdb := newEnsureRepoTestDB()
-	// Settings already carry Gitea provisioning data → safety net must skip.
-	mdb.workspace.Settings = []byte(`{"gitea_clone_url":"https://gitea.test/t-ws/wf-x.git","gitea_pat":"pat-existing"}`)
+	// Settings already carry the full Gitea provisioning bundle → safety net must skip.
+	// (All three of gitea_clone_url + gitea_pat + last_instance_branch are required by
+	// giteaProvisioningBundle.complete; seeding a partial bundle would fire the safety net.)
+	mdb.workspace.Settings = []byte(`{"gitea_clone_url":"https://gitea.test/t-ws/wf-x.git","gitea_pat":"pat-existing","last_instance_branch":"inst-x"}`)
 
 	svc := &TaskService{
 		Queries:       db.New(mdb),
@@ -1648,8 +1657,8 @@ func TestBuildCSCloudPayload_DeliveryRepoAndAlias_WhenSettingsHaveGiteaData(t *t
 	}
 
 	// (2) document deliverable is tagged with repo_alias="delivery";
-	//     pull_request deliverable (if any) keeps repo_alias empty.
-	var docCount int
+	//     pull_request deliverable keeps repo_alias empty (targets a code repo).
+	var docCount, prCount int
 	for i := range payload.Deliverables {
 		d := &payload.Deliverables[i]
 		switch d.Kind {
@@ -1659,6 +1668,7 @@ func TestBuildCSCloudPayload_DeliveryRepoAndAlias_WhenSettingsHaveGiteaData(t *t
 				t.Errorf("document deliverable RepoAlias = %q, want delivery", d.RepoAlias)
 			}
 		case "pull_request":
+			prCount++
 			if d.RepoAlias != "" {
 				t.Errorf("pull_request deliverable RepoAlias = %q, want empty", d.RepoAlias)
 			}
@@ -1666,6 +1676,9 @@ func TestBuildCSCloudPayload_DeliveryRepoAndAlias_WhenSettingsHaveGiteaData(t *t
 	}
 	if docCount == 0 {
 		t.Fatalf("expected at least one document deliverable; got %+v", payload.Deliverables)
+	}
+	if prCount == 0 {
+		t.Fatalf("expected at least one pull_request deliverable; got %+v", payload.Deliverables)
 	}
 }
 
@@ -1683,9 +1696,11 @@ func TestBuildCSCloudPayload_NoDeliveryRepo_WhenSettingsLackGiteaData(t *testing
 	// Settings default to "{}" (no Gitea data). The Task-2 safety net may fire
 	// here, but this in-memory mock does not reflect UpdateWorkspace back into
 	// GetWorkspace reads, so resolveDeliveryRepo still sees empty settings and
-	// returns false → no delivery repo in repos[]. This matches production
-	// semantics for "provisioning succeeded but mid-flight": the *next*
-	// dispatch picks up the persisted settings.
+	// returns false → no delivery repo. In production (real DB) a successful
+	// safety net WOULD populate settings in time for the current dispatch's
+	// resolveDeliveryRepo (the reorder made this true); that read-after-write
+	// scenario isn't representable in this mock and is covered by the
+	// safety-net tests above. This test only guards the false-return path.
 
 	svc := &TaskService{
 		Queries:       db.New(mdb),
