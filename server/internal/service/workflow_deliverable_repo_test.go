@@ -617,6 +617,27 @@ func fakeGiteaMergeServer(t *testing.T, mergeStatus int) (srv *httptest.Server, 
 	return srv, &calls
 }
 
+// fakeGitlabMergeServer stands up an httptest.Server emulating the GitLab MR
+// merge endpoint. A PUT ending in /merge records a call and returns mergeStatus;
+// any other request gets a permissive 200. Returns the merge-call counter.
+func fakeGitlabMergeServer(t *testing.T, mergeStatus int) (srv *httptest.Server, mergeCalls *int) {
+	t.Helper()
+	var mu sync.Mutex
+	calls := 0
+	srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		defer mu.Unlock()
+		if r.Method == http.MethodPut && strings.HasSuffix(r.URL.Path, "/merge") {
+			calls++
+			w.WriteHeader(mergeStatus)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	t.Cleanup(srv.Close)
+	return srv, &calls
+}
+
 // seedNodeRunForReview inserts a workflow_node_run in critic_reviewing for the
 // given run+node, plus a document deliverable submission carrying prURL with the
 // given status. Returns the new node_run ID. Cleanup rides the fixture's
@@ -932,6 +953,78 @@ func TestReviewNodeRun_MergesDocumentDeliverablePRs(t *testing.T) {
 	}
 	if *mergeCalls != 1 {
 		t.Fatalf("merge calls = %d, want exactly 1", *mergeCalls)
+	}
+}
+
+// TestReviewNodeRun_MergesGitLabMR verifies the M4 GitLab path: a code-only
+// workspace (Gitea nil) with a pull_request deliverable whose submission points
+// at a GitLab MR. Approve → the MR is merged via the workspace's
+// gitlab_access_token (PUT .../merge_requests/{iid}/merge), the node completes,
+// and the submission is marked approved.
+func TestReviewNodeRun_MergesGitLabMR(t *testing.T) {
+	pool := openTestPool(t)
+	defer pool.Close()
+	ctx := context.Background()
+
+	fix := seedGiteaFixture(t, pool, false /*no document deliverable*/, 1)
+
+	// Seed a code (pull_request) deliverable on the node.
+	var deliverableID string
+	if err := pool.QueryRow(ctx, `
+		INSERT INTO multica_workflow_node_deliverable (workflow_node_id, kind, title, required, sort_order)
+		VALUES ($1, 'pull_request', 'Code MR', TRUE, 0)
+		RETURNING id
+	`, util.UUIDToString(fix.node)).Scan(&deliverableID); err != nil {
+		t.Fatalf("seed pull_request deliverable: %v", err)
+	}
+	// Configure the workspace's GitLab PAT (read by gitlabAccessToken).
+	if _, err := pool.Exec(ctx, `
+		UPDATE multica_workspace
+		SET settings = jsonb_set(coalesce(settings, '{}'::jsonb), '{gitlab_access_token}', '"gl-tok-123"')
+		WHERE id = $1
+	`, util.UUIDToString(fix.workspace)); err != nil {
+		t.Fatalf("set gitlab token: %v", err)
+	}
+
+	glSrv, mergeCalls := fakeGitlabMergeServer(t, http.StatusOK)
+	svc := &WorkflowService{
+		Queries:   db.New(pool),
+		TxStarter: pool,
+		Bus:       events.New(),
+		Gitea:     nil, // code-only workspace — Gitea dormant
+	}
+
+	// Seed a critic_reviewing node_run + a submission carrying a GitLab MR URL.
+	var nodeRunID string
+	if err := pool.QueryRow(ctx, `
+		INSERT INTO multica_workflow_node_run (workflow_run_id, workflow_node_id, node_title, status, worker_type, critic_type)
+		VALUES ($1, $2, 'Code Node', 'critic_reviewing', 'agent', 'human')
+		RETURNING id
+	`, util.UUIDToString(fix.run1), util.UUIDToString(fix.node)).Scan(&nodeRunID); err != nil {
+		t.Fatalf("seed node run: %v", err)
+	}
+	mrURL := glSrv.URL + "/root/repo/-/merge_requests/7"
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO multica_workflow_node_deliverable_submission (
+			workflow_node_run_id, deliverable_id, submitted_by_type, status, content, pull_request_url
+		)
+		VALUES ($1, $2, 'system', 'submitted', 'code body', $3)
+	`, nodeRunID, deliverableID, mrURL); err != nil {
+		t.Fatalf("seed submission: %v", err)
+	}
+	nrID, _ := util.ParseUUID(nodeRunID)
+
+	if err := svc.ReviewNodeRun(ctx, nrID, true /*approved*/, "lgtm", nil); err != nil {
+		t.Fatalf("ReviewNodeRun: %v", err)
+	}
+	if got := nodeRunStatus(t, pool, nrID); got != NodeRunStatusCompleted {
+		t.Fatalf("node run status = %q, want %q", got, NodeRunStatusCompleted)
+	}
+	if got := submissionStatus(t, pool, nrID); got != "approved" {
+		t.Fatalf("submission status = %q, want %q", got, "approved")
+	}
+	if *mergeCalls != 1 {
+		t.Fatalf("gitlab merge calls = %d, want exactly 1", *mergeCalls)
 	}
 }
 

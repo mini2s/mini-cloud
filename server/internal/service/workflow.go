@@ -1485,22 +1485,21 @@ func (s *WorkflowService) ReviewNodeRun(ctx context.Context, nodeRunID pgtype.UU
 		s.ArchiveReviewComment(context.Background(), nodeRun, decision, comment)
 	}
 
-	// Approve path: the tx persisted critic_approved. Merge document PRs
-	// (external, only when Gitea is configured) THEN complete — or block on
-	// merge failure. UpdateWorkflowNodeRunStatus is called DIRECTLY (not
+	// Approve path: the tx persisted critic_approved. Merge deliverable review
+	// requests (Gitea document PRs and/or GitLab code MRs — each platform is
+	// dormant when its credential is absent) THEN complete — or block on merge
+	// failure. UpdateWorkflowNodeRunStatus is called DIRECTLY (not
 	// TransitionNodeRun) so OnNodeStatusChanged fires exactly once, from the
 	// completed/blocked blocks below. The reject/rework path (FormatOk) is
 	// untouched and skips this block entirely.
 	if approved && nodeRun.Status == NodeRunStatusCriticApproved {
 		finalStatus := NodeRunStatusCompleted
-		if s.Gitea != nil && s.Gitea.Configured() {
-			if err := s.mergeDeliverablePRs(ctx, nodeRun); err != nil {
-				slog.Error("gitea merge deliverable PRs failed; blocking node run",
-					"node_run_id", util.UUIDToString(nodeRun.ID), "error", err)
-				finalStatus = NodeRunStatusBlocked
-			} else {
-				s.markDeliverableSubmissionsApproved(ctx, nodeRun)
-			}
+		if err := s.mergeDeliverablePRs(ctx, nodeRun); err != nil {
+			slog.Error("merge deliverable review requests failed; blocking node run",
+				"node_run_id", util.UUIDToString(nodeRun.ID), "error", err)
+			finalStatus = NodeRunStatusBlocked
+		} else {
+			s.markDeliverableSubmissionsApproved(ctx, nodeRun)
 		}
 		updated, err := s.Queries.UpdateWorkflowNodeRunStatus(ctx, db.UpdateWorkflowNodeRunStatusParams{
 			ID: nodeRun.ID, Status: finalStatus,
