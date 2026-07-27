@@ -128,20 +128,20 @@ func TestGatewayRunForkAndJoinSemantics(t *testing.T) {
 
 	var workspaceID string
 	if err := pool.QueryRow(ctx, `
-		INSERT INTO workspace (name, slug, description, issue_prefix)
+		INSERT INTO multica_workspace (name, slug, description, issue_prefix)
 		VALUES ($1, $2, 'gateway test workspace', 'GTW')
 		RETURNING id
 	`, "Gateway Test Workspace "+suffix, "gateway-test-"+suffix).Scan(&workspaceID); err != nil {
 		t.Fatalf("create workspace: %v", err)
 	}
 	t.Cleanup(func() {
-		_, _ = pool.Exec(ctx, `DELETE FROM workflow WHERE workspace_id = $1`, workspaceID)
-		_, _ = pool.Exec(ctx, `DELETE FROM workspace WHERE id = $1`, workspaceID)
+		_, _ = pool.Exec(ctx, `DELETE FROM multica_workflow WHERE workspace_id = $1`, workspaceID)
+		_, _ = pool.Exec(ctx, `DELETE FROM multica_workspace WHERE id = $1`, workspaceID)
 	})
 
 	var workflowID string
 	if err := pool.QueryRow(ctx, `
-		INSERT INTO workflow (workspace_id, title, description, status, max_retries, created_by_type, created_by_id)
+		INSERT INTO multica_workflow (workspace_id, title, description, status, max_retries, created_by_type, created_by_id)
 		VALUES ($1, 'Gateway Run', 'fork join run', 'active', 3, 'member', gen_random_uuid())
 		RETURNING id
 	`, workspaceID).Scan(&workflowID); err != nil {
@@ -152,7 +152,7 @@ func TestGatewayRunForkAndJoinSemantics(t *testing.T) {
 		t.Helper()
 		var id string
 		if err := pool.QueryRow(ctx, `
-			INSERT INTO workflow_node (
+			INSERT INTO multica_workflow_node (
 				workflow_id, title, description, position_x, position_y,
 				format_schema, worker_type, critic_type, sort_order
 			)
@@ -173,7 +173,7 @@ func TestGatewayRunForkAndJoinSemantics(t *testing.T) {
 	createEdge := func(sourceID string, targetID string) {
 		t.Helper()
 		if _, err := pool.Exec(ctx, `
-			INSERT INTO workflow_edge (workflow_id, source_node_id, target_node_id)
+			INSERT INTO multica_workflow_edge (workflow_id, source_node_id, target_node_id)
 			VALUES ($1, $2, $3)
 		`, workflowID, sourceID, targetID); err != nil {
 			t.Fatalf("create edge %s -> %s: %v", sourceID, targetID, err)
@@ -274,20 +274,20 @@ func TestInvalidGatewayDoesNotDispatchWorker(t *testing.T) {
 
 	var workspaceID string
 	if err := pool.QueryRow(ctx, `
-		INSERT INTO workspace (name, slug, description, issue_prefix)
+		INSERT INTO multica_workspace (name, slug, description, issue_prefix)
 		VALUES ($1, $2, 'invalid gateway test workspace', 'IGW')
 		RETURNING id
 	`, "Invalid Gateway Workspace "+suffix, "invalid-gateway-test-"+suffix).Scan(&workspaceID); err != nil {
 		t.Fatalf("create workspace: %v", err)
 	}
 	t.Cleanup(func() {
-		_, _ = pool.Exec(ctx, `DELETE FROM workflow WHERE workspace_id = $1`, workspaceID)
-		_, _ = pool.Exec(ctx, `DELETE FROM workspace WHERE id = $1`, workspaceID)
+		_, _ = pool.Exec(ctx, `DELETE FROM multica_workflow WHERE workspace_id = $1`, workspaceID)
+		_, _ = pool.Exec(ctx, `DELETE FROM multica_workspace WHERE id = $1`, workspaceID)
 	})
 
 	var workflowID string
 	if err := pool.QueryRow(ctx, `
-		INSERT INTO workflow (workspace_id, title, description, status, max_retries, created_by_type, created_by_id)
+		INSERT INTO multica_workflow (workspace_id, title, description, status, max_retries, created_by_type, created_by_id)
 		VALUES ($1, 'Invalid Gateway Run', 'invalid gateway run', 'active', 3, 'member', gen_random_uuid())
 		RETURNING id
 	`, workspaceID).Scan(&workflowID); err != nil {
@@ -296,7 +296,7 @@ func TestInvalidGatewayDoesNotDispatchWorker(t *testing.T) {
 
 	var nodeID string
 	if err := pool.QueryRow(ctx, `
-		INSERT INTO workflow_node (
+		INSERT INTO multica_workflow_node (
 			workflow_id, title, description, position_x, position_y,
 			format_schema, worker_type, critic_type, sort_order
 		)
