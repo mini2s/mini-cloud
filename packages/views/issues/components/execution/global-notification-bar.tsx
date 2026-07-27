@@ -37,6 +37,7 @@ function displayStatusForRun(
   run: WorkflowNodeRun,
   runtimeSummaryMap?: Map<string, WorkflowNodeRuntimeSummary>,
 ): WorkflowRuntimeDisplayStatus {
+  if (run.status === "failed") return "failed";
   return runtimeSummaryMap?.get(nodeId)?.display_status ?? toWorkflowRuntimeDisplayStatus(run.status);
 }
 
@@ -45,7 +46,7 @@ function isDoneStatus(status: WorkflowRuntimeDisplayStatus): boolean {
 }
 
 function isBlockedStatus(status: WorkflowRuntimeDisplayStatus): boolean {
-  return status === "blocked";
+  return status === "blocked" || status === "failed";
 }
 
 function isReviewingStatus(status: WorkflowRuntimeDisplayStatus): boolean {

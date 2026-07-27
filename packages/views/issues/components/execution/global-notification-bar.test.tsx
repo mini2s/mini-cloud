@@ -3,7 +3,7 @@
 import { render, screen, fireEvent } from "@testing-library/react";
 import { describe, it, expect, vi } from "vitest";
 import { GlobalNotificationBar } from "./global-notification-bar";
-import type { WorkflowNodeRun } from "@multica/core/types";
+import type { WorkflowNodeRun, WorkflowNodeRuntimeSummary } from "@multica/core/types";
 
 // ---------------------------------------------------------------------------
 // i18n mock
@@ -153,6 +153,43 @@ describe("GlobalNotificationBar", () => {
     expect(screen.getByTestId("notification-summary")).toHaveTextContent("Run progress:0/3 done");
     expect(screen.getByTestId("progress-chip-blocked")).toHaveTextContent("2 blocked");
     expect(screen.getByTestId("progress-chip-reviewing")).toHaveTextContent("1 reviewing");
+  });
+
+  it("keeps a failed node in the attention count when its compatibility summary says blocked", () => {
+    const map = new Map<string, WorkflowNodeRun>();
+    map.set("failed", makeNodeRun({
+      id: "nr-1",
+      status: "failed",
+      workflow_node_id: "failed",
+      node_title: "Run CSC",
+    }));
+    const summaries = new Map<string, WorkflowNodeRuntimeSummary>();
+    summaries.set("failed", {
+      workflow_node_id: "failed",
+      node_run_id: "nr-1",
+      display_status: "blocked",
+      active_actor_type: "agent",
+      active_actor_id: "a1",
+      duration_seconds: 10,
+      session_id: null,
+      runtime_id: null,
+      device_id: null,
+      has_error: true,
+      error_message: "Max turns reached",
+      split_progress: null,
+    });
+
+    render(
+      <GlobalNotificationBar
+        nodeRunMap={map}
+        runtimeSummaryMap={summaries}
+        onScrollToNode={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByTestId("progress-chip-blocked")).toHaveTextContent("1 blocked");
+    expect(screen.getByTestId("notification-summary")).toHaveTextContent("Current: Run CSC");
+    expect(screen.getByTestId("run-progress-counts")).toHaveTextContent("0 waiting");
   });
 
   it("shows counts, current node, and elapsed fallback in the progress summary", () => {

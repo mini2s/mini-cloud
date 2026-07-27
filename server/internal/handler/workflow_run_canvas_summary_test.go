@@ -55,6 +55,7 @@ func TestGetWorkflowRunCanvasSummaryAggregatesRuntimeState(t *testing.T) {
 	reviewingNodeID := createNode("Reviewing node", 1)
 	blockedNodeID := createNode("Blocked node with error", 2)
 	splitNodeID := createNode("Split tasks active", 3)
+	failedNodeID := createNode("Failed CSC node", 4)
 
 	var runID string
 	if err := testPool.QueryRow(ctx, `
@@ -91,9 +92,33 @@ func TestGetWorkflowRunCanvasSummaryAggregatesRuntimeState(t *testing.T) {
 	reviewingRunID := createNodeRun(reviewingNodeID, "Reviewing node", "awaiting_critic", `{}`)
 	blockedRunID := createNodeRun(blockedNodeID, "Blocked node with error", "blocked", `{"error":"tool failed"}`)
 	splitRunID := createNodeRun(splitNodeID, "Split tasks active", "split_active", `{}`)
+	failedRunID := createNodeRun(failedNodeID, "Failed CSC node", "failed", `{}`)
 	_ = completedRunID
 	_ = reviewingRunID
 	_ = blockedRunID
+
+	var failedTaskID string
+	if err := testPool.QueryRow(ctx, `
+		INSERT INTO multica_agent_task_queue (
+			agent_id, runtime_id, status, priority, workflow_node_run_id,
+			error, failure_reason, context, started_at, completed_at
+		)
+		VALUES (
+			$1, $2, 'failed', 2, $3,
+			'Max turns reached', 'agent_error', '{"phase":"worker"}'::jsonb,
+			now() - interval '1 minute', now()
+		)
+		RETURNING id
+	`, agentID, testRuntimeID, failedRunID).Scan(&failedTaskID); err != nil {
+		t.Fatalf("create failed CSC task: %v", err)
+	}
+	if _, err := testPool.Exec(ctx, `
+		UPDATE multica_workflow_node_run
+		SET worker_agent_task_id = $2
+		WHERE id = $1
+	`, failedRunID, failedTaskID); err != nil {
+		t.Fatalf("link failed CSC task: %v", err)
+	}
 
 	if _, err := testPool.Exec(ctx, `
 		INSERT INTO multica_workflow_split_task (
@@ -150,8 +175,8 @@ func TestGetWorkflowRunCanvasSummaryAggregatesRuntimeState(t *testing.T) {
 	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("decode response: %v", err)
 	}
-	if len(resp.NodeRuntimeSummaries) != 4 {
-		t.Fatalf("expected 4 summaries, got %d", len(resp.NodeRuntimeSummaries))
+	if len(resp.NodeRuntimeSummaries) != 5 {
+		t.Fatalf("expected 5 summaries, got %d", len(resp.NodeRuntimeSummaries))
 	}
 
 	byNodeID := map[string]struct {
@@ -220,6 +245,14 @@ func TestGetWorkflowRunCanvasSummaryAggregatesRuntimeState(t *testing.T) {
 	}
 	if blocked.SessionID == nil || *blocked.SessionID != "session-a" || blocked.RuntimeID == nil || *blocked.RuntimeID != testRuntimeID || blocked.DeviceID == nil || *blocked.DeviceID != "device-a" {
 		t.Fatalf("expected runtime/session fields, got %+v", blocked)
+	}
+
+	failed := byNodeID[failedNodeID]
+	if failed.DisplayStatus != "blocked" {
+		t.Fatalf("failed node summary compatibility status mismatch: %+v", failed)
+	}
+	if !failed.HasError || failed.ErrorMessage != "Max turns reached" {
+		t.Fatalf("expected failed node error from linked task, got %+v", failed)
 	}
 
 	split := byNodeID[splitNodeID]

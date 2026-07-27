@@ -584,6 +584,7 @@
       "in_progress": "In progress",
       "reviewing": "Reviewing",
       "completed": "Completed",
+      "failed": "Failed",
       "blocked": "Blocked",
       "cancelled": "Cancelled",
       "dispatched": "Dispatched",
