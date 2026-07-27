@@ -233,3 +233,49 @@ func TestSubmitNodeRunDeliverable_ArchivesCodeMRPointer(t *testing.T) {
 		t.Errorf("UpsertFile content missing MR URL %q; content=%q", mrURL, got.Content)
 	}
 }
+
+// TestSubmitNodeRunDeliverable_DoesNotArchiveDocumentPR is the defense-in-depth
+// counterpart to TestSubmitNodeRunDeliverable_ArchivesCodeMRPointer: even if an
+// off-spec caller posts a DOCUMENT deliverable's PR URL to /submit (document
+// deliverables are supposed to go through /report-pr), the kind guard must keep
+// ArchiveCodeDeliverable from firing. No code/<id>.md pointer should be written
+// for a document-kind deliverable. The submission itself still succeeds (200).
+func TestSubmitNodeRunDeliverable_DoesNotArchiveDocumentPR(t *testing.T) {
+	if testHandler == nil {
+		t.Skip("database not available")
+	}
+	originalSvc := testHandler.WorkflowService
+	spy := newHandlerSpyRepoProvider()
+	testHandler.WorkflowService = &service.WorkflowService{
+		Queries:            originalSvc.Queries,
+		RepositoryProvider: spy,
+	}
+	t.Cleanup(func() { testHandler.WorkflowService = originalSvc })
+
+	ctx := context.Background()
+	// seedDeliverableAndNodeRunIn creates a DOCUMENT-kind deliverable (docID).
+	nodeRunID, docID := seedDeliverableAndNodeRunIn(t, testWorkspaceID, testUserID)
+	t.Cleanup(func() {
+		testPool.Exec(ctx, `DELETE FROM multica_workflow_node_deliverable_submission WHERE workflow_node_run_id = $1`, nodeRunID)
+	})
+
+	const prURL = "https://gitea.example.com/t-aaa/wf-bbb/pulls/9"
+	req := newRequest(http.MethodPost, "/api/node-runs/"+nodeRunID+"/deliverables/"+docID+"/submit",
+		map[string]any{"pull_request_url": prURL})
+	req = withURLParams(req, "nodeRunId", nodeRunID, "deliverableId", docID)
+	rec := httptest.NewRecorder()
+	testHandler.SubmitNodeRunDeliverable(rec, req)
+
+	// Submission succeeds — the kind guard only suppresses the archive.
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200. body=%s", rec.Code, rec.Body.String())
+	}
+
+	// Give the would-be async archive a brief window to (incorrectly) fire, then
+	// assert it never did. A passing test proves the negative; the timeout is the
+	// upper bound on how long we'll wait before declaring the archive suppressed.
+	calls := spy.waitForCall(t, 1, 500*time.Millisecond)
+	if len(calls) != 0 {
+		t.Fatalf("expected NO archive call for document-kind deliverable, got %d: %+v", len(calls), calls)
+	}
+}

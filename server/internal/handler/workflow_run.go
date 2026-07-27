@@ -1169,14 +1169,17 @@ func (h *Handler) SubmitNodeRunDeliverable(w http.ResponseWriter, r *http.Reques
 	}
 
 	// M5: archive the code MR pointer into the run's Gitea repo (best-effort,
-	// async — never blocks the submission response). Document deliverables go via
-	// git PR and don't enter this archive path; only a pull_request submission
-	// carries a worker's MR URL worth archiving.
+	// async — never blocks the submission response). Only pull_request-kind
+	// deliverables carry a worker's MR URL worth archiving — document
+	// deliverables go via git PR on /report-pr and don't enter this archive path.
+	// The kind guard is defense-in-depth at this API boundary: an off-spec caller
+	// posting a document deliverable's PR URL to /submit must NOT write a stray
+	// code/<id>.md pointer.
 	if req.PullRequestURL != "" && h.WorkflowService != nil {
 		if nr, err := h.Queries.GetWorkflowNodeRun(r.Context(), nrUUID); err == nil {
 			if deliverables, err := h.Queries.ListWorkflowNodeDeliverables(r.Context(), nr.WorkflowNodeID); err == nil {
 				for _, d := range deliverables {
-					if d.ID == dUUID {
+					if d.ID == dUUID && d.Kind == "pull_request" {
 						d := d // capture for the goroutine
 						go h.WorkflowService.ArchiveCodeDeliverable(
 							context.Background(), nr, d, req.PullRequestURL, "", "", "")
