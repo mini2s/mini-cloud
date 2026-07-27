@@ -71,6 +71,11 @@ RETURNING *;
 -- name: DeleteWorkflow :exec
 DELETE FROM multica_workflow WHERE id = $1;
 
+-- name: WorkflowHasRuns :one
+SELECT EXISTS (
+    SELECT 1 FROM multica_workflow_run WHERE workflow_id = $1
+);
+
 -- =====================
 -- Workflow Node CRUD
 -- =====================
@@ -141,6 +146,15 @@ RETURNING *;
 
 -- name: DeleteWorkflowNode :exec
 DELETE FROM multica_workflow_node WHERE id = $1;
+
+-- name: WorkflowNodeHasActiveRunReferences :one
+SELECT EXISTS (
+    SELECT 1
+    FROM multica_workflow_node_run node_run
+    JOIN multica_workflow_run run ON run.id = node_run.workflow_run_id
+    WHERE node_run.source_workflow_node_id = $1
+      AND run.status NOT IN ('completed', 'failed', 'cancelled')
+);
 
 -- name: DeleteWorkflowNodesByWorkflow :exec
 DELETE FROM multica_workflow_node WHERE workflow_id = $1;

@@ -43,6 +43,16 @@ RETURNING *;
 -- name: DeleteWorkflowNodeDeliverable :exec
 DELETE FROM multica_workflow_node_deliverable WHERE id = $1;
 
+-- name: WorkflowDeliverableHasActiveRunReferences :one
+SELECT EXISTS (
+    SELECT 1
+    FROM multica_workflow_node_run_deliverable requirement
+    JOIN multica_workflow_node_run node_run ON node_run.id = requirement.workflow_node_run_id
+    JOIN multica_workflow_run run ON run.id = node_run.workflow_run_id
+    WHERE requirement.source_deliverable_id = $1
+      AND run.status NOT IN ('completed', 'failed', 'cancelled')
+);
+
 -- =====================
 -- Deliverable Submission Queries
 -- =====================

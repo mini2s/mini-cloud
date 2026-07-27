@@ -686,7 +686,11 @@ func (h *Handler) DeleteWorkflow(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	if err := h.Queries.DeleteWorkflow(r.Context(), wf.ID); err != nil {
+	if err := h.WorkflowService.DeleteWorkflowDefinition(r.Context(), wf.ID); err != nil {
+		if errors.Is(err, service.ErrWorkflowHasRuns) {
+			writeCodeError(w, http.StatusConflict, "workflow_has_runs", "workflow has run history and cannot be deleted")
+			return
+		}
 		writeError(w, http.StatusInternalServerError, "failed to delete workflow")
 		return
 	}
@@ -1041,11 +1045,22 @@ func (h *Handler) DeleteWorkflowNode(w http.ResponseWriter, r *http.Request) {
 			if _, err := qtx.GetWorkflowNodeInWorkflow(r.Context(), db.GetWorkflowNodeInWorkflowParams{ID: nID, WorkflowID: wf.ID}); err != nil {
 				return err
 			}
+			inUse, err := qtx.WorkflowNodeHasActiveRunReferences(r.Context(), nID)
+			if err != nil {
+				return err
+			}
+			if inUse {
+				return service.ErrWorkflowDefinitionInUse
+			}
 			return qtx.DeleteWorkflowNode(r.Context(), nID)
 		},
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		writeError(w, http.StatusNotFound, "node not found in this workflow")
+		return
+	}
+	if errors.Is(err, service.ErrWorkflowDefinitionInUse) {
+		writeCodeError(w, http.StatusConflict, "workflow_definition_in_use", "workflow definition is used by an active run")
 		return
 	}
 	if err != nil {
@@ -1337,11 +1352,22 @@ func (h *Handler) DeleteWorkflowNodeDeliverable(w http.ResponseWriter, r *http.R
 			if _, err := qtx.GetWorkflowNodeDeliverableInWorkflow(r.Context(), db.GetWorkflowNodeDeliverableInWorkflowParams{ID: dID, WorkflowNodeID: node.ID, WorkflowID: wf.ID}); err != nil {
 				return err
 			}
+			inUse, err := qtx.WorkflowDeliverableHasActiveRunReferences(r.Context(), dID)
+			if err != nil {
+				return err
+			}
+			if inUse {
+				return service.ErrWorkflowDefinitionInUse
+			}
 			return qtx.DeleteWorkflowNodeDeliverable(r.Context(), dID)
 		},
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		writeError(w, http.StatusNotFound, "deliverable not found")
+		return
+	}
+	if errors.Is(err, service.ErrWorkflowDefinitionInUse) {
+		writeCodeError(w, http.StatusConflict, "workflow_definition_in_use", "workflow definition is used by an active run")
 		return
 	}
 	if err != nil {

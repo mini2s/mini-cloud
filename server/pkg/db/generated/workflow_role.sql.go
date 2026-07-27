@@ -264,3 +264,23 @@ func (q *Queries) UpdateWorkflowRole(ctx context.Context, arg UpdateWorkflowRole
 	)
 	return i, err
 }
+
+const workflowRoleHasActiveRunReferences = `-- name: WorkflowRoleHasActiveRunReferences :one
+SELECT EXISTS (
+    SELECT 1
+    FROM multica_workflow_node_run node_run
+    JOIN multica_workflow_run run ON run.id = node_run.workflow_run_id
+    WHERE run.status NOT IN ('completed', 'failed', 'cancelled')
+      AND (
+        node_run.worker_role_snapshot ->> 'id' = $1::uuid::text
+        OR node_run.critic_role_snapshot ->> 'id' = $1::uuid::text
+      )
+)
+`
+
+func (q *Queries) WorkflowRoleHasActiveRunReferences(ctx context.Context, dollar_1 pgtype.UUID) (bool, error) {
+	row := q.db.QueryRow(ctx, workflowRoleHasActiveRunReferences, dollar_1)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
+}

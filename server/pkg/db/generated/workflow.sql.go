@@ -2088,3 +2088,33 @@ func (q *Queries) UpdateWorkflowStage(ctx context.Context, arg UpdateWorkflowSta
 	)
 	return i, err
 }
+
+const workflowHasRuns = `-- name: WorkflowHasRuns :one
+SELECT EXISTS (
+    SELECT 1 FROM multica_workflow_run WHERE workflow_id = $1
+)
+`
+
+func (q *Queries) WorkflowHasRuns(ctx context.Context, workflowID pgtype.UUID) (bool, error) {
+	row := q.db.QueryRow(ctx, workflowHasRuns, workflowID)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
+}
+
+const workflowNodeHasActiveRunReferences = `-- name: WorkflowNodeHasActiveRunReferences :one
+SELECT EXISTS (
+    SELECT 1
+    FROM multica_workflow_node_run node_run
+    JOIN multica_workflow_run run ON run.id = node_run.workflow_run_id
+    WHERE node_run.source_workflow_node_id = $1
+      AND run.status NOT IN ('completed', 'failed', 'cancelled')
+)
+`
+
+func (q *Queries) WorkflowNodeHasActiveRunReferences(ctx context.Context, sourceWorkflowNodeID pgtype.UUID) (bool, error) {
+	row := q.db.QueryRow(ctx, workflowNodeHasActiveRunReferences, sourceWorkflowNodeID)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
+}

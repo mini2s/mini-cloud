@@ -61,6 +61,8 @@ type WorkflowService struct {
 }
 
 var ErrWorkflowRoleResolutionLimit = errors.New("workflow role resolution active job limit reached")
+var ErrWorkflowHasRuns = errors.New("workflow has runs")
+var ErrWorkflowDefinitionInUse = errors.New("workflow definition is used by an active run")
 
 func (s *WorkflowService) roleResolutionEnabledFor(workspaceID pgtype.UUID) bool {
 	if !s.AutoResolveRoles {
@@ -2107,6 +2109,26 @@ func (s *WorkflowService) DeleteWorkflowWithTemplateCheck(ctx context.Context, w
 		return fmt.Errorf("template has %d derived workflows, cannot delete", count)
 	}
 	return nil
+}
+
+func (s *WorkflowService) DeleteWorkflowDefinition(ctx context.Context, workflowID pgtype.UUID) error {
+	return s.runInTx(ctx, func(qtx *db.Queries) error {
+		workflow, err := qtx.LockWorkflowDefinitionForUpdate(ctx, workflowID)
+		if err != nil {
+			return fmt.Errorf("lock workflow definition: %w", err)
+		}
+		hasRuns, err := qtx.WorkflowHasRuns(ctx, workflow.ID)
+		if err != nil {
+			return fmt.Errorf("check workflow runs: %w", err)
+		}
+		if hasRuns {
+			return ErrWorkflowHasRuns
+		}
+		if err := qtx.DeleteWorkflow(ctx, workflow.ID); err != nil {
+			return fmt.Errorf("delete workflow: %w", err)
+		}
+		return nil
+	})
 }
 
 // CanManageWorkflows checks whether the given user has the

@@ -352,6 +352,24 @@ func (q *Queries) UpsertNodeRunDeliverableSubmission(ctx context.Context, arg Up
 	return i, err
 }
 
+const workflowDeliverableHasActiveRunReferences = `-- name: WorkflowDeliverableHasActiveRunReferences :one
+SELECT EXISTS (
+    SELECT 1
+    FROM multica_workflow_node_run_deliverable requirement
+    JOIN multica_workflow_node_run node_run ON node_run.id = requirement.workflow_node_run_id
+    JOIN multica_workflow_run run ON run.id = node_run.workflow_run_id
+    WHERE requirement.source_deliverable_id = $1
+      AND run.status NOT IN ('completed', 'failed', 'cancelled')
+)
+`
+
+func (q *Queries) WorkflowDeliverableHasActiveRunReferences(ctx context.Context, sourceDeliverableID pgtype.UUID) (bool, error) {
+	row := q.db.QueryRow(ctx, workflowDeliverableHasActiveRunReferences, sourceDeliverableID)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
+}
+
 const workflowHasDocumentDeliverable = `-- name: WorkflowHasDocumentDeliverable :one
 SELECT EXISTS (
     SELECT 1

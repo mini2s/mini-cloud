@@ -10,6 +10,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/multica-ai/multica/server/internal/service"
 	db "github.com/multica-ai/multica/server/pkg/db/generated"
 )
 
@@ -237,6 +238,13 @@ func (h *Handler) DeleteWorkflowRole(w http.ResponseWriter, r *http.Request) {
 			if references > 0 {
 				return errReferencedWorkflowRole
 			}
+			inUse, err := qtx.WorkflowRoleHasActiveRunReferences(r.Context(), roleID)
+			if err != nil {
+				return err
+			}
+			if inUse {
+				return service.ErrWorkflowDefinitionInUse
+			}
 			deleted, err = qtx.DeleteWorkflowRole(r.Context(), db.DeleteWorkflowRoleParams{ID: roleID, WorkspaceID: member.WorkspaceID})
 			return err
 		},
@@ -247,6 +255,10 @@ func (h *Handler) DeleteWorkflowRole(w http.ResponseWriter, r *http.Request) {
 	}
 	if errors.Is(err, errReferencedWorkflowRole) {
 		writeError(w, 409, "workflow role is used by one or more workflows")
+		return
+	}
+	if errors.Is(err, service.ErrWorkflowDefinitionInUse) {
+		writeCodeError(w, http.StatusConflict, "workflow_definition_in_use", "workflow definition is used by an active run")
 		return
 	}
 	if err != nil {
