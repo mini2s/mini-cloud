@@ -1268,6 +1268,39 @@ func TestBuildCSCloudPayload_NodeRunHandback_ForceFreshSessionSkips(t *testing.T
 	}
 }
 
+func TestBuildCSCloudPayload_NodeRunHandback_DoesNotOverrideGetLastTaskSession(t *testing.T) {
+	// Precedence: when BOTH GetLastTaskSession and the node-run carry a matching-
+	// runtime session, GetLastTaskSession wins. The fallback's `priorSessionID
+	// == ""` guard is the ONLY thing enforcing this — without it, the node-run
+	// session would overwrite a valid (agent, issue) session. This test pins
+	// that precedence so a future refactor dropping the guard fails loudly.
+	runtimeID := testUUID(0xC3)
+	dbtx := newPushTestDB(csCloudProvider, "device-123")
+	dbtx.lastSessionRow = &db.GetLastTaskSessionRow{
+		SessionID: pgtype.Text{String: "sess-lasttask", Valid: true},
+		RuntimeID: runtimeID, // matches task.RuntimeID
+	}
+	dbtx.nodeRunRow = &db.MulticaWorkflowNodeRun{
+		ID:        testUUID(6),
+		SessionID: pgtype.Text{String: "sess-noderun", Valid: true},
+		RuntimeID: runtimeID, // also matches — would inject if guard were gone
+	}
+	svc := &TaskService{Queries: db.New(dbtx), Bus: events.New()}
+	task := dbtx.dispatchedResult
+	task.AgentID = testUUID(0xA1)
+	task.IssueID = testUUID(0xB2) // valid → GetLastTaskSession block fires
+	task.RuntimeID = runtimeID
+	task.WorkflowNodeRunID = testUUID(6)
+
+	payload, err := svc.buildCSCloudPayload(context.Background(), task, dbtx.runtime)
+	if err != nil {
+		t.Fatalf("build: %v", err)
+	}
+	if payload.PriorSessionID != "sess-lasttask" {
+		t.Errorf("prior_session_id = %q, want sess-lasttask (GetLastTaskSession must take precedence over node-run handback)", payload.PriorSessionID)
+	}
+}
+
 // --- buildCSCloudPayload safety-net (M2.5 Task 2) tests ---
 //
 // The safety net ensures a Gitea wf repo + inst branch exist for document
