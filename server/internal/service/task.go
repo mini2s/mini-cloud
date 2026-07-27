@@ -18,6 +18,7 @@ import (
 	"github.com/multica-ai/multica/server/internal/events"
 	"github.com/multica-ai/multica/server/internal/mention"
 	"github.com/multica-ai/multica/server/internal/realtime"
+	"github.com/multica-ai/multica/server/internal/teamnamespace"
 	"github.com/multica-ai/multica/server/internal/util"
 	db "github.com/multica-ai/multica/server/pkg/db/generated"
 	"github.com/multica-ai/multica/server/pkg/protocol"
@@ -34,6 +35,10 @@ type TaskService struct {
 	// CSCloudPush is the outbound client for server-side task push to cs-cloud
 	// devices. Wired after handler construction to avoid constructor churn.
 	CSCloudPush DevicePushClient
+	// TeamNamespace provisions Gitea wf repos for document deliverables at dispatch.
+	// Wired after handler construction alongside CSCloudPush; read on the
+	// cs-cloud dispatch path (dispatchTaskToCSCloud / buildCSCloudPayload).
+	TeamNamespace *teamnamespace.Client
 	// EmptyClaim caches "this runtime has no queued task" so the daemon
 	// poll path can skip a Postgres scan on the steady-state empty case.
 	// Optional — a nil cache disables the fast path and every claim
