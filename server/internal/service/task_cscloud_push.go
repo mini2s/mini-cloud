@@ -200,6 +200,29 @@ func (s *TaskService) buildCSCloudPayload(ctx context.Context, task db.MulticaAg
 		return csCloudTaskRunPayload{}, err
 	}
 
+	// Hoist phase + deliverables so the Task-2 safety net can fire BEFORE
+	// env/repos[] assembly — that way the just-provisioned settings are visible
+	// to repositoryDeliverableEnv (MULTICA_REPO_* env) and resolveDeliveryRepo
+	// (repos[] role=delivery) on the CURRENT dispatch, not just the next one.
+	// Deliverables stays empty for non-worker (critic) phases: critic tasks
+	// review, they don't submit, so they must not emit a Deliverables slice.
+	phase := workflowPhaseFromTask(task)
+	deliverables := []csCloudDeliverableSpec{}
+	if phase == "worker" {
+		deliverables = s.deliverableSpecsForTask(ctx, task)
+	}
+	// Document deliverable: ensure Gitea wf repo + inst branch exist (safety
+	// net if run-start ScaffoldRunDeliverables failed/skipped). Idempotent —
+	// re-running initWorkflowNamespace on an already-provisioned workspace
+	// is a no-op. Best-effort: errors are logged, never block dispatch (the
+	// payload still goes out; a later re-run or member upload recovers).
+	if phase == "worker" && hasDocumentDeliverableSpec(deliverables) && s.teamNamespaceConfigured() && s.settingsLackGiteaData(ctx, runtime.WorkspaceID) {
+		if err := s.ensureDeliveryRepo(ctx, task); err != nil {
+			slog.Warn("cs-cloud dispatch: ensure delivery repo",
+				"task_id", util.UUIDToString(task.ID), "error", err)
+		}
+	}
+
 	env := map[string]string{}
 	if task.AgentID.Valid {
 		agent, err := s.Queries.GetAgent(ctx, task.AgentID)
@@ -207,10 +230,12 @@ func (s *TaskService) buildCSCloudPayload(ctx context.Context, task db.MulticaAg
 			_ = json.Unmarshal(agent.CustomEnv, &env)
 		}
 	}
-	// Gitea document-deliverable context (MULTICA_GITEA_*) + node-run/issue ids,
-	// so the cs-cloud agent can run `cs-cloud workflow deliverable submit` / `gitea fetch`
-	// inside the task. Dormant (no env injected) when Gitea isn't configured or
-	// the node has no document deliverables — matches the claim-time context.
+	// Gitea document-deliverable context (MULTICA_REPO_*) + node-run/issue ids,
+	// so the cs-cloud agent can run `cs-cloud workflow deliverable submit` /
+	// `gitea fetch` inside the task. Dormant (no env injected) when Gitea isn't
+	// configured or the node has no document deliverables — matches the
+	// claim-time context. Runs AFTER the safety net so it picks up freshly
+	// provisioned settings on the triggering dispatch.
 	repoEnv := s.repositoryDeliverableEnv(ctx, task)
 	for k, v := range repoEnv {
 		env[k] = v
@@ -218,7 +243,6 @@ func (s *TaskService) buildCSCloudPayload(ctx context.Context, task db.MulticaAg
 	if task.IssueID.Valid {
 		env["MULTICA_ISSUE_ID"] = util.UUIDToString(task.IssueID)
 	}
-	phase := workflowPhaseFromTask(task)
 	if phase == "critic" {
 		prompt = appendCriticReviewPrompt(prompt)
 	} else {
@@ -242,10 +266,11 @@ func (s *TaskService) buildCSCloudPayload(ctx context.Context, task db.MulticaAg
 		}
 	}
 
-	// Code repository: attach the workspace/project code repos so cs-cloud
-	// clones them into the worktree and the agent develops there. Worker phase
-	// only — the critic/review phase doesn't code.
-	repos, deliverables, projectID := []csCloudRepoSpec{}, []csCloudDeliverableSpec{}, ""
+	// Repos: code repos (workspace/project, role=code) + the Gitea delivery
+	// repo (role=delivery). Worker phase only — the critic/review phase doesn't
+	// code or submit documents.
+	repos := []csCloudRepoSpec{}
+	projectID := ""
 	var gitlabToken string
 	if phase == "worker" {
 		repos, gitlabToken, projectID = s.resolveCodeRepoAndProject(ctx, task, runtime.WorkspaceID)
@@ -255,17 +280,13 @@ func (s *TaskService) buildCSCloudPayload(ctx context.Context, task db.MulticaAg
 			}
 			prompt = appendCodeRepoPrompt(prompt, repos)
 		}
-		deliverables = s.deliverableSpecsForTask(ctx, task)
-		// Document deliverable: ensure Gitea wf repo + inst branch exist (safety
-		// net if run-start ScaffoldRunDeliverables failed/skipped). Idempotent —
-		// re-running initWorkflowNamespace on an already-provisioned workspace
-		// is a no-op. Best-effort: errors are logged, never block dispatch (the
-		// payload still goes out; a later re-run or member upload recovers).
-		if hasDocumentDeliverableSpec(deliverables) && s.teamNamespaceConfigured() && s.settingsLackGiteaData(ctx, runtime.WorkspaceID) {
-			if err := s.ensureDeliveryRepo(ctx, task); err != nil {
-				slog.Warn("cs-cloud dispatch: ensure delivery repo",
-					"task_id", util.UUIDToString(task.ID), "error", err)
-			}
+		// Append the Gitea wf delivery repo (inst base branch + bot PAT) when
+		// the workspace has been provisioned. The agent checks it out via
+		// `cs-cloud repo checkout <url>` (Task 7's prompt) and uses it for
+		// document deliverables. Separate from code repos — has its own alias
+		// ("delivery") so appendCodeRepoPrompt's listing is unaffected.
+		if dr, ok := s.resolveDeliveryRepo(ctx, runtime.WorkspaceID); ok {
+			repos = append(repos, dr)
 		}
 	}
 
@@ -373,8 +394,56 @@ func (s *TaskService) resolveCodeRepoAndProject(ctx context.Context, task db.Mul
 	return repos, gitlabToken, projectID
 }
 
+// resolveDeliveryRepo reads the Gitea delivery repo bundle from workspace.settings
+// (gitea_clone_url + last_instance_branch + gitea_pat), written by the
+// team-namespace interface-8 InitWorkflow path, and assembles a csCloudRepoSpec
+// with role="delivery" + alias="delivery". Returns ok=false when the workspace
+// lacks Gitea data (no clone URL or inst branch) — the caller then skips
+// appending the delivery repo. Mirrors the settings-reading pattern of
+// resolveCodeRepoAndProject / repositoryDeliverableEnv.
+//
+// The agent authenticates via the MULTICA_REPO_TOKEN env (already injected by
+// repositoryDeliverableEnv from the same settings), so the URL stays plain
+// (no embedded creds) and gitea_bot_username is not needed here. BotToken is
+// populated in the spec for forward-compat — cs-cloud's RepoSpec currently
+// consumes URL/Provider/Role/BaseBranch/Alias only, but a future change may
+// read bot_token for checkout auth.
+func (s *TaskService) resolveDeliveryRepo(ctx context.Context, workspaceID pgtype.UUID) (csCloudRepoSpec, bool) {
+	ws, err := s.Queries.GetWorkspace(ctx, workspaceID)
+	if err != nil {
+		return csCloudRepoSpec{}, false
+	}
+	if len(ws.Settings) == 0 {
+		return csCloudRepoSpec{}, false
+	}
+	var settings struct {
+		GiteaCloneURL string `json:"gitea_clone_url"`
+		InstBranch    string `json:"last_instance_branch"`
+		GiteaPAT      string `json:"gitea_pat"`
+	}
+	if err := json.Unmarshal(ws.Settings, &settings); err != nil {
+		return csCloudRepoSpec{}, false
+	}
+	cloneURL := strings.TrimSpace(settings.GiteaCloneURL)
+	instBranch := strings.TrimSpace(settings.InstBranch)
+	if cloneURL == "" || instBranch == "" {
+		return csCloudRepoSpec{}, false
+	}
+	return csCloudRepoSpec{
+		URL:        cloneURL,
+		Provider:   "gitea",
+		Role:       "delivery",
+		BaseBranch: instBranch,
+		Alias:      "delivery",
+		BotToken:   strings.TrimSpace(settings.GiteaPAT),
+	}, true
+}
+
 // deliverableSpecsForTask builds the deliverable contract list for the task's
 // workflow node run (pull_request -> /submit endpoint; document -> /report-pr).
+// Document deliverables are tagged with repo_alias="delivery" so cs-cloud maps
+// them to the repos[] entry whose alias is "delivery" (the Gitea wf repo);
+// pull_request deliverables keep repo_alias empty (they target a code repo).
 func (s *TaskService) deliverableSpecsForTask(ctx context.Context, task db.MulticaAgentTaskQueue) []csCloudDeliverableSpec {
 	if !task.WorkflowNodeRunID.Valid {
 		return nil
@@ -407,6 +476,10 @@ func (s *TaskService) deliverableSpecsForTask(ctx context.Context, task db.Multi
 				Method:    "POST",
 				BodyField: "pull_request_url",
 			}
+			// Map this document deliverable to the repos[] entry whose
+			// alias == "delivery" (the Gitea wf repo). pull_request keeps
+			// repo_alias empty — it targets a code repo, not the delivery repo.
+			spec.RepoAlias = "delivery"
 		}
 		out = append(out, spec)
 	}
@@ -920,14 +993,11 @@ func (s *TaskService) settingsLackGiteaData(ctx context.Context, workspaceID pgt
 // the run is not failed for a fixable provisioning gap (a later re-run or
 // member upload path can also recover).
 //
-// Timing limitation: this provisions for the NEXT dispatch on this workspace.
-// buildCSCloudPayload has already assembled the current payload's
-// MULTICA_REPO_* env from the stale (pre-provisioning) workspace.settings
-// (repositoryDeliverableEnv runs earlier, ~line 214), so when the safety net
-// actually provisions here the triggering dispatch still ships stale
-// credentials and the agent's first clone can 401. The idempotent re-run on
-// retry / next round picks up the now-populated settings. Task 3 will reorder
-// env + repos[] assembly so the current dispatch benefits too.
+// Timing: buildCSCloudPayload runs the safety net BEFORE env/repos[] assembly,
+// so when provisioning succeeds here, the current dispatch's repositoryDeliverableEnv
+// (MULTICA_REPO_* env) and resolveDeliveryRepo (repos[] role=delivery) read the
+// just-persisted settings on the SAME dispatch — no stale-credentials gap. The
+// idempotent re-run on retry / next round is a harmless no-op.
 func (s *TaskService) ensureDeliveryRepo(ctx context.Context, task db.MulticaAgentTaskQueue) error {
 	if !task.WorkflowNodeRunID.Valid {
 		return nil

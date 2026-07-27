@@ -1570,3 +1570,198 @@ func TestBuildCSCloudPayload_DocDeliverableSafetyNet_SkipsWhenSettingsHaveGiteaD
 		t.Errorf("UpdateWorkspace must NOT be called when already provisioned, got %d", updateCount)
 	}
 }
+
+// --- buildCSCloudPayload delivery repo + RepoAlias (M2.5 Task 3) tests ---
+//
+// When the workspace settings carry the Gitea provisioning bundle, the payload
+// must (1) include a repos[] entry with role="delivery" pointing at the wf repo
+// (inst base_branch + bot PAT + alias="delivery"), and (2) tag each document
+// deliverable with repo_alias="delivery" so cs-cloud's checkout maps it back to
+// that repos[] entry. pull_request deliverables keep repo_alias empty (they go
+// to a code repo). See docs/superpowers/cs-cloud-delivery-m2.5-plan.md §Task 3.
+
+func TestBuildCSCloudPayload_DeliveryRepoAndAlias_WhenSettingsHaveGiteaData(t *testing.T) {
+	srv, _ := newTeamNamespaceTestServer(t)
+	defer srv.Close()
+
+	tnClient := teamnamespace.NewClient(teamnamespace.Config{
+		BaseURL: srv.URL,
+		Token:   "svc-token",
+		Tenant:  "default",
+	})
+
+	mdb := newEnsureRepoTestDB()
+	// Seed settings WITH Gitea data → resolveDeliveryRepo returns a repo and
+	// the safety net is skipped (settingsLackGiteaData == false).
+	mdb.workspace.Settings = []byte(`{` +
+		`"gitea_clone_url":"https://gitea.test/t-ws/wf-docworkflow.git",` +
+		`"last_instance_branch":"inst-run-abc",` +
+		`"gitea_pat":"pat-bot-xyz",` +
+		`"gitea_bot_username":"multica-bot-ws"}`)
+
+	svc := &TaskService{
+		Queries:       db.New(mdb),
+		Bus:           events.New(),
+		TeamNamespace: tnClient,
+	}
+
+	task := db.MulticaAgentTaskQueue{
+		ID:                testUUID(11),
+		AgentID:           mdb.agent.ID,
+		IssueID:           mdb.issue.ID,
+		RuntimeID:         mdb.runtime.ID,
+		WorkflowNodeRunID: mdb.nodeRun.ID,
+		Status:            "queued",
+		Context:           []byte(`{"phase":"worker"}`),
+	}
+
+	payload, err := svc.buildCSCloudPayload(context.Background(), task, mdb.runtime)
+	if err != nil {
+		t.Fatalf("buildCSCloudPayload: %v", err)
+	}
+
+	// (1) repos[] contains a role=delivery entry pointing at the wf repo.
+	var delivery *csCloudRepoSpec
+	for i := range payload.Repos {
+		if payload.Repos[i].Role == "delivery" {
+			delivery = &payload.Repos[i]
+			break
+		}
+	}
+	if delivery == nil {
+		t.Fatalf("expected repos[] to contain a role=delivery entry; got %+v", payload.Repos)
+	}
+	if delivery.URL != "https://gitea.test/t-ws/wf-docworkflow.git" {
+		t.Errorf("delivery URL = %q, want wf clone URL", delivery.URL)
+	}
+	if delivery.Provider != "gitea" {
+		t.Errorf("delivery Provider = %q, want gitea", delivery.Provider)
+	}
+	if delivery.BaseBranch != "inst-run-abc" {
+		t.Errorf("delivery BaseBranch = %q, want inst-run-abc", delivery.BaseBranch)
+	}
+	if delivery.Alias != "delivery" {
+		t.Errorf("delivery Alias = %q, want delivery", delivery.Alias)
+	}
+	if delivery.BotToken != "pat-bot-xyz" {
+		t.Errorf("delivery BotToken = %q, want pat-bot-xyz", delivery.BotToken)
+	}
+
+	// (2) document deliverable is tagged with repo_alias="delivery";
+	//     pull_request deliverable (if any) keeps repo_alias empty.
+	var docCount int
+	for i := range payload.Deliverables {
+		d := &payload.Deliverables[i]
+		switch d.Kind {
+		case "document":
+			docCount++
+			if d.RepoAlias != "delivery" {
+				t.Errorf("document deliverable RepoAlias = %q, want delivery", d.RepoAlias)
+			}
+		case "pull_request":
+			if d.RepoAlias != "" {
+				t.Errorf("pull_request deliverable RepoAlias = %q, want empty", d.RepoAlias)
+			}
+		}
+	}
+	if docCount == 0 {
+		t.Fatalf("expected at least one document deliverable; got %+v", payload.Deliverables)
+	}
+}
+
+func TestBuildCSCloudPayload_NoDeliveryRepo_WhenSettingsLackGiteaData(t *testing.T) {
+	srv, _ := newTeamNamespaceTestServer(t)
+	defer srv.Close()
+
+	tnClient := teamnamespace.NewClient(teamnamespace.Config{
+		BaseURL: srv.URL,
+		Token:   "svc-token",
+		Tenant:  "default",
+	})
+
+	mdb := newEnsureRepoTestDB()
+	// Settings default to "{}" (no Gitea data). The Task-2 safety net may fire
+	// here, but this in-memory mock does not reflect UpdateWorkspace back into
+	// GetWorkspace reads, so resolveDeliveryRepo still sees empty settings and
+	// returns false → no delivery repo in repos[]. This matches production
+	// semantics for "provisioning succeeded but mid-flight": the *next*
+	// dispatch picks up the persisted settings.
+
+	svc := &TaskService{
+		Queries:       db.New(mdb),
+		Bus:           events.New(),
+		TeamNamespace: tnClient,
+	}
+
+	task := db.MulticaAgentTaskQueue{
+		ID:                testUUID(11),
+		AgentID:           mdb.agent.ID,
+		IssueID:           mdb.issue.ID,
+		RuntimeID:         mdb.runtime.ID,
+		WorkflowNodeRunID: mdb.nodeRun.ID,
+		Status:            "queued",
+		Context:           []byte(`{"phase":"worker"}`),
+	}
+
+	payload, err := svc.buildCSCloudPayload(context.Background(), task, mdb.runtime)
+	if err != nil {
+		t.Fatalf("buildCSCloudPayload: %v", err)
+	}
+
+	for _, r := range payload.Repos {
+		if r.Role == "delivery" {
+			t.Errorf("did not expect a delivery repo when settings lack Gitea data; got %+v", r)
+		}
+	}
+}
+
+// TestBuildCSCloudPayload_NonWorkerPhaseHasNoDeliverables is a regression guard
+// for the Task-3 restructure (hoisting deliverables assembly out of the worker
+// block). Non-worker (critic) phases MUST keep Deliverables empty — critic tasks
+// don't submit, they review. Also no delivery repo should be emitted for them.
+func TestBuildCSCloudPayload_NonWorkerPhaseHasNoDeliverables(t *testing.T) {
+	srv, _ := newTeamNamespaceTestServer(t)
+	defer srv.Close()
+
+	tnClient := teamnamespace.NewClient(teamnamespace.Config{
+		BaseURL: srv.URL,
+		Token:   "svc-token",
+		Tenant:  "default",
+	})
+
+	mdb := newEnsureRepoTestDB()
+	mdb.workspace.Settings = []byte(`{` +
+		`"gitea_clone_url":"https://gitea.test/t-ws/wf-x.git",` +
+		`"last_instance_branch":"inst-x",` +
+		`"gitea_pat":"pat-x",` +
+		`"gitea_bot_username":"bot-x"}`)
+
+	svc := &TaskService{
+		Queries:       db.New(mdb),
+		Bus:           events.New(),
+		TeamNamespace: tnClient,
+	}
+
+	task := db.MulticaAgentTaskQueue{
+		ID:                testUUID(11),
+		AgentID:           mdb.agent.ID,
+		IssueID:           mdb.issue.ID,
+		RuntimeID:         mdb.runtime.ID,
+		WorkflowNodeRunID: mdb.nodeRun.ID,
+		Status:            "queued",
+		Context:           []byte(`{"phase":"critic"}`), // not worker
+	}
+
+	payload, err := svc.buildCSCloudPayload(context.Background(), task, mdb.runtime)
+	if err != nil {
+		t.Fatalf("buildCSCloudPayload: %v", err)
+	}
+	if len(payload.Deliverables) != 0 {
+		t.Errorf("critic phase must not emit deliverables; got %+v", payload.Deliverables)
+	}
+	for _, r := range payload.Repos {
+		if r.Role == "delivery" {
+			t.Errorf("critic phase must not emit a delivery repo; got %+v", r)
+		}
+	}
+}
