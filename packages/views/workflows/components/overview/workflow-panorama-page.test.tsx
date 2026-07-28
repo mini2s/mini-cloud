@@ -45,7 +45,6 @@ const mocks = vi.hoisted(() => ({
   ],
   nodesData: [] as unknown[],
   edgesData: [] as unknown[],
-  childWorkflowsData: [] as unknown[],
   workflowRolesData: [] as unknown[],
   runsData: [] as Array<{ id: string }>,
   nodeRunsData: [] as unknown[],
@@ -550,7 +549,6 @@ vi.mock("@tanstack/react-query", () => ({
     if (key.includes("agents")) return { data: [], isLoading: false };
     if (key.includes("plugins")) return { data: { items: [] }, isLoading: false };
     if (key.includes("roles")) return { data: mocks.workflowRolesData, isLoading: false };
-		if (key.includes("split-issue-workflow-options")) return { data: mocks.childWorkflowsData, isLoading: false };
 		if (key.includes("runtimes")) return { data: mocks.runtimesData, isLoading: false };
     return { data: null, isLoading: true, isError: false };
   },
@@ -573,7 +571,6 @@ describe("WorkflowPanoramaPage (new)", () => {
     };
     mocks.nodesData = [];
     mocks.edgesData = [];
-    mocks.childWorkflowsData = [];
     mocks.workflowRolesData = [];
     mocks.runsData = [];
     mocks.nodeRunsData = [];
@@ -709,59 +706,6 @@ describe("WorkflowPanoramaPage (new)", () => {
         description: "Entry point",
       });
     });
-  });
-
-  it("passes the edited split child workflow name into the canvas node data", () => {
-    mocks.nodesData = [
-      {
-        id: "split-1",
-        workflow_id: "wf-1",
-        title: "Split implementation",
-        description: "",
-        worker_type: "agent",
-        worker_id: null,
-        critic_type: "human",
-        critic_id: null,
-        critic_api_url: null,
-        stage_id: "stage-1",
-        format_schema: {
-          type: "split",
-          split_config: {
-            default_issue_workflow_id: "child-wf-1",
-            mode: "barrier",
-            max_concurrency: 5,
-            max_failures: 0,
-          },
-        },
-        position_x: 120,
-        position_y: 0,
-        sort_order: 0,
-        created_at: "",
-        updated_at: "",
-      },
-    ];
-    mocks.nodeEdits = {
-      "split-1": {
-        format_schema: {
-          type: "split",
-          split_config: {
-            default_issue_workflow_id: "child-wf-2",
-            mode: "barrier",
-            max_concurrency: 5,
-            max_failures: 0,
-          },
-        },
-      },
-    };
-    mocks.childWorkflowsData = [
-      { id: "child-wf-1", title: "Old workflow", status: "active", nodes: [] },
-      { id: "child-wf-2", title: "Implementation workflow", status: "active", nodes: [] },
-    ];
-
-    render(<WorkflowPanoramaPage workflowId="wf-1" />);
-
-    const splitNode = mocks.reactFlowProps?.nodes.find((item) => item.id === "split-1");
-    expect(splitNode?.data.splitChildWorkflowName).toBe("Implementation workflow");
   });
 
   it("clears cached node edits when deleting a node from the config panel", async () => {

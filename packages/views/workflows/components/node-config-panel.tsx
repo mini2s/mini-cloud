@@ -32,7 +32,6 @@ import {
   useDeleteNode,
   useAssignNodeToStage,
   workflowRolesOptions,
-  workflowActiveListOptions,
 } from "@multica/core/workflows/queries";
 import { useWorkflowEditorStore } from "@multica/core/workflows/store";
 import { AssigneePicker } from "../../issues/components/pickers/assignee-picker";
@@ -146,7 +145,11 @@ function AssignmentModeControl<T extends string>({
   onChange: (value: T) => void;
 }) {
   return (
-    <div role="tablist" aria-label={ariaLabel} className="grid w-full grid-cols-4 rounded-lg border bg-muted/40 p-1">
+    <div
+      role="tablist"
+      aria-label={ariaLabel}
+      className={`grid w-full ${options.length === 2 ? "grid-cols-2" : "grid-cols-4"} rounded-lg border bg-muted/40 p-1`}
+    >
       {options.map((option) => {
         const active = option.value === value;
         return (
@@ -300,7 +303,6 @@ export function NodeConfigPanel({
   const undoRedoVersion = useWorkflowEditorStore((s) => s._undoRedoVersion);
   const cacheNodeEdits = useWorkflowEditorStore((s) => s.cacheNodeEdits);
   const { data: roles = [] } = useQuery(workflowRolesOptions(wsId));
-  const { data: activeWorkflows = [] } = useQuery(workflowActiveListOptions(wsId));
   const { getActorName } = useActorName();
 
   const saved = nodeEdits[node.id];
@@ -391,7 +393,6 @@ export function NodeConfigPanel({
   const workerConfigured = Boolean(workerId || workerRoleId);
   const criticConfigured = criticType === "api" ? Boolean(criticApiUrl.trim()) : Boolean(criticId || criticRoleId);
   const splitConfig: SplitConfig = nodeFormat.split_config ?? {
-    default_issue_workflow_id: null,
     mode: "barrier",
     max_concurrency: 5,
     max_failures: 0,
@@ -428,6 +429,11 @@ export function NodeConfigPanel({
     { value: "role", label: t(($) => $.detail_panel.participant_type_role) },
     { value: "squad", label: t(($) => $.detail_panel.participant_type_squad) },
   ];
+  const splitReviewerCategoryOptions: Array<{ value: ParticipantCategory; label: string }> = [
+    { value: "human", label: t(($) => $.detail_panel.participant_type_human) },
+    { value: "role", label: t(($) => $.detail_panel.participant_type_role) },
+  ];
+  const splitReviewerValid = criticCategory === "human" || criticCategory === "role";
   const hasLocalEdits = Boolean(nodeEdits[node.id]);
   const hasUnsavedChanges = hasLocalEdits;
 
@@ -444,7 +450,6 @@ export function NodeConfigPanel({
       template_id: typeof base.template_id === "string" ? base.template_id : "task-splitter",
       template_category: typeof base.template_category === "string" ? base.template_category : "logic",
       split_config: {
-        default_issue_workflow_id: next.default_issue_workflow_id,
         mode: next.mode,
         max_concurrency: next.max_concurrency,
         max_failures: next.max_failures,
@@ -713,8 +718,6 @@ export function NodeConfigPanel({
 			>
 				<SplitConfigPanel
 					config={splitConfig}
-					childWorkflows={activeWorkflows}
-					currentWorkflowId={workflowId}
 					disabled={disabled}
 					onChange={handleSplitConfigChange}
 				/>
@@ -883,13 +886,17 @@ export function NodeConfigPanel({
                       icon={<ShieldCheck className="size-4" />}
                       title={t(($) => $.node.section_critic)}
                       subtitle={t(($) => $.detail_panel.split_critic_subtitle)}
-                      status={criticConfigured ? <StatusBadge tone="success">{t(($) => $.detail_panel.badge_configured)}</StatusBadge> : <StatusBadge tone="warning">{t(($) => $.detail_panel.badge_needs_assignee)}</StatusBadge>}
+                      status={!splitReviewerValid
+                        ? <StatusBadge tone="danger">{t(($) => $.preflight.check_split_reviewer_invalid)}</StatusBadge>
+                        : criticConfigured
+                          ? <StatusBadge tone="success">{t(($) => $.detail_panel.badge_configured)}</StatusBadge>
+                          : <StatusBadge tone="warning">{t(($) => $.detail_panel.badge_needs_assignee)}</StatusBadge>}
                     >
                       <AssignmentModeControl<ParticipantCategory>
                         value={criticCategory}
                         ariaLabel={t(($) => $.detail_panel.critic_category_label)}
                         disabled={disabled}
-                        options={participantCategoryOptions}
+                        options={splitReviewerCategoryOptions}
                         onChange={(category) => {
                           if (category === criticCategory) return;
                           const nextType: CriticType = category === "role" ? "human" : category;
@@ -906,6 +913,12 @@ export function NodeConfigPanel({
                           });
                         }}
                       />
+
+                      {!splitReviewerValid ? (
+                        <p className="text-xs leading-relaxed text-destructive">
+                          {t(($) => $.preflight.detail_split_reviewer_invalid)}
+                        </p>
+                      ) : null}
 
                       {criticCategory === "role" ? (
                         <div className="space-y-1.5">
@@ -941,13 +954,13 @@ export function NodeConfigPanel({
                             {t(($) => $.detail_panel.manage_roles_shortcut)}
                           </Button>
                         </div>
-                      ) : (
+                      ) : criticCategory === "human" ? (
                         <div className="space-y-2">
                           <div className={disabled ? "pointer-events-none opacity-60" : undefined}>
                             <AssigneePicker
-                              assigneeType={categoryAssigneeType(criticCategory)}
+                              assigneeType="member"
                               assigneeId={criticId}
-                              allowedTypes={[categoryAssigneeType(criticCategory)]}
+                              allowedTypes={["member"]}
                               triggerRender={
                                 <Button
                                   type="button"
@@ -968,7 +981,7 @@ export function NodeConfigPanel({
                                 />
                               }
                               onUpdate={disabled ? () => {} : (u) => {
-                                const ct = fromAssigneeTypeCritic(u.assignee_type ?? categoryAssigneeType(criticCategory));
+                                const ct = fromAssigneeTypeCritic(u.assignee_type ?? "member");
                                 const cid = u.assignee_id ?? null;
                                 setCriticRoleId(null);
                                 setCriticType(ct);
@@ -981,7 +994,7 @@ export function NodeConfigPanel({
                             />
                           </div>
                         </div>
-                      )}
+                      ) : null}
                     </AssignmentCard>
                   </>
                 ) : (
