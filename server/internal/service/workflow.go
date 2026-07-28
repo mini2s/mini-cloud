@@ -158,6 +158,10 @@ func isTerminalNodeRunStatus(s string) bool {
 	return false
 }
 
+func isSatisfiedDependencyNodeRunStatus(s string) bool {
+	return s == NodeRunStatusCompleted || s == NodeRunStatusSkipped
+}
+
 type workflowNodeFormat struct {
 	Type        string `json:"type"`
 	GatewayKind string `json:"gateway_kind"`
@@ -683,6 +687,20 @@ func (s *WorkflowService) TransitionNodeRun(ctx context.Context, nodeRun db.Mult
 	if !isValidTransition(nodeRun.Status, newStatus) {
 		return nil, fmt.Errorf("invalid transition: %s → %s", nodeRun.Status, newStatus)
 	}
+	if newStatus == NodeRunStatusFailed || newStatus == NodeRunStatusFormatFailed {
+		reason := "node_failed"
+		if newStatus == NodeRunStatusFormatFailed {
+			reason = "format_validation_failed"
+		}
+		if err := s.failWorkflowFromNode(ctx, nodeRun, newStatus, reason); err != nil {
+			return nil, err
+		}
+		updated, err := s.Queries.GetWorkflowNodeRun(ctx, nodeRun.ID)
+		if err != nil {
+			return nil, fmt.Errorf("get failed node run: %w", err)
+		}
+		return &updated, nil
+	}
 
 	updated, err := s.Queries.UpdateWorkflowNodeRunStatus(ctx, db.UpdateWorkflowNodeRunStatusParams{
 		ID:     nodeRun.ID,
@@ -837,6 +855,19 @@ func (s *WorkflowService) FinalizeNodeRun(ctx context.Context, nodeRun db.Multic
 	if outcome != NodeRunStatusCompleted && outcome != NodeRunStatusFailed {
 		return nil, fmt.Errorf("invalid finalize outcome: %s", outcome)
 	}
+	if outcome == NodeRunStatusFailed {
+		if !isValidTransition(nodeRun.Status, outcome) {
+			return nil, fmt.Errorf("invalid transition: %s → %s", nodeRun.Status, outcome)
+		}
+		if err := s.failWorkflowFromNode(ctx, nodeRun, NodeRunStatusFailed, "human_finalized_failed"); err != nil {
+			return nil, err
+		}
+		updated, err := s.Queries.GetWorkflowNodeRun(ctx, nodeRun.ID)
+		if err != nil {
+			return nil, fmt.Errorf("get finalized node run: %w", err)
+		}
+		return &updated, nil
+	}
 	updated, err := s.TransitionNodeRun(ctx, nodeRun, outcome)
 	if err != nil {
 		return nil, err
@@ -883,14 +914,25 @@ func (s *WorkflowService) RetryNodeRun(ctx context.Context, nodeRun db.MulticaWo
 	return &updated, nil
 }
 
-// OnNodeRunCompleted checks downstream nodes after a node run reaches a terminal
-// state. If all upstreams of a downstream node are complete, it advances that
-// node to format_checking. If no active node runs remain, the workflow run is
-// marked completed or failed.
+// OnNodeRunCompleted checks downstream nodes after a node run completes or is
+// intentionally skipped. If all required upstreams reached one of those
+// dependency-satisfying states, it advances the downstream node to
+// format_checking.
 func (s *WorkflowService) OnNodeRunCompleted(ctx context.Context, nodeRunID pgtype.UUID) error {
 	nodeRun, err := s.Queries.GetWorkflowNodeRun(ctx, nodeRunID)
 	if err != nil {
 		return fmt.Errorf("get node run: %w", err)
+	}
+	if nodeRun.Status != NodeRunStatusCompleted && nodeRun.Status != NodeRunStatusSkipped {
+		return nil
+	}
+
+	run, err := s.Queries.GetWorkflowRun(ctx, nodeRun.WorkflowRunID)
+	if err != nil {
+		return fmt.Errorf("get run: %w", err)
+	}
+	if run.Status != RunStatusRunning {
+		return nil
 	}
 
 	if err := s.runInTx(ctx, func(qtx *db.Queries) error {
@@ -1698,10 +1740,9 @@ func normalizeAgentCriticComment(approved bool, comment string) string {
 }
 
 // HandleWorkflowTaskFailure is called when an agent task linked to a workflow
-// node run fails and will not be retried. It transitions the node run out of
-// its active phase (working / worker_assigned for the worker, critic_reviewing
-// for the critic) to failed, then propagates the terminal state to downstream
-// completion checking.
+// node run fails and will not be retried. It fails the current node and the
+// workflow run, then cancels all unfinished nodes and tasks so no downstream
+// work can start.
 func (s *WorkflowService) HandleWorkflowTaskFailure(ctx context.Context, task db.MulticaAgentTaskQueue) error {
 	if !task.WorkflowNodeRunID.Valid {
 		return nil
@@ -1737,11 +1778,10 @@ func (s *WorkflowService) HandleWorkflowTaskFailure(ctx context.Context, task db
 		return nil
 	}
 
-	updated, err := s.TransitionNodeRun(ctx, nodeRun, targetStatus)
-	if err != nil {
-		return fmt.Errorf("transition node run on task failure: %w", err)
+	if err := s.failWorkflowFromNode(ctx, nodeRun, NodeRunStatusFailed, taskFailureReason(task)); err != nil {
+		return fmt.Errorf("fail workflow on task failure: %w", err)
 	}
-	return s.OnNodeRunCompleted(ctx, updated.ID)
+	return nil
 }
 
 // ── Awaiting input helpers ──────────────────────────────────────────────────

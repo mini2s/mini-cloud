@@ -112,7 +112,7 @@ func ActivateDownstreamAndEnqueue(
 			if err != nil {
 				return fmt.Errorf("get runtime upstream node: %w", err)
 			}
-			if !isTerminalNodeRunStatus(upstream.Status) {
+			if !isSatisfiedDependencyNodeRunStatus(upstream.Status) {
 				allUpstreamDone = false
 				break
 			}

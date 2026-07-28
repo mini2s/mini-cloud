@@ -435,8 +435,22 @@ func (s *WorkflowService) failWorkflowForRuntimeUnavailable(
 	ctx context.Context,
 	nodeRun db.MulticaWorkflowNodeRun,
 ) error {
+	return s.failWorkflowFromNode(ctx, nodeRun, NodeRunStatusFailed, "runtime_unavailable")
+}
+
+// failWorkflowFromNode applies the workflow's global fail-fast policy. The
+// workspace runtime-selection lock serializes this transaction with task
+// dispatch so a concurrent enqueue either commits first and is cancelled here,
+// or observes the failed run and aborts without creating work.
+func (s *WorkflowService) failWorkflowFromNode(
+	ctx context.Context,
+	nodeRun db.MulticaWorkflowNodeRun,
+	nodeStatus string,
+	reason string,
+) error {
 	var failedNode db.MulticaWorkflowNodeRun
 	var failedRun db.MulticaWorkflowRun
+	var cancelledNodeRuns []db.MulticaWorkflowNodeRun
 	var cancelled []db.MulticaAgentTaskQueue
 	if err := s.runInTx(ctx, func(qtx *db.Queries) error {
 		var err error
@@ -456,16 +470,24 @@ func (s *WorkflowService) failWorkflowForRuntimeUnavailable(
 		if run.Status != RunStatusRunning {
 			return ErrWorkflowRunNotRunning
 		}
-		failedNode, err = qtx.FailWorkflowNodeRunForRuntime(ctx, nodeRun.ID)
+		failedNode, err = qtx.FailWorkflowNodeRun(ctx, db.FailWorkflowNodeRunParams{
+			ID:            nodeRun.ID,
+			Status:        nodeStatus,
+			FailureReason: pgtype.Text{String: reason, Valid: reason != ""},
+		})
 		if err != nil {
 			return fmt.Errorf("fail node run: %w", err)
 		}
-		if err := qtx.CancelWorkflowNodeRuns(ctx, failedNode.WorkflowRunID); err != nil {
+		cancelledNodeRuns, err = qtx.CancelWorkflowNodeRuns(ctx, failedNode.WorkflowRunID)
+		if err != nil {
 			return fmt.Errorf("cancel sibling node runs: %w", err)
 		}
 		cancelled, err = qtx.CancelWorkflowTasksByRun(ctx, failedNode.WorkflowRunID)
 		if err != nil {
 			return fmt.Errorf("cancel workflow tasks: %w", err)
+		}
+		if err := qtx.CancelWorkflowRoleResolutionJobs(ctx, failedNode.WorkflowRunID); err != nil {
+			return fmt.Errorf("cancel role resolution jobs: %w", err)
 		}
 		failedRun, err = qtx.FailWorkflowRun(ctx, failedNode.WorkflowRunID)
 		if err != nil {
@@ -481,6 +503,9 @@ func (s *WorkflowService) failWorkflowForRuntimeUnavailable(
 
 	if s.OnNodeStatusChanged != nil {
 		s.OnNodeStatusChanged(ctx, failedNode)
+		for _, cancelledNodeRun := range cancelledNodeRuns {
+			s.OnNodeStatusChanged(ctx, cancelledNodeRun)
+		}
 	}
 	if s.TaskSvc != nil {
 		s.TaskSvc.BroadcastCancelledTasks(ctx, cancelled)
@@ -488,12 +513,12 @@ func (s *WorkflowService) failWorkflowForRuntimeUnavailable(
 	s.publishWorkflowEvent(EventWorkflowNodeRunFailed, util.UUIDToString(failedRun.WorkspaceID), map[string]any{
 		"run_id":      util.UUIDToString(failedRun.ID),
 		"node_run_id": util.UUIDToString(failedNode.ID),
-		"reason":      "runtime_unavailable",
+		"reason":      reason,
 	})
 	s.publishWorkflowEvent(EventWorkflowRunFailed, util.UUIDToString(failedRun.WorkspaceID), map[string]any{
 		"run_id":      util.UUIDToString(failedRun.ID),
 		"workflow_id": util.UUIDToString(failedRun.WorkflowID),
-		"reason":      "runtime_unavailable",
+		"reason":      reason,
 	})
 	if s.OnRunTerminal != nil {
 		s.OnRunTerminal(ctx, failedRun, RunStatusFailed)

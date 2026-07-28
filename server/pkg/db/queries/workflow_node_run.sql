@@ -196,10 +196,10 @@ UPDATE multica_workflow_node_run SET
 WHERE id = $1
 RETURNING *;
 
--- name: FailWorkflowNodeRunForRuntime :one
+-- name: FailWorkflowNodeRun :one
 UPDATE multica_workflow_node_run SET
-    status = 'failed',
-    failure_reason = 'runtime_unavailable',
+    status = $2,
+    failure_reason = $3,
     completed_at = now(),
     updated_at = now()
 WHERE id = $1
@@ -212,13 +212,15 @@ UPDATE multica_workflow_node_run SET
 WHERE id = $1
 RETURNING *;
 
--- name: CancelWorkflowNodeRuns :exec
+-- name: CancelWorkflowNodeRuns :many
 UPDATE multica_workflow_node_run SET
     status = 'cancelled',
+    failure_reason = 'workflow_failed',
     completed_at = now(),
     updated_at = now()
 WHERE workflow_run_id = $1
-  AND status NOT IN ('format_failed', 'completed', 'failed', 'blocked', 'skipped', 'cancelled');
+  AND status NOT IN ('format_failed', 'completed', 'failed', 'skipped', 'cancelled')
+RETURNING *;
 
 -- name: CancelWorkflowTasksByRun :many
 UPDATE multica_agent_task_queue task SET
