@@ -80,10 +80,3 @@ docker-compose.local.yml
 # Local personal Docker Compose support files (initdb seeds, etc.)
 docker/local-stack/
 e2e/.cache/
-
-# Team-namespace mock service — LOCAL DEV ONLY, NOT committed.
-# Implements /api/internal/* against the local Gitea container so multica's
-# teamnamespace.Client has a working backend before @server ships it.
-server/internal/teamnamespace/mock/
-server/cmd/teamnamespace-mock/
-teamnamespace-mock-state.json

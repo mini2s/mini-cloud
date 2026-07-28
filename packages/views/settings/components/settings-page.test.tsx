@@ -36,7 +36,8 @@ vi.mock("@multica/core/workflows/queries", () => ({
 vi.mock("./account-tab", () => ({ AccountTab: () => <div>Profile content</div> }));
 vi.mock("./preferences-tab", () => ({ PreferencesTab: () => <div>Preferences content</div> }));
 vi.mock("./notifications-tab", () => ({ NotificationsTab: () => <div>Notifications content</div> }));
-vi.mock("./tokens-tab", () => ({ TokensTab: () => <div>Tokens content</div> }));
+// Hidden: API tokens tab removed.
+// vi.mock("./tokens-tab", () => ({ TokensTab: () => <div>Tokens content</div> }));
 vi.mock("./workspace-tab", () => ({ WorkspaceTab: () => <div>Workspace content</div> }));
 vi.mock("./repositories-tab", () => ({ RepositoriesTab: () => <div>Repositories content</div> }));
 vi.mock("./github-tab", () => ({ GitHubTab: () => <div>GitHub content</div> }));

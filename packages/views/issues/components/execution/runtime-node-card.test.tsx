@@ -9,6 +9,7 @@ import {
 } from "./runtime-node-card";
 import type { NodeRunActionType } from "./runtime-node-card";
 import type { WorkflowNode, WorkflowNodeRun, WorkflowNodeRuntimeSummary } from "@multica/core/types";
+import type { WorkflowActorIdentity } from "../../../common/workflow-actor-slots";
 
 // Mock @multica/views/i18n for useT hook — handles function selector form
 vi.mock("@multica/views/i18n", () => {
@@ -23,6 +24,7 @@ vi.mock("@multica/views/i18n", () => {
         in_progress: "In progress",
         reviewing: "Reviewing",
         completed: "Completed",
+        failed: "Failed",
         blocked: "Blocked",
         cancelled: "Cancelled",
         dispatched: "Dispatched",
@@ -30,6 +32,7 @@ vi.mock("@multica/views/i18n", () => {
         waiting_upstream: "Waiting for upstream",
       },
       card: {
+        duration_label: "Duration {{duration}}",
         worker_label: "Executor",
         critic_label: "Reviewer",
         artifacts_label: "Artifacts",
@@ -171,7 +174,65 @@ const runtimeSummary: WorkflowNodeRuntimeSummary = {
   split_progress: null,
 };
 
+function actorIdentity(
+  name: string,
+  type: WorkflowActorIdentity["type"] = "member",
+): WorkflowActorIdentity {
+  return {
+    type,
+    id: `${type}-1`,
+    name,
+    typeLabel: type === "agent" ? "Digital human" : "Member",
+    initials: name.slice(0, 2),
+    avatarUrl: null,
+  };
+}
+
 describe("RuntimeNodeCard", () => {
+  it("renders resolved actor identity and agent availability", () => {
+    const workerIdentity: WorkflowActorIdentity = {
+      type: "agent",
+      id: "agent-1",
+      name: "Runtime Agent",
+      typeLabel: "Digital human",
+      initials: "RA",
+      avatarUrl: null,
+      availability: "offline",
+      availabilityLabel: "Offline",
+    };
+    const criticIdentity: WorkflowActorIdentity = {
+      type: "member",
+      id: "member-1",
+      name: "Runtime Reviewer",
+      typeLabel: "Member",
+      initials: "RR",
+      avatarUrl: null,
+    };
+
+    render(
+      <RuntimeNodeCard
+        node={baseNode}
+        nodeRun={completedRun}
+        workerName="Runtime Agent"
+        criticName="Runtime Reviewer"
+        workerIdentity={workerIdentity}
+        criticIdentity={criticIdentity}
+        onClick={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText("Runtime Agent")).toBeInTheDocument();
+    expect(screen.getByText("Digital human")).toBeInTheDocument();
+    expect(screen.queryByText("Offline")).not.toBeInTheDocument();
+    expect(
+      screen.getByTestId("runtime-node-card-node-1")
+        .querySelector('[data-workflow-actor-presence="offline"]'),
+    ).toHaveClass("bg-muted-foreground/55");
+    expect(screen.getByText("Runtime Reviewer")).toBeInTheDocument();
+    expect(screen.getByText("Member")).toBeInTheDocument();
+    expect(screen.getByTestId("runtime-node-card-node-1").querySelector("[data-workflow-actor-state]")).not.toBeInTheDocument();
+  });
+
   it("renders child issue progress context instead of executor and reviewer slots", () => {
     render(
       <RuntimeNodeCard
@@ -212,6 +273,8 @@ describe("RuntimeNodeCard", () => {
         nodeRun={completedRun}
         workerName="小助手"
         criticName="审核员"
+        workerIdentity={actorIdentity("小助手", "agent")}
+        criticIdentity={actorIdentity("审核员")}
         onClick={vi.fn()}
       />,
     );
@@ -472,6 +535,8 @@ describe("RuntimeNodeCard", () => {
         runtimeSummary={runtimeSummary}
         workerName="Tester"
         criticName="Reviewer"
+        workerIdentity={actorIdentity("Tester", "agent")}
+        criticIdentity={actorIdentity("Reviewer")}
         onClick={vi.fn()}
       />,
     );
@@ -495,6 +560,83 @@ describe("RuntimeNodeCard", () => {
     expect(screen.getByLabelText("Reviewing")).toBeInTheDocument();
   });
 
+  it("shows the completed duration below the status", () => {
+    render(
+      <RuntimeNodeCard
+        node={baseNode}
+        nodeRun={completedRun}
+        runtimeSummary={{ ...runtimeSummary, display_status: "completed" }}
+        workerName="Tester"
+        criticName="Reviewer"
+        onClick={vi.fn()}
+      />,
+    );
+
+    const duration = screen.getByTestId("runtime-node-duration");
+    expect(duration).toHaveTextContent("1m 30s");
+    expect(duration).toHaveAttribute("aria-label", "Duration 1m 30s");
+    expect(duration.parentElement).toHaveClass("items-end");
+  });
+
+  it("shows elapsed duration from the shared current time while a node is running", () => {
+    render(
+      <RuntimeNodeCard
+        node={baseNode}
+        nodeRun={{
+          ...completedRun,
+          status: "working",
+          started_at: "2026-07-25T10:00:00Z",
+          completed_at: null,
+        }}
+        runtimeSummary={{
+          ...runtimeSummary,
+          display_status: "in_progress",
+          duration_seconds: null,
+        }}
+        nowMs={Date.parse("2026-07-25T10:01:40Z")}
+        workerName="Tester"
+        criticName="Reviewer"
+        onClick={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByTestId("runtime-node-duration")).toHaveTextContent("1m 40s");
+  });
+
+  it("does not reserve a duration row for a node that has not started", () => {
+    render(
+      <RuntimeNodeCard
+        node={baseNode}
+        nodeRun={null}
+        runtimeSummary={null}
+        nowMs={Date.parse("2026-07-25T10:01:40Z")}
+        workerName="Tester"
+        criticName="Reviewer"
+        onClick={vi.fn()}
+      />,
+    );
+
+    expect(screen.queryByTestId("runtime-node-duration")).not.toBeInTheDocument();
+  });
+
+  it.each([
+    ["gateway", { type: "gateway", gateway_kind: "fork", shape: "diamond" }],
+    ["split", { type: "split", shape: "rectangle" }],
+  ])("shows duration in the %s node status area", (_kind, formatSchema) => {
+    render(
+      <RuntimeNodeCard
+        node={{ ...baseNode, format_schema: formatSchema }}
+        nodeRun={completedRun}
+        runtimeSummary={{ ...runtimeSummary, display_status: "completed" }}
+        workerName="Tester"
+        criticName="Reviewer"
+        onClick={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByTestId("runtime-node-duration")).toHaveTextContent("1m 30s");
+  });
+
   it("does not emphasize blocked runtime nodes unless they are selected as the runtime focus", () => {
     render(
       <RuntimeNodeCard
@@ -514,6 +656,29 @@ describe("RuntimeNodeCard", () => {
     expect(surface?.className).toContain("ring-slate-200/70");
     expect(surface?.className).not.toContain("ring-red");
     expect(surface?.className).not.toContain("from-red");
+  });
+
+  it("prefers the exact failed node status over a compatibility blocked summary", () => {
+    render(
+      <RuntimeNodeCard
+        node={baseNode}
+        nodeRun={{ ...completedRun, status: "failed" }}
+        runtimeSummary={{
+          ...runtimeSummary,
+          display_status: "blocked",
+          has_error: true,
+          error_message: "Max turns reached",
+        }}
+        workerName="Tester"
+        criticName="Reviewer"
+        onClick={vi.fn()}
+      />,
+    );
+
+    const card = screen.getByTestId("runtime-node-card-node-1");
+    expect(card).toHaveAttribute("data-runtime-display-status", "failed");
+    expect(screen.getByText("Failed")).toBeInTheDocument();
+    expect(screen.queryByText("Blocked")).not.toBeInTheDocument();
   });
 
   it("emphasizes only the selected runtime focus node with its status color", () => {
@@ -546,6 +711,8 @@ describe("RuntimeNodeCard", () => {
         nodeRun={completedRun}
         workerName="小助手"
         criticName="审核员"
+        workerIdentity={actorIdentity("小助手", "agent")}
+        criticIdentity={actorIdentity("审核员")}
         onClick={vi.fn()}
       />,
     );
@@ -698,6 +865,8 @@ describe("RuntimeNodeCard", () => {
         }}
         workerName="Tester"
         criticName="Reviewer"
+        workerIdentity={actorIdentity("Tester", "agent")}
+        criticIdentity={actorIdentity("Reviewer")}
         onClick={vi.fn()}
       />,
     );
@@ -742,12 +911,17 @@ describe("RuntimeNodeCard", () => {
         nodeRun={completedRun}
         workerName="Extremely Long Runtime Worker Name For Verification"
         criticName="Extremely Long Runtime Reviewer Name"
+        workerIdentity={actorIdentity("Extremely Long Runtime Worker Name For Verification", "agent")}
+        criticIdentity={actorIdentity("Extremely Long Runtime Reviewer Name")}
         onClick={vi.fn()}
       />,
     );
 
     expect(screen.getByText(/Long runtime node title/).className).toContain("line-clamp-2");
-    expect(screen.getByText(/Extremely Long Runtime Worker/).className).toContain("line-clamp-2");
+    expect(screen.getByText(/Extremely Long Runtime Worker/)).toHaveAttribute(
+      "title",
+      "Extremely Long Runtime Worker Name For Verification",
+    );
   });
 
   it("renders split child progress as the expansion control without opening the split panel", async () => {

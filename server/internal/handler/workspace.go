@@ -303,6 +303,39 @@ func (h *Handler) UpdateWorkspace(w http.ResponseWriter, r *http.Request) {
 		params.Settings = s
 	}
 	if req.Repos != nil {
+		// Cascade: a URL removed from workspace.repos (Settings → Repositories)
+		// is also detached from every project in this workspace, so the project
+		// page and the settings page stay consistent.
+		type repoURL struct{ URL string `json:"url"` }
+		var newRepos []repoURL
+		if blob, err := json.Marshal(req.Repos); err == nil {
+			_ = json.Unmarshal(blob, &newRepos)
+		}
+		newURLs := make(map[string]struct{}, len(newRepos))
+		for _, nr := range newRepos {
+			if u := strings.TrimSpace(nr.URL); u != "" {
+				newURLs[u] = struct{}{}
+			}
+		}
+		if old, err := h.Queries.GetWorkspace(r.Context(), idUUID); err == nil {
+			var oldRepos []repoURL
+			_ = json.Unmarshal(old.Repos, &oldRepos)
+			for _, oldRepo := range oldRepos {
+				u := strings.TrimSpace(oldRepo.URL)
+				if u == "" {
+					continue
+				}
+				if _, kept := newURLs[u]; kept {
+					continue
+				}
+				if _, err := h.Queries.DeleteProjectResourcesByWorkspaceAndURL(r.Context(), db.DeleteProjectResourcesByWorkspaceAndURLParams{
+					WorkspaceID: idUUID,
+					Url:         u,
+				}); err != nil {
+					slog.Warn("cascade delete project resource failed", append(logger.RequestAttrs(r), "error", err, "workspace_id", idUUID, "url", u)...)
+				}
+			}
+		}
 		reposJSON, _ := json.Marshal(req.Repos)
 		params.Repos = reposJSON
 	}

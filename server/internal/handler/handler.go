@@ -257,6 +257,11 @@ func New(queries *db.Queries, txStarter txStarter, hub *realtime.Hub, bus *event
 			}
 		}
 	}
+	// Split child issues are status-synced by the orchestrator (not by node
+	// runs), so it gets its own broadcast hook.
+	splitOrchestrator.OnChildIssueStatusChanged = func(ctx context.Context, prev, issue db.MulticaIssue) {
+		h.publishIssueStatusChanged(ctx, prev, issue)
+	}
 
 	return h
 }

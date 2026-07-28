@@ -5,10 +5,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log/slog"
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/multica-ai/multica/server/internal/service"
 	db "github.com/multica-ai/multica/server/pkg/db/generated"
@@ -39,27 +39,35 @@ type FinalizeNodeRunRequest struct {
 // ── Response types ───────────────────────────────────────────────────────────
 
 type WorkflowRunResponse struct {
-	ID                     string          `json:"id"`
-	WorkflowID             string          `json:"workflow_id"`
-	WorkspaceID            string          `json:"workspace_id"`
-	WorkflowTitle          string          `json:"workflow_title"`
-	Status                 string          `json:"status"`
-	TriggeredByType        string          `json:"triggered_by_type"`
-	TriggeredByID          *string         `json:"triggered_by_id"`
-	RuntimeID              *string         `json:"runtime_id"`
-	RuntimeSelectionPolicy string          `json:"runtime_selection_policy"`
-	Input                  json.RawMessage `json:"input"`
-	Output                 json.RawMessage `json:"output"`
-	StartedAt              string          `json:"started_at"`
-	CompletedAt            *string         `json:"completed_at"`
-	CreatedAt              string          `json:"created_at"`
+	ID                      string          `json:"id"`
+	WorkflowID              string          `json:"workflow_id"`
+	WorkspaceID             string          `json:"workspace_id"`
+	WorkflowTitle           string          `json:"workflow_title"`
+	Status                  string          `json:"status"`
+	TriggeredByType         string          `json:"triggered_by_type"`
+	TriggeredByID           *string         `json:"triggered_by_id"`
+	RuntimeID               *string         `json:"runtime_id"`
+	RuntimeSelectionPolicy  string          `json:"runtime_selection_policy"`
+	Input                   json.RawMessage `json:"input"`
+	Output                  json.RawMessage `json:"output"`
+	StartedAt               string          `json:"started_at"`
+	CompletedAt             *string         `json:"completed_at"`
+	CreatedAt               string          `json:"created_at"`
+	SourceConfigRevision    int64           `json:"source_config_revision,omitempty"`
+	DefinitionSchemaVersion int32           `json:"definition_schema_version,omitempty"`
+	DefinitionSnapshot      json.RawMessage `json:"definition_snapshot,omitempty"`
+	MaxRetries              int32           `json:"max_retries,omitempty"`
+	FailureReason           *string         `json:"failure_reason,omitempty"`
+	ValidationErrors        json.RawMessage `json:"validation_errors,omitempty"`
 }
 
 type WorkflowNodeRunResponse struct {
 	ID                       string          `json:"id"`
 	WorkflowRunID            string          `json:"workflow_run_id"`
 	WorkflowNodeID           string          `json:"workflow_node_id"`
+	SourceWorkflowNodeID     string          `json:"source_workflow_node_id,omitempty"`
 	NodeTitle                string          `json:"node_title"`
+	NodeDescription          string          `json:"node_description,omitempty"`
 	Status                   string          `json:"status"`
 	RetryCount               int32           `json:"retry_count"`
 	WorkerType               string          `json:"worker_type"`
@@ -83,6 +91,14 @@ type WorkflowNodeRunResponse struct {
 	CompletedAt              *string         `json:"completed_at"`
 	CreatedAt                string          `json:"created_at"`
 	UpdatedAt                string          `json:"updated_at"`
+	FormatSchema             json.RawMessage `json:"format_schema,omitempty"`
+	CriticAPIURL             *string         `json:"critic_api_url,omitempty"`
+	StageSnapshot            json.RawMessage `json:"stage_snapshot,omitempty"`
+	WorkerRoleSnapshot       json.RawMessage `json:"worker_role_snapshot,omitempty"`
+	CriticRoleSnapshot       json.RawMessage `json:"critic_role_snapshot,omitempty"`
+	RuntimeConfig            json.RawMessage `json:"runtime_config,omitempty"`
+	WorkerNameSnapshot       string          `json:"worker_name_snapshot,omitempty"`
+	CriticNameSnapshot       string          `json:"critic_name_snapshot,omitempty"`
 }
 
 type WorkflowNodeRuntimeSummaryResponse struct {
@@ -104,29 +120,45 @@ type WorkflowNodeRuntimeSummaryResponse struct {
 
 func workflowRunToResponse(r db.MulticaWorkflowRun) WorkflowRunResponse {
 	return WorkflowRunResponse{
-		ID:                     uuidToString(r.ID),
-		WorkflowID:             uuidToString(r.WorkflowID),
-		WorkspaceID:            uuidToString(r.WorkspaceID),
-		WorkflowTitle:          r.WorkflowTitle,
-		Status:                 r.Status,
-		TriggeredByType:        r.TriggeredByType,
-		TriggeredByID:          uuidToPtr(r.TriggeredByID),
-		RuntimeID:              uuidToPtr(r.RuntimeID),
-		RuntimeSelectionPolicy: r.RuntimeSelectionPolicy,
-		Input:                  json.RawMessage(r.Input),
-		Output:                 json.RawMessage(r.Output),
-		StartedAt:              timestampToString(r.StartedAt),
-		CompletedAt:            timestampToPtr(r.CompletedAt),
-		CreatedAt:              timestampToString(r.CreatedAt),
+		ID:                      uuidToString(r.ID),
+		WorkflowID:              uuidToString(r.WorkflowID),
+		WorkspaceID:             uuidToString(r.WorkspaceID),
+		WorkflowTitle:           r.WorkflowTitle,
+		Status:                  r.Status,
+		TriggeredByType:         r.TriggeredByType,
+		TriggeredByID:           uuidToPtr(r.TriggeredByID),
+		RuntimeID:               uuidToPtr(r.RuntimeID),
+		RuntimeSelectionPolicy:  r.RuntimeSelectionPolicy,
+		Input:                   json.RawMessage(r.Input),
+		Output:                  json.RawMessage(r.Output),
+		StartedAt:               timestampToString(r.StartedAt),
+		CompletedAt:             timestampToPtr(r.CompletedAt),
+		CreatedAt:               timestampToString(r.CreatedAt),
+		SourceConfigRevision:    r.SourceConfigRevision,
+		DefinitionSchemaVersion: r.DefinitionSchemaVersion,
+		DefinitionSnapshot:      json.RawMessage(r.DefinitionSnapshot),
+		MaxRetries:              r.MaxRetries,
+		FailureReason:           textToPtr(r.FailureReason),
+		ValidationErrors:        json.RawMessage(r.ValidationErrors),
 	}
 }
 
+func workflowNodeRunCanvasID(nr db.MulticaWorkflowNodeRun) string {
+	if nr.SourceWorkflowNodeID.Valid {
+		return uuidToString(nr.SourceWorkflowNodeID)
+	}
+	return uuidToString(nr.WorkflowNodeID)
+}
+
 func workflowNodeRunToResponse(nr db.MulticaWorkflowNodeRun) WorkflowNodeRunResponse {
+	sourceNodeID := workflowNodeRunCanvasID(nr)
 	return WorkflowNodeRunResponse{
 		ID:                       uuidToString(nr.ID),
 		WorkflowRunID:            uuidToString(nr.WorkflowRunID),
-		WorkflowNodeID:           uuidToString(nr.WorkflowNodeID),
+		WorkflowNodeID:           sourceNodeID,
+		SourceWorkflowNodeID:     sourceNodeID,
 		NodeTitle:                nr.NodeTitle,
+		NodeDescription:          nr.NodeDescription,
 		Status:                   nr.Status,
 		RetryCount:               nr.RetryCount,
 		WorkerType:               nr.WorkerType,
@@ -150,6 +182,14 @@ func workflowNodeRunToResponse(nr db.MulticaWorkflowNodeRun) WorkflowNodeRunResp
 		CompletedAt:              timestampToPtr(nr.CompletedAt),
 		CreatedAt:                timestampToString(nr.CreatedAt),
 		UpdatedAt:                timestampToString(nr.UpdatedAt),
+		FormatSchema:             json.RawMessage(nr.FormatSchema),
+		CriticAPIURL:             textToPtr(nr.CriticApiUrl),
+		StageSnapshot:            json.RawMessage(nr.StageSnapshot),
+		WorkerRoleSnapshot:       json.RawMessage(nr.WorkerRoleSnapshot),
+		CriticRoleSnapshot:       json.RawMessage(nr.CriticRoleSnapshot),
+		RuntimeConfig:            json.RawMessage(nr.RuntimeConfig),
+		WorkerNameSnapshot:       nr.WorkerNameSnapshot,
+		CriticNameSnapshot:       nr.CriticNameSnapshot,
 	}
 }
 
@@ -194,9 +234,13 @@ func nodeRunDurationSeconds(nr db.MulticaWorkflowNodeRun) *int64 {
 	return &seconds
 }
 
-func extractNodeRunError(nr db.MulticaWorkflowNodeRun) (bool, string) {
+func extractNodeRunError(nr db.MulticaWorkflowNodeRun, taskError string) (bool, string) {
 	if nr.Status != "failed" && nr.Status != "blocked" && nr.Status != "format_failed" && nr.Status != "critic_rework" {
 		return false, ""
+	}
+
+	if taskError != "" {
+		return true, taskError
 	}
 
 	for _, raw := range [][]byte{nr.WorkerOutput, nr.CriticOutput} {
@@ -214,6 +258,58 @@ func extractNodeRunError(nr db.MulticaWorkflowNodeRun) (bool, string) {
 		}
 	}
 	return true, ""
+}
+
+func (h *Handler) workflowRunTaskErrors(ctx context.Context, runID pgtype.UUID) (map[string]string, error) {
+	rows, err := h.DB.Query(ctx, `
+		SELECT
+			node_run.id::text,
+			COALESCE(
+				NULLIF(phase_task.error, ''),
+				CASE
+					WHEN phase_task.id IS NULL THEN NULLIF(agent_task.error, '')
+				END,
+				''
+			) AS error_message
+		FROM multica_workflow_node_run node_run
+		LEFT JOIN LATERAL (
+			SELECT linked_task.id, linked_task.error
+			FROM multica_agent_task_queue linked_task
+			WHERE linked_task.status = 'failed'
+				AND linked_task.id IN (
+					node_run.worker_agent_task_id,
+					node_run.critic_agent_task_id
+				)
+			ORDER BY
+				linked_task.completed_at DESC NULLS LAST,
+				linked_task.created_at DESC,
+				linked_task.id DESC
+			LIMIT 1
+		) phase_task ON TRUE
+		LEFT JOIN multica_agent_task_queue agent_task
+			ON agent_task.id = node_run.agent_task_id
+			AND agent_task.status = 'failed'
+		WHERE node_run.workflow_run_id = $1
+	`, runID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	taskErrors := make(map[string]string)
+	for rows.Next() {
+		var nodeRunID, errorMessage string
+		if err := rows.Scan(&nodeRunID, &errorMessage); err != nil {
+			return nil, err
+		}
+		if errorMessage != "" {
+			taskErrors[nodeRunID] = errorMessage
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return taskErrors, nil
 }
 
 func (h *Handler) workflowRunSplitProgressSummaries(ctx context.Context, runID pgtype.UUID) (map[string]SplitProgressResponse, error) {
@@ -313,12 +409,6 @@ func (h *Handler) StartWorkflowRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Validate DAG before starting.
-	if err := h.WorkflowService.ValidateDAG(r.Context(), wf.ID); err != nil {
-		writeError(w, http.StatusBadRequest, "workflow has cycles: "+err.Error())
-		return
-	}
-
 	run, err := h.WorkflowService.StartRunWithRuntimeSelection(
 		r.Context(),
 		wf,
@@ -329,6 +419,14 @@ func (h *Handler) StartWorkflowRun(w http.ResponseWriter, r *http.Request) {
 		runtimePreference,
 	)
 	if err != nil {
+		var invalid *service.WorkflowConfigInvalidError
+		if errors.As(err, &invalid) {
+			writeJSON(w, http.StatusUnprocessableEntity, map[string]any{
+				"error": "workflow configuration is invalid", "code": "workflow_config_invalid",
+				"run_id": uuidToString(invalid.RunID), "issues": invalid.Issues,
+			})
+			return
+		}
 		if errors.Is(err, service.ErrWorkflowRuntimeSelectionInvalid) {
 			writeError(w, http.StatusBadRequest, err.Error())
 			return
@@ -346,14 +444,6 @@ func (h *Handler) StartWorkflowRun(w http.ResponseWriter, r *http.Request) {
 		"run":      startedResp,
 		"workflow": map[string]string{"id": uuidToString(wf.ID), "title": wf.Title},
 	})
-	if run.Status == service.RunStatusRunning {
-		if err := h.WorkflowService.DispatchRootNodeRuns(r.Context(), run.ID); err != nil {
-			slog.Warn("failed to dispatch root workflow nodes", "run_id", uuidToString(run.ID), "error", err)
-		} else if refreshed, err := h.Queries.GetWorkflowRun(r.Context(), run.ID); err == nil {
-			run = &refreshed
-		}
-	}
-
 	// Scaffold the run's Gitea deliverable repo + lazily provision the workspace
 	// bot (document workflows only; no-op when Gitea is dormant). Fire-and-forget
 	// on context.Background(): the goroutine outlives the HTTP request, so
@@ -441,13 +531,18 @@ func (h *Handler) GetWorkflowRunCanvasSummary(w http.ResponseWriter, r *http.Req
 		writeError(w, http.StatusInternalServerError, "failed to summarize split progress")
 		return
 	}
+	taskErrors, err := h.workflowRunTaskErrors(r.Context(), run.ID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to summarize task errors")
+		return
+	}
 
 	nodeRunResp := make([]WorkflowNodeRunResponse, 0, len(nodeRuns))
 	runtimeSummaries := make([]WorkflowNodeRuntimeSummaryResponse, 0, len(nodeRuns))
 	for _, nr := range nodeRuns {
 		nodeRunResp = append(nodeRunResp, workflowNodeRunToResponse(nr))
 		actorType, actorID := nodeRunActiveActor(nr)
-		hasError, errorMessage := extractNodeRunError(nr)
+		hasError, errorMessage := extractNodeRunError(nr, taskErrors[uuidToString(nr.ID)])
 		var splitProgress *SplitProgressResponse
 		if progress, ok := splitProgressSummaries[uuidToString(nr.ID)]; ok {
 			progressCopy := progress
@@ -455,7 +550,7 @@ func (h *Handler) GetWorkflowRunCanvasSummary(w http.ResponseWriter, r *http.Req
 		}
 
 		runtimeSummaries = append(runtimeSummaries, WorkflowNodeRuntimeSummaryResponse{
-			WorkflowNodeID:  uuidToString(nr.WorkflowNodeID),
+			WorkflowNodeID:  workflowNodeRunCanvasID(nr),
 			NodeRunID:       uuidToString(nr.ID),
 			DisplayStatus:   workflowDisplayStatus(nr.Status),
 			ActiveActorType: actorType,
@@ -991,20 +1086,25 @@ var errDeliverableNotFound = errors.New("deliverable not found on this node run"
 // upload path — document bodies live in Gitea (submitted via the report-pr
 // flow) once the platform Gitea is configured.
 func (h *Handler) deliverableKind(ctx context.Context, nodeRunID, deliverableID pgtype.UUID) (string, error) {
-	nr, err := h.Queries.GetWorkflowNodeRun(ctx, nodeRunID)
+	requirement, err := h.Queries.GetNodeRunDeliverableRequirementForSubmission(ctx, db.GetNodeRunDeliverableRequirementForSubmissionParams{
+		ID: deliverableID, WorkflowNodeRunID: nodeRunID,
+	})
 	if err != nil {
-		return "", fmt.Errorf("get node run: %w", err)
-	}
-	deliverables, err := h.Queries.ListWorkflowNodeDeliverables(ctx, nr.WorkflowNodeID)
-	if err != nil {
-		return "", fmt.Errorf("list deliverables: %w", err)
-	}
-	for _, d := range deliverables {
-		if d.ID == deliverableID {
-			return d.Kind, nil
+		if errors.Is(err, pgx.ErrNoRows) {
+			return "", errDeliverableNotFound
 		}
+		return "", fmt.Errorf("get deliverable requirement: %w", err)
 	}
-	return "", errDeliverableNotFound
+	return requirement.Kind, nil
+}
+
+func workflowNodeRunDeliverableToResponse(d db.MulticaWorkflowNodeRunDeliverable, sourceNodeID pgtype.UUID) WorkflowNodeDeliverableResponse {
+	createdAt := timestampToString(d.CreatedAt)
+	return WorkflowNodeDeliverableResponse{
+		ID: uuidToString(d.ID), WorkflowNodeID: uuidToString(sourceNodeID), Kind: d.Kind,
+		Title: d.Title, Description: d.Description, Required: d.Required, SortOrder: d.SortOrder,
+		CreatedAt: createdAt, UpdatedAt: createdAt,
+	}
 }
 
 // ── Deliverable submission handlers ──────────────────────────────────────────
@@ -1028,15 +1128,15 @@ func (h *Handler) ListNodeRunDeliverableSubmissions(w http.ResponseWriter, r *ht
 		resp = append(resp, workflowNodeDeliverableSubmissionToResponse(s))
 	}
 
-	// Also return the node's deliverable definitions (kind) so the frontend can
+	// Also return the node-run's captured requirements so the frontend can
 	// render the right manual-upload control (file picker vs PR-link input)
 	// before any submission exists.
 	out := map[string]any{"submissions": resp}
 	if nodeRun, err := h.Queries.GetWorkflowNodeRun(r.Context(), nrUUID); err == nil {
-		if defs, err := h.Queries.ListWorkflowNodeDeliverables(r.Context(), nodeRun.WorkflowNodeID); err == nil {
-			defResp := make([]WorkflowNodeDeliverableResponse, 0, len(defs))
-			for _, d := range defs {
-				defResp = append(defResp, workflowNodeDeliverableToResponse(d))
+		if requirements, err := h.Queries.ListNodeRunDeliverableRequirements(r.Context(), nodeRun.ID); err == nil {
+			defResp := make([]WorkflowNodeDeliverableResponse, 0, len(requirements))
+			for _, requirement := range requirements {
+				defResp = append(defResp, workflowNodeRunDeliverableToResponse(requirement, nodeRun.SourceWorkflowNodeID))
 			}
 			out["deliverables"] = defResp
 		}
@@ -1064,20 +1164,20 @@ func (h *Handler) SubmitNodeRunDeliverable(w http.ResponseWriter, r *http.Reques
 		writeError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
+	kind, err := h.deliverableKind(r.Context(), nrUUID, dUUID)
+	if err != nil {
+		if errors.Is(err, errDeliverableNotFound) {
+			writeError(w, http.StatusNotFound, "deliverable not found")
+		} else {
+			writeError(w, http.StatusInternalServerError, "failed to load deliverable")
+		}
+		return
+	}
 
 	// Document deliverables are submitted via Gitea PRs (the agent's report-pr
 	// flow), not inline content uploads — but only when the platform Gitea is
 	// configured. When dormant, document content uploads behave as before.
 	if isGiteaConfigured() && (req.Content != "" || req.AttachmentID != nil) {
-		kind, err := h.deliverableKind(r.Context(), nrUUID, dUUID)
-		if err != nil {
-			if errors.Is(err, errDeliverableNotFound) {
-				writeError(w, http.StatusNotFound, "deliverable not found")
-			} else {
-				writeError(w, http.StatusInternalServerError, "failed to load deliverable")
-			}
-			return
-		}
 		if kind == "document" {
 			writeError(w, http.StatusUnprocessableEntity,
 				"document deliverables are submitted via git PR; inline content upload is disabled")

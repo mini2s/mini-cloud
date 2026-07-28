@@ -502,6 +502,7 @@
       "unassigned": "未分组"
     },
     "card": {
+      "duration_label": "耗时 {{duration}}",
       "worker_label": "执行者",
       "critic_label": "审核者",
       "artifacts_label": "产物",
@@ -557,6 +558,7 @@
       "no_current_node": "暂无活跃节点",
       "running_count": "{{count}} 运行中",
       "reviewing_count": "{{count}} 审核中",
+      "failed_count": "{{count}} 失败",
       "blocked_count": "{{count}} 阻塞",
       "waiting_count": "{{count}} 等待中",
       "elapsed": "耗时 {{elapsed}}",
@@ -572,6 +574,7 @@
       "in_progress": "进行中",
       "reviewing": "审核中",
       "completed": "已完成",
+      "failed": "失败",
       "blocked": "已阻塞",
       "cancelled": "已取消",
       "dispatched": "已分发",

@@ -23,6 +23,15 @@ vi.mock("../../../../i18n", () => ({
           card: {
             worker_label: "Localized Worker",
             critic_label: "Localized Critic",
+            actor_type_agent: "Digital human",
+            actor_type_member: "Member",
+            actor_type_squad: "Squad",
+            actor_type_role: "Development role",
+            actor_type_api: "API reviewer",
+            actor_online: "Online",
+            actor_offline: "Offline",
+            actor_not_configured: "Not configured",
+            actor_optional: "Optional",
             split_badge: "Split",
             split_child_workflow_label: "Child workflow",
             split_policy_label: "Execution policy",
@@ -101,6 +110,16 @@ describe("CompactWorkerNode", () => {
     stageColorIndex: 0,
     pluginName: "builtin/code-review",
     workerName: "GPT-4 Agent",
+    workerIdentity: {
+      type: "agent",
+      id: "agent-1",
+      name: "GPT-4 Agent",
+      typeLabel: "Digital human",
+      initials: "GA",
+      avatarUrl: "/gpt-4.png",
+      availability: "online",
+      availabilityLabel: "Online",
+    },
     workerConfigured: true,
   };
 
@@ -134,6 +153,18 @@ describe("CompactWorkerNode", () => {
         }),
         workerName: "Very Long Builder Agent Name That Should Remain Readable",
         criticName: "Reviewer With A Long Display Name",
+        workerIdentity: {
+          ...baseData.workerIdentity!,
+          name: "Very Long Builder Agent Name That Should Remain Readable",
+        },
+        criticIdentity: {
+          type: "member",
+          id: "member-1",
+          name: "Reviewer With A Long Display Name",
+          typeLabel: "Member",
+          initials: "RW",
+          avatarUrl: null,
+        },
         workerConfigured: true,
         criticConfigured: true,
       },
@@ -145,7 +176,10 @@ describe("CompactWorkerNode", () => {
     expect(card).toHaveClass("h-[152px]", "w-[296px]");
     expect(screen.getByText(/Implement a very long checkout/).className).toContain("line-clamp-2");
     expect(screen.getByText(/Coordinate API/).className).toContain("line-clamp-2");
-    expect(screen.getByTestId("compact-worker-node-worker-role-long-node").innerHTML).not.toContain("truncate");
+    expect(screen.getByText("Very Long Builder Agent Name That Should Remain Readable")).toHaveAttribute(
+      "title",
+      "Very Long Builder Agent Name That Should Remain Readable",
+    );
   });
 
   it("uses the node title as the primary card label", () => {
@@ -182,7 +216,7 @@ describe("CompactWorkerNode", () => {
     expect(screen.getByText("GPT-4 Agent")).toBeInTheDocument();
   });
 
-  it("renders the Soft Slab node structure with a type badge and role metadata", () => {
+  it("renders the Soft Slab node structure without a top-right type badge", () => {
     const rfn = {
       id: "node-1",
       type: "compactWorker",
@@ -191,11 +225,8 @@ describe("CompactWorkerNode", () => {
     } as Node;
     renderWithProvider(rfn);
 
-    const badge = screen.getByTestId("compact-worker-node-badge-node-1");
     const meta = screen.getByTestId("compact-worker-node-meta-node-1");
-    expect(badge).toHaveTextContent("Agent");
-    expect(badge).toHaveAttribute("data-workflow-node-type-badge", "true");
-    expect(badge).toHaveClass("border-border/55", "bg-background/70", "text-muted-foreground");
+    expect(screen.queryByTestId("compact-worker-node-badge-node-1")).not.toBeInTheDocument();
     expect(meta).toHaveTextContent("GPT-4 Agent");
     expect(meta).toHaveTextContent("Optional");
     expect(meta).toHaveClass("border-t", "border-border/45");
@@ -219,6 +250,18 @@ describe("CompactWorkerNode", () => {
         }),
         workerName: "Builder Agent",
         criticName: "Reviewer",
+        workerIdentity: {
+          ...baseData.workerIdentity!,
+          name: "Builder Agent",
+        },
+        criticIdentity: {
+          type: "member",
+          id: "member-1",
+          name: "Reviewer",
+          typeLabel: "Member",
+          initials: "R",
+          avatarUrl: null,
+        },
         workerConfigured: true,
         criticConfigured: true,
       },
@@ -227,13 +270,20 @@ describe("CompactWorkerNode", () => {
 
     expect(screen.getByTestId("compact-worker-node-worker-role-node-1")).toHaveTextContent("Builder Agent");
     expect(screen.getByTestId("compact-worker-node-critic-role-node-1")).toHaveTextContent("Reviewer");
+    expect(screen.getByTestId("compact-worker-node-worker-role-node-1")).toHaveTextContent("Digital human");
+    expect(screen.getByTestId("compact-worker-node-worker-role-node-1")).not.toHaveTextContent("Online");
+    expect(
+      screen.getByTestId("compact-worker-node-worker-role-node-1")
+        .querySelector('[data-workflow-actor-presence="online"]'),
+    ).toHaveClass("bg-[var(--success)]");
+    expect(screen.getByTestId("compact-worker-node-critic-role-node-1")).toHaveTextContent("Member");
     expect(screen.getByText("Localized Worker")).toBeInTheDocument();
     expect(screen.getByText("Localized Critic")).toBeInTheDocument();
     expect(screen.getByTestId("compact-worker-node-meta-node-1")).toHaveClass("grid-cols-2");
     expect(screen.getByTestId("compact-worker-node-worker-role-node-1")).toHaveAttribute("data-workflow-actor-slot", "worker");
     expect(screen.getByTestId("compact-worker-node-critic-role-node-1")).toHaveAttribute("data-workflow-actor-slot", "critic");
-    expect(screen.getByTestId("compact-worker-node-worker-role-node-1").querySelector('[data-workflow-actor-state="configured"]')).toBeInTheDocument();
-    expect(screen.getByTestId("compact-worker-node-critic-role-node-1").querySelector('[data-workflow-actor-state="configured"]')).toBeInTheDocument();
+    expect(screen.getByTestId("compact-worker-node-worker-role-node-1").querySelector("[data-workflow-actor-state]")).not.toBeInTheDocument();
+    expect(screen.getByTestId("compact-worker-node-critic-role-node-1").querySelector("[data-workflow-actor-state]")).not.toBeInTheDocument();
   });
 
   it("does not show missing worker warnings on the card", () => {
@@ -244,6 +294,7 @@ describe("CompactWorkerNode", () => {
       data: {
         ...baseData,
         workerName: undefined,
+        workerIdentity: null,
         node: makeWorkerNode({ worker_id: null, worker_type: "human" }),
       },
     } as Node;
@@ -280,6 +331,7 @@ describe("CompactWorkerNode", () => {
       position: { x: 100, y: 12 },
       data: {
         ...baseData,
+        workerIdentity: null,
         workerName: undefined,
         node: makeWorkerNode({ worker_id: null, worker_type: "agent" }),
         workerConfigured: false,
@@ -301,6 +353,7 @@ describe("CompactWorkerNode", () => {
       position: { x: 100, y: 12 },
       data: {
         ...baseData,
+        workerIdentity: null,
         node: makeWorkerNode({
           id: "note-1",
           title: "Handoff note",
@@ -316,7 +369,8 @@ describe("CompactWorkerNode", () => {
     renderWithProvider(rfn);
 
     expect(screen.getByText("Handoff note")).toBeInTheDocument();
-    expect(screen.getByText("Note")).toBeInTheDocument();
+    expect(screen.queryByText("Note")).not.toBeInTheDocument();
+    expect(screen.getByText("Canvas note")).toBeInTheDocument();
     expect(screen.queryByText("Intake")).not.toBeInTheDocument();
     expect(screen.queryByText("Needs worker")).not.toBeInTheDocument();
   });
@@ -328,6 +382,7 @@ describe("CompactWorkerNode", () => {
       position: { x: 100, y: 12 },
       data: {
         ...baseData,
+        workerIdentity: null,
         node: makeWorkerNode({
           id: "fork-1",
           title: "Fan out work",
@@ -383,7 +438,7 @@ describe("CompactWorkerNode", () => {
     expect(screen.getByText("Child workflow")).toBeInTheDocument();
     expect(screen.getByText("Execution policy")).toBeInTheDocument();
     expect(screen.queryByText("GPT-4 Agent")).not.toBeInTheDocument();
-    expect(screen.getByTestId("compact-worker-node-badge-split-1")).toHaveTextContent("Split");
+    expect(screen.queryByTestId("compact-worker-node-badge-split-1")).not.toBeInTheDocument();
 
     const meta = screen.getByTestId("compact-worker-node-meta-split-1");
     expect(meta).toHaveClass("border-t", "grid-cols-2");
@@ -405,6 +460,7 @@ describe("CompactWorkerNode", () => {
       position: { x: 100, y: 12 },
       data: {
         ...baseData,
+        workerIdentity: null,
         node: makeWorkerNode({
           id: "trigger-1",
           title: "Start",
@@ -603,7 +659,7 @@ describe("CompactWorkerNode", () => {
       id: "node-1",
       type: "compactWorker",
       position: { x: 100, y: 12 },
-      data: { ...baseData, workerName: undefined },
+      data: { ...baseData, workerName: undefined, workerIdentity: null },
     } as Node;
     renderWithProvider(rfn);
 

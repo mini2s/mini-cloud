@@ -41,6 +41,7 @@ import {
   WorkflowNodeDetailPanelShell,
 } from "../../../common/workflow-node-detail-panel-shell";
 import { RuntimeDisplayStatusIcon } from "./node-run-status-icon";
+import { formatRuntimeDuration } from "./runtime-node-duration";
 import { NodeRunDeliverables } from "../../../workflows/components/node-run-deliverables";
 import {
   AgentTranscriptDialog,
@@ -143,28 +144,13 @@ function runtimeDisplayStatusText(
       return t(($) => $.execution.display_status.reviewing);
     case "completed":
       return t(($) => $.execution.display_status.completed);
+    case "failed":
+      return t(($) => $.execution.display_status.failed);
     case "blocked":
       return t(($) => $.execution.display_status.blocked);
     case "cancelled":
       return t(($) => $.execution.display_status.cancelled);
   }
-}
-
-function formatDurationLabel(totalSeconds: number): string {
-  if (totalSeconds < 60) return `${totalSeconds}s`;
-
-  const days = Math.floor(totalSeconds / 86400);
-  const hours = Math.floor((totalSeconds % 86400) / 3600);
-  const minutes = Math.floor((totalSeconds % 3600) / 60);
-  const seconds = totalSeconds % 60;
-
-  if (days > 0) {
-    return hours > 0 ? `${days}d ${hours}h` : `${days}d`;
-  }
-  if (hours > 0) {
-    return minutes > 0 ? `${hours}h ${minutes}m` : `${hours}h`;
-  }
-  return seconds > 0 ? `${minutes}m ${seconds}s` : `${minutes}m`;
 }
 
 export function ExecutionDetailPanel({
@@ -194,7 +180,9 @@ export function ExecutionDetailPanel({
   const queryClient = useQueryClient();
   const nodeFormat = parseNodeFormat(node.format_schema);
   const isGateway = nodeFormat.kind === "gateway";
-  const displayStatus = runtimeSummary?.display_status ?? (nodeRun ? toWorkflowRuntimeDisplayStatus(nodeRun.status) : "pending");
+  const displayStatus = nodeRun?.status === "failed"
+    ? "failed"
+    : runtimeSummary?.display_status ?? (nodeRun ? toWorkflowRuntimeDisplayStatus(nodeRun.status) : "pending");
   const displayStatusLabel = runtimeDisplayStatusText(t, displayStatus, isGateway ? nodeFormat.gateway_kind : null);
   const GatewayIcon = nodeFormat.gateway_kind === "join" ? GitMerge : GitFork;
   const setChatSession = useChatStore((s) => s.setActiveSession);
@@ -226,11 +214,12 @@ export function ExecutionDetailPanel({
 
   const durationLabel = useMemo(() => {
     if (duration == null) return null;
-    return formatDurationLabel(duration);
+    return formatRuntimeDuration(duration);
   }, [duration]);
 
   const errorMessage = useMemo(() => {
     if (!nodeRun || (status !== "failed" && status !== "blocked" && status !== "format_failed")) return null;
+    if (runtimeSummary?.error_message.trim()) return runtimeSummary.error_message;
     const wo = nodeRun.worker_output as Record<string, unknown> | null;
     const co = nodeRun.critic_output as Record<string, unknown> | null;
     if (wo && typeof wo.error === "string") return wo.error;
@@ -238,7 +227,7 @@ export function ExecutionDetailPanel({
     if (co && typeof co.error === "string") return co.error;
     if (co && typeof co.message === "string") return co.message;
     return null;
-  }, [nodeRun, status]);
+  }, [nodeRun, runtimeSummary?.error_message, status]);
 
   const sessionId = nodeRun?.session_id ?? runtimeSummary?.session_id ?? null;
   const transcriptTaskId =

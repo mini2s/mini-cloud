@@ -1683,10 +1683,8 @@ func (h *Handler) buildUpstreamStageContext(ctx context.Context, task db.Multica
 	}
 
 	// Fetch completed upstream node runs from earlier stages.
-	upstreamRows, err := h.Queries.ListCompletedUpstreamNodeRuns(ctx, db.ListCompletedUpstreamNodeRunsParams{
-		WorkflowRunID:  nodeRun.WorkflowRunID,
-		WorkflowNodeID: nodeRun.WorkflowNodeID,
-		Limit:          10,
+	upstreamRows, err := h.Queries.ListCompletedRuntimeUpstreamNodeRuns(ctx, db.ListCompletedRuntimeUpstreamNodeRunsParams{
+		NodeRunID: nodeRun.ID, ResultLimit: 10,
 	})
 	if err != nil {
 		slog.Warn("buildUpstreamStageContext: failed to list upstream node runs", "task_id", uuidToString(task.ID), "error", err)
@@ -1698,7 +1696,7 @@ func (h *Handler) buildUpstreamStageContext(ctx context.Context, task db.Multica
 
 	// Resolve sub-issue for each upstream node run.
 	type upstreamInfo struct {
-		row     db.ListCompletedUpstreamNodeRunsRow
+		row     db.ListCompletedRuntimeUpstreamNodeRunsRow
 		issueID pgtype.UUID
 	}
 	upstreams := make([]upstreamInfo, 0, len(upstreamRows))
@@ -1837,21 +1835,13 @@ func (h *Handler) giteaContextForNodeRun(ctx context.Context, nodeRunID pgtype.U
 	if err != nil {
 		return nil
 	}
-	workflow, err := h.Queries.GetWorkflow(ctx, run.WorkflowID)
-	if err != nil {
-		return nil
-	}
 	// Node topological position drives the readable <NN> prefix in repo paths.
-	node, err := h.Queries.GetWorkflowNode(ctx, nr.WorkflowNodeID)
+	topo, err := service.RunNodeTopoOrder(ctx, h.Queries, run.ID)
 	if err != nil {
 		return nil
 	}
-	topo, err := service.NodeTopoOrder(ctx, h.Queries, run.WorkflowID)
-	if err != nil {
-		return nil
-	}
-	seq := topo[util.UUIDToString(node.ID)]
-	deliverables, err := h.Queries.ListWorkflowNodeDeliverables(ctx, nr.WorkflowNodeID)
+	seq := topo[util.UUIDToString(nr.ID)]
+	deliverables, err := h.Queries.ListNodeRunDeliverableRequirements(ctx, nr.ID)
 	if err != nil {
 		return nil
 	}
@@ -1871,7 +1861,11 @@ func (h *Handler) giteaContextForNodeRun(ctx context.Context, nodeRunID pgtype.U
 		return nil
 	}
 	owner := gitea.OrgName(util.UUIDToString(run.WorkspaceID))
-	repo := service.DeliverableRepoNameForWorkflow(workflow)
+	snapshot, err := (service.WorkflowRuntimeRepository{Queries: h.Queries}).GetRunDefinitionSnapshot(ctx, run.ID)
+	if err != nil {
+		return nil
+	}
+	repo := service.DeliverableRepoName(run.WorkflowID, snapshot.Workflow.IsDefault)
 	return &GiteaDeliverableContext{
 		Owner:        owner,
 		Repo:         repo,
@@ -1970,17 +1964,48 @@ type TaskCompleteRequest struct {
 	WorkDir   string `json:"work_dir"`   // working directory used during execution
 }
 
+func workflowCompletionFailureReason(task db.MulticaAgentTaskQueue, req TaskCompleteRequest) string {
+	if task.WorkflowNodeRunID.Valid && strings.TrimSpace(req.Output) == "" {
+		return "agent_empty_output"
+	}
+	return ""
+}
+
 func (h *Handler) CompleteTask(w http.ResponseWriter, r *http.Request) {
 	taskID := chi.URLParam(r, "taskId")
 
 	// Verify the caller owns this task's workspace.
-	if _, ok := h.requireDaemonTaskAccess(w, r, taskID); !ok {
+	currentTask, ok := h.requireDaemonTaskAccess(w, r, taskID)
+	if !ok {
 		return
 	}
 
 	var req TaskCompleteRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	if failureReason := workflowCompletionFailureReason(currentTask, req); failureReason != "" {
+		task, err := h.TaskService.FailTask(
+			r.Context(),
+			parseUUID(taskID),
+			"workflow task completed without output",
+			req.SessionID,
+			req.WorkDir,
+			failureReason,
+		)
+		if err != nil {
+			slog.Warn("fail empty-output workflow task", "task_id", taskID, "error", err)
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		slog.Warn("workflow task reported completion without output",
+			"task_id", taskID,
+			"agent_id", uuidToString(task.AgentID),
+			"failure_reason", failureReason,
+		)
+		writeJSON(w, http.StatusOK, taskToResponse(*task))
 		return
 	}
 

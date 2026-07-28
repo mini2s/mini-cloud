@@ -26,13 +26,13 @@ SELECT * FROM multica_workflow_node_run
 WHERE id = $1
 FOR UPDATE;
 
--- name: UpdateSplitNodeRunConfigVersion :one
+-- name: UpdateNodeRunRuntimeConfig :one
 UPDATE multica_workflow_node_run
-SET split_config_version = split_config_version + 1,
+SET runtime_config = $2,
+    split_config_version = split_config_version + 1,
     updated_at = now()
 WHERE id = $1
-  AND split_config_version = $2
-  AND status IN ('awaiting_split_review', 'split_active')
+  AND split_config_version = $3
 RETURNING *;
 
 -- name: CreateWorkflowNodeRun :one
@@ -196,10 +196,10 @@ UPDATE multica_workflow_node_run SET
 WHERE id = $1
 RETURNING *;
 
--- name: FailWorkflowNodeRunForRuntime :one
+-- name: FailWorkflowNodeRun :one
 UPDATE multica_workflow_node_run SET
-    status = 'failed',
-    failure_reason = 'runtime_unavailable',
+    status = $2,
+    failure_reason = $3,
     completed_at = now(),
     updated_at = now()
 WHERE id = $1
@@ -212,13 +212,15 @@ UPDATE multica_workflow_node_run SET
 WHERE id = $1
 RETURNING *;
 
--- name: CancelWorkflowNodeRuns :exec
+-- name: CancelWorkflowNodeRuns :many
 UPDATE multica_workflow_node_run SET
     status = 'cancelled',
+    failure_reason = 'workflow_failed',
     completed_at = now(),
     updated_at = now()
 WHERE workflow_run_id = $1
-  AND status NOT IN ('format_failed', 'completed', 'failed', 'blocked', 'skipped', 'cancelled');
+  AND status NOT IN ('format_failed', 'completed', 'failed', 'skipped', 'cancelled')
+RETURNING *;
 
 -- name: CancelWorkflowTasksByRun :many
 UPDATE multica_agent_task_queue task SET
@@ -305,8 +307,18 @@ ORDER BY wnr.created_at DESC
 LIMIT $2 OFFSET $3;
 
 -- name: CreateWorkflowAgentTask :one
-INSERT INTO multica_agent_task_queue (agent_id, runtime_id, issue_id, status, priority, workflow_node_run_id, chat_session_id, context)
-VALUES ($1, $2, sqlc.narg('issue_id'), 'queued', $3, sqlc.narg('workflow_node_run_id'), sqlc.narg('chat_session_id'), sqlc.narg('context'))
+INSERT INTO multica_agent_task_queue (
+    agent_id, runtime_id, issue_id, status, priority, workflow_node_run_id,
+    workflow_dispatch_job_id, chat_session_id, context
+)
+VALUES (
+    $1, $2, sqlc.narg('issue_id'), 'queued', $3,
+    sqlc.narg('workflow_node_run_id'), sqlc.narg('workflow_dispatch_job_id'),
+    sqlc.narg('chat_session_id'), sqlc.narg('context')
+)
+ON CONFLICT (workflow_dispatch_job_id)
+WHERE workflow_dispatch_job_id IS NOT NULL
+DO UPDATE SET workflow_dispatch_job_id = EXCLUDED.workflow_dispatch_job_id
 RETURNING *;
 
 -- name: AcquireWorkflowRuntimeSelectionLock :one
@@ -344,32 +356,6 @@ WHERE runtime.workspace_id = sqlc.arg('workspace_id')
   )
 GROUP BY runtime.id
 ORDER BY runtime.last_seen_at DESC, runtime.created_at ASC, runtime.id ASC;
-
--- name: ListCompletedUpstreamNodeRuns :many
--- Returns completed node runs from earlier stages (lower stage sort_order) for
--- the same workflow run. Used to build upstream context for workflow agent prompts.
--- If the current node has no stage, no upstream rows are returned.
-SELECT
-    wnr.id,
-    wnr.workflow_node_id,
-    wnr.node_title,
-    wnr.status,
-    wnr.worker_output
-FROM multica_workflow_node_run wnr
-JOIN multica_workflow_node wn ON wn.id = wnr.workflow_node_id
-LEFT JOIN multica_workflow_stage ws ON ws.id = wn.stage_id
-WHERE wnr.workflow_run_id = $1
-  AND wnr.workflow_node_id != $2
-  AND wnr.status = 'completed'
-  AND ws.sort_order < COALESCE(
-      (SELECT ws2.sort_order
-       FROM multica_workflow_node wn2
-       LEFT JOIN multica_workflow_stage ws2 ON ws2.id = wn2.stage_id
-       WHERE wn2.id = $2),
-      -1
-  )
-ORDER BY ws.sort_order ASC, wn.sort_order ASC, wnr.created_at ASC
-LIMIT $3;
 
 -- name: SetNodeRunSplitReviewChatSession :one
 UPDATE multica_workflow_node_run SET

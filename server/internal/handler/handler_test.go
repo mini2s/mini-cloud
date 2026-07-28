@@ -25,6 +25,7 @@ import (
 
 var testHandler *Handler
 var testPool *pgxpool.Pool
+var testBus *events.Bus
 var testUserID string
 var testWorkspaceID string
 var testRuntimeID string
@@ -57,6 +58,7 @@ func TestMain(m *testing.M) {
 	hub := realtime.NewHub()
 	go hub.Run()
 	bus := events.New()
+	testBus = bus
 	emailSvc := service.NewEmailService()
 	testHandler = New(queries, pool, hub, bus, emailSvc, nil, nil, analytics.NoopClient{}, Config{AllowSignup: true})
 	// httptest.NewRequest defaults RemoteAddr to 192.0.2.1, so every webhook
@@ -525,6 +527,9 @@ func TestCreateSubIssueInheritsParentProject(t *testing.T) {
 	w := httptest.NewRecorder()
 	req := newRequest("POST", "/api/projects?workspace_id="+testWorkspaceID, map[string]any{
 		"title": "Sub-issue inheritance project",
+		"resources": []map[string]any{
+			{"resource_type": "github_repo", "resource_ref": map[string]any{"url": "https://github.com/multica-ai/seed"}},
+		},
 	})
 	testHandler.CreateProject(w, req)
 	if w.Code != http.StatusCreated {
@@ -595,6 +600,9 @@ func TestCreateSubIssueUsesExplicitProjectOverParentProject(t *testing.T) {
 	w := httptest.NewRecorder()
 	req := newRequest("POST", "/api/projects?workspace_id="+testWorkspaceID, map[string]any{
 		"title": "Parent project",
+		"resources": []map[string]any{
+			{"resource_type": "github_repo", "resource_ref": map[string]any{"url": "https://github.com/multica-ai/seed"}},
+		},
 	})
 	testHandler.CreateProject(w, req)
 	if w.Code != http.StatusCreated {
@@ -607,6 +615,9 @@ func TestCreateSubIssueUsesExplicitProjectOverParentProject(t *testing.T) {
 	w = httptest.NewRecorder()
 	req = newRequest("POST", "/api/projects?workspace_id="+testWorkspaceID, map[string]any{
 		"title": "Child explicit project",
+		"resources": []map[string]any{
+			{"resource_type": "github_repo", "resource_ref": map[string]any{"url": "https://github.com/multica-ai/seed"}},
+		},
 	})
 	testHandler.CreateProject(w, req)
 	if w.Code != http.StatusCreated {

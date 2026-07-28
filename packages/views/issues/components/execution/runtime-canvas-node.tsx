@@ -20,6 +20,7 @@ import {
   type RuntimeNodeDeliverableSummary,
 } from "./runtime-node-card";
 import { useT } from "@multica/views/i18n";
+import type { WorkflowActorIdentity } from "../../../common/workflow-actor-slots";
 
 export const RUNTIME_SPLIT_SUBFLOW_CARD_WIDTH = RUNTIME_CHILD_ISSUE_NODE_WIDTH;
 export const RUNTIME_SPLIT_SUBFLOW_CARD_HEIGHT = RUNTIME_CHILD_ISSUE_NODE_HEIGHT;
@@ -38,8 +39,11 @@ export interface RuntimeCanvasNodeData extends Record<string, unknown> {
   node: WorkflowNode;
   nodeRun: WorkflowNodeRun | null;
   runtimeSummary: WorkflowNodeRuntimeSummary | null;
+  nowMs?: number;
   workerName: string | null;
   criticName: string | null;
+  workerIdentity?: WorkflowActorIdentity | null;
+  criticIdentity?: WorkflowActorIdentity | null;
   onOpen: (nodeId: string) => void;
   onOpenSession?: (nodeId: string) => Promise<boolean>;
   deliverables?: RuntimeNodeDeliverableSummary[];
@@ -96,10 +100,13 @@ export const RuntimeCanvasNode = memo(function RuntimeCanvasNode({
         nodeRun={nodeData.nodeRun}
         workerName={nodeData.workerName}
         criticName={nodeData.criticName}
+        workerIdentity={nodeData.workerIdentity}
+        criticIdentity={nodeData.criticIdentity}
         onClick={nodeData.onOpen}
         onOpenSession={nodeData.onOpenSession}
         deliverables={nodeData.deliverables}
         runtimeSummary={nodeData.runtimeSummary}
+        nowMs={nodeData.nowMs}
         isRuntimeFocus={nodeData.isRuntimeFocus === true}
         isSplitExpanded={nodeData.isSplitExpanded}
         splitChildCount={nodeData.splitChildCount}

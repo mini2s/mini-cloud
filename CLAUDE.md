@@ -338,6 +338,29 @@ test("example", async ({ page }) => {
 - Use atomic commits grouped by logical intent.
 - Conventional format: `feat(scope)`, `fix(scope)`, `refactor(scope)`, `docs`, `test(scope)`, `chore(scope)`.
 
+## Git Branch and Push Safety (hard rules)
+
+- Only the local `main` branch may track `origin/main`. Only the local `master` branch may track `origin/master`.
+- Feature, fix, docs, spec, and integration branches MUST NOT track `origin/main` or `origin/master`.
+- When creating a branch from a remote base, always disable inherited tracking:
+
+  ```bash
+  git switch --create <branch-name> --no-track origin/main
+  ```
+
+- The shorthand `git switch -c <branch-name> origin/main` is prohibited because it automatically configures the new branch to push to `origin/main`.
+- Immediately after creating or switching to a working branch, run `git branch -vv`. If a non-main branch shows `[origin/main]` or `[origin/master]`, stop and remove the upstream with `git branch --unset-upstream` before committing or pushing.
+- Never use an implicit `git push` to publish a new working branch. Push with an explicit same-name destination:
+
+  ```bash
+  git push --set-upstream origin HEAD:refs/heads/<branch-name>
+  ```
+
+- Before every push, verify `git branch --show-current`, `git status --short --branch`, and the exact destination ref. The destination branch name MUST match the current local working branch name.
+- Before the first push of a branch, or after any upstream change, run `git push --dry-run origin HEAD:refs/heads/<branch-name>` and inspect the reported destination before performing the real push.
+- Any push whose destination is `main` or `master` is prohibited unless the user explicitly requests that exact remote push in the current conversation. Requests such as "commit", "merge", "finish", or "integrate" do not authorize pushing to a protected branch.
+- Prefer a pull request for integration. Never rewrite, force-push, reset, or directly repair a shared protected branch without explicit user authorization.
+
 ## Minimum Pre-Push Checks
 
 ```bash
@@ -377,7 +400,7 @@ make check
 
 1. Create a tag on the `main` branch: `git tag v0.x.x`
 2. Push the tag: `git push origin v0.x.x`
-3. GitHub Actions automatically triggers `release.yml`: runs Go tests → GoReleaser builds multi-platform binaries → publishes to GitHub Releases + Homebrew tap
+3. GitHub Actions automatically triggers `release.yml`: runs Go tests → GoReleaser builds multi-platform binaries → publishes to GitHub Releases
 
 By default, bump the patch version each release (e.g. `v0.1.12` → `v0.1.13`), unless the user specifies a specific version.
 

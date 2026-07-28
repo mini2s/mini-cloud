@@ -14,6 +14,7 @@ const mocks = vi.hoisted(() => ({
   selectTemplate: vi.fn(),
   testRun: vi.fn(),
   toggleStatus: vi.fn(),
+  reviewIssues: vi.fn(),
   openRuns: vi.fn(),
   openSettings: vi.fn(),
   deleteWorkflow: vi.fn(),
@@ -126,6 +127,7 @@ function renderToolbar(overrides: Partial<React.ComponentProps<typeof WorkflowEd
       onSelectTemplate={mocks.selectTemplate}
       onTestRun={mocks.testRun}
       onToggleWorkflowStatus={mocks.toggleStatus}
+      onReviewIssues={mocks.reviewIssues}
       onOpenRunHistory={mocks.openRuns}
       onOpenRunSettings={mocks.openSettings}
       onDeleteWorkflow={mocks.deleteWorkflow}
@@ -193,14 +195,16 @@ describe("WorkflowEditorToolbar", () => {
     expect(screen.getByRole("button", { name: "Save first" })).toBeDisabled();
   });
 
-  it("uses issue-count copy when inactive workflow has blocking issues", () => {
+  it("opens blocking issue review without toggling workflow status", () => {
     renderToolbar({
       hasUnsavedEdits: false,
       blockingPreflightIssueCount: 3,
     });
 
     expect(screen.getByText("Draft · 3 issue(s) left")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Review issues" })).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "Review issues" }));
+    expect(mocks.reviewIssues).toHaveBeenCalledOnce();
+    expect(mocks.toggleStatus).not.toHaveBeenCalled();
   });
 
   it("keeps test run available but blocks activation when blocking preflight issues exist", () => {

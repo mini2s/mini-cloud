@@ -1,12 +1,10 @@
 package service
 
 import (
-	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -236,17 +234,24 @@ func TestStartDefaultRunForIssue_AgentAssignee(t *testing.T) {
 	if got.CriticType != "human" || got.CriticID != memberUUID {
 		t.Fatalf("critic override: type=%q id=%v, want human/%v", got.CriticType, got.CriticID, memberUUID)
 	}
-
-	// Agent task dispatched and linked to the node-run (so the daemon receives
-	// Gitea deliverable context via buildGiteaDeliverableContext).
-	var taskCount int
-	if err := pool.QueryRow(ctx, `
-		SELECT count(*) FROM multica_agent_task_queue WHERE workflow_node_run_id = $1
-	`, nr.ID).Scan(&taskCount); err != nil {
-		t.Fatalf("count tasks: %v", err)
+	if got.WorkerNameSnapshot != "SD Agent" || got.CriticNameSnapshot != "SD User "+suffix {
+		t.Fatalf(
+			"actor name snapshots: worker=%q critic=%q, want %q/%q",
+			got.WorkerNameSnapshot, got.CriticNameSnapshot, "SD Agent", "SD User "+suffix,
+		)
 	}
-	if taskCount != 1 {
-		t.Fatalf("want 1 agent task linked to node-run, got %d", taskCount)
+
+	// Run preparation durably enqueues dispatch; the worker creates the agent
+	// task asynchronously.
+	var dispatchCount int
+	if err := pool.QueryRow(ctx, `
+		SELECT count(*) FROM multica_workflow_node_run_dispatch_job
+		WHERE workflow_node_run_id = $1 AND phase = 'worker' AND generation = 1 AND status = 'pending'
+	`, nr.ID).Scan(&dispatchCount); err != nil {
+		t.Fatalf("count dispatch jobs: %v", err)
+	}
+	if dispatchCount != 1 {
+		t.Fatalf("want 1 pending dispatch job linked to node-run, got %d", dispatchCount)
 	}
 }
 
@@ -440,13 +445,7 @@ func TestResolveRuntimeForAgent_IgnoresBuiltinAgentRuntimeFromOtherWorkspace(t *
 	}
 }
 
-// TestStartDefaultRunForIssue_LogsDispatchFailure asserts that when the default
-// run's root-node dispatch fails (here: the assignee agent has no runtime bound,
-// so selectWorkflowRuntime returns "agent has no runtime"), the error is logged
-// rather than silently swallowed. Without this, the node-run sits at format_ok
-// looking "in progress" with no agent task enqueued and no clue why — exactly
-// the silent failure observed with a runtime-less agent assignee.
-func TestStartDefaultRunForIssue_LogsDispatchFailure(t *testing.T) {
+func TestStartDefaultRunForIssue_PersistsDispatchBeforeRuntimeResolution(t *testing.T) {
 	pool := openTestPool(t)
 	defer pool.Close()
 	ctx := context.Background()
@@ -512,25 +511,19 @@ func TestStartDefaultRunForIssue_LogsDispatchFailure(t *testing.T) {
 		CreatorID:    userUUID,
 	}
 
-	// Capture slog output (the service logs via the global default logger).
-	var logs bytes.Buffer
-	prev := slog.Default()
-	slog.SetDefault(slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelDebug})))
-	defer slog.SetDefault(prev)
-
-	// StartDefaultRunForIssue must NOT error — dispatch is best-effort and the
-	// run is still created. The dispatch failure must surface in the logs.
-	if _, _, err := svc.StartDefaultRunForIssue(ctx, issue); err != nil {
-		t.Fatalf("StartDefaultRunForIssue returned error (dispatch should be best-effort): %v", err)
+	_, nodeRun, err := svc.StartDefaultRunForIssue(ctx, issue)
+	if err != nil {
+		t.Fatalf("StartDefaultRunForIssue returned error: %v", err)
 	}
-
-	// The dispatch failure must be logged (not silently swallowed). Assert the
-	// warning is emitted; the exact internal error ("no agent configured for
-	// worker phase", "agent has no runtime", etc.) is incidental — what matters
-	// is that a best-effort dispatch failure surfaces instead of leaving the
-	// node-run stuck at format_ok with no clue.
-	if !strings.Contains(logs.String(), "dispatch default run root nodes") {
-		t.Fatalf("dispatch failure not logged; expected \"dispatch default run root nodes\" warning, got:\n%s", logs.String())
+	var dispatchCount int
+	if err := pool.QueryRow(ctx, `
+		SELECT count(*) FROM multica_workflow_node_run_dispatch_job
+		WHERE workflow_node_run_id = $1 AND status = 'pending'
+	`, nodeRun.ID).Scan(&dispatchCount); err != nil {
+		t.Fatal(err)
+	}
+	if dispatchCount != 1 {
+		t.Fatalf("pending dispatch jobs=%d, want 1", dispatchCount)
 	}
 }
 
@@ -619,16 +612,15 @@ func TestStartDefaultRunForIssue_SquadAssignee(t *testing.T) {
 		t.Fatalf("critic override: type=%q id=%v, want human/%v", got.CriticType, got.CriticID, memberUUID)
 	}
 
-	// dispatchWorker's squad case must resolve + task the LEADER agent, linked to
-	// the node-run (so buildGiteaDeliverableContext fires for the leader).
-	var taskAgentID string
+	var dispatchCount int
 	if err := pool.QueryRow(ctx, `
-		SELECT agent_id FROM multica_agent_task_queue WHERE workflow_node_run_id = $1
-	`, nr.ID).Scan(&taskAgentID); err != nil {
-		t.Fatalf("find task for node-run: %v", err)
+		SELECT count(*) FROM multica_workflow_node_run_dispatch_job
+		WHERE workflow_node_run_id = $1 AND status = 'pending'
+	`, nr.ID).Scan(&dispatchCount); err != nil {
+		t.Fatalf("find dispatch for node-run: %v", err)
 	}
-	if taskAgentID != agentID {
-		t.Fatalf("squad dispatch tasked agent %s, want the leader %s", taskAgentID, agentID)
+	if dispatchCount != 1 {
+		t.Fatalf("pending dispatch jobs=%d, want 1", dispatchCount)
 	}
 }
 
@@ -730,7 +722,22 @@ func TestUploadMemberDeliverable(t *testing.T) {
 	}
 	runUUID, _ := util.ParseUUID(runID)
 	nrUUID, _ := util.ParseUUID(nrID)
+	nodeUUID, _ := util.ParseUUID(nodeID)
 	wsUUID, _ := util.ParseUUID(wsID)
+	if _, err := pool.Exec(ctx, `
+		UPDATE multica_workflow_run
+		SET definition_schema_version = 1,
+		    definition_snapshot = jsonb_build_object(
+		        'schema_version', 1, 'snapshot_origin', 'native',
+		        'workflow', jsonb_build_object('id', $2::uuid, 'workspace_id', $3::uuid, 'title', 'Default', 'is_default', true),
+		        'nodes', jsonb_build_array(jsonb_build_object('id', $4::uuid, 'title', 'N', 'sort_order', 0)),
+		        'edges', '[]'::jsonb, 'stages', '[]'::jsonb, 'roles', '[]'::jsonb, 'deliverables', '[]'::jsonb
+		    )
+		WHERE id = $1
+	`, runUUID, wfID, wsID, nodeID); err != nil {
+		t.Fatalf("seed run snapshot: %v", err)
+	}
+	seedRuntimeDeliverableRequirement(t, pool, nrUUID, nodeUUID, "document")
 
 	t.Cleanup(func() {
 		pool.Exec(ctx, `DELETE FROM multica_workflow WHERE workspace_id = $1`, wsID)
@@ -762,7 +769,7 @@ func TestUploadMemberDeliverable(t *testing.T) {
 	if *prCount != 1 {
 		t.Fatalf("want 1 PR opened, got %d", *prCount)
 	}
-	archiveRepoPath := "/api/v1/repos/" + gitea.OrgName(wsID) + "/" + gitea.DefaultArchiveRepoName() + "/"
+	archiveRepoPath := "/api/v1/repos/" + gitea.OrgName(wsID) + "/" + gitea.RepoName(gitea.DefaultArchiveRepoName()) + "/"
 	for _, p := range *paths {
 		if !strings.Contains(p, archiveRepoPath) {
 			t.Fatalf("Gitea request %q did not use default archive repo path %q; all paths: %v", p, archiveRepoPath, *paths)
@@ -823,7 +830,22 @@ func TestUploadMemberDeliverable_UpdatesExistingFileAfterRejection(t *testing.T)
 	}
 	runUUID, _ := util.ParseUUID(runID)
 	nrUUID, _ := util.ParseUUID(nrID)
+	nodeUUID, _ := util.ParseUUID(nodeID)
 	wsUUID, _ := util.ParseUUID(wsID)
+	if _, err := pool.Exec(ctx, `
+		UPDATE multica_workflow_run
+		SET definition_schema_version = 1,
+		    definition_snapshot = jsonb_build_object(
+		        'schema_version', 1, 'snapshot_origin', 'native',
+		        'workflow', jsonb_build_object('id', $2::uuid, 'workspace_id', $3::uuid, 'title', 'Default', 'is_default', true),
+		        'nodes', jsonb_build_array(jsonb_build_object('id', $4::uuid, 'title', 'N', 'sort_order', 0)),
+		        'edges', '[]'::jsonb, 'stages', '[]'::jsonb, 'roles', '[]'::jsonb, 'deliverables', '[]'::jsonb
+		    )
+		WHERE id = $1
+	`, runUUID, wfID, wsID, nodeID); err != nil {
+		t.Fatalf("seed run snapshot: %v", err)
+	}
+	runtimeDeliverableID := seedRuntimeDeliverableRequirement(t, pool, nrUUID, nodeUUID, "document")
 
 	t.Cleanup(func() {
 		pool.Exec(ctx, `DELETE FROM multica_workflow WHERE workspace_id = $1`, wsID)
@@ -875,7 +897,7 @@ func TestUploadMemberDeliverable_UpdatesExistingFileAfterRejection(t *testing.T)
 		SELECT status, pull_request_url
 		FROM multica_workflow_node_deliverable_submission
 		WHERE workflow_node_run_id = $1 AND deliverable_id = $2
-	`, nrID, deliverableID).Scan(&status, &prURL); err != nil {
+	`, nrID, runtimeDeliverableID).Scan(&status, &prURL); err != nil {
 		t.Fatalf("read submission: %v", err)
 	}
 	if status != "submitted" || prURL == "" {

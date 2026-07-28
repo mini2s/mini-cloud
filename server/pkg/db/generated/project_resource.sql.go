@@ -74,6 +74,27 @@ func (q *Queries) DeleteProjectResource(ctx context.Context, id pgtype.UUID) err
 	return err
 }
 
+const deleteProjectResourcesByWorkspaceAndURL = `-- name: DeleteProjectResourcesByWorkspaceAndURL :execrows
+DELETE FROM multica_project_resource
+WHERE workspace_id = $1 AND resource_type = 'github_repo' AND resource_ref->>'url' = $2::text
+`
+
+type DeleteProjectResourcesByWorkspaceAndURLParams struct {
+	WorkspaceID pgtype.UUID `json:"workspace_id"`
+	Url         string      `json:"url"`
+}
+
+// Cascade: when a repo URL is removed from workspace.repos (Settings →
+// Repositories), detach it from every project in this workspace so the
+// project page and the settings page agree.
+func (q *Queries) DeleteProjectResourcesByWorkspaceAndURL(ctx context.Context, arg DeleteProjectResourcesByWorkspaceAndURLParams) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteProjectResourcesByWorkspaceAndURL, arg.WorkspaceID, arg.Url)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const getProjectResource = `-- name: GetProjectResource :one
 SELECT id, project_id, workspace_id, resource_type, resource_ref, label, position, created_at, created_by FROM multica_project_resource
 WHERE id = $1

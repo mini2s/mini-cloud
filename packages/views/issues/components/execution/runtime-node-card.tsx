@@ -11,18 +11,26 @@ import {
 } from "@multica/core/types";
 import { cn } from "@multica/ui/lib/utils";
 import { RuntimeDisplayStatusIcon } from "./node-run-status-icon";
-import { Check, ChevronDown, ChevronRight, CircleAlert, FileText, GitFork, GitMerge, MessageSquare } from "lucide-react";
+import { Check, ChevronDown, ChevronRight, CircleAlert, Clock3, FileText, GitFork, GitMerge, MessageSquare } from "lucide-react";
 import { useT } from "@multica/views/i18n";
 import { Button } from "@multica/ui/components/ui/button";
 import { Loader2 } from "lucide-react";
 import { workflowNodeInfoAreaClassName, workflowNodeShapeGlyphClassName } from "../../../common/workflow-node-shape";
-import { WorkflowActorSlot, type WorkflowActorState } from "../../../common/workflow-actor-slots";
+import {
+  WorkflowActorSlot,
+  type WorkflowActorIdentity,
+  type WorkflowActorState,
+} from "../../../common/workflow-actor-slots";
 import { WorkflowNodeTypeBadge } from "../../../common/workflow-node-type-badge";
 import {
   WorkflowCanvasNodeShell,
   type WorkflowCanvasNodeHandle,
 } from "../../../workflows/components/canvas/workflow-canvas-node-shell";
 import { WORKER_WIDTH } from "../../../workflows/components/overview/constants";
+import {
+  formatRuntimeDuration,
+  resolveRuntimeDurationSeconds,
+} from "./runtime-node-duration";
 
 export const RUNTIME_NODE_HEIGHT = 176;
 export const RUNTIME_SPLIT_NODE_HEIGHT = 156;
@@ -56,6 +64,8 @@ export interface RuntimeNodeCardProps {
   nodeRun: WorkflowNodeRun | null;
   workerName: string | null;
   criticName: string | null;
+  workerIdentity?: WorkflowActorIdentity | null;
+  criticIdentity?: WorkflowActorIdentity | null;
   onClick: (nodeId: string) => void;
   isSelected?: boolean;
   isRuntimeFocus?: boolean;
@@ -63,6 +73,7 @@ export interface RuntimeNodeCardProps {
   onAction?: (nodeRunId: string, action: NodeRunActionType) => void;
   isActionLoading?: Partial<Record<NodeRunActionType, boolean>>;
   runtimeSummary?: WorkflowNodeRuntimeSummary | null;
+  nowMs?: number;
   handles?: WorkflowCanvasNodeHandle[];
   lateralHandleTop?: number;
   isSplitExpanded?: boolean;
@@ -106,6 +117,8 @@ function runtimeDisplayStatusText(
       return t(($) => $.execution.display_status.reviewing);
     case "completed":
       return t(($) => $.execution.display_status.completed);
+    case "failed":
+      return t(($) => $.execution.display_status.failed);
     case "blocked":
       return t(($) => $.execution.display_status.blocked);
     case "cancelled":
@@ -138,6 +151,7 @@ function runtimeFocusSurfaceClassName(
 ): string {
   if (!isRuntimeFocus) return "";
   switch (status) {
+    case "failed":
     case "blocked":
       return "border-red-200/90 from-red-50/90 via-white to-red-100/70 ring-2 ring-red-300/80 shadow-[0_20px_48px_rgba(239,68,68,0.24)] group-hover:ring-red-400/80";
     case "reviewing":
@@ -180,6 +194,40 @@ function RuntimeStatusPill({
       />
       <span className="min-w-0 break-words leading-3 line-clamp-2">{label}</span>
     </span>
+  );
+}
+
+function RuntimeStatusSummary({
+  status,
+  gatewayKind,
+  statusLabel,
+  durationLabel,
+  durationAriaLabel,
+}: {
+  status: ReturnType<typeof toWorkflowRuntimeDisplayStatus>;
+  gatewayKind?: "fork" | "join" | null;
+  statusLabel: string;
+  durationLabel: string | null;
+  durationAriaLabel: string | null;
+}) {
+  return (
+    <div className="flex shrink-0 flex-col items-end gap-0.5">
+      <RuntimeStatusPill
+        status={status}
+        gatewayKind={gatewayKind}
+        label={statusLabel}
+      />
+      {durationLabel && durationAriaLabel ? (
+        <span
+          data-testid="runtime-node-duration"
+          aria-label={durationAriaLabel}
+          className="inline-flex items-center gap-1 text-[9px] font-medium leading-3 text-muted-foreground/80 tabular-nums"
+        >
+          <Clock3 aria-hidden="true" className="size-2.5 shrink-0" strokeWidth={1.8} />
+          {durationLabel}
+        </span>
+      ) : null}
+    </div>
   );
 }
 
@@ -343,6 +391,8 @@ export function RuntimeNodeCard({
   nodeRun,
   workerName,
   criticName,
+  workerIdentity,
+  criticIdentity,
   onClick,
   isSelected = false,
   isRuntimeFocus = false,
@@ -350,6 +400,7 @@ export function RuntimeNodeCard({
   onAction,
   isActionLoading,
   runtimeSummary,
+  nowMs,
   handles,
   lateralHandleTop,
   isSplitExpanded = false,
@@ -371,13 +422,27 @@ export function RuntimeNodeCard({
       : RUNTIME_NODE_HEIGHT;
 	const splitMode = nodeFormat.split_config?.mode ?? "barrier";
   const nodeShape = nodeFormat.shape;
-  const displayStatus = runtimeSummary?.display_status ?? (nodeRun ? toWorkflowRuntimeDisplayStatus(nodeRun.status) : "pending");
+  const displayStatus = nodeRun?.status === "failed"
+    ? "failed"
+    : runtimeSummary?.display_status ?? (nodeRun ? toWorkflowRuntimeDisplayStatus(nodeRun.status) : "pending");
   const displayStatusLabel = runtimeDisplayStatusText(t, displayStatus, isGateway ? nodeFormat.gateway_kind : null);
-  const hasCritic = !isGateway && !isSplit && (node.critic_type || node.critic_id);
+  const durationSeconds = resolveRuntimeDurationSeconds({
+    summarySeconds: runtimeSummary?.duration_seconds,
+    startedAt: nodeRun?.started_at,
+    completedAt: nodeRun?.completed_at,
+    nowMs: nowMs ?? Date.now(),
+  });
+  const durationLabel = durationSeconds == null
+    ? null
+    : formatRuntimeDuration(durationSeconds);
+  const durationAriaLabel = durationLabel
+    ? t(($) => $.execution.card.duration_label, { duration: durationLabel })
+    : null;
+  const hasCritic = !isGateway && !isSplit && Boolean(node.critic_type || node.critic_id || criticIdentity);
 
   const GatewayIcon = nodeFormat.gateway_kind === "join" ? GitMerge : GitFork;
-  const workerConfigured = Boolean(node.worker_id || node.worker_role_id || node.worker_role);
-  const criticConfigured = Boolean(node.critic_id || node.critic_role_id || node.critic_role || node.critic_api_url);
+  const workerConfigured = Boolean(workerIdentity || node.worker_id || node.worker_role_id || node.worker_role);
+  const criticConfigured = Boolean(criticIdentity || node.critic_id || node.critic_role_id || node.critic_role || node.critic_api_url);
   const splitProgress = runtimeSummary?.split_progress ?? null;
   const hasSplitProgress = isSplit && !!splitProgress && splitProgress.total > 0;
   const canToggleSplitChildren = isSplit && splitChildCount > 0 && !!onSplitNodeToggle;
@@ -484,7 +549,12 @@ export function RuntimeNodeCard({
             <div className="flex min-w-0 items-center gap-1.5">
               <span className="min-w-0 break-words text-sm font-medium leading-4 line-clamp-2">{node.title}</span>
             </div>
-            <RuntimeStatusPill status={displayStatus} label={displayStatusLabel} />
+            <RuntimeStatusSummary
+              status={displayStatus}
+              statusLabel={displayStatusLabel}
+              durationLabel={durationLabel}
+              durationAriaLabel={durationAriaLabel}
+            />
           </div>
 
           <div
@@ -565,7 +635,7 @@ export function RuntimeNodeCard({
               <WorkflowActorSlot
                 slot="worker"
                 label={t(($) => $.execution.card.worker_label)}
-                name={workerName}
+                identity={workerIdentity}
                 fallback="--"
                 state={actorState(workerName, workerConfigured)}
               />
@@ -573,7 +643,7 @@ export function RuntimeNodeCard({
                 <WorkflowActorSlot
                   slot="critic"
                   label={t(($) => $.execution.card.critic_label)}
-                  name={criticName}
+                  identity={criticIdentity}
                   fallback="--"
                   state={actorState(criticName, criticConfigured, true)}
                 />
@@ -600,10 +670,12 @@ export function RuntimeNodeCard({
             {node.title}
           </span>
         </div>
-        <RuntimeStatusPill
+        <RuntimeStatusSummary
           status={displayStatus}
           gatewayKind={isGateway ? nodeFormat.gateway_kind : null}
-          label={displayStatusLabel}
+          statusLabel={displayStatusLabel}
+          durationLabel={durationLabel}
+          durationAriaLabel={durationAriaLabel}
         />
       </div>
 
@@ -656,7 +728,7 @@ export function RuntimeNodeCard({
           <WorkflowActorSlot
             slot="worker"
             label={t(($) => $.execution.card.worker_label)}
-            name={workerName}
+            identity={workerIdentity}
             fallback="--"
             state={actorState(workerName, workerConfigured)}
           />
@@ -664,7 +736,7 @@ export function RuntimeNodeCard({
             <WorkflowActorSlot
               slot="critic"
               label={t(($) => $.execution.card.critic_label)}
-              name={criticName}
+              identity={criticIdentity}
               fallback="--"
               state={actorState(criticName, criticConfigured, true)}
             />

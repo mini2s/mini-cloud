@@ -8,6 +8,7 @@ import {
   WORKER_CRITIC_GAP,
   WORKER_HEIGHT,
   WORKER_WIDTH,
+  UNASSIGNED_STAGE_ID,
   computeLaneY,
   createStageVisualIndexMap,
   getStageColor,
@@ -45,6 +46,29 @@ type CanvasEdgeKind = "data" | "condition" | "error" | "rework" | "critic";
 type CanvasEdgeTone = "data" | "condition" | "error" | "rework" | "critic" | "success" | "running" | "blocked" | "waiting";
 
 export const MIN_NODE_HORIZONTAL_GAP = 96;
+
+export function workflowCanvasStages(
+  stages: WorkflowStage[],
+  nodes: WorkflowNode[],
+  workflowId: string,
+): WorkflowStage[] {
+  const unassignedCount = nodes.filter((node) => !node.stage_id).length;
+  if (unassignedCount === 0 && stages.length > 0) return stages;
+
+  return [
+    ...stages,
+    {
+      id: UNASSIGNED_STAGE_ID,
+      workflow_id: workflowId,
+      name: "Unassigned",
+      description: "",
+      sort_order: stages.length,
+      node_count: unassignedCount,
+      created_at: "",
+      updated_at: "",
+    },
+  ];
+}
 
 function normalizedNodeXMap(
   nodes: WorkflowNode[],

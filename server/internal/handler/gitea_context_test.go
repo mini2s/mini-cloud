@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
+	"github.com/multica-ai/multica/server/internal/gitea"
 	db "github.com/multica-ai/multica/server/pkg/db/generated"
 )
 
@@ -24,7 +25,7 @@ func dbTaskWithNodeRun(t *testing.T, nodeRunID string) db.MulticaAgentTaskQueue 
 // TestBuildGiteaDeliverableContext_Configured seeds a node run with a document
 // deliverable (and a pull_request deliverable that must NOT appear) and asserts
 // the builder returns owner/repo/inst/node-branch + exactly one document ref
-// whose Path matches nodes/<short>/<short>.md.
+// whose path is derived from the captured runtime topology and title.
 func TestBuildGiteaDeliverableContext_Configured(t *testing.T) {
 	if testHandler == nil {
 		t.Skip("database not available")
@@ -57,10 +58,7 @@ func TestBuildGiteaDeliverableContext_Configured(t *testing.T) {
 			t.Errorf("empty field in context: %+v", got)
 		}
 	}
-	// Path is ID-derived: nodes/<nrShort>/<docShort>.md — shortHex of a UUID
-	// equals its first 8 hex chars (the UUID's first segment is 8 hex chars
-	// in canonical form, and shortHex hex-encodes the first 4 bytes).
-	wantPath := "nodes/" + nodeRunID[:8] + "/" + docID[:8] + ".md"
+	wantPath := gitea.DeliverablePath(1, "N", nodeRunID, "Doc")
 	if gotPath := got.Deliverables[0].Path; gotPath != wantPath {
 		t.Errorf("Path = %q, want %q", gotPath, wantPath)
 	}
@@ -103,15 +101,12 @@ func TestBuildGiteaDeliverableContext_DefaultWorkflowUsesArchiveRepo(t *testing.
 	ctx := context.Background()
 	nodeRunID, _ := seedDeliverableAndNodeRunIn(t, testWorkspaceID, testUserID)
 	if _, err := testPool.Exec(ctx, `
-		UPDATE multica_workflow
-		SET is_default = TRUE
-		WHERE id = (
-			SELECT wr.workflow_id
-			FROM multica_workflow_run wr
-			JOIN multica_workflow_node_run nr ON nr.workflow_run_id = wr.id
-			WHERE nr.id = $1
-		)`, nodeRunID); err != nil {
-		t.Fatalf("mark workflow default: %v", err)
+		UPDATE multica_workflow_run run
+		SET definition_snapshot = jsonb_set(definition_snapshot, '{workflow,is_default}', 'true'::jsonb)
+		FROM multica_workflow_node_run node_run
+		WHERE node_run.workflow_run_id = run.id AND node_run.id = $1
+	`, nodeRunID); err != nil {
+		t.Fatalf("mark run snapshot default: %v", err)
 	}
 
 	got := testHandler.buildGiteaDeliverableContext(ctx, dbTaskWithNodeRun(t, nodeRunID))

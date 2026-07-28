@@ -41,8 +41,8 @@
     "hub_mcp": "MCP 服务",
     "hub_plugin": "插件",
     "hub_manager": "管理控制台",
-    "roles": "研发角色",
-    "efficiency_settings": "指标运维"
+    "efficiency_settings": "指标运维",
+    "roles": "角色"
   },
   "help": {
     "trigger": "帮助",

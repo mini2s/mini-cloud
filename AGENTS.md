@@ -46,6 +46,15 @@ make check            # Full verification pipeline
 
 See CLAUDE.md for the complete command reference.
 
+### Git Safety (hard rules)
+
+- Only local `main` may track `origin/main`; no feature, fix, docs, spec, or integration branch may track a protected base branch.
+- Create branches from the remote base with `git switch --create <branch-name> --no-track origin/main`. Never use `git switch -c <branch-name> origin/main`.
+- Immediately verify new branches with `git branch -vv`. If a non-main branch shows `[origin/main]` or `[origin/master]`, run `git branch --unset-upstream` and stop before any push.
+- Never publish a new branch with an implicit `git push`. First run `git push --dry-run origin HEAD:refs/heads/<branch-name>`, then use `git push --set-upstream origin HEAD:refs/heads/<branch-name>` and require the remote destination name to match the current local branch.
+- Never push to `main` or `master` unless the user explicitly authorizes that exact remote push in the current conversation. "Commit", "merge", "finish", and "integrate" are not push authorization.
+- See `CLAUDE.md` section **Git Branch and Push Safety (hard rules)** for the complete policy.
+
 ### Troubleshooting
 
 When debugging agent, daemon, or runtime issues, check logs in this order:

@@ -18,9 +18,9 @@ import {
   workflowEdgesOptions,
   workflowNodeRunsOptions,
   workflowRunCanvasSummaryOptions,
+  workflowRunCanvasDefinition,
   workflowRolesOptions,
   workflowRoleResolutionsOptions,
-  workflowNodeDeliverablesOptions,
   nodeRunDeliverableSubmissionsOptions,
   splitTasksOptions,
   splitIssueWorkflowOptions,
@@ -36,7 +36,7 @@ import {
 } from "@multica/core/platform";
 import { agentListOptions, memberListOptions, squadListOptions } from "@multica/core/workspace/queries";
 import { childIssuesOptions } from "@multica/core/issues/queries";
-import { workerTypeToActorType } from "@multica/core/types";
+import { useWorkspacePresenceMap, type AgentAvailability } from "@multica/core/agents";
 import type {
   WorkflowNode,
   WorkflowNodeRun,
@@ -50,11 +50,13 @@ import type {
   Workflow,
   WorkflowRuntimeDisplayStatus,
   WorkerType,
+  CriticType,
 } from "@multica/core/types";
 import { useT } from "../../../i18n";
 import { parseNodeFormat } from "@multica/core/types";
 import { WorkflowCanvasCore } from "../../../workflows/components/canvas/workflow-canvas-core";
 import {
+  workflowCanvasStages,
   workflowEdgesToReactFlowEdges,
   workflowNodesToReactFlowNodes,
 } from "../../../workflows/components/canvas/workflow-canvas-model";
@@ -88,6 +90,11 @@ import { cn } from "@multica/ui/lib/utils";
 import { SplitReviewPanel } from "../../../workflows/components/split/split-review-panel";
 import { useNavigation } from "../../../navigation";
 import { resolveChatSessionId } from "../../../chat/lib/resolve-chat-session-id";
+import type {
+  WorkflowActorEntityType,
+  WorkflowActorIdentity,
+} from "../../../common/workflow-actor-slots";
+import { useRuntimeDurationClock } from "./runtime-duration-clock";
 
 export interface ExecutionPanoramaPageProps {
   workflowId: string;
@@ -134,6 +141,12 @@ interface SplitChildIssueDetail {
 interface SplitViewportRestoreRequest {
   requestId: number;
   viewport: Viewport;
+}
+
+function snapshotRoleName(value: unknown): string | null {
+  if (!value || typeof value !== "object" || !("name" in value)) return null;
+  const name = (value as { name?: unknown }).name;
+  return typeof name === "string" && name.trim() ? name.trim() : null;
 }
 
 function splitTaskDisplayStatus(status: SplitTask["status"]): WorkflowRuntimeDisplayStatus {
@@ -203,6 +216,8 @@ function runtimeDisplayStatusText(t: IssueTranslator, status: WorkflowRuntimeDis
       return t(($) => $.execution.display_status.reviewing);
     case "completed":
       return t(($) => $.execution.display_status.completed);
+    case "failed":
+      return t(($) => $.execution.display_status.failed);
     case "blocked":
       return t(($) => $.execution.display_status.blocked);
     case "cancelled":
@@ -634,25 +649,36 @@ export function ExecutionPanoramaPage({
   const paths = useWorkspacePaths();
   const navigation = useNavigation();
   const { t } = useT("issues");
+  const { t: tWf } = useT("workflows");
   // ---- Data queries ----
-  const { isLoading: wfLoading } = useQuery(
-    workflowDetailOptions(wsId, workflowId),
+  const { data: canvasSummary, isLoading: canvasSummaryLoading } = useQuery({
+    ...workflowRunCanvasSummaryOptions(wsId, workflowId, runId ?? ""),
+    enabled: !!runId,
+  });
+  const run = runId ? canvasSummary?.run : undefined;
+  const shouldLoadCurrentDefinition = !runId || Boolean(
+    run?.id &&
+    (run.definition_schema_version ?? 0) <= 0 &&
+    !run.definition_snapshot,
   );
+  const { isLoading: wfLoading } = useQuery({
+    ...workflowDetailOptions(wsId, workflowId),
+    enabled: shouldLoadCurrentDefinition,
+  });
   const { data: stages, isLoading: stLoading } = useQuery(
-    workflowStagesOptions(wsId, workflowId),
+    { ...workflowStagesOptions(wsId, workflowId), enabled: shouldLoadCurrentDefinition },
   );
   const { data: nodes, isLoading: ndLoading } = useQuery(
-    workflowNodesOptions(wsId, workflowId),
+    { ...workflowNodesOptions(wsId, workflowId), enabled: shouldLoadCurrentDefinition },
   );
   const { data: nodeRuns = [] } = useQuery({
     ...workflowNodeRunsOptions(wsId, workflowId, runId ?? ""),
     enabled: !!runId,
   });
-  const { data: canvasSummary } = useQuery({
-    ...workflowRunCanvasSummaryOptions(wsId, workflowId, runId ?? ""),
-    enabled: !!runId,
+  const { data: edges } = useQuery({
+    ...workflowEdgesOptions(wsId, workflowId),
+    enabled: shouldLoadCurrentDefinition,
   });
-  const { data: edges } = useQuery(workflowEdgesOptions(wsId, workflowId));
   const { data: agents } = useQuery(agentListOptions(wsId));
   const { data: workflowRoles = [] } = useQuery(workflowRolesOptions(wsId));
   const { data: members = [] } = useQuery(memberListOptions(wsId));
@@ -660,8 +686,19 @@ export function ExecutionPanoramaPage({
     ...workflowRoleResolutionsOptions(wsId, workflowId, runId ?? ""),
     enabled: !!runId,
   });
-  const { t: tWf } = useT("workflows");
   const { data: squads } = useQuery(squadListOptions(wsId));
+  const { byAgent: presenceByAgent } = useWorkspacePresenceMap(wsId);
+  const actorTypeLabels = useMemo<Record<WorkflowActorEntityType, string>>(() => ({
+    agent: tWf(($) => $.panorama.card.actor_type_agent),
+    member: tWf(($) => $.panorama.card.actor_type_member),
+    squad: tWf(($) => $.panorama.card.actor_type_squad),
+    role: tWf(($) => $.panorama.card.actor_type_role),
+    api: tWf(($) => $.panorama.card.actor_type_api),
+  }), [tWf]);
+  const actorAvailabilityLabels = useMemo(() => ({
+    online: tWf(($) => $.panorama.card.actor_online),
+    offline: tWf(($) => $.panorama.card.actor_offline),
+  }), [tWf]);
   const { data: splitWorkflowOptions = [] } = useQuery(splitIssueWorkflowOptions(wsId, workflowId));
   const { data: childIssues = [] } = useQuery({
     ...childIssuesOptions(wsId, issueId ?? ""),
@@ -681,18 +718,33 @@ export function ExecutionPanoramaPage({
   const restoreViewportRequestIdRef = useRef(0);
   const [restoreViewportRequest, setRestoreViewportRequest] = useState<SplitViewportRestoreRequest | null>(null);
 
-  const allStages = useMemo<WorkflowStage[]>(() => stages ?? [], [stages]);
-  const allNodes = useMemo<WorkflowNode[]>(() => nodes ?? [], [nodes]);
+  const canvasNodeRuns = canvasSummary?.node_runs.length
+    ? canvasSummary.node_runs
+    : nodeRuns;
+  const snapshotCanvas = useMemo(
+    () => run && !shouldLoadCurrentDefinition
+      ? workflowRunCanvasDefinition(run, canvasNodeRuns, tWf(($) => $.run.roles.unknown_node))
+      : null,
+    [canvasNodeRuns, run, shouldLoadCurrentDefinition, tWf],
+  );
+  const allStages = useMemo<WorkflowStage[]>(
+    () => snapshotCanvas?.stages ?? stages ?? [],
+    [snapshotCanvas?.stages, stages],
+  );
+  const allNodes = useMemo<WorkflowNode[]>(
+    () => snapshotCanvas?.nodes ?? nodes ?? [],
+    [nodes, snapshotCanvas?.nodes],
+  );
+  const allEdges = snapshotCanvas?.edges ?? edges ?? [];
 
   // ---- Lookup maps ----
   const nodeRunMap = useMemo(() => {
     const map = new Map<string, WorkflowNodeRun>();
-    const runs = canvasSummary?.node_runs ?? nodeRuns;
-    for (const nr of runs) {
-      map.set(nr.workflow_node_id, nr);
+    for (const nr of canvasNodeRuns) {
+      map.set(nr.source_workflow_node_id ?? nr.workflow_node_id, nr);
     }
     return map;
-  }, [canvasSummary?.node_runs, nodeRuns]);
+  }, [canvasNodeRuns]);
 
   const runtimeSummaryMap = useMemo(() => {
     const map = new Map<string, WorkflowNodeRuntimeSummary>();
@@ -701,6 +753,16 @@ export function ExecutionPanoramaPage({
     }
     return map;
   }, [canvasSummary?.node_runtime_summaries]);
+
+  const hasRunningDuration = useMemo(
+    () => Array.from(nodeRunMap.values()).some((nodeRun) => (
+      nodeRun.started_at != null &&
+      Number.isFinite(Date.parse(nodeRun.started_at)) &&
+      nodeRun.completed_at == null
+    )),
+    [nodeRunMap],
+  );
+  const runtimeNowMs = useRuntimeDurationClock(hasRunningDuration);
 
   const handleOpenNodeSession = useCallback(async (nodeId: string): Promise<boolean> => {
     const sessionId =
@@ -757,11 +819,6 @@ export function ExecutionPanoramaPage({
     }),
     [allNodes],
   );
-  const deliverableDefinitionQueries = useQueries({
-    queries: deliverableNodeEntries.map((node) =>
-      workflowNodeDeliverablesOptions(wsId, workflowId, node.id),
-    ),
-  });
   const deliverableSubmissionQueries = useQueries({
     queries: deliverableNodeEntries.map((node) => {
       const nodeRunId = nodeRunMap.get(node.id)?.id ?? "";
@@ -774,7 +831,7 @@ export function ExecutionPanoramaPage({
   const deliverablesByNodeId = useMemo(() => {
     const result = new Map<string, RuntimeNodeDeliverableSummary[]>();
     deliverableNodeEntries.forEach((node, index) => {
-      const definitions = [...(deliverableDefinitionQueries[index]?.data ?? [])]
+      const definitions = [...(deliverableSubmissionQueries[index]?.data?.deliverables ?? [])]
         .sort((left, right) => left.sort_order - right.sort_order);
       const submissions = deliverableSubmissionQueries[index]?.data?.submissions ?? [];
       const submissionByDeliverableId = new Map(
@@ -791,7 +848,7 @@ export function ExecutionPanoramaPage({
       }));
     });
     return result;
-  }, [deliverableDefinitionQueries, deliverableNodeEntries, deliverableSubmissionQueries]);
+  }, [deliverableNodeEntries, deliverableSubmissionQueries]);
 
   const handleToggleSplitNode = useCallback((nodeId: string) => {
     const isExpanded = expandedSplitNodeIds.has(nodeId);
@@ -846,13 +903,12 @@ export function ExecutionPanoramaPage({
   // surface the actual member once role resolution completes. Falls back to
   // the role name when no resolution exists yet (manual assignment pending or
   // auto-resolution disabled).
-  const resolvedUserNameByNodeRunSlot = useMemo(() => {
+  const resolvedUserIdByNodeRunSlot = useMemo(() => {
     const map = new Map<string, string>();
     for (const resolution of roleResolutions) {
       if (resolution.status !== "resolved" || !resolution.resolved_user_id) continue;
-      const memberName = memberNameById.get(resolution.resolved_user_id);
-      if (!memberName) continue;
-      map.set(`${resolution.workflow_node_run_id}:${resolution.slot_type}`, memberName);
+      if (!memberNameById.has(resolution.resolved_user_id)) continue;
+      map.set(`${resolution.workflow_node_run_id}:${resolution.slot_type}`, resolution.resolved_user_id);
     }
     return map;
   }, [roleResolutions, memberNameById]);
@@ -899,6 +955,45 @@ export function ExecutionPanoramaPage({
     return null;
   }, [agentLookup, memberLookup, squadLookup]);
 
+  const buildConcreteActorIdentity = useCallback((
+    type: WorkerType | CriticType | string | null | undefined,
+    id: string | null | undefined,
+    nameOverride?: string | null,
+  ): WorkflowActorIdentity | null => {
+    if (!id) return null;
+    const actorType = type === "human" || type === "member"
+      ? "member"
+      : type === "agent" || type === "squad"
+        ? type
+        : null;
+    if (!actorType) return null;
+    const name = nameOverride?.trim() || getActorName(actorType, id);
+    if (!name) return null;
+    const avatarUrl = actorType === "agent"
+      ? agentLookup.get(id)?.avatar_url ?? null
+      : actorType === "member"
+        ? memberLookup.get(id)?.avatar_url ?? null
+        : squadLookup.get(id)?.avatar_url ?? null;
+    const identity: WorkflowActorIdentity = {
+      type: actorType,
+      id,
+      name,
+      typeLabel: actorTypeLabels[actorType],
+      initials: name.split(" ").map((part) => part[0]).join("").toUpperCase().slice(0, 2),
+      avatarUrl,
+    };
+    if (actorType === "agent") {
+      const availability: AgentAvailability | undefined = presenceByAgent.get(id)?.availability;
+      if (availability) {
+        identity.availability = availability;
+        identity.availabilityLabel = availability === "online"
+          ? actorAvailabilityLabels.online
+          : actorAvailabilityLabels.offline;
+      }
+    }
+    return identity;
+  }, [actorAvailabilityLabels, actorTypeLabels, agentLookup, getActorName, memberLookup, presenceByAgent, squadLookup]);
+
   // Built-in role names are seeded in English (developer/qa/tech_lead); render
   // localized labels so the canvas matches the rest of the UI. Custom roles
   // fall through to their raw name.
@@ -922,51 +1017,58 @@ export function ExecutionPanoramaPage({
     [tWf],
   );
 
-  // Precedence for runtime display: explicit agent/member → resolved user from
-  // role resolution → role name (localized for built-ins). Returns null when
-  // nothing applies so callers can render their placeholder.
+  const resolveRuntimeActorIdentity = useCallback((
+    slot: "worker" | "critic",
+    node: WorkflowNode,
+  ): WorkflowActorIdentity | null => {
+    const nodeRun = nodeRunMap.get(node.id);
+    const runType = slot === "worker" ? nodeRun?.worker_type : nodeRun?.critic_type;
+    const runId = slot === "worker" ? nodeRun?.worker_id : nodeRun?.critic_id;
+    const actorNameSnapshot = slot === "worker"
+      ? nodeRun?.worker_name_snapshot
+      : nodeRun?.critic_name_snapshot;
+    const runtimeIdentity = buildConcreteActorIdentity(runType, runId, actorNameSnapshot);
+    if (runtimeIdentity) return runtimeIdentity;
+
+    const nodeType = slot === "worker" ? node.worker_type : node.critic_type;
+    const nodeActorId = slot === "worker" ? node.worker_id : node.critic_id;
+    const configuredIdentity = buildConcreteActorIdentity(nodeType, nodeActorId);
+    if (configuredIdentity) return configuredIdentity;
+
+    const roleId = slot === "worker" ? node.worker_role_id : node.critic_role_id;
+    const roleKey = slot === "worker" ? node.worker_role : node.critic_role;
+    const roleNameSnapshot = snapshotRoleName(
+      slot === "worker" ? nodeRun?.worker_role_snapshot : nodeRun?.critic_role_snapshot,
+    );
+    if (roleId || roleKey || roleNameSnapshot) {
+      if (nodeRun) {
+        const resolvedUserId = resolvedUserIdByNodeRunSlot.get(`${nodeRun.id}:${slot}`);
+        const resolvedIdentity = buildConcreteActorIdentity("member", resolvedUserId);
+        if (resolvedIdentity) return resolvedIdentity;
+      }
+      const roleName = roleNameSnapshot ?? renderRoleName(
+        roleId ? roleById.get(roleId) : undefined,
+        roleId ?? roleKey,
+      );
+      if (roleName) {
+        return { type: "role", id: null, name: roleName, typeLabel: actorTypeLabels.role };
+      }
+    }
+
+    if (slot === "critic" && (node.critic_type === "api" || node.critic_api_url?.trim())) {
+      return { type: "api", id: null, name: "API review", typeLabel: actorTypeLabels.api };
+    }
+    return null;
+  }, [actorTypeLabels, buildConcreteActorIdentity, nodeRunMap, renderRoleName, resolvedUserIdByNodeRunSlot, roleById]);
+
   const resolveWorkerName = useCallback(
-    (node: WorkflowNode): string | null => {
-      if (node.worker_id) {
-        return getActorName(workerTypeToActorType(node.worker_type), node.worker_id);
-      }
-      if (node.worker_role_id || node.worker_role) {
-        const nodeRun = nodeRunMap.get(node.id);
-        if (nodeRun) {
-          const resolved = resolvedUserNameByNodeRunSlot.get(`${nodeRun.id}:worker`);
-          if (resolved) return resolved;
-        }
-        const rendered = renderRoleName(
-          node.worker_role_id ? roleById.get(node.worker_role_id) : undefined,
-          node.worker_role_id ?? node.worker_role,
-        );
-        return rendered ?? null;
-      }
-      return null;
-    },
-    [getActorName, nodeRunMap, renderRoleName, resolvedUserNameByNodeRunSlot, roleById],
+    (node: WorkflowNode): string | null => resolveRuntimeActorIdentity("worker", node)?.name ?? null,
+    [resolveRuntimeActorIdentity],
   );
 
   const resolveCriticName = useCallback(
-    (node: WorkflowNode): string | null => {
-      if (node.critic_id) {
-        return getActorName(node.critic_type ?? "agent", node.critic_id);
-      }
-      if (node.critic_role_id || node.critic_role) {
-        const nodeRun = nodeRunMap.get(node.id);
-        if (nodeRun) {
-          const resolved = resolvedUserNameByNodeRunSlot.get(`${nodeRun.id}:critic`);
-          if (resolved) return resolved;
-        }
-        const rendered = renderRoleName(
-          node.critic_role_id ? roleById.get(node.critic_role_id) : undefined,
-          node.critic_role_id ?? node.critic_role,
-        );
-        return rendered ?? null;
-      }
-      return null;
-    },
-    [getActorName, nodeRunMap, renderRoleName, resolvedUserNameByNodeRunSlot, roleById],
+    (node: WorkflowNode): string | null => resolveRuntimeActorIdentity("critic", node)?.name ?? null,
+    [resolveRuntimeActorIdentity],
   );
 
   const handleRetryNodeRun = useCallback(async (nodeRun: WorkflowNodeRun) => {
@@ -991,7 +1093,9 @@ export function ExecutionPanoramaPage({
   }, [queryClient, runId, workflowId, wsId]);
 
   // ---- Derived ----
-  const isLoading = wfLoading || stLoading || ndLoading;
+  const isLoading = runId
+    ? canvasSummaryLoading || (shouldLoadCurrentDefinition && (wfLoading || stLoading || ndLoading))
+    : wfLoading || stLoading || ndLoading;
 
   if (isLoading) {
     return (
@@ -1004,22 +1108,7 @@ export function ExecutionPanoramaPage({
     );
   }
 
-  const unassignedCount = allNodes.filter((node) => !node.stage_id).length;
-  const canvasStages = unassignedCount > 0 || allStages.length === 0
-    ? [
-        ...allStages,
-        {
-          id: "unassigned",
-          workflow_id: workflowId,
-          name: "Unassigned",
-          description: "",
-          sort_order: allStages.length,
-          node_count: unassignedCount,
-          created_at: "",
-          updated_at: "",
-        },
-      ]
-    : allStages;
+  const canvasStages = workflowCanvasStages(allStages, allNodes, workflowId);
   const runtimeFocusNodeId = pickRuntimeFocusNodeId(allNodes, nodeRunMap);
   const baseRfNodesRaw = workflowNodesToReactFlowNodes({
     nodes: allNodes,
@@ -1027,20 +1116,27 @@ export function ExecutionPanoramaPage({
     nodeType: "runtimeNode",
     nodeHeight: RUNTIME_NODE_HEIGHT,
     includeCriticBadges: false,
-    makeNodeData: (node) => ({
-      node,
-      nodeRun: nodeRunMap.get(node.id) ?? null,
-      runtimeSummary: runtimeSummaryMap.get(node.id) ?? null,
-      workerName: resolveWorkerName(node),
-      criticName: resolveCriticName(node),
-      onOpen: setSelectedNodeId,
-      onOpenSession: handleOpenNodeSession,
-      deliverables: deliverablesByNodeId.get(node.id) ?? [],
-      isRuntimeFocus: node.id === runtimeFocusNodeId,
-      isSplitExpanded: expandedSplitNodeIds.has(node.id),
-      splitChildCount: (splitTasksByNodeId.get(node.id) ?? []).filter((task) => task.issue_id).length,
-      onSplitNodeToggle: handleToggleSplitNode,
-    }),
+    makeNodeData: (node) => {
+      const workerIdentity = resolveRuntimeActorIdentity("worker", node);
+      const criticIdentity = resolveRuntimeActorIdentity("critic", node);
+      return {
+        node,
+        nodeRun: nodeRunMap.get(node.id) ?? null,
+        runtimeSummary: runtimeSummaryMap.get(node.id) ?? null,
+        nowMs: runtimeNowMs,
+        workerName: workerIdentity?.name ?? null,
+        criticName: criticIdentity?.name ?? null,
+        workerIdentity,
+        criticIdentity,
+        onOpen: setSelectedNodeId,
+        onOpenSession: handleOpenNodeSession,
+        deliverables: deliverablesByNodeId.get(node.id) ?? [],
+        isRuntimeFocus: node.id === runtimeFocusNodeId,
+        isSplitExpanded: expandedSplitNodeIds.has(node.id),
+        splitChildCount: (splitTasksByNodeId.get(node.id) ?? []).filter((task) => task.issue_id).length,
+        onSplitNodeToggle: handleToggleSplitNode,
+      };
+    },
     makeCriticName: (node) => resolveCriticName(node) ?? undefined,
   }).map((reactFlowNode) => {
     const workflowNode = reactFlowNode.data.node as WorkflowNode | undefined;
@@ -1049,11 +1145,15 @@ export function ExecutionPanoramaPage({
     }
     return {
       ...reactFlowNode,
+      position: {
+        ...reactFlowNode.position,
+        y: reactFlowNode.position.y + (RUNTIME_NODE_HEIGHT - RUNTIME_SPLIT_NODE_HEIGHT) / 2,
+      },
       height: RUNTIME_SPLIT_NODE_HEIGHT,
     };
   });
   const baseRfEdges = workflowEdgesToReactFlowEdges({
-    edges: edges ?? [],
+    edges: allEdges,
     nodes: allNodes,
     stages: sortStagesForDisplay(allStages),
     includeCriticEdges: false,

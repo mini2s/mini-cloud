@@ -3,7 +3,7 @@
 import { render, screen, fireEvent } from "@testing-library/react";
 import { describe, it, expect, vi } from "vitest";
 import { GlobalNotificationBar } from "./global-notification-bar";
-import type { WorkflowNodeRun } from "@multica/core/types";
+import type { WorkflowNodeRun, WorkflowNodeRuntimeSummary } from "@multica/core/types";
 
 // ---------------------------------------------------------------------------
 // i18n mock
@@ -21,6 +21,7 @@ vi.mock("@multica/views/i18n", () => ({
             no_current_node: "No active node",
             running_count: `${params?.count ?? ""} running`,
             reviewing_count: `${params?.count ?? ""} reviewing`,
+            failed_count: `${params?.count ?? ""} failed`,
             blocked_count: `${params?.count ?? ""} blocked`,
             waiting_count: `${params?.count ?? ""} waiting`,
             elapsed: `Elapsed ${params?.elapsed ?? ""}`,
@@ -151,8 +152,49 @@ describe("GlobalNotificationBar", () => {
     );
 
     expect(screen.getByTestId("notification-summary")).toHaveTextContent("Run progress:0/3 done");
-    expect(screen.getByTestId("progress-chip-blocked")).toHaveTextContent("2 blocked");
+    expect(screen.getByTestId("progress-chip-failed")).toHaveTextContent("1 failed");
+    expect(screen.getByTestId("progress-chip-blocked")).toHaveTextContent("1 blocked");
     expect(screen.getByTestId("progress-chip-reviewing")).toHaveTextContent("1 reviewing");
+  });
+
+  it("keeps a failed node in the attention count when its compatibility summary says blocked", () => {
+    const map = new Map<string, WorkflowNodeRun>();
+    map.set("failed", makeNodeRun({
+      id: "nr-1",
+      status: "failed",
+      workflow_node_id: "failed",
+      node_title: "Run CSC",
+    }));
+    const summaries = new Map<string, WorkflowNodeRuntimeSummary>();
+    summaries.set("failed", {
+      workflow_node_id: "failed",
+      node_run_id: "nr-1",
+      display_status: "blocked",
+      active_actor_type: "agent",
+      active_actor_id: "a1",
+      duration_seconds: 10,
+      session_id: null,
+      runtime_id: null,
+      device_id: null,
+      has_error: true,
+      error_message: "Max turns reached",
+      split_progress: null,
+    });
+
+    render(
+      <GlobalNotificationBar
+        nodeRunMap={map}
+        runtimeSummaryMap={summaries}
+        onScrollToNode={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByTestId("progress-chip-failed")).toHaveTextContent("1 failed");
+    expect(screen.getByTestId("progress-chip-blocked")).toHaveTextContent("0 blocked");
+    expect(screen.getByTestId("notification-summary")).toHaveTextContent("Current: Run CSC");
+    expect(screen.getByTestId("run-progress-counts")).toHaveTextContent("0 waiting");
+    expect(screen.getByTestId("notification-summary").querySelector(".lucide-circle-alert")).not.toBeNull();
+    expect(screen.getByTestId("notification-summary").querySelector(".text-destructive")).not.toBeNull();
   });
 
   it("shows counts, current node, and elapsed fallback in the progress summary", () => {
@@ -238,6 +280,7 @@ describe("GlobalNotificationBar", () => {
       "progress-chip-blocked",
       "progress-chip-running",
       "progress-chip-waiting",
+      "progress-chip-failed",
       "progress-chip-reviewing",
     ]);
   });
@@ -260,7 +303,7 @@ describe("GlobalNotificationBar", () => {
     fireEvent.click(screen.getByTestId("progress-chip-running"));
     expect(onScrollToNode).toHaveBeenLastCalledWith("running-low");
 
-    fireEvent.click(screen.getByTestId("progress-chip-blocked"));
+    fireEvent.click(screen.getByTestId("progress-chip-failed"));
     expect(onScrollToNode).toHaveBeenLastCalledWith("blocked-low");
   });
 

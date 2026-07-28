@@ -31,7 +31,7 @@ export function BuiltinAgentCard({ agent, onClick }: BuiltinAgentCardProps) {
       )}
       <div className="flex items-center gap-1 text-[10px] text-muted-foreground mt-0.5">
         <Zap className="h-3 w-3" />
-        内置 Agent
+        内置数智人
       </div>
     </button>
   );

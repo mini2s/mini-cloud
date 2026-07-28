@@ -18,6 +18,19 @@ func cleanupBoundaryWorkflow(t *testing.T, workflowID string) {
 	})
 }
 
+func getBoundaryNodeID(t *testing.T, workflowID, kind string) string {
+	t.Helper()
+	var nodeID string
+	if err := testPool.QueryRow(context.Background(), `
+		SELECT id
+		FROM multica_workflow_node
+		WHERE workflow_id = $1 AND format_schema->>'type' = $2
+	`, workflowID, kind).Scan(&nodeID); err != nil {
+		t.Fatalf("get %s boundary: %v", kind, err)
+	}
+	return nodeID
+}
+
 func createBoundaryNode(t *testing.T, workflowID, title, kind string, wantStatus int) string {
 	t.Helper()
 	w := httptest.NewRecorder()
@@ -89,7 +102,6 @@ func TestCreateWorkflowBoundaryNodeRejectsDuplicateKind(t *testing.T) {
 	}
 	workflowID := createTestWorkflow(t)
 	cleanupBoundaryWorkflow(t, workflowID)
-	createBoundaryNode(t, workflowID, "Start", "start", http.StatusCreated)
 	createBoundaryNode(t, workflowID, "Start again", "start", http.StatusConflict)
 }
 
@@ -116,7 +128,7 @@ func TestUpdateWorkflowBoundaryNodeRejectsTypeMutation(t *testing.T) {
 	}
 	workflowID := createTestWorkflow(t)
 	cleanupBoundaryWorkflow(t, workflowID)
-	nodeID := createBoundaryNode(t, workflowID, "Start", "start", http.StatusCreated)
+	nodeID := getBoundaryNodeID(t, workflowID, "start")
 	updateBoundaryNode(t, workflowID, nodeID, map[string]any{
 		"format_schema": map[string]any{"type": "end"},
 	}, http.StatusUnprocessableEntity)
@@ -128,7 +140,7 @@ func TestUpdateWorkflowBoundaryNodeRejectsRestrictedFields(t *testing.T) {
 	}
 	workflowID := createTestWorkflow(t)
 	cleanupBoundaryWorkflow(t, workflowID)
-	nodeID := createBoundaryNode(t, workflowID, "Start", "start", http.StatusCreated)
+	nodeID := getBoundaryNodeID(t, workflowID, "start")
 	for name, body := range map[string]map[string]any{
 		"format schema": {"format_schema": map[string]any{"type": "start", "shape": "rectangle"}},
 		"sort order":    {"sort_order": 3},
@@ -145,8 +157,8 @@ func TestCreateWorkflowEdgeValidatesBoundaryDirection(t *testing.T) {
 	}
 	workflowID := createTestWorkflow(t)
 	cleanupBoundaryWorkflow(t, workflowID)
-	startID := createBoundaryNode(t, workflowID, "Start", "start", http.StatusCreated)
-	endID := createBoundaryNode(t, workflowID, "End", "end", http.StatusCreated)
+	startID := getBoundaryNodeID(t, workflowID, "start")
+	endID := getBoundaryNodeID(t, workflowID, "end")
 	taskID := createBoundaryTaskNode(t, workflowID, "Task")
 	createBoundaryEdge(t, workflowID, startID, taskID, http.StatusCreated)
 	createBoundaryEdge(t, workflowID, taskID, endID, http.StatusCreated)
@@ -155,14 +167,12 @@ func TestCreateWorkflowEdgeValidatesBoundaryDirection(t *testing.T) {
 	createBoundaryEdge(t, workflowID, startID, endID, http.StatusUnprocessableEntity)
 }
 
-func TestStartWorkflowBoundaryOnlyRunReturnsCompleted(t *testing.T) {
+func TestStartWorkflowBoundaryOnlyRunReturnsConfigInvalid(t *testing.T) {
 	if testHandler == nil {
 		t.Skip("database not available")
 	}
 	workflowID := createTestWorkflow(t)
 	cleanupBoundaryWorkflow(t, workflowID)
-	createBoundaryNode(t, workflowID, "Start", "start", http.StatusCreated)
-	createBoundaryNode(t, workflowID, "End", "end", http.StatusCreated)
 	if _, err := testPool.Exec(context.Background(), `
 		UPDATE multica_workflow SET status = 'active' WHERE id = $1
 	`, workflowID); err != nil {
@@ -172,16 +182,17 @@ func TestStartWorkflowBoundaryOnlyRunReturnsCompleted(t *testing.T) {
 	w := httptest.NewRecorder()
 	req := newRequest("POST", fmt.Sprintf("/api/workflows/%s/runs", workflowID), map[string]any{"input": map[string]any{}})
 	testHandler.StartWorkflowRun(w, withURLParams(req, "id", workflowID))
-	if w.Code != http.StatusCreated {
+	if w.Code != http.StatusUnprocessableEntity {
 		t.Fatalf("start run: got %d: %s", w.Code, w.Body.String())
 	}
-	var response struct {
-		Status string `json:"status"`
-	}
-	if err := json.Unmarshal(w.Body.Bytes(), &response); err != nil {
+	var failedRuns int
+	if err := testPool.QueryRow(context.Background(), `
+		SELECT count(*) FROM multica_workflow_run
+		WHERE workflow_id = $1 AND status = $2 AND failure_reason = 'config_invalid'
+	`, workflowID, service.RunStatusFailed).Scan(&failedRuns); err != nil {
 		t.Fatal(err)
 	}
-	if response.Status != service.RunStatusCompleted {
-		t.Fatalf("response status = %s, want %s", response.Status, service.RunStatusCompleted)
+	if failedRuns != 1 {
+		t.Fatalf("failed config runs=%d, want 1", failedRuns)
 	}
 }

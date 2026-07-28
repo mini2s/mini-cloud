@@ -70,7 +70,7 @@ func WithDaemonContext(ctx context.Context, workspaceID, daemonID string) contex
 //     and a daemon converges on one DB round-trip per AuthCacheTTL window.
 //
 // Cache misses fall back to the original DB-backed behavior.
-func DaemonAuth(queries *db.Queries, patCache *auth.PATCache, daemonCache *auth.DaemonTokenCache, jwks *auth.JWKSProvider, resolver SubjectResolver) func(http.Handler) http.Handler {
+func DaemonAuth(queries *db.Queries, patCache *auth.PATCache, daemonCache *auth.DaemonTokenCache, resolver SubjectResolver) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			authHeader := r.Header.Get("Authorization")
@@ -189,9 +189,9 @@ func DaemonAuth(queries *db.Queries, patCache *auth.PATCache, daemonCache *auth.
 				}
 			}
 
-			// Fallback: Casdoor RS256 JWT.
-			if jwks != nil && resolver != nil {
-				userInfo, err := auth.ParseCasdoorJWT(tokenString, jwks)
+			// Fallback: Casdoor JWT (signature trusted to the gateway).
+			if resolver != nil {
+				userInfo, err := auth.ParseCasdoorJWT(tokenString)
 				if err != nil {
 					slog.Warn("daemon_auth: Casdoor JWT parse failed", "path", r.URL.Path, "error", err)
 				} else {
@@ -209,7 +209,7 @@ func DaemonAuth(queries *db.Queries, patCache *auth.PATCache, daemonCache *auth.
 					}
 				}
 			} else {
-				slog.Debug("daemon_auth: Casdoor fallback skipped (jwks or resolver nil)", "path", r.URL.Path, "jwks_nil", jwks == nil, "resolver_nil", resolver == nil)
+				slog.Debug("daemon_auth: Casdoor fallback skipped (resolver nil)", "path", r.URL.Path)
 			}
 
 			slog.Warn("daemon_auth: invalid token", "path", r.URL.Path)

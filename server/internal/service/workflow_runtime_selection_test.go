@@ -194,4 +194,19 @@ func TestWorkflowTaskPhase(t *testing.T) {
 	if got := workflowTaskPhase([]byte(`{"phase":"worker"}`)); got != "worker" {
 		t.Fatalf("got %q, want worker", got)
 	}
+	if got := workflowTaskPhase([]byte(`{"phase":"split_generate"}`)); got != "split" {
+		t.Fatalf("got %q, want split", got)
+	}
+	if got := workflowTaskPhase([]byte(`{"phase":"split"}`)); got != "split" {
+		t.Fatalf("got %q, want split", got)
+	}
+	if !workflowTaskRequiresDirectRetry([]byte(`{"phase":"split_repair","repair":true}`)) {
+		t.Fatal("split repair must keep direct retry until runtime context jobs land")
+	}
+	if !workflowTaskRequiresDirectRetry([]byte(`{"phase":"split_chat"}`)) {
+		t.Fatal("split chat must keep direct retry until runtime context jobs land")
+	}
+	if workflowTaskRequiresDirectRetry([]byte(`{"phase":"split_generate"}`)) {
+		t.Fatal("split generation should use durable dispatch")
+	}
 }

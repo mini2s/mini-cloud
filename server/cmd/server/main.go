@@ -15,12 +15,12 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/joho/godotenv"
 	"github.com/multica-ai/multica/server/internal/analytics"
-	"github.com/multica-ai/multica/server/internal/auth"
 	"github.com/multica-ai/multica/server/internal/daemonws"
 	"github.com/multica-ai/multica/server/internal/deptsync"
 	"github.com/multica-ai/multica/server/internal/events"
 	"github.com/multica-ai/multica/server/internal/gitea"
 	"github.com/multica-ai/multica/server/internal/handler"
+	"github.com/multica-ai/multica/server/internal/integration"
 	"github.com/multica-ai/multica/server/internal/logger"
 	obsmetrics "github.com/multica-ai/multica/server/internal/metrics"
 	"github.com/multica-ai/multica/server/internal/middleware"
@@ -35,6 +35,12 @@ import (
 var (
 	version = "dev"
 	commit  = "unknown"
+)
+
+const (
+	workflowDispatchWorkerConcurrency = 2
+	workflowDispatchPollInterval      = time.Second
+	workflowDispatchLeaseDuration     = 30 * time.Second
 )
 
 func newNamedRedisClient(base *redis.Options, suffix string) *redis.Client {
@@ -268,6 +274,21 @@ func main() {
 	registerActivityListeners(bus, queries)
 	registerNotificationListeners(bus, queries)
 
+	// Optional outbound bridge to costrict-web (WeCom/webhook channels).
+	// Disabled unless both env vars are set; delivery runs in background
+	// workers and never blocks the event bus.
+	if endpoint := strings.TrimSpace(os.Getenv("MULTICA_INTEGRATION_ENDPOINT")); endpoint != "" {
+		if secret := os.Getenv("MULTICA_INTEGRATION_SECRET"); secret != "" {
+			notifier := integration.NewNotifier(endpoint, secret)
+			notifier.Run(ctx)
+			appURL := strings.TrimRight(strings.TrimSpace(os.Getenv("MULTICA_APP_URL")), "/")
+			registerIntegrationListener(bus, queries, notifier, appURL)
+			slog.Info("costrict-web integration bridge enabled", "endpoint", endpoint)
+		} else {
+			slog.Warn("MULTICA_INTEGRATION_ENDPOINT set but MULTICA_INTEGRATION_SECRET missing — integration bridge disabled")
+		}
+	}
+
 	metricsConfig := obsmetrics.ConfigFromEnv()
 	var metricsServer *http.Server
 	var httpMetrics *obsmetrics.HTTPMetrics
@@ -289,16 +310,15 @@ func main() {
 		}
 	}
 
-	// Casdoor SSO: when CASDOOR_ENDPOINT is set, validate RS256 JWTs issued
-	// by Casdoor. Otherwise fall back to legacy HMAC JWT auth. Both modes
-	// support PAT tokens (the CasdoorAuth middleware passes "mul_" prefixed
-	// Bearer tokens through to the downstream Auth middleware).
+	// Casdoor SSO: when CASDOOR_ENDPOINT is set, Casdoor JWTs are accepted on
+	// protected routes. The RS256 signature is verified by the gateway in
+	// front of Multica, so the backend only gates the CasdoorAuth middleware
+	// and the SSO login/callback routes. Both modes support PAT tokens (the
+	// CasdoorAuth middleware passes "mul_" prefixed Bearer tokens through to
+	// the downstream Auth middleware).
 	casdoorEndpoint := os.Getenv("CASDOOR_ENDPOINT")
 	casdoorEnabled := casdoorEndpoint != ""
-	var jwksProvider *auth.JWKSProvider
 	if casdoorEnabled {
-		jwksProvider = auth.NewJWKSProvider(casdoorEndpoint)
-		jwksProvider.Preload()
 		slog.Info("Casdoor SSO enabled", "endpoint", casdoorEndpoint)
 	} else {
 		slog.Warn("Casdoor SSO not configured — using legacy HMAC JWT auth")
@@ -361,7 +381,17 @@ func main() {
 				handler.LinkDeptIdentity(bgCtx, queries, deptSyncClient, bus, uid, uni)
 			}()
 		}()
-		user, err := queries.GetUserBySubjectID(ctx, pgtype.Text{String: subjectID, Valid: true})
+		// Prefer universal_id (stable across identity systems): a cs-user token's
+		// sub is cs-user's own user id, not the local Casdoor sub this account was
+		// originally provisioned under — but universal_id identifies the same
+		// person. Fall back to subject_id when universal_id is absent/unbound.
+		var user db.MulticaUser
+		if universalID != "" {
+			user, err = queries.GetUserByCasdoorUniversalID(ctx, pgtype.Text{String: universalID, Valid: true})
+		}
+		if universalID == "" || err != nil {
+			user, err = queries.GetUserBySubjectID(ctx, pgtype.Text{String: subjectID, Valid: true})
+		}
 		if err != nil {
 			// Auto-provision: use real name/email from JWT, fall back to placeholders.
 			if name == "" {
@@ -533,7 +563,6 @@ func main() {
 		DaemonHub:              daemonHub,
 		DaemonWakeup:           daemonWakeup,
 		HeartbeatScheduler:     heartbeatScheduler,
-		JWKSProvider:           jwksProvider,
 		SubjectResolver:        subjectResolver,
 		CasdoorEnabled:         casdoorEnabled,
 		SkillProxy:             skillProxy,
@@ -554,6 +583,9 @@ func main() {
 	taskSvc := service.NewTaskService(queries, pool, hub, bus, daemonWakeup)
 	taskSvc.Analytics = analyticsClient
 	roleWorkflowSvc := service.NewWorkflowService(queries, pool, bus, taskSvc)
+	roleWorkflowSvc.Gitea = giteaClient
+	roleWorkflowSvc.TeamNamespace = teamNamespaceClient
+	splitDispatchSvc := service.NewSplitOrchestrator(queries, pool, roleWorkflowSvc, bus)
 	hostname, _ := os.Hostname()
 	for i := 0; i < roleResolutionRuntime.WorkerConcurrency; i++ {
 		worker := &service.WorkflowRoleResolutionWorker{
@@ -563,11 +595,6 @@ func main() {
 			PollInterval: roleResolutionRuntime.PollInterval, LeaseDuration: roleResolutionRuntime.LeaseDuration,
 			MaxCandidates: roleResolutionRuntime.MaxCandidates, MaxSlots: roleResolutionRuntime.MaxSlots,
 			MaxInputChars: roleResolutionRuntime.MaxInputChars,
-			OnRunPromoted: func(ctx context.Context, runID pgtype.UUID) {
-				if err := roleWorkflowSvc.DispatchRootNodeRuns(ctx, runID); err != nil {
-					slog.Error("dispatch workflow roots after role resolution", "run_id", util.UUIDToString(runID), "error", err)
-				}
-			},
 			OnStateChanged: func(_ context.Context, workspaceID, runID pgtype.UUID) {
 				payload := map[string]any{"run_id": util.UUIDToString(runID)}
 				for _, eventType := range []string{"workflow_role_resolution_updated", "workflow_run_updated"} {
@@ -577,6 +604,16 @@ func main() {
 					})
 				}
 			},
+		}
+		go worker.Run(sweepCtx)
+	}
+	for i := 0; i < workflowDispatchWorkerConcurrency; i++ {
+		worker := &service.WorkflowDispatchWorker{
+			Queries: queries, TxStarter: pool, Workflow: roleWorkflowSvc,
+			DispatchSplit: splitDispatchSvc.GenerateSplitTasksForDispatch,
+			WorkerID:      hostname + "-workflow-dispatch-" + strconv.Itoa(i+1),
+			PollInterval:  workflowDispatchPollInterval,
+			LeaseDuration: workflowDispatchLeaseDuration,
 		}
 		go worker.Run(sweepCtx)
 	}

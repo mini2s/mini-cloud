@@ -97,6 +97,23 @@ func newDaemonTokenRequest(method, path string, body any, workspaceID, daemonID 
 	return req.WithContext(ctx)
 }
 
+func TestWorkflowCompletionFailureReason(t *testing.T) {
+	workflowTask := db.MulticaAgentTaskQueue{
+		WorkflowNodeRunID: pgtype.UUID{Valid: true},
+	}
+	regularTask := db.MulticaAgentTaskQueue{}
+
+	if got := workflowCompletionFailureReason(workflowTask, TaskCompleteRequest{Output: "   "}); got != "agent_empty_output" {
+		t.Fatalf("blank workflow output failure reason = %q, want agent_empty_output", got)
+	}
+	if got := workflowCompletionFailureReason(workflowTask, TaskCompleteRequest{Output: "done"}); got != "" {
+		t.Fatalf("non-empty workflow output failure reason = %q, want empty", got)
+	}
+	if got := workflowCompletionFailureReason(regularTask, TaskCompleteRequest{Output: "   "}); got != "" {
+		t.Fatalf("blank regular task output failure reason = %q, want empty", got)
+	}
+}
+
 func createClaimReclaimRuntime(t *testing.T, ctx context.Context, name string) string {
 	t.Helper()
 
@@ -3792,11 +3809,12 @@ func createUpstreamStageContextFixture(t *testing.T, ctx context.Context, suffix
 		INSERT INTO multica_workflow_node_run (
 			workflow_run_id, workflow_node_id, node_title, status,
 			worker_type, worker_id, critic_type, critic_id,
-			worker_output, completed_at
+			worker_output, completed_at, stage_snapshot
 		)
-		VALUES ($1, $2, 'Node 1', 'completed', 'agent', $3, 'human', NULL, $4, now())
+		VALUES ($1, $2, 'Node 1', 'completed', 'agent', $3, 'human', NULL, $4, now(),
+		        jsonb_build_object('id', $5::text, 'name', 'Stage 1', 'sort_order', 0))
 		RETURNING id
-	`, parseUUID(f.runID), parseUUID(f.node1ID), parseUUID(f.agentID), []byte(`{"output":"upstream output"}`)).Scan(&f.nodeRun1ID); err != nil {
+	`, parseUUID(f.runID), parseUUID(f.node1ID), parseUUID(f.agentID), []byte(`{"output":"upstream output"}`), f.stage1ID).Scan(&f.nodeRun1ID); err != nil {
 		t.Fatalf("setup: create node run 1: %v", err)
 	}
 
@@ -3804,12 +3822,20 @@ func createUpstreamStageContextFixture(t *testing.T, ctx context.Context, suffix
 	if err := testPool.QueryRow(ctx, `
 		INSERT INTO multica_workflow_node_run (
 			workflow_run_id, workflow_node_id, node_title, status,
-			worker_type, worker_id, critic_type, critic_id
+			worker_type, worker_id, critic_type, critic_id, stage_snapshot
 		)
-		VALUES ($1, $2, 'Node 2', 'worker_assigned', 'agent', $3, 'human', NULL)
+		VALUES ($1, $2, 'Node 2', 'worker_assigned', 'agent', $3, 'human', NULL,
+		        jsonb_build_object('id', $4::text, 'name', 'Stage 2', 'sort_order', 1))
 		RETURNING id
-	`, parseUUID(f.runID), parseUUID(f.node2ID), parseUUID(f.agentID)).Scan(&f.nodeRun2ID); err != nil {
+	`, parseUUID(f.runID), parseUUID(f.node2ID), parseUUID(f.agentID), f.stage2ID).Scan(&f.nodeRun2ID); err != nil {
 		t.Fatalf("setup: create node run 2: %v", err)
+	}
+	if _, err := testPool.Exec(ctx, `
+		INSERT INTO multica_workflow_run_edge (
+			workflow_run_id, source_node_run_id, target_node_run_id, condition
+		) VALUES ($1, $2, $3, '{}'::jsonb)
+	`, f.runID, f.nodeRun1ID, f.nodeRun2ID); err != nil {
+		t.Fatalf("setup: create runtime edge: %v", err)
 	}
 
 	// Sub-issue for upstream node run 1
@@ -3992,11 +4018,13 @@ func TestClaimTaskByRuntime_NoUpstreamContextForSameStage(t *testing.T) {
 	ctx := context.Background()
 	f := createUpstreamStageContextFixture(t, ctx, "same-stage")
 
-	// Move node 2 into the same stage as node 1 so they are no longer cross-stage.
+	// Model a run that captured both nodes in the same stage.
 	if _, err := testPool.Exec(ctx, `
-		UPDATE multica_workflow_node SET stage_id = $1 WHERE id = $2
-	`, parseUUID(f.stage1ID), parseUUID(f.node2ID)); err != nil {
-		t.Fatalf("move node 2 to stage 1: %v", err)
+		UPDATE multica_workflow_node_run
+		SET stage_snapshot = jsonb_build_object('id', $1::text, 'name', 'Stage 1', 'sort_order', 0)
+		WHERE id = $2
+	`, f.stage1ID, f.nodeRun2ID); err != nil {
+		t.Fatalf("set node run 2 stage snapshot: %v", err)
 	}
 
 	task, body := claimUpstreamTaskByRuntime(t, f.runtimeID)
@@ -4070,12 +4098,20 @@ func TestClaimTaskByRuntime_UpstreamContextLimit(t *testing.T) {
 			INSERT INTO multica_workflow_node_run (
 				workflow_run_id, workflow_node_id, node_title, status,
 				worker_type, worker_id, critic_type, critic_id,
-				completed_at
+				completed_at, stage_snapshot
 			)
-			VALUES ($1, $2, $3, 'completed', 'agent', $4, 'human', NULL, now())
+			VALUES ($1, $2, $3, 'completed', 'agent', $4, 'human', NULL, now(),
+			        jsonb_build_object('id', $5::text, 'name', 'Stage 1', 'sort_order', 0))
 			RETURNING id
-		`, parseUUID(f.runID), parseUUID(nodeID), fmt.Sprintf("Extra Node %d", i), parseUUID(f.agentID)).Scan(&nodeRunID); err != nil {
+		`, parseUUID(f.runID), parseUUID(nodeID), fmt.Sprintf("Extra Node %d", i), parseUUID(f.agentID), f.stage1ID).Scan(&nodeRunID); err != nil {
 			t.Fatalf("setup: create extra node run %d: %v", i, err)
+		}
+		if _, err := testPool.Exec(ctx, `
+			INSERT INTO multica_workflow_run_edge (
+				workflow_run_id, source_node_run_id, target_node_run_id, condition
+			) VALUES ($1, $2, $3, '{}'::jsonb)
+		`, f.runID, nodeRunID, f.nodeRun2ID); err != nil {
+			t.Fatalf("setup: create extra runtime edge %d: %v", i, err)
 		}
 
 		var issueID string

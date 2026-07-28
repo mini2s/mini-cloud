@@ -536,12 +536,9 @@ func TestGetSessionPermission_NotFound(t *testing.T) {
 	}
 }
 
-// TestHandbackNodeRun_DispatchesWorkerResume is the B3 contract: handing a
-// taken-over node back to its agent (blocked → working) must re-dispatch a
-// worker task linked to the node_run, so the daemon resumes execution. The
-// dispatched task targets the node_run's bound runtime; the daemon claim
-// handler resolves the resume session from the node_run's bound session_id.
-func TestHandbackNodeRun_DispatchesWorkerResume(t *testing.T) {
+// TestHandbackNodeRun_EnqueuesWorkerResume is the B3 contract: handing a
+// taken-over node back to its agent atomically schedules durable recovery.
+func TestHandbackNodeRun_EnqueuesWorkerResume(t *testing.T) {
 	nodeRunID, _, _ := seedHandbackNodeRun(t)
 
 	req := withURLParam(
@@ -559,25 +556,22 @@ func TestHandbackNodeRun_DispatchesWorkerResume(t *testing.T) {
 	if nr.Status != "working" {
 		t.Fatalf("expected status working, got %s", nr.Status)
 	}
-	if !nr.WorkerAgentTaskID.Valid {
-		t.Fatalf("handback must link a worker task (worker_agent_task_id), got NULL")
+	if nr.WorkerAgentTaskID.Valid {
+		t.Fatalf("handback linked task %s before durable dispatch", uuidToString(nr.WorkerAgentTaskID))
 	}
-
-	// The dispatched task must target the bound runtime so the daemon that owns
-	// the CSC session is the one that claims the resume.
-	task, err := testHandler.Queries.GetAgentTask(context.Background(), nr.WorkerAgentTaskID)
-	if err != nil {
-		t.Fatalf("fetch dispatched task: %v", err)
+	var jobs int
+	if err := testPool.QueryRow(context.Background(), `
+		SELECT count(*) FROM multica_workflow_node_run_dispatch_job
+		WHERE workflow_node_run_id = $1 AND phase = 'recovery' AND status = 'pending'
+	`, nodeRunID).Scan(&jobs); err != nil {
+		t.Fatalf("count recovery jobs: %v", err)
 	}
-	if uuidToString(task.RuntimeID) != testRuntimeID {
-		t.Fatalf("dispatched task runtime: expected %q, got %q", testRuntimeID, uuidToString(task.RuntimeID))
-	}
-	if uuidToString(task.WorkflowNodeRunID) != nodeRunID {
-		t.Fatalf("dispatched task must carry node_run_id %q, got %q", nodeRunID, uuidToString(task.WorkflowNodeRunID))
+	if jobs != 1 {
+		t.Fatalf("pending recovery jobs=%d, want 1", jobs)
 	}
 }
 
-func TestRetryNodeRun_DispatchesWorkerForBlockedNodeWithoutIssueAssignee(t *testing.T) {
+func TestRetryNodeRun_EnqueuesWorkerForBlockedNodeWithoutIssueAssignee(t *testing.T) {
 	nodeRunID, _, _ := seedHandbackNodeRun(t)
 
 	req := withURLParam(
@@ -592,20 +586,23 @@ func TestRetryNodeRun_DispatchesWorkerForBlockedNodeWithoutIssueAssignee(t *test
 	}
 
 	nr := fetchNodeRun(t, nodeRunID)
-	if nr.Status != "working" {
-		t.Fatalf("expected retry to dispatch worker and set status working, got %s", nr.Status)
+	if nr.Status != "format_ok" {
+		t.Fatalf("expected retry to reactivate node as format_ok, got %s", nr.Status)
 	}
-	if !nr.WorkerAgentTaskID.Valid {
-		t.Fatalf("retry must link a worker task, got NULL")
+	if nr.WorkerAgentTaskID.Valid {
+		t.Fatalf("retry linked task %s before durable dispatch", uuidToString(nr.WorkerAgentTaskID))
 	}
 	if nr.CompletedAt.Valid {
 		t.Fatalf("retry must reactivate terminal node run with completed_at NULL, got %v", nr.CompletedAt)
 	}
-	task, err := testHandler.Queries.GetAgentTask(context.Background(), nr.WorkerAgentTaskID)
-	if err != nil {
-		t.Fatalf("fetch retry task: %v", err)
+	var jobs int
+	if err := testPool.QueryRow(context.Background(), `
+		SELECT count(*) FROM multica_workflow_node_run_dispatch_job
+		WHERE workflow_node_run_id = $1 AND phase = 'worker' AND status = 'pending'
+	`, nodeRunID).Scan(&jobs); err != nil {
+		t.Fatalf("count worker jobs: %v", err)
 	}
-	if uuidToString(task.WorkflowNodeRunID) != nodeRunID {
-		t.Fatalf("retry task must carry node_run_id %q, got %q", nodeRunID, uuidToString(task.WorkflowNodeRunID))
+	if jobs != 1 {
+		t.Fatalf("pending worker jobs=%d, want 1", jobs)
 	}
 }
