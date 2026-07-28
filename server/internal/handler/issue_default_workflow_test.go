@@ -43,6 +43,7 @@ func TestValidateAssigneePair_RejectsDefaultWorkflow(t *testing.T) {
 
 	h := &Handler{Queries: db.New(testPool)}
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.Header.Set("X-User-ID", testUserID)
 	code, msg := h.validateAssigneePair(ctx, req, wsID,
 		pgtype.Text{String: "workflow", Valid: true}, wfUUID)
 	if code != http.StatusBadRequest {
