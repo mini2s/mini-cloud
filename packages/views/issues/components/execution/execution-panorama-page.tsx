@@ -899,16 +899,18 @@ export function ExecutionPanoramaPage({
     [members],
   );
 
-  // Resolved user per node-run + slot, so role-based worker/critic names can
-  // surface the actual member once role resolution completes. Falls back to
-  // the role name when no resolution exists yet (manual assignment pending or
-  // auto-resolution disabled).
-  const resolvedUserIdByNodeRunSlot = useMemo(() => {
-    const map = new Map<string, string>();
+  // Keep both sides of a resolved role mapping. The runtime card still renders
+  // the concrete member as the actor, while sourceRoleName preserves why that
+  // member was selected instead of making the role disappear from the UI.
+  const resolvedRoleByNodeRunSlot = useMemo(() => {
+    const map = new Map<string, { userId: string; roleName: string }>();
     for (const resolution of roleResolutions) {
       if (resolution.status !== "resolved" || !resolution.resolved_user_id) continue;
       if (!memberNameById.has(resolution.resolved_user_id)) continue;
-      map.set(`${resolution.workflow_node_run_id}:${resolution.slot_type}`, resolution.resolved_user_id);
+      map.set(`${resolution.workflow_node_run_id}:${resolution.slot_type}`, {
+        userId: resolution.resolved_user_id,
+        roleName: resolution.role_name,
+      });
     }
     return map;
   }, [roleResolutions, memberNameById]);
@@ -1022,13 +1024,23 @@ export function ExecutionPanoramaPage({
     node: WorkflowNode,
   ): WorkflowActorIdentity | null => {
     const nodeRun = nodeRunMap.get(node.id);
+    const resolvedRole = nodeRun
+      ? resolvedRoleByNodeRunSlot.get(`${nodeRun.id}:${slot}`)
+      : undefined;
+    const sourceRoleName = resolvedRole
+      ? renderRoleName(undefined, resolvedRole.roleName) ?? resolvedRole.roleName
+      : undefined;
     const runType = slot === "worker" ? nodeRun?.worker_type : nodeRun?.critic_type;
     const runId = slot === "worker" ? nodeRun?.worker_id : nodeRun?.critic_id;
     const actorNameSnapshot = slot === "worker"
       ? nodeRun?.worker_name_snapshot
       : nodeRun?.critic_name_snapshot;
     const runtimeIdentity = buildConcreteActorIdentity(runType, runId, actorNameSnapshot);
-    if (runtimeIdentity) return runtimeIdentity;
+    if (runtimeIdentity) {
+      return resolvedRole && runtimeIdentity.type === "member" && runtimeIdentity.id === resolvedRole.userId
+        ? { ...runtimeIdentity, sourceRoleName }
+        : runtimeIdentity;
+    }
 
     const nodeType = slot === "worker" ? node.worker_type : node.critic_type;
     const nodeActorId = slot === "worker" ? node.worker_id : node.critic_id;
@@ -1042,14 +1054,12 @@ export function ExecutionPanoramaPage({
     );
     if (roleId || roleKey || roleNameSnapshot) {
       if (nodeRun) {
-        const resolvedUserId = resolvedUserIdByNodeRunSlot.get(`${nodeRun.id}:${slot}`);
-        const resolvedIdentity = buildConcreteActorIdentity("member", resolvedUserId);
-        if (resolvedIdentity) return resolvedIdentity;
+        const resolvedIdentity = buildConcreteActorIdentity("member", resolvedRole?.userId);
+        if (resolvedIdentity) return { ...resolvedIdentity, sourceRoleName };
       }
-      const roleName = roleNameSnapshot ?? renderRoleName(
-        roleId ? roleById.get(roleId) : undefined,
-        roleId ?? roleKey,
-      );
+      const roleName = roleNameSnapshot
+        ? renderRoleName(undefined, roleNameSnapshot)
+        : renderRoleName(roleId ? roleById.get(roleId) : undefined, roleId ?? roleKey);
       if (roleName) {
         return { type: "role", id: null, name: roleName, typeLabel: actorTypeLabels.role };
       }
@@ -1059,7 +1069,7 @@ export function ExecutionPanoramaPage({
       return { type: "api", id: null, name: "API review", typeLabel: actorTypeLabels.api };
     }
     return null;
-  }, [actorTypeLabels, buildConcreteActorIdentity, nodeRunMap, renderRoleName, resolvedUserIdByNodeRunSlot, roleById]);
+  }, [actorTypeLabels, buildConcreteActorIdentity, nodeRunMap, renderRoleName, resolvedRoleByNodeRunSlot, roleById]);
 
   const resolveWorkerName = useCallback(
     (node: WorkflowNode): string | null => resolveRuntimeActorIdentity("worker", node)?.name ?? null,
