@@ -110,6 +110,39 @@ vi.mock("../../../workflows/components/workflow-runtime-strategy-dialog", () => 
 }));
 
 describe("AssigneePicker agentFilter", () => {
+  it("keeps the unassigned option by default", () => {
+    render(
+      <AssigneePicker
+        assigneeType={null}
+        assigneeId={null}
+        trigger={<span>Choose assignee</span>}
+        open
+        onOpenChange={vi.fn()}
+        onUpdate={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText("Unassigned")).toBeInTheDocument();
+  });
+
+  it("can hide the unassigned option and label the embedded picker", () => {
+    render(
+      <AssigneePicker
+        assigneeType={null}
+        assigneeId={null}
+        allowUnassigned={false}
+        ariaLabel="Assignee for Task A"
+        trigger={<span>Choose assignee</span>}
+        open
+        onOpenChange={vi.fn()}
+        onUpdate={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByLabelText("Assignee for Task A")).toBeInTheDocument();
+    expect(screen.queryByText("Unassigned")).not.toBeInTheDocument();
+  });
+
   it("filters agent picker options without changing saved assignee rendering", () => {
     render(
       <AssigneePicker
