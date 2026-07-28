@@ -3,6 +3,7 @@ export const GRADIENT_HEIGHT = 16;
 export const LANE_STEP = LANE_HEIGHT + GRADIENT_HEIGHT; // 232
 export const LANE_PADDING_TOP = 12;
 export const PANORAMA_WIDTH = 2400;
+export const UNASSIGNED_STAGE_ID = "unassigned";
 
 export const WORKER_WIDTH = 296;
 export const WORKER_HEIGHT = 152;

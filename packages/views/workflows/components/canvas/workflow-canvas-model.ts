@@ -8,6 +8,7 @@ import {
   WORKER_CRITIC_GAP,
   WORKER_HEIGHT,
   WORKER_WIDTH,
+  UNASSIGNED_STAGE_ID,
   computeLaneY,
   createStageVisualIndexMap,
   getStageColor,
@@ -57,7 +58,7 @@ export function workflowCanvasStages(
   return [
     ...stages,
     {
-      id: "unassigned",
+      id: UNASSIGNED_STAGE_ID,
       workflow_id: workflowId,
       name: "Unassigned",
       description: "",
