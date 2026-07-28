@@ -28,6 +28,7 @@ func TestSplitAPIErrorStatus(t *testing.T) {
 		code   string
 	}{
 		{service.NewSplitAPIError(service.SplitErrorConflict, "draft_task_conflict", errors.New("version changed")), http.StatusConflict, "draft_task_conflict"},
+		{service.NewSplitAPIError(service.SplitErrorForbidden, "split_reviewer_required", errors.New("reviewer required")), http.StatusForbidden, "split_reviewer_required"},
 		{fmt.Errorf("wrapped: %w", service.NewSplitAPIError(service.SplitErrorConflict, "split_config_conflict", errors.New("version changed"))), http.StatusConflict, "split_config_conflict"},
 		{service.NewSplitAPIError(service.SplitErrorUnprocessable, "invalid_split_task_workflow", errors.New("inactive")), http.StatusUnprocessableEntity, "invalid_split_task_workflow"},
 		{service.NewSplitAPIError(service.SplitErrorUnprocessable, "split_task_limit_exceeded", errors.New("too many")), http.StatusUnprocessableEntity, "split_task_limit_exceeded"},
@@ -266,10 +267,10 @@ func createSplitApproveFixture(t *testing.T, mode string) splitApproveFixture {
 
 	if err := testPool.QueryRow(ctx, `
 		INSERT INTO multica_workflow_node_run (
-			workflow_run_id, workflow_node_id, node_title, status, worker_type, worker_id, critic_type,
+			workflow_run_id, workflow_node_id, node_title, status, worker_type, worker_id, critic_type, critic_id,
 			format_schema, runtime_config
 		)
-		VALUES ($1, $2, 'Split node', 'awaiting_split_review', 'human', $3, 'human', $4::jsonb, $4::jsonb)
+		VALUES ($1, $2, 'Split node', 'awaiting_split_review', 'human', $3, 'human', $3, $4::jsonb, $4::jsonb)
 		RETURNING id
 	`, f.parentRunID, f.splitNodeID, testUserID, string(splitFormat)).Scan(&f.splitNodeRunID); err != nil {
 		t.Fatalf("create split node run: %v", err)
@@ -331,6 +332,38 @@ func createSplitApproveFixture(t *testing.T, mode string) splitApproveFixture {
 	}
 
 	return f
+}
+
+func TestPatchSplitTaskAssigneeEnforcesReviewerAndVersion(t *testing.T) {
+	if testHandler == nil {
+		t.Skip("database not available")
+	}
+	otherUserID := helperTestUser(t, "Split Review Other", fmt.Sprintf("split-review-other-%d@multica.ai", time.Now().UnixNano()))
+	helperAddUserToWorkspaceWithStatus(t, otherUserID, "member", "active")
+
+	tests := []struct {
+		name   string
+		userID string
+		body   map[string]any
+		want   int
+	}{
+		{"reviewer", testUserID, map[string]any{"assignee_type": "member", "assignee_id": testUserID, "expected_version": 1}, http.StatusOK},
+		{"other member", otherUserID, map[string]any{"assignee_type": "member", "assignee_id": testUserID, "expected_version": 1}, http.StatusForbidden},
+		{"invalid type", testUserID, map[string]any{"assignee_type": "api", "assignee_id": testUserID, "expected_version": 1}, http.StatusUnprocessableEntity},
+		{"stale version", testUserID, map[string]any{"assignee_type": "member", "assignee_id": testUserID, "expected_version": 99}, http.StatusConflict},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			f := createSplitApproveFixture(t, "barrier")
+			req := newRequestAs(tt.userID, http.MethodPatch, "/api/node-runs/"+f.splitNodeRunID+"/split/draft-tasks/"+f.taskAID+"/assignee", tt.body)
+			req = withURLParams(req, "nodeRunId", f.splitNodeRunID, "taskId", f.taskAID)
+			w := httptest.NewRecorder()
+			testHandler.PatchSplitTaskAssignee(w, req)
+			if w.Code != tt.want {
+				t.Fatalf("status = %d, want %d: %s", w.Code, tt.want, w.Body.String())
+			}
+		})
+	}
 }
 
 func prepareSplitTaskForScheduling(t *testing.T, f splitApproveFixture) db.MulticaWorkflowSplitTask {
@@ -1391,6 +1424,9 @@ func TestPatchSplitDraftTaskRejectsNonReviewNode(t *testing.T) {
 
 func TestApproveSplitTasksConfirmEmptyDiscardsDrafts(t *testing.T) {
 	f := createSplitApproveFixture(t, "barrier")
+	if _, err := testPool.Exec(context.Background(), `UPDATE multica_workflow_split_task SET status = 'discarded' WHERE node_run_id = $1`, f.splitNodeRunID); err != nil {
+		t.Fatalf("discard split drafts: %v", err)
+	}
 
 	req := newRequest("POST", "/api/node-runs/"+f.splitNodeRunID+"/split/approve", map[string]any{
 		"approved_task_ids": []string{},
