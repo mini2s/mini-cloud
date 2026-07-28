@@ -15,6 +15,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/joho/godotenv"
 	"github.com/multica-ai/multica/server/internal/analytics"
+	"github.com/multica-ai/multica/server/internal/cloudruntime"
 	"github.com/multica-ai/multica/server/internal/daemonws"
 	"github.com/multica-ai/multica/server/internal/deptsync"
 	"github.com/multica-ai/multica/server/internal/events"
@@ -582,6 +583,15 @@ func main() {
 	autopilotCtx, autopilotCancel := context.WithCancel(context.Background())
 	taskSvc := service.NewTaskService(queries, pool, hub, bus, daemonWakeup)
 	taskSvc.Analytics = analyticsClient
+	// Background dispatch paths (workflow dispatch worker, autopilot, the
+	// runtime sweeper) share this TaskService instance, so it needs its own
+	// cs-cloud push client — the one wired in handler.NewHandler only covers
+	// the HTTP request path. Without this, cs-cloud tasks enqueued from
+	// background paths sit in 'queued' until the TTL sweeper expires them.
+	taskSvc.CSCloudPush = cloudruntime.NewClient(cloudruntime.Config{
+		BaseURL: cloudRuntimeFleetURLFromEnv(),
+		Timeout: envDuration("MULTICA_CLOUD_FLEET_TIMEOUT", 35*time.Second),
+	})
 	roleWorkflowSvc := service.NewWorkflowService(queries, pool, bus, taskSvc)
 	roleWorkflowSvc.Gitea = giteaClient
 	roleWorkflowSvc.TeamNamespace = teamNamespaceClient

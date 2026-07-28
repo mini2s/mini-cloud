@@ -57,8 +57,18 @@ type csCloudTaskRunPayload struct {
 // spawns the actual push in a detached goroutine so the enqueueing HTTP
 // request is not blocked by network IO.
 func (s *TaskService) maybePushToCSCloud(task db.MulticaAgentTaskQueue) {
-	if s.CSCloudPush == nil || !s.CSCloudPush.Enabled() {
+	if s.CSCloudPush == nil {
+		// A nil client is a wiring bug, not a configuration choice — every
+		// TaskService instance is expected to have one wired. Log loudly:
+		// without this the task silently sits in 'queued' until the TTL
+		// sweeper expires it (seen in production, took hours to diagnose).
+		slog.Warn("cs-cloud push skipped: push client not wired",
+			"task_id", util.UUIDToString(task.ID),
+		)
 		return
+	}
+	if !s.CSCloudPush.Enabled() {
+		return // fleet URL not configured; cs-cloud push intentionally off
 	}
 	if !task.RuntimeID.Valid {
 		return
