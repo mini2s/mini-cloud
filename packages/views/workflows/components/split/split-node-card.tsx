@@ -13,7 +13,6 @@ export interface SplitNodeCardProps {
   progress?: SplitProgress | null;
   status?: "editing" | "generating" | "awaiting_review" | "active" | "completed" | "idle";
   taskCount?: number;
-  childWorkflowName?: string | null;
   className?: string;
   headerAction?: ReactNode;
   progressAction?: ReactNode;
@@ -26,7 +25,6 @@ export function SplitNodeCard({
   progress,
   status = "idle",
   taskCount = 0,
-  childWorkflowName,
   className,
   headerAction,
   progressAction,
@@ -76,23 +74,18 @@ export function SplitNodeCard({
           {label}
         </span>
       ) : (
-        <div className="grid min-w-0 gap-2">
-          <div className={cn("grid min-w-0 gap-1.5", mode === "barrier" ? "grid-cols-3" : "grid-cols-2")}>
-            <span className="min-w-0 truncate rounded-md border border-primary/20 bg-primary/10 px-2 py-1 text-center text-[11px] font-semibold leading-4 text-primary">
-              {t(($) => $.detail_panel.split_node_mode_label, { mode })}
-            </span>
-            <span className="min-w-0 truncate rounded-md border border-border/70 bg-muted/35 px-2 py-1 text-center text-[11px] font-medium leading-4 text-muted-foreground">
-              {t(($) => $.detail_panel.split_node_concurrency_label, { concurrency: maxConcurrency })}
-            </span>
-            {mode === "barrier" ? (
-              <span className="min-w-0 truncate rounded-md border border-border/70 bg-muted/35 px-2 py-1 text-center text-[11px] font-medium leading-4 text-muted-foreground">
-                {t(($) => $.detail_panel.split_node_failure_label, { max: maxFailures })}
-              </span>
-            ) : null}
-          </div>
-          <span className="min-w-0 truncate rounded-md border border-border/70 bg-background/70 px-2 py-1 text-[11px] font-medium leading-4 text-muted-foreground">
-            {childWorkflowName ?? t(($) => $.detail_panel.split_node_child_workflow_missing)}
+        <div className={cn("grid min-w-0 gap-1.5", mode === "barrier" ? "grid-cols-3" : "grid-cols-2")}>
+          <span className="min-w-0 truncate rounded-md border border-primary/20 bg-primary/10 px-2 py-1 text-center text-[11px] font-semibold leading-4 text-primary">
+            {t(($) => $.detail_panel.split_node_mode_label, { mode })}
           </span>
+          <span className="min-w-0 truncate rounded-md border border-border/70 bg-muted/35 px-2 py-1 text-center text-[11px] font-medium leading-4 text-muted-foreground">
+            {t(($) => $.detail_panel.split_node_concurrency_label, { concurrency: maxConcurrency })}
+          </span>
+          {mode === "barrier" ? (
+            <span className="min-w-0 truncate rounded-md border border-border/70 bg-muted/35 px-2 py-1 text-center text-[11px] font-medium leading-4 text-muted-foreground">
+              {t(($) => $.detail_panel.split_node_failure_label, { max: maxFailures })}
+            </span>
+          ) : null}
         </div>
       )}
     </div>

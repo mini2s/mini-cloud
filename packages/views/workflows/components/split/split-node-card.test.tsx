@@ -36,12 +36,11 @@ const config: SplitConfig = {
 };
 
 describe("SplitNodeCard", () => {
-  it("shows split mode, concurrency, failure tolerance, and child workflow context", () => {
+  it("shows split mode, concurrency, and failure tolerance without legacy child workflow context", () => {
     render(
       <SplitNodeCard
         title="Task split"
         config={config}
-        childWorkflowName="Implementation workflow"
       />,
     );
 
@@ -49,7 +48,8 @@ describe("SplitNodeCard", () => {
     expect(screen.getByText("barrier")).toBeInTheDocument();
     expect(screen.getByText("Concurrency 5")).toBeInTheDocument();
     expect(screen.getByText("Max failures 1")).toBeInTheDocument();
-    expect(screen.getByText("Implementation workflow")).toBeInTheDocument();
+    expect(screen.queryByText("Implementation workflow")).not.toBeInTheDocument();
+    expect(screen.queryByText("No child workflow")).not.toBeInTheDocument();
     expect(screen.queryByText(/After child issues/)).not.toBeInTheDocument();
   });
 
@@ -62,7 +62,7 @@ describe("SplitNodeCard", () => {
     );
 
     expect(screen.getByText("pipeline")).toBeInTheDocument();
-    expect(screen.getByText("No child workflow")).toBeInTheDocument();
+    expect(screen.queryByText("No child workflow")).not.toBeInTheDocument();
     expect(screen.queryByText(/Max failures/)).not.toBeInTheDocument();
   });
 });

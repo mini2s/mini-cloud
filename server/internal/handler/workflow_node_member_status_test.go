@@ -29,7 +29,7 @@ func TestValidateSplitReviewerConfig(t *testing.T) {
 		{name: "agent", criticType: "agent", criticID: memberID, wantErr: true},
 		{name: "api", criticType: "api", apiURL: pgtype.Text{String: "https://example.com/review", Valid: true}, wantErr: true},
 		{name: "both member and role", criticType: "human", criticID: memberID, roleID: roleID, wantErr: true},
-		{name: "missing reviewer", criticType: "human", wantErr: true},
+		{name: "missing reviewer allowed while drafting", criticType: "human"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

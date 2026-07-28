@@ -591,6 +591,25 @@ func (h *Handler) UpdateWorkflow(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
+	if req.Status != nil && *req.Status == "active" {
+		nodes, err := h.Queries.ListWorkflowNodes(r.Context(), wf.ID)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to validate workflow nodes")
+			return
+		}
+		for _, node := range nodes {
+			if err := validateRequiredSplitReviewerConfig(
+				node.FormatSchema,
+				node.CriticType,
+				node.CriticID,
+				node.CriticRoleID,
+				node.CriticApiUrl,
+			); err != nil {
+				writeError(w, http.StatusUnprocessableEntity, err.Error())
+				return
+			}
+		}
+	}
 
 	params := db.UpdateWorkflowParams{
 		ID:          wf.ID,
@@ -725,7 +744,20 @@ func validateSplitReviewerConfig(formatSchema []byte, criticType string, criticI
 	if workflowmeta.KindOf(formatSchema) != "split" {
 		return nil
 	}
+	if criticType == "human" && !criticID.Valid && !criticRoleID.Valid && !criticAPIURL.Valid {
+		return nil
+	}
 	if criticAPIURL.Valid || criticType != "human" || criticID.Valid == criticRoleID.Valid {
+		return errors.New("split reviewer must be one workspace member or one member role")
+	}
+	return nil
+}
+
+func validateRequiredSplitReviewerConfig(formatSchema []byte, criticType string, criticID, criticRoleID pgtype.UUID, criticAPIURL pgtype.Text) error {
+	if err := validateSplitReviewerConfig(formatSchema, criticType, criticID, criticRoleID, criticAPIURL); err != nil {
+		return err
+	}
+	if workflowmeta.KindOf(formatSchema) == "split" && !criticID.Valid && !criticRoleID.Valid {
 		return errors.New("split reviewer must be one workspace member or one member role")
 	}
 	return nil

@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"slices"
 	"testing"
 	"time"
 
@@ -103,7 +102,7 @@ func TestPrepareWorkflowRunSnapshotDoesNotMaterializeAnnotationNodes(t *testing.
 	fixture.assertRunEntityCounts(t, prepared.Run.ID, 1, 0, 1, 1)
 }
 
-func TestPrepareWorkflowRunSnapshotRejectsMissingSplitWorkflow(t *testing.T) {
+func TestPrepareWorkflowRunSnapshotIgnoresDeprecatedSplitWorkflow(t *testing.T) {
 	fixture := newWorkflowPrepareFixture(t, true)
 	defer fixture.cleanup(t)
 
@@ -127,19 +126,13 @@ func TestPrepareWorkflowRunSnapshotRejectsMissingSplitWorkflow(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, err := fixture.service.PrepareWorkflowRunSnapshot(fixture.ctx, fixture.workflowID, PrepareWorkflowRunParams{
+	prepared, err := fixture.service.PrepareWorkflowRunSnapshot(fixture.ctx, fixture.workflowID, PrepareWorkflowRunParams{
 		TriggeredByType: "member", TriggeredByID: fixture.userID,
 	})
-	var invalid *WorkflowConfigInvalidError
-	if !errors.As(err, &invalid) {
-		t.Fatalf("error=%v, want WorkflowConfigInvalidError", err)
+	if err != nil {
+		t.Fatalf("deprecated split workflow field prevented run preparation: %v", err)
 	}
-	if !slices.ContainsFunc(invalid.Issues, func(issue WorkflowConfigIssue) bool {
-		return issue.Code == "split_config_invalid"
-	}) {
-		t.Fatalf("issues=%#v, want split_config_invalid", invalid.Issues)
-	}
-	fixture.assertRunEntityCounts(t, invalid.RunID, 0, 0, 0, 0)
+	fixture.assertRunEntityCounts(t, prepared.Run.ID, 1, 0, 1, 1)
 }
 
 func TestPrepareWorkflowRunSnapshotDispatchKeyIsIdempotent(t *testing.T) {
