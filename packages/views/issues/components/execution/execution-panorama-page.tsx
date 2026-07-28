@@ -815,9 +815,9 @@ export function ExecutionPanoramaPage({
   const deliverableNodeEntries = useMemo(
     () => allNodes.filter((node) => {
       const kind = parseNodeFormat(node.format_schema).kind;
-      return kind !== "gateway" && kind !== "split";
+      return kind !== "gateway" && kind !== "split" && nodeRunMap.has(node.id);
     }),
-    [allNodes],
+    [allNodes, nodeRunMap],
   );
   const deliverableSubmissionQueries = useQueries({
     queries: deliverableNodeEntries.map((node) => {
