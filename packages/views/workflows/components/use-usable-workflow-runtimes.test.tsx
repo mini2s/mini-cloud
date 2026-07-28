@@ -18,14 +18,18 @@ vi.mock("@multica/core/runtimes/queries", () => ({
   myRuntimePermissionOptions: (runtimeId: string) => ({ queryKey: ["runtime-permission", runtimeId] }),
 }));
 
-function runtime(id: string, visibility: "public" | "private"): AgentRuntime {
+function runtime(
+  id: string,
+  visibility: "public" | "private",
+  provider = "csc",
+): AgentRuntime {
   return {
     id,
     workspace_id: "ws-1",
     daemon_id: id,
     name: id,
     runtime_mode: "local",
-    provider: "codex",
+    provider,
     launch_header: "",
     status: "online",
     device_info: "",
@@ -59,5 +63,21 @@ describe("useUsableWorkflowRuntimes", () => {
       "allowed-private",
     ]);
     expect(result.current.isLoading).toBe(false);
+  });
+
+  it("supports csc and cs-cloud providers only", () => {
+    permissionResults.splice(0, permissionResults.length);
+    const runtimes = [
+      runtime("csc", "public", "csc"),
+      runtime("cs-cloud", "public", "cs-cloud"),
+      runtime("codex", "public", "codex"),
+    ];
+
+    const { result } = renderHook(() => useUsableWorkflowRuntimes(runtimes));
+
+    expect(result.current.runtimes.map((candidate) => candidate.id)).toEqual([
+      "csc",
+      "cs-cloud",
+    ]);
   });
 });
