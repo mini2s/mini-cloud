@@ -30,7 +30,6 @@ vi.mock("@multica/views/i18n", () => ({
 }));
 
 const config: SplitConfig = {
-  default_issue_workflow_id: "child-wf-1",
   mode: "barrier",
   max_concurrency: 5,
   max_failures: 1,
