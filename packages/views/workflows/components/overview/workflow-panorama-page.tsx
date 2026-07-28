@@ -349,7 +349,6 @@ function PanoramaContent({
 
   // ── Onboarding guide state ──
   const rlNodesCount = rfNodes.filter(n => n.type !== "laneBg" && n.type !== "gradientBg").length;
-  const showFirstStageGuide = stages.length === 0;
   const showFirstStepGuide = stages.length > 0 && rlNodesCount === 0;
   const connectedNodePickerPosition = useMemo(() => {
     if (!connectedNodePickerSourceId) return null;
@@ -417,6 +416,7 @@ function PanoramaContent({
         disabledTemplateIds={disabledBoundaryTemplateIds}
         onTestRun={onTestRun}
         onToggleWorkflowStatus={onToggleWorkflowStatus}
+        onReviewIssues={() => setPreflightDismissed(false)}
         onOpenRunHistory={onOpenRunHistory}
         onOpenRunSettings={onOpenRunSettings}
         onDeleteWorkflow={() => setDeleteDialogOpen(true)}
@@ -521,7 +521,7 @@ function PanoramaContent({
       </div>
 
       {/* Preflight bar */}
-      {!showFirstStageGuide && visibleNodes.length > 0 && (!preflightDismissed || preflightResult.passed) && (
+      {visibleNodes.length > 0 && (!preflightDismissed || preflightResult.passed) && (
         <PreflightBar
           result={preflightResult}
           hasUnsavedEdits={hasUnsavedEdits}

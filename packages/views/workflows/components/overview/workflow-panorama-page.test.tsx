@@ -50,6 +50,12 @@ const mocks = vi.hoisted(() => ({
   runsData: [] as Array<{ id: string }>,
   nodeRunsData: [] as unknown[],
   runtimesData: [] as unknown[],
+  preflightResult: {
+    issues: [] as Array<{ checkId: string; severity: string; blocking: boolean; nodeId: string; nodeTitle: string; message: string }>,
+    blockingCount: 0,
+    warningCount: 0,
+    passed: true,
+  },
   workflowData: {
     id: "wf-1",
     title: "Test Workflow",
@@ -516,11 +522,15 @@ vi.mock("../node-config-panel", () => ({
 }));
 
 vi.mock("@multica/core/workflows/preflight-checks", () => ({
-  runAllPreflightChecks: () => ({ issues: [], blockingCount: 0, warningCount: 0, passed: true }),
+  runAllPreflightChecks: () => mocks.preflightResult,
 }));
 
 vi.mock("./preflight-bar", () => ({
-  PreflightBar: () => null,
+  PreflightBar: ({ onDismiss }: { onDismiss: () => void }) => (
+    <div data-testid="preflight-bar">
+      <button type="button" onClick={onDismiss}>Dismiss preflight</button>
+    </div>
+  ),
 }));
 
 // Mock TanStack Query — reads from hoisted mocks
@@ -568,6 +578,12 @@ describe("WorkflowPanoramaPage (new)", () => {
     mocks.runsData = [];
     mocks.nodeRunsData = [];
     mocks.runtimesData = [];
+    mocks.preflightResult = {
+      issues: [],
+      blockingCount: 0,
+      warningCount: 0,
+      passed: true,
+    };
     mocks.selectedNodeId = null;
     mocks.selectedEdgeId = null;
     mocks.nodeEdits = {};
@@ -880,6 +896,48 @@ describe("WorkflowPanoramaPage (new)", () => {
   it("does not render an unassigned stage lane label", () => {
     render(<WorkflowPanoramaPage workflowId="wf-1" />);
     expect(screen.queryByText("Unassigned")).not.toBeInTheDocument();
+  });
+
+  it("restores a dismissed blocking preflight from the toolbar", () => {
+    mocks.stagesData = [];
+    mocks.nodesData = [{
+      id: "node-1",
+      workflow_id: "wf-1",
+      title: "Task",
+      description: "",
+      worker_type: "human",
+      worker_id: null,
+      critic_type: "human",
+      critic_id: null,
+      critic_api_url: null,
+      stage_id: null,
+      format_schema: null,
+      position_x: 120,
+      position_y: 0,
+      sort_order: 0,
+      created_at: "",
+      updated_at: "",
+    }];
+    mocks.preflightResult = {
+      issues: [{
+        checkId: "worker-missing",
+        severity: "error",
+        blocking: true,
+        nodeId: "node-1",
+        nodeTitle: "Task",
+        message: "Worker missing",
+      }],
+      blockingCount: 1,
+      warningCount: 0,
+      passed: false,
+    };
+
+    render(<WorkflowPanoramaPage workflowId="wf-1" />);
+    fireEvent.click(screen.getByRole("button", { name: "Dismiss preflight" }));
+    expect(screen.queryByTestId("preflight-bar")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Review issues" }));
+    expect(screen.getByTestId("preflight-bar")).toBeInTheDocument();
   });
 
   it("renders an unassigned stage lane for workflows whose nodes have no stage", () => {

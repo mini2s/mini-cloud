@@ -60,6 +60,7 @@ export interface WorkflowEditorToolbarProps {
   disabledTemplateIds?: Set<string>;
   onTestRun: () => void | Promise<void>;
   onToggleWorkflowStatus: () => void;
+  onReviewIssues: () => void;
   onOpenRunHistory: () => void;
   onOpenRunSettings: () => void;
   onDeleteWorkflow: () => void;
@@ -97,6 +98,7 @@ export function WorkflowEditorToolbar({
   disabledTemplateIds,
   onTestRun,
   onToggleWorkflowStatus,
+  onReviewIssues,
   onOpenRunHistory,
   onOpenRunSettings,
   onDeleteWorkflow,
@@ -132,8 +134,7 @@ export function WorkflowEditorToolbar({
     ? t(($) => $.panorama.toolbar.save_and_test)
     : t(($) => $.panorama.toolbar.test_run);
   const testRunDisabled = !isActive;
-  const statusDisabled = !isActive && (hasUnsavedEdits || hasBlockingPreflightIssues);
-  const blockingTooltip = t(($) => $.panorama.toolbar.blocked_tooltip);
+  const statusDisabled = !isActive && hasUnsavedEdits;
   const activateUnsavedTooltip = t(($) => $.panorama.toolbar.activate_disabled_unsaved);
   const activateBeforeTestTooltip = t(($) => $.panorama.toolbar.activate_before_test);
 
@@ -297,12 +298,12 @@ export function WorkflowEditorToolbar({
           </Button>
         </ToolbarTooltip>
 
-        <ToolbarTooltip label={statusDisabled ? (hasUnsavedEdits ? activateUnsavedTooltip : blockingTooltip) : statusActionLabel}>
+        <ToolbarTooltip label={statusDisabled ? activateUnsavedTooltip : statusActionLabel}>
           <Button
             variant={isActive ? "outline" : "default"}
             size="sm"
             disabled={statusDisabled}
-            onClick={onToggleWorkflowStatus}
+            onClick={!isActive && hasBlockingPreflightIssues ? onReviewIssues : onToggleWorkflowStatus}
             aria-label={statusActionLabel}
           >
             {isActive ? <PauseCircle className="size-3.5" /> : <CheckCircle2 className="size-3.5" />}
