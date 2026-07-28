@@ -135,6 +135,7 @@ type SplitOrchestrator struct {
 	Queries           *db.Queries
 	TxStarter         TxStarter
 	WfService         *WorkflowService
+	Assignments       *IssueAssignmentService
 	Bus               *events.Bus
 	AttachmentStorage splitAttachmentStorage
 
@@ -168,6 +169,7 @@ func NewSplitOrchestrator(
 	q *db.Queries,
 	tx TxStarter,
 	wfSvc *WorkflowService,
+	assignments *IssueAssignmentService,
 	bus *events.Bus,
 	attachmentStorage ...splitAttachmentStorage,
 ) *SplitOrchestrator {
@@ -179,6 +181,7 @@ func NewSplitOrchestrator(
 		Queries:           q,
 		TxStarter:         tx,
 		WfService:         wfSvc,
+		Assignments:       assignments,
 		Bus:               bus,
 		AttachmentStorage: store,
 	}

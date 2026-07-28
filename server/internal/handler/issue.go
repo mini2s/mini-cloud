@@ -2068,73 +2068,15 @@ func (h *Handler) CreateIssue(w http.ResponseWriter, r *http.Request) {
 		analyticsSource,
 	))
 
-	// Enqueue agent task when an agent-assigned issue is created.
-	if issue.AssigneeType.Valid && issue.AssigneeID.Valid {
-		if h.shouldEnqueueAgentTask(r.Context(), issue) {
-			// Gitea configured → route through the default workflow so the issue
-			// gets a deliverable repo (StartDefaultRunForIssue enqueues the agent
-			// task itself, linked to a node-run). Dormant → bare agent task.
-			if _, ok := h.startDefaultWorkflowRunForIssue(r.Context(), issue); !ok {
-				h.TaskService.EnqueueTaskForIssue(r.Context(), issue)
-			}
-		}
-		// Squad assigned at creation: trigger the squad leader. Gitea configured
-		// → route through the default workflow (the leader is dispatched via the
-		// run's node-run, with Gitea deliverable context). Dormant → bare leader task.
-		if h.shouldEnqueueSquadLeaderOnAssign(r.Context(), issue) {
-			if _, ok := h.startDefaultWorkflowRunForIssue(r.Context(), issue); !ok {
-				h.enqueueSquadLeaderTask(r.Context(), issue, pgtype.UUID{}, creatorType, actualCreatorID)
-			}
-		}
-		// Member assigned: route to the default workflow so the issue has a
-		// deliverable repo (worker=human, awaits UI upload). Dormant → no-op
-		// (member-assigned issues produce no task today).
-		if issue.AssigneeType.Valid && issue.AssigneeType.String == "member" {
-			h.startDefaultWorkflowRunForIssue(r.Context(), issue)
-		}
+	if err := h.IssueAssignmentService.AfterIssueAssigned(ctx, db.MulticaIssue{}, issue,
+		service.AssignmentActor{Type: creatorType, ID: parseUUID(actualCreatorID)},
+		service.RuntimeSelection{Policy: runtimeSelectionPolicy, RuntimeID: runtimePreference},
+	); err != nil {
+		slog.Warn("issue assignment side effects failed", "issue_id", uuidToString(issue.ID), "error", err)
 	}
-
-	// When created with a workflow assignee, start the workflow run and
-	// create sub-issues for each node.
-	if issue.AssigneeType.Valid && issue.AssigneeType.String == "workflow" && workflowID.Valid {
-		workflow, err := h.Queries.GetWorkflow(ctx, workflowID)
-		if err != nil {
-			slog.Warn("failed to load workflow for new issue", "issue_id", uuidToString(issue.ID), "error", err)
-		} else {
-			run, nodeRuns, err := h.WorkflowService.StartRunForIssueWithRuntimeSelection(ctx, workflow, issue, creatorType, actualCreatorID, runtimeSelectionPolicy, runtimePreference)
-			if err != nil {
-				slog.Warn("failed to start workflow run for new issue", "issue_id", uuidToString(issue.ID), "error", err)
-			} else {
-				for _, nr := range nodeRuns {
-					childNum, err := h.Queries.IncrementIssueCounter(ctx, wsUUID)
-					if err != nil {
-						slog.Warn("failed to increment issue counter for sub-issue", "error", err)
-						continue
-					}
-					_, err = h.createWorkflowSubIssue(ctx, h.Queries, issue, nr, wsUUID, childNum)
-					if err != nil {
-						slog.Warn("failed to create sub-issue for node run", "node_run_id", uuidToString(nr.ID), "error", err)
-					}
-				}
-				_, err = h.Queries.UpdateIssue(ctx, db.UpdateIssueParams{
-					ID:            issue.ID,
-					AssigneeType:  issue.AssigneeType,
-					AssigneeID:    issue.AssigneeID,
-					StartDate:     issue.StartDate,
-					DueDate:       issue.DueDate,
-					ParentIssueID: issue.ParentIssueID,
-					ProjectID:     issue.ProjectID,
-					WorkflowID:    workflowID,
-					WorkflowRunID: run.ID,
-				})
-				if err != nil {
-					slog.Warn("failed to set workflow_run_id on parent issue", "issue_id", uuidToString(issue.ID), "error", err)
-				} else {
-					resp.WorkflowID = uuidToPtr(issue.AssigneeID)
-					resp.WorkflowRunID = uuidToPtr(run.ID)
-				}
-			}
-		}
+	if refreshed, err := h.Queries.GetIssue(ctx, issue.ID); err == nil {
+		resp.WorkflowID = uuidToPtr(refreshed.WorkflowID)
+		resp.WorkflowRunID = uuidToPtr(refreshed.WorkflowRunID)
 	}
 
 	writeJSON(w, http.StatusCreated, resp)
@@ -2480,75 +2422,15 @@ func (h *Handler) UpdateIssue(w http.ResponseWriter, r *http.Request) {
 
 	// Reconcile task queue when assignee changes.
 	if assigneeChanged {
-		h.TaskService.CancelTasksForIssue(r.Context(), issue.ID)
-
-		if h.shouldEnqueueAgentTask(r.Context(), issue) {
-			if _, ok := h.startDefaultWorkflowRunForIssue(r.Context(), issue); !ok {
-				runtimeIDOverride := runtimePreference
-				h.TaskService.EnqueueTaskForIssue(r.Context(), issue, pgtype.UUID{}, runtimeIDOverride)
-			}
+		if err := h.IssueAssignmentService.AfterIssueAssigned(ctx, prevIssue, issue,
+			service.AssignmentActor{Type: actorType, ID: parseUUID(actorID)},
+			service.RuntimeSelection{Policy: runtimeSelectionPolicy, RuntimeID: runtimePreference},
+		); err != nil {
+			slog.Warn("issue assignment side effects failed", "issue_id", uuidToString(issue.ID), "error", err)
 		}
-		// Member assigned: route to the default workflow (worker=human, awaits
-		// UI upload). Dormant → no-op.
-		if issue.AssigneeType.Valid && issue.AssigneeType.String == "member" {
-			h.startDefaultWorkflowRunForIssue(r.Context(), issue)
-		}
-
-		// Squad assign: trigger the squad leader. Gitea configured → default
-		// workflow (leader dispatched via the run's node-run); dormant → bare task.
-		if h.shouldEnqueueSquadLeaderOnAssign(r.Context(), issue) {
-			if _, ok := h.startDefaultWorkflowRunForIssue(r.Context(), issue); !ok {
-				h.enqueueSquadLeaderTask(r.Context(), issue, pgtype.UUID{}, actorType, actorID)
-			}
-		}
-		// Workflow assign: start a workflow run and create sub-issues.
-		if issue.AssigneeType.Valid && issue.AssigneeType.String == "workflow" && !issue.WorkflowRunID.Valid {
-			workflow, wfErr := h.Queries.GetWorkflow(ctx, issue.AssigneeID)
-			if wfErr != nil {
-				slog.Warn("failed to load workflow for issue assignee change", "issue_id", uuidToString(issue.ID), "error", wfErr)
-				resp.WorkflowID = uuidToPtr(issue.AssigneeID)
-			} else {
-				run, nodeRuns, wfErr := h.WorkflowService.StartRunForIssueWithRuntimeSelection(ctx, workflow, issue, actorType, actorID, runtimeSelectionPolicy, runtimePreference)
-				if wfErr != nil {
-					resp.WorkflowID = uuidToPtr(issue.AssigneeID)
-					slog.Warn("failed to start workflow run on assignee change", "issue_id", uuidToString(issue.ID), "error", wfErr)
-				} else {
-					for _, nr := range nodeRuns {
-						childNum, cerr := h.Queries.IncrementIssueCounter(ctx, prevIssue.WorkspaceID)
-						if cerr != nil {
-							slog.Warn("failed to increment issue counter for sub-issue", "error", cerr)
-							continue
-						}
-						_, cerr = h.createWorkflowSubIssue(ctx, h.Queries, issue, nr, prevIssue.WorkspaceID, childNum)
-						if cerr != nil {
-							slog.Warn("failed to create sub-issue for node run", "node_run_id", uuidToString(nr.ID), "error", cerr)
-						}
-					}
-					_, cerr := h.Queries.UpdateIssue(ctx, db.UpdateIssueParams{
-						ID:            issue.ID,
-						AssigneeType:  issue.AssigneeType,
-						AssigneeID:    issue.AssigneeID,
-						StartDate:     issue.StartDate,
-						DueDate:       issue.DueDate,
-						ParentIssueID: issue.ParentIssueID,
-						ProjectID:     issue.ProjectID,
-						WorkflowID:    issue.AssigneeID,
-						WorkflowRunID: run.ID,
-					})
-					if cerr != nil {
-						slog.Warn("failed to set workflow_run_id on parent issue", "issue_id", uuidToString(issue.ID), "error", cerr)
-					} else {
-						resp.WorkflowRunID = uuidToPtr(run.ID)
-					}
-				}
-			}
-		}
-
-		// Cancel a running workflow run when re-assigning away from workflow.
-		if prevIssue.WorkflowRunID.Valid {
-			if cerr := h.WorkflowService.CancelRun(ctx, prevIssue.WorkflowRunID); cerr != nil {
-				slog.Warn("failed to cancel workflow run on reassign", "run_id", uuidToString(prevIssue.WorkflowRunID), "error", cerr)
-			}
+		if refreshed, err := h.Queries.GetIssue(ctx, issue.ID); err == nil {
+			resp.WorkflowID = uuidToPtr(refreshed.WorkflowID)
+			resp.WorkflowRunID = uuidToPtr(refreshed.WorkflowRunID)
 		}
 	}
 
@@ -2596,94 +2478,42 @@ func (h *Handler) UpdateIssue(w http.ResponseWriter, r *http.Request) {
 // callers should treat any non-zero status as a rejection and surface it back
 // to the client.
 func (h *Handler) validateAssigneePair(ctx context.Context, r *http.Request, workspaceID string, assigneeType pgtype.Text, assigneeID pgtype.UUID) (int, string) {
-	// Both unset → unassigned issue, valid.
 	if !assigneeType.Valid && !assigneeID.Valid {
 		return 0, ""
 	}
-	// Exactly one of type/id provided → callers must always pair them.
 	if assigneeType.Valid != assigneeID.Valid {
 		return http.StatusBadRequest, "assignee_type and assignee_id must be provided together"
 	}
-	wsUUID, err := util.ParseUUID(workspaceID)
+	workspaceUUID, err := util.ParseUUID(workspaceID)
 	if err != nil {
 		return http.StatusBadRequest, "invalid workspace_id"
 	}
-	switch assigneeType.String {
-	case "member":
-		member, err := h.Queries.GetMemberByUserAndWorkspace(ctx, db.GetMemberByUserAndWorkspaceParams{
-			UserID:      assigneeID,
-			WorkspaceID: wsUUID,
-		})
-		if err != nil {
-			return http.StatusBadRequest, "assignee_id does not refer to a member of this workspace"
+	actorType, actorID := h.resolveActor(r, requestUserID(r), workspaceID)
+	assignmentService := h.IssueAssignmentService
+	if assignmentService == nil {
+		assignmentService = &service.IssueAssignmentService{
+			Queries: h.Queries,
+			Hooks: service.IssueAssignmentHooks{
+				CanAccessPrivateAgent: func(ctx context.Context, agent db.MulticaAgent, actor service.AssignmentActor, workspaceID pgtype.UUID) bool {
+					return h.canAccessPrivateAgent(ctx, agent, actor.Type, uuidToString(actor.ID), uuidToString(workspaceID))
+				},
+			},
 		}
-		if !isActiveMember(member) {
-			return http.StatusBadRequest, "cannot assign to an inactive workspace member"
-		}
-		return 0, ""
-	case "agent":
-		agent, err := h.Queries.GetAgentInWorkspace(ctx, db.GetAgentInWorkspaceParams{
-			ID:          assigneeID,
-			WorkspaceID: wsUUID,
-		})
-		if err != nil {
-			// Fallback: built-in agents are global (workspace_id = NULL).
-			agent, err = h.Queries.GetBuiltinAgent(ctx, assigneeID)
-			if err != nil {
-				return http.StatusBadRequest, "assignee_id does not refer to an agent of this workspace"
-			}
-		}
-		if agent.ArchivedAt.Valid {
-			return http.StatusBadRequest, "cannot assign to archived agent"
-		}
-		actorType, actorID := h.resolveActor(r, requestUserID(r), workspaceID)
-		if !h.canAccessPrivateAgent(ctx, agent, actorType, actorID, workspaceID) {
-			return http.StatusForbidden, "cannot assign to private agent"
-		}
-		return 0, ""
-	case "squad":
-		squad, err := h.Queries.GetSquadInWorkspace(ctx, db.GetSquadInWorkspaceParams{
-			ID:          assigneeID,
-			WorkspaceID: wsUUID,
-		})
-		if err != nil {
-			return http.StatusBadRequest, "assignee_id does not refer to a squad in this workspace"
-		}
-		if squad.ArchivedAt.Valid {
-			return http.StatusBadRequest, "cannot assign to an archived squad"
-		}
-		leader, err := h.Queries.GetAgent(ctx, squad.LeaderID)
-		if err != nil || leader.ArchivedAt.Valid {
-			return http.StatusBadRequest, "squad leader is archived; cannot assign to this squad"
-		}
-		return 0, ""
-	case "workflow":
-		workflow, err := h.Queries.GetWorkflowInWorkspace(ctx, db.GetWorkflowInWorkspaceParams{
-			ID:          assigneeID,
-			WorkspaceID: wsUUID,
-		})
-		if err != nil {
-			return http.StatusBadRequest, "assignee_id does not refer to a workflow in this workspace"
-		}
-		if workflow.IsDefault {
-			return http.StatusBadRequest, "default workflow cannot be assigned to issues"
-		}
-		if workflow.Status != "active" {
-			return http.StatusBadRequest, "workflow is not active"
-		}
-		nodes, err := h.Queries.ListWorkflowNodes(ctx, assigneeID)
-		if err != nil {
-			return http.StatusInternalServerError, "failed to list workflow nodes"
-		}
-		for _, node := range nodes {
-			if node.WorkerType == "" {
-				return http.StatusBadRequest, fmt.Sprintf("workflow node %q has no worker_type", node.Title)
-			}
-		}
-		return 0, ""
-	default:
-		return http.StatusBadRequest, "assignee_type must be 'member', 'agent', 'squad', or 'workflow'"
 	}
+	err = assignmentService.ValidateAssignee(ctx, h.Queries, workspaceUUID,
+		service.AssignmentActor{Type: actorType, ID: parseUUID(actorID)},
+		service.AssigneeRef{Type: assigneeType.String, ID: assigneeID},
+	)
+	if err == nil {
+		return 0, ""
+	}
+	if errors.Is(err, service.ErrForbiddenAssignee) {
+		return http.StatusForbidden, err.Error()
+	}
+	if errors.Is(err, service.ErrInvalidAssignee) {
+		return http.StatusBadRequest, err.Error()
+	}
+	return http.StatusInternalServerError, "failed to validate assignee"
 }
 
 // shouldEnqueueAgentTask returns true when an issue creation or assignment
