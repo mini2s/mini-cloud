@@ -12,6 +12,7 @@ import {
   sortRows,
   toOrder,
   type UserV2Row,
+  useUserNameMap,
 } from "@multica/core/efficiency";
 import { KpiCard } from "../../runtimes/components/shared";
 import { PCT, Td, TdNum, Th, ThNum, SortHeader } from "../usage/shared";
@@ -44,6 +45,7 @@ function calendarSavedDays(row: UserV2Row): number | null {
 type SortField =
   | "calendar_ratio"
   | "work_ratio"
+  | "silica"
   | "calendar_saved_days"
   | "merged_need_count";
 
@@ -61,13 +63,16 @@ function getterFor(
 export function EfficiencyUserRanking({
   startDate,
   endDate,
+  onSelect,
 }: {
   startDate: string;
   endDate: string;
+  onSelect?: (userId: string) => void;
 }) {
   const wsId = useWorkspaceId();
   const p = useWorkspacePaths();
   const { push } = useNavigation();
+  const { resolveName } = useUserNameMap();
   const [order, setOrder] = useState<string>(
     toOrder("calendar_ratio", true) ?? "",
   );
@@ -190,6 +195,14 @@ export function EfficiencyUserRanking({
                       onClick={() => onSort("work_ratio")}
                     />
                   </Th>
+                  <Th>
+                    <SortHeader
+                      label="含硅量"
+                      active={isActive("silica")}
+                      desc={isDesc("silica")}
+                      onClick={() => onSort("silica")}
+                    />
+                  </Th>
                   <ThNum>
                     <span className="inline-flex w-full justify-end">
                       <SortHeader
@@ -216,14 +229,14 @@ export function EfficiencyUserRanking({
                 {q.isLoading ? (
                   Array.from({ length: 8 }).map((_, i) => (
                     <tr key={i} className="border-b">
-                      <td colSpan={6} className="px-3 py-2">
+                      <td colSpan={7} className="px-3 py-2">
                         <div className="h-6 animate-pulse rounded bg-muted" />
                       </td>
                     </tr>
                   ))
                 ) : sorted.length === 0 ? (
                   <tr>
-                    <td colSpan={6} className="px-3 py-12 text-center">
+                    <td colSpan={7} className="px-3 py-12 text-center">
                       <span className="text-sm text-muted-foreground">
                         暂无用户数据
                       </span>
@@ -235,15 +248,22 @@ export function EfficiencyUserRanking({
                     return (
                       <tr
                         key={row.user_id}
-                        onClick={() => push(p.metricsUserDetail(row.user_id))}
+                        onClick={() =>
+                          onSelect
+                            ? onSelect(row.user_id)
+                            : push(p.metricsUserDetail(row.user_id))
+                        }
                         className="cursor-pointer border-b transition-colors last:border-0 hover:bg-muted/50"
                       >
                         <TdNum>{i + 1}</TdNum>
-                        <Td title={row.user_name}>
-                          {shortName(row.user_name)}
+                        <Td title={resolveName(row.user_id)}>
+                          {shortName(resolveName(row.user_id))}
                         </Td>
                         <Td>{PCT((row.calendar_ratio ?? 0) * 100)}</Td>
                         <Td>{PCT((row.work_ratio ?? 0) * 100)}</Td>
+                        <Td>
+                          {row.silica == null ? "-" : PCT(row.silica * 100)}
+                        </Td>
                         <TdNum>
                           {saved != null ? formatNumber(saved, 1) : "-"}
                         </TdNum>

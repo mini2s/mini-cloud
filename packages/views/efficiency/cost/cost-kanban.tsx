@@ -5,12 +5,20 @@ import { Coins } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { useWorkspaceId } from "@multica/core/hooks";
 import { useWorkspacePaths } from "@multica/core/paths";
-import { deptTreeOptions, useViewState } from "@multica/core/efficiency";
+import {
+  deptTreeOptions,
+  globalConfigOptions,
+  useViewState,
+} from "@multica/core/efficiency";
 import { Skeleton } from "@multica/ui/components/ui/skeleton";
 import { Switch } from "@multica/ui/components/ui/switch";
 import { PageHeader } from "../../layout/page-header";
 import { PeriodSelect } from "../components";
-import { DeptTreePanel, findDeptName } from "../usage/dept-tree-panel";
+import {
+  DeptTreePanel,
+  findDeptName,
+  UNASSIGNED_DEPT_NODE,
+} from "../usage/dept-tree-panel";
 import { CostAggregateView } from "./cost-aggregate-view";
 import { CostCompareView } from "./cost-compare-view";
 import { CostMembersView } from "./cost-members-view";
@@ -46,9 +54,14 @@ export function CostKanban() {
   const [view, setView] = useState<View>("aggregate");
   const [includeChildren, setIncludeChildren] = useState(true);
 
+  const configQ = useQuery(globalConfigOptions(wsId));
   const treeQ = useQuery(deptTreeOptions(wsId));
-  const tree = useMemo(() => treeQ.data ?? [], [treeQ.data]);
-  const rootDeptId = tree[0]?.dept_id ?? "";
+  const sourceTree = useMemo(() => treeQ.data ?? [], [treeQ.data]);
+  const tree = useMemo(
+    () => [...sourceTree, UNASSIGNED_DEPT_NODE],
+    [sourceTree],
+  );
+  const rootDeptId = sourceTree[0]?.dept_id ?? "";
 
   // Default landing: once the tree arrives, auto-select the root dept (the
   // "whole company" view). Skipped if the user already picked something.
@@ -61,7 +74,10 @@ export function CostKanban() {
 
   // While the tree is loading and nothing is selected, show a page-level
   // skeleton rather than the "select a dept" empty state.
-  if (treeQ.isLoading && !tree.length && !selectedDeptId) {
+  if (
+    configQ.isLoading ||
+    (treeQ.isLoading && !sourceTree.length && !selectedDeptId)
+  ) {
     return (
       <div className="flex h-full flex-col">
         <PageHeader className="h-auto min-h-12 flex-wrap justify-between gap-y-1.5 px-5 py-1.5 sm:py-0">
@@ -72,6 +88,27 @@ export function CostKanban() {
         </PageHeader>
         <div className="flex-1 overflow-y-auto p-6">
           <Skeleton className="h-[60vh] w-full rounded-lg" />
+        </div>
+      </div>
+    );
+  }
+
+  if (configQ.data?.chat_stats_enabled !== true) {
+    return (
+      <div className="flex h-full flex-col">
+        <PageHeader className="h-auto min-h-12 flex-wrap justify-between gap-y-1.5 px-5 py-1.5 sm:py-0">
+          <div className="flex min-w-0 items-center gap-2">
+            <Coins className="h-4 w-4 shrink-0 text-muted-foreground" />
+            <h1 className="truncate text-sm font-medium">成本看板</h1>
+          </div>
+        </PageHeader>
+        <div className="flex flex-1 items-center justify-center p-6">
+          <div className="max-w-md rounded-lg border bg-card p-8 text-center">
+            <h2 className="text-base font-semibold">平台统计尚未启用</h2>
+            <p className="mt-2 text-sm text-muted-foreground">
+              当前环境未开启 Chat 平台统计，成本数据暂不可用。
+            </p>
+          </div>
         </div>
       </div>
     );

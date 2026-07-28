@@ -4,16 +4,23 @@ import { useMemo, useState, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useWorkspaceId } from "@multica/core/hooks";
 import {
+  buildBuckets,
   costSubDeptsOptions,
   costTeamCompositionOptions,
   costTeamTrendOptions,
   fmtCost,
   formatNumber,
+  GRANULARITY_CN,
   type CostSubDeptItem,
   type DeptQuery,
+  type Granularity,
 } from "@multica/core/efficiency";
 import { Skeleton } from "@multica/ui/components/ui/skeleton";
 import { MultiTrendChart, PieBreakdownChart, type MultiTrendPoint, type PieDatum } from "../charts";
+import {
+  GranularityToggle,
+  useGranularity,
+} from "../components/granularity-toggle";
 import { chartColorFor, PCT, shortToken, SortHeader, Td, TdNum, Th, ThNum } from "../usage/shared";
 
 // Sub-department cost comparison — second tab of the Cost Kanban. Ports the
@@ -28,10 +35,6 @@ import { chartColorFor, PCT, shortToken, SortHeader, Td, TdNum, Th, ThNum } from
 //     is client-side over the returned items.
 //   - The team-trend (line) and team-composition (pie) blocks render from
 //     their own dedicated endpoints. Per-block loading/empty/error.
-//
-// Simplifications (per slice-3b):
-//   - The source's "granularity toggle" on the team trend is dropped — we
-//     render per-day. Same simplification as the aggregate view.
 //
 // Per design decision #2 (NO navigation), drill-down surfaces via an
 // onSelectDept callback that updates parent state.
@@ -70,6 +73,10 @@ export function CostCompareView({
   const subDeptsQ = useQuery(costSubDeptsOptions(wsId, q));
   const teamTrendQ = useQuery(costTeamTrendOptions(wsId, q));
   const teamCompositionQ = useQuery(costTeamCompositionOptions(wsId, q));
+  const { gran, setGran, options: granOptions } = useGranularity(
+    startDate,
+    endDate,
+  );
 
   // Client-side sort of the sub-dept items.
   const items = useMemo(() => {
@@ -146,15 +153,24 @@ export function CostCompareView({
               </tr>
             </thead>
             <tbody>
-              {subDeptsQ.isLoading && items.length === 0 ? (
-                <tr>
-                  <td colSpan={8} className="py-10 text-center text-sm text-muted-foreground">
-                    加载中…
+            {subDeptsQ.error ? (
+              <tr>
+                <td
+                  colSpan={9}
+                  className="py-10 text-center text-sm text-destructive"
+                >
+                  加载失败：{(subDeptsQ.error as Error).message}
+                </td>
+              </tr>
+            ) : subDeptsQ.isLoading && items.length === 0 ? (
+              <tr>
+                <td colSpan={9} className="py-10 text-center text-sm text-muted-foreground">
+                  加载中…
                   </td>
                 </tr>
               ) : items.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="py-10 text-center text-sm text-muted-foreground">
+                <td colSpan={9} className="py-10 text-center text-sm text-muted-foreground">
                     该部门下无子部门
                   </td>
                 </tr>
@@ -224,6 +240,16 @@ export function CostCompareView({
         loading={teamTrendQ.isLoading && !teamTrendQ.data}
         error={teamTrendQ.error as Error | null}
         series={teamTrendQ.data?.series}
+        gran={gran}
+        start={startDate}
+        end={endDate}
+        extra={
+          <GranularityToggle
+            value={gran}
+            options={granOptions}
+            onChange={setGran}
+          />
+        }
       />
 
       {/* Team cost composition (pie). */}
@@ -244,29 +270,40 @@ function TeamTrendBlock({
   loading,
   error,
   series,
+  gran,
+  start,
+  end,
+  extra,
 }: {
   loading: boolean;
   error: Error | null;
   series?: { dept_id: string; dept_name: string; data: { date: string; total_cost: number }[] }[];
+  gran: Granularity;
+  start: string;
+  end: string;
+  extra: ReactNode;
 }) {
   const { points, chartSeries } = useMemo(() => {
     if (!series || !series.length) return { points: [], chartSeries: [] };
     const allDates = new Set<string>();
     for (const s of series) for (const pt of s.data) allDates.add(pt.date);
-    const dates = Array.from(allDates).sort();
+    const buckets = buildBuckets(Array.from(allDates), gran, { start, end });
     const byTeam = new Map<string, Map<string, number>>();
     for (const s of series) {
       const m = new Map<string, number>();
       for (const pt of s.data) m.set(pt.date, pt.total_cost || 0);
       byTeam.set(s.dept_id, m);
     }
-    const rows: MultiTrendPoint[] = dates.map((date) => {
+    const rows: MultiTrendPoint[] = buckets.map((bucket) => {
       const row: MultiTrendPoint & Record<string, number | string> = {
-        label: date.slice(5),
+        label: bucket.label,
       };
       for (const s of series) {
         const m = byTeam.get(s.dept_id);
-        row[s.dept_id] = m?.get(date) ?? 0;
+        row[s.dept_id] = bucket.dates.reduce(
+          (sum, date) => sum + (m?.get(date) ?? 0),
+          0,
+        );
       }
       return row;
     });
@@ -276,11 +313,12 @@ function TeamTrendBlock({
       color: chartColorFor(i),
     }));
     return { points: rows, chartSeries: chartSeriesOut };
-  }, [series]);
+  }, [end, gran, series, start]);
 
+  const title = `各团队费用趋势（${GRANULARITY_CN[gran]}）`;
   if (loading) {
     return (
-      <Card title="各团队费用趋势（按天）" sub="折线（多团队对齐，缺数据补 0）">
+      <Card title={title} sub="折线（多团队对齐，缺数据补 0）">
         <Skeleton className="h-[280px] rounded-lg" />
       </Card>
     );
@@ -288,7 +326,7 @@ function TeamTrendBlock({
   if (error) {
     return (
       <ErrorHint
-        title="各团队费用趋势（按天）"
+        title={title}
         sub="折线（多团队对齐，缺数据补 0）"
         error={error}
       />
@@ -296,13 +334,21 @@ function TeamTrendBlock({
   }
   if (!points.length) {
     return (
-      <Card title="各团队费用趋势（按天）" sub="折线（多团队对齐，缺数据补 0）">
+      <Card
+        title={title}
+        sub="折线（多团队对齐，缺数据补 0）"
+        extra={extra}
+      >
         <EmptyHint />
       </Card>
     );
   }
   return (
-    <Card title="各团队费用趋势（按天）" sub="折线（多团队对齐，缺数据补 0）">
+    <Card
+      title={title}
+      sub="折线（多团队对齐，缺数据补 0）"
+      extra={extra}
+    >
       <MultiTrendChart
         data={points}
         series={chartSeries}

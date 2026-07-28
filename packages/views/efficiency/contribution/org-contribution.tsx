@@ -5,30 +5,31 @@ import { useQuery } from "@tanstack/react-query";
 import { useWorkspaceId } from "@multica/core/hooks";
 import {
   deptRankingOptions,
-  deptTreeOptions,
+  deptOverviewOptions,
+  deptTrendOptions,
   formatNumber,
   sortRows,
   toOrder,
   parseOrder,
   type DeptRankingItem,
+  type DeptTreeNodeWithSummary,
 } from "@multica/core/efficiency";
 import { KpiCard } from "../../runtimes/components/shared";
 import { Td, TdNum, Th, ThNum, SortHeader } from "../usage/shared";
-import { ContributionTrendSection } from "./contribution-trend-section";
+import { EntityContributionTrend } from "./entity-contribution-trend";
+import { DeptMembersPanel } from "../efficiency/efficiency-org-view";
 
 // Org contribution — org deliverables derived from /v2/dept-tree/ranking
 // (DeptRankingItem.summary is the DeptMembersSummary scope: merged_need_count
 // / commit_diff_lines / commit_count / member_count / kanban_member_count).
-// Per design decision #5 (zero-platform-request) this consumes only the
-// existing deptRankingOptions — no new data layer.
+// The ranking uses /v2/dept-tree/ranking and the weekly chart uses
+// /v2/dept-tree/trend, both scoped to the configured company root.
 //
 // Caliber (matches source OrgContribution):
 //   - merged_need_count / commit_diff_lines / commit_count are COUNTS → formatNumber.
 //   - The source sorts by merged_need_count desc; we keep that as the default
 //     but expose a 3-state sort (none → asc → desc → none) on the 3 count
-//     columns so users can re-rank by code lines / commits too. Per design
-//     decision #2 (NO navigation) the source's row onClick (setSearchParams)
-//     is dropped; clicking a row is a no-op (TODO slice 5 dept detail).
+//     columns so users can re-rank by code lines / commits too.
 //
 // The parent dept id resolves from the dept tree root (the source uses the
 // configured company root). When no root is available we pass undefined and
@@ -39,15 +40,25 @@ type SortField = "merged_need_count" | "commit_diff_lines" | "commit_count";
 export function OrgContribution({
   startDate,
   endDate,
+  deptId = "",
+  deptName = "",
+  onSelect,
 }: {
   startDate: string;
   endDate: string;
+  deptId?: string;
+  deptName?: string;
+  onSelect?: (deptId: string) => void;
 }) {
   const wsId = useWorkspaceId();
-  const treeQ = useQuery(deptTreeOptions(wsId));
-  const parentDeptId = treeQ.data?.[0]?.dept_id ?? "";
+  const overviewQ = useQuery(
+    deptOverviewOptions(wsId, startDate, endDate),
+  );
   const rankingQ = useQuery(
-    deptRankingOptions(wsId, parentDeptId || undefined, startDate, endDate),
+    deptRankingOptions(wsId, deptId || undefined, startDate, endDate),
+  );
+  const trendQ = useQuery(
+    deptTrendOptions(wsId, { deptId: deptId || undefined, startDate, endDate }),
   );
 
   const items = useMemo<DeptRankingItem[]>(
@@ -88,14 +99,44 @@ export function OrgContribution({
   }
   const isActive = (f: SortField) => parsed?.field === f;
   const isDesc = (f: SortField) => parsed?.field === f && parsed.desc === true;
+  const resolvedDeptName =
+    deptName ||
+    findDepartmentName(overviewQ.data?.nodes ?? [], deptId) ||
+    deptId;
+
+  if (deptId) {
+    return (
+      <div className="space-y-4">
+        <EntityContributionTrend
+          points={trendQ.data?.data}
+          loading={trendQ.isLoading}
+          error={trendQ.error ? (trendQ.error as Error).message : null}
+          subtitle={`部门 · ${resolvedDeptName} · 子树成员合并需求`}
+          metric="needs"
+        />
+        <p className="rounded-lg border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-xs text-muted-foreground">
+          仅直属成员，子部门未计入。该部门花名册为直属成员（dept-tree/members
+          非递归）；选择含子部门的父部门时，聚合值可能偏小。
+        </p>
+        <DeptMembersPanel
+          deptId={deptId}
+          deptName={resolvedDeptName}
+          startDate={startDate}
+          endDate={endDate}
+          aiLabel="AI 代码占比"
+        />
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-4">
-      {/* Weekly contribution trend — company-wide (no userId). */}
-      <ContributionTrendSection
-        startDate={startDate}
-        endDate={endDate}
-        subtitle="全部用户"
+      <EntityContributionTrend
+        points={trendQ.data?.data}
+        loading={trendQ.isLoading}
+        error={trendQ.error ? (trendQ.error as Error).message : null}
+        subtitle="全公司 · 各部门子树成员合并需求"
+        metric="needs"
       />
 
       {/* KPI strip — counts only (contribution caliber, not tokens). */}
@@ -131,15 +172,14 @@ export function OrgContribution({
         </div>
       </section>
 
-      {/* Ranking table — derived from dept ranking. Click is a no-op
-          (focused-mode dept detail deferred to slice 5 per design decision #2). */}
+      {/* Ranking table — derived from department subtree summaries. */}
       <section className="rounded-lg border bg-card shadow-sm">
         <div className="flex items-center justify-between gap-3 border-b px-4 py-3">
           <span className="text-sm font-semibold text-card-foreground">
-            部门贡献排行
+            部门贡献 PK 榜（看板派生）
           </span>
           <span className="text-xs text-muted-foreground">
-            看板派生 · 各一级子部门整棵子树汇总
+            按合并需求倒序 · 各一级子部门整棵子树汇总
           </span>
         </div>
         {rankingQ.error ? (
@@ -207,7 +247,12 @@ export function OrgContribution({
                   sorted.map((it, i) => (
                     <tr
                       key={it.dept_id}
-                      className="border-b transition-colors last:border-0 hover:bg-muted/50"
+                      onClick={() => onSelect?.(it.dept_id)}
+                      className={
+                        onSelect
+                          ? "cursor-pointer border-b transition-colors last:border-0 hover:bg-muted/50"
+                          : "border-b transition-colors last:border-0 hover:bg-muted/50"
+                      }
                     >
                       <TdNum>
                         <span className="text-muted-foreground">{i + 1}</span>
@@ -252,4 +297,16 @@ function getterFor(field: SortField): (row: DeptRankingItem) => unknown {
     const num = Number(v);
     return Number.isFinite(num) ? num : null;
   };
+}
+
+function findDepartmentName(
+  nodes: DeptTreeNodeWithSummary[],
+  deptId: string,
+): string | undefined {
+  for (const node of nodes) {
+    if (node.dept_id === deptId) return node.dept_name;
+    const childName = findDepartmentName(node.children, deptId);
+    if (childName) return childName;
+  }
+  return undefined;
 }

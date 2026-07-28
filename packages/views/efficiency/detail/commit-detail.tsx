@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useWorkspaceId } from "@multica/core/hooks";
+import { useWorkspacePaths } from "@multica/core/paths";
 import {
   commitDetailOptions,
   fmtCost,
@@ -27,6 +28,7 @@ import {
   DialogTitle,
 } from "@multica/ui/components/ui/dialog";
 import { DetailShell } from "./detail-shell";
+import { useNavigation } from "../../navigation";
 import { EmptyRow, ErrorBanner, Kv, KvGrid, Panel, ToneBadge } from "./shared";
 
 // Commit detail page. Ports the source CommitDetail to the shared-views
@@ -38,12 +40,8 @@ import { EmptyRow, ErrorBanner, Kv, KvGrid, Panel, ToneBadge } from "./shared";
 //     formatV2Ratio. Coloured by sign (positive=success, negative=destructive).
 //   - silica (AI code share) is a 0~1 DECIMAL ratio → formatV2Ratio (×100).
 //
-// Wiring vs source:
-//   - The manual-override modal submits via useUpdateCommitManual (mock-aware:
-//     mock phase returns success without hitting the network, then invalidates
-//     the commit-detail cache; real path calls the NOT_WIRED api stub until
-//     the backend mounts /api/v2/efficiency/commits/{id}/manual).
-//   - No router: user/repo render as text.
+// The manual-override modal submits through the shared mutation and refreshes
+// the commit detail query after the real PUT request succeeds.
 
 interface CommitDetailProps {
   commitId: string;
@@ -52,6 +50,8 @@ interface CommitDetailProps {
 
 export function CommitDetail({ commitId, onBack }: CommitDetailProps) {
   const wsId = useWorkspaceId();
+  const paths = useWorkspacePaths();
+  const { push } = useNavigation();
   const { resolveName } = useUserNameMap();
   const q = useQuery(commitDetailOptions(wsId, commitId));
 
@@ -83,15 +83,15 @@ export function CommitDetail({ commitId, onBack }: CommitDetailProps) {
       const parts = relatedTasks.map(
         (t) => `${formatDuration(t.task_real_minutes)} × ${((t.silica ?? 0) * 100).toFixed(0)}%`,
       );
-      return `computed: Σ(task actual × AI code share)\n${parts.join(" + ")}`;
+      return `计算方式：Σ(Task 实际耗时 × AI 代码占比)\n${parts.join(" + ")}`;
     }
-    return "no related task";
+    return "无关联 Task";
   }, [commit.commit_real_minutes_reason, relatedTasks]);
 
   return (
     <DetailShell
       onBack={onBack}
-      title="Commit detail"
+      title="Commit 详情"
       subtitle={commit.commit_id || "-"}
       headerExtra={
         <Button
@@ -102,39 +102,62 @@ export function CommitDetail({ commitId, onBack }: CommitDetailProps) {
           disabled={!q.data?.commit}
         >
           <Pencil className="h-3.5 w-3.5" />
-          Manual adjust
+          人工调整
         </Button>
       }
       loading={q.isLoading}
       error={q.error}
-      empty={!q.data?.commit ? "No data for this commit." : undefined}
+      empty={!q.data?.commit ? "暂无该 Commit 数据" : undefined}
     >
       {/* Basic info. */}
-      <Panel title="Basic info">
+      <Panel title="基础信息">
         <KvGrid>
           <Kv label="Commit ID" mono>{commit.commit_id || "-"}</Kv>
-          <Kv label="User">{commit.user_name || resolveName(commit.user_id)}</Kv>
-          <Kv label="Git user">
+          <Kv label="用户">
+            {commit.user_id ? (
+              <button
+                type="button"
+                onClick={() => push(paths.metricsUserDetail(commit.user_id!))}
+                className="text-primary hover:underline"
+              >
+                {resolveName(commit.user_id)}
+              </button>
+            ) : commit.user_name ? resolveName(commit.user_name) : "-"}
+          </Kv>
+          <Kv label="Git 用户">
             {commit.git_user_name
               ? `${commit.git_user_name}${commit.git_user_email ? ` <${commit.git_user_email}>` : ""}`
               : "-"}
           </Kv>
-          <Kv label="Repo">
-            {commit.repo_addr
-              ? `${commit.repo_addr}#${commit.repo_branch || ""}`
-              : "-"}
+          <Kv label="仓库">
+            {commit.repo_addr ? (
+              <button
+                type="button"
+                onClick={() =>
+                  push(
+                    paths.metricsRepoDetail(
+                      commit.repo_addr!,
+                      commit.repo_branch || "main",
+                    ),
+                  )
+                }
+                className="break-all text-left font-mono text-primary hover:underline"
+              >
+                {commit.repo_addr}#{commit.repo_branch || ""}
+              </button>
+            ) : "-"}
           </Kv>
-          <Kv label="Branch">{commit.repo_branch || "-"}</Kv>
-          <Kv label="Commit time">{formatLocalTime(commit.commit_time)}</Kv>
-          <Kv label="Message" wide>{commit.comment || "-"}</Kv>
+          <Kv label="分支">{commit.repo_branch || "-"}</Kv>
+          <Kv label="提交时间">{formatLocalTime(commit.commit_time)}</Kv>
+          <Kv label="提交说明" wide>{commit.comment || "-"}</Kv>
         </KvGrid>
       </Panel>
 
       {/* Metrics. */}
-      <Panel title="Metrics">
+      <Panel title="度量信息">
         <KvGrid>
-          <Kv label="Generated code">{commit.diff_lines ?? "-"} lines</Kv>
-          <Kv label="Actual time">
+          <Kv label="生成代码量">{commit.diff_lines ?? "-"} 行</Kv>
+          <Kv label="实际耗时">
             <ManualValue
               manual={commit.commit_real_minutes_manual}
               manualReason={commit.commit_real_minutes_reason_manual}
@@ -142,7 +165,7 @@ export function CommitDetail({ commitId, onBack }: CommitDetailProps) {
               originalReason={realMinutesExplain}
             />
           </Kv>
-          <Kv label="Baseline estimate">
+          <Kv label="传统开发时长预估">
             <ManualValue
               manual={commit.commit_ancient_minutes_manual}
               manualReason={commit.commit_ancient_minutes_reason_manual}
@@ -150,15 +173,15 @@ export function CommitDetail({ commitId, onBack }: CommitDetailProps) {
               originalReason={commit.commit_ancient_minutes_reason}
             />
           </Kv>
-          <Kv label="Efficiency ratio">
+          <Kv label="提效比例">
             {/* 0 = no-baseline fallback (e.g. governance zeroing); show "-" not a misleading value. */}
             <span className={`text-xl font-bold tabular-nums ${ratioTextClass(ratio)}`}>
               {ratio != null && ratio !== 0 ? `${Math.round(ratio)}%` : "-"}
             </span>
           </Kv>
           <Kv
-            label="AI code share"
-            title="share of commit code generated by AI tasks, weighted by related-task diff lines"
+            label="AI 代码占比"
+            title="Commit 中由 AI Task 生成的代码占比，基于关联 Task 的代码行加权计算"
           >
             {silica != null ? (
               <span className="text-base font-bold tabular-nums text-success">{formatV2Ratio(silica)}</span>
@@ -166,30 +189,30 @@ export function CommitDetail({ commitId, onBack }: CommitDetailProps) {
               <span className="text-muted-foreground">-</span>
             )}
           </Kv>
-          <Kv label="Total tokens" title={`upstream ${upstream} / downstream ${downstream}`}>
+          <Kv label="总 Tokens" title={`上行 ${upstream} / 下行 ${downstream}`}>
             {totalTokens > 0 ? totalTokens.toLocaleString() : "-"}
           </Kv>
-          <Kv label="Cost">{totalCost > 0 ? fmtCost(totalCost) : "-"}</Kv>
+          <Kv label="费用">{totalCost > 0 ? `${fmtCost(totalCost)} 元` : "-"}</Kv>
         </KvGrid>
       </Panel>
 
       {/* Related tasks. */}
-      <Panel title="Related tasks" hint={`${relatedTasks.length}`} bodyClassName="overflow-x-auto">
+      <Panel title="关联 Tasks" hint={`${relatedTasks.length} 个`} bodyClassName="overflow-x-auto">
         <table className="w-full border-collapse text-sm">
           <thead>
             <tr className="border-b">
               <ThLeft>Task ID</ThLeft>
-              <ThLeft>User</ThLeft>
-              <ThLeft>Start</ThLeft>
-              <ThRight>LOC</ThRight>
-              <ThRight>Actual time</ThRight>
-              <ThCenter>AI code share</ThCenter>
-              <ThRight>Cost</ThRight>
+              <ThLeft>用户</ThLeft>
+              <ThLeft>开始时间</ThLeft>
+              <ThRight>代码行数</ThRight>
+              <ThRight>实际耗时</ThRight>
+              <ThCenter>AI 代码占比</ThCenter>
+              <ThRight>费用</ThRight>
             </tr>
           </thead>
           <tbody>
             {relatedTasks.length === 0 ? (
-              <EmptyRow colSpan={7}>No related tasks</EmptyRow>
+              <EmptyRow colSpan={7}>暂无关联 Task</EmptyRow>
             ) : (
               relatedTasks.map((t) => (
                 <tr
@@ -197,12 +220,17 @@ export function CommitDetail({ commitId, onBack }: CommitDetailProps) {
                   className="border-b text-card-foreground transition-colors last:border-0 hover:bg-muted/50"
                 >
                   <td className="px-3 py-2">
-                    <span className="block max-w-[200px] truncate font-mono text-xs" title={t.task_id}>
+                    <button
+                      type="button"
+                      onClick={() => push(paths.metricsTaskDetail(t.task_id))}
+                      className="block max-w-[200px] truncate font-mono text-xs text-primary hover:underline"
+                      title={t.task_id}
+                    >
                       {t.task_id}
-                    </span>
+                    </button>
                   </td>
                   <td className="max-w-[180px] truncate px-3 py-2" title={t.user_name ?? ""}>
-                    {t.user_name || "-"}
+                    {t.user_name ? resolveName(t.user_name) : "-"}
                   </td>
                   <td className="px-3 py-2">{formatLocalTime(t.start_time)}</td>
                   <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums">{t.diff_lines ?? "-"}</td>
@@ -289,33 +317,35 @@ function CommitManualDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>Manual adjust</DialogTitle>
+          <DialogTitle>人工调整</DialogTitle>
         </DialogHeader>
         <div className="space-y-3">
-          <Field label="Baseline estimate (minutes)">
+          <Field label="传统开发时长预估（分钟）">
             <Input
               type="number"
+              min={0}
               step={10}
               value={ancient}
               onChange={(e) => setAncient(e.target.value)}
             />
           </Field>
-          <Field label="Baseline estimate reason">
+          <Field label="传统开发时长预估理由">
             <Textarea
               rows={2}
               value={ancientReason}
               onChange={(e) => setAncientReason(e.target.value)}
             />
           </Field>
-          <Field label="Actual time (minutes)">
+          <Field label="实际耗时（分钟）">
             <Input
               type="number"
+              min={0}
               step={10}
               value={real}
               onChange={(e) => setReal(e.target.value)}
             />
           </Field>
-          <Field label="Actual time reason">
+          <Field label="实际耗时理由">
             <Textarea
               rows={2}
               value={realReason}
@@ -325,7 +355,7 @@ function CommitManualDialog({
           {updateManual.error ? (
             <ErrorBanner
               message={
-                (updateManual.error as Error)?.message || "Failed to save."
+                (updateManual.error as Error)?.message || "保存失败"
               }
             />
           ) : null}
@@ -336,14 +366,14 @@ function CommitManualDialog({
             variant="ghost"
             onClick={() => onOpenChange(false)}
           >
-            Cancel
+            取消
           </Button>
           <Button
             type="button"
             disabled={updateManual.isPending}
             onClick={handleSubmit}
           >
-            {updateManual.isPending ? "Saving..." : "Save"}
+            {updateManual.isPending ? "保存中..." : "保存"}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -400,7 +430,7 @@ function ManualValue({
       <span className="inline-flex flex-wrap items-center gap-1.5">
         <span title={manualReason}>{formatDuration(manual)}</span>
         <span className="line-through text-muted-foreground" title={originalReason}>
-          {original != null ? formatDuration(original) : "(no AI value)"}
+          {original != null ? formatDuration(original) : "（AI 未出值）"}
         </span>
       </span>
     );

@@ -47,9 +47,11 @@ function savedPersonDays(
 export function EfficiencyRepoRanking({
   startDate,
   endDate,
+  onSelect,
 }: {
   startDate: string;
   endDate: string;
+  onSelect?: (repoAddr: string) => void;
 }) {
   const wsId = useWorkspaceId();
   const p = useWorkspacePaths();
@@ -158,7 +160,11 @@ export function EfficiencyRepoRanking({
                     return (
                       <tr
                         key={row.repo_addr}
-                        onClick={() => push(p.metricsRepoDetail(row.repo_addr))}
+                        onClick={() =>
+                          onSelect
+                            ? onSelect(row.repo_addr)
+                            : push(p.metricsRepoDetail(row.repo_addr))
+                        }
                         className="cursor-pointer border-b transition-colors last:border-0 hover:bg-muted/50"
                       >
                         <TdNum>

@@ -1,8 +1,9 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useWorkspaceId } from "@multica/core/hooks";
+import { useWorkspacePaths } from "@multica/core/paths";
 import {
   fmtCost,
   formatDuration,
@@ -17,6 +18,7 @@ import {
   useAddRepoToProject,
   useCheckProjectConflicts,
   useCreateProject,
+  useViewState,
   type EntityTrendPoint,
   type ProjectConflict,
   type ProjectListItem,
@@ -26,6 +28,7 @@ import {
 } from "@multica/core/efficiency";
 import { Plus } from "lucide-react";
 import { Button } from "@multica/ui/components/ui/button";
+import { Checkbox } from "@multica/ui/components/ui/checkbox";
 import { Input } from "@multica/ui/components/ui/input";
 import { Textarea } from "@multica/ui/components/ui/textarea";
 import {
@@ -43,7 +46,9 @@ import {
   DialogTitle,
 } from "@multica/ui/components/ui/dialog";
 import { KpiCard } from "../../runtimes/components/shared";
+import { useNavigation } from "../../navigation";
 import { MultiTrendChart, type MultiTrendPoint, type MultiTrendSeries } from "../charts";
+import { PeriodSelect } from "../components";
 import { SortHeader, Th, ThNum, Td, TdNum } from "../usage/shared";
 import { DetailShell } from "./detail-shell";
 import { EmptyRow, ErrorBanner, Kv, KvGrid, Panel, shortId, ToneBadge } from "./shared";
@@ -63,18 +68,8 @@ import { EmptyRow, ErrorBanner, Kv, KvGrid, Panel, shortId, ToneBadge } from "./
 //     (same for tasks). Efficiency only computable when both ancient & real
 //     are > 0; otherwise null → renders "-" and sorts to the bottom.
 //
-// Wiring vs source:
-//   - "Add to project" modal: select an existing project (or create new) →
-//     two-phase conflict check (useCheckProjectConflicts) → useAddRepoToProject
-//     (mock-aware; mock phase reports no conflicts and the add succeeds without
-//     hitting the network). Simplified: no per-commit whitelist table — the add
-//     targets all commits in the current scope/date-window (the source's
-//     default mode). The whitelist UI is a pure addition later.
-//   - No router: commit_id / task_id render as plain mono text (no links). The
-//     route layer owns cross-entity navigation.
-//   - Branch switch is internal state + onBranchChange callback (the parent
-//     decides whether to re-route); the shared view never imports next/* or
-//     react-router-dom.
+// Cross-entity navigation uses the host navigation adapter. Branch switching
+// remains shareable through the optional route callback.
 
 interface RepoDetailProps {
   repoAddr: string;
@@ -171,6 +166,15 @@ export function RepoDetail({
   onBranchChange,
 }: RepoDetailProps) {
   const wsId = useWorkspaceId();
+  const paths = useWorkspacePaths();
+  const { push } = useNavigation();
+  const { timeRange, setTimeRange } = useViewState();
+  const effectiveStartDate = startDate ?? timeRange[0];
+  const effectiveEndDate = endDate ?? timeRange[1];
+
+  const ALL_BRANCHES = "__all__";
+  const [currentBranch, setCurrentBranch] = useState(repoBranch ?? "");
+  useEffect(() => setCurrentBranch(repoBranch ?? ""), [repoBranch]);
 
   // Detail (KPIs + commits + tasks + efficiency). repoBranch empty = whole
   // repo scope (backend returns all branches); passing undefined keeps the
@@ -178,16 +182,20 @@ export function RepoDetail({
   const detailQ = useQuery(
     repoDetailOptions(wsId, {
       repoAddr,
-      repoBranch: repoBranch || undefined,
-      startDate,
-      endDate,
+      repoBranch: currentBranch || undefined,
+      startDate: effectiveStartDate,
+      endDate: effectiveEndDate,
     }),
   );
   // Branch list for the selector (separate, lightweight query).
   const branchesQ = useQuery(repoBranchesOptions(wsId, repoAddr));
   // Weekly trend (separate query; shares EntityTrendResponse with project).
   const trendQ = useQuery(
-    repoTrendOptions(wsId, { repoAddr, startDate, endDate }),
+    repoTrendOptions(wsId, {
+      repoAddr,
+      startDate: effectiveStartDate,
+      endDate: effectiveEndDate,
+    }),
   );
 
   const commits: RepoCommitItem[] = useMemo(
@@ -198,7 +206,8 @@ export function RepoDetail({
     () => detailQ.data?.tasks ?? [],
     [detailQ.data?.tasks],
   );
-  const efficiency: RepoEfficiency | undefined = detailQ.data?.efficiency;
+  const efficiency: RepoEfficiency | undefined =
+    detailQ.data?.efficiency ?? undefined;
   const branches: string[] = useMemo(
     () => branchesQ.data?.branches ?? detailQ.data?.branches ?? [],
     [branchesQ.data?.branches, detailQ.data?.branches],
@@ -207,8 +216,6 @@ export function RepoDetail({
   // shadcn Select (Radix) disallows empty-string SelectItem values, so the
   // whole-repo scope ("") is represented as "__all__" at the Select boundary
   // and normalized back to "" for the rest of the page + onBranchChange.
-  const ALL_BRANCHES = "__all__";
-  const [currentBranch, setCurrentBranch] = useState(repoBranch ?? "");
   const selectValue = currentBranch === "" ? ALL_BRANCHES : currentBranch;
   function handleBranchChange(next: string | null) {
     const normalized = !next || next === ALL_BRANCHES ? "" : next;
@@ -301,8 +308,8 @@ export function RepoDetail({
     [trendQ.data?.data],
   );
   const trendSeries: MultiTrendSeries[] = [
-    { key: "efficiency", name: "Efficiency %", color: "var(--chart-1)" },
-    { key: "commits", name: "Commits", color: "var(--chart-2)" },
+    { key: "efficiency", name: "提效比", color: "var(--chart-1)" },
+    { key: "commits", name: "Commit 数", color: "var(--chart-2)" },
   ];
 
   const subtitle = repoAddr || "-";
@@ -310,10 +317,14 @@ export function RepoDetail({
   return (
     <DetailShell
       onBack={onBack}
-      title="Repo detail"
+      title="仓库详情"
       subtitle={subtitle}
       headerExtra={
         <>
+          <PeriodSelect
+            value={effectiveStartDate}
+            onChange={(range) => setTimeRange(range)}
+          />
           <Button
             type="button"
             size="sm"
@@ -322,16 +333,16 @@ export function RepoDetail({
             disabled={!detailQ.data}
           >
             <Plus className="h-3.5 w-3.5" />
-            Add to project
+            添加到项目
           </Button>
           {branches.length > 0 ? (
             <Select value={selectValue} onValueChange={handleBranchChange}>
-              <SelectTrigger size="sm" className="w-[200px]" aria-label="Switch branch">
-                <SelectValue placeholder="All branches (whole repo)" />
+              <SelectTrigger size="sm" className="w-[200px]" aria-label="切换分支">
+                <SelectValue placeholder="全部分支（整仓）" />
               </SelectTrigger>
               <SelectContent>
                 {/* "" = whole-repo scope: backend returns all branches. */}
-                <SelectItem value={ALL_BRANCHES}>All branches (whole repo)</SelectItem>
+                <SelectItem value={ALL_BRANCHES}>全部分支（整仓）</SelectItem>
                 {branches.map((b) => (
                   <SelectItem key={b} value={b}>
                     {b}
@@ -344,75 +355,81 @@ export function RepoDetail({
       }
       loading={detailQ.isLoading}
       error={detailQ.error}
-      empty={!detailQ.data ? "No data for this repo." : undefined}
+      empty={!detailQ.data ? "暂无该仓库数据" : undefined}
     >
       {/* KPI grid: efficiency + AI share + volume + cost. */}
       <section className="grid grid-cols-2 gap-3 lg:grid-cols-3">
         <KpiTile
-          label="Efficiency ratio"
+          label="提效比"
           value={formatPercent(efficiency?.efficiency_ratio)}
-          hint={efficiency?.efficiency_ratio != null ? "gain % (ancient vs real)" : undefined}
+          hint={efficiency?.efficiency_ratio != null ? "传统预估与实际耗时的提升百分比" : undefined}
         />
         <KpiTile
-          label="Traditional estimate"
+          label="传统开发时长预估"
           value={formatDuration(efficiency?.repo_ancient_minutes)}
           hint={efficiency?.repo_ancient_minutes_reason || undefined}
         />
         <KpiTile
-          label="Actual time spent"
+          label="实际耗时"
           value={formatDuration(efficiency?.repo_real_minutes)}
           hint={efficiency?.repo_real_minutes_reason || undefined}
         />
         <KpiTile
-          label="AI code share"
+          label="AI 代码占比"
           value={formatV2Ratio(detailQ.data?.summary?.ai_code_ratio)}
         />
-        <KpiTile label="Lines of code" value={totalDiffLines > 0 ? `${totalDiffLines.toLocaleString()} lines` : "-"} />
+        <KpiTile label="代码行数" value={totalDiffLines > 0 ? `${totalDiffLines.toLocaleString()} 行` : "-"} />
         <KpiTile
-          label="Cost (tasks)"
-          value={totalCost > 0 ? `${fmtCost(totalCost)}` : "-"}
-          hint={totalTokens > 0 ? `${totalTokens.toLocaleString()} tokens` : undefined}
+          label="总费用（task）"
+          value={totalCost > 0 ? `${fmtCost(totalCost)} 元` : "-"}
+          hint={totalTokens > 0 ? `${totalTokens.toLocaleString()} Tokens` : undefined}
         />
       </section>
 
       {/* Basic info. */}
-      <Panel title="Basic info">
+      <Panel title="基础信息">
         <KvGrid>
-          <Kv label="Repo address" wide mono>{repoAddr || "-"}</Kv>
-          <Kv label="Branch" mono>{currentBranch || "(whole repo)"}</Kv>
-          <Kv label="Activity range">{activityRange}</Kv>
-          <Kv label="Commit count">{formatNumber(commits.length)}</Kv>
-          <Kv label="Task count">{formatNumber(tasks.length)}</Kv>
-          <Kv label="Total tokens">{totalTokens > 0 ? totalTokens.toLocaleString() : "-"}</Kv>
-          <Kv label="Contributors">{contributorCount > 0 ? `${contributorCount}` : "-"}</Kv>
+          <Kv label="仓库地址" wide mono>{repoAddr || "-"}</Kv>
+          <Kv label="分支" mono>{currentBranch || "全部分支"}</Kv>
+          <Kv label="活跃时间">{activityRange}</Kv>
+          <Kv label="Commit 数">{formatNumber(commits.length)}</Kv>
+          <Kv label="task 数">{formatNumber(tasks.length)}</Kv>
+          <Kv label="总 Tokens">{totalTokens > 0 ? totalTokens.toLocaleString() : "-"}</Kv>
+          <Kv label="贡献者">{contributorCount > 0 ? `${contributorCount} 人` : "-"}</Kv>
         </KvGrid>
       </Panel>
 
       {/* Branch overview (whole-repo scope only). */}
       {currentBranch === "" && branchSummary.length > 0 && (
         <Panel
-          title="Branch overview"
-          hint={`${branchSummary.length} branches`}
+          title="分支一览"
+          hint={`${branchSummary.length} 个分支`}
           bodyClassName="overflow-x-auto"
         >
           <table className="w-full border-collapse text-sm">
             <thead>
               <tr className="border-b">
-                <Th>Branch</Th>
-                <ThNum>Commits</ThNum>
-                <ThNum>Lines</ThNum>
-                <ThNum>Actual time</ThNum>
+                <Th>分支</Th>
+                <ThNum>Commit 数</ThNum>
+                <ThNum>代码行数</ThNum>
+                <ThNum>实际耗时</ThNum>
                 <th className="whitespace-nowrap px-3 py-2 text-center font-semibold text-muted-foreground">
-                  Efficiency
+                  提效比
                 </th>
               </tr>
             </thead>
             <tbody>
               {branchSummary.map((b) => (
-                <tr key={b.branch || "__unlabeled__"} className="border-b text-card-foreground last:border-0">
+                <tr
+                  key={b.branch || "__unlabeled__"}
+                  onClick={() => b.branch && handleBranchChange(b.branch)}
+                  className={`border-b text-card-foreground last:border-0 ${
+                    b.branch ? "cursor-pointer hover:bg-muted/50" : ""
+                  }`}
+                >
                   <Td>
                     <span className="font-mono break-all text-primary" title={b.branch || "(unlabeled)"}>
-                      {b.branch || "(unlabeled)"}
+                      {b.branch || "（未标注分支）"}
                     </span>
                   </Td>
                   <TdNum>{formatNumber(b.count)}</TdNum>
@@ -433,25 +450,25 @@ export function RepoDetail({
       )}
 
       {/* Commits table (sortable). */}
-      <Panel title="Commits" hint={`${commits.length}`} bodyClassName="overflow-x-auto">
+      <Panel title="Commit 列表" hint={`${commits.length} 条`} bodyClassName="overflow-x-auto">
         <table className="w-full border-collapse text-sm">
           <thead>
             <tr className="border-b">
-              <Th>Commit</Th>
+              <Th>Commit ID</Th>
               <th className="whitespace-nowrap px-3 py-2 text-left font-semibold text-muted-foreground">
                 <SortHeader
-                  label="Time"
+                  label="时间"
                   active={commitSort?.field === "commitTime"}
                   desc={commitSort?.field === "commitTime" && commitSort.desc}
                   onClick={() => setCommitSort((p) => cycle(p, "commitTime"))}
                 />
               </th>
-              <Th>User</Th>
-              {currentBranch === "" && <Th>Branch</Th>}
-              <Th>Message</Th>
+              <Th>用户</Th>
+              {currentBranch === "" && <Th>分支</Th>}
+              <Th>说明</Th>
               <ThNum>
                 <SortHeader
-                  label="Lines"
+                  label="代码行数"
                   active={commitSort?.field === "diffLines"}
                   desc={commitSort?.field === "diffLines" && commitSort.desc}
                   onClick={() => setCommitSort((p) => cycle(p, "diffLines"))}
@@ -459,7 +476,7 @@ export function RepoDetail({
               </ThNum>
               <ThNum>
                 <SortHeader
-                  label="Actual"
+                  label="实际耗时"
                   active={commitSort?.field === "commitReal"}
                   desc={commitSort?.field === "commitReal" && commitSort.desc}
                   onClick={() => setCommitSort((p) => cycle(p, "commitReal"))}
@@ -467,7 +484,7 @@ export function RepoDetail({
               </ThNum>
               <ThNum>
                 <SortHeader
-                  label="Baseline"
+                  label="传统开发时长预估"
                   active={commitSort?.field === "commitAncient"}
                   desc={commitSort?.field === "commitAncient" && commitSort.desc}
                   onClick={() => setCommitSort((p) => cycle(p, "commitAncient"))}
@@ -475,7 +492,7 @@ export function RepoDetail({
               </ThNum>
               <th className="whitespace-nowrap px-3 py-2 text-center font-semibold text-muted-foreground">
                 <SortHeader
-                  label="AI share"
+                  label="AI 代码占比"
                   active={commitSort?.field === "silica"}
                   desc={commitSort?.field === "silica" && commitSort.desc}
                   onClick={() => setCommitSort((p) => cycle(p, "silica"))}
@@ -483,7 +500,7 @@ export function RepoDetail({
               </th>
               <th className="whitespace-nowrap px-3 py-2 text-center font-semibold text-muted-foreground">
                 <SortHeader
-                  label="Efficiency"
+                  label="提效比"
                   active={commitSort?.field === "efficiencyRatio"}
                   desc={commitSort?.field === "efficiencyRatio" && commitSort.desc}
                   onClick={() => setCommitSort((p) => cycle(p, "efficiencyRatio"))}
@@ -491,7 +508,7 @@ export function RepoDetail({
               </th>
               <ThNum>
                 <SortHeader
-                  label="Cost"
+                  label="费用"
                   active={commitSort?.field === "cost"}
                   desc={commitSort?.field === "cost" && commitSort.desc}
                   onClick={() => setCommitSort((p) => cycle(p, "cost"))}
@@ -499,7 +516,7 @@ export function RepoDetail({
               </ThNum>
               <ThNum>
                 <SortHeader
-                  label="Tokens"
+                  label="Tokens 消耗"
                   active={commitSort?.field === "tokens"}
                   desc={commitSort?.field === "tokens" && commitSort.desc}
                   onClick={() => setCommitSort((p) => cycle(p, "tokens"))}
@@ -509,13 +526,17 @@ export function RepoDetail({
           </thead>
           <tbody>
             {sortedCommits.length === 0 ? (
-              <EmptyRow colSpan={currentBranch === "" ? 11 : 10}>No commits</EmptyRow>
+              <EmptyRow colSpan={currentBranch === "" ? 11 : 10}>暂无 Commit 数据</EmptyRow>
             ) : (
               sortedCommits.map((c) => {
                 const eff = commitEffRatio(c);
                 const tokens = tokenSum(c.upstream_tokens, c.downstream_tokens);
                 return (
-                  <tr key={c.commit_id} className="border-b text-card-foreground last:border-0">
+                  <tr
+                    key={c.commit_id}
+                    onClick={() => push(paths.metricsCommitDetail(c.commit_id))}
+                    className="cursor-pointer border-b text-card-foreground hover:bg-muted/50 last:border-0"
+                  >
                     <Td>
                       <span className="font-mono text-xs" title={c.commit_id}>
                         {shortId(c.commit_id, 8)}
@@ -569,24 +590,24 @@ export function RepoDetail({
 
       {/* Tasks table (only when present). */}
       {tasks.length > 0 && (
-        <Panel title="Tasks" hint={`${tasks.length}`} bodyClassName="overflow-x-auto">
+        <Panel title="task 列表" hint={`${tasks.length} 条`} bodyClassName="overflow-x-auto">
           <table className="w-full border-collapse text-sm">
             <thead>
               <tr className="border-b">
-                <Th>Task</Th>
+                <Th>task ID</Th>
                 <th className="whitespace-nowrap px-3 py-2 text-left font-semibold text-muted-foreground">
                   <SortHeader
-                    label="Time"
+                    label="时间"
                     active={taskSort?.field === "startTime"}
                     desc={taskSort?.field === "startTime" && taskSort.desc}
                     onClick={() => setTaskSort((p) => cycle(p, "startTime"))}
                   />
                 </th>
-                <Th>User</Th>
-                <Th>Title</Th>
+                <Th>用户</Th>
+                <Th>说明</Th>
                 <ThNum>
                   <SortHeader
-                    label="Lines"
+                    label="代码行数"
                     active={taskSort?.field === "diffLines"}
                     desc={taskSort?.field === "diffLines" && taskSort.desc}
                     onClick={() => setTaskSort((p) => cycle(p, "diffLines"))}
@@ -594,7 +615,7 @@ export function RepoDetail({
                 </ThNum>
                 <ThNum>
                   <SortHeader
-                    label="Actual"
+                    label="实际耗时"
                     active={taskSort?.field === "taskReal"}
                     desc={taskSort?.field === "taskReal" && taskSort.desc}
                     onClick={() => setTaskSort((p) => cycle(p, "taskReal"))}
@@ -602,7 +623,7 @@ export function RepoDetail({
                 </ThNum>
                 <ThNum>
                   <SortHeader
-                    label="Baseline"
+                    label="传统开发时长预估"
                     active={taskSort?.field === "taskAncient"}
                     desc={taskSort?.field === "taskAncient" && taskSort.desc}
                     onClick={() => setTaskSort((p) => cycle(p, "taskAncient"))}
@@ -610,7 +631,7 @@ export function RepoDetail({
                 </ThNum>
                 <th className="whitespace-nowrap px-3 py-2 text-center font-semibold text-muted-foreground">
                   <SortHeader
-                    label="Efficiency"
+                    label="提效比"
                     active={taskSort?.field === "efficiencyRatio"}
                     desc={taskSort?.field === "efficiencyRatio" && taskSort.desc}
                     onClick={() => setTaskSort((p) => cycle(p, "efficiencyRatio"))}
@@ -618,7 +639,7 @@ export function RepoDetail({
                 </th>
                 <ThNum>
                   <SortHeader
-                    label="Cost"
+                    label="费用"
                     active={taskSort?.field === "cost"}
                     desc={taskSort?.field === "cost" && taskSort.desc}
                     onClick={() => setTaskSort((p) => cycle(p, "cost"))}
@@ -626,7 +647,7 @@ export function RepoDetail({
                 </ThNum>
                 <ThNum>
                   <SortHeader
-                    label="Tokens"
+                    label="Tokens 消耗"
                     active={taskSort?.field === "tokens"}
                     desc={taskSort?.field === "tokens" && taskSort.desc}
                     onClick={() => setTaskSort((p) => cycle(p, "tokens"))}
@@ -639,7 +660,11 @@ export function RepoDetail({
                 const eff = taskEffRatio(t);
                 const tokens = tokenSum(t.upstream_tokens, t.downstream_tokens);
                 return (
-                  <tr key={t.task_id} className="border-b text-card-foreground last:border-0">
+                  <tr
+                    key={t.task_id}
+                    onClick={() => push(paths.metricsTaskDetail(t.task_id))}
+                    className="cursor-pointer border-b text-card-foreground hover:bg-muted/50 last:border-0"
+                  >
                     <Td>
                       <span className="font-mono text-xs" title={t.task_id}>
                         {shortId(t.task_id, 8)}
@@ -673,9 +698,9 @@ export function RepoDetail({
       )}
 
       {/* Weekly trend (efficiency% + commit count). */}
-      <Panel title="Weekly trend" hint="efficiency % / commits per week">
+      <Panel title="周趋势" hint="每周提效比 / Commit 数">
         {trendData.length === 0 ? (
-          <div className="py-6 text-center text-sm text-muted-foreground">No trend data</div>
+          <div className="py-6 text-center text-sm text-muted-foreground">暂无趋势数据</div>
         ) : (
           <MultiTrendChart data={trendData} series={trendSeries} />
         )}
@@ -689,8 +714,8 @@ export function RepoDetail({
           repoAddr={repoAddr}
           repoBranch={currentBranch}
           commits={commits}
-          startDate={startDate}
-          endDate={endDate}
+          startDate={effectiveStartDate}
+          endDate={effectiveEndDate}
         />
       )}
     </DetailShell>
@@ -699,10 +724,9 @@ export function RepoDetail({
 
 // ====================== Add to project dialog ======================
 // Two-phase: select/create a target project → checkProjectConflicts against
-// the in-scope commit_ids → if conflicts, list them and let the user "add
-// anyway"; otherwise addRepoToProject. Simplified vs source: no per-commit
-// whitelist table (always targets all commits in the current scope/date
-// window — the source's default mode).
+// the in-scope commit_ids → if conflicts, list them and let the user add
+// anyway; otherwise addRepoToProject. Optional whitelist mode limits the repo
+// source to explicitly selected commits.
 
 const NEW_PROJECT_VALUE = "__new__";
 
@@ -733,29 +757,43 @@ function AddRepoToProjectDialog({
   const [selectedProjectId, setSelectedProjectId] = useState("");
   const [newName, setNewName] = useState("");
   const [newDesc, setNewDesc] = useState("");
+  const [whitelistMode, setWhitelistMode] = useState(false);
+  const [whitelist, setWhitelist] = useState<Set<string>>(new Set());
   const [conflicts, setConflicts] = useState<ProjectConflict[]>([]);
   const [conflictsChecked, setConflictsChecked] = useState(false);
   const [err, setErr] = useState("");
 
-  // Reset on open.
-  function handleOpenChange(next: boolean) {
-    if (!next) {
-      onOpenChange(false);
-      return;
-    }
+  useEffect(() => {
+    if (!open) return;
     setSelectedProjectId("");
     setNewName("");
     setNewDesc("");
+    setWhitelistMode(false);
+    setWhitelist(new Set());
     setConflicts([]);
     setConflictsChecked(false);
     setErr("");
-    onOpenChange(true);
+  }, [open]);
+
+  function handleOpenChange(next: boolean) {
+    onOpenChange(next);
   }
 
-  // Commit_ids in scope: all commits (whitelist mode omitted — the source's
-  // default targets every commit in the current view).
   function getTargetCommitIds(): string[] {
-    return commits.map((c) => c.commit_id);
+    if (whitelistMode) {
+      return commits
+        .filter((commit) => whitelist.has(commit.commit_id))
+        .map((commit) => commit.commit_id);
+    }
+    return commits
+      .filter((commit) => {
+        const date = (commit.commit_time || "").slice(0, 10);
+        if (!date) return false;
+        if (startDate && date < startDate) return false;
+        if (endDate && date > endDate) return false;
+        return true;
+      })
+      .map((commit) => commit.commit_id);
   }
 
   function resetConflictCheck() {
@@ -763,12 +801,22 @@ function AddRepoToProjectDialog({
     setConflictsChecked(false);
   }
 
+  function toggleWhitelist(commitId: string) {
+    setWhitelist((previous) => {
+      const next = new Set(previous);
+      if (next.has(commitId)) next.delete(commitId);
+      else next.add(commitId);
+      return next;
+    });
+    resetConflictCheck();
+  }
+
   async function doAdd() {
     setErr("");
     let projectId = selectedProjectId;
     if (selectedProjectId === NEW_PROJECT_VALUE) {
       if (!newName.trim()) {
-        setErr("New project name is required");
+        setErr("请输入新项目名称");
         return;
       }
       try {
@@ -777,8 +825,12 @@ function AddRepoToProjectDialog({
           description: newDesc.trim(),
         });
         projectId = created.project_id;
+        if (!projectId) {
+          setErr("创建项目后未返回项目 ID");
+          return;
+        }
       } catch (e) {
-        setErr(e instanceof Error ? e.message : "Failed to create project");
+        setErr(e instanceof Error ? e.message : "无法创建项目");
         return;
       }
     }
@@ -790,30 +842,30 @@ function AddRepoToProjectDialog({
           repo_branch: repoBranch,
           start_time: null,
           end_time: null,
-          include_only_commits: [],
+          include_only_commits: whitelistMode ? getTargetCommitIds() : [],
           exclude_commits: [],
         },
       });
       onOpenChange(false);
     } catch (e) {
-      setErr(e instanceof Error ? e.message : "Failed to add");
+      setErr(e instanceof Error ? e.message : "无法添加仓库");
     }
   }
 
   async function handleConfirm() {
     if (!selectedProjectId) {
-      setErr("Select a target project");
+      setErr("请选择目标项目");
       return;
     }
     if (selectedProjectId === NEW_PROJECT_VALUE && !newName.trim()) {
-      setErr("New project name is required");
+      setErr("请输入新项目名称");
       return;
     }
     // Phase 1: conflict check (skip if already checked).
     if (!conflictsChecked) {
       const targets = getTargetCommitIds();
       if (targets.length === 0) {
-        setErr("No commits to add");
+        setErr("没有可添加的 Commit");
         return;
       }
       setErr("");
@@ -827,7 +879,7 @@ function AddRepoToProjectDialog({
           return;
         }
       } catch (e) {
-        setErr(e instanceof Error ? e.message : "Conflict check failed");
+        setErr(e instanceof Error ? e.message : "无法完成冲突检测");
         return;
       }
     }
@@ -843,13 +895,13 @@ function AddRepoToProjectDialog({
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogContent className="sm:max-w-md">
+      <DialogContent className="sm:max-w-3xl">
         <DialogHeader>
-          <DialogTitle>Add to project</DialogTitle>
+          <DialogTitle>添加到项目</DialogTitle>
         </DialogHeader>
         <div className="space-y-3">
           {err && <ErrorBanner message={err} />}
-          <Field label="Target project">
+          <Field label="目标项目">
             <Select
               value={selectedProjectId}
               onValueChange={(v) => {
@@ -858,10 +910,10 @@ function AddRepoToProjectDialog({
               }}
             >
               <SelectTrigger className="w-full">
-                <SelectValue placeholder="Select…" />
+                <SelectValue placeholder="请选择..." />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value={NEW_PROJECT_VALUE}>+ New project</SelectItem>
+                <SelectItem value={NEW_PROJECT_VALUE}>+ 新建项目</SelectItem>
                 {(projectsQ.data ?? []).map((p: ProjectListItem) => (
                   <SelectItem key={p.project_id} value={p.project_id}>
                     {p.name}
@@ -872,14 +924,14 @@ function AddRepoToProjectDialog({
           </Field>
           {selectedProjectId === NEW_PROJECT_VALUE && (
             <>
-              <Field label="Name">
+              <Field label="名称">
                 <Input
                   type="text"
                   value={newName}
                   onChange={(e) => setNewName(e.target.value)}
                 />
               </Field>
-              <Field label="Description">
+              <Field label="描述">
                 <Textarea
                   rows={2}
                   value={newDesc}
@@ -888,16 +940,73 @@ function AddRepoToProjectDialog({
               </Field>
             </>
           )}
+          <label className="flex cursor-pointer items-center gap-2 text-sm text-muted-foreground">
+            <Checkbox
+              checked={whitelistMode}
+              onCheckedChange={(checked) => {
+                setWhitelistMode(checked === true);
+                resetConflictCheck();
+              }}
+            />
+            仅包含指定 Commit（白名单）
+          </label>
+          {whitelistMode && (
+            <div className="max-h-[300px] overflow-auto rounded-lg border">
+              <table className="w-full border-collapse text-sm">
+                <thead className="sticky top-0 bg-card">
+                  <tr className="border-b">
+                    <th className="w-10 px-3 py-2" />
+                    <Th>Commit ID</Th>
+                    <Th>说明</Th>
+                    <Th>用户</Th>
+                    <Th>时间</Th>
+                    <ThNum>代码行数</ThNum>
+                  </tr>
+                </thead>
+                <tbody>
+                  {commits.map((commit) => (
+                    <tr
+                      key={commit.commit_id}
+                      className="border-b text-card-foreground last:border-0"
+                    >
+                      <td className="px-3 py-2 text-center">
+                        <Checkbox
+                          checked={whitelist.has(commit.commit_id)}
+                          onCheckedChange={() => toggleWhitelist(commit.commit_id)}
+                          aria-label={`选择 ${commit.commit_id}`}
+                        />
+                      </td>
+                      <Td>
+                        <span className="font-mono text-xs">
+                          {shortId(commit.commit_id, 8)}
+                        </span>
+                      </Td>
+                      <Td>
+                        <span
+                          className="block max-w-[200px] truncate"
+                          title={commit.comment ?? ""}
+                        >
+                          {commit.comment || "-"}
+                        </span>
+                      </Td>
+                      <Td>{commit.git_user_name || "-"}</Td>
+                      <Td>{formatLocalTime(commit.commit_time)}</Td>
+                      <TdNum>{commit.diff_lines ?? 0}</TdNum>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
           <div className="text-xs text-muted-foreground">
-            Adds repo <span className="font-mono">{repoAddr}</span>
-            {repoBranch ? ` @ ${repoBranch}` : " (whole repo)"} as a source
-            filter. Targets {getTargetCommitIds().length} commit(s) in the
-            current scope.
+            将仓库 <span className="font-mono">{repoAddr}</span>
+            {repoBranch ? ` @ ${repoBranch}` : "（全部分支）"}添加为项目数据源，
+            当前范围包含 {getTargetCommitIds().length} 条 Commit。
           </div>
           {hasConflict && (
             <div className="rounded-md border border-warning/40 bg-warning/10 p-3 text-sm text-warning">
               <div className="mb-1 font-medium">
-                These commits already belong to another project:
+                以下 Commit 已属于其他项目：
               </div>
               <ul className="space-y-0.5">
                 {conflicts.map((c) => (
@@ -915,7 +1024,7 @@ function AddRepoToProjectDialog({
             variant="ghost"
             onClick={() => onOpenChange(false)}
           >
-            Cancel
+            取消
           </Button>
           {hasConflict ? (
             <Button
@@ -924,7 +1033,7 @@ function AddRepoToProjectDialog({
               onClick={doAdd}
               className="bg-warning text-warning-foreground hover:bg-warning/90"
             >
-              {busy ? "Adding..." : "Add anyway"}
+              {busy ? "添加中..." : "仍然添加"}
             </Button>
           ) : (
             <Button
@@ -932,7 +1041,7 @@ function AddRepoToProjectDialog({
               disabled={busy}
               onClick={handleConfirm}
             >
-              {busy ? "Working..." : "Confirm"}
+              {busy ? "处理中..." : "确认"}
             </Button>
           )}
         </DialogFooter>

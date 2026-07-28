@@ -7,7 +7,10 @@ import {
   TooltipTrigger,
 } from "@multica/ui/components/ui/tooltip";
 import { Skeleton } from "@multica/ui/components/ui/skeleton";
-import { type DashboardTrendDelta } from "@multica/core/efficiency";
+import {
+  formatV2Ratio,
+  type DashboardTrendDelta,
+} from "@multica/core/efficiency";
 
 // Overview scorecard: dimension label + glossary tooltip + big value + hint +
 // wow delta arrow + weekly sparkline. Display-only (no drill-down). The info
@@ -147,8 +150,8 @@ function DeltaArrow({
   higherIsBetter: boolean;
 }) {
   if (!delta || delta.delta_pct == null) return null;
-  const pct = delta.delta_pct;
-  if (pct === 0) {
+  const ratio = delta.delta_pct;
+  if (ratio === 0) {
     return (
       <span
         className="text-xs font-medium tabular-nums text-muted-foreground"
@@ -158,7 +161,7 @@ function DeltaArrow({
       </span>
     );
   }
-  const up = pct > 0;
+  const up = ratio > 0;
   const good = higherIsBetter ? up : !up;
   const color = good ? "text-success" : "text-destructive";
   return (
@@ -166,7 +169,7 @@ function DeltaArrow({
       className={`text-xs font-medium tabular-nums ${color}`}
       title="环比：本期 vs 上期"
     >
-      {up ? "▲" : "▼"} {Math.abs(pct).toFixed(0)}%
+      {up ? "▲" : "▼"} {formatV2Ratio(Math.abs(ratio), 0)}
     </span>
   );
 }

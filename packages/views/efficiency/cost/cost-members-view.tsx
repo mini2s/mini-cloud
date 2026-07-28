@@ -7,6 +7,7 @@ import {
   costMembersOptions,
   fmtCost,
   formatNumber,
+  useUserNameMap,
   type CostMemberSortBy,
   type CostMembersQuery,
 } from "@multica/core/efficiency";
@@ -64,6 +65,7 @@ export function CostMembersView({
   const [sortOrder, setSortOrder] = useState<"asc" | "desc">("desc");
   const [searchInput, setSearchInput] = useState("");
   const [search, setSearch] = useState("");
+  const { resolveName } = useUserNameMap();
 
   // 400ms debounce + trim — matches the source's input discipline and the
   // usage members-view.
@@ -148,7 +150,16 @@ export function CostMembersView({
             </tr>
           </thead>
           <tbody>
-            {membersQ.isLoading && rows.length === 0 ? (
+            {membersQ.error ? (
+              <tr>
+                <td
+                  colSpan={11}
+                  className="py-10 text-center text-sm text-destructive"
+                >
+                  加载失败：{(membersQ.error as Error).message}
+                </td>
+              </tr>
+            ) : membersQ.isLoading && rows.length === 0 ? (
               <tr>
                 <td colSpan={11} className="py-10 text-center text-sm text-muted-foreground">
                   加载中…
@@ -163,6 +174,11 @@ export function CostMembersView({
             ) : (
               rows.map((m, i) => {
                 const uid = m.universal_id || "";
+                const resolvedName = resolveName(uid);
+                const displayName =
+                  resolvedName !== uid
+                    ? resolvedName
+                    : m.username || uid || "-";
                 return (
                   <tr
                     key={uid || i}
@@ -175,8 +191,11 @@ export function CostMembersView({
                   >
                     <TdNum>{(page - 1) * pageSize + i + 1}</TdNum>
                     <Td>
-                      <span className="max-w-[220px] truncate" title={m.username || uid}>
-                        {m.username || uid || "-"}
+                      <span
+                        className="max-w-[220px] truncate"
+                        title={displayName}
+                      >
+                        {displayName}
                       </span>
                     </Td>
                     <Td title={m.user_id || ""}>{m.user_id || "-"}</Td>

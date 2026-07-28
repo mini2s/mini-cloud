@@ -35,10 +35,8 @@ import { Section } from "./shared";
 // Design decisions (from the migration brief):
 //   - chat_stats_enabled guard: mock bypasses it; real mode gates on the live
 //     flag and surfaces the source's "not enabled" notice when off.
-//   - Server-side 10s rate limit: the source implemented a cooldown countdown
-//     that disabled the range/refresh buttons. We keep a simpler "refresh
-//     in-flight" gate (the query cache + staleTime already coalesce bursts);
-//     the countdown UX is dropped as a simplification (reported as a concern).
+//   - Server-side 10s rate limit: range, datasource, and refresh controls share
+//     the same cooldown after each completed request.
 //   - No react-router, no ECharts. Semantic tokens only.
 
 type Range = "30m" | "1h" | "3h";
@@ -53,6 +51,7 @@ export function RealtimeReportPage() {
   const wsId = useWorkspaceId();
   const [range, setRange] = useState<Range>("30m");
   const [datasourceId, setDatasourceId] = useState("");
+  const [cooldown, setCooldown] = useState(0);
 
   const gcQ = useQuery(globalConfigOptions(wsId));
   const dsQ = useQuery(chatDatasourcesOptions(wsId));
@@ -71,13 +70,29 @@ export function RealtimeReportPage() {
     }
   }, [datasourceId, enabledDatasources]);
 
-  const realtimeQ = useQuery(
-    chatRealtimeOptions(wsId, { range, datasourceId }),
-  );
-
   // chat_stats_enabled guard (mock bypasses it).
   const configResolved = MOCK_ENABLED || !gcQ.isLoading;
   const chatEnabled = MOCK_ENABLED || gcQ.data?.chat_stats_enabled === true;
+  const realtimeQ = useQuery({
+    ...chatRealtimeOptions(wsId, { range, datasourceId }),
+    enabled: !!wsId && !!datasourceId && chatEnabled,
+  });
+  const locked = realtimeQ.isFetching || cooldown > 0;
+
+  useEffect(() => {
+    if (realtimeQ.dataUpdatedAt > 0 || realtimeQ.errorUpdatedAt > 0) {
+      setCooldown(10);
+    }
+  }, [realtimeQ.dataUpdatedAt, realtimeQ.errorUpdatedAt]);
+
+  useEffect(() => {
+    if (cooldown <= 0) return;
+    const timer = window.setTimeout(
+      () => setCooldown((value) => Math.max(0, value - 1)),
+      1_000,
+    );
+    return () => window.clearTimeout(timer);
+  }, [cooldown]);
 
   const noEnabledDatasource =
     !dsQ.isLoading && enabledDatasources.length === 0;
@@ -105,7 +120,7 @@ export function RealtimeReportPage() {
           datasources={dsQ.data ?? []}
           value={datasourceId}
           onChange={setDatasourceId}
-          disabled={realtimeQ.isFetching}
+          disabled={locked}
         />
         {RANGE_OPTIONS.map((o) => (
           <Button
@@ -114,7 +129,12 @@ export function RealtimeReportPage() {
             size="sm"
             variant={range === o.value ? "default" : "outline"}
             onClick={() => setRange(o.value)}
-            disabled={realtimeQ.isFetching && o.value !== range}
+            disabled={locked && o.value !== range}
+            title={
+              cooldown > 0 && o.value !== range
+                ? `服务端限频，${cooldown} 秒后可切换`
+                : undefined
+            }
             aria-pressed={range === o.value}
           >
             {o.label}
@@ -124,12 +144,16 @@ export function RealtimeReportPage() {
           type="button"
           size="sm"
           onClick={() => realtimeQ.refetch()}
-          disabled={realtimeQ.isFetching || !datasourceId}
+          disabled={locked || !datasourceId}
         >
           <RefreshCw
             className={`size-3.5 ${realtimeQ.isFetching ? "animate-spin" : ""}`}
           />
-          {realtimeQ.isFetching ? "刷新中…" : "刷新"}
+          {realtimeQ.isFetching
+            ? "刷新中…"
+            : cooldown > 0
+              ? `刷新（${cooldown}s）`
+              : "刷新"}
         </Button>
         {updatedAt ? (
           <span className="text-xs text-muted-foreground">

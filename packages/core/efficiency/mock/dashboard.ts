@@ -77,22 +77,22 @@ export function getMockDashboardTrends(_p: {
   const efficiency: DashboardTrendDelta = {
     current: 3.04,
     previous: 2.41,
-    delta_pct: 26.14, // (current-previous)/previous*100
+    delta_pct: 0.2614,
   };
   const usage: DashboardTrendDelta = {
     current: 31,
     previous: 18,
-    delta_pct: 72.22,
+    delta_pct: 0.7222,
   };
   const cost: DashboardTrendDelta = {
     current: 1310.9,
     previous: 820.4,
-    delta_pct: 59.79,
+    delta_pct: 0.5979,
   };
   const contribution: DashboardTrendDelta = {
     current: 72,
     previous: 42,
-    delta_pct: 71.43,
+    delta_pct: 0.7143,
   };
 
   return {
@@ -109,6 +109,6 @@ export function getMockGlobalConfig(): GlobalConfig {
     traditional_dev_lines_per_day: 500,
     cost_per_person_day: 2000,
     dashboard_title_prefix: "",
-    chat_stats_enabled: false,
+    chat_stats_enabled: true,
   };
 }

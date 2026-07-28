@@ -7,13 +7,15 @@ import { useWorkspacePaths } from "@multica/core/paths";
 import {
   allUsersOptions,
   formatNumber,
+  formatV2Ratio,
   parseOrder,
   sortRows,
   toOrder,
   type UserV2Row,
+  useUserNameMap,
 } from "@multica/core/efficiency";
 import { KpiCard } from "../../runtimes/components/shared";
-import { PCT, Td, TdNum, Th, ThNum, SortHeader } from "../usage/shared";
+import { Td, TdNum, Th, ThNum, SortHeader } from "../usage/shared";
 import { useNavigation } from "../../navigation";
 import { ContributionTrendSection } from "./contribution-trend-section";
 
@@ -26,11 +28,9 @@ import { ContributionTrendSection } from "./contribution-trend-section";
 //
 // Caliber (matches source UserContribution):
 //   - merged_need_count / commit_diff_lines / commit_count are COUNTS → formatNumber.
-//   - ai_code_ratio is a DECIMAL ratio (0.25 => 25%) → PCT(×100).
+//   - ai_code_ratio is a decimal ratio (0.25 => 25%).
 //   - The source sorts by merged_need_count desc; we keep that as the default
 //     but expose a 3-state sort on the 3 count columns.
-//   - Per design decision #2 (NO navigation) the source's row onClick
-//     (navigate to /user/:id) is dropped; clicking is a no-op (TODO slice 5).
 //   - The source's ContributionTrend (ECharts, dual Y axis for code lines vs
 //     needs/commits) is ported to the recharts DualAxisTrendChart via the
 //     shared ContributionTrendSection (lead chart, same as the source).
@@ -43,13 +43,16 @@ type SortField =
 export function UserContribution({
   startDate,
   endDate,
+  onSelect,
 }: {
   startDate: string;
   endDate: string;
+  onSelect?: (userId: string) => void;
 }) {
   const wsId = useWorkspaceId();
   const p = useWorkspacePaths();
   const { push } = useNavigation();
+  const { resolveName } = useUserNameMap();
   const q = useQuery(allUsersOptions(wsId, startDate, endDate));
   const rows = useMemo<UserV2Row[]>(() => q.data ?? [], [q.data]);
 
@@ -127,15 +130,14 @@ export function UserContribution({
         </div>
       </section>
 
-      {/* Ranking table — derived from allUsers. Click is a no-op (user
-          detail page deferred to slice 5 per design decision #2). */}
+      {/* Ranking table — derived from allUsers and linked to user detail. */}
       <section className="rounded-lg border bg-card shadow-sm">
         <div className="flex items-center justify-between gap-3 border-b px-4 py-3">
           <span className="text-sm font-semibold text-card-foreground">
-            个人贡献排行
+            个人贡献排行（看板派生）
           </span>
           <span className="text-xs text-muted-foreground">
-            看板派生 · 默认按合并需求倒序
+            按合并需求倒序，点行查看个人明细
           </span>
         </div>
         {q.error ? (
@@ -203,17 +205,23 @@ export function UserContribution({
                   sorted.map((r, i) => (
                     <tr
                       key={r.user_id}
-                      onClick={() => push(p.metricsUserDetail(r.user_id))}
+                      onClick={() =>
+                        onSelect
+                          ? onSelect(r.user_id)
+                          : push(p.metricsUserDetail(r.user_id))
+                      }
                       className="cursor-pointer border-b transition-colors last:border-0 hover:bg-muted/50"
                     >
                       <TdNum>
                         <span className="text-muted-foreground">{i + 1}</span>
                       </TdNum>
-                      <Td title={r.user_name}>{shortName(r.user_name)}</Td>
+                      <Td title={resolveName(r.user_id)}>
+                        {shortName(resolveName(r.user_id))}
+                      </Td>
                       <TdNum>{formatNumber(r.merged_need_count)}</TdNum>
                       <TdNum>{formatNumber(r.commit_diff_lines)}</TdNum>
                       <TdNum>{formatNumber(r.commit_count)}</TdNum>
-                      <Td>{PCT((r.ai_code_ratio ?? 0) * 100)}</Td>
+                      <Td>{formatV2Ratio(r.ai_code_ratio)}</Td>
                     </tr>
                   ))
                 )}

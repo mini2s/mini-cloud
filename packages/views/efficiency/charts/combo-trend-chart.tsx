@@ -19,6 +19,8 @@ export interface ComboTrendPoint {
   bar: number;
   /** Line series value (right axis), e.g. active users. */
   line: number;
+  /** Optional derived value shown in the tooltip header only. */
+  tooltipExtra?: number;
 }
 
 // Dual-axis combo chart: a bar series on the left axis + a line series on the
@@ -38,6 +40,10 @@ interface ComboTrendChartProps {
   formatRightY?: (v: number) => string;
   /** Height class for the container. */
   heightClass?: string;
+  tooltipExtra?: {
+    name: string;
+    format: (value: number) => string;
+  };
 }
 
 export function ComboTrendChart({
@@ -47,6 +53,7 @@ export function ComboTrendChart({
   formatLeftY,
   formatRightY,
   heightClass = "h-[280px]",
+  tooltipExtra,
 }: ComboTrendChartProps) {
   const config = {
     bar: { label: bar.name, color: bar.color },
@@ -81,7 +88,28 @@ export function ComboTrendChart({
           width={48}
           tickFormatter={formatRightY ? (v: number) => formatRightY(v) : undefined}
         />
-        <ChartTooltip content={<ChartTooltipContent />} />
+        <ChartTooltip
+          content={
+            <ChartTooltipContent
+              labelFormatter={(label, payload) => {
+                const point = payload?.[0]?.payload as
+                  | ComboTrendPoint
+                  | undefined;
+                return (
+                  <div className="space-y-1">
+                    <div>{String(label)}</div>
+                    {tooltipExtra && point?.tooltipExtra != null && (
+                      <div className="font-normal text-muted-foreground">
+                        {tooltipExtra.name}:{" "}
+                        {tooltipExtra.format(point.tooltipExtra)}
+                      </div>
+                    )}
+                  </div>
+                );
+              }}
+            />
+          }
+        />
         <Bar
           yAxisId="left"
           dataKey="bar"

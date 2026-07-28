@@ -72,6 +72,9 @@ function workspaceScoped(slug: string) {
     metricsCost: () => `${ws}/metrics/cost`,
     metricsCoverage: () => `${ws}/metrics/coverage`,
     metricsContribution: () => `${ws}/metrics/contribution`,
+    metricsNeeds: () => `${ws}/metrics/needs`,
+    metricsTasks: () => `${ws}/metrics/tasks`,
+    metricsCommits: () => `${ws}/metrics/commits`,
     // Efficiency drill-down detail pages. These are parametric (each takes the
     // entity id), so they're NOT part of the parameterless sidebar set — they're
     // used by dimension rankings/list views to push into a detail page.
@@ -81,6 +84,8 @@ function workspaceScoped(slug: string) {
     //   - branch (repo only) is optional; when present it appends an extra
     //     segment (branches may themselves contain slashes → also split+encode).
     metricsUserDetail: (userId: string) => `${ws}/metrics/user/${encode(userId)}`,
+    metricsUserGroupDetail: (groupId: string) =>
+      `${ws}/metrics/user/group/${encode(groupId)}`,
     metricsRepoDetail: (repoAddr: string, branch?: string) => {
       const addrPath = repoAddr.split("/").map(encode).join("/");
       const branchPath = branch
@@ -93,6 +98,8 @@ function workspaceScoped(slug: string) {
     metricsNeedDetail: (needId: string) =>
       `${ws}/metrics/need/${needId.split("/").map(encode).join("/")}`,
     metricsTaskDetail: (taskId: string) => `${ws}/metrics/task/${encode(taskId)}`,
+    metricsWorkdirDetail: (workDirId: string) =>
+      `${ws}/metrics/workdir/${workDirId.split("/").map(encode).join("/")}`,
     metricsCommitDetail: (commitId: string) =>
       `${ws}/metrics/commit/${encode(commitId)}`,
     permissions: () => `${ws}/permissions`,

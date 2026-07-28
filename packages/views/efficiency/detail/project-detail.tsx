@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useWorkspaceId } from "@multica/core/hooks";
+import { useWorkspacePaths } from "@multica/core/paths";
 import {
   fmtCost,
   formatV2Ratio,
@@ -40,6 +41,7 @@ import { MultiTrendChart, type MultiTrendPoint, type MultiTrendSeries } from "..
 import { Th, ThNum, Td, TdNum } from "../usage/shared";
 import { DetailShell } from "./detail-shell";
 import { EmptyRow, ErrorBanner, Kv, KvGrid, Panel, ToneBadge } from "./shared";
+import { useNavigation } from "../../navigation";
 
 // Project detail page — the second-largest efficiency drill-down. Ports the
 // source ProjectDetail (Need/branch scope) to the shared-views layer: KPI grid
@@ -114,6 +116,8 @@ export function ProjectDetail({
   onDeleted,
 }: ProjectDetailProps) {
   const wsId = useWorkspaceId();
+  const paths = useWorkspacePaths();
+  const { push } = useNavigation();
   const { resolveName } = useUserNameMap();
 
   const detailQ = useQuery(projectDetailOptions(wsId, projectId));
@@ -152,7 +156,7 @@ export function ProjectDetail({
     const m = new Map<string, Contributor>();
     for (const n of projectNeeds) {
       if (n.excluded) continue;
-      const uid = n.primary_user_id || "unknown";
+      const uid = n.primary_user_id || "未知";
       let c = m.get(uid);
       if (!c) {
         c = {
@@ -207,7 +211,7 @@ export function ProjectDetail({
     project && !isZeroTime(project.start_time_manual ?? project.start_time)
       ? `${fmtDate(project.start_time_manual ?? project.start_time)} ~ ${
           isZeroTime(project.end_time_manual ?? project.end_time)
-            ? "present"
+            ? "至今"
             : fmtDate(project.end_time_manual ?? project.end_time)
         }`
       : "—";
@@ -225,8 +229,8 @@ export function ProjectDetail({
     [trendQ.data?.data],
   );
   const trendSeries: MultiTrendSeries[] = [
-    { key: "efficiency", name: "Efficiency %", color: "var(--chart-1)" },
-    { key: "needs", name: "Needs", color: "var(--chart-2)" },
+    { key: "efficiency", name: "提效比", color: "var(--chart-1)" },
+    { key: "needs", name: "需求数", color: "var(--chart-2)" },
   ];
 
   // Per-need include/exclude handler. The checkbox optimistically reflects the
@@ -247,15 +251,15 @@ export function ProjectDetail({
   return (
     <DetailShell
       onBack={onBack}
-      title={project?.name || "Project detail"}
+      title={project?.name || "项目详情"}
       subtitle={project?.description || projectId}
       headerExtra={
         <>
           <ToneBadge tone="neutral">{dateRange}</ToneBadge>
           <ToneBadge tone="neutral">
-            {data?.need_total_count ?? projectNeeds.length} Needs
+            {data?.need_total_count ?? projectNeeds.length} 个需求
           </ToneBadge>
-          <ToneBadge tone="neutral">{contributors.length} contributors</ToneBadge>
+          <ToneBadge tone="neutral">{contributors.length} 位贡献者</ToneBadge>
           <Button
             type="button"
             size="sm"
@@ -263,7 +267,7 @@ export function ProjectDetail({
             onClick={() => setSourceOpen(true)}
           >
             <Plus className="h-3.5 w-3.5" />
-            Add source
+            添加来源
           </Button>
           <Button
             type="button"
@@ -273,7 +277,7 @@ export function ProjectDetail({
             disabled={!project}
           >
             <Pencil className="h-3.5 w-3.5" />
-            Edit
+            编辑
           </Button>
           <Button
             type="button"
@@ -284,91 +288,93 @@ export function ProjectDetail({
             disabled={!project}
           >
             <Trash2 className="h-3.5 w-3.5" />
-            Delete
+            删除
           </Button>
         </>
       }
       loading={detailQ.isLoading}
       error={detailQ.error}
-      empty={!detailQ.data?.project ? "No data for this project." : undefined}
+      empty={!detailQ.data?.project ? "暂无项目数据。" : undefined}
     >
       {/* KPI grid (Need/branch scope, conserved; clean Needs only). */}
       <section className="grid grid-cols-2 gap-3 lg:grid-cols-3">
         <KpiTile
-          label="Calendar efficiency"
+          label="日历提效比"
           value={formatV2Ratio(calR)}
-          hint="baseline − actual / actual (clean needs)"
+          hint="仅统计干净需求"
         />
         <KpiTile
-          label="Work efficiency"
+          label="工作量提效比"
           value={formatV2Ratio(workR)}
-          hint="fused baseline − active / active"
+          hint="融合基线与实际活跃工时"
         />
         <KpiTile
-          label="AI code share"
+          label="AI 代码占比"
           value={formatV2Ratio(data?.need_ai_code_ratio)}
         />
         <KpiTile
-          label="Actual work"
-          value={actualPersonDays != null ? `${actualPersonDays.toFixed(1)} person-days` : "—"}
-          hint={calPersonDays != null ? `calendar span ${calPersonDays.toFixed(1)} pd` : undefined}
+          label="实际工时"
+          value={actualPersonDays != null ? `${actualPersonDays.toFixed(1)} 人天` : "—"}
+          hint={calPersonDays != null ? `日历跨度 ${calPersonDays.toFixed(1)} 人天` : undefined}
         />
         <KpiTile
-          label="Generated code"
-          value={data?.need_total_loc_net != null ? `${data.need_total_loc_net.toLocaleString()} lines` : "—"}
+          label="生成代码"
+          value={data?.need_total_loc_net != null ? `${data.need_total_loc_net.toLocaleString()} 行` : "—"}
         />
         <KpiTile
-          label="Eligible / candidate needs"
+          label="合格 / 候选需求"
           value={`${data?.need_eligible_count ?? 0} / ${data?.need_total_count ?? 0}`}
-          hint={`auto-excluded ${data?.need_excluded_count ?? 0}`}
+          hint={`自动剔除 ${data?.need_excluded_count ?? 0}`}
         />
         <KpiTile
-          label="Cost"
-          value={data?.need_cost != null && data.need_cost > 0 ? `${fmtCost(data.need_cost)}` : "0"}
-          hint={`tokens up ${Math.round((data?.need_upstream_tokens ?? 0) / 1000)}k · down ${Math.round(
+          label="费用"
+          value={data?.need_cost != null && data.need_cost > 0 ? `¥${fmtCost(data.need_cost)}` : "¥0"}
+          hint={`Token 上 ${Math.round((data?.need_upstream_tokens ?? 0) / 1000)}k · 下 ${Math.round(
             (data?.need_downstream_tokens ?? 0) / 1000,
           )}k`}
         />
       </section>
 
       {/* Basic info. */}
-      <Panel title="Basic info">
+      <Panel title="基础信息">
         <KvGrid>
-          <Kv label="Project ID" mono>{projectId}</Kv>
-          <Kv label="Name">{project?.name || "-"}</Kv>
-          <Kv label="Description" wide>{project?.description || "-"}</Kv>
-          <Kv label="Date range">{dateRange}</Kv>
-          <Kv label="Created">{fmtDate(project?.created_at)}</Kv>
-          <Kv label="Updated">{fmtDate(project?.updated_at)}</Kv>
-          <Kv label="Source repos">{repos.length || "-"}</Kv>
+          <Kv label="项目 ID" mono>{projectId}</Kv>
+          <Kv label="名称">{project?.name || "-"}</Kv>
+          <Kv label="描述" wide>{project?.description || "-"}</Kv>
+          <Kv label="日期范围">{dateRange}</Kv>
+          <Kv label="创建时间">{fmtDate(project?.created_at)}</Kv>
+          <Kv label="更新时间">{fmtDate(project?.updated_at)}</Kv>
+          <Kv label="来源仓库">{repos.length || "-"}</Kv>
         </KvGrid>
       </Panel>
 
       {/* Needs composition (main table) with per-need include/exclude. */}
       <Panel
-        title="Needs"
-        hint={`candidate ${data?.need_total_count ?? projectNeeds.length} · eligible ${data?.need_eligible_count ?? 0}`}
+        title="组成 · 需求"
+        hint={`候选 ${data?.need_total_count ?? projectNeeds.length} · 合格 ${data?.need_eligible_count ?? 0}`}
         bodyClassName="overflow-x-auto"
       >
         {/* Source-rule chips with remove buttons. */}
         <div className="mb-3 flex flex-wrap items-center gap-2">
-          <span className="text-xs text-muted-foreground">Need sources:</span>
+          <span className="text-xs text-muted-foreground">需求来源：</span>
           {repos.length === 0 ? (
-            <span className="text-xs text-muted-foreground">none configured</span>
+            <span className="text-xs text-muted-foreground">
+              未配置（点击"添加来源"按仓库或分支纳入需求）
+            </span>
           ) : (
             repos.map((r, i) => (
               <ToneBadge key={`${r.repo_addr}#${r.repo_branch}#${i}`} tone="info">
                 <span className="inline-flex items-center gap-1">
                   <span
                     className="font-mono"
-                    title={`${r.repo_addr}${r.repo_branch ? ` @ ${r.repo_branch}` : " @ all branches"}`}
+                    title={`${r.repo_addr}${r.repo_branch ? ` @ ${r.repo_branch}` : " @ 全部分支"}`}
                   >
                     {shortRepo(r.repo_addr)}
-                    {r.repo_branch ? ` @ ${r.repo_branch}` : " @ all"}
+                    {r.repo_branch ? ` @ ${r.repo_branch}` : " @ 全部分支"}
                   </span>
                   <button
                     type="button"
-                    aria-label={`Remove source ${r.repo_addr}`}
+                    aria-label={`移除来源 ${r.repo_addr}`}
                     onClick={() => setRemoveSource({ index: i, repo: r })}
                     className="text-muted-foreground hover:text-destructive focus:outline-none"
                   >
@@ -382,38 +388,61 @@ export function ProjectDetail({
 
         {(needsQ.data?.stale_count ?? 0) > 0 && (
           <div className="mb-3 rounded-lg border border-warning/40 bg-warning/10 px-3 py-2 text-xs text-warning">
-            {needsQ.data?.stale_count} configured need(s) have drifted after a recompute
-            (need_id stale) and no longer affect aggregation.
+            配置中有 {needsQ.data?.stale_count} 个需求因重算失效（need_id
+            已变化），不再影响聚合。
           </div>
         )}
+
+        {needsQ.error || updateNeedSel.error ? (
+          <div className="mb-3">
+            <ErrorBanner
+              message={
+                (needsQ.error as Error | null)?.message ||
+                (updateNeedSel.error as Error | null)?.message ||
+                "无法更新项目需求"
+              }
+            />
+          </div>
+        ) : null}
 
         <table className="w-full border-collapse text-sm">
           <thead>
             <tr className="border-b">
               <th className="whitespace-nowrap px-3 py-2 text-center font-semibold text-muted-foreground">
-                Include
+                纳入
               </th>
-              <Th>Need</Th>
-              <Th>Branch</Th>
-              <Th>Boundary</Th>
+              <Th>需求</Th>
+              <Th>分支</Th>
+              <Th>边界源</Th>
               <th className="whitespace-nowrap px-3 py-2 text-center font-semibold text-muted-foreground">
-                Calendar eff.
-              </th>
-              <th className="whitespace-nowrap px-3 py-2 text-center font-semibold text-muted-foreground">
-                Work eff.
+                日历提效比
               </th>
               <th className="whitespace-nowrap px-3 py-2 text-center font-semibold text-muted-foreground">
-                AI share
+                工作量提效比
               </th>
               <th className="whitespace-nowrap px-3 py-2 text-center font-semibold text-muted-foreground">
-                Status
+                AI 占比
               </th>
-              <ThNum>Lines</ThNum>
+              <th className="whitespace-nowrap px-3 py-2 text-center font-semibold text-muted-foreground">
+                状态
+              </th>
+              <ThNum>代码行</ThNum>
             </tr>
           </thead>
           <tbody>
-            {projectNeeds.length === 0 ? (
-              <EmptyRow colSpan={9}>No candidate needs</EmptyRow>
+            {needsQ.isLoading ? (
+              <tr>
+                <td
+                  colSpan={9}
+                  className="px-3 py-8 text-center text-sm text-muted-foreground"
+                >
+                  加载中...
+                </td>
+              </tr>
+            ) : projectNeeds.length === 0 ? (
+              <EmptyRow colSpan={9}>
+                候选池内暂无需求，请先添加来源。
+              </EmptyRow>
             ) : (
               projectNeeds.map((n) => {
                 const busy =
@@ -431,15 +460,20 @@ export function ProjectDetail({
                         onCheckedChange={() => handleToggleNeed(n)}
                         aria-label={
                           n.excluded
-                            ? `Include need ${n.repo_branch}`
-                            : `Exclude need ${n.repo_branch}`
+                            ? `纳入需求 ${n.repo_branch}`
+                            : `排除需求 ${n.repo_branch}`
                         }
                       />
                     </td>
                     <Td>
-                      <span className="font-mono break-all text-xs" title={n.need_id}>
+                      <button
+                        type="button"
+                        className="font-mono break-all text-left text-xs text-primary hover:underline"
+                        title={n.need_id}
+                        onClick={() => push(paths.metricsNeedDetail(n.need_id))}
+                      >
                         {n.need_id.length > 30 ? `${n.need_id.slice(0, 30)}…` : n.need_id}
-                      </span>
+                      </button>
                     </Td>
                     <Td>{n.repo_branch || "-"}</Td>
                     <Td>
@@ -467,32 +501,43 @@ export function ProjectDetail({
       </Panel>
 
       {/* Contributors (derived from selected clean Needs). */}
-      <Panel title="Contributors" hint={`${contributors.length}`} bodyClassName="overflow-x-auto">
+      <Panel title="贡献者" hint={`${contributors.length} 人`} bodyClassName="overflow-x-auto">
         <table className="w-full border-collapse text-sm">
           <thead>
             <tr className="border-b">
-              <Th>User</Th>
-              <ThNum>Needs</ThNum>
+              <Th>用户</Th>
+              <ThNum>需求数</ThNum>
               <th className="whitespace-nowrap px-3 py-2 text-center font-semibold text-muted-foreground">
-                Calendar eff.
+                日历提效比
               </th>
               <th className="whitespace-nowrap px-3 py-2 text-center font-semibold text-muted-foreground">
-                Work eff.
+                工作量提效比
               </th>
               <th className="whitespace-nowrap px-3 py-2 text-center font-semibold text-muted-foreground">
-                AI share
+                AI 占比
               </th>
-              <ThNum>Lines</ThNum>
+              <ThNum>代码行</ThNum>
             </tr>
           </thead>
           <tbody>
             {contributors.length === 0 ? (
-              <EmptyRow colSpan={6}>No contributors from selected needs</EmptyRow>
+              <EmptyRow colSpan={6}>暂无已选需求的贡献者</EmptyRow>
             ) : (
               contributors.map((c) => (
                 <tr key={c.user_id} className="border-b text-card-foreground last:border-0">
                   <Td>
-                    <span title={c.user_id}>{resolveName(c.user_id)}</span>
+                    {c.user_id && c.user_id !== "未知" ? (
+                      <button
+                        type="button"
+                        className="text-primary hover:underline"
+                        title={c.user_id}
+                        onClick={() => push(paths.metricsUserDetail(c.user_id))}
+                      >
+                        {resolveName(c.user_id)}
+                      </button>
+                    ) : (
+                      <span title={c.user_id}>{resolveName(c.user_id)}</span>
+                    )}
                   </Td>
                   <TdNum>{c.needCount}</TdNum>
                   <td className="px-3 py-2 text-center align-middle">
@@ -513,9 +558,11 @@ export function ProjectDetail({
       </Panel>
 
       {/* Weekly trend (efficiency% + need count). */}
-      <Panel title="Weekly trend" hint="efficiency % / needs per week">
+      <Panel title="周趋势" hint="每周提效比 / 需求数">
         {trendData.length === 0 ? (
-          <div className="py-6 text-center text-sm text-muted-foreground">No trend data</div>
+          <div className="py-6 text-center text-sm text-muted-foreground">
+            暂无趋势数据
+          </div>
         ) : (
           <MultiTrendChart data={trendData} series={trendSeries} />
         )}
@@ -546,9 +593,9 @@ export function ProjectDetail({
 
       <ConfirmDialog
         open={deleteOpen}
-        title="Delete project"
-        message={`Delete project "${project?.name ?? ""}"? This cannot be undone.`}
-        confirmLabel="Delete"
+        title="确认删除"
+        message={`确定要删除项目"${project?.name ?? ""}"吗？此操作不可撤销。`}
+        confirmLabel="删除"
         tone="destructive"
         pending={deleteProject.isPending}
         onOpenChange={setDeleteOpen}
@@ -568,13 +615,13 @@ export function ProjectDetail({
 
       <ConfirmDialog
         open={!!removeSource}
-        title="Remove source"
+        title="移除来源"
         message={
           removeSource
-            ? `Remove need source "${removeSource.repo.repo_addr}${removeSource.repo.repo_branch ? ` @ ${removeSource.repo.repo_branch}` : ""}"? Needs under it will no longer count toward this project.`
+            ? `确定要移除需求来源"${removeSource.repo.repo_addr}${removeSource.repo.repo_branch ? ` @ ${removeSource.repo.repo_branch}` : ""}"吗？该来源下的需求将不再计入本项目。`
             : ""
         }
-        confirmLabel="Remove"
+        confirmLabel="移除"
         tone="destructive"
         pending={
           removeRepo.isPending &&
@@ -646,7 +693,7 @@ function EditProjectDialog({
 
   async function handleSubmit() {
     if (!formName.trim()) {
-      setFormErr("Project name is required");
+      setFormErr("请输入项目名称");
       return;
     }
     setFormErr("");
@@ -654,7 +701,7 @@ function EditProjectDialog({
       await onSubmit(formName.trim(), formDesc.trim());
       onOpenChange(false);
     } catch (e) {
-      setFormErr(e instanceof Error ? e.message : "Failed to save");
+      setFormErr(e instanceof Error ? e.message : "无法保存修改");
     }
   }
 
@@ -662,18 +709,18 @@ function EditProjectDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>Edit project</DialogTitle>
+          <DialogTitle>编辑项目</DialogTitle>
         </DialogHeader>
         <div className="space-y-3">
           {formErr && <ErrorBanner message={formErr} />}
-          <Field label="Project name">
+          <Field label="项目名称">
             <Input
               type="text"
               value={formName}
               onChange={(e) => setFormName(e.target.value)}
             />
           </Field>
-          <Field label="Description">
+          <Field label="描述">
             <Textarea
               rows={3}
               value={formDesc}
@@ -682,7 +729,7 @@ function EditProjectDialog({
           </Field>
           {error ? (
             <ErrorBanner
-              message={(error as Error)?.message || "Failed to save."}
+              message={(error as Error)?.message || "无法保存修改"}
             />
           ) : null}
         </div>
@@ -692,10 +739,10 @@ function EditProjectDialog({
             variant="ghost"
             onClick={() => onOpenChange(false)}
           >
-            Cancel
+            取消
           </Button>
           <Button type="button" disabled={pending} onClick={handleSubmit}>
-            {pending ? "Saving..." : "Save"}
+            {pending ? "保存中..." : "保存"}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -740,7 +787,10 @@ function AddSourceDialog({
     include_only_commits: string[];
   }) => Promise<void>;
 }) {
-  const optionsQ = useQuery(needRepoOptionsOptions(wsId));
+  const optionsQ = useQuery({
+    ...needRepoOptionsOptions(wsId),
+    enabled: open && !!wsId,
+  });
   const [search, setSearch] = useState("");
   const [selection, setSelection] = useState<Map<string, RepoSelection>>(
     new Map(),
@@ -805,13 +855,13 @@ function AddSourceDialog({
 
   async function handleSubmit() {
     if (selectedCount === 0) {
-      setFormErr("Select at least one repo");
+      setFormErr("请至少选择一个仓库");
       return;
     }
     for (const [addr, sel] of selection) {
       if (sel.mode === "specific" && sel.branches.size === 0) {
         setFormErr(
-          `Repo "${repoDisplayName(addr).name}" set to "specific" but no branch chosen`,
+          `仓库"${repoDisplayName(addr).name}"选择了指定分支，但尚未选择任何分支`,
         );
         return;
       }
@@ -837,7 +887,7 @@ function AddSourceDialog({
       }
       onOpenChange(false);
     } catch (e) {
-      setFormErr(e instanceof Error ? e.message : "Failed to add");
+      setFormErr(e instanceof Error ? e.message : "无法添加来源");
     } finally {
       setSubmitting(false);
     }
@@ -847,7 +897,7 @@ function AddSourceDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
-          <DialogTitle>Add need sources</DialogTitle>
+          <DialogTitle>添加需求来源</DialogTitle>
         </DialogHeader>
         <div className="space-y-3">
           {formErr && <ErrorBanner message={formErr} />}
@@ -855,17 +905,17 @@ function AddSourceDialog({
             type="text"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search repo name"
-            aria-label="Search repo name"
+            placeholder="搜索仓库名"
+            aria-label="搜索仓库名"
           />
           <div className="max-h-[360px] space-y-1 overflow-y-auto">
             {optionsQ.isLoading ? (
               <div className="py-6 text-center text-sm text-muted-foreground">
-                Loading…
+                加载中...
               </div>
             ) : filtered.length === 0 ? (
               <div className="py-6 text-center text-sm text-muted-foreground">
-                No repos available
+                无可选仓库
               </div>
             ) : (
               filtered.map((o) => {
@@ -894,12 +944,12 @@ function AddSourceDialog({
                         )}
                         {already && (
                           <span className="ml-1.5 text-xs text-success">
-                            added
+                            已添加
                           </span>
                         )}
                       </span>
                       <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
-                        {o.need_count} needs · {fmtDate(o.last_active)}
+                        {o.need_count} 个需求 · {fmtDate(o.last_active)}
                       </span>
                     </label>
                     {sel && (
@@ -912,7 +962,7 @@ function AddSourceDialog({
                               checked={sel.mode === "all"}
                               onChange={() => setMode(o.repo_addr, "all")}
                             />
-                            All feature branches
+                            全部特性分支
                           </label>
                           <label className="inline-flex cursor-pointer items-center gap-1">
                             <input
@@ -921,14 +971,14 @@ function AddSourceDialog({
                               checked={sel.mode === "specific"}
                               onChange={() => setMode(o.repo_addr, "specific")}
                             />
-                            Specific branches
+                            指定分支
                           </label>
                         </div>
                         {sel.mode === "specific" && (
                           <div className="flex flex-wrap gap-1.5 pt-0.5">
                             {o.branches.length === 0 ? (
                               <span className="text-xs text-muted-foreground">
-                                This repo has no feature branches
+                                该仓库没有特性分支
                               </span>
                             ) : (
                               o.branches.map((b) => {
@@ -963,15 +1013,18 @@ function AddSourceDialog({
               })
             )}
           </div>
-          {error ? (
+          {optionsQ.error || error ? (
             <ErrorBanner
-              message={(error as Error)?.message || "Failed to add."}
+              message={
+                (optionsQ.error as Error | null)?.message ||
+                (error as Error | null)?.message ||
+                "无法加载或添加来源"
+              }
             />
           ) : null}
           <p className="text-xs text-muted-foreground">
-            Selecting a repo includes all its feature branches (delivered,
-            non-main); switch to "specific" to narrow. After adding, toggle
-            needs on/off in the list below.
+            选择仓库默认纳入全部已交付、非主干的特性分支；可切换到"指定分支"
+            缩小范围。添加后可在需求列表中逐个纳入或排除。
           </p>
         </div>
         <DialogFooter>
@@ -980,7 +1033,7 @@ function AddSourceDialog({
             variant="ghost"
             onClick={() => onOpenChange(false)}
           >
-            Cancel
+            取消
           </Button>
           <Button
             type="button"
@@ -988,8 +1041,8 @@ function AddSourceDialog({
             onClick={handleSubmit}
           >
             {submitting || pending
-              ? "Adding..."
-              : `Add${selectedCount ? ` (${selectedCount})` : ""}`}
+              ? "添加中..."
+              : `添加${selectedCount ? ` (${selectedCount})` : ""}`}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -1026,7 +1079,7 @@ function ConfirmDialog({
     try {
       await onConfirm();
     } catch (e) {
-      setErr(e instanceof Error ? e.message : "Failed");
+      setErr(e instanceof Error ? e.message : "操作失败");
     } finally {
       setBusy(false);
     }
@@ -1048,7 +1101,7 @@ function ConfirmDialog({
             variant="ghost"
             onClick={() => onOpenChange(false)}
           >
-            Cancel
+            取消
           </Button>
           <Button
             type="button"
@@ -1056,7 +1109,7 @@ function ConfirmDialog({
             disabled={disabled}
             onClick={handle}
           >
-            {disabled ? "Working..." : confirmLabel}
+            {disabled ? "处理中..." : confirmLabel}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -1112,25 +1165,25 @@ function NeedStatusBadge({ n }: { n: ProjectNeedItem }) {
   if (!n.coverage_eligible) {
     return (
       <ToneBadge tone="info">
-        <span title="not delivered or low confidence">ineligible</span>
+        <span title="未交付或置信度较低，不计入提效比">不合格</span>
       </ToneBadge>
     );
   }
   if (n.calendar_outlier_flag) {
     return (
       <ToneBadge tone="warning">
-        <span title={n.reason || "calendar-scope outlier"}>calendar outlier</span>
+        <span title={n.reason || "日历口径异常"}>日历异常</span>
       </ToneBadge>
     );
   }
   if (n.work_outlier_flag) {
     return (
       <ToneBadge tone="warning">
-        <span title={n.reason || "workload-scope outlier"}>workload outlier</span>
+        <span title={n.reason || "工作量口径异常"}>工作量异常</span>
       </ToneBadge>
     );
   }
-  return <ToneBadge tone="success">clean</ToneBadge>;
+  return <ToneBadge tone="success">干净</ToneBadge>;
 }
 
 /**

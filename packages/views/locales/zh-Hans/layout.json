@@ -25,6 +25,7 @@
     "metrics_cost": "成本",
     "metrics_coverage": "覆盖",
     "metrics_contribution": "贡献",
+    "metrics_needs": "需求",
     "permissions": "权限管理",
     "devices": "设备管理",
     "connectors": "集成",

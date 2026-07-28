@@ -1,13 +1,15 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { RefreshCw, Play } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { useWorkspaceId } from "@multica/core/hooks";
 import {
   chatSyncTasksOptions,
   chatDatasourcesOptions,
+  formatShanghaiDayRange,
   formatLocalTime,
+  toShanghaiSyncRange,
   useCancelChatSyncTask,
   useRetryChatSyncTask,
   useSubmitChatSyncTask,
@@ -36,14 +38,6 @@ import {
   ThNum,
 } from "./shared";
 import { ToneBadge, type BadgeTone } from "../detail/shared";
-
-// Settings · Sync tasks. Ports the source SyncTasks.tsx to the shared-views
-// layer. The read table (task id / status / datasource / progress / range /
-// rows / error) is the deliverable. The "submit sync" form + the retry/cancel
-// row actions submit via useSubmitChatSyncTask / useRetryChatSyncTask /
-// useCancelChatSyncTask. In the mock phase the mutations return plausible
-// task states without hitting the network; once the backend is live
-// (EFFICIENCY_MOCK=0) the same hooks call the real chat sync endpoints.
 
 const STATUS_TONE: Record<string, BadgeTone> = {
   pending: "neutral",
@@ -78,6 +72,10 @@ export function SyncTasksPage() {
   const [sourceId, setSourceId] = useState("");
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
+  const [submitMessage, setSubmitMessage] = useState<{
+    ok: boolean;
+    text: string;
+  } | null>(null);
 
   // Retry/cancel confirmation dialog.
   const [pendingAction, setPendingAction] = useState<{
@@ -90,21 +88,56 @@ export function SyncTasksPage() {
     [tasks],
   );
 
-  // Submit handler. In the mock phase the mutation returns a queued task
-  // without hitting the network; once wired it calls the real chat submit.
+  useEffect(() => {
+    if (!sourceId && enabledSources.length > 0) {
+      setSourceId(String(enabledSources[0]?.id));
+    }
+  }, [enabledSources, sourceId]);
+
+  useEffect(() => {
+    if (!hasActive) return;
+    const timer = window.setInterval(() => {
+      tasksQ.refetch();
+    }, 5_000);
+    return () => window.clearInterval(timer);
+  }, [hasActive, tasksQ.refetch]);
+
   function handleSubmit() {
+    const range = toShanghaiSyncRange(startDate, endDate);
+    if (!range) {
+      setSubmitMessage({
+        ok: false,
+        text: "请选择有效的开始和结束日期，且开始日期不能晚于结束日期",
+      });
+      return;
+    }
+    if (!sourceId) {
+      setSubmitMessage({ ok: false, text: "请选择数据源" });
+      return;
+    }
+
     const payload: ChatSyncSubmitReq = {
-      // Syncs are inclusive of the start/end dates — send them as day-start
-      // ISO 8601 so the backend sees the full requested range.
-      start_time: startDate
-        ? `${startDate}T00:00:00Z`
-        : new Date().toISOString(),
-      end_time: endDate
-        ? `${endDate}T23:59:59Z`
-        : new Date().toISOString(),
-      source_id: sourceId ? Number(sourceId) : undefined,
+      ...range,
+      source_id: Number(sourceId),
+      force: false,
     };
-    submitSync.mutate(payload);
+    setSubmitMessage(null);
+    submitSync.mutate(payload, {
+      onSuccess: (response) => {
+        setSubmitMessage({
+          ok: true,
+          text: `同步任务已提交（数据源：${response.source_name || sourceId}）`,
+        });
+        setStartDate("");
+        setEndDate("");
+      },
+      onError: (error) => {
+        setSubmitMessage({
+          ok: false,
+          text: (error as Error)?.message || "提交失败",
+        });
+      },
+    });
   }
 
   // Confirm a retry or cancel action via the active mutation hook.
@@ -115,6 +148,15 @@ export function SyncTasksPage() {
     mutation.mutate(task.task_id, {
       onSuccess: () => setPendingAction(null),
     });
+  }
+
+  function promptAction(
+    type: "retry" | "cancel",
+    task: ChatSyncTask,
+  ) {
+    if (type === "retry") retrySync.reset();
+    else cancelSync.reset();
+    setPendingAction({ type, task });
   }
 
   // Which mutation (if any) is currently confirming, for the dialog's
@@ -134,9 +176,9 @@ export function SyncTasksPage() {
       <PageHeader className="h-auto min-h-12 flex-wrap justify-between gap-y-1.5 px-5 py-1.5 sm:py-0">
         <div className="flex min-w-0 items-center gap-2">
           <RefreshCw className="size-4 shrink-0 text-muted-foreground" />
-          <h1 className="truncate text-sm font-medium">Sync tasks</h1>
+          <h1 className="truncate text-sm font-medium">同步任务</h1>
           <span className="truncate text-xs text-muted-foreground">
-            · {tasks.length} {tasks.length === 1 ? "task" : "tasks"}
+            · {tasks.length} 个同步任务
           </span>
         </div>
         <Button
@@ -146,32 +188,31 @@ export function SyncTasksPage() {
           onClick={() => tasksQ.refetch()}
         >
           <RefreshCw className="size-3.5" />
-          Refresh
+          刷新
         </Button>
       </PageHeader>
 
       <div className="flex-1 overflow-y-auto">
         <div className="space-y-4 p-6 lg:px-8">
-          {/* Submit sync form */}
-          <Section title="Start a sync">
+          <Section title="发起数据同步">
             <div className="grid grid-cols-1 gap-3 p-4 sm:grid-cols-2 lg:grid-cols-4">
-              <SettingsField label="Datasource">
+              <SettingsField label="数据源">
                 <NativeSelect
                   className="w-full"
                   value={sourceId}
                   onChange={(e) => setSourceId(e.target.value)}
                 >
                   {enabledSources.length === 0 && (
-                    <option value="">No enabled datasource</option>
+                    <option value="">暂无启用的数据源</option>
                   )}
                   {enabledSources.map((d) => (
                     <option key={d.id} value={String(d.id)}>
-                      {d.name} ({d.source_type === "postgres" ? "PG" : "ES"})
+                      {d.name}（{d.source_type === "postgres" ? "PG" : "ES"}）
                     </option>
                   ))}
                 </NativeSelect>
               </SettingsField>
-              <SettingsField label="Start date (inclusive)">
+              <SettingsField label="开始日期（含）">
                 <Input
                   type="date"
                   value={startDate}
@@ -179,7 +220,7 @@ export function SyncTasksPage() {
                   onChange={(e) => setStartDate(e.target.value)}
                 />
               </SettingsField>
-              <SettingsField label="End date (inclusive)">
+              <SettingsField label="结束日期（含）">
                 <Input
                   type="date"
                   value={endDate}
@@ -194,41 +235,31 @@ export function SyncTasksPage() {
                   onClick={handleSubmit}
                 >
                   <Play className="size-3.5" />
-                  Start sync
+                  {submitSync.isPending ? "提交中..." : "开始同步"}
                 </Button>
               </div>
             </div>
             <p className="px-4 pb-4 text-xs text-muted-foreground">
-              Syncs run in Beijing time; both start and end dates are inclusive.
+              按北京时间同步，开始和结束日期均包含。
             </p>
-            {submitSync.error ? (
-              <div className="px-4 pb-4">
-                <ErrorBanner
-                  message={
-                    (submitSync.error as Error)?.message ||
-                    "Failed to submit sync task."
-                  }
-                />
-              </div>
-            ) : null}
-            {submitSync.isSuccess ? (
-              <div className="px-4 pb-4 text-xs text-success">
-                Sync task queued
-                {submitSync.data?.task_id
-                  ? ` — ${String(submitSync.data.task_id).slice(0, 16)}…`
-                  : ""}
+            {submitMessage ? (
+              <div
+                className={`px-4 pb-4 text-sm ${
+                  submitMessage.ok ? "text-success" : "text-destructive"
+                }`}
+              >
+                {submitMessage.text}
               </div>
             ) : null}
           </Section>
 
-          {/* Task list */}
           <Section
-            title="Sync tasks"
+            title="同步任务"
             count={tasks.length}
             rightSlot={
               hasActive ? (
                 <span className="text-xs text-muted-foreground">
-                  Active tasks auto-refresh
+                  进行中任务自动刷新
                 </span>
               ) : null
             }
@@ -238,7 +269,7 @@ export function SyncTasksPage() {
               <ErrorBanner
                 message={
                   (tasksQ.error as Error)?.message ||
-                  "Failed to load sync tasks."
+                  "获取同步任务失败"
                 }
               />
             ) : null}
@@ -246,15 +277,15 @@ export function SyncTasksPage() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b">
-                  <Th>Task ID</Th>
-                  <Th>Status</Th>
-                  <Th>Datasource</Th>
-                  <Th>Progress</Th>
-                  <Th>Requested range</Th>
-                  <ThNum>Rows processed</ThNum>
-                  <ThNum>Rows written</ThNum>
-                  <Th>Error</Th>
-                  <Th>Actions</Th>
+                  <Th>任务 ID</Th>
+                  <Th>状态</Th>
+                  <Th>数据源</Th>
+                  <Th>进度</Th>
+                  <Th>请求范围</Th>
+                  <ThNum>处理行数</ThNum>
+                  <ThNum>写入行数</ThNum>
+                  <Th>错误信息</Th>
+                  <Th>操作</Th>
                 </tr>
               </thead>
               <tbody>
@@ -270,7 +301,7 @@ export function SyncTasksPage() {
                   <tr>
                     <td colSpan={9} className="px-3 py-10 text-center">
                       <span className="text-sm text-muted-foreground">
-                        No sync tasks yet.
+                        暂无同步任务
                       </span>
                     </td>
                   </tr>
@@ -326,8 +357,11 @@ export function SyncTasksPage() {
                         </Td>
                         <Td>
                           <span className="whitespace-nowrap text-xs">
-                            {formatLocalTime(t.req_start_time)} ~{" "}
-                            {formatLocalTime(t.req_end_time)}
+                            {formatShanghaiDayRange(
+                              t.req_start_time,
+                              t.req_end_time,
+                            ) ||
+                              `${formatLocalTime(t.req_start_time)} ~ ${formatLocalTime(t.req_end_time)}`}
                           </span>
                         </Td>
                         <TdNum>
@@ -356,11 +390,9 @@ export function SyncTasksPage() {
                                 variant="link"
                                 size="sm"
                                 className="h-auto p-0"
-                                onClick={() =>
-                                  setPendingAction({ type: "retry", task: t })
-                                }
+                                onClick={() => promptAction("retry", t)}
                               >
-                                Retry
+                                重试
                               </Button>
                             )}
                             {isActive && (
@@ -369,11 +401,9 @@ export function SyncTasksPage() {
                                 variant="link"
                                 size="sm"
                                 className="h-auto p-0 text-destructive"
-                                onClick={() =>
-                                  setPendingAction({ type: "cancel", task: t })
-                                }
+                                onClick={() => promptAction("cancel", t)}
                               >
-                                Stop
+                                停止
                               </Button>
                             )}
                             {!isActive && t.status !== "failed" && (
@@ -391,11 +421,10 @@ export function SyncTasksPage() {
         </div>
       </div>
 
-      {/* Retry / cancel confirmation. */}
       <Dialog
         open={!!pendingAction}
         onOpenChange={(next) => {
-          if (!next) {
+          if (!next && !actionPending) {
             setPendingAction(null);
           }
         }}
@@ -404,20 +433,20 @@ export function SyncTasksPage() {
           <DialogHeader>
             <DialogTitle>
               {pendingAction?.type === "retry"
-                ? "Confirm retry"
-                : "Confirm stop"}
+                ? "确认重试"
+                : "确认停止"}
             </DialogTitle>
           </DialogHeader>
           <p className="text-sm text-card-foreground">
             {pendingAction?.type === "retry"
-              ? `Retry task ${pendingAction?.task.task_id.slice(0, 12)}…?`
-              : `Stop task ${pendingAction?.task.task_id.slice(0, 12)}…? It will be marked as failed.`}
+              ? `确定重试任务 ${pendingAction?.task.task_id.slice(0, 12)}... 吗？`
+              : `确定停止任务 ${pendingAction?.task.task_id.slice(0, 12)}... 吗？任务将标记为失败。`}
           </p>
           {actionError ? (
             <ErrorBanner
               message={
                 (actionError as Error)?.message ||
-                "Failed to perform the requested action."
+                "操作失败"
               }
             />
           ) : null}
@@ -427,7 +456,7 @@ export function SyncTasksPage() {
               variant="ghost"
               onClick={() => setPendingAction(null)}
             >
-              Cancel
+              取消
             </Button>
             <Button
               type="button"
@@ -435,7 +464,11 @@ export function SyncTasksPage() {
               disabled={actionPending}
               onClick={confirmAction}
             >
-              {pendingAction?.type === "retry" ? "Retry" : "Stop task"}
+              {actionPending
+                ? "处理中..."
+                : pendingAction?.type === "retry"
+                  ? "重试"
+                  : "停止任务"}
             </Button>
           </DialogFooter>
         </DialogContent>

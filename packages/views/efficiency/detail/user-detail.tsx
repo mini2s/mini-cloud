@@ -3,6 +3,7 @@
 import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useWorkspaceId } from "@multica/core/hooks";
+import { useWorkspacePaths } from "@multica/core/paths";
 import {
   formatDuration,
   formatLocalTime,
@@ -16,7 +17,8 @@ import {
 } from "@multica/core/efficiency";
 import { KpiCard } from "../../runtimes/components/shared";
 import { DetailShell } from "./detail-shell";
-import { DualAxisTrendChart } from "../charts";
+import { ComboTrendChart } from "../charts";
+import { useNavigation } from "../../navigation";
 import {
   EmptyRow,
   Panel,
@@ -58,6 +60,8 @@ export function UserDetail({
   onBack,
 }: UserDetailProps) {
   const wsId = useWorkspaceId();
+  const paths = useWorkspacePaths();
+  const { push } = useNavigation();
   const { resolveName } = useUserNameMap();
   const q = useQuery(userDetailOptions(wsId, userId, startDate, endDate));
 
@@ -75,120 +79,129 @@ export function UserDetail({
     [q.data?.commits],
   );
 
-  const titleName = summary?.user_name || resolveName(userId);
+  const titleName = resolveName(summary?.user_id || userId);
 
   return (
     <DetailShell
       onBack={onBack}
-      title="User detail"
+      title="用户详情"
       subtitle={titleName}
       loading={q.isLoading}
       error={q.error}
       empty={
-        q.data && !summary ? "No data for this user in the selected range." : undefined
+        q.data && !summary ? "所选时间范围内暂无该用户数据" : undefined
       }
     >
       {/* KPI grid — 6 cards mirroring the source. */}
-      <section className="grid grid-cols-2 gap-3 lg:grid-cols-3">
-        <KpiTile label="Merged needs" value={formatNumber(summary?.merged_need_count ?? 0)} />
-        <KpiTile label="Calendar efficiency" value={formatV2Ratio(summary?.calendar_ratio)} />
-        <KpiTile label="Work efficiency" value={formatV2Ratio(summary?.work_ratio)} />
-        <KpiTile label="Actual period" value={formatDuration(summary?.actual_calendar_min)} />
-        <KpiTile label="Baseline period" value={formatDuration(summary?.baseline_calendar_min)} />
+      <section className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-6">
+        <KpiTile label="合并需求" value={formatNumber(summary?.merged_need_count ?? 0)} />
+        <KpiTile label="日历提效" value={formatV2Ratio(summary?.calendar_ratio)} />
+        <KpiTile label="人力提效" value={formatV2Ratio(summary?.work_ratio)} />
+        <KpiTile label="实际周期" value={formatDuration(summary?.actual_calendar_min)} />
+        <KpiTile label="传统周期预估" value={formatDuration(summary?.baseline_calendar_min)} />
         <KpiTile
-          label="Commits / LOC"
+          label="Commit / 代码行"
           value={`${summary?.commit_count ?? 0} / ${formatNumber(summary?.commit_diff_lines, 0)}`}
         />
       </section>
 
-      {/* Weekly contribution trend — code lines (left axis, Bar) vs merged
-          needs + commits (right axis, Line). Reuses the weeks already fetched
-          for the breakdown table (no extra query). Same dual-axis treatment as
-          the contribution dimension: commit_diff_lines dwarfs the small counts. */}
-      <Panel title="Weekly contribution trend" hint={`${weeks.length} weeks`}>
-        {weeks.length === 0 ? (
-          <div className="flex min-h-[16rem] items-center justify-center text-sm text-muted-foreground">
-            No weekly data
-          </div>
-        ) : (
-          <DualAxisTrendChart
-            data={weeks.map((w) => ({
-              label: fmtWeek(w.week_start),
-              primary: w.commit_diff_lines ?? 0,
-              secondary: (w.merged_need_count ?? 0) + (w.commit_count ?? 0),
-            }))}
-            primaryLabel="代码行"
-            secondaryLabel="合并需求/提交"
-            formatLeftY={(v) => formatNumber(v, 0)}
-          />
-        )}
-      </Panel>
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+        <Panel title="周明细" hint={`${weeks.length} 周 · Need 关联口径`} bodyClassName="overflow-x-auto">
+          <table className="w-full border-collapse text-sm">
+            <thead>
+              <tr className="border-b">
+                <ThLeft>周起始</ThLeft>
+                <ThRight>合并</ThRight>
+                <ThRight>活跃</ThRight>
+                <ThLeft>日历提效</ThLeft>
+                <ThLeft>人力提效</ThLeft>
+                <ThRight>关联 Commit</ThRight>
+                <ThLeft>置信</ThLeft>
+              </tr>
+            </thead>
+            <tbody>
+              {weeks.length === 0 ? (
+                <EmptyRow colSpan={7}>暂无周数据</EmptyRow>
+              ) : (
+                weeks.map((w) => (
+                  <tr
+                    key={w.user_productivity_v2_id || w.week_start}
+                    className="border-b text-card-foreground last:border-0"
+                  >
+                    <TdBase>{fmtWeek(w.week_start)}</TdBase>
+                    <TdNum>{w.merged_need_count ?? 0}</TdNum>
+                    <TdNum>{w.active_need_count ?? 0}</TdNum>
+                    <TdBase>{formatV2Ratio(w.efficiency_ratio)}</TdBase>
+                    <TdBase>{formatV2Ratio(w.work_efficiency_ratio)}</TdBase>
+                    <TdNum>{w.commit_count ?? 0}</TdNum>
+                    <TdBase>
+                      <ToneBadge tone={w.confidence_limited ? "warning" : "success"}>
+                        {w.confidence_limited ? "受限" : "正常"}
+                      </ToneBadge>
+                    </TdBase>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </Panel>
 
-      {/* Weekly breakdown — the source's left column. */}
-      <Panel title="Weekly breakdown" hint={`${weeks.length} weeks`} bodyClassName="overflow-x-auto">
-        <table className="w-full border-collapse text-sm">
-          <thead>
-            <tr className="border-b">
-              <ThLeft>Week start</ThLeft>
-              <ThRight>Merged</ThRight>
-              <ThRight>Active</ThRight>
-              <ThLeft>Calendar eff.</ThLeft>
-              <ThLeft>Work eff.</ThLeft>
-              <ThRight>Commits</ThRight>
-              <ThLeft>Confidence</ThLeft>
-            </tr>
-          </thead>
-          <tbody>
-            {weeks.length === 0 ? (
-              <EmptyRow colSpan={7}>No weekly data</EmptyRow>
-            ) : (
-              weeks.map((w) => (
-                <tr
-                  key={w.user_productivity_v2_id || w.week_start}
-                  className="border-b text-card-foreground last:border-0"
-                >
-                  <TdBase>{fmtWeek(w.week_start)}</TdBase>
-                  <TdNum>{w.merged_need_count ?? 0}</TdNum>
-                  <TdNum>{w.active_need_count ?? 0}</TdNum>
-                  <TdBase>{formatV2Ratio(w.efficiency_ratio)}</TdBase>
-                  <TdBase>{formatV2Ratio(w.work_efficiency_ratio)}</TdBase>
-                  <TdNum>{w.commit_count ?? 0}</TdNum>
-                  <TdBase>
-                    <ToneBadge tone={w.confidence_limited ? "warning" : "success"}>
-                      {w.confidence_limited ? "Limited" : "Normal"}
-                    </ToneBadge>
-                  </TdBase>
-                </tr>
-              ))
-            )}
-          </tbody>
-        </table>
-      </Panel>
+        <Panel title="周趋势" hint="日历提效 / 合并需求">
+          {weeks.length === 0 ? (
+            <div className="flex min-h-[16rem] items-center justify-center text-sm text-muted-foreground">
+              暂无周趋势数据
+            </div>
+          ) : (
+            <ComboTrendChart
+              data={[...weeks]
+                .sort(
+                  (a, b) =>
+                    new Date(a.week_start).getTime() -
+                    new Date(b.week_start).getTime(),
+                )
+                .map((w) => ({
+                  label: fmtWeek(w.week_start),
+                  bar: w.merged_need_count ?? 0,
+                  line: (w.efficiency_ratio ?? 0) * 100,
+                }))}
+              bar={{ name: "合并需求", color: "var(--chart-2)" }}
+              line={{ name: "日历提效", color: "var(--chart-1)" }}
+              formatLeftY={(v) => formatNumber(v, 0)}
+              formatRightY={(v) => `${formatNumber(v, 0)}%`}
+            />
+          )}
+        </Panel>
+      </div>
 
       {/* Related needs. */}
-      <Panel title="Related needs" hint={`${needs.length}`} bodyClassName="overflow-x-auto">
+      <Panel title="关联需求" hint={`${needs.length} 个`} bodyClassName="overflow-x-auto">
         <table className="w-full border-collapse text-sm">
           <thead>
             <tr className="border-b">
-              <ThLeft>Need</ThLeft>
-              <ThLeft>Status</ThLeft>
-              <ThLeft>Repo</ThLeft>
-              <ThLeft>Branch</ThLeft>
-              <ThRight>Actual period</ThRight>
-              <ThLeft>Calendar eff.</ThLeft>
-              <ThLeft>Work eff.</ThLeft>
+              <ThLeft>需求</ThLeft>
+              <ThLeft>状态</ThLeft>
+              <ThLeft>仓库</ThLeft>
+              <ThLeft>分支</ThLeft>
+              <ThRight>实际周期</ThRight>
+              <ThLeft>日历提效</ThLeft>
+              <ThLeft>人力提效</ThLeft>
             </tr>
           </thead>
           <tbody>
             {needs.length === 0 ? (
-              <EmptyRow colSpan={7}>No needs</EmptyRow>
+              <EmptyRow colSpan={7}>暂无需求</EmptyRow>
             ) : (
               needs.map((n) => (
                 <tr key={n.need_id} className="border-b text-card-foreground last:border-0">
                   <TdBase>
-                    <span className="font-mono text-xs" title={n.need_id}>
+                    <button
+                      type="button"
+                      onClick={() => push(paths.metricsNeedDetail(n.need_id))}
+                      className="font-mono text-xs text-primary hover:underline"
+                      title={n.need_id}
+                    >
                       {shortId(n.need_id, 16)}
-                    </span>
+                    </button>
                   </TdBase>
                   <TdBase>
                     <ToneBadge tone={statusTone(n.status)}>{n.status || "-"}</ToneBadge>
@@ -214,27 +227,32 @@ export function UserDetail({
       </Panel>
 
       {/* Recent commits. */}
-      <Panel title="Recent commits" hint={`${commits.length}`} bodyClassName="overflow-x-auto">
+      <Panel title="最近 Commit" hint={`${commits.length} 条`} bodyClassName="overflow-x-auto">
         <table className="w-full border-collapse text-sm">
           <thead>
             <tr className="border-b">
               <ThLeft>Commit</ThLeft>
-              <ThLeft>Time</ThLeft>
-              <ThLeft>Repo</ThLeft>
-              <ThRight>LOC</ThRight>
-              <ThLeft>Message</ThLeft>
+              <ThLeft>提交时间</ThLeft>
+              <ThLeft>仓库</ThLeft>
+              <ThRight>代码行</ThRight>
+              <ThLeft>说明</ThLeft>
             </tr>
           </thead>
           <tbody>
             {commits.length === 0 ? (
-              <EmptyRow colSpan={5}>No commits</EmptyRow>
+              <EmptyRow colSpan={5}>暂无 Commit</EmptyRow>
             ) : (
               commits.map((c) => (
                 <tr key={c.commit_id} className="border-b text-card-foreground last:border-0">
                   <TdBase>
-                    <span className="font-mono text-xs" title={c.commit_id}>
+                    <button
+                      type="button"
+                      onClick={() => push(paths.metricsCommitDetail(c.commit_id))}
+                      className="font-mono text-xs text-primary hover:underline"
+                      title={c.commit_id}
+                    >
                       {shortId(c.commit_id, 10)}
-                    </span>
+                    </button>
                   </TdBase>
                   <TdBase>{formatLocalTime(c.commit_time)}</TdBase>
                   <TdBase>

@@ -3,10 +3,12 @@
 import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useWorkspaceId } from "@multica/core/hooks";
+import { useWorkspacePaths } from "@multica/core/paths";
 import {
   fmtCost,
   formatDuration,
   formatLocalTime,
+  getTaskFileUrl,
   taskDetailOptions,
   useUpdateTaskManual,
   useUserNameMap,
@@ -26,6 +28,7 @@ import {
   DialogTitle,
 } from "@multica/ui/components/ui/dialog";
 import { DetailShell } from "./detail-shell";
+import { useNavigation } from "../../navigation";
 import { ErrorBanner, Kv, KvGrid, Panel } from "./shared";
 
 // Task detail page. Ports the source TaskDetail to the shared-views layer:
@@ -37,13 +40,10 @@ import { ErrorBanner, Kv, KvGrid, Panel } from "./shared";
 //   - cost via fmtCost (2dp).
 //
 // Wiring vs source:
-//   - The manual-override modal submits via useUpdateTaskManual (mock-aware:
-//     mock phase returns success without hitting the network, then invalidates
-//     the task-detail cache; real path calls the NOT_WIRED api stub until the
-//     backend mounts /api/v2/efficiency/tasks/{id}/manual).
-//   - No getTaskFileUrl external links (raw-data / summary file) — that helper
-//     isn't in the data layer.
-//   - No router: user/repo/workdir render as text.
+//   - The manual-override modal submits via useUpdateTaskManual and refreshes
+//     the task detail after the real PUT succeeds.
+//   - User/repo drill-downs use the host navigation adapter. Workdir remains
+//     text because the migrated module has no workdir detail route.
 
 interface TaskDetailProps {
   taskId: string;
@@ -75,6 +75,8 @@ function extractUserQuestion(raw?: string): string {
 
 export function TaskDetail({ taskId, onBack }: TaskDetailProps) {
   const wsId = useWorkspaceId();
+  const paths = useWorkspacePaths();
+  const { push } = useNavigation();
   const { resolveName } = useUserNameMap();
   const q = useQuery(taskDetailOptions(wsId, taskId));
 
@@ -119,7 +121,7 @@ export function TaskDetail({ taskId, onBack }: TaskDetailProps) {
   return (
     <DetailShell
       onBack={onBack}
-      title="Task detail"
+      title="Task 详情"
       subtitle={task.task_id || "-"}
       headerExtra={
         <Button
@@ -130,46 +132,88 @@ export function TaskDetail({ taskId, onBack }: TaskDetailProps) {
           disabled={!q.data?.task}
         >
           <Pencil className="h-3.5 w-3.5" />
-          Manual adjust
+          人工调整
         </Button>
       }
       loading={q.isLoading}
       error={q.error}
-      empty={!q.data?.task ? "No data for this task." : undefined}
+      empty={!q.data?.task ? "暂无该 Task 数据" : undefined}
     >
       {/* Basic info. */}
-      <Panel title="Basic info">
+      <Panel title="基础信息">
         <KvGrid>
           <Kv label="Task ID" mono>{task.task_id || "-"}</Kv>
-          <Kv label="Title" wide>{task.title || "-"}</Kv>
-          <Kv label="User">{task.user_name || resolveName(task.user_id)}</Kv>
-          <Kv label="Repo">{repoDisplay}</Kv>
-          <Kv label="Workdir">{task.work_dir || task.work_dir_id || "-"}</Kv>
-          <Kv label="Start time">{formatLocalTime(task.start_time)}</Kv>
-          <Kv label="End time">{formatLocalTime(task.end_time)}</Kv>
-          <Kv label="OS">
+          <Kv label="任务描述" wide>{task.title || "-"}</Kv>
+          <Kv label="用户">
+            {task.user_id ? (
+              <button
+                type="button"
+                onClick={() => push(paths.metricsUserDetail(task.user_id!))}
+                className="text-primary hover:underline"
+              >
+                {resolveName(task.user_id)}
+              </button>
+            ) : task.user_name ? resolveName(task.user_name) : "-"}
+          </Kv>
+          <Kv label="仓库">
+            {task.repo_addr ? (
+              <button
+                type="button"
+                onClick={() =>
+                  push(
+                    paths.metricsRepoDetail(
+                      task.repo_addr!,
+                      task.repo_branch || "main",
+                    ),
+                  )
+                }
+                className="break-all text-left font-mono text-primary hover:underline"
+              >
+                {repoDisplay}
+              </button>
+            ) : "-"}
+          </Kv>
+          <Kv label="工作目录">
+            {task.work_dir_id ? (
+              <button
+                type="button"
+                onClick={() =>
+                  push(paths.metricsWorkdirDetail(task.work_dir_id!))
+                }
+                className="break-all text-left font-mono text-primary hover:underline"
+              >
+                {task.work_dir || task.work_dir_id}
+              </button>
+            ) : task.work_dir || "-"}
+          </Kv>
+          <Kv label="开始时间">{formatLocalTime(task.start_time)}</Kv>
+          <Kv label="结束时间">{formatLocalTime(task.end_time)}</Kv>
+          <Kv label="系统">
             {task.client_os
               ? `${task.client_os} ${task.client_os_version || ""}`.trim()
               : "-"}
           </Kv>
-          <Kv label="Client">
+          <Kv label="客户端">
             {task.client_ide
               ? `${task.client_ide} ${task.client_version || ""}`.trim()
               : "-"}
           </Kv>
-          <Kv label="Mode">{task.caller || "-"}</Kv>
+          <Kv label="模式">{task.caller || "-"}</Kv>
         </KvGrid>
       </Panel>
 
       {/* Metrics. */}
-      <Panel title="Metrics">
+      <Panel title="度量信息">
         <KvGrid>
-          <Kv label="Generated code">
+          <Kv label="生成代码量">
             <span className="inline-flex items-center gap-2">
-              {task.diff_lines ?? "-"} lines
+              {task.diff_lines ?? "-"} 行
+              <FileLink href={getTaskFileUrl("summary", task.task_id)}>
+                查看详情
+              </FileLink>
             </span>
           </Kv>
-          <Kv label="Actual time">
+          <Kv label="实际耗时">
             <ManualValue
               manual={task.task_real_minutes_manual}
               manualReason={task.task_real_minutes_reason_manual}
@@ -177,7 +221,7 @@ export function TaskDetail({ taskId, onBack }: TaskDetailProps) {
               originalReason={task.task_real_minutes_reason}
             />
           </Kv>
-          <Kv label="Baseline estimate">
+          <Kv label="传统开发时长预估">
             <ManualValue
               manual={task.task_ancient_minutes_manual}
               manualReason={task.task_ancient_minutes_reason_manual}
@@ -185,24 +229,33 @@ export function TaskDetail({ taskId, onBack }: TaskDetailProps) {
               originalReason={task.task_ancient_minutes_reason}
             />
           </Kv>
-          <Kv label="API requests">{conversations.length || "-"}</Kv>
-          <Kv label="Total tokens" title={`upstream ${totalUpstreamTokens} / downstream ${totalDownstreamTokens}`}>
+          <Kv label="API 请求次数">{conversations.length || "-"}</Kv>
+          <Kv label="总 Tokens" title={`上行 ${totalUpstreamTokens} / 下行 ${totalDownstreamTokens}`}>
             {totalTokens > 0 ? totalTokens.toLocaleString() : "-"}
           </Kv>
-          <Kv label="Cost">
+          <Kv label="费用">
             {(task.cost ?? 0) > 0
-              ? `${fmtCost(task.cost)}`
+              ? `${fmtCost(task.cost)} 元`
               : totalCostSum > 0
-                ? `${fmtCost(totalCostSum)}`
+                ? `${fmtCost(totalCostSum)} 元`
                 : "-"}
           </Kv>
         </KvGrid>
       </Panel>
 
       {/* Conversation history (linear timeline, no gaps — time_segments is dead code). */}
-      <Panel title="Conversation history" hint={`${conversations.length}`}>
+      <Panel
+        title="对话历史"
+        rightSlot={
+          conversations.length > 0 ? (
+            <FileLink href={getTaskFileUrl("conversation", task.task_id)}>
+              查看原始数据
+            </FileLink>
+          ) : undefined
+        }
+      >
         {conversations.length === 0 ? (
-          <div className="py-6 text-center text-sm text-muted-foreground">No conversation records</div>
+          <div className="py-6 text-center text-sm text-muted-foreground">暂无对话记录</div>
         ) : (
           <ol className="relative ml-2 space-y-4 border-l-2 border-border">
             {conversations.map((conv, idx) => {
@@ -233,7 +286,7 @@ export function TaskDetail({ taskId, onBack }: TaskDetailProps) {
                     )}
                     {isSystemOnly && (
                       <div className="text-xs text-muted-foreground">
-                        System message (not a user question)
+                        系统消息（非用户提问）
                         {isExpanded && (
                           <pre className="m-0 mt-1.5 max-h-[600px] overflow-y-auto whitespace-pre-wrap break-all rounded-md bg-background/60 px-3 py-2 text-xs leading-relaxed text-muted-foreground">
                             {shown}
@@ -244,7 +297,7 @@ export function TaskDetail({ taskId, onBack }: TaskDetailProps) {
                     {/* Agent-loop turns with no user_input carry content in request_content. */}
                     {!input && (
                       <div className="text-xs text-muted-foreground">
-                        Agent auto-turn (no user input)
+                        Agent 自动轮次（无用户输入）
                         {isExpanded && !!conv.request_content && (
                           <pre className="m-0 mt-1.5 max-h-[600px] overflow-y-auto whitespace-pre-wrap break-all rounded-md bg-background/60 px-3 py-2 text-xs leading-relaxed text-muted-foreground">
                             {conv.request_content}
@@ -259,23 +312,23 @@ export function TaskDetail({ taskId, onBack }: TaskDetailProps) {
                         className="text-xs text-primary hover:underline focus:outline-none"
                       >
                         {isExpanded
-                          ? "Collapse"
+                          ? "收起"
                           : isSystemOnly
-                            ? "Show raw"
+                            ? "展开原文"
                             : !input
-                              ? "Show request"
-                              : "Show full"}
+                              ? "展开请求内容"
+                              : "展开全文"}
                       </button>
                     )}
                     <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
                       <span>{conv.model || conv.mode || "-"}</span>
                       {/* process_time is often missing; Go int64 turns null into 0 → treat 0 as no data. */}
-                      <span>latency {conv.process_time ? `${conv.process_time} ms` : "-"}</span>
+                      <span>耗时 {conv.process_time ? `${conv.process_time} ms` : "-"}</span>
                       <span>
-                        upstream {conv.upstream_tokens ?? "-"} / downstream {conv.downstream_tokens ?? "-"}
+                        上行 {conv.upstream_tokens ?? "-"} / 下行 {conv.downstream_tokens ?? "-"}
                       </span>
-                      <span>cost {fmtCost(conv.cost) || "0.00"}</span>
-                      <span>code {conv.diff_lines ?? "-"} lines</span>
+                      <span>费用 {fmtCost(conv.cost) || "0.00"}</span>
+                      <span>代码 {conv.diff_lines ?? "-"} 行</span>
                       {conv.error_code && (
                         <span className="text-destructive">
                           {conv.error_code}: {conv.error_reason}
@@ -353,33 +406,35 @@ function TaskManualDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>Manual adjust</DialogTitle>
+          <DialogTitle>人工调整</DialogTitle>
         </DialogHeader>
         <div className="space-y-3">
-          <Field label="Actual time (minutes)">
+          <Field label="实际耗时（分钟）">
             <Input
               type="number"
+              min={0}
               step={10}
               value={real}
               onChange={(e) => setReal(e.target.value)}
             />
           </Field>
-          <Field label="Actual time reason">
+          <Field label="实际耗时理由">
             <Textarea
               rows={2}
               value={realReason}
               onChange={(e) => setRealReason(e.target.value)}
             />
           </Field>
-          <Field label="Baseline estimate (minutes)">
+          <Field label="传统开发时长预估（分钟）">
             <Input
               type="number"
+              min={0}
               step={10}
               value={ancient}
               onChange={(e) => setAncient(e.target.value)}
             />
           </Field>
-          <Field label="Baseline estimate reason">
+          <Field label="传统开发时长预估理由">
             <Textarea
               rows={2}
               value={ancientReason}
@@ -389,7 +444,7 @@ function TaskManualDialog({
           {updateManual.error ? (
             <ErrorBanner
               message={
-                (updateManual.error as Error)?.message || "Failed to save."
+                (updateManual.error as Error)?.message || "保存失败"
               }
             />
           ) : null}
@@ -400,14 +455,14 @@ function TaskManualDialog({
             variant="ghost"
             onClick={() => onOpenChange(false)}
           >
-            Cancel
+            取消
           </Button>
           <Button
             type="button"
             disabled={updateManual.isPending}
             onClick={handleSubmit}
           >
-            {updateManual.isPending ? "Saving..." : "Save"}
+            {updateManual.isPending ? "保存中..." : "保存"}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -454,7 +509,7 @@ function ManualValue({
           className="line-through text-muted-foreground"
           title={originalReason}
         >
-          {original != null ? formatDuration(original) : "(no AI value)"}
+          {original != null ? formatDuration(original) : "（AI 未出值）"}
         </span>
       </span>
     );
@@ -463,5 +518,25 @@ function ManualValue({
     <span className="inline-flex items-center gap-1.5" title={originalReason}>
       {formatDuration(original)}
     </span>
+  );
+}
+
+function FileLink({
+  href,
+  children,
+}: {
+  href: string;
+  children: React.ReactNode;
+}) {
+  if (!href) return null;
+  return (
+    <a
+      href={href}
+      target="_blank"
+      rel="noreferrer"
+      className="text-xs text-primary hover:underline"
+    >
+      {children}
+    </a>
   );
 }

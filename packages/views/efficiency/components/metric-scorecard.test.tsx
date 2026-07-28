@@ -45,8 +45,8 @@ describe("MetricScorecard", () => {
         value="9,876"
         tip="代码贡献（净增行）"
         series={[1, 2, 3, 4]}
-        // delta_pct is already a percentage (26.14 = 26.14%), NOT a decimal.
-        delta={{ current: 100, previous: 80, delta_pct: 26.14 }}
+        // delta_pct is a decimal ratio (0.2614 = 26.14%).
+        delta={{ current: 100, previous: 80, delta_pct: 0.2614 }}
         higherIsBetter
         accent="chart-2"
       />,
@@ -55,7 +55,6 @@ describe("MetricScorecard", () => {
     const arrow = container.querySelector(".text-success");
     expect(arrow).not.toBeNull();
     expect(arrow?.textContent).toContain("▲");
-    // delta_pct already in percent units — rendered as "26%", not "2614%".
     expect(arrow?.textContent).toContain("26%");
   });
 

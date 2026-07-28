@@ -20,6 +20,8 @@ export interface DualAxisTrendPoint {
   primary: number;
   /** Small-count series (right axis), e.g. merged_needs / commits. Rendered as a Line. */
   secondary: number;
+  /** Optional second small-count series sharing the right axis. */
+  tertiary?: number;
 }
 
 // Dual Y-axis trend: a primary large-value series on the left axis (Bar) and a
@@ -38,6 +40,8 @@ interface DualAxisTrendChartProps {
   primaryLabel?: string;
   /** Label for the secondary (right-axis, Line) series shown in the tooltip/legend. */
   secondaryLabel?: string;
+  /** Optional label for another right-axis line series. */
+  tertiaryLabel?: string;
   /** Left (primary, Bar) Y-axis tick formatter (e.g. formatNumber for code lines). */
   formatLeftY?: (v: number) => string;
   /** Right (secondary, Line) Y-axis tick formatter. */
@@ -50,6 +54,7 @@ export function DualAxisTrendChart({
   data,
   primaryLabel = "Primary",
   secondaryLabel = "Secondary",
+  tertiaryLabel,
   formatLeftY,
   formatRightY,
   heightClass = "h-[280px]",
@@ -57,6 +62,9 @@ export function DualAxisTrendChart({
   const config = {
     primary: { label: primaryLabel, color: "var(--chart-1)" },
     secondary: { label: secondaryLabel, color: "var(--chart-2)" },
+    ...(tertiaryLabel
+      ? { tertiary: { label: tertiaryLabel, color: "var(--chart-3)" } }
+      : {}),
   } satisfies ChartConfig;
 
   return (
@@ -108,6 +116,18 @@ export function DualAxisTrendChart({
           dot={false}
           activeDot={{ r: 4 }}
         />
+        {tertiaryLabel && (
+          <Line
+            yAxisId="right"
+            dataKey="tertiary"
+            name={tertiaryLabel}
+            type="monotone"
+            stroke="var(--color-tertiary)"
+            strokeWidth={2}
+            dot={false}
+            activeDot={{ r: 4 }}
+          />
+        )}
       </ComposedChart>
     </ChartContainer>
   );

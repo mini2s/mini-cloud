@@ -1,7 +1,6 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { AlertCircle } from "lucide-react";
 
 // Shared helpers for the four efficiency settings pages (pricing / datasources
 // / sync / config). Kept here (not in usage/shared or detail/shared) because
@@ -10,38 +9,8 @@ import { AlertCircle } from "lucide-react";
 // labelled Field row for the forms. The usage Th/Td primitives ARE reused for
 // the settings tables (re-exported below for one-import ergonomics).
 //
-// Design decisions (from the migration brief):
-//   - These are top-level pages, NOT detail drill-downs. There is no back
-//     button and no react-router. Each page owns its own PageHeader.
-//   - CRUD = display + form UI, NO submit. The chat mutations throw
-//     NOT_WIRED in the mock phase, so form action buttons surface the
-//     NotWiredNotice instead of calling the backend. The read tables/cards
-//     are the deliverable.
-//   - Semantic tokens only (border / bg-card / text-foreground / text-muted-
-//     foreground / text-destructive) — no hardcoded colours.
-
-// Message shown when a user tries to submit a form / fire a mutation that
-// isn't wired to a live backend yet. Matches the NOT_WIRED stub in
-// packages/core/efficiency/api.ts.
-const NOT_WIRED_MSG =
-  "Backend not wired yet — this action is unavailable in the mock phase.";
-
-/**
- * Inline "backend not wired" notice rendered in place of a real submit. Used
- * by every settings form action (add/edit pricing, add/edit datasource, submit
- * /retry/cancel sync, save config). Once the chat mutations are wired this
- * swaps to a real handler with no UI change.
- */
-export function NotWiredNotice({ className }: { className?: string }) {
-  return (
-    <span
-      className={`inline-flex items-center gap-1.5 text-xs text-muted-foreground ${className ?? ""}`}
-    >
-      <AlertCircle className="size-3.5" aria-hidden="true" />
-      {NOT_WIRED_MSG}
-    </span>
-  );
-}
+// These are top-level pages rather than detail drill-downs. Each page owns its
+// PageHeader and uses semantic colour tokens so it can render in both themes.
 
 // ============================ Section card ============================
 
