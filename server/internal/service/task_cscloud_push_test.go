@@ -836,7 +836,7 @@ func TestAppendCodeRepoPrompt_MultiRepo(t *testing.T) {
 		t.Fatalf("prompt missing repo listing:\n%s", got)
 	}
 	// Must instruct CLI-based MR, not platform auto-MR.
-	if !strings.Contains(got, "deliverable submit --repo") {
+	if !strings.Contains(got, "cs-cloud workflow deliverable submit --repo") {
 		t.Fatalf("prompt missing CLI submit instruction:\n%s", got)
 	}
 	if !strings.Contains(got, "--mr") {
