@@ -167,7 +167,7 @@ func TestCreateWorkflowEdgeValidatesBoundaryDirection(t *testing.T) {
 	createBoundaryEdge(t, workflowID, startID, endID, http.StatusUnprocessableEntity)
 }
 
-func TestStartWorkflowBoundaryOnlyRunReturnsCompleted(t *testing.T) {
+func TestStartWorkflowBoundaryOnlyRunReturnsConfigInvalid(t *testing.T) {
 	if testHandler == nil {
 		t.Skip("database not available")
 	}
@@ -182,16 +182,17 @@ func TestStartWorkflowBoundaryOnlyRunReturnsCompleted(t *testing.T) {
 	w := httptest.NewRecorder()
 	req := newRequest("POST", fmt.Sprintf("/api/workflows/%s/runs", workflowID), map[string]any{"input": map[string]any{}})
 	testHandler.StartWorkflowRun(w, withURLParams(req, "id", workflowID))
-	if w.Code != http.StatusCreated {
+	if w.Code != http.StatusUnprocessableEntity {
 		t.Fatalf("start run: got %d: %s", w.Code, w.Body.String())
 	}
-	var response struct {
-		Status string `json:"status"`
-	}
-	if err := json.Unmarshal(w.Body.Bytes(), &response); err != nil {
+	var failedRuns int
+	if err := testPool.QueryRow(context.Background(), `
+		SELECT count(*) FROM multica_workflow_run
+		WHERE workflow_id = $1 AND status = $2 AND failure_reason = 'config_invalid'
+	`, workflowID, service.RunStatusFailed).Scan(&failedRuns); err != nil {
 		t.Fatal(err)
 	}
-	if response.Status != service.RunStatusCompleted {
-		t.Fatalf("response status = %s, want %s", response.Status, service.RunStatusCompleted)
+	if failedRuns != 1 {
+		t.Fatalf("failed config runs=%d, want 1", failedRuns)
 	}
 }

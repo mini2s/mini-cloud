@@ -184,19 +184,19 @@ func TestGetWorkflowRunCanvasSummaryAggregatesRuntimeState(t *testing.T) {
 
 	if _, err := testPool.Exec(ctx, `
 		INSERT INTO multica_workflow_split_task (
-			node_run_id, workspace_id, workflow_id, title, description, depends_on, sort_order, status
+			node_run_id, workspace_id, title, description, depends_on, sort_order, status
 		)
 		VALUES
-			($1, $2, $3, 'Created task', '', '[]'::jsonb, 0, 'created'),
-			($1, $2, $3, 'Running task', '', '[]'::jsonb, 1, 'running'),
-			($1, $2, $3, 'Done task', '', '[]'::jsonb, 2, 'done'),
-			($1, $2, $3, 'Failed task', '', '[]'::jsonb, 3, 'failed'),
-			($1, $2, $3, 'Cancelled task', '', '[]'::jsonb, 4, 'cancelled'),
-			($1, $2, $3, 'Skipped task', '', '[]'::jsonb, 5, 'skipped'),
-			($1, $2, $3, 'Draft task', '', '[]'::jsonb, 6, 'draft'),
-			($1, $2, $3, 'Approved task', '', '[]'::jsonb, 7, 'approved'),
-			($1, $2, $3, 'Discarded task', '', '[]'::jsonb, 8, 'discarded')
-	`, splitRunID, testWorkspaceID, workflowID); err != nil {
+			($1, $2, 'Created task', '', '[]'::jsonb, 0, 'created'),
+			($1, $2, 'Running task', '', '[]'::jsonb, 1, 'running'),
+			($1, $2, 'Done task', '', '[]'::jsonb, 2, 'done'),
+			($1, $2, 'Failed task', '', '[]'::jsonb, 3, 'failed'),
+			($1, $2, 'Cancelled task', '', '[]'::jsonb, 4, 'cancelled'),
+			($1, $2, 'Skipped task', '', '[]'::jsonb, 5, 'skipped'),
+			($1, $2, 'Draft task', '', '[]'::jsonb, 6, 'draft'),
+			($1, $2, 'Approved task', '', '[]'::jsonb, 7, 'approved'),
+			($1, $2, 'Discarded task', '', '[]'::jsonb, 8, 'discarded')
+	`, splitRunID, testWorkspaceID); err != nil {
 		t.Fatalf("create split tasks: %v", err)
 	}
 

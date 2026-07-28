@@ -98,6 +98,22 @@ func TestWorkflowRoleAssignmentIntegration_BatchResolvePromotesRun(t *testing.T)
 		if !nr.WorkerID.Valid && !nr.CriticID.Valid {
 			t.Fatalf("node run %s has no worker/critic id", nr.ID)
 		}
+		if nr.WorkerID.Valid && nr.WorkerNameSnapshot == "" {
+			t.Fatalf("node run %s has resolved worker without name snapshot", nr.ID)
+		}
+		if nr.CriticID.Valid && nr.CriticNameSnapshot == "" {
+			t.Fatalf("node run %s has resolved critic without name snapshot", nr.ID)
+		}
+	}
+	var dispatchJobs int
+	if err := f.pool.QueryRow(context.Background(), `
+		SELECT count(*) FROM multica_workflow_node_run_dispatch_job
+		WHERE workflow_run_id = $1 AND phase = 'worker' AND generation = 1
+	`, f.runID).Scan(&dispatchJobs); err != nil {
+		t.Fatal(err)
+	}
+	if dispatchJobs != len(f.nodeRunIDs) {
+		t.Fatalf("root dispatch jobs=%d, want %d", dispatchJobs, len(f.nodeRunIDs))
 	}
 
 	events := f.countEvents(t, "manual_assignment")
