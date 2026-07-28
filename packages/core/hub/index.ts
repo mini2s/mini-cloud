@@ -68,6 +68,7 @@ export {
   useHubDismissDistributionMutation,
   useHubMarkDistributionReadMutation,
   useHubForkDistributionMutation,
+  useHubForkItemMutation,
   useHubCreateRepoMutation,
   useHubUpdateRepoMutation,
   useHubDeleteRepoMutation,

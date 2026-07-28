@@ -282,8 +282,8 @@ export function hubMySentDistributionsQueryOptions() {
 }
 
 export function useHubMySentDistributions() {
-  const { data, isLoading } = useQuery(hubMySentDistributionsQueryOptions());
-  return { distributions: data ?? [], isLoading };
+  const { data, isLoading, isError, refetch } = useQuery(hubMySentDistributionsQueryOptions());
+  return { distributions: data ?? [], isLoading, isError, refetch };
 }
 
 export function hubMyReceivedDistributionsQueryOptions() {
@@ -294,8 +294,8 @@ export function hubMyReceivedDistributionsQueryOptions() {
 }
 
 export function useHubMyReceivedDistributions() {
-  const { data, isLoading } = useQuery(hubMyReceivedDistributionsQueryOptions());
-  return { receipts: data ?? [], isLoading };
+  const { data, isLoading, isError, refetch } = useQuery(hubMyReceivedDistributionsQueryOptions());
+  return { receipts: data ?? [], isLoading, isError, refetch };
 }
 
 export function hubDistributionAuthorityQueryOptions() {

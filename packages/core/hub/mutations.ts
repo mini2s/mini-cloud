@@ -149,6 +149,22 @@ export function useHubForkDistributionMutation() {
   });
 }
 
+/**
+ * Fork a public capability into the caller's own namespace. Returns the newly
+ * created fork (with its own id) so the caller can navigate to the fork's
+ * editor — matching the source store's post-fork behavior.
+ */
+export function useHubForkItemMutation() {
+  const qc = useQueryClient();
+  return useMutation<CapabilityItem, Error, string>({
+    mutationFn: (id) => api.hubForkItem(id),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: hubKeys.items() });
+      qc.invalidateQueries({ queryKey: hubKeys.myItems() });
+    },
+  });
+}
+
 // ── Repos ────────────────────────────────────────────────────────────────
 
 export function useHubCreateRepoMutation() {

@@ -8,12 +8,14 @@ import { useWorkspaceId } from "@multica/core/hooks";
 import { useInboxTitle } from "@multica/core/inbox";
 import { useFaviconBadge } from "@multica/core/inbox";
 import { useInboxToast } from "@multica/views/inbox";
+import { useDistributionPushWatcher } from "@multica/views/hub";
 
 function InboxNotificationLayer() {
   const wsId = useWorkspaceId();
   useInboxTitle(wsId);
   useFaviconBadge(wsId);
   useInboxToast();
+  useDistributionPushWatcher();
   return null;
 }
 

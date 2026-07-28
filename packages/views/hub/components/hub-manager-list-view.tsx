@@ -3,12 +3,10 @@
 import type { CapabilityItem } from "@multica/core/types/hub"
 import { useT } from "@multica/views/i18n"
 import { cn } from "@multica/ui/lib/utils"
-import { CheckSquare, Square, Star, Eye, Download, GitFork, Trash2, Pencil, FileCode2 } from "lucide-react"
+import { CheckSquare, Square, Star, Trash2 } from "lucide-react"
 import { HubIcon, type HubIconName } from "../lib/hub-icons"
 import { TYPE_COLORS } from "../lib/type-colors"
-import { formatCount } from "../lib/format"
 import { pickItemDescription } from "../lib/item-description"
-import { matchEnterprise, matchEnterpriseByName } from "../lib/enterprise"
 import SecurityTag from "./security-tag"
 import FromPluginBadge from "./from-plugin-badge"
 
@@ -47,6 +45,8 @@ export interface HubManagerListViewProps {
   total?: number
   allMatching?: boolean
   selectable?: boolean
+  /** Resolve a category slug to a localized label; falls back to the raw slug. */
+  categoryLabel?: (slug: string) => string
 }
 
 // ── Skeleton ──────────────────────────────────────────────────────────────────
@@ -84,12 +84,13 @@ interface RowProps {
   onEdit?: (item: CapabilityItem) => void
   onOpenInEditor?: (item: CapabilityItem) => void
   onDelete?: (id: string) => void
+  selectable: boolean
+  categoryLabel?: (slug: string) => string
 }
 
-function Row({ item, index, selected, onToggle, onClick, onFav, onEdit, onOpenInEditor, onDelete }: RowProps) {
+function Row({ item, index, selected, onToggle, onClick, onFav, onEdit, onDelete, selectable, categoryLabel }: RowProps) {
   const { t, i18n } = useT("hub")
   const locale = i18n.language
-  const ent = matchEnterprise(item.createdBy) ?? matchEnterpriseByName(item.name)
   const tc = col(item.itemType)
   const desc = pickItemDescription(item, locale)
   const checked = selected.has(item.id)
@@ -108,75 +109,58 @@ function Row({ item, index, selected, onToggle, onClick, onFav, onEdit, onOpenIn
       className={cn(
         "group relative flex cursor-pointer items-center gap-3.5 overflow-hidden px-4 py-3.5",
         "transition-all duration-[220ms] ease-[cubic-bezier(0.22,1,0.36,1)]",
-        "hover:translate-x-[3px] hover:shadow-md hover:will-change-transform",
+        "hover:shadow-md",
         checked
           ? "border border-[color:color-mix(in_oklab,var(--primary)_55%,transparent)] bg-[color:color-mix(in_oklab,var(--primary)_7%,var(--background))]"
-          : ent
-            ? "border border-[color:color-mix(in_oklab,var(--bc)_36%,var(--border))] bg-[linear-gradient(100deg,color-mix(in_oklab,var(--bc)_12%,var(--background)),var(--background)_46%)] hover:border-[color:color-mix(in_oklab,var(--bc)_55%,var(--border))]"
-            : "border border-border/30 bg-background hover:border-border/55",
-        index % 2 === 1 && !ent && !checked && "bg-muted/30",
+          : "border border-border/30 bg-background hover:border-border/55",
+        index % 2 === 1 && !checked && "bg-muted/30",
       )}
       style={
         {
           borderRadius: index === 0 ? "1rem 1rem 0 0" : undefined,
-          ...(ent ? { "--bc": tc } : {}),
         } as React.CSSProperties
       }
     >
-      {/* Enterprise watermark */}
-      {ent && (
-        <img
-          src={ent.logo}
-          alt=""
-          aria-hidden="true"
-          className="pointer-events-none absolute right-[-26px] top-1/2 z-0 size-[168px] -translate-y-1/2 rounded-3xl object-contain opacity-[0.07]"
-        />
-      )}
-
       {/* Multi-select checkbox */}
-      <span
-        className="relative z-[1] flex shrink-0 items-center"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <button
-          type="button"
-          role="checkbox"
-          aria-checked={checked}
-          onClick={() => onToggle(item.id, !checked)}
-          className={cn(
-            "flex size-5 items-center justify-center rounded-[4px] border transition-all duration-150",
-            checked
-              ? "border-[var(--primary)] bg-[var(--primary)] text-white"
-              : "border-border/50 text-transparent hover:border-[var(--primary)]",
-          )}
+      {selectable && (
+        <span
+          className="relative z-[1] flex shrink-0 items-center"
+          onClick={(e) => e.stopPropagation()}
         >
-          {checked ? <CheckSquare size={14} /> : <Square size={14} />}
-        </button>
-      </span>
+          <button
+            type="button"
+            role="checkbox"
+            aria-checked={checked}
+            onClick={() => onToggle(item.id, !checked)}
+            className={cn(
+              "flex size-5 items-center justify-center rounded-[4px] border transition-all duration-150",
+              checked
+                ? "border-[var(--primary)] bg-[var(--primary)] text-white"
+                : "border-border/50 text-transparent hover:border-[var(--primary)]",
+            )}
+          >
+            {checked ? <CheckSquare size={14} /> : <Square size={14} />}
+          </button>
+        </span>
+      )}
 
       {/* Media tile */}
-      {ent ? (
-        <span className="relative z-[1] flex size-11 shrink-0 items-center justify-center rounded-[11px] border border-border/60 bg-white p-1.5">
-          <img src={ent.logo} alt={ent.name} className="size-full rounded-[5px] object-contain" />
-        </span>
-      ) : (
-        <span
-          className="relative z-[1] flex size-11 shrink-0 items-center justify-center rounded-xl border"
-          style={{
-            backgroundColor: `color-mix(in oklab, ${tc} 14%, transparent)`,
-            borderColor: `color-mix(in oklab, ${tc} 26%, transparent)`,
-            color: tc,
-          }}
-        >
-          <HubIcon name={iconName(item.itemType)} size={18} />
-        </span>
-      )}
+      <span
+        className="relative z-[1] flex size-11 shrink-0 items-center justify-center rounded-xl border"
+        style={{
+          backgroundColor: `color-mix(in oklab, ${tc} 14%, transparent)`,
+          borderColor: `color-mix(in oklab, ${tc} 26%, transparent)`,
+          color: tc,
+        }}
+      >
+        <HubIcon name={iconName(item.itemType)} size={18} />
+      </span>
 
       {/* Middle section: title + description + meta */}
       <div className="relative z-[1] flex min-w-0 flex-1 flex-col">
         {/* Title row */}
         <div className="flex min-w-0 items-center gap-2">
-          <span className="truncate text-base font-black leading-5 text-foreground" title={item.name}>
+          <span className="truncate text-base font-semibold leading-5 text-foreground" title={item.name}>
             {item.name}
           </span>
 
@@ -190,27 +174,6 @@ function Row({ item, index, selected, onToggle, onClick, onFav, onEdit, onOpenIn
           >
             {t(($) => $.home.typeTab[item.itemType as "all" | "skill" | "subagent" | "command" | "mcp" | "plugin"] ?? item.itemType)}
           </span>
-
-          {/* Enterprise seal / user-uploaded pill */}
-          {ent ? (
-            <span
-              className="inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded-full border py-0.5 pl-[5px] pr-[7px] text-[10.5px] font-extrabold"
-              style={{
-                borderColor: `color-mix(in oklab, ${tc} 35%, transparent)`,
-                backgroundColor: `color-mix(in oklab, ${tc} 14%, transparent)`,
-                color: tc,
-              }}
-              title={ent.name}
-            >
-              <HubIcon name="checkCircle" size={11} style={{ color: tc }} />
-              {ent.name}
-            </span>
-          ) : item.createdBy !== "system" ? (
-            <span className="inline-flex h-5.5 shrink-0 items-center gap-1 whitespace-nowrap rounded-full bg-[#0000000a] px-2 text-xs font-semibold text-muted-foreground dark:bg-[#ffffff0d]">
-              <HubIcon name="upload" size={12} />
-              {t(($) => $.detail.source)}
-            </span>
-          ) : null}
 
           <FromPluginBadge name={item.parentPluginName} />
           <SecurityTag status={item.securityStatus} />
@@ -228,7 +191,7 @@ function Row({ item, index, selected, onToggle, onClick, onFav, onEdit, onOpenIn
           {item.category && (
             <span className="inline-flex items-center gap-1 text-[11.5px] text-muted-foreground">
               <HubIcon name="layers" size={12} />
-              {item.category}
+              {categoryLabel ? (categoryLabel(item.category) || item.category) : item.category}
             </span>
           )}
           {item.category && (item.tags?.length ?? 0) > 0 && (
@@ -253,37 +216,32 @@ function Row({ item, index, selected, onToggle, onClick, onFav, onEdit, onOpenIn
         </div>
       </div>
 
-      {/* Right side: stats + actions */}
+      {/* Right side: actions */}
       <div className="relative z-[1] flex shrink-0 items-center gap-[0.9375rem]">
-        <div className="flex items-center gap-2.5 text-[12.5px] font-semibold text-muted-foreground">
-          {item.favoriteCount != null && (
-            <span className="inline-flex items-center gap-1" title={t(($) => $.detail.favorite)}>
-              <Star size={13} className="fill-amber-400 text-amber-400" />
-              {formatCount(item.favoriteCount)}
-            </span>
-          )}
-          {item.previewCount != null && (
-            <span className="inline-flex items-center gap-1" title={t(($) => $.detail.preview)}>
-              <Eye size={13} />
-              {formatCount(item.previewCount)}
-            </span>
-          )}
-          {item.installCount != null && (
-            <span className="inline-flex items-center gap-1" title={t(($) => $.detail.install)}>
-              <Download size={13} />
-              {formatCount(item.installCount)}
-            </span>
-          )}
-          {item.forkCount != null && (
-            <span className="inline-flex items-center gap-1" title={t(($) => $.detail.fork)}>
-              <GitFork size={13} />
-              {formatCount(item.forkCount)}
-            </span>
-          )}
-        </div>
-
         <div className="flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
-          {/* Favorite button */}
+          {/* Edit/Delete: secondary actions, hover-revealed text buttons (left of subscribe) */}
+          <div className="flex items-center gap-1 opacity-0 transition-opacity duration-200 group-hover:opacity-100 group-focus-within:opacity-100">
+            {onEdit && (
+              <button
+                type="button"
+                onClick={() => onEdit(item)}
+                className="cursor-pointer rounded-md px-2.5 py-1 text-xs font-semibold text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+              >
+                {t(($) => $.manager.editCapability)}
+              </button>
+            )}
+            {onDelete && (
+              <button
+                type="button"
+                onClick={() => onDelete(item.id)}
+                className="cursor-pointer rounded-md px-2.5 py-1 text-xs font-semibold text-destructive transition-colors hover:bg-destructive/10"
+              >
+                {t(($) => $.manager.deleteCapability)}
+              </button>
+            )}
+          </div>
+
+          {/* Subscribe: primary action, always visible, rightmost */}
           {onFav && (
             <button
               type="button"
@@ -299,42 +257,9 @@ function Row({ item, index, selected, onToggle, onClick, onFav, onEdit, onOpenIn
             >
               <Star size={13} className={item.favorited ? "fill-amber-400 text-amber-400" : ""} />
               {item.favorited ? t(($) => $.detail.unfavorite) : t(($) => $.detail.favorite)}
-            </button>
-          )}
-
-          {/* Delete button */}
-          {onDelete && (
-            <button
-              type="button"
-              onClick={() => onDelete(item.id)}
-              className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-border/50 text-muted-foreground opacity-0 transition-all duration-200 hover:border-red-400/50 hover:bg-red-500/10 hover:text-red-500 group-hover:opacity-100 group-focus-within:opacity-100"
-              title={t(($) => $.detail.delete)}
-            >
-              <Trash2 size={14} />
-            </button>
-          )}
-
-          {/* Edit button */}
-          {onEdit && (
-            <button
-              type="button"
-              onClick={() => onEdit(item)}
-              className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-border/50 text-muted-foreground opacity-0 transition-all duration-200 hover:border-primary/50 hover:bg-primary/10 hover:text-primary group-hover:opacity-100 group-focus-within:opacity-100"
-              title={t(($) => $.manager.edit)}
-            >
-              <Pencil size={14} />
-            </button>
-          )}
-
-          {/* Open in full editor (task 13 / FR-15) */}
-          {onOpenInEditor && (
-            <button
-              type="button"
-              onClick={() => onOpenInEditor(item)}
-              className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-border/50 text-muted-foreground opacity-0 transition-all duration-200 hover:border-primary/50 hover:bg-primary/10 hover:text-primary group-hover:opacity-100 group-focus-within:opacity-100"
-              title={t(($) => $.manager.open_in_editor)}
-            >
-              <FileCode2 size={14} />
+              {item.favoriteCount != null && item.favoriteCount > 0 && (
+                <span className="ml-0.5 tabular-nums">{item.favoriteCount}</span>
+              )}
             </button>
           )}
         </div>
@@ -429,6 +354,7 @@ export function HubManagerListView({
   onOpenInEditor,
   onDelete,
   selectable = true,
+  categoryLabel,
 }: HubManagerListViewProps) {
   const fav = onFav ?? onFavoriteToggle
   const del = onDelete ?? onDeleteItem
@@ -500,6 +426,8 @@ export function HubManagerListView({
             onEdit={onEdit}
             onOpenInEditor={onOpenInEditor}
             onDelete={del}
+            selectable={selectable}
+            categoryLabel={categoryLabel}
           />
         ))}
       </div>

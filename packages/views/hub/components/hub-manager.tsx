@@ -20,12 +20,10 @@ import {
   useHubMyItems,
   useHubFavoriteMutation,
   useHubUnfavoriteMutation,
-  useHubForkDistributionMutation,
   useHubMyReceivedDistributions,
   useHubMySentDistributions,
   useHubDistributionAuthority,
   useHubFilterOptions,
-  useHubMyRepos,
   useHubManagerTabCounts,
   useHubLogBehaviorMutation,
 } from "@multica/core/hub"
@@ -38,23 +36,22 @@ import { ItemDetailContent } from "./item-detail-content"
 import { HubFilterBar } from "./hub-filter-bar"
 import { HubManagerListView } from "./hub-manager-list-view"
 import { CreateCapabilityDialog } from "./create-capability-dialog"
-import { EditCapabilityDialog } from "./edit-capability-dialog"
 import { UploadPluginDialog } from "./upload-plugin-dialog"
 import { DistributeDialog } from "./distribute-dialog"
-import { HubRepoList } from "./hub-repo-list"
+import { CreateDistributionDialog } from "./create-distribution-dialog"
 import HubLayout from "./hub-layout"
 import { PageHeader } from "../../layout/page-header"
 import { PaginationBar } from "./pagination-bar"
 import { ConfirmDialog } from "./confirm-dialog"
 import { SearchTokenBox } from "./search-token-box"
 import { formatCompact } from "../lib/format"
-import { ChevronLeft, Share2, CloudUpload, Trash2, FileCode2, Package, Star, Inbox, Send, Database } from "lucide-react"
+import { ChevronLeft, Share2, CloudUpload, Trash2, FileCode2, Package, Star, Inbox, Send, Eye, X } from "lucide-react"
 import type { LucideIcon } from "lucide-react"
 
-const PAGE_SIZE = 20 as const
+const PAGE_SIZE = 10 as const
 const MAX_BATCH_DELETE = 200
 
-type TabKey = "created" | "favorited" | "received" | "sent" | "repos"
+type TabKey = "created" | "favorited" | "received" | "sent"
 
 interface SidebarNavItem {
   key: TabKey
@@ -67,7 +64,6 @@ const SIDEBAR_NAV: SidebarNavItem[] = [
   { key: "favorited", icon: Star },
   { key: "received", icon: Inbox },
   { key: "sent", icon: Send },
-  { key: "repos", icon: Database },
 ]
 
 function mkGroup(applied: string[], toggle: (v: string) => void, reset: () => void): FilterGroup {
@@ -89,7 +85,7 @@ export function HubManager() {
 
   useEffect(() => {
     const urlTab = searchParams.get("tab") as TabKey | null
-    if (urlTab && ["created", "favorited", "received", "sent", "repos"].includes(urlTab)) {
+    if (urlTab && ["created", "favorited", "received", "sent"].includes(urlTab)) {
       setTab(urlTab as TabKey)
     }
   }, [searchParams])
@@ -161,8 +157,6 @@ export function HubManager() {
   const favQuery = useHubItems({ ...listParams, favorited: true })
   const receivedQuery = useHubMyReceivedDistributions()
   const sentQuery = useHubMySentDistributions()
-  const { repos } = useHubMyRepos()
-
   const isItemTab = tab === "created" || tab === "favorited"
 
   const items = ((): CapabilityItem[] => {
@@ -225,9 +219,8 @@ export function HubManager() {
       case "favorited": return favoritedCount
       case "received": return unreadCount
       case "sent": return distributions.length
-      case "repos": return repos.length
     }
-  }, [createdCount, favoritedCount, unreadCount, distributions.length, repos.length])
+  }, [createdCount, favoritedCount, unreadCount, distributions.length])
 
   // ── Detail sheet + view tracking (FR-10, via the core/hub mutation) ─────
   const [detailItemId, setDetailItemId] = useState<string | null>(null)
@@ -255,18 +248,6 @@ export function HubManager() {
 
   const detailReady = detailItemId != null
 
-  const switchTab = useCallback((next: TabKey) => {
-    if (next === tab) return
-    setDetailItemId(null)
-    setTab(next)
-  }, [tab])
-
-  useEffect(() => {
-    const p = new URLSearchParams(searchParams.toString())
-    p.set("tab", tab)
-    navigation.replace(`${navigation.pathname}?${p.toString()}`)
-  }, [tab, navigation, searchParams])
-
   // ── Selection (batch) ───────────────────────────────────────────────────
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [allMatching, setAllMatching] = useState(false)
@@ -275,6 +256,19 @@ export function HubManager() {
     setSelected(new Set())
     setAllMatching(false)
   }, [])
+
+  const switchTab = useCallback((next: TabKey) => {
+    if (next === tab) return
+    setDetailItemId(null)
+    clearSel()
+    setTab(next)
+  }, [tab, clearSel])
+
+  useEffect(() => {
+    const p = new URLSearchParams(searchParams.toString())
+    p.set("tab", tab)
+    navigation.replace(`${navigation.pathname}?${p.toString()}`)
+  }, [tab, navigation, searchParams])
 
   const toggleRow = useCallback((id: string, checked: boolean) => {
     setSelected((prev) => {
@@ -320,7 +314,7 @@ export function HubManager() {
       toast.success(parts.join(" · "))
       qc.invalidateQueries({ queryKey: ["hub"] })
       clearSel()
-      setDeleteDialog({ open: false, id: null, ids: [], batch: false, desc: "" })
+      setDeleteDialog({ open: false, id: null, ids: [], batch: false, isRevoke: false, desc: "" })
     },
     onError: (err: Error) => {
       toast.error(t(($) => $.manager.batchDeleteFailed), { description: err.message })
@@ -332,8 +326,9 @@ export function HubManager() {
     id: string | null
     ids: string[]
     batch: boolean
+    isRevoke: boolean
     desc: string
-  }>({ open: false, id: null, ids: [], batch: false, desc: "" })
+  }>({ open: false, id: null, ids: [], batch: false, isRevoke: false, desc: "" })
 
   const startBatchDelete = useCallback(async () => {
     let ids: string[]
@@ -345,11 +340,11 @@ export function HubManager() {
       if (capped) {
         desc += " " + t(($) => $.manager.batchCapped, { total: itemTotal, max: MAX_BATCH_DELETE })
       }
-      setDeleteDialog({ open: true, id: null, ids, batch: true, desc })
+      setDeleteDialog({ open: true, id: null, ids, batch: true, isRevoke: false, desc })
     } else {
       ids = Array.from(selected)
       if (ids.length === 0) return
-      setDeleteDialog({ open: true, id: null, ids, batch: true, desc: t(($) => $.manager.confirmBatchDelete, { count: ids.length }) })
+      setDeleteDialog({ open: true, id: null, ids, batch: true, isRevoke: false, desc: t(($) => $.manager.confirmBatchDelete, { count: ids.length }) })
     }
   }, [allMatching, selected, listParams, itemTotal, t])
 
@@ -369,7 +364,7 @@ export function HubManager() {
   }, [unfavMutation, favMutation, qc])
 
   // ── Distribution authority + gating ─────────────────────────────────────
-  const { canDistribute } = useHubDistributionAuthority()
+  const { canDistribute, departments: authorityDepartments } = useHubDistributionAuthority()
 
   // ── Distribution mutations ──────────────────────────────────────────────
   const revokeMutation = useMutation({
@@ -404,8 +399,6 @@ export function HubManager() {
     },
   })
 
-  const forkMutation = useHubForkDistributionMutation()
-
   // ── Distributor name resolution (received tab) ──────────────────────────
   const distributorIds = useMemo(() => {
     if (tab !== "received") return []
@@ -424,18 +417,68 @@ export function HubManager() {
     staleTime: 10 * 60 * 1000,
   })
 
+  // ── Sent target name resolution (sent tab) ──────────────────────────────
+  // Department targets resolve against the authority tree; user targets use the
+  // same name lookup as the received tab. Raw targetId is the fallback.
+  const sentUserTargetIds = useMemo(() => {
+    if (tab !== "sent") return []
+    const ids = new Set<string>()
+    for (const d of distributions) {
+      if (d.distribution.scopeType === "user") ids.add(d.distribution.targetId)
+    }
+    return [...ids]
+  }, [tab, distributions])
+
+  const { data: sentUserNames } = useQuery({
+    queryKey: ["hub", "user-names", sentUserTargetIds],
+    queryFn: () => api.hubGetUserNames(sentUserTargetIds),
+    enabled: sentUserTargetIds.length > 0,
+    staleTime: 10 * 60 * 1000,
+  })
+
+  const deptNameMap = useMemo(() => {
+    const map = new Map<string, string>()
+    const walk = (nodes: { id: string; name: string; children?: any[] }[]) => {
+      for (const n of nodes) {
+        map.set(n.id, n.name)
+        if (n.children?.length) walk(n.children)
+      }
+    }
+    walk(authorityDepartments as any)
+    return map
+  }, [authorityDepartments])
+
+  const sentTargetLabel = useCallback(
+    (d: { scopeType: string; targetId: string }) => {
+      if (d.scopeType === "department") {
+        return deptNameMap.get(d.targetId) ?? d.targetId
+      }
+      return (d.targetId && sentUserNames?.[d.targetId]) || d.targetId
+    },
+    [deptNameMap, sentUserNames],
+  )
+
   // ── Dialogs ─────────────────────────────────────────────────────────────
   const [uploadOpen, setUploadOpen] = useState(false)
-  const [editItem, setEditItem] = useState<CapabilityItem | null>(null)
   const [distDialog, setDistDialog] = useState<{
     item: CapabilityItem | null
     open: boolean
   }>({ item: null, open: false })
+  const [createDistOpen, setCreateDistOpen] = useState(false)
 
   // ── Render helpers ──────────────────────────────────────────────────────
   const tagSuggestions = useMemo(() => {
     return (filterOpts?.tags ?? []).map((tag) => ({ id: tag.id ?? tag.slug, label: tag.slug }))
   }, [])
+
+  const categoryLabel = useCallback(
+    (slug: string) => {
+      const cat = (filterOpts?.categories ?? []).find((c) => c.slug === slug)
+      if (!cat?.names) return ""
+      return cat.names["zh-Hans"] ?? cat.names["en"] ?? cat.names["zh"] ?? ""
+    },
+    [filterOpts],
+  )
 
   const handlePage = useCallback((next: number) => {
     setPage(next)
@@ -472,20 +515,32 @@ export function HubManager() {
     </aside>
   )
 
+  const managerTitle = useMemo(() => {
+    if (tab === "received") return t(($) => $.manager.titleReceived)
+    if (tab === "sent") return t(($) => $.manager.titleSent)
+    return t(($) => $.manager.title)
+  }, [tab, t])
+
+  const managerDescription = useMemo(() => {
+    if (tab === "received") return t(($) => $.manager.descReceived)
+    if (tab === "sent") return t(($) => $.manager.descSent)
+    return t(($) => $.manager.desc)
+  }, [tab, t])
+
   // SD-08: header shares the dashboard-wide PageHeader (h-12, border-b) so the
   // manager page title/action hierarchy matches every other dashboard page.
   const renderToolbar = (
     <PageHeader>
-      <h1 className="text-sm font-semibold">
-        {t(($) => tab === "received" ? $.manager.titleReceived : tab === "sent" ? $.manager.titleSent : tab === "repos" ? $.manager.titleRepos : $.manager.title)}
-      </h1>
+      <div className="min-w-0">
+        <h1 className="truncate text-sm font-semibold">{managerTitle}</h1>
+        <p className="truncate text-xs text-muted-foreground">{managerDescription}</p>
+      </div>
         <div className="ml-auto flex shrink-0 items-center justify-end gap-2">
           <Button type="button" variant="outline" size="sm" className="h-8 cursor-pointer px-3" onClick={() => navigation.push(paths.hub())}>
             <ChevronLeft size={16} />
             {t(($) => $.manager.backToHub)}
           </Button>
-          {tab !== "repos" && (
-            <>
+          <>
           <CreateCapabilityDialog onCreated={() => qc.invalidateQueries({ queryKey: ["hub"] })} />
           <Button type="button" variant="outline" size="sm" className="h-8 cursor-pointer px-3" onClick={() => navigation.push(paths.hubEditor())}>
             <FileCode2 size={14} />
@@ -495,7 +550,7 @@ export function HubManager() {
             <CloudUpload size={14} />
             {t(($) => $.manager.upload)}
           </Button>
-          {canDistribute && (
+          {canDistribute && isItemTab && (
             <Button
               type="button"
               variant="outline"
@@ -512,24 +567,35 @@ export function HubManager() {
               {t(($) => $.manager.distribute.label)}
             </Button>
           )}
-            </>
+          {canDistribute && tab === "sent" && (
+            <Button
+              type="button"
+              variant="default"
+              size="sm"
+              className="h-8 cursor-pointer px-3"
+              onClick={() => setCreateDistOpen(true)}
+            >
+              <Share2 size={14} />
+              {t(($) => $.dialog.distribute.new_label)}
+            </Button>
           )}
+            </>
         </div>
     </PageHeader>
   )
 
   const isLoadingView = isItemTab ? itemLoading : (tab === "received" ? receivedQuery.isLoading : sentQuery.isLoading)
   const isEmpty = isItemTab ? (!itemLoading && items.length === 0) : (tab === "received" ? filteredReceipts.length === 0 : filteredDistributions.length === 0)
+  const isErrorView = !isItemTab && (tab === "received" ? receivedQuery.isError : sentQuery.isError)
+  const retryFetch = tab === "received" ? receivedQuery.refetch : sentQuery.refetch
 
   return (
     <HubLayout>
       <div className="flex h-full min-h-0 flex-1 flex-col overflow-x-hidden overflow-y-auto">
         {renderToolbar}
         <div className="flex min-h-0 flex-1">
-          <div className="hidden md:block">{renderSidebar}</div>
+          {renderSidebar}
           <section className="flex min-h-0 flex-1 flex-col px-2 sm:px-3">
-            {/* Search — hidden on the repos tab (repo list has its own header row) */}
-            {tab !== "repos" && (
             <div className="flex items-center gap-2 py-3">
               <div className="relative min-w-0 flex-1">
                 <SearchTokenBox
@@ -544,7 +610,6 @@ export function HubManager() {
                 />
               </div>
             </div>
-            )}
 
             {/* Filter bar — item tabs only */}
             {isItemTab && (
@@ -600,10 +665,7 @@ export function HubManager() {
 
             {/* Content area */}
             <div className="min-h-0 flex-1 overflow-auto px-4 pb-4">
-              {/* Repos tab */}
-              {tab === "repos" && <HubRepoList />}
-
-              {tab !== "repos" && isLoadingView && isEmpty && (
+              {isLoadingView && isEmpty && (
                 <HubManagerListView
                   items={[]}
                   loading={true}
@@ -611,25 +673,42 @@ export function HubManager() {
                   onToggleRow={toggleRow}
                   onTogglePage={togglePage}
                   onItemClick={openDetail}
-                  onFav={handleFav}
-                  onEdit={(item) => setEditItem(item)}
-                  onOpenInEditor={(item) => navigation.push(paths.hubEditorItem(item.id))}
-                  onDelete={(id) => setDeleteDialog({ open: true, id, ids: [], batch: false, desc: t(($) => $.manager.confirmDelete) })}
+                  onFav={tab === "created" ? handleFav : undefined}
+                  onEdit={tab === "created" ? (item) => navigation.push(paths.hubEditorItem(item.id)) : undefined}
+                  onOpenInEditor={undefined}
+                  onDelete={tab === "created" ? (id) => setDeleteDialog({ open: true, id, ids: [], batch: false, isRevoke: false, desc: t(($) => $.manager.confirmDelete) }) : undefined}
+                  selectable={tab === "created"}
                   searchQuery={debounced}
+                  categoryLabel={categoryLabel}
                   total={itemTotal}
                 />
               )}
 
-              {tab !== "repos" && !isLoadingView && isEmpty && (
-                <div className="flex flex-col items-center justify-center py-20">
+              {!isLoadingView && isEmpty && (
+                <div className="flex flex-col items-center justify-center py-20 text-center">
                   <p className="mb-1 text-[15px] font-medium text-muted-foreground">
                     {t(($) => tab === "created" ? $.manager.emptyCreated : tab === "favorited" ? $.manager.emptyFavorited : tab === "received" ? $.manager.emptyReceived : $.manager.emptySent)}
                   </p>
+                  {(tab === "received" || tab === "sent") && (
+                    <p className="text-sm text-muted-foreground/75">
+                      {t(($) => tab === "received" ? $.manager.emptyReceivedHint : $.manager.emptySentHint)}
+                    </p>
+                  )}
+                </div>
+              )}
+
+              {/* Error state — received/sent tabs */}
+              {isErrorView && (
+                <div className="flex flex-col items-center justify-center gap-3 py-20 text-center">
+                  <p className="text-sm font-semibold text-destructive">{t(($) => $.manager.loadFailed)}</p>
+                  <Button type="button" variant="outline" size="sm" onClick={() => retryFetch()}>
+                    {t(($) => $.home.error.retry)}
+                  </Button>
                 </div>
               )}
 
               {/* Received tab */}
-              {tab === "received" && !isEmpty && (
+              {tab === "received" && !isErrorView && !isEmpty && (
                 <div className="min-h-0 flex-1 overflow-auto rounded-xl border border-border">
                   <table className="w-full text-left text-sm">
                     <thead>
@@ -670,42 +749,44 @@ export function HubManager() {
                               <span className="line-clamp-2 text-muted-foreground">{item?.description ?? "—"}</span>
                             </td>
                             <td className="px-4 py-3 text-muted-foreground">{item ? t(($) => $.home.typeTab[item.itemType as "skill" | "subagent" | "command" | "mcp" | "plugin"]) : "—"}</td>
-                            <td className="px-4 py-3 text-muted-foreground">{distributorName ?? "—"}</td>
+                            <td className="px-4 py-3">
+                              <div className="flex flex-col gap-px">
+                                <span className="truncate text-sm text-foreground">{distributorName ?? "—"}</span>
+                                {dist?.distributorId && (
+                                  <span className="truncate text-[11px] text-muted-foreground">{dist.distributorId}</span>
+                                )}
+                              </div>
+                            </td>
                             <td className="px-4 py-3">
                               <span className="inline-flex items-center rounded-md border px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
                                 {t(($) => dist?.permissionMode === "readonly" ? $.manager.permissionReadonly : $.manager.permissionDismissible)}
                               </span>
                             </td>
                             <td className="px-4 py-3 text-muted-foreground">
-                              {t(($) => isUnread ? $.manager.statusUnread : $.manager.statusRead)}
+                              {t(($) => dist?.status === "paused" ? $.manager.statusPaused : dist?.status === "revoked" ? $.manager.statusRevoked : $.manager.statusActive)}
                             </td>
                             <td className="px-4 py-3 text-right">
                               <div className="flex items-center justify-end gap-1">
                                 {isUnread && (
                                   <button
-                                    className="rounded-md px-2 py-1 text-xs font-medium text-muted-foreground hover:bg-muted"
+                                    className="inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted"
+                                    disabled={markReadMutation.isPending}
                                     onClick={() => markReadMutation.mutate(receipt.distributionId)}
                                     title={t(($) => $.manager.markRead)}
                                   >
-                                    {t(($) => $.manager.markRead)}
+                                    <Eye size={16} />
                                   </button>
                                 )}
                                 {canDismiss && (
                                   <button
-                                    className="rounded-md px-2 py-1 text-xs font-medium text-muted-foreground hover:bg-muted"
+                                    className="inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
+                                    disabled={dismissMutation.isPending}
                                     onClick={() => dismissMutation.mutate(receipt.distributionId)}
                                     title={t(($) => $.manager.dismiss)}
                                   >
-                                    {t(($) => $.manager.dismiss)}
+                                    <X size={16} />
                                   </button>
                                 )}
-                                <button
-                                  className="rounded-md px-2 py-1 text-xs font-medium text-muted-foreground hover:bg-muted"
-                                  onClick={() => forkMutation.mutate(receipt.distributionId)}
-                                  title={t(($) => $.manager.fork)}
-                                >
-                                  {t(($) => $.manager.fork)}
-                                </button>
                               </div>
                             </td>
                           </tr>
@@ -717,7 +798,7 @@ export function HubManager() {
               )}
 
               {/* Sent tab */}
-              {tab === "sent" && !isEmpty && (
+              {tab === "sent" && !isErrorView && !isEmpty && (
                 <div className="min-h-0 flex-1 overflow-auto rounded-xl border border-border">
                   <table className="w-full text-left text-sm">
                     <thead>
@@ -744,6 +825,9 @@ export function HubManager() {
                               >
                                 {item?.name ?? t(($) => $.manager.unknownItem)}
                               </button>
+                              {dist.distribution.message && (
+                                <div className="mt-0.5 truncate text-xs text-muted-foreground">{dist.distribution.message}</div>
+                              )}
                             </td>
                             <td className="max-w-56 px-4 py-3">
                               <span className="line-clamp-2 text-muted-foreground">{item?.description ?? "—"}</span>
@@ -752,7 +836,7 @@ export function HubManager() {
                             <td className="px-4 py-3 text-muted-foreground">
                               {dist.distribution.scopeType === "department"
                                 ? t(($) => $.manager.scopeDepartment)
-                                : t(($) => $.manager.scopeUser)}: {dist.distribution.targetId}
+                                : t(($) => $.manager.scopeUser)}: {sentTargetLabel(dist.distribution)}
                             </td>
                             <td className="px-4 py-3">
                               <span className="inline-flex items-center rounded-md border px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
@@ -772,6 +856,7 @@ export function HubManager() {
                                       id: null,
                                       ids: [],
                                       batch: false,
+                                      isRevoke: true,
                                       desc: t(($) => $.manager.revokeConfirm),
                                     })
                                     revokeTargetRef.current = dist.distribution.id
@@ -799,11 +884,13 @@ export function HubManager() {
                   onToggleRow={toggleRow}
                   onTogglePage={togglePage}
                   onItemClick={openDetail}
-                  onFav={handleFav}
-                  onEdit={(item) => setEditItem(item)}
-                  onOpenInEditor={(item) => navigation.push(paths.hubEditorItem(item.id))}
-                  onDelete={(id) => setDeleteDialog({ open: true, id, ids: [], batch: false, desc: t(($) => $.manager.confirmDelete) })}
+                  onFav={tab === "created" ? handleFav : undefined}
+                  onEdit={tab === "created" ? (item) => navigation.push(paths.hubEditorItem(item.id)) : undefined}
+                  onOpenInEditor={undefined}
+                  onDelete={tab === "created" ? (id) => setDeleteDialog({ open: true, id, ids: [], batch: false, isRevoke: false, desc: t(($) => $.manager.confirmDelete) }) : undefined}
+                  selectable={tab === "created"}
                   searchQuery={debounced}
+                  categoryLabel={categoryLabel}
                   total={itemTotal}
                 />
               )}
@@ -853,18 +940,6 @@ export function HubManager() {
         }}
       />
 
-      {editItem && (
-        <EditCapabilityDialog
-          item={editItem}
-          open={!!editItem}
-          onUpdated={() => {
-            setEditItem(null)
-            qc.invalidateQueries({ queryKey: ["hub"] })
-          }}
-          onOpenChange={(open) => { if (!open) setEditItem(null) }}
-        />
-      )}
-
       {distDialog.item && (
         <DistributeDialog
           item={distDialog.item}
@@ -877,12 +952,21 @@ export function HubManager() {
         />
       )}
 
+      <CreateDistributionDialog
+        open={createDistOpen}
+        onOpenChange={setCreateDistOpen}
+        onCreated={() => {
+          setCreateDistOpen(false)
+          qc.invalidateQueries({ queryKey: ["hub"] })
+        }}
+      />
+
       <ConfirmDialog
         open={deleteDialog.open}
-        onOpenChange={(open) => { if (!open) setDeleteDialog({ open: false, id: null, ids: [], batch: false, desc: "" }) }}
-        title={deleteDialog.batch ? t(($) => $.manager.batchDeleteTitle) : t(($) => $.manager.deleteTitle)}
+        onOpenChange={(open) => { if (!open) setDeleteDialog({ open: false, id: null, ids: [], batch: false, isRevoke: false, desc: "" }) }}
+        title={deleteDialog.isRevoke ? t(($) => $.manager.revokeTitle) : deleteDialog.batch ? t(($) => $.manager.batchDeleteTitle) : t(($) => $.manager.deleteTitle)}
         description={deleteDialog.desc}
-        confirmLabel={deleteDialog.batch ? t(($) => $.manager.batchDelete) : t(($) => $.manager.delete)}
+        confirmLabel={deleteDialog.isRevoke ? t(($) => $.manager.revoke) : deleteDialog.batch ? t(($) => $.manager.batchDelete) : t(($) => $.manager.delete)}
         variant="danger"
         onConfirm={async () => {
           if (deleteDialog.batch) {
@@ -890,10 +974,10 @@ export function HubManager() {
           } else if (revokeTargetRef.current && !deleteDialog.id) {
             await revokeMutation.mutateAsync(revokeTargetRef.current)
             revokeTargetRef.current = null
-            setDeleteDialog({ open: false, id: null, ids: [], batch: false, desc: "" })
+            setDeleteDialog({ open: false, id: null, ids: [], batch: false, isRevoke: false, desc: "" })
           } else if (deleteDialog.id) {
             await deleteMutation.mutateAsync(deleteDialog.id)
-            setDeleteDialog({ open: false, id: null, ids: [], batch: false, desc: "" })
+            setDeleteDialog({ open: false, id: null, ids: [], batch: false, isRevoke: false, desc: "" })
           }
         }}
       />

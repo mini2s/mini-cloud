@@ -52,7 +52,10 @@ import {
   useHubUnfavoriteMutation,
   useHubDistributionAuthority,
   useHubLogBehaviorMutation,
+  useHubForkItemMutation,
 } from "@multica/core/hub"
+import { useNavigation } from "../../navigation"
+import { useWorkspacePaths } from "@multica/core/paths"
 import { DistributeDialog } from "./distribute-dialog"
 import { getInstallCommand } from "../lib/install-command"
 import { formatCompact } from "../lib/format"
@@ -179,6 +182,8 @@ export function ItemDetailContent({
   autoFocusMcpConfig,
 }: ItemDetailContentProps) {
   const { t } = useT("hub")
+  const navigation = useNavigation()
+  const paths = useWorkspacePaths()
 
   // Data fetching
   const { data: item, isLoading, isError, refetch } = useHubItemDetail(itemId)
@@ -280,19 +285,21 @@ export function ItemDetailContent({
   }, [item, itemId, logBehavior])
 
   // Fork
-  const [forking, setForking] = useState(false)
+  const forkMut = useHubForkItemMutation()
+  const forking = forkMut.isPending
   const handleFork = useCallback(async () => {
     if (!item || forking) return
-    setForking(true)
     try {
-      await api.hubForkItem(itemId)
-      toast.success(t(($) => $.detail.toast_favorited))
-    } catch {
-      // silent
-    } finally {
-      setForking(false)
+      const forked = await forkMut.mutateAsync(itemId)
+      toast.success(t(($) => $.manager.forkSuccess))
+      // Source store behavior: jump straight into the new fork's editor so the
+      // user can customize it. Falls back to the manager if the id is missing.
+      navigation.push(forked?.id ? paths.hubEditorItem(forked.id) : paths.hubManager())
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      toast.error(t(($) => $.manager.forkFailed), { description: msg })
     }
-  }, [item, itemId, forking, t])
+  }, [item, forking, forkMut, itemId, navigation, paths, t])
 
   // Install command — zip_download commands / plugin marketplace install,
   // matching the source store's getInstallCommand rules.
@@ -495,18 +502,33 @@ export function ItemDetailContent({
                   </Badge>
                 )}
 
-                {/* Fork — public, non-archive, not own */}
-                {item.repoVisibility !== "private" && item.sourceType !== "archive" && item.createdBy !== "system" && (
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={handleFork}
-                    disabled={forking}
-                    className="text-muted-foreground hover:text-foreground"
-                  >
-                    <GitFork className="h-4 w-4" />
-                    <span className="ml-1.5">{t(($) => $.detail.fork)}</span>
-                  </Button>
+                {/* Fork — public, non-archive.
+                    Three-state like the source store: if the viewer already has
+                    a fork (myForkItemId), the entry jumps to it instead of
+                    re-forking. Source store allows forking system/builtin items. */}
+                {item.repoVisibility !== "private" && item.sourceType !== "archive" && (
+                  item.myForkItemId ? (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => navigation.push(paths.hubEditorItem(item.myForkItemId!))}
+                      className="text-muted-foreground hover:text-foreground"
+                    >
+                      <GitFork className="h-4 w-4" />
+                      <span className="ml-1.5">{t(($) => $.detail.viewMyFork)}</span>
+                    </Button>
+                  ) : (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={handleFork}
+                      disabled={forking}
+                      className="text-muted-foreground hover:text-foreground"
+                    >
+                      <GitFork className="h-4 w-4" />
+                      <span className="ml-1.5">{t(($) => $.detail.fork)}</span>
+                    </Button>
+                  )
                 )}
 
                 {onDeleted && (
@@ -829,12 +851,16 @@ export function ItemDetailContent({
                   </span>
                 </div>
 
-                {/* Forked from */}
+                {/* Forked from — clickable, jumps to the source item's editor */}
                 {item.forkedFromItemId && (
-                  <div className="inline-flex max-w-full items-center gap-1.5 text-sm text-muted-foreground">
+                  <button
+                    type="button"
+                    onClick={() => navigation.push(paths.hubEditorItem(item.forkedFromItemId!))}
+                    className="inline-flex max-w-full items-center gap-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground"
+                  >
                     <GitFork className="h-3.5 w-3.5 shrink-0" />
-                    <span className="truncate">{"Forked from"}</span>
-                  </div>
+                    <span className="truncate">{t(($) => $.detail.forkedFrom)}</span>
+                  </button>
                 )}
 
                 {/* Author */}
