@@ -730,10 +730,9 @@ func (s *WorkflowService) ProvisionWorkspaceGitea(ctx context.Context, workspace
 		"workspace_id", wsIDStr, "org", gitea.OrgName(wsIDStr))
 }
 
-// ProvisionWorkflowRepo creates the workflow's type repo (wf-<wf[:8]>) with
-// main + inst-* branch protection when the workflow is activated. Called from
-// the UpdateWorkflow handler (status→active), not lazily on the first run.
-// Best-effort + async.
+// ProvisionWorkflowRepo creates the workflow's type repo (wf-<wf[:8]>) with main
+// branch protection when the workflow is activated. Called from the UpdateWorkflow
+// handler (status→active), not lazily on the first run. Best-effort + async.
 func (s *WorkflowService) ProvisionWorkflowRepo(ctx context.Context, workflowID pgtype.UUID) {
 	defer func() {
 		if r := recover(); r != nil {
