@@ -786,6 +786,26 @@ describe("ExecutionPanoramaPage", () => {
     expect(screen.getByTestId("panorama-canvas")).toBeInTheDocument();
   });
 
+  it("does not create duplicate empty deliverable queries for nodes without runs", () => {
+    mocks.isLoading = false;
+    mocks.workflowData = { id: "wf-1", title: "Test Workflow" };
+    mocks.stagesData = [STAGE];
+    mocks.nodesData = [NODE, { ...NODE, id: "n2", title: "second" }];
+    mocks.nodeRunsData = [];
+    mocks.agentsData = [AGENT];
+
+    render(
+      <Wrapper>
+        <ExecutionPanoramaPage workflowId="wf-1" runId="run-1" wsId="ws-1" />
+      </Wrapper>,
+    );
+
+    const deliverableQueries = mocks.queryOptions.filter((option) =>
+      option.queryKey?.includes("node-deliverable-submissions"),
+    );
+    expect(deliverableQueries).toEqual([]);
+  });
+
   it("gives the shared canvas an explicit height in the regular issue detail flow", () => {
     mocks.isLoading = false;
     mocks.workflowData = { id: "wf-1", title: "Test Workflow" };
