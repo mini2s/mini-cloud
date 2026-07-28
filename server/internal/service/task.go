@@ -380,7 +380,7 @@ func taskErrorType(reason string) string {
 		return "runtime"
 	case "timeout", "codex_semantic_inactivity":
 		return "timeout"
-	case "iteration_limit", "agent_fallback_message":
+	case "iteration_limit", "agent_fallback_message", "agent_empty_output":
 		return "agent_output"
 	case "cancelled", "user_cancelled":
 		return "cancelled"
@@ -1596,7 +1596,7 @@ func resumeUnsafeFailureReason(reason string) bool {
 	switch reason {
 	// Keep in sync with GetLastTaskSession / GetLastChatTaskSession and
 	// CreateRetryTask's fresh-session CASE WHEN.
-	case "iteration_limit", "agent_fallback_message", "api_invalid_request", "codex_semantic_inactivity":
+	case "iteration_limit", "agent_fallback_message", "agent_empty_output", "api_invalid_request", "codex_semantic_inactivity":
 		return true
 	default:
 		return false
