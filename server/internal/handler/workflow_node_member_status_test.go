@@ -8,7 +8,38 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/jackc/pgx/v5/pgtype"
 )
+
+func TestValidateSplitReviewerConfig(t *testing.T) {
+	splitFormat := []byte(`{"type":"split"}`)
+	memberID := pgtype.UUID{Bytes: [16]byte{1}, Valid: true}
+	roleID := pgtype.UUID{Bytes: [16]byte{2}, Valid: true}
+	tests := []struct {
+		name       string
+		criticType string
+		criticID   pgtype.UUID
+		roleID     pgtype.UUID
+		apiURL     pgtype.Text
+		wantErr    bool
+	}{
+		{name: "direct member", criticType: "human", criticID: memberID},
+		{name: "member role", criticType: "human", roleID: roleID},
+		{name: "agent", criticType: "agent", criticID: memberID, wantErr: true},
+		{name: "api", criticType: "api", apiURL: pgtype.Text{String: "https://example.com/review", Valid: true}, wantErr: true},
+		{name: "both member and role", criticType: "human", criticID: memberID, roleID: roleID, wantErr: true},
+		{name: "missing reviewer", criticType: "human", wantErr: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := validateSplitReviewerConfig(splitFormat, tt.criticType, tt.criticID, tt.roleID, tt.apiURL)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("validateSplitReviewerConfig() error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
+	}
+}
 
 func TestCreateWorkflowNodeRejectsInactiveHumanWorker(t *testing.T) {
 	if testHandler == nil {
@@ -154,9 +185,9 @@ RETURNING id`, testWorkspaceID).Scan(&roleID); err != nil {
 
 	w := httptest.NewRecorder()
 	req := newRequest("PUT", fmt.Sprintf("/api/workflows/%s/nodes/%s", workflowID, nodeID), map[string]any{
-		"worker_type":     "human",
-		"worker_id":       nil,
-		"worker_role_id":  roleID,
+		"worker_type":    "human",
+		"worker_id":      nil,
+		"worker_role_id": roleID,
 	})
 	req = withURLParams(req, "id", workflowID, "nodeId", nodeID)
 	testHandler.UpdateWorkflowNode(w, req)

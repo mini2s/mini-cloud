@@ -12,7 +12,6 @@ export type GatewayKind = "fork" | "join";
 export type SplitMode = "barrier" | "pipeline";
 
 export interface SplitConfig {
-  default_issue_workflow_id: string | null;
   mode: SplitMode;
   max_concurrency: number;
   max_failures: number;
@@ -129,7 +128,6 @@ export function parseNodeFormat(formatSchema: unknown): WorkflowNodeFormat {
     const config = rawConfig && typeof rawConfig === "object" && !Array.isArray(rawConfig)
       ? rawConfig as Record<string, unknown>
       : {};
-    const defaultIssueWorkflowId = readString(config, "default_issue_workflow_id");
     const rawMaxConcurrency = config.max_concurrency;
     const rawMaxFailures = config.max_failures;
     const maxConcurrencyValid =
@@ -142,7 +140,6 @@ export function parseNodeFormat(formatSchema: unknown): WorkflowNodeFormat {
       Number.isInteger(rawMaxFailures) &&
       rawMaxFailures >= 0;
     const splitConfig: SplitConfig = {
-      default_issue_workflow_id: defaultIssueWorkflowId,
       mode: isSplitMode(config.mode) ? config.mode : "barrier",
       max_concurrency: maxConcurrencyValid ? rawMaxConcurrency : 5,
       max_failures: maxFailuresValid ? rawMaxFailures : 0,
@@ -154,7 +151,6 @@ export function parseNodeFormat(formatSchema: unknown): WorkflowNodeFormat {
       template_category: templateCategory,
       split_config: splitConfig,
       split_config_valid:
-        defaultIssueWorkflowId !== null &&
         (config.mode == null || isSplitMode(config.mode)) &&
         (rawMaxConcurrency == null || maxConcurrencyValid) &&
         (rawMaxFailures == null || maxFailuresValid),
@@ -344,7 +340,6 @@ export interface WorkflowSnapshotNode {
   kind: string;
   gateway_kind?: string;
   split_config?: {
-    default_issue_workflow_id: string;
     mode: string;
     max_concurrency: number;
     max_failures: number;
