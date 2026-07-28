@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { MonitorCog } from "lucide-react";
 import type { AgentRuntime, WorkflowRuntimeSelectionPolicy } from "@multica/core/types";
 import { Button } from "@multica/ui/components/ui/button";
@@ -66,6 +66,10 @@ export function WorkflowRuntimeStrategyDialog({
   }, [initialValue.policy, initialValue.runtimeId]);
 
   const runtimeExists = runtimes.some((runtime) => runtime.id === runtimeId);
+  const selectedRuntime = useMemo(
+    () => runtimes.find((r) => r.id === runtimeId) ?? null,
+    [runtimes, runtimeId],
+  );
   const specifiedRuntimeMissing = policy === "specified_runtime_first" && (!runtimeId || !runtimeExists);
 
   return (
@@ -128,7 +132,13 @@ export function WorkflowRuntimeStrategyDialog({
                   onValueChange={(value) => setRuntimeId(value ?? "")}
                 >
                   <SelectTrigger id="workflow-runtime-select" className="w-full" size="sm">
-                    <SelectValue placeholder={t(($) => $.runtime_strategy.runtime_placeholder)} />
+                    <SelectValue placeholder={t(($) => $.runtime_strategy.runtime_placeholder)}>
+                      {selectedRuntime
+                        ? `${selectedRuntime.name} · ${selectedRuntime.status === "online"
+                          ? t(($) => $.runtime_strategy.online)
+                          : t(($) => $.runtime_strategy.offline)}`
+                        : undefined}
+                    </SelectValue>
                   </SelectTrigger>
                   <SelectContent>
                     {runtimes.map((runtime) => (

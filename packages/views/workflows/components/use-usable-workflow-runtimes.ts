@@ -21,7 +21,9 @@ export function useUsableWorkflowRuntimes(runtimes: AgentRuntime[]) {
         .map((runtime) => runtime.id),
     );
     return runtimes.filter(
-      (runtime) => runtime.visibility === "public" || controllablePrivateRuntimeIds.has(runtime.id),
+      (runtime) =>
+        runtime.provider === "csc" &&
+        (runtime.visibility === "public" || controllablePrivateRuntimeIds.has(runtime.id)),
     );
   }, [permissionQueries, privateRuntimes, runtimes]);
 

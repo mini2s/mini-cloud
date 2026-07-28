@@ -471,7 +471,7 @@ export function AgentsPage() {
 
       {showCreate && (
         <CreateAgentDialog
-          runtimes={runtimes}
+          runtimes={runtimes.filter((r) => r.provider === "csc")}
           runtimesLoading={runtimesLoading}
           members={members}
           currentUserId={currentUser?.id ?? null}
