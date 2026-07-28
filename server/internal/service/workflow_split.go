@@ -55,6 +55,7 @@ type SplitErrorStatus string
 const (
 	SplitErrorBadRequest    SplitErrorStatus = "bad_request"
 	SplitErrorConflict      SplitErrorStatus = "conflict"
+	SplitErrorForbidden     SplitErrorStatus = "forbidden"
 	SplitErrorUnprocessable SplitErrorStatus = "unprocessable"
 )
 
@@ -509,15 +510,15 @@ func splitRunNodeConfig(ctx context.Context, q *db.Queries, nodeRun db.MulticaWo
 	return runtimeNode, cfg, nil
 }
 
-func (s *SplitOrchestrator) resolveSplitReviewer(ctx context.Context, nodeRun db.MulticaWorkflowNodeRun) (pgtype.UUID, error) {
+func resolveSplitReviewerWithQueries(ctx context.Context, q *db.Queries, nodeRun db.MulticaWorkflowNodeRun) (pgtype.UUID, error) {
 	if nodeRun.CriticType != "human" || !nodeRun.CriticID.Valid {
 		return pgtype.UUID{}, ErrSplitReviewerUnresolved
 	}
-	run, err := s.Queries.GetWorkflowRun(ctx, nodeRun.WorkflowRunID)
+	run, err := q.GetWorkflowRun(ctx, nodeRun.WorkflowRunID)
 	if err != nil {
 		return pgtype.UUID{}, err
 	}
-	member, err := s.Queries.GetMemberByUserAndWorkspace(ctx, db.GetMemberByUserAndWorkspaceParams{
+	member, err := q.GetMemberByUserAndWorkspace(ctx, db.GetMemberByUserAndWorkspaceParams{
 		UserID:      nodeRun.CriticID,
 		WorkspaceID: run.WorkspaceID,
 	})
@@ -525,6 +526,21 @@ func (s *SplitOrchestrator) resolveSplitReviewer(ctx context.Context, nodeRun db
 		return pgtype.UUID{}, ErrSplitReviewerUnresolved
 	}
 	return nodeRun.CriticID, nil
+}
+
+func (s *SplitOrchestrator) resolveSplitReviewer(ctx context.Context, nodeRun db.MulticaWorkflowNodeRun) (pgtype.UUID, error) {
+	return resolveSplitReviewerWithQueries(ctx, s.Queries, nodeRun)
+}
+
+func (s *SplitOrchestrator) RequireSplitReviewer(ctx context.Context, nodeRun db.MulticaWorkflowNodeRun, actorUserID pgtype.UUID) error {
+	reviewerID, err := s.resolveSplitReviewer(ctx, nodeRun)
+	if err != nil {
+		return err
+	}
+	if reviewerID != actorUserID {
+		return NewSplitAPIError(SplitErrorForbidden, "split_reviewer_required", errors.New("only the split reviewer may change or approve drafts"))
+	}
+	return nil
 }
 
 func (s *SplitOrchestrator) ensureSplitReviewerResolved(ctx context.Context, nodeRun db.MulticaWorkflowNodeRun) (bool, error) {
@@ -1760,7 +1776,7 @@ func splitRepairContextExtras(sourceTask db.MulticaAgentTaskQueue, recoveryErr e
 	}
 }
 
-func (s *SplitOrchestrator) ApproveSplit(ctx context.Context, nodeRun db.MulticaWorkflowNodeRun, req SplitApproveRequest) error {
+func (s *SplitOrchestrator) ApproveSplit(ctx context.Context, nodeRun db.MulticaWorkflowNodeRun, actorUserID pgtype.UUID, req SplitApproveRequest) error {
 	type materializedChild struct {
 		splitTaskID string
 		issueID     string
@@ -1803,29 +1819,45 @@ func (s *SplitOrchestrator) ApproveSplit(ctx context.Context, nodeRun db.Multica
 		if lockedNodeRun.Status != NodeRunStatusAwaitingSplitReview {
 			return NewSplitAPIError(SplitErrorBadRequest, "invalid_split_request", errors.New("split node cannot be approved from current status"))
 		}
+		reviewerID, err := resolveSplitReviewerWithQueries(ctx, qtx, lockedNodeRun)
+		if err != nil {
+			return err
+		}
+		if reviewerID != actorUserID {
+			return NewSplitAPIError(SplitErrorForbidden, "split_reviewer_required", errors.New("only the split reviewer may approve drafts"))
+		}
 
 		current, err := qtx.ListSplitTasksByNodeRun(ctx, nodeRun.ID)
 		if err != nil {
 			return fmt.Errorf("list split tasks: %w", err)
 		}
-		allowed := make([]db.MulticaWorkflowSplitTask, 0, len(current))
+		activeByID := make(map[string]db.MulticaWorkflowSplitTask, len(current))
 		for _, task := range current {
-			id := util.UUIDToString(task.ID)
-			if _, approved := approvedIDs[id]; approved {
-				allowed = append(allowed, task)
+			if task.Status == SplitTaskStatusDraft {
+				activeByID[util.UUIDToString(task.ID)] = task
 			}
 		}
-		if len(allowed) == 0 {
+		if len(activeByID) == 0 {
 			if req.ConfirmEmpty {
-				if err := qtx.MarkSplitTasksDiscardedExcept(ctx, db.MarkSplitTasksDiscardedExceptParams{
-					NodeRunID: nodeRun.ID,
-					Column2:   []pgtype.UUID{},
-				}); err != nil {
-					return fmt.Errorf("discard empty split draft tasks: %w", err)
+				for _, task := range current {
+					if task.Status != SplitTaskStatusDiscarded {
+						return NewSplitAPIError(SplitErrorUnprocessable, "invalid_split_approval", errors.New("confirm_empty requires every split draft to be discarded"))
+					}
 				}
 				return nil
 			}
 			return NewSplitAPIError(SplitErrorBadRequest, "invalid_split_request", errors.New("split approval requires at least one task"))
+		}
+		if len(approvedIDs) != len(activeByID) {
+			return NewSplitAPIError(SplitErrorUnprocessable, "invalid_split_approval", errors.New("approved_task_ids must include every active split draft"))
+		}
+		allowed := make([]db.MulticaWorkflowSplitTask, 0, len(activeByID))
+		for id := range approvedIDs {
+			task, ok := activeByID[id]
+			if !ok {
+				return NewSplitAPIError(SplitErrorUnprocessable, "invalid_split_approval", errors.New("approved_task_ids contains an unknown or discarded task"))
+			}
+			allowed = append(allowed, task)
 		}
 		if len(allowed) > 50 {
 			return NewSplitAPIError(SplitErrorUnprocessable, "split_task_limit_exceeded", errors.New("split task limit exceeded"))
@@ -1856,13 +1888,6 @@ func (s *SplitOrchestrator) ApproveSplit(ctx context.Context, nodeRun db.Multica
 		}); err != nil {
 			return fmt.Errorf("mark approved split tasks: %w", err)
 		}
-		if err := qtx.MarkSplitTasksDiscardedExcept(ctx, db.MarkSplitTasksDiscardedExceptParams{
-			NodeRunID: nodeRun.ID,
-			Column2:   approvedUUIDs,
-		}); err != nil {
-			return fmt.Errorf("mark discarded split tasks: %w", err)
-		}
-
 		orderedIDs, err := topologicalSplitTaskIDs(plans)
 		if err != nil {
 			return err
