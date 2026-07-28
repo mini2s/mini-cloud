@@ -21,7 +21,13 @@ import (
 )
 
 const (
-	csCloudProvider             = "csc"
+	// csCloudProvider identifies a cs-cloud device runtime for task dispatch
+	// (dispatchTaskToCSCloud / maybeAbortOnDevice gate on runtime.Provider ==
+	// this value). It MUST stay equal to csCloudRuntimeProvider in
+	// internal/handler/issue_conversation.go and to the provider value cs-cloud
+	// registers (internal/workflowrunner/driver.go, const providerCSCloud, in
+	// the cs-cloud repo). "csc" is the agent CLI name, NOT this provider value.
+	csCloudProvider             = "cs-cloud"
 	failureReasonDispatchFailed = "dispatch_failed"
 	csCloudPushTimeout          = 25 * time.Second
 	csCloudAbortTimeout         = 10 * time.Second
