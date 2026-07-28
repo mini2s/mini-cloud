@@ -4,10 +4,8 @@ import { useMemo, useState } from "react";
 import { Gauge } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { useWorkspaceId } from "@multica/core/hooks";
-import { useWorkspacePaths } from "@multica/core/paths";
 import {
-  deptRankingOptions,
-  deptTreeOptions,
+  deptTrendOptions,
   formatNumber,
   formatV2Ratio,
   projectListOptions,
@@ -17,22 +15,26 @@ import {
 } from "@multica/core/efficiency";
 import { PageHeader } from "../../layout/page-header";
 import { PeriodSelect } from "../components";
+import {
+  EntityObjectSelector,
+  type EfficiencyEntity,
+} from "../components/entity-object-selector";
+import { CreateProjectButton } from "../components/create-project-button";
+import { ProjectDetail, RepoDetail, UserDetail } from "../detail";
 import { Th, ThNum, Td, TdNum } from "../usage/shared";
 import { DistributionOverview } from "./distribution-overview";
 import { EfficiencyTimeline } from "./efficiency-timeline";
+import { EfficiencyOrgView } from "./efficiency-org-view";
 import { EfficiencyRepoRanking } from "./efficiency-repo-ranking";
+import { EfficiencyRepoTimeline } from "./efficiency-repo-timeline";
 import { EfficiencyUserRanking } from "./efficiency-user-ranking";
-import { useNavigation } from "../../navigation";
+import { EntityContributionTrend } from "../contribution/entity-contribution-trend";
 
-// Efficiency Dimension — the efficiency dimension page. Ports the source
-// EfficiencyDimension (590 lines, URL-driven entity tabs + focused mode) to
-// component-state-driven per design decision #1 (NO URL query state) and #2
-// (NO navigation).
-//
-// SCOPE (this slice): AGGREGATE MODE ONLY. The source's focused mode embeds
-// full UserDetail/ProjectDetail/RepoDetail pages which don't exist yet —
-// those land in slice 5. Here we render the aggregate view for each entity:
-//   - entity tab (org/user/project/repo) via COMPONENT-INTERNAL Tabs (useState)
+// Efficiency Dimension — aggregate and focused views for all four entities.
+// The Web route owns the shareable entity/object/sub query state while the
+// shared view keeps an internal-state fallback for other hosts and tests.
+// Aggregate mode renders:
+//   - entity tab (org/user/project/repo)
 //   - timeline (overall efficiency trend, org/user only — the /v2/efficiency
 //     endpoint is user×week; project/repo have no weekly axis at this endpoint)
 //   - KPI overview + ranking (entity-dependent)
@@ -48,8 +50,21 @@ import { useNavigation } from "../../navigation";
 // from ../charts. Per #4 (reuse) PeriodSelect, the shared Th/Td table
 // primitives, and the ranking sub-components are all reused.
 
-type Entity = "org" | "user" | "project" | "repo";
-type SubView = "overview" | "distribution";
+type Entity = EfficiencyEntity;
+export type EfficiencySubView = "overview" | "distribution";
+
+export interface EfficiencyViewState {
+  entity: Entity;
+  object: string;
+  subView: EfficiencySubView;
+}
+
+interface EfficiencyDimensionProps {
+  initialEntity?: Entity;
+  initialObject?: string;
+  initialSubView?: EfficiencySubView;
+  onStateChange?: (state: EfficiencyViewState) => void;
+}
 
 const ENTITY_TABS: { key: Entity; label: string }[] = [
   { key: "org", label: "组织" },
@@ -58,11 +73,34 @@ const ENTITY_TABS: { key: Entity; label: string }[] = [
   { key: "repo", label: "仓库" },
 ];
 
-export function EfficiencyDimension() {
+export function EfficiencyDimension({
+  initialEntity = "org",
+  initialObject = "",
+  initialSubView = "overview",
+  onStateChange,
+}: EfficiencyDimensionProps = {}) {
   const { timeRange, setTimeRange } = useViewState();
   const [startDate, endDate] = timeRange;
-  const [entity, setEntity] = useState<Entity>("org");
-  const [subView, setSubView] = useState<SubView>("overview");
+  const [internalState, setInternalState] = useState<EfficiencyViewState>({
+    entity: initialEntity,
+    object: initialObject,
+    subView: initialSubView,
+  });
+  const state = onStateChange
+    ? {
+        entity: initialEntity,
+        object: initialObject,
+        subView: initialSubView,
+      }
+    : internalState;
+
+  function updateState(next: EfficiencyViewState) {
+    setInternalState(next);
+    onStateChange?.(next);
+  }
+
+  const { entity, object, subView } = state;
+  const focused = object !== "";
 
   return (
     <div className="flex h-full flex-col">
@@ -79,70 +117,138 @@ export function EfficiencyDimension() {
 
       <div className="flex-1 overflow-y-auto">
         <div className="space-y-4 p-6 lg:space-y-6 lg:px-8">
-          {/* Entity tabs (internal state, no URL). */}
-          <div
-            className="flex flex-wrap items-center gap-1"
-            role="tablist"
-            aria-label="主体"
-          >
-            {ENTITY_TABS.map((t) => (
-              <EntityTab
-                key={t.key}
-                active={entity === t.key}
-                onClick={() => {
-                  setEntity(t.key);
-                  setSubView("overview");
-                }}
-              >
-                {t.label}
-              </EntityTab>
-            ))}
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div
+              className="flex flex-wrap items-center gap-1"
+              role="tablist"
+              aria-label="主体"
+            >
+              {ENTITY_TABS.map((t) => (
+                <EntityTab
+                  key={t.key}
+                  active={entity === t.key}
+                  onClick={() =>
+                    updateState({
+                      entity: t.key,
+                      object: "",
+                      subView: "overview",
+                    })
+                  }
+                >
+                  {t.label}
+                </EntityTab>
+              ))}
+            </div>
+            <EntityObjectSelector
+              entity={entity}
+              value={object}
+              startDate={startDate}
+              endDate={endDate}
+              onChange={(value) =>
+                updateState({ entity, object: value, subView: "overview" })
+              }
+            />
+            {entity === "project" && (
+              <CreateProjectButton
+                onCreated={(projectId) =>
+                  updateState({
+                    entity,
+                    object: projectId,
+                    subView: "overview",
+                  })
+                }
+              />
+            )}
           </div>
 
-          {/* Timeline: org/user have a weekly axis (the /v2/efficiency
-              endpoint); project/repo do not — show a caliber note instead. */}
-          {entity === "org" || entity === "user" ? (
-            <EfficiencyTimeline startDate={startDate} endDate={endDate} />
-          ) : (
-            <NoWeeklyAxis entity={entity} />
+          {!focused && (
+            <div
+              className="flex flex-wrap items-center gap-1"
+              role="tablist"
+              aria-label="效率子视图"
+            >
+              <EntityTab
+                active={subView === "overview"}
+                onClick={() =>
+                  updateState({ entity, object, subView: "overview" })
+                }
+              >
+                概览
+              </EntityTab>
+              <EntityTab
+                active={subView === "distribution"}
+                onClick={() =>
+                  updateState({ entity, object, subView: "distribution" })
+                }
+              >
+                分布
+              </EntityTab>
+            </div>
           )}
 
-          {/* Aggregate sub-tab (overview/distribution). Mirrors the source's
-              概览 / 分布 secondary tabs (aggregate mode only). */}
-          <div
-            className="flex flex-wrap items-center gap-1"
-            role="tablist"
-            aria-label="效率子视图"
-          >
-            <EntityTab
-              active={subView === "overview"}
-              onClick={() => setSubView("overview")}
-            >
-              概览
-            </EntityTab>
-            <EntityTab
-              active={subView === "distribution"}
-              onClick={() => setSubView("distribution")}
-            >
-              分布
-            </EntityTab>
-          </div>
+          {!focused &&
+            (entity === "org" || entity === "user" ? (
+              <EfficiencyTimeline startDate={startDate} endDate={endDate} />
+            ) : entity === "repo" ? (
+              <EfficiencyRepoTimeline
+                startDate={startDate}
+                endDate={endDate}
+              />
+            ) : (
+              <NoWeeklyAxis entity={entity} />
+            ))}
 
-          {/* Content dispatch. */}
-          {subView === "distribution" ? (
+          {focused ? (
+            <FocusedEfficiency
+              entity={entity}
+              object={object}
+              startDate={startDate}
+              endDate={endDate}
+              onBack={() =>
+                updateState({ entity, object: "", subView: "overview" })
+              }
+              onObjectChange={(value) =>
+                updateState({ entity, object: value, subView: "overview" })
+              }
+            />
+          ) : subView === "distribution" ? (
             <DistributionOverview
               entity={entity}
               startDate={startDate}
               endDate={endDate}
             />
           ) : entity === "org" ? (
-            <OrgRanking startDate={startDate} endDate={endDate} />
+            <OrgRanking
+              startDate={startDate}
+              endDate={endDate}
+              onSelect={(value) =>
+                updateState({ entity, object: value, subView: "overview" })
+              }
+            />
           ) : entity === "user" ? (
-            <EfficiencyUserRanking startDate={startDate} endDate={endDate} />
+            <EfficiencyUserRanking
+              startDate={startDate}
+              endDate={endDate}
+              onSelect={(value) =>
+                updateState({ entity, object: value, subView: "overview" })
+              }
+            />
           ) : entity === "project" ? (
-            <ProjectRanking startDate={startDate} endDate={endDate} />
+            <ProjectRanking
+              startDate={startDate}
+              endDate={endDate}
+              onSelect={(value) =>
+                updateState({ entity, object: value, subView: "overview" })
+              }
+            />
           ) : (
-            <EfficiencyRepoRanking startDate={startDate} endDate={endDate} />
+            <EfficiencyRepoRanking
+              startDate={startDate}
+              endDate={endDate}
+              onSelect={(value) =>
+                updateState({ entity, object: value, subView: "overview" })
+              }
+            />
           )}
         </div>
       </div>
@@ -163,117 +269,18 @@ export function EfficiencyDimension() {
 function OrgRanking({
   startDate,
   endDate,
+  onSelect,
 }: {
   startDate: string;
   endDate: string;
+  onSelect: (deptId: string) => void;
 }) {
-  const wsId = useWorkspaceId();
-  const treeQ = useQuery(deptTreeOptions(wsId));
-  const parentDeptId = treeQ.data?.[0]?.dept_id ?? "";
-  const rankingQ = useQuery(
-    deptRankingOptions(wsId, parentDeptId || undefined, startDate, endDate),
-  );
-
-  const items = useMemo(
-    () =>
-      sortRows(
-        rankingQ.data?.items ?? [],
-        (it) => it.summary.calendar_ratio,
-        true,
-      ),
-    [rankingQ.data],
-  );
-
-  const self = rankingQ.data?.self ?? null;
-
   return (
-    <div className="space-y-4">
-      {/* Org-level KPI strip (conserved whole-company summary). */}
-      {self && (
-        <section className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-          <OrgKpi
-            label="看板成员"
-            value={formatNumber(self.kanban_member_count)}
-            hint={`总成员 ${formatNumber(self.member_count)}`}
-          />
-          <OrgKpi
-            label="日历提效比"
-            value={formatV2Ratio(self.calendar_ratio)}
-            hint="守恒口径：Σ基线 ÷ Σ实际（小数口径）"
-          />
-          <OrgKpi
-            label="人力提效比"
-            value={formatV2Ratio(self.work_ratio)}
-            hint="守恒口径：Σ基线 ÷ Σ实际（小数口径）"
-          />
-          <OrgKpi
-            label="合并需求"
-            value={formatNumber(self.merged_need_count)}
-          />
-        </section>
-      )}
-
-      <section className="rounded-lg border bg-card shadow-sm">
-        <div className="flex items-center justify-between gap-3 border-b px-4 py-3">
-          <span className="text-sm font-semibold text-card-foreground">
-            部门效率排行
-          </span>
-          <span className="text-xs text-muted-foreground">
-            按日历提效比降序 · 全子树聚合
-          </span>
-        </div>
-        {rankingQ.error ? (
-          <div className="px-4 py-3 text-sm text-destructive">
-            加载失败：{(rankingQ.error as Error).message}
-          </div>
-        ) : rankingQ.isLoading ? (
-          <div className="space-y-2 p-4">
-            {Array.from({ length: 5 }).map((_, i) => (
-              <div
-                key={i}
-                className="h-8 animate-pulse rounded bg-muted"
-              />
-            ))}
-          </div>
-        ) : items.length === 0 ? (
-          <div className="px-4 py-12 text-center text-sm text-muted-foreground">
-            暂无部门数据
-          </div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full border-collapse text-sm">
-              <thead>
-                <tr className="border-b">
-                  <ThNum>排名</ThNum>
-                  <Th>部门</Th>
-                  <Th>日历提效比</Th>
-                  <Th>人力提效比</Th>
-                  <ThNum>看板成员</ThNum>
-                  <ThNum>合并需求</ThNum>
-                </tr>
-              </thead>
-              <tbody>
-                {items.map((it, i) => (
-                  <tr
-                    key={it.dept_id}
-                    className="border-b transition-colors last:border-0 hover:bg-muted/50"
-                  >
-                    <TdNum>
-                      <span className="text-muted-foreground">{i + 1}</span>
-                    </TdNum>
-                    <Td title={it.dept_name}>{it.dept_name}</Td>
-                    <Td>{formatV2Ratio(it.summary.calendar_ratio)}</Td>
-                    <Td>{formatV2Ratio(it.summary.work_ratio)}</Td>
-                    <TdNum>{formatNumber(it.summary.kanban_member_count)}</TdNum>
-                    <TdNum>{formatNumber(it.summary.merged_need_count)}</TdNum>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </section>
-    </div>
+    <EfficiencyOrgView
+      startDate={startDate}
+      endDate={endDate}
+      onDeptChange={onSelect}
+    />
   );
 }
 
@@ -301,7 +308,7 @@ function OrgKpi({
 
 /**
  * Project ranking — projects with their Need-scope efficiency fields. Pure
- * display table (no drill-down per design decision #2). The source uses
+ * display table with focused project drill-down. The source uses
  * ProjectList here; we render the same fields directly from
  * projectListOptions. The legacy project efficiency_ratio (percentage) is NOT
  * shown — the list migrated to the Need scope (decimal multipliers) which we
@@ -310,13 +317,13 @@ function OrgKpi({
 function ProjectRanking({
   startDate,
   endDate,
+  onSelect,
 }: {
   startDate: string;
   endDate: string;
+  onSelect: (projectId: string) => void;
 }) {
   const wsId = useWorkspaceId();
-  const wp = useWorkspacePaths();
-  const { push } = useNavigation();
   const q = useQuery(projectListOptions(wsId, startDate, endDate));
   const rows = useMemo<ProjectListItem[]>(
     () =>
@@ -417,7 +424,7 @@ function ProjectRanking({
                 {rows.map((p, i) => (
                   <tr
                     key={p.project_id}
-                    onClick={() => push(wp.metricsProjectDetail(p.project_id))}
+                    onClick={() => onSelect(p.project_id)}
                     className="cursor-pointer border-b transition-colors last:border-0 hover:bg-muted/50"
                   >
                     <TdNum>
@@ -442,13 +449,105 @@ function ProjectRanking({
   );
 }
 
+function FocusedEfficiency({
+  entity,
+  object,
+  startDate,
+  endDate,
+  onBack,
+  onObjectChange,
+}: {
+  entity: Entity;
+  object: string;
+  startDate: string;
+  endDate: string;
+  onBack: () => void;
+  onObjectChange: (value: string) => void;
+}) {
+  const wsId = useWorkspaceId();
+  const deptTrend = useQuery(
+    deptTrendOptions(wsId, {
+      deptId: entity === "org" ? object : undefined,
+      startDate,
+      endDate,
+    }),
+  );
+
+  if (entity === "org") {
+    return (
+      <div className="space-y-4">
+        <EntityContributionTrend
+          title="提效趋势"
+          points={deptTrend.data?.data}
+          loading={deptTrend.isLoading}
+          error={deptTrend.error ? (deptTrend.error as Error).message : null}
+          subtitle={`部门 · ${object} · 子树成员守恒口径`}
+          metric="efficiency"
+        />
+        <EfficiencyOrgView
+          startDate={startDate}
+          endDate={endDate}
+          selectedDeptId={object}
+          onDeptChange={onObjectChange}
+        />
+      </div>
+    );
+  }
+
+  if (entity === "user") {
+    return (
+      <div className="space-y-4">
+        <EfficiencyTimeline
+          startDate={startDate}
+          endDate={endDate}
+          userId={object}
+        />
+        <UserDetail
+          userId={object}
+          startDate={startDate}
+          endDate={endDate}
+          onBack={onBack}
+        />
+      </div>
+    );
+  }
+
+  if (entity === "project") {
+    return (
+      <ProjectDetail
+        projectId={object}
+        startDate={startDate}
+        endDate={endDate}
+        onBack={onBack}
+        onDeleted={onBack}
+      />
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      <EfficiencyRepoTimeline
+        startDate={startDate}
+        endDate={endDate}
+        repoAddr={object}
+      />
+      <RepoDetail
+        repoAddr={object}
+        startDate={startDate}
+        endDate={endDate}
+        onBack={onBack}
+      />
+    </div>
+  );
+}
+
 /** Honest "no weekly axis" note for project/repo (the efficiency endpoint is
  *  user×week only). Mirrors the source's "caliber N/A" branch. */
 function NoWeeklyAxis({ entity }: { entity: Entity }) {
   const note =
     entity === "project"
-      ? "项目维度无按周提效时间线（/v2/efficiency 仅含 user×week）；按项目聚合的提效比见下方排行。"
-      : "仓库维度无按周提效时间线（/v2/efficiency 仅含 user×week）；按仓库聚合的提效比见下方排行。";
+      ? "项目维度聚合态按 Need 口径展示提效概览；按项目聚合的提效比见下方排行。"
+      : "当前主体暂无按周提效趋势。";
   return (
     <div className="rounded-lg border bg-card shadow-sm p-4 lg:p-5">
       <div className="mb-3 flex items-center justify-between gap-3">

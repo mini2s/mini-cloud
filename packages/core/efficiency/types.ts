@@ -226,7 +226,7 @@ export interface NeedBaselineComponents {
 
 /** /v2/needs/{id} top-level response (§3.1) */
 export interface NeedsV2DetailResponse {
-  need: NeedDetail
+  need: NeedDetail | null
   sessions?: NeedSession[]
   commits?: NeedCommit[]
   stage_metrics?: NeedSession[]
@@ -254,6 +254,7 @@ export interface UserV2Row {
   cost: number
   tokens: number
   ai_code_ratio?: number | null // decimal ratio
+  silica?: number | null // commit fingerprint share, decimal ratio
   confidence_limited: boolean
   confidence_reason?: string
 }
@@ -307,7 +308,7 @@ export interface UserNameRow {
 
 /** /v2/users/{id} top-level response (§User-2, summary uses decimal ratio) */
 export interface UserV2DetailResponse {
-  summary: UserV2Row
+  summary: UserV2Row | null
   weeks: UserProductivityV2[]
   needs: NeedsV2Summary[]
   commits: NeedCommit[]
@@ -376,6 +377,7 @@ export interface OrgV2Row {
   calendar_ratio: number | null // decimal ratio
   work_ratio: number | null // decimal ratio
   ai_code_ratio?: number | null // decimal ratio
+  silica?: number | null // commit fingerprint share, decimal ratio
   commit_count: number
   commit_diff_lines: number
   cost: number
@@ -415,9 +417,9 @@ export interface EntityTrendResponse {
 
 /** efficiency block of /v2/repos/detail (percentage ratio). */
 export interface RepoEfficiency {
-  repo_ancient_minutes: number
-  repo_real_minutes: number
-  efficiency_ratio: number // percentage ratio
+  repo_ancient_minutes?: number | null
+  repo_real_minutes?: number | null
+  efficiency_ratio?: number | null // percentage ratio
   repo_ancient_minutes_reason?: string
   repo_real_minutes_reason?: string
 }
@@ -426,6 +428,7 @@ export interface RepoEfficiency {
 export interface RepoCommitItem {
   commit_id: string
   commit_time?: string | null
+  repo_branch?: string
   git_user_name?: string
   comment?: string
   diff_lines?: number | null
@@ -443,12 +446,12 @@ export interface RepoCommitItem {
 
 /** /v2/repos/detail top-level response (§Repo-5). */
 export interface RepoDetailResponse {
-  repo_addr: string
-  repo_branch: string
-  branches: string[]
-  commits: RepoCommitItem[]
-  tasks: TaskListItem[]
-  efficiency: RepoEfficiency
+  repo_addr?: string
+  repo_branch?: string
+  branches?: string[]
+  commits?: RepoCommitItem[]
+  tasks?: TaskListItem[]
+  efficiency?: RepoEfficiency | null
   summary?: { commit_count?: number; task_count?: number; ai_code_ratio?: number | null }
 }
 
@@ -574,6 +577,7 @@ export interface DeptMember {
   calendar_ratio: number | null // decimal ratio
   work_ratio: number | null // decimal ratio
   ai_code_ratio?: number | null // decimal ratio
+  silica?: number | null // conserved commit fingerprint share
   commit_count: number
   commit_diff_lines: number
   cost: number
@@ -590,6 +594,7 @@ export interface DeptMembersSummary {
   calendar_ratio: number | null // decimal ratio
   work_ratio: number | null // decimal ratio
   ai_code_ratio?: number | null // decimal ratio
+  silica?: number | null // conserved commit fingerprint share
   commit_count: number
   commit_diff_lines: number
   cost: number
@@ -635,6 +640,31 @@ export interface ListParams {
   pageSize?: number
   order?: string
   [k: string]: unknown
+}
+
+/** Shared server-paginated query for the Task and Commit list pages. */
+export interface ActivityListQuery {
+  startDate?: string
+  endDate?: string
+  page: number
+  pageSize: number
+  order?: string
+  userName?: string
+}
+
+/** /v2/needs paginated list query (camelCase matches the backend contract). */
+export interface NeedsListQuery {
+  startDate?: string
+  endDate?: string
+  page: number
+  pageSize: number
+  order?: string
+  repoAddr?: string
+  repoBranch?: string
+  userId?: string
+  boundarySource?: string
+  outlierOnly?: boolean
+  includeAll?: boolean
 }
 
 /**
@@ -718,7 +748,7 @@ export interface Conversation {
 
 /** /v2/tasks/{id} top-level response (§7.1, no time_segments — that is dead code) */
 export interface TaskDetailResponse {
-  task: TaskListItem
+  task: TaskListItem | null
   conversations?: Conversation[]
   efficiency_ratio?: number | null // provided again at top level, percentage ratio
 }
@@ -813,7 +843,7 @@ export interface RelatedTask {
 
 /** /v2/commits/{id} top-level response (PR4 §1.2). */
 export interface CommitDetailResponse {
-  commit: CommitDetail
+  commit: CommitDetail | null
   related_tasks?: RelatedTask[]
   efficiency_ratio?: number | null // top level, percentage ratio
   total_cost?: number | null
@@ -925,7 +955,7 @@ export interface ProjectModel extends ProjectListItem {
 
 /** /v2/projects/{id} top-level response (pure Need(branch) scope; a project = a set of Needs, decimal ratio uses RatioPill). */
 export interface ProjectDetailResponse {
-  project: ProjectModel
+  project: ProjectModel | null
   need_calendar_efficiency_ratio?: number | null // calendar-scope efficiency ratio (primary)
   need_work_efficiency_ratio?: number | null // workload-scope efficiency ratio (drilldown)
   need_ai_code_ratio?: number | null // AI code share (0~1)
@@ -950,10 +980,10 @@ export interface ProjectNeedItem extends NeedsV2Summary {
 /** /v2/projects/{id}/needs response. */
 export interface ProjectNeedsResponse {
   data: ProjectNeedItem[] | null
-  total_count: number // candidate-pool total (including unselected / excluded / ineligible), same source as the detail card's need_total_count
-  eligible_count: number
-  excluded_count: number
-  stale_count: number // number of need_ids in the configured list that are no longer in the candidate pool (recompute drift)
+  total_count?: number // candidate-pool total (including unselected / excluded / ineligible), same source as the detail card's need_total_count
+  eligible_count?: number
+  excluded_count?: number
+  stale_count?: number // number of need_ids in the configured list that are no longer in the candidate pool (recompute drift)
 }
 
 /** PUT /v2/projects/{id}/needs/selection (include/exclude a single Need). */
@@ -1454,4 +1484,60 @@ export interface ChatUsersRankingResp {
   page: number
   page_size: number
   data: ChatUserRankingRow[]
+}
+
+/** GET /stats/performance/overview — request-weighted platform performance. */
+export interface ChatPerformanceOverview {
+  avg_ttft_ms: number | null
+  avg_token_output_speed: number | null
+  avg_duration_ms: number | null
+}
+
+/** GET /stats/performance/by-model item. */
+export interface ChatPerformanceModel {
+  model: string
+  avg_ttft_ms: number | null
+  avg_token_output_speed: number | null
+  avg_duration_ms: number | null
+}
+
+/** GET /stats/performance/by-model response. */
+export interface ChatPerformanceByModelResponse {
+  models: ChatPerformanceModel[]
+}
+
+/** GET /stats/distribution/hourly item. */
+export interface ChatHourlyDistributionItem {
+  hour: number
+  request_count: number
+  active_users: number
+}
+
+/** GET /stats/distribution/hourly response. */
+export interface ChatHourlyDistributionResponse {
+  hours: ChatHourlyDistributionItem[]
+}
+
+/** GET /stats/hourly raw hourly summary item. */
+export interface ChatHourlyRow {
+  date_hour: string
+  total_requests: number
+  total_users?: number
+  error_requests?: number
+}
+
+/** GET /stats/dimension item for routed-model and error-code breakdowns. */
+export interface ChatDimensionRow {
+  dimension_value: string
+  total_requests?: number
+  total_users?: number
+  total_prompt_tokens?: number
+  total_completion_tokens?: number
+  total_cache_tokens?: number
+  avg_first_token_duration_ms?: number | null
+  avg_duration_ms?: number | null
+  avg_token_output_speed?: number | null
+  error_requests?: number
+  total_requests_including_errors?: number
+  error_rate: number | null
 }

@@ -16,10 +16,16 @@ import {
   getChatGlobalDaily,
   getChatCostTrend,
   getChatCacheHitRate,
+  getChatDimension,
+  getChatHourly,
+  getChatHourlyDistribution,
   getChatModelCostRanking,
   getChatModelsUsage,
+  getChatPerformanceByModel,
+  getChatPerformanceOverview,
   getChatUsersRanking,
   getCommitDetailV2,
+  getCommitsList,
   getCostAnomaly,
   getCostMembers,
   getCostModelComposition,
@@ -32,11 +38,15 @@ import {
   getCostTeamTrend,
   getDashboardSummary,
   getDashboardTrends,
+  getDeptOverview,
   getDeptRanking,
   getDeptTree,
+  getDeptTreeMembers,
+  getDeptTreeTrendV2,
   getEfficiencyAggregate,
   getGlobalConfig,
   getNeedDetailV2,
+  getNeedsList,
   getNeedRepoOptions,
   getProjectDetail,
   getProjectList,
@@ -46,6 +56,7 @@ import {
   getRepoDetailV2,
   getRepoTrendV2,
   getTaskDetailV2,
+  getTasksList,
   getUserNames,
   getUsageDeptActiveUsers,
   getUsageDeptMembers,
@@ -57,13 +68,19 @@ import {
   getUsageDeptWeekly,
   getUsageDeptPeriodCompare,
   getUserDetailV2,
+  getUserGroupDetail,
   getUsageUserDetail,
   getUsageUserTrend,
   getUsers,
 } from "./api";
 import { MOCK_ENABLED, mock } from "./mock";
 import { computePreviousRange } from "./utils/date";
-import type { ChatDetailQueryReq } from "./types";
+import type {
+  ActivityListQuery,
+  ChatDetailQueryReq,
+  NeedsListQuery,
+  UserGroupDetailResponse,
+} from "./types";
 import type { DeptQuery, MembersQuery } from "./types-usage";
 import type { CostMembersQuery } from "./types-cost";
 
@@ -92,6 +109,26 @@ export const efficiencyKeys = {
     [...efficiencyKeys.all(wsId), "trends", startDate, endDate] as const,
   config: (wsId: string) => [...efficiencyKeys.all(wsId), "config"] as const,
   deptTree: (wsId: string) => [...efficiencyKeys.all(wsId), "dept-tree"] as const,
+  deptOverview: (wsId: string, startDate?: string, endDate?: string) =>
+    [
+      ...efficiencyKeys.all(wsId),
+      "dept-overview",
+      startDate,
+      endDate,
+    ] as const,
+  deptMembers: (
+    wsId: string,
+    deptId: string,
+    startDate?: string,
+    endDate?: string,
+  ) =>
+    [
+      ...efficiencyKeys.all(wsId),
+      "dept-members",
+      deptId,
+      startDate,
+      endDate,
+    ] as const,
   deptRanking: (
     wsId: string,
     parentDeptId?: string,
@@ -105,8 +142,47 @@ export const efficiencyKeys = {
       startDate,
       endDate,
     ] as const,
-  allNeeds: (wsId: string, startDate?: string, endDate?: string) =>
-    [...efficiencyKeys.all(wsId), "all-needs", startDate, endDate] as const,
+  deptTrend: (
+    wsId: string,
+    p: { deptId?: string; startDate?: string; endDate?: string },
+  ) =>
+    [
+      ...efficiencyKeys.all(wsId),
+      "detail",
+      "dept-trend",
+      p.deptId,
+      p.startDate,
+      p.endDate,
+    ] as const,
+  allNeeds: (
+    wsId: string,
+    startDate?: string,
+    endDate?: string,
+    outlierOnly = false,
+  ) =>
+    [
+      ...efficiencyKeys.all(wsId),
+      "all-needs",
+      startDate,
+      endDate,
+      outlierOnly,
+    ] as const,
+  needsList: (wsId: string, p: NeedsListQuery) =>
+    [
+      ...efficiencyKeys.all(wsId),
+      "needs-list",
+      p.startDate,
+      p.endDate,
+      p.page,
+      p.pageSize,
+      p.order,
+      p.repoAddr,
+      p.repoBranch,
+      p.userId,
+      p.boundarySource,
+      p.outlierOnly,
+      p.includeAll,
+    ] as const,
   users: (wsId: string, startDate?: string, endDate?: string, pageSize?: number) =>
     [...efficiencyKeys.all(wsId), "users", startDate, endDate, pageSize] as const,
   // Display-name roster (date-independent); resolves user_id → "真名(工号)".
@@ -131,6 +207,8 @@ export const efficiencyKeys = {
     [...efficiencyKeys.all(wsId), "all-users", startDate, endDate] as const,
   allRepos: (wsId: string, startDate?: string, endDate?: string) =>
     [...efficiencyKeys.all(wsId), "all-repos", startDate, endDate] as const,
+  projectLists: (wsId: string) =>
+    [...efficiencyKeys.all(wsId), "project-list"] as const,
   projectList: (
     wsId: string,
     startDate?: string,
@@ -138,8 +216,7 @@ export const efficiencyKeys = {
     order?: string,
   ) =>
     [
-      ...efficiencyKeys.all(wsId),
-      "project-list",
+      ...efficiencyKeys.projectLists(wsId),
       startDate,
       endDate,
       order,
@@ -386,6 +463,20 @@ export const efficiencyKeys = {
       startDate,
       endDate,
     ] as const,
+  userGroupDetail: (
+    wsId: string,
+    groupId: string,
+    startDate?: string,
+    endDate?: string,
+  ) =>
+    [
+      ...efficiencyKeys.all(wsId),
+      "detail",
+      "user-group",
+      groupId,
+      startDate,
+      endDate,
+    ] as const,
   repoDetail: (
     wsId: string,
     p: { repoAddr: string; repoBranch?: string; startDate?: string; endDate?: string },
@@ -431,6 +522,27 @@ export const efficiencyKeys = {
     [...efficiencyKeys.all(wsId), "detail", "project-needs", projectId] as const,
   needDetail: (wsId: string, needId: string) =>
     [...efficiencyKeys.all(wsId), "detail", "need", needId] as const,
+  tasksList: (wsId: string, p: ActivityListQuery) =>
+    [
+      ...efficiencyKeys.all(wsId),
+      "tasks-list",
+      p.startDate,
+      p.endDate,
+      p.page,
+      p.pageSize,
+      p.order,
+      p.userName,
+    ] as const,
+  commitsList: (wsId: string, p: ActivityListQuery) =>
+    [
+      ...efficiencyKeys.all(wsId),
+      "commits-list",
+      p.startDate,
+      p.endDate,
+      p.page,
+      p.pageSize,
+      p.order,
+    ] as const,
   taskDetail: (wsId: string, taskId: string) =>
     [...efficiencyKeys.all(wsId), "detail", "task", taskId] as const,
   commitDetail: (wsId: string, commitId: string) =>
@@ -488,8 +600,20 @@ export const efficiencyKeys = {
       p.startDate,
       p.endDate,
     ] as const,
-  chatDetailQuery: (wsId: string, req: ChatDetailQueryReq) =>
-    [...efficiencyKeys.all(wsId), "chat", "detail-query", req] as const,
+  chatDetailQuery: (
+    wsId: string,
+    req: ChatDetailQueryReq,
+    queryRun?: number,
+  ) =>
+    queryRun == null
+      ? ([...efficiencyKeys.all(wsId), "chat", "detail-query", req] as const)
+      : ([
+          ...efficiencyKeys.all(wsId),
+          "chat",
+          "detail-query",
+          req,
+          queryRun,
+        ] as const),
   chatLogPreview: (wsId: string, localLogPath: string) =>
     [...efficiencyKeys.all(wsId), "chat", "log-preview", localLogPath] as const,
   chatTraceLogs: (wsId: string, req: ChatTraceLogReq) =>
@@ -543,6 +667,7 @@ export const efficiencyKeys = {
     endDate: string,
     sortBy?: string,
     search?: string,
+    pageSize?: number,
   ) =>
     [
       ...efficiencyKeys.all(wsId),
@@ -552,6 +677,62 @@ export const efficiencyKeys = {
       endDate,
       sortBy,
       search,
+      pageSize,
+    ] as const,
+  chatPerformanceOverview: (
+    wsId: string,
+    startDate: string,
+    endDate: string,
+  ) =>
+    [
+      ...efficiencyKeys.all(wsId),
+      "chat",
+      "performance-overview",
+      startDate,
+      endDate,
+    ] as const,
+  chatPerformanceByModel: (
+    wsId: string,
+    startDate: string,
+    endDate: string,
+  ) =>
+    [
+      ...efficiencyKeys.all(wsId),
+      "chat",
+      "performance-by-model",
+      startDate,
+      endDate,
+    ] as const,
+  chatHourlyDistribution: (wsId: string, day: string) =>
+    [
+      ...efficiencyKeys.all(wsId),
+      "chat",
+      "hourly-distribution",
+      day,
+    ] as const,
+  chatHourly: (wsId: string, startHour: string, endHour: string) =>
+    [
+      ...efficiencyKeys.all(wsId),
+      "chat",
+      "hourly",
+      startHour,
+      endHour,
+    ] as const,
+  chatDimension: (
+    wsId: string,
+    startDate: string,
+    endDate: string,
+    dimensionType: string,
+    sortOrder?: string,
+  ) =>
+    [
+      ...efficiencyKeys.all(wsId),
+      "chat",
+      "dimension",
+      startDate,
+      endDate,
+      dimensionType,
+      sortOrder,
     ] as const,
 };
 
@@ -616,6 +797,44 @@ export function deptTreeOptions(wsId: string) {
   });
 }
 
+export function deptOverviewOptions(
+  wsId: string,
+  startDate?: string,
+  endDate?: string,
+) {
+  return queryOptions({
+    queryKey: efficiencyKeys.deptOverview(wsId, startDate, endDate),
+    queryFn: async () => {
+      if (MOCK_ENABLED) return mock.deptOverview();
+      return getDeptOverview({ startDate, endDate });
+    },
+    enabled: !!wsId,
+    staleTime: STALE_TIME,
+  });
+}
+
+export function deptMembersOptions(
+  wsId: string,
+  deptId: string,
+  startDate?: string,
+  endDate?: string,
+) {
+  return queryOptions({
+    queryKey: efficiencyKeys.deptMembers(
+      wsId,
+      deptId,
+      startDate,
+      endDate,
+    ),
+    queryFn: async () => {
+      if (MOCK_ENABLED) return mock.deptTreeMembers(deptId);
+      return getDeptTreeMembers({ deptId, startDate, endDate });
+    },
+    enabled: !!wsId && !!deptId,
+    staleTime: STALE_TIME,
+  });
+}
+
 export function deptRankingOptions(
   wsId: string,
   parentDeptId?: string,
@@ -638,15 +857,49 @@ export function allNeedsOptions(
   wsId: string,
   startDate?: string,
   endDate?: string,
+  outlierOnly = false,
 ) {
   return queryOptions({
-    queryKey: efficiencyKeys.allNeeds(wsId, startDate, endDate),
+    queryKey: efficiencyKeys.allNeeds(
+      wsId,
+      startDate,
+      endDate,
+      outlierOnly,
+    ),
     queryFn: async () => {
-      if (MOCK_ENABLED) return mock.allNeeds({ startDate, endDate });
-      return getAllNeeds({ startDate, endDate });
+      if (MOCK_ENABLED)
+        return mock.allNeeds({ startDate, endDate, outlierOnly });
+      return getAllNeeds({ startDate, endDate, outlierOnly });
     },
     enabled: !!wsId,
     staleTime: STALE_TIME,
+  });
+}
+
+export function needsListOptions(wsId: string, p: NeedsListQuery) {
+  return queryOptions({
+    queryKey: efficiencyKeys.needsList(wsId, p),
+    queryFn: async () => {
+      if (MOCK_ENABLED) {
+        const rows = await mock.allNeeds({
+          startDate: p.startDate,
+          endDate: p.endDate,
+          outlierOnly: p.outlierOnly,
+        });
+        const start = (p.page - 1) * p.pageSize;
+        return {
+          total: rows.length,
+          folded_count: 0,
+          page: p.page,
+          pageSize: p.pageSize,
+          data: rows.slice(start, start + p.pageSize),
+        };
+      }
+      return getNeedsList(p);
+    },
+    enabled: !!wsId,
+    staleTime: STALE_TIME,
+    placeholderData: keepPreviousData,
   });
 }
 
@@ -1087,6 +1340,52 @@ export function userDetailOptions(
   });
 }
 
+export function userGroupDetailOptions(
+  wsId: string,
+  groupId: string,
+  startDate?: string,
+  endDate?: string,
+) {
+  return queryOptions({
+    queryKey: efficiencyKeys.userGroupDetail(
+      wsId,
+      groupId,
+      startDate,
+      endDate,
+    ),
+    queryFn: async () => {
+      if (MOCK_ENABLED) {
+        return {
+          group: {
+            group_id: groupId,
+            name: "示例虚拟组",
+          },
+          summary: {
+            day_count: 0,
+            task_count: 0,
+            commit_count: 0,
+            task_diff_lines: 0,
+            upstream_tokens: 0,
+            downstream_tokens: 0,
+            cost: 0,
+            task_real_minutes: 0,
+            task_ancient_minutes: 0,
+            task_efficiency_ratio: null,
+            commit_diff_lines: 0,
+            commit_ancient_minutes: 0,
+            commit_real_minutes: 0,
+            commit_efficiency_ratio: null,
+          },
+          members: [],
+        } satisfies UserGroupDetailResponse;
+      }
+      return getUserGroupDetail(groupId, { startDate, endDate });
+    },
+    enabled: !!wsId && !!groupId,
+    staleTime: STALE_TIME,
+  });
+}
+
 export function repoDetailOptions(
   wsId: string,
   p: { repoAddr: string; repoBranch?: string; startDate?: string; endDate?: string },
@@ -1125,6 +1424,21 @@ export function repoTrendOptions(
       return getRepoTrendV2(p);
     },
     // source useRepoTrend has no id gate (repoAddr empty = all repos); wsId-only.
+    enabled: !!wsId,
+    staleTime: STALE_TIME,
+  });
+}
+
+export function deptTrendOptions(
+  wsId: string,
+  p: { deptId?: string; startDate?: string; endDate?: string },
+) {
+  return queryOptions({
+    queryKey: efficiencyKeys.deptTrend(wsId, p),
+    queryFn: async () => {
+      if (MOCK_ENABLED) return mock.deptTrend(p);
+      return getDeptTreeTrendV2(p);
+    },
     enabled: !!wsId,
     staleTime: STALE_TIME,
   });
@@ -1208,6 +1522,21 @@ export function taskDetailOptions(wsId: string, taskId: string) {
   });
 }
 
+export function tasksListOptions(wsId: string, p: ActivityListQuery) {
+  return queryOptions({
+    queryKey: efficiencyKeys.tasksList(wsId, p),
+    queryFn: async () => {
+      if (MOCK_ENABLED) {
+        return { total: 0, page: p.page, pageSize: p.pageSize, data: [] };
+      }
+      return getTasksList(p);
+    },
+    enabled: !!wsId,
+    staleTime: STALE_TIME,
+    placeholderData: keepPreviousData,
+  });
+}
+
 export function commitDetailOptions(wsId: string, commitId: string) {
   return queryOptions({
     queryKey: efficiencyKeys.commitDetail(wsId, commitId),
@@ -1217,6 +1546,21 @@ export function commitDetailOptions(wsId: string, commitId: string) {
     },
     enabled: !!wsId && !!commitId,
     staleTime: STALE_TIME,
+  });
+}
+
+export function commitsListOptions(wsId: string, p: ActivityListQuery) {
+  return queryOptions({
+    queryKey: efficiencyKeys.commitsList(wsId, p),
+    queryFn: async () => {
+      if (MOCK_ENABLED) {
+        return { total: 0, page: p.page, pageSize: p.pageSize, data: [] };
+      }
+      return getCommitsList(p);
+    },
+    enabled: !!wsId,
+    staleTime: STALE_TIME,
+    placeholderData: keepPreviousData,
   });
 }
 
@@ -1329,9 +1673,13 @@ export function chatUserTrendOptions(
   });
 }
 
-export function chatDetailQueryOptions(wsId: string, req: ChatDetailQueryReq) {
+export function chatDetailQueryOptions(
+  wsId: string,
+  req: ChatDetailQueryReq,
+  queryRun?: number,
+) {
   return queryOptions({
-    queryKey: efficiencyKeys.chatDetailQuery(wsId, req),
+    queryKey: efficiencyKeys.chatDetailQuery(wsId, req, queryRun),
     queryFn: async () => {
       if (MOCK_ENABLED) return mock.chatDetailQuery(req);
       return getChatDetailQuery(req);
@@ -1466,6 +1814,7 @@ export function chatUsersRankingOptions(
   endDate: string,
   sortBy?: string,
   search?: string,
+  pageSize?: number,
 ) {
   return queryOptions({
     queryKey: efficiencyKeys.chatUsersRanking(
@@ -1474,14 +1823,145 @@ export function chatUsersRankingOptions(
       endDate,
       sortBy,
       search,
+      pageSize,
     ),
     queryFn: async () => {
       if (MOCK_ENABLED)
-        return mock.chatUsersRanking({ startDate, endDate, sortBy, search });
-      return getChatUsersRanking({ startDate, endDate, sortBy, search });
+        return mock.chatUsersRanking({
+          startDate,
+          endDate,
+          sortBy,
+          search,
+          pageSize,
+        });
+      return getChatUsersRanking({
+        startDate,
+        endDate,
+        sortBy,
+        search,
+        pageSize,
+      });
     },
     enabled: !!wsId,
     placeholderData: keepPreviousData,
+    staleTime: STALE_TIME,
+  });
+}
+
+export function chatPerformanceOverviewOptions(
+  wsId: string,
+  startDate: string,
+  endDate: string,
+) {
+  return queryOptions({
+    queryKey: efficiencyKeys.chatPerformanceOverview(
+      wsId,
+      startDate,
+      endDate,
+    ),
+    queryFn: async () => {
+      if (MOCK_ENABLED) {
+        const rows = mock.chatGlobalDaily({ startDate, endDate });
+        const requests = rows.reduce((sum, row) => sum + row.total_requests, 0);
+        const weighted = (
+          pick: (row: (typeof rows)[number]) => number | null,
+        ) => {
+          if (requests === 0) return null;
+          return (
+            rows.reduce(
+              (sum, row) => sum + (pick(row) ?? 0) * row.total_requests,
+              0,
+            ) / requests
+          );
+        };
+        return {
+          avg_ttft_ms: weighted((row) => row.avg_first_token_duration_ms),
+          avg_token_output_speed: weighted(
+            (row) => row.avg_token_output_speed,
+          ),
+          avg_duration_ms: weighted((row) => row.avg_duration_ms),
+        };
+      }
+      return getChatPerformanceOverview({ startDate, endDate });
+    },
+    enabled: !!wsId,
+    staleTime: STALE_TIME,
+  });
+}
+
+export function chatPerformanceByModelOptions(
+  wsId: string,
+  startDate: string,
+  endDate: string,
+) {
+  return queryOptions({
+    queryKey: efficiencyKeys.chatPerformanceByModel(
+      wsId,
+      startDate,
+      endDate,
+    ),
+    queryFn: async () => {
+      if (MOCK_ENABLED) return { models: [] };
+      return getChatPerformanceByModel({ startDate, endDate });
+    },
+    enabled: !!wsId,
+    staleTime: STALE_TIME,
+  });
+}
+
+export function chatHourlyDistributionOptions(wsId: string, day: string) {
+  return queryOptions({
+    queryKey: efficiencyKeys.chatHourlyDistribution(wsId, day),
+    queryFn: async () => {
+      if (MOCK_ENABLED) return { hours: [] };
+      return getChatHourlyDistribution({ startDate: day, endDate: day });
+    },
+    enabled: !!wsId && !!day,
+    staleTime: STALE_TIME,
+  });
+}
+
+export function chatHourlyOptions(
+  wsId: string,
+  startHour: string,
+  endHour: string,
+) {
+  return queryOptions({
+    queryKey: efficiencyKeys.chatHourly(wsId, startHour, endHour),
+    queryFn: async () => {
+      if (MOCK_ENABLED) return [];
+      return getChatHourly({ startHour, endHour });
+    },
+    enabled: !!wsId && !!startHour && !!endHour,
+    staleTime: STALE_TIME,
+  });
+}
+
+export function chatDimensionOptions(
+  wsId: string,
+  startDate: string,
+  endDate: string,
+  dimensionType: string,
+  sortOrder?: string,
+) {
+  return queryOptions({
+    queryKey: efficiencyKeys.chatDimension(
+      wsId,
+      startDate,
+      endDate,
+      dimensionType,
+      sortOrder,
+    ),
+    queryFn: async () => {
+      if (MOCK_ENABLED) return [];
+      return getChatDimension({
+        startDate,
+        endDate,
+        dimensionType,
+        sortOrder,
+      });
+    },
+    enabled: !!wsId && !!dimensionType,
     staleTime: STALE_TIME,
   });
 }

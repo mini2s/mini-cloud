@@ -4,10 +4,14 @@
 // synthetic but kept in plausible ranges so the ranking bar chart renders.
 
 import type {
+  DeptMember,
+  DeptMembersResponse,
+  DeptOverviewResponse,
   DeptMembersSummary,
   DeptRankingResponse,
   DeptRankingItem,
   DeptTreeNode,
+  DeptTreeNodeWithSummary,
 } from "../types";
 
 // Builds a DeptMembersSummary with sensible rounded values. calendar_ratio /
@@ -26,6 +30,7 @@ function makeSummary(deptId: string, memberCount: number): DeptMembersSummary {
     baseline_calendar_min: baselineCalendarMin,
     calendar_ratio: actualCalendarMin > 0 ? baselineCalendarMin / actualCalendarMin : null,
     work_ratio: 2.6 + (memberCount % 5) * 0.07, // ~2.6–2.9 decimal ratio
+    silica: 0.32,
     commit_count: Math.round(memberCount * 6.2),
     commit_diff_lines: commitDiffLines,
     cost: memberCount * 215.4,
@@ -91,6 +96,57 @@ export function getMockDeptTree(): DeptTreeNode[] {
     children: companyChildren,
   };
   return [companyNode];
+}
+
+export function getMockDeptOverview(): DeptOverviewResponse {
+  const counts = new Map<string, number>([
+    ["d-company", 51],
+    ["d-infra", 18],
+    ["d-frontend", 9],
+    ["d-backend", 9],
+    ["d-data", 12],
+    ["d-product", 7],
+    ["d-growth", 9],
+    ["d-ops", 5],
+  ]);
+
+  function withSummary(node: DeptTreeNode): DeptTreeNodeWithSummary {
+    return {
+      ...node,
+      summary: makeSummary(node.dept_id, counts.get(node.dept_id) ?? 0),
+      children: node.children.map(withSummary),
+    };
+  }
+
+  return { nodes: getMockDeptTree().map(withSummary) };
+}
+
+export function getMockDeptTreeMembers(deptId: string): DeptMembersResponse {
+  const members: DeptMember[] = Array.from({ length: 24 }, (_, index) => {
+    const active = index % 5 !== 0;
+    return {
+      universal_id: `u-dept-${index + 1}`,
+      real_name: `成员 ${index + 1}`,
+      emp_no: `E${String(index + 1).padStart(4, "0")}`,
+      dept_id: deptId,
+      position: index % 3 === 0 ? "Senior" : "Engineer",
+      is_main: 1,
+      has_kanban_data: active,
+      merged_need_count: active ? 8 + (index % 7) : 0,
+      actual_calendar_min: active ? 2400 + index * 30 : 0,
+      baseline_calendar_min: active ? 6500 + index * 60 : 0,
+      calendar_ratio: active ? 2.4 + (index % 6) * 0.08 : null,
+      work_ratio: active ? 2.1 + (index % 5) * 0.07 : null,
+      silica: active ? 0.25 + (index % 4) * 0.05 : null,
+      commit_count: active ? 12 + index : 0,
+      commit_diff_lines: active ? 1800 + index * 120 : 0,
+      cost: active ? 120 + index * 8 : 0,
+    };
+  });
+  return {
+    summary: makeSummary(deptId, members.length),
+    members,
+  };
 }
 
 // Ranking: parentDeptId empty => configured company root; return its direct

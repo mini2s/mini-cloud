@@ -24,6 +24,8 @@ import type {
   CommitDetailResponse,
   DashboardSummary,
   DashboardTrends,
+  DeptOverviewResponse,
+  DeptMembersResponse,
   DeptRankingResponse,
   DeptTreeNode,
   EfficiencyV2AggregateResponse,
@@ -79,6 +81,7 @@ import {
 } from "./dashboard";
 import {
   getMockCommitDetail,
+  getMockDeptTrend,
   getMockNeedDetail,
   getMockNeedRepoOptions,
   getMockProjectDetail,
@@ -90,7 +93,12 @@ import {
   getMockTaskDetail,
   getMockUserDetail,
 } from "./detail";
-import { getMockDeptRanking, getMockDeptTree } from "./dept";
+import {
+  getMockDeptOverview,
+  getMockDeptRanking,
+  getMockDeptTree,
+  getMockDeptTreeMembers,
+} from "./dept";
 import {
   getMockAllRepos,
   getMockAllUsers,
@@ -144,9 +152,10 @@ import {
   getMockChatTraceLogs,
 } from "./chat";
 
-const RAW = process.env.EFFICIENCY_MOCK;
-// Default: mock ON (backend not yet live). Set EFFICIENCY_MOCK=0 to disable.
-export const MOCK_ENABLED = RAW == null ? true : RAW !== "0" && RAW !== "false";
+const RAW = process.env.NEXT_PUBLIC_EFFICIENCY_MOCK;
+// Real data is the product default. Mock data must be opted into explicitly
+// for isolated UI development.
+export const MOCK_ENABLED = RAW === "1" || RAW === "true";
 
 export const mock = {
   dashboardSummary: (p: { startDate?: string; endDate?: string }): DashboardSummary =>
@@ -155,6 +164,9 @@ export const mock = {
     getMockDashboardTrends(p),
   globalConfig: (): GlobalConfig => getMockGlobalConfig(),
   deptTree: (): DeptTreeNode[] => getMockDeptTree(),
+  deptOverview: (): DeptOverviewResponse => getMockDeptOverview(),
+  deptTreeMembers: (deptId: string): DeptMembersResponse =>
+    getMockDeptTreeMembers(deptId),
   deptRanking: (p: {
     parentDeptId?: string;
     startDate?: string;
@@ -163,7 +175,13 @@ export const mock = {
   allNeeds: (p: {
     startDate?: string;
     endDate?: string;
-  }): NeedsV2Summary[] => getMockAllNeeds(p),
+    outlierOnly?: boolean;
+  }): NeedsV2Summary[] => {
+    const rows = getMockAllNeeds(p);
+    return p.outlierOnly
+      ? rows.filter((row) => row.outlier_flag)
+      : rows.filter((row) => !row.outlier_flag);
+  },
   users: (p: {
     startDate?: string;
     endDate?: string;
@@ -255,6 +273,11 @@ export const mock = {
     startDate?: string;
     endDate?: string;
   }): EntityTrendResponse => getMockRepoTrend(p),
+  deptTrend: (p: {
+    deptId?: string;
+    startDate?: string;
+    endDate?: string;
+  }): EntityTrendResponse => getMockDeptTrend(p),
   projectDetail: (projectId: string): ProjectDetailResponse =>
     getMockProjectDetail(projectId),
   projectTrend: (p: {
@@ -272,10 +295,8 @@ export const mock = {
     getMockCommitDetail(commitId),
 
   // ---- Chat dimension (chat-settings + platform-ops pages) ----
-  // Read entries only. Mutations (upsert/delete pricing|datasource|config,
-  // submit/retry/cancel sync, test datasource) are NOT mocked — their api.ts
-  // stubs throw NOT_WIRED, so the settings forms won't submit in the mock
-  // phase. That's intentional until the live backend is wired.
+  // Read entries. Mutation mock behavior lives in mutations.ts; live mode uses
+  // the migrated chat endpoints.
   chatPricing: (): ModelPricing[] => getMockChatPricing(),
   chatDatasources: (): ChatDatasource[] => getMockChatDatasources(),
   chatSyncTasks: (): ChatSyncTaskListResponse => getMockChatSyncTasks(),

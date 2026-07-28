@@ -2,11 +2,12 @@
 
 import { useState, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { useWorkspaceId } from "@multica/core/hooks";
 import {
-  useWorkspaceId,
-} from "@multica/core/hooks";
-import {
+  buildBuckets,
+  deptOverviewOptions,
   formatNumber,
+  GRANULARITY_CN,
   usageDeptActiveUsersOptions,
   usageDeptModelsOptions,
   usageDeptModeUsageOptions,
@@ -20,6 +21,8 @@ import {
   type DeptResultsResp,
   type DeptTrendPoint,
   type DeptModeUsageItem,
+  type DeptTreeNodeWithSummary,
+  type Granularity,
 } from "@multica/core/efficiency";
 import { Skeleton } from "@multica/ui/components/ui/skeleton";
 import { Switch } from "@multica/ui/components/ui/switch";
@@ -33,6 +36,10 @@ import {
   type MultiTrendPoint,
   type PieDatum,
 } from "../charts";
+import {
+  GranularityToggle,
+  useGranularity,
+} from "../components/granularity-toggle";
 import {
   PCT,
   chartColorFor,
@@ -58,14 +65,9 @@ import {
 //   - The "0 requests + 0 active users" empty-state short-circuit is kept.
 //   - The zero-request model toggle is kept (default-hides 0-request models).
 //
-// Simplifications (documented per slice-3b "layout faithful, not pixel-perfect"):
-//   - The source's "granularity toggle" (day/week/month bucketing of the
-//     trend) is dropped — we render per-day (the backend's native granularity)
-//     to avoid porting the buildBuckets util. TODO: granularity in a later
-//     slice if needed.
-//   - The "usage rate = active / headcount" extra tooltip line is dropped
-//     (recharts tooltip is config-driven; adding a custom line is more work
-//     than it's worth for v1).
+// Notes:
+//   - Usage rate = active / roster headcount is shown in the request/active
+//     user trend tooltip, matching the source without drawing a duplicate line.
 //   - The Mode usage data source comment ("local DB, not chat-stats") still
 //     applies; the mini-core mock returns synthetic items.
 
@@ -76,6 +78,20 @@ interface DeptAggregateViewProps {
   includeChildren: boolean;
 }
 
+function findDeptSummaryNode(
+  nodes: DeptTreeNodeWithSummary[],
+  id: string,
+): DeptTreeNodeWithSummary | undefined {
+  for (const node of nodes) {
+    if (node.dept_id === id) return node;
+    const child = node.children.length
+      ? findDeptSummaryNode(node.children, id)
+      : undefined;
+    if (child) return child;
+  }
+  return undefined;
+}
+
 export function DeptAggregateView({
   deptId,
   startDate,
@@ -84,12 +100,10 @@ export function DeptAggregateView({
 }: DeptAggregateViewProps) {
   const wsId = useWorkspaceId();
   const q: DeptQuery = { deptId, start: startDate, end: endDate, includeChildren };
-
-  // Headcount/coverage: the source derived dept-wide member_count from a
-  // date-scoped /v2/dept-tree/overview call. That endpoint isn't wired in
-  // mini-core yet, so the "部门覆盖率" KPI is omitted here. TODO: re-enable
-  // coverage once DeptOverviewResponse (nodes+summary) is exposed via a
-  // queryOption.
+  const { gran, setGran, options: granOptions } = useGranularity(
+    startDate,
+    endDate,
+  );
 
   const overviewQ = useQuery(usageDeptOverviewOptions(wsId, q));
   const activeQ = useQuery(usageDeptActiveUsersOptions(wsId, q));
@@ -99,6 +113,9 @@ export function DeptAggregateView({
   const resultsQ = useQuery(usageDeptResultsOptions(wsId, q));
   const compareQ = useQuery(usageDeptPeriodCompareOptions(wsId, q));
   const modeUsageQ = useQuery(usageDeptModeUsageOptions(wsId, q));
+  const deptOverviewQ = useQuery(
+    deptOverviewOptions(wsId, startDate, endDate),
+  );
 
   if (!deptId) {
     return (
@@ -115,6 +132,15 @@ export function DeptAggregateView({
   const ov = overviewQ.data;
   const au = activeQ.data;
   const cmp = compareQ.data;
+  const deptNode = findDeptSummaryNode(
+    deptOverviewQ.data?.nodes ?? [],
+    deptId,
+  );
+  const deptHeadcount = deptNode?.summary.member_count ?? 0;
+  const coveragePct =
+    ov && deptHeadcount > 0
+      ? Math.min(100, (ov.active_users / deptHeadcount) * 100)
+      : null;
 
   // Empty-state short-circuit: backend returns a minimal object for depts with
   // no activity. Avoids success_rate/token fields being undefined downstream.
@@ -145,15 +171,27 @@ export function DeptAggregateView({
         error={overviewQ.error as Error | null}
         overview={ov}
         compare={cmp}
+        coveragePct={coveragePct}
+        headcount={deptHeadcount}
       />
 
       {/* Trend: requests (bar) + active users (line) on dual axes, plus a
-          separate token trend (input + output areas). Per-day granularity
-          (source's granularity toggle is dropped — see file header). */}
+          separate token trend (input + output areas). */}
       <TrendBlock
         loading={trendQ.isLoading && !trendQ.data}
         error={trendQ.error as Error | null}
         trend={trendQ.data?.trend}
+        start={startDate}
+        end={endDate}
+        gran={gran}
+        headcount={deptHeadcount}
+        granControl={
+          <GranularityToggle
+            value={gran}
+            options={granOptions}
+            onChange={setGran}
+          />
+        }
       />
 
       {/* Per-model volume: donut + detail table. */}
@@ -289,6 +327,8 @@ function OverviewBlock({
   error,
   overview: ov,
   compare: cmp,
+  coveragePct,
+  headcount,
 }: {
   loading: boolean;
   error: Error | null;
@@ -307,6 +347,8 @@ function OverviewBlock({
     token_change_pct: number;
     previous_period: { start: string; end: string };
   } | null;
+  coveragePct: number | null;
+  headcount: number;
 }) {
   if (loading) return <SkeletonCard title="使用概览" rows={8} />;
   if (error) {
@@ -334,6 +376,16 @@ function OverviewBlock({
         <KpiCard label="人均请求" value={perCapitaRequests} hint={`活跃 ${formatNumber(ov.active_users)} 人`} />
         <KpiCard label="总会话数" value={formatNumber(ov.total_sessions)} hint="unique_task 去重" />
         <KpiCard label="活跃用户" value={formatNumber(ov.active_users)} />
+        <KpiCard
+          label="部门覆盖率"
+          value={coveragePct == null ? "-" : PCT(coveragePct)}
+          hint={
+            headcount > 0
+              ? `${formatNumber(ov.active_users)} / ${formatNumber(headcount)} 人`
+              : "花名册人数不可得"
+          }
+          accent="brand"
+        />
         <KpiCard label="总输入 Token" value={shortToken(ov.sum_prompt_tokens)} hint={formatNumber(ov.sum_prompt_tokens)} />
         <KpiCard label="总输出 Token" value={shortToken(ov.sum_completion_tokens)} hint={formatNumber(ov.sum_completion_tokens)} />
         <KpiCard
@@ -386,49 +438,115 @@ function TrendBlock({
   loading,
   error,
   trend,
+  start,
+  end,
+  gran,
+  headcount,
+  granControl,
 }: {
   loading: boolean;
   error: Error | null;
   trend?: DeptTrendPoint[];
+  start: string;
+  end: string;
+  gran: Granularity;
+  headcount: number;
+  granControl: ReactNode;
 }) {
-  if (loading) return <SkeletonCard title="使用趋势（按天）" />;
+  const points = trend ?? [];
+  const aggregated = (() => {
+    const byDate = new Map(points.map((point) => [point.date, point]));
+    const buckets = buildBuckets(
+      points.map((point) => point.date),
+      gran,
+      { start, end },
+    );
+    const sum = (
+      dates: string[],
+      pick: (point: DeptTrendPoint) => number,
+    ) =>
+      dates.reduce((total, date) => {
+        const point = byDate.get(date);
+        return total + (point ? pick(point) : 0);
+      }, 0);
+
+    return buckets.map((bucket) => ({
+      label: bucket.label,
+      requestCount: sum(bucket.dates, (point) => point.request_count),
+      activeUsers: Math.round(
+        sum(bucket.dates, (point) => point.active_users) / bucket.spanDays,
+      ),
+      promptTokens: sum(bucket.dates, (point) => point.prompt_tokens),
+      completionTokens: sum(
+        bucket.dates,
+        (point) => point.completion_tokens,
+      ),
+    }));
+  })();
+  const granularityLabel = GRANULARITY_CN[gran];
+  const activeLabel = gran === "day" ? "活跃用户" : "日均活跃用户";
+
+  if (loading) return <SkeletonCard title={`使用趋势（${granularityLabel}）`} />;
   if (error) {
-    return <ErrorHint title="使用趋势（按天）" sub="请求量 / 活跃用户" error={error} />;
+    return (
+      <ErrorHint
+        title={`使用趋势（${granularityLabel}）`}
+        sub={`请求量 / ${activeLabel}`}
+        error={error}
+      />
+    );
   }
   if (!trend || !trend.length) {
     return (
-      <Card title="使用趋势（按天）" sub="请求量 / 活跃用户">
+      <Card
+        title={`使用趋势（${granularityLabel}）`}
+        sub={`请求量 / ${activeLabel}`}
+        extra={granControl}
+      >
         <EmptyHint />
       </Card>
     );
   }
-  // Combo chart: requests (bar, left) + active users (line, right). One row
-  // per day; the source's bucket aggregation (week/month) is dropped.
-  const combo: ComboTrendPoint[] = trend.map((t) => ({
-    label: t.date.slice(5), // MM-DD
-    bar: t.request_count,
-    line: t.active_users,
+  const combo: ComboTrendPoint[] = aggregated.map((point) => ({
+    label: point.label,
+    bar: point.requestCount,
+    line: point.activeUsers,
+    tooltipExtra:
+      headcount > 0
+        ? Math.min(100, (point.activeUsers / headcount) * 100)
+        : undefined,
   }));
-  // Token trend: input + output as overlapping areas.
-  const tokenPoints: MultiTrendPoint[] = trend.map((t) => ({
-    label: t.date.slice(5),
-    prompt: t.prompt_tokens,
-    completion: t.completion_tokens,
+  const tokenPoints: MultiTrendPoint[] = aggregated.map((point) => ({
+    label: point.label,
+    prompt: point.promptTokens,
+    completion: point.completionTokens,
   }));
   return (
     <>
       <Card
-        title="使用趋势（按天）"
-        sub="请求量（左·柱）· 活跃用户（右·线）"
+        title={`使用趋势（${granularityLabel}）`}
+        sub={`请求量（左·柱）· ${activeLabel}（右·线）`}
+        extra={granControl}
       >
         <ComboTrendChart
           data={combo}
           bar={{ name: "请求量", color: "var(--chart-4)" }}
-          line={{ name: "活跃用户", color: "var(--chart-2)" }}
+          line={{ name: activeLabel, color: "var(--chart-2)" }}
           formatLeftY={shortToken}
+          tooltipExtra={
+            headcount > 0
+              ? {
+                  name: gran === "day" ? "使用率" : "日均使用率",
+                  format: (value) => `${value.toFixed(1)}%`,
+                }
+              : undefined
+          }
         />
       </Card>
-      <Card title="Token 消耗趋势（按天）" sub="输入 / 输出 Token">
+      <Card
+        title={`Token 消耗趋势（${granularityLabel}）`}
+        sub="输入 / 输出 Token"
+      >
         <MultiTrendChart
           data={tokenPoints}
           formatY={shortToken}

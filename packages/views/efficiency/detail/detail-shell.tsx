@@ -56,7 +56,7 @@ export function DetailShell({
             onClick={onBack}
           >
             <ArrowLeft className="h-4 w-4" />
-            Back
+            返回
           </Button>
           <div className="min-w-0">
             <h1 className="truncate text-base font-semibold text-foreground">
@@ -78,7 +78,7 @@ export function DetailShell({
       <div className="flex-1 min-h-0 overflow-auto px-6 py-5">
         {error != null ? (
           <StateBlock tone="error">
-            {(error as Error)?.message || "Failed to load detail."}
+            {(error as Error)?.message || "详情加载失败"}
           </StateBlock>
         ) : loading ? (
           <DetailSkeleton />

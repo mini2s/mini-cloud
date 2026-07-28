@@ -56,6 +56,9 @@ describe("paths.workspace() shape", () => {
         "metricsCost",
         "metricsCoverage",
         "metricsContribution",
+        "metricsNeeds",
+        "metricsTasks",
+        "metricsCommits",
         // Administration.
         "permissions",
         "devices",
@@ -116,6 +119,9 @@ describe("paths.workspace() shape", () => {
       ["metricsCost", "metrics/cost"],
       ["metricsCoverage", "metrics/coverage"],
       ["metricsContribution", "metrics/contribution"],
+      ["metricsNeeds", "metrics/needs"],
+      ["metricsTasks", "metrics/tasks"],
+      ["metricsCommits", "metrics/commits"],
       // Administration.
       ["permissions", "permissions"],
       ["devices", "devices"],

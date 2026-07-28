@@ -17,21 +17,13 @@ import { Skeleton } from "@multica/ui/components/ui/skeleton";
 import { PageHeader } from "../../layout/page-header";
 import { ErrorBanner, Section, SettingsField } from "./shared";
 
-// Settings · System config. Ports the source SystemConfig.tsx to the shared-
-// views layer. The chat config is a flat string→string KV map, so this page
-// renders the known keys (ETL cron/datasource, system currency, default
-// exchange rate, log preview settings) and an editable form. The save action
-// submits via useUpdateChatSystemConfig: in the mock phase the mutation merges
-// the patch onto the cached KV without hitting the network; once the backend
-// is live (EFFICIENCY_MOCK=0) it PUTs the real chat config.
-//
-// The mock KV sample uses a slightly different key set than the live backend
-// (system_currency / exchange_rate_usd_cny / realtime_refresh_seconds / etc.),
-// so the form hydrates defensively: each field falls back to a sensible
-// default when its key is absent. Unknown keys are surfaced read-only below
-// the form so operators can see the full stored config.
-
-const CURRENCY_OPTIONS = ["CNY", "USD", "EUR", "GBP", "JPY"] as const;
+const CURRENCY_OPTIONS = [
+  { value: "CNY", label: "CNY（人民币）" },
+  { value: "USD", label: "USD（美元）" },
+  { value: "EUR", label: "EUR（欧元）" },
+  { value: "GBP", label: "GBP（英镑）" },
+  { value: "JPY", label: "JPY（日元）" },
+] as const;
 
 // Form field defaults (match the source's fallbacks).
 const DEFAULTS = {
@@ -65,6 +57,10 @@ export function SystemConfigPage() {
   const [rawLogPreviewMaxMb, setRawLogPreviewMaxMb] = useState<string>(
     DEFAULTS.rawLogPreviewMaxMb,
   );
+  const [saveMessage, setSaveMessage] = useState<{
+    ok: boolean;
+    text: string;
+  } | null>(null);
 
   // Hydrate the form once the config KV lands. The live backend uses the
   // daily_etl_* / system_currency / default_exchange_rate / log_preview_* /
@@ -113,20 +109,50 @@ export function SystemConfigPage() {
     ? Object.keys(cfg).filter((k) => !knownKeys.has(k))
     : [];
 
-  // Save handler. In the mock phase the mutation merges the patch onto the
-  // cached KV without hitting the network; once wired it PUTs the chat config.
   function handleSave() {
+    const rateNumber = Number(rate.trim());
+    const previewMaxMb =
+      rawLogPreviewMaxMb.trim() === ""
+        ? 5
+        : Number(rawLogPreviewMaxMb.trim());
+    if (!Number.isFinite(rateNumber) || rateNumber <= 0) {
+      setSaveMessage({ ok: false, text: "默认汇率必须为正数" });
+      return;
+    }
+    if (!Number.isFinite(previewMaxMb) || previewMaxMb <= 0) {
+      setSaveMessage({
+        ok: false,
+        text: "日志预览最大大小必须为正数",
+      });
+      return;
+    }
+    if (etlEnabled && !etlSource) {
+      setSaveMessage({
+        ok: false,
+        text: "启用定时 ETL 时必须选择绑定数据源",
+      });
+      return;
+    }
+
     const patch: ChatSystemConfig = {
       daily_etl_enabled: etlEnabled ? "true" : "false",
-      daily_etl_cron: cron,
+      daily_etl_cron: cron.trim(),
       daily_etl_source: etlSource,
       system_currency: currency,
-      default_exchange_rate: rate,
+      default_exchange_rate: String(rateNumber),
       log_preview_source: logPreviewSource,
-      raw_log_root_dir: rawLogRootDir,
-      raw_log_preview_max_mb: rawLogPreviewMaxMb,
+      raw_log_root_dir: rawLogRootDir.trim(),
+      raw_log_preview_max_mb: String(previewMaxMb),
     };
-    updateCfg.mutate(patch);
+    setSaveMessage(null);
+    updateCfg.mutate(patch, {
+      onSuccess: () => setSaveMessage({ ok: true, text: "配置已保存" }),
+      onError: (error) =>
+        setSaveMessage({
+          ok: false,
+          text: (error as Error)?.message || "保存失败",
+        }),
+    });
   }
 
   return (
@@ -134,7 +160,7 @@ export function SystemConfigPage() {
       <PageHeader className="h-auto min-h-12 flex-wrap justify-between gap-y-1.5 px-5 py-1.5 sm:py-0">
         <div className="flex min-w-0 items-center gap-2">
           <Settings className="size-4 shrink-0 text-muted-foreground" />
-          <h1 className="truncate text-sm font-medium">System config</h1>
+          <h1 className="truncate text-sm font-medium">系统配置</h1>
         </div>
       </PageHeader>
 
@@ -143,12 +169,12 @@ export function SystemConfigPage() {
           {cfgQ.error ? (
             <ErrorBanner
               message={
-                (cfgQ.error as Error)?.message || "Failed to load config."
+                (cfgQ.error as Error)?.message || "获取配置失败"
               }
             />
           ) : null}
 
-          <Section title="System config">
+          <Section title="系统配置">
             <div className="space-y-4 p-4">
               {cfgQ.isLoading ? (
                 <div className="max-w-lg space-y-3">
@@ -165,12 +191,12 @@ export function SystemConfigPage() {
                       onChange={(e) => setEtlEnabled(e.target.checked)}
                       className="size-4 cursor-pointer"
                     />
-                    Enable daily auto ETL
+                    启用每日自动 ETL
                   </label>
 
                   <SettingsField
-                    label="Daily ETL cron expression"
-                    hint="Daily 02:00 → 0 2 * * *"
+                    label="定时任务 Cron 表达式"
+                    hint="每天凌晨 2 点：0 2 * * *"
                   >
                     <Input
                       type="text"
@@ -182,15 +208,15 @@ export function SystemConfigPage() {
                   </SettingsField>
 
                   <SettingsField
-                    label="Daily ETL datasource"
-                    hint="Bound datasource for the daily sync. Leave empty to skip even when enabled. PostgreSQL / Elasticsearch only."
+                    label="定时任务数据源"
+                    hint="定时 ETL 绑定的数据源。留空则即使启用定时，也不会执行同步。仅支持 PostgreSQL 和 Elasticsearch。"
                   >
                     <NativeSelect
                       className="w-full"
                       value={etlSource}
                       onChange={(e) => setEtlSource(e.target.value)}
                     >
-                      <option value="">Unbound</option>
+                      <option value="">未绑定</option>
                       {etlCandidates.map((d) => (
                         <option
                           key={d.id}
@@ -198,55 +224,55 @@ export function SystemConfigPage() {
                           disabled={!d.is_enabled}
                         >
                           {d.name} ({d.source_type === "postgres" ? "PG" : "ES"})
-                          {d.is_enabled ? "" : " - disabled"}
+                          {d.is_enabled ? "" : " - 未启用"}
                         </option>
                       ))}
                     </NativeSelect>
                   </SettingsField>
 
                   <SettingsField
-                    label="Log preview datasource"
-                    hint="Storage datasource (log_storage) for raw-log preview. Leave empty to fall back to the dir/MB fields below."
+                    label="日志预览存储数据源"
+                    hint="选择原始日志预览使用的存储数据源（source_type=log_storage）。留空则回退到下方目录/MB 配置。"
                   >
                     <NativeSelect
                       className="w-full"
                       value={logPreviewSource}
                       onChange={(e) => setLogPreviewSource(e.target.value)}
                     >
-                      <option value="">Unbound (use dir/MB below)</option>
+                      <option value="">未绑定（使用下方目录/MB）</option>
                       {logPreviewCandidates.map((d) => (
                         <option
                           key={d.id}
                           value={String(d.id)}
                           disabled={!d.is_enabled}
                         >
-                          {d.name} (log storage)
-                          {d.is_enabled ? "" : " - disabled"}
+                          {d.name}（日志存储）
+                          {d.is_enabled ? "" : " - 未启用"}
                         </option>
                       ))}
                     </NativeSelect>
                   </SettingsField>
 
                   <SettingsField
-                    label="System currency"
-                    hint="Base currency for price storage and cost calculation. Only newly-created prices use this; existing prices are unaffected."
+                    label="系统币种"
+                    hint="价格存储和成本计算使用的基准币种。修改后新建的价格按新币种换算，已有价格不受影响。"
                   >
                     <NativeSelect
                       className="w-full"
                       value={currency}
                       onChange={(e) => setCurrency(e.target.value)}
                     >
-                      {CURRENCY_OPTIONS.map((c) => (
-                        <option key={c} value={c}>
-                          {c}
+                      {CURRENCY_OPTIONS.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
                         </option>
                       ))}
                     </NativeSelect>
                   </SettingsField>
 
                   <SettingsField
-                    label="Default exchange rate (foreign → system)"
-                    hint="Used as the default when adding a non-system-currency price; overridable per price."
+                    label="默认汇率（外币兑换系统币种）"
+                    hint="新增模型价格时，非系统币种默认使用此汇率换算，可在价格编辑时单独修改。"
                   >
                     <Input
                       type="number"
@@ -259,21 +285,21 @@ export function SystemConfigPage() {
                   </SettingsField>
 
                   <SettingsField
-                    label="Raw log root dir"
-                    hint="local_log_path reads are constrained to this directory. Blank falls back to the chat service's raw_log_preview.root_dir."
+                    label="原始日志根目录"
+                    hint="local_log_path 会被限制在该目录内读取。留空时使用 chat 服务 config.yaml 中的 raw_log_preview.root_dir。"
                   >
                     <Input
                       type="text"
                       value={rawLogRootDir}
                       onChange={(e) => setRawLogRootDir(e.target.value)}
-                      placeholder="/data/chat-logs or ./logs/raw"
+                      placeholder="/data/chat-logs 或 ./logs/raw"
                       className="font-mono"
                     />
                   </SettingsField>
 
                   <SettingsField
-                    label="Log preview max size (MB)"
-                    hint="Above this size only the file size + notice is shown; content is not rendered inline."
+                    label="日志预览最大大小（MB）"
+                    hint="超过该大小时只显示文件大小和提示，不在线展示内容。"
                   >
                     <Input
                       type="number"
@@ -292,19 +318,17 @@ export function SystemConfigPage() {
                       onClick={handleSave}
                     >
                       <Save className="size-3.5" />
-                      Save config
+                      {updateCfg.isPending ? "保存中..." : "保存配置"}
                     </Button>
-                    {updateCfg.isError ? (
-                      <ErrorBanner
-                        message={
-                          (updateCfg.error as Error)?.message ||
-                          "Failed to save config."
-                        }
-                      />
-                    ) : null}
-                    {updateCfg.isSuccess ? (
-                      <span className="text-xs text-success">
-                        Config saved.
+                    {saveMessage ? (
+                      <span
+                        className={`text-sm ${
+                          saveMessage.ok
+                            ? "text-success"
+                            : "text-destructive"
+                        }`}
+                      >
+                        {saveMessage.text}
                       </span>
                     ) : null}
                   </div>
@@ -314,7 +338,7 @@ export function SystemConfigPage() {
           </Section>
 
           {extraKeys.length > 0 && (
-            <Section title="Other stored keys" bodyClassName="p-4">
+            <Section title="其他已存储配置" bodyClassName="p-4">
               <dl className="grid grid-cols-1 gap-x-6 gap-y-2 sm:grid-cols-2">
                 {extraKeys.map((k) => (
                   <div key={k} className="flex flex-col gap-0.5">

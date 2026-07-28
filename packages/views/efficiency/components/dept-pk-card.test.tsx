@@ -1,14 +1,28 @@
 import { describe, it, expect, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
+
+const { mockPush } = vi.hoisted(() => ({
+  mockPush: vi.fn(),
+}));
 
 // Smoke test: DeptPKCard renders its header and the top-ranked department
-// row from mocked query data without crashing. The chart (recharts) renders
-// SVG in jsdom with width/height 0 (expected warning); we assert on the
-// textual list, not the chart geometry. The base-ui Select portal is not
-// exercised here — the trigger renders closed by default.
+// row from mocked query data without crashing. The ranked list shows
+// department rows with rank badges, member/need counts, and RatioPill.
+// The base-ui Select portal is not exercised here — the trigger renders
+// closed by default.
 
 vi.mock("@multica/core/hooks", () => ({
   useWorkspaceId: () => "ws-1",
+}));
+
+vi.mock("@multica/core/paths", () => ({
+  useWorkspacePaths: () => ({
+    metricsEfficiency: () => "/acme/metrics/efficiency",
+  }),
+}));
+
+vi.mock("../../navigation", () => ({
+  useNavigation: () => ({ push: mockPush }),
 }));
 
 // Mock useQuery to return canned dept-tree + dept-ranking data keyed off the
@@ -126,13 +140,27 @@ describe("DeptPKCard", () => {
     // Header is present.
     expect(screen.getByText("部门 PK")).toBeInTheDocument();
     // The top-ranked department (部门A, ratio 0.8 → 80.0%) is listed with its
-    // member / need counts. 80.0% comes from formatV2Ratio(0.8). The base-ui
-    // Select trigger is closed by default, so the "全公司（一级部门）" option
-    // text is not in the DOM — only the ranked rows are asserted here.
+    // member / need counts. Ratio is rendered in a separate RatioPill.
     expect(screen.getByText("部门A")).toBeInTheDocument();
-    expect(screen.getByText(/8 人 · 需求 42 · 80\.0%/)).toBeInTheDocument();
+    expect(screen.getByText(/8 人 · 需求 42/)).toBeInTheDocument();
+    expect(screen.getByText("80.0%")).toBeInTheDocument();
     // The second-ranked department is also rendered (ratio 0.33 → 33.0%).
     expect(screen.getByText("部门B")).toBeInTheDocument();
-    expect(screen.getByText(/4 人 · 需求 20 · 33\.0%/)).toBeInTheDocument();
+    expect(screen.getByText(/4 人 · 需求 20/)).toBeInTheDocument();
+    expect(screen.getByText("33.0%")).toBeInTheDocument();
+  });
+
+  it("opens the organization-focused efficiency view for a department", () => {
+    render(
+      <DeptPKCard startDate="2026-01-01" endDate="2026-06-30" />,
+    );
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "查看部门 部门A 效率详情" }),
+    );
+
+    expect(mockPush).toHaveBeenCalledWith(
+      "/acme/metrics/efficiency?entity=org&object=dept-a",
+    );
   });
 });

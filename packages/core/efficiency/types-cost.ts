@@ -7,10 +7,9 @@
 // is imported from ./types-usage and re-exported here rather than redefined.
 // CostMembersQuery is cost-specific (its own sort keys) so it is defined here.
 //
-// These back the /api/v2/efficiency/cost/* endpoints the mini-cloud backend
-// will mount in a later slice; the mock layer returns samples shaped exactly
-// like these interfaces. Fields align with the source backend handler
-// gin.H returns (token costs in yuan).
+// These back the chat statistics /stats/departments/:id/cost/* endpoints;
+// the mock layer returns samples shaped exactly like these interfaces.
+// Fields align with the source backend responses (token costs in yuan).
 
 import type { DeptQuery } from "./types-usage";
 
@@ -22,7 +21,7 @@ import type { DeptQuery } from "./types-usage";
 
 // ============================ Department cost overview ============================
 
-/** /api/v2/efficiency/cost/dept/:id/overview — total cost / token cost /
+/** /stats/departments/:id/cost/overview — total cost / token cost /
  *  cache cost / per-user per-day per-1k-token average. */
 export interface CostOverviewResp {
   dept_id: string;
@@ -53,7 +52,7 @@ export interface CostOverviewResp {
   };
 }
 
-/** /api/v2/efficiency/cost/dept/:id/period-compare — cost period-over-period. */
+/** /stats/departments/:id/cost/period-compare — cost period-over-period. */
 export interface CostPeriodSpan {
   start: string;
   end: string;
@@ -80,7 +79,7 @@ export interface CostUnitPrice {
   cache_per_1k: number | null;
 }
 
-/** /api/v2/efficiency/cost/dept/:id/models — per-model cost / share /
+/** /stats/departments/:id/cost/models — per-model cost / share /
  *  unit price / actual average cost. */
 export interface CostModelItem {
   model: string;
@@ -108,7 +107,7 @@ export interface CostTrendPoint {
   total_cost: number;
 }
 
-/** /api/v2/efficiency/cost/dept/:id/model-trend — per-model daily cost
+/** /stats/departments/:id/cost/model-trend — per-model daily cost
  *  (stacked area chart). */
 export interface CostModelTrendSeries {
   model: string;
@@ -118,7 +117,7 @@ export interface CostModelTrendResp {
   series: CostModelTrendSeries[];
 }
 
-/** /api/v2/efficiency/cost/dept/:id/composition/models — model cost
+/** /stats/departments/:id/cost/composition/models — model cost
  *  composition share (pie chart). */
 export interface CostCompositionItem {
   model: string;
@@ -131,7 +130,7 @@ export interface CostModelCompositionResp {
 
 // ============================ Team (sub-department) cost ============================
 
-/** /api/v2/efficiency/cost/dept/:id/sub-departments — per-team (direct
+/** /stats/departments/:id/cost/sub-departments — per-team (direct
  *  child department) cost comparison. */
 export interface CostSubDeptItem {
   dept_id: string;
@@ -149,7 +148,7 @@ export interface CostSubDeptResp {
   items: CostSubDeptItem[];
 }
 
-/** /api/v2/efficiency/cost/dept/:id/team-trend — per-team daily cost (line). */
+/** /stats/departments/:id/cost/team-trend — per-team daily cost (line). */
 export interface CostTeamTrendSeries {
   dept_id: string;
   dept_name: string;
@@ -159,7 +158,7 @@ export interface CostTeamTrendResp {
   series: CostTeamTrendSeries[];
 }
 
-/** /api/v2/efficiency/cost/dept/:id/composition/teams — team cost
+/** /stats/departments/:id/cost/composition/teams — team cost
  *  composition share (pie chart). */
 export interface CostTeamCompositionItem {
   dept_id: string;
@@ -173,7 +172,7 @@ export interface CostTeamCompositionResp {
 
 // ============================ User cost ============================
 
-/** /api/v2/efficiency/cost/dept/:id/users — per-user cost in the dept (paginated). */
+/** /stats/departments/:id/cost/users — per-user cost in the dept (paginated). */
 export interface CostUserItem {
   universal_id: string;
   username: string | null;
@@ -200,7 +199,7 @@ export interface CostUsersResp {
   users: CostUserItem[];
 }
 
-/** /api/v2/efficiency/cost/dept/:id/anomaly — anomaly detection. */
+/** /stats/departments/:id/cost/anomaly — anomaly detection. */
 export interface CostAnomalyResp {
   dept_id: string;
   daily_spike_count: number; // single-day cost spike count

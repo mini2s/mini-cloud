@@ -5,11 +5,8 @@
 // config) and the three platform-ops pages (overview / health / realtime
 // report) plus the detail-query page (realtime query). Per the migration brief
 // these are NOT detail drill-downs (no back button / no react-router) — each
-// is a standalone page with its own PageHeader. CRUD is display + form UI
-// only; mutations are NOT_WIRED in the mock phase so every form action
-// surfaces NotWiredNotice instead of calling the backend. The platform-ops
-// pages are read-only dashboards over the chat realtime/config datasources.
-// The read tables/cards are the deliverable.
+// is a standalone page with its own PageHeader. The platform-ops pages are
+// read-only dashboards over the chat realtime/config datasources.
 export { PricingPage } from "./pricing-page";
 export { DatasourcesPage } from "./datasources-page";
 export { SyncTasksPage } from "./sync-tasks-page";

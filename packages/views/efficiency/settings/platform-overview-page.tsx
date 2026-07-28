@@ -7,18 +7,39 @@ import { useWorkspaceId } from "@multica/core/hooks";
 import {
   chatCacheHitRateOptions,
   chatCostTrendOptions,
+  chatDimensionOptions,
   chatGlobalDailyOptions,
+  chatHourlyDistributionOptions,
+  chatHourlyOptions,
   chatModelCostRankingOptions,
+  chatModelTrendOptions,
   chatModelsUsageOptions,
+  chatPerformanceByModelOptions,
+  chatPerformanceOverviewOptions,
   chatUsersRankingOptions,
+  chatUserTrendOptions,
   formatNumber,
   fmtCost,
+  globalConfigOptions,
   MOCK_ENABLED,
   type ChatCacheHitRateRow,
   type ChatCostTrendRow,
   type ChatDailyGlobal,
+  type ChatDimensionRow,
+  type ChatHourlyRow,
+  type ChatModelTrendSeries,
+  type ChatPerformanceByModelResponse,
+  type ChatPerformanceOverview,
+  type ChatUserTrendRow,
 } from "@multica/core/efficiency";
 import { Button } from "@multica/ui/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@multica/ui/components/ui/dialog";
 import {
   Tabs,
   TabsContent,
@@ -47,9 +68,8 @@ import { Section } from "./shared";
 
 // Platform ops · Overview. Ports the source PlatformOverview.tsx (1060 lines,
 // built on the chat proxy's historical /stats/* endpoints) to the shared-views
-// layer. Restores the source's multi-tab layout (Global / Models / Users; the
-// source's Performance + Time-distribution tabs are intentionally omitted here
-// — they relied on separate endpoints not in this slice, see notes below).
+// layer. Restores the source's Global, Performance, Time-distribution, Models,
+// and Users tabs.
 //
 // Data layer: the 6 historical endpoints (global/daily, cost-trend, cache-hit-
 // rate, models/cost-ranking, models/usage, users/ranking) are wired through
@@ -68,10 +88,12 @@ import { Section } from "./shared";
 //   - The source's per-tab query `enabled` gating is preserved (queries only
 //     fire when their tab is active) so switching tabs is cheap.
 
-type TabKey = "global" | "models" | "users";
+type TabKey = "global" | "performance" | "time" | "models" | "users";
 
 const TAB_LIST: Array<{ value: TabKey; label: string }> = [
   { value: "global", label: "全局趋势" },
+  { value: "performance", label: "请求性能" },
+  { value: "time", label: "时段分布" },
   { value: "models", label: "模型与成本" },
   { value: "users", label: "用户分析" },
 ];
@@ -111,6 +133,8 @@ function rangeForDays(days: number): { start: string; end: string } {
 export function PlatformOverviewPage() {
   const wsId = useWorkspaceId();
   const [tab, setTab] = useState<TabKey>("global");
+  const [autoRefresh, setAutoRefresh] = useState(false);
+  const refetchInterval = autoRefresh ? 30_000 : false;
 
   const [{ start, end }, setRange] = useState(() => rangeForDays(30));
   const [presetDays, setPresetDays] = useState<number | null>(30);
@@ -120,6 +144,10 @@ export function PlatformOverviewPage() {
   const [userSort, setUserSort] = useState("sum_total_tokens");
   const [searchInput, setSearchInput] = useState("");
   const [search, setSearch] = useState("");
+  const [selectedUser, setSelectedUser] = useState<{
+    uid: string;
+    label: string;
+  } | null>(null);
   useEffect(() => {
     const id = window.setTimeout(() => setSearch(searchInput.trim()), 400);
     return () => window.clearTimeout(id);
@@ -128,11 +156,10 @@ export function PlatformOverviewPage() {
   // Models-tab cost-trend model filter.
   const [costModel, setCostModel] = useState("all");
 
-  // chat_stats_enabled guard. Mock mode bypasses it (the mock is the platform
-  // stand-in, so the page is useful during development); real mode gates on
-  // the live flag and shows the source's "not enabled" notice when off.
-  const configResolved = MOCK_ENABLED;
-  const chatEnabled = MOCK_ENABLED;
+  const configQ = useQuery(globalConfigOptions(wsId));
+  const configResolved = MOCK_ENABLED || !configQ.isLoading;
+  const chatEnabled =
+    MOCK_ENABLED || configQ.data?.chat_stats_enabled === true;
   const enabled = chatEnabled && rangeValid;
 
   // Historical queries. Each is gated on its tab being active (mirrors the
@@ -140,29 +167,85 @@ export function PlatformOverviewPage() {
   const dailyQ = useQuery({
     ...chatGlobalDailyOptions(wsId, start, end),
     enabled: !!enabled && tab === "global",
+    refetchInterval,
   });
   const costQ = useQuery({
     ...chatCostTrendOptions(wsId, start, end, costModel === "all" ? undefined : costModel),
     enabled: !!enabled && (tab === "global" || tab === "models"),
+    refetchInterval,
   });
   const cacheQ = useQuery({
     ...chatCacheHitRateOptions(wsId, start, end),
     enabled: !!enabled && tab === "global",
+    refetchInterval,
   });
   const rankQ = useQuery({
     ...chatModelCostRankingOptions(wsId, start, end),
     enabled: !!enabled && (tab === "global" || tab === "models"),
+    refetchInterval,
   });
   const usageQ = useQuery({
     ...chatModelsUsageOptions(wsId, start, end),
     enabled: !!enabled && tab === "models",
+    refetchInterval,
   });
   const usersQ = useQuery({
     ...chatUsersRankingOptions(wsId, start, end, userSort, search),
     enabled: !!enabled && tab === "users",
+    refetchInterval,
+  });
+  const performanceQ = useQuery({
+    ...chatPerformanceOverviewOptions(wsId, start, end),
+    enabled: !!enabled && tab === "performance",
+    refetchInterval,
+  });
+  const performanceModelsQ = useQuery({
+    ...chatPerformanceByModelOptions(wsId, start, end),
+    enabled: !!enabled && tab === "performance",
+    refetchInterval,
+  });
+  const performanceDailyQ = useQuery({
+    ...chatGlobalDailyOptions(wsId, start, end),
+    enabled: !!enabled && tab === "performance",
+    refetchInterval,
+  });
+  const routedModelQ = useQuery({
+    ...chatDimensionOptions(wsId, start, end, "routed_model"),
+    enabled: !!enabled && tab === "models",
+    refetchInterval,
+  });
+  const errorCodeQ = useQuery({
+    ...chatDimensionOptions(wsId, start, end, "error_code", "desc"),
+    enabled: !!enabled && tab === "models",
+    refetchInterval,
+  });
+  const modelTrendQ = useQuery({
+    ...chatModelTrendOptions(wsId, {
+      startDate: start,
+      endDate: end,
+      models: routedModelQ.data?.map((row) => row.dimension_value).join(","),
+    }),
+    enabled:
+      !!enabled &&
+      tab === "models" &&
+      (routedModelQ.data?.length ?? 0) > 0,
+    refetchInterval,
   });
 
-  const queries = [dailyQ, costQ, cacheQ, rankQ, usageQ, usersQ];
+  const queries = [
+    dailyQ,
+    costQ,
+    cacheQ,
+    rankQ,
+    usageQ,
+    usersQ,
+    performanceQ,
+    performanceModelsQ,
+    performanceDailyQ,
+    routedModelQ,
+    errorCodeQ,
+    modelTrendQ,
+  ];
   const errors = queries
     .filter((q) => q.isError)
     .map((q) => (q.error as Error)?.message || "加载失败");
@@ -170,6 +253,10 @@ export function PlatformOverviewPage() {
     enabled &&
     (tab === "global"
       ? dailyQ.isLoading
+      : tab === "performance"
+        ? performanceQ.isLoading || performanceDailyQ.isLoading
+        : tab === "time"
+          ? false
       : tab === "models"
         ? rankQ.isLoading
         : usersQ.isLoading);
@@ -230,6 +317,14 @@ export function PlatformOverviewPage() {
             请选择有效的起止日期（开始 ≤ 结束）
           </span>
         )}
+        <label className="ml-1 inline-flex items-center gap-1.5 text-xs text-muted-foreground">
+          <input
+            type="checkbox"
+            checked={autoRefresh}
+            onChange={(event) => setAutoRefresh(event.target.checked)}
+          />
+          自动刷新{autoRefresh ? "（30 秒）" : ""}
+        </label>
       </div>
     </PageHeader>
   );
@@ -299,6 +394,24 @@ export function PlatformOverviewPage() {
                 />
               </TabsContent>
 
+              <TabsContent value="performance">
+                <PerformanceTab
+                  overview={performanceQ.data}
+                  models={performanceModelsQ.data}
+                  daily={performanceDailyQ.data ?? []}
+                />
+              </TabsContent>
+
+              <TabsContent value="time">
+                <TimeDistributionTab
+                  wsId={wsId}
+                  start={start}
+                  end={end}
+                  enabled={enabled}
+                  refetchInterval={refetchInterval}
+                />
+              </TabsContent>
+
               <TabsContent value="models">
                 <ModelsTab
                   ranking={rankQ.data ?? []}
@@ -306,6 +419,9 @@ export function PlatformOverviewPage() {
                   cost={costQ.data ?? []}
                   costModel={costModel}
                   onCostModelChange={setCostModel}
+                  dimensions={routedModelQ.data ?? []}
+                  modelTrend={modelTrendQ.data ?? []}
+                  errorCodes={errorCodeQ.data ?? []}
                 />
               </TabsContent>
 
@@ -318,10 +434,21 @@ export function PlatformOverviewPage() {
                   searchInput={searchInput}
                   onSearchInput={setSearchInput}
                   isFetching={usersQ.isFetching}
+                  onSelectUser={(uid, label) =>
+                    setSelectedUser({ uid, label })
+                  }
                 />
               </TabsContent>
             </Tabs>
           )}
+          <UserTrendDialog
+            user={selectedUser}
+            start={start}
+            end={end}
+            onOpenChange={(open) => {
+              if (!open) setSelectedUser(null);
+            }}
+          />
         </div>
       </div>
     </div>
@@ -550,6 +677,350 @@ function GlobalTab({ daily, cost, cache }: GlobalTabProps) {
   );
 }
 
+// ============================ Performance tab ============================
+
+function PerformanceTab({
+  overview,
+  models,
+  daily,
+}: {
+  overview: ChatPerformanceOverview | undefined;
+  models: ChatPerformanceByModelResponse | undefined;
+  daily: ChatDailyGlobal[];
+}) {
+  const sampleRequests = daily.reduce(
+    (sum, row) => sum + row.total_requests,
+    0,
+  );
+  const durationTrend: MultiTrendPoint[] = daily.map((row) => ({
+    label: row.date.slice(5, 10),
+    duration: row.avg_duration_ms ?? 0,
+  }));
+  const successTrend: MultiTrendPoint[] = daily.map((row) => {
+    const total =
+      row.total_requests_including_errors > 0
+        ? row.total_requests_including_errors
+        : row.total_requests;
+    return {
+      label: row.date.slice(5, 10),
+      success:
+        total > 0
+          ? +(((total - row.total_error_requests) / total) * 100).toFixed(2)
+          : 0,
+    };
+  });
+  const ttftBars: BarDatum[] = (models?.models ?? [])
+    .filter((model) => (model.avg_ttft_ms ?? 0) > 0)
+    .sort((a, b) => (a.avg_ttft_ms ?? 0) - (b.avg_ttft_ms ?? 0))
+    .map((model) => ({
+      label: model.model || "-",
+      value: model.avg_ttft_ms ?? 0,
+    }));
+  const speedBars: BarDatum[] = (models?.models ?? [])
+    .filter((model) => (model.avg_token_output_speed ?? 0) > 0)
+    .sort(
+      (a, b) =>
+        (b.avg_token_output_speed ?? 0) -
+        (a.avg_token_output_speed ?? 0),
+    )
+    .map((model) => ({
+      label: model.model || "-",
+      value: model.avg_token_output_speed ?? 0,
+    }));
+  const metrics = [
+    {
+      label: "平均 TTFT",
+      value:
+        overview?.avg_ttft_ms == null
+          ? "-"
+          : `${overview.avg_ttft_ms.toFixed(0)} ms`,
+      hint: `首 Token 时延 · 加权均值 · 样本 ${formatNumber(sampleRequests)} 请求`,
+    },
+    {
+      label: "平均 Token 输出速度",
+      value:
+        overview?.avg_token_output_speed == null
+          ? "-"
+          : `${overview.avg_token_output_speed.toFixed(1)} t/s`,
+      hint: `生成阶段 tokens/秒 · 加权均值 · 样本 ${formatNumber(sampleRequests)} 请求`,
+    },
+    {
+      label: "平均端到端耗时",
+      value:
+        overview?.avg_duration_ms == null
+          ? "-"
+          : `${overview.avg_duration_ms.toFixed(0)} ms`,
+      hint: `请求开始到完整响应 · 加权均值 · 样本 ${formatNumber(sampleRequests)} 请求`,
+    },
+  ];
+
+  return (
+    <div className="space-y-4">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+        {metrics.map((metric) => (
+          <div key={metric.label} className="rounded-lg border bg-card p-4 shadow-sm">
+            <div className="text-xs font-medium text-muted-foreground">
+              {metric.label}
+            </div>
+            <div className="mt-1 text-xl font-bold tabular-nums">
+              {metric.value}
+            </div>
+            <div className="mt-1 text-xs text-muted-foreground">
+              {metric.hint}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+        <Section title="平均端到端耗时趋势" count="按日 · 加权均值" bodyClassName="p-4">
+          {durationTrend.length > 0 ? (
+            <MultiTrendChart
+              data={durationTrend}
+              series={[
+                {
+                  key: "duration",
+                  name: "平均端到端耗时",
+                  color: chartColorFor(0),
+                },
+              ]}
+              formatY={(value) => `${value} ms`}
+            />
+          ) : (
+            <EmptyHint />
+          )}
+        </Section>
+        <Section title="请求成功率趋势" count="按日 · 成功 / 含错误总请求" bodyClassName="p-4">
+          {successTrend.length > 0 ? (
+            <MultiTrendChart
+              data={successTrend}
+              series={[
+                {
+                  key: "success",
+                  name: "成功率",
+                  color: chartColorFor(1),
+                },
+              ]}
+              formatY={(value) => `${value}%`}
+            />
+          ) : (
+            <EmptyHint />
+          )}
+        </Section>
+      </div>
+
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+        <Section title="各模型平均 TTFT" count="首 Token 时延（ms）· 升序" bodyClassName="p-4">
+          {ttftBars.length > 0 ? (
+            <RankingBarChart data={ttftBars} />
+          ) : (
+            <EmptyHint />
+          )}
+        </Section>
+        <Section title="各模型平均输出速度" count="tokens/秒 · 降序" bodyClassName="p-4">
+          {speedBars.length > 0 ? (
+            <RankingBarChart data={speedBars} />
+          ) : (
+            <EmptyHint />
+          )}
+        </Section>
+      </div>
+    </div>
+  );
+}
+
+// ============================ Time distribution tab ============================
+
+const WEEKDAY_LABELS = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"];
+
+function TimeDistributionTab({
+  wsId,
+  start,
+  end,
+  enabled,
+  refetchInterval,
+}: {
+  wsId: string;
+  start: string;
+  end: string;
+  enabled: boolean;
+  refetchInterval: number | false;
+}) {
+  const [day, setDay] = useState(end);
+  useEffect(() => {
+    if (day < start || day > end) setDay(end);
+  }, [day, end, start]);
+  const dayValid = !!day && day >= start && day <= end;
+  const hourlyQ = useQuery({
+    ...chatHourlyDistributionOptions(wsId, day),
+    enabled: enabled && dayValid,
+    refetchInterval,
+  });
+  const heatmapQ = useQuery({
+    ...chatHourlyOptions(wsId, `${start}T00:00:00`, `${end}T23:00:00`),
+    enabled,
+    refetchInterval,
+  });
+  const hours = useMemo(() => {
+    const byHour = new Map(
+      (hourlyQ.data?.hours ?? []).map((item) => [item.hour, item]),
+    );
+    return Array.from(
+      { length: 24 },
+      (_, hour) =>
+        byHour.get(hour) ?? { hour, request_count: 0, active_users: 0 },
+    );
+  }, [hourlyQ.data]);
+  const requestTrend: MultiTrendPoint[] = hours.map((item) => ({
+    label: `${item.hour}时`,
+    requests: item.request_count,
+  }));
+  const userTrend: MultiTrendPoint[] = hours.map((item) => ({
+    label: `${item.hour}时`,
+    users: item.active_users,
+  }));
+  const heatmap = useMemo(
+    () => buildHourlyHeatmap(heatmapQ.data ?? []),
+    [heatmapQ.data],
+  );
+  const errors = [hourlyQ.error, heatmapQ.error].filter(Boolean);
+
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-center gap-2">
+        <label className="inline-flex items-center gap-2 text-sm text-muted-foreground">
+          <span>单日时段</span>
+          <input
+            type="date"
+            value={day}
+            min={start}
+            max={end}
+            onChange={(event) => setDay(event.target.value)}
+            aria-label="选择单日查看 0-23 时分布"
+            className="rounded-md border bg-background px-2 py-1 text-xs text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          />
+        </label>
+        {!dayValid ? (
+          <span className="text-xs text-destructive">请选择区间内的日期</span>
+        ) : null}
+      </div>
+
+      {errors.length > 0 ? (
+        <div className="rounded-lg border border-destructive/20 bg-destructive/5 px-4 py-2 text-sm text-destructive">
+          {errors
+            .map((error) => (error as Error)?.message || "加载失败")
+            .join("；")}
+        </div>
+      ) : null}
+
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+        <Section title="按小时请求量" count={`${day} · 0-23 时`} bodyClassName="p-4">
+          {(hourlyQ.data?.hours.length ?? 0) > 0 ? (
+            <MultiTrendChart
+              data={requestTrend}
+              series={[
+                {
+                  key: "requests",
+                  name: "请求量",
+                  color: chartColorFor(0),
+                },
+              ]}
+              formatY={shortToken}
+            />
+          ) : (
+            <EmptyHint />
+          )}
+        </Section>
+        <Section title="按小时活跃用户" count={`${day} · 单日去重`} bodyClassName="p-4">
+          {(hourlyQ.data?.hours.length ?? 0) > 0 ? (
+            <MultiTrendChart
+              data={userTrend}
+              series={[
+                {
+                  key: "users",
+                  name: "活跃用户",
+                  color: chartColorFor(1),
+                },
+              ]}
+              formatY={shortToken}
+            />
+          ) : (
+            <EmptyHint />
+          )}
+        </Section>
+      </div>
+
+      <Section title="7×24 请求热力图" count={`${start} 至 ${end} · 按星期和小时聚合`} bodyClassName="overflow-x-auto p-4">
+        {heatmap.max > 0 ? (
+          <div className="min-w-[760px] space-y-1">
+            <div
+              className="grid gap-1 pl-12 text-center text-[10px] text-muted-foreground"
+              style={{ gridTemplateColumns: "repeat(24, minmax(0, 1fr))" }}
+            >
+              {Array.from({ length: 24 }, (_, hour) => (
+                <span key={hour}>{hour}</span>
+              ))}
+            </div>
+            {WEEKDAY_LABELS.map((label, weekday) => (
+              <div key={label} className="flex items-center gap-2">
+                <span className="w-10 shrink-0 text-xs text-muted-foreground">
+                  {label}
+                </span>
+                <div
+                  className="grid flex-1 gap-1"
+                  style={{ gridTemplateColumns: "repeat(24, minmax(0, 1fr))" }}
+                >
+                  {heatmap.values[weekday]?.map((value, hour) => {
+                    const intensity = Math.max(
+                      4,
+                      Math.round((value / heatmap.max) * 90),
+                    );
+                    return (
+                      <div
+                        key={hour}
+                        className="aspect-square rounded-sm border border-border/40"
+                        style={{
+                          backgroundColor: `color-mix(in oklab, var(--primary) ${intensity}%, var(--muted))`,
+                        }}
+                        title={`${label} ${hour}时：${formatNumber(value)} 次请求`}
+                      />
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <EmptyHint />
+        )}
+      </Section>
+    </div>
+  );
+}
+
+function buildHourlyHeatmap(rows: ChatHourlyRow[]): {
+  values: number[][];
+  max: number;
+} {
+  const values = Array.from({ length: 7 }, () =>
+    Array.from({ length: 24 }, () => 0),
+  );
+  let max = 0;
+  for (const row of rows) {
+    if (!row.date_hour || row.date_hour.length < 13) continue;
+    const year = Number(row.date_hour.slice(0, 4));
+    const month = Number(row.date_hour.slice(5, 7));
+    const day = Number(row.date_hour.slice(8, 10));
+    const hour = Number(row.date_hour.slice(11, 13));
+    if (![year, month, day, hour].every(Number.isFinite)) continue;
+    const weekday = (new Date(year, month - 1, day).getDay() + 6) % 7;
+    const next = (values[weekday]?.[hour] ?? 0) + row.total_requests;
+    if (values[weekday]) values[weekday][hour] = next;
+    max = Math.max(max, next);
+  }
+  return { values, max };
+}
+
 // ============================ Models tab ============================
 
 interface ModelsTabProps {
@@ -570,6 +1041,9 @@ interface ModelsTabProps {
   cost: ChatCostTrendRow[];
   costModel: string;
   onCostModelChange: (m: string) => void;
+  dimensions: ChatDimensionRow[];
+  modelTrend: ChatModelTrendSeries[];
+  errorCodes: ChatDimensionRow[];
 }
 
 function ModelsTab({
@@ -578,6 +1052,9 @@ function ModelsTab({
   cost,
   costModel,
   onCostModelChange,
+  dimensions,
+  modelTrend,
+  errorCodes,
 }: ModelsTabProps) {
   // Model request share pie.
   const requestPie: PieDatum[] = useMemo(
@@ -630,6 +1107,36 @@ function ModelsTab({
       ["all", ...ranking.map((r) => r.model).filter(Boolean)] as string[],
     [ranking],
   );
+  const routingPie: PieDatum[] = dimensions
+    .filter((row) => (row.total_requests ?? 0) > 0)
+    .map((row) => ({
+      name: row.dimension_value || "-",
+      value: row.total_requests ?? 0,
+    }));
+  const modelTrendDates = Array.from(
+    new Set(modelTrend.flatMap((series) => series.data.map((row) => row.date))),
+  ).sort();
+  const modelTrendData: MultiTrendPoint[] = modelTrendDates.map((date) => {
+    const point: MultiTrendPoint = { label: date.slice(5, 10) };
+    for (const series of modelTrend) {
+      point[series.model] =
+        series.data.find((row) => row.date === date)?.total_requests ?? 0;
+    }
+    return point;
+  });
+  const modelTrendSeries = modelTrend.map((series, index) => ({
+    key: series.model,
+    name: series.model,
+    color: chartColorFor(index),
+  }));
+  const errorBars: BarDatum[] = errorCodes
+    .map((row) => ({
+      label: row.dimension_value || "-",
+      value: row.error_requests ?? 0,
+    }))
+    .filter((row) => row.value > 0)
+    .sort((a, b) => b.value - a.value)
+    .slice(0, 15);
 
   return (
     <div className="space-y-4">
@@ -679,6 +1186,76 @@ function ModelsTab({
             series={costSeries}
             formatY={(v) => `¥${shortToken(v)}`}
           />
+        ) : (
+          <EmptyHint />
+        )}
+      </Section>
+
+      <Section title="模型请求量趋势" count="按日 · 多模型对比" bodyClassName="p-4">
+        {modelTrendData.length > 0 && modelTrendSeries.length > 0 ? (
+          <MultiTrendChart
+            data={modelTrendData}
+            series={modelTrendSeries}
+            formatY={shortToken}
+          />
+        ) : (
+          <EmptyHint />
+        )}
+      </Section>
+
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+        <Section title="Auto 路由实际命中模型分布" count="区间合并" bodyClassName="p-4">
+          {routingPie.length > 0 ? (
+            <PieBreakdownChart data={routingPie} />
+          ) : (
+            <EmptyHint />
+          )}
+        </Section>
+        <Section title="按路由模型汇总" count={dimensions.length} bodyClassName="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b">
+                <Th>模型</Th>
+                <ThNum>请求数</ThNum>
+                <ThNum>用户数</ThNum>
+                <ThNum>输入 Token</ThNum>
+                <ThNum>输出 Token</ThNum>
+                <ThNum>时延</ThNum>
+                <ThNum>错误率</ThNum>
+              </tr>
+            </thead>
+            <tbody>
+              {dimensions.length === 0 ? (
+                <tr>
+                  <td colSpan={7} className="px-3 py-8 text-center text-muted-foreground">
+                    暂无数据
+                  </td>
+                </tr>
+              ) : (
+                dimensions.map((row) => (
+                  <tr key={row.dimension_value} className="border-b last:border-0">
+                    <Td>{row.dimension_value || "-"}</Td>
+                    <TdNum>{formatNumber(row.total_requests ?? 0)}</TdNum>
+                    <TdNum>{formatNumber(row.total_users ?? 0)}</TdNum>
+                    <TdNum>{shortToken(row.total_prompt_tokens ?? 0)}</TdNum>
+                    <TdNum>{shortToken(row.total_completion_tokens ?? 0)}</TdNum>
+                    <TdNum>
+                      {row.avg_duration_ms == null
+                        ? "-"
+                        : `${row.avg_duration_ms.toFixed(0)} ms`}
+                    </TdNum>
+                    <TdNum>{pct(row.error_rate)}</TdNum>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </Section>
+      </div>
+
+      <Section title="错误码分布" count="按错误次数 · Top 15" bodyClassName="p-4">
+        {errorBars.length > 0 ? (
+          <RankingBarChart data={errorBars} />
         ) : (
           <EmptyHint />
         )}
@@ -764,6 +1341,7 @@ interface UsersTabProps {
   searchInput: string;
   onSearchInput: (s: string) => void;
   isFetching: boolean;
+  onSelectUser: (uid: string, label: string) => void;
 }
 
 function UsersTab({
@@ -774,6 +1352,7 @@ function UsersTab({
   searchInput,
   onSearchInput,
   isFetching,
+  onSelectUser,
 }: UsersTabProps) {
   return (
     <Section
@@ -840,7 +1419,25 @@ function UsersTab({
             </tr>
           ) : (
             rows.map((u, i) => (
-              <tr key={u.universal_id || i} className="border-b last:border-0">
+              <tr
+                key={u.universal_id || i}
+                tabIndex={0}
+                onClick={() =>
+                  onSelectUser(
+                    u.universal_id,
+                    u.username || u.universal_id,
+                  )
+                }
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") {
+                    onSelectUser(
+                      u.universal_id,
+                      u.username || u.universal_id,
+                    );
+                  }
+                }}
+                className="cursor-pointer border-b transition-colors last:border-0 hover:bg-muted/40 focus-visible:bg-muted/40 focus-visible:outline-none"
+              >
                 <TdNum>{i + 1}</TdNum>
                 <Td>
                   <span className="font-mono text-xs">{u.universal_id || "-"}</span>
@@ -878,6 +1475,155 @@ function UsersTab({
         </tbody>
       </table>
     </Section>
+  );
+}
+
+function UserTrendDialog({
+  user,
+  start,
+  end,
+  onOpenChange,
+}: {
+  user: { uid: string; label: string } | null;
+  start: string;
+  end: string;
+  onOpenChange: (open: boolean) => void;
+}) {
+  const wsId = useWorkspaceId();
+  const query = useQuery({
+    ...chatUserTrendOptions(wsId, user?.uid ?? "", {
+      startDate: start,
+      endDate: end,
+    }),
+    enabled: !!wsId && !!user?.uid,
+  });
+  const rows = useMemo(() => query.data ?? [], [query.data]);
+  const totals = useMemo(
+    () =>
+      rows.reduce(
+        (acc, row) => ({
+          requests: acc.requests + (row.total_requests || 0),
+          tokens: acc.tokens + (row.sum_total_tokens || 0),
+          cost: acc.cost + (row.estimated_total_cost || 0),
+          errors: acc.errors + (row.error_requests || 0),
+        }),
+        { requests: 0, tokens: 0, cost: 0, errors: 0 },
+      ),
+    [rows],
+  );
+  const trend = useMemo<MultiTrendPoint[]>(
+    () =>
+      rows.map((row) => ({
+        label: row.date.slice(5, 10),
+        requests: row.total_requests,
+        errors: row.error_requests,
+      })),
+    [rows],
+  );
+
+  return (
+    <Dialog open={user != null} onOpenChange={onOpenChange}>
+      <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-5xl">
+        <DialogHeader>
+          <DialogTitle>{user?.label || "用户"} · 平台趋势详情</DialogTitle>
+          <DialogDescription>
+            {start} ~ {end} · Universal ID: {user?.uid || "-"}
+          </DialogDescription>
+        </DialogHeader>
+
+        {query.error ? (
+          <div className="rounded-md border border-destructive/20 bg-destructive/5 p-4 text-sm text-destructive">
+            加载失败：{(query.error as Error).message}
+          </div>
+        ) : query.isLoading ? (
+          <Skeleton className="h-72 w-full" />
+        ) : (
+          <div className="space-y-4">
+            <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+              <UserTrendKpi label="请求数" value={formatNumber(totals.requests)} />
+              <UserTrendKpi label="Token" value={shortToken(totals.tokens)} />
+              <UserTrendKpi label="AI 花费" value={`¥${fmtCost(totals.cost)}`} />
+              <UserTrendKpi label="错误请求" value={formatNumber(totals.errors)} />
+            </div>
+
+            <Section
+              title="请求趋势"
+              count="请求数 / 错误请求"
+              bodyClassName="p-4"
+            >
+              {trend.length ? (
+                <MultiTrendChart
+                  data={trend}
+                  series={[
+                    {
+                      key: "requests",
+                      name: "请求数",
+                      color: chartColorFor(0),
+                    },
+                    {
+                      key: "errors",
+                      name: "错误请求",
+                      color: "var(--destructive)",
+                    },
+                  ]}
+                  formatY={shortToken}
+                />
+              ) : (
+                <EmptyHint />
+              )}
+            </Section>
+
+            <Section
+              title="每日明细"
+              count={`${rows.length} 天`}
+              bodyClassName="overflow-x-auto"
+            >
+              <table className="w-full min-w-[760px] text-sm">
+                <thead>
+                  <tr className="border-b">
+                    <Th>日期</Th>
+                    <ThNum>请求数</ThNum>
+                    <ThNum>总 Token</ThNum>
+                    <ThNum>缓存 Token</ThNum>
+                    <ThNum>AI 花费（¥）</ThNum>
+                    <ThNum>会话数</ThNum>
+                    <ThNum>平均时延</ThNum>
+                    <ThNum>错误请求</ThNum>
+                  </tr>
+                </thead>
+                <tbody>
+                  {rows.map((row: ChatUserTrendRow) => (
+                    <tr key={row.date} className="border-b last:border-0">
+                      <Td>{row.date}</Td>
+                      <TdNum>{formatNumber(row.total_requests)}</TdNum>
+                      <TdNum>{shortToken(row.sum_total_tokens)}</TdNum>
+                      <TdNum>{shortToken(row.sum_cache_tokens)}</TdNum>
+                      <TdNum>{fmtCost(row.estimated_total_cost)}</TdNum>
+                      <TdNum>{formatNumber(row.unique_task_count)}</TdNum>
+                      <TdNum>
+                        {row.avg_duration_ms == null
+                          ? "-"
+                          : `${row.avg_duration_ms.toFixed(0)} ms`}
+                      </TdNum>
+                      <TdNum>{formatNumber(row.error_requests)}</TdNum>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </Section>
+          </div>
+        )}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function UserTrendKpi({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-lg border bg-card p-4">
+      <div className="text-xs text-muted-foreground">{label}</div>
+      <div className="mt-1 text-xl font-semibold tabular-nums">{value}</div>
+    </div>
   );
 }
 

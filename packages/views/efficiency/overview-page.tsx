@@ -56,8 +56,8 @@ export function OverviewPage() {
               <HeroSaving startDate={startDate} endDate={endDate} />
             </Cell>
 
-            {/* Row 2: Platform objective metrics (graceful degrade when the
-                chat proxy is off / not migrated — see the card). */}
+            {/* Row 2: Platform objective metrics with a graceful disabled/error
+                state when the chat source is unavailable. */}
             <Cell className="col-span-12">
               <PlatformObjectiveCard startDate={startDate} endDate={endDate} />
             </Cell>
@@ -108,4 +108,3 @@ function Cell({
 }
 
 // PeriodSelect is imported from ./components (shared with the Usage Kanban).
-

@@ -25,6 +25,7 @@
     "metrics_cost": "Cost",
     "metrics_coverage": "Coverage",
     "metrics_contribution": "Contribution",
+    "metrics_needs": "Needs",
     "permissions": "Permissions",
     "devices": "Devices",
     "connectors": "Connectors",

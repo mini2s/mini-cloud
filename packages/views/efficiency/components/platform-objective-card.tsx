@@ -1,40 +1,45 @@
 "use client";
 
+import { useMemo, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useWorkspaceId } from "@multica/core/hooks";
 import {
-  dashboardSummaryOptions,
-  globalConfigOptions,
+  buildBuckets,
+  chatCostTrendOptions,
+  chatGlobalDailyOptions,
   formatNumber,
-  formatV2Ratio,
+  globalConfigOptions,
+  GRANULARITY_CN,
+  type ChatCostTrendRow,
+  type ChatDailyGlobal,
 } from "@multica/core/efficiency";
 import { Skeleton } from "@multica/ui/components/ui/skeleton";
 import { KpiCard } from "../../runtimes/components/shared";
-
-// Platform objective metrics. The source (PlatformObjectiveCard) was built
-// entirely on the chat proxy (chatGet '/stats/global/daily' and
-// '/stats/cost-trend') to show real AI spend / requests / tokens / cache hit
-// rate. The mini-cloud migration DECIDED NOT to migrate the chat proxy (no
-// chat client, no chatGet). So this card is substantially simplified.
-//
-// Degradation logic (mirrors the source's guardrails, minimally):
-// - config not resolved yet → render nothing (avoid a flash of the degraded
-//   notice while globalConfig is still loading).
-// - chat_stats_enabled !== true → show the source's "not enabled" notice
-//   (this is the realistic default; the platform data source is off).
-// - chat_stats_enabled === true but no chat client wired → show the
-//   "full data wired when backend live" placeholder. We surface the AI
-//   signals that ARE in dashboardSummary (AI code ratio / coverage /
-//   penetration / kanban-task total_cost) so the card isn't empty, with an
-//   explicit note that the platform-side spend/requests/tokens are pending.
-//
-// The KPIs shown are NOT the platform objective metrics from the source —
-// they are the dashboard-derived AI signals, clearly labelled. This is the
-// "simplification" the task brief calls out as the most affected card.
+import {
+  MultiTrendChart,
+  type MultiTrendPoint,
+  type MultiTrendSeries,
+} from "../charts";
+import { chartColorFor } from "../usage/shared";
+import { GranularityToggle, useGranularity } from "./granularity-toggle";
 
 interface PlatformObjectiveCardProps {
   startDate?: string;
   endDate?: string;
+}
+
+function shortPlatformNumber(value: number | null | undefined): string {
+  if (value == null || !Number.isFinite(value)) return "-";
+  if (value >= 1_000_000_000) return `${(value / 1_000_000_000).toFixed(2)}B`;
+  if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`;
+  if (value >= 1_000) return `${(value / 1_000).toFixed(1)}K`;
+  return String(value);
+}
+
+function formatRatio(value: number | null | undefined): string {
+  return value == null || !Number.isFinite(value)
+    ? "-"
+    : `${(value * 100).toFixed(2)}%`;
 }
 
 export function PlatformObjectiveCard({
@@ -42,19 +47,94 @@ export function PlatformObjectiveCard({
   endDate,
 }: PlatformObjectiveCardProps) {
   const wsId = useWorkspaceId();
+  const start = startDate ?? "";
+  const end = endDate ?? "";
   const configQ = useQuery(globalConfigOptions(wsId));
-  const summaryQ = useQuery(dashboardSummaryOptions(wsId, startDate, endDate));
-
-  const configResolved = !configQ.isLoading;
   const chatEnabled = configQ.data?.chat_stats_enabled === true;
+  const enabled =
+    chatEnabled && start.length > 0 && end.length > 0 && start <= end;
 
-  const s = summaryQ.data;
+  const dailyQ = useQuery({
+    ...chatGlobalDailyOptions(wsId, start, end),
+    enabled,
+  });
+  const costQ = useQuery({
+    ...chatCostTrendOptions(wsId, start, end, "all"),
+    enabled,
+  });
 
-  // Guard 0: config still loading → render nothing (avoid a flash).
-  if (!configResolved) return null;
+  const daily = useMemo(() => dailyQ.data ?? [], [dailyQ.data]);
+  const costRows = useMemo(() => costQ.data ?? [], [costQ.data]);
+  const { gran, setGran, options: granOptions } = useGranularity(start, end);
 
-  const wrap = (children: React.ReactNode) => (
-    <section className="flex flex-col rounded-lg border bg-card shadow-sm p-5 transition-shadow hover:shadow-lg md:p-6">
+  const aggregate = useMemo(() => {
+    const sum = (pick: (row: ChatDailyGlobal) => number | null | undefined) =>
+      daily.reduce((total, row) => total + (pick(row) || 0), 0);
+    const requests = sum((row) => row.total_requests);
+    const requestsIncludingErrors = sum((row) =>
+      row.total_requests_including_errors > 0
+        ? row.total_requests_including_errors
+        : row.total_requests,
+    );
+    const errors = sum((row) => row.total_error_requests);
+    const errorRate =
+      requestsIncludingErrors > 0 ? errors / requestsIncludingErrors : null;
+
+    return {
+      requests,
+      totalTokens: sum((row) => row.sum_total_tokens),
+      cacheTokens: sum((row) => row.sum_cache_tokens),
+      promptTokens: sum((row) => row.sum_prompt_tokens),
+      cost: sum((row) => row.estimated_total_cost),
+      peakUsers: daily.reduce(
+        (peak, row) => Math.max(peak, row.total_users),
+        0,
+      ),
+      avgUsers:
+        daily.length > 0
+          ? Math.round(sum((row) => row.total_users) / daily.length)
+          : 0,
+      errorRate,
+      successRate: errorRate == null ? null : 1 - errorRate,
+    };
+  }, [daily]);
+
+  const cacheHitRate =
+    aggregate.promptTokens > 0
+      ? aggregate.cacheTokens / aggregate.promptTokens
+      : null;
+
+  const trendData = useMemo<MultiTrendPoint[]>(() => {
+    if (costRows.length > 0) {
+      return bucketCostRows(costRows, gran, start, end);
+    }
+    const byDate = new Map(daily.map((row) => [row.date, row]));
+    return buildBuckets(
+      daily.map((row) => row.date),
+      gran,
+      { start, end },
+    ).map((bucket) => ({
+      label: bucket.label,
+      requests: bucket.dates.reduce(
+        (total, date) => total + (byDate.get(date)?.total_requests ?? 0),
+        0,
+      ),
+    }));
+  }, [costRows, daily, gran, start, end]);
+
+  const costTrend = costRows.length > 0;
+  const trendSeries: MultiTrendSeries[] = [
+    {
+      key: costTrend ? "cost" : "requests",
+      name: costTrend ? "AI 花费（¥）" : "请求量",
+      color: chartColorFor(costTrend ? 3 : 2),
+    },
+  ];
+
+  if (configQ.isLoading) return null;
+
+  const wrap = (children: ReactNode) => (
+    <section className="flex flex-col rounded-lg border bg-card p-5 shadow-sm transition-shadow hover:shadow-lg md:p-6">
       <div className="mb-1 flex items-center justify-between gap-3">
         <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
           平台客观指标
@@ -64,69 +144,148 @@ export function PlatformObjectiveCard({
         </span>
       </div>
       <p className="mb-4 text-xs text-muted-foreground">
-        AI 调用真实花费 / 请求 / Token，按全局时间范围聚合。口径独立于上方看板派生（平台¥=Token 调用花费，≠ 看板折算人天）。
+        AI 调用真实花费 / 请求 / Token，按全局时间范围聚合。口径独立于上方看板派生（平台¥=Token
+        调用花费，≠ 看板折算人天）。
       </p>
       {children}
     </section>
   );
 
-  // Guard 1: chat stats not enabled → source's "not enabled" notice.
   if (!chatEnabled) {
     return wrap(
       <div className="flex min-h-[7rem] items-center justify-center px-4 text-center text-sm text-muted-foreground">
-        当前环境未启用平台指标服务（chat_stats_enabled=false），配置平台源后将自动展示 AI 调用花费 / 请求 / Token 等客观数据。
+        当前环境未启用平台指标服务（chat_stats_enabled=false），配置平台源后将自动展示
+        AI 调用花费 / 请求 / Token 等客观数据。
       </div>,
     );
   }
 
-  // Guard 2: chat stats enabled but the chat proxy is not migrated. Show the
-  // dashboard-derived AI signals that ARE available, with an explicit note
-  // that platform spend/requests/tokens are pending the chat proxy.
-  if (summaryQ.error) {
+  const fatalError = dailyQ.error || costQ.error;
+  if (fatalError) {
     return wrap(
-      <div className="flex min-h-[7rem] items-center justify-center px-4 text-center text-sm text-destructive">
-        加载失败：{(summaryQ.error as Error).message}
+      <div className="flex min-h-[7rem] items-center justify-center px-4 text-center text-sm text-muted-foreground">
+        平台指标暂不可用（{(fatalError as Error).message}）。恢复后将自动展示。
       </div>,
     );
   }
 
-  if (summaryQ.isLoading || !s) {
+  if (dailyQ.isLoading || costQ.isLoading) {
     return wrap(
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        {Array.from({ length: 4 }).map((_, i) => (
-          <Skeleton key={i} className="h-20 rounded-lg" />
-        ))}
+      <div className="flex flex-col gap-4">
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-5">
+          {Array.from({ length: 5 }).map((_, index) => (
+            <Skeleton key={index} className="h-24 rounded-lg" />
+          ))}
+        </div>
+        <Skeleton className="h-72 rounded-lg" />
       </div>,
     );
   }
+
+  const kpis = [
+    {
+      label: "总 AI 花费",
+      value: `¥${aggregate.cost.toFixed(2)}`,
+      hint: "估算 · Token 调用花费",
+    },
+    {
+      label: "总请求",
+      value: formatNumber(aggregate.requests),
+      hint: `总 Token ${shortPlatformNumber(aggregate.totalTokens)}`,
+    },
+    {
+      label: "活跃用户（峰值）",
+      value: formatNumber(aggregate.peakUsers),
+      hint: `日均 ${formatNumber(aggregate.avgUsers)} · 单日去重`,
+    },
+    {
+      label: "成功率",
+      value: formatRatio(aggregate.successRate),
+      hint:
+        aggregate.errorRate == null
+          ? undefined
+          : `错误率 ${formatRatio(aggregate.errorRate)}`,
+    },
+    {
+      label: "缓存命中率",
+      value: formatRatio(cacheHitRate),
+      hint: `缓存 Token ${shortPlatformNumber(aggregate.cacheTokens)}`,
+    },
+  ];
 
   return wrap(
     <div className="flex flex-col gap-4">
-      <div className="rounded-md border border-dashed bg-muted/30 px-4 py-2 text-xs text-muted-foreground">
-        平台 AI 花费 / 请求 / Token 趋势依赖 chat 代理，当前尚未接入；以下展示看板派生的 AI 信号（口径与上方看板一致），完整平台客观数据将在后端就绪后补齐。
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-5">
+        {kpis.map((kpi) => (
+          <div key={kpi.label} className="rounded-lg border bg-card">
+            <KpiCard
+              label={kpi.label}
+              value={kpi.value}
+              hint={kpi.hint}
+            />
+          </div>
+        ))}
       </div>
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <KpiCard
-          label="AI 代码占比"
-          value={formatV2Ratio(s.ai_code_ratio)}
-          hint="交付代码中 AI 生成并采纳的比例"
-        />
-        <KpiCard
-          label="AI 渗透率"
-          value={formatV2Ratio(s.ai_penetration_rate)}
-          hint="作者实际在用 AI 的需求占比"
-        />
-        <KpiCard
-          label="数据覆盖率"
-          value={formatV2Ratio(s.ai_coverage_rate)}
-          hint="看板能直接关联到 AI 会话的占比"
-        />
-        <KpiCard
-          label="看板任务成本"
-          value={`¥${formatNumber(s.total_cost)}`}
-          hint="看板任务口径累计（≠ 平台 Token 花费）"
-        />
+
+      <div className="rounded-lg border">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b px-4 py-3">
+          <div>
+            <h3 className="text-sm font-medium">
+              {costTrend ? "AI 花费趋势" : "请求量趋势"}（
+              {GRANULARITY_CN[gran]}）
+            </h3>
+            <p className="text-xs text-muted-foreground">
+              {costTrend ? "估算（chat-indicator-statistics）" : "含错误请求"}
+            </p>
+          </div>
+          <GranularityToggle
+            value={gran}
+            options={granOptions}
+            onChange={setGran}
+          />
+        </div>
+        <div className="p-4">
+          {trendData.length > 0 ? (
+            <MultiTrendChart
+              data={trendData}
+              series={trendSeries}
+              formatY={(value) =>
+                costTrend
+                  ? `¥${shortPlatformNumber(value)}`
+                  : shortPlatformNumber(value)
+              }
+            />
+          ) : (
+            <div className="flex h-[280px] items-center justify-center text-sm text-muted-foreground">
+              暂无趋势数据
+            </div>
+          )}
+        </div>
       </div>
     </div>,
   );
+}
+
+function bucketCostRows(
+  rows: ChatCostTrendRow[],
+  granularity: Parameters<typeof buildBuckets>[1],
+  start: string,
+  end: string,
+): MultiTrendPoint[] {
+  const byDate = new Map(rows.map((row) => [row.date, row]));
+  return buildBuckets(
+    rows.map((row) => row.date),
+    granularity,
+    { start, end },
+  ).map((bucket) => ({
+    label: bucket.label,
+    cost: Number(
+      bucket.dates
+        .reduce(
+          (total, date) => total + (byDate.get(date)?.total_cost ?? 0),
+          0,
+        )
+        .toFixed(2),
+    ),
+  }));
 }

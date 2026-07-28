@@ -127,6 +127,7 @@ vi.mock("@multica/core/paths", () => ({
     metricsCost: () => "/acme/metrics/cost",
     metricsCoverage: () => "/acme/metrics/coverage",
     metricsContribution: () => "/acme/metrics/contribution",
+    metricsNeeds: () => "/acme/metrics/needs",
     permissions: () => "/acme/permissions",
     devices: () => "/acme/devices",
     connectors: () => "/acme/connectors",

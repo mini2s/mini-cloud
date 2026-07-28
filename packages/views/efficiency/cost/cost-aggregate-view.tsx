@@ -10,8 +10,10 @@ import {
   costModelsOptions,
   costOverviewOptions,
   costPeriodCompareOptions,
+  buildBuckets,
   fmtCost,
   formatNumber,
+  GRANULARITY_CN,
   type CostAnomalyResp,
   type CostCompositionItem,
   type CostModelItem,
@@ -19,10 +21,15 @@ import {
   type CostOverviewResp,
   type CostPeriodCompareResp,
   type DeptQuery,
+  type Granularity,
 } from "@multica/core/efficiency";
 import { Skeleton } from "@multica/ui/components/ui/skeleton";
 import { Switch } from "@multica/ui/components/ui/switch";
 import { KpiCard } from "../../runtimes/components/shared";
+import {
+  GranularityToggle,
+  useGranularity,
+} from "../components/granularity-toggle";
 import {
   MultiTrendChart,
   PieBreakdownChart,
@@ -59,12 +66,7 @@ import {
 //     model's per-day total_cost across the model-trend series (the backend
 //     has no cost/daily-trend endpoint), matching the source's aggregation.
 //
-// Simplifications (documented per slice-3b "layout faithful, not pixel-perfect"):
-//   - The source's "granularity toggle" (day/week/month bucketing of the
-//     trend) is dropped — we render per-day (the backend's native
-//     granularity) to avoid porting the buildBuckets util. TODO: granularity
-//     in a later slice if needed. Same simplification as the usage view.
-//   - Cost values are formatted via fmtCost (2 decimals) prefixed with ¥.
+// Cost values are formatted via fmtCost (2 decimals) prefixed with ¥.
 
 interface CostAggregateViewProps {
   deptId: string;
@@ -88,6 +90,17 @@ export function CostAggregateView({
   const trendQ = useQuery(costModelTrendOptions(wsId, q));
   const compositionQ = useQuery(costModelCompositionOptions(wsId, q));
   const anomalyQ = useQuery(costAnomalyOptions(wsId, q));
+  const { gran, setGran, options: granOptions } = useGranularity(
+    startDate,
+    endDate,
+  );
+  const granularityControl = (
+    <GranularityToggle
+      value={gran}
+      options={granOptions}
+      onChange={setGran}
+    />
+  );
 
   if (!deptId) {
     return (
@@ -143,6 +156,10 @@ export function CostAggregateView({
         loading={trendQ.isLoading && !trendQ.data}
         error={trendQ.error as Error | null}
         series={trendQ.data?.series}
+        gran={gran}
+        start={startDate}
+        end={endDate}
+        extra={granularityControl}
       />
 
       {/* Block 5: per-model cost (donut + table). */}
@@ -159,6 +176,10 @@ export function CostAggregateView({
         loading={trendQ.isLoading && !trendQ.data}
         error={trendQ.error as Error | null}
         series={trendQ.data?.series}
+        gran={gran}
+        start={startDate}
+        end={endDate}
+        extra={granularityControl}
       />
 
       {/* Block 7: anomaly detection. */}
@@ -408,12 +429,19 @@ function DailyCostTrendBlock({
   loading,
   error,
   series,
+  gran,
+  start,
+  end,
+  extra,
 }: {
   loading: boolean;
   error: Error | null;
   series?: CostModelTrendSeries[];
+  gran: Granularity;
+  start: string;
+  end: string;
+  extra: ReactNode;
 }) {
-  // Sum each model's per-day total_cost across all series into one daily total.
   const points = useMemo<MultiTrendPoint[]>(() => {
     const dateMap = new Map<string, number>();
     for (const s of series ?? []) {
@@ -421,18 +449,28 @@ function DailyCostTrendBlock({
         dateMap.set(pt.date, (dateMap.get(pt.date) ?? 0) + (pt.total_cost || 0));
       }
     }
-    const dates = Array.from(dateMap.keys()).sort();
-    return dates.map((date) => ({
-      label: date.slice(5), // MM-DD
-      cost: Math.round((dateMap.get(date) ?? 0) * 100) / 100,
+    const buckets = buildBuckets(Array.from(dateMap.keys()), gran, {
+      start,
+      end,
+    });
+    return buckets.map((bucket) => ({
+      label: bucket.label,
+      cost:
+        Math.round(
+          bucket.dates.reduce(
+            (sum, date) => sum + (dateMap.get(date) ?? 0),
+            0,
+          ) * 100,
+        ) / 100,
     }));
-  }, [series]);
+  }, [end, gran, series, start]);
 
-  if (loading) return <SkeletonCard title="总费用趋势（按天）" />;
+  const title = `总费用趋势（${GRANULARITY_CN[gran]}）`;
+  if (loading) return <SkeletonCard title={title} />;
   if (error) {
     return (
       <ErrorHint
-        title="总费用趋势（按天）"
+        title={title}
         sub="由各模型费用聚合（后端无 cost/daily-trend）"
         error={error}
       />
@@ -441,8 +479,9 @@ function DailyCostTrendBlock({
   if (!points.length) {
     return (
       <Card
-        title="总费用趋势（按天）"
+        title={title}
         sub="由各模型费用聚合（后端无 cost/daily-trend）"
+        extra={extra}
       >
         <EmptyHint />
       </Card>
@@ -450,8 +489,9 @@ function DailyCostTrendBlock({
   }
   return (
     <Card
-      title="总费用趋势（按天）"
+      title={title}
       sub="由各模型费用聚合（后端无 cost/daily-trend）"
+      extra={extra}
     >
       <MultiTrendChart
         data={points}
@@ -592,16 +632,24 @@ function ModelTrendStackBlock({
   loading,
   error,
   series,
+  gran,
+  start,
+  end,
+  extra,
 }: {
   loading: boolean;
   error: Error | null;
   series?: CostModelTrendSeries[];
+  gran: Granularity;
+  start: string;
+  end: string;
+  extra: ReactNode;
 }) {
   const { points, chartSeries } = useMemo(() => {
     if (!series || !series.length) return { points: [], chartSeries: [] };
     const allDates = new Set<string>();
     for (const s of series) for (const pt of s.data) allDates.add(pt.date);
-    const dates = Array.from(allDates).sort();
+    const buckets = buildBuckets(Array.from(allDates), gran, { start, end });
     // Build per-model per-date cost maps.
     const byModel = new Map<string, Map<string, number>>();
     for (const s of series) {
@@ -609,13 +657,16 @@ function ModelTrendStackBlock({
       for (const pt of s.data) m.set(pt.date, pt.total_cost || 0);
       byModel.set(s.model, m);
     }
-    const rows: MultiTrendPoint[] = dates.map((date) => {
+    const rows: MultiTrendPoint[] = buckets.map((bucket) => {
       const row: MultiTrendPoint & Record<string, number | string> = {
-        label: date.slice(5),
+        label: bucket.label,
       };
       for (const s of series) {
         const m = byModel.get(s.model);
-        row[s.model] = m?.get(date) ?? 0;
+        row[s.model] = bucket.dates.reduce(
+          (sum, date) => sum + (m?.get(date) ?? 0),
+          0,
+        );
       }
       return row;
     });
@@ -625,23 +676,24 @@ function ModelTrendStackBlock({
       color: chartColorFor(i),
     }));
     return { points: rows, chartSeries: chartSeriesOut };
-  }, [series]);
+  }, [end, gran, series, start]);
 
-  if (loading) return <SkeletonCard title="各模型费用趋势（按天）" />;
+  const title = `各模型费用趋势（${GRANULARITY_CN[gran]}）`;
+  if (loading) return <SkeletonCard title={title} />;
   if (error) {
     return (
-      <ErrorHint title="各模型费用趋势（按天）" sub="堆叠面积图" error={error} />
+      <ErrorHint title={title} sub="堆叠面积图" error={error} />
     );
   }
   if (!points.length) {
     return (
-      <Card title="各模型费用趋势（按天）" sub="堆叠面积图">
+      <Card title={title} sub="堆叠面积图" extra={extra}>
         <EmptyHint />
       </Card>
     );
   }
   return (
-    <Card title="各模型费用趋势（按天）" sub="堆叠面积图">
+    <Card title={title} sub="堆叠面积图" extra={extra}>
       <MultiTrendChart
         data={points}
         series={chartSeries}

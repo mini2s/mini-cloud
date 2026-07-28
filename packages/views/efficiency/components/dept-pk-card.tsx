@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useWorkspaceId } from "@multica/core/hooks";
+import { useWorkspacePaths } from "@multica/core/paths";
 import {
   deptRankingOptions,
   deptTreeOptions,
@@ -18,20 +19,19 @@ import {
   SelectValue,
 } from "@multica/ui/components/ui/select";
 import { Skeleton } from "@multica/ui/components/ui/skeleton";
-import { RankingBarChart, type BarDatum } from "../charts";
 import type { DeptTreeNode } from "@multica/core/efficiency";
+import { useNavigation } from "../../navigation";
 
 // Department PK: pick a parent level from the dept tree, then rank its direct
-// child departments by calendar efficiency (top 5) as a horizontal bar chart.
+// child departments by calendar efficiency (top 5) as a ranked list with
+// gold/silver/bronze badges and ratio pills.
 // Data: dept-tree (for the parent selector) + dept-tree/ranking?parent_dept_id=
 // (one aggregated call returning each direct child's whole-subtree summary).
 // Default ranks "whole-company first-level" (parent_dept_id empty → backend
 // uses the configured root).
 //
-// Navigation: the source rows were clickable and drilled into the org detail
-// page via useNavigate (react-router). packages/views cannot import
-// react-router-dom and the detail pages don't exist yet, so this card is
-// display-only for now. TODO: navigation wired in slice 5.
+// Rows drill into the organization-focused efficiency view. The department id
+// is carried in URL state so browser back/refresh can restore the selection.
 
 interface DeptPKCardProps {
   startDate?: string;
@@ -39,6 +39,49 @@ interface DeptPKCardProps {
 }
 
 const ROOT = "__root__";
+
+const RANK_BADGE = [
+  "bg-amber-400 text-white",
+  "bg-muted text-muted-foreground",
+  "bg-orange-400 text-white",
+];
+const RANK_DEFAULT = "bg-muted text-muted-foreground";
+
+/** Inline ratio pill matching the original RatioPill thresholds:
+ *  <0 red, >=300 green, >=150 blue, else neutral. */
+function RatioPill({
+  value,
+  digits = 1,
+}: {
+  value: number | null | undefined;
+  digits?: number;
+}) {
+  const pct = (value ?? 0) * 100;
+  const tone: "pos" | "neg" | "info" | "neutral" =
+    value == null || !Number.isFinite(pct)
+      ? "neutral"
+      : pct < 0
+        ? "neg"
+        : pct >= 300
+          ? "pos"
+          : pct >= 150
+            ? "info"
+            : "neutral";
+  const cls: Record<string, string> = {
+    pos: "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/50 dark:text-emerald-300",
+    neg: "bg-rose-100 text-rose-700 dark:bg-rose-900/50 dark:text-rose-300",
+    info: "bg-sky-100 text-sky-700 dark:bg-sky-900/50 dark:text-sky-300",
+    neutral:
+      "bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300",
+  };
+  return (
+    <span
+      className={`inline-block rounded-full px-2 py-0.5 text-xs font-medium tabular-nums ${cls[tone]}`}
+    >
+      {formatV2Ratio(value, digits)}
+    </span>
+  );
+}
 
 /** Collect every node that has children, as selector options (indent shows depth). */
 function collectParents(
@@ -60,6 +103,8 @@ function collectParents(
 
 export function DeptPKCard({ startDate, endDate }: DeptPKCardProps) {
   const wsId = useWorkspaceId();
+  const paths = useWorkspacePaths();
+  const { push } = useNavigation();
   const treeQ = useQuery(deptTreeOptions(wsId));
   const tree = treeQ.data ?? [];
   const [parentId, setParentId] = useState<string>(ROOT);
@@ -90,20 +135,12 @@ export function DeptPKCard({ startDate, endDate }: DeptPKCardProps) {
     return rows.slice(0, 5);
   }, [rankingQ.data]);
 
-  // Narrow to the chart's {label, value} shape. value is the efficiency %.
-  // Tooltip carries member/need counts via the chart's default tooltip; the
-  // source's richer tooltip is simplified to label + value here.
-  const chartData: BarDatum[] = useMemo(
-    () =>
-      top5.map((r) => ({
-        label: r.dept_name,
-        value: Number(((r.summary.calendar_ratio ?? 0) * 100).toFixed(1)),
-      })),
-    [top5],
-  );
-
   const loading = treeQ.isLoading || rankingQ.isLoading;
   const errored = treeQ.isError || rankingQ.isError;
+  const openDepartment = (deptId: string) => {
+    const query = new URLSearchParams({ entity: "org", object: deptId });
+    push(`${paths.metricsEfficiency()}?${query.toString()}`);
+  };
 
   return (
     <div className="flex flex-col rounded-lg border bg-card shadow-sm p-5 transition-shadow hover:shadow-lg md:p-6">
@@ -163,30 +200,43 @@ export function DeptPKCard({ startDate, endDate }: DeptPKCardProps) {
           该层级暂无可计入部门数据
         </div>
       ) : (
-        <div className="flex flex-1 flex-col gap-3">
-          <RankingBarChart data={chartData} />
-          {/* Supplementary member / need counts under the bars — the chart's
-              default tooltip only shows label+value, so the per-dept counts
-              (which the source surfaced inline) are listed compactly here to
-              preserve that context. Display-only. */}
-          <ul className="space-y-1 text-xs text-muted-foreground">
-            {top5.map((r, i) => (
-              <li key={r.dept_id} className="flex items-center gap-2">
-                <span className="w-4 shrink-0 tabular-nums text-muted-foreground/70">
-                  {i + 1}
-                </span>
-                <span className="min-w-0 flex-1 truncate" title={r.dept_name}>
-                  {r.dept_name}
-                </span>
-                <span className="shrink-0 tabular-nums">
-                  {formatNumber(r.summary.kanban_member_count)} 人 · 需求{" "}
-                  {formatNumber(r.summary.merged_need_count)} ·{" "}
-                  {formatV2Ratio(r.summary.calendar_ratio)}
-                </span>
+        <ul className="flex-1 space-y-2">
+          {top5.map((r, i) => {
+            const badge = i < 3 ? RANK_BADGE[i] : RANK_DEFAULT;
+            const sum = r.summary;
+            return (
+              <li key={r.dept_id}>
+                <button
+                  type="button"
+                  onClick={() => openDepartment(r.dept_id)}
+                  className="flex w-full items-center gap-3 rounded-xl px-2 py-1.5 text-left transition-colors hover:bg-muted/50 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  aria-label={`查看部门 ${r.dept_name} 效率详情`}
+                >
+                  <span
+                    className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-xs font-bold tabular-nums ${badge}`}
+                  >
+                    {i + 1}
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <div
+                      className="truncate text-sm font-medium text-card-foreground"
+                      title={r.dept_name}
+                    >
+                      {r.dept_name}
+                    </div>
+                    <div className="truncate text-xs text-muted-foreground">
+                      {formatNumber(sum.kanban_member_count)} 人 · 需求{" "}
+                      {formatNumber(sum.merged_need_count)}
+                    </div>
+                  </div>
+                  <span className="shrink-0">
+                    <RatioPill value={sum.calendar_ratio} />
+                  </span>
+                </button>
               </li>
-            ))}
-          </ul>
-        </div>
+            );
+          })}
+        </ul>
       )}
     </div>
   );

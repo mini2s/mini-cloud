@@ -6,9 +6,7 @@
 //     hitting the network. The form "succeeds", onSuccess invalidates the
 //     list cache, and the list queryFn re-runs the mock factory which yields
 //     the same static sample (functional CRUD in the pre-backend phase).
-//   - !MOCK_ENABLED: call the real api.* stub (which throws NOT_WIRED until
-//     the backend mounts /api/v2/efficiency/chat/*, but that is correct —
-//     once the backend is up, EFFICIENCY_MOCK=0 flips and the real call works).
+//   - !MOCK_ENABLED: call the migrated real API implementation.
 //
 // Unlike issues, the chat settings tables are small + static mock samples, so
 // these hooks do NOT attempt optimistic onMutate cache patches — a plain
@@ -32,6 +30,7 @@ import {
   deleteChatDatasource,
   deleteChatPricing,
   deleteProject,
+  deleteUserGroup,
   removeRepoFromProject,
   retryChatSyncTask,
   submitChatSyncTask,
@@ -66,6 +65,20 @@ import type {
   UpdateTaskManualRequest,
 } from "./types";
 
+export function useDeleteUserGroup() {
+  const qc = useQueryClient();
+  const wsId = useWorkspaceId();
+  return useMutation({
+    mutationFn: async (groupId: string): Promise<void> => {
+      if (MOCK_ENABLED) return;
+      return deleteUserGroup(groupId);
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: efficiencyKeys.all(wsId) });
+    },
+  });
+}
+
 // ============================ Pricing ============================
 
 /** Create or update a model pricing row. */
@@ -74,17 +87,18 @@ export function useUpsertChatPricing() {
   const wsId = useWorkspaceId();
   return useMutation({
     mutationFn: async (input: ModelPricingUpsert): Promise<ModelPricing> => {
+      const { id, ...body } = input;
       if (MOCK_ENABLED) {
         const now = new Date().toISOString();
         return {
-          ...input,
-          id: input.id ?? Math.floor(Math.random() * 100_000),
+          ...body,
+          id: id ?? Math.floor(Math.random() * 100_000),
           created_at: now,
         };
       }
-      return input.id != null
-        ? updateChatPricing(input.id, input)
-        : createChatPricing(input);
+      return id != null
+        ? updateChatPricing(id, body)
+        : createChatPricing(body);
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: efficiencyKeys.chatPricing(wsId) });
@@ -285,7 +299,7 @@ export function useUpdateChatSystemConfig() {
         );
         return { ...(cached ?? {}), ...patch };
       }
-      // The real api stub takes the full body; the backend PUT replaces KV.
+      // The real API takes the submitted KV patch.
       await updateChatSystemConfig(patch);
       return patch;
     },
@@ -303,9 +317,7 @@ export function useUpdateChatSystemConfig() {
 // chat settings hooks above: mutationFn branches on MOCK_ENABLED — the mock
 // branch returns a plausible success result WITHOUT hitting the network, so
 // the form "succeeds" and onSuccess invalidates the detail/list cache (which
-// re-runs the static mock factory); the real branch calls the api.* stub
-// (NOT_WIRED until the backend mounts /api/v2/efficiency/*, correct until
-// EFFICIENCY_MOCK=0 flips live).
+// re-runs the static mock factory); the real branch calls the migrated API.
 //
 // Invalidations are scoped to the affected entity detail + the project list
 // (project-scoped mutations change the list's need-scope aggregates; the task/
@@ -331,7 +343,7 @@ export function useCreateProject() {
       return createProject(body);
     },
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: efficiencyKeys.projectList(wsId) });
+      qc.invalidateQueries({ queryKey: efficiencyKeys.projectLists(wsId) });
     },
   });
 }
@@ -355,7 +367,7 @@ export function useUpdateProject() {
       qc.invalidateQueries({
         queryKey: efficiencyKeys.projectNeeds(wsId, vars.projectId),
       });
-      qc.invalidateQueries({ queryKey: efficiencyKeys.projectList(wsId) });
+      qc.invalidateQueries({ queryKey: efficiencyKeys.projectLists(wsId) });
     },
   });
 }
@@ -376,7 +388,7 @@ export function useDeleteProject() {
       qc.invalidateQueries({
         queryKey: efficiencyKeys.projectNeeds(wsId, projectId),
       });
-      qc.invalidateQueries({ queryKey: efficiencyKeys.projectList(wsId) });
+      qc.invalidateQueries({ queryKey: efficiencyKeys.projectLists(wsId) });
     },
   });
 }
@@ -397,6 +409,7 @@ export function useUpdateProjectManual() {
       qc.invalidateQueries({
         queryKey: efficiencyKeys.projectDetail(wsId, vars.projectId),
       });
+      qc.invalidateQueries({ queryKey: efficiencyKeys.projectLists(wsId) });
     },
   });
 }
@@ -417,7 +430,7 @@ export function useAddTasksToProject() {
       qc.invalidateQueries({
         queryKey: efficiencyKeys.projectDetail(wsId, vars.projectId),
       });
-      qc.invalidateQueries({ queryKey: efficiencyKeys.projectList(wsId) });
+      qc.invalidateQueries({ queryKey: efficiencyKeys.projectLists(wsId) });
     },
   });
 }
@@ -447,7 +460,7 @@ export function useAddRepoToProject() {
       qc.invalidateQueries({
         queryKey: efficiencyKeys.projectNeeds(wsId, vars.projectId),
       });
-      qc.invalidateQueries({ queryKey: efficiencyKeys.projectList(wsId) });
+      qc.invalidateQueries({ queryKey: efficiencyKeys.projectLists(wsId) });
     },
   });
 }
@@ -475,7 +488,7 @@ export function useRemoveRepoFromProject() {
       qc.invalidateQueries({
         queryKey: efficiencyKeys.projectNeeds(wsId, vars.projectId),
       });
-      qc.invalidateQueries({ queryKey: efficiencyKeys.projectList(wsId) });
+      qc.invalidateQueries({ queryKey: efficiencyKeys.projectLists(wsId) });
     },
   });
 }
@@ -521,6 +534,7 @@ export function useUpdateProjectNeedSelection() {
       qc.invalidateQueries({
         queryKey: efficiencyKeys.projectDetail(wsId, vars.projectId),
       });
+      qc.invalidateQueries({ queryKey: efficiencyKeys.projectLists(wsId) });
     },
   });
 }

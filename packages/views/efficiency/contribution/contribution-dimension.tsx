@@ -2,40 +2,43 @@
 
 import { useState } from "react";
 import { Sparkles } from "lucide-react";
-import { useViewState } from "@multica/core/efficiency";
+import { useUserNameMap, useViewState } from "@multica/core/efficiency";
 import { PageHeader } from "../../layout/page-header";
 import { PeriodSelect } from "../components";
+import {
+  EntityObjectSelector,
+  type EfficiencyEntity,
+} from "../components/entity-object-selector";
+import { CreateProjectButton } from "../components/create-project-button";
+import { UserDetail } from "../detail";
 import { OrgContribution } from "./org-contribution";
 import { UserContribution } from "./user-contribution";
-import { ProjectContribution } from "./project-contribution";
-import { RepoContribution } from "./repo-contribution";
+import {
+  ProjectContribution,
+  ProjectContributionFocus,
+} from "./project-contribution";
+import {
+  RepoContribution,
+  RepoContributionFocus,
+} from "./repo-contribution";
+import { ContributionTrendSection } from "./contribution-trend-section";
 
-// Contribution Dimension — the contribution dimension page. Ports the source
-// ContributionDimension (entity dispatched via URL + useEntityFocus) to
-// component-state-driven per design decision #1 (NO URL query state) and #2
-// (NO navigation). SCOPE (this slice): AGGREGATE MODE ONLY. The source's
-// focused mode embeds full DeptMembersPanel/UserDetail/ProjectDetail/
-// RepoDetail pages which don't exist yet — those land in slice 5.
-//
-// Per design decision #5 (zero-platform-request): contribution DERIVES
-// everything from already-ready queries (deptRankingOptions / allUsersOptions
-// / allReposOptions / projectListOptions). No new queryOptions/mock/api —
-// the dimension is structurally the simplest: 4 KPI strips + 4 sortable
-// ranking tables differing only in fields.
-//
-// Contribution caliber: merged needs + code lines + commits (NOT tokens —
-// tokens = consumption ≠ contribution, belong to the usage/cost dimension).
-//
-// Per design decision #3 (no ECharts) the source's ContributionTrend is
-// omitted (it relied on ECharts with a second Y axis). Each entity view
-// renders its KPI strip + sortable ranking table only; a weekly timeline
-// is deferred until a recharts variant is built (the efficiency dimension's
-// timeline lives at /v2/efficiency and is user-scoped).
-//
-// Per design decision #4 (reuse) PeriodSelect + shared Th/Td/SortHeader
-// primitives from ../usage/shared are reused.
+// Aggregate contribution dashboard for organization, user, project, and repo.
+// Contribution is derived from kanban delivery data rather than platform token
+// consumption. Aggregate and focused entity states are rendered here.
 
-type Entity = "org" | "user" | "project" | "repo";
+type Entity = EfficiencyEntity;
+
+export interface ContributionViewState {
+  entity: Entity;
+  object: string;
+}
+
+interface ContributionDimensionProps {
+  initialEntity?: Entity;
+  initialObject?: string;
+  onStateChange?: (state: ContributionViewState) => void;
+}
 
 const ENTITY_TABS: { key: Entity; label: string }[] = [
   { key: "org", label: "组织" },
@@ -44,10 +47,27 @@ const ENTITY_TABS: { key: Entity; label: string }[] = [
   { key: "repo", label: "仓库" },
 ];
 
-export function ContributionDimension() {
+export function ContributionDimension({
+  initialEntity = "org",
+  initialObject = "",
+  onStateChange,
+}: ContributionDimensionProps = {}) {
   const { timeRange, setTimeRange } = useViewState();
   const [startDate, endDate] = timeRange;
-  const [entity, setEntity] = useState<Entity>("org");
+  const [internalState, setInternalState] = useState<ContributionViewState>({
+    entity: initialEntity,
+    object: initialObject,
+  });
+  const state = onStateChange
+    ? { entity: initialEntity, object: initialObject }
+    : internalState;
+
+  function updateState(next: ContributionViewState) {
+    setInternalState(next);
+    onStateChange?.(next);
+  }
+
+  const { entity, object } = state;
 
   return (
     <div className="flex h-full flex-col">
@@ -56,10 +76,15 @@ export function ContributionDimension() {
           <Sparkles className="h-4 w-4 shrink-0 text-muted-foreground" />
           <h1 className="truncate text-sm font-medium">贡献看板</h1>
         </div>
-        <PeriodSelect
-          value={startDate}
-          onChange={(range) => setTimeRange(range)}
-        />
+        <div className="flex items-center gap-2">
+          <span className="hidden text-xs text-muted-foreground sm:inline">
+            {startDate} ~ {endDate}
+          </span>
+          <PeriodSelect
+            value={startDate}
+            onChange={(range) => setTimeRange(range)}
+          />
+        </div>
       </PageHeader>
 
       <div className="flex-1 overflow-y-auto">
@@ -71,35 +96,166 @@ export function ContributionDimension() {
             。平台（chat-stats）的 tokens 为消耗量 ≠ 贡献，故本维度不接入平台数据。
           </p>
 
-          {/* Entity tabs (internal state, no URL). */}
-          <div
-            className="flex flex-wrap items-center gap-1"
-            role="tablist"
-            aria-label="主体"
-          >
-            {ENTITY_TABS.map((t) => (
-              <EntityTab
-                key={t.key}
-                active={entity === t.key}
-                onClick={() => setEntity(t.key)}
-              >
-                {t.label}
-              </EntityTab>
-            ))}
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div
+              className="flex flex-wrap items-center gap-1"
+              role="tablist"
+              aria-label="主体"
+            >
+              {ENTITY_TABS.map((t) => (
+                <EntityTab
+                  key={t.key}
+                  active={entity === t.key}
+                  onClick={() => updateState({ entity: t.key, object: "" })}
+                >
+                  {t.label}
+                </EntityTab>
+              ))}
+            </div>
+            <EntityObjectSelector
+              entity={entity}
+              value={object}
+              startDate={startDate}
+              endDate={endDate}
+              onChange={(value) => updateState({ entity, object: value })}
+            />
+            {entity === "project" && (
+              <CreateProjectButton
+                onCreated={(projectId) =>
+                  updateState({ entity, object: projectId })
+                }
+              />
+            )}
           </div>
 
-          {/* Aggregate content dispatch (focused mode deferred to slice 5). */}
-          {entity === "org" ? (
-            <OrgContribution startDate={startDate} endDate={endDate} />
+          {object ? (
+            <FocusedContribution
+              entity={entity}
+              object={object}
+              startDate={startDate}
+              endDate={endDate}
+              onBack={() => updateState({ entity, object: "" })}
+            />
+          ) : entity === "org" ? (
+            <OrgContribution
+              startDate={startDate}
+              endDate={endDate}
+              onSelect={(value) => updateState({ entity, object: value })}
+            />
           ) : entity === "user" ? (
-            <UserContribution startDate={startDate} endDate={endDate} />
+            <UserContribution
+              startDate={startDate}
+              endDate={endDate}
+              onSelect={(value) => updateState({ entity, object: value })}
+            />
           ) : entity === "project" ? (
-            <ProjectContribution startDate={startDate} endDate={endDate} />
+            <ProjectContribution
+              startDate={startDate}
+              endDate={endDate}
+              onSelect={(value) => updateState({ entity, object: value })}
+            />
           ) : (
-            <RepoContribution startDate={startDate} endDate={endDate} />
+            <RepoContribution
+              startDate={startDate}
+              endDate={endDate}
+              onSelect={(value) => updateState({ entity, object: value })}
+            />
           )}
         </div>
       </div>
+    </div>
+  );
+}
+
+function FocusedContribution({
+  entity,
+  object,
+  startDate,
+  endDate,
+  onBack,
+}: {
+  entity: Entity;
+  object: string;
+  startDate: string;
+  endDate: string;
+  onBack: () => void;
+}) {
+  if (entity === "org") {
+    return (
+      <OrgContribution
+        startDate={startDate}
+        endDate={endDate}
+        deptId={object}
+      />
+    );
+  }
+
+  if (entity === "user") {
+    return (
+      <UserContributionFocus
+        userId={object}
+        startDate={startDate}
+        endDate={endDate}
+        onBack={onBack}
+      />
+    );
+  }
+
+  if (entity === "project") {
+    return (
+      <ProjectContributionFocus
+        projectId={object}
+        startDate={startDate}
+        endDate={endDate}
+        onBack={onBack}
+        onDeleted={onBack}
+      />
+    );
+  }
+
+  return (
+    <RepoContributionFocus
+      repoAddr={object}
+      startDate={startDate}
+      endDate={endDate}
+    />
+  );
+}
+
+function UserContributionFocus({
+  userId,
+  startDate,
+  endDate,
+  onBack,
+}: {
+  userId: string;
+  startDate: string;
+  endDate: string;
+  onBack: () => void;
+}) {
+  const { resolveName } = useUserNameMap();
+  const userName = resolveName(userId);
+
+  return (
+    <div className="space-y-4">
+      <ContributionTrendSection
+        userId={userId}
+        startDate={startDate}
+        endDate={endDate}
+        subtitle={`个人 · ${userName}`}
+      />
+      <p className="text-xs text-muted-foreground">
+        汇总中的 Commit / 代码行按
+        <span className="font-medium text-foreground"> commits 直聚</span>
+        ；上方趋势沿用 Need
+        关联周表，两者不要求加总一致。下方为 {userName} 的个人贡献明细。
+      </p>
+      <UserDetail
+        userId={userId}
+        startDate={startDate}
+        endDate={endDate}
+        onBack={onBack}
+      />
     </div>
   );
 }

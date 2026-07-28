@@ -43,9 +43,8 @@ import {
   FileText,
   Brain,
   Gauge,
-  ShieldCheck,
   Coins,
-  Target,
+  ListChecks,
   Sparkles,
   KeyRound,
   Plug,
@@ -157,6 +156,7 @@ type NavKey =
   | "metricsCost"
   | "metricsCoverage"
   | "metricsContribution"
+  | "metricsNeeds"
   | "permissions"
   | "connectors"
   | "channels"
@@ -199,6 +199,7 @@ type NavLabelKey =
   | "metrics_cost"
   | "metrics_coverage"
   | "metrics_contribution"
+  | "metrics_needs"
   | "permissions"
   | "connectors"
   | "channels"
@@ -249,10 +250,9 @@ const metricsNav: NavItem[] = [
   { key: "metricsOverview", labelKey: "metrics_overview", icon: LayoutDashboard },
   { key: "usage", labelKey: "usage", icon: BarChart3 },
   { key: "metricsEfficiency", labelKey: "metrics_efficiency", icon: Gauge },
-  { key: "metricsQuality", labelKey: "metrics_quality", icon: ShieldCheck },
   { key: "metricsCost", labelKey: "metrics_cost", icon: Coins },
-  { key: "metricsCoverage", labelKey: "metrics_coverage", icon: Target },
   { key: "metricsContribution", labelKey: "metrics_contribution", icon: Sparkles },
+  { key: "metricsNeeds", labelKey: "metrics_needs", icon: ListChecks },
 ];
 
 const adminNav: NavItem[] = [
@@ -856,9 +856,13 @@ export function AppSidebar({ topSlot, searchSlot, headerClassName, headerStyle }
                           // query param exactly so only the active type lights up
                           // instead of all hub entries sharing the same base path.
                           const currentType = searchParams?.get("type");
-                          const isActive = hasQuery
-                            ? isNavActive(pathname, basePath) && href.includes(`type=${currentType}`)
-                            : isNavActive(pathname, basePath);
+                          const isActive =
+                            item.key === "metricsOverview"
+                              ? pathname === basePath
+                              : hasQuery
+                                ? isNavActive(pathname, basePath) &&
+                                  href.includes(`type=${currentType}`)
+                                : isNavActive(pathname, basePath);
                           return (
                             <SidebarMenuItem key={item.key}>
                               <SidebarMenuButton

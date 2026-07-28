@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useWorkspaceId } from "@multica/core/hooks";
+import { useWorkspacePaths } from "@multica/core/paths";
 import {
   formatDuration,
   formatLocalTime,
@@ -19,6 +20,7 @@ import {
   type NeedSession,
 } from "@multica/core/efficiency";
 import { KpiCard } from "../../runtimes/components/shared";
+import { useNavigation } from "../../navigation";
 import { DetailShell } from "./detail-shell";
 import {
   asFileList,
@@ -60,6 +62,8 @@ const FILE_PREVIEW_N = 24;
 
 export function NeedDetail({ needId, onBack }: NeedDetailProps) {
   const wsId = useWorkspaceId();
+  const paths = useWorkspacePaths();
+  const { push } = useNavigation();
   const { resolveName } = useUserNameMap();
   const q = useQuery(needDetailOptions(wsId, needId));
 
@@ -83,7 +87,7 @@ export function NeedDetail({ needId, onBack }: NeedDetailProps) {
 
   const bandHint = useMemo(() => {
     if (need.efficiency_band_low == null && need.efficiency_band_high == null) return "";
-    return `band ${formatV2Ratio(need.efficiency_band_low)} ~ ${formatV2Ratio(need.efficiency_band_high)}`;
+    return `区间 ${formatV2Ratio(need.efficiency_band_low)} ~ ${formatV2Ratio(need.efficiency_band_high)}`;
   }, [need.efficiency_band_low, need.efficiency_band_high]);
 
   // Baseline decomposition rows. The algo row carries a stage split in its
@@ -92,26 +96,26 @@ export function NeedDetail({ needId, onBack }: NeedDetailProps) {
   const baselineRows = useMemo(() => {
     const rows: { name: string; total: number | null | undefined; reason: string }[] = [
       {
-        name: "Algorithm baseline",
+        name: "算法基线",
         total: baseline.algo_total_min,
         reason:
           baseline.algo_total_min == null
             ? ""
-            : `stages: think ${fmtMin(baseline.algo_think_min)} / exec ${fmtMin(baseline.algo_exec_min)} / verify ${fmtMin(baseline.algo_verify_min)}`,
+            : `阶段拆分：思考 ${fmtMin(baseline.algo_think_min)} / 执行 ${fmtMin(baseline.algo_exec_min)} / 验证 ${fmtMin(baseline.algo_verify_min)}`,
       },
-      { name: "Similar-anchor kNN", total: baseline.anchor_knn_min, reason: baseline.anchor_knn_reason || "" },
+      { name: "相似锚点 kNN", total: baseline.anchor_knn_min, reason: baseline.anchor_knn_reason || "" },
     ];
     if (baseline.llm_total_min != null) {
       rows.push({
-        name: "LLM estimate",
+        name: "LLM 估算",
         total: baseline.llm_total_min,
         reason: baseline.llm_reason || baseline.llm_confidence || "",
       });
     }
     rows.push({
-      name: "Traditional work estimate (fused)",
+      name: "传统人力预估（融合）",
       total: baseline.fused_work_min,
-      reason: "weighted fusion of the above estimates",
+      reason: "上述各路估算加权融合",
     });
     return rows;
   }, [baseline]);
@@ -128,7 +132,7 @@ export function NeedDetail({ needId, onBack }: NeedDetailProps) {
   return (
     <DetailShell
       onBack={onBack}
-      title="Need detail"
+      title="需求看板"
       subtitle={need.need_id || "-"}
       headerExtra={
         <>
@@ -137,65 +141,87 @@ export function NeedDetail({ needId, onBack }: NeedDetailProps) {
           )}
           {need.confidence_level && (
             <ToneBadge tone={confidenceTone(need.confidence_level)}>
-              eff confidence {need.confidence_level}
+              效率置信 {need.confidence_level}
             </ToneBadge>
           )}
           <ToneBadge tone={need.coverage_eligible ? "success" : "neutral"}>
-            {need.coverage_eligible ? "counted" : "excluded"}
+            {need.coverage_eligible ? "可计入" : "未计入"}
           </ToneBadge>
           {need.calendar_outlier_flag && (
-            <ToneBadge tone="error">calendar outlier</ToneBadge>
+            <ToneBadge tone="error">日历异常</ToneBadge>
           )}
           {need.work_outlier_flag && (
-            <ToneBadge tone="error">workload outlier</ToneBadge>
+            <ToneBadge tone="error">工作量异常</ToneBadge>
           )}
           {need.outlier_flag && !need.calendar_outlier_flag && !need.work_outlier_flag && (
-            <ToneBadge tone="error">outlier sample</ToneBadge>
+            <ToneBadge tone="error">异常样本</ToneBadge>
           )}
         </>
       }
       loading={q.isLoading}
       error={q.error}
-      empty={!q.data?.need ? "No data for this need." : undefined}
+      empty={!q.data?.need ? "暂无该需求数据" : undefined}
     >
       {/* KPI grid: 6 baseline-vs-actual cards. */}
-      <section className="grid grid-cols-2 gap-3 lg:grid-cols-3">
-        <KpiTile label="Calendar efficiency" value={formatV2Ratio(need.efficiency_ratio)} hint={bandHint || undefined} />
-        <KpiTile label="Work efficiency" value={formatV2Ratio(need.work_efficiency_ratio)} />
-        <KpiTile label="Actual period" value={formatDuration(need.total_calendar_min)} />
-        <KpiTile label="Baseline period" value={formatDuration(need.baseline_calendar_min)} />
-        <KpiTile label="Actual work" value={formatDuration(need.total_active_work_corrected_min)} />
-        <KpiTile label="Baseline work (fused)" value={formatDuration(need.baseline_fused_work_min)} />
+      <section className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-6">
+        <KpiTile label="日历提效" value={formatV2Ratio(need.efficiency_ratio)} hint={bandHint || undefined} />
+        <KpiTile label="人力提效" value={formatV2Ratio(need.work_efficiency_ratio)} />
+        <KpiTile label="实际周期" value={formatDuration(need.total_calendar_min)} />
+        <KpiTile label="传统周期预估" value={formatDuration(need.baseline_calendar_min)} />
+        <KpiTile label="实际人力" value={formatDuration(need.total_active_work_corrected_min)} />
+        <KpiTile label="传统人力预估" value={formatDuration(need.baseline_fused_work_min)} />
       </section>
 
       {/* Basic info. */}
-      <Panel title="Basic info">
+      <Panel title="基础信息">
         <KvGrid>
-          <Kv label="Boundary source">{need.boundary_source || "-"}</Kv>
-          <Kv label="Boundary confidence">
+          <Kv label="边界来源">{need.boundary_source || "-"}</Kv>
+          <Kv label="边界置信">
             <ToneBadge tone={confidenceTone(need.boundary_confidence)}>
               {need.boundary_confidence || "-"}
             </ToneBadge>
           </Kv>
-          <Kv label="Boundary key" wide mono>{need.boundary_key || "-"}</Kv>
-          <Kv label="Repo" wide mono>{need.repo_addr || "-"}</Kv>
-          <Kv label="Branch" mono>{need.repo_branch || "-"}</Kv>
-          <Kv label="Primary user">{resolveName(need.primary_user_id)}</Kv>
-          <Kv label="Contributors">{contributorCount}</Kv>
-          <Kv label="Start time">{formatLocalTime(need.dev_start_ts)}</Kv>
-          <Kv label="End time">{formatLocalTime(need.dev_end_ts)}</Kv>
-          <Kv label="Dev span">{formatDuration(need.dev_duration_min)}</Kv>
+          <Kv label="边界标识" wide mono>{need.boundary_key || "-"}</Kv>
+          <Kv label="仓库" wide mono>
+            {need.repo_addr ? (
+              <button
+                type="button"
+                onClick={() =>
+                  push(paths.metricsRepoDetail(need.repo_addr!, need.repo_branch))
+                }
+                className="break-all text-left font-mono text-primary hover:underline"
+              >
+                {need.repo_addr}
+              </button>
+            ) : "-"}
+          </Kv>
+          <Kv label="分支" mono>{need.repo_branch || "-"}</Kv>
+          <Kv label="主用户">
+            {need.primary_user_id ? (
+              <button
+                type="button"
+                onClick={() => push(paths.metricsUserDetail(need.primary_user_id!))}
+                className="text-primary hover:underline"
+              >
+                {resolveName(need.primary_user_id)}
+              </button>
+            ) : "-"}
+          </Kv>
+          <Kv label="协作人数">{contributorCount}</Kv>
+          <Kv label="开始时间">{formatLocalTime(need.dev_start_ts)}</Kv>
+          <Kv label="结束时间">{formatLocalTime(need.dev_end_ts)}</Kv>
+          <Kv label="开发跨度">{formatDuration(need.dev_duration_min)}</Kv>
         </KvGrid>
       </Panel>
 
       {/* Baseline decomposition. */}
-      <Panel title="Traditional work estimate breakdown (minutes)" bodyClassName="overflow-x-auto">
+      <Panel title="传统人力估算组成（分钟）" bodyClassName="overflow-x-auto">
         <table className="w-full border-collapse text-sm">
           <thead>
             <tr className="border-b">
-              <th className="whitespace-nowrap px-3 py-2 text-left font-semibold text-muted-foreground">Source</th>
-              <th className="whitespace-nowrap px-3 py-2 text-right font-semibold text-muted-foreground">Estimate (min)</th>
-              <th className="whitespace-nowrap px-3 py-2 text-left font-semibold text-muted-foreground">Note</th>
+              <th className="whitespace-nowrap px-3 py-2 text-left font-semibold text-muted-foreground">来源</th>
+              <th className="whitespace-nowrap px-3 py-2 text-right font-semibold text-muted-foreground">估算（分钟）</th>
+              <th className="whitespace-nowrap px-3 py-2 text-left font-semibold text-muted-foreground">说明</th>
             </tr>
           </thead>
           <tbody>
@@ -214,54 +240,55 @@ export function NeedDetail({ needId, onBack }: NeedDetailProps) {
         </table>
         {baseline.calendar_min != null && (
           <p className="mt-3 text-xs text-muted-foreground">
-            Baseline period (calendar caliber): {fmtMin(baseline.calendar_min)} min — converted by team cadence; not additive with the work-caliber table above.
+            传统周期预估（日历口径）：{fmtMin(baseline.calendar_min)} 分钟 ·
+            按团队常规节奏换算，与上表人力口径不可直接相加。
           </p>
         )}
       </Panel>
 
       {/* Stage workload. */}
-      <Panel title="Stage workload">
+      <Panel title="阶段工作量">
         <KvGrid>
-          <Kv label="Think" title={STAGE_ESTIMATE_TIP}>{formatDuration(need.total_think_min)}</Kv>
-          <Kv label="Exec" title={STAGE_ESTIMATE_TIP}>{formatDuration(need.total_exec_min)}</Kv>
-          <Kv label="Verify" title={VERIFY_UNAVAILABLE_TIP}>{formatVerifyMin(need.total_verify_min)}</Kv>
-          <Kv label="Other">{formatDuration(need.total_other_min)}</Kv>
-          <Kv label="Session active person-min">{formatDuration(need.total_session_active_person_min)}</Kv>
-          <Kv label="Uncovered human estimate">{formatDuration(need.estimate_uncovered_human_min)}</Kv>
+          <Kv label="思考" title={STAGE_ESTIMATE_TIP}>{formatDuration(need.total_think_min)}</Kv>
+          <Kv label="执行" title={STAGE_ESTIMATE_TIP}>{formatDuration(need.total_exec_min)}</Kv>
+          <Kv label="验证" title={VERIFY_UNAVAILABLE_TIP}>{formatVerifyMin(need.total_verify_min)}</Kv>
+          <Kv label="其他">{formatDuration(need.total_other_min)}</Kv>
+          <Kv label="会话活跃人工">{formatDuration(need.total_session_active_person_min)}</Kv>
+          <Kv label="未覆盖人工估算">{formatDuration(need.estimate_uncovered_human_min)}</Kv>
         </KvGrid>
         <p className="mt-3 text-xs text-muted-foreground">
-          Verify: collection not covered ({VERIFY_UNAVAILABLE_TIP}). Think / exec are rough estimate calibers.
+          验证：采集未覆盖（{VERIFY_UNAVAILABLE_TIP}）。思考 / 执行为粗略估算口径。
         </p>
       </Panel>
 
       {/* Code & quality signals. */}
       <Panel
-        title="Code & quality signals"
+        title="代码与质量信号"
         hint={qualityReason || undefined}
       >
         <KvGrid>
-          <Kv label="Net LOC">{fmtInt(need.total_loc_net)}</Kv>
-          <Kv label="Files touched">{fmtInt(need.total_files_touched)}</Kv>
-          <Kv label="Commit count">{fmtInt(need.commit_count)}</Kv>
-          <Kv label="AI code share">{fmtPct(need.ai_code_ratio)}</Kv>
-          <Kv label="AI covered LOC">{fmtInt(need.ai_covered_loc)}</Kv>
-          <Kv label="Uncovered LOC">{fmtInt(need.uncovered_loc)}</Kv>
-          <Kv label="Uncovered work share">{fmtPct(need.uncovered_work_ratio)}</Kv>
+          <Kv label="净代码行">{fmtInt(need.total_loc_net)}</Kv>
+          <Kv label="改动文件">{fmtInt(need.total_files_touched)}</Kv>
+          <Kv label="提交数">{fmtInt(need.commit_count)}</Kv>
+          <Kv label="AI 代码占比">{fmtPct(need.ai_code_ratio)}</Kv>
+          <Kv label="AI 覆盖行">{fmtInt(need.ai_covered_loc)}</Kv>
+          <Kv label="未覆盖行">{fmtInt(need.uncovered_loc)}</Kv>
+          <Kv label="未覆盖工作占比">{fmtPct(need.uncovered_work_ratio)}</Kv>
         </KvGrid>
         <div className="mt-4 flex flex-wrap gap-1.5">
           <ToneBadge tone={signalTone(need.ai_code_ratio_signal)}>
-            AI code share signal: {need.ai_code_ratio_signal || "unknown"}
+            AI 代码占比信号：{need.ai_code_ratio_signal || "未知"}
           </ToneBadge>
           <ToneBadge tone={signalTone(need.uncovered_work_signal)}>
-            Uncovered work signal: {need.uncovered_work_signal || "unknown"}
+            未覆盖工作信号：{need.uncovered_work_signal || "未知"}
           </ToneBadge>
         </div>
       </Panel>
 
       {/* Touched files. */}
-      <Panel title="Touched files" hint={`${needFiles.length}`}>
+      <Panel title="改动文件" hint={`${needFiles.length} 个`}>
         {needFiles.length === 0 ? (
-          <div className="py-6 text-center text-sm text-muted-foreground">No touched files</div>
+          <div className="py-6 text-center text-sm text-muted-foreground">暂无改动文件</div>
         ) : (
           <>
             <div className="flex flex-wrap gap-1.5">
@@ -277,7 +304,7 @@ export function NeedDetail({ needId, onBack }: NeedDetailProps) {
                 onClick={() => setNeedFilesExpanded((e) => !e)}
                 className="mt-2 text-sm text-primary hover:underline focus:outline-none"
               >
-                {needFilesExpanded ? "Collapse" : `Show all (${needFiles.length})`}
+                {needFilesExpanded ? "收起" : `展开全部（${needFiles.length}）`}
               </button>
             )}
           </>
@@ -285,31 +312,39 @@ export function NeedDetail({ needId, onBack }: NeedDetailProps) {
       </Panel>
 
       {/* Related sessions. */}
-      <Panel title="Related sessions" hint={`${sessions.length}`} bodyClassName="overflow-x-auto">
+      <Panel title="关联 Sessions" hint={`${sessions.length} 个`} bodyClassName="overflow-x-auto">
         <table className="w-full border-collapse text-sm">
           <thead>
             <tr className="border-b">
               <ThLeft>Session</ThLeft>
-              <ThLeft>User</ThLeft>
-              <ThLeft>Start</ThLeft>
-              <ThLeft>End</ThLeft>
-              <ThRight title="Active workload">Active</ThRight>
-              <ThRight title={STAGE_ESTIMATE_TIP}>Think</ThRight>
-              <ThRight title={STAGE_ESTIMATE_TIP}>Exec</ThRight>
-              <ThRight title={VERIFY_UNAVAILABLE_TIP}>Verify</ThRight>
-              <ThLeft>Stage conf.</ThLeft>
-              <ThLeft>Summary</ThLeft>
+              <ThLeft>用户</ThLeft>
+              <ThLeft>开始</ThLeft>
+              <ThLeft>结束</ThLeft>
+              <ThRight title="活跃工作量">活跃工作量</ThRight>
+              <ThRight title={STAGE_ESTIMATE_TIP}>思考</ThRight>
+              <ThRight title={STAGE_ESTIMATE_TIP}>执行</ThRight>
+              <ThRight title={VERIFY_UNAVAILABLE_TIP}>验证</ThRight>
+              <ThLeft>阶段置信</ThLeft>
+              <ThLeft>摘要</ThLeft>
             </tr>
           </thead>
           <tbody>
             {sessions.length === 0 ? (
-              <EmptyRow colSpan={10}>No sessions</EmptyRow>
+              <EmptyRow colSpan={10}>暂无 Session</EmptyRow>
             ) : (
               sessions.map((s) => (
                 <tr key={s.session_id} className="border-b text-card-foreground last:border-0">
                   <td className="px-3 py-2 font-mono text-xs">{shortId(s.session_id)}</td>
                   <td className="max-w-[220px] truncate px-3 py-2" title={s.user_id ?? ""}>
-                    {resolveName(s.user_id)}
+                    {s.user_id ? (
+                      <button
+                        type="button"
+                        onClick={() => push(paths.metricsUserDetail(s.user_id!))}
+                        className="text-primary hover:underline"
+                      >
+                        {resolveName(s.user_id)}
+                      </button>
+                    ) : "-"}
                   </td>
                   <td className="px-3 py-2">{formatLocalTime(s.session_start_ts)}</td>
                   <td className="px-3 py-2">{formatLocalTime(s.session_end_ts)}</td>
@@ -329,22 +364,22 @@ export function NeedDetail({ needId, onBack }: NeedDetailProps) {
       </Panel>
 
       {/* Related commits — collapsible (richest table, tucked by default). */}
-      <Panel title="Related commits" hint={`${commits.length}`} defaultCollapsed bodyClassName="overflow-x-auto">
+      <Panel title="关联 Commits" hint={`${commits.length} 条`} defaultCollapsed bodyClassName="overflow-x-auto">
         <table className="w-full border-collapse text-sm">
           <thead>
             <tr className="border-b">
               <ThLeft>Commit</ThLeft>
-              <ThLeft>Time</ThLeft>
-              <ThLeft>User</ThLeft>
-              <ThRight>LOC</ThRight>
-              <ThRight>AI code share</ThRight>
-              <ThLeft>Message</ThLeft>
-              <ThLeft>Files</ThLeft>
+              <ThLeft>提交时间</ThLeft>
+              <ThLeft>用户</ThLeft>
+              <ThRight>代码行</ThRight>
+              <ThRight>AI 代码占比</ThRight>
+              <ThLeft>说明</ThLeft>
+              <ThLeft>文件</ThLeft>
             </tr>
           </thead>
           <tbody>
             {commits.length === 0 ? (
-              <EmptyRow colSpan={7}>No commits</EmptyRow>
+              <EmptyRow colSpan={7}>暂无 Commit</EmptyRow>
             ) : (
               commits.map((c) => {
                 const files = asFileList(c.touched_files);
@@ -353,9 +388,14 @@ export function NeedDetail({ needId, onBack }: NeedDetailProps) {
                   <Fragment key={c.commit_id}>
                     <tr className="border-b text-card-foreground last:border-0">
                       <td className="px-3 py-2">
-                        <span className="font-mono text-xs" title={c.commit_id}>
+                        <button
+                          type="button"
+                          onClick={() => push(paths.metricsCommitDetail(c.commit_id))}
+                          className="font-mono text-xs text-primary hover:underline"
+                          title={c.commit_id}
+                        >
                           {shortId(c.commit_id, 10)}
-                        </span>
+                        </button>
                       </td>
                       <td className="px-3 py-2">{formatLocalTime(c.commit_time)}</td>
                       <td className="max-w-[180px] truncate px-3 py-2" title={c.user_name ?? ""}>
@@ -371,7 +411,7 @@ export function NeedDetail({ needId, onBack }: NeedDetailProps) {
                             onClick={() => toggleCommitFiles(c.commit_id)}
                             className="text-primary hover:underline focus:outline-none"
                           >
-                            {expanded ? "Collapse" : `${files.length} files`}
+                            {expanded ? "收起" : `${files.length} 个文件`}
                           </button>
                         ) : (
                           <span className="text-muted-foreground">-</span>

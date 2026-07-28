@@ -6,16 +6,19 @@ import { useWorkspaceId } from "@multica/core/hooks";
 import { useWorkspacePaths } from "@multica/core/paths";
 import {
   formatNumber,
+  formatV2Ratio,
   parseOrder,
   projectListOptions,
+  projectTrendOptions,
   sortRows,
   toOrder,
   type ProjectListItem,
 } from "@multica/core/efficiency";
 import { KpiCard } from "../../runtimes/components/shared";
-import { PCT, Td, TdNum, Th, ThNum, SortHeader } from "../usage/shared";
+import { Td, TdNum, Th, ThNum, SortHeader } from "../usage/shared";
 import { useNavigation } from "../../navigation";
-import { ContributionTrendSection } from "./contribution-trend-section";
+import { ProjectDetail } from "../detail";
+import { EntityContributionTrend } from "./entity-contribution-trend";
 
 // Project contribution — project deliverables derived from /v2/projects
 // (ProjectListItem carries need_total_count / need_eligible_count /
@@ -26,30 +29,44 @@ import { ContributionTrendSection } from "./contribution-trend-section";
 // Caliber (matches source ProjectContribution):
 //   - need_total_count / need_eligible_count / user_count / need_total_loc_net
 //     are COUNTS → formatNumber.
-//   - need_ai_code_ratio is a DECIMAL ratio (0.25 => 25%) → PCT(×100).
+//   - need_ai_code_ratio is a decimal ratio (0.25 => 25%).
 //   - The source sorts by need_total_loc_net desc (contribution = code
 //     produced); we keep that as the default but expose a 3-state sort on the
 //     three contribution columns (eligible needs / generated code /
 //     contributors).
-//   - Per design decision #2 (NO navigation) the source's row onClick
-//     (navigate to /project/:id) is dropped; clicking is a no-op (TODO slice 5).
 
 type SortField =
   | "need_eligible_count"
   | "need_total_loc_net"
   | "user_count";
 
+function ProjectContributionCaliberNote() {
+  return (
+    <p className="text-xs text-muted-foreground">
+      贡献为
+      <span className="font-medium text-foreground">看板派生口径</span>
+      （完成的需求 / 生成代码 / 贡献者）。平台（chat-stats）源无项目维度，且
+      tokens 是消耗量非贡献，故贡献维度不接入平台。
+    </p>
+  );
+}
+
 export function ProjectContribution({
   startDate,
   endDate,
+  onSelect,
 }: {
   startDate: string;
   endDate: string;
+  onSelect?: (projectId: string) => void;
 }) {
   const wsId = useWorkspaceId();
   const p = useWorkspacePaths();
   const { push } = useNavigation();
   const q = useQuery(projectListOptions(wsId, startDate, endDate));
+  const trendQ = useQuery(
+    projectTrendOptions(wsId, { startDate, endDate }),
+  );
   const rows = useMemo<ProjectListItem[]>(() => q.data ?? [], [q.data]);
 
   // Default sort: need_total_loc_net desc (matches source — contribution
@@ -89,11 +106,12 @@ export function ProjectContribution({
 
   return (
     <div className="space-y-4">
-      {/* Weekly contribution trend — company-wide (no userId). */}
-      <ContributionTrendSection
-        startDate={startDate}
-        endDate={endDate}
-        subtitle="全部用户"
+      <EntityContributionTrend
+        points={trendQ.data?.data}
+        loading={trendQ.isLoading}
+        error={trendQ.error ? (trendQ.error as Error).message : null}
+        subtitle="全部项目 · 干净需求聚合"
+        metric="needs"
       />
 
       {/* KPI strip — counts only (contribution caliber, not tokens). */}
@@ -127,15 +145,14 @@ export function ProjectContribution({
         </div>
       </section>
 
-      {/* Ranking table — derived from projectList. Click is a no-op (project
-          detail page deferred to slice 5 per design decision #2). */}
+      {/* Ranking table — derived from projectList and linked to project detail. */}
       <section className="rounded-lg border bg-card shadow-sm">
         <div className="flex items-center justify-between gap-3 border-b px-4 py-3">
           <span className="text-sm font-semibold text-card-foreground">
-            项目贡献排行
+            项目贡献排行（看板派生）
           </span>
           <span className="text-xs text-muted-foreground">
-            看板派生 · 默认按生成代码量倒序
+            按生成代码量倒序 · 点行下钻
           </span>
         </div>
         {q.error ? (
@@ -203,7 +220,11 @@ export function ProjectContribution({
                   sorted.map((r, i) => (
                     <tr
                       key={r.project_id}
-                      onClick={() => push(p.metricsProjectDetail(r.project_id))}
+                      onClick={() =>
+                        onSelect
+                          ? onSelect(r.project_id)
+                          : push(p.metricsProjectDetail(r.project_id))
+                      }
                       className="cursor-pointer border-b transition-colors last:border-0 hover:bg-muted/50"
                     >
                       <TdNum>
@@ -223,7 +244,7 @@ export function ProjectContribution({
                         </span>
                       </TdNum>
                       <TdNum>{formatNumber(r.user_count ?? 0)}</TdNum>
-                      <Td>{PCT((r.need_ai_code_ratio ?? 0) * 100)}</Td>
+                      <Td>{formatV2Ratio(r.need_ai_code_ratio)}</Td>
                     </tr>
                   ))
                 )}
@@ -232,6 +253,45 @@ export function ProjectContribution({
           </div>
         )}
       </section>
+    </div>
+  );
+}
+
+export function ProjectContributionFocus({
+  projectId,
+  startDate,
+  endDate,
+  onBack,
+  onDeleted,
+}: {
+  projectId: string;
+  startDate: string;
+  endDate: string;
+  onBack: () => void;
+  onDeleted?: () => void;
+}) {
+  const wsId = useWorkspaceId();
+  const trendQ = useQuery(
+    projectTrendOptions(wsId, { projectId, startDate, endDate }),
+  );
+
+  return (
+    <div className="space-y-4">
+      <EntityContributionTrend
+        points={trendQ.data?.data}
+        loading={trendQ.isLoading}
+        error={trendQ.error ? (trendQ.error as Error).message : null}
+        subtitle={`项目 · ${projectId} · 干净需求聚合`}
+        metric="needs"
+      />
+      <ProjectContributionCaliberNote />
+      <ProjectDetail
+        projectId={projectId}
+        startDate={startDate}
+        endDate={endDate}
+        onBack={onBack}
+        onDeleted={onDeleted}
+      />
     </div>
   );
 }

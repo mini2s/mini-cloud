@@ -5,6 +5,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useWorkspaceId } from "@multica/core/hooks";
 import {
   dashboardSummaryOptions,
+  chatGlobalDailyOptions,
   globalConfigOptions,
   formatNumber,
   glossaryTip,
@@ -14,14 +15,9 @@ import { Skeleton } from "@multica/ui/components/ui/skeleton";
 
 // Hero: person-day savings + gross cost savings + efficiency ratio (the
 // "hero" metrics of the executive dashboard). The source (HeroSaving.tsx)
-// additionally showed AI spend / net savings by calling the chat proxy
-// (chatGet '/stats/global/daily'); the mini-cloud migration DECIDED NOT to
-// migrate the chat proxy (design decision: no chat proxy). So this card is
-// simplified to the source's degraded 3-grid path — person-day savings /
-// gross cost savings / efficiency ratio — which only needs dashboardSummary
-// + globalConfig. The chat-driven 4-grid (AI spend / net savings) is
-// intentionally omitted; see the comment block on HeroSavingMetrics for the
-// full rationale.
+// also shows AI spend / net savings from the chat daily aggregate when the
+// platform source is enabled. Request failure or disabled chat stats degrades
+// safely to the three kanban-derived metrics.
 //
 // Per design decision: NO useCountUp number-roll animation (the source's
 // animation hook); values are shown directly, matching the runtimes KpiCard
@@ -43,6 +39,13 @@ export function HeroSaving({ startDate, endDate }: HeroSavingProps) {
   const wsId = useWorkspaceId();
   const summaryQ = useQuery(dashboardSummaryOptions(wsId, startDate, endDate));
   const configQ = useQuery(globalConfigOptions(wsId));
+  const chatEnabled = configQ.data?.chat_stats_enabled === true;
+  const chatQ = useQuery({
+    ...chatGlobalDailyOptions(wsId, startDate ?? "", endDate ?? ""),
+    enabled: !!wsId && !!startDate && !!endDate && chatEnabled,
+    retry: 1,
+    staleTime: 5 * 60_000,
+  });
 
   const data = summaryQ.data;
 
@@ -67,8 +70,18 @@ export function HeroSaving({ startDate, endDate }: HeroSavingProps) {
   // Per-capita saving = total saved person-days / active users.
   const activeUsers = data?.total_users_v2 || 0;
   const perCapitaDays = activeUsers > 0 ? savedDays / activeUsers : 0;
-  // Gross saving = person-days x unit price (no AI-cost netting — see file header).
+  // Gross saving = person-days x unit price.
   const grossSaving = savedDays * costPerPersonDay;
+  const aiCost = useMemo(
+    () =>
+      (chatQ.data ?? []).reduce(
+        (sum, row) => sum + (row.estimated_total_cost || 0),
+        0,
+      ),
+    [chatQ.data],
+  );
+  const aiAvailable = chatEnabled && chatQ.isSuccess;
+  const netSaving = grossSaving - aiCost;
   // ROI = gross saving / kanban-task total_cost (NOT platform AI spend). Only
   // shown when total_cost > 0.
   const roi =
@@ -108,7 +121,7 @@ export function HeroSaving({ startDate, endDate }: HeroSavingProps) {
           {/* h2, not h1 — the page title h1 lives in PageHeader (app chrome
               convention). This sub-title conveys the cost basis. */}
           <h2 className="mb-1 text-xl font-semibold text-card-foreground">
-            提效节省概览
+            AI 提效总览
           </h2>
           <p className="text-sm text-muted-foreground">
             按 ¥{formatNumber(costPerPersonDay)}/人天估算 · 基于可计入且非异常的已合并需求 · 人均 = 总节省人天 ÷ 活跃用户数
@@ -129,12 +142,12 @@ export function HeroSaving({ startDate, endDate }: HeroSavingProps) {
         </div>
       </div>
 
-      {/* Degraded 3-grid (chat proxy not migrated). Source's 4-grid path
-          (AI spend / net savings from '/stats/global/daily') is intentionally
-          omitted here — see file header. */}
       <HeroSavingMetrics
         perCapitaDays={perCapitaDays}
         grossSaving={grossSaving}
+        aiCost={aiCost}
+        aiAvailable={aiAvailable}
+        netSaving={netSaving}
         ratioAvailable={ratioAvailable}
         ratioPct={ratioPct}
       />
@@ -146,28 +159,61 @@ export function HeroSaving({ startDate, endDate }: HeroSavingProps) {
 function HeroSavingMetrics({
   perCapitaDays,
   grossSaving,
+  aiCost,
+  aiAvailable,
+  netSaving,
   ratioAvailable,
   ratioPct,
 }: {
   perCapitaDays: number;
   grossSaving: number;
+  aiCost: number;
+  aiAvailable: boolean;
+  netSaving: number;
   ratioAvailable: boolean;
   ratioPct: number;
 }) {
   return (
-    <div className="grid flex-1 grid-cols-1 gap-8 sm:grid-cols-3">
+    <div
+      className={
+        aiAvailable
+          ? "grid flex-1 grid-cols-1 gap-x-8 gap-y-6 sm:grid-cols-2 xl:grid-cols-4"
+          : "grid flex-1 grid-cols-1 gap-8 sm:grid-cols-3"
+      }
+    >
       <BigStat
         label="平均人均节省"
         value={perCapitaDays > 0 ? perCapitaDays.toFixed(2) : "-"}
         unit="人天"
         tone="success"
       />
-      <BigStat
-        label="折合节省成本"
-        value={grossSaving > 0 ? `¥${formatNumber(Math.round(grossSaving))}` : "-"}
-        unit=""
-        tone="success"
-      />
+      {aiAvailable ? (
+        <>
+          <BigStat
+            label="AI 花费"
+            value={`¥${formatNumber(Math.round(aiCost))}`}
+            unit=""
+            tone="foreground"
+          />
+          <BigStat
+            label="净节省"
+            value={`¥${formatNumber(Math.round(netSaving))}`}
+            unit=""
+            tone={netSaving < 0 ? "destructive" : "success"}
+          />
+        </>
+      ) : (
+        <BigStat
+          label="折合节省成本"
+          value={
+            grossSaving > 0
+              ? `¥${formatNumber(Math.round(grossSaving))}`
+              : "-"
+          }
+          unit=""
+          tone="success"
+        />
+      )}
       <BigStat
         label="综合日历提效"
         value={ratioAvailable ? `${ratioPct.toFixed(1)}%` : "-"}

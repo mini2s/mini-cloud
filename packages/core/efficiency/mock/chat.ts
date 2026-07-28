@@ -6,12 +6,8 @@
 //
 // The settings/platform READ endpoints (pricing list, datasources list, sync
 // tasks list, system config, realtime aggregate, model/user trends, detail
-// query, log preview) are mocked here. The MUTATION endpoints
-// (upsertPricing / deleteDatasource / submitSyncTask / testDatasource /
-// upsertConfig / retry|cancelSyncTask / create|update|delete pricing) are
-// NOT mocked — their api.ts stubs throw NOT_WIRED, so during the mock phase
-// the settings forms won't submit. That's expected; the live backend wiring
-// will replace those stubs in a later slice.
+// query, log preview) are mocked here. Mutation behavior is defined in
+// mutations.ts; live mode now uses the migrated chat endpoints.
 //
 // Like the other mock modules, range/dates/ids are accepted for signature
 // parity with the real query; the samples are mostly static so the window is

@@ -15,8 +15,8 @@ import { DualAxisTrendChart } from "../charts";
 // Shared "weekly contribution trend" section for the 4 contribution entity
 // views (org / user / project / repo). Ports the source
 // UserContribution.ContributionTrend (ECharts, 3 series, dual Y axis) onto
-// the recharts DualAxisTrendChart (Bar = code lines on the left axis, Line =
-// merged needs + commits on the right axis).
+// the recharts DualAxisTrendChart (Bar = code lines on the left axis, Lines =
+// merged needs and commits on the right axis).
 //
 // Data path (matches source AggregateContribution): efficiencyAggregateOptions
 // with no userId returns the full user×week rows (UserProductivityV2[]) from
@@ -34,7 +34,8 @@ interface ContribTrendWeek {
   label: string;
   monday: number;
   diffLines: number;
-  smallCounts: number;
+  mergedNeeds: number;
+  commits: number;
 }
 
 /** Bucket user×week rows by ISO week, summing contribution counts per week. */
@@ -49,13 +50,12 @@ function aggregateContribByWeek(rows: UserProductivityV2[]): ContribTrendWeek[] 
         label: weekLabel(wk.monday),
         monday: wk.monday.getTime(),
         diffLines: 0,
-        smallCounts: 0,
+        mergedNeeds: 0,
+        commits: 0,
       };
     cur.diffLines += r.commit_diff_lines || 0;
-    // Secondary axis = merged needs + commits (both small counts relative to
-    // code lines; combined into one line so the dual-axis chart stays a clean
-    // Bar + Line pair rather than a 3-series mix).
-    cur.smallCounts += (r.merged_need_count || 0) + (r.commit_count || 0);
+    cur.mergedNeeds += r.merged_need_count || 0;
+    cur.commits += r.commit_count || 0;
     buckets.set(wk.key, cur);
   }
   return Array.from(buckets.values()).sort((a, b) => a.monday - b.monday);
@@ -113,10 +113,12 @@ export function ContributionTrendSection({
             data={points.map((p) => ({
               label: p.label,
               primary: p.diffLines,
-              secondary: p.smallCounts,
+              secondary: p.mergedNeeds,
+              tertiary: p.commits,
             }))}
             primaryLabel="代码行"
-            secondaryLabel="合并需求/提交"
+            secondaryLabel="合并需求"
+            tertiaryLabel="提交"
             formatLeftY={(v) => formatNumber(v, 0)}
           />
         )}

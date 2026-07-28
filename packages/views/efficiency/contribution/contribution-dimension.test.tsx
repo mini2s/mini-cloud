@@ -58,6 +58,9 @@ vi.mock("@tanstack/react-query", async () => {
       const end = key[4] != null ? String(key[4]) : undefined;
       let data: unknown = undefined;
       if (segment === "dept-tree") data = eff.mock.deptTree();
+      else if (segment === "dept-overview") {
+        data = eff.mock.deptOverview();
+      }
       else if (segment === "dept-ranking") {
         const parentDeptId = key[3] != null ? String(key[3]) : undefined;
         data = eff.mock.deptRanking({ parentDeptId, startDate: start, endDate: end });
@@ -67,6 +70,24 @@ vi.mock("@tanstack/react-query", async () => {
         data = eff.mock.allRepos({ startDate: start, endDate: end });
       } else if (segment === "project-list") {
         data = eff.mock.projectList({ startDate: start, endDate: end });
+      } else if (segment === "detail") {
+        const detailSegment = String(key[3]);
+        if (detailSegment === "repo") {
+          data = eff.mock.repoDetail({
+            repoAddr: String(key[4]),
+            repoBranch: key[5] == null ? undefined : String(key[5]),
+            startDate: key[6] == null ? undefined : String(key[6]),
+            endDate: key[7] == null ? undefined : String(key[7]),
+          });
+        } else if (detailSegment === "repo-branches") {
+          data = eff.mock.repoBranches(String(key[4]));
+        } else if (detailSegment === "repo-trend") {
+          data = eff.mock.repoTrend({
+            repoAddr: key[4] == null ? undefined : String(key[4]),
+            startDate: key[5] == null ? undefined : String(key[5]),
+            endDate: key[6] == null ? undefined : String(key[6]),
+          });
+        }
       }
       return { data, isLoading: false, error: null };
     },
@@ -100,6 +121,17 @@ describe("ContributionDimension — full page integration render", () => {
 
   it("renders the org ranking table header by default (org is the landing entity)", () => {
     renderWithI18n(<ContributionDimension />);
-    expect(screen.getByText("部门贡献排行")).toBeInTheDocument();
+    expect(screen.getByText("部门贡献 PK 榜（看板派生）")).toBeInTheDocument();
+  });
+
+  it("renders the repo contribution focus instead of the generic repo detail", () => {
+    renderWithI18n(
+      <ContributionDimension
+        initialEntity="repo"
+        initialObject="git@github.com:costrict/repo-1.git"
+      />,
+    );
+    expect(screen.getByText("贡献趋势")).toBeInTheDocument();
+    expect(screen.getByText("按贡献者拆分（看板派生）")).toBeInTheDocument();
   });
 });

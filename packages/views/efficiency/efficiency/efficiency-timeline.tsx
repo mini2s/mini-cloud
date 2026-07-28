@@ -36,12 +36,14 @@ interface EfficiencyTimelineProps {
   endDate: string;
   /** Optional userId to restrict to a single user (focused mode, slice 5). */
   userId?: string;
+  objectLabel?: string;
 }
 
 export function EfficiencyTimeline({
   startDate,
   endDate,
   userId,
+  objectLabel,
 }: EfficiencyTimelineProps) {
   const wsId = useWorkspaceId();
   const q = useQuery(
@@ -61,7 +63,8 @@ export function EfficiencyTimeline({
           提效趋势
         </h2>
         <span className="text-right text-xs text-muted-foreground">
-          全部用户 · 按 ISO 周平均提效率
+          {userId ? `个人 · ${objectLabel || userId}` : "全部用户"} · 按 ISO
+          周平均提效率
         </span>
       </div>
 

@@ -15,6 +15,7 @@ import {
   MOCK_ENABLED,
   type ChatDetailQueryReq,
   type ChatDetailRow,
+  type ChatDatasource,
   type ChatLogPreviewResponse,
   type ChatTraceLogEntry,
 } from "@multica/core/efficiency";
@@ -40,7 +41,11 @@ import { PageHeader } from "../../layout/page-header";
 import { Section } from "./shared";
 import { Th, ThNum, Td, TdNum, fmtMs } from "../usage/shared";
 import { ToneBadge } from "../detail/shared";
-import { VerticalBarChart } from "../charts";
+import {
+  MultiTrendChart,
+  VerticalBarChart,
+  type MultiTrendPoint,
+} from "../charts";
 
 // Platform ops · Realtime (detail) query. Ports the source RealtimeQuery.tsx
 // (2138 lines) — a live LLM-request detail lookup (chat-indicator-statistics
@@ -48,9 +53,9 @@ import { VerticalBarChart } from "../charts";
 // are a paginated ChatDetailRow table; row click opens a full-field detail
 // dialog; the detail's "preview log" button opens a log preview dialog.
 //
-// This is the largest source file. Per the migration brief we port the CORE
-// flow (filter form → results table → row detail → log preview) PLUS the three
-// additive features that bring it to source parity:
+// This is the largest source file. The migrated flow covers the filter form,
+// results table, complete row detail, local log preview, client-side speed and
+// concurrency analysis, trace-log drill-down, and CSV export.
 //   - Speed-distribution chart (bar chart of token_output_speed buckets,
 //     computed client-side from the detail rows — no new endpoint).
 //   - Loki trace-log drawer (Sheet) — when a row is selected, a "查询链路日志"
@@ -58,21 +63,9 @@ import { VerticalBarChart } from "../charts";
 //     (fetched via chatTraceLogsOptions).
 //   - CSV export — serializes the current ChatDetailRow[] to CSV + triggers a
 //     browser download (pure frontend).
-// Remaining simplifications vs source:
-//   - DROP: concurrency chart + "Request Time + TTFT" modal (~180 lines,
-//     ECharts step-line + concurrency math).
-//   - DROP: client-side stats block (avg/p90/p95 tokens / speed / TTFT). The
-//     source computes these from the returned rows; we keep the table only.
-//   - DROP: speed-range filter modal (the chart is read-only; clicking a
-//     bucket does not re-filter the table).
-//   - DROP: trace per-entry detail modal + JSON fold/highlight view. The
-//     drawer shows the raw lines only.
-//   - SIMPLIFY: filters kept are the most-used subset (datasource / time range
-//     / quick ranges / user id / username / request id / model / error-only /
-//     limit / order). Dropped universal_id + routed_model + limit-as-pager.
-//   - SIMPLIFY: results table shows the key columns (time / request id /
-//     user / model / routed / status / tokens / duration / output speed). The
-//     full field set is still visible in the row detail dialog.
+// Presentation difference vs source: speed-range results and concurrency are
+// rendered inline instead of in additional nested modals. The same read-only
+// analysis remains available without adding another overlay layer.
 //
 // Design decisions:
 //   - No react-router, no ECharts. Semantic tokens only. Charts use the
@@ -192,6 +185,70 @@ function buildSpeedBuckets(rows: ChatDetailRow[]): SpeedBucket[] {
   return buckets;
 }
 
+function finiteValues(
+  rows: ChatDetailRow[],
+  key: keyof ChatDetailRow,
+): number[] {
+  return rows
+    .map((row) => row[key])
+    .filter((value) => value != null)
+    .map(Number)
+    .filter(Number.isFinite);
+}
+
+function average(values: number[]): number | null {
+  if (values.length === 0) return null;
+  return values.reduce((sum, value) => sum + value, 0) / values.length;
+}
+
+function percentile(values: number[], percent: number): number | null {
+  if (values.length === 0) return null;
+  const sorted = [...values].sort((a, b) => a - b);
+  const rank = (percent / 100) * (sorted.length - 1);
+  const lower = Math.floor(rank);
+  const upper = Math.ceil(rank);
+  const left = sorted[lower] ?? 0;
+  const right = sorted[upper] ?? left;
+  return left + (right - left) * (rank - lower);
+}
+
+function metric(value: number | null, digits = 2): string {
+  return value == null ? "-" : formatNumber(value, digits);
+}
+
+function metricWithUnit(
+  value: number | null,
+  unit: string,
+  digits = 2,
+): string {
+  return value == null ? "-" : `${formatNumber(value, digits)} ${unit}`;
+}
+
+function buildConcurrencyTrend(rows: ChatDetailRow[]): MultiTrendPoint[] {
+  const events: Array<{ time: number; delta: number }> = [];
+  for (const row of rows) {
+    const start = Date.parse(row.request_time || row.ts);
+    if (!Number.isFinite(start)) continue;
+    let end = row.end_time ? Date.parse(row.end_time) : Number.NaN;
+    if (!Number.isFinite(end) && row.duration != null) {
+      end = start + row.duration;
+    }
+    if (!Number.isFinite(end) || end < start) continue;
+    events.push({ time: start, delta: 1 }, { time: end, delta: -1 });
+  }
+  events.sort((a, b) => a.time - b.time || a.delta - b.delta);
+  let active = 0;
+  return events.map((event) => {
+    active = Math.max(0, active + event.delta);
+    return {
+      label: new Date(event.time).toLocaleTimeString("zh-CN", {
+        hour12: false,
+      }),
+      concurrency: active,
+    };
+  });
+}
+
 // ============================ CSV export ============================
 // Serializes the current ChatDetailRow[] to CSV. Columns mirror the results
 // table (time / request id / user / model / routed / status / tokens /
@@ -201,6 +258,7 @@ function buildSpeedBuckets(rows: ChatDetailRow[]): SpeedBucket[] {
 const CSV_COLUMNS: Array<{ header: string; get: (row: ChatDetailRow) => string }> = [
   { header: "时间", get: (r) => r.ts ?? "" },
   { header: "Request ID", get: (r) => r.request_id ?? "" },
+  { header: "Universal ID", get: (r) => r.universal_id ?? "" },
   { header: "User ID", get: (r) => r.user_id ?? "" },
   { header: "用户名", get: (r) => r.username ?? "" },
   { header: "Model", get: (r) => r.model ?? "" },
@@ -210,6 +268,10 @@ const CSV_COLUMNS: Array<{ header: string; get: (row: ChatDetailRow) => string }
   { header: "输出 Token", get: (r) => String(r.completion_tokens ?? "") },
   { header: "耗时(ms)", get: (r) => String(r.duration ?? "") },
   { header: "输出速度(token/s)", get: (r) => String(r.token_output_speed ?? "") },
+  {
+    header: "E2E 输出速度(token/s)",
+    get: (r) => String(r.token_output_speed_e2e ?? ""),
+  },
 ];
 
 /** RFC 4180 CSV cell quoting: wrap in quotes if it contains comma/quote/newline. */
@@ -277,10 +339,12 @@ interface QueryForm {
   datasourceId: string;
   start: string;
   end: string;
+  universalId: string;
   userId: string;
   userName: string;
   requestId: string;
   model: string;
+  routedModel: string;
   /** '' = all, 'true' = errors only, 'false' = successes only */
   hasError: "" | "true" | "false";
   limit: number;
@@ -293,10 +357,12 @@ function defaultForm(datasourceId = ""): QueryForm {
     datasourceId,
     start,
     end,
+    universalId: "",
     userId: "",
     userName: "",
     requestId: "",
     model: "",
+    routedModel: "",
     hasError: "",
     limit: DEFAULT_LIMIT,
     order: "desc",
@@ -312,8 +378,21 @@ export function RealtimeQueryPage() {
   const dsQ = useQuery(chatDatasourcesOptions(wsId));
   const gcQ = useQuery(globalConfigOptions(wsId));
 
-  const enabledDatasources = useMemo(
-    () => (dsQ.data ?? []).filter((d) => d.is_enabled),
+  const queryDatasources = useMemo(
+    () =>
+      (dsQ.data ?? []).filter(
+        (d) =>
+          d.is_enabled &&
+          (d.source_type === "postgres" ||
+            d.source_type === "elasticsearch"),
+      ),
+    [dsQ.data],
+  );
+  const lokiDatasources = useMemo(
+    () =>
+      (dsQ.data ?? []).filter(
+        (d) => d.is_enabled && d.source_type === "loki",
+      ),
     [dsQ.data],
   );
 
@@ -324,16 +403,21 @@ export function RealtimeQueryPage() {
   const [validateMsg, setValidateMsg] = useState("");
   /** Committed form — what the query actually runs on. Null until first 查询. */
   const [committed, setCommitted] = useState<QueryForm | null>(null);
+  const [queryRun, setQueryRun] = useState(0);
   const [displayPage, setDisplayPage] = useState(1);
   const [displayPageSize, setDisplayPageSize] = useState(DEFAULT_DISPLAY_PAGE_SIZE);
+  const [showStats, setShowStats] = useState(false);
+  const [showConcurrency, setShowConcurrency] = useState(false);
+  const [speedMin, setSpeedMin] = useState("");
+  const [speedMax, setSpeedMax] = useState("");
 
   // Auto-select the first enabled datasource once the list resolves.
   useEffect(() => {
-    const first = enabledDatasources[0];
+    const first = queryDatasources[0];
     if (!form.datasourceId && first) {
       setForm((f) => ({ ...f, datasourceId: String(first.id) }));
     }
-  }, [form.datasourceId, enabledDatasources]);
+  }, [form.datasourceId, queryDatasources]);
 
   function setField<K extends keyof QueryForm>(key: K, value: QueryForm[K]) {
     setForm((f) => ({ ...f, [key]: value }));
@@ -378,15 +462,18 @@ export function RealtimeQueryPage() {
     setValidateMsg("");
     setDisplayPage(1);
     setCommitted(effective);
+    setQueryRun((value) => value + 1);
   }
 
   function resetForm() {
-    const firstDs = enabledDatasources[0];
+    const firstDs = queryDatasources[0];
     const next = defaultForm(form.datasourceId || (firstDs ? String(firstDs.id) : ""));
     setForm(next);
     setActiveQuickRange(DEFAULT_QUICK_RANGE_MINUTES);
     setValidateMsg("");
     setCommitted(null);
+    setShowStats(false);
+    setShowConcurrency(false);
   }
 
   // Build the query request from the committed form. Only the non-empty
@@ -402,19 +489,28 @@ export function RealtimeQueryPage() {
     };
     const userId = committed.userId.trim();
     const userName = committed.userName.trim();
+    const universalId = committed.universalId.trim();
     const requestId = committed.requestId.trim();
     const model = committed.model.trim();
+    const routedModel = committed.routedModel.trim();
+    if (universalId) req.universal_id = universalId;
     if (userId) req.user_id = userId;
     if (userName) req.username = userName;
     if (requestId) req.request_id = requestId;
     if (model) req.model = model;
+    if (routedModel) req.routed_model = routedModel;
     if (committed.hasError === "true") req.has_error = true;
     else if (committed.hasError === "false") req.has_error = false;
     return req;
   }, [committed]);
 
+  const detailOptions = chatDetailQueryOptions(
+    wsId,
+    queryReq ?? EMPTY_REQ,
+    queryRun,
+  );
   const detailQ = useQuery({
-    ...chatDetailQueryOptions(wsId, queryReq ?? EMPTY_REQ),
+    ...detailOptions,
     // Don't fire until the user submits; EMPTY_REQ keeps the key stable pre-submit.
     enabled: !!queryReq,
   });
@@ -425,6 +521,8 @@ export function RealtimeQueryPage() {
   // Reset display page when a new result set arrives / page size changes.
   useEffect(() => {
     setDisplayPage(1);
+    setSpeedMin("");
+    setSpeedMax("");
   }, [detailQ.data, displayPageSize]);
 
   const totalDisplayPages = Math.max(1, Math.ceil(rows.length / displayPageSize));
@@ -444,15 +542,70 @@ export function RealtimeQueryPage() {
 
   // ---- Speed distribution buckets (client-side, from the detail rows) ----
   const speedBuckets = useMemo(() => buildSpeedBuckets(rows), [rows]);
+  const speedStats = useMemo(() => {
+    const completion = finiteValues(rows, "completion_tokens");
+    const speed = finiteValues(rows, "token_output_speed");
+    const speedE2e = finiteValues(rows, "token_output_speed_e2e");
+    const ttft = finiteValues(rows, "first_token_duration");
+    return [
+      { label: "统计样本", value: formatNumber(rows.length) },
+      { label: "平均输出 Token", value: metric(average(completion)) },
+      {
+        label: "平均输出速度",
+        value: metricWithUnit(average(speed), "token/s"),
+      },
+      {
+        label: "平均 E2E 输出速度",
+        value: metricWithUnit(average(speedE2e), "token/s"),
+      },
+      {
+        label: "平均 TTFT",
+        value: metricWithUnit(average(ttft), "ms", 0),
+      },
+      {
+        label: "P90 输出速度",
+        value: metricWithUnit(percentile(speed, 90), "token/s"),
+      },
+      {
+        label: "P95 输出速度",
+        value: metricWithUnit(percentile(speed, 95), "token/s"),
+      },
+      {
+        label: "P90 E2E 输出速度",
+        value: metricWithUnit(percentile(speedE2e, 90), "token/s"),
+      },
+      {
+        label: "P95 E2E 输出速度",
+        value: metricWithUnit(percentile(speedE2e, 95), "token/s"),
+      },
+      {
+        label: "P90 TTFT",
+        value: metricWithUnit(percentile(ttft, 90), "ms", 0),
+      },
+      {
+        label: "P95 TTFT",
+        value: metricWithUnit(percentile(ttft, 95), "ms", 0),
+      },
+    ];
+  }, [rows]);
+  const concurrencyTrend = useMemo(() => buildConcurrencyTrend(rows), [rows]);
+  const speedFilteredRows = useMemo(() => {
+    const min = speedMin === "" ? null : Number(speedMin);
+    const max = speedMax === "" ? null : Number(speedMax);
+    return rows.filter((row) => {
+      const speed = getOutputSpeed(row);
+      if (speed == null) return false;
+      if (min != null && Number.isFinite(min) && speed < min) return false;
+      if (max != null && Number.isFinite(max) && speed > max) return false;
+      return true;
+    });
+  }, [rows, speedMax, speedMin]);
 
   // ---- Loki trace-log drawer state ----
   // When a row is selected the detail dialog offers a "查询链路日志" button
   // (only when a Loki datasource exists). Opening it sets `traceRequestId`,
   // which drives the Sheet's open state and the trace-logs query.
-  const hasEnabledLokiDatasource = useMemo(
-    () => (dsQ.data ?? []).some((d) => d.source_type === "loki" && d.is_enabled),
-    [dsQ.data],
-  );
+  const hasEnabledLokiDatasource = lokiDatasources.length > 0;
   const [traceRequestId, setTraceRequestId] = useState<string | null>(null);
 
   function exportResults() {
@@ -523,7 +676,7 @@ export function RealtimeQueryPage() {
                   disabled={
                     detailQ.isFetching ||
                     dsQ.isLoading ||
-                    enabledDatasources.length === 0
+                    queryDatasources.length === 0
                   }
                 >
                   <Search className="size-3.5" />
@@ -553,7 +706,7 @@ export function RealtimeQueryPage() {
               >
                 {dsQ.isLoading ? (
                   <option value="">正在加载数据源...</option>
-                ) : enabledDatasources.length === 0 ? (
+                ) : queryDatasources.length === 0 ? (
                   <option value="">暂无可用数据源</option>
                 ) : (
                   <>
@@ -612,6 +765,13 @@ export function RealtimeQueryPage() {
             {/* Row 2: text filters + status + limit + order */}
             <div className="flex flex-wrap items-center gap-2">
               <Input
+                value={form.universalId}
+                onChange={(e) => setField("universalId", e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && submit()}
+                placeholder="Universal ID（精确）"
+                className="w-[200px]"
+              />
+              <Input
                 value={form.userId}
                 onChange={(e) => setField("userId", e.target.value)}
                 onKeyDown={(e) => e.key === "Enter" && submit()}
@@ -638,6 +798,13 @@ export function RealtimeQueryPage() {
                 onKeyDown={(e) => e.key === "Enter" && submit()}
                 placeholder="Model（精确）"
                 className="w-[160px]"
+              />
+              <Input
+                value={form.routedModel}
+                onChange={(e) => setField("routedModel", e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && submit()}
+                placeholder="Routed Model（精确）"
+                className="w-[180px]"
               />
               <NativeSelect
                 value={form.hasError}
@@ -694,17 +861,37 @@ export function RealtimeQueryPage() {
               ) : null
             }
             rightSlot={
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                onClick={exportResults}
-                disabled={!detailQ.isSuccess || rows.length === 0}
-                title="导出当前查询结果为 CSV"
-              >
-                <Download className="size-3.5" />
-                导出
-              </Button>
+              <div className="flex flex-wrap items-center gap-2">
+                <Button
+                  type="button"
+                  size="sm"
+                  variant={showStats ? "default" : "outline"}
+                  onClick={() => setShowStats((value) => !value)}
+                  disabled={!detailQ.isSuccess}
+                >
+                  速度统计
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant={showConcurrency ? "default" : "outline"}
+                  onClick={() => setShowConcurrency((value) => !value)}
+                  disabled={!detailQ.isSuccess || concurrencyTrend.length === 0}
+                >
+                  并发统计
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  onClick={exportResults}
+                  disabled={!detailQ.isSuccess || rows.length === 0}
+                  title="导出当前查询结果为 CSV"
+                >
+                  <Download className="size-3.5" />
+                  导出
+                </Button>
+              </div>
             }
             bodyClassName="overflow-x-auto"
           >
@@ -714,11 +901,27 @@ export function RealtimeQueryPage() {
               </div>
             ) : null}
 
+            {showStats && detailQ.isSuccess ? (
+              <div className="grid grid-cols-2 gap-3 border-b bg-muted/20 p-4 md:grid-cols-4 xl:grid-cols-6">
+                {speedStats.map((item) => (
+                  <div key={item.label} className="rounded-md border bg-card p-3">
+                    <div className="text-xs text-muted-foreground">
+                      {item.label}
+                    </div>
+                    <div className="mt-1 font-semibold tabular-nums">
+                      {item.value}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : null}
+
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b">
                   <Th>时间</Th>
                   <Th>Request ID</Th>
+                  <Th>Universal ID</Th>
                   <Th>User ID</Th>
                   <Th>用户名</Th>
                   <Th>Model</Th>
@@ -728,20 +931,21 @@ export function RealtimeQueryPage() {
                   <ThNum>输出 Token</ThNum>
                   <ThNum>耗时</ThNum>
                   <ThNum>输出速度</ThNum>
+                  <ThNum>E2E 输出速度</ThNum>
                 </tr>
               </thead>
               <tbody>
                 {detailQ.isLoading ? (
                   Array.from({ length: 6 }).map((_, i) => (
                     <tr key={i} className="border-b last:border-0">
-                      <td colSpan={11} className="px-3 py-2">
+                      <td colSpan={13} className="px-3 py-2">
                         <Skeleton className="h-6 w-full rounded" />
                       </td>
                     </tr>
                   ))
                 ) : rows.length === 0 ? (
                   <tr>
-                    <td colSpan={11} className="px-3 py-12 text-center">
+                    <td colSpan={13} className="px-3 py-12 text-center">
                       <span className="text-sm text-muted-foreground">
                         {detailQ.isSuccess
                           ? "未查询到符合条件的记录"
@@ -769,6 +973,14 @@ export function RealtimeQueryPage() {
                             title={row.request_id || undefined}
                           >
                             {row.request_id || "-"}
+                          </span>
+                        </Td>
+                        <Td>
+                          <span
+                            className="block max-w-[150px] truncate font-mono text-xs"
+                            title={row.universal_id || undefined}
+                          >
+                            {row.universal_id || "-"}
                           </span>
                         </Td>
                         <Td>
@@ -823,6 +1035,22 @@ export function RealtimeQueryPage() {
                             "-"
                           )}
                         </TdNum>
+                        <TdNum>
+                          {row.token_output_speed_e2e != null &&
+                          Number.isFinite(Number(row.token_output_speed_e2e)) ? (
+                            <>
+                              {formatNumber(
+                                Number(row.token_output_speed_e2e),
+                                2,
+                              )}
+                              <span className="ml-0.5 text-[10px] text-muted-foreground">
+                                token/s
+                              </span>
+                            </>
+                          ) : (
+                            "-"
+                          )}
+                        </TdNum>
                       </tr>
                     );
                   })
@@ -854,9 +1082,127 @@ export function RealtimeQueryPage() {
                   按输出速度（token/s）分桶统计 {formatNumber(rows.length)} 条记录
                 </span>
               }
-              bodyClassName="p-4"
+              bodyClassName="space-y-4 p-4"
             >
               <SpeedDistributionChart buckets={speedBuckets} />
+              <div className="flex flex-wrap items-end gap-2">
+                <label className="text-xs text-muted-foreground">
+                  最小输出速度
+                  <Input
+                    type="number"
+                    step="0.01"
+                    value={speedMin}
+                    onChange={(event) => setSpeedMin(event.target.value)}
+                    className="mt-1 w-[150px]"
+                  />
+                </label>
+                <label className="text-xs text-muted-foreground">
+                  最大输出速度
+                  <Input
+                    type="number"
+                    step="0.01"
+                    value={speedMax}
+                    onChange={(event) => setSpeedMax(event.target.value)}
+                    className="mt-1 w-[150px]"
+                  />
+                </label>
+                <label className="text-xs text-muted-foreground">
+                  快速选择区间
+                  <NativeSelect
+                    className="mt-1 min-w-[240px]"
+                    value=""
+                    onChange={(event) => {
+                      const bucket = speedBuckets[Number(event.target.value)];
+                      if (!bucket) return;
+                      setSpeedMin(
+                        Number.isFinite(bucket.min) ? String(bucket.min) : "",
+                      );
+                      setSpeedMax(
+                        Number.isFinite(bucket.max) ? String(bucket.max) : "",
+                      );
+                    }}
+                  >
+                    <option value="">选择一个速度区间</option>
+                    {speedBuckets.map((bucket, index) => (
+                      <option key={`${bucket.min}-${bucket.max}`} value={index}>
+                        {bucket.label} token/s · {bucket.count} 条
+                      </option>
+                    ))}
+                  </NativeSelect>
+                </label>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  onClick={() => {
+                    setSpeedMin("");
+                    setSpeedMax("");
+                  }}
+                >
+                  全部速度
+                </Button>
+              </div>
+              <div className="max-h-[320px] overflow-auto rounded-md border">
+                <div className="border-b bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
+                  速度区间内请求：{formatNumber(speedFilteredRows.length)} 条
+                </div>
+                <table className="w-full text-xs">
+                  <thead className="sticky top-0 bg-card">
+                    <tr className="border-b">
+                      <Th>时间</Th>
+                      <Th>Request ID</Th>
+                      <Th>Model</Th>
+                      <ThNum>输出速度</ThNum>
+                      <ThNum>E2E 输出速度</ThNum>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {speedFilteredRows.length === 0 ? (
+                      <tr>
+                        <td colSpan={5} className="px-3 py-8 text-center text-muted-foreground">
+                          当前区间没有请求
+                        </td>
+                      </tr>
+                    ) : (
+                      speedFilteredRows.map((row, index) => (
+                        <tr
+                          key={`${row.request_id}-${index}`}
+                          className="cursor-pointer border-b last:border-0 hover:bg-muted/50"
+                          onClick={() => setDetailRow(row)}
+                        >
+                          <Td>{formatLocalTime(row.ts)}</Td>
+                          <Td>{row.request_id || "-"}</Td>
+                          <Td>{row.model || "-"}</Td>
+                          <TdNum>{metric(getOutputSpeed(row))}</TdNum>
+                          <TdNum>
+                            {metric(
+                              row.token_output_speed_e2e == null
+                                ? null
+                                : Number(row.token_output_speed_e2e),
+                            )}
+                          </TdNum>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </Section>
+          ) : null}
+
+          {showConcurrency && concurrencyTrend.length > 0 ? (
+            <Section title="请求并发统计" count="按请求开始与结束时间计算" bodyClassName="p-4">
+              <MultiTrendChart
+                data={concurrencyTrend}
+                series={[
+                  {
+                    key: "concurrency",
+                    name: "并发数",
+                    color: "var(--primary)",
+                  },
+                ]}
+                formatY={(value) => formatNumber(value)}
+              />
             </Section>
           ) : null}
         </div>
@@ -890,7 +1236,7 @@ export function RealtimeQueryPage() {
       <TraceLogDrawer
         wsId={wsId}
         requestId={traceRequestId}
-        datasourceId={committed?.datasourceId ?? form.datasourceId}
+        datasources={lokiDatasources}
         startTime={
           committed ? toIsoWithOffset(committed.start) : toIsoWithOffset(form.start)
         }
@@ -1230,8 +1576,7 @@ function Field({
 
 /**
  * Log preview dialog. Fetches the log content via chatLogPreviewOptions when
- * opened. Shows the file metadata + the raw content (the source's JSON
- * fold/highlight view is dropped as a simplification).
+ * opened. Shows file metadata and formats JSON content when possible.
  */
 function LogPreviewDialog({
   open,
@@ -1323,7 +1668,7 @@ function LogPreviewBody({
     );
   }
 
-  const content = data.content || "";
+  const content = formattedLogLine(data.content || "");
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-1 gap-x-6 gap-y-3 sm:grid-cols-2">
@@ -1388,107 +1733,288 @@ function SpeedDistributionChart({ buckets }: { buckets: SpeedBucket[] }) {
   );
 }
 
-/**
- * Loki trace-log drawer. A right-side Sheet that fetches the trace-log entries
- * for the given request_id (scoped to the committed query window) via
- * chatTraceLogsOptions and renders them as a timestamped log list. The source's
- * per-entry detail modal + JSON fold/highlight view is dropped as a
- * simplification — entries are shown raw.
- *
- * Open state is driven by `requestId` (non-null = open). Closing sets it back
- * to null via `onClose`.
- */
+interface LokiQueryPreset {
+  name: string;
+  label_selector: string;
+}
+
+function datasourcePresets(datasource: ChatDatasource | undefined): LokiQueryPreset[] {
+  if (!datasource) return [];
+  const candidates = [datasource.config_json, datasource.loki_queries];
+  for (const raw of candidates) {
+    if (!raw) continue;
+    try {
+      const parsed = JSON.parse(raw) as
+        | { queries?: unknown[] }
+        | unknown[];
+      const values = Array.isArray(parsed) ? parsed : parsed.queries;
+      if (!Array.isArray(values)) continue;
+      return values
+        .filter(
+          (value): value is LokiQueryPreset =>
+            typeof value === "object" &&
+            value !== null &&
+            typeof Reflect.get(value, "label_selector") === "string",
+        )
+        .map((value, index) => ({
+          name: value.name || `预设 ${index + 1}`,
+          label_selector: value.label_selector,
+        }));
+    } catch {
+      // Ignore malformed legacy datasource configuration.
+    }
+  }
+  return [];
+}
+
+function formattedLogLine(line: string): string {
+  const starts = [line.indexOf("{"), line.indexOf("[")].filter(
+    (index) => index >= 0,
+  );
+  if (starts.length === 0) return line;
+  const start = Math.min(...starts);
+  try {
+    const parsed = JSON.parse(line.slice(start));
+    return `${line.slice(0, start)}${JSON.stringify(parsed, null, 2)}`;
+  } catch {
+    return line;
+  }
+}
+
 function TraceLogDrawer({
   wsId,
   requestId,
-  datasourceId,
+  datasources,
   startTime,
   endTime,
   onClose,
 }: {
   wsId: string;
   requestId: string | null;
-  datasourceId: string;
+  datasources: ChatDatasource[];
   startTime: string;
   endTime: string;
   onClose: () => void;
 }) {
   const open = !!requestId;
-  // Fetch trace logs only while the drawer is open. The query is scoped to the
-  // committed query window + the selected request_id + a Loki datasource.
+  const [datasourceId, setDatasourceId] = useState("");
+  const [presetName, setPresetName] = useState("");
+  const [labelSelector, setLabelSelector] = useState("");
+  const [cursor, setCursor] = useState("");
+  const [entries, setEntries] = useState<ChatTraceLogEntry[]>([]);
+  const [selectedEntry, setSelectedEntry] =
+    useState<ChatTraceLogEntry | null>(null);
+  const selectedDatasource = datasources.find(
+    (datasource) => String(datasource.id) === datasourceId,
+  );
+  const presets = useMemo(
+    () => datasourcePresets(selectedDatasource),
+    [selectedDatasource],
+  );
+
+  useEffect(() => {
+    if (!open) return;
+    const first = datasources[0];
+    const firstPresets = datasourcePresets(first);
+    const preset = firstPresets[0];
+    setDatasourceId(first ? String(first.id) : "");
+    setPresetName(preset?.name ?? "");
+    setLabelSelector(preset?.label_selector ?? "");
+    setCursor("");
+    setEntries([]);
+    setSelectedEntry(null);
+  }, [datasources, open, requestId]);
+
   const req = useMemo(
     () => ({
       datasource_id: datasourceId,
       request_id: requestId ?? "",
+      label_selector: labelSelector || undefined,
       start_time: startTime,
       end_time: endTime,
       limit: 100,
+      cursor: cursor || undefined,
     }),
-    [datasourceId, endTime, requestId, startTime],
+    [
+      cursor,
+      datasourceId,
+      endTime,
+      labelSelector,
+      requestId,
+      startTime,
+    ],
   );
   const traceQ = useQuery({
     ...chatTraceLogsOptions(wsId, req),
     enabled: open && !!requestId && !!datasourceId && !!startTime,
   });
 
-  const entries: ChatTraceLogEntry[] = traceQ.data?.entries ?? [];
-  const loading = traceQ.isLoading;
+  useEffect(() => {
+    const nextEntries = traceQ.data?.entries;
+    if (!nextEntries) return;
+    setEntries((current) => {
+      const base = cursor ? current : [];
+      const seen = new Set(
+        base.map((entry) => `${entry.timestamp}\u0000${entry.line}`),
+      );
+      return [
+        ...base,
+        ...nextEntries.filter((entry) => {
+          const key = `${entry.timestamp}\u0000${entry.line}`;
+          if (seen.has(key)) return false;
+          seen.add(key);
+          return true;
+        }),
+      ];
+    });
+  }, [cursor, traceQ.data]);
+
+  const loading = traceQ.isFetching;
   const error = traceQ.error as Error | null;
 
   return (
-    <Sheet
-      open={open}
-      onOpenChange={(o) => {
-        if (!o) onClose();
-      }}
-    >
-      <SheetContent side="right" className="w-full sm:max-w-2xl">
-        <SheetHeader>
-          <SheetTitle>链路日志 · {requestId || "-"}</SheetTitle>
-          <SheetDescription>
-            来自 Loki 数据源的该请求链路日志（最多 100 条）。
-            {!datasourceId ? " 未配置 Loki 数据源。" : ""}
-          </SheetDescription>
-        </SheetHeader>
+    <>
+      <Sheet
+        open={open}
+        onOpenChange={(nextOpen) => {
+          if (!nextOpen) onClose();
+        }}
+      >
+        <SheetContent side="right" className="w-full sm:max-w-2xl">
+          <SheetHeader>
+            <SheetTitle>链路日志 · {requestId || "-"}</SheetTitle>
+            <SheetDescription>
+              选择 Loki 数据源和查询预设，按当前明细查询时间范围获取日志。
+            </SheetDescription>
+          </SheetHeader>
 
-        <div className="flex-1 space-y-3 overflow-y-auto px-4 pb-4">
-          {error ? (
-            <div className="rounded-lg border border-destructive/20 bg-destructive/5 px-4 py-3 text-sm text-destructive">
-              {error.message || "链路日志查询失败"}
-            </div>
-          ) : null}
+          <div className="flex flex-wrap items-center gap-2 border-b px-4 pb-3">
+            <NativeSelect
+              value={datasourceId}
+              onChange={(event) => {
+                const nextId = event.target.value;
+                const datasource = datasources.find(
+                  (item) => String(item.id) === nextId,
+                );
+                const preset = datasourcePresets(datasource)[0];
+                setDatasourceId(nextId);
+                setPresetName(preset?.name ?? "");
+                setLabelSelector(preset?.label_selector ?? "");
+                setCursor("");
+                setEntries([]);
+              }}
+              aria-label="Loki 数据源"
+            >
+              {datasources.length === 0 ? (
+                <option value="">未配置 Loki 数据源</option>
+              ) : (
+                datasources.map((datasource) => (
+                  <option key={datasource.id} value={String(datasource.id)}>
+                    {datasource.name}
+                  </option>
+                ))
+              )}
+            </NativeSelect>
+            <NativeSelect
+              value={presetName}
+              onChange={(event) => {
+                const preset = presets.find(
+                  (item) => item.name === event.target.value,
+                );
+                setPresetName(event.target.value);
+                setLabelSelector(preset?.label_selector ?? "");
+                setCursor("");
+                setEntries([]);
+              }}
+              disabled={presets.length === 0}
+              aria-label="Loki 查询预设"
+            >
+              {presets.length === 0 ? (
+                <option value="">使用数据源默认查询</option>
+              ) : (
+                presets.map((preset) => (
+                  <option key={preset.name} value={preset.name}>
+                    {preset.name}
+                  </option>
+                ))
+              )}
+            </NativeSelect>
+          </div>
 
-          {loading && entries.length === 0 ? (
-            <div className="space-y-2 py-6">
-              <Skeleton className="h-5 w-full rounded" />
-              <Skeleton className="h-5 w-full rounded" />
-              <Skeleton className="h-5 w-3/4 rounded" />
-            </div>
-          ) : entries.length === 0 ? (
-            <div className="py-12 text-center text-sm text-muted-foreground">
-              未找到相关日志
-            </div>
-          ) : (
-            <div className="space-y-1">
-              {entries.map((entry, i) => (
-                <div
-                  key={`${entry.timestamp}-${i}`}
-                  className="flex items-start gap-2 rounded px-2 py-1 font-mono text-xs leading-relaxed hover:bg-muted/50"
+          <div className="flex-1 space-y-3 overflow-y-auto px-4 pb-4">
+            {error ? (
+              <div className="rounded-lg border border-destructive/20 bg-destructive/5 px-4 py-3 text-sm text-destructive">
+                {error.message || "链路日志查询失败"}
+              </div>
+            ) : null}
+
+            {loading && entries.length === 0 ? (
+              <div className="space-y-2 py-6">
+                <Skeleton className="h-5 w-full rounded" />
+                <Skeleton className="h-5 w-full rounded" />
+                <Skeleton className="h-5 w-3/4 rounded" />
+              </div>
+            ) : entries.length === 0 ? (
+              <div className="py-12 text-center text-sm text-muted-foreground">
+                {datasourceId ? "未找到相关日志" : "请先配置并启用 Loki 数据源"}
+              </div>
+            ) : (
+              <div className="space-y-1">
+                {entries.map((entry, index) => (
+                  <button
+                    type="button"
+                    key={`${entry.timestamp}-${index}`}
+                    onClick={() => setSelectedEntry(entry)}
+                    className="flex w-full items-start gap-2 rounded px-2 py-1 text-left font-mono text-xs leading-relaxed hover:bg-muted/50"
+                  >
+                    <span className="mt-0.5 shrink-0 text-muted-foreground">
+                      {entry.timestamp
+                        ? entry.timestamp.replace("T", " ").replace(/\+.*/, "")
+                        : "-"}
+                    </span>
+                    <span className="break-all text-card-foreground">
+                      {entry.line}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {traceQ.data?.has_more ? (
+              <div className="flex justify-center py-2">
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  disabled={loading || !traceQ.data.next_cursor}
+                  onClick={() => setCursor(traceQ.data?.next_cursor ?? "")}
                 >
-                  <span className="mt-0.5 shrink-0 text-muted-foreground">
-                    {entry.timestamp
-                      ? entry.timestamp.replace("T", " ").replace(/\+.*/, "")
-                      : "-"}
-                  </span>
-                  <span className="break-all text-card-foreground">
-                    {entry.line}
-                  </span>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      </SheetContent>
-    </Sheet>
+                  {loading ? "加载中..." : "加载更多"}
+                </Button>
+              </div>
+            ) : null}
+          </div>
+        </SheetContent>
+      </Sheet>
+
+      <Dialog
+        open={!!selectedEntry}
+        onOpenChange={(nextOpen) => {
+          if (!nextOpen) setSelectedEntry(null);
+        }}
+      >
+        <DialogContent className="sm:max-w-3xl">
+          <DialogHeader>
+            <DialogTitle>日志条目详情</DialogTitle>
+            <DialogDescription>
+              {selectedEntry?.timestamp || "未提供时间戳"}
+            </DialogDescription>
+          </DialogHeader>
+          <pre className="max-h-[520px] overflow-auto rounded-lg border bg-muted/20 p-4 font-mono text-xs leading-relaxed whitespace-pre-wrap break-all">
+            {selectedEntry ? formattedLogLine(selectedEntry.line) : ""}
+          </pre>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }

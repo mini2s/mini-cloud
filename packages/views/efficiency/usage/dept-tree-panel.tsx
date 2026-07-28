@@ -7,15 +7,24 @@ import { Skeleton } from "@multica/ui/components/ui/skeleton";
 import { cn } from "@multica/ui/lib/utils";
 import type { DeptTreeNode } from "@multica/core/efficiency";
 
+export const UNASSIGNED_DEPT_NODE: DeptTreeNode = {
+  dept_id: "unassigned",
+  dept_name: "未划分",
+  parent_dept_id: "",
+  dept_path: "",
+  dept_level: 0,
+  order_num: 9999,
+  child_dept_count: 0,
+  status: 1,
+  children: [],
+};
+
 // Department tree panel (the usage dimension's left navigation). The source
 // put everything in URL searchParams; per slice-3b design decision #1 we use
 // component state and onSelect callbacks instead — no react-router, no URL.
 //
-// The source also appended a virtual "未划分" (unassigned) top-level node for
-// users with no department. The mini-cloud backend's dept-tree is the single
-// source here, and we don't yet have a comparable "unassigned users" API; the
-// virtual node is omitted to avoid surfacing an empty placeholder. If a future
-// slice adds an unassigned bucket, re-add UNASSIGNED_NODE here.
+// The parent appends the source-compatible virtual "未划分" top-level node so
+// users without a department remain queryable through the same callbacks.
 //
 // shadcn Collapsible drives expand/collapse (per design decision #4). We
 // render the tree lazily: collapsed subtrees never enter the DOM, matching

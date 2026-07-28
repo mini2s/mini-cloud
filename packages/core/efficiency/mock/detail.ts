@@ -288,6 +288,14 @@ export function getMockRepoTrend(_p: {
   return { data: Array.from({ length: 6 }, (_, i) => makeTrendPoint(i)) };
 }
 
+export function getMockDeptTrend(_p: {
+  deptId?: string;
+  startDate?: string;
+  endDate?: string;
+}): EntityTrendResponse {
+  return { data: Array.from({ length: 6 }, (_, i) => makeTrendPoint(i)) };
+}
+
 // ---- project detail + needs ----------------------------------------------
 // /v2/projects/{id}: project model + Need-scope ratio block (decimal ratios).
 

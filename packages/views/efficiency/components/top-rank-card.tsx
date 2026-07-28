@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useWorkspaceId } from "@multica/core/hooks";
+import { useWorkspacePaths } from "@multica/core/paths";
 import {
   allNeedsOptions,
   usersOptions,
@@ -17,6 +18,7 @@ import {
   TabsList,
   TabsTrigger,
 } from "@multica/ui/components/ui/tabs";
+import { useNavigation } from "../../navigation";
 
 // Top efficiency rankings, switchable between Needs and Users via tabs. The
 // backend does not support ordering by efficiency_ratio, so the source sorts
@@ -25,10 +27,8 @@ import {
 // full population is sorted before slicing (the default 50 would rank only
 // within the first page).
 //
-// Navigation: the source rows drilled into need/user detail via useNavigate
-// (react-router). packages/views cannot import react-router-dom and the
-// detail pages don't exist yet, so this card is display-only for now.
-// TODO: navigation wired in slice 5.
+// Rows drill into the migrated need/user detail routes through the shared
+// navigation adapter, keeping this component independent of Next.js.
 
 interface TopRankCardProps {
   startDate?: string;
@@ -53,6 +53,8 @@ function shortNeedId(id: string): string {
 
 export function TopRankCard({ startDate, endDate }: TopRankCardProps) {
   const wsId = useWorkspaceId();
+  const paths = useWorkspacePaths();
+  const { push } = useNavigation();
   const [tab, setTab] = useState<Tab>("need");
   const needsQ = useQuery(allNeedsOptions(wsId, startDate, endDate));
   const usersQ = useQuery(
@@ -119,6 +121,7 @@ export function TopRankCard({ startDate, endDate }: TopRankCardProps) {
                     title={shortNeedId(r.need_id)}
                     sub={r.repo_branch}
                     pill={formatV2Ratio(r.efficiency_ratio)}
+                    onClick={() => push(paths.metricsNeedDetail(r.need_id))}
                   />
                 ))}
               </ul>
@@ -132,6 +135,7 @@ export function TopRankCard({ startDate, endDate }: TopRankCardProps) {
                     title={r.user_name}
                     sub={`合并需求 ${r.merged_need_count}`}
                     pill={formatV2Ratio(r.calendar_ratio)}
+                    onClick={() => push(paths.metricsUserDetail(r.user_id))}
                   />
                 ))}
               </ul>
@@ -148,37 +152,46 @@ function RankRow({
   title,
   sub,
   pill,
+  onClick,
 }: {
   rank: number;
   title: string;
   sub: string;
   pill: string;
+  onClick: () => void;
 }) {
   const badge = rank <= 3 ? RANK_BADGE[rank - 1] : RANK_DEFAULT;
   return (
-    <li className="flex items-center gap-3 rounded-xl px-2 py-1.5 transition-colors hover:bg-muted/50">
-      <span
-        className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-xs font-bold tabular-nums ${badge}`}
+    <li>
+      <button
+        type="button"
+        onClick={onClick}
+        className="flex w-full items-center gap-3 rounded-xl px-2 py-1.5 text-left transition-colors hover:bg-muted/50 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        aria-label={`查看 ${title} 详情`}
       >
-        {rank}
-      </span>
-      <div className="min-w-0 flex-1">
-        <div
-          className="truncate text-sm font-medium text-card-foreground"
-          title={title}
+        <span
+          className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-xs font-bold tabular-nums ${badge}`}
         >
-          {title}
+          {rank}
+        </span>
+        <div className="min-w-0 flex-1">
+          <div
+            className="truncate text-sm font-medium text-card-foreground"
+            title={title}
+          >
+            {title}
+          </div>
+          <div
+            className="truncate text-xs text-muted-foreground"
+            title={sub}
+          >
+            {sub}
+          </div>
         </div>
-        <div
-          className="truncate text-xs text-muted-foreground"
-          title={sub}
-        >
-          {sub}
-        </div>
-      </div>
-      <span className="shrink-0 text-sm font-medium tabular-nums text-card-foreground">
-        {pill}
-      </span>
+        <span className="shrink-0 text-sm font-medium tabular-nums text-card-foreground">
+          {pill}
+        </span>
+      </button>
     </li>
   );
 }
