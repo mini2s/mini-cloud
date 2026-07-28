@@ -22,6 +22,7 @@ type RepositoryProvider interface {
 	UpsertFile(ctx context.Context, owner, repo, branch, path, content, message string) error
 	OpenReviewRequest(ctx context.Context, owner, repo, head, base, title string) (string, error)
 	MergeReviewRequest(ctx context.Context, owner, repo string, index int) error
+	CloseReviewRequest(ctx context.Context, owner, repo string, index int) error
 	ListOrgMembers(ctx context.Context, org string) ([]OrgMember, error)
 }
 
@@ -72,6 +73,10 @@ func (a GiteaAdapter) OpenReviewRequest(ctx context.Context, owner, repo, head, 
 
 func (a GiteaAdapter) MergeReviewRequest(ctx context.Context, owner, repo string, index int) error {
 	return a.Client.MergePR(ctx, owner, repo, index)
+}
+
+func (a GiteaAdapter) CloseReviewRequest(ctx context.Context, owner, repo string, index int) error {
+	return a.Client.ClosePR(ctx, owner, repo, index)
 }
 
 func (a GiteaAdapter) ListOrgMembers(ctx context.Context, org string) ([]OrgMember, error) {

@@ -137,6 +137,27 @@ func ReviewPath(round int, reviewer, verdict string) string {
 	return fmt.Sprintf("reviews/%02d-%s-%s.md", round, r, v)
 }
 
+// CodePath is the in-repo path — relative to a NodeDir — where one code MR
+// deliverable is archived: code/<deliverableID>.md. deliverableID is a UUID;
+// used verbatim (UUIDs are path-safe) so the archived entry traces back to the
+// multica deliverable row. Full path is NodeDir(...) + "/" + CodePath(...).
+func CodePath(deliverableID string) string {
+	return "code/" + deliverableID + ".md"
+}
+
+// SplitChildPath is the in-repo path — relative to the PARENT run's split-node
+// NodeDir — where a split-out child issue's deliverable-address is registered:
+// splits/<issueNumber>[-<sanitizedTitle>].md. Title omitted when empty/all-symbol
+// (like NodeDir). Lets the parent repo browser list every child task's
+// deliverable repo at a glance.
+func SplitChildPath(issueNumber int, childTitle string) string {
+	title := sanitizePathSeg(childTitle)
+	if title == "" {
+		return fmt.Sprintf("splits/%d.md", issueNumber)
+	}
+	return fmt.Sprintf("splits/%d-%s.md", issueNumber, title)
+}
+
 // sanitizePathSeg lightly sanitizes a human string for use as a single path
 // segment INSIDE a repo (not a repo/branch name). Unlike escapeDefSlug it
 // preserves CJK and other Unicode letters/digits — git stores paths as UTF-8 and

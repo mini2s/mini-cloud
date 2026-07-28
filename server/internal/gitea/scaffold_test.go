@@ -101,11 +101,10 @@ func TestScaffoldRun_CreatesEverything(t *testing.T) {
 		t.Errorf("expected one seeded definition.yaml on main, got %v", f.files)
 	}
 	wantProt := map[string]bool{
-		"t-7f3c9a1e/wf-11111111/main":   true,
-		"t-7f3c9a1e/wf-11111111/inst-*": true,
+		"t-7f3c9a1e/wf-11111111/main": true,
 	}
 	if len(f.prot) != len(wantProt) {
-		t.Errorf("expected main and inst-* branch protection, got %v", f.prot)
+		t.Errorf("expected only main branch protection, got %v", f.prot)
 	}
 	for _, got := range f.prot {
 		if !wantProt[got] {
@@ -140,8 +139,7 @@ func TestScaffoldRun_Idempotent(t *testing.T) {
 			f.createOrgCalls, f.createRepoCalls, f.createBranchCalls)
 	}
 	wantProt := map[string]bool{
-		"t-7f3c9a1e/wf-11111111/main":   true,
-		"t-7f3c9a1e/wf-11111111/inst-*": true,
+		"t-7f3c9a1e/wf-11111111/main": true,
 	}
 	if len(f.prot) != len(wantProt) {
 		t.Errorf("idempotent re-scaffold should still ensure protections, got %v", f.prot)
@@ -243,11 +241,10 @@ func TestScaffoldWorkspaceArchiveRepo_CreatesDefaultRepo(t *testing.T) {
 		t.Error("default archive repo not created")
 	}
 	wantProt := map[string]bool{
-		"t-7f3c9a1e/deliverable-archive/main":   true,
-		"t-7f3c9a1e/deliverable-archive/inst-*": true,
+		"t-7f3c9a1e/deliverable-archive/main": true,
 	}
 	if len(f.prot) != len(wantProt) {
-		t.Errorf("expected main and inst-* branch protection for archive repo, got %v", f.prot)
+		t.Errorf("expected only main branch protection for archive repo, got %v", f.prot)
 	}
 	for _, got := range f.prot {
 		if !wantProt[got] {
@@ -269,8 +266,7 @@ func TestScaffoldWorkspaceArchiveRepo_Idempotent(t *testing.T) {
 			f.createOrgCalls, f.createRepoCalls, f.prot)
 	}
 	wantProt := map[string]bool{
-		"t-7f3c9a1e/deliverable-archive/main":   true,
-		"t-7f3c9a1e/deliverable-archive/inst-*": true,
+		"t-7f3c9a1e/deliverable-archive/main": true,
 	}
 	if len(f.prot) != len(wantProt) {
 		t.Errorf("idempotent archive scaffold should still ensure protections, got %v", f.prot)
@@ -383,8 +379,8 @@ func TestScaffoldRun_RealClientE2E(t *testing.T) {
 	if files != 1 {
 		t.Errorf("expected 1 seed file, got %d", files)
 	}
-	if protections != 2 {
-		t.Errorf("expected 2 protection rules (main + inst-*), got %d", protections)
+	if protections != 1 {
+		t.Errorf("expected 1 protection rule (main only), got %d", protections)
 	}
 
 	// Second call must be idempotent: no new files/branches. Protection calls
@@ -397,7 +393,7 @@ func TestScaffoldRun_RealClientE2E(t *testing.T) {
 	if files != filesBefore {
 		t.Errorf("idempotent re-scaffold created %d new files", files-filesBefore)
 	}
-	if protections != 4 {
-		t.Errorf("second scaffold should re-ensure 2 protection rules, got total %d", protections)
+	if protections != 2 {
+		t.Errorf("second scaffold should re-ensure 1 protection rule, got total %d", protections)
 	}
 }

@@ -74,13 +74,16 @@ func ScaffoldWorkspaceArchiveRepo(ctx context.Context, c scaffoldAPI, workspaceI
 			}
 		}
 	}
+	// Only main is protected. inst-* MUST stay unprotected: multica creates inst
+	// branches and pushes deliverable content (files, node branches) to them
+	// directly, and some Gitea versions reject even API branch creation that
+	// matches a protected glob (status 500 PushRejected). See client.ProtectBranch.
 	_ = c.ProtectBranch(ctx, owner, repo, "main")
-	_ = c.ProtectBranch(ctx, owner, repo, "inst-*")
 	return nil
 }
 
 // ScaffoldWorkflowRepo creates the workflow's type repo (wf-<wf[:8]>) under the
-// workspace org and ensures main + inst-* branch protections. No concrete inst
+// workspace org and ensures the main branch is protected. No concrete inst
 // branch is created here (that's per-run). Called on workflow activation so the
 // repo exists before the first run. Org + repo are idempotent.
 func ScaffoldWorkflowRepo(ctx context.Context, c scaffoldAPI, workspaceID, workflowID, workflowTitle string) error {
@@ -113,7 +116,6 @@ func ScaffoldWorkflowRepo(ctx context.Context, c scaffoldAPI, workspaceID, workf
 		}
 	}
 	_ = c.ProtectBranch(ctx, owner, repo, "main")
-	_ = c.ProtectBranch(ctx, owner, repo, "inst-*")
 	return nil
 }
 
@@ -136,8 +138,8 @@ type ScaffoldResult struct {
 }
 
 // ScaffoldRunDeliverable get-or-creates, idempotently: the workspace org, the
-// workflow repo (with main auto-initialized), branch protection on main + inst-*,
-// and the run's inst branch (based off main). Safe to retry on transient failure.
+// workflow repo (with main auto-initialized), main branch protection, and the
+// run's inst branch (based off main). Safe to retry on transient failure.
 //
 // Partial-failure caveat: the org and inst branch are re-verified on every
 // call, and branch protections are re-ensured on every call. The repo's seed
@@ -191,7 +193,6 @@ func ScaffoldRunDeliverable(ctx context.Context, c scaffoldAPI, p ScaffoldParams
 	}
 	if repoReady {
 		_ = c.ProtectBranch(ctx, owner, repo, "main")
-		_ = c.ProtectBranch(ctx, owner, repo, "inst-*")
 	}
 
 	// 3. Inst branch (per run, idempotent GET-then-POST). Base = main.

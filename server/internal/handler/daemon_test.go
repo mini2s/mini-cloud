@@ -855,6 +855,112 @@ func TestGetIssueGCCheck_WithDaemonToken_CrossWorkspace(t *testing.T) {
 	}
 }
 
+func TestGetWorkflowNodeRunGCCheck(t *testing.T) {
+	if testHandler == nil {
+		t.Skip("database not available")
+	}
+
+	// seedDeliverableAndNodeRunIn builds workflow→node→run→node_run under the
+	// test workspace with the node_run in 'working' status. Stamp it terminal
+	// and stale so a GC caller sees a reclaimable record.
+	nodeRunID, _ := seedDeliverableAndNodeRunIn(t, testWorkspaceID, testUserID)
+	if _, err := testPool.Exec(context.Background(), `
+		UPDATE multica_workflow_node_run SET status = 'completed', completed_at = NOW() - INTERVAL '10 days'
+		WHERE id = $1`, nodeRunID); err != nil {
+		t.Fatalf("stamp node run: %v", err)
+	}
+
+	// Cross-workspace daemon token → 404 (anti-enumeration, same shape as the
+	// issue gc-check endpoint).
+	w := httptest.NewRecorder()
+	req := newDaemonTokenRequest(http.MethodGet, "/api/daemon/workflow-node-runs/"+nodeRunID+"/gc-check", nil,
+		"00000000-0000-0000-0000-000000000000", "attacker-daemon")
+	req = withURLParam(req, "nodeRunId", nodeRunID)
+	testHandler.GetWorkflowNodeRunGCCheck(w, req)
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("cross-workspace token: expected 404, got %d: %s", w.Code, w.Body.String())
+	}
+
+	// Same-workspace daemon token → 200 + status + completed_at.
+	w = httptest.NewRecorder()
+	req = newDaemonTokenRequest(http.MethodGet, "/api/daemon/workflow-node-runs/"+nodeRunID+"/gc-check", nil,
+		testWorkspaceID, "legit-daemon")
+	req = withURLParam(req, "nodeRunId", nodeRunID)
+	testHandler.GetWorkflowNodeRunGCCheck(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("same-workspace token: expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp struct {
+		Status      string `json:"status"`
+		CompletedAt string `json:"completed_at"`
+	}
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if resp.Status != "completed" {
+		t.Fatalf("expected status %q, got %q", "completed", resp.Status)
+	}
+	if resp.CompletedAt == "" {
+		t.Fatal("expected completed_at to be set")
+	}
+}
+
+// TestGetIssueGCCheck_WithUserToken locks spec §257 option 2: gc-check endpoints
+// must accept a user (PAT/JWT/Casdoor) token via DaemonAuth's fallback path,
+// gated by workspace membership — not only a daemon (mdt_) token. The handler
+// observes the post-DaemonAuth state (X-User-ID set, no daemon-workspace ctx),
+// so requireDaemonWorkspaceAccess resolves through the membership cache /
+// requireWorkspaceMember. A member gets 200; a non-member gets the same 404 as
+// "issue not found" (no UUID enumeration oracle). This is the auth path cs-cloud
+// rides on — its CoStrict PAT authenticates as a user token, not a daemon token.
+func TestGetIssueGCCheck_WithUserToken(t *testing.T) {
+	if testHandler == nil {
+		t.Skip("database not available")
+	}
+
+	var issueID string
+	err := testPool.QueryRow(context.Background(), `
+		INSERT INTO multica_issue (workspace_id, title, status, priority, creator_id, creator_type)
+		VALUES ($1, 'gc-check-user-token-issue', 'done', 'medium', $2, 'member')
+		RETURNING id
+	`, testWorkspaceID, testUserID).Scan(&issueID)
+	if err != nil {
+		t.Fatalf("setup: create issue: %v", err)
+	}
+	defer testPool.Exec(context.Background(), `DELETE FROM multica_issue WHERE id = $1`, issueID)
+
+	// Member user token → 200 + status + updated_at.
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/daemon/issues/"+issueID+"/gc-check", nil)
+	req.Header.Set("X-User-ID", testUserID)
+	req = withURLParam(req, "issueId", issueID)
+	testHandler.GetIssueGCCheck(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("member user token: expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	var resp struct {
+		Status    string `json:"status"`
+		UpdatedAt string `json:"updated_at"`
+	}
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if resp.Status != "done" {
+		t.Fatalf("expected status %q, got %q", "done", resp.Status)
+	}
+
+	// Non-member user token → 404 (anti-enumeration, same shape as cross-workspace daemon token).
+	w = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodGet, "/api/daemon/issues/"+issueID+"/gc-check", nil)
+	req.Header.Set("X-User-ID", "11111111-1111-1111-1111-111111111111")
+	req = withURLParam(req, "issueId", issueID)
+	testHandler.GetIssueGCCheck(w, req)
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("non-member user token: expected 404, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
 // withURLParams merges the given chi URL parameters into the request context.
 // Unlike calling withURLParam twice (which replaces the whole chi.RouteContext
 // and loses earlier params), this preserves previously-added params.
