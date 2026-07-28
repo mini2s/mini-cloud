@@ -11,6 +11,59 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const assignSplitChildIssueIfUnassigned = `-- name: AssignSplitChildIssueIfUnassigned :one
+UPDATE multica_issue
+SET assignee_type = $2,
+    assignee_id = $3,
+    updated_at = now()
+WHERE id = $1
+  AND assignee_type IS NULL
+  AND assignee_id IS NULL
+  AND status NOT IN ('done', 'cancelled')
+RETURNING id, workspace_id, title, description, status, priority, assignee_type, assignee_id, creator_type, creator_id, parent_issue_id, acceptance_criteria, context_refs, position, due_date, created_at, updated_at, number, project_id, origin_type, origin_id, first_executed_at, start_date, metadata, workflow_id, workflow_run_id, stage_id
+`
+
+type AssignSplitChildIssueIfUnassignedParams struct {
+	ID           pgtype.UUID `json:"id"`
+	AssigneeType pgtype.Text `json:"assignee_type"`
+	AssigneeID   pgtype.UUID `json:"assignee_id"`
+}
+
+func (q *Queries) AssignSplitChildIssueIfUnassigned(ctx context.Context, arg AssignSplitChildIssueIfUnassignedParams) (MulticaIssue, error) {
+	row := q.db.QueryRow(ctx, assignSplitChildIssueIfUnassigned, arg.ID, arg.AssigneeType, arg.AssigneeID)
+	var i MulticaIssue
+	err := row.Scan(
+		&i.ID,
+		&i.WorkspaceID,
+		&i.Title,
+		&i.Description,
+		&i.Status,
+		&i.Priority,
+		&i.AssigneeType,
+		&i.AssigneeID,
+		&i.CreatorType,
+		&i.CreatorID,
+		&i.ParentIssueID,
+		&i.AcceptanceCriteria,
+		&i.ContextRefs,
+		&i.Position,
+		&i.DueDate,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.Number,
+		&i.ProjectID,
+		&i.OriginType,
+		&i.OriginID,
+		&i.FirstExecutedAt,
+		&i.StartDate,
+		&i.Metadata,
+		&i.WorkflowID,
+		&i.WorkflowRunID,
+		&i.StageID,
+	)
+	return i, err
+}
+
 const childIssueProgress = `-- name: ChildIssueProgress :many
 SELECT parent_issue_id,
        COUNT(*)::bigint AS total,
@@ -747,7 +800,7 @@ func (q *Queries) GetIssueInWorkspace(ctx context.Context, arg GetIssueInWorkspa
 }
 
 const getOpenSplitTaskByIssueID = `-- name: GetOpenSplitTaskByIssueID :one
-SELECT id, node_run_id, workspace_id, title, description, depends_on, sort_order, status, issue_id, run_id, created_at, updated_at, draft_key, draft_source, workflow_id, version, dispatch_key, last_error
+SELECT id, node_run_id, workspace_id, title, description, depends_on, sort_order, status, issue_id, run_id, created_at, updated_at, draft_key, draft_source, workflow_id, version, dispatch_key, last_error, assignee_type, assignee_id
 FROM multica_workflow_split_task
 WHERE issue_id = $1
   AND status NOT IN ('done', 'failed', 'cancelled', 'skipped', 'discarded')
@@ -776,6 +829,8 @@ func (q *Queries) GetOpenSplitTaskByIssueID(ctx context.Context, issueID pgtype.
 		&i.Version,
 		&i.DispatchKey,
 		&i.LastError,
+		&i.AssigneeType,
+		&i.AssigneeID,
 	)
 	return i, err
 }

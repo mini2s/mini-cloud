@@ -100,7 +100,7 @@ UPDATE multica_workflow_node_run SET
     updated_at = now()
 WHERE workflow_run_id = $1
   AND status NOT IN ('format_failed', 'completed', 'failed', 'skipped', 'cancelled')
-RETURNING id, workflow_run_id, workflow_node_id, node_title, status, retry_count, worker_type, worker_id, worker_output, critic_type, critic_id, critic_output, critic_comment, agent_task_id, started_at, completed_at, created_at, updated_at, worker_agent_task_id, critic_agent_task_id, runtime_id, device_id, session_id, split_review_chat_session_id, runtime_selection_reason, failure_reason, split_config_version
+RETURNING id, workflow_run_id, workflow_node_id, node_title, status, retry_count, worker_type, worker_id, worker_output, critic_type, critic_id, critic_output, critic_comment, agent_task_id, started_at, completed_at, created_at, updated_at, worker_agent_task_id, critic_agent_task_id, runtime_id, device_id, session_id, split_review_chat_session_id, runtime_selection_reason, failure_reason, split_config_version, source_workflow_node_id, node_description, format_schema, critic_api_url, stage_snapshot, worker_role_snapshot, critic_role_snapshot, runtime_config, worker_name_snapshot, critic_name_snapshot
 `
 
 func (q *Queries) CancelWorkflowNodeRuns(ctx context.Context, workflowRunID pgtype.UUID) ([]MulticaWorkflowNodeRun, error) {
@@ -140,6 +140,16 @@ func (q *Queries) CancelWorkflowNodeRuns(ctx context.Context, workflowRunID pgty
 			&i.RuntimeSelectionReason,
 			&i.FailureReason,
 			&i.SplitConfigVersion,
+			&i.SourceWorkflowNodeID,
+			&i.NodeDescription,
+			&i.FormatSchema,
+			&i.CriticApiUrl,
+			&i.StageSnapshot,
+			&i.WorkerRoleSnapshot,
+			&i.CriticRoleSnapshot,
+			&i.RuntimeConfig,
+			&i.WorkerNameSnapshot,
+			&i.CriticNameSnapshot,
 		); err != nil {
 			return nil, err
 		}

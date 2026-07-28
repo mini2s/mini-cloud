@@ -56,7 +56,7 @@ WHERE id = $1
   AND status = 'created'
   AND run_id IS NULL
   AND (dispatch_key IS NULL OR dispatch_key = $2::text)
-RETURNING id, node_run_id, workspace_id, title, description, depends_on, sort_order, status, issue_id, run_id, created_at, updated_at, draft_key, draft_source, workflow_id, version, dispatch_key, last_error
+RETURNING id, node_run_id, workspace_id, title, description, depends_on, sort_order, status, issue_id, run_id, created_at, updated_at, draft_key, draft_source, workflow_id, version, dispatch_key, last_error, assignee_type, assignee_id
 `
 
 type ClaimSplitTaskForRunStartParams struct {
@@ -86,6 +86,8 @@ func (q *Queries) ClaimSplitTaskForRunStart(ctx context.Context, arg ClaimSplitT
 		&i.Version,
 		&i.DispatchKey,
 		&i.LastError,
+		&i.AssigneeType,
+		&i.AssigneeID,
 	)
 	return i, err
 }
@@ -107,11 +109,11 @@ func (q *Queries) CountSplitTasksByNodeRun(ctx context.Context, nodeRunID pgtype
 const createSplitTask = `-- name: CreateSplitTask :one
 INSERT INTO multica_workflow_split_task (
     node_run_id, workspace_id, draft_key, title, description,
-    workflow_id, depends_on, sort_order, status, draft_source
+    depends_on, sort_order, status, draft_source
 ) VALUES (
-    $1, $2, $9, $3, $4,
-    $5, $6, $7, $8, $10
-) RETURNING id, node_run_id, workspace_id, title, description, depends_on, sort_order, status, issue_id, run_id, created_at, updated_at, draft_key, draft_source, workflow_id, version, dispatch_key, last_error
+    $1, $2, $8, $3, $4,
+    $5, $6, $7, $9
+) RETURNING id, node_run_id, workspace_id, title, description, depends_on, sort_order, status, issue_id, run_id, created_at, updated_at, draft_key, draft_source, workflow_id, version, dispatch_key, last_error, assignee_type, assignee_id
 `
 
 type CreateSplitTaskParams struct {
@@ -119,7 +121,6 @@ type CreateSplitTaskParams struct {
 	WorkspaceID pgtype.UUID `json:"workspace_id"`
 	Title       string      `json:"title"`
 	Description string      `json:"description"`
-	WorkflowID  pgtype.UUID `json:"workflow_id"`
 	DependsOn   []byte      `json:"depends_on"`
 	SortOrder   int32       `json:"sort_order"`
 	Status      string      `json:"status"`
@@ -133,7 +134,6 @@ func (q *Queries) CreateSplitTask(ctx context.Context, arg CreateSplitTaskParams
 		arg.WorkspaceID,
 		arg.Title,
 		arg.Description,
-		arg.WorkflowID,
 		arg.DependsOn,
 		arg.SortOrder,
 		arg.Status,
@@ -160,12 +160,14 @@ func (q *Queries) CreateSplitTask(ctx context.Context, arg CreateSplitTaskParams
 		&i.Version,
 		&i.DispatchKey,
 		&i.LastError,
+		&i.AssigneeType,
+		&i.AssigneeID,
 	)
 	return i, err
 }
 
 const getSplitTask = `-- name: GetSplitTask :one
-SELECT id, node_run_id, workspace_id, title, description, depends_on, sort_order, status, issue_id, run_id, created_at, updated_at, draft_key, draft_source, workflow_id, version, dispatch_key, last_error FROM multica_workflow_split_task
+SELECT id, node_run_id, workspace_id, title, description, depends_on, sort_order, status, issue_id, run_id, created_at, updated_at, draft_key, draft_source, workflow_id, version, dispatch_key, last_error, assignee_type, assignee_id FROM multica_workflow_split_task
 WHERE id = $1
 `
 
@@ -191,12 +193,47 @@ func (q *Queries) GetSplitTask(ctx context.Context, id pgtype.UUID) (MulticaWork
 		&i.Version,
 		&i.DispatchKey,
 		&i.LastError,
+		&i.AssigneeType,
+		&i.AssigneeID,
+	)
+	return i, err
+}
+
+const getSplitTaskByIssueID = `-- name: GetSplitTaskByIssueID :one
+SELECT id, node_run_id, workspace_id, title, description, depends_on, sort_order, status, issue_id, run_id, created_at, updated_at, draft_key, draft_source, workflow_id, version, dispatch_key, last_error, assignee_type, assignee_id FROM multica_workflow_split_task
+WHERE issue_id = $1
+`
+
+func (q *Queries) GetSplitTaskByIssueID(ctx context.Context, issueID pgtype.UUID) (MulticaWorkflowSplitTask, error) {
+	row := q.db.QueryRow(ctx, getSplitTaskByIssueID, issueID)
+	var i MulticaWorkflowSplitTask
+	err := row.Scan(
+		&i.ID,
+		&i.NodeRunID,
+		&i.WorkspaceID,
+		&i.Title,
+		&i.Description,
+		&i.DependsOn,
+		&i.SortOrder,
+		&i.Status,
+		&i.IssueID,
+		&i.RunID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.DraftKey,
+		&i.DraftSource,
+		&i.WorkflowID,
+		&i.Version,
+		&i.DispatchKey,
+		&i.LastError,
+		&i.AssigneeType,
+		&i.AssigneeID,
 	)
 	return i, err
 }
 
 const listSplitTasksByNodeRun = `-- name: ListSplitTasksByNodeRun :many
-SELECT id, node_run_id, workspace_id, title, description, depends_on, sort_order, status, issue_id, run_id, created_at, updated_at, draft_key, draft_source, workflow_id, version, dispatch_key, last_error FROM multica_workflow_split_task
+SELECT id, node_run_id, workspace_id, title, description, depends_on, sort_order, status, issue_id, run_id, created_at, updated_at, draft_key, draft_source, workflow_id, version, dispatch_key, last_error, assignee_type, assignee_id FROM multica_workflow_split_task
 WHERE node_run_id = $1
 ORDER BY sort_order ASC, created_at ASC
 `
@@ -229,6 +266,8 @@ func (q *Queries) ListSplitTasksByNodeRun(ctx context.Context, nodeRunID pgtype.
 			&i.Version,
 			&i.DispatchKey,
 			&i.LastError,
+			&i.AssigneeType,
+			&i.AssigneeID,
 		); err != nil {
 			return nil, err
 		}
@@ -241,7 +280,7 @@ func (q *Queries) ListSplitTasksByNodeRun(ctx context.Context, nodeRunID pgtype.
 }
 
 const listSplitTasksByRunID = `-- name: ListSplitTasksByRunID :many
-SELECT st.id, st.node_run_id, st.workspace_id, st.title, st.description, st.depends_on, st.sort_order, st.status, st.issue_id, st.run_id, st.created_at, st.updated_at, st.draft_key, st.draft_source, st.workflow_id, st.version, st.dispatch_key, st.last_error
+SELECT st.id, st.node_run_id, st.workspace_id, st.title, st.description, st.depends_on, st.sort_order, st.status, st.issue_id, st.run_id, st.created_at, st.updated_at, st.draft_key, st.draft_source, st.workflow_id, st.version, st.dispatch_key, st.last_error, st.assignee_type, st.assignee_id
 FROM multica_workflow_split_task st
 JOIN multica_workflow_run wr ON wr.id = st.run_id
 WHERE wr.id = $1
@@ -276,6 +315,8 @@ func (q *Queries) ListSplitTasksByRunID(ctx context.Context, id pgtype.UUID) ([]
 			&i.Version,
 			&i.DispatchKey,
 			&i.LastError,
+			&i.AssigneeType,
+			&i.AssigneeID,
 		); err != nil {
 			return nil, err
 		}
@@ -338,7 +379,7 @@ WHERE id = $1
   AND node_run_id = $2
   AND status IN ('failed', 'cancelled', 'skipped')
   AND issue_id IS NOT NULL
-RETURNING id, node_run_id, workspace_id, title, description, depends_on, sort_order, status, issue_id, run_id, created_at, updated_at, draft_key, draft_source, workflow_id, version, dispatch_key, last_error
+RETURNING id, node_run_id, workspace_id, title, description, depends_on, sort_order, status, issue_id, run_id, created_at, updated_at, draft_key, draft_source, workflow_id, version, dispatch_key, last_error, assignee_type, assignee_id
 `
 
 type ResetSplitTaskForRetryParams struct {
@@ -369,6 +410,63 @@ func (q *Queries) ResetSplitTaskForRetry(ctx context.Context, arg ResetSplitTask
 		&i.Version,
 		&i.DispatchKey,
 		&i.LastError,
+		&i.AssigneeType,
+		&i.AssigneeID,
+	)
+	return i, err
+}
+
+const setSplitTaskAssignee = `-- name: SetSplitTaskAssignee :one
+UPDATE multica_workflow_split_task
+SET assignee_type = $4,
+    assignee_id = $5,
+    version = version + 1,
+    updated_at = now()
+WHERE id = $1
+  AND node_run_id = $2
+  AND version = $3
+  AND status = 'draft'
+RETURNING id, node_run_id, workspace_id, title, description, depends_on, sort_order, status, issue_id, run_id, created_at, updated_at, draft_key, draft_source, workflow_id, version, dispatch_key, last_error, assignee_type, assignee_id
+`
+
+type SetSplitTaskAssigneeParams struct {
+	ID           pgtype.UUID `json:"id"`
+	NodeRunID    pgtype.UUID `json:"node_run_id"`
+	Version      int64       `json:"version"`
+	AssigneeType pgtype.Text `json:"assignee_type"`
+	AssigneeID   pgtype.UUID `json:"assignee_id"`
+}
+
+func (q *Queries) SetSplitTaskAssignee(ctx context.Context, arg SetSplitTaskAssigneeParams) (MulticaWorkflowSplitTask, error) {
+	row := q.db.QueryRow(ctx, setSplitTaskAssignee,
+		arg.ID,
+		arg.NodeRunID,
+		arg.Version,
+		arg.AssigneeType,
+		arg.AssigneeID,
+	)
+	var i MulticaWorkflowSplitTask
+	err := row.Scan(
+		&i.ID,
+		&i.NodeRunID,
+		&i.WorkspaceID,
+		&i.Title,
+		&i.Description,
+		&i.DependsOn,
+		&i.SortOrder,
+		&i.Status,
+		&i.IssueID,
+		&i.RunID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.DraftKey,
+		&i.DraftSource,
+		&i.WorkflowID,
+		&i.Version,
+		&i.DispatchKey,
+		&i.LastError,
+		&i.AssigneeType,
+		&i.AssigneeID,
 	)
 	return i, err
 }
@@ -377,11 +475,10 @@ const updateSplitTaskDraftFields = `-- name: UpdateSplitTaskDraftFields :one
 UPDATE multica_workflow_split_task
 SET title = COALESCE($4, title),
     description = COALESCE($5, description),
-    workflow_id = COALESCE($6, workflow_id),
-    depends_on = COALESCE($7, depends_on),
+    depends_on = COALESCE($6, depends_on),
     status = CASE
-      WHEN $8::boolean IS TRUE THEN 'discarded'
-      WHEN $8::boolean IS FALSE AND status = 'discarded' THEN 'draft'
+      WHEN $7::boolean IS TRUE THEN 'discarded'
+      WHEN $7::boolean IS FALSE AND status = 'discarded' THEN 'draft'
       ELSE status
     END,
     version = version + 1,
@@ -390,7 +487,7 @@ WHERE id = $1
   AND node_run_id = $2
   AND status IN ('draft', 'discarded')
   AND version = $3
-RETURNING id, node_run_id, workspace_id, title, description, depends_on, sort_order, status, issue_id, run_id, created_at, updated_at, draft_key, draft_source, workflow_id, version, dispatch_key, last_error
+RETURNING id, node_run_id, workspace_id, title, description, depends_on, sort_order, status, issue_id, run_id, created_at, updated_at, draft_key, draft_source, workflow_id, version, dispatch_key, last_error, assignee_type, assignee_id
 `
 
 type UpdateSplitTaskDraftFieldsParams struct {
@@ -399,7 +496,6 @@ type UpdateSplitTaskDraftFieldsParams struct {
 	Version     int64       `json:"version"`
 	Title       pgtype.Text `json:"title"`
 	Description pgtype.Text `json:"description"`
-	WorkflowID  pgtype.UUID `json:"workflow_id"`
 	DependsOn   []byte      `json:"depends_on"`
 	Discarded   pgtype.Bool `json:"discarded"`
 }
@@ -411,7 +507,6 @@ func (q *Queries) UpdateSplitTaskDraftFields(ctx context.Context, arg UpdateSpli
 		arg.Version,
 		arg.Title,
 		arg.Description,
-		arg.WorkflowID,
 		arg.DependsOn,
 		arg.Discarded,
 	)
@@ -435,6 +530,8 @@ func (q *Queries) UpdateSplitTaskDraftFields(ctx context.Context, arg UpdateSpli
 		&i.Version,
 		&i.DispatchKey,
 		&i.LastError,
+		&i.AssigneeType,
+		&i.AssigneeID,
 	)
 	return i, err
 }
@@ -447,7 +544,7 @@ SET title = COALESCE($2, title),
     sort_order = COALESCE($5::int, sort_order),
     updated_at = now()
 WHERE id = $1
-RETURNING id, node_run_id, workspace_id, title, description, depends_on, sort_order, status, issue_id, run_id, created_at, updated_at, draft_key, draft_source, workflow_id, version, dispatch_key, last_error
+RETURNING id, node_run_id, workspace_id, title, description, depends_on, sort_order, status, issue_id, run_id, created_at, updated_at, draft_key, draft_source, workflow_id, version, dispatch_key, last_error, assignee_type, assignee_id
 `
 
 type UpdateSplitTaskFieldsParams struct {
@@ -486,6 +583,8 @@ func (q *Queries) UpdateSplitTaskFields(ctx context.Context, arg UpdateSplitTask
 		&i.Version,
 		&i.DispatchKey,
 		&i.LastError,
+		&i.AssigneeType,
+		&i.AssigneeID,
 	)
 	return i, err
 }
@@ -558,7 +657,7 @@ UPDATE multica_workflow_split_task
 SET status = $2,
     updated_at = now()
 WHERE id = $1
-RETURNING id, node_run_id, workspace_id, title, description, depends_on, sort_order, status, issue_id, run_id, created_at, updated_at, draft_key, draft_source, workflow_id, version, dispatch_key, last_error
+RETURNING id, node_run_id, workspace_id, title, description, depends_on, sort_order, status, issue_id, run_id, created_at, updated_at, draft_key, draft_source, workflow_id, version, dispatch_key, last_error, assignee_type, assignee_id
 `
 
 type UpdateSplitTaskStatusParams struct {
@@ -588,6 +687,8 @@ func (q *Queries) UpdateSplitTaskStatus(ctx context.Context, arg UpdateSplitTask
 		&i.Version,
 		&i.DispatchKey,
 		&i.LastError,
+		&i.AssigneeType,
+		&i.AssigneeID,
 	)
 	return i, err
 }
@@ -598,7 +699,7 @@ SET status = $2,
     last_error = $3::jsonb,
     updated_at = now()
 WHERE id = $1
-RETURNING id, node_run_id, workspace_id, title, description, depends_on, sort_order, status, issue_id, run_id, created_at, updated_at, draft_key, draft_source, workflow_id, version, dispatch_key, last_error
+RETURNING id, node_run_id, workspace_id, title, description, depends_on, sort_order, status, issue_id, run_id, created_at, updated_at, draft_key, draft_source, workflow_id, version, dispatch_key, last_error, assignee_type, assignee_id
 `
 
 type UpdateSplitTaskStatusWithErrorParams struct {
@@ -629,6 +730,8 @@ func (q *Queries) UpdateSplitTaskStatusWithError(ctx context.Context, arg Update
 		&i.Version,
 		&i.DispatchKey,
 		&i.LastError,
+		&i.AssigneeType,
+		&i.AssigneeID,
 	)
 	return i, err
 }
@@ -636,17 +739,16 @@ func (q *Queries) UpdateSplitTaskStatusWithError(ctx context.Context, arg Update
 const upsertSplitDraftTaskByKey = `-- name: UpsertSplitDraftTaskByKey :one
 INSERT INTO multica_workflow_split_task (
     node_run_id, workspace_id, draft_key, title, description,
-    workflow_id, depends_on, sort_order, status, draft_source
+    depends_on, sort_order, status, draft_source
 ) VALUES (
     $1, $2, $3, $4, $5,
-    $6, $7, $8, 'draft', $9
+    $6, $7, 'draft', $8
 )
 ON CONFLICT (node_run_id, draft_key)
 WHERE draft_key IS NOT NULL AND draft_key <> '' AND status <> 'discarded'
 DO UPDATE SET
     title = EXCLUDED.title,
     description = EXCLUDED.description,
-    workflow_id = EXCLUDED.workflow_id,
     depends_on = EXCLUDED.depends_on,
     sort_order = EXCLUDED.sort_order,
     status = 'draft',
@@ -654,7 +756,7 @@ DO UPDATE SET
     version = multica_workflow_split_task.version + 1,
     updated_at = now()
 WHERE multica_workflow_split_task.status = 'draft'
-RETURNING id, node_run_id, workspace_id, title, description, depends_on, sort_order, status, issue_id, run_id, created_at, updated_at, draft_key, draft_source, workflow_id, version, dispatch_key, last_error
+RETURNING id, node_run_id, workspace_id, title, description, depends_on, sort_order, status, issue_id, run_id, created_at, updated_at, draft_key, draft_source, workflow_id, version, dispatch_key, last_error, assignee_type, assignee_id
 `
 
 type UpsertSplitDraftTaskByKeyParams struct {
@@ -663,7 +765,6 @@ type UpsertSplitDraftTaskByKeyParams struct {
 	DraftKey    pgtype.Text `json:"draft_key"`
 	Title       string      `json:"title"`
 	Description string      `json:"description"`
-	WorkflowID  pgtype.UUID `json:"workflow_id"`
 	DependsOn   []byte      `json:"depends_on"`
 	SortOrder   int32       `json:"sort_order"`
 	DraftSource pgtype.Text `json:"draft_source"`
@@ -676,7 +777,6 @@ func (q *Queries) UpsertSplitDraftTaskByKey(ctx context.Context, arg UpsertSplit
 		arg.DraftKey,
 		arg.Title,
 		arg.Description,
-		arg.WorkflowID,
 		arg.DependsOn,
 		arg.SortOrder,
 		arg.DraftSource,
@@ -701,6 +801,8 @@ func (q *Queries) UpsertSplitDraftTaskByKey(ctx context.Context, arg UpsertSplit
 		&i.Version,
 		&i.DispatchKey,
 		&i.LastError,
+		&i.AssigneeType,
+		&i.AssigneeID,
 	)
 	return i, err
 }
