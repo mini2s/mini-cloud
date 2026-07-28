@@ -65,6 +65,7 @@ import { getDeleteConflictMessage } from "../../../common/delete-conflict-error"
 import { WorkflowCanvasCore } from "../canvas/workflow-canvas-core";
 import {
   MIN_NODE_HORIZONTAL_GAP,
+  workflowCanvasStages,
   workflowEdgesToReactFlowEdges,
   workflowNodesToReactFlowNodes,
 } from "../canvas/workflow-canvas-model";
@@ -304,6 +305,10 @@ function PanoramaContent({
   const redo = useWorkflowEditorStore((s) => s.redo);
   const hasUnsavedEdits = useWorkflowEditorStore((s) => Object.keys(s.nodeEdits).length > 0);
   const statusLabel = t(($) => $.status[workflow.status as keyof typeof $.status] ?? workflow.status);
+  const canvasStages = useMemo(
+    () => workflowCanvasStages(stages, visibleNodes, workflowId),
+    [stages, visibleNodes, workflowId],
+  );
 
   // Delete workflow dialog
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
@@ -344,7 +349,6 @@ function PanoramaContent({
 
   // ── Onboarding guide state ──
   const rlNodesCount = rfNodes.filter(n => n.type !== "laneBg" && n.type !== "gradientBg").length;
-  const showFirstStageGuide = stages.length === 0;
   const showFirstStepGuide = stages.length > 0 && rlNodesCount === 0;
   const connectedNodePickerPosition = useMemo(() => {
     if (!connectedNodePickerSourceId) return null;
@@ -412,6 +416,7 @@ function PanoramaContent({
         disabledTemplateIds={disabledBoundaryTemplateIds}
         onTestRun={onTestRun}
         onToggleWorkflowStatus={onToggleWorkflowStatus}
+        onReviewIssues={() => setPreflightDismissed(false)}
         onOpenRunHistory={onOpenRunHistory}
         onOpenRunSettings={onOpenRunSettings}
         onDeleteWorkflow={() => setDeleteDialogOpen(true)}
@@ -421,7 +426,7 @@ function PanoramaContent({
         <WorkflowCanvasCore
             nodes={rfNodes}
             edges={rfEdges}
-          stages={stages}
+          stages={canvasStages}
             nodeTypes={panoramaNodeTypes}
             edgeTypes={panoramaEdgeTypes}
             onNodeClick={onNodeClick}
@@ -516,7 +521,7 @@ function PanoramaContent({
       </div>
 
       {/* Preflight bar */}
-      {!showFirstStageGuide && visibleNodes.length > 0 && (!preflightDismissed || preflightResult.passed) && (
+      {visibleNodes.length > 0 && (!preflightDismissed || preflightResult.passed) && (
         <PreflightBar
           result={preflightResult}
           hasUnsavedEdits={hasUnsavedEdits}
@@ -927,7 +932,6 @@ export function WorkflowPanoramaPage({ workflowId, viewToggle }: WorkflowPanoram
     }),
     [apiEdges, visibleNodes, stages, handleInlineEdgeDelete, selectedEdgeId, selectedEdgeAnchor],
   );
-
   // ── Selected node for config panel ──
   const selectedNode = useMemo(
     () => visibleNodes.find((n) => n.id === selectedNodeId) ?? null,

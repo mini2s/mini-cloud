@@ -164,6 +164,143 @@ func createWorkflowRerunFixture(t *testing.T, ctx context.Context, suffix string
 	return f
 }
 
+func TestCompleteTask_EmptyWorkflowOutputFailsTaskAndNodeRun(t *testing.T) {
+	if testHandler == nil || testPool == nil {
+		t.Skip("database not available")
+	}
+	ctx := context.Background()
+	f := createWorkflowRerunFixture(t, ctx, "empty-output")
+
+	var downstreamNodeID, downstreamNodeRunID string
+	if err := testPool.QueryRow(ctx, `
+		INSERT INTO multica_workflow_node (
+			workflow_id, title, description, worker_type, critic_type, sort_order
+		)
+		VALUES ($1, 'Downstream Node', '', 'human', 'human', 1)
+		RETURNING id
+	`, f.workflowID).Scan(&downstreamNodeID); err != nil {
+		t.Fatalf("create downstream node: %v", err)
+	}
+	if _, err := testPool.Exec(ctx, `
+		INSERT INTO multica_workflow_edge (workflow_id, source_node_id, target_node_id)
+		VALUES ($1, $2, $3)
+	`, f.workflowID, f.nodeID, downstreamNodeID); err != nil {
+		t.Fatalf("create downstream edge: %v", err)
+	}
+	if err := testPool.QueryRow(ctx, `
+		INSERT INTO multica_workflow_node_run (
+			workflow_run_id, workflow_node_id, node_title, status,
+			worker_type, critic_type
+		)
+		VALUES ($1, $2, 'Downstream Node', 'pending', 'human', 'human')
+		RETURNING id
+	`, f.runID, downstreamNodeID).Scan(&downstreamNodeRunID); err != nil {
+		t.Fatalf("create downstream node run: %v", err)
+	}
+
+	taskContext, err := json.Marshal(map[string]any{
+		"type":             "workflow",
+		"workflow_id":      f.workflowID,
+		"workflow_run_id":  f.runID,
+		"workflow_node_id": f.nodeID,
+		"node_run_id":      f.nodeRunID,
+		"phase":            "worker",
+	})
+	if err != nil {
+		t.Fatalf("marshal task context: %v", err)
+	}
+
+	var taskID string
+	if err := testPool.QueryRow(ctx, `
+		INSERT INTO multica_agent_task_queue (
+			agent_id, runtime_id, issue_id, status, priority,
+			workflow_node_run_id, context, started_at, attempt, max_attempts
+		)
+		VALUES ($1, $2, $3, 'running', 0, $4, $5, now(), 1, 1)
+		RETURNING id
+	`, f.agentID, f.runtimeID, f.issueID, f.nodeRunID, taskContext).Scan(&taskID); err != nil {
+		t.Fatalf("create running workflow task: %v", err)
+	}
+
+	w := httptest.NewRecorder()
+	req := newDaemonTokenRequest(
+		http.MethodPost,
+		"/api/daemon/tasks/"+taskID+"/complete",
+		TaskCompleteRequest{Output: "   ", SessionID: "empty-session"},
+		testWorkspaceID,
+		"device-empty-output",
+	)
+	req = withURLParam(req, "taskId", taskID)
+	testHandler.CompleteTask(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("CompleteTask: expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var taskStatus, failureReason string
+	if err := testPool.QueryRow(ctx, `
+		SELECT status, COALESCE(failure_reason, '')
+		FROM multica_agent_task_queue
+		WHERE id = $1
+	`, taskID).Scan(&taskStatus, &failureReason); err != nil {
+		t.Fatalf("load completed task: %v", err)
+	}
+	if taskStatus != "failed" {
+		t.Fatalf("task status = %q, want failed", taskStatus)
+	}
+	if failureReason != "agent_empty_output" {
+		t.Fatalf("failure reason = %q, want agent_empty_output", failureReason)
+	}
+
+	var nodeRunStatus string
+	if err := testPool.QueryRow(ctx, `
+		SELECT status FROM multica_workflow_node_run WHERE id = $1
+	`, f.nodeRunID).Scan(&nodeRunStatus); err != nil {
+		t.Fatalf("load node run: %v", err)
+	}
+	if nodeRunStatus != "failed" {
+		t.Fatalf("node run status = %q, want failed", nodeRunStatus)
+	}
+
+	var downstreamStatus, downstreamFailureReason string
+	var downstreamStartedAt pgtype.Timestamptz
+	if err := testPool.QueryRow(ctx, `
+		SELECT status, COALESCE(failure_reason, ''), started_at
+		FROM multica_workflow_node_run
+		WHERE id = $1
+	`, downstreamNodeRunID).Scan(&downstreamStatus, &downstreamFailureReason, &downstreamStartedAt); err != nil {
+		t.Fatalf("load downstream node run: %v", err)
+	}
+	if downstreamStatus != "cancelled" {
+		t.Fatalf("downstream node run status = %q, want cancelled", downstreamStatus)
+	}
+	if downstreamFailureReason != "workflow_failed" {
+		t.Fatalf("downstream failure reason = %q, want workflow_failed", downstreamFailureReason)
+	}
+	if downstreamStartedAt.Valid {
+		t.Fatalf("downstream node run started at %s, want not started", downstreamStartedAt.Time)
+	}
+
+	var downstreamTaskCount int
+	if err := testPool.QueryRow(ctx, `
+		SELECT count(*) FROM multica_agent_task_queue WHERE workflow_node_run_id = $1
+	`, downstreamNodeRunID).Scan(&downstreamTaskCount); err != nil {
+		t.Fatalf("count downstream tasks: %v", err)
+	}
+	if downstreamTaskCount != 0 {
+		t.Fatalf("downstream task count = %d, want 0", downstreamTaskCount)
+	}
+
+	var runStatus string
+	if err := testPool.QueryRow(ctx, `
+		SELECT status FROM multica_workflow_run WHERE id = $1
+	`, f.runID).Scan(&runStatus); err != nil {
+		t.Fatalf("load workflow run: %v", err)
+	}
+	if runStatus != "failed" {
+		t.Fatalf("workflow run status = %q, want failed", runStatus)
+	}
+}
+
 // TestRerunIssue_PreservesWorkflowContext verifies that manually rerunning a
 // workflow-bound task copies the workflow context (including phase) to the new
 // task. Without this, HandleWorkflowTaskCompletion cannot identify the task as

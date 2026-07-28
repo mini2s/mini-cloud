@@ -202,6 +202,7 @@ export function WorkflowRunPage({ workflowId, runId }: WorkflowRunPageProps) {
   }
 
   const canCancel = run.status === "running" || run.status === "resolving_roles" || run.status === "waiting_role_assignment";
+  const isLegacyRun = (run.definition_schema_version ?? 0) <= 0 || !run.definition_snapshot;
   const roleStateMessage = run.status === "resolving_roles"
     ? t(($) => $.run.roles.resolving)
     : run.status === "waiting_role_assignment"
@@ -222,6 +223,11 @@ export function WorkflowRunPage({ workflowId, runId }: WorkflowRunPageProps) {
           <Badge variant="outline" className="text-[10px] px-1.5 h-4">
             {t(($) => $.run.runtime_policy)}: {formatRuntimeSelectionPolicy(t, run.runtime_selection_policy)}
           </Badge>
+          {isLegacyRun ? (
+            <Badge variant="outline" className="text-[10px] px-1.5 h-4">
+              {t(($) => $.run.historical_config_incomplete)}
+            </Badge>
+          ) : null}
         </div>
         <div className="flex items-center gap-2">
           {canCancel && (

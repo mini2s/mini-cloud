@@ -340,7 +340,7 @@ export function AgentDetailPage({ agentId }: AgentDetailPageProps) {
           runtime={runtime}
           owner={owner}
           presence={presence}
-          runtimes={runtimes}
+          runtimes={runtimes.filter((r) => r.provider === "csc")}
           members={members}
           currentUserId={currentUser?.id ?? null}
           canEdit={canEdit.allowed && !isBuiltinReadOnly}
@@ -350,7 +350,7 @@ export function AgentDetailPage({ agentId }: AgentDetailPageProps) {
 
         <AgentOverviewPane
           agent={agent}
-          runtimes={runtimes}
+          runtimes={runtimes.filter((r) => r.provider === "csc")}
           onUpdate={handleUpdate}
         />
       </div>

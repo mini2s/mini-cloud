@@ -61,6 +61,8 @@ type WorkflowService struct {
 }
 
 var ErrWorkflowRoleResolutionLimit = errors.New("workflow role resolution active job limit reached")
+var ErrWorkflowHasRuns = errors.New("workflow has runs")
+var ErrWorkflowDefinitionInUse = errors.New("workflow definition is used by an active run")
 
 func (s *WorkflowService) roleResolutionEnabledFor(workspaceID pgtype.UUID) bool {
 	if !s.AutoResolveRoles {
@@ -154,6 +156,10 @@ func isTerminalNodeRunStatus(s string) bool {
 		return true
 	}
 	return false
+}
+
+func isSatisfiedDependencyNodeRunStatus(s string) bool {
+	return s == NodeRunStatusCompleted || s == NodeRunStatusSkipped
 }
 
 type workflowNodeFormat struct {
@@ -328,189 +334,23 @@ func (s *WorkflowService) StartRunWithRuntimeSelection(ctx context.Context, work
 }
 
 func (s *WorkflowService) startRun(ctx context.Context, workflow db.MulticaWorkflow, triggeredByType, triggeredByID string, input json.RawMessage, runtimeSelectionPolicy string, runtimeID pgtype.UUID, dispatchKey string, runtimeContext workflowRunRuntimeContext) (*db.MulticaWorkflowRun, error) {
-	if workflow.Status != "active" {
-		return nil, fmt.Errorf("workflow is not active (status=%s)", workflow.Status)
-	}
 	if workflow.IsTemplate {
 		return nil, errors.New("workflow template cannot be run")
 	}
-	resolvedPolicy, resolvedRuntimeID, err := resolveWorkflowRuntimeSelectionPolicy(workflow, runtimeSelectionPolicy, runtimeID)
-	if err != nil {
-		return nil, err
-	}
-	nodes, err := s.Queries.ListWorkflowNodes(ctx, workflow.ID)
-	if err != nil {
-		return nil, fmt.Errorf("list nodes: %w", err)
-	}
-	nodes, _ = buildExecutableWorkflowGraph(nodes, nil)
-	hasRoleSlots := false
-	for _, node := range nodes {
-		hasRoleSlots = hasRoleSlots || node.WorkerRoleID.Valid || node.CriticRoleID.Valid
-	}
-	autoResolveRoles := hasRoleSlots && s.roleResolutionEnabledFor(workflow.WorkspaceID)
 	triggeredByUUID, err := util.ParseUUID(triggeredByID)
 	if err != nil && triggeredByID != "" {
 		triggeredByUUID = pgtype.UUID{}
 	}
-
-	var run db.MulticaWorkflowRun
-	if err := s.runInTx(ctx, func(qtx *db.Queries) error {
-		runStatus := RunStatusRunning
-		if hasRoleSlots {
-			runStatus = RunStatusWaitingRoleAssignment
-			if autoResolveRoles {
-				runStatus = RunStatusResolvingRoles
-			}
-		}
-
-		var r db.MulticaWorkflowRun
-		var err error
-		if dispatchKey == "" {
-			r, err = qtx.CreateWorkflowRun(ctx, db.CreateWorkflowRunParams{
-				WorkflowID:             workflow.ID,
-				WorkspaceID:            workflow.WorkspaceID,
-				WorkflowTitle:          workflow.Title,
-				Status:                 runStatus,
-				TriggeredByType:        triggeredByType,
-				TriggeredByID:          triggeredByUUID,
-				Input:                  input,
-				RuntimeSelectionPolicy: resolvedPolicy,
-				RuntimeID:              resolvedRuntimeID,
-				SourceIssueID:          runtimeContext.SourceIssueID,
-				ResponsibleUserID:      runtimeContext.ResponsibleUserID,
-				RuntimeAuthorizerID:    runtimeContext.RuntimeAuthorizerID,
-			})
-		} else {
-			r, err = qtx.CreateWorkflowRunWithDispatchKey(ctx, db.CreateWorkflowRunWithDispatchKeyParams{
-				WorkflowID:             workflow.ID,
-				WorkspaceID:            workflow.WorkspaceID,
-				WorkflowTitle:          workflow.Title,
-				Status:                 runStatus,
-				TriggeredByType:        triggeredByType,
-				TriggeredByID:          triggeredByUUID,
-				Input:                  input,
-				RuntimeSelectionPolicy: resolvedPolicy,
-				RuntimeID:              resolvedRuntimeID,
-				DispatchKey:            textToPgText(dispatchKey),
-				SourceIssueID:          runtimeContext.SourceIssueID,
-				ResponsibleUserID:      runtimeContext.ResponsibleUserID,
-				RuntimeAuthorizerID:    runtimeContext.RuntimeAuthorizerID,
-			})
-		}
-		if err != nil {
-			return fmt.Errorf("create workflow run: %w", err)
-		}
-		run = r
-		if dispatchKey != "" {
-			existingNodeRuns, err := qtx.ListWorkflowNodeRunsByRun(ctx, run.ID)
-			if err != nil {
-				return fmt.Errorf("list node runs: %w", err)
-			}
-			if len(existingNodeRuns) > 0 {
-				return nil
-			}
-		}
-		if autoResolveRoles && s.RoleResolutionMaxActiveJobs > 0 {
-			if err := qtx.LockWorkflowRoleResolutionWorkspace(ctx, workflow.WorkspaceID); err != nil {
-				return fmt.Errorf("lock workflow role resolution workspace: %w", err)
-			}
-			activeJobs, err := qtx.CountActiveWorkflowRoleResolutionJobsForWorkspace(ctx, workflow.WorkspaceID)
-			if err != nil {
-				return fmt.Errorf("count active workflow role resolution jobs: %w", err)
-			}
-			if activeJobs >= s.RoleResolutionMaxActiveJobs {
-				return ErrWorkflowRoleResolutionLimit
-			}
-		}
-
-		nodes, err := qtx.ListWorkflowNodes(ctx, workflow.ID)
-		if err != nil {
-			return fmt.Errorf("list nodes: %w", err)
-		}
-		edges, err := qtx.ListWorkflowEdges(ctx, workflow.ID)
-		if err != nil {
-			return fmt.Errorf("list edges: %w", err)
-		}
-		nodes, edges = buildExecutableWorkflowGraph(nodes, edges)
-		hasIncoming := make(map[string]bool)
-		for _, edge := range edges {
-			hasIncoming[util.UUIDToString(edge.TargetNodeID)] = true
-		}
-		for _, node := range nodes {
-			status := NodeRunStatusPending
-			if hasRoleSlots {
-				status = NodeRunStatusBlocked
-			} else if !hasIncoming[util.UUIDToString(node.ID)] {
-				if workflowNodeType(node.FormatSchema) == "gateway" {
-					// Root gateway nodes (fork/join) still enter format_checking
-					// so DispatchRootNodeRuns' gateway loop completes them via
-					// completeGatewayNodeRun (the format_ok → completed
-					// transition is invalid; gateways must route through
-					// format_checking → completed). Non-gateway root nodes skip
-					// to format_ok (json_schema validation is retired).
-					status = NodeRunStatusFormatChecking
-				} else {
-					status = NodeRunStatusFormatOk
-				}
-			}
-			nodeRun, err := qtx.CreateWorkflowNodeRun(ctx, db.CreateWorkflowNodeRunParams{
-				WorkflowRunID: run.ID, WorkflowNodeID: node.ID, NodeTitle: node.Title,
-				Status: status, RetryCount: 0, WorkerType: node.WorkerType, WorkerID: node.WorkerID,
-				CriticType: node.CriticType, CriticID: node.CriticID,
-			})
-			if err != nil {
-				return fmt.Errorf("create node run for %s: %w", node.Title, err)
-			}
-			slots := []struct {
-				slotType string
-				roleID   pgtype.UUID
-			}{{"worker", node.WorkerRoleID}, {"critic", node.CriticRoleID}}
-			for _, slot := range slots {
-				if !slot.roleID.Valid {
-					continue
-				}
-				role, err := qtx.GetWorkflowRoleInWorkspace(ctx, db.GetWorkflowRoleInWorkspaceParams{ID: slot.roleID, WorkspaceID: workflow.WorkspaceID})
-				if err != nil {
-					return fmt.Errorf("load %s role for %s: %w", slot.slotType, node.Title, err)
-				}
-				resolutionStatus, reasonCode := "pending", ""
-				if !autoResolveRoles {
-					resolutionStatus, reasonCode = "needs_human", "resolver_not_configured"
-				}
-				if role.NeedsDescription {
-					resolutionStatus, reasonCode = "needs_human", "insufficient_data"
-				}
-				if _, err := qtx.CreateWorkflowRoleResolution(ctx, db.CreateWorkflowRoleResolutionParams{
-					WorkflowRunID: run.ID, WorkflowNodeRunID: nodeRun.ID, SlotType: slot.slotType,
-					RoleID: slot.roleID, RoleNameSnapshot: role.Name, RoleDescriptionSnapshot: role.Description,
-					Status: resolutionStatus, ReasonCode: reasonCode, ReasonDetail: "",
-				}); err != nil {
-					return fmt.Errorf("create %s role resolution for %s: %w", slot.slotType, node.Title, err)
-				}
-			}
-		}
-		if hasRoleSlots && !autoResolveRoles {
-			resolutions, err := qtx.ListWorkflowRoleResolutions(ctx, run.ID)
-			if err != nil {
-				return fmt.Errorf("list manual workflow role resolutions: %w", err)
-			}
-			if err := enqueueWorkflowRoleManualNotifications(ctx, qtx, run, resolutions); err != nil {
-				return fmt.Errorf("enqueue manual workflow role notifications: %w", err)
-			}
-		}
-		if autoResolveRoles {
-			if _, err := qtx.CreateWorkflowRoleResolutionJob(ctx, db.CreateWorkflowRoleResolutionJobParams{
-				WorkspaceID: workflow.WorkspaceID, WorkflowRunID: run.ID,
-				Model: s.RoleResolutionModel, PromptVersion: s.RoleResolutionPromptVersion,
-			}); err != nil {
-				return fmt.Errorf("create role resolution job: %w", err)
-			}
-		}
-		return nil
-	}); err != nil {
+	prepared, err := s.PrepareWorkflowRunSnapshot(ctx, workflow.ID, PrepareWorkflowRunParams{
+		TriggeredByType: triggeredByType, TriggeredByID: triggeredByUUID, Input: input,
+		RuntimeSelectionPolicy: runtimeSelectionPolicy, RuntimeID: runtimeID, DispatchKey: dispatchKey,
+		SourceIssueID: runtimeContext.SourceIssueID, ResponsibleUserID: runtimeContext.ResponsibleUserID,
+		RuntimeAuthorizerID: runtimeContext.RuntimeAuthorizerID,
+	})
+	if err != nil {
 		return nil, err
 	}
-	return &run, nil
+	return &prepared.Run, nil
 }
 
 // DispatchRootNodeRuns kicks off root node runs after the run is created.
@@ -682,41 +522,22 @@ func (s *WorkflowService) StartDefaultRunForIssue(ctx context.Context, issue db.
 	if err != nil {
 		return nil, db.MulticaWorkflowNodeRun{}, fmt.Errorf("marshal issue input: %w", err)
 	}
-	run, err := s.startRun(ctx, wf, issue.CreatorType, util.UUIDToString(issue.CreatorID), input, "", pgtype.UUID{}, "", workflowRunRuntimeContext{
+	prepared, err := s.PrepareWorkflowRunSnapshot(ctx, wf.ID, PrepareWorkflowRunParams{
+		TriggeredByType: issue.CreatorType, TriggeredByID: issue.CreatorID, Input: input,
+		SourceIssueID: issue.ID, ResponsibleUserID: s.resolveWorkflowUser(ctx, issue.CreatorType, issue.CreatorID),
 		RuntimeAuthorizerID: s.resolveWorkflowUser(ctx, issue.CreatorType, issue.CreatorID),
+		defaultWorkerType:   defaultRunWorkerType(issue), defaultWorkerID: issue.AssigneeID,
+		defaultCriticType: defaultRunCriticType(issue), defaultCriticID: issue.CreatorID,
 	})
 	if err != nil {
 		return nil, db.MulticaWorkflowNodeRun{}, fmt.Errorf("start default run: %w", err)
 	}
-	nodeRuns, err := s.Queries.ListWorkflowNodeRunsByRun(ctx, run.ID)
-	if err != nil {
-		return nil, db.MulticaWorkflowNodeRun{}, fmt.Errorf("list node runs: %w", err)
-	}
+	run := &prepared.Run
+	nodeRuns := prepared.NodeRuns
 	if len(nodeRuns) == 0 {
 		return nil, db.MulticaWorkflowNodeRun{}, fmt.Errorf("default workflow %s has no node", util.UUIDToString(wf.ID))
 	}
 	nr := nodeRuns[0]
-	nr, err = s.Queries.UpdateWorkflowNodeRunAssignees(ctx, db.UpdateWorkflowNodeRunAssigneesParams{
-		ID:         nr.ID,
-		WorkerType: defaultRunWorkerType(issue),
-		WorkerID:   issue.AssigneeID,
-		CriticType: defaultRunCriticType(issue),
-		CriticID:   issue.CreatorID,
-	})
-	if err != nil {
-		return nil, db.MulticaWorkflowNodeRun{}, fmt.Errorf("override node-run assignees: %w", err)
-	}
-
-	// Dispatch the root node-run. dispatchWorker reads the node-run's (now
-	// overridden) worker type: agent/squad → agent task; human (member) →
-	// worker_assigned, awaits UI upload. Dispatch is best-effort — the run is
-	// already created, so a failure here must be logged, not silently dropped,
-	// or the node-run sits at format_ok looking "in progress" with no task and
-	// no clue why (e.g. the agent has no runtime bound).
-	if err := s.DispatchRootNodeRuns(ctx, run.ID); err != nil {
-		slog.Warn("dispatch default run root nodes",
-			"run_id", util.UUIDToString(run.ID), "error", err)
-	}
 
 	// Scaffold Gitea for the run (dormant no-op when unconfigured).
 	go s.ScaffoldRunDeliverables(context.Background(), *run)
@@ -817,7 +638,12 @@ func (s *WorkflowService) CancelRun(ctx context.Context, runID pgtype.UUID) erro
 				}
 				cancelledNodeRuns = append(cancelledNodeRuns, updated)
 			}
-			// Cancel the sub-issue created for this node run.
+			// Cancel any active agent tasks for this node run's sub-issue.
+			// The sub-issue STATUS is not updated here: the
+			// OnNodeStatusChanged callback (handler.syncSubIssueForNodeRun)
+			// syncs it after commit and broadcasts issue:updated — writing
+			// the status inside this tx would preempt that path and silence
+			// inbox notifications, activity log, and frontend refresh.
 			subIssue, err := qtx.GetIssueByOrigin(ctx, db.GetIssueByOriginParams{
 				WorkspaceID: run.WorkspaceID,
 				OriginType:  pgtype.Text{String: "workflow", Valid: true},
@@ -826,18 +652,8 @@ func (s *WorkflowService) CancelRun(ctx context.Context, runID pgtype.UUID) erro
 			if err != nil {
 				continue // sub-issue may not exist yet; not an error
 			}
-			if subIssue.Status != "cancelled" && subIssue.Status != "done" {
-				if _, err := qtx.UpdateIssueStatus(ctx, db.UpdateIssueStatusParams{
-					ID:          subIssue.ID,
-					Status:      "cancelled",
-					WorkspaceID: run.WorkspaceID,
-				}); err != nil {
-					return fmt.Errorf("cancel sub-issue %s: %w", util.UUIDToString(subIssue.ID), err)
-				}
-				// Cancel any active agent tasks for this sub-issue.
-				if _, err := qtx.CancelAgentTasksByIssue(ctx, subIssue.ID); err != nil {
-					slog.Warn("failed to cancel agent tasks for sub-issue", "issue_id", util.UUIDToString(subIssue.ID), "error", err)
-				}
+			if _, err := qtx.CancelAgentTasksByIssue(ctx, subIssue.ID); err != nil {
+				slog.Warn("failed to cancel agent tasks for sub-issue", "issue_id", util.UUIDToString(subIssue.ID), "error", err)
 			}
 		}
 		if err := qtx.CancelWorkflowRoleResolutionJobs(ctx, runID); err != nil {
@@ -871,6 +687,20 @@ func (s *WorkflowService) TransitionNodeRun(ctx context.Context, nodeRun db.Mult
 	if !isValidTransition(nodeRun.Status, newStatus) {
 		return nil, fmt.Errorf("invalid transition: %s → %s", nodeRun.Status, newStatus)
 	}
+	if newStatus == NodeRunStatusFailed || newStatus == NodeRunStatusFormatFailed {
+		reason := "node_failed"
+		if newStatus == NodeRunStatusFormatFailed {
+			reason = "format_validation_failed"
+		}
+		if err := s.failWorkflowFromNode(ctx, nodeRun, newStatus, reason); err != nil {
+			return nil, err
+		}
+		updated, err := s.Queries.GetWorkflowNodeRun(ctx, nodeRun.ID)
+		if err != nil {
+			return nil, fmt.Errorf("get failed node run: %w", err)
+		}
+		return &updated, nil
+	}
 
 	updated, err := s.Queries.UpdateWorkflowNodeRunStatus(ctx, db.UpdateWorkflowNodeRunStatusParams{
 		ID:     nodeRun.ID,
@@ -891,17 +721,13 @@ func (s *WorkflowService) TransitionNodeRun(ctx context.Context, nodeRun db.Mult
 }
 
 func (s *WorkflowService) completeGatewayNodeRun(ctx context.Context, nodeRun db.MulticaWorkflowNodeRun) (bool, error) {
-	node, err := s.Queries.GetWorkflowNode(ctx, nodeRun.WorkflowNodeID)
-	if err != nil {
-		return false, fmt.Errorf("get node: %w", err)
-	}
-	if isInvalidWorkflowGatewayFormat(node.FormatSchema) {
+	if isInvalidWorkflowGatewayFormat(nodeRun.FormatSchema) {
 		if _, err := s.TransitionNodeRun(ctx, nodeRun, NodeRunStatusFormatFailed); err != nil {
 			return true, err
 		}
 		return true, nil
 	}
-	if _, ok := parseWorkflowNodeFormat(node.FormatSchema); !ok {
+	if _, ok := parseWorkflowNodeFormat(nodeRun.FormatSchema); !ok {
 		return false, nil
 	}
 
@@ -994,51 +820,32 @@ func (s *WorkflowService) HandbackNodeRun(ctx context.Context, nodeRun db.Multic
 	if err := s.syncNodeRunSessionFromTask(ctx, nodeRun); err != nil {
 		return nil, fmt.Errorf("sync node-run session: %w", err)
 	}
-	updated, err := s.Queries.HandbackWorkflowNodeRun(ctx, nodeRun.ID)
+	var updated db.MulticaWorkflowNodeRun
+	err := s.runInTx(ctx, func(qtx *db.Queries) error {
+		fresh, err := qtx.GetWorkflowNodeRunForUpdate(ctx, nodeRun.ID)
+		if err != nil {
+			return err
+		}
+		if fresh.Status != NodeRunStatusBlocked {
+			return fmt.Errorf("node run is not blocked (status=%s)", fresh.Status)
+		}
+		updated, err = qtx.HandbackWorkflowNodeRun(ctx, fresh.ID)
+		if err != nil {
+			return fmt.Errorf("handback node run: %w", err)
+		}
+		generation, err := NextWorkflowDispatchGeneration(ctx, qtx, fresh.ID, "recovery")
+		if err != nil {
+			return err
+		}
+		return EnqueueWorkflowDispatch(ctx, qtx, fresh.ID, "recovery", generation)
+	})
 	if err != nil {
-		return nil, fmt.Errorf("handback node run: %w", err)
+		return nil, err
 	}
 	if s.OnNodeStatusChanged != nil {
 		s.OnNodeStatusChanged(ctx, updated)
 	}
-	// Re-dispatch the worker so execution continues on the bound CSC session.
-	// HandbackWorkflowNodeRun already set status=working, so we dispatch the
-	// task directly without re-transitioning.
-	if err := s.dispatchHandbackResume(ctx, updated); err != nil {
-		return nil, fmt.Errorf("dispatch handback resume: %w", err)
-	}
 	return &updated, nil
-}
-
-// dispatchHandbackResume re-creates the worker agent task after a human hands a
-// taken-over node back (blocked → working). Unlike dispatchWorkerResume it does
-// NOT re-transition status — HandbackNodeRun has already set working — it only
-// re-creates the worker task so the daemon resumes the bound CSC session. Human
-// workers have no agent session to resume, so they are a no-op.
-func (s *WorkflowService) dispatchHandbackResume(ctx context.Context, nodeRun db.MulticaWorkflowNodeRun) error {
-	node, err := s.Queries.GetWorkflowNode(ctx, nodeRun.WorkflowNodeID)
-	if err != nil {
-		return fmt.Errorf("get node: %w", err)
-	}
-	switch node.WorkerType {
-	case "agent", "squad":
-		agentID := node.WorkerID
-		if node.WorkerType == "squad" && node.WorkerID.Valid {
-			if squad, err := s.Queries.GetSquad(ctx, node.WorkerID); err == nil {
-				agentID = squad.LeaderID
-			}
-		}
-		if !agentID.Valid {
-			return nil // no agent bound — nothing to resume
-		}
-		_, err := s.DispatchAgentTask(ctx, nodeRun, "worker", nil)
-		if err != nil {
-			return fmt.Errorf("dispatch agent task: %w", err)
-		}
-		return nil
-	default:
-		return nil // human worker: no agent session to resume
-	}
 }
 
 // FinalizeNodeRun lets a human conclude a taken-over node directly
@@ -1047,6 +854,19 @@ func (s *WorkflowService) dispatchHandbackResume(ctx context.Context, nodeRun db
 func (s *WorkflowService) FinalizeNodeRun(ctx context.Context, nodeRun db.MulticaWorkflowNodeRun, outcome string) (*db.MulticaWorkflowNodeRun, error) {
 	if outcome != NodeRunStatusCompleted && outcome != NodeRunStatusFailed {
 		return nil, fmt.Errorf("invalid finalize outcome: %s", outcome)
+	}
+	if outcome == NodeRunStatusFailed {
+		if !isValidTransition(nodeRun.Status, outcome) {
+			return nil, fmt.Errorf("invalid transition: %s → %s", nodeRun.Status, outcome)
+		}
+		if err := s.failWorkflowFromNode(ctx, nodeRun, NodeRunStatusFailed, "human_finalized_failed"); err != nil {
+			return nil, err
+		}
+		updated, err := s.Queries.GetWorkflowNodeRun(ctx, nodeRun.ID)
+		if err != nil {
+			return nil, fmt.Errorf("get finalized node run: %w", err)
+		}
+		return &updated, nil
 	}
 	updated, err := s.TransitionNodeRun(ctx, nodeRun, outcome)
 	if err != nil {
@@ -1062,134 +882,67 @@ func (s *WorkflowService) FinalizeNodeRun(ctx context.Context, nodeRun db.Multic
 // This is scoped to the workflow node run, so it does not depend on the parent
 // issue being assigned to an agent or squad.
 func (s *WorkflowService) RetryNodeRun(ctx context.Context, nodeRun db.MulticaWorkflowNodeRun) (*db.MulticaWorkflowNodeRun, error) {
-	switch nodeRun.Status {
-	case NodeRunStatusFailed, NodeRunStatusBlocked, NodeRunStatusFormatFailed, NodeRunStatusCriticRework:
-	default:
-		return nil, fmt.Errorf("node run cannot be retried from status %s", nodeRun.Status)
-	}
-
-	updated, err := s.Queries.UpdateWorkflowNodeRunRework(ctx, db.UpdateWorkflowNodeRunReworkParams{
-		ID:     nodeRun.ID,
-		Status: NodeRunStatusFormatOk,
+	var updated db.MulticaWorkflowNodeRun
+	err := s.runInTx(ctx, func(qtx *db.Queries) error {
+		fresh, err := qtx.GetWorkflowNodeRunForUpdate(ctx, nodeRun.ID)
+		if err != nil {
+			return err
+		}
+		switch fresh.Status {
+		case NodeRunStatusFailed, NodeRunStatusBlocked, NodeRunStatusFormatFailed, NodeRunStatusCriticRework:
+		default:
+			return fmt.Errorf("node run cannot be retried from status %s", fresh.Status)
+		}
+		updated, err = qtx.UpdateWorkflowNodeRunRework(ctx, db.UpdateWorkflowNodeRunReworkParams{
+			ID: fresh.ID, Status: NodeRunStatusFormatOk,
+		})
+		if err != nil {
+			return fmt.Errorf("retry node run: %w", err)
+		}
+		generation, err := NextWorkflowDispatchGeneration(ctx, qtx, fresh.ID, "worker")
+		if err != nil {
+			return err
+		}
+		return EnqueueWorkflowDispatch(ctx, qtx, fresh.ID, "worker", generation)
 	})
 	if err != nil {
-		return nil, fmt.Errorf("retry node run: %w", err)
+		return nil, err
 	}
 	if s.OnNodeStatusChanged != nil {
 		s.OnNodeStatusChanged(ctx, updated)
 	}
-	if err := s.dispatchWorker(ctx, updated); err != nil {
-		return nil, fmt.Errorf("dispatch retry worker: %w", err)
-	}
-	latest, err := s.Queries.GetWorkflowNodeRun(ctx, nodeRun.ID)
-	if err != nil {
-		return nil, fmt.Errorf("get retried node run: %w", err)
-	}
-	return &latest, nil
+	return &updated, nil
 }
 
-// OnNodeRunCompleted checks downstream nodes after a node run reaches a terminal
-// state. If all upstreams of a downstream node are complete, it advances that
-// node to format_checking. If no active node runs remain, the workflow run is
-// marked completed or failed.
+// OnNodeRunCompleted checks downstream nodes after a node run completes or is
+// intentionally skipped. If all required upstreams reached one of those
+// dependency-satisfying states, it advances the downstream node to
+// format_checking.
 func (s *WorkflowService) OnNodeRunCompleted(ctx context.Context, nodeRunID pgtype.UUID) error {
 	nodeRun, err := s.Queries.GetWorkflowNodeRun(ctx, nodeRunID)
 	if err != nil {
 		return fmt.Errorf("get node run: %w", err)
+	}
+	if nodeRun.Status != NodeRunStatusCompleted && nodeRun.Status != NodeRunStatusSkipped {
+		return nil
 	}
 
 	run, err := s.Queries.GetWorkflowRun(ctx, nodeRun.WorkflowRunID)
 	if err != nil {
 		return fmt.Errorf("get run: %w", err)
 	}
-
-	// Find downstream edges from the completed node.
-	edges, err := s.Queries.ListWorkflowEdgesBySource(ctx, nodeRun.WorkflowNodeID)
-	if err != nil {
-		return fmt.Errorf("list outgoing edges: %w", err)
+	if run.Status != RunStatusRunning {
+		return nil
 	}
 
 	if err := s.runInTx(ctx, func(qtx *db.Queries) error {
-		for _, edge := range edges {
-			targetNode, err := qtx.GetWorkflowNode(ctx, edge.TargetNodeID)
-			if err != nil {
-				return fmt.Errorf("get downstream node: %w", err)
-			}
-			if workflowmeta.IsBoundary(targetNode.FormatSchema) {
-				continue
-			}
-			// Check whether ALL upstream node runs of the target are terminal-complete.
-			upstreamEdges, err := qtx.ListWorkflowEdgesByTarget(ctx, edge.TargetNodeID)
-			if err != nil {
-				return fmt.Errorf("list incoming edges: %w", err)
-			}
-
-			allUpstreamDone := true
-			for _, ue := range upstreamEdges {
-				sourceNode, err := qtx.GetWorkflowNode(ctx, ue.SourceNodeID)
-				if err != nil {
-					return fmt.Errorf("get upstream node: %w", err)
-				}
-				if workflowmeta.IsBoundary(sourceNode.FormatSchema) {
-					continue
-				}
-				// Find the node run for this upstream node in the current run.
-				upstreamNr, err := qtx.ListWorkflowNodeRunsByRunAndNode(ctx, db.ListWorkflowNodeRunsByRunAndNodeParams{
-					WorkflowRunID:  run.ID,
-					WorkflowNodeID: ue.SourceNodeID,
-				})
-				if err != nil {
-					allUpstreamDone = false
-					break
-				}
-				if !isTerminalNodeRunStatus(upstreamNr.Status) {
-					allUpstreamDone = false
-					break
-				}
-			}
-
-			if allUpstreamDone {
-				// Find the downstream node run and advance it.
-				dnr, err := qtx.ListWorkflowNodeRunsByRunAndNode(ctx, db.ListWorkflowNodeRunsByRunAndNodeParams{
-					WorkflowRunID:  run.ID,
-					WorkflowNodeID: edge.TargetNodeID,
-				})
-				if err != nil {
-					continue
-				}
-				if dnr.Status == NodeRunStatusPending {
-					if _, err := qtx.UpdateWorkflowNodeRunStatus(ctx, db.UpdateWorkflowNodeRunStatusParams{
-						ID:     dnr.ID,
-						Status: NodeRunStatusFormatChecking,
-					}); err != nil {
-						return fmt.Errorf("advance downstream node: %w", err)
-					}
-				}
-			}
-		}
-		return nil
+		return ActivateDownstreamAndEnqueue(ctx, qtx, nodeRun.ID)
 	}); err != nil {
 		return err
 	}
 
-	// After advancing downstream nodes, kick off format checkers for newly
-	// advanced nodes outside the tx.
-	allNodeRuns, _ := s.Queries.ListWorkflowNodeRunsByRun(ctx, run.ID)
-	for _, nr := range allNodeRuns {
-		if nr.Status == NodeRunStatusFormatChecking {
-			handled, err := s.completeGatewayNodeRun(ctx, nr)
-			if err != nil {
-				return err
-			}
-			if handled {
-				continue
-			}
-			s.executeFormatChecker(ctx, qtxForRun(s.Queries), nr)
-		}
-	}
-
 	// Check run completion.
-	s.checkRunCompletion(ctx, run.ID)
+	s.checkRunCompletion(ctx, nodeRun.WorkflowRunID)
 
 	return nil
 }
@@ -1278,13 +1031,19 @@ func (s *WorkflowService) SubmitWorkerOutput(ctx context.Context, nodeRunID pgty
 			return fmt.Errorf("set worker output: %w", err)
 		}
 		nodeRun = updated
-		return nil
+		generation, err := NextWorkflowDispatchGeneration(ctx, qtx, nr.ID, "critic")
+		if err != nil {
+			return err
+		}
+		return EnqueueWorkflowDispatch(ctx, qtx, nr.ID, "critic", generation)
 	}); err != nil {
 		return err
 	}
 
-	// Dispatch critic outside the tx.
-	return s.dispatchCritic(ctx, nodeRun)
+	if s.OnNodeStatusChanged != nil {
+		s.OnNodeStatusChanged(ctx, nodeRun)
+	}
+	return nil
 }
 
 func (s *WorkflowService) requiredDeliverablesSatisfied(ctx context.Context, nodeRun db.MulticaWorkflowNodeRun) (bool, error) {
@@ -1292,7 +1051,7 @@ func (s *WorkflowService) requiredDeliverablesSatisfied(ctx context.Context, nod
 }
 
 func requiredDeliverablesSatisfiedWithQueries(ctx context.Context, q *db.Queries, nodeRun db.MulticaWorkflowNodeRun) (bool, error) {
-	deliverables, err := q.ListWorkflowNodeDeliverables(ctx, nodeRun.WorkflowNodeID)
+	deliverables, err := q.ListNodeRunDeliverableRequirements(ctx, nodeRun.ID)
 	if err != nil {
 		return false, fmt.Errorf("list deliverables: %w", err)
 	}
@@ -1348,7 +1107,7 @@ func autoSubmitSinglePullRequestDeliverable(ctx context.Context, q *db.Queries, 
 		return nil
 	}
 
-	deliverables, err := q.ListWorkflowNodeDeliverables(ctx, nodeRun.WorkflowNodeID)
+	deliverables, err := q.ListNodeRunDeliverableRequirements(ctx, nodeRun.ID)
 	if err != nil {
 		return fmt.Errorf("list deliverables: %w", err)
 	}
@@ -1435,10 +1194,6 @@ func (s *WorkflowService) ReviewNodeRun(ctx context.Context, nodeRunID pgtype.UU
 			if err != nil {
 				return fmt.Errorf("get run: %w", err)
 			}
-			workflow, err := qtx.GetWorkflow(ctx, run.WorkflowID)
-			if err != nil {
-				return fmt.Errorf("get workflow: %w", err)
-			}
 
 			// Always go through critic_rework first (state machine contract).
 			updated, err := qtx.SetWorkflowNodeRunCriticOutput(ctx, db.SetWorkflowNodeRunCriticOutputParams{
@@ -1452,7 +1207,7 @@ func (s *WorkflowService) ReviewNodeRun(ctx context.Context, nodeRunID pgtype.UU
 				return fmt.Errorf("rework node run: %w", err)
 			}
 
-			if newRetry > workflow.MaxRetries {
+			if newRetry > run.MaxRetries {
 				// Max retries exhausted: transition from critic_rework to blocked.
 				updated, err = qtx.UpdateWorkflowNodeRunStatus(ctx, db.UpdateWorkflowNodeRunStatusParams{
 					ID:     updated.ID,
@@ -1476,18 +1231,17 @@ func (s *WorkflowService) ReviewNodeRun(ctx context.Context, nodeRunID pgtype.UU
 				return fmt.Errorf("re-dispatch after rework: %w", err)
 			}
 			nodeRun = u
+			generation, err := NextWorkflowDispatchGeneration(ctx, qtx, nr.ID, "worker")
+			if err != nil {
+				return err
+			}
+			if err := EnqueueWorkflowDispatch(ctx, qtx, nr.ID, "worker", generation); err != nil {
+				return err
+			}
 		}
 		return nil
 	}); err != nil {
 		return err
-	}
-
-	// Critic rejected (rework or blocked-after-MaxRetries): close the node-run's
-	// document deliverable PRs so a stale PR doesn't linger into the next round.
-	// Code MRs are left open (worker revises in place). Best-effort, like the
-	// archive below — runs after the tx commits, uses a fresh context.
-	if !approved {
-		s.closeDeliverableReviewRequests(context.Background(), nodeRun)
 	}
 
 	// Archive the review comment to Gitea as a document (journey 7: review
@@ -1499,11 +1253,12 @@ func (s *WorkflowService) ReviewNodeRun(ctx context.Context, nodeRunID pgtype.UU
 		}
 		s.ArchiveReviewComment(context.Background(), nodeRun, decision, comment)
 	}
+	if !approved {
+		s.closeDeliverableReviewRequests(context.Background(), nodeRun)
+	}
 
 	// Approve path: the tx persisted critic_approved. Merge deliverable review
-	// requests (Gitea document PRs and/or GitLab code MRs — each platform is
-	// dormant when its credential is absent) THEN complete — or block on merge
-	// failure. UpdateWorkflowNodeRunStatus is called DIRECTLY (not
+	// requests, then complete or block on merge failure. UpdateWorkflowNodeRunStatus is called DIRECTLY (not
 	// TransitionNodeRun) so OnNodeStatusChanged fires exactly once, from the
 	// completed/blocked blocks below. The reject/rework path (FormatOk) is
 	// untouched and skips this block entirely.
@@ -1526,8 +1281,10 @@ func (s *WorkflowService) ReviewNodeRun(ctx context.Context, nodeRunID pgtype.UU
 	}
 
 	if nodeRun.Status == NodeRunStatusFormatOk {
-		// Re-dispatch the worker after rework.
-		return s.dispatchWorker(ctx, nodeRun)
+		if s.OnNodeStatusChanged != nil {
+			s.OnNodeStatusChanged(ctx, nodeRun)
+		}
+		return nil
 	}
 
 	if nodeRun.Status == NodeRunStatusBlocked {
@@ -1549,15 +1306,15 @@ func (s *WorkflowService) ReviewNodeRun(ctx context.Context, nodeRunID pgtype.UU
 
 // dispatchWorker advances a node run from format_ok to the worker phase.
 func (s *WorkflowService) dispatchWorker(ctx context.Context, nodeRun db.MulticaWorkflowNodeRun) error {
+	return s.dispatchWorkerForJob(ctx, nodeRun, pgtype.UUID{})
+}
+
+func (s *WorkflowService) dispatchWorkerForJob(ctx context.Context, nodeRun db.MulticaWorkflowNodeRun, dispatchJobID pgtype.UUID) error {
 	if err := s.ensureNodeRunBranch(ctx, nodeRun); err != nil {
 		return fmt.Errorf("ensure node branch: %w", err)
 	}
 
-	node, err := s.Queries.GetWorkflowNode(ctx, nodeRun.WorkflowNodeID)
-	if err != nil {
-		return fmt.Errorf("get node: %w", err)
-	}
-	if workflowNodeType(node.FormatSchema) == "split" {
+	if workflowNodeType(nodeRun.FormatSchema) == "split" {
 		_, err := s.TransitionNodeRun(ctx, nodeRun, NodeRunStatusSplitting)
 		return err
 	}
@@ -1581,7 +1338,7 @@ func (s *WorkflowService) dispatchWorker(ctx context.Context, nodeRun db.Multica
 			_, err := s.TransitionNodeRun(ctx, nodeRun, NodeRunStatusWorkerAssigned)
 			return err
 		}
-		if _, err := s.DispatchAgentTask(ctx, nodeRun, "worker", nil); err != nil {
+		if _, err := s.dispatchAgentTask(ctx, nodeRun, "worker", nil, dispatchJobID); err != nil {
 			return fmt.Errorf("dispatch agent task: %w", err)
 		}
 		return s.transitionNodeRunAfterDispatch(ctx, nodeRun.ID, NodeRunStatusWorking)
@@ -1591,6 +1348,10 @@ func (s *WorkflowService) dispatchWorker(ctx context.Context, nodeRun db.Multica
 }
 
 func (s *WorkflowService) dispatchCritic(ctx context.Context, nodeRun db.MulticaWorkflowNodeRun) error {
+	return s.dispatchCriticForJob(ctx, nodeRun, pgtype.UUID{})
+}
+
+func (s *WorkflowService) dispatchCriticForJob(ctx context.Context, nodeRun db.MulticaWorkflowNodeRun, dispatchJobID pgtype.UUID) error {
 	switch nodeRun.CriticType {
 	case "human":
 		if err := s.validateResolvedHumanMember(ctx, nodeRun, "critic"); err != nil {
@@ -1608,7 +1369,7 @@ func (s *WorkflowService) dispatchCritic(ctx context.Context, nodeRun db.Multica
 		if !agentID.Valid {
 			return fmt.Errorf("no agent resolved for critic")
 		}
-		_, err := s.DispatchAgentTask(ctx, nodeRun, "critic", nil)
+		_, err := s.dispatchAgentTask(ctx, nodeRun, "critic", nil, dispatchJobID)
 		if err != nil {
 			return fmt.Errorf("dispatch critic task: %w", err)
 		}
@@ -1638,14 +1399,9 @@ func (s *WorkflowService) DispatchAgentTaskWithContextExtras(ctx context.Context
 // task JSON Schema is retired; format_schema is still used as node metadata by
 // split and gateway handling.
 func (s *WorkflowService) executeFormatChecker(ctx context.Context, qtx *db.Queries, nodeRun db.MulticaWorkflowNodeRun) error {
-	node, err := qtx.GetWorkflowNode(ctx, nodeRun.WorkflowNodeID)
-	if err != nil {
-		return err
-	}
-
-	if len(node.FormatSchema) == 0 || !shouldValidateNodeInputFormatSchema(node.FormatSchema) {
+	if len(nodeRun.FormatSchema) == 0 || !shouldValidateNodeInputFormatSchema(nodeRun.FormatSchema) {
 		// Continue to worker dispatch while preserving node metadata handling downstream.
-		if isRetiredTaskJSONSchema(node.FormatSchema) {
+		if isRetiredTaskJSONSchema(nodeRun.FormatSchema) {
 			slog.Warn("workflow: skipping retired task format_schema validation",
 				"node_run_id", util.UUIDToString(nodeRun.ID),
 				"workflow_node_id", util.UUIDToString(nodeRun.WorkflowNodeID),
@@ -1668,7 +1424,7 @@ func (s *WorkflowService) executeFormatChecker(ctx context.Context, qtx *db.Quer
 		return err
 	}
 
-	valid, valErr := validateJSONSchema(node.FormatSchema, run.Input)
+	valid, valErr := validateJSONSchema(nodeRun.FormatSchema, run.Input)
 	if !valid {
 		if _, err := s.TransitionNodeRun(ctx, nodeRun, NodeRunStatusFormatFailed); err != nil {
 			return err
@@ -1904,35 +1660,9 @@ func (s *WorkflowService) HandleWorkflowTaskCompletion(ctx context.Context, task
 		}
 	case "critic":
 		if nodeRun.Status == NodeRunStatusCriticReviewing {
-			// Parse the agent's output for approve/rework decision.
-			var output struct {
-				Approved *bool  `json:"approved"`
-				Comment  string `json:"comment"`
-				Output   string `json:"output"`
-			}
-			if len(task.Result) > 0 {
-				if err := json.Unmarshal(task.Result, &output); err != nil {
-					t := true
-					output.Approved = &t
-				}
-			} else {
-				t := true
-				output.Approved = &t
-			}
-			approved := true
-			if output.Approved != nil {
-				approved = *output.Approved
-			} else if output.Output != "" {
-				// Agent didn't include approved field — infer from output text.
-				approved = !strings.Contains(strings.ToLower(output.Output), "不通过") &&
-					!strings.Contains(strings.ToLower(output.Output), "reject")
-			}
-			comment := strings.TrimSpace(output.Comment)
-			if comment == "" {
-				comment = strings.TrimSpace(output.Output)
-			}
-			if comment == "" && len(task.Result) > 0 {
-				comment = strings.TrimSpace(string(task.Result))
+			approved, comment, err := parseAgentCriticDecision(task.Result)
+			if err != nil {
+				return err
 			}
 			comment = normalizeAgentCriticComment(approved, comment)
 			return s.ReviewNodeRun(ctx, nodeRun.ID, approved, comment, task.Result)
@@ -1940,6 +1670,52 @@ func (s *WorkflowService) HandleWorkflowTaskCompletion(ctx context.Context, task
 	}
 
 	return nil
+}
+
+type agentCriticDecision struct {
+	Approved *bool  `json:"approved"`
+	Comment  string `json:"comment"`
+	Output   string `json:"output"`
+}
+
+func parseAgentCriticDecision(result json.RawMessage) (bool, string, error) {
+	if strings.TrimSpace(string(result)) == "" {
+		return false, "", fmt.Errorf("critic task completed without output")
+	}
+
+	var output agentCriticDecision
+	if err := json.Unmarshal(result, &output); err != nil {
+		return false, "", fmt.Errorf("parse critic output: %w", err)
+	}
+
+	if output.Approved == nil && strings.TrimSpace(output.Output) != "" {
+		var nested agentCriticDecision
+		if json.Unmarshal([]byte(strings.TrimSpace(output.Output)), &nested) == nil &&
+			(nested.Approved != nil || strings.TrimSpace(nested.Comment) != "") {
+			output.Approved = nested.Approved
+			if strings.TrimSpace(nested.Comment) != "" {
+				output.Comment = nested.Comment
+			}
+		}
+	}
+
+	comment := strings.TrimSpace(output.Comment)
+	if comment == "" {
+		comment = strings.TrimSpace(output.Output)
+	}
+	if output.Approved == nil && comment == "" {
+		return false, "", fmt.Errorf("critic task completed without a decision")
+	}
+
+	approved := true
+	if output.Approved != nil {
+		approved = *output.Approved
+	} else {
+		lower := strings.ToLower(comment)
+		approved = !strings.Contains(lower, "不通过") &&
+			!strings.Contains(lower, "reject")
+	}
+	return approved, comment, nil
 }
 
 func normalizeAgentCriticComment(approved bool, comment string) string {
@@ -1964,10 +1740,9 @@ func normalizeAgentCriticComment(approved bool, comment string) string {
 }
 
 // HandleWorkflowTaskFailure is called when an agent task linked to a workflow
-// node run fails and will not be retried. It transitions the node run out of
-// its active phase (working / worker_assigned for the worker, critic_reviewing
-// for the critic) to failed, then propagates the terminal state to downstream
-// completion checking.
+// node run fails and will not be retried. It fails the current node and the
+// workflow run, then cancels all unfinished nodes and tasks so no downstream
+// work can start.
 func (s *WorkflowService) HandleWorkflowTaskFailure(ctx context.Context, task db.MulticaAgentTaskQueue) error {
 	if !task.WorkflowNodeRunID.Valid {
 		return nil
@@ -2003,11 +1778,10 @@ func (s *WorkflowService) HandleWorkflowTaskFailure(ctx context.Context, task db
 		return nil
 	}
 
-	updated, err := s.TransitionNodeRun(ctx, nodeRun, targetStatus)
-	if err != nil {
-		return fmt.Errorf("transition node run on task failure: %w", err)
+	if err := s.failWorkflowFromNode(ctx, nodeRun, NodeRunStatusFailed, taskFailureReason(task)); err != nil {
+		return fmt.Errorf("fail workflow on task failure: %w", err)
 	}
-	return s.OnNodeRunCompleted(ctx, updated.ID)
+	return nil
 }
 
 // ── Awaiting input helpers ──────────────────────────────────────────────────
@@ -2019,11 +1793,7 @@ func (s *WorkflowService) autoReplyEnabled(ctx context.Context, nodeRun db.Multi
 	if err != nil {
 		return false
 	}
-	wf, err := s.Queries.GetWorkflow(ctx, run.WorkflowID)
-	if err != nil {
-		return false
-	}
-	ws, err := s.Queries.GetWorkspace(ctx, wf.WorkspaceID)
+	ws, err := s.Queries.GetWorkspace(ctx, run.WorkspaceID)
 	if err != nil {
 		return false
 	}
@@ -2057,12 +1827,8 @@ func (s *WorkflowService) handleAutoReply(ctx context.Context, nodeRun db.Multic
 	if err != nil {
 		return err
 	}
-	wf, err := s.Queries.GetWorkflow(ctx, run.WorkflowID)
-	if err != nil {
-		return err
-	}
 	subIssue, err := s.Queries.GetIssueByOrigin(ctx, db.GetIssueByOriginParams{
-		WorkspaceID: wf.WorkspaceID,
+		WorkspaceID: run.WorkspaceID,
 		OriginType:  pgtype.Text{String: "workflow", Valid: true},
 		OriginID:    nodeRun.ID,
 	})
@@ -2072,26 +1838,56 @@ func (s *WorkflowService) handleAutoReply(ctx context.Context, nodeRun db.Multic
 
 	// Post a system comment with the auto-reply text.
 	commentContent := fmt.Sprintf("**%s**\n\nAuto-reply (recommended): %s", signal.Question, signal.Recommended)
-	s.createSystemComment(ctx, subIssue.ID, wf.WorkspaceID, commentContent)
+	s.createSystemComment(ctx, subIssue.ID, run.WorkspaceID, commentContent)
 
 	// Transition awaiting_input → working and dispatch a resume agent task.
-	updated, err := s.TransitionNodeRun(ctx, nodeRun, NodeRunStatusWorking)
+	updated, err := s.resumeNodeRunAndEnqueue(ctx, nodeRun)
 	if err != nil {
 		return err
 	}
-	return s.dispatchWorkerResume(ctx, *updated, signal.Recommended)
+	if s.OnNodeStatusChanged != nil {
+		s.OnNodeStatusChanged(ctx, updated)
+	}
+	return nil
 }
 
 // ResumeNodeRunFromComment handles a user's manual reply to an awaiting_input
 // node. It transitions the node back to working and dispatches a resume task
 // with the user's reply content.
 func (s *WorkflowService) ResumeNodeRunFromComment(ctx context.Context, nodeRun db.MulticaWorkflowNodeRun, comment db.MulticaComment) error {
-	// Transition awaiting_input → working.
-	if _, err := s.TransitionNodeRun(ctx, nodeRun, NodeRunStatusWorking); err != nil {
+	updated, err := s.resumeNodeRunAndEnqueue(ctx, nodeRun)
+	if err != nil {
 		return err
 	}
-	// Dispatch resume agent task with the user's reply content.
-	return s.dispatchWorkerResume(ctx, nodeRun, comment.Content)
+	if s.OnNodeStatusChanged != nil {
+		s.OnNodeStatusChanged(ctx, updated)
+	}
+	return nil
+}
+
+func (s *WorkflowService) resumeNodeRunAndEnqueue(ctx context.Context, nodeRun db.MulticaWorkflowNodeRun) (db.MulticaWorkflowNodeRun, error) {
+	var updated db.MulticaWorkflowNodeRun
+	err := s.runInTx(ctx, func(qtx *db.Queries) error {
+		fresh, err := qtx.GetWorkflowNodeRunForUpdate(ctx, nodeRun.ID)
+		if err != nil {
+			return err
+		}
+		if fresh.Status != NodeRunStatusAwaitingInput {
+			return fmt.Errorf("node run is not awaiting input (status=%s)", fresh.Status)
+		}
+		updated, err = qtx.UpdateWorkflowNodeRunStatus(ctx, db.UpdateWorkflowNodeRunStatusParams{
+			ID: fresh.ID, Status: NodeRunStatusWorking,
+		})
+		if err != nil {
+			return err
+		}
+		generation, err := NextWorkflowDispatchGeneration(ctx, qtx, fresh.ID, "recovery")
+		if err != nil {
+			return err
+		}
+		return EnqueueWorkflowDispatch(ctx, qtx, fresh.ID, "recovery", generation)
+	})
+	return updated, err
 }
 
 // extractJSONObject attempts to extract a balanced JSON object from s starting
@@ -2142,45 +1938,6 @@ func extractJSONObject(s string, startIdx int) string {
 		}
 	}
 	return s[startIdx:]
-}
-
-// dispatchWorkerResume dispatches a new agent task for the node run after a
-// user has replied to an awaiting_input pause. It carries the user's reply
-// in the context payload so the agent knows what was answered.
-func (s *WorkflowService) dispatchWorkerResume(ctx context.Context, nodeRun db.MulticaWorkflowNodeRun, replyContent string) error {
-	// Reuse DispatchAgentTask but with the reply injected into context.
-	// We call the standard dispatchWorker which reads worker_type/worker_id
-	// and creates the task — but we override the context to include the reply.
-	node, err := s.Queries.GetWorkflowNode(ctx, nodeRun.WorkflowNodeID)
-	if err != nil {
-		return fmt.Errorf("get node: %w", err)
-	}
-
-	switch node.WorkerType {
-	case "human":
-		if err := s.validateResolvedHumanMember(ctx, nodeRun, "worker"); err != nil {
-			return err
-		}
-		return s.transitionHumanRolePhase(ctx, nodeRun, "worker", NodeRunStatusWorkerAssigned)
-	case "agent", "squad":
-		agentID := node.WorkerID
-		if node.WorkerType == "squad" && node.WorkerID.Valid {
-			if squad, err := s.Queries.GetSquad(ctx, node.WorkerID); err == nil {
-				agentID = squad.LeaderID
-			}
-		}
-		if !agentID.Valid {
-			_, err := s.TransitionNodeRun(ctx, nodeRun, NodeRunStatusWorkerAssigned)
-			return err
-		}
-		_, err := s.DispatchAgentTask(ctx, nodeRun, "worker", nil)
-		if err != nil {
-			return fmt.Errorf("dispatch agent task: %w", err)
-		}
-		return s.transitionNodeRunAfterDispatch(ctx, nodeRun.ID, NodeRunStatusWorking)
-	default:
-		return fmt.Errorf("unknown worker type: %s", nodeRun.WorkerType)
-	}
 }
 
 // createSystemComment posts a system-authored comment on an issue.
@@ -2374,10 +2131,17 @@ func (s *WorkflowService) CloneWorkflowFromTemplate(
 
 // SetWorkflowTemplate toggles the is_template flag on a workflow.
 func (s *WorkflowService) SetWorkflowTemplate(ctx context.Context, workflowID pgtype.UUID, isTemplate bool) (db.MulticaWorkflow, error) {
-	return s.Queries.SetWorkflowTemplate(ctx, db.SetWorkflowTemplateParams{
-		ID:         workflowID,
-		IsTemplate: isTemplate,
+	workflow, err := s.Queries.GetWorkflow(ctx, workflowID)
+	if err != nil {
+		return db.MulticaWorkflow{}, err
+	}
+	var updated db.MulticaWorkflow
+	err = s.RunDefinitionWrite(ctx, workflow.WorkspaceID, workflow.ID, DefinitionLockWorkflowOnly, func(qtx *db.Queries) error {
+		var err error
+		updated, err = qtx.SetWorkflowTemplate(ctx, db.SetWorkflowTemplateParams{ID: workflowID, IsTemplate: isTemplate})
+		return err
 	})
+	return updated, err
 }
 
 // DeleteWorkflowWithTemplateCheck checks whether a template workflow has
@@ -2392,6 +2156,26 @@ func (s *WorkflowService) DeleteWorkflowWithTemplateCheck(ctx context.Context, w
 		return fmt.Errorf("template has %d derived workflows, cannot delete", count)
 	}
 	return nil
+}
+
+func (s *WorkflowService) DeleteWorkflowDefinition(ctx context.Context, workflowID pgtype.UUID) error {
+	return s.runInTx(ctx, func(qtx *db.Queries) error {
+		workflow, err := qtx.LockWorkflowDefinitionForUpdate(ctx, workflowID)
+		if err != nil {
+			return fmt.Errorf("lock workflow definition: %w", err)
+		}
+		hasRuns, err := qtx.WorkflowHasRuns(ctx, workflow.ID)
+		if err != nil {
+			return fmt.Errorf("check workflow runs: %w", err)
+		}
+		if hasRuns {
+			return ErrWorkflowHasRuns
+		}
+		if err := qtx.DeleteWorkflow(ctx, workflow.ID); err != nil {
+			return fmt.Errorf("delete workflow: %w", err)
+		}
+		return nil
+	})
 }
 
 // CanManageWorkflows checks whether the given user has the

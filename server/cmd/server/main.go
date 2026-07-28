@@ -20,6 +20,7 @@ import (
 	"github.com/multica-ai/multica/server/internal/events"
 	"github.com/multica-ai/multica/server/internal/gitea"
 	"github.com/multica-ai/multica/server/internal/handler"
+	"github.com/multica-ai/multica/server/internal/integration"
 	"github.com/multica-ai/multica/server/internal/logger"
 	obsmetrics "github.com/multica-ai/multica/server/internal/metrics"
 	"github.com/multica-ai/multica/server/internal/middleware"
@@ -34,6 +35,12 @@ import (
 var (
 	version = "dev"
 	commit  = "unknown"
+)
+
+const (
+	workflowDispatchWorkerConcurrency = 2
+	workflowDispatchPollInterval      = time.Second
+	workflowDispatchLeaseDuration     = 30 * time.Second
 )
 
 func newNamedRedisClient(base *redis.Options, suffix string) *redis.Client {
@@ -266,6 +273,21 @@ func main() {
 	registerSubscriberListeners(bus, queries)
 	registerActivityListeners(bus, queries)
 	registerNotificationListeners(bus, queries)
+
+	// Optional outbound bridge to costrict-web (WeCom/webhook channels).
+	// Disabled unless both env vars are set; delivery runs in background
+	// workers and never blocks the event bus.
+	if endpoint := strings.TrimSpace(os.Getenv("MULTICA_INTEGRATION_ENDPOINT")); endpoint != "" {
+		if secret := os.Getenv("MULTICA_INTEGRATION_SECRET"); secret != "" {
+			notifier := integration.NewNotifier(endpoint, secret)
+			notifier.Run(ctx)
+			appURL := strings.TrimRight(strings.TrimSpace(os.Getenv("MULTICA_APP_URL")), "/")
+			registerIntegrationListener(bus, queries, notifier, appURL)
+			slog.Info("costrict-web integration bridge enabled", "endpoint", endpoint)
+		} else {
+			slog.Warn("MULTICA_INTEGRATION_ENDPOINT set but MULTICA_INTEGRATION_SECRET missing — integration bridge disabled")
+		}
+	}
 
 	metricsConfig := obsmetrics.ConfigFromEnv()
 	var metricsServer *http.Server
@@ -561,6 +583,9 @@ func main() {
 	taskSvc := service.NewTaskService(queries, pool, hub, bus, daemonWakeup)
 	taskSvc.Analytics = analyticsClient
 	roleWorkflowSvc := service.NewWorkflowService(queries, pool, bus, taskSvc)
+	roleWorkflowSvc.Gitea = giteaClient
+	roleWorkflowSvc.TeamNamespace = teamNamespaceClient
+	splitDispatchSvc := service.NewSplitOrchestrator(queries, pool, roleWorkflowSvc, bus)
 	hostname, _ := os.Hostname()
 	for i := 0; i < roleResolutionRuntime.WorkerConcurrency; i++ {
 		worker := &service.WorkflowRoleResolutionWorker{
@@ -570,11 +595,6 @@ func main() {
 			PollInterval: roleResolutionRuntime.PollInterval, LeaseDuration: roleResolutionRuntime.LeaseDuration,
 			MaxCandidates: roleResolutionRuntime.MaxCandidates, MaxSlots: roleResolutionRuntime.MaxSlots,
 			MaxInputChars: roleResolutionRuntime.MaxInputChars,
-			OnRunPromoted: func(ctx context.Context, runID pgtype.UUID) {
-				if err := roleWorkflowSvc.DispatchRootNodeRuns(ctx, runID); err != nil {
-					slog.Error("dispatch workflow roots after role resolution", "run_id", util.UUIDToString(runID), "error", err)
-				}
-			},
 			OnStateChanged: func(_ context.Context, workspaceID, runID pgtype.UUID) {
 				payload := map[string]any{"run_id": util.UUIDToString(runID)}
 				for _, eventType := range []string{"workflow_role_resolution_updated", "workflow_run_updated"} {
@@ -584,6 +604,16 @@ func main() {
 					})
 				}
 			},
+		}
+		go worker.Run(sweepCtx)
+	}
+	for i := 0; i < workflowDispatchWorkerConcurrency; i++ {
+		worker := &service.WorkflowDispatchWorker{
+			Queries: queries, TxStarter: pool, Workflow: roleWorkflowSvc,
+			DispatchSplit: splitDispatchSvc.GenerateSplitTasksForDispatch,
+			WorkerID:      hostname + "-workflow-dispatch-" + strconv.Itoa(i+1),
+			PollInterval:  workflowDispatchPollInterval,
+			LeaseDuration: workflowDispatchLeaseDuration,
 		}
 		go worker.Run(sweepCtx)
 	}

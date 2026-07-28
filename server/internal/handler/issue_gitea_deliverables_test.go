@@ -79,12 +79,10 @@ func TestGiteaContextForRun_DefaultWorkflowUsesArchiveRepo(t *testing.T) {
 		t.Fatalf("read run id: %v", err)
 	}
 	if _, err := testPool.Exec(ctx, `
-		UPDATE multica_workflow
-		SET is_default = TRUE
-		WHERE id = (
-			SELECT workflow_id FROM multica_workflow_run WHERE id = $1
-		)`, runID); err != nil {
-		t.Fatalf("mark workflow default: %v", err)
+		UPDATE multica_workflow_run
+		SET definition_snapshot = jsonb_set(definition_snapshot, '{workflow,is_default}', 'true'::jsonb)
+		WHERE id = $1`, runID); err != nil {
+		t.Fatalf("mark run snapshot default: %v", err)
 	}
 
 	got := testHandler.giteaContextForRun(ctx, parseUUID(runID))

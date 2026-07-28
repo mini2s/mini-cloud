@@ -618,25 +618,17 @@ func (s *TaskService) repositoryDeliverableEnv(ctx context.Context, task db.Mult
 	if err != nil {
 		return nil
 	}
-	workflow, err := s.Queries.GetWorkflow(ctx, run.WorkflowID)
-	if err != nil {
-		return nil
-	}
-	deliverables, err := s.Queries.ListWorkflowNodeDeliverables(ctx, nr.WorkflowNodeID)
-	if err != nil {
-		return nil
-	}
-	node, err := s.Queries.GetWorkflowNode(ctx, nr.WorkflowNodeID)
+	deliverables, err := s.Queries.ListNodeRunDeliverableRequirements(ctx, nr.ID)
 	if err != nil {
 		return nil
 	}
 	// Use the node's topological position (not raw sort_order) so the <NN>
 	// prefix reflects execution order even when sort_order wasn't set.
-	topo, err := NodeTopoOrder(ctx, s.Queries, run.WorkflowID)
+	topo, err := RunNodeTopoOrder(ctx, s.Queries, run.ID)
 	if err != nil {
 		return nil
 	}
-	nodeSeq := topo[util.UUIDToString(node.ID)]
+	nodeSeq := topo[util.UUIDToString(nr.ID)]
 	nodeRunIDStr := util.UUIDToString(nr.ID)
 	var refs []repositoryDeliverableRefJSON
 	for _, d := range deliverables {
@@ -657,7 +649,11 @@ func (s *TaskService) repositoryDeliverableEnv(ctx context.Context, task db.Mult
 		publicBase = base
 	}
 	owner := gitea.OrgName(util.UUIDToString(run.WorkspaceID))
-	repo := DeliverableRepoNameForWorkflow(workflow)
+	snapshot, err := (WorkflowRuntimeRepository{Queries: s.Queries}).GetRunDefinitionSnapshot(ctx, run.ID)
+	if err != nil {
+		return nil
+	}
+	repo := DeliverableRepoName(run.WorkflowID, snapshot.Workflow.IsDefault)
 	refsJSON, _ := json.Marshal(refs)
 	// Bot PAT + Gitea base URL are pushed down so cs-cloud's `deliverable submit`
 	// can push the document + open a PR against Gitea directly, without relaying

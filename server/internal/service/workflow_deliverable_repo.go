@@ -34,10 +34,10 @@ func (s *WorkflowService) deliverableRepository() coderepo.RepositoryProvider {
 func (s *WorkflowService) hasAnyDeliverable(ctx context.Context, workflowID pgtype.UUID) (bool, error) {
 	nodes, err := s.Queries.ListWorkflowNodes(ctx, workflowID)
 	if err != nil {
-		return false, fmt.Errorf("list nodes: %w", err)
+		return false, fmt.Errorf("list workflow nodes: %w", err)
 	}
-	for _, n := range nodes {
-		deliverables, err := s.Queries.ListWorkflowNodeDeliverables(ctx, n.ID)
+	for _, node := range nodes {
+		deliverables, err := s.Queries.ListWorkflowNodeDeliverables(ctx, node.ID)
 		if err != nil {
 			return false, fmt.Errorf("list deliverables: %w", err)
 		}
@@ -48,8 +48,40 @@ func (s *WorkflowService) hasAnyDeliverable(ctx context.Context, workflowID pgty
 	return false, nil
 }
 
+func (s *WorkflowService) hasRunAnyDeliverable(ctx context.Context, runID pgtype.UUID) (bool, error) {
+	nodeRuns, err := s.Queries.ListWorkflowNodeRunsByRun(ctx, runID)
+	if err != nil {
+		return false, fmt.Errorf("list node runs: %w", err)
+	}
+	for _, nodeRun := range nodeRuns {
+		requirements, err := s.Queries.ListNodeRunDeliverableRequirements(ctx, nodeRun.ID)
+		if err != nil {
+			return false, fmt.Errorf("list deliverable requirements: %w", err)
+		}
+		if len(requirements) > 0 {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+func (s *WorkflowService) workflowFromRunSnapshot(ctx context.Context, run db.MulticaWorkflowRun) (db.MulticaWorkflow, error) {
+	snapshot, err := (WorkflowRuntimeRepository{Queries: s.Queries}).GetRunDefinitionSnapshot(ctx, run.ID)
+	if err != nil {
+		return db.MulticaWorkflow{}, err
+	}
+	return db.MulticaWorkflow{
+		ID: run.WorkflowID, WorkspaceID: run.WorkspaceID, Title: run.WorkflowTitle,
+		IsDefault: snapshot.Workflow.IsDefault,
+	}, nil
+}
+
 func DeliverableRepoNameForWorkflow(workflow db.MulticaWorkflow) string {
-	if workflow.IsDefault {
+	return DeliverableRepoName(workflow.ID, workflow.IsDefault)
+}
+
+func DeliverableRepoName(workflowID pgtype.UUID, isDefault bool) string {
+	if isDefault {
 		// The archive repo is provisioned (by the team-namespace service and the
 		// local mock) as gitea.RepoName of the archive slug — i.e. with the same
 		// "wf-" prefix every workflow repo gets under WORKFLOW_REPO_PATH_ALGORITHM
@@ -58,7 +90,7 @@ func DeliverableRepoNameForWorkflow(workflow db.MulticaWorkflow) string {
 		// "wf-deliverable-archive" (404 on member deliverable upload).
 		return gitea.RepoName(gitea.DefaultArchiveRepoName())
 	}
-	return gitea.RepoName(util.UUIDToString(workflow.ID))
+	return gitea.RepoName(util.UUIDToString(workflowID))
 }
 
 func deliverableScaffoldParams(run db.MulticaWorkflowRun, workflow db.MulticaWorkflow) gitea.ScaffoldParams {
@@ -351,18 +383,18 @@ func (s *WorkflowService) ScaffoldRunDeliverables(ctx context.Context, run db.Mu
 	}
 	runIDStr := util.UUIDToString(run.ID)
 
-	// NOTE: if the workflow lookup or the document-deliverable check fails (e.g.
+	// NOTE: if the run snapshot or the document-deliverable check fails (e.g.
 	// a transient DB error), we return WITHOUT scaffolding and WITHOUT failing
 	// the run. The run continues "running" with no Gitea repo, so the daemon's
 	// first clone/push will 404 later. Intentional — we can't decide whether to
 	// fail the run if we can't read the workflow — but it means a DB blip here
 	// surfaces as a later clone failure, not a run failure.
-	workflow, err := s.Queries.GetWorkflow(ctx, run.WorkflowID)
+	workflow, err := s.workflowFromRunSnapshot(ctx, run)
 	if err != nil {
-		slog.Warn("gitea scaffold: get workflow", "run_id", runIDStr, "error", err)
+		slog.Warn("gitea scaffold: get run snapshot", "run_id", runIDStr, "error", err)
 		return
 	}
-	has, err := s.hasAnyDeliverable(ctx, workflow.ID)
+	has, err := s.hasRunAnyDeliverable(ctx, run.ID)
 	if err != nil {
 		slog.Warn("gitea scaffold: check deliverables", "run_id", runIDStr, "error", err)
 		return
@@ -419,7 +451,7 @@ func (s *WorkflowService) ensureNodeRunBranch(ctx context.Context, nodeRun db.Mu
 		return nil
 	}
 
-	deliverables, err := s.Queries.ListWorkflowNodeDeliverables(ctx, nodeRun.WorkflowNodeID)
+	deliverables, err := s.Queries.ListNodeRunDeliverableRequirements(ctx, nodeRun.ID)
 	if err != nil {
 		return fmt.Errorf("list deliverables: %w", err)
 	}
@@ -438,9 +470,9 @@ func (s *WorkflowService) ensureNodeRunBranch(ctx context.Context, nodeRun db.Mu
 	if err != nil {
 		return fmt.Errorf("get run: %w", err)
 	}
-	workflow, err := s.Queries.GetWorkflow(ctx, run.WorkflowID)
+	workflow, err := s.workflowFromRunSnapshot(ctx, run)
 	if err != nil {
-		return fmt.Errorf("get workflow: %w", err)
+		return fmt.Errorf("get run snapshot: %w", err)
 	}
 
 	if s.teamNamespaceConfigured() {
@@ -454,18 +486,14 @@ func (s *WorkflowService) ensureNodeRunBranch(ctx context.Context, nodeRun db.Mu
 		return fmt.Errorf("scaffold run deliverable: %w", err)
 	}
 
-	node, err := s.Queries.GetWorkflowNode(ctx, nodeRun.WorkflowNodeID)
-	if err != nil {
-		return fmt.Errorf("get node: %w", err)
-	}
-	topo, err := NodeTopoOrder(ctx, s.Queries, run.WorkflowID)
+	topo, err := RunNodeTopoOrder(ctx, s.Queries, run.ID)
 	if err != nil {
 		return fmt.Errorf("node topo order: %w", err)
 	}
 	owner := gitea.OrgName(util.UUIDToString(run.WorkspaceID))
 	repo := DeliverableRepoNameForWorkflow(workflow)
 	inst := gitea.InstBranch(util.UUIDToString(run.ID))
-	nodeBranch := gitea.NodeBranch(topo[util.UUIDToString(node.ID)], util.UUIDToString(nodeRun.ID))
+	nodeBranch := gitea.NodeBranch(topo[util.UUIDToString(nodeRun.ID)], util.UUIDToString(nodeRun.ID))
 	if err := repoProvider.CreateBranch(ctx, owner, repo, nodeBranch, inst); err != nil {
 		return fmt.Errorf("create node branch: %w", err)
 	}
@@ -760,14 +788,9 @@ func (s *WorkflowService) ArchiveReviewComment(ctx context.Context, nodeRun db.M
 		slog.Warn("archive review comment: get run", "error", err)
 		return
 	}
-	workflow, err := s.Queries.GetWorkflow(ctx, run.WorkflowID)
+	workflow, err := s.workflowFromRunSnapshot(ctx, run)
 	if err != nil {
-		slog.Warn("archive review comment: get workflow", "error", err)
-		return
-	}
-	node, err := s.Queries.GetWorkflowNode(ctx, nodeRun.WorkflowNodeID)
-	if err != nil {
-		slog.Warn("archive review comment: get node", "error", err)
+		slog.Warn("archive review comment: get run snapshot", "error", err)
 		return
 	}
 
@@ -788,11 +811,11 @@ func (s *WorkflowService) ArchiveReviewComment(ctx context.Context, nodeRun db.M
 	}
 
 	nodeRunIDStr := util.UUIDToString(nodeRun.ID)
-	// Topological position for the <NN> prefix; fall back to sort_order if the
-	// graph lookup fails so review archival is never skipped on a rare DB error.
-	nodeSeq := int(node.SortOrder)
-	if topo, err := NodeTopoOrder(ctx, s.Queries, run.WorkflowID); err == nil {
-		nodeSeq = topo[util.UUIDToString(node.ID)]
+	// Topological position for the <NN> prefix; fall back to 1 if the graph
+	// lookup fails so review archival is never skipped on a rare DB error.
+	nodeSeq := 1
+	if topo, err := RunNodeTopoOrder(ctx, s.Queries, run.ID); err == nil {
+		nodeSeq = topo[util.UUIDToString(nodeRun.ID)]
 	}
 	path := gitea.NodeDir(nodeSeq, nodeRun.NodeTitle, nodeRunIDStr) + "/" +
 		gitea.ReviewPath(round, reviewer, verdict)
@@ -1029,14 +1052,14 @@ func (s *WorkflowService) mergeDeliverablePRs(ctx context.Context, nodeRun db.Mu
 	if err != nil {
 		return fmt.Errorf("get run: %w", err)
 	}
-	workflow, err := s.Queries.GetWorkflow(ctx, run.WorkflowID)
+	workflow, err := s.workflowFromRunSnapshot(ctx, run)
 	if err != nil {
-		return fmt.Errorf("get workflow: %w", err)
+		return fmt.Errorf("get run snapshot: %w", err)
 	}
 	owner := gitea.OrgName(util.UUIDToString(run.WorkspaceID))
 	repo := DeliverableRepoNameForWorkflow(workflow)
 
-	deliverables, err := s.Queries.ListWorkflowNodeDeliverables(ctx, nodeRun.WorkflowNodeID)
+	deliverables, err := s.Queries.ListNodeRunDeliverableRequirements(ctx, nodeRun.ID)
 	if err != nil {
 		return fmt.Errorf("list deliverables: %w", err)
 	}
@@ -1227,7 +1250,7 @@ func retryMergeDocPR(ctx context.Context, provider coderepo.RepositoryProvider, 
 // here. The existing review_comment is preserved (the critic's comment lives on
 // the node run, not the submission).
 func (s *WorkflowService) markDeliverableSubmissionsApproved(ctx context.Context, nodeRun db.MulticaWorkflowNodeRun) {
-	deliverables, err := s.Queries.ListWorkflowNodeDeliverables(ctx, nodeRun.WorkflowNodeID)
+	deliverables, err := s.Queries.ListNodeRunDeliverableRequirements(ctx, nodeRun.ID)
 	if err != nil {
 		slog.Warn("mark deliverable submissions approved: list deliverables", "error", err)
 		return
@@ -1289,7 +1312,7 @@ func (s *WorkflowService) UploadMemberDeliverablePR(ctx context.Context, issue d
 		return errors.New("run has no node runs")
 	}
 	nodeRun := nodeRuns[0]
-	deliverables, err := s.Queries.ListWorkflowNodeDeliverables(ctx, nodeRun.WorkflowNodeID)
+	deliverables, err := s.Queries.ListNodeRunDeliverableRequirements(ctx, nodeRun.ID)
 	if err != nil {
 		return fmt.Errorf("list deliverables: %w", err)
 	}
@@ -1314,19 +1337,15 @@ func (s *WorkflowService) UploadMemberDeliverablePR(ctx context.Context, issue d
 	var prURL string
 	repoProvider := s.deliverableRepository()
 	if repoProvider.Configured() {
-		workflow, err := s.Queries.GetWorkflow(ctx, run.WorkflowID)
+		workflow, err := s.workflowFromRunSnapshot(ctx, run)
 		if err != nil {
-			return fmt.Errorf("get workflow: %w", err)
+			return fmt.Errorf("get run snapshot: %w", err)
 		}
-		node, err := s.Queries.GetWorkflowNode(ctx, nodeRun.WorkflowNodeID)
-		if err != nil {
-			return fmt.Errorf("get node: %w", err)
-		}
-		topo, err := NodeTopoOrder(ctx, s.Queries, run.WorkflowID)
+		topo, err := RunNodeTopoOrder(ctx, s.Queries, run.ID)
 		if err != nil {
 			return fmt.Errorf("node topo order: %w", err)
 		}
-		nodeSeq := topo[util.UUIDToString(node.ID)]
+		nodeSeq := topo[util.UUIDToString(nodeRun.ID)]
 		owner := gitea.OrgName(util.UUIDToString(run.WorkspaceID))
 		repo := DeliverableRepoNameForWorkflow(workflow)
 		inst := gitea.InstBranch(util.UUIDToString(run.ID))
@@ -1409,9 +1428,9 @@ func (s *WorkflowService) UploadMemberDeliverable(ctx context.Context, issue db.
 	if err != nil {
 		return fmt.Errorf("get run: %w", err)
 	}
-	workflow, err := s.Queries.GetWorkflow(ctx, run.WorkflowID)
+	workflow, err := s.workflowFromRunSnapshot(ctx, run)
 	if err != nil {
-		return fmt.Errorf("get workflow: %w", err)
+		return fmt.Errorf("get run snapshot: %w", err)
 	}
 	nodeRuns, err := s.Queries.ListWorkflowNodeRunsByRun(ctx, run.ID)
 	if err != nil {
@@ -1422,7 +1441,7 @@ func (s *WorkflowService) UploadMemberDeliverable(ctx context.Context, issue db.
 	}
 	nodeRun := nodeRuns[0]
 
-	deliverables, err := s.Queries.ListWorkflowNodeDeliverables(ctx, nodeRun.WorkflowNodeID)
+	deliverables, err := s.Queries.ListNodeRunDeliverableRequirements(ctx, nodeRun.ID)
 	if err != nil {
 		return fmt.Errorf("list deliverables: %w", err)
 	}
@@ -1437,15 +1456,11 @@ func (s *WorkflowService) UploadMemberDeliverable(ctx context.Context, issue db.
 		return errors.New("node has no document deliverable")
 	}
 
-	node, err := s.Queries.GetWorkflowNode(ctx, nodeRun.WorkflowNodeID)
-	if err != nil {
-		return fmt.Errorf("get node: %w", err)
-	}
-	topo, err := NodeTopoOrder(ctx, s.Queries, run.WorkflowID)
+	topo, err := RunNodeTopoOrder(ctx, s.Queries, run.ID)
 	if err != nil {
 		return fmt.Errorf("node topo order: %w", err)
 	}
-	nodeSeq := topo[util.UUIDToString(node.ID)]
+	nodeSeq := topo[util.UUIDToString(nodeRun.ID)]
 	owner := gitea.OrgName(util.UUIDToString(run.WorkspaceID))
 	repo := DeliverableRepoNameForWorkflow(workflow)
 	inst := gitea.InstBranch(util.UUIDToString(run.ID))

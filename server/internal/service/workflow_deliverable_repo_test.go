@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -32,6 +33,40 @@ type giteaFixture struct {
 	node      pgtype.UUID
 	run1      pgtype.UUID
 	run2      pgtype.UUID // zero-valued when not seeded
+}
+
+func seedRuntimeDeliverableRequirement(t *testing.T, pool *pgxpool.Pool, nodeRunID, sourceNodeID pgtype.UUID, kind string) pgtype.UUID {
+	t.Helper()
+	var requirementID pgtype.UUID
+	if err := pool.QueryRow(context.Background(), `
+		INSERT INTO multica_workflow_node_run_deliverable (
+			workflow_node_run_id, source_deliverable_id, kind, title, description, required, sort_order
+		)
+		SELECT $1, deliverable.id, deliverable.kind, deliverable.title,
+		       deliverable.description, deliverable.required, deliverable.sort_order
+		FROM multica_workflow_node_deliverable deliverable
+		WHERE deliverable.workflow_node_id = $2 AND deliverable.kind = $3
+		ORDER BY deliverable.sort_order, deliverable.id
+		LIMIT 1
+		RETURNING id
+	`, nodeRunID, sourceNodeID, kind).Scan(&requirementID); err != nil {
+		t.Fatalf("seed runtime %s deliverable requirement: %v", kind, err)
+	}
+	return requirementID
+}
+
+func seedRuntimeNodeRun(t *testing.T, fix *giteaFixture, runID pgtype.UUID, status string) pgtype.UUID {
+	t.Helper()
+	var nodeRunID pgtype.UUID
+	if err := fix.pool.QueryRow(context.Background(), `
+		INSERT INTO multica_workflow_node_run (
+			workflow_run_id, workflow_node_id, node_title, status, worker_type, critic_type
+		) VALUES ($1, $2, 'Doc Node', $3, 'agent', 'human')
+		RETURNING id
+	`, runID, fix.node, status).Scan(&nodeRunID); err != nil {
+		t.Fatalf("seed runtime node run: %v", err)
+	}
+	return nodeRunID
 }
 
 // seedGiteaFixture inserts a workspace + user + member + workflow + node +
@@ -103,10 +138,21 @@ func seedGiteaFixture(t *testing.T, pool *pgxpool.Pool, withDocument bool, numRu
 	for i := 0; i < numRuns; i++ {
 		var runID string
 		if err := pool.QueryRow(ctx, `
-			INSERT INTO multica_workflow_run (workflow_id, workspace_id, workflow_title, status, triggered_by_type, triggered_by_id)
-			VALUES ($1, $2, 'Gitea Test Workflow', 'running', 'member', $3)
+			INSERT INTO multica_workflow_run (
+				workflow_id, workspace_id, workflow_title, status, triggered_by_type, triggered_by_id,
+				definition_schema_version, definition_snapshot
+			)
+			VALUES (
+				$1, $2, 'Gitea Test Workflow', 'running', 'member', $3, 1,
+				jsonb_build_object(
+					'schema_version', 1, 'snapshot_origin', 'native',
+					'workflow', jsonb_build_object('id', $1::uuid, 'workspace_id', $2::uuid, 'title', 'Gitea Test Workflow', 'is_default', false),
+					'nodes', jsonb_build_array(jsonb_build_object('id', $4::uuid, 'title', 'Doc Node', 'sort_order', 0)),
+					'edges', '[]'::jsonb, 'stages', '[]'::jsonb, 'roles', '[]'::jsonb, 'deliverables', '[]'::jsonb
+				)
+			)
 			RETURNING id
-		`, wfID, wsID, userID).Scan(&runID); err != nil {
+		`, wfID, wsID, userID, nodeID).Scan(&runID); err != nil {
 			t.Fatalf("seed run %d: %v", i, err)
 		}
 		u, _ := util.ParseUUID(runID)
@@ -270,6 +316,8 @@ func TestScaffoldRunDeliverables_ProvisionsBotAndScaffoldsRepo(t *testing.T) {
 	defer pool.Close()
 
 	fix := seedGiteaFixture(t, pool, true /*document deliverable*/, 2 /*two runs*/)
+	seedRuntimeDeliverableRequirement(t, pool, seedRuntimeNodeRun(t, fix, fix.run1, NodeRunStatusPending), fix.node, "document")
+	seedRuntimeDeliverableRequirement(t, pool, seedRuntimeNodeRun(t, fix, fix.run2, NodeRunStatusPending), fix.node, "document")
 	srv, tokensMinted, orgsCreated, _, _ := fakeGiteaServer(t)
 
 	svc := &WorkflowService{
@@ -367,8 +415,16 @@ func TestScaffoldRunDeliverables_DefaultWorkflowUsesArchiveRepo(t *testing.T) {
 	defer pool.Close()
 
 	fix := seedGiteaFixture(t, pool, true /*document deliverable*/, 1 /*one run*/)
+	seedRuntimeDeliverableRequirement(t, pool, seedRuntimeNodeRun(t, fix, fix.run1, NodeRunStatusPending), fix.node, "document")
 	if _, err := pool.Exec(context.Background(), `UPDATE multica_workflow SET is_default = TRUE WHERE id = $1`, fix.workflow); err != nil {
 		t.Fatalf("mark workflow default: %v", err)
+	}
+	if _, err := pool.Exec(context.Background(), `
+		UPDATE multica_workflow_run
+		SET definition_snapshot = jsonb_set(definition_snapshot, '{workflow,is_default}', 'true'::jsonb)
+		WHERE id = $1
+	`, fix.run1); err != nil {
+		t.Fatalf("mark run snapshot default: %v", err)
 	}
 	srv, _, _, repoExists, branchExists := fakeGiteaServer(t)
 
@@ -461,6 +517,110 @@ func TestScaffoldRunDeliverables_NoOpWhenDeliverableFree(t *testing.T) {
 	}
 }
 
+func TestRunDeliverablesRemainStableAfterDefinitionEditAndDelete(t *testing.T) {
+	fixture := newWorkflowPrepareFixture(t, true)
+	defer fixture.cleanup(t)
+
+	prepared, err := fixture.service.PrepareWorkflowRunSnapshot(fixture.ctx, fixture.workflowID, PrepareWorkflowRunParams{
+		TriggeredByType: "member",
+		TriggeredByID:   fixture.userID,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	nodeRuns, err := fixture.service.Queries.ListWorkflowNodeRunsByRun(fixture.ctx, prepared.Run.ID)
+	if err != nil || len(nodeRuns) != 1 {
+		t.Fatalf("node runs=%d error=%v, want one", len(nodeRuns), err)
+	}
+	requirements, err := fixture.service.Queries.ListNodeRunDeliverableRequirements(fixture.ctx, nodeRuns[0].ID)
+	if err != nil || len(requirements) != 1 {
+		t.Fatalf("requirements=%d error=%v, want one", len(requirements), err)
+	}
+	if _, err := fixture.pool.Exec(fixture.ctx, `
+		UPDATE multica_workflow_node_deliverable SET title = 'Changed result'
+		WHERE id = $1
+	`, requirements[0].SourceDeliverableID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fixture.pool.Exec(fixture.ctx, `
+		DELETE FROM multica_workflow_node_deliverable WHERE id = $1
+	`, requirements[0].SourceDeliverableID); err != nil {
+		t.Fatal(err)
+	}
+
+	requirements, err = fixture.service.Queries.ListNodeRunDeliverableRequirements(fixture.ctx, nodeRuns[0].ID)
+	if err != nil || len(requirements) != 1 || requirements[0].Title != "Result" {
+		t.Fatalf("runtime requirements=%#v error=%v", requirements, err)
+	}
+	satisfied, err := fixture.service.requiredDeliverablesSatisfied(fixture.ctx, nodeRuns[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if satisfied {
+		t.Fatal("required deliverables reported satisfied after definition deletion without a submission")
+	}
+	if _, err := fixture.service.Queries.UpsertNodeRunDeliverableSubmission(fixture.ctx, db.UpsertNodeRunDeliverableSubmissionParams{
+		WorkflowNodeRunID: nodeRuns[0].ID,
+		DeliverableID:     requirements[0].ID,
+		SubmittedByType:   "member",
+		SubmittedByID:     fixture.userID,
+		Content:           "runtime result",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	satisfied, err = fixture.service.requiredDeliverablesSatisfied(fixture.ctx, nodeRuns[0])
+	if err != nil || !satisfied {
+		t.Fatalf("required deliverables satisfied=%v error=%v, want true", satisfied, err)
+	}
+}
+
+func TestDeliverableSubmissionRejectsRequirementFromAnotherRun(t *testing.T) {
+	fixture := newWorkflowPrepareFixture(t, true)
+	defer fixture.cleanup(t)
+
+	prepare := func() (db.MulticaWorkflowNodeRun, db.MulticaWorkflowNodeRunDeliverable) {
+		t.Helper()
+		prepared, err := fixture.service.PrepareWorkflowRunSnapshot(fixture.ctx, fixture.workflowID, PrepareWorkflowRunParams{
+			TriggeredByType: "member", TriggeredByID: fixture.userID,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		nodeRuns, err := fixture.service.Queries.ListWorkflowNodeRunsByRun(fixture.ctx, prepared.Run.ID)
+		if err != nil || len(nodeRuns) != 1 {
+			t.Fatalf("node runs=%d error=%v, want one", len(nodeRuns), err)
+		}
+		requirements, err := fixture.service.Queries.ListNodeRunDeliverableRequirements(fixture.ctx, nodeRuns[0].ID)
+		if err != nil || len(requirements) != 1 {
+			t.Fatalf("requirements=%d error=%v, want one", len(requirements), err)
+		}
+		return nodeRuns[0], requirements[0]
+	}
+	firstNodeRun, _ := prepare()
+	_, secondRequirement := prepare()
+
+	_, err := fixture.service.Queries.UpsertNodeRunDeliverableSubmission(fixture.ctx, db.UpsertNodeRunDeliverableSubmissionParams{
+		WorkflowNodeRunID: firstNodeRun.ID,
+		DeliverableID:     secondRequirement.ID,
+		SubmittedByType:   "member",
+		SubmittedByID:     fixture.userID,
+		Content:           "cross-run submission",
+	})
+	if !errors.Is(err, pgx.ErrNoRows) {
+		t.Fatalf("cross-run submission error=%v, want pgx.ErrNoRows", err)
+	}
+	var count int
+	if err := fixture.pool.QueryRow(fixture.ctx, `
+		SELECT count(*) FROM multica_workflow_node_deliverable_submission
+		WHERE workflow_node_run_id = $1
+	`, firstNodeRun.ID).Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	if count != 0 {
+		t.Fatalf("cross-run submission count=%d, want zero", count)
+	}
+}
+
 func TestProvisionWorkflowRepo_UsesWorkflowIDForRepoName(t *testing.T) {
 	pool := openTestPool(t)
 	defer pool.Close()
@@ -506,6 +666,7 @@ func TestEnsureNodeRunBranch_CreatesNodeBranchFromInst(t *testing.T) {
 		t.Fatalf("seed node run: %v", err)
 	}
 	nodeRunUUID, _ := util.ParseUUID(nodeRunID)
+	seedRuntimeDeliverableRequirement(t, pool, nodeRunUUID, fix.node, "document")
 	nodeRun, err := queries.GetWorkflowNodeRun(context.Background(), nodeRunUUID)
 	if err != nil {
 		t.Fatalf("get node run: %v", err)
@@ -523,11 +684,11 @@ func TestEnsureNodeRunBranch_CreatesNodeBranchFromInst(t *testing.T) {
 	owner := gitea.OrgName(util.UUIDToString(fix.workspace))
 	repo := gitea.RepoName(util.UUIDToString(fix.workflow))
 	instBranch := gitea.InstBranch(util.UUIDToString(fix.run1))
-	node, err := queries.GetWorkflowNode(context.Background(), nodeRun.WorkflowNodeID)
+	topo, err := RunNodeTopoOrder(context.Background(), queries, fix.run1)
 	if err != nil {
-		t.Fatalf("get node: %v", err)
+		t.Fatalf("runtime node topo: %v", err)
 	}
-	nodeBranch := gitea.NodeBranch(int(node.SortOrder), nodeRunID)
+	nodeBranch := gitea.NodeBranch(topo[util.UUIDToString(nodeRun.ID)], nodeRunID)
 	if !branchExists(owner + "/" + repo + "/" + instBranch) {
 		t.Fatalf("inst branch %s/%s/%s was not created", owner, repo, instBranch)
 	}
@@ -619,9 +780,9 @@ func TestArchiveReviewComment_WritesReviewUnderNodeDir(t *testing.T) {
 			if err != nil {
 				t.Fatalf("get node run: %v", err)
 			}
-			node, err := queries.GetWorkflowNode(ctx, nodeRun.WorkflowNodeID)
+			topo, err := RunNodeTopoOrder(ctx, queries, fix.run1)
 			if err != nil {
-				t.Fatalf("get node: %v", err)
+				t.Fatalf("runtime node topo: %v", err)
 			}
 
 			svc := &WorkflowService{
@@ -630,7 +791,7 @@ func TestArchiveReviewComment_WritesReviewUnderNodeDir(t *testing.T) {
 			}
 			svc.ArchiveReviewComment(ctx, nodeRun, c.decision, "评审意见正文")
 
-			expected := gitea.NodeDir(int(node.SortOrder), nodeRun.NodeTitle, nodeRunID) + "/" +
+			expected := gitea.NodeDir(topo[util.UUIDToString(nodeRun.ID)], nodeRun.NodeTitle, nodeRunID) + "/" +
 				gitea.ReviewPath(c.wantRound, "张三", c.wantVerdict)
 			got := writtenPaths()
 			if len(got) != 1 || got[0] != expected {
@@ -886,13 +1047,8 @@ func seedNodeRunForReview(t *testing.T, pool *pgxpool.Pool, fix *giteaFixture, r
 	}
 
 	// The document deliverable row is created by seedGiteaFixture (withDocument).
-	var deliverableID string
-	if err := pool.QueryRow(ctx, `
-		SELECT id FROM multica_workflow_node_deliverable
-		WHERE workflow_node_id = $1 AND kind = 'document' LIMIT 1
-	`, util.UUIDToString(fix.node)).Scan(&deliverableID); err != nil {
-		t.Fatalf("seed submission: find document deliverable: %v", err)
-	}
+	nrID, _ := util.ParseUUID(nodeRunID)
+	deliverableID := seedRuntimeDeliverableRequirement(t, pool, nrID, fix.node, "document")
 
 	if _, err := pool.Exec(ctx, `
 		INSERT INTO multica_workflow_node_deliverable_submission (
@@ -902,8 +1058,6 @@ func seedNodeRunForReview(t *testing.T, pool *pgxpool.Pool, fix *giteaFixture, r
 	`, nodeRunID, deliverableID, submissionStatus, prURL); err != nil {
 		t.Fatalf("seed submission: %v", err)
 	}
-
-	nrID, _ := util.ParseUUID(nodeRunID)
 	return nrID
 }
 
@@ -961,6 +1115,7 @@ func TestSubmitWorkerOutput_BlocksMissingRequiredPullRequestDeliverable(t *testi
 		t.Fatalf("seed node run: %v", err)
 	}
 	nrID, _ := util.ParseUUID(nodeRunID)
+	seedRuntimeDeliverableRequirement(t, pool, nrID, fix.node, "pull_request")
 
 	svc := &WorkflowService{Queries: db.New(pool), TxStarter: pool}
 	err := svc.SubmitWorkerOutput(ctx, nrID, json.RawMessage(`{"output":"opened an MR but forgot to submit it"}`))
@@ -1005,6 +1160,7 @@ func TestHandleWorkflowTaskCompletion_BlocksMissingRequiredPullRequestDeliverabl
 		t.Fatalf("seed node run: %v", err)
 	}
 	nrID, _ := util.ParseUUID(nodeRunID)
+	seedRuntimeDeliverableRequirement(t, pool, nrID, fix.node, "pull_request")
 
 	svc := &WorkflowService{Queries: db.New(pool), TxStarter: pool}
 	err := svc.HandleWorkflowTaskCompletion(ctx, db.MulticaAgentTaskQueue{
@@ -1055,6 +1211,7 @@ func TestHandleWorkflowTaskCompletion_AutoSubmitsSinglePullRequestURL(t *testing
 		t.Fatalf("seed node run: %v", err)
 	}
 	nrID, _ := util.ParseUUID(nodeRunID)
+	runtimeDeliverableID := seedRuntimeDeliverableRequirement(t, pool, nrID, fix.node, "pull_request")
 
 	mrURL := "http://gitlab.local/root/repo/-/merge_requests/7"
 	svc := &WorkflowService{Queries: db.New(pool), TxStarter: pool}
@@ -1066,8 +1223,8 @@ func TestHandleWorkflowTaskCompletion_AutoSubmitsSinglePullRequestURL(t *testing
 	if err != nil {
 		t.Fatalf("HandleWorkflowTaskCompletion: %v", err)
 	}
-	if got := nodeRunStatus(t, pool, nrID); got != NodeRunStatusCriticReviewing {
-		t.Fatalf("node run status = %q, want %q", got, NodeRunStatusCriticReviewing)
+	if got := nodeRunStatus(t, pool, nrID); got != NodeRunStatusAwaitingCritic {
+		t.Fatalf("node run status = %q, want %q", got, NodeRunStatusAwaitingCritic)
 	}
 
 	var status, prURL string
@@ -1075,7 +1232,7 @@ func TestHandleWorkflowTaskCompletion_AutoSubmitsSinglePullRequestURL(t *testing
 		SELECT status, pull_request_url
 		FROM multica_workflow_node_deliverable_submission
 		WHERE workflow_node_run_id = $1 AND deliverable_id = $2
-	`, nodeRunID, deliverableID).Scan(&status, &prURL); err != nil {
+	`, nodeRunID, runtimeDeliverableID).Scan(&status, &prURL); err != nil {
 		t.Fatalf("read submission: %v", err)
 	}
 	if status != "submitted" || prURL != mrURL {
@@ -1130,7 +1287,7 @@ func TestHandleWorkflowTaskCompletion_CriticOutputFallsBackToReviewComment(t *te
 	if status != NodeRunStatusCompleted {
 		t.Fatalf("node run status = %q, want %q", status, NodeRunStatusCompleted)
 	}
-	if comment != "Looks good from the automated critic." {
+	if comment != "Approved: Looks good from the automated critic." {
 		t.Fatalf("critic_comment = %q", comment)
 	}
 }

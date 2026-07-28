@@ -52,10 +52,8 @@ func TestE2EAuthedCloneURL(t *testing.T) {
 		select nr.id
 		from multica_workflow_node_run nr
 		join multica_workflow_run rr on rr.id = nr.workflow_run_id
-		join multica_workflow w on w.id = rr.workflow_id
-		join multica_workflow_node n on n.id = nr.workflow_node_id
-		join multica_workflow_node_deliverable d on d.workflow_node_id = n.id
-		where w.workspace_id = $1 and d.kind = 'document'
+		join multica_workflow_node_run_deliverable d on d.workflow_node_run_id = nr.id
+		where rr.workspace_id = $1 and d.kind = 'document'
 		limit 1`, wsID).Scan(&nrID)
 	if err != nil {
 		t.Fatalf("find document-deliverable node-run in workspace %s: %v", wsID, err)

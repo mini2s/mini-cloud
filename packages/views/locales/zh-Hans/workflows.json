@@ -400,6 +400,7 @@
     "runtime_policy_specified": "人工指定优先",
     "runtime_policy_idle": "空闲运行时优先",
     "runtime_policy_issue_creator": "Issue 创建人运行时优先",
+    "historical_config_incomplete": "历史配置可能不完整",
     "cancel": "取消运行",
     "cancelling": "取消中...",
     "toast_cancelled": "运行已取消",
