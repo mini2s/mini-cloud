@@ -18,7 +18,7 @@ import (
 
 func TestSplitLifecycleEventsPayload(t *testing.T) {
 	bus := events.New()
-	orchestrator := NewSplitOrchestrator(nil, nil, nil, bus)
+	orchestrator := NewSplitOrchestrator(nil, nil, nil, nil, bus)
 	runID := pgtype.UUID{Bytes: [16]byte{1}, Valid: true}
 	nodeRunID := pgtype.UUID{Bytes: [16]byte{2}, Valid: true}
 	workspaceID := pgtype.UUID{Bytes: [16]byte{3}, Valid: true}
@@ -778,7 +778,7 @@ func TestSplitChatAppliedDraftMutation(t *testing.T) {
 
 func TestSplitChatRejectsWhenNotAwaitingReview(t *testing.T) {
 	ctx := context.Background()
-	orch := NewSplitOrchestrator(nil, nil, nil, nil)
+	orch := NewSplitOrchestrator(nil, nil, nil, nil, nil)
 
 	nonAwaitingStatuses := []string{
 		"splitting",
@@ -808,7 +808,7 @@ func TestSplitChatRejectsWhenNotAwaitingReview(t *testing.T) {
 
 func TestSplitChatRejectsEmptyMessage(t *testing.T) {
 	ctx := context.Background()
-	orch := NewSplitOrchestrator(nil, nil, nil, nil)
+	orch := NewSplitOrchestrator(nil, nil, nil, nil, nil)
 
 	nodeRun := db.MulticaWorkflowNodeRun{
 		Status: NodeRunStatusAwaitingSplitReview,

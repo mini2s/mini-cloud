@@ -467,7 +467,8 @@ func (h *Handler) PatchSplitTaskAssignee(w http.ResponseWriter, r *http.Request)
 		writeError(w, http.StatusInternalServerError, "failed to load split task")
 		return
 	}
-	if _, ok := h.requireSplitReviewer(w, r, nodeRun); !ok {
+	actorUserID, ok := h.requireSplitReviewer(w, r, nodeRun)
+	if !ok {
 		return
 	}
 	var req PatchSplitTaskAssigneeRequest
@@ -486,12 +487,16 @@ func (h *Handler) PatchSplitTaskAssignee(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	assigneeType := pgtype.Text{String: strings.TrimSpace(req.AssigneeType), Valid: true}
-	if status, message := h.validateAssigneePair(r.Context(), r, workspaceID, assigneeType, assigneeID); status != 0 {
-		if status >= http.StatusInternalServerError {
-			writeError(w, status, message)
+	err = h.IssueAssignmentService.ValidateAssignee(r.Context(), h.Queries, parseUUID(workspaceID),
+		service.AssignmentActor{Type: "member", ID: actorUserID},
+		service.AssigneeRef{Type: assigneeType.String, ID: assigneeID},
+	)
+	if err != nil {
+		if !errors.Is(err, service.ErrInvalidAssignee) && !errors.Is(err, service.ErrForbiddenAssignee) {
+			writeError(w, http.StatusInternalServerError, "failed to validate split task assignee")
 			return
 		}
-		writeSplitAPIError(w, service.NewSplitAPIError(service.SplitErrorUnprocessable, "invalid_split_task_assignee", errors.New(message)))
+		writeSplitAPIError(w, service.NewSplitAPIError(service.SplitErrorUnprocessable, "invalid_split_task_assignee", err))
 		return
 	}
 	if _, err := h.Queries.SetSplitTaskAssignee(r.Context(), db.SetSplitTaskAssigneeParams{
