@@ -97,6 +97,23 @@ func newDaemonTokenRequest(method, path string, body any, workspaceID, daemonID 
 	return req.WithContext(ctx)
 }
 
+func TestWorkflowCompletionFailureReason(t *testing.T) {
+	workflowTask := db.MulticaAgentTaskQueue{
+		WorkflowNodeRunID: pgtype.UUID{Valid: true},
+	}
+	regularTask := db.MulticaAgentTaskQueue{}
+
+	if got := workflowCompletionFailureReason(workflowTask, TaskCompleteRequest{Output: "   "}); got != "agent_empty_output" {
+		t.Fatalf("blank workflow output failure reason = %q, want agent_empty_output", got)
+	}
+	if got := workflowCompletionFailureReason(workflowTask, TaskCompleteRequest{Output: "done"}); got != "" {
+		t.Fatalf("non-empty workflow output failure reason = %q, want empty", got)
+	}
+	if got := workflowCompletionFailureReason(regularTask, TaskCompleteRequest{Output: "   "}); got != "" {
+		t.Fatalf("blank regular task output failure reason = %q, want empty", got)
+	}
+}
+
 func createClaimReclaimRuntime(t *testing.T, ctx context.Context, name string) string {
 	t.Helper()
 

@@ -1964,17 +1964,48 @@ type TaskCompleteRequest struct {
 	WorkDir   string `json:"work_dir"`   // working directory used during execution
 }
 
+func workflowCompletionFailureReason(task db.MulticaAgentTaskQueue, req TaskCompleteRequest) string {
+	if task.WorkflowNodeRunID.Valid && strings.TrimSpace(req.Output) == "" {
+		return "agent_empty_output"
+	}
+	return ""
+}
+
 func (h *Handler) CompleteTask(w http.ResponseWriter, r *http.Request) {
 	taskID := chi.URLParam(r, "taskId")
 
 	// Verify the caller owns this task's workspace.
-	if _, ok := h.requireDaemonTaskAccess(w, r, taskID); !ok {
+	currentTask, ok := h.requireDaemonTaskAccess(w, r, taskID)
+	if !ok {
 		return
 	}
 
 	var req TaskCompleteRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	if failureReason := workflowCompletionFailureReason(currentTask, req); failureReason != "" {
+		task, err := h.TaskService.FailTask(
+			r.Context(),
+			parseUUID(taskID),
+			"workflow task completed without output",
+			req.SessionID,
+			req.WorkDir,
+			failureReason,
+		)
+		if err != nil {
+			slog.Warn("fail empty-output workflow task", "task_id", taskID, "error", err)
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		slog.Warn("workflow task reported completion without output",
+			"task_id", taskID,
+			"agent_id", uuidToString(task.AgentID),
+			"failure_reason", failureReason,
+		)
+		writeJSON(w, http.StatusOK, taskToResponse(*task))
 		return
 	}
 

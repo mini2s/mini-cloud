@@ -164,6 +164,77 @@ func createWorkflowRerunFixture(t *testing.T, ctx context.Context, suffix string
 	return f
 }
 
+func TestCompleteTask_EmptyWorkflowOutputFailsTaskAndNodeRun(t *testing.T) {
+	if testHandler == nil || testPool == nil {
+		t.Skip("database not available")
+	}
+	ctx := context.Background()
+	f := createWorkflowRerunFixture(t, ctx, "empty-output")
+
+	taskContext, err := json.Marshal(map[string]any{
+		"type":             "workflow",
+		"workflow_id":      f.workflowID,
+		"workflow_run_id":  f.runID,
+		"workflow_node_id": f.nodeID,
+		"node_run_id":      f.nodeRunID,
+		"phase":            "worker",
+	})
+	if err != nil {
+		t.Fatalf("marshal task context: %v", err)
+	}
+
+	var taskID string
+	if err := testPool.QueryRow(ctx, `
+		INSERT INTO multica_agent_task_queue (
+			agent_id, runtime_id, issue_id, status, priority,
+			workflow_node_run_id, context, started_at, attempt, max_attempts
+		)
+		VALUES ($1, $2, $3, 'running', 0, $4, $5, now(), 1, 1)
+		RETURNING id
+	`, f.agentID, f.runtimeID, f.issueID, f.nodeRunID, taskContext).Scan(&taskID); err != nil {
+		t.Fatalf("create running workflow task: %v", err)
+	}
+
+	w := httptest.NewRecorder()
+	req := newDaemonTokenRequest(
+		http.MethodPost,
+		"/api/daemon/tasks/"+taskID+"/complete",
+		TaskCompleteRequest{Output: "   ", SessionID: "empty-session"},
+		testWorkspaceID,
+		"device-empty-output",
+	)
+	req = withURLParam(req, "taskId", taskID)
+	testHandler.CompleteTask(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("CompleteTask: expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var taskStatus, failureReason string
+	if err := testPool.QueryRow(ctx, `
+		SELECT status, COALESCE(failure_reason, '')
+		FROM multica_agent_task_queue
+		WHERE id = $1
+	`, taskID).Scan(&taskStatus, &failureReason); err != nil {
+		t.Fatalf("load completed task: %v", err)
+	}
+	if taskStatus != "failed" {
+		t.Fatalf("task status = %q, want failed", taskStatus)
+	}
+	if failureReason != "agent_empty_output" {
+		t.Fatalf("failure reason = %q, want agent_empty_output", failureReason)
+	}
+
+	var nodeRunStatus string
+	if err := testPool.QueryRow(ctx, `
+		SELECT status FROM multica_workflow_node_run WHERE id = $1
+	`, f.nodeRunID).Scan(&nodeRunStatus); err != nil {
+		t.Fatalf("load node run: %v", err)
+	}
+	if nodeRunStatus != "failed" {
+		t.Fatalf("node run status = %q, want failed", nodeRunStatus)
+	}
+}
+
 // TestRerunIssue_PreservesWorkflowContext verifies that manually rerunning a
 // workflow-bound task copies the workflow context (including phase) to the new
 // task. Without this, HandleWorkflowTaskCompletion cannot identify the task as

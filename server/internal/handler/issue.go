@@ -3366,6 +3366,26 @@ func (h *Handler) createWorkflowSubIssue(
 	})
 }
 
+// publishIssueStatusChanged broadcasts an issue:updated event for a status
+// change that happened outside the UpdateIssue HTTP handler (workflow
+// node-run sync, run-terminal auto-complete, split cancellation). Inbox
+// notifications, the activity log, and frontend cache invalidation all hang
+// off this event, so updating the status without publishing it silently
+// drops all three.
+func (h *Handler) publishIssueStatusChanged(ctx context.Context, prev, issue db.MulticaIssue) {
+	if prev.Status == issue.Status {
+		return
+	}
+	prefix := h.getIssuePrefix(ctx, issue.WorkspaceID)
+	h.publish(protocol.EventIssueUpdated, uuidToString(issue.WorkspaceID), "system", "", map[string]any{
+		"issue":          issueToResponse(issue, prefix),
+		"status_changed": true,
+		"prev_status":    prev.Status,
+		"creator_type":   issue.CreatorType,
+		"creator_id":     uuidToString(issue.CreatorID),
+	})
+}
+
 // syncSubIssueForNodeRun maps a node run status to the corresponding sub-issue
 // status and updates it in the database.
 func (h *Handler) syncSubIssueForNodeRun(ctx context.Context, nodeRun db.MulticaWorkflowNodeRun) {
@@ -3389,19 +3409,28 @@ func (h *Handler) syncSubIssueForNodeRun(ctx context.Context, nodeRun db.Multica
 	if status == "" || status == issue.Status {
 		return
 	}
+	// Never regress a completed issue: a done sub-issue stays done even when
+	// the run is cancelled afterwards. CancelRun relies on this guard — it
+	// no longer updates the sub-issue status itself.
+	if issue.Status == "done" {
+		return
+	}
 
-	_, err = h.Queries.UpdateIssueStatus(ctx, db.UpdateIssueStatusParams{
+	updated, err := h.Queries.UpdateIssueStatus(ctx, db.UpdateIssueStatusParams{
 		ID:          issue.ID,
 		Status:      status,
 		WorkspaceID: issue.WorkspaceID,
 	})
 	if err != nil {
 		slog.Warn("syncSubIssueForNodeRun: failed to update sub-issue status", "issue_id", uuidToString(issue.ID), "error", err)
+		return
 	}
 
-	// When node completes, inject current node's output into downstream
-	// sub-issue descriptions so the next agents can see what was produced.
+	h.publishIssueStatusChanged(ctx, issue, updated)
 	if status == "done" {
+		h.notifyParentOfChildDone(ctx, issue, updated)
+		// Inject current node's output into downstream sub-issue descriptions
+		// so the next agents can see what was produced.
 		h.injectDownstreamContext(ctx, run, nodeRun)
 	}
 }
@@ -3508,25 +3537,34 @@ func (h *Handler) handleWorkflowRunTerminal(ctx context.Context, run db.MulticaW
 			return
 		}
 
-		_, directErr = h.Queries.UpdateIssueStatus(ctx, db.UpdateIssueStatusParams{
+		updated, directErr := h.Queries.UpdateIssueStatus(ctx, db.UpdateIssueStatusParams{
 			ID:          directIssue.ID,
 			Status:      "done",
 			WorkspaceID: directIssue.WorkspaceID,
 		})
 		if directErr != nil {
 			slog.Warn("handleWorkflowRunTerminal: failed to complete direct issue", "issue_id", uuidToString(directIssue.ID), "error", directErr)
+			return
 		}
+		h.publishIssueStatusChanged(ctx, directIssue, updated)
 		return
 	}
 	if err == nil && subIssue.ParentIssueID.Valid {
-		_, err = h.Queries.UpdateIssueStatus(ctx, db.UpdateIssueStatusParams{
+		parent, parentErr := h.Queries.GetIssue(ctx, subIssue.ParentIssueID)
+		if parentErr != nil {
+			slog.Warn("handleWorkflowRunTerminal: failed to load parent issue", "parent_issue_id", uuidToString(subIssue.ParentIssueID), "error", parentErr)
+			return
+		}
+		updated, err := h.Queries.UpdateIssueStatus(ctx, db.UpdateIssueStatusParams{
 			ID:          subIssue.ParentIssueID,
 			Status:      "done",
 			WorkspaceID: run.WorkspaceID,
 		})
 		if err != nil {
 			slog.Warn("handleWorkflowRunTerminal: failed to complete parent issue", "parent_issue_id", uuidToString(subIssue.ParentIssueID), "error", err)
+			return
 		}
+		h.publishIssueStatusChanged(ctx, parent, updated)
 		return
 	}
 	// For failed/cancelled, leave the parent issue in its current status —

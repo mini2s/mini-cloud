@@ -144,6 +144,8 @@ function runtimeDisplayStatusText(
       return t(($) => $.execution.display_status.reviewing);
     case "completed":
       return t(($) => $.execution.display_status.completed);
+    case "failed":
+      return t(($) => $.execution.display_status.failed);
     case "blocked":
       return t(($) => $.execution.display_status.blocked);
     case "cancelled":
@@ -178,7 +180,9 @@ export function ExecutionDetailPanel({
   const queryClient = useQueryClient();
   const nodeFormat = parseNodeFormat(node.format_schema);
   const isGateway = nodeFormat.kind === "gateway";
-  const displayStatus = runtimeSummary?.display_status ?? (nodeRun ? toWorkflowRuntimeDisplayStatus(nodeRun.status) : "pending");
+  const displayStatus = nodeRun?.status === "failed"
+    ? "failed"
+    : runtimeSummary?.display_status ?? (nodeRun ? toWorkflowRuntimeDisplayStatus(nodeRun.status) : "pending");
   const displayStatusLabel = runtimeDisplayStatusText(t, displayStatus, isGateway ? nodeFormat.gateway_kind : null);
   const GatewayIcon = nodeFormat.gateway_kind === "join" ? GitMerge : GitFork;
   const setChatSession = useChatStore((s) => s.setActiveSession);
@@ -215,6 +219,7 @@ export function ExecutionDetailPanel({
 
   const errorMessage = useMemo(() => {
     if (!nodeRun || (status !== "failed" && status !== "blocked" && status !== "format_failed")) return null;
+    if (runtimeSummary?.error_message.trim()) return runtimeSummary.error_message;
     const wo = nodeRun.worker_output as Record<string, unknown> | null;
     const co = nodeRun.critic_output as Record<string, unknown> | null;
     if (wo && typeof wo.error === "string") return wo.error;
@@ -222,7 +227,7 @@ export function ExecutionDetailPanel({
     if (co && typeof co.error === "string") return co.error;
     if (co && typeof co.message === "string") return co.message;
     return null;
-  }, [nodeRun, status]);
+  }, [nodeRun, runtimeSummary?.error_message, status]);
 
   const sessionId = nodeRun?.session_id ?? runtimeSummary?.session_id ?? null;
   const transcriptTaskId =

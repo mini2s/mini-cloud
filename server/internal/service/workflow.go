@@ -634,7 +634,12 @@ func (s *WorkflowService) CancelRun(ctx context.Context, runID pgtype.UUID) erro
 				}
 				cancelledNodeRuns = append(cancelledNodeRuns, updated)
 			}
-			// Cancel the sub-issue created for this node run.
+			// Cancel any active agent tasks for this node run's sub-issue.
+			// The sub-issue STATUS is not updated here: the
+			// OnNodeStatusChanged callback (handler.syncSubIssueForNodeRun)
+			// syncs it after commit and broadcasts issue:updated — writing
+			// the status inside this tx would preempt that path and silence
+			// inbox notifications, activity log, and frontend refresh.
 			subIssue, err := qtx.GetIssueByOrigin(ctx, db.GetIssueByOriginParams{
 				WorkspaceID: run.WorkspaceID,
 				OriginType:  pgtype.Text{String: "workflow", Valid: true},
@@ -643,18 +648,8 @@ func (s *WorkflowService) CancelRun(ctx context.Context, runID pgtype.UUID) erro
 			if err != nil {
 				continue // sub-issue may not exist yet; not an error
 			}
-			if subIssue.Status != "cancelled" && subIssue.Status != "done" {
-				if _, err := qtx.UpdateIssueStatus(ctx, db.UpdateIssueStatusParams{
-					ID:          subIssue.ID,
-					Status:      "cancelled",
-					WorkspaceID: run.WorkspaceID,
-				}); err != nil {
-					return fmt.Errorf("cancel sub-issue %s: %w", util.UUIDToString(subIssue.ID), err)
-				}
-				// Cancel any active agent tasks for this sub-issue.
-				if _, err := qtx.CancelAgentTasksByIssue(ctx, subIssue.ID); err != nil {
-					slog.Warn("failed to cancel agent tasks for sub-issue", "issue_id", util.UUIDToString(subIssue.ID), "error", err)
-				}
+			if _, err := qtx.CancelAgentTasksByIssue(ctx, subIssue.ID); err != nil {
+				slog.Warn("failed to cancel agent tasks for sub-issue", "issue_id", util.UUIDToString(subIssue.ID), "error", err)
 			}
 		}
 		if err := qtx.CancelWorkflowRoleResolutionJobs(ctx, runID); err != nil {
@@ -1623,35 +1618,9 @@ func (s *WorkflowService) HandleWorkflowTaskCompletion(ctx context.Context, task
 		}
 	case "critic":
 		if nodeRun.Status == NodeRunStatusCriticReviewing {
-			// Parse the agent's output for approve/rework decision.
-			var output struct {
-				Approved *bool  `json:"approved"`
-				Comment  string `json:"comment"`
-				Output   string `json:"output"`
-			}
-			if len(task.Result) > 0 {
-				if err := json.Unmarshal(task.Result, &output); err != nil {
-					t := true
-					output.Approved = &t
-				}
-			} else {
-				t := true
-				output.Approved = &t
-			}
-			approved := true
-			if output.Approved != nil {
-				approved = *output.Approved
-			} else if output.Output != "" {
-				// Agent didn't include approved field — infer from output text.
-				approved = !strings.Contains(strings.ToLower(output.Output), "不通过") &&
-					!strings.Contains(strings.ToLower(output.Output), "reject")
-			}
-			comment := strings.TrimSpace(output.Comment)
-			if comment == "" {
-				comment = strings.TrimSpace(output.Output)
-			}
-			if comment == "" && len(task.Result) > 0 {
-				comment = strings.TrimSpace(string(task.Result))
+			approved, comment, err := parseAgentCriticDecision(task.Result)
+			if err != nil {
+				return err
 			}
 			comment = normalizeAgentCriticComment(approved, comment)
 			return s.ReviewNodeRun(ctx, nodeRun.ID, approved, comment, task.Result)
@@ -1659,6 +1628,52 @@ func (s *WorkflowService) HandleWorkflowTaskCompletion(ctx context.Context, task
 	}
 
 	return nil
+}
+
+type agentCriticDecision struct {
+	Approved *bool  `json:"approved"`
+	Comment  string `json:"comment"`
+	Output   string `json:"output"`
+}
+
+func parseAgentCriticDecision(result json.RawMessage) (bool, string, error) {
+	if strings.TrimSpace(string(result)) == "" {
+		return false, "", fmt.Errorf("critic task completed without output")
+	}
+
+	var output agentCriticDecision
+	if err := json.Unmarshal(result, &output); err != nil {
+		return false, "", fmt.Errorf("parse critic output: %w", err)
+	}
+
+	if output.Approved == nil && strings.TrimSpace(output.Output) != "" {
+		var nested agentCriticDecision
+		if json.Unmarshal([]byte(strings.TrimSpace(output.Output)), &nested) == nil &&
+			(nested.Approved != nil || strings.TrimSpace(nested.Comment) != "") {
+			output.Approved = nested.Approved
+			if strings.TrimSpace(nested.Comment) != "" {
+				output.Comment = nested.Comment
+			}
+		}
+	}
+
+	comment := strings.TrimSpace(output.Comment)
+	if comment == "" {
+		comment = strings.TrimSpace(output.Output)
+	}
+	if output.Approved == nil && comment == "" {
+		return false, "", fmt.Errorf("critic task completed without a decision")
+	}
+
+	approved := true
+	if output.Approved != nil {
+		approved = *output.Approved
+	} else {
+		lower := strings.ToLower(comment)
+		approved = !strings.Contains(lower, "不通过") &&
+			!strings.Contains(lower, "reject")
+	}
+	return approved, comment, nil
 }
 
 func normalizeAgentCriticComment(approved bool, comment string) string {

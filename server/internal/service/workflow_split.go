@@ -135,6 +135,20 @@ type SplitOrchestrator struct {
 	WfService         *WorkflowService
 	Bus               *events.Bus
 	AttachmentStorage splitAttachmentStorage
+
+	// OnChildIssueStatusChanged fires after a split child issue's status is
+	// changed by the orchestrator (currently: cancellation via
+	// CancelSplitNode), so the handler layer can broadcast issue:updated —
+	// inbox notifications, the activity log, and frontend cache invalidation
+	// all hang off that event.
+	OnChildIssueStatusChanged func(ctx context.Context, prev, issue db.MulticaIssue)
+}
+
+// splitIssueStatusChange records one child-issue status transition performed
+// inside CancelSplitNode's per-task transactions, for post-commit broadcast.
+type splitIssueStatusChange struct {
+	prev  db.MulticaIssue
+	issue db.MulticaIssue
 }
 
 type SplitLifecycleEventPayload struct {
@@ -1914,6 +1928,7 @@ func (s *SplitOrchestrator) CancelSplitNode(
 		return nil, fmt.Errorf("list split tasks: %w", err)
 	}
 
+	cancelledIssues := make([]splitIssueStatusChange, 0, len(tasks))
 	for _, task := range tasks {
 		if err := s.runInTx(ctx, func(qtx *db.Queries) error {
 			if err := qtx.LockIssueDuplicateKey(ctx, splitTaskDispatchLockKey(task.ID)); err != nil {
@@ -1943,13 +1958,15 @@ func (s *SplitOrchestrator) CancelSplitNode(
 					return fmt.Errorf("get child issue: %w", err)
 				}
 				if issue.Status != "cancelled" && issue.Status != "done" {
-					if _, err := qtx.UpdateIssueStatus(ctx, db.UpdateIssueStatusParams{
+					updated, err := qtx.UpdateIssueStatus(ctx, db.UpdateIssueStatusParams{
 						ID:          currentTask.IssueID,
 						Status:      "cancelled",
 						WorkspaceID: workspaceID,
-					}); err != nil {
+					})
+					if err != nil {
 						return fmt.Errorf("cancel child issue: %w", err)
 					}
+					cancelledIssues = append(cancelledIssues, splitIssueStatusChange{prev: issue, issue: updated})
 				}
 			}
 			if _, err := qtx.CancelOpenSplitTask(ctx, currentTask.ID); err != nil {
@@ -1958,6 +1975,13 @@ func (s *SplitOrchestrator) CancelSplitNode(
 			return nil
 		}); err != nil {
 			return nil, err
+		}
+	}
+
+	// Broadcast after commit so listeners never read uncommitted state.
+	if s.OnChildIssueStatusChanged != nil {
+		for _, change := range cancelledIssues {
+			s.OnChildIssueStatusChanged(ctx, change.prev, change.issue)
 		}
 	}
 

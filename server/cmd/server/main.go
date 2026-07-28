@@ -20,6 +20,7 @@ import (
 	"github.com/multica-ai/multica/server/internal/events"
 	"github.com/multica-ai/multica/server/internal/gitea"
 	"github.com/multica-ai/multica/server/internal/handler"
+	"github.com/multica-ai/multica/server/internal/integration"
 	"github.com/multica-ai/multica/server/internal/logger"
 	obsmetrics "github.com/multica-ai/multica/server/internal/metrics"
 	"github.com/multica-ai/multica/server/internal/middleware"
@@ -272,6 +273,21 @@ func main() {
 	registerSubscriberListeners(bus, queries)
 	registerActivityListeners(bus, queries)
 	registerNotificationListeners(bus, queries)
+
+	// Optional outbound bridge to costrict-web (WeCom/webhook channels).
+	// Disabled unless both env vars are set; delivery runs in background
+	// workers and never blocks the event bus.
+	if endpoint := strings.TrimSpace(os.Getenv("MULTICA_INTEGRATION_ENDPOINT")); endpoint != "" {
+		if secret := os.Getenv("MULTICA_INTEGRATION_SECRET"); secret != "" {
+			notifier := integration.NewNotifier(endpoint, secret)
+			notifier.Run(ctx)
+			appURL := strings.TrimRight(strings.TrimSpace(os.Getenv("MULTICA_APP_URL")), "/")
+			registerIntegrationListener(bus, queries, notifier, appURL)
+			slog.Info("costrict-web integration bridge enabled", "endpoint", endpoint)
+		} else {
+			slog.Warn("MULTICA_INTEGRATION_ENDPOINT set but MULTICA_INTEGRATION_SECRET missing — integration bridge disabled")
+		}
+	}
 
 	metricsConfig := obsmetrics.ConfigFromEnv()
 	var metricsServer *http.Server
