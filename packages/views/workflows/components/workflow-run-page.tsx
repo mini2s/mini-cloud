@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { AlertTriangle, LoaderCircle, MailWarning, RefreshCw, UserRoundCog } from "lucide-react";
+import { AlertTriangle, ArrowRight, CircleUserRound, LoaderCircle, MailWarning, RefreshCw, UserRoundCog } from "lucide-react";
 import { toast } from "sonner";
 import { ApiError } from "@multica/core/api";
 import { useWorkspaceId } from "@multica/core/hooks";
@@ -279,28 +279,66 @@ export function WorkflowRunPage({ workflowId, runId }: WorkflowRunPageProps) {
               {resolutions.map((resolution) => {
                 const editable = showAssignmentControls && (run.status === "waiting_role_assignment" || resolution.status !== "resolved");
                 const notificationFailed = resolution.notification_status === "failed" || resolution.notification_status === "skipped_no_email";
+                const roleName = formatRoleName(t, resolution.role_name);
+                const resolvedMemberName = resolution.resolved_user_id
+                  ? memberNameById.get(resolution.resolved_user_id) ?? resolution.resolved_user_id
+                  : null;
+                const sourceLabel = resolution.source === "llm"
+                  ? t(($) => $.run.roles.mapping_source_llm)
+                  : resolution.source === "manual"
+                    ? t(($) => $.run.roles.mapping_source_manual)
+                    : null;
                 return (
                   <article key={resolution.id} className="space-y-2 rounded-lg border p-3">
                     <div className="flex items-start justify-between gap-2">
-                      <div className="min-w-0">
-                        <p className="truncate text-xs text-muted-foreground">{nodeRunTitleById.get(resolution.workflow_node_run_id) ?? t(($) => $.run.roles.unknown_node)}</p>
-                        <p className="text-sm font-medium">{formatRoleName(t, resolution.role_name)} → {resolution.slot_type === "worker" ? t(($) => $.run.roles.worker) : t(($) => $.run.roles.critic)}</p>
+                      <p className="min-w-0 truncate text-xs text-muted-foreground">
+                        {nodeRunTitleById.get(resolution.workflow_node_run_id) ?? t(($) => $.run.roles.unknown_node)}
+                      </p>
+                      <div className="flex shrink-0 items-center gap-1">
+                        <Badge variant="outline" className="text-[10px]">
+                          {resolution.slot_type === "worker" ? t(($) => $.run.roles.worker) : t(($) => $.run.roles.critic)}
+                        </Badge>
+                        <Badge variant="secondary" className="text-[10px]">
+                          {t(($) => ($.run.roles.status as Record<string, string>)[resolution.status] ?? resolution.status)}
+                        </Badge>
                       </div>
-                      <Badge variant="secondary" className="shrink-0 text-[10px]">{t(($) => ($.run.roles.status as Record<string, string>)[resolution.status] ?? resolution.status)}</Badge>
                     </div>
-                    <p className="text-xs text-muted-foreground">{formatRoleDescription(t, resolution.role_name, resolution.role_description)}</p>
-                    {editable ? (
-                      <select
-                        className="flex h-8 w-full rounded-md border border-input bg-background px-2 text-sm"
-                        value={selections[resolution.id] ?? ""}
-                        onChange={(event) => setSelections((current) => ({ ...current, [resolution.id]: event.target.value }))}
-                      >
-                        <option value="">{t(($) => $.run.roles.select_member)}</option>
-                        {activeMembers.map((member) => <option key={member.user_id} value={member.user_id}>{member.name}</option>)}
-                      </select>
-                    ) : resolution.resolved_user_id ? (
-                      <p className="text-sm">{t(($) => $.run.roles.assigned_to, { name: memberNameById.get(resolution.resolved_user_id) ?? resolution.resolved_user_id })}</p>
+                    <div
+                      data-testid={`role-mapping-${resolution.id}`}
+                      className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1.25fr)] items-center gap-2 rounded-md border bg-muted/25 p-2"
+                    >
+                      <span className="flex min-w-0 items-center gap-1.5">
+                        <span className="flex size-6 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary">
+                          <UserRoundCog className="size-3.5" />
+                        </span>
+                        <span className="min-w-0 truncate text-xs font-semibold" title={roleName}>{roleName}</span>
+                      </span>
+                      <ArrowRight className="size-3.5 shrink-0 text-primary" />
+                      {editable ? (
+                        <select
+                          aria-label={t(($) => $.run.roles.select_member_for_role, { role: roleName })}
+                          className="flex h-8 min-w-0 rounded-md border border-input bg-background px-2 text-xs"
+                          value={selections[resolution.id] ?? ""}
+                          onChange={(event) => setSelections((current) => ({ ...current, [resolution.id]: event.target.value }))}
+                        >
+                          <option value="">{t(($) => $.run.roles.select_member)}</option>
+                          {activeMembers.map((member) => <option key={member.user_id} value={member.user_id}>{member.name}</option>)}
+                        </select>
+                      ) : resolvedMemberName ? (
+                        <span className="flex min-w-0 items-center gap-1.5">
+                          <CircleUserRound className="size-4 shrink-0 text-foreground/70" />
+                          <span className="min-w-0 truncate text-xs font-semibold" title={resolvedMemberName}>{resolvedMemberName}</span>
+                        </span>
+                      ) : (
+                        <span className="truncate text-xs text-muted-foreground">{t(($) => $.run.roles.mapping_pending)}</span>
+                      )}
+                    </div>
+                    {sourceLabel ? (
+                      <div className="flex justify-end">
+                        <Badge variant="outline" className="text-[10px] text-primary">{sourceLabel}</Badge>
+                      </div>
                     ) : null}
+                    <p className="text-xs text-muted-foreground">{formatRoleDescription(t, resolution.role_name, resolution.role_description)}</p>
                     {resolution.reason_code ? <p className="text-[11px] text-muted-foreground">{t(($) => $.run.roles.reason, { code: resolution.reason_code })}{resolution.reason_detail ? " · " + resolution.reason_detail : ""}</p> : null}
                     {notificationFailed ? (
                       <p className="flex items-center gap-1 text-[11px] text-amber-700 dark:text-amber-300"><MailWarning className="size-3" />{t(($) => $.run.roles.notification_failed)}</p>

@@ -59,7 +59,9 @@ vi.mock("../../i18n", () => {
         invalidated: "A member is no longer active", title: "Role assignments", retry: "Retry",
         retry_started: "Retry started", retry_failed: "Retry failed", unknown_node: "Unknown node",
         worker: "Worker", critic: "Critic", status: { pending: "Pending", resolved: "Resolved", needs_human: "Needs human", invalidated: "Invalidated" },
-        select_member: "Select member", assigned_to: "Assigned", reason: "Reason",
+        select_member: "Select member", select_member_for_role: "Select member for role",
+        mapping_pending: "Waiting for member", mapping_source_llm: "Automatically mapped",
+        mapping_source_manual: "Manually assigned", assigned_to: "Assigned", reason: "Reason",
         notification_failed: "Notification failed", assigning: "Assigning",
         assign_continue: "Confirm assignment", assignment_saved: "Assignment saved",
         assignment_conflict: "Assignment conflict", assignment_failed: "Assignment failed",
@@ -167,5 +169,24 @@ describe("WorkflowRunPage role assignment", () => {
     render(<WorkflowRunPage workflowId="workflow-1" runId="run-1" />);
     expect(screen.getByText(/Code Reviewer/)).toBeInTheDocument();
     expect(screen.getByText(/Reviews PRs/)).toBeInTheDocument();
+  });
+
+  it("shows the resolved role-to-member relationship and mapping source", () => {
+    mocks.run = { ...mocks.run, status: "running" };
+    mocks.resolutions = [{
+      ...unresolvedResolution,
+      role_name: "developer",
+      role_description: "developer",
+      status: "resolved",
+      resolved_user_id: "worker-1",
+      source: "llm",
+    }];
+
+    render(<WorkflowRunPage workflowId="workflow-1" runId="run-1" />);
+
+    const mapping = screen.getByTestId("role-mapping-resolution-1");
+    expect(mapping).toHaveTextContent("研发");
+    expect(mapping).toHaveTextContent("Active worker");
+    expect(screen.getByText("Automatically mapped")).toBeInTheDocument();
   });
 });

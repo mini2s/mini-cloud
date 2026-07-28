@@ -842,7 +842,7 @@ export function NodeConfigPanel({
                           }}
                         >
                           <option value="">{t(($) => $.detail_panel.select_role)}</option>
-                          {roles.map((role) => <option key={role.id} value={role.id}>{role.name}</option>)}
+                          {roles.map((role) => <option key={role.id} value={role.id}>{renderRoleName(role)}</option>)}
                         </select>
                       </div>
                     ) : (

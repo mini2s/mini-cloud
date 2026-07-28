@@ -13,6 +13,7 @@ type TestIdentity = {
   avatarUrl?: string | null;
   availability?: "online" | "offline" | "unstable" | null;
   availabilityLabel?: string;
+  sourceRoleName?: string;
 };
 
 function renderSlot(identity: TestIdentity | null, fallback = "未配置") {
@@ -120,6 +121,23 @@ describe("WorkflowActorSlot", () => {
     expect(screen.getByText("HZ")).toBeInTheDocument();
     expect(screen.getByText("成员")).toBeInTheDocument();
     expect(document.querySelector("[data-workflow-actor-presence]")).not.toBeInTheDocument();
+  });
+
+  it("keeps the source role visible after it resolves to a member", () => {
+    renderSlot({
+      type: "member",
+      id: "member-1",
+      name: "黄舟",
+      typeLabel: "成员",
+      initials: "HZ",
+      sourceRoleName: "研发",
+    });
+
+    const slot = screen.getByText("黄舟").closest('[data-workflow-actor-slot="worker"]');
+    expect(slot).toHaveAttribute("data-workflow-actor-source-role", "研发");
+    expect(slot).toHaveTextContent("研发");
+    expect(slot).toHaveTextContent("成员");
+    expect(slot?.querySelector('[title="研发 → 成员"]')).toBeInTheDocument();
   });
 
   it("keeps squad identity square and omits availability", () => {
