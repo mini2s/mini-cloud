@@ -194,6 +194,11 @@ func New(queries *db.Queries, txStarter txStarter, hub *realtime.Hub, bus *event
 	// the node run so the workflow can reach a terminal state.
 	taskSvc.OnTaskFailed = func(ctx context.Context, task db.MulticaAgentTaskQueue) {
 		_ = workflowSvc.HandleWorkflowTaskFailure(ctx, task)
+		if task.IssueID.Valid {
+			if err := splitOrchestrator.HandleChildExecutionFailed(ctx, task.IssueID, errors.New("agent task failed without retry")); err != nil {
+				slog.Warn("split child task-failure hook failed", "issue_id", uuidToString(task.IssueID), "error", err)
+			}
+		}
 	}
 
 	h := &Handler{
@@ -276,6 +281,17 @@ func New(queries *db.Queries, txStarter txStarter, hub *realtime.Hub, bus *event
 		if h.SplitOrchestrator != nil {
 			if err := h.SplitOrchestrator.HandleChildRunTerminal(ctx, run, status); err != nil {
 				slog.Warn("split orchestrator run-terminal hook failed", "run_id", uuidToString(run.ID), "error", err)
+			}
+		}
+		if status == service.RunStatusFailed {
+			issue, err := h.Queries.GetDirectIssueByWorkflowRun(ctx, db.GetDirectIssueByWorkflowRunParams{
+				WorkflowRunID: run.ID,
+				WorkspaceID:   run.WorkspaceID,
+			})
+			if err == nil {
+				if err := h.SplitOrchestrator.HandleChildExecutionFailed(ctx, issue.ID, errors.New("assigned workflow run failed")); err != nil {
+					slog.Warn("split child workflow-failure hook failed", "issue_id", uuidToString(issue.ID), "error", err)
+				}
 			}
 		}
 	}

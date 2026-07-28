@@ -228,10 +228,12 @@ func (s *SplitOrchestrator) runInTx(ctx context.Context, fn func(*db.Queries) er
 }
 
 type splitTaskPlan struct {
-	ID        string
-	DependsOn []string
-	SortOrder int
-	Status    string
+	ID            string
+	DependsOn     []string
+	SortOrder     int
+	Status        string
+	IssueAssigned bool
+	IssueTerminal bool
 }
 
 type splitNodeFormat struct {
@@ -346,14 +348,14 @@ func readySplitTaskIDs(tasks []splitTaskPlan, maxConcurrency int) ([]string, err
 	}
 
 	byID := make(map[string]splitTaskPlan, len(tasks))
-	running := 0
+	activeAssignments := 0
 	for _, task := range tasks {
 		byID[task.ID] = task
-		if task.Status == SplitTaskStatusRunning {
-			running++
+		if task.IssueAssigned && !task.IssueTerminal {
+			activeAssignments++
 		}
 	}
-	remainingSlots := maxConcurrency - running
+	remainingSlots := maxConcurrency - activeAssignments
 	if remainingSlots <= 0 {
 		return []string{}, nil
 	}
@@ -434,9 +436,9 @@ func resolveSplitStatus(mode string, maxFailures int, tasks []splitTaskPlan) str
 		failures := 0
 		for _, task := range tasks {
 			switch task.Status {
-			case SplitTaskStatusFailed, SplitTaskStatusCancelled:
+			case SplitTaskStatusFailed, SplitTaskStatusCancelled, SplitTaskStatusSkipped:
 				failures++
-			case SplitTaskStatusDone, SplitTaskStatusSkipped, SplitTaskStatusDiscarded:
+			case SplitTaskStatusDone, SplitTaskStatusDiscarded:
 				continue
 			default:
 				return NodeRunStatusSplitActive
@@ -1429,101 +1431,6 @@ func (s *SplitOrchestrator) PatchSplitConfig(ctx context.Context, nodeRun db.Mul
 	return nil
 }
 
-func (s *SplitOrchestrator) RetrySplitTask(ctx context.Context, nodeRun db.MulticaWorkflowNodeRun, taskID pgtype.UUID, workflowIDValue *string) error {
-	currentNodeRun, err := s.Queries.GetWorkflowNodeRun(ctx, nodeRun.ID)
-	if err != nil {
-		return fmt.Errorf("get split node run: %w", err)
-	}
-	if currentNodeRun.Status != NodeRunStatusSplitActive {
-		return NewSplitAPIError(SplitErrorBadRequest, "invalid_split_request", errors.New("split task retry requires split_active state"))
-	}
-	run, err := s.Queries.GetWorkflowRun(ctx, currentNodeRun.WorkflowRunID)
-	if err != nil {
-		return fmt.Errorf("get workflow run: %w", err)
-	}
-
-	var nextWorkflowID pgtype.UUID
-	if workflowIDValue != nil && strings.TrimSpace(*workflowIDValue) != "" {
-		if err := s.validateIssueWorkflow(ctx, s.Queries, strings.TrimSpace(*workflowIDValue), run.WorkflowID, run.WorkspaceID); err != nil {
-			return err
-		}
-		nextWorkflowID, err = util.ParseUUID(strings.TrimSpace(*workflowIDValue))
-		if err != nil {
-			return fmt.Errorf("invalid workflow_id: %w", err)
-		}
-	}
-
-	task, err := s.Queries.GetSplitTask(ctx, taskID)
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return NewSplitAPIError(SplitErrorBadRequest, "invalid_split_request", errors.New("split task not found"))
-		}
-		return fmt.Errorf("get split task for retry: %w", err)
-	}
-	if task.NodeRunID != currentNodeRun.ID {
-		return NewSplitAPIError(SplitErrorBadRequest, "invalid_split_request", errors.New("split task does not belong to this node run"))
-	}
-	var previousRunID pgtype.UUID
-	if task.RunID.Valid {
-		run, err := s.Queries.GetWorkflowRun(ctx, task.RunID)
-		if err != nil {
-			return fmt.Errorf("get previous child run: %w", err)
-		}
-		if run.Status == RunStatusRunning {
-			previousRunID = task.RunID
-		}
-	}
-
-	if err := s.WfService.runInTx(ctx, func(qtx *db.Queries) error {
-		reset, err := qtx.ResetSplitTaskForRetry(ctx, db.ResetSplitTaskForRetryParams{
-			ID:         taskID,
-			NodeRunID:  currentNodeRun.ID,
-			WorkflowID: nextWorkflowID,
-		})
-		if err != nil {
-			if errors.Is(err, pgx.ErrNoRows) {
-				return NewSplitAPIError(SplitErrorBadRequest, "invalid_split_request", errors.New("split task cannot be retried from current state"))
-			}
-			return fmt.Errorf("reset split task for retry: %w", err)
-		}
-		if !reset.IssueID.Valid {
-			return nil
-		}
-		issue, err := qtx.GetIssue(ctx, reset.IssueID)
-		if err != nil {
-			return fmt.Errorf("get retry child issue: %w", err)
-		}
-		if _, err := qtx.UpdateIssue(ctx, db.UpdateIssueParams{
-			ID:            issue.ID,
-			Title:         textToPgText(issue.Title),
-			Description:   issue.Description,
-			Status:        pgtype.Text{String: "todo", Valid: true},
-			Priority:      pgtype.Text{String: issue.Priority, Valid: true},
-			AssigneeType:  pgtype.Text{String: "workflow", Valid: true},
-			AssigneeID:    reset.WorkflowID,
-			Position:      pgtype.Float8{Float64: issue.Position, Valid: true},
-			StartDate:     issue.StartDate,
-			DueDate:       issue.DueDate,
-			ParentIssueID: issue.ParentIssueID,
-			ProjectID:     issue.ProjectID,
-			WorkflowID:    reset.WorkflowID,
-			WorkflowRunID: pgtype.UUID{},
-			StageID:       issue.StageID,
-		}); err != nil {
-			return fmt.Errorf("update retry child issue: %w", err)
-		}
-		return nil
-	}); err != nil {
-		return err
-	}
-	if previousRunID.Valid {
-		if err := s.WfService.CancelRun(ctx, previousRunID); err != nil {
-			return fmt.Errorf("cancel previous child run: %w", err)
-		}
-	}
-	return s.ScheduleReadyTasks(ctx, currentNodeRun.ID)
-}
-
 func validateSplitDraftDeletionTarget(nodeRunID pgtype.UUID, task db.MulticaWorkflowSplitTask) error {
 	if task.NodeRunID != nodeRunID {
 		return fmt.Errorf("split draft task does not belong to this node run")
@@ -1785,6 +1692,7 @@ func (s *SplitOrchestrator) ApproveSplit(ctx context.Context, nodeRun db.Multica
 		issueID     string
 	}
 	createdChildren := make([]materializedChild, 0, len(req.ApprovedTaskIDs))
+	assignedChildren := make([]splitIssueStatusChange, 0, len(req.ApprovedTaskIDs))
 	approvedIDs := make(map[string]struct{}, len(req.ApprovedTaskIDs))
 	approvedUUIDs := make([]pgtype.UUID, 0, len(req.ApprovedTaskIDs))
 	for _, id := range req.ApprovedTaskIDs {
@@ -1801,7 +1709,7 @@ func (s *SplitOrchestrator) ApproveSplit(ctx context.Context, nodeRun db.Multica
 		return NewSplitAPIError(SplitErrorBadRequest, "invalid_split_request", errors.New("split modifications must be submitted through /split/chat"))
 	}
 
-	_, _, err := splitRunNodeConfig(ctx, s.Queries, nodeRun)
+	_, splitCfg, err := splitRunNodeConfig(ctx, s.Queries, nodeRun)
 	if err != nil {
 		return err
 	}
@@ -1872,16 +1780,23 @@ func (s *SplitOrchestrator) ApproveSplit(ctx context.Context, nodeRun db.Multica
 		if err := validateSplitTaskGraph(plans); err != nil {
 			return NewSplitAPIError(SplitErrorUnprocessable, "invalid_split_task_dependency", err)
 		}
+		if s.Assignments == nil {
+			return errors.New("split issue assignment service is not configured")
+		}
+		reviewerActor := AssignmentActor{Type: "member", ID: reviewerID}
 		for _, task := range allowed {
-			if !task.WorkflowID.Valid {
+			if !task.AssigneeType.Valid || !task.AssigneeID.Valid {
 				return NewSplitAPIError(
 					SplitErrorUnprocessable,
-					"invalid_split_task_workflow",
-					fmt.Errorf("split task %s is missing workflow_id", util.UUIDToString(task.ID)),
+					"invalid_split_task_assignee",
+					fmt.Errorf("split task %s is missing assignee", util.UUIDToString(task.ID)),
 				)
 			}
-			if err := s.validateIssueWorkflow(ctx, qtx, util.UUIDToString(task.WorkflowID), run.WorkflowID, parentIssue.WorkspaceID); err != nil {
-				return err
+			if err := s.Assignments.ValidateAssignee(ctx, qtx, parentIssue.WorkspaceID, reviewerActor, AssigneeRef{
+				Type: task.AssigneeType.String,
+				ID:   task.AssigneeID,
+			}); err != nil {
+				return NewSplitAPIError(SplitErrorUnprocessable, "invalid_split_task_assignee", err)
 			}
 		}
 
@@ -1896,9 +1811,15 @@ func (s *SplitOrchestrator) ApproveSplit(ctx context.Context, nodeRun db.Multica
 			return err
 		}
 		allowedByID := splitTaskMap(allowed)
+		createdByTaskID := make(map[string]db.MulticaIssue, len(allowed))
 		for _, id := range orderedIDs {
 			task := allowedByID[id]
 			if task.IssueID.Valid {
+				childIssue, err := qtx.GetIssue(ctx, task.IssueID)
+				if err != nil {
+					return fmt.Errorf("load existing child issue: %w", err)
+				}
+				createdByTaskID[id] = childIssue
 				continue
 			}
 			issueNumber, err := qtx.IncrementIssueCounter(ctx, parentIssue.WorkspaceID)
@@ -1911,8 +1832,6 @@ func (s *SplitOrchestrator) ApproveSplit(ctx context.Context, nodeRun db.Multica
 				Description:   textToPgText(task.Description),
 				Status:        "todo",
 				Priority:      parentIssue.Priority,
-				AssigneeType:  pgtype.Text{String: "workflow", Valid: true},
-				AssigneeID:    task.WorkflowID,
 				CreatorType:   "member",
 				CreatorID:     parentIssue.CreatorID,
 				ParentIssueID: parentIssue.ID,
@@ -1921,7 +1840,6 @@ func (s *SplitOrchestrator) ApproveSplit(ctx context.Context, nodeRun db.Multica
 				ProjectID:     parentIssue.ProjectID,
 				OriginType:    pgtype.Text{String: "workflow_split", Valid: true},
 				OriginID:      task.ID,
-				WorkflowID:    task.WorkflowID,
 			})
 			if err != nil {
 				return fmt.Errorf("create child issue: %w", err)
@@ -1936,6 +1854,43 @@ func (s *SplitOrchestrator) ApproveSplit(ctx context.Context, nodeRun db.Multica
 				splitTaskID: util.UUIDToString(task.ID),
 				issueID:     util.UUIDToString(childIssue.ID),
 			})
+			createdByTaskID[id] = childIssue
+		}
+
+		current, err = qtx.ListSplitTasksByNodeRun(ctx, nodeRun.ID)
+		if err != nil {
+			return fmt.Errorf("reload split tasks after materialization: %w", err)
+		}
+		plans, err = splitTaskPlansFromRows(current)
+		if err != nil {
+			return err
+		}
+		readyIDs, err := readySplitTaskIDs(plans, int(splitCfg.MaxConcurrency))
+		if err != nil {
+			return err
+		}
+		currentByID := splitTaskMap(current)
+		for _, id := range readyIDs {
+			task := currentByID[id]
+			prevIssue, ok := createdByTaskID[id]
+			if !ok {
+				prevIssue, err = qtx.GetIssue(ctx, task.IssueID)
+				if err != nil {
+					return fmt.Errorf("load ready child issue: %w", err)
+				}
+			}
+			assignedIssue, err := qtx.AssignSplitChildIssueIfUnassigned(ctx, db.AssignSplitChildIssueIfUnassignedParams{
+				ID:           task.IssueID,
+				AssigneeType: task.AssigneeType,
+				AssigneeID:   task.AssigneeID,
+			})
+			if err != nil {
+				return fmt.Errorf("assign ready split child issue: %w", err)
+			}
+			if _, err := qtx.MarkSplitTaskRunningIfCreated(ctx, task.ID); err != nil {
+				return fmt.Errorf("mark assigned split task running: %w", err)
+			}
+			assignedChildren = append(assignedChildren, splitIssueStatusChange{prev: prevIssue, issue: assignedIssue})
 		}
 		return nil
 	}); err != nil {
@@ -1947,7 +1902,6 @@ func (s *SplitOrchestrator) ApproveSplit(ctx context.Context, nodeRun db.Multica
 			ChildIssueID: child.issueID,
 		})
 	}
-
 	currentNodeRun, err := s.Queries.GetWorkflowNodeRun(ctx, nodeRun.ID)
 	if err != nil {
 		return err
@@ -1957,8 +1911,13 @@ func (s *SplitOrchestrator) ApproveSplit(ctx context.Context, nodeRun db.Multica
 			return err
 		}
 	}
-	if err := s.ScheduleReadyTasks(ctx, nodeRun.ID); err != nil {
-		return err
+	for _, change := range assignedChildren {
+		if err := s.Assignments.AfterIssueAssigned(ctx, change.prev, change.issue,
+			AssignmentActor{Type: "member", ID: actorUserID}, RuntimeSelection{}); err != nil {
+			if failErr := s.HandleChildExecutionFailed(ctx, change.issue.ID, err); failErr != nil {
+				return fmt.Errorf("run split child assignment side effects: %v; mark failed: %w", err, failErr)
+			}
+		}
 	}
 	if err := s.reconcileParentNode(ctx, nodeRun.ID); err != nil {
 		return err
@@ -2052,9 +2011,8 @@ func (s *SplitOrchestrator) CancelSplitNode(
 }
 
 func (s *SplitOrchestrator) ScheduleReadyTasks(ctx context.Context, nodeRunID pgtype.UUID) error {
-	claimed := make([]db.MulticaWorkflowSplitTask, 0)
-	var splitNodeRun db.MulticaWorkflowNodeRun
-	var cfg SplitConfig
+	assigned := make([]splitIssueStatusChange, 0)
+	var reviewerActor AssignmentActor
 	if err := s.WfService.runInTx(ctx, func(qtx *db.Queries) error {
 		nodeRun, err := qtx.GetWorkflowNodeRunForUpdate(ctx, nodeRunID)
 		if err != nil {
@@ -2063,11 +2021,15 @@ func (s *SplitOrchestrator) ScheduleReadyTasks(ctx context.Context, nodeRunID pg
 		if nodeRun.Status == NodeRunStatusCancelled {
 			return nil
 		}
-		splitNodeRun = nodeRun
-		_, cfg, err = splitRunNodeConfig(ctx, qtx, nodeRun)
+		_, cfg, err := splitRunNodeConfig(ctx, qtx, nodeRun)
 		if err != nil {
 			return err
 		}
+		reviewerID, err := resolveSplitReviewerWithQueries(ctx, qtx, nodeRun)
+		if err != nil {
+			return err
+		}
+		reviewerActor = AssignmentActor{Type: "member", ID: reviewerID}
 		tasks, err := qtx.ListSplitTasksByNodeRun(ctx, nodeRunID)
 		if err != nil {
 			return err
@@ -2076,6 +2038,17 @@ func (s *SplitOrchestrator) ScheduleReadyTasks(ctx context.Context, nodeRunID pg
 		if err != nil {
 			return err
 		}
+		for i, task := range tasks {
+			if !task.IssueID.Valid {
+				continue
+			}
+			issue, err := qtx.GetIssue(ctx, task.IssueID)
+			if err != nil {
+				return fmt.Errorf("load split child issue state: %w", err)
+			}
+			plans[i].IssueAssigned = issue.AssigneeType.Valid && issue.AssigneeID.Valid
+			plans[i].IssueTerminal = issue.Status == "done" || issue.Status == "cancelled"
+		}
 		readyIDs, err := readySplitTaskIDs(plans, int(cfg.MaxConcurrency))
 		if err != nil {
 			return err
@@ -2083,67 +2056,75 @@ func (s *SplitOrchestrator) ScheduleReadyTasks(ctx context.Context, nodeRunID pg
 		byID := splitTaskMap(tasks)
 		for _, id := range readyIDs {
 			task := byID[id]
-			if task.RunID.Valid || !task.IssueID.Valid {
+			if task.RunID.Valid || !task.IssueID.Valid || !task.AssigneeType.Valid || !task.AssigneeID.Valid {
 				continue
 			}
-			claimedTask, err := qtx.ClaimSplitTaskForRunStart(ctx, db.ClaimSplitTaskForRunStartParams{
-				ID:          task.ID,
-				DispatchKey: splitTaskDispatchKey(task),
-			})
-			if err != nil {
-				if errors.Is(err, pgx.ErrNoRows) {
-					continue
+			assignee := AssigneeRef{Type: task.AssigneeType.String, ID: task.AssigneeID}
+			if err := s.Assignments.ValidateAssignee(ctx, qtx, task.WorkspaceID, reviewerActor, assignee); err != nil {
+				if _, updateErr := qtx.UpdateSplitTaskStatusWithError(ctx, db.UpdateSplitTaskStatusWithErrorParams{
+					ID: task.ID, Status: SplitTaskStatusFailed, LastError: splitAssigneeInvalidatedError(task, err),
+				}); updateErr != nil {
+					return fmt.Errorf("validate split assignee: %v; mark failed: %w", err, updateErr)
 				}
+				continue
+			}
+			prevIssue, err := qtx.GetIssue(ctx, task.IssueID)
+			if err != nil {
 				return err
 			}
-			claimed = append(claimed, claimedTask)
-		}
-		for _, task := range tasks {
-			if task.Status == SplitTaskStatusRunning && task.RunID.Valid && task.IssueID.Valid &&
-				task.DispatchKey.Valid && task.DispatchKey.String == splitTaskDispatchKey(task) {
-				issue, err := qtx.GetIssue(ctx, task.IssueID)
-				if err != nil {
-					return err
+			issue, err := qtx.AssignSplitChildIssueIfUnassigned(ctx, db.AssignSplitChildIssueIfUnassignedParams{
+				ID: task.IssueID, AssigneeType: task.AssigneeType, AssigneeID: task.AssigneeID,
+			})
+			if errors.Is(err, pgx.ErrNoRows) {
+				current, loadErr := qtx.GetIssue(ctx, task.IssueID)
+				if loadErr != nil {
+					return loadErr
 				}
-				if issue.WorkflowRunID == task.RunID {
+				if current.AssigneeType == task.AssigneeType && current.AssigneeID == task.AssigneeID {
+					if _, markErr := qtx.MarkSplitTaskRunningIfCreated(ctx, task.ID); markErr != nil && !errors.Is(markErr, pgx.ErrNoRows) {
+						return markErr
+					}
 					continue
 				}
-				claimed = append(claimed, task)
+				return fmt.Errorf("split child issue was assigned outside the scheduler")
 			}
-		}
-		if err := s.markBlockedDependents(ctx, nodeRunID); err != nil {
-			return err
+			if err != nil {
+				return err
+			}
+			if _, err := qtx.MarkSplitTaskRunningIfCreated(ctx, task.ID); err != nil {
+				return err
+			}
+			assigned = append(assigned, splitIssueStatusChange{prev: prevIssue, issue: issue})
 		}
 		return nil
 	}); err != nil {
 		return err
 	}
 
-	startFailed := false
-	for _, task := range claimed {
-		if err := s.startChildTaskRun(ctx, splitNodeRun, cfg, task); err != nil {
-			slog.Warn("split: failed to start child run", "split_task_id", util.UUIDToString(task.ID), "error", err)
-			currentTask, loadErr := s.Queries.GetSplitTask(ctx, task.ID)
-			if loadErr == nil && currentTask.Status == SplitTaskStatusRunning && currentTask.RunID.Valid {
-				continue
+	for _, change := range assigned {
+		if err := s.Assignments.AfterIssueAssigned(ctx, change.prev, change.issue, reviewerActor, RuntimeSelection{}); err != nil {
+			if failErr := s.HandleChildExecutionFailed(ctx, change.issue.ID, err); failErr != nil {
+				return fmt.Errorf("run split child assignment side effects: %v; mark failed: %w", err, failErr)
 			}
-			if _, updateErr := s.Queries.UpdateSplitTaskStatusWithError(ctx, db.UpdateSplitTaskStatusWithErrorParams{
-				ID:        task.ID,
-				Status:    SplitTaskStatusFailed,
-				LastError: splitTaskStartError(splitNodeRun, task, err),
-			}); updateErr != nil {
-				return fmt.Errorf("start child run failed (%v) and marking failed also failed: %w", err, updateErr)
-			}
-			startFailed = true
 		}
 	}
-	if startFailed {
-		if err := s.markBlockedDependents(ctx, nodeRunID); err != nil {
-			return err
-		}
-		return s.reconcileParentNode(ctx, nodeRunID)
+	if err := s.markBlockedDependents(ctx, nodeRunID); err != nil {
+		return err
 	}
-	return nil
+	return s.reconcileParentNode(ctx, nodeRunID)
+}
+
+func splitAssigneeInvalidatedError(task db.MulticaWorkflowSplitTask, err error) []byte {
+	payload, marshalErr := json.Marshal(map[string]any{
+		"code":          "split_assignee_invalidated",
+		"message":       err.Error(),
+		"split_task_id": util.UUIDToString(task.ID),
+		"issue_id":      util.UUIDToString(task.IssueID),
+	})
+	if marshalErr != nil {
+		return []byte(`{"code":"split_assignee_invalidated","message":"split assignee is no longer valid"}`)
+	}
+	return payload
 }
 
 func splitTaskStartError(nodeRun db.MulticaWorkflowNodeRun, task db.MulticaWorkflowSplitTask, err error) []byte {
@@ -2167,6 +2148,86 @@ func splitTaskStartError(nodeRun db.MulticaWorkflowNodeRun, task db.MulticaWorkf
 		return []byte(`{"code":"split_child_run_start_failed","message":"failed to encode split task start error"}`)
 	}
 	return raw
+}
+
+func (s *SplitOrchestrator) HandleChildIssueStatusChanged(ctx context.Context, prev, issue db.MulticaIssue) error {
+	if prev.Status == issue.Status || !issue.OriginType.Valid || issue.OriginType.String != "workflow_split" {
+		return nil
+	}
+	task, err := s.Queries.GetSplitTaskByIssueID(ctx, issue.ID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if task.RunID.Valid {
+		return nil
+	}
+
+	var status string
+	switch issue.Status {
+	case "done":
+		status = SplitTaskStatusDone
+	case "cancelled":
+		status = SplitTaskStatusCancelled
+	default:
+		return nil
+	}
+	if _, err := s.Queries.SetSplitTaskTerminalByIssue(ctx, db.SetSplitTaskTerminalByIssueParams{
+		IssueID: issue.ID,
+		Status:  status,
+	}); errors.Is(err, pgx.ErrNoRows) {
+		return nil
+	} else if err != nil {
+		return err
+	}
+	if err := s.ScheduleReadyTasks(ctx, task.NodeRunID); err != nil {
+		return err
+	}
+	return s.reconcileParentNode(ctx, task.NodeRunID)
+}
+
+func (s *SplitOrchestrator) HandleChildExecutionFailed(ctx context.Context, issueID pgtype.UUID, cause error) error {
+	task, err := s.Queries.GetSplitTaskByIssueID(ctx, issueID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if task.RunID.Valid {
+		return nil
+	}
+	payload, marshalErr := json.Marshal(map[string]any{
+		"code":          "split_child_execution_failed",
+		"message":       cause.Error(),
+		"split_task_id": util.UUIDToString(task.ID),
+		"issue_id":      util.UUIDToString(issueID),
+	})
+	if marshalErr != nil {
+		payload = []byte(`{"code":"split_child_execution_failed","message":"split child execution failed"}`)
+	}
+	if _, err := s.Queries.FailSplitTaskExecutionByIssue(ctx, db.FailSplitTaskExecutionByIssueParams{
+		LastError: payload,
+		IssueID:   issueID,
+	}); errors.Is(err, pgx.ErrNoRows) {
+		return nil
+	} else if err != nil {
+		return err
+	}
+	if err := s.markBlockedDependents(ctx, task.NodeRunID); err != nil {
+		return err
+	}
+	return s.reconcileParentNode(ctx, task.NodeRunID)
+}
+
+func (s *SplitOrchestrator) HandleChildExecutionRetried(ctx context.Context, issueID pgtype.UUID) error {
+	_, err := s.Queries.RetrySplitTaskExecutionByIssue(ctx, issueID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil
+	}
+	return err
 }
 
 func (s *SplitOrchestrator) HandleChildRunTerminal(ctx context.Context, run db.MulticaWorkflowRun, status string) error {

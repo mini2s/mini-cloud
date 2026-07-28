@@ -2473,6 +2473,7 @@ func (h *Handler) UpdateIssue(w http.ResponseWriter, r *http.Request) {
 	// fails best-effort.
 	if statusChanged {
 		h.notifyParentOfChildDone(r.Context(), prevIssue, issue)
+		h.handleSplitChildIssueStatusChanged(r.Context(), prevIssue, issue)
 	}
 
 	writeJSON(w, http.StatusOK, resp)
@@ -3006,6 +3007,7 @@ func (h *Handler) BatchUpdateIssues(w http.ResponseWriter, r *http.Request) {
 		// (MUL-2538). Best-effort; failure does not abort the batch.
 		if statusChanged {
 			h.notifyParentOfChildDone(r.Context(), prevIssue, issue)
+			h.handleSplitChildIssueStatusChanged(r.Context(), prevIssue, issue)
 		}
 
 		updated++
@@ -3228,6 +3230,16 @@ func (h *Handler) publishIssueStatusChanged(ctx context.Context, prev, issue db.
 		"creator_type":   issue.CreatorType,
 		"creator_id":     uuidToString(issue.CreatorID),
 	})
+	h.handleSplitChildIssueStatusChanged(ctx, prev, issue)
+}
+
+func (h *Handler) handleSplitChildIssueStatusChanged(ctx context.Context, prev, issue db.MulticaIssue) {
+	if h.SplitOrchestrator == nil {
+		return
+	}
+	if err := h.SplitOrchestrator.HandleChildIssueStatusChanged(ctx, prev, issue); err != nil {
+		slog.Warn("split child issue-status hook failed", "issue_id", uuidToString(issue.ID), "error", err)
+	}
 }
 
 // syncSubIssueForNodeRun maps a node run status to the corresponding sub-issue

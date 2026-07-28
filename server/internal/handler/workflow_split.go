@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"net/http"
 	"strings"
 
@@ -88,10 +87,6 @@ type BatchPatchSplitDraftTasksRequest struct {
 type PatchSplitConfigRequest struct {
 	MaxConcurrency        int32 `json:"max_concurrency"`
 	ExpectedConfigVersion int64 `json:"expected_config_version"`
-}
-
-type RetrySplitTaskRequest struct {
-	WorkflowID *string `json:"workflow_id"`
 }
 
 type PatchSplitTaskAssigneeRequest struct {
@@ -768,39 +763,6 @@ func (h *Handler) PatchSplitConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := h.SplitOrchestrator.PatchSplitConfig(r.Context(), nodeRun, req.MaxConcurrency, req.ExpectedConfigVersion); err != nil {
-		writeSplitAPIError(w, err)
-		return
-	}
-	tasks, err := h.Queries.ListSplitTasksByNodeRun(r.Context(), nodeRun.ID)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to list split tasks")
-		return
-	}
-	writeJSON(w, http.StatusOK, splitTasksResponse(tasks))
-}
-
-func (h *Handler) RetrySplitTask(w http.ResponseWriter, r *http.Request) {
-	nodeRun, _, _, ok := h.loadNodeRunForWorkspace(w, r)
-	if !ok {
-		return
-	}
-	taskID, ok := parseUUIDOrBadRequest(w, chi.URLParam(r, "taskId"), "taskId")
-	if !ok {
-		return
-	}
-	var req RetrySplitTaskRequest
-	if r.Body != nil {
-		err := json.NewDecoder(r.Body).Decode(&req)
-		if err != nil && !errors.Is(err, io.EOF) {
-			writeSplitAPIError(w, service.NewSplitAPIError(service.SplitErrorBadRequest, "invalid_split_request", errors.New("invalid split retry payload")))
-			return
-		}
-	}
-	if h.SplitOrchestrator == nil {
-		writeError(w, http.StatusInternalServerError, "split orchestrator is not configured")
-		return
-	}
-	if err := h.SplitOrchestrator.RetrySplitTask(r.Context(), nodeRun, taskID, req.WorkflowID); err != nil {
 		writeSplitAPIError(w, err)
 		return
 	}
