@@ -1,3 +1,8 @@
+// @vitest-environment jsdom
+
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { act, renderHook } from "@testing-library/react";
+import { createElement, type PropsWithChildren } from "react";
 import { describe, expect, it, vi } from "vitest";
 import type { Workflow, WorkflowNodeRun, WorkflowRun } from "../types";
 import {
@@ -6,14 +11,16 @@ import {
   workflowKeys,
   workflowListOptions,
   workflowRunCanvasDefinition,
+  usePatchSplitTaskAssignee,
 } from "./queries";
 
-const { listWorkflows } = vi.hoisted(() => ({
+const { listWorkflows, patchSplitTaskAssignee } = vi.hoisted(() => ({
   listWorkflows: vi.fn(),
+  patchSplitTaskAssignee: vi.fn(),
 }));
 
 vi.mock("../api", () => ({
-  api: { listWorkflows },
+  api: { listWorkflows, patchSplitTaskAssignee },
 }));
 
 const activeInstance = {
@@ -50,6 +57,27 @@ describe("workflow split query keys", () => {
       "node-run-1",
       "split-tasks",
     ]);
+  });
+
+  it("patches a split assignee and refreshes the scoped cache", async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
+    const invalidate = vi.spyOn(queryClient, "invalidateQueries");
+    const response = {
+      tasks: [{ id: "task-1", node_run_id: "node-run-1", version: 2, assignee_type: "agent", assignee_id: "agent-1" }],
+      progress: { total: 1, created: 0, running: 0, done: 0, failed: 0, cancelled: 0, skipped: 0 },
+    };
+    patchSplitTaskAssignee.mockResolvedValue(response);
+    const wrapper = ({ children }: PropsWithChildren) => createElement(QueryClientProvider, { client: queryClient }, children);
+    const { result } = renderHook(() => usePatchSplitTaskAssignee("ws-1"), { wrapper });
+    const request = { assignee_type: "agent" as const, assignee_id: "agent-1", expected_version: 1 };
+
+    await act(async () => {
+      await result.current.mutateAsync({ nodeRunId: "node-run-1", taskId: "task-1", request });
+    });
+
+    expect(patchSplitTaskAssignee).toHaveBeenCalledWith("node-run-1", "task-1", request);
+    expect(queryClient.getQueryData(workflowKeys.splitTasks("ws-1", "node-run-1"))).toEqual(response);
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: workflowKeys.splitTasks("ws-1", "node-run-1") });
   });
 });
 

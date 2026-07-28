@@ -465,13 +465,16 @@ export type SplitTaskStatus =
   | "skipped";
 
 export type SplitDraftSource = "agent" | "chat" | "recovered";
+export type SplitTaskAssigneeType = "member" | "agent" | "squad" | "workflow";
 
 export interface SplitTask {
   id: string;
   node_run_id: string;
   title: string;
   description: string;
-  workflow_id: string;
+  workflow_id: string | null;
+  assignee_type: SplitTaskAssigneeType | null;
+  assignee_id: string | null;
   depends_on: string[];
   sort_order: number;
   status: SplitTaskStatus;
@@ -550,8 +553,10 @@ export interface PatchSplitConfigRequest {
   expected_config_version: number;
 }
 
-export interface RetrySplitTaskRequest {
-  workflow_id?: string;
+export interface PatchSplitTaskAssigneeRequest {
+  assignee_type: SplitTaskAssigneeType;
+  assignee_id: string;
+  expected_version: number;
 }
 
 export interface WorkflowNodeRuntimeSummary {

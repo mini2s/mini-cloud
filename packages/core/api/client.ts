@@ -123,7 +123,7 @@ import type {
   CreateSplitDraftTaskRequest,
   PatchSplitConfigRequest,
   PatchSplitDraftTaskRequest,
-  RetrySplitTaskRequest,
+  PatchSplitTaskAssigneeRequest,
   SplitTasksResponse,
   SplitChatResponse,
   CreateWorkflowRequest,
@@ -2503,13 +2503,17 @@ export class ApiClient {
     });
   }
 
-  async retrySplitTask(nodeRunId: string, taskId: string, req: RetrySplitTaskRequest = {}): Promise<SplitTasksResponse> {
-    const raw = await this.fetch<unknown>(`/api/node-runs/${nodeRunId}/split/tasks/${taskId}/retry`, {
-      method: "POST",
+  async patchSplitTaskAssignee(
+    nodeRunId: string,
+    taskId: string,
+    req: PatchSplitTaskAssigneeRequest,
+  ): Promise<SplitTasksResponse> {
+    const raw = await this.fetch<unknown>(`/api/node-runs/${nodeRunId}/split/draft-tasks/${taskId}/assignee`, {
+      method: "PATCH",
       body: JSON.stringify(req),
     });
     return parseWithFallback(raw, SplitTasksResponseSchema, EMPTY_SPLIT_TASKS_RESPONSE, {
-      endpoint: "POST /api/node-runs/:id/split/tasks/:taskId/retry",
+      endpoint: "PATCH /api/node-runs/:id/split/draft-tasks/:taskId/assignee",
     });
   }
 
