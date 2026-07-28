@@ -2164,6 +2164,13 @@ type UpdateIssueRequest struct {
 	StageID                *string `json:"stage_id"`
 }
 
+func workflowManagedIssueStatusChangeConflict(issue db.MulticaIssue, requestedStatus string) bool {
+	if issue.Status == requestedStatus || !issue.OriginType.Valid {
+		return false
+	}
+	return issue.OriginType.String == "workflow" || issue.OriginType.String == "workflow_split"
+}
+
 // parseOptionalRuntimeID converts the optional runtime_id string from the
 // request body to a pgtype.UUID. Returns an invalid (unset) UUID when nil
 // or empty.
@@ -2222,6 +2229,10 @@ func (h *Handler) UpdateIssue(w http.ResponseWriter, r *http.Request) {
 	}
 	if _, splitPhase := h.runningSplitPhaseTask(r); splitPhase {
 		writeError(w, http.StatusForbidden, "split phase tasks cannot mutate issues")
+		return
+	}
+	if req.Status != nil && workflowManagedIssueStatusChangeConflict(prevIssue, *req.Status) {
+		writeCodeError(w, http.StatusConflict, "workflow_managed_status", "issue status is managed by its workflow run")
 		return
 	}
 	runtimeSelectionPolicy, runtimePreference, ok := h.validateWorkflowRuntimeSelectionOverride(
@@ -2935,6 +2946,9 @@ func (h *Handler) BatchUpdateIssues(w http.ResponseWriter, r *http.Request) {
 			WorkspaceID: wsUUID,
 		})
 		if err != nil {
+			continue
+		}
+		if req.Updates.Status != nil && workflowManagedIssueStatusChangeConflict(prevIssue, *req.Updates.Status) {
 			continue
 		}
 
