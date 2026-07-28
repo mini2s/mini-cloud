@@ -408,7 +408,6 @@ describe("CompactWorkerNode", () => {
       position: { x: 100, y: 12 },
       data: {
         ...baseData,
-        splitChildWorkflowName: "Implementation workflow",
         node: makeWorkerNode({
           id: "split-1",
           title: "Task split",
@@ -434,14 +433,15 @@ describe("CompactWorkerNode", () => {
     expect(screen.getByText("Task split")).toBeInTheDocument();
     expect(screen.getByText("barrier")).toBeInTheDocument();
     expect(screen.getByText("Concurrency 5 · Max failures 0")).toBeInTheDocument();
-    expect(screen.getByText("Implementation workflow")).toBeInTheDocument();
-    expect(screen.getByText("Child workflow")).toBeInTheDocument();
+    expect(screen.queryByText("Implementation workflow")).not.toBeInTheDocument();
+    expect(screen.queryByText("Child workflow")).not.toBeInTheDocument();
     expect(screen.getByText("Execution policy")).toBeInTheDocument();
     expect(screen.queryByText("GPT-4 Agent")).not.toBeInTheDocument();
     expect(screen.queryByTestId("compact-worker-node-badge-split-1")).not.toBeInTheDocument();
 
     const meta = screen.getByTestId("compact-worker-node-meta-split-1");
-    expect(meta).toHaveClass("border-t", "grid-cols-2");
+    expect(meta).toHaveClass("border-t");
+    expect(meta).not.toHaveClass("grid-cols-2");
 
     const node = screen.getByTestId("compact-worker-split-1");
     const surface = node.querySelector('[data-node-shape-surface="true"]');

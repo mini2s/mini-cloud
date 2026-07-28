@@ -47,7 +47,6 @@ func TestValidateWorkflowDefinitionReturnsStructuredIssues(t *testing.T) {
 		{name: "missing critic", mutate: clearSnapshotCritic, code: "critic_missing"},
 		{name: "missing stage", mutate: pointAtMissingSnapshotStage, code: "stage_missing"},
 		{name: "invalid split", mutate: invalidateSnapshotSplitConfig, code: "split_config_invalid"},
-		{name: "invalid split workflow id", mutate: invalidateSnapshotSplitWorkflowID, code: "split_config_invalid"},
 		{name: "invalid gateway", mutate: invalidateSnapshotGateway, code: "gateway_kind_invalid"},
 		{name: "invalid boundary direction", mutate: reverseSnapshotStartEdge, code: "boundary_edge_direction"},
 		{name: "invalid deliverable", mutate: invalidateSnapshotDeliverable, code: "deliverable_invalid"},
@@ -63,6 +62,24 @@ func TestValidateWorkflowDefinitionReturnsStructuredIssues(t *testing.T) {
 				t.Fatalf("issues %#v do not contain %q", issues, tt.code)
 			}
 		})
+	}
+}
+
+func TestValidateWorkflowDefinitionAcceptsSplitWithoutDefaultIssueWorkflow(t *testing.T) {
+	snapshot := validWorkflowDefinitionSnapshot()
+	node := snapshotNode(&snapshot, "work")
+	node.Kind = WorkflowSnapshotNodeKindSplit
+	node.SplitConfig = &WorkflowSnapshotSplitConfig{
+		Mode:           SplitModeBarrier,
+		MaxConcurrency: 5,
+		MaxFailures:    0,
+	}
+
+	issues := ValidateWorkflowDefinition(snapshot)
+	if slices.ContainsFunc(issues, func(issue WorkflowConfigIssue) bool {
+		return issue.Code == "split_config_invalid"
+	}) {
+		t.Fatalf("valid split without a default issue workflow was rejected: %#v", issues)
 	}
 }
 
@@ -157,17 +174,6 @@ func invalidateSnapshotSplitConfig(snapshot *WorkflowDefinitionSnapshot) {
 	node.Kind = WorkflowSnapshotNodeKindSplit
 	node.SplitConfig = &WorkflowSnapshotSplitConfig{
 		Mode: "invalid", MaxConcurrency: 0, MaxFailures: -1,
-	}
-}
-
-func invalidateSnapshotSplitWorkflowID(snapshot *WorkflowDefinitionSnapshot) {
-	node := snapshotNode(snapshot, "work")
-	node.Kind = WorkflowSnapshotNodeKindSplit
-	node.SplitConfig = &WorkflowSnapshotSplitConfig{
-		DefaultIssueWorkflowID: "not-a-uuid",
-		Mode:                   SplitModeBarrier,
-		MaxConcurrency:         1,
-		MaxFailures:            0,
 	}
 }
 

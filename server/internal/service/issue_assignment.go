@@ -184,6 +184,12 @@ func (s *IssueAssignmentService) AfterIssueAssigned(
 			ctx, workflow, issue, actor.Type, util.UUIDToString(actor.ID), runtimeSelection.Policy, runtimeSelection.RuntimeID,
 		)
 		if err != nil {
+			var invalid *WorkflowConfigInvalidError
+			if errors.As(err, &invalid) {
+				if stampErr := s.stampWorkflowRun(ctx, issue, issue.AssigneeID, invalid.RunID); stampErr != nil {
+					return errors.Join(err, fmt.Errorf("stamp failed workflow run: %w", stampErr))
+				}
+			}
 			return err
 		}
 		if s.Hooks.CreateWorkflowSubIssues != nil {
