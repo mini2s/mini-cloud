@@ -56,6 +56,7 @@ import { useT } from "../../../i18n";
 import { parseNodeFormat } from "@multica/core/types";
 import { WorkflowCanvasCore } from "../../../workflows/components/canvas/workflow-canvas-core";
 import {
+  workflowCanvasStages,
   workflowEdgesToReactFlowEdges,
   workflowNodesToReactFlowNodes,
 } from "../../../workflows/components/canvas/workflow-canvas-model";
@@ -1107,22 +1108,7 @@ export function ExecutionPanoramaPage({
     );
   }
 
-  const unassignedCount = allNodes.filter((node) => !node.stage_id).length;
-  const canvasStages = unassignedCount > 0 || allStages.length === 0
-    ? [
-        ...allStages,
-        {
-          id: "unassigned",
-          workflow_id: workflowId,
-          name: "Unassigned",
-          description: "",
-          sort_order: allStages.length,
-          node_count: unassignedCount,
-          created_at: "",
-          updated_at: "",
-        },
-      ]
-    : allStages;
+  const canvasStages = workflowCanvasStages(allStages, allNodes, workflowId);
   const runtimeFocusNodeId = pickRuntimeFocusNodeId(allNodes, nodeRunMap);
   const baseRfNodesRaw = workflowNodesToReactFlowNodes({
     nodes: allNodes,
@@ -1159,6 +1145,10 @@ export function ExecutionPanoramaPage({
     }
     return {
       ...reactFlowNode,
+      position: {
+        ...reactFlowNode.position,
+        y: reactFlowNode.position.y + (RUNTIME_NODE_HEIGHT - RUNTIME_SPLIT_NODE_HEIGHT) / 2,
+      },
       height: RUNTIME_SPLIT_NODE_HEIGHT,
     };
   });

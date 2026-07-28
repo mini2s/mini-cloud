@@ -1626,6 +1626,9 @@ describe("ExecutionPanoramaPage", () => {
 
     const splitNode = mocks.reactFlowProps?.nodes.find((node) => node.id === "split-1");
     expect(splitNode?.height).toBe(RUNTIME_SPLIT_NODE_HEIGHT);
+    expect(splitNode!.position.y + RUNTIME_SPLIT_NODE_HEIGHT / 2).toBe(
+      12 + RUNTIME_NODE_HEIGHT / 2,
+    );
     expect(splitNode?.data).toMatchObject({
       splitChildCount: 2,
       isSplitExpanded: false,

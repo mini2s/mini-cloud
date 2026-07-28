@@ -1,8 +1,8 @@
 // @vitest-environment jsdom
 
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { ReactFlowProvider, type Node } from "@xyflow/react";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { WorkflowNode } from "@multica/core/types";
 import { BoundaryNode, type BoundaryNodeData } from "./boundary-node";
 
@@ -27,12 +27,12 @@ function makeNode(kind: "start" | "end"): WorkflowNode {
   };
 }
 
-function renderBoundary(kind: "start" | "end") {
+function renderBoundary(kind: "start" | "end", dataOverrides: Partial<BoundaryNodeData> = {}) {
   const node: Node<BoundaryNodeData> = {
     id: kind,
     type: "boundary",
     position: { x: 0, y: 0 },
-    data: { node: makeNode(kind), kind, stageColorIndex: 0 },
+    data: { node: makeNode(kind), kind, stageColorIndex: 0, ...dataOverrides },
   };
   return render(
     <ReactFlowProvider>
@@ -58,12 +58,29 @@ describe("BoundaryNode", () => {
   it("renders directional handles for boundary kinds", () => {
     const { unmount } = renderBoundary("start");
     expect(screen.getByTestId("boundary-node-start")).toHaveStyle({ width: "176px", height: "64px" });
-    expect(screen.getByTestId("boundary-handle-source")).toBeInTheDocument();
-    expect(screen.queryByTestId("boundary-handle-target")).not.toBeInTheDocument();
+    expect(document.querySelector('[data-handleid="right"]')).toBeInTheDocument();
+    expect(document.querySelector('[data-handleid="bottom"]')).toBeInTheDocument();
+    expect(document.querySelector('[data-handleid="left"]')).not.toBeInTheDocument();
 
     unmount();
     renderBoundary("end");
-    expect(screen.getByTestId("boundary-handle-target")).toBeInTheDocument();
-    expect(screen.queryByTestId("boundary-handle-source")).not.toBeInTheDocument();
+    expect(document.querySelector('[data-handleid="left"]')).toBeInTheDocument();
+    expect(document.querySelector('[data-handleid="right"]')).not.toBeInTheDocument();
+    expect(document.querySelector('[data-handleid="bottom"]')).not.toBeInTheDocument();
+  });
+
+  it("uses the shared connected-node affordance for the start boundary", () => {
+    const onAddConnectedNode = vi.fn();
+    renderBoundary("start", {
+      addConnectedNodeLabel: "Drag to connect, click to add node",
+      onAddConnectedNode,
+    });
+
+    const addButton = screen.getByRole("button", { name: "Drag to connect, click to add node" });
+    expect(screen.getByTestId("workflow-canvas-add-connected-node-tooltip")).toHaveTextContent("Click to add node");
+
+    fireEvent.click(addButton);
+
+    expect(onAddConnectedNode).toHaveBeenCalledWith("start");
   });
 });

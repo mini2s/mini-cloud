@@ -882,6 +882,32 @@ describe("WorkflowPanoramaPage (new)", () => {
     expect(screen.queryByText("Unassigned")).not.toBeInTheDocument();
   });
 
+  it("renders an unassigned stage lane for workflows whose nodes have no stage", () => {
+    mocks.stagesData = [];
+    mocks.nodesData = [{
+      id: "node-1",
+      workflow_id: "wf-1",
+      title: "Task",
+      description: "",
+      worker_type: "human",
+      worker_id: null,
+      critic_type: "human",
+      critic_id: null,
+      critic_api_url: null,
+      stage_id: null,
+      format_schema: null,
+      position_x: 120,
+      position_y: 0,
+      sort_order: 0,
+      created_at: "",
+      updated_at: "",
+    }];
+
+    render(<WorkflowPanoramaPage workflowId="wf-1" />);
+
+    expect(screen.getByText("Unassigned")).toBeInTheDocument();
+  });
+
   it("shows add node as the primary empty-workflow action", () => {
     mocks.stagesData = [];
     render(<WorkflowPanoramaPage workflowId="wf-1" />);

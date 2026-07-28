@@ -65,6 +65,7 @@ import { getDeleteConflictMessage } from "../../../common/delete-conflict-error"
 import { WorkflowCanvasCore } from "../canvas/workflow-canvas-core";
 import {
   MIN_NODE_HORIZONTAL_GAP,
+  workflowCanvasStages,
   workflowEdgesToReactFlowEdges,
   workflowNodesToReactFlowNodes,
 } from "../canvas/workflow-canvas-model";
@@ -304,6 +305,10 @@ function PanoramaContent({
   const redo = useWorkflowEditorStore((s) => s.redo);
   const hasUnsavedEdits = useWorkflowEditorStore((s) => Object.keys(s.nodeEdits).length > 0);
   const statusLabel = t(($) => $.status[workflow.status as keyof typeof $.status] ?? workflow.status);
+  const canvasStages = useMemo(
+    () => workflowCanvasStages(stages, visibleNodes, workflowId),
+    [stages, visibleNodes, workflowId],
+  );
 
   // Delete workflow dialog
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
@@ -421,7 +426,7 @@ function PanoramaContent({
         <WorkflowCanvasCore
             nodes={rfNodes}
             edges={rfEdges}
-          stages={stages}
+          stages={canvasStages}
             nodeTypes={panoramaNodeTypes}
             edgeTypes={panoramaEdgeTypes}
             onNodeClick={onNodeClick}
@@ -927,7 +932,6 @@ export function WorkflowPanoramaPage({ workflowId, viewToggle }: WorkflowPanoram
     }),
     [apiEdges, visibleNodes, stages, handleInlineEdgeDelete, selectedEdgeId, selectedEdgeAnchor],
   );
-
   // ── Selected node for config panel ──
   const selectedNode = useMemo(
     () => visibleNodes.find((n) => n.id === selectedNodeId) ?? null,

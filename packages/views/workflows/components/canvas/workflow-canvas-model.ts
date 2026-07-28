@@ -46,6 +46,29 @@ type CanvasEdgeTone = "data" | "condition" | "error" | "rework" | "critic" | "su
 
 export const MIN_NODE_HORIZONTAL_GAP = 96;
 
+export function workflowCanvasStages(
+  stages: WorkflowStage[],
+  nodes: WorkflowNode[],
+  workflowId: string,
+): WorkflowStage[] {
+  const unassignedCount = nodes.filter((node) => !node.stage_id).length;
+  if (unassignedCount === 0 && stages.length > 0) return stages;
+
+  return [
+    ...stages,
+    {
+      id: "unassigned",
+      workflow_id: workflowId,
+      name: "Unassigned",
+      description: "",
+      sort_order: stages.length,
+      node_count: unassignedCount,
+      created_at: "",
+      updated_at: "",
+    },
+  ];
+}
+
 function normalizedNodeXMap(
   nodes: WorkflowNode[],
   nodeWidth: number,
