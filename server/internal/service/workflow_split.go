@@ -974,11 +974,6 @@ func (s *SplitOrchestrator) replaceSplitDraftTasksFromPayload(
 	if err := s.validateIssueWorkflow(ctx, q, cfg.DefaultIssueWorkflowID, run.WorkflowID, run.WorkspaceID); err != nil {
 		return err
 	}
-	workflowID, err := util.ParseUUID(cfg.DefaultIssueWorkflowID)
-	if err != nil {
-		return fmt.Errorf("invalid default_issue_workflow_id: %w", err)
-	}
-
 	inserted := make([]db.MulticaWorkflowSplitTask, 0, len(payload.Tasks))
 	draftKeys := splitGeneratedDraftKeys(payload.Tasks)
 	for i, generated := range payload.Tasks {
@@ -988,7 +983,6 @@ func (s *SplitOrchestrator) replaceSplitDraftTasksFromPayload(
 			DraftKey:    pgtype.Text{String: draftKeys[i], Valid: draftKeys[i] != ""},
 			Title:       generated.Title,
 			Description: generated.Description,
-			WorkflowID:  workflowID,
 			DependsOn:   []byte("[]"),
 			SortOrder:   int32(i),
 			Status:      SplitTaskStatusDraft,
@@ -1115,11 +1109,6 @@ func (s *SplitOrchestrator) upsertSplitDraftTask(ctx context.Context, q *db.Quer
 	if err := s.validateIssueWorkflow(ctx, q, cfg.DefaultIssueWorkflowID, run.WorkflowID, run.WorkspaceID); err != nil {
 		return err
 	}
-	workflowID, err := util.ParseUUID(cfg.DefaultIssueWorkflowID)
-	if err != nil {
-		return fmt.Errorf("invalid default_issue_workflow_id: %w", err)
-	}
-
 	existing, err := q.ListSplitTasksByNodeRun(ctx, nodeRun.ID)
 	if err != nil {
 		return fmt.Errorf("list split draft tasks: %w", err)
@@ -1183,7 +1172,6 @@ func (s *SplitOrchestrator) upsertSplitDraftTask(ctx context.Context, q *db.Quer
 		DraftKey:    pgtype.Text{String: key, Valid: true},
 		Title:       title,
 		Description: description,
-		WorkflowID:  workflowID,
 		DependsOn:   dependsOnJSON,
 		SortOrder:   sortOrder,
 		DraftSource: pgtype.Text{String: draftSource, Valid: true},
@@ -1214,11 +1202,6 @@ func (s *SplitOrchestrator) AddManualSplitDraftTask(ctx context.Context, nodeRun
 	if err := s.validateIssueWorkflow(ctx, s.Queries, workflowIDValue, run.WorkflowID, run.WorkspaceID); err != nil {
 		return err
 	}
-	workflowID, err := util.ParseUUID(workflowIDValue)
-	if err != nil {
-		return fmt.Errorf("invalid workflow_id: %w", err)
-	}
-
 	return s.WfService.runInTx(ctx, func(qtx *db.Queries) error {
 		lockedNodeRun, err := qtx.GetWorkflowNodeRunForUpdate(ctx, nodeRun.ID)
 		if err != nil {
@@ -1267,7 +1250,6 @@ func (s *SplitOrchestrator) AddManualSplitDraftTask(ctx context.Context, nodeRun
 			WorkspaceID: run.WorkspaceID,
 			Title:       title,
 			Description: description,
-			WorkflowID:  workflowID,
 			DependsOn:   dependsOnJSON,
 			SortOrder:   nextSortOrder,
 			Status:      SplitTaskStatusDraft,

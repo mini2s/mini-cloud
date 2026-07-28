@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/multica-ai/multica/server/internal/events"
 	"github.com/multica-ai/multica/server/internal/service"
@@ -77,17 +78,52 @@ func TestWriteSplitAPIErrorHidesUnknownErrors(t *testing.T) {
 
 func TestSplitTaskToResponseIncludesDraftMetadata(t *testing.T) {
 	task := db.MulticaWorkflowSplitTask{
-		WorkflowID:  parseUUID("11111111-1111-1111-1111-111111111111"),
-		DraftKey:    pgtype.Text{String: "api", Valid: true},
-		DraftSource: service.DraftSourceRecovered,
+		WorkflowID:   parseUUID("11111111-1111-1111-1111-111111111111"),
+		AssigneeType: pgtype.Text{String: "agent", Valid: true},
+		AssigneeID:   parseUUID("22222222-2222-2222-2222-222222222222"),
+		DraftKey:     pgtype.Text{String: "api", Valid: true},
+		DraftSource:  service.DraftSourceRecovered,
 	}
 
 	resp := splitTaskToResponse(task)
 	if resp.WorkflowID == nil || *resp.WorkflowID != "11111111-1111-1111-1111-111111111111" {
 		t.Fatalf("WorkflowID = %v", resp.WorkflowID)
 	}
+	if resp.AssigneeType == nil || *resp.AssigneeType != "agent" || resp.AssigneeID == nil || *resp.AssigneeID != "22222222-2222-2222-2222-222222222222" {
+		t.Fatalf("assignee = %v / %v", resp.AssigneeType, resp.AssigneeID)
+	}
 	if resp.DraftKey == nil || *resp.DraftKey != "api" || resp.DraftSource != "recovered" {
 		t.Fatalf("draft metadata = %v / %q", resp.DraftKey, resp.DraftSource)
+	}
+}
+
+func TestSplitTaskAssigneeMigrationAndCAS(t *testing.T) {
+	f := createSplitApproveFixture(t, "barrier")
+	taskID := parseUUID(f.taskAID)
+
+	updated, err := testHandler.Queries.SetSplitTaskAssignee(context.Background(), db.SetSplitTaskAssigneeParams{
+		ID:           taskID,
+		NodeRunID:    parseUUID(f.splitNodeRunID),
+		Version:      1,
+		AssigneeType: pgtype.Text{String: "member", Valid: true},
+		AssigneeID:   parseUUID(testUserID),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.Version != 2 || updated.AssigneeType.String != "member" || updated.AssigneeID != parseUUID(testUserID) {
+		t.Fatalf("updated split task = %+v", updated)
+	}
+
+	_, err = testHandler.Queries.SetSplitTaskAssignee(context.Background(), db.SetSplitTaskAssigneeParams{
+		ID:           taskID,
+		NodeRunID:    parseUUID(f.splitNodeRunID),
+		Version:      1,
+		AssigneeType: pgtype.Text{String: "member", Valid: true},
+		AssigneeID:   parseUUID(testUserID),
+	})
+	if !errors.Is(err, pgx.ErrNoRows) {
+		t.Fatalf("stale update error = %v, want pgx.ErrNoRows", err)
 	}
 }
 

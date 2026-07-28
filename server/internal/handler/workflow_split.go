@@ -16,22 +16,24 @@ import (
 )
 
 type SplitTaskResponse struct {
-	ID          string           `json:"id"`
-	NodeRunID   string           `json:"node_run_id"`
-	Title       string           `json:"title"`
-	Description string           `json:"description"`
-	WorkflowID  *string          `json:"workflow_id"`
-	DependsOn   []string         `json:"depends_on"`
-	SortOrder   int32            `json:"sort_order"`
-	Status      string           `json:"status"`
-	IssueID     *string          `json:"issue_id"`
-	RunID       *string          `json:"run_id"`
-	Version     int64            `json:"version"`
-	DraftKey    *string          `json:"draft_key"`
-	DraftSource string           `json:"draft_source"`
-	LastError   *json.RawMessage `json:"last_error"`
-	CreatedAt   string           `json:"created_at"`
-	UpdatedAt   string           `json:"updated_at"`
+	ID           string           `json:"id"`
+	NodeRunID    string           `json:"node_run_id"`
+	Title        string           `json:"title"`
+	Description  string           `json:"description"`
+	WorkflowID   *string          `json:"workflow_id"`
+	AssigneeType *string          `json:"assignee_type"`
+	AssigneeID   *string          `json:"assignee_id"`
+	DependsOn    []string         `json:"depends_on"`
+	SortOrder    int32            `json:"sort_order"`
+	Status       string           `json:"status"`
+	IssueID      *string          `json:"issue_id"`
+	RunID        *string          `json:"run_id"`
+	Version      int64            `json:"version"`
+	DraftKey     *string          `json:"draft_key"`
+	DraftSource  string           `json:"draft_source"`
+	LastError    *json.RawMessage `json:"last_error"`
+	CreatedAt    string           `json:"created_at"`
+	UpdatedAt    string           `json:"updated_at"`
 }
 
 type SplitProgressResponse struct {
@@ -119,22 +121,24 @@ func splitTaskToResponse(task db.MulticaWorkflowSplitTask) SplitTaskResponse {
 		lastError = &raw
 	}
 	return SplitTaskResponse{
-		ID:          uuidToString(task.ID),
-		NodeRunID:   uuidToString(task.NodeRunID),
-		Title:       task.Title,
-		Description: task.Description,
-		WorkflowID:  uuidToPtr(task.WorkflowID),
-		DependsOn:   dependsOn,
-		SortOrder:   task.SortOrder,
-		Status:      task.Status,
-		IssueID:     uuidToPtr(task.IssueID),
-		RunID:       uuidToPtr(task.RunID),
-		Version:     task.Version,
-		DraftKey:    textToPtr(task.DraftKey),
-		DraftSource: task.DraftSource,
-		LastError:   lastError,
-		CreatedAt:   timestampToString(task.CreatedAt),
-		UpdatedAt:   timestampToString(task.UpdatedAt),
+		ID:           uuidToString(task.ID),
+		NodeRunID:    uuidToString(task.NodeRunID),
+		Title:        task.Title,
+		Description:  task.Description,
+		WorkflowID:   uuidToPtr(task.WorkflowID),
+		AssigneeType: textToPtr(task.AssigneeType),
+		AssigneeID:   uuidToPtr(task.AssigneeID),
+		DependsOn:    dependsOn,
+		SortOrder:    task.SortOrder,
+		Status:       task.Status,
+		IssueID:      uuidToPtr(task.IssueID),
+		RunID:        uuidToPtr(task.RunID),
+		Version:      task.Version,
+		DraftKey:     textToPtr(task.DraftKey),
+		DraftSource:  task.DraftSource,
+		LastError:    lastError,
+		CreatedAt:    timestampToString(task.CreatedAt),
+		UpdatedAt:    timestampToString(task.UpdatedAt),
 	}
 }
 
@@ -210,7 +214,6 @@ func (h *Handler) PatchSplitDraftTask(w http.ResponseWriter, r *http.Request) {
 			writeSplitAPIError(w, err)
 			return
 		}
-		params.WorkflowID = workflowID
 	}
 	if req.DependsOn != nil {
 		dependsOn, err := json.Marshal(req.DependsOn)
@@ -272,10 +275,9 @@ func (h *Handler) BatchPatchSplitDraftTasks(w http.ResponseWriter, r *http.Reque
 			return
 		}
 		if _, err := h.Queries.UpdateSplitTaskDraftFields(r.Context(), db.UpdateSplitTaskDraftFieldsParams{
-			ID:         taskID,
-			NodeRunID:  nodeRun.ID,
-			Version:    update.ExpectedVersion,
-			WorkflowID: workflowID,
+			ID:        taskID,
+			NodeRunID: nodeRun.ID,
+			Version:   update.ExpectedVersion,
 		}); err != nil {
 			if errors.Is(err, pgx.ErrNoRows) {
 				writeSplitAPIError(w, service.NewSplitAPIError(service.SplitErrorConflict, "draft_task_conflict", errors.New("split draft task version conflict")))
