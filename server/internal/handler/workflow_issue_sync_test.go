@@ -2,6 +2,9 @@ package handler
 
 import (
 	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"sync"
 	"testing"
 	"time"
@@ -252,6 +255,113 @@ func TestSyncSubIssueNeverRegressesDoneIssue(t *testing.T) {
 	}
 	if matches := issueUpdatedEventsFor(getEvents(), uuidToString(fx.subIssue.ID)); len(matches) != 0 {
 		t.Fatalf("expected no issue:updated event, got %d", len(matches))
+	}
+}
+
+func TestWorkflowManagedIssueStatusChangeConflict(t *testing.T) {
+	for _, test := range []struct {
+		name       string
+		originType string
+		current    string
+		requested  string
+		want       bool
+	}{
+		{name: "workflow node issue", originType: "workflow", current: "in_progress", requested: "done", want: true},
+		{name: "split child issue", originType: "workflow_split", current: "in_progress", requested: "done", want: true},
+		{name: "unchanged workflow status", originType: "workflow", current: "done", requested: "done", want: false},
+		{name: "regular child issue", current: "in_progress", requested: "done", want: false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			issue := db.MulticaIssue{
+				OriginType: pgtype.Text{String: test.originType, Valid: test.originType != ""},
+				Status:     test.current,
+			}
+			if got := workflowManagedIssueStatusChangeConflict(issue, test.requested); got != test.want {
+				t.Fatalf("workflowManagedIssueStatusChangeConflict() = %v, want %v", got, test.want)
+			}
+		})
+	}
+}
+
+func TestUpdateIssueRejectsWorkflowManagedStatusChange(t *testing.T) {
+	if testHandler == nil {
+		t.Skip("database not available")
+	}
+
+	for _, originType := range []string{"workflow", "workflow_split"} {
+		t.Run(originType, func(t *testing.T) {
+			fx := newWorkflowSyncFixture(t, "in_progress", false)
+			ctx := context.Background()
+
+			if _, err := testPool.Exec(ctx, `
+				UPDATE multica_workflow_node_run SET status = 'working' WHERE id = $1
+			`, fx.nodeRun.ID); err != nil {
+				t.Fatalf("set node run working: %v", err)
+			}
+			if _, err := testPool.Exec(ctx, `
+				UPDATE multica_issue SET origin_type = $2 WHERE id = $1
+			`, fx.subIssue.ID, originType); err != nil {
+				t.Fatalf("set issue origin type: %v", err)
+			}
+
+			w := httptest.NewRecorder()
+			req := newRequest("PUT", "/api/issues/"+uuidToString(fx.subIssue.ID), map[string]any{
+				"status": "done",
+			})
+			req = withURLParam(req, "id", uuidToString(fx.subIssue.ID))
+			testHandler.UpdateIssue(w, req)
+
+			if w.Code != http.StatusConflict {
+				t.Fatalf("UpdateIssue status = %d, want 409: %s", w.Code, w.Body.String())
+			}
+			if got := issueStatusInDB(t, fx.subIssue.ID); got != "in_progress" {
+				t.Fatalf("issue status = %q, want in_progress", got)
+			}
+			nodeRun, err := testHandler.Queries.GetWorkflowNodeRun(ctx, fx.nodeRun.ID)
+			if err != nil {
+				t.Fatalf("load node run: %v", err)
+			}
+			if nodeRun.Status != service.NodeRunStatusWorking {
+				t.Fatalf("node run status = %q, want working", nodeRun.Status)
+			}
+		})
+	}
+}
+
+func TestBatchUpdateIssuesSkipsWorkflowManagedStatusChange(t *testing.T) {
+	if testHandler == nil {
+		t.Skip("database not available")
+	}
+
+	fx := newWorkflowSyncFixture(t, "in_progress", false)
+	ctx := context.Background()
+	if _, err := testPool.Exec(ctx, `
+		UPDATE multica_workflow_node_run SET status = 'working' WHERE id = $1
+	`, fx.nodeRun.ID); err != nil {
+		t.Fatalf("set node run working: %v", err)
+	}
+
+	w := httptest.NewRecorder()
+	req := newRequest("POST", "/api/issues/batch-update", map[string]any{
+		"issue_ids": []string{uuidToString(fx.subIssue.ID)},
+		"updates":   map[string]any{"status": "done"},
+	})
+	testHandler.BatchUpdateIssues(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("BatchUpdateIssues status = %d, want 200: %s", w.Code, w.Body.String())
+	}
+	var body struct {
+		Updated int `json:"updated"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if body.Updated != 0 {
+		t.Fatalf("updated = %d, want 0", body.Updated)
+	}
+	if got := issueStatusInDB(t, fx.subIssue.ID); got != "in_progress" {
+		t.Fatalf("issue status = %q, want in_progress", got)
 	}
 }
 
