@@ -721,6 +721,16 @@ func (h *Handler) ListWorkflowNodes(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"nodes": resp})
 }
 
+func validateSplitReviewerConfig(formatSchema []byte, criticType string, criticID, criticRoleID pgtype.UUID, criticAPIURL pgtype.Text) error {
+	if workflowmeta.KindOf(formatSchema) != "split" {
+		return nil
+	}
+	if criticAPIURL.Valid || criticType != "human" || criticID.Valid == criticRoleID.Valid {
+		return errors.New("split reviewer must be one workspace member or one member role")
+	}
+	return nil
+}
+
 func (h *Handler) CreateWorkflowNode(w http.ResponseWriter, r *http.Request) {
 	wfID := chi.URLParam(r, "id")
 	wf, ok := h.loadWorkflowInWorkspace(w, r, wfID)
@@ -811,6 +821,10 @@ func (h *Handler) CreateWorkflowNode(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := h.validateWorkflowHumanActor(r.Context(), req.CriticType, criticID, workspaceID, "critic"); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if err := validateSplitReviewerConfig(req.FormatSchema, req.CriticType, criticID, criticRoleID, ptrToText(req.CriticApiURL)); err != nil {
+		writeError(w, http.StatusUnprocessableEntity, err.Error())
 		return
 	}
 
@@ -958,6 +972,24 @@ func (h *Handler) UpdateWorkflowNode(w http.ResponseWriter, r *http.Request) {
 	effectiveCriticID := criticIDParam
 	if criticRoleID.Valid {
 		effectiveCriticID = pgtype.UUID{}
+	} else if req.CriticID == nil {
+		effectiveCriticID = currentNode.CriticID
+	}
+	effectiveCriticRoleID := currentNode.CriticRoleID
+	if criticRoleID.Valid {
+		effectiveCriticRoleID = criticRoleID
+	} else if req.CriticID != nil || req.CriticType != nil || req.CriticApiURL != nil {
+		effectiveCriticRoleID = pgtype.UUID{}
+	}
+	effectiveCriticAPIURL := currentNode.CriticApiUrl
+	if criticRoleID.Valid {
+		effectiveCriticAPIURL = pgtype.Text{}
+	} else if req.CriticApiURL != nil {
+		effectiveCriticAPIURL = ptrToText(req.CriticApiURL)
+	}
+	effectiveFormatSchema := currentNode.FormatSchema
+	if len(req.FormatSchema) > 0 {
+		effectiveFormatSchema = req.FormatSchema
 	}
 
 	if err := h.validateWorkflowHumanActor(r.Context(), workerType, effectiveWorkerID, workspaceID, "worker"); err != nil {
@@ -966,6 +998,10 @@ func (h *Handler) UpdateWorkflowNode(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := h.validateWorkflowHumanActor(r.Context(), criticType, effectiveCriticID, workspaceID, "critic"); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if err := validateSplitReviewerConfig(effectiveFormatSchema, criticType, effectiveCriticID, effectiveCriticRoleID, effectiveCriticAPIURL); err != nil {
+		writeError(w, http.StatusUnprocessableEntity, err.Error())
 		return
 	}
 
