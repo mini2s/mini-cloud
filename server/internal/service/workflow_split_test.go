@@ -147,7 +147,7 @@ func TestReadySplitTasksRespectDependenciesAndConcurrency(t *testing.T) {
 		{ID: "b", SortOrder: 2, Status: SplitTaskStatusCreated, DependsOn: []string{"a"}},
 		{ID: "c", SortOrder: 3, Status: SplitTaskStatusCreated, DependsOn: []string{"a"}},
 		{ID: "d", SortOrder: 4, Status: SplitTaskStatusCreated, DependsOn: []string{"b"}},
-		{ID: "e", SortOrder: 5, Status: SplitTaskStatusRunning},
+		{ID: "e", SortOrder: 5, Status: SplitTaskStatusCreated, IssueAssigned: true},
 	}
 	got, err := readySplitTaskIDs(tasks, 2)
 	if err != nil {
@@ -155,6 +155,21 @@ func TestReadySplitTasksRespectDependenciesAndConcurrency(t *testing.T) {
 	}
 	want := []string{"b"}
 	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("readySplitTaskIDs = %v, want %v", got, want)
+	}
+}
+
+func TestReadySplitTasksDoNotCountTerminalAssignedIssues(t *testing.T) {
+	tasks := []splitTaskPlan{
+		{ID: "a", SortOrder: 1, Status: SplitTaskStatusDone, IssueAssigned: true, IssueTerminal: true},
+		{ID: "b", SortOrder: 2, Status: SplitTaskStatusCreated},
+	}
+
+	got, err := readySplitTaskIDs(tasks, 1)
+	if err != nil {
+		t.Fatalf("readySplitTaskIDs: %v", err)
+	}
+	if want := []string{"b"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("readySplitTaskIDs = %v, want %v", got, want)
 	}
 }
@@ -196,6 +211,13 @@ func TestResolveSettledSplitStatusSkipsDependentsAndFailsBarrier(t *testing.T) {
 	}
 	if status != NodeRunStatusFailed {
 		t.Fatalf("resolved node status = %s, want failed", status)
+	}
+}
+
+func TestResolveSplitBarrierCountsSkippedAsFailure(t *testing.T) {
+	tasks := []splitTaskPlan{{ID: "a", Status: SplitTaskStatusSkipped}}
+	if got := resolveSplitStatus(SplitModeBarrier, 0, tasks); got != NodeRunStatusFailed {
+		t.Fatalf("resolveSplitStatus barrier = %s, want %s", got, NodeRunStatusFailed)
 	}
 }
 
@@ -258,11 +280,11 @@ func TestResolveSplitBarrierFailureThreshold(t *testing.T) {
 		{ID: "b", Status: SplitTaskStatusFailed},
 		{ID: "c", Status: SplitTaskStatusSkipped},
 	}
-	if got := resolveSplitStatus(SplitModeBarrier, 1, tasks); got != NodeRunStatusCompleted {
-		t.Fatalf("resolveSplitStatus threshold=1 = %s, want completed", got)
+	if got := resolveSplitStatus(SplitModeBarrier, 2, tasks); got != NodeRunStatusCompleted {
+		t.Fatalf("resolveSplitStatus threshold=2 = %s, want completed", got)
 	}
-	if got := resolveSplitStatus(SplitModeBarrier, 0, tasks); got != NodeRunStatusFailed {
-		t.Fatalf("resolveSplitStatus threshold=0 = %s, want failed", got)
+	if got := resolveSplitStatus(SplitModeBarrier, 1, tasks); got != NodeRunStatusFailed {
+		t.Fatalf("resolveSplitStatus threshold=1 = %s, want failed", got)
 	}
 }
 

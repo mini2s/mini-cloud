@@ -311,6 +311,17 @@ func TestRerunIssue_PreservesWorkflowContext(t *testing.T) {
 	}
 	ctx := context.Background()
 	f := createWorkflowRerunFixture(t, ctx, "ctx-preservation")
+	var splitTaskID string
+	if err := testPool.QueryRow(ctx, `
+		INSERT INTO multica_workflow_split_task (
+			node_run_id, workspace_id, title, description, depends_on, sort_order,
+			status, issue_id, assignee_type, assignee_id, last_error
+		) VALUES ($1, $2, 'Rerun split child', '', '[]'::jsonb, 0,
+			'failed', $3, 'agent', $4, '{"code":"split_child_execution_failed"}'::jsonb)
+		RETURNING id
+	`, f.nodeRunID, testWorkspaceID, f.issueID, f.agentID).Scan(&splitTaskID); err != nil {
+		t.Fatalf("create failed split task: %v", err)
+	}
 
 	// Trigger manual rerun targeting the source task row.
 	w := httptest.NewRecorder()
@@ -329,6 +340,16 @@ func TestRerunIssue_PreservesWorkflowContext(t *testing.T) {
 	}
 	if resp.TaskID == "" {
 		t.Fatal("rerun response missing task id")
+	}
+	var splitStatus string
+	var splitLastError []byte
+	if err := testPool.QueryRow(ctx, `
+		SELECT status, last_error FROM multica_workflow_split_task WHERE id = $1
+	`, splitTaskID).Scan(&splitStatus, &splitLastError); err != nil {
+		t.Fatalf("load split task after rerun: %v", err)
+	}
+	if splitStatus != "running" || len(splitLastError) != 0 {
+		t.Fatalf("split task after rerun = %s/%s, want running/empty error", splitStatus, string(splitLastError))
 	}
 
 	// Load the newly created task and assert it inherited workflow context.

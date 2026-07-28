@@ -166,6 +166,50 @@ func (q *Queries) CreateSplitTask(ctx context.Context, arg CreateSplitTaskParams
 	return i, err
 }
 
+const failSplitTaskExecutionByIssue = `-- name: FailSplitTaskExecutionByIssue :one
+UPDATE multica_workflow_split_task
+SET status = 'failed',
+    last_error = $1::jsonb,
+    updated_at = now()
+WHERE issue_id = $2
+  AND run_id IS NULL
+  AND status IN ('created', 'running')
+RETURNING id, node_run_id, workspace_id, title, description, depends_on, sort_order, status, issue_id, run_id, created_at, updated_at, draft_key, draft_source, workflow_id, version, dispatch_key, last_error, assignee_type, assignee_id
+`
+
+type FailSplitTaskExecutionByIssueParams struct {
+	LastError []byte      `json:"last_error"`
+	IssueID   pgtype.UUID `json:"issue_id"`
+}
+
+func (q *Queries) FailSplitTaskExecutionByIssue(ctx context.Context, arg FailSplitTaskExecutionByIssueParams) (MulticaWorkflowSplitTask, error) {
+	row := q.db.QueryRow(ctx, failSplitTaskExecutionByIssue, arg.LastError, arg.IssueID)
+	var i MulticaWorkflowSplitTask
+	err := row.Scan(
+		&i.ID,
+		&i.NodeRunID,
+		&i.WorkspaceID,
+		&i.Title,
+		&i.Description,
+		&i.DependsOn,
+		&i.SortOrder,
+		&i.Status,
+		&i.IssueID,
+		&i.RunID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.DraftKey,
+		&i.DraftSource,
+		&i.WorkflowID,
+		&i.Version,
+		&i.DispatchKey,
+		&i.LastError,
+		&i.AssigneeType,
+		&i.AssigneeID,
+	)
+	return i, err
+}
+
 const getSplitTask = `-- name: GetSplitTask :one
 SELECT id, node_run_id, workspace_id, title, description, depends_on, sort_order, status, issue_id, run_id, created_at, updated_at, draft_key, draft_source, workflow_id, version, dispatch_key, last_error, assignee_type, assignee_id FROM multica_workflow_split_task
 WHERE id = $1
@@ -328,6 +372,44 @@ func (q *Queries) ListSplitTasksByRunID(ctx context.Context, id pgtype.UUID) ([]
 	return items, nil
 }
 
+const markSplitTaskRunningIfCreated = `-- name: MarkSplitTaskRunningIfCreated :one
+UPDATE multica_workflow_split_task
+SET status = 'running',
+    last_error = NULL,
+    updated_at = now()
+WHERE id = $1
+  AND status = 'created'
+RETURNING id, node_run_id, workspace_id, title, description, depends_on, sort_order, status, issue_id, run_id, created_at, updated_at, draft_key, draft_source, workflow_id, version, dispatch_key, last_error, assignee_type, assignee_id
+`
+
+func (q *Queries) MarkSplitTaskRunningIfCreated(ctx context.Context, id pgtype.UUID) (MulticaWorkflowSplitTask, error) {
+	row := q.db.QueryRow(ctx, markSplitTaskRunningIfCreated, id)
+	var i MulticaWorkflowSplitTask
+	err := row.Scan(
+		&i.ID,
+		&i.NodeRunID,
+		&i.WorkspaceID,
+		&i.Title,
+		&i.Description,
+		&i.DependsOn,
+		&i.SortOrder,
+		&i.Status,
+		&i.IssueID,
+		&i.RunID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.DraftKey,
+		&i.DraftSource,
+		&i.WorkflowID,
+		&i.Version,
+		&i.DispatchKey,
+		&i.LastError,
+		&i.AssigneeType,
+		&i.AssigneeID,
+	)
+	return i, err
+}
+
 const markSplitTasksApproved = `-- name: MarkSplitTasksApproved :exec
 UPDATE multica_workflow_split_task
 SET status = 'approved',
@@ -416,6 +498,50 @@ func (q *Queries) ResetSplitTaskForRetry(ctx context.Context, arg ResetSplitTask
 	return i, err
 }
 
+const retrySplitTaskExecutionByIssue = `-- name: RetrySplitTaskExecutionByIssue :one
+UPDATE multica_workflow_split_task AS st
+SET status = 'running',
+    last_error = NULL,
+    updated_at = now()
+FROM multica_issue AS i
+WHERE st.issue_id = $1
+  AND i.id = st.issue_id
+  AND st.run_id IS NULL
+  AND st.status = 'failed'
+  AND i.assignee_type IS NOT NULL
+  AND i.assignee_id IS NOT NULL
+  AND i.status NOT IN ('done', 'cancelled')
+RETURNING st.id, st.node_run_id, st.workspace_id, st.title, st.description, st.depends_on, st.sort_order, st.status, st.issue_id, st.run_id, st.created_at, st.updated_at, st.draft_key, st.draft_source, st.workflow_id, st.version, st.dispatch_key, st.last_error, st.assignee_type, st.assignee_id
+`
+
+func (q *Queries) RetrySplitTaskExecutionByIssue(ctx context.Context, issueID pgtype.UUID) (MulticaWorkflowSplitTask, error) {
+	row := q.db.QueryRow(ctx, retrySplitTaskExecutionByIssue, issueID)
+	var i MulticaWorkflowSplitTask
+	err := row.Scan(
+		&i.ID,
+		&i.NodeRunID,
+		&i.WorkspaceID,
+		&i.Title,
+		&i.Description,
+		&i.DependsOn,
+		&i.SortOrder,
+		&i.Status,
+		&i.IssueID,
+		&i.RunID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.DraftKey,
+		&i.DraftSource,
+		&i.WorkflowID,
+		&i.Version,
+		&i.DispatchKey,
+		&i.LastError,
+		&i.AssigneeType,
+		&i.AssigneeID,
+	)
+	return i, err
+}
+
 const setSplitTaskAssignee = `-- name: SetSplitTaskAssignee :one
 UPDATE multica_workflow_split_task
 SET assignee_type = $4,
@@ -445,6 +571,49 @@ func (q *Queries) SetSplitTaskAssignee(ctx context.Context, arg SetSplitTaskAssi
 		arg.AssigneeType,
 		arg.AssigneeID,
 	)
+	var i MulticaWorkflowSplitTask
+	err := row.Scan(
+		&i.ID,
+		&i.NodeRunID,
+		&i.WorkspaceID,
+		&i.Title,
+		&i.Description,
+		&i.DependsOn,
+		&i.SortOrder,
+		&i.Status,
+		&i.IssueID,
+		&i.RunID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.DraftKey,
+		&i.DraftSource,
+		&i.WorkflowID,
+		&i.Version,
+		&i.DispatchKey,
+		&i.LastError,
+		&i.AssigneeType,
+		&i.AssigneeID,
+	)
+	return i, err
+}
+
+const setSplitTaskTerminalByIssue = `-- name: SetSplitTaskTerminalByIssue :one
+UPDATE multica_workflow_split_task
+SET status = $2,
+    updated_at = now()
+WHERE issue_id = $1
+  AND run_id IS NULL
+  AND status IN ('created', 'running')
+RETURNING id, node_run_id, workspace_id, title, description, depends_on, sort_order, status, issue_id, run_id, created_at, updated_at, draft_key, draft_source, workflow_id, version, dispatch_key, last_error, assignee_type, assignee_id
+`
+
+type SetSplitTaskTerminalByIssueParams struct {
+	IssueID pgtype.UUID `json:"issue_id"`
+	Status  string      `json:"status"`
+}
+
+func (q *Queries) SetSplitTaskTerminalByIssue(ctx context.Context, arg SetSplitTaskTerminalByIssueParams) (MulticaWorkflowSplitTask, error) {
+	row := q.db.QueryRow(ctx, setSplitTaskTerminalByIssue, arg.IssueID, arg.Status)
 	var i MulticaWorkflowSplitTask
 	err := row.Scan(
 		&i.ID,

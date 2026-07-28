@@ -110,6 +110,49 @@ SET status = $2,
 WHERE id = $1
 RETURNING *;
 
+-- name: MarkSplitTaskRunningIfCreated :one
+UPDATE multica_workflow_split_task
+SET status = 'running',
+    last_error = NULL,
+    updated_at = now()
+WHERE id = $1
+  AND status = 'created'
+RETURNING *;
+
+-- name: SetSplitTaskTerminalByIssue :one
+UPDATE multica_workflow_split_task
+SET status = $2,
+    updated_at = now()
+WHERE issue_id = $1
+  AND run_id IS NULL
+  AND status IN ('created', 'running')
+RETURNING *;
+
+-- name: FailSplitTaskExecutionByIssue :one
+UPDATE multica_workflow_split_task
+SET status = 'failed',
+    last_error = sqlc.arg('last_error')::jsonb,
+    updated_at = now()
+WHERE issue_id = sqlc.arg('issue_id')
+  AND run_id IS NULL
+  AND status IN ('created', 'running')
+RETURNING *;
+
+-- name: RetrySplitTaskExecutionByIssue :one
+UPDATE multica_workflow_split_task AS st
+SET status = 'running',
+    last_error = NULL,
+    updated_at = now()
+FROM multica_issue AS i
+WHERE st.issue_id = sqlc.arg('issue_id')
+  AND i.id = st.issue_id
+  AND st.run_id IS NULL
+  AND st.status = 'failed'
+  AND i.assignee_type IS NOT NULL
+  AND i.assignee_id IS NOT NULL
+  AND i.status NOT IN ('done', 'cancelled')
+RETURNING st.*;
+
 -- name: MarkSplitTasksApproved :exec
 UPDATE multica_workflow_split_task
 SET status = 'approved',
