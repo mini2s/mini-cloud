@@ -171,6 +171,33 @@ func TestCompleteTask_EmptyWorkflowOutputFailsTaskAndNodeRun(t *testing.T) {
 	ctx := context.Background()
 	f := createWorkflowRerunFixture(t, ctx, "empty-output")
 
+	var downstreamNodeID, downstreamNodeRunID string
+	if err := testPool.QueryRow(ctx, `
+		INSERT INTO multica_workflow_node (
+			workflow_id, title, description, worker_type, critic_type, sort_order
+		)
+		VALUES ($1, 'Downstream Node', '', 'human', 'human', 1)
+		RETURNING id
+	`, f.workflowID).Scan(&downstreamNodeID); err != nil {
+		t.Fatalf("create downstream node: %v", err)
+	}
+	if _, err := testPool.Exec(ctx, `
+		INSERT INTO multica_workflow_edge (workflow_id, source_node_id, target_node_id)
+		VALUES ($1, $2, $3)
+	`, f.workflowID, f.nodeID, downstreamNodeID); err != nil {
+		t.Fatalf("create downstream edge: %v", err)
+	}
+	if err := testPool.QueryRow(ctx, `
+		INSERT INTO multica_workflow_node_run (
+			workflow_run_id, workflow_node_id, node_title, status,
+			worker_type, critic_type
+		)
+		VALUES ($1, $2, 'Downstream Node', 'pending', 'human', 'human')
+		RETURNING id
+	`, f.runID, downstreamNodeID).Scan(&downstreamNodeRunID); err != nil {
+		t.Fatalf("create downstream node run: %v", err)
+	}
+
 	taskContext, err := json.Marshal(map[string]any{
 		"type":             "workflow",
 		"workflow_id":      f.workflowID,
@@ -232,6 +259,45 @@ func TestCompleteTask_EmptyWorkflowOutputFailsTaskAndNodeRun(t *testing.T) {
 	}
 	if nodeRunStatus != "failed" {
 		t.Fatalf("node run status = %q, want failed", nodeRunStatus)
+	}
+
+	var downstreamStatus, downstreamFailureReason string
+	var downstreamStartedAt pgtype.Timestamptz
+	if err := testPool.QueryRow(ctx, `
+		SELECT status, COALESCE(failure_reason, ''), started_at
+		FROM multica_workflow_node_run
+		WHERE id = $1
+	`, downstreamNodeRunID).Scan(&downstreamStatus, &downstreamFailureReason, &downstreamStartedAt); err != nil {
+		t.Fatalf("load downstream node run: %v", err)
+	}
+	if downstreamStatus != "cancelled" {
+		t.Fatalf("downstream node run status = %q, want cancelled", downstreamStatus)
+	}
+	if downstreamFailureReason != "workflow_failed" {
+		t.Fatalf("downstream failure reason = %q, want workflow_failed", downstreamFailureReason)
+	}
+	if downstreamStartedAt.Valid {
+		t.Fatalf("downstream node run started at %s, want not started", downstreamStartedAt.Time)
+	}
+
+	var downstreamTaskCount int
+	if err := testPool.QueryRow(ctx, `
+		SELECT count(*) FROM multica_agent_task_queue WHERE workflow_node_run_id = $1
+	`, downstreamNodeRunID).Scan(&downstreamTaskCount); err != nil {
+		t.Fatalf("count downstream tasks: %v", err)
+	}
+	if downstreamTaskCount != 0 {
+		t.Fatalf("downstream task count = %d, want 0", downstreamTaskCount)
+	}
+
+	var runStatus string
+	if err := testPool.QueryRow(ctx, `
+		SELECT status FROM multica_workflow_run WHERE id = $1
+	`, f.runID).Scan(&runStatus); err != nil {
+		t.Fatalf("load workflow run: %v", err)
+	}
+	if runStatus != "failed" {
+		t.Fatalf("workflow run status = %q, want failed", runStatus)
 	}
 }
 
