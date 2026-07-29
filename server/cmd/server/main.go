@@ -360,13 +360,13 @@ func main() {
 	// with the real name/email from the JWT claims. For existing users,
 	// the name and email are kept in sync with Casdoor.
 	subjectResolver := middleware.SubjectResolver(func(ctx context.Context, subjectID, universalID, name, email string) (userID string, err error) {
-		// After resolving the user, asynchronously bind + refresh their dept
-		// identity: activate any pending dept membership (→ the inviting
-		// workspace links to this account) and overwrite their name / org
-		// snapshot from dept-sync (→ repairs placeholder names like a Casdoor
-		// login UUID). This is the path costrict's embedded iframe actually
-		// uses (zgsmAdminToken cookie), so the linking must happen here, not
-		// only in the standalone Casdoor OAuth callback. Throttled per user so
+		// After resolving the user, asynchronously refresh their dept
+		// org snapshot and display name from dept-sync. The universal_id is
+		// passed through only as a transient lookup token (for dept-sync's
+		// GetUserDepartmentsByUniversalID); it is NOT persisted.
+		// This is the path costrict's embedded iframe actually uses
+		// (zgsmAdminToken cookie), so the refresh must happen here, not only
+		// in the standalone Casdoor OAuth callback. Throttled per user so
 		// it doesn't run on every request; detached context so it survives the
 		// response being written.
 		defer func() {
@@ -385,20 +385,14 @@ func main() {
 			go func() {
 				bgCtx, cancel := context.WithTimeout(context.Background(), envDuration("DEPT_LINK_TIMEOUT", 15*time.Second))
 				defer cancel()
-				handler.LinkDeptIdentity(bgCtx, queries, deptSyncClient, bus, uid, uni)
+				handler.LinkDeptIdentity(bgCtx, queries, deptSyncClient, uid, uni)
 			}()
 		}()
-		// Prefer universal_id (stable across identity systems): a cs-user token's
-		// sub is cs-user's own user id, not the local Casdoor sub this account was
-		// originally provisioned under — but universal_id identifies the same
-		// person. Fall back to subject_id when universal_id is absent/unbound.
+		// The embedded SSO JWT "sub" IS the cs-user subject_id, which is
+		// the canonical resolver key. universal_id is passed through only
+		// as a transient dept-sync lookup token and is not persisted.
 		var user db.MulticaUser
-		if universalID != "" {
-			user, err = queries.GetUserByCasdoorUniversalID(ctx, pgtype.Text{String: universalID, Valid: true})
-		}
-		if universalID == "" || err != nil {
-			user, err = queries.GetUserBySubjectID(ctx, pgtype.Text{String: subjectID, Valid: true})
-		}
+		user, err = queries.GetUserBySubjectID(ctx, pgtype.Text{String: subjectID, Valid: true})
 		if err != nil {
 			// Auto-provision: use real name/email from JWT, fall back to placeholders.
 			if name == "" {
@@ -445,18 +439,6 @@ func main() {
 								return "", setErr
 							}
 						}
-						if universalID != "" {
-							if setErr := queries.SetUserCasdoorUniversalID(ctx, db.SetUserCasdoorUniversalIDParams{
-								ID:                 existing.ID,
-								CasdoorUniversalID: pgtype.Text{String: universalID, Valid: true},
-							}); setErr != nil {
-								slog.Warn("casdoor: failed to bind universal_id to adopted user",
-									"user_id", util.UUIDToString(existing.ID),
-									"universal_id", universalID,
-									"error", setErr,
-								)
-							}
-						}
 						slog.Info("casdoor: adopted existing user by email",
 							"user_id", util.UUIDToString(existing.ID),
 							"subject_id", subjectID,
@@ -477,35 +459,9 @@ func main() {
 					"error", setErr,
 				)
 			}
-			if universalID != "" {
-				if setErr := queries.SetUserCasdoorUniversalID(ctx, db.SetUserCasdoorUniversalIDParams{
-					ID:                 user.ID,
-					CasdoorUniversalID: pgtype.Text{String: universalID, Valid: true},
-				}); setErr != nil {
-					slog.Warn("failed to bind casdoor universal_id to auto-provisioned user",
-						"user_id", util.UUIDToString(user.ID),
-						"universal_id", universalID,
-						"error", setErr,
-					)
-				}
-			}
 			slog.Info("casdoor: auto-provisioned user", "user_id", util.UUIDToString(user.ID), "subject_id", subjectID, "name", name)
 			return util.UUIDToString(user.ID), nil
 		}
-		if universalID != "" && (!user.CasdoorUniversalID.Valid || user.CasdoorUniversalID.String != universalID) {
-			if setErr := queries.SetUserCasdoorUniversalID(ctx, db.SetUserCasdoorUniversalIDParams{
-				ID:                 user.ID,
-				CasdoorUniversalID: pgtype.Text{String: universalID, Valid: true},
-			}); setErr != nil {
-				slog.Warn("failed to sync casdoor universal_id",
-					"user_id", util.UUIDToString(user.ID),
-					"subject_id", subjectID,
-					"universal_id", universalID,
-					"error", setErr,
-				)
-			}
-		}
-
 		// Existing user: sync email if it changed in Casdoor. The display
 		// name is intentionally NOT synced from Casdoor here — for
 		// phone-registered accounts the Casdoor "name" is a placeholder UUID,
