@@ -2,7 +2,8 @@
 -- Seed the "CosPower 全链路研发" workflow template.
 -- 4 stages group the 6 CosPower plugins / role agents:
 --   需求分析(产品经理) | 方案设计(架构师+任务拆解) | TDD编码(研发+测试) | 集成验证(DevOps)
--- 技术负责人 is the critic on every node.
+-- 技术负责人 is the critic on every regular node. The Task Split reviewer is
+-- assigned to the workflow creator when an instance is cloned.
 -- multica_workflow.workspace_id is NOT NULL but ListTemplates is global, so
 -- the template is parked under a dedicated __system_templates__ workspace.
 
@@ -57,13 +58,11 @@ BEGIN
     RETURNING id INTO v_n2;
 
     -- 任务拆解 is a Task Split node: 产品经理 drafts the child task plan,
-    -- 技术负责人 reviews it, each approved child task spawns its own issue.
-    -- default_issue_workflow_id is intentionally NULL here — it is configured
-    -- per workspace when an instance is created from this template.
+    -- the workflow creator reviews it, and each approved child task spawns its own issue.
     INSERT INTO multica_workflow_node (workflow_id, stage_id, title, description, position_x, position_y, format_schema, worker_type, worker_id, critic_type, critic_id, sort_order)
     VALUES (c_workflow_id, v_s2, '任务拆解', '拆分可执行子任务，明确依赖与排期', 450, 300,
-        '{"type":"split","shape":"rectangle","template_id":"task-splitter","template_category":"logic","split_config":{"default_issue_workflow_id":null,"mode":"barrier","max_concurrency":5,"max_failures":0}}'::jsonb,
-        'agent', c_pmgr, 'agent', c_tl, 1)
+        '{"type":"split","shape":"rectangle","template_id":"task-splitter","template_category":"logic","split_config":{"mode":"barrier","max_concurrency":5,"max_failures":0}}'::jsonb,
+        'agent', c_pmgr, 'human', NULL, 1)
     RETURNING id INTO v_n3;
 
     -- 阶段3: TDD 编码 + 测试生成

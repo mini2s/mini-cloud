@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/multica-ai/multica/server/internal/util"
+	"github.com/multica-ai/multica/server/internal/workflowmeta"
 	db "github.com/multica-ai/multica/server/pkg/db/generated"
 )
 
@@ -282,6 +283,61 @@ func TestCloneWorkflowFromTemplate(t *testing.T) {
 	pool.Exec(context.Background(), `DELETE FROM multica_workflow_edge WHERE workflow_id = $1`, cloned.ID)
 	pool.Exec(context.Background(), `DELETE FROM multica_workflow_node WHERE workflow_id = $1`, cloned.ID)
 	pool.Exec(context.Background(), `DELETE FROM multica_workflow WHERE id = $1`, cloned.ID)
+}
+
+func TestCloneWorkflowFromTemplateDefaultsSplitReviewerToCreator(t *testing.T) {
+	pool := openTestPool(t)
+	defer pool.Close()
+
+	wsID, tmplID := setupTemplateFixtures(t, pool)
+	if _, err := pool.Exec(context.Background(), `
+		UPDATE multica_workflow_node
+		SET format_schema = '{"type":"split","shape":"rectangle","template_id":"task-splitter","template_category":"logic","split_config":{"mode":"barrier","max_concurrency":5,"max_failures":0}}'::jsonb,
+		    critic_type = 'human',
+		    critic_id = NULL
+		WHERE workflow_id = $1 AND title = 'Node 2'
+	`, tmplID); err != nil {
+		t.Fatalf("configure split template node: %v", err)
+	}
+
+	creatorID := testUUID(98)
+	creatorID.Valid = true
+	svc := NewWorkflowService(db.New(pool), pool, nil, nil)
+
+	cloned, clonedNodes, _, err := svc.CloneWorkflowFromTemplate(
+		context.Background(),
+		tmplID,
+		wsID,
+		"Cloned Split Workflow",
+		"A cloned workflow with a task split",
+		"member",
+		creatorID,
+	)
+	if err != nil {
+		t.Fatalf("CloneWorkflowFromTemplate: %v", err)
+	}
+	t.Cleanup(func() {
+		pool.Exec(context.Background(), `DELETE FROM multica_workflow_edge WHERE workflow_id = $1`, cloned.ID)
+		pool.Exec(context.Background(), `DELETE FROM multica_workflow_node WHERE workflow_id = $1`, cloned.ID)
+		pool.Exec(context.Background(), `DELETE FROM multica_workflow WHERE id = $1`, cloned.ID)
+	})
+
+	for _, node := range clonedNodes {
+		if workflowmeta.KindOf(node.FormatSchema) != workflowmeta.KindSplit {
+			continue
+		}
+		if node.CriticType != "human" {
+			t.Fatalf("split critic_type = %q, want human", node.CriticType)
+		}
+		if node.CriticID != creatorID {
+			t.Fatalf("split critic_id = %s, want creator %s", util.UUIDToString(node.CriticID), util.UUIDToString(creatorID))
+		}
+		if node.CriticRoleID.Valid || node.CriticApiUrl.Valid {
+			t.Fatal("split reviewer must not retain a template role or API critic")
+		}
+		return
+	}
+	t.Fatal("cloned workflow has no task split node")
 }
 
 func TestStartRunRejectsTemplate(t *testing.T) {
