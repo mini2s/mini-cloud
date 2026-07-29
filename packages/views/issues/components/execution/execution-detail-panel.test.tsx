@@ -96,6 +96,22 @@ vi.mock("@multica/core/workflows/queries", () => ({
     queryKey: ["workflows", "node-runs", nodeRunId, "deliverables"],
     queryFn: () => [],
   }),
+  useSubmitNodeRun: () => ({
+    mutate: vi.fn(),
+    isPending: false,
+    isError: false,
+    error: null,
+  }),
+  useSkipNodeRun: () => ({
+    mutate: vi.fn(),
+    isPending: false,
+    isError: false,
+    error: null,
+  }),
+}));
+
+vi.mock("../../../workflows/components/node-run-control-actions", () => ({
+  NodeRunControlActions: () => null,
 }));
 
 vi.mock("@multica/core/chat", () => ({
@@ -218,6 +234,16 @@ vi.mock("@multica/views/i18n", () => ({
               unblock: "Unblock",
               retry: "Retry",
               review_comment: "Review Comment",
+              review_comment_required: "Please add a review comment",
+              execution_summary: "Execution summary",
+              execution_summary_placeholder: "Optional: briefly describe the completed work",
+              submit_result: "Submit result",
+              submitting_result: "Submitting...",
+              skip_node: "Skip node",
+              skip_dialog_title: "Skip this node?",
+              skip_dialog_description: "This node will be marked as skipped.",
+              skip_dialog_cancel: "Cancel",
+              skip_dialog_confirm: "Confirm skip",
               open_session: "Open session",
             },
           },
@@ -887,6 +913,8 @@ describe("ExecutionDetailPanel", () => {
         wsId="ws-1"
         workflowId="wf-1"
         runId="wr1"
+        currentUserId="user-1"
+        currentMember={{ role: "member", status: "active" }}
       />,
     );
 
@@ -916,10 +944,56 @@ describe("ExecutionDetailPanel", () => {
         wsId="ws-1"
         workflowId="wf-1"
         runId="wr1"
+        currentUserId="user-1"
+        currentMember={{ role: "member", status: "active" }}
       />,
     );
 
     expect(screen.getByRole("button", { name: "Approve" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Reject" })).toBeInTheDocument();
+  });
+
+  it("renders the human submit action for the assigned worker", () => {
+    render(
+      <ExecutionDetailPanel
+        node={{ ...node, worker_type: "human", worker_id: "user-1" }}
+        nodeRun={{ ...run, status: "worker_assigned", worker_type: "human", worker_id: "user-1" }}
+        workerName="Worker"
+        criticName="Reviewer"
+        onClose={vi.fn()}
+        wsId="ws-1"
+        workflowId="wf-1"
+        runId="wr1"
+        currentUserId="user-1"
+        currentMember={{ role: "member", status: "active" }}
+      />,
+    );
+
+    expect(screen.getByRole("button", { name: "Submit result" })).toBeInTheDocument();
+  });
+
+  it("does not render review actions for another member", () => {
+    render(
+      <ExecutionDetailPanel
+        node={{ ...node, critic_type: "human", critic_id: "user-2" }}
+        nodeRun={{
+          ...run,
+          status: "critic_reviewing",
+          critic_type: "human",
+          critic_id: "user-2",
+        }}
+        workerName="Worker"
+        criticName="Reviewer"
+        onClose={vi.fn()}
+        wsId="ws-1"
+        workflowId="wf-1"
+        runId="wr1"
+        currentUserId="user-3"
+        currentMember={{ role: "member", status: "active" }}
+      />,
+    );
+
+    expect(screen.queryByRole("button", { name: "Approve" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Reject" })).not.toBeInTheDocument();
   });
 });

@@ -27,6 +27,7 @@ import {
   workflowKeys,
 } from "@multica/core/workflows/queries";
 import { useWorkspacePaths } from "@multica/core/paths";
+import { useAuthStore } from "@multica/core/auth";
 import { api } from "@multica/core/api";
 import { useChatStore } from "@multica/core/chat";
 import { chatSessionsOptions } from "@multica/core/chat/queries";
@@ -652,6 +653,7 @@ export function ExecutionPanoramaPage({
   const navigation = useNavigation();
   const { t } = useT("issues");
   const { t: tWf } = useT("workflows");
+  const user = useAuthStore((state) => state.user);
   // ---- Data queries ----
   const { data: canvasSummary, isLoading: canvasSummaryLoading } = useQuery({
     ...workflowRunCanvasSummaryOptions(wsId, workflowId, runId ?? ""),
@@ -684,6 +686,7 @@ export function ExecutionPanoramaPage({
   const { data: agents } = useQuery(agentListOptions(wsId));
   const { data: workflowRoles = [] } = useQuery(workflowRolesOptions(wsId));
   const { data: members = [] } = useQuery(memberListOptions(wsId));
+  const currentMember = members.find((member) => member.user_id === user?.id) ?? null;
   const { data: roleResolutions = [] } = useQuery({
     ...workflowRoleResolutionsOptions(wsId, workflowId, runId ?? ""),
     enabled: !!runId,
@@ -1511,6 +1514,10 @@ export function ExecutionPanoramaPage({
             issueId={issueId}
             workflowId={workflowId}
             runId={runId}
+            currentUserId={user?.id ?? null}
+            currentMember={currentMember
+              ? { role: currentMember.role, status: currentMember.status }
+              : null}
             runtimeSummary={selectedRuntimeSummary}
             onOpenIssue={
               selectedChildDetail

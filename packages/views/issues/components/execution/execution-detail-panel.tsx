@@ -49,6 +49,11 @@ import {
   type TimelineItem,
 } from "../../../common/task-transcript";
 import { resolveChatSessionId } from "../../../chat/lib/resolve-chat-session-id";
+import {
+  getHumanNodeRunActionAccess,
+  type HumanActionMember,
+} from "./node-run-action-access";
+import { NodeRunActionPanel } from "./node-run-action-panel";
 
 export interface ExecutionDetailPanelProps {
   node: WorkflowNode;
@@ -67,6 +72,8 @@ export interface ExecutionDetailPanelProps {
   childAssigneeName?: string | null;
   workflowId?: string;
   runId?: string | null;
+  currentUserId?: string | null;
+  currentMember?: HumanActionMember | null;
 }
 
 function gatewayLabel(kind: "fork" | "join" | null): string {
@@ -170,6 +177,8 @@ export function ExecutionDetailPanel({
   childAssigneeName,
   workflowId,
   runId,
+  currentUserId,
+  currentMember,
 }: ExecutionDetailPanelProps) {
   const { t } = useT("issues");
   const [showEvidence, setShowEvidence] = useState(false);
@@ -266,10 +275,14 @@ export function ExecutionDetailPanel({
   const canOpenSession = !isGateway && (!!sessionId || !!transcriptTask);
   const canUnblock = !isGateway && status === "blocked" && !!onUnblock;
   const canRetry = !isGateway && isRetryableNodeRunStatus(status) && !!onRetry;
-  const canReview =
-    !isGateway &&
-    (nodeRun?.status === "awaiting_critic" || nodeRun?.status === "critic_reviewing") &&
-    (nodeRun.critic_type === "human" || node.critic_type === "human");
+  const actionAccess = nodeRun
+    ? getHumanNodeRunActionAccess({
+        nodeRun,
+        userId: currentUserId ?? null,
+        member: currentMember ?? null,
+      })
+    : null;
+  const canReview = !isGateway && actionAccess?.canReview === true;
 
   // A review decision must carry a comment — it is archived to Gitea as the
   // reviewer's opinion, so an empty one is rejected at the UI boundary.
@@ -598,6 +611,15 @@ export function ExecutionDetailPanel({
                   </button>
                 </div>
               </div>
+            ) : null}
+            {nodeRun && actionAccess ? (
+              <NodeRunActionPanel
+                nodeRun={nodeRun}
+                access={actionAccess}
+                wsId={wsId}
+                workflowId={workflowId}
+                runId={runId ?? undefined}
+              />
             ) : null}
           </div>
         ) : (
