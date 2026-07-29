@@ -242,7 +242,7 @@ describe("RuntimeNodeCard", () => {
         criticName={null}
         childIssueSummary={{
           identifier: "MUL-580",
-          workflowName: "Implementation workflow",
+          assigneeName: "Implementation workflow",
           progressLabel: "Waiting for MUL-579 to complete",
         }}
         onClick={vi.fn()}

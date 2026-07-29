@@ -105,8 +105,11 @@ pnpm --filter @multica/views exec vitest run auth/login-page.test.tsx
 pnpm --filter @multica/core exec vitest run runtimes/version.test.ts
 pnpm --filter @multica/web exec vitest run app/\(auth\)/login/page.test.tsx
 
-# Run a single Go test
+# Run a single Go test without database fixtures
 cd server && go test ./internal/handler/ -run TestName
+
+# Database-backed targeted Go tests require the isolated Docker test DB.
+# See "Database-backed Go tests" below; direct go test does not load .env.
 
 # Run a single E2E test (requires backend + frontend running)
 pnpm exec playwright test e2e/tests/specific-test.spec.ts
@@ -307,6 +310,39 @@ All test deps are in the pnpm catalog for unified versioning.
 ### Go tests
 
 Standard `go test`. Tests should create their own fixture data in a test database.
+
+#### Database-backed Go tests
+
+PostgreSQL runs in Docker and the active repository env file (`.env` for the main checkout, `.env.worktree` for a worktree) is the source of truth for its credentials, port, and database name.
+
+`make test` is the canonical full Go test command. It starts/checks PostgreSQL, creates `${POSTGRES_DB}_test` when needed, migrates it, and exports that isolated database as `DATABASE_URL` before running tests. The development database is not touched.
+
+Direct `go test` does **not** load the repository env file. Database-backed tests may otherwise fall back to hard-coded defaults, fail authentication, or skip with messages such as `database not reachable` or `testPool not initialized`. A skipped integration test is not behavior verification even when `go test` exits successfully.
+
+For a targeted database-backed test in PowerShell, run from the repository root:
+
+```powershell
+# Load simple KEY=VALUE entries from the active env file.
+$multicaEnvFile = if (Test-Path .env.worktree) { ".env.worktree" } else { ".env" }
+Get-Content $multicaEnvFile | ForEach-Object {
+  if ($_ -match '^(?<key>[^#=]+)=(?<value>.*)$') {
+    Set-Item -Path "env:$($Matches.key.Trim())" -Value $Matches.value.Trim()
+  }
+}
+
+$multicaTestDb = if ($env:TEST_DB) { $env:TEST_DB } else { "$($env:POSTGRES_DB)_test" }
+$env:DATABASE_URL = if ($env:TEST_DATABASE_URL) {
+  $env:TEST_DATABASE_URL
+} else {
+  "postgres://$($env:POSTGRES_USER):$($env:POSTGRES_PASSWORD)@localhost:$($env:POSTGRES_PORT)/${multicaTestDb}?sslmode=disable"
+}
+
+Set-Location server
+go run ./cmd/migrate up
+go test ./internal/handler -run 'TestName'
+```
+
+Before trusting the result, inspect verbose output when necessary (`go test -v ...`) and confirm the intended tests actually ran rather than skipped. Never set `DATABASE_URL` to the development database when running handler or service fixtures.
 
 ### E2E tests
 

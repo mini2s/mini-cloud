@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { AgentRuntime } from "@multica/core/types";
 import {
   buildRuntimeMachines,
+  DEFAULT_RUNTIME_MACHINE_FILTER,
   filterRuntimeMachines,
   filterRuntimesByProviders,
   runtimeMachineCounts,
@@ -32,6 +33,10 @@ function makeRuntime(overrides: Partial<AgentRuntime> = {}): AgentRuntime {
 }
 
 describe("runtime machine grouping", () => {
+  it("defaults the runtime menu to online machines", () => {
+    expect(DEFAULT_RUNTIME_MACHINE_FILTER).toBe("online");
+  });
+
   it("filters runtimes to the providers visible on the current platform", () => {
     const runtimes = [
       makeRuntime({ id: "rt-csc", provider: "csc" }),

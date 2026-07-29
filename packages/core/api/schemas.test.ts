@@ -101,6 +101,26 @@ describe("IssueSchema (via ListIssuesResponseSchema)", () => {
 });
 
 describe("split API response schemas", () => {
+	it("parses split task assignees and tolerates older responses", () => {
+		const current = SplitTasksResponseSchema.parse({
+			tasks: [{
+				id: "task-1",
+				node_run_id: "nr-1",
+				assignee_type: "squad",
+				assignee_id: "squad-1",
+				workflow_id: null,
+			}],
+		});
+		expect(current.tasks[0]).toMatchObject({ assignee_type: "squad", assignee_id: "squad-1" });
+
+		const old = SplitTasksResponseSchema.parse({ tasks: [{ id: "task-2", node_run_id: "nr-1" }] });
+		expect(old.tasks[0]).toMatchObject({ assignee_type: null, assignee_id: null, workflow_id: null });
+	});
+
+	it("falls back when split tasks is null", () => {
+		expect(SplitTasksResponseSchema.parse({ tasks: null }).tasks).toEqual([]);
+	});
+
   it("parses split config versions and draft provenance", () => {
     const nodeRun = WorkflowNodeRunSchema.parse({
       id: "nr-1",
@@ -169,8 +189,8 @@ describe("split API response schemas", () => {
   };
 
   it.each([
-    ["workflow_id", { ...validTask, workflow_id: null }],
-    ["draft_key", { ...validTask, draft_key: 42 }],
+		["assignee_type", { ...validTask, assignee_type: "future-assignee" }],
+		["draft_key", { ...validTask, draft_key: 42 }],
   ])("falls back when split task %s is malformed", (_field, task) => {
     const parsed = parseWithFallback(
       { tasks: [task] },
@@ -206,7 +226,9 @@ describe("split API response schemas", () => {
   it("defaults missing additive split task fields", () => {
     const { workflow_id: _a, issue_id: _b, run_id: _c, depends_on: _d, last_error: _e, version: _f, ...partial } = validTask;
     const parsed = SplitTasksResponseSchema.parse({ tasks: [partial] });
-    expect(parsed.tasks[0]?.workflow_id).toBe("");
+		expect(parsed.tasks[0]?.workflow_id).toBeNull();
+		expect(parsed.tasks[0]?.assignee_type).toBeNull();
+		expect(parsed.tasks[0]?.assignee_id).toBeNull();
     expect(parsed.tasks[0]?.draft_key).toBeNull();
     expect(parsed.tasks[0]?.draft_source).toBe("agent");
     expect(parsed.tasks[0]?.issue_id).toBeNull();

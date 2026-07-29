@@ -62,6 +62,13 @@ export function agentListOptions(wsId: string) {
     queryKey: workspaceKeys.agents(wsId),
     queryFn: () =>
       api.listAgents({ workspace_id: wsId, include_archived: true }),
+    select: (agents: Agent[]) => {
+      const uniqueAgents = new Map<string, Agent>();
+      for (const agent of agents) {
+        if (!uniqueAgents.has(agent.id)) uniqueAgents.set(agent.id, agent);
+      }
+      return Array.from(uniqueAgents.values());
+    },
   });
 }
 

@@ -179,16 +179,16 @@ function splitTaskProgressLabel(
 ): string {
   switch (task.status) {
     case "running":
-      return t(($) => $.execution.card.child_workflow_running);
+      return t(($) => $.execution.card.child_running);
     case "done":
-      return t(($) => $.execution.card.child_workflow_completed);
+      return t(($) => $.execution.card.child_completed);
     case "cancelled":
     case "discarded":
-      return t(($) => $.execution.card.child_workflow_cancelled);
+      return t(($) => $.execution.card.child_cancelled);
     case "failed":
-      return task.last_error?.message || t(($) => $.execution.card.child_workflow_failed);
+      return task.last_error?.message || t(($) => $.execution.card.child_failed);
     case "skipped":
-      return t(($) => $.execution.card.child_workflow_skipped);
+      return t(($) => $.execution.card.child_skipped);
     case "created":
     case "approved": {
       const hasUnfinishedDependency = task.depends_on.some(
@@ -196,11 +196,11 @@ function splitTaskProgressLabel(
       );
       return hasUnfinishedDependency
         ? t(($) => $.execution.card.child_waiting_dependencies)
-        : t(($) => $.execution.card.child_waiting_workflow);
+        : t(($) => $.execution.card.child_waiting_start);
     }
     case "draft":
     default:
-      return t(($) => $.execution.card.child_waiting_workflow);
+      return t(($) => $.execution.card.child_waiting_start);
   }
 }
 
@@ -225,8 +225,10 @@ function runtimeDisplayStatusText(t: IssueTranslator, status: WorkflowRuntimeDis
   }
 }
 
-function splitTaskWorkerType(task: SplitTask): WorkerType {
-  return task.workflow_id ? "agent" : "human";
+function splitTaskWorkerType(assigneeType: string | null): WorkerType {
+  if (assigneeType === "agent" || assigneeType === "squad") return assigneeType;
+  if (assigneeType === "workflow") return "agent";
+  return "human";
 }
 
 function createSplitChildNodeId(parentNodeId: string, taskId: string): string {
@@ -712,6 +714,7 @@ export function ExecutionPanoramaPage({
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [viewport, setViewport] = useState<Viewport>({ x: 0, y: 24, zoom: 0.95 });
   const [retryingNodeRunId, setRetryingNodeRunId] = useState<string | null>(null);
+  const [splitDraftSelectionsByNodeRunId, setSplitDraftSelectionsByNodeRunId] = useState<Record<string, string[]>>({});
   const [expandedSplitNodeIds, setExpandedSplitNodeIds] = useState<Set<string>>(() => new Set());
   const [focusSplitNodeId, setFocusSplitNodeId] = useState<string | null>(null);
   const splitViewportByNodeIdRef = useRef<Map<string, Viewport>>(new Map());
@@ -815,9 +818,9 @@ export function ExecutionPanoramaPage({
   const deliverableNodeEntries = useMemo(
     () => allNodes.filter((node) => {
       const kind = parseNodeFormat(node.format_schema).kind;
-      return kind !== "gateway" && kind !== "split";
+      return kind !== "gateway" && kind !== "split" && nodeRunMap.has(node.id);
     }),
-    [allNodes],
+    [allNodes, nodeRunMap],
   );
   const deliverableSubmissionQueries = useQueries({
     queries: deliverableNodeEntries.map((node) => {
@@ -939,8 +942,8 @@ export function ExecutionPanoramaPage({
     return map;
   }, [splitWorkflowOptions]);
 
-  const childIssueIdentifierById = useMemo(
-    () => new Map(childIssues.map((childIssue) => [childIssue.id, childIssue.identifier])),
+  const childIssueById = useMemo(
+    () => new Map(childIssues.map((childIssue) => [childIssue.id, childIssue])),
     [childIssues],
   );
 
@@ -954,8 +957,11 @@ export function ExecutionPanoramaPage({
     if (type === "squad") {
       return squadLookup.get(id)?.name ?? null;
     }
+    if (type === "workflow") {
+      return splitWorkflowLookup.get(id)?.title ?? null;
+    }
     return null;
-  }, [agentLookup, memberLookup, squadLookup]);
+  }, [agentLookup, memberLookup, splitWorkflowLookup, squadLookup]);
 
   const buildConcreteActorIdentity = useCallback((
     type: WorkerType | CriticType | string | null | undefined,
@@ -1280,6 +1286,13 @@ export function ExecutionPanoramaPage({
       group.forEach((task, index) => {
         const childNodeId = createSplitChildNodeId(splitNode.id, task.id);
         const issueId = task.issue_id!;
+        const linkedIssue = childIssueById.get(issueId);
+        const assigneeType = linkedIssue?.assignee_type !== undefined
+          ? linkedIssue.assignee_type
+          : task.assignee_type ?? (task.workflow_id ? "workflow" : null);
+        const assigneeId = linkedIssue?.assignee_id !== undefined
+          ? linkedIssue.assignee_id
+          : task.assignee_id ?? task.workflow_id;
         const displayStatus = splitTaskDisplayStatus(task.status);
         const childWorkflowNode = {
           id: childNodeId,
@@ -1289,8 +1302,8 @@ export function ExecutionPanoramaPage({
           position_x: 0,
           position_y: 0,
           format_schema: null,
-          worker_type: splitTaskWorkerType(task),
-          worker_id: task.workflow_id,
+          worker_type: splitTaskWorkerType(assigneeType),
+          worker_id: assigneeId,
           critic_type: "human",
           critic_id: null,
           critic_api_url: null,
@@ -1303,8 +1316,8 @@ export function ExecutionPanoramaPage({
           workflow_node_id: childNodeId,
           node_run_id: task.run_id ?? task.id,
           display_status: displayStatus,
-          active_actor_type: "workflow",
-          active_actor_id: task.workflow_id,
+          active_actor_type: assigneeType ?? "",
+          active_actor_id: assigneeId,
           duration_seconds: null,
           session_id: null,
           runtime_id: null,
@@ -1313,10 +1326,10 @@ export function ExecutionPanoramaPage({
           error_message: "",
           split_progress: null,
         } satisfies WorkflowNodeRuntimeSummary;
-        const childWorkerName = task.workflow_id
-          ? splitWorkflowLookup.get(task.workflow_id)?.title ?? task.workflow_id
+        const childWorkerName = assigneeType && assigneeId
+          ? getActorName(assigneeType, assigneeId) ?? assigneeId
           : null;
-        const issueIdentifier = childIssueIdentifierById.get(issueId)
+        const issueIdentifier = linkedIssue?.identifier
           ?? t(($) => $.execution.card.child_issue_fallback);
         const progressLabel = splitTaskProgressLabel(t, task, taskMap);
 
@@ -1489,8 +1502,15 @@ export function ExecutionPanoramaPage({
             wsId={wsId}
             workflowId={workflowId}
             runId={runId ?? undefined}
-						plannerName={selectedWorkerName ?? undefined}
+            plannerName={selectedWorkerName ?? undefined}
             parentIssueId={issueId}
+            selectedDraftTaskIds={selectedRun ? splitDraftSelectionsByNodeRunId[selectedRun.id] : undefined}
+            onSelectedDraftTaskIdsChange={selectedRun ? (taskIds) => {
+              setSplitDraftSelectionsByNodeRunId((current) => ({
+                ...current,
+                [selectedRun.id]: taskIds,
+              }));
+            } : undefined}
             onClose={() => setSelectedNodeId(null)}
           />
         ) : (
@@ -1519,7 +1539,7 @@ export function ExecutionPanoramaPage({
             }
             isChildIssue={Boolean(selectedChildDetail)}
             parentSplitTitle={selectedChildParentTitle}
-            childWorkflowName={selectedChildDetail?.workerName ?? null}
+            childAssigneeName={selectedChildDetail?.workerName ?? null}
             onRetry={
               selectedRun && isRetryableSelectedRun && retryingNodeRunId !== selectedRun.id
                 ? () => void handleRetryNodeRun(selectedRun)
