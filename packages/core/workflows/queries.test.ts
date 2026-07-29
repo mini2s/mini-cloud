@@ -13,16 +13,32 @@ import {
   workflowRunCanvasDefinition,
   useBatchPatchSplitTaskAssignees,
   usePatchSplitTaskAssignee,
+  useSkipNodeRun,
+  useSubmitNodeRun,
 } from "./queries";
 
-const { batchPatchSplitTaskAssignees, listWorkflows, patchSplitTaskAssignee } = vi.hoisted(() => ({
+const {
+  batchPatchSplitTaskAssignees,
+  listWorkflows,
+  patchSplitTaskAssignee,
+  skipNodeRun,
+  submitNodeRun,
+} = vi.hoisted(() => ({
   batchPatchSplitTaskAssignees: vi.fn(),
   listWorkflows: vi.fn(),
   patchSplitTaskAssignee: vi.fn(),
+  skipNodeRun: vi.fn(),
+  submitNodeRun: vi.fn(),
 }));
 
 vi.mock("../api", () => ({
-  api: { batchPatchSplitTaskAssignees, listWorkflows, patchSplitTaskAssignee },
+  api: {
+    batchPatchSplitTaskAssignees,
+    listWorkflows,
+    patchSplitTaskAssignee,
+    skipNodeRun,
+    submitNodeRun,
+  },
 }));
 
 const activeInstance = {
@@ -111,6 +127,72 @@ describe("workflow split query keys", () => {
     expect(batchPatchSplitTaskAssignees).toHaveBeenCalledWith("node-run-1", request);
     expect(queryClient.getQueryData(workflowKeys.splitTasks("ws-1", "node-run-1"))).toEqual(response);
     expect(invalidate).toHaveBeenCalledWith({ queryKey: workflowKeys.splitTasks("ws-1", "node-run-1") });
+  });
+});
+
+describe("node run mutations", () => {
+  function setupMutationTest() {
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+    const invalidate = vi.spyOn(queryClient, "invalidateQueries");
+    const wrapper = ({ children }: PropsWithChildren) =>
+      createElement(QueryClientProvider, { client: queryClient }, children);
+
+    return { invalidate, wrapper };
+  }
+
+  it("invalidates run surfaces after submitting a node run", async () => {
+    const { invalidate, wrapper } = setupMutationTest();
+    submitNodeRun.mockResolvedValue({});
+    const { result } = renderHook(() => useSubmitNodeRun("ws-1"), { wrapper });
+
+    await act(async () => {
+      await result.current.mutateAsync({
+        nodeRunId: "nr-1",
+        output: { summary: "done" },
+        workflowId: "wf-1",
+        runId: "run-1",
+      });
+    });
+
+    expect(submitNodeRun).toHaveBeenCalledWith("nr-1", { summary: "done" });
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: workflowKeys.myTasks("ws-1") });
+    expect(invalidate).toHaveBeenCalledWith({
+      queryKey: workflowKeys.run("ws-1", "wf-1", "run-1"),
+    });
+    expect(invalidate).toHaveBeenCalledWith({
+      queryKey: workflowKeys.nodeRuns("ws-1", "wf-1", "run-1"),
+    });
+    expect(invalidate).toHaveBeenCalledWith({
+      queryKey: workflowKeys.runCanvasSummary("ws-1", "wf-1", "run-1"),
+    });
+  });
+
+  it("invalidates run surfaces after skipping a node run", async () => {
+    const { invalidate, wrapper } = setupMutationTest();
+    skipNodeRun.mockResolvedValue({});
+    const { result } = renderHook(() => useSkipNodeRun("ws-1"), { wrapper });
+
+    await act(async () => {
+      await result.current.mutateAsync({
+        nodeRunId: "nr-1",
+        workflowId: "wf-1",
+        runId: "run-1",
+      });
+    });
+
+    expect(skipNodeRun).toHaveBeenCalledWith("nr-1");
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: workflowKeys.myTasks("ws-1") });
+    expect(invalidate).toHaveBeenCalledWith({
+      queryKey: workflowKeys.run("ws-1", "wf-1", "run-1"),
+    });
+    expect(invalidate).toHaveBeenCalledWith({
+      queryKey: workflowKeys.nodeRuns("ws-1", "wf-1", "run-1"),
+    });
+    expect(invalidate).toHaveBeenCalledWith({
+      queryKey: workflowKeys.runCanvasSummary("ws-1", "wf-1", "run-1"),
+    });
   });
 });
 
