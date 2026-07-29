@@ -2,6 +2,7 @@ package handler
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -78,7 +79,7 @@ func (f fakeCsUserClient) SearchUsers(_ context.Context, _ string, _ int) ([]csu
 func (f fakeCsUserClient) GetUser(_ context.Context, subjectID string) (csuser.User, error) {
 	u, ok := f.users[subjectID]
 	if !ok {
-		return csuser.User{}, nil // empty user means "not found" — caller should skip
+		return csuser.User{}, fmt.Errorf("cs-user not found: %s", subjectID)
 	}
 	return u, nil
 }

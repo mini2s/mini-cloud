@@ -3,6 +3,7 @@ package handler
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strings"
 
@@ -58,6 +59,7 @@ func (h *Handler) BatchAddDeptMembers(w http.ResponseWriter, r *http.Request) {
 		Name      string
 		Email     string
 		UnivID    string
+		Org       deptOrgSnapshot
 	}
 	resolvedRefs := make([]resolved, 0, len(req.Users))
 	seen := map[string]struct{}{}
@@ -75,7 +77,11 @@ func (h *Handler) BatchAddDeptMembers(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		seen[sid] = struct{}{}
-		resolvedRefs = append(resolvedRefs, resolved{SubjectID: sid, Name: u.Name(), Email: u.EmailOrEmpty(), UnivID: u.UniversalID()})
+		univID := u.UniversalID()
+		resolvedRefs = append(resolvedRefs, resolved{
+			SubjectID: sid, Name: u.Name(), Email: u.EmailOrEmpty(), UnivID: univID,
+			Org: h.resolveDeptOrgSnapshot(r.Context(), univID),
+		})
 	}
 
 	tx, err := h.TxStarter.Begin(r.Context())
@@ -114,7 +120,7 @@ func (h *Handler) BatchAddDeptMembers(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		org := h.resolveDeptOrgSnapshot(r.Context(), rr.UnivID)
+		org := rr.Org
 		if _, err := qtx.UpsertDeptMember(r.Context(), db.UpsertDeptMemberParams{
 			WorkspaceID:      requester.WorkspaceID,
 			UserID:           userID,
@@ -139,6 +145,8 @@ func (h *Handler) BatchAddDeptMembers(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Gitea org-membership sync for added members is wired in a follow-up
+	// (SyncMembers on add/remove via cs-user subject_id); not triggered here.
 	if added > 0 {
 		h.publish(protocol.EventMemberUpdated, uuidToString(requester.WorkspaceID), "member", requestUserID(r), map[string]any{
 			"workspace_id": uuidToString(requester.WorkspaceID),
@@ -172,6 +180,8 @@ func (h *Handler) resolveOrCreateUserBySubjectID(ctx context.Context, qtx *db.Qu
 					if setErr := qtx.SetUserSubjectID(ctx, db.SetUserSubjectIDParams{ID: existing.ID, SubjectID: pgtype.Text{String: subjectID, Valid: true}}); setErr != nil {
 						return pgtype.UUID{}, setErr
 					}
+				} else if existing.SubjectID.String != subjectID {
+					return pgtype.UUID{}, fmt.Errorf("email %q is already bound to a different subject_id", email)
 				}
 				return existing.ID, nil
 			}
