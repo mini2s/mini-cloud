@@ -168,7 +168,10 @@ func (h *Handler) resolveOrCreateUserBySubjectID(ctx context.Context, qtx *db.Qu
 		name = "csuser-" + subjectID
 	}
 	if strings.TrimSpace(email) == "" {
-		email = subjectID + "@csuser.local"
+		// Match costrict-web's registration-time synthetic email exactly
+		// (gitsync.userEmail: subjectID + "@no-email.local") so the multica
+		// user record and the Gitea account it maps to stay consistent.
+		email = subjectID + "@no-email.local"
 	}
 	created, err := qtx.CreateUser(ctx, db.CreateUserParams{Name: name, Email: email, AvatarUrl: pgtype.Text{}})
 	if err != nil {
