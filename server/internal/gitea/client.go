@@ -323,8 +323,12 @@ func (c *Client) getFileSHA(ctx context.Context, owner, repo, branch, path strin
 	return out.SHA, nil
 }
 
-// ProtectBranch configures branch protection (push blocked; used for main and
-// the inst-* wildcard so daemon pushes go through node branches + PRs only).
+// ProtectBranch configures branch protection with direct push blocked. Used for
+// main only. Do NOT call it for the inst-* wildcard: multica (and the daemon)
+// create inst branches and push deliverable content to them directly, and some
+// Gitea versions reject even API branch creation whose name matches a protected
+// glob (status 500 PushRejected) — which self-blocks ScaffoldRunDeliverable.
+// Per-node changes are still gated via node branches + PRs off inst.
 func (c *Client) ProtectBranch(ctx context.Context, owner, repo, rule string) error {
 	resp, err := c.do(ctx, http.MethodPost, "/repos/"+owner+"/"+repo+"/branch_protections", map[string]any{
 		"rule_name":   rule,

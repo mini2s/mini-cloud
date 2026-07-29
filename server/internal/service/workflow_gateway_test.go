@@ -128,7 +128,7 @@ func TestGatewayRunForkAndJoinSemantics(t *testing.T) {
 	svc := NewWorkflowService(q, pool, nil, nil)
 	suffix := fmt.Sprintf("gateway-%d", os.Getpid())
 
-	var workspaceID, userID string
+	var workspaceID, userID, memberID string
 	if err := pool.QueryRow(ctx, `
 		INSERT INTO multica_workspace (name, slug, description, issue_prefix)
 		VALUES ($1, $2, 'gateway test workspace', 'GTW')
@@ -143,13 +143,16 @@ func TestGatewayRunForkAndJoinSemantics(t *testing.T) {
 	`, suffix+"@multica.test").Scan(&userID); err != nil {
 		t.Fatalf("create user: %v", err)
 	}
-	if _, err := pool.Exec(ctx, `
+	if err := pool.QueryRow(ctx, `
 		INSERT INTO multica_member (workspace_id, user_id, role)
 		VALUES ($1, $2, 'owner')
-	`, workspaceID, userID); err != nil {
+		RETURNING id
+	`, workspaceID, userID).Scan(&memberID); err != nil {
 		t.Fatalf("create member: %v", err)
 	}
 	t.Cleanup(func() {
+		_, _ = pool.Exec(ctx, `DELETE FROM multica_workflow WHERE workspace_id = $1`, workspaceID)
+		_, _ = pool.Exec(ctx, `DELETE FROM multica_member WHERE id = $1`, memberID)
 		_, _ = pool.Exec(ctx, `DELETE FROM multica_workspace WHERE id = $1`, workspaceID)
 		_, _ = pool.Exec(ctx, `DELETE FROM multica_user WHERE id = $1`, userID)
 	})
@@ -173,7 +176,7 @@ func TestGatewayRunForkAndJoinSemantics(t *testing.T) {
 			)
 			VALUES ($1, $2, '', 0, 0, $3::jsonb, 'human', $4, 'human', $4, 0)
 			RETURNING id
-		`, workflowID, title, format, userID).Scan(&id); err != nil {
+		`, workflowID, title, format, memberID).Scan(&id); err != nil {
 			t.Fatalf("create node %s: %v", title, err)
 		}
 		return id
@@ -310,7 +313,7 @@ func TestInvalidGatewayDoesNotDispatchWorker(t *testing.T) {
 	svc := NewWorkflowService(q, pool, nil, nil)
 	suffix := fmt.Sprintf("invalid-gateway-%d", os.Getpid())
 
-	var workspaceID, userID string
+	var workspaceID, userID, memberID string
 	if err := pool.QueryRow(ctx, `
 		INSERT INTO multica_workspace (name, slug, description, issue_prefix)
 		VALUES ($1, $2, 'invalid gateway test workspace', 'IGW')
@@ -323,12 +326,15 @@ func TestInvalidGatewayDoesNotDispatchWorker(t *testing.T) {
 	`, suffix+"@multica.test").Scan(&userID); err != nil {
 		t.Fatalf("create user: %v", err)
 	}
-	if _, err := pool.Exec(ctx, `
+	if err := pool.QueryRow(ctx, `
 		INSERT INTO multica_member (workspace_id, user_id, role) VALUES ($1, $2, 'owner')
-	`, workspaceID, userID); err != nil {
+		RETURNING id
+	`, workspaceID, userID).Scan(&memberID); err != nil {
 		t.Fatalf("create member: %v", err)
 	}
 	t.Cleanup(func() {
+		_, _ = pool.Exec(ctx, `DELETE FROM multica_workflow WHERE workspace_id = $1`, workspaceID)
+		_, _ = pool.Exec(ctx, `DELETE FROM multica_member WHERE id = $1`, memberID)
 		_, _ = pool.Exec(ctx, `DELETE FROM multica_workspace WHERE id = $1`, workspaceID)
 		_, _ = pool.Exec(ctx, `DELETE FROM multica_user WHERE id = $1`, userID)
 	})
@@ -350,7 +356,7 @@ func TestInvalidGatewayDoesNotDispatchWorker(t *testing.T) {
 		)
 		VALUES ($1, 'Invalid gateway', '', 0, 0, '{"type":"gateway","gateway_kind":"split"}'::jsonb, 'human', $2, 'human', $2, 0)
 		RETURNING id
-	`, workflowID, userID).Scan(&nodeID); err != nil {
+	`, workflowID, memberID).Scan(&nodeID); err != nil {
 		t.Fatalf("create invalid gateway node: %v", err)
 	}
 

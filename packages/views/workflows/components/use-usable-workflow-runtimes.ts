@@ -5,6 +5,8 @@ import { useQueries } from "@tanstack/react-query";
 import type { AgentRuntime } from "@multica/core/types";
 import { myRuntimePermissionOptions } from "@multica/core/runtimes/queries";
 
+const WORKFLOW_RUNTIME_PROVIDERS = new Set(["csc", "cs-cloud"]);
+
 export function useUsableWorkflowRuntimes(runtimes: AgentRuntime[]) {
   const privateRuntimes = useMemo(
     () => runtimes.filter((runtime) => runtime.visibility !== "public"),
@@ -22,7 +24,7 @@ export function useUsableWorkflowRuntimes(runtimes: AgentRuntime[]) {
     );
     return runtimes.filter(
       (runtime) =>
-        runtime.provider === "csc" &&
+        WORKFLOW_RUNTIME_PROVIDERS.has(runtime.provider) &&
         (runtime.visibility === "public" || controllablePrivateRuntimeIds.has(runtime.id)),
     );
   }, [permissionQueries, privateRuntimes, runtimes]);

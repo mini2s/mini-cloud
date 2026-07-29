@@ -2560,3 +2560,36 @@ func (h *Handler) GetTaskGCCheck(w http.ResponseWriter, r *http.Request) {
 		"completed_at": task.CompletedAt.Time,
 	})
 }
+
+// GetWorkflowNodeRunGCCheck returns the status and completed_at of a workflow
+// node run for the cs-cloud GC loop. Workspace ownership is resolved via the
+// parent workflow_run row — same parent-resolution shape as GetAutopilotRunGCCheck.
+// Terminal node-run statuses (completed/failed/blocked/skipped/cancelled/
+// format_failed) past GCTTL let cs-cloud reclaim the workdir; a 404 lets it
+// fall through to orphan-by-mtime.
+func (h *Handler) GetWorkflowNodeRunGCCheck(w http.ResponseWriter, r *http.Request) {
+	nodeRunID := chi.URLParam(r, "nodeRunId")
+	nodeRunUUID, ok := parseUUIDOrBadRequest(w, nodeRunID, "node_run_id")
+	if !ok {
+		return
+	}
+	run, err := h.Queries.GetWorkflowNodeRun(r.Context(), nodeRunUUID)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "workflow node run not found")
+		return
+	}
+	wfRun, err := h.Queries.GetWorkflowRun(r.Context(), run.WorkflowRunID)
+	if err != nil {
+		// Parent run gone — treat as not found so cs-cloud falls through to its
+		// orphan-by-mtime path rather than surfacing a 500.
+		writeError(w, http.StatusNotFound, "workflow node run not found")
+		return
+	}
+	if !h.requireDaemonWorkspaceAccess(w, r, uuidToString(wfRun.WorkspaceID)) {
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"status":       run.Status,
+		"completed_at": run.CompletedAt.Time,
+	})
+}

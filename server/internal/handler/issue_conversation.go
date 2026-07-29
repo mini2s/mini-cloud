@@ -16,6 +16,11 @@ import (
 	db "github.com/multica-ai/multica/server/pkg/db/generated"
 )
 
+// csCloudRuntimeProvider identifies a cs-cloud device runtime; it filters
+// ListOnlineAgentRuntimesByWorkspaceAndProvider when resolving the device for
+// an issue conversation. MUST stay equal to csCloudProvider in
+// internal/service/task_cscloud_push.go and to the value cs-cloud registers
+// (internal/workflowrunner/driver.go, const providerCSCloud, in cs-cloud repo).
 const csCloudRuntimeProvider = "cs-cloud"
 
 // createConversationTimeout bounds the synchronous Gateway HTTP call made

@@ -2641,6 +2641,7 @@ describe("ExecutionPanoramaPage", () => {
         id: "res-1",
         workflow_node_run_id: "nr-role",
         slot_type: "worker",
+        role_name: "Backend Engineer",
         status: "resolved",
         resolved_user_id: "user-alice",
         resolved_at: "",
@@ -2657,7 +2658,55 @@ describe("ExecutionPanoramaPage", () => {
     );
 
     const worker = mocks.reactFlowProps?.nodes.find((n) => n.id === "n-role");
-    expect(worker?.data).toMatchObject({ workerName: "Alice Johnson" });
+    expect(worker?.data).toMatchObject({
+      workerName: "Alice Johnson",
+      workerIdentity: {
+        name: "Alice Johnson",
+        sourceRoleName: "Backend Engineer",
+      },
+    });
+  });
+
+  it("localizes a built-in role captured in the unresolved run snapshot", () => {
+    mocks.isLoading = false;
+    mocks.workflowData = { id: "wf-1", title: "Test Workflow" };
+    mocks.stagesData = [STAGE];
+    mocks.nodesData = [
+      {
+        ...NODE,
+        id: "n-role",
+        worker_type: "role",
+        worker_id: null,
+        worker_role_id: "role-dev",
+        worker_role: null,
+      },
+    ];
+    mocks.workflowRolesData = [BUILTIN_DEV_ROLE];
+    mocks.nodeRunsData = [{
+      ...baseNodeRun,
+      status: "pending",
+      worker_role_snapshot: {
+        id: "role-dev",
+        name: "developer",
+        description: "Builds changes",
+      },
+    }];
+    mocks.agentsData = [];
+
+    render(
+      <Wrapper>
+        <ExecutionPanoramaPage workflowId="wf-1" runId="run-1" wsId="ws-1" />
+      </Wrapper>,
+    );
+
+    const worker = mocks.reactFlowProps?.nodes.find((n) => n.id === "n-role");
+    expect(worker?.data).toMatchObject({
+      workerName: "Developer",
+      workerIdentity: {
+        type: "role",
+        name: "Developer",
+      },
+    });
   });
 
   it("prefers an explicit worker agent over a resolved role resolution", () => {

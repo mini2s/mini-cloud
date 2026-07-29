@@ -14,8 +14,10 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/multica-ai/multica/server/internal/coderepo"
 	"github.com/multica-ai/multica/server/internal/events"
 	"github.com/multica-ai/multica/server/internal/gitea"
 	"github.com/multica-ai/multica/server/internal/util"
@@ -367,6 +369,47 @@ func TestScaffoldRunDeliverables_ProvisionsBotAndScaffoldsRepo(t *testing.T) {
 	}
 }
 
+// TestScaffoldRunDeliverables_ProvisionsRepoForCodeOnlyWorkflow verifies M5
+// decision ①: a workflow whose only deliverable is a pull_request (code-only,
+// no document) STILL gets a Gitea repo scaffolded — so Task 3's code-MR
+// archive has a place to write. Mirrors ProvisionsBotAndScaffoldsRepo but
+// swaps the deliverable Kind from "document" to "pull_request".
+func TestScaffoldRunDeliverables_ProvisionsRepoForCodeOnlyWorkflow(t *testing.T) {
+	pool := openTestPool(t)
+	defer pool.Close()
+	ctx := context.Background()
+
+	// Seed a workflow with NO document deliverable, then add a pull_request one.
+	fix := seedGiteaFixture(t, pool, false /*no document*/, 1 /*single run*/)
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO multica_workflow_node_deliverable (workflow_node_id, kind, title, description, required, sort_order)
+		VALUES ($1, 'pull_request', 'Code MR', 'open an MR', TRUE, 0)
+	`, util.UUIDToString(fix.node)); err != nil {
+		t.Fatalf("seed pull_request deliverable: %v", err)
+	}
+
+	srv, tokensMinted, orgsCreated, _, _ := fakeGiteaServer(t)
+	svc := &WorkflowService{
+		Queries: db.New(pool),
+		Gitea:   gitea.NewClient(gitea.Config{BaseURL: srv.URL, Token: "admin-tok"}),
+	}
+
+	svc.ScaffoldRunDeliverables(ctx, db.MulticaWorkflowRun{
+		ID: fix.run1, WorkflowID: fix.workflow, WorkspaceID: fix.workspace,
+	})
+
+	if *tokensMinted != 1 {
+		t.Fatalf("code-only workflow: tokens minted = %d, want exactly 1 (repo must scaffold under M5 decision ①)", *tokensMinted)
+	}
+	if *orgsCreated != 1 {
+		t.Fatalf("code-only workflow: orgs created = %d, want exactly 1 (repo must scaffold under M5 decision ①)", *orgsCreated)
+	}
+	settings := workspaceSettings(t, pool, fix.workspace)
+	if pat, _ := settings["gitea_pat"].(string); pat == "" {
+		t.Fatalf("code-only workflow must persist gitea_pat (M5 decision ①): %+v", settings)
+	}
+}
+
 func TestScaffoldRunDeliverables_DefaultWorkflowUsesArchiveRepo(t *testing.T) {
 	pool := openTestPool(t)
 	defer pool.Close()
@@ -439,15 +482,18 @@ func TestScaffoldRunDeliverables_NoOpWhenGiteaNil(t *testing.T) {
 	})
 }
 
-// TestScaffoldRunDeliverables_NoOpWithoutDocumentDeliverable verifies that
-// code-only workflows (no document deliverable) skip scaffolding entirely:
-// no Gitea HTTP traffic, no PAT minted, nothing written to workspace.settings.
-func TestScaffoldRunDeliverables_NoOpWithoutDocumentDeliverable(t *testing.T) {
+// TestScaffoldRunDeliverables_NoOpWhenDeliverableFree verifies that a workflow
+// with NO deliverables at all (neither document nor pull_request) skips
+// scaffolding entirely: no Gitea HTTP traffic, no PAT minted, nothing written
+// to workspace.settings. (Note: "code-only" workflows — those with a
+// pull_request deliverable — DO scaffold under M5 decision ①; see
+// TestScaffoldRunDeliverables_ProvisionsRepoForCodeOnlyWorkflow.)
+func TestScaffoldRunDeliverables_NoOpWhenDeliverableFree(t *testing.T) {
 	pool := openTestPool(t)
 	defer pool.Close()
 
 	// Workflow has a node but NO deliverable row.
-	fix := seedGiteaFixture(t, pool, false /*no document*/, 1 /*single run*/)
+	fix := seedGiteaFixture(t, pool, false /*no deliverable*/, 1 /*single run*/)
 	srv, tokensMinted, orgsCreated, _, _ := fakeGiteaServer(t)
 
 	svc := &WorkflowService{
@@ -460,14 +506,14 @@ func TestScaffoldRunDeliverables_NoOpWithoutDocumentDeliverable(t *testing.T) {
 	})
 
 	if *tokensMinted != 0 {
-		t.Fatalf("code-only workflow: %d tokens minted, want 0", *tokensMinted)
+		t.Fatalf("deliverable-free workflow: %d tokens minted, want 0", *tokensMinted)
 	}
 	if *orgsCreated != 0 {
-		t.Fatalf("code-only workflow: %d orgs created, want 0", *orgsCreated)
+		t.Fatalf("deliverable-free workflow: %d orgs created, want 0", *orgsCreated)
 	}
 	settings := workspaceSettings(t, pool, fix.workspace)
 	if pat, ok := settings["gitea_pat"]; ok && pat != "" {
-		t.Fatalf("code-only workflow wrote gitea_pat=%v, want absent/empty", pat)
+		t.Fatalf("deliverable-free workflow wrote gitea_pat=%v, want absent/empty", pat)
 	}
 }
 
@@ -755,6 +801,189 @@ func TestArchiveReviewComment_WritesReviewUnderNodeDir(t *testing.T) {
 	}
 }
 
+// spyRepoProvider is a coderepo.RepositoryProvider spy that records UpsertFile
+// calls (the only method ArchiveCodeDeliverable exercises). Other methods are
+// stubbed to no-op so the spy satisfies the interface without a full httptest
+// backend. Used by the ArchiveCodeDeliverable test to assert the exact owner,
+// repo, branch, path, and content handed to UpsertFile.
+type spyRepoProvider struct {
+	configured bool
+	mu         sync.Mutex
+	upserts    []spyUpsertCall
+}
+
+type spyUpsertCall struct {
+	Owner, Repo, Branch, Path, Content, Message string
+}
+
+func (s *spyRepoProvider) Name() coderepo.Provider { return coderepo.ProviderGitea }
+func (s *spyRepoProvider) Configured() bool        { return s.configured }
+func (s *spyRepoProvider) CreateBranch(ctx context.Context, owner, repo, branch, fromRef string) error {
+	return nil
+}
+func (s *spyRepoProvider) UpsertFile(ctx context.Context, owner, repo, branch, p, content, message string) error {
+	s.mu.Lock()
+	s.upserts = append(s.upserts, spyUpsertCall{owner, repo, branch, p, content, message})
+	s.mu.Unlock()
+	return nil
+}
+func (s *spyRepoProvider) OpenReviewRequest(ctx context.Context, owner, repo, head, base, title string) (string, error) {
+	return "", nil
+}
+func (s *spyRepoProvider) MergeReviewRequest(ctx context.Context, owner, repo string, index int) error {
+	return nil
+}
+func (s *spyRepoProvider) CloseReviewRequest(ctx context.Context, owner, repo string, index int) error {
+	return nil
+}
+func (s *spyRepoProvider) ListOrgMembers(ctx context.Context, org string) ([]coderepo.OrgMember, error) {
+	return nil, nil
+}
+
+func (s *spyRepoProvider) snapshot() []spyUpsertCall {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := make([]spyUpsertCall, len(s.upserts))
+	copy(out, s.upserts)
+	return out
+}
+
+// TestArchiveCodeDeliverable_WritesCodePointerUnderNodeDir asserts that a code
+// (GitLab MR) deliverable is archived co-located with the node's other artifacts
+// under nodes/<NN>-<title>-<short>/code/<deliverableID>.md when a pull_request
+// submission arrives. The MR itself stays in GitLab (source of truth); this is
+// a best-effort read-only audit copy in the run's Gitea repo. Also covers the
+// two no-op paths: empty MR URL and a dormant (not Configured) provider.
+func TestArchiveCodeDeliverable_WritesCodePointerUnderNodeDir(t *testing.T) {
+	pool := openTestPool(t)
+	defer pool.Close()
+
+	fix := seedGiteaFixture(t, pool, false /*no document deliverable*/, 1 /*single run*/)
+	queries := db.New(pool)
+	ctx := context.Background()
+
+	// Seed a pull_request-kind deliverable on the node.
+	var deliverableID string
+	if err := pool.QueryRow(ctx, `
+		INSERT INTO multica_workflow_node_deliverable (workflow_node_id, kind, title, description, required, sort_order)
+		VALUES ($1, 'pull_request', 'Source MR', 'the worker code MR', TRUE, 0)
+		RETURNING id
+	`, fix.node).Scan(&deliverableID); err != nil {
+		t.Fatalf("seed pull_request deliverable: %v", err)
+	}
+
+	// Seed a node_run under the seeded run.
+	var nodeRunID string
+	if err := pool.QueryRow(ctx, `
+		INSERT INTO multica_workflow_node_run (
+			workflow_run_id, workflow_node_id, node_title, status, worker_type, critic_type
+		)
+		VALUES ($1, $2, '实现', 'format_ok', 'agent', 'human')
+		RETURNING id
+	`, fix.run1, fix.node).Scan(&nodeRunID); err != nil {
+		t.Fatalf("seed node run: %v", err)
+	}
+	nodeRunUUID, _ := util.ParseUUID(nodeRunID)
+	nodeRun, err := queries.GetWorkflowNodeRun(ctx, nodeRunUUID)
+	if err != nil {
+		t.Fatalf("get node run: %v", err)
+	}
+	node, err := queries.GetWorkflowNode(ctx, nodeRun.WorkflowNodeID)
+	if err != nil {
+		t.Fatalf("get node: %v", err)
+	}
+	workflow, err := queries.GetWorkflow(ctx, fix.workflow)
+	if err != nil {
+		t.Fatalf("get workflow: %v", err)
+	}
+	deliverableUUID, _ := util.ParseUUID(deliverableID)
+	deliverable, err := lookupNodeDeliverable(ctx, queries, fix.node, deliverableUUID)
+	if err != nil {
+		t.Fatalf("get deliverable: %v", err)
+	}
+
+	const mrURL = "https://gitlab.example.com/group/proj/-/merge_requests/1"
+
+	// Expected topological position for the node — mirrors the nodeSeq derivation
+	// in ArchiveCodeDeliverable (topo first, fall back to sort_order). Computed
+	// once outside the sub-tests so the assertion reflects the same path logic.
+	wantNodeSeq := int(node.SortOrder)
+	if topo, err := NodeTopoOrder(ctx, queries, fix.workflow); err == nil {
+		wantNodeSeq = topo[util.UUIDToString(node.ID)]
+	}
+
+	t.Run("archives_mr_pointer", func(t *testing.T) {
+		spy := &spyRepoProvider{configured: true}
+		svc := &WorkflowService{Queries: queries, RepositoryProvider: spy}
+
+		svc.ArchiveCodeDeliverable(ctx, nodeRun, deliverable, mrURL, "", "", "")
+
+		calls := spy.snapshot()
+		if len(calls) != 1 {
+			t.Fatalf("UpsertFile calls = %d, want 1", len(calls))
+		}
+		got := calls[0]
+		wantOwner := gitea.OrgName(util.UUIDToString(fix.workspace))
+		wantRepo := DeliverableRepoNameForWorkflow(workflow)
+		wantBranch := gitea.InstBranch(util.UUIDToString(fix.run1))
+		if got.Owner != wantOwner || got.Repo != wantRepo || got.Branch != wantBranch {
+			t.Errorf(" UpsertFile target = %s/%s @%s, want %s/%s @%s",
+				got.Owner, got.Repo, got.Branch, wantOwner, wantRepo, wantBranch)
+		}
+		// Full path: NodeDir(...) + "/" + CodePath(<deliverableID>).
+		wantPath := gitea.NodeDir(wantNodeSeq, nodeRun.NodeTitle, nodeRunID) + "/" +
+			gitea.CodePath(deliverableID)
+		if got.Path != wantPath {
+			t.Errorf("UpsertFile path = %q, want %q", got.Path, wantPath)
+		}
+		if !strings.Contains(got.Path, "/code/"+deliverableID+".md") {
+			t.Errorf("UpsertFile path = %q, want it under code/<deliverableID>.md", got.Path)
+		}
+		// Content carries the MR URL (the key pointer).
+		if !strings.Contains(got.Content, mrURL) {
+			t.Errorf("UpsertFile content missing MR URL %q; content=%q", mrURL, got.Content)
+		}
+	})
+
+	t.Run("noop_when_mr_url_empty", func(t *testing.T) {
+		spy := &spyRepoProvider{configured: true}
+		svc := &WorkflowService{Queries: queries, RepositoryProvider: spy}
+
+		svc.ArchiveCodeDeliverable(ctx, nodeRun, deliverable, "", "", "", "")
+
+		if calls := spy.snapshot(); len(calls) != 0 {
+			t.Fatalf("UpsertFile calls = %d, want 0 (empty MR URL = no-op)", len(calls))
+		}
+	})
+
+	t.Run("noop_when_provider_dormant", func(t *testing.T) {
+		spy := &spyRepoProvider{configured: false}
+		svc := &WorkflowService{Queries: queries, RepositoryProvider: spy}
+
+		svc.ArchiveCodeDeliverable(ctx, nodeRun, deliverable, mrURL, "", "", "")
+
+		if calls := spy.snapshot(); len(calls) != 0 {
+			t.Fatalf("UpsertFile calls = %d, want 0 (dormant provider = no-op)", len(calls))
+		}
+	})
+}
+
+// lookupNodeDeliverable loads a single deliverable by ID via the list-then-filter
+// pattern (sqlc generated no GetWorkflowNodeDeliverable :one query). Returns the
+// matching row or an error if not found on the node.
+func lookupNodeDeliverable(ctx context.Context, q *db.Queries, nodeID, deliverableID pgtype.UUID) (db.MulticaWorkflowNodeDeliverable, error) {
+	deliverables, err := q.ListWorkflowNodeDeliverables(ctx, nodeID)
+	if err != nil {
+		return db.MulticaWorkflowNodeDeliverable{}, err
+	}
+	for _, d := range deliverables {
+		if d.ID == deliverableID {
+			return d, nil
+		}
+	}
+	return db.MulticaWorkflowNodeDeliverable{}, fmt.Errorf("deliverable %s not found on node %s", deliverableID, nodeID)
+}
+
 // fakeGiteaMergeServer stands up an httptest server that responds to PR merge
 // requests (POST .../pulls/{index}/merge) with the configured status — 200 for
 // a successful merge, 409 for a conflict. All other paths get a permissive 200
@@ -773,6 +1002,27 @@ func fakeGiteaMergeServer(t *testing.T, mergeStatus int) (srv *httptest.Server, 
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+	}))
+	t.Cleanup(srv.Close)
+	return srv, &calls
+}
+
+// fakeGitlabMergeServer stands up an httptest.Server emulating the GitLab MR
+// merge endpoint. A PUT ending in /merge records a call and returns mergeStatus;
+// any other request gets a permissive 200. Returns the merge-call counter.
+func fakeGitlabMergeServer(t *testing.T, mergeStatus int) (srv *httptest.Server, mergeCalls *int) {
+	t.Helper()
+	var mu sync.Mutex
+	calls := 0
+	srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		defer mu.Unlock()
+		if r.Method == http.MethodPut && strings.HasSuffix(r.URL.Path, "/merge") {
+			calls++
+			w.WriteHeader(mergeStatus)
+			return
+		}
 		w.WriteHeader(http.StatusOK)
 	}))
 	t.Cleanup(srv.Close)
@@ -1093,6 +1343,280 @@ func TestReviewNodeRun_MergesDocumentDeliverablePRs(t *testing.T) {
 	}
 }
 
+// TestReviewNodeRun_MergesGitLabMR verifies the M4 GitLab path: a code-only
+// workspace (Gitea nil) with a pull_request deliverable whose submission points
+// at a GitLab MR. Approve → the MR is merged via the workspace's
+// gitlab_access_token (PUT .../merge_requests/{iid}/merge), the node completes,
+// and the submission is marked approved.
+func TestReviewNodeRun_MergesGitLabMR(t *testing.T) {
+	pool := openTestPool(t)
+	defer pool.Close()
+	ctx := context.Background()
+
+	fix := seedGiteaFixture(t, pool, false /*no document deliverable*/, 1)
+
+	// Seed a code (pull_request) deliverable on the node.
+	var deliverableID string
+	if err := pool.QueryRow(ctx, `
+		INSERT INTO multica_workflow_node_deliverable (workflow_node_id, kind, title, required, sort_order)
+		VALUES ($1, 'pull_request', 'Code MR', TRUE, 0)
+		RETURNING id
+	`, util.UUIDToString(fix.node)).Scan(&deliverableID); err != nil {
+		t.Fatalf("seed pull_request deliverable: %v", err)
+	}
+	// Configure the workspace's GitLab PAT (read by gitlabAccessToken).
+	if _, err := pool.Exec(ctx, `
+		UPDATE multica_workspace
+		SET settings = jsonb_set(coalesce(settings, '{}'::jsonb), '{gitlab_access_token}', '"gl-tok-123"')
+		WHERE id = $1
+	`, util.UUIDToString(fix.workspace)); err != nil {
+		t.Fatalf("set gitlab token: %v", err)
+	}
+
+	glSrv, mergeCalls := fakeGitlabMergeServer(t, http.StatusOK)
+	svc := &WorkflowService{
+		Queries:   db.New(pool),
+		TxStarter: pool,
+		Bus:       events.New(),
+		Gitea:     nil, // code-only workspace — Gitea dormant
+	}
+
+	// Seed a critic_reviewing node_run + a submission carrying a GitLab MR URL.
+	var nodeRunID string
+	if err := pool.QueryRow(ctx, `
+		INSERT INTO multica_workflow_node_run (workflow_run_id, workflow_node_id, node_title, status, worker_type, critic_type)
+		VALUES ($1, $2, 'Code Node', 'critic_reviewing', 'agent', 'human')
+		RETURNING id
+	`, util.UUIDToString(fix.run1), util.UUIDToString(fix.node)).Scan(&nodeRunID); err != nil {
+		t.Fatalf("seed node run: %v", err)
+	}
+	mrURL := glSrv.URL + "/root/repo/-/merge_requests/7"
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO multica_workflow_node_deliverable_submission (
+			workflow_node_run_id, deliverable_id, submitted_by_type, status, content, pull_request_url
+		)
+		VALUES ($1, $2, 'system', 'submitted', 'code body', $3)
+	`, nodeRunID, deliverableID, mrURL); err != nil {
+		t.Fatalf("seed submission: %v", err)
+	}
+	nrID, _ := util.ParseUUID(nodeRunID)
+
+	if err := svc.ReviewNodeRun(ctx, nrID, true /*approved*/, "lgtm", nil); err != nil {
+		t.Fatalf("ReviewNodeRun: %v", err)
+	}
+	if got := nodeRunStatus(t, pool, nrID); got != NodeRunStatusCompleted {
+		t.Fatalf("node run status = %q, want %q", got, NodeRunStatusCompleted)
+	}
+	if got := submissionStatus(t, pool, nrID); got != "approved" {
+		t.Fatalf("submission status = %q, want %q", got, "approved")
+	}
+	if *mergeCalls != 1 {
+		t.Fatalf("gitlab merge calls = %d, want exactly 1", *mergeCalls)
+	}
+}
+
+// fakeGiteaCloseServer stands up an httptest.Server that counts PATCH requests
+// on a pulls/{n} path (the Gitea close-PR call). Returns the close-call counter.
+func fakeGiteaCloseServer(t *testing.T, closeStatus int) (srv *httptest.Server, closeCalls *int) {
+	t.Helper()
+	var mu sync.Mutex
+	calls := 0
+	srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		defer mu.Unlock()
+		if r.Method == http.MethodPatch && strings.Contains(r.URL.Path, "/pulls/") {
+			calls++
+			w.WriteHeader(closeStatus)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	t.Cleanup(srv.Close)
+	return srv, &calls
+}
+
+// seedReviewSubmissionsNodeRun inserts a critic_reviewing node_run plus two
+// submissions: one for deliverableIDDoc (document) with docPRURL, one for
+// deliverableIDCode (pull_request) with codeMRURL. Returns the node_run ID.
+func seedReviewSubmissionsNodeRun(t *testing.T, pool *pgxpool.Pool, fix *giteaFixture, deliverableIDDoc, deliverableIDCode pgtype.UUID, docPRURL, codeMRURL string) pgtype.UUID {
+	t.Helper()
+	ctx := context.Background()
+	var nodeRunID string
+	if err := pool.QueryRow(ctx, `
+		INSERT INTO multica_workflow_node_run (workflow_run_id, workflow_node_id, node_title, status, worker_type, critic_type)
+		VALUES ($1, $2, 'Review Node', 'critic_reviewing', 'agent', 'human')
+		RETURNING id
+	`, util.UUIDToString(fix.run1), util.UUIDToString(fix.node)).Scan(&nodeRunID); err != nil {
+		t.Fatalf("seed node run: %v", err)
+	}
+	for _, s := range []struct {
+		deliverable pgtype.UUID
+		url         string
+	}{
+		{deliverableIDDoc, docPRURL},
+		{deliverableIDCode, codeMRURL},
+	} {
+		if _, err := pool.Exec(ctx, `
+			INSERT INTO multica_workflow_node_deliverable_submission (
+				workflow_node_run_id, deliverable_id, submitted_by_type, status, content, pull_request_url)
+			VALUES ($1, $2, 'system', 'submitted', 'body', $3)
+		`, nodeRunID, util.UUIDToString(s.deliverable), s.url); err != nil {
+			t.Fatalf("seed submission: %v", err)
+		}
+	}
+	nrID, _ := util.ParseUUID(nodeRunID)
+	return nrID
+}
+
+// TestCloseDeliverableReviewRequests_ClosesDocumentPROnly verifies the M4
+// reject-close filter: a document deliverable PR (Gitea) is closed; a code MR
+// (pull_request kind, GitLab) is left untouched. The function is best-effort
+// (void) — see the _BestEffortOnError companion for failure handling.
+func TestCloseDeliverableReviewRequests_ClosesDocumentPROnly(t *testing.T) {
+	pool := openTestPool(t)
+	defer pool.Close()
+	ctx := context.Background()
+	fix := seedGiteaFixture(t, pool, false, 1)
+
+	var docID, codeID string
+	if err := pool.QueryRow(ctx, `INSERT INTO multica_workflow_node_deliverable (workflow_node_id, kind, title, required, sort_order) VALUES ($1,'document','Doc',TRUE,0) RETURNING id`, util.UUIDToString(fix.node)).Scan(&docID); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, `INSERT INTO multica_workflow_node_deliverable (workflow_node_id, kind, title, required, sort_order) VALUES ($1,'pull_request','Code',TRUE,1) RETURNING id`, util.UUIDToString(fix.node)).Scan(&codeID); err != nil {
+		t.Fatal(err)
+	}
+	docUUID, _ := util.ParseUUID(docID)
+	codeUUID, _ := util.ParseUUID(codeID)
+
+	giteaSrv, closeCalls := fakeGiteaCloseServer(t, http.StatusOK)
+	glSrv, glCalls := fakeGitlabMergeServer(t, http.StatusOK)
+	svc := &WorkflowService{
+		Queries:   db.New(pool),
+		TxStarter: pool,
+		Bus:       events.New(),
+		Gitea:     gitea.NewClient(gitea.Config{BaseURL: giteaSrv.URL, Token: "admin"}),
+	}
+
+	nrID := seedReviewSubmissionsNodeRun(t, pool, fix, docUUID, codeUUID,
+		giteaSrv.URL+"/owner/repo/pulls/5", glSrv.URL+"/root/repo/-/merge_requests/9")
+
+	svc.closeDeliverableReviewRequests(ctx, db.MulticaWorkflowNodeRun{
+		ID: nrID, WorkflowRunID: fix.run1, WorkflowNodeID: fix.node,
+	})
+	if *closeCalls != 1 {
+		t.Fatalf("document PR close calls = %d, want 1", *closeCalls)
+	}
+	if *glCalls != 0 {
+		t.Fatalf("gitlab merge/close calls = %d, want 0 (code MR must NOT be touched)", *glCalls)
+	}
+}
+
+// TestCloseDeliverableReviewRequests_BestEffortOnError verifies a close failure
+// (Gitea 500) does not abort the loop or surface — the function is best-effort.
+func TestCloseDeliverableReviewRequests_BestEffortOnError(t *testing.T) {
+	pool := openTestPool(t)
+	defer pool.Close()
+	ctx := context.Background()
+	fix := seedGiteaFixture(t, pool, false, 1)
+
+	var docID string
+	if err := pool.QueryRow(ctx, `INSERT INTO multica_workflow_node_deliverable (workflow_node_id, kind, title, required, sort_order) VALUES ($1,'document','Doc',TRUE,0) RETURNING id`, util.UUIDToString(fix.node)).Scan(&docID); err != nil {
+		t.Fatal(err)
+	}
+
+	giteaSrv, closeCalls := fakeGiteaCloseServer(t, http.StatusInternalServerError)
+	svc := &WorkflowService{
+		Queries:   db.New(pool),
+		TxStarter: pool,
+		Bus:       events.New(),
+		Gitea:     gitea.NewClient(gitea.Config{BaseURL: giteaSrv.URL, Token: "admin"}),
+	}
+	// Seed only the document submission (a 500 on its close must not abort).
+	var nodeRunID string
+	if err := pool.QueryRow(ctx, `
+		INSERT INTO multica_workflow_node_run (workflow_run_id, workflow_node_id, node_title, status, worker_type, critic_type)
+		VALUES ($1, $2, 'Review Node', 'critic_reviewing', 'agent', 'human')
+		RETURNING id
+	`, util.UUIDToString(fix.run1), util.UUIDToString(fix.node)).Scan(&nodeRunID); err != nil {
+		t.Fatalf("seed node run: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO multica_workflow_node_deliverable_submission (
+			workflow_node_run_id, deliverable_id, submitted_by_type, status, content, pull_request_url)
+		VALUES ($1, $2, 'system', 'submitted', 'body', $3)
+	`, nodeRunID, docID, giteaSrv.URL+"/owner/repo/pulls/5"); err != nil {
+		t.Fatalf("seed submission: %v", err)
+	}
+	nrID, _ := util.ParseUUID(nodeRunID)
+
+	// Must not panic and must return (void); the 500 is logged, not propagated.
+	svc.closeDeliverableReviewRequests(ctx, db.MulticaWorkflowNodeRun{
+		ID: nrID, WorkflowRunID: fix.run1, WorkflowNodeID: fix.node,
+	})
+	if *closeCalls != 1 {
+		t.Fatalf("close attempts = %d, want 1 (failure must not abort)", *closeCalls)
+	}
+}
+
+// TestReviewNodeRun_ClosesDocumentPROnReject verifies the M4 reject wiring:
+// a critic rejection (retry < MaxRetries) closes the node-run's document
+// deliverable PR, and the node transitions to rework (not completed).
+func TestReviewNodeRun_ClosesDocumentPROnReject(t *testing.T) {
+	pool := openTestPool(t)
+	defer pool.Close()
+	ctx := context.Background()
+	fix := seedGiteaFixture(t, pool, true /*document deliverable*/, 1)
+
+	giteaSrv, closeCalls := fakeGiteaCloseServer(t, http.StatusOK)
+	svc := &WorkflowService{
+		Queries:   db.New(pool),
+		TxStarter: pool,
+		Bus:       events.New(),
+		Gitea:     gitea.NewClient(gitea.Config{BaseURL: giteaSrv.URL, Token: "admin"}),
+	}
+	prURL := giteaSrv.URL + "/owner/repo/pulls/5"
+	nodeRunID := seedNodeRunForReview(t, pool, fix, fix.run1, prURL, "submitted")
+
+	if err := svc.ReviewNodeRun(ctx, nodeRunID, false /*rejected*/, "needs work", nil); err != nil {
+		t.Fatalf("ReviewNodeRun: %v", err)
+	}
+	if *closeCalls != 1 {
+		t.Fatalf("document PR close calls = %d, want 1 on reject", *closeCalls)
+	}
+	if got := nodeRunStatus(t, pool, nodeRunID); got == NodeRunStatusCompleted {
+		t.Fatalf("node run completed on reject (should be rework/dispatched)")
+	}
+}
+
+// TestReviewNodeRun_ApproveDoesNotClose is the symmetric regression: approve
+// must NOT close the document PR (it merges it instead — covered by the merge
+// tests). Asserts the close endpoint is untouched on approve.
+func TestReviewNodeRun_ApproveDoesNotClose(t *testing.T) {
+	pool := openTestPool(t)
+	defer pool.Close()
+	ctx := context.Background()
+	fix := seedGiteaFixture(t, pool, true, 1)
+
+	giteaSrv, closeCalls := fakeGiteaCloseServer(t, http.StatusOK)
+	svc := &WorkflowService{
+		Queries:   db.New(pool),
+		TxStarter: pool,
+		Bus:       events.New(),
+		Gitea:     gitea.NewClient(gitea.Config{BaseURL: giteaSrv.URL, Token: "admin"}),
+	}
+	// Use a non-merge URL shape so mergeDeliverablePRs finds nothing to merge
+	// (the fake server doesn't implement /merge) — we only care that close isn't hit.
+	prURL := giteaSrv.URL + "/owner/repo/pulls/5"
+	nodeRunID := seedNodeRunForReview(t, pool, fix, fix.run1, prURL, "submitted")
+
+	if err := svc.ReviewNodeRun(ctx, nodeRunID, true /*approved*/, "lgtm", nil); err != nil {
+		t.Fatalf("ReviewNodeRun: %v", err)
+	}
+	if *closeCalls != 0 {
+		t.Fatalf("close calls on approve = %d, want 0 (approve merges, never closes)", *closeCalls)
+	}
+}
+
 // TestReviewNodeRun_BlocksWhenMergeConflicts verifies the failure path: a 409
 // (gitea.ErrMergeConflict, terminal) blocks the node run instead of completing
 // it. Blocking is NOT an error from ReviewNodeRun — the caller observes the
@@ -1164,4 +1688,319 @@ func TestReviewNodeRun_CompletesWithoutMergeWhenGiteaNil(t *testing.T) {
 	if got := submissionStatus(t, pool, nodeRunID); got != "submitted" {
 		t.Fatalf("submission status = %q, want %q (dormant: must not touch submissions)", got, "submitted")
 	}
+}
+
+// subIssueMockDBTX is a focused mock of db.DBTX for ArchiveSubIssueAddress's
+// cross-run linkage chain. It routes by SQL comment (sqlc embeds "-- name:
+// <QueryName> :one/:many" at the top of every generated SQL string) and by the
+// first positional arg where the same query is called with different IDs
+// (GetIssue for child vs parent, GetWorkflowNode for split vs non-split).
+// Reuses the scan helpers + mockRows types from task_cscloud_push_test.go
+// (same package).
+type subIssueMockDBTX struct {
+	childIssue     db.MulticaIssue
+	parentIssue    db.MulticaIssue
+	parentRun      db.MulticaWorkflowRun
+	parentNodeRuns []db.MulticaWorkflowNodeRun
+	splitNode      db.MulticaWorkflowNode
+	otherNodes     []db.MulticaWorkflowNode // returned by GetWorkflowNode for non-split IDs + ListWorkflowNodes
+	parentWorkflow db.MulticaWorkflow
+	workspace      db.MulticaWorkspace
+}
+
+func (m *subIssueMockDBTX) Exec(_ context.Context, _ string, _ ...interface{}) (pgconn.CommandTag, error) {
+	return pgconn.NewCommandTag(""), nil
+}
+
+func (m *subIssueMockDBTX) Query(_ context.Context, sql string, _ ...interface{}) (pgx.Rows, error) {
+	switch {
+	case strings.Contains(sql, "ListWorkflowNodeRunsByRun"):
+		return &mockRowsNodeRuns{rows: m.parentNodeRuns, idx: -1}, nil
+	case strings.Contains(sql, "ListWorkflowNodes"):
+		nodes := append([]db.MulticaWorkflowNode{m.splitNode}, m.otherNodes...)
+		return &mockRowsWorkflowNodes{rows: nodes, idx: -1}, nil
+	case strings.Contains(sql, "ListWorkflowEdges"):
+		return &mockRowsWorkflowEdges{idx: -1}, nil
+	default:
+		return nil, fmt.Errorf("subIssueMockDBTX: unexpected Query: %s", sql)
+	}
+}
+
+func (m *subIssueMockDBTX) QueryRow(_ context.Context, sql string, args ...interface{}) pgx.Row {
+	switch {
+	case strings.Contains(sql, "GetIssue"):
+		if len(args) > 0 {
+			if id, ok := args[0].(pgtype.UUID); ok && id == m.parentIssue.ID && m.parentIssue.ID.Valid {
+				return &subIssueRow{issue: &m.parentIssue}
+			}
+		}
+		return &subIssueRow{issue: &m.childIssue}
+	case strings.Contains(sql, "GetWorkflowRunBySourceIssue"):
+		if !m.parentRun.ID.Valid {
+			return &subIssueRow{err: pgx.ErrNoRows}
+		}
+		return &subIssueRow{run: &m.parentRun}
+	case strings.Contains(sql, "GetWorkflowNode"):
+		if len(args) > 0 {
+			if id, ok := args[0].(pgtype.UUID); ok && id == m.splitNode.ID && m.splitNode.ID.Valid {
+				return &subIssueRow{node: &m.splitNode}
+			}
+		}
+		if len(m.otherNodes) > 0 {
+			return &subIssueRow{node: &m.otherNodes[0]}
+		}
+		return &subIssueRow{err: pgx.ErrNoRows}
+	case strings.Contains(sql, "GetWorkflow "): // "GetWorkflow :one" (not GetWorkflowRun/Node)
+		return &subIssueRow{workflow: &m.parentWorkflow}
+	case strings.Contains(sql, "GetWorkspace"):
+		return &subIssueRow{workspace: &m.workspace}
+	default:
+		return &subIssueRow{err: fmt.Errorf("subIssueMockDBTX: unexpected QueryRow: %s", sql)}
+	}
+}
+
+// subIssueRow routes Scan to the correct per-model scan helper (all reused from
+// task_cscloud_push_test.go). Exactly one model pointer is non-nil per row.
+type subIssueRow struct {
+	issue     *db.MulticaIssue
+	run       *db.MulticaWorkflowRun
+	workflow  *db.MulticaWorkflow
+	node      *db.MulticaWorkflowNode
+	workspace *db.MulticaWorkspace
+	err       error
+}
+
+func (r *subIssueRow) Scan(dest ...any) error {
+	if r.err != nil {
+		return r.err
+	}
+	switch {
+	case r.issue != nil:
+		return scanIssueFull(r.issue, dest)
+	case r.run != nil:
+		return scanWorkflowRun(r.run, dest)
+	case r.workflow != nil:
+		return scanWorkflow(r.workflow, dest)
+	case r.node != nil:
+		return scanWorkflowNode(r.node, dest)
+	case r.workspace != nil:
+		return scanWorkspaceFull(r.workspace, dest)
+	}
+	return nil
+}
+
+// mockRowsNodeRuns is a pgx.Rows yielding MulticaWorkflowNodeRun values, for
+// ListWorkflowNodeRunsByRun. Reuses scanNodeRun from task_cscloud_push_test.go.
+type mockRowsNodeRuns struct {
+	rows []db.MulticaWorkflowNodeRun
+	idx  int
+}
+
+func (m *mockRowsNodeRuns) Next() bool                                   { m.idx++; return m.idx < len(m.rows) }
+func (m *mockRowsNodeRuns) Close()                                       {}
+func (m *mockRowsNodeRuns) Err() error                                   { return nil }
+func (m *mockRowsNodeRuns) CommandTag() pgconn.CommandTag                { return pgconn.NewCommandTag("") }
+func (m *mockRowsNodeRuns) FieldDescriptions() []pgconn.FieldDescription { return nil }
+func (m *mockRowsNodeRuns) RawValues() [][]byte                          { return nil }
+func (m *mockRowsNodeRuns) Values() ([]any, error)                       { return nil, nil }
+func (m *mockRowsNodeRuns) Conn() *pgx.Conn                              { return nil }
+func (m *mockRowsNodeRuns) Scan(dest ...any) error {
+	r := &m.rows[m.idx]
+	return scanNodeRun(r, dest)
+}
+
+// newSubIssueMockDBTX builds the happy-path mock: a child issue with a parent,
+// the parent's run containing one split node-run, and a workspace with a Gitea
+// clone URL. Individual test cases override fields to exercise no-op paths.
+func newSubIssueMockDBTX() *subIssueMockDBTX {
+	wsID := testUUID(20)
+	childIssueID := testUUID(21)
+	parentIssueID := testUUID(22)
+	parentRunID := testUUID(23)
+	parentWFID := testUUID(24)
+	splitNodeID := testUUID(25)
+	splitNodeRunID := testUUID(26)
+	settings, _ := json.Marshal(map[string]any{
+		"gitea_clone_url": "https://gitea.example.com/t-202020202020/child.git",
+	})
+	return &subIssueMockDBTX{
+		childIssue: db.MulticaIssue{
+			ID:            childIssueID,
+			WorkspaceID:   wsID,
+			Title:         "登录模块",
+			ParentIssueID: parentIssueID,
+			Number:        42,
+		},
+		parentIssue: db.MulticaIssue{
+			ID:          parentIssueID,
+			WorkspaceID: wsID,
+			Title:       "父需求",
+		},
+		parentRun: db.MulticaWorkflowRun{
+			ID:          parentRunID,
+			WorkflowID:  parentWFID,
+			WorkspaceID: wsID,
+		},
+		parentNodeRuns: []db.MulticaWorkflowNodeRun{
+			{
+				ID:             splitNodeRunID,
+				WorkflowRunID:  parentRunID,
+				WorkflowNodeID: splitNodeID,
+				NodeTitle:      "需求拆分",
+			},
+		},
+		splitNode: db.MulticaWorkflowNode{
+			ID:           splitNodeID,
+			WorkflowID:   parentWFID,
+			Title:        "需求拆分",
+			FormatSchema: []byte(`{"type":"split"}`),
+			SortOrder:    1,
+		},
+		parentWorkflow: db.MulticaWorkflow{
+			ID:          parentWFID,
+			WorkspaceID: wsID,
+			Title:       "Parent Workflow",
+		},
+		workspace: db.MulticaWorkspace{
+			ID:       wsID,
+			Settings: settings,
+		},
+	}
+}
+
+// TestArchiveSubIssueAddress_WritesToParentRepoUnderSplitNode is the happy path:
+// a child run whose source issue is a split-out child → the child's
+// deliverable-repo address is written into the PARENT issue's Gitea repo, under
+// the split node's NodeDir at splits/<childIssueNumber>-<title>.md. The UpsertFile
+// target is the parent run's org/repo/inst — NOT the child's.
+func TestArchiveSubIssueAddress_WritesToParentRepoUnderSplitNode(t *testing.T) {
+	mock := newSubIssueMockDBTX()
+	const cloneURL = "https://gitea.example.com/t-202020202020/child.git"
+
+	childRun := db.MulticaWorkflowRun{
+		ID:            testUUID(27),
+		WorkflowID:    testUUID(28),
+		WorkspaceID:   mock.childIssue.WorkspaceID,
+		SourceIssueID: mock.childIssue.ID,
+	}
+
+	spy := &spyRepoProvider{configured: true}
+	svc := &WorkflowService{Queries: db.New(mock), RepositoryProvider: spy}
+
+	svc.ArchiveSubIssueAddress(context.Background(), childRun)
+
+	calls := spy.snapshot()
+	if len(calls) != 1 {
+		t.Fatalf("UpsertFile calls = %d, want 1", len(calls))
+	}
+	got := calls[0]
+
+	// Target: PARENT run's repo, NOT the child's.
+	wantOwner := gitea.OrgName(util.UUIDToString(mock.parentRun.WorkspaceID))
+	wantRepo := DeliverableRepoNameForWorkflow(mock.parentWorkflow)
+	wantBranch := gitea.InstBranch(util.UUIDToString(mock.parentRun.ID))
+	if got.Owner != wantOwner || got.Repo != wantRepo || got.Branch != wantBranch {
+		t.Errorf("UpsertFile target = %s/%s @%s, want %s/%s @%s (PARENT repo)",
+			got.Owner, got.Repo, got.Branch, wantOwner, wantRepo, wantBranch)
+	}
+
+	// Path: under the split node's NodeDir, with the SplitChildPath suffix.
+	if !strings.HasPrefix(got.Path, "nodes/") {
+		t.Errorf("path %q must be under nodes/", got.Path)
+	}
+	if !strings.Contains(got.Path, "/splits/42-") {
+		t.Errorf("path %q must contain '/splits/42-' (child issue Number=42)", got.Path)
+	}
+	if !strings.Contains(got.Path, "需求拆分") {
+		t.Errorf("path %q must contain the split node title '需求拆分'", got.Path)
+	}
+
+	// Content: carries the child's clone URL + inst branch.
+	childInst := gitea.InstBranch(util.UUIDToString(childRun.ID))
+	if !strings.Contains(got.Content, cloneURL) {
+		t.Errorf("content missing child clone URL %q", cloneURL)
+	}
+	if !strings.Contains(got.Content, childInst) {
+		t.Errorf("content missing child inst branch %q", childInst)
+	}
+	// Commit message references the child issue number.
+	if !strings.Contains(got.Message, "42") {
+		t.Errorf("commit message %q must reference child issue Number 42", got.Message)
+	}
+}
+
+// TestArchiveSubIssueAddress_NoOpCases covers every early-return path: the
+// function must never call UpsertFile when the linkage chain can't resolve.
+// Each case mutates the base happy-path mock to break one link.
+func TestArchiveSubIssueAddress_NoOpCases(t *testing.T) {
+	childRun := func(mock *subIssueMockDBTX) db.MulticaWorkflowRun {
+		return db.MulticaWorkflowRun{
+			ID:            testUUID(27),
+			WorkflowID:    testUUID(28),
+			WorkspaceID:   mock.childIssue.WorkspaceID,
+			SourceIssueID: mock.childIssue.ID,
+		}
+	}
+
+	cases := []struct {
+		name    string
+		setup   func(*subIssueMockDBTX)
+		runFunc func(*subIssueMockDBTX) db.MulticaWorkflowRun
+	}{
+		{
+			name:  "child_run_source_issue_invalid",
+			setup: func(m *subIssueMockDBTX) {},
+			runFunc: func(m *subIssueMockDBTX) db.MulticaWorkflowRun {
+				r := childRun(m)
+				r.SourceIssueID = pgtype.UUID{} // invalid → not a split child
+				return r
+			},
+		},
+		{
+			name: "child_issue_has_no_parent",
+			setup: func(m *subIssueMockDBTX) {
+				m.childIssue.ParentIssueID = pgtype.UUID{} // no parent → not a split child
+			},
+			runFunc: childRun,
+		},
+		{
+			name: "parent_run_has_no_split_node",
+			setup: func(m *subIssueMockDBTX) {
+				// Make the only node-run point at a non-split node: set its
+				// WorkflowNodeID to something that doesn't match splitNode.ID,
+				// so GetWorkflowNode returns a non-split node.
+				m.parentNodeRuns[0].WorkflowNodeID = testUUID(99)
+			},
+			runFunc: childRun,
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			mock := newSubIssueMockDBTX()
+			c.setup(mock)
+			spy := &spyRepoProvider{configured: true}
+			svc := &WorkflowService{Queries: db.New(mock), RepositoryProvider: spy}
+
+			run := c.runFunc(mock)
+			svc.ArchiveSubIssueAddress(context.Background(), run)
+
+			if calls := spy.snapshot(); len(calls) != 0 {
+				t.Fatalf("UpsertFile calls = %d, want 0 (no-op path: %s)", len(calls), c.name)
+			}
+		})
+	}
+
+	// Dormant provider: Configured() == false → return before any DB call.
+	t.Run("provider_dormant", func(t *testing.T) {
+		mock := newSubIssueMockDBTX()
+		spy := &spyRepoProvider{configured: false}
+		svc := &WorkflowService{Queries: db.New(mock), RepositoryProvider: spy}
+
+		run := childRun(mock)
+		svc.ArchiveSubIssueAddress(context.Background(), run)
+
+		if calls := spy.snapshot(); len(calls) != 0 {
+			t.Fatalf("UpsertFile calls = %d, want 0 (dormant provider)", len(calls))
+		}
+	})
 }

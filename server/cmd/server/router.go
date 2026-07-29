@@ -262,6 +262,11 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 		})
 	}
 	h.WorkflowService.TeamNamespace = teamNamespaceClient
+	// TaskService.TeamNamespace mirrors the workflow client: it provisions
+	// Gitea wf repos for document deliverables at cs-cloud dispatch time
+	// (read by buildCSCloudPayload). Same post-construction pattern as
+	// h.TaskService.EmptyClaim below.
+	h.TaskService.TeamNamespace = teamNamespaceClient
 	// Auth caches: PAT cache is shared between the regular Auth middleware,
 	// the DaemonAuth fallback (mul_) path, and the revoke handler
 	// (invalidate). DaemonTokenCache backs the DaemonAuth mdt_ path. Both
@@ -448,6 +453,7 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 		r.Get("/chat-sessions/{sessionId}/gc-check", h.GetChatSessionGCCheck)
 		r.Get("/autopilot-runs/{runId}/gc-check", h.GetAutopilotRunGCCheck)
 		r.Get("/tasks/{taskId}/gc-check", h.GetTaskGCCheck)
+		r.Get("/workflow-node-runs/{nodeRunId}/gc-check", h.GetWorkflowNodeRunGCCheck)
 
 		r.Post("/runtimes/{runtimeId}/recover-orphans", h.RecoverOrphanedTasks)
 		r.Post("/tasks/{taskId}/session", h.PinTaskSession)

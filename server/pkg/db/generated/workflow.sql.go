@@ -1009,6 +1009,39 @@ func (q *Queries) GetWorkflowRunByDispatchKey(ctx context.Context, arg GetWorkfl
 	return i, err
 }
 
+const getWorkflowRunBySourceIssue = `-- name: GetWorkflowRunBySourceIssue :one
+SELECT id, workflow_id, workspace_id, workflow_title, status, triggered_by_type, triggered_by_id, input, output, started_at, completed_at, created_at, runtime_id, source_issue_id, responsible_user_id, runtime_authorizer_id, dispatch_key, runtime_selection_policy FROM multica_workflow_run
+WHERE source_issue_id = $1
+ORDER BY created_at DESC
+LIMIT 1
+`
+
+func (q *Queries) GetWorkflowRunBySourceIssue(ctx context.Context, sourceIssueID pgtype.UUID) (MulticaWorkflowRun, error) {
+	row := q.db.QueryRow(ctx, getWorkflowRunBySourceIssue, sourceIssueID)
+	var i MulticaWorkflowRun
+	err := row.Scan(
+		&i.ID,
+		&i.WorkflowID,
+		&i.WorkspaceID,
+		&i.WorkflowTitle,
+		&i.Status,
+		&i.TriggeredByType,
+		&i.TriggeredByID,
+		&i.Input,
+		&i.Output,
+		&i.StartedAt,
+		&i.CompletedAt,
+		&i.CreatedAt,
+		&i.RuntimeID,
+		&i.SourceIssueID,
+		&i.ResponsibleUserID,
+		&i.RuntimeAuthorizerID,
+		&i.DispatchKey,
+		&i.RuntimeSelectionPolicy,
+	)
+	return i, err
+}
+
 const getWorkflowStage = `-- name: GetWorkflowStage :one
 SELECT id, workflow_id, name, description, sort_order, created_at, updated_at FROM multica_workflow_stage WHERE id = $1
 `

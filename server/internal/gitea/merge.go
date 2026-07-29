@@ -37,6 +37,23 @@ func (c *Client) MergePR(ctx context.Context, owner, repo string, index int) err
 	return decodeError(resp)
 }
 
+// ClosePR closes a pull request (sets state=closed). Used by the critic reject
+// path to close document deliverable PRs after a rejection. Uses the admin
+// token; the caller treats failure as best-effort (logged, non-blocking).
+func (c *Client) ClosePR(ctx context.Context, owner, repo string, index int) error {
+	resp, err := c.do(ctx, http.MethodPatch, "/repos/"+owner+"/"+repo+"/pulls/"+strconv.Itoa(index), map[string]any{
+		"state": "closed",
+	})
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+		return nil
+	}
+	return decodeError(resp)
+}
+
 // OpenPR creates a pull request (head→base) and returns its html_url. Used by
 // the server-side member-upload path to open a node→inst PR — symmetric with the
 // daemon/cs-workflow path, which opens PRs client-side. Uses the admin token;

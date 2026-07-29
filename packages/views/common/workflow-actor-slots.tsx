@@ -1,6 +1,6 @@
 import { ActorAvatar } from "@multica/ui/components/common/actor-avatar";
 import { cn } from "@multica/ui/lib/utils";
-import { BadgeCheck, Braces, CircleDashed } from "lucide-react";
+import { ArrowRight, BadgeCheck, Braces, CircleDashed } from "lucide-react";
 
 export type WorkflowActorSlotKind = "worker" | "critic";
 export type WorkflowActorState = "configured" | "optional" | "missing" | "pending";
@@ -16,6 +16,7 @@ export interface WorkflowActorIdentity {
   avatarUrl?: string | null;
   availability?: WorkflowActorAvailability | null;
   availabilityLabel?: string;
+  sourceRoleName?: string;
 }
 
 interface WorkflowActorSlotProps {
@@ -105,6 +106,7 @@ export function WorkflowActorSlot({
       data-workflow-actor-slot={slot}
       data-workflow-actor-type={identity?.type}
       data-workflow-actor-availability={identity?.availability || undefined}
+      data-workflow-actor-source-role={identity?.sourceRoleName || undefined}
       className={cn("grid row-span-2 min-w-0 grid-rows-subgrid gap-1", className)}
     >
       <span className="block text-[9px] font-bold uppercase leading-3 text-muted-foreground">
@@ -123,11 +125,23 @@ export function WorkflowActorSlot({
             {displayName}
           </span>
           {identity ? (
-            <span className="flex min-w-0 items-center gap-1 text-[9px] leading-3 text-muted-foreground">
-              <span className="min-w-0 shrink truncate font-semibold" title={identity.typeLabel}>
-                {identity.typeLabel}
+            identity.sourceRoleName ? (
+              <span
+                className="flex min-w-0 items-center gap-0.5 text-[9px] font-semibold leading-3 text-primary/85"
+                title={`${identity.sourceRoleName} → ${identity.typeLabel}`}
+              >
+                <BadgeCheck className="size-2.5 shrink-0" strokeWidth={1.8} />
+                <span className="min-w-0 truncate">{identity.sourceRoleName}</span>
+                <ArrowRight className="size-2.5 shrink-0" strokeWidth={1.8} />
+                <span className="shrink-0">{identity.typeLabel}</span>
               </span>
-            </span>
+            ) : (
+              <span className="flex min-w-0 items-center gap-1 text-[9px] leading-3 text-muted-foreground">
+                <span className="min-w-0 shrink truncate font-semibold" title={identity.typeLabel}>
+                  {identity.typeLabel}
+                </span>
+              </span>
+            )
           ) : null}
         </span>
       </span>
