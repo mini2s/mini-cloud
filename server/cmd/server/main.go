@@ -16,6 +16,7 @@ import (
 	"github.com/joho/godotenv"
 	"github.com/multica-ai/multica/server/internal/analytics"
 	"github.com/multica-ai/multica/server/internal/cloudruntime"
+	"github.com/multica-ai/multica/server/internal/csuser"
 	"github.com/multica-ai/multica/server/internal/daemonws"
 	"github.com/multica-ai/multica/server/internal/deptsync"
 	"github.com/multica-ai/multica/server/internal/events"
@@ -334,6 +335,11 @@ func main() {
 		Timeout:  envDuration("DEPT_SYNC_TIMEOUT", 10*time.Second),
 		CacheTTL: envDuration("DEPT_SYNC_CACHE_TTL", time.Minute),
 	})
+	csUserClient := csuser.NewClient(csuser.Config{
+		BaseURL: strings.TrimRight(strings.TrimSpace(os.Getenv("CS_USER_API_BASE_URL")), "/"),
+		Token:   os.Getenv("CS_USER_INTERNAL_TOKEN"),
+		Timeout: envDuration("CS_USER_API_TIMEOUT", 10*time.Second),
+	})
 	giteaClient := gitea.NewClient(gitea.Config{
 		BaseURL: strings.TrimRight(strings.TrimSpace(os.Getenv("GITEA_BASE_URL")), "/"),
 		Token:   os.Getenv("GITEA_ADMIN_TOKEN"),
@@ -568,6 +574,7 @@ func main() {
 		CasdoorEnabled:         casdoorEnabled,
 		SkillProxy:             skillProxy,
 		DeptSync:               deptSyncClient,
+		CsUser:                 csUserClient,
 		Gitea:                  giteaClient,
 		TeamNamespace:          teamNamespaceClient,
 		WorkflowRoleResolution: roleResolutionRuntime,

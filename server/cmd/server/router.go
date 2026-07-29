@@ -19,6 +19,7 @@ import (
 	"github.com/multica-ai/multica/server/internal/analytics"
 	"github.com/multica-ai/multica/server/internal/auth"
 	"github.com/multica-ai/multica/server/internal/coderepo"
+	"github.com/multica-ai/multica/server/internal/csuser"
 	"github.com/multica-ai/multica/server/internal/daemonws"
 	"github.com/multica-ai/multica/server/internal/deptsync"
 	"github.com/multica-ai/multica/server/internal/events"
@@ -149,6 +150,9 @@ type RouterOptions struct {
 	// linking). main.go constructs it once and passes it in; tests leave it
 	// nil and the router falls back to constructing one from env.
 	DeptSync *deptsync.Client
+	// CsUser, when non-nil, is the cs-user client used by SearchDeptUsers.
+	// nil → the handler returns 503 (cs-user not configured).
+	CsUser *csuser.Client
 	// Gitea is the platform Gitea admin client for document-deliverable storage.
 	// nil → the router constructs one from env (dormant when env unset).
 	Gitea *gitea.Client
@@ -235,6 +239,9 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 			Timeout:  envDuration("DEPT_SYNC_TIMEOUT", 10*time.Second),
 			CacheTTL: envDuration("DEPT_SYNC_CACHE_TTL", time.Minute),
 		})
+	}
+	if opts.CsUser != nil {
+		h.CsUser = opts.CsUser
 	}
 	giteaClient := opts.Gitea
 	if giteaClient == nil {
