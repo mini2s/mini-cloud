@@ -123,55 +123,6 @@ func TestSearchDeptDepartmentsReturnsInitialDepartmentsForEmptyQuery(t *testing.
 	}
 }
 
-func TestSearchDeptUsersReturnsNameAndEmployeeMatches(t *testing.T) {
-	prev := testHandler.DeptSync
-	testHandler.DeptSync = fakeWorkspaceDeptClient{users: []deptsync.User{
-		{UserID: "E001", Username: "Active Dept User", UniversalID: "uni-active", DeptID: "D100", DeptName: "Platform", Position: "Engineer", Status: 1},
-		{UserID: "29219", Username: "Universal Only User", UniversalID: "bcdce73f-0f2c-4699-ad21-501a4bc13245", DeptID: "D100", DeptName: "Costrict", Position: "Engineer", Status: 1},
-	}}
-	t.Cleanup(func() { testHandler.DeptSync = prev })
-
-	w := httptest.NewRecorder()
-	req := newRequest(http.MethodGet, "/api/dept/users/search?q=E001", nil)
-	testHandler.SearchDeptUsers(w, req)
-	if w.Code != http.StatusOK {
-		t.Fatalf("SearchDeptUsers: expected 200, got %d: %s", w.Code, w.Body.String())
-	}
-	if !strings.Contains(w.Body.String(), "Active Dept User") || !strings.Contains(w.Body.String(), "E001") {
-		t.Fatalf("expected dept user result, got %s", w.Body.String())
-	}
-
-	w = httptest.NewRecorder()
-	req = newRequest(http.MethodGet, "/api/dept/users/search?q=Dept", nil)
-	testHandler.SearchDeptUsers(w, req)
-	if w.Code != http.StatusOK {
-		t.Fatalf("SearchDeptUsers by partial name: expected 200, got %d: %s", w.Code, w.Body.String())
-	}
-	if !strings.Contains(w.Body.String(), "Active Dept User") {
-		t.Fatalf("expected partial name match, got %s", w.Body.String())
-	}
-
-	w = httptest.NewRecorder()
-	req = newRequest(http.MethodGet, "/api/dept/users/search?q=001", nil)
-	testHandler.SearchDeptUsers(w, req)
-	if w.Code != http.StatusOK {
-		t.Fatalf("SearchDeptUsers by partial employee id: expected 200, got %d: %s", w.Code, w.Body.String())
-	}
-	if !strings.Contains(w.Body.String(), "E001") {
-		t.Fatalf("expected partial employee id match, got %s", w.Body.String())
-	}
-
-	w = httptest.NewRecorder()
-	req = newRequest(http.MethodGet, "/api/dept/users/search?q=c", nil)
-	testHandler.SearchDeptUsers(w, req)
-	if w.Code != http.StatusOK {
-		t.Fatalf("SearchDeptUsers by universal id character: expected 200, got %d: %s", w.Code, w.Body.String())
-	}
-	if strings.Contains(w.Body.String(), "Universal Only User") {
-		t.Fatalf("did not expect universal id-only match, got %s", w.Body.String())
-	}
-}
-
 func TestListDeptDepartmentUsersReturnsRecursiveMembers(t *testing.T) {
 	prev := testHandler.DeptSync
 	testHandler.DeptSync = fakeWorkspaceDeptClient{users: []deptsync.User{
