@@ -186,6 +186,9 @@ import type {
   HubRepoSyncTriggerResult,
   HubRepoSyncLogListResult,
   EnterpriseCustomerInput,
+  UserQuota,
+  UsageStatsParams,
+  UsageStatsResult,
 } from "../types";
 import type { OnboardingCompletionPath } from "../onboarding/types";
 import type {
@@ -3289,5 +3292,40 @@ async hubSearchUsers(q: string): Promise<SearchedUser[]> {
 async hubGetUserNames(ids: string[]): Promise<Record<string, string>> {
   const res = await this.fetch<{ names: Record<string, string> }>(`/api/users/names?ids=${ids.map(encodeURIComponent).join(",")}`);
   return res.names ?? {};
+}
+
+// ── Personal quota (My Quota page) ────────────────────────────────────────
+// Both endpoints are reverse-proxied to the external quota-manager service
+// (see server/internal/handler/quota_manager_proxy.go). The frontend calls the
+// relative paths below; the Go server forwards them upstream.
+
+/**
+ * Fetch the current user's quota overview: used/total credits and the per-batch
+ * validity list. Mirrors the quota-manager `GET /quota-manager/api/v1/quota`.
+ * The upstream wraps the payload in a `{code, message, success, data}` envelope;
+ * unwrap to `data`.
+ */
+async quotaGetUserQuota(): Promise<UserQuota> {
+  const res = await this.fetch<{ data: UserQuota }>("/api/quota-manager/api/v1/quota");
+  return res.data;
+}
+
+/**
+ * Fetch paginated usage-consumption records, optionally filtered by a preset
+ * time range or a custom start/end window. Mirrors the quota-manager
+ * `GET /quota-manager/api/v1/usage/statistics`. The upstream wraps the payload
+ * in a `{code, message, success, data}` envelope; unwrap to `data`.
+ */
+async quotaGetUsageStatistics(params: UsageStatsParams): Promise<UsageStatsResult> {
+  const p = new URLSearchParams();
+  p.set("page", String(params.page));
+  p.set("page_size", String(params.page_size));
+  if (params.start_time) p.set("start_time", params.start_time);
+  if (params.end_time) p.set("end_time", params.end_time);
+  if (params.time_range) p.set("time_range", params.time_range);
+  const res = await this.fetch<{ data: UsageStatsResult }>(
+    `/api/quota-manager/api/v1/usage/statistics?${p.toString()}`,
+  );
+  return res.data;
 }
 }

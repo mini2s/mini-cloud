@@ -160,3 +160,4 @@ export type {
   SquadMemberStatusListResponse,
 } from "./squad";
 export type * from "./hub";
+export type * from "./quota";

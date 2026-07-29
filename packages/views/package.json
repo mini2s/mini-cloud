@@ -30,6 +30,7 @@
     "./agents": "./agents/index.ts",
     "./members": "./members/index.ts",
     "./hub": "./hub/index.ts",
+    "./me": "./me/index.ts",
     "./inbox": "./inbox/index.ts",
     "./runtimes": "./runtimes/index.ts",
     "./dashboard": "./dashboard/index.ts",

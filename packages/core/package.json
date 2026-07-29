@@ -90,6 +90,8 @@
     "./hub/queries": "./hub/queries.ts",
     "./hub/mutations": "./hub/mutations.ts",
     "./hub/view-store": "./hub/view-store.ts",
+    "./quota": "./quota/index.ts",
+    "./quota/queries": "./quota/queries.ts",
     "./realtime": "./realtime/index.ts",
     "./navigation": "./navigation/index.ts",
     "./modals": "./modals/index.ts",

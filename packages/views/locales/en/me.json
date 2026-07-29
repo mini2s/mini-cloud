@@ -1,0 +1,35 @@
+{
+  "title": "Usage Statistics",
+  "quotaOverview": "Quota Overview",
+  "quotaOverviewDesc": "View your quota usage and validity",
+  "usedQuota": "Used {{used}} / {{total}} Credits",
+  "remainingQuota": "Remaining {{remaining}} Credits",
+  "quotaValidity": "Quota Validity",
+  "quota": {
+    "empty": "No quota records",
+    "expiryDate": "Expiration Time",
+    "amount": "Credit Number",
+    "source": "Source"
+  },
+  "consumptionTitle": "Usage Consumption",
+  "consumptionDesc": "View your detailed usage consumption records",
+  "filter": {
+    "today": "Today",
+    "within7Days": "Last 7 Days",
+    "within30Days": "Last 30 Days",
+    "custom": "Custom"
+  },
+  "table": {
+    "startTime": "Time",
+    "model": "Model",
+    "mode": "Mode",
+    "creditsUsed": "Credits Used",
+    "package": "Package",
+    "empty": "No usage records"
+  },
+  "pagination": {
+    "summary": "Showing {{from}} - {{to}} of {{total}}",
+    "empty": "No data",
+    "page": "page"
+  }
+}

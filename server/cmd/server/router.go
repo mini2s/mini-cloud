@@ -199,6 +199,9 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 		CasdoorOrgName:          os.Getenv("CASDOOR_ORG_NAME"),
 		CasdoorAppName:          os.Getenv("CASDOOR_APP_NAME"),
 		BuiltinPluginAPIBaseURL: strings.TrimRight(strings.TrimSpace(os.Getenv("BUILTIN_PLUGIN_API_BASE_URL")), "/"),
+		// Quota-manager service — reverse-proxies personal quota overview and
+		// usage-consumption statistics. Empty -> routes return 503.
+		QuotaManagerAPIBaseURL: strings.TrimRight(strings.TrimSpace(os.Getenv("QUOTA_MANAGER_API_BASE_URL")), "/"),
 		// CSC plugin marketplace identity delivered to the daemon. No default:
 		// when unset, the daemon falls back to its own built-in github default.
 		CSCPluginMarketplaceName: strings.TrimSpace(os.Getenv("CSC_PLUGIN_MARKETPLACE_NAME")),
@@ -409,6 +412,16 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 		r.MethodFunc(http.MethodGet, "/api/users/search", hubProxy)
 		r.MethodFunc(http.MethodGet, "/api/users/names", hubProxy)
 		r.MethodFunc(http.MethodGet, "/api/users/info", hubProxy)
+	}
+
+	// Quota-manager proxy — personal-quota (usage statistics) routes are proxied
+	// to the quota-manager backend here (outside the auth group, same rationale
+	// as the Hub proxy). The quota-manager backend has its own authentication
+	// (Casdoor JWT via HUB_DEV_TOKEN in dev, or shared session in prod), so
+	// mini-cloud's Auth middleware must NOT gate these routes. GET only — both
+	// the quota overview and usage statistics endpoints are reads.
+	if quotaProxy := h.QuotaManagerProxy(); quotaProxy != nil {
+		r.MethodFunc(http.MethodGet, "/api/quota-manager/*", quotaProxy)
 	}
 
 	// Webhook ingress for autopilots. Outside the authenticated group on

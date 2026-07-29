@@ -1,6 +1,7 @@
 {
   "home": {
     "title": "Hub",
+    "manage": "Manage",
     "search": {
       "placeholder": "Search skills, agents, commands…",
       "placeholderType": {

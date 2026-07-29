@@ -1,6 +1,7 @@
 {
   "home": {
     "title": "Hub",
+    "manage": "管理",
     "search": {
       "placeholder": "搜索 Skill、Agent、命令…",
       "placeholderType": {

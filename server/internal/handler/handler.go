@@ -96,6 +96,12 @@ type Config struct {
 	// the plugin's content from this API and appends it to the agent's generated
 	// task instructions under the ## Agent Identity section.
 	BuiltinPluginAPIBaseURL string
+	// QuotaManagerAPIBaseURL is the base URL of the shared quota-manager
+	// service used for personal quota overview and usage-consumption statistics
+	// (the "My Quota" page). When non-empty, the personal-quota routes are
+	// reverse-proxied to this backend; empty disables the proxy and the routes
+	// return 503.
+	QuotaManagerAPIBaseURL string
 	// CSCPluginMarketplaceName / CSCPluginMarketplaceRepo identify the plugin
 	// marketplace the daemon must register against when installing a CSC
 	// agent's bound plugin. Delivered to the daemon via the task-claim

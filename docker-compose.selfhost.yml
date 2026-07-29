@@ -95,6 +95,9 @@ services:
       BUILTIN_PLUGIN_API_BASE_URL: ${BUILTIN_PLUGIN_API_BASE_URL:-}
       CSC_PLUGIN_MARKETPLACE_NAME: ${CSC_PLUGIN_MARKETPLACE_NAME:-}
       CSC_PLUGIN_MARKETPLACE_REPO: ${CSC_PLUGIN_MARKETPLACE_REPO:-}
+      # Quota-manager service — personal quota overview + usage statistics.
+      # Empty -> the My Quota page proxy is disabled (routes return 503).
+      QUOTA_MANAGER_API_BASE_URL: ${QUOTA_MANAGER_API_BASE_URL:-}
     restart: unless-stopped
 
   frontend:

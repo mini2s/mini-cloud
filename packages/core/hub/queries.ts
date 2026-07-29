@@ -9,6 +9,8 @@ import type {
   HubItemListParams,
   HubRepoSyncStatusResult,
   ItemFilterOptions,
+  ItemOrder,
+  ItemSort,
   ItemTag,
   SearchedUser,
   SourceOption,
@@ -52,6 +54,41 @@ export interface HubItemsResult {
   total: number;
 }
 
+// ── Client-side sort fallback ────────────────────────────────────────────
+// The upstream cloud-store backend does not recognize some sort keys (e.g.
+// experienceScore / updatedAt) and silently falls back to its default order.
+// Re-sorting the returned page client-side keeps the UI sort behavior
+// decoupled from upstream support. Sorting only applies within the current
+// page — an accepted trade-off of this fallback.
+
+function sortValue(item: CapabilityItem, sort: ItemSort): number | undefined {
+  if (sort === "updatedAt") {
+    const ts = Date.parse(item.updatedAt);
+    return Number.isNaN(ts) ? undefined : ts;
+  }
+  return item[sort];
+}
+
+/** Stable client-side sort; items missing the sort field go last regardless
+ *  of direction. Never mutates the input array. */
+export function sortHubItems(
+  items: CapabilityItem[],
+  sort: ItemSort | undefined,
+  order: ItemOrder | undefined,
+): CapabilityItem[] {
+  if (!sort || items.length < 2) return items;
+  const direction = order === "asc" ? 1 : -1;
+  return [...items].sort((a, b) => {
+    const va = sortValue(a, sort);
+    const vb = sortValue(b, sort);
+    if (va === undefined && vb === undefined) return 0;
+    if (va === undefined) return 1;
+    if (vb === undefined) return -1;
+    if (va === vb) return 0;
+    return va < vb ? -direction : direction;
+  });
+}
+
 export function hubItemsQueryOptions(params: HubItemListParams) {
   return queryOptions({
     queryKey: hubKeys.itemsList(params),
@@ -59,6 +96,13 @@ export function hubItemsQueryOptions(params: HubItemListParams) {
       const res = await api.hubListItems(params);
       return { items: res.items ?? [], total: res.total ?? 0 };
     },
+    select: (data) => ({
+      ...data,
+      items: sortHubItems(data.items, params.sort, params.order),
+    }),
+    // Override the global staleTime: Infinity so switching back to a
+    // previously visited sort/filter combination actually refetches.
+    staleTime: 30_000,
   });
 }
 
