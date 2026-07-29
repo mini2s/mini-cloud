@@ -218,7 +218,7 @@ func (s *TaskService) buildCSCloudPayload(ctx context.Context, task db.MulticaAg
 
 	// Hoist phase + deliverables so the Task-2 safety net can fire BEFORE
 	// env/repos[] assembly — that way the just-provisioned settings are visible
-	// to repositoryDeliverableEnv (MULTICA_REPO_* env) and resolveDeliveryRepo
+	// to repositoryDeliverableEnv (CS_CLOUD_REPO_* env) and resolveDeliveryRepo
 	// (repos[] role=delivery) on the CURRENT dispatch, not just the next one.
 	// Deliverables stays empty for non-worker (critic) phases: critic tasks
 	// review, they don't submit, so they must not emit a Deliverables slice.
@@ -249,7 +249,7 @@ func (s *TaskService) buildCSCloudPayload(ctx context.Context, task db.MulticaAg
 			_ = json.Unmarshal(agent.CustomEnv, &env)
 		}
 	}
-	// Gitea document-deliverable context (MULTICA_REPO_*) + node-run/issue ids,
+	// Gitea document-deliverable context (CS_CLOUD_REPO_*) + node-run/issue ids,
 	// so the cs-cloud agent can run `cs-cloud workflow deliverable submit` /
 	// `gitea fetch` inside the task. Dormant (no env injected) when Gitea isn't
 	// configured or the node has no document deliverables — matches the
@@ -260,7 +260,7 @@ func (s *TaskService) buildCSCloudPayload(ctx context.Context, task db.MulticaAg
 		env[k] = v
 	}
 	if task.IssueID.Valid {
-		env["MULTICA_ISSUE_ID"] = util.UUIDToString(task.IssueID)
+		env["CS_CLOUD_ISSUE_ID"] = util.UUIDToString(task.IssueID)
 	}
 	if phase == "critic" {
 		prompt = appendCriticReviewPrompt(prompt)
@@ -268,7 +268,7 @@ func (s *TaskService) buildCSCloudPayload(ctx context.Context, task db.MulticaAg
 		if phase == "worker" {
 			prompt = appendWorkerTaskPrompt(prompt)
 		}
-		if raw, ok := repoEnv["MULTICA_REPO_DELIVERABLES"]; ok {
+		if raw, ok := repoEnv["CS_CLOUD_REPO_DELIVERABLES"]; ok {
 			var refs []repositoryDeliverableRefJSON
 			if json.Unmarshal([]byte(raw), &refs) == nil && len(refs) > 0 {
 				prompt = appendDeliverablePrompt(prompt, refs)
@@ -295,7 +295,7 @@ func (s *TaskService) buildCSCloudPayload(ctx context.Context, task db.MulticaAg
 		repos, gitlabToken, projectID = s.resolveCodeRepoAndProject(ctx, task, runtime.WorkspaceID)
 		if len(repos) > 0 {
 			if gitlabToken != "" {
-				env["MULTICA_GITLAB_TOKEN"] = gitlabToken
+				env["CS_CLOUD_GITLAB_TOKEN"] = gitlabToken
 			}
 			prompt = appendCodeRepoPrompt(prompt, repos)
 		}
@@ -434,7 +434,7 @@ func (s *TaskService) resolveCodeRepoAndProject(ctx context.Context, task db.Mul
 // is judged by giteaProvisioningBundle.complete, shared with settingsLackGiteaData
 // so the two helpers can never disagree on "Gitea data present".
 //
-// The agent authenticates via the MULTICA_REPO_TOKEN env (already injected by
+// The agent authenticates via the CS_CLOUD_REPO_TOKEN env (already injected by
 // repositoryDeliverableEnv from the same settings), so the URL stays plain
 // (no embedded creds) and gitea_bot_username is not needed here. BotToken is
 // populated in the spec for forward-compat — cs-cloud's RepoSpec currently
@@ -521,7 +521,8 @@ func appendCodeRepoPrompt(prompt string, repos []csCloudRepoSpec) string {
 		b.WriteByte('\n')
 	}
 	b.WriteString("\n---\n## 代码仓库开发\n\n")
-	b.WriteString("你的工作环境已准备好以下代码仓库（选你要改的那个，调用 `cs-cloud repo checkout <url>` 拉到本地后编辑）：\n")
+	b.WriteString("你的任务根目录是 $CS_CLOUD_WORKTREE。用原生 git clone 把要改的代码仓库拉到任务根目录下：clone 时把仓库 URL 的 `https://` 换成 `https://oauth2:${CS_CLOUD_GITLAB_TOKEN}@` 来鉴权（token 在环境变量里），然后 cd 进去建分支开发。例如：`git clone https://oauth2:${CS_CLOUD_GITLAB_TOKEN}@<host>/<group>/<repo>.git $CS_CLOUD_WORKTREE/<repo> && cd $CS_CLOUD_WORKTREE/<repo>`。\n")
+	b.WriteString("可选的代码仓库：\n")
 	for _, r := range repos {
 		label := r.Alias
 		if label == "" {
@@ -529,8 +530,8 @@ func appendCodeRepoPrompt(prompt string, repos []csCloudRepoSpec) string {
 		}
 		fmt.Fprintf(&b, "- %s (`%s`)\n", label, r.URL)
 	}
-	b.WriteString("\n完成编码后，对每个 `kind=pull_request` 交付物：在工作区内 `git add/commit`，然后运行 `cs-cloud workflow deliverable submit --repo <url> --deliverable <id> --mr` 开 Merge Request 并自动上报 MR 链接。\n")
-	b.WriteString("Token 从环境变量读取（`$MULTICA_GITLAB_TOKEN`），无需自己找。**不要**等平台自动开 MR——你自己用 CLI 开。\n")
+	b.WriteString("\n完成编码后，在仓库目录内 `git add/commit`，然后运行 `cs-cloud workflow deliverable submit --repo <url> --deliverable <id> --mr` 开 Merge Request 并自动上报 MR 链接（务必在仓库目录内运行该命令）。\n")
+	b.WriteString("Token 从环境变量 `$CS_CLOUD_GITLAB_TOKEN` 读取，无需自己找。**不要**等平台自动开 MR——你自己用 CLI 开。\n")
 	b.WriteString("\n---\n\n")
 	return b.String()
 }
@@ -552,7 +553,7 @@ func appendWorkerTaskPrompt(prompt string) string {
 // The delivery repository is accessed via a managed worktree created by
 // `cs-cloud repo checkout` (NOT a plain git clone): cs-cloud matches the
 // passed URL against payload.Repos[] to pick the role, injects the auth token
-// from $MULTICA_REPO_TOKEN, and places the worktree on this node's branch.
+// from $CS_CLOUD_REPO_TOKEN, and places the worktree on this node's branch.
 // The agent then writes each document into the worktree and finalizes via
 // `cs-cloud workflow deliverable submit`, which pushes the node branch, opens
 // the node->inst review PR, and registers the review URL back here.
@@ -563,14 +564,14 @@ func appendDeliverablePrompt(prompt string, refs []repositoryDeliverableRefJSON)
 		b.WriteByte('\n')
 	}
 	b.WriteString("\n---\n## Document Deliverables\n\n")
-	b.WriteString("This node has document deliverables stored in the platform Gitea repository. Before submitting anything, pull the repository into a managed worktree by running ONCE: `cs-cloud repo checkout $MULTICA_REPO_CLONE_URL --base $MULTICA_REPO_INST_BRANCH`. Use the PLAIN `$MULTICA_REPO_CLONE_URL` (do NOT pass the `_AUTHED` variant) — cs-cloud matches this URL against the repo registry to pick the delivery role, and injects the auth token from `$MULTICA_REPO_TOKEN` itself. The worktree is created on this node's branch `$MULTICA_REPO_NODE_BRANCH`.\n\n")
-	b.WriteString("For EACH deliverable below: write the document to a local file, then run the submit command. The CLI writes your file into the checked-out worktree at the right path, pushes this node's branch, opens a review request (node -> inst), and registers the review URL back here. You MUST run `cs-cloud repo checkout` (above) first — submit needs the worktree to exist. Do NOT use inline content upload for these; document deliverables go through git.\n\n")
+	b.WriteString("This node has document deliverables stored in the platform Gitea repository. Clone it into your task root and switch to this node's branch: `git clone $CS_CLOUD_REPO_CLONE_URL_AUTHED $CS_CLOUD_WORKTREE/delivery && cd $CS_CLOUD_WORKTREE/delivery && git checkout $CS_CLOUD_REPO_NODE_BRANCH`. ($CS_CLOUD_REPO_CLONE_URL_AUTHED already embeds the auth token, so use it verbatim.)\n\n")
+	b.WriteString("For EACH deliverable below: write the document to a local file, then run the submit command FROM INSIDE the cloned repo. The CLI writes your file into the repo at the right path, pushes this node's branch, opens a review request (node -> inst), and registers the review URL back here. Do NOT use inline content upload for these; document deliverables go through git.\n\n")
 	for _, d := range refs {
 		fmt.Fprintf(&b, "- **%s** (id=%s): run `cs-cloud workflow deliverable submit --deliverable %s --file <local-path-to-your-document>`\n", d.Title, d.ID, d.ID)
 	}
 	b.WriteString("\nA deliverable is not considered submitted until its PR is registered. Complete every listed deliverable before finishing.\n\n")
 	b.WriteString("### Reading the deliverable repository\n\n")
-	b.WriteString("You already have the worktree from `cs-cloud repo checkout` (on this node's branch). To READ files from the inst branch (e.g. another node's documents), fetch and show them inside that worktree: `git -C <worktree> fetch origin && git -C <worktree> show origin/$MULTICA_REPO_INST_BRANCH:<path>`. For a different issue's repo, run `cs-cloud repo checkout <url> --base <inst-branch>` again; if you genuinely need a plain-git clone outside the worktree, the authed URL `$MULTICA_REPO_CLONE_URL_AUTHED` is still available as a fallback.\n\n")
+	b.WriteString("You already cloned the repo (on this node's branch). To READ files from the inst branch (e.g. another node's documents), fetch and show them inside the repo: `git fetch origin && git show origin/$CS_CLOUD_REPO_INST_BRANCH:<path>`. For a different issue's repo, `git clone` its authed URL into another directory under $CS_CLOUD_WORKTREE.\n\n")
 	b.WriteString("To inspect the rest of the workflow chain — other issues' progress and their deliverable repositories — use the read commands instead of guessing URLs:\n")
 	b.WriteString("- `cs-workflow issue workflow <issue-id> --descendants` — workflow run + node run status for this issue and its children.\n")
 	b.WriteString("- `cs-workflow issue deliverables <issue-id> --descendants` — the Gitea repository address and deliverable list for this issue and its children; use it to find another issue's repo URL before checking it out.\n")
@@ -606,7 +607,7 @@ func workflowPhaseFromTask(task db.MulticaAgentTaskQueue) string {
 }
 
 // repositoryDeliverableRefJSON is the per-deliverable shape cs-cloud's
-// `repo submit` reads from MULTICA_REPO_DELIVERABLES.
+// `repo submit` reads from CS_CLOUD_REPO_DELIVERABLES.
 type repositoryDeliverableRefJSON struct {
 	ID    string `json:"deliverable_id"`
 	Title string `json:"title"`
@@ -615,7 +616,7 @@ type repositoryDeliverableRefJSON struct {
 
 type giteaDeliverableRefJSON = repositoryDeliverableRefJSON
 
-// giteaDeliverableEnv builds the MULTICA_GITEA_* env vars for a task's
+// giteaDeliverableEnv builds the CS_CLOUD_GITEA_* env vars for a task's
 // node-run, mirroring handler.giteaContextForNodeRun but in the service layer
 // (the cs-cloud push path lives here, separate from claim). Returns nil when
 // Gitea is dormant or the node has no document deliverables — the caller then
@@ -680,7 +681,7 @@ func (s *TaskService) repositoryDeliverableEnv(ctx context.Context, task db.Mult
 	// self-assembly below. This is a cross-repo contract: cs-cloud's lookupRepoRole
 	// matches the checkout URL against payload.Repos[].URL by EXACT equality, and
 	// resolveDeliveryRepo puts settings.gitea_clone_url into repos[].URL. If the
-	// env's MULTICA_REPO_CLONE_URL diverges (e.g. GITEA_PUBLIC_BASE_URL points at
+	// env's CS_CLOUD_REPO_CLONE_URL diverges (e.g. GITEA_PUBLIC_BASE_URL points at
 	// a different host than the tenant-scoped Gitea), cs-cloud silently downgrades
 	// delivery → code → wrong token (GitLab PAT) → Gitea clone 401. Reading both
 	// URLs from the same settings field guarantees they stay identical.
@@ -736,33 +737,33 @@ func (s *TaskService) repositoryDeliverableEnv(ctx context.Context, task db.Mult
 	}
 	nodeBranch := gitea.NodeBranch(nodeSeq, nodeRunIDStr)
 	out := map[string]string{
-		"MULTICA_NODE_RUN_ID":           nodeRunIDStr,
-		"MULTICA_REPO_PROVIDER":         "gitea",
-		"MULTICA_REPO_OWNER":            owner,
-		"MULTICA_REPO_NAME":             repo,
-		"MULTICA_REPO_BASE_URL":         baseURL,
-		"MULTICA_REPO_TOKEN":            pat,
-		"MULTICA_REPO_CLONE_URL":        cloneURL,
-		"MULTICA_REPO_CLONE_URL_AUTHED": authedCloneURL,
-		"MULTICA_REPO_INST_BRANCH":      instBranch,
-		"MULTICA_REPO_NODE_BRANCH":      nodeBranch,
-		"MULTICA_REPO_DELIVERABLES":     string(refsJSON),
+		"CS_CLOUD_NODE_RUN_ID":           nodeRunIDStr,
+		"CS_CLOUD_REPO_PROVIDER":         "gitea",
+		"CS_CLOUD_REPO_OWNER":            owner,
+		"CS_CLOUD_REPO_NAME":             repo,
+		"CS_CLOUD_REPO_BASE_URL":         baseURL,
+		"CS_CLOUD_REPO_TOKEN":            pat,
+		"CS_CLOUD_REPO_CLONE_URL":        cloneURL,
+		"CS_CLOUD_REPO_CLONE_URL_AUTHED": authedCloneURL,
+		"CS_CLOUD_REPO_INST_BRANCH":      instBranch,
+		"CS_CLOUD_REPO_NODE_BRANCH":      nodeBranch,
+		"CS_CLOUD_REPO_DELIVERABLES":     string(refsJSON),
 	}
 	// CROSS-REPO CONTRACT: cs-cloud's deliverable-submit CLI (internal/cli/gitea.go
-	// readGiteaContext) reads ONLY the legacy MULTICA_GITEA_* names; the aliasing
-	// below is the sole bridge between the renamed MULTICA_REPO_* env and that
+	// readGiteaContext) reads ONLY the legacy CS_CLOUD_GITEA_* names; the aliasing
+	// below is the sole bridge between the renamed CS_CLOUD_REPO_* env and that
 	// legacy reader. Do NOT remove this aliasing without migrating cs-cloud to
-	// read MULTICA_REPO_* directly.
+	// read CS_CLOUD_REPO_* directly.
 	for oldKey, newKey := range map[string]string{
-		"MULTICA_GITEA_OWNER":            "MULTICA_REPO_OWNER",
-		"MULTICA_GITEA_REPO":             "MULTICA_REPO_NAME",
-		"MULTICA_GITEA_BASE_URL":         "MULTICA_REPO_BASE_URL",
-		"MULTICA_GITEA_TOKEN":            "MULTICA_REPO_TOKEN",
-		"MULTICA_GITEA_CLONE_URL":        "MULTICA_REPO_CLONE_URL",
-		"MULTICA_GITEA_CLONE_URL_AUTHED": "MULTICA_REPO_CLONE_URL_AUTHED",
-		"MULTICA_GITEA_INST_BRANCH":      "MULTICA_REPO_INST_BRANCH",
-		"MULTICA_GITEA_NODE_BRANCH":      "MULTICA_REPO_NODE_BRANCH",
-		"MULTICA_GITEA_DELIVERABLES":     "MULTICA_REPO_DELIVERABLES",
+		"CS_CLOUD_GITEA_OWNER":            "CS_CLOUD_REPO_OWNER",
+		"CS_CLOUD_GITEA_REPO":             "CS_CLOUD_REPO_NAME",
+		"CS_CLOUD_GITEA_BASE_URL":         "CS_CLOUD_REPO_BASE_URL",
+		"CS_CLOUD_GITEA_TOKEN":            "CS_CLOUD_REPO_TOKEN",
+		"CS_CLOUD_GITEA_CLONE_URL":        "CS_CLOUD_REPO_CLONE_URL",
+		"CS_CLOUD_GITEA_CLONE_URL_AUTHED": "CS_CLOUD_REPO_CLONE_URL_AUTHED",
+		"CS_CLOUD_GITEA_INST_BRANCH":      "CS_CLOUD_REPO_INST_BRANCH",
+		"CS_CLOUD_GITEA_NODE_BRANCH":      "CS_CLOUD_REPO_NODE_BRANCH",
+		"CS_CLOUD_GITEA_DELIVERABLES":     "CS_CLOUD_REPO_DELIVERABLES",
 	} {
 		out[oldKey] = out[newKey]
 	}
@@ -1044,7 +1045,7 @@ type giteaProvisioningBundle struct {
 
 // complete reports whether the bundle carries all three fields needed to act.
 // A delivery repo without a PAT is useless — the agent authenticates via
-// MULTICA_REPO_TOKEN=pat — so PAT presence is required even though the spec's
+// CS_CLOUD_REPO_TOKEN=pat — so PAT presence is required even though the spec's
 // URL/BaseBranch/Alias don't directly carry it.
 func (b giteaProvisioningBundle) complete() bool {
 	return strings.TrimSpace(b.GiteaCloneURL) != "" &&
@@ -1085,7 +1086,7 @@ func (s *TaskService) settingsLackGiteaData(ctx context.Context, workspaceID pgt
 //
 // Timing: buildCSCloudPayload runs the safety net BEFORE env/repos[] assembly,
 // so when provisioning succeeds here, the current dispatch's repositoryDeliverableEnv
-// (MULTICA_REPO_* env) and resolveDeliveryRepo (repos[] role=delivery) read the
+// (CS_CLOUD_REPO_* env) and resolveDeliveryRepo (repos[] role=delivery) read the
 // just-persisted settings on the SAME dispatch — no stale-credentials gap. The
 // idempotent re-run on retry / next round is a harmless no-op.
 func (s *TaskService) ensureDeliveryRepo(ctx context.Context, task db.MulticaAgentTaskQueue) error {
