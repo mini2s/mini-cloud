@@ -94,6 +94,19 @@ backend:
     teamNamespaceTenantId: ""
     # Team-namespace API HTTP timeout.
     teamNamespaceApiTimeout: "10s"
+    # Cloud-api identity translation — translates a raw Casdoor JWT (whose "sub"
+    # is the Casdoor user id / universal_id) into the cloud-api stable subject id
+    # ("usr_...") that multica users are keyed by, so cs-cloud daemons carrying a
+    # Casdoor token resolve to the real user instead of an empty placeholder.
+    # Without this the same account maps to two multica users (web cookie vs
+    # daemon token) and the daemon sees 0 workspaces. Point at the cloud-api root
+    # (e.g. https://zgsmtest.cn:30443/cloud-api). Leave empty to disable (falls
+    # back to raw JWT sub). See docs/adr/0001-translate-casdoor-subject-to-cloud-subject-id.md.
+    cloudApiBaseUrl: ""
+    # cloud-api /api/auth/me HTTP timeout.
+    cloudApiTimeout: "5s"
+    # How long a resolved cloud subject id is cached per universal_id.
+    cloudApiSubjectCacheTtl: "2m"
     # CSC plugin marketplace — optional. Override the marketplace the daemon
     # registers against when installing a CSC agent's bound plugin; when empty
     # the daemon falls back to its built-in github default (costrict-plugins).
