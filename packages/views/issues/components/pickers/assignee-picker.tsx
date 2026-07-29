@@ -76,6 +76,8 @@ export function AssigneePicker({
   onRenameCustomRole,
   allowedTypes,
   agentFilter,
+  allowUnassigned = true,
+  ariaLabel,
 }: {
   assigneeType: IssueAssigneeType | null;
   assigneeId: string | null;
@@ -105,6 +107,10 @@ export function AssigneePicker({
   allowedTypes?: IssueAssigneeType[];
   /** Optional context-specific filter for agent options. */
   agentFilter?: (agent: Agent) => boolean;
+  /** Whether the picker offers an explicit unassigned option. */
+  allowUnassigned?: boolean;
+  /** Accessible label for an embedded picker trigger. */
+  ariaLabel?: string;
 }) {
   const { t } = useT("issues");
   const [internalOpen, setInternalOpen] = useState(false);
@@ -367,7 +373,8 @@ export function AssigneePicker({
       onSearchChange={setFilter}
       triggerRender={triggerRender}
       trigger={
-        customTrigger ? customTrigger : role ? (
+        <span aria-label={ariaLabel} className="contents">
+        {customTrigger ? customTrigger : role ? (
           <>
             <UserRoundCog className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
             <span className="truncate">{triggerLabel}</span>
@@ -379,11 +386,12 @@ export function AssigneePicker({
           </>
         ) : (
           <span className="text-muted-foreground">{t(($) => $.pickers.assignee.trigger_unassigned)}</span>
-        )
+        )}
+        </span>
       }
     >
       {/* Unassigned option — hidden when search is active */}
-      {!query && (
+      {allowUnassigned && !query && (
         <PickerItem
           selected={!role && !assigneeType && !assigneeId}
           onClick={() => {

@@ -178,7 +178,7 @@ vi.mock("../../i18n", () => {
       section_worker_critic: "Executor and reviewer",
       section_worker_critic_desc: "Choose who performs this step and who reviews it.",
       section_split_behavior: "Split rules",
-      section_split_behavior_desc: "Choose the child issue workflow and when downstream steps continue.",
+      section_split_behavior_desc: "Choose review, release behavior, and runtime limits.",
       section_annotation_binding: "Annotation binding",
       section_annotation_binding_desc: "Attach this note to a workflow node.",
       section_runtime: "Run status",
@@ -206,13 +206,11 @@ vi.mock("../../i18n", () => {
       label_worker_role: "Executor role",
       label_critic_role: "Reviewer role",
       split_title: "Split rules",
-      split_subtitle: "Choose the child issue workflow, review step, and runtime limits.",
+      split_subtitle: "Configure review, release behavior, and runtime limits.",
       split_review_required_title: "Human review is required",
       split_review_required_hint: "Generated split tasks always stop for human review before child issues are created.",
       split_worker_subtitle: "The split planner that drafts child issues.",
-      split_critic_subtitle: "The reviewer that approves generated drafts.",
-      split_default_issue_workflow_label: "Child issue default workflow",
-      split_default_issue_workflow_placeholder: "Select child issue workflow...",
+      split_critic_subtitle: "Only a workspace member or a role resolved to a member can review and assign generated drafts.",
       split_release_mode_label: "When should downstream steps continue?",
       split_release_after_finish: "barrier",
       split_release_after_created: "pipeline",
@@ -294,11 +292,8 @@ vi.mock("../../i18n", () => {
       detail_split_planner_missing: "Assign an Agent to this split node",
       detail_split_critic_missing: "Assign a Critic to review split drafts",
       detail_split_critic_automated: "Automated split draft critics can approve risky task plans",
-      detail_split_default_issue_workflow_missing: "Split node needs a default issue workflow",
-      detail_split_default_issue_workflow_invalid: "Split default issue workflow is unavailable",
-      detail_split_default_issue_workflow_inactive: "Split default issue workflow must be active",
-      detail_split_default_issue_workflow_nested: "Split default issue workflow cannot contain another split node",
-      detail_split_default_issue_workflow_self: "Split default issue workflow cannot be the current workflow",
+      check_split_reviewer_invalid: "Reviewer must be a member or member role",
+      detail_split_reviewer_invalid: "Choose one workspace member or a role that resolves to a workspace member",
       detail_split_max_concurrency_invalid: "Split concurrency must be an integer from 1 to 50",
       detail_worker_missing: "Assign a worker to this node",
       detail_stage_missing: "Assign this node to a stage",
@@ -379,7 +374,7 @@ describe("NodeConfigPanel", () => {
       section_primary: "Basic information",
       section_worker_critic: "Executor and reviewer",
       section_split_behavior: "Split rules",
-      split_default_issue_workflow_label: "Child issue default workflow",
+      split_critic_subtitle: "Only a workspace member or a role resolved to a member can review and assign generated drafts.",
       gateway_label_fork: "Branch start",
       split_planner_label: "Split planner: {{planner}}",
     });
@@ -397,7 +392,7 @@ describe("NodeConfigPanel", () => {
       section_primary: "基本信息",
       section_worker_critic: "执行者和审核者",
       section_split_behavior: "拆分规则",
-      split_default_issue_workflow_label: "子 issue 默认 workflow",
+      split_critic_subtitle: "仅工作区成员或最终解析为成员的角色可以审核并分配拆分草稿。",
       gateway_label_fork: "分支开始",
       split_planner_label: "拆分规划者：{{planner}}",
       participant_type_agent: "数智人",
@@ -679,6 +674,7 @@ describe("NodeConfigPanel", () => {
           ...node,
           id: "split-1",
           title: "Split rollout",
+          critic_type: "human",
           critic_id: null,
           format_schema: {
             type: "split",
@@ -686,7 +682,6 @@ describe("NodeConfigPanel", () => {
             template_category: "logic",
             shape: "rectangle",
             split_config: {
-              default_issue_workflow_id: "child-wf-2",
               mode: "barrier",
               max_concurrency: 3,
               max_failures: 1,
@@ -702,21 +697,65 @@ describe("NodeConfigPanel", () => {
     expect(screen.getAllByText("Split rules")).toHaveLength(1);
     expect(screen.getByText("Human review is required")).toBeInTheDocument();
     expect(screen.getByText("Generated split tasks always stop for human review before child issues are created.")).toBeInTheDocument();
-    expect(screen.getByLabelText("Child issue default workflow")).toHaveValue("child-wf-2");
+		expect(screen.queryByLabelText("Child issue default workflow")).not.toBeInTheDocument();
     expect(screen.getByLabelText("How many child issues can run at once?")).toHaveValue(3);
     expect(screen.getByLabelText("Allowed failed child issues")).toHaveValue(1);
     expect(screen.getAllByText("Worker").length).toBeGreaterThan(0);
     expect(screen.getByText("The split planner that drafts child issues.")).toBeInTheDocument();
     expect(screen.getAllByText("Critic").length).toBeGreaterThan(0);
-    expect(screen.getByText("The reviewer that approves generated drafts.")).toBeInTheDocument();
+    expect(screen.getByText("Only a workspace member or a role resolved to a member can review and assign generated drafts.")).toBeInTheDocument();
     expect(screen.getByRole("tablist", { name: "Worker category" })).toBeInTheDocument();
     expect(screen.getByRole("tablist", { name: "Critic category" })).toBeInTheDocument();
+		const reviewerCategories = screen.getByRole("tablist", { name: "Critic category" });
+    expect(within(reviewerCategories).getByRole("tab", { name: "Human" })).toBeInTheDocument();
+    expect(within(reviewerCategories).getByRole("tab", { name: "Development role" })).toBeInTheDocument();
+    expect(within(reviewerCategories).queryByRole("tab", { name: "agent" })).not.toBeInTheDocument();
+    expect(within(reviewerCategories).queryByRole("tab", { name: "Squad" })).not.toBeInTheDocument();
+    expect(within(reviewerCategories).queryByRole("tab", { name: "API" })).not.toBeInTheDocument();
     const splitPlannerPicker = mocks.assigneePickerCalls.find(
       (call) => call.assigneeId === "agent-1" && typeof call.agentFilter === "function",
     );
     expect(splitPlannerPicker?.agentFilter?.({ name: "Split Planner (General)", is_builtin: true })).toBe(true);
     expect(splitPlannerPicker?.agentFilter?.({ name: "Split Planner (Code)", is_builtin: true })).toBe(false);
     expect(splitPlannerPicker?.agentFilter?.({ name: "Custom Planner", is_builtin: false })).toBe(true);
+  });
+
+  it("blocks a legacy automated split reviewer until the user selects a valid category", () => {
+    render(
+      <NodeConfigPanel
+        node={{
+          ...node,
+          id: "split-legacy-reviewer",
+          critic_type: "agent",
+          critic_id: "agent-2",
+          format_schema: {
+            type: "split",
+            split_config: {
+              mode: "barrier",
+              max_concurrency: 5,
+              max_failures: 0,
+            },
+          },
+        }}
+        workflowId="wf-1"
+        stages={stages}
+        onClose={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText("Reviewer must be a member or member role")).toBeInTheDocument();
+    expect(screen.getByText("Choose one workspace member or a role that resolves to a workspace member")).toBeInTheDocument();
+    expect(mocks.cacheNodeEdits).not.toHaveBeenCalled();
+
+    const reviewerCategories = screen.getByRole("tablist", { name: "Critic category" });
+    fireEvent.click(within(reviewerCategories).getByRole("tab", { name: "Human" }));
+
+    expect(mocks.cacheNodeEdits).toHaveBeenLastCalledWith("split-legacy-reviewer", {
+      critic_type: "human",
+      critic_id: null,
+      critic_role_id: null,
+      critic_api_url: null,
+    });
   });
 
 	it("orders split sections and shows connections and trial run", () => {
@@ -731,7 +770,6 @@ describe("NodeConfigPanel", () => {
           format_schema: {
             type: "split",
             split_config: {
-              default_issue_workflow_id: "child-wf-1",
               mode: "barrier",
               max_concurrency: 5,
               max_failures: 1,
@@ -783,7 +821,6 @@ describe("NodeConfigPanel", () => {
             template_category: "logic",
             shape: "rectangle",
             split_config: {
-              default_issue_workflow_id: "child-wf-1",
               mode: "barrier",
               max_concurrency: 5,
               max_failures: 0,
@@ -796,24 +833,6 @@ describe("NodeConfigPanel", () => {
       />,
     );
 
-    fireEvent.change(screen.getByLabelText("Child issue default workflow"), {
-      target: { value: "child-wf-2" },
-    });
-    expect(mocks.cacheNodeEdits).toHaveBeenLastCalledWith("split-1", {
-      format_schema: {
-        type: "split",
-        template_id: "task-splitter",
-        template_category: "logic",
-        shape: "rectangle",
-        split_config: {
-          default_issue_workflow_id: "child-wf-2",
-          mode: "barrier",
-          max_concurrency: 5,
-          max_failures: 0,
-        },
-      },
-    });
-
     fireEvent.click(screen.getByRole("button", { name: /pipeline/ }));
     expect(mocks.cacheNodeEdits).toHaveBeenLastCalledWith("split-1", {
       format_schema: {
@@ -822,7 +841,6 @@ describe("NodeConfigPanel", () => {
         template_category: "logic",
         shape: "rectangle",
         split_config: {
-          default_issue_workflow_id: "child-wf-1",
           mode: "pipeline",
           max_concurrency: 5,
           max_failures: 0,
@@ -840,7 +858,6 @@ describe("NodeConfigPanel", () => {
         template_category: "logic",
         shape: "rectangle",
         split_config: {
-          default_issue_workflow_id: "child-wf-1",
           mode: "barrier",
           max_concurrency: 7,
           max_failures: 0,

@@ -33,7 +33,6 @@ import {
   useAssignNodeToStage,
   useDeleteStage,
   useReorderStages,
-  splitIssueWorkflowOptions,
 } from "@multica/core/workflows/queries";
 import { agentListOptions, builtinPluginListOptions } from "@multica/core/workspace/queries";
 import { runtimeListOptions } from "@multica/core/runtimes/queries";
@@ -76,7 +75,7 @@ import { BOUNDARY_WIDTH } from "./reactflow-nodes/boundary-node";
 import { panoramaEdgeTypes } from "./reactflow-edges";
 import { computeLaneAutoLayout, computeStageTransferPositionX } from "../layout";
 import { PreflightBar } from "./preflight-bar";
-import { runAllPreflightChecks, type SplitIssueWorkflowPreflightContext } from "@multica/core/workflows/preflight-checks";
+import { runAllPreflightChecks } from "@multica/core/workflows/preflight-checks";
 import { NodeTemplatePicker } from "./node-template-picker";
 import { WorkflowEditorToolbar } from "./workflow-editor-toolbar";
 import {
@@ -97,7 +96,7 @@ import {
   sortStagesForDisplay,
 } from "./constants";
 
-import { isBoundaryNode, isEndNode, isInvalidBoundaryConnection, isStartNode, parseNodeFormat, workerTypeToActorType, type WorkflowNode, type WorkflowStage, type WorkflowEdge, type ReorderStagesItem, type WorkflowStatus, type Workflow, type WorkflowNodeRun, type UpdateNodeRequest } from "@multica/core/types";
+import { isBoundaryNode, isEndNode, isInvalidBoundaryConnection, isStartNode, workerTypeToActorType, type WorkflowNode, type WorkflowStage, type WorkflowEdge, type ReorderStagesItem, type WorkflowStatus, type Workflow, type WorkflowNodeRun, type UpdateNodeRequest } from "@multica/core/types";
 import type { Agent } from "@multica/core/types";
 import type { BuiltinPlugin } from "@multica/core/api/schemas";
 import type { CriticType, WorkerType } from "@multica/core/types";
@@ -206,7 +205,6 @@ interface PanoramaContentProps {
   visibleNodes: WorkflowNode[];
   apiEdges: WorkflowEdge[];
   agentIds: Set<string>;
-  splitChildWorkflows: SplitIssueWorkflowPreflightContext[];
   workflow: Workflow;
   workflowId: string;
   wsId: string;
@@ -256,7 +254,6 @@ function PanoramaContent({
   visibleNodes,
   apiEdges,
   agentIds,
-  splitChildWorkflows,
   workflow,
   workflowId,
   wsId,
@@ -325,9 +322,8 @@ function PanoramaContent({
       edges: apiEdges,
       stages,
       agentIds,
-      splitChildWorkflows,
     }),
-    [visibleNodes, apiEdges, stages, agentIds, splitChildWorkflows],
+    [visibleNodes, apiEdges, stages, agentIds],
   );
   const nodesById = useMemo(() => new Map(visibleNodes.map((node) => [node.id, node])), [visibleNodes]);
   const validateConnection = useCallback(
@@ -631,13 +627,7 @@ export function WorkflowPanoramaPage({ workflowId, viewToggle }: WorkflowPanoram
   const usableWorkflowRuntimes = useUsableWorkflowRuntimes(runtimes);
   const { data: pluginsData } = useQuery(builtinPluginListOptions());
   const { data: workflowRoles = [] } = useQuery(workflowRolesOptions(wsId));
-  const { data: childWorkflows = [] } = useQuery(splitIssueWorkflowOptions(wsId, workflowId));
-  const {
-    getActorName,
-    getActorInitials,
-    getActorAvatarUrl,
-    getMemberName,
-  } = useActorName();
+  const { getActorName, getActorInitials, getActorAvatarUrl } = useActorName();
   const { byAgent: presenceByAgent } = useWorkspacePresenceMap(wsId);
   const actorTypeLabels = useMemo<Record<WorkflowActorEntityType, string>>(() => ({
     agent: t(($) => $.panorama.card.actor_type_agent),
@@ -772,11 +762,6 @@ export function WorkflowPanoramaPage({ workflowId, viewToggle }: WorkflowPanoram
     return map;
   }, [pluginsData]);
 
-  const splitChildWorkflowContexts = useMemo<SplitIssueWorkflowPreflightContext[]>(
-    () => (childWorkflows ?? []).map((wf) => ({ id: wf.id, status: wf.status, nodes: [] })),
-    [childWorkflows],
-  );
-
   // ── ReactFlow nodes/edges ──
   const visibleNodes = useMemo(
     () => apiNodes
@@ -841,8 +826,6 @@ export function WorkflowPanoramaPage({ workflowId, viewToggle }: WorkflowPanoram
           !Array.isArray(node.format_schema) &&
           (node.format_schema as Record<string, unknown>).type === "annotation",
         );
-        const nodeFormat = parseNodeFormat(node.format_schema);
-        const splitChildWorkflowId = nodeFormat.split_config?.default_issue_workflow_id ?? null;
         const workerAgent = node.worker_id ? agentLookup.get(node.worker_id) : null;
         const workerRoleName = node.worker_role_id
           ? renderRoleName(roleById.get(node.worker_role_id)) ?? node.worker_role_id
@@ -901,9 +884,6 @@ export function WorkflowPanoramaPage({ workflowId, viewToggle }: WorkflowPanoram
           criticConfigured: isAnnotation
             ? false
             : Boolean(node.critic_id || node.critic_role_id || node.critic_role || node.critic_api_url?.trim()),
-          splitChildWorkflowName: splitChildWorkflowId
-            ? childWorkflows.find((workflow) => workflow.id === splitChildWorkflowId)?.title
-            : undefined,
           isAnnotation,
           onOpen: openNodePanel,
           onAddConnectedNode: handleOpenConnectedNodePicker,
@@ -913,7 +893,7 @@ export function WorkflowPanoramaPage({ workflowId, viewToggle }: WorkflowPanoram
       includeCriticBadges: false,
       makeCriticName: (node) => node.critic_role_id ? renderRoleName(roleById.get(node.critic_role_id)) ?? node.critic_role_id : node.critic_role ? renderRoleName(undefined, node.critic_role) : node.critic_id ? getActorName(workerTypeToActorType(node.critic_type), node.critic_id) ?? undefined : undefined,
     }),
-    [stages, visibleNodes, agentLookup, pluginLookup, getActorName, getActorInitials, getActorAvatarUrl, presenceByAgent, actorTypeLabels, actorAvailabilityLabels, openNodePanel, handleOpenConnectedNodePicker, roleById, renderRoleName, childWorkflows, t],
+    [stages, visibleNodes, agentLookup, pluginLookup, getActorName, getActorInitials, getActorAvatarUrl, presenceByAgent, actorTypeLabels, actorAvailabilityLabels, openNodePanel, handleOpenConnectedNodePicker, roleById, renderRoleName, t],
   );
 
   const handleInlineEdgeDelete = useCallback(
@@ -1420,7 +1400,6 @@ export function WorkflowPanoramaPage({ workflowId, viewToggle }: WorkflowPanoram
         visibleNodes={visibleNodes}
         apiEdges={apiEdges}
         agentIds={new Set(agentLookup.keys())}
-        splitChildWorkflows={splitChildWorkflowContexts}
         workflow={workflow}
         workflowId={workflowId}
         wsId={wsId}
@@ -1476,7 +1455,6 @@ export function WorkflowPanoramaPage({ workflowId, viewToggle }: WorkflowPanoram
           runtimes={usableWorkflowRuntimes.runtimes}
           loading={runtimesLoading || usableWorkflowRuntimes.isLoading}
           directRun
-          getMemberName={getMemberName}
           onConfirm={startTestRun}
           onClose={() => setShowRuntimeDialog(false)}
         />
@@ -1492,7 +1470,6 @@ export function WorkflowPanoramaPage({ workflowId, viewToggle }: WorkflowPanoram
           runtimes={usableWorkflowRuntimes.runtimes}
           loading={runtimesLoading || usableWorkflowRuntimes.isLoading}
           saving={updateWorkflowMutation.isPending}
-          getMemberName={getMemberName}
           onConfirm={saveDefaultRuntimeStrategy}
           onClose={() => setShowRuntimeSettingsDialog(false)}
         />

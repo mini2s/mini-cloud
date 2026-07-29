@@ -1,25 +1,30 @@
 "use client";
 
 import { useState, type ReactNode } from "react";
-import { useQuery } from "@tanstack/react-query";
-import type { Issue, SplitTask, SplitTaskStatus, Workflow } from "@multica/core/types";
+import type { Issue, SplitTask, SplitTaskAssigneeType } from "@multica/core/types";
 import { useWorkspacePaths } from "@multica/core/paths";
-import { workflowRunCanvasSummaryOptions } from "@multica/core/workflows/queries";
+import { useActorName } from "@multica/core/workspace/hooks";
 import { Badge } from "@multica/ui/components/ui/badge";
 import { Button } from "@multica/ui/components/ui/button";
+import { Checkbox } from "@multica/ui/components/ui/checkbox";
 import { Input } from "@multica/ui/components/ui/input";
 import { Textarea } from "@multica/ui/components/ui/textarea";
 import { cn } from "@multica/ui/lib/utils";
 import { useT } from "@multica/views/i18n";
 import { AppLink } from "../../../navigation";
+import { ActorAvatar } from "../../../common/actor-avatar";
+import { AssigneePicker } from "../../../issues/components/pickers/assignee-picker";
 import { ChevronDown, ChevronUp, Pencil, RotateCcw, Save, Trash2, X } from "lucide-react";
 
 interface SplitDraftLedgerProps {
   tasks: SplitTask[];
-  workflows?: Workflow[];
   taskIssueBySourceId?: ReadonlyMap<string, Issue>;
   readOnly?: boolean;
-  onWorkflowChange?: (task: SplitTask, workflowId: string) => void;
+  onAssigneeChange?: (task: SplitTask, assignee: { assignee_type: SplitTaskAssigneeType; assignee_id: string }) => void;
+  selectedTaskIds?: string[];
+  onSelectedTaskIdsChange?: (taskIds: string[]) => void;
+  onBatchAssigneeChange?: (assignee: { assignee_type: SplitTaskAssigneeType; assignee_id: string }) => void;
+  batchAssigneePending?: boolean;
   onDraftSave?: (task: SplitTask, updates: { title: string; description: string }) => void | Promise<void>;
   onDiscardChange?: (task: SplitTask, discarded: boolean) => void;
 }
@@ -28,17 +33,10 @@ function taskNumber(index: number): string {
   return String(index + 1).padStart(2, "0");
 }
 
-function taskStatusLabel(status: SplitTaskStatus): string {
+function taskStatusLabel(status: string): string {
   if (status === "approved") return "Ready";
-  return status
-    .split("_")
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join(" ");
-}
-
-function workflowLabel(t: ReturnType<typeof useT<"workflows">>["t"], task: SplitTask, workflows: Workflow[]): string {
-  const workflow = workflows.find((item) => item.id === task.workflow_id);
-  return workflow?.title ?? task.workflow_id ?? t(($) => $.detail_panel.split_draft_missing_execution_workflow);
+  const label = status.replaceAll("_", " ");
+  return label.charAt(0).toUpperCase() + label.slice(1);
 }
 
 function MetaValue({
@@ -95,39 +93,24 @@ function DraftFact({
 function SplitTaskChildIssueMeta({
   task,
   linkedIssue,
-  workflowName,
   t,
+  assigneeName,
   className,
 }: {
   task: SplitTask;
   linkedIssue: Issue;
-  workflowName: string;
   t: ReturnType<typeof useT<"workflows">>["t"];
+  assigneeName: string;
   className?: string;
 }) {
   const paths = useWorkspacePaths();
-  const shouldLoadError =
-    task.status === "failed" &&
-    !!linkedIssue.workflow_id &&
-    !!linkedIssue.workflow_run_id;
-  const { data: childSummary } = useQuery({
-    ...workflowRunCanvasSummaryOptions(
-      linkedIssue.workspace_id,
-      linkedIssue.workflow_id ?? "",
-      linkedIssue.workflow_run_id ?? "",
-    ),
-    enabled: shouldLoadError,
-  });
-  const errorMessage = childSummary?.node_runtime_summaries.find(
-    (summary) => summary.has_error === true && summary.error_message.trim().length > 0,
-  )?.error_message;
 
   return (
     <div
       data-testid={`split-draft-child-facts-${task.id}`}
       className={cn(
         "grid min-w-0 w-full gap-2",
-        task.status === "failed" ? "sm:grid-cols-4" : "sm:grid-cols-3",
+        "sm:grid-cols-3",
         className,
       )}
     >
@@ -146,28 +129,19 @@ function SplitTaskChildIssueMeta({
         testId={`split-draft-child-status-${task.id}`}
         label={t(($) => $.detail_panel.split_draft_issue_status_label)}
       >
-        {linkedIssue.status}
+        {taskStatusLabel(linkedIssue.status)}
       </DraftFact>
-      {task.status === "failed" ? (
-        <DraftFact
-          testId={`split-draft-child-run-result-${task.id}`}
-          label={t(($) => $.detail_panel.split_draft_run_status_label)}
-          tone="danger"
-        >
-          {taskStatusLabel(task.status)}
-        </DraftFact>
-      ) : null}
       <DraftFact
-        testId={`split-draft-child-workflow-${task.id}`}
-        label={t(($) => $.detail_panel.split_draft_workflow_label)}
+        testId={`split-draft-child-assignee-${task.id}`}
+        label={t(($) => $.detail_panel.split_assignee_for, { title: task.title })}
       >
-        <span className="line-clamp-2">{workflowName}</span>
-      </DraftFact>
-      {errorMessage ? (
-        <span className="sm:col-span-3 text-xs text-destructive">
-          {t(($) => $.detail_panel.split_draft_error_prefix, { message: errorMessage })}
+        <span className="inline-flex min-w-0 items-center gap-1.5">
+          {linkedIssue.assignee_type && linkedIssue.assignee_id ? (
+            <ActorAvatar actorType={linkedIssue.assignee_type} actorId={linkedIssue.assignee_id} size={18} />
+          ) : null}
+          <span className="truncate">{assigneeName}</span>
         </span>
-      ) : null}
+      </DraftFact>
     </div>
   );
 }
@@ -193,25 +167,25 @@ function SplitTaskIssueFallback({
       >
         {t(($) => $.detail_panel.split_draft_open_child_issue)}
       </AppLink>
-      <MetaValue
-        label={t(($) => $.detail_panel.split_draft_run_status_label)}
-        value={taskStatusLabel(task.status)}
-        tone={task.status === "failed" ? "danger" : "neutral"}
-      />
+      <MetaValue label={t(($) => $.detail_panel.split_draft_issue_status_label)} value={taskStatusLabel(task.status)} />
     </div>
   );
 }
 
 export function SplitDraftLedger({
   tasks,
-  workflows = [],
   taskIssueBySourceId,
   readOnly = false,
-  onWorkflowChange,
+  onAssigneeChange,
+  selectedTaskIds = [],
+  onSelectedTaskIdsChange,
+  onBatchAssigneeChange,
+  batchAssigneePending = false,
   onDraftSave,
   onDiscardChange,
 }: SplitDraftLedgerProps) {
   const { t } = useT("workflows");
+  const { getActorName } = useActorName();
   const [expandedTaskIds, setExpandedTaskIds] = useState<Set<string>>(() => new Set());
   const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
   const [draftTitle, setDraftTitle] = useState("");
@@ -264,6 +238,27 @@ export function SplitDraftLedger({
 
   const activeTasks = tasks.filter((task) => task.status !== "discarded");
   const discardedTasks = tasks.filter((task) => task.status === "discarded");
+  const selectableTasks = tasks.filter((task) => task.status === "draft");
+  const selectableTaskIds = new Set(selectableTasks.map((task) => task.id));
+  const selectedIds = selectedTaskIds.filter((taskId) => selectableTaskIds.has(taskId));
+  const selectedIdSet = new Set(selectedIds);
+  const showSelection = !readOnly && !!onSelectedTaskIdsChange && !!onBatchAssigneeChange && selectableTasks.length > 0;
+  const allSelected = selectableTasks.length > 0 && selectedIds.length === selectableTasks.length;
+  const partiallySelected = selectedIds.length > 0 && !allSelected;
+
+  const toggleTaskSelection = (taskId: string) => {
+    if (!onSelectedTaskIdsChange) return;
+    onSelectedTaskIdsChange(
+      selectedIdSet.has(taskId)
+        ? selectedIds.filter((id) => id !== taskId)
+        : [...selectedIds, taskId],
+    );
+  };
+
+  const toggleAllTasks = () => {
+    if (!onSelectedTaskIdsChange) return;
+    onSelectedTaskIdsChange(allSelected ? [] : selectableTasks.map((task) => task.id));
+  };
 
   if (tasks.length === 0) {
     return (
@@ -285,10 +280,13 @@ export function SplitDraftLedger({
         const isExpanded = expandedTaskIds.has(task.id);
         const isEditing = editingTaskId === task.id;
         const isActiveTask = task.status !== "discarded";
-        const isMissingWorkflow = isActiveTask && !task.workflow_id;
+        const assigneeType = linkedIssue ? linkedIssue.assignee_type : task.assignee_type;
+        const assigneeId = linkedIssue ? linkedIssue.assignee_id : task.assignee_id;
+        const assigneeName = assigneeType && assigneeId
+          ? getActorName(assigneeType, assigneeId) ?? assigneeId
+          : t(($) => $.detail_panel.split_unassigned);
         const canEditDraft = !readOnly && task.status === "draft";
         const canRestoreDraft = !readOnly && task.status === "discarded";
-        const showWorkflowSelect = canEditDraft && !isEditing;
         const showActions = isEditing || canEditDraft || canRestoreDraft;
         const summaryId = `split-draft-summary-${task.id}`;
         const dependsOn = task.depends_on
@@ -302,7 +300,6 @@ export function SplitDraftLedger({
             className={cn(
               "rounded-md border border-border/70 bg-background px-3 py-3 shadow-sm shadow-foreground/[0.02] transition-colors",
               isActiveTask && "hover:border-border",
-              isMissingWorkflow && "border-destructive/40 bg-destructive/[0.04]",
               task.status === "discarded" && "bg-muted/20 opacity-70",
             )}
           >
@@ -340,9 +337,30 @@ export function SplitDraftLedger({
                 ) : (
                   <>
                     <div className="flex min-w-0 items-center gap-2">
-                      <span className="shrink-0 text-xs font-medium tabular-nums text-muted-foreground">
-                        {taskNumber(index)}
-                      </span>
+                      {showSelection && canEditDraft ? (
+                        <span className="group/selector relative grid size-5 shrink-0 place-items-center">
+                          <span className={cn(
+                            "text-xs font-medium tabular-nums text-muted-foreground transition-opacity group-hover/selector:opacity-0 [@media(hover:none)]:opacity-0",
+                            selectedIdSet.has(task.id) && "opacity-0",
+                          )}>
+                            {taskNumber(index)}
+                          </span>
+                          <Checkbox
+                            aria-label={t(($) => $.detail_panel.split_draft_select_task, { title: task.title })}
+                            checked={selectedIdSet.has(task.id)}
+                            disabled={batchAssigneePending}
+                            onCheckedChange={() => toggleTaskSelection(task.id)}
+                            className={cn(
+                              "absolute opacity-0 transition-opacity group-hover/selector:opacity-100 focus-visible:opacity-100 [@media(hover:none)]:opacity-100",
+                              selectedIdSet.has(task.id) && "opacity-100",
+                            )}
+                          />
+                        </span>
+                      ) : (
+                        <span className="shrink-0 text-xs font-medium tabular-nums text-muted-foreground">
+                          {taskNumber(index)}
+                        </span>
+                      )}
                       <h4 className="min-w-0 truncate text-sm font-medium" title={task.title}>
                         {task.title || t(($) => $.detail_panel.split_draft_untitled_task)}
                       </h4>
@@ -387,8 +405,8 @@ export function SplitDraftLedger({
                     <SplitTaskChildIssueMeta
                       task={task}
                       linkedIssue={linkedIssue}
-                      workflowName={workflowLabel(t, task, workflows)}
                       t={t}
+                      assigneeName={assigneeName}
                     />
                   ) : (
                     <SplitTaskIssueFallback task={task} t={t} />
@@ -399,50 +417,52 @@ export function SplitDraftLedger({
 									{task.draft_source === "recovered" ? (
 										<Badge variant="outline">{t(($) => $.detail_panel.split_draft_recovered)}</Badge>
 									) : null}
-                  {!linkedIssue ? (
-                    showWorkflowSelect ? (
-                      <label className="flex min-w-[12rem] flex-1 items-center gap-2 text-xs text-muted-foreground">
-                        <span className="shrink-0">{t(($) => $.detail_panel.split_draft_workflow_label)}</span>
-                        <select
-                          aria-label={t(($) => $.detail_panel.split_draft_execution_workflow_for, { title: task.title })}
-                          className="h-8 min-w-[10rem] flex-1 rounded-md border border-input bg-background px-2 text-xs text-foreground"
-                          value={task.workflow_id ?? ""}
-                          onChange={(event) => onWorkflowChange?.(task, event.target.value)}
-                        >
-                          <option value="">{t(($) => $.detail_panel.split_draft_select_workflow_placeholder)}</option>
-                          {workflows.map((workflow) => (
-                            <option key={workflow.id} value={workflow.id}>
-                              {workflow.title}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
-                    ) : (
-                      <Badge
-                        variant="outline"
-                        className={cn(
-                          "max-w-full truncate bg-background px-2 py-0.5 font-medium",
-                          isMissingWorkflow && "border-destructive/30 text-destructive",
-                        )}
-                        title={workflowLabel(t, task, workflows)}
-                      >
-                        {workflowLabel(t, task, workflows)}
-                      </Badge>
-                    )
+                  {!linkedIssue && canEditDraft && !isEditing ? (
+                    <AssigneePicker
+                      assigneeType={task.assignee_type}
+                      assigneeId={task.assignee_id}
+                      allowedTypes={["member", "agent", "squad", "workflow"]}
+                      allowUnassigned={false}
+                      ariaLabel={t(($) => $.detail_panel.split_assignee_for, { title: task.title })}
+                      triggerRender={(
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="h-8 min-w-40 max-w-full justify-start"
+                        />
+                      )}
+                      trigger={(
+                        <>
+                          {assigneeType && assigneeId ? (
+                            <ActorAvatar actorType={assigneeType} actorId={assigneeId} size={18} />
+                          ) : null}
+                          <span className="min-w-0 flex-1 truncate text-left">{assigneeName}</span>
+                          <ChevronDown className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />
+                        </>
+                      )}
+                      onUpdate={(update) => {
+                        if (update.assignee_type && update.assignee_id) {
+                          onAssigneeChange?.(task, {
+                            assignee_type: update.assignee_type,
+                            assignee_id: update.assignee_id,
+                          });
+                        }
+                      }}
+                    />
+                  ) : !linkedIssue ? (
+                    <Badge variant="outline" className="max-w-full gap-1.5 bg-background px-2 py-0.5 font-medium">
+                      {assigneeType && assigneeId ? (
+                        <ActorAvatar actorType={assigneeType} actorId={assigneeId} size={18} />
+                      ) : null}
+                      <span className="truncate">{assigneeName}</span>
+                    </Badge>
                   ) : null}
                 </div>
               </div>
               <div className="mt-2 grid gap-2 border-t border-border/60 pt-2 sm:grid-cols-[minmax(0,1fr)_auto]">
                 <div className="flex min-w-0 flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
                   <span>{dependsOn ? t(($) => $.detail_panel.split_draft_dependencies_label, { deps: dependsOn }) : t(($) => $.detail_panel.split_draft_dependencies_none)}</span>
-                  {isMissingWorkflow ? (
-                    <span
-                      data-testid={`split-draft-risk-${task.id}`}
-                      className="rounded-full bg-destructive/10 px-2 py-0.5 font-medium text-destructive"
-                    >
-                      {t(($) => $.detail_panel.split_draft_missing_execution_workflow)}
-                    </span>
-                  ) : null}
                 </div>
                 {showActions ? (
                   <div
@@ -517,6 +537,55 @@ export function SplitDraftLedger({
 
   return (
     <div className="space-y-2">
+      {showSelection ? (
+        <div className="sticky top-0 z-10 flex min-h-10 flex-wrap items-center justify-between gap-2 rounded-md border bg-background/95 px-3 py-2 shadow-sm backdrop-blur-sm">
+          <div className="flex items-center gap-2">
+            <Checkbox
+              aria-label={t(($) => $.detail_panel.split_draft_select_all)}
+              checked={allSelected}
+              indeterminate={partiallySelected}
+              disabled={batchAssigneePending}
+              onCheckedChange={toggleAllTasks}
+            />
+            <span className="text-xs font-medium tabular-nums text-muted-foreground">
+              {t(($) => $.detail_panel.split_draft_selected_count, {
+                selected: selectedIds.length,
+                total: selectableTasks.length,
+              })}
+            </span>
+          </div>
+          <AssigneePicker
+            assigneeType={null}
+            assigneeId={null}
+            allowedTypes={["member", "agent", "squad", "workflow"]}
+            allowUnassigned={false}
+            ariaLabel={t(($) => $.detail_panel.split_draft_batch_assignee)}
+            triggerRender={(
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={selectedIds.length === 0 || batchAssigneePending}
+                className="h-8 min-w-36 max-w-full justify-between"
+              />
+            )}
+            trigger={(
+              <>
+                <span className="truncate">{t(($) => $.detail_panel.split_draft_batch_assignee)}</span>
+                <ChevronDown className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />
+              </>
+            )}
+            onUpdate={(update) => {
+              if (update.assignee_type && update.assignee_id) {
+                onBatchAssigneeChange?.({
+                  assignee_type: update.assignee_type,
+                  assignee_id: update.assignee_id,
+                });
+              }
+            }}
+          />
+        </div>
+      ) : null}
       {activeTasks.length > 0 ? (
         activeTasks.map((task, index) => renderTaskRow(task, index, activeNumberByTaskId))
       ) : (

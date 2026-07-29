@@ -5,8 +5,42 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
+
+func TestActivateWorkflowRejectsSplitNodeWithoutReviewer(t *testing.T) {
+	if testHandler == nil {
+		t.Skip("database not available")
+	}
+
+	workflowID := createTestWorkflow(t)
+	t.Cleanup(func() {
+		_, _ = testPool.Exec(context.Background(), `DELETE FROM multica_workflow WHERE id = $1`, workflowID)
+	})
+
+	createNode := httptest.NewRecorder()
+	createRequest := withURLParams(newRequest(http.MethodPost, "/api/workflows/"+workflowID+"/nodes", map[string]any{
+		"title":         "Task split",
+		"format_schema": map[string]any{"type": "split"},
+		"worker_type":   "agent",
+		"critic_type":   "human",
+	}), "id", workflowID)
+	testHandler.CreateWorkflowNode(createNode, createRequest)
+	if createNode.Code != http.StatusCreated {
+		t.Fatalf("create split node: status=%d body=%s", createNode.Code, createNode.Body.String())
+	}
+
+	activate := httptest.NewRecorder()
+	activateRequest := withURLParam(newRequest(http.MethodPatch, "/api/workflows/"+workflowID, map[string]any{"status": "active"}), "id", workflowID)
+	testHandler.UpdateWorkflow(activate, activateRequest)
+	if activate.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("activate workflow: status=%d, want 422: %s", activate.Code, activate.Body.String())
+	}
+	if !strings.Contains(activate.Body.String(), "split reviewer must be one workspace member or one member role") {
+		t.Fatalf("activate workflow: unexpected body %s", activate.Body.String())
+	}
+}
 
 func TestUpdateWorkflowActivationDefersDefinitionPreflightAndIncrementsRevision(t *testing.T) {
 	if testHandler == nil {

@@ -21,7 +21,6 @@ export interface CompactWorkerNodeData extends Record<string, unknown> {
   criticName?: string;
   workerIdentity?: WorkflowActorIdentity | null;
   criticIdentity?: WorkflowActorIdentity | null;
-  splitChildWorkflowName?: string;
   workerConfigured?: boolean;
   criticConfigured?: boolean;
   isAnnotation?: boolean;
@@ -147,33 +146,8 @@ export const CompactWorkerNode = memo(function CompactWorkerNode({
         {isSplit ? (
           <div
             data-testid={`compact-worker-node-meta-${id}`}
-            className="grid grid-cols-2 grid-rows-[12px_42px] gap-x-2 gap-y-1 border-t border-border/45 pt-2"
+            className="grid grid-rows-[12px_42px] gap-y-1 border-t border-border/45 pt-2"
           >
-            <div className="grid row-span-2 min-w-0 grid-rows-subgrid gap-1">
-              <span className="block text-[9px] font-bold uppercase leading-3 text-muted-foreground">
-                {t(($) => $.panorama.card.split_child_workflow_label)}
-              </span>
-              <span className="flex min-w-0 items-start gap-1.5 text-[11px] leading-4">
-                <span
-                  aria-hidden="true"
-                  className={cn(
-                    "mt-[5px] size-1.5 shrink-0 rounded-full",
-                    nodeData.splitChildWorkflowName
-                      ? "bg-emerald-500 shadow-[0_0_0_3px_rgba(16,185,129,0.12)]"
-                      : "bg-amber-500 shadow-[0_0_0_3px_rgba(245,158,11,0.12)]",
-                  )}
-                />
-                <span
-                  className={cn(
-                    "min-w-0 break-words font-medium leading-4 text-foreground/85 line-clamp-2",
-                    !nodeData.splitChildWorkflowName && "italic text-muted-foreground",
-                  )}
-                  title={nodeData.splitChildWorkflowName ?? undefined}
-                >
-                  {nodeData.splitChildWorkflowName ?? t(($) => $.detail_panel.split_node_child_workflow_missing)}
-                </span>
-              </span>
-            </div>
             <div className="grid row-span-2 min-w-0 grid-rows-subgrid gap-1">
               <span className="block text-[9px] font-bold uppercase leading-3 text-muted-foreground">
                 {t(($) => $.panorama.card.split_policy_label)}

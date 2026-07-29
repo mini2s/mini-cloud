@@ -3,12 +3,9 @@ package service
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"log/slog"
-	"slices"
 
-	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/multica-ai/multica/server/internal/util"
 	db "github.com/multica-ai/multica/server/pkg/db/generated"
@@ -100,10 +97,7 @@ func (s *WorkflowService) PrepareWorkflowRunSnapshot(
 				snapshot.Nodes[i].CriticRoleID = ""
 			}
 		}
-		issues, err := validateWorkflowDefinitionForRun(ctx, qtx, workflow, snapshot)
-		if err != nil {
-			return err
-		}
+		issues := ValidateWorkflowDefinition(snapshot)
 		invalid, err := s.persistPreparedWorkflowRun(ctx, qtx, workflow, snapshot, issues, params, &prepared)
 		if err != nil {
 			return err
@@ -147,56 +141,6 @@ func workflowActorSnapshotName(ctx context.Context, qtx *db.Queries, actorType s
 	default:
 		return "", nil
 	}
-}
-
-func validateWorkflowDefinitionForRun(
-	ctx context.Context,
-	qtx *db.Queries,
-	workflow db.MulticaWorkflow,
-	snapshot WorkflowDefinitionSnapshot,
-) ([]WorkflowConfigIssue, error) {
-	issues := ValidateWorkflowDefinition(snapshot)
-	for _, node := range snapshot.Nodes {
-		if node.Kind != WorkflowSnapshotNodeKindSplit || node.SplitConfig == nil {
-			continue
-		}
-		targetID, err := util.ParseUUID(node.SplitConfig.DefaultIssueWorkflowID)
-		if err != nil {
-			continue
-		}
-		if targetID == workflow.ID {
-			issues = append(issues, workflowIssue("split_config_invalid", node, "Split issue workflow cannot be the parent workflow"))
-			continue
-		}
-		target, err := qtx.LockWorkflowDefinitionForShare(ctx, targetID)
-		if err != nil {
-			if errors.Is(err, pgx.ErrNoRows) {
-				issues = append(issues, workflowIssue("split_config_invalid", node, "Split issue workflow does not exist"))
-				continue
-			}
-			return nil, fmt.Errorf("lock split issue workflow: %w", err)
-		}
-		if target.WorkspaceID != workflow.WorkspaceID {
-			issues = append(issues, workflowIssue("split_config_invalid", node, "Split issue workflow belongs to another workspace"))
-			continue
-		}
-		if target.Status != "active" {
-			issues = append(issues, workflowIssue("split_config_invalid", node, "Split issue workflow is not active"))
-			continue
-		}
-		nodes, err := qtx.ListWorkflowNodes(ctx, targetID)
-		if err != nil {
-			return nil, fmt.Errorf("list split issue workflow nodes: %w", err)
-		}
-		for _, targetNode := range nodes {
-			if workflowNodeType(targetNode.FormatSchema) == WorkflowSnapshotNodeKindSplit {
-				issues = append(issues, workflowIssue("split_config_invalid", node, "Split issue workflow cannot contain nested split nodes"))
-				break
-			}
-		}
-	}
-	slices.SortFunc(issues, compareWorkflowConfigIssue)
-	return issues, nil
 }
 
 func (s *WorkflowService) notifyWorkflowConfigInvalid(ctx context.Context, run db.MulticaWorkflowRun, issues []WorkflowConfigIssue) {

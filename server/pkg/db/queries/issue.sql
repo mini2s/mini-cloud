@@ -68,6 +68,17 @@ LIMIT $2 OFFSET $3;
 SELECT * FROM multica_issue
 WHERE id = $1;
 
+-- name: AssignSplitChildIssueIfUnassigned :one
+UPDATE multica_issue
+SET assignee_type = $2,
+    assignee_id = $3,
+    updated_at = now()
+WHERE id = $1
+  AND assignee_type IS NULL
+  AND assignee_id IS NULL
+  AND status NOT IN ('done', 'cancelled')
+RETURNING *;
+
 -- name: GetIssueInWorkspace :one
 SELECT * FROM multica_issue
 WHERE id = $1 AND workspace_id = $2;

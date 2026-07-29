@@ -215,5 +215,10 @@ func (h *Handler) RerunIssue(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	if h.SplitOrchestrator != nil {
+		if err := h.SplitOrchestrator.HandleChildExecutionRetried(r.Context(), issue.ID); err != nil {
+			slog.Warn("split child rerun hook failed", "issue_id", id, "error", err)
+		}
+	}
 	writeJSON(w, http.StatusAccepted, taskToResponse(*task))
 }

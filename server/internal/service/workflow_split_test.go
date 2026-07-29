@@ -18,7 +18,7 @@ import (
 
 func TestSplitLifecycleEventsPayload(t *testing.T) {
 	bus := events.New()
-	orchestrator := NewSplitOrchestrator(nil, nil, nil, bus)
+	orchestrator := NewSplitOrchestrator(nil, nil, nil, nil, bus)
 	runID := pgtype.UUID{Bytes: [16]byte{1}, Valid: true}
 	nodeRunID := pgtype.UUID{Bytes: [16]byte{2}, Valid: true}
 	workspaceID := pgtype.UUID{Bytes: [16]byte{3}, Valid: true}
@@ -159,6 +159,21 @@ func TestReadySplitTasksRespectDependenciesAndConcurrency(t *testing.T) {
 	}
 }
 
+func TestReadySplitTasksDoNotCountTerminalTasks(t *testing.T) {
+	tasks := []splitTaskPlan{
+		{ID: "a", SortOrder: 1, Status: SplitTaskStatusDone},
+		{ID: "b", SortOrder: 2, Status: SplitTaskStatusCreated},
+	}
+
+	got, err := readySplitTaskIDs(tasks, 1)
+	if err != nil {
+		t.Fatalf("readySplitTaskIDs: %v", err)
+	}
+	if want := []string{"b"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("readySplitTaskIDs = %v, want %v", got, want)
+	}
+}
+
 func TestMarkSkippedSplitTasksAfterFailedDependency(t *testing.T) {
 	tasks := []splitTaskPlan{
 		{ID: "a", Status: SplitTaskStatusFailed},
@@ -196,6 +211,13 @@ func TestResolveSettledSplitStatusSkipsDependentsAndFailsBarrier(t *testing.T) {
 	}
 	if status != NodeRunStatusFailed {
 		t.Fatalf("resolved node status = %s, want failed", status)
+	}
+}
+
+func TestResolveSplitBarrierCountsSkippedAsFailure(t *testing.T) {
+	tasks := []splitTaskPlan{{ID: "a", Status: SplitTaskStatusSkipped}}
+	if got := resolveSplitStatus(SplitModeBarrier, 0, tasks); got != NodeRunStatusFailed {
+		t.Fatalf("resolveSplitStatus barrier = %s, want %s", got, NodeRunStatusFailed)
 	}
 }
 
@@ -258,11 +280,11 @@ func TestResolveSplitBarrierFailureThreshold(t *testing.T) {
 		{ID: "b", Status: SplitTaskStatusFailed},
 		{ID: "c", Status: SplitTaskStatusSkipped},
 	}
-	if got := resolveSplitStatus(SplitModeBarrier, 1, tasks); got != NodeRunStatusCompleted {
-		t.Fatalf("resolveSplitStatus threshold=1 = %s, want completed", got)
+	if got := resolveSplitStatus(SplitModeBarrier, 2, tasks); got != NodeRunStatusCompleted {
+		t.Fatalf("resolveSplitStatus threshold=2 = %s, want completed", got)
 	}
-	if got := resolveSplitStatus(SplitModeBarrier, 0, tasks); got != NodeRunStatusFailed {
-		t.Fatalf("resolveSplitStatus threshold=0 = %s, want failed", got)
+	if got := resolveSplitStatus(SplitModeBarrier, 1, tasks); got != NodeRunStatusFailed {
+		t.Fatalf("resolveSplitStatus threshold=1 = %s, want failed", got)
 	}
 }
 
@@ -355,7 +377,7 @@ func TestDraftSourceConstantsAreDistinct(t *testing.T) {
 	}
 }
 
-func TestParseSplitConfigAcceptsDefaultIssueWorkflowID(t *testing.T) {
+func TestParseSplitConfigIgnoresDefaultIssueWorkflowID(t *testing.T) {
 	cfg, err := parseSplitConfig([]byte(`{
 		"type": "split",
 		"split_config": {
@@ -368,33 +390,8 @@ func TestParseSplitConfigAcceptsDefaultIssueWorkflowID(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parseSplitConfig: %v", err)
 	}
-	if cfg.DefaultIssueWorkflowID != "11111111-1111-1111-1111-111111111111" {
-		t.Fatalf("DefaultIssueWorkflowID = %q", cfg.DefaultIssueWorkflowID)
-	}
 	if cfg.Mode != SplitModePipeline || cfg.MaxConcurrency != 12 || cfg.MaxFailures != 2 {
 		t.Fatalf("cfg = %+v, want pipeline/12/2", cfg)
-	}
-}
-
-func TestParseSplitConfigRequiresDefaultIssueWorkflowID(t *testing.T) {
-	_, err := parseSplitConfig([]byte(`{"type":"split","split_config":{"mode":"barrier"}}`))
-	if err == nil || !strings.Contains(err.Error(), "default_issue_workflow_id") {
-		t.Fatalf("parseSplitConfig error = %v, want missing default_issue_workflow_id", err)
-	}
-}
-
-func TestParseSplitConfigRejectsLegacyChildWorkflowID(t *testing.T) {
-	_, err := parseSplitConfig([]byte(`{
-		"type": "split",
-		"split_config": {
-			"child_workflow_id": "11111111-1111-1111-1111-111111111111",
-			"mode": "barrier",
-			"max_concurrency": 5,
-			"max_failures": 0
-		}
-	}`))
-	if err == nil || !strings.Contains(err.Error(), "default_issue_workflow_id") {
-		t.Fatalf("parseSplitConfig error = %v, want missing default_issue_workflow_id", err)
 	}
 }
 
@@ -803,7 +800,7 @@ func TestSplitChatAppliedDraftMutation(t *testing.T) {
 
 func TestSplitChatRejectsWhenNotAwaitingReview(t *testing.T) {
 	ctx := context.Background()
-	orch := NewSplitOrchestrator(nil, nil, nil, nil)
+	orch := NewSplitOrchestrator(nil, nil, nil, nil, nil)
 
 	nonAwaitingStatuses := []string{
 		"splitting",
@@ -833,7 +830,7 @@ func TestSplitChatRejectsWhenNotAwaitingReview(t *testing.T) {
 
 func TestSplitChatRejectsEmptyMessage(t *testing.T) {
 	ctx := context.Background()
-	orch := NewSplitOrchestrator(nil, nil, nil, nil)
+	orch := NewSplitOrchestrator(nil, nil, nil, nil, nil)
 
 	nodeRun := db.MulticaWorkflowNodeRun{
 		Status: NodeRunStatusAwaitingSplitReview,

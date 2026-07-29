@@ -602,6 +602,24 @@ func setupWorkflowFailureGraph(t *testing.T, nodeCount int, edges [][2]int) work
 	}
 }
 
+func TestSplittingTransitionSetsStartedAt(t *testing.T) {
+	fx := setupWorkflowFailureGraph(t, 1, nil)
+
+	updated, err := fx.queries.UpdateWorkflowNodeRunStatus(fx.ctx, db.UpdateWorkflowNodeRunStatusParams{
+		ID:     fx.nodeRuns[0].ID,
+		Status: NodeRunStatusSplitting,
+	})
+	if err != nil {
+		t.Fatalf("transition node run to splitting: %v", err)
+	}
+	if updated.Status != NodeRunStatusSplitting {
+		t.Fatalf("node run status = %s, want %s", updated.Status, NodeRunStatusSplitting)
+	}
+	if !updated.StartedAt.Valid {
+		t.Fatal("splitting node run started_at is null")
+	}
+}
+
 func assertFailedRunStopsNodes(t *testing.T, fx workflowFailureGraphFixture, failedIndex int, failedStatus string) {
 	t.Helper()
 

@@ -46,7 +46,7 @@ export interface RuntimeNodeDeliverableSummary {
 
 export interface RuntimeChildIssueSummary {
   identifier: string;
-  workflowName: string | null;
+  assigneeName: string | null;
   progressLabel: string;
 }
 
@@ -687,11 +687,11 @@ export function RuntimeNodeCard({
           <div
             data-testid="runtime-node-child-issue-context"
             className="flex min-w-0 items-center gap-1 text-[10px] font-medium leading-3 text-muted-foreground"
-            title={`${childIssueSummary.identifier} · ${childIssueSummary.workflowName ?? "--"}`}
+            title={`${childIssueSummary.identifier} · ${childIssueSummary.assigneeName ?? "--"}`}
           >
             <span className="shrink-0">{childIssueSummary.identifier}</span>
             <span aria-hidden className="text-muted-foreground/50">{" · "}</span>
-            <span className="min-w-0 truncate">{childIssueSummary.workflowName ?? "--"}</span>
+            <span className="min-w-0 truncate">{childIssueSummary.assigneeName ?? "--"}</span>
           </div>
           <div
             data-testid="runtime-node-child-issue-progress"
