@@ -615,7 +615,7 @@
       "open_child_issue": "打开子 issue",
       "view_evidence": "查看证据",
       "parent_split": "父拆分",
-      "child_workflow": "子 workflow",
+      "child_assignee": "负责人",
       "reason": "原因",
       "no_deliverables": "暂无交付物",
       "no_runtime_data": "暂无运行数据。",

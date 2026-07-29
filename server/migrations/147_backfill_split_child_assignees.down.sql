@@ -1,0 +1,1 @@
+-- Data backfill is intentionally irreversible: assignees may have changed after migration.

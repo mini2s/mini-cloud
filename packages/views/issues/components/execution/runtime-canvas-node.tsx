@@ -271,7 +271,7 @@ export const RuntimeSplitSubflowNode = memo(function RuntimeSplitSubflowNode({
                     criticName={null}
                     childIssueSummary={{
                       identifier: child.issueIdentifier,
-                      workflowName: child.workerName,
+                      assigneeName: child.workerName,
                       progressLabel: child.progressLabel,
                     }}
                     runtimeSummary={child.runtimeSummary}

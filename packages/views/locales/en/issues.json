@@ -626,7 +626,7 @@
       "open_child_issue": "Open child issue",
       "view_evidence": "View evidence",
       "parent_split": "Parent split",
-      "child_workflow": "Issue workflow",
+      "child_assignee": "Assignee",
       "reason": "Reason",
       "no_deliverables": "No deliverables yet",
       "no_runtime_data": "No runtime data yet.",

@@ -210,7 +210,7 @@ vi.mock("@multica/views/i18n", () => ({
               open_child_issue: "Open child issue",
               view_evidence: "View evidence",
               parent_split: "Parent split",
-              child_workflow: "Issue workflow",
+              child_assignee: "Assignee",
               reason: "Reason",
               no_deliverables: "No deliverables yet",
               no_runtime_data: "No runtime data yet.",
@@ -743,7 +743,7 @@ describe("ExecutionDetailPanel", () => {
         onOpenIssue={vi.fn()}
         isChildIssue
         parentSplitTitle="Split work"
-        childWorkflowName="Issue workflow"
+        childAssigneeName="Issue workflow"
         wsId="ws-1"
       />,
     );
@@ -752,6 +752,7 @@ describe("ExecutionDetailPanel", () => {
     expect(sections).toEqual(["status-next-step", "evidence-preview", "child-progress", "worker-critic", "runtime-facts"]);
     expect(screen.getAllByText("Open child issue").length).toBeGreaterThan(0);
     expect(screen.getByText("Split work")).toBeInTheDocument();
+    expect(screen.getByText("Assignee")).toBeInTheDocument();
     expect(screen.getAllByText("Issue workflow").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Missing input").length).toBeGreaterThan(0);
   });

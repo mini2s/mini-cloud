@@ -280,8 +280,8 @@ export function SplitDraftLedger({
         const isExpanded = expandedTaskIds.has(task.id);
         const isEditing = editingTaskId === task.id;
         const isActiveTask = task.status !== "discarded";
-        const assigneeType = linkedIssue?.assignee_type ?? task.assignee_type;
-        const assigneeId = linkedIssue?.assignee_id ?? task.assignee_id;
+        const assigneeType = linkedIssue ? linkedIssue.assignee_type : task.assignee_type;
+        const assigneeId = linkedIssue ? linkedIssue.assignee_id : task.assignee_id;
         const assigneeName = assigneeType && assigneeId
           ? getActorName(assigneeType, assigneeId) ?? assigneeId
           : t(($) => $.detail_panel.split_unassigned);

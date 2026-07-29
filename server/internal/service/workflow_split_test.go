@@ -147,7 +147,7 @@ func TestReadySplitTasksRespectDependenciesAndConcurrency(t *testing.T) {
 		{ID: "b", SortOrder: 2, Status: SplitTaskStatusCreated, DependsOn: []string{"a"}},
 		{ID: "c", SortOrder: 3, Status: SplitTaskStatusCreated, DependsOn: []string{"a"}},
 		{ID: "d", SortOrder: 4, Status: SplitTaskStatusCreated, DependsOn: []string{"b"}},
-		{ID: "e", SortOrder: 5, Status: SplitTaskStatusCreated, IssueAssigned: true},
+		{ID: "e", SortOrder: 5, Status: SplitTaskStatusRunning},
 	}
 	got, err := readySplitTaskIDs(tasks, 2)
 	if err != nil {
@@ -159,9 +159,9 @@ func TestReadySplitTasksRespectDependenciesAndConcurrency(t *testing.T) {
 	}
 }
 
-func TestReadySplitTasksDoNotCountTerminalAssignedIssues(t *testing.T) {
+func TestReadySplitTasksDoNotCountTerminalTasks(t *testing.T) {
 	tasks := []splitTaskPlan{
-		{ID: "a", SortOrder: 1, Status: SplitTaskStatusDone, IssueAssigned: true, IssueTerminal: true},
+		{ID: "a", SortOrder: 1, Status: SplitTaskStatusDone},
 		{ID: "b", SortOrder: 2, Status: SplitTaskStatusCreated},
 	}
 

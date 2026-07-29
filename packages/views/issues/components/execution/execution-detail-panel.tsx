@@ -64,7 +64,7 @@ export interface ExecutionDetailPanelProps {
   onRetry?: () => void;
   isChildIssue?: boolean;
   parentSplitTitle?: string | null;
-  childWorkflowName?: string | null;
+  childAssigneeName?: string | null;
   workflowId?: string;
   runId?: string | null;
 }
@@ -167,7 +167,7 @@ export function ExecutionDetailPanel({
   onRetry,
   isChildIssue = false,
   parentSplitTitle,
-  childWorkflowName,
+  childAssigneeName,
   workflowId,
   runId,
 }: ExecutionDetailPanelProps) {
@@ -510,10 +510,10 @@ export function ExecutionDetailPanel({
                 <dd>{parentSplitTitle}</dd>
               </div>
             ) : null}
-            {childWorkflowName ? (
+            {childAssigneeName ? (
               <div className="flex justify-between gap-3">
-                <dt className="text-muted-foreground">{t(($) => $.execution.detail_panel.child_workflow)}</dt>
-                <dd>{childWorkflowName}</dd>
+                <dt className="text-muted-foreground">{t(($) => $.execution.detail_panel.child_assignee)}</dt>
+                <dd>{childAssigneeName}</dd>
               </div>
             ) : null}
             {errorMessage ? (

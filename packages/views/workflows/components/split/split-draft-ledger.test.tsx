@@ -318,6 +318,27 @@ describe("SplitDraftLedger", () => {
     expect(screen.queryByTestId("split-draft-actions-task-1")).not.toBeInTheDocument();
   });
 
+  it("honors an explicitly unassigned linked issue instead of the draft snapshot", () => {
+    const unassignedIssue = {
+      id: "child-1",
+      identifier: "DEM-478",
+      status: "todo",
+      assignee_type: null,
+      assignee_id: null,
+    } as Issue;
+
+    renderWithQueryClient(
+      <SplitDraftLedger
+        readOnly
+        tasks={[{ ...baseTask, status: "created", issue_id: "child-1" }]}
+        taskIssueBySourceId={new Map([["task-1", unassignedIssue]])}
+      />,
+    );
+
+    expect(screen.getByTestId("split-draft-child-assignee-task-1")).toHaveTextContent("Unassigned");
+    expect(screen.getByTestId("split-draft-child-assignee-task-1")).not.toHaveTextContent("workflow-1");
+  });
+
   it("shows an explicit assignee dropdown without marking the draft card as an error", () => {
     render(<SplitDraftLedger tasks={[{ ...baseTask, assignee_type: null, assignee_id: null }]} />);
 

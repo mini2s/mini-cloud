@@ -2272,7 +2272,7 @@ func TestApproveSplitTasksPipelineCompletesNodeWithPendingChildDispatch(t *testi
 	}
 }
 
-func TestApproveSplitCreatesAllIssuesAndAssignsOnlyReadyTasks(t *testing.T) {
+func TestApproveSplitAssignsAllIssuesAndStartsOnlyReadyTasks(t *testing.T) {
 	f := createSplitApproveFixture(t, "barrier")
 
 	w := httptest.NewRecorder()
@@ -2319,8 +2319,8 @@ func TestApproveSplitCreatesAllIssuesAndAssignsOnlyReadyTasks(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load child issue B: %v", err)
 	}
-	if issueB.AssigneeType.Valid || issueB.AssigneeID.Valid {
-		t.Fatalf("child issue B must stay unassigned until dependency completes: %+v", issueB)
+	if issueB.AssigneeType.String != "workflow" || issueB.AssigneeID != parseUUID(f.childWorkflow) {
+		t.Fatalf("child issue B assignee = %s/%s, want workflow/%s", issueB.AssigneeType.String, uuidToString(issueB.AssigneeID), f.childWorkflow)
 	}
 
 	nodeRun, err := testHandler.Queries.GetWorkflowNodeRun(context.Background(), parseUUID(f.splitNodeRunID))
