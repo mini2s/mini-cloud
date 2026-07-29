@@ -478,11 +478,8 @@ func memberWithUserResponse(member db.MulticaMember, user db.MulticaUser) Member
 }
 
 func memberTeamNamespaceUserRef(member db.MulticaMember) teamnamespace.UserRef {
-	if member.UserID.Valid {
-		return teamnamespace.UserRef{UserID: uuidToString(member.UserID)}
-	}
-	if member.ExternalUniversalID.Valid && strings.TrimSpace(member.ExternalUniversalID.String) != "" {
-		return teamnamespace.UserRef{UniversalID: strings.TrimSpace(member.ExternalUniversalID.String)}
+	if member.SubjectID.Valid && strings.TrimSpace(member.SubjectID.String) != "" {
+		return teamnamespace.UserRef{UserID: strings.TrimSpace(member.SubjectID.String)}
 	}
 	return teamnamespace.UserRef{}
 }

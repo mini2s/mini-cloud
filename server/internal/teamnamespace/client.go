@@ -43,8 +43,7 @@ func (c *Client) Configured() bool {
 }
 
 type UserRef struct {
-	UserID      string `json:"user_id,omitempty"`
-	UniversalID string `json:"universal_id,omitempty"`
+	UserID string `json:"user_id,omitempty"` // cs-user subject_id (usr_<uuid>)
 }
 
 type BotInfo struct {

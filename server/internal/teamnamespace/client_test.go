@@ -29,7 +29,7 @@ func TestClientSyncMembersUsesInternalServiceTokenAndTenant(t *testing.T) {
 	out, err := c.SyncMembers(context.Background(), "6efed44f-6d57-4bfd-ac0a-908b7e1b297b", SyncMembersRequest{
 		Mode: "delta",
 		RemoveMembers: []UserRef{{
-			UniversalID: "ou_29219",
+			UserID:    "usr_29219",
 		}},
 	})
 	if err != nil {
@@ -44,7 +44,7 @@ func TestClientSyncMembersUsesInternalServiceTokenAndTenant(t *testing.T) {
 	if gotTenant != "default" {
 		t.Fatalf("tenant header = %q", gotTenant)
 	}
-	if got.Mode != "delta" || len(got.RemoveMembers) != 1 || got.RemoveMembers[0].UniversalID != "ou_29219" {
+	if got.Mode != "delta" || len(got.RemoveMembers) != 1 || got.RemoveMembers[0].UserID != "usr_29219" {
 		t.Fatalf("request body = %+v", got)
 	}
 	if out.MembersRemovedCount != 1 {

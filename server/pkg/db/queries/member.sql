@@ -33,8 +33,9 @@ SELECT m.id, m.workspace_id, m.user_id, m.role, m.created_at,
        m.source, m.status, m.external_user_id, m.external_universal_id,
        m.employee_id, m.org_display_name, m.dept_id, m.dept_name,
        m.dept_path, m.position, m.is_main_department, m.dept_user_status,
-       m.last_synced_at,
-       u.name as user_name, u.email as user_email, u.avatar_url as user_avatar_url
+       m.last_synced_at, m.subject_id,
+       u.name as user_name, u.email as user_email, u.avatar_url as user_avatar_url,
+       u.subject_id as user_subject_id
 FROM multica_member m
 LEFT JOIN multica_user u ON u.id = m.user_id
 WHERE m.workspace_id = $1

@@ -331,8 +331,9 @@ SELECT m.id, m.workspace_id, m.user_id, m.role, m.created_at,
        m.source, m.status, m.external_user_id, m.external_universal_id,
        m.employee_id, m.org_display_name, m.dept_id, m.dept_name,
        m.dept_path, m.position, m.is_main_department, m.dept_user_status,
-       m.last_synced_at,
-       u.name as user_name, u.email as user_email, u.avatar_url as user_avatar_url
+       m.last_synced_at, m.subject_id,
+       u.name as user_name, u.email as user_email, u.avatar_url as user_avatar_url,
+       u.subject_id as user_subject_id
 FROM multica_member m
 LEFT JOIN multica_user u ON u.id = m.user_id
 WHERE m.workspace_id = $1
@@ -358,9 +359,11 @@ type ListMembersWithUserRow struct {
 	IsMainDepartment    bool               `json:"is_main_department"`
 	DeptUserStatus      pgtype.Int4        `json:"dept_user_status"`
 	LastSyncedAt        pgtype.Timestamptz `json:"last_synced_at"`
+	SubjectID           pgtype.Text        `json:"subject_id"`
 	UserName            pgtype.Text        `json:"user_name"`
 	UserEmail           pgtype.Text        `json:"user_email"`
 	UserAvatarUrl       pgtype.Text        `json:"user_avatar_url"`
+	UserSubjectID       pgtype.Text        `json:"user_subject_id"`
 }
 
 func (q *Queries) ListMembersWithUser(ctx context.Context, workspaceID pgtype.UUID) ([]ListMembersWithUserRow, error) {
@@ -391,9 +394,11 @@ func (q *Queries) ListMembersWithUser(ctx context.Context, workspaceID pgtype.UU
 			&i.IsMainDepartment,
 			&i.DeptUserStatus,
 			&i.LastSyncedAt,
+			&i.SubjectID,
 			&i.UserName,
 			&i.UserEmail,
 			&i.UserAvatarUrl,
+			&i.UserSubjectID,
 		); err != nil {
 			return nil, err
 		}

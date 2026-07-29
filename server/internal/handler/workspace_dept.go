@@ -145,12 +145,11 @@ func (h *Handler) BatchAddDeptMembers(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Gitea org-membership sync for added members is wired in a follow-up
-	// (SyncMembers on add/remove via cs-user subject_id); not triggered here.
 	if added > 0 {
 		h.publish(protocol.EventMemberUpdated, uuidToString(requester.WorkspaceID), "member", requestUserID(r), map[string]any{
 			"workspace_id": uuidToString(requester.WorkspaceID),
 		})
+		go h.syncWorkspaceGiteaMembers(requester.WorkspaceID)
 	}
 	writeJSON(w, http.StatusOK, BatchAddDeptMembersResponse{Added: added, Skipped: skipped})
 }
