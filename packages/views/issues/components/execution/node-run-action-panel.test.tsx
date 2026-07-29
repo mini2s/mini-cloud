@@ -137,10 +137,11 @@ describe("NodeRunActionPanel", () => {
   });
 
   it("hides human actions when access is denied", () => {
-    renderPanel();
+    const { container } = renderPanel();
 
     expect(screen.queryByRole("button", { name: "Submit result" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Skip node" })).not.toBeInTheDocument();
+    expect(container.firstChild).toBeNull();
   });
 
   it("disables the corresponding action while a mutation is pending", () => {

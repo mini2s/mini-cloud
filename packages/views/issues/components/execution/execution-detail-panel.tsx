@@ -35,6 +35,7 @@ import {
   workflowKeys,
 } from "@multica/core/workflows/queries";
 import { Button } from "@multica/ui/components/ui/button";
+import { Textarea } from "@multica/ui/components/ui/textarea";
 import { useT } from "@multica/views/i18n";
 import {
   NodeDetailSection,
@@ -571,12 +572,12 @@ export function ExecutionDetailPanel({
             ) : null}
             {canReview ? (
               <div className="space-y-2 rounded-md border bg-background p-2">
-                <textarea
+                <Textarea
                   value={reviewComment}
                   onChange={(event) => setReviewComment(event.target.value)}
                   placeholder={t(($) => $.execution.detail_panel.review_comment)}
                   rows={3}
-                  className="bg-background min-h-20 w-full resize-none rounded-md border px-2 py-1.5 text-sm"
+                  className="min-h-20 resize-none"
                 />
                 {reviewMutation.isError ? (
                   <p className="text-xs text-destructive">
@@ -591,24 +592,23 @@ export function ExecutionDetailPanel({
                   </p>
                 ) : null}
                 <div className="flex flex-wrap gap-2">
-                  <button
-                    type="button"
+                  <Button
                     disabled={reviewMutation.isPending || reviewCommentEmpty}
                     onClick={() => reviewMutation.mutate(true)}
-                    className="bg-primary text-primary-foreground inline-flex h-8 items-center justify-center gap-1.5 rounded-md px-3 text-xs font-medium transition-colors disabled:opacity-50"
+                    className="h-8 px-3 text-xs"
                   >
                     {reviewMutation.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
                     {t(($) => $.execution.card.actions.approve)}
-                  </button>
-                  <button
-                    type="button"
+                  </Button>
+                  <Button
+                    variant="outline"
                     disabled={reviewMutation.isPending || reviewCommentEmpty}
                     onClick={() => reviewMutation.mutate(false)}
-                    className="inline-flex h-8 items-center justify-center gap-1.5 rounded-md border bg-background px-3 text-xs font-medium transition-colors hover:bg-muted disabled:opacity-50"
+                    className="h-8 px-3 text-xs"
                   >
                     <RotateCcw className="h-3.5 w-3.5" />
                     {t(($) => $.execution.card.actions.reject)}
-                  </button>
+                  </Button>
                 </div>
               </div>
             ) : null}

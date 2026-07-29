@@ -61,6 +61,13 @@ export function NodeRunActionPanel({
     : skipMutation.isError
       ? skipMutation.error
       : null;
+  const hasHumanActions = access.canSubmit || access.canSkip;
+  const hasRuntimeControls = nodeRun.runtime_id != null && (
+    nodeRun.status === "working" ||
+    (nodeRun.status === "blocked" && nodeRun.completed_at == null)
+  );
+
+  if (!hasHumanActions && !hasRuntimeControls) return null;
 
   return (
     <div className="space-y-3 border-t border-border/70 pt-3">
@@ -80,7 +87,7 @@ export function NodeRunActionPanel({
         </div>
       ) : null}
 
-      {access.canSubmit || access.canSkip ? (
+      {hasHumanActions ? (
         <div className="flex min-h-8 flex-wrap items-center gap-2">
           {access.canSubmit ? (
             <Button onClick={handleSubmit} disabled={submitMutation.isPending}>
