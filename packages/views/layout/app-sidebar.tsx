@@ -53,8 +53,6 @@ import {
   User,
   Wallet,
   Bell,
-  SquareTerminal,
-  Puzzle,
   UserRoundCog,
 } from "lucide-react";
 import { WorkspaceAvatar } from "../workspace/workspace-avatar";
@@ -144,12 +142,6 @@ type NavKey =
   | "wiki"
   | "memory"
   | "hub"
-  | "hubSkill"
-  | "hubSubagent"
-  | "hubCommand"
-  | "hubMcp"
-  | "hubPlugin"
-  | "hubManager"
   | "metricsOverview"
   | "metricsEfficiency"
   | "metricsQuality"
@@ -187,12 +179,6 @@ type NavLabelKey =
   | "wiki"
   | "memory"
   | "hub"
-  | "hub_skill"
-  | "hub_subagent"
-  | "hub_command"
-  | "hub_mcp"
-  | "hub_plugin"
-  | "hub_manager"
   | "metrics_overview"
   | "metrics_efficiency"
   | "metrics_quality"
@@ -238,12 +224,10 @@ const repositoryNav: NavItem[] = [
   { key: "wiki", labelKey: "wiki", icon: FileText },
   { key: "skills", labelKey: "skills", icon: BookOpenText },
   { key: "memory", labelKey: "memory", icon: Brain },
-  { key: "hubSkill", labelKey: "hub_skill", icon: Sparkles },
-  { key: "hubSubagent", labelKey: "hub_subagent", icon: Bot },
-  { key: "hubCommand", labelKey: "hub_command", icon: SquareTerminal },
-  { key: "hubMcp", labelKey: "hub_mcp", icon: Plug },
-  { key: "hubPlugin", labelKey: "hub_plugin", icon: Puzzle },
-  { key: "hubManager", labelKey: "hub_manager", icon: Settings },
+  // Single Hub entry — hub type filtering lives inside the Hub page tabs;
+  // stays highlighted on every /hub sub-route (/hub/manager, /hub/[id], …)
+  // via the pathname-prefix match in isNavActive.
+  { key: "hub", labelKey: "hub", icon: Sparkles },
 ];
 
 const metricsNav: NavItem[] = [

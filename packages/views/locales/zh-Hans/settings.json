@@ -19,6 +19,31 @@
       "sync_failed": "保存时区偏好失败。"
     }
   },
+  "identities": {
+    "title": "身份绑定",
+    "description": "管理您已绑定的登录身份。您可以将多个登录方式绑定到同一账号。",
+    "primary": "主身份",
+    "bind": "绑定",
+    "unbind": "解绑",
+    "unbindConfirmTitle": "解绑身份",
+    "unbindConfirm": "确定要解绑此身份吗？",
+    "errorCannotUnbindLast": "无法解绑最后一个身份，至少需要保留一种登录方式。",
+    "notBound": "未绑定",
+    "bound": "已绑定",
+    "bindSuccess": "身份绑定成功。",
+    "dismiss": "关闭",
+    "mergeTitle": "检测到账号冲突",
+    "mergeDescription": "{{provider}} 登录方式已被其他账号绑定，是否将两个账号合并？",
+    "mergeConfirm": "合并账号",
+    "provider": {
+      "idtrust": "IDTrust",
+      "github": "GitHub",
+      "phone": "手机号",
+      "unknown": "未知"
+    },
+    "providerMismatchTitle": "认证方式不匹配",
+    "providerMismatchDescription": "请重新绑定，并使用 {{expected}} 进行认证。"
+  },
   "page": {
     "title": "设置",
     "my_account": "我的账号",
@@ -26,6 +51,7 @@
     "tabs": {
       "profile": "个人资料",
       "preferences": "偏好设置",
+      "identities": "身份绑定",
       "notifications": "通知",
       "tokens": "API Token",
       "general": "通用",

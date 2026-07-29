@@ -19,7 +19,8 @@
       "subagent": "Subagents",
       "command": "Commands",
       "mcp": "MCP",
-      "plugin": "Plugins"
+      "plugin": "Plugins",
+      "manager": "Manage"
     },
     "type": {
       "all": { "description": "Browse all capabilities" },
@@ -226,7 +227,7 @@
     }
   },
   "manager": {
-    "title": "Hub Console",
+    "title": "Hub Manager",
     "titleReceived": "Received Pushes",
     "titleSent": "Sent Distributions",
     "desc": "Manage your capabilities and distributions",

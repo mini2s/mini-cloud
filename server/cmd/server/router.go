@@ -424,7 +424,11 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 		r.MethodFunc(http.MethodPut, "/api/channels/*", hubProxy)
 		r.MethodFunc(http.MethodDelete, "/api/channels/*", hubProxy)
 		r.MethodFunc(http.MethodGet, "/api/auth/identities", hubProxy)
+		// Identity unbind (/api/auth/identities/{provider}/unbind) + bind/merge
+		// flows — all POST, same cloud-store backend.
+		r.MethodFunc(http.MethodPost, "/api/auth/identities/*", hubProxy)
 		r.MethodFunc(http.MethodPost, "/api/auth/bind/start", hubProxy)
+		r.MethodFunc(http.MethodPost, "/api/auth/bind/*", hubProxy)
 	}
 
 	// Quota-manager proxy — personal-quota (usage statistics) routes are proxied

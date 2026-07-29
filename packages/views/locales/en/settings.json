@@ -19,6 +19,31 @@
       "sync_failed": "Failed to save your timezone preference."
     }
   },
+  "identities": {
+    "title": "Identity Binding",
+    "description": "Manage your linked login identities. You can bind multiple providers to the same account.",
+    "primary": "Primary",
+    "bind": "Bind",
+    "unbind": "Unbind",
+    "unbindConfirmTitle": "Unbind identity",
+    "unbindConfirm": "Are you sure you want to unbind this identity?",
+    "errorCannotUnbindLast": "Cannot unbind the last identity. At least one login method must remain bound.",
+    "notBound": "Not bound",
+    "bound": "Bound",
+    "bindSuccess": "Identity bound successfully.",
+    "dismiss": "Dismiss",
+    "mergeTitle": "Account conflict detected",
+    "mergeDescription": "The {{provider}} login is already linked to another account. Do you want to merge these two accounts?",
+    "mergeConfirm": "Merge accounts",
+    "provider": {
+      "idtrust": "IDTrust",
+      "github": "GitHub",
+      "phone": "Phone",
+      "unknown": "Unknown"
+    },
+    "providerMismatchTitle": "Authentication Method Mismatch",
+    "providerMismatchDescription": "Please retry binding and use {{expected}} to sign in."
+  },
   "page": {
     "title": "Settings",
     "my_account": "My Account",
@@ -26,6 +51,7 @@
     "tabs": {
       "profile": "Profile",
       "preferences": "Preferences",
+      "identities": "Identity",
       "notifications": "Notifications",
       "tokens": "API Tokens",
       "general": "General",

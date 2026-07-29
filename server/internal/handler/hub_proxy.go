@@ -50,10 +50,13 @@ var hubProxyPaths = []string{
 	"/api/admin/resource-permissions",
 	"/api/admin/permission-grants",
 	// Notification channels (user two-way channels) + identity binding — same
-	// cloud-store backend, same session auth. Powers the "通知渠道" page.
+	// cloud-store backend, same session auth. Powers the "通知渠道" and identity
+	// (身份绑定) pages.
 	"/api/channels",
 	"/api/auth/identities",
 	"/api/auth/bind/start",
+	"/api/auth/bind/confirm-merge",
+	"/api/auth/bind/cancel-merge",
 }
 
 // IsHubProxyPath reports whether the given request path should be handled by the

@@ -19,7 +19,8 @@
       "subagent": "子代理",
       "command": "命令",
       "mcp": "MCP",
-      "plugin": "插件"
+      "plugin": "插件",
+      "manager": "Hub 管理"
     },
     "type": {
       "all": {
@@ -238,7 +239,7 @@
     }
   },
   "manager": {
-    "title": "能力管理",
+    "title": "Hub 管理",
     "titleReceived": "我收到的推送",
     "titleSent": "我下发的",
     "desc": "管理您的个人能力项",

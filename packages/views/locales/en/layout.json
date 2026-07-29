@@ -36,12 +36,6 @@
     "me_notifications": "Notifications",
     "me_devices": "My Devices",
     "hub": "Hub",
-    "hub_skill": "Skills",
-    "hub_subagent": "Subagents",
-    "hub_command": "Commands",
-    "hub_mcp": "MCP Servers",
-    "hub_plugin": "Plugins",
-    "hub_manager": "Manager",
     "efficiency_settings": "Efficiency Ops",
     "roles": "Roles"
   },

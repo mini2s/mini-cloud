@@ -2,13 +2,18 @@
 
 import { useT } from "@multica/views/i18n"
 import { cn } from "@multica/ui/lib/utils"
+import { Settings } from "lucide-react"
 import { HubIcon } from "../lib/hub-icons"
+import { AppLink } from "../../navigation"
+import { useWorkspacePaths } from "@multica/core/paths"
 
 export interface NavItem {
   key: string
   labelKey: string
-  icon: "all" | "skill" | "subagent" | "command" | "mcp" | "plugin"
+  icon?: "all" | "skill" | "subagent" | "command" | "mcp" | "plugin"
   type?: string
+  /** Pure link item (no type filter / count badge) — rendered as a navigation link. */
+  link?: "manager"
 }
 
 export const HUB_NAV: NavItem[] = [
@@ -18,6 +23,7 @@ export const HUB_NAV: NavItem[] = [
   { key: "command", labelKey: "hub.home.typeTab.command", icon: "command", type: "command" },
   { key: "mcp", labelKey: "hub.home.typeTab.mcp", icon: "mcp", type: "mcp" },
   { key: "plugin", labelKey: "hub.home.typeTab.plugin", icon: "plugin", type: "plugin" },
+  { key: "manager", labelKey: "hub.home.typeTab.manager", link: "manager" },
 ]
 
 export interface HubSidebarProps {
@@ -28,6 +34,7 @@ export interface HubSidebarProps {
 
 export function HubSidebar({ currentType, counts, onNavigate }: HubSidebarProps) {
   const { t } = useT("hub")
+  const paths = useWorkspacePaths()
 
   return (
     <aside className="flex h-full w-56 shrink-0 flex-col overflow-hidden bg-gradient-to-b from-background/90 to-background max-[1024px]:hidden">
@@ -43,6 +50,23 @@ export function HubSidebar({ currentType, counts, onNavigate }: HubSidebarProps)
         <div>
           <div className="flex flex-col gap-px">
             {HUB_NAV.map((item) => {
+              if (item.link === "manager") {
+                return (
+                  <AppLink
+                    key={item.key}
+                    href={paths.hubManager()}
+                    className={cn(
+                      "relative flex w-full items-center gap-2.5 rounded-md px-2.5 py-2 text-left text-sm transition-all duration-150",
+                      "bg-transparent text-muted-foreground hover:bg-muted/60 hover:text-foreground",
+                    )}
+                  >
+                    <span className="flex h-7 w-7 shrink-0 items-center justify-center text-muted-foreground transition-all">
+                      <Settings size={15} />
+                    </span>
+                    <span className="font-medium">{t(($) => $.home.typeTab.manager)}</span>
+                  </AppLink>
+                )
+              }
               const active = item.type
                 ? currentType === item.type
                 : !currentType
@@ -64,7 +88,7 @@ export function HubSidebar({ currentType, counts, onNavigate }: HubSidebarProps)
                       active ? "text-foreground" : "text-muted-foreground",
                     )}
                   >
-                    <HubIcon name={item.icon} size={15} />
+                    <HubIcon name={item.icon ?? "all"} size={15} />
                   </span>
                   <span className="font-medium">{t(($) => $.home.typeTab[item.key as "all" | "skill" | "subagent" | "command" | "mcp" | "plugin"])}</span>
                   {counts?.[item.key] != null && (

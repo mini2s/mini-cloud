@@ -29,4 +29,6 @@ export type {
   ChannelConfig,
   ChannelUpdateInput,
   AuthIdentity,
+  IdentityUnbindResult,
+  MergeResult,
 } from "../types/channels";

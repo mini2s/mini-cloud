@@ -67,3 +67,14 @@ export interface ChannelUpdateInput {
   config?: Record<string, string>;
   enabled?: boolean;
 }
+
+/** Response for POST /api/auth/identities/{provider}/unbind. */
+export interface IdentityUnbindResult {
+  requireRelogin: boolean;
+}
+
+/** Response for POST /api/auth/bind/confirm-merge and /cancel-merge. */
+export interface MergeResult {
+  message: string;
+}
+

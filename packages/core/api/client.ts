@@ -192,6 +192,8 @@ import type {
   ChannelType,
   ChannelUpdateInput,
   AuthIdentity,
+  IdentityUnbindResult,
+  MergeResult,
 } from "../types";
 import type { OnboardingCompletionPath } from "../onboarding/types";
 import type {
@@ -3373,5 +3375,32 @@ async startIdentityBind(provider: string): Promise<string> {
     body: JSON.stringify({ provider }),
   });
   return res.authUrl;
+}
+
+/**
+ * Unbind a linked identity. `POST /api/auth/identities/{provider}/unbind`.
+ * Returns `requireRelogin` — when true the caller must log out (the unbound
+ * identity was the session's backing credential).
+ */
+async unbindIdentity(provider: string): Promise<IdentityUnbindResult> {
+  return this.fetch(`/api/auth/identities/${encodeURIComponent(provider)}/unbind`, {
+    method: "POST",
+  });
+}
+
+/** Confirm merging two accounts after an OAuth bind conflict. `POST /api/auth/bind/confirm-merge`. */
+async confirmMerge(mergeToken: string): Promise<MergeResult> {
+  return this.fetch("/api/auth/bind/confirm-merge", {
+    method: "POST",
+    body: JSON.stringify({ merge_token: mergeToken }),
+  });
+}
+
+/** Cancel a pending account merge. `POST /api/auth/bind/cancel-merge`. */
+async cancelMerge(mergeToken: string): Promise<MergeResult> {
+  return this.fetch("/api/auth/bind/cancel-merge", {
+    method: "POST",
+    body: JSON.stringify({ merge_token: mergeToken }),
+  });
 }
 }

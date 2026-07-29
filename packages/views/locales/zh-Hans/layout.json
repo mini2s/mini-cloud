@@ -36,12 +36,6 @@
     "me_notifications": "我的通知",
     "me_devices": "我的设备",
     "hub": "Hub",
-    "hub_skill": "技能",
-    "hub_subagent": "子 Agent",
-    "hub_command": "命令",
-    "hub_mcp": "MCP 服务",
-    "hub_plugin": "插件",
-    "hub_manager": "管理控制台",
     "efficiency_settings": "指标运维",
     "roles": "角色"
   },
