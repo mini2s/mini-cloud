@@ -89,7 +89,7 @@ function isNodeRunCancellable(status: string | null | undefined): boolean {
 }
 
 function isSplitGenerateActionStatus(status: string | null | undefined): boolean {
-  return status === "awaiting_split_review" || status === "failed";
+  return status === "awaiting_split_review";
 }
 
 function splitFailureMessage(nodeRun: WorkflowNodeRun | null): string | null {
@@ -316,7 +316,7 @@ export function SplitReviewPanel({
   const canCancel = canEditReview && isNodeRunCancellable(nodeRun?.status);
   const canRecover = isReviewer && nodeRun?.status === "failed";
   const canResetOriginal = canEditReview;
-  const canGenerate = isReviewer && !!nodeRunId && isSplitGenerateActionStatus(nodeRun?.status) && (activeTasks.length === 0 || nodeRun?.status === "failed");
+  const canGenerate = isReviewer && !!nodeRunId && isSplitGenerateActionStatus(nodeRun?.status) && activeTasks.length === 0;
 	const affectedTaskCount = tasks.filter((task) => !["done", "failed", "cancelled", "skipped", "discarded"].includes(task.status)).length;
   const hasDraftCommands = canGenerate || canRecover;
   const failureMessage = splitFailureMessage(nodeRun);

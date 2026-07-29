@@ -756,6 +756,13 @@ func (s *SplitOrchestrator) generateSplitTasks(
 	if !canRegenerateSplitNodeStatus(currentNodeRun.Status) {
 		return fmt.Errorf("split node cannot generate tasks from current status")
 	}
+	run, err := s.Queries.GetWorkflowRun(ctx, currentNodeRun.WorkflowRunID)
+	if err != nil {
+		return fmt.Errorf("get workflow run for split generation: %w", err)
+	}
+	if run.Status != RunStatusRunning {
+		return ErrWorkflowRunNotRunning
+	}
 	switch currentNodeRun.Status {
 	case NodeRunStatusAwaitingSplitReview:
 		updated, err := s.WfService.TransitionNodeRun(ctx, currentNodeRun, NodeRunStatusSplitting)
@@ -784,10 +791,6 @@ func (s *SplitOrchestrator) generateSplitTasks(
 		return err
 	}
 
-	run, err := s.Queries.GetWorkflowRun(ctx, currentNodeRun.WorkflowRunID)
-	if err != nil {
-		return fmt.Errorf("get workflow run for split issue lookup: %w", err)
-	}
 	parentIssue, err := s.findParentIssue(ctx, currentNodeRun)
 	if err != nil {
 		return fmt.Errorf("find parent issue: %w", err)

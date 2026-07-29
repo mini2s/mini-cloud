@@ -920,6 +920,7 @@ describe("SplitReviewPanel", () => {
     });
 
     expect(screen.getByText("split generation returned no tasks")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Regenerate draft" })).not.toBeInTheDocument();
 
     await userEvent.click(screen.getByRole("button", { name: "Generate draft from output" }));
 
