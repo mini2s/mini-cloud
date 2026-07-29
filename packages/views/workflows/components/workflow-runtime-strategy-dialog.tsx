@@ -21,6 +21,7 @@ import {
 } from "@multica/ui/components/ui/select";
 import { Skeleton } from "@multica/ui/components/ui/skeleton";
 import { useT } from "../../i18n";
+import { ProviderLogo } from "../../runtimes/components/provider-logo";
 
 export interface WorkflowRuntimeStrategyValue {
   policy: WorkflowRuntimeSelectionPolicy;
@@ -35,6 +36,7 @@ interface WorkflowRuntimeStrategyDialogProps {
   loading: boolean;
   directRun?: boolean;
   saving?: boolean;
+  getMemberName?: (userId: string) => string;
   onConfirm: (value: WorkflowRuntimeStrategyValue) => void | Promise<void>;
   onClose: () => void;
 }
@@ -53,6 +55,7 @@ export function WorkflowRuntimeStrategyDialog({
   loading,
   directRun = false,
   saving = false,
+  getMemberName,
   onConfirm,
   onClose,
 }: WorkflowRuntimeStrategyDialogProps) {
@@ -65,10 +68,14 @@ export function WorkflowRuntimeStrategyDialog({
     setRuntimeId(initialValue.runtimeId ?? "");
   }, [initialValue.policy, initialValue.runtimeId]);
 
-  const runtimeExists = runtimes.some((runtime) => runtime.id === runtimeId);
+  const onlineRuntimes = useMemo(
+    () => runtimes.filter((runtime) => runtime.status === "online"),
+    [runtimes],
+  );
+  const runtimeExists = onlineRuntimes.some((runtime) => runtime.id === runtimeId);
   const selectedRuntime = useMemo(
-    () => runtimes.find((r) => r.id === runtimeId) ?? null,
-    [runtimes, runtimeId],
+    () => onlineRuntimes.find((runtime) => runtime.id === runtimeId) ?? null,
+    [onlineRuntimes, runtimeId],
   );
   const specifiedRuntimeMissing = policy === "specified_runtime_first" && (!runtimeId || !runtimeExists);
 
@@ -131,21 +138,66 @@ export function WorkflowRuntimeStrategyDialog({
                   value={runtimeExists ? runtimeId : ""}
                   onValueChange={(value) => setRuntimeId(value ?? "")}
                 >
-                  <SelectTrigger id="workflow-runtime-select" className="w-full" size="sm">
-                    <SelectValue placeholder={t(($) => $.runtime_strategy.runtime_placeholder)}>
-                      {selectedRuntime
-                        ? `${selectedRuntime.name} · ${selectedRuntime.status === "online"
-                          ? t(($) => $.runtime_strategy.online)
-                          : t(($) => $.runtime_strategy.offline)}`
-                        : undefined}
+                  <SelectTrigger
+                    id="workflow-runtime-select"
+                    className="h-auto min-h-9 w-full px-3 py-2"
+                    size="sm"
+                  >
+                    <SelectValue
+                      className="min-w-0"
+                      placeholder={t(
+                        ($) => $.runtime_strategy.runtime_placeholder,
+                      )}
+                    >
+                      {selectedRuntime ? (
+                        <>
+                          <ProviderLogo
+                            provider={selectedRuntime.provider}
+                            className="size-4 shrink-0"
+                          />
+                          <span className="min-w-0 flex-1 truncate font-medium">
+                            {selectedRuntime.name}
+                          </span>
+                          <span className="ml-auto flex shrink-0 items-center gap-1.5 text-xs text-muted-foreground">
+                            <span className="size-1.5 rounded-full bg-success" />
+                            {t(($) => $.runtime_strategy.online)}
+                          </span>
+                        </>
+                      ) : undefined}
                     </SelectValue>
                   </SelectTrigger>
-                  <SelectContent>
-                    {runtimes.map((runtime) => (
-                      <SelectItem key={runtime.id} value={runtime.id}>
-                        {runtime.name} · {runtime.status === "online"
-                          ? t(($) => $.runtime_strategy.online)
-                          : t(($) => $.runtime_strategy.offline)}
+                  <SelectContent
+                    align="start"
+                    alignItemWithTrigger={false}
+                    className="max-h-64 p-1"
+                  >
+                    {onlineRuntimes.map((runtime) => (
+                      <SelectItem
+                        key={runtime.id}
+                        value={runtime.id}
+                        className="py-2 pr-8 pl-2"
+                      >
+                        <ProviderLogo
+                          provider={runtime.provider}
+                          className="size-4 shrink-0"
+                        />
+                        <span className="flex min-w-0 flex-1 flex-col items-start gap-0.5">
+                          <span className="w-full truncate font-medium">
+                            {runtime.name}
+                          </span>
+                          <span className="flex w-full items-center gap-1.5 text-xs text-muted-foreground">
+                            <span className="size-1.5 shrink-0 rounded-full bg-success" />
+                            <span>{t(($) => $.runtime_strategy.online)}</span>
+                            {runtime.owner_id && getMemberName && (
+                              <>
+                                <span aria-hidden="true">·</span>
+                                <span className="truncate">
+                                  {getMemberName(runtime.owner_id)}
+                                </span>
+                              </>
+                            )}
+                          </span>
+                        </span>
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -155,7 +207,7 @@ export function WorkflowRuntimeStrategyDialog({
                     {t(($) => $.runtime_strategy.deleted_runtime)}
                   </p>
                 )}
-                {runtimes.length === 0 && (
+                {onlineRuntimes.length === 0 && (
                   <p className="text-xs text-muted-foreground">
                     {t(($) => $.runtime_strategy.no_runtime)}
                   </p>

@@ -713,7 +713,7 @@
     "runtime_placeholder": "选择运行时",
     "online": "在线",
     "offline": "离线",
-    "deleted_runtime": "已保存的运行时不存在或你已无权使用，请选择其他运行时后继续。",
+    "deleted_runtime": "已保存的运行时已离线、不存在或你已无权使用，请选择其他运行时后继续。",
     "no_runtime": "当前工作区没有可用运行时。",
     "direct_run_hint": "直接测试运行没有所属 Issue 的创建人，将从空闲运行时开始选择。",
     "cancel": "取消",
