@@ -5,6 +5,7 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import type { Issue, SplitTask } from "@multica/core/types";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { cloneElement, type ReactElement, type ReactNode } from "react";
 import { SplitDraftLedger } from "./split-draft-ledger";
 
 vi.mock("../../../i18n", () => ({
@@ -61,21 +62,29 @@ vi.mock("../../../common/actor-avatar", () => ({
 }));
 
 vi.mock("../../../issues/components/pickers/assignee-picker", () => ({
-  AssigneePicker: ({ ariaLabel, allowedTypes, onUpdate }: {
+  AssigneePicker: ({ ariaLabel, allowedTypes, trigger, triggerRender, onUpdate }: {
     ariaLabel?: string;
     allowedTypes?: string[];
+    trigger?: ReactNode;
+    triggerRender?: ReactElement;
     onUpdate: (update: { assignee_type: "member"; assignee_id: string }) => void;
-  }) => (
-    <div>
-      <button type="button" aria-label={ariaLabel} onClick={() => onUpdate({ assignee_type: "member", assignee_id: "member-1" })}>
-        Choose assignee
-      </button>
+  }) => {
+    const triggerProps = {
+      "aria-label": ariaLabel,
+      onClick: () => onUpdate({ assignee_type: "member" as const, assignee_id: "member-1" }),
+    };
+    return (
+      <div>
+      {triggerRender
+        ? cloneElement(triggerRender, triggerProps, trigger ?? "Choose assignee")
+        : <button type="button" {...triggerProps}>{trigger ?? "Choose assignee"}</button>}
       {allowedTypes?.includes("member") ? <span>Members</span> : null}
       {allowedTypes?.includes("agent") ? <span>Digital Humans</span> : null}
       {allowedTypes?.includes("squad") ? <span>Squads</span> : null}
       {allowedTypes?.includes("workflow") ? <span>Workflows</span> : null}
-    </div>
-  ),
+      </div>
+    );
+  },
 }));
 
 vi.mock("@multica/core/paths", () => ({
@@ -229,13 +238,17 @@ describe("SplitDraftLedger", () => {
     expect(screen.queryByTestId("split-draft-actions-task-1")).not.toBeInTheDocument();
   });
 
-  it("marks task-level assignee blockers inside the affected draft row", () => {
+  it("shows an explicit assignee dropdown without marking the draft card as an error", () => {
     render(<SplitDraftLedger tasks={[{ ...baseTask, assignee_type: null, assignee_id: null }]} />);
 
     const row = screen.getByTestId("split-draft-row-task-1");
+    const picker = screen.getByRole("button", { name: "Assignee for A very long child issue title that must stay readable in the review panel" });
 
-    expect(screen.getByTestId("split-draft-risk-task-1")).toHaveTextContent("Assign every active child issue before approval");
-    expect(row).toHaveClass("border-destructive/40", "bg-destructive/[0.04]");
+    expect(picker).toHaveTextContent("Unassigned");
+    expect(picker).toHaveClass("h-8", "justify-start", "border");
+    expect(screen.getByText("Unassigned")).toHaveClass("flex-1", "text-left");
+    expect(screen.queryByTestId("split-draft-risk-task-1")).not.toBeInTheDocument();
+    expect(row).not.toHaveClass("border-destructive/40", "bg-destructive/[0.04]");
   });
 
   it("keeps draft details collapsed until the user asks to view them", async () => {

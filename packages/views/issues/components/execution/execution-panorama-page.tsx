@@ -179,16 +179,16 @@ function splitTaskProgressLabel(
 ): string {
   switch (task.status) {
     case "running":
-      return t(($) => $.execution.card.child_workflow_running);
+      return t(($) => $.execution.card.child_running);
     case "done":
-      return t(($) => $.execution.card.child_workflow_completed);
+      return t(($) => $.execution.card.child_completed);
     case "cancelled":
     case "discarded":
-      return t(($) => $.execution.card.child_workflow_cancelled);
+      return t(($) => $.execution.card.child_cancelled);
     case "failed":
-      return task.last_error?.message || t(($) => $.execution.card.child_workflow_failed);
+      return task.last_error?.message || t(($) => $.execution.card.child_failed);
     case "skipped":
-      return t(($) => $.execution.card.child_workflow_skipped);
+      return t(($) => $.execution.card.child_skipped);
     case "created":
     case "approved": {
       const hasUnfinishedDependency = task.depends_on.some(
@@ -196,11 +196,11 @@ function splitTaskProgressLabel(
       );
       return hasUnfinishedDependency
         ? t(($) => $.execution.card.child_waiting_dependencies)
-        : t(($) => $.execution.card.child_waiting_workflow);
+        : t(($) => $.execution.card.child_waiting_start);
     }
     case "draft":
     default:
-      return t(($) => $.execution.card.child_waiting_workflow);
+      return t(($) => $.execution.card.child_waiting_start);
   }
 }
 

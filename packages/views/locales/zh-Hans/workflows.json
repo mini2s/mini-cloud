@@ -278,7 +278,7 @@
     "split_creating": "创建中...",
     "split_no_creatable_tasks": "还没有可创建的子 issue",
     "split_approve_dialog_title": "创建子 issue？",
-    "split_approve_dialog_description": "这会创建 {{count}} 个子 issue，并启动对应 workflow。",
+    "split_approve_dialog_description": "这会创建 {{count}} 个子 issue。",
     "split_approve_dialog_cancel": "取消",
     "split_cancel_dialog_title": "取消拆分？",
     "split_cancel_dialog_description": "这会停止未完成的子 task，并取消对应的子 issue。",
