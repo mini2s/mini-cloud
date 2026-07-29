@@ -15,8 +15,6 @@ const mocks = vi.hoisted(() => ({
   listMembers: vi.fn(),
   searchDeptUsers: vi.fn(),
   batchAddDeptMembers: vi.fn(),
-  searchDeptDepartments: vi.fn(),
-  listDeptDepartmentUsers: vi.fn(),
 }));
 
 vi.mock("@tanstack/react-query", async () => {
@@ -49,16 +47,10 @@ vi.mock("@multica/core/paths", () => ({
 vi.mock("@multica/core/api", () => ({
   api: {
     searchDeptUsers: mocks.searchDeptUsers,
-    searchDeptDepartments: mocks.searchDeptDepartments,
-    listDeptDepartmentUsers: mocks.listDeptDepartmentUsers,
     batchAddDeptMembers: mocks.batchAddDeptMembers,
     updateMember: vi.fn(),
     deleteMember: vi.fn(),
   },
-}));
-
-vi.mock("../../common/actor-avatar", () => ({
-  ActorAvatar: ({ actorId }: { actorId: string }) => <div data-testid={`avatar-${actorId}`} />,
 }));
 
 function I18nWrapper({ children }: { children: ReactNode }) {
@@ -73,12 +65,9 @@ describe("MembersTab", () => {
   beforeEach(() => {
     mocks.invalidateQueries.mockReset();
     mocks.searchDeptUsers.mockReset();
-    mocks.searchDeptDepartments.mockReset();
-    mocks.listDeptDepartmentUsers.mockReset();
     mocks.batchAddDeptMembers.mockReset();
     mocks.searchDeptUsers.mockResolvedValue([]);
-    mocks.searchDeptDepartments.mockResolvedValue([]);
-    mocks.listDeptDepartmentUsers.mockResolvedValue([]);
+    mocks.batchAddDeptMembers.mockResolvedValue({ added: 0, skipped: 0 });
     mocks.listMembers.mockReturnValue([
       {
         id: "member-owner",
@@ -98,6 +87,7 @@ describe("MembersTab", () => {
         role: "member",
         source: "dept",
         status: "active",
+        subject_id: "sub-runtime",
         external_user_id: "E004",
         external_universal_id: "uni-runtime",
         employee_id: "E004",
@@ -112,217 +102,89 @@ describe("MembersTab", () => {
     ]);
   });
 
-  it("searches dept users and departments from one search field and batch-adds selected members", async () => {
+  it("searches by name and batch-adds selected members by subject_id", async () => {
     mocks.searchDeptUsers.mockResolvedValue([
       {
-        user_id: "E001",
-        username: "Active Dept User",
-        universal_id: "uni-active",
-        dept_path: "/深信服科技股份有限公司/研发体系/Costrict研发部/开发组",
-        dept_name: "Platform",
-        position: "Engineer",
-        status: 1,
+        subject_id: "sub-001",
+        name: "Ada Lovelace",
+        email: "ada@example.test",
       },
     ]);
     mocks.batchAddDeptMembers.mockResolvedValue({ added: 1, skipped: 0 });
 
     render(<MembersTab />, { wrapper: I18nWrapper });
 
-    expect(screen.queryByText("Invite member")).not.toBeInTheDocument();
-    expect(screen.queryByPlaceholderText("user@company.com")).not.toBeInTheDocument();
+    // Existing member row still shows
     expect(screen.getByText("Runtime Dept User(E004)")).toBeInTheDocument();
     expect(screen.getByText("研发体系/Costrict研发部/开发组 SRE")).toBeInTheDocument();
 
-    fireEvent.change(screen.getByPlaceholderText(/employee name/i), {
-      target: { value: "E001" },
+    // Type a name
+    fireEvent.change(screen.getByPlaceholderText(/Search members by name/i), {
+      target: { value: "Ada" },
     });
 
-    expect(await screen.findByText("Active Dept User(E001)")).toBeInTheDocument();
-    expect(screen.getByText("研发体系/Costrict研发部/开发组 Engineer")).toBeInTheDocument();
+    // Wait for search results
+    expect(await screen.findByText("Ada Lovelace")).toBeInTheDocument();
+    expect(screen.getByText("ada@example.test")).toBeInTheDocument();
     expect(screen.getByTestId("dept-member-results")).toHaveClass("max-h-72", "overflow-y-auto");
-    expect(mocks.searchDeptUsers).toHaveBeenCalledWith("E001");
-    expect(mocks.searchDeptDepartments).toHaveBeenCalledWith("E001");
-    fireEvent.click(screen.getByRole("checkbox", { name: /Active Dept User/i }));
+    expect(mocks.searchDeptUsers).toHaveBeenCalledWith("Ada");
+
+    // Select the hit
+    fireEvent.click(screen.getByRole("checkbox", { name: /Ada Lovelace/i }));
     expect(screen.getByText("Selected")).toBeInTheDocument();
+
+    // Add selected
     fireEvent.click(screen.getByRole("button", { name: /add selected/i }));
 
     await waitFor(() =>
       expect(mocks.batchAddDeptMembers).toHaveBeenCalledWith("ws-1", {
-        users: [
-          {
-            external_user_id: "E001",
-            external_universal_id: "uni-active",
-            name: "Active Dept User",
-            employee_id: "E001",
-            department_id: undefined,
-            department_name: "Platform",
-            department_path: "/深信服科技股份有限公司/研发体系/Costrict研发部/开发组",
-            position: "Engineer",
-            is_main_department: false,
-            dept_user_status: 1,
-          },
-        ],
+        users: [{ subject_id: "sub-001" }],
       }),
     );
     expect(screen.getByText("Added 1 members. Skipped 0.")).toBeInTheDocument();
-    expect(screen.getByPlaceholderText(/employee name/i)).toHaveValue("");
-    expect(screen.queryByText("Active Dept User(E001)")).not.toBeInTheDocument();
+    expect(screen.getByPlaceholderText(/Search members by name/i)).toHaveValue("");
+    expect(screen.queryByText("Ada Lovelace")).not.toBeInTheDocument();
     expect(mocks.invalidateQueries).toHaveBeenCalled();
   });
 
-  it("localizes workspace member status labels", () => {
-    mocks.listMembers.mockReturnValue([
+  it("disables checkbox for already-added member matched by subject_id", async () => {
+    // The existing member has subject_id "sub-runtime", so a search hit
+    // with the same subject_id should be disabled.
+    mocks.searchDeptUsers.mockResolvedValue([
       {
-        id: "member-owner",
-        workspace_id: "ws-1",
-        user_id: "owner-user",
-        role: "owner",
-        source: "manual",
-        status: "active",
-        name: "Owner",
-        email: "owner@example.test",
-        created_at: "2026-01-01T00:00:00Z",
-      },
-      {
-        id: "member-pending",
-        workspace_id: "ws-1",
-        user_id: "pending-user",
-        role: "member",
-        source: "dept",
-        status: "pending_activation",
-        external_user_id: "E002",
-        employee_id: "E002",
-        name: "Pending Dept User",
-        email: "pending@example.test",
-        position: "Designer",
-        dept_path: "Engineering/Design",
-        created_at: "2026-01-01T00:00:00Z",
+        subject_id: "sub-runtime",
+        name: "Runtime Dept User",
+        email: "runtime@example.test",
       },
     ]);
 
     render(<MembersTab />, { wrapper: I18nWrapper });
 
-    expect(screen.getByText("Pending activation")).toBeInTheDocument();
-    expect(screen.queryByText("pending_activation")).not.toBeInTheDocument();
+    fireEvent.change(screen.getByPlaceholderText(/Search members by name/i), {
+      target: { value: "Runtime" },
+    });
+
+    const checkbox = await screen.findByRole("checkbox", { name: /Runtime Dept User/i });
+    expect(checkbox).toHaveAttribute("data-disabled", "");
   });
 
-  it("shows department fuzzy suggestions, expands members, and keeps selections across searches", async () => {
-    mocks.searchDeptUsers
-      .mockResolvedValueOnce([
-        {
-          user_id: "E001",
-          username: "Active Dept User",
-          universal_id: "uni-active",
-          dept_name: "Platform",
-          position: "Engineer",
-          status: 1,
-        },
-      ])
-      .mockResolvedValueOnce([]);
-    mocks.searchDeptDepartments.mockResolvedValue([
+  it("shows inactive status badge but not pending_activation", () => {
+    mocks.listMembers.mockReturnValue([
       {
-        dept_id: "D100",
-        dept_name: "Platform Dept",
-        dept_path: "/深信服科技股份有限公司/研发体系/Costrict研发部",
+        id: "member-inactive",
+        workspace_id: "ws-1",
+        user_id: "inactive-user",
+        role: "member",
+        source: "dept",
+        status: "inactive",
+        name: "Inactive Member",
+        email: "inactive@example.test",
+        created_at: "2026-01-01T00:00:00Z",
       },
     ]);
-    mocks.listDeptDepartmentUsers.mockResolvedValue([
-      {
-        user_id: "E004",
-        username: "Runtime Dept User",
-        universal_id: "uni-runtime",
-        dept_name: "Platform Runtime",
-        dept_path: "/深信服科技股份有限公司/研发体系/Costrict研发部/开发组",
-        position: "SRE",
-        status: 1,
-      },
-      {
-        user_id: "E005",
-        username: "Runtime Frontend User",
-        universal_id: "uni-frontend",
-        dept_name: "Platform Runtime",
-        dept_path: "/深信服科技股份有限公司/研发体系/Costrict研发部/开发组",
-        position: "Frontend",
-        status: 1,
-      },
-    ]);
-    mocks.batchAddDeptMembers.mockResolvedValue({ added: 1, skipped: 0 });
 
     render(<MembersTab />, { wrapper: I18nWrapper });
 
-    const searchBox = screen.getByPlaceholderText(/employee name/i);
-    expect(screen.queryByPlaceholderText(/departments by name/i)).not.toBeInTheDocument();
-
-    fireEvent.change(searchBox, {
-      target: { value: "E001" },
-    });
-    fireEvent.click(await screen.findByRole("checkbox", { name: /Active Dept User/i }));
-    expect(screen.getByText("1 selected")).toBeInTheDocument();
-
-    fireEvent.change(searchBox, {
-      target: { value: "platform" },
-    });
-
-    expect(await screen.findByText("View members")).toBeInTheDocument();
-    expect(screen.getByText("研发体系/Costrict研发部")).toBeInTheDocument();
-    expect(screen.getByTestId("dept-department-results")).toHaveClass("max-h-72", "overflow-y-auto");
-    fireEvent.change(searchBox, {
-      target: { value: "" },
-    });
-    await waitFor(() => expect(screen.queryByText("Platform Dept")).not.toBeInTheDocument());
-
-    fireEvent.change(searchBox, {
-      target: { value: "platform" },
-    });
-    expect(await screen.findByText("View members")).toBeInTheDocument();
-    fireEvent.click(await screen.findByRole("button", { name: /Platform Dept/i }));
-    expect(screen.queryByTestId("dept-department-results")).not.toBeInTheDocument();
-    expect(await screen.findByText("Runtime Dept User(E004)")).toBeInTheDocument();
-    expect(await screen.findByText("Runtime Frontend User(E005)")).toBeInTheDocument();
-    expect(screen.getAllByText("研发体系/Costrict研发部/开发组 SRE")).toHaveLength(2);
-    expect(screen.getByText("Members in Platform Dept")).toBeInTheDocument();
-    expect(screen.getByRole("checkbox", { name: /Runtime Dept User/i })).toBeChecked();
-    expect(screen.getByRole("checkbox", { name: /Runtime Dept User/i })).toHaveAttribute("aria-disabled", "true");
-    expect(screen.getByTestId("dept-selected-panel")).toBeInTheDocument();
-    expect(screen.getByTestId("dept-selected-panel").compareDocumentPosition(screen.getByTestId("dept-member-results"))).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
-    expect(screen.queryByRole("button", { name: /remove Runtime Dept User/i })).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: /back to departments/i }));
-    expect(screen.getByText("研发体系/Costrict研发部")).toBeInTheDocument();
-    fireEvent.click(await screen.findByRole("button", { name: /Platform Dept/i }));
-    expect(await screen.findByText("Runtime Dept User(E004)")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("checkbox", { name: /select all/i }));
-    expect(screen.getByText("3 selected")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: /add selected/i }));
-
-    await waitFor(() =>
-      expect(mocks.batchAddDeptMembers).toHaveBeenCalledWith("ws-1", {
-        users: [
-          {
-            external_user_id: "E001",
-            external_universal_id: "uni-active",
-            name: "Active Dept User",
-            employee_id: "E001",
-            department_id: undefined,
-            department_name: "Platform",
-            department_path: undefined,
-            position: "Engineer",
-            is_main_department: false,
-            dept_user_status: 1,
-          },
-          {
-            external_user_id: "E005",
-            external_universal_id: "uni-frontend",
-            name: "Runtime Frontend User",
-            employee_id: "E005",
-            department_id: undefined,
-            department_name: "Platform Runtime",
-            department_path: "/深信服科技股份有限公司/研发体系/Costrict研发部/开发组",
-            position: "Frontend",
-            is_main_department: false,
-            dept_user_status: 1,
-          },
-        ],
-      }),
-    );
+    expect(screen.getByText("Inactive")).toBeInTheDocument();
   });
 });

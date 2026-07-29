@@ -10,8 +10,7 @@ import type {
   CreateMemberRequest,
   UpdateMemberRequest,
   CreateWorkspaceRequest,
-  DeptDepartment,
-  DeptUser,
+  CsUserSearchHit,
   BatchAddDeptMembersRequest,
   BatchAddDeptMembersResponse,
   ListIssuesParams,
@@ -181,8 +180,6 @@ import {
   EMPTY_BATCH_ADD_DEPT_MEMBERS_RESPONSE,
   EMPTY_CLOUD_RUNTIME_NODE,
   EMPTY_CLOUD_RUNTIME_NODE_LIST,
-  EMPTY_DEPT_DEPARTMENT_LIST,
-  EMPTY_DEPT_USER_LIST,
   EMPTY_CREATE_AGENT_FROM_TEMPLATE_RESPONSE,
   EMPTY_GROUPED_ISSUES_RESPONSE,
   EMPTY_LIST_ISSUES_RESPONSE,
@@ -193,8 +190,7 @@ import {
   EMPTY_WEBHOOK_DELIVERY,
   EMPTY_WORKFLOW_STAGES_RESPONSE,
   GroupedIssuesResponseSchema,
-  DeptDepartmentListSchema,
-  DeptUserListSchema,
+  CsUserSearchHitListSchema,
   ListIssuesResponseSchema,
   ListWebhookDeliveriesResponseSchema,
   RuntimeHourlyActivityListSchema,
@@ -1523,24 +1519,10 @@ export class ApiClient {
     });
   }
 
-  async searchDeptDepartments(query: string): Promise<DeptDepartment[]> {
-    const raw = await this.fetch<unknown>(`/api/dept/departments/search?q=${encodeURIComponent(query)}`);
-    return parseWithFallback(raw, DeptDepartmentListSchema, EMPTY_DEPT_DEPARTMENT_LIST, {
-      endpoint: "GET /api/dept/departments/search",
-    });
-  }
-
-  async searchDeptUsers(query: string): Promise<DeptUser[]> {
+  async searchDeptUsers(query: string): Promise<CsUserSearchHit[]> {
     const raw = await this.fetch<unknown>(`/api/dept/users/search?q=${encodeURIComponent(query)}`);
-    return parseWithFallback(raw, DeptUserListSchema, EMPTY_DEPT_USER_LIST, {
+    return parseWithFallback(raw, CsUserSearchHitListSchema, [], {
       endpoint: "GET /api/dept/users/search",
-    });
-  }
-
-  async listDeptDepartmentUsers(deptId: string): Promise<DeptUser[]> {
-    const raw = await this.fetch<unknown>(`/api/dept/departments/${encodeURIComponent(deptId)}/users`);
-    return parseWithFallback(raw, DeptUserListSchema, EMPTY_DEPT_USER_LIST, {
-      endpoint: "GET /api/dept/departments/{id}/users",
     });
   }
 
