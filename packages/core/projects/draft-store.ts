@@ -48,6 +48,23 @@ export const useProjectDraftStore = create<ProjectDraftStore>()(
     }),
     {
       name: "multica_project_draft",
+      version: 1,
+      // Backfill fields added after this store first shipped. commit c76717e6d
+      // added `repos` to ProjectDraft; drafts persisted before then rehydrate
+      // without it (draft.repos === undefined), which crashed the create-project
+      // modal on selectedRepos.length. migrate merges the legacy draft over
+      // EMPTY_DRAFT and forces repos to an array.
+      migrate: (persistedState) => {
+        const s = (persistedState as { draft?: Partial<ProjectDraft> }) ?? {};
+        return {
+          ...s,
+          draft: {
+            ...EMPTY_DRAFT,
+            ...(s.draft ?? {}),
+            repos: Array.isArray(s.draft?.repos) ? s.draft!.repos : [],
+          },
+        };
+      },
       storage: createJSONStorage(() => createWorkspaceAwareStorage(defaultStorage)),
     },
   ),
