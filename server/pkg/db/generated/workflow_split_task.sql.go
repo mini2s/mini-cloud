@@ -323,6 +323,54 @@ func (q *Queries) ListSplitTasksByNodeRun(ctx context.Context, nodeRunID pgtype.
 	return items, nil
 }
 
+const listSplitTasksByNodeRunForUpdate = `-- name: ListSplitTasksByNodeRunForUpdate :many
+SELECT id, node_run_id, workspace_id, title, description, depends_on, sort_order, status, issue_id, run_id, created_at, updated_at, draft_key, draft_source, workflow_id, version, dispatch_key, last_error, assignee_type, assignee_id FROM multica_workflow_split_task
+WHERE node_run_id = $1
+ORDER BY sort_order ASC, created_at ASC
+FOR UPDATE
+`
+
+func (q *Queries) ListSplitTasksByNodeRunForUpdate(ctx context.Context, nodeRunID pgtype.UUID) ([]MulticaWorkflowSplitTask, error) {
+	rows, err := q.db.Query(ctx, listSplitTasksByNodeRunForUpdate, nodeRunID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []MulticaWorkflowSplitTask{}
+	for rows.Next() {
+		var i MulticaWorkflowSplitTask
+		if err := rows.Scan(
+			&i.ID,
+			&i.NodeRunID,
+			&i.WorkspaceID,
+			&i.Title,
+			&i.Description,
+			&i.DependsOn,
+			&i.SortOrder,
+			&i.Status,
+			&i.IssueID,
+			&i.RunID,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.DraftKey,
+			&i.DraftSource,
+			&i.WorkflowID,
+			&i.Version,
+			&i.DispatchKey,
+			&i.LastError,
+			&i.AssigneeType,
+			&i.AssigneeID,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listSplitTasksByRunID = `-- name: ListSplitTasksByRunID :many
 SELECT st.id, st.node_run_id, st.workspace_id, st.title, st.description, st.depends_on, st.sort_order, st.status, st.issue_id, st.run_id, st.created_at, st.updated_at, st.draft_key, st.draft_source, st.workflow_id, st.version, st.dispatch_key, st.last_error, st.assignee_type, st.assignee_id
 FROM multica_workflow_split_task st

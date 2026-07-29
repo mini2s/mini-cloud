@@ -39,6 +39,10 @@ vi.mock("../../../i18n", () => ({
         split_draft_title_label: "Draft title",
         split_draft_description_label: "Draft description",
         split_draft_recovered: "Recovered",
+        split_draft_select_all: "Select all drafts",
+        split_draft_select_task: "Select {{title}}",
+        split_draft_selected_count: "Selected {{selected}}/{{total}}",
+        split_draft_batch_assignee: "Set assignee for selected drafts",
       };
       const template = selector({ detail_panel: detailPanel });
       if (values) {
@@ -161,6 +165,82 @@ describe("SplitDraftLedger", () => {
       expect.objectContaining({ id: "task-2" }),
       { assignee_type: "member", assignee_id: "member-1" },
     );
+  });
+
+  it("selects active drafts with an indeterminate select-all state and excludes discarded drafts", async () => {
+    const user = userEvent.setup();
+    const onSelectedTaskIdsChange = vi.fn();
+    const tasks = [
+      baseTask,
+      { ...baseTask, id: "task-2", title: "Unassigned task", assignee_type: null, assignee_id: null, sort_order: 1 },
+      { ...baseTask, id: "task-3", title: "Discarded task", status: "discarded" as const, sort_order: 2 },
+    ];
+
+    render(
+      <SplitDraftLedger
+        tasks={tasks}
+        selectedTaskIds={["task-2"]}
+        onSelectedTaskIdsChange={onSelectedTaskIdsChange}
+        onBatchAssigneeChange={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText("Selected 1/2")).toBeInTheDocument();
+    expect(screen.getByRole("checkbox", { name: "Select all drafts" })).toHaveAttribute("aria-checked", "mixed");
+    expect(screen.getByRole("checkbox", { name: `Select ${baseTask.title}` })).not.toBeChecked();
+    expect(screen.getByRole("checkbox", { name: "Select Unassigned task" })).toBeChecked();
+    expect(screen.queryByRole("checkbox", { name: "Select Discarded task" })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("checkbox", { name: `Select ${baseTask.title}` }));
+    expect(onSelectedTaskIdsChange).toHaveBeenCalledWith(["task-2", "task-1"]);
+  });
+
+  it("applies one assignee command to the current selection", async () => {
+    const user = userEvent.setup();
+    const onBatchAssigneeChange = vi.fn();
+    render(
+      <SplitDraftLedger
+        tasks={[baseTask]}
+        selectedTaskIds={["task-1"]}
+        onSelectedTaskIdsChange={vi.fn()}
+        onBatchAssigneeChange={onBatchAssigneeChange}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Set assignee for selected drafts" }));
+
+    expect(onBatchAssigneeChange).toHaveBeenCalledWith({
+      assignee_type: "member",
+      assignee_id: "member-1",
+    });
+  });
+
+  it("disables batch controls with no selection and while an update is pending", () => {
+    const { rerender } = render(
+      <SplitDraftLedger
+        tasks={[baseTask]}
+        selectedTaskIds={[]}
+        onSelectedTaskIdsChange={vi.fn()}
+        onBatchAssigneeChange={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByRole("button", { name: "Set assignee for selected drafts" })).toBeDisabled();
+    expect(screen.getByRole("checkbox", { name: "Select all drafts" })).toBeEnabled();
+
+    rerender(
+      <SplitDraftLedger
+        tasks={[baseTask]}
+        selectedTaskIds={["task-1"]}
+        onSelectedTaskIdsChange={vi.fn()}
+        onBatchAssigneeChange={vi.fn()}
+        batchAssigneePending
+      />,
+    );
+
+    expect(screen.getByRole("button", { name: "Set assignee for selected drafts" })).toBeDisabled();
+    expect(screen.getByRole("checkbox", { name: "Select all drafts" })).toHaveAttribute("aria-disabled", "true");
+    expect(screen.getByRole("checkbox", { name: `Select ${baseTask.title}` })).toHaveAttribute("aria-disabled", "true");
   });
 
   it("separates review draft metadata from draft row actions", () => {

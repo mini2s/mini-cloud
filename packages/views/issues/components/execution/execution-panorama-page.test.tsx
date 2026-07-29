@@ -414,14 +414,25 @@ vi.mock("../../../workflows/components/split/split-review-panel", () => ({
     nodeRun,
     parentIssueId,
     onClose,
+    selectedDraftTaskIds,
+    onSelectedDraftTaskIdsChange,
   }: {
     nodeRun: { status: string } | null;
     parentIssueId?: string;
     onClose: () => void;
+    selectedDraftTaskIds?: string[];
+    onSelectedDraftTaskIdsChange?: (taskIds: string[]) => void;
   }) => (
     <div data-testid="execution-split-review-panel">
       <span data-testid="split-panel-status">{nodeRun?.status ?? "no-run"}</span>
       <span data-testid="split-panel-parent-issue-id">{parentIssueId ?? "no-parent-issue"}</span>
+      <span data-testid="split-panel-selection">{selectedDraftTaskIds?.join(",") ?? "uninitialized"}</span>
+      <button type="button" onClick={() => onSelectedDraftTaskIdsChange?.(["draft-2"])}>
+        Select draft 2
+      </button>
+      <button type="button" onClick={() => onSelectedDraftTaskIdsChange?.([])}>
+        Clear draft selection
+      </button>
       <button onClick={onClose}>Close split panel</button>
     </div>
   ),
@@ -1602,6 +1613,65 @@ describe("ExecutionPanoramaPage", () => {
     expect(screen.getByTestId("split-panel-status")).toHaveTextContent("awaiting_split_review");
     expect(screen.getByTestId("split-panel-parent-issue-id")).toHaveTextContent("issue-1");
     expect(screen.queryByTestId("execution-detail-panel")).not.toBeInTheDocument();
+  });
+
+  it("restores split draft selection after closing and reopening the panel", () => {
+    mocks.isLoading = false;
+    mocks.workflowData = { id: "wf-1", title: "Test Workflow" };
+    mocks.stagesData = [STAGE];
+    mocks.nodesData = [{
+      ...NODE,
+      format_schema: {
+        type: "split",
+        split_config: { default_issue_workflow_id: "child-wf-1", mode: "barrier", max_concurrency: 3, max_failures: 0 },
+      },
+    }];
+    mocks.nodeRunsData = [{
+      id: "nr-1",
+      workflow_run_id: "run-1",
+      workflow_node_id: "n1",
+      node_title: "brainstorming",
+      status: "awaiting_split_review",
+      retry_count: 0,
+      worker_type: "agent",
+      worker_id: "agent-1",
+      worker_output: null,
+      worker_agent_task_id: null,
+      critic_type: "human",
+      critic_id: null,
+      critic_output: null,
+      critic_comment: "",
+      critic_agent_task_id: null,
+      agent_task_id: null,
+      session_id: null,
+      runtime_id: null,
+      device_id: null,
+      started_at: null,
+      completed_at: null,
+      created_at: "",
+      updated_at: "",
+    }];
+    mocks.canvasSummaryData = { node_runs: mocks.nodeRunsData, node_runtime_summaries: [] };
+    mocks.agentsData = [AGENT];
+
+    render(
+      <Wrapper>
+        <ExecutionPanoramaPage workflowId="wf-1" runId="run-1" wsId="ws-1" issueId="issue-1" />
+      </Wrapper>,
+    );
+
+    fireEvent.click(screen.getByTestId("notification-item-test"));
+    expect(screen.getByTestId("split-panel-selection")).toHaveTextContent("uninitialized");
+    fireEvent.click(screen.getByRole("button", { name: "Select draft 2" }));
+    fireEvent.click(screen.getByRole("button", { name: "Close split panel" }));
+    fireEvent.click(screen.getByTestId("notification-item-test"));
+
+    expect(screen.getByTestId("split-panel-selection")).toHaveTextContent("draft-2");
+    fireEvent.click(screen.getByRole("button", { name: "Clear draft selection" }));
+    fireEvent.click(screen.getByRole("button", { name: "Close split panel" }));
+    fireEvent.click(screen.getByTestId("notification-item-test"));
+
+    expect(screen.getByTestId("split-panel-selection")).toBeEmptyDOMElement();
   });
 
   it("expands split child issues into a subflow container from the runtime split expansion button", async () => {

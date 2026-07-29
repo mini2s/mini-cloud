@@ -521,6 +521,7 @@ export interface SplitChatResponse extends SplitTasksResponse {
 
 export interface ApproveSplitRequest {
   approved_task_ids: string[];
+  expected_versions?: Record<string, number>;
   confirm_empty?: boolean;
 }
 
@@ -557,6 +558,15 @@ export interface PatchSplitTaskAssigneeRequest {
   assignee_type: SplitTaskAssigneeType;
   assignee_id: string;
   expected_version: number;
+}
+
+export interface BatchPatchSplitTaskAssigneesRequest {
+  assignee_type: SplitTaskAssigneeType;
+  assignee_id: string;
+  tasks: Array<{
+    task_id: string;
+    expected_version: number;
+  }>;
 }
 
 export interface WorkflowNodeRuntimeSummary {
