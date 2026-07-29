@@ -30,6 +30,12 @@ const i18nMock = vi.hoisted(() => {
     split_assigned_tasks_summary: "{{assigned}} of {{tasks}} child issues assigned - {{dependencies}} dependency chains",
     split_assignment_required: "Assign every active child issue before approval",
     split_assignment_conflict: "This draft changed. The latest tasks and assignees have been loaded.",
+    split_batch_assignment_success: "Updated {{count}} drafts",
+    split_batch_assignment_failed: "Could not update the selected drafts.",
+    split_draft_select_all: "Select all drafts",
+    split_draft_select_task: "Select {{title}}",
+    split_draft_selected_count: "Selected {{selected}}/{{total}}",
+    split_draft_batch_assignee: "Set assignee for selected drafts",
     split_reviewer_read_only: "Only the configured reviewer can edit or approve this plan.",
     split_assignee_for: "Assignee for {{title}}",
     split_unassigned: "Unassigned",
@@ -142,8 +148,10 @@ const mocks = vi.hoisted(() => ({
   cancelMutateAsync: vi.fn(),
   patchDraftMutateAsync: vi.fn(),
   patchAssigneeMutateAsync: vi.fn(),
+  batchPatchAssigneesMutateAsync: vi.fn(),
   refetchQueries: vi.fn(),
   toastError: vi.fn(),
+  toastSuccess: vi.fn(),
   currentUserId: "user-1" as string | null,
   pendingTaskData: {} as { task_id?: string; status?: string },
   workflowOptionsData: [
@@ -167,7 +175,7 @@ const mocks = vi.hoisted(() => ({
   splitTasksRefetch: vi.fn(),
 }));
 
-vi.mock("sonner", () => ({ toast: { error: mocks.toastError } }));
+vi.mock("sonner", () => ({ toast: { error: mocks.toastError, success: mocks.toastSuccess } }));
 
 vi.mock("@multica/core/auth", () => ({
   useAuthStore: (selector: (state: { user: { id: string } | null }) => unknown) =>
@@ -292,6 +300,10 @@ vi.mock("@multica/core/workflows/queries", () => ({
   }),
   usePatchSplitTaskAssignee: () => ({
     mutateAsync: mocks.patchAssigneeMutateAsync,
+    isPending: false,
+  }),
+  useBatchPatchSplitTaskAssignees: () => ({
+    mutateAsync: mocks.batchPatchAssigneesMutateAsync,
     isPending: false,
   }),
   useSubmitSplitReviewChat: () => ({
@@ -429,15 +441,22 @@ function draftTask(id: string, title: string, overrides: Partial<SplitTask> = {}
   };
 }
 
-function renderPanel({
-  nodeRun = splitNodeRun,
-  parentIssueId,
-	plannerName,
-}: {
+function renderPanel(options: {
   nodeRun?: WorkflowNodeRun;
   parentIssueId?: string;
 	plannerName?: string;
+  selectedDraftTaskIds?: string[];
+  onSelectedDraftTaskIdsChange?: (taskIds: string[]) => void;
 } = {}) {
+  const {
+    nodeRun = splitNodeRun,
+    parentIssueId,
+    plannerName,
+    onSelectedDraftTaskIdsChange = vi.fn(),
+  } = options;
+  const selectedDraftTaskIds = Object.prototype.hasOwnProperty.call(options, "selectedDraftTaskIds")
+    ? options.selectedDraftTaskIds
+    : [];
   return render(
     <SplitReviewPanel
       node={splitNode}
@@ -447,6 +466,8 @@ function renderPanel({
       runId="run-1"
       parentIssueId={parentIssueId}
 		plannerName={plannerName}
+      selectedDraftTaskIds={selectedDraftTaskIds}
+      onSelectedDraftTaskIdsChange={onSelectedDraftTaskIdsChange}
       onClose={vi.fn()}
     />,
   );
@@ -486,9 +507,11 @@ describe("SplitReviewPanel", () => {
     mocks.submitChatMutateAsync.mockReset();
     mocks.cancelMutateAsync.mockReset();
     mocks.patchAssigneeMutateAsync.mockReset();
+    mocks.batchPatchAssigneesMutateAsync.mockReset();
     mocks.patchDraftMutateAsync.mockReset();
     mocks.refetchQueries.mockReset();
     mocks.toastError.mockReset();
+    mocks.toastSuccess.mockReset();
     mocks.pendingTaskData = {};
     mocks.lastSplitTasksQuery = null;
     mocks.splitTasksRefetch.mockReset();
@@ -569,7 +592,7 @@ describe("SplitReviewPanel", () => {
     expect(screen.getByRole("button", { name: "Restore draft" })).toBeInTheDocument();
     expect(screen.queryByRole("textbox", { name: "Draft title" })).not.toBeInTheDocument();
     expect(screen.queryByRole("textbox", { name: "Draft description" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
+    expect(screen.getByRole("checkbox", { name: "Select all drafts" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Delete task/i })).not.toBeInTheDocument();
     expect(screen.queryByTestId("split-task-dag")).not.toBeInTheDocument();
     expect(approveButton.closest(".sticky")).toBeNull();
@@ -625,6 +648,88 @@ describe("SplitReviewPanel", () => {
         expected_version: 7,
       },
     });
+  });
+
+  it("initially selects only unassigned active drafts", async () => {
+    const onSelectedDraftTaskIdsChange = vi.fn();
+    mocks.splitTasksData = {
+      tasks: [
+        draftTask("task-1", "Assigned task"),
+        draftTask("task-2", "Unassigned task", { assignee_type: null, assignee_id: null, sort_order: 1 }),
+        draftTask("task-3", "Discarded task", { status: "discarded", sort_order: 2 }),
+      ],
+      progress: { total: 2, created: 0, running: 0, done: 0, failed: 0, cancelled: 0, skipped: 0 },
+    };
+
+    renderPanel({ selectedDraftTaskIds: undefined, onSelectedDraftTaskIdsChange });
+
+    await waitFor(() => expect(onSelectedDraftTaskIdsChange).toHaveBeenCalledWith(["task-2"]));
+  });
+
+  it("prunes invalid selected drafts without selecting newly loaded drafts", async () => {
+    const onSelectedDraftTaskIdsChange = vi.fn();
+    mocks.splitTasksData = {
+      tasks: [
+        draftTask("task-1", "Still selected"),
+        draftTask("task-2", "New unassigned task", { assignee_type: null, assignee_id: null, sort_order: 1 }),
+      ],
+      progress: { total: 2, created: 0, running: 0, done: 0, failed: 0, cancelled: 0, skipped: 0 },
+    };
+
+    renderPanel({ selectedDraftTaskIds: ["task-1", "removed-task"], onSelectedDraftTaskIdsChange });
+
+    await waitFor(() => expect(onSelectedDraftTaskIdsChange).toHaveBeenCalledWith(["task-1"]));
+    expect(onSelectedDraftTaskIdsChange).not.toHaveBeenCalledWith(["task-1", "task-2"]);
+  });
+
+  it("batch assigns the controlled selection with current versions and clears it on success", async () => {
+    const onSelectedDraftTaskIdsChange = vi.fn();
+    mocks.splitTasksData = {
+      tasks: [
+        draftTask("task-1", "API task", { version: 7 }),
+        draftTask("task-2", "UI task", { version: 9, sort_order: 1 }),
+      ],
+      progress: { total: 2, created: 0, running: 0, done: 0, failed: 0, cancelled: 0, skipped: 0 },
+    };
+    mocks.batchPatchAssigneesMutateAsync.mockResolvedValue(mocks.splitTasksData);
+
+    renderPanel({ selectedDraftTaskIds: ["task-1", "task-2"], onSelectedDraftTaskIdsChange });
+    await userEvent.click(screen.getByRole("button", { name: "Set assignee for selected drafts" }));
+
+    expect(mocks.batchPatchAssigneesMutateAsync).toHaveBeenCalledWith({
+      nodeRunId: "node-run-1",
+      workflowId: "wf-1",
+      runId: "run-1",
+      request: {
+        assignee_type: "member",
+        assignee_id: "member-2",
+        tasks: [
+          { task_id: "task-1", expected_version: 7 },
+          { task_id: "task-2", expected_version: 9 },
+        ],
+      },
+    });
+    expect(onSelectedDraftTaskIdsChange).toHaveBeenCalledWith([]);
+    expect(mocks.toastSuccess).toHaveBeenCalledWith("Updated 2 drafts");
+  });
+
+  it("retains batch selection and refreshes conflict-sensitive data after a version conflict", async () => {
+    const onSelectedDraftTaskIdsChange = vi.fn();
+    mocks.splitTasksData = {
+      tasks: [draftTask("task-1", "Conflicting batch task", { version: 4 })],
+      progress: { total: 1, created: 0, running: 0, done: 0, failed: 0, cancelled: 0, skipped: 0 },
+    };
+    mocks.batchPatchAssigneesMutateAsync.mockRejectedValueOnce(new ApiError("conflict", 409, "Conflict"));
+    mocks.splitTasksRefetch.mockResolvedValue(undefined);
+    mocks.refetchQueries.mockResolvedValue(undefined);
+
+    renderPanel({ selectedDraftTaskIds: ["task-1"], onSelectedDraftTaskIdsChange });
+    await userEvent.click(screen.getByRole("button", { name: "Set assignee for selected drafts" }));
+
+    await waitFor(() => expect(mocks.splitTasksRefetch).toHaveBeenCalledTimes(1));
+    expect(mocks.refetchQueries).toHaveBeenCalledTimes(4);
+    expect(onSelectedDraftTaskIdsChange).not.toHaveBeenCalledWith([]);
+    expect(mocks.toastError).toHaveBeenCalledWith("This draft changed. The latest tasks and assignees have been loaded.");
   });
 
   it.each([409, 422])("reloads tasks and all assignee options after an assignment %s response", async (status) => {
@@ -744,6 +849,7 @@ describe("SplitReviewPanel", () => {
       runId: "run-1",
       request: {
         approved_task_ids: ["task-1"],
+        expected_versions: { "task-1": 1 },
       },
     });
   });
@@ -1096,6 +1202,7 @@ describe("SplitReviewPanel", () => {
       runId: "run-1",
       request: {
         approved_task_ids: ["task-1", "task-2", "task-3"],
+        expected_versions: { "task-1": 1, "task-2": 1, "task-3": 1 },
       },
     });
   }, 15_000);
@@ -1175,6 +1282,7 @@ describe("SplitReviewPanel", () => {
       runId: "run-1",
       request: {
         approved_task_ids: ["task-1"],
+        expected_versions: { "task-1": 1 },
       },
     });
 

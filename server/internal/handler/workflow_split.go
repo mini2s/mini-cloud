@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 
@@ -93,6 +94,15 @@ type PatchSplitTaskAssigneeRequest struct {
 	AssigneeType    string `json:"assignee_type"`
 	AssigneeID      string `json:"assignee_id"`
 	ExpectedVersion int64  `json:"expected_version"`
+}
+
+type BatchPatchSplitTaskAssigneesRequest struct {
+	AssigneeType string `json:"assignee_type"`
+	AssigneeID   string `json:"assignee_id"`
+	Tasks        []struct {
+		TaskID          string `json:"task_id"`
+		ExpectedVersion int64  `json:"expected_version"`
+	} `json:"tasks"`
 }
 
 func splitProgressResponse(tasks []db.MulticaWorkflowSplitTask) SplitProgressResponse {
@@ -441,8 +451,12 @@ func (h *Handler) requireSplitReviewer(w http.ResponseWriter, r *http.Request, n
 }
 
 func (h *Handler) PatchSplitTaskAssignee(w http.ResponseWriter, r *http.Request) {
-	nodeRun, _, workspaceID, ok := h.loadNodeRunForWorkspace(w, r)
+	nodeRun, _, _, ok := h.loadNodeRunForWorkspace(w, r)
 	if !ok {
+		return
+	}
+	if h.SplitOrchestrator == nil {
+		writeError(w, http.StatusInternalServerError, "split orchestrator is not configured")
 		return
 	}
 	if nodeRun.Status != service.NodeRunStatusAwaitingSplitReview {
@@ -462,7 +476,7 @@ func (h *Handler) PatchSplitTaskAssignee(w http.ResponseWriter, r *http.Request)
 		writeError(w, http.StatusInternalServerError, "failed to load split task")
 		return
 	}
-	actorUserID, ok := h.requireSplitReviewer(w, r, nodeRun)
+	userID, ok := requireUserID(w, r)
 	if !ok {
 		return
 	}
@@ -481,28 +495,75 @@ func (h *Handler) PatchSplitTaskAssignee(w http.ResponseWriter, r *http.Request)
 	if !ok {
 		return
 	}
-	assigneeType := pgtype.Text{String: strings.TrimSpace(req.AssigneeType), Valid: true}
-	err = h.IssueAssignmentService.ValidateAssignee(r.Context(), h.Queries, parseUUID(workspaceID),
-		service.AssignmentActor{Type: "member", ID: actorUserID},
-		service.AssigneeRef{Type: assigneeType.String, ID: assigneeID},
-	)
-	if err != nil {
-		if !errors.Is(err, service.ErrInvalidAssignee) && !errors.Is(err, service.ErrForbiddenAssignee) {
-			writeError(w, http.StatusInternalServerError, "failed to validate split task assignee")
-			return
-		}
-		writeSplitAPIError(w, service.NewSplitAPIError(service.SplitErrorUnprocessable, "invalid_split_task_assignee", err))
+	if err := h.SplitOrchestrator.UpdateSplitDraftAssignees(r.Context(), nodeRun, parseUUID(userID), service.SplitDraftBatchAssigneeRequest{
+		AssigneeType: req.AssigneeType,
+		AssigneeID:   assigneeID,
+		Tasks: []service.SplitDraftAssigneeUpdate{{
+			TaskID:          taskID,
+			ExpectedVersion: req.ExpectedVersion,
+		}},
+	}); err != nil {
+		writeSplitAPIError(w, err)
 		return
 	}
-	if _, err := h.Queries.SetSplitTaskAssignee(r.Context(), db.SetSplitTaskAssigneeParams{
-		ID: taskID, NodeRunID: nodeRun.ID, Version: req.ExpectedVersion,
-		AssigneeType: assigneeType, AssigneeID: assigneeID,
-	}); err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			writeSplitAPIError(w, service.NewSplitAPIError(service.SplitErrorConflict, "draft_task_conflict", errors.New("split draft task version conflict")))
+	tasks, err := h.Queries.ListSplitTasksByNodeRun(r.Context(), nodeRun.ID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to list split tasks")
+		return
+	}
+	writeJSON(w, http.StatusOK, splitTasksResponse(tasks))
+}
+
+func (h *Handler) BatchPatchSplitTaskAssignees(w http.ResponseWriter, r *http.Request) {
+	nodeRun, _, _, ok := h.loadNodeRunForWorkspace(w, r)
+	if !ok {
+		return
+	}
+	if h.SplitOrchestrator == nil {
+		writeError(w, http.StatusInternalServerError, "split orchestrator is not configured")
+		return
+	}
+	userID, ok := requireUserID(w, r)
+	if !ok {
+		return
+	}
+	var req BatchPatchSplitTaskAssigneesRequest
+	decoder := json.NewDecoder(r.Body)
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&req); err != nil || len(req.Tasks) == 0 {
+		writeSplitAPIError(w, service.NewSplitAPIError(service.SplitErrorBadRequest, "invalid_split_request", errors.New("invalid split task assignee payload")))
+		return
+	}
+	if err := decoder.Decode(&struct{}{}); err != io.EOF {
+		writeSplitAPIError(w, service.NewSplitAPIError(service.SplitErrorBadRequest, "invalid_split_request", errors.New("invalid split task assignee payload")))
+		return
+	}
+	if strings.TrimSpace(req.AssigneeType) == "" || strings.TrimSpace(req.AssigneeID) == "" {
+		writeSplitAPIError(w, service.NewSplitAPIError(service.SplitErrorUnprocessable, "invalid_split_task_assignee", errors.New("assignee_type and assignee_id must be provided together")))
+		return
+	}
+	assigneeID, ok := parseUUIDOrBadRequest(w, req.AssigneeID, "assignee_id")
+	if !ok {
+		return
+	}
+	updates := make([]service.SplitDraftAssigneeUpdate, 0, len(req.Tasks))
+	for _, item := range req.Tasks {
+		taskID, ok := parseUUIDOrBadRequest(w, item.TaskID, "task_id")
+		if !ok {
 			return
 		}
-		writeError(w, http.StatusInternalServerError, "failed to update split task assignee")
+		if item.ExpectedVersion < 1 {
+			writeSplitAPIError(w, service.NewSplitAPIError(service.SplitErrorBadRequest, "invalid_split_request", errors.New("expected_version is required")))
+			return
+		}
+		updates = append(updates, service.SplitDraftAssigneeUpdate{TaskID: taskID, ExpectedVersion: item.ExpectedVersion})
+	}
+	if err := h.SplitOrchestrator.UpdateSplitDraftAssignees(r.Context(), nodeRun, parseUUID(userID), service.SplitDraftBatchAssigneeRequest{
+		AssigneeType: req.AssigneeType,
+		AssigneeID:   assigneeID,
+		Tasks:        updates,
+	}); err != nil {
+		writeSplitAPIError(w, err)
 		return
 	}
 	tasks, err := h.Queries.ListSplitTasksByNodeRun(r.Context(), nodeRun.ID)

@@ -38,6 +38,12 @@ SELECT * FROM multica_workflow_split_task
 WHERE node_run_id = $1
 ORDER BY sort_order ASC, created_at ASC;
 
+-- name: ListSplitTasksByNodeRunForUpdate :many
+SELECT * FROM multica_workflow_split_task
+WHERE node_run_id = $1
+ORDER BY sort_order ASC, created_at ASC
+FOR UPDATE;
+
 -- name: ListSplitTasksByRunID :many
 SELECT st.*
 FROM multica_workflow_split_task st

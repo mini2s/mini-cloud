@@ -120,6 +120,7 @@ import type {
   WorkflowStage,
   ApproveSplitRequest,
   BatchPatchSplitDraftTasksRequest,
+  BatchPatchSplitTaskAssigneesRequest,
   CreateSplitDraftTaskRequest,
   PatchSplitConfigRequest,
   PatchSplitDraftTaskRequest,
@@ -2514,6 +2515,19 @@ export class ApiClient {
     });
     return parseWithFallback(raw, SplitTasksResponseSchema, EMPTY_SPLIT_TASKS_RESPONSE, {
       endpoint: "PATCH /api/node-runs/:id/split/draft-tasks/:taskId/assignee",
+    });
+  }
+
+  async batchPatchSplitTaskAssignees(
+    nodeRunId: string,
+    req: BatchPatchSplitTaskAssigneesRequest,
+  ): Promise<SplitTasksResponse> {
+    const raw = await this.fetch<unknown>(`/api/node-runs/${nodeRunId}/split/draft-tasks/assignees`, {
+      method: "PATCH",
+      body: JSON.stringify(req),
+    });
+    return parseWithFallback(raw, SplitTasksResponseSchema, EMPTY_SPLIT_TASKS_RESPONSE, {
+      endpoint: "PATCH /api/node-runs/:id/split/draft-tasks/assignees",
     });
   }
 

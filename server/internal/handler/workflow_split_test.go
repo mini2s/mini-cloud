@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
@@ -367,6 +368,292 @@ func TestPatchSplitTaskAssigneeEnforcesReviewerAndVersion(t *testing.T) {
 				t.Fatalf("status = %d, want %d: %s", w.Code, tt.want, w.Body.String())
 			}
 		})
+	}
+}
+
+func TestBatchPatchSplitTaskAssigneesUpdatesEveryDraft(t *testing.T) {
+	if testHandler == nil {
+		t.Skip("database not available")
+	}
+	f := createSplitApproveFixture(t, "barrier")
+	req := newRequest(http.MethodPatch, "/api/node-runs/"+f.splitNodeRunID+"/split/draft-tasks/assignees", map[string]any{
+		"assignee_type": "member",
+		"assignee_id":   testUserID,
+		"tasks": []map[string]any{
+			{"task_id": f.taskAID, "expected_version": 1},
+			{"task_id": f.taskBID, "expected_version": 1},
+		},
+	})
+	req = withURLParam(req, "nodeRunId", f.splitNodeRunID)
+	w := httptest.NewRecorder()
+
+	testHandler.BatchPatchSplitTaskAssignees(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200: %s", w.Code, w.Body.String())
+	}
+	for _, taskID := range []string{f.taskAID, f.taskBID} {
+		task, err := testHandler.Queries.GetSplitTask(context.Background(), parseUUID(taskID))
+		if err != nil {
+			t.Fatalf("load split task %s: %v", taskID, err)
+		}
+		if task.AssigneeType.String != "member" || uuidToString(task.AssigneeID) != testUserID {
+			t.Fatalf("task %s assignee = %s/%s, want member/%s", taskID, task.AssigneeType.String, uuidToString(task.AssigneeID), testUserID)
+		}
+		if task.Version != 2 {
+			t.Fatalf("task %s version = %d, want 2", taskID, task.Version)
+		}
+	}
+}
+
+func TestBatchPatchSplitTaskAssigneesRollsBackOnVersionConflict(t *testing.T) {
+	if testHandler == nil {
+		t.Skip("database not available")
+	}
+	f := createSplitApproveFixture(t, "barrier")
+	req := newRequest(http.MethodPatch, "/api/node-runs/"+f.splitNodeRunID+"/split/draft-tasks/assignees", map[string]any{
+		"assignee_type": "member",
+		"assignee_id":   testUserID,
+		"tasks": []map[string]any{
+			{"task_id": f.taskAID, "expected_version": 1},
+			{"task_id": f.taskBID, "expected_version": 99},
+		},
+	})
+	req = withURLParam(req, "nodeRunId", f.splitNodeRunID)
+	w := httptest.NewRecorder()
+
+	testHandler.BatchPatchSplitTaskAssignees(w, req)
+
+	if w.Code != http.StatusConflict {
+		t.Fatalf("status = %d, want 409: %s", w.Code, w.Body.String())
+	}
+	for _, taskID := range []string{f.taskAID, f.taskBID} {
+		task, err := testHandler.Queries.GetSplitTask(context.Background(), parseUUID(taskID))
+		if err != nil {
+			t.Fatalf("load split task %s: %v", taskID, err)
+		}
+		if task.AssigneeType.String != "workflow" || uuidToString(task.AssigneeID) != f.childWorkflow {
+			t.Fatalf("task %s assignee changed after rollback: %s/%s", taskID, task.AssigneeType.String, uuidToString(task.AssigneeID))
+		}
+		if task.Version != 1 {
+			t.Fatalf("task %s version changed after rollback: %d", taskID, task.Version)
+		}
+	}
+}
+
+func TestBatchPatchSplitTaskAssigneesRejectsInvalidAssigneeWithoutChanges(t *testing.T) {
+	if testHandler == nil {
+		t.Skip("database not available")
+	}
+	f := createSplitApproveFixture(t, "barrier")
+	req := newRequest(http.MethodPatch, "/api/node-runs/"+f.splitNodeRunID+"/split/draft-tasks/assignees", map[string]any{
+		"assignee_type": "api",
+		"assignee_id":   testUserID,
+		"tasks": []map[string]any{
+			{"task_id": f.taskAID, "expected_version": 1},
+			{"task_id": f.taskBID, "expected_version": 1},
+		},
+	})
+	req = withURLParam(req, "nodeRunId", f.splitNodeRunID)
+	w := httptest.NewRecorder()
+
+	testHandler.BatchPatchSplitTaskAssignees(w, req)
+
+	if w.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("status = %d, want 422: %s", w.Code, w.Body.String())
+	}
+	for _, taskID := range []string{f.taskAID, f.taskBID} {
+		task, err := testHandler.Queries.GetSplitTask(context.Background(), parseUUID(taskID))
+		if err != nil {
+			t.Fatalf("load split task %s: %v", taskID, err)
+		}
+		if task.AssigneeType.String != "workflow" || task.Version != 1 {
+			t.Fatalf("task %s changed after invalid assignee: %s v%d", taskID, task.AssigneeType.String, task.Version)
+		}
+	}
+}
+
+func TestBatchPatchSplitTaskAssigneesRejectsMalformedPayloads(t *testing.T) {
+	if testHandler == nil {
+		t.Skip("database not available")
+	}
+	f := createSplitApproveFixture(t, "barrier")
+	validTask := fmt.Sprintf(`{"task_id":%q,"expected_version":1}`, f.taskAID)
+	tests := []struct {
+		name string
+		body string
+		want int
+	}{
+		{"trailing JSON", fmt.Sprintf(`{"assignee_type":"member","assignee_id":%q,"tasks":[%s]} {}`, testUserID, validTask), http.StatusBadRequest},
+		{"unknown field", fmt.Sprintf(`{"assignee_type":"member","assignee_id":%q,"tasks":[%s],"unknown":true}`, testUserID, validTask), http.StatusBadRequest},
+		{"missing assignee", fmt.Sprintf(`{"assignee_type":"member","tasks":[%s]}`, validTask), http.StatusUnprocessableEntity},
+		{"empty tasks", fmt.Sprintf(`{"assignee_type":"member","assignee_id":%q,"tasks":[]}`, testUserID), http.StatusBadRequest},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := newRequest(http.MethodPatch, "/api/node-runs/"+f.splitNodeRunID+"/split/draft-tasks/assignees", nil)
+			req.Body = io.NopCloser(strings.NewReader(tt.body))
+			req = withURLParam(req, "nodeRunId", f.splitNodeRunID)
+			w := httptest.NewRecorder()
+
+			testHandler.BatchPatchSplitTaskAssignees(w, req)
+
+			if w.Code != tt.want {
+				t.Fatalf("status = %d, want %d: %s", w.Code, tt.want, w.Body.String())
+			}
+		})
+	}
+}
+
+func TestBatchPatchSplitTaskAssigneesRejectsInvalidBatchTargets(t *testing.T) {
+	if testHandler == nil {
+		t.Skip("database not available")
+	}
+
+	t.Run("duplicate task", func(t *testing.T) {
+		f := createSplitApproveFixture(t, "barrier")
+		req := newRequest(http.MethodPatch, "/api/node-runs/"+f.splitNodeRunID+"/split/draft-tasks/assignees", map[string]any{
+			"assignee_type": "member", "assignee_id": testUserID,
+			"tasks": []map[string]any{{"task_id": f.taskAID, "expected_version": 1}, {"task_id": f.taskAID, "expected_version": 1}},
+		})
+		w := httptest.NewRecorder()
+		testHandler.BatchPatchSplitTaskAssignees(w, withURLParam(req, "nodeRunId", f.splitNodeRunID))
+		if w.Code != http.StatusBadRequest {
+			t.Fatalf("status = %d, want 400: %s", w.Code, w.Body.String())
+		}
+	})
+
+	t.Run("foreign task", func(t *testing.T) {
+		f := createSplitApproveFixture(t, "barrier")
+		foreign := createSplitApproveFixture(t, "barrier")
+		req := newRequest(http.MethodPatch, "/api/node-runs/"+f.splitNodeRunID+"/split/draft-tasks/assignees", map[string]any{
+			"assignee_type": "member", "assignee_id": testUserID,
+			"tasks": []map[string]any{{"task_id": f.taskAID, "expected_version": 1}, {"task_id": foreign.taskAID, "expected_version": 1}},
+		})
+		w := httptest.NewRecorder()
+		testHandler.BatchPatchSplitTaskAssignees(w, withURLParam(req, "nodeRunId", f.splitNodeRunID))
+		if w.Code != http.StatusUnprocessableEntity {
+			t.Fatalf("status = %d, want 422: %s", w.Code, w.Body.String())
+		}
+		task, err := testHandler.Queries.GetSplitTask(context.Background(), parseUUID(f.taskAID))
+		if err != nil || task.Version != 1 {
+			t.Fatalf("first task changed after foreign task rejection: version=%d err=%v", task.Version, err)
+		}
+	})
+
+	t.Run("discarded task", func(t *testing.T) {
+		f := createSplitApproveFixture(t, "barrier")
+		if _, err := testPool.Exec(context.Background(), `UPDATE multica_workflow_split_task SET status = 'discarded' WHERE id = $1`, f.taskBID); err != nil {
+			t.Fatalf("discard task: %v", err)
+		}
+		req := newRequest(http.MethodPatch, "/api/node-runs/"+f.splitNodeRunID+"/split/draft-tasks/assignees", map[string]any{
+			"assignee_type": "member", "assignee_id": testUserID,
+			"tasks": []map[string]any{{"task_id": f.taskAID, "expected_version": 1}, {"task_id": f.taskBID, "expected_version": 1}},
+		})
+		w := httptest.NewRecorder()
+		testHandler.BatchPatchSplitTaskAssignees(w, withURLParam(req, "nodeRunId", f.splitNodeRunID))
+		if w.Code != http.StatusUnprocessableEntity {
+			t.Fatalf("status = %d, want 422: %s", w.Code, w.Body.String())
+		}
+		task, err := testHandler.Queries.GetSplitTask(context.Background(), parseUUID(f.taskAID))
+		if err != nil || task.Version != 1 {
+			t.Fatalf("first task changed after discarded task rejection: version=%d err=%v", task.Version, err)
+		}
+	})
+
+	t.Run("non-reviewer", func(t *testing.T) {
+		f := createSplitApproveFixture(t, "barrier")
+		otherUserID := helperTestUser(t, "Split Batch Other", fmt.Sprintf("split-batch-other-%d@multica.ai", time.Now().UnixNano()))
+		helperAddUserToWorkspaceWithStatus(t, otherUserID, "member", "active")
+		req := newRequestAs(otherUserID, http.MethodPatch, "/api/node-runs/"+f.splitNodeRunID+"/split/draft-tasks/assignees", map[string]any{
+			"assignee_type": "member", "assignee_id": testUserID,
+			"tasks": []map[string]any{{"task_id": f.taskAID, "expected_version": 1}},
+		})
+		w := httptest.NewRecorder()
+		testHandler.BatchPatchSplitTaskAssignees(w, withURLParam(req, "nodeRunId", f.splitNodeRunID))
+		if w.Code != http.StatusForbidden {
+			t.Fatalf("status = %d, want 403: %s", w.Code, w.Body.String())
+		}
+	})
+
+	t.Run("invalid node run status", func(t *testing.T) {
+		f := createSplitApproveFixture(t, "barrier")
+		if _, err := testPool.Exec(context.Background(), `UPDATE multica_workflow_node_run SET status = 'split_active' WHERE id = $1`, f.splitNodeRunID); err != nil {
+			t.Fatalf("activate split node run: %v", err)
+		}
+		req := newRequest(http.MethodPatch, "/api/node-runs/"+f.splitNodeRunID+"/split/draft-tasks/assignees", map[string]any{
+			"assignee_type": "member", "assignee_id": testUserID,
+			"tasks": []map[string]any{{"task_id": f.taskAID, "expected_version": 1}},
+		})
+		w := httptest.NewRecorder()
+		testHandler.BatchPatchSplitTaskAssignees(w, withURLParam(req, "nodeRunId", f.splitNodeRunID))
+		if w.Code != http.StatusBadRequest {
+			t.Fatalf("status = %d, want 400: %s", w.Code, w.Body.String())
+		}
+	})
+}
+
+func TestApproveSplitTasksValidatesExpectedVersionCoverage(t *testing.T) {
+	if testHandler == nil {
+		t.Skip("database not available")
+	}
+	f := createSplitApproveFixture(t, "barrier")
+	tests := []struct {
+		name     string
+		versions map[string]int64
+	}{
+		{"missing task", map[string]int64{f.taskAID: 1}},
+		{"unknown task", map[string]int64{f.taskAID: 1, "00000000-0000-0000-0000-000000000001": 1}},
+		{"zero version", map[string]int64{f.taskAID: 1, f.taskBID: 0}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := newRequest(http.MethodPost, "/api/node-runs/"+f.splitNodeRunID+"/split/approve", map[string]any{
+				"approved_task_ids": []string{f.taskAID, f.taskBID},
+				"expected_versions": tt.versions,
+			})
+			w := httptest.NewRecorder()
+			testHandler.ApproveSplitTasks(w, withURLParam(req, "nodeRunId", f.splitNodeRunID))
+			if w.Code != http.StatusBadRequest {
+				t.Fatalf("status = %d, want 400: %s", w.Code, w.Body.String())
+			}
+		})
+	}
+}
+
+func TestApproveSplitTasksRejectsStaleExpectedVersionBeforeCreatingIssues(t *testing.T) {
+	if testHandler == nil {
+		t.Skip("database not available")
+	}
+	f := createSplitApproveFixture(t, "barrier")
+	w := httptest.NewRecorder()
+	req := newRequest(http.MethodPost, "/api/node-runs/"+f.splitNodeRunID+"/split/approve", map[string]any{
+		"approved_task_ids": []string{f.taskAID, f.taskBID},
+		"expected_versions": map[string]int64{f.taskAID: 1, f.taskBID: 99},
+	})
+	req = withURLParam(req, "nodeRunId", f.splitNodeRunID)
+
+	testHandler.ApproveSplitTasks(w, req)
+
+	if w.Code != http.StatusConflict {
+		t.Fatalf("status = %d, want 409: %s", w.Code, w.Body.String())
+	}
+	var approvedCount, childIssueCount int
+	if err := testPool.QueryRow(context.Background(), `
+		SELECT count(*) FROM multica_workflow_split_task
+		WHERE node_run_id = $1 AND status <> 'draft'
+	`, f.splitNodeRunID).Scan(&approvedCount); err != nil {
+		t.Fatalf("count approved split tasks: %v", err)
+	}
+	if err := testPool.QueryRow(context.Background(), `
+		SELECT count(*) FROM multica_issue
+		WHERE origin_type = 'workflow_split' AND origin_id IN ($1, $2)
+	`, f.taskAID, f.taskBID).Scan(&childIssueCount); err != nil {
+		t.Fatalf("count split child issues: %v", err)
+	}
+	if approvedCount != 0 || childIssueCount != 0 {
+		t.Fatalf("approved tasks/child issues = %d/%d, want 0/0", approvedCount, childIssueCount)
 	}
 }
 

@@ -6,6 +6,7 @@ import { useWorkspacePaths } from "@multica/core/paths";
 import { useActorName } from "@multica/core/workspace/hooks";
 import { Badge } from "@multica/ui/components/ui/badge";
 import { Button } from "@multica/ui/components/ui/button";
+import { Checkbox } from "@multica/ui/components/ui/checkbox";
 import { Input } from "@multica/ui/components/ui/input";
 import { Textarea } from "@multica/ui/components/ui/textarea";
 import { cn } from "@multica/ui/lib/utils";
@@ -20,6 +21,10 @@ interface SplitDraftLedgerProps {
   taskIssueBySourceId?: ReadonlyMap<string, Issue>;
   readOnly?: boolean;
   onAssigneeChange?: (task: SplitTask, assignee: { assignee_type: SplitTaskAssigneeType; assignee_id: string }) => void;
+  selectedTaskIds?: string[];
+  onSelectedTaskIdsChange?: (taskIds: string[]) => void;
+  onBatchAssigneeChange?: (assignee: { assignee_type: SplitTaskAssigneeType; assignee_id: string }) => void;
+  batchAssigneePending?: boolean;
   onDraftSave?: (task: SplitTask, updates: { title: string; description: string }) => void | Promise<void>;
   onDiscardChange?: (task: SplitTask, discarded: boolean) => void;
 }
@@ -172,6 +177,10 @@ export function SplitDraftLedger({
   taskIssueBySourceId,
   readOnly = false,
   onAssigneeChange,
+  selectedTaskIds = [],
+  onSelectedTaskIdsChange,
+  onBatchAssigneeChange,
+  batchAssigneePending = false,
   onDraftSave,
   onDiscardChange,
 }: SplitDraftLedgerProps) {
@@ -229,6 +238,27 @@ export function SplitDraftLedger({
 
   const activeTasks = tasks.filter((task) => task.status !== "discarded");
   const discardedTasks = tasks.filter((task) => task.status === "discarded");
+  const selectableTasks = tasks.filter((task) => task.status === "draft");
+  const selectableTaskIds = new Set(selectableTasks.map((task) => task.id));
+  const selectedIds = selectedTaskIds.filter((taskId) => selectableTaskIds.has(taskId));
+  const selectedIdSet = new Set(selectedIds);
+  const showSelection = !readOnly && !!onSelectedTaskIdsChange && !!onBatchAssigneeChange && selectableTasks.length > 0;
+  const allSelected = selectableTasks.length > 0 && selectedIds.length === selectableTasks.length;
+  const partiallySelected = selectedIds.length > 0 && !allSelected;
+
+  const toggleTaskSelection = (taskId: string) => {
+    if (!onSelectedTaskIdsChange) return;
+    onSelectedTaskIdsChange(
+      selectedIdSet.has(taskId)
+        ? selectedIds.filter((id) => id !== taskId)
+        : [...selectedIds, taskId],
+    );
+  };
+
+  const toggleAllTasks = () => {
+    if (!onSelectedTaskIdsChange) return;
+    onSelectedTaskIdsChange(allSelected ? [] : selectableTasks.map((task) => task.id));
+  };
 
   if (tasks.length === 0) {
     return (
@@ -307,9 +337,30 @@ export function SplitDraftLedger({
                 ) : (
                   <>
                     <div className="flex min-w-0 items-center gap-2">
-                      <span className="shrink-0 text-xs font-medium tabular-nums text-muted-foreground">
-                        {taskNumber(index)}
-                      </span>
+                      {showSelection && canEditDraft ? (
+                        <span className="group/selector relative grid size-5 shrink-0 place-items-center">
+                          <span className={cn(
+                            "text-xs font-medium tabular-nums text-muted-foreground transition-opacity group-hover/selector:opacity-0 [@media(hover:none)]:opacity-0",
+                            selectedIdSet.has(task.id) && "opacity-0",
+                          )}>
+                            {taskNumber(index)}
+                          </span>
+                          <Checkbox
+                            aria-label={t(($) => $.detail_panel.split_draft_select_task, { title: task.title })}
+                            checked={selectedIdSet.has(task.id)}
+                            disabled={batchAssigneePending}
+                            onCheckedChange={() => toggleTaskSelection(task.id)}
+                            className={cn(
+                              "absolute opacity-0 transition-opacity group-hover/selector:opacity-100 focus-visible:opacity-100 [@media(hover:none)]:opacity-100",
+                              selectedIdSet.has(task.id) && "opacity-100",
+                            )}
+                          />
+                        </span>
+                      ) : (
+                        <span className="shrink-0 text-xs font-medium tabular-nums text-muted-foreground">
+                          {taskNumber(index)}
+                        </span>
+                      )}
                       <h4 className="min-w-0 truncate text-sm font-medium" title={task.title}>
                         {task.title || t(($) => $.detail_panel.split_draft_untitled_task)}
                       </h4>
@@ -486,6 +537,55 @@ export function SplitDraftLedger({
 
   return (
     <div className="space-y-2">
+      {showSelection ? (
+        <div className="sticky top-0 z-10 flex min-h-10 flex-wrap items-center justify-between gap-2 rounded-md border bg-background/95 px-3 py-2 shadow-sm backdrop-blur-sm">
+          <div className="flex items-center gap-2">
+            <Checkbox
+              aria-label={t(($) => $.detail_panel.split_draft_select_all)}
+              checked={allSelected}
+              indeterminate={partiallySelected}
+              disabled={batchAssigneePending}
+              onCheckedChange={toggleAllTasks}
+            />
+            <span className="text-xs font-medium tabular-nums text-muted-foreground">
+              {t(($) => $.detail_panel.split_draft_selected_count, {
+                selected: selectedIds.length,
+                total: selectableTasks.length,
+              })}
+            </span>
+          </div>
+          <AssigneePicker
+            assigneeType={null}
+            assigneeId={null}
+            allowedTypes={["member", "agent", "squad", "workflow"]}
+            allowUnassigned={false}
+            ariaLabel={t(($) => $.detail_panel.split_draft_batch_assignee)}
+            triggerRender={(
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={selectedIds.length === 0 || batchAssigneePending}
+                className="h-8 min-w-36 max-w-full justify-between"
+              />
+            )}
+            trigger={(
+              <>
+                <span className="truncate">{t(($) => $.detail_panel.split_draft_batch_assignee)}</span>
+                <ChevronDown className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />
+              </>
+            )}
+            onUpdate={(update) => {
+              if (update.assignee_type && update.assignee_id) {
+                onBatchAssigneeChange?.({
+                  assignee_type: update.assignee_type,
+                  assignee_id: update.assignee_id,
+                });
+              }
+            }}
+          />
+        </div>
+      ) : null}
       {activeTasks.length > 0 ? (
         activeTasks.map((task, index) => renderTaskRow(task, index, activeNumberByTaskId))
       ) : (

@@ -91,9 +91,21 @@ type SplitConfig struct {
 }
 
 type SplitApproveRequest struct {
-	ApprovedTaskIDs []string                `json:"approved_task_ids"`
-	Modifications   []SplitTaskModification `json:"modifications"`
-	ConfirmEmpty    bool                    `json:"confirm_empty"`
+	ApprovedTaskIDs  []string                `json:"approved_task_ids"`
+	ExpectedVersions map[string]int64        `json:"expected_versions,omitempty"`
+	Modifications    []SplitTaskModification `json:"modifications"`
+	ConfirmEmpty     bool                    `json:"confirm_empty"`
+}
+
+type SplitDraftAssigneeUpdate struct {
+	TaskID          pgtype.UUID
+	ExpectedVersion int64
+}
+
+type SplitDraftBatchAssigneeRequest struct {
+	AssigneeType string
+	AssigneeID   pgtype.UUID
+	Tasks        []SplitDraftAssigneeUpdate
 }
 
 type SplitTaskModification struct {
@@ -1689,6 +1701,96 @@ func splitRepairContextExtras(sourceTask db.MulticaAgentTaskQueue, recoveryErr e
 	}
 }
 
+func (s *SplitOrchestrator) UpdateSplitDraftAssignees(
+	ctx context.Context,
+	nodeRun db.MulticaWorkflowNodeRun,
+	actorUserID pgtype.UUID,
+	req SplitDraftBatchAssigneeRequest,
+) error {
+	if len(req.Tasks) == 0 {
+		return NewSplitAPIError(SplitErrorBadRequest, "invalid_split_request", errors.New("at least one split draft task is required"))
+	}
+	if strings.TrimSpace(req.AssigneeType) == "" || !req.AssigneeID.Valid {
+		return NewSplitAPIError(SplitErrorUnprocessable, "invalid_split_task_assignee", errors.New("assignee_type and assignee_id must be provided together"))
+	}
+	if s.Assignments == nil {
+		return errors.New("split issue assignment service is not configured")
+	}
+
+	return s.runInTx(ctx, func(qtx *db.Queries) error {
+		lockedNodeRun, err := qtx.GetWorkflowNodeRunForUpdate(ctx, nodeRun.ID)
+		if err != nil {
+			return fmt.Errorf("lock split node run: %w", err)
+		}
+		if lockedNodeRun.Status != NodeRunStatusAwaitingSplitReview {
+			return NewSplitAPIError(SplitErrorBadRequest, "invalid_split_request", errors.New("split task assignee can only be edited while awaiting review"))
+		}
+		reviewerID, err := resolveSplitReviewerWithQueries(ctx, qtx, lockedNodeRun)
+		if err != nil {
+			return err
+		}
+		if reviewerID != actorUserID {
+			return NewSplitAPIError(SplitErrorForbidden, "split_reviewer_required", errors.New("only the split reviewer may edit drafts"))
+		}
+
+		current, err := qtx.ListSplitTasksByNodeRunForUpdate(ctx, lockedNodeRun.ID)
+		if err != nil {
+			return fmt.Errorf("lock split draft tasks: %w", err)
+		}
+		currentByID := make(map[string]db.MulticaWorkflowSplitTask, len(current))
+		for _, task := range current {
+			currentByID[util.UUIDToString(task.ID)] = task
+		}
+
+		seen := make(map[string]struct{}, len(req.Tasks))
+		for _, update := range req.Tasks {
+			taskID := util.UUIDToString(update.TaskID)
+			if _, duplicate := seen[taskID]; duplicate {
+				return NewSplitAPIError(SplitErrorBadRequest, "invalid_split_request", errors.New("duplicate split draft task"))
+			}
+			seen[taskID] = struct{}{}
+			task, ok := currentByID[taskID]
+			if !ok || task.Status != SplitTaskStatusDraft {
+				return NewSplitAPIError(SplitErrorUnprocessable, "invalid_split_request", errors.New("split draft task is not editable"))
+			}
+			if update.ExpectedVersion < 1 || task.Version != update.ExpectedVersion {
+				return NewSplitAPIError(SplitErrorConflict, "draft_task_conflict", errors.New("split draft task version conflict"))
+			}
+		}
+
+		run, err := qtx.GetWorkflowRun(ctx, lockedNodeRun.WorkflowRunID)
+		if err != nil {
+			return fmt.Errorf("get workflow run for split assignee update: %w", err)
+		}
+		assigneeType := strings.TrimSpace(req.AssigneeType)
+		if err := s.Assignments.ValidateAssignee(ctx, qtx, run.WorkspaceID,
+			AssignmentActor{Type: "member", ID: reviewerID},
+			AssigneeRef{Type: assigneeType, ID: req.AssigneeID},
+		); err != nil {
+			if errors.Is(err, ErrInvalidAssignee) || errors.Is(err, ErrForbiddenAssignee) {
+				return NewSplitAPIError(SplitErrorUnprocessable, "invalid_split_task_assignee", err)
+			}
+			return fmt.Errorf("validate split task assignee: %w", err)
+		}
+
+		for _, update := range req.Tasks {
+			if _, err := qtx.SetSplitTaskAssignee(ctx, db.SetSplitTaskAssigneeParams{
+				ID:           update.TaskID,
+				NodeRunID:    lockedNodeRun.ID,
+				Version:      update.ExpectedVersion,
+				AssigneeType: pgtype.Text{String: assigneeType, Valid: true},
+				AssigneeID:   req.AssigneeID,
+			}); err != nil {
+				if errors.Is(err, pgx.ErrNoRows) {
+					return NewSplitAPIError(SplitErrorConflict, "draft_task_conflict", errors.New("split draft task version conflict"))
+				}
+				return fmt.Errorf("update split task assignee: %w", err)
+			}
+		}
+		return nil
+	})
+}
+
 func (s *SplitOrchestrator) ApproveSplit(ctx context.Context, nodeRun db.MulticaWorkflowNodeRun, actorUserID pgtype.UUID, req SplitApproveRequest) error {
 	type materializedChild struct {
 		splitTaskID string
@@ -1703,8 +1805,21 @@ func (s *SplitOrchestrator) ApproveSplit(ctx context.Context, nodeRun db.Multica
 		if err != nil {
 			return NewSplitAPIError(SplitErrorBadRequest, "invalid_split_request", fmt.Errorf("invalid approved_task_id: %w", err))
 		}
+		if _, duplicate := approvedIDs[id]; duplicate {
+			return NewSplitAPIError(SplitErrorBadRequest, "invalid_split_request", errors.New("approved_task_ids contains duplicates"))
+		}
 		approvedIDs[id] = struct{}{}
 		approvedUUIDs = append(approvedUUIDs, u)
+	}
+	if req.ExpectedVersions != nil {
+		if len(req.ExpectedVersions) != len(approvedIDs) {
+			return NewSplitAPIError(SplitErrorBadRequest, "invalid_split_request", errors.New("expected_versions must include every approved task"))
+		}
+		for id, version := range req.ExpectedVersions {
+			if _, ok := approvedIDs[id]; !ok || version < 1 {
+				return NewSplitAPIError(SplitErrorBadRequest, "invalid_split_request", errors.New("expected_versions must match approved_task_ids"))
+			}
+		}
 	}
 
 	// Reject legacy modifications — all edits must go through /split/chat.
@@ -1741,7 +1856,7 @@ func (s *SplitOrchestrator) ApproveSplit(ctx context.Context, nodeRun db.Multica
 			return NewSplitAPIError(SplitErrorForbidden, "split_reviewer_required", errors.New("only the split reviewer may approve drafts"))
 		}
 
-		current, err := qtx.ListSplitTasksByNodeRun(ctx, nodeRun.ID)
+		current, err := qtx.ListSplitTasksByNodeRunForUpdate(ctx, nodeRun.ID)
 		if err != nil {
 			return fmt.Errorf("list split tasks: %w", err)
 		}
@@ -1770,6 +1885,9 @@ func (s *SplitOrchestrator) ApproveSplit(ctx context.Context, nodeRun db.Multica
 			task, ok := activeByID[id]
 			if !ok {
 				return NewSplitAPIError(SplitErrorUnprocessable, "invalid_split_approval", errors.New("approved_task_ids contains an unknown or discarded task"))
+			}
+			if req.ExpectedVersions != nil && task.Version != req.ExpectedVersions[id] {
+				return NewSplitAPIError(SplitErrorConflict, "draft_task_conflict", errors.New("split draft task version conflict"))
 			}
 			allowed = append(allowed, task)
 		}

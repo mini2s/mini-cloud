@@ -13,6 +13,7 @@ import type {
   WorkflowRoleAssignmentInput,
   ApproveSplitRequest,
   BatchPatchSplitDraftTasksRequest,
+  BatchPatchSplitTaskAssigneesRequest,
   ChatMessage,
   ChatPendingTask,
   CreateSplitDraftTaskRequest,
@@ -528,6 +529,23 @@ export function usePatchSplitTaskAssignee(wsId: string) {
       request,
     }: SplitMutationVars & { taskId: string; request: PatchSplitTaskAssigneeRequest }) =>
       api.patchSplitTaskAssignee(nodeRunId, taskId, request),
+    onSuccess: (data, vars) => {
+      queryClient.setQueryData(workflowKeys.splitTasks(wsId, vars.nodeRunId), data);
+    },
+    onSettled: (_data, _error, vars) => queryClient.invalidateQueries({
+      queryKey: workflowKeys.splitTasks(wsId, vars.nodeRunId),
+    }),
+  });
+}
+
+export function useBatchPatchSplitTaskAssignees(wsId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      nodeRunId,
+      request,
+    }: SplitMutationVars & { request: BatchPatchSplitTaskAssigneesRequest }) =>
+      api.batchPatchSplitTaskAssignees(nodeRunId, request),
     onSuccess: (data, vars) => {
       queryClient.setQueryData(workflowKeys.splitTasks(wsId, vars.nodeRunId), data);
     },

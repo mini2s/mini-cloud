@@ -712,6 +712,7 @@ export function ExecutionPanoramaPage({
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [viewport, setViewport] = useState<Viewport>({ x: 0, y: 24, zoom: 0.95 });
   const [retryingNodeRunId, setRetryingNodeRunId] = useState<string | null>(null);
+  const [splitDraftSelectionsByNodeRunId, setSplitDraftSelectionsByNodeRunId] = useState<Record<string, string[]>>({});
   const [expandedSplitNodeIds, setExpandedSplitNodeIds] = useState<Set<string>>(() => new Set());
   const [focusSplitNodeId, setFocusSplitNodeId] = useState<string | null>(null);
   const splitViewportByNodeIdRef = useRef<Map<string, Viewport>>(new Map());
@@ -1479,8 +1480,15 @@ export function ExecutionPanoramaPage({
             wsId={wsId}
             workflowId={workflowId}
             runId={runId ?? undefined}
-						plannerName={selectedWorkerName ?? undefined}
+            plannerName={selectedWorkerName ?? undefined}
             parentIssueId={issueId}
+            selectedDraftTaskIds={selectedRun ? splitDraftSelectionsByNodeRunId[selectedRun.id] : undefined}
+            onSelectedDraftTaskIdsChange={selectedRun ? (taskIds) => {
+              setSplitDraftSelectionsByNodeRunId((current) => ({
+                ...current,
+                [selectedRun.id]: taskIds,
+              }));
+            } : undefined}
             onClose={() => setSelectedNodeId(null)}
           />
         ) : (

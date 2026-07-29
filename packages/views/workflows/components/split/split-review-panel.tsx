@@ -24,6 +24,7 @@ import {
   splitTasksOptions,
   workflowActiveListOptions,
   useApproveSplitTasks,
+  useBatchPatchSplitTaskAssignees,
   usePatchSplitDraftTask,
   usePatchSplitTaskAssignee,
   useCancelSplitNode,
@@ -52,7 +53,9 @@ interface SplitReviewPanelProps {
   runId?: string;
   parentIssueId?: string;
   onClose: () => void;
-	plannerName?: string;
+  plannerName?: string;
+  selectedDraftTaskIds?: string[];
+  onSelectedDraftTaskIdsChange?: (taskIds: string[]) => void;
 }
 
 const TERMINAL_NODE_STATUSES = new Set(["completed", "failed", "cancelled", "skipped"]);
@@ -131,8 +134,10 @@ function creatableTasks(tasks: SplitTask[]): SplitTask[] {
 }
 
 function buildApproveRequest(tasks: SplitTask[], confirmEmpty = false): ApproveSplitRequest {
+  const approvedTasks = creatableTasks(tasks);
   return {
-    approved_task_ids: creatableTasks(tasks).map((task) => task.id),
+    approved_task_ids: approvedTasks.map((task) => task.id),
+    expected_versions: Object.fromEntries(approvedTasks.map((task) => [task.id, task.version])),
     ...(confirmEmpty ? { confirm_empty: true } : {}),
   };
 }
@@ -257,7 +262,9 @@ export function SplitReviewPanel({
   runId,
   parentIssueId,
   onClose,
-	plannerName,
+  plannerName,
+  selectedDraftTaskIds,
+  onSelectedDraftTaskIdsChange,
 }: SplitReviewPanelProps) {
   const { t } = useT("workflows");
   const queryClient = useQueryClient();
@@ -269,6 +276,7 @@ export function SplitReviewPanel({
   const approveMutation = useApproveSplitTasks(wsId);
   const patchDraftMutation = usePatchSplitDraftTask(wsId);
   const patchAssigneeMutation = usePatchSplitTaskAssignee(wsId);
+  const batchPatchAssigneesMutation = useBatchPatchSplitTaskAssignees(wsId);
   const chatMutation = useSubmitSplitReviewChat(wsId);
   const cancelMutation = useCancelSplitNode(wsId);
   const [chatSessionId, setChatSessionId] = useState<string | null>(
@@ -308,6 +316,14 @@ export function SplitReviewPanel({
 
   const tasks = data?.tasks ?? EMPTY_SPLIT_TASKS;
   const activeTasks = useMemo(() => creatableTasks(tasks), [tasks]);
+  const editableTasks = useMemo(() => tasks.filter((task) => task.status === "draft"), [tasks]);
+  const defaultSelectedTaskIds = useMemo(
+    () => editableTasks
+      .filter((task) => !task.assignee_type || !task.assignee_id)
+      .map((task) => task.id),
+    [editableTasks],
+  );
+  const effectiveSelectedTaskIds = selectedDraftTaskIds ?? defaultSelectedTaskIds;
   const progress = data?.progress ?? EMPTY_PROGRESS;
   const splitConfig = splitConfigFromNode(node);
   const creatableCount = activeTasks.length;
@@ -335,6 +351,19 @@ export function SplitReviewPanel({
     }
     return mapping;
   }, [childIssues]);
+
+  useEffect(() => {
+    if (!onSelectedDraftTaskIdsChange || tasks.length === 0) return;
+    if (selectedDraftTaskIds === undefined) {
+      onSelectedDraftTaskIdsChange(defaultSelectedTaskIds);
+      return;
+    }
+    const editableTaskIds = new Set(editableTasks.map((task) => task.id));
+    const next = selectedDraftTaskIds.filter((taskId) => editableTaskIds.has(taskId));
+    if (next.length !== selectedDraftTaskIds.length) {
+      onSelectedDraftTaskIdsChange(next);
+    }
+  }, [defaultSelectedTaskIds, editableTasks, onSelectedDraftTaskIdsChange, selectedDraftTaskIds, tasks.length]);
 
   const handleGenerate = async () => {
     if (!nodeRunId) return;
@@ -395,6 +424,39 @@ export function SplitReviewPanel({
         return;
       }
       throw error;
+    }
+  };
+
+  const handleBatchAssigneeChange = async (
+    assignee: { assignee_type: SplitTaskAssigneeType; assignee_id: string },
+  ) => {
+    if (!nodeRunId || !onSelectedDraftTaskIdsChange) return;
+    const selectedIdSet = new Set(effectiveSelectedTaskIds);
+    const selectedTasks = editableTasks.filter((task) => selectedIdSet.has(task.id));
+    if (selectedTasks.length === 0) return;
+    try {
+      await batchPatchAssigneesMutation.mutateAsync({
+        nodeRunId,
+        workflowId,
+        runId,
+        request: {
+          assignee_type: assignee.assignee_type,
+          assignee_id: assignee.assignee_id,
+          tasks: selectedTasks.map((task) => ({
+            task_id: task.id,
+            expected_version: task.version,
+          })),
+        },
+      });
+      onSelectedDraftTaskIdsChange([]);
+      toast.success(t(($) => $.detail_panel.split_batch_assignment_success, { count: selectedTasks.length }));
+    } catch (error) {
+      if (error instanceof ApiError && (error.status === 409 || error.status === 422)) {
+        await Promise.all([refetchSplitTasks(), refetchAssigneeOptions()]);
+        toast.error(t(($) => $.detail_panel.split_assignment_conflict));
+        return;
+      }
+      toast.error(t(($) => $.detail_panel.split_batch_assignment_failed));
     }
   };
 
@@ -641,6 +703,10 @@ export function SplitReviewPanel({
             tasks={tasks}
             taskIssueBySourceId={childIssueBySplitTaskId}
             readOnly={!canEditReview}
+            selectedTaskIds={effectiveSelectedTaskIds}
+            onSelectedTaskIdsChange={canEditReview ? onSelectedDraftTaskIdsChange : undefined}
+            onBatchAssigneeChange={canEditReview ? (assignee) => void handleBatchAssigneeChange(assignee) : undefined}
+            batchAssigneePending={batchPatchAssigneesMutation.isPending}
             onAssigneeChange={(task, assignee) => void handleAssigneeChange(task, assignee)}
             onDraftSave={(task, updates) => handleDraftSave(task, updates)}
             onDiscardChange={(task, discarded) => void handleDiscardChange(task, discarded)}
