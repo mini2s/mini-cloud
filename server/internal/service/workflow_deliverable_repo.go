@@ -286,9 +286,10 @@ func initWorkflowNamespace(ctx context.Context, q *db.Queries, tn *teamnamespace
 func (s *WorkflowService) initDefaultArchiveRepo(ctx context.Context, workspaceID pgtype.UUID) {
 	wsIDStr := util.UUIDToString(workspaceID)
 	resp, err := s.TeamNamespace.InitWorkflow(ctx, teamnamespace.WorkflowInitRequest{
-		WorkflowDefSlug: gitea.DefaultArchiveRepoName(),
-		InstanceID:      wsIDStr, // stable per-workspace instance
-		TeamID:          wsIDStr,
+		WorkflowDefSlug:    gitea.DefaultArchiveRepoName(),
+		InstanceID:         wsIDStr, // stable per-workspace instance
+		TeamID:             wsIDStr,
+		SkipInstanceBranch: true, // no run yet — inst branch created at issue/run time
 	})
 	if err != nil {
 		slog.Warn("provision default archive repo", "workspace_id", wsIDStr, "error", err)
@@ -468,15 +469,25 @@ func (s *WorkflowService) syncWorkspaceMembers(ctx context.Context, workspaceID 
 	if !s.teamNamespaceConfigured() {
 		return
 	}
-	refs, _, err := s.workspaceMemberRefs(ctx, workspaceID)
+	refs, creator, err := s.workspaceMemberRefs(ctx, workspaceID)
 	if err != nil {
 		slog.Warn("team namespace sync members: list",
 			"workspace_id", util.UUIDToString(workspaceID), "error", err)
 		return
 	}
+	// workspaceMemberRefs returns the workspace owner separately as `creator`
+	// (excluded from refs) to satisfy the team-namespace §1.5 create-team
+	// contract, where the creator is passed in its own field and must not
+	// overlap with initial_members. The owner still belongs in the Gitea org,
+	// though, so re-add them here — otherwise the creator is the one member
+	// never synced into their own workspace's team namespace.
+	members := refs
+	if creator.UserID != "" {
+		members = append(members, creator)
+	}
 	if _, err := s.TeamNamespace.SyncMembers(ctx, util.UUIDToString(workspaceID), teamnamespace.SyncMembersRequest{
 		Mode:       "full_sync",
-		AddMembers: refs,
+		AddMembers: members,
 	}); err != nil {
 		slog.Warn("team namespace sync members",
 			"workspace_id", util.UUIDToString(workspaceID), "error", err)
@@ -577,9 +588,10 @@ func (s *WorkflowService) provisionTeamNamespaceWorkflowRepo(ctx context.Context
 	}
 	wfIDStr := util.UUIDToString(wf.ID)
 	resp, err := s.TeamNamespace.InitWorkflow(ctx, teamnamespace.WorkflowInitRequest{
-		WorkflowDefSlug: shortHexSafe(wfIDStr), // must equal initWorkflowNamespace's defSlug
-		InstanceID:      wfIDStr,               // stable per-workflow instance (no run yet)
-		TeamID:          util.UUIDToString(wf.WorkspaceID),
+		WorkflowDefSlug:    shortHexSafe(wfIDStr), // must equal initWorkflowNamespace's defSlug
+		InstanceID:         wfIDStr,               // stable per-workflow instance (no run yet)
+		TeamID:             util.UUIDToString(wf.WorkspaceID),
+		SkipInstanceBranch: true, // no run yet — inst branch created at issue/run time
 	})
 	if err != nil {
 		slog.Warn("provision workflow repo: team-namespace init",

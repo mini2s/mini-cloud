@@ -1629,6 +1629,7 @@ type teamNamespaceRecorder struct {
 	createTeamCalled bool
 	syncCalled       bool
 	lastInitReq      teamnamespace.WorkflowInitRequest
+	lastSyncReq      teamnamespace.SyncMembersRequest
 }
 
 func newTeamNamespaceTestServer(t *testing.T) (*httptest.Server, *teamNamespaceRecorder) {
@@ -1676,8 +1677,11 @@ func newTeamNamespaceTestServer(t *testing.T) (*httptest.Server, *teamNamespaceR
 				},
 			})
 		case strings.HasSuffix(r.URL.Path, "/members:sync"):
+			var syncReq teamnamespace.SyncMembersRequest
+			_ = json.NewDecoder(r.Body).Decode(&syncReq)
 			rec.mu.Lock()
 			rec.syncCalled = true
+			rec.lastSyncReq = syncReq
 			rec.mu.Unlock()
 			_ = json.NewEncoder(w).Encode(teamnamespace.SyncMembersResponse{
 				TeamNSOrg:         "t-ws",
