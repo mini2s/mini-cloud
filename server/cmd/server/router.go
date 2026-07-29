@@ -495,8 +495,6 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 		r.Put("/api/workflow-admins", h.UpdateWorkflowAdmins)
 		r.Post("/api/workflow-admins/invite", h.InviteWorkflowAdmin)
 
-		r.Get("/api/dept/departments/search", h.SearchDeptDepartments)
-		r.Get("/api/dept/departments/{id}/users", h.ListDeptDepartmentUsers)
 		r.Get("/api/dept/users/search", h.SearchDeptUsers)
 
 		r.Route("/api/workspaces", func(r chi.Router) {
