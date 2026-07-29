@@ -346,13 +346,13 @@ vi.mock("../../../i18n", () => ({
         execution: {
           card: {
             child_issue_fallback: "Child issue",
-            child_workflow_running: "Workflow in progress",
             child_waiting_dependencies: "Waiting for dependencies",
-            child_waiting_workflow: "Waiting for workflow to start",
-            child_workflow_completed: "Workflow completed",
-            child_workflow_failed: "Workflow failed",
-            child_workflow_cancelled: "Cancelled",
-            child_workflow_skipped: "Skipped because a dependency failed",
+            child_running: "In progress",
+            child_waiting_start: "Waiting to start",
+            child_completed: "Completed",
+            child_failed: "Failed",
+            child_cancelled: "Cancelled",
+            child_skipped: "Skipped because a dependency failed",
           },
           display_status: {
             pending: "Pending",
@@ -1682,7 +1682,7 @@ describe("ExecutionPanoramaPage", () => {
             displayStatus: "in_progress",
             workerName: "wf-impl",
             issueIdentifier: "MUL-580",
-            progressLabel: "Workflow in progress",
+            progressLabel: "In progress",
             level: 0,
           }),
           expect.objectContaining({

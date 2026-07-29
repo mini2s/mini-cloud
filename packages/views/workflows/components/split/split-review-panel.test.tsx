@@ -55,7 +55,7 @@ const i18nMock = vi.hoisted(() => {
     split_creating: "Creating...",
     split_no_creatable_tasks: "No child issues are ready to create yet",
     split_approve_dialog_title: "Create child issues?",
-    split_approve_dialog_description: "This will create {{count}} child issues and start their workflows.",
+    split_approve_dialog_description: "This will create {{count}} child issues.",
     split_cancel_dialog_title: "Cancel split?",
     split_cancel_dialog_description: "This will stop unfinished child tasks and cancel their child issues.",
 		split_planner_label: "Split planner: {{planner}}",
@@ -510,6 +510,32 @@ describe("SplitReviewPanel", () => {
 		}
 	});
 
+	it("uses the latest status transition time when splitting starts without started_at", () => {
+		vi.useFakeTimers();
+		try {
+			vi.setSystemTime(new Date("2026-07-19T00:00:12Z"));
+			renderPanel({
+				nodeRun: {
+					...splitNodeRun,
+					status: "splitting",
+					started_at: null,
+					created_at: "2026-07-18T23:30:00Z",
+					updated_at: "2026-07-19T00:00:02Z",
+				},
+			});
+
+			expect(screen.getByText("Elapsed: 0:10")).toBeInTheDocument();
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it("lets the configured reviewer cancel while a split draft is being generated", () => {
+		renderPanel({ nodeRun: { ...splitNodeRun, status: "splitting" } });
+
+		expect(screen.getByRole("button", { name: "Cancel split" })).toBeInTheDocument();
+	});
+
   it("renders a review with a compact overview, full-width draft plan, and fixed actions", async () => {
     const user = userEvent.setup();
     const { container } = renderPanel();
@@ -698,7 +724,7 @@ describe("SplitReviewPanel", () => {
 
     expect(screen.getByText("Assign every active child issue before approval (1)")).toBeInTheDocument();
     expect(screen.queryByTestId("split-draft-risk-discarded-1")).not.toBeInTheDocument();
-    expect(screen.getByTestId("split-draft-risk-active-2")).toBeInTheDocument();
+    expect(screen.queryByTestId("split-draft-risk-active-2")).not.toBeInTheDocument();
   });
 
   it("approves current draft tasks without sending local modifications", async () => {
@@ -706,6 +732,8 @@ describe("SplitReviewPanel", () => {
 
     await userEvent.click(screen.getByRole("button", { name: "Confirm create 1" }));
     expect(screen.getByText("Create child issues?")).toBeInTheDocument();
+    expect(screen.getByText("This will create 1 child issues.")).toBeInTheDocument();
+    expect(screen.queryByText(/workflows/i)).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Cancel" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Cancel split" })).not.toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "Confirm create" }));

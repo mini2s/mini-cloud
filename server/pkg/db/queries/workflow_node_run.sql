@@ -70,7 +70,7 @@ RETURNING *;
 UPDATE multica_workflow_node_run SET
     status = $2,
     started_at = CASE
-        WHEN $2 IN ('format_checking', 'working', 'critic_reviewing')
+        WHEN $2 IN ('format_checking', 'working', 'critic_reviewing', 'splitting')
              AND started_at IS NULL THEN now()
         ELSE started_at
     END,

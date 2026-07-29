@@ -255,7 +255,6 @@ export function SplitDraftLedger({
         const assigneeName = assigneeType && assigneeId
           ? getActorName(assigneeType, assigneeId) ?? assigneeId
           : t(($) => $.detail_panel.split_unassigned);
-        const isMissingAssignee = isActiveTask && (!task.assignee_type || !task.assignee_id);
         const canEditDraft = !readOnly && task.status === "draft";
         const canRestoreDraft = !readOnly && task.status === "discarded";
         const showActions = isEditing || canEditDraft || canRestoreDraft;
@@ -271,7 +270,6 @@ export function SplitDraftLedger({
             className={cn(
               "rounded-md border border-border/70 bg-background px-3 py-3 shadow-sm shadow-foreground/[0.02] transition-colors",
               isActiveTask && "hover:border-border",
-              isMissingAssignee && "border-destructive/40 bg-destructive/[0.04]",
               task.status === "discarded" && "bg-muted/20 opacity-70",
             )}
           >
@@ -375,6 +373,23 @@ export function SplitDraftLedger({
                       allowedTypes={["member", "agent", "squad", "workflow"]}
                       allowUnassigned={false}
                       ariaLabel={t(($) => $.detail_panel.split_assignee_for, { title: task.title })}
+                      triggerRender={(
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="h-8 min-w-40 max-w-full justify-start"
+                        />
+                      )}
+                      trigger={(
+                        <>
+                          {assigneeType && assigneeId ? (
+                            <ActorAvatar actorType={assigneeType} actorId={assigneeId} size={18} />
+                          ) : null}
+                          <span className="min-w-0 flex-1 truncate text-left">{assigneeName}</span>
+                          <ChevronDown className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />
+                        </>
+                      )}
                       onUpdate={(update) => {
                         if (update.assignee_type && update.assignee_id) {
                           onAssigneeChange?.(task, {
@@ -397,14 +412,6 @@ export function SplitDraftLedger({
               <div className="mt-2 grid gap-2 border-t border-border/60 pt-2 sm:grid-cols-[minmax(0,1fr)_auto]">
                 <div className="flex min-w-0 flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
                   <span>{dependsOn ? t(($) => $.detail_panel.split_draft_dependencies_label, { deps: dependsOn }) : t(($) => $.detail_panel.split_draft_dependencies_none)}</span>
-                  {isMissingAssignee ? (
-                    <span
-                      data-testid={`split-draft-risk-${task.id}`}
-                      className="rounded-full bg-destructive/10 px-2 py-0.5 font-medium text-destructive"
-                    >
-                      {t(($) => $.detail_panel.split_assignment_required)}
-                    </span>
-                  ) : null}
                 </div>
                 {showActions ? (
                   <div

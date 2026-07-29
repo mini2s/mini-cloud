@@ -279,7 +279,8 @@ export function SplitReviewPanel({
   }, [nodeRun?.split_review_chat_session_id]);
   const { data: pendingChatTask } = useQuery(pendingChatTaskOptions(chatSessionId ?? ""));
   const isSplitChatRunning = chatMutation.isPending || !!pendingChatTask?.task_id;
-	const elapsedSeconds = useElapsedSeconds(nodeRun?.started_at, nodeRun?.status === "splitting" || isSplitChatRunning);
+	const elapsedStartedAt = nodeRun?.started_at || nodeRun?.updated_at || nodeRun?.created_at || null;
+	const elapsedSeconds = useElapsedSeconds(elapsedStartedAt, nodeRun?.status === "splitting" || isSplitChatRunning);
   const splitTasksQuery = useQuery({
     ...splitTasksOptions(wsId, nodeRunId),
     refetchInterval: isSplitChatRunning ? 2000 : false,
@@ -313,7 +314,7 @@ export function SplitReviewPanel({
   const canEditReview = nodeRun?.status === "awaiting_split_review" && isReviewer;
   const canApprove = canEditReview && creatableCount > 0 && unassignedCount === 0;
   const canChat = canEditReview;
-  const canCancel = canEditReview && isNodeRunCancellable(nodeRun?.status);
+  const canCancel = isReviewer && isNodeRunCancellable(nodeRun?.status);
   const canRecover = isReviewer && nodeRun?.status === "failed";
   const canResetOriginal = canEditReview;
   const canGenerate = isReviewer && !!nodeRunId && isSplitGenerateActionStatus(nodeRun?.status) && activeTasks.length === 0;
