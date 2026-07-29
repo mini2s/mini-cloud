@@ -1,8 +1,3 @@
 "use client";
 
-import { Megaphone } from "lucide-react";
-import { NavPlaceholderPage } from "@multica/views/placeholders";
-
-export default function Page() {
-  return <NavPlaceholderPage navKey="channels" icon={Megaphone} />;
-}
+export { ChannelsPage as default } from "@multica/views/channels";

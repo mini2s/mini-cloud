@@ -1,0 +1,47 @@
+{
+  "title": "通知渠道配置",
+  "description": "配置通知渠道，接收系统事件推送",
+  "loading": "加载通知渠道中...",
+  "noChannels": {
+    "title": "平台未启用任何通知渠道",
+    "description": "如有需要请联系管理员配置"
+  },
+  "type": {
+    "wecom-bot": "企微 Bot"
+  },
+  "enabled": "已启用",
+  "disabled": "已禁用",
+  "enable": "启用",
+  "disable": "禁用",
+  "test": "发送测试通知",
+  "testing": "发送中...",
+  "notConfigured": "未配置",
+  "wecomBot": {
+    "bound": "已绑定",
+    "unbound": "未绑定",
+    "boundHint": "机器人通知通道已就绪，可正常接收任务推送",
+    "step1": "1. 使用企业微信扫码加机器人为联系人",
+    "step2": "2. 向机器人发送任意消息完成绑定",
+    "step3": "3. 等待绑定确认",
+    "waitingBinding": "等待绑定确认...",
+    "testSent": "测试通知已发送，请到企微查看"
+  },
+  "idtrust": {
+    "unavailable": {
+      "title": "需要 IDTrust 身份验证",
+      "description": "此渠道需要先绑定 IDTrust 身份才能使用，请点击下方绑定按钮完成绑定"
+    },
+    "bindButton": "绑定 IDTrust 身份",
+    "bindFailed": "启动绑定失败"
+  },
+  "toast": {
+    "enabled": "渠道已启用",
+    "disabled": "渠道已禁用",
+    "deleted": "渠道已删除",
+    "deleteFailed": "删除渠道失败",
+    "testSent": "测试通知已发送",
+    "testFailed": "发送测试通知失败",
+    "requestFailed": "请求失败"
+  },
+  "confirmDelete": "确定删除渠道「{{name}}」吗？"
+}

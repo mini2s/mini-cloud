@@ -189,6 +189,10 @@ import type {
   UserQuota,
   UsageStatsParams,
   UsageStatsResult,
+  ChannelConfig,
+  ChannelType,
+  ChannelUpdateInput,
+  AuthIdentity,
 } from "../types";
 import type { OnboardingCompletionPath } from "../onboarding/types";
 import type {
@@ -3327,5 +3331,65 @@ async quotaGetUsageStatistics(params: UsageStatsParams): Promise<UsageStatsResul
     `/api/quota-manager/api/v1/usage/statistics?${p.toString()}`,
   );
   return res.data;
+}
+
+// ── Notification channels (通知渠道) ──────────────────────────────────────
+// Reverse-proxied to the cloud-store backend (same as Hub items). Powers the
+// "通知渠道" page: list available types, list configured channels, toggle /
+// delete / test, and resolve linked auth identities for the IDTrust gate.
+
+/**
+ * List the current user's configured notification channels. Mirrors
+ * `GET /api/channels` → `{ channels }`.
+ */
+async channelList(): Promise<ChannelConfig[]> {
+  const res = await this.fetch<{ channels: ChannelConfig[] }>("/api/channels");
+  return res.channels ?? [];
+}
+
+/** List the channel types the backend makes available. `GET /api/channels/available`. */
+async channelAvailable(): Promise<ChannelType[]> {
+  const res = await this.fetch<{ channelTypes: ChannelType[] }>("/api/channels/available");
+  return res.channelTypes ?? [];
+}
+
+/** Partially update a channel (name / config / enabled). `PUT /api/channels/{id}`. */
+async channelUpdate(id: string, input: ChannelUpdateInput): Promise<ChannelConfig> {
+  const res = await this.fetch<{ channel: ChannelConfig }>(`/api/channels/${encodeURIComponent(id)}`, {
+    method: "PUT",
+    body: JSON.stringify(input),
+  });
+  return res.channel;
+}
+
+/** Delete a channel. `DELETE /api/channels/{id}`. */
+async channelDelete(id: string): Promise<void> {
+  await this.fetch(`/api/channels/${encodeURIComponent(id)}`, { method: "DELETE" });
+}
+
+/** Send a test notification through a channel. `POST /api/channels/{id}/test`. */
+async channelTest(id: string): Promise<void> {
+  await this.fetch(`/api/channels/${encodeURIComponent(id)}/test`, { method: "POST" });
+}
+
+/**
+ * List the linked auth identities (used by the IDTrust gate for wecom channels).
+ * `GET /api/auth/identities` → `{ identities }`.
+ */
+async listIdentities(): Promise<AuthIdentity[]> {
+  const res = await this.fetch<{ identities: AuthIdentity[] }>("/api/auth/identities");
+  return res.identities ?? [];
+}
+
+/**
+ * Start binding an external auth identity (e.g. IDTrust). Returns the authorize
+ * URL the caller should redirect to. `POST /api/auth/bind/start`.
+ */
+async startIdentityBind(provider: string): Promise<string> {
+  const res = await this.fetch<{ authUrl: string }>("/api/auth/bind/start", {
+    method: "POST",
+    body: JSON.stringify({ provider }),
+  });
+  return res.authUrl;
 }
 }

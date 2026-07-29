@@ -1,0 +1,47 @@
+{
+  "title": "Notification Channel Configuration",
+  "description": "Configure notification channels to receive system event push notifications",
+  "loading": "Loading notification channels...",
+  "noChannels": {
+    "title": "No notification channels enabled",
+    "description": "Please contact your administrator to configure notification channels if needed"
+  },
+  "type": {
+    "wecom-bot": "WeCom Bot"
+  },
+  "enabled": "Enabled",
+  "disabled": "Disabled",
+  "enable": "Enable",
+  "disable": "Disable",
+  "test": "Send test notification",
+  "testing": "Sending...",
+  "notConfigured": "Not configured",
+  "wecomBot": {
+    "bound": "Bound",
+    "unbound": "Unbound",
+    "boundHint": "Bot notification channel is ready to receive task pushes",
+    "step1": "1. Scan with WeCom to add the bot as a contact",
+    "step2": "2. Send any message to the bot to complete binding",
+    "step3": "3. Wait for the binding confirmation",
+    "waitingBinding": "Waiting for binding confirmation...",
+    "testSent": "Test notification sent — check WeCom"
+  },
+  "idtrust": {
+    "unavailable": {
+      "title": "IDTrust Authentication Required",
+      "description": "This channel requires IDTrust identity binding. Please click the bind button below to complete binding"
+    },
+    "bindButton": "Bind IDTrust Identity",
+    "bindFailed": "Failed to start binding"
+  },
+  "toast": {
+    "enabled": "Channel enabled",
+    "disabled": "Channel disabled",
+    "deleted": "Channel deleted",
+    "deleteFailed": "Failed to delete channel",
+    "testSent": "Test notification sent",
+    "testFailed": "Failed to send test notification",
+    "requestFailed": "Request failed"
+  },
+  "confirmDelete": "Delete channel \"{{name}}\"?"
+}

@@ -161,3 +161,4 @@ export type {
 } from "./squad";
 export type * from "./hub";
 export type * from "./quota";
+export type * from "./channels";

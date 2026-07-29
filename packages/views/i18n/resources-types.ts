@@ -30,6 +30,7 @@ import type squads from "../locales/en/squads.json";
 import type workflows from "../locales/en/workflows.json";
 import type hub from "../locales/en/hub.json";
 import type me from "../locales/en/me.json";
+import type channels from "../locales/en/channels.json";
 
 // Module augmentation enables i18next v26 selector API across the monorepo:
 // `t($ => $.signin.title)` resolves to the value in en/auth.json.
@@ -74,6 +75,7 @@ declare global {
     workflows: typeof workflows;
     hub: typeof hub;
     me: typeof me;
+    channels: typeof channels;
   }
 }
 

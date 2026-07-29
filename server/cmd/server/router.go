@@ -412,6 +412,18 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 		r.MethodFunc(http.MethodGet, "/api/users/search", hubProxy)
 		r.MethodFunc(http.MethodGet, "/api/users/names", hubProxy)
 		r.MethodFunc(http.MethodGet, "/api/users/info", hubProxy)
+		// Notification channels (通知渠道) + identity binding — same cloud-store
+		// backend. /api/channels covers CRUD; /api/channels/* covers /available,
+		// /{id}, /{id}/test.
+		r.MethodFunc(http.MethodGet, "/api/channels", hubProxy)
+		r.MethodFunc(http.MethodPost, "/api/channels", hubProxy)
+		r.MethodFunc(http.MethodDelete, "/api/channels", hubProxy)
+		r.MethodFunc(http.MethodGet, "/api/channels/*", hubProxy)
+		r.MethodFunc(http.MethodPost, "/api/channels/*", hubProxy)
+		r.MethodFunc(http.MethodPut, "/api/channels/*", hubProxy)
+		r.MethodFunc(http.MethodDelete, "/api/channels/*", hubProxy)
+		r.MethodFunc(http.MethodGet, "/api/auth/identities", hubProxy)
+		r.MethodFunc(http.MethodPost, "/api/auth/bind/start", hubProxy)
 	}
 
 	// Quota-manager proxy — personal-quota (usage statistics) routes are proxied

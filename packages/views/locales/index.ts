@@ -27,6 +27,7 @@ import enSquads from "./en/squads.json";
 import enWorkflows from "./en/workflows.json";
 import enHub from "./en/hub.json";
 import enMe from "./en/me.json";
+import enChannels from "./en/channels.json";
 import zhHansCommon from "./zh-Hans/common.json";
 import zhHansAuth from "./zh-Hans/auth.json";
 import zhHansSettings from "./zh-Hans/settings.json";
@@ -55,6 +56,7 @@ import zhHansSquads from "./zh-Hans/squads.json";
 import zhHansWorkflows from "./zh-Hans/workflows.json";
 import zhHansHub from "./zh-Hans/hub.json";
 import zhHansMe from "./zh-Hans/me.json";
+import zhHansChannels from "./zh-Hans/channels.json";
 
 // Single source of truth for the resource bundle. Both apps (web layout +
 // desktop App.tsx) import from here so adding a locale or namespace happens
@@ -89,6 +91,7 @@ export const RESOURCES: Record<SupportedLocale, LocaleResources> = {
     workflows: enWorkflows,
     hub: enHub,
     me: enMe,
+    channels: enChannels,
   },
   "zh-Hans": {
     common: zhHansCommon,
@@ -119,5 +122,6 @@ export const RESOURCES: Record<SupportedLocale, LocaleResources> = {
     workflows: zhHansWorkflows,
     hub: zhHansHub,
     me: zhHansMe,
+    channels: zhHansChannels,
   },
 };
