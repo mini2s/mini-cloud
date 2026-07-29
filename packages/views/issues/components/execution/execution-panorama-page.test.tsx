@@ -32,10 +32,12 @@ const mocks = vi.hoisted(() => ({
   workflowRolesData: [] as unknown[],
   roleResolutionsData: [] as unknown[],
   chatSessionsData: [] as unknown[],
+  currentUserId: "current-user" as string | null,
   embedded: false,
   postCostrictNavigateToSession: vi.fn(),
   setChatSession: vi.fn(),
   setChatOpen: vi.fn(),
+  setChatFabHidden: vi.fn(),
   hasOpenInNewTab: true,
   isLoading: true,
   navigationPush: vi.fn(),
@@ -72,6 +74,13 @@ const mocks = vi.hoisted(() => ({
     onMove?: (event: unknown, viewport: Viewport) => void;
   },
   queryOptions: [] as Array<{ queryKey?: unknown[]; enabled?: boolean }>,
+}));
+
+vi.mock("@multica/core/auth", () => ({
+  useAuthStore: (selector: (state: { user: { id: string } | null }) => unknown) =>
+    selector({
+      user: mocks.currentUserId ? { id: mocks.currentUserId } : null,
+    }),
 }));
 
 // ---------------------------------------------------------------------------
@@ -281,9 +290,11 @@ vi.mock("@multica/core/chat", () => ({
   useChatStore: (selector: (state: {
     setActiveSession: typeof mocks.setChatSession;
     setOpen: typeof mocks.setChatOpen;
+    setFabHidden: typeof mocks.setChatFabHidden;
   }) => unknown) => selector({
     setActiveSession: mocks.setChatSession,
     setOpen: mocks.setChatOpen,
+    setFabHidden: mocks.setChatFabHidden,
   }),
 }));
 
@@ -378,6 +389,7 @@ vi.mock("./execution-detail-panel", () => ({
     onClose,
     onOpenIssue,
     onRetry,
+    mayReview,
     isChildIssue,
     parentSplitTitle,
     workerName,
@@ -387,6 +399,7 @@ vi.mock("./execution-detail-panel", () => ({
     onClose: () => void;
     onOpenIssue?: () => void;
     onRetry?: () => void;
+    mayReview?: boolean;
     isChildIssue?: boolean;
     parentSplitTitle?: string | null;
     workerName?: string | null;
@@ -397,6 +410,7 @@ vi.mock("./execution-detail-panel", () => ({
       <span data-testid="detail-panel-is-child">{String(isChildIssue === true)}</span>
       <span data-testid="detail-panel-parent-split">{parentSplitTitle ?? "no-parent"}</span>
       <span data-testid="detail-panel-worker-name">{workerName ?? "no-worker"}</span>
+      <span data-testid="detail-panel-may-review">{String(mayReview === true)}</span>
       {onOpenIssue ? (
         <button type="button" onClick={onOpenIssue}>
           Open issue
@@ -731,6 +745,7 @@ describe("ExecutionPanoramaPage", () => {
     mocks.workflowOptionsData = [];
     mocks.childIssuesData = [];
     mocks.chatSessionsData = [];
+    mocks.currentUserId = "current-user";
     mocks.workflowRolesData = [];
     mocks.roleResolutionsData = [];
     mocks.embedded = false;
@@ -740,6 +755,7 @@ describe("ExecutionPanoramaPage", () => {
     mocks.deliverableSubmissionsByNodeRunId = {};
     mocks.fitView.mockClear();
     mocks.setCenter.mockClear();
+    mocks.setChatFabHidden.mockClear();
     mocks.getViewport.mockClear();
     mocks.getViewport.mockReturnValue({ x: 0, y: 24, zoom: 0.95 });
     mocks.nodesInitialized = true;
@@ -985,6 +1001,60 @@ describe("ExecutionPanoramaPage", () => {
     });
     expect(opened).toBe(true);
     expect(screen.getByTestId("execution-detail-panel")).toBeInTheDocument();
+  });
+
+  it("passes review permission to the detail panel for the assigned critic", () => {
+    mocks.isLoading = false;
+    mocks.currentUserId = "critic-user";
+    mocks.workflowData = { id: "wf-1", title: "Test Workflow" };
+    mocks.stagesData = [STAGE];
+    mocks.nodesData = [{ ...NODE, critic_id: "critic-user" }];
+    mocks.membersData = [
+      {
+        id: "member-critic",
+        user_id: "critic-user",
+        role: "member",
+        name: "Critic",
+      },
+    ];
+    mocks.nodeRunsData = [
+      {
+        ...SPLIT_NODE_RUN,
+        id: "nr-1",
+        workflow_node_id: "n1",
+        node_title: "brainstorming",
+        status: "awaiting_critic",
+        critic_id: "critic-user",
+      },
+    ];
+    mocks.canvasSummaryData = {
+      node_runs: mocks.nodeRunsData,
+      node_runtime_summaries: [],
+    };
+
+    render(
+      <Wrapper>
+        <ExecutionPanoramaPage
+          workflowId="wf-1"
+          runId="run-1"
+          wsId="ws-1"
+          issueId="issue-1"
+          issueCreatorType="member"
+          issueCreatorId="creator-user"
+        />
+      </Wrapper>,
+    );
+
+    act(() => {
+      mocks.reactFlowProps?.onNodeClick?.({}, { id: "n1" });
+    });
+
+    expect(screen.getByTestId("detail-panel-may-review")).toHaveTextContent("true");
+    expect(mocks.setChatFabHidden).toHaveBeenLastCalledWith(true);
+
+    fireEvent.click(screen.getByRole("button", { name: "Close" }));
+
+    expect(mocks.setChatFabHidden).toHaveBeenLastCalledWith(false);
   });
 
   it("replays snapshot runs without enabling current workflow definition queries", () => {
