@@ -181,7 +181,7 @@ function SplitVerdictSummary({
     ? t(($) => $.detail_panel.split_generating)
     : riskCount === 0
       ? t(($) => $.detail_panel.split_no_blocking_risk)
-      : t(($) => $.detail_panel.split_missing_assignees, { count: riskCount });
+      : null;
 
   return (
     <div
@@ -214,9 +214,11 @@ function SplitVerdictSummary({
 					{elapsedSeconds >= 60 ? <p>{t(($) => $.detail_panel.split_generation_slow)}</p> : null}
 				</div>
 			) : null}
-      <p className={riskCount > 0 ? "mt-2 text-xs text-destructive" : "mt-2 text-xs text-muted-foreground"}>
-        {explanation}
-      </p>
+      {explanation !== null ? (
+        <p className="mt-2 text-xs text-muted-foreground">
+          {explanation}
+        </p>
+      ) : null}
       <details className="mt-2 text-xs text-muted-foreground">
         <summary className="cursor-pointer text-primary">{t(($) => $.detail_panel.split_settings_summary)}</summary>
         <div className="mt-2 flex flex-wrap gap-1.5">
