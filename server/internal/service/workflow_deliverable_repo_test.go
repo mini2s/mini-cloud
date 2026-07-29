@@ -346,6 +346,46 @@ func TestScaffoldRunDeliverables_DelegatesToTeamNamespace(t *testing.T) {
 	}
 }
 
+// TestSyncWorkspaceMembers_IncludesOwner asserts the workspace owner is part of
+// the team-namespace member sync. workspaceMemberRefs returns the owner
+// separately as `creator` (excluded from the member list to satisfy the
+// create-team §1.5 contract); syncWorkspaceMembers must re-add them, otherwise
+// the owner is the one member never synced into their own workspace's Gitea org.
+func TestSyncWorkspaceMembers_IncludesOwner(t *testing.T) {
+	pool := openTestPool(t)
+	defer pool.Close()
+
+	fix := seedGiteaFixture(t, pool, false /*no deliverable*/, 0 /*no runs*/)
+	ownerSubject := "usr-owner-" + util.UUIDToString(fix.workspace)[:8]
+	if _, err := pool.Exec(context.Background(),
+		`UPDATE multica_member SET subject_id = $1 WHERE workspace_id = $2`,
+		ownerSubject, fix.workspace,
+	); err != nil {
+		t.Fatalf("set member subject_id: %v", err)
+	}
+
+	tnSrv, rec := newTeamNamespaceTestServer(t)
+	defer tnSrv.Close()
+	tnClient := teamnamespace.NewClient(teamnamespace.Config{BaseURL: tnSrv.URL, Token: "svc-token"})
+
+	svc := &WorkflowService{Queries: db.New(pool), TeamNamespace: tnClient}
+	svc.syncWorkspaceMembers(context.Background(), fix.workspace)
+
+	rec.mu.Lock()
+	syncReq := rec.lastSyncReq
+	syncCalled := rec.syncCalled
+	rec.mu.Unlock()
+	if !syncCalled {
+		t.Fatalf("expected SyncMembers to be called")
+	}
+	for _, m := range syncReq.AddMembers {
+		if m.UserID == ownerSubject {
+			return
+		}
+	}
+	t.Fatalf("owner subject %q missing from synced AddMembers %#v", ownerSubject, syncReq.AddMembers)
+}
+
 func TestDeliverableRepoNameForWorkflow(t *testing.T) {
 	workflowID, _ := util.ParseUUID("11111111-2222-3333-4444-555555555555")
 
