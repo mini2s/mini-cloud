@@ -836,7 +836,7 @@ func TestAppendCodeRepoPrompt_MultiRepo(t *testing.T) {
 		t.Fatalf("prompt missing repo listing:\n%s", got)
 	}
 	// Must instruct CLI-based MR, not platform auto-MR.
-	if !strings.Contains(got, "deliverable submit --repo") {
+	if !strings.Contains(got, "cs-cloud workflow deliverable submit --repo") {
 		t.Fatalf("prompt missing CLI submit instruction:\n%s", got)
 	}
 	if !strings.Contains(got, "--mr") {
@@ -1534,10 +1534,11 @@ func (m *mockRowsMembers) Scan(dest ...any) error {
 	r := &m.rows[m.idx]
 	vals := []any{
 		&r.ID, &r.WorkspaceID, &r.UserID, &r.Role, &r.CreatedAt,
-		&r.Source, &r.Status, &r.ExternalUserID, &r.ExternalUniversalID,
+		&r.Source, &r.Status,
 		&r.EmployeeID, &r.OrgDisplayName, &r.DeptID, &r.DeptName,
 		&r.DeptPath, &r.Position, &r.IsMainDepartment, &r.DeptUserStatus,
-		&r.LastSyncedAt, &r.UserName, &r.UserEmail, &r.UserAvatarUrl,
+		&r.LastSyncedAt, &r.SubjectID, &r.UserName, &r.UserEmail, &r.UserAvatarUrl,
+		&r.UserSubjectID,
 	}
 	return copyRow(vals, dest)
 }
@@ -1613,7 +1614,7 @@ func newEnsureRepoTestDB() *ensureRepoTestDB {
 			{
 				UserID:              testUUID(20),
 				Role:                "owner",
-				ExternalUniversalID: pgtype.Text{String: "ou_owner", Valid: true},
+				SubjectID: pgtype.Text{String: "usr_owner", Valid: true},
 			},
 		},
 	}

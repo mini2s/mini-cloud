@@ -2058,6 +2058,17 @@ func (s *WorkflowService) CloneWorkflowFromTemplate(
 		}
 		oldToNew := make(map[string]pgtype.UUID, len(tmplNodes))
 		for _, node := range tmplNodes {
+			criticType := node.CriticType
+			criticID := node.CriticID
+			criticRoleID := node.CriticRoleID
+			criticAPIURL := node.CriticApiUrl
+			if workflowmeta.KindOf(node.FormatSchema) == workflowmeta.KindSplit &&
+				criticType == "human" && !criticID.Valid && !criticRoleID.Valid && !criticAPIURL.Valid {
+				criticType = "human"
+				criticID = creatorID
+				criticRoleID = pgtype.UUID{}
+				criticAPIURL = pgtype.Text{}
+			}
 			n, err := qtx.CreateWorkflowNode(ctx, db.CreateWorkflowNodeParams{
 				WorkflowID:   wf.ID,
 				Title:        node.Title,
@@ -2068,10 +2079,10 @@ func (s *WorkflowService) CloneWorkflowFromTemplate(
 				WorkerType:   node.WorkerType,
 				WorkerID:     node.WorkerID,
 				WorkerRoleID: node.WorkerRoleID,
-				CriticType:   node.CriticType,
-				CriticID:     node.CriticID,
-				CriticRoleID: node.CriticRoleID,
-				CriticApiUrl: node.CriticApiUrl,
+				CriticType:   criticType,
+				CriticID:     criticID,
+				CriticRoleID: criticRoleID,
+				CriticApiUrl: criticAPIURL,
 				SortOrder:    node.SortOrder,
 			})
 			if err != nil {

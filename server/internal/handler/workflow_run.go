@@ -1233,7 +1233,18 @@ func (h *Handler) SubmitNodeRunDeliverable(w http.ResponseWriter, r *http.Reques
 }
 
 // ReviewNodeRunDeliverable POST /api/node-runs/{nodeRunId}/deliverables/{submissionId}/review
+//
+// Permission gate: only a workspace owner/admin, the issue's creator, the
+// issue's assignee, or the node-run's designated critic may approve/reject a
+// deliverable submission. The submission must also belong to a node-run in the
+// caller's workspace; cross-workspace and foreign-submission requests are
+// rejected as 404 to avoid leaking existence.
 func (h *Handler) ReviewNodeRunDeliverable(w http.ResponseWriter, r *http.Request) {
+	nodeRunID := chi.URLParam(r, "nodeRunId")
+	nrUUID, ok := parseUUIDOrBadRequest(w, nodeRunID, "node run id")
+	if !ok {
+		return
+	}
 	submissionID := chi.URLParam(r, "submissionId")
 	sUUID, ok := parseUUIDOrBadRequest(w, submissionID, "submissionId")
 	if !ok {
@@ -1247,6 +1258,57 @@ func (h *Handler) ReviewNodeRunDeliverable(w http.ResponseWriter, r *http.Reques
 	}
 	if req.Status != "approved" && req.Status != "rejected" {
 		writeError(w, http.StatusBadRequest, "status must be 'approved' or 'rejected'")
+		return
+	}
+
+	workspaceID := h.resolveWorkspaceID(r)
+	userID, ok := requireUserID(w, r)
+	if !ok {
+		return
+	}
+
+	// Resolve the node-run and confirm it belongs to the caller's workspace.
+	nodeRun, err := h.Queries.GetWorkflowNodeRun(r.Context(), nrUUID)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "node run not found")
+		return
+	}
+	run, err := h.Queries.GetWorkflowRun(r.Context(), nodeRun.WorkflowRunID)
+	if err != nil || uuidToString(run.WorkspaceID) != workspaceID {
+		writeError(w, http.StatusNotFound, "node run not found")
+		return
+	}
+
+	// The submission must belong to this node-run — a foreign submission id
+	// pointed at this node-run is rejected as not found.
+	belongs := false
+	if subs, lerr := h.Queries.ListNodeRunDeliverableSubmissions(r.Context(), nrUUID); lerr == nil {
+		for _, s := range subs {
+			if uuidToString(s.ID) == uuidToString(sUUID) {
+				belongs = true
+				break
+			}
+		}
+	}
+	if !belongs {
+		writeError(w, http.StatusNotFound, "submission not found")
+		return
+	}
+
+	// Permission gate.
+	member, err := h.getWorkspaceMember(r.Context(), userID, workspaceID)
+	if err != nil {
+		writeError(w, http.StatusForbidden, "no access to this workspace")
+		return
+	}
+	var issue db.MulticaIssue
+	if run.SourceIssueID.Valid {
+		if found, gerr := h.Queries.GetIssue(r.Context(), run.SourceIssueID); gerr == nil {
+			issue = found
+		}
+	}
+	if !canReviewDeliverable(member.Role, userID, nodeRun, issue) {
+		writeError(w, http.StatusForbidden, "not allowed to review this deliverable")
 		return
 	}
 

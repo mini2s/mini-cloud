@@ -529,7 +529,7 @@ func appendCodeRepoPrompt(prompt string, repos []csCloudRepoSpec) string {
 		}
 		fmt.Fprintf(&b, "- %s (`%s`)\n", label, r.URL)
 	}
-	b.WriteString("\n完成编码后，对每个 `kind=pull_request` 交付物：在工作区内 `git add/commit`，然后运行 `cs-cloud deliverable submit --repo <url> --deliverable <id> --mr` 开 Merge Request 并自动上报 MR 链接。\n")
+	b.WriteString("\n完成编码后，对每个 `kind=pull_request` 交付物：在工作区内 `git add/commit`，然后运行 `cs-cloud workflow deliverable submit --repo <url> --deliverable <id> --mr` 开 Merge Request 并自动上报 MR 链接。\n")
 	b.WriteString("Token 从环境变量读取（`$MULTICA_GITLAB_TOKEN`），无需自己找。**不要**等平台自动开 MR——你自己用 CLI 开。\n")
 	b.WriteString("\n---\n\n")
 	return b.String()

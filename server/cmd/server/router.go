@@ -19,6 +19,7 @@ import (
 	"github.com/multica-ai/multica/server/internal/analytics"
 	"github.com/multica-ai/multica/server/internal/auth"
 	"github.com/multica-ai/multica/server/internal/coderepo"
+	"github.com/multica-ai/multica/server/internal/csuser"
 	"github.com/multica-ai/multica/server/internal/daemonws"
 	"github.com/multica-ai/multica/server/internal/deptsync"
 	"github.com/multica-ai/multica/server/internal/events"
@@ -149,6 +150,9 @@ type RouterOptions struct {
 	// linking). main.go constructs it once and passes it in; tests leave it
 	// nil and the router falls back to constructing one from env.
 	DeptSync *deptsync.Client
+	// CsUser, when non-nil, is the cs-user client used by SearchDeptUsers.
+	// nil → the handler returns 503 (cs-user not configured).
+	CsUser *csuser.Client
 	// Gitea is the platform Gitea admin client for document-deliverable storage.
 	// nil → the router constructs one from env (dormant when env unset).
 	Gitea *gitea.Client
@@ -238,6 +242,9 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 			Timeout:  envDuration("DEPT_SYNC_TIMEOUT", 10*time.Second),
 			CacheTTL: envDuration("DEPT_SYNC_CACHE_TTL", time.Minute),
 		})
+	}
+	if opts.CsUser != nil {
+		h.CsUser = opts.CsUser
 	}
 	giteaClient := opts.Gitea
 	if giteaClient == nil {
@@ -366,12 +373,6 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 	r.With(authVerifyRL).Post("/auth/verify-code", h.VerifyCode)
 	r.With(authRL).Post("/auth/google", h.GoogleLogin)
 	r.Post("/auth/logout", h.Logout)
-
-	// Casdoor SSO routes (only registered when Casdoor is enabled)
-	if opts.CasdoorEnabled {
-		r.Get("/auth/casdoor/login", h.CasdoorLogin)
-		r.Get("/auth/casdoor/callback", h.CasdoorCallback)
-	}
 
 	// Public API
 	r.Get("/api/config", h.GetConfig)
@@ -545,8 +546,6 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 		r.Put("/api/workflow-admins", h.UpdateWorkflowAdmins)
 		r.Post("/api/workflow-admins/invite", h.InviteWorkflowAdmin)
 
-		r.Get("/api/dept/departments/search", h.SearchDeptDepartments)
-		r.Get("/api/dept/departments/{id}/users", h.ListDeptDepartmentUsers)
 		r.Get("/api/dept/users/search", h.SearchDeptUsers)
 
 		r.Route("/api/workspaces", func(r chi.Router) {

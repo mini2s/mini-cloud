@@ -1,15 +1,17 @@
 package handler
 
 import (
+	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strings"
-	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/multica-ai/multica/server/internal/deptsync"
 	"github.com/multica-ai/multica/server/internal/service"
+	"github.com/multica-ai/multica/server/internal/util"
 	db "github.com/multica-ai/multica/server/pkg/db/generated"
 	"github.com/multica-ai/multica/server/pkg/protocol"
 )
@@ -19,16 +21,7 @@ type batchAddDeptMembersRequest struct {
 }
 
 type batchAddDeptMemberRef struct {
-	ExternalUserID      string `json:"external_user_id"`
-	ExternalUniversalID string `json:"external_universal_id"`
-	Name                string `json:"name"`
-	EmployeeID          string `json:"employee_id"`
-	DepartmentID        string `json:"department_id"`
-	DepartmentName      string `json:"department_name"`
-	DepartmentPath      string `json:"department_path"`
-	Position            string `json:"position"`
-	IsMainDepartment    bool   `json:"is_main_department"`
-	DeptUserStatus      int    `json:"dept_user_status"`
+	SubjectID string `json:"subject_id"`
 }
 
 type BatchAddDeptMembersResponse struct {
@@ -42,8 +35,8 @@ func (h *Handler) BatchAddDeptMembers(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if h.DeptSync == nil || !h.DeptSync.Configured() {
-		writeError(w, http.StatusServiceUnavailable, "dept sync is not configured")
+	if h.CsUser == nil {
+		writeError(w, http.StatusServiceUnavailable, "cs-user is not configured")
 		return
 	}
 
@@ -61,30 +54,34 @@ func (h *Handler) BatchAddDeptMembers(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	selected := make([]service.WorkspaceDeptMemberSnapshot, 0, len(req.Users))
-	seenInput := map[string]struct{}{}
+	type resolved struct {
+		SubjectID string
+		Name      string
+		Email     string
+		UnivID    string
+		Org       deptOrgSnapshot
+	}
+	resolvedRefs := make([]resolved, 0, len(req.Users))
+	seen := map[string]struct{}{}
 	for _, ref := range req.Users {
-		member, found, err := h.deptMemberSnapshotFromRef(r, ref)
+		sid := strings.TrimSpace(ref.SubjectID)
+		if sid == "" {
+			continue
+		}
+		if _, ok := seen[sid]; ok {
+			continue
+		}
+		u, err := h.CsUser.GetUser(r.Context(), sid)
 		if err != nil {
-			writeError(w, http.StatusBadGateway, "failed to resolve dept user")
+			writeError(w, http.StatusBadGateway, "failed to resolve cs-user")
 			return
 		}
-		if !found {
-			writeError(w, http.StatusBadRequest, "dept user not found")
-			return
-		}
-		key := member.ExternalUniversalID
-		if key == "" {
-			key = member.ExternalUserID
-		}
-		if key == "" {
-			continue
-		}
-		if _, ok := seenInput[key]; ok {
-			continue
-		}
-		seenInput[key] = struct{}{}
-		selected = append(selected, member)
+		seen[sid] = struct{}{}
+		univID := u.UniversalID()
+		resolvedRefs = append(resolvedRefs, resolved{
+			SubjectID: sid, Name: u.Name(), Email: u.EmailOrEmpty(), UnivID: univID,
+			Org: h.resolveDeptOrgSnapshot(r.Context(), univID),
+		})
 	}
 
 	tx, err := h.TxStarter.Begin(r.Context())
@@ -95,82 +92,53 @@ func (h *Handler) BatchAddDeptMembers(w http.ResponseWriter, r *http.Request) {
 	defer tx.Rollback(r.Context())
 	qtx := h.Queries.WithTx(tx)
 
-	existingRows, err := qtx.ListDeptMemberSnapshots(r.Context(), requester.WorkspaceID)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to load members")
-		return
-	}
-	existingByExternal := make(map[string]struct{}, len(existingRows))
-	for _, row := range existingRows {
-		key := strings.TrimSpace(row.ExternalUniversalID.String)
-		if key == "" {
-			key = strings.TrimSpace(row.ExternalUserID.String)
-		}
-		if key != "" {
-			existingByExternal[key] = struct{}{}
-		}
-	}
-
-	now := time.Now().UTC()
 	added := 0
 	skipped := 0
-	for _, member := range selected {
-		key := member.ExternalUniversalID
-		if key == "" {
-			key = member.ExternalUserID
-		}
-		if _, exists := existingByExternal[key]; exists {
+	for _, rr := range resolvedRefs {
+		if _, err := qtx.GetMemberByWorkspaceAndSubject(r.Context(), db.GetMemberByWorkspaceAndSubjectParams{
+			WorkspaceID: requester.WorkspaceID, SubjectID: pgtype.Text{String: rr.SubjectID, Valid: true},
+		}); err == nil {
 			skipped++
 			continue
+		} else if err != pgx.ErrNoRows {
+			writeError(w, http.StatusInternalServerError, "failed to load member")
+			return
 		}
 
-		userID := pgtype.UUID{}
-		status := member.Status
-		if member.ExternalUniversalID != "" {
-			user, uerr := qtx.GetUserByCasdoorUniversalID(r.Context(), pgtype.Text{String: member.ExternalUniversalID, Valid: true})
-			if uerr == nil {
-				userID = user.ID
-			} else if uerr != pgx.ErrNoRows {
-				writeError(w, http.StatusInternalServerError, "failed to resolve dept user")
-				return
-			}
+		userID, uerr := h.resolveOrCreateUserBySubjectID(r.Context(), qtx, rr.SubjectID, rr.Name, rr.Email)
+		if uerr != nil {
+			writeError(w, http.StatusInternalServerError, "failed to resolve user")
+			return
 		}
-		if userID.Valid {
-			if _, merr := qtx.GetMemberByUserAndWorkspace(r.Context(), db.GetMemberByUserAndWorkspaceParams{
-				UserID:      userID,
-				WorkspaceID: requester.WorkspaceID,
-			}); merr == nil {
-				skipped++
-				continue
-			} else if merr != pgx.ErrNoRows {
-				writeError(w, http.StatusInternalServerError, "failed to load member")
-				return
-			}
+		if _, err := qtx.GetMemberByUserAndWorkspace(r.Context(), db.GetMemberByUserAndWorkspaceParams{
+			UserID: userID, WorkspaceID: requester.WorkspaceID,
+		}); err == nil {
+			skipped++
+			continue
+		} else if err != pgx.ErrNoRows {
+			writeError(w, http.StatusInternalServerError, "failed to load member")
+			return
 		}
-		if !userID.Valid && status == service.MemberStatusActive {
-			status = service.MemberStatusPendingActivation
-		}
+
+		org := rr.Org
 		if _, err := qtx.UpsertDeptMember(r.Context(), db.UpsertDeptMemberParams{
-			WorkspaceID:         requester.WorkspaceID,
-			UserID:              userID,
-			Status:              status,
-			ExternalUserID:      pgtype.Text{String: member.ExternalUserID, Valid: member.ExternalUserID != ""},
-			ExternalUniversalID: pgtype.Text{String: member.ExternalUniversalID, Valid: member.ExternalUniversalID != ""},
-			EmployeeID:          pgtype.Text{String: member.EmployeeID, Valid: member.EmployeeID != ""},
-			OrgDisplayName:      pgtype.Text{String: member.Name, Valid: member.Name != ""},
-			DeptID:              pgtype.Text{String: member.DepartmentID, Valid: member.DepartmentID != ""},
-			DeptName:            pgtype.Text{String: member.DepartmentName, Valid: member.DepartmentName != ""},
-			DeptPath:            pgtype.Text{String: member.DepartmentPath, Valid: member.DepartmentPath != ""},
-			Position:            pgtype.Text{String: member.Position, Valid: member.Position != ""},
-			IsMainDepartment:    member.IsMainDepartment,
-			DeptUserStatus:      pgtype.Int4{Int32: int32(member.DeptUserStatus), Valid: true},
-			LastSyncedAt:        pgtype.Timestamptz{Time: now, Valid: true},
+			WorkspaceID:      requester.WorkspaceID,
+			UserID:           userID,
+			Status:           service.MemberStatusActive,
+			SubjectID:        pgtype.Text{String: rr.SubjectID, Valid: true},
+			EmployeeID:       pgtype.Text{String: org.EmployeeID, Valid: org.EmployeeID != ""},
+			OrgDisplayName:   pgtype.Text{String: firstNonEmpty(org.Name, rr.Name), Valid: true},
+			DeptID:           pgtype.Text{String: org.DepartmentID, Valid: org.DepartmentID != ""},
+			DeptName:         pgtype.Text{String: org.DepartmentName, Valid: org.DepartmentName != ""},
+			DeptPath:         pgtype.Text{String: org.DepartmentPath, Valid: org.DepartmentPath != ""},
+			Position:         pgtype.Text{String: org.Position, Valid: org.Position != ""},
+			IsMainDepartment: org.IsMainDepartment,
+			DeptUserStatus:   pgtype.Int4{Int32: int32(org.DeptUserStatus), Valid: org.DeptUserStatus != 0},
 		}); err != nil {
 			writeError(w, http.StatusInternalServerError, "failed to add dept member")
 			return
 		}
 		added++
-		existingByExternal[key] = struct{}{}
 	}
 	if err := tx.Commit(r.Context()); err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to add dept members")
@@ -181,126 +149,105 @@ func (h *Handler) BatchAddDeptMembers(w http.ResponseWriter, r *http.Request) {
 		h.publish(protocol.EventMemberUpdated, uuidToString(requester.WorkspaceID), "member", requestUserID(r), map[string]any{
 			"workspace_id": uuidToString(requester.WorkspaceID),
 		})
-		h.syncWorkspaceGiteaMembers(requester.WorkspaceID)
+		go h.syncWorkspaceGiteaMembers(requester.WorkspaceID)
 	}
 	writeJSON(w, http.StatusOK, BatchAddDeptMembersResponse{Added: added, Skipped: skipped})
 }
 
-func (h *Handler) deptMemberSnapshotFromRef(r *http.Request, ref batchAddDeptMemberRef) (service.WorkspaceDeptMemberSnapshot, bool, error) {
-	if member, ok := deptMemberSnapshotFromSubmittedRef(ref); ok {
-		return member, true, nil
+// resolveOrCreateUserBySubjectID returns the multica user id for a cs-user
+// subject_id, creating the account (linked by subject_id) if it doesn't exist.
+func (h *Handler) resolveOrCreateUserBySubjectID(ctx context.Context, qtx *db.Queries, subjectID, name, email string) (pgtype.UUID, error) {
+	user, err := qtx.GetUserBySubjectID(ctx, pgtype.Text{String: subjectID, Valid: true})
+	if err == nil {
+		return user.ID, nil
 	}
-	user, found, err := h.resolveDeptUserRef(r, ref)
-	if err != nil || !found {
-		return service.WorkspaceDeptMemberSnapshot{}, found, err
+	if err != pgx.ErrNoRows {
+		return pgtype.UUID{}, err
 	}
-	return deptMemberSnapshotFromDeptUser(user), true, nil
-}
-
-func deptMemberSnapshotFromSubmittedRef(ref batchAddDeptMemberRef) (service.WorkspaceDeptMemberSnapshot, bool) {
-	externalUserID := strings.TrimSpace(ref.ExternalUserID)
-	externalUniversalID := strings.TrimSpace(ref.ExternalUniversalID)
-	name := strings.TrimSpace(ref.Name)
-	if externalUserID == "" && externalUniversalID == "" {
-		return service.WorkspaceDeptMemberSnapshot{}, false
+	if strings.TrimSpace(name) == "" {
+		name = "csuser-" + subjectID
 	}
-	if name == "" &&
-		strings.TrimSpace(ref.EmployeeID) == "" &&
-		strings.TrimSpace(ref.DepartmentID) == "" &&
-		strings.TrimSpace(ref.DepartmentName) == "" &&
-		strings.TrimSpace(ref.DepartmentPath) == "" &&
-		strings.TrimSpace(ref.Position) == "" &&
-		ref.DeptUserStatus == 0 {
-		return service.WorkspaceDeptMemberSnapshot{}, false
+	if strings.TrimSpace(email) == "" {
+		email = subjectID + "@csuser.local"
 	}
-	status := service.MemberStatusActive
-	if ref.DeptUserStatus != 1 {
-		status = service.MemberStatusInactive
-	}
-	employeeID := strings.TrimSpace(ref.EmployeeID)
-	if employeeID == "" {
-		employeeID = externalUserID
-	}
-	return service.WorkspaceDeptMemberSnapshot{
-		Source:              service.MemberSourceDept,
-		Status:              status,
-		ExternalUserID:      externalUserID,
-		ExternalUniversalID: externalUniversalID,
-		Name:                name,
-		EmployeeID:          employeeID,
-		DepartmentID:        strings.TrimSpace(ref.DepartmentID),
-		DepartmentName:      strings.TrimSpace(ref.DepartmentName),
-		DepartmentPath:      strings.TrimSpace(ref.DepartmentPath),
-		Position:            strings.TrimSpace(ref.Position),
-		IsMainDepartment:    ref.IsMainDepartment,
-		DeptUserStatus:      ref.DeptUserStatus,
-		LastSyncedAt:        time.Now().UTC(),
-	}, true
-}
-
-func deptMemberSnapshotFromDeptUser(user deptsync.User) service.WorkspaceDeptMemberSnapshot {
-	status := service.MemberStatusActive
-	if user.Status != 1 {
-		status = service.MemberStatusInactive
-	}
-	return service.WorkspaceDeptMemberSnapshot{
-		Source:              service.MemberSourceDept,
-		Status:              status,
-		ExternalUserID:      strings.TrimSpace(user.UserID),
-		ExternalUniversalID: strings.TrimSpace(user.UniversalID),
-		Name:                strings.TrimSpace(user.Username),
-		EmployeeID:          strings.TrimSpace(user.UserID),
-		DepartmentID:        strings.TrimSpace(user.DeptID),
-		DepartmentName:      strings.TrimSpace(user.DeptName),
-		DepartmentPath:      strings.TrimSpace(user.DeptPath),
-		Position:            strings.TrimSpace(user.Position),
-		IsMainDepartment:    user.IsMain == 1,
-		DeptUserStatus:      user.Status,
-		LastSyncedAt:        time.Now().UTC(),
-	}
-}
-
-func (h *Handler) resolveDeptUserRef(r *http.Request, ref batchAddDeptMemberRef) (deptsync.User, bool, error) {
-	universalID := strings.TrimSpace(ref.ExternalUniversalID)
-	if universalID != "" {
-		// dept-sync's /users/search does not index universal_id, so a caller
-		// that only knows the universal_id must be resolved via the direct
-		// GetUserDepartmentsByUniversalID lookup, not SearchUsers.
-		departments, err := h.DeptSync.GetUserDepartmentsByUniversalID(r.Context(), universalID)
-		if err != nil {
-			return deptsync.User{}, false, err
-		}
-		var fallback deptsync.User
-		found := false
-		for _, d := range departments {
-			if strings.TrimSpace(d.UniversalID) != universalID || d.Status != 1 {
-				continue
-			}
-			if d.IsMain == 1 {
-				return d, true, nil
-			}
-			if !found {
-				fallback, found = d, true
-			}
-		}
-		if found {
-			return fallback, true, nil
-		}
-		return deptsync.User{}, false, nil
-	}
-
-	userID := strings.TrimSpace(ref.ExternalUserID)
-	if userID == "" {
-		return deptsync.User{}, false, nil
-	}
-	users, err := h.DeptSync.SearchUsers(r.Context(), userID, 50)
+	created, err := qtx.CreateUser(ctx, db.CreateUserParams{Name: name, Email: email, AvatarUrl: pgtype.Text{}})
 	if err != nil {
-		return deptsync.User{}, false, err
+		if util.IsUniqueViolation(err) { // email belongs to an existing account — adopt it
+			existing, findErr := qtx.GetUserByEmail(ctx, email)
+			if findErr == nil {
+				if !existing.SubjectID.Valid {
+					if setErr := qtx.SetUserSubjectID(ctx, db.SetUserSubjectIDParams{ID: existing.ID, SubjectID: pgtype.Text{String: subjectID, Valid: true}}); setErr != nil {
+						return pgtype.UUID{}, setErr
+					}
+				} else if existing.SubjectID.String != subjectID {
+					return pgtype.UUID{}, fmt.Errorf("email %q is already bound to a different subject_id", email)
+				}
+				return existing.ID, nil
+			}
+		}
+		return pgtype.UUID{}, err
 	}
-	for _, user := range users {
-		if strings.TrimSpace(user.UserID) == userID {
-			return user, true, nil
+	if setErr := qtx.SetUserSubjectID(ctx, db.SetUserSubjectIDParams{ID: created.ID, SubjectID: pgtype.Text{String: subjectID, Valid: true}}); setErr != nil {
+		return pgtype.UUID{}, setErr
+	}
+	return created.ID, nil
+}
+
+type deptOrgSnapshot struct {
+	EmployeeID       string
+	Name             string
+	DepartmentID     string
+	DepartmentName   string
+	DepartmentPath   string
+	Position         string
+	IsMainDepartment bool
+	DeptUserStatus   int
+}
+
+// resolveDeptOrgSnapshot fetches org identity from dept-sync using the transient
+// universal_id. Best-effort: returns a zero snapshot if dept-sync is unavailable
+// or the user has no active department. universal_id is NEVER persisted.
+func (h *Handler) resolveDeptOrgSnapshot(ctx context.Context, universalID string) deptOrgSnapshot {
+	var snap deptOrgSnapshot
+	if h.DeptSync == nil || !h.DeptSync.Configured() || strings.TrimSpace(universalID) == "" {
+		return snap
+	}
+	depts, err := h.DeptSync.GetUserDepartmentsByUniversalID(ctx, universalID)
+	if err != nil {
+		return snap
+	}
+	var picked deptsync.User
+	found := false
+	for _, d := range depts {
+		if d.Status != 1 {
+			continue
+		}
+		if d.IsMain == 1 {
+			picked = d
+			found = true
+			break
+		}
+		if !found {
+			picked, found = d, true
 		}
 	}
-	return deptsync.User{}, false, nil
+	if !found {
+		return snap
+	}
+	snap.EmployeeID = strings.TrimSpace(picked.UserID)
+	snap.Name = strings.TrimSpace(picked.Username)
+	snap.DepartmentID = strings.TrimSpace(picked.DeptID)
+	snap.DepartmentName = strings.TrimSpace(picked.DeptName)
+	snap.DepartmentPath = strings.TrimSpace(picked.DeptPath)
+	snap.Position = strings.TrimSpace(picked.Position)
+	snap.IsMainDepartment = picked.IsMain == 1
+	snap.DeptUserStatus = picked.Status
+	return snap
+}
+
+func firstNonEmpty(a, b string) string {
+	if strings.TrimSpace(a) != "" {
+		return a
+	}
+	return b
 }

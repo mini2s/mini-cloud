@@ -1154,19 +1154,6 @@ export function ExecutionPanoramaPage({
       };
     },
     makeCriticName: (node) => resolveCriticName(node) ?? undefined,
-  }).map((reactFlowNode) => {
-    const workflowNode = reactFlowNode.data.node as WorkflowNode | undefined;
-    if (!workflowNode || parseNodeFormat(workflowNode.format_schema).kind !== "split") {
-      return reactFlowNode;
-    }
-    return {
-      ...reactFlowNode,
-      position: {
-        ...reactFlowNode.position,
-        y: reactFlowNode.position.y + (RUNTIME_NODE_HEIGHT - RUNTIME_SPLIT_NODE_HEIGHT) / 2,
-      },
-      height: RUNTIME_SPLIT_NODE_HEIGHT,
-    };
   });
   const baseRfEdges = workflowEdgesToReactFlowEdges({
     edges: allEdges,
