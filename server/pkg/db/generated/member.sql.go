@@ -11,67 +11,6 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
-const activatePendingDeptMembersByUniversalID = `-- name: ActivatePendingDeptMembersByUniversalID :many
-UPDATE multica_member m
-SET user_id = $2,
-    status = 'active'
-WHERE m.external_universal_id = $1
-  AND m.status = 'pending_activation'
-  AND m.user_id IS NULL
-  AND NOT EXISTS (
-      SELECT 1
-      FROM multica_member existing
-      WHERE existing.workspace_id = m.workspace_id
-        AND existing.user_id = $2
-  )
-RETURNING id, workspace_id, user_id, role, created_at, source, status, external_user_id, external_universal_id, employee_id, org_display_name, dept_id, dept_name, dept_path, position, is_main_department, dept_user_status, last_synced_at, subject_id
-`
-
-type ActivatePendingDeptMembersByUniversalIDParams struct {
-	ExternalUniversalID pgtype.Text `json:"external_universal_id"`
-	UserID              pgtype.UUID `json:"user_id"`
-}
-
-func (q *Queries) ActivatePendingDeptMembersByUniversalID(ctx context.Context, arg ActivatePendingDeptMembersByUniversalIDParams) ([]MulticaMember, error) {
-	rows, err := q.db.Query(ctx, activatePendingDeptMembersByUniversalID, arg.ExternalUniversalID, arg.UserID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []MulticaMember{}
-	for rows.Next() {
-		var i MulticaMember
-		if err := rows.Scan(
-			&i.ID,
-			&i.WorkspaceID,
-			&i.UserID,
-			&i.Role,
-			&i.CreatedAt,
-			&i.Source,
-			&i.Status,
-			&i.ExternalUserID,
-			&i.ExternalUniversalID,
-			&i.EmployeeID,
-			&i.OrgDisplayName,
-			&i.DeptID,
-			&i.DeptName,
-			&i.DeptPath,
-			&i.Position,
-			&i.IsMainDepartment,
-			&i.DeptUserStatus,
-			&i.LastSyncedAt,
-			&i.SubjectID,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
 const createMember = `-- name: CreateMember :one
 INSERT INTO multica_member (workspace_id, user_id, role)
 VALUES ($1, $2, $3)
@@ -118,25 +57,6 @@ DELETE FROM multica_member WHERE id = $1
 func (q *Queries) DeleteMember(ctx context.Context, id pgtype.UUID) error {
 	_, err := q.db.Exec(ctx, deleteMember, id)
 	return err
-}
-
-const deleteOrphanPendingDeptMembers = `-- name: DeleteOrphanPendingDeptMembers :execrows
-DELETE FROM multica_member
-WHERE external_universal_id = $1
-  AND status = 'pending_activation'
-  AND user_id IS NULL
-`
-
-// Removes pending_activation dept member rows for a universal_id that did not
-// get activated because the user already held a membership in that workspace
-// (ActivatePending's no-duplicate guard). Without this they linger as orphan
-// duplicates next to the backfilled existing membership.
-func (q *Queries) DeleteOrphanPendingDeptMembers(ctx context.Context, externalUniversalID pgtype.Text) (int64, error) {
-	result, err := q.db.Exec(ctx, deleteOrphanPendingDeptMembers, externalUniversalID)
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected(), nil
 }
 
 const getMember = `-- name: GetMember :one

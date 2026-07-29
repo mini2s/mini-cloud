@@ -91,21 +91,6 @@ DO UPDATE SET
     last_synced_at = NOW()
 RETURNING *;
 
--- name: ActivatePendingDeptMembersByUniversalID :many
-UPDATE multica_member m
-SET user_id = $2,
-    status = 'active'
-WHERE m.external_universal_id = $1
-  AND m.status = 'pending_activation'
-  AND m.user_id IS NULL
-  AND NOT EXISTS (
-      SELECT 1
-      FROM multica_member existing
-      WHERE existing.workspace_id = m.workspace_id
-        AND existing.user_id = $2
-  )
-RETURNING *;
-
 -- name: RefreshUserMembershipDeptOrg :exec
 -- Rewrites the dept org snapshot (display name / department / position) on
 -- every membership bound to this user. universal_id is used only transiently
@@ -121,13 +106,3 @@ SET org_display_name = $2,
     dept_user_status = $9,
     last_synced_at = $10
 WHERE user_id = $1;
-
--- name: DeleteOrphanPendingDeptMembers :execrows
--- Removes pending_activation dept member rows for a universal_id that did not
--- get activated because the user already held a membership in that workspace
--- (ActivatePending's no-duplicate guard). Without this they linger as orphan
--- duplicates next to the backfilled existing membership.
-DELETE FROM multica_member
-WHERE external_universal_id = $1
-  AND status = 'pending_activation'
-  AND user_id IS NULL;

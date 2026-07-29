@@ -494,6 +494,7 @@ type MulticaMember struct {
 	IsMainDepartment    bool               `json:"is_main_department"`
 	DeptUserStatus      pgtype.Int4        `json:"dept_user_status"`
 	LastSyncedAt        pgtype.Timestamptz `json:"last_synced_at"`
+	SubjectID           pgtype.Text        `json:"subject_id"`
 }
 
 type MulticaNotificationPreference struct {
