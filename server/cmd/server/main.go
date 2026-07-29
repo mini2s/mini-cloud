@@ -15,6 +15,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/joho/godotenv"
 	"github.com/multica-ai/multica/server/internal/analytics"
+	"github.com/multica-ai/multica/server/internal/cloudidentity"
 	"github.com/multica-ai/multica/server/internal/cloudruntime"
 	"github.com/multica-ai/multica/server/internal/csuser"
 	"github.com/multica-ai/multica/server/internal/daemonws"
@@ -351,6 +352,16 @@ func main() {
 		Tenant:  os.Getenv("TEAM_NAMESPACE_TENANT_ID"),
 		Timeout: envDuration("TEAM_NAMESPACE_API_TIMEOUT", 10*time.Second),
 	})
+	// cloudIdentityClient translates a Casdoor access token into the cloud-api
+	// stable subject id (e.g. "usr_...") so the SubjectResolver can find the
+	// Multica user the account was provisioned under (keyed by the cloud
+	// subject id, not the raw Casdoor sub). Disabled (no-op fallback to JWT
+	// "sub") when CLOUD_API_BASE_URL is unset.
+	cloudIdentityClient := cloudidentity.NewClient(cloudidentity.Config{
+		BaseURL:  strings.TrimRight(strings.TrimSpace(os.Getenv("CLOUD_API_BASE_URL")), "/"),
+		Timeout:  envDuration("CLOUD_API_TIMEOUT", 5*time.Second),
+		CacheTTL: envDuration("CLOUD_API_SUBJECT_CACHE_TTL", 2*time.Minute),
+	})
 	// The SubjectResolver fires on every authenticated request; bound the
 	// dept-link work (dept-sync call + DB writes) to once per window per user.
 	deptLinkThrottle := &linkThrottle{last: make(map[string]time.Time), ttl: envDuration("DEPT_LINK_INTERVAL", 5*time.Minute)}
@@ -527,6 +538,7 @@ func main() {
 		DaemonWakeup:           daemonWakeup,
 		HeartbeatScheduler:     heartbeatScheduler,
 		SubjectResolver:        subjectResolver,
+		CloudSubjectTranslator: cloudIdentityClient,
 		CasdoorEnabled:         casdoorEnabled,
 		SkillProxy:             skillProxy,
 		DeptSync:               deptSyncClient,
