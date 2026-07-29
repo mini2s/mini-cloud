@@ -2,7 +2,7 @@ apiVersion: v2
 name: multica
 description: A Helm chart for Multica - AI-native task management platform
 type: application
-version: 0.0.56
+version: 0.0.57
 appVersion: "0.0.1"
 icon: https://raw.githubusercontent.com/Askhz/multica/main/apps/web/public/favicon.ico
 home: https://github.com/Askhz/multica
