@@ -632,7 +632,12 @@ export function WorkflowPanoramaPage({ workflowId, viewToggle }: WorkflowPanoram
   const { data: pluginsData } = useQuery(builtinPluginListOptions());
   const { data: workflowRoles = [] } = useQuery(workflowRolesOptions(wsId));
   const { data: childWorkflows = [] } = useQuery(splitIssueWorkflowOptions(wsId, workflowId));
-  const { getActorName, getActorInitials, getActorAvatarUrl } = useActorName();
+  const {
+    getActorName,
+    getActorInitials,
+    getActorAvatarUrl,
+    getMemberName,
+  } = useActorName();
   const { byAgent: presenceByAgent } = useWorkspacePresenceMap(wsId);
   const actorTypeLabels = useMemo<Record<WorkflowActorEntityType, string>>(() => ({
     agent: t(($) => $.panorama.card.actor_type_agent),
@@ -1471,6 +1476,7 @@ export function WorkflowPanoramaPage({ workflowId, viewToggle }: WorkflowPanoram
           runtimes={usableWorkflowRuntimes.runtimes}
           loading={runtimesLoading || usableWorkflowRuntimes.isLoading}
           directRun
+          getMemberName={getMemberName}
           onConfirm={startTestRun}
           onClose={() => setShowRuntimeDialog(false)}
         />
@@ -1486,6 +1492,7 @@ export function WorkflowPanoramaPage({ workflowId, viewToggle }: WorkflowPanoram
           runtimes={usableWorkflowRuntimes.runtimes}
           loading={runtimesLoading || usableWorkflowRuntimes.isLoading}
           saving={updateWorkflowMutation.isPending}
+          getMemberName={getMemberName}
           onConfirm={saveDefaultRuntimeStrategy}
           onClose={() => setShowRuntimeSettingsDialog(false)}
         />

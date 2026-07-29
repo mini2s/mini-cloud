@@ -4,6 +4,7 @@ import { formatDeviceInfo } from "../utils";
 
 export type RuntimeMachineSection = "local" | "remote" | "cloud";
 export type RuntimeMachineFilter = "all" | "online" | "issues";
+export const DEFAULT_RUNTIME_MACHINE_FILTER: RuntimeMachineFilter = "online";
 
 export interface RuntimeWorkloadSummary {
   runningCount: number;

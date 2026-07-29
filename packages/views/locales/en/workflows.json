@@ -713,7 +713,7 @@
     "runtime_placeholder": "Select a runtime",
     "online": "Online",
     "offline": "Offline",
-    "deleted_runtime": "The saved runtime is no longer available to you. Select another runtime before continuing.",
+    "deleted_runtime": "The saved runtime is offline, no longer available, or inaccessible to you. Select another runtime before continuing.",
     "no_runtime": "No runtime is available in this workspace.",
     "direct_run_hint": "A direct test run has no issue creator, so selection starts with an idle runtime.",
     "cancel": "Cancel",
