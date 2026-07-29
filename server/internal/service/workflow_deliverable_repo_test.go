@@ -20,6 +20,7 @@ import (
 	"github.com/multica-ai/multica/server/internal/coderepo"
 	"github.com/multica-ai/multica/server/internal/events"
 	"github.com/multica-ai/multica/server/internal/gitea"
+	"github.com/multica-ai/multica/server/internal/teamnamespace"
 	"github.com/multica-ai/multica/server/internal/util"
 	db "github.com/multica-ai/multica/server/pkg/db/generated"
 )
@@ -300,155 +301,48 @@ func workspaceSettings(t *testing.T, pool *pgxpool.Pool, wsID pgtype.UUID) map[s
 	return out
 }
 
-// TestScaffoldRunDeliverables_ProvisionsBotAndScaffoldsRepo is the main
-// run-start behavior test: against a DB-backed workspace and an httptest Gitea
-// stand-in, ScaffoldRunDeliverables creates the org/repo/inst-branch and
-// provisions the workspace bot once (gitea_pat + gitea_bot_username persisted
-// into workspace.settings). A second call with a new run on the same workspace
-// MUST NOT re-mint the PAT (lazy provision — assert tokens count stays at 1).
-//
-// Ordering is verified implicitly: if provision ran BEFORE scaffold, the bot
-// would miss org membership (ProvisionWorkspaceBot only adds to an existing
-// org) — the test would still pass onPAT count but the design's correctness
-// invariant is scaffold-FIRST, which the implementation guarantees.
-func TestScaffoldRunDeliverables_ProvisionsBotAndScaffoldsRepo(t *testing.T) {
-	pool := openTestPool(t)
-	defer pool.Close()
-
-	fix := seedGiteaFixture(t, pool, true /*document deliverable*/, 2 /*two runs*/)
-	seedRuntimeDeliverableRequirement(t, pool, seedRuntimeNodeRun(t, fix, fix.run1, NodeRunStatusPending), fix.node, "document")
-	seedRuntimeDeliverableRequirement(t, pool, seedRuntimeNodeRun(t, fix, fix.run2, NodeRunStatusPending), fix.node, "document")
-	srv, tokensMinted, orgsCreated, _, _ := fakeGiteaServer(t)
-
-	svc := &WorkflowService{
-		Queries: db.New(pool),
-		Gitea:   gitea.NewClient(gitea.Config{BaseURL: srv.URL, Token: "admin-tok"}),
-	}
-	ctx := context.Background()
-
-	// First run: full scaffold + first-time bot provision.
-	svc.ScaffoldRunDeliverables(ctx, db.MulticaWorkflowRun{
-		ID: fix.run1, WorkflowID: fix.workflow, WorkspaceID: fix.workspace,
-	})
-
-	if *tokensMinted != 1 {
-		t.Fatalf("after first scaffold: tokens minted = %d, want exactly 1", *tokensMinted)
-	}
-	if *orgsCreated != 1 {
-		t.Fatalf("after first scaffold: orgs created = %d, want exactly 1", *orgsCreated)
-	}
-
-	settings := workspaceSettings(t, pool, fix.workspace)
-	pat, _ := settings["gitea_pat"].(string)
-	bot, _ := settings["gitea_bot_username"].(string)
-	if pat == "" {
-		t.Fatalf("workspace.settings missing non-empty gitea_pat after scaffold: %+v", settings)
-	}
-	if bot == "" {
-		t.Fatalf("workspace.settings missing non-empty gitea_bot_username after scaffold: %+v", settings)
-	}
-	if !strings.HasPrefix(bot, "bot-t-") {
-		t.Fatalf("bot username %q does not look like a team bot (want prefix bot-t-)", bot)
-	}
-
-	// Second run, same workspace: scaffold of the new inst-branch happens, but
-	// provision must be skipped (PAT already stored).
-	tokensBefore := *tokensMinted
-	svc.ScaffoldRunDeliverables(ctx, db.MulticaWorkflowRun{
-		ID: fix.run2, WorkflowID: fix.workflow, WorkspaceID: fix.workspace,
-	})
-	if *tokensMinted != tokensBefore {
-		t.Fatalf("lazy provision broken: second scaffold minted %d new token(s), want 0",
-			*tokensMinted-tokensBefore)
-	}
-
-	// PAT persisted from the first call is still present.
-	settings2 := workspaceSettings(t, pool, fix.workspace)
-	if got, _ := settings2["gitea_pat"].(string); got != pat {
-		t.Fatalf("gitea_pat drifted between runs: first=%q second=%q", pat, got)
-	}
-}
-
-// TestScaffoldRunDeliverables_ProvisionsRepoForCodeOnlyWorkflow verifies M5
-// decision ①: a workflow whose only deliverable is a pull_request (code-only,
-// no document) STILL gets a Gitea repo scaffolded — so Task 3's code-MR
-// archive has a place to write. Mirrors ProvisionsBotAndScaffoldsRepo but
-// swaps the deliverable Kind from "document" to "pull_request".
-func TestScaffoldRunDeliverables_ProvisionsRepoForCodeOnlyWorkflow(t *testing.T) {
-	pool := openTestPool(t)
-	defer pool.Close()
-	ctx := context.Background()
-
-	// Seed a workflow with NO document deliverable, then add a pull_request one.
-	fix := seedGiteaFixture(t, pool, false /*no document*/, 1 /*single run*/)
-	if _, err := pool.Exec(ctx, `
-		INSERT INTO multica_workflow_node_deliverable (workflow_node_id, kind, title, description, required, sort_order)
-		VALUES ($1, 'pull_request', 'Code MR', 'open an MR', TRUE, 0)
-	`, util.UUIDToString(fix.node)); err != nil {
-		t.Fatalf("seed pull_request deliverable: %v", err)
-	}
-
-	srv, tokensMinted, orgsCreated, _, _ := fakeGiteaServer(t)
-	svc := &WorkflowService{
-		Queries: db.New(pool),
-		Gitea:   gitea.NewClient(gitea.Config{BaseURL: srv.URL, Token: "admin-tok"}),
-	}
-
-	svc.ScaffoldRunDeliverables(ctx, db.MulticaWorkflowRun{
-		ID: fix.run1, WorkflowID: fix.workflow, WorkspaceID: fix.workspace,
-	})
-
-	if *tokensMinted != 1 {
-		t.Fatalf("code-only workflow: tokens minted = %d, want exactly 1 (repo must scaffold under M5 decision ①)", *tokensMinted)
-	}
-	if *orgsCreated != 1 {
-		t.Fatalf("code-only workflow: orgs created = %d, want exactly 1 (repo must scaffold under M5 decision ①)", *orgsCreated)
-	}
-	settings := workspaceSettings(t, pool, fix.workspace)
-	if pat, _ := settings["gitea_pat"].(string); pat == "" {
-		t.Fatalf("code-only workflow must persist gitea_pat (M5 decision ①): %+v", settings)
-	}
-}
-
-func TestScaffoldRunDeliverables_DefaultWorkflowUsesArchiveRepo(t *testing.T) {
+// TestScaffoldRunDeliverables_DelegatesToTeamNamespace is the main run-start
+// behavior test now that direct-Gitea provisioning is removed: against a
+// DB-backed workspace with a document deliverable, ScaffoldRunDeliverables
+// delegates org/repo/bot provisioning to costrict-web via team-namespace
+// (CreateTeam + InitWorkflow) and syncs members — observed via the mock.
+func TestScaffoldRunDeliverables_DelegatesToTeamNamespace(t *testing.T) {
 	pool := openTestPool(t)
 	defer pool.Close()
 
 	fix := seedGiteaFixture(t, pool, true /*document deliverable*/, 1 /*one run*/)
 	seedRuntimeDeliverableRequirement(t, pool, seedRuntimeNodeRun(t, fix, fix.run1, NodeRunStatusPending), fix.node, "document")
-	if _, err := pool.Exec(context.Background(), `UPDATE multica_workflow SET is_default = TRUE WHERE id = $1`, fix.workflow); err != nil {
-		t.Fatalf("mark workflow default: %v", err)
+	// ensureTeamNamespace resolves the team creator from a member's cs-user
+	// subject_id; the base fixture doesn't set one, so seed it.
+	if _, err := pool.Exec(context.Background(),
+		`UPDATE multica_member SET subject_id = $1 WHERE workspace_id = $2`,
+		"usr-owner-"+util.UUIDToString(fix.workspace)[:8], fix.workspace,
+	); err != nil {
+		t.Fatalf("set member subject_id: %v", err)
 	}
-	if _, err := pool.Exec(context.Background(), `
-		UPDATE multica_workflow_run
-		SET definition_snapshot = jsonb_set(definition_snapshot, '{workflow,is_default}', 'true'::jsonb)
-		WHERE id = $1
-	`, fix.run1); err != nil {
-		t.Fatalf("mark run snapshot default: %v", err)
-	}
-	srv, _, _, repoExists, branchExists := fakeGiteaServer(t)
+
+	tnSrv, rec := newTeamNamespaceTestServer(t)
+	defer tnSrv.Close()
+	tnClient := teamnamespace.NewClient(teamnamespace.Config{BaseURL: tnSrv.URL, Token: "svc-token"})
 
 	svc := &WorkflowService{
-		Queries: db.New(pool),
-		Gitea:   gitea.NewClient(gitea.Config{BaseURL: srv.URL, Token: "admin-tok"}),
+		Queries:       db.New(pool),
+		TeamNamespace: tnClient,
 	}
-	ctx := context.Background()
 
-	svc.ScaffoldRunDeliverables(ctx, db.MulticaWorkflowRun{
+	svc.ScaffoldRunDeliverables(context.Background(), db.MulticaWorkflowRun{
 		ID: fix.run1, WorkflowID: fix.workflow, WorkspaceID: fix.workspace,
 	})
 
-	owner := gitea.OrgName(util.UUIDToString(fix.workspace))
-	archiveRepo := owner + "/" + gitea.RepoName(gitea.DefaultArchiveRepoName())
-	workflowRepo := owner + "/" + gitea.RepoName(util.UUIDToString(fix.workflow))
-	if !repoExists(archiveRepo) {
-		t.Fatalf("default workflow did not scaffold archive repo %q", archiveRepo)
+	rec.mu.Lock()
+	initCalled := rec.initCalled
+	createTeamCalled := rec.createTeamCalled
+	rec.mu.Unlock()
+	if !createTeamCalled {
+		t.Fatalf("expected CreateTeam to be delegated to team-namespace at run start")
 	}
-	if repoExists(workflowRepo) {
-		t.Fatalf("default workflow scaffolded workflow repo %q, want archive repo only", workflowRepo)
-	}
-	if !branchExists(archiveRepo + "/" + gitea.InstBranch(util.UUIDToString(fix.run1))) {
-		t.Fatalf("default workflow did not create inst branch in archive repo")
+	if !initCalled {
+		t.Fatalf("expected InitWorkflow to be delegated to team-namespace at run start")
 	}
 }
 
@@ -468,12 +362,12 @@ func TestDeliverableRepoNameForWorkflow(t *testing.T) {
 	}
 }
 
-// TestScaffoldRunDeliverables_NoOpWhenGiteaNil verifies the dormancy contract:
-// when the service has no Gitea client (tests that bypass the router, or a
-// future "Gitea disabled" deployment), run-start must not touch the network or
-// the DB. The function returns immediately without panicking on a nil client.
-func TestScaffoldRunDeliverables_NoOpWhenGiteaNil(t *testing.T) {
-	svc := &WorkflowService{Gitea: nil} // Queries also nil — must never be dereferenced.
+// TestScaffoldRunDeliverables_NoOpWhenTeamNamespaceNotConfigured verifies the
+// dormancy contract: when team-namespace is not configured (no costrict-web
+// delegation), run-start must not touch the network or the DB. The function
+// returns immediately without panicking on nil clients.
+func TestScaffoldRunDeliverables_NoOpWhenTeamNamespaceNotConfigured(t *testing.T) {
+	svc := &WorkflowService{} // no TeamNamespace, no Gitea, Queries nil — never dereferenced.
 
 	// If the dormancy gate works, this returns without touching s.Queries.
 	// A panic here means the nil check is broken.
@@ -484,36 +378,31 @@ func TestScaffoldRunDeliverables_NoOpWhenGiteaNil(t *testing.T) {
 
 // TestScaffoldRunDeliverables_NoOpWhenDeliverableFree verifies that a workflow
 // with NO deliverables at all (neither document nor pull_request) skips
-// scaffolding entirely: no Gitea HTTP traffic, no PAT minted, nothing written
-// to workspace.settings. (Note: "code-only" workflows — those with a
-// pull_request deliverable — DO scaffold under M5 decision ①; see
-// TestScaffoldRunDeliverables_ProvisionsRepoForCodeOnlyWorkflow.)
+// team-namespace delegation entirely: InitWorkflow is not called.
 func TestScaffoldRunDeliverables_NoOpWhenDeliverableFree(t *testing.T) {
 	pool := openTestPool(t)
 	defer pool.Close()
 
 	// Workflow has a node but NO deliverable row.
 	fix := seedGiteaFixture(t, pool, false /*no deliverable*/, 1 /*single run*/)
-	srv, tokensMinted, orgsCreated, _, _ := fakeGiteaServer(t)
+	tnSrv, rec := newTeamNamespaceTestServer(t)
+	defer tnSrv.Close()
+	tnClient := teamnamespace.NewClient(teamnamespace.Config{BaseURL: tnSrv.URL, Token: "svc-token"})
 
 	svc := &WorkflowService{
-		Queries: db.New(pool),
-		Gitea:   gitea.NewClient(gitea.Config{BaseURL: srv.URL, Token: "admin-tok"}),
+		Queries:       db.New(pool),
+		TeamNamespace: tnClient,
 	}
 
 	svc.ScaffoldRunDeliverables(context.Background(), db.MulticaWorkflowRun{
 		ID: fix.run1, WorkflowID: fix.workflow, WorkspaceID: fix.workspace,
 	})
 
-	if *tokensMinted != 0 {
-		t.Fatalf("deliverable-free workflow: %d tokens minted, want 0", *tokensMinted)
-	}
-	if *orgsCreated != 0 {
-		t.Fatalf("deliverable-free workflow: %d orgs created, want 0", *orgsCreated)
-	}
-	settings := workspaceSettings(t, pool, fix.workspace)
-	if pat, ok := settings["gitea_pat"]; ok && pat != "" {
-		t.Fatalf("deliverable-free workflow wrote gitea_pat=%v, want absent/empty", pat)
+	rec.mu.Lock()
+	initCalled := rec.initCalled
+	rec.mu.Unlock()
+	if initCalled {
+		t.Fatalf("deliverable-free workflow triggered InitWorkflow, want skipped")
 	}
 }
 
@@ -621,29 +510,63 @@ func TestDeliverableSubmissionRejectsRequirementFromAnotherRun(t *testing.T) {
 	}
 }
 
-func TestProvisionWorkflowRepo_UsesWorkflowIDForRepoName(t *testing.T) {
+// TestProvisionWorkflowRepo_TeamNamespace_CreatesRepoFromWorkflowUUID asserts
+// that when the costrict-web (team-namespace) path is configured, provisioning
+// an activated deliverable-bearing workflow eagerly creates its repo via
+// InitWorkflow keyed on the workflow's UUID — mirroring the run-start
+// initWorkflowNamespace defSlug. This is the path the early
+// `if teamNamespaceConfigured() { return }` previously short-circuited, leaving
+// activation with no repo until the first run.
+func TestProvisionWorkflowRepo_TeamNamespace_CreatesRepoFromWorkflowUUID(t *testing.T) {
 	pool := openTestPool(t)
 	defer pool.Close()
 
-	fix := seedGiteaFixture(t, pool, true /*document deliverable*/, 1 /*single run*/)
-	srv, _, _, repoExists, _ := fakeGiteaServer(t)
+	fix := seedGiteaFixture(t, pool, true /*document deliverable*/, 0 /*no runs needed at activation*/)
+
+	// ensureTeamNamespace resolves the team creator from a member's cs-user
+	// subject_id; the base fixture doesn't set one, so seed it.
+	if _, err := pool.Exec(context.Background(),
+		`UPDATE multica_member SET subject_id = $1 WHERE workspace_id = $2`,
+		"usr-owner-"+util.UUIDToString(fix.workspace)[:8], fix.workspace,
+	); err != nil {
+		t.Fatalf("set member subject_id: %v", err)
+	}
+
+	srv, rec := newTeamNamespaceTestServer(t)
+	defer srv.Close()
+	tnClient := teamnamespace.NewClient(teamnamespace.Config{
+		BaseURL: srv.URL,
+		Token:   "svc-token",
+		Tenant:  "default",
+	})
 
 	svc := &WorkflowService{
-		Queries: db.New(pool),
-		Gitea:   gitea.NewClient(gitea.Config{BaseURL: srv.URL, Token: "admin-tok"}),
+		Queries:       db.New(pool),
+		TeamNamespace: tnClient,
 	}
 
 	svc.ProvisionWorkflowRepo(context.Background(), fix.workflow)
 
-	owner := gitea.OrgName(util.UUIDToString(fix.workspace))
-	expectedRepo := gitea.RepoName(util.UUIDToString(fix.workflow))
-	if !repoExists(owner + "/" + expectedRepo) {
-		t.Fatalf("workflow repo %s/%s was not created", owner, expectedRepo)
+	rec.mu.Lock()
+	initCalled := rec.initCalled
+	gotReq := rec.lastInitReq
+	rec.mu.Unlock()
+
+	if !initCalled {
+		t.Fatalf("expected InitWorkflow to be called via team-namespace when provisioning an activated workflow")
 	}
-	titleRepo := gitea.RepoName("Gitea Test Workflow")
-	if repoExists(owner + "/" + titleRepo) {
-		t.Fatalf("workflow repo was created from title as %s/%s; want workflow ID repo %s/%s",
-			owner, titleRepo, owner, expectedRepo)
+	wantSlug := shortHexSafe(util.UUIDToString(fix.workflow))
+	if gotReq.WorkflowDefSlug != wantSlug {
+		t.Errorf("InitWorkflow WorkflowDefSlug = %q, want %q (workflow UUID prefix)",
+			gotReq.WorkflowDefSlug, wantSlug)
+	}
+	if gotReq.InstanceID != util.UUIDToString(fix.workflow) {
+		t.Errorf("InitWorkflow InstanceID = %q, want workflow UUID %q",
+			gotReq.InstanceID, util.UUIDToString(fix.workflow))
+	}
+	if gotReq.TeamID != util.UUIDToString(fix.workspace) {
+		t.Errorf("InitWorkflow TeamID = %q, want workspace UUID %q",
+			gotReq.TeamID, util.UUIDToString(fix.workspace))
 	}
 }
 
@@ -652,8 +575,15 @@ func TestEnsureNodeRunBranch_CreatesNodeBranchFromInst(t *testing.T) {
 	defer pool.Close()
 
 	fix := seedGiteaFixture(t, pool, true /*document deliverable*/, 1 /*single run*/)
-	srv, _, _, _, branchExists := fakeGiteaServer(t)
 	queries := db.New(pool)
+	// initWorkflowNamespace (via ensureTeamNamespace) resolves the team creator
+	// from a member's cs-user subject_id; the base fixture doesn't set one.
+	if _, err := pool.Exec(context.Background(),
+		`UPDATE multica_member SET subject_id = $1 WHERE workspace_id = $2`,
+		"usr-owner-"+util.UUIDToString(fix.workspace)[:8], fix.workspace,
+	); err != nil {
+		t.Fatalf("set member subject_id: %v", err)
+	}
 
 	var nodeRunID string
 	if err := pool.QueryRow(context.Background(), `
@@ -672,9 +602,14 @@ func TestEnsureNodeRunBranch_CreatesNodeBranchFromInst(t *testing.T) {
 		t.Fatalf("get node run: %v", err)
 	}
 
+	tnSrv, _ := newTeamNamespaceTestServer(t)
+	defer tnSrv.Close()
+	tnClient := teamnamespace.NewClient(teamnamespace.Config{BaseURL: tnSrv.URL, Token: "svc-token"})
+	spy := &spyRepoProvider{configured: true}
 	svc := &WorkflowService{
-		Queries: queries,
-		Gitea:   gitea.NewClient(gitea.Config{BaseURL: srv.URL, Token: "admin-tok"}),
+		Queries:            queries,
+		TeamNamespace:      tnClient,
+		RepositoryProvider: spy,
 	}
 
 	if err := svc.ensureNodeRunBranch(context.Background(), nodeRun); err != nil {
@@ -689,11 +624,16 @@ func TestEnsureNodeRunBranch_CreatesNodeBranchFromInst(t *testing.T) {
 		t.Fatalf("runtime node topo: %v", err)
 	}
 	nodeBranch := gitea.NodeBranch(topo[util.UUIDToString(nodeRun.ID)], nodeRunID)
-	if !branchExists(owner + "/" + repo + "/" + instBranch) {
-		t.Fatalf("inst branch %s/%s/%s was not created", owner, repo, instBranch)
+	want := spyBranchCall{Owner: owner, Repo: repo, Branch: nodeBranch, FromRef: instBranch}
+	found := false
+	for _, c := range spy.branchCalls() {
+		if c == want {
+			found = true
+		}
 	}
-	if !branchExists(owner + "/" + repo + "/" + nodeBranch) {
-		t.Fatalf("node branch %s/%s/%s was not created", owner, repo, nodeBranch)
+	if !found {
+		t.Fatalf("node branch %s/%s/%s from %s was not created via provider: %+v",
+			owner, repo, nodeBranch, instBranch, spy.branchCalls())
 	}
 }
 
@@ -810,15 +750,23 @@ type spyRepoProvider struct {
 	configured bool
 	mu         sync.Mutex
 	upserts    []spyUpsertCall
+	branches   []spyBranchCall
 }
 
 type spyUpsertCall struct {
 	Owner, Repo, Branch, Path, Content, Message string
 }
 
+type spyBranchCall struct {
+	Owner, Repo, Branch, FromRef string
+}
+
 func (s *spyRepoProvider) Name() coderepo.Provider { return coderepo.ProviderGitea }
 func (s *spyRepoProvider) Configured() bool        { return s.configured }
 func (s *spyRepoProvider) CreateBranch(ctx context.Context, owner, repo, branch, fromRef string) error {
+	s.mu.Lock()
+	s.branches = append(s.branches, spyBranchCall{owner, repo, branch, fromRef})
+	s.mu.Unlock()
 	return nil
 }
 func (s *spyRepoProvider) UpsertFile(ctx context.Context, owner, repo, branch, p, content, message string) error {
@@ -845,6 +793,14 @@ func (s *spyRepoProvider) snapshot() []spyUpsertCall {
 	defer s.mu.Unlock()
 	out := make([]spyUpsertCall, len(s.upserts))
 	copy(out, s.upserts)
+	return out
+}
+
+func (s *spyRepoProvider) branchCalls() []spyBranchCall {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := make([]spyBranchCall, len(s.branches))
+	copy(out, s.branches)
 	return out
 }
 

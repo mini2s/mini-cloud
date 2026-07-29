@@ -1612,8 +1612,8 @@ func newEnsureRepoTestDB() *ensureRepoTestDB {
 		},
 		members: []db.ListMembersWithUserRow{
 			{
-				UserID:              testUUID(20),
-				Role:                "owner",
+				UserID:    testUUID(20),
+				Role:      "owner",
 				SubjectID: pgtype.Text{String: "usr_owner", Valid: true},
 			},
 		},
@@ -1627,16 +1627,21 @@ type teamNamespaceRecorder struct {
 	mu               sync.Mutex
 	initCalled       bool
 	createTeamCalled bool
+	syncCalled       bool
+	lastInitReq      teamnamespace.WorkflowInitRequest
 }
 
 func newTeamNamespaceTestServer(t *testing.T) (*httptest.Server, *teamNamespaceRecorder) {
 	t.Helper()
 	rec := &teamNamespaceRecorder{}
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch r.URL.Path {
-		case "/api/internal/workflow/init":
+		switch {
+		case r.URL.Path == "/api/internal/workflow/init":
+			var initReq teamnamespace.WorkflowInitRequest
+			_ = json.NewDecoder(r.Body).Decode(&initReq)
 			rec.mu.Lock()
 			rec.initCalled = true
+			rec.lastInitReq = initReq
 			rec.mu.Unlock()
 			_ = json.NewEncoder(w).Encode(teamnamespace.WorkflowInitResponse{
 				WFRepoPath:       "t-ws/wf-docworkflow",
@@ -1656,7 +1661,7 @@ func newTeamNamespaceTestServer(t *testing.T) (*httptest.Server, *teamNamespaceR
 					CloneURLWithToken: "https://multica-bot-ws:pat-bot-abc@gitea.test/t-ws/wf-docworkflow.git",
 				},
 			})
-		case "/api/internal/teams":
+		case r.URL.Path == "/api/internal/teams" && r.Method == http.MethodPost:
 			rec.mu.Lock()
 			rec.createTeamCalled = true
 			rec.mu.Unlock()
@@ -1669,6 +1674,14 @@ func newTeamNamespaceTestServer(t *testing.T) (*httptest.Server, *teamNamespaceR
 					Token:         "pat-bot-abc",
 					TokenSHA256:   "sha-abc",
 				},
+			})
+		case strings.HasSuffix(r.URL.Path, "/members:sync"):
+			rec.mu.Lock()
+			rec.syncCalled = true
+			rec.mu.Unlock()
+			_ = json.NewEncoder(w).Encode(teamnamespace.SyncMembersResponse{
+				TeamNSOrg:         "t-ws",
+				MembersAddedCount: 0,
 			})
 		default:
 			t.Errorf("unexpected team-namespace request path: %s", r.URL.Path)

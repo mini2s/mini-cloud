@@ -81,6 +81,19 @@ backend:
     # set csUserInternalToken (backend.secrets) to enable. Leave empty to disable
     # (member search returns 503 "cs-user not configured").
     csUserApiBaseUrl: ""
+    # Team-namespace integration — delegates Gitea team/repo/bot provisioning
+    # and member sync to costrict-web's /api/internal/teams/* surface (the
+    # delegated "Path A" deliverable path). This is distinct from cs-user above
+    # (member search/resolve): it targets costrict-web, not cs-user, and
+    # authenticates with teamNamespaceInternalServiceToken (backend.secrets)
+    # sent as X-Internal-Secret. Point at the in-cluster costrict-web service.
+    # Leave empty to keep Gitea provisioning dormant.
+    teamNamespaceApiBaseUrl: ""
+    # Team-namespace tenant id (sent as X-Tenant-Id). costrict-web defaults to
+    # "default" when omitted.
+    teamNamespaceTenantId: ""
+    # Team-namespace API HTTP timeout.
+    teamNamespaceApiTimeout: "10s"
     # CSC plugin marketplace — optional. Override the marketplace the daemon
     # registers against when installing a CSC agent's bound plugin; when empty
     # the daemon falls back to its built-in github default (costrict-plugins).
@@ -138,6 +151,10 @@ backend:
     # cs-user internal API token (X-Internal-Token). Required to enable cs-user
     # member search/resolve (must match cs-user's USER_INTERNAL_TOKEN).
     csUserInternalToken: ""
+    # Team-namespace internal service token (X-Internal-Secret). Must match
+    # costrict-web's INTERNAL_SECRET. Required to enable team-namespace Gitea
+    # provisioning (teamNamespaceApiBaseUrl in backend.config).
+    teamNamespaceInternalServiceToken: ""
     workflowRoleLlmApiKey: ""
     giteaAdminToken: ""
 

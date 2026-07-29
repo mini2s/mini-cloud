@@ -8,6 +8,16 @@ const longRepoUrl =
 const mocks = vi.hoisted(() => ({
   members: [] as unknown[],
   agents: [] as unknown[],
+  draft: {
+    title: "",
+    description: "",
+    status: "planned",
+    priority: "medium",
+    leadType: undefined,
+    leadId: undefined,
+    icon: undefined,
+    repos: [] as string[],
+  },
 }));
 
 vi.mock("@tanstack/react-query", () => ({
@@ -17,6 +27,7 @@ vi.mock("@tanstack/react-query", () => ({
     if (Array.isArray(key) && key.includes("agents")) return { data: mocks.agents };
     return { data: [] };
   },
+  useQueryClient: () => ({ setQueryData: vi.fn() }),
 }));
 
 vi.mock("@multica/core/projects/mutations", () => ({
@@ -26,15 +37,7 @@ vi.mock("@multica/core/projects/mutations", () => ({
 vi.mock("@multica/core/projects", () => ({
   useProjectDraftStore: (selector: (state: unknown) => unknown) =>
     selector({
-      draft: {
-        title: "",
-        description: "",
-        status: "planned",
-        priority: "medium",
-        leadType: undefined,
-        leadId: undefined,
-        icon: undefined,
-      },
+      draft: mocks.draft,
       setDraft: vi.fn(),
       clearDraft: vi.fn(),
     }),
@@ -172,6 +175,34 @@ describe("CreateProjectModal", () => {
   beforeEach(() => {
     mocks.members = [];
     mocks.agents = [];
+    mocks.draft = {
+      title: "",
+      description: "",
+      status: "planned",
+      priority: "medium",
+      leadType: undefined,
+      leadId: undefined,
+      icon: undefined,
+      repos: [],
+    };
+  });
+
+  it("renders without crashing for a legacy persisted draft missing the repos field", () => {
+    // A draft persisted before the `repos` field existed (commit c76717e6d)
+    // rehydrates without a `repos` key, so draft.repos is undefined. The modal
+    // must not throw reading selectedRepos.length on that undefined value.
+    mocks.draft = {
+      title: "",
+      description: "",
+      status: "planned",
+      priority: "medium",
+      leadType: undefined,
+      leadId: undefined,
+      icon: undefined,
+    } as typeof mocks.draft;
+
+    const { container } = render(<CreateProjectModal onClose={vi.fn()} />);
+    expect(container.firstChild).not.toBeNull();
   });
 
   it("exposes full repository URLs in the repository picker", () => {

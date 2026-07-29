@@ -93,17 +93,6 @@ func DeliverableRepoName(workflowID pgtype.UUID, isDefault bool) string {
 	return gitea.RepoName(util.UUIDToString(workflowID))
 }
 
-func deliverableScaffoldParams(run db.MulticaWorkflowRun, workflow db.MulticaWorkflow) gitea.ScaffoldParams {
-	return gitea.ScaffoldParams{
-		WorkspaceID:   util.UUIDToString(run.WorkspaceID),
-		WorkflowID:    util.UUIDToString(workflow.ID),
-		RepoName:      DeliverableRepoNameForWorkflow(workflow),
-		RunID:         util.UUIDToString(run.ID),
-		WorkflowTitle: workflow.Title,
-		// DefinitionSnapshot left empty for M2 (DB is source of truth).
-	}
-}
-
 func (s *WorkflowService) teamNamespaceConfigured() bool {
 	return s.TeamNamespace != nil && s.TeamNamespace.Configured()
 }
@@ -377,8 +366,8 @@ func (s *WorkflowService) ScaffoldRunDeliverables(ctx context.Context, run db.Mu
 		}
 	}()
 
-	if !s.teamNamespaceConfigured() && (s.Gitea == nil || !s.Gitea.Configured()) {
-		return // feature dormant
+	if !s.teamNamespaceConfigured() {
+		return // feature dormant — deliverables require team-namespace (costrict-web)
 	}
 	runIDStr := util.UUIDToString(run.ID)
 
@@ -402,40 +391,11 @@ func (s *WorkflowService) ScaffoldRunDeliverables(ctx context.Context, run db.Mu
 		return // deliverable-free workflow — no Gitea repo needed
 	}
 
-	if s.teamNamespaceConfigured() {
-		if err := s.initWorkflowNamespace(ctx, run, workflow); err != nil {
-			slog.Error("team namespace workflow init failed", "run_id", runIDStr, "error", err)
-			s.failRun(ctx, run)
-			return
-		}
-		s.syncWorkspaceMembers(ctx, run.WorkspaceID)
-		// M5: register this child run's deliverable address into its parent
-		// issue's Gitea repo (if this run's source issue is a split-out child).
-		// Best-effort, async — never blocks scaffolding.
-		go s.ArchiveSubIssueAddress(context.Background(), run)
-		return
-	}
-
-	// 1. Scaffold org/repo/inst (creates the org).
-	if _, err := gitea.ScaffoldRunDeliverable(ctx, s.Gitea, deliverableScaffoldParams(run, workflow)); err != nil {
-		slog.Error("gitea scaffold failed", "run_id", runIDStr, "error", err)
+	if err := s.initWorkflowNamespace(ctx, run, workflow); err != nil {
+		slog.Error("team namespace workflow init failed", "run_id", runIDStr, "error", err)
 		s.failRun(ctx, run)
 		return
 	}
-
-	// 2. Provision the workspace bot once — adds to the org that scaffold
-	//    just created. Must run AFTER scaffold for the bot to gain membership.
-	if err := s.provisionWorkspaceBotIfAbsent(ctx, run.WorkspaceID); err != nil {
-		slog.Error("gitea provision bot failed",
-			"workspace_id", util.UUIDToString(run.WorkspaceID), "error", err)
-		s.failRun(ctx, run)
-		return
-	}
-
-	// 3. Sync workspace members into the org (TEAM_NAMESPACE_API §1.1: org
-	//    members = team members) so they can read/PR-review the org's repos.
-	//    Best-effort + count-gated: never blocks the run, only re-provisions
-	//    when the member count changes since the last sync.
 	s.syncWorkspaceMembers(ctx, run.WorkspaceID)
 	// M5: register this child run's deliverable address into its parent issue's
 	// Gitea repo (if this run's source issue is a split-out child). Best-effort,
@@ -445,10 +405,10 @@ func (s *WorkflowService) ScaffoldRunDeliverables(ctx context.Context, run db.Mu
 
 // ensureNodeRunBranch creates the node-run branch when a node enters execution.
 func (s *WorkflowService) ensureNodeRunBranch(ctx context.Context, nodeRun db.MulticaWorkflowNodeRun) error {
-	repoProvider := s.deliverableRepository()
-	if !s.teamNamespaceConfigured() && !repoProvider.Configured() {
-		return nil
+	if !s.teamNamespaceConfigured() {
+		return nil // deliverable provisioning requires team-namespace (costrict-web)
 	}
+	repoProvider := s.deliverableRepository()
 
 	deliverables, err := s.Queries.ListNodeRunDeliverableRequirements(ctx, nodeRun.ID)
 	if err != nil {
@@ -474,15 +434,11 @@ func (s *WorkflowService) ensureNodeRunBranch(ctx context.Context, nodeRun db.Mu
 		return fmt.Errorf("get run snapshot: %w", err)
 	}
 
-	if s.teamNamespaceConfigured() {
-		if err := s.initWorkflowNamespace(ctx, run, workflow); err != nil {
-			return err
-		}
-		if !repoProvider.Configured() {
-			return nil
-		}
-	} else if _, err := gitea.ScaffoldRunDeliverable(ctx, s.Gitea, deliverableScaffoldParams(run, workflow)); err != nil {
-		return fmt.Errorf("scaffold run deliverable: %w", err)
+	if err := s.initWorkflowNamespace(ctx, run, workflow); err != nil {
+		return err
+	}
+	if !repoProvider.Configured() {
+		return nil
 	}
 
 	topo, err := RunNodeTopoOrder(ctx, s.Queries, run.ID)
@@ -499,51 +455,6 @@ func (s *WorkflowService) ensureNodeRunBranch(ctx context.Context, nodeRun db.Mu
 	return nil
 }
 
-// provisionWorkspaceBotIfAbsent creates the workspace Gitea bot + PAT and
-// persists them into workspace.settings — only if no gitea_pat is stored yet
-// (lazy + once-per-workspace). Re-provisioning is intentionally NOT done here:
-// re-runs reuse the stored PAT even if the bot user was somehow deleted from
-// Gitea (a future task can add a re-provision + revoke flow if needed).
-func (s *WorkflowService) provisionWorkspaceBotIfAbsent(ctx context.Context, workspaceID pgtype.UUID) error {
-	if s.teamNamespaceConfigured() {
-		return s.ensureTeamNamespace(ctx, workspaceID)
-	}
-	ws, err := s.Queries.GetWorkspace(ctx, workspaceID)
-	if err != nil {
-		return fmt.Errorf("get workspace: %w", err)
-	}
-	settingsMap := map[string]any{}
-	if len(ws.Settings) > 0 {
-		if err := json.Unmarshal(ws.Settings, &settingsMap); err != nil {
-			return fmt.Errorf("parse settings: %w", err)
-		}
-	}
-	if pat, ok := settingsMap["gitea_pat"].(string); ok && pat != "" {
-		return nil // already provisioned — do NOT re-mint
-	}
-
-	username, token, err := gitea.ProvisionWorkspaceBot(ctx, s.Gitea, gitea.BotParams{
-		WorkspaceID: util.UUIDToString(workspaceID),
-	})
-	if err != nil {
-		return fmt.Errorf("provision bot: %w", err)
-	}
-	settingsMap["gitea_bot_username"] = username
-	settingsMap["gitea_pat"] = token
-
-	raw, err := json.Marshal(settingsMap)
-	if err != nil {
-		return fmt.Errorf("marshal settings: %w", err)
-	}
-	if _, err := s.Queries.UpdateWorkspace(ctx, db.UpdateWorkspaceParams{
-		ID:       workspaceID,
-		Settings: raw,
-	}); err != nil {
-		return fmt.Errorf("persist bot settings: %w", err)
-	}
-	return nil
-}
-
 // syncWorkspaceMembers ensures every workspace member is a member of the
 // workspace's Gitea org (TEAM_NAMESPACE_API §1.1: org members = team members),
 // so members can read the org's repos / PRs (e.g. click a deliverable PR link +
@@ -554,99 +465,21 @@ func (s *WorkflowService) provisionWorkspaceBotIfAbsent(ctx context.Context, wor
 // push access). Adding members is the common path; removal (dissolve / leave)
 // is a separate follow-up.
 func (s *WorkflowService) syncWorkspaceMembers(ctx context.Context, workspaceID pgtype.UUID) {
-	if s.teamNamespaceConfigured() {
-		refs, _, err := s.workspaceMemberRefs(ctx, workspaceID)
-		if err != nil {
-			slog.Warn("team namespace sync members: list",
-				"workspace_id", util.UUIDToString(workspaceID), "error", err)
-			return
-		}
-		if _, err := s.TeamNamespace.SyncMembers(ctx, util.UUIDToString(workspaceID), teamnamespace.SyncMembersRequest{
-			Mode:       "full_sync",
-			AddMembers: refs,
-		}); err != nil {
-			slog.Warn("team namespace sync members",
-				"workspace_id", util.UUIDToString(workspaceID), "error", err)
-		}
+	if !s.teamNamespaceConfigured() {
 		return
 	}
-
-	members, err := s.Queries.ListMembersWithUser(ctx, workspaceID)
+	refs, _, err := s.workspaceMemberRefs(ctx, workspaceID)
 	if err != nil {
-		slog.Warn("gitea sync members: list",
+		slog.Warn("team namespace sync members: list",
 			"workspace_id", util.UUIDToString(workspaceID), "error", err)
 		return
 	}
-
-	ws, err := s.Queries.GetWorkspace(ctx, workspaceID)
-	if err != nil {
-		slog.Warn("gitea sync members: get workspace",
-			"workspace_id", util.UUIDToString(workspaceID), "error", err)
-		return
-	}
-	settingsMap := map[string]any{}
-	if len(ws.Settings) > 0 {
-		_ = json.Unmarshal(ws.Settings, &settingsMap) // best-effort
-	}
-	// count gate: skip when membership hasn't changed since the last sync.
-	if n, _ := settingsMap["gitea_member_count_synced"].(float64); int(n) == len(members) && len(members) > 0 {
-		return
-	}
-
-	wsIDStr := util.UUIDToString(workspaceID)
-	wsUsernames := make(map[string]bool, len(members))
-	for _, m := range members {
-		if !m.UserID.Valid {
-			continue
-		}
-		uname, err := gitea.ProvisionMember(ctx, s.Gitea, gitea.MemberParams{
-			WorkspaceID: wsIDStr,
-			UserID:      util.UUIDToString(m.UserID),
-			Email:       m.UserEmail.String,
-		})
-		if err != nil {
-			slog.Warn("gitea sync member: provision",
-				"workspace_id", wsIDStr, "user_id", util.UUIDToString(m.UserID), "error", err)
-		}
-		if uname != "" {
-			wsUsernames[uname] = true
-		}
-	}
-
-	// Full-sync: remove Gitea org members who are no longer workspace members
-	// (journey 2: 增删成员). Keep the bot + the Gitea admin.
-	org := gitea.OrgName(wsIDStr)
-	botName := gitea.BotUsername(wsIDStr)
-	giteaMembers, err := s.deliverableRepository().ListOrgMembers(ctx, org)
-	if err != nil {
-		slog.Warn("gitea sync members: list org members", "error", err)
-	} else {
-		for _, gm := range giteaMembers {
-			if gm.Login == botName || gm.Login == "multica-admin" {
-				continue
-			}
-			if !wsUsernames[gm.Login] {
-				if err := s.Gitea.RemoveOrgMember(ctx, org, gm.Login); err != nil {
-					slog.Warn("gitea sync members: remove departed", "username", gm.Login, "error", err)
-				} else {
-					slog.Info("gitea sync members: removed departed member", "username", gm.Login)
-				}
-			}
-		}
-	}
-
-	// record the synced count so the next run skips unless membership changed.
-	settingsMap["gitea_member_count_synced"] = len(members)
-	raw, err := json.Marshal(settingsMap)
-	if err != nil {
-		slog.Warn("gitea sync members: marshal settings", "error", err)
-		return
-	}
-	if _, err := s.Queries.UpdateWorkspace(ctx, db.UpdateWorkspaceParams{
-		ID:       workspaceID,
-		Settings: raw,
+	if _, err := s.TeamNamespace.SyncMembers(ctx, util.UUIDToString(workspaceID), teamnamespace.SyncMembersRequest{
+		Mode:       "full_sync",
+		AddMembers: refs,
 	}); err != nil {
-		slog.Warn("gitea sync members: persist count", "error", err)
+		slog.Warn("team namespace sync members",
+			"workspace_id", util.UUIDToString(workspaceID), "error", err)
 	}
 }
 
@@ -664,10 +497,10 @@ func (s *WorkflowService) failRun(ctx context.Context, run db.MulticaWorkflowRun
 }
 
 // ProvisionWorkspaceGitea sets up the workspace's Gitea namespace on workspace
-// creation: creates the team-ns org, provisions the bot (user + PAT, stored in
-// workspace.settings), and syncs workspace members into the org. Best-effort +
+// creation via costrict-web team-namespace: creates the org + bot, inits the
+// default archive repo, and syncs workspace members into the org. Best-effort +
 // async (called from a goroutine): errors are logged, never block workspace
-// creation. Dormant when Gitea is not configured.
+// creation. Dormant when team-namespace is not configured.
 func (s *WorkflowService) ProvisionWorkspaceGitea(ctx context.Context, workspaceID pgtype.UUID) {
 	defer func() {
 		if r := recover(); r != nil {
@@ -676,57 +509,19 @@ func (s *WorkflowService) ProvisionWorkspaceGitea(ctx context.Context, workspace
 		}
 	}()
 
-	if !s.teamNamespaceConfigured() && (s.Gitea == nil || !s.Gitea.Configured()) {
+	if !s.teamNamespaceConfigured() {
 		return
 	}
 
 	wsIDStr := util.UUIDToString(workspaceID)
-	ws, err := s.Queries.GetWorkspace(ctx, workspaceID)
-	if err != nil {
-		slog.Warn("provision workspace gitea: get workspace",
+	if err := s.ensureTeamNamespace(ctx, workspaceID); err != nil {
+		slog.Warn("provision workspace team namespace",
 			"workspace_id", wsIDStr, "error", err)
 		return
 	}
-
-	if s.teamNamespaceConfigured() {
-		if err := s.ensureTeamNamespace(ctx, workspaceID); err != nil {
-			slog.Warn("provision workspace team namespace",
-				"workspace_id", wsIDStr, "error", err)
-			return
-		}
-		s.syncWorkspaceMembers(ctx, workspaceID)
-		s.initDefaultArchiveRepo(ctx, workspaceID)
-		slog.Info("provisioned workspace team namespace",
-			"workspace_id", wsIDStr)
-		return
-	}
-
-	// 1. Create the team-namespace org.
-	if err := gitea.ScaffoldOrg(ctx, s.Gitea, wsIDStr, ws.Name); err != nil {
-		slog.Warn("provision workspace gitea: scaffold org",
-			"workspace_id", wsIDStr, "error", err)
-		return
-	}
-
-	// 2. Create the workspace-level default deliverable archive repo.
-	if err := gitea.ScaffoldWorkspaceArchiveRepo(ctx, s.Gitea, wsIDStr, ws.Name); err != nil {
-		slog.Warn("provision workspace gitea: scaffold archive repo",
-			"workspace_id", wsIDStr, "error", err)
-		return
-	}
-
-	// 3. Provision the workspace bot (user + PAT + org membership).
-	if err := s.provisionWorkspaceBotIfAbsent(ctx, workspaceID); err != nil {
-		slog.Warn("provision workspace gitea: provision bot",
-			"workspace_id", wsIDStr, "error", err)
-		return
-	}
-
-	// 4. Sync workspace members into the org.
 	s.syncWorkspaceMembers(ctx, workspaceID)
-
-	slog.Info("provisioned workspace gitea",
-		"workspace_id", wsIDStr, "org", gitea.OrgName(wsIDStr))
+	s.initDefaultArchiveRepo(ctx, workspaceID)
+	slog.Info("provisioned workspace team namespace", "workspace_id", wsIDStr)
 }
 
 // ProvisionWorkflowRepo creates the workflow's type repo (wf-<wf[:8]>) with main
@@ -738,15 +533,21 @@ func (s *WorkflowService) ProvisionWorkflowRepo(ctx context.Context, workflowID 
 			slog.Error("panic in ProvisionWorkflowRepo", "workflow_id", util.UUIDToString(workflowID), "panic", r)
 		}
 	}()
-	if s.teamNamespaceConfigured() {
+
+	// team-namespace not configured → feature dormant.
+	if !s.teamNamespaceConfigured() {
 		return
 	}
-	if s.Gitea == nil || !s.Gitea.Configured() {
-		return
-	}
+
 	wf, err := s.Queries.GetWorkflow(ctx, workflowID)
 	if err != nil {
 		slog.Warn("provision workflow repo: get workflow", "error", err)
+		return
+	}
+	// The default workflow's archive repo (wf-deliverable-archive) is eagerly
+	// provisioned at workspace creation (initDefaultArchiveRepo); never
+	// re-provision it here.
+	if wf.IsDefault {
 		return
 	}
 	// Only create the repo if the workflow has any deliverable (M5 decision ①:
@@ -755,14 +556,38 @@ func (s *WorkflowService) ProvisionWorkflowRepo(ctx context.Context, workflowID 
 	if err != nil || !has {
 		return
 	}
-	if err := gitea.ScaffoldWorkflowRepo(ctx, s.Gitea,
-		util.UUIDToString(wf.WorkspaceID), util.UUIDToString(wf.ID), wf.Title); err != nil {
-		slog.Warn("provision workflow repo: scaffold", "workflow_id", util.UUIDToString(workflowID), "error", err)
+
+	s.provisionTeamNamespaceWorkflowRepo(ctx, wf)
+}
+
+// provisionTeamNamespaceWorkflowRepo eagerly provisions the workflow's repo
+// (wf-<workflow UUID prefix>) via the costrict-web internal API at activation
+// time — the team-namespace counterpart of the Gitea-direct ScaffoldWorkflowRepo
+// above. Mirrors initDefaultArchiveRepo: no run exists yet, so InstanceID uses
+// the stable workflow UUID; idempotent (a later run's initWorkflowNamespace with
+// InstanceID=runID finds the repo existing and only adds its per-run branch);
+// best-effort, never blocks activation; does NOT persist run-scoped settings
+// (that is initWorkflowNamespace's job at run time). The defSlug MUST equal
+// initWorkflowNamespace's so activation and run-start target the same repo.
+func (s *WorkflowService) provisionTeamNamespaceWorkflowRepo(ctx context.Context, wf db.MulticaWorkflow) {
+	if err := s.ensureTeamNamespace(ctx, wf.WorkspaceID); err != nil {
+		slog.Warn("provision workflow repo: ensure team namespace",
+			"workflow_id", util.UUIDToString(wf.ID), "error", err)
 		return
 	}
-	slog.Info("provisioned workflow repo",
-		"workflow_id", util.UUIDToString(workflowID),
-		"repo", gitea.RepoName(util.UUIDToString(wf.ID)))
+	wfIDStr := util.UUIDToString(wf.ID)
+	resp, err := s.TeamNamespace.InitWorkflow(ctx, teamnamespace.WorkflowInitRequest{
+		WorkflowDefSlug: shortHexSafe(wfIDStr), // must equal initWorkflowNamespace's defSlug
+		InstanceID:      wfIDStr,               // stable per-workflow instance (no run yet)
+		TeamID:          util.UUIDToString(wf.WorkspaceID),
+	})
+	if err != nil {
+		slog.Warn("provision workflow repo: team-namespace init",
+			"workflow_id", wfIDStr, "error", err)
+		return
+	}
+	slog.Info("provisioned workflow repo via team namespace",
+		"workflow_id", wfIDStr, "repo", resp.WFRepoPath, "branch", resp.InstanceBranch)
 }
 
 // ArchiveReviewComment archives the critic's review opinion into the run's Gitea
