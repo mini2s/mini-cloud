@@ -519,10 +519,9 @@ func TestAppendDeliverablePrompt_CheckoutAndSubmit(t *testing.T) {
 	refs := []giteaDeliverableRefJSON{{ID: "d1", Title: "Doc1", Path: "nodes/01-x/d1.md"}}
 	got := appendDeliverablePrompt("base prompt", refs)
 	for _, want := range []string{
-		"cs-cloud repo checkout",                                // managed-worktree checkout command
-		"$MULTICA_REPO_CLONE_URL --base",                        // PLAIN url + base flag (not authed)
-		"MULTICA_REPO_NODE_BRANCH",                              // per-node branch context
-		"MULTICA_REPO_INST_BRANCH",                              // inst branch context
+		"git clone $CS_CLOUD_REPO_CLONE_URL_AUTHED",             // native git clone (agent does it itself)
+		"CS_CLOUD_REPO_NODE_BRANCH",                             // per-node branch the agent checks out
+		"CS_CLOUD_REPO_INST_BRANCH",                             // inst branch context (read path)
 		"cs-cloud workflow deliverable submit --deliverable d1", // per-deliverable submit path
 		"cs-workflow issue deliverables",                        // self-service read command
 		"Document Deliverables",
@@ -531,9 +530,10 @@ func TestAppendDeliverablePrompt_CheckoutAndSubmit(t *testing.T) {
 			t.Errorf("prompt missing %q:\n%s", want, got)
 		}
 	}
-	// The OLD primary clone instruction must be gone — checkout goes through cs-cloud.
-	if strings.Contains(got, "git clone $MULTICA_REPO_CLONE_URL_AUTHED") {
-		t.Errorf("prompt must NOT instruct plain `git clone $MULTICA_REPO_CLONE_URL_AUTHED` (use cs-cloud repo checkout):\n%s", got)
+	// The dedicated `cs-cloud repo checkout` command is gone — the agent clones
+	// with native git now.
+	if strings.Contains(got, "cs-cloud repo checkout") {
+		t.Errorf("prompt must NOT reference removed `cs-cloud repo checkout` command:\n%s", got)
 	}
 	if strings.Contains(got, "deliverable fetch") {
 		t.Errorf("prompt must NOT reference fetch (command removed):\n%s", got)
@@ -1996,7 +1996,7 @@ func TestBuildCSCloudPayload_NonWorkerPhaseHasNoDeliverables(t *testing.T) {
 //
 // cs-cloud's lookupRepoRole matches the checkout URL against payload.Repos[].URL
 // by EXACT equality. repos[].URL comes from workspace.settings gitea_clone_url
-// (read by resolveDeliveryRepo); MULTICA_REPO_CLONE_URL is what the agent passes
+// (read by resolveDeliveryRepo); CS_CLOUD_REPO_CLONE_URL is what the agent passes
 // to `cs-cloud repo checkout`. If the two URLs diverge — e.g. GITEA_PUBLIC_BASE_URL
 // points at a different host than the tenant-scoped Gitea that wrote the settings —
 // cs-cloud silently downgrades delivery → code, picks the GitLab PAT, and the
@@ -2031,24 +2031,24 @@ func TestRepositoryDeliverableEnv_PrefersSettingsCloneURL(t *testing.T) {
 	// Clone URL MUST come from settings so it exactly equals repos[].URL
 	// (which resolveDeliveryRepo also reads from settings.gitea_clone_url).
 	// Self-assembly from GITEA_PUBLIC_BASE_URL would produce http://localhost:23000/...
-	if got, want := env["MULTICA_REPO_CLONE_URL"], "https://gitea-tenant.example/x/wf-abc.git"; got != want {
-		t.Errorf("MULTICA_REPO_CLONE_URL = %q, want settings value %q", got, want)
+	if got, want := env["CS_CLOUD_REPO_CLONE_URL"], "https://gitea-tenant.example/x/wf-abc.git"; got != want {
+		t.Errorf("CS_CLOUD_REPO_CLONE_URL = %q, want settings value %q", got, want)
 	}
 	// Inst branch MUST come from settings so it matches repos[].BaseBranch.
-	if got, want := env["MULTICA_REPO_INST_BRANCH"], "inst-from-settings"; got != want {
-		t.Errorf("MULTICA_REPO_INST_BRANCH = %q, want %q", got, want)
+	if got, want := env["CS_CLOUD_REPO_INST_BRANCH"], "inst-from-settings"; got != want {
+		t.Errorf("CS_CLOUD_REPO_INST_BRANCH = %q, want %q", got, want)
 	}
 	// Base URL (cs-cloud's PR API target) comes from settings.gitea_web_url.
-	if got, want := env["MULTICA_REPO_BASE_URL"], "https://gitea-tenant.example"; got != want {
-		t.Errorf("MULTICA_REPO_BASE_URL = %q, want %q", got, want)
+	if got, want := env["CS_CLOUD_REPO_BASE_URL"], "https://gitea-tenant.example"; got != want {
+		t.Errorf("CS_CLOUD_REPO_BASE_URL = %q, want %q", got, want)
 	}
 	// Authed clone URL derives from the settings-sourced cloneURL (token embedded).
-	if got := env["MULTICA_REPO_CLONE_URL_AUTHED"]; !strings.Contains(got, "gitea-tenant.example") {
-		t.Errorf("MULTICA_REPO_CLONE_URL_AUTHED = %q, want to derive from settings cloneURL", got)
+	if got := env["CS_CLOUD_REPO_CLONE_URL_AUTHED"]; !strings.Contains(got, "gitea-tenant.example") {
+		t.Errorf("CS_CLOUD_REPO_CLONE_URL_AUTHED = %q, want to derive from settings cloneURL", got)
 	}
 	// The legacy alias must carry the SAME settings-sourced value.
-	if got := env["MULTICA_GITEA_CLONE_URL"]; got != "https://gitea-tenant.example/x/wf-abc.git" {
-		t.Errorf("MULTICA_GITEA_CLONE_URL = %q, want settings value (aliased)", got)
+	if got := env["CS_CLOUD_GITEA_CLONE_URL"]; got != "https://gitea-tenant.example/x/wf-abc.git" {
+		t.Errorf("CS_CLOUD_GITEA_CLONE_URL = %q, want settings value (aliased)", got)
 	}
 }
 
@@ -2073,10 +2073,10 @@ func TestRepositoryDeliverableEnv_FallsBackToSelfBuiltWhenSettingsLackCloneURL(t
 	}
 
 	// Fallback: self-built from GITEA_PUBLIC_BASE_URL.
-	if got := env["MULTICA_REPO_CLONE_URL"]; !strings.Contains(got, "localhost:23000") {
-		t.Errorf("MULTICA_REPO_CLONE_URL = %q, want self-built from GITEA_PUBLIC_BASE_URL (localhost:23000)", got)
+	if got := env["CS_CLOUD_REPO_CLONE_URL"]; !strings.Contains(got, "localhost:23000") {
+		t.Errorf("CS_CLOUD_REPO_CLONE_URL = %q, want self-built from GITEA_PUBLIC_BASE_URL (localhost:23000)", got)
 	}
-	if strings.Contains(env["MULTICA_REPO_CLONE_URL"], "gitea-tenant.example") {
-		t.Errorf("MULTICA_REPO_CLONE_URL should NOT be the settings value when gitea_clone_url is absent")
+	if strings.Contains(env["CS_CLOUD_REPO_CLONE_URL"], "gitea-tenant.example") {
+		t.Errorf("CS_CLOUD_REPO_CLONE_URL should NOT be the settings value when gitea_clone_url is absent")
 	}
 }
