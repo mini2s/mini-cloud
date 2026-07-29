@@ -1627,6 +1627,7 @@ type teamNamespaceRecorder struct {
 	mu               sync.Mutex
 	initCalled       bool
 	createTeamCalled bool
+	lastInitReq      teamnamespace.WorkflowInitRequest
 }
 
 func newTeamNamespaceTestServer(t *testing.T) (*httptest.Server, *teamNamespaceRecorder) {
@@ -1635,8 +1636,11 @@ func newTeamNamespaceTestServer(t *testing.T) (*httptest.Server, *teamNamespaceR
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/api/internal/workflow/init":
+			var initReq teamnamespace.WorkflowInitRequest
+			_ = json.NewDecoder(r.Body).Decode(&initReq)
 			rec.mu.Lock()
 			rec.initCalled = true
+			rec.lastInitReq = initReq
 			rec.mu.Unlock()
 			_ = json.NewEncoder(w).Encode(teamnamespace.WorkflowInitResponse{
 				WFRepoPath:       "t-ws/wf-docworkflow",

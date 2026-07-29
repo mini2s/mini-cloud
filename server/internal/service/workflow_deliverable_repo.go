@@ -738,23 +738,37 @@ func (s *WorkflowService) ProvisionWorkflowRepo(ctx context.Context, workflowID 
 			slog.Error("panic in ProvisionWorkflowRepo", "workflow_id", util.UUIDToString(workflowID), "panic", r)
 		}
 	}()
-	if s.teamNamespaceConfigured() {
+
+	// Neither provisioning path is configured → feature dormant.
+	if !s.teamNamespaceConfigured() && (s.Gitea == nil || !s.Gitea.Configured()) {
 		return
 	}
-	if s.Gitea == nil || !s.Gitea.Configured() {
-		return
-	}
+
 	wf, err := s.Queries.GetWorkflow(ctx, workflowID)
 	if err != nil {
 		slog.Warn("provision workflow repo: get workflow", "error", err)
 		return
 	}
+	// The default workflow's archive repo (wf-deliverable-archive) is eagerly
+	// provisioned at workspace creation (initDefaultArchiveRepo); never
+	// re-provision it here.
+	if wf.IsDefault {
+		return
+	}
 	// Only create the repo if the workflow has any deliverable (M5 decision ①:
-	// code-only runs get a repo for code-MR archiving).
+	// code-only runs get a repo for code-MR archiving). Applied to BOTH paths
+	// so the team-namespace and Gitea-direct branches stay symmetric.
 	has, err := s.hasAnyDeliverable(ctx, workflowID)
 	if err != nil || !has {
 		return
 	}
+
+	if s.teamNamespaceConfigured() {
+		s.provisionTeamNamespaceWorkflowRepo(ctx, wf)
+		return
+	}
+
+	// Gitea-direct path.
 	if err := gitea.ScaffoldWorkflowRepo(ctx, s.Gitea,
 		util.UUIDToString(wf.WorkspaceID), util.UUIDToString(wf.ID), wf.Title); err != nil {
 		slog.Warn("provision workflow repo: scaffold", "workflow_id", util.UUIDToString(workflowID), "error", err)
@@ -763,6 +777,36 @@ func (s *WorkflowService) ProvisionWorkflowRepo(ctx context.Context, workflowID 
 	slog.Info("provisioned workflow repo",
 		"workflow_id", util.UUIDToString(workflowID),
 		"repo", gitea.RepoName(util.UUIDToString(wf.ID)))
+}
+
+// provisionTeamNamespaceWorkflowRepo eagerly provisions the workflow's repo
+// (wf-<workflow UUID prefix>) via the costrict-web internal API at activation
+// time — the team-namespace counterpart of the Gitea-direct ScaffoldWorkflowRepo
+// above. Mirrors initDefaultArchiveRepo: no run exists yet, so InstanceID uses
+// the stable workflow UUID; idempotent (a later run's initWorkflowNamespace with
+// InstanceID=runID finds the repo existing and only adds its per-run branch);
+// best-effort, never blocks activation; does NOT persist run-scoped settings
+// (that is initWorkflowNamespace's job at run time). The defSlug MUST equal
+// initWorkflowNamespace's so activation and run-start target the same repo.
+func (s *WorkflowService) provisionTeamNamespaceWorkflowRepo(ctx context.Context, wf db.MulticaWorkflow) {
+	if err := s.ensureTeamNamespace(ctx, wf.WorkspaceID); err != nil {
+		slog.Warn("provision workflow repo: ensure team namespace",
+			"workflow_id", util.UUIDToString(wf.ID), "error", err)
+		return
+	}
+	wfIDStr := util.UUIDToString(wf.ID)
+	resp, err := s.TeamNamespace.InitWorkflow(ctx, teamnamespace.WorkflowInitRequest{
+		WorkflowDefSlug: shortHexSafe(wfIDStr), // must equal initWorkflowNamespace's defSlug
+		InstanceID:      wfIDStr,               // stable per-workflow instance (no run yet)
+		TeamID:          util.UUIDToString(wf.WorkspaceID),
+	})
+	if err != nil {
+		slog.Warn("provision workflow repo: team-namespace init",
+			"workflow_id", wfIDStr, "error", err)
+		return
+	}
+	slog.Info("provisioned workflow repo via team namespace",
+		"workflow_id", wfIDStr, "repo", resp.WFRepoPath, "branch", resp.InstanceBranch)
 }
 
 // ArchiveReviewComment archives the critic's review opinion into the run's Gitea

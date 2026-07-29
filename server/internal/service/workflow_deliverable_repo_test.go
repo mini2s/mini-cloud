@@ -20,6 +20,7 @@ import (
 	"github.com/multica-ai/multica/server/internal/coderepo"
 	"github.com/multica-ai/multica/server/internal/events"
 	"github.com/multica-ai/multica/server/internal/gitea"
+	"github.com/multica-ai/multica/server/internal/teamnamespace"
 	"github.com/multica-ai/multica/server/internal/util"
 	db "github.com/multica-ai/multica/server/pkg/db/generated"
 )
@@ -644,6 +645,66 @@ func TestProvisionWorkflowRepo_UsesWorkflowIDForRepoName(t *testing.T) {
 	if repoExists(owner + "/" + titleRepo) {
 		t.Fatalf("workflow repo was created from title as %s/%s; want workflow ID repo %s/%s",
 			owner, titleRepo, owner, expectedRepo)
+	}
+}
+
+// TestProvisionWorkflowRepo_TeamNamespace_CreatesRepoFromWorkflowUUID asserts
+// that when the costrict-web (team-namespace) path is configured, provisioning
+// an activated deliverable-bearing workflow eagerly creates its repo via
+// InitWorkflow keyed on the workflow's UUID — mirroring the run-start
+// initWorkflowNamespace defSlug. This is the path the early
+// `if teamNamespaceConfigured() { return }` previously short-circuited, leaving
+// activation with no repo until the first run.
+func TestProvisionWorkflowRepo_TeamNamespace_CreatesRepoFromWorkflowUUID(t *testing.T) {
+	pool := openTestPool(t)
+	defer pool.Close()
+
+	fix := seedGiteaFixture(t, pool, true /*document deliverable*/, 0 /*no runs needed at activation*/)
+
+	// ensureTeamNamespace resolves the team creator from a member's cs-user
+	// subject_id; the base fixture doesn't set one, so seed it.
+	if _, err := pool.Exec(context.Background(),
+		`UPDATE multica_member SET subject_id = $1 WHERE workspace_id = $2`,
+		"usr-owner-"+util.UUIDToString(fix.workspace)[:8], fix.workspace,
+	); err != nil {
+		t.Fatalf("set member subject_id: %v", err)
+	}
+
+	srv, rec := newTeamNamespaceTestServer(t)
+	defer srv.Close()
+	tnClient := teamnamespace.NewClient(teamnamespace.Config{
+		BaseURL: srv.URL,
+		Token:   "svc-token",
+		Tenant:  "default",
+	})
+
+	svc := &WorkflowService{
+		Queries:       db.New(pool),
+		TeamNamespace: tnClient,
+	}
+
+	svc.ProvisionWorkflowRepo(context.Background(), fix.workflow)
+
+	rec.mu.Lock()
+	initCalled := rec.initCalled
+	gotReq := rec.lastInitReq
+	rec.mu.Unlock()
+
+	if !initCalled {
+		t.Fatalf("expected InitWorkflow to be called via team-namespace when provisioning an activated workflow")
+	}
+	wantSlug := shortHexSafe(util.UUIDToString(fix.workflow))
+	if gotReq.WorkflowDefSlug != wantSlug {
+		t.Errorf("InitWorkflow WorkflowDefSlug = %q, want %q (workflow UUID prefix)",
+			gotReq.WorkflowDefSlug, wantSlug)
+	}
+	if gotReq.InstanceID != util.UUIDToString(fix.workflow) {
+		t.Errorf("InitWorkflow InstanceID = %q, want workflow UUID %q",
+			gotReq.InstanceID, util.UUIDToString(fix.workflow))
+	}
+	if gotReq.TeamID != util.UUIDToString(fix.workspace) {
+		t.Errorf("InitWorkflow TeamID = %q, want workspace UUID %q",
+			gotReq.TeamID, util.UUIDToString(fix.workspace))
 	}
 }
 
