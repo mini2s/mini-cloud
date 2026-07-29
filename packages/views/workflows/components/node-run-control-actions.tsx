@@ -85,7 +85,9 @@ export function NodeRunControlActions({
 
   const status = nodeRun.status;
   const isWorking = status === "working";
-  const isBlocked = status === "blocked";
+  const isTakenOver = status === "blocked" &&
+    nodeRun.completed_at == null &&
+    nodeRun.runtime_id != null;
 
   const anyControlPending =
     takeoverMutation.isPending || handbackMutation.isPending || finalizeMutation.isPending;
@@ -114,7 +116,7 @@ export function NodeRunControlActions({
       toast.error(t(($) => $.node_run.no_control_permission));
       return;
     }
-    if (!isBlocked) {
+    if (!isTakenOver) {
       toast.error(t(($) => $.node_run.hand_back_wrong_status));
       return;
     }
@@ -130,7 +132,7 @@ export function NodeRunControlActions({
       toast.error(t(($) => $.node_run.no_control_permission));
       return;
     }
-    if (!isBlocked) {
+    if (!isTakenOver) {
       toast.error(t(($) => $.node_run.finalize_wrong_status));
       return;
     }
@@ -158,7 +160,7 @@ export function NodeRunControlActions({
   // workflow editor/run page.
   if (!alwaysShow) {
     const canTakeover = isWorking && controlDecision.allowed;
-    const canHandbackOrFinalize = isBlocked && controlDecision.allowed;
+    const canHandbackOrFinalize = isTakenOver && controlDecision.allowed;
     if (!canTakeover && !canHandbackOrFinalize) {
       return null;
     }
@@ -235,7 +237,7 @@ export function NodeRunControlActions({
         <MessageSquare className={iconClass + " mr-1"} />
         {t(($) => $.node_run.open_session)}
       </Button>
-      {isBlocked && (
+      {isTakenOver && (
         <>
           <Button
             size={size}
