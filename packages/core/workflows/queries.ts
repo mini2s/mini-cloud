@@ -13,12 +13,13 @@ import type {
   WorkflowRoleAssignmentInput,
   ApproveSplitRequest,
   BatchPatchSplitDraftTasksRequest,
+  BatchPatchSplitTaskAssigneesRequest,
   ChatMessage,
   ChatPendingTask,
   CreateSplitDraftTaskRequest,
   PatchSplitConfigRequest,
   PatchSplitDraftTaskRequest,
-  RetrySplitTaskRequest,
+  PatchSplitTaskAssigneeRequest,
   WorkflowRuntimeSelectionPolicy,
   WorkflowRun,
   WorkflowNodeRun,
@@ -519,16 +520,38 @@ export function usePatchSplitConfig(wsId: string) {
   });
 }
 
-export function useRetrySplitTask(wsId: string) {
+export function usePatchSplitTaskAssignee(wsId: string) {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: ({
       nodeRunId,
       taskId,
       request,
-    }: SplitMutationVars & { taskId: string; request?: RetrySplitTaskRequest }) =>
-      api.retrySplitTask(nodeRunId, taskId, request),
-    onSuccess: (_data, vars) => invalidateSplitNodeQueries(queryClient, wsId, vars),
+    }: SplitMutationVars & { taskId: string; request: PatchSplitTaskAssigneeRequest }) =>
+      api.patchSplitTaskAssignee(nodeRunId, taskId, request),
+    onSuccess: (data, vars) => {
+      queryClient.setQueryData(workflowKeys.splitTasks(wsId, vars.nodeRunId), data);
+    },
+    onSettled: (_data, _error, vars) => queryClient.invalidateQueries({
+      queryKey: workflowKeys.splitTasks(wsId, vars.nodeRunId),
+    }),
+  });
+}
+
+export function useBatchPatchSplitTaskAssignees(wsId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      nodeRunId,
+      request,
+    }: SplitMutationVars & { request: BatchPatchSplitTaskAssigneesRequest }) =>
+      api.batchPatchSplitTaskAssignees(nodeRunId, request),
+    onSuccess: (data, vars) => {
+      queryClient.setQueryData(workflowKeys.splitTasks(wsId, vars.nodeRunId), data);
+    },
+    onSettled: (_data, _error, vars) => queryClient.invalidateQueries({
+      queryKey: workflowKeys.splitTasks(wsId, vars.nodeRunId),
+    }),
   });
 }
 

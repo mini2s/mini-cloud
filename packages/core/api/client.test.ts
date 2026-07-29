@@ -6,6 +6,34 @@ afterEach(() => {
 });
 
 describe("ApiClient", () => {
+  it("posts one split draft assignee batch and falls back on a malformed response", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ tasks: "invalid", progress: null }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const client = new ApiClient("https://api.example.test");
+    const request = {
+      assignee_type: "member" as const,
+      assignee_id: "member-1",
+      tasks: [
+        { task_id: "task-1", expected_version: 2 },
+        { task_id: "task-2", expected_version: 5 },
+      ],
+    };
+
+    const response = await client.batchPatchSplitTaskAssignees("node-run-1", request);
+
+    expect(response.tasks).toEqual([]);
+    expect(response.progress).toMatchObject({ total: 0, created: 0, running: 0, done: 0 });
+    const [url, init] = fetchMock.mock.calls[0]!;
+    expect(url).toBe("https://api.example.test/api/node-runs/node-run-1/split/draft-tasks/assignees");
+    expect(init?.method).toBe("PATCH");
+    expect(JSON.parse(init?.body as string)).toEqual(request);
+  });
+
   it("preserves HTTP status on failed requests", async () => {
     vi.stubGlobal(
       "fetch",

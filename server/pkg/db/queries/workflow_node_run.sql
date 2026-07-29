@@ -35,6 +35,15 @@ WHERE id = $1
   AND split_config_version = $3
 RETURNING *;
 
+-- name: BlockSplitNodeRunForReviewerResolution :one
+UPDATE multica_workflow_node_run
+SET status = 'blocked',
+    failure_reason = 'split_reviewer_unresolved',
+    updated_at = now()
+WHERE id = $1
+  AND status IN ('splitting', 'awaiting_split_review')
+RETURNING *;
+
 -- name: CreateWorkflowNodeRun :one
 INSERT INTO multica_workflow_node_run (
     workflow_run_id, workflow_node_id, node_title, status,
@@ -61,7 +70,7 @@ RETURNING *;
 UPDATE multica_workflow_node_run SET
     status = $2,
     started_at = CASE
-        WHEN $2 IN ('format_checking', 'working', 'critic_reviewing')
+        WHEN $2 IN ('format_checking', 'working', 'critic_reviewing', 'splitting')
              AND started_at IS NULL THEN now()
         ELSE started_at
     END,

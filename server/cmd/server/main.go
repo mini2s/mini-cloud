@@ -558,7 +558,8 @@ func main() {
 	roleWorkflowSvc := service.NewWorkflowService(queries, pool, bus, taskSvc)
 	roleWorkflowSvc.Gitea = giteaClient
 	roleWorkflowSvc.TeamNamespace = teamNamespaceClient
-	splitDispatchSvc := service.NewSplitOrchestrator(queries, pool, roleWorkflowSvc, bus)
+	assignmentSvc := &service.IssueAssignmentService{Queries: queries, Tasks: taskSvc, Workflows: roleWorkflowSvc}
+	splitDispatchSvc := service.NewSplitOrchestrator(queries, pool, roleWorkflowSvc, assignmentSvc, bus)
 	hostname, _ := os.Hostname()
 	for i := 0; i < roleResolutionRuntime.WorkerConcurrency; i++ {
 		worker := &service.WorkflowRoleResolutionWorker{

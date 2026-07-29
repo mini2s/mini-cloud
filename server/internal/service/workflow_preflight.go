@@ -6,7 +6,6 @@ import (
 	"strings"
 
 	"github.com/multica-ai/multica/server/internal/gitea"
-	"github.com/multica-ai/multica/server/internal/util"
 )
 
 type WorkflowConfigIssue struct {
@@ -190,14 +189,9 @@ func validateSnapshotSplit(nodes []WorkflowSnapshotNode) []WorkflowConfigIssue {
 			continue
 		}
 		config := node.SplitConfig
-		if config == nil || strings.TrimSpace(config.DefaultIssueWorkflowID) == "" ||
-			(config.Mode != SplitModeBarrier && config.Mode != SplitModePipeline) ||
+		if config == nil || (config.Mode != SplitModeBarrier && config.Mode != SplitModePipeline) ||
 			config.MaxConcurrency < 1 || config.MaxConcurrency > 50 || config.MaxFailures < 0 {
 			issues = append(issues, workflowIssue("split_config_invalid", node, "Split configuration is incomplete or invalid"))
-			continue
-		}
-		if _, err := util.ParseUUID(config.DefaultIssueWorkflowID); err != nil {
-			issues = append(issues, workflowIssue("split_config_invalid", node, "Split issue workflow ID is invalid"))
 		}
 	}
 	return issues

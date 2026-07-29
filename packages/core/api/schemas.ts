@@ -264,7 +264,9 @@ export const SplitTaskSchema = z.object({
   node_run_id: z.string(),
   title: z.string().default(""),
   description: z.string().default(""),
-  workflow_id: z.string().default(""),
+  workflow_id: z.string().nullable().default(null),
+  assignee_type: z.enum(["member", "agent", "squad", "workflow"]).nullable().default(null),
+  assignee_id: z.string().nullable().default(null),
   depends_on: z.array(z.string()).default([]),
   sort_order: z.number().default(0),
   status: z.string().default("draft"),
@@ -286,7 +288,7 @@ export const SplitTaskSchema = z.object({
 }).loose();
 
 export const SplitTasksResponseSchema = z.object({
-  tasks: z.array(SplitTaskSchema).default([]),
+  tasks: z.array(SplitTaskSchema).nullish().transform((value) => value ?? []),
   progress: SplitProgressSchema.default(EMPTY_SPLIT_PROGRESS as any),
   chat_session_id: z.string().optional(),
   task_id: z.string().optional(),

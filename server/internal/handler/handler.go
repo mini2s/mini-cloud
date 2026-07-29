@@ -126,35 +126,36 @@ type workspaceDeptClient interface {
 }
 
 type Handler struct {
-	Queries               *db.Queries
-	DB                    dbExecutor
-	TxStarter             txStarter
-	Hub                   *realtime.Hub
-	DaemonHub             *daemonws.Hub
-	Bus                   *events.Bus
-	TaskService           *service.TaskService
-	AutopilotService      *service.AutopilotService
-	WorkflowService       *service.WorkflowService
-	SplitOrchestrator     *service.SplitOrchestrator
-	EmailService          *service.EmailService
-	UpdateStore           UpdateStore
-	ModelListStore        ModelListStore
-	LocalSkillListStore   LocalSkillListStore
-	LocalSkillImportStore LocalSkillImportStore
-	LivenessStore         LivenessStore
-	HeartbeatScheduler    HeartbeatScheduler
-	Storage               storage.Storage
-	CFSigner              *auth.CloudFrontSigner
-	Analytics             analytics.Client
-	PATCache              *auth.PATCache
-	DaemonTokenCache      *auth.DaemonTokenCache
-	MembershipCache       *auth.MembershipCache
-	WebhookRateLimiter    WebhookRateLimiter
-	WebhookIPRateLimiter  WebhookRateLimiter
-	CloudRuntime          cloudRuntimeProxy
-	CsUser                csUserClient
-	DeptSync              workspaceDeptClient
-	cfg                   Config
+	Queries                *db.Queries
+	DB                     dbExecutor
+	TxStarter              txStarter
+	Hub                    *realtime.Hub
+	DaemonHub              *daemonws.Hub
+	Bus                    *events.Bus
+	TaskService            *service.TaskService
+	AutopilotService       *service.AutopilotService
+	WorkflowService        *service.WorkflowService
+	IssueAssignmentService *service.IssueAssignmentService
+	SplitOrchestrator      *service.SplitOrchestrator
+	EmailService           *service.EmailService
+	UpdateStore            UpdateStore
+	ModelListStore         ModelListStore
+	LocalSkillListStore    LocalSkillListStore
+	LocalSkillImportStore  LocalSkillImportStore
+	LivenessStore          LivenessStore
+	HeartbeatScheduler     HeartbeatScheduler
+	Storage                storage.Storage
+	CFSigner               *auth.CloudFrontSigner
+	Analytics              analytics.Client
+	PATCache               *auth.PATCache
+	DaemonTokenCache       *auth.DaemonTokenCache
+	MembershipCache        *auth.MembershipCache
+	WebhookRateLimiter     WebhookRateLimiter
+	WebhookIPRateLimiter   WebhookRateLimiter
+	CloudRuntime           cloudRuntimeProxy
+	CsUser                 csUserClient
+	DeptSync               workspaceDeptClient
+	cfg                    Config
 }
 
 func New(queries *db.Queries, txStarter txStarter, hub *realtime.Hub, bus *events.Bus, emailService *service.EmailService, store storage.Storage, cfSigner *auth.CloudFrontSigner, analyticsClient analytics.Client, cfg Config, daemonHubs ...*daemonws.Hub) *Handler {
@@ -176,7 +177,8 @@ func New(queries *db.Queries, txStarter txStarter, hub *realtime.Hub, bus *event
 	taskSvc.Analytics = analyticsClient
 	autopilotSvc := service.NewAutopilotService(queries, txStarter, bus, taskSvc)
 	workflowSvc := service.NewWorkflowService(queries, txStarter, bus, taskSvc)
-	splitOrchestrator := service.NewSplitOrchestrator(queries, txStarter, workflowSvc, bus, store)
+	assignmentSvc := &service.IssueAssignmentService{Queries: queries, Tasks: taskSvc, Workflows: workflowSvc}
+	splitOrchestrator := service.NewSplitOrchestrator(queries, txStarter, workflowSvc, assignmentSvc, bus, store)
 
 	taskSvc.OnTaskCompleting = func(ctx context.Context, task db.MulticaAgentTaskQueue) error {
 		if splitOrchestrator != nil {
@@ -196,36 +198,61 @@ func New(queries *db.Queries, txStarter txStarter, hub *realtime.Hub, bus *event
 	// the node run so the workflow can reach a terminal state.
 	taskSvc.OnTaskFailed = func(ctx context.Context, task db.MulticaAgentTaskQueue) {
 		_ = workflowSvc.HandleWorkflowTaskFailure(ctx, task)
+		if task.IssueID.Valid {
+			if err := splitOrchestrator.HandleChildExecutionFailed(ctx, task.IssueID, errors.New("agent task failed without retry")); err != nil {
+				slog.Warn("split child task-failure hook failed", "issue_id", uuidToString(task.IssueID), "error", err)
+			}
+		}
 	}
 
 	h := &Handler{
-		Queries:               queries,
-		DB:                    executor,
-		TxStarter:             txStarter,
-		Hub:                   hub,
-		DaemonHub:             daemonHub,
-		Bus:                   bus,
-		TaskService:           taskSvc,
-		AutopilotService:      autopilotSvc,
-		WorkflowService:       workflowSvc,
-		SplitOrchestrator:     splitOrchestrator,
-		EmailService:          emailService,
-		UpdateStore:           NewInMemoryUpdateStore(),
-		ModelListStore:        NewInMemoryModelListStore(),
-		LocalSkillListStore:   NewInMemoryLocalSkillListStore(),
-		LocalSkillImportStore: NewInMemoryLocalSkillImportStore(),
-		LivenessStore:         NewNoopLivenessStore(),
-		HeartbeatScheduler:    NewPassthroughHeartbeatScheduler(queries),
-		Storage:               store,
-		CFSigner:              cfSigner,
-		Analytics:             analyticsClient,
-		WebhookRateLimiter:    NewMemoryWebhookRateLimiter(DefaultWebhookRateLimit()),
-		WebhookIPRateLimiter:  NewMemoryWebhookIPRateLimiter(DefaultWebhookIPRateLimit()),
+		Queries:                queries,
+		DB:                     executor,
+		TxStarter:              txStarter,
+		Hub:                    hub,
+		DaemonHub:              daemonHub,
+		Bus:                    bus,
+		TaskService:            taskSvc,
+		AutopilotService:       autopilotSvc,
+		WorkflowService:        workflowSvc,
+		IssueAssignmentService: assignmentSvc,
+		SplitOrchestrator:      splitOrchestrator,
+		EmailService:           emailService,
+		UpdateStore:            NewInMemoryUpdateStore(),
+		ModelListStore:         NewInMemoryModelListStore(),
+		LocalSkillListStore:    NewInMemoryLocalSkillListStore(),
+		LocalSkillImportStore:  NewInMemoryLocalSkillImportStore(),
+		LivenessStore:          NewNoopLivenessStore(),
+		HeartbeatScheduler:     NewPassthroughHeartbeatScheduler(queries),
+		Storage:                store,
+		CFSigner:               cfSigner,
+		Analytics:              analyticsClient,
+		WebhookRateLimiter:     NewMemoryWebhookRateLimiter(DefaultWebhookRateLimit()),
+		WebhookIPRateLimiter:   NewMemoryWebhookIPRateLimiter(DefaultWebhookIPRateLimit()),
 		CloudRuntime: cloudruntime.NewClient(cloudruntime.Config{
 			BaseURL: cfg.CloudRuntimeFleetURL,
 			Timeout: cfg.CloudRuntimeFleetTimeout,
 		}),
 		cfg: cfg,
+	}
+	assignmentSvc.Hooks = service.IssueAssignmentHooks{
+		CanAccessPrivateAgent: func(ctx context.Context, agent db.MulticaAgent, actor service.AssignmentActor, workspaceID pgtype.UUID) bool {
+			return h.canAccessPrivateAgent(ctx, agent, actor.Type, uuidToString(actor.ID), uuidToString(workspaceID))
+		},
+		CreateWorkflowSubIssues: func(ctx context.Context, issue db.MulticaIssue, _ db.MulticaWorkflowRun, nodeRuns []db.MulticaWorkflowNodeRun) error {
+			for _, nodeRun := range nodeRuns {
+				number, err := h.Queries.IncrementIssueCounter(ctx, issue.WorkspaceID)
+				if err != nil {
+					slog.Warn("failed to increment issue counter for sub-issue", "error", err)
+					continue
+				}
+				if _, err := h.createWorkflowSubIssue(ctx, h.Queries, issue, nodeRun, issue.WorkspaceID, number); err != nil {
+					slog.Warn("failed to create sub-issue for node run", "node_run_id", uuidToString(nodeRun.ID), "error", err)
+				}
+			}
+			return nil
+		},
+		DefaultWorkflowEnabled: isGiteaConfigured,
 	}
 
 	// Server-side task push to cs-cloud devices uses the same outbound
@@ -258,6 +285,17 @@ func New(queries *db.Queries, txStarter txStarter, hub *realtime.Hub, bus *event
 		if h.SplitOrchestrator != nil {
 			if err := h.SplitOrchestrator.HandleChildRunTerminal(ctx, run, status); err != nil {
 				slog.Warn("split orchestrator run-terminal hook failed", "run_id", uuidToString(run.ID), "error", err)
+			}
+		}
+		if status == service.RunStatusFailed {
+			issue, err := h.Queries.GetDirectIssueByWorkflowRun(ctx, db.GetDirectIssueByWorkflowRunParams{
+				WorkflowRunID: run.ID,
+				WorkspaceID:   run.WorkspaceID,
+			})
+			if err == nil {
+				if err := h.SplitOrchestrator.HandleChildExecutionFailed(ctx, issue.ID, errors.New("assigned workflow run failed")); err != nil {
+					slog.Warn("split child workflow-failure hook failed", "issue_id", uuidToString(issue.ID), "error", err)
+				}
 			}
 		}
 	}

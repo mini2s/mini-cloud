@@ -1019,24 +1019,26 @@ type MulticaWorkflowRunEdge struct {
 }
 
 type MulticaWorkflowSplitTask struct {
-	ID          pgtype.UUID        `json:"id"`
-	NodeRunID   pgtype.UUID        `json:"node_run_id"`
-	WorkspaceID pgtype.UUID        `json:"workspace_id"`
-	Title       string             `json:"title"`
-	Description string             `json:"description"`
-	DependsOn   []byte             `json:"depends_on"`
-	SortOrder   int32              `json:"sort_order"`
-	Status      string             `json:"status"`
-	IssueID     pgtype.UUID        `json:"issue_id"`
-	RunID       pgtype.UUID        `json:"run_id"`
-	CreatedAt   pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt   pgtype.Timestamptz `json:"updated_at"`
-	DraftKey    pgtype.Text        `json:"draft_key"`
-	DraftSource string             `json:"draft_source"`
-	WorkflowID  pgtype.UUID        `json:"workflow_id"`
-	Version     int64              `json:"version"`
-	DispatchKey pgtype.Text        `json:"dispatch_key"`
-	LastError   []byte             `json:"last_error"`
+	ID           pgtype.UUID        `json:"id"`
+	NodeRunID    pgtype.UUID        `json:"node_run_id"`
+	WorkspaceID  pgtype.UUID        `json:"workspace_id"`
+	Title        string             `json:"title"`
+	Description  string             `json:"description"`
+	DependsOn    []byte             `json:"depends_on"`
+	SortOrder    int32              `json:"sort_order"`
+	Status       string             `json:"status"`
+	IssueID      pgtype.UUID        `json:"issue_id"`
+	RunID        pgtype.UUID        `json:"run_id"`
+	CreatedAt    pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt    pgtype.Timestamptz `json:"updated_at"`
+	DraftKey     pgtype.Text        `json:"draft_key"`
+	DraftSource  string             `json:"draft_source"`
+	WorkflowID   pgtype.UUID        `json:"workflow_id"`
+	Version      int64              `json:"version"`
+	DispatchKey  pgtype.Text        `json:"dispatch_key"`
+	LastError    []byte             `json:"last_error"`
+	AssigneeType pgtype.Text        `json:"assignee_type"`
+	AssigneeID   pgtype.UUID        `json:"assignee_id"`
 }
 
 type MulticaWorkflowStage struct {

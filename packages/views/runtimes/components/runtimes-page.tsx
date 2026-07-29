@@ -34,6 +34,7 @@ import { ProviderLogo } from "./provider-logo";
 import { RuntimeList, buildWorkloadIndex } from "./runtime-list";
 import {
   buildRuntimeMachines,
+  DEFAULT_RUNTIME_MACHINE_FILTER,
   filterRuntimeMachines,
   filterRuntimesByProviders,
   runtimeMachineCounts,
@@ -100,7 +101,7 @@ export function RuntimesPage({
   const wsId = useWorkspaceId();
   const qc = useQueryClient();
   const [machineFilter, setMachineFilter] =
-    useState<RuntimeMachineFilter>("all");
+    useState<RuntimeMachineFilter>(DEFAULT_RUNTIME_MACHINE_FILTER);
   const [machineSearch, setMachineSearch] = useState("");
   const [selectedMachineId, setSelectedMachineId] = useState<string | null>(
     null,
