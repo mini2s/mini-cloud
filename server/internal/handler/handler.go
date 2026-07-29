@@ -19,6 +19,7 @@ import (
 	"github.com/multica-ai/multica/server/internal/analytics"
 	"github.com/multica-ai/multica/server/internal/auth"
 	"github.com/multica-ai/multica/server/internal/cloudruntime"
+	"github.com/multica-ai/multica/server/internal/csuser"
 	"github.com/multica-ai/multica/server/internal/daemonws"
 	"github.com/multica-ai/multica/server/internal/deptsync"
 	"github.com/multica-ai/multica/server/internal/events"
@@ -114,11 +115,13 @@ type cloudRuntimeProxy interface {
 	Do(ctx context.Context, req cloudruntime.Request) (*cloudruntime.Response, error)
 }
 
+type csUserClient interface {
+	SearchUsers(ctx context.Context, keyword string, limit int) ([]csuser.User, error)
+	GetUser(ctx context.Context, subjectID string) (csuser.User, error)
+}
+
 type workspaceDeptClient interface {
 	Configured() bool
-	SearchDepartments(ctx context.Context, query string, limit int) ([]deptsync.Department, error)
-	ListDepartmentUsers(ctx context.Context, deptID string, includeChildren bool) ([]deptsync.User, error)
-	SearchUsers(ctx context.Context, query string, limit int) ([]deptsync.User, error)
 	GetUserDepartmentsByUniversalID(ctx context.Context, universalID string) ([]deptsync.User, error)
 }
 
@@ -150,6 +153,7 @@ type Handler struct {
 	WebhookRateLimiter     WebhookRateLimiter
 	WebhookIPRateLimiter   WebhookRateLimiter
 	CloudRuntime           cloudRuntimeProxy
+	CsUser                 csUserClient
 	DeptSync               workspaceDeptClient
 	cfg                    Config
 }

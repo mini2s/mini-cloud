@@ -83,8 +83,6 @@ type MemberResponse struct {
 	Role                string  `json:"role"`
 	Source              string  `json:"source"`
 	Status              string  `json:"status"`
-	ExternalUserID      *string `json:"external_user_id"`
-	ExternalUniversalID *string `json:"external_universal_id"`
 	EmployeeID          *string `json:"employee_id"`
 	OrgDisplayName      *string `json:"org_display_name"`
 	DeptID              *string `json:"dept_id"`
@@ -102,8 +100,6 @@ func memberToResponse(m db.MulticaMember) MemberResponse {
 		Role:                m.Role,
 		Source:              m.Source,
 		Status:              m.Status,
-		ExternalUserID:      textToPtr(m.ExternalUserID),
-		ExternalUniversalID: textToPtr(m.ExternalUniversalID),
 		EmployeeID:          textToPtr(m.EmployeeID),
 		OrgDisplayName:      textToPtr(m.OrgDisplayName),
 		DeptID:              textToPtr(m.DeptID),
@@ -391,6 +387,7 @@ type MemberWithUserResponse struct {
 	Role                string  `json:"role"`
 	Source              string  `json:"source"`
 	Status              string  `json:"status"`
+	SubjectID           *string `json:"subject_id"`
 	ExternalUserID      *string `json:"external_user_id"`
 	ExternalUniversalID *string `json:"external_universal_id"`
 	EmployeeID          *string `json:"employee_id"`
@@ -424,6 +421,10 @@ func (h *Handler) ListMembersWithUser(w http.ResponseWriter, r *http.Request) {
 		if name == "" {
 			name = m.OrgDisplayName.String
 		}
+		subjectID := m.SubjectID
+		if !subjectID.Valid {
+			subjectID = m.UserSubjectID
+		}
 		resp[i] = MemberWithUserResponse{
 			ID:                  uuidToString(m.ID),
 			WorkspaceID:         uuidToString(m.WorkspaceID),
@@ -431,8 +432,7 @@ func (h *Handler) ListMembersWithUser(w http.ResponseWriter, r *http.Request) {
 			Role:                m.Role,
 			Source:              m.Source,
 			Status:              m.Status,
-			ExternalUserID:      textToPtr(m.ExternalUserID),
-			ExternalUniversalID: textToPtr(m.ExternalUniversalID),
+			SubjectID:           textToPtr(subjectID),
 			EmployeeID:          textToPtr(m.EmployeeID),
 			OrgDisplayName:      textToPtr(m.OrgDisplayName),
 			DeptID:              textToPtr(m.DeptID),
@@ -455,6 +455,10 @@ type CreateMemberRequest struct {
 }
 
 func memberWithUserResponse(member db.MulticaMember, user db.MulticaUser) MemberWithUserResponse {
+	subjectID := member.SubjectID
+	if !subjectID.Valid {
+		subjectID = user.SubjectID
+	}
 	return MemberWithUserResponse{
 		ID:                  uuidToString(member.ID),
 		WorkspaceID:         uuidToString(member.WorkspaceID),
@@ -462,8 +466,7 @@ func memberWithUserResponse(member db.MulticaMember, user db.MulticaUser) Member
 		Role:                member.Role,
 		Source:              member.Source,
 		Status:              member.Status,
-		ExternalUserID:      textToPtr(member.ExternalUserID),
-		ExternalUniversalID: textToPtr(member.ExternalUniversalID),
+		SubjectID:           textToPtr(subjectID),
 		EmployeeID:          textToPtr(member.EmployeeID),
 		OrgDisplayName:      textToPtr(member.OrgDisplayName),
 		DeptID:              textToPtr(member.DeptID),
@@ -478,11 +481,8 @@ func memberWithUserResponse(member db.MulticaMember, user db.MulticaUser) Member
 }
 
 func memberTeamNamespaceUserRef(member db.MulticaMember) teamnamespace.UserRef {
-	if member.UserID.Valid {
-		return teamnamespace.UserRef{UserID: uuidToString(member.UserID)}
-	}
-	if member.ExternalUniversalID.Valid && strings.TrimSpace(member.ExternalUniversalID.String) != "" {
-		return teamnamespace.UserRef{UniversalID: strings.TrimSpace(member.ExternalUniversalID.String)}
+	if member.SubjectID.Valid && strings.TrimSpace(member.SubjectID.String) != "" {
+		return teamnamespace.UserRef{UserID: strings.TrimSpace(member.SubjectID.String)}
 	}
 	return teamnamespace.UserRef{}
 }

@@ -9,8 +9,6 @@ import type {
   AgentCloudSkill,
   CreateAgentFromTemplateResponse,
   BatchAddDeptMembersResponse,
-  DeptDepartment,
-  DeptUser,
   GroupedIssuesResponse,
   ListIssuesResponse,
   ListWebhookDeliveriesResponse,
@@ -323,34 +321,13 @@ export const EMPTY_SPLIT_CHAT_RESPONSE: SplitChatResponse = {
   task_id: "",
 };
 
-export const DeptDepartmentSchema = z.object({
-  dept_id: z.string(),
-  dept_name: z.string(),
-  dept_path: z.string().nullable().optional(),
-  parent_dept_id: z.string().nullable().optional(),
-  dept_level: z.number().optional(),
-  child_dept_count: z.number().optional(),
+export const CsUserSearchHitSchema = z.object({
+  subject_id: z.string(),
+  name: z.string(),
+  email: z.string().optional(),
 }).loose();
 
-export const DeptDepartmentListSchema = z.array(DeptDepartmentSchema);
-
-export const EMPTY_DEPT_DEPARTMENT_LIST: DeptDepartment[] = [];
-
-export const DeptUserSchema = z.object({
-  user_id: z.string(),
-  username: z.string(),
-  universal_id: z.string().nullable().optional(),
-  dept_id: z.string().nullable().optional(),
-  dept_name: z.string().nullable().optional(),
-  dept_path: z.string().nullable().optional(),
-  is_main: z.number().optional(),
-  position: z.string().nullable().optional(),
-  status: z.number().optional(),
-}).loose();
-
-export const DeptUserListSchema = z.array(DeptUserSchema);
-
-export const EMPTY_DEPT_USER_LIST: DeptUser[] = [];
+export const CsUserSearchHitListSchema = z.array(CsUserSearchHitSchema);
 
 export const BatchAddDeptMembersResponseSchema = z.object({
   added: z.number().default(0),

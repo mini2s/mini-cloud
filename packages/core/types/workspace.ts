@@ -67,7 +67,8 @@ export interface MemberWithUser {
   user_id: string;
   role: MemberRole;
   source?: "manual" | "dept";
-  status?: "active" | "pending_activation" | "inactive";
+  status?: "active" | "inactive";
+  subject_id?: string | null;
   external_user_id?: string | null;
   external_universal_id?: string | null;
   employee_id?: string | null;

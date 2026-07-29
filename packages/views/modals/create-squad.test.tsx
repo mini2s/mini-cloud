@@ -459,16 +459,16 @@ describe("CreateSquadModal", () => {
     expect(mocks.navigationPush).toHaveBeenCalledWith("/test-ws/squads/sq-2");
   });
 
-  it("does not offer pending workspace members as additional squad members", () => {
+  it("does not offer inactive workspace members as additional squad members", () => {
     mocks.members = [
       makeMember("user-active", "Active Member", "active"),
-      makeMember("user-pending", "Pending Member", "pending_activation"),
+      makeMember("user-inactive", "Inactive Member", "inactive"),
     ];
 
     renderModal();
 
     expect(screen.getByText("Active Member")).toBeInTheDocument();
-    expect(screen.queryByText("Pending Member")).not.toBeInTheDocument();
+    expect(screen.queryByText("Inactive Member")).not.toBeInTheDocument();
   });
 
   it("on createSquad failure shows an error toast, does not navigate, and re-enables submit", async () => {

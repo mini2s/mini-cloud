@@ -76,6 +76,11 @@ backend:
     deptSyncCacheTtl: "1m"
     deptLinkTimeout: "15s"
     deptLinkInterval: "5m"
+    # cs-user integration — member search/resolve by cs-user subject_id. Point at
+    # the in-cluster cs-user service (e.g. http://cs-user-svc.costrict:8082) and
+    # set csUserInternalToken (backend.secrets) to enable. Leave empty to disable
+    # (member search returns 503 "cs-user not configured").
+    csUserApiBaseUrl: ""
     # CSC plugin marketplace — optional. Override the marketplace the daemon
     # registers against when installing a CSC agent's bound plugin; when empty
     # the daemon falls back to its built-in github default (costrict-plugins).
@@ -130,6 +135,9 @@ backend:
     anthropicApiKey: ""
     casdoorClientSecret: ""
     deptSyncQueryKey: ""
+    # cs-user internal API token (X-Internal-Token). Required to enable cs-user
+    # member search/resolve (must match cs-user's USER_INTERNAL_TOKEN).
+    csUserInternalToken: ""
     workflowRoleLlmApiKey: ""
     giteaAdminToken: ""
 

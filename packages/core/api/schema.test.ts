@@ -163,73 +163,50 @@ describe("ApiClient schema fallback", () => {
   });
 
   describe("dept member lookup", () => {
-    it("falls back to [] when dept user search returns a malformed body", async () => {
+    it("falls back to [] when cs-user search returns a malformed body", async () => {
       stubFetchJson({ users: "not-an-array" });
       const client = new ApiClient("https://api.example.test");
-      const users = await client.searchDeptUsers("E001");
-      expect(users).toEqual([]);
+      const hits = await client.searchDeptUsers("Ada");
+      expect(hits).toEqual([]);
     });
 
-    it("preserves future dept fields while validating known department search shape", async () => {
+    it("parses cs-user search hits and preserves future fields", async () => {
       stubFetchJson([
         {
-          dept_id: "D100",
-          dept_name: "Platform Dept",
+          subject_id: "sub-001",
+          name: "Ada Lovelace",
+          email: "ada@example.test",
           future_field: "kept",
         },
       ]);
       const client = new ApiClient("https://api.example.test");
-      const departments = await client.searchDeptDepartments("Platform");
-      expect(departments).toHaveLength(1);
-      expect((departments[0] as unknown as Record<string, unknown>).future_field).toBe("kept");
+      const hits = await client.searchDeptUsers("Ada");
+      expect(hits).toHaveLength(1);
+      expect(hits[0]?.subject_id).toBe("sub-001");
+      expect(hits[0]?.name).toBe("Ada Lovelace");
+      expect((hits[0] as unknown as Record<string, unknown>).future_field).toBe("kept");
     });
 
     it("falls back to a zero result when batch add returns malformed counts", async () => {
       stubFetchJson({ added: "one", skipped: 0 });
       const client = new ApiClient("https://api.example.test");
       const result = await client.batchAddDeptMembers("ws-1", {
-        users: [{ external_user_id: "E001" }],
+        users: [{ subject_id: "sub-001" }],
       });
       expect(result).toEqual({ added: 0, skipped: 0 });
     });
 
-    it("sends dept member snapshots when batch adding members", async () => {
+    it("sends subject_id when batch adding members", async () => {
       stubFetchJson({ added: 1, skipped: 0 });
       const client = new ApiClient("https://api.example.test");
       await client.batchAddDeptMembers("ws-1", {
-        users: [
-          {
-            external_user_id: "E001",
-            external_universal_id: "uni-001",
-            name: "Ada",
-            employee_id: "E001",
-            department_id: "D100",
-            department_name: "Platform",
-            department_path: "R&D/Platform",
-            position: "Engineer",
-            is_main_department: true,
-            dept_user_status: 1,
-          },
-        ],
+        users: [{ subject_id: "sub-001" }],
       });
 
       const fetchMock = vi.mocked(globalThis.fetch);
       const [, init] = fetchMock.mock.calls[0]!;
       expect(JSON.parse(String(init?.body))).toEqual({
-        users: [
-          {
-            external_user_id: "E001",
-            external_universal_id: "uni-001",
-            name: "Ada",
-            employee_id: "E001",
-            department_id: "D100",
-            department_name: "Platform",
-            department_path: "R&D/Platform",
-            position: "Engineer",
-            is_main_department: true,
-            dept_user_status: 1,
-          },
-        ],
+        users: [{ subject_id: "sub-001" }],
       });
     });
   });

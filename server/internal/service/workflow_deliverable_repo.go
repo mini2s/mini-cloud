@@ -109,14 +109,14 @@ func (s *WorkflowService) teamNamespaceConfigured() bool {
 }
 
 func userRefFromMember(m db.ListMembersWithUserRow) teamnamespace.UserRef {
-	// Prefer the costrict universal_id (resolvable by @server via cs-user —
-	// and by the local mock via dept). Fall back to the multica user_id only for
-	// members without a dept identity (the mock can't resolve a bare user_id).
-	if m.ExternalUniversalID.Valid && strings.TrimSpace(m.ExternalUniversalID.String) != "" {
-		return teamnamespace.UserRef{UniversalID: strings.TrimSpace(m.ExternalUniversalID.String)}
+	// costrict-web resolves user_id as a cs-user subject_id (usr_<uuid>), so
+	// prefer the member's subject_id (dept-sourced members) and fall back to
+	// the joined user's subject_id (manual / email-invite members).
+	if sid := strings.TrimSpace(m.SubjectID.String); m.SubjectID.Valid && sid != "" {
+		return teamnamespace.UserRef{UserID: sid}
 	}
-	if m.UserID.Valid {
-		return teamnamespace.UserRef{UserID: util.UUIDToString(m.UserID)}
+	if sid := strings.TrimSpace(m.UserSubjectID.String); m.UserSubjectID.Valid && sid != "" {
+		return teamnamespace.UserRef{UserID: sid}
 	}
 	return teamnamespace.UserRef{}
 }
@@ -139,15 +139,15 @@ func workspaceMemberRefsForQueries(ctx context.Context, q *db.Queries, workspace
 	var creator teamnamespace.UserRef
 	for _, m := range members {
 		ref := userRefFromMember(m)
-		if ref.UserID == "" && ref.UniversalID == "" {
+		if ref.UserID == "" {
 			continue
 		}
 		refs = append(refs, ref)
-		if creator.UserID == "" && creator.UniversalID == "" && m.Role == "owner" {
+		if creator.UserID == "" && m.Role == "owner" {
 			creator = ref
 		}
 	}
-	if creator.UserID == "" && creator.UniversalID == "" && len(refs) > 0 {
+	if creator.UserID == "" && len(refs) > 0 {
 		creator = refs[0]
 	}
 	// team-ns contract §1.5: the creator is passed separately and must NOT also
@@ -156,8 +156,7 @@ func workspaceMemberRefsForQueries(ctx context.Context, q *db.Queries, workspace
 	// the chosen creator from the member list so the request is well-formed.
 	initialMembers := make([]teamnamespace.UserRef, 0, len(refs))
 	for _, r := range refs {
-		if (r.UserID != "" && r.UserID == creator.UserID) ||
-			(r.UniversalID != "" && r.UniversalID == creator.UniversalID) {
+		if r.UserID != "" && r.UserID == creator.UserID {
 			continue
 		}
 		initialMembers = append(initialMembers, r)
@@ -220,7 +219,7 @@ func ensureTeamNamespace(ctx context.Context, q *db.Queries, tn *teamnamespace.C
 	if err != nil {
 		return fmt.Errorf("list workspace members: %w", err)
 	}
-	if creator.UserID == "" && creator.UniversalID == "" {
+	if creator.UserID == "" {
 		return fmt.Errorf("workspace has no syncable creator")
 	}
 	resp, err := tn.CreateTeam(ctx, teamnamespace.CreateTeamRequest{
@@ -327,15 +326,15 @@ func (s *WorkflowService) DissolveTeamNamespace(ctx context.Context, workspaceID
 	if !s.teamNamespaceConfigured() {
 		return
 	}
-	if actor.UserID == "" && actor.UniversalID == "" {
+	if actor.UserID == "" {
 		refs, creator, err := s.workspaceMemberRefs(ctx, workspaceID)
-		if err == nil && (creator.UserID != "" || creator.UniversalID != "") {
+		if err == nil && (creator.UserID != "") {
 			actor = creator
 		} else if err == nil && len(refs) > 0 {
 			actor = refs[0]
 		}
 	}
-	if actor.UserID == "" && actor.UniversalID == "" {
+	if actor.UserID == "" {
 		slog.Warn("team namespace dissolve skipped: no actor",
 			"workspace_id", util.UUIDToString(workspaceID))
 		return

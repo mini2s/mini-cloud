@@ -1010,7 +1010,7 @@ func (q *Queries) GetWorkflowRunByDispatchKey(ctx context.Context, arg GetWorkfl
 }
 
 const getWorkflowRunBySourceIssue = `-- name: GetWorkflowRunBySourceIssue :one
-SELECT id, workflow_id, workspace_id, workflow_title, status, triggered_by_type, triggered_by_id, input, output, started_at, completed_at, created_at, runtime_id, source_issue_id, responsible_user_id, runtime_authorizer_id, dispatch_key, runtime_selection_policy FROM multica_workflow_run
+SELECT id, workflow_id, workspace_id, workflow_title, status, triggered_by_type, triggered_by_id, input, output, started_at, completed_at, created_at, runtime_id, source_issue_id, responsible_user_id, runtime_authorizer_id, dispatch_key, runtime_selection_policy, source_config_revision, definition_schema_version, definition_snapshot, max_retries, failure_reason, validation_errors FROM multica_workflow_run
 WHERE source_issue_id = $1
 ORDER BY created_at DESC
 LIMIT 1
@@ -1038,6 +1038,12 @@ func (q *Queries) GetWorkflowRunBySourceIssue(ctx context.Context, sourceIssueID
 		&i.RuntimeAuthorizerID,
 		&i.DispatchKey,
 		&i.RuntimeSelectionPolicy,
+		&i.SourceConfigRevision,
+		&i.DefinitionSchemaVersion,
+		&i.DefinitionSnapshot,
+		&i.MaxRetries,
+		&i.FailureReason,
+		&i.ValidationErrors,
 	)
 	return i, err
 }
@@ -1239,7 +1245,7 @@ func (q *Queries) ListTemplates(ctx context.Context) ([]MulticaWorkflow, error) 
 
 const listWorkflowAdminUsers = `-- name: ListWorkflowAdminUsers :many
 
-SELECT id, name, email, avatar_url, created_at, updated_at, onboarded_at, onboarding_questionnaire, cloud_waitlist_email, cloud_waitlist_reason, starter_content_state, language, profile_description, timezone, subject_id, casdoor_universal_id, can_manage_workflows FROM multica_user
+SELECT id, name, email, avatar_url, created_at, updated_at, onboarded_at, onboarding_questionnaire, cloud_waitlist_email, cloud_waitlist_reason, starter_content_state, language, profile_description, timezone, subject_id, can_manage_workflows FROM multica_user
 WHERE can_manage_workflows = TRUE
 ORDER BY name ASC
 `
@@ -1272,7 +1278,6 @@ func (q *Queries) ListWorkflowAdminUsers(ctx context.Context) ([]MulticaUser, er
 			&i.ProfileDescription,
 			&i.Timezone,
 			&i.SubjectID,
-			&i.CasdoorUniversalID,
 			&i.CanManageWorkflows,
 		); err != nil {
 			return nil, err
@@ -1774,7 +1779,7 @@ const setUserWorkflowAdmin = `-- name: SetUserWorkflowAdmin :one
 UPDATE multica_user SET
     can_manage_workflows = $2
 WHERE id = $1
-RETURNING id, name, email, avatar_url, created_at, updated_at, onboarded_at, onboarding_questionnaire, cloud_waitlist_email, cloud_waitlist_reason, starter_content_state, language, profile_description, timezone, subject_id, casdoor_universal_id, can_manage_workflows
+RETURNING id, name, email, avatar_url, created_at, updated_at, onboarded_at, onboarding_questionnaire, cloud_waitlist_email, cloud_waitlist_reason, starter_content_state, language, profile_description, timezone, subject_id, can_manage_workflows
 `
 
 type SetUserWorkflowAdminParams struct {
@@ -1801,7 +1806,6 @@ func (q *Queries) SetUserWorkflowAdmin(ctx context.Context, arg SetUserWorkflowA
 		&i.ProfileDescription,
 		&i.Timezone,
 		&i.SubjectID,
-		&i.CasdoorUniversalID,
 		&i.CanManageWorkflows,
 	)
 	return i, err

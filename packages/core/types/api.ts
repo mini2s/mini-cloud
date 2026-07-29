@@ -190,38 +190,14 @@ export interface CreateWorkspaceRequest {
   context?: string;
 }
 
-export interface DeptDepartment {
-  dept_id: string;
-  dept_name: string;
-  dept_path?: string | null;
-  parent_dept_id?: string | null;
-  dept_level?: number;
-  child_dept_count?: number;
-}
-
-export interface DeptUser {
-  user_id: string;
-  username: string;
-  universal_id?: string | null;
-  dept_id?: string | null;
-  dept_name?: string | null;
-  dept_path?: string | null;
-  is_main?: number;
-  position?: string | null;
-  status?: number;
+export interface CsUserSearchHit {
+  subject_id: string;
+  name: string;
+  email?: string;
 }
 
 export interface BatchAddDeptMemberSnapshot {
-  external_user_id?: string;
-  external_universal_id?: string;
-  name?: string;
-  employee_id?: string;
-  department_id?: string;
-  department_name?: string;
-  department_path?: string;
-  position?: string;
-  is_main_department?: boolean;
-  dept_user_status?: number;
+  subject_id: string;
 }
 
 export interface BatchAddDeptMembersRequest {
