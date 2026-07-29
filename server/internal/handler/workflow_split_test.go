@@ -3546,6 +3546,33 @@ func TestGenerateSplitTasksDispatchesAndPersistsDraftTasks(t *testing.T) {
 	}
 }
 
+func TestGenerateSplitTasksDoesNotReactivateNodeAfterRunFailed(t *testing.T) {
+	f := createSplitGenerateFixture(t, "barrier")
+	ctx := context.Background()
+	if _, err := testPool.Exec(ctx, `UPDATE multica_workflow_node_run SET status = 'failed' WHERE id = $1`, f.splitNodeRunID); err != nil {
+		t.Fatalf("mark split node failed: %v", err)
+	}
+	if _, err := testPool.Exec(ctx, `UPDATE multica_workflow_run SET status = 'failed', completed_at = now() WHERE id = $1`, f.parentRunID); err != nil {
+		t.Fatalf("mark split run failed: %v", err)
+	}
+
+	generateResp := httptest.NewRecorder()
+	generateReq := newRequest("POST", "/api/node-runs/"+f.splitNodeRunID+"/split/generate", nil)
+	generateReq = withURLParam(generateReq, "nodeRunId", f.splitNodeRunID)
+	testHandler.GenerateSplitTasks(generateResp, generateReq)
+
+	if generateResp.Code != http.StatusBadRequest {
+		t.Fatalf("GenerateSplitTasks: expected 400, got %d: %s", generateResp.Code, generateResp.Body.String())
+	}
+	nodeRun, err := testHandler.Queries.GetWorkflowNodeRun(ctx, parseUUID(f.splitNodeRunID))
+	if err != nil {
+		t.Fatalf("reload split node run: %v", err)
+	}
+	if nodeRun.Status != service.NodeRunStatusFailed {
+		t.Fatalf("split node run status = %s, want failed", nodeRun.Status)
+	}
+}
+
 func TestSplitChatCreatesSessionAndDispatchesTask(t *testing.T) {
 	if testHandler == nil {
 		t.Skip("database not available")
