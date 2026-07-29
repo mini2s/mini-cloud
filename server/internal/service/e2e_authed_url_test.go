@@ -1,6 +1,6 @@
 //go:build e2eauth
 
-// e2eauth-tagged test: verifies MULTICA_GITEA_CLONE_URL_AUTHED against the real
+// e2eauth-tagged test: verifies CS_CLOUD_GITEA_CLONE_URL_AUTHED against the real
 // multica DB (a real workspace that has gitea_pat + bot_username + a document
 // deliverable). Run from the host against the exposed postgres port:
 //
@@ -66,22 +66,22 @@ func TestE2EAuthedCloneURL(t *testing.T) {
 		t.Fatal("giteaDeliverableEnv returned nil — node-run has no document deliverable, or gitea env unset")
 	}
 
-	authed := env["MULTICA_GITEA_CLONE_URL_AUTHED"]
-	plain := env["MULTICA_GITEA_CLONE_URL"]
-	token := env["MULTICA_GITEA_TOKEN"]
+	authed := env["CS_CLOUD_GITEA_CLONE_URL_AUTHED"]
+	plain := env["CS_CLOUD_GITEA_CLONE_URL"]
+	token := env["CS_CLOUD_GITEA_TOKEN"]
 
 	fmt.Printf("\n========== E2E AUTHED CLONE URL (workspace %s) ==========\n", wsID)
-	fmt.Printf("MULTICA_GITEA_CLONE_URL        = %s\n", plain)
-	fmt.Printf("MULTICA_GITEA_CLONE_URL_AUTHED = %s\n", authed)
-	fmt.Printf("MULTICA_GITEA_TOKEN            = %s...(len %d)\n", safePrefix8(token), len(token))
-	fmt.Printf("MULTICA_GITEA_OWNER            = %s\n", env["MULTICA_GITEA_OWNER"])
-	fmt.Printf("MULTICA_GITEA_REPO             = %s\n", env["MULTICA_GITEA_REPO"])
-	fmt.Printf("MULTICA_GITEA_INST_BRANCH      = %s\n", env["MULTICA_GITEA_INST_BRANCH"])
-	fmt.Printf("MULTICA_GITEA_NODE_BRANCH      = %s\n", env["MULTICA_GITEA_NODE_BRANCH"])
+	fmt.Printf("CS_CLOUD_GITEA_CLONE_URL        = %s\n", plain)
+	fmt.Printf("CS_CLOUD_GITEA_CLONE_URL_AUTHED = %s\n", authed)
+	fmt.Printf("CS_CLOUD_GITEA_TOKEN            = %s...(len %d)\n", safePrefix8(token), len(token))
+	fmt.Printf("CS_CLOUD_GITEA_OWNER            = %s\n", env["CS_CLOUD_GITEA_OWNER"])
+	fmt.Printf("CS_CLOUD_GITEA_REPO             = %s\n", env["CS_CLOUD_GITEA_REPO"])
+	fmt.Printf("CS_CLOUD_GITEA_INST_BRANCH      = %s\n", env["CS_CLOUD_GITEA_INST_BRANCH"])
+	fmt.Printf("CS_CLOUD_GITEA_NODE_BRANCH      = %s\n", env["CS_CLOUD_GITEA_NODE_BRANCH"])
 	fmt.Printf("===========================================================\n")
 
 	if authed == "" {
-		t.Fatal("MULTICA_GITEA_CLONE_URL_AUTHED is empty")
+		t.Fatal("CS_CLOUD_GITEA_CLONE_URL_AUTHED is empty")
 	}
 	if authed == plain {
 		t.Fatalf("AUTHED URL == plain URL (token NOT embedded): %q", authed)
