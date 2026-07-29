@@ -14,7 +14,7 @@ import (
 const createMember = `-- name: CreateMember :one
 INSERT INTO multica_member (workspace_id, user_id, role)
 VALUES ($1, $2, $3)
-RETURNING id, workspace_id, user_id, role, created_at, source, status, external_user_id, external_universal_id, employee_id, org_display_name, dept_id, dept_name, dept_path, position, is_main_department, dept_user_status, last_synced_at, subject_id
+RETURNING id, workspace_id, user_id, role, created_at, source, status, employee_id, org_display_name, dept_id, dept_name, dept_path, position, is_main_department, dept_user_status, last_synced_at, subject_id
 `
 
 type CreateMemberParams struct {
@@ -34,8 +34,6 @@ func (q *Queries) CreateMember(ctx context.Context, arg CreateMemberParams) (Mul
 		&i.CreatedAt,
 		&i.Source,
 		&i.Status,
-		&i.ExternalUserID,
-		&i.ExternalUniversalID,
 		&i.EmployeeID,
 		&i.OrgDisplayName,
 		&i.DeptID,
@@ -60,7 +58,7 @@ func (q *Queries) DeleteMember(ctx context.Context, id pgtype.UUID) error {
 }
 
 const getMember = `-- name: GetMember :one
-SELECT id, workspace_id, user_id, role, created_at, source, status, external_user_id, external_universal_id, employee_id, org_display_name, dept_id, dept_name, dept_path, position, is_main_department, dept_user_status, last_synced_at, subject_id FROM multica_member
+SELECT id, workspace_id, user_id, role, created_at, source, status, employee_id, org_display_name, dept_id, dept_name, dept_path, position, is_main_department, dept_user_status, last_synced_at, subject_id FROM multica_member
 WHERE id = $1
 `
 
@@ -75,8 +73,6 @@ func (q *Queries) GetMember(ctx context.Context, id pgtype.UUID) (MulticaMember,
 		&i.CreatedAt,
 		&i.Source,
 		&i.Status,
-		&i.ExternalUserID,
-		&i.ExternalUniversalID,
 		&i.EmployeeID,
 		&i.OrgDisplayName,
 		&i.DeptID,
@@ -92,7 +88,7 @@ func (q *Queries) GetMember(ctx context.Context, id pgtype.UUID) (MulticaMember,
 }
 
 const getMemberByUserAndWorkspace = `-- name: GetMemberByUserAndWorkspace :one
-SELECT id, workspace_id, user_id, role, created_at, source, status, external_user_id, external_universal_id, employee_id, org_display_name, dept_id, dept_name, dept_path, position, is_main_department, dept_user_status, last_synced_at, subject_id FROM multica_member
+SELECT id, workspace_id, user_id, role, created_at, source, status, employee_id, org_display_name, dept_id, dept_name, dept_path, position, is_main_department, dept_user_status, last_synced_at, subject_id FROM multica_member
 WHERE user_id = $1 AND workspace_id = $2
 `
 
@@ -112,8 +108,6 @@ func (q *Queries) GetMemberByUserAndWorkspace(ctx context.Context, arg GetMember
 		&i.CreatedAt,
 		&i.Source,
 		&i.Status,
-		&i.ExternalUserID,
-		&i.ExternalUniversalID,
 		&i.EmployeeID,
 		&i.OrgDisplayName,
 		&i.DeptID,
@@ -129,7 +123,7 @@ func (q *Queries) GetMemberByUserAndWorkspace(ctx context.Context, arg GetMember
 }
 
 const getMemberByWorkspaceAndSubject = `-- name: GetMemberByWorkspaceAndSubject :one
-SELECT id, workspace_id, user_id, role, created_at, source, status, external_user_id, external_universal_id, employee_id, org_display_name, dept_id, dept_name, dept_path, position, is_main_department, dept_user_status, last_synced_at, subject_id FROM multica_member
+SELECT id, workspace_id, user_id, role, created_at, source, status, employee_id, org_display_name, dept_id, dept_name, dept_path, position, is_main_department, dept_user_status, last_synced_at, subject_id FROM multica_member
 WHERE workspace_id = $1 AND subject_id = $2
 `
 
@@ -149,8 +143,6 @@ func (q *Queries) GetMemberByWorkspaceAndSubject(ctx context.Context, arg GetMem
 		&i.CreatedAt,
 		&i.Source,
 		&i.Status,
-		&i.ExternalUserID,
-		&i.ExternalUniversalID,
 		&i.EmployeeID,
 		&i.OrgDisplayName,
 		&i.DeptID,
@@ -169,8 +161,7 @@ const listActiveWorkflowRoleCandidateMembers = `-- name: ListActiveWorkflowRoleC
 SELECT
     m.id AS member_id,
     m.user_id,
-    m.external_universal_id,
-    m.external_user_id,
+    m.subject_id,
     COALESCE(NULLIF(m.org_display_name, ''), u.name) AS display_name
 FROM multica_member m
 JOIN multica_user u ON u.id = m.user_id
@@ -181,11 +172,10 @@ ORDER BY m.created_at ASC
 `
 
 type ListActiveWorkflowRoleCandidateMembersRow struct {
-	MemberID            pgtype.UUID `json:"member_id"`
-	UserID              pgtype.UUID `json:"user_id"`
-	ExternalUniversalID pgtype.Text `json:"external_universal_id"`
-	ExternalUserID      pgtype.Text `json:"external_user_id"`
-	DisplayName         string      `json:"display_name"`
+	MemberID    pgtype.UUID `json:"member_id"`
+	UserID      pgtype.UUID `json:"user_id"`
+	SubjectID   pgtype.Text `json:"subject_id"`
+	DisplayName string      `json:"display_name"`
 }
 
 // Keep the automatic role-resolution candidate boundary local: organization
@@ -202,8 +192,7 @@ func (q *Queries) ListActiveWorkflowRoleCandidateMembers(ctx context.Context, wo
 		if err := rows.Scan(
 			&i.MemberID,
 			&i.UserID,
-			&i.ExternalUniversalID,
-			&i.ExternalUserID,
+			&i.SubjectID,
 			&i.DisplayName,
 		); err != nil {
 			return nil, err
@@ -217,7 +206,7 @@ func (q *Queries) ListActiveWorkflowRoleCandidateMembers(ctx context.Context, wo
 }
 
 const listDeptMemberSnapshots = `-- name: ListDeptMemberSnapshots :many
-SELECT id, user_id, source, status, subject_id, external_user_id, external_universal_id,
+SELECT id, user_id, source, status, subject_id,
        employee_id, org_display_name, dept_id, dept_name, dept_path,
        position, is_main_department, dept_user_status, last_synced_at
 FROM multica_member
@@ -225,22 +214,20 @@ WHERE workspace_id = $1
 `
 
 type ListDeptMemberSnapshotsRow struct {
-	ID                  pgtype.UUID        `json:"id"`
-	UserID              pgtype.UUID        `json:"user_id"`
-	Source              string             `json:"source"`
-	Status              string             `json:"status"`
-	SubjectID           pgtype.Text        `json:"subject_id"`
-	ExternalUserID      pgtype.Text        `json:"external_user_id"`
-	ExternalUniversalID pgtype.Text        `json:"external_universal_id"`
-	EmployeeID          pgtype.Text        `json:"employee_id"`
-	OrgDisplayName      pgtype.Text        `json:"org_display_name"`
-	DeptID              pgtype.Text        `json:"dept_id"`
-	DeptName            pgtype.Text        `json:"dept_name"`
-	DeptPath            pgtype.Text        `json:"dept_path"`
-	Position            pgtype.Text        `json:"position"`
-	IsMainDepartment    bool               `json:"is_main_department"`
-	DeptUserStatus      pgtype.Int4        `json:"dept_user_status"`
-	LastSyncedAt        pgtype.Timestamptz `json:"last_synced_at"`
+	ID               pgtype.UUID        `json:"id"`
+	UserID           pgtype.UUID        `json:"user_id"`
+	Source           string             `json:"source"`
+	Status           string             `json:"status"`
+	SubjectID        pgtype.Text        `json:"subject_id"`
+	EmployeeID       pgtype.Text        `json:"employee_id"`
+	OrgDisplayName   pgtype.Text        `json:"org_display_name"`
+	DeptID           pgtype.Text        `json:"dept_id"`
+	DeptName         pgtype.Text        `json:"dept_name"`
+	DeptPath         pgtype.Text        `json:"dept_path"`
+	Position         pgtype.Text        `json:"position"`
+	IsMainDepartment bool               `json:"is_main_department"`
+	DeptUserStatus   pgtype.Int4        `json:"dept_user_status"`
+	LastSyncedAt     pgtype.Timestamptz `json:"last_synced_at"`
 }
 
 func (q *Queries) ListDeptMemberSnapshots(ctx context.Context, workspaceID pgtype.UUID) ([]ListDeptMemberSnapshotsRow, error) {
@@ -258,8 +245,6 @@ func (q *Queries) ListDeptMemberSnapshots(ctx context.Context, workspaceID pgtyp
 			&i.Source,
 			&i.Status,
 			&i.SubjectID,
-			&i.ExternalUserID,
-			&i.ExternalUniversalID,
 			&i.EmployeeID,
 			&i.OrgDisplayName,
 			&i.DeptID,
@@ -281,7 +266,7 @@ func (q *Queries) ListDeptMemberSnapshots(ctx context.Context, workspaceID pgtyp
 }
 
 const listMembers = `-- name: ListMembers :many
-SELECT id, workspace_id, user_id, role, created_at, source, status, external_user_id, external_universal_id, employee_id, org_display_name, dept_id, dept_name, dept_path, position, is_main_department, dept_user_status, last_synced_at, subject_id FROM multica_member
+SELECT id, workspace_id, user_id, role, created_at, source, status, employee_id, org_display_name, dept_id, dept_name, dept_path, position, is_main_department, dept_user_status, last_synced_at, subject_id FROM multica_member
 WHERE workspace_id = $1
 ORDER BY created_at ASC
 `
@@ -303,8 +288,6 @@ func (q *Queries) ListMembers(ctx context.Context, workspaceID pgtype.UUID) ([]M
 			&i.CreatedAt,
 			&i.Source,
 			&i.Status,
-			&i.ExternalUserID,
-			&i.ExternalUniversalID,
 			&i.EmployeeID,
 			&i.OrgDisplayName,
 			&i.DeptID,
@@ -328,7 +311,7 @@ func (q *Queries) ListMembers(ctx context.Context, workspaceID pgtype.UUID) ([]M
 
 const listMembersWithUser = `-- name: ListMembersWithUser :many
 SELECT m.id, m.workspace_id, m.user_id, m.role, m.created_at,
-       m.source, m.status, m.external_user_id, m.external_universal_id,
+       m.source, m.status,
        m.employee_id, m.org_display_name, m.dept_id, m.dept_name,
        m.dept_path, m.position, m.is_main_department, m.dept_user_status,
        m.last_synced_at, m.subject_id,
@@ -341,29 +324,27 @@ ORDER BY m.created_at ASC
 `
 
 type ListMembersWithUserRow struct {
-	ID                  pgtype.UUID        `json:"id"`
-	WorkspaceID         pgtype.UUID        `json:"workspace_id"`
-	UserID              pgtype.UUID        `json:"user_id"`
-	Role                string             `json:"role"`
-	CreatedAt           pgtype.Timestamptz `json:"created_at"`
-	Source              string             `json:"source"`
-	Status              string             `json:"status"`
-	ExternalUserID      pgtype.Text        `json:"external_user_id"`
-	ExternalUniversalID pgtype.Text        `json:"external_universal_id"`
-	EmployeeID          pgtype.Text        `json:"employee_id"`
-	OrgDisplayName      pgtype.Text        `json:"org_display_name"`
-	DeptID              pgtype.Text        `json:"dept_id"`
-	DeptName            pgtype.Text        `json:"dept_name"`
-	DeptPath            pgtype.Text        `json:"dept_path"`
-	Position            pgtype.Text        `json:"position"`
-	IsMainDepartment    bool               `json:"is_main_department"`
-	DeptUserStatus      pgtype.Int4        `json:"dept_user_status"`
-	LastSyncedAt        pgtype.Timestamptz `json:"last_synced_at"`
-	SubjectID           pgtype.Text        `json:"subject_id"`
-	UserName            pgtype.Text        `json:"user_name"`
-	UserEmail           pgtype.Text        `json:"user_email"`
-	UserAvatarUrl       pgtype.Text        `json:"user_avatar_url"`
-	UserSubjectID       pgtype.Text        `json:"user_subject_id"`
+	ID               pgtype.UUID        `json:"id"`
+	WorkspaceID      pgtype.UUID        `json:"workspace_id"`
+	UserID           pgtype.UUID        `json:"user_id"`
+	Role             string             `json:"role"`
+	CreatedAt        pgtype.Timestamptz `json:"created_at"`
+	Source           string             `json:"source"`
+	Status           string             `json:"status"`
+	EmployeeID       pgtype.Text        `json:"employee_id"`
+	OrgDisplayName   pgtype.Text        `json:"org_display_name"`
+	DeptID           pgtype.Text        `json:"dept_id"`
+	DeptName         pgtype.Text        `json:"dept_name"`
+	DeptPath         pgtype.Text        `json:"dept_path"`
+	Position         pgtype.Text        `json:"position"`
+	IsMainDepartment bool               `json:"is_main_department"`
+	DeptUserStatus   pgtype.Int4        `json:"dept_user_status"`
+	LastSyncedAt     pgtype.Timestamptz `json:"last_synced_at"`
+	SubjectID        pgtype.Text        `json:"subject_id"`
+	UserName         pgtype.Text        `json:"user_name"`
+	UserEmail        pgtype.Text        `json:"user_email"`
+	UserAvatarUrl    pgtype.Text        `json:"user_avatar_url"`
+	UserSubjectID    pgtype.Text        `json:"user_subject_id"`
 }
 
 func (q *Queries) ListMembersWithUser(ctx context.Context, workspaceID pgtype.UUID) ([]ListMembersWithUserRow, error) {
@@ -383,8 +364,6 @@ func (q *Queries) ListMembersWithUser(ctx context.Context, workspaceID pgtype.UU
 			&i.CreatedAt,
 			&i.Source,
 			&i.Status,
-			&i.ExternalUserID,
-			&i.ExternalUniversalID,
 			&i.EmployeeID,
 			&i.OrgDisplayName,
 			&i.DeptID,
@@ -459,7 +438,7 @@ func (q *Queries) RefreshUserMembershipDeptOrg(ctx context.Context, arg RefreshU
 const updateMemberRole = `-- name: UpdateMemberRole :one
 UPDATE multica_member SET role = $2
 WHERE id = $1
-RETURNING id, workspace_id, user_id, role, created_at, source, status, external_user_id, external_universal_id, employee_id, org_display_name, dept_id, dept_name, dept_path, position, is_main_department, dept_user_status, last_synced_at, subject_id
+RETURNING id, workspace_id, user_id, role, created_at, source, status, employee_id, org_display_name, dept_id, dept_name, dept_path, position, is_main_department, dept_user_status, last_synced_at, subject_id
 `
 
 type UpdateMemberRoleParams struct {
@@ -478,8 +457,6 @@ func (q *Queries) UpdateMemberRole(ctx context.Context, arg UpdateMemberRolePara
 		&i.CreatedAt,
 		&i.Source,
 		&i.Status,
-		&i.ExternalUserID,
-		&i.ExternalUniversalID,
 		&i.EmployeeID,
 		&i.OrgDisplayName,
 		&i.DeptID,
@@ -520,7 +497,7 @@ DO UPDATE SET
     is_main_department = EXCLUDED.is_main_department,
     dept_user_status = EXCLUDED.dept_user_status,
     last_synced_at = NOW()
-RETURNING id, workspace_id, user_id, role, created_at, source, status, external_user_id, external_universal_id, employee_id, org_display_name, dept_id, dept_name, dept_path, position, is_main_department, dept_user_status, last_synced_at, subject_id
+RETURNING id, workspace_id, user_id, role, created_at, source, status, employee_id, org_display_name, dept_id, dept_name, dept_path, position, is_main_department, dept_user_status, last_synced_at, subject_id
 `
 
 type UpsertDeptMemberParams struct {
@@ -562,8 +539,6 @@ func (q *Queries) UpsertDeptMember(ctx context.Context, arg UpsertDeptMemberPara
 		&i.CreatedAt,
 		&i.Source,
 		&i.Status,
-		&i.ExternalUserID,
-		&i.ExternalUniversalID,
 		&i.EmployeeID,
 		&i.OrgDisplayName,
 		&i.DeptID,

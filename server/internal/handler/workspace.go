@@ -83,8 +83,6 @@ type MemberResponse struct {
 	Role                string  `json:"role"`
 	Source              string  `json:"source"`
 	Status              string  `json:"status"`
-	ExternalUserID      *string `json:"external_user_id"`
-	ExternalUniversalID *string `json:"external_universal_id"`
 	EmployeeID          *string `json:"employee_id"`
 	OrgDisplayName      *string `json:"org_display_name"`
 	DeptID              *string `json:"dept_id"`
@@ -102,8 +100,6 @@ func memberToResponse(m db.MulticaMember) MemberResponse {
 		Role:                m.Role,
 		Source:              m.Source,
 		Status:              m.Status,
-		ExternalUserID:      textToPtr(m.ExternalUserID),
-		ExternalUniversalID: textToPtr(m.ExternalUniversalID),
 		EmployeeID:          textToPtr(m.EmployeeID),
 		OrgDisplayName:      textToPtr(m.OrgDisplayName),
 		DeptID:              textToPtr(m.DeptID),
@@ -437,8 +433,6 @@ func (h *Handler) ListMembersWithUser(w http.ResponseWriter, r *http.Request) {
 			Source:              m.Source,
 			Status:              m.Status,
 			SubjectID:           textToPtr(subjectID),
-			ExternalUserID:      textToPtr(m.ExternalUserID),
-			ExternalUniversalID: textToPtr(m.ExternalUniversalID),
 			EmployeeID:          textToPtr(m.EmployeeID),
 			OrgDisplayName:      textToPtr(m.OrgDisplayName),
 			DeptID:              textToPtr(m.DeptID),
@@ -473,8 +467,6 @@ func memberWithUserResponse(member db.MulticaMember, user db.MulticaUser) Member
 		Source:              member.Source,
 		Status:              member.Status,
 		SubjectID:           textToPtr(subjectID),
-		ExternalUserID:      textToPtr(member.ExternalUserID),
-		ExternalUniversalID: textToPtr(member.ExternalUniversalID),
 		EmployeeID:          textToPtr(member.EmployeeID),
 		OrgDisplayName:      textToPtr(member.OrgDisplayName),
 		DeptID:              textToPtr(member.DeptID),

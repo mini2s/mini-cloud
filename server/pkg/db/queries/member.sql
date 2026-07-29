@@ -30,7 +30,7 @@ DELETE FROM multica_member WHERE id = $1;
 
 -- name: ListMembersWithUser :many
 SELECT m.id, m.workspace_id, m.user_id, m.role, m.created_at,
-       m.source, m.status, m.external_user_id, m.external_universal_id,
+       m.source, m.status,
        m.employee_id, m.org_display_name, m.dept_id, m.dept_name,
        m.dept_path, m.position, m.is_main_department, m.dept_user_status,
        m.last_synced_at, m.subject_id,
@@ -47,8 +47,7 @@ ORDER BY m.created_at ASC;
 SELECT
     m.id AS member_id,
     m.user_id,
-    m.external_universal_id,
-    m.external_user_id,
+    m.subject_id,
     COALESCE(NULLIF(m.org_display_name, ''), u.name) AS display_name
 FROM multica_member m
 JOIN multica_user u ON u.id = m.user_id
@@ -58,7 +57,7 @@ WHERE m.workspace_id = $1
 ORDER BY m.created_at ASC;
 
 -- name: ListDeptMemberSnapshots :many
-SELECT id, user_id, source, status, subject_id, external_user_id, external_universal_id,
+SELECT id, user_id, source, status, subject_id,
        employee_id, org_display_name, dept_id, dept_name, dept_path,
        position, is_main_department, dept_user_status, last_synced_at
 FROM multica_member
