@@ -11,6 +11,10 @@ WHERE id = $1;
 SELECT * FROM multica_member
 WHERE user_id = $1 AND workspace_id = $2;
 
+-- name: GetMemberByWorkspaceAndSubject :one
+SELECT * FROM multica_member
+WHERE workspace_id = $1 AND subject_id = $2;
+
 -- name: CreateMember :one
 INSERT INTO multica_member (workspace_id, user_id, role)
 VALUES ($1, $2, $3)
@@ -53,7 +57,7 @@ WHERE m.workspace_id = $1
 ORDER BY m.created_at ASC;
 
 -- name: ListDeptMemberSnapshots :many
-SELECT id, user_id, source, status, external_user_id, external_universal_id,
+SELECT id, user_id, source, status, subject_id, external_user_id, external_universal_id,
        employee_id, org_display_name, dept_id, dept_name, dept_path,
        position, is_main_department, dept_user_status, last_synced_at
 FROM multica_member
@@ -61,23 +65,21 @@ WHERE workspace_id = $1;
 
 -- name: UpsertDeptMember :one
 INSERT INTO multica_member (
-    workspace_id, user_id, role, source, status,
-    external_user_id, external_universal_id, employee_id, org_display_name,
-    dept_id, dept_name, dept_path, position, is_main_department,
-    dept_user_status, last_synced_at
+    workspace_id, user_id, role, source, status, subject_id,
+    employee_id, org_display_name, dept_id, dept_name, dept_path,
+    position, is_main_department, dept_user_status, last_synced_at
 )
 VALUES (
-    $1, $2, 'member', 'dept', $3,
-    $4, $5, $6, $7,
-    $8, $9, $10, $11, $12,
-    $13, $14
+    $1, $2, 'member', 'dept', $3, $4,
+    $5, $6, $7, $8, $9,
+    $10, $11, $12, NOW()
 )
-ON CONFLICT (workspace_id, external_universal_id)
-WHERE external_universal_id IS NOT NULL AND external_universal_id <> ''
+ON CONFLICT (workspace_id, subject_id)
+WHERE subject_id IS NOT NULL AND subject_id <> ''
 DO UPDATE SET
-    user_id = COALESCE(EXCLUDED.user_id, multica_member.user_id),
+    user_id = EXCLUDED.user_id,
     status = EXCLUDED.status,
-    external_user_id = EXCLUDED.external_user_id,
+    subject_id = EXCLUDED.subject_id,
     employee_id = EXCLUDED.employee_id,
     org_display_name = EXCLUDED.org_display_name,
     dept_id = EXCLUDED.dept_id,
@@ -86,7 +88,7 @@ DO UPDATE SET
     position = EXCLUDED.position,
     is_main_department = EXCLUDED.is_main_department,
     dept_user_status = EXCLUDED.dept_user_status,
-    last_synced_at = EXCLUDED.last_synced_at
+    last_synced_at = NOW()
 RETURNING *;
 
 -- name: ActivatePendingDeptMembersByUniversalID :many

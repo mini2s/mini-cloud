@@ -16,6 +16,7 @@ type WorkspaceDeptMemberSnapshot struct {
 	UserID              string
 	Source              string
 	Status              string
+	SubjectID           string
 	ExternalUserID      string
 	ExternalUniversalID string
 	Name                string
