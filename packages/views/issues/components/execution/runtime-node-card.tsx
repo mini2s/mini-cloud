@@ -33,7 +33,7 @@ import {
 } from "./runtime-node-duration";
 
 export const RUNTIME_NODE_HEIGHT = 176;
-export const RUNTIME_SPLIT_NODE_HEIGHT = 156;
+export const RUNTIME_SPLIT_NODE_HEIGHT = 176;
 export const RUNTIME_CHILD_ISSUE_NODE_HEIGHT = 136;
 export const RUNTIME_CHILD_ISSUE_NODE_WIDTH = 264;
 
@@ -530,7 +530,7 @@ export function RuntimeNodeCard({
       tabIndex={hasInlineAction ? 0 : undefined}
       onClick={() => onClick(node.id)}
       onKeyDown={hasInlineAction ? handleShellKeyDown : undefined}
-      className={isSplit ? "h-[156px]" : childIssueSummary ? "h-[136px]" : "h-[176px]"}
+      className={isSplit ? "h-[176px]" : childIssueSummary ? "h-[136px]" : "h-[176px]"}
       surfaceClassName={runtimeFocusSurfaceClassName(isRuntimeFocus, displayStatus)}
       contentClassName={cn("h-full justify-between gap-2", workflowNodeInfoAreaClassName(nodeShape))}
       handles={handles}
@@ -538,10 +538,7 @@ export function RuntimeNodeCard({
       elementRef={elementRef}
     >
       {isSplit ? (
-        <div
-          data-testid="runtime-node-split-layout"
-          className="grid h-full min-h-0 grid-rows-[32px_20px_minmax(0,1fr)] gap-1.5"
-        >
+        <>
           <div
             data-testid="runtime-node-split-header"
             className="flex items-center justify-between gap-2"
@@ -650,7 +647,7 @@ export function RuntimeNodeCard({
               ) : null}
             </div>
           )}
-        </div>
+        </>
       ) : (
         <>
       {/* Row 1: node title + status */}

@@ -824,10 +824,6 @@ describe("RuntimeNodeCard", () => {
     expect(screen.getByTestId("runtime-node-split-header")).toHaveTextContent("Task splitReviewing");
     expect(screen.getByTestId("runtime-node-split-context")).toHaveClass("border-t", "border-border/45");
     expect(screen.getByTestId("runtime-node-split-mode")).toHaveClass("text-muted-foreground");
-    expect(screen.getByTestId("runtime-node-split-layout")).toHaveClass(
-      "grid",
-      "grid-rows-[32px_20px_minmax(0,1fr)]",
-    );
     expect(screen.getByLabelText("Reviewing")).toBeInTheDocument();
     expect(screen.getByText("5 child issues")).toBeInTheDocument();
     expect(screen.getByText("Not started")).toBeInTheDocument();
@@ -968,10 +964,6 @@ describe("RuntimeNodeCard", () => {
     );
 
     const toggleButton = screen.getByRole("button", { name: "Expand child issues" });
-    expect(screen.getByTestId("runtime-node-split-layout")).toHaveClass(
-      "grid",
-      "grid-rows-[32px_20px_minmax(0,1fr)]",
-    );
     expect(toggleButton).toHaveAttribute("data-testid", "runtime-node-split-child-toggle");
     expect(toggleButton).toHaveClass("self-start", "mt-1.5");
     expect(toggleButton).toHaveTextContent("3 child issues");
