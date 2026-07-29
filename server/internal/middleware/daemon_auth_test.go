@@ -31,7 +31,7 @@ func TestDaemonAuth_DaemonTokenCacheHit(t *testing.T) {
 	}, auth.AuthCacheTTL)
 
 	var gotWS, gotDaemon, gotPath string
-	mw := DaemonAuth(nil, nil, cache, nil) // nil queries — only safe on cache hit
+	mw := DaemonAuth(nil, nil, cache, nil, nil) // nil queries — only safe on cache hit
 	handler := mw(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotWS = DaemonWorkspaceIDFromContext(r.Context())
 		gotDaemon = DaemonIDFromContext(r.Context())
@@ -70,7 +70,7 @@ func TestDaemonAuth_PATCacheHit(t *testing.T) {
 	cache.Set(context.Background(), hash, "cached-user-id", auth.AuthCacheTTL)
 
 	var gotUserID, gotPath string
-	mw := DaemonAuth(nil, cache, nil, nil)
+	mw := DaemonAuth(nil, cache, nil, nil, nil)
 	handler := mw(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotUserID = r.Header.Get("X-User-ID")
 		gotPath = DaemonAuthPathFromContext(r.Context())
@@ -94,7 +94,7 @@ func TestDaemonAuth_PATCacheHit(t *testing.T) {
 }
 
 func TestDaemonAuth_MissingAuth(t *testing.T) {
-	mw := DaemonAuth(nil, nil, nil, nil)
+	mw := DaemonAuth(nil, nil, nil, nil, nil)
 	handler := mw(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		t.Fatal("next must not be called")
 	}))
@@ -107,7 +107,7 @@ func TestDaemonAuth_MissingAuth(t *testing.T) {
 }
 
 func TestDaemonAuth_InvalidMDT_NilQueries(t *testing.T) {
-	mw := DaemonAuth(nil, nil, nil, nil) // no caches, no DB
+	mw := DaemonAuth(nil, nil, nil, nil, nil) // no caches, no DB
 	handler := mw(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		t.Fatal("next must not be called")
 	}))
@@ -141,7 +141,7 @@ func TestDaemonAuth_CasdoorJWT(t *testing.T) {
 	token := signRS256(t, key, kid, claims)
 
 	var gotUserID, gotSubjectID, gotPath string
-	mw := DaemonAuth(nil, nil, nil, resolver)
+	mw := DaemonAuth(nil, nil, nil, resolver, nil)
 	handler := mw(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotUserID = r.Header.Get("X-User-ID")
 		gotSubjectID = r.Header.Get("X-Subject-ID")
