@@ -371,12 +371,6 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 	r.With(authRL).Post("/auth/google", h.GoogleLogin)
 	r.Post("/auth/logout", h.Logout)
 
-	// Casdoor SSO routes (only registered when Casdoor is enabled)
-	if opts.CasdoorEnabled {
-		r.Get("/auth/casdoor/login", h.CasdoorLogin)
-		r.Get("/auth/casdoor/callback", h.CasdoorCallback)
-	}
-
 	// Public API
 	r.Get("/api/config", h.GetConfig)
 	r.Get("/api/plugins/builtin", h.ListBuiltinPlugins)
