@@ -739,7 +739,7 @@ func TestUploadMemberDeliverable(t *testing.T) {
 	`, runUUID, wfID, wsID, nodeID); err != nil {
 		t.Fatalf("seed run snapshot: %v", err)
 	}
-	seedRuntimeDeliverableRequirement(t, pool, nrUUID, nodeUUID)
+	seedRuntimeDeliverableRequirement(t, pool, nrUUID, nodeUUID, 0)
 
 	t.Cleanup(func() {
 		pool.Exec(ctx, `DELETE FROM multica_workflow WHERE workspace_id = $1`, wsID)
@@ -847,7 +847,7 @@ func TestUploadMemberDeliverable_UpdatesExistingFileAfterRejection(t *testing.T)
 	`, runUUID, wfID, wsID, nodeID); err != nil {
 		t.Fatalf("seed run snapshot: %v", err)
 	}
-	runtimeDeliverableID := seedRuntimeDeliverableRequirement(t, pool, nrUUID, nodeUUID)
+	runtimeDeliverableID := seedRuntimeDeliverableRequirement(t, pool, nrUUID, nodeUUID, 0)
 
 	t.Cleanup(func() {
 		pool.Exec(ctx, `DELETE FROM multica_workflow WHERE workspace_id = $1`, wsID)
@@ -984,8 +984,8 @@ func TestUploadMemberDeliverable_PartialSetWaitsAndCarriesSummary(t *testing.T) 
 	`, runUUID, wfID, wsID, nodeID); err != nil {
 		t.Fatalf("seed run snapshot: %v", err)
 	}
-	runtimeDocID := seedRuntimeDeliverableRequirement(t, pool, nrUUID, nodeUUID)
-	runtimeCodeID := seedRuntimeDeliverableRequirement(t, pool, nrUUID, nodeUUID)
+	runtimeDocID := seedRuntimeDeliverableRequirement(t, pool, nrUUID, nodeUUID, 0)
+	runtimeCodeID := seedRuntimeDeliverableRequirement(t, pool, nrUUID, nodeUUID, 1)
 
 	t.Cleanup(func() {
 		pool.Exec(ctx, `DELETE FROM multica_workflow WHERE workspace_id = $1`, wsID)

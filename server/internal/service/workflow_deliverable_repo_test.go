@@ -36,7 +36,7 @@ type giteaFixture struct {
 	run2      pgtype.UUID // zero-valued when not seeded
 }
 
-func seedRuntimeDeliverableRequirement(t *testing.T, pool *pgxpool.Pool, nodeRunID, sourceNodeID pgtype.UUID) pgtype.UUID {
+func seedRuntimeDeliverableRequirement(t *testing.T, pool *pgxpool.Pool, nodeRunID, sourceNodeID pgtype.UUID, offset int) pgtype.UUID {
 	t.Helper()
 	var requirementID pgtype.UUID
 	if err := pool.QueryRow(context.Background(), `
@@ -48,10 +48,10 @@ func seedRuntimeDeliverableRequirement(t *testing.T, pool *pgxpool.Pool, nodeRun
 		FROM multica_workflow_node_deliverable deliverable
 		WHERE deliverable.workflow_node_id = $2
 		ORDER BY deliverable.sort_order, deliverable.id
-		LIMIT 1
+		LIMIT 1 OFFSET $3
 		RETURNING id
-	`, nodeRunID, sourceNodeID).Scan(&requirementID); err != nil {
-		t.Fatalf("seed runtime deliverable requirement: %v", err)
+	`, nodeRunID, sourceNodeID, offset).Scan(&requirementID); err != nil {
+		t.Fatalf("seed runtime deliverable requirement (offset %d): %v", offset, err)
 	}
 	return requirementID
 }
@@ -311,7 +311,7 @@ func TestScaffoldRunDeliverables_DelegatesToTeamNamespace(t *testing.T) {
 	defer pool.Close()
 
 	fix := seedGiteaFixture(t, pool, true /*document deliverable*/, 1 /*one run*/)
-	seedRuntimeDeliverableRequirement(t, pool, seedRuntimeNodeRun(t, fix, fix.run1, NodeRunStatusPending), fix.node)
+	seedRuntimeDeliverableRequirement(t, pool, seedRuntimeNodeRun(t, fix, fix.run1, NodeRunStatusPending), fix.node, 0)
 	// ensureTeamNamespace resolves the team creator from a member's cs-user
 	// subject_id; the base fixture doesn't set one, so seed it.
 	if _, err := pool.Exec(context.Background(),
@@ -681,7 +681,7 @@ func TestEnsureNodeRunBranch_CreatesNodeBranchFromInst(t *testing.T) {
 		t.Fatalf("seed node run: %v", err)
 	}
 	nodeRunUUID, _ := util.ParseUUID(nodeRunID)
-	seedRuntimeDeliverableRequirement(t, pool, nodeRunUUID, fix.node)
+	seedRuntimeDeliverableRequirement(t, pool, nodeRunUUID, fix.node, 0)
 	nodeRun, err := queries.GetWorkflowNodeRun(context.Background(), nodeRunUUID)
 	if err != nil {
 		t.Fatalf("get node run: %v", err)
@@ -1089,7 +1089,7 @@ func seedNodeRunForReview(t *testing.T, pool *pgxpool.Pool, fix *giteaFixture, r
 
 	// The document deliverable row is created by seedGiteaFixture (withDocument).
 	nrID, _ := util.ParseUUID(nodeRunID)
-	deliverableID := seedRuntimeDeliverableRequirement(t, pool, nrID, fix.node)
+	deliverableID := seedRuntimeDeliverableRequirement(t, pool, nrID, fix.node, 0)
 
 	if _, err := pool.Exec(ctx, `
 		INSERT INTO multica_workflow_node_deliverable_submission (
@@ -1156,7 +1156,7 @@ func TestSubmitWorkerOutput_BlocksMissingRequiredPullRequestDeliverable(t *testi
 		t.Fatalf("seed node run: %v", err)
 	}
 	nrID, _ := util.ParseUUID(nodeRunID)
-	seedRuntimeDeliverableRequirement(t, pool, nrID, fix.node)
+	seedRuntimeDeliverableRequirement(t, pool, nrID, fix.node, 0)
 
 	svc := &WorkflowService{Queries: db.New(pool), TxStarter: pool}
 	err := svc.SubmitWorkerOutput(ctx, nrID, json.RawMessage(`{"output":"opened an MR but forgot to submit it"}`))
@@ -1201,7 +1201,7 @@ func TestHandleWorkflowTaskCompletion_BlocksMissingRequiredPullRequestDeliverabl
 		t.Fatalf("seed node run: %v", err)
 	}
 	nrID, _ := util.ParseUUID(nodeRunID)
-	seedRuntimeDeliverableRequirement(t, pool, nrID, fix.node)
+	seedRuntimeDeliverableRequirement(t, pool, nrID, fix.node, 0)
 
 	svc := &WorkflowService{Queries: db.New(pool), TxStarter: pool}
 	err := svc.HandleWorkflowTaskCompletion(ctx, db.MulticaAgentTaskQueue{
@@ -1252,7 +1252,7 @@ func TestHandleWorkflowTaskCompletion_AutoSubmitsSinglePullRequestURL(t *testing
 		t.Fatalf("seed node run: %v", err)
 	}
 	nrID, _ := util.ParseUUID(nodeRunID)
-	runtimeDeliverableID := seedRuntimeDeliverableRequirement(t, pool, nrID, fix.node)
+	runtimeDeliverableID := seedRuntimeDeliverableRequirement(t, pool, nrID, fix.node, 0)
 
 	mrURL := "http://gitlab.local/root/repo/-/merge_requests/7"
 	svc := &WorkflowService{Queries: db.New(pool), TxStarter: pool}
@@ -1772,7 +1772,7 @@ func TestAutoSubmit_AnySingleRequiredDeliverable(t *testing.T) {
 		nrID, _ := util.ParseUUID(nodeRunID)
 
 		// Copy the document deliverable into the runtime requirements table.
-		seedRuntimeDeliverableRequirement(t, pool, nrID, fix.node)
+		seedRuntimeDeliverableRequirement(t, pool, nrID, fix.node, 0)
 
 		mrURL := "https://gitlab.example.com/root/repo/-/merge_requests/42"
 		output := json.RawMessage(`{"output":"review at ` + mrURL + `"}`)
@@ -1826,8 +1826,8 @@ func TestAutoSubmit_AnySingleRequiredDeliverable(t *testing.T) {
 		nrID, _ := util.ParseUUID(nodeRunID)
 
 		// Copy both deliverables into runtime requirements.
-		seedRuntimeDeliverableRequirement(t, pool, nrID, fix.node)
-		seedRuntimeDeliverableRequirement(t, pool, nrID, fix.node)
+		seedRuntimeDeliverableRequirement(t, pool, nrID, fix.node, 0)
+		seedRuntimeDeliverableRequirement(t, pool, nrID, fix.node, 1)
 
 		mrURL := "https://gitlab.example.com/root/repo/-/merge_requests/42"
 		output := json.RawMessage(`{"output":"review at ` + mrURL + `"}`)
@@ -2397,7 +2397,7 @@ func TestEnsureNodeRunBranch_KindAgnostic(t *testing.T) {
 	nodeRunUUID, _ := util.ParseUUID(nodeRunID)
 
 	// Seed a runtime deliverable requirement for the pull_request kind.
-	seedRuntimeDeliverableRequirement(t, pool, nodeRunUUID, fix.node)
+	seedRuntimeDeliverableRequirement(t, pool, nodeRunUUID, fix.node, 0)
 
 	nodeRun, err := queries.GetWorkflowNodeRun(ctx, nodeRunUUID)
 	if err != nil {
@@ -2460,8 +2460,8 @@ func TestMergeAndApprove_KindAgnostic(t *testing.T) {
 	nrID, _ := util.ParseUUID(nodeRunID)
 
 	// Seed runtime deliverable requirements (template → runtime copy).
-	runtimeDocID := seedRuntimeDeliverableRequirement(t, pool, nrID, fix.node)
-	runtimeCodeID := seedRuntimeDeliverableRequirement(t, pool, nrID, fix.node)
+	runtimeDocID := seedRuntimeDeliverableRequirement(t, pool, nrID, fix.node, 0)
+	runtimeCodeID := seedRuntimeDeliverableRequirement(t, pool, nrID, fix.node, 1)
 
 	giteaSrv, mergeCalls := fakeGiteaMergeServer(t, http.StatusOK)
 	svc := &WorkflowService{
