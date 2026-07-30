@@ -1077,3 +1077,25 @@ type MulticaWorkspaceInvitation struct {
 	UpdatedAt     pgtype.Timestamptz `json:"updated_at"`
 	ExpiresAt     pgtype.Timestamptz `json:"expires_at"`
 }
+
+type UserAuthIdentity struct {
+	ID                int64              `json:"id"`
+	UserSubjectID     string             `json:"user_subject_id"`
+	Provider          string             `json:"provider"`
+	Issuer            pgtype.Text        `json:"issuer"`
+	ExternalKey       string             `json:"external_key"`
+	ExternalSubject   pgtype.Text        `json:"external_subject"`
+	ExternalUserID    pgtype.Text        `json:"external_user_id"`
+	ProviderUserID    pgtype.Text        `json:"provider_user_id"`
+	DisplayName       pgtype.Text        `json:"display_name"`
+	Email             pgtype.Text        `json:"email"`
+	Phone             pgtype.Text        `json:"phone"`
+	AvatarUrl         pgtype.Text        `json:"avatar_url"`
+	Organization      pgtype.Text        `json:"organization"`
+	IsPrimary         bool               `json:"is_primary"`
+	LastLoginAt       pgtype.Timestamptz `json:"last_login_at"`
+	CreatedAt         pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt         pgtype.Timestamptz `json:"updated_at"`
+	DeletedAt         pgtype.Timestamptz `json:"deleted_at"`
+	ExplicitlyUnbound bool               `json:"explicitly_unbound"`
+}
