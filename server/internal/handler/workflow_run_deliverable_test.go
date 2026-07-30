@@ -394,3 +394,25 @@ func TestSubmitNodeRunDeliverable_DoesNotArchiveGiteaPR(t *testing.T) {
 		t.Fatalf("expected NO archive call for Gitea PR URL, got %d: %+v", len(calls), calls)
 	}
 }
+
+// TestSubmitNodeRunDeliverable_Returns404ForUnknownDeliverable asserts that
+// submitting a pull_request_url for a nonexistent (or wrong-node-run)
+// deliverable_id returns 404, not 500. UpsertNodeRunDeliverableSubmission
+// returns pgx.ErrNoRows when its inner SELECT matches zero rows.
+func TestSubmitNodeRunDeliverable_Returns404ForUnknownDeliverable(t *testing.T) {
+	if testHandler == nil {
+		t.Skip("database not available")
+	}
+
+	nodeRunID, _ := seedDeliverableAndNodeRunIn(t, testWorkspaceID, testUserID)
+
+	req := newRequest(http.MethodPost, "/api/node-runs/"+nodeRunID+"/deliverables/"+uuid.NewString()+"/submit",
+		map[string]any{"pull_request_url": "https://gitlab.example.com/group/proj/-/merge_requests/1"})
+	req = withURLParams(req, "nodeRunId", nodeRunID, "deliverableId", uuid.NewString())
+	rec := httptest.NewRecorder()
+	testHandler.SubmitNodeRunDeliverable(rec, req)
+
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want 404 for unknown deliverable. body=%s", rec.Code, rec.Body.String())
+	}
+}

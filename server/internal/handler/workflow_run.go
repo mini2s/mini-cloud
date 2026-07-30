@@ -7,6 +7,7 @@ import (
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/multica-ai/multica/server/internal/gitea"
 	"github.com/multica-ai/multica/server/internal/gitlab"
@@ -1170,7 +1171,11 @@ func (h *Handler) SubmitNodeRunDeliverable(w http.ResponseWriter, r *http.Reques
 		PullRequestUrl:    req.PullRequestURL,
 	})
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to submit deliverable")
+		if errors.Is(err, pgx.ErrNoRows) {
+			writeError(w, http.StatusNotFound, "deliverable not found on this node run")
+		} else {
+			writeError(w, http.StatusInternalServerError, "failed to submit deliverable")
+		}
 		return
 	}
 
