@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/multica-ai/multica/server/internal/plugincatalog"
 )
 
 const catalogSkillType = "skill"
@@ -79,7 +80,7 @@ func (h *Handler) listCatalogItems(w http.ResponseWriter, r *http.Request, logPr
 		return
 	}
 
-	proxyURL, err := buildPluginCatalogURL(baseURL, "/api/items", params)
+	proxyURL, err := plugincatalog.BuildURL(baseURL, "/api/items", params)
 	if err != nil {
 		slog.Warn(logPrefix+": failed to build list proxy URL", "error", err)
 		writeError(w, http.StatusInternalServerError, "failed to build proxy request")
@@ -150,7 +151,7 @@ func (h *Handler) fetchCatalogSkillDetail(r *http.Request, skillID string) (map[
 		return nil, http.StatusNotFound, nil
 	}
 
-	proxyURL, err := buildPluginCatalogURL(baseURL, "/api/items/"+url.PathEscape(skillID), nil)
+	proxyURL, err := plugincatalog.BuildURL(baseURL, "/api/items/"+url.PathEscape(skillID), nil)
 	if err != nil {
 		return nil, http.StatusInternalServerError, err
 	}
