@@ -82,6 +82,7 @@ const mocks = vi.hoisted(() => ({
   getActorName: vi.fn<(type: string, id: string) => string>(() => "Test Agent"),
   getActorInitials: vi.fn<(type: string, id: string) => string>(() => "TA"),
   getActorAvatarUrl: vi.fn<(type: string, id: string) => string | null>(() => null),
+  getMemberName: vi.fn<(userId: string) => string>(() => "Runtime Owner"),
   useWorkspacePresenceMap: vi.fn(() => ({
     byAgent: new Map<string, { availability: "online" | "offline" | "unstable" }>(),
     loading: false,
@@ -186,6 +187,7 @@ vi.mock("@multica/core/workspace/hooks", () => ({
     getActorName: mocks.getActorName,
     getActorInitials: mocks.getActorInitials,
     getActorAvatarUrl: mocks.getActorAvatarUrl,
+    getMemberName: mocks.getMemberName,
   }),
 }));
 
@@ -604,6 +606,8 @@ describe("WorkflowPanoramaPage (new)", () => {
     mocks.getActorInitials.mockReturnValue("TA");
     mocks.getActorAvatarUrl.mockReset();
     mocks.getActorAvatarUrl.mockReturnValue(null);
+    mocks.getMemberName.mockReset();
+    mocks.getMemberName.mockReturnValue("Runtime Owner");
     mocks.useWorkspacePresenceMap.mockClear();
     mocks.useWorkspacePresenceMap.mockReturnValue({ byAgent: new Map(), loading: false });
     mocks.selectNode.mockReset();
@@ -1041,6 +1045,42 @@ describe("WorkflowPanoramaPage (new)", () => {
         default_runtime_id: null,
       });
     });
+  });
+
+  it("shows the runtime owner in workflow run settings", async () => {
+    mocks.workflowData = {
+      ...mocks.workflowData,
+      default_runtime_selection_policy: "specified_runtime_first",
+      default_runtime_id: null,
+    };
+    mocks.runtimesData = [{
+      id: "runtime-1",
+      workspace_id: "ws-test",
+      daemon_id: "daemon-1",
+      name: "Owner Runtime",
+      runtime_mode: "local",
+      provider: "csc",
+      launch_header: "",
+      status: "online",
+      device_info: "",
+      metadata: {},
+      owner_id: "user-owner",
+      visibility: "public",
+      last_seen_at: "",
+      created_at: "",
+      updated_at: "",
+    }];
+    mocks.getMemberName.mockReturnValue("Alice");
+
+    render(<WorkflowPanoramaPage workflowId="wf-1" />);
+
+    fireEvent.click(screen.getByRole("button", { name: "More" }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Run settings" }));
+    fireEvent.click(screen.getByRole("combobox"));
+
+    expect(await screen.findByRole("option")).toHaveTextContent("Owner Runtime");
+    expect(screen.getByRole("option")).toHaveTextContent("Alice");
+    expect(mocks.getMemberName).toHaveBeenCalledWith("user-owner");
   });
 
   it("renders worker nodes in the first visible lane when stage sort orders are sparse", () => {

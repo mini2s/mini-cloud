@@ -161,6 +161,14 @@ export function WorkflowRuntimeStrategyDialog({
                           <span className="ml-auto flex shrink-0 items-center gap-1.5 text-xs text-muted-foreground">
                             <span className="size-1.5 rounded-full bg-success" />
                             {t(($) => $.runtime_strategy.online)}
+                            {selectedRuntime.owner_id && getMemberName && (
+                              <>
+                                <span aria-hidden="true">·</span>
+                                <span className="max-w-28 truncate">
+                                  {getMemberName(selectedRuntime.owner_id)}
+                                </span>
+                              </>
+                            )}
                           </span>
                         </>
                       ) : undefined}

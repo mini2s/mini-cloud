@@ -216,7 +216,7 @@ export function AssigneePicker({
   const { data: frequency = [] } = useQuery(assigneeFrequencyOptions(wsId));
   const { data: runtimes = [] } = useQuery(runtimeListOptions(wsId));
   const usableWorkflowRuntimes = useUsableWorkflowRuntimes(runtimes);
-  const { getActorName } = useActorName();
+  const { getActorName, getMemberName } = useActorName();
 
   // Guard: prevent changing assignee while a workflow run is in progress.
   const guardedUpdate = (updates: Partial<UpdateIssueRequest>) => {
@@ -776,6 +776,7 @@ export function AssigneePicker({
         }}
         runtimes={usableWorkflowRuntimes.runtimes}
         loading={usableWorkflowRuntimes.isLoading}
+        getMemberName={getMemberName}
         onConfirm={handleWorkflowRuntimeConfirm}
         onClose={() => {
           setPendingWorkflowRuntime(null);
