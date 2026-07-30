@@ -83,11 +83,10 @@ func newRoleResolutionFixture(t *testing.T, slotSpecs []roleSlotSpec) *roleResol
 		if err != nil {
 			t.Fatalf("create user %d: %v", i, err)
 		}
-		externalID := fmt.Sprintf("ext-%s-%d", suffix, i)
 		_, err = pool.Exec(ctx, `
-			INSERT INTO multica_member (workspace_id, user_id, role, status, external_universal_id, org_display_name)
-			VALUES ($1, $2, 'member', 'active', $3, $4)
-		`, workspaceID, userID, externalID, fmt.Sprintf("Member %d", i))
+			INSERT INTO multica_member (workspace_id, user_id, role, status, org_display_name)
+			VALUES ($1, $2, 'member', 'active', $3)
+		`, workspaceID, userID, fmt.Sprintf("Member %d", i))
 		if err != nil {
 			t.Fatalf("create member %d: %v", i, err)
 		}
