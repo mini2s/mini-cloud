@@ -6,6 +6,7 @@ import { useWorkspaceId } from "@multica/core/hooks";
 import { useWorkspacePaths } from "@multica/core/paths";
 import {
   allUsersOptions,
+  formatDateParam,
   formatNumber,
   formatV2Ratio,
   parseOrder,
@@ -15,6 +16,7 @@ import {
   useUserNameMap,
 } from "@multica/core/efficiency";
 import { KpiCard } from "../../runtimes/components/shared";
+import { DRILLDOWN_ROW_CLASS } from "../components/drilldown-styles";
 import { Td, TdNum, Th, ThNum, SortHeader } from "../usage/shared";
 import { useNavigation } from "../../navigation";
 import { ContributionTrendSection } from "./contribution-trend-section";
@@ -43,11 +45,9 @@ type SortField =
 export function UserContribution({
   startDate,
   endDate,
-  onSelect,
 }: {
   startDate: string;
   endDate: string;
-  onSelect?: (userId: string) => void;
 }) {
   const wsId = useWorkspaceId();
   const p = useWorkspacePaths();
@@ -87,6 +87,13 @@ export function UserContribution({
   }
   const isActive = (f: SortField) => parsed?.field === f;
   const isDesc = (f: SortField) => parsed?.field === f && parsed.desc === true;
+  function openUserDetail(userId: string) {
+    const query = new URLSearchParams({
+      startDate: formatDateParam(startDate),
+      endDate: formatDateParam(endDate),
+    });
+    push(`${p.metricsUserDetail(userId)}?${query.toString()}`);
+  }
 
   return (
     <div className="space-y-4">
@@ -205,12 +212,13 @@ export function UserContribution({
                   sorted.map((r, i) => (
                     <tr
                       key={r.user_id}
-                      onClick={() =>
-                        onSelect
-                          ? onSelect(r.user_id)
-                          : push(p.metricsUserDetail(r.user_id))
-                      }
-                      className="cursor-pointer border-b transition-colors last:border-0 hover:bg-muted/50"
+                      tabIndex={0}
+                      onClick={() => openUserDetail(r.user_id)}
+                      onKeyDown={(event) => {
+                        if (event.key !== "Enter") return;
+                        openUserDetail(r.user_id);
+                      }}
+                      className={`${DRILLDOWN_ROW_CLASS} border-b last:border-0`}
                     >
                       <TdNum>
                         <span className="text-muted-foreground">{i + 1}</span>

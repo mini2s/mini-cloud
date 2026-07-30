@@ -150,6 +150,16 @@ describe("DeptPKCard", () => {
     expect(screen.getByText("33.0%")).toBeInTheDocument();
   });
 
+  it("shows the resolved org-level label in the trigger, never the raw sentinel", () => {
+    render(
+      <DeptPKCard startDate="2026-01-01" endDate="2026-06-30" />,
+    );
+    // Default selection is the ROOT sentinel "__root__"; the trigger must
+    // render its display label instead (SelectValue function children).
+    expect(screen.getByText("全公司（一级部门）")).toBeInTheDocument();
+    expect(screen.queryByText("__root__")).not.toBeInTheDocument();
+  });
+
   it("opens the organization-focused efficiency view for a department", () => {
     render(
       <DeptPKCard startDate="2026-01-01" endDate="2026-06-30" />,

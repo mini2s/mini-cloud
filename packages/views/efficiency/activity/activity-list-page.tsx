@@ -21,7 +21,11 @@ import {
 import { Button } from "@multica/ui/components/ui/button";
 import { PageHeader } from "../../layout/page-header";
 import { useNavigation } from "../../navigation";
-import { PeriodSelect } from "../components";
+import { DateRangePicker } from "../components";
+import {
+  DRILLDOWN_LINK_CLASS,
+  DRILLDOWN_ROW_CLASS,
+} from "../components/drilldown-styles";
 import { SortHeader, Td, TdNum, Th, ThNum } from "../usage/shared";
 
 export interface ActivityListState {
@@ -207,8 +211,8 @@ function ActivityListPage({
             {isCommit ? "提交 Commit" : "任务 Task"}
           </h1>
         </div>
-        <PeriodSelect
-          value={state.startDate}
+        <DateRangePicker
+          value={[state.startDate, state.endDate]}
           onChange={([startDate, endDate]) =>
             onStateChange({ startDate, endDate, page: 1 })
           }
@@ -345,7 +349,7 @@ function ActivityListPage({
                             );
                           }
                         }}
-                        className="cursor-pointer border-b transition-colors last:border-0 hover:bg-muted/40 focus-visible:bg-muted/40 focus-visible:outline-none"
+                        className={`${DRILLDOWN_ROW_CLASS} border-b last:border-0`}
                       >
                         <Td title={row.id}>
                           <span className="font-mono text-xs text-primary">
@@ -360,7 +364,7 @@ function ActivityListPage({
                           {row.userId ? (
                             <button
                               type="button"
-                              className="text-primary hover:underline"
+                              className={DRILLDOWN_LINK_CLASS}
                               onClick={(event) => {
                                 event.stopPropagation();
                                 push(paths.metricsUserDetail(row.userId!));
@@ -380,7 +384,7 @@ function ActivityListPage({
                             {row.repoAddr ? (
                               <button
                                 type="button"
-                                className="max-w-[260px] truncate text-left text-primary hover:underline"
+                                className={`max-w-[260px] truncate text-left ${DRILLDOWN_LINK_CLASS}`}
                                 onClick={(event) => {
                                   event.stopPropagation();
                                   push(

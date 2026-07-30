@@ -6,6 +6,7 @@ import {
   useEffect,
   useMemo,
   useState,
+  type ReactNode,
 } from "react";
 import { ChevronRight } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
@@ -17,13 +18,17 @@ import {
   deptOverviewOptions,
   formatDuration,
   formatNumber,
-  formatV2Ratio,
   type DeptMember,
   type DeptTreeNodeWithSummary,
 } from "@multica/core/efficiency";
 import { Skeleton } from "@multica/ui/components/ui/skeleton";
 import { cn } from "@multica/ui/lib/utils";
 import { useNavigation } from "../../navigation";
+import {
+  DRILLDOWN_ROW_CLASS,
+  DRILLDOWN_TREE_ITEM_CLASS,
+} from "../components/drilldown-styles";
+import { RatioPill } from "../components/ratio-pill";
 
 interface EfficiencyOrgViewProps {
   startDate: string;
@@ -33,15 +38,22 @@ interface EfficiencyOrgViewProps {
   onDeptChange?: (deptId: string) => void;
 }
 
-function initialExpandedIds(nodes: DeptTreeNodeWithSummary[]): string[] {
-  const ids: string[] = [];
-  let firstLevel = nodes;
+/** First-level departments: children of the single company root, or the root
+    list itself when the tree is a forest. */
+function firstLevelNodes(
+  nodes: DeptTreeNodeWithSummary[],
+): DeptTreeNodeWithSummary[] {
   const root = nodes[0];
-  if (nodes.length === 1 && root?.children.length) {
-    ids.push(root.dept_id);
-    firstLevel = root.children;
-  }
-  for (const node of firstLevel) ids.push(node.dept_id);
+  return nodes.length === 1 && root?.children.length ? root.children : nodes;
+}
+
+function initialExpandedIds(nodes: DeptTreeNodeWithSummary[]): string[] {
+  const firstLevel = firstLevelNodes(nodes);
+  const ids = firstLevel.map((node) => node.dept_id);
+  const root = nodes[0];
+  // Single company root: expand the root itself too, since its children are
+  // the displayed first level.
+  if (root && firstLevel !== nodes) ids.unshift(root.dept_id);
   return ids;
 }
 
@@ -81,6 +93,16 @@ export function EfficiencyOrgView({
         : new Set(initialExpandedIds(nodes)),
     );
   }, [nodes]);
+
+  // Default-select the topmost node (company root) so the roster panel has
+  // content on load. Skipped once anything is selected (URL-driven or click).
+  useEffect(() => {
+    if (selectedId || !nodes.length) return;
+    const root = nodes[0];
+    if (!root) return;
+    setInternalSelectedId(root.dept_id);
+    onDeptChange?.(root.dept_id);
+  }, [nodes, selectedId, onDeptChange]);
 
   const toggle = useCallback((deptId: string) => {
     setExpanded((current) => {
@@ -205,17 +227,17 @@ const OrgTreeNode = memo(function OrgTreeNode({
         <button
           type="button"
           onClick={() => onSelect(node.dept_id)}
-          className="flex min-w-0 flex-1 items-center justify-between gap-2 rounded text-left text-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className={`flex min-w-0 flex-1 items-center justify-between gap-2 rounded px-1 py-0.5 text-left text-sm ${DRILLDOWN_TREE_ITEM_CLASS}`}
         >
           <span className="truncate" title={node.dept_name}>
             {node.dept_name}
           </span>
           {node.summary.calendar_ratio != null && (
             <span
-              className="shrink-0 rounded-full bg-muted px-2 py-0.5 text-xs tabular-nums text-muted-foreground"
+              className="shrink-0"
               title={`合并需求 ${formatNumber(node.summary.merged_need_count)} · 看板成员 ${formatNumber(node.summary.kanban_member_count)}`}
             >
-              {formatV2Ratio(node.summary.calendar_ratio)}
+              <RatioPill value={node.summary.calendar_ratio} />
             </span>
           )}
         </button>
@@ -283,9 +305,9 @@ export function DeptMembersPanel({
         <Metric label="成员数" value={formatNumber(summary?.member_count ?? 0)} hint={`${formatNumber(summary?.kanban_member_count ?? 0)} 人有看板数据`} />
         <Metric label="合并需求" value={formatNumber(summary?.merged_need_count ?? 0)} />
         <Metric label="实际周期" value={formatDuration(summary?.actual_calendar_min)} />
-        <Metric label="日历提效" value={formatV2Ratio(summary?.calendar_ratio)} />
-        <Metric label="人力提效" value={formatV2Ratio(summary?.work_ratio)} />
-        <Metric label={aiLabel} value={formatV2Ratio(summary?.silica)} />
+        <Metric label="日历提效" value={<RatioPill value={summary?.calendar_ratio} />} />
+        <Metric label="人力提效" value={<RatioPill value={summary?.work_ratio} />} />
+        <Metric label={aiLabel} value={<RatioPill value={summary?.silica} />} />
         <Metric label="Commit" value={formatNumber(summary?.commit_count ?? 0)} />
         <Metric label="代码行" value={formatNumber(summary?.commit_diff_lines ?? 0)} />
         <Metric label="费用" value={summary?.cost == null ? "-" : `¥${formatNumber(summary.cost, 2)}`} />
@@ -342,7 +364,7 @@ function Metric({
   hint,
 }: {
   label: string;
-  value: string;
+  value: ReactNode;
   hint?: string;
 }) {
   return (
@@ -379,7 +401,7 @@ function MemberHeader({ aiLabel }: { aiLabel: string }) {
           key={label}
           className={cn(
             "whitespace-nowrap px-3 py-2",
-            index >= 3 && "text-right",
+            index >= 3 && (index <= 4 || index >= 8 ? "text-right" : "text-center"),
           )}
         >
           {label}
@@ -396,16 +418,24 @@ function MemberRow({
   member: DeptMember;
   onOpen?: () => void;
 }) {
-  const value = (text: string) =>
-    member.has_kanban_data ? text : "—";
+  const value = (content: ReactNode) =>
+    member.has_kanban_data ? content : "—";
   return (
     <div
       role="row"
+      tabIndex={onOpen ? 0 : undefined}
       onClick={onOpen}
+      onKeyDown={
+        onOpen
+          ? (event) => {
+              if (event.key === "Enter") onOpen();
+            }
+          : undefined
+      }
       className={cn(
         "grid min-h-11 items-center border-b text-sm last:border-0",
         MEMBER_GRID,
-        onOpen && "cursor-pointer hover:bg-muted/50",
+        onOpen && DRILLDOWN_ROW_CLASS,
       )}
     >
       <div className="min-w-0 px-3 py-2">
@@ -426,14 +456,14 @@ function MemberRow({
       <div className="px-3 py-2 text-right tabular-nums">
         {value(formatDuration(member.actual_calendar_min))}
       </div>
-      <div className="px-3 py-2 text-right tabular-nums">
-        {value(formatV2Ratio(member.calendar_ratio))}
+      <div className="px-3 py-2 text-center tabular-nums">
+        {value(<RatioPill value={member.calendar_ratio} />)}
       </div>
-      <div className="px-3 py-2 text-right tabular-nums">
-        {value(formatV2Ratio(member.work_ratio))}
+      <div className="px-3 py-2 text-center tabular-nums">
+        {value(<RatioPill value={member.work_ratio} />)}
       </div>
-      <div className="px-3 py-2 text-right tabular-nums">
-        {value(formatV2Ratio(member.silica))}
+      <div className="px-3 py-2 text-center tabular-nums">
+        {value(<RatioPill value={member.silica} />)}
       </div>
       <div className="px-3 py-2 text-right tabular-nums">
         {value(formatNumber(member.commit_count))}

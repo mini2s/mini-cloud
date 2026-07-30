@@ -3,6 +3,15 @@ import { cleanup, screen } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactNode } from "react";
 import { renderWithI18n } from "../../test/i18n";
+import {
+  ACTUAL_CALENDAR_TIP,
+  ACTUAL_WORK_TIP,
+  BASELINE_CALENDAR_TIP,
+  CALENDAR_RATIO_TIP,
+  FUSED_BASELINE_WORK_TIP,
+  VERIFY_UNAVAILABLE_TIP,
+  WORK_RATIO_TIP,
+} from "@multica/core/efficiency";
 
 // NeedDetail integration smoke test. Mirrors the efficiency-dimension /
 // usage-kanban test pattern: mock the workspace hook and intercept useQuery
@@ -19,6 +28,18 @@ import { renderWithI18n } from "../../test/i18n";
 
 vi.mock("@multica/core/hooks", () => ({
   useWorkspaceId: () => "ws-1",
+}));
+
+vi.mock("@multica/core/paths", () => ({
+  useWorkspacePaths: () => ({
+    metricsRepoDetail: (repo: string) => `/metrics/repo/${repo}`,
+    metricsUserDetail: (user: string) => `/metrics/user/${user}`,
+    metricsCommitDetail: (commit: string) => `/metrics/commit/${commit}`,
+  }),
+}));
+
+vi.mock("../../navigation", () => ({
+  useNavigation: () => ({ push: vi.fn() }),
 }));
 
 // Intercept useQuery and return mock data for the need-detail queryKey:
@@ -83,31 +104,49 @@ describe("NeedDetail (smoke)", () => {
       withQueryClient(<NeedDetail needId="n-test-1" onBack={onBack} />),
     );
 
-    // Title block: "Need detail" + the need id subtitle.
-    expect(screen.getByText("Need detail")).toBeTruthy();
+    // Title block + the need id subtitle.
+    expect(screen.getByText("需求看板")).toBeTruthy();
 
     // KPI grid: the six baseline-vs-actual card labels.
-    expect(screen.getByText("Calendar efficiency")).toBeTruthy();
-    expect(screen.getByText("Work efficiency")).toBeTruthy();
-    expect(screen.getByText("Actual period")).toBeTruthy();
-    expect(screen.getByText("Baseline period")).toBeTruthy();
-    expect(screen.getByText("Actual work")).toBeTruthy();
-    expect(screen.getByText("Baseline work (fused)")).toBeTruthy();
+    expect(screen.getByText("日历提效")).toBeTruthy();
+    expect(screen.getByText("人力提效")).toBeTruthy();
+    expect(screen.getByText("实际周期")).toBeTruthy();
+    expect(screen.getByText("传统周期预估")).toBeTruthy();
+    expect(screen.getByText("实际人力")).toBeTruthy();
+    expect(screen.getByText("传统人力预估")).toBeTruthy();
+
+    // Source parity: every KPI exposes its caliber through a visible info
+    // affordance, and the Sessions verification column explains unavailable
+    // collection coverage through the same affordance.
+    for (const tip of [
+      CALENDAR_RATIO_TIP,
+      WORK_RATIO_TIP,
+      ACTUAL_CALENDAR_TIP,
+      BASELINE_CALENDAR_TIP,
+      ACTUAL_WORK_TIP,
+      FUSED_BASELINE_WORK_TIP,
+      VERIFY_UNAVAILABLE_TIP,
+    ]) {
+      expect(screen.getByRole("button", { name: tip })).toBeTruthy();
+    }
+
+    // Source RatioPill styling is retained for the two efficiency values.
+    expect(container.querySelectorAll(".rounded-full.tabular-nums").length).toBeGreaterThanOrEqual(2);
 
     // Section panels render.
-    expect(screen.getByText("Basic info")).toBeTruthy();
-    expect(screen.getByText("Stage workload")).toBeTruthy();
-    expect(screen.getByText("Related sessions")).toBeTruthy();
+    expect(screen.getByText("基础信息")).toBeTruthy();
+    expect(screen.getByText("阶段工作量")).toBeTruthy();
+    expect(screen.getByText("关联 Sessions")).toBeTruthy();
 
     // Collapsible commits section is present (collapsed by default).
-    expect(screen.getByText("Related commits")).toBeTruthy();
+    expect(screen.getByText("关联 Commits")).toBeTruthy();
 
     // The back button is wired (no router import in the shared view).
     const backBtn = container.querySelector("button");
     expect(backBtn).toBeTruthy();
 
     // The page did not blow up rendering rich nested data.
-    expect(container.textContent).toContain("Need detail");
+    expect(container.textContent).toContain("需求看板");
   });
 
   it("invokes onBack when the back button is clicked", async () => {

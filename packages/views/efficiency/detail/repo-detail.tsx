@@ -45,10 +45,13 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@multica/ui/components/ui/dialog";
-import { KpiCard } from "../../runtimes/components/shared";
 import { useNavigation } from "../../navigation";
+import {
+  DRILLDOWN_LINK_CLASS,
+  DRILLDOWN_ROW_CLASS,
+} from "../components/drilldown-styles";
 import { MultiTrendChart, type MultiTrendPoint, type MultiTrendSeries } from "../charts";
-import { PeriodSelect } from "../components";
+import { DateRangePicker } from "../components";
 import { SortHeader, Th, ThNum, Td, TdNum } from "../usage/shared";
 import { DetailShell } from "./detail-shell";
 import { EmptyRow, ErrorBanner, Kv, KvGrid, Panel, shortId, ToneBadge } from "./shared";
@@ -172,7 +175,6 @@ export function RepoDetail({
   const effectiveStartDate = startDate ?? timeRange[0];
   const effectiveEndDate = endDate ?? timeRange[1];
 
-  const ALL_BRANCHES = "__all__";
   const [currentBranch, setCurrentBranch] = useState(repoBranch ?? "");
   useEffect(() => setCurrentBranch(repoBranch ?? ""), [repoBranch]);
 
@@ -213,14 +215,9 @@ export function RepoDetail({
     [branchesQ.data?.branches, detailQ.data?.branches],
   );
 
-  // shadcn Select (Radix) disallows empty-string SelectItem values, so the
-  // whole-repo scope ("") is represented as "__all__" at the Select boundary
-  // and normalized back to "" for the rest of the page + onBranchChange.
-  const selectValue = currentBranch === "" ? ALL_BRANCHES : currentBranch;
-  function handleBranchChange(next: string | null) {
-    const normalized = !next || next === ALL_BRANCHES ? "" : next;
-    setCurrentBranch(normalized);
-    onBranchChange?.(normalized);
+  function handleBranchChange(next: string) {
+    setCurrentBranch(next);
+    onBranchChange?.(next);
   }
 
   // Client-side sort state for the two tables.
@@ -321,83 +318,93 @@ export function RepoDetail({
       subtitle={subtitle}
       headerExtra={
         <>
-          <PeriodSelect
-            value={effectiveStartDate}
-            onChange={(range) => setTimeRange(range)}
+          {branches.length > 0 ? (
+            <select
+              value={currentBranch}
+              onChange={(event) => handleBranchChange(event.target.value)}
+              className="h-9 w-[200px] rounded-md border border-input bg-background px-3 text-sm text-foreground shadow-xs outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              aria-label="切换分支"
+            >
+              <option value="">全部分支（整仓）</option>
+              {branches.map((branch) => (
+                <option key={branch} value={branch}>
+                  {branch}
+                </option>
+              ))}
+            </select>
+          ) : null}
+          <DateRangePicker
+            value={[effectiveStartDate, effectiveEndDate]}
+            onChange={setTimeRange}
           />
           <Button
             type="button"
             size="sm"
-            variant="outline"
             onClick={() => setAddToProjectOpen(true)}
             disabled={!detailQ.data}
+            className="bg-brand text-brand-foreground hover:bg-brand/90"
           >
             <Plus className="h-3.5 w-3.5" />
-            添加到项目
+            添加到 Project
           </Button>
-          {branches.length > 0 ? (
-            <Select value={selectValue} onValueChange={handleBranchChange}>
-              <SelectTrigger size="sm" className="w-[200px]" aria-label="切换分支">
-                <SelectValue placeholder="全部分支（整仓）" />
-              </SelectTrigger>
-              <SelectContent>
-                {/* "" = whole-repo scope: backend returns all branches. */}
-                <SelectItem value={ALL_BRANCHES}>全部分支（整仓）</SelectItem>
-                {branches.map((b) => (
-                  <SelectItem key={b} value={b}>
-                    {b}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          ) : null}
         </>
       }
       loading={detailQ.isLoading}
       error={detailQ.error}
       empty={!detailQ.data ? "暂无该仓库数据" : undefined}
     >
-      {/* KPI grid: efficiency + AI share + volume + cost. */}
-      <section className="grid grid-cols-2 gap-3 lg:grid-cols-3">
-        <KpiTile
-          label="提效比"
-          value={formatPercent(efficiency?.efficiency_ratio)}
-          hint={efficiency?.efficiency_ratio != null ? "传统预估与实际耗时的提升百分比" : undefined}
-        />
-        <KpiTile
-          label="传统开发时长预估"
-          value={formatDuration(efficiency?.repo_ancient_minutes)}
-          hint={efficiency?.repo_ancient_minutes_reason || undefined}
-        />
-        <KpiTile
-          label="实际耗时"
-          value={formatDuration(efficiency?.repo_real_minutes)}
-          hint={efficiency?.repo_real_minutes_reason || undefined}
-        />
-        <KpiTile
-          label="AI 代码占比"
-          value={formatV2Ratio(detailQ.data?.summary?.ai_code_ratio)}
-        />
-        <KpiTile label="代码行数" value={totalDiffLines > 0 ? `${totalDiffLines.toLocaleString()} 行` : "-"} />
-        <KpiTile
-          label="总费用（task）"
-          value={totalCost > 0 ? `${fmtCost(totalCost)} 元` : "-"}
-          hint={totalTokens > 0 ? `${totalTokens.toLocaleString()} Tokens` : undefined}
-        />
-      </section>
-
-      {/* Basic info. */}
+      {/* Basic information precedes metrics, matching the source page. */}
       <Panel title="基础信息">
         <KvGrid>
           <Kv label="仓库地址" wide mono>{repoAddr || "-"}</Kv>
-          <Kv label="分支" mono>{currentBranch || "全部分支"}</Kv>
+          <Kv label="分支" mono>{currentBranch || "-"}</Kv>
           <Kv label="活跃时间">{activityRange}</Kv>
-          <Kv label="Commit 数">{formatNumber(commits.length)}</Kv>
-          <Kv label="task 数">{formatNumber(tasks.length)}</Kv>
-          <Kv label="总 Tokens">{totalTokens > 0 ? totalTokens.toLocaleString() : "-"}</Kv>
-          <Kv label="贡献者">{contributorCount > 0 ? `${contributorCount} 人` : "-"}</Kv>
+          <Kv label="提交数">{formatNumber(commits.length)}</Kv>
+          <Kv label="任务数">{formatNumber(tasks.length)}</Kv>
+          <Kv label="总 Tokens">{totalTokens.toLocaleString()}</Kv>
         </KvGrid>
       </Panel>
+
+      {/* Source-style metric block: seven values in a compact 3-column grid. */}
+      <section className="rounded-2xl border bg-card p-5 shadow-sm">
+        <div className="grid grid-cols-1 gap-x-6 gap-y-4 text-sm sm:grid-cols-2 lg:grid-cols-3">
+          <RepoMetric
+            label="传统开发时长预估"
+            value={formatDuration(efficiency?.repo_ancient_minutes)}
+            tone="warning"
+            title={efficiency?.repo_ancient_minutes_reason}
+          />
+          <RepoMetric
+            label="实际耗时"
+            value={formatDuration(efficiency?.repo_real_minutes)}
+            tone="info"
+            title={efficiency?.repo_real_minutes_reason}
+          />
+          <RepoMetric
+            label="提效比"
+            value={
+              efficiency?.efficiency_ratio != null
+                ? `${Math.round(efficiency.efficiency_ratio)}%`
+                : "-"
+            }
+            tone={repoEfficiencyTone(efficiency?.efficiency_ratio)}
+          />
+          <RepoMetric
+            label="AI 代码占比"
+            value={formatV2Ratio(detailQ.data?.summary?.ai_code_ratio)}
+            tone="success"
+          />
+          <RepoMetric
+            label="代码行数"
+            value={`${totalDiffLines.toLocaleString()} 行`}
+          />
+          <RepoMetric
+            label="总费用（Tasks）"
+            value={totalCost > 0 ? `${fmtCost(totalCost)} 元` : "-"}
+          />
+          <RepoMetric label="贡献者" value={`${contributorCount} 人`} />
+        </div>
+      </section>
 
       {/* Branch overview (whole-repo scope only). */}
       {currentBranch === "" && branchSummary.length > 0 && (
@@ -410,7 +417,7 @@ export function RepoDetail({
             <thead>
               <tr className="border-b">
                 <Th>分支</Th>
-                <ThNum>Commit 数</ThNum>
+                <ThNum>提交数</ThNum>
                 <ThNum>代码行数</ThNum>
                 <ThNum>实际耗时</ThNum>
                 <th className="whitespace-nowrap px-3 py-2 text-center font-semibold text-muted-foreground">
@@ -422,13 +429,22 @@ export function RepoDetail({
               {branchSummary.map((b) => (
                 <tr
                   key={b.branch || "__unlabeled__"}
+                  tabIndex={b.branch ? 0 : undefined}
                   onClick={() => b.branch && handleBranchChange(b.branch)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" && b.branch) {
+                      handleBranchChange(b.branch);
+                    }
+                  }}
                   className={`border-b text-card-foreground last:border-0 ${
-                    b.branch ? "cursor-pointer hover:bg-muted/50" : ""
+                    b.branch ? DRILLDOWN_ROW_CLASS : ""
                   }`}
                 >
                   <Td>
-                    <span className="font-mono break-all text-primary" title={b.branch || "(unlabeled)"}>
+                    <span
+                      className={`break-all font-mono ${b.branch ? DRILLDOWN_LINK_CLASS : "text-muted-foreground"}`}
+                      title={b.branch || "(unlabeled)"}
+                    >
                       {b.branch || "（未标注分支）"}
                     </span>
                   </Td>
@@ -450,7 +466,7 @@ export function RepoDetail({
       )}
 
       {/* Commits table (sortable). */}
-      <Panel title="Commit 列表" hint={`${commits.length} 条`} bodyClassName="overflow-x-auto">
+      <Panel title="Commits" hint={`${commits.length} 条`} bodyClassName="overflow-x-auto">
         <table className="w-full border-collapse text-sm">
           <thead>
             <tr className="border-b">
@@ -516,7 +532,7 @@ export function RepoDetail({
               </ThNum>
               <ThNum>
                 <SortHeader
-                  label="Tokens 消耗"
+                  label="Tokens消耗"
                   active={commitSort?.field === "tokens"}
                   desc={commitSort?.field === "tokens" && commitSort.desc}
                   onClick={() => setCommitSort((p) => cycle(p, "tokens"))}
@@ -526,7 +542,7 @@ export function RepoDetail({
           </thead>
           <tbody>
             {sortedCommits.length === 0 ? (
-              <EmptyRow colSpan={currentBranch === "" ? 11 : 10}>暂无 Commit 数据</EmptyRow>
+              <EmptyRow colSpan={currentBranch === "" ? 12 : 11}>暂无数据</EmptyRow>
             ) : (
               sortedCommits.map((c) => {
                 const eff = commitEffRatio(c);
@@ -534,11 +550,20 @@ export function RepoDetail({
                 return (
                   <tr
                     key={c.commit_id}
+                    tabIndex={0}
                     onClick={() => push(paths.metricsCommitDetail(c.commit_id))}
-                    className="cursor-pointer border-b text-card-foreground hover:bg-muted/50 last:border-0"
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter") {
+                        push(paths.metricsCommitDetail(c.commit_id));
+                      }
+                    }}
+                    className={`${DRILLDOWN_ROW_CLASS} border-b text-card-foreground last:border-0`}
                   >
                     <Td>
-                      <span className="font-mono text-xs" title={c.commit_id}>
+                      <span
+                        className={`font-mono text-xs ${DRILLDOWN_LINK_CLASS}`}
+                        title={c.commit_id}
+                      >
                         {shortId(c.commit_id, 8)}
                       </span>
                     </Td>
@@ -590,11 +615,11 @@ export function RepoDetail({
 
       {/* Tasks table (only when present). */}
       {tasks.length > 0 && (
-        <Panel title="task 列表" hint={`${tasks.length} 条`} bodyClassName="overflow-x-auto">
+        <Panel title="Tasks" hint={`${tasks.length} 条`} bodyClassName="overflow-x-auto">
           <table className="w-full border-collapse text-sm">
             <thead>
               <tr className="border-b">
-                <Th>task ID</Th>
+                <Th>Task ID</Th>
                 <th className="whitespace-nowrap px-3 py-2 text-left font-semibold text-muted-foreground">
                   <SortHeader
                     label="时间"
@@ -647,7 +672,7 @@ export function RepoDetail({
                 </ThNum>
                 <ThNum>
                   <SortHeader
-                    label="Tokens 消耗"
+                    label="Tokens消耗"
                     active={taskSort?.field === "tokens"}
                     desc={taskSort?.field === "tokens" && taskSort.desc}
                     onClick={() => setTaskSort((p) => cycle(p, "tokens"))}
@@ -662,11 +687,20 @@ export function RepoDetail({
                 return (
                   <tr
                     key={t.task_id}
+                    tabIndex={0}
                     onClick={() => push(paths.metricsTaskDetail(t.task_id))}
-                    className="cursor-pointer border-b text-card-foreground hover:bg-muted/50 last:border-0"
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter") {
+                        push(paths.metricsTaskDetail(t.task_id));
+                      }
+                    }}
+                    className={`${DRILLDOWN_ROW_CLASS} border-b text-card-foreground last:border-0`}
                   >
                     <Td>
-                      <span className="font-mono text-xs" title={t.task_id}>
+                      <span
+                        className={`font-mono text-xs ${DRILLDOWN_LINK_CLASS}`}
+                        title={t.task_id}
+                      >
                         {shortId(t.task_id, 8)}
                       </span>
                     </Td>
@@ -854,7 +888,7 @@ function AddRepoToProjectDialog({
 
   async function handleConfirm() {
     if (!selectedProjectId) {
-      setErr("请选择目标项目");
+      setErr("请选择目标 Project");
       return;
     }
     if (selectedProjectId === NEW_PROJECT_VALUE && !newName.trim()) {
@@ -865,7 +899,7 @@ function AddRepoToProjectDialog({
     if (!conflictsChecked) {
       const targets = getTargetCommitIds();
       if (targets.length === 0) {
-        setErr("没有可添加的 Commit");
+        setErr("没有可添加的 Commits");
         return;
       }
       setErr("");
@@ -897,11 +931,11 @@ function AddRepoToProjectDialog({
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent className="sm:max-w-3xl">
         <DialogHeader>
-          <DialogTitle>添加到项目</DialogTitle>
+          <DialogTitle>添加到 Project</DialogTitle>
         </DialogHeader>
         <div className="space-y-3">
           {err && <ErrorBanner message={err} />}
-          <Field label="目标项目">
+          <Field label="目标 Project">
             <Select
               value={selectedProjectId}
               onValueChange={(v) => {
@@ -913,7 +947,7 @@ function AddRepoToProjectDialog({
                 <SelectValue placeholder="请选择..." />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value={NEW_PROJECT_VALUE}>+ 新建项目</SelectItem>
+                <SelectItem value={NEW_PROJECT_VALUE}>+ 新建 Project</SelectItem>
                 {(projectsQ.data ?? []).map((p: ProjectListItem) => (
                   <SelectItem key={p.project_id} value={p.project_id}>
                     {p.name}
@@ -948,7 +982,7 @@ function AddRepoToProjectDialog({
                 resetConflictCheck();
               }}
             />
-            仅包含指定 Commit（白名单）
+            仅包含指定 Commits（白名单）
           </label>
           {whitelistMode && (
             <div className="max-h-[300px] overflow-auto rounded-lg border">
@@ -1006,7 +1040,7 @@ function AddRepoToProjectDialog({
           {hasConflict && (
             <div className="rounded-md border border-warning/40 bg-warning/10 p-3 text-sm text-warning">
               <div className="mb-1 font-medium">
-                以下 Commit 已属于其他项目：
+                以下 Commits 已属于其他 Project：
               </div>
               <ul className="space-y-0.5">
                 {conflicts.map((c) => (
@@ -1148,34 +1182,66 @@ function fmtDate(ms: number): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
-function KpiTile({
+type RepoMetricTone = "default" | "warning" | "info" | "success" | "muted";
+
+function RepoMetric({
   label,
   value,
-  hint,
+  tone = "default",
+  title,
 }: {
   label: string;
   value: string;
-  hint?: string;
+  tone?: RepoMetricTone;
+  title?: string | null;
 }) {
+  const toneClass: Record<RepoMetricTone, string> = {
+    default: "text-card-foreground",
+    warning: "text-warning",
+    info: "text-info",
+    success: "text-success",
+    muted: "text-muted-foreground",
+  };
+
   return (
-    <div className="rounded-lg border bg-card shadow-sm">
-      <KpiCard label={label} value={value} hint={hint} />
+    <div>
+      <div className="mb-1 text-muted-foreground">{label}</div>
+      <div
+        className={`text-xl font-bold tabular-nums ${toneClass[tone]}`}
+        title={title || undefined}
+      >
+        {value}
+      </div>
     </div>
   );
 }
 
+function repoEfficiencyTone(
+  value: number | null | undefined,
+): RepoMetricTone {
+  if (value == null || !Number.isFinite(value)) return "muted";
+  if (value >= 300) return "success";
+  if (value >= 150) return "info";
+  return "muted";
+}
+
 /**
- * Percentage-ratio pill (gain %). Source had a dedicated PercentPill with
- * pos/neg/neutral colour classes; we inline a tone-coloured span (semantic
- * tokens only — no hardcoded colours) so the table stays free of extra deps.
- * Input is already a percentage (e.g. 300 = 300%).
+ * Percentage-ratio pill. Input is already a percentage (300 = 300%), so it
+ * must not pass through the decimal-ratio formatter used by Need pages.
+ * Thresholds match the source: >=300 success, >=150 info, otherwise neutral.
  */
 function PercentPill({ value }: { value: number }) {
   const tone =
-    value > 0 ? "text-success" : value < 0 ? "text-destructive" : "text-muted-foreground";
+    value >= 300
+      ? "bg-success/10 text-success"
+      : value >= 150
+        ? "bg-info/10 text-info"
+        : "bg-muted text-muted-foreground";
   return (
-    <span className={`inline-flex tabular-nums font-medium ${tone}`}>
-      {`${Math.round(value)}%`}
+    <span
+      className={`inline-block rounded-full px-2 py-0.5 text-xs font-medium tabular-nums ${tone}`}
+    >
+      {formatPercent(value, 1)}
     </span>
   );
 }

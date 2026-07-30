@@ -16,6 +16,7 @@ import {
 } from "@multica/core/efficiency";
 import { Button } from "@multica/ui/components/ui/button";
 import { useNavigation } from "../../navigation";
+import { DRILLDOWN_LINK_CLASS } from "../components/drilldown-styles";
 import { SortHeader, Th, ThNum, Td, TdNum } from "../usage/shared";
 import { DetailShell } from "./detail-shell";
 import { Kv, KvGrid, Panel } from "./shared";
@@ -308,7 +309,7 @@ export function WorkDirDetail({ workDirId, onBack }: WorkDirDetailProps) {
                           onClick={() =>
                             push(paths.metricsCommitDetail(commit.commit_id))
                           }
-                          className="max-w-[180px] truncate font-mono text-primary hover:underline"
+                          className={`max-w-[180px] truncate font-mono ${DRILLDOWN_LINK_CLASS}`}
                           title={commit.commit_id}
                         >
                           {commit.commit_id}
@@ -358,7 +359,7 @@ export function WorkDirDetail({ workDirId, onBack }: WorkDirDetailProps) {
                                         paths.metricsTaskDetail(task.task_id),
                                       )
                                     }
-                                    className="font-mono text-primary hover:underline"
+                                    className={`font-mono ${DRILLDOWN_LINK_CLASS}`}
                                   >
                                     {task.task_id}
                                   </button>
@@ -439,7 +440,7 @@ export function WorkDirDetail({ workDirId, onBack }: WorkDirDetailProps) {
                       onClick={() =>
                         push(paths.metricsUserDetail(participant.userId))
                       }
-                      className="text-primary hover:underline"
+                      className={DRILLDOWN_LINK_CLASS}
                     >
                       {resolveName(participant.userId)}
                     </button>

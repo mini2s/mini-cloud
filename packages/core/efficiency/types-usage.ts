@@ -165,7 +165,7 @@ export interface DeptPeriodCompareResp {
 
 export interface DeptMemberItem {
   universal_id: string;
-  username?: string;
+  username?: string | null;
   /** Employee number (human-readable id, distinct from universal_id). */
   user_id?: string;
   total_requests: number;
@@ -206,7 +206,7 @@ export interface DeptModeUsageResp {
 
 export interface UserDetailRow {
   universal_id: string;
-  username?: string;
+  username?: string | null;
   total_requests: number;
   success_requests: number;
   error_requests: number;
@@ -221,7 +221,7 @@ export interface UserDetailRow {
   avg_duration_ms: number;
   avg_ttft_ms: number;
   avg_token_output_speed: number;
-  model_preference?: string;
+  model_preference?: string | null;
   estimated_total_cost: number;
 }
 

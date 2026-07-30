@@ -8,7 +8,6 @@ import {
   formatDuration,
   formatLocalTime,
   formatNumber,
-  formatV2Ratio,
   userDetailOptions,
   useUserNameMap,
   type NeedCommit,
@@ -18,6 +17,8 @@ import {
 import { KpiCard } from "../../runtimes/components/shared";
 import { DetailShell } from "./detail-shell";
 import { ComboTrendChart } from "../charts";
+import { DRILLDOWN_LINK_CLASS } from "../components/drilldown-styles";
+import { RatioPill } from "../components/ratio-pill";
 import { useNavigation } from "../../navigation";
 import {
   EmptyRow,
@@ -95,8 +96,8 @@ export function UserDetail({
       {/* KPI grid — 6 cards mirroring the source. */}
       <section className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-6">
         <KpiTile label="合并需求" value={formatNumber(summary?.merged_need_count ?? 0)} />
-        <KpiTile label="日历提效" value={formatV2Ratio(summary?.calendar_ratio)} />
-        <KpiTile label="人力提效" value={formatV2Ratio(summary?.work_ratio)} />
+        <KpiTile label="日历提效" value={<RatioPill value={summary?.calendar_ratio} />} />
+        <KpiTile label="人力提效" value={<RatioPill value={summary?.work_ratio} />} />
         <KpiTile label="实际周期" value={formatDuration(summary?.actual_calendar_min)} />
         <KpiTile label="传统周期预估" value={formatDuration(summary?.baseline_calendar_min)} />
         <KpiTile
@@ -131,8 +132,12 @@ export function UserDetail({
                     <TdBase>{fmtWeek(w.week_start)}</TdBase>
                     <TdNum>{w.merged_need_count ?? 0}</TdNum>
                     <TdNum>{w.active_need_count ?? 0}</TdNum>
-                    <TdBase>{formatV2Ratio(w.efficiency_ratio)}</TdBase>
-                    <TdBase>{formatV2Ratio(w.work_efficiency_ratio)}</TdBase>
+                    <TdBase>
+                      <RatioPill value={w.efficiency_ratio} />
+                    </TdBase>
+                    <TdBase>
+                      <RatioPill value={w.work_efficiency_ratio} />
+                    </TdBase>
                     <TdNum>{w.commit_count ?? 0}</TdNum>
                     <TdBase>
                       <ToneBadge tone={w.confidence_limited ? "warning" : "success"}>
@@ -197,7 +202,7 @@ export function UserDetail({
                     <button
                       type="button"
                       onClick={() => push(paths.metricsNeedDetail(n.need_id))}
-                      className="font-mono text-xs text-primary hover:underline"
+                      className={`font-mono text-xs ${DRILLDOWN_LINK_CLASS}`}
                       title={n.need_id}
                     >
                       {shortId(n.need_id, 16)}
@@ -217,8 +222,12 @@ export function UserDetail({
                     </span>
                   </TdBase>
                   <TdNum>{formatDuration(n.total_calendar_min)}</TdNum>
-                  <TdBase>{formatV2Ratio(n.efficiency_ratio)}</TdBase>
-                  <TdBase>{formatV2Ratio(n.work_efficiency_ratio)}</TdBase>
+                  <TdBase>
+                    <RatioPill value={n.efficiency_ratio} />
+                  </TdBase>
+                  <TdBase>
+                    <RatioPill value={n.work_efficiency_ratio} />
+                  </TdBase>
                 </tr>
               ))
             )}
@@ -248,7 +257,7 @@ export function UserDetail({
                     <button
                       type="button"
                       onClick={() => push(paths.metricsCommitDetail(c.commit_id))}
-                      className="font-mono text-xs text-primary hover:underline"
+                      className={`font-mono text-xs ${DRILLDOWN_LINK_CLASS}`}
                       title={c.commit_id}
                     >
                       {shortId(c.commit_id, 10)}
@@ -280,7 +289,13 @@ export function UserDetail({
 //      usage/shared SortHeader). Kept here because only the detail pages use
 //      them and they share the exact styling. ----
 
-function KpiTile({ label, value }: { label: string; value: string }) {
+function KpiTile({
+  label,
+  value,
+}: {
+  label: string;
+  value: React.ReactNode;
+}) {
   return (
     <div className="rounded-lg border bg-card shadow-sm">
       <KpiCard label={label} value={value} />

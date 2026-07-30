@@ -6,6 +6,7 @@ import { Collapsible, CollapsibleTrigger, CollapsibleContent } from "@multica/ui
 import { Skeleton } from "@multica/ui/components/ui/skeleton";
 import { cn } from "@multica/ui/lib/utils";
 import type { DeptTreeNode } from "@multica/core/efficiency";
+import { DRILLDOWN_TREE_ITEM_CLASS } from "../components/drilldown-styles";
 
 export const UNASSIGNED_DEPT_NODE: DeptTreeNode = {
   dept_id: "unassigned",
@@ -171,7 +172,7 @@ const TreeNode = memo(function TreeNode({
           <button
             type="button"
             onClick={() => onSelect(node.dept_id)}
-            className="flex min-w-0 flex-1 cursor-pointer items-center justify-between gap-2 border-none bg-transparent p-0 text-left text-sm text-inherit focus:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded"
+            className={`flex min-w-0 flex-1 items-center justify-between gap-2 rounded border-none bg-transparent px-1 py-0.5 text-left text-sm text-inherit ${DRILLDOWN_TREE_ITEM_CLASS}`}
           >
             <span className="truncate" title={node.dept_name}>
               {node.dept_name}

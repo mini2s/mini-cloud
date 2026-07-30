@@ -14,12 +14,13 @@ import {
   type ProjectListItem,
 } from "@multica/core/efficiency";
 import { PageHeader } from "../../layout/page-header";
-import { PeriodSelect } from "../components";
+import { DateRangePicker } from "../components";
 import {
   EntityObjectSelector,
   type EfficiencyEntity,
 } from "../components/entity-object-selector";
 import { CreateProjectButton } from "../components/create-project-button";
+import { DRILLDOWN_ROW_CLASS } from "../components/drilldown-styles";
 import { ProjectDetail, RepoDetail, UserDetail } from "../detail";
 import { Th, ThNum, Td, TdNum } from "../usage/shared";
 import { DistributionOverview } from "./distribution-overview";
@@ -47,7 +48,7 @@ import { EntityContributionTrend } from "../contribution/entity-contribution-tre
 //   - repo    → EfficiencyRepoRanking (no weekly timeline) + distribution
 //
 // Per design decision #3 (no ECharts) all charts use the recharts primitives
-// from ../charts. Per #4 (reuse) PeriodSelect, the shared Th/Td table
+// from ../charts. Per #4 (reuse) DateRangePicker, the shared Th/Td table
 // primitives, and the ranking sub-components are all reused.
 
 type Entity = EfficiencyEntity;
@@ -109,10 +110,7 @@ export function EfficiencyDimension({
           <Gauge className="h-4 w-4 shrink-0 text-muted-foreground" />
           <h1 className="truncate text-sm font-medium">效率看板</h1>
         </div>
-        <PeriodSelect
-          value={startDate}
-          onChange={(range) => setTimeRange(range)}
-        />
+        <DateRangePicker value={timeRange} onChange={setTimeRange} />
       </PageHeader>
 
       <div className="flex-1 overflow-y-auto">
@@ -161,6 +159,20 @@ export function EfficiencyDimension({
             )}
           </div>
 
+          {/* Timeline first (页首主角), then the 概览/分布 sub-tabs below it,
+              matching the source page structure. */}
+          {!focused &&
+            (entity === "org" || entity === "user" ? (
+              <EfficiencyTimeline startDate={startDate} endDate={endDate} />
+            ) : entity === "repo" ? (
+              <EfficiencyRepoTimeline
+                startDate={startDate}
+                endDate={endDate}
+              />
+            ) : (
+              <NoWeeklyAxis entity={entity} />
+            ))}
+
           {!focused && (
             <div
               className="flex flex-wrap items-center gap-1"
@@ -185,18 +197,6 @@ export function EfficiencyDimension({
               </EntityTab>
             </div>
           )}
-
-          {!focused &&
-            (entity === "org" || entity === "user" ? (
-              <EfficiencyTimeline startDate={startDate} endDate={endDate} />
-            ) : entity === "repo" ? (
-              <EfficiencyRepoTimeline
-                startDate={startDate}
-                endDate={endDate}
-              />
-            ) : (
-              <NoWeeklyAxis entity={entity} />
-            ))}
 
           {focused ? (
             <FocusedEfficiency
@@ -245,9 +245,6 @@ export function EfficiencyDimension({
             <EfficiencyRepoRanking
               startDate={startDate}
               endDate={endDate}
-              onSelect={(value) =>
-                updateState({ entity, object: value, subView: "overview" })
-              }
             />
           )}
         </div>
@@ -424,8 +421,12 @@ function ProjectRanking({
                 {rows.map((p, i) => (
                   <tr
                     key={p.project_id}
+                    tabIndex={0}
                     onClick={() => onSelect(p.project_id)}
-                    className="cursor-pointer border-b transition-colors last:border-0 hover:bg-muted/50"
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter") onSelect(p.project_id);
+                    }}
+                    className={`${DRILLDOWN_ROW_CLASS} border-b last:border-0`}
                   >
                     <TdNum>
                       <span className="text-muted-foreground">{i + 1}</span>

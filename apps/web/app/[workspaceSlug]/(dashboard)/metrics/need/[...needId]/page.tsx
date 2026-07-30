@@ -1,8 +1,9 @@
 "use client";
 
 import { use } from "react";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { NeedDetail } from "@multica/views/efficiency";
+import { resolveNeedIdFromPathname } from "@/platform/efficiency-route-params";
 
 // Route wrapper for the efficiency need detail page. needId may contain
 // slashes (e.g. org/repo#branch/need), so this uses a catch-all segment and
@@ -15,7 +16,8 @@ export default function NeedDetailRoute({
   params: Promise<{ needId: string[] }>;
 }) {
   const { needId: parts } = use(params);
-  const needId = Array.isArray(parts) ? parts.join("/") : String(parts);
+  const pathname = usePathname();
+  const needId = resolveNeedIdFromPathname(pathname, parts);
   const router = useRouter();
   return <NeedDetail needId={needId} onBack={() => router.back()} />;
 }

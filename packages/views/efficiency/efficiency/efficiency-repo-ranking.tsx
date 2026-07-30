@@ -12,13 +12,15 @@ import {
   type RepoListItem,
 } from "@multica/core/efficiency";
 import { KpiCard } from "../../runtimes/components/shared";
+import { DRILLDOWN_ROW_CLASS } from "../components/drilldown-styles";
 import { Td, TdNum, Th, ThNum } from "../usage/shared";
 import { useNavigation } from "../../navigation";
 
 // Repo efficiency ranking — pure-efficiency view of all repos (whole-repo
 // scope, aggregated across all branches). Ports the source
-// EfficiencyRepoRanking (177 lines, navigation) to display-only per design
-// decisions #1 (no URL state) and #2 (no navigation).
+// EfficiencyRepoRanking (177 lines). Unlike the other entity rankings, the
+// source dashboard opens a standalone repository detail route from this table
+// instead of switching the efficiency page into its embedded focus state.
 //
 // Caliber (matches source):
 //   - RepoListItem.efficiency_ratio is a PERCENTAGE ratio (300=300%, never
@@ -47,11 +49,9 @@ function savedPersonDays(
 export function EfficiencyRepoRanking({
   startDate,
   endDate,
-  onSelect,
 }: {
   startDate: string;
   endDate: string;
-  onSelect?: (repoAddr: string) => void;
 }) {
   const wsId = useWorkspaceId();
   const p = useWorkspacePaths();
@@ -160,12 +160,15 @@ export function EfficiencyRepoRanking({
                     return (
                       <tr
                         key={row.repo_addr}
+                        tabIndex={0}
                         onClick={() =>
-                          onSelect
-                            ? onSelect(row.repo_addr)
-                            : push(p.metricsRepoDetail(row.repo_addr))
+                          push(p.metricsRepoDetail(row.repo_addr))
                         }
-                        className="cursor-pointer border-b transition-colors last:border-0 hover:bg-muted/50"
+                        onKeyDown={(event) => {
+                          if (event.key !== "Enter") return;
+                          push(p.metricsRepoDetail(row.repo_addr));
+                        }}
+                        className={`${DRILLDOWN_ROW_CLASS} border-b last:border-0`}
                       >
                         <TdNum>
                           <span className="text-muted-foreground">{i + 1}</span>

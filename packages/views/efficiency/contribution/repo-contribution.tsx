@@ -18,6 +18,7 @@ import {
   type RepoListItem,
 } from "@multica/core/efficiency";
 import { KpiCard } from "../../runtimes/components/shared";
+import { DRILLDOWN_ROW_CLASS } from "../components/drilldown-styles";
 import { Td, TdNum, Th, ThNum, SortHeader } from "../usage/shared";
 import { useNavigation } from "../../navigation";
 import { EntityContributionTrend } from "./entity-contribution-trend";
@@ -50,11 +51,9 @@ interface ContributorRow {
 export function RepoContribution({
   startDate,
   endDate,
-  onSelect,
 }: {
   startDate: string;
   endDate: string;
-  onSelect?: (repoAddr: string) => void;
 }) {
   const wsId = useWorkspaceId();
   const p = useWorkspacePaths();
@@ -101,6 +100,9 @@ export function RepoContribution({
   }
   const isActive = (f: SortField) => parsed?.field === f;
   const isDesc = (f: SortField) => parsed?.field === f && parsed.desc === true;
+  function openRepoDetail(repoAddr: string) {
+    push(p.metricsRepoDetail(repoAddr));
+  }
 
   return (
     <div className="space-y-4">
@@ -210,12 +212,13 @@ export function RepoContribution({
                   sorted.map((r, i) => (
                     <tr
                       key={r.repo_addr}
-                      onClick={() =>
-                        onSelect
-                          ? onSelect(r.repo_addr)
-                          : push(p.metricsRepoDetail(r.repo_addr))
-                      }
-                      className="cursor-pointer border-b transition-colors last:border-0 hover:bg-muted/50"
+                      tabIndex={0}
+                      onClick={() => openRepoDetail(r.repo_addr)}
+                      onKeyDown={(event) => {
+                        if (event.key !== "Enter") return;
+                        openRepoDetail(r.repo_addr);
+                      }}
+                      className={`${DRILLDOWN_ROW_CLASS} border-b last:border-0`}
                     >
                       <TdNum>
                         <span className="text-muted-foreground">{i + 1}</span>

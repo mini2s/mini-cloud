@@ -14,7 +14,7 @@ vi.mock("@multica/core/hooks", () => ({
 }));
 
 // useViewState holds the global time range. Return a fixed 90d window so the
-// PeriodSelect resolves a real active preset. We spread the real module so the
+// header DateRangePicker shows a real range. We spread the real module so the
 // cards' other imports (queryOptions, formatters, glossaryTip, mock factories)
 // keep working.
 vi.mock("@multica/core/efficiency", async () => {

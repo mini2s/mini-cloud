@@ -12,7 +12,7 @@ import {
 import { Skeleton } from "@multica/ui/components/ui/skeleton";
 import { Switch } from "@multica/ui/components/ui/switch";
 import { PageHeader } from "../../layout/page-header";
-import { PeriodSelect } from "../components";
+import { DateRangePicker } from "../components";
 import { DeptAggregateView } from "./dept-aggregate-view";
 import { DeptCompareView } from "./dept-compare-view";
 import {
@@ -123,10 +123,7 @@ export function UsageKanban() {
             </span>
           )}
         </div>
-        <PeriodSelect
-          value={startDate}
-          onChange={(range) => setTimeRange(range)}
-        />
+        <DateRangePicker value={timeRange} onChange={setTimeRange} />
       </PageHeader>
 
       <div className="flex-1 overflow-y-auto">
@@ -240,4 +237,4 @@ function ViewTab({
   );
 }
 
-// PeriodSelect is imported from ../components (shared with the Overview page).
+// DateRangePicker is imported from ../components (shared with the Overview page).

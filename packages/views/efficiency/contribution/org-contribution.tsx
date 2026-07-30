@@ -15,6 +15,7 @@ import {
   type DeptTreeNodeWithSummary,
 } from "@multica/core/efficiency";
 import { KpiCard } from "../../runtimes/components/shared";
+import { DRILLDOWN_ROW_CLASS } from "../components/drilldown-styles";
 import { Td, TdNum, Th, ThNum, SortHeader } from "../usage/shared";
 import { EntityContributionTrend } from "./entity-contribution-trend";
 import { DeptMembersPanel } from "../efficiency/efficiency-org-view";
@@ -247,11 +248,19 @@ export function OrgContribution({
                   sorted.map((it, i) => (
                     <tr
                       key={it.dept_id}
+                      tabIndex={onSelect ? 0 : undefined}
                       onClick={() => onSelect?.(it.dept_id)}
+                      onKeyDown={
+                        onSelect
+                          ? (event) => {
+                              if (event.key === "Enter") onSelect(it.dept_id);
+                            }
+                          : undefined
+                      }
                       className={
                         onSelect
-                          ? "cursor-pointer border-b transition-colors last:border-0 hover:bg-muted/50"
-                          : "border-b transition-colors last:border-0 hover:bg-muted/50"
+                          ? `${DRILLDOWN_ROW_CLASS} border-b last:border-0`
+                          : "border-b last:border-0"
                       }
                     >
                       <TdNum>

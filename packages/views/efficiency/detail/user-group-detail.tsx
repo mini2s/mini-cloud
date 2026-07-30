@@ -27,7 +27,8 @@ import {
 } from "@multica/ui/components/ui/alert-dialog";
 import { PageHeader } from "../../layout/page-header";
 import { useNavigation } from "../../navigation";
-import { PeriodSelect } from "../components";
+import { DateRangePicker } from "../components";
+import { DRILLDOWN_ROW_CLASS } from "../components/drilldown-styles";
 import { Td, TdNum, Th, ThNum } from "../usage/shared";
 
 export function UserGroupDetail({ groupId }: { groupId: string }) {
@@ -62,7 +63,7 @@ export function UserGroupDetail({ groupId }: { groupId: string }) {
           </h1>
         </div>
         <div className="flex items-center gap-2">
-          <PeriodSelect value={startDate} onChange={setTimeRange} />
+          <DateRangePicker value={timeRange} onChange={setTimeRange} />
           <Button variant="destructive" onClick={() => setConfirmOpen(true)}>
             删除此组
           </Button>
@@ -147,12 +148,20 @@ export function UserGroupDetail({ groupId }: { groupId: string }) {
                         members.map((member) => (
                           <tr
                             key={member.user_id}
+                            tabIndex={0}
                             onClick={() =>
                               navigation.push(
                                 paths.metricsUserDetail(member.user_id),
                               )
                             }
-                            className="cursor-pointer border-b transition-colors last:border-0 hover:bg-muted/40"
+                            onKeyDown={(event) => {
+                              if (event.key === "Enter") {
+                                navigation.push(
+                                  paths.metricsUserDetail(member.user_id),
+                                );
+                              }
+                            }}
+                            className={`${DRILLDOWN_ROW_CLASS} border-b last:border-0`}
                           >
                             <Td title={resolveName(member.user_id)}>
                               {resolveName(member.user_id)}

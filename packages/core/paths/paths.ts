@@ -78,25 +78,24 @@ function workspaceScoped(slug: string) {
     // Efficiency drill-down detail pages. These are parametric (each takes the
     // entity id), so they're NOT part of the parameterless sidebar set — they're
     // used by dimension rankings/list views to push into a detail page.
-    //   - repoAddr / needId carry slashes and map to catch-all routes
-    //     ([...addr] / [...needId]); each path segment is encoded independently
-    //     so a slash-bearing id round-trips correctly through Next.js params.
-    //   - branch (repo only) is optional; when present it appends an extra
-    //     segment (branches may themselves contain slashes → also split+encode).
+    //   - repoAddr carries slashes and is encoded as one route segment.
+    //   - needId is encoded as one application-route value, matching the
+    //     source dashboard. This prevents the client router from truncating a
+    //     branch-style ID at its first slash. The detail route restores the
+    //     complete value before the API client targets Gin's catch-all route.
+    //   - branch (repo only) is optional and is also encoded as one segment.
     metricsUserDetail: (userId: string) => `${ws}/metrics/user/${encode(userId)}`,
     metricsUserGroupDetail: (groupId: string) =>
       `${ws}/metrics/user/group/${encode(groupId)}`,
     metricsRepoDetail: (repoAddr: string, branch?: string) => {
-      const addrPath = repoAddr.split("/").map(encode).join("/");
-      const branchPath = branch
-        ? `/${branch.split("/").map(encode).join("/")}`
-        : "";
+      const addrPath = encode(repoAddr);
+      const branchPath = branch ? `/${encode(branch)}` : "";
       return `${ws}/metrics/repo/${addrPath}${branchPath}`;
     },
     metricsProjectDetail: (projectId: string) =>
       `${ws}/metrics/project/${encode(projectId)}`,
     metricsNeedDetail: (needId: string) =>
-      `${ws}/metrics/need/${needId.split("/").map(encode).join("/")}`,
+      `${ws}/metrics/need/${encode(needId)}`,
     metricsTaskDetail: (taskId: string) => `${ws}/metrics/task/${encode(taskId)}`,
     metricsWorkdirDetail: (workDirId: string) =>
       `${ws}/metrics/workdir/${workDirId.split("/").map(encode).join("/")}`,

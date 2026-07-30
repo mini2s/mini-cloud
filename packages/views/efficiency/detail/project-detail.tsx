@@ -42,6 +42,7 @@ import { Th, ThNum, Td, TdNum } from "../usage/shared";
 import { DetailShell } from "./detail-shell";
 import { EmptyRow, ErrorBanner, Kv, KvGrid, Panel, ToneBadge } from "./shared";
 import { useNavigation } from "../../navigation";
+import { DRILLDOWN_LINK_CLASS } from "../components/drilldown-styles";
 
 // Project detail page — the second-largest efficiency drill-down. Ports the
 // source ProjectDetail (Need/branch scope) to the shared-views layer: KPI grid
@@ -468,7 +469,7 @@ export function ProjectDetail({
                     <Td>
                       <button
                         type="button"
-                        className="font-mono break-all text-left text-xs text-primary hover:underline"
+                        className={`break-all text-left font-mono text-xs ${DRILLDOWN_LINK_CLASS}`}
                         title={n.need_id}
                         onClick={() => push(paths.metricsNeedDetail(n.need_id))}
                       >
@@ -529,7 +530,7 @@ export function ProjectDetail({
                     {c.user_id && c.user_id !== "未知" ? (
                       <button
                         type="button"
-                        className="text-primary hover:underline"
+                        className={DRILLDOWN_LINK_CLASS}
                         title={c.user_id}
                         onClick={() => push(paths.metricsUserDetail(c.user_id))}
                       >

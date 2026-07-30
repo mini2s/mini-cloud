@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid } from "recharts";
 import {
   ChartContainer,
@@ -5,6 +6,7 @@ import {
   ChartTooltipContent,
   type ChartConfig,
 } from "@multica/ui/components/ui/chart";
+import { ChartSeriesLegend } from "./chart-series-legend";
 
 export interface MultiTrendSeries {
   /** Series key (matches data field). */
@@ -41,6 +43,24 @@ interface MultiTrendChartProps {
   heightClass?: string;
   /** Stack the areas (default: false — overlapping translucent bands). */
   stack?: boolean;
+  /** Show an interactive, horizontally scrollable series legend above the chart. */
+  showLegend?: boolean;
+}
+
+export function hasNonZeroTrendValue(
+  data: MultiTrendPoint[],
+  series: MultiTrendSeries[],
+): boolean {
+  return data.some((point) =>
+    series.some(({ key }) => {
+      const value = point[key];
+      return (
+        typeof value === "number" &&
+        Number.isFinite(value) &&
+        value !== 0
+      );
+    }),
+  );
 }
 
 export function MultiTrendChart({
@@ -49,53 +69,87 @@ export function MultiTrendChart({
   formatY,
   heightClass = "h-[280px]",
   stack = false,
+  showLegend = false,
 }: MultiTrendChartProps) {
+  const [hiddenSeries, setHiddenSeries] = useState<Set<string>>(
+    () => new Set(),
+  );
   const config = Object.fromEntries(
     series.map((s) => [s.key, { label: s.name, color: s.color }]),
   ) satisfies ChartConfig;
 
+  const toggleSeries = (key: string) => {
+    setHiddenSeries((current) => {
+      const next = new Set(current);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  };
+
   return (
-    <ChartContainer config={config} className={`${heightClass} w-full`}>
-      <AreaChart data={data} margin={{ left: 0, right: 0, top: 4, bottom: 0 }}>
-        <CartesianGrid vertical={false} />
-        <XAxis
-          dataKey="label"
-          tickLine={false}
-          axisLine={false}
-          tickMargin={8}
-          interval="preserveStartEnd"
+    <div className="w-full min-w-0">
+      {showLegend && series.length > 0 ? (
+        <ChartSeriesLegend
+          items={series}
+          hiddenKeys={hiddenSeries}
+          onToggle={toggleSeries}
         />
-        <YAxis
-          tickLine={false}
-          axisLine={false}
-          tickMargin={8}
-          width={56}
-          tickFormatter={formatY ? (v: number) => formatY(v) : undefined}
-        />
-        <ChartTooltip
-          content={
-            <ChartTooltipContent
-              formatter={(value) => (formatY ? formatY(Number(value)) : String(value))}
-            />
-          }
-        />
-        {series.map((s, i) => (
-          <Area
-            key={s.key}
-            dataKey={s.key}
-            name={s.name}
-            type="monotone"
-            stroke={s.color}
-            fill={s.color}
-            fillOpacity={0.18}
-            stackId={stack ? "1" : undefined}
-            // The first series without stacking draws a faint baseline so a
-            // single-series chart still reads as an area rather than a line.
-            strokeWidth={2}
-            {...(stack ? {} : { style: { zIndex: series.length - i } })}
+      ) : null}
+      <ChartContainer config={config} className={`${heightClass} w-full`}>
+        <AreaChart
+          data={data}
+          margin={{ left: 0, right: 0, top: 4, bottom: 0 }}
+        >
+          <CartesianGrid vertical={false} />
+          <XAxis
+            dataKey="label"
+            tickLine={false}
+            axisLine={false}
+            tickMargin={8}
+            interval="preserveStartEnd"
           />
-        ))}
-      </AreaChart>
-    </ChartContainer>
+          <YAxis
+            tickLine={false}
+            axisLine={false}
+            tickMargin={8}
+            width={56}
+            tickFormatter={formatY ? (v: number) => formatY(v) : undefined}
+          />
+          <ChartTooltip
+            content={
+              <ChartTooltipContent
+                formatter={(value) =>
+                  formatY ? formatY(Number(value)) : String(value)
+                }
+              />
+            }
+          />
+          {series.map((s, i) => (
+            <Area
+              key={s.key}
+              dataKey={s.key}
+              name={s.name}
+              type="monotone"
+              stroke={s.color}
+              fill={s.color}
+              fillOpacity={0.18}
+              hide={hiddenSeries.has(s.key)}
+              isAnimationActive={false}
+              dot={
+                data.length === 1
+                  ? { r: 4, fill: s.color, stroke: s.color }
+                  : false
+              }
+              stackId={stack ? "1" : undefined}
+              // The first series without stacking draws a faint baseline so a
+              // single-series chart still reads as an area rather than a line.
+              strokeWidth={2}
+              {...(stack ? {} : { style: { zIndex: series.length - i } })}
+            />
+          ))}
+        </AreaChart>
+      </ChartContainer>
+    </div>
   );
 }

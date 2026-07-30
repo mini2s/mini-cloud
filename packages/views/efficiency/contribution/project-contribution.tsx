@@ -15,6 +15,7 @@ import {
   type ProjectListItem,
 } from "@multica/core/efficiency";
 import { KpiCard } from "../../runtimes/components/shared";
+import { DRILLDOWN_ROW_CLASS } from "../components/drilldown-styles";
 import { Td, TdNum, Th, ThNum, SortHeader } from "../usage/shared";
 import { useNavigation } from "../../navigation";
 import { ProjectDetail } from "../detail";
@@ -220,12 +221,21 @@ export function ProjectContribution({
                   sorted.map((r, i) => (
                     <tr
                       key={r.project_id}
+                      tabIndex={0}
                       onClick={() =>
                         onSelect
                           ? onSelect(r.project_id)
                           : push(p.metricsProjectDetail(r.project_id))
                       }
-                      className="cursor-pointer border-b transition-colors last:border-0 hover:bg-muted/50"
+                      onKeyDown={(event) => {
+                        if (event.key !== "Enter") return;
+                        if (onSelect) {
+                          onSelect(r.project_id);
+                        } else {
+                          push(p.metricsProjectDetail(r.project_id));
+                        }
+                      }}
+                      className={`${DRILLDOWN_ROW_CLASS} border-b last:border-0`}
                     >
                       <TdNum>
                         <span className="text-muted-foreground">{i + 1}</span>

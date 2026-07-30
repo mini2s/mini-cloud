@@ -10,6 +10,31 @@ import { RESERVED_SLUGS } from "./reserved-slugs";
 // cross-module contract — if you add/rename a route in paths.ts, update BOTH
 // this test and the sidebar nav wiring. Drift is caught here.
 describe("paths.workspace() shape", () => {
+  it("encodes a slash-bearing need id as one application-route value", () => {
+    expect(
+      paths
+        .workspace("acme")
+        .metricsNeedDetail(
+          "branch:git@example.com/acme/app.git:feature/TASK-210-login",
+        ),
+    ).toBe(
+      "/acme/metrics/need/branch%3Agit%40example.com%2Facme%2Fapp.git%3Afeature%2FTASK-210-login",
+    );
+  });
+
+  it("encodes repository addresses and branches as separate route values", () => {
+    expect(
+      paths
+        .workspace("acme")
+        .metricsRepoDetail(
+          "github.com/askhz/multica",
+          "feature/runtime/selection",
+        ),
+    ).toBe(
+      "/acme/metrics/repo/github.com%2Faskhz%2Fmultica/feature%2Fruntime%2Fselection",
+    );
+  });
+
   it("exposes the expected parameterless workspace route methods", () => {
     const ws = paths.workspace("__probe__");
     const parameterlessRoutes = Object.entries(ws)

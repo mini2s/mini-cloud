@@ -6,6 +6,12 @@
 // share one source of truth instead of copy-pasting ~80 lines.
 
 import type { ReactNode } from "react";
+import { Info } from "lucide-react";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@multica/ui/components/ui/tooltip";
 
 // ============================ Value formatters ============================
 /** Percent formatter: null/NaN/Infinity → "-", otherwise "12.3%". */
@@ -62,6 +68,50 @@ export function filterZeroRequests<T>(items: T[] | undefined, pick: (it: T) => n
  */
 export function chartColorFor(i: number): string {
   return `var(--chart-${(i % 5) + 1})`;
+}
+
+/**
+ * Fixed 10-color pie palette ported from the source's PIE_COLORS
+ * (platformShared). Gives each model a visually distinct slice; the model
+ * table dots reuse the same palette so pie ↔ table colors stay in sync.
+ */
+export const PIE_COLORS = [
+  "#0071e3",
+  "#34c759",
+  "#ff9500",
+  "#ff3b30",
+  "#af52de",
+  "#5856d6",
+  "#5ac8fa",
+  "#ff2d55",
+  "#8e8e93",
+  "#ffd60a",
+];
+
+/**
+ * Small "ⓘ" affordance for card titles: hover reveals the metric definition
+ * (口径). Ported from the source's title info icon; whitespace-pre-line keeps
+ * multi-line help text readable.
+ */
+export function InfoTip({ tip }: { tip: string }) {
+  return (
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <button
+            type="button"
+            aria-label={tip}
+            className="inline-flex cursor-help items-center align-middle text-muted-foreground/70 transition-colors hover:text-muted-foreground"
+          >
+            <Info className="h-3.5 w-3.5" />
+          </button>
+        }
+      />
+      <TooltipContent className="whitespace-pre-line text-left normal-case tracking-normal">
+        {tip}
+      </TooltipContent>
+    </Tooltip>
+  );
 }
 
 // ============================ Table primitives ============================

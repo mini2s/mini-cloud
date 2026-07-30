@@ -4,7 +4,7 @@ import { useState } from "react";
 import { Sparkles } from "lucide-react";
 import { useUserNameMap, useViewState } from "@multica/core/efficiency";
 import { PageHeader } from "../../layout/page-header";
-import { PeriodSelect } from "../components";
+import { DateRangePicker } from "../components";
 import {
   EntityObjectSelector,
   type EfficiencyEntity,
@@ -76,15 +76,7 @@ export function ContributionDimension({
           <Sparkles className="h-4 w-4 shrink-0 text-muted-foreground" />
           <h1 className="truncate text-sm font-medium">贡献看板</h1>
         </div>
-        <div className="flex items-center gap-2">
-          <span className="hidden text-xs text-muted-foreground sm:inline">
-            {startDate} ~ {endDate}
-          </span>
-          <PeriodSelect
-            value={startDate}
-            onChange={(range) => setTimeRange(range)}
-          />
-        </div>
+        <DateRangePicker value={timeRange} onChange={setTimeRange} />
       </PageHeader>
 
       <div className="flex-1 overflow-y-auto">
@@ -146,7 +138,6 @@ export function ContributionDimension({
             <UserContribution
               startDate={startDate}
               endDate={endDate}
-              onSelect={(value) => updateState({ entity, object: value })}
             />
           ) : entity === "project" ? (
             <ProjectContribution
@@ -158,7 +149,6 @@ export function ContributionDimension({
             <RepoContribution
               startDate={startDate}
               endDate={endDate}
-              onSelect={(value) => updateState({ entity, object: value })}
             />
           )}
         </div>

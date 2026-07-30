@@ -29,6 +29,7 @@ import {
 } from "@multica/ui/components/ui/dialog";
 import { DetailShell } from "./detail-shell";
 import { useNavigation } from "../../navigation";
+import { DRILLDOWN_LINK_CLASS } from "../components/drilldown-styles";
 import { ErrorBanner, Kv, KvGrid, Panel } from "./shared";
 
 // Task detail page. Ports the source TaskDetail to the shared-views layer:
@@ -149,7 +150,7 @@ export function TaskDetail({ taskId, onBack }: TaskDetailProps) {
               <button
                 type="button"
                 onClick={() => push(paths.metricsUserDetail(task.user_id!))}
-                className="text-primary hover:underline"
+                className={DRILLDOWN_LINK_CLASS}
               >
                 {resolveName(task.user_id)}
               </button>
@@ -163,11 +164,11 @@ export function TaskDetail({ taskId, onBack }: TaskDetailProps) {
                   push(
                     paths.metricsRepoDetail(
                       task.repo_addr!,
-                      task.repo_branch || "main",
+                      task.repo_branch || undefined,
                     ),
                   )
                 }
-                className="break-all text-left font-mono text-primary hover:underline"
+                className={`break-all text-left font-mono ${DRILLDOWN_LINK_CLASS}`}
               >
                 {repoDisplay}
               </button>
@@ -180,7 +181,7 @@ export function TaskDetail({ taskId, onBack }: TaskDetailProps) {
                 onClick={() =>
                   push(paths.metricsWorkdirDetail(task.work_dir_id!))
                 }
-                className="break-all text-left font-mono text-primary hover:underline"
+                className={`break-all text-left font-mono ${DRILLDOWN_LINK_CLASS}`}
               >
                 {task.work_dir || task.work_dir_id}
               </button>
@@ -534,7 +535,7 @@ function FileLink({
       href={href}
       target="_blank"
       rel="noreferrer"
-      className="text-xs text-primary hover:underline"
+      className={`text-xs ${DRILLDOWN_LINK_CLASS}`}
     >
       {children}
     </a>

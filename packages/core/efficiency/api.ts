@@ -1277,12 +1277,35 @@ const needBaselineSchema = z.looseObject({
 
 const needV2DetailSchema = z.looseObject({
   need: needDetailSchema.nullable(),
-  sessions: z.array(needSessionSchema).optional(),
-  commits: z.array(needCommitSchema).optional(),
-  stage_metrics: z.array(needSessionSchema).optional(),
-  baseline_components: needBaselineSchema.optional(),
-  confidence_signals: z.record(z.string(), z.unknown()).optional(),
-  quality_signals: z.record(z.string(), z.unknown()).optional(),
+  sessions: z
+    .array(needSessionSchema)
+    .nullable()
+    .optional()
+    .transform((sessions) => sessions ?? []),
+  commits: z
+    .array(needCommitSchema)
+    .nullable()
+    .optional()
+    .transform((commits) => commits ?? []),
+  stage_metrics: z
+    .array(needSessionSchema)
+    .nullable()
+    .optional()
+    .transform((metrics) => metrics ?? []),
+  baseline_components: needBaselineSchema
+    .nullable()
+    .optional()
+    .transform((components) => components ?? {}),
+  confidence_signals: z
+    .record(z.string(), z.unknown())
+    .nullable()
+    .optional()
+    .transform((signals) => signals ?? {}),
+  quality_signals: z
+    .record(z.string(), z.unknown())
+    .nullable()
+    .optional()
+    .transform((signals) => signals ?? {}),
 });
 
 const taskListItemSchema = z.looseObject({
@@ -1544,7 +1567,11 @@ const relatedTaskSchema = z.looseObject({
 
 const commitDetailResponseSchema = z.looseObject({
   commit: commitDetailSchema.nullable(),
-  related_tasks: z.array(relatedTaskSchema).optional(),
+  related_tasks: z
+    .array(relatedTaskSchema)
+    .nullable()
+    .optional()
+    .transform((tasks) => tasks ?? []),
   efficiency_ratio: z.number().nullable().optional(),
   total_cost: z.number().nullable().optional(),
   silica: z.number().nullable().optional(),
@@ -1835,7 +1862,7 @@ const usageModeSchema = z.looseObject({
 
 const usageMemberSchema = z.looseObject({
   universal_id: z.string(),
-  username: z.string().optional(),
+  username: z.string().nullable().optional(),
   user_id: z.string().optional(),
   total_requests: z.number(),
   sum_prompt_tokens: z.number().optional(),
@@ -1857,7 +1884,7 @@ const usageMembersSchema = z.looseObject({
 
 const userDetailRowSchema = z.looseObject({
   universal_id: z.string(),
-  username: z.string().optional(),
+  username: z.string().nullable().optional(),
   total_requests: z.number(),
   success_requests: z.number(),
   error_requests: z.number(),
@@ -1872,7 +1899,7 @@ const userDetailRowSchema = z.looseObject({
   avg_duration_ms: z.number(),
   avg_ttft_ms: z.number(),
   avg_token_output_speed: z.number(),
-  model_preference: z.string().optional(),
+  model_preference: z.string().nullable().optional(),
   estimated_total_cost: z.number(),
 });
 
@@ -2722,8 +2749,9 @@ export async function getProjectNeeds(
 }
 
 // /v2/needs/{id} → need detail (sessions + commits + stage_metrics + baseline).
-// needId may contain slashes (e.g. repo/branch/path) — encodeURIComponent keeps
-// the whole id inside one path segment.
+// Encode the complete need id once, matching the source dashboard. The Web
+// runtime proxy preserves encoded slashes, so the backend receives the exact
+// value stored in `needs.need_id`.
 export async function getNeedDetailV2(
   needId: string,
 ): Promise<NeedsV2DetailResponse> {

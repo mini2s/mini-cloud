@@ -8,7 +8,6 @@ import {
   deptRankingOptions,
   deptTreeOptions,
   formatNumber,
-  formatV2Ratio,
   glossaryTip,
 } from "@multica/core/efficiency";
 import {
@@ -21,6 +20,8 @@ import {
 import { Skeleton } from "@multica/ui/components/ui/skeleton";
 import type { DeptTreeNode } from "@multica/core/efficiency";
 import { useNavigation } from "../../navigation";
+import { DRILLDOWN_ROW_CLASS } from "./drilldown-styles";
+import { RatioPill } from "./ratio-pill";
 
 // Department PK: pick a parent level from the dept tree, then rank its direct
 // child departments by calendar efficiency (top 5) as a ranked list with
@@ -46,42 +47,6 @@ const RANK_BADGE = [
   "bg-orange-400 text-white",
 ];
 const RANK_DEFAULT = "bg-muted text-muted-foreground";
-
-/** Inline ratio pill matching the original RatioPill thresholds:
- *  <0 red, >=300 green, >=150 blue, else neutral. */
-function RatioPill({
-  value,
-  digits = 1,
-}: {
-  value: number | null | undefined;
-  digits?: number;
-}) {
-  const pct = (value ?? 0) * 100;
-  const tone: "pos" | "neg" | "info" | "neutral" =
-    value == null || !Number.isFinite(pct)
-      ? "neutral"
-      : pct < 0
-        ? "neg"
-        : pct >= 300
-          ? "pos"
-          : pct >= 150
-            ? "info"
-            : "neutral";
-  const cls: Record<string, string> = {
-    pos: "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/50 dark:text-emerald-300",
-    neg: "bg-rose-100 text-rose-700 dark:bg-rose-900/50 dark:text-rose-300",
-    info: "bg-sky-100 text-sky-700 dark:bg-sky-900/50 dark:text-sky-300",
-    neutral:
-      "bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300",
-  };
-  return (
-    <span
-      className={`inline-block rounded-full px-2 py-0.5 text-xs font-medium tabular-nums ${cls[tone]}`}
-    >
-      {formatV2Ratio(value, digits)}
-    </span>
-  );
-}
 
 /** Collect every node that has children, as selector options (indent shows depth). */
 function collectParents(
@@ -110,6 +75,16 @@ export function DeptPKCard({ startDate, endDate }: DeptPKCardProps) {
   const [parentId, setParentId] = useState<string>(ROOT);
 
   const parentOptions = useMemo(() => collectParents(tree), [tree]);
+
+  // Trigger label: Base UI's Select.Value renders the raw value string unless
+  // given function children (item labels aren't resolvable while the popup is
+  // unmounted), which is how the ROOT sentinel "__root__" leaked into the UI.
+  // trim() strips the full-width-space depth indentation used inside the list.
+  const selectedLabel =
+    parentId === ROOT
+      ? "全公司（一级部门）"
+      : (parentOptions.find((o) => o.id === parentId)?.label.trim() ??
+        "全公司（一级部门）");
 
   // One aggregation: ROOT → parent_dept_id empty (backend default = configured
   // root, ranks "whole-company first-level"); otherwise the selected parent id.
@@ -171,10 +146,19 @@ export function DeptPKCard({ startDate, endDate }: DeptPKCardProps) {
           </span>
         </div>
         <Select value={parentId} onValueChange={(v) => setParentId(v ?? ROOT)}>
-          <SelectTrigger size="sm" className="max-w-[10rem]">
-            <SelectValue />
+          {/* min-w fits "全公司（一级部门）" without truncation; the popup
+              width tracks the trigger width (w-(--anchor-width) in the shared
+              Select), so a wider trigger also keeps indented option labels
+              from being clipped. max-w still caps very long dept names. */}
+          <SelectTrigger size="sm" className="min-w-[12rem] max-w-[16rem]">
+            <SelectValue>
+              {() => <span className="truncate">{selectedLabel}</span>}
+            </SelectValue>
           </SelectTrigger>
-          <SelectContent>
+          {/* alignItemWithTrigger=false: the default aligns the *selected*
+              item to the trigger, which can clip the popup off-screen; the
+              common pattern (dashboard project filter) turns it off. */}
+          <SelectContent align="end" alignItemWithTrigger={false}>
             <SelectItem value={ROOT}>全公司（一级部门）</SelectItem>
             {parentOptions.map((o) => (
               <SelectItem key={o.id} value={o.id}>
@@ -209,7 +193,7 @@ export function DeptPKCard({ startDate, endDate }: DeptPKCardProps) {
                 <button
                   type="button"
                   onClick={() => openDepartment(r.dept_id)}
-                  className="flex w-full items-center gap-3 rounded-xl px-2 py-1.5 text-left transition-colors hover:bg-muted/50 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  className={`flex w-full items-center gap-3 rounded-xl px-2 py-1.5 text-left ${DRILLDOWN_ROW_CLASS}`}
                   aria-label={`查看部门 ${r.dept_name} 效率详情`}
                 >
                   <span

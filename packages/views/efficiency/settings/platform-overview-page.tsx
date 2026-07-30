@@ -33,6 +33,7 @@ import {
   type ChatUserTrendRow,
 } from "@multica/core/efficiency";
 import { Button } from "@multica/ui/components/ui/button";
+import { DRILLDOWN_ROW_CLASS } from "../components/drilldown-styles";
 import {
   Dialog,
   DialogContent,
@@ -1436,7 +1437,7 @@ function UsersTab({
                     );
                   }
                 }}
-                className="cursor-pointer border-b transition-colors last:border-0 hover:bg-muted/40 focus-visible:bg-muted/40 focus-visible:outline-none"
+                className={`${DRILLDOWN_ROW_CLASS} border-b last:border-0`}
               >
                 <TdNum>{i + 1}</TdNum>
                 <Td>

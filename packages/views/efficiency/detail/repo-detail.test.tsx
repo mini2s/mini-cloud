@@ -22,6 +22,17 @@ vi.mock("@multica/core/hooks", () => ({
   useWorkspaceId: () => "ws-1",
 }));
 
+vi.mock("@multica/core/paths", () => ({
+  useWorkspacePaths: () => ({
+    metricsCommitDetail: (commit: string) => `/metrics/commit/${commit}`,
+    metricsTaskDetail: (task: string) => `/metrics/task/${task}`,
+  }),
+}));
+
+vi.mock("../../navigation", () => ({
+  useNavigation: () => ({ push: vi.fn() }),
+}));
+
 // Intercept useQuery and return mock data keyed off the queryKey shape:
 //   ["efficiency", wsId, "detail", entity, ...]
 // where entity is "repo" | "repo-branches" | "repo-trend". Other keys fall
@@ -90,36 +101,44 @@ function renderWithQueryClient(ui: ReactNode) {
 describe("RepoDetail (smoke)", () => {
   beforeEach(() => cleanup());
 
-  it("mounts and renders the title + KPI grid + commits + tasks + trend", async () => {
+  it("matches the source summary order and renders commits, tasks, and trend", async () => {
     const onBack = vi.fn();
     const { container } = renderWithQueryClient(
       <RepoDetail repoAddr="git@github.com:costrict/repo-1.git" onBack={onBack} />,
     );
 
     // Title block.
-    expect(screen.getByText("Repo detail")).toBeTruthy();
+    expect(screen.getByText("仓库详情")).toBeTruthy();
 
-    // KPI grid labels.
-    expect(screen.getByText("Efficiency ratio")).toBeTruthy();
-    expect(screen.getByText("AI code share")).toBeTruthy();
-    expect(screen.getByText("Actual time spent")).toBeTruthy();
+    // Source metric block labels, including contributor count.
+    expect(screen.getAllByText("提效比").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("AI 代码占比").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("实际耗时").length).toBeGreaterThan(0);
+    expect(screen.getByText("贡献者")).toBeTruthy();
+    expect(screen.getByText("总费用（Tasks）")).toBeTruthy();
 
-    // Section panels. "Commits" / "Tasks" also appear as sort headers and
-    // trend legend entries, so use getAllByText and assert at least one match.
-    expect(screen.getByText("Basic info")).toBeTruthy();
+    // Basic information precedes the source-style metric block.
+    const text = container.textContent ?? "";
+    expect(text.indexOf("基础信息")).toBeLessThan(text.indexOf("传统开发时长预估"));
+
+    expect(screen.getByText("基础信息")).toBeTruthy();
     expect(screen.getAllByText("Commits").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Tasks").length).toBeGreaterThan(0);
-    expect(screen.getByText("Weekly trend")).toBeTruthy();
+    expect(screen.getByText("周趋势")).toBeTruthy();
 
     // Whole-repo scope (no branch) renders the branch overview.
-    expect(screen.getByText("Branch overview")).toBeTruthy();
+    expect(screen.getByText("分支一览")).toBeTruthy();
+
+    // Source percentage pills and visible drill-down link color are retained.
+    expect(container.querySelector(".rounded-full.tabular-nums")).toBeTruthy();
+    expect(container.querySelector(".font-mono.text-brand")).toBeTruthy();
 
     // The back button is wired (no router import in the shared view).
     const backBtn = container.querySelector("button");
     expect(backBtn).toBeTruthy();
 
     // The page rendered rich nested data without blowing up.
-    expect(container.textContent).toContain("Repo detail");
+    expect(container.textContent).toContain("仓库详情");
   });
 
   it("invokes onBack when the back button is clicked", async () => {
@@ -130,5 +149,22 @@ describe("RepoDetail (smoke)", () => {
     const backBtn = container.querySelector("button");
     backBtn?.click();
     expect(onBack).toHaveBeenCalledTimes(1);
+  });
+
+  it("uses the source-style branch dropdown and labels whole-repo scope", () => {
+    const { container } = renderWithQueryClient(
+      <RepoDetail repoAddr="git@github.com:costrict/repo-1.git" onBack={vi.fn()} />,
+    );
+
+    const branchSelect = screen.getByRole("combobox", {
+      name: "切换分支",
+    }) as HTMLSelectElement;
+
+    expect(branchSelect.tagName).toBe("SELECT");
+    expect(branchSelect.value).toBe("");
+    expect(
+      screen.getByRole("option", { name: "全部分支（整仓）" }),
+    ).toBeTruthy();
+    expect(container.textContent).not.toContain("__all__");
   });
 });
