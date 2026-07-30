@@ -939,11 +939,16 @@ func (s *WorkflowService) ArchiveNodeCodeLinks(ctx context.Context, nodeRunID pg
 	for _, l := range links {
 		fmt.Fprintf(&b, "- %s\n", l)
 	}
+	// Best-effort: ensure NodeBranch exists (ensureNodeRunBranch usually created
+	// it at node entry, but it can be gated out when the node had no
+	// deliverables at entry). Must precede UpsertFile — Gitea's contents API
+	// rejects a commit to a missing branch. "Branch already exists" errors are
+	// ignored so this is idempotent.
+	_ = repoProvider.CreateBranch(ctx, owner, repo, nodeBranch, inst)
 	if err := repoProvider.UpsertFile(ctx, owner, repo, nodeBranch, filePath, b.String(), "archive code MR links"); err != nil {
 		slog.Warn("archive node code links: write file", "node_run_id", util.UUIDToString(nodeRun.ID), "path", filePath, "error", err)
 		return
 	}
-	_ = repoProvider.CreateBranch(ctx, owner, repo, nodeBranch, inst)
 	if _, err := repoProvider.OpenReviewRequest(ctx, owner, repo, nodeBranch, inst, "node code MR links"); err != nil {
 		slog.Warn("archive node code links: open review request", "node_run_id", util.UUIDToString(nodeRun.ID), "error", err)
 		return
