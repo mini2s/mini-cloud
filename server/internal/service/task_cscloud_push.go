@@ -682,6 +682,7 @@ func appendWorkerTaskPrompt(prompt string) string {
 	b.WriteString("\n---\n## Workflow Worker Task\n\n")
 	b.WriteString("You are the worker for this workflow node. Complete the assigned work and submit every required deliverable before finishing.\n")
 	b.WriteString("Do NOT perform critic review. Do NOT approve or reject the work. If the issue text mentions a critic/reviewer, treat that as context for the later review phase, not your current task.\n")
+	b.WriteString("Your task context (task id, this device's local server URL, workspace id, Gitea credentials) is in `.cs-cloud.env` in your work directory. The `cs-cloud workflow` commands read it automatically — run them from your work directory, no need to pass anything.\n")
 	b.WriteString("\n### Finishing\n\n")
 	b.WriteString("When your work is complete, you MUST signal it explicitly by running `cs-cloud workflow task complete --summary \"<one-line summary of what you delivered>\"` as your LAST action. The task does NOT complete when you stop working — until you call this command, the task stays open, idle is treated as incomplete, and it will eventually time out and fail.\n")
 	b.WriteString("\n---\n\n")
@@ -725,9 +726,10 @@ func appendCriticReviewPrompt(prompt string) string {
 		b.WriteByte('\n')
 	}
 	b.WriteString("\n---\n## Workflow Critic Review\n\n")
-	b.WriteString("You are reviewing the worker's submitted deliverables for this workflow node. Inspect the issue context and deliverable PRs, then signal your decision with the review tool as your LAST action:\n\n")
-	b.WriteString("- Approve (work is acceptable): `cs-cloud workflow task review --decision approve --reason \"<short review opinion>\"`\n")
-	b.WriteString("- Request rework (work needs changes): `cs-cloud workflow task review --decision reject --reason \"<actionable rejection reason>\"`\n\n")
+	b.WriteString("You are reviewing the worker's submitted deliverables for this workflow node. Inspect the issue context and deliverable PRs, then signal your decision as your LAST action:\n\n")
+	b.WriteString("Your task context (task id, this device's local server URL) is in `.cs-cloud.env` in your work directory. The `cs-cloud workflow` commands read it automatically — run them from your work directory, no need to pass anything.\n\n")
+	b.WriteString("- Approve (work is acceptable): `cs-cloud workflow task approve --reason \"<short review opinion>\"`\n")
+	b.WriteString("- Request rework (work needs changes): `cs-cloud workflow task reject --reason \"<actionable rejection reason>\"`\n\n")
 	b.WriteString("The review does NOT complete when you stop working — until you call one of these commands, the task stays open, idle is treated as incomplete, and it will eventually time out and fail.\n")
 	b.WriteString("---\n\n")
 	return b.String()
@@ -983,6 +985,13 @@ func computeCSCloudTaskKind(task db.MulticaAgentTaskQueue) string {
 	}
 	if util.UUIDToString(task.AutopilotRunID) != "" {
 		return "autopilot"
+	}
+	// A workflow task (default-workflow runs create no sub-issue, so IssueID is
+	// empty) must classify as "direct" so buildIssuePrompt reaches the
+	// run.SourceIssueID fallback and injects the issue title/body. Without this
+	// it falls through to "quick_create" and the prompt is empty.
+	if util.UUIDToString(task.WorkflowNodeRunID) != "" {
+		return "direct"
 	}
 	if util.UUIDToString(task.IssueID) == "" {
 		return "quick_create"
