@@ -202,8 +202,19 @@ export function WorkflowRunPage({ workflowId, runId }: WorkflowRunPageProps) {
     setSelections((current) => {
       const next = { ...current };
       for (const resolution of resolutions) {
-        if (!(resolution.id in next) && resolution.resolved_user_id) {
+        if (
+          resolution.status === "resolved" &&
+          !(resolution.id in next) &&
+          resolution.resolved_user_id
+        ) {
           next[resolution.id] = resolution.resolved_user_id;
+        }
+        if (
+          resolution.status === "invalidated" &&
+          resolution.resolved_user_id &&
+          next[resolution.id] === resolution.resolved_user_id
+        ) {
+          delete next[resolution.id];
         }
       }
       return next;
@@ -225,7 +236,15 @@ export function WorkflowRunPage({ workflowId, runId }: WorkflowRunPageProps) {
     return typeof value === "string" && value ? value : undefined;
   }, [run?.input]);
   const canManageRoles = Boolean(
-    user && run && (!currentMember || isActiveWorkspaceMember(currentMember)),
+    user &&
+    run &&
+    currentMember &&
+    isActiveWorkspaceMember(currentMember) &&
+    (
+      run.triggered_by_id === user.id ||
+      currentMember.role === "owner" ||
+      currentMember.role === "admin"
+    ),
   );
 
   const nodeRunTitleById = useMemo(() => new Map(nodeRuns.map((nodeRun) => [nodeRun.id, nodeRun.node_title])), [nodeRuns]);
@@ -234,18 +253,20 @@ export function WorkflowRunPage({ workflowId, runId }: WorkflowRunPageProps) {
   const manuallyAssignable = resolutions.filter(
     (resolution) => resolution.status === "needs_human" || resolution.status === "invalidated",
   );
-  const manuallyAssignableIds = new Set(manuallyAssignable.map((resolution) => resolution.id));
-  const assignments = manuallyAssignable
+  const assignments = resolutions
     .filter((resolution) =>
       Boolean(selections[resolution.id]) &&
-      selections[resolution.id] !== resolution.resolved_user_id,
+      (
+        resolution.status !== "resolved" ||
+        selections[resolution.id] !== resolution.resolved_user_id
+      ),
     )
     .map((resolution) => ({
       resolution_id: resolution.id,
       user_id: selections[resolution.id]!,
       version: resolution.version,
     }));
-  const allManuallyAssignableSelected = manuallyAssignable.every(
+  const allUnresolvedSelected = unresolved.every(
     (resolution) => Boolean(selections[resolution.id]),
   );
   const showAssignmentControls = canManageRoles && Boolean(
@@ -253,7 +274,7 @@ export function WorkflowRunPage({ workflowId, runId }: WorkflowRunPageProps) {
     manuallyAssignable.length > 0,
   );
   const canSubmitAssignments =
-    showAssignmentControls && allManuallyAssignableSelected && assignments.length > 0;
+    showAssignmentControls && allUnresolvedSelected && assignments.length > 0;
 
   const handleAssign = async () => {
     if (!canSubmitAssignments) return;
@@ -362,8 +383,8 @@ export function WorkflowRunPage({ workflowId, runId }: WorkflowRunPageProps) {
                   <UserRoundCog className="size-3.5" />
                   {t(($) => $.run.roles.title)}
                 </h3>
-                {canManageRoles && unresolved.length > 0 ? (
-                  <Button type="button" variant="ghost" size="sm" disabled={retryMutation.isPending || run.status === "resolving_roles"} onClick={() => void handleRetry()}>
+                {canManageRoles && run.status === "waiting_role_assignment" && unresolved.length > 0 ? (
+                  <Button type="button" variant="ghost" size="sm" disabled={retryMutation.isPending} onClick={() => void handleRetry()}>
                     <RefreshCw className={retryMutation.isPending ? "mr-1 size-3 animate-spin" : "mr-1 size-3"} />
                     {t(($) => $.run.roles.retry)}
                   </Button>
@@ -377,7 +398,10 @@ export function WorkflowRunPage({ workflowId, runId }: WorkflowRunPageProps) {
               ) : null}
 
               {resolutions.map((resolution) => {
-                const editable = showAssignmentControls && manuallyAssignableIds.has(resolution.id);
+                const editable = showAssignmentControls && (
+                  run.status === "waiting_role_assignment" ||
+                  resolution.status !== "resolved"
+                );
                 const notificationFailed = resolution.notification_status === "failed" || resolution.notification_status === "skipped_no_email";
                 const roleName = formatRoleName(t, resolution.role_name);
                 const resolvedMemberName = resolution.resolved_user_id

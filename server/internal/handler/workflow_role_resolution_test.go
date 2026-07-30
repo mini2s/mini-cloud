@@ -6,31 +6,54 @@ import (
 	"testing"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/multica-ai/multica/server/internal/service"
 	db "github.com/multica-ai/multica/server/pkg/db/generated"
 )
 
 func TestCanManageWorkflowRoleAssignments(t *testing.T) {
+	starterID := pgtype.UUID{Bytes: [16]byte{1}, Valid: true}
+	otherID := pgtype.UUID{Bytes: [16]byte{2}, Valid: true}
 	tests := []struct {
 		name   string
 		member db.MulticaMember
+		run    db.MulticaWorkflowRun
+		userID pgtype.UUID
 		want   bool
 	}{
 		{
-			name:   "active regular member",
+			name:   "active run starter",
 			member: db.MulticaMember{Role: "member", Status: "active"},
+			run:    db.MulticaWorkflowRun{TriggeredByID: starterID},
+			userID: starterID,
+			want:   true,
+		},
+		{
+			name:   "active regular member who did not start run",
+			member: db.MulticaMember{Role: "member", Status: "active"},
+			run:    db.MulticaWorkflowRun{TriggeredByID: starterID},
+			userID: otherID,
+			want:   false,
+		},
+		{
+			name:   "active workspace admin",
+			member: db.MulticaMember{Role: "admin", Status: "active"},
+			run:    db.MulticaWorkflowRun{TriggeredByID: starterID},
+			userID: otherID,
 			want:   true,
 		},
 		{
 			name:   "inactive owner",
 			member: db.MulticaMember{Role: "owner", Status: "inactive"},
+			run:    db.MulticaWorkflowRun{TriggeredByID: starterID},
+			userID: otherID,
 			want:   false,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := canManageWorkflowRoleAssignments(tt.member); got != tt.want {
+			if got := canManageWorkflowRoleAssignments(tt.member, tt.run, tt.userID); got != tt.want {
 				t.Fatalf("canManageWorkflowRoleAssignments() = %v, want %v", got, tt.want)
 			}
 		})

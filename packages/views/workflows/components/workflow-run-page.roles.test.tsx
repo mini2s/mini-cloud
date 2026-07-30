@@ -192,7 +192,7 @@ describe("WorkflowRunPage role assignment", () => {
     expect(screen.getByRole("button", { name: "Confirm assignment" })).toBeInTheDocument();
   });
 
-  it("allows any active workspace member to assign unresolved roles", () => {
+  it("does not allow a regular member who did not start the run to assign roles", () => {
     mocks.currentUserId = "member-2";
     mocks.members.push({
       user_id: "member-2",
@@ -200,12 +200,34 @@ describe("WorkflowRunPage role assignment", () => {
       role: "member",
       status: "active",
     });
-    mocks.run = { ...mocks.run, triggered_by_id: null };
+
+    render(<WorkflowRunPage workflowId="workflow-1" runId="run-1" />);
+
+    expect(screen.queryByRole("combobox")).not.toBeInTheDocument();
+    expect(screen.getByText("Only authorized members can assign roles")).toBeInTheDocument();
+  });
+
+  it("allows the active run starter to assign unresolved roles", () => {
+    mocks.currentUserId = "starter-1";
+    mocks.members.push({
+      user_id: "starter-1",
+      name: "Run starter",
+      role: "member",
+      status: "active",
+    });
 
     render(<WorkflowRunPage workflowId="workflow-1" runId="run-1" />);
 
     expect(screen.getByRole("combobox")).toBeInTheDocument();
-    expect(screen.queryByText("Only authorized members can assign roles")).not.toBeInTheDocument();
+  });
+
+  it("fails closed while the current member is absent from the member response", () => {
+    mocks.currentUserId = "missing-member";
+
+    render(<WorkflowRunPage workflowId="workflow-1" runId="run-1" />);
+
+    expect(screen.queryByRole("combobox")).not.toBeInTheDocument();
+    expect(screen.getByText("Only authorized members can assign roles")).toBeInTheDocument();
   });
 
   it("explains why manual assignment controls are unavailable to an inactive member", () => {
@@ -239,6 +261,21 @@ describe("WorkflowRunPage role assignment", () => {
 
     await waitFor(() => expect(mocks.retry).toHaveBeenCalledTimes(1));
     expect(mocks.toastSuccess).toHaveBeenCalledWith("Retry started");
+  });
+
+  it("does not offer automatic retry for an invalidated slot after the run started", () => {
+    mocks.run = { ...mocks.run, status: "running" };
+    mocks.resolutions = [{
+      ...unresolvedResolution,
+      status: "invalidated",
+      resolved_user_id: "inactive-1",
+      reason_code: "member_inactive",
+    }];
+
+    render(<WorkflowRunPage workflowId="workflow-1" runId="run-1" />);
+
+    expect(screen.queryByRole("button", { name: "Retry" })).not.toBeInTheDocument();
+    expect(screen.getByRole("combobox")).toHaveValue("");
   });
 
   it("localizes a structured retry failure without exposing the English API message", async () => {
@@ -325,5 +362,34 @@ describe("WorkflowRunPage role assignment", () => {
     expect(mapping).toHaveTextContent("研发");
     expect(mapping).toHaveTextContent("Active worker");
     expect(screen.getByText("Automatically mapped")).toBeInTheDocument();
+  });
+
+  it("allows an authorized user to override an LLM result before the run starts", async () => {
+    mocks.resolutions = [
+      {
+        ...unresolvedResolution,
+        id: "resolution-resolved",
+        status: "resolved",
+        resolved_user_id: "worker-1",
+        source: "llm",
+      },
+      {
+        ...unresolvedResolution,
+        id: "resolution-pending",
+        workflow_node_run_id: "node-run-2",
+      },
+    ];
+
+    render(<WorkflowRunPage workflowId="workflow-1" runId="run-1" />);
+
+    const selectors = screen.getAllByRole("combobox");
+    fireEvent.change(selectors[0]!, { target: { value: "owner-1" } });
+    fireEvent.change(selectors[1]!, { target: { value: "worker-1" } });
+    fireEvent.click(screen.getByRole("button", { name: "Confirm assignment" }));
+
+    await waitFor(() => expect(mocks.assign).toHaveBeenCalledWith([
+      { resolution_id: "resolution-resolved", user_id: "owner-1", version: 3 },
+      { resolution_id: "resolution-pending", user_id: "worker-1", version: 3 },
+    ]));
   });
 });
