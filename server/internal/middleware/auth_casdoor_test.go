@@ -56,7 +56,7 @@ func TestCasdoorAuth_ValidCookie(t *testing.T) {
 	)
 	resolver := stubResolver(t, subjectID, multicaUUID)
 
-	mw := CasdoorAuth(resolver)
+	mw := CasdoorAuth(resolver, nil)
 
 	var gotUserID, gotSubject string
 	handler := mw(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -94,7 +94,7 @@ func TestCasdoorAuth_NoCookiePassesThrough(t *testing.T) {
 		return "", nil
 	}
 
-	mw := CasdoorAuth(resolver)
+	mw := CasdoorAuth(resolver, nil)
 	called := false
 	handler := mw(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		called = true
@@ -128,7 +128,7 @@ func TestCasdoorAuth_PATTokenPassesThrough(t *testing.T) {
 		return "", nil
 	}
 
-	mw := CasdoorAuth(resolver)
+	mw := CasdoorAuth(resolver, nil)
 
 	called := false
 	handler := mw(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

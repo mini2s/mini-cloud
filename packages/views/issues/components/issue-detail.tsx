@@ -2038,6 +2038,8 @@ export function IssueDetail({ issueId, onDelete, onDone, defaultSidebarOpen = tr
                   runId={effectiveWorkflowRunId ?? null}
                   wsId={wsId}
                   issueId={issue.id}
+                  issueCreatorType={issue.creator_type}
+                  issueCreatorId={issue.creator_id}
                   fillAvailableHeight={effectiveFullscreen}
                 />
               </div>

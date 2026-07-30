@@ -22,6 +22,15 @@ const CasdoorCookieName = "zgsmAdminToken"
 // for auto-provisioning and updating the user's profile.
 type SubjectResolver func(ctx context.Context, subjectID, universalID, name, email string) (userID string, err error)
 
+// CloudSubjectTranslator optionally translates a Casdoor access token into the
+// cloud-api stable subject id (e.g. "usr_...") that Multica users are keyed by.
+// A raw Casdoor JWT's "sub" is the Casdoor user id, not the cloud subject id
+// the account was provisioned under. When the translator is nil, or when
+// ResolveSubjectID errors, the middleware falls back to the raw JWT "sub".
+type CloudSubjectTranslator interface {
+	ResolveSubjectID(ctx context.Context, universalID, accessToken string) (string, error)
+}
+
 // CasdoorAuth returns Chi middleware that parses a Casdoor-issued JWT (its
 // RS256 signature is verified upstream by the gateway) and resolves the
 // Casdoor subject to a Multica user.
@@ -38,7 +47,7 @@ type SubjectResolver func(ctx context.Context, subjectID, universalID, name, ema
 //   - X-Subject-ID: the raw Casdoor subject ID from the JWT "sub" claim
 //
 // On failure it responds with 401 and a JSON error body.
-func CasdoorAuth(resolver SubjectResolver) func(http.Handler) http.Handler {
+func CasdoorAuth(resolver SubjectResolver, cloudTrans CloudSubjectTranslator) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			token := extractCasdoorToken(r)
@@ -64,11 +73,25 @@ func CasdoorAuth(resolver SubjectResolver) func(http.Handler) http.Handler {
 				return
 			}
 
-			multicaUserID, err := resolver(r.Context(), userInfo.SubjectID, userInfo.UniversalID, userInfo.Name, userInfo.Email)
+			// Translate the Casdoor token to the cloud-api stable subject id
+			// (e.g. "usr_...") that Multica users are keyed by. Fall back to the
+			// JWT "sub" when the translator is unavailable or fails, preserving
+			// prior behavior when cloud-api is not configured.
+			subjectID := userInfo.SubjectID
+			if cloudTrans != nil {
+				if sid, terr := cloudTrans.ResolveSubjectID(r.Context(), userInfo.UniversalID, token); terr != nil {
+					slog.Debug("casdoor auth: cloud subject translation failed, using JWT sub",
+						"path", r.URL.Path, "error", terr)
+				} else if sid != "" {
+					subjectID = sid
+				}
+			}
+
+			multicaUserID, err := resolver(r.Context(), subjectID, userInfo.UniversalID, userInfo.Name, userInfo.Email)
 			if err != nil {
 				slog.Warn("casdoor auth: subject resolution failed",
 					"path", r.URL.Path,
-					"subject", userInfo.SubjectID,
+					"subject", subjectID,
 					"error", err,
 				)
 				writeUnauthorized(w, "unknown user")
@@ -76,7 +99,7 @@ func CasdoorAuth(resolver SubjectResolver) func(http.Handler) http.Handler {
 			}
 
 			r.Header.Set("X-User-ID", multicaUserID)
-			r.Header.Set("X-Subject-ID", userInfo.SubjectID)
+			r.Header.Set("X-Subject-ID", subjectID)
 
 			next.ServeHTTP(w, r)
 		})

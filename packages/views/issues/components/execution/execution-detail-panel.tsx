@@ -11,8 +11,11 @@ import {
   ExternalLink,
   Loader2,
   MessageSquare,
+  Package,
   RotateCcw,
+  ShieldCheck,
   Unlock,
+  Upload,
   User,
 } from "lucide-react";
 import { api } from "@multica/core/api";
@@ -67,6 +70,7 @@ export interface ExecutionDetailPanelProps {
   childAssigneeName?: string | null;
   workflowId?: string;
   runId?: string | null;
+  mayReview?: boolean;
 }
 
 function gatewayLabel(kind: "fork" | "join" | null): string {
@@ -170,6 +174,7 @@ export function ExecutionDetailPanel({
   childAssigneeName,
   workflowId,
   runId,
+  mayReview = false,
 }: ExecutionDetailPanelProps) {
   const { t } = useT("issues");
   const [showEvidence, setShowEvidence] = useState(false);
@@ -267,9 +272,29 @@ export function ExecutionDetailPanel({
   const canUnblock = !isGateway && status === "blocked" && !!onUnblock;
   const canRetry = !isGateway && isRetryableNodeRunStatus(status) && !!onRetry;
   const canReview =
+    mayReview &&
     !isGateway &&
     (nodeRun?.status === "awaiting_critic" || nodeRun?.status === "critic_reviewing") &&
     (nodeRun.critic_type === "human" || node.critic_type === "human");
+
+  // The footer dock is the node's single action zone: the human critic's
+  // review form (with the deliverables under review) while awaiting review,
+  // the human worker's deliverable upload controls while the node runs, and
+  // otherwise a read-only home for submitted deliverable links.
+  const deliverableKinds = deliverableData?.deliverables ?? [];
+  const hasDeliverableKinds = deliverableKinds.some(
+    (d) => d.kind === "document" || d.kind === "pull_request",
+  );
+  const hasSubmittedLinks = deliverableSubmissions.some((s) => s.pull_request_url);
+  const canHumanUpload =
+    !isGateway && nodeRun?.worker_type === "human" && !!issueId && hasDeliverableKinds;
+  const dockMode: "review" | "upload" | "links" | null = canReview
+    ? "review"
+    : canHumanUpload
+      ? "upload"
+      : !isGateway && hasSubmittedLinks
+        ? "links"
+        : null;
 
   // A review decision must carry a comment — it is archived to Gitea as the
   // reviewer's opinion, so an empty one is rejected at the UI boundary.
@@ -395,6 +420,107 @@ export function ExecutionDetailPanel({
     </div>
   ) : null;
 
+  const actionDock = dockMode ? (
+    <div data-testid="node-action-dock" className="space-y-2.5">
+      <div className="flex items-center gap-2 text-xs font-semibold">
+        {dockMode === "review" ? (
+          <ShieldCheck className="h-3.5 w-3.5 text-amber-600" />
+        ) : dockMode === "upload" ? (
+          <Upload className="h-3.5 w-3.5 text-muted-foreground" />
+        ) : (
+          <Package className="h-3.5 w-3.5 text-muted-foreground" />
+        )}
+        <span>
+          {dockMode === "review"
+            ? t(($) => $.execution.detail_panel.dock_review_title)
+            : dockMode === "upload"
+              ? t(($) => $.execution.detail_panel.dock_submit_title)
+              : t(($) => $.execution.detail_panel.section_deliverables)}
+        </span>
+        {dockMode === "review" ? (
+          <span className="font-normal text-muted-foreground">
+            {t(($) => $.execution.detail_panel.dock_review_subtitle)}
+          </span>
+        ) : null}
+        {dockMode === "upload" ? (
+          <span className="font-normal text-muted-foreground">
+            {t(($) => $.execution.detail_panel.dock_submit_subtitle)}
+          </span>
+        ) : null}
+      </div>
+      <NodeRunDeliverables
+        wsId={wsId}
+        nodeRunId={nodeRun?.id ?? ""}
+        issueId={issueId}
+        canUpload={dockMode === "upload"}
+      />
+      {dockMode === "review" ? (
+        <>
+          <textarea
+            value={reviewComment}
+            onChange={(event) => setReviewComment(event.target.value)}
+            placeholder={t(($) => $.execution.detail_panel.review_comment)}
+            rows={3}
+            className="bg-background min-h-20 w-full resize-none rounded-md border px-2 py-1.5 text-sm"
+          />
+          {reviewMutation.isError ? (
+            <p className="text-xs text-destructive">
+              {reviewMutation.error instanceof Error
+                ? reviewMutation.error.message
+                : "Failed to review node run"}
+            </p>
+          ) : null}
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            {reviewCommentEmpty ? (
+              <p className="text-xs text-muted-foreground">
+                {t(($) => $.execution.detail_panel.review_comment_required)}
+              </p>
+            ) : (
+              <span />
+            )}
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                disabled={reviewMutation.isPending || reviewCommentEmpty}
+                onClick={() => reviewMutation.mutate(false)}
+                className="inline-flex h-8 items-center justify-center gap-1.5 rounded-md border bg-background px-3 text-xs font-medium transition-colors hover:bg-muted disabled:opacity-50"
+              >
+                <RotateCcw className="h-3.5 w-3.5" />
+                {t(($) => $.execution.card.actions.reject)}
+              </button>
+              <button
+                type="button"
+                disabled={reviewMutation.isPending || reviewCommentEmpty}
+                onClick={() => reviewMutation.mutate(true)}
+                className="bg-primary text-primary-foreground inline-flex h-8 items-center justify-center gap-1.5 rounded-md px-3 text-xs font-medium transition-colors disabled:opacity-50"
+              >
+                {reviewMutation.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
+                {t(($) => $.execution.card.actions.approve)}
+              </button>
+            </div>
+          </div>
+        </>
+      ) : null}
+    </div>
+  ) : null;
+
+  const panelFooter = dockMode ? (
+    <div className="-mx-4 -my-3">
+      <div
+        className={
+          runtimeActions
+            ? "border-b border-border/60 bg-muted/25 px-4 py-3"
+            : "bg-muted/25 px-4 py-3"
+        }
+      >
+        {actionDock}
+      </div>
+      {runtimeActions ? <div className="px-4 py-3">{runtimeActions}</div> : null}
+    </div>
+  ) : (
+    runtimeActions
+  );
+
   const evidenceSection = (
     <NodeDetailSection
       sectionId="evidence-preview"
@@ -437,7 +563,7 @@ export function ExecutionDetailPanel({
       eyebrow="Node runtime"
       closeLabel="Close"
       onClose={onClose}
-      footer={runtimeActions}
+      footer={panelFooter}
       statusIcon={(
         <span className="inline-flex shrink-0 items-center gap-1.5 text-[11px] font-medium text-muted-foreground">
           <RuntimeDisplayStatusIcon
@@ -538,12 +664,6 @@ export function ExecutionDetailPanel({
               <span className="text-muted-foreground">{t(($) => $.execution.detail_panel.worker)}</span>
               <span className="font-medium">{workerName ?? "--"}</span>
             </div>
-            <NodeRunDeliverables
-              wsId={wsId}
-              nodeRunId={nodeRun?.id ?? ""}
-              issueId={issueId}
-              canUpload={nodeRun?.worker_type === "human"}
-            />
             <div className="flex items-center gap-2">
               {nodeRun?.critic_type === "agent" ? <Bot className="h-4 w-4" /> : <User className="h-4 w-4" />}
               <span className="text-muted-foreground">{t(($) => $.execution.detail_panel.critic)}</span>
@@ -555,49 +675,6 @@ export function ExecutionDetailPanel({
             </div>
             {nodeRun?.critic_comment ? (
               <p className="text-xs italic text-muted-foreground">&ldquo;{nodeRun.critic_comment}&rdquo;</p>
-            ) : null}
-            {canReview ? (
-              <div className="space-y-2 rounded-md border bg-background p-2">
-                <textarea
-                  value={reviewComment}
-                  onChange={(event) => setReviewComment(event.target.value)}
-                  placeholder={t(($) => $.execution.detail_panel.review_comment)}
-                  rows={3}
-                  className="bg-background min-h-20 w-full resize-none rounded-md border px-2 py-1.5 text-sm"
-                />
-                {reviewMutation.isError ? (
-                  <p className="text-xs text-destructive">
-                    {reviewMutation.error instanceof Error
-                      ? reviewMutation.error.message
-                      : "Failed to review node run"}
-                  </p>
-                ) : null}
-                {reviewCommentEmpty ? (
-                  <p className="text-xs text-muted-foreground">
-                    {t(($) => $.execution.detail_panel.review_comment_required)}
-                  </p>
-                ) : null}
-                <div className="flex flex-wrap gap-2">
-                  <button
-                    type="button"
-                    disabled={reviewMutation.isPending || reviewCommentEmpty}
-                    onClick={() => reviewMutation.mutate(true)}
-                    className="bg-primary text-primary-foreground inline-flex h-8 items-center justify-center gap-1.5 rounded-md px-3 text-xs font-medium transition-colors disabled:opacity-50"
-                  >
-                    {reviewMutation.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
-                    {t(($) => $.execution.card.actions.approve)}
-                  </button>
-                  <button
-                    type="button"
-                    disabled={reviewMutation.isPending || reviewCommentEmpty}
-                    onClick={() => reviewMutation.mutate(false)}
-                    className="inline-flex h-8 items-center justify-center gap-1.5 rounded-md border bg-background px-3 text-xs font-medium transition-colors hover:bg-muted disabled:opacity-50"
-                  >
-                    <RotateCcw className="h-3.5 w-3.5" />
-                    {t(($) => $.execution.card.actions.reject)}
-                  </button>
-                </div>
-              </div>
             ) : null}
           </div>
         ) : (

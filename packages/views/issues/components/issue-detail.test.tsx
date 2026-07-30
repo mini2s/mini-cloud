@@ -16,6 +16,8 @@ const mockExecutionPanoramaProps = vi.hoisted(() => ({
     runId: string | null;
     wsId: string;
     issueId?: string;
+    issueCreatorType?: string | null;
+    issueCreatorId?: string | null;
     fillAvailableHeight?: boolean;
   },
 }));
@@ -666,6 +668,8 @@ describe("IssueDetail (shared)", () => {
       runId: "run-1",
       wsId: "ws-1",
       issueId: "issue-1",
+      issueCreatorType: "member",
+      issueCreatorId: "user-1",
       fillAvailableHeight: true,
     });
   });
@@ -690,6 +694,8 @@ describe("IssueDetail (shared)", () => {
       runId: "run-1",
       wsId: "ws-1",
       issueId: "issue-1",
+      issueCreatorType: "member",
+      issueCreatorId: "user-1",
       fillAvailableHeight: true,
     });
   });

@@ -103,10 +103,13 @@ type RotateBotTokenResponse struct {
 }
 
 type WorkflowInitRequest struct {
-	WorkflowDefSlug    string `json:"workflow_def_slug"`
-	InstanceID         string `json:"instance_id"`
-	TeamID             string `json:"team_id"`
-	DefinitionSnapshot string `json:"definition_snapshot,omitempty"`
+	WorkflowDefSlug string `json:"workflow_def_slug"`
+	InstanceID      string `json:"instance_id"`
+	TeamID          string `json:"team_id"`
+	// SkipInstanceBranch omits the per-instance branch creation. Set by
+	// workspace/workflow activation (no run yet); left false at issue/run
+	// time so the per-run inst branch is created.
+	SkipInstanceBranch bool `json:"skip_instance_branch,omitempty"`
 }
 
 type WorkflowInitResponse struct {

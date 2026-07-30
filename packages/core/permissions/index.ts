@@ -19,6 +19,7 @@ export {
   canDemoteBuiltinAgent,
   canManageRuntimePermissions,
   canControlNodeRun,
+  canSubmitNodeRunReview,
 } from "./rules";
 
 export {
