@@ -1041,21 +1041,47 @@ func (s *TaskService) buildCSCloudPrompt(ctx context.Context, task db.MulticaAge
 }
 
 func (s *TaskService) buildIssuePrompt(ctx context.Context, task db.MulticaAgentTaskQueue) (string, error) {
-	if !task.IssueID.Valid {
+	if task.IssueID.Valid {
+		issue, err := s.Queries.GetIssue(ctx, task.IssueID)
+		if err != nil {
+			return "", fmt.Errorf("get issue: %w", err)
+		}
+		return buildIssuePromptText(issue), nil
+	}
+	if task.WorkflowNodeRunID.Valid {
+		return s.buildWorkflowSourceIssuePrompt(ctx, task.WorkflowNodeRunID)
+	}
+	return "", nil
+}
+
+func (s *TaskService) buildWorkflowSourceIssuePrompt(ctx context.Context, nodeRunID pgtype.UUID) (string, error) {
+	nodeRun, err := s.Queries.GetWorkflowNodeRun(ctx, nodeRunID)
+	if err != nil {
+		return "", fmt.Errorf("get workflow node run: %w", err)
+	}
+	run, err := s.Queries.GetWorkflowRun(ctx, nodeRun.WorkflowRunID)
+	if err != nil {
+		return "", fmt.Errorf("get workflow run: %w", err)
+	}
+	if !run.SourceIssueID.Valid {
 		return "", nil
 	}
-	issue, err := s.Queries.GetIssue(ctx, task.IssueID)
+	issue, err := s.Queries.GetIssue(ctx, run.SourceIssueID)
 	if err != nil {
-		return "", fmt.Errorf("get issue: %w", err)
+		return "", fmt.Errorf("get workflow source issue: %w", err)
 	}
+	return buildIssuePromptText(issue), nil
+}
+
+func buildIssuePromptText(issue db.MulticaIssue) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "Issue: %s\n", issue.Title)
 	if issue.Description.Valid {
 		b.WriteString("\n")
-		b.WriteString(truncatePromptItem(issue.Description.String))
+		b.WriteString(issue.Description.String)
 		b.WriteString("\n")
 	}
-	return truncatePrompt(b.String()), nil
+	return truncatePrompt(b.String())
 }
 
 func (s *TaskService) buildIssueCommentPrompt(ctx context.Context, task db.MulticaAgentTaskQueue) (string, error) {

@@ -853,12 +853,12 @@ func shortHexSafe(id string) string {
 	return id
 }
 
-// mergeDeliverablePRs merges the Gitea PR behind every PR-backed deliverable
-// submission (document deliverables uploaded as files AND pull_request
-// deliverables whose pasted code link is wrapped in a node→inst PR), with
-// bounded retry. Returns nil only if all such PRs merged; a non-nil error means
-// at least one failed terminally (conflict) or after retries (transient) — the
-// caller blocks the node run. Only called when s.Gitea is configured.
+// mergeDeliverablePRs merges the PR/MR behind every deliverable submission that
+// carries a pull_request_url (a document uploaded as files becomes a node→inst
+// PR; a code link is wrapped in a node→inst PR; a code MR is merged in place),
+// with bounded retry. Returns nil only if all such PRs merged; a non-nil error
+// means at least one failed terminally (conflict) or after retries (transient)
+// — the caller blocks the node run. Only called when s.Gitea is configured.
 func (s *WorkflowService) mergeDeliverablePRs(ctx context.Context, nodeRun db.MulticaWorkflowNodeRun) error {
 	run, err := s.Queries.GetWorkflowRun(ctx, nodeRun.WorkflowRunID)
 	if err != nil {
@@ -1058,10 +1058,10 @@ func retryMergeDocPR(ctx context.Context, provider coderepo.RepositoryProvider, 
 	return lastErr
 }
 
-// markDeliverableSubmissionsApproved flips every live PR-backed submission
-// (document or pull_request) with a PR URL to status=approved (called after a
-// successful merge). Rejected rows stay rejected — a link the critic turned
-// down in an earlier round must not be resurrected by a sibling's approval.
+// markDeliverableSubmissionsApproved flips every live submission with a PR URL
+// to status=approved (called after a successful merge). Rejected rows stay
+// rejected — a link the critic turned down in an earlier round must not be
+// resurrected by a sibling's approval.
 // Best-effort: errors are logged, not returned — the merge already
 // succeeded, so the node will complete regardless of a status-write hiccup
 // here. The existing review_comment is preserved (the critic's comment lives on
@@ -1194,8 +1194,8 @@ func (s *WorkflowService) runLockedMemberUpload(ctx context.Context, issue db.Mu
 
 // resolveUploadDeliverable picks the deliverable a member upload targets: the
 // explicitly requested deliverableID when given (validated to belong to the
-// node run and to match the upload kind), otherwise the first requirement of
-// that kind — the legacy single-deliverable behavior.
+// node run), otherwise the sole deliverable on the node — the legacy
+// single-deliverable behavior (errors if there is not exactly one).
 func resolveUploadDeliverable(deliverables []db.MulticaWorkflowNodeRunDeliverable, deliverableID string) (db.MulticaWorkflowNodeRunDeliverable, error) {
 	if deliverableID != "" {
 		for _, d := range deliverables {
