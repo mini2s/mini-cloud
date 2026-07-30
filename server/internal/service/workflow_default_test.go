@@ -1229,10 +1229,12 @@ func multiLinkSeed(t *testing.T, pool *pgxpool.Pool, prefix string) (
 // TestUploadMemberDeliverablePR_MultiLinkPerDeliverable covers the multi-link
 // data model (migration 149) end to end at the service level: one call carries
 // two links for the same deliverable and records one submission row per link
-// (each archived on its own branch/PR); an explicit deliverable_id unlocks two
-// same-kind required deliverables (partial set waits, completion advances);
-// re-submitting an existing link after a rework round updates its row in
-// place instead of duplicating it or overwriting the sibling link.
+// (the real pasted links stored as-is, no per-link Gitea branch/PR); an
+// explicit deliverable_id unlocks two same-kind required deliverables (partial
+// set waits, completion advances); re-submitting an existing link after a
+// rework round updates its row in place instead of duplicating it or
+// overwriting the sibling link. After upload, the async archive writes all
+// links into a single .md on the node branch.
 func TestUploadMemberDeliverablePR_MultiLinkPerDeliverable(t *testing.T) {
 	pool := openTestPool(t)
 	defer pool.Close()
@@ -1270,12 +1272,14 @@ func TestUploadMemberDeliverablePR_MultiLinkPerDeliverable(t *testing.T) {
 		if util.UUIDToString(sub.DeliverableID) != reqIDs["A"] {
 			t.Fatalf("submission %v landed on the wrong deliverable, want A=%s", sub.DeliverableID, reqIDs["A"])
 		}
-		if !strings.Contains(sub.PullRequestUrl, "gitea.local") {
-			t.Fatalf("submission URL %q, want the archived Gitea PR", sub.PullRequestUrl)
-		}
 	}
-	if subs[0].PullRequestUrl == subs[1].PullRequestUrl {
-		t.Fatalf("both links collapsed onto one review URL %q — per-link branch required", subs[0].PullRequestUrl)
+	// Submissions store the real pasted links, not Gitea PR URLs.
+	urls := map[string]bool{}
+	for _, sub := range subs {
+		urls[sub.PullRequestUrl] = true
+	}
+	if !urls[linkA1] || !urls[linkA2] {
+		t.Fatalf("submissions must store the pasted links; got URLs: %v", urls)
 	}
 
 	// 2. Deliverable B by explicit id: the set completes and the node advances.
@@ -1293,9 +1297,8 @@ func TestUploadMemberDeliverablePR_MultiLinkPerDeliverable(t *testing.T) {
 		t.Fatalf("worker output = %q, want the summary", out)
 	}
 
-	// 3. Rework round: re-submitting link A1 reuses its branch/PR (the fake
-	// 409s the duplicate POST and the client finds the open PR), so the row
-	// count stays at three and every URL is unchanged.
+	// 3. Rework round: re-submitting link A1 upserts the same row (same URL),
+	// so the row count stays at three and every URL is unchanged.
 	if _, err := pool.Exec(ctx, `UPDATE multica_workflow_node_run SET status = $1, retry_count = 1 WHERE id = $2`, NodeRunStatusWorkerAssigned, nrID); err != nil {
 		t.Fatalf("reset for rework: %v", err)
 	}
@@ -1309,16 +1312,18 @@ func TestUploadMemberDeliverablePR_MultiLinkPerDeliverable(t *testing.T) {
 	if len(subs) != 3 {
 		t.Fatalf("same-link resubmit must be idempotent — want 3 rows, got %d: %+v", len(subs), subs)
 	}
-	linkArchives := 0
+
+	// 4. Drive the archive synchronously (the goroutine is not observable in
+	// tests). It should upsert the code-links .md on the node branch.
+	svc.ArchiveNodeCodeLinks(ctx, nrUUID)
+	archiveUpserts := 0
 	for _, p := range *paths {
-		// The per-link archive file carries the link hash (branch names travel
-		// in the request body, so the fake's path log only sees the file).
-		if strings.Contains(p, "/contents/") && strings.Contains(p, "Code A-") {
-			linkArchives++
+		if strings.Contains(p, "/contents/") && strings.Contains(p, codeLinksArchiveFile) {
+			archiveUpserts++
 		}
 	}
-	if linkArchives == 0 {
-		t.Fatalf("no per-link archive file seen in Gitea traffic: %v", *paths)
+	if archiveUpserts == 0 {
+		t.Fatalf("ArchiveNodeCodeLinks did not upsert %q on the node branch; paths: %v", codeLinksArchiveFile, *paths)
 	}
 }
 
@@ -1362,9 +1367,10 @@ func TestUploadMemberDeliverablePR_ConcurrentRequirementsAdvance(t *testing.T) {
 	}
 }
 
-// TestUploadMemberDeliverablePR_DormantMultiLink covers the no-Gitea fallback:
+// TestUploadMemberDeliverablePR_DormantMultiLink covers the no-Gitea path:
 // links are recorded verbatim, several per deliverable, and a same-link
-// resubmit upserts the same row (idempotent by URL).
+// resubmit upserts the same row (idempotent by URL). No per-link archive
+// happens (ArchiveNodeCodeLinks is a no-op when Gitea is not configured).
 func TestUploadMemberDeliverablePR_DormantMultiLink(t *testing.T) {
 	pool := openTestPool(t)
 	defer pool.Close()
