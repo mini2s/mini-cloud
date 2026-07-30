@@ -1012,7 +1012,11 @@ func (s *WorkflowService) closeDeliverableReviewRequests(ctx context.Context, no
 		}
 		index, err := gitea.ParsePullRequestIndex(sub.PullRequestUrl)
 		if err != nil {
-			// GitLab MR or unparseable URL — skip (worker revises in place)
+			// GitLab MR or unparseable URL — skip (worker revises in place).
+			// Debug (not Warn): GitLab MR URLs always fail this parse, so Warn
+			// would be noisy; Debug keeps a breadcrumb for genuinely malformed
+			// Gitea URLs without spamming on every rejected code MR.
+			slog.Debug("close deliverable PR: skip unparseable url", "url", sub.PullRequestUrl)
 			continue
 		}
 		if err := provider.CloseReviewRequest(ctx, owner, repo, index); err != nil {
