@@ -1704,10 +1704,10 @@ func TestAutoSubmit_AnySingleRequiredDeliverable(t *testing.T) {
 		fix := seedGiteaFixture(t, pool, false, 1)
 
 		// Two deliverables on the same node.
-		if _, err := pool.Exec(ctx, `INSERT INTO multica_workflow_node_deliverable (workflow_node_id, title, description, required, sort_order) VALUES ($1,'Doc',TRUE,0)`, util.UUIDToString(fix.node)); err != nil {
+		if _, err := pool.Exec(ctx, `INSERT INTO multica_workflow_node_deliverable (workflow_node_id, title, description, required, sort_order) VALUES ($1,'Doc','',TRUE,0)`, util.UUIDToString(fix.node)); err != nil {
 			t.Fatal(err)
 		}
-		if _, err := pool.Exec(ctx, `INSERT INTO multica_workflow_node_deliverable (workflow_node_id, title, description, required, sort_order) VALUES ($1,'Code',TRUE,1)`, util.UUIDToString(fix.node)); err != nil {
+		if _, err := pool.Exec(ctx, `INSERT INTO multica_workflow_node_deliverable (workflow_node_id, title, description, required, sort_order) VALUES ($1,'Code','',TRUE,1)`, util.UUIDToString(fix.node)); err != nil {
 			t.Fatal(err)
 		}
 
@@ -2288,7 +2288,7 @@ func TestEnsureNodeRunBranch_KindAgnostic(t *testing.T) {
 	// Seed a pull_request-kind deliverable on the node.
 	if _, err := pool.Exec(ctx, `
 		INSERT INTO multica_workflow_node_deliverable (workflow_node_id, title, description, required, sort_order)
-		VALUES ($1, 'Code MR', TRUE, 0)
+		VALUES ($1, 'Code MR', '', TRUE, 0)
 	`, util.UUIDToString(fix.node)); err != nil {
 		t.Fatalf("seed pull_request deliverable: %v", err)
 	}
@@ -2353,13 +2353,13 @@ func TestMergeAndApprove_KindAgnostic(t *testing.T) {
 	// Seed two template-level deliverables: one 'document', one 'pull_request'.
 	if _, err := pool.Exec(ctx, `
 		INSERT INTO multica_workflow_node_deliverable (workflow_node_id, title, description, required, sort_order)
-		VALUES ($1, 'Doc', TRUE, 0)
+		VALUES ($1, 'Doc', '', TRUE, 0)
 	`, util.UUIDToString(fix.node)); err != nil {
 		t.Fatalf("seed document deliverable: %v", err)
 	}
 	if _, err := pool.Exec(ctx, `
 		INSERT INTO multica_workflow_node_deliverable (workflow_node_id, title, description, required, sort_order)
-		VALUES ($1, 'Code', TRUE, 1)
+		VALUES ($1, 'Code', '', TRUE, 1)
 	`, util.UUIDToString(fix.node)); err != nil {
 		t.Fatalf("seed pull_request deliverable: %v", err)
 	}
