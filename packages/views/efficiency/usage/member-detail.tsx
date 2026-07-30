@@ -8,8 +8,8 @@ import {
   formatNumber,
   usageUserDetailOptions,
   usageUserTrendOptions,
+  useUserNameMap,
 } from "@multica/core/efficiency";
-import { useWorkspacePaths } from "@multica/core/paths";
 import {
   Dialog,
   DialogContent,
@@ -17,9 +17,7 @@ import {
   DialogTitle,
   DialogDescription,
 } from "@multica/ui/components/ui/dialog";
-import { Button } from "@multica/ui/components/ui/button";
 import { Skeleton } from "@multica/ui/components/ui/skeleton";
-import { useNavigation } from "../../navigation";
 import {
   MultiTrendChart,
   PieBreakdownChart,
@@ -72,19 +70,14 @@ export function MemberDetailDialog({
   onClose,
 }: MemberDetailDialogProps) {
   const wsId = useWorkspaceId();
-  const p = useWorkspacePaths();
-  const { push } = useNavigation();
   const detailQ = useQuery(usageUserDetailOptions(wsId, uid, startDate, endDate));
   const trendQ = useQuery(usageUserTrendOptions(wsId, uid, startDate, endDate));
 
-  // Drill-down: this Dialog is a quick preview; the full user detail page
-  // lives at /metrics/user/:userId. Pushing there closes the preview.
-  const openFullDetail = () => {
-    onClose();
-    push(p.metricsUserDetail(uid));
-  };
-
   const u = detailQ.data?.user_detail;
+  const { resolveName } = useUserNameMap();
+  // Source UserDetailModal: displayName = resolveName(uid) || u?.username || uid
+  // (resolveName never returns "", so the roster hit / raw id always wins).
+  const displayName = resolveName(uid) || u?.username || uid;
   const depts = detailQ.data?.departments ?? [];
   const models = detailQ.data?.models ?? [];
   const trendData = trendQ.data ?? [];
@@ -175,20 +168,13 @@ export function MemberDetailDialog({
 
   return (
     <Dialog open onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="max-h-[85vh] max-w-5xl overflow-y-auto">
+      <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-5xl">
         <DialogHeader>
-          <div className="flex flex-wrap items-start justify-between gap-3">
-            <div className="min-w-0">
-              <DialogTitle>{u?.username || uid} · 个人使用详情</DialogTitle>
-              <DialogDescription>
-                {u?.universal_id ? `用户 ID: ${u.universal_id} · ` : ""}
-                {startDate} ~ {endDate}
-              </DialogDescription>
-            </div>
-            <Button type="button" variant="outline" size="sm" onClick={openFullDetail}>
-              查看完整详情
-            </Button>
-          </div>
+          <DialogTitle>{displayName} · 个人使用详情</DialogTitle>
+          <DialogDescription>
+            {u?.universal_id ? `用户 ID: ${u.universal_id} · ` : ""}
+            {startDate} ~ {endDate}
+          </DialogDescription>
         </DialogHeader>
 
         {isLoading ? (

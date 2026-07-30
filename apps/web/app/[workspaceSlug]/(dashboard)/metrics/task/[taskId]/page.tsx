@@ -1,8 +1,9 @@
 "use client";
 
 import { use } from "react";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { TaskDetail } from "@multica/views/efficiency";
+import { resolveTaskIdFromPathname } from "@/platform/efficiency-route-params";
 
 // Route wrapper for the efficiency task detail page. Owns navigation (the
 // shared TaskDetail view takes onBack and stays router-free); the workspace
@@ -12,7 +13,9 @@ export default function TaskDetailRoute({
 }: {
   params: Promise<{ taskId: string }>;
 }) {
-  const { taskId } = use(params);
+  const { taskId: routeTaskId } = use(params);
+  const pathname = usePathname();
+  const taskId = resolveTaskIdFromPathname(pathname, routeTaskId);
   const router = useRouter();
   return <TaskDetail taskId={taskId} onBack={() => router.back()} />;
 }

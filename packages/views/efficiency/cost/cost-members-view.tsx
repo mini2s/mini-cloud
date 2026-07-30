@@ -12,6 +12,8 @@ import {
   type CostMembersQuery,
 } from "@multica/core/efficiency";
 import { Input } from "@multica/ui/components/ui/input";
+import { ChatUserCell } from "../components/chat-user-cell";
+import { DRILLDOWN_ROW_CLASS } from "../components/drilldown-styles";
 import { PCT, SortHeader, shortToken, Td, TdNum, Th, ThNum } from "../usage/shared";
 
 // Member cost list view — third tab of the Cost Kanban. Ports the source
@@ -174,29 +176,31 @@ export function CostMembersView({
             ) : (
               rows.map((m, i) => {
                 const uid = m.universal_id || "";
-                const resolvedName = resolveName(uid);
-                const displayName =
-                  resolvedName !== uid
-                    ? resolvedName
-                    : m.username || uid || "-";
                 return (
                   <tr
                     key={uid || i}
+                    tabIndex={uid ? 0 : undefined}
                     onClick={uid ? () => onRowClick(uid) : undefined}
+                    onKeyDown={
+                      uid
+                        ? (event) => {
+                            if (event.key === "Enter") onRowClick(uid);
+                          }
+                        : undefined
+                    }
                     className={
                       uid
-                        ? "cursor-pointer border-b border-border/50 transition-colors hover:bg-muted"
+                        ? `${DRILLDOWN_ROW_CLASS} border-b border-border/50`
                         : "border-b border-border/50"
                     }
                   >
                     <TdNum>{(page - 1) * pageSize + i + 1}</TdNum>
                     <Td>
-                      <span
-                        className="max-w-[220px] truncate"
-                        title={displayName}
-                      >
-                        {displayName}
-                      </span>
+                      <ChatUserCell
+                        universalId={m.universal_id}
+                        chatUsername={m.username}
+                        resolveName={resolveName}
+                      />
                     </Td>
                     <Td title={m.user_id || ""}>{m.user_id || "-"}</Td>
                     <Td>

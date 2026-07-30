@@ -7,10 +7,13 @@ import {
   fmtCost,
   formatNumber,
   usageDeptMembersOptions,
+  useUserNameMap,
   type MemberSortBy,
   type MembersQuery,
 } from "@multica/core/efficiency";
 import { Input } from "@multica/ui/components/ui/input";
+import { ChatUserCell } from "../components/chat-user-cell";
+import { DRILLDOWN_ROW_CLASS } from "../components/drilldown-styles";
 import { PCT, SortHeader, shortToken, Td, TdNum, Th, ThNum } from "./shared";
 
 // Member list view — second tab of the Usage Kanban. Ports the source
@@ -79,6 +82,7 @@ export function MembersView({
     search,
   };
   const membersQ = useQuery(usageDeptMembersOptions(wsId, q));
+  const { resolveName } = useUserNameMap();
   const rows = membersQ.data?.members ?? [];
   const total = membersQ.data?.total ?? 0;
 
@@ -155,18 +159,28 @@ export function MembersView({
                 return (
                   <tr
                     key={uid || i}
+                    tabIndex={uid ? 0 : undefined}
                     onClick={uid ? () => onRowClick(uid) : undefined}
+                    onKeyDown={
+                      uid
+                        ? (event) => {
+                            if (event.key === "Enter") onRowClick(uid);
+                          }
+                        : undefined
+                    }
                     className={
                       uid
-                        ? "cursor-pointer border-b border-border/50 transition-colors hover:bg-muted"
+                        ? `${DRILLDOWN_ROW_CLASS} border-b border-border/50`
                         : "border-b border-border/50"
                     }
                   >
                     <TdNum>{(page - 1) * pageSize + i + 1}</TdNum>
                     <Td>
-                      <span className="max-w-[220px] truncate" title={m.username || uid}>
-                        {m.username || uid || "-"}
-                      </span>
+                      <ChatUserCell
+                        universalId={m.universal_id}
+                        chatUsername={m.username}
+                        resolveName={resolveName}
+                      />
                     </Td>
                     <Td title={m.user_id || ""}>{m.user_id || "-"}</Td>
                     <Td>
@@ -276,4 +290,3 @@ function Pager({
     </div>
   );
 }
-

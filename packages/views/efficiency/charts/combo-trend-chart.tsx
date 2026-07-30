@@ -1,3 +1,4 @@
+import { useState } from "react";
 import {
   ComposedChart,
   Bar,
@@ -12,6 +13,7 @@ import {
   ChartTooltipContent,
   type ChartConfig,
 } from "@multica/ui/components/ui/chart";
+import { ChartSeriesLegend } from "./chart-series-legend";
 
 export interface ComboTrendPoint {
   label: string;
@@ -44,6 +46,8 @@ interface ComboTrendChartProps {
     name: string;
     format: (value: number) => string;
   };
+  /** Show an interactive series legend above the chart (click toggles a series). */
+  showLegend?: boolean;
 }
 
 export function ComboTrendChart({
@@ -54,14 +58,39 @@ export function ComboTrendChart({
   formatRightY,
   heightClass = "h-[280px]",
   tooltipExtra,
+  showLegend = false,
 }: ComboTrendChartProps) {
+  const [hiddenSeries, setHiddenSeries] = useState<Set<string>>(
+    () => new Set(),
+  );
   const config = {
     bar: { label: bar.name, color: bar.color },
     line: { label: line.name, color: line.color },
   } satisfies ChartConfig;
+  const legendItems = [
+    { key: "bar", name: bar.name, color: bar.color },
+    { key: "line", name: line.name, color: line.color },
+  ];
+
+  const toggleSeries = (key: string) => {
+    setHiddenSeries((current) => {
+      const next = new Set(current);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  };
 
   return (
-    <ChartContainer config={config} className={`${heightClass} w-full`}>
+    <div className="w-full min-w-0">
+      {showLegend ? (
+        <ChartSeriesLegend
+          items={legendItems}
+          hiddenKeys={hiddenSeries}
+          onToggle={toggleSeries}
+        />
+      ) : null}
+      <ChartContainer config={config} className={`${heightClass} w-full`}>
       <ComposedChart data={data} margin={{ left: 0, right: 0, top: 4, bottom: 0 }}>
         <CartesianGrid vertical={false} />
         <XAxis
@@ -117,6 +146,7 @@ export function ComboTrendChart({
           fill={bar.color}
           radius={4}
           maxBarSize={36}
+          hide={hiddenSeries.has("bar")}
         />
         <Line
           yAxisId="right"
@@ -127,8 +157,10 @@ export function ComboTrendChart({
           strokeWidth={2}
           dot={false}
           activeDot={{ r: 4 }}
+          hide={hiddenSeries.has("line")}
         />
       </ComposedChart>
-    </ChartContainer>
+      </ChartContainer>
+    </div>
   );
 }

@@ -31,6 +31,7 @@ import {
   useGranularity,
 } from "../components/granularity-toggle";
 import {
+  hasNonZeroTrendValue,
   MultiTrendChart,
   PieBreakdownChart,
   type MultiTrendPoint,
@@ -38,8 +39,8 @@ import {
 } from "../charts";
 import {
   PCT,
-  chartColorFor,
   filterZeroRequests,
+  PIE_COLORS,
   shortToken,
   Td,
   TdNum,
@@ -496,7 +497,7 @@ function DailyCostTrendBlock({
       <MultiTrendChart
         data={points}
         formatY={(v) => `¥${shortToken(v)}`}
-        series={[{ key: "cost", name: "总费用", color: "var(--chart-1)" }]}
+        series={[{ key: "cost", name: "总费用", color: "#af52de" }]}
       />
     </Card>
   );
@@ -568,7 +569,13 @@ function ModelsCostBlock({
           {compositionLoading && !composition ? (
             <Skeleton className="h-[280px] rounded-lg" />
           ) : (
-            pie.length > 0 && <PieBreakdownChart data={pie} />
+            pie.length > 0 && (
+              <PieBreakdownChart
+                data={pie}
+                colors={PIE_COLORS}
+                scrollLegend
+              />
+            )
           )}
           <ModelCostTable models={effective} />
         </div>
@@ -602,7 +609,7 @@ function ModelCostTable({ models }: { models: CostModelItem[] }) {
                 <span className="inline-flex items-center gap-2">
                   <span
                     className="inline-block h-2.5 w-2.5 rounded-full"
-                    style={{ background: chartColorFor(i) }}
+                    style={{ background: PIE_COLORS[i % PIE_COLORS.length] }}
                   />
                   <span className="max-w-[180px] truncate" title={m.model}>
                     {m.model || "-"}
@@ -673,7 +680,7 @@ function ModelTrendStackBlock({
     const chartSeriesOut = series.map((s, i) => ({
       key: s.model,
       name: s.model,
-      color: chartColorFor(i),
+      color: PIE_COLORS[i % PIE_COLORS.length]!,
     }));
     return { points: rows, chartSeries: chartSeriesOut };
   }, [end, gran, series, start]);
@@ -692,12 +699,24 @@ function ModelTrendStackBlock({
       </Card>
     );
   }
+  if (!hasNonZeroTrendValue(points, chartSeries)) {
+    return (
+      <Card title={title} sub="堆叠面积图" extra={extra}>
+        <MultiTrendChart
+          data={points.map((point) => ({ label: point.label, cost: 0 }))}
+          series={[{ key: "cost", name: "总费用", color: "#af52de" }]}
+          formatY={(v) => `¥${shortToken(v)}`}
+        />
+      </Card>
+    );
+  }
   return (
     <Card title={title} sub="堆叠面积图" extra={extra}>
       <MultiTrendChart
         data={points}
         series={chartSeries}
         stack
+        showLegend
         formatY={(v) => `¥${shortToken(v)}`}
       />
     </Card>

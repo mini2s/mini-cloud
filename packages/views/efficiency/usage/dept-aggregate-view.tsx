@@ -41,7 +41,9 @@ import {
   useGranularity,
 } from "../components/granularity-toggle";
 import {
+  InfoTip,
   PCT,
+  PIE_COLORS,
   chartColorFor,
   filterZeroRequests,
   shortToken,
@@ -372,7 +374,7 @@ function OverviewBlock({
   return (
     <Card title="使用概览" sub="除成功率/失败率外，均已排除失败请求">
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <KpiCard label="总请求" value={formatNumber(ov.total_requests)} hint="统计周期内所有成功 API 请求" />
+        <KpiCard label="总请求" value={formatNumber(ov.total_requests)} tip="统计周期内所有成功 API 请求" />
         <KpiCard label="人均请求" value={perCapitaRequests} hint={`活跃 ${formatNumber(ov.active_users)} 人`} />
         <KpiCard label="总会话数" value={formatNumber(ov.total_sessions)} hint="unique_task 去重" />
         <KpiCard label="活跃用户" value={formatNumber(ov.active_users)} />
@@ -384,6 +386,7 @@ function OverviewBlock({
               ? `${formatNumber(ov.active_users)} / ${formatNumber(headcount)} 人`
               : "花名册人数不可得"
           }
+          tip="活跃使用人数 ÷ 部门花名册总人数(整棵子树)。分母恒为子树花名册；关闭「包含子部门」时分子仅直属、分母仍子树，覆盖率会偏低"
           accent="brand"
         />
         <KpiCard label="总输入 Token" value={shortToken(ov.sum_prompt_tokens)} hint={formatNumber(ov.sum_prompt_tokens)} />
@@ -484,13 +487,34 @@ function TrendBlock({
     }));
   })();
   const granularityLabel = GRANULARITY_CN[gran];
-  const activeLabel = gran === "day" ? "活跃用户" : "日均活跃用户";
+  const dayMode = gran === "day";
+  const activeLabel = dayMode ? "活跃用户" : "日均活跃用户";
+  // Hover help for the title ⓘ: how each plotted value is computed. Ported
+  // from the source's trendHelp (multi-line, one definition per line).
+  const rateLabel = dayMode ? "使用率" : "日均使用率";
+  const trendHelp = [
+    `请求量 = 该${granularityLabel}内所有成功 API 请求数之和（已排除失败请求）`,
+    dayMode
+      ? "活跃用户 = 当日至少 1 次请求的去重人数"
+      : "日均活跃用户 = 桶内各日活跃人数之和 ÷ 桶内天数（去重人数不可相加，取日均）",
+    ...(headcount > 0
+      ? [
+          `${rateLabel} = ${activeLabel} ÷ 部门现有总人数 × 100%（根据部门现有总人数计算，离职员工不包含在内）`,
+        ]
+      : []),
+  ].join("\n");
+  const trendTitle = (
+    <span className="inline-flex items-center gap-1.5">
+      使用趋势（{granularityLabel}）
+      <InfoTip tip={trendHelp} />
+    </span>
+  );
 
   if (loading) return <SkeletonCard title={`使用趋势（${granularityLabel}）`} />;
   if (error) {
     return (
       <ErrorHint
-        title={`使用趋势（${granularityLabel}）`}
+        title={trendTitle}
         sub={`请求量 / ${activeLabel}`}
         error={error}
       />
@@ -499,7 +523,7 @@ function TrendBlock({
   if (!trend || !trend.length) {
     return (
       <Card
-        title={`使用趋势（${granularityLabel}）`}
+        title={trendTitle}
         sub={`请求量 / ${activeLabel}`}
         extra={granControl}
       >
@@ -524,7 +548,7 @@ function TrendBlock({
   return (
     <>
       <Card
-        title={`使用趋势（${granularityLabel}）`}
+        title={trendTitle}
         sub={`请求量（左·柱）· ${activeLabel}（右·线）`}
         extra={granControl}
       >
@@ -533,10 +557,11 @@ function TrendBlock({
           bar={{ name: "请求量", color: "var(--chart-4)" }}
           line={{ name: activeLabel, color: "var(--chart-2)" }}
           formatLeftY={shortToken}
+          showLegend
           tooltipExtra={
             headcount > 0
               ? {
-                  name: gran === "day" ? "使用率" : "日均使用率",
+                  name: rateLabel,
                   format: (value) => `${value.toFixed(1)}%`,
                 }
               : undefined
@@ -550,6 +575,7 @@ function TrendBlock({
         <MultiTrendChart
           data={tokenPoints}
           formatY={shortToken}
+          showLegend
           series={[
             { key: "prompt", name: "输入 Token", color: "var(--chart-1)" },
             { key: "completion", name: "输出 Token", color: "var(--chart-3)" },
@@ -598,7 +624,7 @@ function ModelsBlock({
         <EmptyHint />
       ) : (
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-[20rem_1fr]">
-          <PieBreakdownChart data={pie} />
+          <PieBreakdownChart data={pie} colors={PIE_COLORS} />
           <ModelTable models={effective} />
         </div>
       )}
@@ -629,7 +655,7 @@ function ModelTable({ models }: { models: DeptModelItem[] }) {
                 <span className="inline-flex items-center gap-2">
                   <span
                     className="inline-block h-2.5 w-2.5 rounded-full"
-                    style={{ background: chartColorFor(i) }}
+                    style={{ background: PIE_COLORS[i % PIE_COLORS.length] }}
                   />
                   <span className="max-w-[180px] truncate" title={m.model}>
                     {m.model || "-"}
@@ -652,6 +678,10 @@ function ModelTable({ models }: { models: DeptModelItem[] }) {
 }
 
 // ============================ Mode usage (kanban-local) ============================
+// 口径说明 ported from the source's MODE_TIP.
+const MODE_TIP =
+  "按看板本地同步的对话模式(conversations.mode)统计；一人可使用多个 Mode，人数不可相加，故占比按请求数计算";
+
 function ModeUsageBlock({
   loading,
   error,
@@ -661,11 +691,17 @@ function ModeUsageBlock({
   error: Error | null;
   items?: DeptModeUsageItem[];
 }) {
+  const modeTitle = (
+    <span className="inline-flex items-center gap-1.5">
+      各 Mode 使用情况
+      <InfoTip tip={MODE_TIP} />
+    </span>
+  );
   if (loading) return <SkeletonCard title="各 Mode 使用情况" />;
   if (error) {
     return (
       <ErrorHint
-        title="各 Mode 使用情况"
+        title={modeTitle}
         sub="看板口径（本地同步数据），与平台活跃用户口径不同源"
         error={error}
       />
@@ -673,14 +709,14 @@ function ModeUsageBlock({
   }
   if (!items || !items.length) {
     return (
-      <Card title="各 Mode 使用情况" sub="看板口径（本地同步数据），与平台活跃用户口径不同源">
+      <Card title={modeTitle} sub="看板口径（本地同步数据），与平台活跃用户口径不同源">
         <EmptyHint />
       </Card>
     );
   }
   const totalRequests = items.reduce((acc, it) => acc + it.request_count, 0);
   return (
-    <Card title="各 Mode 使用情况" sub="看板口径（本地同步数据），与平台活跃用户口径不同源">
+    <Card title={modeTitle} sub="看板口径（本地同步数据），与平台活跃用户口径不同源">
       <div className="overflow-x-auto">
         <table className="w-full border-collapse text-sm">
           <thead>
@@ -733,6 +769,10 @@ function ModeUsageBlock({
 }
 
 // ============================ By-weekday distribution ============================
+// 口径说明 ported from the source's WEEKLY_TIP.
+const WEEKLY_TIP =
+  "对所选时间范围内所有日期按星期几分组，汇总各天请求总量，反映一周使用节奏分布";
+
 function WeeklyBlock({
   loading,
   error,
@@ -742,20 +782,26 @@ function WeeklyBlock({
   error: Error | null;
   weekdays?: { weekday: number; weekday_name: string; request_count: number }[];
 }) {
+  const weeklyTitle = (
+    <span className="inline-flex items-center gap-1.5">
+      按星期聚合请求量分布
+      <InfoTip tip={WEEKLY_TIP} />
+    </span>
+  );
   if (loading) return <SkeletonCard title="按星期聚合请求量分布" />;
   if (error) {
-    return <ErrorHint title="按星期聚合请求量分布" sub="一周 7 天各日请求次数" error={error} />;
+    return <ErrorHint title={weeklyTitle} sub="一周 7 天各日请求次数" error={error} />;
   }
   if (!weekdays || !weekdays.length) {
     return (
-      <Card title="按星期聚合请求量分布" sub="一周 7 天各日请求次数">
+      <Card title={weeklyTitle} sub="一周 7 天各日请求次数">
         <EmptyHint />
       </Card>
     );
   }
   const data = weekdays.map((w) => ({ label: w.weekday_name, value: w.request_count }));
   return (
-    <Card title="按星期聚合请求量分布" sub="一周 7 天各日请求次数">
+    <Card title={weeklyTitle} sub="一周 7 天各日请求次数">
       <VerticalBarChart data={data} formatY={shortToken} color="var(--chart-1)" />
     </Card>
   );

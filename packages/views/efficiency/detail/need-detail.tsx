@@ -5,22 +5,30 @@ import { useQuery } from "@tanstack/react-query";
 import { useWorkspaceId } from "@multica/core/hooks";
 import { useWorkspacePaths } from "@multica/core/paths";
 import {
+  ACTUAL_CALENDAR_TIP,
+  ACTUAL_WORK_TIP,
+  BASELINE_CALENDAR_TIP,
+  CALENDAR_RATIO_TIP,
   formatDuration,
   formatLocalTime,
   formatNumber,
   formatV2Ratio,
   formatVerifyMin,
+  FUSED_BASELINE_WORK_TIP,
   needDetailOptions,
   STAGE_ESTIMATE_TIP,
   VERIFY_UNAVAILABLE_TIP,
+  WORK_RATIO_TIP,
   useUserNameMap,
   type NeedBaselineComponents,
   type NeedCommit,
   type NeedDetail as NeedDetailModel,
   type NeedSession,
 } from "@multica/core/efficiency";
-import { KpiCard } from "../../runtimes/components/shared";
 import { useNavigation } from "../../navigation";
+import { DRILLDOWN_LINK_CLASS } from "../components/drilldown-styles";
+import { RatioPill } from "../components/ratio-pill";
+import { InfoTip } from "../usage/shared";
 import { DetailShell } from "./detail-shell";
 import {
   asFileList,
@@ -162,14 +170,45 @@ export function NeedDetail({ needId, onBack }: NeedDetailProps) {
       error={q.error}
       empty={!q.data?.need ? "暂无该需求数据" : undefined}
     >
-      {/* KPI grid: 6 baseline-vs-actual cards. */}
+      {/* KPI grid: source-style accent cards with ratio pills and caliber tips. */}
       <section className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-6">
-        <KpiTile label="日历提效" value={formatV2Ratio(need.efficiency_ratio)} hint={bandHint || undefined} />
-        <KpiTile label="人力提效" value={formatV2Ratio(need.work_efficiency_ratio)} />
-        <KpiTile label="实际周期" value={formatDuration(need.total_calendar_min)} />
-        <KpiTile label="传统周期预估" value={formatDuration(need.baseline_calendar_min)} />
-        <KpiTile label="实际人力" value={formatDuration(need.total_active_work_corrected_min)} />
-        <KpiTile label="传统人力预估" value={formatDuration(need.baseline_fused_work_min)} />
+        <KpiTile
+          label="日历提效"
+          value={<RatioPill value={need.efficiency_ratio} />}
+          hint={bandHint || undefined}
+          tip={CALENDAR_RATIO_TIP}
+          accent="success"
+        />
+        <KpiTile
+          label="人力提效"
+          value={<RatioPill value={need.work_efficiency_ratio} />}
+          tip={WORK_RATIO_TIP}
+          accent="info"
+        />
+        <KpiTile
+          label="实际周期"
+          value={formatDuration(need.total_calendar_min)}
+          tip={ACTUAL_CALENDAR_TIP}
+          accent="primary"
+        />
+        <KpiTile
+          label="传统周期预估"
+          value={formatDuration(need.baseline_calendar_min)}
+          tip={BASELINE_CALENDAR_TIP}
+          accent="primary"
+        />
+        <KpiTile
+          label="实际人力"
+          value={formatDuration(need.total_active_work_corrected_min)}
+          tip={ACTUAL_WORK_TIP}
+          accent="warning"
+        />
+        <KpiTile
+          label="传统人力预估"
+          value={formatDuration(need.baseline_fused_work_min)}
+          tip={FUSED_BASELINE_WORK_TIP}
+          accent="warning"
+        />
       </section>
 
       {/* Basic info. */}
@@ -189,7 +228,7 @@ export function NeedDetail({ needId, onBack }: NeedDetailProps) {
                 onClick={() =>
                   push(paths.metricsRepoDetail(need.repo_addr!, need.repo_branch))
                 }
-                className="break-all text-left font-mono text-primary hover:underline"
+                className={`break-all text-left font-mono ${DRILLDOWN_LINK_CLASS}`}
               >
                 {need.repo_addr}
               </button>
@@ -201,7 +240,7 @@ export function NeedDetail({ needId, onBack }: NeedDetailProps) {
               <button
                 type="button"
                 onClick={() => push(paths.metricsUserDetail(need.primary_user_id!))}
-                className="text-primary hover:underline"
+                className={DRILLDOWN_LINK_CLASS}
               >
                 {resolveName(need.primary_user_id)}
               </button>
@@ -302,7 +341,7 @@ export function NeedDetail({ needId, onBack }: NeedDetailProps) {
               <button
                 type="button"
                 onClick={() => setNeedFilesExpanded((e) => !e)}
-                className="mt-2 text-sm text-primary hover:underline focus:outline-none"
+                className={`mt-2 text-sm ${DRILLDOWN_LINK_CLASS}`}
               >
                 {needFilesExpanded ? "收起" : `展开全部（${needFiles.length}）`}
               </button>
@@ -323,7 +362,12 @@ export function NeedDetail({ needId, onBack }: NeedDetailProps) {
               <ThRight title="活跃工作量">活跃工作量</ThRight>
               <ThRight title={STAGE_ESTIMATE_TIP}>思考</ThRight>
               <ThRight title={STAGE_ESTIMATE_TIP}>执行</ThRight>
-              <ThRight title={VERIFY_UNAVAILABLE_TIP}>验证</ThRight>
+              <ThRight>
+                <span className="inline-flex items-center justify-end gap-1">
+                  验证
+                  <InfoTip tip={VERIFY_UNAVAILABLE_TIP} />
+                </span>
+              </ThRight>
               <ThLeft>阶段置信</ThLeft>
               <ThLeft>摘要</ThLeft>
             </tr>
@@ -340,7 +384,7 @@ export function NeedDetail({ needId, onBack }: NeedDetailProps) {
                       <button
                         type="button"
                         onClick={() => push(paths.metricsUserDetail(s.user_id!))}
-                        className="text-primary hover:underline"
+                        className={DRILLDOWN_LINK_CLASS}
                       >
                         {resolveName(s.user_id)}
                       </button>
@@ -364,7 +408,7 @@ export function NeedDetail({ needId, onBack }: NeedDetailProps) {
       </Panel>
 
       {/* Related commits — collapsible (richest table, tucked by default). */}
-      <Panel title="关联 Commits" hint={`${commits.length} 条`} defaultCollapsed bodyClassName="overflow-x-auto">
+      <Panel title="关联 Commits" hint={`${commits.length} 个`} defaultCollapsed bodyClassName="overflow-x-auto">
         <table className="w-full border-collapse text-sm">
           <thead>
             <tr className="border-b">
@@ -373,8 +417,8 @@ export function NeedDetail({ needId, onBack }: NeedDetailProps) {
               <ThLeft>用户</ThLeft>
               <ThRight>代码行</ThRight>
               <ThRight>AI 代码占比</ThRight>
-              <ThLeft>说明</ThLeft>
-              <ThLeft>文件</ThLeft>
+              <ThLeft>提交说明</ThLeft>
+              <ThLeft>改动文件</ThLeft>
             </tr>
           </thead>
           <tbody>
@@ -391,15 +435,18 @@ export function NeedDetail({ needId, onBack }: NeedDetailProps) {
                         <button
                           type="button"
                           onClick={() => push(paths.metricsCommitDetail(c.commit_id))}
-                          className="font-mono text-xs text-primary hover:underline"
+                          className={`font-mono text-xs ${DRILLDOWN_LINK_CLASS}`}
                           title={c.commit_id}
                         >
                           {shortId(c.commit_id, 10)}
                         </button>
                       </td>
                       <td className="px-3 py-2">{formatLocalTime(c.commit_time)}</td>
-                      <td className="max-w-[180px] truncate px-3 py-2" title={c.user_name ?? ""}>
-                        {c.user_name || "-"}
+                      <td
+                        className="max-w-[180px] truncate px-3 py-2"
+                        title={c.user_name ? resolveName(c.user_name) : ""}
+                      >
+                        {c.user_name ? resolveName(c.user_name) : "-"}
                       </td>
                       <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums">{fmtInt(c.diff_lines)}</td>
                       <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums">{fmtPct(c.silica)}</td>
@@ -409,7 +456,7 @@ export function NeedDetail({ needId, onBack }: NeedDetailProps) {
                           <button
                             type="button"
                             onClick={() => toggleCommitFiles(c.commit_id)}
-                            className="text-primary hover:underline focus:outline-none"
+                            className={DRILLDOWN_LINK_CLASS}
                           >
                             {expanded ? "收起" : `${files.length} 个文件`}
                           </button>
@@ -465,14 +512,34 @@ function KpiTile({
   label,
   value,
   hint,
+  tip,
+  accent,
 }: {
   label: string;
-  value: string;
+  value: React.ReactNode;
   hint?: string;
+  tip: string;
+  accent: "success" | "info" | "primary" | "warning";
 }) {
+  const accentClass = {
+    success: "border-l-success",
+    info: "border-l-info",
+    primary: "border-l-brand",
+    warning: "border-l-warning",
+  }[accent];
+
   return (
-    <div className="rounded-lg border bg-card shadow-sm">
-      <KpiCard label={label} value={value} hint={hint} />
+    <div
+      className={`rounded-2xl border border-l-[3px] bg-card p-4 shadow-sm transition-transform hover:scale-[1.02] ${accentClass}`}
+    >
+      <div className="mb-1 flex items-center gap-1 text-sm text-muted-foreground">
+        <span>{label}</span>
+        <InfoTip tip={tip} />
+      </div>
+      <div className="text-2xl font-bold tabular-nums text-card-foreground">
+        {value}
+      </div>
+      {hint && <div className="mt-1 text-xs text-muted-foreground">{hint}</div>}
     </div>
   );
 }

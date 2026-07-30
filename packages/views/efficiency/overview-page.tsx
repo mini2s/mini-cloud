@@ -10,8 +10,8 @@ import {
   AIPenetrationCard,
   CountsCard,
   DeptPKCard,
+  DateRangePicker,
   HeroSaving,
-  PeriodSelect,
   PlatformObjectiveCard,
   ScorecardStrip,
   TopRankCard,
@@ -21,8 +21,8 @@ import {
 // Executive efficiency overview. Bento 12-col grid assembling the 9 sections
 // in the source's order: Hero → Platform → ScorecardStrip → AI penetration →
 // Trend → DeptPK + TopRank (side by side) → Counts. The global time range is
-// the single source of truth (useViewState), shared by every card; a preset
-// period Select in the header drives it. The source's staggered fade-in is
+// the single source of truth (useViewState), shared by every card; the header
+// DateRangePicker drives it. The source's staggered fade-in is
 // dropped (mini-cloud cards don't carry that animation token set).
 //
 // Layout note: the source spanned every row at col-span-12 except the DeptPK
@@ -42,10 +42,7 @@ export function OverviewPage() {
           <BarChart3 className="h-4 w-4 shrink-0 text-muted-foreground" />
           <h1 className="truncate text-sm font-medium">AI 提效总览</h1>
         </div>
-        <PeriodSelect
-          value={startDate}
-          onChange={(range) => setTimeRange(range)}
-        />
+        <DateRangePicker value={timeRange} onChange={setTimeRange} />
       </PageHeader>
 
       <div className="flex-1 overflow-y-auto">
@@ -107,4 +104,4 @@ function Cell({
   return <div className={className}>{children}</div>;
 }
 
-// PeriodSelect is imported from ./components (shared with the Usage Kanban).
+// DateRangePicker is imported from ./components (shared with the Usage Kanban).

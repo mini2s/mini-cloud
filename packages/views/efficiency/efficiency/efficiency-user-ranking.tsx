@@ -15,6 +15,7 @@ import {
   useUserNameMap,
 } from "@multica/core/efficiency";
 import { KpiCard } from "../../runtimes/components/shared";
+import { DRILLDOWN_ROW_CLASS } from "../components/drilldown-styles";
 import { PCT, Td, TdNum, Th, ThNum, SortHeader } from "../usage/shared";
 import { useNavigation } from "../../navigation";
 
@@ -248,12 +249,21 @@ export function EfficiencyUserRanking({
                     return (
                       <tr
                         key={row.user_id}
+                        tabIndex={0}
                         onClick={() =>
                           onSelect
                             ? onSelect(row.user_id)
                             : push(p.metricsUserDetail(row.user_id))
                         }
-                        className="cursor-pointer border-b transition-colors last:border-0 hover:bg-muted/50"
+                        onKeyDown={(event) => {
+                          if (event.key !== "Enter") return;
+                          if (onSelect) {
+                            onSelect(row.user_id);
+                          } else {
+                            push(p.metricsUserDetail(row.user_id));
+                          }
+                        }}
+                        className={`${DRILLDOWN_ROW_CLASS} border-b last:border-0`}
                       >
                         <TdNum>{i + 1}</TdNum>
                         <Td title={resolveName(row.user_id)}>

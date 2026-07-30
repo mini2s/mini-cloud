@@ -38,6 +38,7 @@ import {
   SheetTitle,
 } from "@multica/ui/components/ui/sheet";
 import { PageHeader } from "../../layout/page-header";
+import { DRILLDOWN_ROW_CLASS } from "../components/drilldown-styles";
 import { Section } from "./shared";
 import { Th, ThNum, Td, TdNum, fmtMs } from "../usage/shared";
 import { ToneBadge } from "../detail/shared";
@@ -963,8 +964,12 @@ export function RealtimeQueryPage() {
                         key={`${row.request_id || "row"}-${
                           (safePage - 1) * displayPageSize + idx
                         }`}
+                        tabIndex={0}
                         onClick={() => setDetailRow(row)}
-                        className="cursor-pointer border-b last:border-0 hover:bg-muted/50"
+                        onKeyDown={(event) => {
+                          if (event.key === "Enter") setDetailRow(row);
+                        }}
+                        className={`${DRILLDOWN_ROW_CLASS} border-b last:border-0`}
                       >
                         <Td>{formatLocalTime(row.ts)}</Td>
                         <Td>
@@ -1167,8 +1172,12 @@ export function RealtimeQueryPage() {
                       speedFilteredRows.map((row, index) => (
                         <tr
                           key={`${row.request_id}-${index}`}
-                          className="cursor-pointer border-b last:border-0 hover:bg-muted/50"
+                          tabIndex={0}
+                          className={`${DRILLDOWN_ROW_CLASS} border-b last:border-0`}
                           onClick={() => setDetailRow(row)}
+                          onKeyDown={(event) => {
+                            if (event.key === "Enter") setDetailRow(row);
+                          }}
                         >
                           <Td>{formatLocalTime(row.ts)}</Td>
                           <Td>{row.request_id || "-"}</Td>

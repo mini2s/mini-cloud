@@ -13,7 +13,7 @@ import {
 import { Skeleton } from "@multica/ui/components/ui/skeleton";
 import { Switch } from "@multica/ui/components/ui/switch";
 import { PageHeader } from "../../layout/page-header";
-import { PeriodSelect } from "../components";
+import { DateRangePicker } from "../components";
 import {
   DeptTreePanel,
   findDeptName,
@@ -126,10 +126,7 @@ export function CostKanban() {
             </span>
           )}
         </div>
-        <PeriodSelect
-          value={startDate}
-          onChange={(range) => setTimeRange(range)}
-        />
+        <DateRangePicker value={timeRange} onChange={setTimeRange} />
       </PageHeader>
 
       <div className="flex-1 overflow-y-auto">
@@ -234,5 +231,5 @@ function ViewTab({
   );
 }
 
-// PeriodSelect is imported from ../components (shared with the Overview and
+// DateRangePicker is imported from ../components (shared with the Overview and
 // Usage Kanban pages). DeptTreePanel is reused from the usage dimension.

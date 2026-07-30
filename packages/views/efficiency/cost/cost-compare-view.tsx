@@ -21,7 +21,8 @@ import {
   GranularityToggle,
   useGranularity,
 } from "../components/granularity-toggle";
-import { chartColorFor, PCT, shortToken, SortHeader, Td, TdNum, Th, ThNum } from "../usage/shared";
+import { DRILLDOWN_ROW_CLASS } from "../components/drilldown-styles";
+import { PCT, PIE_COLORS, shortToken, SortHeader, Td, TdNum, Th, ThNum } from "../usage/shared";
 
 // Sub-department cost comparison — second tab of the Cost Kanban. Ports the
 // source CostCompareView (267 lines, ECharts). The cost backend exposes a
@@ -180,8 +181,12 @@ export function CostCompareView({
                   return (
                     <tr
                       key={it.dept_id}
+                      tabIndex={0}
                       onClick={() => onSelectDept(it.dept_id)}
-                      className="cursor-pointer border-b border-border/50 transition-colors hover:bg-muted"
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter") onSelectDept(it.dept_id);
+                      }}
+                      className={`${DRILLDOWN_ROW_CLASS} border-b border-border/50`}
                     >
                       <TdNum>{i + 1}</TdNum>
                       <Td>
@@ -310,7 +315,7 @@ function TeamTrendBlock({
     const chartSeriesOut = series.map((s, i) => ({
       key: s.dept_id,
       name: s.dept_name,
-      color: chartColorFor(i),
+      color: PIE_COLORS[i % PIE_COLORS.length]!,
     }));
     return { points: rows, chartSeries: chartSeriesOut };
   }, [end, gran, series, start]);
@@ -352,6 +357,7 @@ function TeamTrendBlock({
       <MultiTrendChart
         data={points}
         series={chartSeries}
+        showLegend
         formatY={(v) => `¥${shortToken(v)}`}
       />
     </Card>
@@ -391,7 +397,7 @@ function TeamCompositionBlock({
   }));
   return (
     <Card title="团队费用构成" sub="各团队费用占比">
-      <PieBreakdownChart data={pie} />
+      <PieBreakdownChart data={pie} colors={PIE_COLORS} scrollLegend />
     </Card>
   );
 }

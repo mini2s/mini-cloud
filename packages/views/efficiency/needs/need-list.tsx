@@ -6,15 +6,20 @@ import { useQuery } from "@tanstack/react-query";
 import { useWorkspaceId } from "@multica/core/hooks";
 import { useWorkspacePaths } from "@multica/core/paths";
 import {
+  ACTUAL_CALENDAR_TIP,
+  ACTUAL_WORK_TIP,
+  BASELINE_CALENDAR_TIP,
+  CALENDAR_RATIO_TIP,
+  formatDateTimeNoYear,
   formatDuration,
-  formatLocalTime,
-  formatV2Ratio,
+  FUSED_BASELINE_WORK_TIP,
   getDefaultDateRangeWide,
   needsListOptions,
   parseOrder,
   toOrder,
   useUserNameMap,
   useViewState,
+  WORK_RATIO_TIP,
   type NeedsListQuery,
 } from "@multica/core/efficiency";
 import { Button } from "@multica/ui/components/ui/button";
@@ -29,9 +34,14 @@ import {
 } from "@multica/ui/components/ui/select";
 import { PageHeader } from "../../layout/page-header";
 import { useNavigation } from "../../navigation";
-import { PeriodSelect } from "../components";
+import { DateRangePicker } from "../components";
+import {
+  DRILLDOWN_LINK_CLASS,
+  DRILLDOWN_ROW_CLASS,
+} from "../components/drilldown-styles";
+import { RatioPill } from "../components/ratio-pill";
 import { ErrorBanner } from "../detail/shared";
-import { SortHeader, Td, TdNum, Th, ThNum } from "../usage/shared";
+import { InfoTip, SortHeader, Td, TdNum, Th, ThNum } from "../usage/shared";
 
 export interface NeedListFilters {
   repoAddr: string;
@@ -175,23 +185,23 @@ export function NeedList({
           <ListChecks className="h-4 w-4 shrink-0 text-muted-foreground" />
           <h1 className="truncate text-sm font-medium">需求看板</h1>
         </div>
-        <PeriodSelect
-          value={state.dateRange[0]}
-          onChange={(dateRange) => {
-            setTimeRange(dateRange);
-            commit({ dateRange, page: 1 });
-          }}
-        />
       </PageHeader>
 
       <div className="flex-1 overflow-y-auto">
         <div className="space-y-4 p-6 lg:px-8">
           <p className="text-sm text-muted-foreground">
-            按需求边界度量日历周期与人力投入的提效情况。
+            按需求边界度量提效比，日历提效看交付周期缩短了多少，人力提效看人工投入节省了多少。
           </p>
 
           <section className="space-y-3 rounded-lg border bg-card p-4 shadow-sm">
             <div className="flex flex-wrap items-center gap-2">
+              <DateRangePicker
+                value={state.dateRange}
+                onChange={(dateRange) => {
+                  setTimeRange(dateRange);
+                  commit({ dateRange, page: 1 });
+                }}
+              />
               <Input
                 className="w-[220px]"
                 value={draftFilters.repoAddr}
@@ -258,7 +268,7 @@ export function NeedList({
               />
               <FilterCheckbox
                 label="显示全部"
-                title="显示 active 未交付、主干分支和全部需求"
+                title="放开看板口径：显示 active 未交付 + 主干分支 + 全部需求"
                 checked={draftFilters.includeAll}
                 onChange={(includeAll) =>
                   setDraftFilters((current) => ({ ...current, includeAll }))
@@ -277,7 +287,7 @@ export function NeedList({
             <p className="text-sm text-muted-foreground">
               已折叠{" "}
               <span className="font-medium text-foreground">{foldedCount}</span>{" "}
-              个无 AI 数据的需求；勾选“显示全部”可查看。
+              个无 AI 数据的 need（未进提效计算）；勾选上方“显示全部”查看。
             </p>
           ) : null}
 
@@ -285,7 +295,7 @@ export function NeedList({
             <div className="flex items-center justify-between border-b px-4 py-3">
               <span className="text-sm font-semibold">需求列表</span>
               <span className="text-xs text-muted-foreground">
-                共 {total} 条{query.isFetching && !query.isLoading ? " · 更新中" : ""}
+                按可计入需求汇总{query.isFetching && !query.isLoading ? " · 更新中" : ""}
               </span>
             </div>
 
@@ -307,20 +317,26 @@ export function NeedList({
                   <tr className="border-b bg-muted/30 text-muted-foreground">
                     <Th>需求 ID</Th>
                     <Th>
-                      <SortHeader
-                        label="日历提效"
-                        active={isSortActive(SORT_FIELDS.calendar)}
-                        desc={isSortDesc(SORT_FIELDS.calendar)}
-                        onClick={() => onSort(SORT_FIELDS.calendar)}
-                      />
+                      <span className="inline-flex items-center gap-1">
+                        <SortHeader
+                          label="日历提效"
+                          active={isSortActive(SORT_FIELDS.calendar)}
+                          desc={isSortDesc(SORT_FIELDS.calendar)}
+                          onClick={() => onSort(SORT_FIELDS.calendar)}
+                        />
+                        <InfoTip tip={CALENDAR_RATIO_TIP} />
+                      </span>
                     </Th>
                     <Th>
-                      <SortHeader
-                        label="人力提效"
-                        active={isSortActive(SORT_FIELDS.work)}
-                        desc={isSortDesc(SORT_FIELDS.work)}
-                        onClick={() => onSort(SORT_FIELDS.work)}
-                      />
+                      <span className="inline-flex items-center gap-1">
+                        <SortHeader
+                          label="人力提效"
+                          active={isSortActive(SORT_FIELDS.work)}
+                          desc={isSortDesc(SORT_FIELDS.work)}
+                          onClick={() => onSort(SORT_FIELDS.work)}
+                        />
+                        <InfoTip tip={WORK_RATIO_TIP} />
+                      </span>
                     </Th>
                     <Th>
                       <SortHeader
@@ -334,23 +350,39 @@ export function NeedList({
                     <Th>分支</Th>
                     <Th>主用户</Th>
                     <ThNum>
-                      <SortHeader
-                        label="实际周期"
-                        active={isSortActive(SORT_FIELDS.actualCalendar)}
-                        desc={isSortDesc(SORT_FIELDS.actualCalendar)}
-                        onClick={() => onSort(SORT_FIELDS.actualCalendar)}
-                      />
+                      <span className="inline-flex items-center justify-end gap-1">
+                        <SortHeader
+                          label="实际周期"
+                          active={isSortActive(SORT_FIELDS.actualCalendar)}
+                          desc={isSortDesc(SORT_FIELDS.actualCalendar)}
+                          onClick={() => onSort(SORT_FIELDS.actualCalendar)}
+                        />
+                        <InfoTip tip={ACTUAL_CALENDAR_TIP} />
+                      </span>
                     </ThNum>
                     <ThNum>
-                      <SortHeader
-                        label="传统周期预估"
-                        active={isSortActive(SORT_FIELDS.baselineCalendar)}
-                        desc={isSortDesc(SORT_FIELDS.baselineCalendar)}
-                        onClick={() => onSort(SORT_FIELDS.baselineCalendar)}
-                      />
+                      <span className="inline-flex items-center justify-end gap-1">
+                        <SortHeader
+                          label="传统周期预估"
+                          active={isSortActive(SORT_FIELDS.baselineCalendar)}
+                          desc={isSortDesc(SORT_FIELDS.baselineCalendar)}
+                          onClick={() => onSort(SORT_FIELDS.baselineCalendar)}
+                        />
+                        <InfoTip tip={BASELINE_CALENDAR_TIP} />
+                      </span>
                     </ThNum>
-                    <ThNum>实际人力</ThNum>
-                    <ThNum>传统人力预估</ThNum>
+                    <ThNum>
+                      <span className="inline-flex items-center justify-end gap-1">
+                        实际人力
+                        <InfoTip tip={ACTUAL_WORK_TIP} />
+                      </span>
+                    </ThNum>
+                    <ThNum>
+                      <span className="inline-flex items-center justify-end gap-1">
+                        传统人力预估
+                        <InfoTip tip={FUSED_BASELINE_WORK_TIP} />
+                      </span>
+                    </ThNum>
                     <Th>
                       <SortHeader
                         label="开发开始时间"
@@ -384,7 +416,7 @@ export function NeedList({
                       <tr
                         key={row.need_id}
                         tabIndex={0}
-                        className="cursor-pointer border-b transition-colors last:border-0 hover:bg-muted/40 focus-visible:bg-muted/40 focus-visible:outline-none"
+                        className={`${DRILLDOWN_ROW_CLASS} border-b last:border-0`}
                         onClick={() => push(paths.metricsNeedDetail(row.need_id))}
                         onKeyDown={(event) => {
                           if (event.key === "Enter") {
@@ -397,12 +429,16 @@ export function NeedList({
                             {shortNeedId(row.need_id)}
                           </span>
                         </Td>
-                        <Td>{formatV2Ratio(row.efficiency_ratio)}</Td>
-                        <Td>{formatV2Ratio(row.work_efficiency_ratio)}</Td>
                         <Td>
-                          {row.ai_code_ratio
-                            ? formatV2Ratio(row.ai_code_ratio)
-                            : "-"}
+                          <RatioPill value={row.efficiency_ratio} />
+                        </Td>
+                        <Td>
+                          <RatioPill value={row.work_efficiency_ratio} />
+                        </Td>
+                        {/* ai_code_ratio=0 means silica has no data (not a true
+                            0) — render '-' like the source's fmtPct caliber. */}
+                        <Td>
+                          <RatioPill value={row.ai_code_ratio || null} />
                         </Td>
                         <Td title={row.repo_addr}>
                           <Ellipsis value={row.repo_addr} />
@@ -414,7 +450,7 @@ export function NeedList({
                           {row.primary_user_id ? (
                             <button
                               type="button"
-                              className="max-w-[220px] truncate text-left text-primary hover:underline"
+                              className={`max-w-[220px] truncate text-left ${DRILLDOWN_LINK_CLASS}`}
                               onClick={(event) => {
                                 event.stopPropagation();
                                 push(paths.metricsUserDetail(row.primary_user_id));
@@ -434,7 +470,7 @@ export function NeedList({
                         <TdNum>
                           {formatDuration(row.baseline_fused_work_min)}
                         </TdNum>
-                        <Td>{formatLocalTime(row.dev_start_ts)}</Td>
+                        <Td>{formatDateTimeNoYear(row.dev_start_ts)}</Td>
                       </tr>
                     ))
                   )}

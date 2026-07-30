@@ -12,6 +12,7 @@ import {
   personDaysValue,
 } from "@multica/core/efficiency";
 import { Skeleton } from "@multica/ui/components/ui/skeleton";
+import { useCountUp } from "./use-count-up";
 
 // Hero: person-day savings + gross cost savings + efficiency ratio (the
 // "hero" metrics of the executive dashboard). The source (HeroSaving.tsx)
@@ -19,9 +20,10 @@ import { Skeleton } from "@multica/ui/components/ui/skeleton";
 // platform source is enabled. Request failure or disabled chat stats degrades
 // safely to the three kanban-derived metrics.
 //
-// Per design decision: NO useCountUp number-roll animation (the source's
-// animation hook); values are shown directly, matching the runtimes KpiCard
-// style.
+// The big numbers roll up from 0 on load via useCountUp (ported from the
+// source's animation hook, see use-count-up.ts); the roll is skipped when the
+// user prefers reduced motion. Changing the date range remounts the metrics
+// (query key change → loading state) so the numbers re-roll on fresh data.
 //
 // ROI badge is retained: it derives from gross savings / total_cost, where
 // total_cost is the kanban-task-scope cost already in dashboardSummary (not
@@ -125,6 +127,7 @@ export function HeroSaving({ startDate, endDate }: HeroSavingProps) {
           </h2>
           <p className="text-sm text-muted-foreground">
             按 ¥{formatNumber(costPerPersonDay)}/人天估算 · 基于可计入且非异常的已合并需求 · 人均 = 总节省人天 ÷ 活跃用户数
+            {aiAvailable && " · AI 花费为全平台口径（按价格表估算）"}
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -173,6 +176,15 @@ function HeroSavingMetrics({
   ratioAvailable: boolean;
   ratioPct: number;
 }) {
+  // Unconditional hooks: HeroSavingMetrics only mounts once data is present
+  // (HeroSaving early-returns for loading/error), so the roll starts with the
+  // final numbers already in hand — matching the source's behavior.
+  const perCapitaCount = useCountUp(perCapitaDays);
+  const grossCount = useCountUp(Math.round(grossSaving));
+  const aiCount = useCountUp(Math.round(aiCost));
+  const netCount = useCountUp(Math.round(netSaving));
+  const ratioCount = useCountUp(ratioPct);
+
   return (
     <div
       className={
@@ -183,7 +195,7 @@ function HeroSavingMetrics({
     >
       <BigStat
         label="平均人均节省"
-        value={perCapitaDays > 0 ? perCapitaDays.toFixed(2) : "-"}
+        value={perCapitaDays > 0 ? perCapitaCount.toFixed(2) : "-"}
         unit="人天"
         tone="success"
       />
@@ -191,13 +203,13 @@ function HeroSavingMetrics({
         <>
           <BigStat
             label="AI 花费"
-            value={`¥${formatNumber(Math.round(aiCost))}`}
+            value={`¥${formatNumber(Math.round(aiCount))}`}
             unit=""
             tone="foreground"
           />
           <BigStat
             label="净节省"
-            value={`¥${formatNumber(Math.round(netSaving))}`}
+            value={`¥${formatNumber(Math.round(netCount))}`}
             unit=""
             tone={netSaving < 0 ? "destructive" : "success"}
           />
@@ -207,7 +219,7 @@ function HeroSavingMetrics({
           label="折合节省成本"
           value={
             grossSaving > 0
-              ? `¥${formatNumber(Math.round(grossSaving))}`
+              ? `¥${formatNumber(Math.round(grossCount))}`
               : "-"
           }
           unit=""
@@ -216,7 +228,7 @@ function HeroSavingMetrics({
       )}
       <BigStat
         label="综合日历提效"
-        value={ratioAvailable ? `${ratioPct.toFixed(1)}%` : "-"}
+        value={ratioAvailable ? `${ratioCount.toFixed(1)}%` : "-"}
         unit=""
         tone={ratioPct < 0 ? "destructive" : "success"}
       />

@@ -10,6 +10,7 @@ import {
   type DeptOverviewResp,
   type DeptQuery,
 } from "@multica/core/efficiency";
+import { DRILLDOWN_ROW_CLASS } from "../components/drilldown-styles";
 import { findDeptChildren } from "./dept-tree-panel";
 import { PCT, SortHeader, shortToken, Td, TdNum, Th, ThNum } from "./shared";
 
@@ -169,8 +170,12 @@ export function DeptCompareView({
               rows.map((r, i) => (
                 <tr
                   key={r.dept.dept_id}
+                  tabIndex={0}
                   onClick={() => onSelectDept(r.dept.dept_id)}
-                  className="cursor-pointer border-b border-border/50 transition-colors hover:bg-muted"
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") onSelectDept(r.dept.dept_id);
+                  }}
+                  className={`${DRILLDOWN_ROW_CLASS} border-b border-border/50`}
                 >
                   <TdNum>{i + 1}</TdNum>
                   <Td>

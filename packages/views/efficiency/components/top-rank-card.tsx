@@ -1,13 +1,12 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useWorkspaceId } from "@multica/core/hooks";
 import { useWorkspacePaths } from "@multica/core/paths";
 import {
   allNeedsOptions,
   usersOptions,
-  formatV2Ratio,
   sortRows,
 } from "@multica/core/efficiency";
 import type { NeedsV2Summary, UserV2Row } from "@multica/core/efficiency";
@@ -19,6 +18,8 @@ import {
   TabsTrigger,
 } from "@multica/ui/components/ui/tabs";
 import { useNavigation } from "../../navigation";
+import { DRILLDOWN_ROW_CLASS } from "./drilldown-styles";
+import { RatioPill } from "./ratio-pill";
 
 // Top efficiency rankings, switchable between Needs and Users via tabs. The
 // backend does not support ordering by efficiency_ratio, so the source sorts
@@ -120,7 +121,7 @@ export function TopRankCard({ startDate, endDate }: TopRankCardProps) {
                     rank={i + 1}
                     title={shortNeedId(r.need_id)}
                     sub={r.repo_branch}
-                    pill={formatV2Ratio(r.efficiency_ratio)}
+                    pill={<RatioPill value={r.efficiency_ratio} />}
                     onClick={() => push(paths.metricsNeedDetail(r.need_id))}
                   />
                 ))}
@@ -134,7 +135,7 @@ export function TopRankCard({ startDate, endDate }: TopRankCardProps) {
                     rank={i + 1}
                     title={r.user_name}
                     sub={`合并需求 ${r.merged_need_count}`}
-                    pill={formatV2Ratio(r.calendar_ratio)}
+                    pill={<RatioPill value={r.calendar_ratio} />}
                     onClick={() => push(paths.metricsUserDetail(r.user_id))}
                   />
                 ))}
@@ -157,7 +158,7 @@ function RankRow({
   rank: number;
   title: string;
   sub: string;
-  pill: string;
+  pill: ReactNode;
   onClick: () => void;
 }) {
   const badge = rank <= 3 ? RANK_BADGE[rank - 1] : RANK_DEFAULT;
@@ -166,7 +167,7 @@ function RankRow({
       <button
         type="button"
         onClick={onClick}
-        className="flex w-full items-center gap-3 rounded-xl px-2 py-1.5 text-left transition-colors hover:bg-muted/50 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        className={`flex w-full items-center gap-3 rounded-xl px-2 py-1.5 text-left ${DRILLDOWN_ROW_CLASS}`}
         aria-label={`查看 ${title} 详情`}
       >
         <span
@@ -188,9 +189,7 @@ function RankRow({
             {sub}
           </div>
         </div>
-        <span className="shrink-0 text-sm font-medium tabular-nums text-card-foreground">
-          {pill}
-        </span>
+        <span className="shrink-0">{pill}</span>
       </button>
     </li>
   );

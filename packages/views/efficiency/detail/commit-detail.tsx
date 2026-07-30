@@ -29,6 +29,7 @@ import {
 } from "@multica/ui/components/ui/dialog";
 import { DetailShell } from "./detail-shell";
 import { useNavigation } from "../../navigation";
+import { DRILLDOWN_LINK_CLASS } from "../components/drilldown-styles";
 import { EmptyRow, ErrorBanner, Kv, KvGrid, Panel, ToneBadge } from "./shared";
 
 // Commit detail page. Ports the source CommitDetail to the shared-views
@@ -118,7 +119,7 @@ export function CommitDetail({ commitId, onBack }: CommitDetailProps) {
               <button
                 type="button"
                 onClick={() => push(paths.metricsUserDetail(commit.user_id!))}
-                className="text-primary hover:underline"
+                className={DRILLDOWN_LINK_CLASS}
               >
                 {resolveName(commit.user_id)}
               </button>
@@ -141,7 +142,7 @@ export function CommitDetail({ commitId, onBack }: CommitDetailProps) {
                     ),
                   )
                 }
-                className="break-all text-left font-mono text-primary hover:underline"
+                className={`break-all text-left font-mono ${DRILLDOWN_LINK_CLASS}`}
               >
                 {commit.repo_addr}#{commit.repo_branch || ""}
               </button>
@@ -223,7 +224,7 @@ export function CommitDetail({ commitId, onBack }: CommitDetailProps) {
                     <button
                       type="button"
                       onClick={() => push(paths.metricsTaskDetail(t.task_id))}
-                      className="block max-w-[200px] truncate font-mono text-xs text-primary hover:underline"
+                      className={`block max-w-[200px] truncate font-mono text-xs ${DRILLDOWN_LINK_CLASS}`}
                       title={t.task_id}
                     >
                       {t.task_id}
