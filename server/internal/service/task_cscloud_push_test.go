@@ -58,7 +58,7 @@ type pushTaskDB struct {
 	dispatchedResult db.MulticaAgentTaskQueue
 	lastSessionRow   *db.GetLastTaskSessionRow  // nil => 仿 ErrNoRows（首次/全中毒失败）
 	nodeRunRow       *db.MulticaWorkflowNodeRun // nil => ErrNoRows (Task 4 node-run handback)
-	agentPluginID   pgtype.Text
+	agentPluginID    pgtype.Text
 }
 
 func (m *pushTaskDB) QueryRow(_ context.Context, sql string, args ...interface{}) pgx.Row {
@@ -1279,6 +1279,41 @@ func TestBuildCSCloudPayload_QuickCreateResolvesAgentPlugin(t *testing.T) {
 	}
 	if payload.Plugin.Install.MarketplaceRepo != "https://zgsmtest.xyz:30443/costrict-plugin-marketplace/marketplace.git" {
 		t.Errorf("marketplace_repo = %q", payload.Plugin.Install.MarketplaceRepo)
+	}
+}
+
+func TestBuildCSCloudPayload_CriticResolvesAgentPlugin(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.Contains(r.URL.Path, "/api/items/plug-critic") {
+			_, _ = w.Write([]byte(`{"id":"plug-critic","name":"Critic Plugin","metadata":{"install":{"method":"plugin_marketplace","plugin_name":"critic-plugin","marketplace":"repo/critic","marketplace_verified":true}}}`))
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer upstream.Close()
+
+	dbtx := newPushTestDB(csCloudProvider, "device-123")
+	dbtx.agentPluginID = pgtype.Text{String: "plug-critic", Valid: true}
+
+	svc := &TaskService{
+		Queries:                  db.New(dbtx),
+		Bus:                      events.New(),
+		BuiltinPluginAPIBaseURL:  upstream.URL,
+		CSCPluginMarketplaceName: "costrict-plugins",
+		CSCPluginMarketplaceRepo: "https://zgsmtest.xyz:30443/costrict-plugin-marketplace/marketplace.git",
+	}
+	task := dbtx.dispatchedResult
+	task.Context = []byte(`{"phase":"critic"}`)
+
+	payload, err := svc.buildCSCloudPayload(context.Background(), task, dbtx.runtime)
+	if err != nil {
+		t.Fatalf("build: %v", err)
+	}
+	if payload.Plugin == nil || payload.Plugin.Install == nil {
+		t.Fatalf("critic payload should include agent plugin; got %+v", payload.Plugin)
+	}
+	if payload.Plugin.Install.PluginName != "critic-plugin" {
+		t.Errorf("plugin_name = %q, want critic-plugin", payload.Plugin.Install.PluginName)
 	}
 }
 

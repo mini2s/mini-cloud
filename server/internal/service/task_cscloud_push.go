@@ -367,16 +367,18 @@ func (s *TaskService) buildCSCloudPayload(ctx context.Context, task db.MulticaAg
 	// Plugin + CloudSkills: resolve the agent's bound plugin (catalog fetch +
 	// server-owned marketplace identity) and snapshot its cloud skills, so
 	// cs-cloud installs them in the task workdir before the csc session runs.
-	// Worker phase only — critic/review doesn't need them. Best-effort plugin
-	// resolution: a catalog hiccup leaves Plugin nil and dispatch proceeds.
+	// Agent-bound add-ons are independent from workflow phase: worker and critic
+	// nodes can both run as a cloud agent and may require the same plugin/skills.
+	// Best-effort plugin resolution: a catalog hiccup leaves Plugin nil and
+	// dispatch proceeds.
 	var plugin *csCloudAgentPlugin
 	var cloudSkills []csCloudCloudSkillInstall
-	if phase != "critic" && task.AgentID.Valid {
+	if task.AgentID.Valid {
 		plugin, cloudSkills = s.resolveCSCloudAddons(ctx, task.AgentID, agentPluginID)
 	}
 
-	// Diagnostic: plugin resolution has four serial gates (phase, agent
-	// plugin_id, BuiltinPluginAPIBaseURL, catalog fetch) and three of them fail
+	// Diagnostic: plugin resolution has three serial gates (agent plugin_id,
+	// BuiltinPluginAPIBaseURL, catalog fetch) and each can fail
 	// SILENTLY — a nil plugin reaches cs-cloud with no backend log, so plugin=none
 	// is impossible to root-cause from logs alone. Surface the inputs + outcome
 	// here so the next dispatch self-diagnoses which gate dropped it. Info, not
