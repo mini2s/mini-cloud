@@ -1347,7 +1347,7 @@ func (h *Handler) CreateWorkflowNodeDeliverable(w http.ResponseWriter, r *http.R
 		return
 	}
 	writeJSON(w, http.StatusCreated, workflowNodeDeliverableToResponse(deliverable))
-	}
+}
 
 func (h *Handler) UpdateWorkflowNodeDeliverable(w http.ResponseWriter, r *http.Request) {
 	wfID := chi.URLParam(r, "id")

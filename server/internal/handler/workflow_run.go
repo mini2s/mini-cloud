@@ -1077,7 +1077,6 @@ func workflowNodeDeliverableSubmissionToResponse(s db.MulticaWorkflowNodeDeliver
 	}
 }
 
-
 func workflowNodeRunDeliverableToResponse(d db.MulticaWorkflowNodeRunDeliverable, sourceNodeID pgtype.UUID) WorkflowNodeDeliverableResponse {
 	createdAt := timestampToString(d.CreatedAt)
 	return WorkflowNodeDeliverableResponse{

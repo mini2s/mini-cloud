@@ -1013,7 +1013,7 @@ func (s *WorkflowService) SubmitWorkerOutput(ctx context.Context, nodeRunID pgty
 			return fmt.Errorf("node run is not in worker phase (status=%s)", nr.Status)
 		}
 		if err := autoSubmitSingleRequiredDeliverable(ctx, qtx, nr, output); err != nil {
-			return fmt.Errorf("auto-submit pull_request deliverable: %w", err)
+			return fmt.Errorf("auto-submit required deliverable: %w", err)
 		}
 		if satisfied, err := requiredDeliverablesSatisfiedWithQueries(ctx, qtx, nr); err != nil {
 			return fmt.Errorf("check deliverables: %w", err)
