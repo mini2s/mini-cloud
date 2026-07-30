@@ -692,6 +692,7 @@ export function ExecutionPanoramaPage({
   const { data: agents } = useQuery(agentListOptions(wsId));
   const { data: workflowRoles = [] } = useQuery(workflowRolesOptions(wsId));
   const { data: members = [] } = useQuery(memberListOptions(wsId));
+  const currentMember = members.find((member) => member.user_id === currentUserId) ?? null;
   const { data: roleResolutions = [] } = useQuery({
     ...workflowRoleResolutionsOptions(wsId, workflowId, runId ?? ""),
     enabled: !!runId,
@@ -1537,6 +1538,10 @@ export function ExecutionPanoramaPage({
             issueId={issueId}
             workflowId={workflowId}
             runId={runId}
+            currentUserId={currentUserId}
+            currentMember={currentMember
+              ? { role: currentMember.role, status: currentMember.status }
+              : null}
             mayReview={mayReviewSelectedRun}
             runtimeSummary={selectedRuntimeSummary}
             onOpenIssue={

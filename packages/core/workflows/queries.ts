@@ -391,14 +391,33 @@ export function useCancelWorkflowRun(wsId: string) {
   });
 }
 
+export interface NodeRunMutationVars {
+  nodeRunId: string;
+  workflowId?: string;
+  runId?: string;
+}
+
+function invalidateNodeRunQueries(
+  queryClient: ReturnType<typeof useQueryClient>,
+  wsId: string,
+  vars: NodeRunMutationVars,
+) {
+  queryClient.invalidateQueries({ queryKey: workflowKeys.myTasks(wsId) });
+  if (!vars.workflowId || !vars.runId) return;
+
+  queryClient.invalidateQueries({ queryKey: workflowKeys.run(wsId, vars.workflowId, vars.runId) });
+  queryClient.invalidateQueries({ queryKey: workflowKeys.nodeRuns(wsId, vars.workflowId, vars.runId) });
+  queryClient.invalidateQueries({
+    queryKey: workflowKeys.runCanvasSummary(wsId, vars.workflowId, vars.runId),
+  });
+}
+
 export function useSubmitNodeRun(wsId: string) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ nodeRunId, output }: { nodeRunId: string; output: unknown }) =>
+    mutationFn: ({ nodeRunId, output }: NodeRunMutationVars & { output: unknown }) =>
       api.submitNodeRun(nodeRunId, output),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: workflowKeys.myTasks(wsId) });
-    },
+    onSuccess: (_data, vars) => invalidateNodeRunQueries(queryClient, wsId, vars),
   });
 }
 
@@ -421,10 +440,8 @@ export function useReviewNodeRun(wsId: string) {
 export function useSkipNodeRun(wsId: string) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (nodeRunId: string) => api.skipNodeRun(nodeRunId),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: workflowKeys.myTasks(wsId) });
-    },
+    mutationFn: ({ nodeRunId }: NodeRunMutationVars) => api.skipNodeRun(nodeRunId),
+    onSuccess: (_data, vars) => invalidateNodeRunQueries(queryClient, wsId, vars),
   });
 }
 

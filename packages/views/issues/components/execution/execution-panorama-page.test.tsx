@@ -32,7 +32,6 @@ const mocks = vi.hoisted(() => ({
   workflowRolesData: [] as unknown[],
   roleResolutionsData: [] as unknown[],
   chatSessionsData: [] as unknown[],
-  currentUserId: "current-user" as string | null,
   embedded: false,
   postCostrictNavigateToSession: vi.fn(),
   setChatSession: vi.fn(),
@@ -74,6 +73,8 @@ const mocks = vi.hoisted(() => ({
     onMove?: (event: unknown, viewport: Viewport) => void;
   },
   queryOptions: [] as Array<{ queryKey?: unknown[]; enabled?: boolean }>,
+  currentUserId: "user-1" as string | null,
+  executionDetailProps: null as null | Record<string, unknown>,
 }));
 
 vi.mock("@multica/core/auth", () => ({
@@ -393,6 +394,8 @@ vi.mock("./execution-detail-panel", () => ({
     isChildIssue,
     parentSplitTitle,
     workerName,
+    currentUserId,
+    currentMember,
   }: {
     node: { title: string };
     nodeRun: { status: string } | null;
@@ -403,8 +406,15 @@ vi.mock("./execution-detail-panel", () => ({
     isChildIssue?: boolean;
     parentSplitTitle?: string | null;
     workerName?: string | null;
+    currentUserId?: string | null;
+    currentMember?: { role: string; status: string } | null;
   }) => (
-    <div data-testid="execution-detail-panel">
+    <div
+      data-testid="execution-detail-panel"
+      ref={() => {
+        mocks.executionDetailProps = { currentUserId, currentMember, mayReview };
+      }}
+    >
       <span data-testid="detail-panel-title">{node.title}</span>
       <span data-testid="detail-panel-status">{nodeRun?.status ?? "no-run"}</span>
       <span data-testid="detail-panel-is-child">{String(isChildIssue === true)}</span>
@@ -745,9 +755,10 @@ describe("ExecutionPanoramaPage", () => {
     mocks.workflowOptionsData = [];
     mocks.childIssuesData = [];
     mocks.chatSessionsData = [];
-    mocks.currentUserId = "current-user";
     mocks.workflowRolesData = [];
     mocks.roleResolutionsData = [];
+    mocks.currentUserId = "user-1";
+    mocks.executionDetailProps = null;
     mocks.embedded = false;
     mocks.hasOpenInNewTab = true;
     mocks.splitTasksByNodeRunId = {};
@@ -834,6 +845,44 @@ describe("ExecutionPanoramaPage", () => {
       option.queryKey?.includes("node-deliverable-submissions"),
     );
     expect(deliverableQueries).toEqual([]);
+  });
+
+  it("passes the current workspace actor context to node details", () => {
+    mocks.isLoading = false;
+    mocks.workflowData = { id: "wf-1", title: "Test Workflow" };
+    mocks.stagesData = [STAGE];
+    mocks.nodesData = [NODE];
+    mocks.nodeRunsData = [{
+      ...SPLIT_NODE_RUN,
+      id: "nr-1",
+      workflow_node_id: "n1",
+      node_title: "brainstorming",
+      status: "worker_assigned",
+    }];
+    mocks.agentsData = [AGENT];
+    mocks.membersData = [{
+      user_id: "user-1",
+      name: "Alice",
+      role: "owner",
+      status: "active",
+    }];
+
+    render(
+      <Wrapper>
+        <ExecutionPanoramaPage workflowId="wf-1" runId="run-1" wsId="ws-1" />
+      </Wrapper>,
+    );
+
+    const runtimeNode = mocks.reactFlowProps?.nodes.find((node) => node.id === "n1");
+    expect(runtimeNode).toBeTruthy();
+    act(() => {
+      mocks.reactFlowProps?.onNodeClick?.({}, runtimeNode!);
+    });
+
+    expect(mocks.executionDetailProps).toMatchObject({
+      currentUserId: "user-1",
+      currentMember: { role: "owner", status: "active" },
+    });
   });
 
   it("gives the shared canvas an explicit height in the regular issue detail flow", () => {

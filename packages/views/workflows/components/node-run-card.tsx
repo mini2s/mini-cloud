@@ -148,7 +148,12 @@ export function NodeRunCard({
             size="sm"
             variant="outline"
             className="h-7 text-xs"
-            onClick={() => submitMutation.mutate({ nodeRunId: nodeRun.id, output: {} })}
+            onClick={() => submitMutation.mutate({
+              nodeRunId: nodeRun.id,
+              output: {},
+              workflowId,
+              runId,
+            })}
             disabled={submitMutation.isPending}
           >
             <Check className="h-3 w-3 mr-1" />
@@ -194,7 +199,7 @@ export function NodeRunCard({
             size="sm"
             variant="ghost"
             className="h-7 text-xs"
-            onClick={() => skipMutation.mutate(nodeRun.id)}
+            onClick={() => skipMutation.mutate({ nodeRunId: nodeRun.id, workflowId, runId })}
             disabled={skipMutation.isPending}
           >
             <SkipForward className="h-3 w-3 mr-1" />

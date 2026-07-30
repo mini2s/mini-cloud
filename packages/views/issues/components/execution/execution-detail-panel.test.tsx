@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, it, expect, vi } from "vitest";
 import { ExecutionDetailPanel } from "./execution-detail-panel";
@@ -96,6 +96,22 @@ vi.mock("@multica/core/workflows/queries", () => ({
     queryKey: ["workflows", "node-runs", nodeRunId, "deliverables"],
     queryFn: () => [],
   }),
+  useSubmitNodeRun: () => ({
+    mutate: vi.fn(),
+    isPending: false,
+    isError: false,
+    error: null,
+  }),
+  useSkipNodeRun: () => ({
+    mutate: vi.fn(),
+    isPending: false,
+    isError: false,
+    error: null,
+  }),
+}));
+
+vi.mock("../../../workflows/components/node-run-control-actions", () => ({
+  NodeRunControlActions: () => null,
 }));
 
 vi.mock("@multica/core/chat", () => ({
@@ -193,6 +209,7 @@ vi.mock("@multica/views/i18n", () => ({
               section_status_next_step: "Status and next step",
               section_deliverables: "Deliverables and links",
               section_worker_critic: "Worker and critic",
+              section_actions: "Node actions",
               section_runtime_facts: "Runtime facts",
               section_evidence_preview: "Evidence preview",
               section_child_progress: "Child progress",
@@ -226,6 +243,15 @@ vi.mock("@multica/views/i18n", () => ({
               retry: "Retry",
               review_comment: "Review Comment",
               review_comment_required: "Please add a review comment before approving or rejecting",
+              execution_summary: "Execution summary",
+              execution_summary_placeholder: "Optional: briefly describe the completed work",
+              submit_result: "Submit result",
+              submitting_result: "Submitting...",
+              skip_node: "Skip node",
+              skip_dialog_title: "Skip this node?",
+              skip_dialog_description: "This node will be marked as skipped.",
+              skip_dialog_cancel: "Cancel",
+              skip_dialog_confirm: "Confirm skip",
               dock_review_title: "Human review",
               dock_review_subtitle: "Your review comment is archived to Gitea with the decision.",
               dock_submit_title: "Deliverable submission",
@@ -378,6 +404,7 @@ describe("ExecutionDetailPanel", () => {
     expect(screen.getByTestId("runtime-diagnostic-summary")).not.toHaveClass("rounded-lg", "border");
     expect(screen.getAllByTestId("node-detail-section").map((section) => section.getAttribute("data-section"))).toEqual([
       "status-next-step",
+      "actions",
       "evidence-preview",
       "worker-critic",
       "runtime-facts",
@@ -510,6 +537,7 @@ describe("ExecutionDetailPanel", () => {
     expect(screen.getByTestId("runtime-primary-actions")).toContainElement(screen.getByRole("button", { name: "Open session" }));
     expect(screen.getAllByTestId("node-detail-section").map((section) => section.getAttribute("data-section"))).toEqual([
       "status-next-step",
+      "actions",
       "evidence-preview",
       "worker-critic",
       "runtime-facts",
@@ -722,7 +750,7 @@ describe("ExecutionDetailPanel", () => {
     );
 
     const sections = screen.getAllByTestId("node-detail-section").map((section) => section.getAttribute("data-section"));
-    expect(sections).toEqual(["status-next-step", "evidence-preview", "worker-critic", "runtime-facts"]);
+    expect(sections).toEqual(["status-next-step", "actions", "evidence-preview", "worker-critic", "runtime-facts"]);
     expect(screen.queryByText(/"nested"/)).not.toBeInTheDocument();
     expect(screen.getByText("View evidence")).toBeInTheDocument();
   });
@@ -761,7 +789,14 @@ describe("ExecutionDetailPanel", () => {
     );
 
     const sections = screen.getAllByTestId("node-detail-section").map((section) => section.getAttribute("data-section"));
-    expect(sections).toEqual(["status-next-step", "evidence-preview", "child-progress", "worker-critic", "runtime-facts"]);
+    expect(sections).toEqual([
+      "status-next-step",
+      "actions",
+      "evidence-preview",
+      "child-progress",
+      "worker-critic",
+      "runtime-facts",
+    ]);
     expect(screen.getAllByText("Open child issue").length).toBeGreaterThan(0);
     expect(screen.getByText("Split work")).toBeInTheDocument();
     expect(screen.getByText("Assignee")).toBeInTheDocument();
@@ -838,6 +873,7 @@ describe("ExecutionDetailPanel", () => {
     expect(screen.queryByText("Agent operations")).not.toBeInTheDocument();
     expect(screen.getAllByTestId("node-detail-section").map((section) => section.getAttribute("data-section"))).toEqual([
       "status-next-step",
+      "actions",
       "evidence-preview",
       "worker-critic",
       "runtime-facts",
@@ -935,9 +971,57 @@ describe("ExecutionDetailPanel", () => {
 
     expect(screen.getByRole("button", { name: "Approve" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Reject" })).toBeInTheDocument();
+    const actionPanel = screen.getByTestId("node-action-panel");
+    const actorSection = screen.getByText("Worker and critic").closest('[data-section="worker-critic"]');
+    expect(actionPanel).toContainElement(screen.getByRole("button", { name: "Approve" }));
+    expect(actorSection).not.toContainElement(screen.getByRole("button", { name: "Approve" }));
   });
 
-  it("places the human review dock with deliverables in the panel footer", () => {
+  it("renders the human submit action for the assigned worker", () => {
+    render(
+      <ExecutionDetailPanel
+        node={{ ...node, worker_type: "human", worker_id: "user-1" }}
+        nodeRun={{ ...run, status: "worker_assigned", worker_type: "human", worker_id: "user-1" }}
+        workerName="Worker"
+        criticName="Reviewer"
+        onClose={vi.fn()}
+        wsId="ws-1"
+        workflowId="wf-1"
+        runId="wr1"
+        currentUserId="user-1"
+        currentMember={{ role: "member", status: "active" }}
+      />,
+    );
+
+    expect(screen.getByRole("button", { name: "Submit result" })).toBeInTheDocument();
+  });
+
+  it("does not render review actions for another member", () => {
+    render(
+      <ExecutionDetailPanel
+        node={{ ...node, critic_type: "human", critic_id: "user-2" }}
+        nodeRun={{
+          ...run,
+          status: "critic_reviewing",
+          critic_type: "human",
+          critic_id: "user-2",
+        }}
+        workerName="Worker"
+        criticName="Reviewer"
+        onClose={vi.fn()}
+        wsId="ws-1"
+        workflowId="wf-1"
+        runId="wr1"
+        currentUserId="user-3"
+        currentMember={{ role: "member", status: "active" }}
+      />,
+    );
+
+    expect(screen.queryByRole("button", { name: "Approve" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Reject" })).not.toBeInTheDocument();
+  });
+
+  it("places human review with deliverables in the primary detail column", () => {
     render(
       <ExecutionDetailPanel
         node={{ ...node, critic_type: "human", critic_id: null }}
@@ -952,14 +1036,20 @@ describe("ExecutionDetailPanel", () => {
       />,
     );
 
-    const footer = screen.getByTestId("node-detail-panel-footer");
-    const dock = screen.getByTestId("node-action-dock");
-    expect(footer).toContainElement(dock);
-    expect(dock).toContainElement(screen.getByText("Human review"));
-    expect(dock).toContainElement(screen.getByRole("link", { name: /Pull request/i }));
-    expect(dock).toContainElement(screen.getByPlaceholderText("Review Comment"));
-    expect(dock).toContainElement(screen.getByRole("button", { name: "Approve" }));
-    expect(dock).toContainElement(screen.getByRole("button", { name: "Reject" }));
+    const primaryColumn = screen.getByTestId("runtime-detail-primary-column");
+    const actionPanel = screen.getByTestId("node-action-panel");
+    expect(primaryColumn).toContainElement(actionPanel);
+    expect(screen.queryByTestId("node-detail-panel-footer")).not.toBeInTheDocument();
+    expect(actionPanel).toContainElement(screen.getByRole("link", { name: /Pull request/i }));
+    expect(actionPanel).toContainElement(screen.getByPlaceholderText("Review Comment"));
+    expect(actionPanel).toContainElement(screen.getByRole("button", { name: "Approve" }));
+    expect(actionPanel).toContainElement(screen.getByRole("button", { name: "Reject" }));
+
+    const toolbar = screen.getByTestId("node-run-action-toolbar");
+    const toolbarButtons = within(toolbar).getAllByRole("button");
+    expect(toolbar).toHaveClass("grid", "grid-cols-[repeat(2,minmax(0,7rem))]", "justify-start");
+    expect(toolbarButtons.map((button) => button.textContent)).toEqual(["Reject", "Approve"]);
+    toolbarButtons.forEach((button) => expect(button).toHaveClass("w-full", "min-w-0"));
   });
 
   it("keeps an existing review visible but hides review actions without permission", () => {
@@ -989,7 +1079,7 @@ describe("ExecutionDetailPanel", () => {
     expect(screen.queryByRole("button", { name: "Reject" })).not.toBeInTheDocument();
   });
 
-  it("shows the deliverable submission dock for human worker runs", () => {
+  it("shows the deliverable submission section for human worker runs", () => {
     render(
       <ExecutionDetailPanel
         node={{ ...node, worker_type: "human", worker_id: null }}
@@ -1002,10 +1092,11 @@ describe("ExecutionDetailPanel", () => {
       />,
     );
 
-    const footer = screen.getByTestId("node-detail-panel-footer");
-    const dock = screen.getByTestId("node-action-dock");
-    expect(footer).toContainElement(dock);
-    expect(dock).toHaveTextContent("Deliverable submission");
+    const primaryColumn = screen.getByTestId("runtime-detail-primary-column");
+    const actionPanel = screen.getByTestId("node-action-panel");
+    expect(primaryColumn).toContainElement(actionPanel);
+    expect(screen.queryByTestId("node-detail-panel-footer")).not.toBeInTheDocument();
+    expect(actionPanel.closest('[data-section="actions"]')).toHaveTextContent("Deliverable submission");
     expect(screen.queryByPlaceholderText("Review Comment")).not.toBeInTheDocument();
   });
 });
