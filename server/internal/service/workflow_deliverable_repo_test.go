@@ -1098,27 +1098,6 @@ func fakeGiteaMergeServerTrackingClose(t *testing.T) (srv *httptest.Server, merg
 	return srv, &calls
 }
 
-// fakeGitlabMergeServer stands up an httptest.Server emulating the GitLab MR
-// merge endpoint. A PUT ending in /merge records a call and returns mergeStatus;
-// any other request gets a permissive 200. Returns the merge-call counter.
-func fakeGitlabMergeServer(t *testing.T, mergeStatus int) (srv *httptest.Server, mergeCalls *int) {
-	t.Helper()
-	var mu sync.Mutex
-	calls := 0
-	srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		mu.Lock()
-		defer mu.Unlock()
-		if r.Method == http.MethodPut && strings.HasSuffix(r.URL.Path, "/merge") {
-			calls++
-			w.WriteHeader(mergeStatus)
-			return
-		}
-		w.WriteHeader(http.StatusOK)
-	}))
-	t.Cleanup(srv.Close)
-	return srv, &calls
-}
-
 // seedNodeRunForReview inserts a workflow_node_run in critic_reviewing for the
 // given run+node, plus a document deliverable submission carrying prURL with the
 // given status. Returns the new node_run ID. Cleanup rides the fixture's
@@ -1505,12 +1484,12 @@ func TestReviewNodeRun_MergesDocumentDeliverablePRs(t *testing.T) {
 	}
 }
 
-// TestReviewNodeRun_MergesGitLabMR verifies the M4 GitLab path: a code-only
-// workspace (Gitea nil) with a pull_request deliverable whose submission points
-// at a GitLab MR. Approve → the MR is merged via the workspace's
-// gitlab_access_token (PUT .../merge_requests/{iid}/merge), the node completes,
-// and the submission is marked approved.
-func TestReviewNodeRun_MergesGitLabMR(t *testing.T) {
+// TestReviewNodeRun_SkipsGitLabMR verifies that code MRs (GitLab, GitHub, etc.)
+// are NOT auto-merged by multica. A code-only workspace with a pull_request
+// deliverable whose submission points at a GitLab MR — approve → the node
+// completes and the submission is approved, but NO merge call is made
+// (the user merges code MRs themselves).
+func TestReviewNodeRun_SkipsGitLabMR(t *testing.T) {
 	pool := openTestPool(t)
 	defer pool.Close()
 	ctx := context.Background()
@@ -1521,21 +1500,12 @@ func TestReviewNodeRun_MergesGitLabMR(t *testing.T) {
 	var deliverableID string
 	if err := pool.QueryRow(ctx, `
 		INSERT INTO multica_workflow_node_deliverable (workflow_node_id, title, description, required, sort_order)
-		VALUES ($1, 'Code MR', TRUE, 0)
+		VALUES ($1, 'Code MR', '', TRUE, 0)
 		RETURNING id
 	`, util.UUIDToString(fix.node)).Scan(&deliverableID); err != nil {
 		t.Fatalf("seed pull_request deliverable: %v", err)
 	}
-	// Configure the workspace's GitLab PAT (read by gitlabAccessToken).
-	if _, err := pool.Exec(ctx, `
-		UPDATE multica_workspace
-		SET settings = jsonb_set(coalesce(settings, '{}'::jsonb), '{gitlab_access_token}', '"gl-tok-123"')
-		WHERE id = $1
-	`, util.UUIDToString(fix.workspace)); err != nil {
-		t.Fatalf("set gitlab token: %v", err)
-	}
 
-	glSrv, mergeCalls := fakeGitlabMergeServer(t, http.StatusOK)
 	svc := &WorkflowService{
 		Queries:   db.New(pool),
 		TxStarter: pool,
@@ -1563,7 +1533,7 @@ func TestReviewNodeRun_MergesGitLabMR(t *testing.T) {
 	`, nodeRunID, deliverableID).Scan(&reqID); err != nil {
 		t.Fatalf("seed runtime requirement: %v", err)
 	}
-	mrURL := glSrv.URL + "/root/repo/-/merge_requests/7"
+	mrURL := "https://gitlab.example.com/root/repo/-/merge_requests/7"
 	if _, err := pool.Exec(ctx, `
 		INSERT INTO multica_workflow_node_deliverable_submission (
 			workflow_node_run_id, deliverable_id, submitted_by_type, status, content, pull_request_url
@@ -1583,8 +1553,21 @@ func TestReviewNodeRun_MergesGitLabMR(t *testing.T) {
 	if got := submissionStatus(t, pool, nrID); got != "approved" {
 		t.Fatalf("submission status = %q, want %q", got, "approved")
 	}
-	if *mergeCalls != 1 {
-		t.Fatalf("gitlab merge calls = %d, want exactly 1", *mergeCalls)
+}
+
+func TestMergeReviewURL_SkipsCodeMR(t *testing.T) {
+	pool := openTestPool(t)
+	defer pool.Close()
+	spy := &spyRepoProvider{configured: true}
+	svc := &WorkflowService{
+		Queries:            db.New(pool),
+		RepositoryProvider: spy,
+		Gitea:              gitea.NewClient(gitea.Config{BaseURL: "http://gitea.test", Token: "tok"}),
+	}
+	// External code MR URL: must NOT merge (returns nil, no provider merge call).
+	if err := svc.mergeReviewURL(context.Background(), pgtype.UUID{}, "t-x", "wf-y",
+		"https://gitlab.example.com/g/p/-/merge_requests/5"); err != nil {
+		t.Fatalf("mergeReviewURL(code MR) = %v, want nil (skip — user merges code MRs)", err)
 	}
 }
 

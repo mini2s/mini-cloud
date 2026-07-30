@@ -19,7 +19,6 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/multica-ai/multica/server/internal/coderepo"
 	"github.com/multica-ai/multica/server/internal/gitea"
-	"github.com/multica-ai/multica/server/internal/gitlab"
 	"github.com/multica-ai/multica/server/internal/teamnamespace"
 	"github.com/multica-ai/multica/server/internal/util"
 	db "github.com/multica-ai/multica/server/pkg/db/generated"
@@ -1016,13 +1015,11 @@ func (s *WorkflowService) mergeDeliverablePRs(ctx context.Context, nodeRun db.Mu
 	return nil
 }
 
-// mergeReviewURL merges a single deliverable review request by dispatching on
-// its URL: a Gitea PR (multica-managed document deliverable) uses the admin
-// client; a GitLab MR (worker code deliverable) uses the workspace's
-// gitlab_access_token. Either platform is dormant (returns nil, no error) when
-// its credential is absent — so a code-only workspace (Gitea nil) still merges
-// GitLab MRs, and a document-only workspace (no GitLab PAT) still merges Gitea
-// PRs. A URL that parses as neither returns an error (unrecognized).
+// mergeReviewURL merges a single deliverable review request ONLY when it is a
+// Gitea PR — a multica-managed document deliverable being signed off. External
+// code MRs (GitLab, GitHub, ...) are NOT merged by multica: the user merges
+// them themselves (the real code-MR URL is kept on the submission and listed in
+// the node's code-links .md). A non-Gitea URL is therefore a no-op (nil).
 func (s *WorkflowService) mergeReviewURL(ctx context.Context, workspaceID pgtype.UUID, owner, repo, rawURL string) error {
 	if index, err := gitea.ParsePullRequestIndex(rawURL); err == nil {
 		if s.Gitea == nil || !s.Gitea.Configured() {
@@ -1030,61 +1027,9 @@ func (s *WorkflowService) mergeReviewURL(ctx context.Context, workspaceID pgtype
 		}
 		return retryMergeDocPR(ctx, s.deliverableRepository(), owner, repo, index)
 	}
-	ref, err := gitlab.ParseMergeRequestURL(rawURL)
-	if err != nil {
-		return fmt.Errorf("unrecognized review URL %q: %w", rawURL, err)
-	}
-	token, err := s.gitlabAccessToken(ctx, workspaceID)
-	if err != nil {
-		return fmt.Errorf("read gitlab access token: %w", err)
-	}
-	if token == "" {
-		return nil // GitLab dormant
-	}
-	return retryGitlabMR(ctx, &gitlab.Client{}, ref, token)
-}
-
-// retryGitlabMR mirrors retryMergeDocPR: bounded 3-attempt backoff, with
-// gitlab.ErrMergeConflict treated as terminal (no retry).
-func retryGitlabMR(ctx context.Context, c *gitlab.Client, ref gitlab.MergeRequestRef, token string) error {
-	const maxAttempts = 3
-	var lastErr error
-	for attempt := 0; attempt < maxAttempts; attempt++ {
-		err := c.MergeMR(ctx, ref, token)
-		if err == nil {
-			return nil
-		}
-		if errors.Is(err, gitlab.ErrMergeConflict) {
-			return err
-		}
-		lastErr = err
-		if attempt == maxAttempts-1 {
-			break
-		}
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-time.After(time.Duration(1<<attempt) * time.Second):
-		}
-	}
-	return lastErr
-}
-
-// gitlabAccessToken reads the per-workspace GitLab user PAT from
-// workspace.settings (gitlab_access_token). Mirrors the inline read in
-// task_cscloud_push.go. Empty when the workspace has no GitLab PAT configured.
-func (s *WorkflowService) gitlabAccessToken(ctx context.Context, workspaceID pgtype.UUID) (string, error) {
-	ws, err := s.Queries.GetWorkspace(ctx, workspaceID)
-	if err != nil {
-		return "", fmt.Errorf("get workspace: %w", err)
-	}
-	var settings struct {
-		GitlabAccessToken string `json:"gitlab_access_token"`
-	}
-	if err := json.Unmarshal(ws.Settings, &settings); err != nil {
-		return "", fmt.Errorf("parse workspace settings: %w", err)
-	}
-	return strings.TrimSpace(settings.GitlabAccessToken), nil
+	// Any non-Gitea URL (GitLab MR, GitHub PR, ...) is a code MR that the user
+	// merges themselves — multica does NOT auto-merge code MRs.
+	return nil
 }
 
 // retryMergeDocPR calls MergePR with bounded backoff. A 409 conflict
