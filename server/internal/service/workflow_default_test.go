@@ -70,8 +70,8 @@ func TestEnsureDefaultWorkflow_Idempotent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("list deliverables: %v", err)
 	}
-	if len(dels) != 1 || dels[0].Kind != "document" {
-		t.Fatalf("want 1 document deliverable, got %+v", dels)
+	if len(dels) != 1 || dels[0].Title != "Deliverable" {
+		t.Fatalf("want 1 deliverable, got %+v", dels)
 	}
 
 	// Idempotent: second call returns the same row, no duplicate.
@@ -711,7 +711,7 @@ func TestUploadMemberDeliverable(t *testing.T) {
 	if err := pool.QueryRow(ctx, `INSERT INTO multica_workflow_node (workflow_id, title, worker_type, worker_id, critic_type, critic_id, sort_order) VALUES ($1,'N','human',$2,'human',$3,0) RETURNING id`, wfID, memberID, memberID).Scan(&nodeID); err != nil {
 		t.Fatalf("seed node: %v", err)
 	}
-	if _, err := pool.Exec(ctx, `INSERT INTO multica_workflow_node_deliverable (workflow_node_id, kind, title, description, required, sort_order) VALUES ($1,'document','D','',TRUE,0)`, nodeID); err != nil {
+	if _, err := pool.Exec(ctx, `INSERT INTO multica_workflow_node_deliverable (workflow_node_id, title, description, required, sort_order) VALUES ($1,'D','',TRUE,0)`, nodeID); err != nil {
 		t.Fatalf("seed deliverable: %v", err)
 	}
 
@@ -739,7 +739,7 @@ func TestUploadMemberDeliverable(t *testing.T) {
 	`, runUUID, wfID, wsID, nodeID); err != nil {
 		t.Fatalf("seed run snapshot: %v", err)
 	}
-	seedRuntimeDeliverableRequirement(t, pool, nrUUID, nodeUUID, "document")
+	seedRuntimeDeliverableRequirement(t, pool, nrUUID, nodeUUID)
 
 	t.Cleanup(func() {
 		pool.Exec(ctx, `DELETE FROM multica_workflow WHERE workspace_id = $1`, wsID)
@@ -819,7 +819,7 @@ func TestUploadMemberDeliverable_UpdatesExistingFileAfterRejection(t *testing.T)
 	if err := pool.QueryRow(ctx, `INSERT INTO multica_workflow_node (workflow_id, title, worker_type, worker_id, critic_type, critic_id, sort_order) VALUES ($1,'N','human',$2,'human',$3,0) RETURNING id`, wfID, memberID, memberID).Scan(&nodeID); err != nil {
 		t.Fatalf("seed node: %v", err)
 	}
-	if err := pool.QueryRow(ctx, `INSERT INTO multica_workflow_node_deliverable (workflow_node_id, kind, title, description, required, sort_order) VALUES ($1,'document','D','',TRUE,0) RETURNING id`, nodeID).Scan(&deliverableID); err != nil {
+	if err := pool.QueryRow(ctx, `INSERT INTO multica_workflow_node_deliverable (workflow_node_id, title, description, required, sort_order) VALUES ($1,'D','',TRUE,0) RETURNING id`, nodeID).Scan(&deliverableID); err != nil {
 		t.Fatalf("seed deliverable: %v", err)
 	}
 
@@ -847,7 +847,7 @@ func TestUploadMemberDeliverable_UpdatesExistingFileAfterRejection(t *testing.T)
 	`, runUUID, wfID, wsID, nodeID); err != nil {
 		t.Fatalf("seed run snapshot: %v", err)
 	}
-	runtimeDeliverableID := seedRuntimeDeliverableRequirement(t, pool, nrUUID, nodeUUID, "document")
+	runtimeDeliverableID := seedRuntimeDeliverableRequirement(t, pool, nrUUID, nodeUUID)
 
 	t.Cleanup(func() {
 		pool.Exec(ctx, `DELETE FROM multica_workflow WHERE workspace_id = $1`, wsID)
@@ -953,10 +953,10 @@ func TestUploadMemberDeliverable_PartialSetWaitsAndCarriesSummary(t *testing.T) 
 	if err := pool.QueryRow(ctx, `INSERT INTO multica_workflow_node (workflow_id, title, worker_type, worker_id, critic_type, critic_id, sort_order) VALUES ($1,'N','human',$2,'human',$3,0) RETURNING id`, wfID, memberID, memberID).Scan(&nodeID); err != nil {
 		t.Fatalf("seed node: %v", err)
 	}
-	if _, err := pool.Exec(ctx, `INSERT INTO multica_workflow_node_deliverable (workflow_node_id, kind, title, description, required, sort_order) VALUES ($1,'document','Doc','',TRUE,0)`, nodeID); err != nil {
+	if _, err := pool.Exec(ctx, `INSERT INTO multica_workflow_node_deliverable (workflow_node_id, title, description, required, sort_order) VALUES ($1,'Doc','',TRUE,0)`, nodeID); err != nil {
 		t.Fatalf("seed document deliverable: %v", err)
 	}
-	if _, err := pool.Exec(ctx, `INSERT INTO multica_workflow_node_deliverable (workflow_node_id, kind, title, description, required, sort_order) VALUES ($1,'pull_request','Code','',TRUE,1)`, nodeID); err != nil {
+	if _, err := pool.Exec(ctx, `INSERT INTO multica_workflow_node_deliverable (workflow_node_id, title, description, required, sort_order) VALUES ($1,'Code','',TRUE,1)`, nodeID); err != nil {
 		t.Fatalf("seed pull_request deliverable: %v", err)
 	}
 
@@ -984,8 +984,8 @@ func TestUploadMemberDeliverable_PartialSetWaitsAndCarriesSummary(t *testing.T) 
 	`, runUUID, wfID, wsID, nodeID); err != nil {
 		t.Fatalf("seed run snapshot: %v", err)
 	}
-	runtimeDocID := seedRuntimeDeliverableRequirement(t, pool, nrUUID, nodeUUID, "document")
-	runtimeCodeID := seedRuntimeDeliverableRequirement(t, pool, nrUUID, nodeUUID, "pull_request")
+	runtimeDocID := seedRuntimeDeliverableRequirement(t, pool, nrUUID, nodeUUID)
+	runtimeCodeID := seedRuntimeDeliverableRequirement(t, pool, nrUUID, nodeUUID)
 
 	t.Cleanup(func() {
 		pool.Exec(ctx, `DELETE FROM multica_workflow WHERE workspace_id = $1`, wsID)
@@ -1160,10 +1160,10 @@ func multiLinkSeed(t *testing.T, pool *pgxpool.Pool, prefix string) (
 	if err := pool.QueryRow(ctx, `INSERT INTO multica_workflow_node (workflow_id, title, worker_type, worker_id, critic_type, critic_id, sort_order) VALUES ($1,'N','human',$2,'human',$3,0) RETURNING id`, wfID, memberID, memberID).Scan(&nodeID); err != nil {
 		t.Fatalf("seed node: %v", err)
 	}
-	if err := pool.QueryRow(ctx, `INSERT INTO multica_workflow_node_deliverable (workflow_node_id, kind, title, description, required, sort_order) VALUES ($1,'pull_request','Code A','',TRUE,0) RETURNING id`, nodeID).Scan(&delAID); err != nil {
+	if err := pool.QueryRow(ctx, `INSERT INTO multica_workflow_node_deliverable (workflow_node_id, title, description, required, sort_order) VALUES ($1,'Code A','',TRUE,0) RETURNING id`, nodeID).Scan(&delAID); err != nil {
 		t.Fatalf("seed deliverable A: %v", err)
 	}
-	if err := pool.QueryRow(ctx, `INSERT INTO multica_workflow_node_deliverable (workflow_node_id, kind, title, description, required, sort_order) VALUES ($1,'pull_request','Code B','',TRUE,1) RETURNING id`, nodeID).Scan(&delBID); err != nil {
+	if err := pool.QueryRow(ctx, `INSERT INTO multica_workflow_node_deliverable (workflow_node_id, title, description, required, sort_order) VALUES ($1,'Code B','',TRUE,1) RETURNING id`, nodeID).Scan(&delBID); err != nil {
 		t.Fatalf("seed deliverable B: %v", err)
 	}
 
@@ -1195,9 +1195,9 @@ func multiLinkSeed(t *testing.T, pool *pgxpool.Pool, prefix string) (
 		var reqID string
 		if err := pool.QueryRow(ctx, `
 			INSERT INTO multica_workflow_node_run_deliverable (
-				workflow_node_run_id, source_deliverable_id, kind, title, description, required, sort_order
+				workflow_node_run_id, source_deliverable_id, title, description, required, sort_order
 			)
-			SELECT $1, deliverable.id, deliverable.kind, deliverable.title,
+			SELECT $1, deliverable.id, deliverable.title,
 			       deliverable.description, deliverable.required, deliverable.sort_order
 			FROM multica_workflow_node_deliverable deliverable
 			WHERE deliverable.id = $2

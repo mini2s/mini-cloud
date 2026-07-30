@@ -78,7 +78,6 @@ type CreateEdgeRequest struct {
 }
 
 type CreateWorkflowNodeDeliverableRequest struct {
-	Kind        string `json:"kind"`
 	Title       string `json:"title"`
 	Description string `json:"description"`
 	Required    *bool  `json:"required"`
@@ -86,7 +85,6 @@ type CreateWorkflowNodeDeliverableRequest struct {
 }
 
 type UpdateWorkflowNodeDeliverableRequest struct {
-	Kind        *string `json:"kind"`
 	Title       *string `json:"title"`
 	Description *string `json:"description"`
 	Required    *bool   `json:"required"`
@@ -146,7 +144,6 @@ type WorkflowEdgeResponse struct {
 type WorkflowNodeDeliverableResponse struct {
 	ID             string `json:"id"`
 	WorkflowNodeID string `json:"workflow_node_id"`
-	Kind           string `json:"kind"`
 	Title          string `json:"title"`
 	Description    string `json:"description"`
 	Required       bool   `json:"required"`
@@ -279,7 +276,6 @@ func workflowNodeDeliverableToResponse(d db.MulticaWorkflowNodeDeliverable) Work
 	return WorkflowNodeDeliverableResponse{
 		ID:             uuidToString(d.ID),
 		WorkflowNodeID: uuidToString(d.WorkflowNodeID),
-		Kind:           d.Kind,
 		Title:          d.Title,
 		Description:    d.Description,
 		Required:       d.Required,
@@ -1317,9 +1313,6 @@ func (h *Handler) CreateWorkflowNodeDeliverable(w http.ResponseWriter, r *http.R
 		writeError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
-	if req.Kind == "" {
-		req.Kind = "document"
-	}
 	if req.Title == "" {
 		writeError(w, http.StatusBadRequest, "title is required")
 		return
@@ -1343,7 +1336,7 @@ func (h *Handler) CreateWorkflowNodeDeliverable(w http.ResponseWriter, r *http.R
 			}
 			var err error
 			deliverable, err = qtx.CreateWorkflowNodeDeliverable(r.Context(), db.CreateWorkflowNodeDeliverableParams{
-				WorkflowNodeID: node.ID, Kind: req.Kind, Title: req.Title, Description: req.Description,
+				WorkflowNodeID: node.ID, Title: req.Title, Description: req.Description,
 				Required: required, SortOrder: req.SortOrder,
 			})
 			return err
@@ -1354,7 +1347,7 @@ func (h *Handler) CreateWorkflowNodeDeliverable(w http.ResponseWriter, r *http.R
 		return
 	}
 	writeJSON(w, http.StatusCreated, workflowNodeDeliverableToResponse(deliverable))
-}
+	}
 
 func (h *Handler) UpdateWorkflowNodeDeliverable(w http.ResponseWriter, r *http.Request) {
 	wfID := chi.URLParam(r, "id")
@@ -1388,7 +1381,7 @@ func (h *Handler) UpdateWorkflowNodeDeliverable(w http.ResponseWriter, r *http.R
 			}
 			var err error
 			updated, err = qtx.UpdateWorkflowNodeDeliverable(r.Context(), db.UpdateWorkflowNodeDeliverableParams{
-				ID: dID, Kind: ptrToText(req.Kind), Title: ptrToText(req.Title), Description: ptrToText(req.Description),
+				ID: dID, Title: ptrToText(req.Title), Description: ptrToText(req.Description),
 				Required: boolToBool(req.Required), SortOrder: int32ToInt4(req.SortOrder),
 			})
 			return err

@@ -487,7 +487,6 @@ func (s *WorkflowService) EnsureDefaultWorkflow(ctx context.Context, workspaceID
 	}
 	if _, err := s.Queries.CreateWorkflowNodeDeliverable(ctx, db.CreateWorkflowNodeDeliverableParams{
 		WorkflowNodeID: node.ID,
-		Kind:           "document",
 		Title:          "Deliverable",
 		Description:    "",
 		Required:       true,

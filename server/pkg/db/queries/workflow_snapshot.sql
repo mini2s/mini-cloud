@@ -190,13 +190,12 @@ RETURNING *;
 INSERT INTO multica_workflow_node_run_deliverable (
     workflow_node_run_id,
     source_deliverable_id,
-    kind,
     title,
     description,
     required,
     sort_order
 ) VALUES (
-    $1, $2, $3, $4, $5, $6, $7
+    $1, $2, $3, $4, $5, $6
 )
 RETURNING *;
 

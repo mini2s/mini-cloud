@@ -117,8 +117,8 @@ func TestGiteaContextForRun_IncludesPullRequestKindDeliverables(t *testing.T) {
 	// Seed a pull_request-kind deliverable on the same node.
 	prDeliverableID := uuid.NewString()
 	if _, err := testPool.Exec(ctx, `
-		INSERT INTO multica_workflow_node_deliverable (id, workflow_node_id, kind, title, required)
-		VALUES ($1, (SELECT workflow_node_id FROM multica_workflow_node_run WHERE id = $2), 'pull_request', 'Source MR', true)
+		INSERT INTO multica_workflow_node_deliverable (id, workflow_node_id, title, required)
+		VALUES ($1, (SELECT workflow_node_id FROM multica_workflow_node_run WHERE id = $2), 'Source MR', true)
 	`, prDeliverableID, nodeRunID); err != nil {
 		t.Fatalf("seed pull_request deliverable: %v", err)
 	}
@@ -126,8 +126,8 @@ func TestGiteaContextForRun_IncludesPullRequestKindDeliverables(t *testing.T) {
 	// Insert the runtime-level row so ListNodeRunDeliverableRequirements finds it.
 	if _, err := testPool.Exec(ctx, `
 		INSERT INTO multica_workflow_node_run_deliverable (
-			id, workflow_node_run_id, source_deliverable_id, kind, title, description, required, sort_order
-		) VALUES ($1, $2, $3, 'pull_request', 'Source MR', '', true, 0)
+			id, workflow_node_run_id, source_deliverable_id, title, description, required, sort_order
+		) VALUES ($1, $2, $3, 'Source MR', '', true, 0)
 	`, prDeliverableID, nodeRunID, prDeliverableID); err != nil {
 		t.Fatalf("seed pull_request runtime deliverable: %v", err)
 	}
@@ -177,16 +177,16 @@ func TestGiteaContextForNodeRun_IncludesPullRequestKindDeliverables(t *testing.T
 	// Seed a pull_request-kind deliverable on the same node.
 	prDeliverableID := uuid.NewString()
 	if _, err := testPool.Exec(ctx, `
-		INSERT INTO multica_workflow_node_deliverable (id, workflow_node_id, kind, title, required)
-		VALUES ($1, (SELECT workflow_node_id FROM multica_workflow_node_run WHERE id = $2), 'pull_request', 'Source MR', true)
+		INSERT INTO multica_workflow_node_deliverable (id, workflow_node_id, title, required)
+		VALUES ($1, (SELECT workflow_node_id FROM multica_workflow_node_run WHERE id = $2), 'Source MR', true)
 	`, prDeliverableID, nodeRunID); err != nil {
 		t.Fatalf("seed pull_request deliverable: %v", err)
 	}
 
 	if _, err := testPool.Exec(ctx, `
 		INSERT INTO multica_workflow_node_run_deliverable (
-			id, workflow_node_run_id, source_deliverable_id, kind, title, description, required, sort_order
-		) VALUES ($1, $2, $3, 'pull_request', 'Source MR', '', true, 0)
+			id, workflow_node_run_id, source_deliverable_id, title, description, required, sort_order
+		) VALUES ($1, $2, $3, 'Source MR', '', true, 0)
 	`, prDeliverableID, nodeRunID, prDeliverableID); err != nil {
 		t.Fatalf("seed pull_request runtime deliverable: %v", err)
 	}

@@ -290,8 +290,8 @@ func newWorkflowPrepareFixture(t *testing.T, valid bool) *workflowPrepareFixture
 			t.Fatal(err)
 		}
 		if _, err := pool.Exec(ctx, `
-			INSERT INTO multica_workflow_node_deliverable (workflow_node_id, kind, title, description, required, sort_order)
-			VALUES ($1, 'document', 'Result', '', true, 0)
+			INSERT INTO multica_workflow_node_deliverable (workflow_node_id, title, description, required, sort_order)
+			VALUES ($1, 'Result', '', true, 0)
 		`, nodeID); err != nil {
 			t.Fatal(err)
 		}

@@ -1055,7 +1055,7 @@ func (m *mockRowsDeliverables) Conn() *pgx.Conn                              { r
 func (m *mockRowsDeliverables) Scan(dest ...any) error {
 	r := &m.rows[m.idx]
 	vals := []any{
-		&r.ID, &r.WorkflowNodeID, &r.Kind, &r.Title,
+		&r.ID, &r.WorkflowNodeID, &r.Title,
 		&r.Description, &r.Required, &r.SortOrder,
 		&r.CreatedAt, &r.UpdatedAt,
 	}
@@ -1083,8 +1083,8 @@ func (m *mockRowsNodeRunDeliverables) Conn() *pgx.Conn                          
 func (m *mockRowsNodeRunDeliverables) Scan(dest ...any) error {
 	r := &m.rows[m.idx]
 	vals := []any{
-		&r.ID, &r.WorkflowNodeRunID, &r.SourceDeliverableID,
-		&r.Kind, &r.Title, &r.Description, &r.Required,
+		&r.ID, &r.WorkflowNodeRunID, &r.SourceDeliverableID,r.ID, &r.WorkflowNodeRunID, &r.SourceDeliverableID,
+		&r.Title, &r.Description, &r.Required,
 		&r.SortOrder, &r.CreatedAt,
 	}
 	return copyRow(vals, dest)
@@ -1095,14 +1095,12 @@ func TestDeliverableSpecsForTask_PullRequestAndDocument(t *testing.T) {
 	prDeliverable := db.MulticaWorkflowNodeDeliverable{
 		ID:             testUUID(50),
 		WorkflowNodeID: testUUID(60),
-		Kind:           "pull_request",
 		Title:          "Code PR",
 		Required:       true,
 	}
 	docDeliverable := db.MulticaWorkflowNodeDeliverable{
 		ID:             testUUID(51),
 		WorkflowNodeID: testUUID(60),
-		Kind:           "document",
 		Title:          "Design Doc",
 		Required:       true,
 	}
@@ -1164,9 +1162,9 @@ func TestDeliverableSpecsForTask_NodeRunNotFound(t *testing.T) {
 func TestDeliverableSpecsForTask_UnifiedEndpoint(t *testing.T) {
 	nrID := testUUID(200)
 	deliverables := []db.MulticaWorkflowNodeDeliverable{
-		{ID: testUUID(210), WorkflowNodeID: testUUID(220), Kind: "document", Title: "Design Doc", Required: true},
-		{ID: testUUID(211), WorkflowNodeID: testUUID(220), Kind: "pull_request", Title: "Code PR", Required: true},
-		{ID: testUUID(212), WorkflowNodeID: testUUID(220), Kind: "document", Title: "Test Plan", Required: false},
+		{ID: testUUID(210), WorkflowNodeID: testUUID(220), Title: "Design Doc", Required: true},
+		{ID: testUUID(211), WorkflowNodeID: testUUID(220), Title: "Code PR", Required: true},
+		{ID: testUUID(212), WorkflowNodeID: testUUID(220), Title: "Test Plan", Required: false},
 	}
 	mdb := &deliverableTestDB{
 		nodeRun: &db.MulticaWorkflowNodeRun{
@@ -1218,7 +1216,6 @@ func TestRepositoryDeliverableEnv_InjectedForAnyDeliverable(t *testing.T) {
 		{
 			ID:                testUUID(12), // prDeliverableID from newEnsureRepoTestDB
 			WorkflowNodeRunID: mdb.nodeRun.ID,
-			Kind:              "pull_request",
 			Title:             "Backend code MR",
 			Required:          true,
 		},
@@ -1917,13 +1914,11 @@ func newEnsureRepoTestDB() *ensureRepoTestDB {
 			{
 				ID:             deliverableID,
 				WorkflowNodeID: nodeID,
-				Kind:           "document",
 				Title:          "Design doc",
 			},
 			{
 				ID:             prDeliverableID,
 				WorkflowNodeID: nodeID,
-				Kind:           "pull_request",
 				Title:          "Backend code MR",
 			},
 		},
@@ -1931,14 +1926,12 @@ func newEnsureRepoTestDB() *ensureRepoTestDB {
 			{
 				ID:                deliverableID,
 				WorkflowNodeRunID: nodeRunID,
-				Kind:              "document",
 				Title:             "Design doc",
 				Required:          true,
 			},
 			{
 				ID:                prDeliverableID,
 				WorkflowNodeRunID: nodeRunID,
-				Kind:              "pull_request",
 				Title:             "Backend code MR",
 				Required:          true,
 			},

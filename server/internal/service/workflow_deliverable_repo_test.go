@@ -36,22 +36,22 @@ type giteaFixture struct {
 	run2      pgtype.UUID // zero-valued when not seeded
 }
 
-func seedRuntimeDeliverableRequirement(t *testing.T, pool *pgxpool.Pool, nodeRunID, sourceNodeID pgtype.UUID, kind string) pgtype.UUID {
+func seedRuntimeDeliverableRequirement(t *testing.T, pool *pgxpool.Pool, nodeRunID, sourceNodeID pgtype.UUID) pgtype.UUID {
 	t.Helper()
 	var requirementID pgtype.UUID
 	if err := pool.QueryRow(context.Background(), `
 		INSERT INTO multica_workflow_node_run_deliverable (
-			workflow_node_run_id, source_deliverable_id, kind, title, description, required, sort_order
+			workflow_node_run_id, source_deliverable_id, title, description, required, sort_order
 		)
-		SELECT $1, deliverable.id, deliverable.kind, deliverable.title,
+		SELECT $1, deliverable.id, deliverable.title,
 		       deliverable.description, deliverable.required, deliverable.sort_order
 		FROM multica_workflow_node_deliverable deliverable
-		WHERE deliverable.workflow_node_id = $2 AND deliverable.kind = $3
+		WHERE deliverable.workflow_node_id = $2
 		ORDER BY deliverable.sort_order, deliverable.id
 		LIMIT 1
 		RETURNING id
-	`, nodeRunID, sourceNodeID, kind).Scan(&requirementID); err != nil {
-		t.Fatalf("seed runtime %s deliverable requirement: %v", kind, err)
+	`, nodeRunID, sourceNodeID).Scan(&requirementID); err != nil {
+		t.Fatalf("seed runtime deliverable requirement: %v", err)
 	}
 	return requirementID
 }
@@ -124,8 +124,8 @@ func seedGiteaFixture(t *testing.T, pool *pgxpool.Pool, withDocument bool, numRu
 
 	if withDocument {
 		if _, err := pool.Exec(ctx, `
-			INSERT INTO multica_workflow_node_deliverable (workflow_node_id, kind, title, description, required, sort_order)
-			VALUES ($1, 'document', 'Spec Doc', 'the spec', TRUE, 0)
+			INSERT INTO multica_workflow_node_deliverable (workflow_node_id, title, description, required, sort_order)
+			VALUES ($1, 'Spec Doc', 'the spec', TRUE, 0)
 		`, nodeID); err != nil {
 			t.Fatalf("seed document deliverable: %v", err)
 		}
@@ -311,7 +311,7 @@ func TestScaffoldRunDeliverables_DelegatesToTeamNamespace(t *testing.T) {
 	defer pool.Close()
 
 	fix := seedGiteaFixture(t, pool, true /*document deliverable*/, 1 /*one run*/)
-	seedRuntimeDeliverableRequirement(t, pool, seedRuntimeNodeRun(t, fix, fix.run1, NodeRunStatusPending), fix.node, "document")
+	seedRuntimeDeliverableRequirement(t, pool, seedRuntimeNodeRun(t, fix, fix.run1, NodeRunStatusPending), fix.node)
 	// ensureTeamNamespace resolves the team creator from a member's cs-user
 	// subject_id; the base fixture doesn't set one, so seed it.
 	if _, err := pool.Exec(context.Background(),
@@ -681,7 +681,7 @@ func TestEnsureNodeRunBranch_CreatesNodeBranchFromInst(t *testing.T) {
 		t.Fatalf("seed node run: %v", err)
 	}
 	nodeRunUUID, _ := util.ParseUUID(nodeRunID)
-	seedRuntimeDeliverableRequirement(t, pool, nodeRunUUID, fix.node, "document")
+	seedRuntimeDeliverableRequirement(t, pool, nodeRunUUID, fix.node)
 	nodeRun, err := queries.GetWorkflowNodeRun(context.Background(), nodeRunUUID)
 	if err != nil {
 		t.Fatalf("get node run: %v", err)
@@ -906,8 +906,8 @@ func TestArchiveCodeDeliverable_WritesCodePointerUnderNodeDir(t *testing.T) {
 	// Seed a pull_request-kind deliverable on the node.
 	var deliverableID string
 	if err := pool.QueryRow(ctx, `
-		INSERT INTO multica_workflow_node_deliverable (workflow_node_id, kind, title, description, required, sort_order)
-		VALUES ($1, 'pull_request', 'Source MR', 'the worker code MR', TRUE, 0)
+		INSERT INTO multica_workflow_node_deliverable (workflow_node_id, title, description, required, sort_order)
+		VALUES ($1, 'Source MR', 'the worker code MR', TRUE, 0)
 		RETURNING id
 	`, fix.node).Scan(&deliverableID); err != nil {
 		t.Fatalf("seed pull_request deliverable: %v", err)
@@ -1089,7 +1089,7 @@ func seedNodeRunForReview(t *testing.T, pool *pgxpool.Pool, fix *giteaFixture, r
 
 	// The document deliverable row is created by seedGiteaFixture (withDocument).
 	nrID, _ := util.ParseUUID(nodeRunID)
-	deliverableID := seedRuntimeDeliverableRequirement(t, pool, nrID, fix.node, "document")
+	deliverableID := seedRuntimeDeliverableRequirement(t, pool, nrID, fix.node)
 
 	if _, err := pool.Exec(ctx, `
 		INSERT INTO multica_workflow_node_deliverable_submission (
@@ -1134,8 +1134,8 @@ func TestSubmitWorkerOutput_BlocksMissingRequiredPullRequestDeliverable(t *testi
 	fix := seedGiteaFixture(t, pool, false /*no document deliverable*/, 1 /*one run*/)
 
 	if _, err := pool.Exec(ctx, `
-		INSERT INTO multica_workflow_node_deliverable (workflow_node_id, kind, title, description, required, sort_order)
-		VALUES ($1, 'pull_request', 'Code MR', 'open an MR', TRUE, 0)
+		INSERT INTO multica_workflow_node_deliverable (workflow_node_id, title, description, required, sort_order)
+		VALUES ($1, 'Code MR', 'open an MR', TRUE, 0)
 	`, util.UUIDToString(fix.node)); err != nil {
 		t.Fatalf("seed pull_request deliverable: %v", err)
 	}
@@ -1156,7 +1156,7 @@ func TestSubmitWorkerOutput_BlocksMissingRequiredPullRequestDeliverable(t *testi
 		t.Fatalf("seed node run: %v", err)
 	}
 	nrID, _ := util.ParseUUID(nodeRunID)
-	seedRuntimeDeliverableRequirement(t, pool, nrID, fix.node, "pull_request")
+	seedRuntimeDeliverableRequirement(t, pool, nrID, fix.node)
 
 	svc := &WorkflowService{Queries: db.New(pool), TxStarter: pool}
 	err := svc.SubmitWorkerOutput(ctx, nrID, json.RawMessage(`{"output":"opened an MR but forgot to submit it"}`))
@@ -1179,8 +1179,8 @@ func TestHandleWorkflowTaskCompletion_BlocksMissingRequiredPullRequestDeliverabl
 	fix := seedGiteaFixture(t, pool, false /*no document deliverable*/, 1 /*one run*/)
 
 	if _, err := pool.Exec(ctx, `
-		INSERT INTO multica_workflow_node_deliverable (workflow_node_id, kind, title, description, required, sort_order)
-		VALUES ($1, 'pull_request', 'Code MR', 'open an MR', TRUE, 0)
+		INSERT INTO multica_workflow_node_deliverable (workflow_node_id, title, description, required, sort_order)
+		VALUES ($1, 'Code MR', 'open an MR', TRUE, 0)
 	`, util.UUIDToString(fix.node)); err != nil {
 		t.Fatalf("seed pull_request deliverable: %v", err)
 	}
@@ -1201,7 +1201,7 @@ func TestHandleWorkflowTaskCompletion_BlocksMissingRequiredPullRequestDeliverabl
 		t.Fatalf("seed node run: %v", err)
 	}
 	nrID, _ := util.ParseUUID(nodeRunID)
-	seedRuntimeDeliverableRequirement(t, pool, nrID, fix.node, "pull_request")
+	seedRuntimeDeliverableRequirement(t, pool, nrID, fix.node)
 
 	svc := &WorkflowService{Queries: db.New(pool), TxStarter: pool}
 	err := svc.HandleWorkflowTaskCompletion(ctx, db.MulticaAgentTaskQueue{
@@ -1229,8 +1229,8 @@ func TestHandleWorkflowTaskCompletion_AutoSubmitsSinglePullRequestURL(t *testing
 
 	var deliverableID string
 	if err := pool.QueryRow(ctx, `
-		INSERT INTO multica_workflow_node_deliverable (workflow_node_id, kind, title, description, required, sort_order)
-		VALUES ($1, 'pull_request', 'Code MR', 'open an MR', TRUE, 0)
+		INSERT INTO multica_workflow_node_deliverable (workflow_node_id, title, description, required, sort_order)
+		VALUES ($1, 'Code MR', 'open an MR', TRUE, 0)
 		RETURNING id
 	`, util.UUIDToString(fix.node)).Scan(&deliverableID); err != nil {
 		t.Fatalf("seed pull_request deliverable: %v", err)
@@ -1252,7 +1252,7 @@ func TestHandleWorkflowTaskCompletion_AutoSubmitsSinglePullRequestURL(t *testing
 		t.Fatalf("seed node run: %v", err)
 	}
 	nrID, _ := util.ParseUUID(nodeRunID)
-	runtimeDeliverableID := seedRuntimeDeliverableRequirement(t, pool, nrID, fix.node, "pull_request")
+	runtimeDeliverableID := seedRuntimeDeliverableRequirement(t, pool, nrID, fix.node)
 
 	mrURL := "http://gitlab.local/root/repo/-/merge_requests/7"
 	svc := &WorkflowService{Queries: db.New(pool), TxStarter: pool}
@@ -1399,8 +1399,8 @@ func TestReviewNodeRun_MergesGitLabMR(t *testing.T) {
 	// Seed a code (pull_request) deliverable on the node.
 	var deliverableID string
 	if err := pool.QueryRow(ctx, `
-		INSERT INTO multica_workflow_node_deliverable (workflow_node_id, kind, title, required, sort_order)
-		VALUES ($1, 'pull_request', 'Code MR', TRUE, 0)
+		INSERT INTO multica_workflow_node_deliverable (workflow_node_id, title, required, sort_order)
+		VALUES ($1, 'Code MR', TRUE, 0)
 		RETURNING id
 	`, util.UUIDToString(fix.node)).Scan(&deliverableID); err != nil {
 		t.Fatalf("seed pull_request deliverable: %v", err)
@@ -1435,8 +1435,8 @@ func TestReviewNodeRun_MergesGitLabMR(t *testing.T) {
 	var reqID pgtype.UUID
 	if err := pool.QueryRow(ctx, `
 		INSERT INTO multica_workflow_node_run_deliverable (
-			workflow_node_run_id, source_deliverable_id, kind, title, description, required, sort_order)
-		SELECT $1, id, kind, title, description, required, sort_order
+			workflow_node_run_id, source_deliverable_id, title, description, required, sort_order)
+		SELECT $1, id, title, description, required, sort_order
 		FROM multica_workflow_node_deliverable WHERE id = $2
 		RETURNING id
 	`, nodeRunID, deliverableID).Scan(&reqID); err != nil {
@@ -1520,8 +1520,8 @@ func seedReviewSubmissionsNodeRun(t *testing.T, pool *pgxpool.Pool, fix *giteaFi
 		var reqID pgtype.UUID
 		if err := pool.QueryRow(ctx, `
 			INSERT INTO multica_workflow_node_run_deliverable (
-				workflow_node_run_id, source_deliverable_id, kind, title, description, required, sort_order)
-			SELECT $1, id, kind, title, description, required, sort_order
+				workflow_node_run_id, source_deliverable_id, title, description, required, sort_order)
+			SELECT $1, id, title, description, required, sort_order
 			FROM multica_workflow_node_deliverable WHERE id = $2
 			RETURNING id
 		`, nodeRunID, util.UUIDToString(p.defID)).Scan(&reqID); err != nil {
@@ -1552,10 +1552,10 @@ func TestCloseDeliverableReviewRequests_ClosesDocumentPROnly(t *testing.T) {
 	fix := seedGiteaFixture(t, pool, false, 1)
 
 	var docID, codeID string
-	if err := pool.QueryRow(ctx, `INSERT INTO multica_workflow_node_deliverable (workflow_node_id, kind, title, required, sort_order) VALUES ($1,'document','Doc',TRUE,0) RETURNING id`, util.UUIDToString(fix.node)).Scan(&docID); err != nil {
+	if err := pool.QueryRow(ctx, `INSERT INTO multica_workflow_node_deliverable (workflow_node_id, title, required, sort_order) VALUES ($1,'Doc',TRUE,0) RETURNING id`, util.UUIDToString(fix.node)).Scan(&docID); err != nil {
 		t.Fatal(err)
 	}
-	if err := pool.QueryRow(ctx, `INSERT INTO multica_workflow_node_deliverable (workflow_node_id, kind, title, required, sort_order) VALUES ($1,'pull_request','Code',TRUE,1) RETURNING id`, util.UUIDToString(fix.node)).Scan(&codeID); err != nil {
+	if err := pool.QueryRow(ctx, `INSERT INTO multica_workflow_node_deliverable (workflow_node_id, title, required, sort_order) VALUES ($1,'Code',TRUE,1) RETURNING id`, util.UUIDToString(fix.node)).Scan(&codeID); err != nil {
 		t.Fatal(err)
 	}
 	docUUID, _ := util.ParseUUID(docID)
@@ -1593,7 +1593,7 @@ func TestCloseDeliverableReviewRequests_BestEffortOnError(t *testing.T) {
 	fix := seedGiteaFixture(t, pool, false, 1)
 
 	var docID string
-	if err := pool.QueryRow(ctx, `INSERT INTO multica_workflow_node_deliverable (workflow_node_id, kind, title, required, sort_order) VALUES ($1,'document','Doc',TRUE,0) RETURNING id`, util.UUIDToString(fix.node)).Scan(&docID); err != nil {
+	if err := pool.QueryRow(ctx, `INSERT INTO multica_workflow_node_deliverable (workflow_node_id, title, required, sort_order) VALUES ($1,'Doc',TRUE,0) RETURNING id`, util.UUIDToString(fix.node)).Scan(&docID); err != nil {
 		t.Fatal(err)
 	}
 
@@ -1617,8 +1617,8 @@ func TestCloseDeliverableReviewRequests_BestEffortOnError(t *testing.T) {
 	var reqID pgtype.UUID
 	if err := pool.QueryRow(ctx, `
 		INSERT INTO multica_workflow_node_run_deliverable (
-			workflow_node_run_id, source_deliverable_id, kind, title, description, required, sort_order)
-		SELECT $1, id, kind, title, description, required, sort_order
+			workflow_node_run_id, source_deliverable_id, title, description, required, sort_order)
+		SELECT $1, id, title, description, required, sort_order
 		FROM multica_workflow_node_deliverable WHERE id = $2
 		RETURNING id
 	`, nodeRunID, docID).Scan(&reqID); err != nil {
@@ -1654,10 +1654,10 @@ func TestCloseDeliverableReviewRequests_ByURLHost(t *testing.T) {
 	fix := seedGiteaFixture(t, pool, false, 1)
 
 	// Two pull_request-kind deliverables on the definition node.
-	if _, err := pool.Exec(ctx, `INSERT INTO multica_workflow_node_deliverable (workflow_node_id, kind, title, required, sort_order) VALUES ($1,'pull_request','Code A',TRUE,0)`, util.UUIDToString(fix.node)); err != nil {
+	if _, err := pool.Exec(ctx, `INSERT INTO multica_workflow_node_deliverable (workflow_node_id, title, required, sort_order) VALUES ($1,'Code A',TRUE,0)`, util.UUIDToString(fix.node)); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := pool.Exec(ctx, `INSERT INTO multica_workflow_node_deliverable (workflow_node_id, kind, title, required, sort_order) VALUES ($1,'pull_request','Code B',TRUE,1)`, util.UUIDToString(fix.node)); err != nil {
+	if _, err := pool.Exec(ctx, `INSERT INTO multica_workflow_node_deliverable (workflow_node_id, title, required, sort_order) VALUES ($1,'Code B',TRUE,1)`, util.UUIDToString(fix.node)); err != nil {
 		t.Fatal(err)
 	}
 
@@ -1675,7 +1675,7 @@ func TestCloseDeliverableReviewRequests_ByURLHost(t *testing.T) {
 	// Manually seed two runtime deliverable requirements from the two definition rows.
 	rows, err := pool.Query(ctx, `
 		SELECT id FROM multica_workflow_node_deliverable
-		WHERE workflow_node_id = $1 AND kind = 'pull_request'
+		WHERE workflow_node_id = $1 
 		ORDER BY sort_order, id
 	`, util.UUIDToString(fix.node))
 	if err != nil {
@@ -1698,8 +1698,8 @@ func TestCloseDeliverableReviewRequests_ByURLHost(t *testing.T) {
 		var reqID pgtype.UUID
 		if err := pool.QueryRow(ctx, `
 			INSERT INTO multica_workflow_node_run_deliverable (
-				workflow_node_run_id, source_deliverable_id, kind, title, description, required, sort_order)
-			SELECT $1, id, kind, title, description, required, sort_order
+				workflow_node_run_id, source_deliverable_id, title, description, required, sort_order)
+			SELECT $1, id, title, description, required, sort_order
 			FROM multica_workflow_node_deliverable WHERE id = $2
 			RETURNING id
 		`, nodeRunID, defID).Scan(&reqID); err != nil {
@@ -1772,7 +1772,7 @@ func TestAutoSubmit_AnySingleRequiredDeliverable(t *testing.T) {
 		nrID, _ := util.ParseUUID(nodeRunID)
 
 		// Copy the document deliverable into the runtime requirements table.
-		seedRuntimeDeliverableRequirement(t, pool, nrID, fix.node, "document")
+		seedRuntimeDeliverableRequirement(t, pool, nrID, fix.node)
 
 		mrURL := "https://gitlab.example.com/root/repo/-/merge_requests/42"
 		output := json.RawMessage(`{"output":"review at ` + mrURL + `"}`)
@@ -1808,10 +1808,10 @@ func TestAutoSubmit_AnySingleRequiredDeliverable(t *testing.T) {
 		fix := seedGiteaFixture(t, pool, false, 1)
 
 		// Two deliverables on the same node.
-		if _, err := pool.Exec(ctx, `INSERT INTO multica_workflow_node_deliverable (workflow_node_id, kind, title, required, sort_order) VALUES ($1,'document','Doc',TRUE,0)`, util.UUIDToString(fix.node)); err != nil {
+		if _, err := pool.Exec(ctx, `INSERT INTO multica_workflow_node_deliverable (workflow_node_id, title, required, sort_order) VALUES ($1,'Doc',TRUE,0)`, util.UUIDToString(fix.node)); err != nil {
 			t.Fatal(err)
 		}
-		if _, err := pool.Exec(ctx, `INSERT INTO multica_workflow_node_deliverable (workflow_node_id, kind, title, required, sort_order) VALUES ($1,'pull_request','Code',TRUE,1)`, util.UUIDToString(fix.node)); err != nil {
+		if _, err := pool.Exec(ctx, `INSERT INTO multica_workflow_node_deliverable (workflow_node_id, title, required, sort_order) VALUES ($1,'Code',TRUE,1)`, util.UUIDToString(fix.node)); err != nil {
 			t.Fatal(err)
 		}
 
@@ -1826,8 +1826,8 @@ func TestAutoSubmit_AnySingleRequiredDeliverable(t *testing.T) {
 		nrID, _ := util.ParseUUID(nodeRunID)
 
 		// Copy both deliverables into runtime requirements.
-		seedRuntimeDeliverableRequirement(t, pool, nrID, fix.node, "document")
-		seedRuntimeDeliverableRequirement(t, pool, nrID, fix.node, "pull_request")
+		seedRuntimeDeliverableRequirement(t, pool, nrID, fix.node)
+		seedRuntimeDeliverableRequirement(t, pool, nrID, fix.node)
 
 		mrURL := "https://gitlab.example.com/root/repo/-/merge_requests/42"
 		output := json.RawMessage(`{"output":"review at ` + mrURL + `"}`)
@@ -2306,7 +2306,7 @@ func TestArchiveSubIssueAddress_NoOpCases(t *testing.T) {
 func makeTestDeliverable(idStr, title string) db.MulticaWorkflowNodeRunDeliverable {
 	id, _ := util.ParseUUID(idStr)
 	return db.MulticaWorkflowNodeRunDeliverable{
-		ID: id, Title: title, Kind: "document", // Kind is vestigial; callers ignore it
+		ID: id, Title: title,
 	}
 }
 
@@ -2371,8 +2371,8 @@ func TestEnsureNodeRunBranch_KindAgnostic(t *testing.T) {
 
 	// Seed a pull_request-kind deliverable on the node.
 	if _, err := pool.Exec(ctx, `
-		INSERT INTO multica_workflow_node_deliverable (workflow_node_id, kind, title, required, sort_order)
-		VALUES ($1, 'pull_request', 'Code MR', TRUE, 0)
+		INSERT INTO multica_workflow_node_deliverable (workflow_node_id, title, required, sort_order)
+		VALUES ($1, 'Code MR', TRUE, 0)
 	`, util.UUIDToString(fix.node)); err != nil {
 		t.Fatalf("seed pull_request deliverable: %v", err)
 	}
@@ -2397,7 +2397,7 @@ func TestEnsureNodeRunBranch_KindAgnostic(t *testing.T) {
 	nodeRunUUID, _ := util.ParseUUID(nodeRunID)
 
 	// Seed a runtime deliverable requirement for the pull_request kind.
-	seedRuntimeDeliverableRequirement(t, pool, nodeRunUUID, fix.node, "pull_request")
+	seedRuntimeDeliverableRequirement(t, pool, nodeRunUUID, fix.node)
 
 	nodeRun, err := queries.GetWorkflowNodeRun(ctx, nodeRunUUID)
 	if err != nil {
@@ -2436,14 +2436,14 @@ func TestMergeAndApprove_KindAgnostic(t *testing.T) {
 
 	// Seed two template-level deliverables: one 'document', one 'pull_request'.
 	if _, err := pool.Exec(ctx, `
-		INSERT INTO multica_workflow_node_deliverable (workflow_node_id, kind, title, required, sort_order)
-		VALUES ($1, 'document', 'Doc', TRUE, 0)
+		INSERT INTO multica_workflow_node_deliverable (workflow_node_id, title, required, sort_order)
+		VALUES ($1, 'Doc', TRUE, 0)
 	`, util.UUIDToString(fix.node)); err != nil {
 		t.Fatalf("seed document deliverable: %v", err)
 	}
 	if _, err := pool.Exec(ctx, `
-		INSERT INTO multica_workflow_node_deliverable (workflow_node_id, kind, title, required, sort_order)
-		VALUES ($1, 'pull_request', 'Code', TRUE, 1)
+		INSERT INTO multica_workflow_node_deliverable (workflow_node_id, title, required, sort_order)
+		VALUES ($1, 'Code', TRUE, 1)
 	`, util.UUIDToString(fix.node)); err != nil {
 		t.Fatalf("seed pull_request deliverable: %v", err)
 	}
@@ -2460,8 +2460,8 @@ func TestMergeAndApprove_KindAgnostic(t *testing.T) {
 	nrID, _ := util.ParseUUID(nodeRunID)
 
 	// Seed runtime deliverable requirements (template → runtime copy).
-	runtimeDocID := seedRuntimeDeliverableRequirement(t, pool, nrID, fix.node, "document")
-	runtimeCodeID := seedRuntimeDeliverableRequirement(t, pool, nrID, fix.node, "pull_request")
+	runtimeDocID := seedRuntimeDeliverableRequirement(t, pool, nrID, fix.node)
+	runtimeCodeID := seedRuntimeDeliverableRequirement(t, pool, nrID, fix.node)
 
 	giteaSrv, mergeCalls := fakeGiteaMergeServer(t, http.StatusOK)
 	svc := &WorkflowService{
