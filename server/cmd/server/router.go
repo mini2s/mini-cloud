@@ -279,6 +279,14 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 	// (read by buildCSCloudPayload). Same post-construction pattern as
 	// h.TaskService.EmptyClaim below.
 	h.TaskService.TeamNamespace = teamNamespaceClient
+	// Plugin catalog config for cs-cloud dispatch-time plugin resolution
+	// (buildCSCloudPayload fetches the agent's plugin metadata from the catalog
+	// and stamps the server-owned marketplace identity). Mirrors the handler
+	// claim-path config (cfg.BuiltinPluginAPIBaseURL / CSCPlugin*). Server-side
+	// only — the daemon is not involved.
+	h.TaskService.BuiltinPluginAPIBaseURL = strings.TrimRight(strings.TrimSpace(os.Getenv("BUILTIN_PLUGIN_API_BASE_URL")), "/")
+	h.TaskService.CSCPluginMarketplaceName = strings.TrimSpace(os.Getenv("CSC_PLUGIN_MARKETPLACE_NAME"))
+	h.TaskService.CSCPluginMarketplaceRepo = strings.TrimSpace(os.Getenv("CSC_PLUGIN_MARKETPLACE_REPO"))
 	// Auth caches: PAT cache is shared between the regular Auth middleware,
 	// the DaemonAuth fallback (mul_) path, and the revoke handler
 	// (invalidate). DaemonTokenCache backs the DaemonAuth mdt_ path. Both

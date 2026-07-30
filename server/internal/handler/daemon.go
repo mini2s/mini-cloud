@@ -20,6 +20,7 @@ import (
 	"github.com/multica-ai/multica/server/internal/daemonws"
 	"github.com/multica-ai/multica/server/internal/gitea"
 	"github.com/multica-ai/multica/server/internal/middleware"
+	"github.com/multica-ai/multica/server/internal/plugincatalog"
 	"github.com/multica-ai/multica/server/internal/service"
 	"github.com/multica-ai/multica/server/internal/util"
 	db "github.com/multica-ai/multica/server/pkg/db/generated"
@@ -1155,7 +1156,7 @@ func (h *Handler) ClaimTaskByRuntime(w http.ResponseWriter, r *http.Request) {
 		// Populate plugin metadata and inject plugin content into
 		// agent instructions. Best-effort -- failures must not block
 		// task startup.
-		pd := fetchPluginData(r.Context(), h.cfg.BuiltinPluginAPIBaseURL, agent.PluginID.String)
+		pd := plugincatalog.Fetch(r.Context(), h.cfg.BuiltinPluginAPIBaseURL, agent.PluginID.String)
 		if pd != nil {
 			// Marketplace identity is owned by server config, not the catalog.
 			// Override whatever the catalog returned; an empty config value is
