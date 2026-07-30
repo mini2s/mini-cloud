@@ -58,6 +58,7 @@ type pushTaskDB struct {
 	dispatchedResult db.MulticaAgentTaskQueue
 	lastSessionRow   *db.GetLastTaskSessionRow  // nil => 仿 ErrNoRows（首次/全中毒失败）
 	nodeRunRow       *db.MulticaWorkflowNodeRun // nil => ErrNoRows (Task 4 node-run handback)
+	workflowRunRow   *db.MulticaWorkflowRun     // nil => bare run, no SourceIssueID (prompt fallback returns "")
 	agentPluginID    pgtype.Text
 	agentPluginName  pgtype.Text
 }
@@ -96,6 +97,15 @@ func (m *pushTaskDB) QueryRow(_ context.Context, sql string, args ...interface{}
 			return &pushMockRow{err: pgx.ErrNoRows}
 		}
 		return &pushMockRow{nodeRun: m.nodeRunRow}
+	case strings.Contains(sql, "GetWorkflowRun"):
+		// buildWorkflowSourceIssuePrompt (default-workflow prompt fallback)
+		// resolves the run after GetWorkflowNodeRun. nil => bare run with no
+		// SourceIssueID so the fallback returns "" (normal-workflow handback task).
+		run := m.workflowRunRow
+		if run == nil {
+			run = &db.MulticaWorkflowRun{WorkspaceID: m.runtime.WorkspaceID}
+		}
+		return &pushMockRow{workflowRun: run}
 	default:
 		return &pushMockRow{err: pgx.ErrNoRows}
 	}
@@ -117,6 +127,7 @@ type pushMockRow struct {
 	issue       *db.MulticaIssue
 	lastSession *db.GetLastTaskSessionRow  // GetLastTaskSession 命中时填
 	nodeRun     *db.MulticaWorkflowNodeRun // GetWorkflowNodeRun hit (Task 4 handback)
+	workflowRun *db.MulticaWorkflowRun     // GetWorkflowRun hit (prompt source-issue fallback)
 	err         error
 }
 
@@ -153,6 +164,9 @@ func (r *pushMockRow) Scan(dest ...any) error {
 	}
 	if r.nodeRun != nil {
 		return scanNodeRun(r.nodeRun, dest)
+	}
+	if r.workflowRun != nil {
+		return scanWorkflowRun(r.workflowRun, dest)
 	}
 	return nil
 }
@@ -414,6 +428,10 @@ func TestComputeCSCloudTaskKind(t *testing.T) {
 		{"chat", db.MulticaAgentTaskQueue{ChatSessionID: pgtype.UUID{Valid: true}}, "chat"},
 		{"autopilot", db.MulticaAgentTaskQueue{AutopilotRunID: pgtype.UUID{Valid: true}}, "autopilot"},
 		{"quick_create", db.MulticaAgentTaskQueue{}, "quick_create"},
+		// A default-workflow agent task has a node-run but no workflow sub-issue,
+		// so IssueID is empty. It must classify as "direct" so buildIssuePrompt
+		// reaches the run.SourceIssueID fallback — not "quick_create" (empty prompt).
+		{"workflow_node_run_only", db.MulticaAgentTaskQueue{WorkflowNodeRunID: pgtype.UUID{Valid: true}}, "direct"},
 		{"comment", db.MulticaAgentTaskQueue{IssueID: pgtype.UUID{Valid: true}, TriggerCommentID: pgtype.UUID{Valid: true}}, "comment"},
 		{"direct", db.MulticaAgentTaskQueue{IssueID: pgtype.UUID{Valid: true}}, "direct"},
 	}
@@ -974,6 +992,50 @@ func TestBuildCSCloudPrompt_WorkflowTaskUsesSourceIssueWhenTaskIssueMissing(t *t
 	}
 }
 
+// TestBuildCSCloudPrompt_DefaultWorkflowAgentTaskIncludesIssue proves the
+// end-to-end fix for an agent-bound default-workflow issue: the task carries a
+// WorkflowNodeRunID but no IssueID (default-workflow runs create no sub-issue),
+// so the classifier must route it to "direct" — letting buildIssuePrompt reach
+// the run.SourceIssueID fallback and inject the issue title + body. Before the
+// fix, computeCSCloudTaskKind returned "quick_create" and the prompt was empty.
+func TestBuildCSCloudPrompt_DefaultWorkflowAgentTaskIncludesIssue(t *testing.T) {
+	nodeRunID := testUUID(50)
+	runID := testUUID(51)
+	sourceIssueID := testUUID(52)
+	description := "Build the landing page hero section.\n\nUse the brand palette."
+	mdb := &workflowSourceIssuePromptDB{
+		nodeRun: db.MulticaWorkflowNodeRun{
+			ID:            nodeRunID,
+			WorkflowRunID: runID,
+			NodeTitle:     "Deliverable",
+		},
+		run: db.MulticaWorkflowRun{
+			ID:            runID,
+			SourceIssueID: sourceIssueID,
+		},
+		issue: db.MulticaIssue{
+			ID:          sourceIssueID,
+			Title:       "Build Landing Hero",
+			Description: pgtype.Text{String: description, Valid: true},
+		},
+	}
+	svc := &TaskService{Queries: db.New(mdb)}
+	// Default-workflow agent task: node-run dispatched, no sub-issue → empty IssueID.
+	task := db.MulticaAgentTaskQueue{WorkflowNodeRunID: nodeRunID}
+
+	kind := computeCSCloudTaskKind(task)
+	prompt, err := svc.buildCSCloudPrompt(context.Background(), task, kind)
+	if err != nil {
+		t.Fatalf("buildCSCloudPrompt: %v", err)
+	}
+	if !strings.Contains(prompt, "Issue: Build Landing Hero") {
+		t.Fatalf("classifier kind=%q; prompt missing source issue title:\n%s", kind, prompt)
+	}
+	if !strings.Contains(prompt, description) {
+		t.Fatalf("classifier kind=%q; prompt missing source issue description:\n%s", kind, prompt)
+	}
+}
+
 // --- deliverableSpecsForTask tests ---
 
 // deliverableTestDB is a focused mock for deliverableSpecsForTask.
@@ -1243,7 +1305,7 @@ func TestRepositoryDeliverableEnv_InjectedForAnyDeliverable(t *testing.T) {
 		"CS_CLOUD_REPO_CLONE_URL_AUTHED",
 		"CS_CLOUD_REPO_INST_BRANCH",
 		"CS_CLOUD_REPO_NODE_BRANCH",
-		"CS_CLOUD_GITEA_OWNER",      // legacy alias
+		"CS_CLOUD_GITEA_OWNER",     // legacy alias
 		"CS_CLOUD_GITEA_TOKEN",     // legacy alias
 		"CS_CLOUD_GITEA_CLONE_URL", // legacy alias
 	} {
@@ -2416,7 +2478,7 @@ func TestRepositoryDeliverableEnv_FallsBackToSelfBuiltWhenSettingsLackCloneURL(t
 func TestRewriteGiteaHostToPublic(t *testing.T) {
 	t.Setenv("GITEA_BASE_URL", "http://10.20.19.101:33000")
 	t.Setenv("GITEA_PUBLIC_BASE_URL", "https://zgsmtest.xyz:30443")
-	got := rewriteGiteaHostToPublic("http://10.20.19.101:33000/t-ad9d561c/wf-deliverable-archive.git")
+	got := RewriteGiteaHostToPublic("http://10.20.19.101:33000/t-ad9d561c/wf-deliverable-archive.git")
 	want := "https://zgsmtest.xyz:30443/t-ad9d561c/wf-deliverable-archive.git"
 	if got != want {
 		t.Errorf("rewrite = %q, want %q", got, want)
@@ -2427,7 +2489,7 @@ func TestRewriteGiteaHostToPublic_NoopWithoutPublicBase(t *testing.T) {
 	t.Setenv("GITEA_BASE_URL", "http://10.20.19.101:33000")
 	t.Setenv("GITEA_PUBLIC_BASE_URL", "")
 	in := "http://10.20.19.101:33000/t-x/wf-y.git"
-	if got := rewriteGiteaHostToPublic(in); got != in {
+	if got := RewriteGiteaHostToPublic(in); got != in {
 		t.Errorf("rewrite = %q, want unchanged when GITEA_PUBLIC_BASE_URL unset (single-host deploy)", got)
 	}
 }
@@ -2438,7 +2500,7 @@ func TestRewriteGiteaHostToPublic_NoopForUnknownHost(t *testing.T) {
 	t.Setenv("GITEA_BASE_URL", "http://10.20.19.101:33000")
 	t.Setenv("GITEA_PUBLIC_BASE_URL", "https://zgsmtest.xyz:30443")
 	in := "https://gitea-tenant.example/t-x/wf-y.git"
-	if got := rewriteGiteaHostToPublic(in); got != in {
+	if got := RewriteGiteaHostToPublic(in); got != in {
 		t.Errorf("rewrite = %q, want unchanged (host is not the internal Gitea)", got)
 	}
 }
@@ -2448,7 +2510,7 @@ func TestRewriteGiteaHostToPublic_PortIsExactNotPrefix(t *testing.T) {
 	t.Setenv("GITEA_BASE_URL", "http://h:33000")
 	t.Setenv("GITEA_PUBLIC_BASE_URL", "https://pub.example")
 	in := "http://h:330000/t-x/wf-y.git"
-	if got := rewriteGiteaHostToPublic(in); got != in {
+	if got := RewriteGiteaHostToPublic(in); got != in {
 		t.Errorf("rewrite = %q, want unchanged (:33000 is not a prefix match for :330000)", got)
 	}
 }

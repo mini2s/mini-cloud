@@ -9,6 +9,8 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/url"
+	"os"
 	"path"
 	"strings"
 	"time"
@@ -17,7 +19,6 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/multica-ai/multica/server/internal/coderepo"
 	"github.com/multica-ai/multica/server/internal/gitea"
-	"github.com/multica-ai/multica/server/internal/gitlab"
 	"github.com/multica-ai/multica/server/internal/teamnamespace"
 	"github.com/multica-ai/multica/server/internal/util"
 	db "github.com/multica-ai/multica/server/pkg/db/generated"
@@ -843,6 +844,117 @@ func (s *WorkflowService) readGiteaCloneURL(ctx context.Context, workspaceID pgt
 	return strings.TrimSpace(bundle.GiteaCloneURL), nil
 }
 
+// isArchiveGiteaURL reports whether rawURL points at the internal archive
+// Gitea (scheme+host exact-match GITEA_BASE_URL). Used to tell a Gitea doc-PR
+// submission apart from an external code-MR submission when rebuilding the
+// node's code-links archive. Returns false when GITEA_BASE_URL is unset.
+func isArchiveGiteaURL(rawURL string) bool {
+	rawURL = strings.TrimSpace(rawURL)
+	internalBase := strings.TrimSpace(os.Getenv("GITEA_BASE_URL"))
+	if rawURL == "" || internalBase == "" {
+		return false
+	}
+	u, err := url.Parse(rawURL)
+	if err != nil || u.Scheme == "" || u.Host == "" {
+		return false
+	}
+	in, err := url.Parse(internalBase)
+	if err != nil || in.Scheme == "" || in.Host == "" {
+		return false
+	}
+	return u.Scheme == in.Scheme && u.Host == in.Host
+}
+
+// codeLinksArchiveFile is the single file under a node-run's NodeDir that lists
+// every external code-MR link submitted against that node-run. CJK is safe in
+// in-repo paths (git stores bytes, Gitea renders UTF-8).
+const codeLinksArchiveFile = "代码合并请求.md"
+
+// ArchiveNodeCodeLinks rebuilds the node-run's code-MR-links archive file on
+// the node branch (NodeBranch) and (re)opens the node PR (NodeBranch → inst).
+// It collects every submission on the node-run whose pull_request_url is an
+// EXTERNAL code MR (not the archive Gitea) — human- and agent-submitted links
+// accumulate in one .md under one node PR (reused across submissions).
+//
+// Best-effort + fire-and-forget (callers run it in a goroutine): dormant when
+// the repository provider is not configured; errors are logged, never
+// returned. Idempotent: the .md is fully rebuilt from current submissions, and
+// OpenReviewRequest reuses an existing open PR. The node PR URL is NOT stored
+// on any submission — the archive is the deliverable's 合并请求; the displayed
+// link stays the real code MR so users can merge it themselves.
+func (s *WorkflowService) ArchiveNodeCodeLinks(ctx context.Context, nodeRunID pgtype.UUID) {
+	repoProvider := s.deliverableRepository()
+	if !repoProvider.Configured() {
+		return
+	}
+	nodeRun, err := s.Queries.GetWorkflowNodeRun(ctx, nodeRunID)
+	if err != nil {
+		slog.Warn("archive node code links: get node run", "node_run_id", util.UUIDToString(nodeRunID), "error", err)
+		return
+	}
+	run, err := s.Queries.GetWorkflowRun(ctx, nodeRun.WorkflowRunID)
+	if err != nil {
+		slog.Warn("archive node code links: get run", "error", err)
+		return
+	}
+	workflow, err := s.workflowFromRunSnapshot(ctx, run)
+	if err != nil {
+		slog.Warn("archive node code links: get snapshot", "error", err)
+		return
+	}
+	submissions, err := s.Queries.ListNodeRunDeliverableSubmissions(ctx, nodeRun.ID)
+	if err != nil {
+		slog.Warn("archive node code links: list submissions", "error", err)
+		return
+	}
+	var links []string
+	for _, sub := range submissions {
+		if sub.Status == "missing" || sub.Status == "rejected" {
+			continue
+		}
+		if sub.PullRequestUrl == "" || isArchiveGiteaURL(sub.PullRequestUrl) {
+			continue
+		}
+		links = append(links, sub.PullRequestUrl)
+	}
+	if len(links) == 0 {
+		return
+	}
+
+	topo, err := NodeTopoOrder(ctx, s.Queries, run.WorkflowID)
+	if err != nil {
+		slog.Warn("archive node code links: node topo order", "error", err)
+		return
+	}
+	nodeSeq := topo[util.UUIDToString(nodeRun.WorkflowNodeID)]
+	owner := gitea.OrgName(util.UUIDToString(run.WorkspaceID))
+	repo := DeliverableRepoNameForWorkflow(workflow)
+	inst := gitea.InstBranch(util.UUIDToString(run.ID))
+	nodeBranch := gitea.NodeBranch(nodeSeq, util.UUIDToString(nodeRun.ID))
+	filePath := gitea.NodeDir(nodeSeq, nodeRun.NodeTitle, util.UUIDToString(nodeRun.ID)) + "/" + codeLinksArchiveFile
+
+	var b strings.Builder
+	fmt.Fprintf(&b, "---\nnode_run: %s\nlinks: %d\n---\n\n## 代码合并请求\n\n", util.UUIDToString(nodeRun.ID), len(links))
+	for _, l := range links {
+		fmt.Fprintf(&b, "- %s\n", l)
+	}
+	// Best-effort: ensure NodeBranch exists (ensureNodeRunBranch usually created
+	// it at node entry, but it can be gated out when the node had no
+	// deliverables at entry). Must precede UpsertFile — Gitea's contents API
+	// rejects a commit to a missing branch. "Branch already exists" errors are
+	// ignored so this is idempotent.
+	_ = repoProvider.CreateBranch(ctx, owner, repo, nodeBranch, inst)
+	if err := repoProvider.UpsertFile(ctx, owner, repo, nodeBranch, filePath, b.String(), "archive code MR links"); err != nil {
+		slog.Warn("archive node code links: write file", "node_run_id", util.UUIDToString(nodeRun.ID), "path", filePath, "error", err)
+		return
+	}
+	if _, err := repoProvider.OpenReviewRequest(ctx, owner, repo, nodeBranch, inst, "node code MR links"); err != nil {
+		slog.Warn("archive node code links: open review request", "node_run_id", util.UUIDToString(nodeRun.ID), "error", err)
+		return
+	}
+	slog.Info("archived node code links", "node_run_id", util.UUIDToString(nodeRun.ID), "links", len(links), "path", filePath)
+}
+
 // shortHexSafe returns the first 8 hex chars of a UUID string, or the full
 // string if shorter (defensive — the gitea package's shortHex panics on
 // non-UUID, so we validate first).
@@ -903,13 +1015,11 @@ func (s *WorkflowService) mergeDeliverablePRs(ctx context.Context, nodeRun db.Mu
 	return nil
 }
 
-// mergeReviewURL merges a single deliverable review request by dispatching on
-// its URL: a Gitea PR (multica-managed document deliverable) uses the admin
-// client; a GitLab MR (worker code deliverable) uses the workspace's
-// gitlab_access_token. Either platform is dormant (returns nil, no error) when
-// its credential is absent — so a code-only workspace (Gitea nil) still merges
-// GitLab MRs, and a document-only workspace (no GitLab PAT) still merges Gitea
-// PRs. A URL that parses as neither returns an error (unrecognized).
+// mergeReviewURL merges a single deliverable review request ONLY when it is a
+// Gitea PR — a multica-managed document deliverable being signed off. External
+// code MRs (GitLab, GitHub, ...) are NOT merged by multica: the user merges
+// them themselves (the real code-MR URL is kept on the submission and listed in
+// the node's code-links .md). A non-Gitea URL is therefore a no-op (nil).
 func (s *WorkflowService) mergeReviewURL(ctx context.Context, workspaceID pgtype.UUID, owner, repo, rawURL string) error {
 	if index, err := gitea.ParsePullRequestIndex(rawURL); err == nil {
 		if s.Gitea == nil || !s.Gitea.Configured() {
@@ -917,112 +1027,9 @@ func (s *WorkflowService) mergeReviewURL(ctx context.Context, workspaceID pgtype
 		}
 		return retryMergeDocPR(ctx, s.deliverableRepository(), owner, repo, index)
 	}
-	ref, err := gitlab.ParseMergeRequestURL(rawURL)
-	if err != nil {
-		return fmt.Errorf("unrecognized review URL %q: %w", rawURL, err)
-	}
-	token, err := s.gitlabAccessToken(ctx, workspaceID)
-	if err != nil {
-		return fmt.Errorf("read gitlab access token: %w", err)
-	}
-	if token == "" {
-		return nil // GitLab dormant
-	}
-	return retryGitlabMR(ctx, &gitlab.Client{}, ref, token)
-}
-
-// retryGitlabMR mirrors retryMergeDocPR: bounded 3-attempt backoff, with
-// gitlab.ErrMergeConflict treated as terminal (no retry).
-func retryGitlabMR(ctx context.Context, c *gitlab.Client, ref gitlab.MergeRequestRef, token string) error {
-	const maxAttempts = 3
-	var lastErr error
-	for attempt := 0; attempt < maxAttempts; attempt++ {
-		err := c.MergeMR(ctx, ref, token)
-		if err == nil {
-			return nil
-		}
-		if errors.Is(err, gitlab.ErrMergeConflict) {
-			return err
-		}
-		lastErr = err
-		if attempt == maxAttempts-1 {
-			break
-		}
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-time.After(time.Duration(1<<attempt) * time.Second):
-		}
-	}
-	return lastErr
-}
-
-// gitlabAccessToken reads the per-workspace GitLab user PAT from
-// workspace.settings (gitlab_access_token). Mirrors the inline read in
-// task_cscloud_push.go. Empty when the workspace has no GitLab PAT configured.
-func (s *WorkflowService) gitlabAccessToken(ctx context.Context, workspaceID pgtype.UUID) (string, error) {
-	ws, err := s.Queries.GetWorkspace(ctx, workspaceID)
-	if err != nil {
-		return "", fmt.Errorf("get workspace: %w", err)
-	}
-	var settings struct {
-		GitlabAccessToken string `json:"gitlab_access_token"`
-	}
-	if err := json.Unmarshal(ws.Settings, &settings); err != nil {
-		return "", fmt.Errorf("parse workspace settings: %w", err)
-	}
-	return strings.TrimSpace(settings.GitlabAccessToken), nil
-}
-
-// closeDeliverableReviewRequests closes the node-run's Gitea PRs after a
-// critic rejection, so a stale PR doesn't linger into the next retry round
-// (the worker opens a fresh one). Dispatch is by URL host: if
-// gitea.ParsePullRequestIndex succeeds the PR is Gitea-hosted and gets closed;
-// GitLab MRs (and unparseable URLs) are deliberately NOT closed — the worker
-// revises them in place across retries via findOpenPR. Best-effort: failures
-// are logged and never block the rework/blocked transition (closing is
-// cleanup, not a gate on the review outcome). Dormant when no provider is
-// configured.
-func (s *WorkflowService) closeDeliverableReviewRequests(ctx context.Context, nodeRun db.MulticaWorkflowNodeRun) {
-	provider := s.deliverableRepository()
-	if !provider.Configured() {
-		return // dormant — nothing to close against
-	}
-	run, err := s.Queries.GetWorkflowRun(ctx, nodeRun.WorkflowRunID)
-	if err != nil {
-		slog.Warn("close deliverable PRs: get run", "error", err)
-		return
-	}
-	workflow, err := s.Queries.GetWorkflow(ctx, run.WorkflowID)
-	if err != nil {
-		slog.Warn("close deliverable PRs: get workflow", "error", err)
-		return
-	}
-	owner := gitea.OrgName(util.UUIDToString(run.WorkspaceID))
-	repo := DeliverableRepoNameForWorkflow(workflow)
-
-	submissions, err := s.Queries.ListNodeRunDeliverableSubmissions(ctx, nodeRun.ID)
-	if err != nil {
-		slog.Warn("close deliverable PRs: list submissions", "error", err)
-		return
-	}
-	for _, sub := range submissions {
-		if sub.PullRequestUrl == "" {
-			continue
-		}
-		index, err := gitea.ParsePullRequestIndex(sub.PullRequestUrl)
-		if err != nil {
-			// GitLab MR or unparseable URL — skip (worker revises in place).
-			// Debug (not Warn): GitLab MR URLs always fail this parse, so Warn
-			// would be noisy; Debug keeps a breadcrumb for genuinely malformed
-			// Gitea URLs without spamming on every rejected code MR.
-			slog.Debug("close deliverable PR: skip unparseable url", "url", sub.PullRequestUrl)
-			continue
-		}
-		if err := provider.CloseReviewRequest(ctx, owner, repo, index); err != nil {
-			slog.Warn("close deliverable PR failed (best-effort)", "index", index, "error", err)
-		}
-	}
+	// Any non-Gitea URL (GitLab MR, GitHub PR, ...) is a code MR that the user
+	// merges themselves — multica does NOT auto-merge code MRs.
+	return nil
 }
 
 // retryMergeDocPR calls MergePR with bounded backoff. A 409 conflict
@@ -1275,19 +1282,14 @@ func linkArchiveHash(link string) string {
 }
 
 // UploadMemberDeliverablePR handles member-submitted code merge-request URLs
-// for the issue's pull_request-kind deliverable. It mirrors
-// UploadMemberDeliverable: each link is archived as a file on its own branch
-// off inst, a Gitea PR (link branch -> inst) is opened per link, the PR URLs
-// are registered on the deliverable's submissions (one row per link;
-// re-submitting the same link is idempotent), and the node-run advances into
-// review once every required deliverable is submitted — keeping the code flow
-// identical to the document flow (no direct merge to inst). An optional
-// summary rides into the worker output when the upload triggers the advance.
+// for the issue's pull_request-kind deliverable. The real code-MR links are
+// stored as-is (no per-link Gitea branch/PR), and after the commit
+// ArchiveNodeCodeLinks reconciles all links into one .md on the node's branch
+// + node PR — best-effort, dormant-safe.
 func (s *WorkflowService) UploadMemberDeliverablePR(ctx context.Context, issue db.MulticaIssue, pullRequestURLs []string, deliverableID, userID, summary string) error {
 	if len(pullRequestURLs) == 0 {
 		return errors.New("no pull request URLs to submit")
 	}
-	repoProvider := s.deliverableRepository()
 	var uploadedNodeRunID pgtype.UUID
 	err := s.runLockedMemberUpload(ctx, issue, func(q *db.Queries, run db.MulticaWorkflowRun, nodeRun db.MulticaWorkflowNodeRun) (db.MulticaWorkflowNodeRun, bool, error) {
 		uploadedNodeRunID = nodeRun.ID
@@ -1299,71 +1301,30 @@ func (s *WorkflowService) UploadMemberDeliverablePR(ctx context.Context, issue d
 		if err != nil {
 			return db.MulticaWorkflowNodeRun{}, false, err
 		}
-
-		// Mirror the document flow: archive each code link as a file on its own
-		// branch off inst and open a Gitea PR (link branch -> inst) so every link
-		// goes through review like a document deliverable. Per-link branches keep
-		// separate links independently reviewable and make retries idempotent.
+		// Store the real code-MR links as-is (no Gitea PR, no per-link branch).
+		// The node PR archive is reconciled async after the commit below.
 		submissions := make([]db.UpsertNodeRunDeliverableSubmissionParams, 0, len(pullRequestURLs))
-		var firstPRURL string
-		if repoProvider.Configured() {
-			workflow, err := workflowFromRunSnapshotWithQueries(ctx, q, run)
-			if err != nil {
-				return db.MulticaWorkflowNodeRun{}, false, fmt.Errorf("get run snapshot: %w", err)
+		var firstLink string
+		for _, link := range pullRequestURLs {
+			if firstLink == "" {
+				firstLink = link
 			}
-			topo, err := RunNodeTopoOrder(ctx, q, run.ID)
-			if err != nil {
-				return db.MulticaWorkflowNodeRun{}, false, fmt.Errorf("node topo order: %w", err)
-			}
-			nodeSeq := topo[util.UUIDToString(nodeRun.ID)]
-			owner := gitea.OrgName(util.UUIDToString(run.WorkspaceID))
-			repo := DeliverableRepoNameForWorkflow(workflow)
-			inst := gitea.InstBranch(util.UUIDToString(run.ID))
-			nodeDir := gitea.NodeDir(nodeSeq, nodeRun.NodeTitle, util.UUIDToString(nodeRun.ID))
-			baseBranch := gitea.NodeBranch(nodeSeq, util.UUIDToString(nodeRun.ID))
-			for _, link := range pullRequestURLs {
-				hash := linkArchiveHash(link)
-				branch := baseBranch + "-link-" + hash
-				path := nodeDir + "/" + sanitizeArchiveFileName(deliverable.Title) + "-" + hash + ".md"
-				content := fmt.Sprintf("# %s\n\n%s\n", deliverable.Title, link)
-				if err := repoProvider.CreateBranch(ctx, owner, repo, branch, inst); err != nil {
-					return db.MulticaWorkflowNodeRun{}, false, fmt.Errorf("create link branch: %w", err)
-				}
-				if err := repoProvider.UpsertFile(ctx, owner, repo, branch, path, content, "code merge request link: "+link); err != nil {
-					return db.MulticaWorkflowNodeRun{}, false, fmt.Errorf("archive code link: %w", err)
-				}
-				prURL, err := repoProvider.OpenReviewRequest(ctx, owner, repo, branch, inst, "code deliverable "+util.UUIDToString(deliverable.ID))
-				if err != nil {
-					return db.MulticaWorkflowNodeRun{}, false, fmt.Errorf("open PR: %w", err)
-				}
-				if firstPRURL == "" {
-					firstPRURL = prURL
-				}
-				submissions = append(submissions, db.UpsertNodeRunDeliverableSubmissionParams{
-					WorkflowNodeRunID: nodeRun.ID,
-					DeliverableID:     deliverable.ID,
-					SubmittedByType:   "member",
-					SubmittedByID:     util.MustParseUUID(userID),
-					PullRequestUrl:    prURL,
-				})
-			}
-		} else {
-			// Dormant fallback: no Gitea — record the pasted links as-is.
-			for _, link := range pullRequestURLs {
-				submissions = append(submissions, db.UpsertNodeRunDeliverableSubmissionParams{
-					WorkflowNodeRunID: nodeRun.ID,
-					DeliverableID:     deliverable.ID,
-					SubmittedByType:   "member",
-					SubmittedByID:     util.MustParseUUID(userID),
-					PullRequestUrl:    link,
-				})
-			}
+			submissions = append(submissions, db.UpsertNodeRunDeliverableSubmissionParams{
+				WorkflowNodeRunID: nodeRun.ID,
+				DeliverableID:     deliverable.ID,
+				SubmittedByType:   "member",
+				SubmittedByID:     util.MustParseUUID(userID),
+				PullRequestUrl:    link,
+			})
 		}
-
-		return recordMemberUploadAndAdvance(ctx, q, nodeRun, submissions, workerOutputForAdvance(firstPRURL, summary))
+		return recordMemberUploadAndAdvance(ctx, q, nodeRun, submissions, workerOutputForAdvance(firstLink, summary))
 	})
 	if err != nil {
 		return err
+	}
+	// Best-effort: rebuild the node's code-links .md + node PR.
+	if s.deliverableRepository().Configured() {
+		go s.ArchiveNodeCodeLinks(context.Background(), uploadedNodeRunID)
 	}
 	slog.Info("member code deliverable uploaded",
 		"issue_id", util.UUIDToString(issue.ID), "node_run_id", util.UUIDToString(uploadedNodeRunID), "links", len(pullRequestURLs))

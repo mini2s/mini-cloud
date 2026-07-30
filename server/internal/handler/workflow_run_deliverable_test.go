@@ -13,6 +13,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/multica-ai/multica/server/internal/coderepo"
 	"github.com/multica-ai/multica/server/internal/service"
+	db "github.com/multica-ai/multica/server/pkg/db/generated"
 )
 
 // seedDeliverableAndNodeRunIn inserts a workflow→node→run→node_run→deliverable
@@ -279,10 +280,9 @@ func (s *handlerSpyRepoProvider) waitForCall(t *testing.T, n int, timeout time.D
 }
 
 // TestSubmitNodeRunDeliverable_ArchivesGitLabMRPointer asserts that a submission
-// carrying a GitLab MR URL triggers ArchiveCodeDeliverable asynchronously —
+// carrying a GitLab MR URL triggers ArchiveNodeCodeLinks asynchronously —
 // the response is 200 (not blocked by the archive) and the spy provider records
-// an UpsertFile at the code/<deliverableID>.md path. Only GitLab MR URLs
-// trigger the archive; Gitea PRs are managed via the review merge flow.
+// an UpsertFile at the 代码合并请求.md path with the MR URL in the content.
 func TestSubmitNodeRunDeliverable_ArchivesGitLabMRPointer(t *testing.T) {
 	if testHandler == nil {
 		t.Skip("database not available")
@@ -305,8 +305,7 @@ func TestSubmitNodeRunDeliverable_ArchivesGitLabMRPointer(t *testing.T) {
 		testPool.Exec(ctx, `DELETE FROM multica_workflow_node_deliverable_submission WHERE workflow_node_run_id = $1`, nodeRunID)
 	})
 
-	// Add a pull_request-kind deliverable on the same node — archiving under
-	// code/<id>.md is semantically a code-MR pointer.
+	// Add a pull_request-kind deliverable on the same node.
 	prDeliverableID := uuid.NewString()
 	if _, err := testPool.Exec(ctx, `
 		INSERT INTO multica_workflow_node_deliverable (id, workflow_node_id, title, required)
@@ -339,12 +338,13 @@ func TestSubmitNodeRunDeliverable_ArchivesGitLabMRPointer(t *testing.T) {
 
 	calls := spy.waitForCall(t, 1, 3*time.Second)
 	if len(calls) < 1 {
-		t.Fatalf("expected ArchiveCodeDeliverable to fire; spy recorded %d calls", len(calls))
+		t.Fatalf("expected ArchiveNodeCodeLinks to fire; spy recorded %d calls", len(calls))
 	}
 	got := calls[0]
-	wantSuffix := "/code/" + prDeliverableID + ".md"
-	if !strings.HasSuffix(got.Path, wantSuffix) {
-		t.Errorf("UpsertFile path = %q, want suffix %q", got.Path, wantSuffix)
+	// ArchiveNodeCodeLinks writes to <nodeDir>/代码合并请求.md, not the old
+	// per-deliverable code/<id>.md path.
+	if !strings.HasSuffix(got.Path, "/代码合并请求.md") {
+		t.Errorf("UpsertFile path = %q, want suffix %q", got.Path, "/代码合并请求.md")
 	}
 	if !strings.Contains(got.Content, mrURL) {
 		t.Errorf("UpsertFile content missing MR URL %q; content=%q", mrURL, got.Content)
@@ -352,13 +352,17 @@ func TestSubmitNodeRunDeliverable_ArchivesGitLabMRPointer(t *testing.T) {
 }
 
 // TestSubmitNodeRunDeliverable_DoesNotArchiveGiteaPR asserts that a Gitea PR
-// URL does NOT trigger ArchiveCodeDeliverable. The archive guard dispatches
-// by URL host: Gitea PRs are managed via the review merge flow and don't need
-// a code/<id>.md pointer. Only GitLab MR URLs trigger the archive.
+// URL does NOT trigger an archive UpsertFile. ArchiveNodeCodeLinks still fires,
+// but isArchiveGiteaURL filters out the Gitea-hosted submission URL, so no code
+// links are collected and the method returns early (zero UpsertFile calls).
 func TestSubmitNodeRunDeliverable_DoesNotArchiveGiteaPR(t *testing.T) {
 	if testHandler == nil {
 		t.Skip("database not available")
 	}
+	// Set GITEA_BASE_URL so isArchiveGiteaURL recognises the PR host and
+	// filters it out. Without this env var the URL would pass through unfiltered.
+	t.Setenv("GITEA_BASE_URL", "https://gitea.example.com")
+
 	originalSvc := testHandler.WorkflowService
 	spy := newHandlerSpyRepoProvider()
 	testHandler.WorkflowService = &service.WorkflowService{
@@ -375,7 +379,7 @@ func TestSubmitNodeRunDeliverable_DoesNotArchiveGiteaPR(t *testing.T) {
 	})
 
 	// Submit a Gitea PR URL for the document deliverable. The archive must NOT
-	// fire because the URL is Gitea-hosted, not GitLab-hosted.
+	// produce an UpsertFile because isArchiveGiteaURL filters it out.
 	const prURL = "https://gitea.example.com/t-aaa/wf-bbb/pulls/9"
 	req := newRequest(http.MethodPost, "/api/node-runs/"+nodeRunID+"/deliverables/"+docID+"/submit",
 		map[string]any{"pull_request_url": prURL})
@@ -388,11 +392,13 @@ func TestSubmitNodeRunDeliverable_DoesNotArchiveGiteaPR(t *testing.T) {
 		t.Fatalf("status = %d, want 200. body=%s", rec.Code, rec.Body.String())
 	}
 
-	// Give the would-be async archive a brief window to (incorrectly) fire, then
-	// assert it never did.
-	calls := spy.waitForCall(t, 1, 500*time.Millisecond)
+	// Non-blocking wait: give the async goroutine a brief window, then snapshot.
+	// ArchiveNodeCodeLinks returns early when all links are Gitea-hosted, so the
+	// spy is never signaled — a blocking waitForCall would hang.
+	time.Sleep(200 * time.Millisecond)
+	calls := spy.snapshot()
 	if len(calls) != 0 {
-		t.Fatalf("expected NO archive call for Gitea PR URL, got %d: %+v", len(calls), calls)
+		t.Fatalf("expected NO archive UpsertFile call for Gitea PR URL, got %d: %+v", len(calls), calls)
 	}
 }
 
@@ -421,6 +427,28 @@ func TestSubmitNodeRunDeliverable_Returns404ForUnknownDeliverable(t *testing.T) 
 // TestSubmitNodeRunDeliverable_AgentAttribution asserts that a submit with
 // valid X-Agent-ID + X-Task-ID headers stamps submitted_by_type="agent", and
 // a submit without the headers stays "member".
+// TestWorkflowNodeDeliverableSubmissionToResponse_RewritesGiteaHost asserts that
+// the response assembler swaps an internal Gitea host for the public one, and
+// leaves non-Gitea URLs (e.g. GitLab MRs) untouched.
+func TestWorkflowNodeDeliverableSubmissionToResponse_RewritesGiteaHost(t *testing.T) {
+	t.Setenv("GITEA_BASE_URL", "http://10.20.19.101:33000")
+	t.Setenv("GITEA_PUBLIC_BASE_URL", "https://zgsmtest.xyz:30443")
+
+	internal := "http://10.20.19.101:33000/t-aaa/wf-bbb/pulls/7"
+	sub := db.MulticaWorkflowNodeDeliverableSubmission{PullRequestUrl: internal}
+	got := workflowNodeDeliverableSubmissionToResponse(sub)
+	want := "https://zgsmtest.xyz:30443/t-aaa/wf-bbb/pulls/7"
+	if got.PullRequestURL != want {
+		t.Errorf("PullRequestURL = %q, want %q", got.PullRequestURL, want)
+	}
+
+	// External code MRs (non-Gitea) pass through unchanged.
+	mr := db.MulticaWorkflowNodeDeliverableSubmission{PullRequestUrl: "https://gitlab.example.com/g/p/-/merge_requests/3"}
+	if got := workflowNodeDeliverableSubmissionToResponse(mr); got.PullRequestURL != mr.PullRequestUrl {
+		t.Errorf("external MR URL should pass through; got %q", got.PullRequestURL)
+	}
+}
+
 func TestSubmitNodeRunDeliverable_AgentAttribution(t *testing.T) {
 	if testHandler == nil {
 		t.Skip("database not available")

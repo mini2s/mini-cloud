@@ -541,7 +541,7 @@ func (s *TaskService) resolveDeliveryRepo(ctx context.Context, workspaceID pgtyp
 		return csCloudRepoSpec{}, false
 	}
 	return csCloudRepoSpec{
-		URL:        rewriteGiteaHostToPublic(bundle.GiteaCloneURL),
+		URL:        RewriteGiteaHostToPublic(bundle.GiteaCloneURL),
 		Provider:   "gitea",
 		Role:       "delivery",
 		BaseBranch: strings.TrimSpace(bundle.InstBranch),
@@ -682,6 +682,7 @@ func appendWorkerTaskPrompt(prompt string) string {
 	b.WriteString("\n---\n## Workflow Worker Task\n\n")
 	b.WriteString("You are the worker for this workflow node. Complete the assigned work and submit every required deliverable before finishing.\n")
 	b.WriteString("Do NOT perform critic review. Do NOT approve or reject the work. If the issue text mentions a critic/reviewer, treat that as context for the later review phase, not your current task.\n")
+	b.WriteString("Your task context (task id, this device's local server URL, workspace id, Gitea credentials) is in `.cs-cloud.env` in your work directory. The `cs-cloud workflow` commands read it automatically — run them from your work directory, no need to pass anything.\n")
 	b.WriteString("\n### Finishing\n\n")
 	b.WriteString("When your work is complete, you MUST signal it explicitly by running `cs-cloud workflow task complete --summary \"<one-line summary of what you delivered>\"` as your LAST action. The task does NOT complete when you stop working — until you call this command, the task stays open, idle is treated as incomplete, and it will eventually time out and fail.\n")
 	b.WriteString("\n---\n\n")
@@ -725,9 +726,10 @@ func appendCriticReviewPrompt(prompt string) string {
 		b.WriteByte('\n')
 	}
 	b.WriteString("\n---\n## Workflow Critic Review\n\n")
-	b.WriteString("You are reviewing the worker's submitted deliverables for this workflow node. Inspect the issue context and deliverable PRs, then signal your decision with the review tool as your LAST action:\n\n")
-	b.WriteString("- Approve (work is acceptable): `cs-cloud workflow task review --decision approve --reason \"<short review opinion>\"`\n")
-	b.WriteString("- Request rework (work needs changes): `cs-cloud workflow task review --decision reject --reason \"<actionable rejection reason>\"`\n\n")
+	b.WriteString("You are reviewing the worker's submitted deliverables for this workflow node. Inspect the issue context and deliverable PRs, then signal your decision as your LAST action:\n\n")
+	b.WriteString("Your task context (task id, this device's local server URL) is in `.cs-cloud.env` in your work directory. The `cs-cloud workflow` commands read it automatically — run them from your work directory, no need to pass anything.\n\n")
+	b.WriteString("- Approve (work is acceptable): `cs-cloud workflow task approve --reason \"<short review opinion>\"`\n")
+	b.WriteString("- Request rework (work needs changes): `cs-cloud workflow task reject --reason \"<actionable rejection reason>\"`\n\n")
 	b.WriteString("The review does NOT complete when you stop working — until you call one of these commands, the task stays open, idle is treated as incomplete, and it will eventually time out and fail.\n")
 	b.WriteString("---\n\n")
 	return b.String()
@@ -851,7 +853,7 @@ func (s *TaskService) repositoryDeliverableEnv(ctx context.Context, task db.Mult
 	// matches; fall back to self-assembly only when pre-provisioning.
 	var cloneURL string
 	if strings.TrimSpace(settingsCloneURL) != "" {
-		cloneURL = rewriteGiteaHostToPublic(settingsCloneURL)
+		cloneURL = RewriteGiteaHostToPublic(settingsCloneURL)
 	} else {
 		cloneURL = strings.TrimRight(publicBase, "/") + "/" + owner + "/" + repo + ".git"
 	}
@@ -859,7 +861,7 @@ func (s *TaskService) repositoryDeliverableEnv(ctx context.Context, task db.Mult
 	// PR API targets); fall back to GITEA_PUBLIC_BASE_URL.
 	var baseURL string
 	if strings.TrimSpace(settingsWebURL) != "" {
-		baseURL = strings.TrimRight(rewriteGiteaHostToPublic(settingsWebURL), "/")
+		baseURL = strings.TrimRight(RewriteGiteaHostToPublic(settingsWebURL), "/")
 	} else {
 		baseURL = strings.TrimRight(publicBase, "/")
 	}
@@ -931,7 +933,7 @@ func injectGiteaToken(cloneURL, botUser, token string) string {
 	return u.String()
 }
 
-// rewriteGiteaHostToPublic swaps a Gitea URL's scheme+host+port from the
+// RewriteGiteaHostToPublic swaps a Gitea URL's scheme+host+port from the
 // container-internal GITEA_BASE_URL to the caller-reachable
 // GITEA_PUBLIC_BASE_URL, preserving the path. costrict-web's team-namespace
 // service emits wf_clone_url using its single (internal) tenant git-server
@@ -948,7 +950,7 @@ func injectGiteaToken(cloneURL, botUser, token string) string {
 // (CS_CLOUD_REPO_CLONE_URL) run settings.gitea_clone_url through this helper,
 // so the cross-repo EXACT-equality contract (cs-cloud lookupRepoRole) is
 // preserved: both sides get the SAME rewritten public URL.
-func rewriteGiteaHostToPublic(rawURL string) string {
+func RewriteGiteaHostToPublic(rawURL string) string {
 	rawURL = strings.TrimSpace(rawURL)
 	publicBase := strings.TrimSpace(os.Getenv("GITEA_PUBLIC_BASE_URL"))
 	internalBase := strings.TrimSpace(os.Getenv("GITEA_BASE_URL"))
@@ -983,6 +985,13 @@ func computeCSCloudTaskKind(task db.MulticaAgentTaskQueue) string {
 	}
 	if util.UUIDToString(task.AutopilotRunID) != "" {
 		return "autopilot"
+	}
+	// A workflow task (default-workflow runs create no sub-issue, so IssueID is
+	// empty) must classify as "direct" so buildIssuePrompt reaches the
+	// run.SourceIssueID fallback and injects the issue title/body. Without this
+	// it falls through to "quick_create" and the prompt is empty.
+	if util.UUIDToString(task.WorkflowNodeRunID) != "" {
+		return "direct"
 	}
 	if util.UUIDToString(task.IssueID) == "" {
 		return "quick_create"
@@ -1310,9 +1319,13 @@ func (s *TaskService) ensureDeliveryRepo(ctx context.Context, task db.MulticaAge
 	if err != nil {
 		return fmt.Errorf("get workflow run: %w", err)
 	}
-	workflow, err := s.Queries.GetWorkflow(ctx, run.WorkflowID)
+	// Read IsDefault from the run snapshot, not the workflow definition table —
+	// runtime paths must survive definition mutation (TestRuntimeFilesDoNotRead-
+	// WorkflowDefinitionTables). initWorkflowNamespace only needs ID (= run.
+	// WorkflowID) + IsDefault.
+	workflow, err := workflowFromRunSnapshotWithQueries(ctx, s.Queries, run)
 	if err != nil {
-		return fmt.Errorf("get workflow: %w", err)
+		return fmt.Errorf("get run snapshot: %w", err)
 	}
 	return initWorkflowNamespace(ctx, s.Queries, s.TeamNamespace, run, workflow)
 }
