@@ -42,6 +42,10 @@ type assignWorkflowRolesRequest struct {
 	} `json:"assignments"`
 }
 
+func canManageWorkflowRoleAssignments(member db.MulticaMember) bool {
+	return isActiveMember(member)
+}
+
 func workflowRoleResolutionToResponse(row db.MulticaWorkflowRoleResolution) WorkflowRoleResolutionResponse {
 	return WorkflowRoleResolutionResponse{
 		ID: uuidToString(row.ID), WorkflowRunID: uuidToString(row.WorkflowRunID),
@@ -82,12 +86,13 @@ func (h *Handler) authorizeWorkflowRoleResolution(w http.ResponseWriter, r *http
 		writeError(w, http.StatusUnauthorized, "invalid user")
 		return db.MulticaWorkflowRun{}, pgtype.UUID{}, false, false
 	}
-	canManage := roleAllowed(member.Role, "owner", "admin") || (run.TriggeredByID.Valid && run.TriggeredByID == userUUID)
+	canManage := canManageWorkflowRoleAssignments(member)
+	canViewReasons := roleAllowed(member.Role, "owner", "admin") || (run.TriggeredByID.Valid && run.TriggeredByID == userUUID)
 	if requireManage && !canManage {
 		writeError(w, http.StatusForbidden, "insufficient permissions")
 		return db.MulticaWorkflowRun{}, pgtype.UUID{}, false, false
 	}
-	return run, userUUID, canManage, true
+	return run, userUUID, canViewReasons, true
 }
 
 func parseUUIDString(value string) (pgtype.UUID, error) {
@@ -191,21 +196,32 @@ func (h *Handler) RetryWorkflowRoleResolutions(w http.ResponseWriter, r *http.Re
 	}
 	job, err := h.WorkflowService.RetryWorkflowRoleResolution(r.Context(), run.ID)
 	if err != nil {
-		switch {
-		case errors.Is(err, service.ErrWorkflowRoleRetryRateLimited), errors.Is(err, service.ErrWorkflowRoleResolutionLimit):
-			writeError(w, http.StatusTooManyRequests, err.Error())
-		case errors.Is(err, service.ErrWorkflowRoleRetryActive), errors.Is(err, service.ErrWorkflowRoleNoUnresolved):
-			writeError(w, http.StatusConflict, err.Error())
-		case errors.Is(err, service.ErrWorkflowRoleRetryUnavailable):
-			writeError(w, http.StatusServiceUnavailable, err.Error())
-		case errors.Is(err, pgx.ErrNoRows):
-			writeError(w, http.StatusNotFound, "run not found")
-		default:
-			writeError(w, http.StatusInternalServerError, "failed to retry workflow role resolution")
-		}
+		status, code, message := workflowRoleRetryErrorResponse(err)
+		writeCodeError(w, status, code, message)
 		return
 	}
 	h.publish("workflow_role_resolution_updated", uuidToString(run.WorkspaceID), "member", uuidToString(actorID), map[string]any{"run_id": uuidToString(run.ID)})
 	h.publish("workflow_run_updated", uuidToString(run.WorkspaceID), "member", uuidToString(actorID), map[string]any{"run_id": uuidToString(run.ID)})
 	writeJSON(w, http.StatusAccepted, map[string]any{"job_id": uuidToString(job.ID), "status": job.Status})
+}
+
+func workflowRoleRetryErrorResponse(err error) (int, string, string) {
+	switch {
+	case errors.Is(err, service.ErrWorkflowRoleRetryRateLimited):
+		return http.StatusTooManyRequests, "workflow_role_retry_rate_limited", err.Error()
+	case errors.Is(err, service.ErrWorkflowRoleResolutionLimit):
+		return http.StatusTooManyRequests, "workflow_role_resolution_limit", err.Error()
+	case errors.Is(err, service.ErrWorkflowRoleRetryActive):
+		return http.StatusConflict, "workflow_role_retry_active", err.Error()
+	case errors.Is(err, service.ErrWorkflowRoleNoUnresolved):
+		return http.StatusConflict, "workflow_role_no_unresolved", err.Error()
+	case errors.Is(err, service.ErrWorkflowRoleRetryUnavailable):
+		return http.StatusServiceUnavailable, "workflow_role_retry_unavailable", err.Error()
+	case errors.Is(err, service.ErrWorkflowRoleAssignmentStage):
+		return http.StatusConflict, "workflow_role_stage_started", err.Error()
+	case errors.Is(err, pgx.ErrNoRows):
+		return http.StatusNotFound, "workflow_run_not_found", "run not found"
+	default:
+		return http.StatusInternalServerError, "workflow_role_retry_failed", "failed to retry workflow role resolution"
+	}
 }
