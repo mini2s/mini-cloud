@@ -1121,33 +1121,21 @@ func TestDeliverableSpecsForTask_PullRequestAndDocument(t *testing.T) {
 	if len(got) != 2 {
 		t.Fatalf("deliverables count = %d, want 2", len(got))
 	}
-	// pull_request -> /submit endpoint
-	if got[0].Kind != "pull_request" {
-		t.Fatalf("got[0].Kind = %q, want pull_request", got[0].Kind)
-	}
-	if !strings.Contains(got[0].Report.Endpoint, "/submit") {
-		t.Fatalf("pull_request endpoint = %q, want /submit", got[0].Report.Endpoint)
-	}
-	if got[0].Report.Method != "POST" {
-		t.Fatalf("pull_request method = %q, want POST", got[0].Report.Method)
-	}
-	if got[0].Report.BodyField != "pull_request_url" {
-		t.Fatalf("pull_request body_field = %q, want pull_request_url", got[0].Report.BodyField)
-	}
-	// document -> /report-pr endpoint
-	if got[1].Kind != "document" {
-		t.Fatalf("got[1].Kind = %q, want document", got[1].Kind)
-	}
-	if !strings.Contains(got[1].Report.Endpoint, "/report-pr") {
-		t.Fatalf("document endpoint = %q, want /report-pr", got[1].Report.Endpoint)
-	}
-	// Both should contain the node-run ID.
 	nrIDStr := util.UUIDToString(nrID)
-	if !strings.Contains(got[0].Report.Endpoint, nrIDStr) {
-		t.Fatalf("pull_request endpoint missing node-run ID: %q", got[0].Report.Endpoint)
-	}
-	if !strings.Contains(got[1].Report.Endpoint, nrIDStr) {
-		t.Fatalf("document endpoint missing node-run ID: %q", got[1].Report.Endpoint)
+	// ALL deliverables use the unified /submit endpoint (kind no longer gates routing).
+	for i, spec := range got {
+		if !strings.Contains(spec.Report.Endpoint, "/submit") {
+			t.Fatalf("got[%d] endpoint = %q, want /submit", i, spec.Report.Endpoint)
+		}
+		if spec.Report.Method != "POST" {
+			t.Fatalf("got[%d] method = %q, want POST", i, spec.Report.Method)
+		}
+		if spec.Report.BodyField != "pull_request_url" {
+			t.Fatalf("got[%d] body_field = %q, want pull_request_url", i, spec.Report.BodyField)
+		}
+		if !strings.Contains(spec.Report.Endpoint, nrIDStr) {
+			t.Fatalf("got[%d] endpoint missing node-run ID: %q", i, spec.Report.Endpoint)
+		}
 	}
 }
 
@@ -1173,6 +1161,101 @@ func TestDeliverableSpecsForTask_NodeRunNotFound(t *testing.T) {
 	}
 }
 
+func TestDeliverableSpecsForTask_UnifiedEndpoint(t *testing.T) {
+	nrID := testUUID(200)
+	deliverables := []db.MulticaWorkflowNodeDeliverable{
+		{ID: testUUID(210), WorkflowNodeID: testUUID(220), Kind: "document", Title: "Design Doc", Required: true},
+		{ID: testUUID(211), WorkflowNodeID: testUUID(220), Kind: "pull_request", Title: "Code PR", Required: true},
+		{ID: testUUID(212), WorkflowNodeID: testUUID(220), Kind: "document", Title: "Test Plan", Required: false},
+	}
+	mdb := &deliverableTestDB{
+		nodeRun: &db.MulticaWorkflowNodeRun{
+			ID:             nrID,
+			WorkflowNodeID: testUUID(220),
+		},
+		deliverables: deliverables,
+	}
+	svc := &TaskService{Queries: db.New(mdb)}
+	task := db.MulticaAgentTaskQueue{WorkflowNodeRunID: pgtype.UUID{Bytes: nrID.Bytes, Valid: true}}
+
+	got := svc.deliverableSpecsForTask(context.Background(), task)
+
+	if len(got) != 3 {
+		t.Fatalf("deliverables count = %d, want 3", len(got))
+	}
+	nrIDStr := util.UUIDToString(nrID)
+	for i, spec := range got {
+		// ALL deliverables must use the unified /submit endpoint (no /report-pr).
+		if !strings.HasSuffix(spec.Report.Endpoint, "/submit") {
+			t.Errorf("got[%d].Report.Endpoint = %q, want ending in /submit (no /report-pr)", i, spec.Report.Endpoint)
+		}
+		if !strings.Contains(spec.Report.Endpoint, nrIDStr) {
+			t.Errorf("got[%d].Report.Endpoint missing node-run ID: %q", i, spec.Report.Endpoint)
+		}
+		if spec.Report.Method != "POST" {
+			t.Errorf("got[%d].Report.Method = %q, want POST", i, spec.Report.Method)
+		}
+		if spec.Report.BodyField != "pull_request_url" {
+			t.Errorf("got[%d].Report.BodyField = %q, want pull_request_url", i, spec.Report.BodyField)
+		}
+		// No deliverable should have RepoAlias == "delivery" (kind-based aliasing removed).
+		if spec.RepoAlias == "delivery" {
+			t.Errorf("got[%d].RepoAlias = %q, want empty (no RepoAlias by kind)", i, spec.RepoAlias)
+		}
+	}
+}
+
+func TestRepositoryDeliverableEnv_InjectedForAnyDeliverable(t *testing.T) {
+	t.Setenv("GITEA_BASE_URL", "https://gitea.test")
+	t.Setenv("GITEA_ADMIN_TOKEN", "set")
+	t.Setenv("GITEA_PUBLIC_BASE_URL", "https://gitea.test")
+
+	mdb := newEnsureRepoTestDB()
+	// Only pull_request deliverables — previously, the function returned nil
+	// when there were no document deliverables (kind guard filtered them out).
+	// After unification, any deliverable type triggers the env injection.
+	mdb.nodeRunDeliverables = []db.MulticaWorkflowNodeRunDeliverable{
+		{
+			ID:                testUUID(12), // prDeliverableID from newEnsureRepoTestDB
+			WorkflowNodeRunID: mdb.nodeRun.ID,
+			Kind:              "pull_request",
+			Title:             "Backend code MR",
+			Required:          true,
+		},
+	}
+	mdb.workspace.Settings = []byte(`{` +
+		`"gitea_clone_url":"https://gitea.test/t-ws/wf-docworkflow.git",` +
+		`"last_instance_branch":"inst-run",` +
+		`"gitea_pat":"pat-bot-abc",` +
+		`"gitea_bot_username":"multica-bot-ws"}`)
+
+	svc := &TaskService{Queries: db.New(mdb)}
+	task := db.MulticaAgentTaskQueue{WorkflowNodeRunID: mdb.nodeRun.ID}
+
+	env := svc.repositoryDeliverableEnv(context.Background(), task)
+
+	if env == nil {
+		t.Fatal("expected non-nil env for pull_request-only deliverable (previously skipped)")
+	}
+	// Verify the key Gitea env vars are present.
+	for _, key := range []string{
+		"CS_CLOUD_REPO_OWNER",
+		"CS_CLOUD_REPO_NAME",
+		"CS_CLOUD_REPO_TOKEN",
+		"CS_CLOUD_REPO_CLONE_URL",
+		"CS_CLOUD_REPO_CLONE_URL_AUTHED",
+		"CS_CLOUD_REPO_INST_BRANCH",
+		"CS_CLOUD_REPO_NODE_BRANCH",
+		"CS_CLOUD_GITEA_OWNER",      // legacy alias
+		"CS_CLOUD_GITEA_TOKEN",     // legacy alias
+		"CS_CLOUD_GITEA_CLONE_URL", // legacy alias
+	} {
+		if env[key] == "" {
+			t.Errorf("expected %s to be set, got empty", key)
+		}
+	}
+}
+
 func TestCsCloudPayloadSerializesReposAndDeliverables(t *testing.T) {
 	payload := csCloudTaskRunPayload{
 		TaskID: "t-1", WorkspaceID: "ws", Agent: "csc", Prompt: "p",
@@ -1180,7 +1263,7 @@ func TestCsCloudPayloadSerializesReposAndDeliverables(t *testing.T) {
 			{URL: "https://gitlab.example.com/o/r.git", Provider: "gitlab", Role: "code", BaseBranch: "main", Alias: "后端"},
 		},
 		Deliverables: []csCloudDeliverableSpec{
-			{ID: "d1", Kind: "pull_request", RepoAlias: "后端", Report: csCloudReportSpec{Endpoint: "https://example.com/report", Method: "POST", BodyField: "content"}},
+			{ID: "d1", RepoAlias: "后端", Report: csCloudReportSpec{Endpoint: "https://example.com/report", Method: "POST", BodyField: "content"}},
 		},
 	}
 	raw, err := json.Marshal(payload)
@@ -1194,7 +1277,7 @@ func TestCsCloudPayloadSerializesReposAndDeliverables(t *testing.T) {
 	if len(got.Repos) != 1 || got.Repos[0].URL != "https://gitlab.example.com/o/r.git" {
 		t.Errorf("repos round-trip mismatch: %+v", got.Repos)
 	}
-	if len(got.Deliverables) != 1 || got.Deliverables[0].Kind != "pull_request" {
+	if len(got.Deliverables) != 1 || got.Deliverables[0].ID != "d1" {
 		t.Errorf("deliverables round-trip mismatch: %+v", got.Deliverables)
 	}
 }
@@ -2135,29 +2218,17 @@ func TestBuildCSCloudPayload_DeliveryRepoAndAlias_WhenSettingsHaveGiteaData(t *t
 		t.Errorf("delivery BotToken = %q, want pat-bot-xyz", delivery.BotToken)
 	}
 
-	// (2) document deliverable is tagged with repo_alias="delivery";
-	//     pull_request deliverable keeps repo_alias empty (targets a code repo).
-	var docCount, prCount int
-	for i := range payload.Deliverables {
-		d := &payload.Deliverables[i]
-		switch d.Kind {
-		case "document":
-			docCount++
-			if d.RepoAlias != "delivery" {
-				t.Errorf("document deliverable RepoAlias = %q, want delivery", d.RepoAlias)
-			}
-		case "pull_request":
-			prCount++
-			if d.RepoAlias != "" {
-				t.Errorf("pull_request deliverable RepoAlias = %q, want empty", d.RepoAlias)
-			}
+	// (2) ALL deliverables use the unified submit endpoint (no kind-based routing).
+	for i, d := range payload.Deliverables {
+		if !strings.HasSuffix(d.Report.Endpoint, "/submit") {
+			t.Errorf("deliverable[%d] endpoint = %q, want ending in /submit", i, d.Report.Endpoint)
+		}
+		if d.RepoAlias == "delivery" {
+			t.Errorf("deliverable[%d] RepoAlias = %q, want empty (kind-based aliasing removed)", i, d.RepoAlias)
 		}
 	}
-	if docCount == 0 {
-		t.Fatalf("expected at least one document deliverable; got %+v", payload.Deliverables)
-	}
-	if prCount == 0 {
-		t.Fatalf("expected at least one pull_request deliverable; got %+v", payload.Deliverables)
+	if len(payload.Deliverables) == 0 {
+		t.Fatalf("expected at least one deliverable; got none")
 	}
 }
 

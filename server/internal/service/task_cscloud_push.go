@@ -54,7 +54,6 @@ type csCloudRepoSpec struct {
 // csCloudDeliverableSpec is one deliverable contract for the node.
 type csCloudDeliverableSpec struct {
 	ID        string            `json:"id"`
-	Kind      string            `json:"kind"`                 // "document" | "pull_request"
 	RepoAlias string            `json:"repo_alias,omitempty"` // maps to repos[].alias
 	Report    csCloudReportSpec `json:"report"`
 }
@@ -306,7 +305,7 @@ func (s *TaskService) buildCSCloudPayload(ctx context.Context, task db.MulticaAg
 	// Gitea document-deliverable context (CS_CLOUD_REPO_*) + node-run/issue ids,
 	// so the cs-cloud agent can run `cs-cloud workflow deliverable submit` /
 	// `gitea fetch` inside the task. Dormant (no env injected) when Gitea isn't
-	// configured or the node has no document deliverables — matches the
+	// configured or the node has no deliverables — matches the
 	// claim-time context. Runs AFTER the safety net so it picks up freshly
 	// provisioned settings on the triggering dispatch.
 	repoEnv := s.repositoryDeliverableEnv(ctx, task)
@@ -620,10 +619,9 @@ func cloudSkillInstallFromDB(raw []byte) *csCloudCloudSkillInstallSpec {
 }
 
 // deliverableSpecsForTask builds the deliverable contract list for the task's
-// workflow node run (pull_request -> /submit endpoint; document -> /report-pr).
-// Document deliverables are tagged with repo_alias="delivery" so cs-cloud maps
-// them to the repos[] entry whose alias is "delivery" (the Gitea wf repo);
-// pull_request deliverables keep repo_alias empty (they target a code repo).
+// workflow node run. Every deliverable reports its result to the same unified
+// submit endpoint; the dispatch payload no longer carries a kind-based routing
+// distinction.
 func (s *TaskService) deliverableSpecsForTask(ctx context.Context, task db.MulticaAgentTaskQueue) []csCloudDeliverableSpec {
 	if !task.WorkflowNodeRunID.Valid {
 		return nil
@@ -639,29 +637,14 @@ func (s *TaskService) deliverableSpecsForTask(ctx context.Context, task db.Multi
 	nid := util.UUIDToString(nr.ID)
 	var out []csCloudDeliverableSpec
 	for _, d := range rows {
-		spec := csCloudDeliverableSpec{
-			ID:   util.UUIDToString(d.ID),
-			Kind: d.Kind,
-		}
-		switch d.Kind {
-		case "pull_request":
-			spec.Report = csCloudReportSpec{
-				Endpoint:  "/api/node-runs/" + nid + "/deliverables/" + util.UUIDToString(d.ID) + "/submit",
+		out = append(out, csCloudDeliverableSpec{
+			ID: util.UUIDToString(d.ID),
+			Report: csCloudReportSpec{
+				Endpoint:  fmt.Sprintf("/api/node-runs/%s/deliverables/%s/submit", nid, util.UUIDToString(d.ID)),
 				Method:    "POST",
 				BodyField: "pull_request_url",
-			}
-		case "document":
-			spec.Report = csCloudReportSpec{
-				Endpoint:  "/api/daemon/node-runs/" + nid + "/deliverables/" + util.UUIDToString(d.ID) + "/report-pr",
-				Method:    "POST",
-				BodyField: "pull_request_url",
-			}
-			// Map this document deliverable to the repos[] entry whose
-			// alias == "delivery" (the Gitea wf repo). pull_request keeps
-			// repo_alias empty — it targets a code repo, not the delivery repo.
-			spec.RepoAlias = "delivery"
-		}
-		out = append(out, spec)
+			},
+		})
 	}
 	return out
 }
@@ -773,7 +756,7 @@ type giteaDeliverableRefJSON = repositoryDeliverableRefJSON
 // giteaDeliverableEnv builds the CS_CLOUD_GITEA_* env vars for a task's
 // node-run, mirroring handler.giteaContextForNodeRun but in the service layer
 // (the cs-cloud push path lives here, separate from claim). Returns nil when
-// Gitea is dormant or the node has no document deliverables — the caller then
+// Gitea is dormant or the node has no deliverables — the caller then
 // injects nothing and the cs-cloud `gitea submit` command is simply unusable
 // for this task (by design).
 func (s *TaskService) repositoryDeliverableEnv(ctx context.Context, task db.MulticaAgentTaskQueue) map[string]string {
@@ -803,9 +786,6 @@ func (s *TaskService) repositoryDeliverableEnv(ctx context.Context, task db.Mult
 	nodeRunIDStr := util.UUIDToString(nr.ID)
 	var refs []repositoryDeliverableRefJSON
 	for _, d := range deliverables {
-		if d.Kind != "document" {
-			continue
-		}
 		refs = append(refs, giteaDeliverableRefJSON{
 			ID:    util.UUIDToString(d.ID),
 			Title: d.Title,
