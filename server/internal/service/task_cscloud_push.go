@@ -375,6 +375,26 @@ func (s *TaskService) buildCSCloudPayload(ctx context.Context, task db.MulticaAg
 		plugin, cloudSkills = s.resolveCSCloudAddons(ctx, task.AgentID, agentPluginID)
 	}
 
+	// Diagnostic: plugin resolution has four serial gates (phase, agent
+	// plugin_id, BuiltinPluginAPIBaseURL, catalog fetch) and three of them fail
+	// SILENTLY — a nil plugin reaches cs-cloud with no backend log, so plugin=none
+	// is impossible to root-cause from logs alone. Surface the inputs + outcome
+	// here so the next dispatch self-diagnoses which gate dropped it. Info, not
+	// Warn: a legitimately plugin-less agent is normal; filter on the message.
+	agentPluginIDStr := ""
+	if agentPluginID.Valid {
+		agentPluginIDStr = agentPluginID.String
+	}
+	slog.Info("cs-cloud dispatch: plugin/skill resolution",
+		"task_id", util.UUIDToString(task.ID),
+		"agent_id", util.UUIDToString(task.AgentID),
+		"phase", phase,
+		"agent_plugin_id", agentPluginIDStr,
+		"base_url_configured", s.BuiltinPluginAPIBaseURL != "",
+		"plugin_resolved", plugin != nil,
+		"cloud_skills", len(cloudSkills),
+	)
+
 	// Prior (agent, issue) session/workdir so cs-cloud resumes the conversation
 	// and reuses the checkout. Ported from the pull path (handler/daemon.go).
 	// PriorSessionID is device-scoped: a csc session on device A cannot be
