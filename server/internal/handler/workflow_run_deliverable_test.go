@@ -13,6 +13,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/multica-ai/multica/server/internal/coderepo"
 	"github.com/multica-ai/multica/server/internal/service"
+	db "github.com/multica-ai/multica/server/pkg/db/generated"
 )
 
 // seedDeliverableAndNodeRunIn inserts a workflow→node→run→node_run→deliverable
@@ -421,6 +422,28 @@ func TestSubmitNodeRunDeliverable_Returns404ForUnknownDeliverable(t *testing.T) 
 // TestSubmitNodeRunDeliverable_AgentAttribution asserts that a submit with
 // valid X-Agent-ID + X-Task-ID headers stamps submitted_by_type="agent", and
 // a submit without the headers stays "member".
+// TestWorkflowNodeDeliverableSubmissionToResponse_RewritesGiteaHost asserts that
+// the response assembler swaps an internal Gitea host for the public one, and
+// leaves non-Gitea URLs (e.g. GitLab MRs) untouched.
+func TestWorkflowNodeDeliverableSubmissionToResponse_RewritesGiteaHost(t *testing.T) {
+	t.Setenv("GITEA_BASE_URL", "http://10.20.19.101:33000")
+	t.Setenv("GITEA_PUBLIC_BASE_URL", "https://zgsmtest.xyz:30443")
+
+	internal := "http://10.20.19.101:33000/t-aaa/wf-bbb/pulls/7"
+	sub := db.MulticaWorkflowNodeDeliverableSubmission{PullRequestUrl: internal}
+	got := workflowNodeDeliverableSubmissionToResponse(sub)
+	want := "https://zgsmtest.xyz:30443/t-aaa/wf-bbb/pulls/7"
+	if got.PullRequestURL != want {
+		t.Errorf("PullRequestURL = %q, want %q", got.PullRequestURL, want)
+	}
+
+	// External code MRs (non-Gitea) pass through unchanged.
+	mr := db.MulticaWorkflowNodeDeliverableSubmission{PullRequestUrl: "https://gitlab.example.com/g/p/-/merge_requests/3"}
+	if got := workflowNodeDeliverableSubmissionToResponse(mr); got.PullRequestURL != mr.PullRequestUrl {
+		t.Errorf("external MR URL should pass through; got %q", got.PullRequestURL)
+	}
+}
+
 func TestSubmitNodeRunDeliverable_AgentAttribution(t *testing.T) {
 	if testHandler == nil {
 		t.Skip("database not available")

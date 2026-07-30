@@ -1068,7 +1068,7 @@ func workflowNodeDeliverableSubmissionToResponse(s db.MulticaWorkflowNodeDeliver
 		Status:            s.Status,
 		Content:           s.Content,
 		AttachmentID:      uuidToPtr(s.AttachmentID),
-		PullRequestURL:    s.PullRequestUrl,
+		PullRequestURL:    service.RewriteGiteaHostToPublic(s.PullRequestUrl),
 		ReviewComment:     s.ReviewComment,
 		SubmittedAt:       timestampToString(s.SubmittedAt),
 		ReviewedAt:        timestampToPtr(s.ReviewedAt),
