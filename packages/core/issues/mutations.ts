@@ -736,11 +736,12 @@ export function useToggleIssueReaction(issueId: string) {
  * into review. On settle, refresh the node-run's submissions (so the PR link
  * renders) and the issue detail (so status reflects the new submission).
  */
-export function useUploadIssueDeliverable(issueId: string, nodeRunId: string) {
+export function useUploadIssueDeliverable(issueId: string, nodeRunId: string, deliverableId?: string) {
   const qc = useQueryClient();
   const wsId = useWorkspaceId();
   return useMutation({
-    mutationFn: (files: { name: string; content: string }[]) => api.uploadIssueDeliverable(issueId, files),
+    mutationFn: (files: { name: string; content: string }[]) =>
+      api.uploadIssueDeliverable(issueId, files, undefined, deliverableId),
     onSettled: () => {
       qc.invalidateQueries({ queryKey: workflowKeys.nodeRunDeliverables(nodeRunId) });
       qc.invalidateQueries({ queryKey: issueKeys.detail(wsId, issueId) });
@@ -748,11 +749,14 @@ export function useUploadIssueDeliverable(issueId: string, nodeRunId: string) {
   });
 }
 
-export function useUploadIssueDeliverablePR(issueId: string, nodeRunId: string) {
+export function useUploadIssueDeliverablePR(issueId: string, nodeRunId: string, deliverableId?: string) {
   const qc = useQueryClient();
   const wsId = useWorkspaceId();
   return useMutation({
-    mutationFn: (pullRequestURL: string) => api.uploadIssueDeliverablePR(issueId, pullRequestURL),
+    // One call carries every link: the server records each URL on its own
+    // submission row of the pull_request deliverable.
+    mutationFn: (pullRequestURLs: string[]) =>
+      api.uploadIssueDeliverablePR(issueId, pullRequestURLs, undefined, deliverableId),
     onSettled: () => {
       qc.invalidateQueries({ queryKey: workflowKeys.nodeRunDeliverables(nodeRunId) });
       qc.invalidateQueries({ queryKey: issueKeys.detail(wsId, issueId) });

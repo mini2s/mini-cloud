@@ -61,6 +61,54 @@ describe("ApiClient", () => {
     }
   });
 
+  it("posts deliverable uploads and falls back on a malformed response", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ ok: "yes" }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const client = new ApiClient("https://api.example.test");
+
+    // Document upload: malformed body degrades to the 200 acknowledgement.
+    const docResponse = await client.uploadIssueDeliverable(
+      "issue-1",
+      [{ name: "doc.md", content: "Ym9keQ==" }],
+      "done",
+      "deliverable-doc",
+    );
+    expect(docResponse).toEqual({ ok: true });
+    const [docUrl, docInit] = fetchMock.mock.calls[0]!;
+    expect(docUrl).toBe("https://api.example.test/api/issues/issue-1/deliverables/upload");
+    expect(JSON.parse(docInit?.body as string)).toEqual({
+      files: [{ name: "doc.md", content: "Ym9keQ==" }],
+      summary: "done",
+      deliverable_id: "deliverable-doc",
+    });
+
+    // Code-link upload: every link rides in one pull_request_urls array.
+    fetchMock.mockResolvedValue(
+      new Response(JSON.stringify(null), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+    const prResponse = await client.uploadIssueDeliverablePR(
+      "issue-1",
+      ["https://git.example/pr/9", "https://git.example/pr/10"],
+      undefined,
+      "deliverable-code",
+    );
+    expect(prResponse).toEqual({ ok: true });
+    const [prUrl, prInit] = fetchMock.mock.calls[1]!;
+    expect(prUrl).toBe("https://api.example.test/api/issues/issue-1/deliverables/upload-pr");
+    expect(JSON.parse(prInit?.body as string)).toEqual({
+      pull_request_urls: ["https://git.example/pr/9", "https://git.example/pr/10"],
+      deliverable_id: "deliverable-code",
+    });
+  });
+
   it("uses the expected HTTP contract for autopilot endpoints", async () => {
     const fetchMock = vi.fn().mockImplementation(() => Promise.resolve(
       new Response(JSON.stringify({ autopilots: [], runs: [], total: 0 }), {

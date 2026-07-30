@@ -299,7 +299,7 @@ INSERT INTO multica_workflow_node_deliverable_submission (
 FROM multica_workflow_node_run_deliverable requirement
 WHERE requirement.id = $7
   AND requirement.workflow_node_run_id = $1
-ON CONFLICT (workflow_node_run_id, deliverable_id)
+ON CONFLICT (workflow_node_run_id, deliverable_id, pull_request_url)
 DO UPDATE SET
     submitted_by_type = EXCLUDED.submitted_by_type,
     submitted_by_id = EXCLUDED.submitted_by_id,
@@ -322,6 +322,11 @@ type UpsertNodeRunDeliverableSubmissionParams struct {
 	DeliverableID     pgtype.UUID `json:"deliverable_id"`
 }
 
+// One deliverable may carry several link submissions (migration 149): the
+// conflict key includes pull_request_url so each review URL is its own row,
+// while non-link submissions (empty URL) keep one-row-per-deliverable upserts.
+// Re-submitting an existing URL is idempotent (status resets to submitted,
+// which is also the rework-resubmit contract).
 func (q *Queries) UpsertNodeRunDeliverableSubmission(ctx context.Context, arg UpsertNodeRunDeliverableSubmissionParams) (MulticaWorkflowNodeDeliverableSubmission, error) {
 	row := q.db.QueryRow(ctx, upsertNodeRunDeliverableSubmission,
 		arg.WorkflowNodeRunID,

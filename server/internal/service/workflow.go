@@ -1065,17 +1065,23 @@ func requiredDeliverablesSatisfiedWithQueries(ctx context.Context, q *db.Queries
 		return false, fmt.Errorf("list submissions: %w", err)
 	}
 
-	byDeliverable := make(map[string]db.MulticaWorkflowNodeDeliverableSubmission, len(submissions))
+	// A deliverable may carry several submissions (multiple code links —
+	// migration 149): it counts as satisfied when ANY of its rows is live
+	// (not missing/rejected). A rejected sibling does not block satisfaction;
+	// the per-submission review owns each row's verdict.
+	satisfied := make(map[string]bool, len(submissions))
 	for _, sub := range submissions {
-		byDeliverable[util.UUIDToString(sub.DeliverableID)] = sub
+		if sub.Status == "missing" || sub.Status == "rejected" {
+			continue
+		}
+		satisfied[util.UUIDToString(sub.DeliverableID)] = true
 	}
 
 	for _, d := range deliverables {
 		if !d.Required {
 			continue
 		}
-		sub, ok := byDeliverable[util.UUIDToString(d.ID)]
-		if !ok || sub.Status == "missing" || sub.Status == "rejected" {
+		if !satisfied[util.UUIDToString(d.ID)] {
 			return false, nil
 		}
 	}
