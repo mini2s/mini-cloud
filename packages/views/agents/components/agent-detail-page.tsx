@@ -27,7 +27,10 @@ import {
   memberListOptions,
   workspaceKeys,
 } from "@multica/core/workspace/queries";
-import { runtimeListOptions } from "@multica/core/runtimes";
+import {
+  AGENT_RUNTIME_PROVIDERS,
+  runtimeListOptions,
+} from "@multica/core/runtimes";
 import { useAgentPermissions } from "@multica/core/permissions";
 import { useWorkflowAdmins } from "@multica/core/workflows/queries";
 import { Button } from "@multica/ui/components/ui/button";
@@ -340,7 +343,9 @@ export function AgentDetailPage({ agentId }: AgentDetailPageProps) {
           runtime={runtime}
           owner={owner}
           presence={presence}
-          runtimes={runtimes.filter((r) => r.provider === "csc")}
+          runtimes={runtimes.filter((r) =>
+            AGENT_RUNTIME_PROVIDERS.has(r.provider),
+          )}
           members={members}
           currentUserId={currentUser?.id ?? null}
           canEdit={canEdit.allowed && !isBuiltinReadOnly}
@@ -350,7 +355,9 @@ export function AgentDetailPage({ agentId }: AgentDetailPageProps) {
 
         <AgentOverviewPane
           agent={agent}
-          runtimes={runtimes.filter((r) => r.provider === "csc")}
+          runtimes={runtimes.filter((r) =>
+            AGENT_RUNTIME_PROVIDERS.has(r.provider),
+          )}
           onUpdate={handleUpdate}
         />
       </div>
