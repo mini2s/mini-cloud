@@ -58,6 +58,7 @@ type pushTaskDB struct {
 	dispatchedResult db.MulticaAgentTaskQueue
 	lastSessionRow   *db.GetLastTaskSessionRow  // nil => 仿 ErrNoRows（首次/全中毒失败）
 	nodeRunRow       *db.MulticaWorkflowNodeRun // nil => ErrNoRows (Task 4 node-run handback)
+	agentPluginID   pgtype.Text
 }
 
 func (m *pushTaskDB) QueryRow(_ context.Context, sql string, args ...interface{}) pgx.Row {
@@ -73,7 +74,7 @@ func (m *pushTaskDB) QueryRow(_ context.Context, sql string, args ...interface{}
 	case strings.Contains(sql, "GetAgentRuntime"):
 		return &pushMockRow{taskRuntime: &m.runtime}
 	case strings.Contains(sql, "GetAgent "):
-		return &pushMockRow{agent: &db.MulticaAgent{ID: m.task.AgentID, WorkspaceID: m.runtime.WorkspaceID}}
+		return &pushMockRow{agent: &db.MulticaAgent{ID: m.task.AgentID, WorkspaceID: m.runtime.WorkspaceID, PluginID: m.agentPluginID}}
 	case strings.Contains(sql, "GetIssue"):
 		return &pushMockRow{issue: &db.MulticaIssue{ID: m.task.IssueID, WorkspaceID: m.runtime.WorkspaceID, Title: "Issue"}}
 	case strings.Contains(sql, "GetComment"):
@@ -548,9 +549,9 @@ func TestAppendDeliverablePrompt_CheckoutAndSubmit(t *testing.T) {
 // resolveTestDB is a focused mock for resolveCodeRepoAndProject.
 // It handles exactly three queries: GetWorkspace, GetIssue, ListProjectResources.
 type resolveTestDB struct {
-	workspace     *db.MulticaWorkspace
-	issue         *db.MulticaIssue
-	projResRows   []db.MulticaProjectResource
+	workspace      *db.MulticaWorkspace
+	issue          *db.MulticaIssue
+	projResRows    []db.MulticaProjectResource
 	cloudSkillRows []db.MulticaAgentCloudSkill
 }
 
@@ -974,6 +975,34 @@ func (m *mockRowsDeliverables) Scan(dest ...any) error {
 	return copyRow(vals, dest)
 }
 
+// mockRowsNodeRunDeliverables is a pgx.Rows that yields pre-set
+// MulticaWorkflowNodeRunDeliverable rows.
+type mockRowsNodeRunDeliverables struct {
+	rows []db.MulticaWorkflowNodeRunDeliverable
+	idx  int
+}
+
+func (m *mockRowsNodeRunDeliverables) Next() bool { m.idx++; return m.idx < len(m.rows) }
+func (m *mockRowsNodeRunDeliverables) Close()     {}
+func (m *mockRowsNodeRunDeliverables) Err() error { return nil }
+func (m *mockRowsNodeRunDeliverables) CommandTag() pgconn.CommandTag {
+	return pgconn.NewCommandTag("")
+}
+func (m *mockRowsNodeRunDeliverables) FieldDescriptions() []pgconn.FieldDescription { return nil }
+func (m *mockRowsNodeRunDeliverables) RawValues() [][]byte                          { return nil }
+func (m *mockRowsNodeRunDeliverables) Values() ([]any, error)                       { return nil, nil }
+func (m *mockRowsNodeRunDeliverables) Conn() *pgx.Conn                              { return nil }
+
+func (m *mockRowsNodeRunDeliverables) Scan(dest ...any) error {
+	r := &m.rows[m.idx]
+	vals := []any{
+		&r.ID, &r.WorkflowNodeRunID, &r.SourceDeliverableID,
+		&r.Kind, &r.Title, &r.Description, &r.Required,
+		&r.SortOrder, &r.CreatedAt,
+	}
+	return copyRow(vals, dest)
+}
+
 func TestDeliverableSpecsForTask_PullRequestAndDocument(t *testing.T) {
 	nrID := testUUID(100)
 	prDeliverable := db.MulticaWorkflowNodeDeliverable{
@@ -1213,6 +1242,46 @@ func TestBuildCSCloudPayload_NoPriorWhenGetLastReturnsNoRows(t *testing.T) {
 	}
 }
 
+func TestBuildCSCloudPayload_QuickCreateResolvesAgentPlugin(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.Contains(r.URL.Path, "/api/items/plug-quick") {
+			_, _ = w.Write([]byte(`{"id":"plug-quick","name":"Quick Plugin","metadata":{"install":{"method":"plugin_marketplace","plugin_name":"quick-plugin","marketplace":"repo/quick","marketplace_verified":true}}}`))
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer upstream.Close()
+
+	dbtx := newPushTestDB(csCloudProvider, "device-123")
+	dbtx.agentPluginID = pgtype.Text{String: "plug-quick", Valid: true}
+
+	svc := &TaskService{
+		Queries:                  db.New(dbtx),
+		Bus:                      events.New(),
+		BuiltinPluginAPIBaseURL:  upstream.URL,
+		CSCPluginMarketplaceName: "costrict-plugins",
+		CSCPluginMarketplaceRepo: "https://zgsmtest.xyz:30443/costrict-plugin-marketplace/marketplace.git",
+	}
+	task := dbtx.dispatchedResult
+	task.IssueID = pgtype.UUID{}
+	task.WorkflowNodeRunID = pgtype.UUID{}
+	task.Context = []byte(`{"type":"quick_create","prompt":"create a tiny local e2e issue","workspace_id":"` + util.UUIDToString(dbtx.runtime.WorkspaceID) + `","requester_id":"` + util.UUIDToString(testUUID(9)) + `"}`)
+
+	payload, err := svc.buildCSCloudPayload(context.Background(), task, dbtx.runtime)
+	if err != nil {
+		t.Fatalf("build: %v", err)
+	}
+	if payload.Plugin == nil || payload.Plugin.Install == nil {
+		t.Fatalf("quick-create payload should include agent plugin; got %+v", payload.Plugin)
+	}
+	if payload.Plugin.Install.PluginName != "quick-plugin" {
+		t.Errorf("plugin_name = %q, want quick-plugin", payload.Plugin.Install.PluginName)
+	}
+	if payload.Plugin.Install.MarketplaceRepo != "https://zgsmtest.xyz:30443/costrict-plugin-marketplace/marketplace.git" {
+		t.Errorf("marketplace_repo = %q", payload.Plugin.Install.MarketplaceRepo)
+	}
+}
+
 // --- node-run handback fallback (M2.5 Task 4) tests ---
 //
 // Workflow tasks with IssueID NULL can't use GetLastTaskSession (it keys on
@@ -1352,16 +1421,18 @@ func TestBuildCSCloudPayload_NodeRunHandback_DoesNotOverrideGetLastTaskSession(t
 // ListWorkflowNodeDeliverables, ListWorkflowNodes, ListWorkflowEdges,
 // ListMembersWithUser, UpdateWorkspace.
 type ensureRepoTestDB struct {
-	runtime      db.MulticaAgentRuntime
-	agent        db.MulticaAgent
-	issue        db.MulticaIssue
-	workspace    db.MulticaWorkspace
-	nodeRun      db.MulticaWorkflowNodeRun
-	run          db.MulticaWorkflowRun
-	workflow     db.MulticaWorkflow
-	node         db.MulticaWorkflowNode
-	deliverables []db.MulticaWorkflowNodeDeliverable
-	members      []db.ListMembersWithUserRow
+	runtime             db.MulticaAgentRuntime
+	agent               db.MulticaAgent
+	issue               db.MulticaIssue
+	workspace           db.MulticaWorkspace
+	nodeRun             db.MulticaWorkflowNodeRun
+	run                 db.MulticaWorkflowRun
+	workflow            db.MulticaWorkflow
+	node                db.MulticaWorkflowNode
+	deliverables        []db.MulticaWorkflowNodeDeliverable
+	nodeRunDeliverables []db.MulticaWorkflowNodeRunDeliverable
+	members             []db.ListMembersWithUserRow
+	definitionSnapshot  []byte
 
 	mu           sync.Mutex
 	updateCount  int
@@ -1370,6 +1441,13 @@ type ensureRepoTestDB struct {
 
 func (m *ensureRepoTestDB) QueryRow(_ context.Context, sql string, args ...interface{}) pgx.Row {
 	switch {
+	// Must precede GetWorkflowRun — "GetWorkflowRun" is a substring of
+	// "GetWorkflowRunDefinitionSnapshot", so the broader case would shadow it.
+	case strings.Contains(sql, "GetWorkflowRunDefinitionSnapshot"):
+		return &ensureRepoRow{snapshot: &db.GetWorkflowRunDefinitionSnapshotRow{
+			DefinitionSchemaVersion: WorkflowDefinitionSchemaVersion,
+			DefinitionSnapshot:      m.definitionSnapshot,
+		}}
 	case strings.Contains(sql, "GetAgentRuntime"):
 		return &ensureRepoRow{runtime: &m.runtime}
 	case strings.Contains(sql, "GetAgent "):
@@ -1411,10 +1489,19 @@ func (m *ensureRepoTestDB) QueryRow(_ context.Context, sql string, args ...inter
 
 func (m *ensureRepoTestDB) Query(_ context.Context, sql string, _ ...interface{}) (pgx.Rows, error) {
 	switch {
+	// RunNodeTopoOrder feeds: node runs (single-node graph) + run edges (none).
+	// Both must precede ListWorkflowNodes/ListWorkflowEdges so the Run-scoped
+	// names aren't shadowed by their generic counterparts.
+	case strings.Contains(sql, "ListWorkflowNodeRunsByRun"):
+		return &mockRowsNodeRuns{rows: []db.MulticaWorkflowNodeRun{m.nodeRun}, idx: -1}, nil
+	case strings.Contains(sql, "ListWorkflowRunEdges"):
+		return &mockRowsWorkflowEdges{idx: -1}, nil
 	case strings.Contains(sql, "ListProjectResources"):
 		return &mockRowsProjectResources{rows: nil, idx: -1}, nil
 	case strings.Contains(sql, "ListWorkflowNodeDeliverables"):
 		return &mockRowsDeliverables{rows: m.deliverables, idx: -1}, nil
+	case strings.Contains(sql, "ListNodeRunDeliverableRequirements"):
+		return &mockRowsNodeRunDeliverables{rows: m.nodeRunDeliverables, idx: -1}, nil
 	case strings.Contains(sql, "ListWorkflowNodes"):
 		return &mockRowsWorkflowNodes{rows: []db.MulticaWorkflowNode{m.node}, idx: -1}, nil
 	case strings.Contains(sql, "ListWorkflowEdges"):
@@ -1439,6 +1526,7 @@ type ensureRepoRow struct {
 	run       *db.MulticaWorkflowRun
 	workflow  *db.MulticaWorkflow
 	node      *db.MulticaWorkflowNode
+	snapshot  *db.GetWorkflowRunDefinitionSnapshotRow
 	err       error
 }
 
@@ -1447,6 +1535,17 @@ func (r *ensureRepoRow) Scan(dest ...any) error {
 		return r.err
 	}
 	switch {
+	case r.snapshot != nil:
+		// GetWorkflowRunDefinitionSnapshot scans (schema_version, snapshot_json).
+		if len(dest) >= 2 {
+			if p, ok := dest[0].(*int32); ok {
+				*p = r.snapshot.DefinitionSchemaVersion
+			}
+			if p, ok := dest[1].(*[]byte); ok {
+				*p = r.snapshot.DefinitionSnapshot
+			}
+		}
+		return nil
 	case r.runtime != nil:
 		return scanRuntime(r.runtime, dest)
 	case r.agent != nil:
@@ -1585,6 +1684,10 @@ func newEnsureRepoTestDB() *ensureRepoTestDB {
 	nodeID := testUUID(9)
 	deliverableID := testUUID(10)
 	prDeliverableID := testUUID(12)
+	snapshotJSON, _ := json.Marshal(WorkflowDefinitionSnapshot{
+		SchemaVersion: WorkflowDefinitionSchemaVersion,
+		Workflow:      WorkflowSnapshotWorkflow{IsDefault: false},
+	})
 	return &ensureRepoTestDB{
 		runtime: db.MulticaAgentRuntime{
 			ID:          runtimeID,
@@ -1639,6 +1742,23 @@ func newEnsureRepoTestDB() *ensureRepoTestDB {
 				Title:          "Backend code MR",
 			},
 		},
+		nodeRunDeliverables: []db.MulticaWorkflowNodeRunDeliverable{
+			{
+				ID:                deliverableID,
+				WorkflowNodeRunID: nodeRunID,
+				Kind:              "document",
+				Title:             "Design doc",
+				Required:          true,
+			},
+			{
+				ID:                prDeliverableID,
+				WorkflowNodeRunID: nodeRunID,
+				Kind:              "pull_request",
+				Title:             "Backend code MR",
+				Required:          true,
+			},
+		},
+		definitionSnapshot: snapshotJSON,
 		members: []db.ListMembersWithUserRow{
 			{
 				UserID:    testUUID(20),
@@ -2124,6 +2244,131 @@ func TestRepositoryDeliverableEnv_FallsBackToSelfBuiltWhenSettingsLackCloneURL(t
 	}
 	if strings.Contains(env["CS_CLOUD_REPO_CLONE_URL"], "gitea-tenant.example") {
 		t.Errorf("CS_CLOUD_REPO_CLONE_URL should NOT be the settings value when gitea_clone_url is absent")
+	}
+}
+
+func TestRewriteGiteaHostToPublic(t *testing.T) {
+	t.Setenv("GITEA_BASE_URL", "http://10.20.19.101:33000")
+	t.Setenv("GITEA_PUBLIC_BASE_URL", "https://zgsmtest.xyz:30443")
+	got := rewriteGiteaHostToPublic("http://10.20.19.101:33000/t-ad9d561c/wf-deliverable-archive.git")
+	want := "https://zgsmtest.xyz:30443/t-ad9d561c/wf-deliverable-archive.git"
+	if got != want {
+		t.Errorf("rewrite = %q, want %q", got, want)
+	}
+}
+
+func TestRewriteGiteaHostToPublic_NoopWithoutPublicBase(t *testing.T) {
+	t.Setenv("GITEA_BASE_URL", "http://10.20.19.101:33000")
+	t.Setenv("GITEA_PUBLIC_BASE_URL", "")
+	in := "http://10.20.19.101:33000/t-x/wf-y.git"
+	if got := rewriteGiteaHostToPublic(in); got != in {
+		t.Errorf("rewrite = %q, want unchanged when GITEA_PUBLIC_BASE_URL unset (single-host deploy)", got)
+	}
+}
+
+func TestRewriteGiteaHostToPublic_NoopForUnknownHost(t *testing.T) {
+	// A URL whose host is NOT the internal Gitea is left alone — we never
+	// silently redirect an unknown host (e.g. a tenant-scoped mirror).
+	t.Setenv("GITEA_BASE_URL", "http://10.20.19.101:33000")
+	t.Setenv("GITEA_PUBLIC_BASE_URL", "https://zgsmtest.xyz:30443")
+	in := "https://gitea-tenant.example/t-x/wf-y.git"
+	if got := rewriteGiteaHostToPublic(in); got != in {
+		t.Errorf("rewrite = %q, want unchanged (host is not the internal Gitea)", got)
+	}
+}
+
+func TestRewriteGiteaHostToPublic_PortIsExactNotPrefix(t *testing.T) {
+	// :33000 must not prefix-match :330000 — host compare is exact (port incl).
+	t.Setenv("GITEA_BASE_URL", "http://h:33000")
+	t.Setenv("GITEA_PUBLIC_BASE_URL", "https://pub.example")
+	in := "http://h:330000/t-x/wf-y.git"
+	if got := rewriteGiteaHostToPublic(in); got != in {
+		t.Errorf("rewrite = %q, want unchanged (:33000 is not a prefix match for :330000)", got)
+	}
+}
+
+// TestResolveDeliveryRepo_RewritesInternalHostToPublic pins the dispatch-
+// boundary host rewrite on the repos[].URL exit. costrict-web emits wf_clone_url
+// on its single (internal) tenant git-server endpoint, which cs-cloud can't
+// reach. When settings.gitea_clone_url is on the internal GITEA_BASE_URL host,
+// resolveDeliveryRepo must rewrite it to GITEA_PUBLIC_BASE_URL (host swapped,
+// path preserved). repositoryDeliverableEnv runs the SAME settings value
+// through the SAME rewrite helper for CS_CLOUD_REPO_CLONE_URL, keeping
+// repos[].URL == CS_CLOUD_REPO_CLONE_URL so cs-cloud's lookupRepoRole equality
+// contract holds.
+//
+// (repositoryDeliverableEnv itself isn't exercised here because its mock
+// (ensureRepoTestDB) lacks the RunNodeTopoOrder SQL dispatches — a pre-existing
+// gap that also leaves TestRepositoryDeliverableEnv_PrefersSettingsCloneURL
+// local-red. The cloneURL exit uses the identical rewrite call, verified by the
+// pure TestRewriteGiteaHostToPublic + this repos[].URL test.)
+func TestResolveDeliveryRepo_RewritesInternalHostToPublic(t *testing.T) {
+	t.Setenv("GITEA_BASE_URL", "http://10.20.19.101:33000")
+	t.Setenv("GITEA_PUBLIC_BASE_URL", "https://zgsmtest.xyz:30443")
+
+	mdb := newEnsureRepoTestDB()
+	mdb.workspace.Settings = []byte(`{` +
+		`"gitea_clone_url":"http://10.20.19.101:33000/t-ad9d561c/wf-deliverable-archive.git",` +
+		`"last_instance_branch":"inst-run",` +
+		`"gitea_pat":"pat-xyz"}`)
+
+	svc := &TaskService{Queries: db.New(mdb)}
+	repo, ok := svc.resolveDeliveryRepo(context.Background(), mdb.workspace.ID)
+	if !ok {
+		t.Fatal("resolveDeliveryRepo returned ok=false")
+	}
+	want := "https://zgsmtest.xyz:30443/t-ad9d561c/wf-deliverable-archive.git"
+	if repo.URL != want {
+		t.Errorf("repos[].URL = %q, want rewritten to public host %q", repo.URL, want)
+	}
+}
+
+// TestRepositoryDeliverableEnv_RewritesInternalHostToPublic verifies the second
+// dispatch exit end-to-end: CS_CLOUD_REPO_CLONE_URL / _BASE_URL /
+// _CLONE_URL_AUTHED all carry the PUBLIC host when settings.gitea_clone_url is
+// on the internal GITEA_BASE_URL host. cloneURL is rewritten before the bot
+// token is injected, so the authed URL is public too; and CS_CLOUD_REPO_CLONE_URL
+// stays EXACTLY equal to resolveDeliveryRepo's repos[].URL (lookupRepoRole).
+func TestRepositoryDeliverableEnv_RewritesInternalHostToPublic(t *testing.T) {
+	t.Setenv("GITEA_BASE_URL", "http://10.20.19.101:33000")
+	t.Setenv("GITEA_ADMIN_TOKEN", "set")
+	t.Setenv("GITEA_PUBLIC_BASE_URL", "https://zgsmtest.xyz:30443")
+
+	mdb := newEnsureRepoTestDB()
+	mdb.workspace.Settings = []byte(`{` +
+		`"gitea_clone_url":"http://10.20.19.101:33000/t-ad9d561c/wf-deliverable-archive.git",` +
+		`"last_instance_branch":"inst-run",` +
+		`"gitea_web_url":"http://10.20.19.101:33000/t-ad9d561c/wf-deliverable-archive",` +
+		`"gitea_pat":"pat-xyz",` +
+		`"gitea_bot_username":"bot-t-ad9d561c"}`)
+
+	svc := &TaskService{Queries: db.New(mdb)}
+	task := db.MulticaAgentTaskQueue{WorkflowNodeRunID: mdb.nodeRun.ID}
+
+	env := svc.repositoryDeliverableEnv(context.Background(), task)
+	if env == nil {
+		t.Fatal("repositoryDeliverableEnv returned nil")
+	}
+
+	wantClone := "https://zgsmtest.xyz:30443/t-ad9d561c/wf-deliverable-archive.git"
+	if got := env["CS_CLOUD_REPO_CLONE_URL"]; got != wantClone {
+		t.Errorf("CS_CLOUD_REPO_CLONE_URL = %q, want rewritten to public host %q", got, wantClone)
+	}
+	if got := env["CS_CLOUD_REPO_BASE_URL"]; got != "https://zgsmtest.xyz:30443/t-ad9d561c/wf-deliverable-archive" {
+		t.Errorf("CS_CLOUD_REPO_BASE_URL = %q, want gitea_web_url rewritten to public host", got)
+	}
+	// Authed clone URL: host swapped BEFORE the bot token is injected.
+	authed := env["CS_CLOUD_REPO_CLONE_URL_AUTHED"]
+	if !strings.HasPrefix(authed, "https://bot-t-ad9d561c:pat-xyz@zgsmtest.xyz:30443/") {
+		t.Errorf("CS_CLOUD_REPO_CLONE_URL_AUTHED = %q, want public host + embedded bot token", authed)
+	}
+	// Cross-repo equality: repos[].URL must equal the dispatched clone URL.
+	repo, ok := svc.resolveDeliveryRepo(context.Background(), mdb.workspace.ID)
+	if !ok {
+		t.Fatal("resolveDeliveryRepo returned ok=false")
+	}
+	if repo.URL != wantClone {
+		t.Errorf("repos[].URL = %q, want %q (must equal CS_CLOUD_REPO_CLONE_URL)", repo.URL, wantClone)
 	}
 }
 

@@ -71,9 +71,9 @@ type csCloudReportSpec struct {
 // to an agent, installed by cs-cloud into the task workdir before the csc
 // session runs. Nil/empty in the payload means no plugin.
 type csCloudAgentPlugin struct {
-	ID      string                 `json:"id"`
-	Name    string                 `json:"name"`
-	Install *csCloudPluginInstall  `json:"install,omitempty"`
+	ID      string                `json:"id"`
+	Name    string                `json:"name"`
+	Install *csCloudPluginInstall `json:"install,omitempty"`
 }
 
 // csCloudPluginInstall describes how to install a plugin from a marketplace.
@@ -90,12 +90,12 @@ type csCloudPluginInstall struct {
 // csCloudCloudSkillInstall mirrors cs-cloud's workflow.CloudSkillInstall: a
 // cloud catalog skill binding cs-cloud installs via `csc skill install`.
 type csCloudCloudSkillInstall struct {
-	ID          string                       `json:"id"`
-	Slug        string                       `json:"slug,omitempty"`
-	Name        string                       `json:"name"`
-	Description string                       `json:"description"`
+	ID          string                        `json:"id"`
+	Slug        string                        `json:"slug,omitempty"`
+	Name        string                        `json:"name"`
+	Description string                        `json:"description"`
 	Install     *csCloudCloudSkillInstallSpec `json:"install"`
-	Position    int32                        `json:"position"`
+	Position    int32                         `json:"position"`
 }
 
 // csCloudCloudSkillInstallSpec is the executable subset of cloud skill install
@@ -371,7 +371,7 @@ func (s *TaskService) buildCSCloudPayload(ctx context.Context, task db.MulticaAg
 	// resolution: a catalog hiccup leaves Plugin nil and dispatch proceeds.
 	var plugin *csCloudAgentPlugin
 	var cloudSkills []csCloudCloudSkillInstall
-	if phase == "worker" && task.AgentID.Valid {
+	if phase != "critic" && task.AgentID.Valid {
 		plugin, cloudSkills = s.resolveCSCloudAddons(ctx, task.AgentID, agentPluginID)
 	}
 
@@ -544,7 +544,7 @@ func (s *TaskService) resolveDeliveryRepo(ctx context.Context, workspaceID pgtyp
 		return csCloudRepoSpec{}, false
 	}
 	return csCloudRepoSpec{
-		URL:        strings.TrimSpace(bundle.GiteaCloneURL),
+		URL:        rewriteGiteaHostToPublic(bundle.GiteaCloneURL),
 		Provider:   "gitea",
 		Role:       "delivery",
 		BaseBranch: strings.TrimSpace(bundle.InstBranch),
@@ -877,7 +877,7 @@ func (s *TaskService) repositoryDeliverableEnv(ctx context.Context, task db.Mult
 	// matches; fall back to self-assembly only when pre-provisioning.
 	var cloneURL string
 	if strings.TrimSpace(settingsCloneURL) != "" {
-		cloneURL = strings.TrimSpace(settingsCloneURL)
+		cloneURL = rewriteGiteaHostToPublic(settingsCloneURL)
 	} else {
 		cloneURL = strings.TrimRight(publicBase, "/") + "/" + owner + "/" + repo + ".git"
 	}
@@ -885,7 +885,7 @@ func (s *TaskService) repositoryDeliverableEnv(ctx context.Context, task db.Mult
 	// PR API targets); fall back to GITEA_PUBLIC_BASE_URL.
 	var baseURL string
 	if strings.TrimSpace(settingsWebURL) != "" {
-		baseURL = strings.TrimRight(strings.TrimSpace(settingsWebURL), "/")
+		baseURL = strings.TrimRight(rewriteGiteaHostToPublic(settingsWebURL), "/")
 	} else {
 		baseURL = strings.TrimRight(publicBase, "/")
 	}
@@ -954,6 +954,52 @@ func injectGiteaToken(cloneURL, botUser, token string) string {
 		user = "oauth2"
 	}
 	u.User = url.UserPassword(user, token)
+	return u.String()
+}
+
+// rewriteGiteaHostToPublic swaps a Gitea URL's scheme+host+port from the
+// container-internal GITEA_BASE_URL to the caller-reachable
+// GITEA_PUBLIC_BASE_URL, preserving the path. costrict-web's team-namespace
+// service emits wf_clone_url using its single (internal) tenant git-server
+// endpoint, and cs-cloud runs where that internal host is unreachable, so
+// multica rewrites the host at the dispatch boundary. This mirrors
+// handler.giteaPublicBaseURL (the daemon credential endpoint's split) on the
+// cs-cloud path.
+//
+// Only URLs that actually point at the internal Gitea host (matching
+// scheme+host) are rewritten; an unknown host is left untouched. Returns the
+// input unchanged when GITEA_PUBLIC_BASE_URL is unset (single-host deploy),
+// when GITEA_BASE_URL is unset (nothing to match), or on any parse failure.
+// Both resolveDeliveryRepo (repos[].URL) and repositoryDeliverableEnv
+// (CS_CLOUD_REPO_CLONE_URL) run settings.gitea_clone_url through this helper,
+// so the cross-repo EXACT-equality contract (cs-cloud lookupRepoRole) is
+// preserved: both sides get the SAME rewritten public URL.
+func rewriteGiteaHostToPublic(rawURL string) string {
+	rawURL = strings.TrimSpace(rawURL)
+	publicBase := strings.TrimSpace(os.Getenv("GITEA_PUBLIC_BASE_URL"))
+	internalBase := strings.TrimSpace(os.Getenv("GITEA_BASE_URL"))
+	if rawURL == "" || publicBase == "" || internalBase == "" {
+		return rawURL
+	}
+	u, err := url.Parse(rawURL)
+	if err != nil || u.Scheme == "" || u.Host == "" {
+		return rawURL
+	}
+	in, err := url.Parse(internalBase)
+	if err != nil || in.Scheme == "" || in.Host == "" {
+		return rawURL
+	}
+	// Only rewrite URLs that point at the internal Gitea. url.Host includes the
+	// port, so the comparison is exact — :33000 can't prefix-match :330000.
+	if u.Scheme != in.Scheme || u.Host != in.Host {
+		return rawURL
+	}
+	pub, err := url.Parse(publicBase)
+	if err != nil || pub.Scheme == "" || pub.Host == "" {
+		return rawURL
+	}
+	u.Scheme = pub.Scheme
+	u.Host = pub.Host
 	return u.String()
 }
 
