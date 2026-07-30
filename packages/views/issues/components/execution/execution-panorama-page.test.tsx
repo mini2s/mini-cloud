@@ -1056,8 +1056,8 @@ describe("ExecutionPanoramaPage", () => {
     await act(async () => {
       opened = await onOpenSession?.("n1") ?? false;
     });
-    expect(opened).toBe(true);
-    expect(screen.getByTestId("execution-detail-panel")).toBeInTheDocument();
+    expect(opened).toBe(false);
+    expect(screen.queryByTestId("execution-detail-panel")).not.toBeInTheDocument();
   });
 
   it("passes review permission to the detail panel for the assigned critic", () => {

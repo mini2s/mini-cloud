@@ -30,7 +30,6 @@ import { useWorkspacePaths } from "@multica/core/paths";
 import { api } from "@multica/core/api";
 import { useAuthStore } from "@multica/core/auth";
 import { useChatStore } from "@multica/core/chat";
-import { chatSessionsOptions } from "@multica/core/chat/queries";
 import { canSubmitNodeRunReview } from "@multica/core/permissions";
 import {
   isEmbeddedInCostrict,
@@ -93,12 +92,12 @@ import { Button } from "@multica/ui/components/ui/button";
 import { cn } from "@multica/ui/lib/utils";
 import { SplitReviewPanel } from "../../../workflows/components/split/split-review-panel";
 import { useNavigation } from "../../../navigation";
-import { resolveChatSessionId } from "../../../chat/lib/resolve-chat-session-id";
 import type {
   WorkflowActorEntityType,
   WorkflowActorIdentity,
 } from "../../../common/workflow-actor-slots";
 import { useRuntimeDurationClock } from "./runtime-duration-clock";
+import { resolveEnterSessionId } from "./runtime-session";
 
 export interface ExecutionPanoramaPageProps {
   workflowId: string;
@@ -719,10 +718,6 @@ export function ExecutionPanoramaPage({
     ...childIssuesOptions(wsId, issueId ?? ""),
     enabled: !!issueId,
   });
-  const { data: chatSessions = [] } = useQuery(chatSessionsOptions(wsId));
-  const setChatSession = useChatStore((state) => state.setActiveSession);
-  const setChatOpen = useChatStore((state) => state.setOpen);
-
   // ---- Local state ----
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [viewport, setViewport] = useState<Viewport>({ x: 0, y: 24, zoom: 0.95 });
@@ -786,26 +781,14 @@ export function ExecutionPanoramaPage({
   const runtimeNowMs = useRuntimeDurationClock(hasRunningDuration);
 
   const handleOpenNodeSession = useCallback(async (nodeId: string): Promise<boolean> => {
-    const sessionId =
-      nodeRunMap.get(nodeId)?.session_id ??
-      runtimeSummaryMap.get(nodeId)?.session_id ??
-      null;
+    const sessionId = resolveEnterSessionId(
+      nodeRunMap.get(nodeId) ?? null,
+      runtimeSummaryMap.get(nodeId) ?? null,
+    );
     if (!sessionId) return false;
-
-    if (isEmbeddedInCostrict()) {
-      const posted = postCostrictNavigateToSession({ sessionId, newTab: true });
-      if (posted) return true;
-    }
-
-    const chatSessionId = resolveChatSessionId(chatSessions, sessionId);
-    if (chatSessionId) {
-      setChatSession(chatSessionId);
-      setChatOpen(true);
-      return true;
-    }
-    setSelectedNodeId(nodeId);
-    return true;
-  }, [chatSessions, nodeRunMap, runtimeSummaryMap, setChatOpen, setChatSession]);
+    if (!isEmbeddedInCostrict()) return false;
+    return postCostrictNavigateToSession({ sessionId, newTab: true });
+  }, [nodeRunMap, runtimeSummaryMap]);
 
   const splitNodeEntries = useMemo(
     () =>

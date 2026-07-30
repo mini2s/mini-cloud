@@ -347,7 +347,7 @@ vi.mock("./split-chat-review", () => ({
     disabled?: boolean;
     onSubmit: (content: string, attachmentIds?: string[]) => Promise<void>;
   }) => (
-    <div>
+    <div data-testid="split-chat-review">
       <button
         type="button"
         disabled={disabled}
@@ -625,6 +625,46 @@ describe("SplitReviewPanel", () => {
     expect(screen.queryByRole("button", { name: "Cancel split" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Edit draft" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Discard draft" })).not.toBeInTheDocument();
+  });
+
+  it("keeps split chat hidden for non-reviewers even when a review session exists", () => {
+    mocks.currentUserId = "user-2";
+
+    renderPanel({
+      nodeRun: {
+        ...splitNodeRun,
+        status: "split_active",
+        split_review_chat_session_id: "chat-1",
+      },
+    });
+
+    expect(screen.queryByTestId("split-chat-review")).not.toBeInTheDocument();
+  });
+
+  it("hides split chat for non-reviewers when no review session exists", () => {
+    mocks.currentUserId = "user-2";
+
+    renderPanel({
+      nodeRun: {
+        ...splitNodeRun,
+        status: "split_active",
+        split_review_chat_session_id: null,
+      },
+    });
+
+    expect(screen.queryByTestId("split-chat-review")).not.toBeInTheDocument();
+  });
+
+  it("lets the reviewer compose during awaiting_split_review", () => {
+    renderPanel({
+      nodeRun: {
+        ...splitNodeRun,
+        status: "awaiting_split_review",
+        split_review_chat_session_id: null,
+      },
+    });
+
+    expect(screen.getByRole("button", { name: "Submit split chat" })).toBeInTheDocument();
   });
 
   it("patches one task assignee with its version", async () => {

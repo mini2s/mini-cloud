@@ -1,5 +1,5 @@
 import { act, render, screen, waitFor } from "@testing-library/react";
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 import userEvent from "@testing-library/user-event";
 import { ReactFlowProvider } from "@xyflow/react";
 import {
@@ -10,6 +10,29 @@ import {
 import type { NodeRunActionType } from "./runtime-node-card";
 import type { WorkflowNode, WorkflowNodeRun, WorkflowNodeRuntimeSummary } from "@multica/core/types";
 import type { WorkflowActorIdentity } from "../../../common/workflow-actor-slots";
+
+const sessionPermissionMocks = vi.hoisted(() => ({
+  canObserve: true as boolean | undefined,
+  embedded: true,
+}));
+
+vi.mock("@multica/core/workflows/queries", async () => {
+  const actual = await vi.importActual<typeof import("@multica/core/workflows/queries")>(
+    "@multica/core/workflows/queries",
+  );
+  return {
+    ...actual,
+    useSessionPermission: (sessionId: string | null | undefined) => ({
+      data: sessionId
+        ? { can_observe: sessionPermissionMocks.canObserve === true, can_control: false, role: "" }
+        : undefined,
+    }),
+  };
+});
+
+vi.mock("@multica/core/platform", () => ({
+  isEmbeddedInCostrict: () => sessionPermissionMocks.embedded,
+}));
 
 // Mock @multica/views/i18n for useT hook — handles function selector form
 vi.mock("@multica/views/i18n", () => {
@@ -189,6 +212,11 @@ function actorIdentity(
 }
 
 describe("RuntimeNodeCard", () => {
+  beforeEach(() => {
+    sessionPermissionMocks.canObserve = true;
+    sessionPermissionMocks.embedded = true;
+  });
+
   it("renders resolved actor identity and agent availability", () => {
     const workerIdentity: WorkflowActorIdentity = {
       type: "agent",
@@ -391,6 +419,177 @@ describe("RuntimeNodeCard", () => {
     );
 
     expect(screen.queryByRole("button", { name: "Open session" })).not.toBeInTheDocument();
+  });
+
+  it("hides the session action when can_observe is false", () => {
+    sessionPermissionMocks.canObserve = false;
+    render(
+      <RuntimeNodeCard
+        node={baseNode}
+        nodeRun={{ ...completedRun, session_id: "session-1" }}
+        workerName="小助手"
+        criticName="审核员"
+        onClick={vi.fn()}
+        onOpenSession={vi.fn()}
+      />,
+    );
+
+    expect(screen.queryByRole("button", { name: "Open session" })).not.toBeInTheDocument();
+  });
+
+  it("shows open-session on split cards when a CSC session exists and observe is allowed", () => {
+    const onOpenSession = vi.fn().mockResolvedValue(true);
+    render(
+      <RuntimeNodeCard
+        node={{
+          ...baseNode,
+          id: "split-1",
+          title: "Task split",
+          format_schema: {
+            type: "split",
+            template_id: "task-splitter",
+            template_category: "logic",
+            shape: "rectangle",
+            split_config: {
+              default_issue_workflow_id: "child-wf-1",
+              mode: "barrier",
+              max_concurrency: 5,
+              max_failures: 0,
+            },
+          },
+        }}
+        nodeRun={{
+          ...completedRun,
+          workflow_node_id: "split-1",
+          status: "split_active",
+          session_id: "split-csc-session-1",
+          split_review_chat_session_id: "split-chat-1",
+        }}
+        workerName="Planner"
+        criticName="Reviewer"
+        onClick={vi.fn()}
+        onOpenSession={onOpenSession}
+      />,
+    );
+
+    expect(screen.getByTestId("runtime-node-open-session")).toBeInTheDocument();
+  });
+
+  it("hides open-session on split cards when the CSC session is missing", () => {
+    render(
+      <RuntimeNodeCard
+        node={{
+          ...baseNode,
+          id: "split-1",
+          title: "Task split",
+          format_schema: {
+            type: "split",
+            template_id: "task-splitter",
+            template_category: "logic",
+            shape: "rectangle",
+            split_config: {
+              default_issue_workflow_id: "child-wf-1",
+              mode: "barrier",
+              max_concurrency: 5,
+              max_failures: 0,
+            },
+          },
+        }}
+        nodeRun={{
+          ...completedRun,
+          workflow_node_id: "split-1",
+          status: "awaiting_split_review",
+          session_id: null,
+          split_review_chat_session_id: null,
+        }}
+        workerName="Planner"
+        criticName="Reviewer"
+        onClick={vi.fn()}
+        onOpenSession={vi.fn()}
+      />,
+    );
+
+    expect(screen.queryByTestId("runtime-node-open-session")).not.toBeInTheDocument();
+  });
+
+  it("does not use the split review chat id as a CSC session id", () => {
+    render(
+      <RuntimeNodeCard
+        node={{
+          ...baseNode,
+          id: "split-1",
+          title: "Task split",
+          format_schema: { type: "split", shape: "rectangle" },
+        }}
+        nodeRun={{
+          ...completedRun,
+          workflow_node_id: "split-1",
+          status: "completed",
+          session_id: null,
+          split_review_chat_session_id: "split-chat-1",
+        }}
+        workerName="Planner"
+        criticName="Reviewer"
+        onClick={vi.fn()}
+        onOpenSession={vi.fn()}
+      />,
+    );
+
+    expect(screen.queryByTestId("runtime-node-open-session")).not.toBeInTheDocument();
+  });
+
+  it("hides open-session on split cards when can_observe is false", () => {
+    sessionPermissionMocks.canObserve = false;
+    render(
+      <RuntimeNodeCard
+        node={{
+          ...baseNode,
+          id: "split-1",
+          title: "Task split",
+          format_schema: {
+            type: "split",
+            template_id: "task-splitter",
+            template_category: "logic",
+            shape: "rectangle",
+            split_config: {
+              default_issue_workflow_id: "child-wf-1",
+              mode: "barrier",
+              max_concurrency: 5,
+              max_failures: 0,
+            },
+          },
+        }}
+        nodeRun={{
+          ...completedRun,
+          workflow_node_id: "split-1",
+          status: "completed",
+          session_id: "split-csc-session-1",
+          split_review_chat_session_id: "split-chat-1",
+        }}
+        workerName="Planner"
+        criticName="Reviewer"
+        onClick={vi.fn()}
+        onOpenSession={vi.fn()}
+      />,
+    );
+
+    expect(screen.queryByTestId("runtime-node-open-session")).not.toBeInTheDocument();
+  });
+
+  it("hides the CSC session action outside the CoStrict embed", () => {
+    sessionPermissionMocks.embedded = false;
+    render(
+      <RuntimeNodeCard
+        node={baseNode}
+        nodeRun={{ ...completedRun, session_id: "session-1" }}
+        workerName="Planner"
+        criticName="Reviewer"
+        onClick={vi.fn()}
+        onOpenSession={vi.fn()}
+      />,
+    );
+
+    expect(screen.queryByTestId("runtime-node-open-session")).not.toBeInTheDocument();
   });
 
   it("shows deliverable summary and keeps PR and session actions independent from the card", async () => {
