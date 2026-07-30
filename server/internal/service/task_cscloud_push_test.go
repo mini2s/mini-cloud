@@ -887,6 +887,92 @@ func TestAppendCodeRepoPrompt_NoAliasFallsBackToURL(t *testing.T) {
 	}
 }
 
+type workflowSourceIssuePromptDB struct {
+	nodeRun db.MulticaWorkflowNodeRun
+	run     db.MulticaWorkflowRun
+	issue   db.MulticaIssue
+}
+
+func (m *workflowSourceIssuePromptDB) QueryRow(_ context.Context, sql string, _ ...interface{}) pgx.Row {
+	switch {
+	case strings.Contains(sql, "GetWorkflowNodeRun"):
+		return &workflowSourceIssuePromptRow{nodeRun: &m.nodeRun}
+	case strings.Contains(sql, "GetWorkflowRun"):
+		return &workflowSourceIssuePromptRow{run: &m.run}
+	case strings.Contains(sql, "GetIssue"):
+		return &workflowSourceIssuePromptRow{issue: &m.issue}
+	default:
+		return &workflowSourceIssuePromptRow{err: pgx.ErrNoRows}
+	}
+}
+
+func (m *workflowSourceIssuePromptDB) Query(_ context.Context, _ string, _ ...interface{}) (pgx.Rows, error) {
+	return nil, pgx.ErrNoRows
+}
+
+func (m *workflowSourceIssuePromptDB) Exec(_ context.Context, _ string, _ ...interface{}) (pgconn.CommandTag, error) {
+	return pgconn.NewCommandTag(""), nil
+}
+
+type workflowSourceIssuePromptRow struct {
+	nodeRun *db.MulticaWorkflowNodeRun
+	run     *db.MulticaWorkflowRun
+	issue   *db.MulticaIssue
+	err     error
+}
+
+func (r *workflowSourceIssuePromptRow) Scan(dest ...any) error {
+	if r.err != nil {
+		return r.err
+	}
+	switch {
+	case r.nodeRun != nil:
+		return scanNodeRun(r.nodeRun, dest)
+	case r.run != nil:
+		return scanWorkflowRun(r.run, dest)
+	case r.issue != nil:
+		return scanIssueFull(r.issue, dest)
+	default:
+		return nil
+	}
+}
+
+func TestBuildCSCloudPrompt_WorkflowTaskUsesSourceIssueWhenTaskIssueMissing(t *testing.T) {
+	nodeRunID := testUUID(30)
+	runID := testUUID(31)
+	sourceIssueID := testUUID(32)
+	description := "Say hello and nothing else.\n\nReturn exactly: Hello"
+	mdb := &workflowSourceIssuePromptDB{
+		nodeRun: db.MulticaWorkflowNodeRun{
+			ID:            nodeRunID,
+			WorkflowRunID: runID,
+			NodeTitle:     "Worker Node",
+		},
+		run: db.MulticaWorkflowRun{
+			ID:            runID,
+			SourceIssueID: sourceIssueID,
+		},
+		issue: db.MulticaIssue{
+			ID:          sourceIssueID,
+			Title:       "Say Hello Only",
+			Description: pgtype.Text{String: description, Valid: true},
+		},
+	}
+	svc := &TaskService{Queries: db.New(mdb)}
+	task := db.MulticaAgentTaskQueue{WorkflowNodeRunID: nodeRunID}
+
+	got, err := svc.buildCSCloudPrompt(context.Background(), task, "direct")
+	if err != nil {
+		t.Fatalf("buildCSCloudPrompt: %v", err)
+	}
+	if !strings.Contains(got, "Issue: Say Hello Only") {
+		t.Fatalf("prompt missing source issue title:\n%s", got)
+	}
+	if !strings.Contains(got, description) {
+		t.Fatalf("prompt missing full source issue description:\n%s", got)
+	}
+}
+
 // --- deliverableSpecsForTask tests ---
 
 // deliverableTestDB is a focused mock for deliverableSpecsForTask.
