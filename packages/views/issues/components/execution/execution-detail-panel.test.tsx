@@ -4,31 +4,14 @@ import { beforeEach, describe, it, expect, vi } from "vitest";
 import { ExecutionDetailPanel } from "./execution-detail-panel";
 import type { WorkflowNode, WorkflowNodeRun, WorkflowNodeRuntimeSummary } from "@multica/core/types";
 
-const mockSetActiveSession = vi.fn();
-const mockSetOpen = vi.fn();
 const mockIsEmbeddedInCostrict = vi.fn(() => false);
 const mockPostCostrictNavigateToSession = vi.fn();
-const mockListTaskMessages = vi.fn();
 const mockReviewNodeRun = vi.fn();
 const mockReviewNodeRunDeliverable = vi.fn();
 const mockUploadIssueDeliverable = vi.fn();
 const mockUploadIssueDeliverablePR = vi.fn();
 const mockSubmitNodeRun = vi.fn();
 const mockInvalidateQueries = vi.fn();
-let mockChatSessions = [
-  {
-    id: "11111111-1111-1111-1111-111111111111",
-    workspace_id: "ws-1",
-    agent_id: "a1",
-    creator_id: "u1",
-    title: "Runtime session",
-    status: "active",
-    session_id: "sess-1",
-    has_unread: false,
-    created_at: "",
-    updated_at: "",
-  },
-];
 
 vi.mock("@tanstack/react-query", () => ({
   useQuery: (opts: { queryKey?: unknown } = {}) => {
@@ -37,7 +20,7 @@ vi.mock("@tanstack/react-query", () => ({
     if (key.includes("deliverables")) {
       return { data: mockDeliverableSubmissions };
     }
-    return { data: mockChatSessions };
+    return { data: undefined };
   },
   useQueryClient: () => ({
     invalidateQueries: mockInvalidateQueries,
@@ -88,10 +71,6 @@ const defaultDeliverableSubmissions = {
 // Reassigned per test (reset in beforeEach) to vary the deliverables fixture.
 let mockDeliverableSubmissions = defaultDeliverableSubmissions;
 
-vi.mock("@multica/core/chat/queries", () => ({
-  chatSessionsOptions: () => ({ queryKey: ["chat", "sessions"] }),
-}));
-
 vi.mock("@multica/core/workflows/queries", () => ({
   workflowKeys: {
     nodeRunDeliverables: (nodeRunId: string) => ["workflows", "node-runs", nodeRunId, "deliverables"],
@@ -101,6 +80,11 @@ vi.mock("@multica/core/workflows/queries", () => ({
   nodeRunDeliverableSubmissionsOptions: (_wsId: string, nodeRunId: string) => ({
     queryKey: ["workflows", "node-runs", nodeRunId, "deliverables"],
     queryFn: () => [],
+  }),
+  useSessionPermission: (sessionId: string | null | undefined) => ({
+    data: sessionId
+      ? { can_observe: true, can_control: false, role: "owner" }
+      : undefined,
   }),
   useSubmitNodeRun: () => ({
     mutate: vi.fn(),
@@ -120,14 +104,6 @@ vi.mock("../../../workflows/components/node-run-control-actions", () => ({
   NodeRunControlActions: () => null,
 }));
 
-vi.mock("@multica/core/chat", () => ({
-  useChatStore: (selector: (state: { setActiveSession: typeof mockSetActiveSession; setOpen: typeof mockSetOpen }) => unknown) =>
-    selector({
-      setActiveSession: mockSetActiveSession,
-      setOpen: mockSetOpen,
-    }),
-}));
-
 vi.mock("@multica/core/platform", () => ({
   isEmbeddedInCostrict: () => mockIsEmbeddedInCostrict(),
   postCostrictNavigateToSession: (args: unknown) => mockPostCostrictNavigateToSession(args),
@@ -142,7 +118,6 @@ vi.mock("@multica/core/issues/mutations", () => ({
 
 vi.mock("@multica/core/api", () => ({
   api: {
-    listTaskMessages: (taskId: string) => mockListTaskMessages(taskId),
     reviewNodeRun: (nodeRunId: string, approved: boolean, comment?: string) =>
       mockReviewNodeRun(nodeRunId, approved, comment),
     reviewNodeRunDeliverable: (nodeRunId: string, submissionId: string, body: unknown) =>
@@ -154,31 +129,6 @@ vi.mock("@multica/core/api", () => ({
     submitNodeRun: (nodeRunId: string, output: unknown) =>
       mockSubmitNodeRun(nodeRunId, output),
   },
-}));
-
-vi.mock("../../../common/task-transcript", () => ({
-  buildTimeline: (msgs: Array<{ seq: number; type: string; content?: string }>) =>
-    msgs.map((msg) => ({ seq: msg.seq, type: msg.type, content: msg.content })),
-  AgentTranscriptDialog: ({
-    open,
-    task,
-    items,
-    agentName,
-  }: {
-    open: boolean;
-    task: { id: string };
-    items: Array<{ content?: string }>;
-    agentName: string;
-  }) =>
-    open ? (
-      <div role="dialog" aria-label="Task transcript">
-        <span>{task.id}</span>
-        <span>{agentName}</span>
-        {items.map((item, index) => (
-          <p key={index}>{item.content}</p>
-        ))}
-      </div>
-    ) : null,
 }));
 
 // Mock @multica/views/i18n for useT hook — handles function selector form
@@ -359,23 +309,8 @@ const runtimeSummary: WorkflowNodeRuntimeSummary = {
 
 describe("ExecutionDetailPanel", () => {
   beforeEach(() => {
-    mockSetActiveSession.mockClear();
-    mockSetOpen.mockClear();
-    mockIsEmbeddedInCostrict.mockReturnValue(false);
+    mockIsEmbeddedInCostrict.mockReturnValue(true);
     mockPostCostrictNavigateToSession.mockClear();
-    mockListTaskMessages.mockReset();
-    mockListTaskMessages.mockResolvedValue([
-      {
-        task_id: "task-1",
-        seq: 1,
-        type: "text",
-        content: "implemented the fix",
-        tool: "",
-        input: null,
-        output: "",
-        created_at: "2026-06-25T10:01:00Z",
-      },
-    ]);
     mockReviewNodeRun.mockReset().mockResolvedValue({});
     mockReviewNodeRunDeliverable.mockReset().mockResolvedValue({});
     mockUploadIssueDeliverable.mockReset().mockResolvedValue({ ok: true });
@@ -383,20 +318,6 @@ describe("ExecutionDetailPanel", () => {
     mockSubmitNodeRun.mockReset().mockResolvedValue({});
     mockInvalidateQueries.mockResolvedValue(undefined);
     mockDeliverableSubmissions = defaultDeliverableSubmissions;
-    mockChatSessions = [
-      {
-        id: "11111111-1111-1111-1111-111111111111",
-        workspace_id: "ws-1",
-        agent_id: "a1",
-        creator_id: "u1",
-        title: "Runtime session",
-        status: "active",
-        session_id: "sess-1",
-        has_unread: false,
-        created_at: "",
-        updated_at: "",
-      },
-    ];
   });
 
   it("renders node title in header", () => {
@@ -545,33 +466,7 @@ describe("ExecutionDetailPanel", () => {
     expect(screen.getAllByText("Max turns reached").length).toBeGreaterThan(0);
   });
 
-  it("opens the matching chat session from a runtime session id in run mode", async () => {
-    render(
-      <ExecutionDetailPanel
-        node={{ ...node, title: "Run node" }}
-        nodeRun={{ ...run, node_title: "Run node", session_id: "sess-1" }}
-        workerName="Backend assistant"
-        criticName="Reviewer"
-        onClose={vi.fn()}
-        wsId="ws-1"
-      />,
-    );
-
-    await userEvent.click(screen.getByRole("button", { name: "Open session" }));
-
-    expect(screen.getByTestId("runtime-primary-actions")).toContainElement(screen.getByRole("button", { name: "Open session" }));
-    expect(screen.getAllByTestId("node-detail-section").map((section) => section.getAttribute("data-section"))).toEqual([
-      "status-next-step",
-      "evidence-preview",
-      "worker-critic",
-      "runtime-facts",
-    ]);
-    expect(mockSetActiveSession).toHaveBeenCalledWith("11111111-1111-1111-1111-111111111111");
-    expect(mockSetOpen).toHaveBeenCalledWith(true);
-  });
-
-  it("asks CoStrict to open the runtime session in a new browser tab when embedded", async () => {
-    mockIsEmbeddedInCostrict.mockReturnValue(true);
+  it("asks CoStrict to open the CSC session in a new browser tab", async () => {
     mockPostCostrictNavigateToSession.mockReturnValue(true);
 
     render(
@@ -591,13 +486,10 @@ describe("ExecutionDetailPanel", () => {
       sessionId: "sess-1",
       newTab: true,
     });
-    expect(mockSetActiveSession).not.toHaveBeenCalled();
-    expect(mockSetOpen).not.toHaveBeenCalled();
   });
 
-  it("falls back to the matching chat session when CoStrict navigation cannot post to a parent frame", async () => {
-    mockIsEmbeddedInCostrict.mockReturnValue(true);
-    mockPostCostrictNavigateToSession.mockReturnValue(false);
+  it("hides the CSC session action outside the CoStrict embed", () => {
+    mockIsEmbeddedInCostrict.mockReturnValue(false);
 
     render(
       <ExecutionDetailPanel
@@ -610,41 +502,8 @@ describe("ExecutionDetailPanel", () => {
       />,
     );
 
-    await userEvent.click(screen.getByRole("button", { name: "Open session" }));
-
-    expect(mockPostCostrictNavigateToSession).toHaveBeenCalledWith({
-      sessionId: "sess-1",
-      newTab: true,
-    });
-    expect(mockSetActiveSession).toHaveBeenCalledWith("11111111-1111-1111-1111-111111111111");
-    expect(mockSetOpen).toHaveBeenCalledWith(true);
-  });
-
-  it("opens the task transcript when a runtime session has no matching chat session", async () => {
-    render(
-      <ExecutionDetailPanel
-        node={{ ...node, title: "Run node" }}
-        nodeRun={{
-          ...run,
-          node_title: "Run node",
-          session_id: "orphan-runtime-session",
-          worker_agent_task_id: "task-1",
-        }}
-        workerName="Backend assistant"
-        criticName="Reviewer"
-        onClose={vi.fn()}
-        wsId="ws-1"
-        issueId="issue-1"
-      />,
-    );
-
-    await userEvent.click(screen.getByRole("button", { name: "Open session" }));
-
-    await waitFor(() => expect(mockListTaskMessages).toHaveBeenCalledWith("task-1"));
-    expect(await screen.findByRole("dialog", { name: "Task transcript" })).toBeInTheDocument();
-    expect(screen.getByText("implemented the fix")).toBeInTheDocument();
-    expect(mockSetActiveSession).not.toHaveBeenCalled();
-    expect(mockSetOpen).not.toHaveBeenCalled();
+    expect(screen.queryByRole("button", { name: "Open session" })).not.toBeInTheDocument();
+    expect(mockPostCostrictNavigateToSession).not.toHaveBeenCalled();
   });
 
   it("calls onClose when clicking mask", async () => {

@@ -3,9 +3,11 @@ package handler
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http/httptest"
 	"testing"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
 	db "github.com/multica-ai/multica/server/pkg/db/generated"
 )
@@ -64,7 +66,7 @@ func seedCollabNodeRun(t *testing.T, status string) string {
 func seedHandbackNodeRun(t *testing.T) (nodeRunID, agentID, sessionID string) {
 	t.Helper()
 	ctx := context.Background()
-	sessionID = "csc-handback-resume-001"
+	sessionID = fmt.Sprintf("csc-handback-resume-%s", uuid.NewString())
 
 	if err := testPool.QueryRow(ctx, `
 		INSERT INTO multica_agent (
