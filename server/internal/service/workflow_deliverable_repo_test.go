@@ -1422,7 +1422,8 @@ func TestReviewNodeRun_MergesGitLabMR(t *testing.T) {
 		Gitea:     nil, // code-only workspace — Gitea dormant
 	}
 
-	// Seed a critic_reviewing node_run + a submission carrying a GitLab MR URL.
+	// Seed a critic_reviewing node_run + a runtime requirement + a submission
+	// carrying a GitLab MR URL.
 	var nodeRunID string
 	if err := pool.QueryRow(ctx, `
 		INSERT INTO multica_workflow_node_run (workflow_run_id, workflow_node_id, node_title, status, worker_type, critic_type)
@@ -1431,13 +1432,23 @@ func TestReviewNodeRun_MergesGitLabMR(t *testing.T) {
 	`, util.UUIDToString(fix.run1), util.UUIDToString(fix.node)).Scan(&nodeRunID); err != nil {
 		t.Fatalf("seed node run: %v", err)
 	}
+	var reqID pgtype.UUID
+	if err := pool.QueryRow(ctx, `
+		INSERT INTO multica_workflow_node_run_deliverable (
+			workflow_node_run_id, source_deliverable_id, kind, title, description, required, sort_order)
+		SELECT $1, id, kind, title, description, required, sort_order
+		FROM multica_workflow_node_deliverable WHERE id = $2
+		RETURNING id
+	`, nodeRunID, deliverableID).Scan(&reqID); err != nil {
+		t.Fatalf("seed runtime requirement: %v", err)
+	}
 	mrURL := glSrv.URL + "/root/repo/-/merge_requests/7"
 	if _, err := pool.Exec(ctx, `
 		INSERT INTO multica_workflow_node_deliverable_submission (
 			workflow_node_run_id, deliverable_id, submitted_by_type, status, content, pull_request_url
 		)
 		VALUES ($1, $2, 'system', 'submitted', 'code body', $3)
-	`, nodeRunID, deliverableID, mrURL); err != nil {
+	`, nodeRunID, util.UUIDToString(reqID), mrURL); err != nil {
 		t.Fatalf("seed submission: %v", err)
 	}
 	nrID, _ := util.ParseUUID(nodeRunID)
@@ -1478,7 +1489,9 @@ func fakeGiteaCloseServer(t *testing.T, closeStatus int) (srv *httptest.Server, 
 
 // seedReviewSubmissionsNodeRun inserts a critic_reviewing node_run plus two
 // submissions: one for deliverableIDDoc (document) with docPRURL, one for
-// deliverableIDCode (pull_request) with codeMRURL. Returns the node_run ID.
+// deliverableIDCode (pull_request) with codeMRURL. The deliverableIDs are
+// definition-table IDs; runtime requirements are created first (migration 144
+// added a FK on submissions → runtime deliverables). Returns the node_run ID.
 func seedReviewSubmissionsNodeRun(t *testing.T, pool *pgxpool.Pool, fix *giteaFixture, deliverableIDDoc, deliverableIDCode pgtype.UUID, docPRURL, codeMRURL string) pgtype.UUID {
 	t.Helper()
 	ctx := context.Background()
@@ -1490,22 +1503,41 @@ func seedReviewSubmissionsNodeRun(t *testing.T, pool *pgxpool.Pool, fix *giteaFi
 	`, util.UUIDToString(fix.run1), util.UUIDToString(fix.node)).Scan(&nodeRunID); err != nil {
 		t.Fatalf("seed node run: %v", err)
 	}
-	for _, s := range []struct {
-		deliverable pgtype.UUID
-		url         string
-	}{
+	nrID, _ := util.ParseUUID(nodeRunID)
+
+	// Create runtime requirements from the definition deliverables, then
+	// build submissions on the runtime IDs (FK requires it).
+	type defURL struct {
+		defID pgtype.UUID
+		url   string
+	}
+	pairs := []defURL{
 		{deliverableIDDoc, docPRURL},
 		{deliverableIDCode, codeMRURL},
-	} {
+	}
+	runtimeIDs := make([]pgtype.UUID, len(pairs))
+	for i, p := range pairs {
+		var reqID pgtype.UUID
+		if err := pool.QueryRow(ctx, `
+			INSERT INTO multica_workflow_node_run_deliverable (
+				workflow_node_run_id, source_deliverable_id, kind, title, description, required, sort_order)
+			SELECT $1, id, kind, title, description, required, sort_order
+			FROM multica_workflow_node_deliverable WHERE id = $2
+			RETURNING id
+		`, nodeRunID, util.UUIDToString(p.defID)).Scan(&reqID); err != nil {
+			t.Fatalf("seed runtime requirement: %v", err)
+		}
+		runtimeIDs[i] = reqID
+	}
+	for i, s := range pairs {
 		if _, err := pool.Exec(ctx, `
 			INSERT INTO multica_workflow_node_deliverable_submission (
 				workflow_node_run_id, deliverable_id, submitted_by_type, status, content, pull_request_url)
 			VALUES ($1, $2, 'system', 'submitted', 'body', $3)
-		`, nodeRunID, util.UUIDToString(s.deliverable), s.url); err != nil {
+		`, nodeRunID, util.UUIDToString(runtimeIDs[i]), s.url); err != nil {
 			t.Fatalf("seed submission: %v", err)
 		}
 	}
-	nrID, _ := util.ParseUUID(nodeRunID)
 	return nrID
 }
 
@@ -1572,7 +1604,8 @@ func TestCloseDeliverableReviewRequests_BestEffortOnError(t *testing.T) {
 		Bus:       events.New(),
 		Gitea:     gitea.NewClient(gitea.Config{BaseURL: giteaSrv.URL, Token: "admin"}),
 	}
-	// Seed only the document submission (a 500 on its close must not abort).
+	// Seed a node_run, create a runtime requirement from the definition deliverable,
+	// then insert a submission on the runtime requirement ID (FK requires it).
 	var nodeRunID string
 	if err := pool.QueryRow(ctx, `
 		INSERT INTO multica_workflow_node_run (workflow_run_id, workflow_node_id, node_title, status, worker_type, critic_type)
@@ -1581,11 +1614,21 @@ func TestCloseDeliverableReviewRequests_BestEffortOnError(t *testing.T) {
 	`, util.UUIDToString(fix.run1), util.UUIDToString(fix.node)).Scan(&nodeRunID); err != nil {
 		t.Fatalf("seed node run: %v", err)
 	}
+	var reqID pgtype.UUID
+	if err := pool.QueryRow(ctx, `
+		INSERT INTO multica_workflow_node_run_deliverable (
+			workflow_node_run_id, source_deliverable_id, kind, title, description, required, sort_order)
+		SELECT $1, id, kind, title, description, required, sort_order
+		FROM multica_workflow_node_deliverable WHERE id = $2
+		RETURNING id
+	`, nodeRunID, docID).Scan(&reqID); err != nil {
+		t.Fatalf("seed runtime requirement: %v", err)
+	}
 	if _, err := pool.Exec(ctx, `
 		INSERT INTO multica_workflow_node_deliverable_submission (
 			workflow_node_run_id, deliverable_id, submitted_by_type, status, content, pull_request_url)
 		VALUES ($1, $2, 'system', 'submitted', 'body', $3)
-	`, nodeRunID, docID, giteaSrv.URL+"/owner/repo/pulls/5"); err != nil {
+	`, nodeRunID, util.UUIDToString(reqID), giteaSrv.URL+"/owner/repo/pulls/5"); err != nil {
 		t.Fatalf("seed submission: %v", err)
 	}
 	nrID, _ := util.ParseUUID(nodeRunID)
@@ -1597,6 +1640,213 @@ func TestCloseDeliverableReviewRequests_BestEffortOnError(t *testing.T) {
 	if *closeCalls != 1 {
 		t.Fatalf("close attempts = %d, want 1 (failure must not abort)", *closeCalls)
 	}
+}
+
+// TestCloseDeliverableReviewRequests_ByURLHost verifies that close dispatch is
+// keyed on URL host (Gitea PR shape), not deliverable kind. A pull_request-kind
+// deliverable carrying a Gitea-hosted PR URL is closed; a GitLab-hosted MR URL
+// is skipped (worker revises in place). Before T1/T2 the function gated on
+// d.Kind == "document"; now it gates on gitea.ParsePullRequestIndex success.
+func TestCloseDeliverableReviewRequests_ByURLHost(t *testing.T) {
+	pool := openTestPool(t)
+	defer pool.Close()
+	ctx := context.Background()
+	fix := seedGiteaFixture(t, pool, false, 1)
+
+	// Two pull_request-kind deliverables on the definition node.
+	if _, err := pool.Exec(ctx, `INSERT INTO multica_workflow_node_deliverable (workflow_node_id, kind, title, required, sort_order) VALUES ($1,'pull_request','Code A',TRUE,0)`, util.UUIDToString(fix.node)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO multica_workflow_node_deliverable (workflow_node_id, kind, title, required, sort_order) VALUES ($1,'pull_request','Code B',TRUE,1)`, util.UUIDToString(fix.node)); err != nil {
+		t.Fatal(err)
+	}
+
+	// Seed a node_run, then copy definition deliverables into runtime requirements.
+	var nodeRunID string
+	if err := pool.QueryRow(ctx, `
+		INSERT INTO multica_workflow_node_run (workflow_run_id, workflow_node_id, node_title, status, worker_type, critic_type)
+		VALUES ($1, $2, 'Review Node', 'critic_reviewing', 'agent', 'human')
+		RETURNING id
+	`, util.UUIDToString(fix.run1), util.UUIDToString(fix.node)).Scan(&nodeRunID); err != nil {
+		t.Fatalf("seed node run: %v", err)
+	}
+	nrID, _ := util.ParseUUID(nodeRunID)
+
+	// Manually seed two runtime deliverable requirements from the two definition rows.
+	rows, err := pool.Query(ctx, `
+		SELECT id FROM multica_workflow_node_deliverable
+		WHERE workflow_node_id = $1 AND kind = 'pull_request'
+		ORDER BY sort_order, id
+	`, util.UUIDToString(fix.node))
+	if err != nil {
+		t.Fatalf("list definition deliverables: %v", err)
+	}
+	var defIDs []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			t.Fatalf("scan def id: %v", err)
+		}
+		defIDs = append(defIDs, id)
+	}
+	rows.Close()
+	if len(defIDs) != 2 {
+		t.Fatalf("expected 2 definition deliverables, got %d", len(defIDs))
+	}
+	var reqA, reqB pgtype.UUID
+	for _, defID := range defIDs {
+		var reqID pgtype.UUID
+		if err := pool.QueryRow(ctx, `
+			INSERT INTO multica_workflow_node_run_deliverable (
+				workflow_node_run_id, source_deliverable_id, kind, title, description, required, sort_order)
+			SELECT $1, id, kind, title, description, required, sort_order
+			FROM multica_workflow_node_deliverable WHERE id = $2
+			RETURNING id
+		`, nodeRunID, defID).Scan(&reqID); err != nil {
+			t.Fatalf("seed runtime requirement: %v", err)
+		}
+		if !reqA.Valid {
+			reqA = reqID
+		} else {
+			reqB = reqID
+		}
+	}
+
+	giteaSrv, closeCalls := fakeGiteaCloseServer(t, http.StatusOK)
+	glSrv, glMergeCalls := fakeGitlabMergeServer(t, http.StatusOK)
+	svc := &WorkflowService{
+		Queries:   db.New(pool),
+		TxStarter: pool,
+		Bus:       events.New(),
+		Gitea:     gitea.NewClient(gitea.Config{BaseURL: giteaSrv.URL, Token: "admin"}),
+	}
+
+	// Seed submissions on the runtime requirement IDs.
+	for _, s := range []struct {
+		req pgtype.UUID
+		url string
+	}{
+		{reqA, giteaSrv.URL + "/owner/repo/pulls/7"},
+		{reqB, glSrv.URL + "/root/repo/-/merge_requests/11"},
+	} {
+		if _, err := pool.Exec(ctx, `
+			INSERT INTO multica_workflow_node_deliverable_submission (
+				workflow_node_run_id, deliverable_id, submitted_by_type, status, content, pull_request_url)
+			VALUES ($1, $2, 'system', 'submitted', 'body', $3)
+		`, nodeRunID, util.UUIDToString(s.req), s.url); err != nil {
+			t.Fatalf("seed submission: %v", err)
+		}
+	}
+
+	svc.closeDeliverableReviewRequests(ctx, db.MulticaWorkflowNodeRun{
+		ID: nrID, WorkflowRunID: fix.run1, WorkflowNodeID: fix.node,
+	})
+	if *closeCalls != 1 {
+		t.Fatalf("Gitea PR close calls = %d, want 1 (pull_request kind with Gitea URL should be closed)", *closeCalls)
+	}
+	if *glMergeCalls != 0 {
+		t.Fatalf("GitLab merge/close calls = %d, want 0 (GitLab MR must NOT be touched)", *glMergeCalls)
+	}
+}
+
+// TestAutoSubmit_AnySingleRequiredDeliverable verifies that auto-submit widens
+// beyond pull_request kind: a single required deliverable of ANY kind receives the
+// extracted GitLab MR URL. Two required deliverables → ambiguity guard fires,
+// no auto-submit.
+func TestAutoSubmit_AnySingleRequiredDeliverable(t *testing.T) {
+	t.Run("single required → submission created", func(t *testing.T) {
+		pool := openTestPool(t)
+		defer pool.Close()
+		ctx := context.Background()
+		fix := seedGiteaFixture(t, pool, true /*document deliverable*/, 1)
+
+		// Seed a node_run with a worker_id (needed for SubmittedByID).
+		var nodeRunID, workerID string
+		if err := pool.QueryRow(ctx, `
+			INSERT INTO multica_workflow_node_run (workflow_run_id, workflow_node_id, node_title, status, worker_type, worker_id, critic_type)
+			VALUES ($1, $2, 'Work Node', 'completed', 'agent', $3, 'human')
+			RETURNING id, worker_id
+		`, util.UUIDToString(fix.run1), util.UUIDToString(fix.node), util.UUIDToString(fix.workspace)).Scan(&nodeRunID, &workerID); err != nil {
+			t.Fatalf("seed node run: %v", err)
+		}
+		nrID, _ := util.ParseUUID(nodeRunID)
+
+		// Copy the document deliverable into the runtime requirements table.
+		seedRuntimeDeliverableRequirement(t, pool, nrID, fix.node, "document")
+
+		mrURL := "https://gitlab.example.com/root/repo/-/merge_requests/42"
+		output := json.RawMessage(`{"output":"review at ` + mrURL + `"}`)
+
+		q := db.New(pool)
+		if err := autoSubmitSinglePullRequestDeliverable(ctx, q, db.MulticaWorkflowNodeRun{
+			ID: nrID, WorkerID: pgtype.UUID{Bytes: [16]byte{}, Valid: false},
+		}, output); err != nil {
+			t.Fatalf("autoSubmit: %v", err)
+		}
+
+		var count int
+		if err := pool.QueryRow(ctx, `SELECT count(*) FROM multica_workflow_node_deliverable_submission WHERE workflow_node_run_id = $1`, nrID).Scan(&count); err != nil {
+			t.Fatal(err)
+		}
+		if count != 1 {
+			t.Fatalf("submission count = %d, want 1", count)
+		}
+
+		var subURL string
+		if err := pool.QueryRow(ctx, `SELECT pull_request_url FROM multica_workflow_node_deliverable_submission WHERE workflow_node_run_id = $1`, nrID).Scan(&subURL); err != nil {
+			t.Fatal(err)
+		}
+		if subURL != mrURL {
+			t.Fatalf("submission URL = %q, want %q", subURL, mrURL)
+		}
+	})
+
+	t.Run("two required → ambiguity, no auto-submit", func(t *testing.T) {
+		pool := openTestPool(t)
+		defer pool.Close()
+		ctx := context.Background()
+		fix := seedGiteaFixture(t, pool, false, 1)
+
+		// Two deliverables on the same node.
+		if _, err := pool.Exec(ctx, `INSERT INTO multica_workflow_node_deliverable (workflow_node_id, kind, title, required, sort_order) VALUES ($1,'document','Doc',TRUE,0)`, util.UUIDToString(fix.node)); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := pool.Exec(ctx, `INSERT INTO multica_workflow_node_deliverable (workflow_node_id, kind, title, required, sort_order) VALUES ($1,'pull_request','Code',TRUE,1)`, util.UUIDToString(fix.node)); err != nil {
+			t.Fatal(err)
+		}
+
+		var nodeRunID string
+		if err := pool.QueryRow(ctx, `
+			INSERT INTO multica_workflow_node_run (workflow_run_id, workflow_node_id, node_title, status, worker_type, critic_type)
+			VALUES ($1, $2, 'Work Node', 'completed', 'agent', 'human')
+			RETURNING id
+		`, util.UUIDToString(fix.run1), util.UUIDToString(fix.node)).Scan(&nodeRunID); err != nil {
+			t.Fatalf("seed node run: %v", err)
+		}
+		nrID, _ := util.ParseUUID(nodeRunID)
+
+		// Copy both deliverables into runtime requirements.
+		seedRuntimeDeliverableRequirement(t, pool, nrID, fix.node, "document")
+		seedRuntimeDeliverableRequirement(t, pool, nrID, fix.node, "pull_request")
+
+		mrURL := "https://gitlab.example.com/root/repo/-/merge_requests/42"
+		output := json.RawMessage(`{"output":"review at ` + mrURL + `"}`)
+
+		q := db.New(pool)
+		if err := autoSubmitSinglePullRequestDeliverable(ctx, q, db.MulticaWorkflowNodeRun{
+			ID: nrID,
+		}, output); err != nil {
+			t.Fatalf("autoSubmit: %v", err)
+		}
+
+		var count int
+		if err := pool.QueryRow(ctx, `SELECT count(*) FROM multica_workflow_node_deliverable_submission WHERE workflow_node_run_id = $1`, nrID).Scan(&count); err != nil {
+			t.Fatal(err)
+		}
+		if count != 0 {
+			t.Fatalf("submission count = %d, want 0 (ambiguity guard)", count)
+		}
+	})
 }
 
 // TestReviewNodeRun_ClosesDocumentPROnReject verifies the M4 reject wiring:

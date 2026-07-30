@@ -974,12 +974,13 @@ func (s *WorkflowService) gitlabAccessToken(ctx context.Context, workspaceID pgt
 	return strings.TrimSpace(settings.GitlabAccessToken), nil
 }
 
-// closeDeliverableReviewRequests closes the node-run's DOCUMENT deliverable PRs
-// (Gitea) after a critic rejection, so a stale document PR doesn't linger into
-// the next retry round (the worker opens a fresh one). Code MRs (pull_request
-// kind) are deliberately NOT closed — the worker revises them in place across
-// retries via findOpenPR, so closing would discard work-in-progress. Best-effort:
-// failures are logged and never block the rework/blocked transition (closing is
+// closeDeliverableReviewRequests closes the node-run's Gitea PRs after a
+// critic rejection, so a stale PR doesn't linger into the next retry round
+// (the worker opens a fresh one). Dispatch is by URL host: if
+// gitea.ParsePullRequestIndex succeeds the PR is Gitea-hosted and gets closed;
+// GitLab MRs (and unparseable URLs) are deliberately NOT closed — the worker
+// revises them in place across retries via findOpenPR. Best-effort: failures
+// are logged and never block the rework/blocked transition (closing is
 // cleanup, not a gate on the review outcome). Dormant when no provider is
 // configured.
 func (s *WorkflowService) closeDeliverableReviewRequests(ctx context.Context, nodeRun db.MulticaWorkflowNodeRun) {
@@ -1000,29 +1001,18 @@ func (s *WorkflowService) closeDeliverableReviewRequests(ctx context.Context, no
 	owner := gitea.OrgName(util.UUIDToString(run.WorkspaceID))
 	repo := DeliverableRepoNameForWorkflow(workflow)
 
-	deliverables, err := s.Queries.ListWorkflowNodeDeliverables(ctx, nodeRun.WorkflowNodeID)
-	if err != nil {
-		slog.Warn("close deliverable PRs: list deliverables", "error", err)
-		return
-	}
-	isDocument := make(map[string]bool, len(deliverables))
-	for _, d := range deliverables {
-		if d.Kind == "document" { // code MRs (pull_request) deliberately skipped
-			isDocument[util.UUIDToString(d.ID)] = true
-		}
-	}
 	submissions, err := s.Queries.ListNodeRunDeliverableSubmissions(ctx, nodeRun.ID)
 	if err != nil {
 		slog.Warn("close deliverable PRs: list submissions", "error", err)
 		return
 	}
 	for _, sub := range submissions {
-		if !isDocument[util.UUIDToString(sub.DeliverableID)] || sub.PullRequestUrl == "" {
+		if sub.PullRequestUrl == "" {
 			continue
 		}
 		index, err := gitea.ParsePullRequestIndex(sub.PullRequestUrl)
 		if err != nil {
-			slog.Warn("close deliverable PR: parse url", "url", sub.PullRequestUrl, "error", err)
+			// GitLab MR or unparseable URL — skip (worker revises in place)
 			continue
 		}
 		if err := provider.CloseReviewRequest(ctx, owner, repo, index); err != nil {

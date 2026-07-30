@@ -1119,7 +1119,7 @@ func autoSubmitSinglePullRequestDeliverable(ctx context.Context, q *db.Queries, 
 	}
 	var deliverableID pgtype.UUID
 	for _, d := range deliverables {
-		if d.Kind != "pull_request" || !d.Required {
+		if !d.Required {
 			continue
 		}
 		if deliverableID.Valid {
