@@ -158,4 +158,18 @@ describe("NodeRunActionPanel", () => {
 
     expect(screen.getByRole("alert")).toHaveTextContent("Submission failed");
   });
+
+  it("aligns node actions consistently in the detail section", () => {
+    renderPanel({ access: { ...DENY, canSubmit: true, canSkip: true } });
+
+    const toolbar = screen.getByTestId("node-run-action-toolbar");
+    expect(toolbar).toHaveClass(
+      "grid",
+      "grid-cols-[repeat(2,minmax(0,7rem))]",
+      "justify-start",
+      "gap-3",
+    );
+    expect(screen.getByRole("button", { name: "Submit result" })).toHaveClass("w-full", "min-w-0");
+    expect(screen.getByRole("button", { name: "Skip node" })).toHaveClass("w-full", "min-w-0");
+  });
 });

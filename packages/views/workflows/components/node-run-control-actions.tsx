@@ -28,6 +28,7 @@ interface NodeRunControlActionsProps {
   runId?: string;
   wsId: string;
   size?: "sm" | "default";
+  layout?: "inline" | "grid-items";
   /**
    * When true, the buttons are always rendered regardless of the current
    * node-run status or the user's permission. Clicking a button that cannot
@@ -43,6 +44,7 @@ export function NodeRunControlActions({
   runId,
   wsId,
   size = "sm",
+  layout = "inline",
   alwaysShow = false,
   showOpenSession = true,
 }: NodeRunControlActionsProps) {
@@ -94,7 +96,16 @@ export function NodeRunControlActions({
   const anyControlPending =
     takeoverMutation.isPending || handbackMutation.isPending || finalizeMutation.isPending;
 
-  const buttonClass = size === "sm" ? "h-7 text-xs" : "h-8 text-sm";
+  const buttonClass = layout === "grid-items"
+    ? size === "sm"
+      ? "h-7 w-full min-w-0 text-xs"
+      : "h-8 w-full min-w-0 text-sm"
+    : size === "sm"
+      ? "h-7 min-w-20 text-xs"
+      : "h-8 min-w-24 text-sm";
+  const containerClass = layout === "grid-items"
+    ? "contents"
+    : "flex flex-wrap items-center justify-start gap-3";
   const iconClass = "h-3.5 w-3.5";
 
   const handleTakeover = () => {
@@ -167,11 +178,10 @@ export function NodeRunControlActions({
       return null;
     }
     return (
-      <div className="flex items-center gap-1.5 flex-wrap">
+      <div className={containerClass}>
         {canTakeover && (
           <Button
             size={size}
-            variant="outline"
             className={buttonClass}
             onClick={handleTakeover}
             disabled={anyControlPending}
@@ -205,15 +215,6 @@ export function NodeRunControlActions({
             </Button>
             <Button
               size={size}
-              className={buttonClass}
-              onClick={() => handleFinalize(true)}
-              disabled={anyControlPending}
-            >
-              <CheckCircle className={iconClass} />
-              {finalizeMutation.isPending ? t(($) => $.node_run.finalizing) : t(($) => $.node_run.finalize_approve)}
-            </Button>
-            <Button
-              size={size}
               variant="outline"
               className={buttonClass}
               onClick={() => handleFinalize(false)}
@@ -221,6 +222,15 @@ export function NodeRunControlActions({
             >
               <XCircle className={iconClass} />
               {finalizeMutation.isPending ? t(($) => $.node_run.finalizing) : t(($) => $.node_run.finalize_reject)}
+            </Button>
+            <Button
+              size={size}
+              className={buttonClass}
+              onClick={() => handleFinalize(true)}
+              disabled={anyControlPending}
+            >
+              <CheckCircle className={iconClass} />
+              {finalizeMutation.isPending ? t(($) => $.node_run.finalizing) : t(($) => $.node_run.finalize_approve)}
             </Button>
           </>
         )}
@@ -231,7 +241,7 @@ export function NodeRunControlActions({
   // Issue-detail mode keeps Open Session visible. Take Over is intentionally
   // hidden here; Hand Back / Finalize still appear once the node is blocked.
   return (
-    <div className="flex items-center gap-1.5 flex-wrap">
+    <div className={containerClass}>
       {showOpenSession ? (
         <Button
           size={size}
@@ -257,15 +267,6 @@ export function NodeRunControlActions({
           </Button>
           <Button
             size={size}
-            className={buttonClass}
-            onClick={() => handleFinalize(true)}
-            disabled={anyControlPending}
-          >
-            <CheckCircle className={iconClass} />
-            {finalizeMutation.isPending ? t(($) => $.node_run.finalizing) : t(($) => $.node_run.finalize_approve)}
-          </Button>
-          <Button
-            size={size}
             variant="outline"
             className={buttonClass}
             onClick={() => handleFinalize(false)}
@@ -273,6 +274,15 @@ export function NodeRunControlActions({
           >
             <XCircle className={iconClass} />
             {finalizeMutation.isPending ? t(($) => $.node_run.finalizing) : t(($) => $.node_run.finalize_reject)}
+          </Button>
+          <Button
+            size={size}
+            className={buttonClass}
+            onClick={() => handleFinalize(true)}
+            disabled={anyControlPending}
+          >
+            <CheckCircle className={iconClass} />
+            {finalizeMutation.isPending ? t(($) => $.node_run.finalizing) : t(($) => $.node_run.finalize_approve)}
           </Button>
         </>
       )}

@@ -121,9 +121,13 @@ describe("NodeRunControlActions", () => {
       completed_at: null,
     });
 
-    expect(screen.getByRole("button", { name: "Hand back" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Approve" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Reject" })).toBeInTheDocument();
+    const handback = screen.getByRole("button", { name: "Hand back" });
+    const reject = screen.getByRole("button", { name: "Reject" });
+    const approve = screen.getByRole("button", { name: "Approve" });
+    expect(handback).toHaveClass("min-w-20");
+    expect(reject).toHaveClass("min-w-20");
+    expect(approve).toHaveClass("min-w-20");
+    expect(reject.compareDocumentPosition(approve) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
   it("hides handback and finalize for a terminal blocked runtime", () => {

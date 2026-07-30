@@ -93,10 +93,18 @@ export function NodeRunActionPanel({
       ) : null}
 
       {hasHumanActions || hasRuntimeControls ? (
-        <div data-testid="node-run-action-toolbar" className="flex min-h-8 flex-wrap items-center gap-2">
+        <div
+          data-testid="node-run-action-toolbar"
+          className="grid min-h-8 grid-cols-[repeat(2,minmax(0,7rem))] justify-start gap-3 border-t border-border/60 pt-3"
+        >
           {reviewActions}
           {access.canSubmit ? (
-            <Button size="default" onClick={handleSubmit} disabled={submitMutation.isPending}>
+            <Button
+              size="default"
+              className="w-full min-w-0"
+              onClick={handleSubmit}
+              disabled={submitMutation.isPending}
+            >
               <Send data-icon="inline-start" />
               {submitMutation.isPending
                 ? t(($) => $.execution.detail_panel.submitting_result)
@@ -108,7 +116,12 @@ export function NodeRunActionPanel({
             <AlertDialog>
               <AlertDialogTrigger
                 render={(
-                  <Button size="default" variant="outline" disabled={skipMutation.isPending}>
+                  <Button
+                    size="default"
+                    variant="outline"
+                    className="w-full min-w-0"
+                    disabled={skipMutation.isPending}
+                  >
                     <SkipForward data-icon="inline-start" />
                     {t(($) => $.execution.detail_panel.skip_node)}
                   </Button>
@@ -141,6 +154,7 @@ export function NodeRunActionPanel({
             wsId={wsId}
             size="default"
             showOpenSession={false}
+            layout="grid-items"
           />
         </div>
       ) : null}

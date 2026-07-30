@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, it, expect, vi } from "vitest";
 import { ExecutionDetailPanel } from "./execution-detail-panel";
@@ -404,6 +404,7 @@ describe("ExecutionDetailPanel", () => {
     expect(screen.getByTestId("runtime-diagnostic-summary")).not.toHaveClass("rounded-lg", "border");
     expect(screen.getAllByTestId("node-detail-section").map((section) => section.getAttribute("data-section"))).toEqual([
       "status-next-step",
+      "actions",
       "evidence-preview",
       "worker-critic",
       "runtime-facts",
@@ -536,6 +537,7 @@ describe("ExecutionDetailPanel", () => {
     expect(screen.getByTestId("runtime-primary-actions")).toContainElement(screen.getByRole("button", { name: "Open session" }));
     expect(screen.getAllByTestId("node-detail-section").map((section) => section.getAttribute("data-section"))).toEqual([
       "status-next-step",
+      "actions",
       "evidence-preview",
       "worker-critic",
       "runtime-facts",
@@ -748,7 +750,7 @@ describe("ExecutionDetailPanel", () => {
     );
 
     const sections = screen.getAllByTestId("node-detail-section").map((section) => section.getAttribute("data-section"));
-    expect(sections).toEqual(["status-next-step", "evidence-preview", "worker-critic", "runtime-facts"]);
+    expect(sections).toEqual(["status-next-step", "actions", "evidence-preview", "worker-critic", "runtime-facts"]);
     expect(screen.queryByText(/"nested"/)).not.toBeInTheDocument();
     expect(screen.getByText("View evidence")).toBeInTheDocument();
   });
@@ -787,7 +789,14 @@ describe("ExecutionDetailPanel", () => {
     );
 
     const sections = screen.getAllByTestId("node-detail-section").map((section) => section.getAttribute("data-section"));
-    expect(sections).toEqual(["status-next-step", "evidence-preview", "child-progress", "worker-critic", "runtime-facts"]);
+    expect(sections).toEqual([
+      "status-next-step",
+      "actions",
+      "evidence-preview",
+      "child-progress",
+      "worker-critic",
+      "runtime-facts",
+    ]);
     expect(screen.getAllByText("Open child issue").length).toBeGreaterThan(0);
     expect(screen.getByText("Split work")).toBeInTheDocument();
     expect(screen.getByText("Assignee")).toBeInTheDocument();
@@ -864,6 +873,7 @@ describe("ExecutionDetailPanel", () => {
     expect(screen.queryByText("Agent operations")).not.toBeInTheDocument();
     expect(screen.getAllByTestId("node-detail-section").map((section) => section.getAttribute("data-section"))).toEqual([
       "status-next-step",
+      "actions",
       "evidence-preview",
       "worker-critic",
       "runtime-facts",
@@ -961,9 +971,9 @@ describe("ExecutionDetailPanel", () => {
 
     expect(screen.getByRole("button", { name: "Approve" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Reject" })).toBeInTheDocument();
-    const actionDock = screen.getByTestId("node-action-dock");
+    const actionPanel = screen.getByTestId("node-action-panel");
     const actorSection = screen.getByText("Worker and critic").closest('[data-section="worker-critic"]');
-    expect(actionDock).toContainElement(screen.getByRole("button", { name: "Approve" }));
+    expect(actionPanel).toContainElement(screen.getByRole("button", { name: "Approve" }));
     expect(actorSection).not.toContainElement(screen.getByRole("button", { name: "Approve" }));
   });
 
@@ -1011,7 +1021,7 @@ describe("ExecutionDetailPanel", () => {
     expect(screen.queryByRole("button", { name: "Reject" })).not.toBeInTheDocument();
   });
 
-  it("places the human review dock with deliverables in the panel footer", () => {
+  it("places human review with deliverables in the primary detail column", () => {
     render(
       <ExecutionDetailPanel
         node={{ ...node, critic_type: "human", critic_id: null }}
@@ -1026,14 +1036,20 @@ describe("ExecutionDetailPanel", () => {
       />,
     );
 
-    const footer = screen.getByTestId("node-detail-panel-footer");
-    const dock = screen.getByTestId("node-action-dock");
-    expect(footer).toContainElement(dock);
-    expect(dock).toContainElement(screen.getByText("Human review"));
-    expect(dock).toContainElement(screen.getByRole("link", { name: /Pull request/i }));
-    expect(dock).toContainElement(screen.getByPlaceholderText("Review Comment"));
-    expect(dock).toContainElement(screen.getByRole("button", { name: "Approve" }));
-    expect(dock).toContainElement(screen.getByRole("button", { name: "Reject" }));
+    const primaryColumn = screen.getByTestId("runtime-detail-primary-column");
+    const actionPanel = screen.getByTestId("node-action-panel");
+    expect(primaryColumn).toContainElement(actionPanel);
+    expect(screen.queryByTestId("node-detail-panel-footer")).not.toBeInTheDocument();
+    expect(actionPanel).toContainElement(screen.getByRole("link", { name: /Pull request/i }));
+    expect(actionPanel).toContainElement(screen.getByPlaceholderText("Review Comment"));
+    expect(actionPanel).toContainElement(screen.getByRole("button", { name: "Approve" }));
+    expect(actionPanel).toContainElement(screen.getByRole("button", { name: "Reject" }));
+
+    const toolbar = screen.getByTestId("node-run-action-toolbar");
+    const toolbarButtons = within(toolbar).getAllByRole("button");
+    expect(toolbar).toHaveClass("grid", "grid-cols-[repeat(2,minmax(0,7rem))]", "justify-start");
+    expect(toolbarButtons.map((button) => button.textContent)).toEqual(["Reject", "Approve"]);
+    toolbarButtons.forEach((button) => expect(button).toHaveClass("w-full", "min-w-0"));
   });
 
   it("keeps an existing review visible but hides review actions without permission", () => {
@@ -1063,7 +1079,7 @@ describe("ExecutionDetailPanel", () => {
     expect(screen.queryByRole("button", { name: "Reject" })).not.toBeInTheDocument();
   });
 
-  it("shows the deliverable submission dock for human worker runs", () => {
+  it("shows the deliverable submission section for human worker runs", () => {
     render(
       <ExecutionDetailPanel
         node={{ ...node, worker_type: "human", worker_id: null }}
@@ -1076,10 +1092,11 @@ describe("ExecutionDetailPanel", () => {
       />,
     );
 
-    const footer = screen.getByTestId("node-detail-panel-footer");
-    const dock = screen.getByTestId("node-action-dock");
-    expect(footer).toContainElement(dock);
-    expect(dock).toHaveTextContent("Deliverable submission");
+    const primaryColumn = screen.getByTestId("runtime-detail-primary-column");
+    const actionPanel = screen.getByTestId("node-action-panel");
+    expect(primaryColumn).toContainElement(actionPanel);
+    expect(screen.queryByTestId("node-detail-panel-footer")).not.toBeInTheDocument();
+    expect(actionPanel.closest('[data-section="actions"]')).toHaveTextContent("Deliverable submission");
     expect(screen.queryByPlaceholderText("Review Comment")).not.toBeInTheDocument();
   });
 });

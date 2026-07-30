@@ -320,7 +320,7 @@ export function ExecutionDetailPanel({
   const hasSubmittedLinks = deliverableSubmissions.some((s) => s.pull_request_url);
   const canHumanUpload =
     !isGateway && nodeRun?.worker_type === "human" && !!issueId && hasDeliverableKinds;
-  const dockMode: "review" | "upload" | "actions" | "links" | null = canReview
+  const actionMode: "review" | "upload" | "actions" | "links" | null = canReview
     ? "review"
     : canHumanUpload
       ? "upload"
@@ -465,7 +465,7 @@ export function ExecutionDetailPanel({
         onChange={(event) => setReviewComment(event.target.value)}
         placeholder={t(($) => $.execution.detail_panel.review_comment)}
         rows={3}
-        className="min-h-20 resize-y"
+        className="min-h-20 resize-y bg-background"
       />
       {reviewMutation.isError ? (
         <p role="alert" className="text-xs text-destructive">
@@ -486,6 +486,17 @@ export function ExecutionDetailPanel({
     <>
       <Button
         size="default"
+        variant="outline"
+        className="w-full min-w-0"
+        disabled={reviewMutation.isPending || reviewCommentEmpty}
+        onClick={() => reviewMutation.mutate(false)}
+      >
+        <RotateCcw className="h-3.5 w-3.5" />
+        {t(($) => $.execution.card.actions.reject)}
+      </Button>
+      <Button
+        size="default"
+        className="w-full min-w-0"
         disabled={reviewMutation.isPending || reviewCommentEmpty}
         onClick={() => reviewMutation.mutate(true)}
       >
@@ -494,88 +505,60 @@ export function ExecutionDetailPanel({
           : <Check className="h-3.5 w-3.5" />}
         {t(($) => $.execution.card.actions.approve)}
       </Button>
-      <Button
-        size="default"
-        variant="outline"
-        disabled={reviewMutation.isPending || reviewCommentEmpty}
-        onClick={() => reviewMutation.mutate(false)}
-      >
-        <RotateCcw className="h-3.5 w-3.5" />
-        {t(($) => $.execution.card.actions.reject)}
-      </Button>
     </>
   ) : null;
 
-  const actionDock = dockMode ? (
-    <div data-testid="node-action-dock" className="space-y-2.5">
-      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs font-semibold">
-        {dockMode === "review" ? (
-          <ShieldCheck className="h-3.5 w-3.5 text-amber-600" />
-        ) : dockMode === "upload" ? (
-          <Upload className="h-3.5 w-3.5 text-muted-foreground" />
-        ) : dockMode === "actions" ? (
-          <ListChecks className="h-3.5 w-3.5 text-muted-foreground" />
-        ) : (
-          <Package className="h-3.5 w-3.5 text-muted-foreground" />
-        )}
-        <span>
-          {dockMode === "review"
-            ? t(($) => $.execution.detail_panel.dock_review_title)
-            : dockMode === "upload"
-              ? t(($) => $.execution.detail_panel.dock_submit_title)
-              : dockMode === "actions"
-                ? t(($) => $.execution.detail_panel.section_actions)
-                : t(($) => $.execution.detail_panel.section_deliverables)}
-        </span>
-        {dockMode === "review" ? (
-          <span className="font-normal text-muted-foreground">
+  const actionSection = actionMode ? (
+    <NodeDetailSection
+      sectionId="actions"
+      icon={actionMode === "review"
+        ? <ShieldCheck className="size-4" />
+        : actionMode === "upload"
+          ? <Upload className="size-4" />
+          : actionMode === "actions"
+            ? <ListChecks className="size-4" />
+            : <Package className="size-4" />}
+      title={actionMode === "review"
+        ? t(($) => $.execution.detail_panel.dock_review_title)
+        : actionMode === "upload"
+          ? t(($) => $.execution.detail_panel.dock_submit_title)
+          : actionMode === "actions"
+            ? t(($) => $.execution.detail_panel.section_actions)
+            : t(($) => $.execution.detail_panel.section_deliverables)}
+    >
+      <div data-testid="node-action-panel" className="space-y-3">
+        {actionMode === "review" ? (
+          <p className="text-xs leading-relaxed text-muted-foreground">
             {t(($) => $.execution.detail_panel.dock_review_subtitle)}
-          </span>
+          </p>
         ) : null}
-        {dockMode === "upload" ? (
-          <span className="font-normal text-muted-foreground">
+        {actionMode === "upload" ? (
+          <p className="text-xs leading-relaxed text-muted-foreground">
             {t(($) => $.execution.detail_panel.dock_submit_subtitle)}
-          </span>
+          </p>
+        ) : null}
+        {actionMode !== "actions" || hasSubmittedLinks ? (
+          <NodeRunDeliverables
+            wsId={wsId}
+            nodeRunId={nodeRun?.id ?? ""}
+            issueId={issueId}
+            canUpload={actionMode === "upload"}
+          />
+        ) : null}
+        {nodeRun && actionAccess && hasNodeActions ? (
+          <NodeRunActionPanel
+            nodeRun={nodeRun}
+            access={actionAccess}
+            wsId={wsId}
+            workflowId={workflowId}
+            runId={runId ?? undefined}
+            reviewEditor={reviewEditor}
+            reviewActions={reviewActions}
+          />
         ) : null}
       </div>
-      {dockMode !== "actions" || hasSubmittedLinks ? (
-        <NodeRunDeliverables
-          wsId={wsId}
-          nodeRunId={nodeRun?.id ?? ""}
-          issueId={issueId}
-          canUpload={dockMode === "upload"}
-        />
-      ) : null}
-      {nodeRun && actionAccess && hasNodeActions ? (
-        <NodeRunActionPanel
-          nodeRun={nodeRun}
-          access={actionAccess}
-          wsId={wsId}
-          workflowId={workflowId}
-          runId={runId ?? undefined}
-          reviewEditor={reviewEditor}
-          reviewActions={reviewActions}
-        />
-      ) : null}
-    </div>
+    </NodeDetailSection>
   ) : null;
-
-  const panelFooter = dockMode ? (
-    <div className="-mx-4 -my-3">
-      <div
-        className={
-          runtimeActions
-            ? "border-b border-border/60 bg-muted/25 px-4 py-3"
-            : "bg-muted/25 px-4 py-3"
-        }
-      >
-        {actionDock}
-      </div>
-      {runtimeActions ? <div className="px-4 py-3">{runtimeActions}</div> : null}
-    </div>
-  ) : (
-    runtimeActions
-  );
 
   const evidenceSection = (
     <NodeDetailSection
@@ -619,7 +602,7 @@ export function ExecutionDetailPanel({
       eyebrow="Node runtime"
       closeLabel="Close"
       onClose={onClose}
-      footer={panelFooter}
+      footer={runtimeActions}
       statusIcon={(
         <span className="inline-flex shrink-0 items-center gap-1.5 text-[11px] font-medium text-muted-foreground">
           <RuntimeDisplayStatusIcon
@@ -670,6 +653,8 @@ export function ExecutionDetailPanel({
           ) : null}
         </div>
       </NodeDetailSection>
+
+      {actionSection}
 
       {evidenceSection}
         </div>
