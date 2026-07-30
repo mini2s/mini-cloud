@@ -1319,9 +1319,13 @@ func (s *TaskService) ensureDeliveryRepo(ctx context.Context, task db.MulticaAge
 	if err != nil {
 		return fmt.Errorf("get workflow run: %w", err)
 	}
-	workflow, err := s.Queries.GetWorkflow(ctx, run.WorkflowID)
+	// Read IsDefault from the run snapshot, not the workflow definition table —
+	// runtime paths must survive definition mutation (TestRuntimeFilesDoNotRead-
+	// WorkflowDefinitionTables). initWorkflowNamespace only needs ID (= run.
+	// WorkflowID) + IsDefault.
+	workflow, err := workflowFromRunSnapshotWithQueries(ctx, s.Queries, run)
 	if err != nil {
-		return fmt.Errorf("get workflow: %w", err)
+		return fmt.Errorf("get run snapshot: %w", err)
 	}
 	return initWorkflowNamespace(ctx, s.Queries, s.TeamNamespace, run, workflow)
 }
