@@ -190,6 +190,43 @@ export function canControlNodeRun(
   );
 }
 
+/**
+ * Submit a human review decision for an issue-backed workflow node-run.
+ *
+ * Human workflow actor IDs use user IDs, matching issue member creator IDs.
+ * Workspace owners/admins may moderate any review; otherwise only the issue
+ * creator or the assigned human critic may decide.
+ */
+export function canSubmitNodeRunReview(
+  subject: {
+    issueCreatorType: string | null;
+    issueCreatorId: string | null;
+    criticUserId: string | null;
+  },
+  ctx: PermissionContext,
+): Decision {
+  if (ctx.userId === null) {
+    return deny("not_authenticated", "Sign in to review this node run.");
+  }
+  if (isAdminLike(ctx.role)) return ALLOW;
+  if (
+    subject.issueCreatorType === "member" &&
+    subject.issueCreatorId === ctx.userId
+  ) {
+    return ALLOW;
+  }
+  if (
+    subject.criticUserId !== null &&
+    subject.criticUserId === ctx.userId
+  ) {
+    return ALLOW;
+  }
+  return deny(
+    "not_resource_owner",
+    "Only the issue creator, assigned critic, and workspace admins can review this node run.",
+  );
+}
+
 // ---- Workspace -------------------------------------------------------------
 
 export function canUpdateWorkspaceSettings(ctx: PermissionContext): Decision {

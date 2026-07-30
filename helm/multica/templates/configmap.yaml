@@ -130,6 +130,24 @@ data:
   {{- if .Values.backend.config.csUserApiBaseUrl }}
   CS_USER_API_BASE_URL: {{ .Values.backend.config.csUserApiBaseUrl | quote }}
   {{- end }}
+  {{- if .Values.backend.config.teamNamespaceApiBaseUrl }}
+  TEAM_NAMESPACE_API_BASE_URL: {{ .Values.backend.config.teamNamespaceApiBaseUrl | quote }}
+  {{- end }}
+  {{- if .Values.backend.config.teamNamespaceTenantId }}
+  TEAM_NAMESPACE_TENANT_ID: {{ .Values.backend.config.teamNamespaceTenantId | quote }}
+  {{- end }}
+  {{- if .Values.backend.config.teamNamespaceApiTimeout }}
+  TEAM_NAMESPACE_API_TIMEOUT: {{ .Values.backend.config.teamNamespaceApiTimeout | quote }}
+  {{- end }}
+  {{- if .Values.backend.config.cloudApiBaseUrl }}
+  CLOUD_API_BASE_URL: {{ .Values.backend.config.cloudApiBaseUrl | quote }}
+  {{- end }}
+  {{- if .Values.backend.config.cloudApiTimeout }}
+  CLOUD_API_TIMEOUT: {{ .Values.backend.config.cloudApiTimeout | quote }}
+  {{- end }}
+  {{- if .Values.backend.config.cloudApiSubjectCacheTtl }}
+  CLOUD_API_SUBJECT_CACHE_TTL: {{ .Values.backend.config.cloudApiSubjectCacheTtl | quote }}
+  {{- end }}
   {{- if .Values.backend.config.cscPluginMarketplaceName }}
   CSC_PLUGIN_MARKETPLACE_NAME: {{ .Values.backend.config.cscPluginMarketplaceName | quote }}
   {{- end }}

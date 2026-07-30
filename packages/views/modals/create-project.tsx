@@ -134,7 +134,7 @@ export function CreateProjectModal({ onClose }: { onClose: () => void }) {
   // Repos selected to attach as github_repo resources after the project is
   // created. Stored as URLs (not full ProjectResource rows) — they're not
   // persisted until handleSubmit fires the createProjectResource calls.
-  const [selectedRepos, setSelectedRepos] = useState<string[]>(draft.repos);
+  const [selectedRepos, setSelectedRepos] = useState<string[]>(draft.repos ?? []);
   const [repoComboboxOpen, setRepoComboboxOpen] = useState(false);
   const [repoQuery, setRepoQuery] = useState("");
   const workspaceRepos = workspace?.repos ?? [];

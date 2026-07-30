@@ -127,6 +127,13 @@ vi.mock("@multica/core/platform", () => ({
   postCostrictNavigateToSession: (args: unknown) => mockPostCostrictNavigateToSession(args),
 }));
 
+// Stub the upload mutations so human-worker upload controls render without
+// pulling in useWorkspaceId / the real API client.
+vi.mock("@multica/core/issues/mutations", () => ({
+  useUploadIssueDeliverable: () => ({ isPending: false, isError: false, error: null, mutate: vi.fn() }),
+  useUploadIssueDeliverablePR: () => ({ isPending: false, isError: false, error: null, mutate: vi.fn() }),
+}));
+
 vi.mock("@multica/core/api", () => ({
   api: {
     listTaskMessages: (taskId: string) => mockListTaskMessages(taskId),
@@ -235,7 +242,7 @@ vi.mock("@multica/views/i18n", () => ({
               unblock: "Unblock",
               retry: "Retry",
               review_comment: "Review Comment",
-              review_comment_required: "Please add a review comment",
+              review_comment_required: "Please add a review comment before approving or rejecting",
               execution_summary: "Execution summary",
               execution_summary_placeholder: "Optional: briefly describe the completed work",
               submit_result: "Submit result",
@@ -245,6 +252,10 @@ vi.mock("@multica/views/i18n", () => ({
               skip_dialog_description: "This node will be marked as skipped.",
               skip_dialog_cancel: "Cancel",
               skip_dialog_confirm: "Confirm skip",
+              dock_review_title: "Human review",
+              dock_review_subtitle: "Your review comment is archived to Gitea with the decision.",
+              dock_submit_title: "Deliverable submission",
+              dock_submit_subtitle: "The node enters review once deliverables are submitted.",
               open_session: "Open session",
             },
           },
@@ -914,8 +925,7 @@ describe("ExecutionDetailPanel", () => {
         wsId="ws-1"
         workflowId="wf-1"
         runId="wr1"
-        currentUserId="user-1"
-        currentMember={{ role: "member", status: "active" }}
+        mayReview
       />,
     );
 
@@ -945,16 +955,15 @@ describe("ExecutionDetailPanel", () => {
         wsId="ws-1"
         workflowId="wf-1"
         runId="wr1"
-        currentUserId="user-1"
-        currentMember={{ role: "member", status: "active" }}
+        mayReview
       />,
     );
 
     expect(screen.getByRole("button", { name: "Approve" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Reject" })).toBeInTheDocument();
-    const actionSection = screen.getByText("Node actions").closest('[data-section="actions"]');
+    const actionDock = screen.getByTestId("node-action-dock");
     const actorSection = screen.getByText("Worker and critic").closest('[data-section="worker-critic"]');
-    expect(actionSection).toContainElement(screen.getByRole("button", { name: "Approve" }));
+    expect(actionDock).toContainElement(screen.getByRole("button", { name: "Approve" }));
     expect(actorSection).not.toContainElement(screen.getByRole("button", { name: "Approve" }));
   });
 
@@ -1000,5 +1009,77 @@ describe("ExecutionDetailPanel", () => {
 
     expect(screen.queryByRole("button", { name: "Approve" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Reject" })).not.toBeInTheDocument();
+  });
+
+  it("places the human review dock with deliverables in the panel footer", () => {
+    render(
+      <ExecutionDetailPanel
+        node={{ ...node, critic_type: "human", critic_id: null }}
+        nodeRun={{ ...run, status: "awaiting_critic", critic_type: "human", critic_id: null }}
+        workerName="Worker"
+        criticName={null}
+        onClose={vi.fn()}
+        wsId="ws-1"
+        workflowId="wf-1"
+        runId="wr1"
+        mayReview
+      />,
+    );
+
+    const footer = screen.getByTestId("node-detail-panel-footer");
+    const dock = screen.getByTestId("node-action-dock");
+    expect(footer).toContainElement(dock);
+    expect(dock).toContainElement(screen.getByText("Human review"));
+    expect(dock).toContainElement(screen.getByRole("link", { name: /Pull request/i }));
+    expect(dock).toContainElement(screen.getByPlaceholderText("Review Comment"));
+    expect(dock).toContainElement(screen.getByRole("button", { name: "Approve" }));
+    expect(dock).toContainElement(screen.getByRole("button", { name: "Reject" }));
+  });
+
+  it("keeps an existing review visible but hides review actions without permission", () => {
+    render(
+      <ExecutionDetailPanel
+        node={{ ...node, critic_type: "human", critic_id: "critic-user" }}
+        nodeRun={{
+          ...run,
+          status: "awaiting_critic",
+          critic_type: "human",
+          critic_id: "critic-user",
+          critic_comment: "Please update the tests",
+        }}
+        workerName="Worker"
+        criticName="Reviewer"
+        onClose={vi.fn()}
+        wsId="ws-1"
+        workflowId="wf-1"
+        runId="wr1"
+        mayReview={false}
+      />,
+    );
+
+    expect(screen.getByText(/Please update the tests/)).toBeInTheDocument();
+    expect(screen.queryByPlaceholderText("Review Comment")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Approve" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Reject" })).not.toBeInTheDocument();
+  });
+
+  it("shows the deliverable submission dock for human worker runs", () => {
+    render(
+      <ExecutionDetailPanel
+        node={{ ...node, worker_type: "human", worker_id: null }}
+        nodeRun={{ ...run, status: "working", worker_type: "human", worker_id: null }}
+        workerName="Member"
+        criticName="Reviewer"
+        onClose={vi.fn()}
+        wsId="ws-1"
+        issueId="issue-1"
+      />,
+    );
+
+    const footer = screen.getByTestId("node-detail-panel-footer");
+    const dock = screen.getByTestId("node-action-dock");
+    expect(footer).toContainElement(dock);
+    expect(dock).toHaveTextContent("Deliverable submission");
+    expect(screen.queryByPlaceholderText("Review Comment")).not.toBeInTheDocument();
   });
 });

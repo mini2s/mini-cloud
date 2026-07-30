@@ -12,8 +12,11 @@ import {
   ListChecks,
   Loader2,
   MessageSquare,
+  Package,
   RotateCcw,
+  ShieldCheck,
   Unlock,
+  Upload,
   User,
 } from "lucide-react";
 import { api } from "@multica/core/api";
@@ -77,6 +80,7 @@ export interface ExecutionDetailPanelProps {
   runId?: string | null;
   currentUserId?: string | null;
   currentMember?: HumanActionMember | null;
+  mayReview?: boolean;
 }
 
 function gatewayLabel(kind: "fork" | "join" | null): string {
@@ -182,6 +186,7 @@ export function ExecutionDetailPanel({
   runId,
   currentUserId,
   currentMember,
+  mayReview,
 }: ExecutionDetailPanelProps) {
   const { t } = useT("issues");
   const [showEvidence, setShowEvidence] = useState(false);
@@ -278,24 +283,52 @@ export function ExecutionDetailPanel({
   const canOpenSession = !isGateway && (!!sessionId || !!transcriptTask);
   const canUnblock = !isGateway && status === "blocked" && !!onUnblock;
   const canRetry = !isGateway && isRetryableNodeRunStatus(status) && !!onRetry;
-  const actionAccess = nodeRun
+  const baseActionAccess = nodeRun
     ? getHumanNodeRunActionAccess({
         nodeRun,
         userId: currentUserId ?? null,
         member: currentMember ?? null,
       })
     : null;
-  const canReview = !isGateway && actionAccess?.canReview === true;
+  const isHumanReviewState =
+    !isGateway &&
+    (nodeRun?.status === "awaiting_critic" || nodeRun?.status === "critic_reviewing") &&
+    (nodeRun.critic_type === "human" || node.critic_type === "human");
+  const canReview = isHumanReviewState && (mayReview ?? baseActionAccess?.canReview) === true;
+  const actionAccess = baseActionAccess
+    ? { ...baseActionAccess, canReview }
+    : null;
   const hasRuntimeControls = nodeRun?.runtime_id != null && (
     nodeRun.status === "working" ||
     (nodeRun.status === "blocked" && nodeRun.completed_at == null)
   );
-  const hasNodeActions = actionAccess != null && (
+  const hasNodeActions = !isGateway && actionAccess != null && (
     canReview ||
     actionAccess.canSubmit ||
     actionAccess.canSkip ||
     hasRuntimeControls
   );
+
+  // The footer dock is the node's single action zone: the human critic's
+  // review form (with the deliverables under review) while awaiting review,
+  // the human worker's deliverable upload controls while the node runs, and
+  // otherwise a read-only home for submitted deliverable links.
+  const deliverableKinds = deliverableData?.deliverables ?? [];
+  const hasDeliverableKinds = deliverableKinds.some(
+    (d) => d.kind === "document" || d.kind === "pull_request",
+  );
+  const hasSubmittedLinks = deliverableSubmissions.some((s) => s.pull_request_url);
+  const canHumanUpload =
+    !isGateway && nodeRun?.worker_type === "human" && !!issueId && hasDeliverableKinds;
+  const dockMode: "review" | "upload" | "actions" | "links" | null = canReview
+    ? "review"
+    : canHumanUpload
+      ? "upload"
+      : hasNodeActions
+        ? "actions"
+        : !isGateway && hasSubmittedLinks
+          ? "links"
+          : null;
 
   // A review decision must carry a comment — it is archived to Gitea as the
   // reviewer's opinion, so an empty one is rejected at the UI boundary.
@@ -473,6 +506,77 @@ export function ExecutionDetailPanel({
     </>
   ) : null;
 
+  const actionDock = dockMode ? (
+    <div data-testid="node-action-dock" className="space-y-2.5">
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs font-semibold">
+        {dockMode === "review" ? (
+          <ShieldCheck className="h-3.5 w-3.5 text-amber-600" />
+        ) : dockMode === "upload" ? (
+          <Upload className="h-3.5 w-3.5 text-muted-foreground" />
+        ) : dockMode === "actions" ? (
+          <ListChecks className="h-3.5 w-3.5 text-muted-foreground" />
+        ) : (
+          <Package className="h-3.5 w-3.5 text-muted-foreground" />
+        )}
+        <span>
+          {dockMode === "review"
+            ? t(($) => $.execution.detail_panel.dock_review_title)
+            : dockMode === "upload"
+              ? t(($) => $.execution.detail_panel.dock_submit_title)
+              : dockMode === "actions"
+                ? t(($) => $.execution.detail_panel.section_actions)
+                : t(($) => $.execution.detail_panel.section_deliverables)}
+        </span>
+        {dockMode === "review" ? (
+          <span className="font-normal text-muted-foreground">
+            {t(($) => $.execution.detail_panel.dock_review_subtitle)}
+          </span>
+        ) : null}
+        {dockMode === "upload" ? (
+          <span className="font-normal text-muted-foreground">
+            {t(($) => $.execution.detail_panel.dock_submit_subtitle)}
+          </span>
+        ) : null}
+      </div>
+      {dockMode !== "actions" || hasSubmittedLinks ? (
+        <NodeRunDeliverables
+          wsId={wsId}
+          nodeRunId={nodeRun?.id ?? ""}
+          issueId={issueId}
+          canUpload={dockMode === "upload"}
+        />
+      ) : null}
+      {nodeRun && actionAccess && hasNodeActions ? (
+        <NodeRunActionPanel
+          nodeRun={nodeRun}
+          access={actionAccess}
+          wsId={wsId}
+          workflowId={workflowId}
+          runId={runId ?? undefined}
+          reviewEditor={reviewEditor}
+          reviewActions={reviewActions}
+        />
+      ) : null}
+    </div>
+  ) : null;
+
+  const panelFooter = dockMode ? (
+    <div className="-mx-4 -my-3">
+      <div
+        className={
+          runtimeActions
+            ? "border-b border-border/60 bg-muted/25 px-4 py-3"
+            : "bg-muted/25 px-4 py-3"
+        }
+      >
+        {actionDock}
+      </div>
+      {runtimeActions ? <div className="px-4 py-3">{runtimeActions}</div> : null}
+    </div>
+  ) : (
+    runtimeActions
+  );
+
   const evidenceSection = (
     <NodeDetailSection
       sectionId="evidence-preview"
@@ -515,7 +619,7 @@ export function ExecutionDetailPanel({
       eyebrow="Node runtime"
       closeLabel="Close"
       onClose={onClose}
-      footer={runtimeActions}
+      footer={panelFooter}
       statusIcon={(
         <span className="inline-flex shrink-0 items-center gap-1.5 text-[11px] font-medium text-muted-foreground">
           <RuntimeDisplayStatusIcon
@@ -616,12 +720,6 @@ export function ExecutionDetailPanel({
               <span className="text-muted-foreground">{t(($) => $.execution.detail_panel.worker)}</span>
               <span className="font-medium">{workerName ?? "--"}</span>
             </div>
-            <NodeRunDeliverables
-              wsId={wsId}
-              nodeRunId={nodeRun?.id ?? ""}
-              issueId={issueId}
-              canUpload={nodeRun?.worker_type === "human"}
-            />
             <div className="flex items-center gap-2">
               {nodeRun?.critic_type === "agent" ? <Bot className="h-4 w-4" /> : <User className="h-4 w-4" />}
               <span className="text-muted-foreground">{t(($) => $.execution.detail_panel.critic)}</span>
@@ -639,24 +737,6 @@ export function ExecutionDetailPanel({
           <p className="text-sm text-muted-foreground">{t(($) => $.execution.detail_panel.gateway_no_worker)}</p>
         )}
       </NodeDetailSection>
-
-      {nodeRun && actionAccess && hasNodeActions ? (
-        <NodeDetailSection
-          sectionId="actions"
-          icon={<ListChecks className="size-4" />}
-          title={t(($) => $.execution.detail_panel.section_actions)}
-        >
-          <NodeRunActionPanel
-            nodeRun={nodeRun}
-            access={actionAccess}
-            wsId={wsId}
-            workflowId={workflowId}
-            runId={runId ?? undefined}
-            reviewEditor={reviewEditor}
-            reviewActions={reviewActions}
-          />
-        </NodeDetailSection>
-      ) : null}
 
       <NodeDetailSection
         sectionId="runtime-facts"

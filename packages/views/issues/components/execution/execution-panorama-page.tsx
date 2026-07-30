@@ -27,10 +27,11 @@ import {
   workflowKeys,
 } from "@multica/core/workflows/queries";
 import { useWorkspacePaths } from "@multica/core/paths";
-import { useAuthStore } from "@multica/core/auth";
 import { api } from "@multica/core/api";
+import { useAuthStore } from "@multica/core/auth";
 import { useChatStore } from "@multica/core/chat";
 import { chatSessionsOptions } from "@multica/core/chat/queries";
+import { canSubmitNodeRunReview } from "@multica/core/permissions";
 import {
   isEmbeddedInCostrict,
   postCostrictNavigateToSession,
@@ -102,6 +103,8 @@ export interface ExecutionPanoramaPageProps {
   runId: string | null;
   wsId: string;
   issueId?: string;
+  issueCreatorType?: string | null;
+  issueCreatorId?: string | null;
   fillAvailableHeight?: boolean;
 }
 
@@ -646,14 +649,17 @@ export function ExecutionPanoramaPage({
   runId,
   wsId,
   issueId,
+  issueCreatorType,
+  issueCreatorId,
   fillAvailableHeight = false,
 }: ExecutionPanoramaPageProps) {
   const queryClient = useQueryClient();
+  const currentUserId = useAuthStore((state) => state.user?.id ?? null);
+  const setChatFabHidden = useChatStore((state) => state.setFabHidden);
   const paths = useWorkspacePaths();
   const navigation = useNavigation();
   const { t } = useT("issues");
   const { t: tWf } = useT("workflows");
-  const user = useAuthStore((state) => state.user);
   // ---- Data queries ----
   const { data: canvasSummary, isLoading: canvasSummaryLoading } = useQuery({
     ...workflowRunCanvasSummaryOptions(wsId, workflowId, runId ?? ""),
@@ -686,7 +692,7 @@ export function ExecutionPanoramaPage({
   const { data: agents } = useQuery(agentListOptions(wsId));
   const { data: workflowRoles = [] } = useQuery(workflowRolesOptions(wsId));
   const { data: members = [] } = useQuery(memberListOptions(wsId));
-  const currentMember = members.find((member) => member.user_id === user?.id) ?? null;
+  const currentMember = members.find((member) => member.user_id === currentUserId) ?? null;
   const { data: roleResolutions = [] } = useQuery({
     ...workflowRoleResolutionsOptions(wsId, workflowId, runId ?? ""),
     enabled: !!runId,
@@ -723,6 +729,11 @@ export function ExecutionPanoramaPage({
   const splitViewportByNodeIdRef = useRef<Map<string, Viewport>>(new Map());
   const restoreViewportRequestIdRef = useRef(0);
   const [restoreViewportRequest, setRestoreViewportRequest] = useState<SplitViewportRestoreRequest | null>(null);
+
+  useEffect(() => {
+    setChatFabHidden(selectedNodeId !== null);
+    return () => setChatFabHidden(false);
+  }, [selectedNodeId, setChatFabHidden]);
 
   const canvasNodeRuns = canvasSummary?.node_runs.length
     ? canvasSummary.node_runs
@@ -1441,6 +1452,19 @@ export function ExecutionPanoramaPage({
     : null;
   const selectedNodeFormat = selectedNode ? parseNodeFormat(selectedNode.format_schema) : null;
   const isSplitSelectedNode = selectedNodeFormat?.kind === "split";
+  const currentMemberRole =
+    members.find((member) => member.user_id === currentUserId)?.role ?? null;
+  const mayReviewSelectedRun = canSubmitNodeRunReview(
+    {
+      issueCreatorType: issueCreatorType ?? null,
+      issueCreatorId: issueCreatorId ?? null,
+      criticUserId:
+        selectedRun?.critic_type === "human"
+          ? selectedRun.critic_id
+          : null,
+    },
+    { userId: currentUserId, role: currentMemberRole },
+  ).allowed;
   const isRetryableSelectedRun =
     selectedRun?.status === "failed" ||
     selectedRun?.status === "format_failed" ||
@@ -1514,10 +1538,11 @@ export function ExecutionPanoramaPage({
             issueId={issueId}
             workflowId={workflowId}
             runId={runId}
-            currentUserId={user?.id ?? null}
+            currentUserId={currentUserId}
             currentMember={currentMember
               ? { role: currentMember.role, status: currentMember.status }
               : null}
+            mayReview={mayReviewSelectedRun}
             runtimeSummary={selectedRuntimeSummary}
             onOpenIssue={
               selectedChildDetail
