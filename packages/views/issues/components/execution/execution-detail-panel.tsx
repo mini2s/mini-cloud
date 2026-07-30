@@ -20,8 +20,6 @@ import {
   User,
 } from "lucide-react";
 import { api } from "@multica/core/api";
-import { useChatStore } from "@multica/core/chat";
-import { chatSessionsOptions } from "@multica/core/chat/queries";
 import {
   isEmbeddedInCostrict,
   postCostrictNavigateToSession,
@@ -33,13 +31,12 @@ import {
   type WorkflowNodeRun,
   type WorkflowNodeRuntimeSummary,
 } from "@multica/core/types";
-import type { AgentTask } from "@multica/core/types/agent";
 import {
   nodeRunDeliverableSubmissionsOptions,
+  useSessionPermission,
   workflowKeys,
 } from "@multica/core/workflows/queries";
 import { Button } from "@multica/ui/components/ui/button";
-import { Label } from "@multica/ui/components/ui/label";
 import { Textarea } from "@multica/ui/components/ui/textarea";
 import { useT } from "@multica/views/i18n";
 import {
@@ -48,18 +45,14 @@ import {
 } from "../../../common/workflow-node-detail-panel-shell";
 import { RuntimeDisplayStatusIcon } from "./node-run-status-icon";
 import { formatRuntimeDuration } from "./runtime-node-duration";
+import { resolveEnterSessionId } from "./runtime-session";
 import { NodeRunDeliverables } from "../../../workflows/components/node-run-deliverables";
-import {
-  AgentTranscriptDialog,
-  buildTimeline,
-  type TimelineItem,
-} from "../../../common/task-transcript";
-import { resolveChatSessionId } from "../../../chat/lib/resolve-chat-session-id";
 import {
   getHumanNodeRunActionAccess,
   type HumanActionMember,
 } from "./node-run-action-access";
 import { NodeRunActionPanel } from "./node-run-action-panel";
+import { NodeRunDeliveryForm } from "./node-run-delivery-form";
 
 export interface ExecutionDetailPanelProps {
   node: WorkflowNode;
@@ -101,34 +94,6 @@ function formatJson(value: unknown): string {
 
 function isRetryableNodeRunStatus(status: string | undefined): boolean {
   return status === "failed" || status === "format_failed" || status === "blocked" || status === "critic_rework";
-}
-
-function taskStatusFromNodeRun(status: WorkflowNodeRun["status"]): AgentTask["status"] {
-  switch (status) {
-    case "completed":
-    case "critic_approved":
-      return "completed";
-    case "failed":
-    case "format_failed":
-    case "blocked":
-    case "critic_rework":
-      return "failed";
-    case "cancelled":
-    case "skipped":
-      return "cancelled";
-    case "pending":
-      return "queued";
-    case "worker_assigned":
-      return "dispatched";
-    default:
-      return "running";
-  }
-}
-
-function readWorkDir(output: unknown): string | undefined {
-  if (!output || typeof output !== "object" || Array.isArray(output)) return undefined;
-  const value = (output as Record<string, unknown>).work_dir;
-  return typeof value === "string" && value.trim() ? value : undefined;
 }
 
 type IssueTranslator = ReturnType<typeof useT<"issues">>["t"];
@@ -190,10 +155,7 @@ export function ExecutionDetailPanel({
 }: ExecutionDetailPanelProps) {
   const { t } = useT("issues");
   const [showEvidence, setShowEvidence] = useState(false);
-  const [transcriptOpen, setTranscriptOpen] = useState(false);
   const [reviewComment, setReviewComment] = useState("");
-  const [transcriptLoading, setTranscriptLoading] = useState(false);
-  const [transcriptItems, setTranscriptItems] = useState<TimelineItem[]>([]);
   const queryClient = useQueryClient();
   const nodeFormat = parseNodeFormat(node.format_schema);
   const isGateway = nodeFormat.kind === "gateway";
@@ -202,9 +164,6 @@ export function ExecutionDetailPanel({
     : runtimeSummary?.display_status ?? (nodeRun ? toWorkflowRuntimeDisplayStatus(nodeRun.status) : "pending");
   const displayStatusLabel = runtimeDisplayStatusText(t, displayStatus, isGateway ? nodeFormat.gateway_kind : null);
   const GatewayIcon = nodeFormat.gateway_kind === "join" ? GitMerge : GitFork;
-  const setChatSession = useChatStore((s) => s.setActiveSession);
-  const setChatOpen = useChatStore((s) => s.setOpen);
-  const { data: chatSessions = [] } = useQuery(chatSessionsOptions(wsId));
   const { data: deliverableData } = useQuery({
     ...nodeRunDeliverableSubmissionsOptions(wsId, nodeRun?.id ?? ""),
     enabled: !!nodeRun?.id,
@@ -246,41 +205,10 @@ export function ExecutionDetailPanel({
     return null;
   }, [nodeRun, runtimeSummary?.error_message, status]);
 
-  const sessionId = nodeRun?.session_id ?? runtimeSummary?.session_id ?? null;
-  const transcriptTaskId =
-    nodeRun?.worker_agent_task_id ??
-    nodeRun?.agent_task_id ??
-    nodeRun?.critic_agent_task_id ??
-    null;
-  const transcriptAgentName =
-    transcriptTaskId && nodeRun?.critic_agent_task_id === transcriptTaskId
-      ? criticName
-      : workerName;
-  const transcriptAgentId =
-    transcriptTaskId && nodeRun?.critic_agent_task_id === transcriptTaskId
-      ? nodeRun?.critic_id
-      : nodeRun?.worker_id;
-  const transcriptTask = useMemo<AgentTask | null>(() => {
-    if (!nodeRun || !transcriptTaskId) return null;
-    return {
-      id: transcriptTaskId,
-      agent_id: transcriptAgentId ?? "",
-      runtime_id: nodeRun.runtime_id ?? "",
-      issue_id: issueId ?? "",
-      status: taskStatusFromNodeRun(nodeRun.status),
-      priority: 0,
-      dispatched_at: null,
-      started_at: nodeRun.started_at,
-      completed_at: nodeRun.completed_at,
-      result: nodeRun.worker_output ?? nodeRun.critic_output ?? null,
-      error: errorMessage,
-      created_at: nodeRun.created_at,
-      chat_session_id: sessionId ?? undefined,
-      work_dir: readWorkDir(nodeRun.worker_output),
-      session_id: sessionId ?? undefined,
-    };
-  }, [errorMessage, issueId, nodeRun, sessionId, transcriptAgentId, transcriptTaskId]);
-  const canOpenSession = !isGateway && (!!sessionId || !!transcriptTask);
+  const sessionId = resolveEnterSessionId(nodeRun, runtimeSummary);
+  const { data: sessionPerm } = useSessionPermission(sessionId);
+  const canEnterSession = !!sessionId && sessionPerm?.can_observe === true;
+  const canOpenSession = isEmbeddedInCostrict() && !isGateway && canEnterSession;
   const canUnblock = !isGateway && status === "blocked" && !!onUnblock;
   const canRetry = !isGateway && isRetryableNodeRunStatus(status) && !!onRetry;
   const baseActionAccess = nodeRun
@@ -302,33 +230,42 @@ export function ExecutionDetailPanel({
     nodeRun.status === "working" ||
     (nodeRun.status === "blocked" && nodeRun.completed_at == null)
   );
-  const hasNodeActions = !isGateway && actionAccess != null && (
-    canReview ||
-    actionAccess.canSubmit ||
-    actionAccess.canSkip ||
-    hasRuntimeControls
-  );
 
-  // The footer dock is the node's single action zone: the human critic's
-  // review form (with the deliverables under review) while awaiting review,
-  // the human worker's deliverable upload controls while the node runs, and
-  // otherwise a read-only home for submitted deliverable links.
-  const deliverableKinds = deliverableData?.deliverables ?? [];
-  const hasDeliverableKinds = deliverableKinds.some(
-    (d) => d.kind === "document" || d.kind === "pull_request",
-  );
+  const deliverableList = deliverableData?.deliverables ?? [];
+  const hasDeliverables = deliverableList.length > 0;
   const hasSubmittedLinks = deliverableSubmissions.some((s) => s.pull_request_url);
+  const hasCompletedReview =
+    nodeRun?.status === "completed" && Boolean(nodeRun.critic_comment?.trim());
+  const isHumanUploadState =
+    nodeRun?.status === "worker_assigned" || nodeRun?.status === "working";
   const canHumanUpload =
-    !isGateway && nodeRun?.worker_type === "human" && !!issueId && hasDeliverableKinds;
-  const actionMode: "review" | "upload" | "actions" | "links" | null = canReview
+    !isGateway &&
+    isHumanUploadState &&
+    nodeRun?.worker_type === "human" &&
+    !!issueId &&
+    hasDeliverables;
+  const dockMode: "review" | "upload" | "links" | null = canReview
     ? "review"
     : canHumanUpload
       ? "upload"
-      : hasNodeActions
-        ? "actions"
-        : !isGateway && hasSubmittedLinks
-          ? "links"
-          : null;
+      : !isGateway && (hasSubmittedLinks || hasCompletedReview)
+        ? "links"
+        : null;
+
+  // While the delivery dock owns the worker's submission (upload mode), the
+  // actions section hides its own submit-result control to avoid two submit
+  // paths for the same node run.
+  const sectionAccess = actionAccess
+    ? { ...actionAccess, canSubmit: actionAccess.canSubmit && dockMode !== "upload" }
+    : null;
+  // Node actions (submit result / skip / runtime controls) stay in the
+  // primary column's actions section; only the deliverables and the human
+  // review form move into the sticky footer dock.
+  const hasNonReviewActions = !isGateway && sectionAccess != null && (
+    sectionAccess.canSubmit ||
+    sectionAccess.canSkip ||
+    hasRuntimeControls
+  );
 
   // A review decision must carry a comment — it is archived to Gitea as the
   // reviewer's opinion, so an empty one is rejected at the UI boundary.
@@ -368,34 +305,9 @@ export function ExecutionDetailPanel({
     },
   });
 
-  const handleOpenSession = async () => {
-    if (transcriptLoading) return;
-    if (isEmbeddedInCostrict()) {
-      if (sessionId) {
-        const posted = postCostrictNavigateToSession({ sessionId, newTab: true });
-        if (posted) return;
-      }
-    }
-    if (sessionId) {
-      const chatSessionId = resolveChatSessionId(chatSessions, sessionId);
-      if (chatSessionId) {
-        setChatSession(chatSessionId);
-        setChatOpen(true);
-        return;
-      }
-    }
-    if (!transcriptTask) return;
-    setTranscriptLoading(true);
-    try {
-      const msgs = await api.listTaskMessages(transcriptTask.id);
-      setTranscriptItems(buildTimeline(msgs));
-    } catch (err) {
-      console.error(err);
-      setTranscriptItems([]);
-    } finally {
-      setTranscriptLoading(false);
-      setTranscriptOpen(true);
-    }
+  const handleOpenSession = () => {
+    if (!sessionId || !isEmbeddedInCostrict()) return;
+    postCostrictNavigateToSession({ sessionId, newTab: true });
   };
 
   const runtimeActions = canOpenSession || onOpenIssue || canUnblock || canRetry ? (
@@ -406,13 +318,8 @@ export function ExecutionDetailPanel({
           size="default"
           variant="outline"
           onClick={handleOpenSession}
-          disabled={transcriptLoading}
         >
-          {transcriptLoading ? (
-            <Loader2 className="h-3.5 w-3.5 animate-spin" />
-          ) : (
-            <MessageSquare className="h-3.5 w-3.5" />
-          )}
+          <MessageSquare className="h-3.5 w-3.5" />
           {t(($) => $.execution.detail_panel.open_session)}
         </Button>
       ) : null}
@@ -456,14 +363,12 @@ export function ExecutionDetailPanel({
 
   const reviewEditor = canReview && nodeRun ? (
     <div className="space-y-1.5">
-      <Label htmlFor={`node-run-review-${nodeRun.id}`}>
-        {t(($) => $.execution.detail_panel.review_comment)}
-      </Label>
       <Textarea
         id={`node-run-review-${nodeRun.id}`}
         value={reviewComment}
         onChange={(event) => setReviewComment(event.target.value)}
         placeholder={t(($) => $.execution.detail_panel.review_comment)}
+        aria-label={t(($) => $.execution.detail_panel.review_comment)}
         rows={3}
         className="min-h-20 resize-y bg-background"
       />
@@ -508,55 +413,118 @@ export function ExecutionDetailPanel({
     </>
   ) : null;
 
-  const actionSection = actionMode ? (
-    <NodeDetailSection
-      sectionId="actions"
-      icon={actionMode === "review"
-        ? <ShieldCheck className="size-4" />
-        : actionMode === "upload"
-          ? <Upload className="size-4" />
-          : actionMode === "actions"
-            ? <ListChecks className="size-4" />
-            : <Package className="size-4" />}
-      title={actionMode === "review"
-        ? t(($) => $.execution.detail_panel.dock_review_title)
-        : actionMode === "upload"
-          ? t(($) => $.execution.detail_panel.dock_submit_title)
-          : actionMode === "actions"
-            ? t(($) => $.execution.detail_panel.section_actions)
-            : t(($) => $.execution.detail_panel.section_deliverables)}
-    >
-      <div data-testid="node-action-panel" className="space-y-3">
-        {actionMode === "review" ? (
-          <p className="text-xs leading-relaxed text-muted-foreground">
+  // The sticky footer dock hosts the deliverables and the human review:
+  // the critic's review form (with the deliverables under review) while
+  // awaiting review, the human worker's compact deliverable upload rows while
+  // the node runs, and otherwise a read-only home for submitted deliverable
+  // links. Node actions stay in the actions section above.
+  const actionDock = dockMode ? (
+    <div data-testid="node-action-panel" className="space-y-2.5">
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs font-semibold">
+        {dockMode === "review" || (dockMode === "links" && hasCompletedReview) ? (
+          <ShieldCheck
+            className={
+              dockMode === "review"
+                ? "h-3.5 w-3.5 text-amber-600"
+                : "h-3.5 w-3.5 text-emerald-600"
+            }
+          />
+        ) : dockMode === "upload" ? (
+          <Upload className="h-3.5 w-3.5 text-muted-foreground" />
+        ) : (
+          <Package className="h-3.5 w-3.5 text-muted-foreground" />
+        )}
+        <span>
+          {dockMode === "review"
+            ? t(($) => $.execution.detail_panel.dock_review_title)
+            : dockMode === "upload"
+              ? t(($) => $.execution.detail_panel.dock_submit_title)
+              : hasCompletedReview
+                ? t(($) => $.execution.detail_panel.dock_result_title)
+                : t(($) => $.execution.detail_panel.section_deliverables)}
+        </span>
+        {dockMode === "review" ? (
+          <span className="font-normal text-muted-foreground">
             {t(($) => $.execution.detail_panel.dock_review_subtitle)}
-          </p>
+          </span>
         ) : null}
-        {actionMode === "upload" ? (
-          <p className="text-xs leading-relaxed text-muted-foreground">
-            {t(($) => $.execution.detail_panel.dock_submit_subtitle)}
-          </p>
-        ) : null}
-        {actionMode !== "actions" || hasSubmittedLinks ? (
-          <NodeRunDeliverables
-            wsId={wsId}
-            nodeRunId={nodeRun?.id ?? ""}
-            issueId={issueId}
-            canUpload={actionMode === "upload"}
-          />
-        ) : null}
-        {nodeRun && actionAccess && hasNodeActions ? (
-          <NodeRunActionPanel
-            nodeRun={nodeRun}
-            access={actionAccess}
-            wsId={wsId}
-            workflowId={workflowId}
-            runId={runId ?? undefined}
-            reviewEditor={reviewEditor}
-            reviewActions={reviewActions}
-          />
+        {dockMode === "upload" ? (
+          <span className="font-normal text-muted-foreground">
+            {t(($) => $.execution.detail_panel.dock_submit_subtitle, { name: workerName ?? "--" })}
+          </span>
         ) : null}
       </div>
+      {dockMode === "upload" && issueId ? (
+        <NodeRunDeliveryForm
+          wsId={wsId}
+          issueId={issueId}
+          nodeRunId={nodeRun?.id ?? ""}
+          deliverables={deliverableList}
+          submissions={deliverableSubmissions}
+          workflowId={workflowId}
+          runId={runId}
+        />
+      ) : (
+        <NodeRunDeliverables
+          wsId={wsId}
+          nodeRunId={nodeRun?.id ?? ""}
+          issueId={issueId}
+          canUpload={false}
+        />
+      )}
+      {dockMode === "links" && nodeRun?.critic_comment ? (
+        <div
+          data-testid="node-review-result"
+          className="flex items-start gap-2 rounded-md border border-border/60 bg-background/70 px-3 py-2.5"
+        >
+          <ShieldCheck className="mt-0.5 size-3.5 shrink-0 text-emerald-600" />
+          <p className="text-sm text-muted-foreground">{nodeRun.critic_comment}</p>
+        </div>
+      ) : null}
+      {nodeRun && actionAccess && dockMode === "review" ? (
+        <NodeRunActionPanel
+          nodeRun={nodeRun}
+          access={{ ...actionAccess, canSubmit: false, canSkip: false }}
+          wsId={wsId}
+          workflowId={workflowId}
+          runId={runId ?? undefined}
+          reviewEditor={reviewEditor}
+          reviewActions={reviewActions}
+        />
+      ) : null}
+    </div>
+  ) : null;
+
+  const panelFooter = dockMode ? (
+    <div className="-mx-4 -my-3">
+      <div
+        className={
+          runtimeActions
+            ? "border-b border-border/60 bg-muted/25 px-4 py-3"
+            : "bg-muted/25 px-4 py-3"
+        }
+      >
+        {actionDock}
+      </div>
+      {runtimeActions ? <div className="px-4 py-3">{runtimeActions}</div> : null}
+    </div>
+  ) : (
+    runtimeActions
+  );
+
+  const actionSection = nodeRun && sectionAccess && hasNonReviewActions ? (
+    <NodeDetailSection
+      sectionId="actions"
+      icon={<ListChecks className="size-4" />}
+      title={t(($) => $.execution.detail_panel.section_actions)}
+    >
+      <NodeRunActionPanel
+        nodeRun={nodeRun}
+        access={sectionAccess}
+        wsId={wsId}
+        workflowId={workflowId}
+        runId={runId ?? undefined}
+      />
     </NodeDetailSection>
   ) : null;
 
@@ -602,7 +570,7 @@ export function ExecutionDetailPanel({
       eyebrow="Node runtime"
       closeLabel="Close"
       onClose={onClose}
-      footer={runtimeActions}
+      footer={panelFooter}
       statusIcon={(
         <span className="inline-flex shrink-0 items-center gap-1.5 text-[11px] font-medium text-muted-foreground">
           <RuntimeDisplayStatusIcon
@@ -714,7 +682,7 @@ export function ExecutionDetailPanel({
                   : t(($) => $.execution.detail_panel.not_configured)}
               </span>
             </div>
-            {nodeRun?.critic_comment ? (
+            {nodeRun?.critic_comment && dockMode !== "links" ? (
               <p className="text-xs italic text-muted-foreground">&ldquo;{nodeRun.critic_comment}&rdquo;</p>
             ) : null}
           </div>
@@ -759,16 +727,6 @@ export function ExecutionDetailPanel({
       </NodeDetailSection>
         </div>
       </div>
-
-      {transcriptTask && transcriptOpen ? (
-        <AgentTranscriptDialog
-          open={transcriptOpen}
-          onOpenChange={setTranscriptOpen}
-          task={transcriptTask}
-          items={transcriptItems}
-          agentName={transcriptAgentName ?? "Agent"}
-        />
-      ) : null}
 
     </WorkflowNodeDetailPanelShell>
   );

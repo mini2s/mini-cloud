@@ -1888,6 +1888,69 @@ func (q *Queries) SetWorkflowNodeRunWorkerOutput(ctx context.Context, arg SetWor
 	return i, err
 }
 
+const setWorkflowNodeRunWorkerOutputIfWorkerPhase = `-- name: SetWorkflowNodeRunWorkerOutputIfWorkerPhase :one
+UPDATE multica_workflow_node_run SET
+    worker_output = $2,
+    status = $3,
+    updated_at = now()
+WHERE id = $1 AND status IN ('working', 'worker_assigned')
+RETURNING id, workflow_run_id, workflow_node_id, node_title, status, retry_count, worker_type, worker_id, worker_output, critic_type, critic_id, critic_output, critic_comment, agent_task_id, started_at, completed_at, created_at, updated_at, worker_agent_task_id, critic_agent_task_id, runtime_id, device_id, session_id, split_review_chat_session_id, runtime_selection_reason, failure_reason, split_config_version, source_workflow_node_id, node_description, format_schema, critic_api_url, stage_snapshot, worker_role_snapshot, critic_role_snapshot, runtime_config, worker_name_snapshot, critic_name_snapshot
+`
+
+type SetWorkflowNodeRunWorkerOutputIfWorkerPhaseParams struct {
+	ID           pgtype.UUID `json:"id"`
+	WorkerOutput []byte      `json:"worker_output"`
+	Status       string      `json:"status"`
+}
+
+// Conditional advance used by the member upload paths: only fires while the
+// node run is still in its worker phase, so a concurrent upload that already
+// advanced the run loses the race silently (zero rows) instead of failing.
+func (q *Queries) SetWorkflowNodeRunWorkerOutputIfWorkerPhase(ctx context.Context, arg SetWorkflowNodeRunWorkerOutputIfWorkerPhaseParams) (MulticaWorkflowNodeRun, error) {
+	row := q.db.QueryRow(ctx, setWorkflowNodeRunWorkerOutputIfWorkerPhase, arg.ID, arg.WorkerOutput, arg.Status)
+	var i MulticaWorkflowNodeRun
+	err := row.Scan(
+		&i.ID,
+		&i.WorkflowRunID,
+		&i.WorkflowNodeID,
+		&i.NodeTitle,
+		&i.Status,
+		&i.RetryCount,
+		&i.WorkerType,
+		&i.WorkerID,
+		&i.WorkerOutput,
+		&i.CriticType,
+		&i.CriticID,
+		&i.CriticOutput,
+		&i.CriticComment,
+		&i.AgentTaskID,
+		&i.StartedAt,
+		&i.CompletedAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.WorkerAgentTaskID,
+		&i.CriticAgentTaskID,
+		&i.RuntimeID,
+		&i.DeviceID,
+		&i.SessionID,
+		&i.SplitReviewChatSessionID,
+		&i.RuntimeSelectionReason,
+		&i.FailureReason,
+		&i.SplitConfigVersion,
+		&i.SourceWorkflowNodeID,
+		&i.NodeDescription,
+		&i.FormatSchema,
+		&i.CriticApiUrl,
+		&i.StageSnapshot,
+		&i.WorkerRoleSnapshot,
+		&i.CriticRoleSnapshot,
+		&i.RuntimeConfig,
+		&i.WorkerNameSnapshot,
+		&i.CriticNameSnapshot,
+	)
+	return i, err
+}
+
 const takeoverWorkflowNodeRun = `-- name: TakeoverWorkflowNodeRun :one
 UPDATE multica_workflow_node_run SET
     status = 'blocked',

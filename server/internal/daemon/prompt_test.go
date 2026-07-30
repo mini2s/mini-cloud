@@ -485,8 +485,8 @@ func TestBuildPromptGiteaDeliverables(t *testing.T) {
 		},
 	}
 	got := BuildPrompt(task, "claude")
-	if !strings.Contains(got, "Document Deliverables") {
-		t.Errorf("prompt missing Document Deliverables section:\n%s", got)
+	if !strings.Contains(got, "## Deliverables") {
+		t.Errorf("prompt missing unified Deliverables section:\n%s", got)
 	}
 	if !strings.Contains(got, "cs-cloud workflow deliverable submit --deliverable d1 --file") {
 		t.Errorf("prompt missing repo submit command for d1:\n%s", got)
@@ -543,7 +543,9 @@ func TestBuildPromptCriticReviewOmitsDeliverableSubmissionInstructions(t *testin
 
 func TestBuildPromptNoGiteaDeliverablesWhenAbsent(t *testing.T) {
 	got := BuildPrompt(Task{IssueID: "iss-1", AgentID: "a-1"}, "claude")
-	if strings.Contains(got, "Document Deliverables") {
-		t.Errorf("prompt must not mention document deliverables when context absent:\n%s", got)
+	// When GiteaDeliverables is nil the prompt must not contain the
+	// Gitea-specific submit command — only the generic /submit fallback.
+	if strings.Contains(got, "cs-cloud workflow deliverable submit") {
+		t.Errorf("prompt must not mention Gitea deliverable submit when context absent:\n%s", got)
 	}
 }

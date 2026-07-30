@@ -15,21 +15,19 @@ const createNodeRunDeliverableRequirement = `-- name: CreateNodeRunDeliverableRe
 INSERT INTO multica_workflow_node_run_deliverable (
     workflow_node_run_id,
     source_deliverable_id,
-    kind,
     title,
     description,
     required,
     sort_order
 ) VALUES (
-    $1, $2, $3, $4, $5, $6, $7
+    $1, $2, $3, $4, $5, $6
 )
-RETURNING id, workflow_node_run_id, source_deliverable_id, kind, title, description, required, sort_order, created_at
+RETURNING id, workflow_node_run_id, source_deliverable_id, title, description, required, sort_order, created_at
 `
 
 type CreateNodeRunDeliverableRequirementParams struct {
 	WorkflowNodeRunID   pgtype.UUID `json:"workflow_node_run_id"`
 	SourceDeliverableID pgtype.UUID `json:"source_deliverable_id"`
-	Kind                string      `json:"kind"`
 	Title               string      `json:"title"`
 	Description         string      `json:"description"`
 	Required            bool        `json:"required"`
@@ -40,7 +38,6 @@ func (q *Queries) CreateNodeRunDeliverableRequirement(ctx context.Context, arg C
 	row := q.db.QueryRow(ctx, createNodeRunDeliverableRequirement,
 		arg.WorkflowNodeRunID,
 		arg.SourceDeliverableID,
-		arg.Kind,
 		arg.Title,
 		arg.Description,
 		arg.Required,
@@ -51,7 +48,6 @@ func (q *Queries) CreateNodeRunDeliverableRequirement(ctx context.Context, arg C
 		&i.ID,
 		&i.WorkflowNodeRunID,
 		&i.SourceDeliverableID,
-		&i.Kind,
 		&i.Title,
 		&i.Description,
 		&i.Required,
@@ -351,7 +347,7 @@ func (q *Queries) CreateWorkflowRunSnapshot(ctx context.Context, arg CreateWorkf
 }
 
 const getNodeRunDeliverableRequirement = `-- name: GetNodeRunDeliverableRequirement :one
-SELECT id, workflow_node_run_id, source_deliverable_id, kind, title, description, required, sort_order, created_at
+SELECT id, workflow_node_run_id, source_deliverable_id, title, description, required, sort_order, created_at
 FROM multica_workflow_node_run_deliverable
 WHERE id = $1
 `
@@ -363,7 +359,6 @@ func (q *Queries) GetNodeRunDeliverableRequirement(ctx context.Context, id pgtyp
 		&i.ID,
 		&i.WorkflowNodeRunID,
 		&i.SourceDeliverableID,
-		&i.Kind,
 		&i.Title,
 		&i.Description,
 		&i.Required,
@@ -570,7 +565,7 @@ func (q *Queries) ListCompletedRuntimeUpstreamNodeRuns(ctx context.Context, arg 
 }
 
 const listNodeRunDeliverableRequirements = `-- name: ListNodeRunDeliverableRequirements :many
-SELECT id, workflow_node_run_id, source_deliverable_id, kind, title, description, required, sort_order, created_at
+SELECT id, workflow_node_run_id, source_deliverable_id, title, description, required, sort_order, created_at
 FROM multica_workflow_node_run_deliverable
 WHERE workflow_node_run_id = $1
 ORDER BY sort_order, created_at, id
@@ -589,7 +584,6 @@ func (q *Queries) ListNodeRunDeliverableRequirements(ctx context.Context, workfl
 			&i.ID,
 			&i.WorkflowNodeRunID,
 			&i.SourceDeliverableID,
-			&i.Kind,
 			&i.Title,
 			&i.Description,
 			&i.Required,

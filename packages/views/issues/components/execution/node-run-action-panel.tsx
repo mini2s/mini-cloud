@@ -95,7 +95,9 @@ export function NodeRunActionPanel({
       {hasHumanActions || hasRuntimeControls ? (
         <div
           data-testid="node-run-action-toolbar"
-          className="grid min-h-8 grid-cols-[repeat(2,minmax(0,7rem))] justify-start gap-3 border-t border-border/60 pt-3"
+          className={`grid min-h-8 grid-cols-[repeat(2,minmax(0,7rem))] gap-3 border-t border-border/60 pt-3 ${
+            reviewActions != null ? "justify-end" : "justify-start"
+          }`}
         >
           {reviewActions}
           {access.canSubmit ? (

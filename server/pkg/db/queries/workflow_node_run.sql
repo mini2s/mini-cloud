@@ -107,6 +107,17 @@ UPDATE multica_workflow_node_run SET
 WHERE id = $1
 RETURNING *;
 
+-- name: SetWorkflowNodeRunWorkerOutputIfWorkerPhase :one
+-- Conditional advance used by the member upload paths: only fires while the
+-- node run is still in its worker phase, so a concurrent upload that already
+-- advanced the run loses the race silently (zero rows) instead of failing.
+UPDATE multica_workflow_node_run SET
+    worker_output = $2,
+    status = $3,
+    updated_at = now()
+WHERE id = $1 AND status IN ('working', 'worker_assigned')
+RETURNING *;
+
 -- name: UpdateWorkflowNodeRunCriticReview :one
 UPDATE multica_workflow_node_run SET
     critic_output = sqlc.narg('critic_output'),

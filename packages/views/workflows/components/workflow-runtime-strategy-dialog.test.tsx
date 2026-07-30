@@ -112,5 +112,10 @@ describe("WorkflowRuntimeStrategyDialog", () => {
     expect(screen.getByRole("option")).toHaveTextContent("Alice");
     expect(screen.queryByText("Offline Runtime")).not.toBeInTheDocument();
     expect(screen.queryByText("Bob")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("option"));
+
+    expect(screen.getByRole("combobox")).toHaveTextContent("Online Runtime");
+    expect(screen.getByRole("combobox")).toHaveTextContent("Alice");
   });
 });

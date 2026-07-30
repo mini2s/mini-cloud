@@ -174,7 +174,7 @@ func (s *WorkflowService) RetryWorkflowRoleResolution(ctx context.Context, runID
 		if !s.roleResolutionEnabledFor(run.WorkspaceID) {
 			return ErrWorkflowRoleRetryUnavailable
 		}
-		if run.Status == RunStatusCancelled || run.Status == RunStatusCompleted || run.Status == RunStatusFailed {
+		if run.Status != RunStatusWaitingRoleAssignment {
 			return ErrWorkflowRoleAssignmentStage
 		}
 		if err := q.LockWorkflowRoleResolutionRun(ctx, runID); err != nil {

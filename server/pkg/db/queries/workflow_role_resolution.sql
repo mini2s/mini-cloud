@@ -83,7 +83,7 @@ WHERE id = $1 AND generation = $2 AND status = 'running' AND locked_by = $3;
 -- name: RequeueExpiredWorkflowRoleResolutionJobs :execrows
 UPDATE multica_workflow_role_resolution_job
 SET status = 'pending', locked_by = NULL, lease_expires_at = NULL,
-    scheduled_at = now(), updated_at = now()
+    generation = generation + 1, scheduled_at = now(), updated_at = now()
 WHERE status = 'running' AND lease_expires_at < now();
 
 -- name: FinishWorkflowRoleResolutionJob :execrows

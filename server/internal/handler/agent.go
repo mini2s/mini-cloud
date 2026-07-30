@@ -15,6 +15,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/multica-ai/multica/server/internal/analytics"
 	"github.com/multica-ai/multica/server/internal/logger"
+	"github.com/multica-ai/multica/server/internal/plugincatalog"
 	"github.com/multica-ai/multica/server/internal/service"
 	"github.com/multica-ai/multica/server/pkg/agent"
 	db "github.com/multica-ai/multica/server/pkg/db/generated"
@@ -52,6 +53,11 @@ type AgentResponse struct {
 	// per-model; the API never normalizes across providers. See MUL-2339.
 	ThinkingLevel string              `json:"thinking_level"`
 	PluginID      *string             `json:"plugin_id"`
+	// PluginName is the stable install identifier (slug) of the bound plugin,
+	// e.g. "cospowers-integration-verification". cs-cloud installs by this name
+	// (csc plugin install <name>@<marketplace>), so it is carried alongside
+	// plugin_id to avoid a fragile id->catalog lookup at download time.
+	PluginName    *string             `json:"plugin_name"`
 	IsBuiltin     bool                `json:"is_builtin"`
 	OwnerID       *string             `json:"owner_id"`
 	Skills        []AgentSkillSummary `json:"skills"`
@@ -114,6 +120,7 @@ func agentToResponse(a db.MulticaAgent) AgentResponse {
 		Model:              a.Model.String,
 		ThinkingLevel:      a.ThinkingLevel.String,
 		PluginID:           textToPtr(a.PluginID),
+		PluginName:         textToPtr(a.PluginName),
 		IsBuiltin:          a.IsBuiltin,
 		OwnerID:            uuidToPtr(a.OwnerID),
 		Skills:             []AgentSkillSummary{},
@@ -267,7 +274,7 @@ type TaskAgentData struct {
 	McpConfig     json.RawMessage          `json:"mcp_config,omitempty"`
 	Model         string                   `json:"model,omitempty"`
 	ThinkingLevel string                   `json:"thinking_level,omitempty"`
-	Plugin        *PluginInfo              `json:"plugin,omitempty"`
+	Plugin        *plugincatalog.PluginInfo `json:"plugin,omitempty"`
 }
 
 func taskToResponse(t db.MulticaAgentTaskQueue) AgentTaskResponse {
@@ -605,6 +612,10 @@ type CreateAgentRequest struct {
 	Model              string            `json:"model"`
 	ThinkingLevel      string            `json:"thinking_level"`
 	PluginID           *string           `json:"plugin_id"`
+	// PluginName is the install slug of the bound plugin, sent by the picker
+	// alongside plugin_id so the download chain can install by name without a
+	// catalog lookup. Empty/omitted = no plugin name.
+	PluginName         *string           `json:"plugin_name"`
 	// Template records which template slug was used to seed this agent
 	// (e.g. "coding" / "planning" / "writing" / "assistant"). Empty when
 	// the caller didn't come from a template picker — the `agent_created`
@@ -752,6 +763,7 @@ func (h *Handler) CreateAgent(w http.ResponseWriter, r *http.Request) {
 		Model:              pgtype.Text{String: req.Model, Valid: req.Model != ""},
 		ThinkingLevel:      pgtype.Text{String: req.ThinkingLevel, Valid: req.ThinkingLevel != ""},
 		PluginID:           ptrToText(req.PluginID),
+		PluginName:         ptrToText(req.PluginName),
 	})
 	if err != nil {
 		// Unique constraint on (workspace_id, name) — return a clear conflict error
@@ -817,6 +829,11 @@ type UpdateAgentRequest struct {
 	//   - field present with "" → explicit clear (remove plugin link)
 	//   - field present with non-empty value → set
 	PluginID *string `json:"plugin_id"`
+	// PluginName is the install slug of the bound plugin, carried so the
+	// cs-cloud download path can install by name without a catalog lookup.
+	// Tri-state semantics match PluginID; clearing the plugin (plugin_id="")
+	// should also clear plugin_name, so the picker sends both together.
+	PluginName *string `json:"plugin_name"`
 }
 
 // workspaceAlwaysRedactEnv checks whether the workspace has opted into
@@ -1005,6 +1022,14 @@ func (h *Handler) UpdateAgent(w http.ResponseWriter, r *http.Request) {
 			params.PluginID = pgtype.Text{String: *req.PluginID, Valid: true}
 		}
 	}
+	shouldClearPluginName := false
+	if req.PluginName != nil {
+		if *req.PluginName == "" {
+			shouldClearPluginName = true
+		} else {
+			params.PluginName = pgtype.Text{String: *req.PluginName, Valid: true}
+		}
+	}
 
 	// thinking_level handling (MUL-2339). Tri-state semantics:
 	//   - field omitted  → leave column alone (COALESCE narg), but if a
@@ -1067,9 +1092,9 @@ func (h *Handler) UpdateAgent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// mcp_config / thinking_level / plugin_id: null/empty in the request means explicitly
-	// clear the field. COALESCE in UpdateAgent cannot set a column to NULL,
-	// so we use dedicated clear queries.
+	// mcp_config / thinking_level / plugin_id / plugin_name: null/empty in the request
+	// means explicitly clear the field. COALESCE in UpdateAgent cannot set a column
+	// to NULL, so we use dedicated clear queries.
 	if shouldClearMcpConfig {
 		updated, err = h.Queries.ClearAgentMcpConfig(r.Context(), updated.ID)
 		if err != nil {
@@ -1094,6 +1119,17 @@ func (h *Handler) UpdateAgent(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			slog.Warn("clear agent plugin_id failed", append(logger.RequestAttrs(r), "error", err, "agent_id", id)...)
 			writeError(w, http.StatusInternalServerError, "failed to clear plugin_id: "+err.Error())
+			return
+		}
+	}
+	if shouldClearPluginName {
+		updated, err = h.Queries.ClearAgentPluginName(r.Context(), db.ClearAgentPluginNameParams{
+			ID:          updated.ID,
+			WorkspaceID: existing.WorkspaceID,
+		})
+		if err != nil {
+			slog.Warn("clear agent plugin_name failed", append(logger.RequestAttrs(r), "error", err, "agent_id", id)...)
+			writeError(w, http.StatusInternalServerError, "failed to clear plugin_name: "+err.Error())
 			return
 		}
 	}

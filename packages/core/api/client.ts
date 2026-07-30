@@ -303,6 +303,8 @@ import {
   EMPTY_WORKFLOW_NODE_DELIVERABLES_RESPONSE,
   WorkflowNodeDeliverableSubmissionsResponseSchema,
   EMPTY_WORKFLOW_NODE_DELIVERABLE_SUBMISSIONS_RESPONSE,
+  UploadIssueDeliverableResponseSchema,
+  EMPTY_UPLOAD_ISSUE_DELIVERABLE_RESPONSE,
 } from "./schemas";
 import type { BuiltinPlugin, BuiltinPluginListResponse } from "./schemas";
 import type { AgentCloudSkill } from "../types";
@@ -771,17 +773,47 @@ export class ApiClient {
    * (node branch), opens a PR, and advances the node-run into review — symmetric
    * with the agent's cs-workflow submit. Dormant (Gitea unconfigured) → 503.
    */
-  async uploadIssueDeliverable(issueId: string, files: { name: string; content: string }[]): Promise<{ ok: boolean }> {
-    return this.fetch(`/api/issues/${issueId}/deliverables/upload`, {
+  async uploadIssueDeliverable(
+    issueId: string,
+    files: { name: string; content: string }[],
+    summary?: string,
+    deliverableId?: string,
+  ): Promise<{ ok: boolean }> {
+    const raw = await this.fetch<unknown>(`/api/issues/${issueId}/deliverables/upload`, {
       method: "POST",
-      body: JSON.stringify({ files }),
+      body: JSON.stringify({
+        files,
+        ...(summary ? { summary } : {}),
+        ...(deliverableId ? { deliverable_id: deliverableId } : {}),
+      }),
+    });
+    return parseWithFallback(raw, UploadIssueDeliverableResponseSchema, EMPTY_UPLOAD_ISSUE_DELIVERABLE_RESPONSE, {
+      endpoint: "POST /api/issues/:id/deliverables/upload",
     });
   }
 
-  async uploadIssueDeliverablePR(issueId: string, pullRequestURL: string): Promise<{ ok: boolean }> {
-    return this.fetch(`/api/issues/${issueId}/deliverables/upload-pr`, {
+  /**
+   * Submit one or more member-authored code merge-request links in a single
+   * call. Each link lands on its own submission row of the issue's
+   * pull_request deliverable; the node-run advances into review once every
+   * required deliverable is submitted.
+   */
+  async uploadIssueDeliverablePR(
+    issueId: string,
+    pullRequestURLs: string[],
+    summary?: string,
+    deliverableId?: string,
+  ): Promise<{ ok: boolean }> {
+    const raw = await this.fetch<unknown>(`/api/issues/${issueId}/deliverables/upload-pr`, {
       method: "POST",
-      body: JSON.stringify({ pull_request_url: pullRequestURL }),
+      body: JSON.stringify({
+        pull_request_urls: pullRequestURLs,
+        ...(summary ? { summary } : {}),
+        ...(deliverableId ? { deliverable_id: deliverableId } : {}),
+      }),
+    });
+    return parseWithFallback(raw, UploadIssueDeliverableResponseSchema, EMPTY_UPLOAD_ISSUE_DELIVERABLE_RESPONSE, {
+      endpoint: "POST /api/issues/:id/deliverables/upload-pr",
     });
   }
 
@@ -2721,7 +2753,6 @@ export class ApiClient {
   }
 
   async createWorkflowNodeDeliverable(workflowId: string, nodeId: string, req: {
-    kind: string;
     title: string;
     description?: string;
     required?: boolean;
@@ -2734,7 +2765,6 @@ export class ApiClient {
   }
 
   async updateWorkflowNodeDeliverable(workflowId: string, nodeId: string, deliverableId: string, req: {
-    kind?: string;
     title?: string;
     description?: string;
     required?: boolean;

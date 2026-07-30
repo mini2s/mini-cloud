@@ -312,6 +312,8 @@ vi.mock("@multica/core/agents", () => ({
 vi.mock("@multica/core/paths", () => ({
   useWorkspacePaths: () => ({
     issueDetail: (issueId: string) => `/demo111/issues/${issueId}`,
+    workflowRunDetail: (workflowId: string, runId: string) =>
+      `/demo111/workflows/${workflowId}/runs/${runId}`,
   }),
 }));
 
@@ -356,6 +358,12 @@ vi.mock("../../../i18n", () => ({
           },
         },
         execution: {
+          panorama: {
+            role_assignment_required: "Development role mapping needs attention",
+            role_assignment_manage_hint: "Assign workspace members, then continue the run.",
+            role_assignment_wait_hint: "Waiting for an authorized member.",
+            assign_roles_manually: "Assign roles manually",
+          },
           card: {
             child_issue_fallback: "Child issue",
             child_waiting_dependencies: "Waiting for dependencies",
@@ -1048,8 +1056,8 @@ describe("ExecutionPanoramaPage", () => {
     await act(async () => {
       opened = await onOpenSession?.("n1") ?? false;
     });
-    expect(opened).toBe(true);
-    expect(screen.getByTestId("execution-detail-panel")).toBeInTheDocument();
+    expect(opened).toBe(false);
+    expect(screen.queryByTestId("execution-detail-panel")).not.toBeInTheDocument();
   });
 
   it("passes review permission to the detail panel for the assigned critic", () => {
@@ -2943,6 +2951,120 @@ describe("ExecutionPanoramaPage", () => {
         sourceRoleName: "Backend Engineer",
       },
     });
+  });
+
+  it("links an authorized user to manual role assignment when mapping fails", () => {
+    mocks.isLoading = false;
+    mocks.canvasSummaryData = {
+      run: {
+        id: "run-1",
+        workflow_id: "wf-1",
+        status: "waiting_role_assignment",
+        triggered_by_id: "user-1",
+        definition_schema_version: 0,
+        definition_snapshot: null,
+      },
+      node_runs: [],
+      node_runtime_summaries: [],
+    };
+    mocks.roleResolutionsData = [{
+      id: "res-1",
+      workflow_node_run_id: "nr-role",
+      slot_type: "worker",
+      status: "needs_human",
+      resolved_user_id: null,
+    }];
+
+    render(
+      <Wrapper>
+        <ExecutionPanoramaPage workflowId="wf-1" runId="run-1" wsId="ws-1" />
+      </Wrapper>,
+    );
+
+    expect(screen.getByTestId("manual-role-assignment-entry")).toHaveTextContent(
+      "Development role mapping needs attention",
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Assign roles manually" }));
+    expect(mocks.navigationPush).toHaveBeenCalledWith(
+      "/demo111/workflows/wf-1/runs/run-1",
+    );
+  });
+
+  it("can suppress the role assignment entry when embedded in the run detail page", () => {
+    mocks.isLoading = false;
+    mocks.canvasSummaryData = {
+      run: {
+        id: "run-1",
+        workflow_id: "wf-1",
+        status: "waiting_role_assignment",
+        triggered_by_id: "user-1",
+        definition_schema_version: 0,
+        definition_snapshot: null,
+      },
+      node_runs: [],
+      node_runtime_summaries: [],
+    };
+    mocks.roleResolutionsData = [{
+      id: "res-1",
+      workflow_node_run_id: "nr-role",
+      slot_type: "worker",
+      status: "needs_human",
+      resolved_user_id: null,
+    }];
+
+    render(
+      <Wrapper>
+        <ExecutionPanoramaPage
+          workflowId="wf-1"
+          runId="run-1"
+          wsId="ws-1"
+          showRoleAssignmentEntry={false}
+        />
+      </Wrapper>,
+    );
+
+    expect(screen.queryByTestId("manual-role-assignment-entry")).not.toBeInTheDocument();
+  });
+
+  it("shows the blocked role state without an action to inactive members", () => {
+    mocks.isLoading = false;
+    mocks.currentUserId = "user-2";
+    mocks.membersData = [{
+      user_id: "user-2",
+      name: "Inactive member",
+      role: "member",
+      status: "inactive",
+    }];
+    mocks.canvasSummaryData = {
+      run: {
+        id: "run-1",
+        workflow_id: "wf-1",
+        status: "waiting_role_assignment",
+        triggered_by_id: "user-1",
+        definition_schema_version: 0,
+        definition_snapshot: null,
+      },
+      node_runs: [],
+      node_runtime_summaries: [],
+    };
+    mocks.roleResolutionsData = [{
+      id: "res-1",
+      workflow_node_run_id: "nr-role",
+      slot_type: "worker",
+      status: "needs_human",
+      resolved_user_id: null,
+    }];
+
+    render(
+      <Wrapper>
+        <ExecutionPanoramaPage workflowId="wf-1" runId="run-1" wsId="ws-1" />
+      </Wrapper>,
+    );
+
+    expect(screen.getByTestId("manual-role-assignment-entry")).toHaveTextContent(
+      "Waiting for an authorized member.",
+    );
+    expect(screen.queryByRole("button", { name: "Assign roles manually" })).not.toBeInTheDocument();
   });
 
   it("localizes a built-in role captured in the unresolved run snapshot", () => {

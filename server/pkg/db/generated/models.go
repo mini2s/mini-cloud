@@ -46,6 +46,7 @@ type MulticaAgent struct {
 	ThinkingLevel      pgtype.Text        `json:"thinking_level"`
 	PluginID           pgtype.Text        `json:"plugin_id"`
 	IsBuiltin          bool               `json:"is_builtin"`
+	PluginName         pgtype.Text        `json:"plugin_name"`
 }
 
 type MulticaAgentAuditLog struct {
@@ -775,7 +776,6 @@ type MulticaWorkflowNode struct {
 type MulticaWorkflowNodeDeliverable struct {
 	ID             pgtype.UUID        `json:"id"`
 	WorkflowNodeID pgtype.UUID        `json:"workflow_node_id"`
-	Kind           string             `json:"kind"`
 	Title          string             `json:"title"`
 	Description    string             `json:"description"`
 	Required       bool               `json:"required"`
@@ -845,7 +845,6 @@ type MulticaWorkflowNodeRunDeliverable struct {
 	ID                  pgtype.UUID        `json:"id"`
 	WorkflowNodeRunID   pgtype.UUID        `json:"workflow_node_run_id"`
 	SourceDeliverableID pgtype.UUID        `json:"source_deliverable_id"`
-	Kind                string             `json:"kind"`
 	Title               string             `json:"title"`
 	Description         string             `json:"description"`
 	Required            bool               `json:"required"`

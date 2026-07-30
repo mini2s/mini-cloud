@@ -7,6 +7,8 @@ import (
 	"net/url"
 	"sync"
 	"testing"
+
+	"github.com/multica-ai/multica/server/internal/plugincatalog"
 )
 
 // pluginListEnvelope mirrors the list envelope ListBuiltinPlugins returns to
@@ -261,7 +263,7 @@ func TestFetchPluginDataResolvesItemDetailOnlyPlugin(t *testing.T) {
 	}))
 	defer upstream.Close()
 
-	result := fetchPluginData(t.Context(), upstream.URL, "search-only")
+	result := plugincatalog.Fetch(t.Context(), upstream.URL, "search-only")
 	if result == nil {
 		t.Fatal("expected plugin data from item detail, got nil")
 	}

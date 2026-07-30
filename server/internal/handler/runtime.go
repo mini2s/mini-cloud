@@ -666,6 +666,19 @@ func canObserveRuntime(member db.MulticaMember, rt db.MulticaAgentRuntime, expli
 	return runtimeCapabilities(resolveRuntimeRole(member, rt, explicitRole)).Observe
 }
 
+// canObserveSession reports whether a member may open/observe a node-run
+// session via the "进入会话" entry. Public runtimes are open to any workspace
+// member; private runtimes are restricted to workspace owner/admin or the
+// runtime owner. Explicit runtime grants (operator/viewer) do NOT confer
+// observe under this contract. Control capability is governed separately.
+func canObserveSession(member db.MulticaMember, rt db.MulticaAgentRuntime) bool {
+	if rt.Visibility == "public" {
+		return true
+	}
+	return roleAllowed(member.Role, "owner", "admin") ||
+		(rt.OwnerID.Valid && uuidToString(rt.OwnerID) == uuidToString(member.UserID))
+}
+
 // requireRuntimePermission loads the runtime, verifies workspace membership,
 // and resolves the effective runtime permission role. It writes 404/403 directly
 // and returns ok=false on any failure.

@@ -4,28 +4,14 @@ import { beforeEach, describe, it, expect, vi } from "vitest";
 import { ExecutionDetailPanel } from "./execution-detail-panel";
 import type { WorkflowNode, WorkflowNodeRun, WorkflowNodeRuntimeSummary } from "@multica/core/types";
 
-const mockSetActiveSession = vi.fn();
-const mockSetOpen = vi.fn();
 const mockIsEmbeddedInCostrict = vi.fn(() => false);
 const mockPostCostrictNavigateToSession = vi.fn();
-const mockListTaskMessages = vi.fn();
 const mockReviewNodeRun = vi.fn();
 const mockReviewNodeRunDeliverable = vi.fn();
+const mockUploadIssueDeliverable = vi.fn();
+const mockUploadIssueDeliverablePR = vi.fn();
+const mockSubmitNodeRun = vi.fn();
 const mockInvalidateQueries = vi.fn();
-let mockChatSessions = [
-  {
-    id: "11111111-1111-1111-1111-111111111111",
-    workspace_id: "ws-1",
-    agent_id: "a1",
-    creator_id: "u1",
-    title: "Runtime session",
-    status: "active",
-    session_id: "sess-1",
-    has_unread: false,
-    created_at: "",
-    updated_at: "",
-  },
-];
 
 vi.mock("@tanstack/react-query", () => ({
   useQuery: (opts: { queryKey?: unknown } = {}) => {
@@ -34,7 +20,7 @@ vi.mock("@tanstack/react-query", () => ({
     if (key.includes("deliverables")) {
       return { data: mockDeliverableSubmissions };
     }
-    return { data: mockChatSessions };
+    return { data: undefined };
   },
   useQueryClient: () => ({
     invalidateQueries: mockInvalidateQueries,
@@ -49,13 +35,12 @@ vi.mock("@tanstack/react-query", () => ({
   }),
 }));
 
-const mockDeliverableSubmissions = {
+const defaultDeliverableSubmissions = {
   deliverables: [
     {
       id: "del-1",
       workflow_node_id: "n1",
       title: "Code changes",
-      kind: "pull_request",
       required: true,
       sort_order: 0,
       created_at: "",
@@ -82,9 +67,8 @@ const mockDeliverableSubmissions = {
   ],
 };
 
-vi.mock("@multica/core/chat/queries", () => ({
-  chatSessionsOptions: () => ({ queryKey: ["chat", "sessions"] }),
-}));
+// Reassigned per test (reset in beforeEach) to vary the deliverables fixture.
+let mockDeliverableSubmissions = defaultDeliverableSubmissions;
 
 vi.mock("@multica/core/workflows/queries", () => ({
   workflowKeys: {
@@ -95,6 +79,11 @@ vi.mock("@multica/core/workflows/queries", () => ({
   nodeRunDeliverableSubmissionsOptions: (_wsId: string, nodeRunId: string) => ({
     queryKey: ["workflows", "node-runs", nodeRunId, "deliverables"],
     queryFn: () => [],
+  }),
+  useSessionPermission: (sessionId: string | null | undefined) => ({
+    data: sessionId
+      ? { can_observe: true, can_control: false, role: "owner" }
+      : undefined,
   }),
   useSubmitNodeRun: () => ({
     mutate: vi.fn(),
@@ -114,14 +103,6 @@ vi.mock("../../../workflows/components/node-run-control-actions", () => ({
   NodeRunControlActions: () => null,
 }));
 
-vi.mock("@multica/core/chat", () => ({
-  useChatStore: (selector: (state: { setActiveSession: typeof mockSetActiveSession; setOpen: typeof mockSetOpen }) => unknown) =>
-    selector({
-      setActiveSession: mockSetActiveSession,
-      setOpen: mockSetOpen,
-    }),
-}));
-
 vi.mock("@multica/core/platform", () => ({
   isEmbeddedInCostrict: () => mockIsEmbeddedInCostrict(),
   postCostrictNavigateToSession: (args: unknown) => mockPostCostrictNavigateToSession(args),
@@ -136,37 +117,17 @@ vi.mock("@multica/core/issues/mutations", () => ({
 
 vi.mock("@multica/core/api", () => ({
   api: {
-    listTaskMessages: (taskId: string) => mockListTaskMessages(taskId),
     reviewNodeRun: (nodeRunId: string, approved: boolean, comment?: string) =>
       mockReviewNodeRun(nodeRunId, approved, comment),
     reviewNodeRunDeliverable: (nodeRunId: string, submissionId: string, body: unknown) =>
       mockReviewNodeRunDeliverable(nodeRunId, submissionId, body),
+    uploadIssueDeliverable: (issueId: string, files: unknown, summary?: string, deliverableId?: string) =>
+      mockUploadIssueDeliverable(issueId, files, summary, deliverableId),
+    uploadIssueDeliverablePR: (issueId: string, urls: string[], summary?: string, deliverableId?: string) =>
+      mockUploadIssueDeliverablePR(issueId, urls, summary, deliverableId),
+    submitNodeRun: (nodeRunId: string, output: unknown) =>
+      mockSubmitNodeRun(nodeRunId, output),
   },
-}));
-
-vi.mock("../../../common/task-transcript", () => ({
-  buildTimeline: (msgs: Array<{ seq: number; type: string; content?: string }>) =>
-    msgs.map((msg) => ({ seq: msg.seq, type: msg.type, content: msg.content })),
-  AgentTranscriptDialog: ({
-    open,
-    task,
-    items,
-    agentName,
-  }: {
-    open: boolean;
-    task: { id: string };
-    items: Array<{ content?: string }>;
-    agentName: string;
-  }) =>
-    open ? (
-      <div role="dialog" aria-label="Task transcript">
-        <span>{task.id}</span>
-        <span>{agentName}</span>
-        {items.map((item, index) => (
-          <p key={index}>{item.content}</p>
-        ))}
-      </div>
-    ) : null,
 }));
 
 // Mock @multica/views/i18n for useT hook — handles function selector form
@@ -182,6 +143,13 @@ vi.mock("@multica/views/i18n", () => ({
             deliverables: {
               heading: "Deliverable PRs",
               pull_request_label: "Pull request",
+              deliverables_section: "Deliverables",
+              upload_button: "Upload document",
+              upload_pr_button: "Submit code",
+              upload_file_choose: "Choose files",
+              upload_pr_placeholder: "Paste links, one per line",
+              upload_pr_invalid: "One link per line, starting with http(s)://",
+              cancel: "Cancel",
             },
           },
           execution: {
@@ -245,8 +213,9 @@ vi.mock("@multica/views/i18n", () => ({
               review_comment_required: "Please add a review comment before approving or rejecting",
               execution_summary: "Execution summary",
               execution_summary_placeholder: "Optional: briefly describe the completed work",
-              submit_result: "Submit result",
+              submit_result: "Submit",
               submitting_result: "Submitting...",
+              deliverables_required_first: "Submit the required deliverables first",
               skip_node: "Skip node",
               skip_dialog_title: "Skip this node?",
               skip_dialog_description: "This node will be marked as skipped.",
@@ -254,8 +223,9 @@ vi.mock("@multica/views/i18n", () => ({
               skip_dialog_confirm: "Confirm skip",
               dock_review_title: "Human review",
               dock_review_subtitle: "Your review comment is archived to Gitea with the decision.",
+              dock_result_title: "Review comment and deliverables",
               dock_submit_title: "Deliverable submission",
-              dock_submit_subtitle: "The node enters review once deliverables are submitted.",
+              dock_submit_subtitle: "Assigned to {{name}} · the node enters review once deliverables are submitted.",
               open_session: "Open session",
             },
           },
@@ -337,40 +307,15 @@ const runtimeSummary: WorkflowNodeRuntimeSummary = {
 
 describe("ExecutionDetailPanel", () => {
   beforeEach(() => {
-    mockSetActiveSession.mockClear();
-    mockSetOpen.mockClear();
-    mockIsEmbeddedInCostrict.mockReturnValue(false);
+    mockIsEmbeddedInCostrict.mockReturnValue(true);
     mockPostCostrictNavigateToSession.mockClear();
-    mockListTaskMessages.mockReset();
-    mockListTaskMessages.mockResolvedValue([
-      {
-        task_id: "task-1",
-        seq: 1,
-        type: "text",
-        content: "implemented the fix",
-        tool: "",
-        input: null,
-        output: "",
-        created_at: "2026-06-25T10:01:00Z",
-      },
-    ]);
-    mockReviewNodeRun.mockResolvedValue({});
-    mockReviewNodeRunDeliverable.mockResolvedValue({});
+    mockReviewNodeRun.mockReset().mockResolvedValue({});
+    mockReviewNodeRunDeliverable.mockReset().mockResolvedValue({});
+    mockUploadIssueDeliverable.mockReset().mockResolvedValue({ ok: true });
+    mockUploadIssueDeliverablePR.mockReset().mockResolvedValue({ ok: true });
+    mockSubmitNodeRun.mockReset().mockResolvedValue({});
     mockInvalidateQueries.mockResolvedValue(undefined);
-    mockChatSessions = [
-      {
-        id: "11111111-1111-1111-1111-111111111111",
-        workspace_id: "ws-1",
-        agent_id: "a1",
-        creator_id: "u1",
-        title: "Runtime session",
-        status: "active",
-        session_id: "sess-1",
-        has_unread: false,
-        created_at: "",
-        updated_at: "",
-      },
-    ];
+    mockDeliverableSubmissions = defaultDeliverableSubmissions;
   });
 
   it("renders node title in header", () => {
@@ -404,7 +349,6 @@ describe("ExecutionDetailPanel", () => {
     expect(screen.getByTestId("runtime-diagnostic-summary")).not.toHaveClass("rounded-lg", "border");
     expect(screen.getAllByTestId("node-detail-section").map((section) => section.getAttribute("data-section"))).toEqual([
       "status-next-step",
-      "actions",
       "evidence-preview",
       "worker-critic",
       "runtime-facts",
@@ -520,34 +464,7 @@ describe("ExecutionDetailPanel", () => {
     expect(screen.getAllByText("Max turns reached").length).toBeGreaterThan(0);
   });
 
-  it("opens the matching chat session from a runtime session id in run mode", async () => {
-    render(
-      <ExecutionDetailPanel
-        node={{ ...node, title: "Run node" }}
-        nodeRun={{ ...run, node_title: "Run node", session_id: "sess-1" }}
-        workerName="Backend assistant"
-        criticName="Reviewer"
-        onClose={vi.fn()}
-        wsId="ws-1"
-      />,
-    );
-
-    await userEvent.click(screen.getByRole("button", { name: "Open session" }));
-
-    expect(screen.getByTestId("runtime-primary-actions")).toContainElement(screen.getByRole("button", { name: "Open session" }));
-    expect(screen.getAllByTestId("node-detail-section").map((section) => section.getAttribute("data-section"))).toEqual([
-      "status-next-step",
-      "actions",
-      "evidence-preview",
-      "worker-critic",
-      "runtime-facts",
-    ]);
-    expect(mockSetActiveSession).toHaveBeenCalledWith("11111111-1111-1111-1111-111111111111");
-    expect(mockSetOpen).toHaveBeenCalledWith(true);
-  });
-
-  it("asks CoStrict to open the runtime session in a new browser tab when embedded", async () => {
-    mockIsEmbeddedInCostrict.mockReturnValue(true);
+  it("asks CoStrict to open the CSC session in a new browser tab", async () => {
     mockPostCostrictNavigateToSession.mockReturnValue(true);
 
     render(
@@ -567,13 +484,10 @@ describe("ExecutionDetailPanel", () => {
       sessionId: "sess-1",
       newTab: true,
     });
-    expect(mockSetActiveSession).not.toHaveBeenCalled();
-    expect(mockSetOpen).not.toHaveBeenCalled();
   });
 
-  it("falls back to the matching chat session when CoStrict navigation cannot post to a parent frame", async () => {
-    mockIsEmbeddedInCostrict.mockReturnValue(true);
-    mockPostCostrictNavigateToSession.mockReturnValue(false);
+  it("hides the CSC session action outside the CoStrict embed", () => {
+    mockIsEmbeddedInCostrict.mockReturnValue(false);
 
     render(
       <ExecutionDetailPanel
@@ -586,41 +500,8 @@ describe("ExecutionDetailPanel", () => {
       />,
     );
 
-    await userEvent.click(screen.getByRole("button", { name: "Open session" }));
-
-    expect(mockPostCostrictNavigateToSession).toHaveBeenCalledWith({
-      sessionId: "sess-1",
-      newTab: true,
-    });
-    expect(mockSetActiveSession).toHaveBeenCalledWith("11111111-1111-1111-1111-111111111111");
-    expect(mockSetOpen).toHaveBeenCalledWith(true);
-  });
-
-  it("opens the task transcript when a runtime session has no matching chat session", async () => {
-    render(
-      <ExecutionDetailPanel
-        node={{ ...node, title: "Run node" }}
-        nodeRun={{
-          ...run,
-          node_title: "Run node",
-          session_id: "orphan-runtime-session",
-          worker_agent_task_id: "task-1",
-        }}
-        workerName="Backend assistant"
-        criticName="Reviewer"
-        onClose={vi.fn()}
-        wsId="ws-1"
-        issueId="issue-1"
-      />,
-    );
-
-    await userEvent.click(screen.getByRole("button", { name: "Open session" }));
-
-    await waitFor(() => expect(mockListTaskMessages).toHaveBeenCalledWith("task-1"));
-    expect(await screen.findByRole("dialog", { name: "Task transcript" })).toBeInTheDocument();
-    expect(screen.getByText("implemented the fix")).toBeInTheDocument();
-    expect(mockSetActiveSession).not.toHaveBeenCalled();
-    expect(mockSetOpen).not.toHaveBeenCalled();
+    expect(screen.queryByRole("button", { name: "Open session" })).not.toBeInTheDocument();
+    expect(mockPostCostrictNavigateToSession).not.toHaveBeenCalled();
   });
 
   it("calls onClose when clicking mask", async () => {
@@ -750,7 +631,7 @@ describe("ExecutionDetailPanel", () => {
     );
 
     const sections = screen.getAllByTestId("node-detail-section").map((section) => section.getAttribute("data-section"));
-    expect(sections).toEqual(["status-next-step", "actions", "evidence-preview", "worker-critic", "runtime-facts"]);
+    expect(sections).toEqual(["status-next-step", "evidence-preview", "worker-critic", "runtime-facts"]);
     expect(screen.queryByText(/"nested"/)).not.toBeInTheDocument();
     expect(screen.getByText("View evidence")).toBeInTheDocument();
   });
@@ -791,7 +672,6 @@ describe("ExecutionDetailPanel", () => {
     const sections = screen.getAllByTestId("node-detail-section").map((section) => section.getAttribute("data-section"));
     expect(sections).toEqual([
       "status-next-step",
-      "actions",
       "evidence-preview",
       "child-progress",
       "worker-critic",
@@ -873,7 +753,6 @@ describe("ExecutionDetailPanel", () => {
     expect(screen.queryByText("Agent operations")).not.toBeInTheDocument();
     expect(screen.getAllByTestId("node-detail-section").map((section) => section.getAttribute("data-section"))).toEqual([
       "status-next-step",
-      "actions",
       "evidence-preview",
       "worker-critic",
       "runtime-facts",
@@ -993,7 +872,19 @@ describe("ExecutionDetailPanel", () => {
       />,
     );
 
-    expect(screen.getByRole("button", { name: "Submit result" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Submit" })).toBeInTheDocument();
+
+    // Node actions stay in the primary column's actions section; deliverable
+    // links live in the footer dock instead.
+    const actionsSection = screen.getByText("Node actions").closest('[data-section="actions"]');
+    expect(actionsSection).not.toBeNull();
+    expect(screen.getByTestId("runtime-detail-primary-column")).toContainElement(
+      actionsSection as HTMLElement,
+    );
+    expect(actionsSection).toContainElement(screen.getByRole("button", { name: "Submit" }));
+    expect(actionsSection).not.toContainElement(screen.getByRole("link", { name: /Pull request/i }));
+    const footer = screen.getByTestId("node-detail-panel-footer");
+    expect(footer).toContainElement(screen.getByRole("link", { name: /Pull request/i }));
   });
 
   it("does not render review actions for another member", () => {
@@ -1021,7 +912,7 @@ describe("ExecutionDetailPanel", () => {
     expect(screen.queryByRole("button", { name: "Reject" })).not.toBeInTheDocument();
   });
 
-  it("places human review with deliverables in the primary detail column", () => {
+  it("places human review with deliverables in the sticky footer dock", () => {
     render(
       <ExecutionDetailPanel
         node={{ ...node, critic_type: "human", critic_id: null }}
@@ -1036,18 +927,19 @@ describe("ExecutionDetailPanel", () => {
       />,
     );
 
-    const primaryColumn = screen.getByTestId("runtime-detail-primary-column");
+    const footer = screen.getByTestId("node-detail-panel-footer");
     const actionPanel = screen.getByTestId("node-action-panel");
-    expect(primaryColumn).toContainElement(actionPanel);
-    expect(screen.queryByTestId("node-detail-panel-footer")).not.toBeInTheDocument();
+    expect(footer).toContainElement(actionPanel);
+    expect(screen.getByTestId("runtime-detail-primary-column")).not.toContainElement(actionPanel);
     expect(actionPanel).toContainElement(screen.getByRole("link", { name: /Pull request/i }));
     expect(actionPanel).toContainElement(screen.getByPlaceholderText("Review Comment"));
+    expect(actionPanel.querySelector("label")).toBeNull();
     expect(actionPanel).toContainElement(screen.getByRole("button", { name: "Approve" }));
     expect(actionPanel).toContainElement(screen.getByRole("button", { name: "Reject" }));
 
     const toolbar = screen.getByTestId("node-run-action-toolbar");
     const toolbarButtons = within(toolbar).getAllByRole("button");
-    expect(toolbar).toHaveClass("grid", "grid-cols-[repeat(2,minmax(0,7rem))]", "justify-start");
+    expect(toolbar).toHaveClass("grid", "grid-cols-[repeat(2,minmax(0,7rem))]", "justify-end");
     expect(toolbarButtons.map((button) => button.textContent)).toEqual(["Reject", "Approve"]);
     toolbarButtons.forEach((button) => expect(button).toHaveClass("w-full", "min-w-0"));
   });
@@ -1079,7 +971,47 @@ describe("ExecutionDetailPanel", () => {
     expect(screen.queryByRole("button", { name: "Reject" })).not.toBeInTheDocument();
   });
 
-  it("shows the deliverable submission section for human worker runs", () => {
+  it("shows the approval comment instead of submission controls after completion", () => {
+    mockDeliverableSubmissions = {
+      ...defaultDeliverableSubmissions,
+      deliverables: defaultDeliverableSubmissions.deliverables.map((deliverable) => ({
+        ...deliverable,
+      })),
+    };
+    render(
+      <ExecutionDetailPanel
+        node={{ ...node, worker_type: "human", worker_id: null, critic_type: "human", critic_id: null }}
+        nodeRun={{
+          ...run,
+          status: "completed",
+          worker_type: "human",
+          worker_id: null,
+          critic_type: "human",
+          critic_id: null,
+          critic_comment: "Approved after checking the uploaded evidence.",
+          completed_at: "2026-06-25T10:10:00Z",
+        }}
+        workerName="Member"
+        criticName="Reviewer"
+        onClose={vi.fn()}
+        wsId="ws-1"
+        issueId="issue-1"
+      />,
+    );
+
+    const actionPanel = screen.getByTestId("node-action-panel");
+    expect(actionPanel).toHaveTextContent("Review comment and deliverables");
+    expect(actionPanel).not.toHaveTextContent("Deliverables and links");
+    expect(actionPanel).toHaveTextContent("Approved after checking the uploaded evidence.");
+    expect(screen.getAllByText("Approved after checking the uploaded evidence.")).toHaveLength(1);
+    expect(actionPanel).not.toContainElement(
+      screen.queryByPlaceholderText("Optional: briefly describe the completed work"),
+    );
+    expect(actionPanel).not.toContainElement(screen.queryByRole("button", { name: "Cancel" }));
+    expect(actionPanel).not.toContainElement(screen.queryByRole("button", { name: "Submit" }));
+  });
+
+  it("shows the deliverable submission dock for human worker runs", () => {
     render(
       <ExecutionDetailPanel
         node={{ ...node, worker_type: "human", worker_id: null }}
@@ -1092,11 +1024,188 @@ describe("ExecutionDetailPanel", () => {
       />,
     );
 
-    const primaryColumn = screen.getByTestId("runtime-detail-primary-column");
+    const footer = screen.getByTestId("node-detail-panel-footer");
     const actionPanel = screen.getByTestId("node-action-panel");
-    expect(primaryColumn).toContainElement(actionPanel);
-    expect(screen.queryByTestId("node-detail-panel-footer")).not.toBeInTheDocument();
-    expect(actionPanel.closest('[data-section="actions"]')).toHaveTextContent("Deliverable submission");
+    expect(footer).toContainElement(actionPanel);
+    expect(screen.getByTestId("runtime-detail-primary-column")).not.toContainElement(actionPanel);
+    expect(actionPanel).toHaveTextContent("Deliverable submission");
+    expect(actionPanel).toHaveTextContent("Assigned to Member");
     expect(screen.queryByPlaceholderText("Review Comment")).not.toBeInTheDocument();
+
+    // Unified delivery form: group tag + submitted chip, staged link input,
+    // execution summary and the dock's bottom-right submit button.
+    const form = screen.getByTestId("node-run-delivery-form");
+    expect(form).toHaveTextContent("Code");
+    expect(form).toContainElement(screen.getByRole("link", { name: /Code changes/i }));
+    expect(screen.getByPlaceholderText("Paste links, one per line")).toBeInTheDocument();
+    expect(screen.getByPlaceholderText("Optional: briefly describe the completed work")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Submit" })).toBeInTheDocument();
+
+    // The delivery dock owns submission, so the actions section stays hidden.
+    expect(screen.queryByText("Node actions")).not.toBeInTheDocument();
+  });
+
+  it("uploads staged links with the summary riding along on unified submit", async () => {
+    const user = userEvent.setup();
+    render(
+      <ExecutionDetailPanel
+        node={{ ...node, worker_type: "human", worker_id: null }}
+        nodeRun={{ ...run, status: "working", worker_type: "human", worker_id: null }}
+        workerName="Member"
+        criticName="Reviewer"
+        onClose={vi.fn()}
+        wsId="ws-1"
+        issueId="issue-1"
+        workflowId="wf-1"
+        runId="wr1"
+      />,
+    );
+
+    await user.type(
+      screen.getByPlaceholderText("Paste links, one per line"),
+      "https://git.example/o/r/pulls/9",
+    );
+    await user.type(
+      screen.getByPlaceholderText("Optional: briefly describe the completed work"),
+      "实现完成，已自测",
+    );
+    await user.click(screen.getByRole("button", { name: "Submit" }));
+
+    await waitFor(() => {
+      expect(mockUploadIssueDeliverablePR).toHaveBeenCalledWith(
+        "issue-1",
+        ["https://git.example/o/r/pulls/9"],
+        "实现完成，已自测",
+        "del-1",
+      );
+    });
+    // Deliverable upload carries the summary; no separate worker-output call.
+    expect(mockSubmitNodeRun).not.toHaveBeenCalled();
+    expect(mockInvalidateQueries).toHaveBeenCalledWith({
+      queryKey: ["workflows", "node-runs", "r1", "deliverables"],
+    });
+  });
+
+  it("adds files from repeated native file selections", async () => {
+    const user = userEvent.setup();
+    const codeDeliverable = defaultDeliverableSubmissions.deliverables[0]!;
+    mockDeliverableSubmissions = {
+      deliverables: [
+        {
+          ...codeDeliverable,
+          id: "doc-1",
+          title: "Document",
+        },
+      ],
+      submissions: [],
+    };
+    const { container } = render(
+      <ExecutionDetailPanel
+        node={{ ...node, worker_type: "human", worker_id: null }}
+        nodeRun={{ ...run, status: "working", worker_type: "human", worker_id: null }}
+        workerName="Member"
+        criticName="Reviewer"
+        onClose={vi.fn()}
+        wsId="ws-1"
+        issueId="issue-1"
+      />,
+    );
+
+    const input = container.querySelector('input[type="file"]') as HTMLInputElement;
+    await user.upload(input, new File(["first"], "first.md", { type: "text/markdown" }));
+    expect(await screen.findByText("first.md")).toBeInTheDocument();
+
+    const nextInput = container.querySelector('input[type="file"]') as HTMLInputElement;
+    await user.upload(nextInput, new File(["second"], "second.md", { type: "text/markdown" }));
+    expect(await screen.findByText("second.md")).toBeInTheDocument();
+    expect(screen.getByText("first.md")).toBeInTheDocument();
+  });
+
+  it("targets the selected deliverable when several deliverables are available", async () => {
+    const user = userEvent.setup();
+    const firstDeliverable = defaultDeliverableSubmissions.deliverables[0]!;
+    mockDeliverableSubmissions = {
+      deliverables: [
+        firstDeliverable,
+        {
+          ...firstDeliverable,
+          id: "del-2",
+          title: "Release PR",
+          sort_order: 1,
+        },
+      ],
+      submissions: [],
+    };
+    render(
+      <ExecutionDetailPanel
+        node={{ ...node, worker_type: "human", worker_id: null }}
+        nodeRun={{ ...run, status: "working", worker_type: "human", worker_id: null }}
+        workerName="Member"
+        criticName="Reviewer"
+        onClose={vi.fn()}
+        wsId="ws-1"
+        issueId="issue-1"
+      />,
+    );
+
+    await user.selectOptions(screen.getByRole("combobox", { name: "Deliverables" }), "del-2");
+    await user.type(
+      screen.getByPlaceholderText("Paste links, one per line"),
+      "https://git.example/o/r/pulls/12",
+    );
+    await user.click(screen.getByRole("button", { name: "Submit" }));
+
+    await waitFor(() => {
+      expect(mockUploadIssueDeliverablePR).toHaveBeenCalledWith(
+        "issue-1",
+        ["https://git.example/o/r/pulls/12"],
+        undefined,
+        "del-2",
+      );
+    });
+  });
+
+  it("blocks a summary-only submit while required deliverables are missing", async () => {
+    const user = userEvent.setup();
+    mockDeliverableSubmissions = {
+      deliverables: [
+        {
+          id: "del-1",
+          workflow_node_id: "n1",
+          title: "Code changes",
+          required: true,
+          sort_order: 0,
+          created_at: "",
+          updated_at: "",
+        },
+      ],
+      submissions: [],
+    };
+    render(
+      <ExecutionDetailPanel
+        node={{ ...node, worker_type: "human", worker_id: null }}
+        nodeRun={{ ...run, status: "working", worker_type: "human", worker_id: null }}
+        workerName="Member"
+        criticName="Reviewer"
+        onClose={vi.fn()}
+        wsId="ws-1"
+        issueId="issue-1"
+        workflowId="wf-1"
+        runId="wr1"
+      />,
+    );
+
+    // Summary alone cannot advance the node while its required deliverable
+    // has no submission: the dock disables submit and explains why.
+    await user.type(
+      screen.getByPlaceholderText("Optional: briefly describe the completed work"),
+      "only a note",
+    );
+    expect(screen.getByText("Submit the required deliverables first")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Submit" })).toBeDisabled();
+
+    // Staging a deliverable unblocks the submit.
+    await user.type(screen.getByPlaceholderText("Paste links, one per line"), "https://git.example/o/r/pulls/9");
+    expect(screen.getByRole("button", { name: "Submit" })).toBeEnabled();
   });
 });

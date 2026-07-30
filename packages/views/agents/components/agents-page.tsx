@@ -30,7 +30,10 @@ import {
   memberListOptions,
   workspaceKeys,
 } from "@multica/core/workspace/queries";
-import { runtimeListOptions } from "@multica/core/runtimes";
+import {
+  AGENT_RUNTIME_PROVIDERS,
+  runtimeListOptions,
+} from "@multica/core/runtimes";
 import { Button } from "@multica/ui/components/ui/button";
 import {
   DropdownMenu,
@@ -471,7 +474,9 @@ export function AgentsPage() {
 
       {showCreate && (
         <CreateAgentDialog
-          runtimes={runtimes.filter((r) => r.provider === "csc")}
+          runtimes={runtimes.filter((r) =>
+            AGENT_RUNTIME_PROVIDERS.has(r.provider),
+          )}
           runtimesLoading={runtimesLoading}
           members={members}
           currentUserId={currentUser?.id ?? null}

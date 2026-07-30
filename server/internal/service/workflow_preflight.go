@@ -205,8 +205,7 @@ func validateSnapshotDeliverables(nodes []WorkflowSnapshotNode, deliverables []W
 	issues := make([]WorkflowConfigIssue, 0)
 	for _, deliverable := range deliverables {
 		node, nodeExists := nodeByID[deliverable.WorkflowNodeID]
-		validKind := deliverable.Kind == "document" || deliverable.Kind == "pull_request"
-		if !nodeExists || strings.TrimSpace(deliverable.ID) == "" || !validKind ||
+		if !nodeExists || strings.TrimSpace(deliverable.ID) == "" ||
 			strings.TrimSpace(deliverable.Title) == "" || deliverable.SortOrder < 0 {
 			issue := WorkflowConfigIssue{Code: "deliverable_invalid", Detail: "Deliverable requirement is incomplete or invalid"}
 			if nodeExists {

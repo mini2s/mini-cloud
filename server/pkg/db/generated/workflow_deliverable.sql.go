@@ -13,14 +13,13 @@ import (
 
 const createWorkflowNodeDeliverable = `-- name: CreateWorkflowNodeDeliverable :one
 INSERT INTO multica_workflow_node_deliverable (
-    workflow_node_id, kind, title, description, required, sort_order
-) VALUES ($1, $2, $3, $4, $5, $6)
-RETURNING id, workflow_node_id, kind, title, description, required, sort_order, created_at, updated_at
+    workflow_node_id, title, description, required, sort_order
+) VALUES ($1, $2, $3, $4, $5)
+RETURNING id, workflow_node_id, title, description, required, sort_order, created_at, updated_at
 `
 
 type CreateWorkflowNodeDeliverableParams struct {
 	WorkflowNodeID pgtype.UUID `json:"workflow_node_id"`
-	Kind           string      `json:"kind"`
 	Title          string      `json:"title"`
 	Description    string      `json:"description"`
 	Required       bool        `json:"required"`
@@ -30,7 +29,6 @@ type CreateWorkflowNodeDeliverableParams struct {
 func (q *Queries) CreateWorkflowNodeDeliverable(ctx context.Context, arg CreateWorkflowNodeDeliverableParams) (MulticaWorkflowNodeDeliverable, error) {
 	row := q.db.QueryRow(ctx, createWorkflowNodeDeliverable,
 		arg.WorkflowNodeID,
-		arg.Kind,
 		arg.Title,
 		arg.Description,
 		arg.Required,
@@ -40,7 +38,6 @@ func (q *Queries) CreateWorkflowNodeDeliverable(ctx context.Context, arg CreateW
 	err := row.Scan(
 		&i.ID,
 		&i.WorkflowNodeID,
-		&i.Kind,
 		&i.Title,
 		&i.Description,
 		&i.Required,
@@ -62,7 +59,7 @@ func (q *Queries) DeleteWorkflowNodeDeliverable(ctx context.Context, id pgtype.U
 
 const getNodeRunDeliverableRequirementForSubmission = `-- name: GetNodeRunDeliverableRequirementForSubmission :one
 
-SELECT id, workflow_node_run_id, source_deliverable_id, kind, title, description, required, sort_order, created_at
+SELECT id, workflow_node_run_id, source_deliverable_id, title, description, required, sort_order, created_at
 FROM multica_workflow_node_run_deliverable
 WHERE id = $1 AND workflow_node_run_id = $2
 `
@@ -82,7 +79,6 @@ func (q *Queries) GetNodeRunDeliverableRequirementForSubmission(ctx context.Cont
 		&i.ID,
 		&i.WorkflowNodeRunID,
 		&i.SourceDeliverableID,
-		&i.Kind,
 		&i.Title,
 		&i.Description,
 		&i.Required,
@@ -93,7 +89,7 @@ func (q *Queries) GetNodeRunDeliverableRequirementForSubmission(ctx context.Cont
 }
 
 const getWorkflowNodeDeliverableInWorkflow = `-- name: GetWorkflowNodeDeliverableInWorkflow :one
-SELECT deliverable.id, deliverable.workflow_node_id, deliverable.kind, deliverable.title, deliverable.description, deliverable.required, deliverable.sort_order, deliverable.created_at, deliverable.updated_at
+SELECT deliverable.id, deliverable.workflow_node_id, deliverable.title, deliverable.description, deliverable.required, deliverable.sort_order, deliverable.created_at, deliverable.updated_at
 FROM multica_workflow_node_deliverable deliverable
 JOIN multica_workflow_node node ON node.id = deliverable.workflow_node_id
 WHERE deliverable.id = $1
@@ -113,7 +109,6 @@ func (q *Queries) GetWorkflowNodeDeliverableInWorkflow(ctx context.Context, arg 
 	err := row.Scan(
 		&i.ID,
 		&i.WorkflowNodeID,
-		&i.Kind,
 		&i.Title,
 		&i.Description,
 		&i.Required,
@@ -167,7 +162,7 @@ func (q *Queries) ListNodeRunDeliverableSubmissions(ctx context.Context, workflo
 
 const listWorkflowNodeDeliverables = `-- name: ListWorkflowNodeDeliverables :many
 
-SELECT id, workflow_node_id, kind, title, description, required, sort_order, created_at, updated_at FROM multica_workflow_node_deliverable
+SELECT id, workflow_node_id, title, description, required, sort_order, created_at, updated_at FROM multica_workflow_node_deliverable
 WHERE workflow_node_id = $1
 ORDER BY sort_order ASC, created_at ASC
 `
@@ -187,7 +182,6 @@ func (q *Queries) ListWorkflowNodeDeliverables(ctx context.Context, workflowNode
 		if err := rows.Scan(
 			&i.ID,
 			&i.WorkflowNodeID,
-			&i.Kind,
 			&i.Title,
 			&i.Description,
 			&i.Required,
@@ -245,19 +239,17 @@ func (q *Queries) ReviewNodeRunDeliverableSubmission(ctx context.Context, arg Re
 
 const updateWorkflowNodeDeliverable = `-- name: UpdateWorkflowNodeDeliverable :one
 UPDATE multica_workflow_node_deliverable SET
-    kind = COALESCE($2, kind),
-    title = COALESCE($3, title),
-    description = COALESCE($4, description),
-    required = COALESCE($5::boolean, required),
-    sort_order = COALESCE($6::int, sort_order),
+    title = COALESCE($2, title),
+    description = COALESCE($3, description),
+    required = COALESCE($4::boolean, required),
+    sort_order = COALESCE($5::int, sort_order),
     updated_at = now()
 WHERE id = $1
-RETURNING id, workflow_node_id, kind, title, description, required, sort_order, created_at, updated_at
+RETURNING id, workflow_node_id, title, description, required, sort_order, created_at, updated_at
 `
 
 type UpdateWorkflowNodeDeliverableParams struct {
 	ID          pgtype.UUID `json:"id"`
-	Kind        pgtype.Text `json:"kind"`
 	Title       pgtype.Text `json:"title"`
 	Description pgtype.Text `json:"description"`
 	Required    pgtype.Bool `json:"required"`
@@ -267,7 +259,6 @@ type UpdateWorkflowNodeDeliverableParams struct {
 func (q *Queries) UpdateWorkflowNodeDeliverable(ctx context.Context, arg UpdateWorkflowNodeDeliverableParams) (MulticaWorkflowNodeDeliverable, error) {
 	row := q.db.QueryRow(ctx, updateWorkflowNodeDeliverable,
 		arg.ID,
-		arg.Kind,
 		arg.Title,
 		arg.Description,
 		arg.Required,
@@ -277,7 +268,6 @@ func (q *Queries) UpdateWorkflowNodeDeliverable(ctx context.Context, arg UpdateW
 	err := row.Scan(
 		&i.ID,
 		&i.WorkflowNodeID,
-		&i.Kind,
 		&i.Title,
 		&i.Description,
 		&i.Required,
@@ -299,7 +289,7 @@ INSERT INTO multica_workflow_node_deliverable_submission (
 FROM multica_workflow_node_run_deliverable requirement
 WHERE requirement.id = $7
   AND requirement.workflow_node_run_id = $1
-ON CONFLICT (workflow_node_run_id, deliverable_id)
+ON CONFLICT (workflow_node_run_id, deliverable_id, pull_request_url)
 DO UPDATE SET
     submitted_by_type = EXCLUDED.submitted_by_type,
     submitted_by_id = EXCLUDED.submitted_by_id,
@@ -322,6 +312,11 @@ type UpsertNodeRunDeliverableSubmissionParams struct {
 	DeliverableID     pgtype.UUID `json:"deliverable_id"`
 }
 
+// One deliverable may carry several link submissions (migration 149): the
+// conflict key includes pull_request_url so each review URL is its own row,
+// while non-link submissions (empty URL) keep one-row-per-deliverable upserts.
+// Re-submitting an existing URL is idempotent (status resets to submitted,
+// which is also the rework-resubmit contract).
 func (q *Queries) UpsertNodeRunDeliverableSubmission(ctx context.Context, arg UpsertNodeRunDeliverableSubmissionParams) (MulticaWorkflowNodeDeliverableSubmission, error) {
 	row := q.db.QueryRow(ctx, upsertNodeRunDeliverableSubmission,
 		arg.WorkflowNodeRunID,
@@ -370,17 +365,17 @@ func (q *Queries) WorkflowDeliverableHasActiveRunReferences(ctx context.Context,
 	return exists, err
 }
 
-const workflowHasDocumentDeliverable = `-- name: WorkflowHasDocumentDeliverable :one
+const workflowHasDeliverable = `-- name: WorkflowHasDeliverable :one
 SELECT EXISTS (
     SELECT 1
     FROM multica_workflow_node_deliverable deliverable
     JOIN multica_workflow_node node ON node.id = deliverable.workflow_node_id
-    WHERE node.workflow_id = $1 AND deliverable.kind = 'document'
+    WHERE node.workflow_id = $1
 )
 `
 
-func (q *Queries) WorkflowHasDocumentDeliverable(ctx context.Context, workflowID pgtype.UUID) (bool, error) {
-	row := q.db.QueryRow(ctx, workflowHasDocumentDeliverable, workflowID)
+func (q *Queries) WorkflowHasDeliverable(ctx context.Context, workflowID pgtype.UUID) (bool, error) {
+	row := q.db.QueryRow(ctx, workflowHasDeliverable, workflowID)
 	var exists bool
 	err := row.Scan(&exists)
 	return exists, err

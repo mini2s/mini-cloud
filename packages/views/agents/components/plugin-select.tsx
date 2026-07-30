@@ -15,8 +15,9 @@ import { PluginPickerList, useDebouncedPluginSearch } from "./plugin-picker-list
 interface PluginSelectProps {
   /** Currently selected plugin ID (controlled). Empty string = none. */
   value: string;
-  /** Called when selection changes. Empty string = clear. */
-  onChange: (pluginId: string) => void;
+  /** Called when selection changes with the plugin id + install slug.
+   * Empty id = clear. */
+  onChange: (pluginId: string, pluginName: string) => void;
 }
 
 /**
@@ -97,7 +98,7 @@ export function PluginSelect({ value, onChange }: PluginSelectProps) {
           plugins={items}
           catalogPlugins={cloudItems}
           selectedId={value || null}
-          onSelect={(id) => onChange(id === value ? "" : id)}
+          onSelect={(id, slug) => onChange(id === value ? "" : id, id === value ? "" : slug)}
           loading={isLoading}
           catalogLoading={isCatalogLoading}
           searchQuery={searchQuery}
@@ -108,7 +109,7 @@ export function PluginSelect({ value, onChange }: PluginSelectProps) {
         <div className="mt-1.5">
           <button
             type="button"
-            onClick={() => onChange("")}
+            onClick={() => onChange("", "")}
             className="flex w-full items-center gap-2 rounded-lg border px-3 py-2 text-left text-sm transition-colors hover:bg-accent/50"
           >
             <Puzzle className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />

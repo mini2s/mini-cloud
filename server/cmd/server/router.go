@@ -282,6 +282,14 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 	// (read by buildCSCloudPayload). Same post-construction pattern as
 	// h.TaskService.EmptyClaim below.
 	h.TaskService.TeamNamespace = teamNamespaceClient
+	// Plugin catalog config for cs-cloud dispatch-time plugin resolution
+	// (buildCSCloudPayload fetches the agent's plugin metadata from the catalog
+	// and stamps the server-owned marketplace identity). Mirrors the handler
+	// claim-path config (cfg.BuiltinPluginAPIBaseURL / CSCPlugin*). Server-side
+	// only — the daemon is not involved.
+	h.TaskService.BuiltinPluginAPIBaseURL = strings.TrimRight(strings.TrimSpace(os.Getenv("BUILTIN_PLUGIN_API_BASE_URL")), "/")
+	h.TaskService.CSCPluginMarketplaceName = strings.TrimSpace(os.Getenv("CSC_PLUGIN_MARKETPLACE_NAME"))
+	h.TaskService.CSCPluginMarketplaceRepo = strings.TrimSpace(os.Getenv("CSC_PLUGIN_MARKETPLACE_REPO"))
 	// Auth caches: PAT cache is shared between the regular Auth middleware,
 	// the DaemonAuth fallback (mul_) path, and the revoke handler
 	// (invalidate). DaemonTokenCache backs the DaemonAuth mdt_ path. Both
@@ -493,7 +501,6 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 		r.Post("/runtimes/{runtimeId}/recover-orphans", h.RecoverOrphanedTasks)
 		r.Post("/tasks/{taskId}/session", h.PinTaskSession)
 		r.Post("/node-runs/{nodeRunId}/session", h.BindNodeRunSession)
-		r.Post("/node-runs/{nodeRunId}/deliverables/{deliverableId}/report-pr", h.HandleReportDeliverablePR)
 		// Gitea deliverables by issue (agent-facing read path). Resolve an issue
 		// by UUID or <PREFIX>-<number> and return its workflow deliverable
 		// context — optionally recursively for all descendant issues

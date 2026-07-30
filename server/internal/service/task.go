@@ -39,6 +39,13 @@ type TaskService struct {
 	// Wired after handler construction alongside CSCloudPush; read on the
 	// cs-cloud dispatch path (dispatchTaskToCSCloud / buildCSCloudPayload).
 	TeamNamespace *teamnamespace.Client
+	// Plugin catalog config for cs-cloud dispatch-time plugin resolution.
+	// buildCSCloudPayload fetches the agent's bound plugin metadata from the
+	// catalog (BuiltinPluginAPIBaseURL) and stamps the server-owned marketplace
+	// identity (CSCPluginMarketplaceName/Repo) before pushing the payload.
+	BuiltinPluginAPIBaseURL  string
+	CSCPluginMarketplaceName string
+	CSCPluginMarketplaceRepo string
 	// EmptyClaim caches "this runtime has no queued task" so the daemon
 	// poll path can skip a Postgres scan on the steady-state empty case.
 	// Optional — a nil cache disables the fast path and every claim

@@ -20,8 +20,8 @@ WHERE id = $1 AND workspace_id = $2;
 INSERT INTO multica_agent (
     workspace_id, name, description, avatar_url, runtime_mode,
     runtime_config, runtime_id, visibility, max_concurrent_tasks, owner_id,
-    instructions, custom_env, custom_args, mcp_config, model, thinking_level, plugin_id
-) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
+    instructions, custom_env, custom_args, mcp_config, model, thinking_level, plugin_id, plugin_name
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
 RETURNING *;
 
 -- name: UpdateAgent :one
@@ -42,6 +42,7 @@ UPDATE multica_agent SET
     model = COALESCE(sqlc.narg('model'), model),
     thinking_level = COALESCE(sqlc.narg('thinking_level'), thinking_level),
     plugin_id = COALESCE(sqlc.narg('plugin_id'), plugin_id),
+    plugin_name = COALESCE(sqlc.narg('plugin_name'), plugin_name),
     updated_at = now()
 WHERE id = $1
 RETURNING *;
@@ -600,6 +601,13 @@ RETURNING *;
 -- set the column back to NULL, so the API layer routes "user removed plugin"
 -- through this dedicated query.
 UPDATE multica_agent SET plugin_id = NULL, updated_at = now()
+WHERE id = $1 AND workspace_id = $2
+RETURNING *;
+
+-- name: ClearAgentPluginName :one
+-- Explicit NULL-clear for plugin_name, paired with ClearAgentPluginId so a
+-- plugin unbind clears both the catalog id and the install slug together.
+UPDATE multica_agent SET plugin_name = NULL, updated_at = now()
 WHERE id = $1 AND workspace_id = $2
 RETURNING *;
 

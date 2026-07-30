@@ -192,6 +192,22 @@ func invalidateSnapshotDeliverable(snapshot *WorkflowDefinitionSnapshot) {
 	snapshot.Deliverables[0].Title = ""
 }
 
+// TestValidateWorkflowDefinition_AcceptsUnknownDeliverableKind verifies that
+// removing the kind constraint means any deliverable kind is accepted (as long
+// as other fields are valid). A kind like "video" must NOT trigger
+// deliverable_invalid.
+func TestValidateWorkflowDefinition_AcceptsUnknownDeliverableKind(t *testing.T) {
+	snapshot := validWorkflowDefinitionSnapshot()
+	snapshot.Deliverables[0].Kind = "video" // unknown kind, all other fields valid
+
+	issues := ValidateWorkflowDefinition(snapshot)
+	if slices.ContainsFunc(issues, func(issue WorkflowConfigIssue) bool {
+		return issue.Code == "deliverable_invalid"
+	}) {
+		t.Fatalf("unknown deliverable kind should be accepted post-unification: %#v", issues)
+	}
+}
+
 func snapshotNode(snapshot *WorkflowDefinitionSnapshot, id string) *WorkflowSnapshotNode {
 	for i := range snapshot.Nodes {
 		if snapshot.Nodes[i].ID == id {

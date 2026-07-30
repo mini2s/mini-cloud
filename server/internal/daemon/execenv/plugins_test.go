@@ -79,6 +79,24 @@ func writeFailingCommand(t *testing.T, dir string) string {
 	return path
 }
 
+func writeUVSuccessCommand(t *testing.T, dir string) string {
+	t.Helper()
+	if runtime.GOOS == "windows" {
+		path := filepath.Join(dir, "csc.cmd")
+		script := "@echo off\r\necho 正在更新市场: costrict-plugins...\r\necho √ 成功更新市场: costrict-plugins\r\necho Assertion failed: !(handle-^>flags ^& UV_HANDLE_CLOSING), file src\\win\\async.c, line 76 1>&2\r\nexit /b 1\r\n"
+		if err := os.WriteFile(path, []byte(script), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		return path
+	}
+	path := filepath.Join(dir, "csc")
+	script := "#!/bin/sh\necho '正在更新市场: costrict-plugins...'\necho '√ 成功更新市场: costrict-plugins'\necho 'Assertion failed: !(handle->flags & UV_HANDLE_CLOSING), file src/win/async.c, line 76' >&2\nexit 1\n"
+	if err := os.WriteFile(path, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
 func TestRunCSCCmdErrorIncludesCommandOutput(t *testing.T) {
 	dir := t.TempDir()
 	fakeBin := writeFailingCommand(t, dir)
@@ -97,6 +115,20 @@ func TestRunCSCCmdErrorIncludesCommandOutput(t *testing.T) {
 	}
 	if !strings.Contains(errText, "fatal: TLS connect error") {
 		t.Fatalf("expected stderr in error, got: %v", err)
+	}
+}
+
+func TestRunCSCCmdTreatsSuccessOutputWithUVAssertionAsSuccess(t *testing.T) {
+	dir := t.TempDir()
+	fakeBin := writeUVSuccessCommand(t, dir)
+	workDir := filepath.Join(dir, "work")
+	if err := os.MkdirAll(workDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	err := runCSCCmd(context.Background(), fakeBin, workDir, "plugin", "marketplace", "update", "costrict-plugins")
+	if err != nil {
+		t.Fatalf("expected success output to win over post-command UV assertion, got %v", err)
 	}
 }
 

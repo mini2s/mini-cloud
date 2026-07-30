@@ -9,6 +9,8 @@ import {
   type WorkflowNodeRuntimeSummary,
   type WorkflowDeliverableSubmissionStatus,
 } from "@multica/core/types";
+import { useSessionPermission } from "@multica/core/workflows/queries";
+import { isEmbeddedInCostrict } from "@multica/core/platform";
 import { cn } from "@multica/ui/lib/utils";
 import { RuntimeDisplayStatusIcon } from "./node-run-status-icon";
 import { Check, ChevronDown, ChevronRight, CircleAlert, Clock3, FileText, GitFork, GitMerge, MessageSquare } from "lucide-react";
@@ -31,6 +33,7 @@ import {
   formatRuntimeDuration,
   resolveRuntimeDurationSeconds,
 } from "./runtime-node-duration";
+import { resolveEnterSessionId } from "./runtime-session";
 
 export const RUNTIME_NODE_HEIGHT = 176;
 export const RUNTIME_SPLIT_NODE_HEIGHT = 176;
@@ -386,6 +389,54 @@ function SplitProgressSummary({
   );
 }
 
+type OpenSessionState = "idle" | "opening" | "opened" | "failed";
+
+function NodeOpenSessionButton({
+  state,
+  onClick,
+  labelIdle,
+  labelOpening,
+  labelOpened,
+  labelFailed,
+}: {
+  state: OpenSessionState;
+  onClick: (event: React.MouseEvent<HTMLButtonElement>) => void;
+  labelIdle: string;
+  labelOpening: string;
+  labelOpened: string;
+  labelFailed: string;
+}) {
+  return (
+    <Button
+      type="button"
+      size="sm"
+      variant="ghost"
+      data-testid="runtime-node-open-session"
+      disabled={state !== "idle"}
+      aria-live="polite"
+      className="nodrag nopan h-6 w-[84px] shrink-0 cursor-pointer px-1.5 text-[10px] font-medium text-muted-foreground shadow-none transition-colors hover:bg-muted/50 hover:text-foreground"
+      onClick={onClick}
+    >
+      {state === "opening" ? (
+        <Loader2 className="size-3 animate-spin" />
+      ) : state === "opened" ? (
+        <Check className="size-3 text-emerald-500" />
+      ) : state === "failed" ? (
+        <CircleAlert className="size-3 text-destructive" />
+      ) : (
+        <MessageSquare className="size-3" />
+      )}
+      {state === "opening"
+        ? labelOpening
+        : state === "opened"
+          ? labelOpened
+          : state === "failed"
+            ? labelFailed
+            : labelIdle}
+    </Button>
+  );
+}
+
 export function RuntimeNodeCard({
   node,
   nodeRun,
@@ -411,7 +462,7 @@ export function RuntimeNodeCard({
   childIssueSummary,
 }: RuntimeNodeCardProps) {
   const { t } = useT("issues");
-  const [openSessionState, setOpenSessionState] = useState<"idle" | "opening" | "opened" | "failed">("idle");
+  const [openSessionState, setOpenSessionState] = useState<OpenSessionState>("idle");
   const nodeFormat = parseNodeFormat(node.format_schema);
   const isGateway = nodeFormat.kind === "gateway";
   const isSplit = nodeFormat.kind === "split";
@@ -446,8 +497,15 @@ export function RuntimeNodeCard({
   const splitProgress = runtimeSummary?.split_progress ?? null;
   const hasSplitProgress = isSplit && !!splitProgress && splitProgress.total > 0;
   const canToggleSplitChildren = isSplit && splitChildCount > 0 && !!onSplitNodeToggle;
-  const sessionId = nodeRun?.session_id ?? runtimeSummary?.session_id ?? null;
-  const canOpenSession = !isGateway && !isSplit && !!sessionId && !!onOpenSession;
+  const sessionId = resolveEnterSessionId(nodeRun, runtimeSummary);
+  const { data: sessionPerm } = useSessionPermission(sessionId);
+  const canEnterSession = !!sessionId && sessionPerm?.can_observe === true;
+  const canOpenSession =
+    isEmbeddedInCostrict() &&
+    !isGateway &&
+    !!sessionId &&
+    !!onOpenSession &&
+    canEnterSession;
   const primaryDeliverable = !isGateway && !isSplit ? deliverables[0] : undefined;
   const remainingDeliverableCount = Math.max(0, deliverables.length - 1);
   const hasInlineAction = canToggleSplitChildren || canOpenSession || !!primaryDeliverable?.pullRequestUrl;
@@ -485,6 +543,17 @@ export function RuntimeNodeCard({
     const timer = setTimeout(() => setOpenSessionState("idle"), 1200);
     return () => clearTimeout(timer);
   }, [openSessionState]);
+
+  const openSessionButton = canOpenSession ? (
+    <NodeOpenSessionButton
+      state={openSessionState}
+      onClick={handleOpenSessionClick}
+      labelIdle={t(($) => $.execution.detail_panel.open_session)}
+      labelOpening={t(($) => $.execution.card.session_opening)}
+      labelOpened={t(($) => $.execution.card.session_opened)}
+      labelFailed={t(($) => $.execution.card.session_open_failed)}
+    />
+  ) : null;
 
   const actionButtons: ActionButtonDef[] = nodeRun
     ? isGateway || isSplit
@@ -647,6 +716,14 @@ export function RuntimeNodeCard({
               ) : null}
             </div>
           )}
+          {canOpenSession ? (
+            <div
+              data-testid="runtime-node-utility-rail"
+              className="flex min-w-0 items-center gap-1 border-t border-border/30 pt-1"
+            >
+              {openSessionButton}
+            </div>
+          ) : null}
         </>
       ) : (
         <>
@@ -796,35 +873,7 @@ export function RuntimeNodeCard({
               </div>
             )
           ) : null}
-          {canOpenSession ? (
-            <Button
-              type="button"
-              size="sm"
-              variant="ghost"
-              data-testid="runtime-node-open-session"
-              disabled={openSessionState !== "idle"}
-              aria-live="polite"
-              className="nodrag nopan h-6 w-[84px] shrink-0 cursor-pointer px-1.5 text-[10px] font-medium text-muted-foreground shadow-none transition-colors hover:bg-muted/50 hover:text-foreground"
-              onClick={handleOpenSessionClick}
-            >
-              {openSessionState === "opening" ? (
-                <Loader2 className="size-3 animate-spin" />
-              ) : openSessionState === "opened" ? (
-                <Check className="size-3 text-emerald-500" />
-              ) : openSessionState === "failed" ? (
-                <CircleAlert className="size-3 text-destructive" />
-              ) : (
-                <MessageSquare className="size-3" />
-              )}
-              {openSessionState === "opening"
-                ? t(($) => $.execution.card.session_opening)
-                : openSessionState === "opened"
-                  ? t(($) => $.execution.card.session_opened)
-                  : openSessionState === "failed"
-                    ? t(($) => $.execution.card.session_open_failed)
-                    : t(($) => $.execution.detail_panel.open_session)}
-            </Button>
-          ) : null}
+          {openSessionButton}
         </div>
       ) : null}
 

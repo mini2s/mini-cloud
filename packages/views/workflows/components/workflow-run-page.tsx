@@ -93,6 +93,94 @@ function formatRoleDescription(t: WorkflowTranslator, rawName: string, rawDescri
   return rawDescription;
 }
 
+// Reason codes are a stable API contract and are intended for UI
+// internationalization. reason_detail is free-form audit context, so it must
+// not leak model-generated English into the localized user-facing panel.
+function formatRoleResolutionReason(t: WorkflowTranslator, reasonCode: string): string {
+  switch (reasonCode) {
+    case "matched_position":
+      return t(($) => $.run.roles.reason_codes.matched_position);
+    case "matched_department":
+      return t(($) => $.run.roles.reason_codes.matched_department);
+    case "insufficient_data":
+      return t(($) => $.run.roles.reason_codes.insufficient_data);
+    case "no_candidate":
+      return t(($) => $.run.roles.reason_codes.no_candidate);
+    case "candidate_limit_exceeded":
+      return t(($) => $.run.roles.reason_codes.candidate_limit_exceeded);
+    case "slot_limit_exceeded":
+      return t(($) => $.run.roles.reason_codes.slot_limit_exceeded);
+    case "input_limit_exceeded":
+      return t(($) => $.run.roles.reason_codes.input_limit_exceeded);
+    case "org_service_unavailable":
+      return t(($) => $.run.roles.reason_codes.org_service_unavailable);
+    case "invalid_org_identity":
+      return t(($) => $.run.roles.reason_codes.invalid_org_identity);
+    case "prompt_injection_suspected":
+      return t(($) => $.run.roles.reason_codes.prompt_injection_suspected);
+    case "invalid_model_output":
+      return t(($) => $.run.roles.reason_codes.invalid_model_output);
+    case "resolver_not_configured":
+      return t(($) => $.run.roles.reason_codes.resolver_not_configured);
+    case "resolver_unavailable":
+      return t(($) => $.run.roles.reason_codes.resolver_unavailable);
+    case "member_inactive":
+      return t(($) => $.run.roles.reason_codes.member_inactive);
+    case "manual_assignment":
+      return t(($) => $.run.roles.reason_codes.manual_assignment);
+    default:
+      return t(($) => $.run.roles.reason_codes.unknown);
+  }
+}
+
+function workflowRoleRetryErrorCode(error: ApiError): string | null {
+  if (!error.body || typeof error.body !== "object") return null;
+  const code = (error.body as { code?: unknown }).code;
+  return typeof code === "string" ? code : null;
+}
+
+function formatWorkflowRoleRetryError(t: WorkflowTranslator, error: unknown): string {
+  if (!(error instanceof ApiError)) {
+    return t(($) => $.run.roles.retry_failed);
+  }
+
+  switch (workflowRoleRetryErrorCode(error)) {
+    case "workflow_role_retry_rate_limited":
+      return t(($) => $.run.roles.retry_errors.rate_limited);
+    case "workflow_role_resolution_limit":
+      return t(($) => $.run.roles.retry_errors.workspace_limit);
+    case "workflow_role_retry_active":
+      return t(($) => $.run.roles.retry_errors.already_active);
+    case "workflow_role_no_unresolved":
+      return t(($) => $.run.roles.retry_errors.no_unresolved);
+    case "workflow_role_retry_unavailable":
+      return t(($) => $.run.roles.retry_errors.unavailable);
+    case "workflow_role_stage_started":
+      return t(($) => $.run.roles.retry_errors.stage_started);
+    case "workflow_run_not_found":
+      return t(($) => $.run.roles.retry_errors.run_not_found);
+    case "workflow_role_retry_failed":
+      return t(($) => $.run.roles.retry_failed);
+  }
+
+  // Compatibility with servers deployed before structured retry error codes.
+  switch (error.status) {
+    case 401:
+    case 403:
+      return t(($) => $.run.roles.retry_errors.permission_denied);
+    case 404:
+      return t(($) => $.run.roles.retry_errors.run_not_found);
+    case 409:
+      return t(($) => $.run.roles.retry_errors.conflict);
+    case 429:
+      return t(($) => $.run.roles.retry_errors.limited);
+    case 503:
+      return t(($) => $.run.roles.retry_errors.unavailable);
+    default:
+      return t(($) => $.run.roles.retry_failed);
+  }
+}
+
 export function WorkflowRunPage({ workflowId, runId }: WorkflowRunPageProps) {
   const { t } = useT("workflows");
   const wsId = useWorkspaceId();
@@ -114,8 +202,19 @@ export function WorkflowRunPage({ workflowId, runId }: WorkflowRunPageProps) {
     setSelections((current) => {
       const next = { ...current };
       for (const resolution of resolutions) {
-        if (!(resolution.id in next) && resolution.resolved_user_id) {
+        if (
+          resolution.status === "resolved" &&
+          !(resolution.id in next) &&
+          resolution.resolved_user_id
+        ) {
           next[resolution.id] = resolution.resolved_user_id;
+        }
+        if (
+          resolution.status === "invalidated" &&
+          resolution.resolved_user_id &&
+          next[resolution.id] === resolution.resolved_user_id
+        ) {
+          delete next[resolution.id];
         }
       }
       return next;
@@ -137,32 +236,45 @@ export function WorkflowRunPage({ workflowId, runId }: WorkflowRunPageProps) {
     return typeof value === "string" && value ? value : undefined;
   }, [run?.input]);
   const canManageRoles = Boolean(
-    user && run && (
+    user &&
+    run &&
+    currentMember &&
+    isActiveWorkspaceMember(currentMember) &&
+    (
       run.triggered_by_id === user.id ||
-      currentMember?.role === "owner" ||
-      currentMember?.role === "admin"
+      currentMember.role === "owner" ||
+      currentMember.role === "admin"
     ),
   );
 
   const nodeRunTitleById = useMemo(() => new Map(nodeRuns.map((nodeRun) => [nodeRun.id, nodeRun.node_title])), [nodeRuns]);
 
   const unresolved = resolutions.filter((resolution) => resolution.status !== "resolved");
+  const manuallyAssignable = resolutions.filter(
+    (resolution) => resolution.status === "needs_human" || resolution.status === "invalidated",
+  );
   const assignments = resolutions
     .filter((resolution) =>
       Boolean(selections[resolution.id]) &&
-      (resolution.status !== "resolved" || selections[resolution.id] !== resolution.resolved_user_id),
+      (
+        resolution.status !== "resolved" ||
+        selections[resolution.id] !== resolution.resolved_user_id
+      ),
     )
     .map((resolution) => ({
       resolution_id: resolution.id,
       user_id: selections[resolution.id]!,
       version: resolution.version,
     }));
-  const allUnresolvedSelected = unresolved.every((resolution) => Boolean(selections[resolution.id]));
+  const allUnresolvedSelected = unresolved.every(
+    (resolution) => Boolean(selections[resolution.id]),
+  );
   const showAssignmentControls = canManageRoles && Boolean(
     run && !TERMINAL_RUN_STATES.has(run.status) &&
-    (run.status === "waiting_role_assignment" || unresolved.some((resolution) => resolution.status === "invalidated")),
+    manuallyAssignable.length > 0,
   );
-  const canSubmitAssignments = showAssignmentControls && allUnresolvedSelected && assignments.length > 0;
+  const canSubmitAssignments =
+    showAssignmentControls && allUnresolvedSelected && assignments.length > 0;
 
   const handleAssign = async () => {
     if (!canSubmitAssignments) return;
@@ -189,7 +301,7 @@ export function WorkflowRunPage({ workflowId, runId }: WorkflowRunPageProps) {
       await retryMutation.mutateAsync();
       toast.success(t(($) => $.run.roles.retry_started));
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : t(($) => $.run.roles.retry_failed));
+      toast.error(formatWorkflowRoleRetryError(t, error));
     }
   };
 
@@ -207,8 +319,10 @@ export function WorkflowRunPage({ workflowId, runId }: WorkflowRunPageProps) {
     ? t(($) => $.run.roles.resolving)
     : run.status === "waiting_role_assignment"
       ? t(($) => $.run.roles.waiting)
-      : unresolved.some((resolution) => resolution.status === "invalidated")
-        ? t(($) => $.run.roles.invalidated)
+      : manuallyAssignable.length > 0
+        ? manuallyAssignable.some((resolution) => resolution.status === "invalidated")
+          ? t(($) => $.run.roles.invalidated)
+          : t(($) => $.run.roles.waiting)
         : "";
 
   return (
@@ -258,6 +372,7 @@ export function WorkflowRunPage({ workflowId, runId }: WorkflowRunPageProps) {
             wsId={wsId}
             issueId={issueId}
             fillAvailableHeight
+            showRoleAssignmentEntry={false}
           />
         </div>
         {resolutions.length > 0 ? (
@@ -268,16 +383,25 @@ export function WorkflowRunPage({ workflowId, runId }: WorkflowRunPageProps) {
                   <UserRoundCog className="size-3.5" />
                   {t(($) => $.run.roles.title)}
                 </h3>
-                {canManageRoles && unresolved.length > 0 ? (
-                  <Button type="button" variant="ghost" size="sm" disabled={retryMutation.isPending || run.status === "resolving_roles"} onClick={() => void handleRetry()}>
+                {canManageRoles && run.status === "waiting_role_assignment" && unresolved.length > 0 ? (
+                  <Button type="button" variant="ghost" size="sm" disabled={retryMutation.isPending} onClick={() => void handleRetry()}>
                     <RefreshCw className={retryMutation.isPending ? "mr-1 size-3 animate-spin" : "mr-1 size-3"} />
                     {t(($) => $.run.roles.retry)}
                   </Button>
                 ) : null}
               </div>
 
+              {!canManageRoles && manuallyAssignable.length > 0 ? (
+                <p className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-200">
+                  {t(($) => $.run.roles.assignment_permission_required)}
+                </p>
+              ) : null}
+
               {resolutions.map((resolution) => {
-                const editable = showAssignmentControls && (run.status === "waiting_role_assignment" || resolution.status !== "resolved");
+                const editable = showAssignmentControls && (
+                  run.status === "waiting_role_assignment" ||
+                  resolution.status !== "resolved"
+                );
                 const notificationFailed = resolution.notification_status === "failed" || resolution.notification_status === "skipped_no_email";
                 const roleName = formatRoleName(t, resolution.role_name);
                 const resolvedMemberName = resolution.resolved_user_id
@@ -339,7 +463,13 @@ export function WorkflowRunPage({ workflowId, runId }: WorkflowRunPageProps) {
                       </div>
                     ) : null}
                     <p className="text-xs text-muted-foreground">{formatRoleDescription(t, resolution.role_name, resolution.role_description)}</p>
-                    {resolution.reason_code ? <p className="text-[11px] text-muted-foreground">{t(($) => $.run.roles.reason, { code: resolution.reason_code })}{resolution.reason_detail ? " · " + resolution.reason_detail : ""}</p> : null}
+                    {resolution.reason_code ? (
+                      <p className="text-[11px] text-muted-foreground">
+                        {t(($) => $.run.roles.reason, {
+                          reason: formatRoleResolutionReason(t, resolution.reason_code),
+                        })}
+                      </p>
+                    ) : null}
                     {notificationFailed ? (
                       <p className="flex items-center gap-1 text-[11px] text-amber-700 dark:text-amber-300"><MailWarning className="size-3" />{t(($) => $.run.roles.notification_failed)}</p>
                     ) : null}

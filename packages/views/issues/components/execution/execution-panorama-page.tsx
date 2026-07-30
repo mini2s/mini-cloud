@@ -30,13 +30,13 @@ import { useWorkspacePaths } from "@multica/core/paths";
 import { api } from "@multica/core/api";
 import { useAuthStore } from "@multica/core/auth";
 import { useChatStore } from "@multica/core/chat";
-import { chatSessionsOptions } from "@multica/core/chat/queries";
 import { canSubmitNodeRunReview } from "@multica/core/permissions";
 import {
   isEmbeddedInCostrict,
   postCostrictNavigateToSession,
 } from "@multica/core/platform";
 import { agentListOptions, memberListOptions, squadListOptions } from "@multica/core/workspace/queries";
+import { isActiveWorkspaceMember } from "@multica/core/workspace/members";
 import { childIssuesOptions } from "@multica/core/issues/queries";
 import { useWorkspacePresenceMap, type AgentAvailability } from "@multica/core/agents";
 import type {
@@ -86,17 +86,18 @@ import {
   RUNTIME_SPLIT_NODE_HEIGHT,
   type RuntimeNodeDeliverableSummary,
 } from "./runtime-node-card";
-import { Loader2 } from "lucide-react";
+import { AlertTriangle, Loader2 } from "lucide-react";
 import { toast } from "sonner";
+import { Button } from "@multica/ui/components/ui/button";
 import { cn } from "@multica/ui/lib/utils";
 import { SplitReviewPanel } from "../../../workflows/components/split/split-review-panel";
 import { useNavigation } from "../../../navigation";
-import { resolveChatSessionId } from "../../../chat/lib/resolve-chat-session-id";
 import type {
   WorkflowActorEntityType,
   WorkflowActorIdentity,
 } from "../../../common/workflow-actor-slots";
 import { useRuntimeDurationClock } from "./runtime-duration-clock";
+import { resolveEnterSessionId } from "./runtime-session";
 
 export interface ExecutionPanoramaPageProps {
   workflowId: string;
@@ -106,6 +107,7 @@ export interface ExecutionPanoramaPageProps {
   issueCreatorType?: string | null;
   issueCreatorId?: string | null;
   fillAvailableHeight?: boolean;
+  showRoleAssignmentEntry?: boolean;
 }
 
 const RUNTIME_CANVAS_FIT_VIEW = {
@@ -652,6 +654,7 @@ export function ExecutionPanoramaPage({
   issueCreatorType,
   issueCreatorId,
   fillAvailableHeight = false,
+  showRoleAssignmentEntry = true,
 }: ExecutionPanoramaPageProps) {
   const queryClient = useQueryClient();
   const currentUserId = useAuthStore((state) => state.user?.id ?? null);
@@ -715,10 +718,6 @@ export function ExecutionPanoramaPage({
     ...childIssuesOptions(wsId, issueId ?? ""),
     enabled: !!issueId,
   });
-  const { data: chatSessions = [] } = useQuery(chatSessionsOptions(wsId));
-  const setChatSession = useChatStore((state) => state.setActiveSession);
-  const setChatOpen = useChatStore((state) => state.setOpen);
-
   // ---- Local state ----
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [viewport, setViewport] = useState<Viewport>({ x: 0, y: 24, zoom: 0.95 });
@@ -782,26 +781,14 @@ export function ExecutionPanoramaPage({
   const runtimeNowMs = useRuntimeDurationClock(hasRunningDuration);
 
   const handleOpenNodeSession = useCallback(async (nodeId: string): Promise<boolean> => {
-    const sessionId =
-      nodeRunMap.get(nodeId)?.session_id ??
-      runtimeSummaryMap.get(nodeId)?.session_id ??
-      null;
+    const sessionId = resolveEnterSessionId(
+      nodeRunMap.get(nodeId) ?? null,
+      runtimeSummaryMap.get(nodeId) ?? null,
+    );
     if (!sessionId) return false;
-
-    if (isEmbeddedInCostrict()) {
-      const posted = postCostrictNavigateToSession({ sessionId, newTab: true });
-      if (posted) return true;
-    }
-
-    const chatSessionId = resolveChatSessionId(chatSessions, sessionId);
-    if (chatSessionId) {
-      setChatSession(chatSessionId);
-      setChatOpen(true);
-      return true;
-    }
-    setSelectedNodeId(nodeId);
-    return true;
-  }, [chatSessions, nodeRunMap, runtimeSummaryMap, setChatOpen, setChatSession]);
+    if (!isEmbeddedInCostrict()) return false;
+    return postCostrictNavigateToSession({ sessionId, newTab: true });
+  }, [nodeRunMap, runtimeSummaryMap]);
 
   const splitNodeEntries = useMemo(
     () =>
@@ -1454,6 +1441,17 @@ export function ExecutionPanoramaPage({
   const isSplitSelectedNode = selectedNodeFormat?.kind === "split";
   const currentMemberRole =
     members.find((member) => member.user_id === currentUserId)?.role ?? null;
+  const requiresManualRoleAssignment = Boolean(
+    runId && (
+      run?.status === "waiting_role_assignment" ||
+      roleResolutions.some((resolution) =>
+        resolution.status === "needs_human" || resolution.status === "invalidated"
+      )
+    ),
+  );
+  const canManageRoleAssignments = Boolean(
+    currentUserId && run && (!currentMember || isActiveWorkspaceMember(currentMember)),
+  );
   const mayReviewSelectedRun = canSubmitNodeRunReview(
     {
       issueCreatorType: issueCreatorType ?? null,
@@ -1487,6 +1485,35 @@ export function ExecutionPanoramaPage({
       )}
       data-testid="execution-panorama"
     >
+      {showRoleAssignmentEntry && requiresManualRoleAssignment ? (
+        <div
+          className="flex shrink-0 items-center gap-3 border-b border-amber-200 bg-amber-50 px-4 py-3 text-amber-950 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-100"
+          data-testid="manual-role-assignment-entry"
+        >
+          <AlertTriangle className="size-4 shrink-0" />
+          <div className="min-w-0 flex-1">
+            <p className="text-sm font-medium">
+              {t(($) => $.execution.panorama.role_assignment_required)}
+            </p>
+            <p className="text-xs text-amber-800 dark:text-amber-200">
+              {canManageRoleAssignments
+                ? t(($) => $.execution.panorama.role_assignment_manage_hint)
+                : t(($) => $.execution.panorama.role_assignment_wait_hint)}
+            </p>
+          </div>
+          {canManageRoleAssignments && runId ? (
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              className="shrink-0 border-amber-300 bg-background/80 hover:bg-background dark:border-amber-800"
+              onClick={() => navigation.push(paths.workflowRunDetail(workflowId, runId))}
+            >
+              {t(($) => $.execution.panorama.assign_roles_manually)}
+            </Button>
+          ) : null}
+        </div>
+      ) : null}
       <ReactFlowProvider>
         <ExecutionPanoramaCanvas
           rfNodes={rfNodes}

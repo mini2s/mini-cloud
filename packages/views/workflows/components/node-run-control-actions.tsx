@@ -11,16 +11,13 @@ import {
   useHandbackNodeRun,
   useFinalizeNodeRun,
 } from "@multica/core/workflows/queries";
-import { chatSessionsOptions } from "@multica/core/chat/queries";
 import { myRuntimePermissionOptions } from "@multica/core/runtimes/queries";
 import { useNodeRunControlPermission } from "@multica/core/permissions";
-import { useChatStore } from "@multica/core/chat";
 import {
   isEmbeddedInCostrict,
   postCostrictNavigateToSession,
 } from "@multica/core/platform";
 import { useT } from "../../i18n";
-import { resolveChatSessionId } from "../../chat/lib/resolve-chat-session-id";
 
 interface NodeRunControlActionsProps {
   nodeRun: WorkflowNodeRun;
@@ -53,9 +50,6 @@ export function NodeRunControlActions({
   const takeoverMutation = useTakeoverNodeRun(wsId);
   const handbackMutation = useHandbackNodeRun(wsId);
   const finalizeMutation = useFinalizeNodeRun(wsId);
-  const setChatSession = useChatStore((s) => s.setActiveSession);
-  const setChatOpen = useChatStore((s) => s.setOpen);
-  const { data: chatSessions = [] } = useQuery(chatSessionsOptions(wsId));
 
   const handleOpenSession = () => {
     const sessionId = nodeRun.session_id;
@@ -63,28 +57,22 @@ export function NodeRunControlActions({
       toast.error(t(($) => $.node_run.open_session_missing));
       return;
     }
-    if (isEmbeddedInCostrict()) {
-      const posted = postCostrictNavigateToSession({ sessionId });
-      if (posted) return;
-    }
-    const chatSessionId = resolveChatSessionId(chatSessions, sessionId);
-    if (!chatSessionId) {
+    if (!isEmbeddedInCostrict() || !postCostrictNavigateToSession({ sessionId })) {
       toast.error(t(($) => $.node_run.open_session_missing));
-      return;
     }
-    setChatSession(chatSessionId);
-    setChatOpen(true);
   };
 
   const { data: sessionPerm } = useSessionPermission(nodeRun.session_id);
   const { data: runtimePerm } = useQuery({
     ...myRuntimePermissionOptions(nodeRun.runtime_id ?? ""),
-    enabled: !!nodeRun.runtime_id && !nodeRun.session_id,
+    enabled: !!nodeRun.runtime_id,
   });
 
-  const canControl = nodeRun.session_id
-    ? sessionPerm?.can_control
-    : runtimePerm?.can_control;
+  const canControl = runtimePerm?.can_control === true;
+  const canOpenSession =
+    isEmbeddedInCostrict() &&
+    !!nodeRun.session_id &&
+    sessionPerm?.can_observe === true;
   const controlDecision = useNodeRunControlPermission(!!canControl, wsId);
 
   const status = nodeRun.status;
@@ -192,7 +180,7 @@ export function NodeRunControlActions({
         )}
         {canHandbackOrFinalize && (
           <>
-            {showOpenSession ? (
+            {showOpenSession && canOpenSession ? (
               <Button
                 size={size}
                 variant="outline"
@@ -242,7 +230,7 @@ export function NodeRunControlActions({
   // hidden here; Hand Back / Finalize still appear once the node is blocked.
   return (
     <div className={containerClass}>
-      {showOpenSession ? (
+      {showOpenSession && canOpenSession ? (
         <Button
           size={size}
           variant="outline"

@@ -1464,7 +1464,6 @@ export const EMPTY_GITLAB_SETTINGS_RESPONSE = {
 const WorkflowNodeDeliverableSchema = z.object({
   id: z.string(),
   workflow_node_id: z.string(),
-  kind: z.string().default("document"),
   title: z.string().default(""),
   description: z.string().default(""),
   required: z.boolean().default(true),
@@ -1502,3 +1501,12 @@ export const WorkflowNodeDeliverableSubmissionsResponseSchema = z.object({
 }).loose();
 
 export const EMPTY_WORKFLOW_NODE_DELIVERABLE_SUBMISSIONS_RESPONSE = { submissions: [], deliverables: [] };
+
+// Member deliverable uploads answer a bare acknowledgement. The upload only
+// failed when fetch itself throws (non-2xx), so a drifted body degrades to the
+// same success the status line already reported.
+export const UploadIssueDeliverableResponseSchema = z.object({
+  ok: z.boolean().default(true),
+}).loose();
+
+export const EMPTY_UPLOAD_ISSUE_DELIVERABLE_RESPONSE = { ok: true };

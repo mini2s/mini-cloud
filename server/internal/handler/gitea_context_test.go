@@ -39,8 +39,8 @@ func TestBuildGiteaDeliverableContext_Configured(t *testing.T) {
 	// Add a pull_request deliverable on the same node to verify the kind
 	// filter excludes non-document deliverables.
 	if _, err := testPool.Exec(ctx, `
-		INSERT INTO multica_workflow_node_deliverable (id, workflow_node_id, kind, title, required)
-		VALUES ($1, (SELECT workflow_node_id FROM multica_workflow_node_run WHERE id = $2), 'pull_request', 'Code', true)`,
+		INSERT INTO multica_workflow_node_deliverable (id, workflow_node_id, title, required)
+		VALUES ($1, (SELECT workflow_node_id FROM multica_workflow_node_run WHERE id = $2), 'Code', true)`,
 		uuid.NewString(), nodeRunID); err != nil {
 		t.Fatalf("seed pull_request deliverable: %v", err)
 	}
