@@ -60,6 +60,7 @@ vi.mock("@multica/core/hub", () => ({
   useHubFilterOptions: () => ({ data: { tags: [] } }),
   useHubManagerTabCounts: () => ({ createdCount: 1, favoritedCount: 1, isLoading: false }),
   useHubLogBehaviorMutation: () => ({ mutate: vi.fn() }),
+  HUB_ITEM_TYPES: ["skill", "subagent", "command", "mcp", "plugin"] as const,
 }))
 
 vi.mock("@multica/core/api", () => ({

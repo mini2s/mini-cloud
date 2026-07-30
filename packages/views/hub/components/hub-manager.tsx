@@ -26,6 +26,7 @@ import {
   useHubFilterOptions,
   useHubManagerTabCounts,
   useHubLogBehaviorMutation,
+  HUB_ITEM_TYPES,
 } from "@multica/core/hub"
 import type { FilterGroup } from "./hub-filter-bar"
 import type {
@@ -66,18 +67,27 @@ const SIDEBAR_NAV: SidebarNavItem[] = [
   { key: "sent", icon: Send },
 ]
 
-function mkGroup(applied: string[], toggle: (v: string) => void, reset: () => void): FilterGroup {
-  return { options: [], appliedValues: applied, toggle, reset }
+function mkGroup(
+  applied: string[],
+  toggle: (v: string) => void,
+  reset: () => void,
+  options: FilterGroup["options"] = [],
+): FilterGroup {
+  return { options, appliedValues: applied, toggle, reset }
 }
 
 export function HubManager() {
-  const { t } = useT("hub")
+  const { t, i18n } = useT("hub")
   const navigation = useNavigation()
   const paths = useWorkspacePaths()
   const searchParams = navigation.searchParams
   const qc = useQueryClient()
   const { data: filterOpts } = useHubFilterOptions()
   const revokeTargetRef = useRef<string | null>(null)
+
+  // Current locale for resolving localized filter-option names (categories /
+  // risk groups carry a names map keyed by locale).
+  const locale = i18n.language?.startsWith("zh") ? "zh" : "en"
 
   // ── Tab & URL sync ──────────────────────────────────────────────────────
   const tabFromUrl = searchParams.get("tab") as TabKey | null
@@ -471,6 +481,33 @@ export function HubManager() {
     return (filterOpts?.tags ?? []).map((tag) => ({ id: tag.id ?? tag.slug, label: tag.slug }))
   }, [])
 
+  // Filter-bar dropdown options, derived from filterOpts. The source page built
+  // these from the same data; here they're memoized so a re-render doesn't drop
+  // them. Categories/risk-groups carry a localized names map; sources/tags use
+  // a plain label/slug. Type options are the fixed set of hub item types.
+  const typeOptions = useMemo(
+    () =>
+      HUB_ITEM_TYPES.map((type) => ({
+        value: type,
+        label: t(($) => $.home.typeTab[type]),
+      })),
+    [t],
+  )
+  const filterOptionLists = useMemo(() => {
+    const cats = filterOpts?.categories ?? []
+    const risks = filterOpts?.securityRiskGroups ?? []
+    const sources = filterOpts?.sources ?? []
+    const tags = filterOpts?.tags ?? []
+    const pickName = (names: Record<string, string> | undefined) =>
+      names?.[locale] ?? names?.["en"] ?? names?.["zh"] ?? ""
+    return {
+      category: cats.map((c) => ({ value: c.slug, label: pickName(c.names) || c.slug })),
+      security: risks.map((r) => ({ value: r.value, label: pickName(r.names) || r.value })),
+      source: sources.map((s) => ({ value: s.value, label: s.label || s.value })),
+      tag: tags.map((tag) => ({ value: tag.slug, label: tag.slug })),
+    }
+  }, [filterOpts, locale])
+
   const categoryLabel = useCallback(
     (slug: string) => {
       const cat = (filterOpts?.categories ?? []).find((c) => c.slug === slug)
@@ -615,11 +652,11 @@ export function HubManager() {
             {isItemTab && (
               <div className="mx-auto mb-2.5 w-full max-w-5xl px-4">
                 <HubFilterBar
-                  type={mkGroup(typeFilter, (v) => toggleFilter(typeFilter, setTypeFilter, v), () => setTypeFilter([]))}
-                  category={mkGroup(catFilter, (v) => toggleFilter(catFilter, setCatFilter, v), () => setCatFilter([]))}
-                  security={mkGroup(secFilter, (v) => toggleFilter(secFilter, setSecFilter, v), () => setSecFilter([]))}
-                  source={mkGroup(srcFilter, (v) => toggleFilter(srcFilter, setSrcFilter, v), () => setSrcFilter([]))}
-                  tag={mkGroup(tagFilter, (v) => toggleFilter(tagFilter, setTagFilter, v), () => setTagFilter([]))}
+                  type={mkGroup(typeFilter, (v) => toggleFilter(typeFilter, setTypeFilter, v), () => setTypeFilter([]), typeOptions)}
+                  category={mkGroup(catFilter, (v) => toggleFilter(catFilter, setCatFilter, v), () => setCatFilter([]), filterOptionLists.category)}
+                  security={mkGroup(secFilter, (v) => toggleFilter(secFilter, setSecFilter, v), () => setSecFilter([]), filterOptionLists.security)}
+                  source={mkGroup(srcFilter, (v) => toggleFilter(srcFilter, setSrcFilter, v), () => setSrcFilter([]), filterOptionLists.source)}
+                  tag={mkGroup(tagFilter, (v) => toggleFilter(tagFilter, setTagFilter, v), () => setTagFilter([]), filterOptionLists.tag)}
                   totalItems={itemTotal}
                   onClearAll={clearFilters}
                 />
