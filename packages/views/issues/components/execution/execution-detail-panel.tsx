@@ -9,6 +9,7 @@ import {
   GitFork,
   GitMerge,
   ExternalLink,
+  ListChecks,
   Loader2,
   MessageSquare,
   RotateCcw,
@@ -35,6 +36,7 @@ import {
   workflowKeys,
 } from "@multica/core/workflows/queries";
 import { Button } from "@multica/ui/components/ui/button";
+import { Label } from "@multica/ui/components/ui/label";
 import { Textarea } from "@multica/ui/components/ui/textarea";
 import { useT } from "@multica/views/i18n";
 import {
@@ -284,6 +286,16 @@ export function ExecutionDetailPanel({
       })
     : null;
   const canReview = !isGateway && actionAccess?.canReview === true;
+  const hasRuntimeControls = nodeRun?.runtime_id != null && (
+    nodeRun.status === "working" ||
+    (nodeRun.status === "blocked" && nodeRun.completed_at == null)
+  );
+  const hasNodeActions = actionAccess != null && (
+    canReview ||
+    actionAccess.canSubmit ||
+    actionAccess.canSkip ||
+    hasRuntimeControls
+  );
 
   // A review decision must carry a comment — it is archived to Gitea as the
   // reviewer's opinion, so an empty one is rejected at the UI boundary.
@@ -358,7 +370,7 @@ export function ExecutionDetailPanel({
       {canOpenSession ? (
         <Button
           type="button"
-          size="sm"
+          size="default"
           variant="outline"
           onClick={handleOpenSession}
           disabled={transcriptLoading}
@@ -374,7 +386,7 @@ export function ExecutionDetailPanel({
       {onOpenIssue ? (
         <Button
           type="button"
-          size="sm"
+          size="default"
           variant="outline"
           onClick={onOpenIssue}
         >
@@ -387,7 +399,7 @@ export function ExecutionDetailPanel({
       {canUnblock ? (
         <Button
           type="button"
-          size="sm"
+          size="default"
           variant="outline"
           onClick={onUnblock}
         >
@@ -398,7 +410,7 @@ export function ExecutionDetailPanel({
       {canRetry ? (
         <Button
           type="button"
-          size="sm"
+          size="default"
           variant="destructive"
           onClick={onRetry}
         >
@@ -407,6 +419,58 @@ export function ExecutionDetailPanel({
         </Button>
       ) : null}
     </div>
+  ) : null;
+
+  const reviewEditor = canReview && nodeRun ? (
+    <div className="space-y-1.5">
+      <Label htmlFor={`node-run-review-${nodeRun.id}`}>
+        {t(($) => $.execution.detail_panel.review_comment)}
+      </Label>
+      <Textarea
+        id={`node-run-review-${nodeRun.id}`}
+        value={reviewComment}
+        onChange={(event) => setReviewComment(event.target.value)}
+        placeholder={t(($) => $.execution.detail_panel.review_comment)}
+        rows={3}
+        className="min-h-20 resize-y"
+      />
+      {reviewMutation.isError ? (
+        <p role="alert" className="text-xs text-destructive">
+          {reviewMutation.error instanceof Error
+            ? reviewMutation.error.message
+            : "Failed to review node run"}
+        </p>
+      ) : null}
+      {reviewCommentEmpty ? (
+        <p className="text-xs text-muted-foreground">
+          {t(($) => $.execution.detail_panel.review_comment_required)}
+        </p>
+      ) : null}
+    </div>
+  ) : null;
+
+  const reviewActions = canReview ? (
+    <>
+      <Button
+        size="default"
+        disabled={reviewMutation.isPending || reviewCommentEmpty}
+        onClick={() => reviewMutation.mutate(true)}
+      >
+        {reviewMutation.isPending
+          ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+          : <Check className="h-3.5 w-3.5" />}
+        {t(($) => $.execution.card.actions.approve)}
+      </Button>
+      <Button
+        size="default"
+        variant="outline"
+        disabled={reviewMutation.isPending || reviewCommentEmpty}
+        onClick={() => reviewMutation.mutate(false)}
+      >
+        <RotateCcw className="h-3.5 w-3.5" />
+        {t(($) => $.execution.card.actions.reject)}
+      </Button>
+    </>
   ) : null;
 
   const evidenceSection = (
@@ -570,62 +634,29 @@ export function ExecutionDetailPanel({
             {nodeRun?.critic_comment ? (
               <p className="text-xs italic text-muted-foreground">&ldquo;{nodeRun.critic_comment}&rdquo;</p>
             ) : null}
-            {canReview ? (
-              <div className="space-y-2 rounded-md border bg-background p-2">
-                <Textarea
-                  value={reviewComment}
-                  onChange={(event) => setReviewComment(event.target.value)}
-                  placeholder={t(($) => $.execution.detail_panel.review_comment)}
-                  rows={3}
-                  className="min-h-20 resize-none"
-                />
-                {reviewMutation.isError ? (
-                  <p className="text-xs text-destructive">
-                    {reviewMutation.error instanceof Error
-                      ? reviewMutation.error.message
-                      : "Failed to review node run"}
-                  </p>
-                ) : null}
-                {reviewCommentEmpty ? (
-                  <p className="text-xs text-muted-foreground">
-                    {t(($) => $.execution.detail_panel.review_comment_required)}
-                  </p>
-                ) : null}
-                <div className="flex flex-wrap gap-2">
-                  <Button
-                    disabled={reviewMutation.isPending || reviewCommentEmpty}
-                    onClick={() => reviewMutation.mutate(true)}
-                    className="h-8 px-3 text-xs"
-                  >
-                    {reviewMutation.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
-                    {t(($) => $.execution.card.actions.approve)}
-                  </Button>
-                  <Button
-                    variant="outline"
-                    disabled={reviewMutation.isPending || reviewCommentEmpty}
-                    onClick={() => reviewMutation.mutate(false)}
-                    className="h-8 px-3 text-xs"
-                  >
-                    <RotateCcw className="h-3.5 w-3.5" />
-                    {t(($) => $.execution.card.actions.reject)}
-                  </Button>
-                </div>
-              </div>
-            ) : null}
-            {nodeRun && actionAccess ? (
-              <NodeRunActionPanel
-                nodeRun={nodeRun}
-                access={actionAccess}
-                wsId={wsId}
-                workflowId={workflowId}
-                runId={runId ?? undefined}
-              />
-            ) : null}
           </div>
         ) : (
           <p className="text-sm text-muted-foreground">{t(($) => $.execution.detail_panel.gateway_no_worker)}</p>
         )}
       </NodeDetailSection>
+
+      {nodeRun && actionAccess && hasNodeActions ? (
+        <NodeDetailSection
+          sectionId="actions"
+          icon={<ListChecks className="size-4" />}
+          title={t(($) => $.execution.detail_panel.section_actions)}
+        >
+          <NodeRunActionPanel
+            nodeRun={nodeRun}
+            access={actionAccess}
+            wsId={wsId}
+            workflowId={workflowId}
+            runId={runId ?? undefined}
+            reviewEditor={reviewEditor}
+            reviewActions={reviewActions}
+          />
+        </NodeDetailSection>
+      ) : null}
 
       <NodeDetailSection
         sectionId="runtime-facts"

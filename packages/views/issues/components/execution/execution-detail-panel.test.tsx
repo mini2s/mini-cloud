@@ -202,6 +202,7 @@ vi.mock("@multica/views/i18n", () => ({
               section_status_next_step: "Status and next step",
               section_deliverables: "Deliverables and links",
               section_worker_critic: "Worker and critic",
+              section_actions: "Node actions",
               section_runtime_facts: "Runtime facts",
               section_evidence_preview: "Evidence preview",
               section_child_progress: "Child progress",
@@ -951,6 +952,10 @@ describe("ExecutionDetailPanel", () => {
 
     expect(screen.getByRole("button", { name: "Approve" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Reject" })).toBeInTheDocument();
+    const actionSection = screen.getByText("Node actions").closest('[data-section="actions"]');
+    const actorSection = screen.getByText("Worker and critic").closest('[data-section="worker-critic"]');
+    expect(actionSection).toContainElement(screen.getByRole("button", { name: "Approve" }));
+    expect(actorSection).not.toContainElement(screen.getByRole("button", { name: "Approve" }));
   });
 
   it("renders the human submit action for the assigned worker", () => {

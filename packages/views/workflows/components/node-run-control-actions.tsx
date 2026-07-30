@@ -34,6 +34,7 @@ interface NodeRunControlActionsProps {
    * be performed toasts an error instead of hiding the affordance.
    */
   alwaysShow?: boolean;
+  showOpenSession?: boolean;
 }
 
 export function NodeRunControlActions({
@@ -43,6 +44,7 @@ export function NodeRunControlActions({
   wsId,
   size = "sm",
   alwaysShow = false,
+  showOpenSession = true,
 }: NodeRunControlActionsProps) {
   const { t } = useT("workflows");
 
@@ -174,21 +176,23 @@ export function NodeRunControlActions({
             onClick={handleTakeover}
             disabled={anyControlPending}
           >
-            <Hand className={iconClass + " mr-1"} />
+            <Hand className={iconClass} />
             {takeoverMutation.isPending ? t(($) => $.node_run.taking_over) : t(($) => $.node_run.take_over)}
           </Button>
         )}
         {canHandbackOrFinalize && (
           <>
-            <Button
-              size={size}
-              variant="outline"
-              className={buttonClass}
-              onClick={handleOpenSession}
-            >
-              <MessageSquare className={iconClass + " mr-1"} />
-              {t(($) => $.node_run.open_session)}
-            </Button>
+            {showOpenSession ? (
+              <Button
+                size={size}
+                variant="outline"
+                className={buttonClass}
+                onClick={handleOpenSession}
+              >
+                <MessageSquare className={iconClass} />
+                {t(($) => $.node_run.open_session)}
+              </Button>
+            ) : null}
             <Button
               size={size}
               variant="outline"
@@ -196,7 +200,7 @@ export function NodeRunControlActions({
               onClick={handleHandback}
               disabled={anyControlPending}
             >
-              <Play className={iconClass + " mr-1"} />
+              <Play className={iconClass} />
               {handbackMutation.isPending ? t(($) => $.node_run.handing_back) : t(($) => $.node_run.hand_back)}
             </Button>
             <Button
@@ -205,7 +209,7 @@ export function NodeRunControlActions({
               onClick={() => handleFinalize(true)}
               disabled={anyControlPending}
             >
-              <CheckCircle className={iconClass + " mr-1"} />
+              <CheckCircle className={iconClass} />
               {finalizeMutation.isPending ? t(($) => $.node_run.finalizing) : t(($) => $.node_run.finalize_approve)}
             </Button>
             <Button
@@ -215,7 +219,7 @@ export function NodeRunControlActions({
               onClick={() => handleFinalize(false)}
               disabled={anyControlPending}
             >
-              <XCircle className={iconClass + " mr-1"} />
+              <XCircle className={iconClass} />
               {finalizeMutation.isPending ? t(($) => $.node_run.finalizing) : t(($) => $.node_run.finalize_reject)}
             </Button>
           </>
@@ -228,15 +232,17 @@ export function NodeRunControlActions({
   // hidden here; Hand Back / Finalize still appear once the node is blocked.
   return (
     <div className="flex items-center gap-1.5 flex-wrap">
-      <Button
-        size={size}
-        variant="outline"
-        className={buttonClass}
-        onClick={handleOpenSession}
-      >
-        <MessageSquare className={iconClass + " mr-1"} />
-        {t(($) => $.node_run.open_session)}
-      </Button>
+      {showOpenSession ? (
+        <Button
+          size={size}
+          variant="outline"
+          className={buttonClass}
+          onClick={handleOpenSession}
+        >
+          <MessageSquare className={iconClass} />
+          {t(($) => $.node_run.open_session)}
+        </Button>
+      ) : null}
       {isTakenOver && (
         <>
           <Button
@@ -246,7 +252,7 @@ export function NodeRunControlActions({
             onClick={handleHandback}
             disabled={anyControlPending}
           >
-            <Play className={iconClass + " mr-1"} />
+            <Play className={iconClass} />
             {handbackMutation.isPending ? t(($) => $.node_run.handing_back) : t(($) => $.node_run.hand_back)}
           </Button>
           <Button
@@ -255,7 +261,7 @@ export function NodeRunControlActions({
             onClick={() => handleFinalize(true)}
             disabled={anyControlPending}
           >
-            <CheckCircle className={iconClass + " mr-1"} />
+            <CheckCircle className={iconClass} />
             {finalizeMutation.isPending ? t(($) => $.node_run.finalizing) : t(($) => $.node_run.finalize_approve)}
           </Button>
           <Button
@@ -265,7 +271,7 @@ export function NodeRunControlActions({
             onClick={() => handleFinalize(false)}
             disabled={anyControlPending}
           >
-            <XCircle className={iconClass + " mr-1"} />
+            <XCircle className={iconClass} />
             {finalizeMutation.isPending ? t(($) => $.node_run.finalizing) : t(($) => $.node_run.finalize_reject)}
           </Button>
         </>

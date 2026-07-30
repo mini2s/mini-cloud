@@ -87,7 +87,7 @@ const baseNodeRun = {
 
 function renderControls(
   overrides: Partial<WorkflowNodeRun>,
-  options: { alwaysShow?: boolean } = {},
+  options: { alwaysShow?: boolean; showOpenSession?: boolean } = {},
 ) {
   return render(
     <NodeRunControlActions
@@ -96,6 +96,7 @@ function renderControls(
       runId="run-1"
       wsId="ws-1"
       alwaysShow={options.alwaysShow}
+      showOpenSession={options.showOpenSession}
     />,
   );
 }
@@ -150,5 +151,21 @@ describe("NodeRunControlActions", () => {
     expect(screen.getByRole("button", { name: "Open session" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Hand back" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Approve" })).not.toBeInTheDocument();
+  });
+
+  it("can hide the duplicate session action while keeping takeover follow-up controls", () => {
+    renderControls(
+      {
+        status: "blocked",
+        runtime_id: "rt-1",
+        session_id: "sess-1",
+        completed_at: null,
+      },
+      { showOpenSession: false },
+    );
+
+    expect(screen.queryByRole("button", { name: "Open session" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Hand back" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Approve" })).toBeInTheDocument();
   });
 });

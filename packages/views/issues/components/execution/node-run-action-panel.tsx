@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { Send, SkipForward } from "lucide-react";
 import type { WorkflowNodeRun } from "@multica/core/types";
 import { useSkipNodeRun, useSubmitNodeRun } from "@multica/core/workflows/queries";
@@ -28,6 +28,8 @@ interface NodeRunActionPanelProps {
   wsId: string;
   workflowId?: string;
   runId?: string;
+  reviewEditor?: ReactNode;
+  reviewActions?: ReactNode;
 }
 
 export function NodeRunActionPanel({
@@ -36,6 +38,8 @@ export function NodeRunActionPanel({
   wsId,
   workflowId,
   runId,
+  reviewEditor,
+  reviewActions,
 }: NodeRunActionPanelProps) {
   const { t } = useT("issues");
   const [workerSummary, setWorkerSummary] = useState("");
@@ -61,16 +65,17 @@ export function NodeRunActionPanel({
     : skipMutation.isError
       ? skipMutation.error
       : null;
-  const hasHumanActions = access.canSubmit || access.canSkip;
+  const hasHumanActions = access.canSubmit || access.canSkip || reviewActions != null;
   const hasRuntimeControls = nodeRun.runtime_id != null && (
     nodeRun.status === "working" ||
     (nodeRun.status === "blocked" && nodeRun.completed_at == null)
   );
 
-  if (!hasHumanActions && !hasRuntimeControls) return null;
+  if (!hasHumanActions && !hasRuntimeControls && reviewEditor == null) return null;
 
   return (
-    <div className="space-y-3 border-t border-border/70 pt-3">
+    <div className="space-y-3">
+      {reviewEditor}
       {access.canSubmit ? (
         <div className="space-y-1.5">
           <Label htmlFor={`node-run-summary-${nodeRun.id}`}>
@@ -87,10 +92,11 @@ export function NodeRunActionPanel({
         </div>
       ) : null}
 
-      {hasHumanActions ? (
-        <div className="flex min-h-8 flex-wrap items-center gap-2">
+      {hasHumanActions || hasRuntimeControls ? (
+        <div data-testid="node-run-action-toolbar" className="flex min-h-8 flex-wrap items-center gap-2">
+          {reviewActions}
           {access.canSubmit ? (
-            <Button onClick={handleSubmit} disabled={submitMutation.isPending}>
+            <Button size="default" onClick={handleSubmit} disabled={submitMutation.isPending}>
               <Send data-icon="inline-start" />
               {submitMutation.isPending
                 ? t(($) => $.execution.detail_panel.submitting_result)
@@ -102,7 +108,7 @@ export function NodeRunActionPanel({
             <AlertDialog>
               <AlertDialogTrigger
                 render={(
-                  <Button variant="outline" disabled={skipMutation.isPending}>
+                  <Button size="default" variant="outline" disabled={skipMutation.isPending}>
                     <SkipForward data-icon="inline-start" />
                     {t(($) => $.execution.detail_panel.skip_node)}
                   </Button>
@@ -128,6 +134,14 @@ export function NodeRunActionPanel({
               </AlertDialogContent>
             </AlertDialog>
           ) : null}
+          <NodeRunControlActions
+            nodeRun={nodeRun}
+            workflowId={workflowId}
+            runId={runId}
+            wsId={wsId}
+            size="default"
+            showOpenSession={false}
+          />
         </div>
       ) : null}
 
@@ -136,13 +150,6 @@ export function NodeRunActionPanel({
           {mutationError instanceof Error ? mutationError.message : String(mutationError)}
         </p>
       ) : null}
-
-      <NodeRunControlActions
-        nodeRun={nodeRun}
-        workflowId={workflowId}
-        runId={runId}
-        wsId={wsId}
-      />
     </div>
   );
 }

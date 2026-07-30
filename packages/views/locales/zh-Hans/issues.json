@@ -587,6 +587,7 @@
       "section_status_next_step": "状态与下一步",
       "section_deliverables": "交付物与链接",
       "section_worker_critic": "Worker 与 Critic",
+      "section_actions": "节点操作",
       "section_runtime_facts": "运行事实",
       "section_evidence_preview": "证据预览",
       "section_child_progress": "子进度",
