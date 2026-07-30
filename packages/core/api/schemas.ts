@@ -1464,7 +1464,6 @@ export const EMPTY_GITLAB_SETTINGS_RESPONSE = {
 const WorkflowNodeDeliverableSchema = z.object({
   id: z.string(),
   workflow_node_id: z.string(),
-  kind: z.string().default("document"),
   title: z.string().default(""),
   description: z.string().default(""),
   required: z.boolean().default(true),

@@ -51,25 +51,23 @@ export function NodeRunDeliveryForm({
   const [fileInputKey, setFileInputKey] = useState(0);
   const [linkInput, setLinkInput] = useState("");
   const [summary, setSummary] = useState("");
-  const [documentTarget, setDocumentTarget] = useState<string>();
-  const [pullRequestTarget, setPullRequestTarget] = useState<string>();
+  const [selectedDeliverableID, setSelectedDeliverableID] = useState<string>();
 
-  const kindById = new Map(deliverables.map((d) => [d.id, d.kind]));
   const titleById = new Map(deliverables.map((d) => [d.id, d.title]));
-  const documentDeliverables = deliverables.filter((d) => d.kind === "document");
-  const pullRequestDeliverables = deliverables.filter((d) => d.kind === "pull_request");
-  const selectedDocumentID = documentDeliverables.some((d) => d.id === documentTarget)
-    ? documentTarget
-    : documentDeliverables[0]?.id;
-  const selectedPullRequestID = pullRequestDeliverables.some((d) => d.id === pullRequestTarget)
-    ? pullRequestTarget
-    : pullRequestDeliverables[0]?.id;
-  const hasDocument = documentDeliverables.length > 0;
-  const hasPR = pullRequestDeliverables.length > 0;
-  const linksOf = (kind: string) =>
-    submissions.filter((s) => s.pull_request_url && kindById.get(s.deliverable_id) === kind);
-  const docLinks = linksOf("document");
-  const codeLinks = linksOf("pull_request");
+  const selectedDeliverableIDResolved = deliverables.some((d) => d.id === selectedDeliverableID)
+    ? selectedDeliverableID
+    : deliverables[0]?.id;
+  const linksByDeliverable = new Map<string, WorkflowNodeDeliverableSubmission[]>();
+  for (const s of submissions) {
+    if (s.pull_request_url) {
+      const arr = linksByDeliverable.get(s.deliverable_id) ?? [];
+      arr.push(s);
+      linksByDeliverable.set(s.deliverable_id, arr);
+    }
+  }
+  const selectedLinks = selectedDeliverableIDResolved
+    ? (linksByDeliverable.get(selectedDeliverableIDResolved) ?? [])
+    : [];
 
   const links = parseLinkLines(linkInput);
   const linksInvalid = hasInvalidLinkLine(links);
@@ -90,14 +88,15 @@ export function NodeRunDeliveryForm({
   const submitMutation = useMutation({
     mutationFn: async () => {
       const note = summary.trim();
+      const targetId = selectedDeliverableIDResolved;
       let uploaded = false;
       if (stagedFiles.length > 0) {
         const filesData = await Promise.all(stagedFiles.map(readFileAsBase64));
-        await api.uploadIssueDeliverable(issueId, filesData, note || undefined, selectedDocumentID);
+        await api.uploadIssueDeliverable(issueId, filesData, note || undefined, targetId);
         uploaded = true;
       }
       if (links.length > 0) {
-        await api.uploadIssueDeliverablePR(issueId, links, note || undefined, selectedPullRequestID);
+        await api.uploadIssueDeliverablePR(issueId, links, note || undefined, targetId);
         uploaded = true;
       }
       if (!uploaded && note) {
@@ -148,105 +147,83 @@ export function NodeRunDeliveryForm({
     </a>
   );
 
+  if (deliverables.length === 0) return null;
+
   return (
     <div data-testid="node-run-delivery-form" className="space-y-2.5">
-      {hasDocument ? (
-        <div className="space-y-2">
-          <div className="flex flex-wrap items-center gap-1.5">
-            {groupTag(tw(($) => $.node_run.deliverables.document_section))}
-            {documentDeliverables.length > 1 ? (
-              <NativeSelect
-                size="sm"
-                aria-label={tw(($) => $.node_run.deliverables.document_section)}
-                value={selectedDocumentID}
-                onChange={(event) => setDocumentTarget(event.target.value)}
-              >
-                {documentDeliverables.map((deliverable) => (
-                  <NativeSelectOption key={deliverable.id} value={deliverable.id}>
-                    {deliverable.title}
-                  </NativeSelectOption>
-                ))}
-              </NativeSelect>
-            ) : null}
-            {docLinks.map(chipLink)}
-            <label className="inline-flex h-7 cursor-pointer items-center gap-1.5 rounded-md border bg-background px-2.5 text-xs font-medium transition-colors hover:bg-muted">
-              <Upload className="h-3.5 w-3.5" />
-              {tw(($) => $.node_run.deliverables.upload_file_choose)}
-              <input
-                key={fileInputKey}
-                type="file"
-                multiple
-                className="hidden"
-                disabled={submitMutation.isPending}
-                onChange={(e) => {
-                  if (e.target.files) {
-                    setStagedFiles((prev) => [...prev, ...Array.from(e.target.files ?? [])]);
-                  }
-                  // Replace the native input after every selection. Some
-                  // browsers retain internal file-picker state even after
-                  // assigning value="", which prevents a later selection
-                  // from firing. A fresh input reliably accepts both new and
-                  // same-file selections while staged files stay in React.
-                  setFileInputKey((key) => key + 1);
-                }}
-              />
-            </label>
-          </div>
-          {stagedFiles.length > 0 ? (
-            <ul className="space-y-1">
-              {stagedFiles.map((file, index) => (
-                <li key={`${file.name}-${index}`} className="flex items-center gap-1.5 text-xs">
-                  <FileText className="text-muted-foreground size-3.5 shrink-0" />
-                  <span className="min-w-0 flex-1 truncate">{file.name}</span>
-                  <button
-                    type="button"
-                    aria-label={`Remove ${file.name}`}
-                    disabled={submitMutation.isPending}
-                    onClick={() => setStagedFiles((prev) => prev.filter((_, i) => i !== index))}
-                    className="text-muted-foreground hover:text-foreground inline-flex size-5 shrink-0 items-center justify-center rounded"
-                  >
-                    <X className="size-3" />
-                  </button>
-                </li>
+      {/* Unified deliverables section: file upload + PR link input */}
+      <div className="space-y-2">
+        <div className="flex flex-wrap items-center gap-1.5">
+          {groupTag(tw(($) => $.node_run.deliverables.deliverables_section))}
+          {deliverables.length > 1 ? (
+            <NativeSelect
+              size="sm"
+              aria-label={tw(($) => $.node_run.deliverables.deliverables_section)}
+              value={selectedDeliverableIDResolved}
+              onChange={(event) => setSelectedDeliverableID(event.target.value)}
+            >
+              {deliverables.map((deliverable) => (
+                <NativeSelectOption key={deliverable.id} value={deliverable.id}>
+                  {deliverable.title}
+                </NativeSelectOption>
               ))}
-            </ul>
+            </NativeSelect>
           ) : null}
+          {selectedLinks.map(chipLink)}
+          <label className="inline-flex h-7 cursor-pointer items-center gap-1.5 rounded-md border bg-background px-2.5 text-xs font-medium transition-colors hover:bg-muted">
+            <Upload className="h-3.5 w-3.5" />
+            {tw(($) => $.node_run.deliverables.upload_file_choose)}
+            <input
+              key={fileInputKey}
+              type="file"
+              multiple
+              className="hidden"
+              disabled={submitMutation.isPending}
+              onChange={(e) => {
+                if (e.target.files) {
+                  setStagedFiles((prev) => [...prev, ...Array.from(e.target.files ?? [])]);
+                }
+                // Replace the native input after every selection. Some
+                // browsers retain internal file-picker state even after
+                // assigning value="", which prevents a later selection
+                // from firing. A fresh input reliably accepts both new and
+                // same-file selections while staged files stay in React.
+                setFileInputKey((key) => key + 1);
+              }}
+            />
+          </label>
         </div>
-      ) : null}
-
-      {hasPR ? (
-        <div className="space-y-2">
-          <div className="flex flex-wrap items-center gap-1.5">
-            {groupTag(tw(($) => $.node_run.deliverables.code_section))}
-            {pullRequestDeliverables.length > 1 ? (
-              <NativeSelect
-                size="sm"
-                aria-label={tw(($) => $.node_run.deliverables.code_section)}
-                value={selectedPullRequestID}
-                onChange={(event) => setPullRequestTarget(event.target.value)}
-              >
-                {pullRequestDeliverables.map((deliverable) => (
-                  <NativeSelectOption key={deliverable.id} value={deliverable.id}>
-                    {deliverable.title}
-                  </NativeSelectOption>
-                ))}
-              </NativeSelect>
-            ) : null}
-            {codeLinks.map(chipLink)}
-          </div>
-          <textarea
-            value={linkInput}
-            onChange={(e) => setLinkInput(e.target.value)}
-            placeholder={tw(($) => $.node_run.deliverables.upload_pr_placeholder)}
-            rows={2}
-            disabled={submitMutation.isPending}
-            className="bg-background w-full resize-none rounded-md border px-2 py-1.5 text-sm"
-          />
-          {linksInvalid ? (
-            <p className="text-destructive text-xs">{tw(($) => $.node_run.deliverables.upload_pr_invalid)}</p>
-          ) : null}
-        </div>
-      ) : null}
+        {stagedFiles.length > 0 ? (
+          <ul className="space-y-1">
+            {stagedFiles.map((file, index) => (
+              <li key={`${file.name}-${index}`} className="flex items-center gap-1.5 text-xs">
+                <FileText className="text-muted-foreground size-3.5 shrink-0" />
+                <span className="min-w-0 flex-1 truncate">{file.name}</span>
+                <button
+                  type="button"
+                  aria-label={`Remove ${file.name}`}
+                  disabled={submitMutation.isPending}
+                  onClick={() => setStagedFiles((prev) => prev.filter((_, i) => i !== index))}
+                  className="text-muted-foreground hover:text-foreground inline-flex size-5 shrink-0 items-center justify-center rounded"
+                >
+                  <X className="size-3" />
+                </button>
+              </li>
+            ))}
+          </ul>
+        ) : null}
+        <textarea
+          value={linkInput}
+          onChange={(e) => setLinkInput(e.target.value)}
+          placeholder={tw(($) => $.node_run.deliverables.upload_pr_placeholder)}
+          rows={2}
+          disabled={submitMutation.isPending}
+          className="bg-background w-full resize-none rounded-md border px-2 py-1.5 text-sm"
+        />
+        {linksInvalid ? (
+          <p className="text-destructive text-xs">{tw(($) => $.node_run.deliverables.upload_pr_invalid)}</p>
+        ) : null}
+      </div>
 
       <textarea
         value={summary}

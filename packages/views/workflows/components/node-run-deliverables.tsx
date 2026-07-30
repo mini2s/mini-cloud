@@ -8,13 +8,11 @@ import { hasInvalidLinkLine, parseLinkLines, readFileAsBase64 } from "../../comm
 import { useT } from "../../i18n";
 
 /**
- * Renders a node run's deliverables, split into explicit document and code
- * sections. Each section lists its submitted PR/merge-request
- * links and, when `canUpload` + `issueId` are set (a member-assigned issue
- * whose node-run worker is human), the matching manual upload control — a file
- * picker for documents (staged, then submitted together), a one-link-per-line
- * URL input for code. Both are the human counterparts to the agent's
- * cs-workflow submit.
+ * Renders a node run's deliverables as ONE unified section. Each deliverable
+ * lists its submitted PR/merge-request links and, when `canUpload` + `issueId`
+ * are set (a member-assigned issue whose node-run worker is human), offers
+ * BOTH a file picker (staged, then submitted together) and a one-link-per-line
+ * URL input. Both are the human counterparts to the agent's cs-workflow submit.
  */
 export function NodeRunDeliverables({
   wsId,
@@ -35,84 +33,63 @@ export function NodeRunDeliverables({
   const submissions = data?.submissions ?? [];
   const deliverables = data?.deliverables ?? [];
 
-  const kindById = new Map(deliverables.map((d) => [d.id, d.kind]));
-  const docLinks = submissions.filter(
-    (s) => s.pull_request_url && s.pull_request_url.length > 0 && kindById.get(s.deliverable_id) === "document",
-  );
-  const codeLinks = submissions.filter(
-    (s) => s.pull_request_url && s.pull_request_url.length > 0 && kindById.get(s.deliverable_id) === "pull_request",
-  );
-  const documentDeliverables = deliverables.filter((d) => d.kind === "document");
-  const pullRequestDeliverables = deliverables.filter((d) => d.kind === "pull_request");
-  const hasDocument = documentDeliverables.length > 0;
-  const hasPR = pullRequestDeliverables.length > 0;
   const showUpload = canUpload && !!issueId;
-
-  const showDoc = docLinks.length > 0 || (showUpload && hasDocument);
-  const showCode = codeLinks.length > 0 || (showUpload && hasPR);
-  if (!showDoc && !showCode) {
+  const linksByDeliverable = new Map<string, typeof submissions>();
+  for (const s of submissions) {
+    if (s.pull_request_url && s.pull_request_url.length > 0) {
+      const arr = linksByDeliverable.get(s.deliverable_id) ?? [];
+      arr.push(s);
+      linksByDeliverable.set(s.deliverable_id, arr);
+    }
+  }
+  const hasAnyLinks = linksByDeliverable.size > 0;
+  if (!hasAnyLinks && !(showUpload && deliverables.length > 0)) {
     return null;
   }
 
-  const renderLinks = (links: typeof docLinks) =>
-    links.length > 0 ? (
-      <ul className="space-y-1">
-        {links.map((s) => (
-          <li key={s.id}>
-            <a
-              href={s.pull_request_url}
-              target="_blank"
-              rel="noreferrer"
-              className="text-primary inline-flex items-center gap-1 text-sm hover:underline"
-            >
-              <ExternalLink className="size-3.5" />
-              <span>
-                {t(($) => $.node_run.deliverables.pull_request_label)} · {s.status}
-              </span>
-            </a>
-          </li>
-        ))}
-      </ul>
-    ) : null;
-
   return (
     <div className="space-y-3 py-1">
-      {showDoc ? (
-        <div className="space-y-1.5">
-          <div className="text-muted-foreground text-xs font-medium">
-            {t(($) => $.node_run.deliverables.document_section)}
-          </div>
-          {renderLinks(docLinks)}
-          {showUpload && hasDocument && issueId
-            ? documentDeliverables.map((deliverable) => (
-                <div key={deliverable.id} className="space-y-1">
-                  {documentDeliverables.length > 1 ? (
-                    <div className="text-xs font-medium">{deliverable.title}</div>
-                  ) : null}
-                  <DocumentUpload issueId={issueId} nodeRunId={nodeRunId} deliverableId={deliverable.id} />
-                </div>
-              ))
-            : null}
+      <div className="space-y-1.5">
+        <div className="text-muted-foreground text-xs font-medium">
+          {t(($) => $.node_run.deliverables.deliverables_section)}
         </div>
-      ) : null}
-      {showCode ? (
-        <div className="space-y-1.5">
-          <div className="text-muted-foreground text-xs font-medium">
-            {t(($) => $.node_run.deliverables.code_section)}
-          </div>
-          {renderLinks(codeLinks)}
-          {showUpload && hasPR && issueId
-            ? pullRequestDeliverables.map((deliverable) => (
-                <div key={deliverable.id} className="space-y-1">
-                  {pullRequestDeliverables.length > 1 ? (
-                    <div className="text-xs font-medium">{deliverable.title}</div>
-                  ) : null}
+        {deliverables.map((deliverable) => {
+          const links = linksByDeliverable.get(deliverable.id) ?? [];
+          if (links.length === 0 && !(showUpload)) return null;
+          return (
+            <div key={deliverable.id} className="space-y-1">
+              {deliverables.length > 1 ? (
+                <div className="text-xs font-medium">{deliverable.title}</div>
+              ) : null}
+              {links.length > 0 ? (
+                <ul className="space-y-1">
+                  {links.map((s) => (
+                    <li key={s.id}>
+                      <a
+                        href={s.pull_request_url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-primary inline-flex items-center gap-1 text-sm hover:underline"
+                      >
+                        <ExternalLink className="size-3.5" />
+                        <span>
+                          {t(($) => $.node_run.deliverables.pull_request_label)} · {s.status}
+                        </span>
+                      </a>
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
+              {showUpload && issueId ? (
+                <div className="flex items-center gap-1.5">
+                  <DocumentUpload issueId={issueId} nodeRunId={nodeRunId} deliverableId={deliverable.id} />
                   <PRLinkUpload issueId={issueId} nodeRunId={nodeRunId} deliverableId={deliverable.id} />
                 </div>
-              ))
-            : null}
-        </div>
-      ) : null}
+              ) : null}
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }

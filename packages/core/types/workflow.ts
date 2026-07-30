@@ -754,13 +754,11 @@ export interface WorkflowRoleAssignmentInput {
 // ── Deliverable types ──────────────────────────────────────────────────────
 
 export type WorkflowDeliverableSignal = "none" | "red" | "yellow" | "green";
-export type WorkflowDeliverableKind = "document" | "pull_request";
 export type WorkflowDeliverableSubmissionStatus = "missing" | "submitted" | "approved" | "rejected";
 
 export interface WorkflowNodeDeliverable {
   id: string;
   workflow_node_id: string;
-  kind: WorkflowDeliverableKind;
   title: string;
   description: string;
   required: boolean;

@@ -2709,7 +2709,6 @@ export class ApiClient {
   }
 
   async createWorkflowNodeDeliverable(workflowId: string, nodeId: string, req: {
-    kind: string;
     title: string;
     description?: string;
     required?: boolean;
@@ -2722,7 +2721,6 @@ export class ApiClient {
   }
 
   async updateWorkflowNodeDeliverable(workflowId: string, nodeId: string, deliverableId: string, req: {
-    kind?: string;
     title?: string;
     description?: string;
     required?: boolean;

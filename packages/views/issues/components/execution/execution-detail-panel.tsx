@@ -303,10 +303,8 @@ export function ExecutionDetailPanel({
     (nodeRun.status === "blocked" && nodeRun.completed_at == null)
   );
 
-  const deliverableKinds = deliverableData?.deliverables ?? [];
-  const hasDeliverableKinds = deliverableKinds.some(
-    (d) => d.kind === "document" || d.kind === "pull_request",
-  );
+  const deliverableList = deliverableData?.deliverables ?? [];
+  const hasDeliverables = deliverableList.length > 0;
   const hasSubmittedLinks = deliverableSubmissions.some((s) => s.pull_request_url);
   const hasCompletedReview =
     nodeRun?.status === "completed" && Boolean(nodeRun.critic_comment?.trim());
@@ -317,7 +315,7 @@ export function ExecutionDetailPanel({
     isHumanUploadState &&
     nodeRun?.worker_type === "human" &&
     !!issueId &&
-    hasDeliverableKinds;
+    hasDeliverables;
   const dockMode: "review" | "upload" | "links" | null = canReview
     ? "review"
     : canHumanUpload
@@ -563,7 +561,7 @@ export function ExecutionDetailPanel({
           wsId={wsId}
           issueId={issueId}
           nodeRunId={nodeRun?.id ?? ""}
-          deliverables={deliverableKinds}
+          deliverables={deliverableList}
           submissions={deliverableSubmissions}
           workflowId={workflowId}
           runId={runId}

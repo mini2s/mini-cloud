@@ -44,8 +44,7 @@ vi.mock("../../i18n", () => {
     node_run: {
       deliverables: {
         heading: "Deliverable PRs",
-        document_section: "Documents",
-        code_section: "Code",
+        deliverables_section: "Deliverables",
         pull_request_label: "Pull request",
         upload_button: "Upload deliverable",
         upload_heading: "Submit a document",
@@ -84,30 +83,49 @@ function withClient(ui: React.ReactElement) {
 
 const EMPTY = { submissions: [], deliverables: [] };
 
+// Deliverable fixture without kind field.
+const DOC_DELIVERABLE = { id: "d-1", workflow_node_id: "n-1", title: "Doc", description: "", required: true, sort_order: 0, created_at: "", updated_at: "" };
+const CODE_DELIVERABLE = { id: "d-2", workflow_node_id: "n-1", title: "Code", description: "", required: true, sort_order: 1, created_at: "", updated_at: "" };
+const BACKEND_DELIVERABLE = { id: "d-3", workflow_node_id: "n-1", title: "Backend", description: "", required: true, sort_order: 0, created_at: "", updated_at: "" };
+const FRONTEND_DELIVERABLE = { id: "d-4", workflow_node_id: "n-1", title: "Frontend", description: "", required: true, sort_order: 1, created_at: "", updated_at: "" };
+
+const SUBMISSION_WITH_PR = {
+  id: "sub-1",
+  workflow_node_run_id: "nr-1",
+  deliverable_id: "d-1",
+  submitted_by_type: "agent" as const,
+  submitted_by_id: null,
+  status: "submitted" as const,
+  content: "",
+  attachment_id: null,
+  pull_request_url: "https://gitea.test/t-aaa/wf-bbb/pulls/7",
+  review_comment: "",
+  submitted_at: "2026-07-18T00:00:00Z",
+  reviewed_at: null,
+  created_at: "2026-07-18T00:00:00Z",
+  updated_at: "2026-07-18T00:00:00Z",
+};
+
 describe("NodeRunDeliverables", () => {
   beforeEach(() => vi.clearAllMocks());
 
+  it("renders a single Deliverables section header (no document/code split)", async () => {
+    vi.mocked(api.listNodeRunDeliverableSubmissions).mockResolvedValue({
+      submissions: [SUBMISSION_WITH_PR],
+      deliverables: [DOC_DELIVERABLE],
+    });
+    withClient(<NodeRunDeliverables wsId="ws-1" nodeRunId="nr-1" />);
+
+    expect(await screen.findByText("Deliverables")).toBeInTheDocument();
+    // No separate "Documents" or "Code" section headers.
+    expect(screen.queryByText("Documents")).not.toBeInTheDocument();
+    expect(screen.queryByText("Code")).not.toBeInTheDocument();
+  });
+
   it("renders a PR link for a submission with pull_request_url", async () => {
     vi.mocked(api.listNodeRunDeliverableSubmissions).mockResolvedValue({
-      submissions: [
-        {
-          id: "sub-1",
-          workflow_node_run_id: "nr-1",
-          deliverable_id: "d-1",
-          submitted_by_type: "agent",
-          submitted_by_id: null,
-          status: "submitted",
-          content: "",
-          attachment_id: null,
-          pull_request_url: "https://gitea.test/t-aaa/wf-bbb/pulls/7",
-          review_comment: "",
-          submitted_at: "2026-07-18T00:00:00Z",
-          reviewed_at: null,
-          created_at: "2026-07-18T00:00:00Z",
-          updated_at: "2026-07-18T00:00:00Z",
-        },
-      ],
-      deliverables: [{ id: "d-1", workflow_node_id: "n-1", kind: "document", title: "Doc", description: "", required: true, sort_order: 0, created_at: "", updated_at: "" }],
+      submissions: [SUBMISSION_WITH_PR],
+      deliverables: [DOC_DELIVERABLE],
     });
     withClient(<NodeRunDeliverables wsId="ws-1" nodeRunId="nr-1" />);
 
@@ -124,35 +142,45 @@ describe("NodeRunDeliverables", () => {
     expect(container.firstChild).toBeNull();
   });
 
-  it("shows a file picker for a document deliverable on a human-worker node run", async () => {
+  it("shows both upload and PR link buttons for a deliverable on a human-worker node run", async () => {
     vi.mocked(api.listNodeRunDeliverableSubmissions).mockResolvedValue({
       submissions: [],
-      deliverables: [{ id: "d-1", workflow_node_id: "n-1", kind: "document", title: "Doc", description: "", required: true, sort_order: 0, created_at: "", updated_at: "" }],
-    });
-    const { container } = withClient(
-      <NodeRunDeliverables wsId="ws-1" nodeRunId="nr-1" issueId="issue-1" canUpload />,
-    );
-
-    const openBtn = await screen.findByRole("button", { name: /upload deliverable/i });
-    fireEvent.click(openBtn);
-
-    // Document kind → a file input (not a textarea).
-    await waitFor(() => {
-      expect(container.querySelector('input[type="file"]')).not.toBeNull();
-    });
-  });
-
-  it("submits a code PR link via the URL input for a pull_request deliverable", async () => {
-    vi.mocked(api.listNodeRunDeliverableSubmissions).mockResolvedValue({
-      submissions: [],
-      deliverables: [{ id: "d-2", workflow_node_id: "n-1", kind: "pull_request", title: "Code", description: "", required: true, sort_order: 0, created_at: "", updated_at: "" }],
+      deliverables: [DOC_DELIVERABLE],
     });
     withClient(
       <NodeRunDeliverables wsId="ws-1" nodeRunId="nr-1" issueId="issue-1" canUpload />,
     );
 
-    const openBtn = await screen.findByRole("button", { name: /submit merge request/i });
-    fireEvent.click(openBtn);
+    // Both upload (file) and PR link buttons are available.
+    expect(await screen.findByRole("button", { name: /upload deliverable/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /submit merge request/i })).toBeInTheDocument();
+  });
+
+  it("opens the file picker for document upload", async () => {
+    vi.mocked(api.listNodeRunDeliverableSubmissions).mockResolvedValue({
+      submissions: [],
+      deliverables: [DOC_DELIVERABLE],
+    });
+    const { container } = withClient(
+      <NodeRunDeliverables wsId="ws-1" nodeRunId="nr-1" issueId="issue-1" canUpload />,
+    );
+
+    fireEvent.click(await screen.findByRole("button", { name: /upload deliverable/i }));
+    await waitFor(() => {
+      expect(container.querySelector('input[type="file"]')).not.toBeNull();
+    });
+  });
+
+  it("submits a PR link via the URL input", async () => {
+    vi.mocked(api.listNodeRunDeliverableSubmissions).mockResolvedValue({
+      submissions: [],
+      deliverables: [CODE_DELIVERABLE],
+    });
+    withClient(
+      <NodeRunDeliverables wsId="ws-1" nodeRunId="nr-1" issueId="issue-1" canUpload />,
+    );
+
+    fireEvent.click(await screen.findByRole("button", { name: /submit merge request/i }));
 
     const urlInput = await screen.findByPlaceholderText(/paste URL/i);
     fireEvent.change(urlInput, { target: { value: "https://git.example/pr/9" } });
@@ -163,10 +191,10 @@ describe("NodeRunDeliverables", () => {
     await waitFor(() => expect(prMutateMock).toHaveBeenCalledWith(["https://git.example/pr/9"]));
   });
 
-  it("submits multiple code PR links, one per line", async () => {
+  it("submits multiple PR links, one per line", async () => {
     vi.mocked(api.listNodeRunDeliverableSubmissions).mockResolvedValue({
       submissions: [],
-      deliverables: [{ id: "d-2", workflow_node_id: "n-1", kind: "pull_request", title: "Code", description: "", required: true, sort_order: 0, created_at: "", updated_at: "" }],
+      deliverables: [CODE_DELIVERABLE],
     });
     withClient(
       <NodeRunDeliverables wsId="ws-1" nodeRunId="nr-1" issueId="issue-1" canUpload />,
@@ -184,13 +212,10 @@ describe("NodeRunDeliverables", () => {
     );
   });
 
-  it("creates a targeted upload control for each same-kind requirement", async () => {
+  it("creates a targeted upload control for each deliverable", async () => {
     vi.mocked(api.listNodeRunDeliverableSubmissions).mockResolvedValue({
       submissions: [],
-      deliverables: [
-        { id: "d-1", workflow_node_id: "n-1", kind: "pull_request", title: "Backend", description: "", required: true, sort_order: 0, created_at: "", updated_at: "" },
-        { id: "d-2", workflow_node_id: "n-1", kind: "pull_request", title: "Frontend", description: "", required: true, sort_order: 1, created_at: "", updated_at: "" },
-      ],
+      deliverables: [BACKEND_DELIVERABLE, FRONTEND_DELIVERABLE],
     });
     withClient(
       <NodeRunDeliverables wsId="ws-1" nodeRunId="nr-1" issueId="issue-1" canUpload />,
@@ -198,21 +223,22 @@ describe("NodeRunDeliverables", () => {
 
     expect(await screen.findByText("Backend")).toBeInTheDocument();
     expect(screen.getByText("Frontend")).toBeInTheDocument();
+    // Each deliverable gets its own PR upload button (2 total).
     const uploadButtons = screen.getAllByRole("button", { name: /submit merge request/i });
+    expect(uploadButtons).toHaveLength(2);
     fireEvent.click(uploadButtons[0]!);
     fireEvent.click(uploadButtons[1]!);
     await waitFor(() => {
-      expect(prHookArgsMock).toHaveBeenCalledWith("issue-1", "nr-1", "d-1");
-      expect(prHookArgsMock).toHaveBeenCalledWith("issue-1", "nr-1", "d-2");
+      expect(prHookArgsMock).toHaveBeenCalledWith("issue-1", "nr-1", "d-3");
+      expect(prHookArgsMock).toHaveBeenCalledWith("issue-1", "nr-1", "d-4");
     });
   });
-
 
   it("stages document files across selections and uploads them together on submit", async () => {
     const user = userEvent.setup();
     vi.mocked(api.listNodeRunDeliverableSubmissions).mockResolvedValue({
       submissions: [],
-      deliverables: [{ id: "d-1", workflow_node_id: "n-1", kind: "document", title: "Doc", description: "", required: true, sort_order: 0, created_at: "", updated_at: "" }],
+      deliverables: [DOC_DELIVERABLE],
     });
     const { container } = withClient(
       <NodeRunDeliverables wsId="ws-1" nodeRunId="nr-1" issueId="issue-1" canUpload />,
@@ -248,7 +274,7 @@ describe("NodeRunDeliverables", () => {
   it("does not show the upload control when canUpload is false", async () => {
     vi.mocked(api.listNodeRunDeliverableSubmissions).mockResolvedValue({
       submissions: [],
-      deliverables: [{ id: "d-1", workflow_node_id: "n-1", kind: "document", title: "Doc", description: "", required: true, sort_order: 0, created_at: "", updated_at: "" }],
+      deliverables: [DOC_DELIVERABLE],
     });
     withClient(
       <NodeRunDeliverables wsId="ws-1" nodeRunId="nr-1" issueId="issue-1" />,

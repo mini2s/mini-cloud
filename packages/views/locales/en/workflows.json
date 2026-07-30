@@ -527,8 +527,7 @@
     "review_comment_required": "Please add a review comment before approving or rejecting",
     "deliverables": {
       "heading": "Deliverable PRs",
-      "document_section": "Documents",
-      "code_section": "Code",
+      "deliverables_section": "Deliverables",
       "pull_request_label": "Pull request",
       "upload_button": "Upload document",
       "upload_heading": "Submit a document",
