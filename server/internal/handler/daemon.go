@@ -1960,6 +1960,12 @@ type TaskCompleteRequest struct {
 	Output    string `json:"output"`
 	SessionID string `json:"session_id"` // Claude session ID for future resumption
 	WorkDir   string `json:"work_dir"`   // working directory used during execution
+	// Decision/Reason carry a critic's explicit review decision when the agent
+	// invoked the "complete task" tool (decision=approve|reject). When present,
+	// the workflow service uses them directly instead of parsing the critic's
+	// free-text output. Worker completions leave them empty.
+	Decision string `json:"decision,omitempty"`
+	Reason   string `json:"reason,omitempty"`
 }
 
 func workflowCompletionFailureReason(task db.MulticaAgentTaskQueue, req TaskCompleteRequest) string {

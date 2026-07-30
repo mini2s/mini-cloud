@@ -1665,7 +1665,7 @@ func (s *WorkflowService) HandleWorkflowTaskCompletion(ctx context.Context, task
 		}
 	case "critic":
 		if nodeRun.Status == NodeRunStatusCriticReviewing {
-			approved, comment, err := parseAgentCriticDecision(task.Result)
+			approved, comment, err := criticDecisionFromResult(task.Result)
 			if err != nil {
 				return err
 			}
@@ -1721,6 +1721,24 @@ func parseAgentCriticDecision(result json.RawMessage) (bool, string, error) {
 			!strings.Contains(lower, "reject")
 	}
 	return approved, comment, nil
+}
+
+// criticDecisionFromResult resolves a critic's approve/reject decision from a
+// completed task's result JSON. It prefers an explicit decision carried by the
+// agent's "complete task" tool call (decision=approve|reject + reason); when
+// absent it falls back to parsing the critic's free-text output. The task
+// result is the marshaled TaskCompleteRequest, so decision/reason sit alongside
+// output/session_id/work_dir.
+func criticDecisionFromResult(result json.RawMessage) (bool, string, error) {
+	var explicit struct {
+		Decision string `json:"decision"`
+		Reason   string `json:"reason"`
+	}
+	if json.Unmarshal(result, &explicit) == nil &&
+		(explicit.Decision == "approve" || explicit.Decision == "reject") {
+		return explicit.Decision == "approve", explicit.Reason, nil
+	}
+	return parseAgentCriticDecision(result)
 }
 
 func normalizeAgentCriticComment(approved bool, comment string) string {
