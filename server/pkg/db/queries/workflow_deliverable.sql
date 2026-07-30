@@ -68,6 +68,11 @@ WHERE workflow_node_run_id = $1
 ORDER BY created_at ASC;
 
 -- name: UpsertNodeRunDeliverableSubmission :one
+-- One deliverable may carry several link submissions (migration 149): the
+-- conflict key includes pull_request_url so each review URL is its own row,
+-- while non-link submissions (empty URL) keep one-row-per-deliverable upserts.
+-- Re-submitting an existing URL is idempotent (status resets to submitted,
+-- which is also the rework-resubmit contract).
 INSERT INTO multica_workflow_node_deliverable_submission (
     workflow_node_run_id, deliverable_id, submitted_by_type, submitted_by_id,
     status, content, attachment_id, pull_request_url
@@ -78,7 +83,7 @@ INSERT INTO multica_workflow_node_deliverable_submission (
 FROM multica_workflow_node_run_deliverable requirement
 WHERE requirement.id = sqlc.arg('deliverable_id')
   AND requirement.workflow_node_run_id = sqlc.arg('workflow_node_run_id')
-ON CONFLICT (workflow_node_run_id, deliverable_id)
+ON CONFLICT (workflow_node_run_id, deliverable_id, pull_request_url)
 DO UPDATE SET
     submitted_by_type = EXCLUDED.submitted_by_type,
     submitted_by_id = EXCLUDED.submitted_by_id,
