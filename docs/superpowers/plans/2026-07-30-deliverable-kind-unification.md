@@ -4,7 +4,7 @@
 
 **Goal:** Remove the `document`/`pull_request` `kind` from node deliverables so a node treats every deliverable as a typeless PR-slot; submission method is decided by the actor (human: file-or-link; agent: any PR link), and review/merge/close dispatch by URL host instead of kind.
 
-**Architecture:** Delete the `kind` column (migration 150, two tables), regenerate sqlc, then collapse every `kind` branch in multica service/handler/frontend and the cs-cloud payload contract. Per-deliverable upload targeting **already exists** (multi-link feature) — only the `kind` gate inside `resolveUploadDeliverable` is removed. cs-cloud reports every deliverable to one unified `/submit` endpoint. Multi-link (N submission rows per deliverable, migration 149) is orthogonal and unchanged.
+**Architecture:** Delete the `kind` column (migration 151, two tables), regenerate sqlc, then collapse every `kind` branch in multica service/handler/frontend and the cs-cloud payload contract. Per-deliverable upload targeting **already exists** (multi-link feature) — only the `kind` gate inside `resolveUploadDeliverable` is removed. cs-cloud reports every deliverable to one unified `/submit` endpoint. Multi-link (N submission rows per deliverable, migration 149) is orthogonal and unchanged.
 
 **Base:** `feat/deliverable-kind-unification` off `origin/main` (HEAD `22115d9d5`, includes M1–M5 + multi-link). Line numbers below are against this base.
 
@@ -24,29 +24,29 @@
 
 ## Phase 1 — Data model (drop `kind`)
 
-### Task 1.1: Migration 150 — drop `kind` from both deliverable tables
+### Task 1.1: Migration 151 — drop `kind` from both deliverable tables
 
-**Files:** Create `server/migrations/150_deliverable_drop_kind.up.sql` + `.down.sql`
+**Files:** Create `server/migrations/151_deliverable_drop_kind.up.sql` + `.down.sql`
 
-> Confirm 150 is free: `ls server/migrations | grep -oE '^[0-9]+' | sort -n | tail` (149 = multi-link, taken).
+> Confirm 151 is free: `ls server/migrations | grep -oE '^[0-9]+' | sort -n | tail` (149 = multi-link; 150 = `agent_plugin_name`, the user's parallel plugin work — both taken).
 
 - [ ] **Step 1 — up:**
 ```sql
--- 150_deliverable_drop_kind.up.sql
+-- 151_deliverable_drop_kind.up.sql
 -- Deliverables are typeless PR-slots; kind is gone.
 ALTER TABLE multica_workflow_node_deliverable DROP COLUMN kind;
 ALTER TABLE multica_workflow_node_run_deliverable DROP COLUMN kind;
 ```
 - [ ] **Step 2 — down:**
 ```sql
--- 150_deliverable_drop_kind.down.sql
+-- 151_deliverable_drop_kind.down.sql
 ALTER TABLE multica_workflow_node_run_deliverable ADD COLUMN kind TEXT;
 ALTER TABLE multica_workflow_node_deliverable
     ADD COLUMN kind TEXT NOT NULL DEFAULT 'document' CHECK (kind IN ('document', 'pull_request'));
 ALTER TABLE multica_workflow_node_deliverable ALTER COLUMN kind DROP DEFAULT;
 ```
 - [ ] **Step 3 — verify apply/rollback:** `cd server && go run ./cmd/migrate up && go run ./cmd/migrate down && go run ./cmd/migrate up` (kind gone → restored → gone).
-- [ ] **Step 4 — commit:** `feat(db): drop deliverable kind column (migration 150)`
+- [ ] **Step 4 — commit:** `feat(db): drop deliverable kind column (migration 151)`
 
 ### Task 1.2: sqlc — remove `kind` from queries
 
@@ -263,6 +263,6 @@ Expected: empty (ignore unrelated `kind` like node-phase autopilot `042`). Fix s
 ## Self-Review (completed)
 
 - **Spec coverage:** data model (1.1–1.3), uploads kind-gate removal (2.1), branch/merge/approve (2.2), close by host (2.3), archive guard (2.4), auto-submit (2.5), default seed (2.6), preflight (2.7), payload unify (3.1), handler cleanup (4.1–4.3), frontend two components + types/api/i18n (5.1–5.5), cs-cloud (6.1–6.3), verify (7.1–7.2). ✓
-- **Placeholder scan:** none (migration 150 verified-free step; 1.3 explicitly transient). ✓
-- **Type consistency:** `resolveUploadDeliverable(deliverables, deliverableID)` signature consistent in 2.1 test + callers; unified `/submit` path consistent across 3.1/4.2/6.2; frontend `selectedDeliverableID` consistent in 5.4; migration 150 referenced consistently. ✓
+- **Placeholder scan:** none (migration 151 verified-free step; 1.3 explicitly transient). ✓
+- **Type consistency:** `resolveUploadDeliverable(deliverables, deliverableID)` signature consistent in 2.1 test + callers; unified `/submit` path consistent across 3.1/4.2/6.2; frontend `selectedDeliverableID` consistent in 5.4; migration 151 referenced consistently. ✓
 - **Re-based:** all line numbers from the post-multi-link origin/main re-map; per-deliverable upload targeting (already present) accounted for in 2.1. ✓

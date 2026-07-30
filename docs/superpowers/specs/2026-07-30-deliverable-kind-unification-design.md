@@ -62,7 +62,7 @@ kind TEXT NOT NULL CHECK (kind IN ('document', 'pull_request'))
 ```
 出现在两张表：`multica_workflow_node_deliverable`（定义，`133...up.sql:7`）与运行快照 `multica_workflow_node_run_deliverable`（`models.go:844`）。
 
-**新 migration（编号 150——149 已被 multi-link 特征占用：`149_deliverable_submission_multi_link` 放宽了 submission 的 UNIQUE 约束为 `(workflow_node_run_id, deliverable_id, pull_request_url)`，与本方案无冲突）**：
+**新 migration（编号 151——149 = multi-link、150 = `agent_plugin_name`（用户并行 plugin 工作），均已占用）**：
 - `ALTER TABLE multica_workflow_node_deliverable DROP COLUMN kind;`
 - `ALTER TABLE multica_workflow_node_run_deliverable DROP COLUMN kind;`
 - 提交表 `multica_workflow_node_deliverable_submission`（`133...up.sql:23`）本就只有 `content`/`attachment_id`/`pull_request_url`，**无需改**——multi-link 靠同一表的多行（一个 URL 一行）实现，删 kind 不影响。
@@ -154,7 +154,7 @@ kind TEXT NOT NULL CHECK (kind IN ('document', 'pull_request'))
 ## 10. 落地与分支
 
 - 基线：multica `feat/deliverable-kind-unification`（已从 `origin/main` 切出、no-track，含 multi-link 特征）；cs-cloud `feat/deliverable-iteration`。M1–M5 已在 main，无需 rebase。
-- 顺序建议：① multica migration 150 + sqlc；② service 去分支（`resolveUploadDeliverable` 去 kind、close/approve/branch/archive/auto-submit）；③ cs-cloud payload 去 kind；④ handler 清理；⑤ 前端两组件统一（`node-run-deliverables.tsx` + `node-run-delivery-form.tsx`）+ 类型/CRUD；⑥ 跨仓库 mock 设备联调（[[cs-cloud-local-e2e-registration]]）。
+- 顺序建议：① multica migration 151 + sqlc；② service 去分支（`resolveUploadDeliverable` 去 kind、close/approve/branch/archive/auto-submit）；③ cs-cloud payload 去 kind；④ handler 清理；⑤ 前端两组件统一（`node-run-deliverables.tsx` + `node-run-delivery-form.tsx`）+ 类型/CRUD；⑥ 跨仓库 mock 设备联调（[[cs-cloud-local-e2e-registration]]）。
 - 测试：DB 测试走 golang 容器（[[local-db-test-via-golang-container]]）；前端组件测试在 `packages/views/`；service 单测覆盖三条提交路径（文档上传/多链接粘贴/Agent 回报）+ URL-host 派发的合并/关闭。
 
 ## 11. 风险与回滚
