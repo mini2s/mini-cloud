@@ -30,14 +30,6 @@ import { TYPE_COLORS } from "../lib/type-colors"
 const ITEM_TYPES = ["skill", "subagent", "command", "mcp", "plugin"] as const
 type ItemType = (typeof ITEM_TYPES)[number]
 
-const TYPE_LABEL_KEY: Record<string, string> = {
-  skill: "hub.capability.type.skill",
-  subagent: "hub.capability.type.subagent",
-  command: "hub.capability.type.command",
-  mcp: "hub.capability.type.mcp",
-  plugin: "hub.capability.type.plugin",
-}
-
 // Mirrors the source store's TYPE_CONTENT_PLACEHOLDER.
 const TYPE_CONTENT_PLACEHOLDER: Record<string, string> = {
   skill: "# SKILL\n\nDescribe what this skill does...",
@@ -117,7 +109,7 @@ export function CreateCapabilityDialog(props: CreateCapabilityDialogProps) {
 
   // Namespace options: public + user repos.
   const namespaceOptions = useMemo(() => {
-    const options: { value: string; label: string }[] = [{ value: "public", label: "public" }]
+    const options: { value: string; label: string }[] = [{ value: "public", label: t(($) => $.capabilityDialog.namespace.publicLabel) }]
     for (const repo of repos) {
       options.push({ value: `repo:${repo.id}`, label: `@${repo.name}` })
     }
@@ -127,6 +119,8 @@ export function CreateCapabilityDialog(props: CreateCapabilityDialogProps) {
   const selectedNamespace = namespaceOptions.find((o) => o.value === namespace) ?? namespaceOptions[0]!
   const archive = canArchive(itemType)
   const mode: "text" | "archive" = archive ? contentMode : "text"
+  // Localized type label, matching the source store's typeLabel() memo.
+  const typeLabel = t(($) => $.capabilityDialog.type[itemType])
 
   const visibility = selectedNamespace.value === "public" ? "public" : "repo"
 
@@ -232,7 +226,7 @@ export function CreateCapabilityDialog(props: CreateCapabilityDialogProps) {
                             className="inline-block size-2 rounded-full"
                             style={{ backgroundColor: TYPE_COLORS[type] }}
                           />
-                          {t(TYPE_LABEL_KEY[type] as never)}
+                          {t(($) => $.capabilityDialog.type[type])}
                         </span>
                       </SelectItem>
                     ))}
@@ -281,7 +275,7 @@ export function CreateCapabilityDialog(props: CreateCapabilityDialogProps) {
                   autoFocus
                   value={name}
                   onChange={(e) => handleNameInput(e.target.value)}
-                  placeholder={t(($) => $.capabilityDialog.field.displayNamePlaceholder, { type: itemType })}
+                  placeholder={t(($) => $.capabilityDialog.field.displayNamePlaceholder, { type: typeLabel })}
                   required
                 />
               </div>
