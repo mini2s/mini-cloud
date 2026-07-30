@@ -45,7 +45,7 @@ import { PaginationBar } from "./pagination-bar"
 import { ConfirmDialog } from "./confirm-dialog"
 import { SearchTokenBox } from "./search-token-box"
 import { formatCompact } from "../lib/format"
-import { ChevronLeft, Share2, CloudUpload, Trash2, FileCode2, Package, Star, Inbox, Send, Eye, X } from "lucide-react"
+import { ChevronLeft, Share2, CloudUpload, Trash2, Package, Star, Inbox, Send, Eye, X } from "lucide-react"
 import type { LucideIcon } from "lucide-react"
 
 const PAGE_SIZE = 10 as const
@@ -578,10 +578,6 @@ export function HubManager() {
           </Button>
           <>
           <CreateCapabilityDialog onCreated={() => qc.invalidateQueries({ queryKey: ["hub"] })} />
-          <Button type="button" variant="outline" size="sm" className="h-8 cursor-pointer px-3" onClick={() => navigation.push(paths.hubEditor())}>
-            <FileCode2 size={14} />
-            {t(($) => $.manager.full_editor)}
-          </Button>
           <Button type="button" variant="default" size="sm" className="h-8 cursor-pointer px-3" onClick={() => setUploadOpen(true)}>
             <CloudUpload size={14} />
             {t(($) => $.manager.upload)}
