@@ -44,6 +44,7 @@ type builtinPluginItem struct {
 	ID       string                    `json:"id"`
 	Name     string                    `json:"name"`
 	Content  string                    `json:"content"`
+	Install  PluginInstall             `json:"install"`
 	Metadata builtinPluginItemMetadata `json:"metadata"`
 }
 
@@ -78,11 +79,15 @@ func BuildURL(baseURL string, path string, values url.Values) (string, error) {
 }
 
 func resultFromItem(p builtinPluginItem) *Result {
+	install := p.Install
+	if install == (PluginInstall{}) {
+		install = p.Metadata.Install
+	}
 	return &Result{
 		Info: &PluginInfo{
 			ID:      p.ID,
 			Name:    p.Name,
-			Install: p.Metadata.Install,
+			Install: install,
 		},
 		Content: p.Content,
 	}
@@ -157,9 +162,10 @@ func fetchList(ctx context.Context, baseURL string) (*builtinPluginListResponse,
 	}
 
 	params := url.Values{}
+	params.Set("type", "plugin")
 	params.Set("page", strconv.Itoa(defaultPage))
 	params.Set("pageSize", strconv.Itoa(defaultPageSize))
-	url, err := BuildURL(baseURL, "/api/plugins/builtin", params)
+	url, err := BuildURL(baseURL, "/api/items", params)
 	if err != nil {
 		slog.Warn("plugincatalog: failed to build URL", "error", err)
 		return nil, false
