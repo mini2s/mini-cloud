@@ -610,6 +610,51 @@ func TestProvisionWorkflowRepo_TeamNamespace_CreatesRepoFromWorkflowUUID(t *test
 	}
 }
 
+// TestProvisionWorkflowRepo_TeamNamespace_CreatesRepoEvenWithoutDeliverables
+// asserts that activating a workflow provisions its repo even when the workflow
+// has NO deliverable nodes. Provisioning is gated only on team-namespace being
+// configured (and the workflow not being the default), not on deliverables — the
+// workflow repo is the archive home downstream paths key on regardless.
+func TestProvisionWorkflowRepo_TeamNamespace_CreatesRepoEvenWithoutDeliverables(t *testing.T) {
+	pool := openTestPool(t)
+	defer pool.Close()
+
+	// No document deliverable seeded: this is the case that used to short-circuit.
+	fix := seedGiteaFixture(t, pool, false /*no deliverable*/, 0 /*no runs needed at activation*/)
+
+	// ensureTeamNamespace resolves the team creator from a member's cs-user
+	// subject_id; the base fixture doesn't set one, so seed it.
+	if _, err := pool.Exec(context.Background(),
+		`UPDATE multica_member SET subject_id = $1 WHERE workspace_id = $2`,
+		"usr-owner-"+util.UUIDToString(fix.workspace)[:8], fix.workspace,
+	); err != nil {
+		t.Fatalf("set member subject_id: %v", err)
+	}
+
+	srv, rec := newTeamNamespaceTestServer(t)
+	defer srv.Close()
+	tnClient := teamnamespace.NewClient(teamnamespace.Config{
+		BaseURL: srv.URL,
+		Token:   "svc-token",
+		Tenant:  "default",
+	})
+
+	svc := &WorkflowService{
+		Queries:       db.New(pool),
+		TeamNamespace: tnClient,
+	}
+
+	svc.ProvisionWorkflowRepo(context.Background(), fix.workflow)
+
+	rec.mu.Lock()
+	initCalled := rec.initCalled
+	rec.mu.Unlock()
+
+	if !initCalled {
+		t.Fatalf("expected InitWorkflow to be called even when the workflow has no deliverable nodes")
+	}
+}
+
 func TestEnsureNodeRunBranch_CreatesNodeBranchFromInst(t *testing.T) {
 	pool := openTestPool(t)
 	defer pool.Close()
