@@ -940,7 +940,7 @@ func (q *Queries) RenewWorkflowRoleResolutionJobLease(ctx context.Context, arg R
 const requeueExpiredWorkflowRoleResolutionJobs = `-- name: RequeueExpiredWorkflowRoleResolutionJobs :execrows
 UPDATE multica_workflow_role_resolution_job
 SET status = 'pending', locked_by = NULL, lease_expires_at = NULL,
-    scheduled_at = now(), updated_at = now()
+    generation = generation + 1, scheduled_at = now(), updated_at = now()
 WHERE status = 'running' AND lease_expires_at < now()
 `
 

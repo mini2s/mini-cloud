@@ -42,8 +42,12 @@ type assignWorkflowRolesRequest struct {
 	} `json:"assignments"`
 }
 
-func canManageWorkflowRoleAssignments(member db.MulticaMember) bool {
-	return isActiveMember(member)
+func canManageWorkflowRoleAssignments(member db.MulticaMember, run db.MulticaWorkflowRun, userID pgtype.UUID) bool {
+	if !isActiveMember(member) {
+		return false
+	}
+	return roleAllowed(member.Role, "owner", "admin") ||
+		(run.TriggeredByID.Valid && run.TriggeredByID == userID)
 }
 
 func workflowRoleResolutionToResponse(row db.MulticaWorkflowRoleResolution) WorkflowRoleResolutionResponse {
@@ -86,8 +90,8 @@ func (h *Handler) authorizeWorkflowRoleResolution(w http.ResponseWriter, r *http
 		writeError(w, http.StatusUnauthorized, "invalid user")
 		return db.MulticaWorkflowRun{}, pgtype.UUID{}, false, false
 	}
-	canManage := canManageWorkflowRoleAssignments(member)
-	canViewReasons := roleAllowed(member.Role, "owner", "admin") || (run.TriggeredByID.Valid && run.TriggeredByID == userUUID)
+	canManage := canManageWorkflowRoleAssignments(member, run, userUUID)
+	canViewReasons := canManage
 	if requireManage && !canManage {
 		writeError(w, http.StatusForbidden, "insufficient permissions")
 		return db.MulticaWorkflowRun{}, pgtype.UUID{}, false, false
