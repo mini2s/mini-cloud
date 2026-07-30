@@ -1,6 +1,7 @@
 package service
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -16,6 +17,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/multica-ai/multica/server/internal/cloudruntime"
 	"github.com/multica-ai/multica/server/internal/gitea"
+	"github.com/multica-ai/multica/server/internal/plugincatalog"
 	"github.com/multica-ai/multica/server/internal/util"
 	db "github.com/multica-ai/multica/server/pkg/db/generated"
 )
@@ -65,6 +67,49 @@ type csCloudReportSpec struct {
 	BodyField string `json:"body_field"`
 }
 
+// csCloudAgentPlugin mirrors cs-cloud's workflow.PluginSpec: the plugin bound
+// to an agent, installed by cs-cloud into the task workdir before the csc
+// session runs. Nil/empty in the payload means no plugin.
+type csCloudAgentPlugin struct {
+	ID      string                 `json:"id"`
+	Name    string                 `json:"name"`
+	Install *csCloudPluginInstall  `json:"install,omitempty"`
+}
+
+// csCloudPluginInstall describes how to install a plugin from a marketplace.
+// Mirrors cs-cloud's workflow.PluginInstallSpec / multica's plugincatalog.PluginInstall.
+type csCloudPluginInstall struct {
+	Method              string `json:"method"`
+	Marketplace         string `json:"marketplace"`
+	PluginName          string `json:"plugin_name"`
+	MarketplaceName     string `json:"marketplace_name"`
+	MarketplaceRepo     string `json:"marketplace_repo"`
+	MarketplaceVerified bool   `json:"marketplace_verified"`
+}
+
+// csCloudCloudSkillInstall mirrors cs-cloud's workflow.CloudSkillInstall: a
+// cloud catalog skill binding cs-cloud installs via `csc skill install`.
+type csCloudCloudSkillInstall struct {
+	ID          string                       `json:"id"`
+	Slug        string                       `json:"slug,omitempty"`
+	Name        string                       `json:"name"`
+	Description string                       `json:"description"`
+	Install     *csCloudCloudSkillInstallSpec `json:"install"`
+	Position    int32                        `json:"position"`
+}
+
+// csCloudCloudSkillInstallSpec is the executable subset of cloud skill install
+// metadata. Mirrors cs-cloud's workflow.CloudSkillInstallSpec. Only the
+// allowlisted keys {method, spec, skill_id, source_url, verified} are kept
+// (matching handler.allowlistedCatalogSkillInstall).
+type csCloudCloudSkillInstallSpec struct {
+	Method    string `json:"method,omitempty"`
+	Spec      string `json:"spec,omitempty"`
+	SkillID   string `json:"skill_id,omitempty"`
+	SourceURL string `json:"source_url,omitempty"`
+	Verified  bool   `json:"verified,omitempty"`
+}
+
 // csCloudTaskRunPayload is the JSON body posted to a cs-cloud device when a
 // task is pushed. Fields are named to match cs-cloud's
 // internal/workflow.TaskRunPayload with an additive kind field.
@@ -92,6 +137,12 @@ type csCloudTaskRunPayload struct {
 	PriorWorkDir string                   `json:"prior_work_dir,omitempty"`
 	Repos        []csCloudRepoSpec        `json:"repos,omitempty"`
 	Deliverables []csCloudDeliverableSpec `json:"deliverables,omitempty"`
+	// Plugin is the agent's bound plugin for cs-cloud to install before the
+	// session runs. Nil when the agent has no plugin.
+	Plugin *csCloudAgentPlugin `json:"plugin,omitempty"`
+	// CloudSkills are the agent's cloud catalog skill bindings for cs-cloud to
+	// install before the session runs. Empty when the agent has none.
+	CloudSkills []csCloudCloudSkillInstall `json:"cloud_skills,omitempty"`
 }
 
 // shouldSkipPriorTaskState reports whether the task should start a fresh
@@ -243,10 +294,14 @@ func (s *TaskService) buildCSCloudPayload(ctx context.Context, task db.MulticaAg
 	}
 
 	env := map[string]string{}
+	var agentPluginID pgtype.Text
 	if task.AgentID.Valid {
 		agent, err := s.Queries.GetAgent(ctx, task.AgentID)
-		if err == nil && len(agent.CustomEnv) > 0 {
-			_ = json.Unmarshal(agent.CustomEnv, &env)
+		if err == nil {
+			agentPluginID = agent.PluginID
+			if len(agent.CustomEnv) > 0 {
+				_ = json.Unmarshal(agent.CustomEnv, &env)
+			}
 		}
 	}
 	// Gitea document-deliverable context (CS_CLOUD_REPO_*) + node-run/issue ids,
@@ -309,6 +364,17 @@ func (s *TaskService) buildCSCloudPayload(ctx context.Context, task db.MulticaAg
 		}
 	}
 
+	// Plugin + CloudSkills: resolve the agent's bound plugin (catalog fetch +
+	// server-owned marketplace identity) and snapshot its cloud skills, so
+	// cs-cloud installs them in the task workdir before the csc session runs.
+	// Worker phase only — critic/review doesn't need them. Best-effort plugin
+	// resolution: a catalog hiccup leaves Plugin nil and dispatch proceeds.
+	var plugin *csCloudAgentPlugin
+	var cloudSkills []csCloudCloudSkillInstall
+	if phase == "worker" && task.AgentID.Valid {
+		plugin, cloudSkills = s.resolveCSCloudAddons(ctx, task.AgentID, agentPluginID)
+	}
+
 	// Prior (agent, issue) session/workdir so cs-cloud resumes the conversation
 	// and reuses the checkout. Ported from the pull path (handler/daemon.go).
 	// PriorSessionID is device-scoped: a csc session on device A cannot be
@@ -355,6 +421,8 @@ func (s *TaskService) buildCSCloudPayload(ctx context.Context, task db.MulticaAg
 		Env:            env,
 		Repos:          repos,
 		Deliverables:   deliverables,
+		Plugin:         plugin,
+		CloudSkills:    cloudSkills,
 		Kind:           kind,
 		PriorSessionID: priorSessionID,
 		PriorWorkDir:   priorWorkDir,
@@ -463,6 +531,81 @@ func (s *TaskService) resolveDeliveryRepo(ctx context.Context, workspaceID pgtyp
 		Alias:      "delivery",
 		BotToken:   strings.TrimSpace(bundle.GiteaPAT),
 	}, true
+}
+
+// resolveCSCloudAddons resolves an agent's bound plugin and cloud-skill bindings
+// into the cs-cloud payload shape, so cs-cloud can install them in the task
+// workdir before the csc session runs. This is the server-side (backend)
+// equivalent of the daemon claim path's plugin/skill resolution — the daemon is
+// not involved.
+//
+// Plugin resolution is best-effort (mirrors the claim path): a catalog miss or
+// unreachable API returns a nil plugin and a warning, never blocking dispatch.
+// The marketplace identity is server-owned (CSCPluginMarketplaceName/Repo) and
+// stamped here regardless of what the catalog returned — identical to
+// handler/daemon.go claim-time behavior.
+//
+// Cloud skills are snapshotted in multica_agent_cloud_skill (written by the
+// agent-cloud-skill handler); the stored install JSONB is already allowlisted
+// to {method, spec, skill_id, source_url, verified}, matching cs-cloud's
+// CloudSkillInstallSpec field names, so it is passed through verbatim.
+func (s *TaskService) resolveCSCloudAddons(ctx context.Context, agentID pgtype.UUID, pluginID pgtype.Text) (*csCloudAgentPlugin, []csCloudCloudSkillInstall) {
+	var plugin *csCloudAgentPlugin
+	if pluginID.Valid && strings.TrimSpace(pluginID.String) != "" && s.BuiltinPluginAPIBaseURL != "" {
+		pd := plugincatalog.Fetch(ctx, s.BuiltinPluginAPIBaseURL, pluginID.String)
+		if pd != nil && pd.Info != nil {
+			info := pd.Info
+			// Marketplace identity is server-owned, not catalog-owned. Override
+			// whatever the catalog returned; an empty config value is delivered
+			// as-is and cs-cloud falls back to its built-in github default.
+			install := csCloudPluginInstall{
+				Method:              info.Install.Method,
+				Marketplace:         info.Install.Marketplace,
+				PluginName:          info.Install.PluginName,
+				MarketplaceName:     s.CSCPluginMarketplaceName,
+				MarketplaceRepo:     s.CSCPluginMarketplaceRepo,
+				MarketplaceVerified: info.Install.MarketplaceVerified,
+			}
+			plugin = &csCloudAgentPlugin{ID: info.ID, Name: info.Name, Install: &install}
+		} else {
+			slog.Warn("cs-cloud dispatch: plugin not resolved from catalog",
+				"plugin_id", pluginID.String)
+		}
+	}
+
+	var cloudSkills []csCloudCloudSkillInstall
+	if rows, err := s.Queries.ListAgentCloudSkills(ctx, agentID); err == nil {
+		for _, r := range rows {
+			cloudSkills = append(cloudSkills, csCloudCloudSkillInstall{
+				ID:          r.CloudSkillID,
+				Slug:        r.Slug,
+				Name:        r.Name,
+				Description: r.Description,
+				Install:     cloudSkillInstallFromDB(r.Install),
+				Position:    r.Position,
+			})
+		}
+	} else {
+		slog.Warn("cs-cloud dispatch: list agent cloud skills", "error", err)
+	}
+	return plugin, cloudSkills
+}
+
+// cloudSkillInstallFromDB decodes a stored cloud-skill install JSONB snapshot
+// into the cs-cloud payload shape. The stored object is already allowlisted to
+// {method, spec, skill_id, source_url, verified} by the agent-cloud-skill
+// handler, matching cs-cloud's CloudSkillInstallSpec json tags. Returns nil
+// when the snapshot is missing/empty or fails to parse (best-effort).
+func cloudSkillInstallFromDB(raw []byte) *csCloudCloudSkillInstallSpec {
+	if len(bytes.TrimSpace(raw)) == 0 {
+		return nil
+	}
+	var spec csCloudCloudSkillInstallSpec
+	if err := json.Unmarshal(raw, &spec); err != nil {
+		slog.Warn("cs-cloud dispatch: parse cloud skill install metadata", "error", err)
+		return nil
+	}
+	return &spec
 }
 
 // deliverableSpecsForTask builds the deliverable contract list for the task's

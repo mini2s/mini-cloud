@@ -548,9 +548,10 @@ func TestAppendDeliverablePrompt_CheckoutAndSubmit(t *testing.T) {
 // resolveTestDB is a focused mock for resolveCodeRepoAndProject.
 // It handles exactly three queries: GetWorkspace, GetIssue, ListProjectResources.
 type resolveTestDB struct {
-	workspace   *db.MulticaWorkspace
-	issue       *db.MulticaIssue
-	projResRows []db.MulticaProjectResource
+	workspace     *db.MulticaWorkspace
+	issue         *db.MulticaIssue
+	projResRows   []db.MulticaProjectResource
+	cloudSkillRows []db.MulticaAgentCloudSkill
 }
 
 func (m *resolveTestDB) QueryRow(_ context.Context, sql string, _ ...interface{}) pgx.Row {
@@ -573,6 +574,9 @@ func (m *resolveTestDB) QueryRow(_ context.Context, sql string, _ ...interface{}
 func (m *resolveTestDB) Query(_ context.Context, sql string, _ ...interface{}) (pgx.Rows, error) {
 	if strings.Contains(sql, "ListProjectResources") && m.projResRows != nil {
 		return &mockRowsProjectResources{rows: m.projResRows, idx: -1}, nil
+	}
+	if strings.Contains(sql, "ListAgentCloudSkills") && m.cloudSkillRows != nil {
+		return &mockRowsCloudSkills{rows: m.cloudSkillRows, idx: -1}, nil
 	}
 	return nil, pgx.ErrNoRows
 }
@@ -648,6 +652,31 @@ func (m *mockRowsProjectResources) Scan(dest ...any) error {
 	vals := []any{
 		&r.ID, &r.ProjectID, &r.WorkspaceID, &r.ResourceType,
 		&r.ResourceRef, &r.Label, &r.Position, &r.CreatedAt, &r.CreatedBy,
+	}
+	return copyRow(vals, dest)
+}
+
+// mockRowsCloudSkills is a pgx.Rows that yields pre-set MulticaAgentCloudSkill
+// rows for ListAgentCloudSkills (scan order matches the generated query).
+type mockRowsCloudSkills struct {
+	rows []db.MulticaAgentCloudSkill
+	idx  int
+}
+
+func (m *mockRowsCloudSkills) Next() bool                                   { m.idx++; return m.idx < len(m.rows) }
+func (m *mockRowsCloudSkills) Close()                                       {}
+func (m *mockRowsCloudSkills) Err() error                                   { return nil }
+func (m *mockRowsCloudSkills) CommandTag() pgconn.CommandTag                { return pgconn.NewCommandTag("") }
+func (m *mockRowsCloudSkills) FieldDescriptions() []pgconn.FieldDescription { return nil }
+func (m *mockRowsCloudSkills) RawValues() [][]byte                          { return nil }
+func (m *mockRowsCloudSkills) Values() ([]any, error)                       { return nil, nil }
+func (m *mockRowsCloudSkills) Conn() *pgx.Conn                              { return nil }
+
+func (m *mockRowsCloudSkills) Scan(dest ...any) error {
+	r := &m.rows[m.idx]
+	vals := []any{
+		&r.AgentID, &r.CloudSkillID, &r.Slug, &r.Name, &r.Description,
+		&r.Install, &r.Position, &r.CreatedAt, &r.UpdatedAt,
 	}
 	return copyRow(vals, dest)
 }
@@ -2095,5 +2124,98 @@ func TestRepositoryDeliverableEnv_FallsBackToSelfBuiltWhenSettingsLackCloneURL(t
 	}
 	if strings.Contains(env["CS_CLOUD_REPO_CLONE_URL"], "gitea-tenant.example") {
 		t.Errorf("CS_CLOUD_REPO_CLONE_URL should NOT be the settings value when gitea_clone_url is absent")
+	}
+}
+
+func TestResolveCSCloudAddons_PluginMarketplaceOverride(t *testing.T) {
+	// Stand up a fake catalog that returns one plugin item.
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.Contains(r.URL.Path, "/api/items/") {
+			_, _ = w.Write([]byte(`{"id":"plug-1","name":"Superpowers","content":"be powerful","metadata":{"install":{"method":"plugin_marketplace","plugin_name":"superpowers","marketplace":"github","marketplace_name":"IGNORED","marketplace_repo":"IGNORED","marketplace_verified":true}}}`))
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer upstream.Close()
+
+	svc := &TaskService{
+		Queries:                  db.New(&resolveTestDB{}),
+		BuiltinPluginAPIBaseURL:  upstream.URL,
+		CSCPluginMarketplaceName: "costrict-plugins",
+		CSCPluginMarketplaceRepo: "https://github.com/costrict-plugins-repo/marketplace.git",
+	}
+
+	plugin, skills := svc.resolveCSCloudAddons(context.Background(), testUUID(7), pgtype.Text{String: "plug-1", Valid: true})
+
+	if plugin == nil {
+		t.Fatal("expected plugin to be resolved from catalog")
+	}
+	if plugin.ID != "plug-1" || plugin.Name != "Superpowers" {
+		t.Errorf("plugin = %+v", plugin)
+	}
+	if plugin.Install == nil || plugin.Install.PluginName != "superpowers" {
+		t.Errorf("plugin install name not carried from catalog: %+v", plugin.Install)
+	}
+	// Marketplace identity is server-owned and must override the catalog values.
+	if plugin.Install.MarketplaceName != "costrict-plugins" {
+		t.Errorf("marketplace name = %q, want server override costrict-plugins", plugin.Install.MarketplaceName)
+	}
+	if plugin.Install.MarketplaceRepo != "https://github.com/costrict-plugins-repo/marketplace.git" {
+		t.Errorf("marketplace repo = %q, want server override", plugin.Install.MarketplaceRepo)
+	}
+	if len(skills) != 0 {
+		t.Errorf("expected no cloud skills, got %d", len(skills))
+	}
+}
+
+func TestResolveCSCloudAddons_CatalogMissLeavesPluginNil(t *testing.T) {
+	// Catalog reachable but plugin not found -> plugin nil, no error path.
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.NotFound(w, r)
+	}))
+	defer upstream.Close()
+
+	svc := &TaskService{
+		Queries:                 db.New(&resolveTestDB{}),
+		BuiltinPluginAPIBaseURL: upstream.URL,
+	}
+	plugin, _ := svc.resolveCSCloudAddons(context.Background(), testUUID(7), pgtype.Text{String: "missing", Valid: true})
+	if plugin != nil {
+		t.Fatal("expected nil plugin on catalog miss")
+	}
+}
+
+func TestResolveCSCloudAddons_CloudSkillsPassedThrough(t *testing.T) {
+	installJSON := `{"method":"csc","spec":"code-review","skill_id":"","source_url":"","verified":true}`
+	mdb := &resolveTestDB{
+		cloudSkillRows: []db.MulticaAgentCloudSkill{
+			{
+				AgentID:      testUUID(7),
+				CloudSkillID: "skill-1",
+				Slug:         "code-review",
+				Name:         "Code Review",
+				Description:  "Reviews code",
+				Install:      []byte(installJSON),
+				Position:     0,
+			},
+		},
+	}
+	// No BuiltinPluginAPIBaseURL -> plugin resolution skipped cleanly.
+	svc := &TaskService{Queries: db.New(mdb)}
+
+	plugin, skills := svc.resolveCSCloudAddons(context.Background(), testUUID(7), pgtype.Text{})
+
+	if plugin != nil {
+		t.Error("expected nil plugin when pluginID empty / catalog not configured")
+	}
+	if len(skills) != 1 {
+		t.Fatalf("expected 1 cloud skill, got %d", len(skills))
+	}
+	s := skills[0]
+	if s.ID != "skill-1" || s.Slug != "code-review" || s.Name != "Code Review" {
+		t.Errorf("cloud skill row mapping wrong: %+v", s)
+	}
+	if s.Install == nil || s.Install.Spec != "code-review" || s.Install.Method != "csc" || !s.Install.Verified {
+		t.Errorf("install metadata not passed through: %+v", s.Install)
 	}
 }
