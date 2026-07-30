@@ -9,6 +9,7 @@ import {
   GitFork,
   GitMerge,
   ExternalLink,
+  ListChecks,
   Loader2,
   MessageSquare,
   Package,
@@ -38,6 +39,8 @@ import {
   workflowKeys,
 } from "@multica/core/workflows/queries";
 import { Button } from "@multica/ui/components/ui/button";
+import { Label } from "@multica/ui/components/ui/label";
+import { Textarea } from "@multica/ui/components/ui/textarea";
 import { useT } from "@multica/views/i18n";
 import {
   NodeDetailSection,
@@ -52,6 +55,11 @@ import {
   type TimelineItem,
 } from "../../../common/task-transcript";
 import { resolveChatSessionId } from "../../../chat/lib/resolve-chat-session-id";
+import {
+  getHumanNodeRunActionAccess,
+  type HumanActionMember,
+} from "./node-run-action-access";
+import { NodeRunActionPanel } from "./node-run-action-panel";
 
 export interface ExecutionDetailPanelProps {
   node: WorkflowNode;
@@ -70,6 +78,8 @@ export interface ExecutionDetailPanelProps {
   childAssigneeName?: string | null;
   workflowId?: string;
   runId?: string | null;
+  currentUserId?: string | null;
+  currentMember?: HumanActionMember | null;
   mayReview?: boolean;
 }
 
@@ -174,7 +184,9 @@ export function ExecutionDetailPanel({
   childAssigneeName,
   workflowId,
   runId,
-  mayReview = false,
+  currentUserId,
+  currentMember,
+  mayReview,
 }: ExecutionDetailPanelProps) {
   const { t } = useT("issues");
   const [showEvidence, setShowEvidence] = useState(false);
@@ -271,11 +283,31 @@ export function ExecutionDetailPanel({
   const canOpenSession = !isGateway && (!!sessionId || !!transcriptTask);
   const canUnblock = !isGateway && status === "blocked" && !!onUnblock;
   const canRetry = !isGateway && isRetryableNodeRunStatus(status) && !!onRetry;
-  const canReview =
-    mayReview &&
+  const baseActionAccess = nodeRun
+    ? getHumanNodeRunActionAccess({
+        nodeRun,
+        userId: currentUserId ?? null,
+        member: currentMember ?? null,
+      })
+    : null;
+  const isHumanReviewState =
     !isGateway &&
     (nodeRun?.status === "awaiting_critic" || nodeRun?.status === "critic_reviewing") &&
     (nodeRun.critic_type === "human" || node.critic_type === "human");
+  const canReview = isHumanReviewState && (mayReview ?? baseActionAccess?.canReview) === true;
+  const actionAccess = baseActionAccess
+    ? { ...baseActionAccess, canReview }
+    : null;
+  const hasRuntimeControls = nodeRun?.runtime_id != null && (
+    nodeRun.status === "working" ||
+    (nodeRun.status === "blocked" && nodeRun.completed_at == null)
+  );
+  const hasNodeActions = !isGateway && actionAccess != null && (
+    canReview ||
+    actionAccess.canSubmit ||
+    actionAccess.canSkip ||
+    hasRuntimeControls
+  );
 
   // The footer dock is the node's single action zone: the human critic's
   // review form (with the deliverables under review) while awaiting review,
@@ -288,13 +320,15 @@ export function ExecutionDetailPanel({
   const hasSubmittedLinks = deliverableSubmissions.some((s) => s.pull_request_url);
   const canHumanUpload =
     !isGateway && nodeRun?.worker_type === "human" && !!issueId && hasDeliverableKinds;
-  const dockMode: "review" | "upload" | "links" | null = canReview
+  const actionMode: "review" | "upload" | "actions" | "links" | null = canReview
     ? "review"
     : canHumanUpload
       ? "upload"
-      : !isGateway && hasSubmittedLinks
-        ? "links"
-        : null;
+      : hasNodeActions
+        ? "actions"
+        : !isGateway && hasSubmittedLinks
+          ? "links"
+          : null;
 
   // A review decision must carry a comment — it is archived to Gitea as the
   // reviewer's opinion, so an empty one is rejected at the UI boundary.
@@ -369,7 +403,7 @@ export function ExecutionDetailPanel({
       {canOpenSession ? (
         <Button
           type="button"
-          size="sm"
+          size="default"
           variant="outline"
           onClick={handleOpenSession}
           disabled={transcriptLoading}
@@ -385,7 +419,7 @@ export function ExecutionDetailPanel({
       {onOpenIssue ? (
         <Button
           type="button"
-          size="sm"
+          size="default"
           variant="outline"
           onClick={onOpenIssue}
         >
@@ -398,7 +432,7 @@ export function ExecutionDetailPanel({
       {canUnblock ? (
         <Button
           type="button"
-          size="sm"
+          size="default"
           variant="outline"
           onClick={onUnblock}
         >
@@ -409,7 +443,7 @@ export function ExecutionDetailPanel({
       {canRetry ? (
         <Button
           type="button"
-          size="sm"
+          size="default"
           variant="destructive"
           onClick={onRetry}
         >
@@ -420,106 +454,111 @@ export function ExecutionDetailPanel({
     </div>
   ) : null;
 
-  const actionDock = dockMode ? (
-    <div data-testid="node-action-dock" className="space-y-2.5">
-      <div className="flex items-center gap-2 text-xs font-semibold">
-        {dockMode === "review" ? (
-          <ShieldCheck className="h-3.5 w-3.5 text-amber-600" />
-        ) : dockMode === "upload" ? (
-          <Upload className="h-3.5 w-3.5 text-muted-foreground" />
-        ) : (
-          <Package className="h-3.5 w-3.5 text-muted-foreground" />
-        )}
-        <span>
-          {dockMode === "review"
-            ? t(($) => $.execution.detail_panel.dock_review_title)
-            : dockMode === "upload"
-              ? t(($) => $.execution.detail_panel.dock_submit_title)
-              : t(($) => $.execution.detail_panel.section_deliverables)}
-        </span>
-        {dockMode === "review" ? (
-          <span className="font-normal text-muted-foreground">
-            {t(($) => $.execution.detail_panel.dock_review_subtitle)}
-          </span>
-        ) : null}
-        {dockMode === "upload" ? (
-          <span className="font-normal text-muted-foreground">
-            {t(($) => $.execution.detail_panel.dock_submit_subtitle)}
-          </span>
-        ) : null}
-      </div>
-      <NodeRunDeliverables
-        wsId={wsId}
-        nodeRunId={nodeRun?.id ?? ""}
-        issueId={issueId}
-        canUpload={dockMode === "upload"}
+  const reviewEditor = canReview && nodeRun ? (
+    <div className="space-y-1.5">
+      <Label htmlFor={`node-run-review-${nodeRun.id}`}>
+        {t(($) => $.execution.detail_panel.review_comment)}
+      </Label>
+      <Textarea
+        id={`node-run-review-${nodeRun.id}`}
+        value={reviewComment}
+        onChange={(event) => setReviewComment(event.target.value)}
+        placeholder={t(($) => $.execution.detail_panel.review_comment)}
+        rows={3}
+        className="min-h-20 resize-y bg-background"
       />
-      {dockMode === "review" ? (
-        <>
-          <textarea
-            value={reviewComment}
-            onChange={(event) => setReviewComment(event.target.value)}
-            placeholder={t(($) => $.execution.detail_panel.review_comment)}
-            rows={3}
-            className="bg-background min-h-20 w-full resize-none rounded-md border px-2 py-1.5 text-sm"
-          />
-          {reviewMutation.isError ? (
-            <p className="text-xs text-destructive">
-              {reviewMutation.error instanceof Error
-                ? reviewMutation.error.message
-                : "Failed to review node run"}
-            </p>
-          ) : null}
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            {reviewCommentEmpty ? (
-              <p className="text-xs text-muted-foreground">
-                {t(($) => $.execution.detail_panel.review_comment_required)}
-              </p>
-            ) : (
-              <span />
-            )}
-            <div className="flex flex-wrap gap-2">
-              <button
-                type="button"
-                disabled={reviewMutation.isPending || reviewCommentEmpty}
-                onClick={() => reviewMutation.mutate(false)}
-                className="inline-flex h-8 items-center justify-center gap-1.5 rounded-md border bg-background px-3 text-xs font-medium transition-colors hover:bg-muted disabled:opacity-50"
-              >
-                <RotateCcw className="h-3.5 w-3.5" />
-                {t(($) => $.execution.card.actions.reject)}
-              </button>
-              <button
-                type="button"
-                disabled={reviewMutation.isPending || reviewCommentEmpty}
-                onClick={() => reviewMutation.mutate(true)}
-                className="bg-primary text-primary-foreground inline-flex h-8 items-center justify-center gap-1.5 rounded-md px-3 text-xs font-medium transition-colors disabled:opacity-50"
-              >
-                {reviewMutation.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
-                {t(($) => $.execution.card.actions.approve)}
-              </button>
-            </div>
-          </div>
-        </>
+      {reviewMutation.isError ? (
+        <p role="alert" className="text-xs text-destructive">
+          {reviewMutation.error instanceof Error
+            ? reviewMutation.error.message
+            : "Failed to review node run"}
+        </p>
+      ) : null}
+      {reviewCommentEmpty ? (
+        <p className="text-xs text-muted-foreground">
+          {t(($) => $.execution.detail_panel.review_comment_required)}
+        </p>
       ) : null}
     </div>
   ) : null;
 
-  const panelFooter = dockMode ? (
-    <div className="-mx-4 -my-3">
-      <div
-        className={
-          runtimeActions
-            ? "border-b border-border/60 bg-muted/25 px-4 py-3"
-            : "bg-muted/25 px-4 py-3"
-        }
+  const reviewActions = canReview ? (
+    <>
+      <Button
+        size="default"
+        variant="outline"
+        className="w-full min-w-0"
+        disabled={reviewMutation.isPending || reviewCommentEmpty}
+        onClick={() => reviewMutation.mutate(false)}
       >
-        {actionDock}
+        <RotateCcw className="h-3.5 w-3.5" />
+        {t(($) => $.execution.card.actions.reject)}
+      </Button>
+      <Button
+        size="default"
+        className="w-full min-w-0"
+        disabled={reviewMutation.isPending || reviewCommentEmpty}
+        onClick={() => reviewMutation.mutate(true)}
+      >
+        {reviewMutation.isPending
+          ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+          : <Check className="h-3.5 w-3.5" />}
+        {t(($) => $.execution.card.actions.approve)}
+      </Button>
+    </>
+  ) : null;
+
+  const actionSection = actionMode ? (
+    <NodeDetailSection
+      sectionId="actions"
+      icon={actionMode === "review"
+        ? <ShieldCheck className="size-4" />
+        : actionMode === "upload"
+          ? <Upload className="size-4" />
+          : actionMode === "actions"
+            ? <ListChecks className="size-4" />
+            : <Package className="size-4" />}
+      title={actionMode === "review"
+        ? t(($) => $.execution.detail_panel.dock_review_title)
+        : actionMode === "upload"
+          ? t(($) => $.execution.detail_panel.dock_submit_title)
+          : actionMode === "actions"
+            ? t(($) => $.execution.detail_panel.section_actions)
+            : t(($) => $.execution.detail_panel.section_deliverables)}
+    >
+      <div data-testid="node-action-panel" className="space-y-3">
+        {actionMode === "review" ? (
+          <p className="text-xs leading-relaxed text-muted-foreground">
+            {t(($) => $.execution.detail_panel.dock_review_subtitle)}
+          </p>
+        ) : null}
+        {actionMode === "upload" ? (
+          <p className="text-xs leading-relaxed text-muted-foreground">
+            {t(($) => $.execution.detail_panel.dock_submit_subtitle)}
+          </p>
+        ) : null}
+        {actionMode !== "actions" || hasSubmittedLinks ? (
+          <NodeRunDeliverables
+            wsId={wsId}
+            nodeRunId={nodeRun?.id ?? ""}
+            issueId={issueId}
+            canUpload={actionMode === "upload"}
+          />
+        ) : null}
+        {nodeRun && actionAccess && hasNodeActions ? (
+          <NodeRunActionPanel
+            nodeRun={nodeRun}
+            access={actionAccess}
+            wsId={wsId}
+            workflowId={workflowId}
+            runId={runId ?? undefined}
+            reviewEditor={reviewEditor}
+            reviewActions={reviewActions}
+          />
+        ) : null}
       </div>
-      {runtimeActions ? <div className="px-4 py-3">{runtimeActions}</div> : null}
-    </div>
-  ) : (
-    runtimeActions
-  );
+    </NodeDetailSection>
+  ) : null;
 
   const evidenceSection = (
     <NodeDetailSection
@@ -563,7 +602,7 @@ export function ExecutionDetailPanel({
       eyebrow="Node runtime"
       closeLabel="Close"
       onClose={onClose}
-      footer={panelFooter}
+      footer={runtimeActions}
       statusIcon={(
         <span className="inline-flex shrink-0 items-center gap-1.5 text-[11px] font-medium text-muted-foreground">
           <RuntimeDisplayStatusIcon
@@ -614,6 +653,8 @@ export function ExecutionDetailPanel({
           ) : null}
         </div>
       </NodeDetailSection>
+
+      {actionSection}
 
       {evidenceSection}
         </div>

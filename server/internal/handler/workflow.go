@@ -458,6 +458,14 @@ func (h *Handler) CreateWorkflow(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusInternalServerError, fmt.Sprintf("failed to clone template: %v", err))
 			return
 		}
+		// Async: provision the Gitea repo. CloneWorkflowFromTemplate creates the
+		// workflow already-active, so — mirroring UpdateWorkflow's status→active
+		// branch — provision here too. Without this, a workflow enabled directly
+		// from a template is left without a repo: the activation hook only lives
+		// on the PATCH path, which the template-clone flow never hits.
+		if h.WorkflowService != nil {
+			go h.WorkflowService.ProvisionWorkflowRepo(context.Background(), cloned.ID)
+		}
 		count, _ := h.Queries.CountWorkflowNodes(r.Context(), cloned.ID)
 		resp := workflowToResponse(cloned, count)
 		h.publish(protocol.EventWorkflowCreated, workspaceID, "member", userID, map[string]any{"workflow": resp})

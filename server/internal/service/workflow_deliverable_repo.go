@@ -27,27 +27,6 @@ func (s *WorkflowService) deliverableRepository() coderepo.RepositoryProvider {
 	return coderepo.GiteaAdapter{Client: s.Gitea}
 }
 
-// hasAnyDeliverable reports whether the workflow has ANY deliverable (document
-// OR pull_request). Used to gate Gitea provisioning: with M5 decision ①, every
-// deliverable-bearing run gets a Gitea repo (so code MRs have an archive home
-// too), not just document-bearing runs.
-func (s *WorkflowService) hasAnyDeliverable(ctx context.Context, workflowID pgtype.UUID) (bool, error) {
-	nodes, err := s.Queries.ListWorkflowNodes(ctx, workflowID)
-	if err != nil {
-		return false, fmt.Errorf("list workflow nodes: %w", err)
-	}
-	for _, node := range nodes {
-		deliverables, err := s.Queries.ListWorkflowNodeDeliverables(ctx, node.ID)
-		if err != nil {
-			return false, fmt.Errorf("list deliverables: %w", err)
-		}
-		if len(deliverables) > 0 {
-			return true, nil
-		}
-	}
-	return false, nil
-}
-
 func (s *WorkflowService) hasRunAnyDeliverable(ctx context.Context, runID pgtype.UUID) (bool, error) {
 	nodeRuns, err := s.Queries.ListWorkflowNodeRunsByRun(ctx, runID)
 	if err != nil {
@@ -561,13 +540,11 @@ func (s *WorkflowService) ProvisionWorkflowRepo(ctx context.Context, workflowID 
 	if wf.IsDefault {
 		return
 	}
-	// Only create the repo if the workflow has any deliverable (M5 decision ①:
-	// code-only runs get a repo for code-MR archiving).
-	has, err := s.hasAnyDeliverable(ctx, workflowID)
-	if err != nil || !has {
-		return
-	}
-
+	// Provision the repo for every activated workflow. The workflow repo is the
+	// archive home for anything a run produces (documents, code MRs, reviews),
+	// and downstream paths (run scaffolding, member uploads, sub-issue indexing)
+	// key on its existence — so create it eagerly at activation regardless of
+	// whether the workflow currently has any deliverable nodes.
 	s.provisionTeamNamespaceWorkflowRepo(ctx, wf)
 }
 
