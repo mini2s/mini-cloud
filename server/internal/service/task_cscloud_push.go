@@ -17,7 +17,6 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/multica-ai/multica/server/internal/cloudruntime"
 	"github.com/multica-ai/multica/server/internal/gitea"
-	"github.com/multica-ai/multica/server/internal/plugincatalog"
 	"github.com/multica-ai/multica/server/internal/util"
 	db "github.com/multica-ai/multica/server/pkg/db/generated"
 )
@@ -294,11 +293,11 @@ func (s *TaskService) buildCSCloudPayload(ctx context.Context, task db.MulticaAg
 	}
 
 	env := map[string]string{}
-	var agentPluginID pgtype.Text
+	var agentPluginName pgtype.Text
 	if task.AgentID.Valid {
 		agent, err := s.Queries.GetAgent(ctx, task.AgentID)
 		if err == nil {
-			agentPluginID = agent.PluginID
+			agentPluginName = agent.PluginName
 			if len(agent.CustomEnv) > 0 {
 				_ = json.Unmarshal(agent.CustomEnv, &env)
 			}
@@ -374,25 +373,22 @@ func (s *TaskService) buildCSCloudPayload(ctx context.Context, task db.MulticaAg
 	var plugin *csCloudAgentPlugin
 	var cloudSkills []csCloudCloudSkillInstall
 	if task.AgentID.Valid {
-		plugin, cloudSkills = s.resolveCSCloudAddons(ctx, task.AgentID, agentPluginID)
+		plugin, cloudSkills = s.resolveCSCloudAddons(ctx, task.AgentID, agentPluginName)
 	}
 
-	// Diagnostic: plugin resolution has three serial gates (agent plugin_id,
-	// BuiltinPluginAPIBaseURL, catalog fetch) and each can fail
-	// SILENTLY — a nil plugin reaches cs-cloud with no backend log, so plugin=none
-	// is impossible to root-cause from logs alone. Surface the inputs + outcome
-	// here so the next dispatch self-diagnoses which gate dropped it. Info, not
-	// Warn: a legitimately plugin-less agent is normal; filter on the message.
-	agentPluginIDStr := ""
-	if agentPluginID.Valid {
-		agentPluginIDStr = agentPluginID.String
+	// Diagnostic: plugin resolution now keys on the agent's stored plugin_name
+	// (the install slug). A nil plugin reaches cs-cloud silently when the agent
+	// has no plugin_name, so surface the input + outcome here for root-cause.
+	// Info, not Warn: a legitimately plugin-less agent is normal.
+	agentPluginNameStr := ""
+	if agentPluginName.Valid {
+		agentPluginNameStr = agentPluginName.String
 	}
 	slog.Info("cs-cloud dispatch: plugin/skill resolution",
 		"task_id", util.UUIDToString(task.ID),
 		"agent_id", util.UUIDToString(task.AgentID),
 		"phase", phase,
-		"agent_plugin_id", agentPluginIDStr,
-		"base_url_configured", s.BuiltinPluginAPIBaseURL != "",
+		"agent_plugin_name", agentPluginNameStr,
 		"plugin_resolved", plugin != nil,
 		"cloud_skills", len(cloudSkills),
 	)
@@ -561,38 +557,31 @@ func (s *TaskService) resolveDeliveryRepo(ctx context.Context, workspaceID pgtyp
 // equivalent of the daemon claim path's plugin/skill resolution — the daemon is
 // not involved.
 //
-// Plugin resolution is best-effort (mirrors the claim path): a catalog miss or
-// unreachable API returns a nil plugin and a warning, never blocking dispatch.
-// The marketplace identity is server-owned (CSCPluginMarketplaceName/Repo) and
-// stamped here regardless of what the catalog returned — identical to
-// handler/daemon.go claim-time behavior.
+// Plugin resolution is by NAME, not catalog id: cs-cloud installs via
+// `csc plugin install <pluginName>@<marketplace>`, and pluginName is the stable
+// install slug stored on the agent (set at bind time). This intentionally does
+// NOT call plugincatalog.Fetch(plugin_id) — the catalog UUID is unstable (it
+// changes whenever the plugin catalog is rebuilt), and a stale id silently
+// returned a nil plugin. An agent without plugin_name simply has no plugin.
+// The marketplace identity is server-owned (CSCPluginMarketplaceName/Repo).
 //
 // Cloud skills are snapshotted in multica_agent_cloud_skill (written by the
 // agent-cloud-skill handler); the stored install JSONB is already allowlisted
 // to {method, spec, skill_id, source_url, verified}, matching cs-cloud's
 // CloudSkillInstallSpec field names, so it is passed through verbatim.
-func (s *TaskService) resolveCSCloudAddons(ctx context.Context, agentID pgtype.UUID, pluginID pgtype.Text) (*csCloudAgentPlugin, []csCloudCloudSkillInstall) {
+func (s *TaskService) resolveCSCloudAddons(ctx context.Context, agentID pgtype.UUID, pluginName pgtype.Text) (*csCloudAgentPlugin, []csCloudCloudSkillInstall) {
 	var plugin *csCloudAgentPlugin
-	if pluginID.Valid && strings.TrimSpace(pluginID.String) != "" && s.BuiltinPluginAPIBaseURL != "" {
-		pd := plugincatalog.Fetch(ctx, s.BuiltinPluginAPIBaseURL, pluginID.String)
-		if pd != nil && pd.Info != nil {
-			info := pd.Info
-			// Marketplace identity is server-owned, not catalog-owned. Override
-			// whatever the catalog returned; an empty config value is delivered
-			// as-is and cs-cloud falls back to its built-in github default.
-			install := csCloudPluginInstall{
-				Method:              info.Install.Method,
-				Marketplace:         info.Install.Marketplace,
-				PluginName:          info.Install.PluginName,
-				MarketplaceName:     s.CSCPluginMarketplaceName,
-				MarketplaceRepo:     s.CSCPluginMarketplaceRepo,
-				MarketplaceVerified: info.Install.MarketplaceVerified,
-			}
-			plugin = &csCloudAgentPlugin{ID: info.ID, Name: info.Name, Install: &install}
-		} else {
-			slog.Warn("cs-cloud dispatch: plugin not resolved from catalog",
-				"plugin_id", pluginID.String)
+	if name := strings.TrimSpace(pluginName.String); pluginName.Valid && name != "" {
+		// cs-cloud's setupCSCPlugins only consumes PluginName + the marketplace
+		// identity; the other catalog-derived fields (Method/Marketplace/ID/...)
+		// are not read on the install path, so they stay zero here.
+		install := csCloudPluginInstall{
+			Method:          "plugin_marketplace",
+			PluginName:      name,
+			MarketplaceName: s.CSCPluginMarketplaceName,
+			MarketplaceRepo: s.CSCPluginMarketplaceRepo,
 		}
+		plugin = &csCloudAgentPlugin{Name: name, Install: &install}
 	}
 
 	var cloudSkills []csCloudCloudSkillInstall

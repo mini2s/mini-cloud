@@ -52,10 +52,12 @@ export function PluginTab({
   const cloudSkillsError = cloudSkillsQuery.isError;
   const [removingCloudSkillId, setRemovingCloudSkillId] = useState<string | null>(null);
 
-  const handleChange = async (pluginId: string) => {
+  const handleChange = async (pluginId: string, pluginName: string) => {
+    const clearing = pluginId === agent.plugin_id;
     try {
       await api.updateAgent(agent.id, {
-        plugin_id: pluginId === agent.plugin_id ? "" : pluginId,
+        plugin_id: clearing ? "" : pluginId,
+        plugin_name: clearing ? "" : pluginName,
       });
       qc.invalidateQueries({ queryKey: workspaceKeys.agents(wsId) });
       toast.success(t(($) => $.detail.agent_updated_toast));
@@ -68,7 +70,7 @@ export function PluginTab({
 
   const handleRemove = async () => {
     try {
-      await api.updateAgent(agent.id, { plugin_id: "" });
+      await api.updateAgent(agent.id, { plugin_id: "", plugin_name: "" });
       qc.invalidateQueries({ queryKey: workspaceKeys.agents(wsId) });
       toast.success(t(($) => $.detail.agent_updated_toast));
     } catch (e) {
@@ -331,7 +333,7 @@ function PluginPickerPopover({
   triggerLabel,
 }: {
   selectedId: string | null;
-  onSelect: (id: string) => void;
+  onSelect: (id: string, slug: string) => void;
   className?: string;
   triggerLabel: string;
 }) {
@@ -363,8 +365,8 @@ function PluginPickerPopover({
           plugins={items}
           catalogPlugins={cloudItems}
           selectedId={selectedId}
-          onSelect={(id) => {
-            onSelect(id);
+          onSelect={(id, slug) => {
+            onSelect(id, slug);
           }}
           loading={isLoading}
           catalogLoading={isCatalogLoading}
@@ -375,7 +377,7 @@ function PluginPickerPopover({
           <div className="border-t border-border px-3 py-2">
             <button
               type="button"
-              onClick={() => onSelect(selectedId)}
+              onClick={() => onSelect(selectedId ?? "", "")}
               className="w-full rounded px-2 py-1 text-left text-xs text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
             >
               <X className="mr-1.5 inline-block h-3 w-3" />

@@ -14,7 +14,7 @@ import (
 const archiveAgent = `-- name: ArchiveAgent :one
 UPDATE multica_agent SET archived_at = now(), archived_by = $2, updated_at = now()
 WHERE id = $1
-RETURNING id, workspace_id, name, avatar_url, runtime_mode, runtime_config, visibility, status, max_concurrent_tasks, owner_id, created_at, updated_at, description, runtime_id, instructions, archived_at, archived_by, custom_env, custom_args, mcp_config, model, thinking_level, plugin_id, is_builtin
+RETURNING id, workspace_id, name, avatar_url, runtime_mode, runtime_config, visibility, status, max_concurrent_tasks, owner_id, created_at, updated_at, description, runtime_id, instructions, archived_at, archived_by, custom_env, custom_args, mcp_config, model, thinking_level, plugin_id, is_builtin, plugin_name
 `
 
 type ArchiveAgentParams struct {
@@ -50,6 +50,7 @@ func (q *Queries) ArchiveAgent(ctx context.Context, arg ArchiveAgentParams) (Mul
 		&i.ThinkingLevel,
 		&i.PluginID,
 		&i.IsBuiltin,
+		&i.PluginName,
 	)
 	return i, err
 }
@@ -58,7 +59,7 @@ const archiveAgentsByRuntime = `-- name: ArchiveAgentsByRuntime :many
 UPDATE multica_agent
 SET archived_at = now(), archived_by = $1, updated_at = now()
 WHERE runtime_id = ANY($2::uuid[]) AND archived_at IS NULL
-RETURNING id, workspace_id, name, avatar_url, runtime_mode, runtime_config, visibility, status, max_concurrent_tasks, owner_id, created_at, updated_at, description, runtime_id, instructions, archived_at, archived_by, custom_env, custom_args, mcp_config, model, thinking_level, plugin_id, is_builtin
+RETURNING id, workspace_id, name, avatar_url, runtime_mode, runtime_config, visibility, status, max_concurrent_tasks, owner_id, created_at, updated_at, description, runtime_id, instructions, archived_at, archived_by, custom_env, custom_args, mcp_config, model, thinking_level, plugin_id, is_builtin, plugin_name
 `
 
 type ArchiveAgentsByRuntimeParams struct {
@@ -104,6 +105,7 @@ func (q *Queries) ArchiveAgentsByRuntime(ctx context.Context, arg ArchiveAgentsB
 			&i.ThinkingLevel,
 			&i.PluginID,
 			&i.IsBuiltin,
+			&i.PluginName,
 		); err != nil {
 			return nil, err
 		}
@@ -538,7 +540,7 @@ func (q *Queries) ClaimAgentTask(ctx context.Context, agentID pgtype.UUID) (Mult
 const clearAgentMcpConfig = `-- name: ClearAgentMcpConfig :one
 UPDATE multica_agent SET mcp_config = NULL, updated_at = now()
 WHERE id = $1
-RETURNING id, workspace_id, name, avatar_url, runtime_mode, runtime_config, visibility, status, max_concurrent_tasks, owner_id, created_at, updated_at, description, runtime_id, instructions, archived_at, archived_by, custom_env, custom_args, mcp_config, model, thinking_level, plugin_id, is_builtin
+RETURNING id, workspace_id, name, avatar_url, runtime_mode, runtime_config, visibility, status, max_concurrent_tasks, owner_id, created_at, updated_at, description, runtime_id, instructions, archived_at, archived_by, custom_env, custom_args, mcp_config, model, thinking_level, plugin_id, is_builtin, plugin_name
 `
 
 func (q *Queries) ClearAgentMcpConfig(ctx context.Context, id pgtype.UUID) (MulticaAgent, error) {
@@ -569,6 +571,7 @@ func (q *Queries) ClearAgentMcpConfig(ctx context.Context, id pgtype.UUID) (Mult
 		&i.ThinkingLevel,
 		&i.PluginID,
 		&i.IsBuiltin,
+		&i.PluginName,
 	)
 	return i, err
 }
@@ -576,7 +579,7 @@ func (q *Queries) ClearAgentMcpConfig(ctx context.Context, id pgtype.UUID) (Mult
 const clearAgentPluginId = `-- name: ClearAgentPluginId :one
 UPDATE multica_agent SET plugin_id = NULL, updated_at = now()
 WHERE id = $1 AND workspace_id = $2
-RETURNING id, workspace_id, name, avatar_url, runtime_mode, runtime_config, visibility, status, max_concurrent_tasks, owner_id, created_at, updated_at, description, runtime_id, instructions, archived_at, archived_by, custom_env, custom_args, mcp_config, model, thinking_level, plugin_id, is_builtin
+RETURNING id, workspace_id, name, avatar_url, runtime_mode, runtime_config, visibility, status, max_concurrent_tasks, owner_id, created_at, updated_at, description, runtime_id, instructions, archived_at, archived_by, custom_env, custom_args, mcp_config, model, thinking_level, plugin_id, is_builtin, plugin_name
 `
 
 type ClearAgentPluginIdParams struct {
@@ -615,6 +618,53 @@ func (q *Queries) ClearAgentPluginId(ctx context.Context, arg ClearAgentPluginId
 		&i.ThinkingLevel,
 		&i.PluginID,
 		&i.IsBuiltin,
+		&i.PluginName,
+	)
+	return i, err
+}
+
+const clearAgentPluginName = `-- name: ClearAgentPluginName :one
+UPDATE multica_agent SET plugin_name = NULL, updated_at = now()
+WHERE id = $1 AND workspace_id = $2
+RETURNING id, workspace_id, name, avatar_url, runtime_mode, runtime_config, visibility, status, max_concurrent_tasks, owner_id, created_at, updated_at, description, runtime_id, instructions, archived_at, archived_by, custom_env, custom_args, mcp_config, model, thinking_level, plugin_id, is_builtin, plugin_name
+`
+
+type ClearAgentPluginNameParams struct {
+	ID          pgtype.UUID `json:"id"`
+	WorkspaceID pgtype.UUID `json:"workspace_id"`
+}
+
+// Explicit NULL-clear for plugin_name, paired with ClearAgentPluginId so a
+// plugin unbind clears both the catalog id and the install slug together.
+func (q *Queries) ClearAgentPluginName(ctx context.Context, arg ClearAgentPluginNameParams) (MulticaAgent, error) {
+	row := q.db.QueryRow(ctx, clearAgentPluginName, arg.ID, arg.WorkspaceID)
+	var i MulticaAgent
+	err := row.Scan(
+		&i.ID,
+		&i.WorkspaceID,
+		&i.Name,
+		&i.AvatarUrl,
+		&i.RuntimeMode,
+		&i.RuntimeConfig,
+		&i.Visibility,
+		&i.Status,
+		&i.MaxConcurrentTasks,
+		&i.OwnerID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.Description,
+		&i.RuntimeID,
+		&i.Instructions,
+		&i.ArchivedAt,
+		&i.ArchivedBy,
+		&i.CustomEnv,
+		&i.CustomArgs,
+		&i.McpConfig,
+		&i.Model,
+		&i.ThinkingLevel,
+		&i.PluginID,
+		&i.IsBuiltin,
+		&i.PluginName,
 	)
 	return i, err
 }
@@ -622,7 +672,7 @@ func (q *Queries) ClearAgentPluginId(ctx context.Context, arg ClearAgentPluginId
 const clearAgentThinkingLevel = `-- name: ClearAgentThinkingLevel :one
 UPDATE multica_agent SET thinking_level = NULL, updated_at = now()
 WHERE id = $1
-RETURNING id, workspace_id, name, avatar_url, runtime_mode, runtime_config, visibility, status, max_concurrent_tasks, owner_id, created_at, updated_at, description, runtime_id, instructions, archived_at, archived_by, custom_env, custom_args, mcp_config, model, thinking_level, plugin_id, is_builtin
+RETURNING id, workspace_id, name, avatar_url, runtime_mode, runtime_config, visibility, status, max_concurrent_tasks, owner_id, created_at, updated_at, description, runtime_id, instructions, archived_at, archived_by, custom_env, custom_args, mcp_config, model, thinking_level, plugin_id, is_builtin, plugin_name
 `
 
 // Explicit NULL-clear for thinking_level. COALESCE-based UpdateAgent cannot
@@ -656,6 +706,7 @@ func (q *Queries) ClearAgentThinkingLevel(ctx context.Context, id pgtype.UUID) (
 		&i.ThinkingLevel,
 		&i.PluginID,
 		&i.IsBuiltin,
+		&i.PluginName,
 	)
 	return i, err
 }
@@ -730,9 +781,9 @@ const createAgent = `-- name: CreateAgent :one
 INSERT INTO multica_agent (
     workspace_id, name, description, avatar_url, runtime_mode,
     runtime_config, runtime_id, visibility, max_concurrent_tasks, owner_id,
-    instructions, custom_env, custom_args, mcp_config, model, thinking_level, plugin_id
-) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
-RETURNING id, workspace_id, name, avatar_url, runtime_mode, runtime_config, visibility, status, max_concurrent_tasks, owner_id, created_at, updated_at, description, runtime_id, instructions, archived_at, archived_by, custom_env, custom_args, mcp_config, model, thinking_level, plugin_id, is_builtin
+    instructions, custom_env, custom_args, mcp_config, model, thinking_level, plugin_id, plugin_name
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
+RETURNING id, workspace_id, name, avatar_url, runtime_mode, runtime_config, visibility, status, max_concurrent_tasks, owner_id, created_at, updated_at, description, runtime_id, instructions, archived_at, archived_by, custom_env, custom_args, mcp_config, model, thinking_level, plugin_id, is_builtin, plugin_name
 `
 
 type CreateAgentParams struct {
@@ -753,6 +804,7 @@ type CreateAgentParams struct {
 	Model              pgtype.Text `json:"model"`
 	ThinkingLevel      pgtype.Text `json:"thinking_level"`
 	PluginID           pgtype.Text `json:"plugin_id"`
+	PluginName         pgtype.Text `json:"plugin_name"`
 }
 
 func (q *Queries) CreateAgent(ctx context.Context, arg CreateAgentParams) (MulticaAgent, error) {
@@ -774,6 +826,7 @@ func (q *Queries) CreateAgent(ctx context.Context, arg CreateAgentParams) (Multi
 		arg.Model,
 		arg.ThinkingLevel,
 		arg.PluginID,
+		arg.PluginName,
 	)
 	var i MulticaAgent
 	err := row.Scan(
@@ -801,6 +854,7 @@ func (q *Queries) CreateAgent(ctx context.Context, arg CreateAgentParams) (Multi
 		&i.ThinkingLevel,
 		&i.PluginID,
 		&i.IsBuiltin,
+		&i.PluginName,
 	)
 	return i, err
 }
@@ -1243,7 +1297,7 @@ func (q *Queries) FailStaleTasks(ctx context.Context, arg FailStaleTasksParams) 
 }
 
 const getAgent = `-- name: GetAgent :one
-SELECT id, workspace_id, name, avatar_url, runtime_mode, runtime_config, visibility, status, max_concurrent_tasks, owner_id, created_at, updated_at, description, runtime_id, instructions, archived_at, archived_by, custom_env, custom_args, mcp_config, model, thinking_level, plugin_id, is_builtin FROM multica_agent
+SELECT id, workspace_id, name, avatar_url, runtime_mode, runtime_config, visibility, status, max_concurrent_tasks, owner_id, created_at, updated_at, description, runtime_id, instructions, archived_at, archived_by, custom_env, custom_args, mcp_config, model, thinking_level, plugin_id, is_builtin, plugin_name FROM multica_agent
 WHERE id = $1
 `
 
@@ -1275,12 +1329,13 @@ func (q *Queries) GetAgent(ctx context.Context, id pgtype.UUID) (MulticaAgent, e
 		&i.ThinkingLevel,
 		&i.PluginID,
 		&i.IsBuiltin,
+		&i.PluginName,
 	)
 	return i, err
 }
 
 const getAgentInWorkspace = `-- name: GetAgentInWorkspace :one
-SELECT id, workspace_id, name, avatar_url, runtime_mode, runtime_config, visibility, status, max_concurrent_tasks, owner_id, created_at, updated_at, description, runtime_id, instructions, archived_at, archived_by, custom_env, custom_args, mcp_config, model, thinking_level, plugin_id, is_builtin FROM multica_agent
+SELECT id, workspace_id, name, avatar_url, runtime_mode, runtime_config, visibility, status, max_concurrent_tasks, owner_id, created_at, updated_at, description, runtime_id, instructions, archived_at, archived_by, custom_env, custom_args, mcp_config, model, thinking_level, plugin_id, is_builtin, plugin_name FROM multica_agent
 WHERE id = $1 AND workspace_id = $2
 `
 
@@ -1317,6 +1372,7 @@ func (q *Queries) GetAgentInWorkspace(ctx context.Context, arg GetAgentInWorkspa
 		&i.ThinkingLevel,
 		&i.PluginID,
 		&i.IsBuiltin,
+		&i.PluginName,
 	)
 	return i, err
 }
@@ -1362,7 +1418,7 @@ func (q *Queries) GetAgentTask(ctx context.Context, id pgtype.UUID) (MulticaAgen
 }
 
 const getBuiltinAgent = `-- name: GetBuiltinAgent :one
-SELECT id, workspace_id, name, avatar_url, runtime_mode, runtime_config, visibility, status, max_concurrent_tasks, owner_id, created_at, updated_at, description, runtime_id, instructions, archived_at, archived_by, custom_env, custom_args, mcp_config, model, thinking_level, plugin_id, is_builtin FROM multica_agent WHERE id = $1 AND is_builtin = TRUE
+SELECT id, workspace_id, name, avatar_url, runtime_mode, runtime_config, visibility, status, max_concurrent_tasks, owner_id, created_at, updated_at, description, runtime_id, instructions, archived_at, archived_by, custom_env, custom_args, mcp_config, model, thinking_level, plugin_id, is_builtin, plugin_name FROM multica_agent WHERE id = $1 AND is_builtin = TRUE
 `
 
 func (q *Queries) GetBuiltinAgent(ctx context.Context, id pgtype.UUID) (MulticaAgent, error) {
@@ -1393,6 +1449,7 @@ func (q *Queries) GetBuiltinAgent(ctx context.Context, id pgtype.UUID) (MulticaA
 		&i.ThinkingLevel,
 		&i.PluginID,
 		&i.IsBuiltin,
+		&i.PluginName,
 	)
 	return i, err
 }
@@ -1772,7 +1829,7 @@ func (q *Queries) ListAgentTasks(ctx context.Context, agentID pgtype.UUID) ([]Mu
 }
 
 const listAgents = `-- name: ListAgents :many
-SELECT id, workspace_id, name, avatar_url, runtime_mode, runtime_config, visibility, status, max_concurrent_tasks, owner_id, created_at, updated_at, description, runtime_id, instructions, archived_at, archived_by, custom_env, custom_args, mcp_config, model, thinking_level, plugin_id, is_builtin FROM multica_agent
+SELECT id, workspace_id, name, avatar_url, runtime_mode, runtime_config, visibility, status, max_concurrent_tasks, owner_id, created_at, updated_at, description, runtime_id, instructions, archived_at, archived_by, custom_env, custom_args, mcp_config, model, thinking_level, plugin_id, is_builtin, plugin_name FROM multica_agent
 WHERE workspace_id = $1 AND archived_at IS NULL
 ORDER BY created_at ASC
 `
@@ -1811,6 +1868,7 @@ func (q *Queries) ListAgents(ctx context.Context, workspaceID pgtype.UUID) ([]Mu
 			&i.ThinkingLevel,
 			&i.PluginID,
 			&i.IsBuiltin,
+			&i.PluginName,
 		); err != nil {
 			return nil, err
 		}
@@ -1823,10 +1881,10 @@ func (q *Queries) ListAgents(ctx context.Context, workspaceID pgtype.UUID) ([]Mu
 }
 
 const listAgentsWithBuiltins = `-- name: ListAgentsWithBuiltins :many
-SELECT id, workspace_id, name, avatar_url, runtime_mode, runtime_config, visibility, status, max_concurrent_tasks, owner_id, created_at, updated_at, description, runtime_id, instructions, archived_at, archived_by, custom_env, custom_args, mcp_config, model, thinking_level, plugin_id, is_builtin FROM (
-  (SELECT id, workspace_id, name, avatar_url, runtime_mode, runtime_config, visibility, status, max_concurrent_tasks, owner_id, created_at, updated_at, description, runtime_id, instructions, archived_at, archived_by, custom_env, custom_args, mcp_config, model, thinking_level, plugin_id, is_builtin FROM multica_agent WHERE workspace_id = $1::uuid AND archived_at IS NULL)
+SELECT id, workspace_id, name, avatar_url, runtime_mode, runtime_config, visibility, status, max_concurrent_tasks, owner_id, created_at, updated_at, description, runtime_id, instructions, archived_at, archived_by, custom_env, custom_args, mcp_config, model, thinking_level, plugin_id, is_builtin, plugin_name FROM (
+  (SELECT id, workspace_id, name, avatar_url, runtime_mode, runtime_config, visibility, status, max_concurrent_tasks, owner_id, created_at, updated_at, description, runtime_id, instructions, archived_at, archived_by, custom_env, custom_args, mcp_config, model, thinking_level, plugin_id, is_builtin, plugin_name FROM multica_agent WHERE workspace_id = $1::uuid AND archived_at IS NULL)
   UNION ALL
-  (SELECT id, workspace_id, name, avatar_url, runtime_mode, runtime_config, visibility, status, max_concurrent_tasks, owner_id, created_at, updated_at, description, runtime_id, instructions, archived_at, archived_by, custom_env, custom_args, mcp_config, model, thinking_level, plugin_id, is_builtin FROM multica_agent WHERE is_builtin = TRUE AND archived_at IS NULL)
+  (SELECT id, workspace_id, name, avatar_url, runtime_mode, runtime_config, visibility, status, max_concurrent_tasks, owner_id, created_at, updated_at, description, runtime_id, instructions, archived_at, archived_by, custom_env, custom_args, mcp_config, model, thinking_level, plugin_id, is_builtin, plugin_name FROM multica_agent WHERE is_builtin = TRUE AND archived_at IS NULL)
 ) AS agents
 ORDER BY created_at ASC
 `
@@ -1865,6 +1923,7 @@ func (q *Queries) ListAgentsWithBuiltins(ctx context.Context, dollar_1 pgtype.UU
 			&i.ThinkingLevel,
 			&i.PluginID,
 			&i.IsBuiltin,
+			&i.PluginName,
 		); err != nil {
 			return nil, err
 		}
@@ -1877,7 +1936,7 @@ func (q *Queries) ListAgentsWithBuiltins(ctx context.Context, dollar_1 pgtype.UU
 }
 
 const listAllAgents = `-- name: ListAllAgents :many
-SELECT id, workspace_id, name, avatar_url, runtime_mode, runtime_config, visibility, status, max_concurrent_tasks, owner_id, created_at, updated_at, description, runtime_id, instructions, archived_at, archived_by, custom_env, custom_args, mcp_config, model, thinking_level, plugin_id, is_builtin FROM multica_agent
+SELECT id, workspace_id, name, avatar_url, runtime_mode, runtime_config, visibility, status, max_concurrent_tasks, owner_id, created_at, updated_at, description, runtime_id, instructions, archived_at, archived_by, custom_env, custom_args, mcp_config, model, thinking_level, plugin_id, is_builtin, plugin_name FROM multica_agent
 WHERE workspace_id = $1
 ORDER BY created_at ASC
 `
@@ -1916,6 +1975,7 @@ func (q *Queries) ListAllAgents(ctx context.Context, workspaceID pgtype.UUID) ([
 			&i.ThinkingLevel,
 			&i.PluginID,
 			&i.IsBuiltin,
+			&i.PluginName,
 		); err != nil {
 			return nil, err
 		}
@@ -1928,7 +1988,7 @@ func (q *Queries) ListAllAgents(ctx context.Context, workspaceID pgtype.UUID) ([
 }
 
 const listBuiltinAgents = `-- name: ListBuiltinAgents :many
-SELECT id, workspace_id, name, avatar_url, runtime_mode, runtime_config, visibility, status, max_concurrent_tasks, owner_id, created_at, updated_at, description, runtime_id, instructions, archived_at, archived_by, custom_env, custom_args, mcp_config, model, thinking_level, plugin_id, is_builtin FROM multica_agent
+SELECT id, workspace_id, name, avatar_url, runtime_mode, runtime_config, visibility, status, max_concurrent_tasks, owner_id, created_at, updated_at, description, runtime_id, instructions, archived_at, archived_by, custom_env, custom_args, mcp_config, model, thinking_level, plugin_id, is_builtin, plugin_name FROM multica_agent
 WHERE is_builtin = TRUE AND archived_at IS NULL
 ORDER BY created_at ASC
 `
@@ -1967,6 +2027,7 @@ func (q *Queries) ListBuiltinAgents(ctx context.Context) ([]MulticaAgent, error)
 			&i.ThinkingLevel,
 			&i.PluginID,
 			&i.IsBuiltin,
+			&i.PluginName,
 		); err != nil {
 			return nil, err
 		}
@@ -2410,7 +2471,7 @@ SET status = CASE WHEN EXISTS (
 ) THEN 'working' ELSE 'idle' END,
     updated_at = now()
 WHERE a.id = $1
-RETURNING id, workspace_id, name, avatar_url, runtime_mode, runtime_config, visibility, status, max_concurrent_tasks, owner_id, created_at, updated_at, description, runtime_id, instructions, archived_at, archived_by, custom_env, custom_args, mcp_config, model, thinking_level, plugin_id, is_builtin
+RETURNING id, workspace_id, name, avatar_url, runtime_mode, runtime_config, visibility, status, max_concurrent_tasks, owner_id, created_at, updated_at, description, runtime_id, instructions, archived_at, archived_by, custom_env, custom_args, mcp_config, model, thinking_level, plugin_id, is_builtin, plugin_name
 `
 
 func (q *Queries) RefreshAgentStatusFromTasks(ctx context.Context, id pgtype.UUID) (MulticaAgent, error) {
@@ -2441,6 +2502,7 @@ func (q *Queries) RefreshAgentStatusFromTasks(ctx context.Context, id pgtype.UUI
 		&i.ThinkingLevel,
 		&i.PluginID,
 		&i.IsBuiltin,
+		&i.PluginName,
 	)
 	return i, err
 }
@@ -2448,7 +2510,7 @@ func (q *Queries) RefreshAgentStatusFromTasks(ctx context.Context, id pgtype.UUI
 const restoreAgent = `-- name: RestoreAgent :one
 UPDATE multica_agent SET archived_at = NULL, archived_by = NULL, updated_at = now()
 WHERE id = $1
-RETURNING id, workspace_id, name, avatar_url, runtime_mode, runtime_config, visibility, status, max_concurrent_tasks, owner_id, created_at, updated_at, description, runtime_id, instructions, archived_at, archived_by, custom_env, custom_args, mcp_config, model, thinking_level, plugin_id, is_builtin
+RETURNING id, workspace_id, name, avatar_url, runtime_mode, runtime_config, visibility, status, max_concurrent_tasks, owner_id, created_at, updated_at, description, runtime_id, instructions, archived_at, archived_by, custom_env, custom_args, mcp_config, model, thinking_level, plugin_id, is_builtin, plugin_name
 `
 
 func (q *Queries) RestoreAgent(ctx context.Context, id pgtype.UUID) (MulticaAgent, error) {
@@ -2479,6 +2541,7 @@ func (q *Queries) RestoreAgent(ctx context.Context, id pgtype.UUID) (MulticaAgen
 		&i.ThinkingLevel,
 		&i.PluginID,
 		&i.IsBuiltin,
+		&i.PluginName,
 	)
 	return i, err
 }
@@ -2487,7 +2550,7 @@ const setAgentBuiltin = `-- name: SetAgentBuiltin :one
 UPDATE multica_agent
 SET is_builtin = TRUE, workspace_id = NULL, runtime_id = NULL, updated_at = now()
 WHERE id = $1 AND archived_at IS NULL
-RETURNING id, workspace_id, name, avatar_url, runtime_mode, runtime_config, visibility, status, max_concurrent_tasks, owner_id, created_at, updated_at, description, runtime_id, instructions, archived_at, archived_by, custom_env, custom_args, mcp_config, model, thinking_level, plugin_id, is_builtin
+RETURNING id, workspace_id, name, avatar_url, runtime_mode, runtime_config, visibility, status, max_concurrent_tasks, owner_id, created_at, updated_at, description, runtime_id, instructions, archived_at, archived_by, custom_env, custom_args, mcp_config, model, thinking_level, plugin_id, is_builtin, plugin_name
 `
 
 func (q *Queries) SetAgentBuiltin(ctx context.Context, id pgtype.UUID) (MulticaAgent, error) {
@@ -2518,6 +2581,7 @@ func (q *Queries) SetAgentBuiltin(ctx context.Context, id pgtype.UUID) (MulticaA
 		&i.ThinkingLevel,
 		&i.PluginID,
 		&i.IsBuiltin,
+		&i.PluginName,
 	)
 	return i, err
 }
@@ -2568,7 +2632,7 @@ const unsetAgentBuiltin = `-- name: UnsetAgentBuiltin :one
 UPDATE multica_agent
 SET is_builtin = FALSE, workspace_id = $2, updated_at = now()
 WHERE id = $1 AND is_builtin = TRUE
-RETURNING id, workspace_id, name, avatar_url, runtime_mode, runtime_config, visibility, status, max_concurrent_tasks, owner_id, created_at, updated_at, description, runtime_id, instructions, archived_at, archived_by, custom_env, custom_args, mcp_config, model, thinking_level, plugin_id, is_builtin
+RETURNING id, workspace_id, name, avatar_url, runtime_mode, runtime_config, visibility, status, max_concurrent_tasks, owner_id, created_at, updated_at, description, runtime_id, instructions, archived_at, archived_by, custom_env, custom_args, mcp_config, model, thinking_level, plugin_id, is_builtin, plugin_name
 `
 
 type UnsetAgentBuiltinParams struct {
@@ -2604,6 +2668,7 @@ func (q *Queries) UnsetAgentBuiltin(ctx context.Context, arg UnsetAgentBuiltinPa
 		&i.ThinkingLevel,
 		&i.PluginID,
 		&i.IsBuiltin,
+		&i.PluginName,
 	)
 	return i, err
 }
@@ -2626,9 +2691,10 @@ UPDATE multica_agent SET
     model = COALESCE($15, model),
     thinking_level = COALESCE($16, thinking_level),
     plugin_id = COALESCE($17, plugin_id),
+    plugin_name = COALESCE($18, plugin_name),
     updated_at = now()
 WHERE id = $1
-RETURNING id, workspace_id, name, avatar_url, runtime_mode, runtime_config, visibility, status, max_concurrent_tasks, owner_id, created_at, updated_at, description, runtime_id, instructions, archived_at, archived_by, custom_env, custom_args, mcp_config, model, thinking_level, plugin_id, is_builtin
+RETURNING id, workspace_id, name, avatar_url, runtime_mode, runtime_config, visibility, status, max_concurrent_tasks, owner_id, created_at, updated_at, description, runtime_id, instructions, archived_at, archived_by, custom_env, custom_args, mcp_config, model, thinking_level, plugin_id, is_builtin, plugin_name
 `
 
 type UpdateAgentParams struct {
@@ -2649,6 +2715,7 @@ type UpdateAgentParams struct {
 	Model              pgtype.Text `json:"model"`
 	ThinkingLevel      pgtype.Text `json:"thinking_level"`
 	PluginID           pgtype.Text `json:"plugin_id"`
+	PluginName         pgtype.Text `json:"plugin_name"`
 }
 
 func (q *Queries) UpdateAgent(ctx context.Context, arg UpdateAgentParams) (MulticaAgent, error) {
@@ -2670,6 +2737,7 @@ func (q *Queries) UpdateAgent(ctx context.Context, arg UpdateAgentParams) (Multi
 		arg.Model,
 		arg.ThinkingLevel,
 		arg.PluginID,
+		arg.PluginName,
 	)
 	var i MulticaAgent
 	err := row.Scan(
@@ -2697,6 +2765,7 @@ func (q *Queries) UpdateAgent(ctx context.Context, arg UpdateAgentParams) (Multi
 		&i.ThinkingLevel,
 		&i.PluginID,
 		&i.IsBuiltin,
+		&i.PluginName,
 	)
 	return i, err
 }
@@ -2704,7 +2773,7 @@ func (q *Queries) UpdateAgent(ctx context.Context, arg UpdateAgentParams) (Multi
 const updateAgentStatus = `-- name: UpdateAgentStatus :one
 UPDATE multica_agent SET status = $2, updated_at = now()
 WHERE id = $1
-RETURNING id, workspace_id, name, avatar_url, runtime_mode, runtime_config, visibility, status, max_concurrent_tasks, owner_id, created_at, updated_at, description, runtime_id, instructions, archived_at, archived_by, custom_env, custom_args, mcp_config, model, thinking_level, plugin_id, is_builtin
+RETURNING id, workspace_id, name, avatar_url, runtime_mode, runtime_config, visibility, status, max_concurrent_tasks, owner_id, created_at, updated_at, description, runtime_id, instructions, archived_at, archived_by, custom_env, custom_args, mcp_config, model, thinking_level, plugin_id, is_builtin, plugin_name
 `
 
 type UpdateAgentStatusParams struct {
@@ -2740,6 +2809,7 @@ func (q *Queries) UpdateAgentStatus(ctx context.Context, arg UpdateAgentStatusPa
 		&i.ThinkingLevel,
 		&i.PluginID,
 		&i.IsBuiltin,
+		&i.PluginName,
 	)
 	return i, err
 }

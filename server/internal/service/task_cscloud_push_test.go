@@ -59,6 +59,7 @@ type pushTaskDB struct {
 	lastSessionRow   *db.GetLastTaskSessionRow  // nil => 仿 ErrNoRows（首次/全中毒失败）
 	nodeRunRow       *db.MulticaWorkflowNodeRun // nil => ErrNoRows (Task 4 node-run handback)
 	agentPluginID    pgtype.Text
+	agentPluginName  pgtype.Text
 }
 
 func (m *pushTaskDB) QueryRow(_ context.Context, sql string, args ...interface{}) pgx.Row {
@@ -74,7 +75,7 @@ func (m *pushTaskDB) QueryRow(_ context.Context, sql string, args ...interface{}
 	case strings.Contains(sql, "GetAgentRuntime"):
 		return &pushMockRow{taskRuntime: &m.runtime}
 	case strings.Contains(sql, "GetAgent "):
-		return &pushMockRow{agent: &db.MulticaAgent{ID: m.task.AgentID, WorkspaceID: m.runtime.WorkspaceID, PluginID: m.agentPluginID}}
+		return &pushMockRow{agent: &db.MulticaAgent{ID: m.task.AgentID, WorkspaceID: m.runtime.WorkspaceID, PluginID: m.agentPluginID, PluginName: m.agentPluginName}}
 	case strings.Contains(sql, "GetIssue"):
 		return &pushMockRow{issue: &db.MulticaIssue{ID: m.task.IssueID, WorkspaceID: m.runtime.WorkspaceID, Title: "Issue"}}
 	case strings.Contains(sql, "GetComment"):
@@ -186,7 +187,7 @@ func scanAgent(a *db.MulticaAgent, dest []any) error {
 		&a.OwnerID, &a.CreatedAt, &a.UpdatedAt, &a.Description,
 		&a.RuntimeID, &a.Instructions, &a.ArchivedAt, &a.ArchivedBy,
 		&a.CustomEnv, &a.CustomArgs, &a.McpConfig, &a.Model,
-		&a.ThinkingLevel, &a.PluginID, &a.IsBuiltin,
+		&a.ThinkingLevel, &a.PluginID, &a.IsBuiltin, &a.PluginName,
 	}
 	return copyRow(vals, dest)
 }
@@ -1329,22 +1330,12 @@ func TestBuildCSCloudPayload_NoPriorWhenGetLastReturnsNoRows(t *testing.T) {
 }
 
 func TestBuildCSCloudPayload_QuickCreateResolvesAgentPlugin(t *testing.T) {
-	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if strings.Contains(r.URL.Path, "/api/items/plug-quick") {
-			_, _ = w.Write([]byte(`{"id":"plug-quick","name":"Quick Plugin","metadata":{"install":{"method":"plugin_marketplace","plugin_name":"quick-plugin","marketplace":"repo/quick","marketplace_verified":true}}}`))
-			return
-		}
-		http.NotFound(w, r)
-	}))
-	defer upstream.Close()
-
 	dbtx := newPushTestDB(csCloudProvider, "device-123")
-	dbtx.agentPluginID = pgtype.Text{String: "plug-quick", Valid: true}
+	dbtx.agentPluginName = pgtype.Text{String: "cospowers-requirements", Valid: true}
 
 	svc := &TaskService{
 		Queries:                  db.New(dbtx),
 		Bus:                      events.New(),
-		BuiltinPluginAPIBaseURL:  upstream.URL,
 		CSCPluginMarketplaceName: "costrict-plugins",
 		CSCPluginMarketplaceRepo: "https://zgsmtest.xyz:30443/costrict-plugin-marketplace/marketplace.git",
 	}
@@ -1360,8 +1351,8 @@ func TestBuildCSCloudPayload_QuickCreateResolvesAgentPlugin(t *testing.T) {
 	if payload.Plugin == nil || payload.Plugin.Install == nil {
 		t.Fatalf("quick-create payload should include agent plugin; got %+v", payload.Plugin)
 	}
-	if payload.Plugin.Install.PluginName != "quick-plugin" {
-		t.Errorf("plugin_name = %q, want quick-plugin", payload.Plugin.Install.PluginName)
+	if payload.Plugin.Install.PluginName != "cospowers-requirements" {
+		t.Errorf("plugin_name = %q, want cospowers-requirements", payload.Plugin.Install.PluginName)
 	}
 	if payload.Plugin.Install.MarketplaceRepo != "https://zgsmtest.xyz:30443/costrict-plugin-marketplace/marketplace.git" {
 		t.Errorf("marketplace_repo = %q", payload.Plugin.Install.MarketplaceRepo)
@@ -1369,22 +1360,12 @@ func TestBuildCSCloudPayload_QuickCreateResolvesAgentPlugin(t *testing.T) {
 }
 
 func TestBuildCSCloudPayload_CriticResolvesAgentPlugin(t *testing.T) {
-	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if strings.Contains(r.URL.Path, "/api/items/plug-critic") {
-			_, _ = w.Write([]byte(`{"id":"plug-critic","name":"Critic Plugin","metadata":{"install":{"method":"plugin_marketplace","plugin_name":"critic-plugin","marketplace":"repo/critic","marketplace_verified":true}}}`))
-			return
-		}
-		http.NotFound(w, r)
-	}))
-	defer upstream.Close()
-
 	dbtx := newPushTestDB(csCloudProvider, "device-123")
-	dbtx.agentPluginID = pgtype.Text{String: "plug-critic", Valid: true}
+	dbtx.agentPluginName = pgtype.Text{String: "cospowers-integration-verification", Valid: true}
 
 	svc := &TaskService{
 		Queries:                  db.New(dbtx),
 		Bus:                      events.New(),
-		BuiltinPluginAPIBaseURL:  upstream.URL,
 		CSCPluginMarketplaceName: "costrict-plugins",
 		CSCPluginMarketplaceRepo: "https://zgsmtest.xyz:30443/costrict-plugin-marketplace/marketplace.git",
 	}
@@ -1398,8 +1379,8 @@ func TestBuildCSCloudPayload_CriticResolvesAgentPlugin(t *testing.T) {
 	if payload.Plugin == nil || payload.Plugin.Install == nil {
 		t.Fatalf("critic payload should include agent plugin; got %+v", payload.Plugin)
 	}
-	if payload.Plugin.Install.PluginName != "critic-plugin" {
-		t.Errorf("plugin_name = %q, want critic-plugin", payload.Plugin.Install.PluginName)
+	if payload.Plugin.Install.PluginName != "cospowers-integration-verification" {
+		t.Errorf("plugin_name = %q, want cospowers-integration-verification", payload.Plugin.Install.PluginName)
 	}
 }
 
@@ -2494,60 +2475,44 @@ func TestRepositoryDeliverableEnv_RewritesInternalHostToPublic(t *testing.T) {
 }
 
 func TestResolveCSCloudAddons_PluginMarketplaceOverride(t *testing.T) {
-	// Stand up a fake catalog that returns one plugin item.
-	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if strings.Contains(r.URL.Path, "/api/items/") {
-			_, _ = w.Write([]byte(`{"id":"plug-1","name":"Superpowers","content":"be powerful","metadata":{"install":{"method":"plugin_marketplace","plugin_name":"superpowers","marketplace":"github","marketplace_name":"IGNORED","marketplace_repo":"IGNORED","marketplace_verified":true}}}`))
-			return
-		}
-		http.NotFound(w, r)
-	}))
-	defer upstream.Close()
-
+	// Plugin resolution is by NAME (the stored install slug), not a catalog
+	// lookup. The marketplace identity is server-owned config.
 	svc := &TaskService{
 		Queries:                  db.New(&resolveTestDB{}),
-		BuiltinPluginAPIBaseURL:  upstream.URL,
 		CSCPluginMarketplaceName: "costrict-plugins",
 		CSCPluginMarketplaceRepo: "https://github.com/costrict-plugins-repo/marketplace.git",
 	}
 
-	plugin, skills := svc.resolveCSCloudAddons(context.Background(), testUUID(7), pgtype.Text{String: "plug-1", Valid: true})
+	plugin, skills := svc.resolveCSCloudAddons(context.Background(), testUUID(7), pgtype.Text{String: "superpowers", Valid: true})
 
 	if plugin == nil {
-		t.Fatal("expected plugin to be resolved from catalog")
+		t.Fatal("expected plugin to be resolved from plugin_name")
 	}
-	if plugin.ID != "plug-1" || plugin.Name != "Superpowers" {
-		t.Errorf("plugin = %+v", plugin)
+	if plugin.Name != "superpowers" {
+		t.Errorf("plugin name = %q, want superpowers", plugin.Name)
 	}
 	if plugin.Install == nil || plugin.Install.PluginName != "superpowers" {
-		t.Errorf("plugin install name not carried from catalog: %+v", plugin.Install)
+		t.Errorf("plugin install name not carried from plugin_name: %+v", plugin.Install)
 	}
-	// Marketplace identity is server-owned and must override the catalog values.
+	// Marketplace identity is server-owned config, stamped regardless.
 	if plugin.Install.MarketplaceName != "costrict-plugins" {
-		t.Errorf("marketplace name = %q, want server override costrict-plugins", plugin.Install.MarketplaceName)
+		t.Errorf("marketplace name = %q, want server config costrict-plugins", plugin.Install.MarketplaceName)
 	}
 	if plugin.Install.MarketplaceRepo != "https://github.com/costrict-plugins-repo/marketplace.git" {
-		t.Errorf("marketplace repo = %q, want server override", plugin.Install.MarketplaceRepo)
+		t.Errorf("marketplace repo = %q, want server config", plugin.Install.MarketplaceRepo)
 	}
 	if len(skills) != 0 {
 		t.Errorf("expected no cloud skills, got %d", len(skills))
 	}
 }
 
-func TestResolveCSCloudAddons_CatalogMissLeavesPluginNil(t *testing.T) {
-	// Catalog reachable but plugin not found -> plugin nil, no error path.
-	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		http.NotFound(w, r)
-	}))
-	defer upstream.Close()
-
-	svc := &TaskService{
-		Queries:                 db.New(&resolveTestDB{}),
-		BuiltinPluginAPIBaseURL: upstream.URL,
-	}
-	plugin, _ := svc.resolveCSCloudAddons(context.Background(), testUUID(7), pgtype.Text{String: "missing", Valid: true})
+func TestResolveCSCloudAddons_EmptyPluginNameLeavesPluginNil(t *testing.T) {
+	// No plugin_name bound -> plugin nil, no error path. An agent without a
+	// plugin_name simply has no plugin (the intended "download by name" contract).
+	svc := &TaskService{Queries: db.New(&resolveTestDB{})}
+	plugin, _ := svc.resolveCSCloudAddons(context.Background(), testUUID(7), pgtype.Text{})
 	if plugin != nil {
-		t.Fatal("expected nil plugin on catalog miss")
+		t.Fatal("expected nil plugin when plugin_name empty")
 	}
 }
 
@@ -2566,7 +2531,7 @@ func TestResolveCSCloudAddons_CloudSkillsPassedThrough(t *testing.T) {
 			},
 		},
 	}
-	// No BuiltinPluginAPIBaseURL -> plugin resolution skipped cleanly.
+	// Empty plugin_name -> no plugin; cloud skills still pass through.
 	svc := &TaskService{Queries: db.New(mdb)}
 
 	plugin, skills := svc.resolveCSCloudAddons(context.Background(), testUUID(7), pgtype.Text{})

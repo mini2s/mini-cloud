@@ -46,6 +46,7 @@ type MulticaAgent struct {
 	ThinkingLevel      pgtype.Text        `json:"thinking_level"`
 	PluginID           pgtype.Text        `json:"plugin_id"`
 	IsBuiltin          bool               `json:"is_builtin"`
+	PluginName         pgtype.Text        `json:"plugin_name"`
 }
 
 type MulticaAgentAuditLog struct {

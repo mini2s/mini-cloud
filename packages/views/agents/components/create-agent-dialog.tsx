@@ -97,6 +97,7 @@ export function CreateAgentDialog({
     () => new Set(template?.skills.map((s) => s.id) ?? []),
   );
   const [pluginId, setPluginId] = useState(template?.plugin_id ?? "");
+  const [pluginName, setPluginName] = useState(template?.plugin_name ?? "");
   const [selectedCloudSkills, setSelectedCloudSkills] = useState<CatalogSkill[]>([]);
   const [creating, setCreating] = useState(false);
 
@@ -169,6 +170,7 @@ export function CreateAgentDialog({
         instructions: trimmedInstructions || undefined,
         avatar_url: avatarUrl ?? undefined,
         plugin_id: pluginId.trim() || undefined,
+        plugin_name: pluginName.trim() || undefined,
       };
       if (template) {
         // Duplicate path: forward the hidden config fields the source
@@ -384,7 +386,10 @@ export function CreateAgentDialog({
 
             <PluginSelect
               value={pluginId}
-              onChange={setPluginId}
+              onChange={(id, name) => {
+                setPluginId(id);
+                setPluginName(name);
+              }}
             />
 
             <CloudSkillSelect

@@ -150,6 +150,10 @@ export interface Agent {
   thinking_level?: string;
   /** External plugin bound to this agent. NULL when no plugin is set. */
   plugin_id: string | null;
+  /** Stable install slug of the bound plugin (e.g. "cospowers-integration-verification").
+   *  cs-cloud installs by this name. Optional — older backends may not return it
+   *  (API response compatibility); absence means the slug is unknown. */
+  plugin_name?: string | null;
   /** True when the agent is a global (cross-workspace) built-in agent. */
   is_builtin: boolean;
   owner_id: string | null;
@@ -189,6 +193,9 @@ export interface CreateAgentRequest {
   thinking_level?: string;
   /** Optional external plugin ID. Omitted/undefined = skip. */
   plugin_id?: string;
+  /** Optional install slug of the bound plugin (e.g. "cospowers-integration-verification").
+   *  Sent alongside plugin_id so the backend can install by name without a catalog lookup. */
+  plugin_name?: string;
   /** Optional template slug used by the onboarding agent picker. Surfaced
    *  as the `template` property on the `agent_created` PostHog event. */
   template?: string;
@@ -293,6 +300,11 @@ export interface UpdateAgentRequest {
    *   - non-empty → set to this ID
    */
   plugin_id?: string | null;
+  /**
+   * Install slug of the bound plugin. Tri-state like plugin_id; the picker
+   * sends both together (selecting sends the slug, clearing sends "").
+   */
+  plugin_name?: string | null;
 }
 
 // Skills
