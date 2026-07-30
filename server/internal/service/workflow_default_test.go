@@ -984,8 +984,8 @@ func TestUploadMemberDeliverable_PartialSetWaitsAndCarriesSummary(t *testing.T) 
 	`, runUUID, wfID, wsID, nodeID); err != nil {
 		t.Fatalf("seed run snapshot: %v", err)
 	}
-	seedRuntimeDeliverableRequirement(t, pool, nrUUID, nodeUUID, "document")
-	seedRuntimeDeliverableRequirement(t, pool, nrUUID, nodeUUID, "pull_request")
+	runtimeDocID := seedRuntimeDeliverableRequirement(t, pool, nrUUID, nodeUUID, "document")
+	runtimeCodeID := seedRuntimeDeliverableRequirement(t, pool, nrUUID, nodeUUID, "pull_request")
 
 	t.Cleanup(func() {
 		pool.Exec(ctx, `DELETE FROM multica_workflow WHERE workspace_id = $1`, wsID)
@@ -1013,7 +1013,7 @@ func TestUploadMemberDeliverable_PartialSetWaitsAndCarriesSummary(t *testing.T) 
 	files := []MemberDeliverableFile{{Name: "doc.md", Content: base64.StdEncoding.EncodeToString([]byte("# Doc\n"))}}
 
 	// 1. Document upload: recorded, but no advance while the code link is missing.
-	if err := svc.UploadMemberDeliverable(ctx, issue, files, "", userID, "done: docs"); err != nil {
+	if err := svc.UploadMemberDeliverable(ctx, issue, files, util.UUIDToString(runtimeDocID), userID, "done: docs"); err != nil {
 		t.Fatalf("UploadMemberDeliverable (partial set): %v", err)
 	}
 	if got := nodeRunStatus(t, pool, nrUUID); got != NodeRunStatusWorkerAssigned {
@@ -1021,7 +1021,7 @@ func TestUploadMemberDeliverable_PartialSetWaitsAndCarriesSummary(t *testing.T) 
 	}
 
 	// 2. Code upload: set complete → advances, and the output carries the summary.
-	if err := svc.UploadMemberDeliverablePR(ctx, issue, []string{"https://git.example/o/r/pulls/9"}, "", userID, "done: docs"); err != nil {
+	if err := svc.UploadMemberDeliverablePR(ctx, issue, []string{"https://git.example/o/r/pulls/9"}, util.UUIDToString(runtimeCodeID), userID, "done: docs"); err != nil {
 		t.Fatalf("UploadMemberDeliverablePR: %v", err)
 	}
 	got, err := svc.Queries.GetWorkflowNodeRun(ctx, nrUUID)

@@ -401,14 +401,7 @@ func (s *WorkflowService) ensureNodeRunBranch(ctx context.Context, nodeRun db.Mu
 	if err != nil {
 		return fmt.Errorf("list deliverables: %w", err)
 	}
-	hasDocument := false
-	for _, d := range deliverables {
-		if d.Kind == "document" {
-			hasDocument = true
-			break
-		}
-	}
-	if !hasDocument {
+	if len(deliverables) == 0 {
 		return nil
 	}
 
@@ -882,14 +875,12 @@ func (s *WorkflowService) mergeDeliverablePRs(ctx context.Context, nodeRun db.Mu
 	if err != nil {
 		return fmt.Errorf("list deliverables: %w", err)
 	}
-	// PR-backed kinds: document (file uploaded to a node→inst PR) and
-	// pull_request (code link wrapped in a node→inst PR). Both open a Gitea PR
-	// on submit, so both merge on approve.
-	isPRBacked := make(map[string]bool, len(deliverables))
+	// Build a set of deliverable IDs belonging to this node run. A submission
+	// is PR-backed when it has a non-empty PullRequestUrl — the kind column is
+	// no longer consulted.
+	deliverableIDs := make(map[string]bool, len(deliverables))
 	for _, d := range deliverables {
-		if d.Kind == "document" || d.Kind == "pull_request" {
-			isPRBacked[util.UUIDToString(d.ID)] = true
-		}
+		deliverableIDs[util.UUIDToString(d.ID)] = true
 	}
 
 	submissions, err := s.Queries.ListNodeRunDeliverableSubmissions(ctx, nodeRun.ID)
@@ -902,7 +893,7 @@ func (s *WorkflowService) mergeDeliverablePRs(ctx context.Context, nodeRun db.Mu
 		if sub.Status == "missing" || sub.Status == "rejected" {
 			continue
 		}
-		if !isPRBacked[util.UUIDToString(sub.DeliverableID)] || sub.PullRequestUrl == "" {
+		if !deliverableIDs[util.UUIDToString(sub.DeliverableID)] || sub.PullRequestUrl == "" {
 			continue
 		}
 		if err := s.mergeReviewURL(ctx, run.WorkspaceID, owner, repo, sub.PullRequestUrl); err != nil {
@@ -1081,11 +1072,9 @@ func (s *WorkflowService) markDeliverableSubmissionsApproved(ctx context.Context
 		slog.Warn("mark deliverable submissions approved: list deliverables", "error", err)
 		return
 	}
-	isPRBacked := make(map[string]bool, len(deliverables))
+	deliverableIDs := make(map[string]bool, len(deliverables))
 	for _, d := range deliverables {
-		if d.Kind == "document" || d.Kind == "pull_request" {
-			isPRBacked[util.UUIDToString(d.ID)] = true
-		}
+		deliverableIDs[util.UUIDToString(d.ID)] = true
 	}
 	subs, err := s.Queries.ListNodeRunDeliverableSubmissions(ctx, nodeRun.ID)
 	if err != nil {
@@ -1096,7 +1085,7 @@ func (s *WorkflowService) markDeliverableSubmissionsApproved(ctx context.Context
 		if sub.Status == "missing" || sub.Status == "rejected" {
 			continue
 		}
-		if isPRBacked[util.UUIDToString(sub.DeliverableID)] && sub.PullRequestUrl != "" {
+		if deliverableIDs[util.UUIDToString(sub.DeliverableID)] && sub.PullRequestUrl != "" {
 			if _, err := s.Queries.ReviewNodeRunDeliverableSubmission(ctx, db.ReviewNodeRunDeliverableSubmissionParams{
 				ID:            sub.ID,
 				Status:        "approved",
@@ -1207,24 +1196,23 @@ func (s *WorkflowService) runLockedMemberUpload(ctx context.Context, issue db.Mu
 // explicitly requested deliverableID when given (validated to belong to the
 // node run and to match the upload kind), otherwise the first requirement of
 // that kind — the legacy single-deliverable behavior.
-func resolveUploadDeliverable(deliverables []db.MulticaWorkflowNodeRunDeliverable, deliverableID, kind string) (db.MulticaWorkflowNodeRunDeliverable, error) {
+func resolveUploadDeliverable(deliverables []db.MulticaWorkflowNodeRunDeliverable, deliverableID string) (db.MulticaWorkflowNodeRunDeliverable, error) {
 	if deliverableID != "" {
 		for _, d := range deliverables {
 			if util.UUIDToString(d.ID) == deliverableID {
-				if d.Kind != kind {
-					return db.MulticaWorkflowNodeRunDeliverable{}, fmt.Errorf("deliverable %s is not a %s deliverable", deliverableID, kind)
-				}
 				return d, nil
 			}
 		}
 		return db.MulticaWorkflowNodeRunDeliverable{}, fmt.Errorf("deliverable %s not found on this node run", deliverableID)
 	}
-	for _, d := range deliverables {
-		if d.Kind == kind {
-			return d, nil
-		}
+	switch len(deliverables) {
+	case 0:
+		return db.MulticaWorkflowNodeRunDeliverable{}, fmt.Errorf("node has no deliverables")
+	case 1:
+		return deliverables[0], nil
+	default:
+		return db.MulticaWorkflowNodeRunDeliverable{}, fmt.Errorf("multiple deliverables; specify deliverable_id")
 	}
-	return db.MulticaWorkflowNodeRunDeliverable{}, fmt.Errorf("node has no %s deliverable", kind)
 }
 
 // recordMemberUploadAndAdvance records submissions using the transaction that
@@ -1313,7 +1301,7 @@ func (s *WorkflowService) UploadMemberDeliverablePR(ctx context.Context, issue d
 		if err != nil {
 			return db.MulticaWorkflowNodeRun{}, false, fmt.Errorf("list deliverables: %w", err)
 		}
-		deliverable, err := resolveUploadDeliverable(deliverables, deliverableID, "pull_request")
+		deliverable, err := resolveUploadDeliverable(deliverables, deliverableID)
 		if err != nil {
 			return db.MulticaWorkflowNodeRun{}, false, err
 		}
@@ -1429,7 +1417,7 @@ func (s *WorkflowService) UploadMemberDeliverable(ctx context.Context, issue db.
 		if err != nil {
 			return db.MulticaWorkflowNodeRun{}, false, fmt.Errorf("list deliverables: %w", err)
 		}
-		deliverable, err := resolveUploadDeliverable(deliverables, deliverableID, "document")
+		deliverable, err := resolveUploadDeliverable(deliverables, deliverableID)
 		if err != nil {
 			return db.MulticaWorkflowNodeRun{}, false, err
 		}

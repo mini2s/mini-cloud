@@ -2045,3 +2045,224 @@ func TestArchiveSubIssueAddress_NoOpCases(t *testing.T) {
 		}
 	})
 }
+
+// ---------------------------------------------------------------------------
+// T1: Kind-agnostic deliverable resolution + branch/merge/approve
+// ---------------------------------------------------------------------------
+
+// makeTestDeliverable builds a db.MulticaWorkflowNodeRunDeliverable with the
+// given ID and Title. The Kind column still exists in the DB but is no longer
+// consulted by the service layer.
+func makeTestDeliverable(idStr, title string) db.MulticaWorkflowNodeRunDeliverable {
+	id, _ := util.ParseUUID(idStr)
+	return db.MulticaWorkflowNodeRunDeliverable{
+		ID: id, Title: title, Kind: "document", // Kind is vestigial; callers ignore it
+	}
+}
+
+func TestResolveUploadDeliverable_KindAgnostic(t *testing.T) {
+	dA := makeTestDeliverable("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", "Alpha")
+	dB := makeTestDeliverable("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb", "Bravo")
+
+	t.Run("by_id_returns_matching", func(t *testing.T) {
+		got, err := resolveUploadDeliverable([]db.MulticaWorkflowNodeRunDeliverable{dA, dB}, util.UUIDToString(dA.ID))
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if util.UUIDToString(got.ID) != util.UUIDToString(dA.ID) {
+			t.Fatalf("got ID %s, want %s", util.UUIDToString(got.ID), util.UUIDToString(dA.ID))
+		}
+	})
+
+	t.Run("by_id_not_found", func(t *testing.T) {
+		_, err := resolveUploadDeliverable([]db.MulticaWorkflowNodeRunDeliverable{dA, dB}, "cccccccc-cccc-cccc-cccc-cccccccccccc")
+		if err == nil {
+			t.Fatal("expected error for unknown deliverable ID")
+		}
+	})
+
+	t.Run("no_id_single_deliverable_returns_it", func(t *testing.T) {
+		got, err := resolveUploadDeliverable([]db.MulticaWorkflowNodeRunDeliverable{dA}, "")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if util.UUIDToString(got.ID) != util.UUIDToString(dA.ID) {
+			t.Fatalf("got ID %s, want %s", util.UUIDToString(got.ID), util.UUIDToString(dA.ID))
+		}
+	})
+
+	t.Run("no_id_multiple_deliverables_errors", func(t *testing.T) {
+		_, err := resolveUploadDeliverable([]db.MulticaWorkflowNodeRunDeliverable{dA, dB}, "")
+		if err == nil {
+			t.Fatal("expected error for multiple deliverables without ID")
+		}
+		if !strings.Contains(err.Error(), "multiple deliverables") {
+			t.Fatalf("error %q should mention 'multiple deliverables'", err.Error())
+		}
+	})
+
+	t.Run("no_id_zero_deliverables_errors", func(t *testing.T) {
+		_, err := resolveUploadDeliverable([]db.MulticaWorkflowNodeRunDeliverable{}, "")
+		if err == nil {
+			t.Fatal("expected error for zero deliverables")
+		}
+	})
+}
+
+// TestEnsureNodeRunBranch_KindAgnostic verifies that ensureNodeRunBranch creates
+// a node branch when ANY deliverable exists (not just document-kind ones).
+func TestEnsureNodeRunBranch_KindAgnostic(t *testing.T) {
+	pool := openTestPool(t)
+	defer pool.Close()
+	ctx := context.Background()
+
+	fix := seedGiteaFixture(t, pool, false /*no document deliverable seeded*/, 1)
+	queries := db.New(pool)
+
+	// Seed a pull_request-kind deliverable on the node.
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO multica_workflow_node_deliverable (workflow_node_id, kind, title, required, sort_order)
+		VALUES ($1, 'pull_request', 'Code MR', TRUE, 0)
+	`, util.UUIDToString(fix.node)); err != nil {
+		t.Fatalf("seed pull_request deliverable: %v", err)
+	}
+
+	if _, err := pool.Exec(ctx,
+		`UPDATE multica_member SET subject_id = $1 WHERE workspace_id = $2`,
+		"usr-owner-"+util.UUIDToString(fix.workspace)[:8], fix.workspace,
+	); err != nil {
+		t.Fatalf("set member subject_id: %v", err)
+	}
+
+	var nodeRunID string
+	if err := pool.QueryRow(ctx, `
+		INSERT INTO multica_workflow_node_run (
+			workflow_run_id, workflow_node_id, node_title, status, worker_type, critic_type
+		)
+		VALUES ($1, $2, 'Code Node', 'format_ok', 'agent', 'human')
+		RETURNING id
+	`, fix.run1, fix.node).Scan(&nodeRunID); err != nil {
+		t.Fatalf("seed node run: %v", err)
+	}
+	nodeRunUUID, _ := util.ParseUUID(nodeRunID)
+
+	// Seed a runtime deliverable requirement for the pull_request kind.
+	seedRuntimeDeliverableRequirement(t, pool, nodeRunUUID, fix.node, "pull_request")
+
+	nodeRun, err := queries.GetWorkflowNodeRun(ctx, nodeRunUUID)
+	if err != nil {
+		t.Fatalf("get node run: %v", err)
+	}
+
+	tnSrv, _ := newTeamNamespaceTestServer(t)
+	defer tnSrv.Close()
+	tnClient := teamnamespace.NewClient(teamnamespace.Config{BaseURL: tnSrv.URL, Token: "svc-token"})
+	spy := &spyRepoProvider{configured: true}
+	svc := &WorkflowService{
+		Queries:            queries,
+		TeamNamespace:      tnClient,
+		RepositoryProvider: spy,
+	}
+
+	if err := svc.ensureNodeRunBranch(ctx, nodeRun); err != nil {
+		t.Fatalf("ensureNodeRunBranch with non-document deliverable: %v", err)
+	}
+
+	// Assert a branch was created.
+	if got := len(spy.branchCalls()); got != 1 {
+		t.Fatalf("branch calls = %d, want exactly 1", got)
+	}
+}
+
+// TestMergeAndApprove_KindAgnostic verifies that mergeDeliverablePRs and
+// markDeliverableSubmissionsApproved process submissions based on a non-empty
+// pull_request_url, regardless of the deliverable's kind column.
+func TestMergeAndApprove_KindAgnostic(t *testing.T) {
+	pool := openTestPool(t)
+	defer pool.Close()
+	ctx := context.Background()
+
+	fix := seedGiteaFixture(t, pool, false /*no document deliverable seeded*/, 1)
+
+	// Seed two template-level deliverables: one 'document', one 'pull_request'.
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO multica_workflow_node_deliverable (workflow_node_id, kind, title, required, sort_order)
+		VALUES ($1, 'document', 'Doc', TRUE, 0)
+	`, util.UUIDToString(fix.node)); err != nil {
+		t.Fatalf("seed document deliverable: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO multica_workflow_node_deliverable (workflow_node_id, kind, title, required, sort_order)
+		VALUES ($1, 'pull_request', 'Code', TRUE, 1)
+	`, util.UUIDToString(fix.node)); err != nil {
+		t.Fatalf("seed pull_request deliverable: %v", err)
+	}
+
+	// Create a critic_reviewing node run.
+	var nodeRunID string
+	if err := pool.QueryRow(ctx, `
+		INSERT INTO multica_workflow_node_run (workflow_run_id, workflow_node_id, node_title, status, worker_type, critic_type)
+		VALUES ($1, $2, 'Review Node', 'critic_reviewing', 'agent', 'human')
+		RETURNING id
+	`, util.UUIDToString(fix.run1), util.UUIDToString(fix.node)).Scan(&nodeRunID); err != nil {
+		t.Fatalf("seed node run: %v", err)
+	}
+	nrID, _ := util.ParseUUID(nodeRunID)
+
+	// Seed runtime deliverable requirements (template → runtime copy).
+	runtimeDocID := seedRuntimeDeliverableRequirement(t, pool, nrID, fix.node, "document")
+	runtimeCodeID := seedRuntimeDeliverableRequirement(t, pool, nrID, fix.node, "pull_request")
+
+	giteaSrv, mergeCalls := fakeGiteaMergeServer(t, http.StatusOK)
+	svc := &WorkflowService{
+		Queries:   db.New(pool),
+		TxStarter: pool,
+		Bus:       events.New(),
+		Gitea:     gitea.NewClient(gitea.Config{BaseURL: giteaSrv.URL, Token: "admin-tok"}),
+	}
+
+	docPRURL := giteaSrv.URL + "/owner/repo/pulls/10"
+	codePRURL := giteaSrv.URL + "/owner/repo/pulls/11"
+
+	// Insert submissions using the RUNTIME deliverable IDs (FK requirement).
+	for _, s := range []struct {
+		deliverable pgtype.UUID
+		url         string
+	}{
+		{runtimeDocID, docPRURL},
+		{runtimeCodeID, codePRURL},
+	} {
+		if _, err := pool.Exec(ctx, `
+			INSERT INTO multica_workflow_node_deliverable_submission (
+				workflow_node_run_id, deliverable_id, submitted_by_type, status, content, pull_request_url)
+			VALUES ($1, $2, 'system', 'submitted', 'body', $3)
+		`, nodeRunID, util.UUIDToString(s.deliverable), s.url); err != nil {
+			t.Fatalf("seed submission: %v", err)
+		}
+	}
+
+	// Approve -> both submissions should be marked approved and both PRs merged.
+	if err := svc.ReviewNodeRun(ctx, nrID, true /*approved*/, "lgtm", nil); err != nil {
+		t.Fatalf("ReviewNodeRun: %v", err)
+	}
+
+	if got := nodeRunStatus(t, pool, nrID); got != NodeRunStatusCompleted {
+		t.Fatalf("node run status = %q, want %q", got, NodeRunStatusCompleted)
+	}
+
+	// Both PRs should have been merged (2 merge calls).
+	if *mergeCalls != 2 {
+		t.Fatalf("merge calls = %d, want 2 (one for each PR-backed submission)", *mergeCalls)
+	}
+
+	// Both submissions should be approved.
+	querySubs, err := svc.Queries.ListNodeRunDeliverableSubmissions(ctx, nrID)
+	if err != nil {
+		t.Fatalf("list submissions: %v", err)
+	}
+	for _, sub := range querySubs {
+		if sub.Status != "approved" {
+			t.Fatalf("submission %s status = %q, want %q", util.UUIDToString(sub.ID), sub.Status, "approved")
+		}
+	}
+}
