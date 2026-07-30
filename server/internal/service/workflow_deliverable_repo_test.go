@@ -1778,7 +1778,7 @@ func TestAutoSubmit_AnySingleRequiredDeliverable(t *testing.T) {
 		output := json.RawMessage(`{"output":"review at ` + mrURL + `"}`)
 
 		q := db.New(pool)
-		if err := autoSubmitSinglePullRequestDeliverable(ctx, q, db.MulticaWorkflowNodeRun{
+		if err := autoSubmitSingleRequiredDeliverable(ctx, q, db.MulticaWorkflowNodeRun{
 			ID: nrID, WorkerID: pgtype.UUID{Bytes: [16]byte{}, Valid: false},
 		}, output); err != nil {
 			t.Fatalf("autoSubmit: %v", err)
@@ -1833,7 +1833,7 @@ func TestAutoSubmit_AnySingleRequiredDeliverable(t *testing.T) {
 		output := json.RawMessage(`{"output":"review at ` + mrURL + `"}`)
 
 		q := db.New(pool)
-		if err := autoSubmitSinglePullRequestDeliverable(ctx, q, db.MulticaWorkflowNodeRun{
+		if err := autoSubmitSingleRequiredDeliverable(ctx, q, db.MulticaWorkflowNodeRun{
 			ID: nrID,
 		}, output); err != nil {
 			t.Fatalf("autoSubmit: %v", err)

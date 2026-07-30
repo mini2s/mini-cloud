@@ -1012,7 +1012,7 @@ func (s *WorkflowService) SubmitWorkerOutput(ctx context.Context, nodeRunID pgty
 		if nr.Status != NodeRunStatusWorking && nr.Status != NodeRunStatusWorkerAssigned {
 			return fmt.Errorf("node run is not in worker phase (status=%s)", nr.Status)
 		}
-		if err := autoSubmitSinglePullRequestDeliverable(ctx, qtx, nr, output); err != nil {
+		if err := autoSubmitSingleRequiredDeliverable(ctx, qtx, nr, output); err != nil {
 			return fmt.Errorf("auto-submit pull_request deliverable: %w", err)
 		}
 		if satisfied, err := requiredDeliverablesSatisfiedWithQueries(ctx, qtx, nr); err != nil {
@@ -1106,7 +1106,7 @@ func extractPullRequestURLFromWorkerOutput(output json.RawMessage) string {
 	return ""
 }
 
-func autoSubmitSinglePullRequestDeliverable(ctx context.Context, q *db.Queries, nodeRun db.MulticaWorkflowNodeRun, output json.RawMessage) error {
+func autoSubmitSingleRequiredDeliverable(ctx context.Context, q *db.Queries, nodeRun db.MulticaWorkflowNodeRun, output json.RawMessage) error {
 	prURL := extractPullRequestURLFromWorkerOutput(output)
 	if prURL == "" {
 		return nil
