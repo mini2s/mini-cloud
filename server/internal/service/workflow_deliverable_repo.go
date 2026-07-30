@@ -9,6 +9,8 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/url"
+	"os"
 	"path"
 	"strings"
 	"time"
@@ -841,6 +843,112 @@ func (s *WorkflowService) readGiteaCloneURL(ctx context.Context, workspaceID pgt
 		}
 	}
 	return strings.TrimSpace(bundle.GiteaCloneURL), nil
+}
+
+// isArchiveGiteaURL reports whether rawURL points at the internal archive
+// Gitea (scheme+host exact-match GITEA_BASE_URL). Used to tell a Gitea doc-PR
+// submission apart from an external code-MR submission when rebuilding the
+// node's code-links archive. Returns false when GITEA_BASE_URL is unset.
+func isArchiveGiteaURL(rawURL string) bool {
+	rawURL = strings.TrimSpace(rawURL)
+	internalBase := strings.TrimSpace(os.Getenv("GITEA_BASE_URL"))
+	if rawURL == "" || internalBase == "" {
+		return false
+	}
+	u, err := url.Parse(rawURL)
+	if err != nil || u.Scheme == "" || u.Host == "" {
+		return false
+	}
+	in, err := url.Parse(internalBase)
+	if err != nil || in.Scheme == "" || in.Host == "" {
+		return false
+	}
+	return u.Scheme == in.Scheme && u.Host == in.Host
+}
+
+// codeLinksArchiveFile is the single file under a node-run's NodeDir that lists
+// every external code-MR link submitted against that node-run. CJK is safe in
+// in-repo paths (git stores bytes, Gitea renders UTF-8).
+const codeLinksArchiveFile = "代码合并请求.md"
+
+// ArchiveNodeCodeLinks rebuilds the node-run's code-MR-links archive file on
+// the node branch (NodeBranch) and (re)opens the node PR (NodeBranch → inst).
+// It collects every submission on the node-run whose pull_request_url is an
+// EXTERNAL code MR (not the archive Gitea) — human- and agent-submitted links
+// accumulate in one .md under one node PR (reused across submissions).
+//
+// Best-effort + fire-and-forget (callers run it in a goroutine): dormant when
+// the repository provider is not configured; errors are logged, never
+// returned. Idempotent: the .md is fully rebuilt from current submissions, and
+// OpenReviewRequest reuses an existing open PR. The node PR URL is NOT stored
+// on any submission — the archive is the deliverable's 合并请求; the displayed
+// link stays the real code MR so users can merge it themselves.
+func (s *WorkflowService) ArchiveNodeCodeLinks(ctx context.Context, nodeRunID pgtype.UUID) {
+	repoProvider := s.deliverableRepository()
+	if !repoProvider.Configured() {
+		return
+	}
+	nodeRun, err := s.Queries.GetWorkflowNodeRun(ctx, nodeRunID)
+	if err != nil {
+		slog.Warn("archive node code links: get node run", "node_run_id", util.UUIDToString(nodeRunID), "error", err)
+		return
+	}
+	run, err := s.Queries.GetWorkflowRun(ctx, nodeRun.WorkflowRunID)
+	if err != nil {
+		slog.Warn("archive node code links: get run", "error", err)
+		return
+	}
+	workflow, err := s.workflowFromRunSnapshot(ctx, run)
+	if err != nil {
+		slog.Warn("archive node code links: get snapshot", "error", err)
+		return
+	}
+	submissions, err := s.Queries.ListNodeRunDeliverableSubmissions(ctx, nodeRun.ID)
+	if err != nil {
+		slog.Warn("archive node code links: list submissions", "error", err)
+		return
+	}
+	var links []string
+	for _, sub := range submissions {
+		if sub.Status == "missing" || sub.Status == "rejected" {
+			continue
+		}
+		if sub.PullRequestUrl == "" || isArchiveGiteaURL(sub.PullRequestUrl) {
+			continue
+		}
+		links = append(links, sub.PullRequestUrl)
+	}
+	if len(links) == 0 {
+		return
+	}
+
+	topo, err := NodeTopoOrder(ctx, s.Queries, run.WorkflowID)
+	if err != nil {
+		slog.Warn("archive node code links: node topo order", "error", err)
+		return
+	}
+	nodeSeq := topo[util.UUIDToString(nodeRun.WorkflowNodeID)]
+	owner := gitea.OrgName(util.UUIDToString(run.WorkspaceID))
+	repo := DeliverableRepoNameForWorkflow(workflow)
+	inst := gitea.InstBranch(util.UUIDToString(run.ID))
+	nodeBranch := gitea.NodeBranch(nodeSeq, util.UUIDToString(nodeRun.ID))
+	filePath := gitea.NodeDir(nodeSeq, nodeRun.NodeTitle, util.UUIDToString(nodeRun.ID)) + "/" + codeLinksArchiveFile
+
+	var b strings.Builder
+	fmt.Fprintf(&b, "---\nnode_run: %s\nlinks: %d\n---\n\n## 代码合并请求\n\n", util.UUIDToString(nodeRun.ID), len(links))
+	for _, l := range links {
+		fmt.Fprintf(&b, "- %s\n", l)
+	}
+	if err := repoProvider.UpsertFile(ctx, owner, repo, nodeBranch, filePath, b.String(), "archive code MR links"); err != nil {
+		slog.Warn("archive node code links: write file", "node_run_id", util.UUIDToString(nodeRun.ID), "path", filePath, "error", err)
+		return
+	}
+	_ = repoProvider.CreateBranch(ctx, owner, repo, nodeBranch, inst)
+	if _, err := repoProvider.OpenReviewRequest(ctx, owner, repo, nodeBranch, inst, "node code MR links"); err != nil {
+		slog.Warn("archive node code links: open review request", "node_run_id", util.UUIDToString(nodeRun.ID), "error", err)
+		return
+	}
+	slog.Info("archived node code links", "node_run_id", util.UUIDToString(nodeRun.ID), "links", len(links), "path", filePath)
 }
 
 // shortHexSafe returns the first 8 hex chars of a UUID string, or the full
