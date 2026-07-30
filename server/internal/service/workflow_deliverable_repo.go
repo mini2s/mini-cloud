@@ -974,57 +974,6 @@ func (s *WorkflowService) gitlabAccessToken(ctx context.Context, workspaceID pgt
 	return strings.TrimSpace(settings.GitlabAccessToken), nil
 }
 
-// closeDeliverableReviewRequests closes the node-run's Gitea PRs after a
-// critic rejection, so a stale PR doesn't linger into the next retry round
-// (the worker opens a fresh one). Dispatch is by URL host: if
-// gitea.ParsePullRequestIndex succeeds the PR is Gitea-hosted and gets closed;
-// GitLab MRs (and unparseable URLs) are deliberately NOT closed — the worker
-// revises them in place across retries via findOpenPR. Best-effort: failures
-// are logged and never block the rework/blocked transition (closing is
-// cleanup, not a gate on the review outcome). Dormant when no provider is
-// configured.
-func (s *WorkflowService) closeDeliverableReviewRequests(ctx context.Context, nodeRun db.MulticaWorkflowNodeRun) {
-	provider := s.deliverableRepository()
-	if !provider.Configured() {
-		return // dormant — nothing to close against
-	}
-	run, err := s.Queries.GetWorkflowRun(ctx, nodeRun.WorkflowRunID)
-	if err != nil {
-		slog.Warn("close deliverable PRs: get run", "error", err)
-		return
-	}
-	workflow, err := s.Queries.GetWorkflow(ctx, run.WorkflowID)
-	if err != nil {
-		slog.Warn("close deliverable PRs: get workflow", "error", err)
-		return
-	}
-	owner := gitea.OrgName(util.UUIDToString(run.WorkspaceID))
-	repo := DeliverableRepoNameForWorkflow(workflow)
-
-	submissions, err := s.Queries.ListNodeRunDeliverableSubmissions(ctx, nodeRun.ID)
-	if err != nil {
-		slog.Warn("close deliverable PRs: list submissions", "error", err)
-		return
-	}
-	for _, sub := range submissions {
-		if sub.PullRequestUrl == "" {
-			continue
-		}
-		index, err := gitea.ParsePullRequestIndex(sub.PullRequestUrl)
-		if err != nil {
-			// GitLab MR or unparseable URL — skip (worker revises in place).
-			// Debug (not Warn): GitLab MR URLs always fail this parse, so Warn
-			// would be noisy; Debug keeps a breadcrumb for genuinely malformed
-			// Gitea URLs without spamming on every rejected code MR.
-			slog.Debug("close deliverable PR: skip unparseable url", "url", sub.PullRequestUrl)
-			continue
-		}
-		if err := provider.CloseReviewRequest(ctx, owner, repo, index); err != nil {
-			slog.Warn("close deliverable PR failed (best-effort)", "index", index, "error", err)
-		}
-	}
-}
-
 // retryMergeDocPR calls MergePR with bounded backoff. A 409 conflict
 // (gitea.ErrMergeConflict) is terminal — returned immediately, no retry. Other
 // errors (5xx, network) are retried up to maxAttempts with exponential backoff.

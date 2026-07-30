@@ -1258,9 +1258,6 @@ func (s *WorkflowService) ReviewNodeRun(ctx context.Context, nodeRunID pgtype.UU
 		}
 		s.ArchiveReviewComment(context.Background(), nodeRun, decision, comment)
 	}
-	if !approved {
-		s.closeDeliverableReviewRequests(context.Background(), nodeRun)
-	}
 
 	// Approve path: the tx persisted critic_approved. Merge deliverable review
 	// requests, then complete or block on merge failure. UpdateWorkflowNodeRunStatus is called DIRECTLY (not
