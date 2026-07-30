@@ -28,8 +28,8 @@ func newActiveRunDeleteFixture(t *testing.T) activeRunDeleteFixture {
 	var deliverableID string
 	if err := testPool.QueryRow(ctx, `
 		INSERT INTO multica_workflow_node_deliverable
-			(workflow_node_id, kind, title, description, required, sort_order)
-		VALUES ($1, 'document', 'Captured deliverable', '', true, 0)
+			(workflow_node_id, title, description, required, sort_order)
+		VALUES ($1, 'Captured deliverable', '', true, 0)
 		RETURNING id
 	`, nodeID).Scan(&deliverableID); err != nil {
 		t.Fatal(err)
@@ -82,8 +82,8 @@ func newActiveRunDeleteFixture(t *testing.T) activeRunDeleteFixture {
 	}
 	if _, err := testPool.Exec(ctx, `
 		INSERT INTO multica_workflow_node_run_deliverable
-			(workflow_node_run_id, source_deliverable_id, kind, title, description, required, sort_order)
-		VALUES ($1, $2, 'document', 'Captured deliverable', '', true, 0)
+			(workflow_node_run_id, source_deliverable_id, title, description, required, sort_order)
+		VALUES ($1, $2, 'Captured deliverable', '', true, 0)
 	`, nodeRunID, deliverableID); err != nil {
 		t.Fatal(err)
 	}

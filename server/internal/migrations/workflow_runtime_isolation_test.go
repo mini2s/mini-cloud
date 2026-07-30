@@ -254,8 +254,8 @@ func (d *migrationTestDatabase) seedLegacyWorkflowRun(t *testing.T, status strin
 	var deliverableID string
 	if err := d.pool.QueryRow(ctx, `
 		INSERT INTO multica_workflow_node_deliverable (
-			workflow_node_id, kind, title, description, required, sort_order
-		) VALUES ($1, 'document', 'Legacy report', 'Original requirement', true, 0)
+			workflow_node_id, title, description, required, sort_order
+		) VALUES ($1, 'Legacy report', 'Original requirement', true, 0)
 		RETURNING id
 	`, nodeIDs[0]).Scan(&deliverableID); err != nil {
 		t.Fatalf("seed deliverable: %v", err)

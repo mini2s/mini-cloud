@@ -1083,7 +1083,7 @@ func (m *mockRowsNodeRunDeliverables) Conn() *pgx.Conn                          
 func (m *mockRowsNodeRunDeliverables) Scan(dest ...any) error {
 	r := &m.rows[m.idx]
 	vals := []any{
-		&r.ID, &r.WorkflowNodeRunID, &r.SourceDeliverableID,r.ID, &r.WorkflowNodeRunID, &r.SourceDeliverableID,
+		&r.ID, &r.WorkflowNodeRunID, &r.SourceDeliverableID,
 		&r.Title, &r.Description, &r.Required,
 		&r.SortOrder, &r.CreatedAt,
 	}
