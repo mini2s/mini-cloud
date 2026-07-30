@@ -440,7 +440,6 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 		r.Post("/runtimes/{runtimeId}/recover-orphans", h.RecoverOrphanedTasks)
 		r.Post("/tasks/{taskId}/session", h.PinTaskSession)
 		r.Post("/node-runs/{nodeRunId}/session", h.BindNodeRunSession)
-		r.Post("/node-runs/{nodeRunId}/deliverables/{deliverableId}/report-pr", h.HandleReportDeliverablePR)
 		// Gitea deliverables by issue (agent-facing read path). Resolve an issue
 		// by UUID or <PREFIX>-<number> and return its workflow deliverable
 		// context — optionally recursively for all descendant issues

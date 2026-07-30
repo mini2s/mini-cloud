@@ -4,12 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/multica-ai/multica/server/internal/gitea"
+	"github.com/multica-ai/multica/server/internal/gitlab"
 	"github.com/multica-ai/multica/server/internal/service"
 	db "github.com/multica-ai/multica/server/pkg/db/generated"
 	"github.com/multica-ai/multica/server/pkg/protocol"
@@ -1076,32 +1076,11 @@ func workflowNodeDeliverableSubmissionToResponse(s db.MulticaWorkflowNodeDeliver
 	}
 }
 
-// errDeliverableNotFound is returned by deliverableKind when the deliverable
-// exists in neither this node run's node nor its siblings. Distinct from the
-// DB-error case so the caller can map it to 404 instead of masking 500s.
-var errDeliverableNotFound = errors.New("deliverable not found on this node run")
-
-// deliverableKind resolves the kind of the deliverable submitted against the
-// given node run. Used to gate document deliverables out of the inline-content
-// upload path — document bodies live in Gitea (submitted via the report-pr
-// flow) once the platform Gitea is configured.
-func (h *Handler) deliverableKind(ctx context.Context, nodeRunID, deliverableID pgtype.UUID) (string, error) {
-	requirement, err := h.Queries.GetNodeRunDeliverableRequirementForSubmission(ctx, db.GetNodeRunDeliverableRequirementForSubmissionParams{
-		ID: deliverableID, WorkflowNodeRunID: nodeRunID,
-	})
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return "", errDeliverableNotFound
-		}
-		return "", fmt.Errorf("get deliverable requirement: %w", err)
-	}
-	return requirement.Kind, nil
-}
 
 func workflowNodeRunDeliverableToResponse(d db.MulticaWorkflowNodeRunDeliverable, sourceNodeID pgtype.UUID) WorkflowNodeDeliverableResponse {
 	createdAt := timestampToString(d.CreatedAt)
 	return WorkflowNodeDeliverableResponse{
-		ID: uuidToString(d.ID), WorkflowNodeID: uuidToString(sourceNodeID), Kind: d.Kind,
+		ID: uuidToString(d.ID), WorkflowNodeID: uuidToString(sourceNodeID),
 		Title: d.Title, Description: d.Description, Required: d.Required, SortOrder: d.SortOrder,
 		CreatedAt: createdAt, UpdatedAt: createdAt,
 	}
@@ -1129,8 +1108,7 @@ func (h *Handler) ListNodeRunDeliverableSubmissions(w http.ResponseWriter, r *ht
 	}
 
 	// Also return the node-run's captured requirements so the frontend can
-	// render the right manual-upload control (file picker vs PR-link input)
-	// before any submission exists.
+	// render the right manual-upload control before any submission exists.
 	out := map[string]any{"submissions": resp}
 	if nodeRun, err := h.Queries.GetWorkflowNodeRun(r.Context(), nrUUID); err == nil {
 		if requirements, err := h.Queries.ListNodeRunDeliverableRequirements(r.Context(), nodeRun.ID); err == nil {
@@ -1164,25 +1142,14 @@ func (h *Handler) SubmitNodeRunDeliverable(w http.ResponseWriter, r *http.Reques
 		writeError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
-	kind, err := h.deliverableKind(r.Context(), nrUUID, dUUID)
-	if err != nil {
-		if errors.Is(err, errDeliverableNotFound) {
-			writeError(w, http.StatusNotFound, "deliverable not found")
-		} else {
-			writeError(w, http.StatusInternalServerError, "failed to load deliverable")
-		}
-		return
-	}
-
-	// Document deliverables are submitted via Gitea PRs (the agent's report-pr
-	// flow), not inline content uploads — but only when the platform Gitea is
-	// configured. When dormant, document content uploads behave as before.
+	// When the platform Gitea is configured, all deliverables are submitted via
+	// git PRs (pull_request_url). Inline content/attachment uploads are
+	// disabled for every deliverable kind. When Gitea is dormant, inline
+	// content is accepted as before.
 	if isGiteaConfigured() && (req.Content != "" || req.AttachmentID != nil) {
-		if kind == "document" {
-			writeError(w, http.StatusUnprocessableEntity,
-				"document deliverables are submitted via git PR; inline content upload is disabled")
-			return
-		}
+		writeError(w, http.StatusUnprocessableEntity,
+			"deliverables are submitted via git PR; inline content upload is disabled")
+		return
 	}
 
 	// Derive submitted_by from the authenticated user
@@ -1208,21 +1175,24 @@ func (h *Handler) SubmitNodeRunDeliverable(w http.ResponseWriter, r *http.Reques
 	}
 
 	// M5: archive the code MR pointer into the run's Gitea repo (best-effort,
-	// async — never blocks the submission response). Only pull_request-kind
-	// deliverables carry a worker's MR URL worth archiving — document
-	// deliverables go via git PR on /report-pr and don't enter this archive path.
-	// The kind guard is defense-in-depth at this API boundary: an off-spec caller
-	// posting a document deliverable's PR URL to /submit must NOT write a stray
-	// code/<id>.md pointer.
+	// async — never blocks the submission response). Only GitLab MR URLs are
+	// archived as code/<id>.md pointers; Gitea PRs are managed via the review
+	// merge flow and don't need a separate pointer file.
 	if req.PullRequestURL != "" && h.WorkflowService != nil {
-		if nr, err := h.Queries.GetWorkflowNodeRun(r.Context(), nrUUID); err == nil {
-			if deliverables, err := h.Queries.ListWorkflowNodeDeliverables(r.Context(), nr.WorkflowNodeID); err == nil {
-				for _, d := range deliverables {
-					if d.ID == dUUID && d.Kind == "pull_request" {
-						d := d // capture for the goroutine
-						go h.WorkflowService.ArchiveCodeDeliverable(
-							context.Background(), nr, d, req.PullRequestURL, "", "", "")
-						break
+		// Gitea PR URL → skip (managed by review merge flow).
+		if _, err := gitea.ParsePullRequestIndex(req.PullRequestURL); err == nil {
+			// Gitea-hosted — no archive needed.
+		} else if _, err := gitlab.ParseMergeRequestURL(req.PullRequestURL); err == nil {
+			// GitLab-hosted MR → archive the pointer.
+			if nr, err := h.Queries.GetWorkflowNodeRun(r.Context(), nrUUID); err == nil {
+				if deliverables, err := h.Queries.ListWorkflowNodeDeliverables(r.Context(), nr.WorkflowNodeID); err == nil {
+					for _, d := range deliverables {
+						if d.ID == dUUID {
+							d := d // capture for the goroutine
+							go h.WorkflowService.ArchiveCodeDeliverable(
+								context.Background(), nr, d, req.PullRequestURL, "", "", "")
+							break
+						}
 					}
 				}
 			}

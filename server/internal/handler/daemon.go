@@ -1807,11 +1807,11 @@ func (h *Handler) buildUpstreamStageContext(ctx context.Context, task db.Multica
 }
 
 // buildGiteaDeliverableContext attaches the platform-Gitea context the daemon
-// + CLI need to push document deliverables, when (a) Gitea is configured, (b)
-// the task executes a workflow node-run, and (c) that node has ≥1 document
-// deliverable. Returns nil otherwise (dormant). Errors are swallowed (nil
-// return) — a transient DB blip here must not break the claim; the agent would
-// simply lack the Gitea context and the run surfaces a clone failure later.
+// + CLI need to push deliverables, when (a) Gitea is configured, (b) the task
+// executes a workflow node-run, and (c) that node has ≥1 deliverable.
+// Returns nil otherwise (dormant). Errors are swallowed (nil return) — a
+// transient DB blip here must not break the claim; the agent would simply lack
+// the Gitea context and the run surfaces a clone failure later.
 func (h *Handler) buildGiteaDeliverableContext(ctx context.Context, task db.MulticaAgentTaskQueue) *GiteaDeliverableContext {
 	if !isGiteaConfigured() || !task.WorkflowNodeRunID.Valid {
 		return nil
@@ -1822,8 +1822,8 @@ func (h *Handler) buildGiteaDeliverableContext(ctx context.Context, task db.Mult
 // giteaContextForNodeRun builds the Gitea deliverable context for an arbitrary
 // node-run (the task's own, or any other — used by the gitea-context endpoint
 // so an agent can read another node's deliverables). Returns nil if Gitea is
-// unconfigured, the node-run/run can't be loaded, or the node has no document
-// deliverables. Errors are swallowed (caller decides 404 vs nil-context).
+// unconfigured, the node-run/run can't be loaded, or the node has no deliverables.
+// Errors are swallowed (caller decides 404 vs nil-context).
 func (h *Handler) giteaContextForNodeRun(ctx context.Context, nodeRunID pgtype.UUID) *GiteaDeliverableContext {
 	if !isGiteaConfigured() || !nodeRunID.Valid {
 		return nil
@@ -1849,9 +1849,6 @@ func (h *Handler) giteaContextForNodeRun(ctx context.Context, nodeRunID pgtype.U
 	nodeRunIDStr := util.UUIDToString(nr.ID)
 	var refs []GiteaDeliverableRef
 	for _, d := range deliverables {
-		if d.Kind != "document" {
-			continue
-		}
 		refs = append(refs, GiteaDeliverableRef{
 			ID:    util.UUIDToString(d.ID),
 			Title: d.Title,
