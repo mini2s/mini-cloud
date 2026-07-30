@@ -541,7 +541,7 @@ func (s *TaskService) resolveDeliveryRepo(ctx context.Context, workspaceID pgtyp
 		return csCloudRepoSpec{}, false
 	}
 	return csCloudRepoSpec{
-		URL:        rewriteGiteaHostToPublic(bundle.GiteaCloneURL),
+		URL:        RewriteGiteaHostToPublic(bundle.GiteaCloneURL),
 		Provider:   "gitea",
 		Role:       "delivery",
 		BaseBranch: strings.TrimSpace(bundle.InstBranch),
@@ -853,7 +853,7 @@ func (s *TaskService) repositoryDeliverableEnv(ctx context.Context, task db.Mult
 	// matches; fall back to self-assembly only when pre-provisioning.
 	var cloneURL string
 	if strings.TrimSpace(settingsCloneURL) != "" {
-		cloneURL = rewriteGiteaHostToPublic(settingsCloneURL)
+		cloneURL = RewriteGiteaHostToPublic(settingsCloneURL)
 	} else {
 		cloneURL = strings.TrimRight(publicBase, "/") + "/" + owner + "/" + repo + ".git"
 	}
@@ -861,7 +861,7 @@ func (s *TaskService) repositoryDeliverableEnv(ctx context.Context, task db.Mult
 	// PR API targets); fall back to GITEA_PUBLIC_BASE_URL.
 	var baseURL string
 	if strings.TrimSpace(settingsWebURL) != "" {
-		baseURL = strings.TrimRight(rewriteGiteaHostToPublic(settingsWebURL), "/")
+		baseURL = strings.TrimRight(RewriteGiteaHostToPublic(settingsWebURL), "/")
 	} else {
 		baseURL = strings.TrimRight(publicBase, "/")
 	}
@@ -933,7 +933,7 @@ func injectGiteaToken(cloneURL, botUser, token string) string {
 	return u.String()
 }
 
-// rewriteGiteaHostToPublic swaps a Gitea URL's scheme+host+port from the
+// RewriteGiteaHostToPublic swaps a Gitea URL's scheme+host+port from the
 // container-internal GITEA_BASE_URL to the caller-reachable
 // GITEA_PUBLIC_BASE_URL, preserving the path. costrict-web's team-namespace
 // service emits wf_clone_url using its single (internal) tenant git-server
@@ -950,7 +950,7 @@ func injectGiteaToken(cloneURL, botUser, token string) string {
 // (CS_CLOUD_REPO_CLONE_URL) run settings.gitea_clone_url through this helper,
 // so the cross-repo EXACT-equality contract (cs-cloud lookupRepoRole) is
 // preserved: both sides get the SAME rewritten public URL.
-func rewriteGiteaHostToPublic(rawURL string) string {
+func RewriteGiteaHostToPublic(rawURL string) string {
 	rawURL = strings.TrimSpace(rawURL)
 	publicBase := strings.TrimSpace(os.Getenv("GITEA_PUBLIC_BASE_URL"))
 	internalBase := strings.TrimSpace(os.Getenv("GITEA_BASE_URL"))

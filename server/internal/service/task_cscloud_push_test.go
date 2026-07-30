@@ -2478,7 +2478,7 @@ func TestRepositoryDeliverableEnv_FallsBackToSelfBuiltWhenSettingsLackCloneURL(t
 func TestRewriteGiteaHostToPublic(t *testing.T) {
 	t.Setenv("GITEA_BASE_URL", "http://10.20.19.101:33000")
 	t.Setenv("GITEA_PUBLIC_BASE_URL", "https://zgsmtest.xyz:30443")
-	got := rewriteGiteaHostToPublic("http://10.20.19.101:33000/t-ad9d561c/wf-deliverable-archive.git")
+	got := RewriteGiteaHostToPublic("http://10.20.19.101:33000/t-ad9d561c/wf-deliverable-archive.git")
 	want := "https://zgsmtest.xyz:30443/t-ad9d561c/wf-deliverable-archive.git"
 	if got != want {
 		t.Errorf("rewrite = %q, want %q", got, want)
@@ -2489,7 +2489,7 @@ func TestRewriteGiteaHostToPublic_NoopWithoutPublicBase(t *testing.T) {
 	t.Setenv("GITEA_BASE_URL", "http://10.20.19.101:33000")
 	t.Setenv("GITEA_PUBLIC_BASE_URL", "")
 	in := "http://10.20.19.101:33000/t-x/wf-y.git"
-	if got := rewriteGiteaHostToPublic(in); got != in {
+	if got := RewriteGiteaHostToPublic(in); got != in {
 		t.Errorf("rewrite = %q, want unchanged when GITEA_PUBLIC_BASE_URL unset (single-host deploy)", got)
 	}
 }
@@ -2500,7 +2500,7 @@ func TestRewriteGiteaHostToPublic_NoopForUnknownHost(t *testing.T) {
 	t.Setenv("GITEA_BASE_URL", "http://10.20.19.101:33000")
 	t.Setenv("GITEA_PUBLIC_BASE_URL", "https://zgsmtest.xyz:30443")
 	in := "https://gitea-tenant.example/t-x/wf-y.git"
-	if got := rewriteGiteaHostToPublic(in); got != in {
+	if got := RewriteGiteaHostToPublic(in); got != in {
 		t.Errorf("rewrite = %q, want unchanged (host is not the internal Gitea)", got)
 	}
 }
@@ -2510,7 +2510,7 @@ func TestRewriteGiteaHostToPublic_PortIsExactNotPrefix(t *testing.T) {
 	t.Setenv("GITEA_BASE_URL", "http://h:33000")
 	t.Setenv("GITEA_PUBLIC_BASE_URL", "https://pub.example")
 	in := "http://h:330000/t-x/wf-y.git"
-	if got := rewriteGiteaHostToPublic(in); got != in {
+	if got := RewriteGiteaHostToPublic(in); got != in {
 		t.Errorf("rewrite = %q, want unchanged (:33000 is not a prefix match for :330000)", got)
 	}
 }
