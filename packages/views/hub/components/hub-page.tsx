@@ -3,12 +3,10 @@
 import { useState, useCallback, useMemo, useEffect, useRef } from "react"
 import { flushSync } from "react-dom"
 import { useNavigation } from "../../navigation"
-import { useWorkspacePaths } from "@multica/core/paths"
 import { useT } from "@multica/views/i18n"
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@multica/ui/components/ui/sheet"
-import { Button } from "@multica/ui/components/ui/button"
 import { toast } from "sonner"
-import { Search, X, RefreshCw, Layers, SlidersHorizontal } from "lucide-react"
+import { Search, X, RefreshCw, Layers } from "lucide-react"
 import type { CapabilityItem, ItemSort, ItemOrder } from "@multica/core/types"
 
 import HubLayout from "./hub-layout"
@@ -55,8 +53,7 @@ const SORT_OPTIONS: { value: ItemSort; labelKey: string }[] = [
 export function HubPage() {
   const { t } = useT("hub")
   const { t: tc } = useT("common")
-  const { searchParams, pathname, replace, push } = useNavigation()
-  const paths = useWorkspacePaths()
+  const { searchParams, pathname, replace } = useNavigation()
   const { page, pageSize, setPage, setPageSize } = useHubPagination()
 
   // ── URL-derived state ──
@@ -444,29 +441,19 @@ const updateURL = useCallback((updates: Record<string, string | null>) => {
 
   return (
     <HubLayout>
-      <div className="flex h-full min-h-0 min-w-0 flex-1">
-        {/* ═══ TYPE NAV SIDEBAR (F-14: type nav + per-type count badges, FR-08) ═══ */}
+      <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col">
+        {/* ═══ TYPE NAV BAR (top horizontal, F-14 + FR-08) ═══ */}
         <HubSidebar
           currentType={activeType === "all" ? null : activeType}
           counts={sidebarCounts}
           onNavigate={handleSidebarNavigate}
+          orientation="horizontal"
         />
 
       <div className="flex min-w-0 flex-1 flex-col overflow-y-auto">
         {/* ═══ PAGE HEADER ═══ */}
         <PageHeader>
           <h1 className="text-sm font-semibold">{t(($) => $.home.typeTab[activeType])}</h1>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            className="ml-auto h-8 shrink-0 cursor-pointer px-3"
-            title={t(($) => $.manager.title)}
-            onClick={() => push(paths.hubManager())}
-          >
-            <SlidersHorizontal size={14} />
-            {t(($) => $.home.manage)}
-          </Button>
         </PageHeader>
 
           {/* ═══ SEARCH / TOOLBAR ═══ */}

@@ -37,7 +37,6 @@ import { ItemDetailContent } from "./item-detail-content"
 import { HubFilterBar } from "./hub-filter-bar"
 import { HubManagerListView } from "./hub-manager-list-view"
 import { CreateCapabilityDialog } from "./create-capability-dialog"
-import { UploadPluginDialog } from "./upload-plugin-dialog"
 import { DistributeDialog } from "./distribute-dialog"
 import { CreateDistributionDialog } from "./create-distribution-dialog"
 import HubLayout from "./hub-layout"
@@ -587,6 +586,15 @@ export function HubManager() {
             <CloudUpload size={14} />
             {t(($) => $.manager.upload)}
           </Button>
+          {/* "上传 Plugin" opens the same create-capability form preset to plugin,
+              matching the source store (the standalone UploadPluginDialog was removed
+              in PR #112 there). */}
+          <CreateCapabilityDialog
+            defaultItemType="plugin"
+            open={uploadOpen}
+            onOpenChange={setUploadOpen}
+            onCreated={() => qc.invalidateQueries({ queryKey: ["hub"] })}
+          />
           {canDistribute && isItemTab && (
             <Button
               type="button"
@@ -968,14 +976,6 @@ export function HubManager() {
       </Sheet>
 
       {/* Dialogs */}
-      <UploadPluginDialog
-        open={uploadOpen}
-        onOpenChange={setUploadOpen}
-        onCreated={() => {
-          setUploadOpen(false)
-          qc.invalidateQueries({ queryKey: ["hub"] })
-        }}
-      />
 
       {distDialog.item && (
         <DistributeDialog

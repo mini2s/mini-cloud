@@ -23,12 +23,24 @@
       "manager": "Manage"
     },
     "type": {
-      "all": { "description": "Browse all capabilities" },
-      "skill": { "description": "AI skills that extend agent behavior" },
-      "subagent": { "description": "Specialized sub-agents for complex tasks" },
-      "command": { "description": "Custom commands for your workflow" },
-      "mcp": { "description": "MCP servers for tool integration" },
-      "plugin": { "description": "Plugins that add new features" }
+      "all": {
+        "description": "Browse all capabilities"
+      },
+      "skill": {
+        "description": "AI skills that extend agent behavior"
+      },
+      "subagent": {
+        "description": "Specialized sub-agents for complex tasks"
+      },
+      "command": {
+        "description": "Custom commands for your workflow"
+      },
+      "mcp": {
+        "description": "MCP servers for tool integration"
+      },
+      "plugin": {
+        "description": "Plugins that add new features"
+      }
     },
     "filter": {
       "category": "Category",
@@ -646,6 +658,52 @@
       "publishing": "Publishing…",
       "submit_create": "Publish",
       "submit_update": "Update"
+    }
+  },
+  "capabilityDialog": {
+    "create": {
+      "title": "Create capability",
+      "type": "Capability type",
+      "typeDescription": "Choose what kind of capability you want to publish.",
+      "submit": "Create capability",
+      "submitting": "Creating..."
+    },
+    "field": {
+      "ownerPackage": "Owner package",
+      "displayName": "Display name",
+      "displayNamePlaceholder": "My {{type}}",
+      "description": "Description",
+      "descriptionPlaceholder": "Brief description",
+      "category": "Category",
+      "visibility": "Visibility",
+      "content": "Content"
+    },
+    "content": {
+      "text": "Text",
+      "archive": "Archive",
+      "dropHint": "Drag & drop or click to select archive",
+      "accepted": ".zip, .tar.gz, .tgz",
+      "remove": "Remove",
+      "uploading": "Uploading archive...",
+      "invalid": "Please choose a .zip, .tar.gz, or .tgz archive",
+      "required": "Please select an archive"
+    },
+    "namespace": {
+      "publicLabel": "public",
+      "publicDescription": "Publish publicly",
+      "repositoryDescription": "Space namespace"
+    },
+    "visibility": {
+      "public": "Public",
+      "private": "Private",
+      "repository": "Space"
+    },
+    "type": {
+      "skill": "Skill",
+      "subagent": "Subagent",
+      "command": "Command",
+      "mcp": "MCP",
+      "plugin": "Plugin"
     }
   }
 }

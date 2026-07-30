@@ -37,16 +37,17 @@ export function UploadPluginDialog(props: UploadPluginDialogProps) {
   const inputRef = useRef<HTMLInputElement>(null)
 
   const [file, setFile] = useState<File | null>(null)
-  const [repoId, setRepoId] = useState("")
+  const [repoId, setRepoId] = useState("public")
   const [progress, setProgress] = useState(0)
   const [error, setError] = useState("")
   const [dragOver, setDragOver] = useState(false)
   const uploading = uploadPlugin.isPending
 
-  // Default to first repo when repos load
+  // Default to first repo when repos load (the public repo is always available
+  // as a fallback so uploads work even when the user has no personal repos).
   const [initialized, setInitialized] = useState(false)
-  if (!initialized && repos.length > 0 && !repoId) {
-    setRepoId(repos[0]!.id)
+  if (!initialized && !reposLoading) {
+    setRepoId(repos.length > 0 ? repos[0]!.id : "public")
     setInitialized(true)
   }
 
@@ -123,18 +124,20 @@ export function UploadPluginDialog(props: UploadPluginDialogProps) {
           </DialogHeader>
 
           <div className="space-y-4 py-4">
-            {/* Repo select */}
+            {/* Repo select — the public repo is always available so uploads work
+                even when the user has no personal repositories. */}
             <div className="space-y-1.5">
               <Label>{t(($) => $.field.repository)}</Label>
               <Select
                 value={repoId}
                 onValueChange={(v) => setRepoId(v ?? "")}
-                disabled={reposLoading || repos.length === 0}
+                disabled={reposLoading}
               >
                 <SelectTrigger>
                   <SelectValue placeholder={t(($) => $.dialog.select_repo)} />
                 </SelectTrigger>
                 <SelectContent>
+                  <SelectItem value="public">public</SelectItem>
                   {repos.map((r) => (
                     <SelectItem key={r.id} value={r.id}>
                       {r.name}

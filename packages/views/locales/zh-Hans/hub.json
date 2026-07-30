@@ -652,5 +652,51 @@
       "submit_create": "发布",
       "submit_update": "更新"
     }
+  },
+  "capabilityDialog": {
+    "create": {
+      "title": "创建能力",
+      "type": "能力类型",
+      "typeDescription": "选择你要发布的能力类型。",
+      "submit": "创建能力",
+      "submitting": "创建中..."
+    },
+    "field": {
+      "ownerPackage": "所属包",
+      "displayName": "显示名称",
+      "displayNamePlaceholder": "我的{{type}}",
+      "description": "描述",
+      "descriptionPlaceholder": "简短描述",
+      "category": "分类",
+      "visibility": "可见性",
+      "content": "内容"
+    },
+    "content": {
+      "text": "文本",
+      "archive": "归档",
+      "dropHint": "拖放或点击选择归档文件",
+      "accepted": ".zip, .tar.gz, .tgz",
+      "remove": "移除",
+      "uploading": "上传归档中...",
+      "invalid": "请选择 .zip、.tar.gz 或 .tgz 归档文件",
+      "required": "请选择归档文件"
+    },
+    "namespace": {
+      "publicLabel": "public",
+      "publicDescription": "公开发布",
+      "repositoryDescription": "空间命名空间"
+    },
+    "visibility": {
+      "public": "公开",
+      "private": "私有",
+      "repository": "空间"
+    },
+    "type": {
+      "skill": "技能",
+      "subagent": "子代理",
+      "command": "命令",
+      "mcp": "MCP",
+      "plugin": "插件"
+    }
   }
 }

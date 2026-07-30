@@ -30,11 +30,60 @@ export interface HubSidebarProps {
   currentType?: string | null
   counts?: Record<string, number>
   onNavigate?: (type?: string) => void
+  /** Layout direction. Defaults to "vertical" (the original left sidebar). */
+  orientation?: "vertical" | "horizontal"
 }
 
-export function HubSidebar({ currentType, counts, onNavigate }: HubSidebarProps) {
+export function HubSidebar({ currentType, counts, onNavigate, orientation = "vertical" }: HubSidebarProps) {
   const { t } = useT("hub")
   const paths = useWorkspacePaths()
+  const horizontal = orientation === "horizontal"
+
+  if (horizontal) {
+    return (
+      <nav className="flex w-full items-center gap-1.5 overflow-x-auto px-6 py-2 max-[640px]:px-4">
+        {HUB_NAV.map((item) => {
+          if (item.link === "manager") {
+            return (
+              <AppLink
+                key={item.key}
+                href={paths.hubManager()}
+                className={cn(
+                  "ml-auto inline-flex h-[34px] shrink-0 cursor-pointer items-center gap-1.5 rounded-[10px] border px-3 text-[12.5px] font-bold transition-[color,border-color,background-color] duration-150",
+                  "border-border/60 bg-background text-muted-foreground hover:border-muted-foreground/30 hover:text-foreground",
+                )}
+              >
+                <Settings size={15} />
+                <span className="whitespace-nowrap">{t(($) => $.home.typeTab.manager)}</span>
+              </AppLink>
+            )
+          }
+          const active = item.type ? currentType === item.type : !currentType
+          return (
+            <button
+              key={item.key}
+              type="button"
+              onClick={() => onNavigate?.(item.type)}
+              className={cn(
+                "inline-flex h-[34px] shrink-0 cursor-pointer items-center gap-1.5 rounded-[10px] border px-3 text-[12.5px] font-bold transition-[color,border-color,background-color] duration-150",
+                active
+                  ? "border-primary/45 bg-primary/10 text-primary"
+                  : "border-border/60 bg-background text-muted-foreground hover:border-muted-foreground/30 hover:text-foreground",
+              )}
+            >
+              <HubIcon name={item.icon ?? "all"} size={15} />
+              <span className="whitespace-nowrap">{t(($) => $.home.typeTab[item.key as "all" | "skill" | "subagent" | "command" | "mcp" | "plugin"])}</span>
+              {counts?.[item.key] != null && (
+                <span className="rounded-full bg-muted/60 px-1.5 text-[11px] font-medium leading-[1.65] text-muted-foreground">
+                  {counts[item.key]}
+                </span>
+              )}
+            </button>
+          )
+        })}
+      </nav>
+    )
+  }
 
   return (
     <aside className="flex h-full w-56 shrink-0 flex-col overflow-hidden bg-gradient-to-b from-background/90 to-background max-[1024px]:hidden">

@@ -85,9 +85,13 @@ vi.mock("./hub-manager-list-view", () => ({
 }))
 
 vi.mock("./hub-filter-bar", () => ({ HubFilterBar: () => <div /> }))
-vi.mock("./create-capability-dialog", () => ({ CreateCapabilityDialog: () => <button>创建能力</button> }))
+vi.mock("./create-capability-dialog", () => ({
+  // The uncontrolled instance renders the "创建能力" trigger button; the
+  // controlled instance (上传 Plugin) renders nothing.
+  CreateCapabilityDialog: (props: { onOpenChange?: unknown }) =>
+    props.onOpenChange ? null : <button>创建能力</button>,
+}))
 vi.mock("./edit-capability-dialog", () => ({ EditCapabilityDialog: () => <div /> }))
-vi.mock("./upload-plugin-dialog", () => ({ UploadPluginDialog: () => <div /> }))
 vi.mock("./distribute-dialog", () => ({ DistributeDialog: () => <div /> }))
 vi.mock("./hub-layout", () => ({ default: ({ children }: { children: ReactNode }) => <div>{children}</div> }))
 vi.mock("../../layout/page-header", () => ({ PageHeader: ({ children }: { children: ReactNode }) => <div>{children}</div> }))
