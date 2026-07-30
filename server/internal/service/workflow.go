@@ -1039,6 +1039,13 @@ func (s *WorkflowService) SubmitWorkerOutput(ctx context.Context, nodeRunID pgty
 		return err
 	}
 
+	// Best-effort: if the worker output carried a code MR that was auto-filed by
+	// autoSubmitSingleRequiredDeliverable, reconcile the node's code-links archive
+	// (.md + node PR). Fire-and-forget; no-op when there are no code links.
+	if s.deliverableRepository().Configured() {
+		go s.ArchiveNodeCodeLinks(context.Background(), nodeRunID)
+	}
+
 	if s.OnNodeStatusChanged != nil {
 		s.OnNodeStatusChanged(ctx, nodeRun)
 	}

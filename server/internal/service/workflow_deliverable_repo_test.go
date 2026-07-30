@@ -1220,6 +1220,78 @@ func TestSubmitWorkerOutput_BlocksMissingRequiredPullRequestDeliverable(t *testi
 	}
 }
 
+func TestSubmitWorkerOutput_ArchivesAutoSubmittedCodeMR(t *testing.T) {
+	pool := openTestPool(t)
+	defer pool.Close()
+	ctx := context.Background()
+
+	fix := seedGiteaFixture(t, pool, false /*no document deliverable*/, 1 /*one run*/)
+
+	// Seed a pull_request-kind deliverable on the node.
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO multica_workflow_node_deliverable (workflow_node_id, title, description, required, sort_order)
+		VALUES ($1, 'Code MR', 'open an MR', TRUE, 0)
+	`, util.UUIDToString(fix.node)); err != nil {
+		t.Fatalf("seed pull_request deliverable: %v", err)
+	}
+
+	// Seed a critic (member) so the node-run can advance to awaiting_critic.
+	var criticID string
+	if err := pool.QueryRow(ctx, `
+		SELECT user_id FROM multica_member WHERE workspace_id = $1 LIMIT 1
+	`, util.UUIDToString(fix.workspace)).Scan(&criticID); err != nil {
+		t.Fatalf("seed critic: %v", err)
+	}
+
+	// Seed a node run in 'working' status with a critic assigned.
+	var nodeRunID string
+	if err := pool.QueryRow(ctx, `
+		INSERT INTO multica_workflow_node_run (workflow_run_id, workflow_node_id, node_title, status, worker_type, critic_type, critic_id)
+		VALUES ($1, $2, 'Code Node', 'working', 'agent', 'human', $3)
+		RETURNING id
+	`, util.UUIDToString(fix.run1), util.UUIDToString(fix.node), criticID).Scan(&nodeRunID); err != nil {
+		t.Fatalf("seed node run: %v", err)
+	}
+	nrID, _ := util.ParseUUID(nodeRunID)
+	seedRuntimeDeliverableRequirement(t, pool, nrID, fix.node, 0)
+
+	// Wire up the service with the spy repo provider so ArchiveNodeCodeLinks
+	// writes to the spy rather than a real Gitea instance.
+	spy := &spyRepoProvider{configured: true}
+	queries := db.New(pool)
+	svc := &WorkflowService{
+		Queries:            queries,
+		TxStarter:          pool,
+		RepositoryProvider: spy,
+	}
+
+	// Worker output contains a GitLab MR URL that extractPullRequestURLFromWorkerOutput
+	// will discover via the raw-string candidate path.
+	const mrURL = "https://gitlab.example.com/g/p/-/merge_requests/9"
+	err := svc.SubmitWorkerOutput(ctx, nrID, json.RawMessage(`{"output":"Opened MR: `+mrURL+`"}`))
+	if err != nil {
+		t.Fatalf("SubmitWorkerOutput: %v", err)
+	}
+
+	// The async goroutine launched by SubmitWorkerOutput is fire-and-forget.
+	// Call ArchiveNodeCodeLinks synchronously to deterministically verify the spy.
+	svc.ArchiveNodeCodeLinks(ctx, nrID)
+
+	// Assert: the spy recorded an UpsertFile whose path ends with the code-links
+	// archive filename and whose content contains the MR URL.
+	upserts := spy.snapshot()
+	if len(upserts) != 1 {
+		t.Fatalf("UpsertFile calls = %d, want 1; upserts=%+v", len(upserts), upserts)
+	}
+	got := upserts[0]
+	if !strings.HasSuffix(got.Path, "/"+codeLinksArchiveFile) {
+		t.Errorf("UpsertFile path = %q, want suffix %q", got.Path, codeLinksArchiveFile)
+	}
+	if !strings.Contains(got.Content, mrURL) {
+		t.Errorf("UpsertFile content missing MR URL %q; content=%q", mrURL, got.Content)
+	}
+}
+
 func TestHandleWorkflowTaskCompletion_BlocksMissingRequiredPullRequestDeliverable(t *testing.T) {
 	pool := openTestPool(t)
 	defer pool.Close()
