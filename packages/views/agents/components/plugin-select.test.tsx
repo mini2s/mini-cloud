@@ -100,7 +100,7 @@ describe("PluginSelect", () => {
     expect(screen.getAllByRole("button", { name: /Built-in One/i })).toHaveLength(1);
 
     fireEvent.click(cloud);
-    expect(onChange).toHaveBeenCalledWith("cloud-1");
+    expect(onChange).toHaveBeenCalledWith("cloud-1", "cloud-one");
     await waitFor(() => {
       expect(mockListCatalogPlugins).toHaveBeenCalledWith({
         search: "",

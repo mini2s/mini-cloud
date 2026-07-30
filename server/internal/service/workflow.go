@@ -487,7 +487,6 @@ func (s *WorkflowService) EnsureDefaultWorkflow(ctx context.Context, workspaceID
 	}
 	if _, err := s.Queries.CreateWorkflowNodeDeliverable(ctx, db.CreateWorkflowNodeDeliverableParams{
 		WorkflowNodeID: node.ID,
-		Kind:           "document",
 		Title:          "Deliverable",
 		Description:    "",
 		Required:       true,
@@ -1013,8 +1012,8 @@ func (s *WorkflowService) SubmitWorkerOutput(ctx context.Context, nodeRunID pgty
 		if nr.Status != NodeRunStatusWorking && nr.Status != NodeRunStatusWorkerAssigned {
 			return fmt.Errorf("node run is not in worker phase (status=%s)", nr.Status)
 		}
-		if err := autoSubmitSinglePullRequestDeliverable(ctx, qtx, nr, output); err != nil {
-			return fmt.Errorf("auto-submit pull_request deliverable: %w", err)
+		if err := autoSubmitSingleRequiredDeliverable(ctx, qtx, nr, output); err != nil {
+			return fmt.Errorf("auto-submit required deliverable: %w", err)
 		}
 		if satisfied, err := requiredDeliverablesSatisfiedWithQueries(ctx, qtx, nr); err != nil {
 			return fmt.Errorf("check deliverables: %w", err)
@@ -1107,7 +1106,7 @@ func extractPullRequestURLFromWorkerOutput(output json.RawMessage) string {
 	return ""
 }
 
-func autoSubmitSinglePullRequestDeliverable(ctx context.Context, q *db.Queries, nodeRun db.MulticaWorkflowNodeRun, output json.RawMessage) error {
+func autoSubmitSingleRequiredDeliverable(ctx context.Context, q *db.Queries, nodeRun db.MulticaWorkflowNodeRun, output json.RawMessage) error {
 	prURL := extractPullRequestURLFromWorkerOutput(output)
 	if prURL == "" {
 		return nil
@@ -1119,7 +1118,7 @@ func autoSubmitSinglePullRequestDeliverable(ctx context.Context, q *db.Queries, 
 	}
 	var deliverableID pgtype.UUID
 	for _, d := range deliverables {
-		if d.Kind != "pull_request" || !d.Required {
+		if !d.Required {
 			continue
 		}
 		if deliverableID.Valid {
@@ -1666,7 +1665,7 @@ func (s *WorkflowService) HandleWorkflowTaskCompletion(ctx context.Context, task
 		}
 	case "critic":
 		if nodeRun.Status == NodeRunStatusCriticReviewing {
-			approved, comment, err := parseAgentCriticDecision(task.Result)
+			approved, comment, err := criticDecisionFromResult(task.Result)
 			if err != nil {
 				return err
 			}
@@ -1722,6 +1721,24 @@ func parseAgentCriticDecision(result json.RawMessage) (bool, string, error) {
 			!strings.Contains(lower, "reject")
 	}
 	return approved, comment, nil
+}
+
+// criticDecisionFromResult resolves a critic's approve/reject decision from a
+// completed task's result JSON. It prefers an explicit decision carried by the
+// agent's "complete task" tool call (decision=approve|reject + reason); when
+// absent it falls back to parsing the critic's free-text output. The task
+// result is the marshaled TaskCompleteRequest, so decision/reason sit alongside
+// output/session_id/work_dir.
+func criticDecisionFromResult(result json.RawMessage) (bool, string, error) {
+	var explicit struct {
+		Decision string `json:"decision"`
+		Reason   string `json:"reason"`
+	}
+	if json.Unmarshal(result, &explicit) == nil &&
+		(explicit.Decision == "approve" || explicit.Decision == "reject") {
+		return explicit.Decision == "approve", explicit.Reason, nil
+	}
+	return parseAgentCriticDecision(result)
 }
 
 func normalizeAgentCriticComment(approved bool, comment string) string {

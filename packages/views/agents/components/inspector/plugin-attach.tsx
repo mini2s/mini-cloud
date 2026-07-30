@@ -16,8 +16,9 @@ import { PluginPickerList, useDebouncedPluginSearch } from "../plugin-picker-lis
 interface PluginAttachProps {
   agent: Agent;
   canEdit: boolean;
-  /** Called when user selects/deselects a plugin. Empty string = clear. */
-  onChange: (pluginId: string) => void;
+  /** Called when user selects/deselects a plugin, with the plugin id + install
+   * slug. Empty id = clear. */
+  onChange: (pluginId: string, pluginName: string) => void;
 }
 
 /**
@@ -68,13 +69,14 @@ export function PluginAttach({ agent, canEdit, onChange }: PluginAttachProps) {
   }
 
   // --- Editable picker ---
-  const handleSelect = (pluginId: string) => {
-    onChange(pluginId === agent.plugin_id ? "" : pluginId);
+  const handleSelect = (pluginId: string, pluginName: string) => {
+    const clearing = pluginId === agent.plugin_id;
+    onChange(clearing ? "" : pluginId, clearing ? "" : pluginName);
     setOpen(false);
   };
 
   const handleClear = () => {
-    onChange("");
+    onChange("", "");
     setOpen(false);
   };
 

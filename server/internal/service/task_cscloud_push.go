@@ -17,7 +17,6 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/multica-ai/multica/server/internal/cloudruntime"
 	"github.com/multica-ai/multica/server/internal/gitea"
-	"github.com/multica-ai/multica/server/internal/plugincatalog"
 	"github.com/multica-ai/multica/server/internal/util"
 	db "github.com/multica-ai/multica/server/pkg/db/generated"
 )
@@ -55,7 +54,6 @@ type csCloudRepoSpec struct {
 // csCloudDeliverableSpec is one deliverable contract for the node.
 type csCloudDeliverableSpec struct {
 	ID        string            `json:"id"`
-	Kind      string            `json:"kind"`                 // "document" | "pull_request"
 	RepoAlias string            `json:"repo_alias,omitempty"` // maps to repos[].alias
 	Report    csCloudReportSpec `json:"report"`
 }
@@ -294,11 +292,11 @@ func (s *TaskService) buildCSCloudPayload(ctx context.Context, task db.MulticaAg
 	}
 
 	env := map[string]string{}
-	var agentPluginID pgtype.Text
+	var agentPluginName pgtype.Text
 	if task.AgentID.Valid {
 		agent, err := s.Queries.GetAgent(ctx, task.AgentID)
 		if err == nil {
-			agentPluginID = agent.PluginID
+			agentPluginName = agent.PluginName
 			if len(agent.CustomEnv) > 0 {
 				_ = json.Unmarshal(agent.CustomEnv, &env)
 			}
@@ -307,7 +305,7 @@ func (s *TaskService) buildCSCloudPayload(ctx context.Context, task db.MulticaAg
 	// Gitea document-deliverable context (CS_CLOUD_REPO_*) + node-run/issue ids,
 	// so the cs-cloud agent can run `cs-cloud workflow deliverable submit` /
 	// `gitea fetch` inside the task. Dormant (no env injected) when Gitea isn't
-	// configured or the node has no document deliverables — matches the
+	// configured or the node has no deliverables — matches the
 	// claim-time context. Runs AFTER the safety net so it picks up freshly
 	// provisioned settings on the triggering dispatch.
 	repoEnv := s.repositoryDeliverableEnv(ctx, task)
@@ -374,25 +372,22 @@ func (s *TaskService) buildCSCloudPayload(ctx context.Context, task db.MulticaAg
 	var plugin *csCloudAgentPlugin
 	var cloudSkills []csCloudCloudSkillInstall
 	if task.AgentID.Valid {
-		plugin, cloudSkills = s.resolveCSCloudAddons(ctx, task.AgentID, agentPluginID)
+		plugin, cloudSkills = s.resolveCSCloudAddons(ctx, task.AgentID, agentPluginName)
 	}
 
-	// Diagnostic: plugin resolution has three serial gates (agent plugin_id,
-	// BuiltinPluginAPIBaseURL, catalog fetch) and each can fail
-	// SILENTLY — a nil plugin reaches cs-cloud with no backend log, so plugin=none
-	// is impossible to root-cause from logs alone. Surface the inputs + outcome
-	// here so the next dispatch self-diagnoses which gate dropped it. Info, not
-	// Warn: a legitimately plugin-less agent is normal; filter on the message.
-	agentPluginIDStr := ""
-	if agentPluginID.Valid {
-		agentPluginIDStr = agentPluginID.String
+	// Diagnostic: plugin resolution now keys on the agent's stored plugin_name
+	// (the install slug). A nil plugin reaches cs-cloud silently when the agent
+	// has no plugin_name, so surface the input + outcome here for root-cause.
+	// Info, not Warn: a legitimately plugin-less agent is normal.
+	agentPluginNameStr := ""
+	if agentPluginName.Valid {
+		agentPluginNameStr = agentPluginName.String
 	}
 	slog.Info("cs-cloud dispatch: plugin/skill resolution",
 		"task_id", util.UUIDToString(task.ID),
 		"agent_id", util.UUIDToString(task.AgentID),
 		"phase", phase,
-		"agent_plugin_id", agentPluginIDStr,
-		"base_url_configured", s.BuiltinPluginAPIBaseURL != "",
+		"agent_plugin_name", agentPluginNameStr,
 		"plugin_resolved", plugin != nil,
 		"cloud_skills", len(cloudSkills),
 	)
@@ -561,38 +556,31 @@ func (s *TaskService) resolveDeliveryRepo(ctx context.Context, workspaceID pgtyp
 // equivalent of the daemon claim path's plugin/skill resolution — the daemon is
 // not involved.
 //
-// Plugin resolution is best-effort (mirrors the claim path): a catalog miss or
-// unreachable API returns a nil plugin and a warning, never blocking dispatch.
-// The marketplace identity is server-owned (CSCPluginMarketplaceName/Repo) and
-// stamped here regardless of what the catalog returned — identical to
-// handler/daemon.go claim-time behavior.
+// Plugin resolution is by NAME, not catalog id: cs-cloud installs via
+// `csc plugin install <pluginName>@<marketplace>`, and pluginName is the stable
+// install slug stored on the agent (set at bind time). This intentionally does
+// NOT call plugincatalog.Fetch(plugin_id) — the catalog UUID is unstable (it
+// changes whenever the plugin catalog is rebuilt), and a stale id silently
+// returned a nil plugin. An agent without plugin_name simply has no plugin.
+// The marketplace identity is server-owned (CSCPluginMarketplaceName/Repo).
 //
 // Cloud skills are snapshotted in multica_agent_cloud_skill (written by the
 // agent-cloud-skill handler); the stored install JSONB is already allowlisted
 // to {method, spec, skill_id, source_url, verified}, matching cs-cloud's
 // CloudSkillInstallSpec field names, so it is passed through verbatim.
-func (s *TaskService) resolveCSCloudAddons(ctx context.Context, agentID pgtype.UUID, pluginID pgtype.Text) (*csCloudAgentPlugin, []csCloudCloudSkillInstall) {
+func (s *TaskService) resolveCSCloudAddons(ctx context.Context, agentID pgtype.UUID, pluginName pgtype.Text) (*csCloudAgentPlugin, []csCloudCloudSkillInstall) {
 	var plugin *csCloudAgentPlugin
-	if pluginID.Valid && strings.TrimSpace(pluginID.String) != "" && s.BuiltinPluginAPIBaseURL != "" {
-		pd := plugincatalog.Fetch(ctx, s.BuiltinPluginAPIBaseURL, pluginID.String)
-		if pd != nil && pd.Info != nil {
-			info := pd.Info
-			// Marketplace identity is server-owned, not catalog-owned. Override
-			// whatever the catalog returned; an empty config value is delivered
-			// as-is and cs-cloud falls back to its built-in github default.
-			install := csCloudPluginInstall{
-				Method:              info.Install.Method,
-				Marketplace:         info.Install.Marketplace,
-				PluginName:          info.Install.PluginName,
-				MarketplaceName:     s.CSCPluginMarketplaceName,
-				MarketplaceRepo:     s.CSCPluginMarketplaceRepo,
-				MarketplaceVerified: info.Install.MarketplaceVerified,
-			}
-			plugin = &csCloudAgentPlugin{ID: info.ID, Name: info.Name, Install: &install}
-		} else {
-			slog.Warn("cs-cloud dispatch: plugin not resolved from catalog",
-				"plugin_id", pluginID.String)
+	if name := strings.TrimSpace(pluginName.String); pluginName.Valid && name != "" {
+		// cs-cloud's setupCSCPlugins only consumes PluginName + the marketplace
+		// identity; the other catalog-derived fields (Method/Marketplace/ID/...)
+		// are not read on the install path, so they stay zero here.
+		install := csCloudPluginInstall{
+			Method:          "plugin_marketplace",
+			PluginName:      name,
+			MarketplaceName: s.CSCPluginMarketplaceName,
+			MarketplaceRepo: s.CSCPluginMarketplaceRepo,
 		}
+		plugin = &csCloudAgentPlugin{Name: name, Install: &install}
 	}
 
 	var cloudSkills []csCloudCloudSkillInstall
@@ -631,10 +619,9 @@ func cloudSkillInstallFromDB(raw []byte) *csCloudCloudSkillInstallSpec {
 }
 
 // deliverableSpecsForTask builds the deliverable contract list for the task's
-// workflow node run (pull_request -> /submit endpoint; document -> /report-pr).
-// Document deliverables are tagged with repo_alias="delivery" so cs-cloud maps
-// them to the repos[] entry whose alias is "delivery" (the Gitea wf repo);
-// pull_request deliverables keep repo_alias empty (they target a code repo).
+// workflow node run. Every deliverable reports its result to the same unified
+// submit endpoint; the dispatch payload no longer carries a kind-based routing
+// distinction.
 func (s *TaskService) deliverableSpecsForTask(ctx context.Context, task db.MulticaAgentTaskQueue) []csCloudDeliverableSpec {
 	if !task.WorkflowNodeRunID.Valid {
 		return nil
@@ -650,29 +637,14 @@ func (s *TaskService) deliverableSpecsForTask(ctx context.Context, task db.Multi
 	nid := util.UUIDToString(nr.ID)
 	var out []csCloudDeliverableSpec
 	for _, d := range rows {
-		spec := csCloudDeliverableSpec{
-			ID:   util.UUIDToString(d.ID),
-			Kind: d.Kind,
-		}
-		switch d.Kind {
-		case "pull_request":
-			spec.Report = csCloudReportSpec{
-				Endpoint:  "/api/node-runs/" + nid + "/deliverables/" + util.UUIDToString(d.ID) + "/submit",
+		out = append(out, csCloudDeliverableSpec{
+			ID: util.UUIDToString(d.ID),
+			Report: csCloudReportSpec{
+				Endpoint:  fmt.Sprintf("/api/node-runs/%s/deliverables/%s/submit", nid, util.UUIDToString(d.ID)),
 				Method:    "POST",
 				BodyField: "pull_request_url",
-			}
-		case "document":
-			spec.Report = csCloudReportSpec{
-				Endpoint:  "/api/daemon/node-runs/" + nid + "/deliverables/" + util.UUIDToString(d.ID) + "/report-pr",
-				Method:    "POST",
-				BodyField: "pull_request_url",
-			}
-			// Map this document deliverable to the repos[] entry whose
-			// alias == "delivery" (the Gitea wf repo). pull_request keeps
-			// repo_alias empty — it targets a code repo, not the delivery repo.
-			spec.RepoAlias = "delivery"
-		}
-		out = append(out, spec)
+			},
+		})
 	}
 	return out
 }
@@ -710,6 +682,8 @@ func appendWorkerTaskPrompt(prompt string) string {
 	b.WriteString("\n---\n## Workflow Worker Task\n\n")
 	b.WriteString("You are the worker for this workflow node. Complete the assigned work and submit every required deliverable before finishing.\n")
 	b.WriteString("Do NOT perform critic review. Do NOT approve or reject the work. If the issue text mentions a critic/reviewer, treat that as context for the later review phase, not your current task.\n")
+	b.WriteString("\n### Finishing\n\n")
+	b.WriteString("When your work is complete, you MUST signal it explicitly by running `cs-cloud workflow task complete --summary \"<one-line summary of what you delivered>\"` as your LAST action. The task does NOT complete when you stop working — until you call this command, the task stays open, idle is treated as incomplete, and it will eventually time out and fail.\n")
 	b.WriteString("\n---\n\n")
 	return b.String()
 }
@@ -751,9 +725,10 @@ func appendCriticReviewPrompt(prompt string) string {
 		b.WriteByte('\n')
 	}
 	b.WriteString("\n---\n## Workflow Critic Review\n\n")
-	b.WriteString("You are reviewing the worker's submitted deliverables for this workflow node. Inspect the issue context and deliverable PRs, then finish with a JSON object only:\n\n")
-	b.WriteString("```json\n{\"approved\":true,\"comment\":\"short review opinion\"}\n```\n\n")
-	b.WriteString("Use `approved:false` when the work needs rework, and put the actionable rejection reason in `comment`.\n\n")
+	b.WriteString("You are reviewing the worker's submitted deliverables for this workflow node. Inspect the issue context and deliverable PRs, then signal your decision with the review tool as your LAST action:\n\n")
+	b.WriteString("- Approve (work is acceptable): `cs-cloud workflow task review --decision approve --reason \"<short review opinion>\"`\n")
+	b.WriteString("- Request rework (work needs changes): `cs-cloud workflow task review --decision reject --reason \"<actionable rejection reason>\"`\n\n")
+	b.WriteString("The review does NOT complete when you stop working — until you call one of these commands, the task stays open, idle is treated as incomplete, and it will eventually time out and fail.\n")
 	b.WriteString("---\n\n")
 	return b.String()
 }
@@ -784,7 +759,7 @@ type giteaDeliverableRefJSON = repositoryDeliverableRefJSON
 // giteaDeliverableEnv builds the CS_CLOUD_GITEA_* env vars for a task's
 // node-run, mirroring handler.giteaContextForNodeRun but in the service layer
 // (the cs-cloud push path lives here, separate from claim). Returns nil when
-// Gitea is dormant or the node has no document deliverables — the caller then
+// Gitea is dormant or the node has no deliverables — the caller then
 // injects nothing and the cs-cloud `gitea submit` command is simply unusable
 // for this task (by design).
 func (s *TaskService) repositoryDeliverableEnv(ctx context.Context, task db.MulticaAgentTaskQueue) map[string]string {
@@ -814,9 +789,6 @@ func (s *TaskService) repositoryDeliverableEnv(ctx context.Context, task db.Mult
 	nodeRunIDStr := util.UUIDToString(nr.ID)
 	var refs []repositoryDeliverableRefJSON
 	for _, d := range deliverables {
-		if d.Kind != "document" {
-			continue
-		}
 		refs = append(refs, giteaDeliverableRefJSON{
 			ID:    util.UUIDToString(d.ID),
 			Title: d.Title,
@@ -1041,21 +1013,47 @@ func (s *TaskService) buildCSCloudPrompt(ctx context.Context, task db.MulticaAge
 }
 
 func (s *TaskService) buildIssuePrompt(ctx context.Context, task db.MulticaAgentTaskQueue) (string, error) {
-	if !task.IssueID.Valid {
+	if task.IssueID.Valid {
+		issue, err := s.Queries.GetIssue(ctx, task.IssueID)
+		if err != nil {
+			return "", fmt.Errorf("get issue: %w", err)
+		}
+		return buildIssuePromptText(issue), nil
+	}
+	if task.WorkflowNodeRunID.Valid {
+		return s.buildWorkflowSourceIssuePrompt(ctx, task.WorkflowNodeRunID)
+	}
+	return "", nil
+}
+
+func (s *TaskService) buildWorkflowSourceIssuePrompt(ctx context.Context, nodeRunID pgtype.UUID) (string, error) {
+	nodeRun, err := s.Queries.GetWorkflowNodeRun(ctx, nodeRunID)
+	if err != nil {
+		return "", fmt.Errorf("get workflow node run: %w", err)
+	}
+	run, err := s.Queries.GetWorkflowRun(ctx, nodeRun.WorkflowRunID)
+	if err != nil {
+		return "", fmt.Errorf("get workflow run: %w", err)
+	}
+	if !run.SourceIssueID.Valid {
 		return "", nil
 	}
-	issue, err := s.Queries.GetIssue(ctx, task.IssueID)
+	issue, err := s.Queries.GetIssue(ctx, run.SourceIssueID)
 	if err != nil {
-		return "", fmt.Errorf("get issue: %w", err)
+		return "", fmt.Errorf("get workflow source issue: %w", err)
 	}
+	return buildIssuePromptText(issue), nil
+}
+
+func buildIssuePromptText(issue db.MulticaIssue) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "Issue: %s\n", issue.Title)
 	if issue.Description.Valid {
 		b.WriteString("\n")
-		b.WriteString(truncatePromptItem(issue.Description.String))
+		b.WriteString(issue.Description.String)
 		b.WriteString("\n")
 	}
-	return truncatePrompt(b.String()), nil
+	return truncatePrompt(b.String())
 }
 
 func (s *TaskService) buildIssueCommentPrompt(ctx context.Context, task db.MulticaAgentTaskQueue) (string, error) {

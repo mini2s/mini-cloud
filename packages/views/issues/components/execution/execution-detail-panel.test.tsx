@@ -41,7 +41,6 @@ const defaultDeliverableSubmissions = {
       id: "del-1",
       workflow_node_id: "n1",
       title: "Code changes",
-      kind: "pull_request",
       required: true,
       sort_order: 0,
       created_at: "",
@@ -144,8 +143,7 @@ vi.mock("@multica/views/i18n", () => ({
             deliverables: {
               heading: "Deliverable PRs",
               pull_request_label: "Pull request",
-              document_section: "Documents",
-              code_section: "Code",
+              deliverables_section: "Deliverables",
               upload_button: "Upload document",
               upload_pr_button: "Submit code",
               upload_file_choose: "Choose files",
@@ -978,7 +976,6 @@ describe("ExecutionDetailPanel", () => {
       ...defaultDeliverableSubmissions,
       deliverables: defaultDeliverableSubmissions.deliverables.map((deliverable) => ({
         ...deliverable,
-        kind: "document" as const,
       })),
     };
     render(
@@ -1098,7 +1095,6 @@ describe("ExecutionDetailPanel", () => {
           ...codeDeliverable,
           id: "doc-1",
           title: "Document",
-          kind: "document",
         },
       ],
       submissions: [],
@@ -1125,7 +1121,7 @@ describe("ExecutionDetailPanel", () => {
     expect(screen.getByText("first.md")).toBeInTheDocument();
   });
 
-  it("targets the selected deliverable when several code requirements share a kind", async () => {
+  it("targets the selected deliverable when several deliverables are available", async () => {
     const user = userEvent.setup();
     const firstDeliverable = defaultDeliverableSubmissions.deliverables[0]!;
     mockDeliverableSubmissions = {
@@ -1152,7 +1148,7 @@ describe("ExecutionDetailPanel", () => {
       />,
     );
 
-    await user.selectOptions(screen.getByRole("combobox", { name: "Code" }), "del-2");
+    await user.selectOptions(screen.getByRole("combobox", { name: "Deliverables" }), "del-2");
     await user.type(
       screen.getByPlaceholderText("Paste links, one per line"),
       "https://git.example/o/r/pulls/12",
@@ -1177,7 +1173,6 @@ describe("ExecutionDetailPanel", () => {
           id: "del-1",
           workflow_node_id: "n1",
           title: "Code changes",
-          kind: "pull_request",
           required: true,
           sort_order: 0,
           created_at: "",

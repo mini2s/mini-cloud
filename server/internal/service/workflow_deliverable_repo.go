@@ -401,14 +401,7 @@ func (s *WorkflowService) ensureNodeRunBranch(ctx context.Context, nodeRun db.Mu
 	if err != nil {
 		return fmt.Errorf("list deliverables: %w", err)
 	}
-	hasDocument := false
-	for _, d := range deliverables {
-		if d.Kind == "document" {
-			hasDocument = true
-			break
-		}
-	}
-	if !hasDocument {
+	if len(deliverables) == 0 {
 		return nil
 	}
 
@@ -860,12 +853,12 @@ func shortHexSafe(id string) string {
 	return id
 }
 
-// mergeDeliverablePRs merges the Gitea PR behind every PR-backed deliverable
-// submission (document deliverables uploaded as files AND pull_request
-// deliverables whose pasted code link is wrapped in a node→inst PR), with
-// bounded retry. Returns nil only if all such PRs merged; a non-nil error means
-// at least one failed terminally (conflict) or after retries (transient) — the
-// caller blocks the node run. Only called when s.Gitea is configured.
+// mergeDeliverablePRs merges the PR/MR behind every deliverable submission that
+// carries a pull_request_url (a document uploaded as files becomes a node→inst
+// PR; a code link is wrapped in a node→inst PR; a code MR is merged in place),
+// with bounded retry. Returns nil only if all such PRs merged; a non-nil error
+// means at least one failed terminally (conflict) or after retries (transient)
+// — the caller blocks the node run. Only called when s.Gitea is configured.
 func (s *WorkflowService) mergeDeliverablePRs(ctx context.Context, nodeRun db.MulticaWorkflowNodeRun) error {
 	run, err := s.Queries.GetWorkflowRun(ctx, nodeRun.WorkflowRunID)
 	if err != nil {
@@ -882,14 +875,12 @@ func (s *WorkflowService) mergeDeliverablePRs(ctx context.Context, nodeRun db.Mu
 	if err != nil {
 		return fmt.Errorf("list deliverables: %w", err)
 	}
-	// PR-backed kinds: document (file uploaded to a node→inst PR) and
-	// pull_request (code link wrapped in a node→inst PR). Both open a Gitea PR
-	// on submit, so both merge on approve.
-	isPRBacked := make(map[string]bool, len(deliverables))
+	// Build a set of deliverable IDs belonging to this node run. A submission
+	// is PR-backed when it has a non-empty PullRequestUrl — the kind column is
+	// no longer consulted.
+	deliverableIDs := make(map[string]bool, len(deliverables))
 	for _, d := range deliverables {
-		if d.Kind == "document" || d.Kind == "pull_request" {
-			isPRBacked[util.UUIDToString(d.ID)] = true
-		}
+		deliverableIDs[util.UUIDToString(d.ID)] = true
 	}
 
 	submissions, err := s.Queries.ListNodeRunDeliverableSubmissions(ctx, nodeRun.ID)
@@ -902,7 +893,7 @@ func (s *WorkflowService) mergeDeliverablePRs(ctx context.Context, nodeRun db.Mu
 		if sub.Status == "missing" || sub.Status == "rejected" {
 			continue
 		}
-		if !isPRBacked[util.UUIDToString(sub.DeliverableID)] || sub.PullRequestUrl == "" {
+		if !deliverableIDs[util.UUIDToString(sub.DeliverableID)] || sub.PullRequestUrl == "" {
 			continue
 		}
 		if err := s.mergeReviewURL(ctx, run.WorkspaceID, owner, repo, sub.PullRequestUrl); err != nil {
@@ -983,12 +974,13 @@ func (s *WorkflowService) gitlabAccessToken(ctx context.Context, workspaceID pgt
 	return strings.TrimSpace(settings.GitlabAccessToken), nil
 }
 
-// closeDeliverableReviewRequests closes the node-run's DOCUMENT deliverable PRs
-// (Gitea) after a critic rejection, so a stale document PR doesn't linger into
-// the next retry round (the worker opens a fresh one). Code MRs (pull_request
-// kind) are deliberately NOT closed — the worker revises them in place across
-// retries via findOpenPR, so closing would discard work-in-progress. Best-effort:
-// failures are logged and never block the rework/blocked transition (closing is
+// closeDeliverableReviewRequests closes the node-run's Gitea PRs after a
+// critic rejection, so a stale PR doesn't linger into the next retry round
+// (the worker opens a fresh one). Dispatch is by URL host: if
+// gitea.ParsePullRequestIndex succeeds the PR is Gitea-hosted and gets closed;
+// GitLab MRs (and unparseable URLs) are deliberately NOT closed — the worker
+// revises them in place across retries via findOpenPR. Best-effort: failures
+// are logged and never block the rework/blocked transition (closing is
 // cleanup, not a gate on the review outcome). Dormant when no provider is
 // configured.
 func (s *WorkflowService) closeDeliverableReviewRequests(ctx context.Context, nodeRun db.MulticaWorkflowNodeRun) {
@@ -1009,29 +1001,22 @@ func (s *WorkflowService) closeDeliverableReviewRequests(ctx context.Context, no
 	owner := gitea.OrgName(util.UUIDToString(run.WorkspaceID))
 	repo := DeliverableRepoNameForWorkflow(workflow)
 
-	deliverables, err := s.Queries.ListWorkflowNodeDeliverables(ctx, nodeRun.WorkflowNodeID)
-	if err != nil {
-		slog.Warn("close deliverable PRs: list deliverables", "error", err)
-		return
-	}
-	isDocument := make(map[string]bool, len(deliverables))
-	for _, d := range deliverables {
-		if d.Kind == "document" { // code MRs (pull_request) deliberately skipped
-			isDocument[util.UUIDToString(d.ID)] = true
-		}
-	}
 	submissions, err := s.Queries.ListNodeRunDeliverableSubmissions(ctx, nodeRun.ID)
 	if err != nil {
 		slog.Warn("close deliverable PRs: list submissions", "error", err)
 		return
 	}
 	for _, sub := range submissions {
-		if !isDocument[util.UUIDToString(sub.DeliverableID)] || sub.PullRequestUrl == "" {
+		if sub.PullRequestUrl == "" {
 			continue
 		}
 		index, err := gitea.ParsePullRequestIndex(sub.PullRequestUrl)
 		if err != nil {
-			slog.Warn("close deliverable PR: parse url", "url", sub.PullRequestUrl, "error", err)
+			// GitLab MR or unparseable URL — skip (worker revises in place).
+			// Debug (not Warn): GitLab MR URLs always fail this parse, so Warn
+			// would be noisy; Debug keeps a breadcrumb for genuinely malformed
+			// Gitea URLs without spamming on every rejected code MR.
+			slog.Debug("close deliverable PR: skip unparseable url", "url", sub.PullRequestUrl)
 			continue
 		}
 		if err := provider.CloseReviewRequest(ctx, owner, repo, index); err != nil {
@@ -1067,10 +1052,10 @@ func retryMergeDocPR(ctx context.Context, provider coderepo.RepositoryProvider, 
 	return lastErr
 }
 
-// markDeliverableSubmissionsApproved flips every live PR-backed submission
-// (document or pull_request) with a PR URL to status=approved (called after a
-// successful merge). Rejected rows stay rejected — a link the critic turned
-// down in an earlier round must not be resurrected by a sibling's approval.
+// markDeliverableSubmissionsApproved flips every live submission with a PR URL
+// to status=approved (called after a successful merge). Rejected rows stay
+// rejected — a link the critic turned down in an earlier round must not be
+// resurrected by a sibling's approval.
 // Best-effort: errors are logged, not returned — the merge already
 // succeeded, so the node will complete regardless of a status-write hiccup
 // here. The existing review_comment is preserved (the critic's comment lives on
@@ -1081,11 +1066,9 @@ func (s *WorkflowService) markDeliverableSubmissionsApproved(ctx context.Context
 		slog.Warn("mark deliverable submissions approved: list deliverables", "error", err)
 		return
 	}
-	isPRBacked := make(map[string]bool, len(deliverables))
+	deliverableIDs := make(map[string]bool, len(deliverables))
 	for _, d := range deliverables {
-		if d.Kind == "document" || d.Kind == "pull_request" {
-			isPRBacked[util.UUIDToString(d.ID)] = true
-		}
+		deliverableIDs[util.UUIDToString(d.ID)] = true
 	}
 	subs, err := s.Queries.ListNodeRunDeliverableSubmissions(ctx, nodeRun.ID)
 	if err != nil {
@@ -1096,7 +1079,7 @@ func (s *WorkflowService) markDeliverableSubmissionsApproved(ctx context.Context
 		if sub.Status == "missing" || sub.Status == "rejected" {
 			continue
 		}
-		if isPRBacked[util.UUIDToString(sub.DeliverableID)] && sub.PullRequestUrl != "" {
+		if deliverableIDs[util.UUIDToString(sub.DeliverableID)] && sub.PullRequestUrl != "" {
 			if _, err := s.Queries.ReviewNodeRunDeliverableSubmission(ctx, db.ReviewNodeRunDeliverableSubmissionParams{
 				ID:            sub.ID,
 				Status:        "approved",
@@ -1205,26 +1188,25 @@ func (s *WorkflowService) runLockedMemberUpload(ctx context.Context, issue db.Mu
 
 // resolveUploadDeliverable picks the deliverable a member upload targets: the
 // explicitly requested deliverableID when given (validated to belong to the
-// node run and to match the upload kind), otherwise the first requirement of
-// that kind — the legacy single-deliverable behavior.
-func resolveUploadDeliverable(deliverables []db.MulticaWorkflowNodeRunDeliverable, deliverableID, kind string) (db.MulticaWorkflowNodeRunDeliverable, error) {
+// node run), otherwise the sole deliverable on the node — the legacy
+// single-deliverable behavior (errors if there is not exactly one).
+func resolveUploadDeliverable(deliverables []db.MulticaWorkflowNodeRunDeliverable, deliverableID string) (db.MulticaWorkflowNodeRunDeliverable, error) {
 	if deliverableID != "" {
 		for _, d := range deliverables {
 			if util.UUIDToString(d.ID) == deliverableID {
-				if d.Kind != kind {
-					return db.MulticaWorkflowNodeRunDeliverable{}, fmt.Errorf("deliverable %s is not a %s deliverable", deliverableID, kind)
-				}
 				return d, nil
 			}
 		}
 		return db.MulticaWorkflowNodeRunDeliverable{}, fmt.Errorf("deliverable %s not found on this node run", deliverableID)
 	}
-	for _, d := range deliverables {
-		if d.Kind == kind {
-			return d, nil
-		}
+	switch len(deliverables) {
+	case 0:
+		return db.MulticaWorkflowNodeRunDeliverable{}, fmt.Errorf("node has no deliverables")
+	case 1:
+		return deliverables[0], nil
+	default:
+		return db.MulticaWorkflowNodeRunDeliverable{}, fmt.Errorf("multiple deliverables; specify deliverable_id")
 	}
-	return db.MulticaWorkflowNodeRunDeliverable{}, fmt.Errorf("node has no %s deliverable", kind)
 }
 
 // recordMemberUploadAndAdvance records submissions using the transaction that
@@ -1313,7 +1295,7 @@ func (s *WorkflowService) UploadMemberDeliverablePR(ctx context.Context, issue d
 		if err != nil {
 			return db.MulticaWorkflowNodeRun{}, false, fmt.Errorf("list deliverables: %w", err)
 		}
-		deliverable, err := resolveUploadDeliverable(deliverables, deliverableID, "pull_request")
+		deliverable, err := resolveUploadDeliverable(deliverables, deliverableID)
 		if err != nil {
 			return db.MulticaWorkflowNodeRun{}, false, err
 		}
@@ -1429,7 +1411,7 @@ func (s *WorkflowService) UploadMemberDeliverable(ctx context.Context, issue db.
 		if err != nil {
 			return db.MulticaWorkflowNodeRun{}, false, fmt.Errorf("list deliverables: %w", err)
 		}
-		deliverable, err := resolveUploadDeliverable(deliverables, deliverableID, "document")
+		deliverable, err := resolveUploadDeliverable(deliverables, deliverableID)
 		if err != nil {
 			return db.MulticaWorkflowNodeRun{}, false, err
 		}

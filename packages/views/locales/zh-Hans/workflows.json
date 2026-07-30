@@ -558,8 +558,7 @@
     "review_comment_required": "请填写评审意见后再通过或驳回",
     "deliverables": {
       "heading": "交付物 PR",
-      "document_section": "文档",
-      "code_section": "代码",
+      "deliverables_section": "交付物",
       "pull_request_label": "拉取请求",
       "upload_button": "上传文档",
       "upload_heading": "提交文档",

@@ -410,7 +410,7 @@ func (s *WorkflowService) persistPreparedWorkflowRun(
 		}
 		if _, err := qtx.CreateNodeRunDeliverableRequirement(ctx, db.CreateNodeRunDeliverableRequirementParams{
 			WorkflowNodeRunID: nodeRun.ID, SourceDeliverableID: parseSnapshotUUID(deliverable.ID),
-			Kind: deliverable.Kind, Title: deliverable.Title, Description: deliverable.Description,
+			Title: deliverable.Title, Description: deliverable.Description,
 			Required: deliverable.Required, SortOrder: deliverable.SortOrder,
 		}); err != nil {
 			return nil, fmt.Errorf("create snapshot deliverable %q: %w", deliverable.Title, err)

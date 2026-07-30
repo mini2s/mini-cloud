@@ -7,12 +7,12 @@ SELECT * FROM multica_workflow_node_deliverable
 WHERE workflow_node_id = $1
 ORDER BY sort_order ASC, created_at ASC;
 
--- name: WorkflowHasDocumentDeliverable :one
+-- name: WorkflowHasDeliverable :one
 SELECT EXISTS (
     SELECT 1
     FROM multica_workflow_node_deliverable deliverable
     JOIN multica_workflow_node node ON node.id = deliverable.workflow_node_id
-    WHERE node.workflow_id = $1 AND deliverable.kind = 'document'
+    WHERE node.workflow_id = $1
 );
 
 -- name: GetWorkflowNodeDeliverableInWorkflow :one
@@ -25,13 +25,12 @@ WHERE deliverable.id = $1
 
 -- name: CreateWorkflowNodeDeliverable :one
 INSERT INTO multica_workflow_node_deliverable (
-    workflow_node_id, kind, title, description, required, sort_order
-) VALUES ($1, $2, $3, $4, $5, $6)
+    workflow_node_id, title, description, required, sort_order
+) VALUES ($1, $2, $3, $4, $5)
 RETURNING *;
 
 -- name: UpdateWorkflowNodeDeliverable :one
 UPDATE multica_workflow_node_deliverable SET
-    kind = COALESCE(sqlc.narg('kind'), kind),
     title = COALESCE(sqlc.narg('title'), title),
     description = COALESCE(sqlc.narg('description'), description),
     required = COALESCE(sqlc.narg('required')::boolean, required),

@@ -151,9 +151,9 @@ func (h *Handler) resolveIssueInWorkspace(ctx context.Context, workspaceID pgtyp
 }
 
 // giteaContextForRun builds the Gitea context for a workflow run: topology
-// (owner/repo/clone_url/inst_branch) + every document deliverable across the
+// (owner/repo/clone_url/inst_branch) + every deliverable across the
 // run's node-runs. Returns nil if Gitea is dormant, the run can't load, or it
-// has no document deliverables.
+// has no deliverables.
 func (h *Handler) giteaContextForRun(ctx context.Context, runID pgtype.UUID) *IssueGiteaContext {
 	if !isGiteaConfigured() || !runID.Valid {
 		return nil
@@ -191,9 +191,6 @@ func (h *Handler) giteaContextForRun(ctx context.Context, runID pgtype.UUID) *Is
 		}
 		nrShort := util.UUIDToString(nr.ID)
 		for _, d := range deliverables {
-			if d.Kind != "document" {
-				continue
-			}
 			gctx.Deliverables = append(gctx.Deliverables, IssueGiteaDeliverableRef{
 				NodeTitle:     nr.NodeTitle,
 				DeliverableID: util.UUIDToString(d.ID),
