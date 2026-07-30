@@ -2,6 +2,7 @@ package handler
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -415,4 +416,64 @@ func TestSubmitNodeRunDeliverable_Returns404ForUnknownDeliverable(t *testing.T) 
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("status = %d, want 404 for unknown deliverable. body=%s", rec.Code, rec.Body.String())
 	}
+}
+
+// TestSubmitNodeRunDeliverable_AgentAttribution asserts that a submit with
+// valid X-Agent-ID + X-Task-ID headers stamps submitted_by_type="agent", and
+// a submit without the headers stays "member".
+func TestSubmitNodeRunDeliverable_AgentAttribution(t *testing.T) {
+	if testHandler == nil {
+		t.Skip("database not available")
+	}
+
+	// Seed an agent + task so resolveActor can validate the headers.
+	agentID := createHandlerTestAgent(t, "attribution-test-agent", nil)
+	taskID := createHandlerTestTaskForAgent(t, agentID)
+
+	nodeRunID, docID := seedDeliverableAndNodeRunIn(t, testWorkspaceID, testUserID)
+	t.Cleanup(func() {
+		testPool.Exec(context.Background(), `DELETE FROM multica_workflow_node_deliverable_submission WHERE workflow_node_run_id = $1`, nodeRunID)
+	})
+
+	t.Run("agent headers", func(t *testing.T) {
+		req := newRequest(http.MethodPost, "/api/node-runs/"+nodeRunID+"/deliverables/"+docID+"/submit",
+			map[string]any{"pull_request_url": "https://gitea.test/t-aaa/wf-bbb/pulls/1"})
+		req = withURLParams(req, "nodeRunId", nodeRunID, "deliverableId", docID)
+		req.Header.Set("X-Agent-ID", agentID)
+		req.Header.Set("X-Task-ID", taskID)
+		rec := httptest.NewRecorder()
+		testHandler.SubmitNodeRunDeliverable(rec, req)
+
+		if rec.Code != http.StatusOK {
+			t.Fatalf("status = %d, want 200. body=%s", rec.Code, rec.Body.String())
+		}
+		var resp map[string]any
+		if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
+			t.Fatalf("decode response: %v", err)
+		}
+		if resp["submitted_by_type"] != "agent" {
+			t.Errorf("submitted_by_type = %v, want agent", resp["submitted_by_type"])
+		}
+		// Clean up for next sub-test.
+		testPool.Exec(context.Background(), `DELETE FROM multica_workflow_node_deliverable_submission WHERE workflow_node_run_id = $1`, nodeRunID)
+	})
+
+	t.Run("no agent headers", func(t *testing.T) {
+		req := newRequest(http.MethodPost, "/api/node-runs/"+nodeRunID+"/deliverables/"+docID+"/submit",
+			map[string]any{"pull_request_url": "https://gitea.test/t-aaa/wf-bbb/pulls/2"})
+		req = withURLParams(req, "nodeRunId", nodeRunID, "deliverableId", docID)
+		rec := httptest.NewRecorder()
+		testHandler.SubmitNodeRunDeliverable(rec, req)
+
+		if rec.Code != http.StatusOK {
+			t.Fatalf("status = %d, want 200. body=%s", rec.Code, rec.Body.String())
+		}
+		var resp map[string]any
+		if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
+			t.Fatalf("decode response: %v", err)
+		}
+		if resp["submitted_by_type"] != "member" {
+			t.Errorf("submitted_by_type = %v, want member", resp["submitted_by_type"])
+		}
+	})
 }

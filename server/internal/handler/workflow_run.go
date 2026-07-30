@@ -1152,13 +1152,16 @@ func (h *Handler) SubmitNodeRunDeliverable(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	// Derive submitted_by from the authenticated user
+	// Derive submitted_by from the authenticated user (or agent, when the
+	// request carries valid X-Agent-ID + X-Task-ID headers).
+	workspaceID := h.resolveWorkspaceID(r)
 	userID, ok := requireUserID(w, r)
 	if !ok {
 		return
 	}
-	submittedByType := "member"
-	submittedByID := parseUUID(userID)
+	actorType, actorID := h.resolveActor(r, userID, workspaceID)
+	submittedByType := actorType
+	submittedByID := parseUUID(actorID)
 
 	submission, err := h.Queries.UpsertNodeRunDeliverableSubmission(r.Context(), db.UpsertNodeRunDeliverableSubmissionParams{
 		WorkflowNodeRunID: nrUUID,
