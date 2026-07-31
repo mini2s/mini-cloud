@@ -826,16 +826,15 @@ func TestArchiveReviewComment_WritesReviewUnderNodeDir(t *testing.T) {
 	}
 }
 
-// spyRepoProvider is a coderepo.RepositoryProvider spy that records UpsertFile
-// calls (the only method ArchiveCodeDeliverable exercises). Other methods are
-// stubbed to no-op so the spy satisfies the interface without a full httptest
-// backend. Used by the ArchiveCodeDeliverable test to assert the exact owner,
-// repo, branch, path, and content handed to UpsertFile.
+// spyRepoProvider is a coderepo.RepositoryProvider spy that records UpsertFile,
+// CreateBranch, and OpenReviewRequest calls. Other methods are stubbed to no-op
+// so the spy satisfies the interface without a full httptest backend.
 type spyRepoProvider struct {
-	configured bool
+	configured  bool
 	mu         sync.Mutex
 	upserts    []spyUpsertCall
 	branches   []spyBranchCall
+	openReviews []spyOpenReviewCall
 }
 
 type spyUpsertCall struct {
@@ -844,6 +843,10 @@ type spyUpsertCall struct {
 
 type spyBranchCall struct {
 	Owner, Repo, Branch, FromRef string
+}
+
+type spyOpenReviewCall struct {
+	Owner, Repo, Head, Base, Title string
 }
 
 func (s *spyRepoProvider) Name() coderepo.Provider { return coderepo.ProviderGitea }
@@ -861,7 +864,10 @@ func (s *spyRepoProvider) UpsertFile(ctx context.Context, owner, repo, branch, p
 	return nil
 }
 func (s *spyRepoProvider) OpenReviewRequest(ctx context.Context, owner, repo, head, base, title string) (string, error) {
-	return "", nil
+	s.mu.Lock()
+	s.openReviews = append(s.openReviews, spyOpenReviewCall{owner, repo, head, base, title})
+	s.mu.Unlock()
+	return "https://gitea.test/" + repo + "/pulls/1", nil
 }
 func (s *spyRepoProvider) MergeReviewRequest(ctx context.Context, owner, repo string, index int) error {
 	return nil
@@ -886,6 +892,14 @@ func (s *spyRepoProvider) branchCalls() []spyBranchCall {
 	defer s.mu.Unlock()
 	out := make([]spyBranchCall, len(s.branches))
 	copy(out, s.branches)
+	return out
+}
+
+func (s *spyRepoProvider) openReviewCalls() []spyOpenReviewCall {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := make([]spyOpenReviewCall, len(s.openReviews))
+	copy(out, s.openReviews)
 	return out
 }
 
@@ -1049,21 +1063,35 @@ func fakeGiteaMergeServer(t *testing.T, mergeStatus int) (srv *httptest.Server, 
 	return srv, &calls
 }
 
-// fakeGitlabMergeServer stands up an httptest.Server emulating the GitLab MR
-// merge endpoint. A PUT ending in /merge records a call and returns mergeStatus;
-// any other request gets a permissive 200. Returns the merge-call counter.
-func fakeGitlabMergeServer(t *testing.T, mergeStatus int) (srv *httptest.Server, mergeCalls *int) {
+// fakeGiteaMergeServerTrackingClose emulates real Gitea's lifecycle: a PATCH on
+// /pulls/{n} (the close call) marks the PR closed, after which POST .../merge
+// returns 404 (real Gitea returns "not found" for a closed PR's merge). While
+// open, merge returns 200. Used to reproduce the reject-then-retry bug where
+// closing the PR on rejection made the next round's approve merge a closed PR.
+func fakeGiteaMergeServerTrackingClose(t *testing.T) (srv *httptest.Server, mergeCalls *int) {
 	t.Helper()
 	var mu sync.Mutex
 	calls := 0
+	closed := false
 	srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		mu.Lock()
 		defer mu.Unlock()
-		if r.Method == http.MethodPut && strings.HasSuffix(r.URL.Path, "/merge") {
-			calls++
-			w.WriteHeader(mergeStatus)
+		if r.Method == http.MethodPatch && strings.Contains(r.URL.Path, "/pulls/") {
+			closed = true
+			w.WriteHeader(http.StatusOK)
 			return
 		}
+		if r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/merge") {
+			calls++
+			if closed {
+				w.WriteHeader(http.StatusNotFound)
+				_, _ = w.Write([]byte(`{"message":"not found"}`))
+				return
+			}
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
 	}))
 	t.Cleanup(srv.Close)
@@ -1168,6 +1196,86 @@ func TestSubmitWorkerOutput_BlocksMissingRequiredPullRequestDeliverable(t *testi
 	}
 	if got := nodeRunStatus(t, pool, nrID); got != NodeRunStatusWorking {
 		t.Fatalf("node run status = %q, want %q", got, NodeRunStatusWorking)
+	}
+}
+
+func TestSubmitWorkerOutput_AutoFilesCodeMR(t *testing.T) {
+	pool := openTestPool(t)
+	defer pool.Close()
+	ctx := context.Background()
+
+	fix := seedGiteaFixture(t, pool, false /*no document deliverable*/, 1 /*one run*/)
+
+	// Seed a pull_request-kind deliverable on the node.
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO multica_workflow_node_deliverable (workflow_node_id, title, description, required, sort_order)
+		VALUES ($1, 'Code MR', 'open an MR', TRUE, 0)
+	`, util.UUIDToString(fix.node)); err != nil {
+		t.Fatalf("seed pull_request deliverable: %v", err)
+	}
+
+	// Seed a critic (member) so the node-run can advance to awaiting_critic.
+	var criticID string
+	if err := pool.QueryRow(ctx, `
+		SELECT user_id FROM multica_member WHERE workspace_id = $1 LIMIT 1
+	`, util.UUIDToString(fix.workspace)).Scan(&criticID); err != nil {
+		t.Fatalf("seed critic: %v", err)
+	}
+
+	// Seed a node run in 'working' status with a critic assigned.
+	var nodeRunID string
+	if err := pool.QueryRow(ctx, `
+		INSERT INTO multica_workflow_node_run (workflow_run_id, workflow_node_id, node_title, status, worker_type, critic_type, critic_id)
+		VALUES ($1, $2, 'Code Node', 'working', 'agent', 'human', $3)
+		RETURNING id
+	`, util.UUIDToString(fix.run1), util.UUIDToString(fix.node), criticID).Scan(&nodeRunID); err != nil {
+		t.Fatalf("seed node run: %v", err)
+	}
+	nrID, _ := util.ParseUUID(nodeRunID)
+	seedRuntimeDeliverableRequirement(t, pool, nrID, fix.node, 0)
+
+	// Wire up the service with the spy repo provider so archiveCodeLinksToInst
+	// writes to the spy rather than a real Gitea instance.
+	spy := &spyRepoProvider{configured: true}
+	queries := db.New(pool)
+	svc := &WorkflowService{
+		Queries:            queries,
+		TxStarter:          pool,
+		RepositoryProvider: spy,
+	}
+
+	// Worker output contains a GitLab MR URL that extractPullRequestURLFromWorkerOutput
+	// will discover via the raw-string candidate path.
+	const mrURL = "https://gitlab.example.com/g/p/-/merge_requests/9"
+	if err := svc.SubmitWorkerOutput(ctx, nrID, json.RawMessage(`{"output":"Opened MR: `+mrURL+`"}`)); err != nil {
+		t.Fatalf("SubmitWorkerOutput: %v", err)
+	}
+
+	// Submit no longer archives — the MR URL is only auto-filed as a code-MR
+	// submission. It archives to the inst branch later, on approval.
+	subs, err := svc.Queries.ListNodeRunDeliverableSubmissions(ctx, nrID)
+	if err != nil {
+		t.Fatalf("list submissions: %v", err)
+	}
+	if len(subs) != 1 || subs[0].PullRequestUrl != mrURL {
+		t.Fatalf("auto-filed submission = %+v, want one with pull_request_url %q", subs, mrURL)
+	}
+
+	// On approval, archiveCodeLinksToInst writes the audit file to the inst branch.
+	svc.archiveCodeLinksToInst(ctx, nrID)
+	upserts := spy.snapshot()
+	if len(upserts) != 1 {
+		t.Fatalf("UpsertFile calls = %d, want 1; upserts=%+v", len(upserts), upserts)
+	}
+	got := upserts[0]
+	if wantInst := gitea.InstBranch(util.UUIDToString(fix.run1)); got.Branch != wantInst {
+		t.Errorf("UpsertFile branch = %q, want inst %q", got.Branch, wantInst)
+	}
+	if !strings.HasSuffix(got.Path, "/"+codeLinksArchiveFile) {
+		t.Errorf("UpsertFile path = %q, want suffix %q", got.Path, codeLinksArchiveFile)
+	}
+	if !strings.Contains(got.Content, mrURL) {
+		t.Errorf("UpsertFile content missing MR URL %q; content=%q", mrURL, got.Content)
 	}
 }
 
@@ -1384,12 +1492,12 @@ func TestReviewNodeRun_MergesDocumentDeliverablePRs(t *testing.T) {
 	}
 }
 
-// TestReviewNodeRun_MergesGitLabMR verifies the M4 GitLab path: a code-only
-// workspace (Gitea nil) with a pull_request deliverable whose submission points
-// at a GitLab MR. Approve → the MR is merged via the workspace's
-// gitlab_access_token (PUT .../merge_requests/{iid}/merge), the node completes,
-// and the submission is marked approved.
-func TestReviewNodeRun_MergesGitLabMR(t *testing.T) {
+// TestReviewNodeRun_SkipsGitLabMR verifies that code MRs (GitLab, GitHub, etc.)
+// are NOT auto-merged by multica. A code-only workspace with a pull_request
+// deliverable whose submission points at a GitLab MR — approve → the node
+// completes and the submission is approved, but NO merge call is made
+// (the user merges code MRs themselves).
+func TestReviewNodeRun_SkipsGitLabMR(t *testing.T) {
 	pool := openTestPool(t)
 	defer pool.Close()
 	ctx := context.Background()
@@ -1399,22 +1507,13 @@ func TestReviewNodeRun_MergesGitLabMR(t *testing.T) {
 	// Seed a code (pull_request) deliverable on the node.
 	var deliverableID string
 	if err := pool.QueryRow(ctx, `
-		INSERT INTO multica_workflow_node_deliverable (workflow_node_id, title, required, sort_order)
-		VALUES ($1, 'Code MR', TRUE, 0)
+		INSERT INTO multica_workflow_node_deliverable (workflow_node_id, title, description, required, sort_order)
+		VALUES ($1, 'Code MR', '', TRUE, 0)
 		RETURNING id
 	`, util.UUIDToString(fix.node)).Scan(&deliverableID); err != nil {
 		t.Fatalf("seed pull_request deliverable: %v", err)
 	}
-	// Configure the workspace's GitLab PAT (read by gitlabAccessToken).
-	if _, err := pool.Exec(ctx, `
-		UPDATE multica_workspace
-		SET settings = jsonb_set(coalesce(settings, '{}'::jsonb), '{gitlab_access_token}', '"gl-tok-123"')
-		WHERE id = $1
-	`, util.UUIDToString(fix.workspace)); err != nil {
-		t.Fatalf("set gitlab token: %v", err)
-	}
 
-	glSrv, mergeCalls := fakeGitlabMergeServer(t, http.StatusOK)
 	svc := &WorkflowService{
 		Queries:   db.New(pool),
 		TxStarter: pool,
@@ -1442,7 +1541,7 @@ func TestReviewNodeRun_MergesGitLabMR(t *testing.T) {
 	`, nodeRunID, deliverableID).Scan(&reqID); err != nil {
 		t.Fatalf("seed runtime requirement: %v", err)
 	}
-	mrURL := glSrv.URL + "/root/repo/-/merge_requests/7"
+	mrURL := "https://gitlab.example.com/root/repo/-/merge_requests/7"
 	if _, err := pool.Exec(ctx, `
 		INSERT INTO multica_workflow_node_deliverable_submission (
 			workflow_node_run_id, deliverable_id, submitted_by_type, status, content, pull_request_url
@@ -1462,8 +1561,21 @@ func TestReviewNodeRun_MergesGitLabMR(t *testing.T) {
 	if got := submissionStatus(t, pool, nrID); got != "approved" {
 		t.Fatalf("submission status = %q, want %q", got, "approved")
 	}
-	if *mergeCalls != 1 {
-		t.Fatalf("gitlab merge calls = %d, want exactly 1", *mergeCalls)
+}
+
+func TestMergeReviewURL_SkipsCodeMR(t *testing.T) {
+	pool := openTestPool(t)
+	defer pool.Close()
+	spy := &spyRepoProvider{configured: true}
+	svc := &WorkflowService{
+		Queries:            db.New(pool),
+		RepositoryProvider: spy,
+		Gitea:              gitea.NewClient(gitea.Config{BaseURL: "http://gitea.test", Token: "tok"}),
+	}
+	// External code MR URL: must NOT merge (returns nil, no provider merge call).
+	if err := svc.mergeReviewURL(context.Background(), pgtype.UUID{}, "t-x", "wf-y",
+		"https://gitlab.example.com/g/p/-/merge_requests/5"); err != nil {
+		t.Fatalf("mergeReviewURL(code MR) = %v, want nil (skip — user merges code MRs)", err)
 	}
 }
 
@@ -1541,214 +1653,6 @@ func seedReviewSubmissionsNodeRun(t *testing.T, pool *pgxpool.Pool, fix *giteaFi
 	return nrID
 }
 
-// TestCloseDeliverableReviewRequests_ClosesDocumentPROnly verifies the M4
-// reject-close filter: a document deliverable PR (Gitea) is closed; a code MR
-// (pull_request kind, GitLab) is left untouched. The function is best-effort
-// (void) — see the _BestEffortOnError companion for failure handling.
-func TestCloseDeliverableReviewRequests_ClosesDocumentPROnly(t *testing.T) {
-	pool := openTestPool(t)
-	defer pool.Close()
-	ctx := context.Background()
-	fix := seedGiteaFixture(t, pool, false, 1)
-
-	var docID, codeID string
-	if err := pool.QueryRow(ctx, `INSERT INTO multica_workflow_node_deliverable (workflow_node_id, title, required, sort_order) VALUES ($1,'Doc',TRUE,0) RETURNING id`, util.UUIDToString(fix.node)).Scan(&docID); err != nil {
-		t.Fatal(err)
-	}
-	if err := pool.QueryRow(ctx, `INSERT INTO multica_workflow_node_deliverable (workflow_node_id, title, required, sort_order) VALUES ($1,'Code',TRUE,1) RETURNING id`, util.UUIDToString(fix.node)).Scan(&codeID); err != nil {
-		t.Fatal(err)
-	}
-	docUUID, _ := util.ParseUUID(docID)
-	codeUUID, _ := util.ParseUUID(codeID)
-
-	giteaSrv, closeCalls := fakeGiteaCloseServer(t, http.StatusOK)
-	glSrv, glCalls := fakeGitlabMergeServer(t, http.StatusOK)
-	svc := &WorkflowService{
-		Queries:   db.New(pool),
-		TxStarter: pool,
-		Bus:       events.New(),
-		Gitea:     gitea.NewClient(gitea.Config{BaseURL: giteaSrv.URL, Token: "admin"}),
-	}
-
-	nrID := seedReviewSubmissionsNodeRun(t, pool, fix, docUUID, codeUUID,
-		giteaSrv.URL+"/owner/repo/pulls/5", glSrv.URL+"/root/repo/-/merge_requests/9")
-
-	svc.closeDeliverableReviewRequests(ctx, db.MulticaWorkflowNodeRun{
-		ID: nrID, WorkflowRunID: fix.run1, WorkflowNodeID: fix.node,
-	})
-	if *closeCalls != 1 {
-		t.Fatalf("document PR close calls = %d, want 1", *closeCalls)
-	}
-	if *glCalls != 0 {
-		t.Fatalf("gitlab merge/close calls = %d, want 0 (code MR must NOT be touched)", *glCalls)
-	}
-}
-
-// TestCloseDeliverableReviewRequests_BestEffortOnError verifies a close failure
-// (Gitea 500) does not abort the loop or surface — the function is best-effort.
-func TestCloseDeliverableReviewRequests_BestEffortOnError(t *testing.T) {
-	pool := openTestPool(t)
-	defer pool.Close()
-	ctx := context.Background()
-	fix := seedGiteaFixture(t, pool, false, 1)
-
-	var docID string
-	if err := pool.QueryRow(ctx, `INSERT INTO multica_workflow_node_deliverable (workflow_node_id, title, required, sort_order) VALUES ($1,'Doc',TRUE,0) RETURNING id`, util.UUIDToString(fix.node)).Scan(&docID); err != nil {
-		t.Fatal(err)
-	}
-
-	giteaSrv, closeCalls := fakeGiteaCloseServer(t, http.StatusInternalServerError)
-	svc := &WorkflowService{
-		Queries:   db.New(pool),
-		TxStarter: pool,
-		Bus:       events.New(),
-		Gitea:     gitea.NewClient(gitea.Config{BaseURL: giteaSrv.URL, Token: "admin"}),
-	}
-	// Seed a node_run, create a runtime requirement from the definition deliverable,
-	// then insert a submission on the runtime requirement ID (FK requires it).
-	var nodeRunID string
-	if err := pool.QueryRow(ctx, `
-		INSERT INTO multica_workflow_node_run (workflow_run_id, workflow_node_id, node_title, status, worker_type, critic_type)
-		VALUES ($1, $2, 'Review Node', 'critic_reviewing', 'agent', 'human')
-		RETURNING id
-	`, util.UUIDToString(fix.run1), util.UUIDToString(fix.node)).Scan(&nodeRunID); err != nil {
-		t.Fatalf("seed node run: %v", err)
-	}
-	var reqID pgtype.UUID
-	if err := pool.QueryRow(ctx, `
-		INSERT INTO multica_workflow_node_run_deliverable (
-			workflow_node_run_id, source_deliverable_id, title, description, required, sort_order)
-		SELECT $1, id, title, description, required, sort_order
-		FROM multica_workflow_node_deliverable WHERE id = $2
-		RETURNING id
-	`, nodeRunID, docID).Scan(&reqID); err != nil {
-		t.Fatalf("seed runtime requirement: %v", err)
-	}
-	if _, err := pool.Exec(ctx, `
-		INSERT INTO multica_workflow_node_deliverable_submission (
-			workflow_node_run_id, deliverable_id, submitted_by_type, status, content, pull_request_url)
-		VALUES ($1, $2, 'system', 'submitted', 'body', $3)
-	`, nodeRunID, util.UUIDToString(reqID), giteaSrv.URL+"/owner/repo/pulls/5"); err != nil {
-		t.Fatalf("seed submission: %v", err)
-	}
-	nrID, _ := util.ParseUUID(nodeRunID)
-
-	// Must not panic and must return (void); the 500 is logged, not propagated.
-	svc.closeDeliverableReviewRequests(ctx, db.MulticaWorkflowNodeRun{
-		ID: nrID, WorkflowRunID: fix.run1, WorkflowNodeID: fix.node,
-	})
-	if *closeCalls != 1 {
-		t.Fatalf("close attempts = %d, want 1 (failure must not abort)", *closeCalls)
-	}
-}
-
-// TestCloseDeliverableReviewRequests_ByURLHost verifies that close dispatch is
-// keyed on URL host (Gitea PR shape), not deliverable kind. A pull_request-kind
-// deliverable carrying a Gitea-hosted PR URL is closed; a GitLab-hosted MR URL
-// is skipped (worker revises in place). Before T1/T2 the function gated on
-// d.Kind == "document"; now it gates on gitea.ParsePullRequestIndex success.
-func TestCloseDeliverableReviewRequests_ByURLHost(t *testing.T) {
-	pool := openTestPool(t)
-	defer pool.Close()
-	ctx := context.Background()
-	fix := seedGiteaFixture(t, pool, false, 1)
-
-	// Two pull_request-kind deliverables on the definition node.
-	if _, err := pool.Exec(ctx, `INSERT INTO multica_workflow_node_deliverable (workflow_node_id, title, required, sort_order) VALUES ($1,'Code A',TRUE,0)`, util.UUIDToString(fix.node)); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := pool.Exec(ctx, `INSERT INTO multica_workflow_node_deliverable (workflow_node_id, title, required, sort_order) VALUES ($1,'Code B',TRUE,1)`, util.UUIDToString(fix.node)); err != nil {
-		t.Fatal(err)
-	}
-
-	// Seed a node_run, then copy definition deliverables into runtime requirements.
-	var nodeRunID string
-	if err := pool.QueryRow(ctx, `
-		INSERT INTO multica_workflow_node_run (workflow_run_id, workflow_node_id, node_title, status, worker_type, critic_type)
-		VALUES ($1, $2, 'Review Node', 'critic_reviewing', 'agent', 'human')
-		RETURNING id
-	`, util.UUIDToString(fix.run1), util.UUIDToString(fix.node)).Scan(&nodeRunID); err != nil {
-		t.Fatalf("seed node run: %v", err)
-	}
-	nrID, _ := util.ParseUUID(nodeRunID)
-
-	// Manually seed two runtime deliverable requirements from the two definition rows.
-	rows, err := pool.Query(ctx, `
-		SELECT id FROM multica_workflow_node_deliverable
-		WHERE workflow_node_id = $1 
-		ORDER BY sort_order, id
-	`, util.UUIDToString(fix.node))
-	if err != nil {
-		t.Fatalf("list definition deliverables: %v", err)
-	}
-	var defIDs []string
-	for rows.Next() {
-		var id string
-		if err := rows.Scan(&id); err != nil {
-			t.Fatalf("scan def id: %v", err)
-		}
-		defIDs = append(defIDs, id)
-	}
-	rows.Close()
-	if len(defIDs) != 2 {
-		t.Fatalf("expected 2 definition deliverables, got %d", len(defIDs))
-	}
-	var reqA, reqB pgtype.UUID
-	for _, defID := range defIDs {
-		var reqID pgtype.UUID
-		if err := pool.QueryRow(ctx, `
-			INSERT INTO multica_workflow_node_run_deliverable (
-				workflow_node_run_id, source_deliverable_id, title, description, required, sort_order)
-			SELECT $1, id, title, description, required, sort_order
-			FROM multica_workflow_node_deliverable WHERE id = $2
-			RETURNING id
-		`, nodeRunID, defID).Scan(&reqID); err != nil {
-			t.Fatalf("seed runtime requirement: %v", err)
-		}
-		if !reqA.Valid {
-			reqA = reqID
-		} else {
-			reqB = reqID
-		}
-	}
-
-	giteaSrv, closeCalls := fakeGiteaCloseServer(t, http.StatusOK)
-	glSrv, glMergeCalls := fakeGitlabMergeServer(t, http.StatusOK)
-	svc := &WorkflowService{
-		Queries:   db.New(pool),
-		TxStarter: pool,
-		Bus:       events.New(),
-		Gitea:     gitea.NewClient(gitea.Config{BaseURL: giteaSrv.URL, Token: "admin"}),
-	}
-
-	// Seed submissions on the runtime requirement IDs.
-	for _, s := range []struct {
-		req pgtype.UUID
-		url string
-	}{
-		{reqA, giteaSrv.URL + "/owner/repo/pulls/7"},
-		{reqB, glSrv.URL + "/root/repo/-/merge_requests/11"},
-	} {
-		if _, err := pool.Exec(ctx, `
-			INSERT INTO multica_workflow_node_deliverable_submission (
-				workflow_node_run_id, deliverable_id, submitted_by_type, status, content, pull_request_url)
-			VALUES ($1, $2, 'system', 'submitted', 'body', $3)
-		`, nodeRunID, util.UUIDToString(s.req), s.url); err != nil {
-			t.Fatalf("seed submission: %v", err)
-		}
-	}
-
-	svc.closeDeliverableReviewRequests(ctx, db.MulticaWorkflowNodeRun{
-		ID: nrID, WorkflowRunID: fix.run1, WorkflowNodeID: fix.node,
-	})
-	if *closeCalls != 1 {
-		t.Fatalf("Gitea PR close calls = %d, want 1 (pull_request kind with Gitea URL should be closed)", *closeCalls)
-	}
-	if *glMergeCalls != 0 {
-		t.Fatalf("GitLab merge/close calls = %d, want 0 (GitLab MR must NOT be touched)", *glMergeCalls)
-	}
-}
-
 // TestAutoSubmit_AnySingleRequiredDeliverable verifies that auto-submit widens
 // beyond pull_request kind: a single required deliverable of ANY kind receives the
 // extracted GitLab MR URL. Two required deliverables → ambiguity guard fires,
@@ -1808,10 +1712,10 @@ func TestAutoSubmit_AnySingleRequiredDeliverable(t *testing.T) {
 		fix := seedGiteaFixture(t, pool, false, 1)
 
 		// Two deliverables on the same node.
-		if _, err := pool.Exec(ctx, `INSERT INTO multica_workflow_node_deliverable (workflow_node_id, title, required, sort_order) VALUES ($1,'Doc',TRUE,0)`, util.UUIDToString(fix.node)); err != nil {
+		if _, err := pool.Exec(ctx, `INSERT INTO multica_workflow_node_deliverable (workflow_node_id, title, description, required, sort_order) VALUES ($1,'Doc','',TRUE,0)`, util.UUIDToString(fix.node)); err != nil {
 			t.Fatal(err)
 		}
-		if _, err := pool.Exec(ctx, `INSERT INTO multica_workflow_node_deliverable (workflow_node_id, title, required, sort_order) VALUES ($1,'Code',TRUE,1)`, util.UUIDToString(fix.node)); err != nil {
+		if _, err := pool.Exec(ctx, `INSERT INTO multica_workflow_node_deliverable (workflow_node_id, title, description, required, sort_order) VALUES ($1,'Code','',TRUE,1)`, util.UUIDToString(fix.node)); err != nil {
 			t.Fatal(err)
 		}
 
@@ -1847,36 +1751,6 @@ func TestAutoSubmit_AnySingleRequiredDeliverable(t *testing.T) {
 			t.Fatalf("submission count = %d, want 0 (ambiguity guard)", count)
 		}
 	})
-}
-
-// TestReviewNodeRun_ClosesDocumentPROnReject verifies the M4 reject wiring:
-// a critic rejection (retry < MaxRetries) closes the node-run's document
-// deliverable PR, and the node transitions to rework (not completed).
-func TestReviewNodeRun_ClosesDocumentPROnReject(t *testing.T) {
-	pool := openTestPool(t)
-	defer pool.Close()
-	ctx := context.Background()
-	fix := seedGiteaFixture(t, pool, true /*document deliverable*/, 1)
-
-	giteaSrv, closeCalls := fakeGiteaCloseServer(t, http.StatusOK)
-	svc := &WorkflowService{
-		Queries:   db.New(pool),
-		TxStarter: pool,
-		Bus:       events.New(),
-		Gitea:     gitea.NewClient(gitea.Config{BaseURL: giteaSrv.URL, Token: "admin"}),
-	}
-	prURL := giteaSrv.URL + "/owner/repo/pulls/5"
-	nodeRunID := seedNodeRunForReview(t, pool, fix, fix.run1, prURL, "submitted")
-
-	if err := svc.ReviewNodeRun(ctx, nodeRunID, false /*rejected*/, "needs work", nil); err != nil {
-		t.Fatalf("ReviewNodeRun: %v", err)
-	}
-	if *closeCalls != 1 {
-		t.Fatalf("document PR close calls = %d, want 1 on reject", *closeCalls)
-	}
-	if got := nodeRunStatus(t, pool, nodeRunID); got == NodeRunStatusCompleted {
-		t.Fatalf("node run completed on reject (should be rework/dispatched)")
-	}
 }
 
 // TestReviewNodeRun_ApproveDoesNotClose is the symmetric regression: approve
@@ -1943,6 +1817,56 @@ func TestReviewNodeRun_BlocksWhenMergeConflicts(t *testing.T) {
 	}
 	if *mergeCalls != 1 {
 		t.Fatalf("merge calls = %d, want exactly 1 (conflict is terminal, no retry)", *mergeCalls)
+	}
+}
+
+// TestReviewNodeRun_RejectKeepsPROpen_RetryMergeSucceeds reproduces the
+// member-deliverable retry bug: on rejection the node-run's Gitea PR was closed,
+// but the submission stayed "submitted". The member path reuses ONE branch/PR
+// per deliverable across retries, so on the next round the critic approved and
+// mergeDeliverablePRs tried to merge the now-closed PR → Gitea 404 → the node
+// blocked instead of completing. Fix: rejection must NOT close the PR — it stays
+// open for the worker to update and the next approval to merge.
+func TestReviewNodeRun_RejectKeepsPROpen_RetryMergeSucceeds(t *testing.T) {
+	pool := openTestPool(t)
+	defer pool.Close()
+	ctx := context.Background()
+	fix := seedGiteaFixture(t, pool, true, 1)
+
+	srv, mergeCalls := fakeGiteaMergeServerTrackingClose(t)
+	svc := &WorkflowService{
+		Queries:   db.New(pool),
+		TxStarter: pool,
+		Bus:       events.New(),
+		Gitea:     gitea.NewClient(gitea.Config{BaseURL: srv.URL, Token: "admin"}),
+	}
+
+	// One PR per deliverable, reused across retry rounds (member-upload semantics).
+	prURL := srv.URL + "/t-abcd1234/wf-deadbeef/pulls/3"
+	nodeRunID := seedNodeRunForReview(t, pool, fix, fix.run1, prURL, "submitted")
+
+	// Round 1: critic rejects. (Bug: this closed PR #3.)
+	if err := svc.ReviewNodeRun(ctx, nodeRunID, false /*rejected*/, "redo", nil); err != nil {
+		t.Fatalf("reject: %v", err)
+	}
+
+	// Round 2: worker re-submitted (reusing the same PR) and the node is back in
+	// critic review. Reset the status the rework transition left behind.
+	if _, err := pool.Exec(ctx,
+		`UPDATE multica_workflow_node_run SET status = 'critic_reviewing' WHERE id = $1`,
+		util.UUIDToString(nodeRunID)); err != nil {
+		t.Fatalf("reset node run for retry: %v", err)
+	}
+
+	// Critic approves → mergeDeliverablePRs merges PR #3.
+	if err := svc.ReviewNodeRun(ctx, nodeRunID, true /*approved*/, "lgtm", nil); err != nil {
+		t.Fatalf("approve: %v", err)
+	}
+	if got := nodeRunStatus(t, pool, nodeRunID); got != NodeRunStatusCompleted {
+		t.Fatalf("node run status = %q, want %q (PR must stay open across retries)", got, NodeRunStatusCompleted)
+	}
+	if *mergeCalls != 1 {
+		t.Fatalf("merge calls = %d, want exactly 1", *mergeCalls)
 	}
 }
 
@@ -2371,8 +2295,8 @@ func TestEnsureNodeRunBranch_KindAgnostic(t *testing.T) {
 
 	// Seed a pull_request-kind deliverable on the node.
 	if _, err := pool.Exec(ctx, `
-		INSERT INTO multica_workflow_node_deliverable (workflow_node_id, title, required, sort_order)
-		VALUES ($1, 'Code MR', TRUE, 0)
+		INSERT INTO multica_workflow_node_deliverable (workflow_node_id, title, description, required, sort_order)
+		VALUES ($1, 'Code MR', '', TRUE, 0)
 	`, util.UUIDToString(fix.node)); err != nil {
 		t.Fatalf("seed pull_request deliverable: %v", err)
 	}
@@ -2424,6 +2348,84 @@ func TestEnsureNodeRunBranch_KindAgnostic(t *testing.T) {
 	}
 }
 
+// TestReviewNodeRun_ApproveArchivesCodeLinksToInst verifies that approving a
+// node-run writes the code-MR-links audit file DIRECTLY to the inst branch —
+// code links no longer ride the document PR. The external code MR itself is not
+// merged by multica; only the audit .md lands on inst.
+func TestReviewNodeRun_ApproveArchivesCodeLinksToInst(t *testing.T) {
+	pool := openTestPool(t)
+	defer pool.Close()
+	ctx := context.Background()
+
+	fix := seedGiteaFixture(t, pool, false /*no document deliverable*/, 1)
+
+	// Seed one pull_request-kind deliverable on the node.
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO multica_workflow_node_deliverable (workflow_node_id, title, description, required, sort_order)
+		VALUES ($1, 'Code MR', 'open an MR', TRUE, 0)
+	`, util.UUIDToString(fix.node)); err != nil {
+		t.Fatalf("seed pull_request deliverable: %v", err)
+	}
+
+	// critic_reviewing node run ready for approval.
+	var nodeRunID string
+	if err := pool.QueryRow(ctx, `
+		INSERT INTO multica_workflow_node_run (workflow_run_id, workflow_node_id, node_title, status, worker_type, critic_type)
+		VALUES ($1, $2, 'Code Node', 'critic_reviewing', 'agent', 'human')
+		RETURNING id
+	`, util.UUIDToString(fix.run1), fix.node).Scan(&nodeRunID); err != nil {
+		t.Fatalf("seed node run: %v", err)
+	}
+	nrID, _ := util.ParseUUID(nodeRunID)
+
+	runtimeCodeID := seedRuntimeDeliverableRequirement(t, pool, nrID, fix.node, 0)
+	const externalMR = "https://gitlab.example.com/g/p/-/merge_requests/7"
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO multica_workflow_node_deliverable_submission (
+			workflow_node_run_id, deliverable_id, submitted_by_type, status, content, pull_request_url)
+		VALUES ($1, $2, 'agent', 'submitted', 'code body', $3)
+	`, nodeRunID, util.UUIDToString(runtimeCodeID), externalMR); err != nil {
+		t.Fatalf("seed submission: %v", err)
+	}
+
+	spy := &spyRepoProvider{configured: true}
+	svc := &WorkflowService{
+		Queries:            db.New(pool),
+		TxStarter:          pool,
+		Bus:                events.New(),
+		RepositoryProvider: spy,
+	}
+
+	if err := svc.ReviewNodeRun(ctx, nrID, true /*approved*/, "lgtm", nil); err != nil {
+		t.Fatalf("ReviewNodeRun: %v", err)
+	}
+
+	if got := nodeRunStatus(t, pool, nrID); got != NodeRunStatusCompleted {
+		t.Fatalf("node run status = %q, want %q", got, NodeRunStatusCompleted)
+	}
+
+	// The code-links audit file must land DIRECTLY on the inst branch.
+	upserts := spy.snapshot()
+	wantInst := gitea.InstBranch(util.UUIDToString(fix.run1))
+	var instAudit *spyUpsertCall
+	for i := range upserts {
+		if upserts[i].Branch == wantInst && strings.HasSuffix(upserts[i].Path, "/"+codeLinksArchiveFile) {
+			instAudit = &upserts[i]
+			break
+		}
+	}
+	if instAudit == nil {
+		t.Fatalf("no UpsertFile of %q to inst branch %q; upserts=%+v", codeLinksArchiveFile, wantInst, upserts)
+	}
+	if !strings.Contains(instAudit.Content, externalMR) {
+		t.Errorf("inst audit content missing MR URL %q; content=%q", externalMR, instAudit.Content)
+	}
+	// Code links must not open a PR.
+	if reviews := spy.openReviewCalls(); len(reviews) != 0 {
+		t.Errorf("OpenReviewRequest calls = %d, want 0", len(reviews))
+	}
+}
+
 // TestMergeAndApprove_KindAgnostic verifies that mergeDeliverablePRs and
 // markDeliverableSubmissionsApproved process submissions based on a non-empty
 // pull_request_url, regardless of the deliverable's kind column.
@@ -2436,14 +2438,14 @@ func TestMergeAndApprove_KindAgnostic(t *testing.T) {
 
 	// Seed two template-level deliverables: one 'document', one 'pull_request'.
 	if _, err := pool.Exec(ctx, `
-		INSERT INTO multica_workflow_node_deliverable (workflow_node_id, title, required, sort_order)
-		VALUES ($1, 'Doc', TRUE, 0)
+		INSERT INTO multica_workflow_node_deliverable (workflow_node_id, title, description, required, sort_order)
+		VALUES ($1, 'Doc', '', TRUE, 0)
 	`, util.UUIDToString(fix.node)); err != nil {
 		t.Fatalf("seed document deliverable: %v", err)
 	}
 	if _, err := pool.Exec(ctx, `
-		INSERT INTO multica_workflow_node_deliverable (workflow_node_id, title, required, sort_order)
-		VALUES ($1, 'Code', TRUE, 1)
+		INSERT INTO multica_workflow_node_deliverable (workflow_node_id, title, description, required, sort_order)
+		VALUES ($1, 'Code', '', TRUE, 1)
 	`, util.UUIDToString(fix.node)); err != nil {
 		t.Fatalf("seed pull_request deliverable: %v", err)
 	}
@@ -2516,3 +2518,94 @@ func TestMergeAndApprove_KindAgnostic(t *testing.T) {
 		}
 	}
 }
+
+// TestArchiveCodeLinksToInst_WritesInstBranchAndNoPR verifies that
+// archiveCodeLinksToInst writes a single 代码合并请求.md DIRECTLY on the inst
+// branch (not the node branch) collecting every external code-MR submission,
+// and does NOT open a node→inst PR — code links no longer ride the document PR.
+func TestArchiveCodeLinksToInst_WritesInstBranchAndNoPR(t *testing.T) {
+	pool := openTestPool(t)
+	defer pool.Close()
+	ctx := context.Background()
+
+	fix := seedGiteaFixture(t, pool, false /*no document deliverable*/, 1 /*one run*/)
+	queries := db.New(pool)
+
+	// Seed a pull_request-kind deliverable on the node.
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO multica_workflow_node_deliverable (workflow_node_id, title, description, required, sort_order)
+		VALUES ($1, 'Code MR', 'the worker code MR', TRUE, 0)
+	`, util.UUIDToString(fix.node)); err != nil {
+		t.Fatalf("seed pull_request deliverable: %v", err)
+	}
+
+	// Seed a node_run in 'working' status.
+	var nodeRunID string
+	if err := pool.QueryRow(ctx, `
+		INSERT INTO multica_workflow_node_run (
+			workflow_run_id, workflow_node_id, node_title, status, worker_type, critic_type
+		)
+		VALUES ($1, $2, '实现', 'working', 'agent', 'human')
+		RETURNING id
+	`, fix.run1, fix.node).Scan(&nodeRunID); err != nil {
+		t.Fatalf("seed node run: %v", err)
+	}
+	nodeRunUUID, _ := util.ParseUUID(nodeRunID)
+
+	// Seed a runtime deliverable requirement + a submission with an external MR URL.
+	runtimeDeliverableID := seedRuntimeDeliverableRequirement(t, pool, nodeRunUUID, fix.node, 0)
+	const externalMR = "https://gitlab.example.com/g/p/-/merge_requests/42"
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO multica_workflow_node_deliverable_submission (
+			workflow_node_run_id, deliverable_id, submitted_by_type, status, content, pull_request_url
+		)
+		VALUES ($1, $2, 'agent', 'submitted', 'code body', $3)
+	`, nodeRunID, util.UUIDToString(runtimeDeliverableID), externalMR); err != nil {
+		t.Fatalf("seed submission: %v", err)
+	}
+
+	// Wire up the service with the spy provider.
+	spy := &spyRepoProvider{configured: true}
+	svc := &WorkflowService{
+		Queries:            queries,
+		RepositoryProvider: spy,
+	}
+
+	svc.archiveCodeLinksToInst(ctx, nodeRunUUID)
+
+	// Assert: exactly one UpsertFile call, on the INST branch (not the node branch).
+	upserts := spy.snapshot()
+	if len(upserts) != 1 {
+		t.Fatalf("UpsertFile calls = %d, want 1", len(upserts))
+	}
+	got := upserts[0]
+
+	topo, err := RunNodeTopoOrder(ctx, queries, fix.run1)
+	if err != nil {
+		t.Fatalf("run topo order: %v", err)
+	}
+	wantNodeSeq := topo[nodeRunID]
+	wantOwner := gitea.OrgName(util.UUIDToString(fix.workspace))
+	wantRepo := DeliverableRepoNameForWorkflow(db.MulticaWorkflow{ID: fix.workflow})
+	wantInst := gitea.InstBranch(util.UUIDToString(fix.run1))
+	wantPath := gitea.NodeDir(wantNodeSeq, "实现", nodeRunID) + "/" + codeLinksArchiveFile
+
+	if got.Owner != wantOwner || got.Repo != wantRepo {
+		t.Errorf("UpsertFile target = %s/%s, want %s/%s", got.Owner, got.Repo, wantOwner, wantRepo)
+	}
+	if got.Branch != wantInst {
+		t.Errorf("UpsertFile branch = %q, want inst %q (not the node branch)", got.Branch, wantInst)
+	}
+	if got.Path != wantPath {
+		t.Errorf("UpsertFile path = %q, want %q", got.Path, wantPath)
+	}
+	if !strings.Contains(got.Content, externalMR) {
+		t.Errorf("UpsertFile content missing MR URL %q; content=%q", externalMR, got.Content)
+	}
+
+	// Assert: NO review request is opened — code links no longer create a PR.
+	if reviews := spy.openReviewCalls(); len(reviews) != 0 {
+		t.Errorf("OpenReviewRequest calls = %d, want 0 (code links no longer open a PR)", len(reviews))
+	}
+}
+

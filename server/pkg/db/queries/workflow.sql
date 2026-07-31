@@ -279,6 +279,15 @@ UPDATE multica_workflow_run SET
 WHERE id = $1
 RETURNING *;
 
+-- name: ReviveWorkflowRunForRetry :one
+UPDATE multica_workflow_run SET
+    status = 'running',
+    failure_reason = NULL,
+    completed_at = NULL
+WHERE id = $1
+  AND status = 'failed'
+RETURNING *;
+
 -- name: CancelWorkflowRun :one
 UPDATE multica_workflow_run SET
     status = 'cancelled',

@@ -36,7 +36,7 @@ import {
 import { resolveEnterSessionId } from "./runtime-session";
 
 export const RUNTIME_NODE_HEIGHT = 176;
-export const RUNTIME_SPLIT_NODE_HEIGHT = 176;
+export const RUNTIME_SPLIT_NODE_HEIGHT = 192;
 export const RUNTIME_CHILD_ISSUE_NODE_HEIGHT = 136;
 export const RUNTIME_CHILD_ISSUE_NODE_WIDTH = 264;
 
@@ -599,7 +599,7 @@ export function RuntimeNodeCard({
       tabIndex={hasInlineAction ? 0 : undefined}
       onClick={() => onClick(node.id)}
       onKeyDown={hasInlineAction ? handleShellKeyDown : undefined}
-      className={isSplit ? "h-[176px]" : childIssueSummary ? "h-[136px]" : "h-[176px]"}
+      className={isSplit ? "h-[192px]" : childIssueSummary ? "h-[136px]" : "h-[176px]"}
       surfaceClassName={runtimeFocusSurfaceClassName(isRuntimeFocus, displayStatus)}
       contentClassName={cn("h-full justify-between gap-2", workflowNodeInfoAreaClassName(nodeShape))}
       handles={handles}

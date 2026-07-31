@@ -1775,6 +1775,48 @@ func (q *Queries) LockWorkflowDefinitionForUpdate(ctx context.Context, id pgtype
 	return i, err
 }
 
+const reviveWorkflowRunForRetry = `-- name: ReviveWorkflowRunForRetry :one
+UPDATE multica_workflow_run SET
+    status = 'running',
+    failure_reason = NULL,
+    completed_at = NULL
+WHERE id = $1
+  AND status = 'failed'
+RETURNING id, workflow_id, workspace_id, workflow_title, status, triggered_by_type, triggered_by_id, input, output, started_at, completed_at, created_at, runtime_id, source_issue_id, responsible_user_id, runtime_authorizer_id, dispatch_key, runtime_selection_policy, source_config_revision, definition_schema_version, definition_snapshot, max_retries, failure_reason, validation_errors
+`
+
+func (q *Queries) ReviveWorkflowRunForRetry(ctx context.Context, id pgtype.UUID) (MulticaWorkflowRun, error) {
+	row := q.db.QueryRow(ctx, reviveWorkflowRunForRetry, id)
+	var i MulticaWorkflowRun
+	err := row.Scan(
+		&i.ID,
+		&i.WorkflowID,
+		&i.WorkspaceID,
+		&i.WorkflowTitle,
+		&i.Status,
+		&i.TriggeredByType,
+		&i.TriggeredByID,
+		&i.Input,
+		&i.Output,
+		&i.StartedAt,
+		&i.CompletedAt,
+		&i.CreatedAt,
+		&i.RuntimeID,
+		&i.SourceIssueID,
+		&i.ResponsibleUserID,
+		&i.RuntimeAuthorizerID,
+		&i.DispatchKey,
+		&i.RuntimeSelectionPolicy,
+		&i.SourceConfigRevision,
+		&i.DefinitionSchemaVersion,
+		&i.DefinitionSnapshot,
+		&i.MaxRetries,
+		&i.FailureReason,
+		&i.ValidationErrors,
+	)
+	return i, err
+}
+
 const setUserWorkflowAdmin = `-- name: SetUserWorkflowAdmin :one
 UPDATE multica_user SET
     can_manage_workflows = $2

@@ -9,8 +9,6 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
-	"github.com/multica-ai/multica/server/internal/gitea"
-	"github.com/multica-ai/multica/server/internal/gitlab"
 	"github.com/multica-ai/multica/server/internal/service"
 	db "github.com/multica-ai/multica/server/pkg/db/generated"
 	"github.com/multica-ai/multica/server/pkg/protocol"
@@ -1068,7 +1066,7 @@ func workflowNodeDeliverableSubmissionToResponse(s db.MulticaWorkflowNodeDeliver
 		Status:            s.Status,
 		Content:           s.Content,
 		AttachmentID:      uuidToPtr(s.AttachmentID),
-		PullRequestURL:    s.PullRequestUrl,
+		PullRequestURL:    service.RewriteGiteaHostToPublic(s.PullRequestUrl),
 		ReviewComment:     s.ReviewComment,
 		SubmittedAt:       timestampToString(s.SubmittedAt),
 		ReviewedAt:        timestampToPtr(s.ReviewedAt),
@@ -1181,30 +1179,9 @@ func (h *Handler) SubmitNodeRunDeliverable(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	// M5: archive the code MR pointer into the run's Gitea repo (best-effort,
-	// async — never blocks the submission response). Only GitLab MR URLs are
-	// archived as code/<id>.md pointers; Gitea PRs are managed via the review
-	// merge flow and don't need a separate pointer file.
-	if req.PullRequestURL != "" && h.WorkflowService != nil {
-		// Gitea PR URL → skip (managed by review merge flow).
-		if _, err := gitea.ParsePullRequestIndex(req.PullRequestURL); err == nil {
-			// Gitea-hosted — no archive needed.
-		} else if _, err := gitlab.ParseMergeRequestURL(req.PullRequestURL); err == nil {
-			// GitLab-hosted MR → archive the pointer.
-			if nr, err := h.Queries.GetWorkflowNodeRun(r.Context(), nrUUID); err == nil {
-				if deliverables, err := h.Queries.ListWorkflowNodeDeliverables(r.Context(), nr.WorkflowNodeID); err == nil {
-					for _, d := range deliverables {
-						if d.ID == dUUID {
-							d := d // capture for the goroutine
-							go h.WorkflowService.ArchiveCodeDeliverable(
-								context.Background(), nr, d, req.PullRequestURL, "", "", "")
-							break
-						}
-					}
-				}
-			}
-		}
-	}
+	// Code MR links stay standalone submissions — they are archived to the inst
+	// branch only on approval (see WorkflowService.archiveCodeLinksToInst), not
+	// at submit time.
 
 	writeJSON(w, http.StatusOK, workflowNodeDeliverableSubmissionToResponse(submission))
 }
