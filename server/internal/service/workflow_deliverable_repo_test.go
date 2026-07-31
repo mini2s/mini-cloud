@@ -1199,7 +1199,7 @@ func TestSubmitWorkerOutput_BlocksMissingRequiredPullRequestDeliverable(t *testi
 	}
 }
 
-func TestSubmitWorkerOutput_ArchivesAutoSubmittedCodeMR(t *testing.T) {
+func TestSubmitWorkerOutput_AutoFilesCodeMR(t *testing.T) {
 	pool := openTestPool(t)
 	defer pool.Close()
 	ctx := context.Background()
@@ -1234,7 +1234,7 @@ func TestSubmitWorkerOutput_ArchivesAutoSubmittedCodeMR(t *testing.T) {
 	nrID, _ := util.ParseUUID(nodeRunID)
 	seedRuntimeDeliverableRequirement(t, pool, nrID, fix.node, 0)
 
-	// Wire up the service with the spy repo provider so ArchiveNodeCodeLinks
+	// Wire up the service with the spy repo provider so archiveCodeLinksToInst
 	// writes to the spy rather than a real Gitea instance.
 	spy := &spyRepoProvider{configured: true}
 	queries := db.New(pool)
@@ -1247,22 +1247,30 @@ func TestSubmitWorkerOutput_ArchivesAutoSubmittedCodeMR(t *testing.T) {
 	// Worker output contains a GitLab MR URL that extractPullRequestURLFromWorkerOutput
 	// will discover via the raw-string candidate path.
 	const mrURL = "https://gitlab.example.com/g/p/-/merge_requests/9"
-	err := svc.SubmitWorkerOutput(ctx, nrID, json.RawMessage(`{"output":"Opened MR: `+mrURL+`"}`))
-	if err != nil {
+	if err := svc.SubmitWorkerOutput(ctx, nrID, json.RawMessage(`{"output":"Opened MR: `+mrURL+`"}`)); err != nil {
 		t.Fatalf("SubmitWorkerOutput: %v", err)
 	}
 
-	// The async goroutine launched by SubmitWorkerOutput is fire-and-forget.
-	// Call ArchiveNodeCodeLinks synchronously to deterministically verify the spy.
-	svc.ArchiveNodeCodeLinks(ctx, nrID)
+	// Submit no longer archives — the MR URL is only auto-filed as a code-MR
+	// submission. It archives to the inst branch later, on approval.
+	subs, err := svc.Queries.ListNodeRunDeliverableSubmissions(ctx, nrID)
+	if err != nil {
+		t.Fatalf("list submissions: %v", err)
+	}
+	if len(subs) != 1 || subs[0].PullRequestUrl != mrURL {
+		t.Fatalf("auto-filed submission = %+v, want one with pull_request_url %q", subs, mrURL)
+	}
 
-	// Assert: the spy recorded an UpsertFile whose path ends with the code-links
-	// archive filename and whose content contains the MR URL.
+	// On approval, archiveCodeLinksToInst writes the audit file to the inst branch.
+	svc.archiveCodeLinksToInst(ctx, nrID)
 	upserts := spy.snapshot()
 	if len(upserts) != 1 {
 		t.Fatalf("UpsertFile calls = %d, want 1; upserts=%+v", len(upserts), upserts)
 	}
 	got := upserts[0]
+	if wantInst := gitea.InstBranch(util.UUIDToString(fix.run1)); got.Branch != wantInst {
+		t.Errorf("UpsertFile branch = %q, want inst %q", got.Branch, wantInst)
+	}
 	if !strings.HasSuffix(got.Path, "/"+codeLinksArchiveFile) {
 		t.Errorf("UpsertFile path = %q, want suffix %q", got.Path, codeLinksArchiveFile)
 	}
@@ -2340,6 +2348,84 @@ func TestEnsureNodeRunBranch_KindAgnostic(t *testing.T) {
 	}
 }
 
+// TestReviewNodeRun_ApproveArchivesCodeLinksToInst verifies that approving a
+// node-run writes the code-MR-links audit file DIRECTLY to the inst branch —
+// code links no longer ride the document PR. The external code MR itself is not
+// merged by multica; only the audit .md lands on inst.
+func TestReviewNodeRun_ApproveArchivesCodeLinksToInst(t *testing.T) {
+	pool := openTestPool(t)
+	defer pool.Close()
+	ctx := context.Background()
+
+	fix := seedGiteaFixture(t, pool, false /*no document deliverable*/, 1)
+
+	// Seed one pull_request-kind deliverable on the node.
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO multica_workflow_node_deliverable (workflow_node_id, title, description, required, sort_order)
+		VALUES ($1, 'Code MR', 'open an MR', TRUE, 0)
+	`, util.UUIDToString(fix.node)); err != nil {
+		t.Fatalf("seed pull_request deliverable: %v", err)
+	}
+
+	// critic_reviewing node run ready for approval.
+	var nodeRunID string
+	if err := pool.QueryRow(ctx, `
+		INSERT INTO multica_workflow_node_run (workflow_run_id, workflow_node_id, node_title, status, worker_type, critic_type)
+		VALUES ($1, $2, 'Code Node', 'critic_reviewing', 'agent', 'human')
+		RETURNING id
+	`, util.UUIDToString(fix.run1), fix.node).Scan(&nodeRunID); err != nil {
+		t.Fatalf("seed node run: %v", err)
+	}
+	nrID, _ := util.ParseUUID(nodeRunID)
+
+	runtimeCodeID := seedRuntimeDeliverableRequirement(t, pool, nrID, fix.node, 0)
+	const externalMR = "https://gitlab.example.com/g/p/-/merge_requests/7"
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO multica_workflow_node_deliverable_submission (
+			workflow_node_run_id, deliverable_id, submitted_by_type, status, content, pull_request_url)
+		VALUES ($1, $2, 'agent', 'submitted', 'code body', $3)
+	`, nodeRunID, util.UUIDToString(runtimeCodeID), externalMR); err != nil {
+		t.Fatalf("seed submission: %v", err)
+	}
+
+	spy := &spyRepoProvider{configured: true}
+	svc := &WorkflowService{
+		Queries:            db.New(pool),
+		TxStarter:          pool,
+		Bus:                events.New(),
+		RepositoryProvider: spy,
+	}
+
+	if err := svc.ReviewNodeRun(ctx, nrID, true /*approved*/, "lgtm", nil); err != nil {
+		t.Fatalf("ReviewNodeRun: %v", err)
+	}
+
+	if got := nodeRunStatus(t, pool, nrID); got != NodeRunStatusCompleted {
+		t.Fatalf("node run status = %q, want %q", got, NodeRunStatusCompleted)
+	}
+
+	// The code-links audit file must land DIRECTLY on the inst branch.
+	upserts := spy.snapshot()
+	wantInst := gitea.InstBranch(util.UUIDToString(fix.run1))
+	var instAudit *spyUpsertCall
+	for i := range upserts {
+		if upserts[i].Branch == wantInst && strings.HasSuffix(upserts[i].Path, "/"+codeLinksArchiveFile) {
+			instAudit = &upserts[i]
+			break
+		}
+	}
+	if instAudit == nil {
+		t.Fatalf("no UpsertFile of %q to inst branch %q; upserts=%+v", codeLinksArchiveFile, wantInst, upserts)
+	}
+	if !strings.Contains(instAudit.Content, externalMR) {
+		t.Errorf("inst audit content missing MR URL %q; content=%q", externalMR, instAudit.Content)
+	}
+	// Code links must not open a PR.
+	if reviews := spy.openReviewCalls(); len(reviews) != 0 {
+		t.Errorf("OpenReviewRequest calls = %d, want 0", len(reviews))
+	}
+}
+
 // TestMergeAndApprove_KindAgnostic verifies that mergeDeliverablePRs and
 // markDeliverableSubmissionsApproved process submissions based on a non-empty
 // pull_request_url, regardless of the deliverable's kind column.
@@ -2433,13 +2519,11 @@ func TestMergeAndApprove_KindAgnostic(t *testing.T) {
 	}
 }
 
-// TestArchiveNodeCodeLinks_WritesNodeBranchMDAndEnsuresNodePR verifies that
-// ArchiveNodeCodeLinks writes a single 代码合并请求.md on the node branch
-// (collecting every external code-MR submission) and ensures the shared
-// deliverable PR (node→inst) exists — reused when the document-submit path
-// already opened it, created here for a code-only node. Gitea-internal PR URLs
-// are excluded so only real code MRs appear in the archive.
-func TestArchiveNodeCodeLinks_WritesNodeBranchMDAndEnsuresNodePR(t *testing.T) {
+// TestArchiveCodeLinksToInst_WritesInstBranchAndNoPR verifies that
+// archiveCodeLinksToInst writes a single 代码合并请求.md DIRECTLY on the inst
+// branch (not the node branch) collecting every external code-MR submission,
+// and does NOT open a node→inst PR — code links no longer ride the document PR.
+func TestArchiveCodeLinksToInst_WritesInstBranchAndNoPR(t *testing.T) {
 	pool := openTestPool(t)
 	defer pool.Close()
 	ctx := context.Background()
@@ -2487,16 +2571,15 @@ func TestArchiveNodeCodeLinks_WritesNodeBranchMDAndEnsuresNodePR(t *testing.T) {
 		RepositoryProvider: spy,
 	}
 
-	svc.ArchiveNodeCodeLinks(ctx, nodeRunUUID)
+	svc.archiveCodeLinksToInst(ctx, nodeRunUUID)
 
-	// Assert: exactly one UpsertFile call on the node branch.
+	// Assert: exactly one UpsertFile call, on the INST branch (not the node branch).
 	upserts := spy.snapshot()
 	if len(upserts) != 1 {
 		t.Fatalf("UpsertFile calls = %d, want 1", len(upserts))
 	}
 	got := upserts[0]
 
-	// Expected branch/path derived from topo + nodeRun (run-scoped, matches the impl).
 	topo, err := RunNodeTopoOrder(ctx, queries, fix.run1)
 	if err != nil {
 		t.Fatalf("run topo order: %v", err)
@@ -2504,37 +2587,25 @@ func TestArchiveNodeCodeLinks_WritesNodeBranchMDAndEnsuresNodePR(t *testing.T) {
 	wantNodeSeq := topo[nodeRunID]
 	wantOwner := gitea.OrgName(util.UUIDToString(fix.workspace))
 	wantRepo := DeliverableRepoNameForWorkflow(db.MulticaWorkflow{ID: fix.workflow})
-	wantBranch := gitea.NodeBranch(wantNodeSeq, nodeRunID)
+	wantInst := gitea.InstBranch(util.UUIDToString(fix.run1))
 	wantPath := gitea.NodeDir(wantNodeSeq, "实现", nodeRunID) + "/" + codeLinksArchiveFile
 
 	if got.Owner != wantOwner || got.Repo != wantRepo {
 		t.Errorf("UpsertFile target = %s/%s, want %s/%s", got.Owner, got.Repo, wantOwner, wantRepo)
 	}
-	if got.Branch != wantBranch {
-		t.Errorf("UpsertFile branch = %q, want %q", got.Branch, wantBranch)
+	if got.Branch != wantInst {
+		t.Errorf("UpsertFile branch = %q, want inst %q (not the node branch)", got.Branch, wantInst)
 	}
 	if got.Path != wantPath {
 		t.Errorf("UpsertFile path = %q, want %q", got.Path, wantPath)
-	}
-	if !strings.HasSuffix(got.Path, "/"+codeLinksArchiveFile) {
-		t.Errorf("UpsertFile path = %q, want suffix %q", got.Path, codeLinksArchiveFile)
 	}
 	if !strings.Contains(got.Content, externalMR) {
 		t.Errorf("UpsertFile content missing MR URL %q; content=%q", externalMR, got.Content)
 	}
 
-	// Assert: exactly one OpenReviewRequest call (node branch → inst) — the
-	// shared deliverable PR is ensured to exist (reused if the document-submit
-	// path already opened it; created here for this code-only node).
-	reviews := spy.openReviewCalls()
-	if len(reviews) != 1 {
-		t.Fatalf("OpenReviewRequest calls = %d, want 1 (ensure deliverable PR)", len(reviews))
-	}
-	wantBase := gitea.InstBranch(util.UUIDToString(fix.run1))
-	if reviews[0].Head != wantBranch {
-		t.Errorf("OpenReviewRequest head = %q, want %q", reviews[0].Head, wantBranch)
-	}
-	if reviews[0].Base != wantBase {
-		t.Errorf("OpenReviewRequest base = %q, want %q", reviews[0].Base, wantBase)
+	// Assert: NO review request is opened — code links no longer create a PR.
+	if reviews := spy.openReviewCalls(); len(reviews) != 0 {
+		t.Errorf("OpenReviewRequest calls = %d, want 0 (code links no longer open a PR)", len(reviews))
 	}
 }
+

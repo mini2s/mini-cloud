@@ -1179,12 +1179,9 @@ func (h *Handler) SubmitNodeRunDeliverable(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	// Archive the node's code-MR links into the node PR (best-effort, async —
-	// never blocks the submission response). Rebuilds the .md from all code-link
-	// submissions on this node-run. pull_request_url keeps the real MR URL.
-	if req.PullRequestURL != "" && h.WorkflowService != nil {
-		go h.WorkflowService.ArchiveNodeCodeLinks(context.Background(), nrUUID)
-	}
+	// Code MR links stay standalone submissions — they are archived to the inst
+	// branch only on approval (see WorkflowService.archiveCodeLinksToInst), not
+	// at submit time.
 
 	writeJSON(w, http.StatusOK, workflowNodeDeliverableSubmissionToResponse(submission))
 }
