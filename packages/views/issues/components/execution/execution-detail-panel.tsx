@@ -20,8 +20,6 @@ import {
   User,
 } from "lucide-react";
 import { api } from "@multica/core/api";
-import { useChatStore } from "@multica/core/chat";
-import { chatSessionsOptions } from "@multica/core/chat/queries";
 import {
   isEmbeddedInCostrict,
   postCostrictNavigateToSession,
@@ -33,9 +31,9 @@ import {
   type WorkflowNodeRun,
   type WorkflowNodeRuntimeSummary,
 } from "@multica/core/types";
-import type { AgentTask } from "@multica/core/types/agent";
 import {
   nodeRunDeliverableSubmissionsOptions,
+  useSessionPermission,
   workflowKeys,
 } from "@multica/core/workflows/queries";
 import { Button } from "@multica/ui/components/ui/button";
@@ -47,13 +45,8 @@ import {
 } from "../../../common/workflow-node-detail-panel-shell";
 import { RuntimeDisplayStatusIcon } from "./node-run-status-icon";
 import { formatRuntimeDuration } from "./runtime-node-duration";
+import { resolveEnterSessionId } from "./runtime-session";
 import { NodeRunDeliverables } from "../../../workflows/components/node-run-deliverables";
-import {
-  AgentTranscriptDialog,
-  buildTimeline,
-  type TimelineItem,
-} from "../../../common/task-transcript";
-import { resolveChatSessionId } from "../../../chat/lib/resolve-chat-session-id";
 import {
   getHumanNodeRunActionAccess,
   type HumanActionMember,
@@ -101,34 +94,6 @@ function formatJson(value: unknown): string {
 
 function isRetryableNodeRunStatus(status: string | undefined): boolean {
   return status === "failed" || status === "format_failed" || status === "blocked" || status === "critic_rework";
-}
-
-function taskStatusFromNodeRun(status: WorkflowNodeRun["status"]): AgentTask["status"] {
-  switch (status) {
-    case "completed":
-    case "critic_approved":
-      return "completed";
-    case "failed":
-    case "format_failed":
-    case "blocked":
-    case "critic_rework":
-      return "failed";
-    case "cancelled":
-    case "skipped":
-      return "cancelled";
-    case "pending":
-      return "queued";
-    case "worker_assigned":
-      return "dispatched";
-    default:
-      return "running";
-  }
-}
-
-function readWorkDir(output: unknown): string | undefined {
-  if (!output || typeof output !== "object" || Array.isArray(output)) return undefined;
-  const value = (output as Record<string, unknown>).work_dir;
-  return typeof value === "string" && value.trim() ? value : undefined;
 }
 
 type IssueTranslator = ReturnType<typeof useT<"issues">>["t"];
@@ -190,10 +155,7 @@ export function ExecutionDetailPanel({
 }: ExecutionDetailPanelProps) {
   const { t } = useT("issues");
   const [showEvidence, setShowEvidence] = useState(false);
-  const [transcriptOpen, setTranscriptOpen] = useState(false);
   const [reviewComment, setReviewComment] = useState("");
-  const [transcriptLoading, setTranscriptLoading] = useState(false);
-  const [transcriptItems, setTranscriptItems] = useState<TimelineItem[]>([]);
   const queryClient = useQueryClient();
   const nodeFormat = parseNodeFormat(node.format_schema);
   const isGateway = nodeFormat.kind === "gateway";
@@ -202,9 +164,6 @@ export function ExecutionDetailPanel({
     : runtimeSummary?.display_status ?? (nodeRun ? toWorkflowRuntimeDisplayStatus(nodeRun.status) : "pending");
   const displayStatusLabel = runtimeDisplayStatusText(t, displayStatus, isGateway ? nodeFormat.gateway_kind : null);
   const GatewayIcon = nodeFormat.gateway_kind === "join" ? GitMerge : GitFork;
-  const setChatSession = useChatStore((s) => s.setActiveSession);
-  const setChatOpen = useChatStore((s) => s.setOpen);
-  const { data: chatSessions = [] } = useQuery(chatSessionsOptions(wsId));
   const { data: deliverableData } = useQuery({
     ...nodeRunDeliverableSubmissionsOptions(wsId, nodeRun?.id ?? ""),
     enabled: !!nodeRun?.id,
@@ -246,41 +205,10 @@ export function ExecutionDetailPanel({
     return null;
   }, [nodeRun, runtimeSummary?.error_message, status]);
 
-  const sessionId = nodeRun?.session_id ?? runtimeSummary?.session_id ?? null;
-  const transcriptTaskId =
-    nodeRun?.worker_agent_task_id ??
-    nodeRun?.agent_task_id ??
-    nodeRun?.critic_agent_task_id ??
-    null;
-  const transcriptAgentName =
-    transcriptTaskId && nodeRun?.critic_agent_task_id === transcriptTaskId
-      ? criticName
-      : workerName;
-  const transcriptAgentId =
-    transcriptTaskId && nodeRun?.critic_agent_task_id === transcriptTaskId
-      ? nodeRun?.critic_id
-      : nodeRun?.worker_id;
-  const transcriptTask = useMemo<AgentTask | null>(() => {
-    if (!nodeRun || !transcriptTaskId) return null;
-    return {
-      id: transcriptTaskId,
-      agent_id: transcriptAgentId ?? "",
-      runtime_id: nodeRun.runtime_id ?? "",
-      issue_id: issueId ?? "",
-      status: taskStatusFromNodeRun(nodeRun.status),
-      priority: 0,
-      dispatched_at: null,
-      started_at: nodeRun.started_at,
-      completed_at: nodeRun.completed_at,
-      result: nodeRun.worker_output ?? nodeRun.critic_output ?? null,
-      error: errorMessage,
-      created_at: nodeRun.created_at,
-      chat_session_id: sessionId ?? undefined,
-      work_dir: readWorkDir(nodeRun.worker_output),
-      session_id: sessionId ?? undefined,
-    };
-  }, [errorMessage, issueId, nodeRun, sessionId, transcriptAgentId, transcriptTaskId]);
-  const canOpenSession = !isGateway && (!!sessionId || !!transcriptTask);
+  const sessionId = resolveEnterSessionId(nodeRun, runtimeSummary);
+  const { data: sessionPerm } = useSessionPermission(sessionId);
+  const canEnterSession = !!sessionId && sessionPerm?.can_observe === true;
+  const canOpenSession = isEmbeddedInCostrict() && !isGateway && canEnterSession;
   const canUnblock = !isGateway && status === "blocked" && !!onUnblock;
   const canRetry = !isGateway && isRetryableNodeRunStatus(status) && !!onRetry;
   const baseActionAccess = nodeRun
@@ -377,34 +305,9 @@ export function ExecutionDetailPanel({
     },
   });
 
-  const handleOpenSession = async () => {
-    if (transcriptLoading) return;
-    if (isEmbeddedInCostrict()) {
-      if (sessionId) {
-        const posted = postCostrictNavigateToSession({ sessionId, newTab: true });
-        if (posted) return;
-      }
-    }
-    if (sessionId) {
-      const chatSessionId = resolveChatSessionId(chatSessions, sessionId);
-      if (chatSessionId) {
-        setChatSession(chatSessionId);
-        setChatOpen(true);
-        return;
-      }
-    }
-    if (!transcriptTask) return;
-    setTranscriptLoading(true);
-    try {
-      const msgs = await api.listTaskMessages(transcriptTask.id);
-      setTranscriptItems(buildTimeline(msgs));
-    } catch (err) {
-      console.error(err);
-      setTranscriptItems([]);
-    } finally {
-      setTranscriptLoading(false);
-      setTranscriptOpen(true);
-    }
+  const handleOpenSession = () => {
+    if (!sessionId || !isEmbeddedInCostrict()) return;
+    postCostrictNavigateToSession({ sessionId, newTab: true });
   };
 
   const runtimeActions = canOpenSession || onOpenIssue || canUnblock || canRetry ? (
@@ -415,13 +318,8 @@ export function ExecutionDetailPanel({
           size="default"
           variant="outline"
           onClick={handleOpenSession}
-          disabled={transcriptLoading}
         >
-          {transcriptLoading ? (
-            <Loader2 className="h-3.5 w-3.5 animate-spin" />
-          ) : (
-            <MessageSquare className="h-3.5 w-3.5" />
-          )}
+          <MessageSquare className="h-3.5 w-3.5" />
           {t(($) => $.execution.detail_panel.open_session)}
         </Button>
       ) : null}
@@ -829,16 +727,6 @@ export function ExecutionDetailPanel({
       </NodeDetailSection>
         </div>
       </div>
-
-      {transcriptTask && transcriptOpen ? (
-        <AgentTranscriptDialog
-          open={transcriptOpen}
-          onOpenChange={setTranscriptOpen}
-          task={transcriptTask}
-          items={transcriptItems}
-          agentName={transcriptAgentName ?? "Agent"}
-        />
-      ) : null}
 
     </WorkflowNodeDetailPanelShell>
   );

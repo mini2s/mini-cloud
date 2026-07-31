@@ -5,26 +5,25 @@ import { NodeRunControlActions } from "./node-run-control-actions";
 
 const mocks = vi.hoisted(() => ({
   permissionAllowed: true,
+  runtimeCanControl: true,
+  sessionCanObserve: true,
+  embedded: true,
   takeover: { mutate: vi.fn(), isPending: false },
   handback: { mutate: vi.fn(), isPending: false },
   finalize: { mutate: vi.fn(), isPending: false },
 }));
 
 vi.mock("@tanstack/react-query", () => ({
-  useQuery: (options: { queryKey?: string[] }) => ({
-    data: options.queryKey?.[0] === "chat" ? [] : { can_control: true },
-  }),
+  useQuery: () => ({ data: { can_control: mocks.runtimeCanControl } }),
 }));
 
 vi.mock("@multica/core/workflows/queries", () => ({
-  useSessionPermission: () => ({ data: { can_control: true } }),
+  useSessionPermission: () => ({
+    data: { can_observe: mocks.sessionCanObserve, can_control: false },
+  }),
   useTakeoverNodeRun: () => mocks.takeover,
   useHandbackNodeRun: () => mocks.handback,
   useFinalizeNodeRun: () => mocks.finalize,
-}));
-
-vi.mock("@multica/core/chat/queries", () => ({
-  chatSessionsOptions: () => ({ queryKey: ["chat", "sessions"] }),
 }));
 
 vi.mock("@multica/core/runtimes/queries", () => ({
@@ -35,14 +34,9 @@ vi.mock("@multica/core/permissions", () => ({
   useNodeRunControlPermission: () => ({ allowed: mocks.permissionAllowed }),
 }));
 
-vi.mock("@multica/core/chat", () => ({
-  useChatStore: (selector: (state: { setActiveSession: () => void; setOpen: () => void }) => unknown) =>
-    selector({ setActiveSession: vi.fn(), setOpen: vi.fn() }),
-}));
-
 vi.mock("@multica/core/platform", () => ({
-  isEmbeddedInCostrict: () => false,
-  postCostrictNavigateToSession: () => false,
+  isEmbeddedInCostrict: () => mocks.embedded,
+  postCostrictNavigateToSession: () => true,
 }));
 
 vi.mock("../../i18n", () => {
@@ -105,12 +99,28 @@ describe("NodeRunControlActions", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.permissionAllowed = true;
+    mocks.runtimeCanControl = true;
+    mocks.sessionCanObserve = true;
+    mocks.embedded = true;
   });
 
   it("shows takeover for a controllable working runtime", () => {
     renderControls({ status: "working", runtime_id: "rt-1", completed_at: null });
 
     expect(screen.getByRole("button", { name: "Take over" })).toBeInTheDocument();
+  });
+
+  it("keeps takeover available when session observation is forbidden", () => {
+    mocks.sessionCanObserve = false;
+    renderControls({
+      status: "working",
+      runtime_id: "rt-1",
+      session_id: "sess-1",
+      completed_at: null,
+    });
+
+    expect(screen.getByRole("button", { name: "Take over" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Open session" })).not.toBeInTheDocument();
   });
 
   it("shows handback and finalize for a taken-over blocked runtime", () => {
@@ -142,7 +152,7 @@ describe("NodeRunControlActions", () => {
     expect(screen.queryByRole("button", { name: "Reject" })).not.toBeInTheDocument();
   });
 
-  it("keeps terminal controls hidden when session discovery is always visible", () => {
+  it("keeps terminal controls and session entry hidden when no CSC session exists", () => {
     renderControls(
       {
         status: "blocked",
@@ -152,7 +162,7 @@ describe("NodeRunControlActions", () => {
       { alwaysShow: true },
     );
 
-    expect(screen.getByRole("button", { name: "Open session" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Open session" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Hand back" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Approve" })).not.toBeInTheDocument();
   });

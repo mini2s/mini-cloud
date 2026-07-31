@@ -416,8 +416,10 @@ func TestGetSessionPermission_ReturnsRoleAndCapabilities(t *testing.T) {
 	}
 }
 
-func TestGetSessionPermission_ViewerCanObserveNotControl(t *testing.T) {
-	nodeRunID, _, sessionID := seedHandbackNodeRun(t)
+func TestGetSessionPermission_ViewerCannotObservePrivateRuntime(t *testing.T) {
+	// Enter-session observe is narrower than SSE observe: private runtime
+	// explicit grants (viewer/operator) do not confer can_observe.
+	_, _, sessionID := seedHandbackNodeRun(t)
 	viewerUser := helperTestUser(t, "Session Viewer", "session-viewer@multica.ai")
 	helperAddUserToWorkspace(t, viewerUser, "member")
 	helperGrantRuntimePermission(t, testRuntimeID, viewerUser, "viewer")
@@ -429,24 +431,8 @@ func TestGetSessionPermission_ViewerCanObserveNotControl(t *testing.T) {
 	w := httptest.NewRecorder()
 	testHandler.GetSessionPermission(w, req)
 
-	if w.Code != 200 {
-		t.Fatalf("get session permission: expected 200, got %d: %s", w.Code, w.Body.String())
-	}
-	var resp SessionPermissionResponse
-	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("decode response: %v", err)
-	}
-	if resp.NodeRunID != nodeRunID {
-		t.Fatalf("node_run_id: expected %q, got %q", nodeRunID, resp.NodeRunID)
-	}
-	if resp.Role != "viewer" {
-		t.Fatalf("role: expected viewer, got %s", resp.Role)
-	}
-	if resp.CanControl {
-		t.Fatalf("viewer should not have control")
-	}
-	if !resp.CanObserve {
-		t.Fatalf("viewer should be able to observe")
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("get session permission: expected 403, got %d: %s", w.Code, w.Body.String())
 	}
 }
 
