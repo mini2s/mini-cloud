@@ -145,6 +145,29 @@ export function RuntimesPage({
     [runtimes, visibleProviders],
   );
 
+  // Desktop always has a synthesized local machine row, so the
+  // "register a runtime" empty state would hide the Start button.
+  const showEmpty =
+    !isLoading &&
+    !fetching &&
+    visibleRuntimes.length === 0 &&
+    !bootstrapping &&
+    !hasLocalMachine;
+
+  const hasNoRuntimes =
+    !isLoading && !fetching && visibleRuntimes.length === 0;
+
+  // Open the connection guide after runtime data has loaded and confirmed
+  // that the workspace has no runtimes. Closing it suppresses repeat opens
+  // caused by background refetches during the current page visit.
+  const autoOpenAttemptedRef = useRef(false);
+  useEffect(() => {
+    if (hasNoRuntimes && !autoOpenAttemptedRef.current) {
+      autoOpenAttemptedRef.current = true;
+      setShowConnectDialog(true);
+    }
+  }, [hasNoRuntimes]);
+
   const machines = useMemo(
     () =>
       buildRuntimeMachines(visibleRuntimes, {
@@ -196,9 +219,6 @@ export function RuntimesPage({
   if (isLoading || fetching) return <RuntimesPageSkeleton />;
 
   const totalCount = visibleRuntimes.length;
-  // Desktop always has a synthesized local machine row, so the
-  // "register a runtime" empty state would hide the Start button.
-  const showEmpty = totalCount === 0 && !bootstrapping && !hasLocalMachine;
 
   return (
     <div className="flex flex-1 min-h-0 flex-col">
