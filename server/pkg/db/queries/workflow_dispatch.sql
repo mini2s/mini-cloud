@@ -74,6 +74,16 @@ WHERE id = sqlc.arg('id')
   AND locked_by = sqlc.arg('locked_by')
 RETURNING *;
 
+-- name: FailStaleWorkflowDispatchJobs :exec
+UPDATE multica_workflow_node_run_dispatch_job
+SET status = 'failed',
+    last_error = 'workflow_retried',
+    locked_by = NULL,
+    lease_expires_at = NULL,
+    updated_at = now()
+WHERE workflow_run_id = $1
+  AND status IN ('pending', 'running');
+
 -- name: CompleteWorkflowDispatchJob :one
 UPDATE multica_workflow_node_run_dispatch_job
 SET status = 'succeeded',

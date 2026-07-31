@@ -880,8 +880,15 @@ func (s *WorkflowService) FinalizeNodeRun(ctx context.Context, nodeRun db.Multic
 // RetryNodeRun reactivates a stuck node run and dispatches its worker again.
 // This is scoped to the workflow node run, so it does not depend on the parent
 // issue being assigned to an agent or squad.
+//
+// A node failure fails the whole run (fail-fast) and cascade-cancels every
+// non-terminal sibling, so retrying a node of a failed run must also revive
+// the run and the cancelled siblings — otherwise the fresh dispatch is
+// rejected by the run-not-running guard and the run can never make progress
+// again.
 func (s *WorkflowService) RetryNodeRun(ctx context.Context, nodeRun db.MulticaWorkflowNodeRun) (*db.MulticaWorkflowNodeRun, error) {
 	var updated db.MulticaWorkflowNodeRun
+	var revived []db.MulticaWorkflowNodeRun
 	err := s.runInTx(ctx, func(qtx *db.Queries) error {
 		fresh, err := qtx.GetWorkflowNodeRunForUpdate(ctx, nodeRun.ID)
 		if err != nil {
@@ -891,6 +898,25 @@ func (s *WorkflowService) RetryNodeRun(ctx context.Context, nodeRun db.MulticaWo
 		case NodeRunStatusFailed, NodeRunStatusBlocked, NodeRunStatusFormatFailed, NodeRunStatusCriticRework:
 		default:
 			return fmt.Errorf("node run cannot be retried from status %s", fresh.Status)
+		}
+		run, err := qtx.GetWorkflowRun(ctx, fresh.WorkflowRunID)
+		if err != nil {
+			return fmt.Errorf("get workflow run: %w", err)
+		}
+		if run.Status == RunStatusFailed {
+			if _, err := qtx.ReviveWorkflowRunForRetry(ctx, run.ID); err != nil && !errors.Is(err, pgx.ErrNoRows) {
+				return fmt.Errorf("revive workflow run: %w", err)
+			}
+			// Non-terminal dispatch jobs left over from before the failure are
+			// stale: their node runs are being reset, so they must not fire
+			// again and re-fail the run.
+			if err := qtx.FailStaleWorkflowDispatchJobs(ctx, run.ID); err != nil {
+				return fmt.Errorf("fail stale dispatch jobs: %w", err)
+			}
+			revived, err = qtx.ReviveCancelledWorkflowNodeRuns(ctx, run.ID)
+			if err != nil {
+				return fmt.Errorf("revive cancelled node runs: %w", err)
+			}
 		}
 		updated, err = qtx.UpdateWorkflowNodeRunRework(ctx, db.UpdateWorkflowNodeRunReworkParams{
 			ID: fresh.ID, Status: NodeRunStatusFormatOk,
@@ -902,13 +928,31 @@ func (s *WorkflowService) RetryNodeRun(ctx context.Context, nodeRun db.MulticaWo
 		if err != nil {
 			return err
 		}
-		return EnqueueWorkflowDispatch(ctx, qtx, fresh.ID, "worker", generation)
+		if err := EnqueueWorkflowDispatch(ctx, qtx, fresh.ID, "worker", generation); err != nil {
+			return err
+		}
+		// Revived siblings whose upstreams already completed (parallel
+		// branches) would never see another completion event, so activate
+		// them now; the rest wait for the normal propagation.
+		for i := range revived {
+			if err := activateNodeRunIfReady(ctx, qtx, revived[i].ID); err != nil {
+				return err
+			}
+		}
+		return nil
 	})
 	if err != nil {
 		return nil, err
 	}
 	if s.OnNodeStatusChanged != nil {
 		s.OnNodeStatusChanged(ctx, updated)
+		for i := range revived {
+			current, err := s.Queries.GetWorkflowNodeRun(ctx, revived[i].ID)
+			if err != nil {
+				continue
+			}
+			s.OnNodeStatusChanged(ctx, current)
+		}
 	}
 	return &updated, nil
 }

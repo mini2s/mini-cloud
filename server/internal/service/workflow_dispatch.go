@@ -102,60 +102,68 @@ func ActivateDownstreamAndEnqueue(
 		return fmt.Errorf("list runtime downstream edges: %w", err)
 	}
 	for _, edge := range edges {
-		upstreamEdges, err := queries.ListWorkflowRunEdgesByTarget(ctx, edge.TargetNodeRunID)
-		if err != nil {
-			return fmt.Errorf("list runtime upstream edges: %w", err)
-		}
-		allUpstreamDone := true
-		for _, upstreamEdge := range upstreamEdges {
-			upstream, err := queries.GetWorkflowNodeRun(ctx, upstreamEdge.SourceNodeRunID)
-			if err != nil {
-				return fmt.Errorf("get runtime upstream node: %w", err)
-			}
-			if !isSatisfiedDependencyNodeRunStatus(upstream.Status) {
-				allUpstreamDone = false
-				break
-			}
-		}
-		if !allUpstreamDone {
-			continue
-		}
-		target, err := queries.GetWorkflowNodeRun(ctx, edge.TargetNodeRunID)
-		if err != nil {
-			return fmt.Errorf("get runtime downstream node: %w", err)
-		}
-		targetStatus := NodeRunStatusFormatOk
-		gateway := false
-		if isInvalidWorkflowGatewayFormat(target.FormatSchema) {
-			targetStatus = NodeRunStatusFormatFailed
-		} else if _, ok := parseWorkflowNodeFormat(target.FormatSchema); ok {
-			targetStatus = NodeRunStatusCompleted
-			gateway = true
-		}
-		advanced, err := queries.AdvancePendingWorkflowNodeRun(ctx, db.AdvancePendingWorkflowNodeRunParams{
-			Status: targetStatus,
-			ID:     target.ID,
-		})
-		if errors.Is(err, pgx.ErrNoRows) {
-			continue
-		}
-		if err != nil {
-			return fmt.Errorf("advance runtime downstream node: %w", err)
-		}
-		if gateway {
-			if err := ActivateDownstreamAndEnqueue(ctx, queries, advanced.ID); err != nil {
-				return err
-			}
-			continue
-		}
-		if targetStatus == NodeRunStatusFormatFailed {
-			continue
-		}
-		if err := EnqueueWorkflowDispatch(ctx, queries, advanced.ID, "worker", 1); err != nil {
+		if err := activateNodeRunIfReady(ctx, queries, edge.TargetNodeRunID); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+// activateNodeRunIfReady advances a pending node run once every upstream
+// dependency reached a dependency-satisfying status, then enqueues its worker
+// dispatch. Nodes with unsatisfied upstreams or a non-pending status are left
+// untouched.
+func activateNodeRunIfReady(
+	ctx context.Context,
+	queries *db.Queries,
+	nodeRunID pgtype.UUID,
+) error {
+	upstreamEdges, err := queries.ListWorkflowRunEdgesByTarget(ctx, nodeRunID)
+	if err != nil {
+		return fmt.Errorf("list runtime upstream edges: %w", err)
+	}
+	for _, upstreamEdge := range upstreamEdges {
+		upstream, err := queries.GetWorkflowNodeRun(ctx, upstreamEdge.SourceNodeRunID)
+		if err != nil {
+			return fmt.Errorf("get runtime upstream node: %w", err)
+		}
+		if !isSatisfiedDependencyNodeRunStatus(upstream.Status) {
+			return nil
+		}
+	}
+	target, err := queries.GetWorkflowNodeRun(ctx, nodeRunID)
+	if err != nil {
+		return fmt.Errorf("get runtime downstream node: %w", err)
+	}
+	targetStatus := NodeRunStatusFormatOk
+	gateway := false
+	if isInvalidWorkflowGatewayFormat(target.FormatSchema) {
+		targetStatus = NodeRunStatusFormatFailed
+	} else if _, ok := parseWorkflowNodeFormat(target.FormatSchema); ok {
+		targetStatus = NodeRunStatusCompleted
+		gateway = true
+	}
+	advanced, err := queries.AdvancePendingWorkflowNodeRun(ctx, db.AdvancePendingWorkflowNodeRunParams{
+		Status: targetStatus,
+		ID:     target.ID,
+	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("advance runtime downstream node: %w", err)
+	}
+	if gateway {
+		return ActivateDownstreamAndEnqueue(ctx, queries, advanced.ID)
+	}
+	if targetStatus == NodeRunStatusFormatFailed {
+		return nil
+	}
+	generation, err := NextWorkflowDispatchGeneration(ctx, queries, advanced.ID, "worker")
+	if err != nil {
+		return err
+	}
+	return EnqueueWorkflowDispatch(ctx, queries, advanced.ID, "worker", generation)
 }
 
 func (w *WorkflowDispatchWorker) Run(ctx context.Context) {
