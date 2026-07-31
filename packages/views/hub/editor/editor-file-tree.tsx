@@ -86,7 +86,22 @@ const handleToggle = (path: string) => {
   // ── Create ───────────────────────────────────────────────────────────────
 
   const startCreate = (kind: "file" | "dir") => {
-    setCreating({ kind, parentDir: selectedDir })
+    startCreateIn(kind, selectedDir)
+  }
+
+  // Start an inline create scoped to `parentDir`. The target directory is
+  // force-expanded so the naming row is visible where the user clicked.
+  const startCreateIn = (kind: "file" | "dir", parentDir: string) => {
+    setSelectedDir(parentDir)
+    if (parentDir) {
+      setCollapsed((prev) => {
+        if (!prev.has(parentDir)) return prev
+        const next = new Set(prev)
+        next.delete(parentDir)
+        return next
+      })
+    }
+    setCreating({ kind, parentDir })
     setCreateName("")
     setError("")
   }
@@ -225,7 +240,10 @@ const handleToggle = (path: string) => {
             <button
               type="button"
               className="flex min-w-0 flex-1 items-center gap-1.5"
-              onClick={() => handleToggle(node.path)}
+              onClick={() => {
+                handleToggle(node.path)
+                setSelectedDir(node.path)
+              }}
             >
               <ChevronIcon className="size-3 shrink-0 text-muted-foreground" />
               <FolderIcon className="size-3.5 shrink-0 text-muted-foreground" />
@@ -252,19 +270,35 @@ const handleToggle = (path: string) => {
               )}
             </button>
             <RowActions
-              onSelectDir={() => setSelectedDir(node.path)}
+              onNewFile={() => startCreateIn("file", node.path)}
+              onNewDir={() => startCreateIn("dir", node.path)}
               onRename={() => startRename(node.path)}
               onDelete={() => setDeleting(node.path)}
-              selectLabel={t(($) => $.editor.tree.action_select_dir)}
+              newFileLabel={t(($) => $.editor.tree.new_file)}
+              newDirLabel={t(($) => $.editor.tree.new_dir)}
               renameLabel={t(($) => $.editor.tree.action_rename)}
               deleteLabel={t(($) => $.editor.tree.action_delete)}
             />
           </div>
+          {open && creating && creating.parentDir === node.path && (
+            <CreateRow
+              kind={creating.kind}
+              value={createName}
+              onChange={setCreateName}
+              onCommit={commitCreate}
+              onCancel={() => setCreating(null)}
+              depth={depth + 1}
+              placeholder={
+                creating.kind === "file"
+                  ? t(($) => $.editor.tree.new_file_placeholder)
+                  : t(($) => $.editor.tree.new_dir_placeholder)
+              }
+            />
+          )}
           {open && node.children.map((child) => renderNode(child, depth + 1))}
         </div>
       )
     }
-
     const isCurrent = node.path === currentFile
     const dirty = dirtyPaths?.has(node.path)
     const FileIcon = /\.(md|mdx|markdown)$/i.test(node.name) ? FileText : File
@@ -374,7 +408,13 @@ const handleToggle = (path: string) => {
             {t(($) => $.editor.tree.empty)}
           </p>
         )}
-        {creating && creating.parentDir !== "" && (
+        {/* Fallback: only when the target directory node itself is not in
+            the tree (neither an explicit dir nor derivable from file paths),
+            render the pending row at the bottom instead of losing it. */}
+        {creating &&
+          creating.parentDir !== "" &&
+          !map.dirs.has(creating.parentDir) &&
+          !Object.keys(map.files).some((p) => p.startsWith(`${creating.parentDir}/`)) && (
           <CreateRow
             kind={creating.kind}
             value={createName}
@@ -433,31 +473,46 @@ function ToolButton({
 }
 
 function RowActions({
-  onSelectDir,
+  onNewFile,
+  onNewDir,
   onRename,
   onDelete,
-  selectLabel,
+  newFileLabel,
+  newDirLabel,
   renameLabel,
   deleteLabel,
 }: {
-  onSelectDir?: () => void
+  onNewFile?: () => void
+  onNewDir?: () => void
   onRename: () => void
   onDelete: () => void
-  selectLabel?: string
+  newFileLabel?: string
+  newDirLabel?: string
   renameLabel: string
   deleteLabel: string
 }) {
   return (
     <span className="flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
-      {onSelectDir && (
+      {onNewFile && (
         <button
           type="button"
-          title={selectLabel}
-          aria-label={selectLabel}
+          title={newFileLabel}
+          aria-label={newFileLabel}
           className="rounded p-0.5 text-muted-foreground hover:bg-background hover:text-foreground"
-          onClick={onSelectDir}
+          onClick={onNewFile}
         >
-          <FolderInput className="size-3" />
+          <FilePlus2 className="size-3" />
+        </button>
+      )}
+      {onNewDir && (
+        <button
+          type="button"
+          title={newDirLabel}
+          aria-label={newDirLabel}
+          className="rounded p-0.5 text-muted-foreground hover:bg-background hover:text-foreground"
+          onClick={onNewDir}
+        >
+          <FolderPlus className="size-3" />
         </button>
       )}
       <button
