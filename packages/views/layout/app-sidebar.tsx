@@ -23,7 +23,7 @@ import {
   ChevronDown,
   ChevronRight,
   Settings,
-  SlidersHorizontal,
+  // SlidersHorizontal,
   LogOut,
   Plus,
   Check,
@@ -47,12 +47,12 @@ import {
   ListChecks,
   Sparkles,
   KeyRound,
-  Plug,
+  // Plug,
   Megaphone,
-  Percent,
-  User,
+  // Percent,
+  // User,
   Wallet,
-  Bell,
+  // Bell,
   UserRoundCog,
 } from "lucide-react";
 import { WorkspaceAvatar } from "../workspace/workspace-avatar";
@@ -240,20 +240,20 @@ const metricsNav: NavItem[] = [
 
 const adminNav: NavItem[] = [
   { key: "permissions", labelKey: "permissions", icon: KeyRound },
-  { key: "connectors", labelKey: "connectors", icon: Plug },
+  // { key: "connectors", labelKey: "connectors", icon: Plug },
   { key: "channels", labelKey: "channels", icon: Megaphone },
-  { key: "quotas", labelKey: "quotas", icon: Percent },
+  // { key: "quotas", labelKey: "quotas", icon: Percent },
   { key: "runtimes", labelKey: "runtimes", icon: Monitor },
   // One entry for the eight efficiency settings/ops pages (pricing /
   // datasources / sync / config + platform overview / health / realtime /
   // realtime query) — surfaced via a tabbed shell rather than eight rows.
-  { key: "efficiencySettings", labelKey: "efficiency_settings", icon: SlidersHorizontal },
+  // { key: "efficiencySettings", labelKey: "efficiency_settings", icon: SlidersHorizontal },
 ];
 
 const meNav: NavItem[] = [
-  { key: "meProfile", labelKey: "me_profile", icon: User },
+  // { key: "meProfile", labelKey: "me_profile", icon: User },
   { key: "meQuota", labelKey: "me_quota", icon: Wallet },
-  { key: "meNotifications", labelKey: "me_notifications", icon: Bell },
+  // { key: "meNotifications", labelKey: "me_notifications", icon: Bell },
   { key: "settings", labelKey: "settings", icon: Settings },
 ];
 
