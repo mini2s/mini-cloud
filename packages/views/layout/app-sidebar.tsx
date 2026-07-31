@@ -835,9 +835,22 @@ export function AppSidebar({ topSlot, searchSlot, headerClassName, headerStyle }
                           // query param exactly so only the active type lights up
                           // instead of all hub entries sharing the same base path.
                           const currentType = searchParams?.get("type");
+                          // Drill-down detail routes (user/repo/project/need/
+                          // task/commit/workdir) live directly under /metrics/
+                          // rather than under a dimension, so no dimension item
+                          // matches them via the prefix check below. Overview
+                          // acts as the catch-all for the metrics area so the
+                          // sidebar still shows an active entry on those pages;
+                          // when a more specific sibling dimension matches it
+                          // takes over and Overview stays dim.
                           const isActive =
                             item.key === "metricsOverview"
-                              ? pathname === basePath
+                              ? isNavActive(pathname, basePath) &&
+                                !items.some(
+                                  (i) =>
+                                    i.key !== "metricsOverview" &&
+                                    isNavActive(pathname, (p[i.key]() ?? "").split("?")[0] as string),
+                                )
                               : hasQuery
                                 ? isNavActive(pathname, basePath) &&
                                   href.includes(`type=${currentType}`)
