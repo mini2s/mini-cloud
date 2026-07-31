@@ -8,7 +8,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { ChevronRight } from "lucide-react";
+import { ChevronRight, ChevronDown } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { Virtuoso } from "react-virtuoso";
 import { useWorkspaceId } from "@multica/core/hooks";
@@ -22,6 +22,7 @@ import {
   type DeptTreeNodeWithSummary,
 } from "@multica/core/efficiency";
 import { Skeleton } from "@multica/ui/components/ui/skeleton";
+import { Popover, PopoverTrigger, PopoverContent } from "@multica/ui/components/ui/popover";
 import { cn } from "@multica/ui/lib/utils";
 import { useNavigation } from "../../navigation";
 import {
@@ -118,49 +119,23 @@ export function EfficiencyOrgView({
   return (
     <div className="space-y-4">
       <p className="text-sm text-muted-foreground">
-        左侧为权威部门树，部门右侧展示整棵子树的守恒日历提效比；选择部门可查看花名册和效率指标。
+        部门右侧展示整棵子树的守恒日历提效比；选择部门可查看花名册和效率指标。
       </p>
 
-      <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-[20rem_1fr] lg:gap-6">
-        <aside className="flex max-h-[72vh] flex-col overflow-hidden rounded-lg border bg-card lg:sticky lg:top-4">
-          <div className="border-b px-4 py-3 text-sm font-semibold">
-            部门导航
-          </div>
-          <div className="flex-1 overflow-y-auto p-2">
-            {treeQ.error ? (
-              <div className="px-3 py-6 text-center text-sm text-destructive">
-                加载失败：{(treeQ.error as Error).message}
-              </div>
-            ) : treeQ.isLoading ? (
-              <div className="space-y-2 p-2">
-                {Array.from({ length: 6 }).map((_, index) => (
-                  <Skeleton key={index} className="h-7 rounded-md" />
-                ))}
-              </div>
-            ) : !nodes.length ? (
-              <div className="px-3 py-6 text-center text-sm text-muted-foreground">
-                暂无部门数据
-              </div>
-            ) : (
-              <ul role="tree" aria-label="部门效率树" className="m-0 list-none p-0">
-                {nodes.map((node) => (
-                  <OrgTreeNode
-                    key={node.dept_id}
-                    node={node}
-                    depth={0}
-                    selectedId={selectedId}
-                    expanded={expanded}
-                    onToggle={toggle}
-                    onSelect={(deptId) => {
-                      setInternalSelectedId(deptId);
-                      onDeptChange?.(deptId);
-                    }}
-                  />
-                ))}
-              </ul>
-            )}
-          </div>
-        </aside>
+      <div className="flex flex-col gap-4">
+        {/* Dept-tree popover (replaces the old 320px left sidebar). */}
+        <OrgTreePopover
+          nodes={nodes}
+          loading={treeQ.isLoading}
+          error={treeQ.error ? (treeQ.error as Error).message : null}
+          selectedId={selectedId}
+          expanded={expanded}
+          onToggle={toggle}
+          onSelect={(deptId) => {
+            setInternalSelectedId(deptId);
+            onDeptChange?.(deptId);
+          }}
+        />
 
         <DeptMembersPanel
           deptId={selectedId}
@@ -260,6 +235,125 @@ const OrgTreeNode = memo(function OrgTreeNode({
     </li>
   );
 });
+
+// Reusable org-tree body (no aside shell) — hosted inside the popover.
+// Mirrors the DeptTreeContent extraction in the usage dimension.
+function OrgTreeContent({
+  nodes,
+  loading,
+  error,
+  selectedId,
+  expanded,
+  onToggle,
+  onSelect,
+  className,
+}: {
+  nodes: DeptTreeNodeWithSummary[];
+  loading: boolean;
+  error: string | null;
+  selectedId: string;
+  expanded: Set<string>;
+  onToggle: (deptId: string) => void;
+  onSelect: (deptId: string) => void;
+  className?: string;
+}) {
+  return (
+    <div className={className}>
+      {error ? (
+        <div className="px-3 py-6 text-center text-sm text-destructive">
+          加载失败：{error}
+        </div>
+      ) : loading ? (
+        <div className="space-y-2 p-2">
+          {Array.from({ length: 6 }).map((_, index) => (
+            <Skeleton key={index} className="h-7 rounded-md" />
+          ))}
+        </div>
+      ) : !nodes.length ? (
+        <div className="px-3 py-6 text-center text-sm text-muted-foreground">
+          暂无部门数据
+        </div>
+      ) : (
+        <ul role="tree" aria-label="部门效率树" className="m-0 list-none p-0">
+          {nodes.map((node) => (
+            <OrgTreeNode
+              key={node.dept_id}
+              node={node}
+              depth={0}
+              selectedId={selectedId}
+              expanded={expanded}
+              onToggle={onToggle}
+              onSelect={onSelect}
+            />
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+// Org-tree popover — compact trigger button hosting the efficiency dept tree.
+// Replaces the old 320px (20rem) persistent left sidebar. Style matches the
+// cost/usage DeptTreePopover (same pill + Popover vocabulary).
+function OrgTreePopover({
+  nodes,
+  loading,
+  error,
+  selectedId,
+  expanded,
+  onToggle,
+  onSelect,
+}: {
+  nodes: DeptTreeNodeWithSummary[];
+  loading: boolean;
+  error: string | null;
+  selectedId: string;
+  expanded: Set<string>;
+  onToggle: (deptId: string) => void;
+  onSelect: (deptId: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const selected = findNode(nodes, selectedId);
+  const selectedName = selected?.dept_name ?? "选择部门";
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger
+        render={
+          <button
+            type="button"
+            className={cn(
+              "inline-flex h-[34px] cursor-pointer items-center gap-[7px] rounded-[10px] border border-border/60 bg-background px-3 text-[12.5px] font-bold text-foreground transition-[color,border-color,background-color] duration-150 hover:border-muted-foreground/30",
+              open && "border-primary/45 bg-primary/10 text-primary",
+            )}
+          />
+        }
+      >
+        <span className="max-w-[12rem] truncate">{selectedName}</span>
+        <ChevronDown
+          size={14}
+          className={cn("shrink-0 text-muted-foreground transition-transform duration-200", open && "rotate-180")}
+        />
+      </PopoverTrigger>
+      <PopoverContent align="start" className="w-80 p-0">
+        <div className="flex items-center justify-between border-b px-3 py-2.5">
+          <span className="text-sm font-semibold text-card-foreground">部门导航</span>
+          <span className="text-xs text-muted-foreground">效率比</span>
+        </div>
+        <OrgTreeContent
+          nodes={nodes}
+          loading={loading}
+          error={error}
+          selectedId={selectedId}
+          expanded={expanded}
+          onToggle={onToggle}
+          onSelect={onSelect}
+          className="max-h-[60vh] overflow-y-auto p-2"
+        />
+      </PopoverContent>
+    </Popover>
+  );
+}
 
 export function DeptMembersPanel({
   deptId,

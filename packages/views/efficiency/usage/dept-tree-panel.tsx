@@ -46,7 +46,7 @@ export interface DeptTreePanelProps {
 
 // Default-expanded ids: for a single-root tree expand root + first level; for
 // a multi-root forest expand the top level. Mirrors the source's rule.
-function initialExpandedIds(nodes: DeptTreeNode[]): string[] {
+export function initialExpandedIds(nodes: DeptTreeNode[]): string[] {
   const ids: string[] = [];
   let firstLevel: DeptTreeNode[] = nodes;
   const root = nodes[0];
@@ -65,6 +65,44 @@ export function DeptTreePanel({
   selectedId,
   onSelect,
 }: DeptTreePanelProps) {
+  return (
+    <aside className="flex max-h-[72vh] flex-col rounded-lg border bg-card">
+      <div className="flex items-center justify-between border-b px-4 py-3">
+        <span className="text-sm font-semibold text-card-foreground">部门导航</span>
+        <span className="text-xs text-muted-foreground">点部门看其使用指标</span>
+      </div>
+      <DeptTreeContent
+        tree={tree}
+        loading={loading}
+        error={error}
+        selectedId={selectedId}
+        onSelect={onSelect}
+        className="flex-1 overflow-y-auto p-2"
+      />
+    </aside>
+  );
+}
+
+// Reusable tree body (no aside shell). Mounted inside DeptTreePanel's aside
+// and inside DeptTreePopover's PopoverContent. Owns the expand/collapse state
+// so the two hosts stay behavior-identical.
+export interface DeptTreeContentProps {
+  tree: DeptTreeNode[];
+  loading?: boolean;
+  error?: string | null;
+  selectedId: string;
+  onSelect: (deptId: string) => void;
+  className?: string;
+}
+
+export function DeptTreeContent({
+  tree,
+  loading,
+  error,
+  selectedId,
+  onSelect,
+  className,
+}: DeptTreeContentProps) {
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
 
   // Initialize once when the tree first arrives; don't override the user's
@@ -84,43 +122,37 @@ export function DeptTreePanel({
   }, []);
 
   return (
-    <aside className="flex max-h-[72vh] flex-col rounded-lg border bg-card">
-      <div className="flex items-center justify-between border-b px-4 py-3">
-        <span className="text-sm font-semibold text-card-foreground">部门导航</span>
-        <span className="text-xs text-muted-foreground">点部门看其使用指标</span>
-      </div>
-      <div className="flex-1 overflow-y-auto p-2">
-        {error ? (
-          <div className="px-3 py-6 text-center text-sm text-destructive">
-            {error}
-          </div>
-        ) : loading ? (
-          <div className="space-y-2 p-2">
-            {Array.from({ length: 6 }).map((_, i) => (
-              <Skeleton key={i} className="h-7 rounded-md" />
-            ))}
-          </div>
-        ) : !tree.length ? (
-          <div className="px-3 py-6 text-center text-sm text-muted-foreground">
-            暂无部门数据
-          </div>
-        ) : (
-          <ul role="tree" aria-label="部门树" className="m-0 list-none p-0">
-            {tree.map((n) => (
-              <TreeNode
-                key={n.dept_id}
-                node={n}
-                depth={0}
-                selectedId={selectedId}
-                expanded={expanded}
-                onToggle={toggle}
-                onSelect={onSelect}
-              />
-            ))}
-          </ul>
-        )}
-      </div>
-    </aside>
+    <div className={className}>
+      {error ? (
+        <div className="px-3 py-6 text-center text-sm text-destructive">
+          {error}
+        </div>
+      ) : loading ? (
+        <div className="space-y-2 p-2">
+          {Array.from({ length: 6 }).map((_, i) => (
+            <Skeleton key={i} className="h-7 rounded-md" />
+          ))}
+        </div>
+      ) : !tree.length ? (
+        <div className="px-3 py-6 text-center text-sm text-muted-foreground">
+          暂无部门数据
+        </div>
+      ) : (
+        <ul role="tree" aria-label="部门树" className="m-0 list-none p-0">
+          {tree.map((n) => (
+            <TreeNode
+              key={n.dept_id}
+              node={n}
+              depth={0}
+              selectedId={selectedId}
+              expanded={expanded}
+              onToggle={toggle}
+              onSelect={onSelect}
+            />
+          ))}
+        </ul>
+      )}
+    </div>
   );
 }
 

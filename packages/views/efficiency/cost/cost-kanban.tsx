@@ -15,7 +15,9 @@ import { Switch } from "@multica/ui/components/ui/switch";
 import { PageHeader } from "../../layout/page-header";
 import { DateRangePicker } from "../components";
 import {
-  DeptTreePanel,
+  DeptTreePopover,
+} from "../usage/dept-tree-popover";
+import {
   findDeptName,
   UNASSIGNED_DEPT_NODE,
 } from "../usage/dept-tree-panel";
@@ -130,74 +132,70 @@ export function CostKanban() {
       </PageHeader>
 
       <div className="flex-1 overflow-y-auto">
-        <div className="space-y-4 p-6 lg:space-y-6 lg:px-8">
-          <div className="grid grid-cols-1 gap-4 lg:grid-cols-[18rem_1fr] lg:gap-6 lg:items-start">
-            {/* Left: dept tree (reused from the usage dimension). */}
-            <DeptTreePanel
-              tree={tree}
-              loading={treeQ.isLoading}
-              error={treeQ.error ? (treeQ.error as Error).message : null}
-              selectedId={selectedDeptId}
-              onSelect={(id) => {
+        <div className="flex flex-col gap-4 p-6 lg:gap-6 lg:px-8">
+          {/* Toolbar: dept-tree popover (left) + view tabs + include_children switch. */}
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border bg-card px-4 py-2.5">
+            <div className="flex flex-wrap items-center gap-2" role="tablist" aria-label="视角">
+              <DeptTreePopover
+                tree={tree}
+                loading={treeQ.isLoading}
+                error={treeQ.error ? (treeQ.error as Error).message : null}
+                selectedId={selectedDeptId}
+                onSelect={(id) => {
+                  setSelectedDeptId(id);
+                  setView("aggregate");
+                }}
+              />
+              <div className="flex items-center gap-1">
+                <ViewTab active={view === "aggregate"} onClick={() => setView("aggregate")}>
+                  部门聚合
+                </ViewTab>
+                <ViewTab active={view === "compare"} onClick={() => setView("compare")}>
+                  子部门对比
+                </ViewTab>
+                <ViewTab active={view === "members"} onClick={() => setView("members")}>
+                  成员成本
+                </ViewTab>
+              </div>
+            </div>
+            <label className="inline-flex cursor-pointer select-none items-center gap-2 text-sm text-muted-foreground">
+              <Switch
+                checked={includeChildren}
+                onCheckedChange={setIncludeChildren}
+                aria-label="包含子部门"
+              />
+              包含子部门
+            </label>
+          </div>
+
+          {/* Content dispatch. */}
+          {view === "compare" ? (
+            <CostCompareView
+              deptId={selectedDeptId}
+              startDate={startDate}
+              endDate={endDate}
+              includeChildren={includeChildren}
+              onSelectDept={(id) => {
                 setSelectedDeptId(id);
                 setView("aggregate");
               }}
             />
-
-            {/* Right: view tabs + include_children switch + content. */}
-            <div className="flex min-w-0 flex-col gap-4">
-              <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border bg-card px-4 py-2.5">
-                <div className="flex items-center gap-1" role="tablist" aria-label="视角">
-                  <ViewTab active={view === "aggregate"} onClick={() => setView("aggregate")}>
-                    部门聚合
-                  </ViewTab>
-                  <ViewTab active={view === "compare"} onClick={() => setView("compare")}>
-                    子部门对比
-                  </ViewTab>
-                  <ViewTab active={view === "members"} onClick={() => setView("members")}>
-                    成员成本
-                  </ViewTab>
-                </div>
-                <label className="inline-flex cursor-pointer select-none items-center gap-2 text-sm text-muted-foreground">
-                  <Switch
-                    checked={includeChildren}
-                    onCheckedChange={setIncludeChildren}
-                    aria-label="包含子部门"
-                  />
-                  包含子部门
-                </label>
-              </div>
-
-              {/* Content dispatch. */}
-              {view === "compare" ? (
-                <CostCompareView
-                  deptId={selectedDeptId}
-                  startDate={startDate}
-                  endDate={endDate}
-                  includeChildren={includeChildren}
-                  onSelectDept={(id) => {
-                    setSelectedDeptId(id);
-                    setView("aggregate");
-                  }}
-                />
-              ) : view === "members" ? (
-                <CostMembersView
-                  deptId={selectedDeptId}
-                  startDate={startDate}
-                  endDate={endDate}
-                  includeChildren={includeChildren}
-                  onRowClick={(uid) => push(p.metricsUserDetail(uid))}
-                />
-              ) : (
-                <CostAggregateView
-                  deptId={selectedDeptId}
-                  startDate={startDate}
-                  endDate={endDate}
-                  includeChildren={includeChildren}
-                />
-              )}
-            </div>
-          </div>
+          ) : view === "members" ? (
+            <CostMembersView
+              deptId={selectedDeptId}
+              startDate={startDate}
+              endDate={endDate}
+              includeChildren={includeChildren}
+              onRowClick={(uid) => push(p.metricsUserDetail(uid))}
+            />
+          ) : (
+            <CostAggregateView
+              deptId={selectedDeptId}
+              startDate={startDate}
+              endDate={endDate}
+              includeChildren={includeChildren}
+            />
+          )}
         </div>
       </div>
     </div>
