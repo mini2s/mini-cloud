@@ -200,11 +200,11 @@ type NavItem = { key: NavKey; labelKey: NavLabelKey; icon: typeof Inbox };
 
 // Top quick-access group (no header label).
 const personalNav: NavItem[] = [
-  { key: "inbox", labelKey: "inbox", icon: Inbox },
   { key: "home", labelKey: "home", icon: LayoutDashboard },
 ];
 
 const workbenchNav: NavItem[] = [
+  { key: "inbox", labelKey: "inbox", icon: Inbox },
   { key: "sessions", labelKey: "sessions", icon: MessagesSquare },
   { key: "myIssues", labelKey: "my_issues", icon: CircleUser },
   { key: "reviews", labelKey: "reviews", icon: ClipboardCheck },

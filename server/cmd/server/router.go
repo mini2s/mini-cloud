@@ -211,6 +211,9 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 		// Quota-manager service — reverse-proxies personal quota overview and
 		// usage-consumption statistics. Empty -> routes return 503.
 		QuotaManagerAPIBaseURL: strings.TrimRight(strings.TrimSpace(os.Getenv("QUOTA_MANAGER_API_BASE_URL")), "/"),
+		// Efficiency-dashboard (kanban) backend — reverse-proxies /kanban/*
+		// with Basic Auth injected. Empty -> routes return 503.
+		KanbanAPIBaseURL: strings.TrimRight(strings.TrimSpace(os.Getenv("KANBAN_API_BASE_URL")), "/"),
 		// CSC plugin marketplace identity delivered to the daemon. No default:
 		// when unset, the daemon falls back to its own built-in github default.
 		CSCPluginMarketplaceName: strings.TrimSpace(os.Getenv("CSC_PLUGIN_MARKETPLACE_NAME")),
@@ -452,6 +455,20 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 	// the quota overview and usage statistics endpoints are reads.
 	if quotaProxy := h.QuotaManagerProxy(); quotaProxy != nil {
 		r.MethodFunc(http.MethodGet, "/api/quota-manager/*", quotaProxy)
+	}
+
+	// Kanban proxy — efficiency-dashboard (metrics/efficiency/cost/usage)
+	// routes are proxied to the separately deployed kanban backend here
+	// (outside the auth group, same rationale as the Hub/quota-manager proxies).
+	// The kanban backend authenticates via HTTP Basic Auth injected from
+	// KANBAN_API_USERNAME/PASSWORD, so mini-cloud's Auth middleware must NOT
+	// gate these routes. All four methods — the kanban API has many writes
+	// (create project, update pricing, delete datasource, sync tasks, etc.).
+	if kanbanProxy := h.KanbanProxy(); kanbanProxy != nil {
+		r.MethodFunc(http.MethodGet, "/kanban/*", kanbanProxy)
+		r.MethodFunc(http.MethodPost, "/kanban/*", kanbanProxy)
+		r.MethodFunc(http.MethodPut, "/kanban/*", kanbanProxy)
+		r.MethodFunc(http.MethodDelete, "/kanban/*", kanbanProxy)
 	}
 
 	// Webhook ingress for autopilots. Outside the authenticated group on

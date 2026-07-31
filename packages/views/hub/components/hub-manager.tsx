@@ -521,34 +521,34 @@ export function HubManager() {
     window.scrollTo({ top: 0, behavior: "smooth" })
   }, [])
 
+  // Horizontal tab nav — rendered inline next to the title in the PageHeader
+  // (saves the vertical sidebar column for more content width).
   const renderSidebar = (
-    <aside className="flex w-56 shrink-0 flex-col border-r border-border bg-background">
-      <nav className="flex flex-col gap-1 p-3">
-        {SIDEBAR_NAV.map((item) => {
-          const active = tab === item.key
-          const count = tabCount(item.key)
-          return (
-            <button
-              key={item.key}
-              onClick={() => switchTab(item.key)}
-              className={`flex items-center gap-2.5 rounded-lg px-3 py-2 text-left text-sm font-medium transition-colors ${
-                active
-                  ? "bg-primary/10 text-primary"
-                  : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"
-              }`}
-            >
-              <item.icon size={16} className="shrink-0" />
-              <span className="flex-1">{t(($) => $.manager.tabs[item.key])}</span>
-              {count > 0 && (
-                <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] font-semibold tabular-nums">
-                  {formatCompact(count)}
-                </span>
-              )}
-            </button>
-          )
-        })}
-      </nav>
-    </aside>
+    <nav className="flex items-center gap-1.5 overflow-x-auto">
+      {SIDEBAR_NAV.map((item) => {
+        const active = tab === item.key
+        const count = tabCount(item.key)
+        return (
+          <button
+            key={item.key}
+            onClick={() => switchTab(item.key)}
+            className={`inline-flex h-[34px] shrink-0 cursor-pointer items-center gap-1.5 rounded-[10px] border px-3 text-[12.5px] font-bold transition-[color,border-color,background-color] duration-150 ${
+              active
+                ? "border-primary/45 bg-primary/10 text-primary"
+                : "border-border/60 bg-background text-muted-foreground hover:border-muted-foreground/30 hover:text-foreground"
+            }`}
+          >
+            <item.icon size={15} className="shrink-0" />
+            <span className="whitespace-nowrap">{t(($) => $.manager.tabs[item.key])}</span>
+            {count > 0 && (
+              <span className="rounded-full bg-muted/60 px-1.5 text-[11px] font-medium leading-[1.65] text-muted-foreground">
+                {formatCompact(count)}
+              </span>
+            )}
+          </button>
+        )
+      })}
+    </nav>
   )
 
   const managerTitle = useMemo(() => {
@@ -557,21 +557,15 @@ export function HubManager() {
     return t(($) => $.manager.title)
   }, [tab, t])
 
-  const managerDescription = useMemo(() => {
-    if (tab === "received") return t(($) => $.manager.descReceived)
-    if (tab === "sent") return t(($) => $.manager.descSent)
-    return t(($) => $.manager.desc)
-  }, [tab, t])
-
   // SD-08: header shares the dashboard-wide PageHeader (h-12, border-b) so the
   // manager page title/action hierarchy matches every other dashboard page.
   const renderToolbar = (
     <PageHeader>
       <div className="min-w-0">
         <h1 className="truncate text-sm font-semibold">{managerTitle}</h1>
-        <p className="truncate text-xs text-muted-foreground">{managerDescription}</p>
       </div>
-        <div className="ml-auto flex shrink-0 items-center justify-end gap-2">
+      {renderSidebar}
+      <div className="ml-auto flex shrink-0 items-center justify-end gap-2">
           <Button type="button" variant="outline" size="sm" className="h-8 cursor-pointer px-3" onClick={() => navigation.push(paths.hub())}>
             <ChevronLeft size={16} />
             {t(($) => $.manager.backToHub)}
@@ -635,7 +629,6 @@ export function HubManager() {
       <div className="flex h-full min-h-0 flex-1 flex-col overflow-x-hidden overflow-y-auto">
         {renderToolbar}
         <div className="flex min-h-0 flex-1">
-          {renderSidebar}
           <section className="flex min-h-0 flex-1 flex-col px-2 sm:px-3">
             <div className="flex items-center gap-2 py-3">
               <div className="relative min-w-0 flex-1">

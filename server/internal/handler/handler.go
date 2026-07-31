@@ -103,6 +103,12 @@ type Config struct {
 	// reverse-proxied to this backend; empty disables the proxy and the routes
 	// return 503.
 	QuotaManagerAPIBaseURL string
+	// KanbanAPIBaseURL is the base URL of the separately deployed
+	// efficiency-dashboard backend (kanban). When non-empty, /kanban/* routes
+	// are reverse-proxied to this backend with HTTP Basic Auth credentials
+	// injected from KANBAN_API_USERNAME/KANBAN_API_PASSWORD; empty disables the
+	// proxy and the routes return 503.
+	KanbanAPIBaseURL string
 	// CSCPluginMarketplaceName / CSCPluginMarketplaceRepo identify the plugin
 	// marketplace the daemon must register against when installing a CSC
 	// agent's bound plugin. Delivered to the daemon via the task-claim

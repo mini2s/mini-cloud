@@ -98,6 +98,11 @@ services:
       # Quota-manager service — personal quota overview + usage statistics.
       # Empty -> the My Quota page proxy is disabled (routes return 503).
       QUOTA_MANAGER_API_BASE_URL: ${QUOTA_MANAGER_API_BASE_URL:-}
+      # Efficiency-dashboard (kanban) backend — metrics/efficiency/cost/usage
+      # API. Empty -> the kanban proxy is disabled (routes return 503).
+      KANBAN_API_BASE_URL: ${KANBAN_API_BASE_URL:-}
+      KANBAN_API_USERNAME: ${KANBAN_API_USERNAME:-}
+      KANBAN_API_PASSWORD: ${KANBAN_API_PASSWORD:-}
     restart: unless-stopped
 
   frontend:
