@@ -661,7 +661,11 @@ export function HubManager() {
                   security={mkGroup(secFilter, (v) => toggleFilter(secFilter, setSecFilter, v), () => setSecFilter([]), filterOptionLists.security)}
                   source={mkGroup(srcFilter, (v) => toggleFilter(srcFilter, setSrcFilter, v), () => setSrcFilter([]), filterOptionLists.source)}
                   tag={mkGroup(tagFilter, (v) => toggleFilter(tagFilter, setTagFilter, v), () => setTagFilter([]), filterOptionLists.tag)}
-                  totalItems={itemTotal}
+                  trailing={
+                    <span className="whitespace-nowrap text-[12.5px] font-semibold text-muted-foreground [font-variant-numeric:tabular-nums]">
+                      {t(($) => $.home.filter.totalItems, { count: itemTotal })}
+                    </span>
+                  }
                   onClearAll={clearFilters}
                 />
               </div>

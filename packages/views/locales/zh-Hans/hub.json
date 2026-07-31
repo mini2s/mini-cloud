@@ -1,6 +1,6 @@
 {
   "home": {
-    "title": "Hub",
+    "title": "Agent 能力",
     "manage": "管理",
     "search": {
       "placeholder": "搜索 Skill、Agent、命令…",
@@ -20,7 +20,7 @@
       "command": "命令",
       "mcp": "MCP",
       "plugin": "插件",
-      "manager": "Hub 管理"
+      "manager": "Agent 能力管理"
     },
     "type": {
       "all": {
@@ -94,7 +94,9 @@
   },
   "pagination": {
     "total": "共 {{count}} 项",
-    "pageSize": "每页 {{count}} 项"
+    "pageSize": "每页 {{count}} 项",
+    "showing": "显示 {{from}}-{{to}}，共 {{total}} 条",
+    "empty": "暂无可展示条目。"
   },
   "detail": {
     "title": "能力详情",
@@ -239,13 +241,13 @@
     }
   },
   "manager": {
-    "title": "Hub 管理",
+    "title": "Agent 能力管理",
     "titleReceived": "我收到的推送",
     "titleSent": "我下发的",
     "desc": "管理您的个人能力项",
     "descReceived": "管理员推送给您的 skill",
     "descSent": "管理您推送给团队或个人的 skill",
-    "backToHub": "回到首页",
+    "backToHub": "回到 Agent 能力",
     "create": "创建能力",
     "upload": "上传 Plugin",
     "full_editor": "完整编辑器",
@@ -358,7 +360,7 @@
   },
   "dialog": {
     "plugin_upload_title": "上传插件",
-    "plugin_upload_desc": "上传插件包到 Hub",
+    "plugin_upload_desc": "上传插件包到 Agent 能力",
     "plugin_not_zip": "仅支持 .zip 文件",
     "plugin_too_large": "文件过大，最大为 {{max}}",
     "plugin_uploaded": "插件上传成功",

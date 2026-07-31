@@ -17,7 +17,7 @@ import {
 import { SortableContext, verticalListSortingStrategy, useSortable, arrayMove } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import {
-  // Inbox, // Hidden per product decision — inbox menu removed.
+  Inbox,
   Bot,
   Monitor,
   ChevronDown,
@@ -88,7 +88,7 @@ import { useAuthStore } from "@multica/core/auth";
 import { useCurrentWorkspace, useWorkspacePaths, paths } from "@multica/core/paths";
 import { workspaceListOptions, myInvitationListOptions, workspaceKeys } from "@multica/core/workspace/queries";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-// import { inboxKeys, deduplicateInboxItems } from "@multica/core/inbox/queries"; // Hidden per product decision — inbox menu removed.
+import { inboxKeys, deduplicateInboxItems } from "@multica/core/inbox/queries";
 import { api, ApiError } from "@multica/core/api";
 import { useModalStore } from "@multica/core/modals";
 import { useMyRuntimesNeedUpdate } from "@multica/core/runtimes/hooks";
@@ -118,12 +118,12 @@ function isNavActive(pathname: string, href: string): boolean {
 const EMPTY_PINS: PinnedItem[] = [];
 const EMPTY_WORKSPACES: Awaited<ReturnType<typeof api.listWorkspaces>> = [];
 const EMPTY_INVITATIONS: Awaited<ReturnType<typeof api.listMyInvitations>> = [];
-// const EMPTY_INBOX: Awaited<ReturnType<typeof api.listInbox>> = []; // Hidden per product decision — inbox menu removed.
+const EMPTY_INBOX: Awaited<ReturnType<typeof api.listInbox>> = [];
 // Nav items reference WorkspacePaths method names so they can be resolved
 // against the current workspace slug at render time (see AppSidebar body).
 // Only parameterless paths are valid nav destinations.
 type NavKey =
-  // | "inbox" // Hidden per product decision — inbox menu removed.
+  | "inbox"
   | "myIssues"
   | "issues"
   | "projects"
@@ -161,7 +161,7 @@ type NavKey =
 
 // Static schema (key + icon) — labels resolved at render via useT("layout").
 type NavLabelKey =
-  // | "inbox" // Hidden per product decision — inbox menu removed.
+  | "inbox"
   | "my_issues"
   | "issues"
   | "projects"
@@ -196,12 +196,11 @@ type NavLabelKey =
   | "roles"
   | "efficiency_settings";
 
-// type NavItem = { key: NavKey; labelKey: NavLabelKey; icon: typeof Inbox };
-type NavItem = { key: NavKey; labelKey: NavLabelKey; icon: typeof LayoutDashboard };
+type NavItem = { key: NavKey; labelKey: NavLabelKey; icon: typeof Inbox };
 
 // Top quick-access group (no header label).
-// { key: "inbox", labelKey: "inbox", icon: Inbox }, // Hidden per product decision — inbox menu removed.
 const personalNav: NavItem[] = [
+  { key: "inbox", labelKey: "inbox", icon: Inbox },
   { key: "home", labelKey: "home", icon: LayoutDashboard },
 ];
 
@@ -470,15 +469,15 @@ export function AppSidebar({ topSlot, searchSlot, headerClassName, headerStyle }
   const { data: myInvitations = EMPTY_INVITATIONS } = useQuery(myInvitationListOptions());
 
   const wsId = workspace?.id;
-  // const { data: inboxItems = EMPTY_INBOX } = useQuery({ // Hidden per product decision — inbox menu removed.
-  //   queryKey: wsId ? inboxKeys.list(wsId) : ["inbox", "disabled"],
-  //   queryFn: () => api.listInbox(),
-  //   enabled: !!wsId,
-  // });
-  // const unreadCount = React.useMemo(
-  //   () => deduplicateInboxItems(inboxItems).filter((i) => !i.read).length,
-  //   [inboxItems],
-  // );
+  const { data: inboxItems = EMPTY_INBOX } = useQuery({
+    queryKey: wsId ? inboxKeys.list(wsId) : ["inbox", "disabled"],
+    queryFn: () => api.listInbox(),
+    enabled: !!wsId,
+  });
+  const unreadCount = React.useMemo(
+    () => deduplicateInboxItems(inboxItems).filter((i) => !i.read).length,
+    [inboxItems],
+  );
   const hasRuntimeUpdates = useMyRuntimesNeedUpdate(wsId);
   const { data: pinnedItems = EMPTY_PINS } = useQuery({
     ...pinListOptions(wsId ?? "", userId ?? ""),
@@ -738,7 +737,7 @@ export function AppSidebar({ topSlot, searchSlot, headerClassName, headerStyle }
                 {personalNav.map((item) => {
                   const href = p[item.key]();
                   const isActive = isNavActive(pathname, href);
-                  // const hasUnreadInbox = item.key === "inbox" && unreadCount > 0; // Hidden per product decision — inbox menu removed.
+                  const hasUnreadInbox = item.key === "inbox" && unreadCount > 0;
                   return (
                     <SidebarMenuItem key={item.key}>
                       <SidebarMenuButton
@@ -746,22 +745,19 @@ export function AppSidebar({ topSlot, searchSlot, headerClassName, headerStyle }
                         render={<AppLink href={href} />}
                         className={cn(
                           "text-muted-foreground hover:not-data-active:bg-sidebar-accent/70 data-active:bg-sidebar-accent data-active:text-sidebar-accent-foreground",
-                          // hasUnreadInbox && "font-medium text-sidebar-foreground", // Hidden per product decision — inbox menu removed.
+                          hasUnreadInbox && "font-medium text-sidebar-foreground",
                         )}
                       >
                         <span className="relative shrink-0">
                           <item.icon />
-                          {/* // Hidden per product decision — inbox menu removed.
                           {hasUnreadInbox && (
                             <span
                               aria-hidden="true"
                               className="absolute -right-1 -top-1 hidden size-2 rounded-full bg-destructive ring-2 ring-sidebar group-data-[collapsible=icon]:block"
                             />
                           )}
-                          */}
                         </span>
                         <span>{t(($) => $.nav[item.labelKey])}</span>
-                        {/* // Hidden per product decision — inbox menu removed.
                         {hasUnreadInbox && (
                           <span
                             className="ml-auto inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-destructive px-1.5 text-[10px] font-semibold leading-none text-white shadow-xs ring-1 ring-destructive/20 group-data-[collapsible=icon]:hidden"
@@ -772,7 +768,6 @@ export function AppSidebar({ topSlot, searchSlot, headerClassName, headerStyle }
                               : unreadCount}
                           </span>
                         )}
-                        */}
                       </SidebarMenuButton>
                     </SidebarMenuItem>
                   );

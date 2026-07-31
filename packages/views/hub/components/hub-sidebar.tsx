@@ -41,7 +41,7 @@ export function HubSidebar({ currentType, counts, onNavigate, orientation = "ver
 
   if (horizontal) {
     return (
-      <nav className="flex w-full items-center gap-1.5 overflow-x-auto px-6 py-2 max-[640px]:px-4">
+      <nav className="flex w-full items-center gap-1.5 overflow-x-auto px-3">
         {HUB_NAV.map((item) => {
           if (item.link === "manager") {
             return (
@@ -73,11 +73,6 @@ export function HubSidebar({ currentType, counts, onNavigate, orientation = "ver
             >
               <HubIcon name={item.icon ?? "all"} size={15} />
               <span className="whitespace-nowrap">{t(($) => $.home.typeTab[item.key as "all" | "skill" | "subagent" | "command" | "mcp" | "plugin"])}</span>
-              {counts?.[item.key] != null && (
-                <span className="rounded-full bg-muted/60 px-1.5 text-[11px] font-medium leading-[1.65] text-muted-foreground">
-                  {counts[item.key]}
-                </span>
-              )}
             </button>
           )
         })}

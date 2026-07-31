@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, type ReactNode } from "react"
 import { useT } from "@multica/views/i18n"
 import { Popover, PopoverContent, PopoverTrigger } from "@multica/ui/components/ui/popover"
 import { Checkbox } from "@multica/ui/components/ui/checkbox"
@@ -26,7 +26,8 @@ export interface HubFilterBarProps {
   security: FilterGroup
   source: FilterGroup
   tag?: FilterGroup
-  totalItems: number
+  /** Optional node rendered at the trailing edge of the bar (ml-auto slot). */
+  trailing?: ReactNode
   onClearAll: () => void
 }
 
@@ -149,7 +150,7 @@ export function HubFilterBar({
   security,
   source,
   tag,
-  totalItems,
+  trailing,
   onClearAll,
 }: HubFilterBarProps) {
   const { t } = useT("hub")
@@ -218,9 +219,11 @@ export function HubFilterBar({
           </button>
         </>
       )}
-      <span className="ml-auto whitespace-nowrap text-[12.5px] font-semibold text-muted-foreground [font-variant-numeric:tabular-nums]">
-        {t(($) => $.home.filter.totalItems, { count: totalItems })}
-      </span>
+      {trailing && (
+        <span className="ml-auto inline-flex whitespace-nowrap items-center">
+          {trailing}
+        </span>
+      )}
     </div>
   )
 }

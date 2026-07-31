@@ -12,6 +12,11 @@ export interface PaginationBarProps {
   onPageChange: (page: number) => void
   onPageSizeChange?: (size: number) => void
   pageSizeOptions?: number[]
+  /**
+   * When true, renders as a compact inline control (no full-width stretch,
+   * no top padding) suitable for placing inside a toolbar row.
+   */
+  inline?: boolean
 }
 
 export function PaginationBar({
@@ -21,21 +26,34 @@ export function PaginationBar({
   onPageChange,
   onPageSizeChange,
   pageSizeOptions = [10, 15, 20, 30, 50],
+  inline = false,
 }: PaginationBarProps) {
   const { t } = useT("hub")
   const totalPages = Math.max(1, Math.ceil(total / pageSize))
 
   const pages = getPageRange(page, totalPages)
 
+  // 「显示 X–Y，共 Z 条」— mirrors the old StoreTableFooter summary.
+  const from = total > 0 ? Math.min((page - 1) * pageSize + 1, total) : 0
+  const to = Math.min(page * pageSize, total)
+  const summary = total <= 0
+    ? t(($) => $.pagination.empty)
+    : t(($) => $.pagination.showing, { from, to, total })
+
   return (
-    <div className="flex items-center justify-between gap-4 pt-4">
-      <div className="flex items-center gap-2 text-sm text-muted-foreground">
-        <span>
-          {t(($) => $.pagination.total, { count: total })}
+    <div className={cn(
+      "flex items-center gap-4",
+      inline ? "pt-0" : "justify-between pt-4",
+    )}>
+      <div className={cn(
+        "flex items-center gap-2 text-sm text-muted-foreground",
+        inline && "[font-variant-numeric:tabular-nums]",
+      )}>
+        <span className="whitespace-nowrap text-[12.5px] font-semibold [font-variant-numeric:tabular-nums]">
+          {summary}
         </span>
         {onPageSizeChange && (
           <span className="flex items-center gap-1">
-            <span>/</span>
             <select
               value={pageSize}
               onChange={(e) => onPageSizeChange(Number(e.target.value))}

@@ -1,6 +1,6 @@
 {
   "home": {
-    "title": "Hub",
+    "title": "Agent Capabilities",
     "manage": "Manage",
     "search": {
       "placeholder": "Search skills, agents, commands…",
@@ -94,7 +94,9 @@
   },
   "pagination": {
     "total": "{{count}} total",
-    "pageSize": "{{count}} per page"
+    "pageSize": "{{count}} per page",
+    "showing": "Showing {{from}}-{{to}} of {{total}}",
+    "empty": "No items available."
   },
   "detail": {
     "title": "Capability Details",
@@ -239,13 +241,13 @@
     }
   },
   "manager": {
-    "title": "Hub Manager",
+    "title": "Agent Capabilities Manager",
     "titleReceived": "Received Pushes",
     "titleSent": "Sent Distributions",
     "desc": "Manage your capabilities and distributions",
     "descReceived": "Capabilities pushed to you by admins",
     "descSent": "Capabilities you have distributed",
-    "backToHub": "Back to Hub",
+    "backToHub": "Back to Agent Capabilities",
     "create": "Create",
     "upload": "Upload",
     "full_editor": "Full editor",
@@ -358,7 +360,7 @@
   },
   "dialog": {
     "plugin_upload_title": "Upload Plugin",
-    "plugin_upload_desc": "Upload a plugin package to the hub",
+    "plugin_upload_desc": "Upload a plugin package to Agent Capabilities",
     "plugin_not_zip": "Only .zip files are supported",
     "plugin_too_large": "File is too large. Maximum size is {{max}}",
     "plugin_uploaded": "Plugin uploaded successfully",

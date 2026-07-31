@@ -442,19 +442,18 @@ const updateURL = useCallback((updates: Record<string, string | null>) => {
   return (
     <HubLayout>
       <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col">
-        {/* ═══ TYPE NAV BAR (top horizontal, F-14 + FR-08) ═══ */}
-        <HubSidebar
-          currentType={activeType === "all" ? null : activeType}
-          counts={sidebarCounts}
-          onNavigate={handleSidebarNavigate}
-          orientation="horizontal"
-        />
-
-      <div className="flex min-w-0 flex-1 flex-col overflow-y-auto">
-        {/* ═══ PAGE HEADER ═══ */}
+        {/* ═══ PAGE HEADER (title + type tabs in one row) ═══ */}
         <PageHeader>
-          <h1 className="text-sm font-semibold">{t(($) => $.home.typeTab[activeType])}</h1>
+          <h1 className="shrink-0 text-sm font-semibold">{t(($) => $.home.title)}</h1>
+          <HubSidebar
+            currentType={activeType === "all" ? null : activeType}
+            counts={sidebarCounts}
+            onNavigate={handleSidebarNavigate}
+            orientation="horizontal"
+          />
         </PageHeader>
+
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto">
 
           {/* ═══ SEARCH / TOOLBAR ═══ */}
           <div className="flex w-full flex-col gap-3 px-6 py-4 max-[640px]:px-4">
@@ -522,7 +521,17 @@ const updateURL = useCallback((updates: Record<string, string | null>) => {
               category={filterGroups.categories}
               security={filterGroups.security}
               source={filterGroups.sources}
-              totalItems={total}
+              trailing={total > 0 ? (
+                <PaginationBar
+                  page={page}
+                  pageSize={pageSize}
+                  total={total}
+                  onPageChange={setPage}
+                  onPageSizeChange={setPageSize}
+                  pageSizeOptions={[...HUB_PAGE_SIZE_OPTIONS]}
+                  inline
+                />
+              ) : undefined}
               onClearAll={clearAllFilters}
             />
           </div>
@@ -624,20 +633,6 @@ const updateURL = useCallback((updates: Record<string, string | null>) => {
               </>
             )}
           </div>
-
-          {/* ═══ PAGINATION ═══ */}
-          {total > 0 && (
-            <div className="px-6 pb-6 max-[640px]:px-4">
-              <PaginationBar
-                page={page}
-                pageSize={pageSize}
-                total={total}
-                onPageChange={setPage}
-                onPageSizeChange={setPageSize}
-                pageSizeOptions={[...HUB_PAGE_SIZE_OPTIONS]}
-              />
-            </div>
-          )}
         </div>
       </div>
 
