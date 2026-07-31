@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -279,11 +278,11 @@ func (s *handlerSpyRepoProvider) waitForCall(t *testing.T, n int, timeout time.D
 	}
 }
 
-// TestSubmitNodeRunDeliverable_ArchivesGitLabMRPointer asserts that a submission
-// carrying a GitLab MR URL triggers ArchiveNodeCodeLinks asynchronously —
-// the response is 200 (not blocked by the archive) and the spy provider records
-// an UpsertFile at the 代码合并请求.md path with the MR URL in the content.
-func TestSubmitNodeRunDeliverable_ArchivesGitLabMRPointer(t *testing.T) {
+// TestSubmitNodeRunDeliverable_DoesNotArchiveCodeMR asserts that submitting a
+// code MR URL does NOT trigger any Gitea archive/PR — code links stay standalone
+// submissions and are only written to the inst branch later, on approval (see
+// archiveCodeLinksToInst). The response is 200 and the spy records zero calls.
+func TestSubmitNodeRunDeliverable_DoesNotArchiveCodeMR(t *testing.T) {
 	if testHandler == nil {
 		t.Skip("database not available")
 	}
@@ -336,69 +335,11 @@ func TestSubmitNodeRunDeliverable_ArchivesGitLabMRPointer(t *testing.T) {
 		t.Fatalf("status = %d, want 200. body=%s", rec.Code, rec.Body.String())
 	}
 
-	calls := spy.waitForCall(t, 1, 3*time.Second)
-	if len(calls) < 1 {
-		t.Fatalf("expected ArchiveNodeCodeLinks to fire; spy recorded %d calls", len(calls))
-	}
-	got := calls[0]
-	// ArchiveNodeCodeLinks writes to <nodeDir>/代码合并请求.md, not the old
-	// per-deliverable code/<id>.md path.
-	if !strings.HasSuffix(got.Path, "/代码合并请求.md") {
-		t.Errorf("UpsertFile path = %q, want suffix %q", got.Path, "/代码合并请求.md")
-	}
-	if !strings.Contains(got.Content, mrURL) {
-		t.Errorf("UpsertFile content missing MR URL %q; content=%q", mrURL, got.Content)
-	}
-}
-
-// TestSubmitNodeRunDeliverable_DoesNotArchiveGiteaPR asserts that a Gitea PR
-// URL does NOT trigger an archive UpsertFile. ArchiveNodeCodeLinks still fires,
-// but isArchiveGiteaURL filters out the Gitea-hosted submission URL, so no code
-// links are collected and the method returns early (zero UpsertFile calls).
-func TestSubmitNodeRunDeliverable_DoesNotArchiveGiteaPR(t *testing.T) {
-	if testHandler == nil {
-		t.Skip("database not available")
-	}
-	// Set GITEA_BASE_URL so isArchiveGiteaURL recognises the PR host and
-	// filters it out. Without this env var the URL would pass through unfiltered.
-	t.Setenv("GITEA_BASE_URL", "https://gitea.example.com")
-
-	originalSvc := testHandler.WorkflowService
-	spy := newHandlerSpyRepoProvider()
-	testHandler.WorkflowService = &service.WorkflowService{
-		Queries:            originalSvc.Queries,
-		RepositoryProvider: spy,
-	}
-	t.Cleanup(func() { testHandler.WorkflowService = originalSvc })
-
-	ctx := context.Background()
-	// seedDeliverableAndNodeRunIn creates a DOCUMENT-kind deliverable.
-	nodeRunID, docID := seedDeliverableAndNodeRunIn(t, testWorkspaceID, testUserID)
-	t.Cleanup(func() {
-		testPool.Exec(ctx, `DELETE FROM multica_workflow_node_deliverable_submission WHERE workflow_node_run_id = $1`, nodeRunID)
-	})
-
-	// Submit a Gitea PR URL for the document deliverable. The archive must NOT
-	// produce an UpsertFile because isArchiveGiteaURL filters it out.
-	const prURL = "https://gitea.example.com/t-aaa/wf-bbb/pulls/9"
-	req := newRequest(http.MethodPost, "/api/node-runs/"+nodeRunID+"/deliverables/"+docID+"/submit",
-		map[string]any{"pull_request_url": prURL})
-	req = withURLParams(req, "nodeRunId", nodeRunID, "deliverableId", docID)
-	rec := httptest.NewRecorder()
-	testHandler.SubmitNodeRunDeliverable(rec, req)
-
-	// Submission succeeds.
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status = %d, want 200. body=%s", rec.Code, rec.Body.String())
-	}
-
-	// Non-blocking wait: give the async goroutine a brief window, then snapshot.
-	// ArchiveNodeCodeLinks returns early when all links are Gitea-hosted, so the
-	// spy is never signaled — a blocking waitForCall would hang.
+	// The (removed) async archive must not fire at submit — code links archive
+	// only on approval. Give it a brief window, then assert zero calls.
 	time.Sleep(200 * time.Millisecond)
-	calls := spy.snapshot()
-	if len(calls) != 0 {
-		t.Fatalf("expected NO archive UpsertFile call for Gitea PR URL, got %d: %+v", len(calls), calls)
+	if calls := spy.snapshot(); len(calls) != 0 {
+		t.Fatalf("expected NO archive UpsertFile at submit (code links archive only on approval), got %d: %+v", len(calls), calls)
 	}
 }
 

@@ -870,48 +870,40 @@ func isArchiveGiteaURL(rawURL string) bool {
 // in-repo paths (git stores bytes, Gitea renders UTF-8).
 const codeLinksArchiveFile = "代码合并请求.md"
 
-// ArchiveNodeCodeLinks rebuilds the node-run's code-MR-links archive file on
-// the node branch (NodeBranch) and ensures the shared deliverable PR
-// (NodeBranch → inst) exists. It collects every submission on the node-run
-// whose pull_request_url is an EXTERNAL code MR (not the archive Gitea) —
-// human- and agent-submitted links accumulate in one .md.
+// archiveCodeLinksToInst writes the node-run's code-MR-links audit file DIRECTLY
+// to the run's inst branch (not the node branch), collecting every live external
+// code-MR submission. It replaces the old submit-time ArchiveNodeCodeLinks path,
+// which bundled code links into the shared node→inst deliverable PR. Code MR
+// links no longer ride the document PR: they stay standalone submissions, and
+// only on approval does this audit copy land on inst.
 //
-// Document submissions and code-MR-link submissions share ONE deliverable PR.
-// OpenReviewRequest reuses the document-submit PR when it already exists (same
-// head+base) and only creates a PR for code-only nodes — it never opens an
-// extra "code MR links" PR. This MUST stay: a code-only node (no document
-// submission) has no other path that opens the PR, so dropping it would leave
-// the .md on a branch with no deliverable PR at all. The node PR URL is NOT
-// stored on any submission — the displayed link stays the real code MR so
-// users can merge it themselves.
-//
-// Best-effort + fire-and-forget (callers run it in a goroutine): dormant when
-// the repository provider is not configured; errors are logged, never
-// returned. Idempotent: the .md is fully rebuilt from current submissions, and
-// OpenReviewRequest reuses an existing open PR.
-func (s *WorkflowService) ArchiveNodeCodeLinks(ctx context.Context, nodeRunID pgtype.UUID) {
+// Best-effort (caller logs/ignores errors): dormant when the repository provider
+// is not configured; idempotent (the .md is fully rebuilt from current live
+// submissions). No PR is opened and no branch is created — inst is the
+// pre-existing, unprotected audit branch.
+func (s *WorkflowService) archiveCodeLinksToInst(ctx context.Context, nodeRunID pgtype.UUID) {
 	repoProvider := s.deliverableRepository()
 	if !repoProvider.Configured() {
 		return
 	}
 	nodeRun, err := s.Queries.GetWorkflowNodeRun(ctx, nodeRunID)
 	if err != nil {
-		slog.Warn("archive node code links: get node run", "node_run_id", util.UUIDToString(nodeRunID), "error", err)
+		slog.Warn("archive code links to inst: get node run", "node_run_id", util.UUIDToString(nodeRunID), "error", err)
 		return
 	}
 	run, err := s.Queries.GetWorkflowRun(ctx, nodeRun.WorkflowRunID)
 	if err != nil {
-		slog.Warn("archive node code links: get run", "error", err)
+		slog.Warn("archive code links to inst: get run", "error", err)
 		return
 	}
 	workflow, err := s.workflowFromRunSnapshot(ctx, run)
 	if err != nil {
-		slog.Warn("archive node code links: get snapshot", "error", err)
+		slog.Warn("archive code links to inst: get snapshot", "error", err)
 		return
 	}
 	submissions, err := s.Queries.ListNodeRunDeliverableSubmissions(ctx, nodeRun.ID)
 	if err != nil {
-		slog.Warn("archive node code links: list submissions", "error", err)
+		slog.Warn("archive code links to inst: list submissions", "error", err)
 		return
 	}
 	var links []string
@@ -930,14 +922,13 @@ func (s *WorkflowService) ArchiveNodeCodeLinks(ctx context.Context, nodeRunID pg
 
 	topo, err := RunNodeTopoOrder(ctx, s.Queries, run.ID)
 	if err != nil {
-		slog.Warn("archive node code links: run topo order", "error", err)
+		slog.Warn("archive code links to inst: run topo order", "error", err)
 		return
 	}
 	nodeSeq := topo[util.UUIDToString(nodeRun.ID)]
 	owner := gitea.OrgName(util.UUIDToString(run.WorkspaceID))
 	repo := DeliverableRepoNameForWorkflow(workflow)
 	inst := gitea.InstBranch(util.UUIDToString(run.ID))
-	nodeBranch := gitea.NodeBranch(nodeSeq, util.UUIDToString(nodeRun.ID))
 	filePath := gitea.NodeDir(nodeSeq, nodeRun.NodeTitle, util.UUIDToString(nodeRun.ID)) + "/" + codeLinksArchiveFile
 
 	var b strings.Builder
@@ -945,24 +936,11 @@ func (s *WorkflowService) ArchiveNodeCodeLinks(ctx context.Context, nodeRunID pg
 	for _, l := range links {
 		fmt.Fprintf(&b, "- %s\n", l)
 	}
-	// Best-effort: ensure NodeBranch exists (ensureNodeRunBranch usually created
-	// it at node entry, but it can be gated out when the node had no
-	// deliverables at entry). Must precede UpsertFile — Gitea's contents API
-	// rejects a commit to a missing branch. "Branch already exists" errors are
-	// ignored so this is idempotent.
-	_ = repoProvider.CreateBranch(ctx, owner, repo, nodeBranch, inst)
-	if err := repoProvider.UpsertFile(ctx, owner, repo, nodeBranch, filePath, b.String(), "archive code MR links"); err != nil {
-		slog.Warn("archive node code links: write file", "node_run_id", util.UUIDToString(nodeRun.ID), "path", filePath, "error", err)
+	if err := repoProvider.UpsertFile(ctx, owner, repo, inst, filePath, b.String(), "archive code MR links to inst"); err != nil {
+		slog.Warn("archive code links to inst: write file", "node_run_id", util.UUIDToString(nodeRun.ID), "path", filePath, "error", err)
 		return
 	}
-	// Ensure the shared deliverable PR (NodeBranch → inst) exists. Reuses the
-	// document-submit PR when present (same head+base); only creates one for a
-	// code-only node, which otherwise would have no PR at all. Never an extra PR.
-	if _, err := repoProvider.OpenReviewRequest(ctx, owner, repo, nodeBranch, inst, nodeRun.NodeTitle+" deliverable"); err != nil {
-		slog.Warn("archive node code links: ensure node PR", "node_run_id", util.UUIDToString(nodeRun.ID), "error", err)
-		return
-	}
-	slog.Info("archived node code links", "node_run_id", util.UUIDToString(nodeRun.ID), "links", len(links), "path", filePath)
+	slog.Info("archived code links to inst", "node_run_id", util.UUIDToString(nodeRun.ID), "links", len(links), "path", filePath)
 }
 
 // shortHexSafe returns the first 8 hex chars of a UUID string, or the full
@@ -1293,9 +1271,9 @@ func linkArchiveHash(link string) string {
 
 // UploadMemberDeliverablePR handles member-submitted code merge-request URLs
 // for the issue's pull_request-kind deliverable. The real code-MR links are
-// stored as-is (no per-link Gitea branch/PR), and after the commit
-// ArchiveNodeCodeLinks reconciles all links into one .md on the node's branch
-// + node PR — best-effort, dormant-safe.
+// stored as-is (no per-link Gitea branch/PR). Code links no longer touch Gitea
+// at submit time; they are archived to the inst branch on approval
+// (archiveCodeLinksToInst) — best-effort, dormant-safe.
 func (s *WorkflowService) UploadMemberDeliverablePR(ctx context.Context, issue db.MulticaIssue, pullRequestURLs []string, deliverableID, userID, summary string) error {
 	if len(pullRequestURLs) == 0 {
 		return errors.New("no pull request URLs to submit")
@@ -1332,10 +1310,8 @@ func (s *WorkflowService) UploadMemberDeliverablePR(ctx context.Context, issue d
 	if err != nil {
 		return err
 	}
-	// Best-effort: rebuild the node's code-links .md + node PR.
-	if s.deliverableRepository().Configured() {
-		go s.ArchiveNodeCodeLinks(context.Background(), uploadedNodeRunID)
-	}
+	// Code MR links are archived to the inst branch only on approval
+	// (archiveCodeLinksToInst), not at upload time.
 	slog.Info("member code deliverable uploaded",
 		"issue_id", util.UUIDToString(issue.ID), "node_run_id", util.UUIDToString(uploadedNodeRunID), "links", len(pullRequestURLs))
 	return nil
@@ -1395,11 +1371,11 @@ func (s *WorkflowService) UploadMemberDeliverable(ctx context.Context, issue db.
 		owner := gitea.OrgName(util.UUIDToString(run.WorkspaceID))
 		repo := DeliverableRepoNameForWorkflow(workflow)
 		inst := gitea.InstBranch(util.UUIDToString(run.ID))
-		// Documents share the node-run's single deliverable branch (NodeBranch —
-		// the SAME branch ArchiveNodeCodeLinks uses) so the node-run has ONE
-		// deliverable PR shared between document uploads and code-MR-link archive,
-		// never one PR per document nor a separate code-links PR. Files are still
-		// namespaced per deliverable below, so same-named files don't collide.
+		// Documents are committed to the node-run's single deliverable branch
+		// (NodeBranch) and reviewed via one node→inst PR. Code-MR links no longer
+		// share this branch — they are standalone submissions archived to the inst
+		// branch on approval (archiveCodeLinksToInst). Files are still namespaced
+		// per deliverable below, so same-named files don't collide.
 		deliverableSuffix := shortHexSafe(util.UUIDToString(deliverable.ID))
 		nodeBranch := gitea.NodeBranch(nodeSeq, util.UUIDToString(nodeRun.ID))
 		nodeDir := gitea.NodeDir(nodeSeq, nodeRun.NodeTitle, util.UUIDToString(nodeRun.ID)) +

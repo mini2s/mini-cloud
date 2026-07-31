@@ -1039,12 +1039,9 @@ func (s *WorkflowService) SubmitWorkerOutput(ctx context.Context, nodeRunID pgty
 		return err
 	}
 
-	// Best-effort: if the worker output carried a code MR that was auto-filed by
-	// autoSubmitSingleRequiredDeliverable, reconcile the node's code-links archive
-	// (.md + node PR). Fire-and-forget; no-op when there are no code links.
-	if s.deliverableRepository().Configured() {
-		go s.ArchiveNodeCodeLinks(context.Background(), nodeRunID)
-	}
+	// Code MR links carried in the worker output are filed as submissions by
+	// autoSubmitSingleRequiredDeliverable; they are archived to the inst branch
+	// only on approval (archiveCodeLinksToInst), not here.
 
 	if s.OnNodeStatusChanged != nil {
 		s.OnNodeStatusChanged(ctx, nodeRun)
@@ -1279,6 +1276,10 @@ func (s *WorkflowService) ReviewNodeRun(ctx context.Context, nodeRunID pgtype.UU
 			finalStatus = NodeRunStatusBlocked
 		} else {
 			s.markDeliverableSubmissionsApproved(ctx, nodeRun)
+			// Code MR links no longer ride the document PR: on approval, write the
+			// code-links audit file directly to the inst branch. Best-effort — the
+			// function logs internally and never blocks completion.
+			s.archiveCodeLinksToInst(ctx, nodeRun.ID)
 		}
 		updated, err := s.Queries.UpdateWorkflowNodeRunStatus(ctx, db.UpdateWorkflowNodeRunStatusParams{
 			ID: nodeRun.ID, Status: finalStatus,

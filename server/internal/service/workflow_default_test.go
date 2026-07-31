@@ -1242,11 +1242,12 @@ func TestUploadMemberDeliverablePR_MultiLinkPerDeliverable(t *testing.T) {
 	issue, nrID, reqIDs, userID := multiLinkSeed(t, pool, "ml")
 	nrUUID := util.MustParseUUID(nrID)
 
-	srv, paths := multiLinkFakeGiteaServer(t)
+	// Code-link upload stores submissions as-is and no longer touches Gitea at
+	// submit time (archival happens on approval, tested elsewhere), so no fake
+	// Gitea server is needed here.
 	svc := &WorkflowService{
 		Queries:   db.New(pool),
 		TxStarter: pool,
-		Gitea:     gitea.NewClient(gitea.Config{BaseURL: srv.URL, Token: "admin-tok"}),
 	}
 
 	linkA1 := "https://git.example/o/r/-/merge_requests/1"
@@ -1313,18 +1314,8 @@ func TestUploadMemberDeliverablePR_MultiLinkPerDeliverable(t *testing.T) {
 		t.Fatalf("same-link resubmit must be idempotent — want 3 rows, got %d: %+v", len(subs), subs)
 	}
 
-	// 4. Drive the archive synchronously (the goroutine is not observable in
-	// tests). It should upsert the code-links .md on the node branch.
-	svc.ArchiveNodeCodeLinks(ctx, nrUUID)
-	archiveUpserts := 0
-	for _, p := range *paths {
-		if strings.Contains(p, "/contents/") && strings.Contains(p, codeLinksArchiveFile) {
-			archiveUpserts++
-		}
-	}
-	if archiveUpserts == 0 {
-		t.Fatalf("ArchiveNodeCodeLinks did not upsert %q on the node branch; paths: %v", codeLinksArchiveFile, *paths)
-	}
+	// (Archival of code links now happens on approval via archiveCodeLinksToInst,
+	// exercised in workflow_deliverable_repo_test.go — nothing to assert here.)
 }
 
 // TestUploadMemberDeliverablePR_ConcurrentRequirementsAdvance verifies that
@@ -1369,8 +1360,8 @@ func TestUploadMemberDeliverablePR_ConcurrentRequirementsAdvance(t *testing.T) {
 
 // TestUploadMemberDeliverablePR_DormantMultiLink covers the no-Gitea path:
 // links are recorded verbatim, several per deliverable, and a same-link
-// resubmit upserts the same row (idempotent by URL). No per-link archive
-// happens (ArchiveNodeCodeLinks is a no-op when Gitea is not configured).
+// resubmit upserts the same row (idempotent by URL). No archive happens at
+// submit (code links archive only on approval).
 func TestUploadMemberDeliverablePR_DormantMultiLink(t *testing.T) {
 	pool := openTestPool(t)
 	defer pool.Close()
