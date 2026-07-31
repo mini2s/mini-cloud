@@ -542,7 +542,7 @@ export function HubManager() {
   // Horizontal tab nav — rendered inline next to the title in the PageHeader
   // (saves the vertical sidebar column for more content width).
   const renderSidebar = (
-    <nav className="flex items-center gap-1.5 overflow-x-auto">
+    <nav className="ml-3 flex min-w-0 items-center gap-1.5 overflow-x-auto">
       {SIDEBAR_NAV.map((item) => {
         const active = tab === item.key
         const count = tabCount(item.key)
@@ -579,7 +579,7 @@ export function HubManager() {
   // manager page title/action hierarchy matches every other dashboard page.
   const renderToolbar = (
     <PageHeader>
-      <div className="min-w-0">
+      <div className="min-w-0 shrink-0">
         <h1 className="truncate text-sm font-semibold">{managerTitle}</h1>
       </div>
       {renderSidebar}
@@ -648,7 +648,7 @@ export function HubManager() {
         {renderToolbar}
         <div className="flex min-h-0 flex-1">
           <section className="flex min-h-0 flex-1 flex-col px-2 sm:px-3">
-            <div className="flex items-center gap-2 py-3">
+            <div className="flex items-center gap-2 px-4 py-3">
               <div className="relative min-w-0 flex-1">
                 <SearchTokenBox
                   value={search}
@@ -665,7 +665,7 @@ export function HubManager() {
 
             {/* Filter bar — item tabs only */}
             {isItemTab && (
-              <div className="mx-auto mb-2.5 w-full max-w-5xl px-4">
+              <div className="mb-2.5 w-full px-4">
                 <HubFilterBar
                   type={mkGroup(typeFilter, (v) => toggleFilter(typeFilter, setTypeFilter, v), () => setTypeFilter([]), typeOptions)}
                   category={mkGroup(catFilter, (v) => toggleFilter(catFilter, setCatFilter, v), () => setCatFilter([]), filterOptionLists.category)}
@@ -684,7 +684,7 @@ export function HubManager() {
 
             {/* Selection bar — created tab only */}
             {tab === "created" && selected.size > 0 && (
-              <div className="mx-auto flex w-full max-w-5xl items-center gap-2 px-4 pb-2">
+              <div className="flex w-full items-center gap-2 px-4 pb-2">
                 <span className="text-sm text-muted-foreground">
                   {allMatching
                     ? t(($) => $.manager.allMatchingSelected, { count: itemTotal })
