@@ -2433,12 +2433,13 @@ func TestMergeAndApprove_KindAgnostic(t *testing.T) {
 	}
 }
 
-// TestArchiveNodeCodeLinks_WritesNodeBranchMDAndOpensNodePR verifies that
+// TestArchiveNodeCodeLinks_WritesNodeBranchMDAndEnsuresNodePR verifies that
 // ArchiveNodeCodeLinks writes a single 代码合并请求.md on the node branch
-// (collecting every external code-MR submission) and opens a node→inst PR
-// (reused across calls). Gitea-internal PR URLs are excluded so only real
-// code MRs appear in the archive.
-func TestArchiveNodeCodeLinks_WritesNodeBranchMDAndOpensNodePR(t *testing.T) {
+// (collecting every external code-MR submission) and ensures the shared
+// deliverable PR (node→inst) exists — reused when the document-submit path
+// already opened it, created here for a code-only node. Gitea-internal PR URLs
+// are excluded so only real code MRs appear in the archive.
+func TestArchiveNodeCodeLinks_WritesNodeBranchMDAndEnsuresNodePR(t *testing.T) {
 	pool := openTestPool(t)
 	defer pool.Close()
 	ctx := context.Background()
@@ -2495,12 +2496,12 @@ func TestArchiveNodeCodeLinks_WritesNodeBranchMDAndOpensNodePR(t *testing.T) {
 	}
 	got := upserts[0]
 
-	// Expected branch/path derived from topo + nodeRun.
-	topo, err := NodeTopoOrder(ctx, queries, fix.workflow)
+	// Expected branch/path derived from topo + nodeRun (run-scoped, matches the impl).
+	topo, err := RunNodeTopoOrder(ctx, queries, fix.run1)
 	if err != nil {
-		t.Fatalf("node topo order: %v", err)
+		t.Fatalf("run topo order: %v", err)
 	}
-	wantNodeSeq := topo[util.UUIDToString(fix.node)]
+	wantNodeSeq := topo[nodeRunID]
 	wantOwner := gitea.OrgName(util.UUIDToString(fix.workspace))
 	wantRepo := DeliverableRepoNameForWorkflow(db.MulticaWorkflow{ID: fix.workflow})
 	wantBranch := gitea.NodeBranch(wantNodeSeq, nodeRunID)
@@ -2522,10 +2523,12 @@ func TestArchiveNodeCodeLinks_WritesNodeBranchMDAndOpensNodePR(t *testing.T) {
 		t.Errorf("UpsertFile content missing MR URL %q; content=%q", externalMR, got.Content)
 	}
 
-	// Assert: exactly one OpenReviewRequest call (node branch → inst).
+	// Assert: exactly one OpenReviewRequest call (node branch → inst) — the
+	// shared deliverable PR is ensured to exist (reused if the document-submit
+	// path already opened it; created here for this code-only node).
 	reviews := spy.openReviewCalls()
 	if len(reviews) != 1 {
-		t.Fatalf("OpenReviewRequest calls = %d, want 1", len(reviews))
+		t.Fatalf("OpenReviewRequest calls = %d, want 1 (ensure deliverable PR)", len(reviews))
 	}
 	wantBase := gitea.InstBranch(util.UUIDToString(fix.run1))
 	if reviews[0].Head != wantBranch {
