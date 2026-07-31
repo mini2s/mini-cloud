@@ -472,6 +472,10 @@ describe("RuntimeNodeCard", () => {
       />,
     );
 
+    expect(RUNTIME_SPLIT_NODE_HEIGHT).toBe(192);
+    expect(screen.getByTestId("runtime-node-card-split-1")).toHaveStyle({
+      height: `${RUNTIME_SPLIT_NODE_HEIGHT}px`,
+    });
     expect(screen.getByTestId("runtime-node-open-session")).toBeInTheDocument();
   });
 
