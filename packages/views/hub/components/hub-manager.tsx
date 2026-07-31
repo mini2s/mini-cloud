@@ -92,12 +92,16 @@ export function HubManager() {
   const tabFromUrl = searchParams.get("tab") as TabKey | null
   const [tab, setTab] = useState<TabKey>(tabFromUrl ?? "created")
 
+  // Mirror an external ?tab= change (back/forward, link) into local state.
+  // searchParams is rebuilt every render (see apps/web/platform/navigation.tsx),
+  // so depending on its identity would fire this every frame; read the raw
+  // string value instead and only setTab when it actually differs.
+  const urlTabString = searchParams.get("tab") ?? ""
   useEffect(() => {
-    const urlTab = searchParams.get("tab") as TabKey | null
-    if (urlTab && ["created", "favorited", "received", "sent"].includes(urlTab)) {
-      setTab(urlTab as TabKey)
-    }
-  }, [searchParams])
+    if (!urlTabString) return
+    if (!["created", "favorited", "received", "sent"].includes(urlTabString)) return
+    setTab((prev) => (prev === urlTabString ? prev : (urlTabString as TabKey)))
+  }, [urlTabString])
 
   // ── Search ──────────────────────────────────────────────────────────────
   const [search, setSearch] = useState("")
@@ -273,11 +277,25 @@ export function HubManager() {
     setTab(next)
   }, [tab, clearSel])
 
+  // Sync the active tab into the URL query string. The adapter returned by
+  // useNavigation() and its searchParams are rebuilt on every render (see
+  // apps/web/platform/navigation.tsx), so depending on them directly makes
+  // this effect fire every render — and because replace() bumps useSearchParams,
+  // it never converges, producing a re-render loop that hammer-fires every
+  // mounted query (hence the 429 storm on /api/distributions/my/received).
+  // Depend only on `tab` and reach for the live replace/pathname/searchParams
+  // via refs so the effect runs once per actual tab change.
+  const navRef = useRef(navigation)
+  navRef.current = navigation
   useEffect(() => {
-    const p = new URLSearchParams(searchParams.toString())
+    const nav = navRef.current
+    const p = new URLSearchParams(nav.searchParams.toString())
+    if (p.get("tab") === tab) return
     p.set("tab", tab)
-    navigation.replace(`${navigation.pathname}?${p.toString()}`)
-  }, [tab, navigation, searchParams])
+    nav.replace(`${nav.pathname}?${p.toString()}`)
+    // Intentionally only `tab` — see comment above.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab])
 
   const toggleRow = useCallback((id: string, checked: boolean) => {
     setSelected((prev) => {
