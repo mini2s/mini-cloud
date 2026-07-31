@@ -1127,6 +1127,11 @@ export function ExecutionPanoramaPage({
 
   const canvasStages = workflowCanvasStages(allStages, allNodes, workflowId);
   const runtimeFocusNodeId = pickRuntimeFocusNodeId(allNodes, nodeRunMap);
+  const splitNodeIds = new Set(
+    allNodes
+      .filter((node) => parseNodeFormat(node.format_schema).kind === "split")
+      .map((node) => node.id),
+  );
   const baseRfNodesRaw = workflowNodesToReactFlowNodes({
     nodes: allNodes,
     stages: sortStagesForDisplay(allStages),
@@ -1155,6 +1160,18 @@ export function ExecutionPanoramaPage({
       };
     },
     makeCriticName: (node) => resolveCriticName(node) ?? undefined,
+  }).map((node) => {
+    if (!splitNodeIds.has(node.id)) return node;
+    const previousHeight = typeof node.height === "number" ? node.height : RUNTIME_NODE_HEIGHT;
+    const heightDelta = RUNTIME_SPLIT_NODE_HEIGHT - previousHeight;
+    return {
+      ...node,
+      height: RUNTIME_SPLIT_NODE_HEIGHT,
+      position: {
+        ...node.position,
+        y: node.position.y - heightDelta / 2,
+      },
+    };
   });
   const baseRfEdges = workflowEdgesToReactFlowEdges({
     edges: allEdges,
