@@ -2515,6 +2515,32 @@ func TestRewriteGiteaHostToPublic_PortIsExactNotPrefix(t *testing.T) {
 	}
 }
 
+// TestGiteaServerRoot pins the dispatch-boundary strip that turns a repo web URL
+// into the Gitea server root cs-cloud's PR API targets. The "/{owner}/{repo}"
+// suffix is derived from the companion clone URL, so a server path prefix (e.g.
+// "/gitea") is preserved and an already-root URL is left untouched.
+func TestGiteaServerRoot(t *testing.T) {
+	cases := []struct {
+		name     string
+		webURL   string
+		cloneURL string
+		want     string
+	}{
+		{"repo path stripped (zgsmtest incident)", "https://zgsmtest.xyz:30443/t-ad9d561c/wf-deliverable-archive", "https://zgsmtest.xyz:30443/t-ad9d561c/wf-deliverable-archive.git", "https://zgsmtest.xyz:30443"},
+		{"server path prefix preserved", "https://corp.example/gitea/t-aaa/wf-bbb", "https://corp.example/gitea/t-aaa/wf-bbb.git", "https://corp.example/gitea"},
+		{"already a server root, untouched", "https://gitea-tenant.example", "https://gitea-tenant.example/x/wf-abc.git", "https://gitea-tenant.example"},
+		{"trailing slash trimmed", "https://gitea.test/t-a/wf-b/", "https://gitea.test/t-a/wf-b.git", "https://gitea.test"},
+		{"unparseable clone URL, untouched", "https://gitea.test/t-a/wf-b", "://not-a-url", "https://gitea.test/t-a/wf-b"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := giteaServerRoot(c.webURL, c.cloneURL); got != c.want {
+				t.Errorf("giteaServerRoot(%q,%q) = %q, want %q", c.webURL, c.cloneURL, got, c.want)
+			}
+		})
+	}
+}
+
 // TestResolveDeliveryRepo_RewritesInternalHostToPublic pins the dispatch-
 // boundary host rewrite on the repos[].URL exit. costrict-web emits wf_clone_url
 // on its single (internal) tenant git-server endpoint, which cs-cloud can't
@@ -2582,8 +2608,11 @@ func TestRepositoryDeliverableEnv_RewritesInternalHostToPublic(t *testing.T) {
 	if got := env["CS_CLOUD_REPO_CLONE_URL"]; got != wantClone {
 		t.Errorf("CS_CLOUD_REPO_CLONE_URL = %q, want rewritten to public host %q", got, wantClone)
 	}
-	if got := env["CS_CLOUD_REPO_BASE_URL"]; got != "https://zgsmtest.xyz:30443/t-ad9d561c/wf-deliverable-archive" {
-		t.Errorf("CS_CLOUD_REPO_BASE_URL = %q, want gitea_web_url rewritten to public host", got)
+	// Base URL must be the Gitea SERVER ROOT, not the repo web URL: gitea_web_url
+	// carries the /t-ad9d561c/wf-deliverable-archive repo path, which cs-cloud's
+	// PR API would turn into .../repo/api/v1/repos/repo/pulls and 404.
+	if got := env["CS_CLOUD_REPO_BASE_URL"]; got != "https://zgsmtest.xyz:30443" {
+		t.Errorf("CS_CLOUD_REPO_BASE_URL = %q, want server root (repo path stripped, public host) %q", got, "https://zgsmtest.xyz:30443")
 	}
 	// Authed clone URL: host swapped BEFORE the bot token is injected.
 	authed := env["CS_CLOUD_REPO_CLONE_URL_AUTHED"]

@@ -857,11 +857,13 @@ func (s *TaskService) repositoryDeliverableEnv(ctx context.Context, task db.Mult
 	} else {
 		cloneURL = strings.TrimRight(publicBase, "/") + "/" + owner + "/" + repo + ".git"
 	}
-	// Base URL: prefer settings gitea_web_url (the Gitea web/API root cs-cloud's
-	// PR API targets); fall back to GITEA_PUBLIC_BASE_URL.
+	// Base URL: prefer settings gitea_web_url, normalized to the Gitea server
+	// root (cs-cloud's PR API targets .../api/v1/repos/{owner}/{repo}/pulls, and
+	// gitea_web_url carries the repo web URL, not the server root); fall back to
+	// GITEA_PUBLIC_BASE_URL.
 	var baseURL string
 	if strings.TrimSpace(settingsWebURL) != "" {
-		baseURL = strings.TrimRight(RewriteGiteaHostToPublic(settingsWebURL), "/")
+		baseURL = giteaServerRoot(RewriteGiteaHostToPublic(settingsWebURL), cloneURL)
 	} else {
 		baseURL = strings.TrimRight(publicBase, "/")
 	}
@@ -931,6 +933,38 @@ func injectGiteaToken(cloneURL, botUser, token string) string {
 	}
 	u.User = url.UserPassword(user, token)
 	return u.String()
+}
+
+// giteaServerRoot strips the trailing "/{owner}/{repo}" repo path from a Gitea
+// web URL so it can serve as the PR API root. Workspace settings store
+// gitea_web_url as the repository web URL (costrict-web's team-namespace
+// service returns wf_web_url pointing at the repo, not the server root), but
+// cs-cloud's deliverable-submit POSTs to "{base}/api/v1/repos/{owner}/{repo}/pulls".
+// Feeding it the repo web URL yields ".../{owner}/{repo}/api/v1/repos/{owner}/{repo}/pulls"
+// and Gitea 404s — exactly the zgsmtest incident. The "/{owner}/{repo}" suffix
+// is derived from the companion clone URL (which always ends in
+// "/{owner}/{repo}.git") rather than from separately-computed owner/repo, so
+// the strip matches the URL's actual segments even when formatting diverges,
+// and a server path prefix (e.g. "/gitea") is preserved. This is the
+// producer-side counterpart to cs-cloud's consumer-side normalizeGiteaBase;
+// both ends normalize because the value crosses a cross-repo env boundary.
+func giteaServerRoot(webURL, cloneURL string) string {
+	b := strings.TrimRight(strings.TrimSpace(webURL), "/")
+	u, err := url.Parse(strings.TrimSpace(cloneURL))
+	if err != nil || u.Path == "" {
+		return b
+	}
+	// cloneURL path is ".../{owner}/{repo}.git"; drop .git and take the last
+	// two segments as the "/{owner}/{repo}" suffix to strip from the web URL.
+	segs := strings.Split(strings.TrimSuffix(strings.TrimRight(u.Path, "/"), ".git"), "/")
+	if len(segs) < 3 { // ["", owner, repo] minimum
+		return b
+	}
+	suffix := "/" + segs[len(segs)-2] + "/" + segs[len(segs)-1]
+	if strings.HasSuffix(b, suffix) {
+		return strings.TrimSuffix(b, suffix)
+	}
+	return b
 }
 
 // RewriteGiteaHostToPublic swaps a Gitea URL's scheme+host+port from the
