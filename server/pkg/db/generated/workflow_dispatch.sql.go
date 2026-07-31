@@ -222,6 +222,22 @@ func (q *Queries) CreateWorkflowDispatchJob(ctx context.Context, arg CreateWorkf
 	return i, err
 }
 
+const failStaleWorkflowDispatchJobs = `-- name: FailStaleWorkflowDispatchJobs :exec
+UPDATE multica_workflow_node_run_dispatch_job
+SET status = 'failed',
+    last_error = 'workflow_retried',
+    locked_by = NULL,
+    lease_expires_at = NULL,
+    updated_at = now()
+WHERE workflow_run_id = $1
+  AND status IN ('pending', 'running')
+`
+
+func (q *Queries) FailStaleWorkflowDispatchJobs(ctx context.Context, workflowRunID pgtype.UUID) error {
+	_, err := q.db.Exec(ctx, failStaleWorkflowDispatchJobs, workflowRunID)
+	return err
+}
+
 const failWorkflowDispatchJob = `-- name: FailWorkflowDispatchJob :one
 UPDATE multica_workflow_node_run_dispatch_job
 SET status = 'failed',

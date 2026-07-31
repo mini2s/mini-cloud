@@ -242,6 +242,18 @@ WHERE workflow_run_id = $1
   AND status NOT IN ('format_failed', 'completed', 'failed', 'skipped', 'cancelled')
 RETURNING *;
 
+-- name: ReviveCancelledWorkflowNodeRuns :many
+UPDATE multica_workflow_node_run SET
+    status = 'pending',
+    failure_reason = NULL,
+    started_at = NULL,
+    completed_at = NULL,
+    updated_at = now()
+WHERE workflow_run_id = $1
+  AND status = 'cancelled'
+  AND failure_reason = 'workflow_failed'
+RETURNING *;
+
 -- name: CancelWorkflowTasksByRun :many
 UPDATE multica_agent_task_queue task SET
     status = 'cancelled',
