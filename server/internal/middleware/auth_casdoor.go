@@ -80,7 +80,10 @@ func CasdoorAuth(resolver SubjectResolver, cloudTrans CloudSubjectTranslator) fu
 			subjectID := userInfo.SubjectID
 			if cloudTrans != nil {
 				if sid, terr := cloudTrans.ResolveSubjectID(r.Context(), userInfo.UniversalID, token); terr != nil {
-					slog.Debug("casdoor auth: cloud subject translation failed, using JWT sub",
+					// Warn, not Debug: the fallback provisions users under the
+					// raw Casdoor sub, which splits one person into multiple
+					// accounts. Silent at Debug this was invisible in production.
+					slog.Warn("casdoor auth: cloud subject translation failed, using JWT sub",
 						"path", r.URL.Path, "error", terr)
 				} else if sid != "" {
 					subjectID = sid
