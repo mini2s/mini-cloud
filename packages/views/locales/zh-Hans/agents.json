@@ -193,16 +193,6 @@
     "thinking_clear": "跟随 CLI 配置",
     "thinking_clear_title": "清除覆盖，让本地 CLI（claude/codex）的配置决定推理级别"
   },
-  "model_dropdown": {
-    "label": "模型",
-    "select_runtime_first": "请先选择运行时",
-    "default_provider": "默认（提供方）",
-    "runtime_offline_manual": "运行时离线 —— 请手动输入",
-    "managed_by_runtime_title": "模型选择由该运行时管理。",
-    "managed_by_runtime_hint": "请在运行时主机上配置模型（例如 Hermes 会从自身配置文件读取）。",
-    "discovery_failed": "发现失败",
-    "clear_full": "清除选择（使用提供方默认）"
-  },
   "tabs": {
     "activity": "动态",
     "tasks": "task",
