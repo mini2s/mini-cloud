@@ -15,6 +15,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/joho/godotenv"
 	"github.com/multica-ai/multica/server/internal/analytics"
+	"github.com/multica-ai/multica/server/internal/auth"
 	"github.com/multica-ai/multica/server/internal/cloudidentity"
 	"github.com/multica-ai/multica/server/internal/cloudruntime"
 	"github.com/multica-ai/multica/server/internal/csuser"
@@ -366,10 +367,12 @@ func main() {
 	// dept-link work (dept-sync call + DB writes) to once per window per user.
 	deptLinkThrottle := &linkThrottle{last: make(map[string]time.Time), ttl: envDuration("DEPT_LINK_INTERVAL", 5*time.Minute)}
 
-	// subjectResolver maps a Casdoor subject_id (the "sub" claim) to a
-	// Multica user UUID. On first encounter the user is auto-provisioned
-	// with the real name/email from the JWT claims. For existing users,
-	// the name and email are kept in sync with Casdoor.
+	// subjectResolver maps a Casdoor subject_id (cloud subject, or the raw
+	// "sub" claim when cloud translation is unavailable) to a Multica user
+	// UUID. Resolution itself — including identity-link lookup, auto-
+	// provisioning, and email adoption — lives in internal/auth where it is
+	// unit-testable; the wrapper here adds login-time dept linking.
+	baseSubjectResolver := auth.NewSubjectResolver(queries)
 	subjectResolver := middleware.SubjectResolver(func(ctx context.Context, subjectID, universalID, name, email string) (userID string, err error) {
 		// After resolving the user, asynchronously refresh their dept
 		// org snapshot and display name from dept-sync. The universal_id is
@@ -399,119 +402,7 @@ func main() {
 				handler.LinkDeptIdentity(bgCtx, queries, deptSyncClient, uid, uni)
 			}()
 		}()
-		// The embedded SSO JWT "sub" IS the cs-user subject_id, which is
-		// the canonical resolver key. universal_id is passed through only
-		// as a transient dept-sync lookup token and is not persisted.
-		var user db.MulticaUser
-		user, err = queries.GetUserBySubjectID(ctx, pgtype.Text{String: subjectID, Valid: true})
-		if err != nil {
-			// Auto-provision: use real name/email from JWT, fall back to placeholders.
-			if name == "" {
-				name = "casdoor-" + subjectID
-			}
-			if email == "" {
-				email = subjectID + "@casdoor.local"
-			}
-			user, err = queries.CreateUser(ctx, db.CreateUserParams{
-				Name:      name,
-				Email:     email,
-				AvatarUrl: pgtype.Text{},
-			})
-			if err != nil {
-				// The email already belongs to an existing account that isn't
-				// linked to this subject_id yet — e.g. the person was
-				// provisioned earlier under a different Casdoor subject (re-created
-				// in Casdoor, org migration) or a pre-Casdoor local account holds
-				// this email. Adopt that account by binding this subject_id to it,
-				// unless it already carries a *different* subject_id (a genuine
-				// two-identity-one-email collision we must not silently hijack).
-				if util.IsUniqueViolation(err) {
-					existing, findErr := queries.GetUserByEmail(ctx, email)
-					if findErr == nil {
-						if existing.SubjectID.Valid && existing.SubjectID.String != subjectID {
-							slog.Warn("casdoor: email owned by a different subject_id, refusing to adopt",
-								"subject_id", subjectID,
-								"existing_subject_id", existing.SubjectID.String,
-								"existing_user_id", util.UUIDToString(existing.ID),
-								"email", email,
-							)
-							return "", err
-						}
-						if !existing.SubjectID.Valid {
-							if setErr := queries.SetUserSubjectID(ctx, db.SetUserSubjectIDParams{
-								ID:        existing.ID,
-								SubjectID: pgtype.Text{String: subjectID, Valid: true},
-							}); setErr != nil {
-								slog.Warn("casdoor: failed to adopt existing user by email",
-									"user_id", util.UUIDToString(existing.ID),
-									"subject_id", subjectID,
-									"error", setErr,
-								)
-								return "", setErr
-							}
-						}
-						slog.Info("casdoor: adopted existing user by email",
-							"user_id", util.UUIDToString(existing.ID),
-							"subject_id", subjectID,
-							"email", email,
-						)
-						return util.UUIDToString(existing.ID), nil
-					}
-				}
-				return "", err
-			}
-			if setErr := queries.SetUserSubjectID(ctx, db.SetUserSubjectIDParams{
-				ID:        user.ID,
-				SubjectID: pgtype.Text{String: subjectID, Valid: true},
-			}); setErr != nil {
-				slog.Warn("failed to bind subject_id to auto-provisioned user",
-					"user_id", util.UUIDToString(user.ID),
-					"subject_id", subjectID,
-					"error", setErr,
-				)
-			}
-			slog.Info("casdoor: auto-provisioned user", "user_id", util.UUIDToString(user.ID), "subject_id", subjectID, "name", name)
-			return util.UUIDToString(user.ID), nil
-		}
-		// Existing user: sync email if it changed in Casdoor. The display
-		// name is intentionally NOT synced from Casdoor here — for
-		// phone-registered accounts the Casdoor "name" is a placeholder UUID,
-		// and dept-sync is the org source of truth for names. LinkDeptIdentity
-		// (run on resolve, throttled) refreshes the name from dept-sync;
-		// syncing the Casdoor name here would overwrite that back to the UUID
-		// on every request.
-		syncEmail := email != "" && user.Email != email
-
-		// Guard against unique-key violations: if another user already owns
-		// this email (e.g. a pre-existing local account), skip the email sync.
-		if syncEmail {
-			existing, err := queries.GetUserByEmail(ctx, email)
-			if err == nil && existing.ID != user.ID {
-				slog.Warn("casdoor email already owned by another user, skipping email sync",
-					"user_id", util.UUIDToString(user.ID),
-					"existing_user_id", util.UUIDToString(existing.ID),
-					"email", email,
-				)
-				syncEmail = false
-			}
-		}
-
-		if syncEmail {
-			if _, updErr := queries.UpdateUserNameAndEmail(ctx, db.UpdateUserNameAndEmailParams{
-				ID:    user.ID,
-				Name:  user.Name, // keep current; dept-sync owns the name
-				Email: email,
-			}); updErr != nil {
-				slog.Warn("failed to sync user email from Casdoor",
-					"user_id", util.UUIDToString(user.ID),
-					"subject_id", subjectID,
-					"error", updErr,
-				)
-			} else {
-				slog.Info("casdoor: synced user email", "user_id", util.UUIDToString(user.ID), "subject_id", subjectID)
-			}
-		}
-		return util.UUIDToString(user.ID), nil
+		return baseSubjectResolver(ctx, subjectID, universalID, name, email)
 	})
 
 	// Construct the BatchedHeartbeatScheduler before the router so it can

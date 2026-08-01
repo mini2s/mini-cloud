@@ -200,7 +200,9 @@ func DaemonAuth(queries *db.Queries, patCache *auth.PATCache, daemonCache *auth.
 					subjectID := userInfo.SubjectID
 					if cloudTrans != nil {
 						if sid, terr := cloudTrans.ResolveSubjectID(r.Context(), userInfo.UniversalID, tokenString); terr != nil {
-							slog.Debug("daemon_auth: cloud subject translation failed, using JWT sub", "path", r.URL.Path, "error", terr)
+							// Warn, not Debug: see CasdoorAuth — the raw-sub
+							// fallback splits one person into multiple accounts.
+							slog.Warn("daemon_auth: cloud subject translation failed, using JWT sub", "path", r.URL.Path, "error", terr)
 						} else if sid != "" {
 							subjectID = sid
 						}
