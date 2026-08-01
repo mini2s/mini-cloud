@@ -38,15 +38,15 @@ import {
   GitBranch,
   // Upcoming product surface — placeholder nav entries.
   LayoutDashboard,
-  MessagesSquare,
-  ClipboardCheck,
+  // MessagesSquare,
+  // ClipboardCheck,
   FileText,
-  Brain,
+  // Brain,
   Gauge,
   Coins,
   ListChecks,
   Sparkles,
-  KeyRound,
+  // KeyRound,
   // Plug,
   Megaphone,
   // Percent,
@@ -205,9 +205,10 @@ const personalNav: NavItem[] = [
 
 const workbenchNav: NavItem[] = [
   { key: "inbox", labelKey: "inbox", icon: Inbox },
-  { key: "sessions", labelKey: "sessions", icon: MessagesSquare },
+  // 隐藏菜单项（保留代码，仅注释）
+  // { key: "sessions", labelKey: "sessions", icon: MessagesSquare },
   { key: "myIssues", labelKey: "my_issues", icon: CircleUser },
-  { key: "reviews", labelKey: "reviews", icon: ClipboardCheck },
+  // { key: "reviews", labelKey: "reviews", icon: ClipboardCheck },
   { key: "projects", labelKey: "projects", icon: FolderKanban },
 ];
 
@@ -222,7 +223,7 @@ const collaborationNav: NavItem[] = [
 const repositoryNav: NavItem[] = [
   { key: "wiki", labelKey: "wiki", icon: FileText },
   { key: "skills", labelKey: "skills", icon: BookOpenText },
-  { key: "memory", labelKey: "memory", icon: Brain },
+  // { key: "memory", labelKey: "memory", icon: Brain },
   // Single Hub entry — hub type filtering lives inside the Hub page tabs;
   // stays highlighted on every /hub sub-route (/hub/manager, /hub/[id], …)
   // via the pathname-prefix match in isNavActive.
@@ -239,7 +240,7 @@ const metricsNav: NavItem[] = [
 ];
 
 const adminNav: NavItem[] = [
-  { key: "permissions", labelKey: "permissions", icon: KeyRound },
+  // { key: "permissions", labelKey: "permissions", icon: KeyRound },
   // { key: "connectors", labelKey: "connectors", icon: Plug },
   { key: "channels", labelKey: "channels", icon: Megaphone },
   // { key: "quotas", labelKey: "quotas", icon: Percent },

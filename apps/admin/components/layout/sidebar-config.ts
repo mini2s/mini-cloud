@@ -4,9 +4,9 @@
 
 import {
   Home,
-  MessageSquare,
+  // MessageSquare,
   CheckSquare,
-  Eye,
+  // Eye,
   FolderKanban,
   ListTodo,
   Palette,
@@ -17,14 +17,14 @@ import {
   Send,
   BookOpen,
   Wrench,
-  Brain,
+  // Brain,
   Gauge,
   Gem,
   DollarSign,
   Target,
   Trophy,
   UserCog,
-  ShieldCheck,
+  // ShieldCheck,
   Plug,
   Bell,
   Ruler,
@@ -65,9 +65,10 @@ export const NAV_GROUPS: NavGroup[] = [
     labelZh: "工作台",
     labelEn: "Workbench",
     items: [
-      { href: "/sessions", labelZh: "我的会话", labelEn: "Sessions", icon: MessageSquare },
+      // 隐藏菜单项（保留代码，仅注释）
+      // { href: "/sessions", labelZh: "我的会话", labelEn: "Sessions", icon: MessageSquare },
       { href: "/tasks", labelZh: "我的任务", labelEn: "Tasks", icon: CheckSquare },
-      { href: "/reviews", labelZh: "我的审查", labelEn: "Reviews", icon: Eye },
+      // { href: "/reviews", labelZh: "我的审查", labelEn: "Reviews", icon: Eye },
     ],
   },
   {
@@ -100,7 +101,7 @@ export const NAV_GROUPS: NavGroup[] = [
     items: [
       { href: "/wiki", labelZh: "知识", labelEn: "Wiki", icon: BookOpen },
       { href: "/skills", labelZh: "技能", labelEn: "Skills", icon: Wrench },
-      { href: "/memory", labelZh: "记忆", labelEn: "Memory", icon: Brain },
+      // { href: "/memory", labelZh: "记忆", labelEn: "Memory", icon: Brain },
     ],
   },
   {
@@ -121,7 +122,7 @@ export const NAV_GROUPS: NavGroup[] = [
     labelEn: "Admin",
     items: [
       { href: "/admin/members", labelZh: "组织成员", labelEn: "Members", icon: UserCog },
-      { href: "/admin/permissions", labelZh: "权限管理", labelEn: "Permissions", icon: ShieldCheck },
+      // { href: "/admin/permissions", labelZh: "权限管理", labelEn: "Permissions", icon: ShieldCheck },
       { href: "/admin/connectors", labelZh: "集成", labelEn: "Connectors", icon: Plug },
       { href: "/admin/channels", labelZh: "通知渠道", labelEn: "Channels", icon: Bell },
       { href: "/admin/quotas", labelZh: "配额策略", labelEn: "Quotas", icon: Ruler },
